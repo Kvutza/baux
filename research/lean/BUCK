@@ -1,0 +1,22 @@
+filegroup(
+    name = "project",
+    srcs = glob([
+        "**/*.lean",
+        "lake-manifest.json",
+        "numerical.c",
+        "lean-toolchain",
+    ], exclude = [".lake/**"]),
+)
+
+genrule(
+    name = "check",
+    srcs = [
+        ":project",
+        "check.sh",
+    ],
+    out = "lean-check.txt",
+    cacheable = False,
+    cmd = "sh $SRCDIR/check.sh $SRCDIR/project $OUT",
+    labels = ["uses_undeclared_inputs"],
+    visibility = ["PUBLIC"],
+)

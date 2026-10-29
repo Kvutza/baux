@@ -1,0 +1,2 @@
+# Normal Rust library build: no fuzzing or Python bindings.
+buildscript.run = false

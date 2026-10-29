@@ -1,0 +1,70 @@
+{
+  "preset": "stack_v3_code_v1",
+  "format": "baux.pretraining.v2",
+  "source": {
+    "id": "HuggingFaceCode/stack-v3-train",
+    "revision": "1f61b735bc0a5698345ce2196730f24bfa467f33",
+    "paths": [
+      "data/part-00000-eb7ffe4b-e1fe-4e24-b667-41a566eb1bca-c000.snappy.parquet",
+      "data/part-00001-eb7ffe4b-e1fe-4e24-b667-41a566eb1bca-c000.snappy.parquet",
+      "data/part-00002-eb7ffe4b-e1fe-4e24-b667-41a566eb1bca-c000.snappy.parquet",
+      "data/part-00003-eb7ffe4b-e1fe-4e24-b667-41a566eb1bca-c000.snappy.parquet",
+      "data/part-00004-eb7ffe4b-e1fe-4e24-b667-41a566eb1bca-c000.snappy.parquet",
+      "data/part-00005-eb7ffe4b-e1fe-4e24-b667-41a566eb1bca-c000.snappy.parquet",
+      "data/part-00006-eb7ffe4b-e1fe-4e24-b667-41a566eb1bca-c000.snappy.parquet",
+      "data/part-00007-eb7ffe4b-e1fe-4e24-b667-41a566eb1bca-c000.snappy.parquet",
+      "data/part-00008-eb7ffe4b-e1fe-4e24-b667-41a566eb1bca-c000.snappy.parquet",
+      "data/part-00009-eb7ffe4b-e1fe-4e24-b667-41a566eb1bca-c000.snappy.parquet",
+      "data/part-00010-eb7ffe4b-e1fe-4e24-b667-41a566eb1bca-c000.snappy.parquet",
+      "data/part-00011-eb7ffe4b-e1fe-4e24-b667-41a566eb1bca-c000.snappy.parquet",
+      "data/part-00012-eb7ffe4b-e1fe-4e24-b667-41a566eb1bca-c000.snappy.parquet",
+      "data/part-00013-eb7ffe4b-e1fe-4e24-b667-41a566eb1bca-c000.snappy.parquet",
+      "data/part-00014-eb7ffe4b-e1fe-4e24-b667-41a566eb1bca-c000.snappy.parquet",
+      "data/part-00015-eb7ffe4b-e1fe-4e24-b667-41a566eb1bca-c000.snappy.parquet",
+      "data/part-00016-eb7ffe4b-e1fe-4e24-b667-41a566eb1bca-c000.snappy.parquet",
+      "data/part-00017-eb7ffe4b-e1fe-4e24-b667-41a566eb1bca-c000.snappy.parquet",
+      "data/part-00018-eb7ffe4b-e1fe-4e24-b667-41a566eb1bca-c000.snappy.parquet",
+      "data/part-00019-eb7ffe4b-e1fe-4e24-b667-41a566eb1bca-c000.snappy.parquet",
+      "data/part-00020-eb7ffe4b-e1fe-4e24-b667-41a566eb1bca-c000.snappy.parquet",
+      "data/part-00021-eb7ffe4b-e1fe-4e24-b667-41a566eb1bca-c000.snappy.parquet",
+      "data/part-00022-eb7ffe4b-e1fe-4e24-b667-41a566eb1bca-c000.snappy.parquet",
+      "data/part-00023-eb7ffe4b-e1fe-4e24-b667-41a566eb1bca-c000.snappy.parquet",
+      "data/part-00024-eb7ffe4b-e1fe-4e24-b667-41a566eb1bca-c000.snappy.parquet",
+      "data/part-00025-eb7ffe4b-e1fe-4e24-b667-41a566eb1bca-c000.snappy.parquet",
+      "data/part-00026-eb7ffe4b-e1fe-4e24-b667-41a566eb1bca-c000.snappy.parquet",
+      "data/part-00027-eb7ffe4b-e1fe-4e24-b667-41a566eb1bca-c000.snappy.parquet",
+      "data/part-00028-eb7ffe4b-e1fe-4e24-b667-41a566eb1bca-c000.snappy.parquet",
+      "data/part-00029-eb7ffe4b-e1fe-4e24-b667-41a566eb1bca-c000.snappy.parquet",
+      "data/part-00030-eb7ffe4b-e1fe-4e24-b667-41a566eb1bca-c000.snappy.parquet",
+      "data/part-00031-eb7ffe4b-e1fe-4e24-b667-41a566eb1bca-c000.snappy.parquet"
+    ]
+  },
+  "split_policy": "repository_sha256_mod20_train_0_15_validation_16_17_test_18_19",
+  "deduplication": "stack_v3_cross_language_minhash_then_content_id",
+  "filter": {
+    "languages": ["C", "C#", "C++", "Go", "Java", "JavaScript", "Python", "Rust", "Shell", "TypeScript"],
+    "license_type": "permissive",
+    "exclude_forks": true,
+    "exclude_vendor": true,
+    "exclude_lockfiles": ["Cargo.lock", "composer.lock", "Gemfile.lock", "go.sum", "package-lock.json", "pdm.lock", "pnpm-lock.yaml", "poetry.lock", "uv.lock", "yarn.lock"],
+    "max_file_characters": 262144,
+    "max_repository_characters": 2097152
+  },
+  "serialization": "repository_file_v1",
+  "boundaries": "gemma_bos_eos_per_repository_v1",
+  "tokenizer": {
+    "kind": "gemma4_bpe",
+    "vocabulary": 262144,
+    "package": "tokenizers==0.23.2",
+    "id": "google/gemma-4-12B",
+    "revision": "023679ed352de9bb66cc873c9009ce3482585c08",
+    "sha256": "12bac982b793c44b03d52a250a9f0d0b666813da566b910c24a6da0695fd11e6",
+    "markers": "unused0..14_to_baux_markers_ids6..20_v1",
+    "add_special_tokens": false
+  },
+  "context": 4096,
+  "materialization": {
+    "tokens": {"train": 68550656, "validation": 1056768, "test": 1056768}
+  },
+  "seed": 1162759768
+}

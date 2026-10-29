@@ -1,0 +1,31 @@
+--- a/src/interp/InterpExpressions.ml
++++ b/src/interp/InterpExpressions.ml
+@@ -1005,10 +1005,25 @@ let eval_unary_op_symbolic (config : config) (span : Meta.span) (unop : unop)
+         ^ Print.list_to_string FieldId.to_string fields];
+       [%cassert] span (fields = [])
+         "Unsized cast between dynamic traits: unimplemented case";
+-      [%cassert] span (ty1 = ty0)
+-        "Unsized cast between dynamic traits: unimplemented case";
++      (* A same-trait cast (`&mut dyn T` passed where `&mut dyn T` is
++         expected) is a pure reinterpretation of the operand: the vtable and
++         data pointer are unchanged. The operand was already evaluated (moved or
++         reborrowed), so returning it unchanged preserves its borrows exactly.
++         Regions are compared after erasure because the reborrow introduces a
++         fresh (erased) lifetime on the target type. *)
++      let dyn_traits (ty : ty) =
++        match ty with
++        | TRef (_, TDynTrait pred, kind) ->
++            Some
++              ( kind,
++                List.map
++                  (fun (clause : trait_param) -> clause.trait.binder_value.id)
++                  pred.binder.binder_params.trait_clauses )
++        | _ -> None
++      in
+       [%cassert] span
+-        (not (tvalue_has_borrows (Some span) ctx v))
++        (TypesUtils.ty_erase_regions ty1 = TypesUtils.ty_erase_regions ty0
++        || (dyn_traits ty0 <> None && dyn_traits ty0 = dyn_traits ty1))
+         "Unsized cast between dynamic traits: unimplemented case";
+ 
+       (* Nothing to do: the cast is the identity *)

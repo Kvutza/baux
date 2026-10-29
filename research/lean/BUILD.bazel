@@ -1,0 +1,23 @@
+package(default_visibility = ["//visibility:public"])
+
+filegroup(
+    name = "project",
+    srcs = glob([
+        "**/*.lean",
+        "lake-manifest.json",
+        "numerical.c",
+        "lean-toolchain",
+    ], exclude = [".lake/**"]),
+)
+
+genrule(
+    name = "check",
+    srcs = [
+        ":project",
+        "check.sh",
+    ],
+    outs = ["lean-check.txt"],
+    cmd = "sh $(location check.sh) research/lean $@ $(locations :project)",
+    local = True,
+    tags = ["no-sandbox"],
+)

@@ -1,0 +1,31 @@
+#!/usr/bin/env dotslash
+
+{
+  "name": "pixi",
+  "platforms": {
+    "macos-aarch64": {
+      "size": 27252411,
+      "hash": "sha256",
+      "digest": "3b48bd27de4db31381dc1d5b3d069c98852c0e923aefa30dae0452a088c0810e",
+      "format": "tar.gz",
+      "path": "pixi",
+      "providers": [{"url": "https://github.com/prefix-dev/pixi/releases/download/v0.82.0/pixi-aarch64-apple-darwin.tar.gz"}]
+    },
+    "linux-aarch64": {
+      "size": 33377992,
+      "hash": "sha256",
+      "digest": "b18dadba196c0c77781533184ec3e7757422c0ae9bed0047ff7ca1c688c0f62b",
+      "format": "tar.gz",
+      "path": "pixi",
+      "providers": [{"url": "https://github.com/prefix-dev/pixi/releases/download/v0.82.0/pixi-aarch64-unknown-linux-musl.tar.gz"}]
+    },
+    "linux-x86_64": {
+      "size": 30376906,
+      "hash": "sha256",
+      "digest": "d305406a7630aab6484419833f9204b2fe9ea40632da8bb536496f123ca86e7f",
+      "format": "tar.gz",
+      "path": "pixi",
+      "providers": [{"url": "https://github.com/prefix-dev/pixi/releases/download/v0.82.0/pixi-x86_64-unknown-linux-musl.tar.gz"}]
+    }
+  }
+}

@@ -1,0 +1,29 @@
+load("//build/buck2:baux_targets.bzl", "baux_program_targets")
+load("//build:targets.bzl", "RUNNER_PROGRAMS", "RUNNER_TEST_CRATES", "RUST_EDITION")
+
+filegroup(
+    name = "source",
+    srcs = glob(["src/**"]) + ["Cargo.toml"],
+    visibility = ["PUBLIC"],
+)
+
+baux_program_targets(RUNNER_PROGRAMS, RUST_EDITION, glob(["src/**/*.rs"]))
+
+rust_test(
+    name = "baux-runner-test",
+    srcs = glob(["src/**/*.rs"]),
+    crate = "baux_runner_test",
+    crate_root = [program["root"] for program in RUNNER_PROGRAMS if program["name"] == "baux-runner"][0],
+    env = {"CARGO_PKG_VERSION": [program["version"] for program in RUNNER_PROGRAMS if program["name"] == "baux-runner"][0]},
+    edition = RUST_EDITION,
+    deps = ["//rust:" + crate for crate in RUNNER_TEST_CRATES] + [
+        "//rust/crates/tooling:tooling",
+        "//rust/crates/baux:baux",
+    ] + select({
+        "//:macos-arm64": ["//build/buck2/native:openmp-macos"],
+        "DEFAULT": [],
+    }),
+    rpath = True,
+    runtime_dependency_handling = "symlink",
+    visibility = ["//build/buck2/tests:all"],
+)

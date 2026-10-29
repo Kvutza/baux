@@ -1,0 +1,40 @@
+load("//build/buck2:reindeer_rules.bzl", "app_rust_library")
+load("//build:targets.bzl", "BAUX_PY_CRATES", "RUST_EDITION")
+
+filegroup(
+    name = "python-source",
+    srcs = glob(["src/**/*.rs"]) + ["Cargo.toml"],
+    visibility = ["PUBLIC"],
+)
+
+app_rust_library(
+    name = "baux-py",
+    srcs = glob(["src/**/*.rs"]),
+    crate = "baux_rust",
+    crate_root = "src/lib.rs",
+    dlopen_enable = True,
+    edition = RUST_EDITION,
+    features = ["default", "usearch-native"] + select({
+        "//:linux-arm64": ["opencl"],
+        "//:linux-x86_64": ["opencl"],
+        "//:macos-arm64": ["metal"],
+    }),
+    rustc_flags = select({
+        "//:linux-arm64": ["-Clink-arg=-Wl,-rpath,$ORIGIN/.dylibs"],
+        "//:linux-x86_64": ["-Clink-arg=-Wl,-rpath,$ORIGIN/.dylibs"],
+        "//:macos-arm64": [
+            "-Clink-arg=-undefined",
+            "-Clink-arg=dynamic_lookup",
+            "-Clink-arg=-Wl,-rpath,@loader_path/.dylibs",
+        ],
+        "DEFAULT": [],
+    }),
+    visibility = ["PUBLIC"],
+    deps = [
+        "//rust/crates/baux:usearch-bridge",
+        "//rust/crates/baux:baux",
+    ] + ["//rust:" + crate for crate in BAUX_PY_CRATES] + select({
+        "//:macos-arm64": ["//build/buck2/native:openmp-macos", "//rust:metal"],
+        "DEFAULT": [],
+    }),
+)

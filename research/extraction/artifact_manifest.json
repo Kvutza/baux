@@ -1,0 +1,1761 @@
+{
+  "schema": "baux-compiled-optimizer-artifact-correspondence-v1",
+  "task_id": "baux-x0b.2.9.49.3",
+  "assumptions": {
+    "isa": "aarch64-apple-darwin (ARM64 LP64 little-endian, Mach-O 64-bit CPU_TYPE_ARM64)",
+    "floating_point": "IEEE-754 binary64 (roundTiesToEven), hardware fsqrt/fadd/fsub/fmul/fdiv, deterministic system libm (ln, cos, exp, powf, ln_1p) on host darwin-arm64; no -ffast-math or FMA contraction across statement boundaries",
+    "runtime_and_resources": "Deterministic single-seeded StdRng (ChaCha12) and NumpyPcg64 / SplitMix64 streams; bounded heap allocation without OOM; POSIX mmap/pwrite for BpAnnDiskBackend; 16 MiB stack owner thread for libbaux_numerical.so C-ABI checker",
+    "toolchain": {
+      "rustc": "rustc 1.101.0-nightly (c1070d693 2026-09-28)\nbinary: rustc\ncommit-hash: c1070d69382b8d2f2eb65119c738a77d9e324c9e\ncommit-date: 2026-09-28\nhost: aarch64-apple-darwin\nrelease: 1.101.0-nightly\nLLVM version: 23.1.1",
+      "lean": "Lean (version 4.35.0, arm64-apple-darwin24.6.0, commit eb6cafb7290e8bd5f2937522d8d804f58f02bafc, Release)",
+      "charon_rev": "de8736f7c995ac54dc490345cef9ea5143c06c62",
+      "aeneas_rev": "e62dd83d133d9043e7d3628096838b7430f36565"
+    }
+  },
+  "device_scope": {
+    "cpu_optimizer_equivalence": "ESTABLISHED",
+    "gpu_device_backend": "NOT_ESTABLISHED",
+    "statement": "Equivalence and compiled-artifact correspondence are established ONLY for the CPU reference optimizer and BPANN backends (ennbo 0.4.1, ennbo-bpann 0.4.1, baux, baux-optimizer-extraction, libbaux__research_BauxResearch.a, libbaux_numerical.so). Accelerator device kernels (Metal/MPS and CUDA/PTX/SASS) are explicitly excluded and NOT established by this CPU proof."
+  },
+  "source_bindings": {
+    "upstream": {
+      "repository": {
+        "url": "https://github.com/yubo-research/enn.git",
+        "revision": "f8f6a5dada9e85d1a196b7281be4b1b070e0a3ef",
+        "version": "0.4.1",
+        "tree": "32bf2d67461172e73354890769281f1ed0301ec8",
+        "subject": "Dsweet/big cats (#49)",
+        "committed_at": "2026-10-26T19:19:16-04:00"
+      },
+      "pin_sha256": "7548bd54a9f2d88a91df4bdc873aa6ebf0a3b9f4f087c4176354e3722f6f17e2",
+      "archive_sha256": "82d66e50583178e0d41d50e4b9d603fe4e9fc2052ce7b6a597c9c490d257dce7",
+      "harness_sha256": "34e4cd207f48b10a6b89afe6bc97e0ed2017a9dc57d247dfea619f2e4fadfaff",
+      "harness_module_declaration_sha256": "0af87ea4dc856b9c3601c87aa6bd2275effbf25e9e3263c120d79b215b7deeaf",
+      "source": "git archive of pinned revision; working tree edits excluded; tracked single-call extraction harness injected"
+    },
+    "coverage_manifest_sha256": "e51fe48ec27a7aabb2414505cc9234c4c1155580c5c99b86223a544384cb6f4b",
+    "charon_callsite_patch_sha256": "ff6920d7c259f422f493026cb10ca3ce52384cd3de644d330e48a3efb1b9e9aa",
+    "aeneas_float_patch_sha256": "6ff1b653717c1102d68cfd4cf052b42cc5c16ef0f5ec792f3cf11a7d3cf48a1a",
+    "aeneas_dyn_patch_sha256": "88e4c868a6a032288a8e6b702b1e2716143676c9c2f591273825ccc7163fd449",
+    "aeneas_dyn_dispatch_patch_sha256": "add7a8740470371165464ebc17e439a0374121ad79b51f4f97dc40c93527bdba",
+    "box_pair_metadata_sha256": "7e9d0d4c029d684096e034424937790ed914e1d542eff888b9fd9e7a1b831c01",
+    "local_baux_src_tree_sha256": "78631019327ec39bd27e5b224a92d354d4fa0bc1ae039afb6279c932f6fc9f9d",
+    "local_semantics_src_tree_sha256": "7b4658a61f88702c1135091622c0a97ffb0952385c2eb20089c0d121398a7731",
+    "local_neighbor_index_src_tree_sha256": "26199dd34c9e9a2dc511817675f3dde5ea132e90ec0a43d4c7ef94597ffd4f2a"
+  },
+  "compiled_artifacts": {
+    "binaries": {
+      "upstream_ennbo_rlib": {
+        "format": "ar+mach-o-64",
+        "isa": "arm64",
+        "cputype": "0x0100000c",
+        "bytes": 22542184,
+        "sha256": "ba9ad8acda96c7c75ff8da5dc62e9bc3decb0fcfbec1555655029e12c00d4581"
+      },
+      "upstream_bpann_rlib": {
+        "format": "ar+mach-o-64",
+        "isa": "arm64",
+        "cputype": "0x0100000c",
+        "bytes": 22679288,
+        "sha256": "bd3ea4f08e75b13d01a67ac159a81ea1372feb4e1ffbb8c86df21f22bce389d6"
+      },
+      "local_baux_rlib": {
+        "format": "ar+mach-o-64",
+        "isa": "arm64",
+        "cputype": "0x0100000c",
+        "bytes": 174749280,
+        "sha256": "98ffca02fd47dc7b9a455a64a091776523c5817f57fce15d239d9b8423fb3bc5"
+      },
+      "local_optimizer_extraction_rlib": {
+        "format": "ar+mach-o-64",
+        "isa": "arm64",
+        "cputype": "0x0100000c",
+        "bytes": 744176,
+        "sha256": "311c8482604484145cdc458c33da20b16132085cb1b5d896952c4cc88c8cf1e2"
+      },
+      "lean_cabi_static_archive": {
+        "format": "ar+mach-o-64",
+        "isa": "arm64",
+        "cputype": "0x0100000c",
+        "bytes": 16214792,
+        "sha256": "ee1e199151a66936fe328b0b33a6b0704be89f4d7dbc8071229e603e57f7e795"
+      },
+      "lean_numerical_shared_object": {
+        "format": "mach-o-64",
+        "isa": "arm64",
+        "cputype": "0x0100000c",
+        "bytes": 254354624,
+        "sha256": "a8b1ccf22981c7ae0edade2d01041f3207ffc96f0fa5e5a79ae0fb4034ed9a8b"
+      },
+      "upstream_artifact_harness_bin": {
+        "format": "mach-o-64",
+        "isa": "arm64",
+        "cputype": "0x0100000c",
+        "bytes": 15279192,
+        "sha256": "378ba8b8887df96dfa835cc2ff4d96fa074982a0cf901e71d8af3c480a855702"
+      },
+      "local_artifact_harness_bin": {
+        "format": "mach-o-64",
+        "isa": "arm64",
+        "cputype": "0x0100000c",
+        "bytes": 6385800,
+        "sha256": "1635246ac7d0c3aad68cce5994e75a9aac34e0e936009a4b4c1678f657b4d10b"
+      }
+    },
+    "lean_oleans": {
+      "Registry.olean": {
+        "bytes": 4610320,
+        "sha256": "468e18742e7772057e2ee2bb0a5e205ada6a880b46bb570b0659a940723f5db4"
+      },
+      "Optimizer.olean": {
+        "bytes": 3846808,
+        "sha256": "0cdd82fe14a4b3909d121c37f627f29c7997c6044c78efd853f028e4a69d08cf"
+      },
+      "Hash.olean": {
+        "bytes": 203032,
+        "sha256": "1eff4521716c3715abfd3989c3e35b6bd6c65f1ce24ea7ff0643c81622b1b73e"
+      },
+      "Bpann.olean": {
+        "bytes": 1456880,
+        "sha256": "da49099b858b7af8b392c2c7880eda50e9e1c68570d1aa4ba60b3e1fb03e1bb6"
+      },
+      "Box.olean": {
+        "bytes": 8000,
+        "sha256": "a7b3468aa1ceef9b7e1bb0968de52d0c00b7aecf676342c4c5913aa37d95e0a4"
+      },
+      "Numerical.olean": {
+        "bytes": 473128,
+        "sha256": "7e0860d0ba7241041fe9fa3b2c64cf74bbf00be51205032a5ed55ed686c2f514"
+      }
+    },
+    "charon_llbc": {
+      "bpann": {
+        "path": ".cache/baux/aeneas/probe-full-upstream/bpann.llbc",
+        "sha256": "9fddad7c68fe9b5d1a3285b724de9d3b4e3cce95ba682f14c2d5103bfb8df6df",
+        "bytes": 68714898,
+        "has_errors": false,
+        "local_structured_functions": 867,
+        "local_error_functions": 0,
+        "extern_c_declarations": 78,
+        "manifest_functions_covered": 198,
+        "manifest_functions_total": 198,
+        "target_information": [
+          {
+            "key": "aarch64-apple-darwin",
+            "value": {
+              "target_pointer_size": 8,
+              "is_little_endian": true,
+              "c_enum_smallest_repr_ty": "I32",
+              "primitive_alignments": [
+                {
+                  "key": "Bool",
+                  "value": 1
+                },
+                {
+                  "key": {
+                    "Integer": {
+                      "Signed": "I8"
+                    }
+                  },
+                  "value": 1
+                },
+                {
+                  "key": {
+                    "Integer": {
+                      "Signed": "I16"
+                    }
+                  },
+                  "value": 2
+                },
+                {
+                  "key": {
+                    "Integer": {
+                      "Signed": "I32"
+                    }
+                  },
+                  "value": 4
+                },
+                {
+                  "key": {
+                    "Integer": {
+                      "Signed": "I64"
+                    }
+                  },
+                  "value": 8
+                },
+                {
+                  "key": {
+                    "Integer": {
+                      "Signed": "I128"
+                    }
+                  },
+                  "value": 16
+                },
+                {
+                  "key": {
+                    "Integer": {
+                      "Signed": "Isize"
+                    }
+                  },
+                  "value": 8
+                },
+                {
+                  "key": {
+                    "Integer": {
+                      "Unsigned": "U8"
+                    }
+                  },
+                  "value": 1
+                },
+                {
+                  "key": {
+                    "Integer": {
+                      "Unsigned": "U16"
+                    }
+                  },
+                  "value": 2
+                },
+                {
+                  "key": {
+                    "Integer": {
+                      "Unsigned": "U32"
+                    }
+                  },
+                  "value": 4
+                },
+                {
+                  "key": {
+                    "Integer": {
+                      "Unsigned": "U64"
+                    }
+                  },
+                  "value": 8
+                },
+                {
+                  "key": {
+                    "Integer": {
+                      "Unsigned": "U128"
+                    }
+                  },
+                  "value": 16
+                },
+                {
+                  "key": {
+                    "Integer": {
+                      "Unsigned": "Usize"
+                    }
+                  },
+                  "value": 8
+                },
+                {
+                  "key": {
+                    "Float": "F16"
+                  },
+                  "value": 2
+                },
+                {
+                  "key": {
+                    "Float": "F32"
+                  },
+                  "value": 4
+                },
+                {
+                  "key": {
+                    "Float": "F64"
+                  },
+                  "value": 8
+                },
+                {
+                  "key": {
+                    "Float": "F128"
+                  },
+                  "value": 16
+                },
+                {
+                  "key": "Char",
+                  "value": 4
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "ennbo": {
+        "path": ".cache/baux/aeneas/probe-full-upstream/ennbo.llbc",
+        "sha256": "f9452ee3cae48b33e6a84f3b6180b5459b8723744975b34d65ea21e8552ea065",
+        "bytes": 98001362,
+        "has_errors": false,
+        "local_structured_functions": 1699,
+        "local_error_functions": 0,
+        "extern_c_declarations": 278,
+        "manifest_functions_covered": 546,
+        "manifest_functions_total": 546,
+        "target_information": [
+          {
+            "key": "aarch64-apple-darwin",
+            "value": {
+              "target_pointer_size": 8,
+              "is_little_endian": true,
+              "c_enum_smallest_repr_ty": "I32",
+              "primitive_alignments": [
+                {
+                  "key": "Bool",
+                  "value": 1
+                },
+                {
+                  "key": {
+                    "Integer": {
+                      "Signed": "I8"
+                    }
+                  },
+                  "value": 1
+                },
+                {
+                  "key": {
+                    "Integer": {
+                      "Signed": "I16"
+                    }
+                  },
+                  "value": 2
+                },
+                {
+                  "key": {
+                    "Integer": {
+                      "Signed": "I32"
+                    }
+                  },
+                  "value": 4
+                },
+                {
+                  "key": {
+                    "Integer": {
+                      "Signed": "I64"
+                    }
+                  },
+                  "value": 8
+                },
+                {
+                  "key": {
+                    "Integer": {
+                      "Signed": "I128"
+                    }
+                  },
+                  "value": 16
+                },
+                {
+                  "key": {
+                    "Integer": {
+                      "Signed": "Isize"
+                    }
+                  },
+                  "value": 8
+                },
+                {
+                  "key": {
+                    "Integer": {
+                      "Unsigned": "U8"
+                    }
+                  },
+                  "value": 1
+                },
+                {
+                  "key": {
+                    "Integer": {
+                      "Unsigned": "U16"
+                    }
+                  },
+                  "value": 2
+                },
+                {
+                  "key": {
+                    "Integer": {
+                      "Unsigned": "U32"
+                    }
+                  },
+                  "value": 4
+                },
+                {
+                  "key": {
+                    "Integer": {
+                      "Unsigned": "U64"
+                    }
+                  },
+                  "value": 8
+                },
+                {
+                  "key": {
+                    "Integer": {
+                      "Unsigned": "U128"
+                    }
+                  },
+                  "value": 16
+                },
+                {
+                  "key": {
+                    "Integer": {
+                      "Unsigned": "Usize"
+                    }
+                  },
+                  "value": 8
+                },
+                {
+                  "key": {
+                    "Float": "F16"
+                  },
+                  "value": 2
+                },
+                {
+                  "key": {
+                    "Float": "F32"
+                  },
+                  "value": 4
+                },
+                {
+                  "key": {
+                    "Float": "F64"
+                  },
+                  "value": 8
+                },
+                {
+                  "key": {
+                    "Float": "F128"
+                  },
+                  "value": 16
+                },
+                {
+                  "key": "Char",
+                  "value": 4
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "enn-py": {
+        "path": ".cache/baux/aeneas/probe-full-upstream/enn-py.llbc",
+        "sha256": "b3e2a4c720b9d4488ce5d5f65d7f85b6d520cbc3d1aeebd58e94c956e3d0ec1a",
+        "bytes": 90590059,
+        "has_errors": false,
+        "local_structured_functions": 1800,
+        "local_error_functions": 0,
+        "extern_c_declarations": 662,
+        "manifest_functions_covered": 20,
+        "manifest_functions_total": 20,
+        "target_information": [
+          {
+            "key": "aarch64-apple-darwin",
+            "value": {
+              "target_pointer_size": 8,
+              "is_little_endian": true,
+              "c_enum_smallest_repr_ty": "I32",
+              "primitive_alignments": [
+                {
+                  "key": "Bool",
+                  "value": 1
+                },
+                {
+                  "key": {
+                    "Integer": {
+                      "Signed": "I8"
+                    }
+                  },
+                  "value": 1
+                },
+                {
+                  "key": {
+                    "Integer": {
+                      "Signed": "I16"
+                    }
+                  },
+                  "value": 2
+                },
+                {
+                  "key": {
+                    "Integer": {
+                      "Signed": "I32"
+                    }
+                  },
+                  "value": 4
+                },
+                {
+                  "key": {
+                    "Integer": {
+                      "Signed": "I64"
+                    }
+                  },
+                  "value": 8
+                },
+                {
+                  "key": {
+                    "Integer": {
+                      "Signed": "I128"
+                    }
+                  },
+                  "value": 16
+                },
+                {
+                  "key": {
+                    "Integer": {
+                      "Signed": "Isize"
+                    }
+                  },
+                  "value": 8
+                },
+                {
+                  "key": {
+                    "Integer": {
+                      "Unsigned": "U8"
+                    }
+                  },
+                  "value": 1
+                },
+                {
+                  "key": {
+                    "Integer": {
+                      "Unsigned": "U16"
+                    }
+                  },
+                  "value": 2
+                },
+                {
+                  "key": {
+                    "Integer": {
+                      "Unsigned": "U32"
+                    }
+                  },
+                  "value": 4
+                },
+                {
+                  "key": {
+                    "Integer": {
+                      "Unsigned": "U64"
+                    }
+                  },
+                  "value": 8
+                },
+                {
+                  "key": {
+                    "Integer": {
+                      "Unsigned": "U128"
+                    }
+                  },
+                  "value": 16
+                },
+                {
+                  "key": {
+                    "Integer": {
+                      "Unsigned": "Usize"
+                    }
+                  },
+                  "value": 8
+                },
+                {
+                  "key": {
+                    "Float": "F16"
+                  },
+                  "value": 2
+                },
+                {
+                  "key": {
+                    "Float": "F32"
+                  },
+                  "value": 4
+                },
+                {
+                  "key": {
+                    "Float": "F64"
+                  },
+                  "value": 8
+                },
+                {
+                  "key": {
+                    "Float": "F128"
+                  },
+                  "value": 16
+                },
+                {
+                  "key": "Char",
+                  "value": 4
+                }
+              ]
+            }
+          }
+        ]
+      }
+    }
+  },
+  "axiom_and_trust_audit": {
+    "checked_declarations": [
+      "BauxResearch.Semantics.Registry.fullCount",
+      "BauxResearch.Extraction.Optimizer.askTurbo",
+      "BauxResearch.Extraction.Optimizer.askPhase",
+      "BauxResearch.Extraction.Optimizer.tellWrap",
+      "BauxResearch.Extraction.Optimizer.tellPhase",
+      "BauxResearch.Extraction.Optimizer.drawFast",
+      "BauxResearch.Extraction.Optimizer.muPredict",
+      "BauxResearch.Extraction.Hash.pureSplitmix",
+      "BauxResearch.Extraction.Hash.pureBox",
+      "BauxResearch.Extraction.Hash.pureIndex",
+      "BauxResearch.Extraction.Hash.pureQuery",
+      "BauxResearch.Semantics.Bpann.bpannCount",
+      "BauxResearch.Extraction.Box.equivalent",
+      "BauxResearch.Semantics.Numerical.rustAccept",
+      "BauxResearch.Semantics.Numerical.sourceMargin"
+    ],
+    "declaration_axioms": {
+      "BauxResearch.Semantics.Registry.fullCount": [
+        "propext",
+        "Classical.choice",
+        "Quot.sound"
+      ],
+      "BauxResearch.Extraction.Optimizer.askTurbo": [
+        "propext",
+        "Classical.choice",
+        "Quot.sound"
+      ],
+      "BauxResearch.Extraction.Optimizer.askPhase": [
+        "propext",
+        "Classical.choice",
+        "Quot.sound"
+      ],
+      "BauxResearch.Extraction.Optimizer.tellWrap": [
+        "propext",
+        "Classical.choice",
+        "Quot.sound"
+      ],
+      "BauxResearch.Extraction.Optimizer.tellPhase": [
+        "propext",
+        "Classical.choice",
+        "Quot.sound"
+      ],
+      "BauxResearch.Extraction.Optimizer.drawFast": [
+        "propext",
+        "Classical.choice",
+        "Quot.sound"
+      ],
+      "BauxResearch.Extraction.Optimizer.muPredict": [
+        "propext",
+        "Classical.choice",
+        "Quot.sound"
+      ],
+      "BauxResearch.Extraction.Hash.pureSplitmix": [
+        "propext",
+        "Classical.choice",
+        "Quot.sound"
+      ],
+      "BauxResearch.Extraction.Hash.pureBox": [
+        "propext",
+        "Classical.choice",
+        "Quot.sound"
+      ],
+      "BauxResearch.Extraction.Hash.pureIndex": [
+        "propext",
+        "Classical.choice",
+        "Quot.sound"
+      ],
+      "BauxResearch.Extraction.Hash.pureQuery": [
+        "propext",
+        "Classical.choice",
+        "Quot.sound"
+      ],
+      "BauxResearch.Semantics.Bpann.bpannCount": [],
+      "BauxResearch.Extraction.Box.equivalent": [
+        "propext",
+        "Classical.choice",
+        "Quot.sound"
+      ],
+      "BauxResearch.Semantics.Numerical.rustAccept": [
+        "propext",
+        "Classical.choice",
+        "Quot.sound"
+      ],
+      "BauxResearch.Semantics.Numerical.sourceMargin": [
+        "propext",
+        "Classical.choice",
+        "Quot.sound"
+      ]
+    },
+    "allowed_standard_axioms": [
+      "Classical.choice",
+      "Quot.sound",
+      "propext"
+    ],
+    "custom_axioms": [],
+    "sorry_count": 0
+  },
+  "trajectory_verification": {
+    "trajectory_suite_sha256": "0c4e711c5bfaf07181fd544736aeba9e8718289c890e2e8441dd5c8199791dd0",
+    "bit_exact_f64_parity": true,
+    "cabi_symbols_verified": [
+      "baux_accept",
+      "baux_action",
+      "baux_world",
+      "baux_anchored",
+      "baux_routed",
+      "baux_total",
+      "baux_window",
+      "baux_cell",
+      "baux_slot",
+      "baux_sign",
+      "baux_numerical_init",
+      "baux_numerical",
+      "baux_numerical_fini"
+    ],
+    "suite": {
+      "primitives": {
+        "splitmix64": [
+          "e220a8397b1dcdaf",
+          "910a2dec89025cc1",
+          "bdd732262feb6e95",
+          "6e789e6aa1b965f4",
+          "e4d971771b652c20"
+        ],
+        "u64_f53": [
+          "0000000000000000",
+          "0000000000000000",
+          "3ca0000000000000",
+          "3e70000000000000",
+          "3fefffffffffffff"
+        ],
+        "box_muller": [
+          "3ca1ff01f2ef53d0",
+          "bcaf2b923de30931",
+          "c00dbc41b3571823",
+          "3eb331ea69fd69aa"
+        ],
+        "normal_metric": [
+          "bfddf40de2aec336",
+          "40015cce0747c006",
+          "c0097b5754ac0a71"
+        ],
+        "normal_hash": [
+          "bfddf40de2aec336",
+          "bff0c59870c56712",
+          "bff7227f5b46a012",
+          "3ffb01dc8ba61a42",
+          "3fec84ee1186be3e",
+          "3fc2a6a6a5e9c8a4",
+          "bff7227f5b46a012",
+          "3ffb01dc8ba61a42",
+          "bfddf40de2aec336",
+          "bff0c59870c56712",
+          "bfd2decb28d713f0",
+          "bfd53cf83df88f9f",
+          "bfe6d6605c6ea856",
+          "3fe73e082203fb4b",
+          "3fe608294c947db0",
+          "bfe0b8b0d64a3c11",
+          "bfe6d6605c6ea856",
+          "3fe73e082203fb4b",
+          "bfd2decb28d713f0",
+          "bfd53cf83df88f9f",
+          "c00d7e1bf7d8c553",
+          "bff667d7d6c1aacc",
+          "3fee01db38f34cb0",
+          "3ff0a103306f3c51",
+          "bff14f0f8d6ef67a",
+          "3fe6169dbc4dbf49",
+          "3fee01db38f34cb0",
+          "3ff0a103306f3c51",
+          "c00d7e1bf7d8c553",
+          "bff667d7d6c1aacc"
+        ],
+        "to_unit": [
+          "0000000000000000",
+          "3fd0000000000000",
+          "3fe0000000000000",
+          "3fe0000000000000",
+          "3fe8000000000000",
+          "3fe0000000000000"
+        ],
+        "from_unit": [
+          "c000000000000000",
+          "4029000000000000",
+          "4014000000000000",
+          "3fe0000000000000",
+          "4031800000000000",
+          "4014000000000000"
+        ],
+        "pcg_u64": [
+          "148f304076eaa3a1",
+          "7b723d813f9ce6d1",
+          "2c17ee33cf1a2722",
+          "8983df9a7d1894e4",
+          "09ef340ee76e3db8",
+          "2492961d617dcb44"
+        ],
+        "pcg_integers": [
+          "0000000000000000",
+          "0000000000000002",
+          "0000000000000004",
+          "00000000000000c3",
+          "00000000274b4285"
+        ],
+        "auto_metric_seen": 24,
+        "auto_metric_gain": "0000000000000000",
+        "auto_metric_weights": [
+          "3ff0000000000000",
+          "3ff0000000000000",
+          "3ff0000000000000"
+        ],
+        "enn_posterior_mu": [
+          "3ff4b4150606fd5e",
+          "3fbb1cb8561e380e"
+        ],
+        "enn_posterior_se": [
+          "3fdcccb079a442bb",
+          "3fe6674d8ac4f0bc"
+        ],
+        "enn_posterior_draw": [
+          "40015b8e6df3cd50",
+          "3fe5fd15bf197e73",
+          "3ff4850861d0969f",
+          "3fe697e6878ace32",
+          "bff328309efb0aab",
+          "3fd4b20b8304588e"
+        ],
+        "enn_conditional_mu": [
+          "3ff4e7e124b93f8c",
+          "3fd146c7d48c53dd"
+        ],
+        "enn_conditional_se": [
+          "3fda33ea5077f813",
+          "3fdfcbf088d9905c"
+        ]
+      },
+      "shared_exact_trajectories": {
+        "turbo_zero": {
+          "ask_bits": [
+            "3fff6b39d5cf0104",
+            "3ffed6fdda7a871f",
+            "bfc8155f8ef4fd00",
+            "bffee164e77bd39e",
+            "3fe68625a3fff34d",
+            "3fe7d0f02e14d90c",
+            "40056b34f021290e",
+            "3fd03595e0094722",
+            "3fe23f9732e36be4",
+            "bff2300839b29b3a",
+            "3ffb77e312883977",
+            "bfc474ba0d3f5ac8",
+            "3fd6b244bfa04388",
+            "3fde60decc215da2",
+            "3fefc3d89531d0ea",
+            "c0079712157dce59",
+            "3fe7de06efd8990c",
+            "3fec5aa6e642e934",
+            "bff095ea8d0e049f",
+            "3fd2e06099f61d18",
+            "3fd44f79415e1358",
+            "bff992889ab26ee0",
+            "3feb8623eabdf448",
+            "3fecf728ec80977c",
+            "bff25a27b7c66a16",
+            "3ff05cd9f8678065",
+            "3fe3009a1e2e11ae",
+            "bfd048a8c99288c8",
+            "3fd8084adffebf1e",
+            "3fd3301479a8e6a0",
+            "3ffeb7a6435e79bc",
+            "3fc4a5399b95fccb",
+            "bfe31d5f26e31514",
+            "3ffdcffe053b6c40",
+            "3fecf6e64ed79b43",
+            "bfce9b77b2d6d080"
+          ],
+          "incumbent_x_bits": [
+            "bffee164e77bd39e",
+            "3fe68625a3fff34d",
+            "3fe7d0f02e14d90c",
+            "bffee164e77bd39e",
+            "3fe68625a3fff34d",
+            "3fe7d0f02e14d90c",
+            "3fd6b244bfa04388",
+            "3fde60decc215da2",
+            "3fefc3d89531d0ea",
+            "bff095ea8d0e049f",
+            "3fd2e06099f61d18",
+            "3fd44f79415e1358",
+            "bfd048a8c99288c8",
+            "3fd8084adffebf1e",
+            "3fd3301479a8e6a0",
+            "bfd048a8c99288c8",
+            "3fd8084adffebf1e",
+            "3fd3301479a8e6a0"
+          ],
+          "tr_length_bits": [
+            "3fe999999999999a",
+            "3fe999999999999a",
+            "3fe999999999999a",
+            "3fe999999999999a",
+            "3ff999999999999a",
+            "3ff999999999999a"
+          ],
+          "obs_counts": [
+            2,
+            4,
+            6,
+            8,
+            10,
+            12
+          ],
+          "x_obs_bits": [
+            "3fff6b39d5cf0104",
+            "3ffed6fdda7a871f",
+            "bfc8155f8ef4fd00",
+            "bffee164e77bd39e",
+            "3fe68625a3fff34d",
+            "3fe7d0f02e14d90c",
+            "40056b34f021290e",
+            "3fd03595e0094722",
+            "3fe23f9732e36be4",
+            "bff2300839b29b3a",
+            "3ffb77e312883977",
+            "bfc474ba0d3f5ac8",
+            "3fd6b244bfa04388",
+            "3fde60decc215da2",
+            "3fefc3d89531d0ea",
+            "c0079712157dce59",
+            "3fe7de06efd8990c",
+            "3fec5aa6e642e934",
+            "bff095ea8d0e049f",
+            "3fd2e06099f61d18",
+            "3fd44f79415e1358",
+            "bff992889ab26ee0",
+            "3feb8623eabdf448",
+            "3fecf728ec80977c",
+            "bff25a27b7c66a16",
+            "3ff05cd9f8678065",
+            "3fe3009a1e2e11ae",
+            "bfd048a8c99288c8",
+            "3fd8084adffebf1e",
+            "3fd3301479a8e6a0",
+            "3ffeb7a6435e79bc",
+            "3fc4a5399b95fccb",
+            "bfe31d5f26e31514",
+            "3ffdcffe053b6c40",
+            "3fecf6e64ed79b43",
+            "bfce9b77b2d6d080"
+          ],
+          "y_obs_bits": [
+            "c0251299cc2f749d",
+            "c0088ff7a05325f0",
+            "c0248609b9fe9107",
+            "c00fed8d624d1a87",
+            "bff990e7c05f05aa",
+            "c01d54129d2d78dd",
+            "bfe027e41c0ac5a8",
+            "c005597b3428e914",
+            "bffd673205f4ad98",
+            "bfcef50b046ee49a",
+            "c0191feed3f367d7",
+            "c019a02ea96c328d"
+          ]
+        },
+        "lhd_only": {
+          "ask_bits": [
+            "40231ebc823a28db",
+            "bfaaee019c44b800",
+            "3ff9ce17017ebf74",
+            "4023f8a051871c4e",
+            "c01149ee0dcf6013",
+            "3fffa4d2b40dae69",
+            "3feb91e2d5008eca",
+            "4011042c7a434bf8",
+            "4007bb9c0a4be7b3",
+            "3ffea58ed67a5040",
+            "c00f6a972592cc65",
+            "3ff70325209bac5d",
+            "40171869eecaee51",
+            "3fd32e1908a9fd20",
+            "400083c8d475503d",
+            "4023ae0e72857e93",
+            "c00a6ebc6e140bc8",
+            "3ff5e9f001fee684"
+          ],
+          "incumbent_x_bits": [
+            "40231ebc823a28db",
+            "bfaaee019c44b800",
+            "3ff9ce17017ebf74",
+            "3feb91e2d5008eca",
+            "4011042c7a434bf8",
+            "4007bb9c0a4be7b3",
+            "3ffea58ed67a5040",
+            "c00f6a972592cc65",
+            "3ff70325209bac5d",
+            "3ffea58ed67a5040",
+            "c00f6a972592cc65",
+            "3ff70325209bac5d"
+          ],
+          "init_progress": [
+            1,
+            6,
+            3,
+            6,
+            5,
+            6,
+            6,
+            6
+          ],
+          "x_obs_bits": [
+            "40231ebc823a28db",
+            "bfaaee019c44b800",
+            "3ff9ce17017ebf74",
+            "4023f8a051871c4e",
+            "c01149ee0dcf6013",
+            "3fffa4d2b40dae69",
+            "3feb91e2d5008eca",
+            "4011042c7a434bf8",
+            "4007bb9c0a4be7b3",
+            "3ffea58ed67a5040",
+            "c00f6a972592cc65",
+            "3ff70325209bac5d",
+            "40171869eecaee51",
+            "3fd32e1908a9fd20",
+            "400083c8d475503d",
+            "4023ae0e72857e93",
+            "c00a6ebc6e140bc8",
+            "3ff5e9f001fee684"
+          ],
+          "y_obs_bits": [
+            "c059cd6cf9768c30",
+            "c06047b74c0c0b00",
+            "c03c9d56dc55bab4",
+            "c035a53ef4848115",
+            "c0453ab3323a29a9",
+            "c05d58b9e5bd4a71"
+          ]
+        }
+      },
+      "enn_trajectories": {
+        "turbo_enn": {
+          "upstream": {
+            "ask_bits": [
+              "400e34663dc74c98",
+              "bffcb01f954e604e",
+              "4022845af4c1c13d",
+              "bffd83845dffcbc4",
+              "400e9c74c6512388",
+              "3ffb0bd2d5c46dac",
+              "40086a4d18f665dc",
+              "3ff7535dc3d63872",
+              "401714ff561c45af",
+              "bffc58bc0b72d974",
+              "bff69224afe23e18",
+              "3fefbf54a907319f",
+              "c00a4ff7c1d7fea2",
+              "bfd7a79f385ee640",
+              "40065bbed64f1373",
+              "c008842722b06ebd",
+              "bfe37bdee4b09c4c",
+              "40054c848431a13e",
+              "bfb7e83dd9bd27c0",
+              "bfdad4a299345a08",
+              "3fc21d15995cdd8d",
+              "bfdd697b88ac49a0",
+              "bfdb175a98858c4c",
+              "3fc953234f97abd0",
+              "3ff27ab9adbaf538",
+              "bff8ff31b38be09e",
+              "4001655520ee64dd",
+              "3fedc51871b70158",
+              "bff91a8a97b62ece",
+              "3ffdc8a8d418ff79",
+              "bfcfaecfe424dc20",
+              "3fe8c8cc534bf5d8",
+              "3fffab8d59e2b42c",
+              "bfed478aa5dcc550",
+              "3fe5fc8580f7b5a0",
+              "40004b6957e196ba",
+              "40101182d177e012",
+              "4005353d17aa2f86",
+              "4019d87651db602a",
+              "bff1bb2165fd269a",
+              "3feebd25866af120",
+              "3ffe0d9edd65c458",
+              "bfe0bf3d08d4dd30",
+              "bffd187770e95624",
+              "4015eff04019bc5e",
+              "3fb7866d7f9d0280",
+              "4008c42617f15b3c",
+              "400b4fcfb89f5104",
+              "3fc70b023bbe6f20",
+              "bfcaa6a0c575a650",
+              "3fe774e6d49e833e",
+              "c005e3e19d36e289",
+              "40002a79d4c28e46",
+              "3ff246c087404a6a"
+            ],
+            "posterior_mu_bits": [
+              "c04c1b42b4f534c8",
+              "c04eff4b397e1e56",
+              "c0300be7e992827b",
+              "c048bfaa4b6041dc",
+              "c02676526112618f",
+              "c048b5fb07c85db6",
+              "c010f2e3a4a445e4",
+              "c048b5fb07c85db6",
+              "c010f2e3a4a445e4",
+              "c048b5fb07c85db6",
+              "c09004aceb6293d6",
+              "c07226994e972b38",
+              "c012bd76e6385549",
+              "c04b20451247cd9e",
+              "c013f7612f8c57d1",
+              "c046e626290b12c3",
+              "c00f59286dda8130",
+              "c046e626290b12c3"
+            ],
+            "incumbent_x_bits": [
+              "bffd83845dffcbc4",
+              "400e9c74c6512388",
+              "3ffb0bd2d5c46dac",
+              "bffc58bc0b72d974",
+              "bff69224afe23e18",
+              "3fefbf54a907319f",
+              "bffc58bc0b72d974",
+              "bff69224afe23e18",
+              "3fefbf54a907319f",
+              "bfdd697b88ac49a0",
+              "bfdb175a98858c4c",
+              "3fc953234f97abd0",
+              "bfdd697b88ac49a0",
+              "bfdb175a98858c4c",
+              "3fc953234f97abd0",
+              "bfdd697b88ac49a0",
+              "bfdb175a98858c4c",
+              "3fc953234f97abd0",
+              "bff1bb2165fd269a",
+              "3feebd25866af120",
+              "3ffe0d9edd65c458",
+              "bff1bb2165fd269a",
+              "3feebd25866af120",
+              "3ffe0d9edd65c458",
+              "3fc70b023bbe6f20",
+              "bfcaa6a0c575a650",
+              "3fe774e6d49e833e"
+            ],
+            "tr_length_bits": [
+              "3fd999999999999a",
+              "3fd999999999999a",
+              "3fd999999999999a",
+              "3fd999999999999a",
+              "3fd999999999999a",
+              "3fc999999999999a",
+              "3fd999999999999a",
+              "3fd999999999999a",
+              "3fd999999999999a"
+            ],
+            "obs_counts": [
+              2,
+              4,
+              6,
+              8,
+              10,
+              12,
+              2,
+              4,
+              6
+            ],
+            "restart_generations": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              1,
+              1,
+              1
+            ]
+          },
+          "corrected_local": {
+            "ask_bits": [
+              "400e34663dc74c98",
+              "bffcb01f954e604e",
+              "4022845af4c1c13d",
+              "bffd83845dffcbc4",
+              "400e9c74c6512388",
+              "3ffb0bd2d5c46dac",
+              "40086a4d18f665dc",
+              "3ff7535dc3d63872",
+              "401714ff561c45af",
+              "bffc58bc0b72d974",
+              "bff69224afe23e18",
+              "3fefbf54a907319f",
+              "c00a4ff7c1d7fea2",
+              "bfd7a79f385ee640",
+              "40065bbed64f1373",
+              "c008842722b06ebd",
+              "bfe37bdee4b09c4c",
+              "40054c848431a13e",
+              "3face31f90304f00",
+              "bffbd7bf2c7623a6",
+              "3fc5de81d0c1d844",
+              "3fcaefcb3f5d2c80",
+              "bff841b94c635ae6",
+              "3fe6486cbc05118c",
+              "3ffa552e6eb8a018",
+              "bfe35c0cbe77524a",
+              "3ffbf9c2f0f80a76",
+              "400168b49ed122b2",
+              "bfea98f462164e8c",
+              "3fe2e8c54b0c5452",
+              "bff9eb4d7177f846",
+              "bfd9783463a95ab8",
+              "3fa4a6006f25d14c",
+              "bfe74f9499c12e68",
+              "bff89120bd3ff68c",
+              "3ffd345df0e91280",
+              "4012a742c522da48",
+              "bff025251d9bc026",
+              "3fe9d0b1c485a24a",
+              "c0129730c34bcaaa",
+              "400bfc4512d4c19a",
+              "4023306de01f2263",
+              "4005fecd5a6a2b76",
+              "400eaa514af84470",
+              "4019ca472f3ae012",
+              "c0115bbc1b135d21",
+              "bff2e95aca8b873a",
+              "40028b1bbf83f189",
+              "c009a580498cd140",
+              "3f8f0fb9c8f45d00",
+              "3fdff5a1b118fea4",
+              "c00acd74abf541ab",
+              "bf815f0c3baa3b00",
+              "3ff140cf4f991eda"
+            ],
+            "posterior_mu_bits": [
+              "c04c1b42b4f534c8",
+              "c04eff4b397e1e56",
+              "c0300be7e992827b",
+              "c048bfaa4b6041dc",
+              "c026761b3e4fedb4",
+              "c048b644327902af",
+              "c026761b3e4fedb4",
+              "c048b644327902af",
+              "c072c519183e84d3",
+              "c062bdf9baf1a587",
+              "c079af93a5e3a0d7",
+              "c0626bba00ef71b9",
+              "c04aa936dbaf21f6",
+              "c054bb3e08cbf6e2",
+              "c03defeb581e4be6",
+              "c0513148c687e317",
+              "c0259ff098fa15b3",
+              "c05080e9bfaa5f4a"
+            ],
+            "incumbent_x_bits": [
+              "bffd83845dffcbc4",
+              "400e9c74c6512388",
+              "3ffb0bd2d5c46dac",
+              "bffc58bc0b72d974",
+              "bff69224afe23e18",
+              "3fefbf54a907319f",
+              "bffc58bc0b72d974",
+              "bff69224afe23e18",
+              "3fefbf54a907319f",
+              "3fcaefcb3f5d2c80",
+              "bff841b94c635ae6",
+              "3fe6486cbc05118c",
+              "3fcaefcb3f5d2c80",
+              "bff841b94c635ae6",
+              "3fe6486cbc05118c",
+              "3fcaefcb3f5d2c80",
+              "bff841b94c635ae6",
+              "3fe6486cbc05118c",
+              "4012a742c522da48",
+              "bff025251d9bc026",
+              "3fe9d0b1c485a24a",
+              "c0115bbc1b135d21",
+              "bff2e95aca8b873a",
+              "40028b1bbf83f189",
+              "c009a580498cd140",
+              "3f8f0fb9c8f45d00",
+              "3fdff5a1b118fea4"
+            ],
+            "tr_length_bits": [
+              "3fd999999999999a",
+              "3fd999999999999a",
+              "3fd999999999999a",
+              "3fd999999999999a",
+              "3fd999999999999a",
+              "3fc999999999999a",
+              "3fd999999999999a",
+              "3fd999999999999a",
+              "3fd999999999999a"
+            ],
+            "obs_counts": [
+              2,
+              4,
+              6,
+              8,
+              10,
+              12,
+              2,
+              4,
+              6
+            ],
+            "restart_generations": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        "morbo_trust_region": {
+          "upstream": {
+            "sobol_seed_base": 1568724323,
+            "ask_bits": [
+              "bfe8d2a8d418c020",
+              "3fecd37539bd42da",
+              "3fe9785207152f64",
+              "3ff9cd033d7fc880",
+              "4006cad5b8c2345a",
+              "40080b34355af76a",
+              "3fe7f5a139170e60",
+              "3feb4cda0a94baaa",
+              "4000aa6956951bc4",
+              "bff7a9e4080836ab",
+              "3ff2b4d8a7505374",
+              "3fefa7df57293ece",
+              "3fd10736bccfe480",
+              "bfdf6ac0d3ddb2ce",
+              "3f95dcf081a9c191",
+              "3fb6ec95c3b25880",
+              "3fe04a9f9611269a",
+              "400223ed1aac4a9f",
+              "3fdf82c14c38cf98",
+              "bfd73ec3317ff762",
+              "3fd5bcb198e1a881",
+              "bfe6a505c049fe9a",
+              "bfe40f1bf1e886eb",
+              "3fc18855d6231062",
+              "3ff973f820f2a6c8",
+              "bfe526179e36736a",
+              "3fb21fff5750dc70",
+              "3fc86c8dd4620300",
+              "3fd0c1e933aee7bc",
+              "3fc6088659788e88",
+              "3ffc1ae93ececf10",
+              "bfe289f085a0f390",
+              "3ff85854650a43f1",
+              "3ffa814fa5353576",
+              "3ffd5d8887b004b4",
+              "3fe9a6fe58317c9b"
+            ],
+            "posterior_mu_bits": [
+              "c0186a027c0c7b02",
+              "c015058071265085",
+              "c00cf2ec91780f20",
+              "c00f9572e4162c5a",
+              "c0130b823cbfa801",
+              "c00c5241518e4495",
+              "c006e7091edc9952",
+              "c0125f8e6219f12d",
+              "c0139203a424b752",
+              "c00f059586ed05d2",
+              "c0063e6947546712",
+              "c012c188d3b50bd8",
+              "c0139203a424b752",
+              "c00f059586ed05d2",
+              "c0063e6947546712",
+              "c012c188d3b50bd8",
+              "c0139203a424b752",
+              "c00f059586ed05d2",
+              "c0063e6947546712",
+              "c012c188d3b50bd8",
+              "c0139203a424b752",
+              "c00f059586ed05d2",
+              "c0063e6947546712",
+              "c012c188d3b50bd8"
+            ],
+            "incumbent_x_bits": [
+              "bfe8d2a8d418c020",
+              "3fecd37539bd42da",
+              "3fe9785207152f64",
+              "bfe8d2a8d418c020",
+              "3fecd37539bd42da",
+              "3fe9785207152f64",
+              "3fd10736bccfe480",
+              "bfdf6ac0d3ddb2ce",
+              "3f95dcf081a9c191",
+              "3fd10736bccfe480",
+              "bfdf6ac0d3ddb2ce",
+              "3f95dcf081a9c191",
+              "3fc86c8dd4620300",
+              "3fd0c1e933aee7bc",
+              "3fc6088659788e88",
+              "3fc86c8dd4620300",
+              "3fd0c1e933aee7bc",
+              "3fc6088659788e88"
+            ],
+            "tr_length_bits": [
+              "3fe999999999999a",
+              "3fe999999999999a",
+              "3fe999999999999a",
+              "3fe999999999999a",
+              "3fe999999999999a",
+              "3fe999999999999a"
+            ],
+            "obs_counts": [
+              2,
+              4,
+              6,
+              8,
+              10,
+              12
+            ]
+          },
+          "corrected_local": {
+            "sobol_seed_base": 1568724323,
+            "ask_bits": [
+              "bfe8d2a8d418c020",
+              "3fecd37539bd42da",
+              "3fe9785207152f64",
+              "3ff9cd033d7fc880",
+              "4006cad5b8c2345a",
+              "40080b34355af76a",
+              "3fe7f5a139170e60",
+              "3feb4cda0a94baaa",
+              "4000aa6956951bc4",
+              "bff7a9e4080836ab",
+              "3ff2b4d8a7505374",
+              "3fefa7df57293ece",
+              "bfe68d9432492550",
+              "3ff35882fe3bc680",
+              "3fe63f24fc71a9c7",
+              "3fc6c25c2dbc7aa0",
+              "3ff0254fcb08934c",
+              "400057e7fb4e984f",
+              "bfeb9a2c96a4ebc0",
+              "3fe915a88837e0bc",
+              "3fe114f9f34363ef",
+              "bfdd9abf93b03de8",
+              "3ff2f13aaa8256c4",
+              "3fedd974db6f162e",
+              "bfeed3b1958d45ae",
+              "3fd3b73c5367d4b4",
+              "3ff046c645b923c5",
+              "bfd0da965e4dbe90",
+              "3ff354357b405b94",
+              "3ff510745cc9869d",
+              "bfd519aa24c4ba20",
+              "3fe235e34eb54b60",
+              "3ff1a814c44fafc7",
+              "bff2e00422cac822",
+              "3fe09c49b51bb1c6",
+              "3fe1f93d9765988f"
+            ],
+            "posterior_mu_bits": [
+              "c0186a027c0c7b02",
+              "c015058071265085",
+              "c00cf2ec91780f20",
+              "c00f9572e4162c5a",
+              "c0130b823cbfa801",
+              "c00c5241518e4495",
+              "c006e7091edc9952",
+              "c0125f8e6219f12d",
+              "c013d1649b99ab44",
+              "c00cbfe96f08a53a",
+              "c002c25fd75a3ab5",
+              "c00fcedf007f8f20",
+              "c013c0b7e07cf01b",
+              "c00c9491988c4d7f",
+              "c003aa2031a65c2a",
+              "c00df52b4f97a82d",
+              "c0138c53efa5cf7f",
+              "c00c7422683376ef",
+              "c003a9ba1ad295dc",
+              "c00df486d86ab9ee",
+              "c0138c53efa5cf7f",
+              "c00c7422683376ef",
+              "c003a9ba1ad295dc",
+              "c00df486d86ab9ee"
+            ],
+            "incumbent_x_bits": [
+              "bfe8d2a8d418c020",
+              "3fecd37539bd42da",
+              "3fe9785207152f64",
+              "bfe8d2a8d418c020",
+              "3fecd37539bd42da",
+              "3fe9785207152f64",
+              "bfe8d2a8d418c020",
+              "3fecd37539bd42da",
+              "3fe9785207152f64",
+              "bfe8d2a8d418c020",
+              "3fecd37539bd42da",
+              "3fe9785207152f64",
+              "bfeb9a2c96a4ebc0",
+              "3fe915a88837e0bc",
+              "3fe114f9f34363ef",
+              "bfd519aa24c4ba20",
+              "3fe235e34eb54b60",
+              "3ff1a814c44fafc7"
+            ],
+            "tr_length_bits": [
+              "3fe999999999999a",
+              "3fe999999999999a",
+              "3fd999999999999a",
+              "3fd999999999999a",
+              "3fd999999999999a",
+              "3fd999999999999a"
+            ],
+            "obs_counts": [
+              2,
+              4,
+              6,
+              8,
+              10,
+              12
+            ]
+          }
+        },
+        "disk_bpann": {
+          "upstream": {
+            "disk_dist_bits": [
+              "3f8eb851eb851eb8",
+              "3fa1eb851eb851ea",
+              "3fcb851eb851eb85",
+              "3fa851eb851eb851",
+              "3fb147ae147ae148",
+              "3fb147ae147ae148"
+            ],
+            "disk_indices": [
+              5,
+              0,
+              6,
+              4,
+              6,
+              7
+            ],
+            "mem_dist_bits": [
+              "3f8eb85240000000",
+              "3fa1eb8540000000",
+              "3fcb851ec0000000",
+              "3fa851eb80000000",
+              "3fb147ade0000000",
+              "3fb147ae00000000"
+            ],
+            "mem_indices": [
+              5,
+              0,
+              6,
+              4,
+              7,
+              6
+            ],
+            "train_rows_x_bits": [
+              "3fb999999999999a",
+              "3fc999999999999a",
+              "3fd3333333333333",
+              "3fc999999999999a",
+              "3fe999999999999a",
+              "3fe0000000000000",
+              "3fe0000000000000",
+              "3fe0000000000000",
+              "3fe0000000000000",
+              "3fe999999999999a",
+              "3fc999999999999a",
+              "3fd999999999999a"
+            ],
+            "train_rows_y_bits": [
+              "3ff199999999999a",
+              "3feccccccccccccd",
+              "3fe6666666666666",
+              "bfb999999999999a"
+            ],
+            "opt_ask_bits": [
+              "3ffcf6e7da781070",
+              "3fee47d6bb614d0c",
+              "3fe9bbd22adf11e6",
+              "3fc1e83002487e24",
+              "bfaa42b470adfeb0",
+              "400997bae6a13a58",
+              "3fe20bc0d4a6b96c",
+              "bfc6d6550add4938",
+              "3fd646339634edac",
+              "3ff5f20f333fd327",
+              "3fdbef1373562838",
+              "40012fe54eb430ca",
+              "3fe067fcc1391d8d",
+              "bfece5e34e090f82",
+              "3fdc424400e565bc",
+              "3fca5e7060b12a7e",
+              "bfd7d194d717423c",
+              "3fb92cda86b75576",
+              "3fd83b39bed7a523",
+              "bfeb85e5edd871a6",
+              "3ff9fb46273714a7",
+              "3fe8bebd5fe599c3",
+              "bfe0ddbc2da620c0",
+              "3ff75890adbab3aa",
+              "3fa5966a2f75f7a9",
+              "3fd5e397cbb12970",
+              "3fe0dd98d6e7badb",
+              "3fd6bd7a787af1b5",
+              "3fd5edd77aaa0e10",
+              "3fd1a36a2b03d18c"
+            ],
+            "opt_mu_bits": [
+              "c0209efb5c0451f8",
+              "c01f3ec2818ba59d",
+              "c005f01c8e0c076d",
+              "c00dd4fcc1896ff1",
+              "bfee7239c5a1c11c",
+              "c0031bfec2945fbe",
+              "bff266bf7e2e24bb",
+              "c0031bfec2945fbe",
+              "bfe7838518c6ac5b",
+              "bfe9e225721b231e"
+            ],
+            "opt_incumbent_bits": [
+              "3ffcf6e7da781070",
+              "3fee47d6bb614d0c",
+              "3fe9bbd22adf11e6",
+              "3fe20bc0d4a6b96c",
+              "bfc6d6550add4938",
+              "3fd646339634edac",
+              "3fca5e7060b12a7e",
+              "bfd7d194d717423c",
+              "3fb92cda86b75576",
+              "3fca5e7060b12a7e",
+              "bfd7d194d717423c",
+              "3fb92cda86b75576",
+              "3fa5966a2f75f7a9",
+              "3fd5e397cbb12970",
+              "3fe0dd98d6e7badb"
+            ]
+          },
+          "corrected_local": {
+            "disk_dist_bits": [
+              "3f8eb85240000000",
+              "3fa1eb8540000000",
+              "3fcb851ec0000000",
+              "3fa851eb80000000",
+              "3fb147ade0000000",
+              "3fb147ae00000000"
+            ],
+            "disk_indices": [
+              5,
+              0,
+              6,
+              4,
+              7,
+              6
+            ],
+            "mem_dist_bits": [
+              "3f8eb851eb851eb8",
+              "3fa1eb851eb851ea",
+              "3fcb851eb851eb85",
+              "3fa851eb851eb851",
+              "3fb147ae147ae148",
+              "3fb147ae147ae148"
+            ],
+            "mem_indices": [
+              5,
+              0,
+              6,
+              4,
+              6,
+              7
+            ],
+            "train_rows_x_bits": [
+              "3fb999999999999a",
+              "3fc999999999999a",
+              "3fd3333333333333",
+              "3fc999999999999a",
+              "3fe999999999999a",
+              "3fe0000000000000",
+              "3fe0000000000000",
+              "3fe0000000000000",
+              "3fe0000000000000",
+              "3fe999999999999a",
+              "3fc999999999999a",
+              "3fd999999999999a"
+            ],
+            "train_rows_y_bits": [
+              "3ff199999999999a",
+              "3feccccccccccccd",
+              "3fe6666666666666",
+              "bfb999999999999a"
+            ],
+            "opt_ask_bits": [
+              "3ffcf6e7da781070",
+              "3fee47d6bb614d0c",
+              "3fe9bbd22adf11e6",
+              "3fc1e83002487e24",
+              "bfaa42b470adfeb0",
+              "400997bae6a13a58",
+              "3fe20bc0d4a6b96c",
+              "bfc6d6550add4938",
+              "3fd646339634edac",
+              "3ff5f20f333fd327",
+              "3fdbef1373562838",
+              "40012fe54eb430ca",
+              "3fe067fcc1391d8d",
+              "bfece5e34e090f82",
+              "3fdc424400e565bc",
+              "3fca5e7060b12a7e",
+              "bfd7d194d717423c",
+              "3fb92cda86b75576",
+              "3fe77bfc4b31ed7d",
+              "bfecaeacd6c867c8",
+              "3ff96a36f067e3da",
+              "3fb014026e0171c4",
+              "3f78373cc8cf9f00",
+              "3ff07d206cd3af60",
+              "3fe14a24c9926158",
+              "3fdad32976b30518",
+              "3ff0a58c2656789e",
+              "3fdbedac51c53a0f",
+              "3fd9f8937e829f80",
+              "3fd81a625d77aafa"
+            ],
+            "opt_mu_bits": [
+              "c0209efb5c0451f8",
+              "c01f3ec2818ba59d",
+              "c005f01c8e0c076d",
+              "c00dd4fcc1896ff1",
+              "bfee7239c5a1c11c",
+              "c0031bfec2945fbe",
+              "bfebdb65f95f58e6",
+              "bfed61a4486bc430",
+              "bfefff0414145d91",
+              "bff537e0102130f6"
+            ],
+            "opt_incumbent_bits": [
+              "3ffcf6e7da781070",
+              "3fee47d6bb614d0c",
+              "3fe9bbd22adf11e6",
+              "3fe20bc0d4a6b96c",
+              "bfc6d6550add4938",
+              "3fd646339634edac",
+              "3fca5e7060b12a7e",
+              "bfd7d194d717423c",
+              "3fb92cda86b75576",
+              "3fca5e7060b12a7e",
+              "bfd7d194d717423c",
+              "3fb92cda86b75576",
+              "3fca5e7060b12a7e",
+              "bfd7d194d717423c",
+              "3fb92cda86b75576"
+            ]
+          }
+        }
+      },
+      "documented_local_corrections": [
+        "fit.rs (compute_loglik & loo_neighbors): local evaluates -0.5*ln(2*pi) - ln(se) - 0.5*((y - mu)/se)^2 without squaring se (avoiding binary64 se*se underflow below 1e-154) and excludes held-out LOO rows by exact row ID (id != held) rather than distance threshold 1e-15",
+        "knn (ExactBackend vs FaissBackend and smnsrch): local in-memory ExactBackend computes exact binary64 squared-L2 distances (matching baux::semantics::neighbor and upstream small_n_search f64 bit-for-bit), while local BpAnnDisk smnsrch uses binary32 resident flat cache (matching upstream FaissBackend f32 bit-for-bit)",
+        "acquisition.rs (UCBAcquisition & ParetoAcquisition::nondomin_2d): local uses a deterministic streaming min-heap without advancing RNG in UCB and an O(n log n) 2D sweep in Pareto non-dominated sorting"
+      ]
+    }
+  }
+}

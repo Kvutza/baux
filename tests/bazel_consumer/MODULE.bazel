@@ -1,0 +1,8 @@
+module(name = "baux_bazel_consumer")
+
+bazel_dep(name = "baux", version = "0.0.0")
+
+local_path_override(
+    module_name = "baux",
+    path = "../..",
+)

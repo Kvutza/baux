@@ -1,0 +1,414 @@
+--- a/src/Translate.ml
++++ b/src/Translate.ml
+@@ -1364,6 +1364,7 @@
+         if !Config.use_lean_modules then "public import" else "import"
+       in
+       Printf.fprintf out "%s Aeneas\n" import_kw;
++      Printf.fprintf out "%s BauxResearch.Extraction.Native\n" import_kw;
+       (* Add the custom imports *)
+       List.iter
+         (fun m -> Printf.fprintf out "%s %s\n" import_kw m)
+--- a/src/extract/Extract.ml
++++ b/src/extract/Extract.ml
+@@ -484,7 +484,19 @@
+                 boolean), it gets compiled to [b] (i.e., no cast
+                 is introduced). *)
+              [%craise] span "Unexpected cast: bool to bool"
+-         | _ -> [%craise] span "Unreachable"
++         | (TUInt _), TFloat ty when backend () = Lean ->
++             (float_name ty ^ ".fromUnsigned", None, None)
++         | (TInt _), TFloat ty when backend () = Lean ->
++             (float_name ty ^ ".fromSigned", None, None)
++         | TFloat src, TFloat tgt when backend () = Lean ->
++             (float_name tgt ^ ".from" ^ (match src with
++                | F32 -> "Single" | F64 -> "Double"
++                | _ -> [%craise] span "Unsupported source float format"), None, None)
++         | TFloat ty, TUInt tgt when backend () = Lean ->
++             (float_name ty ^ ".toUnsigned", None, Some (integer_type_to_string (Unsigned tgt)))
++         | TFloat ty, TInt tgt when backend () = Lean ->
++             (float_name ty ^ ".toSigned", None, Some (integer_type_to_string (Signed tgt)))
++         | _ -> [%craise] span "Unsupported scalar cast"
+        in
+        (* Print the name of the function *)
+        F.pp_print_string fmt cast_str;
+@@ -566,6 +578,12 @@
+     (extract_expr : inside:bool -> texpr -> unit) (fmt : F.formatter)
+     ~(inside : bool) (unop : unop) (arg : texpr) : unit =
+   match unop with
++  | FloatNeg ty ->
++      if backend () <> Lean then [%craise] span "Float operations require Lean";
++      if inside then F.pp_print_string fmt "(";
++      F.pp_print_string fmt (float_name ty ^ ".neg ");
++      extract_expr ~inside:true arg;
++      if inside then F.pp_print_string fmt ")"
+   | Not _ | Neg _ | ArrayToSlice ->
+       let unop = unop_name unop in
+       if inside then F.pp_print_string fmt "(";
+--- a/src/extract/ExtractBase.ml
++++ b/src/extract/ExtractBase.ml
+@@ -533,6 +533,12 @@
+   | Unsigned U128 -> Printf.sprintf u_format 128
+ 
+ let float_name (float_ty : float_type) : string =
++  if backend () = Lean then
++    match float_ty with
++    | F32 -> "BauxResearch.Extraction.Native.F32"
++    | F64 -> "BauxResearch.Extraction.Native.F64"
++    | F16 | F128 -> failwith "Only binary32 and binary64 floating types are supported"
++  else
+   let format =
+     match backend () with
+     | FStar | Coq | HOL4 -> format_of_string "f%d"
+@@ -924,15 +930,18 @@
+ (** Small helper to compute the name of a unary operation *)
+ let unop_name (unop : unop) : string =
+   match unop with
++  | FloatNeg ty ->
++      if backend () <> Lean then failwith "Float operations require Lean";
++      float_name ty ^ ".neg"
+   | Not ty -> (
+       match backend () with
+       | FStar -> (
+           match ty with
+           | None -> "not"
+           | Some int_ty -> int_name int_ty ^ "_not")
+       | Lean -> begin
+           match ty with
+-          | None -> "¬"
++          | None -> "!"
+           | Some _ -> "~~~"
+         end
+       | Coq -> if Option.is_none ty then "negb" else "scalar_not"
+@@ -960,6 +969,9 @@
+     | FStar | Coq | HOL4 -> int_name int_ty ^ "_"
+   in
+   match binop with
++  | FloatOp (op, ty) ->
++      if backend () <> Lean then failwith "Float operations require Lean";
++      float_name ty ^ "." ^ op
+   | Div (_, ty) -> add_int_name ty ^ "div"
+   | Rem (_, ty) -> add_int_name ty ^ "rem"
+   | Add (_, ty) -> add_int_name ty ^ "add"
+@@ -2449,7 +2461,11 @@
+     their names registered through {!ctx_add_fun_decl}. *)
+ let ctx_add_global_decl (def : global_decl) (ctx : extraction_ctx) :
+     extraction_ctx =
+-  let name = ctx_compute_global_name_no_suffix def.item_meta def.src ctx in
++  let name =
++    match def.builtin_info with
++    | Some info -> info.extract_name
++    | None -> ctx_compute_global_name_no_suffix def.item_meta def.src ctx
++  in
+   ctx_add def.item_meta.span (GlobalId def.def_id) name ctx
+ 
+ let ctx_compute_fun_name (def : fun_decl) (is_trait_decl_field : bool)
+--- a/src/extract/ExtractBuiltin.ml
++++ b/src/extract/ExtractBuiltin.ml
+@@ -43,6 +43,36 @@
+          unit_metadata;
+        ];
+      ]
++    @ mk_lean_only
++        [
++          List.concat_map
++            (fun (rust_ty, lean_ty) ->
++              let prefix = "BauxResearch.Extraction.Native." ^ lean_ty ^ "." in
++              [
++                ({
++                   rust_name = "core::" ^ rust_ty ^ "::consts::PI";
++                   extract_name = prefix ^ "pi";
++                   can_fail = true;
++                 }
++                  : Pure.builtin_global_info);
++                {
++                  rust_name = "core::" ^ rust_ty ^ "::{" ^ rust_ty ^ "}::INFINITY";
++                  extract_name = prefix ^ "posInf";
++                  can_fail = false;
++                };
++                {
++                  rust_name = "core::" ^ rust_ty ^ "::{" ^ rust_ty ^ "}::NEG_INFINITY";
++                  extract_name = prefix ^ "negInf";
++                  can_fail = false;
++                };
++                {
++                  rust_name = "core::" ^ rust_ty ^ "::{" ^ rust_ty ^ "}::NAN";
++                  extract_name = prefix ^ "nan";
++                  can_fail = false;
++                };
++              ])
++            [ ("f32", "F32"); ("f64", "F64") ];
++        ]
+     @ mk_lean_only lean_builtin_consts)
+ 
+ let mk_builtin_globals_map () : Pure.builtin_global_info NameMatcherMap.t =
+@@ -877,6 +907,48 @@
+                    (false, "rotate_right");
+                  ])
+              all_int_names)
++      @ List.concat_map
++          (fun (rust_ty, lean_ty) ->
++            let prefix = "BauxResearch.Extraction.Native." ^ lean_ty ^ "." in
++            let methods =
++              [
++                ("from_bits", "fromBits");
++                ("to_bits", "toBits");
++                ("is_nan", "isNan");
++                ("is_infinite", "isInfinite");
++                ("is_finite", "isFinite");
++                ("abs", "abs");
++                ("floor", "floor");
++                ("ceil", "ceil");
++                ("round", "round");
++                ("trunc", "trunc");
++                ("copysign", "copysign");
++                ("min", "min");
++                ("max", "max");
++                ("clamp", "clamp");
++                ("sqrt", "sqrt");
++                ("ln", "ln");
++                ("exp", "exp");
++                ("cos", "cos");
++                ("powi", "powi");
++                ("powf", "powf");
++              ]
++            in
++            ExtractBuiltinCore.mk_fun
++              ("core::clone::impls::{core::clone::Clone<" ^ rust_ty ^ ">}::clone")
++              (prefix ^ "clone")
++            :: List.concat_map
++                 (fun (rust_m, lean_m) ->
++                   [
++                     ExtractBuiltinCore.mk_fun
++                       ("core::" ^ rust_ty ^ "::{" ^ rust_ty ^ "}::" ^ rust_m)
++                       (prefix ^ lean_m);
++                     ExtractBuiltinCore.mk_fun
++                       ("std::" ^ rust_ty ^ "::{" ^ rust_ty ^ "}::" ^ rust_m)
++                       (prefix ^ lean_m);
++                   ])
++                 methods)
++          [ ("f32", "F32"); ("f64", "F64") ]
+       @ lean_builtin_funs)
+ 
+ let builtin_funs : unit -> (pattern * Pure.builtin_fun_info) list =
+--- a/src/extract/ExtractTypes.ml
++++ b/src/extract/ExtractTypes.ml
+@@ -25,6 +25,30 @@
+   F.pp_print_space fmt ();
+   extract_pure_string fmt s;
+   if inside then F.pp_print_string fmt ")"
++
++(** Parse Charon's decimal representation exactly. Never route a literal through
++    the host's floating-point arithmetic: the Lean runtime performs rounding. *)
++let float_ratio (span : Meta.span) (value : string) : bool * Z.t * Z.t =
++  let value = String.lowercase_ascii value in
++  let negative = String.length value > 0 && value.[0] = '-' in
++  let value = if negative then String.sub value 1 (String.length value - 1) else value in
++  let significand, exponent = match String.split_on_char 'e' value with
++    | [ mantissa ] -> (mantissa, 0)
++    | [ mantissa; exponent ] -> (mantissa, int_of_string exponent)
++    | _ -> [%craise] span "Invalid decimal float literal"
++  in
++  let digits, places = match String.split_on_char '.' significand with
++    | [ whole ] -> (whole, 0)
++    | [ whole; fraction ] -> (whole ^ fraction, String.length fraction)
++    | _ -> [%craise] span "Invalid decimal float significand"
++  in
++  if digits = "" || not (String.for_all (fun c -> c >= '0' && c <= '9') digits)
++  then [%craise] span "Non-finite float literals require explicit bit semantics";
++  let shift = exponent - places in
++  if abs shift > 5000 then [%craise] span "Float literal exponent is out of range";
++  let numerator = Z.of_string digits in
++  if shift >= 0 then (negative, Z.mul numerator (Z.pow (Z.of_int 10) shift), Z.one)
++  else (negative, numerator, Z.pow (Z.of_int 10) (-shift))
+ 
+ (** Format a constant value.
+ 
+@@ -100,6 +124,21 @@
+           if inside then F.pp_print_string fmt ")")
+   | VStr s -> extract_str span ~inside fmt s
+   | VPureString s -> extract_pure_string fmt s
++  | VFloat value when backend () = Lean ->
++      if is_pattern then [%craise] span "Float patterns are unsupported";
++      let raw = String.lowercase_ascii (String.trim value.float_value) in
++      if raw = "inf" || raw = "+inf" || raw = "infinity" || raw = "+infinity" then
++        F.pp_print_string fmt (float_name value.float_ty ^ ".posInf")
++      else if raw = "-inf" || raw = "-infinity" then
++        F.pp_print_string fmt (float_name value.float_ty ^ ".negInf")
++      else if raw = "nan" || raw = "+nan" || raw = "-nan" then
++        F.pp_print_string fmt (float_name value.float_ty ^ ".nan")
++      else
++        let sign, numerator, denominator = float_ratio span value.float_value in
++        if inside then F.pp_print_string fmt "(";
++        F.pp_print_string fmt (float_name value.float_ty ^ ".literal "
++          ^ string_of_bool sign ^ " " ^ Z.to_string numerator ^ " " ^ Z.to_string denominator);
++        if inside then F.pp_print_string fmt ")"
+   | VChar _ | VFloat _ | VByteStr _ ->
+       [%admit_raise] span
+         "Float, string, non-ASCII chars and byte string literals are \
+--- a/src/interp/InterpExpressions.ml
++++ b/src/interp/InterpExpressions.ml
+@@ -106,6 +106,8 @@
+   (* Scalar, boolean... *)
+   | TBool, VBool v -> { value = VLiteral (VBool v); ty = TScalar ty }
+   | TChar, VChar v -> { value = VLiteral (VChar v); ty = TScalar ty }
++  | TFloat float_ty, VFloat v when float_ty = v.float_ty ->
++      { value = VLiteral (VFloat v); ty = TScalar ty }
+   | TInteger (Signed int_ty), VScalar (SignedInteger (sv_ty, _) as sv) ->
+       (* Check the type and the ranges *)
+       [%sanity_check] span (int_ty = sv_ty);
+@@ -970,6 +972,7 @@
+         | Not, (TScalar (TInteger (Unsigned _)) as lty) -> lty
+         | Neg OPanic, (TScalar (TInteger (Signed _)) as lty) -> lty
+         | Neg OPanic, (TScalar (TInteger (Unsigned _)) as lty) -> lty
++        | Neg _, (TScalar (TFloat _) as lty) -> lty
+         | Cast (CastScalar tgt_ty), _ -> TScalar tgt_ty
+         | Cast (CastUnsize (ty1, _)), ty0 ->
+             (* If the following function succeeds, then it means the cast is well-formed
+@@ -1151,6 +1154,11 @@
+        (booleans are ordered: [false < true]), or bitwise operators (&, |, ^).
+        In the other cases, input types are integers *)
+       match (v1.ty, v2.ty) with
++      | TScalar (TFloat ty1), TScalar (TFloat ty2) when ty1 = ty2 -> (
++          match binop with
++          | Lt | Le | Ge | Gt -> TScalar TBool
++          | Add _ | Sub _ | Mul _ | Div _ | Rem _ -> TScalar (TFloat ty1)
++          | _ -> [%craise] span "Unsupported floating-point binary operation")
+       | TScalar TBool, TScalar TBool
+         when binop = Lt || binop = Le || binop = Ge || binop = Gt
+              || binop = BitAnd || binop = BitOr || binop = BitXor ->
+--- a/src/pure/PrintPure.ml
++++ b/src/pure/PrintPure.ml
+@@ -905,6 +905,7 @@
+ 
+ let unop_to_string (env : fmt_env) (unop : unop) : string =
+   match unop with
++  | FloatNeg ty -> "float.neg::<" ^ float_type_to_string ty ^ ">"
+   | Not _ -> "¬"
+   | Neg _ -> "-"
+   | Cast kind -> cast_kind_to_string env kind
+@@ -921,6 +922,7 @@
+     ^ ">"
+   in
+   match binop with
++  | FloatOp (op, ty) -> "float." ^ op ^ "::<" ^ float_type_to_string ty ^ ">"
+   | BitXor int_ty -> "^" ^ int_ty_to_string int_ty
+   | BitAnd int_ty -> "&" ^ int_ty_to_string int_ty
+   | BitOr int_ty -> "|" ^ int_ty_to_string int_ty
+--- a/src/pure/Pure.ml
++++ b/src/pure/Pure.ml
+@@ -635,6 +635,7 @@
+ 
+ (** See the documentation of [E.binop] *)
+ and binop =
++  | FloatOp of string * float_type
+   | BitXor of integer_type
+   | BitAnd of integer_type
+   | BitOr of integer_type
+@@ -1213,6 +1214,7 @@
+     }]
+ 
+ type unop =
++  | FloatNeg of float_type
+   | Not of integer_type option
+   | Neg of integer_type
+   | Cast of cast_kind
+--- a/src/pure/PureMicroPassesAnnots.ml
++++ b/src/pure/PureMicroPassesAnnots.ml
+@@ -303,7 +303,7 @@
+               | Fun fid -> begin compute_known_tys_from_fun_id qualif fid end
+               | Unop unop -> begin
+                   match unop with
+-                  | Not _ | Neg _ | Cast _ | ArrayToSlice ->
++                  | Not _ | Neg _ | FloatNeg _ | Cast _ | ArrayToSlice ->
+                       (known_f_ty, known_args_tys, false)
+                 end
+               | Binop _ -> (known_f_ty, known_args_tys, false)
+--- a/src/pure/PureMicroPassesGeneral.ml
++++ b/src/pure/PureMicroPassesGeneral.ml
+@@ -723,7 +723,7 @@
+ let lift_unop (unop : unop) : bool =
+   match unop with
+   | Not None -> false
+-  | Not (Some _) | Neg _ | Cast _ | ArrayToSlice -> true
++  | Not (Some _) | Neg _ | FloatNeg _ | Cast _ | ArrayToSlice -> true
+ 
+ (** A helper predicate *)
+ let inline_unop unop = not (lift_unop unop)
+@@ -731,6 +731,7 @@
+ (** A helper predicate *)
+ let lift_binop (binop : binop) : bool =
+   match binop with
++  | FloatOp _ -> true
+   | Eq _ | Lt _ | Le _ | Ne _ | Ge _ | Gt _ | BoolAnd | BoolOr | BoolXor ->
+       false
+   | BitXor _
+--- a/src/pure/PureUtils.ml
++++ b/src/pure/PureUtils.ml
+@@ -2844,6 +2844,7 @@
+   | _ -> None
+ 
+ let binop_can_fail : binop -> bool = function
++  | FloatOp _ -> false
+   | BitXor _ | BitAnd _ | BitOr _ | Eq _ | Lt _ | Le _ | Ne _ | Ge _ | Gt _
+   | Add (OWrap, _)
+   | Sub (OWrap, _)
+--- a/src/symbolic/SymbolicToPureExpressions.ml
++++ b/src/symbolic/SymbolicToPureExpressions.ml
+@@ -556,6 +556,13 @@
+         | _ -> [%craise] ctx.span "Unreachable")
+     | S.Unop (E.Neg overflow) -> (
+         match args with
++        | [ ({ ty = TLiteral (TFloat ty); _ } as arg) ] ->
++            let effect_info =
++              { can_fail = false; can_diverge = false; is_rec = false }
++            in
++            let ctx, dest = fresh_var_for_symbolic_value call.dest ctx in
++            let dest = mk_tpat_from_fvar dest_mplace dest in
++            (ctx, Unop (FloatNeg ty), effect_info, [ arg ], [], dest)
+         | [ arg ] ->
+             let int_ty = ty_as_integer ctx.span arg.ty in
+             (* Note that negation can lead to an overflow and thus fail (it
+@@ -641,9 +648,12 @@
+               args];
+         match args with
+         | [ arg0; arg1 ] ->
++            let floating =
++              match arg0.ty with TLiteral (TFloat _) -> true | _ -> false
++            in
+             let effect_info =
+               {
+-                can_fail = ExpressionsUtils.binop_can_fail binop;
++                can_fail = (not floating) && ExpressionsUtils.binop_can_fail binop;
+                 can_diverge = false;
+                 is_rec = false;
+               }
+@@ -664,7 +674,28 @@
+               lit_ty0
+             in
+             let binop =
+-              match binop with
++              if floating then (
++                [%sanity_check] ctx.span (arg0.ty = arg1.ty);
++                let ty = match arg0.ty with
++                  | TLiteral (TFloat ty) -> ty
++                  | _ -> [%internal_error] ctx.span
++                in
++                let op = match binop with
++                  | Expressions.Add _ -> "add"
++                  | Expressions.Sub _ -> "sub"
++                  | Expressions.Mul _ -> "mul"
++                  | Expressions.Div _ -> "div"
++                  | Expressions.Rem _ -> "rem"
++                  | Expressions.Eq -> "eq"
++                  | Expressions.Ne -> "ne"
++                  | Expressions.Lt -> "lt"
++                  | Expressions.Le -> "le"
++                  | Expressions.Ge -> "ge"
++                  | Expressions.Gt -> "gt"
++                  | _ -> [%craise] ctx.span "Unsupported floating-point operation"
++                in
++                FloatOp (op, ty))
++              else match binop with
+               | Expressions.BitXor ->
+                   if arg0.ty = TLiteral TBool then BoolXor
+                   else BitXor (get_single_int_ty ())

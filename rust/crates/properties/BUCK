@@ -1,0 +1,32 @@
+load("//build:targets.bzl", "PROPERTIES_CRATES", "RUST_EDITION")
+
+filegroup(
+    name = "source",
+    srcs = ["Cargo.toml", "src/lib.rs"],
+    visibility = ["PUBLIC"],
+)
+
+rust_test(
+    name = "properties-unit",
+    srcs = ["src/lib.rs"],
+    crate = "baux_properties",
+    crate_root = "src/lib.rs",
+    edition = RUST_EDITION,
+    features = select({
+        "//:macos-arm64": ["metal"],
+        "DEFAULT": [],
+    }),
+    deps = ["//rust:" + crate for crate in PROPERTIES_CRATES] + [
+        "//rust/crates/baux:baux",
+    ] + select({
+        "//:macos-arm64": [
+            "//build/buck2/native:openmp-macos",
+            "//rust:metal",
+        ],
+        "DEFAULT": [],
+    }),
+    rpath = True,
+    runtime_dependency_handling = "symlink",
+    run_env = {"RUST_TEST_THREADS": "1"},
+    visibility = ["//build/buck2/tests:all"],
+)

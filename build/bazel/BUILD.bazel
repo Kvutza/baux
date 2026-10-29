@@ -1,0 +1,4 @@
+exports_files([
+    "audit_wheel.py",
+    "python_extension.bzl",
+])

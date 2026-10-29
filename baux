@@ -1,0 +1,30 @@
+#!/bin/sh
+set -eu
+repo_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+cd "$repo_dir"
+if [ "$(uname -s)" = Linux ] && [ "${1:-}" = cuda ] && [ "${2:-}" = setup ]; then
+    shift 2
+    exec ./tools/cuda-setup "$@"
+fi
+if [ "$(uname -s)" = Linux ] && [ "${1:-}" = cuda ] && [ "${2:-}" = tune-t4 ]; then
+    shift 2
+    exec ./tools/buck2w run --console simple -v 2 //rust/crates/runner:baux-runner -- \
+        cuda-tune-t4 "$@"
+fi
+case "${BAUX_BUILD_SYSTEM:-buck2}" in
+    buck2)
+        built=$(./tools/buck2w build --console simple -v 2 --show-full-output //rust/crates/cli:baux)
+        case "$built" in
+            *"root//rust/crates/cli:baux "*)
+                line=${built##*root//rust/crates/cli:baux }
+                binary=${line%%
+*}
+                ;;
+            *) echo "baux: could not resolve the Buck2 CLI artifact" >&2; exit 1 ;;
+        esac
+        [ -x "$binary" ] || { echo "baux: Buck2 CLI artifact is not executable" >&2; exit 1; }
+        exec "$binary" "$@"
+        ;;
+    bazel) exec bazel run --config=release --config=constrained //rust/crates/cli:baux -- "$@" ;;
+    *) echo "baux: BAUX_BUILD_SYSTEM must be buck2 or bazel" >&2; exit 1 ;;
+esac

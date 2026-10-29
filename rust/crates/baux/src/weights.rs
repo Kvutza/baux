@@ -1,0 +1,672 @@
+#[cfg(all(target_os = "macos", feature = "metal"))]
+use std::collections::HashMap;
+#[cfg(all(target_os = "macos", feature = "metal"))]
+use std::sync::{Mutex, OnceLock};
+#[cfg(all(target_os = "macos", feature = "metal"))]
+use std::time::Instant;
+
+use crate::util::insert_neighbor;
+
+#[cfg(all(target_os = "macos", feature = "metal"))]
+mod metal_weights;
+
+#[cfg(feature = "opencl")]
+mod opencl_weights;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AcquisitionKind {
+    Ucb,
+    /// One sampled function with shared observation noise, as in ENN posterior
+    /// draws.
+    Thompson,
+    /// Legacy scalar mean-plus-uncertainty heuristic for materialized weight
+    /// selection.
+    ///
+    /// This is intentionally distinct from
+    /// `crate::acquisition::ParetoAcquisition`, which performs
+    /// multiobjective Pareto-front selection.
+    Pareto,
+}
+
+impl AcquisitionKind {
+    pub fn parse(name: &str) -> Result<Self, String> {
+        match name.trim().to_ascii_lowercase().as_str() {
+            "ucb" => Ok(Self::Ucb),
+            "thompson" => Ok(Self::Thompson),
+            "pareto" => Ok(Self::Pareto),
+            other => Err(format!(
+                "unknown acquisition {other:?}; expected 'ucb', 'thompson', or 'pareto'"
+            )),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ComputeDevice {
+    Auto,
+    Cpu,
+    Metal,
+    OpenCl,
+    Cuda,
+}
+
+impl ComputeDevice {
+    pub fn parse(name: &str) -> Result<Self, String> {
+        match name.trim().to_ascii_lowercase().as_str() {
+            "" | "auto" => Ok(Self::Auto),
+            "cpu" => Ok(Self::Cpu),
+            "metal" => Ok(Self::Metal),
+            "opencl" | "ocl" => Ok(Self::OpenCl),
+            "cuda" => Ok(Self::Cuda),
+            other => Err(format!(
+                "unknown compute device {other:?}; expected 'auto', 'cpu', 'metal', 'opencl', or \
+                 'cuda'"
+            )),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EncodingType {
+    Int4 = 0,
+    Int8 = 1,
+    Fp4E2M1 = 2,
+    Fp8E4M3 = 3,
+    Fp8E5M2 = 4,
+}
+
+impl EncodingType {
+    pub fn parse(bits: u8, mode: Option<&str>) -> Result<Self, String> {
+        match (bits, mode.map(|s| s.trim().to_ascii_lowercase()).as_deref()) {
+            (4, None | Some("int") | Some("int4")) => Ok(Self::Int4),
+            (8, None | Some("int") | Some("int8")) => Ok(Self::Int8),
+            (4, Some("fp4") | Some("fp4_e2m1") | Some("e2m1")) => Ok(Self::Fp4E2M1),
+            (8, Some("fp8") | Some("fp8_e4m3") | Some("e4m3")) => Ok(Self::Fp8E4M3),
+            (8, Some("fp8_e5m2") | Some("e5m2")) => Ok(Self::Fp8E5M2),
+            _ => Err(format!("unsupported encoding bits={bits}, mode={mode:?}")),
+        }
+    }
+}
+
+pub static FP4_LUT: [f32; 16] = [
+    0.0, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0, -0.0, -0.5, -1.0, -1.5, -2.0, -3.0, -4.0, -6.0,
+];
+
+pub fn decode_code(code: u32, encoding: EncodingType, scale: f32) -> f32 {
+    match encoding {
+        EncodingType::Int4 | EncodingType::Int8 => code as f32 * scale,
+        EncodingType::Fp4E2M1 => FP4_LUT[(code & 0x0f) as usize] * scale,
+        EncodingType::Fp8E4M3 => decode_e4m3(code as u8) * scale,
+        EncodingType::Fp8E5M2 => decode_e5m2(code as u8) * scale,
+    }
+}
+
+pub fn decode_e4m3(byte: u8) -> f32 {
+    let sign = if (byte & 0x80) != 0 { -1.0 } else { 1.0 };
+    let exp = (byte >> 3) & 0x0f;
+    let mant = byte & 0x07;
+    if exp == 0 {
+        sign * (mant as f32 / 8.0) * (2.0f32).powi(-6)
+    } else if exp == 15 && mant == 7 {
+        f32::NAN
+    } else {
+        sign * (1.0 + mant as f32 / 8.0) * (2.0f32).powi(exp as i32 - 7)
+    }
+}
+
+pub fn decode_e5m2(byte: u8) -> f32 {
+    let sign = if (byte & 0x80) != 0 { -1.0 } else { 1.0 };
+    let exp = (byte >> 2) & 0x1f;
+    let mant = byte & 0x03;
+    if exp == 0 {
+        sign * (mant as f32 / 4.0) * (2.0f32).powi(-14)
+    } else if exp == 31 {
+        if mant == 0 {
+            sign * f32::INFINITY
+        } else {
+            f32::NAN
+        }
+    } else {
+        sign * (1.0 + mant as f32 / 4.0) * (2.0f32).powi(exp as i32 - 15)
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct WeightBlock {
+    pub offset: usize,
+    pub length: usize,
+    pub bits: u8,
+    pub encoding: EncodingType,
+    pub quantization_scale: f32,
+    pub metric_scale: f32,
+    pub weight: f32,
+}
+
+impl WeightBlock {
+    pub fn new(
+        offset: usize,
+        length: usize,
+        bits: u8,
+        quantization_scale: f32,
+        metric_scale: f32,
+        weight: f32,
+    ) -> Result<Self, String> {
+        Self::with_encoding(
+            offset,
+            length,
+            bits,
+            EncodingType::parse(bits, None)?,
+            quantization_scale,
+            metric_scale,
+            weight,
+        )
+    }
+
+    pub fn with_encoding(
+        offset: usize,
+        length: usize,
+        bits: u8,
+        encoding: EncodingType,
+        quantization_scale: f32,
+        metric_scale: f32,
+        weight: f32,
+    ) -> Result<Self, String> {
+        if length == 0 {
+            return Err("quantized-weight block length must be positive".to_string());
+        }
+        if bits != 4 && bits != 8 {
+            return Err(format!(
+                "quantized-weight block bits must be 4 or 8, got {bits}"
+            ));
+        }
+        for (name, value) in [
+            ("quantization_scale", quantization_scale),
+            ("metric_scale", metric_scale),
+            ("weight", weight),
+        ] {
+            if !value.is_finite() || value < 0.0 {
+                return Err(format!("{name} must be finite and nonnegative"));
+            }
+        }
+        Ok(Self {
+            offset,
+            length,
+            bits,
+            encoding,
+            quantization_scale,
+            metric_scale,
+            weight,
+        })
+    }
+
+    fn row_bytes(&self) -> usize {
+        match self.bits {
+            4 => self.length.div_ceil(2),
+            8 => self.length,
+            _ => unreachable!("block bits are checked at construction"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct WeightSelectConfig {
+    pub neighbors: usize,
+    pub epistemic_scale: f32,
+    pub aleatoric_scale: f32,
+    pub y_scale: f32,
+    pub beta: f32,
+    pub acquisition: AcquisitionKind,
+    /// Sampled-function seed; observation row indices identify shared Thompson
+    /// noise.
+    pub seed: u64,
+    pub device: ComputeDevice,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct WeightSelectResult {
+    pub index: usize,
+    pub score: f32,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct Prediction {
+    mean: f32,
+    se: f32,
+    draw: f32,
+}
+
+#[cfg(all(target_os = "macos", feature = "metal"))]
+struct WeightSelection<'a> {
+    observations: &'a [u8],
+    observation_count: usize,
+    outcomes: &'a [f32],
+    candidates: &'a [u8],
+    candidate_count: usize,
+    blocks: &'a [WeightBlock],
+    row_bytes: usize,
+}
+
+pub fn select_weights(
+    observations: &[u8],
+    observation_count: usize,
+    outcomes: &[f32],
+    candidates: &[u8],
+    candidate_count: usize,
+    blocks: &[WeightBlock],
+    config: WeightSelectConfig,
+) -> Result<WeightSelectResult, String> {
+    let row_bytes = check_inputs(
+        observations,
+        observation_count,
+        outcomes,
+        candidates,
+        candidate_count,
+        blocks,
+        config.neighbors,
+    )?;
+
+    match config.device {
+        ComputeDevice::Cpu => {}
+        ComputeDevice::Metal => {
+            #[cfg(all(target_os = "macos", feature = "metal"))]
+            {
+                return metal_weights::select(
+                    observations,
+                    observation_count,
+                    outcomes,
+                    candidates,
+                    candidate_count,
+                    blocks,
+                    row_bytes,
+                    config,
+                );
+            }
+            #[cfg(not(all(target_os = "macos", feature = "metal")))]
+            {
+                return Err("Metal ENN device is not available in this build".to_string());
+            }
+        }
+        ComputeDevice::OpenCl => {
+            #[cfg(feature = "opencl")]
+            {
+                return opencl_weights::select(
+                    observations,
+                    observation_count,
+                    outcomes,
+                    candidates,
+                    candidate_count,
+                    blocks,
+                    row_bytes,
+                    config,
+                );
+            }
+            #[cfg(not(feature = "opencl"))]
+            {
+                return Err("OpenCL ENN device is not available in this build".to_string());
+            }
+        }
+        ComputeDevice::Cuda => {
+            return Err(
+                "CUDA materialized weight selection is not available; use resident trial search"
+                    .to_string(),
+            );
+        }
+        ComputeDevice::Auto => {
+            #[cfg(all(target_os = "macos", feature = "metal"))]
+            {
+                return select_auto(
+                    WeightSelection {
+                        observations,
+                        observation_count,
+                        outcomes,
+                        candidates,
+                        candidate_count,
+                        blocks,
+                        row_bytes,
+                    },
+                    config,
+                );
+            }
+            #[cfg(all(feature = "opencl", not(all(target_os = "macos", feature = "metal"))))]
+            {
+                return opencl_weights::select(
+                    observations,
+                    observation_count,
+                    outcomes,
+                    candidates,
+                    candidate_count,
+                    blocks,
+                    row_bytes,
+                    config,
+                );
+            }
+        }
+    }
+
+    cpu_weight(
+        observations,
+        observation_count,
+        outcomes,
+        candidates,
+        candidate_count,
+        blocks,
+        row_bytes,
+        config,
+    )
+}
+
+#[cfg(all(target_os = "macos", feature = "metal"))]
+fn select_auto(
+    input: WeightSelection<'_>,
+    config: WeightSelectConfig,
+) -> Result<WeightSelectResult, String> {
+    static ROUTES: OnceLock<Mutex<HashMap<u32, bool>>> = OnceLock::new();
+    let work = input
+        .observation_count
+        .saturating_mul(input.candidate_count)
+        .saturating_mul(input.row_bytes)
+        .max(1);
+    let bucket = work.ilog2();
+    let routes = ROUTES.get_or_init(|| Mutex::new(HashMap::new()));
+    if let Some(&gpu) = routes
+        .lock()
+        .map_err(|_| "weight route cache poisoned")?
+        .get(&bucket)
+    {
+        let device = if gpu {
+            ComputeDevice::Metal
+        } else {
+            ComputeDevice::Cpu
+        };
+        return select_weights(
+            input.observations,
+            input.observation_count,
+            input.outcomes,
+            input.candidates,
+            input.candidate_count,
+            input.blocks,
+            WeightSelectConfig { device, ..config },
+        );
+    }
+
+    let cpu_start = Instant::now();
+    let cpu = select_weights(
+        input.observations,
+        input.observation_count,
+        input.outcomes,
+        input.candidates,
+        input.candidate_count,
+        input.blocks,
+        WeightSelectConfig {
+            device: ComputeDevice::Cpu,
+            ..config
+        },
+    )?;
+    let cpu_time = cpu_start.elapsed();
+    let gpu_start = Instant::now();
+    let gpu = metal_weights::select(
+        input.observations,
+        input.observation_count,
+        input.outcomes,
+        input.candidates,
+        input.candidate_count,
+        input.blocks,
+        input.row_bytes,
+        config,
+    )?;
+    let gpu_time = gpu_start.elapsed();
+    let agrees = cpu.index == gpu.index && (cpu.score - gpu.score).abs() <= 1e-4;
+    let use_gpu = agrees && gpu_time < cpu_time;
+    routes
+        .lock()
+        .map_err(|_| "weight route cache poisoned")?
+        .insert(bucket, use_gpu);
+    Ok(if use_gpu { gpu } else { cpu })
+}
+
+/// Noise for observation rows, independent of candidate ordering and batching.
+pub(crate) fn thompson_draws(count: usize, seed: u64) -> Vec<f32> {
+    (0..count)
+        .map(|row| crate::hash::normal_metric(seed, row as i64, 0) as f32)
+        .collect()
+}
+
+/// Resident histories can reorder rows; their storage slots identify
+/// observations.
+pub(crate) fn history_draws(history: &[(usize, f32)], seed: u64) -> Vec<f32> {
+    history
+        .iter()
+        .map(|&(slot, _)| crate::hash::normal_metric(seed, slot as i64, 0) as f32)
+        .collect()
+}
+
+#[cfg(any(
+    all(target_os = "linux", target_arch = "x86_64", feature = "cuda"),
+    all(target_os = "macos", feature = "metal"),
+    feature = "opencl"
+))]
+pub(crate) fn acquisition_code(acquisition: AcquisitionKind) -> u32 {
+    match acquisition {
+        AcquisitionKind::Ucb => 0,
+        AcquisitionKind::Thompson => 1,
+        AcquisitionKind::Pareto => 2,
+    }
+}
+
+fn check_inputs(
+    observations: &[u8],
+    observation_count: usize,
+    outcomes: &[f32],
+    candidates: &[u8],
+    candidate_count: usize,
+    blocks: &[WeightBlock],
+    neighbors: usize,
+) -> Result<usize, String> {
+    if observation_count == 0 {
+        return Err("quantized-weight ENN selection requires at least one observation".to_string());
+    }
+    if candidate_count == 0 {
+        return Err("quantized-weight ENN selection requires at least one candidate".to_string());
+    }
+    if outcomes.len() != observation_count {
+        return Err(format!(
+            "outcome count {} does not match observation count {observation_count}",
+            outcomes.len()
+        ));
+    }
+    if neighbors == 0 || neighbors > observation_count {
+        return Err(format!(
+            "neighbor count must be between one and {observation_count}"
+        ));
+    }
+    if blocks.is_empty() {
+        return Err(
+            "quantized-weight ENN selection requires at least one metric block".to_string(),
+        );
+    }
+    let row_bytes: usize = blocks.iter().map(WeightBlock::row_bytes).sum();
+    if row_bytes == 0 {
+        return Err("quantized-weight row byte width must be positive".to_string());
+    }
+    if observations.len() != observation_count.saturating_mul(row_bytes) {
+        return Err(format!(
+            "observation bytes {} do not match shape ({observation_count}, {row_bytes})",
+            observations.len()
+        ));
+    }
+    if candidates.len() != candidate_count.saturating_mul(row_bytes) {
+        return Err(format!(
+            "candidate bytes {} do not match shape ({candidate_count}, {row_bytes})",
+            candidates.len()
+        ));
+    }
+    check_outcomes(outcomes)?;
+    Ok(row_bytes)
+}
+
+fn check_outcomes(outcomes: &[f32]) -> Result<(), String> {
+    outcomes
+        .iter()
+        .all(|value| value.is_finite())
+        .then_some(())
+        .ok_or_else(|| "outcomes must be finite".to_string())
+}
+
+fn cpu_weight(
+    observations: &[u8],
+    observation_count: usize,
+    outcomes: &[f32],
+    candidates: &[u8],
+    candidate_count: usize,
+    blocks: &[WeightBlock],
+    row_bytes: usize,
+    config: WeightSelectConfig,
+) -> Result<WeightSelectResult, String> {
+    let draws = if config.acquisition == AcquisitionKind::Thompson {
+        thompson_draws(observation_count, config.seed)
+    } else {
+        Vec::new()
+    };
+    let mut best = WeightSelectResult {
+        index: 0,
+        score: f32::NEG_INFINITY,
+    };
+    for candidate_index in 0..candidate_count {
+        let prediction = cpu_candidate(
+            observations,
+            observation_count,
+            outcomes,
+            &candidates[candidate_index * row_bytes..(candidate_index + 1) * row_bytes],
+            blocks,
+            row_bytes,
+            config,
+            &draws,
+        );
+        let score = scalar_score(prediction, config.acquisition, config.beta);
+        if score > best.score || (score == best.score && candidate_index < best.index) {
+            best = WeightSelectResult {
+                index: candidate_index,
+                score,
+            };
+        }
+    }
+    Ok(best)
+}
+
+/// Score a single candidate in the materialized weight-selection path.
+///
+/// `Pareto` is the legacy scalar mean-plus-uncertainty heuristic here. The
+/// multiobjective Pareto-front selector lives in `crate::acquisition`.
+fn scalar_score(prediction: Prediction, acquisition: AcquisitionKind, beta: f32) -> f32 {
+    match acquisition {
+        AcquisitionKind::Ucb => prediction.mean + beta * prediction.se,
+        AcquisitionKind::Pareto => prediction.mean + prediction.se,
+        AcquisitionKind::Thompson => prediction.mean + prediction.se * prediction.draw,
+    }
+}
+
+fn cpu_candidate(
+    observations: &[u8],
+    observation_count: usize,
+    outcomes: &[f32],
+    candidate: &[u8],
+    blocks: &[WeightBlock],
+    row_bytes: usize,
+    config: WeightSelectConfig,
+    draws: &[f32],
+) -> Prediction {
+    let mut nearest = vec![(f32::INFINITY, 0usize); config.neighbors];
+    for observation_index in 0..observation_count {
+        let observation =
+            &observations[observation_index * row_bytes..(observation_index + 1) * row_bytes];
+        let distance = weight_distance(candidate, observation, blocks);
+        insert_neighbor(&mut nearest, distance, observation_index);
+    }
+    weighted_prediction(&nearest, outcomes, config, draws)
+}
+
+fn weighted_prediction(
+    nearest: &[(f32, usize)],
+    outcomes: &[f32],
+    config: WeightSelectConfig,
+    draws: &[f32],
+) -> Prediction {
+    let mut weight_sum = 0.0f32;
+    let mut weighted_outcome = 0.0f32;
+    let mut weighted_noise = 0.0f32;
+    let mut weight_squared_sum = 0.0f32;
+    let reference_weight = if config.acquisition == AcquisitionKind::Thompson {
+        let variance = 1.0e-9 + config.epistemic_scale * nearest[0].0 + config.aleatoric_scale;
+        (1.0 / variance.max(1.0e-12)).max(f32::MIN_POSITIVE)
+    } else {
+        1.0
+    };
+    for &(distance, index) in nearest {
+        let variance = 1.0e-9f32 + config.epistemic_scale * distance + config.aleatoric_scale;
+        let weight = 1.0 / variance.max(1.0e-12);
+        weight_sum += weight;
+        weighted_outcome += weight * outcomes[index];
+        if config.acquisition == AcquisitionKind::Thompson {
+            // Rescale before squaring so small weights do not underflow.
+            let draw_weight = weight / reference_weight;
+            weighted_noise += draw_weight * draws[index];
+            weight_squared_sum += draw_weight * draw_weight;
+        }
+    }
+    let mean = weighted_outcome / weight_sum.max(1.0e-12);
+    let se = (1.0 / weight_sum.max(1.0e-12)).sqrt() * config.y_scale;
+    // Equivalent to posterior_draw's normalized weights divided by their L2
+    // norm.
+    let draw = if config.acquisition == AcquisitionKind::Thompson {
+        weighted_noise / weight_squared_sum.sqrt().max(1.0e-12)
+    } else {
+        0.0
+    };
+    Prediction { mean, se, draw }
+}
+
+pub fn weight_distance(left: &[u8], right: &[u8], blocks: &[WeightBlock]) -> f32 {
+    let mut distance = 0.0f32;
+    let mut byte_base = 0usize;
+    for block in blocks {
+        let scale = block.quantization_scale;
+        let weight = block.weight;
+        match block.bits {
+            4 => {
+                for element in 0..block.length {
+                    let byte = byte_base + element / 2;
+                    let shift = if element % 2 == 0 { 0 } else { 4 };
+                    let code_a = u32::from((left[byte] >> shift) & 0x0f);
+                    let code_b = u32::from((right[byte] >> shift) & 0x0f);
+                    let a = decode_code(code_a, block.encoding, scale);
+                    let b = decode_code(code_b, block.encoding, scale);
+                    let delta = a - b;
+                    distance = delta.mul_add(delta * weight, distance);
+                }
+            }
+            8 => {
+                for element in 0..block.length {
+                    let byte = byte_base + element;
+                    let code_a = u32::from(left[byte]);
+                    let code_b = u32::from(right[byte]);
+                    let a = decode_code(code_a, block.encoding, scale);
+                    let b = decode_code(code_b, block.encoding, scale);
+                    let delta = a - b;
+                    distance = delta.mul_add(delta * weight, distance);
+                }
+            }
+            _ => unreachable!("block bits are checked at construction"),
+        }
+        byte_base += block.row_bytes();
+    }
+    distance
+}
+
+mod sparse;
+pub use sparse::{
+    apply_sparse, blocks_words, draw_sparse, merge_values, missing_words, sparse_union, sparse_xor,
+    take_words,
+};
+#[cfg(test)]
+#[path = "weights/tests.rs"]
+mod tests;

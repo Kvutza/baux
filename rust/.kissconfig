@@ -1,0 +1,58 @@
+# Repository-wide complexity budgets, not generated codebase maxima.
+# Functions should coordinate one operation; modules should own one responsibility.
+# Behavioral coverage belongs to the Rust/Python runners, not lexical name matching.
+
+[global]
+docs_allowed = ["./"]
+duplication_enabled = true
+min_similarity = 0.9
+
+[test]
+test_coverage_threshold = 0
+
+[python]
+boolean_parameters = 1
+branches_per_function = 8
+calls_per_function = 28
+concrete_types_per_file = 4
+cycle_size = 0
+decorators_per_function = 1
+dependency_depth = 8
+functions_per_file = 48
+imported_names_per_file = 32
+indirect_dependencies = 32
+interface_types_per_file = 3
+keyword_only_args = 6
+lines_per_file = 512
+local_variables = 16
+max_indentation = 4
+methods_per_class = 24
+nested_function_depth = 1
+positional_args = 6
+return_values_per_function = 4
+returns_per_function = 5
+statements_per_file = 192
+statements_per_function = 30
+statements_per_try_block = 2
+
+[rust]
+arguments = 12
+attributes_per_function = 2
+boolean_parameters = 2
+branches_per_function = 12
+calls_per_function = 64
+concrete_types_per_file = 10
+cycle_size = 0
+dependency_depth = 3
+functions_per_file = 32
+imported_names_per_file = 24
+indirect_dependencies = 7
+interface_types_per_file = 1
+lines_per_file = 1000
+local_variables = 24
+max_indentation = 5
+methods_per_class = 24
+nested_function_depth = 2
+returns_per_function = 8
+statements_per_file = 256
+statements_per_function = 50

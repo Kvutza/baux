@@ -1,0 +1,51 @@
+[workspace]
+members = [
+  "backends/cuda",
+  "backends/cuda/device",
+  "rust/crates/corpus",
+  "rust/crates/cli",
+  "rust/crates/runner",
+  "rust/crates/tooling",
+  "rust/crates/baux",
+  "rust/crates/baux-py",
+  "rust/crates/modal-runner",
+  "rust/crates/ptx-synth",
+  "rust/crates/properties",
+  "evals",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.0.1"
+edition = "2024"
+rust-version = "1.88"
+license = "MIT"
+authors = ["BAUX Contributors"]
+repository = "https://github.com/Kvutza/baux"
+keywords = ["black-box", "optimization"]
+categories = ["science", "simulation"]
+
+[workspace.dependencies]
+clap = { version = "4.6", features = ["derive"] }
+baux = { path = "rust/crates/baux", version = "=0.0.1", default-features = false }
+ndarray = "0.17"
+numpy = "0.29"
+pyo3 = { version = "0.29", features = ["extension-module"] }
+rand = "0.8"
+rand_distr = "0.4"
+sha2 = "0.10"
+deser = { version = "=0.9.1", features = ["derive"] }
+baux-tooling = { path = "rust/crates/tooling", version = "=0.0.1" }
+thiserror = "1.0"
+cuda-core = "0.3.1"
+cuda-device = { git = "https://github.com/NVlabs/cuda-oxide.git", rev = "6abfaa091e29a6275c1943895bfbc97efa306e98" }
+cuda-host = { git = "https://github.com/NVlabs/cuda-oxide.git", rev = "6abfaa091e29a6275c1943895bfbc97efa306e98" }
+ptx-synth = { path = "rust/crates/ptx-synth", version = "=0.0.1" }
+
+[profile.dev]
+opt-level = 1
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 16

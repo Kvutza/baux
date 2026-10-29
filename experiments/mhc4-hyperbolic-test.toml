@@ -1,0 +1,57 @@
+#:schema ../schemas/tune-spec.schema.json
+version = 4
+
+experiment = "pretrain"
+model = "fbt-pisa1-mhc4-v1"
+
+[data]
+recipe = "fineweb-slowrun-100m-v1"
+
+[objective]
+function = "cross-entropy"
+sampling = "natural"
+window-tokens = 2048
+
+[execution]
+rounds = 128
+round-target-ms = 250
+
+[evaluation]
+interval = 64
+
+[optimizer]
+algorithm = "operator-bo"
+
+[optimizer.candidate-generation]
+generator = "lie"
+arms = 1
+candidates = 1
+
+[optimizer.candidate-generation.perturbation]
+distribution = "gaussian"
+
+[optimizer.surrogate]
+estimator = "knn"
+scaling = "hyperbolic"
+local-neighbors = 4
+neighbors = 16
+neighbor-rule = "fixed"
+epistemic-scale = 0.1
+aleatoric-scale = 0.05
+y-scale = 0.005
+fit = "leave-one-out"
+fit-candidates = 4
+fit-samples = 4
+
+[optimizer.acceptance]
+criterion = "positive-improvement"
+
+[optimizer.radius-control]
+policy = "turbo"
+shape = "scalar"
+initial = 0.004
+min = 0.0001
+max = 0.016
+
+[diagnostics]
+stage-samples = 3

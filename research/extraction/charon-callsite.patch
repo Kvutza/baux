@@ -1,0 +1,516 @@
+--- a/charon/rustc_trait_elaboration/src/elaboration.rs
++++ b/charon/rustc_trait_elaboration/src/elaboration.rs
+@@ -81,6 +81,38 @@ impl<'tcx, Id: ItemId> Candidate<'tcx, Id> {
+     }
+ }
+ 
++fn ty_projection_depth<'tcx>(ty: Ty<'tcx>) -> usize {
++    match ty.kind() {
++        TyKind::Alias(
++            _is_rigid,
++            ty::AliasTy {
++                kind: AliasTyKind::Projection { .. },
++                args,
++                ..
++            },
++        ) => {
++            1 + args
++                .iter()
++                .filter_map(|arg| arg.as_type())
++                .map(ty_projection_depth)
++                .max()
++                .unwrap_or(0)
++        }
++        TyKind::Ref(_, inner, _)
++        | TyKind::RawPtr(inner, _)
++        | TyKind::Slice(inner)
++        | TyKind::Array(inner, _) => ty_projection_depth(*inner),
++        TyKind::Adt(_, args) => args
++            .iter()
++            .filter_map(|arg| arg.as_type())
++            .map(ty_projection_depth)
++            .max()
++            .unwrap_or(0),
++        TyKind::Tuple(tys) => tys.iter().map(ty_projection_depth).max().unwrap_or(0),
++        _ => 0,
++    }
++}
++
+ /// Stores a set of predicates along with where they came from.
+ #[derive(Clone)]
+ pub struct PredicateSearcher<'tcx, Id: ItemId = DefId> {
+@@ -283,6 +315,16 @@ impl<'tcx, Id: ItemId> PredicateSearcher<'tcx, Id> {
+         for mut candidate in candidates {
+             // Normalize and erase all lifetimes.
+             candidate.pred = normalize_bound_val(tcx, self.typing_env, candidate.pred);
++            if candidate
++                .pred
++                .skip_binder()
++                .args
++                .iter()
++                .filter_map(|arg| arg.as_type())
++                .any(|ty| ty_projection_depth(ty) > 2)
++            {
++                continue;
++            }
+             if let Entry::Vacant(entry) = self.candidates.entry(candidate.pred) {
+                 entry.insert(candidate.clone());
+                 new_candidates.push(candidate);
+--- a/charon/src/bin/charon-driver/hax/types/new/full_def.rs
++++ b/charon/src/bin/charon-driver/hax/types/new/full_def.rs
+@@ -638,11 +638,13 @@ impl<'tcx> TraitImpl<'tcx> {
+         let mut item_map: HashMap<RDefId, _> = tcx
+             .associated_items(def_id)
+             .in_definition_order()
++            .filter(|assoc| !is_unbounded_external_trait_fn(tcx, assoc))
+             .map(|assoc| (assoc.trait_item_def_id().unwrap(), assoc))
+             .collect();
+         let items = tcx
+             .associated_items(trait_ref.def_id)
+             .in_definition_order()
++            .filter(|decl_assoc| !is_unbounded_external_trait_fn(tcx, decl_assoc))
+             .map(|decl_assoc| {
+                 let decl_def_id = decl_assoc.def_id;
+                 let trait_impl_id = def_id;
+@@ -727,6 +729,63 @@ impl<'tcx> InherentImpl<'tcx> {
+     }
+ }
+ 
++/// External third-party traits (such as `ndarray::Data`, `rayon`, `faiss`,
++/// `memmap2`, `sobol`, `serde`, `toml`, `num_traits`, `pyo3`, `numpy`)
++/// declare generic associated functions whose recursive associated-type
++/// hierarchy causes unbounded Hax `PredicateSearcher` elaboration even when
++/// only the trait bound is referenced.
++fn is_unbounded_external_trait_fn<'tcx>(tcx: ty::TyCtxt<'tcx>, assoc: &ty::AssocItem) -> bool {
++    if assoc.def_id.is_local()
++        || !matches!(assoc.kind, ty::AssocKind::Fn { .. })
++        || tcx.generics_of(assoc.def_id).own_params.is_empty()
++    {
++        return false;
++    }
++    let container_id = assoc
++        .trait_item_def_id()
++        .map(|id| tcx.parent(id))
++        .unwrap_or_else(|| assoc.container_id(tcx));
++    let krate = tcx.crate_name(container_id.krate);
++    if matches!(
++        krate.as_str(),
++        "ndarray"
++            | "ndarray_linalg"
++            | "rayon"
++            | "rayon_core"
++            | "faiss"
++            | "memmap2"
++            | "sobol"
++            | "serde"
++            | "serde_json"
++            | "toml"
++            | "num_traits"
++            | "thiserror"
++            | "pyo3"
++            | "numpy"
++    ) {
++        return true;
++    }
++    let container = tcx.def_path_str(container_id);
++    [
++        "ndarray::",
++        "ndarray_linalg::",
++        "rayon::",
++        "rayon_core::",
++        "faiss::",
++        "memmap2::",
++        "sobol::",
++        "serde::",
++        "serde_json::",
++        "toml::",
++        "num_traits::",
++        "thiserror::",
++        "pyo3::",
++        "numpy::",
++    ]
++    .iter()
++    .any(|prefix| container.starts_with(prefix))
++}
++
+ /// The associated items of the trait or inherent impl that owns `s`, in definition order.
+ fn assoc_items_of<'tcx, S: UnderOwnerState<'tcx>>(
+     s: &S,
+@@ -736,6 +795,7 @@ fn assoc_items_of<'tcx, S: UnderOwnerState<'tcx>>(
+     let def_id = s.owner().real_rust_def_id();
+     tcx.associated_items(def_id)
+         .in_definition_order()
++        .filter(|assoc| !is_unbounded_external_trait_fn(tcx, assoc))
+         .map(|assoc| {
+             let item_args = args.map(|args| {
+                 let item_def_id: DefId = assoc.def_id.sinto(s);
+--- a/charon/src/bin/charon-driver/hax/types/ty.rs
++++ b/charon/src/bin/charon-driver/hax/types/ty.rs
+@@ -1422,6 +1422,26 @@ impl<'tcx> BinderVariances<'tcx> for ty::PredicateKind<'tcx> {}
+ impl<'tcx> BinderVariances<'tcx> for ty::TraitRef<'tcx> {}
+ impl<'tcx> BinderVariances<'tcx> for ty::TraitClause<'tcx> {}
+ 
++/// Preserve the exact late-bound variable kinds and region variances of a
++/// function signature without translating its value. This matters for opaque
++/// external calls whose signature contains unconstrained generic consts.
++pub fn fn_sig_binder_shape<'tcx, S: UnderOwnerState<'tcx>>(
++    sig: ty::PolyFnSig<'tcx>,
++    s: &S,
++) -> Binder<()> {
++    let variances = fn_sig_bound_region_variances(s.base().tcx, sig);
++    let mut bound_vars: Vec<BoundVariableKind> = sig.bound_vars().sinto(s);
++    for (index, var) in bound_vars.iter_mut().enumerate() {
++        if let BoundVariableKind::Region(_, variance) = var {
++            *variance = variances
++                .get(&ty::BoundVar::from_usize(index))
++                .copied()
++                .sinto(s);
++        }
++    }
++    Binder { value: (), bound_vars }
++}
++
+ impl<'tcx, S: UnderOwnerState<'tcx>, T1, T2> SInto<S, Binder<T2>> for ty::Binder<'tcx, T1>
+ where
+     T1: SInto<(StateWithOwner<'tcx>, UnitBinder<'tcx>), T2> + BinderVariances<'tcx>,
+--- a/charon/src/bin/charon-driver/translate/translate_crate.rs
++++ b/charon/src/bin/charon-driver/translate/translate_crate.rs
+@@ -30,6 +30,63 @@ use charon_lib::options::{CliOpts, ConstHandling, StartFrom, TranslateOptions};
+ use charon_lib::transform::TransformCtx;
+ use macros::VariantIndexArity;
+ 
++fn is_external_callsite_crate<'tcx>(tcx: TyCtxt<'tcx>, def_id: DefId) -> Option<&'static str> {
++    if def_id.is_local() {
++        return None;
++    }
++    let krate = tcx.crate_name(def_id.krate);
++    let matched = match krate.as_str() {
++        "ndarray" => Some("ndarray"),
++        "ndarray_linalg" => Some("ndarray_linalg"),
++        "rayon" => Some("rayon"),
++        "rayon_core" => Some("rayon_core"),
++        "faiss" => Some("faiss"),
++        "memmap2" => Some("memmap2"),
++        "rand" => Some("rand"),
++        "rand_core" => Some("rand_core"),
++        "rand_chacha" => Some("rand_chacha"),
++        "rand_pcg" => Some("rand_pcg"),
++        "sobol" => Some("sobol"),
++        "serde" => Some("serde"),
++        "serde_json" => Some("serde_json"),
++        "toml" => Some("toml"),
++        "num_traits" => Some("num_traits"),
++        "thiserror" => Some("thiserror"),
++        "pyo3" => Some("pyo3"),
++        "numpy" => Some("numpy"),
++        _ => None,
++    };
++    if matched.is_some() {
++        return matched;
++    }
++    let path = tcx.def_path_str(def_id);
++    for (prefix, name) in [
++        ("ndarray::", "ndarray"),
++        ("ndarray_linalg::", "ndarray_linalg"),
++        ("rayon::", "rayon"),
++        ("rayon_core::", "rayon_core"),
++        ("faiss::", "faiss"),
++        ("memmap2::", "memmap2"),
++        ("rand::", "rand"),
++        ("rand_core::", "rand_core"),
++        ("rand_chacha::", "rand_chacha"),
++        ("rand_pcg::", "rand_pcg"),
++        ("sobol::", "sobol"),
++        ("serde::", "serde"),
++        ("serde_json::", "serde_json"),
++        ("toml::", "toml"),
++        ("num_traits::", "num_traits"),
++        ("thiserror::", "thiserror"),
++        ("pyo3::", "pyo3"),
++        ("numpy::", "numpy"),
++    ] {
++        if path.starts_with(prefix) {
++            return Some(name);
++        }
++    }
++    None
++}
++
+ /// The id of an untranslated item. Note that a given `DefId` may show up as multiple different
+ /// item sources, e.g. a constant will have both a `Global` version (for the constant itself) and a
+ /// `FunDecl` one (for its initializer function).
+@@ -790,6 +847,44 @@ impl<'tcx, 'ctx> ItemTransCtx<'tcx, 'ctx> {
+                 | hax::DefKind::Closure
+                 | hax::DefKind::Ctor(..)
+         ) {
++            // An opaque external method's instantiated Hax definition can entail
++            // unbounded trait-predicate elaboration (notably ndarray::view).
++            // rustc's PolyFnSig is the authority for its exact late-bound vars.
++            if !hax_item.def_id.is_local()
++                && !hax_item.has_non_lt_param
++                && matches!(hax_item.def_id.kind, hax::DefKind::Fn | hax::DefKind::AssocFn)
++                && is_external_callsite_crate(self.tcx, hax_item.def_id.real_rust_def_id()).is_some()
++            {
++                let def_id = hax_item.def_id.real_rust_def_id();
++                let sig = if matches!(hax_item.def_id.kind, hax::DefKind::AssocFn) {
++                    let rustc_args = hax::erase_free_regions(
++                        self.tcx,
++                        hax_item.rustc_args(self.hax_state_with_id()),
++                    );
++                    hax::get_method_sig(
++                        self.tcx,
++                        hax::UnderOwnerState::typing_env(self.hax_state_with_id()),
++                        def_id,
++                        Some(rustc_args),
++                    )
++                } else {
++                    self.tcx
++                        .fn_sig(def_id)
++                        .instantiate_identity()
++                        .skip_normalization()
++                };
++                let binder = hax::fn_sig_binder_shape(sig, self.hax_state_with_id());
++                for bound in binder.bound_vars {
++                    match bound {
++                        hax::BoundVariableKind::Region(..) => {
++                            generics.regions.push(self.translate_erased_region());
++                        }
++                        hax::BoundVariableKind::Ty(..) | hax::BoundVariableKind::Const => {
++                            panic!("unsupported non-region late-bound variable in external function")
++                        }
++                    }
++                }
++            } else {
+             let def = self.hax_def(hax_item)?;
+             let sig = match def.kind() {
+                 hax::FullDefKind::Fn(f) => Some(f.sig()),
+@@ -838,6 +933,7 @@ impl<'tcx, 'ctx> ItemTransCtx<'tcx, 'ctx> {
+                     );
+                 }
+             }
++            }
+             if let TransItemSourceKind::CallableMethod(ClosureKind::FnMut | ClosureKind::Fn)
+             | TransItemSourceKind::VTableMethod(TransImplSource::Callable(
+                 ClosureKind::FnMut | ClosureKind::Fn,
+@@ -982,6 +1078,129 @@ impl<'tcx, 'ctx> ItemTransCtx<'tcx, 'ctx> {
+         kind: TransItemSourceKind,
+         enqueue: bool,
+     ) -> Result<FnPtr, Error> {
++        // External third-party crate calls (`ndarray`, `rayon`, `faiss`,
++        // `memmap2`, `rand`, `rand_core`, `rand_chacha`, `sobol`, `serde`,
++        // `toml`, `num_traits`, `pyo3`, `numpy`) can trigger unbounded Hax
++        // generic declaration expansion over third-party trait graphs.
++        // Preserve each *instantiated callsite* instead: rustc has already
++        // typechecked the call and its concrete generic args. The resulting
++        // opaque declaration is an explicit external contract, never evidence
++        // that the third-party implementation has been verified.
++        if enqueue
++            && matches!(kind, TransItemSourceKind::Fun)
++            && !item.def_id.is_local()
++            && !item.has_non_lt_param
++            && let Some(krate_name) =
++                is_external_callsite_crate(self.tcx, item.def_id.real_rust_def_id())
++        {
++            let src = TransItemSource::from_item(item, kind, true);
++            let raw_rustc_args = item.rustc_args(self.hax_state_with_id());
++            let def_id = item.def_id.real_rust_def_id();
++            let item_id = match self.t_ctx.id_map.get(&src) {
++                Some(id) => *id,
++                None => {
++                    use std::hash::{Hash, Hasher};
++                    let mut hasher = std::collections::hash_map::DefaultHasher::new();
++                    format!("{raw_rustc_args:?}").hash(&mut hasher);
++                    src.hash(&mut hasher);
++                    let fn_name = self.tcx.item_name(def_id);
++                    let name_id = format!(
++                        "{fn_name}_{:?}_{:016x}",
++                        self.tcx.def_path_hash(def_id),
++                        hasher.finish(),
++                    );
++                    let name = Name::from_path(&[krate_name, "opaque_callsite", &name_id]);
++                    // The map key carries the full DefId and generic args. The
++                    // shorter display name must never alias a different source.
++                    assert!(
++                        !self.t_ctx.translated.item_names.iter().any(|(other_id, other_name)|
++                            other_name == &name
++                                && self.t_ctx.reverse_id_map.get(other_id) != Some(&src)),
++                        "opaque callsite display name collision",
++                    );
++                    let id = ItemId::Fun(self.t_ctx.translated.fun_decls.reserve_slot());
++                    self.t_ctx.id_map.insert(src.clone(), id);
++                    self.t_ctx.reverse_id_map.insert(id, src.clone());
++                    self.t_ctx.translated.item_names.insert(id, name);
++                    let dep_src = self.make_dep_source(span);
++                    self.t_ctx.errors.borrow_mut().register_dep_source(&dep_src, id, false);
++                    id
++                }
++            };
++            let ItemId::Fun(id) = item_id else { unreachable!() };
++            if self.t_ctx.translated.fun_decls.get(id).is_none() {
++                let rustc_args = hax::erase_free_regions(self.tcx, raw_rustc_args);
++                let rustc_sig = if matches!(item.def_id.kind, hax::DefKind::AssocFn) {
++                    hax::get_method_sig(
++                        self.tcx,
++                        hax::UnderOwnerState::typing_env(self.hax_state_with_id()),
++                        def_id,
++                        Some(rustc_args),
++                    )
++                } else {
++                    hax::inst_binder(
++                        self.tcx,
++                        hax::UnderOwnerState::typing_env(self.hax_state_with_id()),
++                        Some(rustc_args),
++                        self.tcx.fn_sig(def_id),
++                    )
++                };
++                let hax_sig: hax::TyFnSig = rustc_sig.skip_binder().sinto(self.hax_state_with_id());
++                let mut signature = self.translate_fun_sig(span, &hax_sig)?;
++                // The instantiated rustc arguments had their free regions
++                // erased or bound to the caller's body. Lift each one into a
++                // fresh signature-level region parameter so Aeneas can place
++                // it in a region hierarchy; callers instantiate the extra
++                // parameters with erased regions via `replace_erased_regions`,
++                // which shifts De Bruijn levels and refreshes cached type info
++                // across any nested region binders.
++                let mut generics = self.innermost_binder().params.clone();
++                signature = signature.replace_erased_regions(|| {
++                    let index = generics.regions.push_with(|index| RegionParam {
++                        index,
++                        name: None,
++                        variance: Variance::Invariant,
++                        mutability: LifetimeMutability::Unknown,
++                        late_bound: true,
++                    });
++                    Region::Var(DeBruijnVar::new_at_zero(index))
++                });
++                let name = self.t_ctx.translated.item_names.get(&ItemId::Fun(id)).unwrap().clone();
++                let item_meta = ItemMeta {
++                    name,
++                    span,
++                    source_text: Some(format!(
++                        "opaque callsite contract; def_path_hash={:?}; rustc_args={raw_rustc_args:?}",
++                        self.tcx.def_path_hash(def_id),
++                    )),
++                    attr_info: AttrInfo::default(),
++                    is_local: false,
++                    started_from: false,
++                    is_extern: false,
++                    opacity: ItemOpacity::Opaque,
++                    lang_item: None,
++                    diagnostic_item: None,
++                    has_errors: false,
++                };
++                self.t_ctx.translated.fun_decls.set_slot(id, FunDecl {
++                    def_id: id,
++                    item_meta,
++                    generics,
++                    signature: Box::new(signature),
++                    src: FunSource::Normal,
++                    body: Body::Opaque,
++                });
++            }
++            // `translate_region_binder` has just pushed the callee's late-bound
++            // regions. All type/const arguments are already instantiated into
++            // this synthetic declaration's signature and source identity.
++            let mut generics = self.innermost_binder().params.identity_args();
++            let declared = self.t_ctx.translated.fun_decls.get(id).unwrap().generics.regions.len();
++            while generics.regions.len() < declared {
++                generics.regions.push(Region::Erased);
++            }
++            return Ok(FnPtr::new(FnPtrKind::Fun(id), generics));
++        }
+         let fun_item: DeclRef<ItemId> =
+             self.translate_item_maybe_enqueue(span, item, kind, enqueue)?;
+         let fun_item: DeclRef<FunDeclId> = fun_item.try_convert_id().unwrap();
+@@ -1022,11 +1241,43 @@ impl<'tcx, 'ctx> ItemTransCtx<'tcx, 'ctx> {
+         if let Some(fn_ptr) = self.translate_callable_method_fn_ptr(span, item)? {
+             return Ok(fn_ptr);
+         }
+-        if let Some(fn_ptr) = self.translate_method_decl_fn_ptr(span, item)? {
++        let is_concrete_external_callsite = enqueue
++            && matches!(kind, TransItemSourceKind::Fun)
++            && !item.def_id.is_local()
++            && !item.has_non_lt_param
++            && is_external_callsite_crate(self.tcx, item.def_id.real_rust_def_id()).is_some();
++        if !is_concrete_external_callsite
++            && let Some(fn_ptr) = self.translate_method_decl_fn_ptr(span, item)?
++        {
+             return Ok(fn_ptr);
+         }
+ 
+-        let late_bound = self.hax_def(item)?.late_bound();
++        let late_bound = if is_concrete_external_callsite
++            && matches!(item.def_id.kind, hax::DefKind::Fn | hax::DefKind::AssocFn)
++        {
++            // Keep the same binder kinds and variances as Hax's FnSig conversion,
++            // without constructing the instantiated full definition merely to
++            // recover the binder for an opaque external function call.
++            let def_id = item.def_id.real_rust_def_id();
++            let sig = if matches!(item.def_id.kind, hax::DefKind::AssocFn) {
++                let rustc_args = hax::erase_free_regions(
++                    self.tcx,
++                    item.rustc_args(self.hax_state_with_id()),
++                );
++                hax::get_method_sig(
++                    self.tcx,
++                    hax::UnderOwnerState::typing_env(self.hax_state_with_id()),
++                    def_id,
++                    Some(rustc_args),
++                )
++            } else {
++                self.tcx.fn_sig(def_id)
++                    .instantiate_identity().skip_normalization()
++            };
++            hax::fn_sig_binder_shape(sig, self.hax_state_with_id())
++        } else {
++            self.hax_def(item)?.late_bound()
++        };
+         self.translate_region_binder(span, &late_bound, |ctx, _| {
+             ctx.translate_unbound_fn_ptr_maybe_enqueue(span, item, kind, enqueue)
+         })
+--- a/charon/src/bin/charon-driver/translate/translate_meta.rs
++++ b/charon/src/bin/charon-driver/translate/translate_meta.rs
+@@ -267,6 +267,15 @@ impl<'tcx> TranslateCtx<'tcx> {
+                 let impl_elem = match def_id.kind {
+                     // Inherent impl ("regular" impl)
+                     hax::DefKind::Impl { of_trait: false } => {
++                        // An external impl can have a large trait
++                        // predicate graph. Its DefPathHash identifies the exact
++                        // rustc definition without elaborating those predicates.
++                        if !def_id.is_local() {
++                            let hash = self.tcx.def_path_hash(def_id.real_rust_def_id());
++                            return Ok(Some(PathElem::Ident(
++                                format!("opaque_external_impl_{hash:?}"), disambiguator,
++                            )));
++                        }
+                         let full_def = self.hax_def_for_item(item)?;
+                         let hax::FullDefKind::InherentImpl(i) = full_def.kind() else {
+                             unreachable!()
+--- a/charon/src/name_matcher/mod.rs
++++ b/charon/src/name_matcher/mod.rs
+@@ -266,9 +266,8 @@ impl PatElem {
+                     && pat_ident == builtin.ident()
+                     && PatTy::matches_generics(ctx, generics, args)
+             }
+-            (PatElem::Impl(_pat), PathElem::Impl(ImplElem::Ty(..))) => {
+-                // TODO
+-                false
++            (PatElem::Impl(pat), PathElem::Impl(ImplElem::Ty(bound_ty))) => {
++                pat.matches_ty(ctx, &bound_ty.skip_binder)
+             }
+             (PatElem::Impl(pat), PathElem::Impl(ImplElem::Trait(impl_id))) => {
+                 let Some(timpl) = ctx.trait_impls.get(*impl_id) else {
+--- a/charon/src/transform/normalize/transform_dyn_trait_calls.rs
++++ b/charon/src/transform/normalize/transform_dyn_trait_calls.rs
+@@ -34,6 +34,11 @@ fn transform_dyn_trait_call(
+     ctx: &mut UllbcStatementTransformCtx<'_>,
+     call: &mut Call,
+ ) -> Result<(), Error> {
++    // Under `--preset=aeneas`, preserve `FnPtrKind::Trait(TraitRefKind::Dyn, ..)`
++    // so Aeneas can translate dynamic trait dispatch directly instead of raw vtable pointers.
++    if ctx.ctx.options.hide_marker_traits {
++        return Ok(());
++    }
+     let fmt_ctx = &ctx.ctx.into_fmt();
+ 
+     // Detect if this call should be transformed

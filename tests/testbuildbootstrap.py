@@ -1,0 +1,452 @@
+"""Exercise build setup in an isolated checkout with no developer tools on PATH."""
+
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+import tempfile
+import unittest
+
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+class BuildBootstrapTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(prefix="baux-bootstrap-")
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        for name in (
+            "baux",
+            "tools/build-wheels",
+            "tools/pixiw",
+            "tools/pixi",
+        ):
+            target = self.root / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(ROOT / name, target)
+        self.bin = self.root / "bin"
+        self.bin.mkdir()
+        for name in (
+            "bash",
+            "sh",
+            "cat",
+            "dirname",
+            "mkdir",
+            "mktemp",
+            "rm",
+            "cp",
+            "basename",
+        ):
+            (self.bin / name).symlink_to(shutil.which(name))
+        self.script("bin/uname", 'case "$1" in -s) echo Darwin;; -m) echo arm64;; esac')
+        self.script(
+            "tools/buck2-wheel-verify",
+            """
+mode=smoke
+[ "$#" -eq 0 ] || mode=$1
+echo "verify:$BAUX_PYTHON_VERSION:$mode" >> events
+""",
+        )
+        # ./baux always runs the Buck2 wrapper before dispatching to the CLI.
+        # Bootstrap isolates that behind a stub CLI that matches clap enough for
+        # build/--help, then falls through to the wheel-build stub for `build`.
+        self.script(
+            "fake-baux-cli",
+            """
+cmd=${1:-}
+[ -n "$cmd" ] || exit 2
+shift
+case "$cmd" in
+    build)
+        tests=0
+        out=dist
+        out_set=0
+        while [ "$#" -gt 0 ]; do
+            case "$1" in
+                -h|--help) exit 0 ;;
+                --tests)
+                    [ "$tests" -eq 0 ] || exit 2
+                    tests=1
+                    shift
+                    ;;
+                --distribution)
+                    shift
+                    ;;
+                --out)
+                    [ "$#" -ge 2 ] || exit 2
+                    [ -n "$2" ] || exit 2
+                    case "$2" in -*) exit 2 ;; esac
+                    [ "$out_set" -eq 0 ] || exit 2
+                    out=$2
+                    out_set=1
+                    shift 2
+                    ;;
+                *) exit 2 ;;
+            esac
+        done
+        if [ "$tests" -eq 1 ]; then
+            exec bash tools/build-wheels "$out" full
+        fi
+        exec bash tools/build-wheels "$out" smoke
+        ;;
+    tune)
+        case "${1:-}" in
+            -h|--help)
+                cat <<'EOF'
+Run a configured Bayesian optimization experiment [legacy alias: opt run]
+
+Usage: ./baux tune [OPTIONS] <CONFIG>
+EOF
+                exit 0
+                ;;
+            *) exit 2 ;;
+        esac
+        ;;
+    *)
+        for arg in "$@"; do
+            case "$arg" in -h|--help) exit 0 ;; esac
+        done
+        exit 2
+        ;;
+esac
+""",
+        )
+        self.script(
+            "tools/buck2w",
+            """
+if [ "${1:-}" = run ]; then
+    while [ "$#" -gt 0 ] && [ "$1" != "--" ]; do
+        shift
+    done
+    [ "${1:-}" = "--" ] || exit 2
+    shift
+    exec ./fake-baux-cli "$@"
+fi
+case " $* " in
+    *" --show-full-output "*)
+        case " $* " in
+            *" //rust/crates/cli:baux "*)
+                echo "root//rust/crates/cli:baux ./fake-baux-cli"
+                exit 0
+                ;;
+        esac
+        ;;
+esac
+echo build >> events
+printf '%s\n' "$*" >> buck-invocations
+version=3.14
+report=
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --config) case "$2" in baux.python_version=*) version=${2#*=};; esac; shift;;
+        --build-report) report=$2; shift;;
+    esac
+    shift
+done
+[ -n "$report" ] || {
+    echo "buck2w stub: missing --build-report" >&2
+    exit 2
+}
+case "$version" in
+    3.14) abi=cp314;;
+    3.15) abi=cp315;;
+esac
+case "$(uname -s):$(uname -m)" in
+    Darwin:arm64) tag=macosx_11_0_arm64;;
+    Linux:x86_64) tag=manylinux_2_28_x86_64;;
+    Linux:aarch64 | Linux:arm64) tag=manylinux_2_28_aarch64;;
+esac
+wheel="baux-0.0.0-$abi-$abi-$tag.whl"
+: > "$wheel"
+echo "$wheel" > "$report"
+""",
+        )
+        # The interpreter stub handles the readiness probe and report extraction.
+        self.script(
+            "python-stub",
+            """
+case "$2" in
+    3.*) [ ! -f "$0.broken" ]; exit $?;;
+    *) cat "$2";;
+esac
+""",
+        )
+        self.script(
+            "fake-pixi",
+            """
+echo "pixi:$*" >> events
+[ "${FAIL_INSTALL:-0}" = 0 ] || exit 42
+environment=$3
+bin=".pixi/envs/$environment/bin"
+mkdir -p "$bin"
+cp python-stub "$bin/python"
+rm -f "$bin/python.broken"
+""",
+        )
+        self.script(
+            "tools/bootstrap-dotslash",
+            """
+echo dotslash >> events
+mkdir -p .buck2-tools/bin
+cp dotslash-stub .buck2-tools/bin/dotslash
+""",
+        )
+        self.script("dotslash-stub", 'shift\nexec ./fake-pixi "$@"')
+        self.env = {k: v for k, v in os.environ.items() if not k.startswith("BAUX_")}
+        self.env["PATH"] = str(self.bin)
+
+    def script(self, name, body):
+        path = self.root / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("#!/bin/sh\nset -eu\n" + body + "\n")
+        path.chmod(0o755)
+
+    def prepare_python(self):
+        for name in ("baux-py315", "baux-py314"):
+            directory = self.root / ".pixi/envs" / name / "bin"
+            directory.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(self.root / "python-stub", directory / "python")
+
+    def run_build(self, *args):
+        return subprocess.run(
+            [str(self.root / "baux"), "build", "--distribution", *args],
+            cwd=self.root,
+            env=self.env,
+            text=True,
+            capture_output=True,
+            timeout=30,
+        )
+
+    def events(self):
+        path = self.root / "events"
+        return path.read_text().splitlines() if path.exists() else []
+
+    def buck_invocations(self):
+        path = self.root / "buck-invocations"
+        return path.read_text().splitlines() if path.exists() else []
+
+    def test_freshbuild(self):
+        first = self.run_build("--out", "output with spaces")
+        self.assertEqual(first.returncode, 0, first.stderr)
+        events = self.events()
+        installs = [line for line in events if line.startswith("pixi:")]
+        self.assertEqual(
+            installs,
+            [
+                f"pixi:install --environment {name}"
+                for name in (
+                    "baux-py315",
+                    "baux-py314",
+                )
+            ],
+        )
+        self.assertLess(events.index(installs[-1]), events.index("build"))
+        self.assertEqual(events.count("build"), 2)
+        assert_builds(self, self.buck_invocations())
+        self.assertEqual(
+            [line for line in events if line.startswith("verify:")],
+            [
+                "verify:3.15:smoke",
+                "verify:3.14:smoke",
+            ],
+        )
+        second = self.run_build()
+        self.assertEqual(second.returncode, 0, second.stderr)
+        self.assertEqual(self.events()[len(events) :].count("build"), 2)
+        self.assertFalse(
+            any(
+                "pixi" in line or "dotslash" in line
+                for line in self.events()[len(events) :]
+            )
+        )
+
+    def test_pixi(self):
+        (self.bin / "pixi").symlink_to(self.root / "fake-pixi")
+        result = self.run_build()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("dotslash", self.events())
+
+    def test_fullmatrix(self):
+        result = self.run_build("--tests")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            [line for line in self.events() if line.startswith("verify:")],
+            [
+                "verify:3.15:--tests",
+                "verify:3.14:--tests",
+            ],
+        )
+
+    def test_install(self):
+        self.env["FAIL_INSTALL"] = "1"
+        result = self.run_build()
+        self.assertEqual(result.returncode, 42, result.stderr)
+        self.assertNotIn("build", self.events())
+
+    def test_incompleteenv(self):
+        self.prepare_python()
+        (self.root / ".pixi/envs/baux-py314/bin/python.broken").touch()
+        result = self.run_build()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            [x for x in self.events() if x.startswith("pixi:")],
+            ["pixi:install --environment baux-py314"],
+        )
+
+    def test_badenv(self):
+        self.prepare_python()
+        self.env["BAUX_PYTHON_315"] = "missing-python"
+        result = self.run_build()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("BAUX_PYTHON_315", result.stderr)
+        self.assertEqual(self.events(), [])
+
+    def test_missingdep(self):
+        self.prepare_python()
+        # Execute the real readiness probe with only requests unavailable.
+        self.script(
+            ".pixi/envs/baux-py314/bin/python",
+            f"""
+case "$2" in
+    3.*) exec "{sys.executable}" -c '
+import importlib.util
+import sys
+sys.version_info = (3, 14)
+sys.platform = "darwin"
+importlib.util.find_spec = lambda name: None if name == "requests" else object()
+exec(sys.stdin.read())
+' "$2";;
+    *) cat "$2";;
+esac
+""",
+        )
+        result = self.run_build()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        events = self.events()
+        installs = [line for line in events if line.startswith("pixi:")]
+        self.assertEqual(installs, ["pixi:install --environment baux-py314"])
+        self.assertLess(events.index(installs[0]), events.index("build"))
+
+    def test_wrongpython(self):
+        self.prepare_python()
+        version = "315" if sys.version_info[:2] != (3, 15) else "314"
+        self.env[f"BAUX_PYTHON_{version}"] = sys.executable
+        self.env["PYTHONOPTIMIZE"] = "1"
+        result = self.run_build()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(f"BAUX_PYTHON_{version}", result.stderr)
+        self.assertEqual(self.events(), [])
+
+    def test_default(self):
+        self.prepare_python()
+        self.env["BAUX_PYTHON_315"] = ".pixi/envs/baux-py315/bin/python"
+        marker = self.root / ".pixi/envs/baux-py315/bin/python.broken"
+        marker.touch()
+        result = self.run_build()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertTrue(marker.exists())
+        self.assertEqual(self.events(), [])
+
+    def test_spaced(self):
+        self.prepare_python()
+        override = self.root / "custom python"
+        shutil.copy2(self.root / "python-stub", override)
+        self.env["BAUX_PYTHON_315"] = str(override)
+        result = self.run_build()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(any(line.startswith("pixi:") for line in self.events()))
+
+    def test_envpython(self):
+        self.env["BAUX_PYTHON"] = str(self.root / "python-stub")
+        result = self.run_build()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.events().count("build"), 2)
+        self.assertFalse(any(line.startswith("pixi:") for line in self.events()))
+
+    def test_linux(self):
+        self.prepare_python()
+        self.script("bin/uname", 'case "$1" in -s) echo Linux;; -m) echo x86_64;; esac')
+        for name in ("baux-py315", "baux-py314"):
+            self.script(
+                f".pixi/envs/{name}/bin/auditwheel",
+                'echo "auditwheel:$0:$1" >> events',
+            )
+        self.script(
+            "tools/buck2-wheel-verify",
+            'echo "verifier-tool:$(command -v auditwheel)" >> events',
+        )
+        result = self.run_build()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            [
+                line.replace(str(self.root) + "/", "").replace("./.pixi", ".pixi")
+                for line in self.events()
+                if line != "build"
+            ],
+            [
+                event
+                for name in (
+                    "baux-py315",
+                    "baux-py314",
+                )
+                for event in (
+                    f"auditwheel:.pixi/envs/{name}/bin/auditwheel:repair",
+                    f"auditwheel:.pixi/envs/{name}/bin/auditwheel:show",
+                    f"verifier-tool:.pixi/envs/{name}/bin/auditwheel",
+                )
+            ],
+        )
+
+    def test_version(self):
+        self.prepare_python()
+        self.env["BAUX_PYTHON"] = str(self.root / "python-stub")
+        self.env["BAUX_PYTHON_315"] = "missing-python"
+        result = self.run_build()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("BAUX_PYTHON_315", result.stderr)
+        self.assertEqual(self.events(), [])
+
+    def test_helpoptions(self):
+        self.assertEqual(self.run_build("--help").returncode, 0)
+        for args in (
+            ("--bad",),
+            ("--out",),
+            ("--out", ""),
+            ("--out", "--tests"),
+            ("--tests", "--tests"),
+            ("--out", "dist", "--out", "other"),
+        ):
+            with self.subTest(args=args):
+                self.assertNotEqual(self.run_build(*args).returncode, 0)
+                self.assertEqual(self.events(), [])
+
+    def test_help(self):
+        result = subprocess.run(
+            [str(self.root / "baux"), "tune", "--help"],
+            cwd=self.root,
+            env=self.env,
+            text=True,
+            capture_output=True,
+            timeout=30,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Bayesian optimization experiment", result.stdout)
+        self.assertIn("legacy alias: opt run", result.stdout)
+
+
+def assert_builds(test, invocations):
+    test.assertEqual(len(invocations), 2)
+    test.assertTrue(all("//:wheel" in command for command in invocations))
+    test.assertEqual(
+        sum("//build/buck2/tests:all" in command for command in invocations), 1
+    )
+    test.assertEqual(
+        sum("//rust/crates/cli:baux" in command for command in invocations),
+        1,
+    )
+
+
+if __name__ == "__main__":
+    unittest.main()

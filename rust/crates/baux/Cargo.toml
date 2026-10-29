@@ -1,0 +1,86 @@
+[package]
+name = "baux"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+description = "Black-box optimization library"
+readme = false
+include = [
+  "src/**",
+  "semantics/src/**",
+  "neighbor-index/src/**",
+  "artifact/src/**",
+  "examples/**",
+  "tests/**",
+  "Cargo.toml",
+  "LICENSE",
+  "NOTICE",
+]
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = [
+  'cfg(kani)',
+  'cfg(cabi_parity)',
+] }
+
+[dependencies]
+anstream = "1.0"
+anstyle = "1.0"
+charming = { version = "=0.6.0", default-features = false }
+deser.workspace = true
+deser-cbor = "=0.9.1"
+deser-json = { version = "=0.9.1", features = ["speedups"] }
+deser-toml = "=0.9.1"
+deser-value = "=0.9.1"
+jiff = "=0.2.38"
+kuva = { version = "=0.6.0", default-features = false }
+memmap2 = "0.9"
+ndarray = { workspace = true }
+opencl3 = { version = "0.12.3", optional = true }
+rand = "0.8"
+rand_distr = { workspace = true }
+rayon = "1.10"
+redb = "=2.6.4"
+sha2 = "0.10"
+sobol = "1.0.2"
+thiserror = { workspace = true }
+tokenizers = { version = "0.23.1", default-features = false, features = [
+  "fancy-regex",
+] }
+usearch = { version = "2.26", optional = true, default-features = false }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+metal = { version = "0.33.0", optional = true, features = ["mps"] }
+
+[target.'cfg(all(target_os = "linux", target_arch = "x86_64"))'.dependencies]
+cuda-core = { workspace = true, optional = true }
+
+[features]
+default = ["metal", "opencl"]
+buck2-test-data = []
+cuda = ["dep:cuda-core"]
+extraction = []
+native-flame = ["cuda"]
+metal = ["dep:metal"]
+opencl = ["dep:opencl3"]
+usearch = ["dep:usearch"]
+usearch-native = []
+usearch-numkong = ["dep:usearch", "usearch/numkong"]
+
+[dev-dependencies]
+numpy = { workspace = true }
+rand_chacha = "0.3"
+tempfile = "3"
+
+[[example]]
+name = "cuda_parity"
+required-features = ["cuda"]
+
+[[example]]
+name = "knn_bench"
+required-features = ["metal"]

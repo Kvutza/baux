@@ -1,0 +1,30 @@
+{
+  "preset": "fineweb_10bt_v1",
+  "format": "baux.pretraining.v2",
+  "source": {
+    "id": "HuggingFaceFW/fineweb",
+    "revision": "9bb295ddab0e05d785b879661af7260fed5140fc",
+    "paths": ["sample/10BT/000_00000.parquet"],
+    "text_field": "text",
+    "id_field": "url"
+  },
+  "split_policy": "document_sha256_mod20_train_0_17_validation_18_test_19",
+  "deduplication": "document_id",
+  "serialization": "text_document_v1",
+  "boundaries": "gemma_bos_eos_per_document_v1",
+  "tokenizer": {
+    "kind": "gemma4_bpe",
+    "vocabulary": 262144,
+    "package": "tokenizers==0.23.2",
+    "id": "google/gemma-4-12B",
+    "revision": "023679ed352de9bb66cc873c9009ce3482585c08",
+    "sha256": "12bac982b793c44b03d52a250a9f0d0b666813da566b910c24a6da0695fd11e6",
+    "markers": "unused0..14_to_baux_markers_ids6..20_v1",
+    "add_special_tokens": false
+  },
+  "context": 4096,
+  "materialization": {
+    "tokens": {"train": 62652416, "validation": 1056768, "test": 1056768}
+  },
+  "seed": 1162759768
+}

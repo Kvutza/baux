@@ -1,0 +1,9 @@
+#!/bin/sh
+set -eu
+
+if command -v fastmod >/dev/null 2>&1; then
+    exec fastmod "$@"
+else
+    echo "fastmod is not installed on PATH. Run 'brew install fastmod' or install via cargo." >&2
+    exit 1
+fi

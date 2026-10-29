@@ -1,0 +1,173 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+"$REPO_DIR/tools/bootstrap-dotslash" >/dev/null
+DOTSLASH="$REPO_DIR/.buck2-tools/bin/dotslash"
+if [[ ! -x "$DOTSLASH" && -x "$REPO_DIR/.buck2-tools/bin/dotslash.exe" ]]; then
+    DOTSLASH="$REPO_DIR/.buck2-tools/bin/dotslash.exe"
+fi
+
+DATA_DIR="$REPO_DIR/.cache/pgrust-data"
+PID_FILE="$DATA_DIR/pgrust.pid"
+PORT="${PGRUST_PORT:-5432}"
+HOST="${PGRUST_HOST:-127.0.0.1}"
+USER="${PGRUST_USER:-postgres}"
+
+get_bin_dir() {
+    # Ensure dotslash has extracted the package
+    "$DOTSLASH" "$REPO_DIR/tools/pgrust" --version >/dev/null 2>&1 || true
+    local exe_path
+    exe_path=$("$DOTSLASH" -- get-extracted-cache-path "$REPO_DIR/tools/pgrust")
+    dirname "$exe_path"
+}
+
+cmd_init() {
+    local bin_dir
+    bin_dir=$(get_bin_dir)
+
+    if [[ ! -d "$DATA_DIR/base" ]]; then
+        echo "[pgrustw] Initializing cluster at $DATA_DIR..."
+        mkdir -p "$DATA_DIR"
+        "$bin_dir/initdb" -D "$DATA_DIR" --no-locale --encoding UTF8 -U "$USER"
+        echo "[pgrustw] Cluster initialized."
+    else
+        echo "[pgrustw] Cluster already initialized at $DATA_DIR."
+    fi
+}
+
+is_running() {
+    if [[ -f "$PID_FILE" ]]; then
+        local pid
+        pid=$(head -n 1 "$PID_FILE" 2>/dev/null || true)
+        if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
+            return 0
+        fi
+    fi
+    return 1
+}
+
+cmd_start() {
+    cmd_init
+    local bin_dir
+    bin_dir=$(get_bin_dir)
+
+    if is_running; then
+        echo "[pgrustw] pgrust is already running (PID: $(cat "$PID_FILE"))."
+        return 0
+    fi
+
+    echo "[pgrustw] Starting pgrust server on port $PORT..."
+    ulimit -s 65520
+    export RUST_MIN_STACK=33554432
+
+    nohup "$bin_dir/postgres" \
+        -D "$DATA_DIR" \
+        -k /tmp \
+        -p "$PORT" \
+        -c "listen_addresses=$HOST" \
+        -c "io_method=sync" \
+        -c "max_stack_depth=60000" \
+        >> "$DATA_DIR/pgrust.log" 2>&1 &
+
+    local s_pid=$!
+    echo "$s_pid" > "$PID_FILE"
+
+    local attempts=0
+    while ! "$bin_dir/psql" -h "$HOST" -p "$PORT" -U "$USER" -c "SELECT 1;" >/dev/null 2>&1; do
+        sleep 0.1
+        attempts=$((attempts + 1))
+        if [[ $attempts -ge 50 ]]; then
+            echo "[pgrustw] Failed to connect after 5 seconds. Check $DATA_DIR/pgrust.log:" >&2
+            tail -n 20 "$DATA_DIR/pgrust.log" >&2
+            exit 1
+        fi
+    done
+
+    echo "[pgrustw] pgrust is ready (PID: $s_pid, port: $PORT)."
+}
+
+cmd_stop() {
+    if ! is_running; then
+        echo "[pgrustw] pgrust is not running."
+        rm -f "$PID_FILE"
+        return 0
+    fi
+
+    local pid
+    pid=$(cat "$PID_FILE")
+    echo "[pgrustw] Stopping pgrust (PID: $pid)..."
+    kill -15 "$pid" 2>/dev/null || true
+
+    local attempts=0
+    while kill -0 "$pid" 2>/dev/null; do
+        sleep 0.1
+        attempts=$((attempts + 1))
+        if [[ $attempts -ge 50 ]]; then
+            echo "[pgrustw] Process did not exit gracefully, sending SIGKILL..."
+            kill -9 "$pid" 2>/dev/null || true
+            break
+        fi
+    done
+
+    rm -f "$PID_FILE"
+    echo "[pgrustw] Stopped."
+}
+
+cmd_status() {
+    local bin_dir
+    bin_dir=$(get_bin_dir)
+
+    if is_running; then
+        local pid
+        pid=$(cat "$PID_FILE")
+        echo "[pgrustw] Running (PID: $pid, port: $PORT, data: $DATA_DIR)"
+        "$bin_dir/psql" -h "$HOST" -p "$PORT" -U "$USER" -c "SELECT version();"
+    else
+        echo "[pgrustw] Not running."
+        exit 1
+    fi
+}
+
+cmd_psql() {
+    local bin_dir
+    bin_dir=$(get_bin_dir)
+    exec "$bin_dir/psql" -h "$HOST" -p "$PORT" -U "$USER" "$@"
+}
+
+cmd_query() {
+    local bin_dir
+    bin_dir=$(get_bin_dir)
+    "$bin_dir/psql" -h "$HOST" -p "$PORT" -U "$USER" -c "$1"
+}
+
+case "${1:-}" in
+    init)
+        cmd_init
+        ;;
+    start)
+        cmd_start
+        ;;
+    stop)
+        cmd_stop
+        ;;
+    restart)
+        cmd_stop
+        cmd_start
+        ;;
+    status)
+        cmd_status
+        ;;
+    psql)
+        shift
+        cmd_psql "$@"
+        ;;
+    query)
+        shift
+        cmd_query "$@"
+        ;;
+    *)
+        echo "Usage: $0 {init|start|stop|restart|status|psql|query} [args...]"
+        exit 1
+        ;;
+esac

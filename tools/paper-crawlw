@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+BIN_PATH="$REPO_DIR/tools/bin/paper-crawl"
+SRC_PATH="$REPO_DIR/tools/.src/paper-crawl.rs"
+
+# Recompile if binary is missing or source is newer
+if [[ ! -x "$BIN_PATH" || "$SRC_PATH" -nt "$BIN_PATH" ]]; then
+    mkdir -p "$REPO_DIR/tools/bin"
+    echo "[paper-crawlw] Compiling paper-crawl from source (rustc -O)..." >&2
+    rustc -O "$SRC_PATH" -o "$BIN_PATH"
+fi
+
+exec "$BIN_PATH" "$@"

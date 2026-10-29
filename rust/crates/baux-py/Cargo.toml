@@ -1,0 +1,40 @@
+[package]
+name = "baux-py"
+version.workspace = true
+publish = false
+edition.workspace = true
+build = "src/xpybld.rs"
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+description = "Black-box optimization library"
+readme = false
+
+[lib]
+name = "baux_rust"
+crate-type = ["cdylib", "rlib"]
+
+[build-dependencies]
+baux = { workspace = true, default-features = false }
+
+[dependencies]
+baux = { workspace = true, default-features = false }
+ndarray = { workspace = true }
+numpy = { workspace = true }
+pyo3 = { workspace = true }
+rand = { workspace = true }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+metal = { version = "0.33.0", optional = true }
+
+[features]
+default = []
+cuda = ["baux/cuda"]
+native-flame = ["cuda", "baux/native-flame"]
+metal = ["baux/metal", "dep:metal"]
+opencl = ["baux/opencl"]
+usearch = ["baux/usearch"]
+usearch-native = ["baux/usearch-native"]
+usearch-numkong = ["baux/usearch-numkong"]

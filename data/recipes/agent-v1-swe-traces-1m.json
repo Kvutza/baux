@@ -1,0 +1,29 @@
+{
+  "preset": "agent_v1_swe_traces_1m",
+  "format": "baux.pretraining.v2",
+  "source": {
+    "id": "nvidia/Open-SWE-Traces",
+    "revision": "e192b26a43b8d09f156eeee781aef8e6bd5108ba",
+    "sha256": "d0a788df4d9254e828b5b20d14d3f33597367fe0c3de8f57f03941538c7aeb70",
+    "paths": ["data/minisweagent/qwen36_27b/scale-swe/train-00000-of-00017.parquet"]
+  },
+  "split_policy": "repository_sha256_mod20_train_0_17_validation_18_test_19",
+  "deduplication": "instance_id",
+  "serialization": "role_tool_channel_v4",
+  "boundaries": "gemma_bos_eos_per_episode_v1",
+  "tokenizer": {
+    "kind": "gemma4_bpe",
+    "vocabulary": 262144,
+    "package": "tokenizers==0.23.2",
+    "id": "google/gemma-4-12B",
+    "revision": "023679ed352de9bb66cc873c9009ce3482585c08",
+    "sha256": "12bac982b793c44b03d52a250a9f0d0b666813da566b910c24a6da0695fd11e6",
+    "markers": "unused0..14_to_baux_markers_ids6..20_v1",
+    "add_special_tokens": false
+  },
+  "context": 4096,
+  "materialization": {
+    "tokens": {"train": 4194304, "validation": 1056768, "test": 1056768}
+  },
+  "seed": 1162759768
+}

@@ -1,0 +1,3 @@
+# The SDK's static-engine feature uses the pinned Rust engine dependency.
+# Its build script therefore emits metadata only; no nested Cargo build runs.
+buildscript.run = true

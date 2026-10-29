@@ -1,0 +1,26 @@
+load("@crates//:defs.bzl", "aliases", "crate_deps", "crate_edition")
+load("@rules_rust//rust:defs.bzl", "rust_test")
+load("//build:targets.bzl", "PROPERTIES_CRATES")
+
+package(default_visibility = ["//visibility:public"])
+
+exports_files(["Cargo.toml"])
+
+rust_test(
+    name = "properties_test",
+    srcs = ["src/lib.rs"],
+    aliases = aliases(),
+    crate_name = "baux_properties",
+    crate_root = "src/lib.rs",
+    edition = crate_edition(),
+    crate_features = select({
+        "@platforms//os:macos": ["metal"],
+        "//conditions:default": [],
+    }),
+    deps = crate_deps(PROPERTIES_CRATES) + [
+        "//rust/crates/baux:baux_accelerators",
+    ] + select({
+        "@platforms//os:macos": ["@crates//:metal"],
+        "//conditions:default": [],
+    }),
+)

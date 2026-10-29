@@ -1,0 +1,20 @@
+# Taplo configuration file for TOML Language Server (taplo-lsp) and formatter.
+# Provides instant auto-completion, hover docs, schema validation, and formatting
+# across VS Code, Cursor, Zed, Helix, and Neovim.
+
+[formatting]
+column_width = 80
+array_auto_expand = true
+array_auto_collapse = false
+
+[schema]
+enabled = true
+
+[[rule]]
+include = [
+  "experiments/**/*.toml",
+  "performance/configs/**/*.toml",
+]
+
+[rule.schema]
+path = "schemas/tune-spec.schema.json"

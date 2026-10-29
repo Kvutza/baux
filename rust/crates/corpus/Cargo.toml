@@ -1,0 +1,30 @@
+[package]
+name = "baux-corpus"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+arrow-array = "54.3"
+futures = "0.3"
+opendal = { version = "0.54.1", features = ["services-http", "services-fs"] }
+parquet = { version = "54.3", default-features = false, features = [
+  "async",
+  "arrow",
+  "snap",
+  "json",
+] }
+tokenizers = { version = "0.23.1", default-features = false, features = [
+  "fancy-regex",
+] }
+parquet_opendal = "0.6"
+deser.workspace = true
+baux.workspace = true
+sha2 = "0.10"
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+
+[[bin]]
+name = "baux-corpus"
+path = "src/main.rs"

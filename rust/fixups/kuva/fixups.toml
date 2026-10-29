@@ -1,0 +1,2 @@
+# SVG library has no generated assets; only the disabled doom feature uses it.
+buildscript.run = false

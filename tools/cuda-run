@@ -1,0 +1,73 @@
+#!/bin/sh
+set -eu
+
+action=${1:-}
+[ -n "$action" ] || { echo "baux cuda: missing action" >&2; exit 2; }
+shift
+
+repo_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+cargo_home=${CARGO_HOME:-"$HOME/.cargo"}
+cargo_bin="$cargo_home/bin/cargo"
+[ -x "$cargo_bin" ] || cargo_bin=cargo
+
+export CUDA_HOME=${CUDA_HOME:-/usr/local/cuda-13.0}
+export CUDA_PATH=${CUDA_PATH:-$CUDA_HOME}
+export CUDA_TOOLKIT_PATH=${CUDA_TOOLKIT_PATH:-$CUDA_HOME}
+export CUDA_OXIDE_LLC=${CUDA_OXIDE_LLC:-/usr/bin/llc-21}
+export LIBCLANG_PATH=${LIBCLANG_PATH:-/usr/lib/llvm-21/lib}
+export LLVM_CONFIG_PATH=${LLVM_CONFIG_PATH:-/usr/bin/llvm-config-21}
+export CARGO_PROFILE_RELEASE_LTO=false
+export PATH="$cargo_home/bin:/usr/lib/llvm-21/bin:$CUDA_HOME/bin:$PATH"
+
+cuda_arch=${BAUX_CUDA_ARCH:-}
+if [ -z "$cuda_arch" ]; then
+    compute_cap=$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader,nounits -i 0 | sed -n '1p')
+    case "$compute_cap" in
+        7.5) cuda_arch=sm_75 ;;
+        8.0) cuda_arch=sm_80 ;;
+        9.0) cuda_arch=sm_90a ;;
+        *) echo "baux cuda: unsupported compute capability: $compute_cap" >&2; exit 2 ;;
+    esac
+fi
+case "$cuda_arch" in
+    sm_75|sm_80|sm_90a) ;;
+    *) echo "baux cuda: BAUX_CUDA_ARCH must be sm_75, sm_80, or sm_90a" >&2; exit 2 ;;
+esac
+export BAUX_FLAME_CUDA_ARCH=${BAUX_FLAME_CUDA_ARCH:-$cuda_arch}
+
+cd "$repo_dir/backends/cuda"
+target_dir=${CARGO_TARGET_DIR:-"$repo_dir/target"}
+case "$target_dir" in
+    /*) ;;
+    *) target_dir="$PWD/$target_dir" ;;
+esac
+export CARGO_TARGET_DIR="$target_dir"
+
+build_cuda() {
+    # The repository owns lock generation, as in build/buck2/cuda/defs.bzl.
+    if [ ! -f "$repo_dir/Cargo.lock" ]; then
+        "$cargo_bin" generate-lockfile --manifest-path "$repo_dir/Cargo.toml"
+    fi
+    "$cargo_bin" oxide build --arch "$cuda_arch" \
+        --cargo-target-dir "$target_dir" --device-codegen-crate baux_cuda_device \
+        "$@" -- -p baux-cuda --release --locked --manifest-path "$repo_dir/Cargo.toml"
+}
+
+case "$action" in
+    build) build_cuda "$@" ;;
+    context|parity|resident|prefill|model-check|model|generate|diffusion|diffusion-check|ptx-probe|bench)
+        build_cuda >&2
+        exec "$target_dir/release/baux-cuda" "$action" "$@"
+        ;;
+    sanitize)
+        if [ "$#" -gt 0 ]; then
+            exec compute-sanitizer --tool memcheck --error-exitcode 99 \
+                "$target_dir/release/baux-cuda" "$@"
+        fi
+        for command in parity resident prefill model-check diffusion-check context; do
+            compute-sanitizer --tool memcheck --error-exitcode 99 \
+                "$target_dir/release/baux-cuda" "$command" "$@"
+        done
+        ;;
+    *) echo "baux cuda: unknown native action: $action" >&2; exit 2 ;;
+esac

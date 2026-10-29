@@ -1,0 +1,56 @@
+#:schema ../schemas/tune-spec.schema.json
+version = 4
+
+experiment = "pretrain"
+model = "fbt-pisa1-mhc4-v1"
+
+[data]
+recipe = "stack-v3-rust-go-v1"
+
+[objective]
+function = "cross-entropy"
+sampling = "natural"
+window-tokens = 4096
+
+[execution]
+rounds = 256
+round-target-ms = 200
+
+[evaluation]
+interval = 256
+
+[optimizer]
+algorithm = "operator-bo"
+
+[optimizer.candidate-generation]
+generator = "independent"
+arms = 1
+candidates = 1
+
+[optimizer.candidate-generation.perturbation]
+distribution = "gaussian"
+
+[optimizer.surrogate]
+estimator = "knn"
+scaling = "self-tuning"
+neighbors = 8
+neighbor-rule = "fixed"
+epistemic-scale = 0.05
+aleatoric-scale = 0.05
+
+fit = "leave-one-out"
+fit-candidates = 4
+fit-samples = 4
+
+[optimizer.acceptance]
+criterion = "positive-improvement"
+
+[optimizer.radius-control]
+policy = "turbo"
+shape = "tensor-family-static"
+initial = 0.004
+min = 0.001
+max = 0.032
+
+[diagnostics]
+stage-samples = 3

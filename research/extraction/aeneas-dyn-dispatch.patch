@@ -1,0 +1,551 @@
+--- a/src/llbc/Values.ml
++++ b/src/llbc/Values.ml
+@@ -302,6 +302,7 @@
+           when evaluating a reference to a global, or a string literal).
+           Similarly to [Identity], this abstraction doesn't have any
+           computational content. *)
++  | DynTraitMut of (mvalue * trait_ref)
+ [@@deriving show, eq, ord]
+ 
+ module AbsBVarId = IdGen ()
+--- a/src/llbc/PrintBase.ml
++++ b/src/llbc/PrintBase.ml
+@@ -834,6 +834,7 @@
+     | Static -> "Static"
+     | Join -> "Join"
+     | WithCont -> "WithCont"
++    | DynTraitMut _ -> "DynTraitMut"
+ 
+   let abs_cont_to_string ?(span : Meta.span option = None) (env : fmt_env)
+       ?(with_ended : bool = false) (indent : string) (indent_incr : string)
+--- a/src/interp/InterpExpressions.ml
++++ b/src/interp/InterpExpressions.ml
+@@ -943,6 +943,58 @@
+                 e )
+           in
+           (Ok output, ctx, cc_comp cc cf)
++      | TRef (_, dyn_ty, RMut), VBorrow (VMutBorrow (bid, inner_v)) ->
++          [%sanity_check] span (not (ty_has_regions dyn_ty));
++          [%cassert] span (ty_no_regions inner_v.ty) "Unimplemented";
++          let dyn_sv = mk_fresh_symbolic_value span ctx dyn_ty in
++          let dyn_v = mk_tvalue_from_symbolic_value dyn_sv in
++
++          let rid = ctx.fresh_region_id () in
++          let abs_id = ctx.fresh_abs_id () in
++          let lid = ctx.fresh_borrow_id () in
++          let borrow : tavalue =
++            {
++              value =
++                ABorrow
++                  (AMutBorrow (PNone, bid, mk_aignored span inner_v.ty None));
++              ty = TRef (RVar (Free rid), inner_v.ty, RMut);
++            }
++          in
++          let loan : tavalue =
++            {
++              value =
++                ALoan (AMutLoan (PNone, lid, mk_aignored span dyn_ty None));
++              ty = TRef (RVar (Free rid), dyn_ty, RMut);
++            }
++          in
++          let abs =
++            {
++              abs_id;
++              kind = DynTraitMut (inner_v, trait_ref);
++              can_end = true;
++              parents = AbsId.Set.empty;
++              regions = { owned = RegionSet.singleton (RVar (Free rid)) };
++              ended_subabs = AbsLevelSet.empty;
++              avalues = [ borrow; loan ];
++              cont = None;
++            }
++          in
++          let ctx = { ctx with env = EAbs abs :: ctx.env } in
++          let output : tvalue =
++            {
++              value = VBorrow (VMutBorrow (lid, dyn_v));
++              ty = TRef (RErased, dyn_ty, RMut);
++            }
++          in
++          let cf e =
++            SA.IntroSymbolic
++              ( ctx,
++                mk_opt_place_from_op span op ctx,
++                dyn_sv,
++                VaDynTrait (inner_v, trait_ref),
++                e )
++          in
++          (Ok output, ctx, cc_comp cc cf)
+       | _ -> [%craise] span "Unsupported cast to a dynamic trait")
+   | Cast (CastUnsize (ty1, MetaVTableUpcast fields)) ->
+       let ty0 = v.ty in
+--- a/src/pure/Pure.ml
++++ b/src/pure/Pure.ml
+@@ -155,6 +155,7 @@
+           Used by the [-feature-gates] option: the functions annotated with
+           [#[target_feature(enable = "...")]] get an assertion introduced at the
+           beginning of their body. *)
++  | DynMutBack
+ [@@deriving show, ord]
+ 
+ (* Builtin declarations coming from external libraries.
+@@ -690,6 +691,7 @@
+     (* Note: the `de_bruijn_id`s are incorrect, see comment on `translate_region_binder` *)
+   | ParentClause of trait_instance_id * trait_decl_id * trait_clause_id
+   | BuiltinOrAuto of builtin_impl_data
++  | Dyn
+   | UnknownTrait of string
+ 
+ and type_id = TAdtId of type_decl_id | TTuple | TBuiltin of builtin_ty
+--- a/src/pure/PrintPure.ml
++++ b/src/pure/PrintPure.ml
+@@ -391,6 +391,7 @@
+       let clause_id = trait_clause_id_to_string env clause_id in
+       "parent(" ^ inst_id ^ ")::" ^ clause_id
+   | BuiltinOrAuto data -> builtin_impl_data_to_string data
++  | Dyn -> "Dyn"
+   | UnknownTrait msg -> "UNKNOWN(" ^ msg ^ ")"
+ 
+ and trait_clause_to_string (env : fmt_env) (clause : trait_param) : string =
+@@ -871,6 +872,7 @@
+   | ResultUnwrapMut -> "@resultUnwrapMut"
+   | GetTarget -> "@getTarget"
+   | TargetFeatureEnabled -> "@targetFeatureEnabled"
++  | DynMutBack -> "@dynMutBack"
+ 
+ let regular_fun_id_to_string (env : fmt_env) (fun_id : fun_id) : string =
+   match fun_id with
+--- a/src/pure/PureMicroPassesAnnots.ml
++++ b/src/pure/PureMicroPassesAnnots.ml
+@@ -207,6 +207,7 @@
+           | ResultUnwrapMut -> (hole, mk_holes (), false)
+           | GetTarget -> (f.ty, mk_known (), false)
+           | TargetFeatureEnabled -> (f.ty, mk_known (), false)
++          | DynMutBack -> (f.ty, mk_known (), false)
+         end
+       | FromLlbc (fid, lp_id) -> begin
+           (* Lookup the signature *)
+--- a/src/symbolic/SymbolicToPureTypes.ml
++++ b/src/symbolic/SymbolicToPureTypes.ml
+@@ -129,7 +129,7 @@
+   | ItemClause _ ->
+       (* `ItemClause`s are removed by Charon's `--remove-associated-types`, except for GATs *)
+       [%craise_opt_span] span "Generic Associated Types are not supported yet"
+-  | Dyn -> [%craise_opt_span] span "Dynamic trait types are not supported yet"
++  | Dyn -> Dyn
+   | UnknownTrait s -> [%craise_opt_span] span ("Unknown trait found: " ^ s)
+ 
+ (** Translate a signature type - TODO: factor out the different translation
+--- a/src/symbolic/SymbolicToPureExpressions.ml
++++ b/src/symbolic/SymbolicToPureExpressions.ml
+@@ -944,6 +944,8 @@
+   | V.WithCont -> translate_end_abstraction_with_cont ectx abs abs_level e ctx
+   | V.Identity | V.CopySymbolicValue | V.Static ->
+       translate_end_abs_identity ectx abs abs_level e ctx
++  | V.DynTraitMut (inner_v, _trait_ref) ->
++      translate_end_abs_dyn_trait_mut ectx abs abs_level inner_v e ctx
+ 
+ and translate_end_abstraction_synth_input (ectx : C.eval_ctx) (abs : V.abs)
+     (e : S.expr) (ctx : bs_ctx) (rg_id : T.RegionGroupId.id)
+@@ -1201,8 +1203,6 @@
+ 
+ and translate_end_abs_identity (ectx : C.eval_ctx) (abs : V.abs)
+     (abs_level : abs_level) (e : S.expr) (ctx : bs_ctx) : texpr =
+-  [%cassert] ctx.span (abs_level = 0) "Unimplemented";
+-
+   (* We simply check that the abstraction only contains shared borrows/loans,
+      and translate the next expression *)
+ 
+@@ -1215,6 +1215,27 @@
+   (* Translate the next expression *)
+   translate_expr e ctx
+ 
++and translate_end_abs_dyn_trait_mut (ectx : C.eval_ctx) (abs : V.abs)
++    (abs_level : abs_level) (inner_v : V.tvalue) (e : S.expr) (ctx : bs_ctx) :
++    texpr =
++  [%cassert] ctx.span (abs_level = 0) "Unimplemented";
++  let inputs = abs_to_consumed ctx ectx abs abs_level in
++  let ctx, outputs = abs_to_given_back None abs abs_level ctx in
++  let dyn_back, output =
++    match (inputs, outputs) with
++    | [ dyn_back ], [ output ] -> (dyn_back, output)
++    | _ -> [%internal_error] ctx.span
++  in
++  let init_e = tvalue_to_texpr ctx ectx inner_v in
++  let func : qualif =
++    { id = FunOrOp (Fun (Pure DynMutBack)); generics = empty_generic_args }
++  in
++  let func_ty = mk_arrows [ init_e.ty; dyn_back.ty ] output.ty in
++  let func : texpr = { e = Qualif func; ty = func_ty } in
++  let call = [%add_loc] mk_apps ctx.span func [ init_e; dyn_back ] in
++  let next_e = translate_expr e ctx in
++  [%add_loc] mk_closed_checked_let ctx false output call next_e
++
+ and translate_end_abstraction_synth_ret (ectx : C.eval_ctx) (abs : V.abs)
+     (e : S.expr) (ctx : bs_ctx) (rg_id : T.RegionGroupId.id)
+     (abs_level : abs_level) : texpr =
+@@ -1321,7 +1342,11 @@
+ and translate_end_abstraction_join_or_loop (ectx : C.eval_ctx) (abs : V.abs)
+     (abs_level : abs_level) (e : S.expr) (ctx : bs_ctx) : texpr =
+   let span = ctx.span in
+-  [%cassert] span (abs_level = 0) "Unimplemented";
++  if abs_level > 0 then (
++    let ctx, outputs = abs_to_given_back None abs abs_level ctx in
++    [%cassert] span (outputs = []) "Unimplemented";
++    translate_expr e ctx)
++  else
+   (* Compute the input and output values *)
+   let back_inputs = abs_to_consumed ctx ectx abs abs_level in
+   let ctx, outputs = abs_to_given_back None abs abs_level ctx in
+@@ -1376,7 +1401,11 @@
+ and translate_end_abstraction_with_cont (ectx : C.eval_ctx) (abs : V.abs)
+     (abs_level : abs_level) (e : S.expr) (ctx : bs_ctx) : texpr =
+   [%ldebug "abs:\n" ^ abs_to_string ctx abs];
+-  [%cassert] ctx.span (abs_level = 0) "Unimplemented";
++  if abs_level > 0 then (
++    let ctx, outputs = abs_to_given_back None abs abs_level ctx in
++    [%cassert] ctx.span (outputs = []) "Unimplemented";
++    translate_expr e ctx)
++  else
+   (* Translate the continuation *)
+   let ctx, can_fail, output, abs_e =
+     translate_ended_abs_to_texpr ctx ectx abs abs_level
+--- a/src/extract/ExtractBase.ml
++++ b/src/extract/ExtractBase.ml
+@@ -1274,6 +1274,7 @@
+         (ResultUnwrapMut, "core.result.Result.unwrap.mut");
+         (GetTarget, "get_target");
+         (TargetFeatureEnabled, "target_feature_enabled");
++        (DynMutBack, "BauxResearch.Extraction.Native.dynBack");
+       ]
+   | HOL4 ->
+       (* We don't provide [FuelDecrease] and [FuelEqZero] on purpose *)
+@@ -2121,6 +2122,9 @@
+        field names: we want to allow using field names for variables if
+        the backend allows such collisions *)
+     StringSet.mem s ctx.names_maps.names_map.names_set
+     || StringSet.mem s ctx.names_maps.strict_names_map.names_set
++    || StringSet.exists
++         (fun n -> String.starts_with ~prefix:(s ^ ".") n)
++         ctx.names_maps.names_map.names_set
+   in
+   basename_to_unique_aux collision name_append_index name
+--- a/src/extract/ExtractTypes.ml
++++ b/src/extract/ExtractTypes.ml
+@@ -518,7 +518,10 @@
+           let ctx = ctx_add span (TypeVarId (Method, self.index)) varname ctx in
+           F.pp_print_string fmt "(fun";
+           F.pp_print_space fmt ();
+-          F.pp_print_string fmt varname;
++          if backend () = Lean then
++            F.pp_print_string fmt
++              ("(" ^ varname ^ " : " ^ type_keyword ~poly:false span ^ ")")
++          else F.pp_print_string fmt varname;
+           F.pp_print_space fmt ();
+           F.pp_print_string fmt "=>";
+           F.pp_print_space fmt ();
+@@ -686,6 +689,78 @@
+       F.pp_print_string fmt name;
+       extract_generic_args span ctx fmt no_params_tys ~explicit generics;
+       if use_brackets then F.pp_print_string fmt ")"
++  | Dyn ->
++      [%sanity_check] span (backend () = Lean);
++      let trait_decl =
++        TraitDeclId.Map.find trait_ref.trait_decl_id ctx.trans_trait_decls
++      in
++      let self_ty =
++        match trait_ref.decl_generics.types with
++        | [ ty ] -> ty
++        | _ -> [%internal_error] span
++      in
++      F.pp_print_string fmt "{ ";
++      List.iteri
++        (fun idx (meth : trait_method) ->
++          if idx > 0 then F.pp_print_string fmt ", ";
++          let method_name =
++            ctx_get_trait_method span trait_ref.trait_decl_id meth.method_id ctx
++          in
++          let self_param_ty, extra_inputs =
++            match meth.signature.inputs with
++            | self_param_ty :: extra_inputs -> (self_param_ty, extra_inputs)
++            | [] -> [%internal_error] span
++          in
++          let ret_ty =
++            match meth.signature.output with
++            | TAdt (TBuiltin TResult, { types = [ ret_ty ]; _ }) -> ret_ty
++            | _ -> meth.signature.output
++          in
++          let extra_vars =
++            List.mapi (fun i _ -> "x" ^ string_of_int i) extra_inputs
++          in
++          let extra_args_str =
++            if extra_vars = [] then "" else " " ^ String.concat " " extra_vars
++          in
++          F.pp_print_string fmt (method_name ^ " := (fun (d : ");
++          extract_ty span ctx fmt no_params_tys ~inside:false self_ty;
++          F.pp_print_string fmt ")";
++          if ret_ty = self_param_ty then
++            F.pp_print_string fmt
++              (extra_args_str ^ " => Aeneas.Std.bind (d.inst." ^ method_name
++             ^ " d.value" ^ extra_args_str
++             ^ ") (fun value' => ok { d with value := value' }))")
++          else (
++            match ret_ty with
++            | TAdt (TTuple, { types = tuple_tys; _ })
++              when List.mem self_param_ty tuple_tys ->
++                let pats =
++                  List.mapi
++                    (fun i ty ->
++                      if ty = self_param_ty then "value'"
++                      else "r" ^ string_of_int i)
++                    tuple_tys
++                in
++                let exprs =
++                  List.mapi
++                    (fun i ty ->
++                      if ty = self_param_ty then "{ d with value := value' }"
++                      else "r" ^ string_of_int i)
++                    tuple_tys
++                in
++                F.pp_print_string fmt
++                  (extra_args_str ^ " => Aeneas.Std.bind (d.inst." ^ method_name
++                 ^ " d.value" ^ extra_args_str ^ ") (fun ("
++                 ^ String.concat ", " pats
++                 ^ ") => ok ("
++                 ^ String.concat ", " exprs
++                 ^ ")))")
++            | _ ->
++                F.pp_print_string fmt
++                  (extra_args_str ^ " => d.inst." ^ method_name ^ " d.value"
++                 ^ extra_args_str ^ ")")))
++        trait_decl.methods;
++      F.pp_print_string fmt " }"
+   | Clause var ->
+       let origin, id = origin_from_de_bruijn_var var in
+       let name = ctx_get_local_trait_clause span origin id ctx in
+@@ -1138,6 +1213,42 @@
+       | Coq | FStar | HOL4 -> F.pp_open_hvbox fmt 0
+       | Lean -> F.pp_open_vbox fmt 0);
+       (* Print the fields *)
++      let field_prefixes =
++        if backend () = Lean then
++          FieldId.mapi
++            (fun fid _ ->
++              ctx_get_field def.item_meta.span (TAdtId def.def_id) fid ctx ^ ".")
++            fields
++        else []
++      in
++      let ctx =
++        if field_prefixes = [] then ctx
++        else
++          let qualify id name =
++            if
++              List.exists
++                (fun prefix -> String.starts_with ~prefix name)
++                field_prefixes
++            then
++              let is_opaque_type =
++                match id with
++                | TypeId (TAdtId tid) -> (
++                    match TypeDeclId.Map.find_opt tid ctx.trans_types with
++                    | Some d -> d.kind = Opaque
++                    | None -> false)
++                | _ -> false
++              in
++              match (!Config.namespace, is_opaque_type) with
++              | Some ns, false -> ns ^ "." ^ name
++              | _ -> "_root_." ^ name
++            else name
++          in
++          let id_to_name =
++            IdMap.mapi qualify ctx.names_maps.names_map.id_to_name
++          in
++          let names_map = { ctx.names_maps.names_map with id_to_name } in
++          { ctx with names_maps = { ctx.names_maps with names_map } }
++      in
+       let print_field (field_id : FieldId.id) (f : field) : unit =
+         let field_name =
+           ctx_get_field def.item_meta.span (TAdtId def.def_id) field_id ctx
+--- a/src/extract/Extract.ml
++++ b/src/extract/Extract.ml
+@@ -990,6 +990,80 @@
+          ]}
+       *)
+       (match fun_id with
++      | FromLlbc
++          ( TraitMethod ({ trait_id = Dyn; trait_decl_ref }, method_id),
++            lp_id ) ->
++          [%sanity_check] span (backend () = Lean && lp_id = None);
++          let trait_decl =
++            TraitDeclId.Map.find trait_decl_ref.trait_decl_id
++              ctx.trans_trait_decls
++          in
++          let meth =
++            List.find
++              (fun (meth : trait_method) -> meth.method_id = method_id)
++              trait_decl.methods
++          in
++          let method_name =
++            ctx_get_trait_method span trait_decl_ref.trait_decl_id method_id ctx
++          in
++          let self_ty =
++            match trait_decl_ref.decl_generics.types with
++            | [ ty ] -> ty
++            | _ -> [%internal_error] span
++          in
++          let self_param_ty, extra_inputs =
++            match meth.signature.inputs with
++            | self_param_ty :: extra_inputs -> (self_param_ty, extra_inputs)
++            | [] -> [%internal_error] span
++          in
++          let ret_ty =
++            match meth.signature.output with
++            | TAdt (TBuiltin TResult, { types = [ ret_ty ]; _ }) -> ret_ty
++            | _ -> meth.signature.output
++          in
++          let extra_vars =
++            List.mapi (fun i _ -> "x" ^ string_of_int i) extra_inputs
++          in
++          let extra_args_str =
++            if extra_vars = [] then "" else " " ^ String.concat " " extra_vars
++          in
++          F.pp_print_string fmt "(fun (d : ";
++          extract_ty span ctx fmt TypeDeclId.Set.empty ~inside:false self_ty;
++          F.pp_print_string fmt ")";
++          if ret_ty = self_param_ty then
++            F.pp_print_string fmt
++              (extra_args_str ^ " => Aeneas.Std.bind (d.inst." ^ method_name
++             ^ " d.value" ^ extra_args_str
++             ^ ") (fun value' => ok { d with value := value' }))")
++          else (
++            match ret_ty with
++            | TAdt (TTuple, { types = tuple_tys; _ })
++              when List.mem self_param_ty tuple_tys ->
++                let pats =
++                  List.mapi
++                    (fun i ty ->
++                      if ty = self_param_ty then "value'"
++                      else "r" ^ string_of_int i)
++                    tuple_tys
++                in
++                let exprs =
++                  List.mapi
++                    (fun i ty ->
++                      if ty = self_param_ty then "{ d with value := value' }"
++                      else "r" ^ string_of_int i)
++                    tuple_tys
++                in
++                F.pp_print_string fmt
++                  (extra_args_str ^ " => Aeneas.Std.bind (d.inst." ^ method_name
++                 ^ " d.value" ^ extra_args_str ^ ") (fun ("
++                 ^ String.concat ", " pats
++                 ^ ") => ok ("
++                 ^ String.concat ", " exprs
++                 ^ ")))")
++            | _ ->
++                F.pp_print_string fmt
++                  (extra_args_str ^ " => d.inst." ^ method_name ^ " d.value"
++                 ^ extra_args_str ^ ")"))
+       | FromLlbc (TraitMethod (trait_ref, method_name), lp_id) ->
+           let trait_decl_id = trait_ref.trait_decl_ref.trait_decl_id in
+           let trait_decl =
+--- a/src/llbc/FunsAnalysis.ml
++++ b/src/llbc/FunsAnalysis.ml
+@@ -106,8 +106,11 @@
+        way. *)
+     let get_builtin_info (f : fun_decl) : ExtractBuiltin.effect_info option =
+       let open ExtractBuiltin in
+-      NameMatcherMap.find_opt name_matcher_ctx f.item_meta.name
+-        (builtin_fun_effects_map ())
++      if f.item_meta.diagnostic_item = Some "box_new" then
++        Some { can_fail = false }
++      else
++        NameMatcherMap.find_opt name_matcher_ctx f.item_meta.name
++          (builtin_fun_effects_map ())
+     in
+ 
+     (* JP: Why not use a reduce visitor here with a tuple of the values to be
+--- a/src/llbc/LlbcAstUtils.ml
++++ b/src/llbc/LlbcAstUtils.ml
+@@ -66,7 +66,8 @@
+   let is_opaque_fun (d : fun_decl) : bool =
+     (not (body_is_known d.body))
+     && ((not filter_builtin)
+-       || (not
++       || d.item_meta.diagnostic_item <> Some "box_new"
++          && (not
+              (NameMatcherMap.mem ctx d.item_meta.name (builtin_globals_map ())))
+           && not (NameMatcherMap.mem ctx d.item_meta.name (builtin_funs_map ()))
+        )
+--- a/src/symbolic/SymbolicToPure.ml
++++ b/src/symbolic/SymbolicToPure.ml
+@@ -106,7 +106,19 @@
+   (* Check if the function is builtin *)
+   let builtin_info =
+     let funs_map = ExtractBuiltin.builtin_funs_map () in
+-    match_name_find_opt ctx.decls_ctx def.item_meta.name funs_map
++    if def.item_meta.diagnostic_item = Some "box_new" then
++      Some
++        {
++          Pure.keep_params = None;
++          keep_trait_clauses = None;
++          extract_name = "alloc.boxed.Box.new";
++          can_fail = false;
++          stateful = false;
++          lift = false;
++          has_default = false;
++        }
++    else
++      match_name_find_opt ctx.decls_ctx def.item_meta.name funs_map
+   in
+   let def : fun_decl =
+     {
+--- a/src/Translate.ml
++++ b/src/Translate.ml
+@@ -950,8 +950,9 @@
+     let funs_map = builtin_funs_map () in
+     List.map
+       (fun (trans : pure_fun_translation) ->
+-        match_name_find_opt ctx.trans_ctx trans.f.item_meta.name funs_map
+-        <> None)
++        trans.f.item_meta.diagnostic_item = Some "box_new"
++        || match_name_find_opt ctx.trans_ctx trans.f.item_meta.name funs_map
++           <> None)
+       pure_ls
+   in
+ 
+--- a/src/extract/ExtractName.ml
++++ b/src/extract/ExtractName.ml
+@@ -143,19 +143,30 @@
+ 
+     For impl blocks, we simply use the name of the type (without its arguments)
+     if all the arguments are variables. *)
++let sanitize_extract_ident (s : string) : string =
++  let buf = Buffer.create (String.length s) in
++  String.iter
++    (fun c ->
++      match c with
++      | '(' | ')' | ',' -> Buffer.add_char buf '_'
++      | ' ' -> ()
++      | _ -> Buffer.add_char buf c)
++    s;
++  Buffer.contents buf
++
+ let pattern_to_extract_name (_span : Meta.span option) (name : pattern) :
+     string list =
+   let c = { tgt = TkName } in
+   let visitor = pattern_to_extract_name_visitor in
+   let name = visitor#visit_pattern () name in
+-  List.map (pattern_elem_to_string c) name
++  List.map (fun e -> sanitize_extract_ident (pattern_elem_to_string c e)) name
+ 
+ let name_matcher_expr_to_extract_name (_span : Meta.span option) (name : expr) :
+     string =
+   let c = { tgt = TkName } in
+   let visitor = pattern_to_extract_name_visitor in
+   let name = visitor#visit_expr () name in
+-  expr_to_string c name
++  sanitize_extract_ident (expr_to_string c name)
+ 
+ let pattern_to_type_extract_name = pattern_to_extract_name None
+ let pattern_to_fun_extract_name = pattern_to_extract_name None

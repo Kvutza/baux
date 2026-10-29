@@ -1,0 +1,26 @@
+# Immutable source identity for the TuRBO-ENN reference implementation.
+# This file identifies the program whose semantics are formalized. Updating any
+# value creates a new proof target and requires replaying the coverage and
+# correspondence checks.
+
+[repository]
+url = "https://github.com/yubo-research/enn.git"
+revision = "f8f6a5dada9e85d1a196b7281be4b1b070e0a3ef"
+version = "0.4.1"
+tree = "32bf2d67461172e73354890769281f1ed0301ec8"
+subject = "Dsweet/big cats (#49)"
+committed_at = "2026-10-26T19:19:16-04:00"
+
+[inputs]
+root_cargo_lock_sha256 = "3a944f59aa6bcaa70580d28ba236d3bd1189fccefcb687018988c3245ab6a7f4"
+rust_cargo_lock_sha256 = "3a944f59aa6bcaa70580d28ba236d3bd1189fccefcb687018988c3245ab6a7f4"
+pyproject_sha256 = "ccee3b0db89bc3963994dcb72b8cfd567d37d188ecc2b52578ca06a1301e6abb"
+
+[api]
+python_factory = "src/enn/turbo/rust_optimizer.py:create_optimizer"
+python_ask = "src/enn/turbo/rust_optimizer.py:RustOptimizer.ask"
+python_tell = "src/enn/turbo/rust_optimizer.py:RustOptimizer.tell"
+rust_factory = "rust/crates/ennbo/src/optimizer_factory.rs:create_optimizer_enn"
+rust_state = "rust/crates/ennbo/src/optimizer/mod.rs:Optimizer"
+rust_ask = "rust/crates/ennbo/src/optimizer/mod.rs:Optimizer.ask"
+rust_tell = "rust/crates/ennbo/src/optimizer/mod.rs:Optimizer.tell"

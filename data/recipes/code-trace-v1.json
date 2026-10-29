@@ -1,0 +1,24 @@
+{
+  "preset": "code_trace_v1",
+  "format": "baux.pretraining-mixture.v4",
+  "training": {
+    "construction": "unit-interleave",
+    "seed": 1162759768,
+    "max_repetitions": 8,
+    "sources": [
+      {"name": "code", "recipe": "stack-v3-code-v1"},
+      {"name": "traces", "recipe": "agent-v1-swe-traces-1m"}
+    ]
+  },
+  "evaluation": {
+    "aggregation": "weighted-mean",
+    "validation": [
+      {"name": "code", "recipe": "stack-v3-code-v1", "weight": 1},
+      {"name": "traces", "recipe": "agent-v1-swe-traces-1m", "weight": 1}
+    ],
+    "test": [
+      {"name": "code", "recipe": "stack-v3-code-v1", "weight": 1},
+      {"name": "traces", "recipe": "agent-v1-swe-traces-1m", "weight": 1}
+    ]
+  }
+}

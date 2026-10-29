@@ -1,0 +1,66 @@
+# Configuration file for `prek`, a git hook framework written in Rust.
+# See https://prek.j178.dev for more information.
+#:schema https://www.schemastore.org/prek.json
+
+[[repos]]
+repo = "local"
+
+[[repos.hooks]]
+id = "rustfmt"
+name = "Rust format"
+entry = "rustfmt --edition 2024"
+language = "system"
+types = ["rust"]
+exclude = "^research/extraction/"
+
+[[repos.hooks]]
+id = "ruff-format"
+name = "Python format"
+entry = "uvx ruff format"
+language = "system"
+types = ["python"]
+
+[[repos.hooks]]
+id = "ruff-check"
+name = "Python lint"
+entry = "uvx ruff check"
+language = "system"
+types = ["python"]
+
+[[repos.hooks]]
+id = "taplo-format"
+name = "TOML format"
+entry = "uvx taplo fmt"
+language = "system"
+types = ["toml"]
+
+[[repos.hooks]]
+id = "taplo-check"
+name = "TOML schema check"
+entry = "uvx taplo check"
+language = "system"
+types = ["toml"]
+
+[[repos.hooks]]
+id = "uv-check"
+name = "UV project check"
+entry = "uv check --preview-features check-command"
+language = "system"
+pass_filenames = false
+always_run = true
+
+[[repos.hooks]]
+id = "names-check"
+name = "Repository naming policy"
+entry = "sh -c '\"${BAUX_BIN:-./baux}\" names'"
+language = "system"
+pass_filenames = false
+always_run = true
+
+[[repos.hooks]]
+id = "kiss-check"
+name = "KISS check"
+entry = "kiss check ."
+language = "system"
+pass_filenames = false
+always_run = true

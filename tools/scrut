@@ -1,0 +1,55 @@
+#!/usr/bin/env dotslash
+
+{
+  "name": "scrut",
+  "platforms": {
+    "linux-x86_64": {
+      "size": 3238099,
+      "hash": "sha256",
+      "digest": "5c373d077a73dc4a5d4b43f3474e0f443dc72fb42f89b312ef55f934e6e6ba15",
+      "format": "tar.gz",
+      "path": "scrut-linux-x86_64/scrut",
+      "providers": [
+        {
+          "url": "https://github.com/facebookincubator/scrut/releases/download/v0.5.0/scrut-v0.5.0-linux-x86_64.tar.gz"
+        }
+      ]
+    },
+    "linux-aarch64": {
+      "size": 3238248,
+      "hash": "sha256",
+      "digest": "704cd54b42778dc85124739fdfaef75ac7cb1cf65c328a16f6e224c1b66021ba",
+      "format": "tar.gz",
+      "path": "scrut-linux-aarch64/scrut",
+      "providers": [
+        {
+          "url": "https://github.com/facebookincubator/scrut/releases/download/v0.5.0/scrut-v0.5.0-linux-aarch64.tar.gz"
+        }
+      ]
+    },
+    "macos-aarch64": {
+      "size": 2903363,
+      "hash": "sha256",
+      "digest": "033c6a5ebf189f85169a8f4095ef26a5a9d023ceabb20454c1a48f00b2f2a509",
+      "format": "tar.gz",
+      "path": "scrut-macos-aarch64/scrut",
+      "providers": [
+        {
+          "url": "https://github.com/facebookincubator/scrut/releases/download/v0.5.0/scrut-v0.5.0-macos-aarch64.tar.gz"
+        }
+      ]
+    },
+    "macos-x86_64": {
+      "size": 2903365,
+      "hash": "sha256",
+      "digest": "c966c34f2cd9738d97e2de57ec89bb414ec1c3aba0a99794846c6a540fd83198",
+      "format": "tar.gz",
+      "path": "scrut-macos-x86_64/scrut",
+      "providers": [
+        {
+          "url": "https://github.com/facebookincubator/scrut/releases/download/v0.5.0/scrut-v0.5.0-macos-x86_64.tar.gz"
+        }
+      ]
+    }
+  }
+}

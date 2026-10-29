@@ -1,0 +1,305 @@
+{
+  "local": {
+    "source_sha256": "bd25ae6fefd37cee96a5f410e917f24604562e052430d87e34033aa423ddaa8f",
+    "generated_sha256": "9288aece387efaf95595b54f41bab60aeb2748a153f5d0759d5d99f6c7b0c6e1",
+    "tools": "aeneas_base=e62dd83d133d9043e7d3628096838b7430f36565\ncharon=de8736f7c995ac54dc490345cef9ea5143c06c62\naeneas_binary_sha256=9d8fd3f7e22aae6968d82038977ca5e53d2dbc69179fc4faf14d45f3ed59ea5e\ncharon_binary_sha256=fff7d03f6fb9cae45dd92de946869a2ebb74c9db4786b05fe04d8780cc519aba\nsource=semantics\nfloat_patch_sha256=6ff1b653717c1102d68cfd4cf052b42cc5c16ef0f5ec792f3cf11a7d3cf48a1a\nfloat_builder_sha256=10f5e9dca8603bd33f41f7dade805fb8dad06075eeacc20291d7e45748961ec6\n",
+    "target": [
+      {
+        "key": "aarch64-apple-darwin",
+        "value": {
+          "target_pointer_size": 8,
+          "is_little_endian": true,
+          "c_enum_smallest_repr_ty": "I32",
+          "primitive_alignments": [
+            {
+              "key": "Bool",
+              "value": 1
+            },
+            {
+              "key": {
+                "Integer": {
+                  "Signed": "I8"
+                }
+              },
+              "value": 1
+            },
+            {
+              "key": {
+                "Integer": {
+                  "Signed": "I16"
+                }
+              },
+              "value": 2
+            },
+            {
+              "key": {
+                "Integer": {
+                  "Signed": "I32"
+                }
+              },
+              "value": 4
+            },
+            {
+              "key": {
+                "Integer": {
+                  "Signed": "I64"
+                }
+              },
+              "value": 8
+            },
+            {
+              "key": {
+                "Integer": {
+                  "Signed": "I128"
+                }
+              },
+              "value": 16
+            },
+            {
+              "key": {
+                "Integer": {
+                  "Signed": "Isize"
+                }
+              },
+              "value": 8
+            },
+            {
+              "key": {
+                "Integer": {
+                  "Unsigned": "U8"
+                }
+              },
+              "value": 1
+            },
+            {
+              "key": {
+                "Integer": {
+                  "Unsigned": "U16"
+                }
+              },
+              "value": 2
+            },
+            {
+              "key": {
+                "Integer": {
+                  "Unsigned": "U32"
+                }
+              },
+              "value": 4
+            },
+            {
+              "key": {
+                "Integer": {
+                  "Unsigned": "U64"
+                }
+              },
+              "value": 8
+            },
+            {
+              "key": {
+                "Integer": {
+                  "Unsigned": "U128"
+                }
+              },
+              "value": 16
+            },
+            {
+              "key": {
+                "Integer": {
+                  "Unsigned": "Usize"
+                }
+              },
+              "value": 8
+            },
+            {
+              "key": {
+                "Float": "F16"
+              },
+              "value": 2
+            },
+            {
+              "key": {
+                "Float": "F32"
+              },
+              "value": 4
+            },
+            {
+              "key": {
+                "Float": "F64"
+              },
+              "value": 8
+            },
+            {
+              "key": {
+                "Float": "F128"
+              },
+              "value": 16
+            },
+            {
+              "key": "Char",
+              "value": 4
+            }
+          ]
+        }
+      }
+    ],
+    "runtime_checks": {
+      "ub_checks": true,
+      "overflow_checks": true,
+      "contract_checks": false
+    }
+  },
+  "upstream": {
+    "source_sha256": "4e0450f6d0dc85d2a01c1d3961ea45f448f7baac294acff4c87538bf6e86a78b",
+    "generated_sha256": "8efa107bdd29abe8a257cea8452f9f40693b8326c05442f733081273050dfbf0",
+    "tools": "aeneas_base=e62dd83d133d9043e7d3628096838b7430f36565\ncharon=de8736f7c995ac54dc490345cef9ea5143c06c62\naeneas_binary_sha256=9d8fd3f7e22aae6968d82038977ca5e53d2dbc69179fc4faf14d45f3ed59ea5e\ncharon_binary_sha256=fff7d03f6fb9cae45dd92de946869a2ebb74c9db4786b05fe04d8780cc519aba\nsource=upstream\nfloat_patch_sha256=6ff1b653717c1102d68cfd4cf052b42cc5c16ef0f5ec792f3cf11a7d3cf48a1a\nfloat_builder_sha256=10f5e9dca8603bd33f41f7dade805fb8dad06075eeacc20291d7e45748961ec6\nupstream_harness_sha256=34e4cd207f48b10a6b89afe6bc97e0ed2017a9dc57d247dfea619f2e4fadfaff\n",
+    "target": [
+      {
+        "key": "aarch64-apple-darwin",
+        "value": {
+          "target_pointer_size": 8,
+          "is_little_endian": true,
+          "c_enum_smallest_repr_ty": "I32",
+          "primitive_alignments": [
+            {
+              "key": "Bool",
+              "value": 1
+            },
+            {
+              "key": {
+                "Integer": {
+                  "Signed": "I8"
+                }
+              },
+              "value": 1
+            },
+            {
+              "key": {
+                "Integer": {
+                  "Signed": "I16"
+                }
+              },
+              "value": 2
+            },
+            {
+              "key": {
+                "Integer": {
+                  "Signed": "I32"
+                }
+              },
+              "value": 4
+            },
+            {
+              "key": {
+                "Integer": {
+                  "Signed": "I64"
+                }
+              },
+              "value": 8
+            },
+            {
+              "key": {
+                "Integer": {
+                  "Signed": "I128"
+                }
+              },
+              "value": 16
+            },
+            {
+              "key": {
+                "Integer": {
+                  "Signed": "Isize"
+                }
+              },
+              "value": 8
+            },
+            {
+              "key": {
+                "Integer": {
+                  "Unsigned": "U8"
+                }
+              },
+              "value": 1
+            },
+            {
+              "key": {
+                "Integer": {
+                  "Unsigned": "U16"
+                }
+              },
+              "value": 2
+            },
+            {
+              "key": {
+                "Integer": {
+                  "Unsigned": "U32"
+                }
+              },
+              "value": 4
+            },
+            {
+              "key": {
+                "Integer": {
+                  "Unsigned": "U64"
+                }
+              },
+              "value": 8
+            },
+            {
+              "key": {
+                "Integer": {
+                  "Unsigned": "U128"
+                }
+              },
+              "value": 16
+            },
+            {
+              "key": {
+                "Integer": {
+                  "Unsigned": "Usize"
+                }
+              },
+              "value": 8
+            },
+            {
+              "key": {
+                "Float": "F16"
+              },
+              "value": 2
+            },
+            {
+              "key": {
+                "Float": "F32"
+              },
+              "value": 4
+            },
+            {
+              "key": {
+                "Float": "F64"
+              },
+              "value": 8
+            },
+            {
+              "key": {
+                "Float": "F128"
+              },
+              "value": 16
+            },
+            {
+              "key": "Char",
+              "value": 4
+            }
+          ]
+        }
+      }
+    ],
+    "runtime_checks": {
+      "ub_checks": true,
+      "overflow_checks": true,
+      "contract_checks": false
+    }
+  },
+  "pin_sha256": "7548bd54a9f2d88a91df4bdc873aa6ebf0a3b9f4f087c4176354e3722f6f17e2",
+  "adapter_sha256": "e1e763831a2da0bf6f25bcc859c93f5a1d3bda8356f4ff41d8c1b4c52c38369d",
+  "meaning": "Function equality under shared dependency parameters; no native binding"
+}

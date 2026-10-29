@@ -1,0 +1,13 @@
+[package]
+name = "baux-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+default-run = "baux"
+
+[dependencies]
+clap.workspace = true
+baux.workspace = true
+baux-tooling.workspace = true

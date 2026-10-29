@@ -1,0 +1,47 @@
+load("//build/buck2:reindeer_rules.bzl", "app_rust_binary")
+
+filegroup(
+    name = "source",
+    srcs = glob(["src/**"]) + ["Cargo.toml"],
+    visibility = ["PUBLIC"],
+)
+
+_DEPS = [
+    "//rust:arrow-array",
+    "//rust:futures",
+    "//rust:opendal",
+    "//rust:parquet",
+    "//rust:parquet_opendal",
+    "//rust:deser",
+    "//rust/crates/baux:baux",
+    "//rust:sha2",
+    "//rust:tokio",
+    "//rust:tokenizers",
+] + select({
+    "//:macos-arm64": ["//build/buck2/native:openmp-macos"],
+    "DEFAULT": [],
+})
+
+app_rust_binary(
+    name = "corpus",
+    srcs = glob(["src/**/*.rs"]),
+    crate = "baux_corpus",
+    crate_root = "src/main.rs",
+    edition = "2024",
+    deps = _DEPS,
+    rpath = True,
+    runtime_dependency_handling = "symlink",
+    visibility = ["PUBLIC"],
+)
+
+rust_test(
+    name = "corpus-test",
+    srcs = glob(["src/**/*.rs"]),
+    crate = "baux_corpus_test",
+    crate_root = "src/main.rs",
+    edition = "2024",
+    deps = _DEPS,
+    rpath = True,
+    runtime_dependency_handling = "symlink",
+    visibility = ["PUBLIC"],
+)

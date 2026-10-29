@@ -1,0 +1,67 @@
+Pinned ENN 0.4.1 optimizer dynamic-trait extraction: checked status and obligations
+
+1. Provenance and Checked Extraction Probe
+- Upstream repository: https://github.com/yubo-research/enn.git
+- Pinned revision: f8f6a5dada9e85d1a196b7281be4b1b070e0a3ef (tree 32bf2d67461172e73354890769281f1ed0301ec8, version 0.4.1)
+- Probe directory: .cache/baux/aeneas/probe-46268-1793134184149158000
+- Aeneas base revision: e62dd83d133d9043e7d3628096838b7430f36565
+- Charon base revision: de8736f7c995ac54dc490345cef9ea5143c06c62
+- Patch digests:
+  - research/extraction/aeneas-float.patch: e84fed9ee4f34ca6879a60cd81ef5d110d065d292d3b2ca55caae2468c3608f0
+  - research/extraction/aeneas-dyn.patch: 88e4c868a6a032288a8e6b702b1e2716143676c9c2f591273825ccc7163fd449
+  - research/extraction/aeneas-dyn-dispatch.patch: 7f315f073dccfa5901ef4bc132de49b6891e134de6fb961e9adf155cb5134775
+  - research/extraction/charon-callsite.patch: 8527cc0fb4f9ef6d79aceab6d58f88506d5ca5dac1d8bbfcdead35420d2197d0
+- Patched tool digests:
+  - aeneas_binary_sha256: 8bfa5a5fbb88a3362a8e150a255edfda3c07c7cfc6a3489f2820e26a81acef25
+  - charon_binary_sha256: d5d3d0c7368e0670220e5e3b22e99316a9b161b337e73bdb7efaa24e2fed6cf8
+- Lowered LLBC digest:
+  - Optimizer.llbc: 6224ad457eb705ed7622d6da34428c8f2d6f349650508c564f4c18416e59533f
+- Generated Lean artifact digests (all 4 files elaborated with Lean 4 v4.35.0, exit status 0, 0 sorry):
+  - TypesExternal_Template.lean: dda04fc8a3a67d3bd4c615fe648a38f9250b1b7a9a9bfd6d4e42d809e50c25dc
+  - Types.lean: 9389f6ea24dec3fe19f015472ac0bc83eb1d6648a5fe931d62ce1c5b50cf8374
+  - FunsExternal_Template.lean: d66f1838bec2fc743d9d7384a9d1f7d58e000b1511b116b7c9cf2a741a4f0ac2
+  - Funs.lean: e76fd818426fdc30cc0093141f61ce7438900b4a85c08afc74542aea1f4220b8
+  - TypesExternal.olean: 5286ce7e83c73623bf6746328f0ad59c27582badd781fb2f75acfaa78887480c
+  - Types.olean: d5ed0323e1fc71e924ff6be77f8e25f8df40b3fb9a0533698ec92c3082766552
+  - FunsExternal.olean: d7022f2d690b57a1ab497a0603cb2352119ceda1be9782ec1835d0abf612bf53
+  - Funs.olean: d7a6de12e72c512024d9eed25f50bd73d1677e4004076071ac75a63279ea80ff
+
+2. Dynamic Trait Lowering and Proved Lean Theorems
+- Existential dynamic trait representation (`Aeneas.Std.Dyn Trait`):
+  Packages `(self : Type u)`, `(inst : Trait self)`, and `(value : self)`.
+- Mutable unsized coercion (`&mut Concrete -> &mut dyn Trait`):
+  In `InterpExpressions.ml`, `Cast (CastUnsize (ty1, MetaVTable (trait_ref, _)))` on `TRef (_, dyn_ty, RMut)` with `VBorrow (VMutBorrow (bid, inner_v))` introduces a fresh symbolic `Dyn` value `dyn_sv` via `VaDynTrait (inner_v, trait_ref)` (`Dyn.mk _ inst inner_v`) and records a `DynTraitMut (inner_v, trait_ref)` region abstraction linking the concrete mutable borrow `bid` to the dynamic mutable loan `lid`.
+  In `SymbolicToPureExpressions.ml` (`translate_end_abs_dyn_trait_mut`), ending the `DynTraitMut` abstraction consumes the updated `Dyn` value `dyn_back` and emits `BauxResearch.Extraction.Native.dynBack init_e dyn_back` to write back the updated concrete state.
+- Receiver-sensitive dynamic vtable dispatch (`TraitMethod ({ trait_id = Dyn; trait_decl_ref }, method_id)`):
+  In `SymbolicToPureTypes.ml` and `Extract.ml`, dynamic trait method calls extract the exact vtable instance `d.inst.<method>` and concrete receiver `d.value` from the existential receiver `d : Dyn Trait`.
+  - For shared-receiver methods (`&self`, e.g., `Surrogate::predict` in `Optimizer::posterior_mu`):
+    `(fun (d : Dyn (fun (_dyn : Type) => ...)) x0 ... => d.inst.<method> d.value x0 ...)`
+  - For mutable-receiver methods (`&mut self`, e.g., `Surrogate::clear_observations` in `Optimizer::begin_local_restart`, `Surrogate::fit`, `Surrogate::fit_append`, `RngCore::next_u32`, `RngCore::next_u64`, `RngCore::fill_bytes`, `RngCore::try_fill_bytes`):
+    `(fun (d : Dyn (fun (_dyn : Type) => ...)) x0 ... => Aeneas.Std.bind (d.inst.<method> d.value x0 ...) (fun (r0, ..., value') => ok (r0, ..., { d with value := value' })))`
+- Proved Lean theorems (`research/lean/BauxResearch/Extraction/Native.lean` and `NativeTest.lean`, zero `sorry`, zero user axioms):
+  - `BauxResearch.Extraction.Native.dynBack`: projects the updated concrete value from `d : Dyn Trait` when `d.self = Self` (`cast h d.value`), falling back to `init` only in the unreachable type-mismatch branch.
+  - `BauxResearch.Extraction.Native.dyn_mk`: `dynBack init (Dyn.mk Self inst val) = val` (`rfl`).
+  - `BauxResearch.Extraction.Native.dyn_cast`: given `h : d.self = Self`, `dynBack init d = cast h d.value`.
+  - `BauxResearch.Extraction.NativeTest.dynDispatch`: shared-reference dynamic dispatch selects the exact concrete vtable instance `inst` and receiver `val`.
+  - `BauxResearch.Extraction.NativeTest.dynMutate`: mutable-reference dynamic dispatch followed by `dynBack` selects the concrete vtable instance `inst`, updates `d.value` in place while preserving `d.self = Self` and `d.inst = inst`, and writes back the exact updated concrete value `val'` on `Result.ok (out, val')`.
+  - `BauxResearch.Extraction.NativeTest.dynFail`: mutable-reference dynamic dispatch followed by `dynBack` propagates `Result.fail err` unchanged.
+
+3. Transparent Function Inventory in Generated `Funs.lean` (10/10 functions translated, 0 errors, 0 `sorry`)
+- `optimizer.tr_state.TrustRegionState.is_morbo`
+- `incumbent_tracker.IncrementalIncumbentTracker.reset_loop.body`
+- `incumbent_tracker.IncrementalIncumbentTracker.reset_loop`
+- `incumbent_tracker.IncrementalIncumbentTracker.reset`
+- `optimizer.restart.Optimizer.begin_local_restart`:
+  Extracts `self.surrogate` (`Option (Dyn Surrogate)`), dispatches `d.inst.clear_observations d.value` on `some surrogate1`, repacks `{ d with value := value' }`, propagates `ENNError` via `CoreOpsTry.branch`, and updates `self` via `as_mut_back`.
+- `optimizer.Optimizer.ask` and `baux_extract.optimizer_ask`:
+  Validates `num_arms > 0`, handles local restart (`begin_local_restart`) and initialization (`LHD` / `Random`), packages `self.rng : StdRng` into `Dyn.mk _ rand.rngs.std.StdRng.Insts.Rand_coreRngCore rng`, invokes `strategy.Strategy.ask`, and recovers the updated `StdRng` via `BauxResearch.Extraction.Native.dynBack rng rng2` across all control-flow paths before updating `self.telemetry` and `self.rng`.
+- `optimizer.Optimizer.tell` and `baux_extract.optimizer_tell`:
+  Validates observation shapes (`x.nrows`, `x.ncols`, `y.nrows`, `y.ncols`, `yvar` consistency and dimensions), normalizes `x` (`normalize_x`), packages `self.rng` into `Dyn.mk _ rand.rngs.std.StdRng.Insts.Rand_coreRngCore rng`, invokes `strategy.Strategy.tell` across all 4 `(Option yvar, reinit_left)` branches, recovers the updated `StdRng` via `BauxResearch.Extraction.Native.dynBack rng rng2`, and updates `self.strategy`, `self.telemetry`, `self.rng`, and `self.reinit_left`.
+- `optimizer.Optimizer.posterior_mu` (with `posterior_mu.closure.Insts.CoreOpsFunctionFnOnceTupleUnitENNError.call_once`) and `baux_extract.optimizer_mu`:
+  Extracts `&self.surrogate` via `Option::as_ref`, normalizes `x`, dispatches shared-reference `d.inst.predict d.value ab1` on `d : Dyn Surrogate`, and extracts `sp.mu`.
+
+4. Remaining Explicit Obligations (Not Claimed as Proved by Extraction Alone)
+- Marker-trait erasure (`Send` + `Sync`):
+  Upstream `Optimizer.surrogate` has Rust type `Option<Box<dyn Surrogate + Send + Sync>>` whose dynamic predicate has three clauses (`Surrogate`, `Send`, `Sync`). Aeneas's `filter_marker_traits` prepass (`src/PrePasses.ml:956`) strips `Send` and `Sync`, so generated Lean `Types.lean` has `Option (Dyn (fun (_dyn : Type) => BauxResearch.Generated.Optimizer.surrogate.Surrogate _dyn))`. Preserving `Send + Sync` across the extraction boundary remains an explicit side obligation on concrete `Surrogate` implementations (`ENNSurrogate`).
+- Opaque external contracts (`TypesExternal.lean` and `FunsExternal.lean`):
+  47 opaque external functions and 9 external trait impls (including `strategy.Strategy.ask`, `strategy.Strategy.tell`, `optimizer.Optimizer.normalize_x`, `optimizer.Optimizer.lhd_candidates`, `optimizer.Optimizer.random_candidates`, `optimizer.Optimizer.validate_tell_shapes`, `optimizer.Optimizer.record_tell_RestartGeneration`, `ndarray` view/shape operations, `rand.rngs.std.StdRng.Insts.Rand_coreRngCore`, `std.time.Instant`, `alloc.vec.Vec.clear`, and `core.option.Option` helpers) are modeled as axioms in `FunsExternal_Template.lean`. Full end-to-end verification of `ask`/`tell`/`posterior_mu` requires supplying and proving concrete specifications for these external declarations.

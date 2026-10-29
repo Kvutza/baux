@@ -1,0 +1,55 @@
+#!/usr/bin/env dotslash
+
+{
+  "name": "pgrust",
+  "platforms": {
+    "macos-aarch64": {
+      "size": 30513949,
+      "hash": "blake3",
+      "digest": "928d63db5512b85f7566f0dc0951291c585c95b718ac761641aaf503d9044d88",
+      "format": "tar.gz",
+      "path": "pgrust-0.4-beta-macos-arm64/bin/postgres",
+      "providers": [
+        {
+          "url": "https://pgrust.com/downloads/v0.4-beta/pgrust-0.4-beta-macos-arm64.tar.gz"
+        }
+      ]
+    },
+    "macos-x86_64": {
+      "size": 33747535,
+      "hash": "blake3",
+      "digest": "3f03aea5d200665f9e41c6638e3de451baa1dd714111ae1c8c9f10c412245762",
+      "format": "tar.gz",
+      "path": "pgrust-0.4-beta-macos-x86_64/bin/postgres",
+      "providers": [
+        {
+          "url": "https://pgrust.com/downloads/v0.4-beta/pgrust-0.4-beta-macos-x86_64.tar.gz"
+        }
+      ]
+    },
+    "linux-x86_64": {
+      "size": 33365492,
+      "hash": "blake3",
+      "digest": "7867020124104764074ff976140d622a30d396b04c6ad14704e25191f099708e",
+      "format": "tar.gz",
+      "path": "pgrust-0.4-beta-linux-x86_64/bin/postgres",
+      "providers": [
+        {
+          "url": "https://pgrust.com/downloads/v0.4-beta/pgrust-0.4-beta-linux-x86_64.tar.gz"
+        }
+      ]
+    },
+    "linux-aarch64": {
+      "size": 31221024,
+      "hash": "blake3",
+      "digest": "1cd96ae85a0e2411e98c8f7321d1809924c3b28eaea034aceef9cc8a131a1b9e",
+      "format": "tar.gz",
+      "path": "pgrust-0.4-beta-linux-aarch64/bin/postgres",
+      "providers": [
+        {
+          "url": "https://pgrust.com/downloads/v0.4-beta/pgrust-0.4-beta-linux-aarch64.tar.gz"
+        }
+      ]
+    }
+  }
+}

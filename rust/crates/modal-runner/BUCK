@@ -1,0 +1,10 @@
+load("//build/buck2:baux_targets.bzl", "baux_program_targets")
+load("//build:targets.bzl", "MODAL_RUNNER_PROGRAMS", "RUST_EDITION")
+
+baux_program_targets(MODAL_RUNNER_PROGRAMS, RUST_EDITION, glob(["src/**/*.rs"]))
+
+filegroup(
+    name = "modal-source",
+    srcs = glob(["src/**/*.rs"]) + ["Cargo.toml"],
+    visibility = ["PUBLIC"],
+)

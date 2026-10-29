@@ -1,0 +1,24 @@
+load("//build/buck2:baux_targets.bzl", "baux_program_targets")
+load("//build:targets.bzl", "CLI_CRATES", "CLI_PROGRAMS", "RUST_EDITION")
+
+filegroup(
+    name = "source",
+    srcs = glob(["src/**"]) + ["Cargo.toml"],
+    visibility = ["PUBLIC"],
+)
+
+baux_program_targets(CLI_PROGRAMS, RUST_EDITION, glob(["src/**/*.rs"]))
+
+rust_test(
+    name = "baux-test",
+    srcs = glob(["src/**/*.rs"]),
+    crate = "baux_cli_test",
+    crate_root = [program["root"] for program in CLI_PROGRAMS if program["name"] == "baux"][0],
+    env = {"CARGO_PKG_VERSION": [program["version"] for program in CLI_PROGRAMS if program["name"] == "baux"][0]},
+    edition = RUST_EDITION,
+    deps = ["//rust:" + crate for crate in CLI_CRATES] + [
+        "//rust/crates/tooling:tooling",
+        "//rust/crates/baux:baux",
+    ],
+    visibility = ["//build/buck2/tests:all"],
+)

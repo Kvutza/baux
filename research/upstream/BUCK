@@ -1,0 +1,11 @@
+sh_test(
+    name = "coverage_check",
+    test = "check.sh",
+    visibility = ["PUBLIC"],
+)
+
+sh_test(
+    name = "coverage_adversarial_test",
+    test = "adversarial_check.sh",
+    visibility = ["PUBLIC"],
+)

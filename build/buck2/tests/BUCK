@@ -1,0 +1,76 @@
+load(":suite.bzl", "test_suite")
+
+rust_test(
+    name = "metal",
+    srcs = ["metal.rs"],
+    crate_root = "metal.rs",
+    deps = [
+        "//build/buck2/native:openmp-macos",
+        "//rust/crates/baux:baux",
+        "//rust:ndarray",
+    ],
+    rpath = True,
+    runtime_dependency_handling = "symlink",
+    target_compatible_with = ["prelude//os/constraints:macos"],
+)
+
+rust_test(
+    name = "neighbor-index",
+    srcs = ["neighbor_index.rs"],
+    crate_root = "neighbor_index.rs",
+    deps = ["//rust/crates/baux:baux"] + select({
+        "//:macos-arm64": [
+            "//build/buck2/native:openmp-macos",
+        ],
+        "DEFAULT": [],
+    }),
+    rpath = True,
+    runtime_dependency_handling = "symlink",
+)
+
+rust_test(
+    name = "dense",
+    srcs = ["dense.rs"],
+    crate_root = "dense.rs",
+    deps = ["//rust/crates/baux:baux"] + select({
+        "//:macos-arm64": [
+            "//build/buck2/native:openmp-macos",
+        ],
+        "DEFAULT": [],
+    }),
+    rpath = True,
+    runtime_dependency_handling = "symlink",
+)
+
+rust_test(
+    name = "opencl",
+    srcs = ["opencl.rs"],
+    crate_root = "opencl.rs",
+    deps = ["//rust:opencl3"],
+)
+
+_TESTS = [
+    ":neighbor-index",
+    ":dense",
+    ":opencl",
+    "//rust/crates/cli:baux-test",
+    "//rust/crates/runner:baux-runner-test",
+    "//rust/crates/tooling:tooling-unit",
+    "//rust/crates/corpus:corpus-test",
+    "//rust/crates/properties:properties-unit",
+    "//evals:evals-unit",
+    "//rust/crates/baux:baux-unit",
+    "//rust/crates/baux:baux-tune-test",
+    "//rust/crates/baux:region-math",
+    "//rust/crates/baux:region-opencl",
+    "//rust/crates/baux:integration",
+] + select({
+    "//:macos-arm64": [":metal"],
+    "DEFAULT": [],
+})
+
+test_suite(
+    name = "all",
+    tests = _TESTS,
+    visibility = ["PUBLIC"],
+)

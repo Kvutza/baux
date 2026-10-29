@@ -1,0 +1,30 @@
+[package]
+name = "baux-cuda"
+version = "0.0.1"
+edition = "2024"
+publish = false
+
+[features]
+native-flame = []
+
+[dependencies]
+anstream = "1.0"
+anstyle = "1.0"
+cuda-core.workspace = true
+cuda-host.workspace = true
+baux-cuda-device = { path = "device" }
+charming = { version = "=0.6.0", default-features = false }
+deser-cbor = "=0.9.1"
+deser-json = { version = "=0.9.1", features = ["speedups"] }
+deser-toml = "=0.9.1"
+deser-value = "=0.9.1"
+jiff = "=0.2.38"
+kuva = { version = "=0.6.0", default-features = false }
+memmap2 = "0.9"
+deser.workspace = true
+ptx-synth.workspace = true
+half = "2.7"
+rand.workspace = true
+rand_distr.workspace = true
+redb = "=2.6.4"
+sha2.workspace = true

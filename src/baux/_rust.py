@@ -1,0 +1,113 @@
+from __future__ import annotations
+
+import os
+
+os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
+os.environ.setdefault("OMP_NUM_THREADS", "1")
+os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+os.environ.setdefault("MKL_NUM_THREADS", "1")
+
+try:
+    from . import baux_rust as _ext
+except ImportError as exc:  # pragma: no cover - exercised when extension unavailable
+    raise ImportError(
+        "Rust extension submodule `baux.baux_rust` is not available"
+    ) from exc
+
+cuda = getattr(_ext, "cuda", None)
+
+
+hypervolume2d_max = _ext.hypervolume.hypervolume2d_max
+normal_hash = _ext.hash.normal_hash
+standardize_y = _ext.util.standardize_y
+pareto2d_max = _ext.util.pareto2d_max
+sobol_indices = _ext.util.sobol_indices
+sobol_sequence = _ext.util.sobol_sequence
+pareto_arms = _ext.util.pareto_arms
+quantize_int4 = _ext.util.quantize_int4
+quantize_e2m1 = _ext.util.quantize_e2m1
+set_path = _ext.util.set_path
+ensure_config_file = _ext.util.ensure_config_file
+ENN = _ext.model.ENN
+ENNParams = _ext.model.ENNParams
+ENNFitter = _ext.fit.ENNFitter
+subsample_loglik = _ext.fit.subsample_loglik
+row_loglik = _ext.fit.row_loglik
+BayesOptimizer = _ext.optimizer.BayesOptimizer
+Telemetry = _ext.optimizer.Telemetry
+MultiTrustRegion = _ext.optimizer.MultiTrustRegion
+BpannHistory = _ext.optimizer.BpannHistory
+create_optimizer = _ext.optimizer.create_optimizer
+enn_optimizer = _ext.optimizer.enn_optimizer
+enn_tr = _ext.optimizer.enn_tr
+create_zero = _ext.optimizer.create_zero
+create_lhd = _ext.optimizer.create_lhd
+dense_apply = _ext.optimizer.dense_apply
+dense_dist2 = _ext.optimizer.dense_dist2
+dense_linear = _ext.optimizer.dense_linear
+DenseLinear = _ext.optimizer.DenseLinear
+ParamBuffer = getattr(_ext.optimizer, "ParamBuffer", None)
+ParameterBuffer = getattr(_ext.optimizer, "ParameterBuffer", ParamBuffer)
+ParamBlock = getattr(_ext.optimizer, "ParamBlock", None)
+SearchState = getattr(_ext.optimizer, "SearchState", None)
+Proposals = getattr(_ext.optimizer, "Proposals", None)
+weight_int4_select_ucb = _ext.optimizer.weight_int4_select_ucb
+weight_select_ucb = _ext.optimizer.weight_select_ucb
+ModelPackage = _ext.experimental.ModelPackage
+NativeKdaModel = getattr(_ext.experimental, "NativeKdaModel", None)
+FlameEvaluator = getattr(_ext.experimental, "FlameEvaluator", None)
+MetalFlameEvaluator = getattr(_ext.experimental, "MetalFlameEvaluator", None)
+MetalQwenEvaluator = getattr(_ext.experimental, "MetalQwenEvaluator", None)
+MetalWeights = getattr(_ext.experimental, "MetalWeights", None)
+MetalParamBlock = getattr(_ext.experimental, "MetalParamBlock", None)
+MetalSearchState = getattr(_ext.experimental, "MetalSearchState", None)
+ResidentBoSession = _ext.experimental.ResidentBoSession
+
+
+__all__ = [
+    "ENN",
+    "BayesOptimizer",
+    "BpannHistory",
+    "DenseLinear",
+    "ENNFitter",
+    "ENNParams",
+    "FlameEvaluator",
+    "MetalFlameEvaluator",
+    "MetalParamBlock",
+    "MetalQwenEvaluator",
+    "MetalSearchState",
+    "MetalWeights",
+    "ModelPackage",
+    "MultiTrustRegion",
+    "NativeKdaModel",
+    "ParamBlock",
+    "ParamBuffer",
+    "ParameterBuffer",
+    "Proposals",
+    "ResidentBoSession",
+    "SearchState",
+    "Telemetry",
+    "create_lhd",
+    "create_optimizer",
+    "create_zero",
+    "dense_apply",
+    "dense_dist2",
+    "dense_linear",
+    "enn_optimizer",
+    "enn_tr",
+    "ensure_config_file",
+    "hypervolume2d_max",
+    "normal_hash",
+    "pareto2d_max",
+    "pareto_arms",
+    "quantize_e2m1",
+    "quantize_int4",
+    "row_loglik",
+    "set_path",
+    "sobol_indices",
+    "sobol_sequence",
+    "standardize_y",
+    "subsample_loglik",
+    "weight_int4_select_ucb",
+    "weight_select_ucb",
+]

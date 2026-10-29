@@ -1,0 +1,82 @@
+[workspace]
+name = "baux"
+channels = ["conda-forge"]
+platforms = [
+  { platform = "osx-arm64", macos = "14.0" },
+  "linux-64",
+  "linux-aarch64",
+]
+
+[feature.baux.dependencies]
+click = "==8.5.0"
+numpy = "*"
+scipy = "*"
+
+[feature.integrations.pypi-dependencies]
+botorch = "==0.18.1"
+optuna = "==5.0.0"
+ax-platform = "==1.3.1"
+
+[feature.test.dependencies]
+ca-certificates = ">=2026.10.19"
+certifi = ">=2026.10.19"
+pytest = "*"
+requests = "*"
+
+[feature.test.target.linux-64.dependencies]
+auditwheel = "*"
+patchelf = "*"
+binutils = "*"
+
+[feature.test.target.linux-aarch64.dependencies]
+auditwheel = "*"
+patchelf = "*"
+binutils = "*"
+
+[feature.gp.dependencies]
+pytorch = ">=2.0"
+gpytorch = ">=1.11"
+
+[feature.py314.dependencies]
+python = "3.14.*"
+
+[feature.py315.dependencies]
+python = "3.15.*"
+
+[feature.nightly.pypi-dependencies]
+click = "==8.5.0"
+numpy = "*"
+scipy = "*"
+
+[feature.nightly.target.osx-arm64.pypi-dependencies]
+torch = { version = "==2.16.0.dev20261018", index = "https://download.pytorch.org/whl/nightly/cpu" }
+
+[feature.nightly.target.linux-64.pypi-dependencies]
+torch = { version = "==2.16.0.dev20261019+cu130", index = "https://download.pytorch.org/whl/nightly/cu130" }
+triton = { version = "==3.9.0+gitfc8d31a5", index = "https://download.pytorch.org/whl/nightly/cu130" }
+jax = { version = "==0.12.0", extras = ["cuda13"] }
+
+[feature.nightly.target.linux-aarch64.pypi-dependencies]
+torch = { version = "==2.16.0.dev20261019+cpu", index = "https://download.pytorch.org/whl/nightly/cpu" }
+jax = "==0.12.0"
+
+[environments]
+baux = { features = [
+  "baux",
+  "integrations",
+  "test",
+  "gp",
+  "py314",
+], no-default-feature = true }
+baux-py314 = { features = [
+  "baux",
+  "integrations",
+  "test",
+  "py314",
+], no-default-feature = true }
+baux-py315 = { features = [
+  "integrations",
+  "test",
+  "nightly",
+  "py315",
+], no-default-feature = true }

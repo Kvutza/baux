@@ -1,0 +1,24 @@
+load("@crates//:defs.bzl", "aliases", "crate_deps", "crate_edition")
+load("@rules_rust//rust:defs.bzl", "rust_test")
+load("//build:targets.bzl", "RUNNER_PROGRAMS", "RUNNER_TEST_CRATES")
+load("//rust/crates/baux:defs.bzl", "baux_program_targets")
+
+package(default_visibility = ["//visibility:public"])
+
+exports_files(["Cargo.toml"])
+
+baux_program_targets(RUNNER_PROGRAMS, glob(["src/**/*.rs"]))
+
+rust_test(
+    name = "baux_runner_test",
+    srcs = glob(["src/**/*.rs"]),
+    aliases = aliases(normal_dev = True, proc_macro_dev = True),
+    crate_name = "baux_runner_test",
+    crate_root = [program["root"] for program in RUNNER_PROGRAMS if program["name"] == "baux-runner"][0],
+    rustc_env = {"CARGO_PKG_VERSION": [program["version"] for program in RUNNER_PROGRAMS if program["name"] == "baux-runner"][0]},
+    edition = crate_edition(),
+    deps = crate_deps(RUNNER_TEST_CRATES) + [
+        "//rust/crates/tooling:tooling",
+        "//rust/crates/baux:baux_accelerators",
+    ],
+)

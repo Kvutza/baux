@@ -1,0 +1,17 @@
+[package]
+name = "baux-runner"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+clap.workspace = true
+baux.workspace = true
+baux-tooling.workspace = true
+sha2.workspace = true
+
+[[bin]]
+name = "baux-runner"
+path = "src/main.rs"

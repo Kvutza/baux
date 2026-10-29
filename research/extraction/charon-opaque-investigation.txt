@@ -1,0 +1,47 @@
+ENN 0.4.1 direct optimizer ask extraction: Charon boundary
+2026-10-27, isolated JJ workspace baux-enn-float
+
+Pinned Charon source: de8736f7c995ac54dc490345cef9ea5143c06c62.
+All builds ran through ./baux research extract. The pinned Charon checkout
+was not modified. The experimental extension was reverted from tracked code.
+
+1. With crate::optimizer opaque, the upstream wrapper emits LLBC quickly.
+   Including crate::optimizer::_::ask causes Hax PredicateSearcher expansion.
+2. A patch that uses rustc fn_sig to read only the late-bound binder compiles.
+   Translating the entire uninstantiated fn_sig caused a rustc ICE:
+   `cannot find N/#1 in param-env`. Evidence:
+   probe-65067-1793120420447522000/charon.stderr.log.
+3. Binder-only conversion still entered Hax full_def during name construction
+   for the external ndarray::view method. Sample:
+   /tmp/charon-binder-sample.txt; probe-66017-1793120695269431000.
+4. A stable DefPathHash name for external inherent impls bypassed that path.
+   Instrumentation then identified `ndarray::impl_methods::{impl#0}::view Fun`
+   as the exact declaration before growth. Evidence:
+   probe-72443-1793121203819381000/charon.stderr.log and
+   /tmp/charon-item-sample.txt.
+5. A typed external ItemRef carrying exact DefId and rustc generic args but
+   omitting trait proofs compiled. It still entered
+   translate_full_def -> get_param_env ->
+   ItemRef::translate_from_hax_def_id_maybe_resolve -> PredicateSearcher.
+   Evidence: probe-75715-1793121384911585000/charon.stderr.log and
+   /tmp/charon-itemref-sample.txt. It reached 6.56 GiB RSS before termination.
+
+Supported frontier: the opaque upstream wrapper LLBC exists. Full upstream
+Optimizer::ask body LLBC does not. No Aeneas translation or Lean theorem for
+the direct body was checked. None of these probes proves executable equivalence.
+The generic declaration predicate context is semantic; silently dropping it
+would weaken the extracted program. The experimental path was not integrated.
+
+Bounded alternative: Charon's FnPtrKind::Fun points to FunDeclId and FunDecl
+supports Body::Opaque. An occurrence-specific external contract could register
+a synthetic FunDecl from the rustc-typechecked callsite's instantiated fn_sig,
+stable DefId, generic arguments and late-bound binder. Charon has no current
+API for that: translate_bound_fn_ptr calls translate_item_maybe_enqueue, then
+translate_item_aux builds Hax full_def for visible items. A new registration
+path, stable identity policy and contract provenance would be required. Such
+a contract remains a proof obligation for ndarray behavior; it is not a proof
+of the external dependency.
+
+The local production comparison must target Python-visible natural-coordinate
+ask/tell behavior: unit-to-natural conversion in ask and natural-to-unit
+conversion in tell.

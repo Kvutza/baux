@@ -1,0 +1,98 @@
+load("@crates//:defs.bzl", "aliases", "crate_edition")
+load("@rules_rust//rust:defs.bzl", "rust_shared_library")
+load("//build/bazel:python_extension.bzl", "copy_extension")
+load("//build:targets.bzl", "BAUX_PY_CRATES")
+load("//rust/crates/baux:defs.bzl", "baux_crate_deps")
+
+package(default_visibility = ["//visibility:public"])
+
+exports_files(["Cargo.toml"])
+
+BAUX_PY_SRCS = glob(
+    ["src/**/*.rs"],
+    exclude = ["src/baux_py_build.rs"],
+)
+
+BAUX_PY_DEPS = baux_crate_deps(BAUX_PY_CRATES)
+
+PYO3_LINK_FLAGS = select({
+    "@platforms//os:macos": [
+        "-Clink-arg=-undefined",
+        "-Clink-arg=dynamic_lookup",
+    ],
+    "//conditions:default": [],
+})
+
+rust_shared_library(
+    name = "baux_rust_cpu",
+    srcs = BAUX_PY_SRCS,
+    aliases = aliases(),
+    crate_features = ["usearch-native"],
+    crate_name = "baux_rust",
+    crate_root = "src/lib.rs",
+    edition = crate_edition(),
+    rustc_env = {
+        "CARGO_MANIFEST_DIR": "rust/crates/baux-py",
+    },
+    rustc_flags = PYO3_LINK_FLAGS,
+    deps = BAUX_PY_DEPS + [
+        "//rust/crates/baux:baux_cpu",
+    ],
+)
+
+rust_shared_library(
+    name = "baux_rust_metal",
+    srcs = BAUX_PY_SRCS,
+    aliases = aliases(),
+    crate_features = [
+        "metal",
+        "usearch-native",
+    ],
+    crate_name = "baux_rust",
+    crate_root = "src/lib.rs",
+    edition = crate_edition(),
+    rustc_env = {
+        "CARGO_MANIFEST_DIR": "rust/crates/baux-py",
+    },
+    rustc_flags = PYO3_LINK_FLAGS,
+    target_compatible_with = ["@platforms//os:macos"],
+    deps = BAUX_PY_DEPS + [
+        "//rust/crates/baux:baux_metal",
+        "@crates//:metal",
+    ],
+)
+
+rust_shared_library(
+    name = "baux_rust_opencl",
+    srcs = BAUX_PY_SRCS,
+    aliases = aliases(),
+    crate_features = [
+        "opencl",
+        "usearch-native",
+    ],
+    crate_name = "baux_rust",
+    crate_root = "src/lib.rs",
+    edition = crate_edition(),
+    rustc_env = {
+        "CARGO_MANIFEST_DIR": "rust/crates/baux-py",
+    },
+    rustc_flags = PYO3_LINK_FLAGS,
+    deps = BAUX_PY_DEPS + [
+        "//rust/crates/baux:baux_opencl",
+    ],
+)
+
+alias(
+    name = "baux_rust",
+    actual = select({
+        "@platforms//os:linux": ":baux_rust_opencl",
+        "@platforms//os:macos": ":baux_rust_metal",
+        "//conditions:default": ":baux_rust_cpu",
+    }),
+)
+
+copy_extension(
+    name = "python_extension",
+    src = ":baux_rust",
+    output = "baux_rust.so",
+)

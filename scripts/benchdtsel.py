@@ -1,0 +1,265 @@
+from __future__ import annotations
+
+import json
+import statistics
+import sys
+import time
+from collections.abc import Sequence
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+import click
+import numpy as np
+
+from baux import AcquisitionKind, create_optimizer, turbo_enn
+from baux.turbo.config import SurrogateFit, ENNSurrogate
+
+
+def make_bounds(num_dim: int) -> np.ndarray:
+    return np.tile(np.array([[0.0, 1.0]], dtype=float), (num_dim, 1))
+
+
+def synthetic_objective(x: np.ndarray) -> np.ndarray:
+    """Cheap objective; shape (n, 1)."""
+    # Smooth non-separable signal to avoid degenerate neighborhoods.
+    y = -np.sum((x - 0.35) ** 2, axis=1) + 0.1 * np.sin(8.0 * x).sum(axis=1)
+    return y.reshape(-1, 1).astype(float)
+
+
+def seed_observations(
+    opt: Any,
+    rng: np.random.Generator,
+    *,
+    num_obs: int,
+    num_dim: int,
+    batch_size: int,
+) -> None:
+    bounds = make_bounds(num_dim)
+    low, high = bounds[:, 0], bounds[:, 1]
+    remaining = int(num_obs)
+    while remaining > 0:
+        n_batch = min(batch_size, remaining)
+        x = rng.uniform(low, high, size=(n_batch, num_dim))
+        y = synthetic_objective(x)
+        opt.tell(x, y)
+        remaining -= n_batch
+
+
+def summarize(values: list[float], name: str) -> None:
+    vals_ms = [1000.0 * v for v in values]
+    print(
+        f"{name}_ms",
+        f"mean={statistics.fmean(vals_ms):.3f}",
+        f"median={statistics.median(vals_ms):.3f}",
+        f"p95={np.percentile(vals_ms, 95):.3f}",
+        f"min={min(vals_ms):.3f}",
+        f"max={max(vals_ms):.3f}",
+    )
+
+
+@dataclass(frozen=True)
+class BenchmarkConfig:
+    num_obs: int
+    num_dim: int
+    k: int
+    num_arms: int
+    num_samples: int
+    num_candidates: int
+    seed_batch_size: int
+    warmup_asks: int
+    timed_asks: int
+    seed: int
+    compare_baseline: Path | None
+    fail_on_regression: bool
+
+
+def _p95ms(values: list[float]) -> float:
+    return float(np.percentile([1000.0 * v for v in values], 95))
+
+
+def _checkbaseline(
+    baseline_path: Path,
+    *,
+    ask_p95_ms: float,
+    fail_on_regression: bool,
+) -> None:
+    with open(baseline_path) as f:
+        baseline: dict[str, Any] = json.load(f)
+    limits = baseline.get("ci_ask_limits", [])
+    failures: list[str] = []
+    for entry in limits:
+        max_ratio = float(entry.get("max_p95_ratio", 1.25))
+        max_abs = entry.get("max_abs_p95_ms")
+        ref = float(entry.get("reference_p95_ms", ask_p95_ms))
+        ratio = ask_p95_ms / ref if ref > 0 else 1.0
+        if max_abs is not None and ask_p95_ms <= float(max_abs):
+            continue
+        if ratio > max_ratio:
+            failures.append(
+                f"ask_p95_ms={ask_p95_ms:.3f} ratio={ratio:.3f} > {max_ratio}"
+            )
+    if failures and fail_on_regression:
+        raise SystemExit("speed regression: " + "; ".join(failures))
+    for msg in failures:
+        print("WARN", msg, file=sys.stderr)
+
+
+def _buildoptimizer(
+    *,
+    num_dim: int,
+    k: int,
+    num_samples: int,
+    num_candidates: int,
+    num_arms: int,
+    seed: int,
+):
+    rng = np.random.default_rng(seed)
+    bounds = make_bounds(num_dim)
+    config = turbo_enn(
+        enn=ENNSurrogate(
+            k=k,
+            fit=SurrogateFit(
+                num_samples=num_samples,
+                num_candidates=num_candidates,
+            ),
+        ),
+        num_init=num_arms,
+        acquisition=AcquisitionKind.UCB,
+    )
+    return bounds, rng, create_optimizer(bounds=bounds, config=config, rng=rng)
+
+
+def _runtimings(
+    opt, num_arms: int, warmup_asks: int, timed_asks: int
+) -> tuple[list[float], list[float], list[float], list[float]]:
+    for _ in range(warmup_asks):
+        _ = opt.ask(num_arms)
+
+    dt_sel_values: list[float] = []
+    dt_gen_values: list[float] = []
+    dt_fit_values: list[float] = []
+    ask_wall_values: list[float] = []
+    for _ in range(timed_asks):
+        t0 = time.perf_counter()
+        _ = opt.ask(num_arms)
+        ask_wall_values.append(time.perf_counter() - t0)
+        t = opt.telemetry()
+        dt_sel_values.append(float(t.dt_sel))
+        dt_gen_values.append(float(t.dt_gen))
+        dt_fit_values.append(float(t.dt_fit))
+    return dt_sel_values, dt_gen_values, dt_fit_values, ask_wall_values
+
+
+def _printsetup(num_obs: int, num_dim: int, k: int, num_arms: int):
+    print(
+        "setup",
+        f"N={num_obs}",
+        f"D={num_dim}",
+        f"k={k}",
+        f"num_candidates={min(5000, 100 * num_dim)}",
+        f"num_arms={num_arms}",
+    )
+
+
+def _execute(args: BenchmarkConfig) -> None:
+    if args.num_obs <= 0 or args.num_dim <= 0 or args.k <= 0:
+        raise ValueError("num_obs, num_dim, and k must all be positive")
+
+    _, rng, opt = _buildoptimizer(
+        num_dim=args.num_dim,
+        k=args.k,
+        num_samples=args.num_samples,
+        num_candidates=args.num_candidates,
+        num_arms=args.num_arms,
+        seed=args.seed,
+    )
+    _printsetup(
+        num_obs=args.num_obs,
+        num_dim=args.num_dim,
+        k=args.k,
+        num_arms=args.num_arms,
+    )
+    print("seeding observations...")
+    t0_seed = time.perf_counter()
+    seed_observations(
+        opt,
+        rng,
+        num_obs=args.num_obs,
+        num_dim=args.num_dim,
+        batch_size=args.seed_batch_size,
+    )
+    dt_seed = time.perf_counter() - t0_seed
+    print(f"seed_time_sec={dt_seed:.3f}")
+
+    dt_sel_values, dt_gen_values, dt_fit_values, ask_wall_values = _runtimings(
+        opt,
+        args.num_arms,
+        args.warmup_asks,
+        args.timed_asks,
+    )
+
+    print(f"timed_asks={args.timed_asks}")
+    summarize(dt_sel_values, "dt_sel")
+    summarize(dt_gen_values, "dt_gen")
+    summarize(dt_fit_values, "dt_fit")
+    summarize(ask_wall_values, "ask_wall")
+    ratio = np.mean(dt_sel_values) / np.mean(ask_wall_values)
+    print(f"dt_sel_fraction_of_ask_wall={ratio:.3f}")
+    ask_p95_ms = _p95ms(ask_wall_values)
+    if args.compare_baseline:
+        _checkbaseline(
+            args.compare_baseline,
+            ask_p95_ms=ask_p95_ms,
+            fail_on_regression=args.fail_on_regression,
+        )
+
+
+def cli(**kwargs: Any) -> None:
+    _execute(BenchmarkConfig(**kwargs))
+
+
+for _decorator in (
+    click.option(
+        "--fail-on-regression",
+        is_flag=True,
+        help="Fail when measured p95 exceeds the baseline limit.",
+    ),
+    click.option(
+        "--compare-baseline",
+        type=click.Path(exists=True, dir_okay=False, path_type=Path),
+        help="JSON baseline with p95 ratio limits.",
+    ),
+    click.option("--seed", type=int, default=0, show_default=True),
+    click.option("--timed-asks", type=int, default=20, show_default=True),
+    click.option("--warmup-asks", type=int, default=3, show_default=True),
+    click.option("--seed-batch-size", type=int, default=2_000, show_default=True),
+    click.option(
+        "--num-fit-candidates",
+        "num_candidates",
+        type=int,
+        default=128,
+        show_default=True,
+    ),
+    click.option(
+        "--num-fit-samples", "num_samples", type=int, default=64, show_default=True
+    ),
+    click.option("--num-arms", type=int, default=4, show_default=True),
+    click.option("--k", type=int, default=64, show_default=True),
+    click.option("--num-dim", type=int, default=64, show_default=True),
+    click.option("--num-obs", type=int, default=50_000, show_default=True),
+    click.command(help="Stress-test ENN selection timing (dt_sel) at large N and D."),
+):
+    cli = _decorator(cli)
+
+
+def run_benchmark(argv: Sequence[str] | None = None) -> None:
+    cli.main(
+        args=None if argv is None else list(argv),
+        prog_name="benchdtsel",
+        standalone_mode=False,
+    )
+
+
+if __name__ == "__main__":
+    run_benchmark()

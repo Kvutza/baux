@@ -1,0 +1,20 @@
+[workspace]
+
+[package]
+name = "baux-optimizer-extraction"
+version = "0.0.1"
+edition = "2024"
+rust-version = "1.88"
+license = "MIT"
+publish = false
+autobins = false
+
+[dependencies]
+ndarray = "0.17"
+rand = "0.8"
+thiserror = "1.0"
+
+[features]
+default = []
+extraction = []
+usearch-native = []

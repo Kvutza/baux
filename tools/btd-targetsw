@@ -1,0 +1,38 @@
+#!/bin/sh
+set -eu
+
+repo_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+"$repo_dir/tools/bootstrap-dotslash" >/dev/null
+
+PATTERN="${1:-root//...}"
+shift || true
+
+TMP_DIR=$(mktemp -d -t btd-XXXXXX)
+trap 'rm -rf "$TMP_DIR"' EXIT
+
+CHANGES_FILE="$TMP_DIR/changes.txt"
+BASE_TARGETS="$TMP_DIR/base.jsonl"
+
+# Capture git name-status diff against HEAD (or uncommitted index)
+git -C "$repo_dir" diff --name-status HEAD > "$CHANGES_FILE" 2>/dev/null || true
+if [ ! -s "$CHANGES_FILE" ]; then
+    git -C "$repo_dir" status --porcelain | awk '{code=($1=="??" ? "A" : $1); print code "\t" $2}' > "$CHANGES_FILE" 2>/dev/null || true
+fi
+
+"$repo_dir/tools/buck2w" targets \
+    --streaming \
+    --keep-going \
+    --no-cache \
+    --show-unconfigured-target-hash \
+    --json-lines \
+    '--output-attribute=^buck\.|^name$|^labels$|^ci_srcs$|^ci_srcs_must_match$|^ci_deps$|^remote_execution$|^tests$' \
+    --imports \
+    "$PATTERN" > "$BASE_TARGETS"
+
+exec "$repo_dir/tools/btdw" \
+    --buck "$repo_dir/tools/buck2w" \
+    --changes "$CHANGES_FILE" \
+    --base "$BASE_TARGETS" \
+    --diff "$BASE_TARGETS" \
+    --vcs git \
+    "$PATTERN" "$@"

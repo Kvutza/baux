@@ -1,0 +1,44 @@
+load("//build/buck2:baux_targets.bzl", "baux_program_targets")
+load("//build/buck2:reindeer_rules.bzl", "app_rust_library")
+load("//build:targets.bzl", "TOOLING_PROGRAMS", "RUST_EDITION")
+
+filegroup(
+    name = "source",
+    srcs = glob(["src/**"]) + ["Cargo.toml"],
+    visibility = ["PUBLIC"],
+)
+
+app_rust_library(
+    name = "tooling",
+    srcs = glob(["src/**/*.rs"]),
+    crate = "baux_tooling",
+    crate_root = "src/lib.rs",
+    edition = RUST_EDITION,
+    deps = [
+        "//rust:clap",
+        "//rust:deser",
+        "//rust/crates/baux:baux",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+rust_test(
+    name = "tooling-unit",
+    srcs = glob(["src/**/*.rs"]),
+    crate = "baux_tooling",
+    crate_root = "src/lib.rs",
+    edition = RUST_EDITION,
+    visibility = ["//build/buck2/tests:all"],
+    deps = [
+        "//rust:clap",
+        "//rust:deser",
+        "//rust/crates/baux:baux",
+    ] + select({
+        "//:macos-arm64": ["//build/buck2/native:openmp-macos"],
+        "DEFAULT": [],
+    }),
+    rpath = True,
+    runtime_dependency_handling = "symlink",
+)
+
+[baux_program_targets([program], RUST_EDITION, [program["root"]]) for program in TOOLING_PROGRAMS]

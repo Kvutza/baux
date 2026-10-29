@@ -1,0 +1,55 @@
+#!/usr/bin/env dotslash
+
+{
+  "name": "reindeer",
+  "platforms": {
+    "macos-aarch64": {
+      "size": 10537365,
+      "hash": "blake3",
+      "digest": "e3bba587a1c592f27a6db28092d9100a6784f95d300568740fb445d134102745",
+      "format": "zst",
+      "path": "reindeer-aarch64-apple-darwin",
+      "providers": [
+        {
+          "url": "https://github.com/facebookincubator/reindeer/releases/download/v2026.10.05.00/reindeer-aarch64-apple-darwin.zst"
+        }
+      ]
+    },
+    "linux-aarch64": {
+      "size": 12423102,
+      "hash": "blake3",
+      "digest": "9c8a3bf913f05239552952bde59e169972e8894d8d244266aafdaf1cee29b360",
+      "format": "zst",
+      "path": "reindeer-aarch64-unknown-linux-musl",
+      "providers": [
+        {
+          "url": "https://github.com/facebookincubator/reindeer/releases/download/v2026.10.05.00/reindeer-aarch64-unknown-linux-musl.zst"
+        }
+      ]
+    },
+    "macos-x86_64": {
+      "size": 10656781,
+      "hash": "blake3",
+      "digest": "f5da62484e04265ef55949023c31a2cd050fe32b7067f7279f3f88a71a2c768a",
+      "format": "zst",
+      "path": "reindeer-x86_64-apple-darwin",
+      "providers": [
+        {
+          "url": "https://github.com/facebookincubator/reindeer/releases/download/v2026.10.05.00/reindeer-x86_64-apple-darwin.zst"
+        }
+      ]
+    },
+    "linux-x86_64": {
+      "size": 12531005,
+      "hash": "blake3",
+      "digest": "27c3f545ba404bad57149705de2d164ef5a0364c41e5e0d25fa7d705442d38eb",
+      "format": "zst",
+      "path": "reindeer-x86_64-unknown-linux-musl",
+      "providers": [
+        {
+          "url": "https://github.com/facebookincubator/reindeer/releases/download/v2026.10.05.00/reindeer-x86_64-unknown-linux-musl.zst"
+        }
+      ]
+    }
+  }
+}

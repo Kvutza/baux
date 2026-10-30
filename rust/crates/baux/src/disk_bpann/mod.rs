@@ -1,9 +1,9 @@
 use ndarray::Array2;
 
-pub mod enn_backend;
 mod inspection;
+pub mod store;
 
-pub use enn_backend::DiskBpannEnnBackend;
+pub use store::DiskBpannStore;
 
 /// Gathered training rows: `x`, `y`, optional `yvar`.
 pub(crate) type TrainRows = (Array2<f64>, Array2<f64>, Option<Array2<f64>>);

@@ -1,9 +1,9 @@
-//! Disk backend shape and search status.
+//! Disk store shape and search status.
 
-use super::enn_backend::DiskBpannEnnBackend;
+use super::store::DiskBpannStore;
 use crate::index::IndexDriver;
 
-impl DiskBpannEnnBackend {
+impl DiskBpannStore {
     pub fn driver(&self) -> IndexDriver {
         self.driver
     }

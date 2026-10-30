@@ -31,21 +31,21 @@ fn synthetic_f32(n: usize, d: usize, seed: u64) -> Vec<Vec<f32>> {
 
 #[test]
 fn dim_limit() {
-    let err = backend::open_dim(MAX_DIM + 1).unwrap_err();
+    let err = bpann_store::open_dim(MAX_DIM + 1).unwrap_err();
     assert!(err.to_string().contains("MAX_DIM") || err.to_string().contains(&MAX_DIM.to_string()));
 }
 
 #[test]
 fn stride_limit() {
     let huge_dim = MAX_STRIDE / 8 + 1;
-    let err = backend::open_stride(huge_dim).unwrap_err();
+    let err = bpann_store::open_stride(huge_dim).unwrap_err();
     assert!(err.to_string().contains("record_stride") || err.to_string().contains("8388608"));
 }
 
 #[test]
 fn shape_mismatch() {
     let dir = TempDir::new().unwrap();
-    let mut b = BpannBackend::new_empty(dir.path().to_path_buf(), 2, 1).unwrap();
+    let mut b = BpannStore::new_empty(dir.path().to_path_buf(), 2, 1).unwrap();
     let err = b
         .append_rows(&array![[0.0, 0.0, 0.0]].view(), &array![[0.0]].view(), None)
         .unwrap_err();
@@ -64,7 +64,7 @@ fn mmap_store() {
 #[test]
 fn test_mmaprowroundtripf64() {
     let dir = TempDir::new().unwrap();
-    let mut b = BpannBackend::new_empty(dir.path().to_path_buf(), 2, 1).unwrap();
+    let mut b = BpannStore::new_empty(dir.path().to_path_buf(), 2, 1).unwrap();
     b.append_rows(
         &array![[1.23456789, 9.87654321]].view(),
         &array![[0.5]].view(),
@@ -79,7 +79,7 @@ fn test_mmaprowroundtripf64() {
 #[test]
 fn test_006() {
     let dir = TempDir::new().unwrap();
-    let _b = BpannBackend::new_empty(dir.path().to_path_buf(), 3, 2).unwrap();
+    let _b = BpannStore::new_empty(dir.path().to_path_buf(), 3, 2).unwrap();
     assert!(dir.path().join("train_x.bin").exists());
     assert!(dir.path().join("train_y.bin").exists());
     assert!(dir.path().join("metadata.json").exists());
@@ -90,7 +90,7 @@ fn test_007() {
     let dir = TempDir::new().unwrap();
     let (x, y) = synthetic_train(64, 4, 7);
     let y_sentinel = Array2::from_elem((64, 1), 12345.6789);
-    let mut b = BpannBackend::new(
+    let mut b = BpannStore::new(
         dir.path().to_path_buf(),
         x,
         y_sentinel,
@@ -111,7 +111,7 @@ fn test_007() {
 #[test]
 fn test_008() {
     let dir = TempDir::new().unwrap();
-    let mut b = BpannBackend::new_empty(dir.path().to_path_buf(), 2, 1).unwrap();
+    let mut b = BpannStore::new_empty(dir.path().to_path_buf(), 2, 1).unwrap();
     b.append_rows(
         &array![[0.0, 0.0], [1.0, 0.0]].view(),
         &array![[0.0], [1.0]].view(),
@@ -129,7 +129,7 @@ fn test_009() {
     let dir = TempDir::new().unwrap();
     let (x, y) = synthetic_train(32, 8, 1);
     let mut b =
-        BpannBackend::new(dir.path().to_path_buf(), x, y, None, false, Array1::ones(8)).unwrap();
+        BpannStore::new(dir.path().to_path_buf(), x, y, None, false, Array1::ones(8)).unwrap();
     b.ensure_sync().unwrap();
     let queries = Array2::zeros((3, 8));
     let (d, i) = b.search(&queries.view(), 5, false).unwrap();
@@ -137,7 +137,7 @@ fn test_009() {
     assert_eq!(i.shape(), &[3, 5]);
 }
 
-fn brute_oracle(b: &BpannBackend, query: &[f64], k: usize) -> Vec<i64> {
+fn brute_oracle(b: &BpannStore, query: &[f64], k: usize) -> Vec<i64> {
     let mut scored: Vec<(i64, f64)> = (0..b.len())
         .map(|i| {
             let row = b.row_slice(i).unwrap();
@@ -158,7 +158,7 @@ fn brute_oracle(b: &BpannBackend, query: &[f64], k: usize) -> Vec<i64> {
 fn test_010() {
     let dir = TempDir::new().unwrap();
     let (x, y) = synthetic_train(64, 8, 3);
-    let mut b = BpannBackend::new(
+    let mut b = BpannStore::new(
         dir.path().to_path_buf(),
         x.clone(),
         y,
@@ -189,7 +189,7 @@ fn test_010() {
 #[test]
 fn test_011() {
     let dir = TempDir::new().unwrap();
-    let mut b = BpannBackend::new_empty(dir.path().to_path_buf(), 2, 1).unwrap();
+    let mut b = BpannStore::new_empty(dir.path().to_path_buf(), 2, 1).unwrap();
     b.append_rows(
         &array![[0.0, 0.0], [1.0, 0.0]].view(),
         &array![[0.0], [1.0]].view(),
@@ -208,7 +208,7 @@ fn test_011() {
 #[test]
 fn test_012() {
     let dir = TempDir::new().unwrap();
-    let mut b = BpannBackend::new_empty(dir.path().to_path_buf(), 1, 1).unwrap();
+    let mut b = BpannStore::new_empty(dir.path().to_path_buf(), 1, 1).unwrap();
     // Far indexed decoys.
     b.append_rows(
         &array![[1000.0], [1001.0], [1002.0]].view(),
@@ -240,7 +240,7 @@ fn test_012() {
 #[test]
 fn test_013() {
     let dir = TempDir::new().unwrap();
-    let mut b = BpannBackend::new_empty(dir.path().to_path_buf(), 1, 1).unwrap();
+    let mut b = BpannStore::new_empty(dir.path().to_path_buf(), 1, 1).unwrap();
     b.append_rows(
         &array![[1000.0], [1001.0], [1002.0]].view(),
         &array![[0.0], [0.0], [0.0]].view(),
@@ -270,7 +270,7 @@ fn test_013() {
 fn test_014() {
     let dir = TempDir::new().unwrap();
     let (x, y) = synthetic_train(48, 6, 11);
-    let mut b = BpannBackend::new(
+    let mut b = BpannStore::new(
         dir.path().to_path_buf(),
         x.clone(),
         y,
@@ -315,7 +315,7 @@ fn test_016() {
     let dir = TempDir::new().unwrap();
     let (x, y) = synthetic_train(16, 4, 5);
     let scale = array![2.0, 1.0, 4.0, 2.0];
-    let mut b = BpannBackend::new(
+    let mut b = BpannStore::new(
         dir.path().to_path_buf(),
         x.clone(),
         y,
@@ -337,7 +337,7 @@ fn test_016() {
 #[test]
 fn test_017() {
     let dir = TempDir::new().unwrap();
-    let mut b = BpannBackend::new_empty(dir.path().to_path_buf(), 2, 1).unwrap();
+    let mut b = BpannStore::new_empty(dir.path().to_path_buf(), 2, 1).unwrap();
     b.append_row(&array![0.0, 0.0], &array![0.0], None).unwrap();
     assert_eq!(b.len(), 1);
 }
@@ -345,7 +345,7 @@ fn test_017() {
 #[test]
 fn test_018() {
     let dir = TempDir::new().unwrap();
-    let mut b = BpannBackend::new_empty(dir.path().to_path_buf(), 2, 1).unwrap();
+    let mut b = BpannStore::new_empty(dir.path().to_path_buf(), 2, 1).unwrap();
     b.append_rows(
         &array![[0.0, 0.0], [1.0, 0.0]].view(),
         &array![[0.0], [1.0]].view(),
@@ -359,7 +359,7 @@ fn test_018() {
 fn test_019() {
     let dir = TempDir::new().unwrap();
     let scale = array![2.0, 2.0];
-    let mut b = BpannBackend::new(
+    let mut b = BpannStore::new(
         dir.path().to_path_buf(),
         array![[0.0, 0.0], [10.0, 10.0]],
         array![[0.0], [1.0]],
@@ -386,7 +386,7 @@ fn test_019() {
 #[test]
 fn test_020() {
     let dir = TempDir::new().unwrap();
-    let mut b = BpannBackend::new(
+    let mut b = BpannStore::new(
         dir.path().to_path_buf(),
         array![[0.0, 0.0], [1.0, 0.0]],
         array![[0.0], [1.0]],
@@ -406,7 +406,7 @@ fn test_020() {
 #[test]
 fn test_021() {
     let dir = TempDir::new().unwrap();
-    let mut b = BpannBackend::new(
+    let mut b = BpannStore::new(
         dir.path().to_path_buf(),
         array![[0.0, 0.0], [1.0, 0.0]],
         array![[0.0], [1.0]],
@@ -430,7 +430,7 @@ fn test_021() {
 #[test]
 fn test_022() {
     let dir = TempDir::new().unwrap();
-    let mut b = BpannBackend::new(
+    let mut b = BpannStore::new(
         dir.path().to_path_buf(),
         array![[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]],
         array![[0.0], [1.0], [2.0]],
@@ -468,7 +468,7 @@ fn test_022() {
 #[test]
 fn test_023() {
     let dir = TempDir::new().unwrap();
-    let mut b = BpannBackend::new_empty(dir.path().to_path_buf(), 4, 1)
+    let mut b = BpannStore::new_empty(dir.path().to_path_buf(), 4, 1)
         .unwrap()
         .with_soft(3)
         .defer_indexing(false);
@@ -483,7 +483,7 @@ fn test_023() {
 #[test]
 fn test_024() {
     let dir = TempDir::new().unwrap();
-    let b = BpannBackend::new_empty(dir.path().to_path_buf(), 2, 1).unwrap();
+    let b = BpannStore::new_empty(dir.path().to_path_buf(), 2, 1).unwrap();
     assert_eq!(b.soft_threshold(), PENDING_SOFT);
     assert_eq!(PENDING_SOFT, 250);
     assert_eq!(
@@ -495,7 +495,7 @@ fn test_024() {
 #[test]
 fn test_025() {
     let dir = TempDir::new().unwrap();
-    let b = BpannBackend::new_empty(dir.path().to_path_buf(), 2, 1).unwrap();
+    let b = BpannStore::new_empty(dir.path().to_path_buf(), 2, 1).unwrap();
     assert_eq!(b.hard_threshold(), PENDING_HARD);
     assert_eq!(PENDING_HARD, 3000);
 }
@@ -503,7 +503,7 @@ fn test_025() {
 #[test]
 fn test_026() {
     let dir = TempDir::new().unwrap();
-    let b = BpannBackend::new_empty(dir.path().to_path_buf(), 2, 1)
+    let b = BpannStore::new_empty(dir.path().to_path_buf(), 2, 1)
         .unwrap()
         .with_soft(2000);
     assert_eq!(b.soft_threshold(), 2000);
@@ -513,7 +513,7 @@ fn test_026() {
 #[test]
 fn test_027() {
     let dir = TempDir::new().unwrap();
-    let mut b = BpannBackend::new_empty(dir.path().to_path_buf(), 2, 1)
+    let mut b = BpannStore::new_empty(dir.path().to_path_buf(), 2, 1)
         .unwrap()
         .with_soft(2)
         .with_hard(5)
@@ -528,7 +528,7 @@ fn test_027() {
 #[test]
 fn test_028() {
     let dir = TempDir::new().unwrap();
-    let mut b = BpannBackend::new_empty(dir.path().to_path_buf(), 2, 1)
+    let mut b = BpannStore::new_empty(dir.path().to_path_buf(), 2, 1)
         .unwrap()
         .with_soft(2)
         .with_hard(5)
@@ -546,7 +546,7 @@ fn test_028() {
 fn ensure_idempotent() {
     // Caller soft-sync mutates the live index (no publish swap required).
     let dir = TempDir::new().unwrap();
-    let mut b = BpannBackend::new_empty(dir.path().to_path_buf(), 2, 1)
+    let mut b = BpannStore::new_empty(dir.path().to_path_buf(), 2, 1)
         .unwrap()
         .with_soft(100)
         .with_hard(100)
@@ -568,7 +568,7 @@ fn ensure_idempotent() {
 #[test]
 fn test_030() {
     let dir = TempDir::new().unwrap();
-    let mut b = BpannBackend::new_empty(dir.path().to_path_buf(), 2, 1)
+    let mut b = BpannStore::new_empty(dir.path().to_path_buf(), 2, 1)
         .unwrap()
         .with_soft(2)
         .with_hard(5)
@@ -588,7 +588,7 @@ fn test_030() {
 fn metamorphic_trim() {
     // Soft sync on hard hit must drain pending to 0, not leave hard-1.
     let dir = TempDir::new().unwrap();
-    let mut b = BpannBackend::new_empty(dir.path().to_path_buf(), 3, 1)
+    let mut b = BpannStore::new_empty(dir.path().to_path_buf(), 3, 1)
         .unwrap()
         .with_soft(3)
         .with_hard(7)
@@ -613,7 +613,7 @@ fn fuzz_seeds() {
         let hard = rng.gen_range(soft..=soft + 6);
         let batch = rng.gen_range(1usize..=hard + 3);
         let dir = TempDir::new().unwrap();
-        let mut b = BpannBackend::new_empty(dir.path().to_path_buf(), 2, 1)
+        let mut b = BpannStore::new_empty(dir.path().to_path_buf(), 2, 1)
             .unwrap()
             .with_soft(soft)
             .with_hard(hard)
@@ -640,7 +640,7 @@ fn fuzz_seeds() {
 #[test]
 fn test_033() {
     let dir = TempDir::new().unwrap();
-    let mut b = BpannBackend::new_empty(dir.path().to_path_buf(), 8, 1).unwrap();
+    let mut b = BpannStore::new_empty(dir.path().to_path_buf(), 8, 1).unwrap();
     let mem0 = b.index_bytes();
     for i in 0..100 {
         b.append_row(&Array1::from_elem(8, i as f64), &array![i as f64], None)
@@ -656,7 +656,7 @@ fn test_034() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().to_path_buf();
     {
-        let mut b = BpannBackend::new_empty(path.clone(), 2, 1).unwrap();
+        let mut b = BpannStore::new_empty(path.clone(), 2, 1).unwrap();
         b.append_rows(
             &array![[0.0, 0.0], [1.0, 0.0]].view(),
             &array![[0.0], [1.0]].view(),
@@ -665,7 +665,7 @@ fn test_034() {
         .unwrap();
         assert_eq!(b.len(), 2);
     }
-    let b2 = BpannBackend::reopen(path).unwrap();
+    let b2 = BpannStore::reopen(path).unwrap();
     assert_eq!(b2.len(), 2);
 }
 
@@ -674,13 +674,13 @@ fn test_035() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().to_path_buf();
     let (pre_d, pre_i) = {
-        let mut b = BpannBackend::new_empty(path.clone(), 4, 1).unwrap();
+        let mut b = BpannStore::new_empty(path.clone(), 4, 1).unwrap();
         let (x, y) = synthetic_train(32, 4, 9);
         b.append_rows(&x.view(), &y.view(), None).unwrap();
         b.ensure_sync().unwrap();
         b.search(&x.slice(ndarray::s![0..2, ..]), 5, false).unwrap()
     };
-    let b2 = BpannBackend::reopen(path).unwrap();
+    let b2 = BpannStore::reopen(path).unwrap();
     let (x, _) = synthetic_train(32, 4, 9);
     let (post_d, post_i) = b2
         .search(&x.slice(ndarray::s![0..2, ..]), 5, false)
@@ -698,14 +698,14 @@ fn test_036() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().to_path_buf();
     let checksum_before = {
-        let mut b = BpannBackend::new_empty(path.clone(), 4, 1).unwrap();
+        let mut b = BpannStore::new_empty(path.clone(), 4, 1).unwrap();
         let (x, y) = synthetic_train(24, 4, 2);
         b.append_rows(&x.view(), &y.view(), None).unwrap();
         b.ensure_sync().unwrap();
         b.persist_index().unwrap();
         fs::read(path.join("index/pages.bin")).unwrap()
     };
-    let b2 = BpannBackend::reopen(path.clone()).unwrap();
+    let b2 = BpannStore::reopen(path.clone()).unwrap();
     assert_eq!(b2.indexed_rows(), 24);
     let checksum_after = fs::read(path.join("index/pages.bin")).unwrap();
     assert_eq!(checksum_before, checksum_after);
@@ -717,7 +717,7 @@ fn test_scalecheckpointsci() {
     let d = 32usize;
     let dir = TempDir::new().unwrap();
     let (x, y) = synthetic_train(n, d, 42);
-    let mut b = BpannBackend::new(
+    let mut b = BpannStore::new(
         dir.path().to_path_buf(),
         x.clone(),
         y,
@@ -748,7 +748,7 @@ fn test_scalerecallignored() {
     let d = 32usize;
     let dir = TempDir::new().unwrap();
     let (x, y) = synthetic_train(n, d, 42);
-    let mut b = BpannBackend::new(
+    let mut b = BpannStore::new(
         dir.path().to_path_buf(),
         x.clone(),
         y,
@@ -775,7 +775,7 @@ fn test_scale10mignored() {
     let n = 10_000_000usize;
     let d = 8usize;
     let dir = TempDir::new().unwrap();
-    let mut b = BpannBackend::new_empty(dir.path().to_path_buf(), d, 1).unwrap();
+    let mut b = BpannStore::new_empty(dir.path().to_path_buf(), d, 1).unwrap();
     let batch = 1000;
     for start in (0..n).step_by(batch) {
         let end = (start + batch).min(n);

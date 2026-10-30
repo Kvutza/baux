@@ -183,15 +183,15 @@ impl PosteriorComputation for ENN {
         flags: &PosteriorFlags,
     ) -> Result<(Array3<f64>, Vec<Vec<usize>>), ENNError> {
         #[cfg(all(target_os = "linux", target_arch = "x86_64", feature = "cuda"))]
-        if self.backend_driver() == IndexDriver::Cuda
+        if self.index_driver() == IndexDriver::Cuda
             && self.num_obs() > 0
             && !x.is_empty()
             && !function_seeds.is_empty()
         {
             let (input_k, used_k, skip) = cuda_shape(self, params, flags.exclude_nearest)?;
             self.ensure_sync()?;
-            if let (Some(index), Some(train_y)) = (self.backend.memory_index(), self.y_opt()) {
-                let train_yvar = self.backend.memory_yvar();
+            if let (Some(index), Some(train_y)) = (self.store.memory_index(), self.y_opt()) {
+                let train_yvar = self.store.memory_yvar();
                 let (mut draws, indices) = index
                     .cuda_draws(
                         x,
@@ -280,12 +280,11 @@ impl PosteriorComputation for ENN {
         }
         check_conditional(self, x, x_whatif, &y_whatif.view())?;
         #[cfg(all(target_os = "linux", target_arch = "x86_64", feature = "cuda"))]
-        if self.backend_driver() == IndexDriver::Cuda && !x.is_empty() && !function_seeds.is_empty()
-        {
+        if self.index_driver() == IndexDriver::Cuda && !x.is_empty() && !function_seeds.is_empty() {
             let (input_k, used_k, skip) =
                 condition_shape(self, x_whatif.nrows(), params, flags.exclude_nearest)?;
             self.ensure_sync()?;
-            if let Some(index) = self.backend.memory_index() {
+            if let Some(index) = self.store.memory_index() {
                 let (outcomes, variances, scales) = cuda_rows(self, &y_whatif.view())?;
                 let variance_view = variances.as_ref().map(|values| values.view());
                 let (mut draws, indices) = index
@@ -326,13 +325,13 @@ pub(crate) fn index_search(
     exclude_nearest: bool,
     tie_neighbors: bool,
 ) -> Result<(Array2<f64>, Array2<i64>), ENNError> {
-    if !model.backend.defers_search() {
+    if !model.store.defers_search() {
         model.ensure_sync()?;
     }
-    if model.backend_driver() == IndexDriver::Exact {
+    if model.index_driver() == IndexDriver::Exact {
         neighbor::f64_topk(model, x, search_k, exclude_nearest, tie_neighbors)
     } else {
-        let (_, idx) = model.backend_search(x, search_k, exclude_nearest)?;
+        let (_, idx) = model.search_index(x, search_k, exclude_nearest)?;
         let dist2s = neighbor::dist2s_indices(model, x, &idx);
         Ok((dist2s, idx))
     }
@@ -363,12 +362,12 @@ pub fn compute_internals(
     }
 
     #[cfg(all(target_os = "linux", target_arch = "x86_64", feature = "cuda"))]
-    if model.backend_driver() == IndexDriver::Cuda && !x.is_empty() {
+    if model.index_driver() == IndexDriver::Cuda && !x.is_empty() {
         let (input_k, used_k, skip) = cuda_shape(model, params, flags.exclude_nearest)?;
         if used_k > 0 {
             model.ensure_sync()?;
-            if let (Some(index), Some(train_y)) = (model.backend.memory_index(), model.y_opt()) {
-                let train_yvar = model.backend.memory_yvar();
+            if let (Some(index), Some(train_y)) = (model.store.memory_index(), model.y_opt()) {
+                let train_yvar = model.store.memory_yvar();
                 return index
                     .cuda_weighted(
                         x,
@@ -457,11 +456,11 @@ pub fn conditional_internals(
 
     let batch_size = x.nrows();
     #[cfg(all(target_os = "linux", target_arch = "x86_64", feature = "cuda"))]
-    if model.backend_driver() == IndexDriver::Cuda && !x.is_empty() {
+    if model.index_driver() == IndexDriver::Cuda && !x.is_empty() {
         let (input_k, used_k, skip) =
             condition_shape(model, x_whatif.nrows(), params, flags.exclude_nearest)?;
         model.ensure_sync()?;
-        if let Some(index) = model.backend.memory_index() {
+        if let Some(index) = model.store.memory_index() {
             let (outcomes, variances, scales) = cuda_rows(model, y_whatif)?;
             let variance_view = variances.as_ref().map(|values| values.view());
             return index
@@ -582,7 +581,7 @@ fn cuda_rows(
     outcomes
         .slice_mut(ndarray::s![train_rows.., ..])
         .assign(y_whatif);
-    let variances = model.backend.memory_yvar().map(|train_yvar| {
+    let variances = model.store.memory_yvar().map(|train_yvar| {
         let mut values = Array2::zeros((total_rows, model.num_metrics()));
         values
             .slice_mut(ndarray::s![..train_rows, ..])
@@ -620,7 +619,7 @@ fn cuda_posterior(
     paramss: &[ENNParams],
     flags: &PosteriorFlags,
 ) -> Result<Option<ENNNormal>, ENNError> {
-    if model.backend_driver() == IndexDriver::Cuda && model.num_obs() > 0 && !x.is_empty() {
+    if model.index_driver() == IndexDriver::Cuda && model.num_obs() > 0 && !x.is_empty() {
         let skip = usize::from(flags.exclude_nearest);
         if flags.exclude_nearest && model.num_obs() <= 1 {
             return Err(ENNError::InvalidParameter(format!(
@@ -644,8 +643,8 @@ fn cuda_posterior(
             })
             .collect();
         model.ensure_sync()?;
-        if let (Some(index), Some(train_y)) = (model.backend.memory_index(), model.y_opt()) {
-            let train_yvar = model.backend.memory_yvar();
+        if let (Some(index), Some(train_y)) = (model.store.memory_index(), model.y_opt()) {
+            let train_yvar = model.store.memory_yvar();
             let (mut mu, mut se, mut se_epi, mut se_ale) = index
                 .cuda_batch(
                     x,

@@ -7,13 +7,13 @@ use rand::SeedableRng;
 
 use std::path::PathBuf;
 
-use crate::backend::EnnStorage;
 use crate::calibrator::{CalibrationMode, Calibrator, PosteriorCalibrator};
 use crate::error::ENNError;
 use crate::fitter::ENNFitter;
 use crate::index::IndexDriver;
 use crate::model::ENN;
 use crate::params::{ENNParams, PosteriorFlags};
+use crate::store::EnnStorage;
 pub use crate::surrogate_api::{BoxedSurrogate, Surrogate, SurrogatePrediction};
 use crate::traits::PosteriorComputation;
 
@@ -184,7 +184,7 @@ impl ENNSurrogate {
             if let Some(fitter) = self.fitter.as_mut() {
                 fitter.tell(x_new, y_new, yvar_new)?;
             }
-            let is_disk = model.backend_driver() == IndexDriver::BpAnnDisk;
+            let is_disk = model.index_driver() == IndexDriver::BpAnnDisk;
             let bulk_disk = is_disk && x_new.nrows() >= BULK_ROWS;
             // Skip HP search on disk bulk tells, and on subsequent disk tells
             // after the first fit (streaming / --tell-all thrash).
@@ -232,7 +232,7 @@ impl ENNSurrogate {
 impl Surrogate for ENNSurrogate {
     fn clear_observations(&mut self) -> Result<(), ENNError> {
         let owned_store = if let Some(model) = &self.model {
-            model.backend.wait_flush()?;
+            model.store.wait_flush()?;
             matches!(self.config.storage, EnnStorage::Disk)
                 .then(|| self.config.work_dir.clone().or_else(EnnStorage::work_env))
                 .flatten()
@@ -356,7 +356,7 @@ impl Surrogate for ENNSurrogate {
 
     fn schedule_flush(&self) -> Result<(), ENNError> {
         if let Some(model) = &self.model {
-            model.backend.schedule_flush()
+            model.store.schedule_flush()
         } else {
             Ok(())
         }
@@ -367,7 +367,7 @@ impl Surrogate for ENNSurrogate {
             // Join in-flight soft sync only. Do not ensure_sync here:
             // tell() calls this on every observation, and a forced drain turns
             // --tell-all (one-row tells) into O(N) soft-syncs.
-            model.backend.wait_flush()
+            model.store.wait_flush()
         } else {
             Ok(())
         }
@@ -609,8 +609,8 @@ mod tests {
 
     #[test]
     fn fit_search() {
-        use crate::backend::EnnStorage;
         use crate::index::IndexDriver;
+        use crate::store::EnnStorage;
         use ndarray::Array2;
         use tempfile::TempDir;
 
@@ -659,8 +659,8 @@ mod tests {
 
     #[test]
     fn disk_restart() {
-        use crate::backend::EnnStorage;
         use crate::index::IndexDriver;
+        use crate::store::EnnStorage;
         use tempfile::TempDir;
 
         let dir = TempDir::new().unwrap();
@@ -698,8 +698,8 @@ mod tests {
 
     #[test]
     fn fit_exist() {
-        use crate::backend::EnnStorage;
         use crate::index::IndexDriver;
+        use crate::store::EnnStorage;
         use tempfile::TempDir;
 
         let dir = TempDir::new().unwrap();

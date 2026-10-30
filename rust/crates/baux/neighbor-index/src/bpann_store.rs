@@ -10,19 +10,19 @@ use baux::neighbor_index::index::{BpannIndex, IncrementalIndex};
 use baux::neighbor_index::lgnsrch::{SearchPendingArgs, search_pending};
 use baux::neighbor_index::mmap_store::MmapColumnStore;
 use baux::neighbor_index::observation::{
-    self as obs, INDEX_BACKEND, MAX_DIM, MAX_STRIDE, TrainRows,
+    self as obs, INDEX_FORMAT, MAX_DIM, MAX_STRIDE, TrainRows,
 };
 use baux::neighbor_index::smnsrch::{N_LIMIT, ScoreQueriesFlat, score_queries};
 
 pub const PAPER_URL: &str = "https://arxiv.org/abs/2511.15557";
 pub use baux::neighbor_index::tuning::{PENDING_HARD, PENDING_SOFT};
 
-#[path = "backend/access.rs"]
+#[path = "bpann_store/access.rs"]
 mod access;
-#[path = "backend/metric.rs"]
+#[path = "bpann_store/metric.rs"]
 mod metric;
 
-pub struct BpannBackend {
+pub struct BpannStore {
     work_dir: PathBuf,
     pub(crate) train_x: MmapColumnStore,
     train_y: MmapColumnStore,
@@ -43,7 +43,7 @@ pub struct BpannBackend {
     pub(crate) small_n_x_cache: Mutex<Option<(usize, Arc<[f32]>)>>,
 }
 
-impl BpannBackend {
+impl BpannStore {
     pub fn new(
         work_dir: PathBuf,
         train_x: Array2<f64>,
@@ -54,7 +54,7 @@ impl BpannBackend {
     ) -> Result<Self, BpannError> {
         obs::check_dims(train_x.ncols())?;
         fs::create_dir_all(&work_dir).map_err(|e| BpannError::InvalidParameter(e.to_string()))?;
-        obs::check_backend(&work_dir, INDEX_BACKEND)?;
+        obs::check_index_format(&work_dir, INDEX_FORMAT)?;
         let num_obs_counter = obs::NumObsCounter::open(&work_dir)?;
 
         let num_dim = train_x.ncols();
@@ -94,7 +94,7 @@ impl BpannBackend {
         let mut index = IncrementalIndex::new(index_dir);
         index.indices = indices;
         index.indexed_rows = persisted_rows.min(indexed_rows);
-        let mut backend = Self {
+        let mut store = Self {
             work_dir,
             train_x: train_x_store,
             train_y: train_y_store,
@@ -113,30 +113,30 @@ impl BpannBackend {
             small_n_x_cache: Mutex::new(None),
         };
         if persisted_rows < indexed_rows {
-            backend.index.ensure_backend(
-                &backend.train_x,
-                backend.num_dim,
-                backend.scale_x,
-                backend.x_scale.as_slice().unwrap(),
-                &backend.work_dir,
-                backend.num_metrics,
+            store.index.ensure_through(
+                &store.train_x,
+                store.num_dim,
+                store.scale_x,
+                store.x_scale.as_slice().unwrap(),
+                &store.work_dir,
+                store.num_metrics,
                 indexed_rows,
             )?;
         }
-        backend
+        store
             .pending_unindexed
             .store(n.saturating_sub(indexed_rows), Ordering::Relaxed);
-        backend.index.indexed_rows = indexed_rows;
+        store.index.indexed_rows = indexed_rows;
         obs::write_metadata(
-            &backend.work_dir,
+            &store.work_dir,
             n,
             num_dim,
             num_metrics,
             scale_x,
             indexed_rows,
         )?;
-        backend.num_obs_counter.set(n);
-        Ok(backend)
+        store.num_obs_counter.set(n);
+        Ok(store)
     }
 
     pub fn new_empty(
@@ -273,7 +273,7 @@ impl BpannBackend {
             self.pending_unindexed.store(0, Ordering::Relaxed);
             return Ok(());
         }
-        self.index.ensure_backend(
+        self.index.ensure_through(
             &self.train_x,
             self.num_dim,
             self.scale_x,
@@ -306,7 +306,7 @@ impl BpannBackend {
             return Ok(());
         }
         metric::metric_pending(&self.work_dir)?;
-        self.index.persist_backend(
+        self.index.persist_complete_index(
             &self.train_x,
             self.num_dim,
             self.scale_x,
@@ -401,28 +401,28 @@ impl BpannBackend {
 
 /// Build a soft-sync result under a shared borrow (no publish).
 /// Readers may search the live index concurrently while this runs.
-pub fn soft_build(backend: &BpannBackend) -> Result<Option<IncrementalIndex>, BpannError> {
-    let end = backend.len();
-    if backend.index.indexed_rows >= end {
+pub fn soft_build(store: &BpannStore) -> Result<Option<IncrementalIndex>, BpannError> {
+    let end = store.len();
+    if store.index.indexed_rows >= end {
         return Ok(None);
     }
-    let mut working = backend.index.clone();
-    working.ensure_backend(
-        &backend.train_x,
-        backend.num_dim,
-        backend.scale_x,
-        backend.x_scale.as_slice().unwrap(),
-        &backend.work_dir,
-        backend.num_metrics,
+    let mut working = store.index.clone();
+    working.ensure_through(
+        &store.train_x,
+        store.num_dim,
+        store.scale_x,
+        store.x_scale.as_slice().unwrap(),
+        &store.work_dir,
+        store.num_metrics,
         end,
     )?;
     Ok(Some(working))
 }
 
 /// Publish a detached soft-sync result under exclusive borrow.
-pub fn soft_publish(backend: &mut BpannBackend, built: IncrementalIndex) {
-    backend.index = built;
-    backend.pending_unindexed.store(0, Ordering::Relaxed);
+pub fn soft_publish(store: &mut BpannStore, built: IncrementalIndex) {
+    store.index = built;
+    store.pending_unindexed.store(0, Ordering::Relaxed);
 }
 
 pub fn open_dim(num_dim: usize) -> Result<(), BpannError> {

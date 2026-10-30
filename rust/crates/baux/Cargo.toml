@@ -69,7 +69,7 @@ native-flame = ["cuda"]
 metal = ["dep:metal"]
 opencl = ["dep:opencl3"]
 usearch = ["dep:usearch"]
-usearch-native = []
+usearch-c-api = []
 usearch-numkong = ["dep:usearch", "usearch/numkong"]
 
 [dev-dependencies]

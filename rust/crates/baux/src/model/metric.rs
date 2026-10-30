@@ -8,7 +8,7 @@ impl ENN {
     /// LOO gate and geometric refit schedule. The caller supplies the seed.
     /// This does not select the resident optimizer's tied-family metric policy.
     pub fn learn_metric(&mut self, tied: Vec<Vec<usize>>, seed: u64) -> Result<(), ENNError> {
-        if !matches!(self.backend, EnnBackend::Disk(_)) || self.scale_x || self.metric.is_some() {
+        if !matches!(self.store, EnnStore::Disk(_)) || self.scale_x || self.metric.is_some() {
             return Err(ENNError::InvalidParameter(
                 "Enable AUTO once on unscaled disk BPANN".into(),
             ));
@@ -17,12 +17,12 @@ impl ENN {
         // Observe in bounded chunks; never gather the whole persisted dataset.
         for start in (0..self.num_obs).step_by(64) {
             let ids = (start..(start + 64).min(self.num_obs)).collect::<Vec<_>>();
-            let (x, y, _) = self.backend.train_rows(&ids)?;
+            let (x, y, _) = self.store.train_rows(&ids)?;
             metric.observe(x.as_slice().unwrap(), y.as_slice().unwrap(), ids.len())?;
         }
         let weights = metric.weights();
         let scale = Array1::from_iter(weights.iter().map(|v| 1.0 / v.sqrt()));
-        self.backend.set_metric(&scale, true)?;
+        self.store.set_metric(&scale, true)?;
         self.x_scale = scale;
         self.scale_x = true;
         self.metric = Some(metric);
@@ -102,7 +102,7 @@ impl ENN {
 
     fn apply_metric(&mut self, update: ScaleUpdate) -> Result<(), ENNError> {
         let scale = Array1::from(update.x_scale);
-        self.backend.set_metric(&scale, update.rebuild)?;
+        self.store.set_metric(&scale, update.rebuild)?;
         self.x_scale = scale;
         Ok(())
     }

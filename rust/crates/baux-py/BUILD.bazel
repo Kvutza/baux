@@ -27,7 +27,7 @@ rust_shared_library(
     name = "baux_rust_cpu",
     srcs = BAUX_PY_SRCS,
     aliases = aliases(),
-    crate_features = ["usearch-native"],
+    crate_features = ["usearch-c-api"],
     crate_name = "baux_rust",
     crate_root = "src/lib.rs",
     edition = crate_edition(),
@@ -46,7 +46,7 @@ rust_shared_library(
     aliases = aliases(),
     crate_features = [
         "metal",
-        "usearch-native",
+        "usearch-c-api",
     ],
     crate_name = "baux_rust",
     crate_root = "src/lib.rs",
@@ -68,7 +68,7 @@ rust_shared_library(
     aliases = aliases(),
     crate_features = [
         "opencl",
-        "usearch-native",
+        "usearch-c-api",
     ],
     crate_name = "baux_rust",
     crate_root = "src/lib.rs",

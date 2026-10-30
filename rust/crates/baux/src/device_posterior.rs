@@ -4,7 +4,7 @@
     all(target_os = "macos", feature = "metal"),
     all(target_os = "linux", target_arch = "x86_64", feature = "cuda")
 ))]
-use crate::knn::KnnBackend;
+use crate::knn::NeighborIndexImpl;
 use crate::{ENN, ENNParams, PosteriorFlags};
 
 enum Storage {
@@ -77,14 +77,14 @@ impl ENN {
             }
             self.ensure_sync().map_err(|e| e.to_string())?;
             let index = self
-                .backend
+                .store
                 .memory_index()
                 .ok_or("device posterior requires in-memory observations")?;
             let outcomes = self
                 .y_opt()
                 .ok_or("device posterior requires in-memory outcomes")?;
             let y = crate::knn::flatten_f32(&outcomes);
-            let var = self.backend.memory_yvar();
+            let var = self.store.memory_yvar();
             let var = var.as_ref().map(crate::knn::flatten_f32);
             let scales = self
                 .output_scale()
@@ -93,7 +93,7 @@ impl ENN {
                 .collect::<Vec<_>>();
             let storage = match (&index.inner, device) {
                 #[cfg(all(target_os = "macos", feature = "metal"))]
-                (KnnBackend::Metal(inner), 8) => Storage::Metal(unsafe {
+                (NeighborIndexImpl::Metal(inner), 8) => Storage::Metal(unsafe {
                     inner
                         .lock()
                         .map_err(|_| "Metal index lock poisoned")?
@@ -112,7 +112,7 @@ impl ENN {
                         )?
                 }),
                 #[cfg(all(target_os = "linux", target_arch = "x86_64", feature = "cuda"))]
-                (KnnBackend::Cuda(inner), 2) => {
+                (NeighborIndexImpl::Cuda(inner), 2) => {
                     let spec = baux_cuda::WeightedSpec {
                         metrics: self.num_metrics(),
                         input_k: k + skip,

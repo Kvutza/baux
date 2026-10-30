@@ -1,4 +1,4 @@
-//! Background soft-sync flush controller for disk BPANN backends.
+//! Background soft-sync flush controller for disk BPANN stores.
 //!
 //! Job state lives beside the data lock so `wait_flush` / `schedule_flush`
 //! never join or spawn while holding the data lock. Soft sync builds under a
@@ -10,19 +10,19 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::thread::{self, JoinHandle};
 
-use crate::disk_bpann::DiskBpannEnnBackend;
+use crate::disk_bpann::DiskBpannStore;
 use crate::error::ENNError;
 
 fn disk_read(
-    b: &Arc<RwLock<DiskBpannEnnBackend>>,
-) -> Result<std::sync::RwLockReadGuard<'_, DiskBpannEnnBackend>, ENNError> {
+    b: &Arc<RwLock<DiskBpannStore>>,
+) -> Result<std::sync::RwLockReadGuard<'_, DiskBpannStore>, ENNError> {
     b.read()
-        .map_err(|_| ENNError::InvalidParameter("disk backend lock poisoned".to_string()))
+        .map_err(|_| ENNError::InvalidParameter("disk store lock poisoned".to_string()))
 }
 
-/// Disk backend handle: data RwLock + sibling flush controller.
-pub struct DiskBackendHandle {
-    data: Arc<RwLock<DiskBpannEnnBackend>>,
+/// Disk store handle: data RwLock + sibling flush controller.
+pub struct DiskStoreHandle {
+    data: Arc<RwLock<DiskBpannStore>>,
     job: Mutex<Option<JoinHandle<Result<(), String>>>>,
     last_error: Mutex<Option<String>>,
 }
@@ -62,8 +62,8 @@ fn maybe_flush() {
 #[cfg(not(test))]
 fn maybe_flush() {}
 
-impl DiskBackendHandle {
-    pub fn new(inner: DiskBpannEnnBackend) -> Self {
+impl DiskStoreHandle {
+    pub fn new(inner: DiskBpannStore) -> Self {
         Self {
             data: Arc::new(RwLock::new(inner)),
             job: Mutex::new(None),
@@ -71,7 +71,7 @@ impl DiskBackendHandle {
         }
     }
 
-    pub fn data(&self) -> &Arc<RwLock<DiskBpannEnnBackend>> {
+    pub fn data(&self) -> &Arc<RwLock<DiskBpannStore>> {
         &self.data
     }
 
@@ -135,9 +135,10 @@ impl DiskBackendHandle {
         // synchronously.
         if defer && pending >= hard {
             self.wait_flush()?;
-            let mut g = self.data.write().map_err(|_| {
-                ENNError::InvalidParameter("disk backend lock poisoned".to_string())
-            })?;
+            let mut g = self
+                .data
+                .write()
+                .map_err(|_| ENNError::InvalidParameter("disk store lock poisoned".to_string()))?;
             // Re-check under write lock: another path may have drained pending.
             if g.pending_count() >= g.hard_threshold() {
                 if let Some(built) = g.build_detached()? {
@@ -168,7 +169,7 @@ impl DiskBackendHandle {
             let built = {
                 let g = data
                     .read()
-                    .map_err(|_| "disk backend lock poisoned during soft sync".to_string())?;
+                    .map_err(|_| "disk store lock poisoned during soft sync".to_string())?;
                 // Hold the shared read lock while the test barrier is armed so
                 // concurrent search must proceed under a shared (not exclusive)
                 // lock.
@@ -176,9 +177,9 @@ impl DiskBackendHandle {
                 g.build_detached().map_err(|e| e.to_string())?
             };
             if let Some(built) = built {
-                let mut g = data.write().map_err(|_| {
-                    "disk backend lock poisoned during soft sync publish".to_string()
-                })?;
+                let mut g = data
+                    .write()
+                    .map_err(|_| "disk store lock poisoned during soft sync publish".to_string())?;
                 g.publish_detached(built).map_err(|e| e.to_string())?;
             }
             Ok(())
@@ -202,7 +203,7 @@ impl DiskBackendHandle {
         self.wait_flush()?;
         self.data
             .write()
-            .map_err(|_| ENNError::InvalidParameter("disk backend lock poisoned".to_string()))?
+            .map_err(|_| ENNError::InvalidParameter("disk store lock poisoned".to_string()))?
             .persist_index()
     }
 }
@@ -210,8 +211,8 @@ impl DiskBackendHandle {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::backend::{EnnBackend, EnnStorage};
     use crate::index::IndexDriver;
+    use crate::store::{EnnStorage, EnnStore};
     use ndarray::{Array1, Array2};
     use std::sync::{Barrier, Mutex};
     use std::time::{Duration, Instant};
@@ -219,14 +220,14 @@ mod tests {
 
     static FLUSH_LOCK: Mutex<()> = Mutex::new(());
 
-    fn write_backend(
-        data: &Arc<RwLock<DiskBpannEnnBackend>>,
-    ) -> std::sync::RwLockWriteGuard<'_, DiskBpannEnnBackend> {
+    fn write_store(
+        data: &Arc<RwLock<DiskBpannStore>>,
+    ) -> std::sync::RwLockWriteGuard<'_, DiskBpannStore> {
         data.write().expect("disk write")
     }
 
-    fn disk_model(dir: &TempDir, n: usize, dim: usize) -> EnnBackend {
-        let mut backend = EnnBackend::new_empty(
+    fn disk_model(dir: &TempDir, n: usize, dim: usize) -> EnnStore {
+        let mut store = EnnStore::new_empty(
             dim,
             1,
             IndexDriver::BpAnnDisk,
@@ -237,22 +238,20 @@ mod tests {
         .expect("new_empty");
         let x = Array2::from_shape_fn((n, dim), |(i, j)| (i + j) as f64);
         let y = Array2::from_shape_fn((n, 1), |(i, _)| i as f64);
-        backend
-            .append_rows(&x.view(), &y.view(), None)
-            .expect("add");
-        backend
+        store.append_rows(&x.view(), &y.view(), None).expect("add");
+        store
     }
 
     fn search_neighbors(
-        backend: &EnnBackend,
+        store: &EnnStore,
         query: &ndarray::ArrayView2<f64>,
         k: usize,
     ) -> Array2<i64> {
         let scale = Array1::ones(query.ncols());
-        if !backend.defers_search() {
-            backend.ensure_sync(false, &scale).expect("ensure_sync");
+        if !store.defers_search() {
+            store.ensure_sync(false, &scale).expect("ensure_sync");
         }
-        backend.search(query, k as i32, false).expect("search").1
+        store.search(query, k as i32, false).expect("search").1
     }
 
     #[test]
@@ -308,14 +307,9 @@ mod tests {
     #[test]
     fn wait_noop() {
         let dir = TempDir::new().expect("tempdir");
-        let handle = DiskBackendHandle::new(
-            crate::disk_bpann::DiskBpannEnnBackend::new_threshold(
-                dir.path().to_path_buf(),
-                2,
-                1,
-                100,
-            )
-            .expect("backend"),
+        let handle = DiskStoreHandle::new(
+            crate::disk_bpann::DiskBpannStore::new_threshold(dir.path().to_path_buf(), 2, 1, 100)
+                .expect("store"),
         );
         handle.wait_flush().expect("idle wait");
         handle.schedule_flush().expect("below threshold");
@@ -365,40 +359,30 @@ mod tests {
     fn soft_metamorphic() {
         let dir_a = TempDir::new().expect("tempdir a");
         let dir_b = TempDir::new().expect("tempdir b");
-        let a = DiskBackendHandle::new(
-            crate::disk_bpann::DiskBpannEnnBackend::new_threshold(
-                dir_a.path().to_path_buf(),
-                3,
-                1,
-                100,
-            )
-            .expect("a"),
+        let a = DiskStoreHandle::new(
+            crate::disk_bpann::DiskBpannStore::new_threshold(dir_a.path().to_path_buf(), 3, 1, 100)
+                .expect("a"),
         );
-        let b = DiskBackendHandle::new(
-            crate::disk_bpann::DiskBpannEnnBackend::new_threshold(
-                dir_b.path().to_path_buf(),
-                3,
-                1,
-                100,
-            )
-            .expect("b"),
+        let b = DiskStoreHandle::new(
+            crate::disk_bpann::DiskBpannStore::new_threshold(dir_b.path().to_path_buf(), 3, 1, 100)
+                .expect("b"),
         );
         let x = Array2::from_shape_fn((12, 3), |(i, j)| (i * 3 + j) as f64);
         let y = Array2::from_shape_fn((12, 1), |(i, _)| i as f64);
-        write_backend(a.data())
+        write_store(a.data())
             .append_rows(&x.view(), &y.view(), None)
             .expect("append a");
-        write_backend(b.data())
+        write_store(b.data())
             .append_rows(&x.view(), &y.view(), None)
             .expect("append b");
 
         {
-            let mut ga = write_backend(a.data());
+            let mut ga = write_store(a.data());
             if let Some(built) = ga.build_detached().expect("build") {
                 ga.publish_detached(built).expect("publish");
             }
         }
-        write_backend(b.data())
+        write_store(b.data())
             .ensure_sync(false, &ndarray::Array1::ones(3))
             .expect("ensure b");
 
@@ -462,10 +446,10 @@ mod tests {
         let model = disk_model(&dir, 6, 2);
         model.schedule_flush().expect("schedule");
         model.wait_flush().expect("wait soft");
-        if let crate::backend::EnnBackend::Disk(handle) = &model {
+        if let crate::store::EnnStore::Disk(handle) = &model {
             handle.persist_index().expect("hard persist");
         } else {
-            panic!("expected disk backend");
+            panic!("expected disk store");
         }
         assert!(dir.path().join("index/pages.bin").exists());
     }
@@ -473,14 +457,9 @@ mod tests {
     #[test]
     fn flush_wait() {
         let dir = TempDir::new().expect("tempdir");
-        let handle = DiskBackendHandle::new(
-            crate::disk_bpann::DiskBpannEnnBackend::new_threshold(
-                dir.path().to_path_buf(),
-                2,
-                1,
-                1,
-            )
-            .expect("backend"),
+        let handle = DiskStoreHandle::new(
+            crate::disk_bpann::DiskBpannStore::new_threshold(dir.path().to_path_buf(), 2, 1, 1)
+                .expect("store"),
         );
         {
             *handle.last_error.lock().expect("last_error") =
@@ -497,7 +476,7 @@ mod tests {
         handle.wait_flush().expect("cleared");
         let x = Array2::from_shape_fn((2, 2), |(i, j)| (i + j) as f64);
         let y = Array2::from_shape_fn((2, 1), |(i, _)| i as f64);
-        write_backend(handle.data())
+        write_store(handle.data())
             .append_rows(&x.view(), &y.view(), None)
             .expect("append");
         handle.schedule_flush().expect("schedule ok");
@@ -511,19 +490,13 @@ mod tests {
         // soft=2, hard=5: land pending in [soft, hard) and assert schedule is
         // async.
         let dir = TempDir::new().expect("tempdir");
-        let handle = DiskBackendHandle::new(
-            crate::disk_bpann::DiskBpannEnnBackend::new_thresholds(
-                dir.path().to_path_buf(),
-                2,
-                1,
-                2,
-                5,
-            )
-            .expect("backend"),
+        let handle = DiskStoreHandle::new(
+            crate::disk_bpann::DiskBpannStore::new_thresholds(dir.path().to_path_buf(), 2, 1, 2, 5)
+                .expect("store"),
         );
         let x = Array2::from_shape_fn((3, 2), |(i, j)| (i + j) as f64);
         let y = Array2::from_shape_fn((3, 1), |(i, _)| i as f64);
-        write_backend(handle.data())
+        write_store(handle.data())
             .append_rows(&x.view(), &y.view(), None)
             .expect("append");
         assert_eq!(disk_read(handle.data()).expect("read").pending_count(), 3);
@@ -550,24 +523,24 @@ mod tests {
     #[test]
     fn schedule_synchronously() {
         let dir = TempDir::new().expect("tempdir");
-        let handle = DiskBackendHandle::new(
-            crate::disk_bpann::DiskBpannEnnBackend::new_thresholds(
+        let handle = DiskStoreHandle::new(
+            crate::disk_bpann::DiskBpannStore::new_thresholds(
                 dir.path().to_path_buf(),
                 2,
                 1,
                 2,
                 100,
             )
-            .expect("backend"),
+            .expect("store"),
         );
         let x = Array2::from_shape_fn((6, 2), |(i, j)| (i + j) as f64);
         let y = Array2::from_shape_fn((6, 1), |(i, _)| i as f64);
-        write_backend(handle.data())
+        write_store(handle.data())
             .append_rows(&x.view(), &y.view(), None)
             .expect("append");
         assert_eq!(disk_read(handle.data()).expect("read").pending_count(), 6);
         // Drop hard to 5 so existing pending is already at/above the hard cap.
-        write_backend(handle.data()).set_thresholds(2, 5);
+        write_store(handle.data()).set_thresholds(2, 5);
         handle.schedule_flush().expect("hard schedule");
         assert!(handle.job.lock().expect("job").is_none());
         assert_eq!(disk_read(handle.data()).expect("read").pending_count(), 0);
@@ -577,19 +550,13 @@ mod tests {
     #[test]
     fn append_add2() {
         let dir = TempDir::new().expect("tempdir");
-        let handle = DiskBackendHandle::new(
-            crate::disk_bpann::DiskBpannEnnBackend::new_thresholds(
-                dir.path().to_path_buf(),
-                2,
-                1,
-                2,
-                5,
-            )
-            .expect("backend"),
+        let handle = DiskStoreHandle::new(
+            crate::disk_bpann::DiskBpannStore::new_thresholds(dir.path().to_path_buf(), 2, 1, 2, 5)
+                .expect("store"),
         );
         let x = Array2::from_shape_fn((5, 2), |(i, j)| (i + j) as f64);
         let y = Array2::from_shape_fn((5, 1), |(i, _)| i as f64);
-        write_backend(handle.data())
+        write_store(handle.data())
             .append_rows(&x.view(), &y.view(), None)
             .expect("append");
         assert_eq!(disk_read(handle.data()).expect("read").pending_count(), 0);

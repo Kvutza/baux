@@ -1,14 +1,14 @@
-//! ENN storage and indexing backends.
+//! ENN training-data stores and their index lifecycle.
 
 mod flush_controller;
-mod in_memory;
 mod inspection;
+mod memory;
 pub(crate) mod row_storage;
 
-pub use crate::disk_bpann::DiskBpannEnnBackend;
+pub use crate::disk_bpann::DiskBpannStore;
 pub(crate) use crate::disk_bpann::TrainRows;
-pub(crate) use flush_controller::DiskBackendHandle;
-pub use in_memory::InMemoryEnnBackend;
+pub(crate) use flush_controller::DiskStoreHandle;
+pub use memory::MemoryEnnStore;
 
 use deser::{Deserialize, Serialize};
 use ndarray::{Array1, Array2, ArrayView2};
@@ -39,33 +39,33 @@ impl EnnStorage {
     }
 }
 
-pub enum EnnBackend {
-    InMemory(Box<InMemoryEnnBackend>),
-    Disk(DiskBackendHandle),
+pub enum EnnStore {
+    InMemory(Box<MemoryEnnStore>),
+    Disk(DiskStoreHandle),
 }
 
 fn disk_read<'a>(
-    b: &'a Arc<RwLock<DiskBpannEnnBackend>>,
-) -> Result<std::sync::RwLockReadGuard<'a, DiskBpannEnnBackend>, ENNError> {
+    b: &'a Arc<RwLock<DiskBpannStore>>,
+) -> Result<std::sync::RwLockReadGuard<'a, DiskBpannStore>, ENNError> {
     b.read()
-        .map_err(|_| ENNError::InvalidParameter("disk backend lock poisoned".to_string()))
+        .map_err(|_| ENNError::InvalidParameter("disk store lock poisoned".to_string()))
 }
 
 fn disk_write<'a>(
-    b: &'a Arc<RwLock<DiskBpannEnnBackend>>,
-) -> Result<std::sync::RwLockWriteGuard<'a, DiskBpannEnnBackend>, ENNError> {
+    b: &'a Arc<RwLock<DiskBpannStore>>,
+) -> Result<std::sync::RwLockWriteGuard<'a, DiskBpannStore>, ENNError> {
     b.write()
-        .map_err(|_| ENNError::InvalidParameter("disk backend lock poisoned".to_string()))
+        .map_err(|_| ENNError::InvalidParameter("disk store lock poisoned".to_string()))
 }
 
-pub(crate) fn enn_index(backend: &EnnBackend) -> Result<(), ENNError> {
-    match backend {
-        EnnBackend::InMemory(_) => Ok(()),
-        EnnBackend::Disk(handle) => handle.persist_index(),
+pub(crate) fn enn_index(store: &EnnStore) -> Result<(), ENNError> {
+    match store {
+        EnnStore::InMemory(_) => Ok(()),
+        EnnStore::Disk(handle) => handle.persist_index(),
     }
 }
 
-impl EnnBackend {
+impl EnnStore {
     pub fn new_memory(
         train_x: Array2<f64>,
         train_y: Array2<f64>,
@@ -74,7 +74,7 @@ impl EnnBackend {
         x_scale: Array1<f64>,
         driver: IndexDriver,
     ) -> Result<Self, ENNError> {
-        Ok(Self::InMemory(Box::new(InMemoryEnnBackend::new(
+        Ok(Self::InMemory(Box::new(MemoryEnnStore::new(
             train_x, train_y, train_yvar, scale_x, x_scale, driver,
         )?)))
     }
@@ -93,10 +93,10 @@ impl EnnBackend {
                 "Disk storage requires IndexDriver::BpAnnDisk".to_string(),
             ));
         }
-        let inner = DiskBpannEnnBackend::new(
+        let inner = DiskBpannStore::new(
             work_dir, train_x, train_y, train_yvar, scale_x, x_scale, driver,
         )?;
-        Ok(Self::Disk(DiskBackendHandle::new(inner)))
+        Ok(Self::Disk(DiskStoreHandle::new(inner)))
     }
 
     pub fn new_empty(
@@ -108,7 +108,7 @@ impl EnnBackend {
         soft_threshold: Option<usize>,
     ) -> Result<Self, ENNError> {
         match storage {
-            EnnStorage::InMemory => Ok(Self::InMemory(Box::new(InMemoryEnnBackend::new_empty(
+            EnnStorage::InMemory => Ok(Self::InMemory(Box::new(MemoryEnnStore::new_empty(
                 num_dim,
                 num_metrics,
                 driver,
@@ -126,11 +126,11 @@ impl EnnBackend {
                 }
                 let inner = match soft_threshold {
                     Some(threshold) => {
-                        DiskBpannEnnBackend::new_threshold(dir, num_dim, num_metrics, threshold)?
+                        DiskBpannStore::new_threshold(dir, num_dim, num_metrics, threshold)?
                     }
-                    None => DiskBpannEnnBackend::new_empty(dir, num_dim, num_metrics)?,
+                    None => DiskBpannStore::new_empty(dir, num_dim, num_metrics)?,
                 };
-                Ok(Self::Disk(DiskBackendHandle::new(inner)))
+                Ok(Self::Disk(DiskStoreHandle::new(inner)))
             }
         }
     }
@@ -291,15 +291,15 @@ impl EnnBackend {
     }
 }
 
-/// Drop faulted observation mmap pages from process RSS (disk backend only).
-pub(crate) fn enn_pages(backend: &EnnBackend) -> Result<(), ENNError> {
-    match backend {
-        EnnBackend::InMemory(_) => Ok(()),
-        EnnBackend::Disk(h) => disk_write(h.data())?.release_pages(),
+/// Drop faulted observation mmap pages from process RSS (disk store only).
+pub(crate) fn enn_pages(store: &EnnStore) -> Result<(), ENNError> {
+    match store {
+        EnnStore::InMemory(_) => Ok(()),
+        EnnStore::Disk(h) => disk_write(h.data())?.release_pages(),
     }
 }
 
-impl Drop for EnnBackend {
+impl Drop for EnnStore {
     fn drop(&mut self) {
         if let Err(e) = enn_index(self) {
             eprintln!("baux: persist_index on drop failed: {e}");

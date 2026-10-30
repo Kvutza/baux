@@ -15,10 +15,10 @@ mod apple_gpu;
 #[path = "../artifact/src/lib.rs"]
 pub mod artifact;
 pub use artifact as baux_artifact;
-pub mod backend;
 pub mod base_policy;
 #[path = "../neighbor-index/src/lib.rs"]
 pub mod baux_neighbor_index;
+pub mod store;
 pub use baux_neighbor_index as neighbor_index;
 #[cfg(all(feature = "cuda", target_os = "linux", target_arch = "x86_64"))]
 #[allow(dead_code)]
@@ -162,8 +162,6 @@ pub use agent_contract::{
     AGENT_SCHEMA, AgentMessage, AgentTranscript, AssistantSegment, DataSplit, EpisodeTermination,
     TaskProvenance,
 };
-pub use backend::DiskBpannEnnBackend;
-pub use backend::{EnnBackend, EnnStorage, InMemoryEnnBackend};
 pub use base_policy::{BasePolicyManifest, POLICY_SCHEMA, PolicyQualification};
 pub use calibrator::{
     AffineCalibrator, CalibrationMode, Calibrator, PosteriorCalibrator, ScaleCalibrator,
@@ -210,6 +208,8 @@ pub use reliability_region::{
     ReliabilityTelemetry,
 };
 pub use stats::WeightedStats;
+pub use store::DiskBpannStore;
+pub use store::{EnnStorage, EnnStore, MemoryEnnStore};
 pub use strategy::Strategy;
 pub use surrogate::{
     ENNSurrogate, ENNSurrogateConfig, MetricLearning, Surrogate, SurrogatePrediction,

@@ -1,6 +1,6 @@
 use super::*;
 
-impl BpannBackend {
+impl BpannStore {
     pub fn index_snapshot(&self) -> Option<&BpannIndex> {
         self.index.indices.first()
     }

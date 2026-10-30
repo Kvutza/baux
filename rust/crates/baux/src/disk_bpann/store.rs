@@ -1,8 +1,8 @@
-//! Disk-backed ENN backend wrapping the standalone `bpann` crate.
+//! Disk-backed ENN store wrapping the standalone `bpann` crate.
 
 use std::path::PathBuf;
 
-use baux::neighbor_index::BpannBackend;
+use baux::neighbor_index::BpannStore;
 use ndarray::{Array1, Array2, ArrayView2};
 
 use super::TrainRows;
@@ -18,20 +18,20 @@ fn bpann_err(e: baux::neighbor_index::BpannError) -> ENNError {
     }
 }
 
-fn apply_threshold(inner: BpannBackend) -> BpannBackend {
+fn apply_threshold(inner: BpannStore) -> BpannStore {
     let t = baux::neighbor_index::current_tuning();
     inner
         .with_soft(t.soft_threshold)
         .with_hard(t.hard_threshold)
 }
 
-pub struct DiskBpannEnnBackend {
-    pub(super) inner: BpannBackend,
+pub struct DiskBpannStore {
+    pub(super) inner: BpannStore,
     pub(super) driver: IndexDriver,
     pub(super) num_metrics: usize,
 }
 
-impl DiskBpannEnnBackend {
+impl DiskBpannStore {
     pub fn new(
         work_dir: PathBuf,
         train_x: Array2<f64>,
@@ -43,16 +43,16 @@ impl DiskBpannEnnBackend {
     ) -> Result<Self, ENNError> {
         if driver != IndexDriver::BpAnnDisk {
             return Err(ENNError::InvalidParameter(
-                "DiskBpannEnnBackend requires IndexDriver::BpAnnDisk".to_string(),
+                "DiskBpannStore requires IndexDriver::BpAnnDisk".to_string(),
             ));
         }
         let inner = if train_x.nrows() == 0
             && train_y.nrows() == 0
             && work_dir.join("metadata.json").exists()
         {
-            BpannBackend::reopen(work_dir.clone()).map_err(bpann_err)?
+            BpannStore::reopen(work_dir.clone()).map_err(bpann_err)?
         } else {
-            BpannBackend::new(work_dir, train_x, train_y, train_yvar, scale_x, x_scale)
+            BpannStore::new(work_dir, train_x, train_y, train_yvar, scale_x, x_scale)
                 .map_err(bpann_err)?
         };
         let inner = apply_threshold(inner);
@@ -70,7 +70,7 @@ impl DiskBpannEnnBackend {
         num_metrics: usize,
     ) -> Result<Self, ENNError> {
         let inner = apply_threshold(
-            BpannBackend::new_empty(work_dir, num_dim, num_metrics).map_err(bpann_err)?,
+            BpannStore::new_empty(work_dir, num_dim, num_metrics).map_err(bpann_err)?,
         );
         Ok(Self {
             inner,
@@ -151,7 +151,7 @@ impl DiskBpannEnnBackend {
     }
 }
 
-impl DiskBpannEnnBackend {
+impl DiskBpannStore {
     pub fn new_threshold(
         work_dir: PathBuf,
         num_dim: usize,
@@ -190,7 +190,7 @@ impl DiskBpannEnnBackend {
                 "hard_threshold must be >= soft_threshold".to_string(),
             ));
         }
-        let inner = BpannBackend::new_empty(work_dir, num_dim, num_metrics)
+        let inner = BpannStore::new_empty(work_dir, num_dim, num_metrics)
             .map_err(bpann_err)?
             .with_soft(soft_threshold)
             .with_hard(hard_threshold)
@@ -252,17 +252,17 @@ mod tests {
     #[test]
     fn new_sync() {
         let dir = TempDir::new().expect("tempdir");
-        let backend =
-            DiskBpannEnnBackend::new_threshold(dir.path().to_path_buf(), 2, 1, 5).expect("backend");
-        assert_eq!(backend.soft_threshold(), 5);
-        assert!(!backend.append_threshold());
-        assert_eq!(backend.pending_count(), 0);
+        let store =
+            DiskBpannStore::new_threshold(dir.path().to_path_buf(), 2, 1, 5).expect("store");
+        assert_eq!(store.soft_threshold(), 5);
+        assert!(!store.append_threshold());
+        assert_eq!(store.pending_count(), 0);
     }
 
     #[test]
     fn bpann_driver() {
         let dir = TempDir::new().expect("tempdir");
-        let result = DiskBpannEnnBackend::new(
+        let result = DiskBpannStore::new(
             dir.path().to_path_buf(),
             array![[0.0, 0.0]],
             array![[0.0]],
@@ -277,9 +277,8 @@ mod tests {
     #[test]
     fn append_maps() {
         let dir = TempDir::new().expect("tempdir");
-        let mut backend =
-            DiskBpannEnnBackend::new_empty(dir.path().to_path_buf(), 2, 1).expect("backend");
-        let err = backend
+        let mut store = DiskBpannStore::new_empty(dir.path().to_path_buf(), 2, 1).expect("store");
+        let err = store
             .append_rows(&array![[0.0, 0.0, 0.0]].view(), &array![[0.0]].view(), None)
             .unwrap_err();
         assert!(matches!(err, ENNError::InvalidShape { .. }));
@@ -289,7 +288,7 @@ mod tests {
     fn reopen_dir() {
         let dir = TempDir::new().expect("tempdir");
         let path = dir.path().to_path_buf();
-        let _fresh = DiskBpannEnnBackend::new(
+        let _fresh = DiskBpannStore::new(
             path.clone(),
             array![[0.0, 0.0], [1.0, 0.0]],
             array![[0.0], [1.0]],
@@ -299,7 +298,7 @@ mod tests {
             IndexDriver::BpAnnDisk,
         )
         .expect("fresh");
-        let reopened = DiskBpannEnnBackend::new(
+        let reopened = DiskBpannStore::new(
             path,
             Array2::zeros((0, 2)),
             Array2::zeros((0, 1)),
@@ -316,7 +315,7 @@ mod tests {
     fn y_train() {
         let dir = TempDir::new().expect("tempdir");
         let path = dir.path().to_path_buf();
-        let _fresh = DiskBpannEnnBackend::new(
+        let _fresh = DiskBpannStore::new(
             path.clone(),
             array![[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]],
             array![[0.0, 1.0], [1.0, 2.0], [1.0, 3.0]],
@@ -326,7 +325,7 @@ mod tests {
             IndexDriver::BpAnnDisk,
         )
         .expect("fresh");
-        let reopened = DiskBpannEnnBackend::new(
+        let reopened = DiskBpannStore::new(
             path,
             Array2::zeros((0, 2)),
             Array2::zeros((0, 1)),
@@ -342,40 +341,39 @@ mod tests {
     #[test]
     fn pending_sync() {
         let dir = TempDir::new().expect("tempdir");
-        let mut backend = DiskBpannEnnBackend::new_threshold(dir.path().to_path_buf(), 2, 1, 100)
-            .expect("backend");
-        backend
+        let mut store =
+            DiskBpannStore::new_threshold(dir.path().to_path_buf(), 2, 1, 100).expect("store");
+        store
             .append_rows(&array![[0.0, 0.0]].view(), &array![[1.0]].view(), None)
             .expect("append");
-        assert!(backend.pending_count() > 0);
+        assert!(store.pending_count() > 0);
     }
 
     #[test]
     fn soft_pages2() {
         let dir = TempDir::new().expect("tempdir");
-        let mut backend =
-            DiskBpannEnnBackend::new_threshold(dir.path().to_path_buf(), 2, 1, 5).expect("backend");
-        assert!(backend.defer_flush());
-        backend
+        let mut store =
+            DiskBpannStore::new_threshold(dir.path().to_path_buf(), 2, 1, 5).expect("store");
+        assert!(store.defer_flush());
+        store
             .append_rows(
                 &array![[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]].view(),
                 &array![[0.0], [1.0], [2.0]].view(),
                 None,
             )
             .expect("append");
-        assert!(backend.pending_count() > 0);
-        if let Some(built) = backend.build_detached().expect("build") {
-            backend.publish_detached(built).expect("publish");
+        assert!(store.pending_count() > 0);
+        if let Some(built) = store.build_detached().expect("build") {
+            store.publish_detached(built).expect("publish");
         }
-        assert_eq!(backend.pending_count(), 0);
+        assert_eq!(store.pending_count(), 0);
         assert!(!dir.path().join("index/pages.bin").exists());
         let _mapped = bpann_err(baux::neighbor_index::BpannError::InvalidParameter(
             "x".into(),
         ));
         assert!(matches!(_mapped, ENNError::InvalidParameter(_)));
         let _tuned = apply_threshold(
-            baux::neighbor_index::BpannBackend::new_empty(dir.path().join("t"), 2, 1)
-                .expect("tuned"),
+            baux::neighbor_index::BpannStore::new_empty(dir.path().join("t"), 2, 1).expect("tuned"),
         );
         assert!(_tuned.soft_threshold() >= 1);
     }
@@ -387,7 +385,7 @@ mod tests {
         let work2 = dir.path().join("w2");
         let work3 = dir.path().join("w3");
 
-        let b1 = DiskBpannEnnBackend::new(
+        let b1 = DiskBpannStore::new(
             work1.clone(),
             array![[0.0, 0.0], [1.0, 0.0]],
             array![[0.0], [1.0]],
@@ -400,11 +398,11 @@ mod tests {
         assert_eq!(b1.len(), 2);
         assert!(work1.join("metadata.json").exists());
 
-        let b2 = DiskBpannEnnBackend::new_empty(work2.clone(), 2, 1).expect("new_empty in tempdir");
+        let b2 = DiskBpannStore::new_empty(work2.clone(), 2, 1).expect("new_empty in tempdir");
         assert_eq!(b2.len(), 0);
         assert!(work2.join("metadata.json").exists());
 
-        let b3 = DiskBpannEnnBackend::new_thresholds(work3.clone(), 2, 1, 10, 20)
+        let b3 = DiskBpannStore::new_thresholds(work3.clone(), 2, 1, 10, 20)
             .expect("new_thresholds in tempdir");
         assert_eq!(b3.soft_threshold(), 10);
         assert_eq!(b3.hard_threshold(), 20);

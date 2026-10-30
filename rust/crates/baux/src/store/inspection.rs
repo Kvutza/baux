@@ -1,8 +1,8 @@
-//! Backend shape and storage inspection.
+//! Store shape and storage inspection.
 
 use super::*;
 
-impl EnnBackend {
+impl EnnStore {
     pub fn len(&self) -> usize {
         match self {
             Self::InMemory(b) => b.len(),

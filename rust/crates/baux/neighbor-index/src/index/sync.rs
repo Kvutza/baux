@@ -112,7 +112,7 @@ impl IncrementalIndex {
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub fn ensure_backend(
+    pub fn ensure_through(
         &mut self,
         train_x: &MmapColumnStore,
         num_dim: usize,
@@ -133,7 +133,7 @@ impl IncrementalIndex {
         self.index_through(&ctx, end)
     }
 
-    pub fn persist_backend(
+    pub fn persist_complete_index(
         &mut self,
         train_x: &MmapColumnStore,
         num_dim: usize,
@@ -486,10 +486,10 @@ mod tests {
             store.mmap_append(&chunk.view()).unwrap();
             let start = batch * 2;
             let end = start + 2;
-            idx.ensure_backend(&store, 2, false, &[1.0, 1.0], dir.path(), 1, end)
+            idx.ensure_through(&store, 2, false, &[1.0, 1.0], dir.path(), 1, end)
                 .unwrap();
         }
-        idx.persist_backend(&store, 2, false, &[1.0, 1.0], dir.path(), 1)
+        idx.persist_complete_index(&store, 2, false, &[1.0, 1.0], dir.path(), 1)
             .unwrap();
         assert!(dir.path().join("index/header.json").exists());
         assert_eq!(idx.indexed_rows, 6);
@@ -510,9 +510,9 @@ mod tests {
         let mut store = MmapColumnStore::open_mmap(x_path, 2, None).unwrap();
         let chunk = array![[0.0, 0.0], [1.0, 0.0], [2.0, 0.0]];
         store.mmap_append(&chunk.view()).unwrap();
-        idx.ensure_backend(&store, 2, false, &[1.0, 1.0], dir.path(), 1, 3)
+        idx.ensure_through(&store, 2, false, &[1.0, 1.0], dir.path(), 1, 3)
             .unwrap();
-        idx.persist_backend(&store, 2, false, &[1.0, 1.0], dir.path(), 1)
+        idx.persist_complete_index(&store, 2, false, &[1.0, 1.0], dir.path(), 1)
             .unwrap();
 
         assert_eq!(disk_rows(&index_dir).unwrap(), 3);
@@ -529,7 +529,7 @@ mod tests {
         let x_path = dir.path().join("train_x.bin");
         let mut store = MmapColumnStore::open_mmap(x_path, 2, None).unwrap();
         store.mmap_append(&x.view()).unwrap();
-        idx.ensure_backend(&store, 2, false, &[1.0, 1.0], dir.path(), 1, 2)
+        idx.ensure_through(&store, 2, false, &[1.0, 1.0], dir.path(), 1, 2)
             .unwrap();
         let results = idx.search_candidates(&[0.0, 0.0], 1, None).unwrap();
         let _ = results;
@@ -538,7 +538,7 @@ mod tests {
         // Soft sync leaves pages on disk unwritten; hard persist materializes
         // files.
         assert_eq!(idx.index_bytes(), 0);
-        idx.persist_backend(&store, 2, false, &[1.0, 1.0], dir.path(), 1)
+        idx.persist_complete_index(&store, 2, false, &[1.0, 1.0], dir.path(), 1)
             .unwrap();
         assert!(idx.index_bytes() > 0);
     }
@@ -555,7 +555,7 @@ mod tests {
             store.mmap_append(&chunk.view()).unwrap();
             let start = batch * 2;
             let end = start + 2;
-            idx.ensure_backend(&store, 2, false, &[1.0, 1.0], dir.path(), 1, end)
+            idx.ensure_through(&store, 2, false, &[1.0, 1.0], dir.path(), 1, end)
                 .unwrap();
         }
         assert!(idx.indices.len() <= 4);
@@ -583,7 +583,7 @@ mod tests {
         }
         store.mmap_append(&large.view()).unwrap();
         idx.note_rows(&large.view(), false, &scale);
-        idx.ensure_backend(&store, 2, false, &scale, dir.path(), 1, n)
+        idx.ensure_through(&store, 2, false, &scale, dir.path(), 1, n)
             .unwrap();
 
         assert_eq!(
@@ -600,7 +600,7 @@ mod tests {
         let far = array![[10_000.0, 0.0]];
         store.mmap_append(&far.view()).unwrap();
         idx.note_rows(&far.view(), false, &scale);
-        idx.ensure_backend(&store, 2, false, &scale, dir.path(), 1, n + 1)
+        idx.ensure_through(&store, 2, false, &scale, dir.path(), 1, n + 1)
             .unwrap();
         let centroid = idx
             .indices
@@ -630,7 +630,7 @@ mod tests {
         }
         store.mmap_append(&large.view()).unwrap();
         idx.note_rows(&large.view(), false, &scale);
-        idx.ensure_backend(&store, 2, false, &scale, dir.path(), 1, n)
+        idx.ensure_through(&store, 2, false, &scale, dir.path(), 1, n)
             .unwrap();
         assert_eq!(idx.indexed_rows, n);
         assert_eq!(
@@ -661,7 +661,7 @@ mod tests {
         }
         store.mmap_append(&mid.view()).unwrap();
         idx.note_rows(&mid.view(), false, &scale);
-        idx.ensure_backend(&store, 2, false, &scale, dir.path(), 1, n)
+        idx.ensure_through(&store, 2, false, &scale, dir.path(), 1, n)
             .unwrap();
         assert_eq!(idx.indexed_rows, n);
         assert_eq!(
@@ -699,7 +699,7 @@ mod tests {
         }
         store.mmap_append(&mid.view()).unwrap();
         idx.note_rows(&mid.view(), false, &scale);
-        idx.ensure_backend(&store, 2, false, &scale, dir.path(), 1, n)
+        idx.ensure_through(&store, 2, false, &scale, dir.path(), 1, n)
             .unwrap();
         assert_eq!(idx.indexed_rows, n);
         assert_eq!(

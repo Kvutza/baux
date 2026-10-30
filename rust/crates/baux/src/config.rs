@@ -1,9 +1,9 @@
 //! Configuration types for the optimizer.
 
-use crate::backend::EnnStorage;
 use crate::candidates::CandidateSampler;
 use crate::index::IndexDriver;
 use crate::morbo::{MorboTRSettings, Rescalarize};
+use crate::store::EnnStorage;
 use crate::trust_region::{TRLengthConfig, TrustRegionConfig};
 use deser::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -621,8 +621,8 @@ impl RunConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::backend::EnnStorage;
     use crate::candidates::CandidateSampler;
+    use crate::store::EnnStorage;
     use std::path::Path;
 
     #[test]

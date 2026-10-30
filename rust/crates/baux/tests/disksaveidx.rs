@@ -4,8 +4,8 @@ use std::fs;
 use std::time::Instant;
 
 use baux::ENN;
-use baux::backend::EnnStorage;
 use baux::index::IndexDriver;
+use baux::store::EnnStorage;
 use ndarray::{Array2, ArrayView2};
 use tempfile::TempDir;
 

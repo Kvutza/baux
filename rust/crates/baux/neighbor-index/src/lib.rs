@@ -1,5 +1,5 @@
-#[path = "backend.rs"]
-pub mod backend;
+#[path = "bpann_store.rs"]
+pub mod bpann_store;
 #[path = "distance.rs"]
 pub mod distance;
 #[path = "error.rs"]
@@ -23,7 +23,9 @@ pub mod smnsrch;
 #[path = "tuning.rs"]
 pub mod tuning;
 
-pub use backend::{BpannBackend, PAPER_URL, PENDING_HARD, PENDING_SOFT, soft_build, soft_publish};
+pub use bpann_store::{
+    BpannStore, PAPER_URL, PENDING_HARD, PENDING_SOFT, soft_build, soft_publish,
+};
 pub use error::BpannError;
 pub use index::{BpannIndex, IncrementalIndex};
 pub use lgnsrch::{SearchPendingArgs, search_pending};

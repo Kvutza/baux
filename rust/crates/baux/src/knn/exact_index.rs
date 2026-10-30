@@ -4,13 +4,13 @@ use crate::error::IndexError;
 
 use super::pad_k;
 
-pub(crate) struct ExactBackend {
+pub(crate) struct ExactIndex {
     rows: Array2<f64>,
     keys: Vec<u64>,
     num_dim: usize,
 }
 
-impl ExactBackend {
+impl ExactIndex {
     pub(crate) fn new(num_dim: usize, train_scaled: &ArrayView2<f64>) -> Result<Self, IndexError> {
         if train_scaled.ncols() != num_dim {
             return Err(IndexError::InvalidShape {

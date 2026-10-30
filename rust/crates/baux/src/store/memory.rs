@@ -1,4 +1,4 @@
-//! In-memory ENN backend (dev / small N).
+//! In-memory ENN store (development and small data sets).
 
 use ndarray::{Array1, Array2, ArrayView2, Axis};
 use std::sync::Mutex;
@@ -8,7 +8,7 @@ use crate::index::{ENNIndex, IndexDriver};
 
 use super::row_storage::RowStorage;
 
-pub struct InMemoryEnnBackend {
+pub struct MemoryEnnStore {
     train_x_rows: RowStorage,
     train_y_rows: RowStorage,
     train_yvar_rows: Option<RowStorage>,
@@ -19,7 +19,7 @@ pub struct InMemoryEnnBackend {
     index_synced_obs: Mutex<usize>,
 }
 
-impl InMemoryEnnBackend {
+impl MemoryEnnStore {
     pub fn new(
         train_x: Array2<f64>,
         train_y: Array2<f64>,

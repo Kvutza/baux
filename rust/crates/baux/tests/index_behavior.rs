@@ -1,7 +1,7 @@
 //! Integration tests for BPANN indexing and search behavior.
 
-use baux::neighbor_index::BpannBackend;
-use baux::neighbor_index::backend::open_stride;
+use baux::neighbor_index::BpannStore;
+use baux::neighbor_index::bpann_store::open_stride;
 use baux::neighbor_index::index::kmeans::PartitionTree;
 use baux::neighbor_index::index::page::closest_child;
 use baux::neighbor_index::index::{BpannIndex, LEAF_CAPACITY};
@@ -24,9 +24,9 @@ fn observation_called2() {
         baux::neighbor_index::observation::bpann_obs(dir.path()),
         Some(0)
     );
-    baux::neighbor_index::observation::check_backend(
+    baux::neighbor_index::observation::check_index_format(
         dir.path(),
-        baux::neighbor_index::observation::INDEX_BACKEND,
+        baux::neighbor_index::observation::INDEX_FORMAT,
     )
     .unwrap();
     let yv = array![[0.1]];
@@ -41,7 +41,7 @@ fn observation_called2() {
     let dirty = Mutex::new(false);
     baux::neighbor_index::observation::mark_dirty(&dirty);
     baux::neighbor_index::observation::load_rows(dir.path());
-    baux::neighbor_index::observation::load_backend(dir.path());
+    baux::neighbor_index::observation::load_index_format(dir.path());
     baux::neighbor_index::observation::parse_string(
         r#"{"index_backend":"bpann_disk"}"#,
         "index_backend",
@@ -120,7 +120,7 @@ fn kmeans_called() {
     let child = closest_child(&[0.0, 0.0], &[vec![1.0, 0.0], vec![0.0, 1.0]]);
     assert_eq!(child, 0);
     let dir = TempDir::new().unwrap();
-    let mut b = BpannBackend::new_empty(dir.path().to_path_buf(), 2, 1).unwrap();
+    let mut b = BpannStore::new_empty(dir.path().to_path_buf(), 2, 1).unwrap();
     b.append_rows(
         &array![[0.0, 0.0], [1.0, 0.0]].view(),
         &array![[0.0], [1.0]].view(),
@@ -131,9 +131,9 @@ fn kmeans_called() {
 }
 
 #[test]
-fn backend_accessors() {
+fn store_accessors() {
     let dir = TempDir::new().unwrap();
-    let mut b = BpannBackend::new_empty(dir.path().to_path_buf(), 2, 1).unwrap();
+    let mut b = BpannStore::new_empty(dir.path().to_path_buf(), 2, 1).unwrap();
     assert!(b.index_deferred());
     b.append_rows(
         &array![[0.0, 0.0], [1.0, 0.0]].view(),
@@ -191,7 +191,7 @@ fn backend_accessors() {
 fn n_nearest() {
     use ndarray::Array2;
     let dir = TempDir::new().unwrap();
-    let mut b = BpannBackend::new_empty(dir.path().to_path_buf(), 2, 1).unwrap();
+    let mut b = BpannStore::new_empty(dir.path().to_path_buf(), 2, 1).unwrap();
     // N > N_LIMIT forces the indexed+pending path.
     let n = baux::neighbor_index::N_LIMIT + 50;
     let mut xs = Array2::<f64>::zeros((n, 2));
@@ -227,7 +227,7 @@ fn n_nearest() {
 #[test]
 fn incremental_merge() {
     let dir = TempDir::new().unwrap();
-    let mut b = BpannBackend::new_empty(dir.path().to_path_buf(), 4, 1)
+    let mut b = BpannStore::new_empty(dir.path().to_path_buf(), 4, 1)
         .unwrap()
         .with_soft(2)
         .defer_indexing(false);
@@ -240,7 +240,7 @@ fn incremental_merge() {
         .search(&array![[5.0, 0.0, 0.0, 0.0]].view(), 3, false)
         .unwrap();
     assert_eq!(idx[[0, 0]], 5);
-    let reopened = BpannBackend::reopen(dir.path().to_path_buf()).unwrap();
+    let reopened = BpannStore::reopen(dir.path().to_path_buf()).unwrap();
     assert_eq!(reopened.indexed_rows(), 20);
     let merged =
         baux::neighbor_index::merge::merge_dist(&[(0, 0.0), (1, 4.0)], &[(2, 1.0)], 2, 3, false);
@@ -256,7 +256,7 @@ fn multi_count() {
     let rows = 2500usize;
     let dim = 4usize;
     {
-        let mut b = BpannBackend::new_empty(path.clone(), dim, 1)
+        let mut b = BpannStore::new_empty(path.clone(), dim, 1)
             .unwrap()
             .with_soft(1000)
             .defer_indexing(true);
@@ -274,10 +274,10 @@ fn multi_count() {
         header_text.contains("\"indexed_rows\": 2500"),
         "header: {header_text}"
     );
-    let b2 = BpannBackend::reopen(path.clone()).unwrap();
+    let b2 = BpannStore::reopen(path.clone()).unwrap();
     assert_eq!(b2.indexed_rows(), rows);
     let pages_first = fs::read(path.join("index/pages.bin")).unwrap();
-    let b3 = BpannBackend::reopen(path.clone()).unwrap();
+    let b3 = BpannStore::reopen(path.clone()).unwrap();
     assert_eq!(b3.indexed_rows(), rows);
     let pages_second = fs::read(path.join("index/pages.bin")).unwrap();
     assert_eq!(pages_first, pages_second);
@@ -286,7 +286,7 @@ fn multi_count() {
 #[test]
 fn ensure_persist() {
     let dir = TempDir::new().unwrap();
-    let mut b = BpannBackend::new_empty(dir.path().to_path_buf(), 2, 1).unwrap();
+    let mut b = BpannStore::new_empty(dir.path().to_path_buf(), 2, 1).unwrap();
     b.ensure_sync().unwrap();
     b.append_rows(
         &array![[0.0, 0.0], [1.0, 0.0], [2.0, 0.0]].view(),
@@ -305,7 +305,7 @@ fn ensure_persist() {
 #[test]
 fn multi_threshold() {
     let dir = TempDir::new().unwrap();
-    let mut b = BpannBackend::new_empty(dir.path().to_path_buf(), 4, 1)
+    let mut b = BpannStore::new_empty(dir.path().to_path_buf(), 4, 1)
         .unwrap()
         .with_soft(400)
         .defer_indexing(false);
@@ -326,7 +326,7 @@ fn multi_threshold() {
 #[test]
 fn search_index() {
     let dir = TempDir::new().unwrap();
-    let mut b = BpannBackend::new_empty(dir.path().to_path_buf(), 2, 1).unwrap();
+    let mut b = BpannStore::new_empty(dir.path().to_path_buf(), 2, 1).unwrap();
     let rows = 2501usize;
     let x = ndarray::Array2::from_shape_fn((rows, 2), |(i, j)| (i + j) as f64);
     let y = ndarray::Array2::from_shape_fn((rows, 1), |(i, _)| i as f64);

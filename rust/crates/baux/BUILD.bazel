@@ -44,7 +44,7 @@ rust_library(
     srcs = BAUX_SRCS,
     aliases = aliases(),
     compile_data = BAUX_SHADER_SRCS,
-    crate_features = ["usearch-native"],
+    crate_features = ["usearch-c-api"],
     crate_name = "baux",
     crate_root = "src/lib.rs",
     edition = crate_edition(),
@@ -61,7 +61,7 @@ rust_library(
     compile_data = BAUX_SHADER_SRCS,
     crate_features = [
         "metal",
-        "usearch-native",
+        "usearch-c-api",
     ],
     crate_name = "baux",
     crate_root = "src/lib.rs",
@@ -82,7 +82,7 @@ rust_library(
     compile_data = BAUX_SHADER_SRCS,
     crate_features = [
         "opencl",
-        "usearch-native",
+        "usearch-c-api",
     ],
     crate_name = "baux",
     crate_root = "src/lib.rs",
@@ -135,7 +135,7 @@ rust_test(
     crate = ":baux_metal",
     crate_features = [
         "metal",
-        "usearch-native",
+        "usearch-c-api",
     ],
     deps = BAUX_TEST_DEPS,
     target_compatible_with = ["@platforms//os:macos"],

@@ -1,7 +1,7 @@
 //! Diagonal metric changes preserve raw observation rows and forest membership.
 use super::*;
 
-impl BpannBackend {
+impl BpannStore {
     pub fn set_metric(&mut self, scale: &Array1<f64>, rebuild: bool) -> Result<(), BpannError> {
         if scale.len() != self.num_dim || scale.iter().any(|v| !v.is_finite() || *v <= 0.0) {
             return Err(BpannError::InvalidParameter(

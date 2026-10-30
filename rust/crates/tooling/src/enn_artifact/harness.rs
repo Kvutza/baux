@@ -9,7 +9,7 @@ const CORRECTIONS: &[&str] = &[
     "fit.rs (compute_loglik & loo_neighbors): local evaluates -0.5*ln(2*pi) - ln(se) - 0.5*((y - \
      mu)/se)^2 without squaring se (avoiding binary64 se*se underflow below 1e-154) and excludes \
      held-out LOO rows by exact row ID (id != held) rather than distance threshold 1e-15",
-    "knn (ExactBackend vs FaissBackend and smnsrch): local in-memory ExactBackend computes exact \
+    "knn (ExactIndex vs FaissBackend and smnsrch): local in-memory ExactIndex computes exact \
      binary64 squared-L2 distances (matching baux::semantics::neighbor and upstream \
      small_n_search f64 bit-for-bit), while local BpAnnDisk smnsrch uses binary32 resident flat \
      cache (matching upstream FaissBackend f32 bit-for-bit)",

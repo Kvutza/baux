@@ -1,5 +1,5 @@
-#[cfg(all(feature = "usearch", feature = "usearch-native"))]
-compile_error!("features \"usearch\" and \"usearch-native\" are mutually exclusive");
+#[cfg(all(feature = "usearch", feature = "usearch-c-api"))]
+compile_error!("features \"usearch\" and \"usearch-c-api\" are mutually exclusive");
 
 use ndarray::{Array2, ArrayView1, ArrayView2};
 
@@ -53,7 +53,7 @@ mod binding {
     use super::{IndexError, usearch_error};
     use usearch::{Index, IndexOptions, MetricKind, ScalarKind, new_index};
 
-    pub(super) struct BackendIndex {
+    pub(super) struct USearchRawIndex {
         index: Index,
     }
 
@@ -69,7 +69,7 @@ mod binding {
         }
     }
 
-    impl BackendIndex {
+    impl USearchRawIndex {
         pub(super) fn new(num_dim: usize) -> Result<Self, IndexError> {
             let index = new_index(&options(num_dim)).map_err(usearch_error)?;
             Ok(Self { index })
@@ -108,7 +108,7 @@ mod binding {
     }
 }
 
-#[cfg(feature = "usearch-native")]
+#[cfg(feature = "usearch-c-api")]
 mod binding {
     use super::{IndexError, usearch_error};
     use std::ffi::{CStr, c_char, c_void};
@@ -176,13 +176,13 @@ mod binding {
         }
     }
 
-    pub(super) struct BackendIndex {
+    pub(super) struct USearchRawIndex {
         handle: *mut c_void,
     }
 
-    unsafe impl Send for BackendIndex {}
+    unsafe impl Send for USearchRawIndex {}
 
-    impl Drop for BackendIndex {
+    impl Drop for USearchRawIndex {
         fn drop(&mut self) {
             if !self.handle.is_null() {
                 unsafe { baux_destroy(self.handle) };
@@ -191,14 +191,14 @@ mod binding {
         }
     }
 
-    impl BackendIndex {
+    impl USearchRawIndex {
         pub(super) fn new(num_dim: usize) -> Result<Self, IndexError> {
             let mut error = [0 as c_char; ERROR_LEN];
             let handle = unsafe { baux_new(num_dim, error.as_mut_ptr(), error.len()) };
             if handle.is_null() {
                 return Err(error_buffer(
                     &error,
-                    "failed to construct the native USearch index",
+                    "failed to construct a USearch C API index",
                 ));
             }
             Ok(Self { handle })
@@ -208,7 +208,7 @@ mod binding {
             let mut error = [0 as c_char; ERROR_LEN];
             let ok =
                 unsafe { baux_reserve(self.handle, capacity, error.as_mut_ptr(), error.len()) };
-            call_bool(ok, &error, "failed to reserve native USearch capacity")
+            call_bool(ok, &error, "failed to reserve USearch C API capacity")
         }
 
         pub(super) fn add(&mut self, key: u64, vector: &[f32]) -> Result<(), IndexError> {
@@ -223,7 +223,7 @@ mod binding {
                     error.len(),
                 )
             };
-            call_bool(ok, &error, "failed to add a native USearch vector")
+            call_bool(ok, &error, "failed to add a USearch C API vector")
         }
 
         pub(super) fn search(
@@ -249,7 +249,7 @@ mod binding {
                     error.len(),
                 )
             };
-            call_bool(ok, &error, "native USearch search failed")?;
+            call_bool(ok, &error, "USearch C API search failed")?;
             keys.truncate(count);
             Ok(keys)
         }
@@ -265,31 +265,31 @@ mod binding {
 }
 
 #[cfg(feature = "usearch")]
-use binding::BackendIndex;
-#[cfg(feature = "usearch-native")]
-use binding::BackendIndex;
+use binding::USearchRawIndex;
+#[cfg(feature = "usearch-c-api")]
+use binding::USearchRawIndex;
 
-pub(crate) struct USearchBackend {
-    index: BackendIndex,
+pub(crate) struct USearchIndex {
+    index: USearchRawIndex,
     rows: Vec<f64>,
     num_dim: usize,
 }
 
-impl USearchBackend {
+impl USearchIndex {
     pub(crate) fn new(num_dim: usize, train_scaled: &ArrayView2<f64>) -> Result<Self, IndexError> {
         if num_dim == 0 {
             return Err(IndexError::InvalidParameter(
                 "USearch requires at least one dimension".to_string(),
             ));
         }
-        let index = BackendIndex::new(num_dim)?;
-        let mut backend = Self {
+        let index = USearchRawIndex::new(num_dim)?;
+        let mut implementation = Self {
             index,
             rows: Vec::new(),
             num_dim,
         };
-        backend.add(train_scaled, 0)?;
-        Ok(backend)
+        implementation.add(train_scaled, 0)?;
+        Ok(implementation)
     }
 
     pub(crate) fn len(&self) -> usize {
@@ -394,8 +394,8 @@ mod tests {
     #[test]
     fn search_rows() {
         let train = array![[1.0 + 5.0e-8], [1.0 + 4.0e-8], [3.0]];
-        let backend = USearchBackend::new(1, &train.view()).unwrap();
-        let (distances, indices) = backend.search(&array![[0.0]].view(), 2, 2).unwrap();
+        let implementation = USearchIndex::new(1, &train.view()).unwrap();
+        let (distances, indices) = implementation.search(&array![[0.0]].view(), 2, 2).unwrap();
         assert_eq!(indices.row(0).to_vec(), vec![1, 0]);
         assert!(distances[[0, 0]] < distances[[0, 1]]);
     }
@@ -403,20 +403,24 @@ mod tests {
     #[test]
     fn add_keys() {
         let train = array![[0.0, 0.0], [1.0, 0.0]];
-        let mut backend = USearchBackend::new(2, &train.view()).unwrap();
-        backend.add(&array![[0.0, 1.0]].view(), 2).unwrap();
-        assert_eq!(backend.len(), 3);
-        let (_, indices) = backend.search(&array![[0.0, 0.9]].view(), 2, 2).unwrap();
+        let mut implementation = USearchIndex::new(2, &train.view()).unwrap();
+        implementation.add(&array![[0.0, 1.0]].view(), 2).unwrap();
+        assert_eq!(implementation.len(), 3);
+        let (_, indices) = implementation
+            .search(&array![[0.0, 0.9]].view(), 2, 2)
+            .unwrap();
         assert_eq!(indices[[0, 0]], 2);
 
-        backend.rebuild(&train.view()).unwrap();
-        assert_eq!(backend.len(), 2);
+        implementation.rebuild(&train.view()).unwrap();
+        assert_eq!(implementation.len(), 2);
     }
 
     #[test]
     fn rejects_keys() {
-        let mut backend = USearchBackend::new(2, &array![[0.0, 0.0]].view()).unwrap();
-        let error = backend.add(&array![[1.0, 1.0]].view(), 3).unwrap_err();
+        let mut implementation = USearchIndex::new(2, &array![[0.0, 0.0]].view()).unwrap();
+        let error = implementation
+            .add(&array![[1.0, 1.0]].view(), 3)
+            .unwrap_err();
         assert!(error.to_string().contains("contiguous"));
     }
 }

@@ -1,4 +1,4 @@
-//! Integration tests for EnnBackend dispatch and disk storage.
+//! Integration tests for EnnStore dispatch and disk storage.
 
 use baux::{ENN, EnnStorage, IndexDriver};
 use ndarray::array;

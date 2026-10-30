@@ -11,7 +11,6 @@ members = [
   "rust/crates/modal-runner",
   "rust/crates/ptx-synth",
   "rust/crates/properties",
-  "evals",
 ]
 resolver = "2"
 

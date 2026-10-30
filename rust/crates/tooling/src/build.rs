@@ -37,7 +37,6 @@ impl BuildSystem {
                     "build",
                     "//rust/crates/baux:baux",
                     "//rust/crates/runner:baux-runner",
-                    "//evals:evals",
                     "--local-only",
                     "--console",
                     "simple",

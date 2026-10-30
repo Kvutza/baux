@@ -19,6 +19,10 @@ mod weight_stats;
 mod initialization;
 use initialization::Mhc4Initialization;
 
+#[path = "fbt_moe/hnet2.rs"]
+mod hnet2;
+use hnet2::*;
+
 #[path = "fbt_moe/buffers.rs"]
 mod buffers;
 use buffers::*;

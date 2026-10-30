@@ -6,12 +6,17 @@ use super::*;
 use metal::MTLDispatchType;
 use std::cell::RefCell;
 
+#[path = "fbt_scorer/hnet2.rs"]
+mod hnet2;
 #[path = "fbt_scorer/input.rs"]
 mod input;
 #[path = "fbt_scorer/mhc.rs"]
 mod mhc;
 
 pub(super) use super::scorer_trace::ScorerStageTrace;
+#[cfg(test)]
+pub(super) use mhc::bridge_tile;
+pub(super) use mhc::{hnet_stage0, hnet_stage1};
 
 pub(super) struct Scorer<'a> {
     pub(super) command: &'a CommandBufferRef,
@@ -89,8 +94,12 @@ pub(super) fn encode_proposals(
     cache: Option<&[decode::Cache]>,
     trace: Option<&ScorerStageTrace>,
 ) -> Result<(), String> {
-    if rows == 0 || rows > ROWS || (cache.is_none() && rows % CONTEXT != 0) || rows % 128 != 0 {
+    let invalid_align = !weights.architecture.is_hnet() && rows % 128 != 0;
+    if rows == 0 || rows > ROWS || (cache.is_none() && rows % CONTEXT != 0) || invalid_align {
         return Err(format!("invalid active scorer row count {rows}"));
+    }
+    if weights.architecture.is_hnet() {
+        buffers.hnet()?.reset_sequence()?;
     }
     proposals_at(
         command,
@@ -124,8 +133,12 @@ pub(super) fn encode_hidden(
     cache: Option<&[decode::Cache]>,
     trace: Option<&ScorerStageTrace>,
 ) -> Result<(), String> {
-    if rows == 0 || rows > ROWS || (cache.is_none() && rows % CONTEXT != 0) || rows % 128 != 0 {
+    let invalid_align = !weights.architecture.is_hnet() && rows % 128 != 0;
+    if rows == 0 || rows > ROWS || (cache.is_none() && rows % CONTEXT != 0) || invalid_align {
         return Err(format!("invalid active scorer row count {rows}"));
+    }
+    if weights.architecture.is_hnet() {
+        buffers.hnet()?.reset_sequence()?;
     }
     proposals_at(
         command,
@@ -403,6 +416,11 @@ fn proposals_at(
         trace.reset();
     }
     buffers.fine_grained.reset_routes(command);
+    let init_active_rows = if weights.architecture.is_hnet() {
+        plan.rows.max(1).div_ceil(128) * 128
+    } else {
+        plan.rows
+    };
     let scorer =
         Scorer {
             command,
@@ -416,7 +434,7 @@ fn proposals_at(
             weights,
             row_start: plan.row_start,
             rows: plan.rows,
-            active_rows: std::cell::Cell::new(plan.rows),
+            active_rows: std::cell::Cell::new(init_active_rows),
             cache: plan.cache,
             dirty: plan.dirty,
             trace: plan.trace,
@@ -512,7 +530,8 @@ impl Scorer<'_> {
     }
 
     fn layer_cache(&self, execution: u32) -> Option<&decode::Cache> {
-        self.cache.map(|cache| &cache[execution as usize])
+        self.cache
+            .and_then(|cache| cache.get((execution as usize).min(cache.len().saturating_sub(1))))
     }
 
     fn next_norm(&self, layer: u32, pass: u32) -> (&BufferRef, u64) {
@@ -825,7 +844,7 @@ impl Scorer<'_> {
         let weights = self.weights;
         crate::nn::norm::ResidualRms::new(
             &pipelines.residual_rms,
-            crate::nn::Rows::Chunk(self.rows),
+            crate::nn::Rows::Chunk(self.active_rows()),
         )
         .forward(
             &encoder,
@@ -881,7 +900,7 @@ impl Scorer<'_> {
         wave.flush();
         crate::nn::norm::ResidualRms::new(
             &pipelines.feedback_fuse_rms,
-            crate::nn::Rows::Chunk(self.rows),
+            crate::nn::Rows::Chunk(self.active_rows()),
         )
         .forward(
             &encoder,

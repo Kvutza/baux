@@ -496,7 +496,7 @@ impl CandidateWeights {
             mhc_moe_bias: mhc_bias(runtime, layers),
             mhc_moe_control: filled(runtime, layers * 4, 0),
             final_norm: filled(runtime, width, 0x3c00),
-            hnet: initialization::hnet_weights(runtime, architecture),
+            hnet: initialization::hnet_weights(runtime, architecture, None),
         }
     }
 
@@ -584,7 +584,7 @@ impl CandidateWeights {
             mhc_moe_bias: mhc_bias(runtime, layers),
             mhc_moe_control: filled(runtime, layers * 4, 0),
             final_norm: filled(runtime, width, 0x3c00),
-            hnet: initialization::hnet_weights(runtime, architecture),
+            hnet: initialization::hnet_weights(runtime, architecture, None),
         }
     }
 
@@ -652,7 +652,7 @@ impl CandidateWeights {
             mhc_moe_bias: mhc_bias(runtime, layers),
             mhc_moe_control: filled(runtime, layers * 4, 0),
             final_norm: filled(runtime, width, 0x3c00),
-            hnet: initialization::hnet_weights(runtime, architecture),
+            hnet: initialization::hnet_weights(runtime, architecture, None),
         }
     }
 

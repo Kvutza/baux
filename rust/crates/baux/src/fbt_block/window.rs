@@ -512,7 +512,7 @@ impl BlockDecoder {
         Ok(0.0)
     }
 
-    fn finish_profile(
+    pub(super) fn finish_profile(
         &self,
         row_start: u32,
         rows: u32,

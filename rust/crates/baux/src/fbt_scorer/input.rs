@@ -25,13 +25,14 @@ impl Scorer<'_> {
             std::mem::size_of_val(&vocabulary) as u64,
             std::ptr::from_ref(&vocabulary).cast(),
         );
+        let active_rows = self.active_rows();
         if let Some(input) = self.diffusion {
             encoder.set_buffer(3, Some(weights.buffer), weights.mask_embed);
             encoder.set_buffer(4, Some(input.confidence), u64::from(self.row_start) * 4);
-            encoder.dispatch_thread_groups(thread_group(u64::from(self.rows)), thread_group(128));
+            encoder.dispatch_thread_groups(thread_group(u64::from(active_rows)), thread_group(128));
         } else {
             encoder.dispatch_threads(
-                thread_group(u64::from(self.rows) * u64::from(WIDTH)),
+                thread_group(u64::from(active_rows) * u64::from(WIDTH)),
                 thread_group(pipelines.embed.max_total_threads_per_threadgroup().min(256)),
             );
         }
@@ -43,7 +44,7 @@ impl Scorer<'_> {
             return Ok(());
         }
 
-        crate::nn::norm::RmsNorm::new(&pipelines.rms, crate::nn::Rows::Chunk(self.rows)).forward(
+        crate::nn::norm::RmsNorm::new(&pipelines.rms, crate::nn::Rows::Chunk(active_rows)).forward(
             &encoder,
             self.activations(&buffers.input),
             crate::tensor::View::slice(weights.buffer, weights.attention_norm, 1, WIDTH),

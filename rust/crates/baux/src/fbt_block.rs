@@ -11,6 +11,8 @@ use super::target::TargetStats;
 
 #[path = "fbt_block/batch.rs"]
 mod batch;
+#[path = "fbt_block/hnet2.rs"]
+mod hnet2;
 #[cfg(test)]
 #[path = "fbt_block/tests.rs"]
 mod tests;
@@ -317,7 +319,9 @@ impl BlockDecoder {
         context: u32,
         architecture: ResidualArchitecture,
     ) -> Result<Self, String> {
-        let pisa = if architecture.is_mhc4() && context > ROWS {
+        let pisa = if architecture.is_hnet() && context > ROWS {
+            Pisa1::with_context(runtime, ROWS)?
+        } else if architecture.is_mhc4() && context > ROWS {
             Pisa1::with_rows(runtime, context, ROWS)?
         } else {
             Pisa1::with_context(runtime, context)?

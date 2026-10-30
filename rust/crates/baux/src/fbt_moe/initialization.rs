@@ -282,19 +282,35 @@ impl CandidateWeights {
             policy.down_norm(),
             architecture.vocabulary() as usize,
         );
+        let router = draw(
+            layers,
+            width,
+            routing::ROUTED_EXPERTS as usize,
+            0x6a09_e667,
+            policy.router_column_norm,
+        );
+        let qkv = draw(layers, width, qkv_width, 0xbb67_ae85, 1.0);
+        let output = draw(layers, width, width, 0x3c6e_f372, policy.residual_gain);
+        let hnet = hnet_weights(
+            runtime,
+            architecture,
+            Some((
+                &readout_buf,
+                &qkv,
+                &output,
+                &router,
+                &gate_up_buf,
+                &down_buf,
+                policy.transport_lambda,
+            )),
+        );
 
         Ok(Self {
             architecture,
             initialization: crate::config::ModelInitialization::FbtPisa1Mhc4,
-            router: draw(
-                layers,
-                width,
-                routing::ROUTED_EXPERTS as usize,
-                0x6a09_e667,
-                policy.router_column_norm,
-            ),
-            qkv: draw(layers, width, qkv_width, 0xbb67_ae85, 1.0),
-            output: draw(layers, width, width, 0x3c6e_f372, policy.residual_gain),
+            router,
+            qkv,
+            output,
             gate_up: gate_up_buf,
             down: down_buf,
             attention_norm: filled(runtime, layers * width, 0x3c00),
@@ -338,20 +354,66 @@ impl CandidateWeights {
                 policy.transport_lambda,
             ),
             final_norm: filled(runtime, width, 0x3c00),
-            hnet: hnet_weights(runtime, architecture),
+            hnet,
         })
     }
 }
 
-pub(super) fn hnet_weights(runtime: &Runtime, architecture: ResidualArchitecture) -> Buffer {
+pub(super) type HnetLayer0Refs<'a> = (
+    &'a BufferRef,
+    &'a BufferRef,
+    &'a BufferRef,
+    &'a BufferRef,
+    &'a BufferRef,
+    &'a BufferRef,
+    f32,
+);
+
+pub(super) fn hnet_weights(
+    runtime: &Runtime,
+    architecture: ResidualArchitecture,
+    layer0: Option<HnetLayer0Refs<'_>>,
+) -> Buffer {
     if !architecture.is_hnet() {
         return runtime.buffer::<u16>(1);
     }
     let width = WIDTH as usize;
+    let vocab = architecture.vocabulary() as usize;
+    let (u, alpha) = if let Some((
+        readout_buf,
+        qkv_buf,
+        output_buf,
+        router_buf,
+        gate_up_buf,
+        down_buf,
+        _lambda,
+    )) = layer0
+        && readout_buf.length() as usize >= width * vocab * 2
+    {
+        let slice_u16 = |buf: &BufferRef, len: usize| unsafe {
+            std::slice::from_raw_parts(buf.contents().cast::<u16>(), len)
+        };
+        let experts = routing::MOE_EXPERTS as usize;
+        let slices = architecture::Layer0Slices {
+            readout: slice_u16(readout_buf, width * vocab),
+            qkv: slice_u16(qkv_buf, width * QKV_WIDTH as usize),
+            output: slice_u16(output_buf, width * width),
+            router: slice_u16(router_buf, width * routing::ROUTED_EXPERTS as usize),
+            gate_up: slice_u16(gate_up_buf, experts * width * routing::MOE_GATEUP as usize),
+            down: slice_u16(down_buf, experts * routing::ROUTED_WIDTH as usize * width),
+        };
+        (architecture::solve_common(&slices, width, vocab), 1.65f32)
+    } else {
+        (vec![0.0f32; width], 0.0f32)
+    };
     let mut values = vec![0u16; 3 * width * width + width];
-    for index in 0..width {
-        values[index * width + index] = half_bits(1.0);
-        values[width * width + index * width + index] = half_bits(1.0);
+    for row in 0..width {
+        for col in 0..width {
+            let diag = if row == col { 1.0f32 } else { 0.0f32 };
+            let entry = half_bits(diag + alpha * u[row] * u[col]);
+            values[row * width + col] = entry;
+            values[width * width + row * width + col] = entry;
+        }
     }
     runtime.buffer_with(&values)
 }

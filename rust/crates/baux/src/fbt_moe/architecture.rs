@@ -166,6 +166,198 @@ impl ResidualArchitecture {
     }
 }
 
+pub(super) struct Layer0Slices<'a> {
+    pub(super) readout: &'a [u16],
+    pub(super) qkv: &'a [u16],
+    pub(super) output: &'a [u16],
+    pub(super) router: &'a [u16],
+    pub(super) gate_up: &'a [u16],
+    pub(super) down: &'a [u16],
+}
+
+fn mean_attn(s: &Layer0Slices<'_>, width: usize, vocab: usize, qkv_w: usize) -> Vec<f32> {
+    use crate::context::probe::half;
+    let mut mean_e = vec![0.0f32; width];
+    for b in 0..vocab {
+        let mut sq = 0.0f32;
+        for d in 0..width {
+            let v = half(s.readout[d * vocab + b]);
+            sq = v.mul_add(v, sq);
+        }
+        let scale = (sq / (width as f32) + 1e-5).sqrt().recip() / (vocab as f32);
+        for d in 0..width {
+            mean_e[d] += half(s.readout[d * vocab + b]) * scale;
+        }
+    }
+    let mut mean_v = [0.0f32; 64];
+    for (c, mv) in mean_v.iter_mut().enumerate() {
+        let mut acc = 0.0f32;
+        for d in 0..width {
+            acc = mean_e[d].mul_add(half(s.qkv[d * qkv_w + 576 + c]), acc);
+        }
+        *mv = acc;
+    }
+    let mut mean_z = vec![0.0f32; width];
+    for h in 0..8 {
+        for (c, &v) in mean_v.iter().enumerate() {
+            let row_off = (64 * h + c) * width;
+            for d in 0..width {
+                mean_z[d] = v.mul_add(half(s.output[row_off + d]), mean_z[d]);
+            }
+        }
+    }
+    mean_z
+}
+
+fn sig(x: f32) -> f32 {
+    let e = (-x.abs()).exp();
+    (if x >= 0.0 {
+        1.0 / (1.0 + e)
+    } else {
+        e / (1.0 + e)
+    })
+    .max(1e-20)
+}
+
+fn top3_routes(norm_mid: &[f32], router: &[u16], width: usize, routed: usize) -> [(usize, f32); 4] {
+    use crate::context::probe::half;
+    let mut scores = [f32::NEG_INFINITY; 3];
+    let mut idx = [0usize; 3];
+    for r in 0..routed {
+        let mut s = 0.0f32;
+        for d in 0..width {
+            s = norm_mid[d].mul_add(half(router[d * routed + r]), s);
+        }
+        if s > scores[0] {
+            scores = [s, scores[0], scores[1]];
+            idx = [r, idx[0], idx[1]];
+        } else if s > scores[1] {
+            scores[2] = scores[1];
+            idx[2] = idx[1];
+            scores[1] = s;
+            idx[1] = r;
+        } else if s > scores[2] {
+            scores[2] = s;
+            idx[2] = r;
+        }
+    }
+    let (w0, w1, w2) = (sig(scores[0]), sig(scores[1]), sig(scores[2]));
+    let denom = w0 + w1 + w2;
+    [
+        (0, 1.0),
+        (idx[0] + 1, w0 / denom),
+        (idx[1] + 1, w1 / denom),
+        (idx[2] + 1, w2 / denom),
+    ]
+}
+
+fn byte_state(s: &Layer0Slices<'_>, mean_z: &[f32], b: usize, vocab: usize) -> Vec<f32> {
+    use crate::context::probe::half;
+    let width = WIDTH as usize;
+    let exp_w = routing::ROUTED_WIDTH as usize;
+    let gu_w = routing::MOE_GATEUP as usize;
+    let mut state: Vec<f32> = (0..width)
+        .map(|d| half(s.readout[d * vocab + b]) + mean_z[d])
+        .collect();
+    let sq: f32 = state.iter().map(|&v| v * v).sum();
+    let scale = (sq / (width as f32) + 1e-5).sqrt().recip();
+    let norm_mid: Vec<f32> = state.iter().map(|&v| v * scale).collect();
+    let active = top3_routes(&norm_mid, s.router, width, routing::ROUTED_EXPERTS as usize);
+    let mut act = [0.0f32; 216];
+    for (exp, weight) in active {
+        let gu = &s.gate_up[exp * width * gu_w..(exp + 1) * width * gu_w];
+        let dn = &s.down[exp * exp_w * width..(exp + 1) * exp_w * width];
+        for m in 0..exp_w {
+            let (mut g, mut up) = (0.0f32, 0.0f32);
+            for d in 0..width {
+                let x = norm_mid[d];
+                g = x.mul_add(half(gu[d * gu_w + m]), g);
+                up = x.mul_add(half(gu[d * gu_w + exp_w + m]), up);
+            }
+            act[m] = g * sig(g) * up;
+        }
+        for (m, &am) in act.iter().enumerate() {
+            let a = weight * am;
+            for d in 0..width {
+                state[d] = a.mul_add(half(dn[m * width + d]), state[d]);
+            }
+        }
+    }
+    let norm = state.iter().map(|&x| x * x).sum::<f32>().sqrt().max(1e-12);
+    for x in &mut state {
+        *x /= norm;
+    }
+    state
+}
+
+pub(super) fn solve_common(s: &Layer0Slices<'_>, width: usize, vocab: usize) -> Vec<f32> {
+    use rayon::prelude::*;
+    let mean_z = mean_attn(s, width, vocab, QKV_WIDTH as usize);
+    let cols: Vec<Vec<f32>> = (0..vocab)
+        .into_par_iter()
+        .map(|b| byte_state(s, &mean_z, b, vocab))
+        .collect();
+    let mut mat = vec![0.0f32; width * vocab];
+    for (b, col) in cols.iter().enumerate() {
+        for (d, &val) in col.iter().enumerate() {
+            mat[d * vocab + b] = val;
+        }
+    }
+    let (mut w, mut r) = (vec![0.0f32; vocab], vec![1.0f32; vocab]);
+    let mut p = r.clone();
+    let mut rho: f32 = r.iter().map(|&x| x * x).sum();
+    let (mut ep, mut q) = (vec![0.0f32; width], vec![0.0f32; vocab]);
+    for _ in 0..24 {
+        if rho < 1e-10 {
+            break;
+        }
+        for d in 0..width {
+            ep[d] = mat[d * vocab..(d + 1) * vocab]
+                .iter()
+                .zip(&p)
+                .map(|(&a, &b)| a * b)
+                .sum();
+        }
+        for b in 0..vocab {
+            q[b] = (0..width).fold(1e-2 * p[b], |acc, d| mat[d * vocab + b].mul_add(ep[d], acc));
+        }
+        let pq: f32 = p.iter().zip(&q).map(|(&a, &b)| a * b).sum();
+        if pq <= 1e-12 {
+            break;
+        }
+        let step = rho / pq;
+        for b in 0..vocab {
+            w[b] += step * p[b];
+            r[b] -= step * q[b];
+        }
+        let rho_new: f32 = r.iter().map(|&x| x * x).sum();
+        for b in 0..vocab {
+            p[b] = r[b] + (rho_new / rho) * p[b];
+        }
+        rho = rho_new;
+    }
+    let mut u: Vec<f32> = (0..width)
+        .map(|d| {
+            mat[d * vocab..(d + 1) * vocab]
+                .iter()
+                .zip(&w)
+                .map(|(&a, &b)| a * b)
+                .sum()
+        })
+        .collect();
+    let inv = u
+        .iter()
+        .map(|&x| x * x)
+        .sum::<f32>()
+        .sqrt()
+        .max(1e-12)
+        .recip();
+    for val in &mut u {
+        *val *= inv;
+    }
+    u
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

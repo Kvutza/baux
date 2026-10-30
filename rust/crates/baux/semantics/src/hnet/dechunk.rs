@@ -170,9 +170,15 @@ impl DeChunkState {
     }
 }
 
-fn ema_scan(chunks: &[f32], probs: &[f32], num_chunks: usize, d_model: usize) -> Vec<f32> {
+fn ema_init(
+    chunks: &[f32],
+    probs: &[f32],
+    num_chunks: usize,
+    d_model: usize,
+    init_state: &[f32],
+) -> Vec<f32> {
     let mut ema = vec![0.0_f32; num_chunks * d_model];
-    let mut state = vec![0.0_f32; d_model];
+    let mut state = init_state.to_vec();
     for i in 0..num_chunks {
         let p = probs[i];
         let one_minus_p = 1.0_f32 - p;
@@ -184,6 +190,11 @@ fn ema_scan(chunks: &[f32], probs: &[f32], num_chunks: usize, d_model: usize) ->
         }
     }
     ema
+}
+
+fn ema_scan(chunks: &[f32], probs: &[f32], num_chunks: usize, d_model: usize) -> Vec<f32> {
+    let zero = vec![0.0_f32; d_model];
+    ema_init(chunks, probs, num_chunks, d_model, &zero)
 }
 
 /// EMA smoothing and plug-back dechunking layer
@@ -342,6 +353,70 @@ impl DeChunkLayer {
                 }
             } else {
                 out_slice.copy_from_slice(state_slice);
+            }
+        }
+        Ok(out)
+    }
+
+    /// Continuous multi-tile EMA dechunking forward pass carrying
+    /// [`DeChunkState`] across tile boundaries, including continuation tiles
+    /// whose first token is not a boundary or that contain zero boundaries.
+    pub fn forward_continuous(
+        &self,
+        chunk_states: &[f32],
+        max_chunks: usize,
+        boundary_mask: &[bool],
+        boundary_prob: &[f32],
+        batch_size: usize,
+        seq_len: usize,
+        state: &mut DeChunkState,
+    ) -> Result<Vec<f32>, String> {
+        let total = batch_size * seq_len;
+        if batch_size == 0
+            || seq_len == 0
+            || boundary_mask.len() != total
+            || boundary_prob.len() != total
+            || chunk_states.len() != batch_size * max_chunks * self.d_model
+            || state.batch_size != batch_size
+            || state.d_model != self.d_model
+        {
+            return Err("DeChunkLayer::forward_continuous shape mismatch".into());
+        }
+        let mut out = vec![0.0_f32; total * self.d_model];
+        for b in 0..batch_size {
+            let base = b * seq_len;
+            let state_slice = &mut state.last_value[b * self.d_model..(b + 1) * self.d_model];
+            let mut probs = Vec::with_capacity(max_chunks);
+            for t in 0..seq_len {
+                if boundary_mask[base + t] {
+                    probs.push(boundary_prob[base + t].clamp(self.eps, 1.0_f32 - self.eps));
+                }
+            }
+            let count = probs.len();
+            if count > max_chunks {
+                return Err(
+                    "DeChunkLayer::forward_continuous chunk count exceeds max_chunks".into(),
+                );
+            }
+            let seq_chunks = &chunk_states
+                [b * max_chunks * self.d_model..(b * max_chunks + count) * self.d_model];
+            let ema = ema_init(seq_chunks, &probs, count, self.d_model, state_slice);
+            let mut cumsum = 0_usize;
+            for t in 0..seq_len {
+                if boundary_mask[base + t] {
+                    cumsum += 1;
+                }
+                let dst = (base + t) * self.d_model;
+                if cumsum == 0 {
+                    out[dst..dst + self.d_model].copy_from_slice(state_slice);
+                } else {
+                    let src = (cumsum - 1) * self.d_model;
+                    out[dst..dst + self.d_model].copy_from_slice(&ema[src..src + self.d_model]);
+                }
+            }
+            if count > 0 {
+                let last_src = (count - 1) * self.d_model;
+                state_slice.copy_from_slice(&ema[last_src..last_src + self.d_model]);
             }
         }
         Ok(out)

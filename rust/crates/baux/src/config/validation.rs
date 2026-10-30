@@ -106,7 +106,10 @@ impl RunConfig {
             );
         }
         if tokens > crate::pretrain_data::CONTEXT
-            && !matches!(self.model, Some(ModelArchitecture::FbtPisa1Mhc4V1))
+            && !matches!(
+                self.model,
+                Some(ModelArchitecture::FbtPisa1Mhc4V1 | ModelArchitecture::FbtPisa1HnetMhc4V1)
+            )
         {
             return Err("pretraining sequences above 4096 positions require MHC4".into());
         }
@@ -132,12 +135,10 @@ impl RunConfig {
 
     fn validate_hnet(&self, tokens: u32) -> Result<(), String> {
         if self.model == Some(ModelArchitecture::FbtPisa1HnetMhc4V1)
-            && (tokens > crate::pretrain_data::CONTEXT
+            && (tokens > crate::context::MAX_TOKENS
                 || self.objective_function() != ObjectiveFunction::CrossEntropy)
         {
-            return Err(
-                "H-Net long-context optimization requires continuous hierarchy state".into(),
-            );
+            return Err("H-Net optimization requires cross-entropy within 1048576 bytes".into());
         }
         Ok(())
     }

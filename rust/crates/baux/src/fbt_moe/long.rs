@@ -269,14 +269,21 @@ fn setup_state(
         .next_power_of_two()
         .max(CONTEXT as usize);
     let context = u32::try_from(core_rows).map_err(|error| error.to_string())?;
-    let decoder = decode::Decoder::with_visits(
-        &runtime,
-        context,
-        context > ROWS,
-        architecture.layer_steps().len(),
-    )?;
+    let decoder = if architecture.is_hnet() {
+        decode::Decoder::with_visits(&runtime, CONTEXT, false, 1)?
+    } else {
+        decode::Decoder::with_visits(
+            &runtime,
+            context,
+            context > ROWS,
+            architecture.layer_steps().len(),
+        )?
+    };
     let mut scorer =
         block_decode::BlockDecoder::with_architecture(&runtime, context, architecture)?;
+    if architecture.is_hnet() {
+        let _ = scorer.buffers.hnet2()?;
+    }
     scorer.profile(&runtime, run.scorer_stage_samples)?;
     let weights = CandidateWeights::initialized(
         &runtime,

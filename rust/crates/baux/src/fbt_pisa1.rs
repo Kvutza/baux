@@ -221,14 +221,19 @@ impl Pisa1 {
         if !(4096..=crate::context::MAX_CONTEXT).contains(&context) || !context.is_power_of_two() {
             return Err("PISA context must be a power of two in 4096..2097152".into());
         }
-        let query_rows = query_rows.max(ROWS);
         Ok(Self {
             context,
-            query_rows,
-            pipelines: Pipelines::new(runtime, context, query_rows)?,
+            query_rows: query_rows.max(ROWS),
+            pipelines: Pipelines::new(runtime, context, query_rows.max(ROWS))?,
             pyramid: runtime.buffer::<u16>((BATCH * (2 * context / BLOCK - 1) * HEAD_DIM) as usize),
-            blocks: runtime.buffer_with(&vec![u32::MAX; (query_rows * SELECTED) as usize + 64]),
-            output: runtime.buffer_with(&vec![0x7e00u16; (query_rows * QUERY_WIDTH) as usize + 64]),
+            blocks: runtime.buffer_with(&vec![
+                u32::MAX;
+                (query_rows.max(ROWS) * SELECTED) as usize + 64
+            ]),
+            output: runtime.buffer_with(&vec![
+                0x7e00u16;
+                (query_rows.max(ROWS) * QUERY_WIDTH) as usize + 64
+            ]),
             probe: std::cell::OnceCell::new(),
             cached: std::cell::OnceCell::new(),
             indexed: std::cell::OnceCell::new(),
@@ -339,7 +344,11 @@ impl Pisa1 {
         qkv: &BufferRef,
         rows: u32,
     ) {
-        self.pyramid_output(encoder, qkv, &self.pyramid, rows);
+        if rows < self.context {
+            self.pyramid_range(encoder, qkv, &self.pyramid, 0, rows);
+        } else {
+            self.pyramid_output(encoder, qkv, &self.pyramid, rows);
+        }
     }
 
     pub(crate) fn attention_rows(

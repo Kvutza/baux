@@ -98,7 +98,7 @@ impl Scorer<'_> {
             &self.tensorops.readout_loss_tiles,
             &self.pipelines.readout_loss_reduce,
             self.weights.readout_weights(),
-            self.rows,
+            self.active_rows(),
         )
     }
 
@@ -137,15 +137,21 @@ impl Scorer<'_> {
     }
 
     pub(super) fn hnet_shape(&self) -> baux::semantics::hnet::HNetShape {
+        let aligned_rows = self.rows.max(1).div_ceil(128) * 128;
+        let continuing = self.buffers.hnet().is_ok_and(|h| h.tile_seen.get());
         baux::semantics::hnet::HNetShape {
             batch_size: 1,
             seq_len: self.rows,
             d_model: WIDTH,
-            max_chunks: self.rows,
+            max_chunks: aligned_rows,
             vocab_size: 256,
             eps: 1e-4,
-            target_ratio: 2.0,
-            score: 1,
+            target_ratio: 4.0,
+            score: if self.row_start == 0 && !continuing {
+                2
+            } else {
+                1
+            },
         }
     }
 
@@ -157,6 +163,11 @@ impl Scorer<'_> {
             return Err("H-Net requires a complete byte window within one context".into());
         }
         let hnet = self.buffers.hnet()?;
+        let seen_buf = if hnet.tile_seen.get() {
+            &hnet.one_seen
+        } else {
+            &hnet.zero_seen
+        };
         self.start_stage("hnet_chunk")?;
         let encoder = self.active_encoder();
         let normalized = self.activations(&self.buffers.normalized);
@@ -178,12 +189,41 @@ impl Scorer<'_> {
             thread_group(256),
         );
         encoder.memory_barrier_with_resources(&[&hnet.projected, &hnet.residual]);
-        encoder.set_compute_pipeline_state(&hnet.waves.mhc_route);
-        crate::apple_gpu::bind_buffers(encoder, &[(&hnet.projected, 0), (&hnet.probs, 0)]);
-        crate::apple_gpu::encode_value(encoder, 2, &shape);
+        encoder.set_compute_pipeline_state(&hnet.waves.mhc_route_state);
+        crate::apple_gpu::bind_buffers(
+            encoder,
+            &[
+                (&hnet.projected, 0),
+                (&hnet.probs, 0),
+                (&hnet.q_state, 0),
+                (seen_buf, 0),
+            ],
+        );
+        crate::apple_gpu::encode_value(encoder, 4, &shape);
         encoder.dispatch_thread_groups(thread_group(u64::from(self.rows)), thread_group(32));
         encoder.memory_barrier_with_resources(&[&hnet.probs]);
-        encoder.set_compute_pipeline_state(&hnet.waves.mhc_chunk);
+        encoder.set_compute_pipeline_state(&hnet.waves.mhc_chunk_scan);
+        crate::apple_gpu::bind_buffers(
+            encoder,
+            &[
+                (&hnet.origins, 0),
+                (&hnet.probs, 0),
+                (&hnet.plug_idx, 0),
+                (&hnet.count, 0),
+                (&hnet.projected, 0),
+                (&hnet.q_state, 0),
+                (seen_buf, 0),
+            ],
+        );
+        crate::apple_gpu::encode_value(encoder, 7, &shape);
+        encoder.dispatch_thread_groups(thread_group(1), thread_group(256));
+        encoder.memory_barrier_with_resources(&[
+            &hnet.origins,
+            &hnet.plug_idx,
+            &hnet.count,
+            &hnet.q_state,
+        ]);
+        encoder.set_compute_pipeline_state(&hnet.waves.mhc_chunk_pack);
         crate::apple_gpu::bind_buffers(
             encoder,
             &[
@@ -191,20 +231,16 @@ impl Scorer<'_> {
                 (&self.buffers.mhc_streams[0], 0),
                 (&hnet.encoder_streams, 0),
                 (&hnet.origins, 0),
-                (&hnet.probs, 0),
-                (&hnet.plug_idx, 0),
                 (&hnet.count, 0),
             ],
         );
-        crate::apple_gpu::encode_value(encoder, 7, &shape);
-        encoder.dispatch_thread_groups(thread_group(1), thread_group(256));
-        encoder.memory_barrier_with_resources(&[
-            &self.buffers.mhc_streams[0],
-            &hnet.encoder_streams,
-            &hnet.origins,
-            &hnet.plug_idx,
-            &hnet.count,
-        ]);
+        crate::apple_gpu::encode_value(encoder, 5, &shape);
+        encoder.dispatch_threads(
+            thread_group(u64::from(shape.max_chunks * WIDTH)),
+            thread_group(256),
+        );
+        encoder
+            .memory_barrier_with_resources(&[&self.buffers.mhc_streams[0], &hnet.encoder_streams]);
         // Kernels currently dispatch the full capacity. Only the causal prefix
         // contains chunks; no threshold adaptation or truncation is permitted.
         Ok(())
@@ -215,32 +251,253 @@ impl Scorer<'_> {
             return Ok(());
         }
         let hnet = self.buffers.hnet()?;
+        let (ema_in_buf, ema_out_buf) = if hnet.ema_parity.get() == 0 {
+            (&hnet.ema_in, &hnet.ema_out)
+        } else {
+            (&hnet.ema_out, &hnet.ema_in)
+        };
         self.start_stage("hnet_dechunk")?;
         let encoder = self.active_encoder();
         self.hyper()
             .finalize(encoder, self.activations(&self.buffers.normalized).out());
-        encoder.set_compute_pipeline_state(&hnet.waves.mhc_dechunk);
+        let shape = self.hnet_shape();
+        let grid_2d = metal::MTLSize {
+            width: u64::from(WIDTH),
+            height: crate::hnet_metal::EMA_PARTS as u64,
+            depth: 1,
+        };
+        let tg_2d = metal::MTLSize {
+            width: 256,
+            height: 1,
+            depth: 1,
+        };
+        encoder.set_compute_pipeline_state(&hnet.waves.mhc_dechunk_reduce);
         crate::apple_gpu::bind_buffers(
             encoder,
             &[
                 (&self.buffers.normalized, 0),
-                (&self.buffers.mhc_streams[0], 0),
                 (&hnet.chunk_scratch, 0),
                 (&hnet.origins, 0),
                 (&hnet.probs, 0),
+                (&hnet.count, 0),
+                (&hnet.core, 0),
+                (&hnet.part_a, 0),
+                (&hnet.part_b, 0),
+                (ema_in_buf, 0),
+            ],
+        );
+        crate::apple_gpu::encode_value(encoder, 9, &shape);
+        encoder.dispatch_threads(grid_2d, tg_2d);
+        encoder.memory_barrier_with_resources(&[
+            &hnet.core,
+            &hnet.chunk_scratch,
+            &hnet.part_a,
+            &hnet.part_b,
+        ]);
+        encoder.set_compute_pipeline_state(&hnet.waves.mhc_dechunk_scan);
+        crate::apple_gpu::bind_buffers(
+            encoder,
+            &[
+                (&self.buffers.normalized, 0),
+                (&hnet.chunk_scratch, 0),
+                (&hnet.origins, 0),
+                (&hnet.probs, 0),
+                (&hnet.count, 0),
+                (&hnet.part_a, 0),
+                (&hnet.part_b, 0),
+                (ema_in_buf, 0),
+                (ema_out_buf, 0),
+            ],
+        );
+        crate::apple_gpu::encode_value(encoder, 9, &shape);
+        encoder.dispatch_threads(grid_2d, tg_2d);
+        encoder.memory_barrier_with_resources(&[&hnet.chunk_scratch, ema_out_buf]);
+        encoder.set_compute_pipeline_state(&hnet.waves.mhc_dechunk_plug);
+        crate::apple_gpu::bind_buffers(
+            encoder,
+            &[
+                (&self.buffers.mhc_streams[0], 0),
+                (&hnet.chunk_scratch, 0),
                 (&hnet.plug_idx, 0),
                 (&hnet.count, 0),
                 (&hnet.residual, 0),
-                (&hnet.core, 0),
+                (ema_in_buf, 0),
             ],
         );
-        crate::apple_gpu::encode_value(encoder, 9, &self.hnet_shape());
-        encoder.dispatch_threads(thread_group(u64::from(WIDTH)), thread_group(256));
-        encoder.memory_barrier_with_resources(&[
-            &self.buffers.mhc_streams[0],
-            &hnet.core,
-            &hnet.chunk_scratch,
-        ]);
+        crate::apple_gpu::encode_value(encoder, 6, &shape);
+        encoder.dispatch_threads(
+            thread_group(u64::from(self.rows * WIDTH)),
+            thread_group(256),
+        );
+        encoder.memory_barrier_with_resources(&[&self.buffers.mhc_streams[0]]);
+        hnet.tile_seen.set(true);
+        hnet.ema_parity.set(1 - hnet.ema_parity.get());
         Ok(())
     }
+
+    pub(super) fn hnet_stage0(&self) -> Result<(), String> {
+        let aligned_rows = self.rows.max(1).div_ceil(128) * 128;
+        self.active_rows.set(aligned_rows);
+        self.prepare_gateup()?;
+        self.start_stage("embed")?;
+        self.embed()?;
+        let steps = self.weights.architecture.layer_steps();
+        let first = steps.first().ok_or("empty H-Net layer schedule")?;
+        self.layer(
+            &self.buffers.input,
+            first.layer,
+            first.pass,
+            first.execution,
+        )?;
+        self.hnet_chunk()
+    }
+
+    pub(super) fn hnet_stage1(&self, compact_rows: u32) -> Result<(), String> {
+        let aligned_rows = self.rows.max(1).div_ceil(128) * 128;
+        assert!(
+            compact_rows > 0
+                && compact_rows % 128 == 0
+                && compact_rows <= aligned_rows
+                && compact_rows <= self.buffers.rows,
+            "H-Net Stage B compact_rows={compact_rows} invalid for rows={} aligned={} capacity={}",
+            self.rows,
+            aligned_rows,
+            self.buffers.rows
+        );
+        let steps = self.weights.architecture.layer_steps();
+        self.active_rows.set(compact_rows);
+        for step in &steps[1..steps.len() - 1] {
+            assert_eq!(
+                self.active_rows(),
+                compact_rows,
+                "H-Net core step must dispatch compacted active_rows, not padded capacity"
+            );
+            self.layer(&self.buffers.output, step.layer, step.pass, step.execution)?;
+        }
+        self.active_rows.set(aligned_rows);
+        self.hnet_dechunk()?;
+        let last = steps.last().ok_or("empty H-Net layer schedule")?;
+        self.layer(&self.buffers.output, last.layer, last.pass, last.execution)?;
+        self.start_stage("mhc_readout")?;
+        let normalized = self.activations(&self.buffers.normalized);
+        self.hyper()
+            .finalize(self.active_encoder(), normalized.out());
+        Ok(())
+    }
+}
+
+pub(in crate::fbt_moe) fn hnet_stage0(
+    command: &CommandBufferRef,
+    pipelines: &Pipelines,
+    tensorops: &TensorOpsPipelines,
+    pisa1: &Pisa1,
+    buffers: &Buffers,
+    weights: CandidateRow<'_>,
+    rows: u32,
+    cache: Option<&[decode::Cache]>,
+) -> Result<(), String> {
+    buffers.fine_grained.reset_routes(command);
+    let aligned_rows = rows.max(1).div_ceil(128) * 128;
+    let scorer = Scorer {
+        command,
+        encoder: RefCell::new(Some(
+            command.compute_command_encoder_with_dispatch_type(MTLDispatchType::Serial),
+        )),
+        pipelines,
+        tensorops,
+        pisa1,
+        buffers,
+        weights,
+        row_start: 0,
+        rows,
+        active_rows: std::cell::Cell::new(aligned_rows),
+        cache,
+        dirty: false,
+        trace: None,
+        feedback: crate::config::FeedbackTransition::Identity,
+        diffusion: None,
+        cache_only: false,
+    };
+    let result = scorer.hnet_stage0();
+    if let Some(encoder) = scorer.encoder.borrow_mut().take() {
+        encoder.end_encoding();
+    }
+    result
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(in crate::fbt_moe) fn hnet_stage1(
+    command: &CommandBufferRef,
+    pipelines: &Pipelines,
+    tensorops: &TensorOpsPipelines,
+    pisa1: &Pisa1,
+    buffers: &Buffers,
+    weights: CandidateRow<'_>,
+    rows: u32,
+    compact_rows: u32,
+    cache: Option<&[decode::Cache]>,
+) -> Result<(), String> {
+    let scorer = Scorer {
+        command,
+        encoder: RefCell::new(Some(
+            command.compute_command_encoder_with_dispatch_type(MTLDispatchType::Serial),
+        )),
+        pipelines,
+        tensorops,
+        pisa1,
+        buffers,
+        weights,
+        row_start: 0,
+        rows,
+        active_rows: std::cell::Cell::new(compact_rows),
+        cache,
+        dirty: false,
+        trace: None,
+        feedback: crate::config::FeedbackTransition::Identity,
+        diffusion: None,
+        cache_only: false,
+    };
+    let result = scorer.hnet_stage1(compact_rows);
+    if let Some(encoder) = scorer.encoder.borrow_mut().take() {
+        encoder.end_encoding();
+    }
+    result
+}
+
+#[cfg(test)]
+pub(in crate::fbt_moe) fn bridge_tile(
+    command: &CommandBufferRef,
+    pipelines: &Pipelines,
+    tensorops: &TensorOpsPipelines,
+    pisa1: &Pisa1,
+    buffers: &Buffers,
+    weights: CandidateRow<'_>,
+    rows: u32,
+) -> Result<(), String> {
+    let aligned_rows = rows.max(1).div_ceil(128) * 128;
+    let scorer = Scorer {
+        command,
+        encoder: RefCell::new(Some(
+            command.compute_command_encoder_with_dispatch_type(MTLDispatchType::Serial),
+        )),
+        pipelines,
+        tensorops,
+        pisa1,
+        buffers,
+        weights,
+        row_start: 0,
+        rows,
+        active_rows: std::cell::Cell::new(aligned_rows),
+        cache: None,
+        dirty: false,
+        trace: None,
+        feedback: crate::config::FeedbackTransition::Identity,
+        diffusion: None,
+        cache_only: false,
+    };
+    let result = scorer.hnet_chunk().and_then(|()| scorer.hnet_dechunk());
+    if let Some(encoder) = scorer.encoder.borrow_mut().take() {
+        encoder.end_encoding();
+    }
+    result
 }

@@ -20,7 +20,12 @@
 use baux::semantics::abi::{metal_field, metal_kind, record};
 #[path = "hnet/dechunk.rs"]
 mod dechunk;
+#[path = "hnet/stage2.rs"]
+mod stage2;
 pub use dechunk::{ChunkBatch, ChunkLayer, ChunkPacked, DeChunkLayer, DeChunkState, SteResidual};
+pub use stage2::{
+    HNet2Forward, HNet2Params, HNet2Reverse, hnet2_forward, hnet2_penalty, hnet2_reverse,
+};
 
 pub const BYTE_VOCAB: usize = 256;
 pub const BOS_BYTE: u8 = 254;
@@ -353,6 +358,67 @@ impl RoutingModule {
             seq_len: 1,
         })
     }
+
+    /// Continuous multi-tile routing forward pass carrying [`RoutingState`]
+    /// across arbitrary tile boundaries without resetting boundary probability
+    /// at tile starts.
+    pub fn forward_continuous(
+        &self,
+        hidden_states: &[f32],
+        batch_size: usize,
+        seq_len: usize,
+        mask: Option<&[bool]>,
+        state: &mut RoutingState,
+    ) -> Result<RoutingOutput, String> {
+        let total = batch_size * seq_len;
+        if batch_size == 0
+            || seq_len == 0
+            || hidden_states.len() != total * self.d_model
+            || state.batch_size != batch_size
+            || state.d_model != self.d_model
+        {
+            return Err("RoutingModule::forward_continuous shape mismatch".into());
+        }
+        if let Some(m) = mask
+            && m.len() != total
+        {
+            return Err("RoutingModule::forward_continuous mask length mismatch".into());
+        }
+        let mut boundary_prob = vec![0.0_f32; total];
+        let mut boundary_mask = vec![false; total];
+        let mut selected_probs = vec![0.0_f32; total];
+        for b in 0..batch_size {
+            let base = b * seq_len;
+            let state_slice = &mut state.last_hidden[b * self.d_model..(b + 1) * self.d_model];
+            for t in 0..seq_len {
+                let idx = base + t;
+                let valid = mask.is_none_or(|m| m[idx]);
+                let curr = &hidden_states[idx * self.d_model..(idx + 1) * self.d_model];
+                let p = if !state.has_seen[b] {
+                    PAD_PROB
+                } else {
+                    let q = project_norm(&self.q_proj, state_slice, self.d_model);
+                    let k = project_norm(&self.k_proj, curr, self.d_model);
+                    cosine_prob(&q, &k)
+                };
+                let raw_sel = p > 0.5_f32;
+                boundary_prob[idx] = p;
+                selected_probs[idx] = if raw_sel { p } else { 1.0_f32 - p };
+                boundary_mask[idx] = valid && raw_sel;
+                if valid {
+                    state_slice.copy_from_slice(curr);
+                    state.has_seen[b] = true;
+                }
+            }
+        }
+        Ok(RoutingOutput {
+            boundary_prob,
+            boundary_mask,
+            selected_probs,
+            batch_size,
+            seq_len,
+        })
+    }
 }
 
 /// Load-balancing ratio loss (`hnet/utils/train.py:load_balancing_loss`).
@@ -478,5 +544,216 @@ mod tests {
         assert!(grad_p[1] < 0.0);
         let loss = ratio_loss(&route, Some(&mask), 2.0).unwrap();
         assert!((loss - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn tiled_parity() {
+        let d_model = 4;
+        let seq_len = 64;
+        let router = RoutingModule::new(d_model);
+        let chunk_layer = ChunkLayer::new();
+        let dechunk_layer = DeChunkLayer::new(d_model);
+        let mut ste = SteResidual::new(d_model);
+        for i in 0..d_model * d_model {
+            ste.weight[i] = ((i as f32) * 0.13 - 0.5) * 0.25;
+        }
+        for i in 0..d_model {
+            ste.bias[i] = (i as f32) * 0.05 - 0.07;
+        }
+        // Construct a sequence with repeated runs (so some continuation tiles
+        // have zero boundaries and non-boundary starts) and sign flips
+        // (boundaries).
+        let mut hidden = vec![0.0_f32; seq_len * d_model];
+        for t in 0..seq_len {
+            let phase = match t {
+                0..=9 => 1.0_f32,
+                10..=25 => -1.0_f32,
+                26..=45 => 1.0_f32,
+                _ => -0.5_f32,
+            };
+            for d in 0..d_model {
+                hidden[t * d_model + d] = phase * ((d + 1) as f32) + ((t % 3) as f32) * 0.01;
+            }
+        }
+        let mask = vec![true; seq_len];
+        let full_route = router
+            .forward(&hidden, 1, seq_len, Some(&mask), None)
+            .unwrap();
+        let full_chunk = chunk_layer
+            .forward(&hidden, &full_route.boundary_mask, 1, seq_len, d_model)
+            .unwrap();
+        let mut full_dechunk_state = dechunk_layer.allocate_state(1);
+        let full_dechunk = dechunk_layer
+            .forward(
+                &full_chunk.chunks,
+                full_chunk.max_chunks,
+                &full_route.boundary_mask,
+                &full_route.boundary_prob,
+                1,
+                seq_len,
+                Some(&mut full_dechunk_state),
+            )
+            .unwrap();
+        let full_combined = ste
+            .forward(&full_dechunk, &hidden, &full_route.selected_probs)
+            .unwrap();
+
+        // Partition into irregular tiles including tiles with 0 boundaries.
+        let tile_sizes = [5_usize, 4, 7, 6, 11, 8, 9, 14];
+        assert_eq!(tile_sizes.iter().sum::<usize>(), seq_len);
+        let mut route_state = router.allocate_state(1);
+        let mut dechunk_state = dechunk_layer.allocate_state(1);
+        let mut tiled_probs = Vec::with_capacity(seq_len);
+        let mut tiled_mask = Vec::with_capacity(seq_len);
+        let mut tiled_selected = Vec::with_capacity(seq_len);
+        let mut tiled_dechunk = Vec::with_capacity(seq_len * d_model);
+        let mut tiled_combined = Vec::with_capacity(seq_len * d_model);
+        let mut cursor = 0_usize;
+        for &t_len in &tile_sizes {
+            let h_tile = &hidden[cursor * d_model..(cursor + t_len) * d_model];
+            let m_tile = &mask[cursor..cursor + t_len];
+            let r_out = router
+                .forward_continuous(h_tile, 1, t_len, Some(m_tile), &mut route_state)
+                .unwrap();
+            let c_out = chunk_layer
+                .forward(h_tile, &r_out.boundary_mask, 1, t_len, d_model)
+                .unwrap();
+            let d_out = dechunk_layer
+                .forward_continuous(
+                    &c_out.chunks,
+                    c_out.max_chunks,
+                    &r_out.boundary_mask,
+                    &r_out.boundary_prob,
+                    1,
+                    t_len,
+                    &mut dechunk_state,
+                )
+                .unwrap();
+            let comb_out = ste.forward(&d_out, h_tile, &r_out.selected_probs).unwrap();
+            tiled_probs.extend_from_slice(&r_out.boundary_prob);
+            tiled_mask.extend_from_slice(&r_out.boundary_mask);
+            tiled_selected.extend_from_slice(&r_out.selected_probs);
+            tiled_dechunk.extend_from_slice(&d_out);
+            tiled_combined.extend_from_slice(&comb_out);
+            cursor += t_len;
+        }
+        assert_eq!(tiled_mask, full_route.boundary_mask);
+        assert_eq!(tiled_probs, full_route.boundary_prob);
+        assert_eq!(tiled_selected, full_route.selected_probs);
+        assert_eq!(tiled_dechunk, full_dechunk);
+        assert_eq!(tiled_combined, full_combined);
+        assert_eq!(dechunk_state, full_dechunk_state);
+    }
+
+    #[test]
+    fn dechunk_edges() {
+        let d_model = 4;
+        let chunk_layer = ChunkLayer::new();
+        let dechunk_layer = DeChunkLayer::new(d_model);
+        // 1. All-boundary input and chunk count > 256 (one partition).
+        let seq_len = 320;
+        let hidden: Vec<f32> = (0..seq_len * d_model)
+            .map(|i| ((i % 29) as f32 - 14.0) * 0.1)
+            .collect();
+        let all_true = vec![true; seq_len];
+        let probs_all = vec![0.85_f32; seq_len];
+        let chunked_all = chunk_layer
+            .forward(&hidden, &all_true, 1, seq_len, d_model)
+            .unwrap();
+        assert_eq!(chunked_all.num_chunks, vec![seq_len]);
+        let mut full_state = dechunk_layer.allocate_state(1);
+        let full_out = dechunk_layer
+            .forward(
+                &chunked_all.chunks,
+                chunked_all.max_chunks,
+                &all_true,
+                &probs_all,
+                1,
+                seq_len,
+                Some(&mut full_state),
+            )
+            .unwrap();
+
+        let mut tiled_state = dechunk_layer.allocate_state(1);
+        let mut tiled_out = Vec::with_capacity(seq_len * d_model);
+        let mut pos = 0;
+        for &tile_len in &[1_usize, 3, 17, 259, 40] {
+            let h_slice = &hidden[pos * d_model..(pos + tile_len) * d_model];
+            let m_slice = &all_true[pos..pos + tile_len];
+            let p_slice = &probs_all[pos..pos + tile_len];
+            let c_tile = chunk_layer
+                .forward(h_slice, m_slice, 1, tile_len, d_model)
+                .unwrap();
+            let d_tile = dechunk_layer
+                .forward_continuous(
+                    &c_tile.chunks,
+                    c_tile.max_chunks,
+                    m_slice,
+                    p_slice,
+                    1,
+                    tile_len,
+                    &mut tiled_state,
+                )
+                .unwrap();
+            tiled_out.extend_from_slice(&d_tile);
+            pos += tile_len;
+        }
+        assert_eq!(pos, seq_len);
+        assert_eq!(tiled_out, full_out);
+        assert_eq!(tiled_state, full_state);
+
+        // 2. Boundary at first byte only, zero-boundary middle tile, and
+        //    boundary at final byte only.
+        let n2 = 24;
+        let h2: Vec<f32> = (0..n2 * d_model).map(|i| (i as f32) * 0.05).collect();
+        let mut mask2 = vec![false; n2];
+        mask2[0] = true; // first byte boundary
+        mask2[n2 - 1] = true; // final byte boundary
+        let mut probs2 = vec![0.15_f32; n2];
+        probs2[0] = 1.0;
+        probs2[n2 - 1] = 0.9;
+        let c2 = chunk_layer.forward(&h2, &mask2, 1, n2, d_model).unwrap();
+        assert_eq!(c2.num_chunks, vec![2]);
+        let mut s2_full = dechunk_layer.allocate_state(1);
+        let d2_full = dechunk_layer
+            .forward(
+                &c2.chunks,
+                c2.max_chunks,
+                &mask2,
+                &probs2,
+                1,
+                n2,
+                Some(&mut s2_full),
+            )
+            .unwrap();
+        let mut s2_tiled = dechunk_layer.allocate_state(1);
+        let mut d2_tiled = Vec::new();
+        for (start, len) in [(0, 8), (8, 8), (16, 8)] {
+            // Tile (8, 8) has 0 boundaries; tile (16, 8) has boundary only at
+            // its final byte.
+            let ct = chunk_layer
+                .forward(
+                    &h2[start * d_model..(start + len) * d_model],
+                    &mask2[start..start + len],
+                    1,
+                    len,
+                    d_model,
+                )
+                .unwrap();
+            let dt = dechunk_layer
+                .forward_continuous(
+                    &ct.chunks,
+                    ct.max_chunks,
+                    &mask2[start..start + len],
+                    &probs2[start..start + len],
+                    1,
+                    len,
+                    &mut s2_tiled,
+                )
+                .unwrap();
+            d2_tiled.extend_from_slice(&dt);
+        }
+        assert_eq!(d2_tiled, d2_full);
+        assert_eq!(s2_tiled, s2_full);
     }
 }

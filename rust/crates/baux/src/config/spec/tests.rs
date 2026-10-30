@@ -107,9 +107,17 @@ fn roundtrip() {
 fn hnet_long() {
     let text = GAUSSIAN
         .replace("fbt-pisa1-mhc4-v1", "fbt-pisa1-hnet-mhc4-v1")
-        .replace("stack-v3-rust-go-v1", "fineweb-bytes-100m-v1")
-        .replace("window-tokens = 4096", "window-tokens = 1048576");
-    assert!(ExperimentSpec::parse(&text).is_err());
+        .replace("stack-v3-rust-go-v1", "fineweb-bytes-100m-v1");
+    assert!(ExperimentSpec::parse(&text).is_ok());
+    assert!(
+        ExperimentSpec::parse(&text.replace("window-tokens = 4096", "window-tokens = 1048576"))
+            .is_ok()
+    );
+    assert!(
+        ExperimentSpec::parse(&text.replace("window-tokens = 4096", "window-tokens = 2097152"))
+            .is_err()
+    );
+    assert!(ExperimentSpec::parse(&text.replace("cross-entropy", "simpo")).is_err());
 }
 
 #[test]

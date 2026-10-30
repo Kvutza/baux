@@ -58,7 +58,6 @@ _TESTS = [
     "//rust/crates/tooling:tooling-unit",
     "//rust/crates/corpus:corpus-test",
     "//rust/crates/properties:properties-unit",
-    "//evals:evals-unit",
     "//rust/crates/baux:baux-unit",
     "//rust/crates/baux:baux-tune-test",
     "//rust/crates/baux:region-math",

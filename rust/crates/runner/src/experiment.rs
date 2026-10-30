@@ -35,24 +35,6 @@ pub(crate) fn run(
         return Ok(());
     }
 
-    let text = fs::read_to_string(&resolved).map_err(|error| error.to_string())?;
-    if let Ok(control_val) = baux::artifact::toml::from_str::<baux::artifact::json::Value>(&text) {
-        if control_val
-            .get("experiment")
-            .and_then(|e| e.get("env"))
-            .is_some()
-        {
-            terminal::stderr(Tag::Orchestration, "launch · continuous control evaluation");
-            let bench = engine.build_artifact(root, "//evals:control-bench")?;
-            let mut command = Command::new(bench.path);
-            command.current_dir(root).arg(resolved);
-            if let Some(r) = rounds {
-                command.arg(r.to_string());
-            }
-            return crate::execute(command);
-        }
-    }
-
     let revision = seal_source(root)?;
     terminal::stderr(
         Tag::Orchestration,

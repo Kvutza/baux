@@ -14,12 +14,6 @@ const EXCLUSIONS: &[(&str, &str, &str, &str)] = &[
         "Automated pytest and json regression suites; outside library wheel runtime.",
     ),
     (
-        "evals/*",
-        "directory",
-        "evals",
-        "Offline evaluation benchmarking drivers; detached from optimizer execution.",
-    ),
-    (
         "_reports/*",
         "directory",
         "reports",

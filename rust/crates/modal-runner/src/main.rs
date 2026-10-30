@@ -41,7 +41,6 @@ enum Action {
     },
     Wheel {
         output: PathBuf,
-        mjx: bool,
     },
 }
 
@@ -138,19 +137,14 @@ fn parse_generate<I: Iterator<Item = std::ffi::OsString>>(mut args: I) -> Result
 
 fn parse_wheel<I: Iterator<Item = std::ffi::OsString>>(args: I) -> Result<Action> {
     let mut output = PathBuf::from("/tmp/baux-cuda-wheel.whl");
-    let mut output_set = false;
-    let mut mjx = false;
-    for arg in args {
-        if arg == "--mjx" {
-            mjx = true;
-        } else if !output_set {
-            output = arg.into();
-            output_set = true;
-        } else {
-            return Err(io::Error::other("usage: baux-modal wheel [OUTPUT] [--mjx]").into());
-        }
+    let mut args = args;
+    if let Some(path) = args.next() {
+        output = path.into();
     }
-    Ok(Action::Wheel { output, mjx })
+    if args.next().is_some() {
+        return Err(io::Error::other("usage: baux-modal wheel [OUTPUT]").into());
+    }
+    Ok(Action::Wheel { output })
 }
 
 fn parse_ptx<I: Iterator<Item = std::ffi::OsString>>(mut args: I) -> Result<Action> {
@@ -320,9 +314,9 @@ fn source_tar() -> Result<NamedTempFile> {
     Ok(target)
 }
 
-fn wheel_cmd(mjx: bool) -> String {
+fn wheel_cmd() -> String {
     let wheel = wheel_path();
-    let mut command = format!(
+    format!(
         "set -euo pipefail; cd /opt/baux; rm -rf /tmp/baux-wheel /tmp/baux-wheel-env; mkdir -p \
          /tmp/baux-wheel; python -m venv /tmp/baux-wheel-env; /tmp/baux-wheel-env/bin/python -m \
          pip install --quiet --upgrade 'pip>=26.2.2' 'certifi>=2026.10.19'; \
@@ -335,14 +329,7 @@ fn wheel_cmd(mjx: bool) -> String {
          --out {wheel}; /tmp/baux-wheel-env/bin/python -m pip install --quiet {wheel}; \
          /tmp/baux-wheel-env/bin/python ops/cusprbench.py; /tmp/baux-wheel-env/bin/python \
          ops/bf16_bench.py",
-    );
-    if mjx {
-        command.push_str(
-            "; /tmp/baux-wheel-env/bin/python -m pip install --quiet mujoco==3.6.0 \
-             mujoco-mjx==3.6.0; /tmp/baux-wheel-env/bin/python ops/mjx_batch.py",
-        );
-    }
-    command
+    )
 }
 
 fn wheel_path() -> String {
@@ -768,12 +755,7 @@ async fn generation_run(
     Ok(())
 }
 
-async fn wheel_run(
-    client: &mut ModalClient,
-    app: &modal_rs::App,
-    output: &Path,
-    mjx: bool,
-) -> Result<()> {
+async fn wheel_run(client: &mut ModalClient, app: &modal_rs::App, output: &Path) -> Result<()> {
     let archive = source_tar()?;
     let image_id = std::env::var("BAUX_MODAL_IMAGE").unwrap_or_else(|_| CUDA_IMAGE.to_string());
     let image = Image::from_id(image_id);
@@ -813,7 +795,7 @@ async fn wheel_run(
         let status = stream_exec(
             &sandbox,
             client,
-            SandboxExecOptions::new(vec!["bash", "-lc", &wheel_cmd(mjx)]).with_timeout(3_600),
+            SandboxExecOptions::new(vec!["bash", "-lc", &wheel_cmd()]).with_timeout(3_600),
         )
         .await?;
         if !status.is_success() {
@@ -907,6 +889,6 @@ async fn run() -> Result<()> {
             elements,
             iterations,
         } => ptx_run(&mut client, &app, &output, elements, iterations).await,
-        Action::Wheel { output, mjx } => wheel_run(&mut client, &app, &output, mjx).await,
+        Action::Wheel { output } => wheel_run(&mut client, &app, &output).await,
     }
 }

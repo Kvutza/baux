@@ -424,7 +424,7 @@ fn scorer_case(optimized: bool, intermediate: u32, gate_up: super::GateUpImpleme
                 .ask_round(1, 4, 123 + step as u64, {
                     let mut config = crate::trials::RoundConfig::default();
                     config.surrogate.neighbors = 2;
-                    config.acquisition.kind = crate::weights::AcquisitionKind::Thompson;
+                    config.acquisition.kind = crate::compute::AcquisitionKind::Thompson;
                     config.acquisition.seed = 456;
                     config
                 })

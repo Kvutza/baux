@@ -7,12 +7,6 @@ use std::process::{Command, Stdio};
 use crate::cli_cfg::BuildSystem;
 use crate::ext_ops as extract;
 
-mod agy;
-#[path = "research/gpu.rs"]
-mod gpu_inv;
-#[path = "research/site.rs"]
-pub(crate) mod site;
-
 const RUNTIME_TARGET: &str = "//rust/crates/runner:baux-runner";
 
 #[derive(Subcommand)]
@@ -299,7 +293,7 @@ fn run_research(
             Ok(())
         }
         ResearchAction::Status => {
-            print!("{}", gpu_inv::report(root)?);
+            print!("{}", crate::research_gpu::report(root)?);
             catalogue(root, Some("frontier"))
         }
         ResearchAction::List { query } => list(root, query.as_deref()),
@@ -325,7 +319,7 @@ fn run_research(
             full,
             tools,
             output,
-        } => agy::import(&conversation, full, tools, output.as_deref()),
+        } => crate::research_agy::import(&conversation, full, tools, output.as_deref()),
         ResearchAction::Catalogue { topic } => catalogue(root, topic.as_deref()),
         other => run_kernel(other),
     }
@@ -453,7 +447,7 @@ fn check(root: &Path, build_system: BuildSystem, via_build: bool) -> Result<(), 
     )?;
     pair(root, true)?;
     println!("o|research [3/7]: checking Lean naming policy...");
-    gpu_inv::lint_names(root)?;
+    crate::research_gpu::lint_names(root)?;
     let target = if via_build {
         println!("o|research [4/7]: building //research/lean:check via build system...");
         let artifact = build_system.build_artifact(root, "//research/lean:check")?;
@@ -493,7 +487,7 @@ fn check(root: &Path, build_system: BuildSystem, via_build: bool) -> Result<(), 
         check_site(root)?;
     }
     check_contract(root, build_system, &target)?;
-    print!("{}", gpu_inv::check(root)?);
+    print!("{}", crate::research_gpu::check(root)?);
     println!("baux: Lean optimizer formalization checked");
     Ok(())
 }
@@ -503,11 +497,11 @@ fn artifact(root: &Path, check: bool) -> Result<(), String> {
 }
 
 fn site(root: &Path, check: bool, serve: bool, port: u16) -> Result<(), String> {
-    site::run(root, check, serve, port)
+    crate::research_site::run(root, check, serve, port)
 }
 
 fn check_site(root: &Path) -> Result<(), String> {
-    site::verify_fresh(root)
+    crate::research_site::verify_fresh(root)
 }
 
 fn coverage(root: &Path, check: bool) -> Result<(), String> {

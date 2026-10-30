@@ -56,10 +56,10 @@ def test_003(index_driver):
         raise
 
     flat_distances, flat_indices = posterior_neighbors(
-        flat.rust_backend, query, search_k=3
+        flat.extension_model, query, search_k=3
     )
     accelerator_distances, accelerator_indices = posterior_neighbors(
-        accelerator.rust_backend, query, search_k=3
+        accelerator.extension_model, query, search_k=3
     )
     np.testing.assert_array_equal(accelerator_indices, flat_indices)
     np.testing.assert_allclose(
@@ -73,8 +73,8 @@ def test_004():
     automatic = _enn(train_x, index_driver=NeighborIndex.AUTO)
     exact = _enn(train_x)
     np.testing.assert_array_equal(
-        automatic.rust_backend.neighbors(query, 2049),
-        exact.rust_backend.neighbors(query, 2049),
+        automatic.extension_model.neighbors(query, 2049),
+        exact.extension_model.neighbors(query, 2049),
     )
 
 
@@ -91,8 +91,8 @@ def test_005():
             pytest.skip(message)
         raise
 
-    expected = posterior_neighbors(flat.rust_backend, query, search_k=10)
-    actual = posterior_neighbors(usearch.rust_backend, query, search_k=10)
+    expected = posterior_neighbors(flat.extension_model, query, search_k=10)
+    actual = posterior_neighbors(usearch.extension_model, query, search_k=10)
     np.testing.assert_array_equal(actual[1], expected[1])
     np.testing.assert_allclose(actual[0], expected[0], rtol=0.0, atol=0.0)
 
@@ -116,7 +116,7 @@ def test_007(seed: int):
     train_x = rng.uniform(0.0, 1.0, size=(n_train, dim))
     query = rng.uniform(0.0, 1.0, size=(1, dim))
     enn = _enn(train_x, index_driver=NeighborIndex.FLAT)
-    _, idx = posterior_neighbors(enn.rust_backend, query, search_k=search_k)
+    _, idx = posterior_neighbors(enn.extension_model, query, search_k=search_k)
     assert idx.shape == (1, search_k)
     assert np.all(idx >= 0)
     assert np.all(idx < n_train)
@@ -355,8 +355,8 @@ def test_015(tmp_path, driver):
     flat = _enn(train_x, index_driver=NeighborIndex.FLAT)
     for qi in range(10):
         query = train_x[qi : qi + 1]
-        _, idx = posterior_neighbors(model.rust_backend, query, search_k=1)
-        _, flat_idx = posterior_neighbors(flat.rust_backend, query, search_k=1)
+        _, idx = posterior_neighbors(model.extension_model, query, search_k=1)
+        _, flat_idx = posterior_neighbors(flat.extension_model, query, search_k=1)
         assert int(idx[0, 0]) == int(flat_idx[0, 0]), f"query row {qi}"
 
 

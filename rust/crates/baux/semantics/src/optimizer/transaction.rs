@@ -28,7 +28,7 @@ pub struct RoundId {
 }
 
 /// Executable commit contract. Reject mismatched evaluations and candidate IDs
-/// not newer than the incumbent. The backend allocates observation IDs; this
+/// not newer than the incumbent. The runner allocates observation IDs; this
 /// does not certify scores.
 pub fn commit_round(
     active: RoundId,

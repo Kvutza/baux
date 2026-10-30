@@ -56,7 +56,7 @@ theorem candidateInverse (next noise : ℝ × ℝ) (scale rotation innovation : 
 
 /-- A constructed Mathlib equivalence for FIXED recorded coefficients and
 innovation. It is not a bijection theorem for an adaptive accept/reject policy
-or the quantized backend. Finite fixed-trace compositions inherit inverses
+or a rounded execution target. Finite fixed-trace compositions inherit inverses
 through `Equiv.trans` rather than requiring a new optimizer assumption. -/
 def equivalence (noise : ℝ × ℝ) (scale rotation innovation : ℝ) :
     (ℝ × ℝ) ≃ (ℝ × ℝ) where

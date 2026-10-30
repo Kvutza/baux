@@ -1,11 +1,11 @@
 //! Acceptance #4: TuRBO tell/ask with disk-backed ENN matches in-memory
 //! incumbent.
 
-use baux::backend::EnnStorage;
 use baux::candidates::CandidateSampler;
 use baux::config::{CandidateConfig, OptimizerConfig, SurrogateConfig, turbo_enn};
 use baux::index::IndexDriver;
 use baux::optimizer::BayesOptimizer;
+use baux::store::EnnStorage;
 use baux::strategy::Strategy;
 use baux::surrogate::ENNSurrogateConfig;
 use baux::{ENNError, InitStrategy};

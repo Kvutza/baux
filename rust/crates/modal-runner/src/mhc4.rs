@@ -257,7 +257,8 @@ pub(super) async fn run(
     config: Config,
 ) -> Result<()> {
     let root = std::env::current_dir()?;
-    let digest = baux::experimental::perf_digest(&root, baux::experimental::Backend::CudaOxide)?;
+    let digest =
+        baux::experimental::perf_digest(&root, baux::experimental::ExecutionTarget::CudaOxide)?;
     let dataset = std::env::var_os("BAUX_CUDA_DATASET")
         .ok_or("mHC-4 T4 execution requires BAUX_CUDA_DATASET")?;
     let dataset = PathBuf::from(dataset);

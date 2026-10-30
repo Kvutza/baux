@@ -149,7 +149,7 @@ pub(crate) fn f64_topk(
         return Ok(apply_nearest(dist2s, idx, exclude_nearest));
     }
 
-    let (dist2s_search, idx_faiss) = model.backend_search(x, faiss_search_k as i32, false)?;
+    let (dist2s_search, idx_faiss) = model.search_index(x, faiss_search_k as i32, false)?;
     let dist2s_faiss = if tie_neighbors {
         dist2s_indices(model, x, &idx_faiss)
     } else {

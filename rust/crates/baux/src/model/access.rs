@@ -3,8 +3,8 @@
 use ndarray::{Array1, Array2, ArrayView2};
 
 use super::ENN;
-use crate::backend::TrainRows;
 use crate::error::ENNError;
+use crate::store::TrainRows;
 
 /// Index search and sync operations on an ENN model.
 pub struct EnnIndexAccess<'a> {
@@ -18,27 +18,27 @@ impl<'a> EnnIndexAccess<'a> {
 
     pub fn ensure_sync(&self) -> Result<(), ENNError> {
         self.model
-            .backend
+            .store
             .ensure_sync(self.model.scale_x, &self.model.x_scale)
     }
 
     pub fn memory_bytes(&self) -> Result<usize, ENNError> {
-        if !self.model.backend.defers_search() {
+        if !self.model.store.defers_search() {
             self.ensure_sync()?;
         }
-        self.model.backend.index_bytes()
+        self.model.store.index_bytes()
     }
 
     pub fn is_stale(&self) -> bool {
-        self.model.backend.index_stale()
+        self.model.store.index_stale()
     }
 
     pub fn release_pages(&self) -> Result<(), ENNError> {
-        crate::backend::enn_pages(&self.model.backend)
+        crate::store::enn_pages(&self.model.store)
     }
 
     pub fn len(&self) -> usize {
-        self.model.backend.index_len()
+        self.model.store.index_len()
     }
 
     pub fn is_empty(&self) -> bool {
@@ -51,10 +51,10 @@ impl<'a> EnnIndexAccess<'a> {
         search_k: i32,
         exclude_nearest: bool,
     ) -> Result<(Array2<f64>, Array2<i64>), ENNError> {
-        if !self.model.backend.defers_search() {
+        if !self.model.store.defers_search() {
             self.ensure_sync()?;
         }
-        self.model.backend.search(x, search_k, exclude_nearest)
+        self.model.store.search(x, search_k, exclude_nearest)
     }
 }
 
@@ -69,19 +69,19 @@ impl<'a> EnnRowAccess<'a> {
     }
 
     pub fn train_rows(&self, indices: &[usize]) -> Result<TrainRows, ENNError> {
-        self.model.backend.train_rows(indices)
+        self.model.store.train_rows(indices)
     }
 
     pub fn row_x(&self, i: usize) -> Result<Array1<f64>, ENNError> {
-        self.model.backend.row_x(i)
+        self.model.store.row_x(i)
     }
 
     pub fn row_y(&self, i: usize) -> Result<Array1<f64>, ENNError> {
-        self.model.backend.row_y(i)
+        self.model.store.row_y(i)
     }
 
     pub fn row_yvar(&self, i: usize) -> Result<Option<Array1<f64>>, ENNError> {
-        self.model.backend.row_yvar(i)
+        self.model.store.row_yvar(i)
     }
 }
 

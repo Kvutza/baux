@@ -1,4 +1,5 @@
-//! Isolated native feedback tests, independent of other model implementations.
+//! Isolated resident Metal feedback tests, independent of other model
+//! implementations.
 #![cfg(all(target_os = "macos", feature = "metal"))]
 #![allow(dead_code, unused_imports)]
 
@@ -26,6 +27,9 @@ pub use baux::{
 };
 mod trials {
     pub use baux::experimental::RoundConfig;
+}
+mod compute {
+    pub use baux::experimental::AcquisitionKind;
 }
 mod weights {
     pub use baux::experimental::AcquisitionKind;

@@ -166,9 +166,9 @@ pub(crate) fn compute_light(
     }
 
     #[cfg(all(target_os = "linux", target_arch = "x86_64", feature = "cuda"))]
-    if model.backend_driver() == crate::index::IndexDriver::Cuda && !x.is_empty() {
+    if model.index_driver() == crate::index::IndexDriver::Cuda && !x.is_empty() {
         model.ensure_sync()?;
-        if let (Some(index), Some(train_y)) = (model.backend.memory_index(), model.y_opt()) {
+        if let (Some(index), Some(train_y)) = (model.store.memory_index(), model.y_opt()) {
             return index
                 .cuda_posterior(
                     x,

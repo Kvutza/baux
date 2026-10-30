@@ -29,7 +29,7 @@ impl BuildSystem {
         }
     }
 
-    pub fn build_native(self, root: &Path) -> Result<(), String> {
+    pub fn build_targets(self, root: &Path) -> Result<(), String> {
         let mut command = match self {
             Self::Buck2 => {
                 let mut cmd = Command::new("./tools/buck2w");

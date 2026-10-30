@@ -1,3 +1,4 @@
+import importlib
 import os
 import subprocess
 import sys
@@ -17,7 +18,7 @@ def wheel_paths(root: str) -> tuple[str, str]:
         if name.startswith("baux_rust") and name.endswith(".so")
     ]
     assert len(dist_infos) == 1, f"Expected one dist-info directory, got {dist_infos}"
-    assert len(extensions) == 1, f"Expected one native extension, got {extensions}"
+    assert len(extensions) == 1, f"Expected one Rust extension, got {extensions}"
     return os.path.join(root, dist_infos[0]), os.path.join(root, "baux", extensions[0])
 
 
@@ -48,14 +49,9 @@ def audit_wheel(wheel_path: str):
         audit_macos(extension)
 
         sys.path.insert(0, tmpdir)
-        from baux.baux_rust import search
+        importlib.import_module("baux.baux_rust")
 
-        assert hasattr(search, "TrialEngine"), (
-            "Missing TrialEngine on PyO3 search module"
-        )
-        print(
-            "Successfully imported baux and verified TrialEngine from the audited wheel."
-        )
+        print("Successfully imported baux from the audited wheel.")
 
 
 if __name__ == "__main__":

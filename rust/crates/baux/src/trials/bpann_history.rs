@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 use ndarray::{Array1, ArrayView1, ArrayView2, Axis};
 
-use crate::disk_bpann::DiskBpannEnnBackend;
+use crate::disk_bpann::DiskBpannStore;
 
 /// Stable row identifier returned by the compact BPANN history.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -18,11 +18,11 @@ pub struct IndexedObservation {
 
 /// Disk-backed BPANN index over compact observation descriptors.
 ///
-/// Full quantized model rows deliberately do not live here. A caller stores or
-/// regenerates those rows separately and uses the returned [`ObservationId`]s
-/// to resolve only the shortlist loaded into `TrialEngine::replace_history`.
+/// Full model states deliberately do not live here. A caller stores or
+/// regenerates them separately and uses the returned [`ObservationId`]s to
+/// resolve only the shortlisted observations.
 pub struct BpannHistory {
-    backend: DiskBpannEnnBackend,
+    store: DiskBpannStore,
     descriptor_dim: usize,
     scale: Array1<f64>,
 }
@@ -32,17 +32,17 @@ impl BpannHistory {
         if descriptor_dim == 0 {
             return Err("BPANN history descriptor dimension must be positive".to_string());
         }
-        let backend = DiskBpannEnnBackend::new_empty(work_dir, descriptor_dim, 1)
+        let store = DiskBpannStore::new_empty(work_dir, descriptor_dim, 1)
             .map_err(|error| error.to_string())?;
         Ok(Self {
-            backend,
+            store,
             descriptor_dim,
             scale: Array1::ones(descriptor_dim),
         })
     }
 
     pub fn len(&self) -> usize {
-        self.backend.len()
+        self.store.len()
     }
 
     pub fn is_empty(&self) -> bool {
@@ -73,20 +73,20 @@ impl BpannHistory {
             return Err("observation value must be finite".to_string());
         }
         let id = ObservationId(
-            u64::try_from(self.backend.len())
+            u64::try_from(self.store.len())
                 .map_err(|_| "BPANN observation ID exceeds u64 range".to_string())?,
         );
         let descriptor = descriptor.insert_axis(Axis(0));
         let outcome = Array1::from_vec(vec![f64::from(value)]);
         let outcome = outcome.view().insert_axis(Axis(0));
-        self.backend
+        self.store
             .append_rows(&descriptor, &outcome, None)
             .map_err(|error| error.to_string())?;
         Ok(id)
     }
 
     pub fn sync(&mut self) -> Result<(), String> {
-        self.backend
+        self.store
             .ensure_sync(false, &self.scale)
             .map_err(|error| error.to_string())
     }
@@ -111,7 +111,7 @@ impl BpannHistory {
             return Ok(vec![Vec::new(); queries.nrows()]);
         }
         let (_, indices) = self
-            .backend
+            .store
             .search(
                 queries,
                 i32::try_from(neighbors)
@@ -126,7 +126,7 @@ impl BpannHistory {
     }
 
     /// Return a stable, deduplicated union of per-candidate neighbors and their
-    /// objective values, suitable for resolving and loading into TrialEngine.
+    /// objective values, suitable for resolving an exact reranking shortlist.
     pub fn shortlist(
         &self,
         queries: &ArrayView2<'_, f64>,
@@ -164,7 +164,7 @@ impl BpannHistory {
             })
             .collect::<Result<_, _>>()?;
         let (_, values, _) = self
-            .backend
+            .store
             .train_rows(&row_indices)
             .map_err(|error| error.to_string())?;
         Ok(ids
@@ -178,7 +178,7 @@ impl BpannHistory {
     }
 
     pub fn persist(&mut self) -> Result<(), String> {
-        self.backend
+        self.store
             .persist_index()
             .map_err(|error| error.to_string())
     }

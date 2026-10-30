@@ -3,6 +3,37 @@
 import pytest
 
 
+def test_objectiveparser():
+    from ops.qwen.config import Config
+    from ops.qwen.objective import FORMAT, SolutionObjective
+
+    document = {
+        "format": FORMAT,
+        "provenance": {"dataset": "fixture"},
+        "examples": [
+            {"id": "a", "tokens": [1, 2, 3], "loss_mask": [False, True, True]},
+            {"id": "b", "tokens": [4, 5], "loss_mask": [False, True]},
+        ],
+    }
+    objective = SolutionObjective.parse(document, Config())
+    assert objective.tokens.shape == (2, 3)
+    assert objective.mask.tolist() == [[False, True, True], [False, True, False]]
+    assert objective.metadata["examples"] == 2
+    assert objective.metadata["scored_tokens"] == 3
+
+    document["examples"][1]["id"] = "a"
+    with pytest.raises(ValueError, match="unique"):
+        SolutionObjective.parse(document, Config())
+
+
+def test_codecheckinput():
+    from ops.qwen.codecheck import check_solution
+
+    result = check_solution("", "", [])
+    assert result["status"] == "invalid_input"
+    assert result["tests_total"] == 0
+
+
 def test_coverage():
     from ops.qwen.joint import ScoreTiming
     from ops.qwen.metal import proposal_stats

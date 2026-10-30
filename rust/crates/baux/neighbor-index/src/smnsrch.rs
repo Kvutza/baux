@@ -120,28 +120,28 @@ pub fn score_queries(
 
 /// Load or build the resident flat f32 train cache for small-N search.
 pub fn resident_cache(
-    backend: &baux::neighbor_index::backend::BpannBackend,
+    store: &baux::neighbor_index::bpann_store::BpannStore,
     n: usize,
 ) -> Result<std::sync::Arc<[f32]>, baux::neighbor_index::error::BpannError> {
     assert!(n <= N_LIMIT);
     {
-        let guard = backend.small_n_x_cache.lock().expect("small_n_x_cache");
+        let guard = store.small_n_x_cache.lock().expect("small_n_x_cache");
         if let Some((cached_n, ref data)) = *guard {
-            if cached_n == n && data.len() == n * backend.num_dim {
+            if cached_n == n && data.len() == n * store.num_dim {
                 return Ok(std::sync::Arc::clone(data));
             }
         }
     }
-    let mut flat = Vec::with_capacity(n * backend.num_dim);
-    let mut buf = Vec::with_capacity(backend.num_dim);
-    let x_scale = backend.x_scale.as_slice().unwrap();
+    let mut flat = Vec::with_capacity(n * store.num_dim);
+    let mut buf = Vec::with_capacity(store.num_dim);
+    let x_scale = store.x_scale.as_slice().unwrap();
     for i in 0..n {
-        let row = backend.train_x.row_slice(i)?;
-        bpann_f32(row, backend.scale_x, x_scale, &mut buf);
+        let row = store.train_x.row_slice(i)?;
+        bpann_f32(row, store.scale_x, x_scale, &mut buf);
         flat.extend_from_slice(&buf);
     }
     let arc: std::sync::Arc<[f32]> = std::sync::Arc::from(flat.into_boxed_slice());
-    *backend.small_n_x_cache.lock().expect("small_n_x_cache") =
+    *store.small_n_x_cache.lock().expect("small_n_x_cache") =
         Some((n, std::sync::Arc::clone(&arc)));
     Ok(arc)
 }
@@ -200,9 +200,12 @@ mod tests {
     #[test]
     fn test_005() {
         let dir = TempDir::new().unwrap();
-        let mut b =
-            baux::neighbor_index::backend::BpannBackend::new_empty(dir.path().to_path_buf(), 1, 1)
-                .unwrap();
+        let mut b = baux::neighbor_index::bpann_store::BpannStore::new_empty(
+            dir.path().to_path_buf(),
+            1,
+            1,
+        )
+        .unwrap();
         b.append_rows(&array![[0.0]].view(), &array![[0.0]].view(), None)
             .unwrap();
         let c1 = resident_cache(&b, 1).unwrap();

@@ -8,7 +8,7 @@
 //! arguments, buffer contents, execution, or coverage of other CUDA modules.
 
 use crate::{CudaResult, cuda_error};
-use baux::artifact::gpu::{self, Backend, Kind, Recipe, Stage};
+use baux::artifact::gpu::{self, DeviceKind, Kind, Recipe, Stage};
 use baux_cuda_device::{MODULE_NAME, fbt_model};
 use cuda_core::CudaContext;
 use cuda_host::embedded::{ArtifactPayloadKind, artifact_bundles_from_current_exe};
@@ -61,7 +61,7 @@ pub(crate) fn load_model(context: &Arc<CudaContext>) -> CudaResult<fbt_model::Lo
             // selection used by generated load(); no symbol-only substitution.
             let module = unsafe { fbt_model::from_module(module) }.map_err(cuda_error)?;
             let recipe = Recipe {
-                backend: Backend::Cuda,
+                device_kind: DeviceKind::Cuda,
                 device: context.device_name().map_err(cuda_error)?,
                 target: bundle.target.clone(),
                 compiler: "embedded producer unreported; cuda-oxide 6abfaa0; CUDA driver version \
@@ -89,7 +89,7 @@ pub(crate) fn load_model(context: &Arc<CudaContext>) -> CudaResult<fbt_model::Lo
     ] {
         if let Some(ir) = bundle.payload(payload) {
             let recipe = Recipe {
-                backend: Backend::Cuda,
+                device_kind: DeviceKind::Cuda,
                 device: context.device_name().map_err(cuda_error)?,
                 target: bundle.target.clone(),
                 compiler: "cuda-oxide 6abfaa0; IR toolchain version unreported; materialized \
@@ -119,7 +119,7 @@ pub(crate) fn assembled(
     options: Vec<String>,
 ) -> CudaResult<()> {
     let mut recipe = Recipe {
-        backend: Backend::Cuda,
+        device_kind: DeviceKind::Cuda,
         device: context.device_name().map_err(cuda_error)?,
         target,
         compiler: "ptxas resolved through PATH; executable identity/version unreported".into(),

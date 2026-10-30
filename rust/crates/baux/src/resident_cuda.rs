@@ -23,7 +23,7 @@ fn cuda_config(config: RoundConfig) -> baux_cuda::RoundConfig {
     } = config.surrogate;
     baux_cuda::RoundConfig {
         neighbors,
-        acquisition: crate::weights::acquisition_code(config.acquisition.kind),
+        acquisition: crate::compute::acquisition_code(config.acquisition.kind),
         epistemic_scale,
         aleatoric_scale,
         y_scale,

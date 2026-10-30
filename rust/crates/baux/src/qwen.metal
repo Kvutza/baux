@@ -1,5 +1,6 @@
 // Qwen2 dense kernels. The tiled BF16 linear and FP32 attention kernels are
-// shared from flame.metal; these kernels cover only Qwen's different layout.
+// split between qwen_linear.metal and qwen_attention.metal; this file covers
+// Qwen's remaining layout-specific kernels.
 
 using namespace metal;
 #include <metal_simdgroup_matrix>

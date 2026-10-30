@@ -1,4 +1,4 @@
-//! Shared Apple GPU runtime used by BAUX Metal backends.
+//! Shared Apple GPU runtime used by BAUX Metal execution paths.
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -35,8 +35,63 @@ pub struct DeviceInfo {
     pub target: Target,
 }
 
+#[derive(Clone, Debug)]
+pub struct MemoryInfo {
+    pub name: String,
+    pub has_unified_memory: bool,
+    pub recommended_max_working_set_size: u64,
+    pub current_allocated_size: u64,
+    pub max_buffer_length: u64,
+}
+
 pub fn device_info() -> Result<DeviceInfo, String> {
     Runtime::shared().map(|runtime| runtime.info().clone())
+}
+
+pub fn memory_info() -> Result<MemoryInfo, String> {
+    let runtime = Runtime::shared()?;
+    Ok(MemoryInfo {
+        name: runtime.device.name().to_owned(),
+        has_unified_memory: runtime.device.has_unified_memory(),
+        recommended_max_working_set_size: runtime.device.recommended_max_working_set_size(),
+        current_allocated_size: runtime.device.current_allocated_size(),
+        max_buffer_length: runtime.device.max_buffer_length(),
+    })
+}
+
+/// Upload a finite BF16 vector into shared Apple GPU memory.
+pub fn upload_bf16(values: &[u16]) -> Result<Buffer, String> {
+    if values.is_empty() || values.iter().any(|value| value & 0x7f80 == 0x7f80) {
+        return Err("Metal upload requires nonempty finite BF16 values".into());
+    }
+    let bytes = values
+        .len()
+        .checked_mul(size_of::<u16>())
+        .and_then(|bytes| u64::try_from(bytes).ok())
+        .ok_or("Metal upload size overflow")?;
+    let runtime = Runtime::shared()?;
+    if bytes > runtime.device.max_buffer_length() {
+        return Err(format!(
+            "Metal upload of {bytes} bytes exceeds maxBufferLength {}",
+            runtime.device.max_buffer_length()
+        ));
+    }
+    let recommended = runtime.device.recommended_max_working_set_size();
+    let allocated = runtime.device.current_allocated_size();
+    let budget = recommended - recommended / 10;
+    if allocated
+        .checked_add(bytes)
+        .is_none_or(|total| total > budget)
+    {
+        return Err(format!(
+            "Metal upload needs {bytes} bytes; {allocated} allocated, conservative budget {budget}"
+        ));
+    }
+    let buffer = runtime.buffer_with(values);
+    if buffer.contents().is_null() {
+        return Err("Metal could not allocate BF16 weights".into());
+    }
+    Ok(buffer)
 }
 
 pub(crate) fn thread_group(width: u64) -> metal::MTLSize {
@@ -440,14 +495,14 @@ impl Runtime {
             }
         };
         let recipe = baux::artifact::gpu::Recipe {
-            backend: baux::artifact::gpu::Backend::Metal,
+            device_kind: baux::artifact::gpu::DeviceKind::Metal,
             device: self.info.name.clone(),
             target: format!("{:?}", self.info.target),
             compiler: "Metal runtime compiler (MTLBinaryArchive)".into(),
             stage: baux::artifact::gpu::Stage::Compile,
             entry: name.into(),
             input_kind: baux::artifact::gpu::Kind::MetalSource,
-            output_kind: Some(baux::artifact::gpu::Kind::NativeImage),
+            output_kind: Some(baux::artifact::gpu::Kind::DeviceImage),
             options: vec![
                 format!("fast_math_enabled={fast}"),
                 format!("language_version={version:?}"),
@@ -767,13 +822,13 @@ mod tests {
         );
         assert_eq!(
             records[0].1.recipe.output_kind,
-            Some(baux::artifact::gpu::Kind::NativeImage)
+            Some(baux::artifact::gpu::Kind::DeviceImage)
         );
         let output_blob = records[0]
             .1
             .output
             .as_ref()
-            .expect("MTLBinaryArchive captures native Apple GPU binary");
+            .expect("MTLBinaryArchive captures an executable Apple GPU image");
         let output_bytes = std::fs::read(
             directory
                 .path()
@@ -895,7 +950,7 @@ mod tests {
         let records = baux::artifact::gpu::records(directory.path()).unwrap();
         assert_eq!(records.len(), 6);
         for (_, record) in records {
-            let blob = record.output.expect("native binary output present");
+            let blob = record.output.expect("device image output present");
             let bytes = std::fs::read(
                 directory
                     .path()

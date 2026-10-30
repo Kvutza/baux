@@ -1,4 +1,4 @@
-use crate::research::site::{LlbcRecord, shared_path};
+use crate::research_site::{LlbcRecord, shared_path};
 use baux::artifact::json::{self, Value};
 use baux::artifact::wire_json;
 use std::collections::BTreeMap;

@@ -1,4 +1,4 @@
-//! Persistent native rewards and optional frozen evaluators across BO
+//! Persistent built-in rewards and optional frozen evaluators across BO
 //! candidates.
 
 use super::decode::Rollout;
@@ -211,14 +211,14 @@ impl FrozenEvaluator {
             tokenizer_args,
             max_tokens,
             timeout_ms,
-            backend,
+            mode,
             readout,
             attention,
         } = reward
         else {
             return Ok(None);
         };
-        // This native evaluator implements the pinned dense-control
+        // This built-in evaluator implements the pinned dense-control
         // architecture. Validate provenance before allocating/loading
         // its immutable weights.
         let manifest: Value = baux::artifact::json::from_reader(
@@ -233,9 +233,9 @@ impl FrozenEvaluator {
                 "frozen evaluator requires the pinned Qwen2.5-Coder-1.5B checkpoint".into(),
             );
         }
-        let mut evaluator = QwenEvaluator::new_backend(
+        let mut evaluator = QwenEvaluator::new_mode(
             *max_tokens,
-            backend.as_str(),
+            mode.as_str(),
             matches!(attention, FrozenAttention::Tiled16),
         )?;
         let weights = evaluator.load_weights(&checkpoint.join("model.safetensors"))?;

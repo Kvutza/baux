@@ -1,4 +1,4 @@
-use crate::weights::ComputeDevice;
+use crate::compute::ComputeDevice;
 
 use super::{DenseLeaf, DenseTerm, has_direction, sign, validate_leaves, validate_terms};
 

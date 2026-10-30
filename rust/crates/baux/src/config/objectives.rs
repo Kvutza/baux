@@ -1,4 +1,4 @@
-//! Explicit vector acquisition policy, independent of backend scalar control.
+//! Explicit vector acquisition policy, independent of scalar control.
 use super::*;
 
 #[cfg(test)]

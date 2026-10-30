@@ -54,15 +54,10 @@ impl Scorer<'_> {
     /// Chunked MoE FFN layer over this scorer's active row window.
     pub(super) fn moe(&self) -> Result<crate::nn::moe::ChunkMoe<'_>, String> {
         let fine = &self.pipelines.fine_grained;
-        let int8_gate = if fine.int8_gate() {
-            Some(self.buffers.quantized_gateup()?)
-        } else {
-            None
-        };
         Ok(crate::nn::moe::ChunkMoe {
             pipelines: fine,
             buffers: &self.buffers.fine_grained,
-            weights: self.weights.moe(int8_gate),
+            weights: self.weights.moe(),
             rows: self.active_rows(),
         })
     }

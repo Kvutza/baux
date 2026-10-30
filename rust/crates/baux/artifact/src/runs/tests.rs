@@ -234,12 +234,12 @@ fn provenance() {
 
 #[test]
 fn gpu_provenance() {
-    use baux::artifact::gpu::{Backend, Kind, Recipe, Stage};
+    use baux::artifact::gpu::{DeviceKind, Kind, Recipe, Stage};
     let root = root();
     let row = record(root.path(), "gpu", 100, "task");
     let output = Path::new(&row.output).join("gpu");
     let recipe = Recipe {
-        backend: Backend::Metal,
+        device_kind: DeviceKind::Metal,
         device: "test device".into(),
         target: "test target".into(),
         compiler: "test compiler".into(),
@@ -274,9 +274,9 @@ fn gpu_provenance() {
 }
 
 fn capture_gpu(row: &Record, entry: &str) -> baux::artifact::gpu::Receipt {
-    use baux::artifact::gpu::{Backend, Kind, Recipe, Stage};
+    use baux::artifact::gpu::{DeviceKind, Kind, Recipe, Stage};
     let recipe = Recipe {
-        backend: Backend::Metal,
+        device_kind: DeviceKind::Metal,
         device: "device".into(),
         target: "target".into(),
         compiler: "compiler".into(),

@@ -1,4 +1,4 @@
-//! Shared disk backend streaming smoke test body.
+//! Shared disk-store streaming smoke test body.
 
 use baux::{ENN, EnnStorage, IndexDriver};
 use ndarray::Array2;

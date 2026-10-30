@@ -26,7 +26,7 @@ fn main() -> Result<(), String> {
         "rows={rows} queries={queries} dimensions={dimensions} metrics={metrics} \
          neighbors={neighbors} rounds={rounds}"
     );
-    println!("backend,posterior_us");
+    println!("target,posterior_us");
     for driver in [IndexDriver::Metal, IndexDriver::Exact] {
         let model = ENN::new(train_x.clone(), train_y.clone(), None, false, driver)
             .map_err(|e| e.to_string())?;

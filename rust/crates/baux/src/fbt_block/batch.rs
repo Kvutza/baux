@@ -223,7 +223,7 @@ impl BlockDecoder {
         objective: crate::config::ObjectiveFunction,
     ) -> Result<CausalScore, String> {
         if !weights.architecture.is_mhc4() {
-            return Err("long causal scoring requires native MHC4 architecture".into());
+            return Err("long causal scoring requires the MHC4 architecture".into());
         }
         if batch.labels.len() != batch.tokens.len() {
             return Err("causal batch token and label lengths do not match".into());

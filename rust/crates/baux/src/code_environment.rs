@@ -4,7 +4,7 @@
 //! Our added cases are BAUX contract checks, not an official EvalPlus
 //! benchmark.
 use super::decode::Rollout;
-use super::gen_protocol::{RewardResult, native_vector};
+use super::gen_protocol::{RewardResult, objective_vector};
 use crate::config::GenerationTask;
 use crate::text::ByteDecoder;
 use baux::artifact::json::{Value, json};
@@ -305,7 +305,7 @@ impl Executor {
             passed.iter().sum::<u64>(),
             self.spec.cases.len() * reports.len()
         );
-        native_vector(
+        objective_vector(
             vec![rate],
             &[vec![surface], vec![syntax], vec![interface], vec![rate]],
             &[

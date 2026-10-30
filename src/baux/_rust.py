@@ -24,8 +24,6 @@ pareto2d_max = _ext.util.pareto2d_max
 sobol_indices = _ext.util.sobol_indices
 sobol_sequence = _ext.util.sobol_sequence
 pareto_arms = _ext.util.pareto_arms
-quantize_int4 = _ext.util.quantize_int4
-quantize_e2m1 = _ext.util.quantize_e2m1
 set_path = _ext.util.set_path
 ensure_config_file = _ext.util.ensure_config_file
 ENN = _ext.model.ENN
@@ -51,17 +49,10 @@ ParameterBuffer = getattr(_ext.optimizer, "ParameterBuffer", ParamBuffer)
 ParamBlock = getattr(_ext.optimizer, "ParamBlock", None)
 SearchState = getattr(_ext.optimizer, "SearchState", None)
 Proposals = getattr(_ext.optimizer, "Proposals", None)
-weight_int4_select_ucb = _ext.optimizer.weight_int4_select_ucb
-weight_select_ucb = _ext.optimizer.weight_select_ucb
-ModelPackage = _ext.experimental.ModelPackage
-NativeKdaModel = getattr(_ext.experimental, "NativeKdaModel", None)
-FlameEvaluator = getattr(_ext.experimental, "FlameEvaluator", None)
-MetalFlameEvaluator = getattr(_ext.experimental, "MetalFlameEvaluator", None)
 MetalQwenEvaluator = getattr(_ext.experimental, "MetalQwenEvaluator", None)
 MetalWeights = getattr(_ext.experimental, "MetalWeights", None)
 MetalParamBlock = getattr(_ext.experimental, "MetalParamBlock", None)
 MetalSearchState = getattr(_ext.experimental, "MetalSearchState", None)
-ResidentBoSession = _ext.experimental.ResidentBoSession
 
 
 __all__ = [
@@ -71,20 +62,15 @@ __all__ = [
     "DenseLinear",
     "ENNFitter",
     "ENNParams",
-    "FlameEvaluator",
-    "MetalFlameEvaluator",
     "MetalParamBlock",
     "MetalQwenEvaluator",
     "MetalSearchState",
     "MetalWeights",
-    "ModelPackage",
     "MultiTrustRegion",
-    "NativeKdaModel",
     "ParamBlock",
     "ParamBuffer",
     "ParameterBuffer",
     "Proposals",
-    "ResidentBoSession",
     "SearchState",
     "Telemetry",
     "create_lhd",
@@ -100,14 +86,10 @@ __all__ = [
     "normal_hash",
     "pareto2d_max",
     "pareto_arms",
-    "quantize_e2m1",
-    "quantize_int4",
     "row_loglik",
     "set_path",
     "sobol_indices",
     "sobol_sequence",
     "standardize_y",
     "subsample_loglik",
-    "weight_int4_select_ucb",
-    "weight_select_ucb",
 ]

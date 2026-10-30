@@ -4,7 +4,7 @@
 //! imply independently materialized centers or independent trust regions.
 //!
 //! A pool describes proposals to rank, not objective evaluations or accepted
-//! updates. `count = arms * candidates_per_arm`; the resident Metal backend
+//! updates. `count = arms * candidates_per_arm`; the resident Metal path
 //! supports one or four total proposals and materializes the selected row.
 //! TOML's `candidate-generation.candidates` is already a TOTAL and is divided
 //! by `arms` in `config::spec::conversion`, before constructing this layout.
@@ -104,7 +104,7 @@ pub struct ProceduralPool {
 
 impl ProceduralPoolConfig {
     /// Validate positive dimensions and checked `u32` multiplication.
-    /// This is a metadata-only operation: it does not establish backend support
+    /// This is a metadata-only operation: it does not establish target support
     /// or allocate parameter rows. Use `resolve_resident` for resident Metal.
     pub fn resolve(self) -> Result<ProceduralPool, String> {
         if self.arms == 0 || self.candidates_per_arm == 0 {

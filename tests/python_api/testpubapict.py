@@ -104,10 +104,7 @@ class TestPublicAPIExports:
         assert callable(experimental.make_region)
         assert inspect.isclass(experimental.BayesOptimizer)
         assert inspect.isclass(experimental.MultiTrustRegion)
-        assert inspect.isclass(experimental.ResidentBoSession)
         assert callable(experimental.enn_optimizer)
-        assert callable(experimental.quantize_int4)
-        assert callable(experimental.quantize_e2m1)
         for name in [
             "ParamBlock",
             "ParameterBuffer",
@@ -142,16 +139,3 @@ class Test_001:
         import baux
 
         assert set(baux.__all__) == set(baux._LAZY_ATTRS.keys())
-
-    def test_008(self):
-        import baux
-
-        assert "quantize_int4" not in baux.__all__
-        assert "quantize_e2m1" not in baux.__all__
-
-    def test_009(self):
-        import baux
-
-        for name in ("quantize_int4", "quantize_e2m1"):
-            with pytest.raises(AttributeError):
-                getattr(baux, name)

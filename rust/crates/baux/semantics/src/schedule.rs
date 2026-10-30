@@ -1,17 +1,17 @@
-//! Backend schedules remain distinct while referring to the same operations.
-use super::graph::{BackendCapability, SemanticOp};
+//! Execution schedules remain distinct while referring to the same operations.
+use super::graph::{SemanticOp, TargetCapability};
 use super::model::{ModelProgram, ProgramKind};
 use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Backend {
+pub enum ExecutionTarget {
     Metal,
     CudaOxide,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Compiler {
-    Native,
+    Metal,
     CudaOxide,
     Tvm,
 }
@@ -25,18 +25,18 @@ pub struct ScheduledKernel {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct BackendSchedule {
-    pub backend: Backend,
+pub struct ExecutionSchedule {
+    pub target: ExecutionTarget,
     pub compiler: Compiler,
-    pub capabilities: Vec<BackendCapability>,
+    pub capabilities: Vec<TargetCapability>,
     pub kernels: Vec<ScheduledKernel>,
 }
 
-impl BackendSchedule {
+impl ExecutionSchedule {
     pub fn existing_metal() -> Self {
         Self {
-            backend: Backend::Metal,
-            compiler: Compiler::Native,
+            target: ExecutionTarget::Metal,
+            compiler: Compiler::Metal,
             capabilities: ModelProgram::fbt_pisa().requirements,
             kernels: vec![
                 kernel(&["embed"], "fbt_moe_embed", [1, 512, 1], [256, 1, 1]),
@@ -162,7 +162,7 @@ impl BackendSchedule {
 
     pub fn cuda_oxide() -> Self {
         Self {
-            backend: Backend::CudaOxide,
+            target: ExecutionTarget::CudaOxide,
             compiler: Compiler::CudaOxide,
             capabilities: ModelProgram::fbt_pisa().requirements,
             kernels: vec![
@@ -320,17 +320,17 @@ impl BackendSchedule {
     /// Stateful PISA, routing, recurrence, verification, and objectives remain
     /// visible as missing coverage until a parity-qualified lowering exists.
     pub fn tvm_metal() -> Self {
-        Self::tvm(Backend::Metal, [32, 8, 16], [32, 1, 1])
+        Self::tvm(ExecutionTarget::Metal, [32, 8, 16], [32, 1, 1])
     }
 
     /// TVM lowering boundary for stateless matrix operations on CUDA.
     pub fn tvm_cuda() -> Self {
-        Self::tvm(Backend::CudaOxide, [16, 16, 16], [256, 1, 1])
+        Self::tvm(ExecutionTarget::CudaOxide, [16, 16, 16], [256, 1, 1])
     }
 
-    fn tvm(backend: Backend, tile: [usize; 3], threads: [usize; 3]) -> Self {
+    fn tvm(target: ExecutionTarget, tile: [usize; 3], threads: [usize; 3]) -> Self {
         Self {
-            backend,
+            target,
             compiler: Compiler::Tvm,
             capabilities: ModelProgram::fbt_pisa().requirements,
             kernels: vec![
@@ -356,7 +356,7 @@ impl BackendSchedule {
             .iter()
             .any(|required| !capabilities.contains(required))
         {
-            return Err("backend schedule does not satisfy the model program".into());
+            return Err("execution schedule does not satisfy the model program".into());
         }
         for kernel in &self.kernels {
             if kernel.kernel.is_empty()
@@ -439,13 +439,13 @@ mod tests {
     #[test]
     fn schedules() {
         let program = ModelProgram::fbt_pisa();
-        BackendSchedule::existing_metal()
+        ExecutionSchedule::existing_metal()
             .validate(&program)
             .unwrap();
-        BackendSchedule::cuda_oxide().validate(&program).unwrap();
-        BackendSchedule::tvm_metal().validate(&program).unwrap();
-        BackendSchedule::tvm_cuda().validate(&program).unwrap();
-        let missing = BackendSchedule::cuda_oxide()
+        ExecutionSchedule::cuda_oxide().validate(&program).unwrap();
+        ExecutionSchedule::tvm_metal().validate(&program).unwrap();
+        ExecutionSchedule::tvm_cuda().validate(&program).unwrap();
+        let missing = ExecutionSchedule::cuda_oxide()
             .coverage(&program, ProgramKind::Prefill)
             .unwrap();
         assert!(!missing.contains(&SemanticOp::Feedback));
@@ -453,15 +453,15 @@ mod tests {
         assert!(!missing.contains(&SemanticOp::CombineRoutes));
         assert!(!missing.contains(&SemanticOp::PisaSelect));
         assert!(!missing.contains(&SemanticOp::RouteTopK));
-        let metal_missing = BackendSchedule::existing_metal()
+        let metal_missing = ExecutionSchedule::existing_metal()
             .coverage(&program, ProgramKind::Prefill)
             .unwrap();
         assert!(metal_missing.is_empty());
-        let round_missing = BackendSchedule::existing_metal()
+        let round_missing = ExecutionSchedule::existing_metal()
             .coverage(&program, ProgramKind::ExperimentRound)
             .unwrap();
         assert!(round_missing.is_empty());
-        let tvm_missing = BackendSchedule::tvm_cuda()
+        let tvm_missing = ExecutionSchedule::tvm_cuda()
             .coverage(&program, ProgramKind::Prefill)
             .unwrap();
         assert!(tvm_missing.contains(&SemanticOp::PisaAttention));
@@ -469,8 +469,8 @@ mod tests {
 
         let mhc4 = ModelProgram::mhc4_program();
         mhc4.validate().unwrap();
-        let metal = BackendSchedule::mhc4_metal();
-        let cuda = BackendSchedule::mhc4_cuda();
+        let metal = ExecutionSchedule::mhc4_metal();
+        let cuda = ExecutionSchedule::mhc4_cuda();
         assert!(
             metal
                 .coverage(&mhc4, ProgramKind::ExperimentRound)

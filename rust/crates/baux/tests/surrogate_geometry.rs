@@ -1,5 +1,5 @@
 //! Model limitations plus regression coverage for the repaired fitting defects.
-//! These use the actual Exact ENN backend; no inference model or GPU is needed.
+//! These use the actual Exact ENN index; no inference model or GPU is needed.
 
 use baux::acquisition::UCBAcquisition;
 use baux::{

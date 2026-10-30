@@ -1,4 +1,4 @@
-use crate::weights::ComputeDevice;
+use crate::compute::ComputeDevice;
 
 use super::{DenseTerm, dense_next, sign};
 

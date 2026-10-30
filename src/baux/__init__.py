@@ -54,7 +54,7 @@ _LAZY_ATTRS: dict[str, tuple[str, str]] = {
     "CandidateSampler": (".turbo.config", "CandidateSampler"),
     "InitStrategy": (".turbo.config", "InitStrategy"),
     "AcquisitionKind": (".turbo.config", "AcquisitionKind"),
-    "BackendCapabilities": (".runtime", "BackendCapabilities"),
+    "TargetCapabilities": (".runtime", "TargetCapabilities"),
     "capabilities": (".runtime", "capabilities"),
 }
 
@@ -66,7 +66,7 @@ def __getattr__(name: str) -> Any:
 __all__: list[str] = [
     "ENN",
     "AcquisitionKind",
-    "BackendCapabilities",
+    "TargetCapabilities",
     "BayesOptimizer",
     "CandidateSampler",
     "ENNFitter",

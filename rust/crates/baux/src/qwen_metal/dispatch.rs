@@ -60,14 +60,12 @@ impl QwenEvaluator {
         }
     }
 
-    pub(super) fn flame_shape(&self, rows: u32) -> FlameShape {
-        FlameShape {
+    pub(super) fn dense_shape(&self, rows: u32) -> DenseKernelShape {
+        DenseKernelShape {
             rows,
             width: self.config.hidden,
             heads: self.config.heads,
-            epsilon: self.config.epsilon,
-            rope_base: self.config.rope_theta,
-            ..FlameShape::default()
+            ..DenseKernelShape::default()
         }
     }
 
@@ -239,7 +237,7 @@ impl QwenEvaluator {
         } else if simdgroup {
             "qwen_simd_gemm"
         } else {
-            "flame_linear"
+            "qwen_linear"
         };
         let threads = if pipeline == "qwen_gemv_rows" || rows <= 4 {
             32

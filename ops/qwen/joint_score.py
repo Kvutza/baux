@@ -9,8 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from ops.flame.codecheck import check_solution
-
+from .codecheck import check_solution
 from .config import Config
 from .metal import Evaluator
 

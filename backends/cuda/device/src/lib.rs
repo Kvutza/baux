@@ -37,7 +37,6 @@ pub mod muon;
 mod trial_bf16;
 mod trial_knn;
 mod trial_ops;
-mod trial_score;
 #[macro_use]
 mod trial_tell;
 #[cfg(test)]
@@ -50,9 +49,7 @@ pub use fbt::{
     VOCAB, WaveShape, fbt_model, mhc_model,
 };
 pub use trial_ops::*;
-pub use trial_score::{
-    CenterStep, Leaf, Seed, Selection, SparseEdit, SparseParams, Tile, TrialParams,
-};
+pub use trial_ops::{Seed, Selection};
 
 pub const MODULE_NAME: &str = env!("CARGO_PKG_NAME");
 pub const THREADS: u32 = 256;
@@ -223,34 +220,6 @@ pub mod trials {
 
     #[kernel(unchecked_indexing)]
     #[launch_contract(domain = 1, block = (256, 1, 1), dynamic_shared = 0)]
-    pub fn score_trials(
-        rows: &[u8],
-        history_slots: &[u32],
-        outcomes: &[f32],
-        seeds: &[Seed],
-        draws: &[f32],
-        leaves: &[Leaf],
-        centers: &[CenterStep],
-        candidate_centers: &[u32],
-        mut scores: DisjointSlice<f32>,
-        params: TrialParams,
-    ) {
-        trial_score::run_trials(
-            rows,
-            history_slots,
-            outcomes,
-            seeds,
-            draws,
-            leaves,
-            centers,
-            candidate_centers,
-            &mut scores,
-            params,
-        );
-    }
-
-    #[kernel(unchecked_indexing)]
-    #[launch_contract(domain = 1, block = (256, 1, 1), dynamic_shared = 0)]
     pub fn distance_bf16(
         rows: &[u16],
         history_slots: &[u32],
@@ -376,56 +345,6 @@ pub mod trials {
         }
     }
 
-    #[kernel(unchecked_indexing)]
-    #[launch_contract(domain = 1, block = (256, 1, 1), dynamic_shared = 0)]
-    pub fn base_distance(
-        rows: &[u8],
-        history_slots: &[u32],
-        leaves: &[Leaf],
-        mut distances: DisjointSlice<f32>,
-        row_stride: u32,
-        history: u32,
-        base_slot: u32,
-    ) {
-        trial_write::run_basedist(
-            rows,
-            history_slots,
-            leaves,
-            &mut distances,
-            row_stride,
-            history,
-            base_slot,
-        );
-    }
-
-    #[kernel(unchecked_indexing)]
-    #[launch_contract(domain = 1, block = (256, 1, 1), dynamic_shared = 0)]
-    pub fn score_sparse(
-        rows: &[u8],
-        history_slots: &[u32],
-        outcomes: &[f32],
-        seeds: &[Seed],
-        draws: &[f32],
-        leaves: &[Leaf],
-        edits: &[SparseEdit],
-        base_distances: &[f32],
-        mut scores: DisjointSlice<f32>,
-        params: SparseParams,
-    ) {
-        trial_score::run_sparse(
-            rows,
-            history_slots,
-            outcomes,
-            seeds,
-            draws,
-            leaves,
-            edits,
-            base_distances,
-            &mut scores,
-            params,
-        );
-    }
-
     #[kernel]
     #[launch_contract(domain = 1, block = (256, 1, 1), dynamic_shared = 0)]
     pub fn pick_trial(
@@ -435,67 +354,6 @@ pub mod trials {
         candidates_per_region: u32,
     ) {
         trial_write::run_pick(scores, &mut selection, regions, candidates_per_region);
-    }
-
-    #[kernel]
-    #[launch_contract(domain = 1, block = (256, 1, 1), dynamic_shared = 0)]
-    pub fn write_trial(
-        mut rows: DisjointSlice<u8>,
-        seeds: &[Seed],
-        selection: &[Selection],
-        leaves: &[Leaf],
-        tiles: &[Tile],
-        row_stride: u32,
-        base_slot: u32,
-        trial_slot: u32,
-    ) {
-        trial_write::run_writetrial(
-            &mut rows, seeds, selection, leaves, tiles, row_stride, base_slot, trial_slot,
-        );
-    }
-
-    #[kernel]
-    #[launch_contract(domain = 1, block = (1, 1, 1), dynamic_shared = 0)]
-    pub fn write_sparse(
-        mut rows: DisjointSlice<u8>,
-        seeds: &[Seed],
-        selection: &[Selection],
-        leaves: &[Leaf],
-        edits: &[SparseEdit],
-        row_stride: u32,
-        trial_slot: u32,
-        num_pert: u32,
-    ) {
-        trial_write::run_writesparse(
-            &mut rows, seeds, selection, leaves, edits, row_stride, trial_slot, num_pert,
-        );
-    }
-
-    #[kernel]
-    pub fn materialize(
-        base: &[u8],
-        mut output: DisjointSlice<u8>,
-        byte_offset: u32,
-        element_offset: u32,
-        length: u32,
-        bits: u32,
-        seed_low: u32,
-        seed_high: u32,
-        whole: u32,
-        threshold: u32,
-    ) {
-        trial_write::run_materialize(
-            base,
-            &mut output,
-            byte_offset,
-            element_offset,
-            length,
-            bits,
-            seed_low,
-            seed_high,
-            whole,
-            threshold,
-        );
     }
 
     #[kernel]

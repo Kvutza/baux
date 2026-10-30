@@ -1,38 +1,11 @@
 #![allow(clippy::too_many_arguments)]
 
-use baux::experimental::{self, AcquisitionKind, BpannHistory, ComputeDevice, WeightSelectConfig};
-use baux::search::Trial;
+use baux::experimental::{self, BpannHistory};
 use numpy::{IntoPyArray, PyArray1, PyReadonlyArray1, PyReadonlyArray2};
-use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyList, PyTuple};
+use pyo3::types::PyList;
 
-use super::py_dense::mixed_blocks;
 use super::{array1_vec, err};
-
-#[pyclass(name = "Trial", module = "baux.search", frozen, from_py_object)]
-#[derive(Clone)]
-pub struct PyTrial {
-    pub(super) inner: Trial,
-}
-
-#[pymethods]
-impl PyTrial {
-    #[getter]
-    fn index(&self) -> usize {
-        self.inner.index
-    }
-
-    #[getter]
-    fn seed(&self) -> u64 {
-        self.inner.seed
-    }
-
-    #[getter]
-    fn score(&self) -> f32 {
-        self.inner.score
-    }
-}
 
 #[pyclass(name = "BpannHistory", unsendable)]
 pub struct PyBpannHistory {
@@ -110,29 +83,6 @@ impl PyBpannHistory {
     fn descriptor_dim(&self) -> usize {
         self.inner.descriptor_dim()
     }
-}
-
-fn req_arg<'py, T>(
-    args: &Bound<'py, PyTuple>,
-    kwargs: Option<&Bound<'py, PyDict>>,
-    index: usize,
-    name: &str,
-) -> PyResult<T>
-where
-    T: for<'a> FromPyObject<'a, 'py>,
-    for<'a> PyErr: From<<T as FromPyObject<'a, 'py>>::Error>,
-{
-    if index < args.len() {
-        return Ok(args.get_item(index)?.extract()?);
-    }
-    if let Some(kw) = kwargs
-        && let Some(val) = kw.get_item(name)?
-    {
-        return Ok(val.extract()?);
-    }
-    Err(PyTypeError::new_err(format!(
-        "missing required argument '{name}'"
-    )))
 }
 
 #[pyfunction(name = "sparse_union")]
@@ -267,157 +217,4 @@ pub fn bind_draw<'py>(
         mask_rows.append(masks.into_pyarray(py))?;
     }
     Ok((word_rows, mask_rows))
-}
-
-struct SparseWeightsInput<'a> {
-    base: PyReadonlyArray1<'a, u32>,
-    indices: PyReadonlyArray1<'a, u32>,
-    observation_words: Vec<PyReadonlyArray1<'a, u32>>,
-    observation_masks: Vec<PyReadonlyArray1<'a, u32>>,
-    outcomes: PyReadonlyArray1<'a, f32>,
-    candidate_words: Vec<PyReadonlyArray1<'a, u32>>,
-    candidate_masks: Vec<PyReadonlyArray1<'a, u32>>,
-    blocks: Vec<(usize, usize, u8, f32, f32, f32)>,
-    acquisition: String,
-    seed: u64,
-    neighbors: usize,
-    epistemic_scale: f32,
-    aleatoric_scale: f32,
-    y_scale: f32,
-    beta: f32,
-    device: String,
-}
-
-fn sparse_impl(input: SparseWeightsInput<'_>) -> PyResult<(usize, f32)> {
-    if input.observation_words.len() != input.observation_masks.len()
-        || input.candidate_words.len() != input.candidate_masks.len()
-    {
-        return Err(PyValueError::new_err(
-            "sparse word and mask row counts must match",
-        ));
-    }
-    let base = array1_vec(input.base);
-    let indices = array1_vec(input.indices);
-    let observation_words: Vec<Vec<u32>> = input
-        .observation_words
-        .into_iter()
-        .map(array1_vec)
-        .collect();
-    let observation_masks: Vec<Vec<u32>> = input
-        .observation_masks
-        .into_iter()
-        .map(array1_vec)
-        .collect();
-    let candidate_words: Vec<Vec<u32>> =
-        input.candidate_words.into_iter().map(array1_vec).collect();
-    let candidate_masks: Vec<Vec<u32>> =
-        input.candidate_masks.into_iter().map(array1_vec).collect();
-    let observation_bytes = pack_rows(&base, &indices, &observation_words, &observation_masks)?;
-    let candidate_bytes = pack_rows(&base, &indices, &candidate_words, &candidate_masks)?;
-    let outcome_vec = array1_vec(input.outcomes);
-    let result = experimental::select_weights(
-        &observation_bytes,
-        observation_words.len(),
-        &outcome_vec,
-        &candidate_bytes,
-        candidate_words.len(),
-        &mixed_blocks(input.blocks)?,
-        WeightSelectConfig {
-            neighbors: input.neighbors,
-            epistemic_scale: input.epistemic_scale,
-            aleatoric_scale: input.aleatoric_scale,
-            y_scale: input.y_scale,
-            beta: input.beta,
-            acquisition: AcquisitionKind::parse(&input.acquisition).map_err(err)?,
-            seed: input.seed,
-            device: ComputeDevice::parse(&input.device).map_err(err)?,
-        },
-    )
-    .map_err(err)?;
-    Ok((result.index, result.score))
-}
-
-#[pyfunction(name = "sparse_select")]
-#[pyo3(signature=(*args, **kwargs))]
-pub fn bind_select(
-    args: &Bound<'_, PyTuple>,
-    kwargs: Option<&Bound<'_, PyDict>>,
-) -> PyResult<(usize, f32)> {
-    let device = req_arg::<String>(args, kwargs, 15, "device").unwrap_or_else(|_| "auto".into());
-    sparse_impl(SparseWeightsInput {
-        base: req_arg(args, kwargs, 0, "base")?,
-        indices: req_arg(args, kwargs, 1, "indices")?,
-        observation_words: req_arg(args, kwargs, 2, "observation_words")?,
-        observation_masks: req_arg(args, kwargs, 3, "observation_masks")?,
-        outcomes: req_arg(args, kwargs, 4, "outcomes")?,
-        candidate_words: req_arg(args, kwargs, 5, "candidate_words")?,
-        candidate_masks: req_arg(args, kwargs, 6, "candidate_masks")?,
-        blocks: req_arg(args, kwargs, 7, "blocks")?,
-        acquisition: req_arg(args, kwargs, 8, "acquisition")?,
-        seed: req_arg(args, kwargs, 9, "seed")?,
-        neighbors: req_arg(args, kwargs, 10, "neighbors")?,
-        epistemic_scale: req_arg(args, kwargs, 11, "epistemic_scale")?,
-        aleatoric_scale: req_arg(args, kwargs, 12, "aleatoric_scale")?,
-        y_scale: req_arg(args, kwargs, 13, "y_scale")?,
-        beta: req_arg(args, kwargs, 14, "beta")?,
-        device,
-    })
-}
-
-#[pyfunction(name = "sparse_select_ucb")]
-#[pyo3(signature=(*args, **kwargs))]
-pub fn select_sparse(
-    args: &Bound<'_, PyTuple>,
-    kwargs: Option<&Bound<'_, PyDict>>,
-) -> PyResult<(usize, f32)> {
-    sparse_impl(SparseWeightsInput {
-        base: req_arg(args, kwargs, 0, "base")?,
-        indices: req_arg(args, kwargs, 1, "indices")?,
-        observation_words: req_arg(args, kwargs, 2, "observation_words")?,
-        observation_masks: req_arg(args, kwargs, 3, "observation_masks")?,
-        outcomes: req_arg(args, kwargs, 4, "outcomes")?,
-        candidate_words: req_arg(args, kwargs, 5, "candidate_words")?,
-        candidate_masks: req_arg(args, kwargs, 6, "candidate_masks")?,
-        blocks: req_arg(args, kwargs, 7, "blocks")?,
-        acquisition: "ucb".into(),
-        seed: 0,
-        neighbors: req_arg(args, kwargs, 8, "neighbors")?,
-        epistemic_scale: req_arg(args, kwargs, 9, "epistemic_scale")?,
-        aleatoric_scale: req_arg(args, kwargs, 10, "aleatoric_scale")?,
-        y_scale: req_arg(args, kwargs, 11, "y_scale")?,
-        beta: req_arg(args, kwargs, 12, "beta")?,
-        device: "auto".into(),
-    })
-}
-
-fn pack_rows(
-    base: &[u32],
-    indices: &[u32],
-    words: &[Vec<u32>],
-    masks: &[Vec<u32>],
-) -> PyResult<Vec<u8>> {
-    if base.len() != indices.len() {
-        return Err(PyValueError::new_err(
-            "base and sparse index arrays must have the same length",
-        ));
-    }
-    let mut bytes = Vec::with_capacity(words.len() * base.len() * std::mem::size_of::<u32>());
-    for (row_words, row_masks) in words.iter().zip(masks) {
-        if row_words.len() != row_masks.len() {
-            return Err(PyValueError::new_err(
-                "sparse row words and masks must have the same length",
-            ));
-        }
-        let mut row = base.to_vec();
-        for (&word, &mask) in row_words.iter().zip(row_masks) {
-            let position = indices
-                .binary_search(&word)
-                .map_err(|_| PyValueError::new_err(format!("sparse word {word} is not indexed")))?;
-            row[position] ^= mask;
-        }
-        for value in row {
-            bytes.extend_from_slice(&value.to_ne_bytes());
-        }
-    }
-    Ok(bytes)
 }

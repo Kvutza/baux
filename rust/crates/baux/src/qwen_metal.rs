@@ -64,10 +64,12 @@ use shapes::*;
 
 fn source_for(name: &str) -> &'static str {
     match name {
-        "flame_linear" | "qwen_widen" | "qwen_bf16_f16" | "qwen_f32_to_f16" | "qwen_f16_to_f32"
+        "qwen_linear" | "qwen_widen" | "qwen_bf16_f16" | "qwen_f32_to_f16" | "qwen_f16_to_f32"
         | "qwen_gemv" | "qwen_gemv_rows" | "qwen_mlp_rows" | "qwen_simd_gemm" => LINEAR_SOURCE,
         "qwen_qkv" => QWEN_SOURCE,
-        "flame_matmul" | "flame_softmax" | "flame_xent" | "flame_mean" => ATTENTION_SOURCE,
+        "qwen_matmul" | "qwen_softmax" | "qwen_cross_entropy" | "qwen_loss_mean" => {
+            ATTENTION_SOURCE
+        }
         _ => QWEN_SOURCE,
     }
 }
@@ -564,7 +566,7 @@ mod tests {
                 epsilon: 1e-6,
                 rope_theta: 10000.0,
             };
-            let mut evaluator = QwenEvaluator::with_backend(config, 260, MpsMode::Off).unwrap();
+            let mut evaluator = QwenEvaluator::with_mode(config, 260, MpsMode::Off).unwrap();
             let values: Vec<u16> = (0..evaluator.layout.len)
                 .map(|index| ((((index * 7 % 29) as f32 - 14.0) / 128.0).to_bits() >> 16) as u16)
                 .collect();
@@ -655,14 +657,14 @@ mod tests {
     }
 
     #[test]
-    fn backend_parity() {
+    fn mode_parity() {
         let Some(path) = std::env::var_os("BAUX_QWEN_CHECKPOINT") else {
             return;
         };
         autoreleasepool(|| {
             let loss = |mode| {
                 let mut evaluator =
-                    QwenEvaluator::with_backend(QwenConfig::default(), 128, mode).unwrap();
+                    QwenEvaluator::with_mode(QwenConfig::default(), 128, mode).unwrap();
                 let weights = evaluator.load_weights(Path::new(&path)).unwrap();
                 let tokens = (0..128).map(|index| 1000 + index % 97).collect::<Vec<_>>();
                 let mask = (0..tokens.len())
@@ -677,7 +679,7 @@ mod tests {
                 delta <= 2e-4,
                 "FP32 loss={fp32}, FP16 loss={fp16}, delta={delta}"
             );
-            println!("Qwen backend FP32 loss={fp32:.6} FP16 loss={fp16:.6} delta={delta:.6}");
+            println!("Qwen mode FP32 loss={fp32:.6} FP16 loss={fp16:.6} delta={delta:.6}");
         });
     }
 
@@ -690,7 +692,7 @@ mod tests {
             .expect("BAUX_QWEN_RANK_PARITY requires BAUX_QWEN_CHECKPOINT");
         autoreleasepool(|| {
             let mut loader =
-                QwenEvaluator::with_backend(QwenConfig::default(), 128, MpsMode::Off).unwrap();
+                QwenEvaluator::with_mode(QwenConfig::default(), 128, MpsMode::Off).unwrap();
             let weights = loader.load_weights(Path::new(&path)).unwrap();
             let blocks = loader
                 .blocks()
@@ -717,9 +719,9 @@ mod tests {
             search.correlate(0x25f4_91ad).unwrap();
 
             let mut fp32 =
-                QwenEvaluator::with_backend(QwenConfig::default(), 128, MpsMode::F32).unwrap();
+                QwenEvaluator::with_mode(QwenConfig::default(), 128, MpsMode::F32).unwrap();
             let mut fp16 =
-                QwenEvaluator::with_backend(QwenConfig::default(), 128, MpsMode::F16).unwrap();
+                QwenEvaluator::with_mode(QwenConfig::default(), 128, MpsMode::F16).unwrap();
             let tokens = (0..128).map(|index| 1000 + index % 97).collect::<Vec<_>>();
             let mask = (0..tokens.len())
                 .map(|index| index >= 64)
@@ -764,7 +766,7 @@ mod tests {
                     "Qwen rank root={root:#x} FP32={losses32:?} FP16={losses16:?} \
                      max_delta={max_delta:.6}"
                 );
-                assert!(max_delta <= 5e-4, "backend loss drift exceeds rank gate");
+                assert!(max_delta <= 5e-4, "mode loss drift exceeds rank gate");
                 assert_eq!(order(&losses16), order(&losses32));
             }
 
@@ -952,7 +954,7 @@ mod tests {
             }
             let runtime = Runtime::shared().expect("Metal device required");
             let pipeline = runtime
-                .precise(source_for("flame_linear"), "Qwen test", "flame_linear")
+                .precise(source_for("qwen_linear"), "Qwen test", "qwen_linear")
                 .expect("linear pipeline");
             let input = runtime.buffer_with(&[99.0f32, 1.0, 2.0]);
             let vocab = 151_936usize;
@@ -1421,7 +1423,7 @@ mod tests {
                 })
                 .collect();
             for mode in [MpsMode::F32, MpsMode::F16] {
-                let evaluator = QwenEvaluator::with_backend(config, 64, mode).unwrap();
+                let evaluator = QwenEvaluator::with_mode(config, 64, mode).unwrap();
                 evaluator.write(W::Norm, &input);
                 let weight_buffer = evaluator.runtime.buffer_with(&weights);
                 let command = evaluator.runtime.queue.new_command_buffer();
@@ -1488,7 +1490,7 @@ mod tests {
             let tokens = (0..32).map(|index| index % 63).collect::<Vec<_>>();
             let mask = (0..32).map(|index| index >= 8).collect::<Vec<_>>();
             let loss = |mode| {
-                let mut evaluator = QwenEvaluator::with_backend(config, 32, mode).unwrap();
+                let mut evaluator = QwenEvaluator::with_mode(config, 32, mode).unwrap();
                 let weights = evaluator.runtime.buffer_with(&values);
                 evaluator
                     .losses(

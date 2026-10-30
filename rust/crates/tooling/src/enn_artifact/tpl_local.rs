@@ -4,7 +4,7 @@ use rand::SeedableRng;
 use rand::rngs::StdRng;
 use std::path::{Path, PathBuf};
 
-use baux::backend::EnnStorage;
+use baux::store::EnnStorage;
 use baux::candidates::{CandidateSampler, from_unit, to_unit};
 use baux::config::{AcquisitionConfig, RunConfig, TrustRegionKind};
 use baux::morbo::Rescalarize;

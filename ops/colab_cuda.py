@@ -281,13 +281,13 @@ def setup(workspace: Path) -> dict[str, object]:
         TOOLCHAIN_STATE.parent.mkdir(parents=True, exist_ok=True)
         TOOLCHAIN_STATE.write_text(json.dumps(expected_state, sort_keys=True) + "\n")
     timings["cargo_oxide"] = time.monotonic() - install_started
-    backend_started = time.monotonic()
+    oxide_started = time.monotonic()
     run(
         [str(cargo), f"+{RUST_TOOLCHAIN}", "oxide", "setup"],
         cwd=workspace,
         env=toolchain_env(),
     )
-    timings["backend"] = time.monotonic() - backend_started
+    timings["oxide_setup"] = time.monotonic() - oxide_started
     return timings
 
 

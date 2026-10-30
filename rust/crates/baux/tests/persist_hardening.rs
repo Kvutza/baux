@@ -1,6 +1,6 @@
 //! Persist-on-close hardening tests: in-session parity and idempotency.
 
-use baux::neighbor_index::BpannBackend;
+use baux::neighbor_index::BpannStore;
 use tempfile::TempDir;
 
 #[test]
@@ -11,7 +11,7 @@ fn multi_neighbors() {
     let rows = 2500usize;
     let dim = 4usize;
     let query = ndarray::Array2::from_shape_fn((1, dim), |(_, j)| j as f64 * 0.01);
-    let mut b = BpannBackend::new_empty(path.clone(), dim, 1)
+    let mut b = BpannStore::new_empty(path.clone(), dim, 1)
         .unwrap()
         .with_soft(1000)
         .defer_indexing(true);
@@ -39,7 +39,7 @@ fn persist_header() {
     use std::fs;
     let dir = TempDir::new().unwrap();
     let path = dir.path().to_path_buf();
-    let mut b = BpannBackend::new_empty(path.clone(), 4, 1)
+    let mut b = BpannStore::new_empty(path.clone(), 4, 1)
         .unwrap()
         .with_soft(1000)
         .defer_indexing(true);
@@ -62,7 +62,7 @@ fn persist_header() {
     let pages_healed = fs::read(&pages_path).unwrap();
     assert_eq!(pages_healed, pages_valid);
 
-    let b2 = BpannBackend::reopen(path).unwrap();
+    let b2 = BpannStore::reopen(path).unwrap();
     let query = ndarray::Array2::from_shape_fn((1, 4), |(_, j)| j as f64 * 0.01);
     b2.search(&query.view(), 5, false).unwrap();
 }
@@ -72,11 +72,11 @@ fn soft_persist() {
     // Soft-synced RAM index must agree with post-persist search (same rows).
     let dir = TempDir::new().unwrap();
     let path = dir.path().to_path_buf();
-    let mut soft = BpannBackend::new_empty(path.clone(), 3, 1)
+    let mut soft = BpannStore::new_empty(path.clone(), 3, 1)
         .unwrap()
         .with_soft(10)
         .defer_indexing(true);
-    let mut hard = BpannBackend::new_empty(path.join("hard"), 3, 1)
+    let mut hard = BpannStore::new_empty(path.join("hard"), 3, 1)
         .unwrap()
         .with_soft(10)
         .defer_indexing(true);
@@ -107,7 +107,7 @@ fn soft_seeds() {
         let dir = TempDir::new().unwrap();
         let threshold = rng.gen_range(1usize..=7);
         let batches = rng.gen_range(1usize..=5);
-        let mut b = BpannBackend::new_empty(dir.path().to_path_buf(), 2, 1)
+        let mut b = BpannStore::new_empty(dir.path().to_path_buf(), 2, 1)
             .unwrap()
             .with_soft(threshold)
             .defer_indexing(true);
@@ -139,7 +139,7 @@ fn soft_pages() {
     use std::hash::{Hash, Hasher};
     let dir = TempDir::new().unwrap();
     let path = dir.path().to_path_buf();
-    let mut b = BpannBackend::new_empty(path.clone(), 4, 1)
+    let mut b = BpannStore::new_empty(path.clone(), 4, 1)
         .unwrap()
         .with_soft(100)
         .defer_indexing(true);
@@ -184,7 +184,7 @@ fn soft_pages() {
 fn soft_persist2() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().to_path_buf();
-    let mut b = BpannBackend::new_empty(path.clone(), 2, 1)
+    let mut b = BpannStore::new_empty(path.clone(), 2, 1)
         .unwrap()
         .with_soft(10)
         .defer_indexing(true);
@@ -207,7 +207,7 @@ fn persist_rewrite() {
     use std::fs;
     let dir = TempDir::new().unwrap();
     let path = dir.path().to_path_buf();
-    let mut b = BpannBackend::new_empty(path.clone(), 4, 1)
+    let mut b = BpannStore::new_empty(path.clone(), 4, 1)
         .unwrap()
         .with_soft(1000)
         .defer_indexing(true);

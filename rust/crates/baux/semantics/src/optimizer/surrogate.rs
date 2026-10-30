@@ -100,8 +100,8 @@ pub struct FitState {
 
 /// The bounded implicit-history neighbor estimator used by the Metal
 /// pretraining path. Distances arrive from the CUDA implementation of Metal's
-/// stratified shadow Gaussian geometry; fitting remains on the host on both
-/// backends.
+/// stratified shadow Gaussian geometry; fitting remains on the host for both
+/// execution targets.
 pub struct NeighborValueEstimator {
     pub(super) distances: [[f64; MAX_HISTORY]; MAX_HISTORY],
     pub(super) outcomes: [f32; MAX_HISTORY],

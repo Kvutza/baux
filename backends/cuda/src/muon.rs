@@ -1,4 +1,4 @@
-//! Native CUDA optimizer updates. Model backward supplies the analytic
+//! CUDA optimizer updates. Model backward supplies the analytic
 //! gradients.
 use crate::{CudaResult, cuda_error};
 pub use baux::semantics::muon::reference;

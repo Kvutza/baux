@@ -200,7 +200,9 @@ fn resolve_digest(root: &Path) -> Result<String, String> {
             Ok(value)
         }
         Ok(_) => Err("BAUX_SOURCE_DIGEST must be a SHA-256 digest".into()),
-        Err(_) => baux::experimental::perf_digest(root, baux::experimental::Backend::CudaOxide),
+        Err(_) => {
+            baux::experimental::perf_digest(root, baux::experimental::ExecutionTarget::CudaOxide)
+        }
     }
 }
 

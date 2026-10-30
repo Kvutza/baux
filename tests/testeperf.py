@@ -120,7 +120,7 @@ def _neighborratio(n: int, *, d: int = 1, k: int = 10, seed: int = 42) -> float:
     train_x = rng.standard_normal((n, d))
     train_y = rng.normal(0.0, 100.0, size=(n, d))
     model = ENN(train_x, train_y, train_yvar=None)
-    rust = model.rust_backend
+    rust = model.extension_model
 
     def index_neighbors() -> None:
         posterior_neighbors(
@@ -253,7 +253,7 @@ def _selfratios(
     model = ENN(x, y)
     params = ENNParams(k_neighbors=k, epistemic_scale=1.0, aleatoric_scale=0.1)
     flags = PosteriorFlags(tie_neighbors=tie_neighbors)
-    rust = model.rust_backend
+    rust = model.extension_model
     warmup = 3
     reps = 5
 

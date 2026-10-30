@@ -1,5 +1,5 @@
 //! Typed model dataflow shared by accelerator implementations.
-use super::graph::{BackendCapability, Exactness, FusionBoundary, SemanticNode, SemanticOp};
+use super::graph::{Exactness, FusionBoundary, SemanticNode, SemanticOp, TargetCapability};
 use super::recurrence::{LayerVisit, RecurrentCore};
 use super::tensor::{Extent, TensorDType, TensorLayout, TensorLifetime, TensorSpec, TensorStorage};
 use std::collections::{HashMap, HashSet};
@@ -38,7 +38,7 @@ pub struct ModelProgram {
     pub nodes: Vec<SemanticNode>,
     pub functions: Vec<ProgramFunction>,
     pub weight_arenas: Vec<WeightArenaSpec>,
-    pub requirements: Vec<BackendCapability>,
+    pub requirements: Vec<TargetCapability>,
     pub physical_layers: usize,
     pub recurrent_core: Option<RecurrentCore>,
 }
@@ -47,11 +47,11 @@ impl ModelProgram {
     pub const VERSION: u32 = 3;
 
     pub fn fbt_pisa() -> Self {
-        use BackendCapability as Capability;
         use Exactness::{Approximate, Exact};
         use FusionBoundary::{CloseAfter, Open};
         use ProgramKind as Function;
         use SemanticOp as Op;
+        use TargetCapability as Capability;
 
         let tensor = |name, shape, dtype, layout, storage, lifetime| TensorSpec {
             name,
@@ -770,7 +770,7 @@ impl ModelProgram {
         }
         let requirements = self.requirements.iter().copied().collect::<HashSet<_>>();
         if requirements.len() != self.requirements.len() {
-            return Err("model program backend requirements must be unique".into());
+            return Err("model program target requirements must be unique".into());
         }
         if self.physical_layers == 0 {
             return Err("model program must contain physical layers".into());

@@ -30,7 +30,7 @@ def test_001():
     query = rng.standard_normal((1, 2))
     search_k = 8
     _dist2s, idx = nearest_neighbors(
-        enn.rust_backend, query, search_k=search_k, exclude_nearest=False
+        enn.extension_model, query, search_k=search_k, exclude_nearest=False
     )
     assert idx.shape == (1, search_k)
     assert np.all(idx >= 0)
@@ -43,14 +43,14 @@ def test_002():
     query = np.array([[1.0, 2.0], [-0.5, 0.25]], dtype=float)
     search_k = 4
     dist2s, idx = nearest_neighbors(
-        enn.rust_backend, query, search_k=search_k, exclude_nearest=False
+        enn.extension_model, query, search_k=search_k, exclude_nearest=False
     )
     assert dist2s.shape == (2, search_k) and idx.shape == (2, search_k)
     assert np.all(np.isposinf(dist2s))
     assert np.all(idx == 0)
     assert np.all(idx >= 0)
     d2_ex, idx_ex = nearest_neighbors(
-        enn.rust_backend, query, search_k=search_k, exclude_nearest=True
+        enn.extension_model, query, search_k=search_k, exclude_nearest=True
     )
     assert d2_ex.shape == (2, search_k - 1) and idx_ex.shape == (2, search_k - 1)
     assert np.all(np.isposinf(d2_ex))
@@ -63,7 +63,7 @@ def test_003():
     enn = _enn(train_x, scale_x=False)
     q = rng.standard_normal((3, 2))
     dist2s, idx = nearest_neighbors(
-        enn.rust_backend, q, search_k=1, exclude_nearest=True
+        enn.extension_model, q, search_k=1, exclude_nearest=True
     )
     assert dist2s.shape == (3, 0) and idx.shape == (3, 0)
 
@@ -76,7 +76,7 @@ def test_004():
     query = rng.standard_normal((4, dim))
     search_k = 6
     dist2s, idx = nearest_neighbors(
-        enn.rust_backend, query, search_k=search_k, exclude_nearest=False
+        enn.extension_model, query, search_k=search_k, exclude_nearest=False
     )
     assert dist2s.shape == (4, search_k) and idx.shape == (4, search_k)
     assert np.all(idx >= 0) and np.all(idx < n_train)
@@ -91,7 +91,7 @@ def test_005():
     enn = _enn(train_x, scale_x=False)
     query = rng.standard_normal((5, 3))
     dist2s, idx = nearest_neighbors(
-        enn.rust_backend, query, search_k=3, exclude_nearest=False
+        enn.extension_model, query, search_k=3, exclude_nearest=False
     )
     assert dist2s.shape == (5, 3) and idx.shape == (5, 3)
     assert np.all(idx >= 0) and np.all(idx < 20)
@@ -103,13 +103,13 @@ def test_006():
     enn = _enn(train_x, scale_x=False)
     query = np.array([[0.0]])
     _, idx_on = posterior_neighbors(
-        enn.rust_backend,
+        enn.extension_model,
         query,
         search_k=2,
         flags=PosteriorFlags(tie_neighbors=True),
     )
     _, idx_off = posterior_neighbors(
-        enn.rust_backend,
+        enn.extension_model,
         query,
         search_k=2,
         flags=PosteriorFlags(tie_neighbors=False),
@@ -124,14 +124,14 @@ def test_007():
     enn = _enn(train_x, scale_x=False, train_y=train_y)
     k = 10
     _, idx_batch = posterior_neighbors(
-        enn.rust_backend,
+        enn.extension_model,
         train_x,
         search_k=k,
         flags=PosteriorFlags(tie_neighbors=True),
     )
     for i in range(train_x.shape[0]):
         _, idx_one = posterior_neighbors(
-            enn.rust_backend,
+            enn.extension_model,
             train_x[i : i + 1],
             search_k=k,
             flags=PosteriorFlags(tie_neighbors=True),
@@ -145,7 +145,7 @@ def test_008():
     enn = _enn(train_x, scale_x=False)
     query = np.array([[0.0]])
     _, idx_on = posterior_neighbors(
-        enn.rust_backend,
+        enn.extension_model,
         query,
         search_k=2,
         flags=PosteriorFlags(tie_neighbors=True),
@@ -172,10 +172,10 @@ def test_010(scale_x):
     query = rng.standard_normal((5, 3))
     search_k = 3
     faiss_d2, faiss_idx = nearest_neighbors(
-        enn.rust_backend, query, search_k=search_k, exclude_nearest=False
+        enn.extension_model, query, search_k=search_k, exclude_nearest=False
     )
     exact_d2, exact_idx = posterior_neighbors(
-        enn.rust_backend, query, search_k=search_k
+        enn.extension_model, query, search_k=search_k
     )
     assert exact_d2.shape == faiss_d2.shape == (5, search_k)
     assert exact_idx.shape == faiss_idx.shape
@@ -188,7 +188,7 @@ def test_011():
     query = train_x[:3]
     enn = _enn(train_x, scale_x=False, index_driver=NeighborIndex.FLAT)
     dist2s, idx = posterior_neighbors(
-        enn.rust_backend,
+        enn.extension_model,
         query,
         search_k=3,
         flags=PosteriorFlags(exclude_nearest=True),
@@ -203,7 +203,7 @@ def test_012():
     enn = _enn(train_x, scale_x=False)
     q = rng.standard_normal((3, 2))
     dist2s, idx = posterior_neighbors(
-        enn.rust_backend,
+        enn.extension_model,
         q,
         search_k=1,
         flags=PosteriorFlags(exclude_nearest=True),
@@ -215,9 +215,9 @@ def test_013():
     train_x = np.array([[0.0], [1.0], [2.0]], dtype=float)
     enn = _enn(train_x, scale_x=False)
     query = np.array([[0.5], [1.5]], dtype=float)
-    d0, i0 = posterior_neighbors(enn.rust_backend, query, search_k=0)
+    d0, i0 = posterior_neighbors(enn.extension_model, query, search_k=0)
     assert d0.shape == (2, 0) and i0.shape == (2, 0)
-    d_all, i_all = posterior_neighbors(enn.rust_backend, query, search_k=10)
+    d_all, i_all = posterior_neighbors(enn.extension_model, query, search_k=10)
     assert d_all.shape == (2, 10) and i_all.shape == (2, 10)
     assert np.all(i_all[:, :3] >= 0) and np.all(i_all[:, :3] < 3)
     assert np.all(i_all[:, 3:] == -1)
@@ -229,10 +229,10 @@ def test_014():
     enn = _enn(train_x, scale_x=False)
     query = train_x[:3]
     dist2s_include, _idx_include = nearest_neighbors(
-        enn.rust_backend, query, search_k=3, exclude_nearest=False
+        enn.extension_model, query, search_k=3, exclude_nearest=False
     )
     dist2s_exclude, _idx_exclude = nearest_neighbors(
-        enn.rust_backend, query, search_k=3, exclude_nearest=True
+        enn.extension_model, query, search_k=3, exclude_nearest=True
     )
     assert dist2s_include.shape == (3, 3) and dist2s_exclude.shape == (3, 2)
     assert np.allclose(dist2s_include[:, 0], 0.0, atol=1e-6)
@@ -244,7 +244,7 @@ def test_015():
     enn = _enn(train_x, scale_x=True)
     query = rng.standard_normal((5, 3))
     dist2s, idx = nearest_neighbors(
-        enn.rust_backend, query, search_k=3, exclude_nearest=False
+        enn.extension_model, query, search_k=3, exclude_nearest=False
     )
     assert dist2s.shape == (5, 3) and idx.shape == (5, 3)
 
@@ -256,7 +256,7 @@ def test_016(query_shape, search_k):
     enn = _enn(train_x, scale_x=False)
     with pytest.raises(ValueError):
         nearest_neighbors(
-            enn.rust_backend,
+            enn.extension_model,
             rng.standard_normal(query_shape),
             search_k=search_k,
             exclude_nearest=False,

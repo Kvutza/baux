@@ -1,7 +1,7 @@
 //! Mathematical and execution semantics shared by every BAUX adapter.
 //!
-//! No backend owns these types. Schedules describe implementations, not proofs
-//! of numerical equivalence. CUDA enables only scalar ABI trait
+//! No execution target owns these types. Schedules describe implementations,
+//! not proofs of numerical equivalence. CUDA enables only scalar ABI trait
 //! implementations; the default build has no dependencies and does not require
 //! a GPU toolchain.
 

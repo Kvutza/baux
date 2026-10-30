@@ -11,7 +11,7 @@ use baux::neighbor_index::mmap_store::MmapColumnStore;
 pub const FORMAT_VERSION: u32 = 1;
 pub const MAX_DIM: usize = 262_144;
 pub const MAX_STRIDE: usize = 8 * 1024 * 1024;
-pub const INDEX_BACKEND: &str = "bpann_disk";
+pub const INDEX_FORMAT: &str = "bpann_disk";
 
 const STORE_FILES: &[&str] = &[
     "train_x.bin",
@@ -27,7 +27,7 @@ const STORE_FILES: &[&str] = &[
 const STORE_DIRS: &[&str] = &["index"];
 
 /// Delete the persisted BPANN store while preserving unrelated files.
-/// No backend may be open on `work_dir` when this is called.
+/// No store may be open on `work_dir` when this is called.
 pub fn remove_store(work_dir: &Path) -> Result<(), BpannError> {
     let gone = |result: std::io::Result<()>| match result {
         Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
@@ -70,11 +70,11 @@ pub fn check_rows(new_n: usize) -> Result<(), BpannError> {
     Ok(())
 }
 
-pub fn check_backend(work_dir: &Path, expected: &str) -> Result<(), BpannError> {
-    if let Some(backend) = load_backend(work_dir) {
-        if backend != expected {
+pub fn validate_format(work_dir: &Path, expected: &str) -> Result<(), BpannError> {
+    if let Some(format) = load_format(work_dir) {
+        if format != expected {
             return Err(BpannError::InvalidParameter(format!(
-                "work_dir index_backend is {backend}, expected {expected}"
+                "work_dir index_backend is {format}, expected {expected}"
             )));
         }
     }
@@ -163,7 +163,7 @@ pub fn load_rows(work_dir: &Path) -> Option<usize> {
     parse_number(&text, "indexed_rows")
 }
 
-pub fn load_backend(work_dir: &Path) -> Option<String> {
+pub fn load_format(work_dir: &Path) -> Option<String> {
     let text = fs::read_to_string(work_dir.join("metadata.json")).ok()?;
     parse_string(&text, "index_backend")
 }
@@ -178,7 +178,7 @@ pub fn write_metadata(
 ) -> Result<(), BpannError> {
     let json = format!(
         "{{\"format_version\":{FORMAT_VERSION},\"num_obs\":{num_obs},\"num_dim\":{num_dim},\
-         \"num_metrics\":{num_metrics},\"scale_x\":{scale_x},\"index_backend\":\"{INDEX_BACKEND}\",\
+         \"num_metrics\":{num_metrics},\"scale_x\":{scale_x},\"index_backend\":\"{INDEX_FORMAT}\",\
          \"indexed_rows\":{indexed_rows}}}"
     );
     fs::write(work_dir.join("metadata.json"), json)
@@ -304,10 +304,10 @@ mod tests {
             Some(0)
         );
         assert_eq!(
-            baux::neighbor_index::observation::load_backend(dir.path()).as_deref(),
-            Some(INDEX_BACKEND)
+            baux::neighbor_index::observation::load_format(dir.path()).as_deref(),
+            Some(INDEX_FORMAT)
         );
-        baux::neighbor_index::observation::check_backend(dir.path(), INDEX_BACKEND).unwrap();
+        baux::neighbor_index::observation::validate_format(dir.path(), INDEX_FORMAT).unwrap();
         let mut yvar =
             baux::neighbor_index::observation::open_yvar(dir.path(), 1, Some(&array![[0.1]]))
                 .unwrap();

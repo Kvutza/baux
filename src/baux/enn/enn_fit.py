@@ -48,7 +48,7 @@ def subsample_loglik(
         y_std_arr = np.asarray(y_std, dtype=float).ravel()
 
     return _rust_subsample_loglik(
-        model.rust_backend,
+        model.extension_model,
         x_array,
         y_array,
         k_values,
@@ -71,7 +71,7 @@ def row_loglik(
 ) -> list[float]:
     """Score held-out model row IDs without ambiguous coordinate matching."""
     return rust_rows(
-        model.rust_backend,
+        model.extension_model,
         rows,
         [p.k_neighbors for p in paramss],
         [p.epistemic_scale for p in paramss],

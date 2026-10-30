@@ -52,28 +52,28 @@ def test_joint(model):
 def test_moments(model, noise):
     x = torch.arange(24, dtype=torch.double).reshape(2, 2, 3, 2) / 24
     posterior = model.posterior(x, output_indices=[1, 0], observation_noise=noise)
-    native = model.enn.posterior(
+    reference = model.enn.posterior(
         x.reshape(-1, 2).numpy(),
         params=model.params,
         flags=PosteriorFlags(observation_noise=noise),
     )
     np.testing.assert_array_equal(
-        posterior.mean, native.mu[:, [1, 0]].reshape(2, 2, 3, 2)
+        posterior.mean, reference.mu[:, [1, 0]].reshape(2, 2, 3, 2)
     )
     np.testing.assert_array_equal(
-        posterior.variance, (native.se[:, [1, 0]] ** 2).reshape(2, 2, 3, 2)
+        posterior.variance, (reference.se[:, [1, 0]] ** 2).reshape(2, 2, 3, 2)
     )
     sampler = get_sampler(posterior, torch.Size([5]), seed=10)
     actual = sampler(posterior)
     assert actual.shape == (5, 2, 2, 3, 2)
-    native, _ = model.enn.posterior_draw(
+    reference_draws, _ = model.enn.posterior_draw(
         x.reshape(-1, 2).numpy(),
         model.params,
         function_seeds=sampler.base_samples.numpy(),
         flags=PosteriorFlags(observation_noise=noise),
     )
     np.testing.assert_array_equal(
-        actual, np.moveaxis(native[:, [1, 0]], -1, 0).reshape(actual.shape)
+        actual, np.moveaxis(reference_draws[:, [1, 0]], -1, 0).reshape(actual.shape)
     )
     assert posterior.rsample(torch.Size()).shape == posterior.mean.shape
     assert posterior.rsample(torch.Size([0])).shape == (0, 2, 2, 3, 2)
@@ -160,29 +160,29 @@ def test_rng(model):
 
 
 @pytest.mark.parametrize(
-    ("backend", "noise"),
+    ("target", "noise"),
     [("metal", False), ("metal", True), ("cuda", False), ("cuda", True)],
 )
-def test_backends(backend, noise):
-    """Exercise the existing ENN backend through the real BoTorch interface."""
+def test_targets(target, noise):
+    """Exercise an ENN execution target through the real BoTorch interface."""
     from baux import capabilities
     from baux.turbo.config.surrogate import NeighborIndex
 
-    row = next(row for row in capabilities(probe=True) if row.name == backend)
+    row = next(row for row in capabilities(probe=True) if row.name == target)
     if not row.available:
-        pytest.skip(row.reason or f"{backend} runtime unavailable")
+        pytest.skip(row.reason or f"{target} runtime unavailable")
     train = np.arange(16, dtype=float).reshape(8, 2) / 16
     values = np.column_stack((np.sin(train[:, 0]), np.cos(train[:, 1])))
     variance = np.full_like(values, 0.01)
     params = ENNParams(3, 0.7, 0.13)
     reference = Model(ENN(train, values, variance), params)
-    native = Model(
-        ENN(train, values, variance, index_driver=NeighborIndex[backend.upper()]),
+    target_model = Model(
+        ENN(train, values, variance, index_driver=NeighborIndex[target.upper()]),
         params,
     )
     queries = torch.tensor([[0.125, 0.25], [0.5, 0.625], [0.125, 0.25]])
     expected = reference.posterior(queries, observation_noise=noise)
-    actual = native.posterior(queries, observation_noise=noise)
+    actual = target_model.posterior(queries, observation_noise=noise)
     torch.testing.assert_close(actual.mean, expected.mean, rtol=2e-5, atol=2e-6)
     torch.testing.assert_close(actual.variance, expected.variance, rtol=2e-5, atol=2e-6)
     sampler = Sampler(torch.Size([16]), seed=41)
@@ -224,7 +224,7 @@ def assert_batch(acquisition, x):
     assert actual.shape == (3,)
     assert torch.isfinite(actual).all()
     assert torch.equal(actual, acquisition(x))
-    # Native samples are bitwise identical above. PyTorch reductions can
+    # Device samples are bitwise identical above. PyTorch reductions can
     # change their summation order with tensor shape; do not claim otherwise.
     separate = torch.cat([acquisition(batch[None]) for batch in x])
     torch.testing.assert_close(

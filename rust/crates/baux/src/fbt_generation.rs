@@ -11,7 +11,6 @@ pub(super) use crate::config::{
     GenerationConfig, GenerationReward, GenerationTask, RunConfig, VerifyMode,
 };
 pub(super) use crate::text::ByteDecoder;
-use crate::traits::Oracle;
 pub(super) use deser::{Deserialize, Serialize};
 pub use gen_context::context_loop;
 pub(super) use std::collections::BTreeMap;
@@ -440,7 +439,7 @@ pub(super) fn write_config(
         } else {
             "fresh_round_condition; vector control observation"
         },
-        "backend":"native_metal_mlx_derived_gemvt_pisa",
+        "execution_target":"metal_mlx_derived_gemvt_pisa",
         "timing":"proposal+prefill+decode+reward+tell+artifact_writes; initial incumbent excluded"});
     baux::artifact::json::pretty_writer(
         File::create(output.join("generation.json")).map_err(|e| e.to_string())?,
@@ -914,25 +913,6 @@ mod tests {
         assert_eq!(validation.objective_means(), [-9.0, -7.0, 0.5]);
     }
 
-    struct TestOracle(Evaluation);
-
-    impl Oracle for TestOracle {
-        type Evidence = ();
-
-        fn observe(
-            &mut self,
-            _candidate: crate::search::DeviceView<'_>,
-        ) -> Result<
-            (
-                crate::objective_observation::ObjectiveObservation,
-                Self::Evidence,
-            ),
-            String,
-        > {
-            Ok((self.0.observation, ()))
-        }
-    }
-
     #[test]
     fn checkpoint_shapes() {
         let layout = checkpoint_layout(ResidualArchitecture::Legacy);
@@ -1011,30 +991,30 @@ mod tests {
                     scales: vec![1.0, 1.0],
                 }))
                 .unwrap();
-            let (row, proposal, initializing) = search.propose(29, policy.ask, 0, None).unwrap();
+            let (_row, proposal, initializing) = search.propose(29, policy.ask, 0, None).unwrap();
             assert!(initializing);
-            let candidate = crate::search::DeviceView::metal(row.clone(), 0, row.length() as usize);
-            let mut accepted = TestOracle(evaluated(-1.0, 1000.0));
-            let (decision, (), _) = search
-                .evaluate(&proposal, candidate, true, &mut accepted)
+            let accepted = evaluated(-1.0, 1000.0);
+            let decision = search
+                .modeled_objectives(&proposal, accepted.observation)
                 .unwrap();
             assert!(decision.accepted);
+            assert_eq!(search.sync().unwrap(), vec![true]);
             let row = search.objective_observations().unwrap().last().unwrap();
-            assert_eq!(row.observation, accepted.0.observation);
+            assert_eq!(row.observation, accepted.observation);
             let mut ask = policy.ask;
             ask.surrogate.neighbors = 2;
-            let (row, proposal, initializing) = search.propose(31, ask, 0, None).unwrap();
+            let (_row, proposal, initializing) = search.propose(31, ask, 0, None).unwrap();
             assert!(!initializing);
             let control = proposal.incumbent_mean + 4.0 * proposal.incumbent_standard_error + 1.0;
-            let candidate = crate::search::DeviceView::metal(row.clone(), 0, row.length() as usize);
-            let mut rejected = TestOracle(evaluated(control, -1000.0));
-            let (decision, (), _) = search
-                .evaluate(&proposal, candidate, false, &mut rejected)
+            let rejected = evaluated(control, -1000.0);
+            let decision = search
+                .modeled_objectives(&proposal, rejected.observation)
                 .unwrap();
             assert!(!decision.accepted);
+            assert_eq!(search.sync().unwrap(), vec![false]);
             assert_eq!(
                 search.incumbent_objectives().unwrap().unwrap().observation,
-                accepted.0.observation
+                accepted.observation
             );
         });
     }

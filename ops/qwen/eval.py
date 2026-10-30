@@ -9,11 +9,10 @@ from typing import Any
 
 import click
 
-from ops.flame.codecheck import check_solution
-from ops.flame.objective import SolutionObjective
-
+from .codecheck import check_solution
 from .config import Config
 from .metal import Evaluator
+from .objective import SolutionObjective
 from .tokenizer import load
 
 FIM_BOUNDARIES = (

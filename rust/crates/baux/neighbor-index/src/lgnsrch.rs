@@ -3,7 +3,7 @@
 use ndarray::Array2;
 use rayon::prelude::*;
 
-use baux::neighbor_index::backend::BpannBackend;
+use baux::neighbor_index::bpann_store::BpannStore;
 use baux::neighbor_index::distance::bpann_f32;
 use baux::neighbor_index::error::BpannError;
 use baux::neighbor_index::index::{MmapSearchStore, bpann_mmap};
@@ -21,7 +21,7 @@ pub struct SearchPendingArgs<'a> {
 }
 
 pub fn search_pending(
-    backend: &BpannBackend,
+    bpann_store: &BpannStore,
     query_rows: &[Vec<f64>],
     dist2s: &mut Array2<f64>,
     indices: &mut Array2<i64>,
@@ -36,7 +36,7 @@ pub fn search_pending(
         x_scale: x_scale_vec,
         num_dim,
     } = args;
-    let indexed = backend.index.indexed_rows;
+    let indexed = bpann_store.index.indexed_rows;
     let pending_start = indexed;
     let has_pending = pending_start < total;
     let index_k = if exclude_nearest {
@@ -44,20 +44,20 @@ pub fn search_pending(
     } else {
         k_eff
     };
-    let train_x = &backend.train_x;
+    let train_x = &bpann_store.train_x;
     let score_query = |query_buf: &Vec<f64>| -> Result<(Vec<f64>, Vec<i64>), BpannError> {
         let mut query_f32 = Vec::with_capacity(num_dim);
         bpann_f32(query_buf, scale_x, x_scale_vec, &mut query_f32);
-        let store = MmapSearchStore {
+        let search_store = MmapSearchStore {
             train_x,
             scale_x,
             x_scale: x_scale_vec,
         };
 
-        let leg_a = if indexed > 0 && !backend.index.indices.is_empty() {
-            backend
+        let leg_a = if indexed > 0 && !bpann_store.index.indices.is_empty() {
+            bpann_store
                 .index
-                .search_candidates(&query_f32, index_k.max(1), Some(&store))?
+                .search_candidates(&query_f32, index_k.max(1), Some(&search_store))?
         } else {
             Vec::new()
         };
@@ -129,15 +129,15 @@ mod tests {
     #[test]
     fn propagates_error() {
         let dir = TempDir::new().unwrap();
-        let mut backend = BpannBackend::new_empty(dir.path().to_path_buf(), 2, 1).unwrap();
-        backend
+        let mut store = BpannStore::new_empty(dir.path().to_path_buf(), 2, 1).unwrap();
+        store
             .append_rows(&array![[1.0, 2.0]].view(), &array![[0.0]].view(), None)
             .unwrap();
         let queries = vec![vec![1.0, 2.0]];
         let mut dist2s = Array2::zeros((1, 1));
         let mut indices = Array2::zeros((1, 1));
         let err = search_pending(
-            &backend,
+            &store,
             &queries,
             &mut dist2s,
             &mut indices,

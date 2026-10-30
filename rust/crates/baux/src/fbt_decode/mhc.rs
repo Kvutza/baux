@@ -47,7 +47,7 @@ impl Decoder {
                 combine_branch: &self.kernels.combine_branch,
                 combine_residual: &self.kernels.combine_residual,
             },
-            weights: weights.moe(None),
+            weights: weights.moe(),
             state: StepState {
                 padded_router: View::new(&self.router, 0, MODEL_LAYERS, WIDTH * PADDED_EXPERTS),
                 route_scores: View::new(&self.route_scores, 0, 1, PADDED_EXPERTS),

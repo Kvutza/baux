@@ -40,14 +40,14 @@ def queries(device):
     [(False, False), (False, True), (True, False), (True, True)],
 )
 def test_moments(device, noise, variance):
-    cpu, native = models(device, variance)
+    cpu, device_model = models(device, variance)
     query = queries(device)
     params = ENNParams(3, 0.7, 0.13)
     flags = PosteriorFlags(observation_noise=noise)
     expected = cpu.posterior(
         query.cpu().numpy().astype(float), params=params, flags=flags
     )
-    actual = native.device_posterior(query, params, flags=flags)
+    actual = device_model.device_posterior(query, params, flags=flags)
     mean, se = torch.from_dlpack(actual.mean), torch.from_dlpack(actual.se)
     assert mean.device == query.device and se.device == query.device
     np.testing.assert_allclose(mean.cpu().numpy(), expected.mu, rtol=3e-5, atol=3e-6)
@@ -55,19 +55,19 @@ def test_moments(device, noise, variance):
 
 
 def test_lifetime(device):
-    cpu, native = models(device)
+    cpu, device_model = models(device)
     query = queries(device)
     params = ENNParams(3, 0.7, 0.13)
     expected, _ = cpu.posterior_draw(
         query.cpu().numpy().astype(float), params, function_seeds=[41, 43]
     )
-    snapshot = native.device_posterior(query, params)
+    snapshot = device_model.device_posterior(query, params)
     draws = torch.from_dlpack(snapshot.draw([41, 43])).reshape(2, 3, 2)
     mean = torch.from_dlpack(snapshot.mean)
     before = mean.clone()
-    native.device_posterior(query + 0.25, params)
-    native.add(np.ones((1, 3)), np.zeros((1, 2)), np.full((1, 2), 0.01))
-    del snapshot, native, query
+    device_model.device_posterior(query + 0.25, params)
+    device_model.add(np.ones((1, 3)), np.zeros((1, 2)), np.full((1, 2), 0.01))
+    del snapshot, device_model, query
     gc.collect()
     assert torch.equal(mean, before)
     assert torch.equal(draws[:, 0], draws[:, 2])
@@ -78,7 +78,7 @@ def test_lifetime(device):
 
 @pytest.mark.parametrize("exclude", [False, True])
 def test_offset(device, exclude):
-    cpu, native = models(device)
+    cpu, device_model = models(device)
     query = queries(device)
     # Contiguous views can still start inside the producer's allocation.
     query = torch.cat([query[:1], query])[1:]
@@ -90,9 +90,9 @@ def test_offset(device, exclude):
     if device[0] == "cuda":
         with torch.cuda.stream(torch.cuda.Stream()):
             query = query * 1.0
-            actual = native.device_posterior(query, params, flags=flags)
+            actual = device_model.device_posterior(query, params, flags=flags)
     else:
-        actual = native.device_posterior(query, params, flags=flags)
+        actual = device_model.device_posterior(query, params, flags=flags)
     np.testing.assert_allclose(
         torch.from_dlpack(actual.mean).cpu().numpy(), expected.mu, rtol=3e-5, atol=3e-6
     )
@@ -102,7 +102,7 @@ def test_botorch(device, monkeypatch):
     pytest.importorskip("botorch")
     from baux.botorch import Model, Sampler
 
-    cpu, native = models(device)
+    cpu, device_model = models(device)
     query = queries(device).reshape(1, 3, 3)
     params = ENNParams(3, 0.7, 0.13)
     expected = Model(cpu, params).posterior(query.cpu())
@@ -124,7 +124,7 @@ def test_botorch(device, monkeypatch):
         patch.setattr(torch.Tensor, "cpu", forbidden)
         patch.setattr(torch.Tensor, "numpy", forbidden)
         patch.setattr(torch.Tensor, "to", checked)
-        actual = Model(native, params).posterior(query, output_indices=[1, 0])
+        actual = Model(device_model, params).posterior(query, output_indices=[1, 0])
         draws = sampler(actual)
         assert actual.mean.device == query.device and draws.device == query.device
     torch.testing.assert_close(
@@ -136,17 +136,17 @@ def test_botorch(device, monkeypatch):
 
 
 def test_rejections(device):
-    _, native = models(device)
+    _, device_model = models(device)
     params = ENNParams(3, 0.7, 0.13)
     query = queries(device)
     with pytest.raises((ValueError, BufferError)):
-        native.device_posterior(query[:, :2], params)
+        device_model.device_posterior(query[:, :2], params)
     with pytest.raises((ValueError, BufferError)):
-        native.device_posterior(query.to(torch.float16), params)
-    array = native.device_posterior(query, params).mean
+        device_model.device_posterior(query.to(torch.float16), params)
+    array = device_model.device_posterior(query, params).mean
     with pytest.raises(BufferError):
         array.__dlpack__(copy=True)
-    # Independent capsules retain the same read-only native allocation.
+    # Independent capsules retain the same read-only device allocation.
     left, right = torch.from_dlpack(array), torch.from_dlpack(array)
     assert left.data_ptr() == right.data_ptr()
 
@@ -170,13 +170,13 @@ def test_jax(device):
     jax, jax_dev = _jaxdevice(device)
     import jax.numpy as jnp
 
-    cpu, native = models(device)
+    cpu, device_model = models(device)
     query = jax.device_put(
         jnp.array([[0.125, 0.25, 0.375], [0.5, 0.625, 0.75]], dtype=jnp.float32),
         jax_dev,
     )
     params = ENNParams(3, 0.7, 0.13)
-    snapshot = native.device_posterior(query, params)
+    snapshot = device_model.device_posterior(query, params)
     mean = jax.dlpack.from_dlpack(snapshot.mean, copy=False)
     draws = jax.dlpack.from_dlpack(snapshot.draw([41, 43]), copy=False).reshape(2, 2, 2)
     query_host = np.asarray(jax.device_get(query), dtype=float)
@@ -187,6 +187,6 @@ def test_jax(device):
         jax.device_get(draws), np.moveaxis(reference, -1, 0), rtol=5e-5, atol=5e-6
     )
     assert next(iter(mean.devices())).id == 0
-    del snapshot, native
+    del snapshot, device_model
     gc.collect()
     assert jax.jit(lambda x: x + 1)(draws).shape == draws.shape

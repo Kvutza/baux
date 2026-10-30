@@ -2,7 +2,7 @@
 //!
 //! # Academic & Open-Source Attribution
 //!
-//! This module implements the Apple GPU Metal execution backend and stage
+//! This module implements the Apple GPU Metal execution path and stage
 //! wrapper for H-Net's dynamic chunking hierarchy and 256-way byte causal
 //! language model:
 //!

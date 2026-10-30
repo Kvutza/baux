@@ -3,9 +3,9 @@
 use ndarray::{Array1, Array2, ArrayView2};
 use std::path::PathBuf;
 
-use crate::backend::{EnnBackend, EnnStorage};
 use crate::error::ENNError;
 use crate::index::{IndexDriver, disk_driver};
+use crate::store::{EnnStorage, EnnStore};
 
 type InitStats = (
     Array1<f64>,
@@ -46,7 +46,7 @@ impl Default for ModelOptions {
 
 /// Epistemic Nearest Neighbors model.
 pub struct ENN {
-    pub(crate) backend: EnnBackend,
+    pub(crate) store: EnnStore,
     pub(crate) num_obs: usize,
     pub(crate) num_dim: usize,
     pub(crate) num_metrics: usize,
@@ -108,7 +108,7 @@ impl ENN {
         }
     }
 
-    /// Create a new ENN model (in-memory backend).
+    /// Create a new ENN model (in-memory store).
     pub fn new(
         train_x: Array2<f64>,
         train_y: Array2<f64>,
@@ -127,7 +127,7 @@ impl ENN {
         )
     }
 
-    /// Create a new ENN model with explicit storage backend.
+    /// Create a new ENN model with explicit storage store.
     pub fn new_storage(
         train_x: Array2<f64>,
         train_y: Array2<f64>,
@@ -201,8 +201,8 @@ impl ENN {
                 .as_ref()
                 .is_some_and(|p| p.join("metadata.json").exists());
 
-        let backend = match storage {
-            EnnStorage::InMemory => EnnBackend::new_memory(
+        let store = match storage {
+            EnnStorage::InMemory => EnnStore::new_memory(
                 train_x,
                 train_y,
                 train_yvar,
@@ -221,7 +221,7 @@ impl ENN {
                         "Disk storage requires work_dir or BAUX_WORK_DIR".to_string(),
                     )
                 })?;
-                EnnBackend::new_disk(
+                EnnStore::new_disk(
                     dir,
                     train_x,
                     train_y,
@@ -235,7 +235,7 @@ impl ENN {
 
         let mut model = Self {
             metric: None,
-            backend,
+            store,
             num_obs,
             num_dim,
             num_metrics,
@@ -250,8 +250,8 @@ impl ENN {
             x_sumsq,
             work_dir: disk_work_dir,
         };
-        if disk_reopen || model.num_obs != model.backend.len() {
-            sync_backend(&mut model)?;
+        if disk_reopen || model.num_obs != model.store.len() {
+            sync_store(&mut model)?;
         }
         model.y_metadata()?;
         Ok(model)
@@ -266,7 +266,7 @@ impl ENN {
         soft_threshold: Option<usize>,
     ) -> Result<Self, ENNError> {
         let stored_work_dir = work_dir.clone().or_else(EnnStorage::work_env);
-        let backend = EnnBackend::new_empty(
+        let store = EnnStore::new_empty(
             num_dim,
             num_metrics,
             driver,
@@ -282,7 +282,7 @@ impl ENN {
             .unwrap_or_else(|| crate::y_bounds::unbounded_bounds(num_metrics));
         let mut model = Self {
             metric: None,
-            backend,
+            store,
             num_obs: 0,
             num_dim,
             num_metrics,
@@ -297,8 +297,8 @@ impl ENN {
             x_sumsq: Array1::zeros(num_dim),
             work_dir: stored_work_dir,
         };
-        if model.backend.len() != 0 {
-            sync_backend(&mut model)?;
+        if model.store.len() != 0 {
+            sync_store(&mut model)?;
         }
         Ok(model)
     }
@@ -352,27 +352,27 @@ impl ENN {
             ));
         }
         if x.nrows() > 0 {
-            self.backend.wait_flush()?;
+            self.store.wait_flush()?;
             if self.bounded_outputs {
                 let warped_y = crate::y_bounds::warp_y(*y, &self.y_bounds)?;
                 let warped_yvar = yvar
                     .map(|yv| crate::y_bounds::warp_yvar(*y, *yv, &self.y_bounds))
                     .transpose()?;
                 let warped_yvar_view = warped_yvar.as_ref().map(|v| v.view());
-                self.backend
+                self.store
                     .append_rows(x, &warped_y.view(), warped_yvar_view.as_ref())?;
                 accumulate_columns(&mut self.y_sum, &mut self.y_sumsq, warped_y.view());
             } else {
-                self.backend.append_rows(x, y, yvar)?;
+                self.store.append_rows(x, y, yvar)?;
                 accumulate_columns(&mut self.y_sum, &mut self.y_sumsq, y.view());
             }
-            let n = self.backend.len();
+            let n = self.store.len();
             self.y_scale = scale_moments(n, self.num_metrics, &self.y_sum, &self.y_sumsq, 0.0);
 
             if self.scale_x && self.metric.is_none() {
                 accumulate_columns(&mut self.x_sum, &mut self.x_sumsq, x.view());
                 self.x_scale = scale_moments(n, self.num_dim, &self.x_sum, &self.x_sumsq, 1e-12);
-                self.backend.mark_stale();
+                self.store.mark_stale();
             }
 
             self.num_obs = n;
@@ -384,13 +384,13 @@ impl ENN {
     /// Schedule a background index flush when pending rows exceed the disk
     /// threshold.
     pub fn schedule_flush(&self) -> Result<(), ENNError> {
-        self.backend.schedule_flush()
+        self.store.schedule_flush()
     }
 
     /// Merge in-memory index fragments and persist a single on-disk BPANN
     /// index.
     pub fn persist_index(&self) -> Result<(), ENNError> {
-        crate::backend::enn_index(&self.backend)?;
+        crate::store::enn_index(&self.store)?;
         self.y_metadata()
     }
 
@@ -464,10 +464,10 @@ impl ENN {
         if search_k == 0 {
             return Ok(Array2::zeros((x.nrows(), 0)));
         }
-        if !self.backend.defers_search() {
+        if !self.store.defers_search() {
             self.ensure_sync()?;
         }
-        let (_, idx_full) = self.backend.search(x, search_k as i32, exclude_nearest)?;
+        let (_, idx_full) = self.store.search(x, search_k as i32, exclude_nearest)?;
         let k_out = (k as usize).min(idx_full.ncols());
         let mut result = Array2::zeros((x.nrows(), k_out));
         for i in 0..x.nrows() {
@@ -478,28 +478,28 @@ impl ENN {
         Ok(result)
     }
 
-    pub(crate) fn backend_driver(&self) -> IndexDriver {
-        self.backend.driver()
+    pub(crate) fn index_driver(&self) -> IndexDriver {
+        self.store.driver()
     }
 
     pub(crate) fn y_opt(&self) -> Option<ndarray::ArrayView2<'_, f64>> {
-        self.backend.y_view()
+        self.store.y_view()
     }
 
     pub(crate) fn x_opt(&self) -> Option<ndarray::ArrayView2<'_, f64>> {
-        self.backend.x_view()
+        self.store.x_view()
     }
 
-    pub(crate) fn backend_search(
+    pub(crate) fn search_index(
         &self,
         x: &ArrayView2<f64>,
         search_k: i32,
         exclude_nearest: bool,
     ) -> Result<(Array2<f64>, Array2<i64>), ENNError> {
-        if !self.backend.defers_search() {
+        if !self.store.defers_search() {
             self.ensure_sync()?;
         }
-        self.backend.search(x, search_k, exclude_nearest)
+        self.store.search(x, search_k, exclude_nearest)
     }
 }
 
@@ -526,18 +526,18 @@ fn warp_training(
     Ok(result)
 }
 
-/// Rebuild observation count and scale moments from persisted backend rows
+/// Rebuild observation count and scale moments from persisted store rows
 /// (disk reopen).
-fn sync_backend(model: &mut ENN) -> Result<(), ENNError> {
-    model.num_dim = model.backend.num_dim();
-    model.num_metrics = model.backend.num_metrics();
-    let n = model.backend.len();
+fn sync_store(model: &mut ENN) -> Result<(), ENNError> {
+    model.num_dim = model.store.num_dim();
+    model.num_metrics = model.store.num_metrics();
+    let n = model.store.len();
     model.num_obs = n;
     if n == 0 {
         return Ok(());
     }
     let indices: Vec<usize> = (0..n).collect();
-    let (x, y, _) = model.backend.train_rows(&indices)?;
+    let (x, y, _) = model.store.train_rows(&indices)?;
     let (y_sum, y_sumsq) = column_sumsq(y.view());
     model.y_sum = y_sum;
     model.y_sumsq = y_sumsq;
@@ -548,7 +548,7 @@ fn sync_backend(model: &mut ENN) -> Result<(), ENNError> {
         model.x_sumsq = x_sumsq;
         model.x_scale = scale_moments(n, model.num_dim, &model.x_sum, &model.x_sumsq, 1e-12);
     }
-    model.backend.ensure_sync(model.scale_x, &model.x_scale)?;
+    model.store.ensure_sync(model.scale_x, &model.x_scale)?;
     Ok(())
 }
 
@@ -603,7 +603,7 @@ pub(crate) fn scale_moments(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::backend::row_storage::RowStorage;
+    use crate::store::row_storage::RowStorage;
     use ndarray::array;
     use tempfile::TempDir;
 
@@ -676,7 +676,7 @@ mod tests {
         )
         .unwrap();
         assert!(!model.scales_x());
-        assert_eq!(model.backend_driver(), IndexDriver::Exact);
+        assert_eq!(model.index_driver(), IndexDriver::Exact);
         let _ = model.x_scale();
         model
             .add(&array![[0.5, 0.5]].view(), &array![[0.5]].view(), None)

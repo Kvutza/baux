@@ -1,4 +1,5 @@
 use super::*;
+use crate::traits::Oracle;
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn validate_final(

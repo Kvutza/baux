@@ -6,9 +6,6 @@
 //! - Chunked pretrain/scoring (`ChunkMoe`: histogram/prefix/pack + GPU-driven
 //!   indirect TensorOps + combine)
 //!
-//! Weight precision is encoded in the type via [`GateWeights`] (`F16` vs `I8`),
-//! eliminating raw `/ 2` byte-offset arithmetic at call sites.
-//!
 //! Bridges both configurations under the unified [`MoeSublayer`] enum and
 //! typed state buffer handle [`MoeBuffers`].
 
@@ -17,40 +14,15 @@ use metal::{ComputeCommandEncoderRef, ComputePipelineState};
 use crate::fbt_moe::MoeShape;
 use crate::nn::linear::Linear;
 use crate::nn::{EXPERT_WIDTH, ROUTED_EXPERTS, Rows, WIDTH};
-use crate::tensor::{Dispatch, F16, F32, Fence, I8, Out, U32, View};
+use crate::tensor::{Dispatch, F16, F32, Fence, Out, U32, View};
 
 const GATE_WIDTH: u32 = baux::semantics::shape::GATE_WIDTH as u32;
-
-/// Algebraic representation of layer-stacked gate-up expert weights (`F16` or
-/// quantized `I8`).
-#[derive(Clone, Copy)]
-pub(crate) enum GateWeights<'a> {
-    F16(View<'a, F16>),
-    I8(View<'a, I8>),
-}
-
-impl<'a> GateWeights<'a> {
-    /// Return `(buffer, byte_offset)` for `layer` without manual `/ 2` scaling.
-    #[inline(always)]
-    pub(crate) fn layer_binding(self, layer: u32) -> (&'a metal::BufferRef, u64) {
-        match self {
-            Self::F16(view) => {
-                let row = view.row(layer);
-                (row.buffer(), row.offset())
-            }
-            Self::I8(view) => {
-                let row = view.row(layer);
-                (row.buffer(), row.offset())
-            }
-        }
-    }
-}
 
 /// Layer-stacked MoE FFN parameters across `MODEL_LAYERS`.
 #[derive(Clone, Copy)]
 pub(crate) struct Weights<'a> {
     pub(crate) router: View<'a, F16>,
-    pub(crate) gate_up: GateWeights<'a>,
+    pub(crate) gate_up: View<'a, F16>,
     pub(crate) down: View<'a, F16>,
 }
 
@@ -122,14 +94,14 @@ impl<'a> ChunkMoe<'a> {
         layer: u32,
         input: View<'_, F16>,
     ) -> Result<(), String> {
-        let (gate_buf, gate_offset) = self.weights.gate_up.layer_binding(layer);
+        let gate = self.weights.gate_up.row(layer);
         self.pipelines.gate_rows(
             encoder,
             self.buffers,
             input.buffer(),
             input.offset(),
-            gate_buf,
-            gate_offset,
+            gate.buffer(),
+            gate.offset(),
             self.rows,
         )
     }
@@ -247,8 +219,8 @@ impl<'a> StepMoe<'a> {
         layer: u32,
         input: View<'_, F16>,
     ) {
-        let (gate_buf, gate_offset) = self.weights.gate_up.layer_binding(layer);
-        let gate_weight = View::slice(gate_buf, gate_offset, WIDTH, GATE_WIDTH);
+        let gate = self.weights.gate_up.row(layer);
+        let gate_weight = View::slice(gate.buffer(), gate.offset(), WIDTH, GATE_WIDTH);
         self.kernels
             .linear
             .forward_vector(encoder, input, gate_weight, self.state.gate.out());

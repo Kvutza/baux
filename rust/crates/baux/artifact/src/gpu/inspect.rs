@@ -48,7 +48,7 @@ impl HazardCounts {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct KernelEvidence {
     pub name: String,
-    pub backend: String,
+    pub device_kind: String,
     pub target: String,
     pub layer: String,
     pub code_bytes: u64,
@@ -64,7 +64,7 @@ impl KernelEvidence {
     pub fn to_json(&self) -> Value {
         json!({
             "name": self.name,
-            "backend": self.backend,
+            "device_kind": self.device_kind,
             "target": self.target,
             "layer": self.layer,
             "code_bytes": self.code_bytes,
@@ -186,9 +186,9 @@ fn summarize_kernels(kernels: &[KernelEvidence], filter: Option<&str>) -> (Value
 }
 
 fn merge_kernel(map: &mut BTreeMap<String, KernelEvidence>, incoming: KernelEvidence) {
-    let key = format!("{}:{}", incoming.backend, incoming.name);
+    let key = format!("{}:{}", incoming.device_kind, incoming.name);
     if let Some(existing) = map.get_mut(&key) {
-        if incoming.layer == "native-binary" {
+        if incoming.layer == "device-binary" {
             existing.target = incoming.target;
             existing.layer = incoming.layer;
             existing.code_bytes = incoming.code_bytes;
@@ -219,17 +219,17 @@ pub fn diff_directories(before_path: &Path, after_path: &Path) -> Result<Value, 
 
     let mut b_map = BTreeMap::<String, &KernelEvidence>::new();
     for k in &before {
-        b_map.insert(format!("{}:{}", k.backend, k.name), k);
+        b_map.insert(format!("{}:{}", k.device_kind, k.name), k);
     }
     let mut changed = Vec::new();
     for a in &after {
-        let key = format!("{}:{}", a.backend, a.name);
+        let key = format!("{}:{}", a.device_kind, a.name);
         if let Some(&b) = b_map.get(&key)
             && b != a
         {
             changed.push(json!({
                 "name": a.name.clone(),
-                "backend": a.backend.clone(),
+                "device_kind": a.device_kind.clone(),
                 "target": a.target.clone(),
                 "insns_before": b.static_insns,
                 "insns_after": a.static_insns,

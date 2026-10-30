@@ -97,7 +97,7 @@ pub(crate) fn parse_vector(path: &Path, tasks: usize) -> Result<RewardResult, St
     validate_vector(vector, tasks)
 }
 
-pub(crate) fn native_vector(
+pub(crate) fn objective_vector(
     rewards: Vec<f32>,
     objectives: &[Vec<f32>],
     names: &[&str],
@@ -111,7 +111,7 @@ pub(crate) fn native_vector(
         || names.len() != objectives.len()
         || names.iter().any(|name| name.trim().is_empty())
     {
-        return Err("native vector reward requires aligned finite task observations".into());
+        return Err("objective vector requires aligned finite task observations".into());
     }
     let estimate = |values: &[f32]| {
         let (mean, variance) = if values.len() > 1 {
@@ -212,8 +212,8 @@ mod tests {
     }
 
     #[test]
-    fn native_objectives() {
-        let mut result = native_vector(
+    fn objective_channels() {
+        let mut result = objective_vector(
             vec![0.25, 0.75],
             &[vec![-2.0, -1.0], vec![0.25, 0.75]],
             &["likelihood", "quality"],
@@ -230,6 +230,6 @@ mod tests {
         assert!(!control.is_vector());
         assert_eq!(control.control().mean, 0.5);
         assert_eq!(control.control().variance, 0.125);
-        assert!(native_vector(vec![0.0], &[vec![0.0], Vec::new()], &["a", "b"]).is_err());
+        assert!(objective_vector(vec![0.0], &[vec![0.0], Vec::new()], &["a", "b"]).is_err());
     }
 }

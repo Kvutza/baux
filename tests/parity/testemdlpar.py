@@ -17,7 +17,7 @@ pytestmark = pytest.mark.skipif(not RUST_AVAILABLE, reason="Rust not available")
 
 
 def test_001():
-    """Public API posterior matches Rust implementation (via backend delegation)."""
+    """Public interface posterior matches the Rust implementation."""
     train_x = np.array([[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [1.0, 1.0]], dtype=float)
     train_y = np.array([[0.0], [1.0], [1.0], [2.0]], dtype=float)
     query = np.array([[0.5, 0.5]], dtype=float)

@@ -1,7 +1,7 @@
 use ndarray::{Array1, Array2, ArrayView2, Axis};
 
 pub use crate::error::IndexError;
-use crate::knn::KnnBackend;
+use crate::knn::NeighborIndexImpl;
 #[cfg(all(target_os = "linux", target_arch = "x86_64", feature = "cuda"))]
 use crate::knn::{CudaParam, KnnBatch, KnnPosterior};
 pub use crate::knn::{IndexDriver, disk_driver};
@@ -9,7 +9,7 @@ pub use crate::knn::{IndexDriver, disk_driver};
 use std::sync::Mutex;
 
 pub struct ENNIndex {
-    pub(crate) inner: KnnBackend,
+    pub(crate) inner: NeighborIndexImpl,
     num_dim: usize,
     x_scale: Mutex<Array1<f64>>,
     scale_x: bool,
@@ -24,7 +24,7 @@ impl ENNIndex {
         scale_x: bool,
         driver: IndexDriver,
     ) -> Result<Self, IndexError> {
-        let inner = KnnBackend::new(num_dim, driver, &train_x_scaled.view())?;
+        let inner = NeighborIndexImpl::new(num_dim, driver, &train_x_scaled.view())?;
         Ok(Self {
             inner,
             num_dim,
@@ -545,7 +545,7 @@ mod tests {
         run_regression(|train_x| index_unit(train_x, IndexDriver::Exact));
     }
 
-    #[cfg(any(feature = "usearch", feature = "usearch-native"))]
+    #[cfg(any(feature = "usearch", feature = "usearch-c-api"))]
     #[test]
     fn test_008() {
         let index = index_unit(

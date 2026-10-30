@@ -1,6 +1,6 @@
-"""BoTorch integration using BAUX's native, correlated function draws.
+"""BoTorch integration using BAUX's correlated function draws.
 
-GPU queries use the matching native CUDA/Metal posterior and DLPack arrays.
+GPU queries use the matching CUDA/Metal posterior and DLPack arrays.
 CPU queries use the original host-array interface. Explicit compatibility mode
 ``allow_host_transfer=True`` permits the host-array path for GPU queries.
 """
@@ -97,7 +97,7 @@ class Model(BaseModel):
 
 
 class Posterior(BasePosterior):
-    """Native marginals and joint draws with one function seed per MC sample."""
+    """Device marginals and joint draws with one function seed per MC sample."""
 
     def __init__(self, enn, params, queries, indices, noise, *, allow_host_transfer):
         self._enn = enn
@@ -109,7 +109,7 @@ class Posterior(BasePosterior):
         self._device = queries.device
         self._allow_host_transfer = allow_host_transfer
         self._shape = queries.shape[:-1] + torch.Size([len(indices)])
-        self._native = None
+        self._device_posterior = None
         if queries.device.type != "cpu" and not allow_host_transfer:
             device_queries = (
                 queries.detach()
@@ -119,16 +119,16 @@ class Posterior(BasePosterior):
             )
             if not torch.isfinite(device_queries).all():
                 raise ValueError("device queries must be representable as finite FP32")
-            self._native = enn.device_posterior(
+            self._device_posterior = enn.device_posterior(
                 device_queries, params, flags=self._flags
             )
             self._mean = (
-                torch.from_dlpack(self._native.mean)
+                torch.from_dlpack(self._device_posterior.mean)
                 .to(dtype=self.dtype)[..., indices]
                 .reshape(self._shape)
             )
             self._variance = (
-                torch.from_dlpack(self._native.se)
+                torch.from_dlpack(self._device_posterior.se)
                 .to(dtype=self.dtype)
                 .square()[..., indices]
                 .reshape(self._shape)
@@ -205,10 +205,12 @@ class Posterior(BasePosterior):
                 dtype=self.dtype,
                 device=self._device,
             )
-        if self._native is not None:
+        if self._device_posterior is not None:
             # Function seeds are small host metadata, never query/parameter rows.
-            native = self._native.draw(base_samples.detach().reshape(-1).tolist())
-            values = torch.from_dlpack(native).to(dtype=self.dtype)
+            draw = self._device_posterior.draw(
+                base_samples.detach().reshape(-1).tolist()
+            )
+            values = torch.from_dlpack(draw).to(dtype=self.dtype)
             values = values.reshape(
                 sample_shape + self._shape[:-1] + torch.Size([self._enn.num_outputs])
             )
@@ -226,7 +228,7 @@ class Posterior(BasePosterior):
 
 
 class Sampler(MCSampler):
-    """Reuse native function seeds across candidates and acquisition evaluations."""
+    """Reuse function seeds across candidates and acquisition evaluations."""
 
     def __init__(self, sample_shape: torch.Size, seed: int | None = None):
         super().__init__(sample_shape, seed)

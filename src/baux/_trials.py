@@ -51,7 +51,7 @@ class Space:
 class Loop:
     """Retain a live optimizer; ingest each completed observation exactly once.
 
-    Reconstructing this object from observations is a warm restart, not a native
+    Reconstructing this object from observations is a warm restart, not an in-place
     optimizer checkpoint. Trial managers must have a single generating process.
     """
 

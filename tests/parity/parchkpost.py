@@ -22,7 +22,7 @@ def _recordcase(
             endpoint=endpoint,
             passed=bool(passed),
             error=error,
-            backend="rust_vs_python",
+            implementation="rust_vs_python",
         )
     )
     if passed:
@@ -47,7 +47,7 @@ def run_simple(report: ParityReport) -> None:
                 endpoint="ENN.posterior",
                 passed=False,
                 error="Rust not available",
-                backend="rust_vs_python",
+                implementation="rust_vs_python",
             )
         )
         report.skipped += 1
@@ -74,7 +74,7 @@ def run_simple(report: ParityReport) -> None:
                 endpoint="ENN.posterior",
                 passed=False,
                 error=str(e),
-                backend="rust_vs_python",
+                implementation="rust_vs_python",
             )
         )
         report.failed += 1
@@ -98,7 +98,7 @@ def run_simple(report: ParityReport) -> None:
                 endpoint="ENN.posterior",
                 passed=False,
                 error=str(e),
-                backend="rust_vs_python",
+                implementation="rust_vs_python",
             )
         )
         report.failed += 1
@@ -133,7 +133,7 @@ def run_noise(report: ParityReport) -> None:
                 endpoint="ENN.posterior",
                 passed=False,
                 error="Rust not available",
-                backend="rust_vs_python",
+                implementation="rust_vs_python",
             )
         )
         report.skipped += 1
@@ -161,7 +161,7 @@ def run_noise(report: ParityReport) -> None:
                 endpoint="ENN.posterior",
                 passed=False,
                 error=str(e),
-                backend="rust_vs_python",
+                implementation="rust_vs_python",
             )
         )
         report.failed += 1
@@ -187,7 +187,7 @@ def run_noise(report: ParityReport) -> None:
                 endpoint="ENN.posterior",
                 passed=False,
                 error=str(e),
-                backend="rust_vs_python",
+                implementation="rust_vs_python",
             )
         )
         report.failed += 1

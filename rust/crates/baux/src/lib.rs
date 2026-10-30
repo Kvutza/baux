@@ -1,7 +1,7 @@
 //! Core neighbor-surrogate optimization algorithms in Rust.
 //!
 //! This crate owns the optimizer semantics shared by the Python API and the
-//! accelerator backends.
+//! accelerator execution targets.
 
 #![allow(clippy::pedantic, clippy::nursery, clippy::cargo)]
 
@@ -15,10 +15,10 @@ mod apple_gpu;
 #[path = "../artifact/src/lib.rs"]
 pub mod artifact;
 pub use artifact as baux_artifact;
-pub mod backend;
 pub mod base_policy;
 #[path = "../neighbor-index/src/lib.rs"]
 pub mod baux_neighbor_index;
+pub mod store;
 pub use baux_neighbor_index as neighbor_index;
 #[cfg(all(feature = "cuda", target_os = "linux", target_arch = "x86_64"))]
 #[allow(dead_code)]
@@ -31,10 +31,10 @@ pub use baux::semantics::optimizer::calibration;
 pub mod calibrator;
 pub mod candidates;
 mod candidates_fast;
-// Compile and execute the backend-independent CUDA mHC4 controller tests on
+// Compile and execute the target-independent CUDA mHC4 controller tests on
 // Metal development hosts too. CUDA device kernels remain NVIDIA-only, while
 // streams, posterior updates, ENN fitting, acceptance, and radius trajectories
-// are verified in the ordinary cross-backend test suite.
+// are verified in the ordinary cross-target test suite.
 pub mod capability;
 #[cfg(any(
     test,
@@ -42,6 +42,7 @@ pub mod capability;
 ))]
 mod code_overlap;
 pub mod coding_outcome;
+mod compute;
 pub mod config;
 mod coordinate;
 mod coordinate_flat;
@@ -83,13 +84,8 @@ mod fbt_pisa1_grad;
 pub mod file_config;
 pub mod fit;
 pub mod fitter;
-#[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "metal"))]
-mod flame_metal;
-#[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "metal"))]
-mod forward_metal;
 #[allow(dead_code)]
 mod forward_program;
-mod forward_weights;
 pub mod hash;
 #[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "metal"))]
 pub mod hnet_metal;
@@ -125,7 +121,6 @@ pub mod prelude;
 mod pretrain_data;
 pub mod procedural_pool;
 pub mod proposal_kernel;
-mod quantization;
 #[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "metal"))]
 mod qwen_metal;
 #[cfg(any(test, all(target_os = "macos", feature = "metal")))]
@@ -162,8 +157,6 @@ pub use agent_contract::{
     AGENT_SCHEMA, AgentMessage, AgentTranscript, AssistantSegment, DataSplit, EpisodeTermination,
     TaskProvenance,
 };
-pub use backend::DiskBpannEnnBackend;
-pub use backend::{EnnBackend, EnnStorage, InMemoryEnnBackend};
 pub use base_policy::{BasePolicyManifest, POLICY_SCHEMA, PolicyQualification};
 pub use calibrator::{
     AffineCalibrator, CalibrationMode, Calibrator, PosteriorCalibrator, ScaleCalibrator,
@@ -174,7 +167,7 @@ pub use candidates::{
     generate_uniform, sobol_masked, sobol_sequence, to_unit,
 };
 pub use capability::{
-    Backend, Capability, Operation, Support, backends, matrix, operations, support,
+    Capability, ExecutionTarget, Operation, Support, execution_targets, matrix, operations, support,
 };
 pub use coding_outcome::{
     CODING_SCHEMA, CandidateEfficiency, CandidateEligibility, CodingOutcome, ExecutableChecks,
@@ -210,6 +203,8 @@ pub use reliability_region::{
     ReliabilityTelemetry,
 };
 pub use stats::WeightedStats;
+pub use store::DiskBpannStore;
+pub use store::{EnnStorage, EnnStore, MemoryEnnStore};
 pub use strategy::Strategy;
 pub use surrogate::{
     ENNSurrogate, ENNSurrogateConfig, MetricLearning, Surrogate, SurrogatePrediction,

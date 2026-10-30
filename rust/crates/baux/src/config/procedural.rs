@@ -1,5 +1,5 @@
-//! Validate logical pool requests before a backend can silently reinterpret
-//! them.
+//! Validate logical pool requests before an implementation can silently
+//! reinterpret them.
 use super::RunConfig;
 use crate::procedural_pool::ProceduralPool;
 

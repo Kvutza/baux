@@ -1,4 +1,4 @@
-//! Shared host/device ABI for native Muon and AdamW updates.
+//! Shared host/device ABI for Muon and AdamW updates.
 //!
 //! Imported as a crate dependency by both host and device implementations.
 

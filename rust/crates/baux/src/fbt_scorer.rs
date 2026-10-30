@@ -565,7 +565,6 @@ impl Scorer<'_> {
     }
 
     fn encode_hidden(&self) -> Result<(), String> {
-        self.prepare_gateup()?;
         self.start_stage("embed")?;
         self.embed()?;
         let mut input: &BufferRef = &self.buffers.input;
@@ -631,7 +630,6 @@ impl Scorer<'_> {
     }
 
     pub(super) fn encode_to(&self, target: ReplaySite) -> Result<(), String> {
-        self.prepare_gateup()?;
         self.embed()?;
         for step in self.weights.architecture.layer_steps() {
             self.mhc_attention(step.layer, step.execution)?;
@@ -644,34 +642,6 @@ impl Scorer<'_> {
             }
         }
         Err("training replay target is outside the recurrent core".into())
-    }
-
-    fn prepare_gateup(&self) -> Result<(), String> {
-        let fine = &self.pipelines.fine_grained;
-        if !fine.int8_gate()
-            || (self.row_start > 0 && self.buffers.quantized_gateup.get().is_some())
-        {
-            return Ok(());
-        }
-        let pipeline = &self.pipelines.quantize_gate_up_int8;
-        let output = self.buffers.quantized_gateup()?;
-        self.start_stage("quantize_gate")?;
-        let elements = u64::from(MODEL_LAYERS) * routing::GATE_PARAMETERS as u64;
-        let encoder = self.active_encoder();
-        encoder.set_compute_pipeline_state(pipeline);
-        encoder.set_buffer(0, Some(self.weights.buffer), self.weights.gate_up);
-        encoder.set_buffer(1, Some(output), 0);
-        encoder.set_bytes(
-            2,
-            std::mem::size_of_val(&elements) as u64,
-            (&elements as *const u64).cast(),
-        );
-        encoder.dispatch_threads(
-            thread_group(elements),
-            thread_group(pipeline.max_total_threads_per_threadgroup().min(256)),
-        );
-        encoder.memory_barrier_with_resources(&[output]);
-        Ok(())
     }
 
     fn attention(&self, layer: u32, execution: u32) -> Result<(), String> {

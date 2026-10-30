@@ -241,7 +241,6 @@ impl Pipelines {
             fine_grained_grad: std::cell::OnceCell::new(),
             mhc_grad: std::cell::OnceCell::new(),
             train_grad: std::cell::OnceCell::new(),
-            quantize_gate_up_int8: utility("fbt_quantize_gate_up_int8")?,
             gate: utility("fbt_moe_balanced_gate")?,
             group: utility("fbt_moe_group_balanced")?,
             swiglu: utility("fbt_moe_swiglu")?,

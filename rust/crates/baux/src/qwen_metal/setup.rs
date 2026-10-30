@@ -1,16 +1,14 @@
 use super::*;
 
 impl QwenEvaluator {
-    pub(crate) fn new_backend(max_tokens: u32, backend: &str, tile_attn: bool) -> Result<Self> {
-        let mode = match backend {
+    pub(crate) fn new_mode(max_tokens: u32, mode: &str, tile_attn: bool) -> Result<Self> {
+        let mode = match mode {
             "reference" => MpsMode::Off,
             "fp32" => MpsMode::F32,
             "fp16" => MpsMode::F16,
-            _ => return Err("Qwen backend must be reference, fp32, or fp16".into()),
+            _ => return Err("Qwen mode must be reference, fp32, or fp16".into()),
         };
-        autoreleasepool(|| {
-            Self::backend_options(QwenConfig::default(), max_tokens, mode, tile_attn)
-        })
+        autoreleasepool(|| Self::mode_options(QwenConfig::default(), max_tokens, mode, tile_attn))
     }
 
     pub fn new(max_tokens: u32) -> Result<Self> {
@@ -22,15 +20,15 @@ impl QwenEvaluator {
     }
 
     pub(super) fn with_config(config: QwenConfig, max_tokens: u32) -> Result<Self> {
-        Self::with_backend(config, max_tokens, mps_mode()?)
+        Self::with_mode(config, max_tokens, mps_mode()?)
     }
 
-    pub(super) fn with_backend(config: QwenConfig, max_tokens: u32, mode: MpsMode) -> Result<Self> {
+    pub(super) fn with_mode(config: QwenConfig, max_tokens: u32, mode: MpsMode) -> Result<Self> {
         let tile_attn = std::env::var_os("BAUX_QWEN_TILE_ATTN").is_some();
-        Self::backend_options(config, max_tokens, mode, tile_attn)
+        Self::mode_options(config, max_tokens, mode, tile_attn)
     }
 
-    pub(super) fn backend_options(
+    pub(super) fn mode_options(
         config: QwenConfig,
         max_tokens: u32,
         mode: MpsMode,
@@ -358,7 +356,7 @@ fn mps_storage(
 fn compile_pipelines(runtime: &Runtime) -> Result<BTreeMap<&'static str, ComputePipelineState>> {
     let mut pipelines = BTreeMap::new();
     for name in [
-        "flame_linear",
+        "qwen_linear",
         "qwen_widen",
         "qwen_bf16_f16",
         "qwen_f32_to_f16",
@@ -368,10 +366,10 @@ fn compile_pipelines(runtime: &Runtime) -> Result<BTreeMap<&'static str, Compute
         "qwen_mlp_rows",
         "qwen_simd_gemm",
         "qwen_qkv",
-        "flame_matmul",
-        "flame_softmax",
-        "flame_xent",
-        "flame_mean",
+        "qwen_matmul",
+        "qwen_softmax",
+        "qwen_cross_entropy",
+        "qwen_loss_mean",
         "qwen_embedding",
         "qwen_rms",
         "qwen_bias",

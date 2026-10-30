@@ -19,11 +19,11 @@ use metal::{
 
 use crate::ProposalKernel;
 use crate::apple_gpu::Runtime;
+use crate::compute::AcquisitionKind;
 use crate::fitter::ENNFitter;
 use crate::reliability_region;
 use crate::trials::RoundConfig;
 use crate::trust_region::{TRLengthConfig, TrustRegionOutcome, TurboTrustRegion};
-use crate::weights::AcquisitionKind;
 
 const SOURCE: &str = include_str!("resident_search.metal");
 #[path = "resident_metal/configuration.rs"]
@@ -244,12 +244,12 @@ impl Proposals {
     }
 
     /// Logical perturbation identity. This does not identify a resident model
-    /// buffer; only the selected proposal is materialized by the backend.
+    /// buffer; only the selected proposal is materialized by the Metal path.
     pub fn identity(&self) -> crate::procedural_pool::CandidateIdentity {
         self.pool_layout.identity(self.index as u32).unwrap()
     }
 
-    /// Describe the realized, quantized displacement selected for evaluation.
+    /// Describe the realized displacement selected for evaluation.
     /// This is measurement metadata; it does not replace the full-state metric
     /// used by the resident neighbor value estimator.
     pub fn measure(

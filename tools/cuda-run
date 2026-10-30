@@ -33,7 +33,6 @@ case "$cuda_arch" in
     sm_75|sm_80|sm_90a) ;;
     *) echo "baux cuda: BAUX_CUDA_ARCH must be sm_75, sm_80, or sm_90a" >&2; exit 2 ;;
 esac
-export BAUX_FLAME_CUDA_ARCH=${BAUX_FLAME_CUDA_ARCH:-$cuda_arch}
 
 cd "$repo_dir/backends/cuda"
 target_dir=${CARGO_TARGET_DIR:-"$repo_dir/target"}

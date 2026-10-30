@@ -1,4 +1,4 @@
-"""Integration parity for the native corpus reader and the Python reference."""
+"""Integration parity for the Rust corpus reader and the Python reference."""
 
 from itertools import product
 from dataclasses import asdict
@@ -83,7 +83,7 @@ def job(tmp_path, paths, targets):
         for case_0, case_1 in product([256, pretrain.MAX_REPOSITORY_CHARS], [1, 64])
     ],
 )
-def test_native(tmp_path, monkeypatch, row_group, repository_limit):
+def test_rustreader(tmp_path, monkeypatch, row_group, repository_limit):
     monkeypatch.setattr(pretrain, "MAX_REPOSITORY_CHARS", repository_limit)
     rows = records()
     rows += [

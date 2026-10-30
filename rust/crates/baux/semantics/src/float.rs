@@ -28,7 +28,7 @@ pub const PI_DOUBLE: u64 = 0x4009_21fb_5444_2d18; // 3.141592653589793
 pub const INF_DOUBLE: u64 = 0x7ff0_0000_0000_0000;
 pub const NAN_DOUBLE: u64 = 0x7ff8_0000_0000_0000;
 
-// --- Bit decompositions and native conversions ---
+// --- Bit decompositions and primitive conversions ---
 
 #[path = "float/bits.rs"]
 mod bits;
@@ -118,7 +118,7 @@ pub fn double_order(bits: u64) -> u64 {
     }
 }
 
-// --- Strict comparisons matching IEEE-754 and Rust native floats ---
+// --- Strict comparisons matching IEEE-754 and Rust primitive floats ---
 
 #[inline(always)]
 pub fn single_lt(x: u32, y: u32) -> bool {
@@ -288,25 +288,25 @@ pub fn to_single(bits: u64) -> u32 {
     (f64::from_bits(bits) as f32).to_bits()
 }
 
-/// Native IEEE-754 binary32 from raw bits.
+/// Rust IEEE-754 binary32 from raw bits.
 #[inline(always)]
 pub fn single_from(bits: u32) -> f32 {
     f32::from_bits(bits)
 }
 
-/// Raw bits from native IEEE-754 binary32.
+/// Raw bits from Rust IEEE-754 binary32.
 #[inline(always)]
 pub fn single_bits(val: f32) -> u32 {
     val.to_bits()
 }
 
-/// Native IEEE-754 binary64 from raw bits.
+/// Rust IEEE-754 binary64 from raw bits.
 #[inline(always)]
 pub fn double_from(bits: u64) -> f64 {
     f64::from_bits(bits)
 }
 
-/// Raw bits from native IEEE-754 binary64.
+/// Raw bits from Rust IEEE-754 binary64.
 #[inline(always)]
 pub fn double_bits(val: f64) -> u64 {
     val.to_bits()

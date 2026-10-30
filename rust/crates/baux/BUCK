@@ -16,44 +16,6 @@ _BAUX_RUST_SRCS = glob([
     "artifact/src/**/*.rs",
 ])
 
-cxx_binary(
-    name = "region-arithmetic",
-    srcs = ["tests/region_math.cpp"],
-    headers = {"arithmetic.cl": "src/search/arithmetic.cl"},
-    header_namespace = "",
-    compiler_flags = ["-std=c++17", "-ffp-contract=off"],
-)
-
-sh_test(
-    name = "region-math",
-    test = ":region-arithmetic",
-    visibility = ["PUBLIC"],
-)
-
-rust_test(
-    name = "region-opencl",
-    srcs = _BAUX_RUST_SRCS + ["//experiments:specs"],
-    crate = "baux",
-    crate_root = "src/lib.rs",
-    edition = RUST_EDITION,
-    features = ["buck2-test-data", "opencl", "usearch-native"],
-    visibility = ["PUBLIC"],
-    deps = BAUX_BUCK_TEST_DEPS + [
-        "//rust:opencl3",
-        ":usearch-bridge",
-    ] + select({
-        "//:linux-arm64": [],
-        "//:linux-x86_64": [],
-        "//:macos-arm64": [
-            "//build/buck2/native:openmp-macos",
-            "//rust:metal",
-        ],
-    }),
-    rpath = True,
-    run_env = {"RUST_TEST_THREADS": "1"},
-    runtime_dependency_handling = "symlink",
-)
-
 filegroup(
     name = "baux-source",
     srcs = glob([
@@ -98,9 +60,9 @@ app_rust_library(
     crate_root = "src/lib.rs",
     edition = RUST_EDITION,
     features = select({
-        "//:linux-arm64": ["opencl", "usearch-native"],
-        "//:linux-x86_64": ["opencl", "usearch-native"],
-        "//:macos-arm64": ["metal", "usearch-native"],
+        "//:linux-arm64": ["opencl", "usearch-c-api"],
+        "//:linux-x86_64": ["opencl", "usearch-c-api"],
+        "//:macos-arm64": ["metal", "usearch-c-api"],
     }),
     visibility = ["PUBLIC"],
     deps = BAUX_BUCK_DEPS + [
@@ -119,9 +81,9 @@ rust_test(
     crate_root = "src/lib.rs",
     edition = RUST_EDITION,
     features = select({
-        "//:linux-arm64": ["buck2-test-data", "opencl", "usearch-native"],
-        "//:linux-x86_64": ["buck2-test-data", "opencl", "usearch-native"],
-        "//:macos-arm64": ["buck2-test-data", "metal", "usearch-native"],
+        "//:linux-arm64": ["buck2-test-data", "opencl", "usearch-c-api"],
+        "//:linux-x86_64": ["buck2-test-data", "opencl", "usearch-c-api"],
+        "//:macos-arm64": ["buck2-test-data", "metal", "usearch-c-api"],
     }),
     visibility = ["//build/buck2/tests:all"],
     deps = BAUX_BUCK_TEST_DEPS + [
@@ -149,7 +111,7 @@ app_rust_library(
     edition = RUST_EDITION,
     features = [
         "metal",
-        "usearch-native",
+        "usearch-c-api",
     ],
     deps = BAUX_BUCK_DEPS + [
         ":usearch-bridge",
@@ -168,8 +130,8 @@ baux_program_targets(BAUX_PROGRAMS, RUST_EDITION, glob(["src/**/*.rs", "semantic
         crate_root = source,
         edition = RUST_EDITION,
         features = select({
-            "//:macos-arm64": ["metal", "usearch-native"],
-            "DEFAULT": ["opencl", "usearch-native"],
+            "//:macos-arm64": ["metal", "usearch-c-api"],
+            "DEFAULT": ["opencl", "usearch-c-api"],
         }),
         deps = [
             ":baux",

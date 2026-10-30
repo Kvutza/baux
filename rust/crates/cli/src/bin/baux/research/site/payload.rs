@@ -1,4 +1,4 @@
-use crate::research::site::{LeanModuleRecord, lean_files, shared_path};
+use crate::research_site::{LeanModuleRecord, lean_files, shared_path};
 use crate::site_aeneas::extract_aeneas;
 use crate::site_lean::extract_modules;
 use crate::site_llbc::extract_llbc;

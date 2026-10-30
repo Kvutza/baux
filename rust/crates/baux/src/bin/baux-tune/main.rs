@@ -150,7 +150,8 @@ fn write_snapshot(output: &Path) -> Result<(), String> {
         }
     }
     let root = std::env::current_dir().map_err(|error| error.to_string())?;
-    let digest = baux::experimental::perf_digest(&root, baux::experimental::Backend::Metal)?;
+    let digest =
+        baux::experimental::perf_digest(&root, baux::experimental::ExecutionTarget::Metal)?;
     std::fs::write(
         output.join("performance-source.sha256"),
         format!("{digest}\n"),

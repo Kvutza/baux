@@ -47,7 +47,7 @@ pub(super) fn evaluate(
                     .ok_or("block decoder did not produce localized target loss")
             })
             .collect::<Result<Vec<_>, _>>()?;
-        return protocol::native_vector(
+        return protocol::objective_vector(
             reconstruction.clone(),
             &[likelihood, critical, reconstruction],
             &[
@@ -74,7 +74,7 @@ pub(super) fn evaluate(
             .iter()
             .map(|quality| -quality.maximum_nll)
             .collect::<Vec<_>>();
-        let mut result = protocol::native_vector(
+        let mut result = protocol::objective_vector(
             mean.clone(),
             &[mean, minimum],
             &["mean-token-log-likelihood", "minimum-token-log-likelihood"],
@@ -265,7 +265,7 @@ fn drafted(
             -(rollout.evaluated_positions as f32 / rollout.committed_tokens.max(1) as f32)
         })
         .collect::<Vec<_>>();
-    protocol::native_vector(
+    protocol::objective_vector(
         quality.clone(),
         &[quality, agreement, work],
         &[

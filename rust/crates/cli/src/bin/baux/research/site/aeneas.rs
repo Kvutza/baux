@@ -1,4 +1,4 @@
-use crate::research::site::{AeneasRecord, lean_files};
+use crate::research_site::{AeneasRecord, lean_files};
 use crate::site_lean::parse_decl;
 use std::collections::BTreeMap;
 use std::fs;

@@ -12,7 +12,15 @@ mod cli_radar;
 mod cuda_track;
 #[path = "research/extract.rs"]
 mod ext_ops;
+#[path = "radar/performance.rs"]
+mod radar_perf;
 mod research;
+#[path = "research/agy.rs"]
+mod research_agy;
+#[path = "research/gpu.rs"]
+mod research_gpu;
+#[path = "research/site.rs"]
+mod research_site;
 #[path = "research/site/aeneas.rs"]
 mod site_aeneas;
 #[path = "research/site/lean.rs"]
@@ -24,6 +32,8 @@ mod site_payload;
 #[path = "research/site/registry.rs"]
 mod site_registry;
 mod work;
+#[path = "work/store.rs"]
+mod work_store;
 
 #[derive(Parser)]
 #[command(
@@ -44,7 +54,7 @@ enum Action {
     Context(work::Context),
     /// Show task progress or record a checkpoint against the current revision.
     Feedback(work::Feedback),
-    /// Build native BAUX targets and Python distribution wheels.
+    /// Build BAUX Rust targets and Python distribution wheels.
     Build,
     /// Run the repository verification test suite.
     Test,
@@ -108,8 +118,8 @@ fn run() -> Result<(), String> {
 pub(crate) use baux_tooling::execute;
 
 fn build(root: &Path, engine: cli_cfg::BuildSystem) -> Result<(), String> {
-    println!("o|build [1/2]: building native BAUX targets...");
-    engine.build_native(root)?;
+    println!("o|build [1/2]: building BAUX Rust targets...");
+    engine.build_targets(root)?;
     println!("o|build [2/2]: building Python distribution wheels into dist/...");
     baux_tooling::build::build_dist(root, Path::new("dist"))
 }

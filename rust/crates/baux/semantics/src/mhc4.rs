@@ -1,4 +1,4 @@
-//! Native mHC-4 ABI. Imported by the CUDA host and Metal
+//! Shared mHC-4 ABI. Imported by the CUDA host and Metal
 //! dispatcher; shaders use the same repr(C) layouts and canonical row-major F16
 //! weights. Fine encoding rounds after its ordered F32 FMA sum. Decoder base
 //! and prefix remain F32; queries round to F16 before projection; logits and

@@ -33,9 +33,6 @@ pub(crate) trait Element: Copy {
     const BYTES: u64;
 }
 
-/// Signed 8-bit integer; quantized gate-up expert weights.
-#[derive(Clone, Copy)]
-pub(crate) struct I8;
 /// IEEE half; all weights and activations.
 #[derive(Clone, Copy)]
 pub(crate) struct F16;
@@ -46,9 +43,6 @@ pub(crate) struct F32;
 #[derive(Clone, Copy)]
 pub(crate) struct U32;
 
-impl Element for I8 {
-    const BYTES: u64 = 1;
-}
 impl Element for F16 {
     const BYTES: u64 = 2;
 }

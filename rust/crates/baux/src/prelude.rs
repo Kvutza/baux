@@ -1,12 +1,11 @@
 //! Curated stable Rust API surface.
 //!
-//! Lower-level native, packed-weight, and accelerator-frontier APIs live under
+//! Lower-level Rust, packed-weight, and accelerator-frontier APIs live under
 //! [`crate::experimental`].
 
 pub use crate::acquisition::{
     AcquisitionError, ParetoAcquisition, RandomAcquisition, ThompsonAcquisition, UCBAcquisition,
 };
-pub use crate::backend::EnnStorage;
 pub use crate::candidates::{
     CandidateSampler, from_unit, generate_candidates, generate_lhd, to_unit,
 };
@@ -27,6 +26,7 @@ pub use crate::optimizer_factory::{create_lhd, create_optimizer, enn_optimizer};
 pub use crate::params::{ENNNormal, ENNParams, ParamsError, PosteriorFlags};
 pub use crate::posterior::{WeightedPosteriorData, compute_internals, conditional_internals};
 pub use crate::stats::WeightedStats;
+pub use crate::store::EnnStorage;
 pub use crate::strategy::Strategy;
 pub use crate::surrogate::{ENNSurrogate, ENNSurrogateConfig, Surrogate, SurrogatePrediction};
 pub use crate::traits::PosteriorComputation;

@@ -2,214 +2,20 @@ use std::io;
 use std::time::Instant;
 
 use baux_cuda::{
-    Bf16Leaf, Bf16SearchEngine, Leaf as ResidentLeaf, MAX_HISTORY, RoundConfig as ResidentAsk,
-    Tile as ResidentTile, TrialEngine, device_target, target_name,
+    Bf16Leaf, Bf16SearchEngine, MAX_HISTORY, RoundConfig as ResidentAsk, device_target, target_name,
 };
-use baux_cuda_device::trials;
-use cuda_core::{CudaContext, DeviceBuffer};
 
-use super::main_parity::pair_parity;
 use super::*;
 
 pub(super) fn benchmark(args: &[String]) -> AppResult<()> {
-    if args.first().is_some_and(|value| value == "muon") {
-        if args.len() != 1 {
-            return Err(io::Error::other("bench muon accepts no additional arguments").into());
-        }
-        let record = baux_cuda::muon::measure().map_err(io::Error::other)?;
-        println!("{}", baux::artifact::json::pretty_string(&record)?);
-        return Ok(());
+    if args != ["muon"] {
+        return Err(io::Error::other("bench accepts only the 'muon' benchmark").into());
     }
-    let elements = parse_arg(args, 0, 16 * 1024 * 1024, "elements")?;
-    let iterations = parse_arg(args, 1, 100, "iterations")?;
-    let bits: u8 = parse_arg(args, 2, 4, "bits")?;
-    if iterations == 0 {
-        return Err(io::Error::other("iterations must be positive").into());
-    }
-    if bits != 4 && bits != 8 {
-        return Err(io::Error::other("bits must be 4 or 8").into());
-    }
-
-    let scale = if bits == 4 { 0.125 } else { 0.03125 };
-    let leaves = vec![Leaf::new(0, elements, bits, scale, 0.75)?];
-    let base = make_base(row_bytes(&leaves));
-    let context = CudaContext::new(0)?;
-    let stream = context.default_stream();
-    // SAFETY: the generated bindings load the matching embedded kernel
-    // artifact.
-    let module = unsafe { trials::load(&context) }?;
-    let base_device = DeviceBuffer::from_host(&stream, &base)?;
-    let mut output_device = DeviceBuffer::<u8>::zeroed(&stream, base.len())?;
-    let length = 0.8;
-
-    for seed in 0..5 {
-        launch_materialize(
-            &module,
-            &stream,
-            &base_device,
-            &mut output_device,
-            &leaves,
-            length,
-            seed,
-        )?;
-    }
-    stream.synchronize()?;
-
-    let event_flags = cuda_core::sys::CUevent_flags_enum_CU_EVENT_DEFAULT;
-    let start = stream.record_event(Some(event_flags))?;
-    for iteration in 0..iterations {
-        launch_materialize(
-            &module,
-            &stream,
-            &base_device,
-            &mut output_device,
-            &leaves,
-            length,
-            10_000 + iteration as u64,
-        )?;
-    }
-    let end = stream.record_event(Some(event_flags))?;
-    let total_ms = f64::from(start.elapsed_ms(&end)?);
-    let output = output_device.to_host_vec(&stream)?;
-    let final_seed = 10_000 + iterations as u64 - 1;
-    let expected = expected_row(&base, &leaves, length, final_seed)?;
-    compare_rows(&expected, &output, final_seed, length)?;
-
-    let kernel_ms = total_ms / iterations as f64;
-    let bytes = (base.len() as f64) * 2.0 * iterations as f64;
-    let gib_s = bytes / (total_ms / 1_000.0) / (1024.0 * 1024.0 * 1024.0);
-    let target = target_name(&context).map_err(io::Error::other)?;
-    println!(
-        "BENCH ok=true target={target} elements={elements} bits={bits} iterations={iterations} \
-         row_bytes={} kernel_ms={kernel_ms:.6} gib_s={gib_s:.3}",
-        base.len()
-    );
+    let record = baux_cuda::muon::measure().map_err(io::Error::other)?;
+    println!("{}", baux::artifact::json::pretty_string(&record)?);
     Ok(())
 }
 
-pub(super) fn trial_benchmark(args: &[String]) -> AppResult<()> {
-    let candidates: usize = parse_arg(args, 0, 1_024, "candidates")?;
-    let history: usize = parse_arg(args, 1, 32, "history")?;
-    let elements: usize = parse_arg(args, 2, 8_192, "elements")?;
-    let iterations: usize = parse_arg(args, 3, 50, "iterations")?;
-    bf16_args(candidates, history, elements, iterations)?;
-    let (mut engine, steps) = init_trial(history, elements)?;
-
-    let history_slots = (0..history as u32).collect::<Vec<_>>();
-    let outcomes = (0..history)
-        .map(|index| ((index.wrapping_mul(37) % 101) as f32 - 50.0) / 25.0)
-        .collect::<Vec<_>>();
-    let seeds = (0..candidates)
-        .map(|index| 0x9e37_79b9_7f4a_7c15_u64.wrapping_mul(index as u64 + 1))
-        .collect::<Vec<_>>();
-    let draws = (0..history)
-        .map(|index| ((index.wrapping_mul(29) % 97) as f32 - 48.0) / 24.0)
-        .collect::<Vec<_>>();
-    let config = ResidentAsk {
-        neighbors: history.min(8),
-        acquisition: 0,
-        epistemic_scale: 0.7,
-        aleatoric_scale: 0.05,
-        y_scale: 1.0,
-        beta: 1.2,
-        adaptive_neighbors: false,
-    };
-    engine.set_profiling(true);
-
-    for _ in 0..3 {
-        engine
-            .ask(
-                0,
-                &history_slots,
-                &outcomes,
-                history,
-                &seeds,
-                &draws,
-                &steps,
-                config,
-                true,
-            )
-            .map_err(|error| io::Error::other(format!("trial benchmark warmup: {error}")))?;
-    }
-
-    let started = Instant::now();
-    let mut totals = [0.0_f64; 4];
-    for _ in 0..iterations {
-        let (choice, score) = engine
-            .ask(
-                0,
-                &history_slots,
-                &outcomes,
-                history,
-                &seeds,
-                &draws,
-                &steps,
-                config,
-                true,
-            )
-            .map_err(|error| io::Error::other(format!("trial benchmark ask: {error}")))?;
-        if choice >= candidates || !score.is_finite() {
-            return Err(io::Error::other(format!(
-                "trial benchmark returned choice={choice}, score={score}"
-            ))
-            .into());
-        }
-        let profile = engine
-            .last_profile()
-            .ok_or_else(|| io::Error::other("trial benchmark profile was not recorded"))?;
-        totals[0] += f64::from(profile.score_ms);
-        totals[1] += f64::from(profile.pick_ms);
-        totals[2] += f64::from(profile.materialize_ms);
-        totals[3] += f64::from(profile.total_ms);
-    }
-    let wall_seconds = started.elapsed().as_secs_f64();
-    let count = iterations as f64;
-    let asks_s = count / wall_seconds;
-    let target = device_target().map_err(io::Error::other)?;
-    println!(
-        "{{\"schema\":\"baux.cuda.packed-bo-ask.v1\",\"target\":\"{target}\",\
-         \"storage\":\"packed-quantized\",\"candidates\":{candidates},\"history\":{history},\
-         \"parameter_elements\":{elements},\"iterations\":{iterations},\
-         \"proposal_score_ms\":{:.6},\"pick_ms\":{:.6},\"materialize_ms\":{:.6},\
-         \"gpu_ms\":{:.6},\"wall_ms\":{:.6},\"asks_per_second\":{asks_s:.3},\
-         \"candidates_per_second\":{:.3},\"context_tokens\":0,\"drafted_tokens\":0,\
-         \"evaluated_tokens\":0,\"repaired_tokens\":0,\"generated_tokens\":0,\
-         \"committed_tokens\":0,\"full_generation_loop\":false}}",
-        totals[0] / count,
-        totals[1] / count,
-        totals[2] / count,
-        totals[3] / count,
-        wall_seconds * 1_000.0 / count,
-        candidates as f64 * asks_s,
-    );
-    Ok(())
-}
-
-fn init_trial(history: usize, elements: usize) -> AppResult<(TrialEngine, Vec<ResidentLeaf>)> {
-    let leaves = vec![Leaf::new(0, elements, 4, 0.125, 0.75)?];
-    let steps = resident_steps(&leaves, 0.8)?;
-    let tiles = steps
-        .iter()
-        .enumerate()
-        .map(|(leaf, step)| ResidentTile {
-            leaf: leaf as u32,
-            start: 0,
-            length: step.length,
-            pad: 0,
-        })
-        .collect::<Vec<_>>();
-    let base = make_base(row_bytes(&leaves));
-    let mut engine = TrialEngine::new(&base, &steps, &tiles, history + 1)
-        .map_err(|error| io::Error::other(format!("trial benchmark init: {error}")))?;
-    for slot in 1..history {
-        engine
-            .materialize(0, slot, 0x1_0000 + slot as u64, &steps)
-            .map_err(|error| io::Error::other(format!("trial benchmark history: {error}")))?;
-    }
-    Ok((engine, steps))
-}
-
-#[derive(Debug)]
 struct Bf16Run {
     candidates: usize,
     history: usize,
@@ -252,7 +58,6 @@ pub(super) fn bf16_benchmark(args: &[String]) -> AppResult<()> {
     let elements: usize = parse_arg(args, 2, 65_536, "elements")?;
     let iterations: usize = parse_arg(args, 3, 50, "iterations")?;
     bf16_args(candidates, history, elements, iterations)?;
-    pair_parity()?;
     let run = measure_bf16(candidates, history, elements, iterations)?;
     let mut point = String::new();
     run.write_json(&mut point);
@@ -274,7 +79,6 @@ pub(super) fn bf16_curve(args: &[String]) -> AppResult<()> {
     for &elements in &ELEMENTS {
         bf16_args(candidates, history, elements, iterations)?;
     }
-    pair_parity()?;
     let mut points = String::new();
     for (index, elements) in ELEMENTS.into_iter().enumerate() {
         if index != 0 {

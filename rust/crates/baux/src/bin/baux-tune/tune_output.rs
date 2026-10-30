@@ -239,10 +239,10 @@ fn generated_record(text: &str) -> Option<String> {
 }
 
 fn display_record(text: &str) -> Option<String> {
-    native_record(text).or_else(|| legacy_record(text))
+    structured_record(text).or_else(|| legacy_record(text))
 }
 
-fn native_record(text: &str) -> Option<String> {
+fn structured_record(text: &str) -> Option<String> {
     experiment_record(text)
         .or_else(|| optimizer_record(text))
         .or_else(|| workload_record(text))
@@ -703,7 +703,7 @@ mod tests {
     use super::display_record;
 
     #[test]
-    fn native_label() {
+    fn structured_label() {
         assert!(
             display_record("generation.sample round=1 tokens=4096 reward=0.12 accepted=false")
                 .is_none()

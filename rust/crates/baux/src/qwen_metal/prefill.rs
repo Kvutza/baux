@@ -300,7 +300,7 @@ impl QwenEvaluator {
     ) -> () {
         let c = self.config;
         let rows = qwen.rows;
-        let flame = self.flame_shape(rows);
+        let attention = self.dense_shape(rows);
         let hidden_elements = rows as usize * c.hidden as usize;
         if let Some(cache) = cache {
             self.cached_attention(command, layer_index, cache, rows);
@@ -331,7 +331,7 @@ impl QwenEvaluator {
             };
             self.encode(
                 &command,
-                "flame_matmul",
+                "qwen_matmul",
                 &[
                     (self.buffer(W::Q), 0),
                     (self.buffer(W::KRepeat), 0),
@@ -346,9 +346,9 @@ impl QwenEvaluator {
             );
             self.encode(
                 &command,
-                "flame_softmax",
+                "qwen_softmax",
                 &[(self.buffer(W::Scores), 0)],
-                &flame,
+                &attention,
                 thread_group(u64::from(rows) * u64::from(c.heads)),
             );
             let av = Matmul {
@@ -362,7 +362,7 @@ impl QwenEvaluator {
             };
             self.encode(
                 &command,
-                "flame_matmul",
+                "qwen_matmul",
                 &[
                     (self.buffer(W::Scores), 0),
                     (self.buffer(W::VRepeat), 0),

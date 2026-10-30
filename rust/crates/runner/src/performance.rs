@@ -2,10 +2,10 @@ mod perf_measure;
 
 use baux::artifact::json::{Value, json, pretty_string};
 use baux::experimental::{
-    Backend, BackendSchedule, MHC4_COEFFS, MHC4_PARAMS, MHC4_PATCH, ModelProgram, PISA_BYTES,
-    ProgramKind, perf_digest, perf_sources,
+    ExecutionSchedule, ExecutionTarget, MHC4_COEFFS, MHC4_PARAMS, MHC4_PATCH, ModelProgram,
+    PISA_BYTES, ProgramKind, perf_digest, perf_sources,
 };
-use baux_tooling::radar::{PerformanceAction, PerformanceBackend};
+use baux_tooling::radar::{PerformanceAction, PerformanceTarget};
 use perf_measure::measured;
 use std::fs::File;
 use std::path::Path;
@@ -20,11 +20,11 @@ pub(super) fn run(root: &Path, action: PerformanceAction) -> Result<(), String> 
     match action {
         PerformanceAction::Show {
             config,
-            backend,
+            target,
             run,
             json,
         } => {
-            let certificate = certificate(root, &config, backend, run.as_deref())?;
+            let certificate = certificate(root, &config, target, run.as_deref())?;
             if json {
                 print(&certificate)
             } else {
@@ -33,20 +33,20 @@ pub(super) fn run(root: &Path, action: PerformanceAction) -> Result<(), String> 
         }
         PerformanceAction::Record {
             config,
-            backend,
+            target,
             run,
             output,
-        } => record(root, &config, backend, &run, &output),
+        } => record(root, &config, target, &run, &output),
         PerformanceAction::Gate {
             config,
-            backend,
+            target,
             run,
             baseline,
             tolerance_percent,
         } => gate(
             root,
             &config,
-            backend,
+            target,
             run.as_deref(),
             &baseline,
             tolerance_percent,
@@ -83,7 +83,7 @@ fn workload_spec(
 fn certificate(
     root: &Path,
     config_path: &Path,
-    backend: PerformanceBackend,
+    target: PerformanceTarget,
     run: Option<&Path>,
 ) -> Result<Value, String> {
     let config_path = root.join(config_path);
@@ -103,7 +103,7 @@ fn certificate(
         .max(4096);
 
     let program = ModelProgram::mhc4_program();
-    let schedule = schedule(backend);
+    let schedule = schedule(target);
     let missing = schedule.coverage(&program, ProgramKind::ExperimentRound)?;
     let recurrent = program
         .recurrent_core
@@ -117,8 +117,8 @@ fn certificate(
         .checked_mul(PISA_BYTES)
         .and_then(|bytes| bytes.checked_mul(executions))
         .ok_or("cache byte count overflow")?;
-    let digest = perf_digest(root, backend_kind(backend))?;
-    let sources = perf_sources(root, backend_kind(backend))?
+    let digest = perf_digest(root, execution_target(target))?;
+    let sources = perf_sources(root, execution_target(target))?
         .into_iter()
         .map(|path| {
             path.strip_prefix(root)
@@ -131,7 +131,7 @@ fn certificate(
     let static_contract = json!({
         "model": model.id(),
         "program-version": program.version,
-        "backend": backend.name(),
+        "target": target.name(),
         "compiler": compiler_name(schedule.compiler),
         "source-digest": digest,
         "source-files": sources,
@@ -255,11 +255,11 @@ fn kernel_rows(kernels: &[&baux::experimental::ScheduledKernel]) -> Vec<Value> {
 fn record(
     root: &Path,
     config: &Path,
-    backend: PerformanceBackend,
+    target: PerformanceTarget,
     run: &Path,
     output: &Path,
 ) -> Result<(), String> {
-    let certificate = certificate(root, config, backend, Some(run))?;
+    let certificate = certificate(root, config, target, Some(run))?;
     if certificate["measurement"]["provisional"] == true {
         return Err("an incomplete run cannot be recorded as a performance baseline".into());
     }
@@ -311,7 +311,7 @@ fn check_arch(baseline: &Value, current: &Value, failures: &mut Vec<String>) -> 
         .ok_or("certificate lacks lowering.missing-count")?;
     if new_missing > old_missing {
         failures.push(format!(
-            "missing backend lowerings increased {old_missing} -> {new_missing}"
+            "missing target lowerings increased {old_missing} -> {new_missing}"
         ));
     }
     Ok(())
@@ -320,7 +320,7 @@ fn check_arch(baseline: &Value, current: &Value, failures: &mut Vec<String>) -> 
 fn gate(
     root: &Path,
     config: &Path,
-    backend: PerformanceBackend,
+    target: PerformanceTarget,
     run: Option<&Path>,
     baseline: &Path,
     tolerance_percent: u32,
@@ -337,7 +337,7 @@ fn gate(
     if baseline["schema"] != SCHEMA {
         return Err("unsupported performance baseline schema".into());
     }
-    let experiment_baseline = if backend == PerformanceBackend::Metal {
+    let experiment_baseline = if target == PerformanceTarget::Metal {
         let path = root.join(REGRESSION_BASELINE);
         let value: Value = baux::artifact::json::from_reader(
             File::open(&path).map_err(|error| error.to_string())?,
@@ -350,7 +350,7 @@ fn gate(
     } else {
         None
     };
-    let current = certificate(root, config, backend, run)?;
+    let current = certificate(root, config, target, run)?;
     let hot_path_changed =
         baseline["static-contract"]["source-digest"] != current["static-contract"]["source-digest"];
     let schedule_changed = baseline["static-contract"]["lowering"]["kernels"]
@@ -475,23 +475,23 @@ fn compare_latency(
     Ok(())
 }
 
-fn schedule(backend: PerformanceBackend) -> BackendSchedule {
-    match backend {
-        PerformanceBackend::Metal => BackendSchedule::mhc4_metal(),
-        PerformanceBackend::CudaOxide => BackendSchedule::mhc4_cuda(),
+fn schedule(target: PerformanceTarget) -> ExecutionSchedule {
+    match target {
+        PerformanceTarget::Metal => ExecutionSchedule::mhc4_metal(),
+        PerformanceTarget::CudaOxide => ExecutionSchedule::mhc4_cuda(),
     }
 }
 
-fn backend_kind(value: PerformanceBackend) -> Backend {
+fn execution_target(value: PerformanceTarget) -> ExecutionTarget {
     match value {
-        PerformanceBackend::Metal => Backend::Metal,
-        PerformanceBackend::CudaOxide => Backend::CudaOxide,
+        PerformanceTarget::Metal => ExecutionTarget::Metal,
+        PerformanceTarget::CudaOxide => ExecutionTarget::CudaOxide,
     }
 }
 
 fn compiler_name(compiler: baux::experimental::Compiler) -> &'static str {
     match compiler {
-        baux::experimental::Compiler::Native => "native",
+        baux::experimental::Compiler::Metal => "metal",
         baux::experimental::Compiler::CudaOxide => "cuda-oxide",
         baux::experimental::Compiler::Tvm => "tvm",
     }
@@ -513,7 +513,7 @@ fn summary(value: &Value) -> Result<(), String> {
     let measurement = &value["measurement"];
     println!(
         "performance {} · {} · {} context · {:.0}ms target · {} token/s target",
-        contract["backend"].as_str().unwrap_or("unknown-backend"),
+        contract["target"].as_str().unwrap_or("unknown-target"),
         contract["model"].as_str().unwrap_or("unknown-model"),
         workload["retained-context-tokens"].as_u64().unwrap_or(0),
         workload["target-round-ms"].as_f64().unwrap_or(0.0),
@@ -535,7 +535,7 @@ fn summary(value: &Value) -> Result<(), String> {
     }
     if goal["lowering-complete"] != true {
         blockers.push(format!(
-            "{} semantic operations have no backend lowering",
+            "{} semantic operations have no target lowering",
             lowering["missing-count"].as_u64().unwrap_or(0)
         ));
     }

@@ -42,7 +42,7 @@ pub enum RadarAction {
         #[arg(long)]
         target: Option<PathBuf>,
     },
-    /// Report the availability of every semantic backend.
+    /// Report the availability of every execution target.
     Doctor,
     /// Search for code patterns with enclosing AST symbols and complexity.
     Find {
@@ -163,8 +163,8 @@ pub enum PerformanceAction {
         #[arg(default_value = "performance/configs/mhc4-1m-causal-1000.toml")]
         config: PathBuf,
         /// Accelerator lowering used by the experiment.
-        #[arg(long, value_enum, default_value_t = PerformanceBackend::Metal)]
-        backend: PerformanceBackend,
+        #[arg(long, visible_alias = "backend", value_enum, default_value_t = PerformanceTarget::Metal)]
+        target: PerformanceTarget,
         /// Completed run directory supplying measured evidence.
         #[arg(long)]
         run: Option<PathBuf>,
@@ -176,8 +176,8 @@ pub enum PerformanceAction {
     Record {
         #[arg(default_value = "performance/configs/mhc4-1m-causal-1000.toml")]
         config: PathBuf,
-        #[arg(long, value_enum, default_value_t = PerformanceBackend::Metal)]
-        backend: PerformanceBackend,
+        #[arg(long, visible_alias = "backend", value_enum, default_value_t = PerformanceTarget::Metal)]
+        target: PerformanceTarget,
         /// Completed run directory produced by the current hot-path source.
         #[arg(long)]
         run: PathBuf,
@@ -189,8 +189,8 @@ pub enum PerformanceAction {
     Gate {
         #[arg(default_value = "performance/configs/mhc4-1m-causal-1000.toml")]
         config: PathBuf,
-        #[arg(long, value_enum, default_value_t = PerformanceBackend::Metal)]
-        backend: PerformanceBackend,
+        #[arg(long, visible_alias = "backend", value_enum, default_value_t = PerformanceTarget::Metal)]
+        target: PerformanceTarget,
         /// Fresh completed run. Required only after the hot path changes.
         #[arg(long)]
         run: Option<PathBuf>,
@@ -203,12 +203,12 @@ pub enum PerformanceAction {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
-pub enum PerformanceBackend {
+pub enum PerformanceTarget {
     Metal,
     CudaOxide,
 }
 
-impl PerformanceBackend {
+impl PerformanceTarget {
     pub fn name(self) -> &'static str {
         match self {
             Self::Metal => "metal",

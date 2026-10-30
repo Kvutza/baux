@@ -24,7 +24,7 @@ pub enum RadiusAction {
 /// Accept a measured improvement only when it strictly clears its error margin.
 ///
 /// This is the executable scalar commit boundary shared by the optimizer
-/// backends.  The Mathlib-facing specification is
+/// execution targets. The Mathlib-facing specification is
 /// `BauxResearch.Optimization.EnnCommit.accepts`.
 pub fn accept_candidate(improvement: f64, margin: f64) -> bool {
     accept_bits(improvement.to_bits(), margin.to_bits())
@@ -49,7 +49,7 @@ fn order_bits(bits: u64) -> u64 {
 /// IEEE-754 binary64 strict comparison expressed only with integer operations.
 ///
 /// NaNs are unordered and the two signed zeros compare equal, matching Rust's
-/// native `f64` `>` relation.  Keeping the executable boundary in this form
+/// built-in `f64` `>` relation. Keeping the executable boundary in this form
 /// lets Charon and Aeneas extract the actual comparison into Lean rather than
 /// accepting a Boolean computed outside the checked model.
 pub fn accept_bits(improvement: u64, margin: u64) -> bool {

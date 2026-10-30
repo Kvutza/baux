@@ -1,4 +1,4 @@
-use baux::semantics::schedule::Backend;
+use baux::semantics::schedule::ExecutionTarget;
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 
@@ -6,7 +6,7 @@ pub use baux::semantics::shape::*;
 
 /// Source files whose behavior contributes directly to a complete generation
 /// and optimization round on the selected accelerator.
-pub fn perf_sources(root: &Path, backend: Backend) -> Result<Vec<PathBuf>, String> {
+pub fn perf_sources(root: &Path, target: ExecutionTarget) -> Result<Vec<PathBuf>, String> {
     let source = root.join("rust/crates/baux/src");
     let mut files = [
         "apple_gpu.rs",
@@ -58,8 +58,8 @@ pub fn perf_sources(root: &Path, backend: Backend) -> Result<Vec<PathBuf>, Strin
             files.push(path);
         }
     }
-    match backend {
-        Backend::Metal => {
+    match target {
+        ExecutionTarget::Metal => {
             for entry in std::fs::read_dir(&source).map_err(|error| error.to_string())? {
                 let path = entry.map_err(|error| error.to_string())?.path();
                 if path
@@ -70,7 +70,7 @@ pub fn perf_sources(root: &Path, backend: Backend) -> Result<Vec<PathBuf>, Strin
                 }
             }
         }
-        Backend::CudaOxide => {
+        ExecutionTarget::CudaOxide => {
             collect(&root.join("backends/cuda/src"), &mut files)?;
             collect(&root.join("backends/cuda/device/src"), &mut files)?;
             collect(&root.join("rust/crates/modal-runner/src"), &mut files)?;
@@ -91,9 +91,9 @@ pub fn perf_sources(root: &Path, backend: Backend) -> Result<Vec<PathBuf>, Strin
 
 /// Content identity for the complete hot path. A source change invalidates a
 /// measured baseline even when the semantic schedule remains unchanged.
-pub fn perf_digest(root: &Path, backend: Backend) -> Result<String, String> {
+pub fn perf_digest(root: &Path, target: ExecutionTarget) -> Result<String, String> {
     let mut digest = Sha256::new();
-    for path in perf_sources(root, backend)? {
+    for path in perf_sources(root, target)? {
         let relative = path.strip_prefix(root).unwrap_or(&path);
         let bytes = std::fs::read(&path).map_err(|error| error.to_string())?;
         digest.update(relative.to_string_lossy().as_bytes());

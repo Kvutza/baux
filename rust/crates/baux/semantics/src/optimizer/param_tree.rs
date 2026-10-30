@@ -1,4 +1,4 @@
-//! 17-family PyTree parameter algebra for the native `fbt-pisa1-mhc4-v1`
+//! 17-family PyTree parameter algebra for the `fbt-pisa1-mhc4-v1`
 //! architecture.
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -112,7 +112,7 @@ pub const fn routed_count() -> u64 {
     1_036_800_000
 }
 
-/// Aeneas-extracted native `fbt-pisa1-mhc4-v1` total parameter count at
+/// Aeneas-extracted `fbt-pisa1-mhc4-v1` total parameter count at
 /// `patch_size = 1` (`ActiveEnergy.lean` P5).
 pub const fn total_count() -> u64 {
     1_177_723_160

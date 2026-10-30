@@ -168,18 +168,18 @@ fn gpu_summary(record: &baux::artifact::runs::Record) -> String {
             } else {
                 "unsealed directory contents"
             };
-            let native = records
+            let device_images = records
                 .iter()
                 .filter(|(_, record)| {
-                    matches!(record.recipe.input_kind, Kind::Cubin | Kind::NativeImage)
+                    matches!(record.recipe.input_kind, Kind::Cubin | Kind::DeviceImage)
                         || matches!(
                             record.recipe.output_kind,
-                            Some(Kind::Cubin | Kind::NativeImage)
+                            Some(Kind::Cubin | Kind::DeviceImage)
                         )
                 })
                 .count();
             format!(
-                "GPU capture: {} records, {native} with native payloads ({scope}); execution \
+                "GPU capture: {} records, {device_images} with executable device payloads ({scope}); execution \
                  coverage and correctness not established",
                 records.len()
             )

@@ -2,7 +2,8 @@
 //! certificates.
 //!
 //! Call after successful compilation/loading, outside the kernel launch loop.
-//! Metal source or PTX capture does not imply possession of native device code.
+//! Metal source or PTX capture does not imply possession of executable device
+//! code.
 
 use baux::artifact::{cbor, runs::digest};
 use deser::{Deserialize, Serialize};
@@ -24,7 +25,7 @@ static NEXT: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[deser(rename_all = "kebab-case")]
-pub enum Backend {
+pub enum DeviceKind {
     Metal,
     Cuda,
 }
@@ -47,7 +48,9 @@ pub enum Kind {
     NvvmIr,
     LtoIr,
     Cubin,
-    NativeImage,
+    /// `native-image` is accepted only when reading legacy evidence records.
+    #[deser(alias = "native-image")]
+    DeviceImage,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -64,7 +67,9 @@ pub struct Constant {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[deser(deny_unknown_fields)]
 pub struct Recipe {
-    pub backend: Backend,
+    /// `backend` is accepted only when reading legacy evidence records.
+    #[deser(alias = "backend")]
+    pub device_kind: DeviceKind,
     pub device: String,
     pub target: String,
     pub compiler: String,
@@ -128,12 +133,12 @@ impl Recipe {
             .into_iter()
             .flatten()
         {
-            let valid = match self.backend {
-                Backend::Metal => matches!(kind, Kind::MetalSource | Kind::NativeImage),
-                Backend::Cuda => !matches!(kind, Kind::MetalSource),
+            let valid = match self.device_kind {
+                DeviceKind::Metal => matches!(kind, Kind::MetalSource | Kind::DeviceImage),
+                DeviceKind::Cuda => !matches!(kind, Kind::MetalSource),
             };
             if !valid {
-                return Err("GPU artifact kind does not belong to its backend".into());
+                return Err("GPU artifact kind does not belong to its device kind".into());
             }
         }
         Ok(())
@@ -247,7 +252,8 @@ fn publish(path: &Path, bytes: &[u8], expected: &Blob) -> Result<(), String> {
 }
 
 /// Capture code bytes only. `root` is an evidence directory, not a repository.
-/// Native output is recorded only when the caller actually supplies its bytes.
+/// Executable device output is recorded only when the caller actually supplies
+/// its bytes.
 pub fn record(
     root: &Path,
     recipe: &Recipe,
@@ -437,7 +443,7 @@ mod tests {
 
     fn recipe() -> Recipe {
         Recipe {
-            backend: Backend::Cuda,
+            device_kind: DeviceKind::Cuda,
             device: "test GPU".into(),
             target: "sm_test".into(),
             compiler: "test compiler".into(),
@@ -458,7 +464,7 @@ mod tests {
     fn roundtrip() {
         let root = tempfile::tempdir().unwrap();
         let recipe = recipe();
-        let receipt = record(root.path(), &recipe, b"ptx", Some(b"native")).unwrap();
+        let receipt = record(root.path(), &recipe, b"ptx", Some(b"device image")).unwrap();
         let actual = load(root.path(), &receipt.id).unwrap();
         assert_eq!(actual.recipe, recipe);
         assert_eq!(actual.output.unwrap().sha256, receipt.output.unwrap());
@@ -475,38 +481,64 @@ mod tests {
     }
 
     #[test]
+    fn vocabulary_migration() {
+        let canonical = baux::artifact::json::to_string(&recipe()).unwrap();
+        assert!(canonical.contains("\"device_kind\""));
+        assert!(!canonical.contains("\"backend\""));
+        let legacy: Recipe =
+            baux::artifact::json::from_str(&canonical.replace("\"device_kind\"", "\"backend\""))
+                .unwrap();
+        assert_eq!(legacy.device_kind, DeviceKind::Cuda);
+
+        assert_eq!(
+            baux::artifact::json::from_str::<Kind>("\"native-image\"").unwrap(),
+            Kind::DeviceImage
+        );
+        assert_eq!(
+            baux::artifact::json::to_string(&Kind::DeviceImage).unwrap(),
+            "\"device-image\""
+        );
+    }
+
+    #[test]
     fn identities() {
         let root = tempfile::tempdir().unwrap();
         let mut recipe = recipe();
-        let first = record(root.path(), &recipe, b"ptx", Some(b"native")).unwrap();
-        let second = record(root.path(), &recipe, b"ptx", Some(b"different native")).unwrap();
+        let first = record(root.path(), &recipe, b"ptx", Some(b"device image")).unwrap();
+        let second = record(
+            root.path(),
+            &recipe,
+            b"ptx",
+            Some(b"different device image"),
+        )
+        .unwrap();
         assert_ne!(first.id, second.id);
         assert_eq!(first.input, second.input);
         recipe.options.reverse();
         assert_ne!(
             first.id,
-            record(root.path(), &recipe, b"ptx", Some(b"native"))
+            record(root.path(), &recipe, b"ptx", Some(b"device image"))
                 .unwrap()
                 .id
         );
         recipe.output_kind = None;
         let source = record(root.path(), &recipe, b"ptx", None).unwrap();
         assert!(load(root.path(), &source.id).unwrap().output.is_none());
-        assert!(record(root.path(), &recipe, b"ptx", Some(b"native")).is_err());
+        assert!(record(root.path(), &recipe, b"ptx", Some(b"device image")).is_err());
     }
 
     #[test]
     fn tampering() {
         let root = tempfile::tempdir().unwrap();
         let recipe = recipe();
-        let receipt = record(root.path(), &recipe, b"ptx", Some(b"native")).unwrap();
+        let receipt = record(root.path(), &recipe, b"ptx", Some(b"device image")).unwrap();
         let blob = root
             .path()
             .join("blobs")
             .join(format!("{}.bin", receipt.input));
         fs::write(&blob, b"bad").unwrap();
         assert!(load(root.path(), &receipt.id).is_err());
-        assert!(record(root.path(), &recipe, b"ptx", Some(b"native")).is_err());
+        assert!(record(root.path(), &recipe, b"ptx", Some(b"device image")).is_err());
         assert_eq!(fs::read(blob).unwrap(), b"bad");
     }
 
@@ -516,7 +548,9 @@ mod tests {
         let receipts = std::thread::scope(|scope| {
             let threads = (0..8)
                 .map(|_| {
-                    scope.spawn(|| record(root.path(), &recipe(), b"ptx", Some(b"native")).unwrap())
+                    scope.spawn(|| {
+                        record(root.path(), &recipe(), b"ptx", Some(b"device image")).unwrap()
+                    })
                 })
                 .collect::<Vec<_>>();
             threads
@@ -538,7 +572,7 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let mut recipe = recipe();
         recipe.options = vec!["x".into(); MAX_LIST + 1];
-        assert!(record(root.path(), &recipe, b"ptx", Some(b"native")).is_err());
+        assert!(record(root.path(), &recipe, b"ptx", Some(b"device image")).is_err());
         assert!(!root.path().join("records").exists());
         assert!(load(root.path(), "../escape").is_err());
     }
@@ -547,14 +581,14 @@ mod tests {
     fn record_tampering() {
         let root = tempfile::tempdir().unwrap();
         let recipe = recipe();
-        let receipt = record(root.path(), &recipe, b"ptx", Some(b"native")).unwrap();
+        let receipt = record(root.path(), &recipe, b"ptx", Some(b"device image")).unwrap();
         let path = root
             .path()
             .join("records")
             .join(format!("{}.cbor", receipt.id));
         fs::write(&path, b"bad record").unwrap();
         assert!(load(root.path(), &receipt.id).is_err());
-        assert!(record(root.path(), &recipe, b"ptx", Some(b"native")).is_err());
+        assert!(record(root.path(), &recipe, b"ptx", Some(b"device image")).is_err());
         assert_eq!(fs::read(path).unwrap(), b"bad record");
         assert!(records(root.path()).is_err());
     }
@@ -563,9 +597,9 @@ mod tests {
     fn shared_blobs() {
         let root = tempfile::tempdir().unwrap();
         let mut recipe = recipe();
-        let first = record(root.path(), &recipe, b"ptx", Some(b"native")).unwrap();
+        let first = record(root.path(), &recipe, b"ptx", Some(b"device image")).unwrap();
         recipe.entry = "another".into();
-        record(root.path(), &recipe, b"ptx", Some(b"native")).unwrap();
+        record(root.path(), &recipe, b"ptx", Some(b"device image")).unwrap();
         assert_eq!(records(root.path()).unwrap().len(), 2);
         let path = root
             .path()
@@ -579,9 +613,9 @@ mod tests {
     fn selection_scope() {
         let root = tempfile::tempdir().unwrap();
         let mut recipe = recipe();
-        let first = record(root.path(), &recipe, b"ptx", Some(b"native")).unwrap();
+        let first = record(root.path(), &recipe, b"ptx", Some(b"device image")).unwrap();
         recipe.entry = "another".into();
-        let second = record(root.path(), &recipe, b"other", Some(b"other native")).unwrap();
+        let second = record(root.path(), &recipe, b"other", Some(b"other device image")).unwrap();
         fs::write(
             root.path()
                 .join("blobs")
@@ -600,7 +634,7 @@ mod tests {
     fn symlinks() {
         let root = tempfile::tempdir().unwrap();
         let recipe = recipe();
-        let receipt = record(root.path(), &recipe, b"ptx", Some(b"native")).unwrap();
+        let receipt = record(root.path(), &recipe, b"ptx", Some(b"device image")).unwrap();
         let path = root
             .path()
             .join("blobs")
@@ -609,7 +643,7 @@ mod tests {
         let outside = root.path().join("outside");
         fs::write(&outside, b"ptx").unwrap();
         std::os::unix::fs::symlink(&outside, path).unwrap();
-        assert!(record(root.path(), &recipe, b"ptx", Some(b"native")).is_err());
+        assert!(record(root.path(), &recipe, b"ptx", Some(b"device image")).is_err());
         assert!(load(root.path(), &receipt.id).is_err());
         assert_eq!(fs::read(outside).unwrap(), b"ptx");
     }

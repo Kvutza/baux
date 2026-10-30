@@ -172,7 +172,7 @@ pub use candidates::{
     generate_uniform, sobol_masked, sobol_sequence, to_unit,
 };
 pub use capability::{
-    Backend, Capability, Operation, Support, backends, matrix, operations, support,
+    Capability, ExecutionTarget, Operation, Support, execution_targets, matrix, operations, support,
 };
 pub use coding_outcome::{
     CODING_SCHEMA, CandidateEfficiency, CandidateEligibility, CodingOutcome, ExecutableChecks,

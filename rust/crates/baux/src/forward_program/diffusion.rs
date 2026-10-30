@@ -1,4 +1,4 @@
-//! Backend-neutral block-denoising state and reproducible corruption.
+//! Execution-target-neutral block-denoising state and reproducible corruption.
 use crate::config::DiffusionConfig;
 use crate::hash::splitmix64;
 use deser::Serialize;

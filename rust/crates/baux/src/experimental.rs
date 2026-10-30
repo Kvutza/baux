@@ -20,12 +20,12 @@ pub use crate::forward_metal::{
     KdaMoeMetalModel, KdaMoeMetalWeights,
 };
 pub use crate::forward_program::{
-    Backend, BackendCapability, BackendSchedule, Compiler, Exactness, Extent, ForwardEvaluator,
-    ForwardOp, ForwardProgram, FusionBoundary, KdaControlRequest, KdaDispatch, KdaEncoder,
-    KdaForwardRequest, KdaMoeDispatch, KdaMoeLayerRequest, KdaPackedLinear, KdaTensorLayout,
-    KernelPlan, LayerVisit, MHC4_COEFFS, MHC4_PARAMS, MHC4_PATCH, ModelProgram, PISA_BYTES,
-    PackedAffinePlan, ProgramFunction, ProgramKind, RecurrentCore, ResidentBoState, ResidentRound,
-    ScheduledKernel, SemanticNode, SemanticOp, TensorDType, TensorLayout, TensorLifetime,
+    Compiler, Exactness, ExecutionSchedule, ExecutionTarget, Extent, ForwardEvaluator, ForwardOp,
+    ForwardProgram, FusionBoundary, KdaControlRequest, KdaDispatch, KdaEncoder, KdaForwardRequest,
+    KdaMoeDispatch, KdaMoeLayerRequest, KdaPackedLinear, KdaTensorLayout, KernelPlan, LayerVisit,
+    MHC4_COEFFS, MHC4_PARAMS, MHC4_PATCH, ModelProgram, PISA_BYTES, PackedAffinePlan,
+    ProgramFunction, ProgramKind, RecurrentCore, ResidentBoState, ResidentRound, ScheduledKernel,
+    SemanticNode, SemanticOp, TargetCapability, TensorDType, TensorLayout, TensorLifetime,
     TensorSpec, TensorStorage, WeightArenaSpec, WorkAxis, WorkGrid, WorkTile, perf_digest,
     perf_sources,
 };

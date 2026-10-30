@@ -1,4 +1,5 @@
-//! Backend-independent operation vocabulary; not a numerical equivalence proof.
+//! Execution-target-independent operation vocabulary; not a numerical
+//! equivalence proof.
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SemanticOp {
@@ -39,7 +40,7 @@ pub enum FusionBoundary {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum BackendCapability {
+pub enum TargetCapability {
     Fp16,
     Fp32Accumulate,
     PackedWeightOverlay,

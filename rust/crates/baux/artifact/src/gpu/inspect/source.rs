@@ -81,7 +81,7 @@ pub fn inspect_ptx(text: &str) -> Vec<KernelEvidence> {
         }
         out.push(KernelEvidence {
             name,
-            backend: "cuda".into(),
+            device_kind: "cuda".into(),
             target: target.clone(),
             layer: "virtual-isa".into(),
             code_bytes: body.len() as u64,
@@ -174,7 +174,7 @@ pub fn inspect_sass(text: &str) -> Vec<KernelEvidence> {
         }
         out.push(KernelEvidence {
             name,
-            backend: "cuda".into(),
+            device_kind: "cuda".into(),
             target: "sass".into(),
             layer: "disassembly".into(),
             code_bytes: insns * 16,
@@ -198,16 +198,16 @@ pub(super) fn has_word(text: &str, word: &str) -> bool {
 /// AMDGPU targets.
 pub fn inspect_ir(text: &str) -> Vec<KernelEvidence> {
     let mut target = "llvm-ir".to_owned();
-    let mut backend = "cuda".to_owned();
+    let mut device_kind = "cuda".to_owned();
     for line in text.lines() {
         let trimmed = line.trim();
         if let Some(rest) = trimmed.strip_prefix("target triple =") {
             let triple = rest.trim().trim_matches('"');
             target = triple.to_owned();
             if triple.contains("air64") || triple.contains("apple") {
-                backend = "metal".into();
+                device_kind = "metal".into();
             } else if triple.contains("amdgcn") {
-                backend = "rocm".into();
+                device_kind = "rocm".into();
             }
             break;
         }
@@ -269,7 +269,7 @@ pub fn inspect_ir(text: &str) -> Vec<KernelEvidence> {
         hazards.spill_ops = alloca_ops;
         out.push(KernelEvidence {
             name,
-            backend: backend.clone(),
+            device_kind: device_kind.clone(),
             target: target.clone(),
             layer: "llvm-ir".into(),
             code_bytes: body.len() as u64,
@@ -285,8 +285,8 @@ pub fn inspect_ir(text: &str) -> Vec<KernelEvidence> {
 }
 
 /// Inspect Metal (`.metal`) or OpenCL (`.cl`) shader source files.
-pub fn inspect_shader(text: &str, backend: &str) -> Vec<KernelEvidence> {
-    let marker = if backend == "opencl" {
+pub fn inspect_shader(text: &str, device_kind: &str) -> Vec<KernelEvidence> {
+    let marker = if device_kind == "opencl" {
         "__kernel void "
     } else {
         "kernel void "
@@ -323,8 +323,8 @@ pub fn inspect_shader(text: &str, backend: &str) -> Vec<KernelEvidence> {
         }
         out.push(KernelEvidence {
             name,
-            backend: backend.to_owned(),
-            target: format!("{backend}-source"),
+            device_kind: device_kind.to_owned(),
+            target: format!("{device_kind}-source"),
             layer: "source".into(),
             code_bytes: body.len() as u64,
             static_insns: statements,

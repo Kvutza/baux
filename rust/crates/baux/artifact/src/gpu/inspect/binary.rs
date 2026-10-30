@@ -118,9 +118,9 @@ fn cubin_frames(elf: &ElfLayout<'_>, sym_names: &BTreeMap<u32, String>) -> BTree
 fn empty_cubin(kname: &str, target: &str) -> KernelEvidence {
     KernelEvidence {
         name: kname.to_owned(),
-        backend: "cuda".into(),
+        device_kind: "cuda".into(),
         target: target.to_owned(),
-        layer: "native-binary".into(),
+        layer: "device-binary".into(),
         code_bytes: 0,
         static_insns: 0,
         gpr_count: 0,
@@ -328,9 +328,9 @@ pub fn inspect_archive(bytes: &[u8]) -> Result<Vec<KernelEvidence>, String> {
 
     Ok(vec![KernelEvidence {
         name: entry_name,
-        backend: "metal".into(),
+        device_kind: "metal".into(),
         target,
-        layer: "native-binary".into(),
+        layer: "device-binary".into(),
         code_bytes: text_sec.len() as u64,
         static_insns: (text_sec.len() / 4) as u64,
         gpr_count,

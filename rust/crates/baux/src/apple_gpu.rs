@@ -1,4 +1,4 @@
-//! Shared Apple GPU runtime used by BAUX Metal backends.
+//! Shared Apple GPU runtime used by BAUX Metal execution paths.
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -440,14 +440,14 @@ impl Runtime {
             }
         };
         let recipe = baux::artifact::gpu::Recipe {
-            backend: baux::artifact::gpu::Backend::Metal,
+            device_kind: baux::artifact::gpu::DeviceKind::Metal,
             device: self.info.name.clone(),
             target: format!("{:?}", self.info.target),
             compiler: "Metal runtime compiler (MTLBinaryArchive)".into(),
             stage: baux::artifact::gpu::Stage::Compile,
             entry: name.into(),
             input_kind: baux::artifact::gpu::Kind::MetalSource,
-            output_kind: Some(baux::artifact::gpu::Kind::NativeImage),
+            output_kind: Some(baux::artifact::gpu::Kind::DeviceImage),
             options: vec![
                 format!("fast_math_enabled={fast}"),
                 format!("language_version={version:?}"),
@@ -767,13 +767,13 @@ mod tests {
         );
         assert_eq!(
             records[0].1.recipe.output_kind,
-            Some(baux::artifact::gpu::Kind::NativeImage)
+            Some(baux::artifact::gpu::Kind::DeviceImage)
         );
         let output_blob = records[0]
             .1
             .output
             .as_ref()
-            .expect("MTLBinaryArchive captures native Apple GPU binary");
+            .expect("MTLBinaryArchive captures an executable Apple GPU image");
         let output_bytes = std::fs::read(
             directory
                 .path()
@@ -895,7 +895,7 @@ mod tests {
         let records = baux::artifact::gpu::records(directory.path()).unwrap();
         assert_eq!(records.len(), 6);
         for (_, record) in records {
-            let blob = record.output.expect("native binary output present");
+            let blob = record.output.expect("device image output present");
             let bytes = std::fs::read(
                 directory
                     .path()

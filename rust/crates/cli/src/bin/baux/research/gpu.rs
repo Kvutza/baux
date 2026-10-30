@@ -18,7 +18,7 @@ const TREES: [&str; 6] = [
     "rust/crates/baux/semantics/src",
     "backends/cuda/src",
     "backends/cuda/device/src",
-    "backends/cuda/native",
+    "backends/cuda/interop",
     "rust/crates/ptx-synth/src",
 ];
 const FILES: [&str; 15] = [
@@ -161,7 +161,7 @@ fn inventory(root: &Path) -> Result<Inventory, String> {
         }));
     }
     if metal == 0 || cuda == 0 {
-        return Err("GPU source inventory is empty for a required backend".into());
+        return Err("GPU source inventory is empty for a required execution target".into());
     }
     let count = sources.len();
     let digest = digest(&identity);

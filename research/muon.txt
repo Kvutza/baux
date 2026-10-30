@@ -354,3 +354,58 @@ the earlier whole-model secants were measured before this correction.
 Command: ./tools/buck2w test --console simple //rust/crates/baux:baux-unit --
   --test-arg=--exact --test-arg=fbt_moe::routing_adjoint::projection_replay
   --test-arg=--nocapture
+
+Stateful fixed-corpus path
+--------------------------
+An explicit objective.window-tokens=4096 now selects fbt_moe/matrix.rs for Muon
+or AdamW, rather than lowering that request to generated continuations. This
+path currently requires the MHC4 model, cross-entropy and one fully scored,
+unchunked context. Existing recipes without a window retain their generated
+path. Nineteen configuration tests, including that distinction, pass.
+
+The matrix session initializes the same CandidateWeights function and model
+seed as Baux, calls the same CorpusSet causal_batch with reference_seed and
+round zero, then retains one Trainer and Optimizer across all rounds. Each
+round owns forward/backward, update and a separate post-update score. Exposure
+counts one training window; scorer-work counts both passes. No corpus-epoch
+claim is made. long::validate is shared by both paths, including its fixed
+per-source windows and mixture weights. Both now evaluate validation at round
+zero; the former round-zero branch required interval=0, which validation rejects.
+
+Matrix run artifacts identify the optimizer and stateful fixed-corpus protocol
+instead of emitting BO surrogate/acceptance metadata. Tensor-update statistics
+are explicitly unavailable for this path. The configured Muon uses the existing
+five-step polar polynomial, matrix learning rate 0.02 and momentum 0.95, with
+the existing AdamW settings for embeddings, norms, biases and controls. This
+is a baseline implementation, not a hyperparameter-optimality claim.
+
+experiments/muon.toml is the authored FineWeb recipe. The first pilot command
+was ./baux tune experiments/muon.toml --rounds 2. Its source was sealed by the
+launcher at af0848e1cb4c. The required numerical checker built successfully,
+but the launcher rejected the run because source edits during compilation
+changed the snapshot. No training result has been observed yet. Finish edits
+and checks before relaunching so the provenance check can succeed.
+The normal resolver verifies the existing immutable corpus; the workspace
+cache links to the matching main-workspace corpus instead of copying it.
+The launcher applies a rounds override before reporting the token budget.
+The exact-source repository gate passes every hook, including naming and KISS.
+
+Expert composition qualification
+--------------------------------
+The production forward and backward MoE composition passes an independent
+f64 local-reference check: 65 full-width rows cross the 64-row packing boundary,
+including shared bank 0 and routed banks 1,8,625. Sparse inputs, gate/up weights
+and down weights span boundary channels; all 184 active input/weight coordinates
+agree with centered differences at two steps within 2e-4*(1+abs(reference)).
+Every off-support input and weight gradient preserves its additive seed exactly.
+Saved down-projection outputs agree exactly with independent half-rounded dots.
+
+The reference anchors cast values at saved primals and differentiates smooth
+SwiGLU with identity cast adjoints. Expert selection stays fixed. This checks
+the chosen local VJP, not the literal derivative of half rounding or a theorem
+about the whole model across route changes. It complements the separate router,
+packed-projection, shared-gradient, PISA and MHC qualification fixtures.
+Command: ./tools/buck2w test --console simple //rust/crates/baux:baux-unit --
+  --test-arg=--exact --test-arg=fbt_moe::routing::composition::expert_adjoint
+  --test-arg=--nocapture
+Observed 2026-10-30: one test passed, EXPERT_ADJOINT rows=65 parameters=184 steps=2.

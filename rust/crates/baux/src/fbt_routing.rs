@@ -9,6 +9,9 @@ use metal::{
 
 #[path = "fbt_routing/buffers.rs"]
 mod buffers;
+#[cfg(test)]
+#[path = "fbt_routing/composition.rs"]
+mod composition;
 pub(super) use buffers::RouteStats;
 pub(super) const SHARED_EXPERTS: u32 = baux::semantics::shape::SHARED_COUNT as u32;
 pub(super) const SHARED_WIDTH: u32 = baux::semantics::shape::EXPERT_WIDTH as u32;

@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="icon" href="data:," />
+  <title>ENN Formal Verification &amp; Artifact Correspondence</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="assets/site_style.css" />
+</head>
+<body>
+  <header class="top-masthead" id="masthead">
+    <div class="masthead-brand">
+      <span class="brand-name">enn</span>
+      <span class="brand-sep">/</span>
+      <span class="brand-sub">formal verification</span>
+    </div>
+
+    <nav class="primary-nav" id="primary-nav-tabs" aria-label="Primary Navigation">
+      <button type="button" class="nav-tab active" data-tab="inspector" id="tab-btn-inspector">
+        Functions <span class="tab-count">835</span>
+      </button>
+      <button type="button" class="nav-tab" data-tab="dag" id="tab-btn-dag">
+        Module Graph <span class="tab-count">59</span>
+      </button>
+    </nav>
+
+    <div class="masthead-meta">
+      <button type="button" class="meta-btn" id="open-cmd-btn" title="Search declarations (Cmd+K or /)">
+        <span>Search</span>
+        <kbd>/</kbd>
+      </button>
+      <button type="button" class="meta-btn" id="theme-toggle-btn" title="Toggle Light / Dark theme">
+        <span id="theme-toggle-label">Dark</span>
+      </button>
+    </div>
+  </header>
+
+  <main class="stage-root" id="main-workspace">
+    <section class="view-panel active" id="view-inspector" data-view="inspector"></section>
+    <section class="view-panel" id="view-dag" data-view="dag"></section>
+    <section class="view-panel" id="view-api" data-view="api"></section>
+  </main>
+
+  <aside class="proof-sheet closed" id="global-alectryon-drawer" aria-label="Lean 4 Declaration Inspector">
+    <div class="proof-sheet-header" id="global-alectryon-drawer-header">
+      <div>
+        <div class="proof-sheet-kicker" id="global-alectryon-drawer-subtitle">Lean 4 Declaration</div>
+        <div class="proof-sheet-title" id="global-alectryon-drawer-title">Declaration</div>
+      </div>
+      <button type="button" class="meta-btn" id="global-alectryon-drawer-close" title="Close (Esc)">Close &times;</button>
+    </div>
+    <div class="proof-sheet-body" id="global-alectryon-drawer-body"></div>
+  </aside>
+
+  <div class="docgen-tooltip" id="docgen-tooltip" role="tooltip" aria-hidden="true"></div>
+
+  <div class="cmd-backdrop" id="cmd-backdrop">
+    <div class="cmd-modal" id="cmd-modal" role="dialog" aria-modal="true" aria-label="Search Archive">
+      <input
+        type="text"
+        class="cmd-input"
+        id="cmd-input"
+        placeholder="Search 835 reachable functions, 59 Lean modules, or formal declarations…"
+        autocomplete="off"
+      />
+      <div class="cmd-results" id="cmd-results"></div>
+      <div class="cmd-footer">
+        <span>↑↓ Navigate &middot; Enter Open &middot; Shift+Enter Inspect Declaration</span>
+        <span>Esc Close</span>
+      </div>
+    </div>
+  </div>
+
+  <script src="assets/site_data.js"></script>
+  <script src="assets/blueprint_engine.js"></script>
+  <script src="assets/explorer_engine.js"></script>
+</body>
+</html>

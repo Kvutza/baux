@@ -1,0 +1,14 @@
+{
+  "schema": "baux-verification-portal-manifest-v1",
+  "lean_module_count": 184,
+  "lean_declaration_count": 4504,
+  "registry_function_count": 835,
+  "monograph_count": 0,
+  "lean_files_tree_sha256": "8f24437efe53692560d98a44a3a5616ed0c5481f48914af4f705db97a7088341",
+  "coverage_manifest_sha256": "e51fe48ec27a7aabb2414505cc9234c4c1155580c5c99b86223a544384cb6f4b",
+  "artifact_manifest_sha256": "7bbc5d209ac47366369c132bfc4797e109f0497d24e8ef143f1c7ac5c3c9f01b",
+  "mathlib_constructions_sha256": "ddb1a6d8a73237dbb2ffd1d181977cfb53fbfa80c75bbd2b0381fc4931a171aa",
+  "registry_lean_sha256": "0ba52e89ddf11a3df3d5cd97d43bce13e03ca5d09ad519fe08b40251be7557a4",
+  "site_data_js_sha256": "9d9fdc9ed2a5019114f70128e7b718108f3021b3f1e5040f7ae71631654c4da5",
+  "site_data_js_bytes": 5842079
+}

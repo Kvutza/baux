@@ -269,7 +269,7 @@
               "type": "string",
               "enum": ["latent", "realized"],
               "default": "latent",
-              "description": "Coordinate geometry for parameter distance calculation: 'latent' evaluates distance in perturbation space; 'realized' evaluates post-quantization weight distance."
+              "description": "Coordinate geometry for parameter distance calculation: 'latent' evaluates distance in perturbation space; 'realized' evaluates the displacement produced by the operator."
             },
             "local-neighbors": {
               "type": "integer",
@@ -498,7 +498,7 @@
               "type": "number",
               "minimum": 0.0,
               "exclusiveMinimum": 0.0,
-              "description": "Minimum allowed trust region radius; bounds search above quantization deadzones."
+              "description": "Minimum allowed trust region radius; bounds search above operator dead zones."
             },
             "max": {
               "type": "number",

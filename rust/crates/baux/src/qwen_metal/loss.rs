@@ -267,16 +267,16 @@ impl QwenEvaluator {
                 );
             }
             if score {
-                let shape = FlameShape {
+                let shape = DenseKernelShape {
                     rows: chunk,
                     width: self.config.vocab,
                     start: global_start + start,
                     sequence,
-                    ..self.flame_shape(chunk)
+                    ..self.dense_shape(chunk)
                 };
                 self.encode(
                     &command,
-                    "flame_xent",
+                    "qwen_cross_entropy",
                     &[
                         (output, 0),
                         (self.buffer(W::Tokens), 0),
@@ -305,13 +305,13 @@ impl QwenEvaluator {
     pub(super) fn mean_loss(&self, rows: u32, scored: u32) -> Result<f32> {
         let command = self.runtime.queue.new_command_buffer();
         command.set_label("Qwen loss reduction");
-        let shape = FlameShape {
+        let shape = DenseKernelShape {
             hidden: scored,
-            ..self.flame_shape(rows)
+            ..self.dense_shape(rows)
         };
         self.encode(
             &command,
-            "flame_mean",
+            "qwen_loss_mean",
             &[(self.buffer(W::Losses), 0), (self.buffer(W::Invalid), 0)],
             &shape,
             thread_group(1),

@@ -12,10 +12,10 @@ use std::sync::{Arc, OnceLock};
 
 use baux_cuda_device::trials;
 pub use baux_cuda_device::{
-    BatchValue, Bf16Change, Bf16Leaf, Bf16Score, CenterStep, DenseLeaf, DenseLinearParams,
-    DenseTerm, DenseTile, FbtShape, FeedbackShape, KNN_K, Leaf, MAX_DEPTH, MAX_HISTORY,
-    MatmulShape, MoeShape, ObjectiveShape, PisaShape, RouteShape, RoutedTile, ScoreStats,
-    SearchState, Seed, Selection, SparseEdit, THREADS, TellParams, TellSummary, Tile, fbt_model,
+    BatchValue, Bf16Change, Bf16Leaf, Bf16Score, DenseLeaf, DenseLinearParams, DenseTerm,
+    DenseTile, FbtShape, FeedbackShape, KNN_K, MAX_HISTORY, MatmulShape, MoeShape, ObjectiveShape,
+    PisaShape, RouteShape, RoutedTile, ScoreStats, SearchState, Seed, Selection, THREADS,
+    TellParams, TellSummary, fbt_model,
 };
 use cuda_core::{
     CudaContext, CudaEvent, CudaStream, DeviceBuffer, DeviceCopy, IntoResult, LaunchConfig1D,
@@ -171,9 +171,6 @@ pub fn feedback_parity() -> CudaResult<()> {
     Ok(())
 }
 
-#[cfg(feature = "native-flame")]
-pub mod flame;
-
 mod bf16_search;
 pub use bf16_search::{Bf16SearchEngine, ProposalDescription, TellOutput};
 pub mod context;
@@ -182,7 +179,6 @@ pub use dense_engine::{Bf16Engine, DenseLinearEngine, dense_apply};
 mod knn;
 mod model;
 mod prefill;
-mod trial_engine;
 pub use knn::{
     BatchOutput, BatchSpec, CudaIndex, DeviceDraw, DevicePosterior, DrawOutput, KnnProfile,
     PosteriorOutput, PosteriorSpec, WeightedOutput, WeightedSpec,
@@ -195,7 +191,6 @@ pub use model::run::{
 pub use model::weights::proposal_check;
 pub use model::{FbtModel, GenerationOutput, ModelOutput, WaveProfile};
 pub use prefill::{FbtPrefill, FbtPrefillProfile};
-pub use trial_engine::TrialEngine;
 
 static TRIAL_BUNDLE: OnceLock<Result<OwnedArtifactBundle, String>> = OnceLock::new();
 #[repr(C)]
@@ -350,18 +345,12 @@ struct ProposalEvents {
 struct Scratch {
     history_capacity: usize,
     candidate_capacity: usize,
-    center_capacity: usize,
-    edit_capacity: usize,
     history_slots: DeviceBuffer<u32>,
     outcomes: DeviceBuffer<f32>,
     seeds: DeviceBuffer<Seed>,
     draws: DeviceBuffer<f32>,
     scores: DeviceBuffer<f32>,
     selection: DeviceBuffer<Selection>,
-    centers: DeviceBuffer<CenterStep>,
-    candidate_centers: DeviceBuffer<u32>,
-    edits: DeviceBuffer<SparseEdit>,
-    base_distances: DeviceBuffer<f32>,
 }
 
 impl Scratch {
@@ -369,18 +358,12 @@ impl Scratch {
         Ok(Self {
             history_capacity: 1,
             candidate_capacity: 1,
-            center_capacity: 1,
-            edit_capacity: 1,
             history_slots: DeviceBuffer::zeroed(stream, 1).map_err(cuda_error)?,
             outcomes: DeviceBuffer::zeroed(stream, 1).map_err(cuda_error)?,
             seeds: DeviceBuffer::zeroed(stream, 1).map_err(cuda_error)?,
             draws: DeviceBuffer::zeroed(stream, 1).map_err(cuda_error)?,
             scores: DeviceBuffer::zeroed(stream, 1).map_err(cuda_error)?,
             selection: DeviceBuffer::zeroed(stream, 1).map_err(cuda_error)?,
-            centers: DeviceBuffer::zeroed(stream, 1).map_err(cuda_error)?,
-            candidate_centers: DeviceBuffer::zeroed(stream, 1).map_err(cuda_error)?,
-            edits: DeviceBuffer::zeroed(stream, 1).map_err(cuda_error)?,
-            base_distances: DeviceBuffer::zeroed(stream, 1).map_err(cuda_error)?,
         })
     }
 
@@ -396,8 +379,6 @@ impl Scratch {
                 DeviceBuffer::zeroed(stream, history_capacity).map_err(cuda_error)?;
             self.outcomes = DeviceBuffer::zeroed(stream, history_capacity).map_err(cuda_error)?;
             self.draws = DeviceBuffer::zeroed(stream, history_capacity).map_err(cuda_error)?;
-            self.base_distances =
-                DeviceBuffer::zeroed(stream, history_capacity).map_err(cuda_error)?;
             self.history_capacity = history_capacity;
         }
         if candidate_capacity > self.candidate_capacity {
@@ -405,32 +386,7 @@ impl Scratch {
             self.scores = DeviceBuffer::zeroed(stream, candidate_capacity).map_err(cuda_error)?;
             self.selection =
                 DeviceBuffer::zeroed(stream, candidate_capacity).map_err(cuda_error)?;
-            self.candidate_centers =
-                DeviceBuffer::zeroed(stream, candidate_capacity).map_err(cuda_error)?;
             self.candidate_capacity = candidate_capacity;
-        }
-        Ok(())
-    }
-
-    fn ensure_edits(&mut self, stream: &CudaStream, edits: usize) -> CudaResult<()> {
-        let capacity = edits
-            .checked_next_power_of_two()
-            .ok_or("CUDA sparse edit capacity overflow")?;
-        if capacity > self.edit_capacity {
-            self.edits = DeviceBuffer::zeroed(stream, capacity).map_err(cuda_error)?;
-            self.edit_capacity = capacity;
-        }
-        Ok(())
-    }
-
-    fn ensure_centers(&mut self, stream: &CudaStream, centers: usize) -> CudaResult<()> {
-        let center_capacity = centers
-            .max(1)
-            .checked_next_power_of_two()
-            .ok_or("CUDA trial center capacity overflow")?;
-        if center_capacity > self.center_capacity {
-            self.centers = DeviceBuffer::zeroed(stream, center_capacity).map_err(cuda_error)?;
-            self.center_capacity = center_capacity;
         }
         Ok(())
     }
@@ -569,139 +525,6 @@ fn to_u32(value: usize, name: &str) -> CudaResult<u32> {
     value
         .try_into()
         .map_err(|_| format!("CUDA {name} exceeds u32"))
-}
-
-fn validate_centers(
-    centers: &[CenterStep],
-    region_centers: &[u32],
-    regions: usize,
-) -> CudaResult<()> {
-    if centers.is_empty() {
-        if !region_centers.is_empty() {
-            return Err("CUDA root-based search must not provide region centers".to_string());
-        }
-        return Ok(());
-    }
-    if region_centers.len() != regions {
-        return Err(format!(
-            "CUDA expected {regions} region centers, got {}",
-            region_centers.len()
-        ));
-    }
-    for (index, center) in centers.iter().enumerate() {
-        if center.parent != u32::MAX && center.parent as usize >= index {
-            return Err(format!(
-                "CUDA center {index} must reference an earlier parent"
-            ));
-        }
-        let mut depth = 1_usize;
-        let mut parent = center.parent;
-        while parent != u32::MAX {
-            depth += 1;
-            if depth > MAX_DEPTH {
-                return Err(format!("CUDA center chain exceeds depth {MAX_DEPTH}"));
-            }
-            parent = centers[parent as usize].parent;
-        }
-    }
-    if region_centers
-        .iter()
-        .any(|&center| center as usize >= centers.len())
-    {
-        return Err("CUDA region center index is out of bounds".to_string());
-    }
-    Ok(())
-}
-
-fn trial_leaves(row_bytes: usize, leaves: &[Leaf]) -> CudaResult<()> {
-    if leaves.is_empty() || row_bytes == 0 || row_bytes > u32::MAX as usize {
-        return Err("CUDA trial layout requires non-empty u32-sized rows and leaves".to_string());
-    }
-    let mut expected_byte_offset = 0usize;
-    let mut expected_element_offset = 0u32;
-    for (index, leaf) in leaves.iter().enumerate() {
-        if leaf.length == 0 || !matches!(leaf.bits, 4 | 8) {
-            return Err(format!("CUDA trial leaf {index} has an invalid shape"));
-        }
-        let encoding_matches = matches!((leaf.bits, leaf.encoding), (4, 0 | 2) | (8, 1 | 3 | 4));
-        if !encoding_matches
-            || !leaf.scale.is_finite()
-            || leaf.scale <= 0.0
-            || !leaf.weight.is_finite()
-            || leaf.weight <= 0.0
-        {
-            return Err(format!(
-                "CUDA trial leaf {index} has an invalid encoding or scale"
-            ));
-        }
-        if leaf.byte_offset as usize != expected_byte_offset
-            || leaf.element_offset != expected_element_offset
-        {
-            return Err(format!("CUDA trial leaf {index} is not contiguous"));
-        }
-        let bytes = if leaf.bits == 4 {
-            leaf.length.div_ceil(2)
-        } else {
-            leaf.length
-        };
-        expected_byte_offset = expected_byte_offset
-            .checked_add(bytes as usize)
-            .ok_or("CUDA trial row byte count overflow")?;
-        expected_element_offset = expected_element_offset
-            .checked_add(leaf.length)
-            .ok_or("CUDA trial element count overflow")?;
-        let max_code = (1u32 << leaf.bits) - 1;
-        if leaf.whole > max_code {
-            return Err(format!(
-                "CUDA trial leaf {index} perturbation exceeds its encoding"
-            ));
-        }
-    }
-    if expected_byte_offset != row_bytes {
-        return Err(format!(
-            "CUDA trial leaves cover {expected_byte_offset} bytes, expected {row_bytes}"
-        ));
-    }
-    Ok(())
-}
-
-fn trial_layout(row_bytes: usize, leaves: &[Leaf], tiles: &[Tile]) -> CudaResult<()> {
-    trial_leaves(row_bytes, leaves)?;
-    if tiles.is_empty() {
-        return Err("CUDA trial layout requires at least one tile".to_string());
-    }
-    let mut covered = vec![0u32; leaves.len()];
-    for (index, tile) in tiles.iter().enumerate() {
-        let leaf_index = tile.leaf as usize;
-        let Some(leaf) = leaves.get(leaf_index) else {
-            return Err(format!(
-                "CUDA trial tile {index} references an invalid leaf"
-            ));
-        };
-        if tile.length == 0 || tile.start != covered[leaf_index] {
-            return Err(format!(
-                "CUDA trial tile {index} is empty, overlapping, or out of order"
-            ));
-        }
-        let end = tile
-            .start
-            .checked_add(tile.length)
-            .ok_or("CUDA trial tile extent overflow")?;
-        if end > leaf.length || (leaf.bits == 4 && tile.start & 1 != 0) {
-            return Err(format!(
-                "CUDA trial tile {index} exceeds or misaligns its leaf"
-            ));
-        }
-        covered[leaf_index] = end;
-    }
-    if covered
-        .iter()
-        .zip(leaves)
-        .any(|(&length, leaf)| length != leaf.length)
-    {
-        return Err("CUDA trial tiles do not cover every leaf exactly once".to_string());
-    }
-    Ok(())
 }
 
 fn cuda_error(error: impl std::fmt::Display) -> String {

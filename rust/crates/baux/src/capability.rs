@@ -105,8 +105,6 @@ pub enum Operation {
     DevicePosterior,
     Acquisition,
     Candidate,
-    WeightSelect,
-    TrialSearch,
     ResidentLoop,
 }
 
@@ -121,8 +119,6 @@ impl Operation {
             Self::DevicePosterior => "device_posterior",
             Self::Acquisition => "acquisition",
             Self::Candidate => "candidate",
-            Self::WeightSelect => "weight_select",
-            Self::TrialSearch => "trial_search",
             Self::ResidentLoop => "resident_loop",
         }
     }
@@ -182,7 +178,7 @@ const TARGETS: [ExecutionTarget; 4] = [
     ExecutionTarget::OpenCl,
 ];
 
-const OPS: [Operation; 11] = [
+const OPS: [Operation; 9] = [
     Operation::ExactDist,
     Operation::NeighborSearch,
     Operation::Posterior,
@@ -191,8 +187,6 @@ const OPS: [Operation; 11] = [
     Operation::DevicePosterior,
     Operation::Acquisition,
     Operation::Candidate,
-    Operation::WeightSelect,
-    Operation::TrialSearch,
     Operation::ResidentLoop,
 ];
 
@@ -222,19 +216,12 @@ pub fn support(target: ExecutionTarget, operation: Operation) -> Support {
         (
             ExecutionTarget::Cuda,
             Operation::NeighborSearch
-            | Operation::TrialSearch
             | Operation::Posterior
             | Operation::PosteriorBatch
             | Operation::PosteriorDraw,
         ) => Support::Direct,
-        (
-            ExecutionTarget::Metal,
-            Operation::NeighborSearch | Operation::TrialSearch | Operation::WeightSelect,
-        ) => Support::Direct,
-        (
-            ExecutionTarget::OpenCl,
-            Operation::NeighborSearch | Operation::TrialSearch | Operation::WeightSelect,
-        ) => Support::Direct,
+        (ExecutionTarget::Metal, Operation::NeighborSearch) => Support::Direct,
+        (ExecutionTarget::OpenCl, Operation::NeighborSearch) => Support::Direct,
         (
             _,
             Operation::Posterior
@@ -243,7 +230,6 @@ pub fn support(target: ExecutionTarget, operation: Operation) -> Support {
             | Operation::Acquisition
             | Operation::Candidate,
         ) => Support::Fallback,
-        (_, Operation::WeightSelect) => Support::Missing,
     }
 }
 
@@ -313,7 +299,7 @@ mod tests {
     }
 
     #[test]
-    fn target_serialization_migration() {
+    fn target_migration() {
         let row = Capability {
             target: ExecutionTarget::Cpu,
             operation: Operation::NeighborSearch,

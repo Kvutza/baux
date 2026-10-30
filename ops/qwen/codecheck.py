@@ -1,4 +1,4 @@
-"""Fail-closed macOS execution of MBPP solution/setup/test source strings.
+"""Fail-closed macOS execution of Qwen MBPP solution/setup/test strings.
 
 The OS sandbox is the host-access boundary. The Python completion protocol is
 NOT a security boundary for scores against deliberately adversarial Python
@@ -9,7 +9,7 @@ Requires sandbox-exec and Apple's installed dyld-support.sb. There is no Docker
 or unsandboxed fallback. Use from an authorized host process: an outer sandbox
 may prohibit installing the profile, in which case this returns unavailable.
 Only the current interpreter, its stdlib (not site-packages), and system loader
-paths are readable; optional third-party/native-library imports may fail.
+paths are readable; optional third-party compiled-library imports may fail.
 """
 
 from __future__ import annotations

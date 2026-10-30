@@ -51,12 +51,12 @@ def d_scaling(ds=None, n=1000, num_candidates=5000):
         row["ENN_Init (s)"] = time.perf_counter() - t0
 
         t0 = time.perf_counter()
-        model.rust_backend.nearest_neighbors(
+        model.extension_model.nearest_neighbors(
             cand_x,
             10,
             False,
         )
-        row["ENN native search (s)"] = time.perf_counter() - t0
+        row["ENN extension search (s)"] = time.perf_counter() - t0
 
         row["Sobol optimizer ask (s)"] = _asktime(
             d,

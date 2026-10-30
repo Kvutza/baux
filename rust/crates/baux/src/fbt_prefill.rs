@@ -280,7 +280,8 @@ pub(super) struct Prefill {
 
 impl Model {
     /// Preallocate the opt-in MPS prefill workspace. Does not change score() or
-    /// its reference backend. Length is per example; all examples must match.
+    /// its reference implementation. Length is per example; all examples must
+    /// match.
     pub fn prepare_prefill(&mut self, batch: u32, length: u32) -> Result<(), String> {
         if self
             .prefills

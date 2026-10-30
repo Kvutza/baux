@@ -19,7 +19,7 @@ use pyo3::types::PyDict;
 mod py_buf;
 
 pub(crate) use py_buf::weight_buffer;
-pub use py_buf::{PyMetalFlameEvaluator, PyMetalParamBlock, PyMetalWeights};
+pub use py_buf::{PyMetalParamBlock, PyMetalWeights};
 
 use crate::py_qwen::PyMetalQwenEvaluator;
 

@@ -7,9 +7,9 @@ use crate::error::ENNError;
 use crate::optimizer_dispatch::{VarianceGate, variance_gate};
 use crate::surrogate::{BoxedSurrogate, ENNSurrogate, Surrogate};
 
-/// Closed storage backend: either empirical observation vectors or an indexed
+/// Closed storage source: either empirical observation vectors or an indexed
 /// surrogate model.
-pub enum PosteriorBackend {
+pub enum PosteriorSource {
     Empirical {
         x_rows: Vec<Array1<f64>>,
         y_rows: Vec<Array1<f64>>,
@@ -19,7 +19,7 @@ pub enum PosteriorBackend {
 
 /// Unified posterior and observation store for the ask/tell optimizer.
 pub struct PosteriorStore {
-    backend: PosteriorBackend,
+    source: PosteriorSource,
     pub(crate) yvar_mode: Option<bool>,
 }
 
@@ -31,34 +31,34 @@ impl PosteriorStore {
             }
             SurrogateConfig::None => None,
         });
-        let backend = match model {
-            Some(surrogate) => PosteriorBackend::Model(surrogate),
-            None => PosteriorBackend::Empirical {
+        let source = match model {
+            Some(surrogate) => PosteriorSource::Model(surrogate),
+            None => PosteriorSource::Empirical {
                 x_rows: Vec::new(),
                 y_rows: Vec::new(),
             },
         };
         Self {
-            backend,
+            source,
             yvar_mode: None,
         }
     }
 
     pub fn has_surrogate(&self) -> bool {
-        matches!(self.backend, PosteriorBackend::Model(_))
+        matches!(self.source, PosteriorSource::Model(_))
     }
 
     pub fn surrogate(&self) -> Option<&(dyn Surrogate + Send + Sync)> {
-        match &self.backend {
-            PosteriorBackend::Model(s) => Some(s.as_ref()),
-            PosteriorBackend::Empirical { .. } => None,
+        match &self.source {
+            PosteriorSource::Model(s) => Some(s.as_ref()),
+            PosteriorSource::Empirical { .. } => None,
         }
     }
 
     pub fn surrogate_mut(&mut self) -> Option<&mut (dyn Surrogate + Send + Sync)> {
-        match &mut self.backend {
-            PosteriorBackend::Model(s) => Some(s.as_mut()),
-            PosteriorBackend::Empirical { .. } => None,
+        match &mut self.source {
+            PosteriorSource::Model(s) => Some(s.as_mut()),
+            PosteriorSource::Empirical { .. } => None,
         }
     }
 
@@ -81,16 +81,16 @@ impl PosteriorStore {
     }
 
     pub fn obs_count(&self) -> usize {
-        match &self.backend {
-            PosteriorBackend::Model(s) => s.observation_count().unwrap_or(0),
-            PosteriorBackend::Empirical { x_rows, .. } => x_rows.len(),
+        match &self.source {
+            PosteriorSource::Model(s) => s.observation_count().unwrap_or(0),
+            PosteriorSource::Empirical { x_rows, .. } => x_rows.len(),
         }
     }
 
     pub fn x_row(&self, idx: usize) -> Result<Array1<f64>, ENNError> {
-        match &self.backend {
-            PosteriorBackend::Model(s) => s.x_row(idx),
-            PosteriorBackend::Empirical { x_rows, .. } => {
+        match &self.source {
+            PosteriorSource::Model(s) => s.x_row(idx),
+            PosteriorSource::Empirical { x_rows, .. } => {
                 x_rows.get(idx).cloned().ok_or_else(|| {
                     ENNError::InvalidParameter(format!("observation index {idx} out of range"))
                 })
@@ -99,9 +99,9 @@ impl PosteriorStore {
     }
 
     pub fn y_row(&self, idx: usize) -> Result<Array1<f64>, ENNError> {
-        match &self.backend {
-            PosteriorBackend::Model(s) => s.y_row(idx),
-            PosteriorBackend::Empirical { y_rows, .. } => {
+        match &self.source {
+            PosteriorSource::Model(s) => s.y_row(idx),
+            PosteriorSource::Empirical { y_rows, .. } => {
                 y_rows.get(idx).cloned().ok_or_else(|| {
                     ENNError::InvalidParameter(format!("observation index {idx} out of range"))
                 })
@@ -110,25 +110,25 @@ impl PosteriorStore {
     }
 
     pub fn unit_obs(&self) -> Option<Array2<f64>> {
-        match &self.backend {
-            PosteriorBackend::Model(s) => s.observations_x().ok().flatten(),
-            PosteriorBackend::Empirical { x_rows, .. } => {
+        match &self.source {
+            PosteriorSource::Model(s) => s.observations_x().ok().flatten(),
+            PosteriorSource::Empirical { x_rows, .. } => {
                 (!x_rows.is_empty()).then(|| stack_rows(x_rows))
             }
         }
     }
 
     pub fn y_obs(&self) -> Option<Array2<f64>> {
-        match &self.backend {
-            PosteriorBackend::Model(s) => s.observations_y().ok().flatten(),
-            PosteriorBackend::Empirical { y_rows, .. } => {
+        match &self.source {
+            PosteriorSource::Model(s) => s.observations_y().ok().flatten(),
+            PosteriorSource::Empirical { y_rows, .. } => {
                 (!y_rows.is_empty()).then(|| stack_rows(y_rows))
             }
         }
     }
 
     pub fn push_empirical(&mut self, x_row: Array1<f64>, y_row: Array1<f64>) {
-        if let PosteriorBackend::Empirical { x_rows, y_rows } = &mut self.backend {
+        if let PosteriorSource::Empirical { x_rows, y_rows } = &mut self.source {
             x_rows.push(x_row);
             y_rows.push(y_row);
         }
@@ -149,7 +149,7 @@ impl PosteriorStore {
                 )));
             }
         }
-        if let PosteriorBackend::Model(surrogate) = &mut self.backend {
+        if let PosteriorSource::Model(surrogate) = &mut self.source {
             let start = std::time::Instant::now();
             surrogate.fit_append(&delta.x_view(), &delta.y_view(), yvar, rng)?;
             return Ok(Some(start.elapsed().as_secs_f64()));
@@ -158,9 +158,9 @@ impl PosteriorStore {
     }
 
     pub fn clear(&mut self) -> Result<(), ENNError> {
-        match &mut self.backend {
-            PosteriorBackend::Model(s) => s.clear_observations(),
-            PosteriorBackend::Empirical { x_rows, y_rows } => {
+        match &mut self.source {
+            PosteriorSource::Model(s) => s.clear_observations(),
+            PosteriorSource::Empirical { x_rows, y_rows } => {
                 x_rows.clear();
                 y_rows.clear();
                 Ok(())
@@ -169,21 +169,21 @@ impl PosteriorStore {
     }
 
     pub fn schedule_flush(&self) -> Result<(), ENNError> {
-        if let PosteriorBackend::Model(s) = &self.backend {
+        if let PosteriorSource::Model(s) = &self.source {
             s.schedule_flush()?;
         }
         Ok(())
     }
 
     pub fn wait_flush(&self) -> Result<(), ENNError> {
-        if let PosteriorBackend::Model(s) = &self.backend {
+        if let PosteriorSource::Model(s) = &self.source {
             s.wait_flush()?;
         }
         Ok(())
     }
 
     pub fn release_pages(&self) -> Result<(), ENNError> {
-        if let PosteriorBackend::Model(s) = &self.backend {
+        if let PosteriorSource::Model(s) = &self.source {
             s.release_pages()?;
         }
         Ok(())

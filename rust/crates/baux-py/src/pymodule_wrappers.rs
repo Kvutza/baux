@@ -38,8 +38,6 @@ pub fn pymodule_util(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(crate::py_util::sobol_py, m)?)?;
     m.add_function(wrap_pyfunction!(crate::py_util::bind_sobol, m)?)?;
     m.add_function(wrap_pyfunction!(crate::py_util::arms_py, m)?)?;
-    m.add_function(wrap_pyfunction!(crate::py_util::q_py, m)?)?;
-    m.add_function(wrap_pyfunction!(crate::py_util::bind_quantize, m)?)?;
     m.add_function(wrap_pyfunction!(crate::py_util::set_py, m)?)?;
     m.add_function(wrap_pyfunction!(crate::py_util::ensure_py, m)?)?;
     Ok(())
@@ -66,36 +64,18 @@ pub fn pymodule_fit(m: &Bound<'_, PyModule>) -> PyResult<()> {
     Ok(())
 }
 
-/// Experimental native model-package API.
+/// Experimental device APIs.
 #[pymodule]
 #[pyo3(name = "experimental")]
 pub fn pymodule_experimental(m: &Bound<'_, PyModule>) -> PyResult<()> {
-    #[cfg(all(target_os = "linux", target_arch = "x86_64", feature = "native-flame"))]
-    m.add_class::<crate::py_flame::PyFlameEvaluator>()?;
     #[cfg(all(target_os = "macos", feature = "metal"))]
     {
         m.add_class::<crate::py_metal::PyMetalWeights>()?;
-        m.add_class::<crate::py_metal::PyMetalFlameEvaluator>()?;
         m.add_class::<crate::py_qwen::PyMetalQwenEvaluator>()?;
         m.add_class::<crate::py_metal::PyMetalParamBlock>()?;
         m.add_class::<crate::py_metal::PyMetalSearchState>()?;
         m.add_class::<crate::py_metal::PyMetalProposals>()?;
     }
-    m.add_class::<crate::py_experimental::PyModelPackage>()?;
-    m.add_class::<crate::py_experimental::PyResidentBoSession>()?;
-    #[cfg(all(target_os = "macos", feature = "metal"))]
-    m.add_class::<crate::py_experimental::PyNativeKdaModel>()?;
-    Ok(())
-}
-
-/// Candidate evaluation coordination.
-#[pymodule]
-#[pyo3(name = "search")]
-pub fn pymodule_search(m: &Bound<'_, PyModule>) -> PyResult<()> {
-    m.add_class::<crate::py_weights::PyTrialEngine>()?;
-    m.add_class::<crate::py_weights::PyParameterOptimizer>()?;
-    m.add_class::<crate::py_weights::PyTrial>()?;
-    m.add_class::<crate::py_parameter::PyParameter>()?;
     Ok(())
 }
 
@@ -123,8 +103,6 @@ pub fn pymodule_optimizer(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(crate::py_optimizer::bind_regions, m)?)?;
     m.add_function(wrap_pyfunction!(crate::py_optimizer::bind_zero, m)?)?;
     m.add_function(wrap_pyfunction!(crate::py_optimizer::bind_lhd, m)?)?;
-    m.add_function(wrap_pyfunction!(crate::py_weights::weight_py, m)?)?;
-    m.add_function(wrap_pyfunction!(crate::py_weights::select_weight, m)?)?;
     m.add_function(wrap_pyfunction!(crate::py_weights::dense_py, m)?)?;
     m.add_function(wrap_pyfunction!(crate::py_weights::bind_dist, m)?)?;
     m.add_function(wrap_pyfunction!(crate::py_weights::bind_linear, m)?)?;
@@ -136,7 +114,5 @@ pub fn pymodule_optimizer(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(crate::py_weights::bind_apply, m)?)?;
     m.add_function(wrap_pyfunction!(crate::py_weights::bind_blocks, m)?)?;
     m.add_function(wrap_pyfunction!(crate::py_weights::bind_draw, m)?)?;
-    m.add_function(wrap_pyfunction!(crate::py_weights::bind_select, m)?)?;
-    m.add_function(wrap_pyfunction!(crate::py_weights::select_sparse, m)?)?;
     Ok(())
 }

@@ -208,7 +208,7 @@ impl Default for RandomAcquisition {
 
 /// Pareto front acquisition optimizer for multi-objective problems.
 ///
-/// This is the multiobjective contract. The resident and quantized-weight
+/// This is the multiobjective contract. Resident scalar-selection
 /// selection paths keep a separate legacy scalar "Pareto" heuristic.
 pub struct ParetoAcquisition;
 

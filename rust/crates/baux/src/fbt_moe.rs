@@ -288,7 +288,6 @@ struct Pipelines {
     fine_grained_grad: std::cell::OnceCell<Result<routing_grad::FineGrainedMoeGrad, String>>,
     mhc_grad: std::cell::OnceCell<Result<mhc_grad::Kernels, String>>,
     train_grad: std::cell::OnceCell<Result<train_grad::Kernels, String>>,
-    quantize_gate_up_int8: ComputePipelineState,
     gate: ComputePipelineState,
     group: ComputePipelineState,
     swiglu: ComputePipelineState,

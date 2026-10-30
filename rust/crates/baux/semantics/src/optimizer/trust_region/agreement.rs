@@ -96,7 +96,7 @@ pub struct TrialStep {
     pub predicted_improvement: f64,
     pub prediction_variance: f64,
     pub accepted: bool,
-    /// Nominal proposal scale before quantization and operator response.
+    /// Nominal proposal scale before rounding and operator response.
     pub nominal_radius: f64,
     /// Realized response-space displacement. mHC-4 supplies the RMS causal
     /// patch response; scalar objectives fall back to normalized weight

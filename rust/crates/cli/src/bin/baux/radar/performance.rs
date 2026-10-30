@@ -1,4 +1,4 @@
-use super::{PerformanceAction, PerformanceTarget};
+use crate::cli_radar::{PerformanceAction, PerformanceTarget};
 use std::path::Path;
 
 const RUNTIME_TARGET: &str = "//rust/crates/runner:baux-runner";

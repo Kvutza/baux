@@ -114,7 +114,7 @@ fn initialized_forward() -> Result<(), String> {
         )
         .map_err(|error| error.to_string())?;
         println!(
-            "INITIALIZED_FORWARD backend=metal seed={} parameters={elements} rows={} targets={} \
+            "INITIALIZED_FORWARD target=metal seed={} parameters={elements} rows={} targets={} \
              output={}",
             case::SEED,
             case::ROWS,

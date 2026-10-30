@@ -8,6 +8,7 @@ from pathlib import Path
 
 import click
 
+from . import mbpp
 from .config import MODEL_ID, REVISION, Config
 from .tokenizer import load as load_tokenizer
 
@@ -125,8 +126,6 @@ def _collectexamples(
 
 
 def prepare(rows: list[dict], tokenizer, *, count: int, max_tokens: int) -> dict:
-    from ops.flame import coding as mbpp
-
     if type(count) is not int or not 1 <= count <= len(mbpp.TRAIN_IDS):
         raise ValueError("count must be between 1 and 374")
     if type(max_tokens) is not int or not 2 <= max_tokens <= Config().context:
@@ -171,8 +170,6 @@ def prepare(rows: list[dict], tokenizer, *, count: int, max_tokens: int) -> dict
 
 
 def _writeprepared(checkpoint: Path, output: Path, count: int, max_tokens: int) -> dict:
-    from ops.flame import coding as mbpp
-
     if output.exists():
         raise FileExistsError(f"Refusing to overwrite {output}")
     tokenizer = load_tokenizer(checkpoint)

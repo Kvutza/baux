@@ -15,7 +15,7 @@ fn readout_coverage() -> Result<()> {
             epsilon: 1e-6,
             rope_theta: 10000.0,
         };
-        let mut evaluator = QwenEvaluator::backend_options(c, 260, MpsMode::Off, false)?;
+        let mut evaluator = QwenEvaluator::mode_options(c, 260, MpsMode::Off, false)?;
         let values = (0..evaluator.weights_len())
             .map(|index| ((((index * 7 % 29) as f32 - 14.0) / 128.0).to_bits() >> 16) as u16)
             .collect::<Vec<_>>();
@@ -226,7 +226,7 @@ fn check_readout(measure: bool) -> Result<()> {
         if checkpoint.is_none() {
             c.layers = 1;
         }
-        let mut evaluator = QwenEvaluator::backend_options(c, 256, MpsMode::Off, false)?;
+        let mut evaluator = QwenEvaluator::mode_options(c, 256, MpsMode::Off, false)?;
         let elements = product(&[c.hidden as usize, c.vocab as usize])?;
         let weights = readout_weights(&mut evaluator, checkpoint.as_deref())?;
         let values = unsafe {

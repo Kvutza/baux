@@ -16,44 +16,6 @@ _BAUX_RUST_SRCS = glob([
     "artifact/src/**/*.rs",
 ])
 
-cxx_binary(
-    name = "region-arithmetic",
-    srcs = ["tests/region_math.cpp"],
-    headers = {"arithmetic.cl": "src/search/arithmetic.cl"},
-    header_namespace = "",
-    compiler_flags = ["-std=c++17", "-ffp-contract=off"],
-)
-
-sh_test(
-    name = "region-math",
-    test = ":region-arithmetic",
-    visibility = ["PUBLIC"],
-)
-
-rust_test(
-    name = "region-opencl",
-    srcs = _BAUX_RUST_SRCS + ["//experiments:specs"],
-    crate = "baux",
-    crate_root = "src/lib.rs",
-    edition = RUST_EDITION,
-    features = ["buck2-test-data", "opencl", "usearch-c-api"],
-    visibility = ["PUBLIC"],
-    deps = BAUX_BUCK_TEST_DEPS + [
-        "//rust:opencl3",
-        ":usearch-bridge",
-    ] + select({
-        "//:linux-arm64": [],
-        "//:linux-x86_64": [],
-        "//:macos-arm64": [
-            "//build/buck2/native:openmp-macos",
-            "//rust:metal",
-        ],
-    }),
-    rpath = True,
-    run_env = {"RUST_TEST_THREADS": "1"},
-    runtime_dependency_handling = "symlink",
-)
-
 filegroup(
     name = "baux-source",
     srcs = glob([

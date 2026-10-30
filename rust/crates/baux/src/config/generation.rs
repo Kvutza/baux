@@ -148,13 +148,13 @@ pub enum FrozenAttention {
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[deser(rename_all = "kebab-case")]
-pub enum FrozenBackend {
+pub enum FrozenComputeMode {
     Reference,
     Fp32,
     Fp16,
 }
 
-impl FrozenBackend {
+impl FrozenComputeMode {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Reference => "reference",
@@ -223,7 +223,10 @@ pub enum GenerationReward {
         tokenizer_program: PathBuf,
         #[deser(default)]
         tokenizer_args: Vec<String>,
-        backend: FrozenBackend,
+        /// Precision/execution mode. `backend` remains a read-only legacy
+        /// alias.
+        #[deser(alias = "backend")]
+        mode: FrozenComputeMode,
         #[deser(default)]
         readout: FrozenReadout,
         #[deser(default)]

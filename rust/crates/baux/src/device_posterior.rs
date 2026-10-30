@@ -54,7 +54,7 @@ impl ENN {
         )))]
         {
             let _ = (pointer, byte_offset, device, rows, params, flags);
-            Err("device posterior requires a compiled CUDA or Metal backend".into())
+            Err("device posterior requires a compiled CUDA or Metal target".into())
         }
         #[cfg(any(
             all(target_os = "macos", feature = "metal"),

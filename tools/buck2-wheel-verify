@@ -196,8 +196,8 @@ train_y = np.zeros((32, 1), dtype=float)
 query = rng.normal(size=(4, 5))
 flat = ENN(train_x, train_y, index_driver=NeighborIndex.FLAT)
 usearch = ENN(train_x, train_y, index_driver=NeighborIndex.USEARCH)
-expected = posterior_neighbors(flat.rust_backend, query, search_k=10)
-actual = posterior_neighbors(usearch.rust_backend, query, search_k=10)
+expected = posterior_neighbors(flat.extension_model, query, search_k=10)
+actual = posterior_neighbors(usearch.extension_model, query, search_k=10)
 assert np.array_equal(actual[1], expected[1])
 assert np.max(np.abs(actual[0] - expected[0])) == 0.0
 
@@ -271,8 +271,7 @@ else
             "$repo_dir/tests/python_api/testpubapict.py" \
             "$repo_dir/tests/testeidx.py" \
             "$repo_dir/tests/testeidxdrv.py" \
-            "$repo_dir/tests/testenbr.py" \
-            "$repo_dir/tests/testwtsrch.py"
+            "$repo_dir/tests/testenbr.py"
     )
 fi
 

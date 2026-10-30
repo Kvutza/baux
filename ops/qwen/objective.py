@@ -1,32 +1,14 @@
-"""Fixed, solution-only teacher-forcing objectives for full-weight BO."""
+"""Validated solution-token objectives for Qwen optimization."""
 
 from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import dataclass, replace
-from typing import TYPE_CHECKING, Any
+from dataclasses import dataclass
 
 import numpy as np
 
-if TYPE_CHECKING:
-    import jax
-
 FORMAT = "baux.solution_tokens.v1"
-
-
-def problem_indices(indices, population):
-    indices = np.asarray(indices)
-    if (
-        indices.ndim != 1
-        or not np.issubdtype(indices.dtype, np.integer)
-        or not indices.size
-        or indices.min() < 0
-        or indices.max() >= population
-        or len(np.unique(indices)) != len(indices)
-    ):
-        raise ValueError("Expected distinct, in-range problem indices")
-    return indices
 
 
 def _checkexample(example, seen, config):
@@ -100,73 +82,3 @@ class SolutionObjective:
             "provenance": document["provenance"],
         }
         return cls(padded, mask, metadata)
-
-    def evaluator(self, layout, config):
-        import jax
-        import jax.numpy as jnp
-
-        from . import model
-
-        @jax.jit
-        def evaluate(flat, tokens, mask, index):
-            tokens = jax.lax.dynamic_slice_in_dim(tokens, index, 1, axis=0)
-            mask = jax.lax.dynamic_slice_in_dim(mask, index, 1, axis=0)
-            params = layout.unflatten(flat.reshape((layout.size,)))
-            losses = model.token_loss(model.forward(params, tokens, config), tokens)
-            return jnp.sum(jnp.where(mask, losses, 0.0))
-
-        return SolutionEvaluator(
-            evaluate,
-            jnp.asarray(self.tokens),
-            jnp.asarray(self.mask[:, 1:]),
-            self.metadata["scored_tokens"],
-            tuple(self.metadata["solution_tokens_per_example"]),
-        )
-
-
-@dataclass(frozen=True)
-class SolutionEvaluator:
-    kernel: Any
-    tokens: jax.Array
-    masks: jax.Array
-    scored_tokens: int
-    solution_counts: tuple[int, ...]
-
-    def __call__(self, flat):
-        import jax.numpy as jnp
-
-        # An outer XLA loop materializes weight slices on T4. Keep only the
-        # forward compiled, synchronizing each scalar before the next example.
-        total = sum(
-            float(
-                self.kernel(
-                    flat, self.tokens, self.masks, np.int32(i)
-                ).block_until_ready()
-            )
-            for i in range(len(self.tokens))
-        )
-        return jnp.asarray(-total / self.scored_tokens, dtype=jnp.float32)
-
-    def losses(self, flat, indices):
-        indices = problem_indices(indices, len(self.tokens))
-        return np.asarray(
-            [
-                float(
-                    self.kernel(
-                        flat, self.tokens, self.masks, np.int32(i)
-                    ).block_until_ready()
-                )
-                / self.solution_counts[i]
-                for i in indices
-            ],
-            dtype=np.float64,
-        )
-
-    def compile(self, signature):
-        kernel = self.kernel.lower(
-            signature, self.tokens, self.masks, np.int32(0)
-        ).compile()
-        return replace(self, kernel=kernel)
-
-    def memory_analysis(self):
-        return self.kernel.memory_analysis()

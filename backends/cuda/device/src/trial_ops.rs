@@ -1,10 +1,7 @@
 use baux::semantics::random::splitmix64 as dense_mix64;
 use cuda_device::{DisjointSlice, SharedArray, thread, warp};
 
-use super::{
-    Bf16Leaf, CenterStep, Leaf, MAX_DEPTH, SearchState, Seed, THREADS, TellParams, TellSummary,
-    WARPS, bf16,
-};
+use super::{Bf16Leaf, SearchState, THREADS, TellParams, TellSummary, WARPS, bf16};
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
@@ -62,6 +59,26 @@ pub struct DenseLinearParams {
 // SAFETY: DenseLinearParams is repr(C) and contains only DeviceCopy scalars.
 unsafe impl cuda_core::DeviceCopy for DenseLinearParams {}
 
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct Seed {
+    pub low: u32,
+    pub high: u32,
+}
+
+// SAFETY: Seed is repr(C) and contains only DeviceCopy scalars.
+unsafe impl cuda_core::DeviceCopy for Seed {}
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct Selection {
+    pub index: u32,
+    pub score: f32,
+}
+
+// SAFETY: Selection is repr(C) and contains only DeviceCopy scalars.
+unsafe impl cuda_core::DeviceCopy for Selection {}
+
 #[inline(always)]
 pub(crate) fn validate_tell_params(params: &TellParams, proposal_status: &[u32]) -> u32 {
     let mut status = 0_u32;
@@ -92,168 +109,6 @@ pub(crate) fn validate_tell_params(params: &TellParams, proposal_status: &[u32])
         status_index += 1;
     }
     status
-}
-
-pub(crate) const FP4_E2M1: [f32; 16] = [
-    0.0, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0, -0.0, -0.5, -1.0, -1.5, -2.0, -3.0, -4.0, -6.0,
-];
-
-#[inline(always)]
-pub(crate) fn trial_hash(seed_low: u32, seed_high: u32, element: u32) -> u32 {
-    let mut value = seed_low ^ element.wrapping_mul(0x9e37_79b9);
-    value ^= value >> 16;
-    value = value.wrapping_mul(0x7feb_352d);
-    value ^= seed_high;
-    value = value.wrapping_mul(0x846c_a68b);
-    value ^ (value >> 15)
-}
-
-#[inline(always)]
-pub(crate) fn decode_e4m3(code: u32) -> f32 {
-    let sign = if code & 0x80 != 0 { -1.0 } else { 1.0 };
-    let exp = (code >> 3) & 0x0f;
-    let mant = code & 0x07;
-    if exp == 0 {
-        sign * (mant as f32 / 8.0) * 2.0_f32.powi(-6)
-    } else if exp == 15 && mant == 7 {
-        f32::NAN
-    } else {
-        sign * (1.0 + mant as f32 / 8.0) * 2.0_f32.powi(exp as i32 - 7)
-    }
-}
-
-#[inline(always)]
-pub(crate) fn decode_e5m2(code: u32) -> f32 {
-    let sign = if code & 0x80 != 0 { -1.0 } else { 1.0 };
-    let exp = (code >> 2) & 0x1f;
-    let mant = code & 0x03;
-    if exp == 0 {
-        sign * (mant as f32 / 4.0) * 2.0_f32.powi(-14)
-    } else if exp == 31 {
-        if mant == 0 {
-            sign * f32::INFINITY
-        } else {
-            f32::NAN
-        }
-    } else {
-        sign * (1.0 + mant as f32 / 4.0) * 2.0_f32.powi(exp as i32 - 15)
-    }
-}
-
-#[inline(always)]
-pub(crate) fn decode_code(code: u32, leaf: Leaf) -> f32 {
-    let value = match leaf.encoding {
-        2 => FP4_E2M1[(code & 0x0f) as usize],
-        3 => decode_e4m3(code),
-        4 => decode_e5m2(code),
-        _ => code as f32,
-    };
-    value * leaf.scale
-}
-
-#[inline(always)]
-pub(crate) fn code_at(rows: &[u8], row_offset: usize, leaf: Leaf, element: u32) -> u32 {
-    if leaf.bits == 4 {
-        let byte = rows[row_offset + leaf.byte_offset as usize + (element / 2) as usize];
-        u32::from((byte >> ((element & 1) * 4)) & 0x0f)
-    } else {
-        u32::from(rows[row_offset + leaf.byte_offset as usize + element as usize])
-    }
-}
-
-#[inline(always)]
-pub(crate) unsafe fn code_ptr(rows: *const u8, row_offset: usize, leaf: Leaf, element: u32) -> u32 {
-    let index = row_offset
-        + leaf.byte_offset as usize
-        + if leaf.bits == 4 {
-            (element / 2) as usize
-        } else {
-            element as usize
-        };
-    let byte = unsafe { rows.add(index).read() };
-    if leaf.bits == 4 {
-        u32::from((byte >> ((element & 1) * 4)) & 0x0f)
-    } else {
-        u32::from(byte)
-    }
-}
-
-#[inline(always)]
-pub(crate) fn perturb_code(
-    code: u32,
-    seed_low: u32,
-    seed_high: u32,
-    element: u32,
-    bits: u32,
-    whole: u32,
-    threshold: u32,
-) -> u32 {
-    let random = trial_hash(seed_low, seed_high, element);
-    let amount = whole + u32::from((random >> 1) < (threshold >> 1));
-    if amount == 0 {
-        return code;
-    }
-
-    let max_code = (1_u32 << bits) - 1;
-    if random & 1 == 0 {
-        if code >= amount {
-            code - amount
-        } else {
-            (code + amount).min(max_code)
-        }
-    } else if code + amount <= max_code {
-        code + amount
-    } else {
-        code.saturating_sub(amount)
-    }
-}
-
-#[inline(always)]
-pub(crate) fn sparse_code(code: u32, seed: Seed, element: u32, leaf: Leaf) -> u32 {
-    if leaf.whole == 0 && leaf.threshold == 0 {
-        return code;
-    }
-    perturb_code(
-        code,
-        seed.low,
-        seed.high,
-        element,
-        leaf.bits,
-        leaf.whole.max(1),
-        0,
-    )
-}
-
-#[inline(always)]
-pub(crate) fn resolve_center(
-    mut code: u32,
-    centers: &[CenterStep],
-    mut center: u32,
-    element: u32,
-    leaf: Leaf,
-) -> u32 {
-    let mut chain = [Seed { low: 0, high: 0 }; MAX_DEPTH];
-    let mut depth = 0_usize;
-    while center != u32::MAX && depth < MAX_DEPTH {
-        let step = centers[center as usize];
-        chain[depth] = step.seed;
-        center = step.parent;
-        depth += 1;
-    }
-    while depth > 0 {
-        depth -= 1;
-        let seed = chain[depth];
-        code = perturb_code(
-            code,
-            seed.low,
-            seed.high,
-            element,
-            leaf.bits,
-            leaf.whole,
-            leaf.threshold,
-        );
-    }
-    code
 }
 
 #[inline(always)]

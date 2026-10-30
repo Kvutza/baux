@@ -1,4 +1,4 @@
-use crate::research::site::{AeneasRecord, DeclRecord, LeanModuleRecord, LlbcRecord, shared_path};
+use crate::research_site::{AeneasRecord, DeclRecord, LeanModuleRecord, LlbcRecord, shared_path};
 use crate::site_aeneas::normalize_key;
 use baux::artifact::json::{self, Map, Value};
 use baux::artifact::wire_json;

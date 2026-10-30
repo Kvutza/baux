@@ -44,7 +44,7 @@ fn reference(c: AttentionConfig, q: &[f32], k: &[f32], v: &[f32], gates: &[f32])
     let h = c.heads as usize;
     let kh = c.kv_heads as usize;
     let n = q.len() / (h * d);
-    let rotate = |input: &[f32], heads: usize, quantize: bool| {
+    let rotate = |input: &[f32], heads: usize, round_to_half: bool| {
         let mut out = vec![0.0; input.len()];
         for t in 0..n {
             for head in 0..heads {
@@ -65,8 +65,8 @@ fn reference(c: AttentionConfig, q: &[f32], k: &[f32], v: &[f32], gates: &[f32])
                     let b = src[i + d / 2] as f64 * scale;
                     let x = a * angle.cos() - b * angle.sin();
                     let y = b * angle.cos() + a * angle.sin();
-                    out[base + i] = if quantize { rounded(x) } else { x };
-                    out[base + i + d / 2] = if quantize { rounded(y) } else { y };
+                    out[base + i] = if round_to_half { rounded(x) } else { x };
+                    out[base + i + d / 2] = if round_to_half { rounded(y) } else { y };
                 }
             }
         }

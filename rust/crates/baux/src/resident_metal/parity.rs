@@ -469,7 +469,7 @@ fn warmup_trace() {
 fn paired_trace() {
     autoreleasepool(|| {
         let base = vec![0x3c00; 17];
-        // Keep this tiny FP16 fixture above its quantization floor while
+        // Keep this tiny FP16 fixture above its rounding floor while
         // exercising contraction, expansion and multiple full-history windows.
         let bounds = TRLengthConfig::new(0.125, 0.03125, 2.0);
         let policy = ReliabilityPolicy {

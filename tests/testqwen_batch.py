@@ -21,7 +21,7 @@ def test_benchbatch(monkeypatch, tmp_path):
             self.weights = object()
 
         def bench_generate(self, weights, tokens, max_new_tokens, *, mode):
-            raise AssertionError("batch benchmarks must use native generate_batch")
+            raise AssertionError("batch benchmarks must use Metal generate_batch")
 
         def generate_batch(self, weights, prompts, max_new_tokens):
             nonlocal batch_calls

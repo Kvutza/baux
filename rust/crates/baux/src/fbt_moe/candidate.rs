@@ -94,19 +94,10 @@ impl<'a> CandidateRow<'a> {
     }
 
     /// MoE FFN parameters as typed, layer-stacked views.
-    pub(super) fn moe(self, int8_gate: Option<&'a BufferRef>) -> crate::nn::moe::Weights<'a> {
-        use crate::nn::moe::{GateWeights, Weights};
+    pub(super) fn moe(self) -> crate::nn::moe::Weights<'a> {
+        use crate::nn::moe::Weights;
         use crate::tensor::View;
         let gate_cols = routing::MOE_EXPERTS * WIDTH * routing::MOE_GATEUP;
-        let gate_up = match int8_gate {
-            Some(quantized) => GateWeights::I8(View::new(quantized, 0, MODEL_LAYERS, gate_cols)),
-            None => GateWeights::F16(View::new(
-                self.buffer,
-                self.gate_up,
-                MODEL_LAYERS,
-                gate_cols,
-            )),
-        };
         Weights {
             router: View::new(
                 self.buffer,
@@ -114,7 +105,7 @@ impl<'a> CandidateRow<'a> {
                 MODEL_LAYERS,
                 WIDTH * routing::ROUTED_EXPERTS,
             ),
-            gate_up,
+            gate_up: View::new(self.buffer, self.gate_up, MODEL_LAYERS, gate_cols),
             down: View::new(
                 self.buffer,
                 self.down,

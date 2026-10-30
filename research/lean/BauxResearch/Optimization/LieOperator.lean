@@ -328,10 +328,10 @@ theorem givensEnergy (θ : ℝ) (v : ℝ × ℝ) :
     _ = 1 * (v.1 ^ 2 + v.2 ^ 2) := by rw [Real.cos_sq_add_sin_sq]
     _ = v.1 ^ 2 + v.2 ^ 2 := by ring
 
-/-- Post-quantization pair energy identity for `encode_pair` (`program == 5u`):
+/-- Post-encoding pair energy identity for `encode_pair` (`program == 5u`):
 when `givensRotate θ v` is stored with additive FP16/BF16 rounding errors `(ex, ey)`,
 the stored energy differs from the exact initial energy `v.1^2 + v.2^2` by
-`2 * (rot.1 * ex + rot.2 * ey) + ex^2 + ey^2`, isolating quantization drift from
+`2 * (rot.1 * ex + rot.2 * ey) + ex^2 + ey^2`, isolating encoding drift from
 the zero analytical drift of the Givens operator. -/
 theorem givensRounded (θ ex ey : ℝ) (v : ℝ × ℝ) :
     let rot := givensRotate θ v

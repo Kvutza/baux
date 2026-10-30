@@ -91,7 +91,7 @@ fn roundtrip() {
             }),+]
         };
     }
-    for (name, text) in examples!("mhc4-1m.toml", "mhc4-native.toml") {
+    for (name, text) in examples!("mhc4-1m.toml", "mhc4-operator-bo.toml") {
         let spec = ExperimentSpec::parse(text).unwrap_or_else(|error| panic!("{name}: {error}"));
         let resolved = spec.to_toml().unwrap();
         let restored = ExperimentSpec::parse(&resolved).unwrap();

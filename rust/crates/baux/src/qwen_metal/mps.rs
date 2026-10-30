@@ -112,7 +112,7 @@ impl QwenEvaluator {
             .mps
             .as_ref()
             .filter(|mps| mps.mode == MpsMode::F16)
-            .ok_or("Qwen half GEMM requires the FP16 MPS backend")?;
+            .ok_or("Qwen half GEMM requires the FP16 MPS path")?;
         let elements = u64::from(inside)
             .checked_mul(u64::from(outside))
             .ok_or("Qwen half GEMM weight size overflow")?;
@@ -228,7 +228,7 @@ impl QwenEvaluator {
             .mps
             .as_ref()
             .filter(|mps| mps.mode == MpsMode::F16)
-            .ok_or("Qwen half MLP reduction requires the FP16 MPS backend")?;
+            .ok_or("Qwen half MLP reduction requires the FP16 MPS path")?;
         let c = self.config;
         let output = mps.output.as_ref().expect("MPS half output missing");
         self.half_gemm(

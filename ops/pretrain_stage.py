@@ -121,7 +121,7 @@ def _stagemeta(
         "recipe": stage_recipe,
         "tokenizer_sha256": file_digest(stage_temp / "tokenizer.json"),
         "tokenizer_package_version": version_fn("tokenizers"),
-        "collector_package_version": "native",
+        "collector_implementation": "rust",
         "pools": pool_metadata,
         "splits": split_metadata,
         "document_index_sha256": file_digest(

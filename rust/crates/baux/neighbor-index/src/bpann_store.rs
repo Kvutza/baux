@@ -54,7 +54,7 @@ impl BpannStore {
     ) -> Result<Self, BpannError> {
         obs::check_dims(train_x.ncols())?;
         fs::create_dir_all(&work_dir).map_err(|e| BpannError::InvalidParameter(e.to_string()))?;
-        obs::check_index_format(&work_dir, INDEX_FORMAT)?;
+        obs::validate_format(&work_dir, INDEX_FORMAT)?;
         let num_obs_counter = obs::NumObsCounter::open(&work_dir)?;
 
         let num_dim = train_x.ncols();
@@ -306,7 +306,7 @@ impl BpannStore {
             return Ok(());
         }
         metric::metric_pending(&self.work_dir)?;
-        self.index.persist_complete_index(
+        self.index.persist_full(
             &self.train_x,
             self.num_dim,
             self.scale_x,

@@ -8,7 +8,7 @@ struct Matmul {
     ulong stride_a, stride_b, stride_c;
 };
 
-kernel void flame_matmul(device const float* a [[buffer(0)]],
+kernel void qwen_matmul(device const float* a [[buffer(0)]],
                         device const float* b [[buffer(1)]],
                         device float* c [[buffer(2)]],
                         constant Matmul& p [[buffer(3)]],
@@ -47,10 +47,10 @@ inline float reduce(float value, threadgroup float* scratch, uint lane) {
     return result;
 }
 
-struct Shape { uint rows, width, heads, hidden, experts, top_k, start, sequence; float epsilon, rope_base; };
+struct DenseKernelShape { uint rows, width, heads, hidden, start, sequence; };
 
-kernel void flame_softmax(device float* scores [[buffer(0)]],
-                         constant Shape& p [[buffer(1)]],
+kernel void qwen_softmax(device float* scores [[buffer(0)]],
+                         constant DenseKernelShape& p [[buffer(1)]],
                          uint row [[threadgroup_position_in_grid]],
                          uint tid [[thread_index_in_threadgroup]]) {
     threadgroup float scratch[256];
@@ -70,12 +70,12 @@ kernel void flame_softmax(device float* scores [[buffer(0)]],
     for (uint j = tid; j < p.rows; j += 256) values[j] /= sum;
 }
 
-kernel void flame_xent(device const float* logits [[buffer(0)]],
+kernel void qwen_cross_entropy(device const float* logits [[buffer(0)]],
                                device const int* tokens [[buffer(1)]],
                                device const uchar* masks [[buffer(2)]],
                                device float* losses [[buffer(3)]],
                                device atomic_uint* invalid [[buffer(4)]],
-                               constant Shape& p [[buffer(5)]],
+                               constant DenseKernelShape& p [[buffer(5)]],
                                uint row [[threadgroup_position_in_grid]],
                                uint tid [[thread_index_in_threadgroup]]) {
     threadgroup float scratch[256];
@@ -101,9 +101,9 @@ kernel void flame_xent(device const float* logits [[buffer(0)]],
     }
 }
 
-kernel void flame_mean(device float* losses [[buffer(0)]],
+kernel void qwen_loss_mean(device float* losses [[buffer(0)]],
                         device atomic_uint* invalid [[buffer(1)]],
-                        constant Shape& p [[buffer(2)]],
+                        constant DenseKernelShape& p [[buffer(2)]],
                         uint tid [[thread_index_in_threadgroup]]) {
     threadgroup float scratch[256];
     float sum = 0.0f;

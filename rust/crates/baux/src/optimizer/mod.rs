@@ -12,7 +12,7 @@ pub use inspection::DomainFrame;
 pub use multi_tr::{
     MultiTrustRegionConfig, MultiTrustRegionState, RegionBatch, RegionCandidate, SharingPolicy,
 };
-pub use obs_access::{PosteriorBackend, PosteriorStore};
+pub use obs_access::{PosteriorSource, PosteriorStore};
 pub use observation_delta::{ObservationDelta, WarmupMode, WarmupSchedule};
 pub use tr_state::TrustRegionState;
 

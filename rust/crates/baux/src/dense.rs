@@ -1,4 +1,4 @@
-use crate::weights::ComputeDevice;
+use crate::compute::ComputeDevice;
 
 pub const METAL_OPS: &str = include_str!("dense/ops.metal");
 pub const OPENCL_OPS: &str = include_str!("dense/ops.cl");

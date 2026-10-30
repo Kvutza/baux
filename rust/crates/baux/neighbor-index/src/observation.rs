@@ -70,8 +70,8 @@ pub fn check_rows(new_n: usize) -> Result<(), BpannError> {
     Ok(())
 }
 
-pub fn check_index_format(work_dir: &Path, expected: &str) -> Result<(), BpannError> {
-    if let Some(format) = load_index_format(work_dir) {
+pub fn validate_format(work_dir: &Path, expected: &str) -> Result<(), BpannError> {
+    if let Some(format) = load_format(work_dir) {
         if format != expected {
             return Err(BpannError::InvalidParameter(format!(
                 "work_dir index_backend is {format}, expected {expected}"
@@ -163,7 +163,7 @@ pub fn load_rows(work_dir: &Path) -> Option<usize> {
     parse_number(&text, "indexed_rows")
 }
 
-pub fn load_index_format(work_dir: &Path) -> Option<String> {
+pub fn load_format(work_dir: &Path) -> Option<String> {
     let text = fs::read_to_string(work_dir.join("metadata.json")).ok()?;
     parse_string(&text, "index_backend")
 }
@@ -304,10 +304,10 @@ mod tests {
             Some(0)
         );
         assert_eq!(
-            baux::neighbor_index::observation::load_index_format(dir.path()).as_deref(),
+            baux::neighbor_index::observation::load_format(dir.path()).as_deref(),
             Some(INDEX_FORMAT)
         );
-        baux::neighbor_index::observation::check_index_format(dir.path(), INDEX_FORMAT).unwrap();
+        baux::neighbor_index::observation::validate_format(dir.path(), INDEX_FORMAT).unwrap();
         let mut yvar =
             baux::neighbor_index::observation::open_yvar(dir.path(), 1, Some(&array![[0.1]]))
                 .unwrap();

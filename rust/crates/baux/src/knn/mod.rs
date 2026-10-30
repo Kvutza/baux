@@ -42,9 +42,9 @@ pub enum IndexDriver {
     /// B+ANN disk index (`EnnStorage::Disk` + `work_dir`).
     #[deser(rename = "bp_ann_disk")]
     BpAnnDisk,
-    /// Apple Metal index for device-resident quantized-weight paths.
+    /// Apple Metal index for device-resident neighbor search.
     Metal,
-    /// OpenCL index for device-resident quantized-weight paths.
+    /// OpenCL index for device-resident neighbor search.
     #[deser(rename = "opencl")]
     OpenCl,
     /// NVIDIA CUDA exact index implemented with CUDA-Oxide.
@@ -1038,7 +1038,7 @@ mod tests {
     }
 
     #[cfg(any(all(target_os = "macos", feature = "metal"), feature = "opencl"))]
-    fn check_index_impl(device: NeighborIndexImpl) {
+    fn verify_impl(device: NeighborIndexImpl) {
         let train = array![[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [2.0, 2.0]];
         let query = array![[0.2, 0.1], [1.1, 0.2]];
         let exact = NeighborIndexImpl::new(2, IndexDriver::Exact, &train.view()).unwrap();
@@ -1084,7 +1084,7 @@ mod tests {
                 return;
             }
         };
-        check_index_impl(device);
+        verify_impl(device);
     }
 
     #[cfg(feature = "opencl")]
@@ -1098,6 +1098,6 @@ mod tests {
                 return;
             }
         };
-        check_index_impl(device);
+        verify_impl(device);
     }
 }

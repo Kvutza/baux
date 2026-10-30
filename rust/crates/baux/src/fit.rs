@@ -281,7 +281,7 @@ pub fn row_loglik<R: Rng>(
 
 /// Leave-one-out likelihood from an exact pairwise squared-distance matrix.
 ///
-/// This is equivalent to `row_loglik` for backends that retain observation
+/// This is equivalent to `row_loglik` for stores that retain observation
 /// geometry but cannot afford to materialize every high-dimensional row.
 fn validate_loglik(
     distances: &ArrayView2<f64>,

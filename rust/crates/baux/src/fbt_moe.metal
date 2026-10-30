@@ -42,16 +42,6 @@ struct MoeShape {
     uint expert_width;
 };
 
-kernel void fbt_quantize_gate_up_int8(
-    device const half* input [[buffer(0)]],
-    device int8_t* output [[buffer(1)]],
-    constant ulong& elements [[buffer(2)]],
-    uint gid [[thread_position_in_grid]]) {
-    if (ulong(gid) >= elements) return;
-    const float scaled = round(float(input[gid]) * 8192.0f);
-    output[gid] = int8_t(clamp(scaled, -127.0f, 127.0f));
-}
-
 kernel void fbt_moe_balanced_gate(
     device const half* input [[buffer(0)]],
     device const half* router [[buffer(1)]],

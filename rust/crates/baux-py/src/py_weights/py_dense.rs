@@ -5,35 +5,12 @@ use std::sync::Arc;
 #[cfg(all(target_os = "linux", target_arch = "x86_64", feature = "cuda"))]
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use baux::experimental::{
-    self, AcquisitionKind, ComputeDevice, DenseLeaf, DenseLinear, DenseTerm, DenseView,
-    WeightBlock, WeightSelectConfig,
-};
+use baux::experimental::{self, ComputeDevice, DenseLeaf, DenseLinear, DenseTerm, DenseView};
 use numpy::{IntoPyArray, PyArray1, PyReadonlyArray1, PyReadonlyArray2};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
 use super::{array1_vec, array2_vec, err};
-
-pub(super) fn mixed_blocks(
-    raw: Vec<(usize, usize, u8, f32, f32, f32)>,
-) -> PyResult<Vec<WeightBlock>> {
-    raw.into_iter()
-        .map(
-            |(offset, length, bits, quantization_scale, metric_scale, weight)| {
-                WeightBlock::new(
-                    offset,
-                    length,
-                    bits,
-                    quantization_scale,
-                    metric_scale,
-                    weight,
-                )
-                .map_err(err)
-            },
-        )
-        .collect()
-}
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64", feature = "cuda"))]
 type PyObject = Py<PyAny>;
@@ -141,17 +118,6 @@ impl PyParamBuffer {
     fn len(&self) -> usize {
         self.inner.len()
     }
-}
-
-fn int4_blocks(raw: Vec<(usize, usize, f32, f32, f32)>) -> PyResult<Vec<WeightBlock>> {
-    raw.into_iter()
-        .map(
-            |(offset, length, quantization_scale, metric_scale, weight)| {
-                WeightBlock::new(offset, length, 4, quantization_scale, metric_scale, weight)
-                    .map_err(err)
-            },
-        )
-        .collect()
 }
 
 fn dense_leaves(raw: Vec<(u64, usize, usize, f32)>) -> PyResult<Vec<DenseLeaf>> {
@@ -284,107 +250,4 @@ impl PyDenseLinear {
     fn output_size(&self) -> usize {
         self.inner.output_size()
     }
-}
-
-fn weight_ucb<'py>(
-    py: Python<'py>,
-    observations: PyReadonlyArray2<'_, u8>,
-    outcomes: PyReadonlyArray1<'_, f32>,
-    candidates: PyReadonlyArray2<'_, u8>,
-    blocks: Vec<WeightBlock>,
-    neighbors: usize,
-    epistemic_scale: f32,
-    aleatoric_scale: f32,
-    y_scale: f32,
-    beta: f32,
-    device: &str,
-) -> PyResult<(Bound<'py, PyArray1<u8>>, usize, f32)> {
-    let observation_count = observations.as_array().nrows();
-    let candidate_count = candidates.as_array().nrows();
-    let observation_bytes = array2_vec(&observations);
-    let candidate_bytes = array2_vec(&candidates);
-    let outcome_vec = array1_vec(outcomes);
-    let result = experimental::select_weights(
-        &observation_bytes,
-        observation_count,
-        &outcome_vec,
-        &candidate_bytes,
-        candidate_count,
-        &blocks,
-        WeightSelectConfig {
-            neighbors,
-            epistemic_scale,
-            aleatoric_scale,
-            y_scale,
-            beta,
-            acquisition: AcquisitionKind::Ucb,
-            seed: 0,
-            device: ComputeDevice::parse(device).map_err(err)?,
-        },
-    )
-    .map_err(err)?;
-    let row_bytes = candidates.as_array().ncols();
-    let start = result.index * row_bytes;
-    let selected = candidate_bytes[start..start + row_bytes].to_vec();
-    Ok((selected.into_pyarray(py), result.index, result.score))
-}
-
-#[pyfunction(name = "weight_int4_select_ucb")]
-#[pyo3(signature=(observations,outcomes,candidates,blocks,neighbors,epistemic_scale,aleatoric_scale,y_scale,beta,device="auto"))]
-pub fn weight_py<'py>(
-    py: Python<'py>,
-    observations: PyReadonlyArray2<'_, u8>,
-    outcomes: PyReadonlyArray1<'_, f32>,
-    candidates: PyReadonlyArray2<'_, u8>,
-    blocks: Vec<(usize, usize, f32, f32, f32)>,
-    neighbors: usize,
-    epistemic_scale: f32,
-    aleatoric_scale: f32,
-    y_scale: f32,
-    beta: f32,
-    device: &str,
-) -> PyResult<(Bound<'py, PyArray1<u8>>, usize, f32)> {
-    weight_ucb(
-        py,
-        observations,
-        outcomes,
-        candidates,
-        int4_blocks(blocks)?,
-        neighbors,
-        epistemic_scale,
-        aleatoric_scale,
-        y_scale,
-        beta,
-        device,
-    )
-}
-
-#[pyfunction(name = "weight_select_ucb")]
-#[pyo3(signature=(observations,outcomes,candidates,blocks,neighbors,epistemic_scale,aleatoric_scale,y_scale,beta,device="auto"))]
-pub fn select_weight<'py>(
-    py: Python<'py>,
-    observations: PyReadonlyArray2<'_, u8>,
-    outcomes: PyReadonlyArray1<'_, f32>,
-    candidates: PyReadonlyArray2<'_, u8>,
-    blocks: Vec<(usize, usize, u8, f32, f32, f32)>,
-    neighbors: usize,
-    epistemic_scale: f32,
-    aleatoric_scale: f32,
-    y_scale: f32,
-    beta: f32,
-    device: &str,
-) -> PyResult<(Bound<'py, PyArray1<u8>>, usize, f32)> {
-    weight_ucb(
-        py,
-        observations,
-        outcomes,
-        candidates,
-        mixed_blocks(blocks)?,
-        neighbors,
-        epistemic_scale,
-        aleatoric_scale,
-        y_scale,
-        beta,
-        device,
-    )
 }

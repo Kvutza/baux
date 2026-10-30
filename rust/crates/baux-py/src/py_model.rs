@@ -78,7 +78,7 @@ impl PyENN {
             .map_err(|e| PyValueError::new_err(e.to_string()))?;
         let flags = py_flags(self, exclude_nearest, observation_noise);
         // SAFETY: validated DLPack dtype, shape and device. Input retains the
-        // producer allocation until native compute and its copies complete.
+        // producer allocation until device compute and its copies complete.
         let posterior = unsafe {
             self.inner.device_posterior(
                 input.pointer,

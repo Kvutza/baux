@@ -1,4 +1,4 @@
-use crate::research::site::{DeclRecord, LeanModuleRecord, lean_files};
+use crate::research_site::{DeclRecord, LeanModuleRecord, lean_files};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::Path;

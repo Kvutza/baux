@@ -29,7 +29,7 @@ fn main() -> Result<(), String> {
     let mut out = BufWriter::new(file);
     writeln!(
         out,
-        "axis,backend,request,plan,rows,queries,dims,k,build_ms,search_ms,gpu_ms,scan_ms,\
+        "axis,target,request,plan,rows,queries,dims,k,build_ms,search_ms,gpu_ms,scan_ms,\
          select_ms,reduce_ms,rank_match,recall_at_k,max_abs_error,distance_mib,index_mib"
     )
     .map_err(|error| error.to_string())?;
@@ -137,7 +137,7 @@ fn build_plan(
 fn write_result(
     out: &mut impl Write,
     point: &Point,
-    backend: &str,
+    target: &str,
     request: &str,
     index: &KnnIndex,
     build: Duration,
@@ -178,7 +178,7 @@ fn write_result(
         .unwrap_or_default();
     writeln!(
         out,
-        "{},{backend},{request},{},{},{},{},{},{:.6},{:.6},{gpu_ms:.6},{scan_ms:.6},{select_ms:.\
+        "{},{target},{request},{},{},{},{},{},{:.6},{:.6},{gpu_ms:.6},{scan_ms:.6},{select_ms:.\
          6},{reduce_ms:.6},{match_rate:.9},{recall:.9},{max_error:.9},{distance_mib:.6},{:.6}",
         point.axis,
         index.plan(),

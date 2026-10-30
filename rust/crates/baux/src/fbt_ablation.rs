@@ -15,7 +15,7 @@ fn load_config(path: &str) -> Result<crate::config::RunConfig, String> {
     if run.experiment != Some(crate::config::ExperimentKind::Pretrain)
         || !matches!(
             enn.ask.acquisition.kind,
-            crate::weights::AcquisitionKind::Ucb
+            crate::compute::AcquisitionKind::Ucb
         )
         || enn.ask.surrogate.neighbors != 10
     {

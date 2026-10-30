@@ -194,7 +194,7 @@ def parse_driver2(name: str) -> NeighborIndex:
 
 
 def enn_chunk(index_driver: NeighborIndex) -> int:
-    """Return turbo-enn bulk-seed chunk sized for the index backend."""
+    """Return the turbo-enn bulk-seed chunk for the index implementation."""
     if index_driver == NeighborIndex.FLAT:
         return TURBO_ENN_SEED_CHUNK_FLAT
     return TURBO_ENN_SEED_CHUNK

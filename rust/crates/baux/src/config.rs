@@ -36,7 +36,7 @@ mod spec_optimizer;
 mod validation;
 pub use feedback::FeedbackTransition;
 pub use generation::{
-    FrozenAttention, FrozenBackend, FrozenReadout, GenerationConfig, GenerationPurpose,
+    FrozenAttention, FrozenComputeMode, FrozenReadout, GenerationConfig, GenerationPurpose,
     GenerationReward, GenerationTask, SignalGate, VerifyConfig, VerifyMode,
 };
 pub use initialization::ModelInitialization;

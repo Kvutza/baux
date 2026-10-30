@@ -8,7 +8,7 @@ def append_case(
     *,
     name: str,
     endpoint: str,
-    backend: str,
+    implementation: str,
     reason: str,
 ) -> None:
     report.cases.append(
@@ -17,7 +17,7 @@ def append_case(
             endpoint=endpoint,
             passed=False,
             error=reason,
-            backend=backend,
+            implementation=implementation,
         )
     )
     report.skipped += 1
@@ -54,7 +54,7 @@ def sobol_parity(report: ParityReport) -> None:
             report,
             name="sobol_sequence_parity",
             endpoint="util.sobol_sequence",
-            backend="rust_vs_scipy",
+            implementation="rust_vs_scipy",
             reason="SciPy not available",
         )
         return
@@ -66,7 +66,7 @@ def sobol_parity(report: ParityReport) -> None:
             report,
             name="sobol_sequence_parity",
             endpoint="util.sobol_sequence",
-            backend="rust_vs_scipy",
+            implementation="rust_vs_scipy",
             reason="Rust not available",
         )
         return
@@ -85,7 +85,7 @@ def sobol_parity(report: ParityReport) -> None:
                 endpoint="util.sobol_sequence",
                 passed=False,
                 error=str(e),
-                backend="rust_vs_scipy",
+                implementation="rust_vs_scipy",
             )
         )
         report.failed += 1
@@ -99,7 +99,7 @@ def sobol_parity(report: ParityReport) -> None:
             endpoint="util.sobol_sequence",
             passed=passed,
             error=None if passed else f"max_abs={max_abs:.3e}, mean_abs={mean_abs:.3e}",
-            backend="rust_vs_scipy",
+            implementation="rust_vs_scipy",
             metrics={"max_abs": max_abs, "mean_abs": mean_abs},
         )
     )

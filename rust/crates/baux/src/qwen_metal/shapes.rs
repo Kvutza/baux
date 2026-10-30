@@ -12,17 +12,13 @@ pub(super) struct Matmul {
 
 #[repr(C)]
 #[derive(Clone, Copy, Default)]
-pub(super) struct FlameShape {
+pub(super) struct DenseKernelShape {
     pub(super) rows: u32,
     pub(super) width: u32,
     pub(super) heads: u32,
     pub(super) hidden: u32,
-    pub(super) experts: u32,
-    pub(super) top_k: u32,
     pub(super) start: u32,
     pub(super) sequence: u32,
-    pub(super) epsilon: f32,
-    pub(super) rope_base: f32,
 }
 
 #[repr(C)]

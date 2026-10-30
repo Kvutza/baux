@@ -1,6 +1,6 @@
 filegroup(
     name = "source",
-    srcs = glob(["**/*.rs", "interop/*", "native/*"]) + [
+    srcs = glob(["**/*.rs", "interop/*"]) + [
         "Cargo.toml",
         "device/Cargo.toml",
         "rust-toolchain.toml",

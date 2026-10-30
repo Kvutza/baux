@@ -65,7 +65,6 @@ default = ["metal", "opencl"]
 buck2-test-data = []
 cuda = ["dep:cuda-core"]
 extraction = []
-native-flame = ["cuda"]
 metal = ["dep:metal"]
 opencl = ["dep:opencl3"]
 usearch = ["dep:usearch"]
@@ -76,10 +75,6 @@ usearch-numkong = ["dep:usearch", "usearch/numkong"]
 numpy = { workspace = true }
 rand_chacha = "0.3"
 tempfile = "3"
-
-[[example]]
-name = "cuda_parity"
-required-features = ["cuda"]
 
 [[example]]
 name = "knn_bench"

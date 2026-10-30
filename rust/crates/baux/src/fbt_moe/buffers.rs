@@ -39,7 +39,6 @@ pub(super) struct Buffers {
     pub(super) fine_grained: routing::FineGrainedMoeBuffers,
     pub(super) fine_grained_grad: std::cell::OnceCell<Result<routing_grad::MoeGradBuffers, String>>,
     pub(super) hnet: std::cell::OnceCell<Result<HnetScratch, String>>,
-    pub(super) quantized_gateup: std::cell::OnceCell<Result<Buffer, String>>,
     pub(super) probe: std::cell::OnceCell<ProbeBuffers>,
     pub(super) input: Buffer,
     pub(super) down: Buffer,
@@ -147,18 +146,6 @@ impl Buffers {
             .map_err(Clone::clone)
     }
 
-    pub(super) fn quantized_gateup(&self) -> Result<&BufferRef, String> {
-        self.quantized_gateup
-            .get_or_init(|| {
-                Runtime::shared().map(|runtime| {
-                    runtime.buffer::<i8>(MODEL_LAYERS as usize * routing::GATE_PARAMETERS)
-                })
-            })
-            .as_ref()
-            .map(|buffer| buffer.as_ref())
-            .map_err(Clone::clone)
-    }
-
     pub(super) fn logits(&self) -> Result<&BufferRef, String> {
         self.logits
             .get_or_init(|| {
@@ -228,7 +215,6 @@ impl Buffers {
             fine_grained: routing::FineGrainedMoeBuffers::for_rows(runtime, rows),
             fine_grained_grad: std::cell::OnceCell::new(),
             hnet: std::cell::OnceCell::new(),
-            quantized_gateup: std::cell::OnceCell::new(),
             probe: std::cell::OnceCell::new(),
             input: patterned(runtime, half(rows * WIDTH), 0x243f_6a88, 0x2c00),
             down: canary(runtime, (rows * WIDTH) as usize),

@@ -661,7 +661,7 @@ impl Trainer {
         tokens: u32,
     ) -> Result<f64, String> {
         if self.row.architecture != ResidualArchitecture::Mhc4 {
-            return Err("Muon training currently requires the native MHC4 architecture".into());
+            return Err("Muon training currently requires the MHC4 architecture".into());
         }
         if tokens == 0 || task.prompt.len() < 64 || task.expected.len() < tokens as usize {
             return Err("invalid mHC4 training trajectory".into());

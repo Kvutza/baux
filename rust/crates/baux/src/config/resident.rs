@@ -76,10 +76,10 @@ impl RunConfig {
                 if !beta.is_finite() || !(beta as f32).is_finite() {
                     return Err("resident ENN UCB beta must be finite FP32".into());
                 }
-                (crate::weights::AcquisitionKind::Ucb, beta as f32)
+                (crate::compute::AcquisitionKind::Ucb, beta as f32)
             }
             AcquisitionConfig::Thompson => (
-                crate::weights::AcquisitionKind::Thompson,
+                crate::compute::AcquisitionKind::Thompson,
                 defaults.acquisition.beta,
             ),
             AcquisitionConfig::Random | AcquisitionConfig::Pareto => {
@@ -130,7 +130,8 @@ impl RunConfig {
         Ok((scaling, neighbors))
     }
 
-    /// Resolve an ask for backends that retain only a bounded live history.
+    /// Resolve an ask for implementations that retain only a bounded live
+    /// history.
     pub fn resident_ask(
         &self,
         live_history: usize,

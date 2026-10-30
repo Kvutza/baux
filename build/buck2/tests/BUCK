@@ -1,20 +1,6 @@
 load(":suite.bzl", "test_suite")
 
 rust_test(
-    name = "metal",
-    srcs = ["metal.rs"],
-    crate_root = "metal.rs",
-    deps = [
-        "//build/buck2/native:openmp-macos",
-        "//rust/crates/baux:baux",
-        "//rust:ndarray",
-    ],
-    rpath = True,
-    runtime_dependency_handling = "symlink",
-    target_compatible_with = ["prelude//os/constraints:macos"],
-)
-
-rust_test(
     name = "neighbor-index",
     srcs = ["neighbor_index.rs"],
     crate_root = "neighbor_index.rs",
@@ -60,13 +46,8 @@ _TESTS = [
     "//rust/crates/properties:properties-unit",
     "//rust/crates/baux:baux-unit",
     "//rust/crates/baux:baux-tune-test",
-    "//rust/crates/baux:region-math",
-    "//rust/crates/baux:region-opencl",
     "//rust/crates/baux:integration",
-] + select({
-    "//:macos-arm64": [":metal"],
-    "DEFAULT": [],
-})
+]
 
 test_suite(
     name = "all",

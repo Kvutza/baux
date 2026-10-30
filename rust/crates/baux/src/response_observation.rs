@@ -19,7 +19,7 @@ pub enum ResponseReference {
     VectorPolicy,
 }
 
-/// Realized displacement after the proposal has been quantized.
+/// Realized displacement after the proposal has passed through the operator.
 ///
 /// `metric_radius` is the norm used by the resident search.  The unweighted
 /// squared displacement is reported separately because the two have different
@@ -52,7 +52,7 @@ impl ProposalMeasure {
         Ok(self)
     }
 
-    pub fn quantized_survival(self) -> f64 {
+    pub fn realized_survival(self) -> f64 {
         self.changed_coordinates as f64 / self.coordinates as f64
     }
 }

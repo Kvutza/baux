@@ -78,7 +78,6 @@ pub(crate) struct FineGrainedMoePipelines {
     down_simdgroups: u64,
     shared_column_step: u32,
     fused_route_pack: bool,
-    int8_gate: bool,
 }
 
 impl FineGrainedMoePipelines {
@@ -135,7 +134,6 @@ impl FineGrainedMoePipelines {
             down_simdgroups: 4,
             shared_column_step: 128,
             fused_route_pack: true,
-            int8_gate: false,
         })
     }
 }
@@ -719,10 +717,6 @@ impl FineGrainedMoePipelines {
         )?;
         encoder.memory_barrier_with_resources(&[&buffers.routed_output, &buffers.shared_output]);
         Ok(())
-    }
-
-    pub(super) const fn int8_gate(&self) -> bool {
-        self.int8_gate
     }
 
     #[allow(clippy::too_many_arguments)]

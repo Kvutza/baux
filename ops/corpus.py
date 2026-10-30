@@ -94,7 +94,7 @@ def read_native(job):
         ) as process:
             last_line = _drainerr(process)
             if process.wait():
-                raise ValueError(f"native corpus reader failed: {last_line}")
+                raise ValueError(f"Rust corpus reader failed: {last_line}")
         result.seek(0)
         return json.load(result)
 

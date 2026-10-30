@@ -1,10 +1,7 @@
 //! Utility functions Python bindings.
 
 use ndarray::Array1;
-use numpy::{
-    IntoPyArray, PyArray1, PyArray2, PyArrayDyn, PyReadonlyArray1, PyReadonlyArray2,
-    PyReadonlyArrayDyn,
-};
+use numpy::{IntoPyArray, PyArray1, PyArray2, PyArrayDyn, PyReadonlyArray1, PyReadonlyArray2};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use rand::SeedableRng;
@@ -24,7 +21,7 @@ pub fn capabilities(py: Python<'_>, probe: bool) -> PyResult<Bound<'_, pyo3::typ
         let (available, reason) = if !compiled {
             (
                 Some(false),
-                Some("backend was not compiled into this library".to_string()),
+                Some("execution target was not compiled into this library".to_string()),
             )
         } else if target == ExecutionTarget::Cpu {
             (Some(true), None)
@@ -210,30 +207,6 @@ pub fn arms_py<'py>(
         }
     }
     Ok(out.into_pyarray(py))
-}
-
-#[pyfunction(name = "quantize_int4")]
-#[pyo3(signature = (arr, scale=1.0))]
-pub fn q_py<'py>(
-    py: Python<'py>,
-    arr: PyReadonlyArrayDyn<f32>,
-    scale: f32,
-) -> PyResult<Bound<'py, PyArray1<u8>>> {
-    let values = arr.as_array();
-    let packed = py.detach(|| baux::experimental::quantize_int4(values.iter().copied(), scale));
-    Ok(Array1::from_vec(packed).into_pyarray(py))
-}
-
-#[pyfunction(name = "quantize_e2m1")]
-#[pyo3(signature = (arr, scale=1.0))]
-pub fn bind_quantize<'py>(
-    py: Python<'py>,
-    arr: PyReadonlyArrayDyn<f32>,
-    scale: f32,
-) -> PyResult<Bound<'py, PyArray1<u8>>> {
-    let values = arr.as_array();
-    let packed = py.detach(|| baux::experimental::quantize_e2m1(values.iter().copied(), scale));
-    Ok(Array1::from_vec(packed).into_pyarray(py))
 }
 
 /// Override baux config path (`None` restores `~/.baux/config.toml`).

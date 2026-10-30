@@ -35,8 +35,63 @@ pub struct DeviceInfo {
     pub target: Target,
 }
 
+#[derive(Clone, Debug)]
+pub struct MemoryInfo {
+    pub name: String,
+    pub has_unified_memory: bool,
+    pub recommended_max_working_set_size: u64,
+    pub current_allocated_size: u64,
+    pub max_buffer_length: u64,
+}
+
 pub fn device_info() -> Result<DeviceInfo, String> {
     Runtime::shared().map(|runtime| runtime.info().clone())
+}
+
+pub fn memory_info() -> Result<MemoryInfo, String> {
+    let runtime = Runtime::shared()?;
+    Ok(MemoryInfo {
+        name: runtime.device.name().to_owned(),
+        has_unified_memory: runtime.device.has_unified_memory(),
+        recommended_max_working_set_size: runtime.device.recommended_max_working_set_size(),
+        current_allocated_size: runtime.device.current_allocated_size(),
+        max_buffer_length: runtime.device.max_buffer_length(),
+    })
+}
+
+/// Upload a finite BF16 vector into shared Apple GPU memory.
+pub fn upload_bf16(values: &[u16]) -> Result<Buffer, String> {
+    if values.is_empty() || values.iter().any(|value| value & 0x7f80 == 0x7f80) {
+        return Err("Metal upload requires nonempty finite BF16 values".into());
+    }
+    let bytes = values
+        .len()
+        .checked_mul(size_of::<u16>())
+        .and_then(|bytes| u64::try_from(bytes).ok())
+        .ok_or("Metal upload size overflow")?;
+    let runtime = Runtime::shared()?;
+    if bytes > runtime.device.max_buffer_length() {
+        return Err(format!(
+            "Metal upload of {bytes} bytes exceeds maxBufferLength {}",
+            runtime.device.max_buffer_length()
+        ));
+    }
+    let recommended = runtime.device.recommended_max_working_set_size();
+    let allocated = runtime.device.current_allocated_size();
+    let budget = recommended - recommended / 10;
+    if allocated
+        .checked_add(bytes)
+        .is_none_or(|total| total > budget)
+    {
+        return Err(format!(
+            "Metal upload needs {bytes} bytes; {allocated} allocated, conservative budget {budget}"
+        ));
+    }
+    let buffer = runtime.buffer_with(values);
+    if buffer.contents().is_null() {
+        return Err("Metal could not allocate BF16 weights".into());
+    }
+    Ok(buffer)
 }
 
 pub(crate) fn thread_group(width: u64) -> metal::MTLSize {

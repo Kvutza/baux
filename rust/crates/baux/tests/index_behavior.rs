@@ -24,7 +24,7 @@ fn observation_called2() {
         baux::neighbor_index::observation::bpann_obs(dir.path()),
         Some(0)
     );
-    baux::neighbor_index::observation::check_index_format(
+    baux::neighbor_index::observation::validate_format(
         dir.path(),
         baux::neighbor_index::observation::INDEX_FORMAT,
     )
@@ -41,7 +41,7 @@ fn observation_called2() {
     let dirty = Mutex::new(false);
     baux::neighbor_index::observation::mark_dirty(&dirty);
     baux::neighbor_index::observation::load_rows(dir.path());
-    baux::neighbor_index::observation::load_index_format(dir.path());
+    baux::neighbor_index::observation::load_format(dir.path());
     baux::neighbor_index::observation::parse_string(
         r#"{"index_backend":"bpann_disk"}"#,
         "index_backend",

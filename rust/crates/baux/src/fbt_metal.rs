@@ -609,7 +609,7 @@ struct FfnParams {
     residual_scale: f32,
 }
 
-/// Native SiLU-GLU plus residual addition, with no implicit input
+/// Fused Metal SiLU-GLU plus residual addition, with no implicit input
 /// normalization. The graph owner supplies the normalized input and the
 /// original residual.
 pub struct FeedForward {

@@ -144,7 +144,7 @@ fn response_json(
             "candidate": proposal.candidate,
             "coordinates": proposal.coordinates,
             "changed_coordinates": proposal.changed_coordinates,
-            "quantized_survival": proposal.quantized_survival(),
+            "realized_survival": proposal.realized_survival(),
             "squared_displacement": proposal.squared_displacement,
             "metric_radius": proposal.metric_radius,
             "trust_radius": proposal.trust_radius,

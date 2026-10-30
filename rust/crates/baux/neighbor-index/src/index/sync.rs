@@ -133,7 +133,7 @@ impl IncrementalIndex {
         self.index_through(&ctx, end)
     }
 
-    pub fn persist_complete_index(
+    pub fn persist_full(
         &mut self,
         train_x: &MmapColumnStore,
         num_dim: usize,
@@ -489,7 +489,7 @@ mod tests {
             idx.ensure_through(&store, 2, false, &[1.0, 1.0], dir.path(), 1, end)
                 .unwrap();
         }
-        idx.persist_complete_index(&store, 2, false, &[1.0, 1.0], dir.path(), 1)
+        idx.persist_full(&store, 2, false, &[1.0, 1.0], dir.path(), 1)
             .unwrap();
         assert!(dir.path().join("index/header.json").exists());
         assert_eq!(idx.indexed_rows, 6);
@@ -512,7 +512,7 @@ mod tests {
         store.mmap_append(&chunk.view()).unwrap();
         idx.ensure_through(&store, 2, false, &[1.0, 1.0], dir.path(), 1, 3)
             .unwrap();
-        idx.persist_complete_index(&store, 2, false, &[1.0, 1.0], dir.path(), 1)
+        idx.persist_full(&store, 2, false, &[1.0, 1.0], dir.path(), 1)
             .unwrap();
 
         assert_eq!(disk_rows(&index_dir).unwrap(), 3);
@@ -538,7 +538,7 @@ mod tests {
         // Soft sync leaves pages on disk unwritten; hard persist materializes
         // files.
         assert_eq!(idx.index_bytes(), 0);
-        idx.persist_complete_index(&store, 2, false, &[1.0, 1.0], dir.path(), 1)
+        idx.persist_full(&store, 2, false, &[1.0, 1.0], dir.path(), 1)
             .unwrap();
         assert!(idx.index_bytes() > 0);
     }

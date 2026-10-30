@@ -40,7 +40,7 @@ kernel void qwen_f16_to_f32(device const half* input [[buffer(0)]],
 // columns and each weight across 32 prompt rows before moving to the next K
 // tile. The old kernel performed a separate global-memory dot product for
 // every output element, which made long-prompt prefill bandwidth-bound.
-kernel void flame_linear(device const float* a [[buffer(0)]],
+kernel void qwen_linear(device const float* a [[buffer(0)]],
                         device const ushort* b [[buffer(1)]],
                         device float* c [[buffer(2)]],
                         constant Matmul& p [[buffer(3)]],

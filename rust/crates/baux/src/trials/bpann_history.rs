@@ -18,9 +18,9 @@ pub struct IndexedObservation {
 
 /// Disk-backed BPANN index over compact observation descriptors.
 ///
-/// Full quantized model rows deliberately do not live here. A caller stores or
-/// regenerates those rows separately and uses the returned [`ObservationId`]s
-/// to resolve only the shortlist loaded into `TrialEngine::replace_history`.
+/// Full model states deliberately do not live here. A caller stores or
+/// regenerates them separately and uses the returned [`ObservationId`]s to
+/// resolve only the shortlisted observations.
 pub struct BpannHistory {
     store: DiskBpannStore,
     descriptor_dim: usize,
@@ -126,7 +126,7 @@ impl BpannHistory {
     }
 
     /// Return a stable, deduplicated union of per-candidate neighbors and their
-    /// objective values, suitable for resolving and loading into TrialEngine.
+    /// objective values, suitable for resolving an exact reranking shortlist.
     pub fn shortlist(
         &self,
         queries: &ArrayView2<'_, f64>,

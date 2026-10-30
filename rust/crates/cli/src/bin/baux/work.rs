@@ -1,15 +1,16 @@
 //! Workspace-local task selection backed by the shared Beads store.
 
-use baux::artifact::json::{self, Value, json};
+pub(crate) use baux::artifact::json::{self, Value, json};
 use clap::Args;
 use std::path::{Path, PathBuf};
 
+use crate::work_store as store;
+
 mod coordination;
 mod handoff;
-mod store;
 
 pub(crate) fn active_task(root: &Path) -> Result<Option<String>, String> {
-    store::load(root)?
+    crate::work_store::load(root)?
         .map(|binding| text(&binding, "id").map(str::to_owned))
         .transpose()
 }
@@ -17,10 +18,10 @@ pub(crate) fn active_task(root: &Path) -> Result<Option<String>, String> {
 /// History can inspect an old binding; starting new work requires its live
 /// claim.
 pub(crate) fn check_claim(root: &Path) -> Result<(), String> {
-    let Some(binding) = store::load(root)? else {
+    let Some(binding) = crate::work_store::load(root)? else {
         return Ok(());
     };
-    let beads = store::Beads::bound(&binding)?;
+    let beads = crate::work_store::Beads::bound(&binding)?;
     let id = text(&binding, "id")?;
     validate_owner(&beads.issue(id)?, &beads.actor)?;
     beads.write(&["heartbeat", id])?;
@@ -182,15 +183,15 @@ pub struct Feedback {
 
 pub fn context(root: &Path, args: Context) -> Result<(), String> {
     let root = root.canonicalize().map_err(|error| error.to_string())?;
-    let saved = store::load(&root)?;
-    let database = store::discover(&root, args.store.as_deref(), saved.as_ref())?;
+    let saved = crate::work_store::load(&root)?;
+    let database = crate::work_store::discover(&root, args.store.as_deref(), saved.as_ref())?;
     let actor = args
         .actor
         .clone()
         .or_else(|| std::env::var("BEADS_ACTOR").ok())
         .or_else(|| saved.as_ref().map(|v| field(v, "actor").to_owned()))
         .unwrap_or_else(|| format!("baux:{}", root.display()));
-    let beads = store::Beads {
+    let beads = crate::work_store::Beads {
         root: database,
         actor,
     };
@@ -207,8 +208,8 @@ pub fn context(root: &Path, args: Context) -> Result<(), String> {
         return coordination::print_scope(&beads, scope, &args.label, args.json);
     }
     if args.task.is_some() || args.new.is_some() || args.claim {
-        let _lock = store::Lock::acquire(&root)?;
-        let current = store::load(&root)?;
+        let _lock = crate::work_store::Lock::acquire(&root)?;
+        let current = crate::work_store::load(&root)?;
         coordination::check_switch(&beads, current.as_ref(), args.task.as_deref())?;
         let Some(binding) = select(&root, &beads, &args, current.as_ref())? else {
             return print_results(
@@ -217,7 +218,7 @@ pub fn context(root: &Path, args: Context) -> Result<(), String> {
                 args.json,
             );
         };
-        store::save(&root, &binding)?;
+        crate::work_store::save(&root, &binding)?;
         return print_context(&beads, &binding, args.json);
     }
     if let Some(binding) = saved {
@@ -227,7 +228,11 @@ pub fn context(root: &Path, args: Context) -> Result<(), String> {
                 "active task belongs to another Beads store; select a task explicitly".into(),
             );
         }
-        print_context(&store::Beads::bound(&binding)?, &binding, args.json)
+        print_context(
+            &crate::work_store::Beads::bound(&binding)?,
+            &binding,
+            args.json,
+        )
     } else {
         print_results(
             "No active task. Ready work (or use context --new TITLE --outcome RESULT)",
@@ -239,11 +244,11 @@ pub fn context(root: &Path, args: Context) -> Result<(), String> {
 
 fn select(
     root: &Path,
-    beads: &store::Beads,
+    beads: &crate::work_store::Beads,
     args: &Context,
     saved: Option<&Value>,
 ) -> Result<Option<Value>, String> {
-    let revision = store::revision(root)?;
+    let revision = crate::work_store::revision(root)?;
     let mut scope = args.scope.clone().or_else(|| {
         saved
             .filter(|b| args.claim && Path::new(field(b, "store")) == beads.root)
@@ -301,7 +306,7 @@ fn select(
 }
 
 fn acquire_task(
-    beads: &store::Beads,
+    beads: &crate::work_store::Beads,
     args: &Context,
     scope: Option<&str>,
     labels: &[String],
@@ -356,12 +361,13 @@ fn acquire_task(
 
 pub fn feedback(root: &Path, args: Feedback) -> Result<(), String> {
     let root = root.canonicalize().map_err(|error| error.to_string())?;
-    let _lock = store::Lock::acquire(&root)?;
-    let binding = store::load(&root)?.ok_or("no active task; use ./baux context first")?;
-    let beads = store::Beads::bound(&binding)?;
+    let _lock = crate::work_store::Lock::acquire(&root)?;
+    let binding =
+        crate::work_store::load(&root)?.ok_or("no active task; use ./baux context first")?;
+    let beads = crate::work_store::Beads::bound(&binding)?;
     let mut issue = beads.issue(text(&binding, "id")?)?;
-    let revision = store::revision(&root)?;
-    let diff = store::diff(&root, text(&binding, "base")?, text(&revision, "commit")?)?;
+    let revision = crate::work_store::revision(&root)?;
+    let diff = crate::work_store::diff(&root, text(&binding, "base")?, text(&revision, "commit")?)?;
     let actions = handoff::apply(&beads, &binding, &revision, &issue, &args)?;
     issue = beads.issue(text(&binding, "id")?)?;
     let coordination = coordination::brief(&beads, &binding, &issue);
@@ -420,12 +426,16 @@ fn checkpoint(
     ))
 }
 
-fn print_context(beads: &store::Beads, binding: &Value, machine: bool) -> Result<(), String> {
+fn print_context(
+    beads: &crate::work_store::Beads,
+    binding: &Value,
+    machine: bool,
+) -> Result<(), String> {
     let issue = beads.issue(text(binding, "id")?)?;
     let lease = coordination::heartbeat(beads, &issue);
     let coordination = coordination::brief(beads, binding, &issue);
     let root = Path::new(text(binding, "workspace")?);
-    let revision = store::revision(root)?;
+    let revision = crate::work_store::revision(root)?;
     let evidence = run_evidence(root, binding, &revision);
     if machine {
         return print_json(
@@ -504,7 +514,7 @@ fn field<'a>(value: &'a Value, key: &str) -> &'a str {
     value.get(key).and_then(|item| item.as_str()).unwrap_or("")
 }
 
-fn text<'a>(value: &'a Value, key: &str) -> Result<&'a str, String> {
+pub(crate) fn text<'a>(value: &'a Value, key: &str) -> Result<&'a str, String> {
     let result = field(value, key);
     if result.is_empty() {
         Err(format!("missing or invalid task field: {key}"))

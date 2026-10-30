@@ -39,6 +39,7 @@ pub(crate) struct ReadoutShape {
     pub vocab: u32,
     pub start: u32,
     pub scale: f32,
+    pub rounded: u32,
 }
 
 pub(crate) struct ReadoutGrad<'a> {

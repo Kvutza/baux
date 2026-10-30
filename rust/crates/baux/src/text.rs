@@ -1,17 +1,27 @@
-//! Exact decoder for the immutable byte-level BPE corpus tokenizer.
+//! Text conversion for raw-byte models and immutable BPE corpora.
 
 use baux::artifact::json::Value;
 use std::collections::HashMap;
 use std::path::Path;
 
 pub struct ByteDecoder {
-    encoder: tokenizers::Tokenizer,
+    encoder: Option<tokenizers::Tokenizer>,
     vocabulary: Vec<Option<String>>,
     special: HashMap<u32, String>,
     bytes: Option<HashMap<char, u8>>,
 }
 
 impl ByteDecoder {
+    /// H-Net consumes UTF-8 bytes directly; no vocabulary artifact is needed.
+    pub fn raw() -> Self {
+        Self {
+            encoder: None,
+            vocabulary: Vec::new(),
+            special: HashMap::new(),
+            bytes: None,
+        }
+    }
+
     pub fn load(path: &Path) -> Result<Self, String> {
         let document: Value = baux::artifact::json::from_reader(
             std::fs::File::open(path)
@@ -73,7 +83,7 @@ impl ByteDecoder {
             == Some("ByteLevel"))
         .then(byte_decoder);
         Ok(Self {
-            encoder,
+            encoder: Some(encoder),
             vocabulary,
             special,
             bytes,
@@ -81,7 +91,14 @@ impl ByteDecoder {
     }
 
     pub fn encode(&self, text: &str) -> Result<Vec<u32>, String> {
-        self.encoder
+        let Some(encoder) = &self.encoder else {
+            return Ok(text
+                .as_bytes()
+                .iter()
+                .map(|&byte| u32::from(byte))
+                .collect());
+        };
+        encoder
             .encode(text, false)
             .map(|encoding| encoding.get_ids().to_vec())
             .map_err(|error| error.to_string())
@@ -95,6 +112,12 @@ impl ByteDecoder {
     /// Preserve arbitrary byte sequences; UTF-8 replacement is a display
     /// policy.
     pub fn decode_bytes(&self, tokens: &[u32]) -> Result<Vec<u8>, String> {
+        if self.encoder.is_none() {
+            return tokens
+                .iter()
+                .map(|&value| u8::try_from(value).map_err(|_| "byte ID exceeds 255".to_owned()))
+                .collect();
+        }
         let mut decoded = Vec::new();
         for &token in tokens {
             if let Some(content) = self.special.get(&token) {
@@ -155,6 +178,20 @@ fn byte_decoder() -> HashMap<char, u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn raw_bytes() {
+        let decoder = ByteDecoder::raw();
+        let text = "é 🦀 <bos>";
+        assert_eq!(
+            decoder
+                .decode_bytes(&decoder.encode(text).unwrap())
+                .unwrap(),
+            text.as_bytes()
+        );
+        assert_eq!(decoder.decode_bytes(&[0, 254, 255]).unwrap(), [0, 254, 255]);
+        assert!(decoder.decode_bytes(&[256]).is_err());
+    }
 
     #[test]
     fn byte_pieces() {

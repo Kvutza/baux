@@ -161,19 +161,25 @@ fn save_triple(path: &std::path::Path, g: &[u16], d: &[u16], r: &[u16]) {
     }
 }
 
-fn cached_triple(runtime: &Runtime, seed: u64, down_norm: f32) -> (Buffer, Buffer, Buffer) {
+fn cached_triple(
+    runtime: &Runtime,
+    seed: u64,
+    down_norm: f32,
+    vocab: usize,
+) -> (Buffer, Buffer, Buffer) {
     let layers = MODEL_LAYERS as usize;
     let experts = routing::MOE_EXPERTS as usize;
     let width = WIDTH as usize;
     let expert_width = routing::ROUTED_WIDTH as usize;
     let gate_up = routing::MOE_GATEUP as usize;
-    let vocab = VOCAB as usize;
     let g_elems = layers * experts * width * gate_up;
     let d_elems = layers * experts * expert_width * width;
     let r_elems = width * vocab;
     let (g_bytes, d_bytes, r_bytes) = (g_elems * 2, d_elems * 2, r_elems * 2);
     let total = (g_bytes + d_bytes + r_bytes) as u64;
-    let path = std::path::PathBuf::from(format!(".cache/baux/weights/mhc4-big-v1-{seed:016x}.bin"));
+    let path = std::path::PathBuf::from(format!(
+        ".cache/baux/weights/mhc4-big-v2-{vocab}-{seed:016x}.bin"
+    ));
     if let Ok(file) = std::fs::File::open(&path)
         && file.metadata().map(|m| m.len() == total).unwrap_or(false)
         && let (Some(g), Some(d), Some(r)) = (
@@ -270,7 +276,12 @@ impl CandidateWeights {
                 norm,
             )
         };
-        let (gate_up_buf, down_buf, readout_buf) = cached_triple(runtime, seed, policy.down_norm());
+        let (gate_up_buf, down_buf, readout_buf) = cached_triple(
+            runtime,
+            seed,
+            policy.down_norm(),
+            architecture.vocabulary() as usize,
+        );
 
         Ok(Self {
             architecture,
@@ -327,8 +338,22 @@ impl CandidateWeights {
                 policy.transport_lambda,
             ),
             final_norm: filled(runtime, width, 0x3c00),
+            hnet: hnet_weights(runtime, architecture),
         })
     }
+}
+
+pub(super) fn hnet_weights(runtime: &Runtime, architecture: ResidualArchitecture) -> Buffer {
+    if !architecture.is_hnet() {
+        return runtime.buffer::<u16>(1);
+    }
+    let width = WIDTH as usize;
+    let mut values = vec![0u16; 3 * width * width + width];
+    for index in 0..width {
+        values[index * width + index] = half_bits(1.0);
+        values[width * width + index * width + index] = half_bits(1.0);
+    }
+    runtime.buffer_with(&values)
 }
 
 #[cfg(test)]

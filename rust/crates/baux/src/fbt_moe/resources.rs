@@ -454,7 +454,7 @@ impl CandidateWeights {
         let expert_width = routing::ROUTED_WIDTH as usize;
         let gate_up = routing::MOE_GATEUP as usize;
         let qkv_width = QKV_WIDTH as usize;
-        let vocab = VOCAB as usize;
+        let vocab = architecture.vocabulary() as usize;
         let router_elements = layers * width * routing::ROUTED_EXPERTS as usize;
         let qkv_elements = layers * width * qkv_width;
         let output_elements = layers * width * width;
@@ -496,6 +496,7 @@ impl CandidateWeights {
             mhc_moe_bias: mhc_bias(runtime, layers),
             mhc_moe_control: filled(runtime, layers * 4, 0),
             final_norm: filled(runtime, width, 0x3c00),
+            hnet: initialization::hnet_weights(runtime, architecture),
         }
     }
 
@@ -527,7 +528,7 @@ impl CandidateWeights {
         let expert_width = routing::ROUTED_WIDTH as usize;
         let gate_up = routing::MOE_GATEUP as usize;
         let qkv_width = QKV_WIDTH as usize;
-        let vocab = VOCAB as usize;
+        let vocab = architecture.vocabulary() as usize;
         let residual = if scaled {
             0.02 / (2.0 * MODEL_LAYERS as f32).sqrt()
         } else {
@@ -583,6 +584,7 @@ impl CandidateWeights {
             mhc_moe_bias: mhc_bias(runtime, layers),
             mhc_moe_control: filled(runtime, layers * 4, 0),
             final_norm: filled(runtime, width, 0x3c00),
+            hnet: initialization::hnet_weights(runtime, architecture),
         }
     }
 
@@ -593,7 +595,7 @@ impl CandidateWeights {
         let expert_width = routing::ROUTED_WIDTH as usize;
         let gate_up = routing::MOE_GATEUP as usize;
         let qkv_width = QKV_WIDTH as usize;
-        let vocab = VOCAB as usize;
+        let vocab = architecture.vocabulary() as usize;
         let draw = |elements, domain, input, output| {
             let bound = (6.0f32 / (input + output) as f32).sqrt();
             uniform_buffer(
@@ -650,6 +652,7 @@ impl CandidateWeights {
             mhc_moe_bias: mhc_bias(runtime, layers),
             mhc_moe_control: filled(runtime, layers * 4, 0),
             final_norm: filled(runtime, width, 0x3c00),
+            hnet: initialization::hnet_weights(runtime, architecture),
         }
     }
 
@@ -674,7 +677,11 @@ impl CandidateWeights {
             ),
             ("attention_norm", &self.attention_norm, WIDTH as usize),
             ("ffn_norm", &self.ffn_norm, WIDTH as usize),
-            ("embedding_readout", &self.readout, (WIDTH * VOCAB) as usize),
+            (
+                "embedding_readout",
+                &self.readout,
+                (WIDTH * self.architecture.vocabulary()) as usize,
+            ),
         ];
         if self.architecture.is_multistream() {
             tensors.extend([
@@ -725,6 +732,9 @@ impl CandidateWeights {
         }
         if self.architecture == ResidualArchitecture::DiffusionMhc4 {
             tensors.push(("index_query", &self.index_query, 64 * 64));
+        }
+        if self.architecture.is_hnet() {
+            tensors.push(("hnet", &self.hnet, (3 * WIDTH * WIDTH + WIDTH) as usize));
         }
         tensors
     }

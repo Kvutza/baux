@@ -189,7 +189,11 @@ pub fn run_generation(run: &RunConfig, output: &Path) -> Result<(), String> {
         .ok_or("missing generation configuration")?;
     if let GenerationReward::CodeExecution { environment, .. } = &config.reward {
         let spec = super::code_environment::Environment::load(environment)?;
-        let tokenizer = ByteDecoder::load(&spec.tokenizer)?;
+        let tokenizer = if model_arch(run)?.is_hnet() {
+            ByteDecoder::raw()
+        } else {
+            ByteDecoder::load(&spec.tokenizer)?
+        };
         let mut config = config.clone();
         let task = spec.task(&tokenizer)?;
         if !config.tasks.is_empty() && config.tasks != [task.clone()] {
@@ -213,12 +217,13 @@ pub fn run_generation(run: &RunConfig, output: &Path) -> Result<(), String> {
     if config.tasks.is_empty() {
         return Err("standalone generation requires explicit tasks".into());
     }
+    let tokenizer = model_arch(run)?.is_hnet().then(ByteDecoder::raw);
     run_config(
         run,
         config,
         output,
         baux::artifact::json::json!({"kind":"explicit_generation_tasks"}),
-        None,
+        tokenizer.as_ref(),
         &[],
         None,
     )
@@ -234,7 +239,11 @@ pub fn run_generated(run: &RunConfig, dataset_path: &Path, output: &Path) -> Res
         .parent()
         .ok_or("generated-pretraining dataset has no parent directory")?
         .join("tokenizer.json");
-    let tokenizer = ByteDecoder::load(&tokenizer_path)?;
+    let tokenizer = if model_arch(run)?.is_hnet() {
+        ByteDecoder::raw()
+    } else {
+        ByteDecoder::load(&tokenizer_path)?
+    };
     let task_seed = run.derived_seed(0, "generated-pretrain-task", 0);
     let coding = matches!(
         config.reward,
@@ -956,6 +965,20 @@ mod tests {
                 .map(|(_, shape)| shape.iter().product::<usize>())
                 .sum::<usize>(),
             MHC_FULLPARAMS
+        );
+        let hnet = checkpoint_layout(ResidualArchitecture::HnetMhc4);
+        assert_eq!(
+            hnet.iter()
+                .map(|(_, shape)| shape.iter().product::<usize>())
+                .sum::<usize>(),
+            ResidualArchitecture::HnetMhc4.parameter_count()
+        );
+        assert_eq!(
+            hnet.iter()
+                .find(|(name, _)| *name == "embedding_readout")
+                .unwrap()
+                .1,
+            vec![WIDTH as usize, 256]
         );
     }
 

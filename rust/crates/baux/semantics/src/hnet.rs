@@ -2,7 +2,7 @@
 //!
 //! # Academic & Open-Source Attribution
 //!
-//! This module is a faithful Rust port of the dynamic chunking routing,
+//! This module contains a Rust port of the dynamic chunking routing,
 //! chunking, EMA dechunking, byte tokenizer, and load-balancing ratio loss from
 //! H-Net:
 //!
@@ -10,7 +10,7 @@
 //!   for End-to-End Hierarchical Sequence Modeling"*, arXiv:2507.07955 (2025).
 //! - **Blog**: Cartesia AI, *"From Tokens to Bytes, Part 1"* (<https://www.cartesia.ai/blog/from-tokens-to-bytes-part-1>).
 //! - **Upstream Implementation**: Goomba Lab / Cartesia AI, <https://github.com/goombalab/hnet>
-//!   (Apache-2.0 License), specifically:
+//!   (MIT License), specifically:
 //!   - `hnet/modules/dc.py` (`RoutingModule`, `RoutingModuleOutput`,
 //!     `RoutingModuleState`, `ChunkLayer`, `DeChunkLayer`, `DeChunkState`)
 //!   - `hnet/models/hnet.py` (`STE`, `ste_func`, `HNet`, `residual_proj`)
@@ -87,8 +87,8 @@ impl ByteTokenizer {
         out
     }
 
-    pub fn decode(&self, tokens: &[u8]) -> String {
-        String::from_utf8_lossy(tokens).into_owned()
+    pub fn decode(&self, tokens: &[u8]) -> Result<String, std::string::FromUtf8Error> {
+        String::from_utf8(tokens.to_vec())
     }
 }
 
@@ -415,6 +415,8 @@ mod tests {
             tok.encode("hi", true, true),
             vec![BOS_BYTE, b'h', b'i', EOS_BYTE]
         );
+        assert_eq!(tok.decode("é 🦀".as_bytes()).unwrap(), "é 🦀");
+        assert!(tok.decode(&[0xf0]).is_err());
     }
 
     #[test]
@@ -470,7 +472,7 @@ mod tests {
             .unwrap();
         assert_eq!(combined, dechunked);
         let grad_p = ste
-            .backward_prob(&vec![1.0_f32; 8], &dechunked, &route.boundary_mask)
+            .backward_prob(&vec![1.0_f32; 8], &dechunked, &route.boundary_prob)
             .unwrap();
         assert!(grad_p[0] > 0.0);
         assert!(grad_p[1] < 0.0);

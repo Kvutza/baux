@@ -103,13 +103,20 @@ impl ResidualArchitecture {
     }
 
     pub(super) const fn parameter_count(self) -> usize {
-        if matches!(self, Self::DiffusionMhc4) {
+        if self.is_hnet() {
+            MHC_FULLPARAMS - WIDTH as usize * (VOCAB as usize - 256)
+                + (3 * WIDTH * WIDTH + WIDTH) as usize
+        } else if matches!(self, Self::DiffusionMhc4) {
             MHC_FULLPARAMS + WIDTH as usize + 64 * 64
         } else if self.is_multistream() {
             MHC_FULLPARAMS
         } else {
             FULL_PARAMETERS
         }
+    }
+
+    pub(super) const fn vocabulary(self) -> u32 {
+        if self.is_hnet() { 256 } else { VOCAB }
     }
 
     pub(super) const fn kernel_code(self) -> u32 {

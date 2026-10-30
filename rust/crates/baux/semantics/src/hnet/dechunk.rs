@@ -399,13 +399,15 @@ impl SteResidual {
         Ok(combined)
     }
 
+    /// Differentiate the selected probability before token masking. At a tie,
+    /// upstream argmax selects the non-boundary component, with derivative -1.
     pub fn backward_prob(
         &self,
         grad_combined: &[f32],
         dechunk_out: &[f32],
-        boundary_mask: &[bool],
+        boundary_prob: &[f32],
     ) -> Result<Vec<f32>, String> {
-        let tokens = boundary_mask.len();
+        let tokens = boundary_prob.len();
         if grad_combined.len() != tokens * self.d_model
             || dechunk_out.len() != tokens * self.d_model
         {
@@ -419,7 +421,7 @@ impl SteResidual {
             for (&gi, &yi) in g.iter().zip(y.iter()) {
                 dot += gi * yi;
             }
-            grad_p[t] = if boundary_mask[t] { dot } else { -dot };
+            grad_p[t] = if boundary_prob[t] > 0.5 { dot } else { -dot };
         }
         Ok(grad_p)
     }

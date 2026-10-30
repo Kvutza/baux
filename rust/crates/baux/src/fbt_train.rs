@@ -6,6 +6,8 @@ use super::*;
 
 #[path = "fbt_train/corpus.rs"]
 mod corpus;
+#[path = "fbt_train/hnet.rs"]
+mod hnet;
 
 struct Activations {
     stream: [Buffer; 2],
@@ -30,6 +32,7 @@ pub(super) struct Trainer {
     gradients: Gradients,
     activations: Activations,
     readout: std::cell::OnceCell<readout::Adjoint>,
+    hnet: Option<hnet::Adjoint>,
 }
 
 pub(super) struct Optimizer {
@@ -133,6 +136,10 @@ impl Trainer {
             row,
             rows,
             readout: std::cell::OnceCell::new(),
+            hnet: row
+                .architecture
+                .is_hnet()
+                .then(|| hnet::Adjoint::new(runtime, rows)),
         })
     }
 
@@ -589,7 +596,7 @@ impl Trainer {
             dense::DenseShape {
                 rows,
                 input: WIDTH,
-                output: VOCAB,
+                output: self.row.architecture.vocabulary(),
                 reserved: self.row.architecture.patch_size() as u32,
             },
             dense::EmbedGrad {
@@ -641,9 +648,10 @@ impl Trainer {
             dense::ReadoutShape {
                 rows: tokens,
                 width: WIDTH,
-                vocab: VOCAB,
+                vocab: self.row.architecture.vocabulary(),
                 start: proposal_start,
                 scale: 1.0 / tokens as f32,
+                rounded: 1,
             },
             dense::ReadoutGrad {
                 hidden: (&verifier.buffers.normalized, 0),
@@ -731,7 +739,13 @@ impl Trainer {
             command = runtime.queue.new_command_buffer();
         }
 
-        for step in self.row.architecture.layer_steps().iter().rev().copied() {
+        let steps = self.row.architecture.layer_steps();
+        for step in steps.iter().rev().copied() {
+            let transition = self.row.architecture.is_hnet()
+                && (step.execution == 0 || step.execution as usize + 2 == steps.len());
+            if transition {
+                self.reverse_hnet(command, verifier, rows, step.execution == 0)?;
+            }
             scorer_replay::replay_site(
                 command,
                 &verifier.pipelines,
@@ -742,6 +756,9 @@ impl Trainer {
                 rows,
                 scorer::ReplaySite::Moe(step.execution),
             )?;
+            if transition {
+                self.reverse_boundary(command, verifier, rows)?;
+            }
             let output = ((step.execution * 2 + 2) % 2) as usize;
             let source = 1 - output;
             if inspect {
@@ -814,7 +831,7 @@ impl Optimizer {
         use crate::muon::{MatrixSlice as Matrix, VectorSlice as Vector};
         let row = trainer.row;
         let weights = trainer.weights();
-        let matrices = [
+        let mut matrices = vec![
             Matrix::new(row.router, WIDTH, routing::ROUTED_EXPERTS, MODEL_LAYERS)?,
             Matrix::new(row.qkv, WIDTH, QKV_WIDTH, MODEL_LAYERS)?,
             Matrix::new(row.output, WIDTH, WIDTH, MODEL_LAYERS)?,
@@ -843,16 +860,23 @@ impl Optimizer {
                 MODEL_LAYERS,
             )?,
         ];
-        let vectors = [
+        let mut vectors = vec![
             Vector::new(row.attention_norm, MODEL_LAYERS * WIDTH),
             Vector::new(row.ffn_norm, MODEL_LAYERS * WIDTH),
-            Vector::new(row.readout, WIDTH * VOCAB),
+            Vector::new(row.readout, WIDTH * row.architecture.vocabulary()),
             Vector::new(row.mhc_attention_bias, MODEL_LAYERS * MHC_COEFFICIENTS),
             Vector::new(row.mhc_attention_control, MODEL_LAYERS * 4),
             Vector::new(row.mhc_moe_bias, MODEL_LAYERS * MHC_COEFFICIENTS),
             Vector::new(row.mhc_moe_control, MODEL_LAYERS * 4),
             Vector::new(row.final_norm, WIDTH),
         ];
+        if row.architecture.is_hnet() {
+            matrices.push(Matrix::new(row.hnet, WIDTH, WIDTH, 3)?);
+            vectors.push(Vector::new(
+                row.hnet + half_bytes(u64::from(3 * WIDTH * WIDTH)),
+                WIDTH,
+            ));
+        }
         let inner = match optimizer {
             crate::config::TrainingOptimizer::MuonV1 => {
                 crate::muon::Optimizer::new(weights, &matrices, &vectors, (WIDTH, QKV_WIDTH, 32))?

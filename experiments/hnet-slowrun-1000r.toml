@@ -5,12 +5,12 @@ experiment = "pretrain"
 model = "fbt-pisa1-hnet-mhc4-v1"
 
 [data]
-recipe = "fineweb-slowrun-100m-v1"
+recipe = "fineweb-bytes-100m-v1"
 
 [objective]
 function = "cross-entropy"
 sampling = "natural"
-window-tokens = 2048
+window-tokens = 4096
 
 [execution]
 rounds = 1000

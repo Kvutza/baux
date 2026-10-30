@@ -633,7 +633,11 @@ impl Scorer<'_> {
     pub(super) fn encode_to(&self, target: ReplaySite) -> Result<(), String> {
         self.prepare_gateup()?;
         self.embed()?;
-        for step in self.weights.architecture.layer_steps() {
+        let steps = self.weights.architecture.layer_steps();
+        for step in steps {
+            if step.execution as usize + 1 == steps.len() {
+                self.hnet_dechunk()?;
+            }
             self.mhc_attention(step.layer, step.execution)?;
             if target == ReplaySite::Attention(step.execution) {
                 return Ok(());
@@ -641,6 +645,9 @@ impl Scorer<'_> {
             self.mhc_moe(step.layer)?;
             if target == ReplaySite::Moe(step.execution) {
                 return Ok(());
+            }
+            if step.execution == 0 {
+                self.hnet_chunk()?;
             }
         }
         Err("training replay target is outside the recurrent core".into())

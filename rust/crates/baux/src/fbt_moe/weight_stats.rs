@@ -80,7 +80,7 @@ fn identity(family: &str, index: usize) -> (String, Option<usize>, Option<usize>
             Some(index % routing::MOE_EXPERTS as usize),
         ),
         "embedding_readout" | "feedback_state" | "feedback_gate" | "final_norm" | "mask_embed"
-        | "index_query" => (None, None),
+        | "index_query" | "hnet" => (None, None),
         _ => (Some(index), None),
     };
     let name = match (layer, expert) {

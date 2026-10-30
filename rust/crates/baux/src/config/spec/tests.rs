@@ -91,12 +91,25 @@ fn roundtrip() {
             }),+]
         };
     }
-    for (name, text) in examples!("mhc4-1m.toml", "mhc4-native.toml") {
+    for (name, text) in examples!(
+        "hnet-slowrun-1000r.toml",
+        "mhc4-1m.toml",
+        "mhc4-native.toml"
+    ) {
         let spec = ExperimentSpec::parse(text).unwrap_or_else(|error| panic!("{name}: {error}"));
         let resolved = spec.to_toml().unwrap();
         let restored = ExperimentSpec::parse(&resolved).unwrap();
         assert_eq!(resolved, restored.to_toml().unwrap(), "{name}");
     }
+}
+
+#[test]
+fn hnet_long() {
+    let text = GAUSSIAN
+        .replace("fbt-pisa1-mhc4-v1", "fbt-pisa1-hnet-mhc4-v1")
+        .replace("stack-v3-rust-go-v1", "fineweb-bytes-100m-v1")
+        .replace("window-tokens = 4096", "window-tokens = 1048576");
+    assert!(ExperimentSpec::parse(&text).is_err());
 }
 
 #[test]

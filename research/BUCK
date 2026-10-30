@@ -4,6 +4,12 @@ sh_test(
     visibility = ["PUBLIC"],
 )
 
+sh_binary(
+    name = "hnet-reference",
+    main = "hnet.py",
+    visibility = ["PUBLIC"],
+)
+
 genrule(
     name = "readout-metal",
     srcs = {

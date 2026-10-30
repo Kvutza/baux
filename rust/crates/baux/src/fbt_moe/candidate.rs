@@ -22,6 +22,7 @@ pub(super) struct CandidateWeights {
     pub(super) mhc_moe_bias: Buffer,
     pub(super) mhc_moe_control: Buffer,
     pub(super) final_norm: Buffer,
+    pub(super) hnet: Buffer,
 }
 
 #[derive(Clone, Copy)]
@@ -47,6 +48,7 @@ pub(super) struct Mhc4Layout {
     pub(super) mhc_moe_bias: u64,
     pub(super) mhc_moe_control: u64,
     pub(super) final_norm: u64,
+    pub(super) hnet: u64,
 }
 
 #[derive(Clone, Copy)]
@@ -137,7 +139,12 @@ impl<'a> CandidateRow<'a> {
 
     /// Readout vocabulary embedding parameters as typed views.
     pub(super) fn readout_weights(self) -> crate::nn::loss::ReadoutWeights<'a> {
-        crate::nn::loss::ReadoutWeights::from_buffer(self.buffer, self.readout)
+        crate::nn::loss::ReadoutWeights::new(crate::tensor::View::new(
+            self.buffer,
+            self.readout,
+            WIDTH,
+            self.architecture.vocabulary(),
+        ))
     }
 }
 
@@ -298,6 +305,14 @@ impl CandidateWeights {
             let slice = unsafe { std::slice::from_raw_parts(buf.contents().cast::<u16>(), n) };
             slice.hash(&mut hasher);
         }
+        if self.architecture.is_hnet() {
+            // A hierarchy-only checkpoint update must not reuse an older BO
+            // base.
+            let count = self.hnet.length() as usize / 2;
+            let values =
+                unsafe { std::slice::from_raw_parts(self.hnet.contents().cast::<u16>(), count) };
+            values.hash(&mut hasher);
+        }
         hasher.finish()
     }
 
@@ -408,7 +423,7 @@ impl CandidateWeights {
                         Some(index % routing::MOE_EXPERTS as usize),
                     ),
                     "embedding_readout" | "feedback_state" | "feedback_gate" | "final_norm"
-                    | "mask_embed" | "index_query" => (None, None),
+                    | "mask_embed" | "index_query" | "hnet" => (None, None),
                     _ => (Some(index), None),
                 };
                 let (scale, _trust_multiplier) =
@@ -521,6 +536,11 @@ impl Mhc4Layout {
             } else {
                 (0, 0)
             };
+        let hnet = if weights.architecture.is_hnet() {
+            next(&weights.hnet)
+        } else {
+            0
+        };
         Self {
             architecture: weights.architecture,
             bytes: end - base,
@@ -543,6 +563,7 @@ impl Mhc4Layout {
             mhc_moe_bias,
             mhc_moe_control,
             final_norm,
+            hnet,
         }
     }
 

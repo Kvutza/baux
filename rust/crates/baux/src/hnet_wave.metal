@@ -235,12 +235,13 @@ kernel void hnet_byte_readout(
 }
 
 // Fused Straight-Through Estimator (STE) backward pass for router probability P_t.
-// Computes grad_p[row] = (boundary_mask[row] != 0 ? +1 : -1) * dot(grad_combined[row], dechunk_out[row])
+// Differentiate raw selected probability, independently of the token mask.
+// Argmax chooses the non-boundary component at p == 0.5, giving derivative -1.
 // using a 32-lane SIMD-group reduction.
 kernel void hnet_ste_bwd(
     device const float* grad_combined [[buffer(0)]],
     device const float* dechunk_out [[buffer(1)]],
-    device const uint* boundary_mask [[buffer(2)]],
+    device const float* boundary_prob [[buffer(2)]],
     device float* grad_prob [[buffer(3)]],
     constant HNetShape& shape [[buffer(4)]],
     uint row [[threadgroup_position_in_grid]],
@@ -257,168 +258,7 @@ kernel void hnet_ste_bwd(
     }
     const float dot_val = simd_sum(local_dot);
     if (lane == 0u) {
-        grad_prob[row] = (boundary_mask[row] != 0u) ? dot_val : -dot_val;
+        grad_prob[row] = (boundary_prob[row] > 0.5f) ? dot_val : -dot_val;
     }
 }
 
-// Fused FP16 4-stream mHC-4 dynamic chunking router and prefix-sum compaction.
-// Computes Cartesia H-Net cosine-similarity boundary probabilities on Layer-0
-// normalized activations [L, 512], saves the full-resolution 4-stream state
-// [L, 2048], and compacts selected boundary rows into [chunk_rows, 2048].
-kernel void hnet_mhc_chunk(
-    device const half* normalized [[buffer(0)]],
-    device half* streams [[buffer(1)]],
-    device half* encoder_streams [[buffer(2)]],
-    device uint* origins [[buffer(3)]],
-    device float* probs [[buffer(4)]],
-    device uint* plug_idx [[buffer(5)]],
-    constant uint2& counts [[buffer(6)]],
-    uint tid [[thread_index_in_threadgroup]],
-    uint sg [[simdgroup_index_in_threadgroup]],
-    uint lane [[thread_index_in_simdgroup]]) {
-    const uint L = counts.x;
-    const uint chunk_rows = counts.y;
-    if (L == 0u || chunk_rows == 0u || L > 4096u) return;
-
-    threadgroup float shared_prob[4096];
-    threadgroup ushort shared_origin[4096];
-    threadgroup float shared_tau;
-
-    const uint total_vec4 = L * 512u;
-    device const half4* src_streams4 = reinterpret_cast<device const half4*>(streams);
-    device half4* enc_streams4 = reinterpret_cast<device half4*>(encoder_streams);
-    for (uint idx = tid; idx < total_vec4; idx += 256u) {
-        enc_streams4[idx] = src_streams4[idx];
-    }
-
-    for (uint t = sg; t < L; t += 8u) {
-        if (t == 0u) {
-            if (lane == 0u) shared_prob[0] = 1.0f;
-        } else {
-            device const half4* prev4 =
-                reinterpret_cast<device const half4*>(normalized + ulong(t - 1u) * 512u);
-            device const half4* curr4 =
-                reinterpret_cast<device const half4*>(normalized + ulong(t) * 512u);
-            float dot_acc = 0.0f;
-            float norm_prev = 0.0f;
-            float norm_curr = 0.0f;
-            for (uint k = lane; k < 128u; k += 32u) {
-                const float4 a = float4(prev4[k]);
-                const float4 b = float4(curr4[k]);
-                dot_acc = fma(a.x, b.x, fma(a.y, b.y, fma(a.z, b.z, fma(a.w, b.w, dot_acc))));
-                norm_prev = fma(a.x, a.x, fma(a.y, a.y, fma(a.z, a.z, fma(a.w, a.w, norm_prev))));
-                norm_curr = fma(b.x, b.x, fma(b.y, b.y, fma(b.z, b.z, fma(b.w, b.w, norm_curr))));
-            }
-            const float qk = simd_sum(dot_acc);
-            const float nq = simd_sum(norm_prev);
-            const float nk = simd_sum(norm_curr);
-            if (lane == 0u) {
-                const float denom = max(sqrt(nq) * sqrt(nk), 1.0e-8f);
-                const float cos_sim = clamp(qk / denom, -1.0f, 1.0f);
-                shared_prob[t] = clamp((1.0f - cos_sim) * 0.5f, 0.0f, 1.0f);
-            }
-        }
-    }
-    threadgroup_barrier(mem_flags::mem_threadgroup | mem_flags::mem_device);
-
-    if (sg == 0u) {
-        float tau = 0.5f;
-        uint local_c = 0u;
-        for (uint t = 1u + lane; t < L; t += 32u) {
-            local_c += uint(shared_prob[t] >= tau);
-        }
-        if (1u + simd_sum(local_c) > chunk_rows) {
-            float lo = 0.5f;
-            float hi = 1.0f;
-            for (uint iter = 0u; iter < 8u; ++iter) {
-                const float mid = 0.5f * (lo + hi);
-                uint c = 0u;
-                for (uint t = 1u + lane; t < L; t += 32u) {
-                    c += uint(shared_prob[t] >= mid);
-                }
-                if (1u + simd_sum(c) > chunk_rows) {
-                    lo = mid;
-                } else {
-                    hi = mid;
-                }
-            }
-            tau = hi;
-        }
-        if (lane == 0u) shared_tau = tau;
-    }
-    threadgroup_barrier(mem_flags::mem_threadgroup);
-
-    if (tid == 0u) {
-        const float tau = shared_tau;
-        uint count = 0u;
-        for (uint t = 0u; t < L; ++t) {
-            const float p = shared_prob[t];
-            const bool open = (t == 0u) || (p >= tau && count < chunk_rows);
-            if (open) {
-                shared_origin[count] = ushort(t);
-                origins[count] = t;
-                probs[count] = p;
-                count += 1u;
-            }
-            plug_idx[t] = count - 1u;
-        }
-        const ushort last_origin = shared_origin[count - 1u];
-        for (uint c = count; c < chunk_rows; ++c) {
-            shared_origin[c] = last_origin;
-            origins[c] = uint(last_origin);
-            probs[c] = 0.0f;
-        }
-    }
-    threadgroup_barrier(mem_flags::mem_threadgroup);
-
-    device half4* dst_streams4 = reinterpret_cast<device half4*>(streams);
-    const uint compact_vec4 = chunk_rows * 512u;
-    for (uint idx = tid; idx < compact_vec4; idx += 256u) {
-        const uint row = idx >> 9;
-        const uint col4 = idx & 511u;
-        const uint src_row = uint(shared_origin[row]);
-        dst_streams4[idx] = enc_streams4[src_row * 512u + col4];
-    }
-}
-
-// Fused FP16 4-stream H-Net EMA DeChunk scan + plug-back + STE residual combine.
-// Each thread owns one half4 (4 adjacent FP16 channels in 0..2048), running the
-// register-resident EMA scan over [0..chunk_rows) and plugging back into [0..L).
-kernel void hnet_mhc_dechunk(
-    device half* streams [[buffer(0)]],
-    device const half* encoder_streams [[buffer(1)]],
-    device half* chunk_scratch [[buffer(2)]],
-    device const uint* origins [[buffer(3)]],
-    device const float* probs [[buffer(4)]],
-    device const uint* plug_idx [[buffer(5)]],
-    constant uint2& counts [[buffer(6)]],
-    uint col4 [[thread_position_in_grid]]) {
-    const uint L = counts.x;
-    const uint chunk_rows = counts.y;
-    if (col4 >= 512u || L == 0u || chunk_rows == 0u) return;
-
-    device half4* streams4 = reinterpret_cast<device half4*>(streams);
-    device const half4* encoder4 = reinterpret_cast<device const half4*>(encoder_streams);
-    device half4* scratch4 = reinterpret_cast<device half4*>(chunk_scratch);
-
-    float4 ema_h = float4(0.0f);
-    for (uint i = 0u; i < chunk_rows; ++i) {
-        const float raw_p = probs[i];
-        if (raw_p > 0.0f) {
-            const uint t_i = origins[i];
-            const float4 z_hat = float4(streams4[ulong(i) * 512u + col4]);
-            const float4 z_enc = float4(encoder4[ulong(t_i) * 512u + col4]);
-            const float4 delta = z_hat - z_enc;
-            const float p = clamp(raw_p, 1.0e-4f, 1.0f - 1.0e-4f);
-            ema_h = fma(float4(p), delta, float4(1.0f - p) * ema_h);
-        }
-        scratch4[ulong(i) * 512u + col4] = half4(ema_h);
-    }
-
-    for (uint t = 0u; t < L; ++t) {
-        const uint i = plug_idx[t];
-        const float4 ema_delta = float4(scratch4[ulong(i) * 512u + col4]);
-        const float4 z_enc = float4(encoder4[ulong(t) * 512u + col4]);
-        streams4[ulong(t) * 512u + col4] = half4(z_enc + ema_delta);
-    }
-}

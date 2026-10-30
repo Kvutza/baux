@@ -31,7 +31,12 @@ impl<'a> Session<'a> {
             .map(CorpusSet::load_eval)
             .transpose()?;
         let runtime = Runtime::shared()?;
-        let architecture = ResidualArchitecture::Mhc4;
+        let architecture =
+            ResidualArchitecture::from_model(run.model.ok_or("matrix training requires a model")?);
+        dataset.require_vocabulary(architecture.vocabulary())?;
+        if let Some(validation) = &validation {
+            validation.require_vocabulary(architecture.vocabulary())?;
+        }
         let initial = CandidateWeights::initialized(
             &runtime,
             run.model_seed(),

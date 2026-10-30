@@ -661,6 +661,9 @@ impl Decoder {
         config: &GenerationConfig,
         seed: u64,
     ) -> Result<Rollout, String> {
+        if weights.architecture.is_hnet() {
+            return Err("H-Net generation requires a continuous-state byte decoder".into());
+        }
         if self.cache[0].kv.is_some() {
             return Err("compact context requires the chunked block executor".into());
         }

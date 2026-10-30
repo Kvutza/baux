@@ -92,8 +92,9 @@ impl<'a> ChunkLoss<'a> {
         loss_partials: Out<'_, F32>,
     ) {
         let rows = self.rows;
-        let shape = [rows, VOCAB];
-        let tile_cols = VOCAB / 64;
+        let vocabulary = self.weights.embedding.cols();
+        let shape = [rows, vocabulary];
+        let tile_cols = vocabulary / 64;
         Dispatch::new(encoder, self.loss_tiles, Fence::Writes)
             .read(hidden)
             .read(self.weights.embedding)
@@ -115,7 +116,7 @@ impl<'a> ChunkLoss<'a> {
         output_losses: Out<'_, F32>,
     ) {
         let rows = self.rows;
-        let tiles = VOCAB / 64;
+        let tiles = self.weights.embedding.cols() / 64;
         Dispatch::new(encoder, self.loss_reduce, Fence::Writes)
             .read(loss_partials)
             .write(output_losses)

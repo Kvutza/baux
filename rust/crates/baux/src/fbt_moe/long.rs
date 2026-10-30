@@ -250,15 +250,19 @@ fn setup_state(
     let architecture =
         ResidualArchitecture::from_model(run.model.ok_or("long pretraining requires a model")?);
     if !architecture.is_mhc4() {
-        return Err("long pretraining requires fbt-pisa1-mhc4-v1".into());
+        return Err("long pretraining requires an MHC4 or H-Net MHC4 model".into());
     }
     let dataset = crate::pretrain_data::CorpusSet::load(dataset_path)?;
+    dataset.require_vocabulary(architecture.vocabulary())?;
     let validation = run
         .validation_dataset
         .as_deref()
         .map(crate::pretrain_data::CorpusSet::load_eval)
         .transpose()?;
     let runtime = Runtime::shared()?;
+    if let Some(validation) = &validation {
+        validation.require_vocabulary(architecture.vocabulary())?;
+    }
     let core_rows = window_tokens
         .div_ceil(architecture.patch_size())
         .max(window_tokens)

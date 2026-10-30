@@ -239,7 +239,7 @@ impl Scorer<'_> {
         let pipelines = self.pipelines;
         let buffers = self.buffers;
         let loss_partials = buffers.loss_partials()?;
-        let shape = [self.rows, VOCAB];
+        let shape = [self.rows, self.weights.architecture.vocabulary()];
         encoder.set_compute_pipeline_state(&self.tensorops.readout_loss_tiles);
         encoder.set_buffer(0, Some(&buffers.normalized), 0);
         encoder.set_buffer(1, Some(self.weights.buffer), self.weights.readout);
@@ -252,7 +252,7 @@ impl Scorer<'_> {
         );
         encoder.dispatch_thread_groups(
             MTLSize {
-                width: u64::from(VOCAB / 64),
+                width: u64::from(self.weights.architecture.vocabulary() / 64),
                 height: u64::from(self.rows.div_ceil(128)),
                 depth: 1,
             },
@@ -262,7 +262,7 @@ impl Scorer<'_> {
         encoder.set_compute_pipeline_state(&pipelines.readout_loss_reduce);
         encoder.set_buffer(0, Some(loss_partials), 0);
         encoder.set_buffer(1, Some(&buffers.losses), 0);
-        let tiles = VOCAB / 64;
+        let tiles = self.weights.architecture.vocabulary() / 64;
         encoder.set_bytes(
             2,
             std::mem::size_of_val(&tiles) as u64,
@@ -298,7 +298,12 @@ impl Scorer<'_> {
         let loss_partials = self.buffers.loss_partials()?;
         let proposal_partials = self.buffers.proposal_partials()?;
         let encoder = self.active_encoder();
-        let shape = [self.rows, VOCAB, self.row_start, self.pisa1.context()];
+        let shape = [
+            self.rows,
+            self.weights.architecture.vocabulary(),
+            self.row_start,
+            self.pisa1.context(),
+        ];
         let activation_offset = self.activation_offset();
         encoder.set_compute_pipeline_state(if self.diffusion.is_some() {
             &self.tensorops.denoise_tiles
@@ -331,7 +336,7 @@ impl Scorer<'_> {
         }
         encoder.dispatch_thread_groups(
             MTLSize {
-                width: u64::from(VOCAB / 64),
+                width: u64::from(self.weights.architecture.vocabulary() / 64),
                 height: u64::from(self.rows.div_ceil(128)),
                 depth: 1,
             },
@@ -341,7 +346,7 @@ impl Scorer<'_> {
         if let Some(input) = self.diffusion {
             encoder.memory_barrier_with_resources(&[input.moments]);
         }
-        let tiles = VOCAB / 64;
+        let tiles = self.weights.architecture.vocabulary() / 64;
         let proposal_source = if score_targets && temperature == 0.0 && self.diffusion.is_none() {
             proposal_partials
         } else {

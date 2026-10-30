@@ -619,6 +619,9 @@ impl BlockDecoder {
         sampling_seed: u64,
         drafts: &[decode::Rollout],
     ) -> Result<Vec<decode::Rollout>, String> {
+        if weights.architecture.is_hnet() {
+            return Err("H-Net generation requires a continuous-state byte decoder".into());
+        }
         if config.draft.is_some() {
             return diffusion::verify(
                 self,
@@ -737,6 +740,9 @@ impl BlockDecoder {
         config: &GenerationConfig,
         sampling_seed: u64,
     ) -> Result<Vec<decode::Rollout>, String> {
+        if weights.architecture.is_hnet() {
+            return Err("H-Net generation requires a continuous-state byte decoder".into());
+        }
         if config.draft.is_some() {
             return diffusion::verify(
                 self,

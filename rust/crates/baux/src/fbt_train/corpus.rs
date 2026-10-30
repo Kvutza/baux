@@ -12,7 +12,7 @@ impl Trainer {
         batch: &crate::pretrain_data::CausalBatch,
     ) -> Result<(block_decode::CausalScore, f64), String> {
         let rows = u32::try_from(batch.tokens.len()).map_err(|error| error.to_string())?;
-        if self.row.architecture != ResidualArchitecture::Mhc4 {
+        if !self.row.architecture.is_mhc4() {
             return Err("corpus gradients require MHC4".into());
         }
         // The existing replay consumes a complete, unchunked activation window.
@@ -33,9 +33,38 @@ impl Trainer {
                 .tokens
                 .iter()
                 .chain(&batch.labels)
-                .any(|&token| token >= VOCAB)
+                .any(|&token| token >= self.row.architecture.vocabulary())
         {
             return Err("corpus gradients require valid tokens and fully scored labels".into());
+        }
+        if self.row.architecture.is_hnet() {
+            scorer.clear_pair();
+            let score = scorer.score_batch(runtime, decoder, self.row(), batch)?;
+            let command = runtime.queue.new_command_buffer();
+            self.clear(command);
+            let encoder = command.new_compute_command_encoder();
+            scorer.pipelines.train_grad()?.readout(
+                &encoder,
+                dense::ReadoutShape {
+                    rows,
+                    width: WIDTH,
+                    vocab: 256,
+                    start: 0,
+                    scale: 1.0 / rows as f32,
+                    rounded: 0,
+                },
+                dense::ReadoutGrad {
+                    hidden: (&scorer.buffers.normalized, 0),
+                    readout: (&self.weights, self.row.readout),
+                    expected: (&scorer.buffers.labels, 0),
+                    mask: (&self.activations.mask, 0),
+                    hidden_grad: (&self.activations.normalized, 0),
+                    readout_grad: (&self.gradients.flat, grad_offset(self.row.readout)),
+                },
+            );
+            encoder.end_encoding();
+            let seconds = self.reverse_core(runtime, scorer, rows, command)?;
+            return Ok((score, seconds));
         }
         if self.readout.get().is_none() {
             self.readout

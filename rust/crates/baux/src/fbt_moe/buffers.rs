@@ -32,6 +32,10 @@ pub(super) struct HnetScratch {
     pub(super) origins: Buffer,
     pub(super) probs: Buffer,
     pub(super) plug_idx: Buffer,
+    pub(super) projected: Buffer,
+    pub(super) residual: Buffer,
+    pub(super) count: Buffer,
+    pub(super) core: Buffer,
 }
 
 pub(super) struct Buffers {
@@ -126,11 +130,15 @@ impl Buffers {
                 let row_elems = self.rows as usize;
                 Ok(HnetScratch {
                     waves,
-                    encoder_streams: runtime.buffer::<u16>(stream_elems),
-                    chunk_scratch: runtime.buffer::<u16>(stream_elems),
+                    encoder_streams: runtime.buffer::<u16>(stream_elems / 4),
+                    chunk_scratch: runtime.buffer::<f32>(stream_elems / 4),
                     origins: runtime.buffer::<u32>(row_elems),
                     probs: runtime.buffer::<f32>(row_elems),
                     plug_idx: runtime.buffer::<u32>(row_elems),
+                    projected: runtime.buffer::<f32>(stream_elems / 2),
+                    residual: runtime.buffer::<f32>(stream_elems / 4),
+                    count: runtime.buffer::<u32>(1),
+                    core: runtime.buffer::<u16>(stream_elems / 4),
                 })
             })
             .as_ref()

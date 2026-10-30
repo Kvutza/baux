@@ -1,8 +1,17 @@
 //! Low-level Apple Silicon Metal 4 dispatcher and hierarchical stage for H-Net.
 //!
+//! Baux's H-Net model consumes UTF-8 bytes directly, learns chunk boundaries
+//! around its PISA/MHC core, and predicts a 256-way byte distribution after
+//! EMA dechunking and the learned residual projection. It requires no BPE
+//! tokenizer.
+//!
+//! The hierarchy uses FP32 arithmetic with FP16 stored weights and activations.
+//! Component forward and gradient fixtures are pinned to upstream; the core is
+//! Baux's, so this does not imply upstream model or checkpoint equivalence.
+//!
 //! # Academic & Open-Source Attribution
 //!
-//! This module implements the Apple GPU Metal execution backend and stage
+//! This module implements the Apple GPU Metal execution and stage
 //! wrapper for H-Net's dynamic chunking hierarchy and 256-way byte causal
 //! language model:
 //!
@@ -10,7 +19,7 @@
 //!   for End-to-End Hierarchical Sequence Modeling"*, arXiv:2507.07955 (2025).
 //! - **Blog**: Cartesia AI, *"From Tokens to Bytes, Part 1"* (<https://www.cartesia.ai/blog/from-tokens-to-bytes-part-1>).
 //! - **Upstream Implementation**: Goomba Lab / Cartesia AI, <https://github.com/goombalab/hnet>
-//!   (Apache-2.0 License), specifically:
+//!   (MIT License), specifically:
 //!   - `hnet/modules/dc.py` (`RoutingModule`, `ChunkLayer`, `DeChunkLayer`)
 //!   - `hnet/models/hnet.py` (`STE`, `ste_func`, `HNet`, `residual_proj`,
 //!     `pad_dimension`)
@@ -29,7 +38,20 @@ use crate::apple_gpu::{
     Runtime, barrier_buffers, bind_buffers, buffer_slice, encode_value, thread_group,
 };
 
-const SOURCE: &str = include_str!("hnet_wave.metal");
+const SOURCE: &str = concat!(
+    include_str!("hnet_wave.metal"),
+    "\n",
+    include_str!("hnet/bridge.metal"),
+    "\n",
+    include_str!("hnet/adjoint.metal")
+);
+
+#[cfg(test)]
+#[path = "hnet/bridge.rs"]
+mod bridge;
+#[cfg(test)]
+#[path = "hnet/upstream.rs"]
+mod upstream;
 
 /// GPU output of a fused H-Net dynamic chunking stage on Apple Silicon Metal.
 #[derive(Clone, Debug, PartialEq)]
@@ -138,6 +160,14 @@ pub struct HNetWaves {
     readout_pipe: ComputePipelineState,
     bwd_pipe: ComputePipelineState,
     pub(crate) mhc_chunk: ComputePipelineState,
+    pub(crate) mhc_project: ComputePipelineState,
+    pub(crate) mhc_route: ComputePipelineState,
+    pub(crate) mhc_readout: ComputePipelineState,
+    pub(crate) mhc_logits: ComputePipelineState,
+    pub(crate) dechunk_grad: ComputePipelineState,
+    pub(crate) route_grad: ComputePipelineState,
+    pub(crate) input_grad: ComputePipelineState,
+    pub(crate) weight_grad: ComputePipelineState,
     pub(crate) mhc_dechunk: ComputePipelineState,
 }
 
@@ -158,6 +188,14 @@ impl HNetWaves {
             readout_pipe: compile("hnet_byte_readout")?,
             bwd_pipe: compile("hnet_ste_bwd")?,
             mhc_chunk: compile("hnet_mhc_chunk")?,
+            mhc_project: compile("hnet_mhc_project")?,
+            mhc_route: compile("hnet_mhc_route")?,
+            mhc_readout: compile("hnet_mhc_readout")?,
+            mhc_logits: compile("hnet_mhc_logits")?,
+            dechunk_grad: compile("hnet_dechunk_grad")?,
+            route_grad: compile("hnet_route_grad")?,
+            input_grad: compile("hnet_input_grad")?,
+            weight_grad: compile("hnet_weight_grad")?,
             mhc_dechunk: compile("hnet_mhc_dechunk")?,
             runtime,
         })
@@ -330,7 +368,7 @@ impl HNetWaves {
         &self,
         grad_combined: &[f32],
         dechunk_out: &[f32],
-        boundary_mask: &[bool],
+        boundary_prob: &[f32],
         batch_size: usize,
         seq_len: usize,
         d_model: usize,
@@ -340,7 +378,7 @@ impl HNetWaves {
             || d_model == 0
             || grad_combined.len() != total * d_model
             || dechunk_out.len() != total * d_model
-            || boundary_mask.len() != total
+            || boundary_prob.len() != total
         {
             return Err("HNetWaves::backward_ste dimension mismatch".into());
         }
@@ -354,10 +392,9 @@ impl HNetWaves {
             target_ratio: 2.0,
             score: 1,
         };
-        let bmask_u32: Vec<u32> = boundary_mask.iter().map(|&b| u32::from(b)).collect();
         let buf_grad = self.runtime.buffer_with(grad_combined);
         let buf_dechunk = self.runtime.buffer_with(dechunk_out);
-        let buf_bmask = self.runtime.buffer_with(&bmask_u32);
+        let buf_prob = self.runtime.buffer_with(boundary_prob);
         let buf_gprob = self.runtime.buffer::<f32>(total);
 
         let command = self.runtime.queue.new_command_buffer();
@@ -368,7 +405,7 @@ impl HNetWaves {
             &[
                 (&buf_grad, 0),
                 (&buf_dechunk, 0),
-                (&buf_bmask, 0),
+                (&buf_prob, 0),
                 (&buf_gprob, 0),
             ],
         );
@@ -485,10 +522,10 @@ mod tests {
         }
         let grad_comb = vec![1.0_f32; 16];
         let gpu_gprob = waves
-            .backward_ste(&grad_comb, &gpu.dechunk_out, &gpu.boundary_mask, 1, 4, 4)
+            .backward_ste(&grad_comb, &gpu.dechunk_out, &gpu.boundary_prob, 1, 4, 4)
             .unwrap();
         let cpu_gprob = ste
-            .backward_prob(&grad_comb, &cpu_dechunk, &cpu_route.boundary_mask)
+            .backward_prob(&grad_comb, &cpu_dechunk, &cpu_route.boundary_prob)
             .unwrap();
         for i in 0..4 {
             assert!((gpu_gprob[i] - cpu_gprob[i]).abs() < 1e-5);

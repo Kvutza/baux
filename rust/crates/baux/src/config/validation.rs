@@ -87,6 +87,7 @@ impl RunConfig {
         let Some(tokens) = self.window_tokens else {
             return Ok(());
         };
+        self.validate_hnet(tokens)?;
         if self.experiment != Some(ExperimentKind::Pretrain) {
             return Err("objective.window-tokens requires a pretrain experiment".into());
         }
@@ -97,7 +98,7 @@ impl RunConfig {
             || self.model != Some(ModelArchitecture::FbtPisa1Mhc4V1)
             || self.objective_function() != ObjectiveFunction::CrossEntropy)
         {
-            return Err("fixed-corpus matrix training requires fbt-pisa1-mhc4-v1, cross-entropy and window-tokens=4096".into());
+            return Err("gradient-based matrix training requires MHC4, cross-entropy and window-tokens=4096".into());
         }
         if !(128..=crate::context::MAX_TOKENS).contains(&tokens) || tokens % 128 != 0 {
             return Err(
@@ -105,12 +106,9 @@ impl RunConfig {
             );
         }
         if tokens > crate::pretrain_data::CONTEXT
-            && !matches!(
-                self.model,
-                Some(ModelArchitecture::FbtPisa1Mhc4V1 | ModelArchitecture::FbtPisa1HnetMhc4V1)
-            )
+            && !matches!(self.model, Some(ModelArchitecture::FbtPisa1Mhc4V1))
         {
-            return Err("pretraining sequences above 4096 tokens require fbt-pisa1-mhc4-v1".into());
+            return Err("pretraining sequences above 4096 positions require MHC4".into());
         }
         if tokens > crate::pretrain_data::CONTEXT
             && !matches!(
@@ -127,6 +125,18 @@ impl RunConfig {
             return Err(
                 "fixed causal pretraining has no reference evaluation; remove objective.reference"
                     .into(),
+            );
+        }
+        Ok(())
+    }
+
+    fn validate_hnet(&self, tokens: u32) -> Result<(), String> {
+        if self.model == Some(ModelArchitecture::FbtPisa1HnetMhc4V1)
+            && (tokens > crate::pretrain_data::CONTEXT
+                || self.objective_function() != ObjectiveFunction::CrossEntropy)
+        {
+            return Err(
+                "H-Net long-context optimization requires continuous hierarchy state".into(),
             );
         }
         Ok(())

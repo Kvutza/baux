@@ -158,6 +158,7 @@ struct ReadoutGradShape {
     uint vocab;
     uint start;
     float scale;
+    uint rounded;
 };
 
 kernel void readout_grad(
@@ -191,7 +192,7 @@ kernel void readout_grad(
         for (uint d = 0; d < p.width; ++d) {
             dot = fma(shared_hidden[d], float(readout[ulong(d) * p.vocab + col]), dot);
         }
-        local_max = max(local_max, float(half(dot)));
+        local_max = max(local_max, (p.rounded != 0 ? float(half(dot)) : dot));
     }
     local_max = simd_max(local_max);
     if (lane == 0) partial_max[simdgroup] = local_max;
@@ -208,7 +209,7 @@ kernel void readout_grad(
         for (uint d = 0; d < p.width; ++d) {
             dot = fma(shared_hidden[d], float(readout[ulong(d) * p.vocab + col]), dot);
         }
-        local_sum += exp(float(half(dot)) - row_max);
+        local_sum += exp((p.rounded != 0 ? float(half(dot)) : dot) - row_max);
     }
     local_sum = simd_sum(local_sum);
     if (lane == 0) partial_sum[simdgroup] = local_sum;
@@ -225,7 +226,7 @@ kernel void readout_grad(
         for (uint d = 0; d < p.width; ++d) {
             dot = fma(shared_hidden[d], float(readout[ulong(d) * p.vocab + col]), dot);
         }
-        const float prob = exp(float(half(dot)) - row_max) * inv_sum;
+        const float prob = exp((p.rounded != 0 ? float(half(dot)) : dot) - row_max) * inv_sum;
         const float dl = (prob - float(col == target)) * p.scale;
         for (uint d = 0; d < p.width; ++d) {
             const ulong idx = ulong(d) * p.vocab + col;
@@ -239,7 +240,7 @@ kernel void readout_grad(
             for (uint k = 0; k < p.width; ++k) {
                 dot = fma(shared_hidden[k], float(readout[ulong(k) * p.vocab + col]), dot);
             }
-            const float prob = exp(float(half(dot)) - row_max) * inv_sum;
+            const float prob = exp((p.rounded != 0 ? float(half(dot)) : dot) - row_max) * inv_sum;
             const float dl = (prob - float(col == target)) * p.scale;
             dx = fma(dl, float(readout[ulong(d) * p.vocab + col]), dx);
         }

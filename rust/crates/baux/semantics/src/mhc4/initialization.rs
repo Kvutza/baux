@@ -153,7 +153,7 @@ impl Initialization {
         Ok(match family {
             "router" => self.router_column_norm / width,
             "qkv" | "expert_gate_up" | "embedding_readout" | "feedback_state" | "feedback_gate"
-            | "mask_embed" => width.recip(),
+            | "mask_embed" | "hnet" => width.recip(),
             "attention_output" => self.residual_gain / width,
             "expert_down" => self.down_norm() / 216.0_f32.sqrt(),
             "mhc_attention_predictor" | "mhc_moe_predictor" => 2048.0_f32.sqrt().recip(),

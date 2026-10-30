@@ -20,6 +20,7 @@ export_file(
 )
 
 _BAUX_RUST_SRCS = glob([
+    "src/hnet/*.json",
     "src/**/*.cl",
     "src/**/*.metal",
     "src/**/*.rs",

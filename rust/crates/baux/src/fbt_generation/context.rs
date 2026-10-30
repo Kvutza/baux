@@ -32,12 +32,16 @@ pub fn context_loop(
     crate::context::Layout::new(context, 4096)?;
     let dataset_tokens = crate::pretrain_data::PretrainDataset::load(dataset)?;
     let source = dataset_tokens.prefix(count as usize)?;
-    let tokenizer = ByteDecoder::load(
-        &dataset
-            .parent()
-            .ok_or("dataset has no parent")?
-            .join("tokenizer.json"),
-    )?;
+    let tokenizer = if model_arch(run)?.is_hnet() {
+        ByteDecoder::raw()
+    } else {
+        ByteDecoder::load(
+            &dataset
+                .parent()
+                .ok_or("dataset has no parent")?
+                .join("tokenizer.json"),
+        )?
+    };
     let mut run = run.clone();
     let config = run
         .generation

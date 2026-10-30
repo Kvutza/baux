@@ -6,6 +6,7 @@ impl Scorer<'_> {
         let pipelines = self.pipelines;
         let buffers = self.buffers;
         let weights = self.weights;
+        let vocabulary = weights.architecture.vocabulary();
         let activation_offset = self.activation_offset();
         encoder.set_compute_pipeline_state(if self.diffusion.is_some() {
             &pipelines.denoise_embed
@@ -21,8 +22,8 @@ impl Scorer<'_> {
         encoder.set_buffer(2, Some(&buffers.input), activation_offset);
         encoder.set_bytes(
             3,
-            std::mem::size_of_val(&VOCAB) as u64,
-            std::ptr::from_ref(&VOCAB).cast(),
+            std::mem::size_of_val(&vocabulary) as u64,
+            std::ptr::from_ref(&vocabulary).cast(),
         );
         if let Some(input) = self.diffusion {
             encoder.set_buffer(3, Some(weights.buffer), weights.mask_embed);

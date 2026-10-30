@@ -86,6 +86,35 @@ impl BlockDecoder {
         score: u32,
         update_centroids: bool,
     ) -> Result<(), String> {
+        if weights.architecture.is_hnet() {
+            let encoder = command.new_compute_command_encoder();
+            let waves = &self.buffers.hnet()?.waves;
+            encoder.set_compute_pipeline_state(&waves.mhc_readout);
+            crate::apple_gpu::bind_buffers(
+                &encoder,
+                &[
+                    (&self.buffers.normalized, 0),
+                    (weights.buffer, weights.readout),
+                    (&self.buffers.labels, byte_offset),
+                    (&self.proposals, byte_offset),
+                    (&self.buffers.losses, byte_offset),
+                ],
+            );
+            let shape = baux::semantics::hnet::HNetShape {
+                batch_size: 1,
+                seq_len: active_rows,
+                d_model: WIDTH,
+                max_chunks: active_rows,
+                vocab_size: 256,
+                eps: 1e-4,
+                target_ratio: 2.0,
+                score,
+            };
+            crate::apple_gpu::encode_value(&encoder, 5, &shape);
+            encoder.dispatch_thread_groups(thread_group(u64::from(active_rows)), thread_group(32));
+            encoder.end_encoding();
+            return Ok(());
+        }
         self.waves.encode_mhc(
             command,
             (&self.buffers.normalized, 0),
@@ -223,14 +252,27 @@ impl BlockDecoder {
         objective: crate::config::ObjectiveFunction,
     ) -> Result<CausalScore, String> {
         if !weights.architecture.is_mhc4() {
-            return Err("long causal scoring requires native MHC4 architecture".into());
+            return Err("long causal scoring requires an MHC4-family architecture".into());
         }
         if batch.labels.len() != batch.tokens.len() {
             return Err("causal batch token and label lengths do not match".into());
         }
+        if batch
+            .tokens
+            .iter()
+            .chain(&batch.labels)
+            .any(|&value| value >= weights.architecture.vocabulary())
+        {
+            return Err("corpus IDs exceed the model vocabulary".into());
+        }
         let total_rows = u32::try_from(batch.tokens.len()).map_err(|error| error.to_string())?;
         if total_rows == 0 || total_rows > self.context {
             return Err("causal batch length must be positive and within scorer context".into());
+        }
+        if weights.architecture.is_hnet() && total_rows > CONTEXT {
+            return Err(
+                "H-Net scoring above 4096 bytes requires continuous hierarchy state".into(),
+            );
         }
         let total_len = total_rows as usize;
         let chunk_cap = ROWS.min(self.context);

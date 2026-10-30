@@ -130,6 +130,19 @@ fn file_magic(path: &Path) -> Result<bool, String> {
 }
 
 impl CorpusSet {
+    pub fn require_vocabulary(&self, vocabulary: u32) -> Result<(), String> {
+        if self
+            .parts
+            .iter()
+            .any(|part| part.data.vocabulary() != vocabulary)
+        {
+            return Err(format!(
+                "corpus vocabulary does not match the model's {vocabulary} symbols"
+            ));
+        }
+        Ok(())
+    }
+
     pub fn load_eval(path: &Path) -> Result<Self, String> {
         if file_magic(path)? {
             return Ok(Self {

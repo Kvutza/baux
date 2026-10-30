@@ -70,6 +70,7 @@ impl std::ops::Deref for TokenStore {
 
 #[derive(Debug)]
 pub struct PretrainDataset {
+    vocabulary: u32,
     sequences: u32,
     tokens: TokenStore,
     trace: Option<TraceIndex>,
@@ -258,6 +259,7 @@ impl PretrainDataset {
         let trace = TraceIndex::load(path, &tokens)?;
         let code = CodeIndex::load(path, &tokens)?;
         Ok(Self {
+            vocabulary: vocab,
             sequences,
             tokens,
             trace,
@@ -275,6 +277,10 @@ impl PretrainDataset {
 
     pub fn tokens(&self) -> usize {
         self.tokens.len()
+    }
+
+    pub fn vocabulary(&self) -> u32 {
+        self.vocabulary
     }
 
     pub fn prefix(&self, count: usize) -> Result<&[u32], String> {

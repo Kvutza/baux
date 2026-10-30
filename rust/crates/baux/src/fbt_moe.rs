@@ -407,7 +407,8 @@ fn family_group(family: &str) -> usize {
     match family {
         "expert_gate_up" | "expert_down" => 0,
         "qkv" | "attention_output" | "attention_norm" | "ffn_norm" | "final_norm" => 1,
-        "index_query"
+        "hnet"
+        | "index_query"
         | "router"
         | "feedback_state"
         | "feedback_gate"

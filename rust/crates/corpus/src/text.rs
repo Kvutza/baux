@@ -1,4 +1,5 @@
 //! Document-preserving text streams for base pretraining corpora.
+use super::encoding::Encoding;
 use super::{Result, SPLITS, split};
 use arrow_array::{Array, LargeStringArray, RecordBatch, StringArray};
 use baux::artifact::json::{Value, json};
@@ -7,20 +8,18 @@ use futures::TryStreamExt;
 use opendal::Operator;
 use parquet::arrow;
 use parquet_opendal::AsyncReader;
-use std::collections::{BTreeMap, HashSet};
+use std::collections::HashSet;
 use std::fs::{self, File};
 use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
-use tokenizers::Tokenizer;
 
 const CONTEXT: u32 = 4096;
-const VOCABULARY: u32 = 262_144;
 
 #[derive(Deserialize)]
 struct Job {
     root: String,
     paths: Vec<String>,
-    tokenizer: PathBuf,
+    tokenizer: Option<PathBuf>,
     output: PathBuf,
     recipe_id: String,
     recipe: Value,
@@ -48,15 +47,19 @@ struct SplitWriter {
     tokens: u64,
     documents: u64,
     discarded: u64,
+    vocabulary: u32,
 }
 
 impl SplitWriter {
-    fn new(root: &Path, name: &'static str, quota: u64) -> Result<Self> {
+    fn new(root: &Path, name: &'static str, quota: u64, vocabulary: u32) -> Result<Self> {
+        if quota == 0 || quota % (2 * u64::from(CONTEXT)) != 0 {
+            return Err("text quota must contain a positive even number of contexts".into());
+        }
         let path = root.join(format!("{name}.bauxptn"));
         let mut output = BufWriter::new(File::create(&path)?);
         output.write_all(b"BAUXPTN1")?;
         let sequences = quota / u64::from(CONTEXT);
-        for value in [VOCABULARY, CONTEXT, u32::try_from(sequences)?, 0] {
+        for value in [vocabulary, CONTEXT, u32::try_from(sequences)?, 0] {
             output.write_all(&value.to_le_bytes())?;
         }
         Ok(Self {
@@ -67,6 +70,7 @@ impl SplitWriter {
             tokens: 0,
             documents: 0,
             discarded: 0,
+            vocabulary,
         })
     }
 
@@ -86,10 +90,15 @@ impl SplitWriter {
             .chain(std::iter::once(eos))
             .take(count)
         {
-            if token >= VOCABULARY {
+            if token >= self.vocabulary {
                 return Err("text tokenizer emitted an out-of-range token".into());
             }
-            self.output.write_all(&token.to_le_bytes())?;
+            if self.vocabulary <= 65_536 {
+                self.output
+                    .write_all(&u16::try_from(token)?.to_le_bytes())?;
+            } else {
+                self.output.write_all(&token.to_le_bytes())?;
+            }
         }
         self.tokens += u64::try_from(count)?;
         self.discarded += u64::try_from(total - count)?;
@@ -127,16 +136,9 @@ pub(super) async fn prepare(value: Value) -> Result<()> {
     if job.output.join("manifest.json").exists() {
         return Err("refusing to overwrite an existing corpus manifest".into());
     }
-    let tokenizer = super::tokenizer::from_recipe(&job.tokenizer, &job.recipe)?;
-    let tokenizer_path = job.output.join("tokenizer.json");
-    tokenizer.save(&tokenizer_path, true)?;
+    let tokenizer = Encoding::new(job.tokenizer.as_deref(), &job.recipe)?;
+    let identity = tokenizer.persist(&job.output, &job.recipe)?;
     let records = collect(&job, &tokenizer).await?;
-    let mut special: BTreeMap<_, _> = super::tokenizer::MARKERS
-        .iter()
-        .map(|marker| (*marker, tokenizer.token_to_id(marker)))
-        .collect();
-    special.insert("<bos>", tokenizer.token_to_id("<bos>"));
-    special.insert("<eos>", tokenizer.token_to_id("<eos>"));
     let manifest = json!({
         "format":"baux.pretraining.v2",
         "recipe_id":job.recipe_id,
@@ -144,12 +146,7 @@ pub(super) async fn prepare(value: Value) -> Result<()> {
         "source":job.recipe.get("source"),
         "split_policy":job.recipe.get("split_policy"),
         "serialization":"text_document_v1",
-        "tokenizer":{
-            "sha256":super::tokenizer::digest(&tokenizer_path)?,
-            "vocabulary":VOCABULARY,
-            "base":job.recipe.get("tokenizer"),
-            "special_tokens":special,
-        },
+        "tokenizer":identity,
         "splits":records,
     });
     fs::write(
@@ -172,7 +169,7 @@ fn build_operator(root: &str) -> Result<Operator> {
         .layer(opendal::layers::RetryLayer::new().with_max_times(3)))
 }
 
-async fn collect(job: &Job, tokenizer: &Tokenizer) -> Result<Value> {
+async fn collect(job: &Job, tokenizer: &Encoding) -> Result<Value> {
     let source = &job.recipe["source"];
     let text_field = source["text_field"]
         .as_str()
@@ -186,10 +183,15 @@ async fn collect(job: &Job, tokenizer: &Tokenizer) -> Result<Value> {
         let quota = quotas[name]
             .as_u64()
             .ok_or("text recipe has no split token budget")?;
-        writers.push(SplitWriter::new(&job.output, name, quota)?);
+        writers.push(SplitWriter::new(
+            &job.output,
+            name,
+            quota,
+            tokenizer.vocabulary(),
+        )?);
     }
     let operator = build_operator(&job.root)?;
-    let (bos, eos) = super::tokenizer::boundaries(tokenizer)?;
+    let (bos, eos) = tokenizer.boundaries()?;
     let mut seen = HashSet::new();
     for (number, path) in job.paths.iter().enumerate() {
         if writers.iter().all(SplitWriter::full) {
@@ -263,7 +265,7 @@ fn consume(
     batch: &RecordBatch,
     text_field: &str,
     id_field: &str,
-    tokenizer: &Tokenizer,
+    tokenizer: &Encoding,
     bos: u32,
     eos: u32,
     seen: &mut HashSet<String>,
@@ -278,20 +280,15 @@ fn consume(
         let Some(text) = texts.value(row) else {
             continue;
         };
-        if text.is_empty()
-            || !seen.insert(id.to_owned())
-            || super::tokenizer::MARKERS
-                .iter()
-                .any(|marker| text.contains(marker))
-        {
+        if text.is_empty() || !seen.insert(id.to_owned()) || !tokenizer.accepts(text) {
             continue;
         }
         let writer = &mut writers[split(id)];
         if writer.full() {
             continue;
         }
-        let encoding = tokenizer.encode(text, false)?;
-        writer.write_document(bos, encoding.get_ids(), eos)?;
+        let encoding = tokenizer.encode(text)?;
+        writer.write_document(bos, &encoding, eos)?;
     }
     Ok(())
 }
@@ -307,4 +304,73 @@ fn text_column<'a>(batch: &'a RecordBatch, name: &str) -> Result<TextColumn<'a>>
         return Ok(TextColumn::Large(values));
     }
     Err(format!("text source {name} column is not UTF-8").into())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+
+    #[test]
+    fn bytes() -> Result<()> {
+        let root = std::env::temp_dir().join(format!("baux-text-bytes-{}", std::process::id()));
+        fs::create_dir_all(&root)?;
+        let recipe =
+            json!({"tokenizer":{"kind":"utf8_bytes","vocabulary":256,"bos":254,"eos":255}});
+        let encoding = Encoding::new(None, &recipe)?;
+        let metadata = encoding.persist(&root, &recipe)?;
+        assert!(!root.join("tokenizer.json").exists());
+        assert_eq!(metadata["special_tokens"]["<eos>"].as_u64(), Some(255));
+        let mut writers: Vec<_> = SPLITS
+            .iter()
+            .map(|&name| SplitWriter::new(&root, name, 8192, encoding.vocabulary()))
+            .collect::<Result<_>>()?;
+        // Each split gets a distinct document. Literal marker text remains
+        // ordinary bytes.
+        let ids: Vec<_> = (0..3)
+            .map(|target| {
+                (0..1000)
+                    .map(|id| format!("document-{id}"))
+                    .find(|id| split(id) == target)
+                    .expect("split has an ID")
+            })
+            .collect();
+        let text = "é 🦀 <bos> <|repo|>\n".repeat(600);
+        let batch = RecordBatch::try_from_iter([
+            (
+                "text",
+                Arc::new(StringArray::from(vec![text.as_str(); 3])) as Arc<dyn Array>,
+            ),
+            (
+                "id",
+                Arc::new(StringArray::from(
+                    ids.iter().map(String::as_str).collect::<Vec<_>>(),
+                )) as Arc<dyn Array>,
+            ),
+        ])?;
+        consume(
+            &batch,
+            "text",
+            "id",
+            &encoding,
+            254,
+            255,
+            &mut HashSet::new(),
+            &mut writers,
+        )?;
+        for writer in writers {
+            let path = writer.path.clone();
+            let (_, record) = writer.finish()?;
+            assert_eq!(record["tokens"].as_u64(), Some(8192));
+            assert_eq!(fs::metadata(&path)?.len(), 24 + 8192 * 2);
+            let stored = baux::artifact::pretrain::load_tokens(&path, 8192)?;
+            let expected: Vec<u32> = std::iter::once(254)
+                .chain(text.as_bytes().iter().map(|&byte| u32::from(byte)))
+                .take(8192)
+                .collect();
+            assert_eq!(stored, expected);
+        }
+        fs::remove_dir_all(root)?;
+        Ok(())
+    }
 }

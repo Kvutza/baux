@@ -40,7 +40,10 @@ pub(super) fn checkpoint_layout(
         ),
         ("attention_norm", vec![layers, width]),
         ("ffn_norm", vec![layers, width]),
-        ("embedding_readout", vec![width, VOCAB as usize]),
+        (
+            "embedding_readout",
+            vec![width, architecture.vocabulary() as usize],
+        ),
     ];
     if architecture.is_multistream() {
         layout.extend([
@@ -71,6 +74,9 @@ pub(super) fn checkpoint_layout(
         layout.push(("mask_embed", vec![width]));
         layout.push(("index_query", vec![64, 64]));
     }
+    if architecture.is_hnet() {
+        layout.push(("hnet", vec![3 * width * width + width]));
+    }
     layout
 }
 
@@ -94,7 +100,7 @@ pub(super) fn load_checkpoint(weights: &CandidateWeights, path: &Path) -> Result
         | ResidualArchitecture::ProjectedBoundary => "baux.fbt-pisa1-rope.v2",
         ResidualArchitecture::Hc4 => "baux.fbt-pisa1-hc4-rope.v1",
         ResidualArchitecture::Mhc4 => "baux.fbt-pisa1-mhc4-rope.v1",
-        ResidualArchitecture::HnetMhc4 => "baux.fbt-pisa1-hnet-mhc4-rope.v1",
+        ResidualArchitecture::HnetMhc4 => "baux.fbt-pisa1-hnet-bytes-rope.v2",
         ResidualArchitecture::LoopedMhc4 => "baux.fbt-pisa1-looped-mhc4-rope.v1",
         ResidualArchitecture::DiffusionMhc4 => "baux.fbt-pisa1-diffusion-mhc4-rope.v1",
     };
@@ -174,7 +180,7 @@ pub(super) fn save_checkpoint(
         | ResidualArchitecture::ProjectedBoundary => "baux.fbt-pisa1-rope.v2",
         ResidualArchitecture::Hc4 => "baux.fbt-pisa1-hc4-rope.v1",
         ResidualArchitecture::Mhc4 => "baux.fbt-pisa1-mhc4-rope.v1",
-        ResidualArchitecture::HnetMhc4 => "baux.fbt-pisa1-hnet-mhc4-rope.v1",
+        ResidualArchitecture::HnetMhc4 => "baux.fbt-pisa1-hnet-bytes-rope.v2",
         ResidualArchitecture::LoopedMhc4 => "baux.fbt-pisa1-looped-mhc4-rope.v1",
         ResidualArchitecture::DiffusionMhc4 => "baux.fbt-pisa1-diffusion-mhc4-rope.v1",
     };

@@ -11,6 +11,7 @@ use std::process::{Command, Stdio};
 use baux_tooling::build::BuildSystem;
 use baux_tooling::terminal::{self, Tag};
 
+mod encoding;
 mod mixture;
 
 pub(super) fn prepare(
@@ -24,6 +25,7 @@ pub(super) fn prepare(
         .as_deref()
         .ok_or("pretraining requires data.recipe")?;
     let document = recipe(root, recipe_name)?;
+    encoding::check_model(spec, &document)?;
     if string(&document, "format")? == "baux.pretraining-mixture.v4" {
         mixture::check(root, &document, spec)?;
     }
@@ -42,7 +44,11 @@ fn prepare_named(root: &Path, recipe_name: &str, engine: BuildSystem) -> Result<
         return mixture::prepare(root, &recipe, &id, engine);
     }
 
-    let tokenizer = tokenizer(root, &recipe)?;
+    let tokenizer = if encoding::is_bytes(&recipe) {
+        None
+    } else {
+        Some(tokenizer(root, &recipe)?)
+    };
     fs::create_dir_all(&parent).map_err(|error| error.to_string())?;
     let stage = parent.join(format!(".{id}.{}.preparing", std::process::id()));
     fs::create_dir(&stage).map_err(|error| error.to_string())?;
@@ -140,6 +146,7 @@ pub(super) fn resolve(root: &Path, spec: &mut ExperimentSpec) -> Result<(), Stri
         .as_deref()
         .ok_or("pretraining requires data.recipe")?;
     let recipe = recipe(root, recipe_name)?;
+    encoding::check_model(spec, &recipe)?;
     let id = recipe_key(root, &recipe)?;
     let directory = root.join(".cache/baux/corpora").join(&id);
     let manifest_path = directory.join("manifest.json");
@@ -186,12 +193,10 @@ pub(super) fn resolve(root: &Path, spec: &mut ExperimentSpec) -> Result<(), Stri
         split_tokens.push(record["tokens"].kind().as_u64().unwrap_or(0));
         let path = directory.join(format!("{split}.bauxptn"));
         verify(&path, record["sha256"].kind().as_str())?;
+        encoding::check_header(&path, &recipe)?;
         paths.push(path);
     }
-    verify(
-        &directory.join("tokenizer.json"),
-        manifest["tokenizer"]["sha256"].kind().as_str(),
-    )?;
+    encoding::verify(&directory, &recipe, &manifest)?;
     spec.data.train = Some(paths.remove(0));
     spec.data.validation = Some(paths.remove(0));
     report_budget(spec, &recipe, &split_tokens)
@@ -311,20 +316,7 @@ fn validate_recipe(name: &str, recipe: &Value) -> Result<(), String> {
     };
     exact_fields(recipe, top, "recipe")?;
     exact_fields(&recipe["source"], source, "recipe source")?;
-    exact_fields(
-        &recipe["tokenizer"],
-        &[
-            "kind",
-            "vocabulary",
-            "package",
-            "id",
-            "revision",
-            "sha256",
-            "markers",
-            "add_special_tokens",
-        ],
-        "recipe tokenizer",
-    )?;
+    encoding::validate(recipe)?;
     exact_fields(
         &recipe["materialization"],
         &["tokens"],
@@ -335,12 +327,8 @@ fn validate_recipe(name: &str, recipe: &Value) -> Result<(), String> {
         &["train", "validation", "test"],
         "materialized tokens",
     )?;
-    let tokenizer = &recipe["tokenizer"];
     if string(recipe, "format")? != "baux.pretraining.v2"
         || recipe["context"].kind().as_u64() != Some(4096)
-        || tokenizer["kind"].kind().as_str() != Some("gemma4_bpe")
-        || tokenizer["vocabulary"].kind().as_u64() != Some(262_144)
-        || tokenizer["add_special_tokens"].as_bool() != Some(false)
         || recipe["source"]["paths"]
             .as_seq()
             .is_none_or(|paths| paths.is_empty())
@@ -366,6 +354,9 @@ fn validate_recipe(name: &str, recipe: &Value) -> Result<(), String> {
 
 fn validate_content(name: &str, recipe: &Value, serialization: &str) -> Result<(), String> {
     let tokenizer = &recipe["tokenizer"];
+    if encoding::is_bytes(recipe) && serialization != "text_document_v1" {
+        return Err("byte encoding requires text_document_v1 serialization".into());
+    }
     if serialization == "repository_file_v1" {
         exact_fields(
             &recipe["filter"],
@@ -413,8 +404,7 @@ fn validate_content(name: &str, recipe: &Value, serialization: &str) -> Result<(
     } else if string(recipe, "split_policy")?
         != "document_sha256_mod20_train_0_17_validation_18_test_19"
         || string(recipe, "deduplication")? != "document_id"
-        || string(recipe, "boundaries")? != "gemma_bos_eos_per_document_v1"
-        || tokenizer["markers"].kind().as_str() != Some("unused0..14_to_baux_markers_ids6..20_v1")
+        || !encoding::text_boundaries(recipe)
         || !valid_field(string(&recipe["source"], "text_field")?)
         || !valid_field(string(&recipe["source"], "id_field")?)
     {

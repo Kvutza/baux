@@ -99,6 +99,16 @@ impl ExperimentSpec {
             return Ok(self.generation.clone());
         }
         if matrix {
+            if self.objective.window_tokens.is_some() {
+                if self.generation.is_some()
+                    || self.objective.function != Some(ObjectiveFunction::CrossEntropy)
+                    || self.objective.sampling != Some(ObjectiveSampling::Natural)
+                    || self.objective.reference.is_some()
+                {
+                    return Err("fixed-corpus matrix training requires natural cross-entropy without generation or reference fields".into());
+                }
+                return Ok(None);
+            }
             if self.generation.is_some()
                 || self.objective.function != Some(ObjectiveFunction::CrossEntropy)
                 || self.objective.sampling != Some(ObjectiveSampling::Natural)

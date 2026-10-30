@@ -118,13 +118,13 @@ pub(crate) fn resolve(
     if let Some(generation) = &mut spec.generation {
         generation.resolve(parent)?;
     }
-    pretrain::prepare(root, &spec, engine)?;
-    pretrain::resolve(root, &mut spec)?;
     if let Some(rounds) = rounds {
         spec.execution.rounds = rounds;
     } else if spec.execution.rounds < 128 {
         return Err("pretraining experiments require at least 128 rounds".into());
     }
+    pretrain::prepare(root, &spec, engine)?;
+    pretrain::resolve(root, &mut spec)?;
     resolved_config(root, &mut spec)
 }
 

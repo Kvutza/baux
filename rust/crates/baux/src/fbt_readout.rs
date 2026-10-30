@@ -2,6 +2,148 @@ use super::scorer::Scorer;
 use super::*;
 use crate::forward_program::mhc4::{self, WaveShape};
 
+use crate::apple_gpu::{bind_buffers, encode_value};
+
+/// Shared parameter slices receive additive contributions. The caller clears
+/// them once before the complete backward pass, including embedding/core use.
+pub(super) struct ReadoutGrad<'a> {
+    pub hidden: (&'a BufferRef, u64),
+    pub qkv: (&'a BufferRef, u64),
+    pub readout: (&'a BufferRef, u64),
+    pub targets: (&'a BufferRef, u64),
+    pub hidden_grad: (&'a BufferRef, u64),
+    pub qkv_grad: (&'a BufferRef, u64),
+    pub readout_grad: (&'a BufferRef, u64),
+}
+
+pub(super) struct Adjoint {
+    tree: ComputePipelineState,
+    leaf: ComputePipelineState,
+    project: ComputePipelineState,
+    queries: Buffer,
+    errors: Buffer,
+    query_grad: Buffer,
+    node_grad: Buffer,
+    rows: u32,
+}
+
+impl Adjoint {
+    pub(super) fn new(runtime: &Runtime, rows: u32) -> Result<Self, String> {
+        if rows == 0 {
+            return Err("readout adjoint requires a positive row capacity".into());
+        }
+        let source = mhc4::metal_source(concat!(
+            include_str!("fbt_wave.metal"),
+            "\n",
+            include_str!("fbt_readout/grad.metal")
+        ));
+        let pipeline =
+            |name| runtime.precise_metal4(&source, "hierarchical readout adjoint", name, &[]);
+        Ok(Self {
+            tree: pipeline("tree_adjoint")?,
+            leaf: pipeline("leaf_adjoint")?,
+            project: pipeline("project_adjoint")?,
+            queries: runtime.buffer::<f32>(rows as usize * mhc4::QUERY),
+            errors: runtime.buffer::<f32>(rows as usize * mhc4::RADIX * mhc4::RADIX_LEVELS),
+            query_grad: runtime.buffer::<f32>(rows as usize * mhc4::QUERY),
+            node_grad: runtime
+                .buffer::<f32>((mhc4::HIERARCHY_NODES + VOCAB as usize) * mhc4::QUERY),
+            rows,
+        })
+    }
+
+    /// Differentiate mean cross-entropy using the centroids from the matching
+    /// forward pass. Rounding to half has an explicitly chosen identity
+    /// adjoint.
+    pub(super) fn encode(
+        &self,
+        command: &CommandBufferRef,
+        waves: &Mhc4Waves,
+        tokens: u32,
+        x: ReadoutGrad<'_>,
+    ) -> Result<(), String> {
+        if tokens == 0 || tokens > self.rows {
+            return Err("readout adjoint extent exceeds its row capacity".into());
+        }
+        let shape = WaveShape {
+            blocks: tokens,
+            tokens,
+            proposal_start: 0,
+            intra: 0,
+            vocabulary: VOCAB,
+            shards: mhc4::SHARDS as u32,
+            temperature: 0.0,
+            score: 1,
+        };
+        let clear = command.new_blit_command_encoder();
+        clear.fill_buffer(
+            &self.node_grad,
+            metal::NSRange::new(0, self.node_grad.length()),
+            0,
+        );
+        clear.end_encoding();
+        let encoder =
+            command.compute_command_encoder_with_dispatch_type(metal::MTLDispatchType::Serial);
+        bind_buffers(
+            &encoder,
+            &[
+                x.hidden,
+                x.qkv,
+                x.readout,
+                (&waves.centroids, 0),
+                x.targets,
+                (&self.queries, 0),
+                (&self.errors, 0),
+                (&self.query_grad, 0),
+                (&self.node_grad, 0),
+            ],
+        );
+        encode_value(&encoder, 9, &shape);
+        self.dispatch(&encoder, &self.tree, u64::from(tokens));
+        encoder.memory_barrier_with_resources(&[&self.node_grad, &self.query_grad]);
+        bind_buffers(&encoder, &[(&self.node_grad, 0), x.readout_grad]);
+        encode_value(&encoder, 2, &shape);
+        self.dispatch(&encoder, &self.leaf, u64::from(VOCAB) * mhc4::QUERY as u64);
+        encoder.memory_barrier_with_resources(&[x.readout_grad.0]);
+        bind_buffers(
+            &encoder,
+            &[
+                x.hidden,
+                x.qkv,
+                (&self.query_grad, 0),
+                x.hidden_grad,
+                x.qkv_grad,
+            ],
+        );
+        encode_value(&encoder, 5, &shape);
+        self.dispatch(
+            &encoder,
+            &self.project,
+            u64::from(WIDTH) * u64::from(QKV_WIDTH.max(tokens)),
+        );
+        encoder.memory_barrier_with_resources(&[x.hidden_grad.0, x.qkv_grad.0]);
+        encoder.end_encoding();
+        Ok(())
+    }
+
+    fn dispatch(
+        &self,
+        encoder: &ComputeCommandEncoderRef,
+        pipeline: &ComputePipelineState,
+        count: u64,
+    ) {
+        encoder.set_compute_pipeline_state(pipeline);
+        encoder.dispatch_threads(
+            thread_group(count),
+            thread_group(pipeline.max_total_threads_per_threadgroup().min(64)),
+        );
+    }
+}
+
+#[cfg(test)]
+#[path = "fbt_readout/tests.rs"]
+mod tests;
+
 #[cfg(test)]
 #[test]
 fn wave_compile() {

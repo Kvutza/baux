@@ -417,15 +417,13 @@ impl FineGrainedMoeGrad {
         crate::apple_gpu::bind_buffers(
             encoder,
             &[
-                grad.input,
-                (grad.weights, grad.router_offset),
+                (&saved.scores, 0),
                 (&saved.route_experts, 0),
-                (&saved.route_weights, 0),
                 (&scratch.route, 0),
                 (&scratch.router_score, 0),
             ],
         );
-        shape(encoder, 6, p);
+        shape(encoder, 4, p);
         encoder.dispatch_thread_groups(thread_group(u64::from(grad.rows)), thread_group(128));
         encoder.memory_barrier_with_resources(&[&scratch.router_score]);
         crate::apple_gpu::bind_buffers(

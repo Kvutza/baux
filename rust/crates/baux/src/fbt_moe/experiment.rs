@@ -6,6 +6,14 @@ pub fn run_pretrain(
     dataset_path: &std::path::Path,
 ) -> Result<ActualBoResult, String> {
     run.validate_experiment()?;
+    if run.window_tokens.is_some()
+        && matches!(
+            run.optimizer(),
+            crate::config::TrainingOptimizer::MuonV1 | crate::config::TrainingOptimizer::AdamwV1
+        )
+    {
+        return super::matrix::run(run, dataset_path);
+    }
     if matches!(
         run.model,
         Some(

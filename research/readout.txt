@@ -1,0 +1,8 @@
+device=Apple M4 forward_sha256=SHA256 digest: 14941b239d12a02628da0983817f589ef00a8b2885089b788e350284a4d9537e
+targets=[0, 262143] zero_query=false checked=17106274 max_error=4.4932757781168675e-07 centroid_checks=4608 centroid_error=0.0
+targets=[12345, 12345] zero_query=false checked=17106274 max_error=7.647678827993332e-07 centroid_checks=2560 centroid_error=0.0
+targets=[7, 32768] zero_query=true checked=17106274 max_error=9.193905388116264e-07 centroid_checks=4608 centroid_error=0.0
+targets=[4095] zero_query=false checked=17105585 max_error=7.51552443389869e-07 centroid_checks=2560 centroid_error=0.0
+targets=[0, 4096, 262143] zero_query=false checked=17106963 max_error=1.4792514839712112e-06 centroid_checks=6144 centroid_error=0.0
+targets=[17, 4116, 8215, 12314, 16413, 20512, 24611, 28710, 32809, 36908, 41007, 45106, 49205, 53304, 57403, 61502, 65601, 69700, 73799, 77898, 81997, 86096, 90195, 94294, 98393, 102492, 106591, 110690, 114789, 118888, 122987, 127086] zero_query=false checked=17126944 max_error=1.9204321262122903e-06 centroid_checks=51712 centroid_error=0.0
+scope=readout-only cast_adjoint=identity full_model_parity=false

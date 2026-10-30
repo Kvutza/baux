@@ -86,12 +86,11 @@ fn score_batch(
 /// `scored_tokens` in the record is the requested window size, whereas
 /// `evaluated_tokens` sums actual scored positions over sources. These counts
 /// can differ because of boundary context and multiple source evaluations.
-fn validate(
+pub(super) fn validate(
     scorer: &block_decode::BlockDecoder,
     runtime: &Runtime,
     decoder: &decode::Decoder,
-    weights: &CandidateWeights,
-    row: &BufferRef,
+    row: CandidateRow<'_>,
     dataset: &crate::pretrain_data::CorpusSet,
     window_tokens: usize,
     seed: u64,
@@ -108,7 +107,7 @@ fn validate(
             scorer,
             runtime,
             decoder,
-            weights.row(row)?,
+            row,
             &batch.batch,
             crate::config::ObjectiveFunction::CrossEntropy,
         )?;
@@ -316,15 +315,12 @@ fn setup_state(
     );
     let (trust_region, surrogate) = init_surrogate(run, &policy, &mut search, initial)?;
     let mut validation_records = Vec::new();
-    if let Some(validation) = validation.as_ref()
-        && run.validation_interval == Some(0)
-    {
+    if let Some(validation) = validation.as_ref() {
         let record = validate(
             &scorer,
             &runtime,
             &decoder,
-            &weights,
-            &search.base_buffer(),
+            weights.row(&search.base_buffer())?,
             validation,
             window_tokens,
             run.reference_seed(),
@@ -466,8 +462,7 @@ impl LongState {
                 &self.scorer,
                 &self.runtime,
                 &self.decoder,
-                &self.weights,
-                &self.search.base_buffer(),
+                self.weights.row(&self.search.base_buffer())?,
                 validation,
                 self.window_tokens,
                 run.reference_seed(),

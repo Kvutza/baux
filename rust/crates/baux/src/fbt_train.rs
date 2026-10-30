@@ -4,6 +4,9 @@ use super::mhc_grad as mhc;
 use super::train_grad as dense;
 use super::*;
 
+#[path = "fbt_train/corpus.rs"]
+mod corpus;
+
 struct Activations {
     stream: [Buffer; 2],
     branch: Buffer,
@@ -26,6 +29,7 @@ pub(super) struct Trainer {
     rows: u32,
     gradients: Gradients,
     activations: Activations,
+    readout: std::cell::OnceCell<readout::Adjoint>,
 }
 
 pub(super) struct Optimizer {
@@ -128,6 +132,7 @@ impl Trainer {
             weights,
             row,
             rows,
+            readout: std::cell::OnceCell::new(),
         })
     }
 
@@ -467,14 +472,9 @@ impl Trainer {
         pisa.backward(
             &encoder,
             (&buffers.qkv, 0),
-            (&buffers.qkv, 0),
             (&self.activations.attention, 0),
             (&self.activations.qkv, 0),
-            (&self.activations.qkv, 0),
-            0,
             rows,
-            QKV_WIDTH,
-            QKV_WIDTH,
         )?;
         pipelines.train_grad()?.rope(
             &encoder,
@@ -606,13 +606,7 @@ impl Trainer {
         Ok(())
     }
 
-    fn reverse_readout(
-        &self,
-        command: &CommandBufferRef,
-        verifier: &block_decode::BlockDecoder,
-        task: &crate::config::GenerationTask,
-        tokens: u32,
-    ) -> Result<(), String> {
+    fn clear(&self, command: &CommandBufferRef) {
         self.gradients.clear(command);
         let act = &self.activations;
         zero(
@@ -628,6 +622,17 @@ impl Trainer {
                 &act.input,
             ],
         );
+    }
+
+    fn reverse_readout(
+        &self,
+        command: &CommandBufferRef,
+        verifier: &block_decode::BlockDecoder,
+        task: &crate::config::GenerationTask,
+        tokens: u32,
+    ) -> Result<(), String> {
+        self.clear(command);
+        let act = &self.activations;
         let proposal_start =
             u32::try_from(task.prompt.len().saturating_sub(1)).map_err(|e| e.to_string())?;
         let encoder = command.new_compute_command_encoder();
@@ -681,9 +686,18 @@ impl Trainer {
             ));
         }
 
-        let mut command = runtime.queue.new_command_buffer();
+        let command = runtime.queue.new_command_buffer();
         self.reverse_readout(command, verifier, task, tokens)?;
+        self.reverse_core(runtime, verifier, rows, command)
+    }
 
+    fn reverse_core<'a>(
+        &self,
+        runtime: &'a Runtime,
+        verifier: &block_decode::BlockDecoder,
+        rows: u32,
+        mut command: &'a CommandBufferRef,
+    ) -> Result<f64, String> {
         let inspect = std::env::var_os("BAUX_UPDATE_ALIGNMENT_STAGES").is_some();
         if inspect {
             command.commit();

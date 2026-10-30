@@ -54,6 +54,7 @@ import BauxResearch.Optimization.Operator
 import BauxResearch.Optimization.LieOperator
 import BauxResearch.Optimization.Metric
 import BauxResearch.Optimization.PretrainWorkload
+import BauxResearch.Optimization.MatchedBudget
 import BauxResearch.Optimization.PatchFeedback
 import BauxResearch.Optimization.EvaluationSpace
 import BauxResearch.Semantics.FbtProgram

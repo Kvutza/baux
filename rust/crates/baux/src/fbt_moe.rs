@@ -39,6 +39,7 @@ mod causal;
 #[cfg(test)]
 mod forward_probe;
 mod long;
+mod matrix;
 
 #[path = "fbt_moe/objective.rs"]
 mod objective;
@@ -82,9 +83,16 @@ mod loss_tests;
 #[path = "fbt_moe/mhc_reference.rs"]
 mod mhc_reference;
 
+#[cfg(test)]
+#[path = "fbt_mhc/adjoint.rs"]
+mod mhc_adjoint;
+
 #[path = "fbt_routing.rs"]
 pub(crate) mod routing;
 
+#[cfg(test)]
+#[path = "fbt_routing/adjoint.rs"]
+mod routing_adjoint;
 #[path = "fbt_routing/grad.rs"]
 mod routing_grad;
 

@@ -21,7 +21,8 @@ kernel void dense_input_tensor(
     constant DenseShape& p [[buffer(3)]],
     uint2 tile [[threadgroup_position_in_grid]]) {
     constexpr auto descriptor = matmul2d_descriptor(
-        128, 64, static_cast<int>(dynamic_extent), false, true, false);
+        128, 64, static_cast<int>(dynamic_extent), false, true, false,
+        matmul2d_descriptor::mode::multiply_accumulate);
     matmul2d<descriptor, execution_simdgroups<4>> op;
     auto dy = tensor(output_grad,
         dextents<int32_t, 2>{int32_t(p.output), int32_t(p.rows)});
@@ -46,7 +47,8 @@ kernel void dense_weight_tensor(
     constant DenseShape& p [[buffer(3)]],
     uint2 tile [[threadgroup_position_in_grid]]) {
     constexpr auto descriptor = matmul2d_descriptor(
-        64, 64, static_cast<int>(dynamic_extent), true, false, false);
+        64, 64, static_cast<int>(dynamic_extent), true, false, false,
+        matmul2d_descriptor::mode::multiply_accumulate);
     matmul2d<descriptor, execution_simdgroups<4>> op;
     auto x = tensor(input,
         dextents<int32_t, 2>{int32_t(p.input), int32_t(p.rows)});

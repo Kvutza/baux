@@ -207,17 +207,16 @@ kernel void mhc_predict_grad(
         const float value = float(streams[state_base + input]);
         squared = fma(value, value, squared);
     }
-    const bool active = control[0] != half(0.0f)
-        || control[1] != half(0.0f) || control[2] != half(0.0f);
-    const float scale = active ? rsqrt(squared / float(input_size) + 1.0e-5f) : 1.0f;
+    // Zero controls remove the predictor from the forward value, but their
+    // derivatives still depend on its normalized dot products.
+    const float scale = rsqrt(squared / float(input_size) + 1.0e-5f);
     float dots[outputs];
     float raw[outputs];
     for (uint output = 0; output < outputs; ++output) {
         float dot = 0.0f;
-        if (active)
-            for (uint input = 0; input < input_size; ++input)
-                dot = fma(float(streams[state_base + input]),
-                          float(predictor[ulong(input) * outputs + output]), dot);
+        for (uint input = 0; input < input_size; ++input)
+            dot = fma(float(streams[state_base + input]),
+                      float(predictor[ulong(input) * outputs + output]), dot);
         dots[output] = dot;
         const uint group = output < 4 ? 0 : (output < 20 ? 1 : 2);
         raw[output] = float(bias[output]) + float(control[group]) * dot * scale;

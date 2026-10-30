@@ -467,13 +467,18 @@ kernel void fbt_moe_routed_gate_projection(
     const RoutedTile tile = routed_tiles[tgid.y];
     constexpr auto descriptor = matmul2d_descriptor(16, 432, 512, false, false, false);
     matmul2d<descriptor, execution_simdgroups<4>> op;
-    auto a = tensor(packed_input + ulong(tile.first_row) * 512,
-        dextents<int32_t, 2>{512, int32_t(tile.valid_rows)});
     auto b = tensor(weights + ulong(tile.expert + 1) * 512 * 432,
         extents<int32_t, 432, 512>{});
-    auto c = tensor(projection + ulong(tile.first_row) * 432,
-        dextents<int32_t, 2>{432, int32_t(tile.valid_rows)});
-    op.run(a, b, c);
+    // The packed tile can contain 64 rows; each operation covers at most 16.
+    for (uint offset = 0; offset < tile.valid_rows; offset += 16) {
+        const uint first_row = tile.first_row + offset;
+        const uint rows = min(16u, tile.valid_rows - offset);
+        auto a = tensor(packed_input + ulong(first_row) * 512,
+            dextents<int32_t, 2>{512, int32_t(rows)});
+        auto c = tensor(projection + ulong(first_row) * 432,
+            dextents<int32_t, 2>{432, int32_t(rows)});
+        op.run(a, b, c);
+    }
 }
 
 #ifndef INT8_MOE_GATE

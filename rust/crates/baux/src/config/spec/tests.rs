@@ -454,7 +454,16 @@ fn natural_objective() {
 
 #[test]
 fn window_budget() {
-    assert!(ExperimentSpec::parse(&format!("{PRETRAIN_MUON}window-tokens=4096\n")).is_err());
+    let spec = ExperimentSpec::parse(&format!("{PRETRAIN_MUON}window-tokens=4096\n")).unwrap();
+    let config = spec.compile().unwrap();
+    assert_eq!(config.window_tokens, Some(4096));
+    assert!(config.generation.is_none());
+    assert_eq!(config.optimizer(), TrainingOptimizer::MuonV1);
+    for tokens in [128, 2048, 8192] {
+        assert!(
+            ExperimentSpec::parse(&format!("{PRETRAIN_MUON}window-tokens={tokens}\n")).is_err()
+        );
+    }
     assert!(ExperimentSpec::parse(&GAUSSIAN.replace("window-tokens = 4096\n", "")).is_err());
     assert!(
         ExperimentSpec::parse(&GAUSSIAN.replace("sampling = \"natural\"", "sampling = \"window\""))

@@ -250,50 +250,36 @@ kernel void moe_shared_gate_weight_grad(
 // The selected expert set is held fixed. Differentiate normalized sigmoid
 // weights and retain three selected-logit adjoints per token.
 kernel void moe_router_score_grad(
-    device const half* input [[buffer(0)]],
-    device const half* router [[buffer(1)]],
-    device const uint* route_experts [[buffer(2)]],
-    device const half* route_weights [[buffer(3)]],
-    device const float* route_grad [[buffer(4)]],
-    device float* score_grad [[buffer(5)]],
-    constant Top3RouteShape& p [[buffer(6)]],
+    device const half* scores [[buffer(0)]],
+    device const uint* route_experts [[buffer(1)]],
+    device const float* route_grad [[buffer(2)]],
+    device float* score_grad [[buffer(3)]],
+    constant Top3RouteShape& p [[buffer(4)]],
     uint token [[threadgroup_position_in_grid]],
-    uint tid [[thread_index_in_threadgroup]],
-    uint lane [[thread_index_in_simdgroup]],
-    uint simd [[simdgroup_index_in_threadgroup]]) {
-    if (token >= p.rows) return;
-    threadgroup float partial[3][4];
-    threadgroup float logits[3];
+    uint tid [[thread_index_in_threadgroup]]) {
+    if (token >= p.rows || tid != 0) return;
+    // Differentiate at the saved half logits, before the probability cast.
+    // Rounded route weights do not retain the normalization denominator.
+    float sigmoid[3];
+    float probability[3];
+    float denominator = 0.0f;
     for (uint route = 0; route < p.top_k; ++route) {
         const ulong assignment = ulong(token) * p.top_k + route;
         const uint expert = route_experts[assignment];
-        float local = 0.0f;
-        for (uint column = tid; column < p.width; column += 128)
-            local = fma(float(input[ulong(token) * p.width + column]),
-                        float(router[ulong(column) * p.experts + expert]), local);
-        local = simd_sum(local);
-        if (lane == 0) partial[route][simd] = local;
+        sigmoid[route] = sigmoid_stable(float(scores[ulong(token) * p.experts + expert]));
+        probability[route] = max(sigmoid[route], 1.0e-20f);
+        denominator += probability[route];
     }
-    threadgroup_barrier(mem_flags::mem_threadgroup);
-    if (simd == 0) {
-        for (uint route = 0; route < p.top_k; ++route) {
-            const float value = simd_sum(lane < 4 ? partial[route][lane] : 0.0f);
-            if (lane == 0) logits[route] = value;
-        }
-    }
-    threadgroup_barrier(mem_flags::mem_threadgroup);
     float center = 0.0f;
     for (uint route = 0; route < p.top_k; ++route) {
         const ulong assignment = ulong(token) * p.top_k + route;
-        center = fma(route_grad[assignment], float(route_weights[assignment]), center);
+        center += route_grad[assignment] * probability[route] / denominator;
     }
-    if (tid < p.top_k) {
-        const uint route = tid;
+    for (uint route = 0; route < p.top_k; ++route) {
         const ulong assignment = ulong(token) * p.top_k + route;
-        const float sigmoid = sigmoid_stable(logits[route]);
-        const float denominator = sigmoid / max(float(route_weights[assignment]), 1.0e-20f);
-        score_grad[assignment] = (route_grad[assignment] - center) *
-            sigmoid * (1.0f - sigmoid) / max(denominator, 1.0e-20f);
+        const float derivative = sigmoid[route] > 1.0e-20f
+            ? sigmoid[route] * (1.0f - sigmoid[route]) : 0.0f;
+        score_grad[assignment] = (route_grad[assignment] - center) * derivative / denominator;
     }
 }
 

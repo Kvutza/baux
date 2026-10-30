@@ -1,0 +1,22 @@
+#:schema ../schemas/tune-spec.schema.json
+version = 4
+experiment = "pretrain"
+model = "fbt-pisa1-mhc4-v1"
+
+[data]
+recipe = "fineweb-slowrun-100m-v1"
+
+[objective]
+function = "cross-entropy"
+sampling = "natural"
+window-tokens = 4096
+
+[execution]
+rounds = 128
+round-target-ms = 200
+
+[evaluation]
+interval = 1
+
+[optimizer]
+algorithm = "muon"

@@ -7,6 +7,18 @@ BAUX_BUCK_DEPS = ["//rust:" + crate for crate in BAUX_CRATES]
 
 BAUX_BUCK_TEST_DEPS = ["//rust:" + crate for crate in BAUX_TEST_CRATES]
 
+export_file(
+    name = "readout-source",
+    src = "src/fbt_wave.metal",
+    visibility = ["//research:readout-metal"],
+)
+
+export_file(
+    name = "readout-adjoint",
+    src = "src/fbt_readout/grad.metal",
+    visibility = ["//research:readout-metal"],
+)
+
 _BAUX_RUST_SRCS = glob([
     "src/**/*.cl",
     "src/**/*.metal",

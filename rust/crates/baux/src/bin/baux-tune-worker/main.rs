@@ -1,5 +1,7 @@
 #[cfg(target_os = "macos")]
 mod generated_reps;
+#[cfg(target_os = "macos")]
+mod matrix;
 
 fn main() {
     if let Err(error) = run() {
@@ -39,6 +41,9 @@ fn write_pretrain(
     rep: u32,
     result: &baux::experimental::ActualBoResult,
 ) -> Result<PretrainRep, String> {
+    if matrix::selected(run) {
+        return matrix::write(run, artifact_dir, rep, result);
+    }
     let enn = run.resident_enn(run.acquisition_seeded(rep))?;
     let ask = enn.ask;
     let length = run.length();
@@ -212,8 +217,13 @@ fn run_reps(run: &baux::config::RunConfig, artifact_dir: &std::path::Path) -> Re
         .max_by(f64::total_cmp)
         .ok_or("pretraining produced no repetitions")?;
     let goal_met = repetitions.iter().all(|rep| rep.goal_met);
+    let stage = if matrix::selected(run) {
+        "repeated_fixed_corpus_matrix"
+    } else {
+        "repeated_candidate_applied_bo"
+    };
     let mut aggregate = format!(
-        "status = \"completed\"\nstage = \"repeated_candidate_applied_bo\"\nobjective_reference = \
+        "status = \"completed\"\nstage = \"{stage}\"\nobjective_reference = \
          {:?}\nreps = {}\nrounds_per_rep = {}\nmedian_rep_wall_ms = \
          {median_wall_ms:.6}\nmedian_rep_gpu_ms = {median_gpu_ms:.6}\nmax_round_wall_ms = \
          {max_wall_ms:.6}\ntarget_round_ms = {}\nall_reps_goal_met = {goal_met}\n",

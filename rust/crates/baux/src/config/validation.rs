@@ -90,6 +90,15 @@ impl RunConfig {
         if self.experiment != Some(ExperimentKind::Pretrain) {
             return Err("objective.window-tokens requires a pretrain experiment".into());
         }
+        if matches!(
+            self.optimizer(),
+            TrainingOptimizer::MuonV1 | TrainingOptimizer::AdamwV1
+        ) && (tokens != crate::pretrain_data::CONTEXT
+            || self.model != Some(ModelArchitecture::FbtPisa1Mhc4V1)
+            || self.objective_function() != ObjectiveFunction::CrossEntropy)
+        {
+            return Err("fixed-corpus matrix training requires fbt-pisa1-mhc4-v1, cross-entropy and window-tokens=4096".into());
+        }
         if !(128..=crate::context::MAX_TOKENS).contains(&tokens) || tokens % 128 != 0 {
             return Err(
                 "objective.window-tokens must be a multiple of 128 from 128 through 1048576".into(),

@@ -421,8 +421,7 @@ impl TrustRegionController {
             if !threshold.is_finite() {
                 return Err("acceptance margin must be finite".into());
             }
-            let continuous = self.control.continuous_descent();
-            let accepted = continuous || accept_candidate(improvement, threshold);
+            let accepted = accept_candidate(improvement, threshold);
             let numerical =
                 baux::semantics::numerical::check(baux::semantics::numerical::Trace::observed(
                     baux::semantics::numerical::Kind::Paired,
@@ -433,9 +432,11 @@ impl TrustRegionController {
                     threshold,
                     accepted,
                 ))?;
+            let continuous = self.control.continuous_descent();
+            let effective_accepted = continuous || accepted;
             return Ok(StepDecision {
                 numerical,
-                accepted,
+                accepted: effective_accepted,
                 improvement,
                 threshold,
                 predicted_improvement: predicted,
@@ -464,8 +465,7 @@ impl TrustRegionController {
                 response_radius: r,
             })?;
             let threshold = 0.0;
-            let continuous = self.control.continuous_descent();
-            let accepted = continuous || accept_candidate(improvement, threshold);
+            let accepted = accept_candidate(improvement, threshold);
             let numerical =
                 baux::semantics::numerical::check(baux::semantics::numerical::Trace::observed(
                     baux::semantics::numerical::Kind::Paired,
@@ -476,6 +476,8 @@ impl TrustRegionController {
                     threshold,
                     accepted,
                 ))?;
+            let continuous = self.control.continuous_descent();
+            let effective_accepted = continuous || accepted;
             let mut calibration = self.calibration.clone();
             calibration.observe(
                 improvement as f32,
@@ -487,7 +489,7 @@ impl TrustRegionController {
             self.turbo = Some(turbo_state);
             return Ok(StepDecision {
                 numerical,
-                accepted,
+                accepted: effective_accepted,
                 improvement,
                 threshold,
                 predicted_improvement: predicted,
@@ -534,8 +536,7 @@ impl TrustRegionController {
         let improvement = evidence.observed_improvement;
         let multiplier = f64::from(self.calibration.multiplier());
         let threshold = multiplier * evidence.observation_variance.sqrt();
-        let continuous = self.control.continuous_descent();
-        let accepted = continuous || accept_candidate(improvement, threshold);
+        let accepted = accept_candidate(improvement, threshold);
         let numerical =
             baux::semantics::numerical::check(baux::semantics::numerical::Trace::observed(
                 baux::semantics::numerical::Kind::Paired,
@@ -546,6 +547,8 @@ impl TrustRegionController {
                 threshold,
                 accepted,
             ))?;
+        let continuous = self.control.continuous_descent();
+        let effective_accepted = continuous || accepted;
         let mut calibration = self.calibration.clone();
         if calibrate {
             calibration.observe(
@@ -554,12 +557,12 @@ impl TrustRegionController {
                 (evidence.observation_variance + evidence.prediction_variance).sqrt() as f32,
             )?;
         }
-        evidence.accepted = accepted;
+        evidence.accepted = effective_accepted;
         let result = self.control.update(evidence)?;
         self.calibration = calibration;
         Ok(StepDecision {
             numerical,
-            accepted,
+            accepted: effective_accepted,
             improvement,
             threshold,
             predicted_improvement: evidence.predicted_improvement,

@@ -426,6 +426,16 @@ inline float2 proposal_pair_continuous(float2 base_value, Leaf leaf, ulong seed,
     }
     if (program == 5u) {
         float s = leaf.scale * radius;
+        // Skew-symmetric 4-coordinate multi-chain coupling
+        ulong leaf_pairs = (leaf.length + 1ul) / 2ul;
+        if (leaf_pairs >= 2ul) {
+            ulong quad_base = min(pair & ~1ul, leaf_pairs - 2ul);
+            float2 q0 = trajectory_noise_pair(seed ^ 0x8ebc6af09c88c6e3ul, leaf, quad_base, mode, p);
+            float2 q1 = trajectory_noise_pair(seed ^ 0x8ebc6af09c88c6e3ul, leaf, quad_base + 1ul, mode, p);
+            float A_row = 0.5f * (q0.x - q1.y);
+            float A_col = 0.5f * (q0.y + q1.x);
+            noise = (pair & 1ul) == 0ul ? float2(A_row, A_col) : float2(-A_col, -A_row);
+        }
         float r_sq = base_value.x * base_value.x + base_value.y * base_value.y;
         float inv_r = r_sq > 1e-12f ? rsqrt(r_sq) : 1.0f;
         float kappa = (base_value.x * noise.y - base_value.y * noise.x) * inv_r;
@@ -476,6 +486,16 @@ inline ushort2 proposal_pair_domains(
     }
     if (program == 5u) {
         float s = leaf.scale * radius;
+        // Skew-symmetric 4-coordinate multi-chain coupling
+        ulong leaf_pairs = (leaf.length + 1ul) / 2ul;
+        if (leaf_pairs >= 2ul) {
+            ulong quad_base = min(pair & ~1ul, leaf_pairs - 2ul);
+            float2 q0 = trajectory_noise_pair_domains(doms, quad_base, mode);
+            float2 q1 = trajectory_noise_pair_domains(doms, quad_base + 1ul, mode);
+            float A_row = 0.5f * (q0.x - q1.y);
+            float A_col = 0.5f * (q0.y + q1.x);
+            noise = (pair & 1ul) == 0ul ? float2(A_row, A_col) : float2(-A_col, -A_row);
+        }
         float r_sq = base_value.x * base_value.x + base_value.y * base_value.y;
         float inv_r = r_sq > 1e-12f ? rsqrt(r_sq) : 1.0f;
         float kappa = (base_value.x * noise.y - base_value.y * noise.x) * inv_r;

@@ -523,14 +523,12 @@ fn bo_step(
     };
     let run = crate::config::parse_tune(
         "version = 4\nexperiment = \"pretrain\"\nmodel = \"fbt-pisa1-hnet-mhc4-v1\"\n\
-         [data]\nrecipe = \"fineweb-bytes-100m-v1\"\n\
-         [objective]\nfunction = \"cross-entropy\"\nwindow-tokens = 1048576\n\
-         [execution]\nrounds = 4\nround-target-ms = 680\n\
-         [optimizer]\nalgorithm = \"operator-bo\"\nproposal = \"lie\"\narms = 1\n\
-         candidates = 1\ndistribution = \"gaussian\"\n\
-         [optimizer.surrogate]\nscaling = \"global\"\nneighbors = 8\n\
-         neighbor-rule = \"fixed\"\nepistemic-scale = 0.1\naleatoric-scale = 0.05\n\
-         y-scale = 0.005\nfit = \"fixed\"\n\
+         recipe = \"fineweb-bytes-100m-v1\"\nobjective = \"cross-entropy\"\n\
+         window-tokens = 1048576\nrounds = 4\nround-target-ms = 680\n\
+         [optimizer]\nalgorithm = \"operator-bo\"\nproposal = \"lie\"\n\
+         distribution = \"gaussian\"\n\
+         [optimizer.surrogate]\nneighbors = 8\nepistemic-scale = 0.1\n\
+         aleatoric-scale = 0.05\ny-scale = 0.005\n\
          [optimizer.trust-region]\nshape = \"tensor-family-static\"\n\
          initial = 0.004\nmin = 0.001\nmax = 0.008\n",
     )?;
@@ -600,14 +598,12 @@ fn bench_1m(
 ) -> Result<(), String> {
     let run = crate::config::parse_tune(
         "version = 4\nexperiment = \"pretrain\"\nmodel = \"fbt-pisa1-hnet-mhc4-v1\"\n\
-         [data]\nrecipe = \"fineweb-bytes-100m-v1\"\n\
-         [objective]\nfunction = \"cross-entropy\"\nwindow-tokens = 1048576\n\
-         [execution]\nrounds = 5\nround-target-ms = 680\n\
-         [optimizer]\nalgorithm = \"operator-bo\"\nproposal = \"lie\"\narms = 1\n\
-         candidates = 1\ndistribution = \"gaussian\"\n\
-         [optimizer.surrogate]\nscaling = \"global\"\nneighbors = 8\n\
-         neighbor-rule = \"fixed\"\nepistemic-scale = 0.1\naleatoric-scale = 0.05\n\
-         y-scale = 0.005\nfit = \"fixed\"\n\
+         recipe = \"fineweb-bytes-100m-v1\"\nobjective = \"cross-entropy\"\n\
+         window-tokens = 1048576\nrounds = 5\nround-target-ms = 680\n\
+         [optimizer]\nalgorithm = \"operator-bo\"\nproposal = \"lie\"\n\
+         distribution = \"gaussian\"\n\
+         [optimizer.surrogate]\nneighbors = 8\nepistemic-scale = 0.1\n\
+         aleatoric-scale = 0.05\ny-scale = 0.005\n\
          [optimizer.trust-region]\nshape = \"tensor-family-static\"\n\
          initial = 0.004\nmin = 0.001\nmax = 0.008\n",
     )?;

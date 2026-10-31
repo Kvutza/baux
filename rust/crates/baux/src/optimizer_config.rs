@@ -4,11 +4,9 @@ use deser::{Deserialize, Serialize};
 
 use crate::candidates::CandidateSampler;
 use crate::config::{
-    AcquisitionSpec, CandidateGenerationSpec, OptimizerSpec, SurrogateFit, SurrogateRecipe,
-    TrustRegionBounds,
+    AcquisitionSpec, CandidateGenerationSpec, OptimizerSpec, SurrogateRecipe, TrustRegionBounds,
 };
 use crate::error::ENNError;
-use crate::morbo::MorboTRSettings;
 use crate::procedural_pool::ProposalMethod;
 use crate::surrogate::ENNSurrogateConfig;
 use crate::trust_region::{TRLengthConfig, TrustRegionConfig};
@@ -56,11 +54,12 @@ impl OptimizerConfig {
                     .to_string(),
             )),
             OptimizerSpec::OperatorBo {
-                candidate_generation,
                 surrogate,
                 trust_region,
+                ..
             } => {
-                let candidates = CandidateConfig::from_spec(candidate_generation)?;
+                let candidate_generation = spec.candidate_generation().unwrap();
+                let candidates = CandidateConfig::from_spec(&candidate_generation)?;
                 let surrogate_cfg = SurrogateConfig::from_recipe(surrogate)?;
                 let trust_region = TrustRegionConfig::Turbo(length_bounds(trust_region)?);
                 Ok(Self {
@@ -82,7 +81,7 @@ impl OptimizerConfig {
                 let candidates = CandidateConfig::from_spec(&candidate_generation)?;
                 let surrogate_cfg = SurrogateConfig::from_recipe(surrogate)?;
                 let acq_cfg = AcquisitionConfig::from_spec(acquisition);
-                let tr_cfg = TrustRegionConfig::from_spec(trust_region, acquisition, false)?;
+                let tr_cfg = TrustRegionConfig::from_spec(trust_region)?;
                 Ok(Self {
                     surrogate: surrogate_cfg,
                     trust_region: tr_cfg,
@@ -116,13 +115,9 @@ impl SurrogateConfig {
                 recipe.neighbors
             )));
         }
-        let (num_candidates, num_samples) = match recipe.fit {
-            SurrogateFit::Fixed => (0, 0),
-            SurrogateFit::LeaveOneOut {
-                fit_candidates,
-                fit_samples,
-            } => (fit_candidates, fit_samples),
-        };
+        let (num_candidates, num_samples) = recipe
+            .fit_budget()
+            .map_err(ENNError::InvalidParameter)?;
         Ok(SurrogateConfig::ENN(ENNSurrogateConfig {
             k: recipe.neighbors,
             num_candidates,
@@ -232,32 +227,13 @@ impl AcquisitionConfig {
             AcquisitionSpec::Thompson => Self::Thompson,
             AcquisitionSpec::Random => Self::Random,
             AcquisitionSpec::Pareto { .. } => Self::Pareto,
-            AcquisitionSpec::AugmentedChebyshev { .. } => Self::Pareto,
         }
     }
 }
 
 impl TrustRegionConfig {
-    pub fn from_spec(
-        bounds: &TrustRegionBounds,
-        acquisition: &AcquisitionSpec,
-        noise_aware: bool,
-    ) -> Result<Self, ENNError> {
-        match acquisition {
-            AcquisitionSpec::AugmentedChebyshev {
-                scales,
-                alpha,
-                rescalarize,
-                ..
-            } => Ok(Self::Morbo(MorboTRSettings {
-                num_metrics: scales.len().max(2),
-                alpha: f64::from(*alpha),
-                length: length_bounds(bounds)?,
-                rescalarize: *rescalarize,
-                noise_aware,
-            })),
-            _ => Ok(Self::Turbo(length_bounds(bounds)?)),
-        }
+    pub fn from_spec(bounds: &TrustRegionBounds) -> Result<Self, ENNError> {
+        Ok(Self::Turbo(length_bounds(bounds)?))
     }
 }
 

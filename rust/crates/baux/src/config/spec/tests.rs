@@ -3,22 +3,17 @@ use super::*;
 const PRETRAIN_MUON: &str = "version=4\n\
     experiment='pretrain'\n\
     model='fbt-pisa1-mhc4-v1'\n\
-    [data]\n\
     recipe='stack-v3-rust-go-v1'\n\
+    objective='cross-entropy'\n\
     [optimizer]\n\
-    algorithm='muon'\n\
-    [objective]\n\
-    function='cross-entropy'\n";
+    algorithm='muon'\n";
 
 const GAUSSIAN: &str = "version = 4\n\
     experiment = \"pretrain\"\n\
     model = \"fbt-pisa1-mhc4-v1\"\n\
-    [data]\n\
     recipe = \"stack-v3-rust-go-v1\"\n\
-    [objective]\n\
-    function = \"cross-entropy\"\n\
+    objective = \"cross-entropy\"\n\
     window-tokens = 4096\n\
-    [execution]\n\
     rounds = 128\n\
     round-target-ms = 200\n\
     validation-interval = 128\n\
@@ -26,13 +21,10 @@ const GAUSSIAN: &str = "version = 4\n\
     [optimizer]\n\
     algorithm = \"operator-bo\"\n\
     proposal = \"independent\"\n\
-    arms = 1\n\
-    candidates = 1\n\
     distribution = \"gaussian\"\n\
     [optimizer.surrogate]\n\
     scaling = \"global\"\n\
     neighbors = 32\n\
-    neighbor-rule = \"fixed\"\n\
     epistemic-scale = 0.05\n\
     aleatoric-scale = 0.05\n\
     fit = \"leave-one-out\"\n\
@@ -108,10 +100,10 @@ fn hnet_long() {
 #[test]
 fn fixed_data() {
     let spec = ExperimentSpec::parse(GAUSSIAN).unwrap();
-    assert_eq!(spec.objective.window_tokens, Some(4_096));
+    assert_eq!(spec.window_tokens, Some(4_096));
     assert!(spec.generation.is_none());
     let restored = ExperimentSpec::parse(&spec.to_toml().unwrap()).unwrap();
-    assert_eq!(restored.objective.window_tokens, Some(4_096));
+    assert_eq!(restored.window_tokens, Some(4_096));
 }
 
 #[test]
@@ -131,10 +123,18 @@ fn closed() {
             "proposal = \"independent\"",
             "proposal = \"independent\"\ncandidate = 4",
         ),
+        GAUSSIAN.replace(
+            "proposal = \"independent\"",
+            "proposal = \"independent\"\ncandidates = 4",
+        ),
+        GAUSSIAN.replace(
+            "proposal = \"independent\"",
+            "proposal = \"independent\"\narms = 2",
+        ),
         GAUSSIAN.replace("neighbors = 32", "neighbors = 32\nneigbors = 10"),
         GAUSSIAN.replace("fit = \"leave-one-out\"", "procedure = \"leave-one-out\""),
         GAUSSIAN.replace("fit = \"leave-one-out\"\n", ""),
-        OPERATOR_BO.replace("scaling = \"global\"", "estimator = \"sub-nn\""),
+        OPERATOR_BO.replace("neighbors = 10", "estimator = \"sub-nn\""),
         GAUSSIAN.replace(
             "proposal = \"independent\"",
             "proposal = \"independent\"\nacquisition = \"upper-confidence-bound\"",
@@ -167,13 +167,8 @@ fn recipe_names() {
 #[test]
 fn guards() {
     for text in [
-        PRETRAIN_MUON.replace(
-            "algorithm='muon'",
-            "algorithm='muon'\n[execution]\nrounds=0",
-        ),
-        GAUSSIAN.replace("candidates = 1", "candidates = 0"),
-        GAUSSIAN.replace("candidates = 1", "candidates = 4"),
-        GAUSSIAN.replace("arms = 1", "arms = 2"),
+        PRETRAIN_MUON.replace("objective='cross-entropy'", "objective='cross-entropy'\nrounds=0"),
+        resident("acquisition='upper-confidence-bound'", 0, 1, "fit='fixed'"),
         resident("acquisition='upper-confidence-bound'", 4, 3, "fit='fixed'"),
         GAUSSIAN.replace("neighbors = 32", "neighbors = 0"),
         GAUSSIAN.replace("epistemic-scale = 0.05", "epistemic-scale = nan"),
@@ -248,8 +243,8 @@ fn hyperbolic_scaling() {
 #[test]
 fn bounded_likelihood() {
     let text = GAUSSIAN.replace(
-        "function = \"cross-entropy\"",
-        "function = \"bounded-log-likelihood\"",
+        "objective = \"cross-entropy\"",
+        "objective = \"bounded-log-likelihood\"",
     );
     let config = parse_tune(&text).unwrap();
     assert_eq!(
@@ -426,14 +421,12 @@ fn vectors() {
 
 #[test]
 fn causal_recipe() {
-    let base = resident("acquisition='thompson'", 1, 1, "fit='fixed'").replace(
+    let base = resident("acquisition='thompson'", 1, 1, "").replace(
         "experiment='end-to-end'",
         "experiment='pretrain'\n\
             model='fbt-pisa1-mhc4-v1'\n\
-            [data]\n\
             recipe='stack-v3-rust-go-v1'\n\
-            [objective]\n\
-            function='cross-entropy'\n\
+            objective='cross-entropy'\n\
             window-tokens=1048576",
     );
     let config = parse_tune(&base).unwrap();
@@ -441,7 +434,7 @@ fn causal_recipe() {
     assert!(config.generation.is_none());
     assert!(config.objective_acquisition.is_none());
     assert!(parse_tune(&base.replace("recipe=", "mixture=")).is_err());
-    assert!(parse_tune(&(base.clone() + "\n[objective]\nreference='moving-incumbent'\n")).is_err());
+    assert!(parse_tune(&base.replace("window-tokens=1048576", "window-tokens=1048576\nreference='moving-incumbent'")).is_err());
     assert!(
         parse_tune(
             &(base
@@ -461,7 +454,7 @@ fn causal_recipe() {
 fn natural_objective() {
     let spec = ExperimentSpec::parse(PRETRAIN_MUON).unwrap();
     let authored = spec.to_toml().unwrap();
-    assert!(authored.contains("function = \"cross-entropy\""));
+    assert!(authored.contains("objective = \"cross-entropy\""));
     assert!(!authored.contains("[generation]"));
     assert!(!authored.contains("max-tokens"));
     assert!(!authored.contains("corpus-prompt-tokens"));
@@ -469,21 +462,27 @@ fn natural_objective() {
 
 #[test]
 fn window_budget() {
-    let spec = ExperimentSpec::parse(&format!("{PRETRAIN_MUON}window-tokens=4096\n")).unwrap();
+    let with_window = PRETRAIN_MUON.replace(
+        "objective='cross-entropy'\n",
+        "objective='cross-entropy'\nwindow-tokens=4096\n",
+    );
+    let spec = ExperimentSpec::parse(&with_window).unwrap();
     let config = spec.compile().unwrap();
     assert_eq!(config.window_tokens, Some(4096));
     assert!(config.generation.is_none());
     assert_eq!(config.optimizer(), TrainingOptimizer::MuonV1);
     for tokens in [128, 2048, 8192] {
-        assert!(
-            ExperimentSpec::parse(&format!("{PRETRAIN_MUON}window-tokens={tokens}\n")).is_err()
+        let invalid = PRETRAIN_MUON.replace(
+            "objective='cross-entropy'\n",
+            &format!("objective='cross-entropy'\nwindow-tokens={tokens}\n"),
         );
+        assert!(ExperimentSpec::parse(&invalid).is_err());
     }
     assert!(ExperimentSpec::parse(&GAUSSIAN.replace("window-tokens = 4096\n", "")).is_err());
     assert!(
         ExperimentSpec::parse(&GAUSSIAN.replace(
-            "function = \"cross-entropy\"",
-            "function = \"cross-entropy\"\nsampling = \"window\""
+            "objective = \"cross-entropy\"",
+            "objective = \"cross-entropy\"\nsampling = \"window\""
         ))
         .is_err()
     );

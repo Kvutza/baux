@@ -15,26 +15,17 @@ impl ExperimentSpec {
             experiment: config.experiment.unwrap(),
             model: config.model,
             output: config.output.clone(),
-            data: DataSpec {
-                recipe: config.data_recipe.clone(),
-                train: config.dataset.clone(),
-                validation: config.validation_dataset.clone(),
-            },
-            objective: ObjectiveSpec {
-                function: (matrix || fixed).then(|| config.objective_function()),
-                window_tokens: config.window_tokens,
-                reference: config.objective_reference,
-            },
-            execution: ExecutionSpec {
-                rounds: config.rounds(),
-                repetitions: config.reps(),
-                round_target_ms: config.target_ms(),
-                validation_interval: config.validation_interval,
-                trace: config.trace(),
-                stage_samples: config.scorer_stage_samples,
-                pool_rank: config.pool_rank_audit,
-                kernels: config.kernel_trial.clone(),
-            },
+            recipe: config.data_recipe.clone(),
+            train: config.dataset.clone(),
+            validation: config.validation_dataset.clone(),
+            objective: (matrix || fixed).then(|| config.objective_function()),
+            window_tokens: config.window_tokens,
+            rounds: config.rounds(),
+            repetitions: config.reps(),
+            round_target_ms: config.target_ms(),
+            validation_interval: config.validation_interval,
+            trace: config.trace(),
+            stage_samples: config.scorer_stage_samples,
             optimizer: OptimizerSpec::from_config(config)?,
             generation: (!matrix).then(|| config.generation.clone()).flatten(),
         })
@@ -46,22 +37,19 @@ impl ExperimentSpec {
         let mut config = RunConfig {
             experiment: Some(self.experiment),
             model: self.model,
-            data_recipe: self.data.recipe.clone(),
+            data_recipe: self.recipe.clone(),
             output: self.output.clone(),
             optimizer: Some(optimizer),
-            rounds: Some(self.execution.rounds),
-            reps: Some(self.execution.repetitions),
-            target_round_ms: Some(self.execution.round_target_ms),
-            validation_interval: self.execution.validation_interval,
-            dataset: self.data.train.clone(),
-            validation_dataset: self.data.validation.clone(),
-            window_tokens: self.objective.window_tokens,
-            objective_reference: self.objective.reference,
-            objective_function: self.objective.function,
-            trace: self.execution.trace.then_some(true),
-            scorer_stage_samples: self.execution.stage_samples,
-            pool_rank_audit: self.execution.pool_rank,
-            kernel_trial: self.execution.kernels.clone(),
+            rounds: Some(self.rounds),
+            reps: Some(self.repetitions),
+            target_round_ms: Some(self.round_target_ms),
+            validation_interval: self.validation_interval,
+            dataset: self.train.clone(),
+            validation_dataset: self.validation.clone(),
+            window_tokens: self.window_tokens,
+            objective_function: self.objective,
+            trace: self.trace.then_some(true),
+            scorer_stage_samples: self.stage_samples,
             generation,
             ..Default::default()
         };
@@ -79,29 +67,27 @@ impl ExperimentSpec {
             TrainingOptimizer::MuonV1 | TrainingOptimizer::AdamwV1
         );
         if self.experiment != ExperimentKind::Pretrain {
-            if self.objective.function.is_some() || self.objective.window_tokens.is_some() {
+            if self.objective.is_some() || self.window_tokens.is_some() {
                 return Err("pretraining objective fields require experiment='pretrain'".into());
             }
             return Ok(self.generation.clone());
         }
         if matrix {
-            if self.objective.window_tokens.is_some() {
+            if self.window_tokens.is_some() {
                 if self.generation.is_some()
-                    || self.objective.function != Some(ObjectiveFunction::CrossEntropy)
-                    || self.objective.reference.is_some()
+                    || self.objective != Some(ObjectiveFunction::CrossEntropy)
                 {
-                    return Err("fixed-corpus matrix training requires cross-entropy without generation or reference fields".into());
+                    return Err("fixed-corpus matrix training requires cross-entropy without generation fields".into());
                 }
                 return Ok(None);
             }
             if self.generation.is_some()
-                || self.objective.function != Some(ObjectiveFunction::CrossEntropy)
-                || self.objective.window_tokens.is_some()
-                || self.objective.reference.is_some()
+                || self.objective != Some(ObjectiveFunction::CrossEntropy)
+                || self.window_tokens.is_some()
             {
                 return Err(
-                    "Muon and AdamW pretraining require objective function='cross-entropy', \
-                     with no generation or reference fields"
+                    "Muon and AdamW pretraining require objective='cross-entropy', \
+                     with no generation fields"
                         .into(),
                 );
             }
@@ -109,18 +95,18 @@ impl ExperimentSpec {
         }
         if self.generation.is_none()
             && (!matches!(
-                self.objective.function,
+                self.objective,
                 Some(ObjectiveFunction::CrossEntropy | ObjectiveFunction::BoundedLogLikelihood)
-            ) || self.objective.window_tokens.is_none())
+            ) || self.window_tokens.is_none())
         {
             return Err(
-                "Bayesian pretraining requires objective function='cross-entropy' or \
+                "Bayesian pretraining requires objective='cross-entropy' or \
                  'bounded-log-likelihood' and window-tokens"
                     .into(),
             );
         }
         if self.generation.is_some()
-            && (self.objective.function.is_some() || self.objective.window_tokens.is_some())
+            && (self.objective.is_some() || self.window_tokens.is_some())
         {
             return Err(
                 "choose either a generated objective or a corpus cross-entropy objective".into(),
@@ -182,8 +168,12 @@ impl OptimizerSpec {
         let surrogate = SurrogateRecipe::from_config(config)?;
         let trust_region = TrustRegionBounds::from_config(config);
         if config.optimizer() == TrainingOptimizer::OperatorBo {
+            if candidate_generation.candidates != 1 || candidate_generation.arms != 1 {
+                return Err("operator-bo requires 1 candidate and 1 arm".into());
+            }
             return Ok(Self::OperatorBo {
-                candidate_generation,
+                proposal: candidate_generation.proposal,
+                distribution: candidate_generation.distribution.unwrap_or_default(),
                 surrogate,
                 trust_region,
             });
@@ -213,22 +203,21 @@ impl OptimizerSpec {
         match self {
             Self::Muon | Self::Adamw => Ok(()),
             Self::OperatorBo {
-                candidate_generation,
+                proposal,
+                distribution,
                 surrogate,
                 trust_region,
             } => {
-                if candidate_generation.candidates != 1
-                    || candidate_generation.arms != 1
-                    || candidate_generation.distribution.is_none()
-                {
-                    return Err(
-                        "operator-bo requires 1 candidate, 1 arm, and explicit distribution".into(),
-                    );
-                }
+                let candidate_generation = CandidateGenerationSpec {
+                    proposal: *proposal,
+                    candidates: 1,
+                    arms: 1,
+                    distribution: Some(*distribution),
+                };
                 apply_bounds(config, trust_region)?;
                 config.trust_region_kind = Some(TrustRegionKind::Turbo);
                 candidate_generation.apply(config)?;
-                surrogate.apply(config);
+                surrogate.apply(config)?;
                 Ok(())
             }
             Self::TurboEnn {
@@ -249,7 +238,7 @@ impl OptimizerSpec {
                 apply_bounds(config, trust_region)?;
                 config.trust_region_kind = Some(TrustRegionKind::Turbo);
                 candidate_generation.apply(config)?;
-                surrogate.apply(config);
+                surrogate.apply(config)?;
                 acquisition.apply(config);
                 Ok(())
             }
@@ -300,17 +289,17 @@ impl SurrogateRecipe {
             local_neighbors: (resident.distance_scaling != DistanceScaling::Global)
                 .then_some(resident.local_scale_neighbors),
             fit: if resident.fit_params {
-                SurrogateFit::LeaveOneOut {
-                    fit_candidates: resident.num_candidates,
-                    fit_samples: resident.num_samples,
-                }
+                SurrogateFit::LeaveOneOut
             } else {
                 SurrogateFit::Fixed
             },
+            fit_candidates: resident.fit_params.then_some(resident.num_candidates),
+            fit_samples: resident.fit_params.then_some(resident.num_samples),
         })
     }
 
-    fn apply(&self, config: &mut RunConfig) {
+    fn apply(&self, config: &mut RunConfig) -> Result<(), String> {
+        let (fit_candidates, fit_samples) = self.fit_budget()?;
         config.k_neighbors = Some(self.neighbors);
         config.local_scale_neighbors = self.local_neighbors;
         config.epistemic_scale = Some(self.epistemic_scale);
@@ -321,19 +310,17 @@ impl SurrogateRecipe {
             (self.geometry != HistoryGeometry::default()).then_some(self.geometry);
         config.distance_scaling =
             (self.scaling != DistanceScaling::default()).then_some(self.scaling);
-        match &self.fit {
+        match self.fit {
             SurrogateFit::Fixed => {
                 config.fit_params = Some(false);
             }
-            SurrogateFit::LeaveOneOut {
-                fit_candidates,
-                fit_samples,
-            } => {
+            SurrogateFit::LeaveOneOut => {
                 config.fit_params = Some(true);
-                config.num_candidates = Some(*fit_candidates);
-                config.num_samples = Some(*fit_samples);
+                config.num_candidates = Some(fit_candidates);
+                config.num_samples = Some(fit_samples);
             }
         }
+        Ok(())
     }
 }
 
@@ -343,17 +330,8 @@ impl AcquisitionSpec {
             return Self::Random;
         }
         match config.objective_acquisition.as_ref() {
-            Some(vector) if vector.mode == ResidentObjectiveMode::Pareto => Self::Pareto {
+            Some(vector) => Self::Pareto {
                 scales: vector.scales.clone(),
-            },
-            Some(vector) => Self::AugmentedChebyshev {
-                scales: vector.scales.clone(),
-                preferences: vector.preferences.clone().unwrap(),
-                alpha: vector.alpha.unwrap(),
-                seed_domain: vector.seed_domain.clone().unwrap(),
-                regions: vector.regions.unwrap_or(4),
-                rescalarize: vector.rescalarize.unwrap(),
-                clip: vector.clip.unwrap(),
             },
             None => match config.acquisition.unwrap_or_default() {
                 AcquisitionConfig::UCB { beta } => Self::Ucb { beta },
@@ -370,8 +348,7 @@ impl AcquisitionSpec {
         config.acquisition = Some(match self {
             Self::Ucb { beta } => AcquisitionConfig::UCB { beta: *beta },
             Self::Thompson => AcquisitionConfig::Thompson,
-            Self::Random => AcquisitionConfig::default(),
-            Self::Pareto { .. } | Self::AugmentedChebyshev { .. } => AcquisitionConfig::default(),
+            Self::Random | Self::Pareto { .. } => AcquisitionConfig::default(),
         });
         config.objective_acquisition = match self {
             Self::Pareto { scales } => Some(ResidentObjectiveConfig {
@@ -383,24 +360,6 @@ impl AcquisitionSpec {
                 seed_domain: None,
                 rescalarize: None,
                 clip: None,
-            }),
-            Self::AugmentedChebyshev {
-                scales,
-                preferences,
-                alpha,
-                seed_domain,
-                regions,
-                rescalarize,
-                clip,
-            } => Some(ResidentObjectiveConfig {
-                mode: ResidentObjectiveMode::Morbo,
-                scales: scales.clone(),
-                preferences: Some(preferences.clone()),
-                regions: Some(*regions),
-                alpha: Some(*alpha),
-                seed_domain: Some(seed_domain.clone()),
-                rescalarize: Some(*rescalarize),
-                clip: Some(*clip),
             }),
             Self::Ucb { .. } | Self::Thompson | Self::Random => None,
         };

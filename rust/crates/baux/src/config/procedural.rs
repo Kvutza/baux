@@ -24,9 +24,7 @@ mod tests {
              proposal='independent'\n\
              arms={arms}\n\
              candidates={candidates}\n\
-             acquisition='upper-confidence-bound'\n\
-             [optimizer.surrogate]\n\
-             fit='fixed'\n"
+             acquisition='upper-confidence-bound'\n"
         )
     }
 

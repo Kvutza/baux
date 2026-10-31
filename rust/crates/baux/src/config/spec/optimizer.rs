@@ -22,8 +22,10 @@ use super::*;
 pub enum OptimizerSpec {
     #[deser(rename = "operator-bo")]
     OperatorBo {
-        #[deser(flatten)]
-        candidate_generation: CandidateGenerationSpec,
+        proposal: crate::procedural_pool::ProposalMethod,
+        #[deser(default)]
+        distribution: crate::ProposalKernel,
+        #[deser(default)]
         surrogate: SurrogateRecipe,
         #[deser(default)]
         trust_region: TrustRegionBounds,
@@ -38,6 +40,7 @@ pub enum OptimizerSpec {
         distribution: Option<crate::ProposalKernel>,
         #[deser(flatten)]
         acquisition: AcquisitionSpec,
+        #[deser(default)]
         surrogate: SurrogateRecipe,
         #[deser(default)]
         trust_region: TrustRegionBounds,
@@ -52,9 +55,15 @@ impl OptimizerSpec {
     pub fn candidate_generation(&self) -> Option<CandidateGenerationSpec> {
         match self {
             Self::OperatorBo {
-                candidate_generation,
+                proposal,
+                distribution,
                 ..
-            } => Some(candidate_generation.clone()),
+            } => Some(CandidateGenerationSpec {
+                proposal: *proposal,
+                candidates: 1,
+                arms: 1,
+                distribution: Some(*distribution),
+            }),
             Self::TurboEnn {
                 proposal,
                 candidates,
@@ -80,10 +89,6 @@ const fn turbo_candidates() -> u32 {
     4
 }
 
-const fn default_regions() -> usize {
-    4
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[deser(deny_unknown_fields, rename_all = "kebab-case")]
 /// Pool and transformation used to construct trials around an incumbent.
@@ -104,33 +109,66 @@ pub struct CandidateGenerationSpec {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[deser(deny_unknown_fields, rename_all = "kebab-case")]
+#[deser(default, deny_unknown_fields, rename_all = "kebab-case")]
 /// Geometry, uncertainty scales, and fitting policy for retained data.
 /// These settings do not by themselves define how a trial direction is
 /// generated.
 pub struct SurrogateRecipe {
-    #[deser(default = default_neighbors())]
     /// Fixed k, or the configured neighbor budget when a local rule is enabled.
     pub neighbors: i32,
-    #[deser(default)]
     /// Query-local neighbor policy, independent of hyperparameter fitting.
     pub neighbor_rule: NeighborRule,
-    #[deser(default = epistemic_default())]
     pub epistemic_scale: f64,
-    #[deser(default = aleatoric_default())]
     pub aleatoric_scale: f64,
-    #[deser(default = default_scale())]
     pub y_scale: f64,
-    #[deser(default)]
     /// How historical parameter dissimilarities are represented/computed;
     /// `latent` is not a reduced-dimensional parameterization of the model.
     pub geometry: HistoryGeometry,
-    #[deser(default)]
     pub scaling: DistanceScaling,
     pub local_neighbors: Option<usize>,
     /// Scale fitting rule. This is independent of query-local neighbor choice.
-    #[deser(flatten)]
     pub fit: SurrogateFit,
+    /// Hyperparameter trials in the fitter, not candidate parameter vectors.
+    pub fit_candidates: Option<usize>,
+    /// Fitter's leave-one-out scoring budget, not fresh model evaluations.
+    pub fit_samples: Option<usize>,
+}
+
+impl Default for SurrogateRecipe {
+    fn default() -> Self {
+        Self {
+            neighbors: default_neighbors(),
+            neighbor_rule: NeighborRule::default(),
+            epistemic_scale: epistemic_default(),
+            aleatoric_scale: aleatoric_default(),
+            y_scale: default_scale(),
+            geometry: HistoryGeometry::default(),
+            scaling: DistanceScaling::default(),
+            local_neighbors: None,
+            fit: SurrogateFit::default(),
+            fit_candidates: None,
+            fit_samples: None,
+        }
+    }
+}
+
+impl SurrogateRecipe {
+    pub fn fit_budget(&self) -> Result<(usize, usize), String> {
+        match (self.fit, self.fit_candidates, self.fit_samples) {
+            (SurrogateFit::Fixed, None, None) => Ok((0, 0)),
+            (SurrogateFit::Fixed, _, _) => {
+                Err("fit='fixed' cannot specify fit-candidates or fit-samples".into())
+            }
+            (SurrogateFit::LeaveOneOut, Some(candidates), Some(samples))
+                if candidates > 0 && samples > 0 =>
+            {
+                Ok((candidates, samples))
+            }
+            (SurrogateFit::LeaveOneOut, _, _) => Err(
+                "fit='leave-one-out' requires positive fit-candidates and fit-samples".into(),
+            ),
+        }
+    }
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -172,24 +210,14 @@ pub(super) fn default_scale() -> f64 {
     f64::from(crate::trials::RoundConfig::default().surrogate.output_scale)
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[deser(
-    tag = "fit",
-    rename_all = "kebab-case",
-    rename_all_fields = "kebab-case",
-    deny_unknown_fields
-)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[deser(rename_all = "kebab-case")]
 pub enum SurrogateFit {
     /// Keep supplied hyperparameters; neighbor adaptation remains independent.
+    #[default]
     Fixed,
     #[deser(rename = "leave-one-out")]
-    LeaveOneOut {
-        /// Hyperparameter trials in the fitter, not candidate parameter
-        /// vectors.
-        fit_candidates: usize,
-        /// Fitter's leave-one-out scoring budget, not fresh model evaluations.
-        fit_samples: usize,
-    },
+    LeaveOneOut,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -211,16 +239,6 @@ pub enum AcquisitionSpec {
     Random,
     Pareto {
         scales: Vec<f32>,
-    },
-    AugmentedChebyshev {
-        scales: Vec<f32>,
-        preferences: Vec<f32>,
-        alpha: f32,
-        seed_domain: String,
-        #[deser(default = default_regions())]
-        regions: usize,
-        rescalarize: Rescalarize,
-        clip: bool,
     },
 }
 

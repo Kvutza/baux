@@ -2,15 +2,9 @@
 version = 4
 experiment = "pretrain"
 model = "fbt-pisa1-mhc4-v1"
-
-[data]
 recipe = "fineweb-slowrun-100m-v1"
-
-[objective]
-function = "bounded-log-likelihood"
+objective = "bounded-log-likelihood"
 window-tokens = 2048
-
-[execution]
 rounds = 200
 round-target-ms = 250
 validation-interval = 100
@@ -19,15 +13,12 @@ stage-samples = 3
 [optimizer]
 algorithm = "operator-bo"
 proposal = "lie"
-arms = 1
-candidates = 1
 distribution = "gaussian"
 
 [optimizer.surrogate]
 scaling = "hyperbolic"
 local-neighbors = 4
 neighbors = 16
-neighbor-rule = "fixed"
 epistemic-scale = 0.1
 aleatoric-scale = 0.05
 y-scale = 0.005

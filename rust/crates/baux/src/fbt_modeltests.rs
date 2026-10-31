@@ -31,7 +31,6 @@ fn bo_config() -> crate::config::RunConfig {
         "version=4\n\
             experiment='end-to-end'\n\
             output='unused'\n\
-            [execution]\n\
             rounds=3\n\
             round-target-ms=1000\n\
             [optimizer]\n\
@@ -40,8 +39,6 @@ fn bo_config() -> crate::config::RunConfig {
             candidates=4\n\
             arms=1\n\
             acquisition='thompson'\n\
-            [optimizer.surrogate]\n\
-            fit='fixed'\n\
             [optimizer.trust-region]\n\
             initial=0.01\n\
             min=0.0001\n\

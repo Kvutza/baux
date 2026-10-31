@@ -20,10 +20,9 @@ pub(super) fn prepare(
     engine: BuildSystem,
 ) -> Result<(), String> {
     let recipe_name = spec
-        .data
         .recipe
         .as_deref()
-        .ok_or("pretraining requires data.recipe")?;
+        .ok_or("pretraining requires recipe")?;
     let document = recipe(root, recipe_name)?;
     encoding::check_model(spec, &document)?;
     if string(&document, "format")? == "baux.pretraining-mixture.v4" {
@@ -141,10 +140,9 @@ fn run_worker(executable: &Path, job: &Value, stage: &Path, label: &str) -> Resu
 
 pub(super) fn resolve(root: &Path, spec: &mut ExperimentSpec) -> Result<(), String> {
     let recipe_name = spec
-        .data
         .recipe
         .as_deref()
-        .ok_or("pretraining requires data.recipe")?;
+        .ok_or("pretraining requires recipe")?;
     let recipe = recipe(root, recipe_name)?;
     encoding::check_model(spec, &recipe)?;
     let id = recipe_key(root, &recipe)?;
@@ -181,7 +179,7 @@ pub(super) fn resolve(root: &Path, spec: &mut ExperimentSpec) -> Result<(), Stri
         if record["tokens"].kind().as_u64() != Some(expected) {
             return Err(format!("cached corpus {id} has the wrong {split} size"));
         }
-        if let Some(window_tokens) = spec.objective.window_tokens {
+        if let Some(window_tokens) = spec.window_tokens {
             let required = u64::from(window_tokens) + 1;
             if record["tokens"].kind().as_u64().unwrap_or(0) < required {
                 return Err(format!(
@@ -197,8 +195,8 @@ pub(super) fn resolve(root: &Path, spec: &mut ExperimentSpec) -> Result<(), Stri
         paths.push(path);
     }
     encoding::verify(&directory, &recipe, &manifest)?;
-    spec.data.train = Some(paths.remove(0));
-    spec.data.validation = Some(paths.remove(0));
+    spec.train = Some(paths.remove(0));
+    spec.validation = Some(paths.remove(0));
     report_budget(spec, &recipe, &split_tokens)
 }
 
@@ -207,11 +205,11 @@ fn report_budget(
     recipe: &Value,
     split_tokens: &[u64],
 ) -> Result<(), String> {
-    if let Some(window_tokens) = spec.objective.window_tokens {
+    if let Some(window_tokens) = spec.window_tokens {
         let train_tokens = split_tokens[0];
         let validation_tokens = split_tokens[1];
         let objective_tokens = u64::from(window_tokens)
-            .checked_mul(u64::from(spec.execution.rounds))
+            .checked_mul(u64::from(spec.rounds))
             .ok_or("pretraining token budget overflow")?;
         let corpus_passes = objective_tokens as f64 / train_tokens as f64;
         let context = recipe["context"]

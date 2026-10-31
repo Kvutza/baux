@@ -298,10 +298,9 @@ mod tests {
                 geometry: HistoryGeometry::Realized,
                 scaling: DistanceScaling::Global,
                 local_neighbors: None,
-                fit: SurrogateFit::LeaveOneOut {
-                    fit_candidates: 8,
-                    fit_samples: 4,
-                },
+                fit: SurrogateFit::LeaveOneOut,
+                fit_candidates: Some(8),
+                fit_samples: Some(4),
             },
             trust_region: TrustRegionBounds::default(),
         };

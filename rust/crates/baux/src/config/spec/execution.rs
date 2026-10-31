@@ -7,65 +7,16 @@
 
 use super::*;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[deser(default, deny_unknown_fields, rename_all = "kebab-case")]
-/// Requested execution budget, validation cadence, and optional diagnostics.
-pub struct ExecutionSpec {
-    /// Optimizer transactions per repetition, not epochs or successful updates.
-    pub rounds: u32,
-    /// Requested repetitions; seed/config handling is resolved by the runner.
-    pub repetitions: u32,
-    /// Requested round-wall latency in milliseconds, not an achieved bound.
-    pub round_target_ms: u32,
-    /// Held-out validation cadence in optimizer transactions.
-    pub validation_interval: Option<u32>,
-    /// Optional execution trace recording.
-    pub trace: bool,
-    /// Optional stage timing sample count.
-    pub stage_samples: Option<u32>,
-    /// Optional candidate pool rank audit cadence.
-    pub pool_rank: Option<u32>,
-    /// Optional kernel trial configuration.
-    pub kernels: Option<KernelTrial>,
+pub(super) fn default_rounds() -> u32 {
+    RunConfig::default().rounds()
 }
 
-impl Default for ExecutionSpec {
-    fn default() -> Self {
-        let config = RunConfig::default();
-        Self {
-            rounds: config.rounds(),
-            repetitions: config.reps(),
-            round_target_ms: config.target_ms(),
-            validation_interval: None,
-            trace: false,
-            stage_samples: None,
-            pool_rank: None,
-            kernels: None,
-        }
-    }
+pub(super) fn default_reps() -> u32 {
+    RunConfig::default().reps()
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[deser(default, deny_unknown_fields, rename_all = "kebab-case")]
-pub struct DataSpec {
-    /// Versioned source/filter/tokenization/split recipe resolved by
-    /// preparation.
-    pub recipe: Option<DataRecipe>,
-    pub train: Option<PathBuf>,
-    pub validation: Option<PathBuf>,
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[deser(default, deny_unknown_fields, rename_all = "kebab-case")]
-/// Objective protocol requested by the fixed-corpus path.
-/// The runtime must still define scored positions, sign, and estimate variance.
-pub struct ObjectiveSpec {
-    pub function: Option<ObjectiveFunction>,
-    /// Requested corpus tokens per causal-likelihood window, including boundary
-    /// context; actual scored positions are reported separately by the
-    /// evaluator.
-    pub window_tokens: Option<u32>,
-    pub reference: Option<ObjectiveReference>,
+pub(super) fn default_target() -> u32 {
+    RunConfig::default().target_ms()
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]

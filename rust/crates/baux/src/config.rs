@@ -45,7 +45,7 @@ pub use objectives::{
     ObjectiveAcquisition, ObjectivePolicy, ResidentObjectiveConfig, ResidentObjectiveMode,
 };
 pub use spec::ExperimentSpec;
-pub use spec_execution::{DataSpec, ExecutionSpec, ObjectiveFunction, ObjectiveSpec};
+pub use spec_execution::ObjectiveFunction;
 pub use spec_optimizer::{
     AcquisitionSpec, CandidateGenerationSpec, OptimizerSpec, SurrogateFit, SurrogateRecipe,
     TrustRegionBounds,
@@ -429,9 +429,9 @@ mod serialization_tests {
 
     #[test]
     fn recipe_seeds() {
-        let input = "version=4\nexperiment='pretrain'\nmodel='fbt-pisa1-mhc4-v1'\n[data]\nrecipe='\
-                     stack-v3-rust-go-v1'\n[execution]\nvalidation-interval=4\n[optimizer]\n\
-                     algorithm='muon'\n[objective]\nfunction='cross-entropy'";
+        let input = "version=4\nexperiment='pretrain'\nmodel='fbt-pisa1-mhc4-v1'\n\
+                     recipe='stack-v3-rust-go-v1'\nobjective='cross-entropy'\n\
+                     validation-interval=4\n[optimizer]\nalgorithm='muon'";
         let run = parse_tune(input).unwrap();
         assert_ne!(run.model_seeded(0), run.model_seeded(1));
         assert!(

@@ -149,17 +149,17 @@ fn research_contract(
         _ => return Err("active Lean target requires optimizer.algorithm = turbo-enn".into()),
     };
     let matches = parameters == baux::experimental::MHC4_PARAMS
-        && context_tokens == spec.objective.window_tokens.unwrap_or_default()
+        && context_tokens == spec.window_tokens.unwrap_or_default()
         && candidates == spec_candidates
         && neighbors == surrogate.neighbors
-        && target_ms <= spec.execution.round_target_ms
-        && spec.execution.round_target_ms <= ceiling_ms
+        && target_ms <= spec.round_target_ms
+        && spec.round_target_ms <= ceiling_ms
         && dense_flops
             == baux::experimental::MHC4_COEFFS
                 * 2
                 * (u64::from(context_tokens) / baux::experimental::MHC4_PATCH)
         && spec.model == Some(ModelArchitecture::FbtPisa1Mhc4V1)
-        && spec.objective.function == Some(ObjectiveFunction::CrossEntropy)
+        && spec.objective == Some(ObjectiveFunction::CrossEntropy)
         && objective == "BauxResearch.ObjectiveMode.causalNll"
         && sampling == "BauxResearch.SamplingMode.natural";
     if !matches {

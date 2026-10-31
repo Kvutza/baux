@@ -34,95 +34,59 @@
       "type": "string",
       "description": "Optional destination directory for serialized run records, checkpoints, and telemetry logs."
     },
-    "data": {
-      "type": "object",
-      "description": "Dataset recipe and resolved split paths.",
-      "properties": {
-        "recipe": {
-          "type": "string",
-          "description": "Versioned immutable data recipe identifier (e.g., 'stack-v3-rust-go-v1' or 'fineweb-bytes-100m-v1')."
-        },
-        "train": {
-          "type": "string",
-          "description": "Filesystem path to training corpus token split (populated in frozen run records)."
-        },
-        "validation": {
-          "type": "string",
-          "description": "Filesystem path to held-out validation token split (populated in frozen run records)."
-        }
-      },
-      "additionalProperties": false
+    "recipe": {
+      "type": "string",
+      "description": "Versioned immutable data recipe identifier (e.g., 'stack-v3-rust-go-v1' or 'fineweb-bytes-100m-v1')."
+    },
+    "train": {
+      "type": "string",
+      "description": "Filesystem path to training corpus token split (populated in frozen run records)."
+    },
+    "validation": {
+      "type": "string",
+      "description": "Filesystem path to held-out validation token split (populated in frozen run records)."
     },
     "objective": {
-      "type": "object",
-      "description": "Objective loss function and causal evaluation window.",
-      "properties": {
-        "function": {
-          "type": "string",
-          "enum": ["cross-entropy", "bounded-log-likelihood"],
-          "default": "cross-entropy",
-          "description": "Objective loss function evaluated over sequence tokens: 'cross-entropy' (-log p) or 'bounded-log-likelihood' (log(2 - p))."
-        },
-        "window-tokens": {
-          "type": "integer",
-          "minimum": 1,
-          "description": "Tokens per causal evaluation window (e.g., 4096, 65536, 1048576 for 1M context)."
-        },
-        "reference": {
-          "type": "string",
-          "enum": ["moving-incumbent", "frozen-initial"],
-          "default": "moving-incumbent",
-          "description": "Reference baseline for contrastive evaluations."
-        }
-      },
-      "additionalProperties": false
+      "type": "string",
+      "enum": ["cross-entropy", "bounded-log-likelihood"],
+      "default": "cross-entropy",
+      "description": "Objective loss function evaluated over sequence tokens: 'cross-entropy' (-log p) or 'bounded-log-likelihood' (log(2 - p))."
     },
-    "execution": {
-      "type": "object",
-      "description": "Execution budget, validation cadence, latency target, and optional profiling.",
-      "properties": {
-        "rounds": {
-          "type": "integer",
-          "minimum": 1,
-          "description": "Total optimizer rounds / transactions to execute."
-        },
-        "repetitions": {
-          "type": "integer",
-          "minimum": 1,
-          "default": 1,
-          "description": "Requested repetitions of the experiment."
-        },
-        "round-target-ms": {
-          "type": "integer",
-          "minimum": 1,
-          "description": "Requested round latency threshold in milliseconds."
-        },
-        "validation-interval": {
-          "type": "integer",
-          "minimum": 1,
-          "description": "Held-out evaluation cadence in optimizer transactions."
-        },
-        "trace": {
-          "type": "boolean",
-          "default": false,
-          "description": "Enable execution trace recording."
-        },
-        "stage-samples": {
-          "type": "integer",
-          "minimum": 1,
-          "description": "Sample count for stage timing profiling."
-        },
-        "pool-rank": {
-          "type": "integer",
-          "minimum": 1,
-          "description": "Candidate pool rank audit frequency."
-        },
-        "kernels": {
-          "type": "object",
-          "description": "Kernel-level execution settings."
-        }
-      },
-      "additionalProperties": false
+    "window-tokens": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Tokens per causal evaluation window (e.g., 4096, 65536, 1048576 for 1M context)."
+    },
+    "rounds": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Total optimizer rounds / transactions to execute."
+    },
+    "repetitions": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 1,
+      "description": "Requested repetitions of the experiment."
+    },
+    "round-target-ms": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Requested round latency threshold in milliseconds."
+    },
+    "validation-interval": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Held-out evaluation cadence in optimizer transactions."
+    },
+    "trace": {
+      "type": "boolean",
+      "default": false,
+      "description": "Enable execution trace recording."
+    },
+    "stage-samples": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Sample count for stage timing profiling."
     },
     "optimizer": {
       "type": "object",
@@ -131,27 +95,21 @@
       "oneOf": [
         {
           "title": "Operator BO",
-          "required": ["algorithm", "proposal", "distribution", "surrogate", "trust-region"],
+          "required": ["algorithm", "proposal"],
           "properties": {
-            "algorithm": { "const": "operator-bo" },
-            "candidates": { "const": 1 },
-            "arms": { "const": 1 }
+            "algorithm": { "const": "operator-bo" }
           },
           "allOf": [
+            { "not": { "required": ["candidates"] } },
+            { "not": { "required": ["arms"] } },
             { "not": { "required": ["acquisition"] } },
             { "not": { "required": ["beta"] } },
-            { "not": { "required": ["scales"] } },
-            { "not": { "required": ["preferences"] } },
-            { "not": { "required": ["alpha"] } },
-            { "not": { "required": ["seed-domain"] } },
-            { "not": { "required": ["regions"] } },
-            { "not": { "required": ["rescalarize"] } },
-            { "not": { "required": ["clip"] } }
+            { "not": { "required": ["scales"] } }
           ]
         },
         {
           "title": "TuRBO ENN",
-          "required": ["algorithm", "proposal", "acquisition", "surrogate"],
+          "required": ["algorithm", "proposal", "acquisition"],
           "properties": {
             "algorithm": { "const": "turbo-enn" }
           }
@@ -191,14 +149,14 @@
         "candidates": {
           "type": "integer",
           "minimum": 1,
-          "default": 1,
-          "description": "Total proposals generated per round across all arms."
+          "default": 4,
+          "description": "Total proposals generated per round across all arms in turbo-enn."
         },
         "arms": {
           "type": "integer",
           "minimum": 1,
           "default": 1,
-          "description": "Number of procedural seed namespaces sharing the current incumbent center."
+          "description": "Number of procedural seed namespaces sharing the current incumbent center in turbo-enn."
         },
         "distribution": {
           "type": "string",
@@ -208,7 +166,7 @@
         },
         "acquisition": {
           "type": "string",
-          "enum": ["thompson", "random", "upper-confidence-bound", "pareto", "augmented-chebyshev"],
+          "enum": ["thompson", "random", "upper-confidence-bound", "pareto"],
           "description": "Acquisition policy for selecting proposals in turbo-enn."
         },
         "beta": {
@@ -219,40 +177,11 @@
         "scales": {
           "type": "array",
           "items": { "type": "number" },
-          "description": "Objective scales for multi-objective acquisition."
-        },
-        "preferences": {
-          "type": "array",
-          "items": { "type": "number" },
-          "description": "Preference weights for augmented Chebyshev acquisition."
-        },
-        "alpha": {
-          "type": "number",
-          "description": "Augmentation factor for Chebyshev scalarization."
-        },
-        "seed-domain": {
-          "type": "string",
-          "description": "Seed domain identifier for multi-objective acquisition."
-        },
-        "regions": {
-          "type": "integer",
-          "minimum": 1,
-          "default": 4,
-          "description": "Count of trust regions for multi-region MORBO."
-        },
-        "rescalarize": {
-          "type": "string",
-          "enum": ["on-propose", "on-restart"],
-          "description": "MORBO rescalarization schedule."
-        },
-        "clip": {
-          "type": "boolean",
-          "description": "Whether MORBO clips updates to the active region."
+          "description": "Objective scales for multi-objective Pareto acquisition."
         },
         "surrogate": {
           "type": "object",
           "description": "Surrogate model distance geometry, uncertainty scales, and fitting procedure.",
-          "required": ["fit"],
           "properties": {
             "neighbors": {
               "type": "integer",
@@ -301,6 +230,7 @@
             "fit": {
               "type": "string",
               "enum": ["fixed", "leave-one-out"],
+              "default": "fixed",
               "description": "Surrogate scale fitting rule."
             },
             "fit-candidates": {
@@ -316,15 +246,15 @@
           },
           "oneOf": [
             {
-              "properties": { "fit": { "const": "fixed" } },
+              "properties": { "fit": { "const": "leave-one-out" } },
+              "required": ["fit", "fit-candidates", "fit-samples"]
+            },
+            {
+              "not": { "properties": { "fit": { "const": "leave-one-out" } }, "required": ["fit"] },
               "allOf": [
                 { "not": { "required": ["fit-candidates"] } },
                 { "not": { "required": ["fit-samples"] } }
               ]
-            },
-            {
-              "required": ["fit", "fit-candidates", "fit-samples"],
-              "properties": { "fit": { "const": "leave-one-out" } }
             }
           ],
           "additionalProperties": false

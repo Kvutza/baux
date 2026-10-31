@@ -266,7 +266,7 @@ pub(super) fn resolve(
     let mut paths = Vec::new();
     for split in ["train", "validation", "test"] {
         let record = &manifest["splits"][split];
-        if let Some(window_tokens) = spec.objective.window_tokens {
+        if let Some(window_tokens) = spec.window_tokens {
             let required = u64::from(window_tokens) + 1;
             let available = if split == "train" {
                 record["tokens"].kind().as_u64().unwrap_or(0)
@@ -293,8 +293,8 @@ pub(super) fn resolve(
         verify(&path, record["sha256"].kind().as_str())?;
         paths.push(path);
     }
-    spec.data.train = Some(paths.remove(0));
-    spec.data.validation = Some(paths.remove(0));
+    spec.train = Some(paths.remove(0));
+    spec.validation = Some(paths.remove(0));
     let train_record = &manifest["splits"]["train"];
     let train_tokens = train_record["tokens"]
         .kind()
@@ -303,11 +303,10 @@ pub(super) fn resolve(
     let train = source_summary(train_record)?;
     let validation = summary(recipe, "validation")?;
     let window_tokens = u64::from(
-        spec.objective
-            .window_tokens
-            .ok_or("pretraining mixture requires objective.window-tokens")?,
+        spec.window_tokens
+            .ok_or("pretraining mixture requires window-tokens")?,
     );
-    let evaluations = u64::from(spec.execution.rounds)
+    let evaluations = u64::from(spec.rounds)
         .checked_add(1)
         .ok_or("pretraining evaluation count overflow")?;
     let objective_tokens = window_tokens
@@ -338,9 +337,8 @@ pub(super) fn resolve(
 
 pub(super) fn check(root: &Path, document: &Value, spec: &ExperimentSpec) -> Result<(), String> {
     let window_tokens = u64::from(
-        spec.objective
-            .window_tokens
-            .ok_or("pretraining mixture requires objective.window-tokens")?,
+        spec.window_tokens
+            .ok_or("pretraining mixture requires window-tokens")?,
     );
     let tokens = mix_parts(document, "train")?.into_iter().try_fold(
         0u64,
@@ -358,7 +356,7 @@ pub(super) fn check(root: &Path, document: &Value, spec: &ExperimentSpec) -> Res
                 .ok_or_else(|| "mixture token count overflow".to_owned())
         },
     )?;
-    let evaluations = u64::from(spec.execution.rounds)
+    let evaluations = u64::from(spec.rounds)
         .checked_add(1)
         .ok_or("pretraining evaluation count overflow")?;
     let objective = window_tokens

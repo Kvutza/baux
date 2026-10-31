@@ -242,9 +242,9 @@ fn bound_audit() {
         let mut model = Model::new(super::super::bo::full_config(), 42).unwrap();
         model.set_optimized(true).unwrap();
         let config = crate::config::parse_tune(
-            "version=4\nexperiment='end-to-end'\noutput='unused'\n[execution]\nrounds=3\n\
+            "version=4\nexperiment='end-to-end'\noutput='unused'\nrounds=3\n\
              round-target-ms=1000\n[optimizer]\nalgorithm='turbo-enn'\nproposal='independent'\n\
-             candidates=4\narms=1\nacquisition='thompson'\n[optimizer.surrogate]\nfit='fixed'\n\
+             candidates=4\narms=1\nacquisition='thompson'\n\
              [optimizer.trust-region]\ninitial=0.01\nmin=0.0001\nmax=0.1",
         )
         .unwrap();

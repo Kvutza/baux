@@ -2,15 +2,9 @@
 version = 4
 experiment = "pretrain"
 model = "fbt-pisa1-hnet-mhc4-v1"
-
-[data]
 recipe = "fineweb-bytes-100m-v1"
-
-[objective]
-function = "cross-entropy"
+objective = "cross-entropy"
 window-tokens = 4096
-
-[execution]
 rounds = 1000
 round-target-ms = 250
 validation-interval = 100
@@ -19,18 +13,13 @@ stage-samples = 3
 [optimizer]
 algorithm = "operator-bo"
 proposal = "lie"
-arms = 1
-candidates = 1
 distribution = "gaussian"
 
 [optimizer.surrogate]
-scaling = "global"
 neighbors = 16
-neighbor-rule = "fixed"
 epistemic-scale = 0.1
 aleatoric-scale = 0.05
 y-scale = 0.005
-fit = "fixed"
 
 [optimizer.trust-region]
 shape = "tensor-family-static"

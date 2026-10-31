@@ -2,15 +2,9 @@
 version = 4
 experiment = "pretrain"
 model = "fbt-pisa1-mhc4-v1"
-
-[data]
 recipe = "fineweb-slowrun-100m-v1"
-
-[objective]
-function = "cross-entropy"
+objective = "cross-entropy"
 window-tokens = 4096
-
-[execution]
 rounds = 128
 round-target-ms = 200
 validation-interval = 1

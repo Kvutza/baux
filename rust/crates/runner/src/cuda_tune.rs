@@ -378,12 +378,9 @@ mod tests {
 version = 4
 experiment = "pretrain"
 model = "fbt-pisa1-mhc4-v1"
-[data]
 recipe = "stack-v3-rust-go-v1"
-[objective]
-function = "cross-entropy"
+objective = "cross-entropy"
 window-tokens = 1048576
-[execution]
 rounds = 1000
 round-target-ms = 1000
 [optimizer]
@@ -396,7 +393,6 @@ acquisition = "thompson"
 [optimizer.surrogate]
 scaling = "global"
 neighbors = 10
-neighbor-rule = "fixed"
 epistemic-scale = 0.05
 aleatoric-scale = 0.05
 fit = "leave-one-out"

@@ -119,8 +119,8 @@ pub(crate) fn resolve(
         generation.resolve(parent)?;
     }
     if let Some(rounds) = rounds {
-        spec.execution.rounds = rounds;
-    } else if spec.execution.rounds < 128 {
+        spec.rounds = rounds;
+    } else if spec.rounds < 128 {
         return Err("pretraining experiments require at least 128 rounds".into());
     }
     pretrain::prepare(root, &spec, engine)?;
@@ -129,9 +129,9 @@ pub(crate) fn resolve(
 }
 
 fn validate_authored(spec: &baux::config::ExperimentSpec) -> Result<(), String> {
-    if spec.output.is_some() || spec.data.train.is_some() || spec.data.validation.is_some() {
+    if spec.output.is_some() || spec.train.is_some() || spec.validation.is_some() {
         return Err(
-            "authored pretraining configs select data.recipe; output, data.train, and data.validation exist only in frozen run records"
+            "authored pretraining configs select recipe; output, train, and validation exist only in frozen run records"
                 .into(),
         );
     }
@@ -194,10 +194,8 @@ mod tests {
     const BASE: &str = "version=4\n\
         experiment='pretrain'\n\
         model='fbt-pisa1-mhc4-v1'\n\
-        [data]\n\
         recipe='stack-v3-rust-go-v1'\n\
-        [objective]\n\
-        function='cross-entropy'\n\
+        objective='cross-entropy'\n\
         [optimizer]\n\
         algorithm='muon'\n";
 

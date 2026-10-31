@@ -207,8 +207,14 @@ inline ushort encode(float x) {
 }
 inline bool invalid_value(ushort x) { return (x & 0x7f80u) == 0x7f80u; }
 #endif
-inline float2 noise_pair(ulong seed, ulong key, ulong pair, uint mode) {
-    ulong2 domain = ziggurat_domain(seed, key);
+struct PrecomputedDomains {
+    ulong2 fresh;
+    uint count;
+    float fresh_weight;
+    ulong2 hist[TRAJECTORY_SEEDS];
+    float weights[TRAJECTORY_SEEDS];
+};
+inline float2 domain_noise_pair(ulong2 domain, ulong pair, uint mode) {
 #ifdef RADEMACHER_ONLY
     return rademacher_pair(domain, pair);
 #else
@@ -218,28 +224,56 @@ inline float2 noise_pair(ulong seed, ulong key, ulong pair, uint mode) {
     return ziggurat_pair_domain(domain, pair);
 #endif
 }
-inline float2 trajectory_noise_pair(
-    ulong salted_seed,
-    Leaf leaf,
-    ulong pair,
-    uint mode,
-    constant Params &p) {
-    float2 fresh = noise_pair(salted_seed, leaf.key, pair, mode);
-    if (p.trajectory_count == 0u) return fresh;
+inline float2 noise_pair(ulong seed, ulong key, ulong pair, uint mode) {
+    return domain_noise_pair(ziggurat_domain(seed, key), pair, mode);
+}
+inline PrecomputedDomains make_domains(ulong salted_seed, Leaf leaf, constant Params &p) {
+    PrecomputedDomains d;
+    d.fresh = ziggurat_domain(salted_seed, leaf.key);
+    if (p.trajectory_count == 0u) {
+        d.count = 0u;
+        d.fresh_weight = 1.0f;
+        return d;
+    }
     uint g = leaf.pad & 3u;
-    float2 mixed = p.trajectory_fresh[g] * fresh;
-    uint count = min(p.trajectory_count, uint(TRAJECTORY_SEEDS));
-    for (uint j = 0u; j < count; j++) {
+    d.fresh_weight = p.trajectory_fresh[g];
+    uint n = min(p.trajectory_count, uint(TRAJECTORY_SEEDS));
+    uint active = 0u;
+    for (uint j = 0u; j < n; j++) {
         float w = p.trajectory_weights[g][j];
         if (w != 0.0f) {
             ulong hist_salted = p.trajectory_seeds[j] ^ 0x8ebc6af09c88c6e3ul;
             if (hist_salted == salted_seed) {
                 hist_salted ^= 0x9e3779b97f4a7c15ul + ulong(j);
             }
-            mixed += w * noise_pair(hist_salted, leaf.key, pair, mode);
+            d.hist[active] = ziggurat_domain(hist_salted, leaf.key);
+            d.weights[active] = w;
+            active++;
         }
     }
+    d.count = active;
+    return d;
+}
+inline float2 trajectory_noise_pair_domains(
+    thread const PrecomputedDomains &d,
+    ulong pair,
+    uint mode) {
+    float2 fresh = domain_noise_pair(d.fresh, pair, mode);
+    if (d.count == 0u) return d.fresh_weight * fresh;
+    float2 mixed = d.fresh_weight * fresh;
+    for (uint j = 0u; j < d.count; j++) {
+        mixed += d.weights[j] * domain_noise_pair(d.hist[j], pair, mode);
+    }
     return mixed;
+}
+inline float2 trajectory_noise_pair(
+    ulong salted_seed,
+    Leaf leaf,
+    ulong pair,
+    uint mode,
+    constant Params &p) {
+    PrecomputedDomains d = make_domains(salted_seed, leaf, p);
+    return trajectory_noise_pair_domains(d, pair, mode);
 }
 inline float sample(ulong seed, ulong key, ulong element, uint mode) {
     float2 pair = noise_pair(seed, key, element / 2, mode);
@@ -310,14 +344,13 @@ inline ulong proposal_seed(ulong root, uint candidate, uint program) {
 //   Sinkhorn predictors/biases): exact 4-element horizontal zero-sum quotient
 //   projection \Pi_4^\perp z = \sqrt{4/3} (z - \mu_4 1_4).
 // - `1u, 2u, 3u, 6u` (linear projections and MoE experts): 1-pair isometric draw.
-inline float2 sym_pair_continuous(
+inline float2 sym_pair_continuous_domains(
     float2 base_value,
     Leaf leaf,
-    ulong salted_seed,
+    thread const PrecomputedDomains &d,
     float radius,
     uint mode,
-    ulong pair,
-    constant Params &p) {
+    ulong pair) {
     float step = leaf.scale * radius;
     if (step == 0.0f) return float2(0.0f, 0.0f);
     uint family_code = leaf.address & 31u;
@@ -325,10 +358,10 @@ inline float2 sym_pair_continuous(
     if (family_code == 4u && (pair >> 17) < 64ul && leaf_pairs >= 4ul) {
         ulong pair_base = min(pair & ~3ul, leaf_pairs - 4ul);
         uint sub = uint(pair - pair_base);
-        float2 p0 = trajectory_noise_pair(salted_seed, leaf, pair_base, mode, p);
-        float2 p1 = trajectory_noise_pair(salted_seed, leaf, pair_base + 1ul, mode, p);
-        float2 p2 = trajectory_noise_pair(salted_seed, leaf, pair_base + 2ul, mode, p);
-        float2 p3 = trajectory_noise_pair(salted_seed, leaf, pair_base + 3ul, mode, p);
+        float2 p0 = trajectory_noise_pair_domains(d, pair_base, mode);
+        float2 p1 = trajectory_noise_pair_domains(d, pair_base + 1ul, mode);
+        float2 p2 = trajectory_noise_pair_domains(d, pair_base + 2ul, mode);
+        float2 p3 = trajectory_noise_pair_domains(d, pair_base + 3ul, mode);
         float mu8 = 0.125f * ((p0.x + p0.y) + (p1.x + p1.y) + (p2.x + p2.y) + (p3.x + p3.y));
         float2 raw = sub == 0u ? p0 : (sub == 1u ? p1 : (sub == 2u ? p2 : p3));
         float2 unit_dir = 1.05220856f * (raw - mu8) + 0.50f * float2(mu8);
@@ -342,14 +375,14 @@ inline float2 sym_pair_continuous(
     if (center_fiber && leaf_pairs >= 2ul) {
         ulong pair_base = min(pair & ~1ul, leaf_pairs - 2ul);
         uint sub = uint(pair - pair_base);
-        float2 q0 = trajectory_noise_pair(salted_seed, leaf, pair_base, mode, p);
-        float2 q1 = trajectory_noise_pair(salted_seed, leaf, pair_base + 1ul, mode, p);
+        float2 q0 = trajectory_noise_pair_domains(d, pair_base, mode);
+        float2 q1 = trajectory_noise_pair_domains(d, pair_base + 1ul, mode);
         float mu4 = 0.25f * ((q0.x + q0.y) + (q1.x + q1.y));
         float2 raw = sub == 0u ? q0 : q1;
         float2 unit_dir = 1.15470054f * (raw - mu4);
         return step * unit_dir;
     }
-    float2 q = trajectory_noise_pair(salted_seed, leaf, pair, mode, p);
+    float2 q = trajectory_noise_pair_domains(d, pair, mode);
     float r_sq = base_value.x * base_value.x + base_value.y * base_value.y;
     if (r_sq > 1e-12f) {
         float inv_r = rsqrt(r_sq);
@@ -362,6 +395,17 @@ inline float2 sym_pair_continuous(
         return delta_t * tangent + delta_u * radial;
     }
     return step * q;
+}
+inline float2 sym_pair_continuous(
+    float2 base_value,
+    Leaf leaf,
+    ulong salted_seed,
+    float radius,
+    uint mode,
+    ulong pair,
+    constant Params &p) {
+    PrecomputedDomains d = make_domains(salted_seed, leaf, p);
+    return sym_pair_continuous_domains(base_value, leaf, d, radius, mode, pair);
 }
 
 inline float2 proposal_pair_continuous(float2 base_value, Leaf leaf, ulong seed,
@@ -405,15 +449,20 @@ inline ushort2 sym_pair(
         base_value + sym_pair_continuous(base_value, leaf, salted_seed, radius, mode, pair, p));
 }
 
-// Seed is the canonical candidate stream, before the single noise-domain salt.
-// Every FP16 materialization path and sampled observation uses this operation.
-inline ushort2 proposal_pair(float2 base_value, Leaf leaf, ulong seed,
-    ulong basis_seed, uint candidate, uint program, float radius, uint mode,
-    ulong pair, constant Params &p) {
+inline ushort2 proposal_pair_domains(
+    float2 base_value,
+    Leaf leaf,
+    thread const PrecomputedDomains &doms,
+    uint candidate,
+    uint program,
+    float radius,
+    uint mode,
+    ulong pair) {
     if (program == 4u)
-        return sym_pair(base_value, leaf, seed ^ 0x8ebc6af09c88c6e3ul, radius, mode, pair, p);
+        return encode_pair(
+            base_value + sym_pair_continuous_domains(base_value, leaf, doms, radius, mode, pair));
 
-    float2 noise = trajectory_noise_pair(seed ^ 0x8ebc6af09c88c6e3ul, leaf, pair, mode, p);
+    float2 noise = trajectory_noise_pair_domains(doms, pair, mode);
     if (program == 3u) {
         float r_sq = base_value.x * base_value.x + base_value.y * base_value.y;
         float inv_r = r_sq > 1e-12f ? rsqrt(r_sq) : 0.0f;
@@ -424,7 +473,6 @@ inline ushort2 proposal_pair(float2 base_value, Leaf leaf, ulong seed,
         return encode_pair(base_value + (leaf.scale * radius) * noise);
     }
     if (program == 5u) {
-        // Exact SO(2) Givens pair rotation: theta = (s * s) * kappa where kappa = 0.5 * (u_i * v_j - v_i * u_j)
         float s = leaf.scale * radius;
         float kappa = 0.5f * (base_value.x * noise.y - base_value.y * noise.x);
         float theta = (s * s) * kappa;
@@ -435,6 +483,15 @@ inline ushort2 proposal_pair(float2 base_value, Leaf leaf, ulong seed,
         return encode_pair(float2(x_rot, y_rot));
     }
     return encode_pair(base_value + (leaf.scale * radius) * noise);
+}
+
+// Seed is the canonical candidate stream, before the single noise-domain salt.
+// Every FP16 materialization path and sampled observation uses this operation.
+inline ushort2 proposal_pair(float2 base_value, Leaf leaf, ulong seed,
+    ulong basis_seed, uint candidate, uint program, float radius, uint mode,
+    ulong pair, constant Params &p) {
+    PrecomputedDomains doms = make_domains(seed ^ 0x8ebc6af09c88c6e3ul, leaf, p);
+    return proposal_pair_domains(base_value, leaf, doms, candidate, program, radius, mode, pair);
 }
 
 #ifdef PROCEDURAL_SLOTS
@@ -1721,6 +1778,7 @@ kernel void bf16_materialize(
     ulong seed = decision->program == 3u
         ? proposal_seed(decision->root_seed, decision->index, decision->program)
         : decision->seed;
+    PrecomputedDomains doms = make_domains(seed ^ 0x8ebc6af09c88c6e3ul, leaf, p);
 #else
     ulong seed = decision->seed ^ 0x8ebc6af09c88c6e3ul;
     const float step = leaf.scale * decision->radius;
@@ -1739,9 +1797,9 @@ kernel void bf16_materialize(
         ushort2 base_pair = aligned_pair
             ? *reinterpret_cast<device const ushort2*>(base + index)
             : ushort2(base[index], complete_pair ? base[index + 1] : 0);
-        ushort2 result = proposal_pair(decode_pair(base_pair), leaf, seed,
-            decision->basis_seed, decision->index, decision->program,
-            decision->radius, decision->mode, pair, p);
+        ushort2 result = proposal_pair_domains(decode_pair(base_pair), leaf, doms,
+            decision->index, decision->program,
+            decision->radius, decision->mode, pair);
         if (aligned_pair) {
             *reinterpret_cast<device ushort2*>(output + index) = result;
         } else {

@@ -173,7 +173,7 @@ impl TrajectoryGenerator {
                 .collect();
             scored_acc.sort_by(|a, b| b.1.total_cmp(&a.1));
             for (step, score) in scored_acc {
-                if !selected.is_empty() {
+                if selected.len() >= 2 {
                     break;
                 }
                 if !selected.iter().any(|(prev, _, _)| prev.seed == step.seed) {
@@ -182,7 +182,7 @@ impl TrajectoryGenerator {
             }
         }
 
-        // 2. Local kernel-bandit antipodal deflection at `current_base_id` (R_t, 1 seed, sign = -1).
+        // 2. Local kernel-bandit antipodal deflection at `current_base_id` (R_t, up to 2 seeds, sign = -1).
         let rejected_local: Vec<(usize, TrajectoryStep)> = self
             .steps
             .iter()
@@ -208,9 +208,11 @@ impl TrajectoryGenerator {
                 .collect();
             scored_rej.sort_by(|a, b| b.1.total_cmp(&a.1));
             for (step, score) in scored_rej {
+                if selected.len() >= TRAJECTORY_SEEDS {
+                    break;
+                }
                 if !selected.iter().any(|(prev, _, _)| prev.seed == step.seed) {
                     selected.push((step, score, -1.0));
-                    break;
                 }
             }
         }
@@ -227,7 +229,7 @@ impl TrajectoryGenerator {
 
         let mut weights = [[0.0_f32; TRAJECTORY_SEEDS]; FAMILIES];
         let mut fresh = [1.0_f32; FAMILIES];
-        let rho_base = (0.18 * k as f32).min(0.36);
+        let rho_base = (0.12 * k as f32).min(0.36);
 
         for g in 0..FAMILIES {
             let rho = (rho_base * (0.5 + 2.0 * self.online_em_stats[g])).clamp(0.05, 0.36);

@@ -427,7 +427,7 @@ inline float2 proposal_pair_continuous(float2 base_value, Leaf leaf, ulong seed,
     if (program == 5u) {
         float s = leaf.scale * radius;
         float kappa = 0.5f * (base_value.x * noise.y - base_value.y * noise.x);
-        float theta = (s * s) * kappa;
+        float theta = s * kappa;
         float c = cos(theta);
         float s_sin = sin(theta);
         float x_rot = c * base_value.x - s_sin * base_value.y;
@@ -475,7 +475,7 @@ inline ushort2 proposal_pair_domains(
     if (program == 5u) {
         float s = leaf.scale * radius;
         float kappa = 0.5f * (base_value.x * noise.y - base_value.y * noise.x);
-        float theta = (s * s) * kappa;
+        float theta = s * kappa;
         float c = cos(theta);
         float s_sin = sin(theta);
         float x_rot = c * base_value.x - s_sin * base_value.y;

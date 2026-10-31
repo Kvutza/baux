@@ -157,7 +157,7 @@ impl TrajectoryGenerator {
             .steps
             .iter()
             .rev()
-            .filter(|s| s.accepted && s.gain > 0.0)
+            .filter(|s| s.accepted && s.gain >= 0.0)
             .take(8)
             .copied()
             .enumerate()

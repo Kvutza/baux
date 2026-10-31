@@ -218,13 +218,32 @@ inline float2 noise_pair(ulong seed, ulong key, ulong pair, uint mode) {
     return ziggurat_pair_domain(domain, pair);
 #endif
 }
+inline float irwin_hall4_normal(ulong word) {
+    float s0 = float(as_type<short>(ushort(word & 0xfffful))) + 0.5f;
+    float s1 = float(as_type<short>(ushort((word >> 16) & 0xfffful))) + 0.5f;
+    float s2 = float(as_type<short>(ushort((word >> 32) & 0xfffful))) + 0.5f;
+    float s3 = float(as_type<short>(ushort(word >> 48))) + 0.5f;
+    return ((s0 + s1) + (s2 + s3)) * 2.64289979e-5f;
+}
+inline float2 fast_normal_pair(ulong salted_seed, ulong key, ulong pair, uint mode) {
+    if (mode == 1u) {
+        return rademacher_pair(ziggurat_domain(salted_seed, key), pair);
+    }
+    ulong base = salted_seed ^ (key * 0xd6e8feb86659fd93ul);
+    ulong w0 = mix64(base + pair * 0x9e3779b97f4a7c15ul);
+    ulong w1 = mix64(base + pair * 0xbf58476d1ce4e5b9ul + 0x94d049bb133111ebul);
+    return float2(irwin_hall4_normal(w0), irwin_hall4_normal(w1));
+}
 inline float2 trajectory_noise_pair(
     ulong salted_seed,
     Leaf leaf,
     ulong pair,
     uint mode,
     constant Params &p) {
-    float2 fresh = noise_pair(salted_seed, leaf.key, pair, mode);
+    if (p.trajectory_pad == 0u && p.trajectory_count == 0u) {
+        return noise_pair(salted_seed, leaf.key, pair, mode);
+    }
+    float2 fresh = fast_normal_pair(salted_seed, leaf.key, pair, mode);
     if (p.trajectory_count == 0u) return fresh;
     uint g = leaf.pad & 3u;
     float2 mixed = p.trajectory_fresh[g] * fresh;
@@ -236,7 +255,7 @@ inline float2 trajectory_noise_pair(
             if (hist_salted == salted_seed) {
                 hist_salted ^= 0x9e3779b97f4a7c15ul + ulong(j);
             }
-            mixed += w * noise_pair(hist_salted, leaf.key, pair, mode);
+            mixed += w * fast_normal_pair(hist_salted, leaf.key, pair, mode);
         }
     }
     return mixed;

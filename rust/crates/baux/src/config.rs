@@ -45,14 +45,10 @@ pub use objectives::{
     ObjectiveAcquisition, ObjectivePolicy, ResidentObjectiveConfig, ResidentObjectiveMode,
 };
 pub use spec::ExperimentSpec;
-pub use spec_execution::{
-    DataSpec, DiagnosticSpec, EvaluationSpec, ExecutionSpec, ObjectiveFunction, ObjectiveSampling,
-    ObjectiveSpec,
-};
+pub use spec_execution::{DataSpec, ExecutionSpec, ObjectiveFunction, ObjectiveSpec};
 pub use spec_optimizer::{
-    AcceptanceCriterion, AcceptanceSpec, AcquisitionSpec, CandidateGenerationSpec, OptimizerSpec,
-    ProposalKernelSpec, RadiusControlSpec, SurrogateEstimator, SurrogateFit, SurrogateRecipe,
-    TrustRegionBounds, TrustRegionSpec,
+    AcquisitionSpec, CandidateGenerationSpec, OptimizerSpec, SurrogateFit, SurrogateRecipe,
+    TrustRegionBounds,
 };
 #[cfg(test)]
 #[path = "config/spec/tests.rs"]
@@ -434,11 +430,13 @@ mod serialization_tests {
     #[test]
     fn recipe_seeds() {
         let input = "version=4\nexperiment='pretrain'\nmodel='fbt-pisa1-mhc4-v1'\n[data]\nrecipe='\
-                     stack-v3-rust-go-v1'\n[evaluation]\ninterval=4\n[optimizer]\nalgorithm='muon'\
-                     \n[objective]\nfunction='cross-entropy'\nsampling='natural'";
+                     stack-v3-rust-go-v1'\n[execution]\nvalidation-interval=4\n[optimizer]\n\
+                     algorithm='muon'\n[objective]\nfunction='cross-entropy'";
         let run = parse_tune(input).unwrap();
         assert_ne!(run.model_seeded(0), run.model_seeded(1));
-        assert!(parse_tune(&input.replace("interval=4", "interval=0")).is_err());
+        assert!(
+            parse_tune(&input.replace("validation-interval=4", "validation-interval=0")).is_err()
+        );
     }
 }
 

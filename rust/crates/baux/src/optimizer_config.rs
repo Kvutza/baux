@@ -4,8 +4,8 @@ use deser::{Deserialize, Serialize};
 
 use crate::candidates::CandidateSampler;
 use crate::config::{
-    AcquisitionSpec, CandidateGenerationSpec, OptimizerSpec, RadiusControlSpec, SurrogateEstimator,
-    SurrogateFit, SurrogateRecipe, TrustRegionBounds, TrustRegionSpec,
+    AcquisitionSpec, CandidateGenerationSpec, OptimizerSpec, SurrogateFit, SurrogateRecipe,
+    TrustRegionBounds,
 };
 use crate::error::ENNError;
 use crate::morbo::MorboTRSettings;
@@ -58,13 +58,11 @@ impl OptimizerConfig {
             OptimizerSpec::OperatorBo {
                 candidate_generation,
                 surrogate,
-                radius_control,
-                ..
+                trust_region,
             } => {
                 let candidates = CandidateConfig::from_spec(candidate_generation)?;
                 let surrogate_cfg = SurrogateConfig::from_recipe(surrogate)?;
-                let RadiusControlSpec::Turbo { bounds } = radius_control;
-                let trust_region = TrustRegionConfig::Turbo(length_bounds(bounds)?);
+                let trust_region = TrustRegionConfig::Turbo(length_bounds(trust_region)?);
                 Ok(Self {
                     surrogate: surrogate_cfg,
                     trust_region,
@@ -75,12 +73,13 @@ impl OptimizerConfig {
                 })
             }
             OptimizerSpec::TurboEnn {
-                candidate_generation,
                 surrogate,
                 acquisition,
                 trust_region,
+                ..
             } => {
-                let candidates = CandidateConfig::from_spec(candidate_generation)?;
+                let candidate_generation = spec.candidate_generation().unwrap();
+                let candidates = CandidateConfig::from_spec(&candidate_generation)?;
                 let surrogate_cfg = SurrogateConfig::from_recipe(surrogate)?;
                 let acq_cfg = AcquisitionConfig::from_spec(acquisition);
                 let tr_cfg = TrustRegionConfig::from_spec(trust_region, acquisition, false)?;
@@ -124,7 +123,6 @@ impl SurrogateConfig {
                 fit_samples,
             } => (fit_candidates, fit_samples),
         };
-        let _ = SurrogateEstimator::Enn;
         Ok(SurrogateConfig::ENN(ENNSurrogateConfig {
             k: recipe.neighbors,
             num_candidates,
@@ -168,7 +166,7 @@ impl CandidateConfig {
         }
         let per_arm = (spec.candidates / spec.arms) as usize;
         let total = spec.candidates as usize;
-        let candidate_rv = match spec.generator {
+        let candidate_rv = match spec.proposal {
             ProposalMethod::Additive => CandidateSampler::RAASP,
             ProposalMethod::PairMix | ProposalMethod::QuadraticFlow => CandidateSampler::Sobol,
         };
@@ -241,32 +239,24 @@ impl AcquisitionConfig {
 
 impl TrustRegionConfig {
     pub fn from_spec(
-        spec: &TrustRegionSpec,
+        bounds: &TrustRegionBounds,
         acquisition: &AcquisitionSpec,
         noise_aware: bool,
     ) -> Result<Self, ENNError> {
-        match spec {
-            TrustRegionSpec::Turbo { bounds } => Ok(Self::Turbo(length_bounds(bounds)?)),
-            TrustRegionSpec::Morbo {
-                bounds,
+        match acquisition {
+            AcquisitionSpec::AugmentedChebyshev {
+                scales,
+                alpha,
                 rescalarize,
                 ..
-            } => {
-                let (num_metrics, alpha) = match acquisition {
-                    AcquisitionSpec::AugmentedChebyshev { scales, alpha, .. } => {
-                        (scales.len().max(2), f64::from(*alpha))
-                    }
-                    AcquisitionSpec::Pareto { scales } => (scales.len().max(2), 0.05),
-                    _ => (2, 0.05),
-                };
-                Ok(Self::Morbo(MorboTRSettings {
-                    num_metrics,
-                    alpha,
-                    length: length_bounds(bounds)?,
-                    rescalarize: *rescalarize,
-                    noise_aware,
-                }))
-            }
+            } => Ok(Self::Morbo(MorboTRSettings {
+                num_metrics: scales.len().max(2),
+                alpha: f64::from(*alpha),
+                length: length_bounds(bounds)?,
+                rescalarize: *rescalarize,
+                noise_aware,
+            })),
+            _ => Ok(Self::Turbo(length_bounds(bounds)?)),
         }
     }
 }

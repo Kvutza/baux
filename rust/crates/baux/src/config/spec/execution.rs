@@ -9,7 +9,7 @@ use super::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[deser(default, deny_unknown_fields, rename_all = "kebab-case")]
-/// Requested execution budget, separate from algorithm and evaluation policy.
+/// Requested execution budget, validation cadence, and optional diagnostics.
 pub struct ExecutionSpec {
     /// Optimizer transactions per repetition, not epochs or successful updates.
     pub rounds: u32,
@@ -17,6 +17,16 @@ pub struct ExecutionSpec {
     pub repetitions: u32,
     /// Requested round-wall latency in milliseconds, not an achieved bound.
     pub round_target_ms: u32,
+    /// Held-out validation cadence in optimizer transactions.
+    pub validation_interval: Option<u32>,
+    /// Optional execution trace recording.
+    pub trace: bool,
+    /// Optional stage timing sample count.
+    pub stage_samples: Option<u32>,
+    /// Optional candidate pool rank audit cadence.
+    pub pool_rank: Option<u32>,
+    /// Optional kernel trial configuration.
+    pub kernels: Option<KernelTrial>,
 }
 
 impl Default for ExecutionSpec {
@@ -26,17 +36,13 @@ impl Default for ExecutionSpec {
             rounds: config.rounds(),
             repetitions: config.reps(),
             round_target_ms: config.target_ms(),
+            validation_interval: None,
+            trace: false,
+            stage_samples: None,
+            pool_rank: None,
+            kernels: None,
         }
     }
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[deser(default, deny_unknown_fields, rename_all = "kebab-case")]
-/// Held-out measurement policy. Validation observations never train the
-/// optimizer.
-pub struct EvaluationSpec {
-    /// Validation cadence in optimizer transactions.
-    pub interval: Option<u32>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -51,22 +57,10 @@ pub struct DataSpec {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[deser(default, deny_unknown_fields, rename_all = "kebab-case")]
-/// Optional instrumentation. Enabling diagnostics can change measured overhead;
-/// their output is evidence about that scope, not a mathematical certificate.
-pub struct DiagnosticSpec {
-    pub trace: bool,
-    pub stage_samples: Option<u32>,
-    pub pool_rank: Option<u32>,
-    pub kernels: Option<KernelTrial>,
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[deser(default, deny_unknown_fields, rename_all = "kebab-case")]
 /// Objective protocol requested by the fixed-corpus path.
 /// The runtime must still define scored positions, sign, and estimate variance.
 pub struct ObjectiveSpec {
     pub function: Option<ObjectiveFunction>,
-    pub sampling: Option<ObjectiveSampling>,
     /// Requested corpus tokens per causal-likelihood window, including boundary
     /// context; actual scored positions are reported separately by the
     /// evaluator.
@@ -115,10 +109,4 @@ impl ObjectiveFunction {
             }
         }
     }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[deser(rename_all = "kebab-case")]
-pub enum ObjectiveSampling {
-    Natural,
 }

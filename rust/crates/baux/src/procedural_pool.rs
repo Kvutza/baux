@@ -6,7 +6,7 @@
 //! A pool describes proposals to rank, not objective evaluations or accepted
 //! updates. `count = arms * candidates_per_arm`; the resident Metal backend
 //! supports one or four total proposals and materializes the selected row.
-//! TOML's `candidate-generation.candidates` is already a TOTAL and is divided
+//! TOML's `optimizer.candidates` is already a TOTAL and is divided
 //! by `arms` in `config::spec::conversion`, before constructing this layout.
 //!
 //! This module owns identities and reproducible seed mapping only. The proposal

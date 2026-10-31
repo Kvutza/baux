@@ -8,15 +8,12 @@ recipe = "fineweb-slowrun-100m-v1"
 
 [objective]
 function = "cross-entropy"
-sampling = "natural"
 window-tokens = 4096
 
 [execution]
 rounds = 128
 round-target-ms = 200
-
-[evaluation]
-interval = 1
+validation-interval = 1
 
 [optimizer]
 algorithm = "muon"

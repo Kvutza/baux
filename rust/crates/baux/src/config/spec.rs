@@ -14,16 +14,12 @@ pub struct ExperimentSpec {
     pub model: Option<ModelArchitecture>,
     pub output: Option<PathBuf>,
     #[deser(default)]
-    pub execution: ExecutionSpec,
-    #[deser(default)]
-    pub evaluation: EvaluationSpec,
-    #[deser(default)]
     pub data: DataSpec,
-    pub optimizer: OptimizerSpec,
     #[deser(default)]
     pub objective: ObjectiveSpec,
     #[deser(default)]
-    pub diagnostics: DiagnosticSpec,
+    pub execution: ExecutionSpec,
+    pub optimizer: OptimizerSpec,
     pub generation: Option<GenerationConfig>,
 }
 

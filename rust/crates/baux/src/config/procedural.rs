@@ -21,17 +21,12 @@ mod tests {
              experiment='end-to-end'\n\
              [optimizer]\n\
              algorithm='turbo-enn'\n\
-             [optimizer.candidate-generation]\n\
-             generator='independent'\n\
+             proposal='independent'\n\
              arms={arms}\n\
              candidates={candidates}\n\
+             acquisition='upper-confidence-bound'\n\
              [optimizer.surrogate]\n\
-             estimator='enn'\n\
-             fit='fixed'\n\
-             [optimizer.acquisition]\n\
-             function='upper-confidence-bound'\n\
-             [optimizer.trust-region]\n\
-             policy='turbo'\n"
+             fit='fixed'\n"
         )
     }
 

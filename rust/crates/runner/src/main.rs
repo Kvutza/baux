@@ -136,24 +136,21 @@ fn research_contract(
     objective: &str,
     sampling: &str,
 ) -> Result<(), String> {
-    use baux::config::{
-        ExperimentSpec, ModelArchitecture, ObjectiveFunction, ObjectiveSampling, OptimizerSpec,
-        SurrogateEstimator,
-    };
+    use baux::config::{ExperimentSpec, ModelArchitecture, ObjectiveFunction, OptimizerSpec};
 
     let text = std::fs::read_to_string(root.join(path)).map_err(|error| error.to_string())?;
     let spec = ExperimentSpec::parse(&text)?;
-    let (generation, surrogate) = match &spec.optimizer {
+    let (spec_candidates, surrogate) = match &spec.optimizer {
         OptimizerSpec::TurboEnn {
-            candidate_generation,
+            candidates,
             surrogate,
             ..
-        } => (candidate_generation, surrogate),
+        } => (*candidates, surrogate),
         _ => return Err("active Lean target requires optimizer.algorithm = turbo-enn".into()),
     };
     let matches = parameters == baux::experimental::MHC4_PARAMS
         && context_tokens == spec.objective.window_tokens.unwrap_or_default()
-        && candidates == generation.candidates
+        && candidates == spec_candidates
         && neighbors == surrogate.neighbors
         && target_ms <= spec.execution.round_target_ms
         && spec.execution.round_target_ms <= ceiling_ms
@@ -163,8 +160,6 @@ fn research_contract(
                 * (u64::from(context_tokens) / baux::experimental::MHC4_PATCH)
         && spec.model == Some(ModelArchitecture::FbtPisa1Mhc4V1)
         && spec.objective.function == Some(ObjectiveFunction::CrossEntropy)
-        && spec.objective.sampling == Some(ObjectiveSampling::Natural)
-        && surrogate.estimator == SurrogateEstimator::Enn
         && objective == "BauxResearch.ObjectiveMode.causalNll"
         && sampling == "BauxResearch.SamplingMode.natural";
     if !matches {

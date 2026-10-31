@@ -382,21 +382,18 @@ model = "fbt-pisa1-mhc4-v1"
 recipe = "stack-v3-rust-go-v1"
 [objective]
 function = "cross-entropy"
-sampling = "natural"
 window-tokens = 1048576
 [execution]
 rounds = 1000
 round-target-ms = 1000
 [optimizer]
 algorithm = "turbo-enn"
-[optimizer.candidate-generation]
-generator = "independent"
+proposal = "independent"
 arms = 1
 candidates = 1
-[optimizer.candidate-generation.perturbation]
 distribution = "gaussian"
+acquisition = "thompson"
 [optimizer.surrogate]
-estimator = "enn"
 scaling = "global"
 neighbors = 10
 neighbor-rule = "fixed"
@@ -405,10 +402,7 @@ aleatoric-scale = 0.05
 fit = "leave-one-out"
 fit-candidates = 30
 fit-samples = 10
-[optimizer.acquisition]
-function = "thompson"
 [optimizer.trust-region]
-policy = "turbo"
 initial = 0.02
 min = 0.01
 max = 0.2

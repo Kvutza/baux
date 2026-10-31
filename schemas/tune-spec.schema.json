@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://raw.githubusercontent.com/Kvutza/baux/main/schemas/tune-spec.schema.json",
   "title": "BAUX Experiment and Tuning Specification",
-  "description": "Closed schema for BAUX version 4 experiment recipes. The optimizer variant fixes the exact component tables that are valid for a run.",
+  "description": "Closed schema for BAUX version 4 experiment recipes.",
   "type": "object",
   "required": ["version", "experiment", "optimizer"],
   "properties": {
@@ -28,7 +28,7 @@
         "fbt-pisa1-looped-mhc4-v1",
         "fbt-pisa1-diffusion-mhc4-v1"
       ],
-      "description": "Architecture preset for pretraining. 'fbt-pisa1-mhc4-v1' specifies the PISA / mHC / MoE model."
+      "description": "Architecture preset for pretraining."
     },
     "output": {
       "type": "string",
@@ -36,38 +36,32 @@
     },
     "data": {
       "type": "object",
-      "description": "Dataset recipe and split configurations.",
+      "description": "Dataset recipe and resolved split paths.",
       "properties": {
         "recipe": {
           "type": "string",
-          "description": "Versioned immutable data recipe identifier (e.g., 'stack-v3-rust-go-v1')."
+          "description": "Versioned immutable data recipe identifier (e.g., 'stack-v3-rust-go-v1' or 'fineweb-bytes-100m-v1')."
         },
         "train": {
           "type": "string",
-          "description": "Filesystem path to training corpus token split."
+          "description": "Filesystem path to training corpus token split (populated in frozen run records)."
         },
         "validation": {
           "type": "string",
-          "description": "Filesystem path to held-out validation token split."
+          "description": "Filesystem path to held-out validation token split (populated in frozen run records)."
         }
       },
       "additionalProperties": false
     },
     "objective": {
       "type": "object",
-      "description": "Objective function and likelihood evaluation protocol.",
+      "description": "Objective loss function and causal evaluation window.",
       "properties": {
         "function": {
           "type": "string",
           "enum": ["cross-entropy", "bounded-log-likelihood"],
           "default": "cross-entropy",
           "description": "Objective loss function evaluated over sequence tokens: 'cross-entropy' (-log p) or 'bounded-log-likelihood' (log(2 - p))."
-        },
-        "sampling": {
-          "type": "string",
-          "enum": ["natural"],
-          "default": "natural",
-          "description": "Corpus sampling strategy: 'natural' streams contiguous tokens from pretraining corpus without artificial padding."
         },
         "window-tokens": {
           "type": "integer",
@@ -78,14 +72,14 @@
           "type": "string",
           "enum": ["moving-incumbent", "frozen-initial"],
           "default": "moving-incumbent",
-          "description": "Reference baseline for contrastive evaluations: 'moving-incumbent' computes relative reward over current best parameters; 'frozen-initial' uses initialization baseline."
+          "description": "Reference baseline for contrastive evaluations."
         }
       },
       "additionalProperties": false
     },
     "execution": {
       "type": "object",
-      "description": "Execution budget and system target; no optimizer behavior or held-out policy belongs here.",
+      "description": "Execution budget, validation cadence, latency target, and optional profiling.",
       "properties": {
         "rounds": {
           "type": "integer",
@@ -102,80 +96,84 @@
           "type": "integer",
           "minimum": 1,
           "description": "Requested round latency threshold in milliseconds."
-        }
-      },
-      "additionalProperties": false
-    },
-    "evaluation": {
-      "type": "object",
-      "description": "Held-out measurement policy; evaluation observations never train the optimizer.",
-      "properties": {
-        "interval": {
+        },
+        "validation-interval": {
           "type": "integer",
           "minimum": 1,
           "description": "Held-out evaluation cadence in optimizer transactions."
+        },
+        "trace": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable execution trace recording."
+        },
+        "stage-samples": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Sample count for stage timing profiling."
+        },
+        "pool-rank": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Candidate pool rank audit frequency."
+        },
+        "kernels": {
+          "type": "object",
+          "description": "Kernel-level execution settings."
         }
       },
       "additionalProperties": false
     },
     "optimizer": {
       "type": "object",
-      "description": "Optimizer recipe defining candidate generation, surrogate model, acquisition function, and trust-region dynamics.",
+      "description": "Optimizer recipe defining algorithm, candidate proposal, surrogate model, and trust-region bounds.",
       "required": ["algorithm"],
       "oneOf": [
         {
           "title": "Operator BO",
-          "required": ["algorithm", "candidate-generation", "surrogate", "acceptance", "radius-control"],
+          "required": ["algorithm", "proposal", "distribution", "surrogate", "trust-region"],
           "properties": {
             "algorithm": { "const": "operator-bo" },
-            "candidate-generation": {
-              "required": ["perturbation"],
-              "properties": {
-                "candidates": { "const": 1 },
-                "arms": { "const": 1 }
-              }
-            },
-            "surrogate": { "properties": { "estimator": { "const": "knn" } } }
+            "candidates": { "const": 1 },
+            "arms": { "const": 1 }
           },
           "allOf": [
             { "not": { "required": ["acquisition"] } },
-            { "not": { "required": ["trust-region"] } }
+            { "not": { "required": ["beta"] } },
+            { "not": { "required": ["scales"] } },
+            { "not": { "required": ["preferences"] } },
+            { "not": { "required": ["alpha"] } },
+            { "not": { "required": ["seed-domain"] } },
+            { "not": { "required": ["regions"] } },
+            { "not": { "required": ["rescalarize"] } },
+            { "not": { "required": ["clip"] } }
           ]
         },
         {
           "title": "TuRBO ENN",
-          "required": ["algorithm", "candidate-generation", "surrogate", "acquisition", "trust-region"],
+          "required": ["algorithm", "proposal", "acquisition", "surrogate"],
           "properties": {
-            "algorithm": { "const": "turbo-enn" },
-            "surrogate": { "properties": { "estimator": { "const": "enn" } } }
-          },
-          "allOf": [
-            { "not": { "required": ["acceptance"] } },
-            { "not": { "required": ["radius-control"] } }
-          ]
+            "algorithm": { "const": "turbo-enn" }
+          }
         },
         {
           "title": "Muon",
           "properties": { "algorithm": { "const": "muon" } },
           "allOf": [
-            { "not": { "required": ["candidate-generation"] } },
+            { "not": { "required": ["proposal"] } },
             { "not": { "required": ["surrogate"] } },
             { "not": { "required": ["acquisition"] } },
-            { "not": { "required": ["acceptance"] } },
-            { "not": { "required": ["trust-region"] } },
-            { "not": { "required": ["radius-control"] } }
+            { "not": { "required": ["trust-region"] } }
           ]
         },
         {
           "title": "AdamW",
           "properties": { "algorithm": { "const": "adamw" } },
           "allOf": [
-            { "not": { "required": ["candidate-generation"] } },
+            { "not": { "required": ["proposal"] } },
             { "not": { "required": ["surrogate"] } },
             { "not": { "required": ["acquisition"] } },
-            { "not": { "required": ["acceptance"] } },
-            { "not": { "required": ["trust-region"] } },
-            { "not": { "required": ["radius-control"] } }
+            { "not": { "required": ["trust-region"] } }
           ]
         }
       ],
@@ -183,55 +181,79 @@
         "algorithm": {
           "type": "string",
           "enum": ["operator-bo", "turbo-enn", "muon", "adamw"],
-          "description": "Optimization algorithm: 'operator-bo' (Direct Neural Operator BO), 'turbo-enn' (TuRBO trust region with ENN), 'muon', or 'adamw'."
+          "description": "Optimization algorithm: 'operator-bo', 'turbo-enn', 'muon', or 'adamw'."
         },
-        "candidate-generation": {
-          "type": "object",
-          "description": "Procedural candidate generation program.",
-          "required": ["generator", "candidates"],
-          "properties": {
-            "generator": {
-              "type": "string",
-              "enum": ["pair-rotation", "independent", "lie"],
-              "description": "Procedural proposal method. 'lie' applies continuous representation Lie algebra operator flows; 'pair-rotation' applies pairwise orthogonal rotation; 'independent' applies coordinate-wise noise."
-            },
-            "candidates": {
-              "type": "integer",
-              "minimum": 1,
-              "description": "Total proposals generated per round across all arms."
-            },
-            "arms": {
-              "type": "integer",
-              "minimum": 1,
-              "default": 1,
-              "description": "Number of procedural seed namespaces sharing the current incumbent center."
-            },
-            "perturbation": {
-              "type": "object",
-              "description": "Distribution of coordinate noise innovations.",
-              "properties": {
-                "distribution": {
-                  "type": "string",
-                  "enum": ["gaussian", "rademacher"],
-                  "default": "gaussian",
-                  "description": "Noise innovation law: 'gaussian' (Ziggurat normal) or 'rademacher' ({-1, +1})."
-                }
-              },
-              "additionalProperties": false
-            }
-          },
-          "additionalProperties": false
+        "proposal": {
+          "type": "string",
+          "enum": ["pair-rotation", "independent", "lie"],
+          "description": "Procedural proposal method: 'lie' (2nd-order Lie operator flow), 'pair-rotation' (unit-tangent mixing), or 'independent' (additive noise)."
+        },
+        "candidates": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 1,
+          "description": "Total proposals generated per round across all arms."
+        },
+        "arms": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 1,
+          "description": "Number of procedural seed namespaces sharing the current incumbent center."
+        },
+        "distribution": {
+          "type": "string",
+          "enum": ["gaussian", "rademacher"],
+          "default": "gaussian",
+          "description": "Coordinate noise innovation law: 'gaussian' (256-strip Ziggurat normal) or 'rademacher' ({-1, +1})."
+        },
+        "acquisition": {
+          "type": "string",
+          "enum": ["thompson", "random", "upper-confidence-bound", "pareto", "augmented-chebyshev"],
+          "description": "Acquisition policy for selecting proposals in turbo-enn."
+        },
+        "beta": {
+          "type": "number",
+          "default": 2.0,
+          "description": "Exploration weight beta for Upper Confidence Bound (UCB)."
+        },
+        "scales": {
+          "type": "array",
+          "items": { "type": "number" },
+          "description": "Objective scales for multi-objective acquisition."
+        },
+        "preferences": {
+          "type": "array",
+          "items": { "type": "number" },
+          "description": "Preference weights for augmented Chebyshev acquisition."
+        },
+        "alpha": {
+          "type": "number",
+          "description": "Augmentation factor for Chebyshev scalarization."
+        },
+        "seed-domain": {
+          "type": "string",
+          "description": "Seed domain identifier for multi-objective acquisition."
+        },
+        "regions": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 4,
+          "description": "Count of trust regions for multi-region MORBO."
+        },
+        "rescalarize": {
+          "type": "string",
+          "enum": ["on-propose", "on-restart"],
+          "description": "MORBO rescalarization schedule."
+        },
+        "clip": {
+          "type": "boolean",
+          "description": "Whether MORBO clips updates to the active region."
         },
         "surrogate": {
           "type": "object",
-          "description": "Surrogate model architecture, distance geometry, uncertainty scales, and fitting procedure.",
-          "required": ["estimator", "fit"],
+          "description": "Surrogate model distance geometry, uncertainty scales, and fitting procedure.",
+          "required": ["fit"],
           "properties": {
-            "estimator": {
-              "type": "string",
-              "enum": ["knn", "enn"],
-              "description": "Surrogate estimator type: 'enn' (Epistemic Neural Network) or 'knn' (Kernel Nearest-Neighbor)."
-            },
             "neighbors": {
               "type": "integer",
               "minimum": 1,
@@ -242,7 +264,7 @@
               "type": "string",
               "enum": ["fixed", "risk-prefix"],
               "default": "fixed",
-              "description": "Query-local neighbor adaptation rule: 'fixed' uses constant k neighbors; 'risk-prefix' contracts k based on local epistemic risk."
+              "description": "Query-local neighbor adaptation rule."
             },
             "epistemic-scale": {
               "type": "number",
@@ -263,13 +285,13 @@
               "type": "string",
               "enum": ["global", "self-tuning", "hyperbolic"],
               "default": "global",
-              "description": "Distance normalization mode across parameter dimensions: 'global' applies uniform isotropic scaling; 'self-tuning' dynamically adapts scaling to local neighbor density; 'hyperbolic' applies Poincaré upper half-space dissimilarity."
+              "description": "Distance normalization mode across parameter dimensions."
             },
             "geometry": {
               "type": "string",
               "enum": ["latent", "realized"],
               "default": "latent",
-              "description": "Coordinate geometry for parameter distance calculation: 'latent' evaluates distance in perturbation space; 'realized' evaluates post-quantization weight distance."
+              "description": "Coordinate geometry for parameter distance calculation."
             },
             "local-neighbors": {
               "type": "integer",
@@ -279,17 +301,17 @@
             "fit": {
               "type": "string",
               "enum": ["fixed", "leave-one-out"],
-              "description": "Surrogate scale fitting rule; independent of query-local neighbor-count selection."
+              "description": "Surrogate scale fitting rule."
             },
             "fit-candidates": {
               "type": "integer",
               "minimum": 1,
-              "description": "Hyperparameter configurations considered by leave-one-out fitting; not optimizer proposals."
+              "description": "Hyperparameter configurations considered by leave-one-out fitting."
             },
             "fit-samples": {
               "type": "integer",
               "minimum": 1,
-              "description": "Retained observations scored per fitting configuration; not fresh objective evaluations."
+              "description": "Retained observations scored per fitting configuration."
             }
           },
           "oneOf": [
@@ -307,100 +329,10 @@
           ],
           "additionalProperties": false
         },
-        "acquisition": {
-          "type": "object",
-          "description": "Acquisition function for selecting proposals under uncertainty.",
-          "required": ["function"],
-          "oneOf": [
-            {
-              "properties": { "function": { "const": "upper-confidence-bound" } },
-              "allOf": [
-                { "not": { "required": ["scales"] } },
-                { "not": { "required": ["preferences"] } },
-                { "not": { "required": ["alpha"] } },
-                { "not": { "required": ["seed-domain"] } }
-              ]
-            },
-            {
-              "properties": { "function": { "enum": ["thompson", "random"] } },
-              "allOf": [
-                { "not": { "required": ["beta"] } },
-                { "not": { "required": ["scales"] } },
-                { "not": { "required": ["preferences"] } },
-                { "not": { "required": ["alpha"] } },
-                { "not": { "required": ["seed-domain"] } }
-              ]
-            },
-            {
-              "required": ["scales"],
-              "properties": { "function": { "const": "pareto" } },
-              "allOf": [
-                { "not": { "required": ["beta"] } },
-                { "not": { "required": ["preferences"] } },
-                { "not": { "required": ["alpha"] } },
-                { "not": { "required": ["seed-domain"] } }
-              ]
-            },
-            {
-              "required": ["scales", "preferences", "alpha", "seed-domain"],
-              "properties": { "function": { "const": "augmented-chebyshev" } },
-              "not": { "required": ["beta"] }
-            }
-          ],
-          "properties": {
-            "function": {
-              "type": "string",
-              "enum": ["thompson", "random", "upper-confidence-bound", "pareto", "augmented-chebyshev"],
-              "description": "Acquisition policy: 'thompson' (posterior sampling) or 'upper-confidence-bound' / 'ucb'."
-            },
-            "beta": {
-              "type": "number",
-              "default": 2.0,
-              "description": "Exploration weight beta for Upper Confidence Bound (UCB)."
-            },
-            "scales": {
-              "type": "array",
-              "items": { "type": "number" },
-              "description": "Objective scales for multi-objective Pareto acquisition."
-            },
-            "preferences": {
-              "type": "array",
-              "items": { "type": "number" },
-              "description": "Preference weights for augmented Chebyshev acquisition."
-            },
-            "alpha": {
-              "type": "number",
-              "description": "Augmentation factor for Chebyshev scalarization."
-            },
-            "seed-domain": {
-              "type": "string",
-              "description": "Seed domain identifier for multi-objective acquisition."
-            }
-          },
-          "additionalProperties": false
-        },
-        "acceptance": {
-          "type": "object",
-          "description": "Candidate acceptance criterion.",
-          "properties": {
-            "criterion": {
-              "type": "string",
-              "enum": ["positive-improvement"],
-              "default": "positive-improvement",
-              "description": "Condition required to accept candidate over incumbent: 'positive-improvement' requires measured reward > incumbent baseline."
-            }
-          },
-          "additionalProperties": false
-        },
         "trust-region": {
           "type": "object",
-          "description": "TuRBO trust region bounds and contraction/expansion policy.",
+          "description": "Trust-region radius bounds and block scaling geometry.",
           "properties": {
-            "policy": {
-              "type": "string",
-              "enum": ["turbo", "morbo"],
-              "description": "Trust region update policy: 'turbo' (consecutive success/failure count) or 'morbo' (multi-region)."
-            },
             "initial": {
               "type": "number",
               "minimum": 0.0,
@@ -423,168 +355,9 @@
               "type": "string",
               "enum": ["scalar", "tensor-family-static"],
               "description": "Trust region geometry shape across parameter blocks."
-            },
-            "failure-tolerance": {
-              "type": "integer",
-              "minimum": 0,
-              "default": 0,
-              "description": "Consecutive non-improvements before contracting the radius (TuRBO contract). Set > 0 to enable TuRBO failure-counting contractions."
-            },
-            "evidence-decay": {
-              "type": "number",
-              "default": 0.9,
-              "description": "Discount factor applied to past model adequacy evidence."
-            },
-            "confidence-z": {
-              "type": "number",
-              "default": 2.0,
-              "description": "Standardized residual tolerance z for local model adequacy."
-            },
-            "reliability-threshold": {
-              "type": "number",
-              "default": 0.6,
-              "description": "Lower adequacy probability required to expand the region."
-            },
-            "minimum-evidence": {
-              "type": "number",
-              "default": 4.0,
-              "description": "Effective observations required before adequacy modifies the radius."
-            },
-            "acceptance-ratio": {
-              "type": "number",
-              "default": 0.1,
-              "description": "Minimum realized-to-predicted improvement ratio for expansion."
-            },
-            "boundary-fraction": {
-              "type": "number",
-              "default": 0.8,
-              "description": "Minimum fraction of trust region radius reached by accepted step."
-            },
-            "expand-factor": {
-              "type": "number",
-              "default": 2.0,
-              "description": "Multiplicative radius expansion factor upon successful step."
-            },
-            "shrink-factor": {
-              "type": "number",
-              "default": 0.5,
-              "description": "Multiplicative radius contraction factor upon failure."
-            },
-            "regions": {
-              "type": "integer",
-              "minimum": 1,
-              "default": 4,
-              "description": "Count of trust regions for multi-region MORBO."
             }
           },
           "additionalProperties": false
-        },
-        "radius-control": {
-          "type": "object",
-          "description": "Trust-region and adaptive radius control dynamics for operator-bo recipes.",
-          "properties": {
-            "policy": {
-              "type": "string",
-              "enum": ["turbo"],
-              "description": "Radius control policy: 'turbo' adapts radius by streak counting."
-            },
-            "initial": {
-              "type": "number",
-              "minimum": 0.0,
-              "exclusiveMinimum": 0.0,
-              "description": "Initial trust region radius (dimensionless multiplier on block scales)."
-            },
-            "min": {
-              "type": "number",
-              "minimum": 0.0,
-              "exclusiveMinimum": 0.0,
-              "description": "Minimum allowed trust region radius; bounds search above quantization deadzones."
-            },
-            "max": {
-              "type": "number",
-              "minimum": 0.0,
-              "exclusiveMinimum": 0.0,
-              "description": "Maximum allowed trust region radius; prevents step explosion in non-Euclidean manifold exploration."
-            },
-            "shape": {
-              "type": "string",
-              "enum": ["scalar", "tensor-family-static"],
-              "description": "Trust region geometry shape across parameter blocks."
-            },
-            "failure-tolerance": {
-              "type": "integer",
-              "minimum": 0,
-              "default": 0,
-              "description": "Consecutive non-improvements before contracting the radius. Set > 0 to enable failure-counting contractions."
-            },
-            "evidence-decay": {
-              "type": "number",
-              "default": 0.9,
-              "description": "Discount factor applied to past model adequacy evidence in moving-average reliability estimates."
-            },
-            "confidence-z": {
-              "type": "number",
-              "default": 2.0,
-              "description": "Standardized residual tolerance z for local surrogate model adequacy tests."
-            },
-            "reliability-threshold": {
-              "type": "number",
-              "default": 0.6,
-              "description": "Lower adequacy probability threshold required before triggering trust region expansion."
-            },
-            "minimum-evidence": {
-              "type": "number",
-              "default": 4.0,
-              "description": "Effective observations required before adequacy modifies the trust region radius."
-            },
-            "acceptance-ratio": {
-              "type": "number",
-              "default": 0.1,
-              "description": "Minimum realized-to-predicted improvement ratio for trust region expansion."
-            },
-            "boundary-fraction": {
-              "type": "number",
-              "default": 0.8,
-              "description": "Minimum fraction of trust region radius reached by accepted step to warrant expansion."
-            },
-            "expand-factor": {
-              "type": "number",
-              "default": 2.0,
-              "description": "Multiplicative radius expansion factor upon successful, boundary-reaching accepted steps."
-            },
-            "shrink-factor": {
-              "type": "number",
-              "default": 0.5,
-              "description": "Multiplicative radius contraction factor upon consecutive failures or model inadequacy."
-            }
-          },
-          "additionalProperties": false
-        }
-      },
-      "additionalProperties": false
-    },
-    "diagnostics": {
-      "type": "object",
-      "description": "Performance profiling, trace capture, and kernel audit settings.",
-      "properties": {
-        "trace": {
-          "type": "boolean",
-          "default": false,
-          "description": "Enable execution trace recording."
-        },
-        "stage-samples": {
-          "type": "integer",
-          "minimum": 1,
-          "description": "Sample count for stage timing profiling."
-        },
-        "pool-rank": {
-          "type": "integer",
-          "minimum": 1,
-          "description": "Candidate pool rank audit frequency."
-        },
-        "kernels": {
-          "type": "object",
-          "description": "Kernel-level execution settings."
         }
       },
       "additionalProperties": false

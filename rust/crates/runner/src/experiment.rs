@@ -198,7 +198,6 @@ mod tests {
         recipe='stack-v3-rust-go-v1'\n\
         [objective]\n\
         function='cross-entropy'\n\
-        sampling='natural'\n\
         [optimizer]\n\
         algorithm='muon'\n";
 

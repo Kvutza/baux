@@ -945,16 +945,14 @@ fn hnet_objective() -> Result<(), String> {
         let run = crate::config::parse_tune(
             "version = 4\nexperiment = \"pretrain\"\nmodel = \"fbt-pisa1-hnet-mhc4-v1\"\n\
              [data]\nrecipe = \"fineweb-bytes-100m-v1\"\n\
-             [objective]\nfunction = \"cross-entropy\"\nsampling = \"natural\"\nwindow-tokens = 4096\n\
+             [objective]\nfunction = \"cross-entropy\"\nwindow-tokens = 4096\n\
              [execution]\nrounds = 4\nround-target-ms = 250\n\
-             [optimizer]\nalgorithm = \"operator-bo\"\n\
-             [optimizer.candidate-generation]\ngenerator = \"lie\"\narms = 1\ncandidates = 1\n\
-             [optimizer.candidate-generation.perturbation]\ndistribution = \"gaussian\"\n\
-             [optimizer.surrogate]\nestimator = \"knn\"\nscaling = \"global\"\nneighbors = 8\n\
+             [optimizer]\nalgorithm = \"operator-bo\"\nproposal = \"lie\"\narms = 1\n\
+             candidates = 1\ndistribution = \"gaussian\"\n\
+             [optimizer.surrogate]\nscaling = \"global\"\nneighbors = 8\n\
              neighbor-rule = \"fixed\"\nepistemic-scale = 0.1\naleatoric-scale = 0.05\n\
              y-scale = 0.005\nfit = \"fixed\"\n\
-             [optimizer.acceptance]\ncriterion = \"positive-improvement\"\n\
-             [optimizer.radius-control]\npolicy = \"turbo\"\nshape = \"tensor-family-static\"\n\
+             [optimizer.trust-region]\nshape = \"tensor-family-static\"\n\
              initial = 0.004\nmin = 0.001\nmax = 0.008\n",
         )?;
         let (mut search, _updates) = model.search_shaped(

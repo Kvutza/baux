@@ -22,22 +22,66 @@ use super::*;
 pub enum OptimizerSpec {
     #[deser(rename = "operator-bo")]
     OperatorBo {
+        #[deser(flatten)]
         candidate_generation: CandidateGenerationSpec,
         surrogate: SurrogateRecipe,
-        acceptance: AcceptanceSpec,
-        radius_control: RadiusControlSpec,
+        #[deser(default)]
+        trust_region: TrustRegionBounds,
     },
     #[deser(rename = "turbo-enn")]
     TurboEnn {
-        candidate_generation: CandidateGenerationSpec,
-        surrogate: SurrogateRecipe,
+        proposal: crate::procedural_pool::ProposalMethod,
+        #[deser(default = turbo_candidates())]
+        candidates: u32,
+        #[deser(default = default_arms())]
+        arms: u32,
+        distribution: Option<crate::ProposalKernel>,
+        #[deser(flatten)]
         acquisition: AcquisitionSpec,
-        trust_region: TrustRegionSpec,
+        surrogate: SurrogateRecipe,
+        #[deser(default)]
+        trust_region: TrustRegionBounds,
     },
     #[deser(rename = "muon")]
     Muon,
     #[deser(rename = "adamw")]
     Adamw,
+}
+
+impl OptimizerSpec {
+    pub fn candidate_generation(&self) -> Option<CandidateGenerationSpec> {
+        match self {
+            Self::OperatorBo {
+                candidate_generation,
+                ..
+            } => Some(candidate_generation.clone()),
+            Self::TurboEnn {
+                proposal,
+                candidates,
+                arms,
+                distribution,
+                ..
+            } => Some(CandidateGenerationSpec {
+                proposal: *proposal,
+                candidates: *candidates,
+                arms: *arms,
+                distribution: *distribution,
+            }),
+            Self::Muon | Self::Adamw => None,
+        }
+    }
+}
+
+const fn default_arms() -> u32 {
+    1
+}
+
+const fn turbo_candidates() -> u32 {
+    4
+}
+
+const fn default_regions() -> usize {
+    4
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -46,40 +90,25 @@ pub enum OptimizerSpec {
 /// This does not set the number of forward evaluations or committed updates.
 pub struct CandidateGenerationSpec {
     /// Transformation program, separate from the underlying noise distribution.
-    pub generator: crate::procedural_pool::ProposalMethod,
+    pub proposal: crate::procedural_pool::ProposalMethod,
     /// TOTAL proposals across arms, distinct from fitting trials or objective
     /// calls.
+    #[deser(default = default_arms())]
     pub candidates: u32,
     /// Seed namespaces sharing a center, not independent trust regions.
+    #[deser(default = default_arms())]
     pub arms: u32,
     /// Underlying sampler selection; program transformations can change the
     /// distribution of the resulting parameter displacement.
-    pub perturbation: Option<ProposalKernelSpec>,
+    pub distribution: Option<crate::ProposalKernel>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[deser(deny_unknown_fields, rename_all = "kebab-case")]
-/// Noise sampler requested inside a proposal program, not its complete law.
-pub struct ProposalKernelSpec {
-    pub distribution: crate::ProposalKernel,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[deser(rename_all = "kebab-case")]
-pub enum SurrogateEstimator {
-    #[deser(rename = "knn")]
-    NeighborValue,
-    #[deser(rename = "enn")]
-    Enn,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[deser(deny_unknown_fields, rename_all = "kebab-case")]
-/// Estimator, geometry, uncertainty scales, and fitting policy for retained
-/// data. These settings do not by themselves define how a trial direction is
+/// Geometry, uncertainty scales, and fitting policy for retained data.
+/// These settings do not by themselves define how a trial direction is
 /// generated.
 pub struct SurrogateRecipe {
-    pub estimator: SurrogateEstimator,
     #[deser(default = default_neighbors())]
     /// Fixed k, or the configured neighbor budget when a local rule is enabled.
     pub neighbors: i32,
@@ -165,7 +194,7 @@ pub enum SurrogateFit {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[deser(
-    tag = "function",
+    tag = "acquisition",
     rename_all = "kebab-case",
     rename_all_fields = "kebab-case",
     deny_unknown_fields
@@ -188,6 +217,10 @@ pub enum AcquisitionSpec {
         preferences: Vec<f32>,
         alpha: f32,
         seed_domain: String,
+        #[deser(default = default_regions())]
+        regions: usize,
+        rescalarize: Rescalarize,
+        clip: bool,
     },
 }
 

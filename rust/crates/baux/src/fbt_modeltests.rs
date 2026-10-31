@@ -36,17 +36,13 @@ fn bo_config() -> crate::config::RunConfig {
             round-target-ms=1000\n\
             [optimizer]\n\
             algorithm='turbo-enn'\n\
-            [optimizer.candidate-generation]\n\
-            generator='independent'\n\
+            proposal='independent'\n\
             candidates=4\n\
             arms=1\n\
+            acquisition='thompson'\n\
             [optimizer.surrogate]\n\
-            estimator='enn'\n\
             fit='fixed'\n\
-            [optimizer.acquisition]\n\
-            function='thompson'\n\
             [optimizer.trust-region]\n\
-            policy='turbo'\n\
             initial=0.01\n\
             min=0.0001\n\
             max=0.1",

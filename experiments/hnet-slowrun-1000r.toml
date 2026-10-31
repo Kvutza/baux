@@ -1,6 +1,5 @@
 #:schema ../schemas/tune-spec.schema.json
 version = 4
-
 experiment = "pretrain"
 model = "fbt-pisa1-hnet-mhc4-v1"
 
@@ -9,29 +8,22 @@ recipe = "fineweb-bytes-100m-v1"
 
 [objective]
 function = "cross-entropy"
-sampling = "natural"
 window-tokens = 4096
 
 [execution]
 rounds = 1000
 round-target-ms = 250
-
-[evaluation]
-interval = 100
+validation-interval = 100
+stage-samples = 3
 
 [optimizer]
 algorithm = "operator-bo"
-
-[optimizer.candidate-generation]
-generator = "lie"
+proposal = "lie"
 arms = 1
 candidates = 1
-
-[optimizer.candidate-generation.perturbation]
 distribution = "gaussian"
 
 [optimizer.surrogate]
-estimator = "knn"
 scaling = "global"
 neighbors = 16
 neighbor-rule = "fixed"
@@ -40,15 +32,8 @@ aleatoric-scale = 0.05
 y-scale = 0.005
 fit = "fixed"
 
-[optimizer.acceptance]
-criterion = "positive-improvement"
-
-[optimizer.radius-control]
-policy = "turbo"
+[optimizer.trust-region]
 shape = "tensor-family-static"
 initial = 0.004
 min = 0.001
 max = 0.008
-
-[diagnostics]
-stage-samples = 3

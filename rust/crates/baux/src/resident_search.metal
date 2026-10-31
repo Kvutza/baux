@@ -318,6 +318,17 @@ inline float2 sym_pair_continuous(
         return step * unit_dir;
     }
     float2 q = noise_pair(salted_seed, leaf.key, pair, mode);
+    float r_sq = base_value.x * base_value.x + base_value.y * base_value.y;
+    if (r_sq > 1e-12f) {
+        float inv_r = rsqrt(r_sq);
+        float2 tangent = float2(base_value.y * inv_r, -base_value.x * inv_r);
+        float2 radial = float2(base_value.x * inv_r, base_value.y * inv_r);
+        float q_t = q.x * tangent.x + q.y * tangent.y;
+        float q_u = q.x * radial.x + q.y * radial.y;
+        float delta_t = step * (1.22474487f * q_t);
+        float delta_u = step * (0.70710678f * q_u) - 0.5f * delta_t * delta_t * inv_r;
+        return delta_t * tangent + delta_u * radial;
+    }
     return step * q;
 }
 
@@ -357,39 +368,8 @@ inline ushort2 sym_pair(
     float radius,
     uint mode,
     ulong pair) {
-    float step = leaf.scale * radius;
-    if (step == 0.0f) return encode_pair(base_value);
-    uint family_code = leaf.address & 31u;
-    ulong leaf_pairs = (leaf.length + 1ul) / 2ul;
-    if (family_code == 4u && (pair >> 17) < 64ul && leaf_pairs >= 4ul) {
-        ulong pair_base = min(pair & ~3ul, leaf_pairs - 4ul);
-        uint sub = uint(pair - pair_base);
-        float2 p0 = noise_pair(salted_seed, leaf.key, pair_base, mode);
-        float2 p1 = noise_pair(salted_seed, leaf.key, pair_base + 1ul, mode);
-        float2 p2 = noise_pair(salted_seed, leaf.key, pair_base + 2ul, mode);
-        float2 p3 = noise_pair(salted_seed, leaf.key, pair_base + 3ul, mode);
-        float mu8 = 0.125f * ((p0.x + p0.y) + (p1.x + p1.y) + (p2.x + p2.y) + (p3.x + p3.y));
-        float2 raw = sub == 0u ? p0 : (sub == 1u ? p1 : (sub == 2u ? p2 : p3));
-        float2 unit_dir = 1.05220856f * (raw - mu8) + 0.50f * float2(mu8);
-        return encode_pair(base_value + step * unit_dir);
-    }
-    bool center_fiber = family_code == 0u
-        || family_code == 5u
-        || family_code == 7u
-        || family_code == 9u
-        || family_code >= 10u;
-    if (center_fiber && leaf_pairs >= 2ul) {
-        ulong pair_base = min(pair & ~1ul, leaf_pairs - 2ul);
-        uint sub = uint(pair - pair_base);
-        float2 q0 = noise_pair(salted_seed, leaf.key, pair_base, mode);
-        float2 q1 = noise_pair(salted_seed, leaf.key, pair_base + 1ul, mode);
-        float mu4 = 0.25f * ((q0.x + q0.y) + (q1.x + q1.y));
-        float2 raw = sub == 0u ? q0 : q1;
-        float2 unit_dir = 1.15470054f * (raw - mu4);
-        return encode_pair(base_value + step * unit_dir);
-    }
-    float2 q = noise_pair(salted_seed, leaf.key, pair, mode);
-    return encode_pair(base_value + step * q);
+    return encode_pair(
+        base_value + sym_pair_continuous(base_value, leaf, salted_seed, radius, mode, pair));
 }
 
 // Seed is the canonical candidate stream, before the single noise-domain salt.

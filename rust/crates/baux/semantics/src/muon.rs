@@ -84,7 +84,10 @@ impl Default for Step {
 
 impl Step {
     pub fn muon() -> Self {
-        Self::default()
+        Self {
+            rate: 0.0015,
+            ..Self::default()
+        }
     }
 
     /// AdamW settings used by the PISA from-scratch runs. Muon is reserved

@@ -69,6 +69,10 @@ fn roundtrip() {
         };
     }
     for (name, text) in examples!(
+        "baux.toml",
+        "muon.toml",
+        "mhc4-slowrun-1000r.toml",
+        "mhc4-slowrun-100m.toml",
         "hnet-slowrun-1000r.toml",
         "mhc4-1m.toml",
         "mhc4-native.toml"

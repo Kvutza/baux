@@ -467,7 +467,7 @@ impl CandidateWeights {
                 "Full-weight inventory has {offset} parameters, expected {expected_parameters}"
             ));
         }
-        let search = build_search(
+        let mut search = build_search(
             mapped_base,
             use_cache,
             key,
@@ -477,6 +477,9 @@ impl CandidateWeights {
             length,
             perturbation,
         )?;
+        if shape == crate::config::TrustRegionShape::TensorFamilyStatic {
+            search.enable_family(groups)?;
+        }
         Ok((search, updates))
     }
 }

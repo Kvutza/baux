@@ -542,21 +542,17 @@ fn bo_step(
     search.observe_objectives(init_score.observation)?;
     let mut surrogate = baux::semantics::optimizer::Surrogate::with_spec(
         -init_score.quality.mean_nll,
-        init_score.quality.mean_nll_variance,
+        0.0,
         run.acquisition_seed(),
         policy.surrogate_spec()?,
     )?;
     let before = buffer_slice::<u16>(&search.base_buffer(), 1024)?.to_vec();
     let geom = search.sample_distances(101)?;
+    assert_eq!(geom.len(), 1);
     let sel = surrogate.evaluate_candidate(&geom[0])?;
     let (cand_buf, proposal) = search.materialize_selection(101, &sel)?;
     let cand_score = scorer.score_batch(runtime, decoder, model.row(&cand_buf)?, batch)?;
-    let slot = surrogate.append(
-        &geom[sel.selected],
-        -cand_score.quality.mean_nll,
-        cand_score.quality.mean_nll_variance,
-        true,
-    )?;
+    let slot = surrogate.append(&geom[0], -cand_score.quality.mean_nll, 0.0, true)?;
     search.commit_host(&proposal, slot, cand_score.observation, true, 0.004)?;
     assert_eq!(search.sync()?, vec![true]);
     let base_buf = search.base_buffer();
@@ -620,7 +616,7 @@ fn bench_1m(
     search.observe_objectives(init.observation)?;
     let mut surrogate = baux::semantics::optimizer::Surrogate::with_spec(
         -init.quality.mean_nll,
-        init.quality.mean_nll_variance,
+        0.0,
         run.acquisition_seed(),
         policy.surrogate_spec()?,
     )?;
@@ -634,9 +630,9 @@ fn bench_1m(
         let cand = scorer.score_batch(runtime, decoder, layout.view(&cand_buf), batch)?;
         let tell_t0 = Instant::now();
         let slot = surrogate.append(
-            &geom[sel.selected],
+            &geom[0],
             -cand.quality.mean_nll,
-            cand.quality.mean_nll_variance,
+            0.0,
             step == 0,
         )?;
         search.commit_host(&proposal, slot, cand.observation, step == 0, 0.004)?;

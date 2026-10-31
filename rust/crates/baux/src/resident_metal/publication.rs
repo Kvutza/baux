@@ -91,21 +91,25 @@ fn block_changes(
     partials: &[Partial],
     index: usize,
 ) -> Result<Vec<(u64, f64)>, String> {
-    if state.analytic_pool() {
-        let selected = &partials[index * state.tiles.len()..(index + 1) * state.tiles.len()];
-        let invalid = selected
-            .iter()
-            .any(|partial| partial.invalid != 0 || !partial.squared.is_finite());
-        let changed = selected.iter().any(|partial| partial.changed != 0);
-        let flags = u32::from(invalid) * baux::semantics::proposal::INVALID
-            | u32::from(changed) * baux::semantics::proposal::CHANGED;
-        baux::semantics::proposal::validate(flags, false)?;
-    }
+    let selected = &partials[index * state.tiles.len()..(index + 1) * state.tiles.len()];
     let mut changes = vec![(0u64, 0.0f64); state.blocks.len()];
-    for (tile_index, tile) in state.tiles.iter().enumerate() {
-        let partial = partials[index * state.tiles.len() + tile_index];
-        changes[tile.leaf as usize].0 += u64::from(partial.changed);
-        changes[tile.leaf as usize].1 += f64::from(partial.squared);
+    let mut invalid = false;
+    let mut any_changed = false;
+    for (partial, tile) in selected.iter().zip(&state.tiles) {
+        if partial.invalid != 0 || !partial.squared.is_finite() {
+            invalid = true;
+        }
+        if partial.changed != 0 {
+            any_changed = true;
+        }
+        let entry = &mut changes[tile.leaf as usize];
+        entry.0 += u64::from(partial.changed);
+        entry.1 += f64::from(partial.squared);
+    }
+    if state.analytic_pool() {
+        let flags = u32::from(invalid) * baux::semantics::proposal::INVALID
+            | u32::from(any_changed) * baux::semantics::proposal::CHANGED;
+        baux::semantics::proposal::validate(flags, false)?;
     }
     Ok(changes)
 }
@@ -230,7 +234,12 @@ impl SearchState {
         let index = decision.index as usize;
         let distances = read::<f32>(&self.pool_distances, 4 * self.history);
         let pool = pool_descriptions(self, &distances, &decision, pool_count as usize)?;
-        let partials = read::<Partial>(&self.partials, self.tiles.len() * 4);
+        let partials = unsafe {
+            std::slice::from_raw_parts(
+                self.partials.contents().cast::<Partial>(),
+                self.tiles.len() * 4,
+            )
+        };
         let (pool_radii, pool_cosines, reference_cosines) = self.read_geometry()?;
         let history_distances = pool[index].4.clone();
         let axis_coordinate = self.axis_candidate(decision.root_seed, index);

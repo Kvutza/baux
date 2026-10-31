@@ -444,6 +444,13 @@ impl SearchState {
             }
             self.objective_history
                 .record_slot(target_slot, identity, observation, accept);
+            if self.history >= self.initial_observations {
+                if self.fit_params {
+                    self.fit_enn()?;
+                } else if self.family.is_some() {
+                    let _ = self.fit_family_shape(true)?;
+                }
+            }
             if accept {
                 self.best = value;
                 self.best_variance = variance;

@@ -238,6 +238,16 @@ impl NeighborValueEstimator {
         (slot < self.len).then(|| &self.distances[slot][..self.len])
     }
 
+    /// Synchronize the stored pairwise distance matrix after a metric-weight
+    /// update (such as learned tensor-family reweighting).
+    pub fn sync_distances(&mut self, mut dist: impl FnMut(usize, usize) -> f64) {
+        for i in 0..self.len {
+            for j in 0..self.len {
+                self.distances[i][j] = if i == j { 0.0 } else { dist(i, j).max(0.0) };
+            }
+        }
+    }
+
     /// The sampled GPU row and host observation must replace this same slot.
     pub fn next_slot(&self) -> Result<usize, String> {
         let slope = if self.fitted {

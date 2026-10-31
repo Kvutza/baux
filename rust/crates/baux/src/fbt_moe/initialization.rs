@@ -241,7 +241,7 @@ impl CandidateWeights {
         expert: Option<usize>,
         initial_rms: f64,
     ) -> Result<(f32, f32), String> {
-        let multiplier = if shape == crate::config::TrustRegionShape::TensorFamilyStatic {
+        let multiplier = if shape != crate::config::TrustRegionShape::Scalar {
             baux::semantics::mhc4::expert_multiplier(family, expert)
         } else {
             1.0

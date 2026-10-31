@@ -496,14 +496,28 @@ impl TrustRegionController {
                 agreement_ratio: (predicted > 0.0).then_some(improvement / predicted),
             });
         }
-        self.evaluate_step(
-            value,
-            variance,
-            selection.baseline_value,
-            selection.baseline_se,
-            selection.candidate.mean,
-            selection.candidate.standard_error,
-            radius,
+        let improvement = f64::from(value) - f64::from(selection.baseline_value);
+        let predicted =
+            f64::from(selection.candidate.mean) - f64::from(selection.incumbent.mean);
+        let base_var = selection.baseline_se * selection.baseline_se;
+        let obs_var = if variance.to_bits() == base_var.to_bits() {
+            0.0
+        } else {
+            f64::from(variance.max(0.0))
+        };
+        let pred_se = f64::from(selection.candidate.standard_error.max(0.0));
+        let inc_se = f64::from(selection.incumbent.standard_error.max(0.0));
+        let r = f64::from(radius.abs());
+        self.observe_evidence(
+            super::agreement::TrialStep {
+                observed_improvement: improvement,
+                observation_variance: obs_var,
+                predicted_improvement: predicted,
+                prediction_variance: pred_se * pred_se + inc_se * inc_se,
+                accepted: false,
+                nominal_radius: r,
+                response_radius: r.max(inc_se),
+            },
             true,
         )
     }

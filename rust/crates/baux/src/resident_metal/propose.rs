@@ -409,7 +409,7 @@ impl SearchState {
                 self.neighbors
                     .as_ref()
                     .unwrap()
-                    .encode(self, command, root_seed);
+                    .encode_sample(self, command, root_seed);
                 finish(command)?;
                 let mut neighbors = self.neighbors.take().unwrap();
                 let mat = neighbors.compute_distances(self);
@@ -463,17 +463,19 @@ impl SearchState {
                 return Err("Selected candidate index exceeds pool count".into());
             }
             self.ensure_ref()?;
-            unsafe {
-                std::ptr::write_bytes(
-                    self.partials.contents().cast::<u8>(),
-                    0,
-                    self.partials.length() as usize,
-                );
-                std::ptr::write_bytes(
-                    self.pool_geometry.contents().cast::<u8>(),
-                    0,
-                    self.pool_geometry.length() as usize,
-                );
+            if !self.analytic_pool() {
+                unsafe {
+                    std::ptr::write_bytes(
+                        self.partials.contents().cast::<u8>(),
+                        0,
+                        self.partials.length() as usize,
+                    );
+                    std::ptr::write_bytes(
+                        self.pool_geometry.contents().cast::<u8>(),
+                        0,
+                        self.pool_geometry.length() as usize,
+                    );
+                }
             }
             let decision = Decision {
                 index: selected as u32,

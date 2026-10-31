@@ -198,6 +198,40 @@ impl Neighbors {
         encoder.end_encoding();
     }
 
+    pub(super) fn encode_sample(&self, state: &SearchState, command: &CommandBufferRef, root: u64) {
+        let params = Params {
+            stream_seed: root,
+            tiles: self.points.len() as u32,
+            history: state.history as u32,
+            initialize: u32::from(state.family.is_some()),
+            ..state.pool_params(root)
+        };
+        let encoder = command.new_compute_command_encoder();
+        encoder.set_compute_pipeline_state(&self.sample);
+        for (i, buffer) in [
+            &state.base,
+            &state.leaves_gpu,
+            &self.descriptors,
+            &self.pool,
+        ]
+        .iter()
+        .enumerate()
+        {
+            encoder.set_buffer(i as u64, Some(buffer), 0);
+        }
+        encoder.set_bytes(
+            4,
+            size_of::<Params>() as u64,
+            (&params as *const Params).cast(),
+        );
+        encoder.set_buffer(5, Some(&self.pool_deltas), 0);
+        encoder.dispatch_thread_groups(
+            thread_group(self.points.len().div_ceil(256) as u64),
+            thread_group(256),
+        );
+        encoder.end_encoding();
+    }
+
     pub(super) fn compute_distances(&mut self, state: &SearchState) -> Vec<Vec<f64>> {
         let n_pts = self.points.len();
         let base_index = state.identities[..state.history]
@@ -538,7 +572,24 @@ mod tests {
             check_fiber(&sym[0..640], &ind[0..640], sqrt_4_3);
             check_fiber(&sym[640..1280], &ind[640..1280], sqrt_4_3);
             check_hierarchy(&sym[1280..1920], &ind[1280..1920]);
-            assert_eq!(&sym[1920..2560], &ind[1920..2560]);
+            assert_ne!(&sym[1920..2560], &ind[1920..2560]);
+            for (s_pair, i_pair) in sym[1920..2560]
+                .chunks_exact(2)
+                .zip(ind[1920..2560].chunks_exact(2))
+            {
+                let (dx_ind, dy_ind) = (decode_half(i_pair[0]) - 1.0, decode_half(i_pair[1]) - 1.0);
+                let inv_r = (0.5f32).sqrt();
+                let (tx, ty) = (inv_r, -inv_r);
+                let (ux, uy) = (inv_r, inv_r);
+                let step_qt = dx_ind * tx + dy_ind * ty;
+                let step_qu = dx_ind * ux + dy_ind * uy;
+                let delta_t = 1.22474487 * step_qt;
+                let delta_u = 0.70710678 * step_qu - 0.5 * delta_t * delta_t * inv_r;
+                let exp_x = 1.0 + delta_t * tx + delta_u * ux;
+                let exp_y = 1.0 + delta_t * ty + delta_u * uy;
+                assert!((decode_half(s_pair[0]) - exp_x).abs() < 0.01);
+                assert!((decode_half(s_pair[1]) - exp_y).abs() < 0.01);
+            }
         });
     }
 }

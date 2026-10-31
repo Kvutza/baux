@@ -221,6 +221,10 @@ impl ModelAgreement {
         let model_inadequate = ready && upper < self.config.reliability_threshold;
         let ratio = (evidence.predicted_improvement > MIN_SCALE)
             .then_some(evidence.observed_improvement / evidence.predicted_improvement);
+        let positive_ratio = ratio.map_or(
+            evidence.observed_improvement > 0.0,
+            |value| value >= self.config.acceptance_ratio,
+        );
         let sharp = sharpness <= self.config.confidence_z;
         let boundary_step = reached.is_none_or(|value| value >= self.config.boundary_fraction);
         let failure = self.config.failure_tolerance > 0
@@ -231,7 +235,7 @@ impl ModelAgreement {
             model_inadequate,
             sharp,
             evidence.accepted,
-            ratio.is_some_and(|value| value >= self.config.acceptance_ratio),
+            positive_ratio,
             boundary_step,
             failure,
         );

@@ -208,12 +208,20 @@ fn init_surrogate(
 > {
     search.observe_objectives(initial.observation)?;
     let ctrl_info = search.controller_info()?;
+    let reliability_policy = run.reliability_controller().or_else(|| {
+        (run.optimizer() == crate::config::TrainingOptimizer::OperatorBo).then_some(
+            baux::semantics::optimizer::TrustRegionSpec {
+                failure_tolerance: 8,
+                ..Default::default()
+            },
+        )
+    });
     let trust_region = baux::semantics::optimizer::TrustRegionController::policy_f64(
         ctrl_info.length,
         ctrl_info.length_min,
         ctrl_info.length_max,
         8,
-        run.reliability_controller(),
+        reliability_policy,
     )?;
     let distance_metric = match policy.distance_scaling {
         crate::config::DistanceScaling::SelfTuning => {
@@ -232,7 +240,7 @@ fn init_surrogate(
     };
     let surrogate = baux::semantics::optimizer::Surrogate::with_spec(
         initial.reward,
-        initial.variance,
+        0.0,
         run.acquisition_seed(),
         policy.surrogate_spec()?,
     )?
@@ -385,7 +393,7 @@ impl LongState {
         let ask_start = Instant::now();
         let geometry = self.search.sample_distances(prop_seed)?;
         if geometry.len() != 1 {
-            return Err("operator-bo requires a single-candidate proposal geometry".into());
+            return Err("long pretraining requires a single candidate pool".into());
         }
         let selection = self.surrogate.evaluate_candidate(&geometry[0])?;
         let (row, proposal) = self.search.materialize_selection(prop_seed, &selection)?;
@@ -415,7 +423,7 @@ impl LongState {
         let target_slot = self.surrogate.append(
             &proposed.geometry[proposed.selection.selected],
             candidate.reward,
-            candidate.variance,
+            0.0,
             decision.accepted,
         )?;
         let next_radius = self.trust_region.radius_f64();
@@ -426,6 +434,11 @@ impl LongState {
             decision.accepted,
             next_radius,
         )?;
+        if self.search.family_shape().is_some() {
+            let search = &self.search;
+            self.surrogate
+                .sync_distances(|i, j| search.pairwise_distance(i, j));
+        }
         if self.search.sync()? != vec![decision.accepted] {
             return Err("long pretraining acceptance synchronization failed".into());
         }

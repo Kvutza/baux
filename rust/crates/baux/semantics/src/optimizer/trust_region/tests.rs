@@ -339,4 +339,30 @@ fn turbo_selection() {
             assert!((dec.next_radius - 0.004).abs() < 1e-7);
         }
     }
+
+    // ModelAgreement (1-population operator-bo) expands when adequate & sharp
+    // even when local KNN candidate.mean <= incumbent.mean, and shrinks on
+    // failure_tolerance or model inadequacy.
+    let mut agree_tr = TrustRegionController::from_policy(
+        0.004,
+        0.001,
+        0.008,
+        4,
+        Some(TrustRegionSpec {
+            minimum_evidence: 1.0,
+            reliability_threshold: 0.2,
+            failure_tolerance: 2,
+            ..Default::default()
+        }),
+    )
+    .unwrap();
+    let _ = agree_tr
+        .evaluate_selection(-14.99, 0.0, 0.004, &post_sel)
+        .unwrap();
+    let exp_dec = agree_tr
+        .evaluate_selection(-14.99, 0.0, 0.004, &post_sel)
+        .unwrap();
+    assert!(exp_dec.accepted);
+    assert_eq!(exp_dec.action, RadiusAction::Expand);
+    assert!((exp_dec.next_radius - 0.008).abs() < 1e-7);
 }

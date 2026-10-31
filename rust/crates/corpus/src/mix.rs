@@ -118,7 +118,7 @@ pub(super) fn prepare(value: Value) -> Result<()> {
 
 fn load(path: &PathBuf) -> Result<(u32, Vec<u32>)> {
     let bytes = fs::read(path)?;
-    if bytes.len() < HEADER || &bytes[..8] != b"BAUXPTN1" {
+    if bytes.len() < HEADER || !matches!(&bytes[..8], b"BAUXPTN1" | b"BLCKPTN1") {
         return Err(format!("invalid corpus artifact {}", path.display()).into());
     }
     let field = |offset| u32::from_le_bytes(bytes[offset..offset + 4].try_into().unwrap());

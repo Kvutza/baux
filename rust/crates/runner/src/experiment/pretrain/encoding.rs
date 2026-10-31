@@ -93,7 +93,7 @@ pub(super) fn check_header(path: &Path, recipe: &Value) -> Result<(), String> {
         .and_then(|mut file| file.read_exact(&mut header))
         .map_err(|error| error.to_string())?;
     let vocabulary = u32::from_le_bytes(header[8..12].try_into().map_err(|_| "invalid header")?);
-    if &header[..8] != b"BAUXPTN1"
+    if !matches!(&header[..8], b"BAUXPTN1" | b"BLCKPTN1")
         || Some(u64::from(vocabulary)) != recipe["tokenizer"]["vocabulary"].as_u64()
     {
         return Err("corpus header vocabulary does not match its encoding".into());

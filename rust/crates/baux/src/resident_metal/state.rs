@@ -45,6 +45,9 @@ impl SearchState {
             family.components.fill([0.0; FAMILIES]);
             family.weights = [1.0; FAMILIES];
         }
+        if let Some(traj) = &mut self.trajectory {
+            traj.reset();
+        }
         self.apply_family()?;
         self.fitted_enn = None;
         Ok(())

@@ -6,6 +6,9 @@ using namespace metal;
 #define PROCEDURAL_COUNT 4
 #endif
 
+#define TRAJECTORY_SEEDS 4
+#define TRAJECTORY_FAMILIES 4
+
 // BAUX_ZIGGURAT_TABLES
 
 struct Leaf {
@@ -32,6 +35,11 @@ struct Params {
     uint base_slot;
     uint blocks;
     uint program;
+    uint trajectory_count;
+    uint trajectory_pad;
+    ulong trajectory_seeds[TRAJECTORY_SEEDS];
+    float trajectory_weights[TRAJECTORY_FAMILIES][TRAJECTORY_SEEDS];
+    float trajectory_fresh[TRAJECTORY_FAMILIES];
 };
 struct ReplayStep {
     ulong seed;
@@ -210,6 +218,29 @@ inline float2 noise_pair(ulong seed, ulong key, ulong pair, uint mode) {
     return ziggurat_pair_domain(domain, pair);
 #endif
 }
+inline float2 trajectory_noise_pair(
+    ulong salted_seed,
+    Leaf leaf,
+    ulong pair,
+    uint mode,
+    constant Params &p) {
+    float2 fresh = noise_pair(salted_seed, leaf.key, pair, mode);
+    if (p.trajectory_count == 0u) return fresh;
+    uint g = leaf.pad & 3u;
+    float2 mixed = p.trajectory_fresh[g] * fresh;
+    uint count = min(p.trajectory_count, uint(TRAJECTORY_SEEDS));
+    for (uint j = 0u; j < count; j++) {
+        float w = p.trajectory_weights[g][j];
+        if (w != 0.0f) {
+            ulong hist_salted = p.trajectory_seeds[j] ^ 0x8ebc6af09c88c6e3ul;
+            if (hist_salted == salted_seed) {
+                hist_salted ^= 0x9e3779b97f4a7c15ul + ulong(j);
+            }
+            mixed += w * noise_pair(hist_salted, leaf.key, pair, mode);
+        }
+    }
+    return mixed;
+}
 inline float sample(ulong seed, ulong key, ulong element, uint mode) {
     float2 pair = noise_pair(seed, key, element / 2, mode);
     return (element & 1ul) == 0ul ? pair.x : pair.y;
@@ -285,7 +316,8 @@ inline float2 sym_pair_continuous(
     ulong salted_seed,
     float radius,
     uint mode,
-    ulong pair) {
+    ulong pair,
+    constant Params &p) {
     float step = leaf.scale * radius;
     if (step == 0.0f) return float2(0.0f, 0.0f);
     uint family_code = leaf.address & 31u;
@@ -293,10 +325,10 @@ inline float2 sym_pair_continuous(
     if (family_code == 4u && (pair >> 17) < 64ul && leaf_pairs >= 4ul) {
         ulong pair_base = min(pair & ~3ul, leaf_pairs - 4ul);
         uint sub = uint(pair - pair_base);
-        float2 p0 = noise_pair(salted_seed, leaf.key, pair_base, mode);
-        float2 p1 = noise_pair(salted_seed, leaf.key, pair_base + 1ul, mode);
-        float2 p2 = noise_pair(salted_seed, leaf.key, pair_base + 2ul, mode);
-        float2 p3 = noise_pair(salted_seed, leaf.key, pair_base + 3ul, mode);
+        float2 p0 = trajectory_noise_pair(salted_seed, leaf, pair_base, mode, p);
+        float2 p1 = trajectory_noise_pair(salted_seed, leaf, pair_base + 1ul, mode, p);
+        float2 p2 = trajectory_noise_pair(salted_seed, leaf, pair_base + 2ul, mode, p);
+        float2 p3 = trajectory_noise_pair(salted_seed, leaf, pair_base + 3ul, mode, p);
         float mu8 = 0.125f * ((p0.x + p0.y) + (p1.x + p1.y) + (p2.x + p2.y) + (p3.x + p3.y));
         float2 raw = sub == 0u ? p0 : (sub == 1u ? p1 : (sub == 2u ? p2 : p3));
         float2 unit_dir = 1.05220856f * (raw - mu8) + 0.50f * float2(mu8);
@@ -310,14 +342,14 @@ inline float2 sym_pair_continuous(
     if (center_fiber && leaf_pairs >= 2ul) {
         ulong pair_base = min(pair & ~1ul, leaf_pairs - 2ul);
         uint sub = uint(pair - pair_base);
-        float2 q0 = noise_pair(salted_seed, leaf.key, pair_base, mode);
-        float2 q1 = noise_pair(salted_seed, leaf.key, pair_base + 1ul, mode);
+        float2 q0 = trajectory_noise_pair(salted_seed, leaf, pair_base, mode, p);
+        float2 q1 = trajectory_noise_pair(salted_seed, leaf, pair_base + 1ul, mode, p);
         float mu4 = 0.25f * ((q0.x + q0.y) + (q1.x + q1.y));
         float2 raw = sub == 0u ? q0 : q1;
         float2 unit_dir = 1.15470054f * (raw - mu4);
         return step * unit_dir;
     }
-    float2 q = noise_pair(salted_seed, leaf.key, pair, mode);
+    float2 q = trajectory_noise_pair(salted_seed, leaf, pair, mode, p);
     float r_sq = base_value.x * base_value.x + base_value.y * base_value.y;
     if (r_sq > 1e-12f) {
         float inv_r = rsqrt(r_sq);
@@ -334,11 +366,11 @@ inline float2 sym_pair_continuous(
 
 inline float2 proposal_pair_continuous(float2 base_value, Leaf leaf, ulong seed,
     ulong basis_seed, uint candidate, uint program, float radius, uint mode,
-    ulong pair) {
+    ulong pair, constant Params &p) {
     if (program == 4u)
-        return sym_pair_continuous(base_value, leaf, seed ^ 0x8ebc6af09c88c6e3ul, radius, mode, pair);
+        return sym_pair_continuous(base_value, leaf, seed ^ 0x8ebc6af09c88c6e3ul, radius, mode, pair, p);
 
-    float2 noise = noise_pair(seed ^ 0x8ebc6af09c88c6e3ul, leaf.key, pair, mode);
+    float2 noise = trajectory_noise_pair(seed ^ 0x8ebc6af09c88c6e3ul, leaf, pair, mode, p);
     if (program == 3u) {
         float r_sq = base_value.x * base_value.x + base_value.y * base_value.y;
         float inv_r = r_sq > 1e-12f ? rsqrt(r_sq) : 0.0f;
@@ -367,20 +399,21 @@ inline ushort2 sym_pair(
     ulong salted_seed,
     float radius,
     uint mode,
-    ulong pair) {
+    ulong pair,
+    constant Params &p) {
     return encode_pair(
-        base_value + sym_pair_continuous(base_value, leaf, salted_seed, radius, mode, pair));
+        base_value + sym_pair_continuous(base_value, leaf, salted_seed, radius, mode, pair, p));
 }
 
 // Seed is the canonical candidate stream, before the single noise-domain salt.
 // Every FP16 materialization path and sampled observation uses this operation.
 inline ushort2 proposal_pair(float2 base_value, Leaf leaf, ulong seed,
     ulong basis_seed, uint candidate, uint program, float radius, uint mode,
-    ulong pair) {
+    ulong pair, constant Params &p) {
     if (program == 4u)
-        return sym_pair(base_value, leaf, seed ^ 0x8ebc6af09c88c6e3ul, radius, mode, pair);
+        return sym_pair(base_value, leaf, seed ^ 0x8ebc6af09c88c6e3ul, radius, mode, pair, p);
 
-    float2 noise = noise_pair(seed ^ 0x8ebc6af09c88c6e3ul, leaf.key, pair, mode);
+    float2 noise = trajectory_noise_pair(seed ^ 0x8ebc6af09c88c6e3ul, leaf, pair, mode, p);
     if (program == 3u) {
         float r_sq = base_value.x * base_value.x + base_value.y * base_value.y;
         float inv_r = r_sq > 1e-12f ? rsqrt(r_sq) : 0.0f;
@@ -412,7 +445,7 @@ inline ushort2 procedural_pair(float2 base_value, Leaf leaf, constant Params &p,
         proposal_seed(p.stream_seed, candidate, p.program), p.basis_seed,
         candidate, p.program,
         proposal_radius(candidate, p.program, p.radius, p.alternate_radius),
-        p.mode, pair);
+        p.mode, pair, p);
 }
 #endif
 #endif
@@ -470,7 +503,7 @@ kernel void bf16_propose(
             ? proposal_seed(p.stream_seed, p.candidate, p.program) : p.seed;
         ushort2 values = proposal_pair(decode_pair(base_pair), leaf, seed,
             p.basis_seed, p.candidate, p.program, p.radius, p.mode,
-            element / 2ul);
+            element / 2ul, p);
         float base_value = decode(base[index]);
         ushort value = values[element & 1ul];
 #else
@@ -567,7 +600,7 @@ kernel void bf16_propose_initial(
         ulong seed = p.program == 3u
             ? proposal_seed(p.stream_seed, p.candidate, p.program) : p.seed;
         ushort2 values = proposal_pair(base_values, leaf, seed, p.basis_seed,
-            p.candidate, p.program, p.radius, p.mode, element / 2ul);
+            p.candidate, p.program, p.radius, p.mode, element / 2ul, p);
         if (aligned_pair) {
             *reinterpret_cast<device ushort2*>(output + index) = values;
         } else {
@@ -666,8 +699,8 @@ kernel void bf16_propose_pool(
     for (uint item = tid * 2; item < tile.length; item += 512) {
         ulong pair_element = ulong(tile.start) + item;
         ulong pair = pair_element / 2;
-        float2 persistent_pair = noise_pair(persistent_seed, leaf.key, pair, p.mode);
-        float2 fresh_pair = noise_pair(fresh_seed, leaf.key, pair, p.mode);
+        float2 persistent_pair = trajectory_noise_pair(persistent_seed, leaf, pair, p.mode, p);
+        float2 fresh_pair = trajectory_noise_pair(fresh_seed, leaf, pair, p.mode, p);
 #ifdef FP16_INDEPENDENT
         ulong first_index = leaf.offset + pair_element;
         bool complete_pair = item + 1 < tile.length;
@@ -720,7 +753,8 @@ kernel void bf16_propose_pool(
                     p.program,
                     candidate % 2 == 0 ? p.radius : p.alternate_radius,
                     p.mode,
-                    pair);
+                    pair,
+                    p);
 #endif
         }
         uint pair_length = complete_pair ? 2u : 1u;
@@ -1157,7 +1191,7 @@ kernel void bf16_replay_short(
                     base_value, leaf,
                     proposal_seed(p.stream_seed, candidate, p.program), p.basis_seed,
                     candidate, p.program, radius, p.mode,
-                    element / 2ul);
+                    element / 2ul, p);
             }
 #else
             for (uint candidate = 0; candidate < 4; candidate++) {
@@ -1167,7 +1201,7 @@ kernel void bf16_replay_short(
                     base_value, leaf,
                     proposal_seed(p.stream_seed, candidate, p.program), p.basis_seed,
                     candidate, p.program, radius, p.mode,
-                    element / 2ul);
+                    element / 2ul, p);
             }
 #endif
         }
@@ -1224,7 +1258,7 @@ kernel void bf16_replay_short(
                     historical = proposal_pair(
                         decode_pair(current_lineage), hist_leaf, step.seed, p.basis_seed,
                         step.candidate, p.program, step.radius, step.mode,
-                        element / 2ul);
+                        element / 2ul, p);
                 }
             }
             float2 historical_value = decode_pair(historical);
@@ -1453,13 +1487,13 @@ kernel void bf16_sample(
             proposal_seed(p.stream_seed, candidate, p.program), p.basis_seed,
             candidate, p.program,
             proposal_radius(candidate, p.program, p.radius, p.alternate_radius),
-            p.mode, point.element / 2ul);
+            p.mode, point.element / 2ul, p);
         pool[candidate * p.tiles + index] = values[point.element & 1ul];
         float2 deltas = proposal_pair_continuous(base_value, leaf,
             proposal_seed(p.stream_seed, candidate, p.program), p.basis_seed,
             candidate, p.program,
             proposal_radius(candidate, p.program, p.radius, p.alternate_radius),
-            p.mode, point.element / 2ul);
+            p.mode, point.element / 2ul, p);
         pool_deltas[candidate * p.tiles + index] = deltas[point.element & 1ul];
     }
 #else
@@ -1707,7 +1741,7 @@ kernel void bf16_materialize(
             : ushort2(base[index], complete_pair ? base[index + 1] : 0);
         ushort2 result = proposal_pair(decode_pair(base_pair), leaf, seed,
             decision->basis_seed, decision->index, decision->program,
-            decision->radius, decision->mode, pair);
+            decision->radius, decision->mode, pair, p);
         if (aligned_pair) {
             *reinterpret_cast<device ushort2*>(output + index) = result;
         } else {

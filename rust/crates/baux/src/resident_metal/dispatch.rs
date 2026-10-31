@@ -238,7 +238,7 @@ impl SearchState {
         encoder.set_buffer(8, Some(&self.partials), 0);
         let params = Params {
             tiles: self.tiles.len() as u32,
-            ..Params::default()
+            ..self.pool_params(0)
         };
         encoder.set_bytes(
             9,

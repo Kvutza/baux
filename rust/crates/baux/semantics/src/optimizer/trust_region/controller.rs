@@ -507,16 +507,17 @@ impl TrustRegionController {
         };
         let pred_se = f64::from(selection.candidate.standard_error.max(0.0));
         let inc_se = f64::from(selection.incumbent.standard_error.max(0.0));
+        let cal_scale = (f64::from(self.calibration.multiplier()) * 0.5).max(1.0);
         let r = f64::from(radius.abs());
         self.observe_evidence(
             super::agreement::TrialStep {
                 observed_improvement: improvement,
                 observation_variance: obs_var,
                 predicted_improvement: predicted,
-                prediction_variance: pred_se * pred_se + inc_se * inc_se,
+                prediction_variance: (pred_se * pred_se + inc_se * inc_se) * cal_scale * cal_scale,
                 accepted: false,
                 nominal_radius: r,
-                response_radius: r.max(inc_se),
+                response_radius: r.max(inc_se * cal_scale),
             },
             true,
         )

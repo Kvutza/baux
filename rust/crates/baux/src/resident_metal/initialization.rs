@@ -269,6 +269,7 @@ impl SearchState {
             distance_scaling: crate::config::DistanceScaling::Global,
             local_scale_neighbors: 8,
             family: None,
+            trajectory: None,
             metric_gpu: None,
             implicit_history,
             exact_history,

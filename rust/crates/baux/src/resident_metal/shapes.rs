@@ -25,6 +25,11 @@ pub(super) struct Params {
     pub(super) base_slot: u32,
     pub(super) blocks: u32,
     pub(super) program: u32,
+    pub(super) trajectory_count: u32,
+    pub(super) trajectory_pad: u32,
+    pub(super) trajectory_seeds: [u64; TRAJECTORY_SEEDS],
+    pub(super) trajectory_weights: [[f32; TRAJECTORY_SEEDS]; FAMILIES],
+    pub(super) trajectory_fresh: [f32; FAMILIES],
 }
 
 #[repr(C)]

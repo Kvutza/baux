@@ -125,6 +125,7 @@ pub struct TrustRegionStatus {
 #[derive(Debug, Clone)]
 pub struct ModelAgreement {
     config: TrustRegionSpec,
+    initial: f64,
     minimum: f64,
     maximum: f64,
     length: f64,
@@ -132,6 +133,7 @@ pub struct ModelAgreement {
     inadequate: f64,
     log_conversion: Option<f64>,
     telemetry: TrustRegionStatus,
+    consecutive_successes: usize,
     consecutive_failures: usize,
 }
 
@@ -158,6 +160,7 @@ impl ModelAgreement {
         let (mean, lower, _) = beta_summary(PRIOR, PRIOR, config.confidence_z);
         Ok(Self {
             config,
+            initial,
             minimum,
             maximum,
             length: initial,
@@ -178,6 +181,7 @@ impl ModelAgreement {
                 conversion: None,
                 length: initial,
             },
+            consecutive_successes: 0,
             consecutive_failures: 0,
         })
     }
@@ -217,16 +221,19 @@ impl ModelAgreement {
             beta_summary(self.adequate, self.inadequate, self.config.confidence_z);
         let amount = (self.adequate + self.inadequate - 2.0 * PRIOR).max(0.0);
         let ready = amount >= self.config.minimum_evidence;
-        let model_adequate = ready && lower >= self.config.reliability_threshold;
-        let model_inadequate = ready && upper < self.config.reliability_threshold;
+        let streak_expand = evidence.accepted && self.consecutive_successes.saturating_add(1) >= 3;
+        let model_adequate = (ready && lower >= self.config.reliability_threshold) || streak_expand;
+        let model_inadequate =
+            ready && upper < self.config.reliability_threshold && !evidence.accepted;
         let ratio = (evidence.predicted_improvement > MIN_SCALE)
             .then_some(evidence.observed_improvement / evidence.predicted_improvement);
         let positive_ratio = ratio.map_or(
             evidence.observed_improvement > 0.0,
             |value| value >= self.config.acceptance_ratio,
-        );
-        let sharp = sharpness <= self.config.confidence_z;
-        let boundary_step = reached.is_none_or(|value| value >= self.config.boundary_fraction);
+        ) || streak_expand;
+        let sharp = sharpness <= self.config.confidence_z || streak_expand;
+        let boundary_step =
+            reached.is_none_or(|value| value >= self.config.boundary_fraction) || streak_expand;
         let failure = self.config.failure_tolerance > 0
             && !evidence.accepted
             && self.consecutive_failures.saturating_add(1) >= self.config.failure_tolerance;
@@ -240,22 +247,36 @@ impl ModelAgreement {
             failure,
         );
 
-        if evidence.accepted || action == RadiusAction::Expand {
+        if evidence.accepted {
             self.consecutive_failures = 0;
-        } else if !evidence.accepted {
+            if action == RadiusAction::Expand {
+                self.consecutive_successes = 0;
+            } else {
+                self.consecutive_successes = self.consecutive_successes.saturating_add(1);
+            }
+        } else {
+            self.consecutive_successes = 0;
             if action == RadiusAction::Shrink {
                 self.consecutive_failures = 0;
+                self.adequate = PRIOR;
+                self.inadequate = PRIOR;
             } else {
                 self.consecutive_failures = self.consecutive_failures.saturating_add(1);
             }
         }
 
         self.length = match action {
-            RadiusAction::Expand => self.length * self.config.expand_factor,
-            RadiusAction::Shrink => self.length * self.config.shrink_factor,
-            RadiusAction::Hold => self.length,
-        }
-        .clamp(self.minimum, self.maximum);
+            RadiusAction::Expand => (self.length * self.config.expand_factor).clamp(self.minimum, self.maximum),
+            RadiusAction::Shrink => {
+                let shrunk = self.length * self.config.shrink_factor;
+                if shrunk < self.minimum {
+                    self.initial.clamp(self.minimum, self.maximum)
+                } else {
+                    shrunk.clamp(self.minimum, self.maximum)
+                }
+            }
+            RadiusAction::Hold => self.length.clamp(self.minimum, self.maximum),
+        };
         self.telemetry = TrustRegionStatus {
             action,
             standardized_error: Some(error),

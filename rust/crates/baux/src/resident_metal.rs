@@ -85,6 +85,9 @@ const MAX_HISTORY: usize = crate::objective_observation::OBJECTIVE_CAPACITY;
 #[path = "resident_metal/family.rs"]
 mod family;
 use family::{FAMILIES, FamilyHistory};
+#[path = "resident_metal/trajectory.rs"]
+mod trajectory;
+use trajectory::{TRAJECTORY_SEEDS, TrajectoryGenerator};
 #[path = "resident_metal/metric.rs"]
 mod metric;
 // Production decisions consume only the four proposal norms.  The remaining
@@ -451,6 +454,7 @@ pub struct SearchState {
     distance_scaling: crate::config::DistanceScaling,
     local_scale_neighbors: usize,
     family: Option<FamilyHistory>,
+    trajectory: Option<TrajectoryGenerator>,
     metric_gpu: Option<metric::MetricGpu>,
     implicit_history: bool,
     exact_history: bool,

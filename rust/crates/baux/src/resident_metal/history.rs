@@ -116,6 +116,7 @@ impl SearchState {
                 self.poisoned = true;
                 return Err(error);
             }
+            self.update_trajectory(round, value - incumbent_value, accept)?;
             self.pending = None;
             self.evaluation = None;
             self.queued = Some(accept);
@@ -444,13 +445,11 @@ impl SearchState {
             }
             self.objective_history
                 .record_slot(target_slot, identity, observation, accept);
-            if self.history >= self.initial_observations {
-                if self.fit_params {
-                    self.fit_enn()?;
-                } else if self.family.is_some() {
-                    let _ = self.fit_family_shape(true)?;
-                }
+            if self.history >= self.initial_observations && self.family.is_some() {
+                let _ = self.fit_family_shape(true)?;
             }
+            let gain = value - self.best;
+            self.update_trajectory(round, gain, accept)?;
             if accept {
                 self.best = value;
                 self.best_variance = variance;
@@ -466,6 +465,45 @@ impl SearchState {
             self.poisoned = true;
         }
         result
+    }
+
+    pub(super) fn update_trajectory(
+        &mut self,
+        round: &Proposals,
+        gain: f32,
+        accept: bool,
+    ) -> Result<(), String> {
+        if self.trajectory.is_none() {
+            return Ok(());
+        }
+        let mut energy = [1.0f32; FAMILIES];
+        if let Some(family) = &self.family {
+            let mut acc = [0.0f32; FAMILIES];
+            let mut total = 0.0f32;
+            for (i, &(_, sq)) in round.changes.iter().enumerate() {
+                if i < family.groups.len() && i < family.original.len() {
+                    let g = family.groups[i];
+                    let e = (sq as f32) * family.original[i].weight;
+                    acc[g] += e;
+                    total += e;
+                }
+            }
+            energy = if total > 1.0e-12 {
+                acc
+            } else {
+                self.latent_components(round.index)
+            };
+        }
+        if let Some(traj) = &mut self.trajectory {
+            traj.observe(round.seed, round.base_id, gain, accept, energy);
+            if let Some(family) = &mut self.family {
+                family.weights = traj.online_em_family_weights(family.weights);
+            }
+        }
+        if self.family.is_some() {
+            self.apply_family()?;
+        }
+        Ok(())
     }
 }
 

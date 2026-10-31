@@ -115,6 +115,20 @@ impl SearchState {
             self.resident_bytes += neighbors.bytes();
             self.neighbors = Some(neighbors);
         }
+        if self.pool_layout.count() == 1 && self.family.is_some() {
+            self.trajectory = Some(TrajectoryGenerator::new());
+        }
+        Ok(())
+    }
+
+    /// Enable the observation-driven variable-metric and Online EM trajectory
+    /// generator for full-vector (`candidates = 1`) FP16 proposals.
+    pub fn enable_trajectory(&mut self) -> Result<(), String> {
+        self.check_idle()?;
+        if !self.independent_fp16 {
+            return Err("Trajectory generator requires independent FP16 proposals".into());
+        }
+        self.trajectory = Some(TrajectoryGenerator::new());
         Ok(())
     }
 
@@ -224,10 +238,14 @@ impl SearchState {
                     .cast::<f32>()
                     .add(index)
                     .write(block.weight);
+                (*self.leaves_gpu.contents().cast::<Leaf>().add(index)).pad = group as u32;
             }
         }
         self.family = Some(family);
         self.metric_gpu = Some(metric);
+        if self.pool_layout.count() == 1 && self.fitter.is_some() {
+            self.trajectory = Some(TrajectoryGenerator::new());
+        }
         Ok(())
     }
 
@@ -253,7 +271,10 @@ impl SearchState {
             block.scale = family.original[i].scale * scales[g];
             block.weight = family.original[i].weight * family.weights[g];
         }
-        let (_, _, leaves) = make_layout(&self.blocks, self.dimensions)?;
+        let (_, _, mut leaves) = make_layout(&self.blocks, self.dimensions)?;
+        for (leaf, &g) in leaves.iter_mut().zip(&family.groups) {
+            leaf.pad = g as u32;
+        }
         unsafe {
             std::ptr::copy_nonoverlapping(
                 leaves.as_ptr(),

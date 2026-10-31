@@ -246,8 +246,10 @@ impl ModelAgreement {
             && self.consecutive_failures.saturating_add(1) >= self.config.failure_tolerance;
         let action = if self.config.continuous_descent {
             // Decoupled metric measure space: curvature-driven transport radius
-            if error <= self.config.confidence_z && sharpness <= self.config.confidence_z {
+            if evidence.accepted && error <= self.config.confidence_z && sharpness <= self.config.confidence_z {
                 RadiusAction::Expand
+            } else if !evidence.accepted && self.consecutive_failures.saturating_add(1) >= 4 {
+                RadiusAction::Shrink
             } else if error > 2.0 * self.config.confidence_z {
                 RadiusAction::Shrink
             } else {

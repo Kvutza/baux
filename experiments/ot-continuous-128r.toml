@@ -5,7 +5,7 @@ model = "fbt-pisa1-mhc4-v1"
 recipe = "fineweb-slowrun-100m-v1"
 objective = "cross-entropy"
 window-tokens = 4096
-rounds = 128
+rounds = 1000
 round-target-ms = 200
 validation-interval = 1
 

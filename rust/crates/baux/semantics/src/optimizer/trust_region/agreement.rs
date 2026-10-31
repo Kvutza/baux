@@ -240,18 +240,30 @@ impl ModelAgreement {
         let sharp = sharpness <= self.config.confidence_z || streak_expand;
         let boundary_step =
             reached.is_none_or(|value| value >= self.config.boundary_fraction) || streak_expand;
-        let failure = self.config.failure_tolerance > 0
+        let failure = !self.config.continuous_descent
+            && self.config.failure_tolerance > 0
             && !evidence.accepted
             && self.consecutive_failures.saturating_add(1) >= self.config.failure_tolerance;
-        let action = decide_action(
-            model_adequate,
-            model_inadequate,
-            sharp,
-            evidence.accepted,
-            positive_ratio,
-            boundary_step,
-            failure,
-        );
+        let action = if self.config.continuous_descent {
+            // Decoupled metric measure space: curvature-driven transport radius
+            if error <= self.config.confidence_z && sharpness <= self.config.confidence_z {
+                RadiusAction::Expand
+            } else if error > 2.0 * self.config.confidence_z {
+                RadiusAction::Shrink
+            } else {
+                RadiusAction::Hold
+            }
+        } else {
+            decide_action(
+                model_adequate,
+                model_inadequate,
+                sharp,
+                evidence.accepted,
+                positive_ratio,
+                boundary_step,
+                failure,
+            )
+        };
 
         if evidence.accepted {
             self.consecutive_failures = 0;

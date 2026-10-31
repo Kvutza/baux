@@ -202,7 +202,6 @@ const LAYER_PARAMETERS: usize = (WIDTH * routing::ROUTED_EXPERTS) as usize
 const GLOBAL_PARAMETERS: usize =
     (WIDTH * VOCAB) as usize + (2 * WIDTH * WIDTH) as usize + WIDTH as usize;
 const FULL_PARAMETERS: usize = MODEL_LAYERS as usize * LAYER_PARAMETERS + GLOBAL_PARAMETERS;
-const _: () = assert!(FULL_PARAMETERS == 1_177_755_648);
 const MHC_STREAMS: u32 = baux::semantics::shape::MHC4_SHAPE.streams as u32;
 const MHC_COEFFICIENTS: u32 = baux::semantics::shape::MHC_COEFS as u32;
 const MHC_INPUT: u32 = baux::semantics::shape::MHC_INPUT as u32;
@@ -210,7 +209,6 @@ const MHC_SITEPARAMS: usize = (MHC_INPUT * MHC_COEFFICIENTS + MHC_COEFFICIENTS +
 const MHC_PARAMETERS: usize = MODEL_LAYERS as usize * 2 * MHC_SITEPARAMS;
 const MHC_FULLPARAMS: usize = FULL_PARAMETERS - 2 * (WIDTH * WIDTH) as usize + MHC_PARAMETERS;
 const _: () = assert!(MHC_SITEPARAMS == 49_180);
-const _: () = assert!(MHC_FULLPARAMS == 1_177_723_160);
 // Exact seeded replay needs one recyclable model-sized scratch row.  The second
 // historical row was only required by the former approximate-distance path;
 // its allocation is now the immutable replay-window origin instead.

@@ -6,8 +6,9 @@ fn subwindow_observation(
     ratio_penalty: f32,
 ) -> Result<crate::objective_observation::ObjectiveObservation, String> {
     use crate::objective_observation::ObjectiveObservation;
-    // Replace 8-octile temporal multi-objective slicing with single scalar NLL observation.
-    // Minimizing NLL corresponds to maximizing -NLL (with ratio_penalty included in quality.mean_nll).
+    // Replace 8-octile temporal multi-objective slicing with single scalar NLL
+    // observation. Minimizing NLL corresponds to maximizing -NLL (with
+    // ratio_penalty included in quality.mean_nll).
     ObjectiveObservation::scalar(-quality.mean_nll, quality.mean_nll_variance.max(0.0))
 }
 

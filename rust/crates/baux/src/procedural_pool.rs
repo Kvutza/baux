@@ -43,6 +43,9 @@ pub enum ProposalMethod {
     /// where X = Omega + S in k (+) p.
     #[deser(rename = "lie")]
     QuadraticFlow,
+    /// Forward Metric Calculus chain: coordinate-level transport along curve of maximal slope
+    #[deser(rename = "metric-chain")]
+    MetricChain,
 }
 
 impl ProposalMethod {
@@ -54,6 +57,7 @@ impl ProposalMethod {
             Self::Additive => "independent",
             Self::PairMix => "pair-rotation",
             Self::QuadraticFlow => "lie",
+            Self::MetricChain => "metric-chain",
         }
     }
 }

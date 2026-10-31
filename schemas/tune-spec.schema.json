@@ -143,8 +143,8 @@
         },
         "proposal": {
           "type": "string",
-          "enum": ["pair-rotation", "independent", "lie"],
-          "description": "Procedural proposal method: 'lie' (2nd-order Lie operator flow), 'pair-rotation' (unit-tangent mixing), or 'independent' (additive noise)."
+          "enum": ["pair-rotation", "independent", "lie", "metric-chain"],
+          "description": "Procedural proposal method: 'lie' (2nd-order Lie operator flow), 'pair-rotation' (unit-tangent mixing), 'independent' (additive noise), or 'metric-chain' (forward metric calculus chain)."
         },
         "candidates": {
           "type": "integer",

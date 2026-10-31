@@ -162,7 +162,9 @@ impl CandidateConfig {
         let total = spec.candidates as usize;
         let candidate_rv = match spec.proposal {
             ProposalMethod::Additive => CandidateSampler::RAASP,
-            ProposalMethod::PairMix | ProposalMethod::QuadraticFlow => CandidateSampler::Sobol,
+            ProposalMethod::PairMix
+            | ProposalMethod::QuadraticFlow
+            | ProposalMethod::MetricChain => CandidateSampler::Sobol,
         };
         Ok(Self {
             num_candidates_factor: 1.0,

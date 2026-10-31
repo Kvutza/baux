@@ -15,6 +15,7 @@ impl SearchState {
     /// Gaussian/Rademacher sampler mode.
     pub(super) fn proposal_program(&self) -> u32 {
         match self.proposal_method {
+            crate::procedural_pool::ProposalMethod::MetricChain => 5,
             crate::procedural_pool::ProposalMethod::QuadraticFlow => 4,
             crate::procedural_pool::ProposalMethod::PairMix => 3,
             _ => 0,

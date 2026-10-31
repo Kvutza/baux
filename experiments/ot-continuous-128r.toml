@@ -11,7 +11,7 @@ validation-interval = 1
 
 [optimizer]
 algorithm = "operator-bo"
-proposal = "lie"
+proposal = "metric-chain"
 distribution = "gaussian"
 
 [optimizer.surrogate]

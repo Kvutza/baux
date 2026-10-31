@@ -126,7 +126,8 @@ pub fn halfspace_delta(sq_dist: f64, scale_a: f64, scale_b: f64) -> f64 {
 }
 
 /// Entropic Wasserstein metric on local observation scales.
-/// Combines scale-normalized distance with 1D Wasserstein-2 transport cost `|scale_a - scale_b|`.
+/// Combines scale-normalized distance with 1D Wasserstein-2 transport cost
+/// `|scale_a - scale_b|`.
 #[inline(always)]
 pub fn wasserstein_delta(sq_dist: f64, scale_a: f64, scale_b: f64) -> f64 {
     let diff = (scale_a - scale_b).abs();

@@ -212,7 +212,7 @@
             },
             "scaling": {
               "type": "string",
-              "enum": ["global", "self-tuning", "hyperbolic"],
+              "enum": ["global", "self-tuning", "hyperbolic", "wasserstein"],
               "default": "global",
               "description": "Distance normalization mode across parameter dimensions."
             },

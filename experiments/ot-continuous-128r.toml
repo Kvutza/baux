@@ -1,0 +1,31 @@
+#:schema ../schemas/tune-spec.schema.json
+version = 4
+experiment = "pretrain"
+model = "fbt-pisa1-mhc4-v1"
+recipe = "fineweb-slowrun-100m-v1"
+objective = "cross-entropy"
+window-tokens = 4096
+rounds = 128
+round-target-ms = 200
+validation-interval = 1
+
+[optimizer]
+algorithm = "operator-bo"
+proposal = "independent"
+distribution = "gaussian"
+
+[optimizer.surrogate]
+scaling = "wasserstein"
+neighbors = 10
+epistemic-scale = 0.1
+aleatoric-scale = 0.05
+y-scale = 0.005
+fit = "leave-one-out"
+fit-candidates = 4
+fit-samples = 4
+
+[optimizer.trust-region]
+shape = "tensor-family-static"
+initial = 0.004
+min = 0.001
+max = 0.032

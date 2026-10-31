@@ -39,6 +39,8 @@ pub struct TrustRegionSpec {
     /// Consecutive non-improvements before contracting the radius.
     /// Default is 0 (disabled unless explicitly configured).
     pub failure_tolerance: usize,
+    /// Unconstrained continuous descent mode: always accept candidate steps.
+    pub continuous_descent: bool,
 }
 
 impl Default for TrustRegionSpec {
@@ -49,10 +51,11 @@ impl Default for TrustRegionSpec {
             reliability_threshold: 0.6,
             minimum_evidence: 4.0,
             acceptance_ratio: 0.1,
-            boundary_fraction: 0.8,
+            boundary_fraction: 0.5,
             expand_factor: 2.0,
             shrink_factor: 0.5,
             failure_tolerance: 0,
+            continuous_descent: false,
         }
     }
 }
@@ -192,6 +195,10 @@ impl ModelAgreement {
 
     pub const fn telemetry(&self) -> TrustRegionStatus {
         self.telemetry
+    }
+
+    pub const fn continuous_descent(&self) -> bool {
+        self.config.continuous_descent
     }
 
     pub fn update(&mut self, evidence: TrialStep) -> Result<TrustRegionStatus, String> {

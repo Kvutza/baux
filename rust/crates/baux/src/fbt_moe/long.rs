@@ -212,6 +212,7 @@ fn init_surrogate(
         (run.optimizer() == crate::config::TrainingOptimizer::OperatorBo).then_some(
             baux::semantics::optimizer::TrustRegionSpec {
                 failure_tolerance: 8,
+                continuous_descent: true,
                 ..Default::default()
             },
         )

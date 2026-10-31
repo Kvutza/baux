@@ -421,7 +421,8 @@ impl TrustRegionController {
             if !threshold.is_finite() {
                 return Err("acceptance margin must be finite".into());
             }
-            let accepted = accept_candidate(improvement, threshold);
+            let continuous = self.control.continuous_descent();
+            let accepted = continuous || accept_candidate(improvement, threshold);
             let numerical =
                 baux::semantics::numerical::check(baux::semantics::numerical::Trace::observed(
                     baux::semantics::numerical::Kind::Paired,
@@ -463,7 +464,8 @@ impl TrustRegionController {
                 response_radius: r,
             })?;
             let threshold = 0.0;
-            let accepted = accept_candidate(improvement, threshold);
+            let continuous = self.control.continuous_descent();
+            let accepted = continuous || accept_candidate(improvement, threshold);
             let numerical =
                 baux::semantics::numerical::check(baux::semantics::numerical::Trace::observed(
                     baux::semantics::numerical::Kind::Paired,
@@ -532,7 +534,8 @@ impl TrustRegionController {
         let improvement = evidence.observed_improvement;
         let multiplier = f64::from(self.calibration.multiplier());
         let threshold = multiplier * evidence.observation_variance.sqrt();
-        let accepted = accept_candidate(improvement, threshold);
+        let continuous = self.control.continuous_descent();
+        let accepted = continuous || accept_candidate(improvement, threshold);
         let numerical =
             baux::semantics::numerical::check(baux::semantics::numerical::Trace::observed(
                 baux::semantics::numerical::Kind::Paired,

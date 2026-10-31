@@ -105,9 +105,7 @@ impl ExperimentSpec {
                     .into(),
             );
         }
-        if self.generation.is_some()
-            && (self.objective.is_some() || self.window_tokens.is_some())
-        {
+        if self.generation.is_some() && (self.objective.is_some() || self.window_tokens.is_some()) {
             return Err(
                 "choose either a generated objective or a corpus cross-entropy objective".into(),
             );

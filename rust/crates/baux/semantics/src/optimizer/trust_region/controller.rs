@@ -497,8 +497,7 @@ impl TrustRegionController {
             });
         }
         let improvement = f64::from(value) - f64::from(selection.baseline_value);
-        let predicted =
-            f64::from(selection.candidate.mean) - f64::from(selection.incumbent.mean);
+        let predicted = f64::from(selection.candidate.mean) - f64::from(selection.incumbent.mean);
         let base_var = selection.baseline_se * selection.baseline_se;
         let obs_var = if variance.to_bits() == base_var.to_bits() {
             0.0

@@ -171,7 +171,10 @@ fn recipe_names() {
 #[test]
 fn guards() {
     for text in [
-        PRETRAIN_MUON.replace("objective='cross-entropy'", "objective='cross-entropy'\nrounds=0"),
+        PRETRAIN_MUON.replace(
+            "objective='cross-entropy'",
+            "objective='cross-entropy'\nrounds=0",
+        ),
         resident("acquisition='upper-confidence-bound'", 0, 1, "fit='fixed'"),
         resident("acquisition='upper-confidence-bound'", 4, 3, "fit='fixed'"),
         GAUSSIAN.replace("neighbors = 32", "neighbors = 0"),
@@ -438,7 +441,13 @@ fn causal_recipe() {
     assert!(config.generation.is_none());
     assert!(config.objective_acquisition.is_none());
     assert!(parse_tune(&base.replace("recipe=", "mixture=")).is_err());
-    assert!(parse_tune(&base.replace("window-tokens=1048576", "window-tokens=1048576\nreference='moving-incumbent'")).is_err());
+    assert!(
+        parse_tune(&base.replace(
+            "window-tokens=1048576",
+            "window-tokens=1048576\nreference='moving-incumbent'"
+        ))
+        .is_err()
+    );
     assert!(
         parse_tune(
             &(base

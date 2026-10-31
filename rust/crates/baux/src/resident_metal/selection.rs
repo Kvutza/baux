@@ -77,10 +77,8 @@ impl SearchState {
     /// tested.
     pub(super) fn params(&self, root: u64, candidate: usize) -> Params {
         let radius = self.radius(candidate);
-        let (trajectory_count, trajectory_seeds, trajectory_weights, trajectory_fresh) = self
-            .trajectory
-            .as_ref()
-            .map_or(
+        let (trajectory_count, trajectory_seeds, trajectory_weights, trajectory_fresh) =
+            self.trajectory.as_ref().map_or(
                 (
                     0,
                     [0; TRAJECTORY_SEEDS],
@@ -113,10 +111,8 @@ impl SearchState {
     /// non-rotation pool. `base_slot = u32::MAX` means no resident incumbent
     /// slot; it is not a valid history index.
     pub(super) fn pool_params(&self, root: u64) -> Params {
-        let (trajectory_count, trajectory_seeds, trajectory_weights, trajectory_fresh) = self
-            .trajectory
-            .as_ref()
-            .map_or(
+        let (trajectory_count, trajectory_seeds, trajectory_weights, trajectory_fresh) =
+            self.trajectory.as_ref().map_or(
                 (
                     0,
                     [0; TRAJECTORY_SEEDS],

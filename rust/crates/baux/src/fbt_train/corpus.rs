@@ -66,30 +66,31 @@ impl Trainer {
             let seconds = self.reverse_core(runtime, scorer, rows, command)?;
             return Ok((score, seconds));
         }
-        if self.readout.get().is_none() {
-            self.readout
-                .set(readout::Adjoint::new(runtime, self.rows)?)
-                .map_err(|_| "readout adjoint was already initialized")?;
-        }
-        let adjoint = self.readout.get().ok_or("missing readout adjoint")?;
         scorer.clear_pair();
         let score = scorer.score_batch(runtime, decoder, self.row(), batch)?;
         let command = runtime.queue.new_command_buffer();
         self.clear(command);
-        adjoint.encode(
-            command,
-            &scorer.waves,
-            rows,
-            readout::ReadoutGrad {
+        let encoder = command.new_compute_command_encoder();
+        scorer.pipelines.train_grad()?.readout(
+            &encoder,
+            train_grad::ReadoutShape {
+                rows,
+                width: WIDTH,
+                vocab: self.row.architecture.vocabulary(),
+                start: 0,
+                scale: 1.0 / rows as f32,
+                rounded: 0,
+            },
+            train_grad::ReadoutGrad {
                 hidden: (&scorer.buffers.normalized, 0),
-                qkv: (&self.weights, self.row.qkv),
                 readout: (&self.weights, self.row.readout),
-                targets: (&scorer.buffers.labels, 0),
+                expected: (&scorer.buffers.labels, 0),
+                mask: (&self.activations.mask, 0),
                 hidden_grad: (&self.activations.normalized, 0),
-                qkv_grad: (&self.gradients.flat, grad_offset(self.row.qkv)),
                 readout_grad: (&self.gradients.flat, grad_offset(self.row.readout)),
             },
-        )?;
+        );
+        encoder.end_encoding();
         let seconds = self.reverse_core(runtime, scorer, rows, command)?;
         Ok((score, seconds))
     }

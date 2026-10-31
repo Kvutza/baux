@@ -164,9 +164,9 @@ impl SurrogateRecipe {
             {
                 Ok((candidates, samples))
             }
-            (SurrogateFit::LeaveOneOut, _, _) => Err(
-                "fit='leave-one-out' requires positive fit-candidates and fit-samples".into(),
-            ),
+            (SurrogateFit::LeaveOneOut, _, _) => {
+                Err("fit='leave-one-out' requires positive fit-candidates and fit-samples".into())
+            }
         }
     }
 }

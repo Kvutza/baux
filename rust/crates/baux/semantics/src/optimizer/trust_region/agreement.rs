@@ -227,10 +227,9 @@ impl ModelAgreement {
             ready && upper < self.config.reliability_threshold && !evidence.accepted;
         let ratio = (evidence.predicted_improvement > MIN_SCALE)
             .then_some(evidence.observed_improvement / evidence.predicted_improvement);
-        let positive_ratio = ratio.map_or(
-            evidence.observed_improvement > 0.0,
-            |value| value >= self.config.acceptance_ratio,
-        ) || streak_expand;
+        let positive_ratio = ratio.map_or(evidence.observed_improvement > 0.0, |value| {
+            value >= self.config.acceptance_ratio
+        }) || streak_expand;
         let sharp = sharpness <= self.config.confidence_z || streak_expand;
         let boundary_step =
             reached.is_none_or(|value| value >= self.config.boundary_fraction) || streak_expand;
@@ -266,7 +265,9 @@ impl ModelAgreement {
         }
 
         self.length = match action {
-            RadiusAction::Expand => (self.length * self.config.expand_factor).clamp(self.minimum, self.maximum),
+            RadiusAction::Expand => {
+                (self.length * self.config.expand_factor).clamp(self.minimum, self.maximum)
+            }
             RadiusAction::Shrink => {
                 let shrunk = self.length * self.config.shrink_factor;
                 if shrunk < self.minimum {

@@ -115,9 +115,8 @@ impl SurrogateConfig {
                 recipe.neighbors
             )));
         }
-        let (num_candidates, num_samples) = recipe
-            .fit_budget()
-            .map_err(ENNError::InvalidParameter)?;
+        let (num_candidates, num_samples) =
+            recipe.fit_budget().map_err(ENNError::InvalidParameter)?;
         Ok(SurrogateConfig::ENN(ENNSurrogateConfig {
             k: recipe.neighbors,
             num_candidates,

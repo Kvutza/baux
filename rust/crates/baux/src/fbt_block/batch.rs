@@ -5,45 +5,10 @@ fn subwindow_observation(
     quality: &decode::TargetQuality,
     ratio_penalty: f32,
 ) -> Result<crate::objective_observation::ObjectiveObservation, String> {
-    use crate::objective_observation::{MAX_OBJECTIVES, ObjectiveEstimate, ObjectiveObservation};
-    let total_len = losses.len();
-    let channels = MAX_OBJECTIVES.min(total_len.max(1));
-    let mut estimates = Vec::with_capacity(channels);
-    for b in 0..channels {
-        let slice = &losses[(b * total_len) / channels..((b + 1) * total_len) / channels];
-        let (mean, var) = if slice.is_empty() {
-            (
-                f64::from(quality.mean_nll),
-                f64::from(quality.mean_nll_variance),
-            )
-        } else {
-            let n = slice.len() as f64;
-            let mean =
-                slice.iter().map(|&x| f64::from(x)).sum::<f64>() / n + f64::from(ratio_penalty);
-            let var = if slice.len() > 1 {
-                let raw_mean = mean - f64::from(ratio_penalty);
-                slice
-                    .iter()
-                    .map(|&x| (f64::from(x) - raw_mean).powi(2))
-                    .sum::<f64>()
-                    / (n * (n - 1.0))
-            } else {
-                0.0
-            };
-            (mean, var.max(0.0))
-        };
-        estimates.push(ObjectiveEstimate {
-            mean: -(mean as f32),
-            variance: (var as f32).max(0.0),
-        });
-    }
-    ObjectiveObservation::new(
-        &estimates,
-        ObjectiveEstimate {
-            mean: -quality.mean_nll,
-            variance: quality.mean_nll_variance.max(0.0),
-        },
-    )
+    use crate::objective_observation::ObjectiveObservation;
+    // Replace 8-octile temporal multi-objective slicing with single scalar NLL observation.
+    // Minimizing NLL corresponds to maximizing -NLL (with ratio_penalty included in quality.mean_nll).
+    ObjectiveObservation::scalar(-quality.mean_nll, quality.mean_nll_variance.max(0.0))
 }
 
 fn paired_gains(
@@ -117,18 +82,80 @@ impl BlockDecoder {
             encoder.end_encoding();
             return Ok(());
         }
-        self.waves.encode_mhc(
-            command,
-            (&self.buffers.normalized, 0),
-            (weights.buffer, weights.qkv),
-            (weights.buffer, weights.readout),
-            (&self.buffers.labels, byte_offset),
-            (&self.proposals, byte_offset),
-            (&self.buffers.losses, byte_offset),
-            active_rows,
-            score,
-            update_centroids,
-        )
+        let loss_partials = self.buffers.loss_partials()?;
+        let proposal_partials = self.buffers.proposal_partials()?;
+        let vocab = weights.architecture.vocabulary();
+        let tiles = vocab / 64;
+        let row_start = (byte_offset / std::mem::size_of::<u32>() as u64) as u32;
+        let shape = [active_rows, vocab, row_start, self.context];
+        let score_targets = score != 0;
+        let temperature = 0.0f32;
+
+        let encoder = command.new_compute_command_encoder();
+        encoder.set_compute_pipeline_state(&self.tensorops.readout_proposal_tiles);
+        encoder.set_buffer(0, Some(&self.buffers.normalized), 0);
+        encoder.set_buffer(1, Some(weights.buffer), weights.readout);
+        encoder.set_buffer(2, Some(loss_partials), 0);
+        encoder.set_bytes(
+            3,
+            std::mem::size_of_val(&shape) as u64,
+            shape.as_ptr().cast(),
+        );
+        encoder.set_buffer(4, Some(&self.seeds), 0);
+        encoder.set_bytes(
+            5,
+            std::mem::size_of_val(&temperature) as u64,
+            std::ptr::from_ref(&temperature).cast(),
+        );
+        encoder.set_buffer(6, Some(&self.buffers.labels), 0);
+        encoder.set_buffer(7, Some(proposal_partials), 0);
+        encoder.set_bytes(
+            8,
+            std::mem::size_of_val(&score_targets) as u64,
+            std::ptr::from_ref(&score_targets).cast(),
+        );
+        encoder.dispatch_thread_groups(
+            MTLSize {
+                width: u64::from(tiles),
+                height: u64::from(active_rows.div_ceil(128)),
+                depth: 1,
+            },
+            thread_group(128),
+        );
+        encoder.memory_barrier_with_resources(&[loss_partials, proposal_partials]);
+
+        // Reduce proposal predictions into self.proposals at byte_offset
+        let proposal_source = if score_targets {
+            proposal_partials
+        } else {
+            loss_partials
+        };
+        encoder.set_compute_pipeline_state(&self.pipelines.readout_proposal_reduce);
+        encoder.set_buffer(0, Some(proposal_source), 0);
+        encoder.set_buffer(1, Some(&self.proposals), byte_offset);
+        encoder.set_bytes(
+            2,
+            std::mem::size_of_val(&tiles) as u64,
+            std::ptr::from_ref(&tiles).cast(),
+        );
+        encoder.dispatch_thread_groups(thread_group(u64::from(active_rows)), thread_group(128));
+        encoder.memory_barrier_with_resources(&[&self.proposals]);
+
+        if score_targets {
+            encoder.set_compute_pipeline_state(&self.pipelines.readout_loss_reduce);
+            encoder.set_buffer(0, Some(proposal_partials), 0);
+            encoder.set_buffer(1, Some(&self.buffers.losses), byte_offset);
+            encoder.set_bytes(
+                2,
+                std::mem::size_of_val(&tiles) as u64,
+                std::ptr::from_ref(&tiles).cast(),
+            );
+            encoder.dispatch_thread_groups(thread_group(u64::from(active_rows)), thread_group(128));
+            encoder.memory_barrier_with_resources(&[&self.buffers.losses]);
+        }
+
+        encoder.end_encoding();
+        Ok(())
     }
 
     fn score_chunk(

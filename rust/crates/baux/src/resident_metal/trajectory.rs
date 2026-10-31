@@ -1,4 +1,5 @@
-//! Observation-driven trajectory seed-mixing and Online EM family scale updates.
+//! Observation-driven trajectory seed-mixing and Online EM family scale
+//! updates.
 //!
 //! Implements the five machine-verified generator mechanisms from
 //! `BauxResearch.Optimization`:
@@ -80,8 +81,9 @@ impl TrajectoryGenerator {
             [uniform; FAMILIES]
         };
 
-        // Cappé & Moulines Online EM recursion (BauxResearch.Optimization.OnlineTensorEM):
-        // S_{t+1} = (1 - gamma) S_t + gamma * s_hat_{t+1} on the 4-family simplex.
+        // Cappé & Moulines Online EM recursion
+        // (BauxResearch.Optimization.OnlineTensorEM): S_{t+1} = (1 -
+        // gamma) S_t + gamma * s_hat_{t+1} on the 4-family simplex.
         let s_hat = if gain > 0.0 {
             std::array::from_fn(|g| 0.5 * uniform + 0.5 * family_share[g])
         } else if gain < 0.0 {
@@ -122,7 +124,8 @@ impl TrajectoryGenerator {
         let mut logs = [0.0_f32; FAMILIES];
         for g in 0..FAMILIES {
             let resp = self.online_em_stats[g].max(1e-3);
-            // Higher Online EM responsibility -> larger proposal scale -> smaller metric weight.
+            // Higher Online EM responsibility -> larger proposal scale ->
+            // smaller metric weight.
             let target_log = (uniform / resp).ln().clamp(-4.0f32.ln(), 4.0f32.ln());
             let current_log = current[g].max(1e-3).ln();
             logs[g] = 0.80 * current_log + 0.20 * target_log;
@@ -135,7 +138,8 @@ impl TrajectoryGenerator {
     }
 
     /// Pack up to `TRAJECTORY_SEEDS` historical seeds and module-conditional
-    /// unit-norm mixing coefficients for the next proposal at `current_base_id`.
+    /// unit-norm mixing coefficients for the next proposal at
+    /// `current_base_id`.
     pub(super) fn pack(
         &self,
         current_base_id: i64,
@@ -147,7 +151,8 @@ impl TrajectoryGenerator {
     ) {
         let mut selected: Vec<(TrajectoryStep, f32, f32)> = Vec::with_capacity(TRAJECTORY_SEEDS);
 
-        // 1. Accepted velocity / variable-metric basis (A_t, up to 2 seeds, sign = +1).
+        // 1. Accepted velocity / variable-metric basis (A_t, up to 2 seeds,
+        //    sign = +1).
         let accepted_recent: Vec<(usize, TrajectoryStep)> = self
             .steps
             .iter()
@@ -182,7 +187,8 @@ impl TrajectoryGenerator {
             }
         }
 
-        // 2. Local kernel-bandit antipodal deflection at `current_base_id` (R_t, up to 2 seeds, sign = -1).
+        // 2. Local kernel-bandit antipodal deflection at `current_base_id`
+        //    (R_t, up to 2 seeds, sign = -1).
         let rejected_local: Vec<(usize, TrajectoryStep)> = self
             .steps
             .iter()
@@ -218,7 +224,12 @@ impl TrajectoryGenerator {
         }
 
         if selected.is_empty() {
-            return (0, [0; TRAJECTORY_SEEDS], [[0.0; TRAJECTORY_SEEDS]; FAMILIES], [1.0; FAMILIES]);
+            return (
+                0,
+                [0; TRAJECTORY_SEEDS],
+                [[0.0; TRAJECTORY_SEEDS]; FAMILIES],
+                [1.0; FAMILIES],
+            );
         }
 
         let k = selected.len();
@@ -280,20 +291,20 @@ mod tests {
         assert_eq!(seeds[1], 102);
 
         for g in 0..FAMILIES {
-            // Accepted seed has positive weight; local rejected seed has negative (antipodal) weight.
+            // Accepted seed has positive weight; local rejected seed has
+            // negative (antipodal) weight.
             assert!(weights[g][0] > 0.0);
             assert!(weights[g][1] < 0.0);
-            let norm_sq = fresh[g] * fresh[g]
-                + weights[g][0] * weights[g][0]
-                + weights[g][1] * weights[g][1];
+            let norm_sq =
+                fresh[g] * fresh[g] + weights[g][0] * weights[g][0] + weights[g][1] * weights[g][1];
             assert!(
                 (norm_sq - 1.0).abs() < 1e-5,
                 "family {g} norm_sq={norm_sq} != 1.0"
             );
         }
 
-        // Advancing incumbent to 3 drops the local rejected probe from incumbent 2
-        // while keeping the accepted velocity step.
+        // Advancing incumbent to 3 drops the local rejected probe from
+        // incumbent 2 while keeping the accepted velocity step.
         let (count_next, seeds_next, weights_next, _) = traj.pack(3);
         assert_eq!(count_next, 1);
         assert_eq!(seeds_next[0], 101);
@@ -360,8 +371,9 @@ mod tests {
             // Rejected local probe has negative antipodal mixing weight.
             assert!(s.trajectory.as_ref().unwrap().pack(s.base_id).2[0][0] < 0.0);
 
-            // Step 2: evaluate and accept a step at the incumbent; verify GPU materialization
-            // matches single-candidate `params` and updates Online EM family scales.
+            // Step 2: evaluate and accept a step at the incumbent; verify GPU
+            // materialization matches single-candidate `params` and
+            // updates Online EM family scales.
             let direct = read::<u16>(&s.test_candidate(1002, 0)?, base.len());
             let _ = s.sample_distances(1002)?;
             let (_, prop2) = s.materialize_selected(

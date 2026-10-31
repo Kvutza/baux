@@ -629,12 +629,7 @@ fn bench_1m(
         let ask_ms = ask_t0.elapsed().as_secs_f64() * 1000.0;
         let cand = scorer.score_batch(runtime, decoder, layout.view(&cand_buf), batch)?;
         let tell_t0 = Instant::now();
-        let slot = surrogate.append(
-            &geom[0],
-            -cand.quality.mean_nll,
-            0.0,
-            step == 0,
-        )?;
+        let slot = surrogate.append(&geom[0], -cand.quality.mean_nll, 0.0, step == 0)?;
         search.commit_host(&proposal, slot, cand.observation, step == 0, 0.004)?;
         let _ = search.sync()?;
         let tell_ms = tell_t0.elapsed().as_secs_f64() * 1000.0;

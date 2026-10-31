@@ -32,6 +32,9 @@ pub enum DistanceMetric {
     Hyperbolic {
         local_k: usize,
     },
+    Wasserstein {
+        local_k: usize,
+    },
 }
 
 /// Append until full, then replace the oldest observation other than the
@@ -122,6 +125,15 @@ pub fn halfspace_delta(sq_dist: f64, scale_a: f64, scale_b: f64) -> f64 {
     0.5 * selftuning_delta(sq_dist, scale_a, scale_b) + scale_penalty(scale_a, scale_b)
 }
 
+/// Entropic Wasserstein metric on local observation scales.
+/// Combines scale-normalized distance with 1D Wasserstein-2 transport cost `|scale_a - scale_b|`.
+#[inline(always)]
+pub fn wasserstein_delta(sq_dist: f64, scale_a: f64, scale_b: f64) -> f64 {
+    let diff = (scale_a - scale_b).abs();
+    let norm = (scale_a * scale_b).max(1.0e-12).sqrt();
+    sq_dist.max(0.0) / norm + diff * diff
+}
+
 /// Boroczky binary-tiling L-order cell key (`arXiv:2305.01356`) packing
 /// integer level `floor(log2(scale))` and dilated grid coordinate `floor(coord
 /// * 2^-level)`.
@@ -192,5 +204,10 @@ mod tests {
         let slot =
             retention_cone(&ids, 1, &outcomes, &variances, &sq_dists, MAX_HISTORY, 1.0).unwrap();
         assert_eq!(slot, 5);
+
+        let ot_delta = wasserstein_delta(4.0_f64, 2.0_f64, 2.0_f64);
+        assert!((ot_delta - 2.0).abs() < 1.0e-6);
+        let ot_diff = wasserstein_delta(4.0_f64, 3.0_f64, 1.0_f64);
+        assert!(ot_diff > ot_delta);
     }
 }

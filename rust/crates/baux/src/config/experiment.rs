@@ -27,6 +27,8 @@ pub enum DistanceScaling {
     SelfTuning,
     #[deser(rename = "hyperbolic")]
     Hyperbolic,
+    #[deser(rename = "wasserstein")]
+    Wasserstein,
 }
 
 impl DistanceScaling {
@@ -35,6 +37,7 @@ impl DistanceScaling {
             Self::Global => "global",
             Self::SelfTuning => "self-tuning",
             Self::Hyperbolic => "hyperbolic",
+            Self::Wasserstein => "wasserstein",
         }
     }
 }

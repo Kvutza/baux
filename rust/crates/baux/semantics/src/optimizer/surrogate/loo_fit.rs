@@ -15,7 +15,9 @@ pub(super) fn scale_row(
     scaled[..n].copy_from_slice(&distances[..n]);
     let local_k = match metric {
         DistanceMetric::Euclidean => return scaled,
-        DistanceMetric::SelfTuning { local_k } | DistanceMetric::Hyperbolic { local_k } => {
+        DistanceMetric::SelfTuning { local_k }
+        | DistanceMetric::Hyperbolic { local_k }
+        | DistanceMetric::Wasserstein { local_k } => {
             if local_k == 0 || n <= 1 {
                 return scaled;
             }
@@ -59,6 +61,9 @@ pub(super) fn scale_row(
             }
             DistanceMetric::Hyperbolic { .. } => {
                 baux::semantics::neighbor::halfspace_delta(distances[slot], sigma_q, sigma_i)
+            }
+            DistanceMetric::Wasserstein { .. } => {
+                baux::semantics::neighbor::wasserstein_delta(distances[slot], sigma_q, sigma_i)
             }
         };
     }

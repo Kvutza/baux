@@ -239,6 +239,7 @@ impl SearchState {
                 crate::config::DistanceScaling::Global => 0,
                 crate::config::DistanceScaling::SelfTuning => 1,
                 crate::config::DistanceScaling::Hyperbolic => 2,
+                crate::config::DistanceScaling::Wasserstein => 1,
             },
             local_scale_neighbors: self.local_scale_neighbors as u32,
             incumbent_index: base_index as u32,

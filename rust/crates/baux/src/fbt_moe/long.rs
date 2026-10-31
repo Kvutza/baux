@@ -234,6 +234,11 @@ fn init_surrogate(
                 local_k: policy.local_scale_neighbors.max(1),
             }
         }
+        crate::config::DistanceScaling::Wasserstein => {
+            baux::semantics::neighbor::DistanceMetric::Wasserstein {
+                local_k: policy.local_scale_neighbors.max(1),
+            }
+        }
         crate::config::DistanceScaling::Global => {
             baux::semantics::neighbor::DistanceMetric::Euclidean
         }

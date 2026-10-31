@@ -113,6 +113,10 @@ impl SearchState {
                 crate::fit::hyperbolic_distances(&raw_distances.view(), self.local_scale_neighbors)
                     .map_err(|error| error.to_string())?
             }
+            crate::config::DistanceScaling::Wasserstein => {
+                crate::fit::tuned_distances(&raw_distances.view(), self.local_scale_neighbors)
+                    .map_err(|error| error.to_string())?
+            }
             crate::config::DistanceScaling::Global => raw_distances,
         };
         let outcomes =

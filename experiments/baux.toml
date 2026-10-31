@@ -26,6 +26,6 @@ fit-samples = 4
 
 [optimizer.trust-region]
 shape = "tensor-family-static"
-initial = 0.004
-min = 0.001
+initial = 0.008
+min = 0.002
 max = 0.032

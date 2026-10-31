@@ -432,11 +432,9 @@ impl TrustRegionController {
                     threshold,
                     accepted,
                 ))?;
-            let continuous = self.control.continuous_descent();
-            let effective_accepted = continuous || accepted;
             return Ok(StepDecision {
                 numerical,
-                accepted: effective_accepted,
+                accepted,
                 improvement,
                 threshold,
                 predicted_improvement: predicted,
@@ -476,8 +474,6 @@ impl TrustRegionController {
                     threshold,
                     accepted,
                 ))?;
-            let continuous = self.control.continuous_descent();
-            let effective_accepted = continuous || accepted;
             let mut calibration = self.calibration.clone();
             calibration.observe(
                 improvement as f32,
@@ -489,7 +485,7 @@ impl TrustRegionController {
             self.turbo = Some(turbo_state);
             return Ok(StepDecision {
                 numerical,
-                accepted: effective_accepted,
+                accepted,
                 improvement,
                 threshold,
                 predicted_improvement: predicted,
@@ -547,8 +543,6 @@ impl TrustRegionController {
                 threshold,
                 accepted,
             ))?;
-        let continuous = self.control.continuous_descent();
-        let effective_accepted = continuous || accepted;
         let mut calibration = self.calibration.clone();
         if calibrate {
             calibration.observe(
@@ -557,12 +551,12 @@ impl TrustRegionController {
                 (evidence.observation_variance + evidence.prediction_variance).sqrt() as f32,
             )?;
         }
-        evidence.accepted = effective_accepted;
+        evidence.accepted = accepted;
         let result = self.control.update(evidence)?;
         self.calibration = calibration;
         Ok(StepDecision {
             numerical,
-            accepted: effective_accepted,
+            accepted,
             improvement,
             threshold,
             predicted_improvement: evidence.predicted_improvement,

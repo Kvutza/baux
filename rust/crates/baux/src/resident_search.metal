@@ -425,7 +425,15 @@ inline float2 proposal_pair_continuous(float2 base_value, Leaf leaf, ulong seed,
         return (leaf.scale * radius) * noise;
     }
     if (program == 5u) {
-        float s = leaf.scale * radius;
+        // Pseudo-random block-sparse activation: only update active manifold blocks
+        // This concentrates proposal energy into correlated sub-manifolds rather than
+        // uniformly dispersing noise across all 32M coordinates simultaneously.
+        ulong block_hash = mix64(seed ^ leaf.key ^ ((pair >> 3) * 0x9e3779b97f4a7c15ul));
+        if ((block_hash & 7ul) != 0ul) {
+            return float2(0.0f, 0.0f);
+        }
+
+        float s = leaf.scale * radius * 2.82842712f; // scale compensated for 1/8 sparsity (sqrt(8))
         // Skew-symmetric 4-coordinate multi-chain coupling
         ulong leaf_pairs = (leaf.length + 1ul) / 2ul;
         if (leaf_pairs >= 2ul) {
@@ -485,7 +493,15 @@ inline ushort2 proposal_pair_domains(
         return encode_pair(base_value + (leaf.scale * radius) * noise);
     }
     if (program == 5u) {
-        float s = leaf.scale * radius;
+        // Pseudo-random block-sparse activation: only update active manifold blocks
+        // This concentrates proposal energy into correlated sub-manifolds rather than
+        // uniformly dispersing noise across all 32M coordinates simultaneously.
+        ulong block_hash = mix64(doms.seed ^ leaf.key ^ ((pair >> 3) * 0x9e3779b97f4a7c15ul));
+        if ((block_hash & 7ul) != 0ul) {
+            return encode_pair(base_value);
+        }
+
+        float s = leaf.scale * radius * 2.82842712f;
         // Skew-symmetric 4-coordinate multi-chain coupling
         ulong leaf_pairs = (leaf.length + 1ul) / 2ul;
         if (leaf_pairs >= 2ul) {

@@ -496,7 +496,7 @@ inline ushort2 proposal_pair_domains(
         // Pseudo-random block-sparse activation: only update active manifold blocks
         // This concentrates proposal energy into correlated sub-manifolds rather than
         // uniformly dispersing noise across all 32M coordinates simultaneously.
-        ulong block_hash = mix64(doms.seed ^ leaf.key ^ ((pair >> 3) * 0x9e3779b97f4a7c15ul));
+        ulong block_hash = mix64(doms.fresh.x ^ leaf.key ^ ((pair >> 3) * 0x9e3779b97f4a7c15ul));
         if ((block_hash & 7ul) != 0ul) {
             return encode_pair(base_value);
         }

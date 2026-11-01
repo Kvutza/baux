@@ -438,20 +438,11 @@ inline float2 proposal_delta_domains(
     if (program == 5u) {
         float s = leaf.scale * radius;
         if (s == 0.0f) return float2(0.0f, 0.0f);
-        ulong leaf_pairs = (leaf.length + 1ul) / 2ul;
-        if (leaf_pairs >= 2ul) {
-            ulong quad_base = min(pair & ~1ul, leaf_pairs - 2ul);
-            uint sub = uint(pair - quad_base);
-            float2 q0 = trajectory_noise_pair_domains(doms, quad_base, mode);
-            float2 q1 = trajectory_noise_pair_domains(doms, quad_base + 1ul, mode);
-            float2 u_plus = 0.70710678f * (q0 + q1);
-            float2 u_minus = 0.70710678f * (q0 - q1);
-            float2 coupled = sub == 0u
-                ? float2(0.86602540f * q0.x + 0.5f * u_plus.y, 0.86602540f * q0.y + 0.5f * u_plus.x)
-                : float2(0.86602540f * q1.x - 0.5f * u_minus.y, 0.86602540f * q1.y - 0.5f * u_minus.x);
-            return s * coupled;
-        }
-        return s * noise;
+        uint rot = (leaf.address ^ uint(pair >> 4)) & 3u;
+        float c = rot == 0u ? 0.96592583f : (rot == 1u ? 0.86602540f : (rot == 2u ? 0.70710678f : 0.50000000f));
+        float sn = rot == 0u ? 0.25881905f : (rot == 1u ? 0.50000000f : (rot == 2u ? 0.70710678f : 0.86602540f));
+        float2 coupled = float2(c * noise.x - sn * noise.y, sn * noise.x + c * noise.y);
+        return s * coupled;
     }
     return (leaf.scale * radius) * noise;
 }

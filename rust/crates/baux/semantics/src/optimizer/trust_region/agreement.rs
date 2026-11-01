@@ -286,10 +286,12 @@ impl ModelAgreement {
             }
             RadiusAction::Shrink => {
                 let shrunk = self.length * self.config.shrink_factor;
-                if shrunk < self.minimum {
-                    self.initial.clamp(self.minimum, self.maximum)
-                } else {
+                if self.config.continuous_descent || shrunk >= self.minimum * (1.0 - 1.0e-5) {
                     shrunk.clamp(self.minimum, self.maximum)
+                } else if self.length > self.minimum * (1.0 + 1.0e-5) {
+                    self.minimum
+                } else {
+                    self.initial.clamp(self.minimum, self.maximum)
                 }
             }
             RadiusAction::Hold => self.length.clamp(self.minimum, self.maximum),

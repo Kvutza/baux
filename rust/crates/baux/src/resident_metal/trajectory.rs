@@ -236,7 +236,7 @@ impl TrajectoryGenerator {
                 .collect();
             scored_acc.sort_by(|a, b| b.1.total_cmp(&a.1));
             for (step, score) in scored_acc {
-                if selected.len() >= 3 {
+                if selected.len() >= 2 {
                     break;
                 }
                 if !selected.iter().any(|(prev, _, _)| prev.seed == step.seed) {
@@ -275,7 +275,7 @@ impl TrajectoryGenerator {
                 .collect();
             scored_rej.sort_by(|a, b| b.1.total_cmp(&a.1));
             for (step, score) in scored_rej {
-                if selected.len() >= TRAJECTORY_SEEDS {
+                if selected.len() >= 2 {
                     break;
                 }
                 if !selected.iter().any(|(prev, _, _)| prev.seed == step.seed) {

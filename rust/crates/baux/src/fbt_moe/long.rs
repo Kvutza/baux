@@ -420,11 +420,12 @@ impl LongState {
         let screen_count = if run.optimizer() == crate::config::TrainingOptimizer::OperatorBo
             && self.surrogate.len() >= 2
         {
-            8usize
+            4usize
         } else {
             1usize
         };
         let mut best_seed = prop_seed;
+        let mut last_seed = prop_seed;
         let mut best_geometry = None;
         let mut best_selection: Option<baux::semantics::optimizer::PoolSelection> = None;
         for m in 0..screen_count {
@@ -435,6 +436,7 @@ impl LongState {
                     prop_seed ^ (m as u64).wrapping_mul(0x9e37_79b9_7f4a_7c15),
                 )
             };
+            last_seed = cand_seed;
             let cand_geom = self.search.sample_distances(cand_seed)?;
             let cand_sel = self.surrogate.select_pool(&cand_geom, step, rule, None)?;
             let is_better = best_selection
@@ -447,7 +449,7 @@ impl LongState {
             }
         }
         let selection = best_selection.ok_or("empty proposal screening pool")?;
-        let geometry = if screen_count > 1 {
+        let geometry = if screen_count > 1 && best_seed != last_seed {
             // Re-populate GPU sample buffers (`neighbors.pool` and `pool_distances`)
             // for the single winning seed before materializing its full weight vector.
             self.search.sample_distances(best_seed)?

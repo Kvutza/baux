@@ -144,10 +144,16 @@ impl TrajectoryGenerator {
         } else {
             [uniform; FAMILIES]
         };
-        let gamma = 0.15_f32;
+        let gamma = if accepted {
+            0.20_f32
+        } else if gain < 0.0 {
+            0.03_f32 * (200.0 * gain).clamp(-20.0, 0.0).exp()
+        } else {
+            0.02_f32
+        };
         for i in 0..FAMILIES {
             let row_weight = (0.5 * uniform + 0.5 * u_seed[i]) * FAMILIES as f32;
-            let step_gamma = (gamma * row_weight).clamp(0.02, 0.35);
+            let step_gamma = (gamma * row_weight).clamp(0.0, 0.35);
             let mut row_sum = 0.0_f32;
             for g in 0..FAMILIES {
                 let target = (self.tt_core[i][g] * s_hat[g] / uniform).clamp(1e-4, 4.0);

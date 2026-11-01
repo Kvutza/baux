@@ -42,13 +42,13 @@ def covarianceMatrix (M : Matrix (Fin k) (Fin d) ℝ) (sigma : ℝ) : Matrix (Fi
   (sigma ^ 2) • (shapingMatrix M * shapingMatrix M)
 
 /-- The `O(k d)` two-pass vector product `z + Mᵀ (M z)` equals `(I_d + Mᵀ M) z`. -/
-theorem applyMetric_eq_mulVec (M : Matrix (Fin k) (Fin d) ℝ) (z : Fin d → ℝ) :
+theorem apply_mulvec (M : Matrix (Fin k) (Fin d) ℝ) (z : Fin d → ℝ) :
     applyMetric M z = (shapingMatrix M).mulVec z := by
   unfold applyMetric shapingMatrix
   rw [Matrix.add_mulVec, Matrix.one_mulVec, Matrix.mulVec_mulVec]
 
 /-- The shaping matrix `I_d + Mᵀ M` is symmetric. -/
-theorem shapingMatrix_transpose (M : Matrix (Fin k) (Fin d) ℝ) :
+theorem shaping_transpose (M : Matrix (Fin k) (Fin d) ℝ) :
     (shapingMatrix M)ᵀ = shapingMatrix M := by
   unfold shapingMatrix
   rw [Matrix.transpose_add, Matrix.transpose_one, Matrix.transpose_mul, Matrix.transpose_transpose]
@@ -57,54 +57,54 @@ theorem shapingMatrix_transpose (M : Matrix (Fin k) (Fin d) ℝ) :
 def normSq {n : ℕ} (u : Fin n → ℝ) : ℝ :=
   ∑ i : Fin n, (u i) ^ 2
 
-theorem normSq_eq_dotProduct {n : ℕ} (u : Fin n → ℝ) :
+theorem norm_dot {n : ℕ} (u : Fin n → ℝ) :
     normSq u = dotProduct u u := by
   unfold normSq dotProduct
   apply Finset.sum_congr rfl
   intro i _
   ring
 
-theorem normSq_nonneg {n : ℕ} (u : Fin n → ℝ) : 0 ≤ normSq u := by
+theorem norm_nonneg {n : ℕ} (u : Fin n → ℝ) : 0 ≤ normSq u := by
   unfold normSq
   exact Finset.sum_nonneg (fun i _ ↦ sq_nonneg (u i))
 
 /-- The quadratic form of `Mᵀ M` equals the squared norm of `M u` in `ℝ^k`. -/
-theorem dotProduct_gram_mulVec (M : Matrix (Fin k) (Fin d) ℝ) (u : Fin d → ℝ) :
+theorem gram_dot (M : Matrix (Fin k) (Fin d) ℝ) (u : Fin d → ℝ) :
     dotProduct u ((Mᵀ * M).mulVec u) = normSq (M.mulVec u) := by
   rw [← Matrix.mulVec_mulVec, Matrix.dotProduct_mulVec, Matrix.vecMul_transpose,
-    normSq_eq_dotProduct]
+    norm_dot]
 
 /-- Exact quadratic-form decomposition of the shaping operator `I_d + Mᵀ M`. -/
-theorem dotProduct_shapingMatrix (M : Matrix (Fin k) (Fin d) ℝ) (u : Fin d → ℝ) :
+theorem shaping_dot (M : Matrix (Fin k) (Fin d) ℝ) (u : Fin d → ℝ) :
     dotProduct u ((shapingMatrix M).mulVec u) = normSq u + normSq (M.mulVec u) := by
   unfold shapingMatrix
-  rw [Matrix.add_mulVec, Matrix.one_mulVec, dotProduct_add, ← normSq_eq_dotProduct,
-    dotProduct_gram_mulVec]
+  rw [Matrix.add_mulVec, Matrix.one_mulVec, dotProduct_add, ← norm_dot,
+    gram_dot]
 
 /-- Loewner lower bound `S(M) ⪰ I_d`: the shaping operator never contracts the
 quadratic form below the isotropic norm `‖u‖²`. -/
-theorem normSq_le_dotProduct_shapingMatrix (M : Matrix (Fin k) (Fin d) ℝ) (u : Fin d → ℝ) :
+theorem norm_le (M : Matrix (Fin k) (Fin d) ℝ) (u : Fin d → ℝ) :
     normSq u ≤ dotProduct u ((shapingMatrix M).mulVec u) := by
-  rw [dotProduct_shapingMatrix]
-  linarith [normSq_nonneg (M.mulVec u)]
+  rw [shaping_dot]
+  linarith [norm_nonneg (M.mulVec u)]
 
 /-- Full-dimensional reachability: for any coordinate `j` with `u j ≠ 0`, the
 shaped quadratic form is strictly positive regardless of rank `k`. -/
-theorem dotProduct_shapingMatrix_pos (M : Matrix (Fin k) (Fin d) ℝ) (u : Fin d → ℝ)
+theorem shaping_pos (M : Matrix (Fin k) (Fin d) ℝ) (u : Fin d → ℝ)
     (j : Fin d) (hj : u j ≠ 0) :
     0 < dotProduct u ((shapingMatrix M).mulVec u) := by
   have hterm : 0 < (u j) ^ 2 := sq_pos_of_ne_zero hj
   have hle : (u j) ^ 2 ≤ normSq u := by
     unfold normSq
     exact Finset.single_le_sum (fun i _ ↦ sq_nonneg (u i)) (Finset.mem_univ j)
-  exact lt_of_lt_of_le (lt_of_lt_of_le hterm hle) (normSq_le_dotProduct_shapingMatrix M u)
+  exact lt_of_lt_of_le (lt_of_lt_of_le hterm hle) (norm_le M u)
 
 /-- Strict directional amplification: along any direction `u` having nonzero
 projection `(M u) i ≠ 0` onto the remembered steps, `u ⬝ᵥ S(M) u > ‖u‖²`. -/
-theorem normSq_lt_dotProduct_shapingMatrix (M : Matrix (Fin k) (Fin d) ℝ) (u : Fin d → ℝ)
+theorem norm_lt (M : Matrix (Fin k) (Fin d) ℝ) (u : Fin d → ℝ)
     (i : Fin k) (hi : M.mulVec u i ≠ 0) :
     normSq u < dotProduct u ((shapingMatrix M).mulVec u) := by
-  rw [dotProduct_shapingMatrix]
+  rw [shaping_dot]
   have hterm : 0 < (M.mulVec u i) ^ 2 := sq_pos_of_ne_zero hi
   have hle : (M.mulVec u i) ^ 2 ≤ normSq (M.mulVec u) := by
     unfold normSq
@@ -118,7 +118,7 @@ def innovationWeight (alpha : Fin k → ℝ) : ℝ :=
 /-- Combining `k` orthogonal unit-variance historical seed draws with weights `α`
 (`‖α‖² ≤ 1`) and fresh noise weighted by `innovationWeight α` preserves exact
 unit variance. -/
-theorem seedCombo_unit_variance (alpha : Fin k → ℝ) (hBound : normSq alpha ≤ 1) :
+theorem combo_variance (alpha : Fin k → ℝ) (hBound : normSq alpha ≤ 1) :
     normSq alpha + (innovationWeight alpha) ^ 2 = 1 := by
   unfold innovationWeight
   have hNonneg : 0 ≤ 1 - normSq alpha := sub_nonneg.mpr hBound
@@ -127,18 +127,18 @@ theorem seedCombo_unit_variance (alpha : Fin k → ℝ) (hBound : normSq alpha �
 
 /-- Whenever `‖α‖² < 1`, the fresh isotropic innovation weight is strictly positive,
 guaranteeing full-dimensional support across all `d` coordinates. -/
-theorem innovationWeight_pos (alpha : Fin k → ℝ) (hStrict : normSq alpha < 1) :
+theorem innovation_pos (alpha : Fin k → ℝ) (hStrict : normSq alpha < 1) :
     0 < innovationWeight alpha := by
   unfold innovationWeight
   exact Real.sqrt_pos.mpr (sub_pos.mpr hStrict)
 
-#print axioms applyMetric_eq_mulVec
-#print axioms dotProduct_shapingMatrix
-#print axioms normSq_le_dotProduct_shapingMatrix
-#print axioms dotProduct_shapingMatrix_pos
-#print axioms normSq_lt_dotProduct_shapingMatrix
-#print axioms seedCombo_unit_variance
-#print axioms innovationWeight_pos
+#print axioms apply_mulvec
+#print axioms shaping_dot
+#print axioms norm_le
+#print axioms shaping_pos
+#print axioms norm_lt
+#print axioms combo_variance
+#print axioms innovation_pos
 
 end
 end BauxResearch.Optimization.VariableMetric

@@ -514,7 +514,9 @@ fn mhc_decode() -> Result<(), String> {
             offset += tensor.length() as usize;
         }
         assert_eq!(offset, row.length() as usize);
-        let weights = model.row(&row)?;
+        let layout = Mhc4Layout::from_weights(&model, 0);
+        drop(model);
+        let weights = layout.view(&row);
         unsafe {
             *decoder.tokens.contents().cast::<u32>() = 17;
         }
@@ -558,7 +560,9 @@ fn mhc_scorer() -> Result<(), String> {
             }
             offset += tensor.length() as usize;
         }
-        let weights = model.row(&row)?;
+        let layout = Mhc4Layout::from_weights(&model, 0);
+        drop(model);
+        let weights = layout.view(&row);
         let buffers = Buffers::new(&runtime);
         let pipelines = Pipelines::new(&runtime)?;
         let tensorops = TensorOpsPipelines::new(&runtime)?;

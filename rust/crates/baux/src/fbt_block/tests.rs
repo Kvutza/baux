@@ -25,7 +25,9 @@ fn context_chunks() -> Result<(), String> {
             }
             offset += tensor.length() as usize;
         }
-        let weights = model.row(&row)?;
+        let layout = Mhc4Layout::from_weights(&model, 0);
+        drop(model);
+        let weights = layout.view(&row);
         let readout = scorer::ProposalReadout {
             output: &verifier.proposals,
             hidden: None,
@@ -158,7 +160,9 @@ fn parallel_repairs() -> Result<(), String> {
             }
             offset += tensor.length() as usize;
         }
-        let weights = model.row(&row)?;
+        let layout = Mhc4Layout::from_weights(&model, 0);
+        drop(model);
+        let weights = layout.view(&row);
         let config = GenerationConfig {
             purpose: crate::config::GenerationPurpose::SystemsProbe,
             initialization: crate::config::ModelInitialization::Patterned,
@@ -263,7 +267,9 @@ fn generation_fixedpoint() -> Result<(), String> {
             }
             offset += tensor.length() as usize;
         }
-        let weights = model.row(&row)?;
+        let layout = Mhc4Layout::from_weights(&model, 0);
+        drop(model);
+        let weights = layout.view(&row);
         let config = GenerationConfig {
             purpose: crate::config::GenerationPurpose::SystemsProbe,
             initialization: crate::config::ModelInitialization::Patterned,
@@ -567,6 +573,7 @@ fn hnet_parity() -> Result<(), String> {
         let irreg_bytes: Vec<u8> = (0..=300).map(|i| ((i * 61 + 29) % 256) as u8).collect();
         let irreg_chunks =
             check_parity(&runtime, &scorer, &decoder, model.row(&flat)?, &irreg_bytes)?;
+        drop(flat);
         assert!(irreg_chunks > 1 && irreg_chunks < 300);
 
         // 3. All-open boundary regime (every byte opens a chunk: active_chunks
@@ -585,6 +592,7 @@ fn hnet_parity() -> Result<(), String> {
             model.row(&flat_open)?,
             &irreg_bytes[..=256],
         )?;
+        drop(flat_open);
         assert_eq!(open_chunks, 256);
 
         // 4. All-closed / single-long-chunk regime (no interior boundaries:
@@ -881,6 +889,7 @@ fn hnet_objective() -> Result<(), String> {
         let orig_hnet = crate::apple_gpu::buffer_slice::<u16>(&model.hnet, 3 * d * d + d)?.to_vec();
         let flat_bal = model.flatten(&runtime)?;
         let score_bal = scorer.score_batch(&runtime, &decoder, model.row(&flat_bal)?, &batch)?;
+        drop(flat_bal);
         let stats_bal = scorer.buffers.hnet()?.last_stats.get();
         let saved_enc =
             crate::apple_gpu::buffer_slice::<u16>(&scorer.buffers.hnet()?.encoder_streams, n * d)?
@@ -899,6 +908,7 @@ fn hnet_objective() -> Result<(), String> {
         let flat_uncal = model.flatten(&runtime)?;
         let _score_uncal =
             scorer.score_batch(&runtime, &decoder, model.row(&flat_uncal)?, &batch)?;
+        drop(flat_uncal);
         let stats_uncal = scorer.buffers.hnet()?.last_stats.get();
         assert!(stats_uncal.active_chunks > stats_bal.active_chunks);
         assert!(stats_uncal.ratio_penalty > stats_bal.ratio_penalty);
@@ -913,6 +923,7 @@ fn hnet_objective() -> Result<(), String> {
         let flat_closed = model.flatten(&runtime)?;
         let _score_closed =
             scorer.score_batch(&runtime, &decoder, model.row(&flat_closed)?, &batch)?;
+        drop(flat_closed);
         let stats_closed = scorer.buffers.hnet()?.last_stats.get();
         assert_eq!(stats_closed.active_chunks, 1);
         assert!(stats_closed.degenerate_all_closed);
@@ -930,6 +941,7 @@ fn hnet_objective() -> Result<(), String> {
             .sum::<f32>()
             / (n as f32);
         let _ = scorer.score_batch(&runtime, &decoder, model.row(&flat_open)?, &batch)?;
+        drop(flat_open);
         let raw_open2: f32 = crate::apple_gpu::buffer_slice::<f32>(&scorer.buffers.losses, n)?
             .iter()
             .sum::<f32>()
@@ -953,11 +965,13 @@ fn hnet_objective() -> Result<(), String> {
              [optimizer.trust-region]\nshape = \"tensor-family-static\"\n\
              initial = 0.004\nmin = 0.001\nmax = 0.008\n",
         )?;
+        let layout = Mhc4Layout::from_weights(&model, 0);
         let (mut search, _updates) = model.search_shaped(
             run.proposal_kernel(),
             run.length(),
             crate::config::TrustRegionShape::TensorFamilyStatic,
         )?;
+        drop(model);
         let policy = run.resident_enn(run.acquisition_seed())?;
         search.configure_enn(policy)?;
         search.observe_objectives(score_bal.observation)?;
@@ -971,10 +985,15 @@ fn hnet_objective() -> Result<(), String> {
             crate::apple_gpu::buffer_slice::<u16>(&search.base_buffer(), 1024)?.to_vec();
         let ask_t0 = Instant::now();
         let geom = search.sample_distances(101)?;
-        let sel = surrogate.evaluate_candidate(&geom[0])?;
+        let sel = surrogate.select_pool(
+            &geom,
+            0,
+            baux::semantics::optimizer::AcquisitionRule::Ucb { beta: 0.0 },
+            None,
+        )?;
         let (cand_buf, proposal) = search.materialize_selection(101, &sel)?;
         let ask_ms = ask_t0.elapsed().as_secs_f64() * 1000.0;
-        let cand_score = scorer.score_batch(&runtime, &decoder, model.row(&cand_buf)?, &batch)?;
+        let cand_score = scorer.score_batch(&runtime, &decoder, layout.view(&cand_buf), &batch)?;
         let st = scorer.buffers.hnet()?.last_stats.get();
         let tell_t0 = Instant::now();
         let slot = surrogate.append(

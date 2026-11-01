@@ -398,52 +398,7 @@ impl TrustRegionController {
             return Err("observation variance must be finite and non-negative".into());
         }
         if selection.initializing {
-            let improvement = f64::from(value) - f64::from(selection.baseline_value);
-            let predicted =
-                f64::from(selection.candidate.mean) - f64::from(selection.baseline_value);
-            let base_var = selection.baseline_se * selection.baseline_se;
-            let pair_var = if variance.to_bits() == base_var.to_bits() {
-                0.0
-            } else {
-                f64::from(variance)
-            };
-            let multiplier = f64::from(self.calibration.multiplier());
-            let threshold = multiplier * pair_var.sqrt();
-            super::agreement::validate_evidence(super::agreement::TrialStep {
-                observed_improvement: improvement,
-                observation_variance: 0.0,
-                predicted_improvement: predicted,
-                prediction_variance: 0.0,
-                accepted: false,
-                nominal_radius: f64::from(self.radius()),
-                response_radius: 0.0,
-            })?;
-            if !threshold.is_finite() {
-                return Err("acceptance margin must be finite".into());
-            }
-            let accepted = accept_candidate(improvement, threshold);
-            let numerical =
-                baux::semantics::numerical::check(baux::semantics::numerical::Trace::observed(
-                    baux::semantics::numerical::Kind::Paired,
-                    improvement,
-                    multiplier,
-                    pair_var,
-                    0.0,
-                    threshold,
-                    accepted,
-                ))?;
-            return Ok(StepDecision {
-                numerical,
-                accepted,
-                improvement,
-                threshold,
-                predicted_improvement: predicted,
-                action: RadiusAction::Hold,
-                next_radius: self.radius(),
-                standardized_error: 0.0,
-                sharpness_ratio: 0.0,
-                agreement_ratio: (predicted > 0.0).then_some(improvement / predicted),
-            });
+            return eval_warmup(self, value, variance, selection);
         }
         if let Some(mut turbo_state) = self.turbo {
             let improvement = f64::from(value) - f64::from(selection.baseline_value);
@@ -567,6 +522,60 @@ impl TrustRegionController {
             agreement_ratio: result.agreement_ratio,
         })
     }
+}
+
+#[cfg(not(cabi_parity))]
+fn eval_warmup(
+    ctrl: &RadiusController,
+    value: f32,
+    variance: f32,
+    selection: &baux::semantics::optimizer::surrogate::PoolSelection,
+) -> Result<StepDecision, String> {
+    let improvement = f64::from(value) - f64::from(selection.baseline_value);
+    let predicted = f64::from(selection.candidate.mean) - f64::from(selection.baseline_value);
+    let base_var = selection.baseline_se * selection.baseline_se;
+    let pair_var = if variance.to_bits() == base_var.to_bits() {
+        0.0
+    } else {
+        f64::from(variance)
+    };
+    let multiplier = f64::from(ctrl.calibration.multiplier());
+    let threshold = multiplier * pair_var.sqrt();
+    super::agreement::validate_evidence(super::agreement::TrialStep {
+        observed_improvement: improvement,
+        observation_variance: 0.0,
+        predicted_improvement: predicted,
+        prediction_variance: 0.0,
+        accepted: false,
+        nominal_radius: f64::from(ctrl.radius()),
+        response_radius: 0.0,
+    })?;
+    if !threshold.is_finite() {
+        return Err("acceptance margin must be finite".into());
+    }
+    let accepted = accept_candidate(improvement, threshold);
+    let numerical =
+        baux::semantics::numerical::check(baux::semantics::numerical::Trace::observed(
+            baux::semantics::numerical::Kind::Paired,
+            improvement,
+            multiplier,
+            pair_var,
+            0.0,
+            threshold,
+            accepted,
+        ))?;
+    Ok(StepDecision {
+        numerical,
+        accepted,
+        improvement,
+        threshold,
+        predicted_improvement: predicted,
+        action: RadiusAction::Hold,
+        next_radius: ctrl.radius(),
+        standardized_error: 0.0,
+        sharpness_ratio: 0.0,
+        agreement_ratio: (predicted > 0.0).then_some(improvement / predicted),
+    })
 }
 
 #[cfg(kani)]

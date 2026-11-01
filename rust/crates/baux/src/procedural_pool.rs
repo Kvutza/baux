@@ -43,7 +43,8 @@ pub enum ProposalMethod {
     /// where X = Omega + S in k (+) p.
     #[deser(rename = "lie")]
     QuadraticFlow,
-    /// Forward Metric Calculus chain: coordinate-level transport along curve of maximal slope
+    /// Forward Metric Calculus chain: coordinate-level transport along curve of
+    /// maximal slope
     #[deser(rename = "metric-chain")]
     MetricChain,
 }
@@ -58,6 +59,26 @@ impl ProposalMethod {
             Self::PairMix => "pair-rotation",
             Self::QuadraticFlow => "lie",
             Self::MetricChain => "metric-chain",
+        }
+    }
+
+    /// Metal shader program identifier (`0` for independent innovation, `3` for
+    /// pair rotation, `4` for Lie flow, `5` for metric-chain Cayley-Stiefel).
+    pub const fn program_id(self) -> u32 {
+        match self {
+            Self::Additive => 0,
+            Self::PairMix => 3,
+            Self::QuadraticFlow => 4,
+            Self::MetricChain => 5,
+        }
+    }
+
+    /// Whether this proposal method requires explicit pool-macro specialization
+    /// and FP16 sampled-parameter history.
+    pub const fn program_pool(self) -> bool {
+        match self {
+            Self::Additive => false,
+            Self::PairMix | Self::QuadraticFlow | Self::MetricChain => true,
         }
     }
 }

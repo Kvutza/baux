@@ -6,7 +6,7 @@ use std::path::Path;
 fn opt_layer(short: &str) -> (&'static str, &'static str) {
     if matches!(
         short,
-        "VariableMetric" | "SelfInteracting" | "OnlineTensorEM" | "KernelBandit"
+        "VariableMetric" | "SelfInteracting" | "TensorEm" | "KernelBandit"
     ) {
         ("operator_bo", "Neural Operator BO & Matrix Manifolds")
     } else if matches!(short, "SpatialSuboptimality" | "Reliability") {

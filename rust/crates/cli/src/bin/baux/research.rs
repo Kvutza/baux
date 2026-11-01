@@ -585,6 +585,8 @@ pub mod numerical;
 pub mod radius;
 #[path = "{sem}/optimizer/provenance.rs"]
 pub mod provenance;
+#[path = "{sem}/shape.rs"]
+pub mod shape;
 #[path = "{sem}/optimizer/param_tree.rs"]
 pub mod param_tree;
 #[path = "{sem}/optimizer/window_plan.rs"]

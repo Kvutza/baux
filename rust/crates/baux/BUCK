@@ -148,9 +148,7 @@ rust_test(
         ],
     }),
     rpath = True,
-    # Two workers overlap CPU tests without saturating the shared Metal queue.
-    # Higher counts regress this mixed CPU/GPU suite through device contention.
-    run_env = {"RUST_TEST_THREADS": "2"},
+    run_env = {"RUST_TEST_THREADS": "1"},
     runtime_dependency_handling = "symlink",
 )
 

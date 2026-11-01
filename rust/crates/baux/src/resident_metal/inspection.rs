@@ -187,8 +187,4 @@ impl SearchState {
         self.check_healthy()?;
         Ok(self.history)
     }
-
-    pub(crate) fn pairwise_distance(&self, row: usize, column: usize) -> f64 {
-        f64::from(self.total_distance(row, column))
-    }
 }

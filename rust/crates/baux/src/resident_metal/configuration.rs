@@ -61,12 +61,9 @@ impl SearchState {
     ) -> Result<(), String> {
         self.check_idle()?;
         check_ask(config.ask)?;
-        if matches!(
-            config.proposal_method,
-            crate::procedural_pool::ProposalMethod::PairMix
-                | crate::procedural_pool::ProposalMethod::QuadraticFlow
-        ) && (!self.independent_fp16
-            || config.history_geometry != crate::config::HistoryGeometry::Latent)
+        if config.proposal_method.program_pool()
+            && (!self.independent_fp16
+                || config.history_geometry != crate::config::HistoryGeometry::Latent)
         {
             return Err(
                 "Lie and pair-rotation require FP16 Gaussian or Rademacher proposals and sampled \

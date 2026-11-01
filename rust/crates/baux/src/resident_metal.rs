@@ -9,21 +9,22 @@
 //! history and the shared CPU TuRBO controller. The old two-row paired-relative
 //! experiment is available only by explicit opt-in.
 
-use std::sync::Arc;
-use std::time::Instant;
+use std::{sync::Arc, time::Instant};
 
-use metal::objc::rc::autoreleasepool;
 use metal::{
     Buffer, CommandBuffer, CommandBufferRef, ComputePipelineState, MTLCommandBufferStatus,
+    objc::rc::autoreleasepool,
 };
 
-use crate::ProposalKernel;
-use crate::apple_gpu::Runtime;
-use crate::fitter::ENNFitter;
-use crate::reliability_region;
-use crate::trials::RoundConfig;
-use crate::trust_region::{TRLengthConfig, TrustRegionOutcome, TurboTrustRegion};
-use crate::weights::AcquisitionKind;
+use crate::{
+    ProposalKernel,
+    apple_gpu::Runtime,
+    fitter::ENNFitter,
+    reliability_region,
+    trials::RoundConfig,
+    trust_region::{TRLengthConfig, TrustRegionOutcome, TurboTrustRegion},
+    weights::AcquisitionKind,
+};
 
 const SOURCE: &str = include_str!("resident_search.metal");
 #[path = "resident_metal/configuration.rs"]
@@ -84,10 +85,10 @@ const TILE_ELEMENTS: usize = baux::semantics::dispatch::TILE_ELEMENTS as usize;
 const MAX_HISTORY: usize = crate::objective_observation::OBJECTIVE_CAPACITY;
 #[path = "resident_metal/family.rs"]
 mod family;
-use family::{FAMILIES, FamilyHistory};
+use family::*;
 #[path = "resident_metal/trajectory.rs"]
 mod trajectory;
-use trajectory::{TRAJECTORY_SEEDS, TrajectoryGenerator};
+use trajectory::*;
 #[path = "resident_metal/metric.rs"]
 mod metric;
 // Production decisions consume only the four proposal norms.  The remaining
@@ -1765,7 +1766,7 @@ mod tests {
         // Three 64-bit coordinates, two floats, and the typed program address.
         assert_eq!(size_of::<Leaf>(), 40);
         assert_eq!(size_of::<Tile>(), 16);
-        assert_eq!(size_of::<Params>(), 64);
+        assert_eq!(size_of::<Params>(), 184);
         assert_eq!(size_of::<ReplayStep>(), 24);
         // Includes the bounded scalar-axis history shared with the Metal ABI.
         assert_eq!(size_of::<SelectionParams>(), 3232);

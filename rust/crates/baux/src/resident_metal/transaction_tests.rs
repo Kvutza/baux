@@ -140,7 +140,14 @@ fn seam_roundtrip() {
             let geometry = search.sample_distances(91 + step as u64).unwrap();
             assert_eq!(geometry.len(), 1);
             assert_eq!(geometry[0].len(), surrogate.len());
-            let selection = surrogate.evaluate_candidate(&geometry[0]).unwrap();
+            let selection = surrogate
+                .select_pool(
+                    &geometry,
+                    step as u32,
+                    baux::semantics::optimizer::AcquisitionRule::Ucb { beta: 0.0 },
+                    None,
+                )
+                .unwrap();
             let (row, proposal) = search
                 .materialize_selection(91 + step as u64, &selection)
                 .unwrap();

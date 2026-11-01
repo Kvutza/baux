@@ -331,27 +331,6 @@ impl NeighborValueEstimator {
         )
     }
 
-    /// Evaluate a single candidate distance row against the incumbent baseline
-    /// without running a multi-candidate acquisition loop.
-    pub fn evaluate_candidate(&self, distances: &[f64]) -> Result<PoolSelection, String> {
-        let initializing = self.is_initializing();
-        let incumbent = self.incumbent_baseline()?;
-        let candidate = self.acquire(distances, 0.0, None)?;
-        let mut pool_predictions = [(0.0_f32, 0.0_f32, 0.0_f32); 4];
-        pool_predictions[0] = (candidate.mean, candidate.standard_error, candidate.score);
-        let (baseline_value, baseline_se) =
-            (self.base_value(), self.base_variance().max(0.0).sqrt());
-        Ok(PoolSelection {
-            selected: 0,
-            initializing,
-            candidate,
-            incumbent,
-            baseline_value,
-            baseline_se,
-            pool_predictions,
-        })
-    }
-
     /// Score all candidate distance rows in a proposal pool and select the
     /// active slot.
     pub fn select_pool(

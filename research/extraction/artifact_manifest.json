@@ -38,10 +38,10 @@
     "aeneas_float_patch_sha256": "6ff1b653717c1102d68cfd4cf052b42cc5c16ef0f5ec792f3cf11a7d3cf48a1a",
     "aeneas_dyn_patch_sha256": "88e4c868a6a032288a8e6b702b1e2716143676c9c2f591273825ccc7163fd449",
     "aeneas_dyn_dispatch_patch_sha256": "add7a8740470371165464ebc17e439a0374121ad79b51f4f97dc40c93527bdba",
-    "box_pair_metadata_sha256": "7e9d0d4c029d684096e034424937790ed914e1d542eff888b9fd9e7a1b831c01",
-    "local_baux_src_tree_sha256": "78631019327ec39bd27e5b224a92d354d4fa0bc1ae039afb6279c932f6fc9f9d",
-    "local_semantics_src_tree_sha256": "7b4658a61f88702c1135091622c0a97ffb0952385c2eb20089c0d121398a7731",
-    "local_neighbor_index_src_tree_sha256": "26199dd34c9e9a2dc511817675f3dde5ea132e90ec0a43d4c7ef94597ffd4f2a"
+    "box_pair_metadata_sha256": "0fd0c76800590817ae70fcae0b166e8b2619dabad8c2c86b65a5d90765831d43",
+    "local_baux_src_tree_sha256": "44302dd30ac41cc19727128c85d59561bc146e689fdbf45d2b137a19a3d27611",
+    "local_semantics_src_tree_sha256": "6e97ca04045d5a3a7c41b174c9262bea38e69da515e2f2b7e1c79189998089f9",
+    "local_neighbor_index_src_tree_sha256": "519903581438f6fa2c7ee9a63986ad97a600d3c87bfe34f91314f4e397b91807"
   },
   "compiled_artifacts": {
     "binaries": {
@@ -49,36 +49,36 @@
         "format": "ar+mach-o-64",
         "isa": "arm64",
         "cputype": "0x0100000c",
-        "bytes": 22542184,
-        "sha256": "ba9ad8acda96c7c75ff8da5dc62e9bc3decb0fcfbec1555655029e12c00d4581"
+        "bytes": 22541200,
+        "sha256": "1d48d3e9fa537b9ce0479e28a22a8b01148f27ae0ed2a6b0b03c3446a893625e"
       },
       "upstream_bpann_rlib": {
         "format": "ar+mach-o-64",
         "isa": "arm64",
         "cputype": "0x0100000c",
-        "bytes": 22679288,
-        "sha256": "bd3ea4f08e75b13d01a67ac159a81ea1372feb4e1ffbb8c86df21f22bce389d6"
+        "bytes": 22678320,
+        "sha256": "430b0e9eda08291c37aa39bac11c7715e83c3eabca83fd5c47a10b956c10d068"
       },
       "local_baux_rlib": {
         "format": "ar+mach-o-64",
         "isa": "arm64",
         "cputype": "0x0100000c",
-        "bytes": 174749280,
-        "sha256": "98ffca02fd47dc7b9a455a64a091776523c5817f57fce15d239d9b8423fb3bc5"
+        "bytes": 177202992,
+        "sha256": "29d33ee544835de4c2039e86e2617b301f653f3a03f1a0cee2c2d4019d94598c"
       },
       "local_optimizer_extraction_rlib": {
         "format": "ar+mach-o-64",
         "isa": "arm64",
         "cputype": "0x0100000c",
         "bytes": 744176,
-        "sha256": "311c8482604484145cdc458c33da20b16132085cb1b5d896952c4cc88c8cf1e2"
+        "sha256": "d1dc87d545f7330f2bc35fed6af6e0770c784e160545edaa62999ea964eea5e9"
       },
       "lean_cabi_static_archive": {
         "format": "ar+mach-o-64",
         "isa": "arm64",
         "cputype": "0x0100000c",
-        "bytes": 16214792,
-        "sha256": "ee1e199151a66936fe328b0b33a6b0704be89f4d7dbc8071229e603e57f7e795"
+        "bytes": 15939520,
+        "sha256": "3c412bf9010771ad0fd43da550bbd18037dfa587be869c74e8e8801780b5a106"
       },
       "lean_numerical_shared_object": {
         "format": "mach-o-64",
@@ -91,15 +91,15 @@
         "format": "mach-o-64",
         "isa": "arm64",
         "cputype": "0x0100000c",
-        "bytes": 15279192,
-        "sha256": "378ba8b8887df96dfa835cc2ff4d96fa074982a0cf901e71d8af3c480a855702"
+        "bytes": 15276760,
+        "sha256": "4668ec75aef9840b8c67d8d025ee665e4d5d7b2b47cce4375c40126e5bde5719"
       },
       "local_artifact_harness_bin": {
         "format": "mach-o-64",
         "isa": "arm64",
         "cputype": "0x0100000c",
-        "bytes": 6385800,
-        "sha256": "1635246ac7d0c3aad68cce5994e75a9aac34e0e936009a4b4c1678f657b4d10b"
+        "bytes": 6385000,
+        "sha256": "3edac57f681afd0f58125944292c90ca81e14eb3a165b7500e03dac2d149fc4b"
       }
     },
     "lean_oleans": {

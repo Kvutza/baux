@@ -234,12 +234,13 @@ impl Neighbors {
 
     pub(super) fn compute_distances(&mut self, state: &SearchState) -> Vec<Vec<f64>> {
         let n_pts = self.points.len();
+        let pool_count = state.pool_layout.count() as usize;
         let base_index = state.identities[..state.history]
             .iter()
             .position(|&identity| identity == state.base_id)
             .unwrap_or(0);
-        let deltas = read::<f32>(&self.pool_deltas, 4 * n_pts);
-        for cand in 0..4 {
+        let deltas = read::<f32>(&self.pool_deltas, pool_count * n_pts);
+        for cand in 0..pool_count {
             let cand_deltas = &deltas[cand * n_pts..(cand + 1) * n_pts];
             let base_history = &self.history_coords[base_index * n_pts..(base_index + 1) * n_pts];
             let cand_pool = &mut self.pool_coords[cand * n_pts..(cand + 1) * n_pts];
@@ -248,14 +249,14 @@ impl Neighbors {
             }
         }
 
-        let mut matrix_f64 = vec![vec![0.0_f64; state.history]; 4];
+        let mut matrix_f64 = vec![vec![0.0_f64; state.history]; pool_count];
         let mut f32_dists = vec![0.0_f32; 4 * state.history];
         let mut comps = vec![[0.0_f32; FAMILIES]; 4 * state.history];
 
         let fam_groups = read::<u32>(&state.family_groups, state.blocks.len());
         let fam_weights = read::<f32>(&state.family_base_weights, state.blocks.len());
 
-        for cand in 0..4 {
+        for cand in 0..pool_count {
             let cand_coords = &self.pool_coords[cand * n_pts..(cand + 1) * n_pts];
             for row in 0..state.history {
                 let hist_coords = &self.history_coords[row * n_pts..(row + 1) * n_pts];
@@ -406,6 +407,7 @@ mod tests {
                         ProposalMethod::Additive,
                         ProposalMethod::PairMix,
                         ProposalMethod::QuadraticFlow,
+                        ProposalMethod::MetricChain,
                     ] {
                         let mut search = search(arms, slots, mode, method);
                         for iteration in 0..8 {

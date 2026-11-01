@@ -308,6 +308,7 @@ fn controller_parity(tc: TestCase) {
         expand_factor: tc.draw(gs::floats::<f64>().min_value(1.25).max_value(4.0)),
         shrink_factor: tc.draw(gs::floats::<f64>().min_value(0.125).max_value(0.9)),
         failure_tolerance: tc.draw(gs::integers::<usize>().min_value(0).max_value(8)),
+        continuous_descent: false,
     };
     let encoded = baux::artifact::json::to_string(&policy).unwrap();
     let decoded: baux::ReliabilityPolicy = baux::artifact::json::from_str(&encoded).unwrap();

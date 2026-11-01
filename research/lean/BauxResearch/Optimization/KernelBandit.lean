@@ -12,14 +12,14 @@ Bubeck, Eldan, and Lee (2016):
   `q = K p`, observing a single scalar value `Y_t = loss(X_t)` at `X_t ~ q`
   produces the function-valued estimator
   `lossEstimator K q loss X_t x = (loss X_t * K x X_t) / q X_t`.
-* **Pointwise Unbiasedness (`lossEstimator_unbiased`)**: The expectation of
+* **Pointwise Unbiasedness (`estimator_unbiased`)**: The expectation of
   `lossEstimator` under `X_t ~ q` equals the kernel-smoothed loss
   `smoothedLoss K loss x = (K* loss)(x)` at every point `x` simultaneously,
   without forming any gradient estimate of `loss`.
-* **Adjoint Duality (`smoothedLoss_duality`, `expected_linear_lossEstimator`)**:
+* **Adjoint Duality (`smoothed_duality`, `expected_linear`)**:
   The expected linear functional `𝔼[⟨p', lossEstimator⟩]` under `X_t ~ q`
   equals `⟨K p', loss⟩`.
-* **Second-Moment Identity (`lossEstimator_secondMoment`)**: Exact importance
+* **Second-Moment Identity (`second_moment`)**: Exact importance
   sampling second moment `∑ u, q u * (lossEstimator K q loss u x)²`.
 -/
 
@@ -45,7 +45,7 @@ def lossEstimator (K : Ω → Ω → ℝ) (q : Ω → ℝ) (loss : Ω → ℝ) (
 
 /-- Pointwise unbiasedness: for every query `x`, the expectation of the
 one-observation estimator under `u ~ q` equals the smoothed loss `(K* loss)(x)`. -/
-theorem lossEstimator_unbiased (K : Ω → Ω → ℝ) (q : Ω → ℝ) (loss : Ω → ℝ) (x : Ω)
+theorem estimator_unbiased (K : Ω → Ω → ℝ) (q : Ω → ℝ) (loss : Ω → ℝ) (x : Ω)
     (hq : ∀ u : Ω, q u ≠ 0) :
     ∑ u : Ω, q u * lossEstimator K q loss u x = smoothedLoss K loss x := by
   unfold lossEstimator smoothedLoss
@@ -54,7 +54,7 @@ theorem lossEstimator_unbiased (K : Ω → Ω → ℝ) (q : Ω → ℝ) (loss : 
   exact mul_div_cancel₀ (loss u * K x u) (hq u)
 
 /-- Kernel adjoint duality: `⟨p, K* loss⟩ = ⟨K p, loss⟩`. -/
-theorem smoothedLoss_duality (K : Ω → Ω → ℝ) (p loss : Ω → ℝ) :
+theorem smoothed_duality (K : Ω → Ω → ℝ) (p loss : Ω → ℝ) :
     ∑ x : Ω, p x * smoothedLoss K loss x =
       ∑ u : Ω, samplingLaw K p u * loss u := by
   unfold smoothedLoss samplingLaw
@@ -78,7 +78,7 @@ theorem smoothedLoss_duality (K : Ω → Ω → ℝ) (p loss : Ω → ℝ) :
 
 /-- Distributional unbiasedness: for any candidate law `p'`, the expected inner
 product `𝔼_{u ~ q}[⟨p', ℓ̂(u, ·)⟩]` equals `⟨K p', loss⟩`. -/
-theorem expected_linear_lossEstimator (K : Ω → Ω → ℝ) (q p' loss : Ω → ℝ)
+theorem expected_linear (K : Ω → Ω → ℝ) (q p' loss : Ω → ℝ)
     (hq : ∀ u : Ω, q u ≠ 0) :
     ∑ u : Ω, q u * (∑ x : Ω, p' x * lossEstimator K q loss u x) =
       ∑ u : Ω, samplingLaw K p' u * loss u := by
@@ -100,12 +100,12 @@ theorem expected_linear_lossEstimator (K : Ω → Ω → ℝ) (q p' loss : Ω �
     _ = ∑ x : Ω, p' x * smoothedLoss K loss x := by
           apply Finset.sum_congr rfl
           intro x _
-          rw [lossEstimator_unbiased K q loss x hq]
+          rw [estimator_unbiased K q loss x hq]
     _ = ∑ u : Ω, samplingLaw K p' u * loss u :=
-          smoothedLoss_duality K p' loss
+          smoothed_duality K p' loss
 
 /-- Exact second moment of the one-observation function-valued estimator under `q`. -/
-theorem lossEstimator_secondMoment (K : Ω → Ω → ℝ) (q loss : Ω → ℝ) (x : Ω)
+theorem second_moment (K : Ω → Ω → ℝ) (q loss : Ω → ℝ) (x : Ω)
     (hq : ∀ u : Ω, q u ≠ 0) :
     ∑ u : Ω, q u * (lossEstimator K q loss u x) ^ 2 =
       ∑ u : Ω, (loss u * K x u) ^ 2 / q u := by
@@ -115,10 +115,10 @@ theorem lossEstimator_secondMoment (K : Ω → Ω → ℝ) (q loss : Ω → ℝ)
   have hNe := hq u
   field_simp [hNe]
 
-#print axioms lossEstimator_unbiased
-#print axioms smoothedLoss_duality
-#print axioms expected_linear_lossEstimator
-#print axioms lossEstimator_secondMoment
+#print axioms estimator_unbiased
+#print axioms smoothed_duality
+#print axioms expected_linear
+#print axioms second_moment
 
 end
 end BauxResearch.Optimization.KernelBandit

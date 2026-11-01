@@ -210,6 +210,7 @@ inline bool invalid_value(ushort x) { return (x & 0x7f80u) == 0x7f80u; }
 struct PrecomputedDomains {
     ulong2 fresh;
     uint count;
+    uint trajectory_active;
     float fresh_weight;
     ulong2 hist[TRAJECTORY_SEEDS];
     float weights[TRAJECTORY_SEEDS];
@@ -230,6 +231,7 @@ inline float2 noise_pair(ulong seed, ulong key, ulong pair, uint mode) {
 inline PrecomputedDomains make_domains(ulong salted_seed, Leaf leaf, constant Params &p) {
     PrecomputedDomains d;
     d.fresh = ziggurat_domain(salted_seed, leaf.key);
+    d.trajectory_active = p.trajectory_pad;
     if (p.trajectory_count == 0u) {
         d.count = 0u;
         d.fresh_weight = 1.0f;
@@ -318,7 +320,7 @@ inline float proposal_radius(
     float radius,
     float alternate_radius) {
 #ifdef PROCEDURAL_SLOTS
-    uint slot = program == 3u ? candidate : candidate % PROCEDURAL_SLOTS;
+    uint slot = program != 0u ? candidate : candidate % PROCEDURAL_SLOTS;
 #else
     uint slot = candidate;
 #endif
@@ -383,6 +385,9 @@ inline float2 sym_pair_continuous_domains(
         return step * unit_dir;
     }
     float2 q = trajectory_noise_pair_domains(d, pair, mode);
+    if (d.trajectory_active != 0u) {
+        return step * q;
+    }
     float r_sq = base_value.x * base_value.x + base_value.y * base_value.y;
     if (r_sq > 1e-12f) {
         float inv_r = rsqrt(r_sq);
@@ -408,13 +413,19 @@ inline float2 sym_pair_continuous(
     return sym_pair_continuous_domains(base_value, leaf, d, radius, mode, pair);
 }
 
-inline float2 proposal_pair_continuous(float2 base_value, Leaf leaf, ulong seed,
-    ulong basis_seed, uint candidate, uint program, float radius, uint mode,
-    ulong pair, constant Params &p) {
+inline float2 proposal_delta_domains(
+    float2 base_value,
+    Leaf leaf,
+    thread const PrecomputedDomains &doms,
+    uint candidate,
+    uint program,
+    float radius,
+    uint mode,
+    ulong pair) {
     if (program == 4u)
-        return sym_pair_continuous(base_value, leaf, seed ^ 0x8ebc6af09c88c6e3ul, radius, mode, pair, p);
+        return sym_pair_continuous_domains(base_value, leaf, doms, radius, mode, pair);
 
-    float2 noise = trajectory_noise_pair(seed ^ 0x8ebc6af09c88c6e3ul, leaf, pair, mode, p);
+    float2 noise = trajectory_noise_pair_domains(doms, pair, mode);
     if (program == 3u) {
         float r_sq = base_value.x * base_value.x + base_value.y * base_value.y;
         float inv_r = r_sq > 1e-12f ? rsqrt(r_sq) : 0.0f;
@@ -425,37 +436,31 @@ inline float2 proposal_pair_continuous(float2 base_value, Leaf leaf, ulong seed,
         return (leaf.scale * radius) * noise;
     }
     if (program == 5u) {
-        // Pseudo-random block-sparse activation: only update active manifold blocks
-        // This concentrates proposal energy into correlated sub-manifolds rather than
-        // uniformly dispersing noise across all 32M coordinates simultaneously.
-        ulong block_hash = mix64(seed ^ leaf.key ^ ((pair >> 3) * 0x9e3779b97f4a7c15ul));
-        if ((block_hash & 7ul) != 0ul) {
-            return float2(0.0f, 0.0f);
-        }
-
-        float s = leaf.scale * radius * 2.82842712f; // scale compensated for 1/8 sparsity (sqrt(8))
-        // Skew-symmetric 4-coordinate multi-chain coupling
+        float s = leaf.scale * radius;
+        if (s == 0.0f) return float2(0.0f, 0.0f);
         ulong leaf_pairs = (leaf.length + 1ul) / 2ul;
-        float2 rot_partner = base_value;
         if (leaf_pairs >= 2ul) {
             ulong quad_base = min(pair & ~1ul, leaf_pairs - 2ul);
-            float2 q0 = trajectory_noise_pair(seed ^ 0x8ebc6af09c88c6e3ul, leaf, quad_base, mode, p);
-            float2 q1 = trajectory_noise_pair(seed ^ 0x8ebc6af09c88c6e3ul, leaf, quad_base + 1ul, mode, p);
-            float A_row = 0.5f * (q0.x - q1.y);
-            float A_col = 0.5f * (q0.y + q1.x);
-            noise = (pair & 1ul) == 0ul ? float2(A_row, A_col) : float2(-A_col, -A_row);
+            uint sub = uint(pair - quad_base);
+            float2 q0 = trajectory_noise_pair_domains(doms, quad_base, mode);
+            float2 q1 = trajectory_noise_pair_domains(doms, quad_base + 1ul, mode);
+            float2 u_plus = 0.70710678f * (q0 + q1);
+            float2 u_minus = 0.70710678f * (q0 - q1);
+            float2 coupled = sub == 0u
+                ? float2(0.86602540f * q0.x + 0.5f * u_plus.y, 0.86602540f * q0.y + 0.5f * u_plus.x)
+                : float2(0.86602540f * q1.x - 0.5f * u_minus.y, 0.86602540f * q1.y - 0.5f * u_minus.x);
+            return s * coupled;
         }
-        // Cayley-Stiefel rational retraction: exact orthogonal map (I - A/2)^(-1) (I + A/2)
-        // Eliminates the trace penalty 1/2 delta^T H delta across coordinates
-        float a = s * noise.x;
-        float b_rot = s * noise.y;
-        float denom = 1.0f + 0.25f * (a * a + b_rot * b_rot);
-        float inv_denom = 1.0f / max(denom, 1e-8f);
-        float x_cayley = ((1.0f - 0.25f * (a * a + b_rot * b_rot)) * base_value.x - b_rot * base_value.y) * inv_denom;
-        float y_cayley = (b_rot * base_value.x + (1.0f - 0.25f * (a * a + b_rot * b_rot)) * base_value.y) * inv_denom;
-        return float2(x_cayley - base_value.x, y_cayley - base_value.y);
+        return s * noise;
     }
     return (leaf.scale * radius) * noise;
+}
+
+inline float2 proposal_pair_continuous(float2 base_value, Leaf leaf, ulong seed,
+    ulong basis_seed, uint candidate, uint program, float radius, uint mode,
+    ulong pair, constant Params &p) {
+    PrecomputedDomains doms = make_domains(seed ^ 0x8ebc6af09c88c6e3ul, leaf, p);
+    return proposal_delta_domains(base_value, leaf, doms, candidate, program, radius, mode, pair);
 }
 
 inline ushort2 sym_pair(
@@ -479,51 +484,8 @@ inline ushort2 proposal_pair_domains(
     float radius,
     uint mode,
     ulong pair) {
-    if (program == 4u)
-        return encode_pair(
-            base_value + sym_pair_continuous_domains(base_value, leaf, doms, radius, mode, pair));
-
-    float2 noise = trajectory_noise_pair_domains(doms, pair, mode);
-    if (program == 3u) {
-        float r_sq = base_value.x * base_value.x + base_value.y * base_value.y;
-        float inv_r = r_sq > 1e-12f ? rsqrt(r_sq) : 0.0f;
-        float2 tangent = float2(base_value.y * inv_r, -base_value.x * inv_r);
-        uint slot = candidate & 3u;
-        float alpha = slot == 0u ? 0.0f : (slot == 1u ? 0.5235987756f : (slot == 2u ? 0.7853981634f : 1.0471975512f));
-        noise = cos(alpha) * noise + sin(alpha) * tangent;
-        return encode_pair(base_value + (leaf.scale * radius) * noise);
-    }
-    if (program == 5u) {
-        // Pseudo-random block-sparse activation: only update active manifold blocks
-        // This concentrates proposal energy into correlated sub-manifolds rather than
-        // uniformly dispersing noise across all 32M coordinates simultaneously.
-        ulong block_hash = mix64(doms.fresh.x ^ leaf.key ^ ((pair >> 3) * 0x9e3779b97f4a7c15ul));
-        if ((block_hash & 7ul) != 0ul) {
-            return encode_pair(base_value);
-        }
-
-        float s = leaf.scale * radius * 2.82842712f;
-        // Skew-symmetric 4-coordinate multi-chain coupling
-        ulong leaf_pairs = (leaf.length + 1ul) / 2ul;
-        if (leaf_pairs >= 2ul) {
-            ulong quad_base = min(pair & ~1ul, leaf_pairs - 2ul);
-            float2 q0 = trajectory_noise_pair_domains(doms, quad_base, mode);
-            float2 q1 = trajectory_noise_pair_domains(doms, quad_base + 1ul, mode);
-            float A_row = 0.5f * (q0.x - q1.y);
-            float A_col = 0.5f * (q0.y + q1.x);
-            noise = (pair & 1ul) == 0ul ? float2(A_row, A_col) : float2(-A_col, -A_row);
-        }
-        // Cayley-Stiefel rational retraction: exact orthogonal map (I - A/2)^(-1) (I + A/2)
-        // Eliminates the trace penalty 1/2 delta^T H delta across coordinates
-        float a = s * noise.x;
-        float b_rot = s * noise.y;
-        float denom = 1.0f + 0.25f * (a * a + b_rot * b_rot);
-        float inv_denom = 1.0f / max(denom, 1e-8f);
-        float x_cayley = ((1.0f - 0.25f * (a * a + b_rot * b_rot)) * base_value.x - b_rot * base_value.y) * inv_denom;
-        float y_cayley = (b_rot * base_value.x + (1.0f - 0.25f * (a * a + b_rot * b_rot)) * base_value.y) * inv_denom;
-        return encode_pair(float2(x_cayley, y_cayley));
-    }
-    return encode_pair(base_value + (leaf.scale * radius) * noise);
+    return encode_pair(
+        base_value + proposal_delta_domains(base_value, leaf, doms, candidate, program, radius, mode, pair));
 }
 
 // Seed is the canonical candidate stream, before the single noise-domain salt.
@@ -597,7 +559,7 @@ kernel void bf16_propose(
         ulong first = (element / 2ul) * 2ul;
         ushort2 base_pair = ushort2(base[leaf.offset + first],
             first + 1ul < leaf.length ? base[leaf.offset + first + 1ul] : 0);
-        ulong seed = p.program == 3u
+        ulong seed = p.program != 0u
             ? proposal_seed(p.stream_seed, p.candidate, p.program) : p.seed;
         ushort2 values = proposal_pair(decode_pair(base_pair), leaf, seed,
             p.basis_seed, p.candidate, p.program, p.radius, p.mode,
@@ -695,7 +657,7 @@ kernel void bf16_propose_initial(
             ? *reinterpret_cast<device const ushort2*>(base + index)
             : ushort2(base[index], complete_pair ? base[index + 1] : 0);
         float2 base_values = decode_pair(base_pair);
-        ulong seed = p.program == 3u
+        ulong seed = p.program != 0u
             ? proposal_seed(p.stream_seed, p.candidate, p.program) : p.seed;
         ushort2 values = proposal_pair(base_values, leaf, seed, p.basis_seed,
             p.candidate, p.program, p.radius, p.mode, element / 2ul, p);
@@ -1816,7 +1778,7 @@ kernel void bf16_materialize(
     Tile tile = tiles[tile_index];
     Leaf leaf = leaves[tile.leaf];
 #ifdef FP16_INDEPENDENT
-    ulong seed = decision->program == 3u
+    ulong seed = decision->program != 0u
         ? proposal_seed(decision->root_seed, decision->index, decision->program)
         : decision->seed;
     PrecomputedDomains doms = make_domains(seed ^ 0x8ebc6af09c88c6e3ul, leaf, p);

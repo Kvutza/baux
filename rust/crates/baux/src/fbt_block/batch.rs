@@ -44,6 +44,43 @@ fn paired_gains(
         .collect()
 }
 
+fn encode_hnet(
+    decoder: &BlockDecoder,
+    command: &CommandBufferRef,
+    weights: CandidateRow<'_>,
+    byte_offset: u64,
+    active_rows: u32,
+    score: u32,
+) -> Result<(), String> {
+    let encoder = command.new_compute_command_encoder();
+    let waves = &decoder.buffers.hnet()?.waves;
+    encoder.set_compute_pipeline_state(&waves.mhc_readout);
+    crate::apple_gpu::bind_buffers(
+        &encoder,
+        &[
+            (&decoder.buffers.normalized, 0),
+            (weights.buffer, weights.readout),
+            (&decoder.buffers.labels, byte_offset),
+            (&decoder.proposals, byte_offset),
+            (&decoder.buffers.losses, byte_offset),
+        ],
+    );
+    let shape = baux::semantics::hnet::HNetShape {
+        batch_size: 1,
+        seq_len: active_rows,
+        d_model: WIDTH,
+        max_chunks: active_rows,
+        vocab_size: 256,
+        eps: 1e-4,
+        target_ratio: 4.0,
+        score,
+    };
+    crate::apple_gpu::encode_value(&encoder, 5, &shape);
+    encoder.dispatch_thread_groups(thread_group(u64::from(active_rows)), thread_group(32));
+    encoder.end_encoding();
+    Ok(())
+}
+
 impl BlockDecoder {
     pub(super) fn encode_waves(
         &self,
@@ -54,34 +91,9 @@ impl BlockDecoder {
         score: u32,
         update_centroids: bool,
     ) -> Result<(), String> {
+        let _ = update_centroids;
         if weights.architecture.is_hnet() {
-            let encoder = command.new_compute_command_encoder();
-            let waves = &self.buffers.hnet()?.waves;
-            encoder.set_compute_pipeline_state(&waves.mhc_readout);
-            crate::apple_gpu::bind_buffers(
-                &encoder,
-                &[
-                    (&self.buffers.normalized, 0),
-                    (weights.buffer, weights.readout),
-                    (&self.buffers.labels, byte_offset),
-                    (&self.proposals, byte_offset),
-                    (&self.buffers.losses, byte_offset),
-                ],
-            );
-            let shape = baux::semantics::hnet::HNetShape {
-                batch_size: 1,
-                seq_len: active_rows,
-                d_model: WIDTH,
-                max_chunks: active_rows,
-                vocab_size: 256,
-                eps: 1e-4,
-                target_ratio: 4.0,
-                score,
-            };
-            crate::apple_gpu::encode_value(&encoder, 5, &shape);
-            encoder.dispatch_thread_groups(thread_group(u64::from(active_rows)), thread_group(32));
-            encoder.end_encoding();
-            return Ok(());
+            return encode_hnet(self, command, weights, byte_offset, active_rows, score);
         }
         let loss_partials = self.buffers.loss_partials()?;
         let proposal_partials = self.buffers.proposal_partials()?;
@@ -97,24 +109,12 @@ impl BlockDecoder {
         encoder.set_buffer(0, Some(&self.buffers.normalized), 0);
         encoder.set_buffer(1, Some(weights.buffer), weights.readout);
         encoder.set_buffer(2, Some(loss_partials), 0);
-        encoder.set_bytes(
-            3,
-            std::mem::size_of_val(&shape) as u64,
-            shape.as_ptr().cast(),
-        );
+        crate::apple_gpu::encode_value(&encoder, 3, &shape);
         encoder.set_buffer(4, Some(&self.seeds), 0);
-        encoder.set_bytes(
-            5,
-            std::mem::size_of_val(&temperature) as u64,
-            std::ptr::from_ref(&temperature).cast(),
-        );
+        crate::apple_gpu::encode_value(&encoder, 5, &temperature);
         encoder.set_buffer(6, Some(&self.buffers.labels), 0);
         encoder.set_buffer(7, Some(proposal_partials), 0);
-        encoder.set_bytes(
-            8,
-            std::mem::size_of_val(&score_targets) as u64,
-            std::ptr::from_ref(&score_targets).cast(),
-        );
+        crate::apple_gpu::encode_value(&encoder, 8, &score_targets);
         encoder.dispatch_thread_groups(
             MTLSize {
                 width: u64::from(tiles),
@@ -134,11 +134,7 @@ impl BlockDecoder {
         encoder.set_compute_pipeline_state(&self.pipelines.readout_proposal_reduce);
         encoder.set_buffer(0, Some(proposal_source), 0);
         encoder.set_buffer(1, Some(&self.proposals), byte_offset);
-        encoder.set_bytes(
-            2,
-            std::mem::size_of_val(&tiles) as u64,
-            std::ptr::from_ref(&tiles).cast(),
-        );
+        crate::apple_gpu::encode_value(&encoder, 2, &tiles);
         encoder.dispatch_thread_groups(thread_group(u64::from(active_rows)), thread_group(128));
         encoder.memory_barrier_with_resources(&[&self.proposals]);
 
@@ -146,11 +142,7 @@ impl BlockDecoder {
             encoder.set_compute_pipeline_state(&self.pipelines.readout_loss_reduce);
             encoder.set_buffer(0, Some(proposal_partials), 0);
             encoder.set_buffer(1, Some(&self.buffers.losses), byte_offset);
-            encoder.set_bytes(
-                2,
-                std::mem::size_of_val(&tiles) as u64,
-                std::ptr::from_ref(&tiles).cast(),
-            );
+            crate::apple_gpu::encode_value(&encoder, 2, &tiles);
             encoder.dispatch_thread_groups(thread_group(u64::from(active_rows)), thread_group(128));
             encoder.memory_barrier_with_resources(&[&self.buffers.losses]);
         }

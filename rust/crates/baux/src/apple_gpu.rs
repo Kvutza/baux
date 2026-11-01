@@ -506,6 +506,7 @@ impl Runtime {
     ) -> Option<Buffer> {
         use std::os::fd::AsRawFd;
         unsafe extern "C" {
+            static _NSConcreteGlobalBlock: *const std::ffi::c_void;
             fn mmap(
                 addr: *mut std::ffi::c_void,
                 len: usize,
@@ -514,7 +515,35 @@ impl Runtime {
                 fd: i32,
                 offset: i64,
             ) -> *mut std::ffi::c_void;
+            fn munmap(addr: *mut std::ffi::c_void, len: usize) -> i32;
         }
+        #[repr(C)]
+        struct BlockDescriptor {
+            reserved: usize,
+            size: usize,
+        }
+        #[repr(C)]
+        struct GlobalBlock {
+            isa: usize,
+            flags: i32,
+            reserved: i32,
+            invoke: unsafe extern "C" fn(*const GlobalBlock, *mut std::ffi::c_void, usize),
+            descriptor: usize,
+        }
+        unsafe extern "C" fn unmap_invoke(
+            _block: *const GlobalBlock,
+            ptr: *mut std::ffi::c_void,
+            len: usize,
+        ) {
+            unsafe {
+                let _ = munmap(ptr, len);
+            }
+        }
+        static DESCRIPTOR: BlockDescriptor = BlockDescriptor {
+            reserved: 0,
+            size: std::mem::size_of::<GlobalBlock>(),
+        };
+        static DEALLOCATOR: OnceLock<GlobalBlock> = OnceLock::new();
         let aligned = bytes.next_multiple_of(16_384);
         if aligned == 0 || offset % 16_384 != 0 {
             return None;
@@ -532,12 +561,19 @@ impl Runtime {
         if ptr.is_null() || ptr == usize::MAX as *mut std::ffi::c_void {
             return None;
         }
+        let block = DEALLOCATOR.get_or_init(|| GlobalBlock {
+            isa: std::ptr::addr_of!(_NSConcreteGlobalBlock) as usize,
+            flags: 1 << 28,
+            reserved: 0,
+            invoke: unmap_invoke,
+            descriptor: std::ptr::addr_of!(DESCRIPTOR) as usize,
+        });
         let buf = self.device.new_buffer_with_bytes_no_copy(
             ptr,
             aligned as u64,
             metal::MTLResourceOptions::StorageModeShared
                 | metal::MTLResourceOptions::HazardTrackingModeTracked,
-            None,
+            Some(unsafe { &*(block as *const GlobalBlock).cast() }),
         );
         (buf.length() == aligned as u64).then_some(buf)
     }

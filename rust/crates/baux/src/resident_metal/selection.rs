@@ -14,12 +14,7 @@ impl SearchState {
     /// 0 for the ordinary innovation path. This tag is separate from the
     /// Gaussian/Rademacher sampler mode.
     pub(super) fn proposal_program(&self) -> u32 {
-        match self.proposal_method {
-            crate::procedural_pool::ProposalMethod::MetricChain => 5,
-            crate::procedural_pool::ProposalMethod::QuadraticFlow => 4,
-            crate::procedural_pool::ProposalMethod::PairMix => 3,
-            _ => 0,
-        }
+        self.proposal_method.program_id()
     }
 
     /// Whether full realized/replay geometry, rather than latent-mode geometry,
@@ -125,8 +120,7 @@ impl SearchState {
         Params {
             seed: self.procedural_seed(root, 0),
             stream_seed: if self.pool_layout == crate::procedural_pool::ProceduralPool::legacy()
-                && self.proposal_method != crate::procedural_pool::ProposalMethod::PairMix
-                && self.proposal_method != crate::procedural_pool::ProposalMethod::QuadraticFlow
+                && !self.proposal_method.program_pool()
             {
                 candidate_seed(root, 2)
             } else {

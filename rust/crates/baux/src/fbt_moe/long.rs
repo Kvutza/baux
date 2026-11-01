@@ -254,6 +254,27 @@ fn init_surrogate(
     Ok((trust_region, surrogate))
 }
 
+fn build_search(
+    run: &crate::config::RunConfig,
+    weights: &CandidateWeights,
+) -> Result<(SearchState, UpdateLog, crate::config::ResidentEnnConfig), String> {
+    let shape = run
+        .trust_region_shape
+        .unwrap_or(crate::config::TrustRegionShape::TensorFamilyStatic);
+    let (mut search, updates) =
+        weights.search_shaped(run.proposal_kernel(), run.length(), shape)?;
+    let policy = run.resident_enn(run.acquisition_seed())?;
+    search.configure_enn(policy)?;
+    if run.optimizer() == crate::config::TrainingOptimizer::OperatorBo {
+        search.enable_trajectory()?;
+    }
+    if let Some(controller) = run.reliability_controller() {
+        search.configure_controller(controller)?;
+    }
+    search.set_profiling(run.trace());
+    Ok((search, updates, policy))
+}
+
 fn setup_state(
     run: &crate::config::RunConfig,
     dataset_path: &std::path::Path,
@@ -305,20 +326,7 @@ fn setup_state(
         crate::config::ModelInitialization::FbtPisa1Mhc4,
         architecture,
     )?;
-    let shape = run
-        .trust_region_shape
-        .unwrap_or(crate::config::TrustRegionShape::TensorFamilyStatic);
-    let (mut search, updates) =
-        weights.search_shaped(run.proposal_kernel(), run.length(), shape)?;
-    let policy = run.resident_enn(run.acquisition_seed())?;
-    search.configure_enn(policy)?;
-    if run.optimizer() == crate::config::TrainingOptimizer::OperatorBo {
-        search.enable_trajectory()?;
-    }
-    if let Some(controller) = run.reliability_controller() {
-        search.configure_controller(controller)?;
-    }
-    search.set_profiling(run.trace());
+    let (mut search, updates, policy) = build_search(run, &weights)?;
 
     let initial_batch = dataset.causal_batch(window_tokens, run.reference_seed(), 0)?;
     scorer.clear_pair();
@@ -400,12 +408,53 @@ impl LongState {
             .checked_add(u64::from(step))
             .ok_or("proposal seed overflow")?;
         let ask_start = Instant::now();
-        let geometry = self.search.sample_distances(prop_seed)?;
-        if geometry.len() != 1 {
-            return Err("long pretraining requires a single candidate pool".into());
+        let rule = match run.acquisition {
+            Some(crate::config::AcquisitionConfig::Thompson) => {
+                baux::semantics::optimizer::AcquisitionRule::Thompson { seed: prop_seed }
+            }
+            Some(crate::config::AcquisitionConfig::UCB { beta }) => {
+                baux::semantics::optimizer::AcquisitionRule::Ucb { beta: beta as f32 }
+            }
+            _ => baux::semantics::optimizer::AcquisitionRule::Ucb { beta: 0.0 },
+        };
+        let screen_count = if run.optimizer() == crate::config::TrainingOptimizer::OperatorBo
+            && self.surrogate.len() >= 2
+        {
+            8usize
+        } else {
+            1usize
+        };
+        let mut best_seed = prop_seed;
+        let mut best_geometry = None;
+        let mut best_selection: Option<baux::semantics::optimizer::PoolSelection> = None;
+        for m in 0..screen_count {
+            let cand_seed = if m == 0 {
+                prop_seed
+            } else {
+                crate::hash::splitmix64(
+                    prop_seed ^ (m as u64).wrapping_mul(0x9e37_79b9_7f4a_7c15),
+                )
+            };
+            let cand_geom = self.search.sample_distances(cand_seed)?;
+            let cand_sel = self.surrogate.select_pool(&cand_geom, step, rule, None)?;
+            let is_better = best_selection
+                .as_ref()
+                .is_none_or(|prev| cand_sel.candidate.score > prev.candidate.score);
+            if is_better {
+                best_seed = cand_seed;
+                best_geometry = Some(cand_geom);
+                best_selection = Some(cand_sel);
+            }
         }
-        let selection = self.surrogate.evaluate_candidate(&geometry[0])?;
-        let (row, proposal) = self.search.materialize_selection(prop_seed, &selection)?;
+        let selection = best_selection.ok_or("empty proposal screening pool")?;
+        let geometry = if screen_count > 1 {
+            // Re-populate GPU sample buffers (`neighbors.pool` and `pool_distances`)
+            // for the single winning seed before materializing its full weight vector.
+            self.search.sample_distances(best_seed)?
+        } else {
+            best_geometry.ok_or("missing proposal geometry")?
+        };
+        let (row, proposal) = self.search.materialize_selection(best_seed, &selection)?;
         Ok(RoundProposal {
             geometry,
             selection,

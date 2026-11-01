@@ -33,10 +33,7 @@ impl SearchState {
                     .into(),
             );
         }
-        if pool == self.pool_layout
-            && self.proposal_method != crate::procedural_pool::ProposalMethod::PairMix
-            && self.proposal_method != crate::procedural_pool::ProposalMethod::QuadraticFlow
-        {
+        if pool == self.pool_layout && !self.proposal_method.program_pool() {
             return Ok(());
         }
         let source = self.procedural_source(pool);
@@ -84,10 +81,7 @@ impl SearchState {
     /// and Lie flow.
     pub(super) fn procedural_source(&self, pool: ProceduralPool) -> String {
         let source = initialization::search_source(self.independent_fp16, self.perturbation);
-        if pool == ProceduralPool::legacy()
-            && self.proposal_method != crate::procedural_pool::ProposalMethod::PairMix
-            && self.proposal_method != crate::procedural_pool::ProposalMethod::QuadraticFlow
-        {
+        if pool == ProceduralPool::legacy() && !self.proposal_method.program_pool() {
             source
         } else {
             format!(

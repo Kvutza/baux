@@ -288,7 +288,8 @@ fn turbo_selection() {
         ..Default::default()
     };
     let mut sur = NeighborValueEstimator::with_spec(-15.0, 0.0028, 7, spec).unwrap();
-    let warm_sel = sur.evaluate_candidate(&[1.6e-5_f64]).unwrap();
+    let rule = baux::semantics::optimizer::surrogate::AcquisitionRule::Ucb { beta: 0.0 };
+    let warm_sel = sur.select_pool(&[vec![1.6e-5_f64]], 0, rule, None).unwrap();
     assert!(warm_sel.initializing);
     // Warmup with distinct variance uses 2.0 * sqrt(variance) without advancing
     // radius/calibration.
@@ -304,7 +305,9 @@ fn turbo_selection() {
     // incumbent so the convex-combination KNN prediction satisfies
     // candidate.mean < incumbent.mean.
     sur.append(&[1.6e-5_f64], -15.2, 0.0028, false).unwrap();
-    let post_sel = sur.evaluate_candidate(&[3.2e-5_f64, 1.6e-5_f64]).unwrap();
+    let post_sel = sur
+        .select_pool(&[vec![3.2e-5_f64, 1.6e-5_f64]], 1, rule, None)
+        .unwrap();
     assert!(!post_sel.initializing);
     assert!(post_sel.candidate.mean < post_sel.incumbent.mean);
 

@@ -506,13 +506,13 @@ fn hnet2_bo() -> Result<(), String> {
         assert!(st_closed.total_penalty > st_bal.total_penalty);
 
         crate::apple_gpu::slice_mut::<u16>(&model.hnet, 3 * d * d + d)?.copy_from_slice(&orig_hnet);
-        bo_step(&runtime, &model, &scorer, &decoder, &batch)
+        bo_step(&runtime, model, &scorer, &decoder, &batch)
     })
 }
 
 fn bo_step(
     runtime: &Runtime,
-    model: &CandidateWeights,
+    model: CandidateWeights,
     scorer: &BlockDecoder,
     decoder: &decode::Decoder,
     batch: &crate::pretrain_data::CausalBatch,
@@ -532,11 +532,13 @@ fn bo_step(
          [optimizer.trust-region]\nshape = \"tensor-family-static\"\n\
          initial = 0.004\nmin = 0.001\nmax = 0.008\n",
     )?;
+    let layout = Mhc4Layout::from_weights(&model, 0);
     let (mut search, _) = model.search_shaped(
         run.proposal_kernel(),
         run.length(),
         crate::config::TrustRegionShape::TensorFamilyStatic,
     )?;
+    drop(model);
     let policy = run.resident_enn(run.acquisition_seed())?;
     search.configure_enn(policy)?;
     search.observe_objectives(init_score.observation)?;
@@ -549,9 +551,14 @@ fn bo_step(
     let before = buffer_slice::<u16>(&search.base_buffer(), 1024)?.to_vec();
     let geom = search.sample_distances(101)?;
     assert_eq!(geom.len(), 1);
-    let sel = surrogate.evaluate_candidate(&geom[0])?;
+    let sel = surrogate.select_pool(
+        &geom,
+        0,
+        baux::semantics::optimizer::AcquisitionRule::Ucb { beta: 0.0 },
+        None,
+    )?;
     let (cand_buf, proposal) = search.materialize_selection(101, &sel)?;
-    let cand_score = scorer.score_batch(runtime, decoder, model.row(&cand_buf)?, batch)?;
+    let cand_score = scorer.score_batch(runtime, decoder, layout.view(&cand_buf), batch)?;
     let slot = surrogate.append(&geom[0], -cand_score.quality.mean_nll, 0.0, true)?;
     search.commit_host(&proposal, slot, cand_score.observation, true, 0.004)?;
     assert_eq!(search.sync()?, vec![true]);
@@ -624,7 +631,12 @@ fn bench_1m(
         let wall_t0 = Instant::now();
         let ask_t0 = Instant::now();
         let geom = search.sample_distances(200 + step)?;
-        let sel = surrogate.evaluate_candidate(&geom[0])?;
+        let sel = surrogate.select_pool(
+            &geom,
+            0,
+            baux::semantics::optimizer::AcquisitionRule::Ucb { beta: 0.0 },
+            None,
+        )?;
         let (cand_buf, proposal) = search.materialize_selection(200 + step, &sel)?;
         let ask_ms = ask_t0.elapsed().as_secs_f64() * 1000.0;
         let cand = scorer.score_batch(runtime, decoder, layout.view(&cand_buf), batch)?;

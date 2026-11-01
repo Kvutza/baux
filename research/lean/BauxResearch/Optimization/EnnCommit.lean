@@ -28,7 +28,7 @@ def objectiveCommit {State : Type*} (f : State → ℝ) (incumbent candidate : S
   scalarCommit incumbent candidate (-f incumbent) (-f candidate) margin
 
 /-- Under non-negative margin `0 ≤ margin`, `objectiveCommit` never increases `f`. -/
-theorem objectiveCommit_le {State : Type*} (f : State → ℝ) (incumbent candidate : State)
+theorem commit_le {State : Type*} (f : State → ℝ) (incumbent candidate : State)
     (margin : ℝ) (hMargin : 0 ≤ margin) :
     f (objectiveCommit f incumbent candidate margin) ≤ f incumbent := by
   unfold objectiveCommit scalarCommit accepts

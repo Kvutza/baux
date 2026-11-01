@@ -210,10 +210,7 @@ fn save_rms(key: u64, values: &[f64]) {
     let _ = std::fs::create_dir_all(dir);
     let tmp = dir.join(format!("mhc4-rms-v1-{key:016x}.{}.tmp", std::process::id()));
     let path = dir.join(format!("mhc4-rms-v1-{key:016x}.bin"));
-    let mut bytes = Vec::with_capacity(values.len() * 8);
-    for &v in values {
-        bytes.extend_from_slice(&v.to_le_bytes());
-    }
+    let bytes: Vec<u8> = values.iter().flat_map(|v| v.to_le_bytes()).collect();
     if std::fs::write(&tmp, &bytes).is_ok() {
         let _ = std::fs::rename(&tmp, &path);
     }
@@ -240,17 +237,19 @@ fn save_base(key: u64, base: &[u16]) -> Option<Buffer> {
         std::process::id()
     ));
     let path = dir.join(format!("mhc4-base-v1-{key:016x}.bin"));
-    {
-        let mut f = std::fs::File::create(&tmp).ok()?;
-        let raw = unsafe { std::slice::from_raw_parts(base.as_ptr().cast::<u8>(), base.len() * 2) };
-        f.write_all(raw).ok()?;
-        let pad = padded - base.len() * 2;
-        if pad > 0 {
-            f.write_all(&vec![0u8; pad]).ok()?;
-        }
-        f.flush().ok()?;
+    let raw = unsafe { std::slice::from_raw_parts(base.as_ptr().cast::<u8>(), base.len() * 2) };
+    let ok = std::fs::File::create(&tmp)
+        .and_then(|mut f| {
+            f.write_all(raw)?;
+            f.write_all(&vec![0u8; padded - raw.len()])?;
+            f.flush()
+        })
+        .and_then(|()| std::fs::rename(&tmp, &path))
+        .is_ok();
+    if !ok {
+        let _ = std::fs::remove_file(&tmp);
+        return None;
     }
-    std::fs::rename(&tmp, &path).ok()?;
     map_base(key, base.len())
 }
 
@@ -270,14 +269,15 @@ fn build_search(
     mapped_base: Option<Buffer>,
     use_cache: bool,
     key: u64,
-    base: &[u16],
+    base: Vec<u16>,
     expected: usize,
     blocks: Vec<ParamBlock>,
     length: crate::trust_region::TRLengthConfig,
     perturbation: crate::ProposalKernel,
 ) -> Result<SearchState, String> {
-    let mapped = mapped_base.or_else(|| use_cache.then(|| save_base(key, base)).flatten());
+    let mapped = mapped_base.or_else(|| use_cache.then(|| save_base(key, &base)).flatten());
     let mut search = if let Some(base_buf) = mapped {
+        drop(base);
         SearchState::new_mapped(
             base_buf,
             expected,
@@ -287,7 +287,7 @@ fn build_search(
             perturbation,
         )?
     } else {
-        SearchState::new_implicit(base, blocks, HISTORY_CAPACITY, length, perturbation)?
+        SearchState::new_implicit(&base, blocks, HISTORY_CAPACITY, length, perturbation)?
     };
     search.set_tolerance(4)?;
     Ok(search)
@@ -471,7 +471,7 @@ impl CandidateWeights {
             mapped_base,
             use_cache,
             key,
-            &base,
+            base,
             expected_parameters,
             blocks,
             length,

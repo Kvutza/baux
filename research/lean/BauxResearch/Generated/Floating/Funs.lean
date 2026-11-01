@@ -32,35 +32,35 @@ def F64.Insts.CoreCloneClone : core.clone.Clone
 }
 
 /-- [baux_semantics::float::single_from]:
-    Source: 'src/float.rs', lines 292:0-294:1
+    Source: 'src/float.rs', lines 293:0-295:1
     Visibility: public -/
 def float.single_from
   (bits : Std.U32) : Result BauxResearch.Extraction.Native.F32 := do
   BauxResearch.Extraction.Native.F32.fromBits bits
 
 /-- [baux_semantics::float::single_bits]:
-    Source: 'src/float.rs', lines 298:0-300:1
+    Source: 'src/float.rs', lines 299:0-301:1
     Visibility: public -/
 def float.single_bits
   (val : BauxResearch.Extraction.Native.F32) : Result Std.U32 := do
   BauxResearch.Extraction.Native.F32.toBits val
 
 /-- [baux_semantics::float::double_from]:
-    Source: 'src/float.rs', lines 304:0-306:1
+    Source: 'src/float.rs', lines 305:0-307:1
     Visibility: public -/
 def float.double_from
   (bits : Std.U64) : Result BauxResearch.Extraction.Native.F64 := do
   BauxResearch.Extraction.Native.F64.fromBits bits
 
 /-- [baux_semantics::float::double_bits]:
-    Source: 'src/float.rs', lines 310:0-312:1
+    Source: 'src/float.rs', lines 311:0-313:1
     Visibility: public -/
 def float.double_bits
   (val : BauxResearch.Extraction.Native.F64) : Result Std.U64 := do
   BauxResearch.Extraction.Native.F64.toBits val
 
 /-- [baux_semantics::random::INV_2P53]
-    Source: 'src/random.rs', lines 13:0-13:47 -/
+    Source: 'src/random.rs', lines 16:0-16:47 -/
 @[global_simps, irreducible]
 def random.INV_2P53 : Result BauxResearch.Extraction.Native.F64 :=
   ok (BauxResearch.Extraction.Native.F64.div
@@ -68,7 +68,7 @@ def random.INV_2P53 : Result BauxResearch.Extraction.Native.F64 :=
     (BauxResearch.Extraction.Native.F64.literal false 9007199254740992 1))
 
 /-- [baux_semantics::random::u64_f53]:
-    Source: 'src/random.rs', lines 23:0-25:1
+    Source: 'src/random.rs', lines 26:0-28:1
     Visibility: public -/
 def random.u64_f53
   (x : Std.U64) : Result BauxResearch.Extraction.Native.F64 := do
@@ -78,7 +78,7 @@ def random.u64_f53
   ok (BauxResearch.Extraction.Native.F64.mul fl fl1)
 
 /-- [baux_semantics::random::box_muller]:
-    Source: 'src/random.rs', lines 31:0-33:1
+    Source: 'src/random.rs', lines 34:0-36:1
     Visibility: public -/
 def random.box_muller
   (u1 : BauxResearch.Extraction.Native.F64)
@@ -99,7 +99,7 @@ def random.box_muller
   ok (BauxResearch.Extraction.Native.F64.mul fl2 fl6)
 
 /-- [baux_semantics::random::from_unit]: loop body 1:
-    Source: 'src/random.rs', lines 100:8-104:9
+    Source: 'src/random.rs', lines 103:8-107:9
     Visibility: public -/
 @[rust_loop_body]
 def random.from_unit_loop0_loop0.body
@@ -133,7 +133,7 @@ def random.from_unit_loop0_loop0.body
     ok (cont (iter1, result1))
 
 /-- [baux_semantics::random::from_unit]: loop 1:
-    Source: 'src/random.rs', lines 100:8-104:9
+    Source: 'src/random.rs', lines 103:8-107:9
     Visibility: public -/
 @[rust_loop]
 def random.from_unit_loop0_loop0
@@ -150,7 +150,7 @@ def random.from_unit_loop0_loop0
     (iter, result)
 
 /-- [baux_semantics::random::from_unit]: loop body 0:
-    Source: 'src/random.rs', lines 99:4-105:5
+    Source: 'src/random.rs', lines 102:4-108:5
     Visibility: public -/
 @[rust_loop_body]
 def random.from_unit_loop0.body
@@ -173,7 +173,7 @@ def random.from_unit_loop0.body
     ok (cont (iter1, result1))
 
 /-- [baux_semantics::random::from_unit]: loop 0:
-    Source: 'src/random.rs', lines 99:4-105:5
+    Source: 'src/random.rs', lines 102:4-108:5
     Visibility: public -/
 @[rust_loop]
 def random.from_unit_loop0
@@ -189,7 +189,7 @@ def random.from_unit_loop0
     (iter, result)
 
 /-- [baux_semantics::random::from_unit]:
-    Source: 'src/random.rs', lines 97:0-107:1
+    Source: 'src/random.rs', lines 100:0-110:1
     Visibility: public -/
 def random.from_unit
   (x_unit : Slice BauxResearch.Extraction.Native.F64)
@@ -205,7 +205,7 @@ def random.from_unit
     result
 
 /-- [baux_semantics::random::to_unit]: loop body 1:
-    Source: 'src/random.rs', lines 113:8-122:9
+    Source: 'src/random.rs', lines 116:8-125:9
     Visibility: public -/
 @[rust_loop_body]
 def random.to_unit_loop0_loop0.body
@@ -253,7 +253,7 @@ def random.to_unit_loop0_loop0.body
       ok (cont (iter1, result1))
 
 /-- [baux_semantics::random::to_unit]: loop 1:
-    Source: 'src/random.rs', lines 113:8-122:9
+    Source: 'src/random.rs', lines 116:8-125:9
     Visibility: public -/
 @[rust_loop]
 def random.to_unit_loop0_loop0
@@ -270,7 +270,7 @@ def random.to_unit_loop0_loop0
     (iter, result)
 
 /-- [baux_semantics::random::to_unit]: loop body 0:
-    Source: 'src/random.rs', lines 112:4-123:5
+    Source: 'src/random.rs', lines 115:4-126:5
     Visibility: public -/
 @[rust_loop_body]
 def random.to_unit_loop0.body
@@ -293,7 +293,7 @@ def random.to_unit_loop0.body
     ok (cont (iter1, result1))
 
 /-- [baux_semantics::random::to_unit]: loop 0:
-    Source: 'src/random.rs', lines 112:4-123:5
+    Source: 'src/random.rs', lines 115:4-126:5
     Visibility: public -/
 @[rust_loop]
 def random.to_unit_loop0
@@ -309,7 +309,7 @@ def random.to_unit_loop0
     (iter, result)
 
 /-- [baux_semantics::random::to_unit]:
-    Source: 'src/random.rs', lines 110:0-125:1
+    Source: 'src/random.rs', lines 113:0-128:1
     Visibility: public -/
 def random.to_unit
   (x : Slice BauxResearch.Extraction.Native.F64)

@@ -37,7 +37,7 @@ impl SearchState {
     /// reproducible seed based on history size. Stores fitted k/scales for
     /// the next ask; query-local risk-prefix selection is a separate kernel
     /// policy. Does not certify calibration or alter weights.
-    pub(super) fn fit_family_shape(&mut self, zero_variance: bool) -> Result<bool, String> {
+    pub(super) fn fit_family(&mut self, zero_variance: bool) -> Result<bool, String> {
         let n = self.history;
         let cadence = (self.observation as usize).max(n);
         let fit_family = cadence == self.initial_observations
@@ -99,7 +99,7 @@ impl SearchState {
     }
 
     pub(super) fn fit_enn(&mut self) -> Result<(), String> {
-        let _ = self.fit_family_shape(false)?;
+        let _ = self.fit_family(false)?;
         let n = self.history;
         let raw_distances = ndarray::Array2::from_shape_fn((n, n), |(row, column)| {
             f64::from(self.total_distance(row, column))

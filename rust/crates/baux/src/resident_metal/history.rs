@@ -418,35 +418,18 @@ impl SearchState {
             self.archive_samples(round, target_slot);
             self.observation = identity;
             self.base_id = commit.retained();
-            self.record_axis(round, target_slot, accept);
-            self.outcomes[target_slot] = value;
-            self.variances[target_slot] = variance;
-            self.identities[target_slot] = identity;
-            if let Some(distances) = &implicit_distances {
-                for &(previous, distance) in distances {
-                    self.pairwise_distances[target_slot * MAX_HISTORY + previous] = distance;
-                    self.pairwise_distances[previous * MAX_HISTORY + target_slot] = distance;
-                }
-                self.pairwise_distances[target_slot * MAX_HISTORY + target_slot] = 0.0;
-            }
-            if self.history < MAX_HISTORY && target_slot == self.history {
-                self.history += 1;
-            }
-            if let Some(family) = &mut self.family {
-                let components = round
-                    .family_distances
-                    .as_ref()
-                    .ok_or("Missing family components")?;
-                for (previous, &values) in components.iter().enumerate() {
-                    family.components[target_slot * MAX_HISTORY + previous] = values;
-                    family.components[previous * MAX_HISTORY + target_slot] = values;
-                }
-                family.components[target_slot * MAX_HISTORY + target_slot] = [0.0; FAMILIES];
-            }
-            self.objective_history
-                .record_slot(target_slot, identity, observation, accept);
+            store_host(
+                self,
+                round,
+                target_slot,
+                identity,
+                (value, variance),
+                observation,
+                accept,
+                &implicit_distances,
+            )?;
             if self.history >= self.initial_observations && self.family.is_some() {
-                let _ = self.fit_family_shape(true)?;
+                let _ = self.fit_family(true)?;
             }
             let gain = value - self.best;
             self.update_trajectory(round, gain, accept)?;
@@ -490,6 +473,18 @@ impl SearchState {
             }
             energy = if total > 1.0e-12 {
                 acc
+            } else if let Some(sampled) = round
+                .family_distances
+                .as_ref()
+                .and_then(|rows| {
+                    let base_idx = self.identities[..self.history]
+                        .iter()
+                        .position(|&id| id == round.base_id)?;
+                    rows.get(base_idx).copied()
+                })
+                .filter(|row| row.iter().copied().sum::<f32>() > 1.0e-12)
+            {
+                sampled
             } else {
                 self.latent_components(round.index)
             };
@@ -497,7 +492,7 @@ impl SearchState {
         if let Some(traj) = &mut self.trajectory {
             traj.observe(round.seed, round.base_id, gain, accept, energy);
             if let Some(family) = &mut self.family {
-                family.weights = traj.online_em_family_weights(family.weights);
+                family.weights = traj.em_weights(family.weights);
             }
         }
         if self.family.is_some() {
@@ -505,6 +500,52 @@ impl SearchState {
         }
         Ok(())
     }
+
+    pub(crate) fn pairwise_distance(&self, row: usize, column: usize) -> f64 {
+        f64::from(self.total_distance(row, column))
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn store_host(
+    state: &mut SearchState,
+    round: &Proposals,
+    target_slot: usize,
+    identity: i64,
+    (value, variance): (f32, f32),
+    observation: crate::objective_observation::ObjectiveObservation,
+    accept: bool,
+    implicit_distances: &Option<Vec<(usize, f32)>>,
+) -> Result<(), String> {
+    state.record_axis(round, target_slot, accept);
+    state.outcomes[target_slot] = value;
+    state.variances[target_slot] = variance;
+    state.identities[target_slot] = identity;
+    if let Some(distances) = implicit_distances {
+        for &(previous, distance) in distances {
+            state.pairwise_distances[target_slot * MAX_HISTORY + previous] = distance;
+            state.pairwise_distances[previous * MAX_HISTORY + target_slot] = distance;
+        }
+        state.pairwise_distances[target_slot * MAX_HISTORY + target_slot] = 0.0;
+    }
+    if state.history < MAX_HISTORY && target_slot == state.history {
+        state.history += 1;
+    }
+    if let Some(family) = &mut state.family {
+        let components = round
+            .family_distances
+            .as_ref()
+            .ok_or("Missing family components")?;
+        for (previous, &values) in components.iter().enumerate() {
+            family.components[target_slot * MAX_HISTORY + previous] = values;
+            family.components[previous * MAX_HISTORY + target_slot] = values;
+        }
+        family.components[target_slot * MAX_HISTORY + target_slot] = [0.0; FAMILIES];
+    }
+    state
+        .objective_history
+        .record_slot(target_slot, identity, observation, accept);
+    Ok(())
 }
 
 fn validate_commit(

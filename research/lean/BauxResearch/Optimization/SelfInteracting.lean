@@ -14,16 +14,16 @@ Formalizes the trajectory-driven generator mechanisms from:
    (arXiv:2410.02543)
 
 Main results:
-* **Streaming `O(d)` Equivalence (`streamNum_eq_sum`, `streamDen_eq_sum`)**:
+* **Streaming `O(d)` Equivalence (`num_sum`, `den_sum`)**:
   The one-observation recursion `A_t = A_{t-1} + e^{-α y_t} x_t`,
   `B_t = B_{t-1} + e^{-α y_t}` reproduces the exact occupation-measure center.
-* **Shift-Invariant Rescaling (`occupationCenter_sub_const`)**: Subtracting a
+* **Shift-Invariant Rescaling (`center_shift`)**: Subtracting a
   reference baseline `c` (such as the running minimum `y_min`) from `y` leaves
   `m_t` invariant while preventing exponential underflow/overflow.
-* **Quantitative Laplace Concentration (`boltzmannCenter_dist_le`)**: If state
+* **Quantitative Laplace Concentration (`boltzmann_dist`)**: If state
   `sStar` has optimality gap `γ > 0` (`∀ s ≠ sStar, y sStar + γ ≤ y s`), then
   `|m_t(α)_j - x_{sStar, j}| ≤ D * (n - 1) * exp(-α * γ)`.
-* **Variational Minimizer for ENN Denoising (`weightedEnergy_decomp`)**: The
+* **Variational Minimizer for ENN Denoising (`energy_decomp`)**: The
   fitness-and-kernel weighted vector target `x̂₀` uniquely minimizes the
   weighted squared distance energy `∑ i, w i * (u - x i)²`.
 -/
@@ -50,7 +50,7 @@ def occupationCenter (alpha : ℝ) (x : ℕ → Fin d → ℝ) (y : ℕ → ℝ)
   fun j ↦ streamNum alpha x y t j / streamDen alpha y t
 
 /-- The streaming numerator equals the batch trajectory sum over `0..t`. -/
-theorem streamNum_eq_sum (alpha : ℝ) (x : ℕ → Fin d → ℝ) (y : ℕ → ℝ) (t : ℕ) (j : Fin d) :
+theorem num_sum (alpha : ℝ) (x : ℕ → Fin d → ℝ) (y : ℕ → ℝ) (t : ℕ) (j : Fin d) :
     streamNum alpha x y t j =
       ∑ s ∈ Finset.range (t + 1), Real.exp (-alpha * y s) * x s j := by
   induction t with
@@ -60,7 +60,7 @@ theorem streamNum_eq_sum (alpha : ℝ) (x : ℕ → Fin d → ℝ) (y : ℕ → 
     rw [Finset.sum_range_succ _ (t + 1), ← ih]
 
 /-- The streaming normalizer equals the batch weight sum over `0..t`. -/
-theorem streamDen_eq_sum (alpha : ℝ) (y : ℕ → ℝ) (t : ℕ) :
+theorem den_sum (alpha : ℝ) (y : ℕ → ℝ) (t : ℕ) :
     streamDen alpha y t = ∑ s ∈ Finset.range (t + 1), Real.exp (-alpha * y s) := by
   induction t with
   | zero => simp [streamDen]
@@ -69,7 +69,7 @@ theorem streamDen_eq_sum (alpha : ℝ) (y : ℕ → ℝ) (t : ℕ) :
     rw [Finset.sum_range_succ _ (t + 1), ← ih]
 
 /-- The streaming normalizer `B_t` is strictly positive at every step `t`. -/
-theorem streamDen_pos (alpha : ℝ) (y : ℕ → ℝ) (t : ℕ) :
+theorem den_pos (alpha : ℝ) (y : ℕ → ℝ) (t : ℕ) :
     0 < streamDen alpha y t := by
   induction t with
   | zero =>
@@ -81,11 +81,11 @@ theorem streamDen_pos (alpha : ℝ) (y : ℕ → ℝ) (t : ℕ) :
 
 /-- Shift invariance: subtracting any constant reference `c` from all losses
 leaves the self-interacting occupation center strictly unchanged. -/
-theorem occupationCenter_sub_const (alpha c : ℝ) (x : ℕ → Fin d → ℝ) (y : ℕ → ℝ)
+theorem center_shift (alpha c : ℝ) (x : ℕ → Fin d → ℝ) (y : ℕ → ℝ)
     (t : ℕ) (j : Fin d) :
     occupationCenter alpha x (fun s ↦ y s - c) t j = occupationCenter alpha x y t j := by
   unfold occupationCenter
-  rw [streamNum_eq_sum, streamDen_eq_sum, streamNum_eq_sum, streamDen_eq_sum]
+  rw [num_sum, den_sum, num_sum, den_sum]
   have hNum : (∑ s ∈ Finset.range (t + 1), Real.exp (-alpha * (y s - c)) * x s j) =
       Real.exp (alpha * c) * ∑ s ∈ Finset.range (t + 1), Real.exp (-alpha * y s) * x s j := by
     rw [Finset.mul_sum]
@@ -109,7 +109,7 @@ def boltzmannCenter (alpha : ℝ) (x : Fin n → Fin d → ℝ) (y : Fin n → �
 if `sStar` achieves optimality gap `γ` (`∀ s ≠ sStar, y sStar + γ ≤ y s`) and
 coordinate differences are bounded by `D`, the Boltzmann center concentrates on
 `x sStar` at rate `D * (n - 1) * exp(-α * γ)`. -/
-theorem boltzmannCenter_dist_le (alpha gamma D : ℝ) (x : Fin n → Fin d → ℝ) (y : Fin n → ℝ)
+theorem boltzmann_dist (alpha gamma D : ℝ) (x : Fin n → Fin d → ℝ) (y : Fin n → ℝ)
     (sStar : Fin n) (j : Fin d)
     (hAlpha : 0 ≤ alpha) (hD : 0 ≤ D)
     (hGap : ∀ s : Fin n, s ≠ sStar → y sStar + gamma ≤ y s)
@@ -184,7 +184,7 @@ def denoisingTarget (w : Fin n → ℝ) (x : Fin n → Fin d → ℝ) : Fin d �
 
 /-- Exact bias-variance quadratic energy decomposition around `denoisingTarget`:
 `∑ i, w i * (u - x i)² = W * (u - x̂₀)² + ∑ i, w i * (x i - x̂₀)²`. -/
-theorem weightedEnergy_decomp (w : Fin n → ℝ) (x : Fin n → Fin d → ℝ) (u : Fin d → ℝ)
+theorem energy_decomp (w : Fin n → ℝ) (x : Fin n → Fin d → ℝ) (u : Fin d → ℝ)
     (j : Fin d) (hMass : ∑ i : Fin n, w i ≠ 0) :
     ∑ i : Fin n, w i * (u j - x i j) ^ 2 =
       (∑ i : Fin n, w i) * (u j - denoisingTarget w x j) ^ 2 +
@@ -213,12 +213,12 @@ theorem weightedEnergy_decomp (w : Fin n → ℝ) (x : Fin n → Fin d → ℝ) 
         dsimp [W]
         ring
 
-#print axioms streamNum_eq_sum
-#print axioms streamDen_eq_sum
-#print axioms streamDen_pos
-#print axioms occupationCenter_sub_const
-#print axioms boltzmannCenter_dist_le
-#print axioms weightedEnergy_decomp
+#print axioms num_sum
+#print axioms den_sum
+#print axioms den_pos
+#print axioms center_shift
+#print axioms boltzmann_dist
+#print axioms energy_decomp
 
 end
 end BauxResearch.Optimization.SelfInteracting

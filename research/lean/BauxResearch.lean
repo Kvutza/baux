@@ -16,7 +16,7 @@ import BauxResearch.Optimization.Reliability
 import BauxResearch.Optimization.VariableMetric
 import BauxResearch.Optimization.SpatialSuboptimality
 import BauxResearch.Optimization.SelfInteracting
-import BauxResearch.Optimization.OnlineTensorEM
+import BauxResearch.Optimization.TensorEm
 import BauxResearch.Optimization.KernelBandit
 import BauxResearch.Semantics.FbtProgram
 import BauxResearch.Semantics.Optimizer

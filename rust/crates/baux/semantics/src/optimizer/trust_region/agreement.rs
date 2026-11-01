@@ -203,19 +203,16 @@ impl ModelAgreement {
 
     pub fn update(&mut self, evidence: TrialStep) -> Result<TrustRegionStatus, String> {
         validate_evidence(evidence)?;
-        let observation_scale = evidence.observation_variance.sqrt();
-        let prediction_scale = evidence.prediction_variance.sqrt();
         let scale = (evidence.observation_variance + evidence.prediction_variance)
             .sqrt()
             .max(MIN_SCALE);
         let error = (evidence.observed_improvement - evidence.predicted_improvement).abs() / scale;
-        let response_scale = evidence
-            .response_radius
-            .max(observation_scale)
-            .max(MIN_SCALE);
-        let sharpness = prediction_scale / response_scale;
-        let adequate = error <= self.config.confidence_z;
-        self.update_adequacy(adequate);
+        let sharpness = evidence.prediction_variance.sqrt()
+            / evidence
+                .response_radius
+                .max(evidence.observation_variance.sqrt())
+                .max(MIN_SCALE);
+        self.update_adequacy(error <= self.config.confidence_z);
 
         let previous_conversion = self.log_conversion.map(f64::exp);
         let response_boundary = previous_conversion.map(|value| value * evidence.nominal_radius);
@@ -245,16 +242,14 @@ impl ModelAgreement {
             && !evidence.accepted
             && self.consecutive_failures.saturating_add(1) >= self.config.failure_tolerance;
         let action = if self.config.continuous_descent {
-            // Decoupled metric measure space: curvature-driven transport radius
-            if evidence.accepted && error <= self.config.confidence_z && sharpness <= self.config.confidence_z {
-                RadiusAction::Expand
-            } else if !evidence.accepted && self.consecutive_failures.saturating_add(1) >= 4 {
-                RadiusAction::Shrink
-            } else if error > 2.0 * self.config.confidence_z {
-                RadiusAction::Shrink
-            } else {
-                RadiusAction::Hold
-            }
+            continuous_action(
+                evidence.accepted,
+                error,
+                sharpness,
+                self.config.confidence_z,
+                self.consecutive_successes,
+                self.consecutive_failures,
+            )
         } else {
             decide_action(
                 model_adequate,
@@ -367,4 +362,25 @@ pub(super) fn validate_evidence(evidence: TrialStep) -> Result<(), String> {
         return Err("invalid model-agreement evidence".into());
     }
     Ok(())
+}
+
+fn continuous_action(
+    accepted: bool,
+    error: f64,
+    sharpness: f64,
+    confidence_z: f64,
+    consecutive_successes: usize,
+    consecutive_failures: usize,
+) -> RadiusAction {
+    if accepted
+        && consecutive_successes >= 1
+        && error <= 1.25
+        && sharpness <= confidence_z * 1.5
+    {
+        RadiusAction::Expand
+    } else if !accepted && (consecutive_failures >= 1 || error > 2.5) {
+        RadiusAction::Shrink
+    } else {
+        RadiusAction::Hold
+    }
 }

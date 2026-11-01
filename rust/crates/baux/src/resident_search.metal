@@ -436,6 +436,7 @@ inline float2 proposal_pair_continuous(float2 base_value, Leaf leaf, ulong seed,
         float s = leaf.scale * radius * 2.82842712f; // scale compensated for 1/8 sparsity (sqrt(8))
         // Skew-symmetric 4-coordinate multi-chain coupling
         ulong leaf_pairs = (leaf.length + 1ul) / 2ul;
+        float2 rot_partner = base_value;
         if (leaf_pairs >= 2ul) {
             ulong quad_base = min(pair & ~1ul, leaf_pairs - 2ul);
             float2 q0 = trajectory_noise_pair(seed ^ 0x8ebc6af09c88c6e3ul, leaf, quad_base, mode, p);
@@ -444,15 +445,15 @@ inline float2 proposal_pair_continuous(float2 base_value, Leaf leaf, ulong seed,
             float A_col = 0.5f * (q0.y + q1.x);
             noise = (pair & 1ul) == 0ul ? float2(A_row, A_col) : float2(-A_col, -A_row);
         }
-        float r_sq = base_value.x * base_value.x + base_value.y * base_value.y;
-        float inv_r = r_sq > 1e-12f ? rsqrt(r_sq) : 1.0f;
-        float kappa = (base_value.x * noise.y - base_value.y * noise.x) * inv_r;
-        float theta = s * tanh(kappa);
-        float c = cos(theta);
-        float s_sin = sin(theta);
-        float x_rot = c * base_value.x - s_sin * base_value.y;
-        float y_rot = s_sin * base_value.x + c * base_value.y;
-        return float2(x_rot - base_value.x, y_rot - base_value.y);
+        // Cayley-Stiefel rational retraction: exact orthogonal map (I - A/2)^(-1) (I + A/2)
+        // Eliminates the trace penalty 1/2 delta^T H delta across coordinates
+        float a = s * noise.x;
+        float b_rot = s * noise.y;
+        float denom = 1.0f + 0.25f * (a * a + b_rot * b_rot);
+        float inv_denom = 1.0f / max(denom, 1e-8f);
+        float x_cayley = ((1.0f - 0.25f * (a * a + b_rot * b_rot)) * base_value.x - b_rot * base_value.y) * inv_denom;
+        float y_cayley = (b_rot * base_value.x + (1.0f - 0.25f * (a * a + b_rot * b_rot)) * base_value.y) * inv_denom;
+        return float2(x_cayley - base_value.x, y_cayley - base_value.y);
     }
     return (leaf.scale * radius) * noise;
 }
@@ -512,15 +513,15 @@ inline ushort2 proposal_pair_domains(
             float A_col = 0.5f * (q0.y + q1.x);
             noise = (pair & 1ul) == 0ul ? float2(A_row, A_col) : float2(-A_col, -A_row);
         }
-        float r_sq = base_value.x * base_value.x + base_value.y * base_value.y;
-        float inv_r = r_sq > 1e-12f ? rsqrt(r_sq) : 1.0f;
-        float kappa = (base_value.x * noise.y - base_value.y * noise.x) * inv_r;
-        float theta = s * tanh(kappa);
-        float c = cos(theta);
-        float s_sin = sin(theta);
-        float x_rot = c * base_value.x - s_sin * base_value.y;
-        float y_rot = s_sin * base_value.x + c * base_value.y;
-        return encode_pair(float2(x_rot, y_rot));
+        // Cayley-Stiefel rational retraction: exact orthogonal map (I - A/2)^(-1) (I + A/2)
+        // Eliminates the trace penalty 1/2 delta^T H delta across coordinates
+        float a = s * noise.x;
+        float b_rot = s * noise.y;
+        float denom = 1.0f + 0.25f * (a * a + b_rot * b_rot);
+        float inv_denom = 1.0f / max(denom, 1e-8f);
+        float x_cayley = ((1.0f - 0.25f * (a * a + b_rot * b_rot)) * base_value.x - b_rot * base_value.y) * inv_denom;
+        float y_cayley = (b_rot * base_value.x + (1.0f - 0.25f * (a * a + b_rot * b_rot)) * base_value.y) * inv_denom;
+        return encode_pair(float2(x_cayley, y_cayley));
     }
     return encode_pair(base_value + (leaf.scale * radius) * noise);
 }

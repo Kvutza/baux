@@ -126,9 +126,9 @@ mod tests {
 
     #[test]
     fn contract_constants() {
-        assert_eq!(MHC4_PARAMS, 1_177_723_160);
+        assert_eq!(MHC4_PARAMS, 265_623_320);
         assert_eq!(MHC4_PATCH, 1);
-        assert_eq!(MHC4_COEFFS, 16_805_376);
+        assert_eq!(MHC4_COEFFS, 16_515_072);
         assert_eq!(PISA_BYTES, 2 * 64 * 2 + 2 * 64 / 64 * 2);
     }
 }

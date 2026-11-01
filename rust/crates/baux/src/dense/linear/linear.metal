@@ -36,7 +36,7 @@ kernel void dense_linear(
         column += kLinearThreads
     ) {
         ulong index = row_start + ulong(column);
-        float value = baux_dense_value(
+        float value = dense_value(
             weight[index],
             params.weight_key,
             params.weight_start + index,
@@ -61,7 +61,7 @@ kernel void dense_linear(
             total += partials[index];
         }
         if (params.has_bias != 0u) {
-            total += baux_dense_value(
+            total += dense_value(
                 bias[row],
                 params.bias_key,
                 params.bias_start + ulong(row),

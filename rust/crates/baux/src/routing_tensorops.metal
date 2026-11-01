@@ -29,7 +29,7 @@ typedef half moe_gate_weight;
 #define FAST_MOE_ACTIVATION
 #endif
 
-METAL_FUNC float moe_activation_exp(float value) {
+METAL_FUNC float activation_exp(float value) {
 #ifdef FAST_MOE_ACTIVATION
     return fast::exp(value);
 #else
@@ -50,7 +50,7 @@ METAL_FUNC half moe_swiglu(half gate_value, half up_value) {
     return gate_value * sigmoid * up_value;
 #else
     const float value = float(gate_value);
-    const float e = moe_activation_exp(-abs(value));
+    const float e = activation_exp(-abs(value));
     const float sigmoid = value >= 0.0f ? 1.0f / (1.0f + e) : e / (1.0f + e);
     return half(value * sigmoid * float(up_value));
 #endif
@@ -129,15 +129,15 @@ METAL_FUNC void routed_gate(
     constexpr auto descriptor = matmul2d_descriptor(M, N, 512, false, false, BAUX_RELAXED_MOE);
     matmul2d<descriptor, execution_simdgroups<Simdgroups>> op;
     const uint first_column = tgid.x * ColumnStep;
-    const ulong expert_base = ulong(expert + 1) * 512 * 432;
+    const ulong expert_base = ulong(expert + 1) * 512 * 512;
     auto gate_b = tensor(
         weights + expert_base + first_column,
         extents<int32_t, N, 512>{},
-        array<int32_t, 2>{1, 432});
+        array<int32_t, 2>{1, 512});
     auto up_b = tensor(
-        weights + expert_base + 216 + first_column,
+        weights + expert_base + 256 + first_column,
         extents<int32_t, N, 512>{},
-        array<int32_t, 2>{1, 432});
+        array<int32_t, 2>{1, 512});
     auto a_static = tensor(
         packed_input + ulong(first_row) * 512,
         extents<int32_t, 512, M>{});
@@ -167,15 +167,15 @@ METAL_FUNC void routed_gate(
     }
     if (valid_rows == M) {
         auto c = tensor(
-            activation + ulong(first_row) * 224 + first_column,
+            activation + ulong(first_row) * 256 + first_column,
             extents<int32_t, N, M>{},
-            array<int32_t, 2>{1, 224});
+            array<int32_t, 2>{1, 256});
         gate.store(c);
     } else {
         auto c = tensor(
-            activation + ulong(first_row) * 224 + first_column,
+            activation + ulong(first_row) * 256 + first_column,
             dextents<int32_t, 2>{N, int32_t(valid_rows)},
-            array<int32_t, 2>{1, 224});
+            array<int32_t, 2>{1, 256});
         gate.store(c);
     }
 }
@@ -187,8 +187,7 @@ kernel void fbt_moe_routed_gate_tall(
     device half* activation [[buffer(3)]],
     constant Top3RouteShape& p [[buffer(4)]],
     uint3 tgid [[threadgroup_position_in_grid]]) {
-    if (tgid.x == 3) routed_gate<128, 24, 4, 64>(packed_input, weights, routed_tiles, activation, tgid);
-    else routed_gate<128, 64, 4, 64>(packed_input, weights, routed_tiles, activation, tgid);
+    routed_gate<128, 64, 4, 64>(packed_input, weights, routed_tiles, activation, tgid);
 }
 
 kernel void fbt_moe_routed_gate_fused_columns(
@@ -199,15 +198,10 @@ kernel void fbt_moe_routed_gate_fused_columns(
     constant Top3RouteShape& p [[buffer(4)]],
     uint3 tgid [[threadgroup_position_in_grid]]) {
     const uint first_tile = tgid.x * 2;
-    const uint full_tiles = first_tile == 0 ? 2u : 1u;
     #pragma clang loop unroll(disable)
-    for (uint step = 0; step < full_tiles; ++step) {
+    for (uint step = 0; step < 2; ++step) {
         routed_gate<64, 64, 4, 64>(
             packed_input, weights, routed_tiles, activation, uint3(first_tile + step, tgid.y, tgid.z));
-    }
-    if (first_tile != 0) {
-        routed_gate<64, 24, 4, 64>(
-            packed_input, weights, routed_tiles, activation, uint3(first_tile + 1, tgid.y, tgid.z));
     }
 }
 
@@ -218,12 +212,10 @@ kernel void fbt_moe_routed_gate_all_columns(
     device half* activation [[buffer(3)]],
     constant Top3RouteShape& p [[buffer(4)]],
     uint3 tgid [[threadgroup_position_in_grid]]) {
-    for (uint column_tile = 0; column_tile < 3; ++column_tile) {
+    for (uint column_tile = 0; column_tile < 4; ++column_tile) {
         const uint3 tile = uint3(column_tile, tgid.y, tgid.z);
         routed_gate<64, 64, 4, 64>(packed_input, weights, routed_tiles, activation, tile);
     }
-    routed_gate<64, 24, 4, 64>(
-        packed_input, weights, routed_tiles, activation, uint3(3, tgid.y, tgid.z));
 }
 
 kernel void fbt_moe_routed_gate_reuse(
@@ -238,17 +230,17 @@ kernel void fbt_moe_routed_gate_reuse(
     const uint start = simdgroup * 16;
     if (start >= tile.valid_rows) return;
     const uint rows = min(16u, tile.valid_rows - start);
-    constexpr auto descriptor = matmul2d_descriptor(16, 216, 512, false, false, false);
+    constexpr auto descriptor = matmul2d_descriptor(16, 256, 512, false, false, false);
     matmul2d<descriptor, execution_simdgroups<1>> op;
     auto a = tensor(packed_input + ulong(tile.first_row + start) * 512,
         dextents<int32_t, 2>{512, int32_t(rows)});
-    const ulong expert_base = ulong(tile.expert + 1) * 512 * 432;
-    auto gate_b = tensor(weights + expert_base, extents<int32_t, 216, 512>{},
-        array<int32_t, 2>{1, 432});
-    auto up_b = tensor(weights + expert_base + 216, extents<int32_t, 216, 512>{},
-        array<int32_t, 2>{1, 432});
-    auto c = tensor(activation + ulong(tile.first_row + start) * 224,
-        dextents<int32_t, 2>{216, int32_t(rows)}, array<int32_t, 2>{1, 224});
+    const ulong expert_base = ulong(tile.expert + 1) * 512 * 512;
+    auto gate_b = tensor(weights + expert_base, extents<int32_t, 256, 512>{},
+        array<int32_t, 2>{1, 512});
+    auto up_b = tensor(weights + expert_base + 256, extents<int32_t, 256, 512>{},
+        array<int32_t, 2>{1, 512});
+    auto c = tensor(activation + ulong(tile.first_row + start) * 256,
+        dextents<int32_t, 2>{256, int32_t(rows)}, array<int32_t, 2>{1, 256});
     auto cached_a = op.get_left_input_cooperative_tensor<half, half, half>();
     cached_a.load(a);
     auto gate = op.get_destination_cooperative_tensor<decltype(cached_a), decltype(gate_b), half>();
@@ -272,24 +264,24 @@ kernel void fbt_moe_routed_gate_joint(
     constant Top3RouteShape& p [[buffer(4)]],
     uint3 tgid [[threadgroup_position_in_grid]],
     uint tid [[thread_index_in_threadgroup]]) {
-    threadgroup half projected[32 * 432];
+    threadgroup half projected[32 * 512];
     const RoutedTile tile = routed_tiles[tgid.y];
-    constexpr auto descriptor = matmul2d_descriptor(32, 432, 512, false, false, false);
+    constexpr auto descriptor = matmul2d_descriptor(32, 512, 512, false, false, false);
     matmul2d<descriptor, execution_simdgroups<4>> op;
     for (uint start = 0; start < tile.valid_rows; start += 32) {
         const uint rows = min(32u, tile.valid_rows - start);
         auto a = tensor(packed_input + ulong(tile.first_row + start) * 512,
             dextents<int32_t, 2>{512, int32_t(rows)});
-        auto b = tensor(weights + ulong(tile.expert + 1) * 512 * 432,
-            extents<int32_t, 432, 512>{});
-        auto c = tensor(projected, dextents<int32_t, 2>{432, int32_t(rows)});
+        auto b = tensor(weights + ulong(tile.expert + 1) * 512 * 512,
+            extents<int32_t, 512, 512>{});
+        auto c = tensor(projected, dextents<int32_t, 2>{512, int32_t(rows)});
         op.run(a, b, c);
         threadgroup_barrier(mem_flags::mem_threadgroup);
-        for (uint item = tid; item < rows * 216; item += 128) {
-            const uint row = item / 216;
-            const uint column = item % 216;
-            activation[ulong(tile.first_row + start + row) * 224 + column] =
-                moe_swiglu(projected[row * 432 + column], projected[row * 432 + 216 + column]);
+        for (uint item = tid; item < rows * 256; item += 128) {
+            const uint row = item / 256;
+            const uint column = item % 256;
+            activation[ulong(tile.first_row + start + row) * 256 + column] =
+                moe_swiglu(projected[row * 512 + column], projected[row * 512 + 256 + column]);
         }
         threadgroup_barrier(mem_flags::mem_threadgroup);
     }
@@ -303,22 +295,22 @@ kernel void fbt_moe_routed_gate_joint16(
     constant Top3RouteShape& p [[buffer(4)]],
     uint3 tgid [[threadgroup_position_in_grid]],
     uint tid [[thread_index_in_threadgroup]]) {
-    threadgroup half projected[16 * 432];
+    threadgroup half projected[16 * 512];
     const RoutedTile tile = routed_tiles[tgid.y];
-    constexpr auto descriptor = matmul2d_descriptor(16, 432, 512, false, false, false);
+    constexpr auto descriptor = matmul2d_descriptor(16, 512, 512, false, false, false);
     matmul2d<descriptor, execution_simdgroups<4>> op;
     auto a = tensor(packed_input + ulong(tile.first_row) * 512,
         dextents<int32_t, 2>{512, int32_t(tile.valid_rows)});
-    auto b = tensor(weights + ulong(tile.expert + 1) * 512 * 432,
-        extents<int32_t, 432, 512>{});
-    auto c = tensor(projected, dextents<int32_t, 2>{432, int32_t(tile.valid_rows)});
+    auto b = tensor(weights + ulong(tile.expert + 1) * 512 * 512,
+        extents<int32_t, 512, 512>{});
+    auto c = tensor(projected, dextents<int32_t, 2>{512, int32_t(tile.valid_rows)});
     op.run(a, b, c);
     threadgroup_barrier(mem_flags::mem_threadgroup);
-    for (uint item = tid; item < tile.valid_rows * 216; item += 128) {
-        const uint row = item / 216;
-        const uint column = item % 216;
-        activation[ulong(tile.first_row + row) * 224 + column] =
-            moe_swiglu(projected[row * 432 + column], projected[row * 432 + 216 + column]);
+    for (uint item = tid; item < tile.valid_rows * 256; item += 128) {
+        const uint row = item / 256;
+        const uint column = item % 256;
+        activation[ulong(tile.first_row + row) * 256 + column] =
+            moe_swiglu(projected[row * 512 + column], projected[row * 512 + 256 + column]);
     }
 }
 
@@ -340,8 +332,8 @@ kernel void fbt_moe_routed_gate_persistent(
     threadgroup half up_tile[32][36];
     const RoutedTile routed = routed_tiles[tgid.y];
     const uint first_column = tgid.x * 32;
-    const uint valid_columns = min(32u, 216u - first_column);
-    const ulong expert_base = ulong(routed.expert + 1) * 512 * 432;
+    const uint valid_columns = min(32u, 256u - first_column);
+    const ulong expert_base = ulong(routed.expert + 1) * 512 * 512;
 
     simdgroup_float8x8 gate[2][4];
     simdgroup_float8x8 up[2][4];
@@ -373,10 +365,10 @@ kernel void fbt_moe_routed_gate_persistent(
                 const uint valid = min(4u, valid_columns - column);
                 for (uint item = 0; item < valid; ++item) {
                     const ulong source = expert_base
-                        + ulong(k_start + k_row) * 432
+                        + ulong(k_start + k_row) * 512
                         + first_column + column + item;
                     gate_value[item] = weights[source];
-                    up_value[item] = weights[source + 216];
+                    up_value[item] = weights[source + 256];
                 }
             }
             *reinterpret_cast<threadgroup half4*>(&gate_tile[k_row][column]) = gate_value;
@@ -448,13 +440,13 @@ kernel void fbt_moe_routed_gate_persistent(
         const uint row = vector / vectors_per_row;
         const uint column = vector % vectors_per_row * 4;
         *reinterpret_cast<device half4*>(
-            activation + ulong(routed.first_row + row) * 224 + first_column + column) =
+            activation + ulong(routed.first_row + row) * 256 + first_column + column) =
             *reinterpret_cast<threadgroup half4*>(&a_tile[row][column]);
     }
 }
 
 // Backward replay retains both linear branches. The indirect dispatch keeps
-// the forward ABI; only x=0 performs work because one launch covers all 432
+// the forward ABI; only x=0 performs work because one launch covers all 512
 // columns for the routed tile.
 kernel void fbt_moe_routed_gate_projection(
     device half* packed_input [[buffer(0)]],
@@ -465,18 +457,18 @@ kernel void fbt_moe_routed_gate_projection(
     uint3 tgid [[threadgroup_position_in_grid]]) {
     if (tgid.x != 0) return;
     const RoutedTile tile = routed_tiles[tgid.y];
-    constexpr auto descriptor = matmul2d_descriptor(16, 432, 512, false, false, false);
+    constexpr auto descriptor = matmul2d_descriptor(16, 512, 512, false, false, false);
     matmul2d<descriptor, execution_simdgroups<4>> op;
-    auto b = tensor(weights + ulong(tile.expert + 1) * 512 * 432,
-        extents<int32_t, 432, 512>{});
+    auto b = tensor(weights + ulong(tile.expert + 1) * 512 * 512,
+        extents<int32_t, 512, 512>{});
     // The packed tile can contain 64 rows; each operation covers at most 16.
     for (uint offset = 0; offset < tile.valid_rows; offset += 16) {
         const uint first_row = tile.first_row + offset;
         const uint rows = min(16u, tile.valid_rows - offset);
         auto a = tensor(packed_input + ulong(first_row) * 512,
             dextents<int32_t, 2>{512, int32_t(rows)});
-        auto c = tensor(projection + ulong(first_row) * 432,
-            dextents<int32_t, 2>{432, int32_t(rows)});
+        auto c = tensor(projection + ulong(first_row) * 512,
+            dextents<int32_t, 2>{512, int32_t(rows)});
         op.run(a, b, c);
     }
 }
@@ -493,17 +485,13 @@ kernel void fbt_moe_routed_gate_manual(
     uint3 tgid [[threadgroup_position_in_grid]],
     uint sg [[simdgroup_index_in_threadgroup]]) {
     const RoutedTile tile = tiles[tgid.y];
-    if (tgid.x == 3) {
-        routed_gate<64, 24, 4, 64>(input, weights, tiles, activation, tgid);
-        return;
-    }
     if (tile.valid_rows != 64) {
         routed_gate<64, 64, 4, 64>(input, weights, tiles, activation, tgid);
         return;
     }
     const uint row = tile.first_row + sg / 2 * 32;
     const uint column = tgid.x * 64 + sg % 2 * 32;
-    const ulong base = ulong(tile.expert + 1) * 512 * 432;
+    const ulong base = ulong(tile.expert + 1) * 512 * 512;
     simdgroup_float8x8 gate[4][4];
     simdgroup_float8x8 up[4][4];
     #pragma unroll
@@ -523,8 +511,8 @@ kernel void fbt_moe_routed_gate_manual(
         for (uint n = 0; n < 4; ++n) {
             simdgroup_half8x8 b_gate;
             simdgroup_half8x8 b_up;
-            simdgroup_load(b_gate, weights + base + ulong(k) * 432 + column + n * 8, 432);
-            simdgroup_load(b_up, weights + base + ulong(k) * 432 + 216 + column + n * 8, 432);
+            simdgroup_load(b_gate, weights + base + ulong(k) * 512 + column + n * 8, 512);
+            simdgroup_load(b_up, weights + base + ulong(k) * 512 + 256 + column + n * 8, 512);
             #pragma unroll
             for (uint m = 0; m < 4; ++m) {
                 simdgroup_multiply_accumulate(gate[m][n], a[m], b_gate, gate[m][n]);
@@ -542,7 +530,7 @@ kernel void fbt_moe_routed_gate_manual(
                 result.thread_elements()[element] = moe_swiglu(
                     half(gate[m][n].thread_elements()[element]),
                     half(up[m][n].thread_elements()[element]));
-            simdgroup_store(result, activation + ulong(row + m * 8) * 224 + column + n * 8, 224);
+            simdgroup_store(result, activation + ulong(row + m * 8) * 256 + column + n * 8, 256);
         }
     }
 }
@@ -565,11 +553,11 @@ kernel void fbt_moe_routed_gate_staged(
 
     const RoutedTile routed = routed_tiles[tgid.y];
     const uint first_column = tgid.x * 64;
-    const uint valid_columns = min(64u, 216u - first_column);
+    const uint valid_columns = min(64u, 256u - first_column);
     const uint simdgroup = tid / 32;
     const uint simd_row = (simdgroup / 2) * 32;
     const uint simd_column = (simdgroup % 2) * 32;
-    const ulong expert_base = ulong(routed.expert + 1) * 512 * 432;
+    const ulong expert_base = ulong(routed.expert + 1) * 512 * 512;
 
     simdgroup_float8x8 gate[4][4];
     simdgroup_float8x8 up[4][4];
@@ -604,10 +592,10 @@ kernel void fbt_moe_routed_gate_staged(
                 const uint valid = min(4u, valid_columns - column);
                 for (uint item = 0; item < valid; ++item) {
                     const ulong source = expert_base
-                        + ulong(k_start + k_row) * 432
+                        + ulong(k_start + k_row) * 512
                         + first_column + column + item;
                     gate_value[item] = weights[source];
-                    up_value[item] = weights[source + 216];
+                    up_value[item] = weights[source + 256];
                 }
             }
             *reinterpret_cast<threadgroup half4*>(
@@ -698,7 +686,7 @@ kernel void fbt_moe_routed_gate_staged(
             const half4 result = half4(gate_value * sigmoid * up_value);
             const uint valid = min(4u, valid_columns - column);
             for (uint item = 0; item < valid; ++item) {
-                activation[ulong(routed.first_row + row) * 224
+                activation[ulong(routed.first_row + row) * 256
                     + first_column + column + item] = result[item];
             }
         }
@@ -718,20 +706,17 @@ METAL_FUNC void routed_down(
     uint valid_rows;
     routed_tile(routed_tiles, tgid.y, expert, first_row, valid_rows);
 
-    constexpr auto dynamic_descriptor = matmul2d_descriptor(
-        M, N, static_cast<int>(dynamic_extent), false, false, BAUX_RELAXED_MOE);
-    constexpr auto padded_descriptor = matmul2d_descriptor(M, N, 224, false, false, BAUX_RELAXED_MOE);
-    matmul2d<dynamic_descriptor, execution_simdgroups<Simdgroups>> dynamic_op;
+    constexpr auto padded_descriptor = matmul2d_descriptor(M, N, 256, false, false, BAUX_RELAXED_MOE);
     matmul2d<padded_descriptor, execution_simdgroups<Simdgroups>> padded_op;
     const uint first_column = tgid.x * N;
-    const ulong expert_base = ulong(expert + 1) * 216 * 512;
-    if (expert + 1 < p.experts && valid_rows == M) {
+    const ulong expert_base = ulong(expert + 1) * 256 * 512;
+    if (valid_rows == M) {
         auto a = tensor(
-            activation + ulong(first_row) * 224,
-            extents<int32_t, 224, M>{});
+            activation + ulong(first_row) * 256,
+            extents<int32_t, 256, M>{});
         auto b = tensor(
             weights + expert_base + first_column,
-            extents<int32_t, N, 224>{},
+            extents<int32_t, N, 256>{},
             array<int32_t, 2>{1, 512});
         auto c = tensor(
             output + ulong(first_row) * 512 + first_column,
@@ -740,35 +725,19 @@ METAL_FUNC void routed_down(
         padded_op.run(a, b, c);
         return;
     }
-    if (expert + 1 < p.experts) {
-        auto a = tensor(
-            activation + ulong(first_row) * 224,
-            dextents<int32_t, 2>{224, int32_t(valid_rows)},
-            array<int32_t, 2>{1, 224});
-        auto b = tensor(
-            weights + expert_base + first_column,
-            dextents<int32_t, 2>{N, 224},
-            array<int32_t, 2>{1, 512});
-        auto c = tensor(
-            output + ulong(first_row) * 512 + first_column,
-            dextents<int32_t, 2>{N, int32_t(valid_rows)},
-            array<int32_t, 2>{1, 512});
-        padded_op.run(a, b, c);
-        return;
-    }
     auto a = tensor(
-        activation + ulong(first_row) * 224,
-        dextents<int32_t, 2>{216, int32_t(valid_rows)},
-        array<int32_t, 2>{1, 224});
+        activation + ulong(first_row) * 256,
+        dextents<int32_t, 2>{256, int32_t(valid_rows)},
+        array<int32_t, 2>{1, 256});
     auto b = tensor(
         weights + expert_base + first_column,
-        dextents<int32_t, 2>{N, 216},
+        dextents<int32_t, 2>{N, 256},
         array<int32_t, 2>{1, 512});
     auto c = tensor(
         output + ulong(first_row) * 512 + first_column,
         dextents<int32_t, 2>{N, int32_t(valid_rows)},
         array<int32_t, 2>{1, 512});
-    dynamic_op.run(a, b, c);
+    padded_op.run(a, b, c);
 }
 
 kernel void fbt_moe_routed_down(
@@ -884,11 +853,11 @@ METAL_FUNC void shared_gate(
     auto gate_b = tensor(
         weights + first_column,
         extents<int32_t, N, 512>{},
-        array<int32_t, 2>{1, 432});
+        array<int32_t, 2>{1, 512});
     auto up_b = tensor(
-        weights + 216 + first_column,
+        weights + 256 + first_column,
         extents<int32_t, N, 512>{},
-        array<int32_t, 2>{1, 432});
+        array<int32_t, 2>{1, 512});
     auto a_static = tensor(
         input + ulong(first_row) * 512,
         extents<int32_t, 512, 128>{});
@@ -916,15 +885,15 @@ METAL_FUNC void shared_gate(
     }
     if (valid_rows == 128) {
         auto c = tensor(
-            activation + ulong(first_row) * 224 + first_column,
+            activation + ulong(first_row) * 256 + first_column,
             extents<int32_t, N, 128>{},
-            array<int32_t, 2>{1, 224});
+            array<int32_t, 2>{1, 256});
         gate.store(c);
     } else {
         auto c = tensor(
-            activation + ulong(first_row) * 224 + first_column,
+            activation + ulong(first_row) * 256 + first_column,
             dextents<int32_t, 2>{N, int32_t(valid_rows)},
-            array<int32_t, 2>{1, 224});
+            array<int32_t, 2>{1, 256});
         gate.store(c);
     }
 }
@@ -935,8 +904,7 @@ kernel void fbt_moe_shared_gate(
     device half* activation [[buffer(2)]],
     constant Top3RouteShape& p [[buffer(3)]],
     uint3 tgid [[threadgroup_position_in_grid]]) {
-    if (tgid.x == 3) shared_gate<24>(input, weights, activation, p, tgid);
-    else shared_gate<64>(input, weights, activation, p, tgid);
+    shared_gate<64>(input, weights, activation, p, tgid);
 }
 
 kernel void fbt_moe_shared_gate_fused_columns(
@@ -946,13 +914,9 @@ kernel void fbt_moe_shared_gate_fused_columns(
     constant Top3RouteShape& p [[buffer(3)]],
     uint3 tgid [[threadgroup_position_in_grid]]) {
     const uint first_tile = tgid.x * 2;
-    const uint full_tiles = first_tile == 0 ? 2u : 1u;
     #pragma clang loop unroll(disable)
-    for (uint step = 0; step < full_tiles; ++step) {
+    for (uint step = 0; step < 2; ++step) {
         shared_gate<64>(input, weights, activation, p, uint3(first_tile + step, tgid.y, tgid.z));
-    }
-    if (first_tile != 0) {
-        shared_gate<24>(input, weights, activation, p, uint3(first_tile + 1, tgid.y, tgid.z));
     }
 }
 
@@ -964,13 +928,13 @@ kernel void fbt_moe_shared_gate_projection(
     uint3 tgid [[threadgroup_position_in_grid]]) {
     const uint first_row = tgid.y * 16;
     const uint valid_rows = min(16u, p.rows - first_row);
-    constexpr auto descriptor = matmul2d_descriptor(16, 432, 512, false, false, false);
+    constexpr auto descriptor = matmul2d_descriptor(16, 512, 512, false, false, false);
     matmul2d<descriptor, execution_simdgroups<4>> op;
     auto a = tensor(input + ulong(first_row) * 512,
         dextents<int32_t, 2>{512, int32_t(valid_rows)});
-    auto b = tensor(weights, extents<int32_t, 432, 512>{});
-    auto c = tensor(projection + ulong(first_row) * 432,
-        dextents<int32_t, 2>{432, int32_t(valid_rows)});
+    auto b = tensor(weights, extents<int32_t, 512, 512>{});
+    auto c = tensor(projection + ulong(first_row) * 512,
+        dextents<int32_t, 2>{512, int32_t(valid_rows)});
     op.run(a, b, c);
 }
 
@@ -980,18 +944,18 @@ METAL_FUNC void shared_down(
     device half* output,
     constant Top3RouteShape& p,
     uint3 tgid) {
-    constexpr auto descriptor = matmul2d_descriptor(128, 64, 224, false, false, BAUX_RELAXED_MOE);
+    constexpr auto descriptor = matmul2d_descriptor(128, 64, 256, false, false, BAUX_RELAXED_MOE);
     matmul2d<descriptor, execution_simdgroups<4>> op;
     const uint first_row = tgid.y * 128;
     const uint valid_rows = min(128u, p.rows - first_row);
     const uint first_column = tgid.x * 64;
     if (valid_rows == 128) {
         auto a = tensor(
-            activation + ulong(first_row) * 224,
-            extents<int32_t, 224, 128>{});
+            activation + ulong(first_row) * 256,
+            extents<int32_t, 256, 128>{});
         auto b = tensor(
             weights + first_column,
-            extents<int32_t, 64, 224>{},
+            extents<int32_t, 64, 256>{},
             array<int32_t, 2>{1, 512});
         auto c = tensor(
             output + ulong(first_row) * 512 + first_column,
@@ -1001,11 +965,11 @@ METAL_FUNC void shared_down(
         return;
     }
     auto a = tensor(
-        activation + ulong(first_row) * 224,
-        dextents<int32_t, 2>{224, int32_t(valid_rows)});
+        activation + ulong(first_row) * 256,
+        dextents<int32_t, 2>{256, int32_t(valid_rows)});
     auto b = tensor(
         weights + first_column,
-        dextents<int32_t, 2>{64, 224},
+        dextents<int32_t, 2>{64, 256},
         array<int32_t, 2>{1, 512});
     auto c = tensor(
         output + ulong(first_row) * 512 + first_column,

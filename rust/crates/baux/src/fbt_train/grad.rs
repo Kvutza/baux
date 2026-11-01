@@ -1,7 +1,7 @@
 use crate::apple_gpu::{Runtime, bind_buffers, encode_value, thread_group};
 use metal::{BufferRef, ComputeCommandEncoderRef, ComputePipelineState};
 
-const SOURCE: &str = include_str!("../fbt_train_grad.metal");
+const SOURCE: &str = include_str!("../train_grad.metal");
 
 #[repr(C)]
 #[derive(Clone, Copy)]

@@ -53,7 +53,7 @@ fn neighbor_query() {
     assert!(estimator.predict(&[]).is_err());
 
     let counts = ParamTree::<usize>::mhc4_counts(1);
-    assert_eq!(ParamTree::<usize>::total_parameters(1), 1_177_723_160);
+    assert_eq!(ParamTree::<usize>::total_parameters(1), 265_623_320);
     assert_eq!(
         ParamTree::<usize>::total_parameters(1) as u64,
         baux::semantics::optimizer::param_tree::total_count()
@@ -62,9 +62,9 @@ fn neighbor_query() {
         *counts.get(ParamFamily::RoutedGateUp) as u64 + *counts.get(ParamFamily::RoutedDown) as u64,
         baux::semantics::optimizer::param_tree::routed_count()
     );
-    assert_eq!(ParamTree::<usize>::total_parameters(64), 1_177_756_440);
+    assert_eq!(ParamTree::<usize>::total_parameters(64), 265_656_600);
     let shares = ParamTree::<usize>::mhc4_shares(1);
-    assert!(*shares.get(ParamFamily::RoutedGateUp) > 0.5);
+    assert!(*shares.get(ParamFamily::RoutedGateUp) > 0.3);
     let doubled = counts.zip_with(&counts, |&a, &b| a + b);
     assert_eq!(
         *doubled.get(ParamFamily::TokenEmbed),

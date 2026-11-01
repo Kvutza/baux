@@ -7,7 +7,7 @@ use crate::nn::hyper::Site;
 use deser::Serialize;
 use metal::ComputeCommandEncoderRef;
 
-const PADDED_EXPERTS: u32 = 628;
+const PADDED_EXPERTS: u32 = 64;
 
 #[path = "fbt_decode/mhc.rs"]
 mod mhc;
@@ -403,8 +403,8 @@ impl Decoder {
             experts: runtime.buffer::<u32>(3),
             route_weights: runtime.buffer::<u16>(3),
             margin: runtime.buffer::<f32>(1),
-            gate: runtime.buffer::<u16>(4 * 432),
-            activation: runtime.buffer::<u16>(4 * 216),
+            gate: runtime.buffer::<u16>(4 * 512),
+            activation: runtime.buffer::<u16>(4 * 256),
             down: runtime.buffer::<u16>(4 * 512),
             feedback_state: runtime.buffer::<u16>(512),
             feedback_gate: runtime.buffer::<u16>(512),

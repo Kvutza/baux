@@ -280,7 +280,7 @@ impl Pipelines {
 
 impl TensorOpsPipelines {
     pub(super) fn new(runtime: &Runtime) -> Result<Self, String> {
-        let source = include_str!("../fbt_moe_tensorops.metal");
+        let source = include_str!("../moe_tensorops.metal");
         Ok(Self {
             gate_up: runtime.precise_metal4(
                 source,
@@ -344,13 +344,13 @@ impl TensorOpsPipelines {
                 &[],
             )?,
             readout_loss_tiles: runtime.precise_metal4(
-                include_str!("../fbt_loss_tensorops.metal"),
+                include_str!("../loss_tensorops.metal"),
                 "Metal 4 exact full-vocabulary loss tiles",
                 "fbt_readout_loss_tiles",
                 &[],
             )?,
             readout_proposal_tiles: runtime.precise_metal4(
-                include_str!("../fbt_loss_tensorops.metal"),
+                include_str!("../loss_tensorops.metal"),
                 "Metal 4 full-vocabulary proposal tiles",
                 "fbt_readout_proposal_tiles",
                 &[],
@@ -358,7 +358,7 @@ impl TensorOpsPipelines {
             denoise_tiles: runtime.precise_metal4(
                 &format!(
                     "#define DENOISE\n{}",
-                    include_str!("../fbt_loss_tensorops.metal")
+                    include_str!("../loss_tensorops.metal")
                 ),
                 "diffusion readout",
                 "fbt_readout_proposal_tiles",

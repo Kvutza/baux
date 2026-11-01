@@ -25,7 +25,7 @@ fn qualify(runtime: &Runtime, logits: [f64; 3], upstream: [f32; 3]) -> Result<()
         "fbt_moe_select_top3",
     )?;
     let backward = runtime.precise(
-        include_str!("../fbt_routing_grad.metal"),
+        include_str!("../routing_grad.metal"),
         "router adjoint",
         "moe_router_score_grad",
     )?;
@@ -132,7 +132,7 @@ fn projection(runtime: &Runtime, rows: usize) -> Result<(), String> {
     let tiles = runtime.buffer_with(&[1u32, first as u32, rows as u32, 0]);
     let output = runtime.buffer_with(&vec![0x7e00u16; count * columns]);
     let pipeline = runtime.pipeline_metal4(
-        include_str!("../fbt_moe_routing_tensorops.metal"),
+        include_str!("../routing_tensorops.metal"),
         "routed projection replay",
         "fbt_moe_routed_gate_projection",
         &[],

@@ -177,7 +177,7 @@ const CONTEXT: u32 = ROWS / BATCH;
 const WIDTH: u32 = baux::semantics::mhc4::WIDTH as u32;
 const EXPERTS: u32 = 32;
 const EXPERT_ROWS: u32 = ROWS / EXPERTS;
-const EXPERT_WIDTH: u32 = 864;
+const EXPERT_WIDTH: u32 = 1024;
 const GATE_UP: u32 = 2 * EXPERT_WIDTH;
 const QUERY_HEADS: u32 = 8;
 const KV_HEADS: u32 = 1;
@@ -202,7 +202,7 @@ const LAYER_PARAMETERS: usize = (WIDTH * routing::ROUTED_EXPERTS) as usize
 const GLOBAL_PARAMETERS: usize =
     (WIDTH * VOCAB) as usize + (2 * WIDTH * WIDTH) as usize + WIDTH as usize;
 const FULL_PARAMETERS: usize = MODEL_LAYERS as usize * LAYER_PARAMETERS + GLOBAL_PARAMETERS;
-const _: () = assert!(FULL_PARAMETERS == 1_177_755_648);
+const _: () = assert!(FULL_PARAMETERS == 265_655_808);
 const MHC_STREAMS: u32 = baux::semantics::shape::MHC4_SHAPE.streams as u32;
 const MHC_COEFFICIENTS: u32 = baux::semantics::shape::MHC_COEFS as u32;
 const MHC_INPUT: u32 = baux::semantics::shape::MHC_INPUT as u32;

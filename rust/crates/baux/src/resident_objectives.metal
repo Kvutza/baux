@@ -65,7 +65,7 @@ inline void objective_geometry(
     }
 }
 
-inline float objective_acquisition_score(
+inline float acquisition_score(
     thread const float *scaled_distances,
     thread const uint *nearest,
     constant SelectionParams &q,
@@ -218,13 +218,13 @@ kernel void bf16_select_objectives(
         float scaled_distances[128];
         uint nearest[128];
         objective_geometry(distances[candidate], q, 128u, scaled_distances, nearest);
-        float control_score = objective_acquisition_score(scaled_distances, nearest, q,
+        float control_score = acquisition_score(scaled_distances, nearest, q,
             q.outcomes, q.variances, q.draws, q.y_scale,
             candidate_means[candidate], candidate_standard_errors[candidate]);
         eligible[candidate] = isfinite(control_score);
         for (uint metric = 0; metric < o.width; metric++) {
             float mean, error;
-            vectors[candidate][metric] = objective_acquisition_score(
+            vectors[candidate][metric] = acquisition_score(
                 scaled_distances, nearest, q, o.outcomes[metric], o.variances[metric],
                 o.draws[metric], o.scales[metric], mean, error);
             eligible[candidate] = eligible[candidate] && isfinite(vectors[candidate][metric]);

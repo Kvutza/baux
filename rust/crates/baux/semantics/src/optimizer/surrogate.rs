@@ -246,6 +246,9 @@ impl NeighborValueEstimator {
                 self.distances[i][j] = if i == j { 0.0 } else { dist(i, j).max(0.0) };
             }
         }
+        if self.fit_params && self.len >= self.defaults.neighbors {
+            let _ = loo_fit::fit(self);
+        }
     }
 
     /// The sampled GPU row and host observation must replace this same slot.

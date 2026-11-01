@@ -59,7 +59,7 @@ fn rope_positions() -> Result<(), String> {
 fn qkv_epilogue() -> Result<(), String> {
     autoreleasepool(|| {
         let runtime = Runtime::shared()?;
-        let source = include_str!("fbt_moe_tensorops.metal");
+        let source = include_str!("moe_tensorops.metal");
         let separate =
             runtime.precise_metal4(source, "QKV reference", "fbt_model_tensorops_qkv_wide", &[])?;
         let fused = runtime.precise_metal4(source, "QKV epilogue", "qkv_rope", &[])?;
@@ -288,7 +288,7 @@ fn moe_transport() -> Result<(), String> {
         let output = canary(&runtime, (rows * MHC_INPUT) as usize);
         let command = runtime.queue.new_command_buffer();
         let encoder = command.new_compute_command_encoder();
-        bytes(&encoder, 5, &[rows, WIDTH, 625, 3, 64, rows.div_ceil(64)]);
+        bytes(&encoder, 5, &[rows, WIDTH, 64, 3, 64, rows.div_ceil(64)]);
         launch(
             &encoder,
             &combine,
@@ -722,8 +722,8 @@ fn decode_gemv() -> Result<(), String> {
             (512, 512, 0),
             (512, 128, 0),
             (512, 8192, 0),
-            (512, 432, 1),
-            (216, 512, 2),
+            (512, 512, 1),
+            (256, 512, 2),
         ] {
             let batches = if mode == 0 { 1 } else { 4 };
             let input = patterned(&runtime, k as usize * batches, seed, 0x2400);
@@ -911,7 +911,7 @@ fn router_logits() -> Result<(), String> {
             assert_eq!(
                 &actual[layer * PADDED_EXPERTS as usize + routing::ROUTED_EXPERTS as usize
                     ..(layer + 1) * PADDED_EXPERTS as usize],
-                &[0; 3]
+                &[0; 0]
             );
         }
         Ok(())

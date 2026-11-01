@@ -239,13 +239,13 @@ impl RouteShape {
         }
         Ok(Self {
             rows,
-            experts: 128,
+            experts: 64,
             top_k: 3,
         })
     }
 
     pub fn validate(self) -> Result<(), &'static str> {
-        if self.rows == 0 || self.experts < 4 || self.experts > 625 || self.top_k != 3 {
+        if self.rows == 0 || self.experts < 4 || self.experts > 64 || self.top_k != 3 {
             return Err("FBT CUDA routing shape is invalid");
         }
         Ok(())
@@ -268,8 +268,8 @@ impl MoeShape {
     pub fn fbt() -> Self {
         Self {
             width: 512,
-            expert_width: 216,
-            activation_stride: 224,
+            expert_width: 256,
+            activation_stride: 256,
             row_tiles: 8,
         }
     }

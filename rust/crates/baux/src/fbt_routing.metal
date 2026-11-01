@@ -29,7 +29,7 @@ METAL_FUNC float route_sigmoid(float value) {
 }
 
 // Eight exact zeros permit a fixed K=224 TensorOps projection. Padding is
-// storage-only: the independent model parameters remain width 216.
+// storage-only: the independent model parameters remain width 256.
 kernel void fbt_moe_select_top3_wide(
     device const half* scores [[buffer(0)]],
     device uint* route_experts [[buffer(1)]],
@@ -104,9 +104,9 @@ kernel void fbt_moe_select_top3(
     const uint token = group.y;
     if (token >= p.rows) return;
 
-    float lane_scores[20];
-    uint lane_experts[20];
-    for (uint item = 0; item < 20; ++item) {
+    float lane_scores[2];
+    uint lane_experts[2];
+    for (uint item = 0; item < 2; ++item) {
         const uint expert = lane + item * 32;
         lane_experts[item] = expert;
         lane_scores[item] = expert < p.experts
@@ -119,7 +119,7 @@ kernel void fbt_moe_select_top3(
     for (uint position = 0; position < 4; ++position) {
         float candidate_score = lane_scores[0];
         uint candidate_expert = lane_experts[0];
-        for (uint item = 1; item < 20; ++item) {
+        for (uint item = 1; item < 2; ++item) {
             if (lane_scores[item] > candidate_score
                 || (lane_scores[item] == candidate_score
                     && lane_experts[item] < candidate_expert)) {
@@ -132,7 +132,7 @@ kernel void fbt_moe_select_top3(
             candidate_score == best_score ? candidate_expert : UINT_MAX);
         best_scores[position] = best_score;
         best_experts[position] = best_expert;
-        for (uint item = 0; item < 20; ++item) {
+        for (uint item = 0; item < 2; ++item) {
             if (lane_experts[item] == best_expert) lane_scores[item] = -INFINITY;
         }
     }
@@ -158,7 +158,7 @@ kernel void fbt_moe_route_histogram(
     constant Top3RouteShape& p [[buffer(3)]],
     uint block [[threadgroup_position_in_grid]],
     uint tid [[thread_index_in_threadgroup]]) {
-    threadgroup atomic_uint counts[640];
+    threadgroup atomic_uint counts[256];
     threadgroup uint local_experts[192];
     const uint first = block * p.block_tokens * p.top_k;
     const uint end = min(first + p.block_tokens * p.top_k, p.rows * p.top_k);
@@ -196,7 +196,7 @@ kernel void fbt_moe_route_prefix(
     uint expert [[thread_index_in_threadgroup]],
     uint lane [[thread_index_in_simdgroup]],
     uint simdgroup [[simdgroup_index_in_threadgroup]]) {
-    threadgroup uint2 group_totals[20];
+    threadgroup uint2 group_totals[8];
     uint expert_load = 0;
     if (expert < p.experts) {
         for (uint block = 0; block < p.blocks; ++block) {

@@ -42,7 +42,7 @@ impl KernelTrial {
     pub fn source(operator: &str) -> Result<&'static str, String> {
         match operator {
             "pisa" => Ok(include_str!("../fbt_pisa1.metal")),
-            "moe" => Ok(include_str!("../fbt_moe_routing_tensorops.metal")),
+            "moe" => Ok(include_str!("../routing_tensorops.metal")),
             "decode" => Ok(include_str!("../fbt_decode.metal")),
             "readout" => Ok(include_str!("../fbt_moe.metal")),
             "perturb" => Ok(include_str!("../fbt_denoise.metal")),

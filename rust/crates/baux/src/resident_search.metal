@@ -138,7 +138,7 @@ inline float2 rademacher_pair(ulong2 domain, ulong pair) {
     );
 }
 #ifndef RADEMACHER_ONLY
-inline uint ziggurat_bits_domain(
+inline uint domain_bits(
     ulong2 domain,
     ulong element,
     uint attempt,
@@ -154,9 +154,9 @@ inline uint ziggurat_bits_domain(
 inline float ziggurat_uniform(uint bits) {
     return min(float((bits >> 8) + 1u) * 0x1.0p-24f, 0.99999994f);
 }
-inline float ziggurat_sample_domain(ulong2 domain, ulong element) {
+inline float domain_sample(ulong2 domain, ulong element) {
     for (uint attempt = 0;; attempt++) {
-        uint bits = ziggurat_bits_domain(domain, element, attempt, 0u);
+        uint bits = domain_bits(domain, element, attempt, 0u);
         int signed_sample = as_type<int>(bits);
         uint layer = uint(signed_sample) & 255u;
         uint magnitude = signed_sample < 0
@@ -167,10 +167,10 @@ inline float ziggurat_sample_domain(ulong2 domain, ulong element) {
         if (layer == 0u) {
             for (uint tail = 0;; tail++) {
                 float x = -log(ziggurat_uniform(
-                    ziggurat_bits_domain(domain, element, attempt + tail, 1u)))
+                    domain_bits(domain, element, attempt + tail, 1u)))
                     / 3.654152885361009f;
                 float y = -log(ziggurat_uniform(
-                    ziggurat_bits_domain(domain, element, attempt + tail, 2u)));
+                    domain_bits(domain, element, attempt + tail, 2u)));
                 if (2.0f * y >= x * x) {
                     float value = 3.654152885361009f + x;
                     return signed_sample < 0 ? -value : value;
@@ -178,19 +178,19 @@ inline float ziggurat_sample_domain(ulong2 domain, ulong element) {
             }
         }
         float uniform = ziggurat_uniform(
-            ziggurat_bits_domain(domain, element, attempt, 1u));
+            domain_bits(domain, element, attempt, 1u));
         float density = ziggurat_densities[layer]
             + uniform * (ziggurat_densities[layer - 1u] - ziggurat_densities[layer]);
         if (density < exp(-0.5f * sample * sample)) return sample;
     }
 }
 inline float ziggurat_sample(ulong seed, ulong key, ulong element) {
-    return ziggurat_sample_domain(ziggurat_domain(seed, key), element);
+    return domain_sample(ziggurat_domain(seed, key), element);
 }
-inline float2 ziggurat_pair_domain(ulong2 domain, ulong pair) {
+inline float2 domain_ziggurat(ulong2 domain, ulong pair) {
     return float2(
-        ziggurat_sample_domain(domain, pair * 2ul),
-        ziggurat_sample_domain(domain, pair * 2ul + 1ul));
+        domain_sample(domain, pair * 2ul),
+        domain_sample(domain, pair * 2ul + 1ul));
 }
 #endif
 #ifdef FP16_INDEPENDENT
@@ -215,18 +215,18 @@ struct PrecomputedDomains {
     ulong2 hist[TRAJECTORY_SEEDS];
     float weights[TRAJECTORY_SEEDS];
 };
-inline float2 domain_noise_pair(ulong2 domain, ulong pair, uint mode) {
+inline float2 domain_noise(ulong2 domain, ulong pair, uint mode) {
 #ifdef RADEMACHER_ONLY
     return rademacher_pair(domain, pair);
 #else
     if (mode == 1u) {
         return rademacher_pair(domain, pair);
     }
-    return ziggurat_pair_domain(domain, pair);
+    return domain_ziggurat(domain, pair);
 #endif
 }
 inline float2 noise_pair(ulong seed, ulong key, ulong pair, uint mode) {
-    return domain_noise_pair(ziggurat_domain(seed, key), pair, mode);
+    return domain_noise(ziggurat_domain(seed, key), pair, mode);
 }
 inline PrecomputedDomains make_domains(ulong salted_seed, Leaf leaf, constant Params &p) {
     PrecomputedDomains d;
@@ -256,26 +256,26 @@ inline PrecomputedDomains make_domains(ulong salted_seed, Leaf leaf, constant Pa
     d.count = active;
     return d;
 }
-inline float2 trajectory_noise_pair_domains(
+inline float2 domain_trajectory(
     thread const PrecomputedDomains &d,
     ulong pair,
     uint mode) {
-    float2 fresh = domain_noise_pair(d.fresh, pair, mode);
+    float2 fresh = domain_noise(d.fresh, pair, mode);
     if (d.count == 0u) return d.fresh_weight * fresh;
     float2 mixed = d.fresh_weight * fresh;
     for (uint j = 0u; j < d.count; j++) {
-        mixed += d.weights[j] * domain_noise_pair(d.hist[j], pair, mode);
+        mixed += d.weights[j] * domain_noise(d.hist[j], pair, mode);
     }
     return mixed;
 }
-inline float2 trajectory_noise_pair(
+inline float2 trajectory_noise(
     ulong salted_seed,
     Leaf leaf,
     ulong pair,
     uint mode,
     constant Params &p) {
     PrecomputedDomains d = make_domains(salted_seed, leaf, p);
-    return trajectory_noise_pair_domains(d, pair, mode);
+    return domain_trajectory(d, pair, mode);
 }
 inline float sample(ulong seed, ulong key, ulong element, uint mode) {
     float2 pair = noise_pair(seed, key, element / 2, mode);
@@ -346,7 +346,7 @@ inline ulong proposal_seed(ulong root, uint candidate, uint program) {
 //   Sinkhorn predictors/biases): exact 4-element horizontal zero-sum quotient
 //   projection \Pi_4^\perp z = \sqrt{4/3} (z - \mu_4 1_4).
 // - `1u, 2u, 3u, 6u` (linear projections and MoE experts): 1-pair isometric draw.
-inline float2 sym_pair_continuous_domains(
+inline float2 sym_delta(
     float2 base_value,
     Leaf leaf,
     thread const PrecomputedDomains &d,
@@ -360,10 +360,10 @@ inline float2 sym_pair_continuous_domains(
     if (family_code == 4u && (pair >> 17) < 64ul && leaf_pairs >= 4ul) {
         ulong pair_base = min(pair & ~3ul, leaf_pairs - 4ul);
         uint sub = uint(pair - pair_base);
-        float2 p0 = trajectory_noise_pair_domains(d, pair_base, mode);
-        float2 p1 = trajectory_noise_pair_domains(d, pair_base + 1ul, mode);
-        float2 p2 = trajectory_noise_pair_domains(d, pair_base + 2ul, mode);
-        float2 p3 = trajectory_noise_pair_domains(d, pair_base + 3ul, mode);
+        float2 p0 = domain_trajectory(d, pair_base, mode);
+        float2 p1 = domain_trajectory(d, pair_base + 1ul, mode);
+        float2 p2 = domain_trajectory(d, pair_base + 2ul, mode);
+        float2 p3 = domain_trajectory(d, pair_base + 3ul, mode);
         float mu8 = 0.125f * ((p0.x + p0.y) + (p1.x + p1.y) + (p2.x + p2.y) + (p3.x + p3.y));
         float2 raw = sub == 0u ? p0 : (sub == 1u ? p1 : (sub == 2u ? p2 : p3));
         float2 unit_dir = 1.05220856f * (raw - mu8) + 0.50f * float2(mu8);
@@ -373,21 +373,18 @@ inline float2 sym_pair_continuous_domains(
         || family_code == 5u
         || family_code == 7u
         || family_code == 9u
-        || family_code >= 10u;
+        || (family_code >= 10u && family_code != 11u && family_code != 15u && family_code < 16u);
     if (center_fiber && leaf_pairs >= 2ul) {
         ulong pair_base = min(pair & ~1ul, leaf_pairs - 2ul);
         uint sub = uint(pair - pair_base);
-        float2 q0 = trajectory_noise_pair_domains(d, pair_base, mode);
-        float2 q1 = trajectory_noise_pair_domains(d, pair_base + 1ul, mode);
+        float2 q0 = domain_trajectory(d, pair_base, mode);
+        float2 q1 = domain_trajectory(d, pair_base + 1ul, mode);
         float mu4 = 0.25f * ((q0.x + q0.y) + (q1.x + q1.y));
         float2 raw = sub == 0u ? q0 : q1;
         float2 unit_dir = 1.15470054f * (raw - mu4);
         return step * unit_dir;
     }
-    float2 q = trajectory_noise_pair_domains(d, pair, mode);
-    if (d.trajectory_active != 0u) {
-        return step * q;
-    }
+    float2 q = domain_trajectory(d, pair, mode);
     float r_sq = base_value.x * base_value.x + base_value.y * base_value.y;
     if (r_sq > 1e-12f) {
         float inv_r = rsqrt(r_sq);
@@ -396,12 +393,13 @@ inline float2 sym_pair_continuous_domains(
         float q_t = q.x * tangent.x + q.y * tangent.y;
         float q_u = q.x * radial.x + q.y * radial.y;
         float delta_t = step * (1.22474487f * q_t);
-        float delta_u = step * (0.70710678f * q_u) - 0.5f * delta_t * delta_t * inv_r;
+        float curv = r_sq > 0.25f ? inv_r : (4.0f * r_sq * inv_r);
+        float delta_u = step * (0.70710678f * q_u) - 0.5f * delta_t * delta_t * curv;
         return delta_t * tangent + delta_u * radial;
     }
     return step * q;
 }
-inline float2 sym_pair_continuous(
+inline float2 sym_continuous(
     float2 base_value,
     Leaf leaf,
     ulong salted_seed,
@@ -410,10 +408,10 @@ inline float2 sym_pair_continuous(
     ulong pair,
     constant Params &p) {
     PrecomputedDomains d = make_domains(salted_seed, leaf, p);
-    return sym_pair_continuous_domains(base_value, leaf, d, radius, mode, pair);
+    return sym_delta(base_value, leaf, d, radius, mode, pair);
 }
 
-inline float2 proposal_delta_domains(
+inline float2 proposal_delta(
     float2 base_value,
     Leaf leaf,
     thread const PrecomputedDomains &doms,
@@ -422,10 +420,10 @@ inline float2 proposal_delta_domains(
     float radius,
     uint mode,
     ulong pair) {
-    if (program == 4u)
-        return sym_pair_continuous_domains(base_value, leaf, doms, radius, mode, pair);
+    if (program == 4u || program == 5u)
+        return sym_delta(base_value, leaf, doms, radius, mode, pair);
 
-    float2 noise = trajectory_noise_pair_domains(doms, pair, mode);
+    float2 noise = domain_trajectory(doms, pair, mode);
     if (program == 3u) {
         float r_sq = base_value.x * base_value.x + base_value.y * base_value.y;
         float inv_r = r_sq > 1e-12f ? rsqrt(r_sq) : 0.0f;
@@ -435,23 +433,14 @@ inline float2 proposal_delta_domains(
         noise = cos(alpha) * noise + sin(alpha) * tangent;
         return (leaf.scale * radius) * noise;
     }
-    if (program == 5u) {
-        float s = leaf.scale * radius;
-        if (s == 0.0f) return float2(0.0f, 0.0f);
-        uint rot = (leaf.address ^ uint(pair >> 4)) & 3u;
-        float c = rot == 0u ? 0.96592583f : (rot == 1u ? 0.86602540f : (rot == 2u ? 0.70710678f : 0.50000000f));
-        float sn = rot == 0u ? 0.25881905f : (rot == 1u ? 0.50000000f : (rot == 2u ? 0.70710678f : 0.86602540f));
-        float2 coupled = float2(c * noise.x - sn * noise.y, sn * noise.x + c * noise.y);
-        return s * coupled;
-    }
     return (leaf.scale * radius) * noise;
 }
 
-inline float2 proposal_pair_continuous(float2 base_value, Leaf leaf, ulong seed,
+inline float2 continuous_pair(float2 base_value, Leaf leaf, ulong seed,
     ulong basis_seed, uint candidate, uint program, float radius, uint mode,
     ulong pair, constant Params &p) {
     PrecomputedDomains doms = make_domains(seed ^ 0x8ebc6af09c88c6e3ul, leaf, p);
-    return proposal_delta_domains(base_value, leaf, doms, candidate, program, radius, mode, pair);
+    return proposal_delta(base_value, leaf, doms, candidate, program, radius, mode, pair);
 }
 
 inline ushort2 sym_pair(
@@ -463,10 +452,10 @@ inline ushort2 sym_pair(
     ulong pair,
     constant Params &p) {
     return encode_pair(
-        base_value + sym_pair_continuous(base_value, leaf, salted_seed, radius, mode, pair, p));
+        base_value + sym_continuous(base_value, leaf, salted_seed, radius, mode, pair, p));
 }
 
-inline ushort2 proposal_pair_domains(
+inline ushort2 domain_proposal(
     float2 base_value,
     Leaf leaf,
     thread const PrecomputedDomains &doms,
@@ -476,7 +465,7 @@ inline ushort2 proposal_pair_domains(
     uint mode,
     ulong pair) {
     return encode_pair(
-        base_value + proposal_delta_domains(base_value, leaf, doms, candidate, program, radius, mode, pair));
+        base_value + proposal_delta(base_value, leaf, doms, candidate, program, radius, mode, pair));
 }
 
 // Seed is the canonical candidate stream, before the single noise-domain salt.
@@ -485,7 +474,7 @@ inline ushort2 proposal_pair(float2 base_value, Leaf leaf, ulong seed,
     ulong basis_seed, uint candidate, uint program, float radius, uint mode,
     ulong pair, constant Params &p) {
     PrecomputedDomains doms = make_domains(seed ^ 0x8ebc6af09c88c6e3ul, leaf, p);
-    return proposal_pair_domains(base_value, leaf, doms, candidate, program, radius, mode, pair);
+    return domain_proposal(base_value, leaf, doms, candidate, program, radius, mode, pair);
 }
 
 #ifdef PROCEDURAL_SLOTS
@@ -513,7 +502,7 @@ inline ushort proposed_value(
     float d = direction(decode(reference[index]), inverse_rms, noise, candidate);
     return encode(decode(base[index]) + (leaf.scale * radius) * d);
 }
-inline ushort proposed_value_bits(
+inline ushort proposed_bits(
     ushort base_bits,
     ushort reference_bits,
     Leaf leaf,
@@ -750,8 +739,8 @@ kernel void bf16_propose_pool(
     for (uint item = tid * 2; item < tile.length; item += 512) {
         ulong pair_element = ulong(tile.start) + item;
         ulong pair = pair_element / 2;
-        float2 persistent_pair = trajectory_noise_pair(persistent_seed, leaf, pair, p.mode, p);
-        float2 fresh_pair = trajectory_noise_pair(fresh_seed, leaf, pair, p.mode, p);
+        float2 persistent_pair = trajectory_noise(persistent_seed, leaf, pair, p.mode, p);
+        float2 fresh_pair = trajectory_noise(fresh_seed, leaf, pair, p.mode, p);
 #ifdef FP16_INDEPENDENT
         ulong first_index = leaf.offset + pair_element;
         bool complete_pair = item + 1 < tile.length;
@@ -889,7 +878,7 @@ kernel void bf16_propose_pool(
                 float noise = samples[pair_offset];
                 float candidate_radius = proposal_radius(
                     candidate, p.program, p.radius, p.alternate_radius);
-                values[candidate] = proposed_value_bits(base_bits, reference_bits, leaf,
+                values[candidate] = proposed_bits(base_bits, reference_bits, leaf,
                     inverse_rms, noise, candidate, candidate_radius);
             }
 #endif
@@ -1224,10 +1213,10 @@ kernel void bf16_replay_short(
 #else
             float2 persistent = p.mode == 1u
                 ? rademacher_pair(persistent_domain, element / 2ul)
-                : ziggurat_pair_domain(persistent_domain, element / 2ul);
+                : domain_ziggurat(persistent_domain, element / 2ul);
             float2 fresh = p.mode == 1u
                 ? rademacher_pair(fresh_domain, element / 2ul)
-                : ziggurat_pair_domain(fresh_domain, element / 2ul);
+                : domain_ziggurat(fresh_domain, element / 2ul);
 #endif
             candidates[0] = encode_pair(base_value + leaf.scale * p.radius * persistent);
             candidates[1] = encode_pair(base_value + leaf.scale * p.alternate_radius * persistent);
@@ -1297,7 +1286,7 @@ kernel void bf16_replay_short(
 #else
                     float2 noise = step.mode == 1u
                         ? rademacher_pair(history_domains[local], element / 2ul)
-                        : ziggurat_pair_domain(history_domains[local], element / 2ul);
+                        : domain_ziggurat(history_domains[local], element / 2ul);
 #endif
                     float scale = historical_scales[row * p.blocks + tile.leaf];
                     historical = encode_pair(
@@ -1540,7 +1529,7 @@ kernel void bf16_sample(
             proposal_radius(candidate, p.program, p.radius, p.alternate_radius),
             p.mode, point.element / 2ul, p);
         pool[candidate * p.tiles + index] = values[point.element & 1ul];
-        float2 deltas = proposal_pair_continuous(base_value, leaf,
+        float2 deltas = continuous_pair(base_value, leaf,
             proposal_seed(p.stream_seed, candidate, p.program), p.basis_seed,
             candidate, p.program,
             proposal_radius(candidate, p.program, p.radius, p.alternate_radius),
@@ -1791,7 +1780,7 @@ kernel void bf16_materialize(
         ushort2 base_pair = aligned_pair
             ? *reinterpret_cast<device const ushort2*>(base + index)
             : ushort2(base[index], complete_pair ? base[index + 1] : 0);
-        ushort2 result = proposal_pair_domains(decode_pair(base_pair), leaf, doms,
+        ushort2 result = domain_proposal(decode_pair(base_pair), leaf, doms,
             decision->index, decision->program,
             decision->radius, decision->mode, pair);
         if (aligned_pair) {

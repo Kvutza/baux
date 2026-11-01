@@ -721,7 +721,7 @@ mod tests {
             "measurement": {
                 "truth": {"context-tokens": 1_048_576, "evaluated-tokens": 871_296},
                 "experiment-regression": {
-                    "parameters": 1_177_756_440,
+                    "parameters": 265_656_600,
                     "round": 1,
                     "evaluated-tokens": 871_296,
                     "candidate-objective": -12.495894,
@@ -744,7 +744,7 @@ mod tests {
         let replay = semantic_fixture(12.494953, "candidate-stable");
         let baseline = json!({
             "truth": replay["measurement"]["truth"].clone(),
-            "parameters": 1_177_756_440,
+            "parameters": 265_656_600,
             "round": 1,
             "evaluated-tokens": 871_296,
             "candidate-objective": -12.495894,

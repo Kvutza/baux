@@ -26,7 +26,7 @@ def mhcStreams : ℕ := 4
 def physLayers : ℕ := 5
 
 /-- Routed expert count per physical layer. -/
-def routedExperts : ℕ := 625
+def routedExperts : ℕ := 64
 
 /-- Selected top experts per MoE evaluation. -/
 def topExperts : ℕ := 3

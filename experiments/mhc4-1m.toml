@@ -1,5 +1,5 @@
 #:schema ../schemas/tune-spec.schema.json
-# Native MHC4 (No H-Net) Bayesian optimization with ENN at 1M context.
+# Native MHC4 Bayesian optimization with ENN at 1M context.
 # Model: fbt-pisa1-mhc4-v1 (4-stream mHC Sinkhorn state mixer, PISA-1 sparse attention, routed MoE).
 version = 4
 experiment = "pretrain"

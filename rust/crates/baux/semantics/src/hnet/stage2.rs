@@ -75,7 +75,7 @@ fn stage0_proj(w: &[f32], x: &[f32], c_id: f32, shift: usize) -> Vec<f32> {
             acc = wi.mul_add(xi, acc);
         }
         let base = 0.35_f32 * x[row] + x[(row + shift) % d];
-        *dst = 1.35_f32 * acc + c_id * (base - 1.35_f32 * x[row]);
+        *dst = 1.00_f32 * acc + c_id * (base - 1.00_f32 * x[row]);
     }
     out
 }

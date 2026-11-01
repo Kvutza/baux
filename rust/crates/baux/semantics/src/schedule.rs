@@ -93,7 +93,7 @@ impl BackendSchedule {
                 kernel(
                     &["down"],
                     "fbt_moe_routed_down_fused_columns",
-                    [128, 64, 216],
+                    [128, 64, 256],
                     [128, 1, 1],
                 ),
                 kernel(&["combine-routes"], "combine_mhc", [1, 512, 3], [128, 1, 1]),
@@ -198,7 +198,7 @@ impl BackendSchedule {
                     [1, 8, 512],
                     [256, 1, 1],
                 ),
-                kernel(&["route"], "routetopk", [1, 625, 1], [256, 1, 1]),
+                kernel(&["route"], "routetopk", [1, 64, 1], [256, 1, 1]),
                 kernel(
                     &["pack-routes"],
                     "route_counts+route_layout+route_pack",
@@ -290,7 +290,7 @@ impl BackendSchedule {
             kernel(
                 &["down"],
                 "fbt_moe_routed_down_fused_columns",
-                [128, 64, 216],
+                [128, 64, 256],
                 [256, 1, 1],
             ),
             kernel(&["combine-routes"], "combine_mhc", [1, 512, 3], [256, 1, 1]),

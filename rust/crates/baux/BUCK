@@ -175,7 +175,7 @@ baux_program_targets(BAUX_PROGRAMS, RUST_EDITION, glob(["src/**/*.rs", "semantic
 [
     rust_test(
         name = source.removeprefix("tests/").removesuffix(".rs") + "_test",
-        srcs = [source] + _BAUX_RUST_SRCS,
+        srcs = [source] + (_BAUX_RUST_SRCS if source in ["tests/fbt_metaltest.rs", "tests/flame_metaltest.rs", "tests/resident_metal.rs"] else []),
         crate_root = source,
         edition = RUST_EDITION,
         features = select({

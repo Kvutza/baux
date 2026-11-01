@@ -273,9 +273,9 @@ pub(crate) fn routed<const THREADS: u32>(
         return;
     }
     let (columns, inner, input_stride) = if mode == 0 {
-        (432, 512, 512)
+        (512, 512, 512)
     } else {
-        (512, 216, 224)
+        (512, 256, 256)
     };
     let expert = if route.reserved == 1 {
         0

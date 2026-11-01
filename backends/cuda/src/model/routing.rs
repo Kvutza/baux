@@ -171,7 +171,7 @@ fn experts(
         compact,
     )?;
     let launch = module
-        .prepare_routed_activate(LaunchConfig1D::new((rows * 216).div_ceil(256), 256, 0))
+        .prepare_routed_activate(LaunchConfig1D::new((rows * 256).div_ceil(256), 256, 0))
         .map_err(cuda_error)?;
     module
         .routed_activate(stream, &launch, projection, activation, rows)
@@ -200,7 +200,7 @@ fn expert_project(
     mode: u32,
     compact: bool,
 ) -> CudaResult<()> {
-    let columns: u32 = if mode == 0 { 432 } else { 512 };
+    let columns: u32 = 512;
     if compact {
         let launch = module
             .prepare_routed_compact(LaunchConfig2D::new(
@@ -314,7 +314,7 @@ pub(super) fn check() -> CudaResult<()> {
     sampling(&module, &stream)?;
     context.check_err().map_err(cuda_error)?;
     println!(
-        "ROUTE_PARITY ok=true experts=625 assignments=1200 high-ids=622,623,624 ties=stable \
+        "ROUTE_PARITY ok=true experts=64 assignments=1200 high-ids=61,62,63 ties=stable \
          chunk-boundary=1024"
     );
     Ok(())
@@ -329,7 +329,7 @@ fn check_topk(
     let assignments = rows * 3;
     let mut scores = vec![0_u16; rows * experts_count];
     for row in (0..rows).step_by(2) {
-        for (expert, value) in [(624, 0x4000), (623, 0x3c00), (622, 0x3800)] {
+        for (expert, value) in [(63, 0x4000), (62, 0x3c00), (61, 0x3800)] {
             scores[row * experts_count + expert] = value;
         }
     }
@@ -359,12 +359,12 @@ fn check_topk(
     let routes = read_prefix(&experts, stream, assignments)?;
     for (row, route) in routes.chunks_exact(3).enumerate() {
         let expected = if row % 2 == 0 {
-            [624, 623, 622]
+            [63, 62, 61]
         } else {
             [0, 1, 2]
         };
         if route != expected {
-            return Err(format!("625-expert route mismatch at row {row}: {route:?}"));
+            return Err(format!("64-expert route mismatch at row {row}: {route:?}"));
         }
     }
     Ok((experts, routes))
@@ -382,7 +382,7 @@ fn verify_pack(
     let mut ranks = vec![0_usize; EXPERTS];
     let mut total = 0;
     for expert in 0..EXPERTS {
-        let expected = if [0, 1, 2, 622, 623, 624].contains(&expert) {
+        let expected = if [0, 1, 2, 61, 62, 63].contains(&expert) {
             rows / 2
         } else {
             0
@@ -421,31 +421,31 @@ fn moe(
     capacity: usize,
 ) -> CudaResult<()> {
     let rows = input.len() / 512;
-    let mut gate = vec![0_u16; 626 * 512 * 432];
-    let mut down = vec![0_u16; 626 * 216 * 512];
-    for expert in [0, 1, 2, 3, 623, 624, 625] {
+    let mut gate = vec![0_u16; 65 * 512 * 512];
+    let mut down = vec![0_u16; 65 * 256 * 512];
+    for expert in [0, 1, 2, 3, 62, 63, 64] {
         for inner in 0..512 {
-            for column in 0..432 {
-                gate[expert * 512 * 432 + inner * 432 + column] = if column < 216 {
+            for column in 0..512 {
+                gate[expert * 512 * 512 + inner * 512 + column] = if column < 256 {
                     0x1800 + (expert % 3) as u16 * 1024
                 } else {
                     0x1400 + (inner % 3) as u16 * 1024
                 };
             }
         }
-        for inner in 0..216 {
+        for inner in 0..256 {
             for column in 0..512 {
-                down[expert * 216 * 512 + inner * 512 + column] =
+                down[expert * 256 * 512 + inner * 512 + column] =
                     0x1800 + (column % 3) as u16 * 1024;
             }
         }
     }
     let gate = DeviceBuffer::from_host(stream, &gate).map_err(cuda_error)?;
     let down = DeviceBuffer::from_host(stream, &down).map_err(cuda_error)?;
-    let mut reference_activation = DeviceBuffer::zeroed(stream, rows * 224).map_err(cuda_error)?;
+    let mut reference_activation = DeviceBuffer::zeroed(stream, rows * 256).map_err(cuda_error)?;
     let mut reference_output = DeviceBuffer::zeroed(stream, rows * 512).map_err(cuda_error)?;
-    let mut projection = DeviceBuffer::zeroed(stream, rows * 432).map_err(cuda_error)?;
-    let mut activation = DeviceBuffer::zeroed(stream, rows * 224).map_err(cuda_error)?;
+    let mut projection = DeviceBuffer::zeroed(stream, rows * 512).map_err(cuda_error)?;
+    let mut activation = DeviceBuffer::zeroed(stream, rows * 256).map_err(cuda_error)?;
     let mut output = DeviceBuffer::zeroed(stream, rows * 512).map_err(cuda_error)?;
     let shape = MoeShape {
         row_tiles: 4,
@@ -453,7 +453,7 @@ fn moe(
     };
     let launch = module
         .prepare_routed_gate(LaunchConfig2D::new(
-            (216_u32.div_ceil(16), capacity as u32 * 4),
+            (256_u32.div_ceil(16), capacity as u32 * 4),
             (16, 16),
             0,
         ))
@@ -465,7 +465,7 @@ fn moe(
             input,
             &gate,
             tiles,
-            cuda_host::RowWidth::new(&mut reference_activation, 224),
+            cuda_host::RowWidth::new(&mut reference_activation, 256),
             shape,
         )
         .map_err(cuda_error)?;
@@ -496,7 +496,7 @@ fn moe(
     )?;
     let launch = module
         .prepare_routed_activate(LaunchConfig1D::new(
-            (rows as u32 * 216).div_ceil(256),
+            (rows as u32 * 256).div_ceil(256),
             256,
             0,
         ))
@@ -532,7 +532,7 @@ fn moe(
     }
     let target = crate::target_name(stream.context())?;
     println!(
-        "MOE_PARITY ok=true rows={rows} width=512 expert-width=216 target={target} \
+        "MOE_PARITY ok=true rows={rows} width=512 expert-width=256 target={target} \
          max-abs-error={maximum}"
     );
     Ok(())

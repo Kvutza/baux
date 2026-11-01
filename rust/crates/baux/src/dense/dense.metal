@@ -30,7 +30,7 @@ kernel void apply_dense(
     for (uint item = thread_index; item < tile.len; item += kThreads) {
         ulong local = ulong(tile.start + item);
         ulong index = leaf.offset + local;
-        out[index] = baux_dense_value(
+        out[index] = dense_value(
             base[index],
             leaf.key,
             local,

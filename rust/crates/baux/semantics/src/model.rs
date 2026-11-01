@@ -72,7 +72,7 @@ impl ModelProgram {
         let sequence = vec![Extent::Symbol("tokens")];
         let hidden = vec![Extent::Symbol("tokens"), Extent::Fixed(512)];
         let qkv = vec![Extent::Symbol("tokens"), Extent::Fixed(640)];
-        let routed = vec![Extent::Symbol("routed_rows"), Extent::Fixed(224)];
+        let routed = vec![Extent::Symbol("routed_rows"), Extent::Fixed(256)];
         Self {
             name: "fbt-pisa1",
             version: Self::VERSION,
@@ -548,7 +548,7 @@ impl ModelProgram {
     /// 7-step `RecurrentCore::selective_fbt()` over 5 physical layers, and
     /// scored via `fbt_mhc_mean_rms` + `fbt_readout_loss_tiles` +
     /// `fbt_readout_loss_reduce` over the 15 canonical parameter families
-    /// (`1,177_723_160` FP16 parameters without `mask_embed` or `index_query`).
+    /// (`265_623_320` FP16 parameters without `mask_embed` or `index_query`).
     pub fn mhc4_program() -> Self {
         use Exactness::Exact;
         use FusionBoundary::{CloseAfter, Open};

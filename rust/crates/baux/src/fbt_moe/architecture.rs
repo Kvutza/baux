@@ -263,7 +263,7 @@ fn byte_state(s: &Layer0Slices<'_>, mean_z: &[f32], b: usize, vocab: usize) -> V
     let scale = (sq / (width as f32) + 1e-5).sqrt().recip();
     let norm_mid: Vec<f32> = state.iter().map(|&v| v * scale).collect();
     let active = top3_routes(&norm_mid, s.router, width, routing::ROUTED_EXPERTS as usize);
-    let mut act = [0.0f32; 216];
+    let mut act = [0.0f32; 256];
     for (exp, weight) in active {
         let gu = &s.gate_up[exp * width * gu_w..(exp + 1) * width * gu_w];
         let dn = &s.down[exp * exp_w * width..(exp + 1) * exp_w * width];

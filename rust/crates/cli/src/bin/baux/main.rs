@@ -23,6 +23,7 @@ mod site_llbc;
 mod site_payload;
 #[path = "research/site/registry.rs"]
 mod site_registry;
+mod smart_test;
 mod work;
 
 #[derive(Parser)]
@@ -47,7 +48,7 @@ enum Action {
     /// Build native BAUX targets and Python distribution wheels.
     Build,
     /// Run the repository verification test suite.
-    Test,
+    Test(smart_test::TestArgs),
     /// Format and verify repository code quality (rustfmt, ruff, uv, names,
     /// kiss) via prek.
     #[command(visible_alias = "gate", alias = "fmt")]
@@ -88,7 +89,7 @@ fn run() -> Result<(), String> {
         Action::Context(args) => work::context(&root, args),
         Action::Feedback(args) => work::feedback(&root, args),
         Action::Build => build(&root, settings.build_system),
-        Action::Test => settings.build_system.test_all(&root),
+        Action::Test(args) => smart_test::run(&root, args, settings.build_system),
         Action::Check => {
             let mut prekw = std::process::Command::new("./tools/prekw");
             if let Ok(exe) = env::current_exe() {

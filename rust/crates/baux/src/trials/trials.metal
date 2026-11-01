@@ -13,7 +13,7 @@ constant float kFp4E2M1LUT[16] = {
    -0.0f,-0.5f,-1.0f,-1.5f,-2.0f,-3.0f,-4.0f,-6.0f
 };
 
-inline float decode_fp8_e4m3(uint code) {
+inline float decode_e4m3(uint code) {
     uint sign = (code & 0x80u) != 0u ? 1u : 0u;
     uint exp = (code >> 3u) & 0x0fu;
     uint mant = code & 0x07u;
@@ -24,7 +24,7 @@ inline float decode_fp8_e4m3(uint code) {
     return s * (1.0f + float(mant) / 8.0f) * pow(2.0f, float(exp) - 7.0f);
 }
 
-inline float decode_fp8_e5m2(uint code) {
+inline float decode_e5m2(uint code) {
     uint sign = (code & 0x80u) != 0u ? 1u : 0u;
     uint exp = (code >> 2u) & 0x1fu;
     uint mant = code & 0x03u;
@@ -41,9 +41,9 @@ inline float decode_code(uint code, uint encoding, float scale) {
     } else if (encoding == 2u) {
         return kFp4E2M1LUT[code & 0x0fu] * scale;
     } else if (encoding == 3u) {
-        return decode_fp8_e4m3(code) * scale;
+        return decode_e4m3(code) * scale;
     } else if (encoding == 4u) {
-        return decode_fp8_e5m2(code) * scale;
+        return decode_e5m2(code) * scale;
     }
     return float(code) * scale;
 }

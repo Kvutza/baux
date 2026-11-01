@@ -1,5 +1,5 @@
 //! Deterministic fine-grained MoE token routing and exact dropless packing.
-//! The width-216 expert consumer remains a separate integration boundary.
+//! The width-256 expert consumer remains a separate integration boundary.
 
 use super::{EXPERT_WIDTH, ROWS, WIDTH, dispatch_on};
 use crate::apple_gpu::{Runtime, thread_group};
@@ -18,12 +18,12 @@ pub(super) const SHARED_WIDTH: u32 = baux::semantics::shape::EXPERT_WIDTH as u32
 pub(super) const ROUTED_EXPERTS: u32 = baux::semantics::shape::ROUTED_COUNT as u32;
 pub(super) const ROUTED_TOPK: u32 = baux::semantics::shape::ACTIVE_COUNT as u32;
 pub(super) const ROUTED_WIDTH: u32 = baux::semantics::shape::EXPERT_WIDTH as u32;
-pub(super) const ACTIVATION_STRIDE: u32 = 224;
+pub(super) const ACTIVATION_STRIDE: u32 = 256;
 pub(super) const MOE_EXPERTS: u32 = baux::semantics::shape::EXPERT_COUNT as u32;
 pub(super) const ROUTE_WORDS: usize = ROUTED_EXPERTS.div_ceil(64) as usize;
 pub(super) const MOE_GATEUP: u32 = baux::semantics::shape::GATE_WIDTH as u32;
 const ROUTE_BLOCK: u32 = 64;
-const ROUTE_THREADS: u64 = 640;
+const ROUTE_THREADS: u64 = 256;
 const TILE_ROWS: u32 = 64;
 const TILE_WORDS: usize = 4;
 const DISPATCH_WORDS: usize = 6;
@@ -98,8 +98,7 @@ impl FineGrainedMoePipelines {
             "#define FUSED_ROUTED_GATE_COLUMNS\n#define FUSED_ROUTED_DOWN_COLUMNS\n{source}"
         );
         let utility = |name| runtime.pipeline(source, "deterministic top-3 MoE routing", name);
-        let tensorops_source =
-            replacement.unwrap_or(include_str!("fbt_moe_routing_tensorops.metal"));
+        let tensorops_source = replacement.unwrap_or(include_str!("routing_tensorops.metal"));
         let tensorops =
             |description, name| runtime.pipeline_metal4(tensorops_source, description, name, &[]);
         Ok(Self {
@@ -1139,11 +1138,11 @@ mod tests {
         let shape = Top3RouteShape::new(ROWS, WIDTH);
         assert_eq!(shape.assignments(), ROWS * ROUTED_TOPK);
         assert_eq!(ACTIVE_WIDTH, EXPERT_WIDTH);
-        assert_eq!(shape.experts, 625);
-        assert_eq!(MOE_EXPERTS, 626);
-        assert_eq!(GATE_PARAMETERS, 138_461_184);
-        assert_eq!(DOWN_PARAMETERS, 69_230_592);
-        assert_eq!(FFN_PARAMETERS, 207_691_776);
+        assert_eq!(shape.experts, 64);
+        assert_eq!(MOE_EXPERTS, 65);
+        assert_eq!(GATE_PARAMETERS, 17_039_360);
+        assert_eq!(DOWN_PARAMETERS, 8_519_680);
+        assert_eq!(FFN_PARAMETERS, 25_559_040);
     }
 
     #[test]

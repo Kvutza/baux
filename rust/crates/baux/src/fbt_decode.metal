@@ -130,8 +130,8 @@ kernel void decode_pad_router(
     uint gid [[thread_position_in_grid]]) {
     constexpr uint layers = 5;
     constexpr uint width = 512;
-    constexpr uint experts = 625;
-    constexpr uint padded = 628;
+    constexpr uint experts = 64;
+    constexpr uint padded = 64;
     constexpr uint elements = layers * width * padded;
     if (gid >= elements) return;
     const uint column = gid % padded;

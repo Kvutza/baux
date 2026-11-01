@@ -97,11 +97,11 @@ kernel void hnet2_prep_byte(
     if (b >= 256u) return;
     threadgroup float state[512];
     threadgroup float norm_mid[512];
-    threadgroup float r_scores[625];
+    threadgroup float r_scores[64];
     threadgroup float sg_sq[8];
     threadgroup uint active_exp[4];
     threadgroup float active_w[4];
-    threadgroup float act[216];
+    threadgroup float act[256];
 
     float local_sq = 0.0f;
     for (uint d = tid; d < 512u; d += 256u) {
@@ -121,10 +121,10 @@ kernel void hnet2_prep_byte(
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
-    for (uint r = tid; r < 625u; r += 256u) {
+    for (uint r = tid; r < 64u; r += 256u) {
         float s = 0.0f;
         for (uint d = 0u; d < 512u; ++d) {
-            s = fma(norm_mid[d], float(router0[d * 625u + r]), s);
+            s = fma(norm_mid[d], float(router0[d * 64u + r]), s);
         }
         r_scores[r] = s;
     }
@@ -133,7 +133,7 @@ kernel void hnet2_prep_byte(
     if (tid == 0u) {
         float sc0 = -INFINITY, sc1 = -INFINITY, sc2 = -INFINITY;
         uint ix0 = 0u, ix1 = 0u, ix2 = 0u;
-        for (uint r = 0u; r < 625u; ++r) {
+        for (uint r = 0u; r < 64u; ++r) {
             const float s = r_scores[r];
             if (s > sc0) {
                 sc2 = sc1; ix2 = ix1;
@@ -158,23 +158,23 @@ kernel void hnet2_prep_byte(
     for (uint e = 0u; e < 4u; ++e) {
         const uint exp_idx = active_exp[e];
         const float weight = active_w[e];
-        if (tid < 216u) {
-            const uint gu_base = exp_idx * 512u * 432u;
+        if (tid < 256u) {
+            const uint gu_base = exp_idx * 512u * 512u;
             float g = 0.0f, up = 0.0f;
             for (uint d = 0u; d < 512u; ++d) {
                 const float x = norm_mid[d];
-                const uint row_off = gu_base + d * 432u;
+                const uint row_off = gu_base + d * 512u;
                 g = fma(x, float(gate_up0[row_off + tid]), g);
-                up = fma(x, float(gate_up0[row_off + 216u + tid]), up);
+                up = fma(x, float(gate_up0[row_off + 256u + tid]), up);
             }
             act[tid] = weight * (g * hnet2_sig(g) * up);
         }
         threadgroup_barrier(mem_flags::mem_threadgroup);
 
-        const uint dn_base = exp_idx * 216u * 512u;
+        const uint dn_base = exp_idx * 256u * 512u;
         for (uint d = tid; d < 512u; d += 256u) {
             float acc = state[d];
-            for (uint m = 0u; m < 216u; ++m) {
+            for (uint m = 0u; m < 256u; ++m) {
                 acc = fma(act[m], float(down0[dn_base + m * 512u + d]), acc);
             }
             state[d] = acc;
@@ -253,8 +253,8 @@ kernel void hnet2_prep_proj(
     const float u1_shift_q = 0.15f * u1_self + float(attn_norm[D + d_next1]) * u0[d_next1];
     const float u1_shift_k = 0.15f * u1_self + float(attn_norm[D + d_next5]) * u0[d_next5];
     const float fn1 = float(ffn_norm[D + d]);
-    q0_table[b * D + d] = 1.35f * q0 + c_id * (u0_base_q - 1.35f * u0[d]);
-    k0_table[b * D + d] = 1.35f * k0 + c_id * (u0_base_k - 1.35f * u0[d]);
+    q0_table[b * D + d] = 1.00f * q0 + c_id * (u0_base_q - 1.00f * u0[d]);
+    k0_table[b * D + d] = 1.00f * k0 + c_id * (u0_base_k - 1.00f * u0[d]);
     r0_table[b * D + d] = r0;
     q1_table[b * D + d] = fn1 * (0.35f * q1_raw + c_id * (u1_shift_q - 0.35f * u1_self));
     k1_table[b * D + d] = fn1 * (0.35f * k1_raw + c_id * (u1_shift_k - 0.35f * u1_self));

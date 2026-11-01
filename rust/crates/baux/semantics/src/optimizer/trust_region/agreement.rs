@@ -372,11 +372,7 @@ fn continuous_action(
     consecutive_successes: usize,
     consecutive_failures: usize,
 ) -> RadiusAction {
-    if accepted
-        && consecutive_successes >= 1
-        && error <= 1.25
-        && sharpness <= confidence_z * 1.5
-    {
+    if accepted && consecutive_successes >= 1 && error <= 1.25 && sharpness <= confidence_z * 1.5 {
         RadiusAction::Expand
     } else if !accepted && (consecutive_failures >= 1 || error > 2.5) {
         RadiusAction::Shrink

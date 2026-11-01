@@ -233,9 +233,9 @@ fn mhc4_specs(
         for (name, elements, block) in [
             ("qkv", layer.qkv.len(), 512 * 640),
             ("attention_output", layer.output.len(), 512 * 512),
-            ("router", layer.router.len(), 512 * 625),
-            ("expert_gate_up", layer.gate.len(), 512 * 432),
-            ("expert_down", layer.down.len(), 216 * 512),
+            ("router", layer.router.len(), 512 * 64),
+            ("expert_gate_up", layer.gate.len(), 512 * 512),
+            ("expert_down", layer.down.len(), 256 * 512),
             (
                 "mhc_attention_predictor",
                 layer.attention.predictor.len(),
@@ -491,9 +491,9 @@ impl Weights {
             layers.push(Layer {
                 qkv: upload("qkv", &[5, 512, 640], Some(layer))?,
                 output: upload("attention_output", &[5, 512, 512], Some(layer))?,
-                router: upload("router", &[5, 512, 625], Some(layer))?,
-                gate: upload("expert_gate_up", &[5, 626, 512, 432], Some(layer))?,
-                down: upload("expert_down", &[5, 626, 216, 512], Some(layer))?,
+                router: upload("router", &[5, 512, 64], Some(layer))?,
+                gate: upload("expert_gate_up", &[5, 65, 512, 512], Some(layer))?,
+                down: upload("expert_down", &[5, 65, 256, 512], Some(layer))?,
                 attention: site(true)?,
                 moe: site(false)?,
             });
@@ -550,9 +550,9 @@ impl Weights {
             layers.push(Layer {
                 qkv: upload(0x1800, 512 * 640)?,
                 output: upload(0x1800, 512 * 512)?,
-                router: upload(0, 512 * 625)?,
-                gate: upload(0, 626 * 512 * 432)?,
-                down: upload(0, 626 * 216 * 512)?,
+                router: upload(0, 512 * 64)?,
+                gate: upload(0, 65 * 512 * 512)?,
+                down: upload(0, 65 * 256 * 512)?,
                 attention: site()?,
                 moe: site()?,
             });
@@ -785,30 +785,22 @@ fn proposal_specs(checkpoint: &Checkpoint, stream: &CudaStream) -> CudaResult<Ve
             0,
             1.0e-6,
         )?;
-        push(
-            "router",
-            0,
-            &[5, 512, 625],
-            Some(layer),
-            512 * 625,
-            0,
-            1.0e-6,
-        )?;
+        push("router", 0, &[5, 512, 64], Some(layer), 512 * 64, 0, 1.0e-6)?;
         push(
             "expert_gate_up",
             3,
-            &[5, 626, 512, 432],
+            &[5, 65, 512, 512],
             Some(layer),
-            512 * 432,
+            512 * 512,
             0,
             1.0e-6,
         )?;
         push(
             "expert_down",
             4,
-            &[5, 626, 216, 512],
+            &[5, 65, 256, 512],
             Some(layer),
-            216 * 512,
+            256 * 512,
             0,
             1.0e-6,
         )?;

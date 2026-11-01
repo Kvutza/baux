@@ -417,46 +417,9 @@ impl LongState {
             }
             _ => baux::semantics::optimizer::AcquisitionRule::Ucb { beta: 0.0 },
         };
-        let screen_count = if run.optimizer() == crate::config::TrainingOptimizer::OperatorBo
-            && self.surrogate.len() >= 2
-        {
-            4usize
-        } else {
-            1usize
-        };
-        let mut best_seed = prop_seed;
-        let mut last_seed = prop_seed;
-        let mut best_geometry = None;
-        let mut best_selection: Option<baux::semantics::optimizer::PoolSelection> = None;
-        for m in 0..screen_count {
-            let cand_seed = if m == 0 {
-                prop_seed
-            } else {
-                crate::hash::splitmix64(
-                    prop_seed ^ (m as u64).wrapping_mul(0x9e37_79b9_7f4a_7c15),
-                )
-            };
-            last_seed = cand_seed;
-            let cand_geom = self.search.sample_distances(cand_seed)?;
-            let cand_sel = self.surrogate.select_pool(&cand_geom, step, rule, None)?;
-            let is_better = best_selection
-                .as_ref()
-                .is_none_or(|prev| cand_sel.candidate.score > prev.candidate.score);
-            if is_better {
-                best_seed = cand_seed;
-                best_geometry = Some(cand_geom);
-                best_selection = Some(cand_sel);
-            }
-        }
-        let selection = best_selection.ok_or("empty proposal screening pool")?;
-        let geometry = if screen_count > 1 && best_seed != last_seed {
-            // Re-populate GPU sample buffers (`neighbors.pool` and `pool_distances`)
-            // for the single winning seed before materializing its full weight vector.
-            self.search.sample_distances(best_seed)?
-        } else {
-            best_geometry.ok_or("missing proposal geometry")?
-        };
-        let (row, proposal) = self.search.materialize_selection(best_seed, &selection)?;
+        let geometry = self.search.sample_distances(prop_seed)?;
+        let selection = self.surrogate.select_pool(&geometry, step, rule, None)?;
+        let (row, proposal) = self.search.materialize_selection(prop_seed, &selection)?;
         Ok(RoundProposal {
             geometry,
             selection,

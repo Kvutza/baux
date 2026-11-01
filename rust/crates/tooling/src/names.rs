@@ -164,7 +164,7 @@ fn check_stem(path: &Path, root: &Path, config: &Config, findings: &mut Vec<Find
     let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else {
         return;
     };
-    if stem == "__init__" || path.extension().map_or(false, |e| e == "metal") {
+    if stem == "__init__" {
         return;
     }
     if bad_name(stem, config.max_underscores, false) {
@@ -404,6 +404,66 @@ fn check_python(path: &Path, root: &Path, config: &Config, findings: &mut Vec<Fi
     }
 }
 
+fn parse_metal(line: &str) -> Option<(&'static str, &str)> {
+    for (prefix, kind) in [("struct ", "struct"), ("enum ", "enum")] {
+        if let Some(rest) = line.strip_prefix(prefix) {
+            let name = rest
+                .trim_start()
+                .split(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+                .next()?;
+            return (!name.is_empty()).then_some((kind, name));
+        }
+    }
+    let (rest, kind) = if let Some(r) = line.strip_prefix("constant ") {
+        (r, "const")
+    } else if let Some(r) = line
+        .strip_prefix("static inline ")
+        .or_else(|| line.strip_prefix("inline "))
+        .or_else(|| line.strip_prefix("METAL_FUNC "))
+    {
+        (r, "fn")
+    } else {
+        return None;
+    };
+    let rest = rest.strip_prefix("const ").unwrap_or(rest).trim_start();
+    let after_type = rest
+        .trim_start_matches(|c: char| c.is_ascii_alphanumeric() || c == '_' || c == '*')
+        .trim_start()
+        .trim_start_matches('*')
+        .trim_start();
+    let name = after_type
+        .split(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+        .next()?;
+    (!name.is_empty()).then_some((kind, name))
+}
+
+fn check_metal(path: &Path, root: &Path, config: &Config, findings: &mut Vec<Finding>) {
+    let Ok(content) = std::fs::read_to_string(path) else {
+        return;
+    };
+    let rel = path
+        .strip_prefix(root)
+        .unwrap_or(path)
+        .to_string_lossy()
+        .to_string();
+    for (idx, raw) in content.lines().enumerate() {
+        let Some((kind, name)) = parse_metal(raw.trim_start()) else {
+            continue;
+        };
+        if bad_name(name, config.max_underscores, false) {
+            findings.push(Finding {
+                path: rel.clone(),
+                line: idx + 1,
+                language: "metal".to_string(),
+                kind: kind.to_string(),
+                name: name.to_string(),
+                underscores: name.chars().filter(|&c| c == '_').count(),
+                reason: make_reason(name, kind, config.max_underscores, false),
+            });
+        }
+    }
+}
+
 fn walk_path(path: &Path, root: &Path, config: &Config, findings: &mut Vec<Finding>) {
     let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
     if SKIP_PARTS.contains(&name) {
@@ -426,6 +486,8 @@ fn walk_path(path: &Path, root: &Path, config: &Config, findings: &mut Vec<Findi
             check_rust(path, root, config, findings);
         } else if ext == "py" {
             check_python(path, root, config, findings);
+        } else if ext == "metal" {
+            check_metal(path, root, config, findings);
         }
     }
 }
@@ -584,5 +646,26 @@ class Sampler:
 
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].name, "locally_named_long_method");
+    }
+
+    #[test]
+    fn test_metal() {
+        assert_eq!(
+            parse_metal("inline float2 domain_noise(ulong2 d, ulong pair) {"),
+            Some(("fn", "domain_noise"))
+        );
+        assert_eq!(
+            parse_metal("METAL_FUNC void push_tail(float logit) {"),
+            Some(("fn", "push_tail"))
+        );
+        assert_eq!(
+            parse_metal("constant uint EMA_PARTS = 128u;"),
+            Some(("const", "EMA_PARTS"))
+        );
+        assert_eq!(
+            parse_metal("struct PrecomputedDomains {"),
+            Some(("struct", "PrecomputedDomains"))
+        );
+        assert!(parse_metal("kernel void fbt_moe_embed(").is_none());
     }
 }

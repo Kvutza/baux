@@ -140,7 +140,7 @@ impl Pipelines {
             "#define PISA_SKIP_IDENTITY_RESCALE\n#define PISA_NO_STAGE_SHARED_KV\n#define \
              PISA_QUERY_TILE 4\n{source}"
         );
-        let grad_source = include_str!("fbt_pisa1_grad.metal");
+        let grad_source = include_str!("pisa1_grad.metal");
         let result = Self {
             leaf_means: compile("fbt_pisa1_leaf_means")?,
             leaf_range: compile("fbt_pisa1_leaf_range")?,

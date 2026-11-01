@@ -137,7 +137,9 @@ impl Initialization {
         Self {
             residual_depth,
             residual_gain: residual_depth.sqrt().recip(),
-            router_column_norm: (2.0 * 625.0_f32.ln()).sqrt().recip(),
+            router_column_norm: (2.0 * (baux::semantics::shape::ROUTED_COUNT as f32).ln())
+                .sqrt()
+                .recip(),
             predictor_control: 2048.0_f32.sqrt().recip(),
             transport_lambda: 1.0 / (8 * sites) as f32,
             sites,
@@ -155,7 +157,9 @@ impl Initialization {
             "qkv" | "expert_gate_up" | "embedding_readout" | "feedback_state" | "feedback_gate"
             | "mask_embed" | "hnet" => width.recip(),
             "attention_output" => self.residual_gain / width,
-            "expert_down" => self.down_norm() / 216.0_f32.sqrt(),
+            "expert_down" => {
+                self.down_norm() / (baux::semantics::shape::EXPERT_WIDTH as f32).sqrt()
+            }
             "mhc_attention_predictor" | "mhc_moe_predictor" => 2048.0_f32.sqrt().recip(),
             "mhc_attention_bias" | "mhc_attention_control" | "mhc_moe_bias" | "mhc_moe_control" => {
                 self.predictor_control

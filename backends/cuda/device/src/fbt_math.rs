@@ -179,15 +179,15 @@ pub fn splitmix_uniform(mut bits: u64) -> f32 {
 #[inline(always)]
 pub(crate) fn run_activate(projection: &[u16], output: &mut DisjointSlice<u16>, rows: u32) {
     let index = thread::blockIdx_x() * FBT_THREADS + thread::threadIdx_x();
-    if index >= rows * 216 {
+    if index >= rows * 256 {
         return;
     }
-    let row = index / 216;
-    let column = index % 216;
-    let gate = half(projection[(row * 432 + column) as usize]);
-    let up = half(projection[(row * 432 + 216 + column) as usize]);
+    let row = index / 256;
+    let column = index % 256;
+    let gate = half(projection[(row * 512 + column) as usize]);
+    let up = half(projection[(row * 512 + 256 + column) as usize]);
     unsafe {
-        *output.get_unchecked_mut((row * 224 + column) as usize) = half_bits(silu(gate) * up);
+        *output.get_unchecked_mut((row * 256 + column) as usize) = half_bits(silu(gate) * up);
     }
 }
 

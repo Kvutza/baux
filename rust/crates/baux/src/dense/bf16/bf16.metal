@@ -15,23 +15,23 @@ struct BauxBf16Tile {
     uint pad;
 };
 
-inline float baux_bf16_decode(ushort value) {
+inline float bf16_decode(ushort value) {
     return as_type<float>(uint(value) << 16);
 }
 
-inline ushort baux_bf16_encode(float value) {
+inline ushort bf16_encode(float value) {
     uint bits = as_type<uint>(value);
     uint rounded = bits + 0x7fffu + ((bits >> 16) & 1u);
     return ushort(rounded >> 16);
 }
 
-inline ushort baux_bf16_next(ushort value, bool positive) {
+inline ushort bf16_next(ushort value, bool positive) {
     if ((value & 0x7fffu) == 0u) {
         return positive ? ushort(1u) : ushort(0x8001u);
     }
     bool grows = ((value & 0x8000u) == 0u) == positive;
     ushort candidate = grows ? ushort(value + 1u) : ushort(value - 1u);
-    if (isfinite(baux_bf16_decode(candidate))) {
+    if (isfinite(bf16_decode(candidate))) {
         return candidate;
     }
     return grows ? ushort(value - 1u) : ushort(value + 1u);
@@ -57,7 +57,7 @@ kernel void materialize_bf16(
         for (uint term = 0; term < term_count; ++term) {
             float coefficient = terms[term].coefficient;
             if (coefficient == 0.0f) continue;
-            float direction = baux_dense_sign(terms[term].seed, leaf.key, local);
+            float direction = dense_sign(terms[term].seed, leaf.key, local);
             sum = fma(coefficient, direction, sum);
             if (abs(coefficient) > strongest) {
                 strongest = abs(coefficient);
@@ -65,11 +65,11 @@ kernel void materialize_bf16(
             }
         }
         ulong index = leaf.offset + local;
-        ushort value = baux_bf16_encode(
-            baux_bf16_decode(base[index]) + leaf.scale * sum
+        ushort value = bf16_encode(
+            bf16_decode(base[index]) + leaf.scale * sum
         );
         candidate[index] = (sum == 0.0f || value == base[index])
-            ? baux_bf16_next(base[index], positive)
+            ? bf16_next(base[index], positive)
             : value;
     }
 }

@@ -366,7 +366,7 @@ pub fn measure() -> CudaResult<baux::artifact::json::Value> {
     let context = cuda_core::CudaContext::new(0).map_err(cuda_error)?;
     let stream = context.default_stream();
     let mut records = Vec::new();
-    for (rows, cols, batch) in [(32, 48, 2), (512, 640, 5), (512, 432, 626)] {
+    for (rows, cols, batch) in [(32, 48, 2), (512, 640, 5), (512, 512, 65)] {
         let shape = Shape::new(rows, cols, batch)?;
         let count = shape.elements();
         let mut weights =

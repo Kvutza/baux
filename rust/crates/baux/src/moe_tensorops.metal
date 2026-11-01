@@ -77,7 +77,7 @@ kernel void fbt_moe_tensorops_gate_up(
     device half* weights [[buffer(1)]],
     device half* output [[buffer(2)]],
     uint3 tgid [[threadgroup_position_in_grid]]) {
-    grouped_matmul<256, 1728, 512>(input, weights, output, tgid);
+    grouped_matmul<256, 2048, 512>(input, weights, output, tgid);
 }
 
 template <uint N>
@@ -89,11 +89,11 @@ METAL_FUNC void activated_matmul(
     constexpr auto descriptor = matmul2d_descriptor(128, N, 512);
     matmul2d<descriptor, execution_simdgroups<4>> op;
     auto a = tensor(input + ulong(tgid.z) * 256 * 512, dextents<int, 2>{512, 256});
-    auto b = tensor(weights + ulong(tgid.z) * 512 * 1728, dextents<int, 2>{1728, 512});
-    auto c = tensor(output + ulong(tgid.z) * 256 * 864, dextents<int, 2>{864, 256});
+    auto b = tensor(weights + ulong(tgid.z) * 512 * 2048, dextents<int, 2>{2048, 512});
+    auto c = tensor(output + ulong(tgid.z) * 256 * 1024, dextents<int, 2>{1024, 256});
     auto tile_a = a.slice<512, 128>(0, tgid.y * 128);
     auto gate_b = b.slice<N, 512>(tgid.x * 64, 0);
-    auto up_b = b.slice<N, 512>(864 + tgid.x * 64, 0);
+    auto up_b = b.slice<N, 512>(1024 + tgid.x * 64, 0);
     auto gate = op.template get_destination_cooperative_tensor<decltype(tile_a), decltype(gate_b), half>();
     auto up = op.template get_destination_cooperative_tensor<decltype(tile_a), decltype(up_b), half>();
     op.run(tile_a, gate_b, gate);
@@ -116,8 +116,7 @@ kernel void gate_activation(
     device half* weights [[buffer(1)]],
     device half* output [[buffer(2)]],
     uint3 tgid [[threadgroup_position_in_grid]]) {
-    if (tgid.x == 13) activated_matmul<32>(input, weights, output, tgid);
-    else activated_matmul<64>(input, weights, output, tgid);
+    activated_matmul<64>(input, weights, output, tgid);
 }
 
 kernel void fbt_moe_tensorops_down(
@@ -125,7 +124,7 @@ kernel void fbt_moe_tensorops_down(
     device half* weights [[buffer(1)]],
     device half* output [[buffer(2)]],
     uint3 tgid [[threadgroup_position_in_grid]]) {
-    grouped_matmul<256, 512, 864>(input, weights, output, tgid);
+    grouped_matmul<256, 512, 1024>(input, weights, output, tgid);
 }
 
 kernel void fbt_model_tensorops_qkv(
@@ -215,7 +214,7 @@ kernel void fbt_moe_materialize_kronecker_gate_up(
     device half* outer [[buffer(2)]],
     device half* output [[buffer(3)]],
     uint3 gid [[thread_position_in_grid]]) {
-    materialize_kronecker<1728, 512, 32, 32>(weights, inner, outer, output, gid);
+    materialize_kronecker<2048, 512, 32, 32>(weights, inner, outer, output, gid);
 }
 
 kernel void fbt_moe_materialize_kronecker_down(
@@ -224,5 +223,5 @@ kernel void fbt_moe_materialize_kronecker_down(
     device half* outer [[buffer(2)]],
     device half* output [[buffer(3)]],
     uint3 gid [[thread_position_in_grid]]) {
-    materialize_kronecker<512, 864, 27, 16>(weights, inner, outer, output, gid);
+    materialize_kronecker<512, 1024, 32, 16>(weights, inner, outer, output, gid);
 }

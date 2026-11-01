@@ -180,7 +180,7 @@ kernel void hnet_mhc_chunk_pack(
     }
 }
 
-constant uint HNET_EMA_PARTS = 128u;
+constant uint EMA_PARTS = 128u;
 
 kernel void hnet_mhc_dechunk_reduce(
     device const half* core [[buffer(0)]],
@@ -196,9 +196,9 @@ kernel void hnet_mhc_dechunk_reduce(
     uint2 gid [[thread_position_in_grid]]) {
     const uint d = gid.x, part = gid.y;
     const uint D = shape.d_model;
-    if (d >= D || part >= HNET_EMA_PARTS) return;
+    if (d >= D || part >= EMA_PARTS) return;
     const uint total = count[0];
-    const uint part_size = max((total + HNET_EMA_PARTS - 1u) / HNET_EMA_PARTS, 1u);
+    const uint part_size = max((total + EMA_PARTS - 1u) / EMA_PARTS, 1u);
     const uint c_start = min(part * part_size, total);
     const uint c_end = min(c_start + part_size, total);
     if (c_start >= c_end) {
@@ -245,9 +245,9 @@ kernel void hnet_mhc_dechunk_scan(
     uint2 gid [[thread_position_in_grid]]) {
     const uint d = gid.x, part = gid.y;
     const uint D = shape.d_model;
-    if (d >= D || part >= HNET_EMA_PARTS) return;
+    if (d >= D || part >= EMA_PARTS) return;
     const uint total = count[0];
-    const uint part_size = max((total + HNET_EMA_PARTS - 1u) / HNET_EMA_PARTS, 1u);
+    const uint part_size = max((total + EMA_PARTS - 1u) / EMA_PARTS, 1u);
     const uint c_start = min(part * part_size, total);
     const uint c_end = min(c_start + part_size, total);
     if (part == 0u) {

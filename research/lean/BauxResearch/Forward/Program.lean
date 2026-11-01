@@ -53,8 +53,8 @@ def current : Shape where
   keyWidth := 64
   streams := 4
   heads := 8
-  hidden := 216
-  experts := 625
+  hidden := 256
+  experts := 64
   active := 3
   layers := 5
   radix := 8
@@ -98,7 +98,7 @@ def parameterSlots (shape : Shape) : ℕ :=
   shape.vocabulary * shape.width + shape.patch * shape.width + shape.width +
     shape.layers * (2 * mix + attention + experts) + shape.width
 
-theorem Current.slots : parameterSlots current = 1177756440 := by
+theorem Current.slots : parameterSlots current = 265656600 := by
   decide
 
 /-- Native `fbt-pisa1-mhc4-v1` token-level parameter slot count after removing
@@ -113,7 +113,7 @@ def nativeSlots (shape : Shape) : ℕ :=
   shape.vocabulary * shape.width +
     shape.layers * (2 * mix + attention + experts) + shape.width
 
-theorem Current.nativeSlots : nativeSlots current = 1177723160 := by
+theorem Current.nativeSlots : nativeSlots current = 265623320 := by
   decide
 
 theorem slotsDecomp (shape : Shape) :

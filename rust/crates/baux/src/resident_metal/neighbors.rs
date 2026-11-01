@@ -232,6 +232,34 @@ impl Neighbors {
         encoder.end_encoding();
     }
 
+    fn row_distance(
+        &self,
+        cand_coords: &[f64],
+        row: usize,
+        state: &SearchState,
+        fam_groups: &[u32],
+        fam_weights: &[f32],
+    ) -> (f64, [f32; FAMILIES]) {
+        let n_pts = self.points.len();
+        let hist_coords = &self.history_coords[row * n_pts..(row + 1) * n_pts];
+        let has_family = state.family.is_some();
+        let mut sum = 0.0_f64;
+        let mut grouped = [0.0_f64; FAMILIES];
+        for (s, pt) in self.points.iter().enumerate() {
+            let d = cand_coords[s] - hist_coords[s];
+            let d2_mass = d * d * f64::from(pt.mass);
+            let leaf = pt.leaf as usize;
+            sum += d2_mass * f64::from(state.blocks[leaf].weight);
+            if has_family {
+                let g = fam_groups[leaf] as usize;
+                if g < FAMILIES {
+                    grouped[g] += d2_mass * f64::from(fam_weights[leaf]);
+                }
+            }
+        }
+        (sum, grouped.map(|v| v as f32))
+    }
+
     pub(super) fn compute_distances(&mut self, state: &SearchState) -> Vec<Vec<f64>> {
         let n_pts = self.points.len();
         let pool_count = state.pool_layout.count() as usize;
@@ -259,60 +287,26 @@ impl Neighbors {
 
         for cand in 0..pool_count {
             let cand_coords = &self.pool_coords[cand * n_pts..(cand + 1) * n_pts];
-            if state.history >= 8 {
+            let rows: Vec<(f64, [f32; FAMILIES])> = if state.history >= 8 {
                 use rayon::prelude::*;
-                let rows: Vec<(f64, [f32; FAMILIES])> = (0..state.history)
+                (0..state.history)
                     .into_par_iter()
                     .map(|row| {
-                        let hist_coords = &self.history_coords[row * n_pts..(row + 1) * n_pts];
-                        let mut sum = 0.0_f64;
-                        let mut grouped = [0.0_f64; FAMILIES];
-                        for (s, pt) in self.points.iter().enumerate() {
-                            let d = cand_coords[s] - hist_coords[s];
-                            let d2_mass = d * d * f64::from(pt.mass);
-                            let leaf = pt.leaf as usize;
-                            sum += d2_mass * f64::from(state.blocks[leaf].weight);
-                            if has_family {
-                                let g = fam_groups[leaf] as usize;
-                                if g < FAMILIES {
-                                    grouped[g] += d2_mass * f64::from(fam_weights[leaf]);
-                                }
-                            }
-                        }
-                        (sum, grouped.map(|v| v as f32))
+                        self.row_distance(cand_coords, row, state, &fam_groups, &fam_weights)
                     })
-                    .collect();
-                for (row, (sum, grp)) in rows.into_iter().enumerate() {
-                    matrix_f64[cand][row] = sum;
-                    f32_dists[cand * state.history + row] = sum as f32;
-                    if has_family {
-                        comps[cand * state.history + row] = grp;
-                    }
-                }
+                    .collect()
             } else {
-                for row in 0..state.history {
-                    let hist_coords = &self.history_coords[row * n_pts..(row + 1) * n_pts];
-                    let mut sum = 0.0_f64;
-                    let mut grouped = [0.0_f64; FAMILIES];
-                    for (s, pt) in self.points.iter().enumerate() {
-                        let d = cand_coords[s] - hist_coords[s];
-                        let d2_mass = d * d * f64::from(pt.mass);
-                        let leaf = pt.leaf as usize;
-                        sum += d2_mass * f64::from(state.blocks[leaf].weight);
-                        if has_family {
-                            let g = fam_groups[leaf] as usize;
-                            if g < FAMILIES {
-                                grouped[g] += d2_mass * f64::from(fam_weights[leaf]);
-                            }
-                        }
-                    }
-                    matrix_f64[cand][row] = sum;
-                    f32_dists[cand * state.history + row] = sum as f32;
-                    if has_family {
-                        for g in 0..FAMILIES {
-                            comps[cand * state.history + row][g] = grouped[g] as f32;
-                        }
-                    }
+                (0..state.history)
+                    .map(|row| {
+                        self.row_distance(cand_coords, row, state, &fam_groups, &fam_weights)
+                    })
+                    .collect()
+            };
+            for (row, (sum, grp)) in rows.into_iter().enumerate() {
+                matrix_f64[cand][row] = sum;
+                f32_dists[cand * state.history + row] = sum as f32;
+                if has_family {
+                    comps[cand * state.history + row] = grp;
                 }
             }
         }

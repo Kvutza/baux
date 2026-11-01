@@ -54,8 +54,8 @@ impl Decoder {
                 experts: View::whole(&self.experts),
                 route_weights: View::whole(&self.route_weights),
                 margin: View::whole(&self.margin),
-                gate: View::new(&self.gate, 0, 4, 432),
-                activation: View::new(&self.activation, 0, 4, 216),
+                gate: View::new(&self.gate, 0, 4, 512),
+                activation: View::new(&self.activation, 0, 4, 256),
                 down: View::new(&self.down, 0, 4, WIDTH),
             },
         }

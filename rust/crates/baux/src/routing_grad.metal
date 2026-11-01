@@ -10,11 +10,11 @@ struct Top3RouteShape {
     uint blocks;
 };
 
-constant uint kExpertWidth = 216;
-constant uint kGateWidth = 432;
-constant uint kActivationStride = 224;
+constant uint kExpertWidth = 256;
+constant uint kGateWidth = 512;
+constant uint kActivationStride = 256;
 
-inline void moe_grad_add(device atomic_uint* address, float value) {
+inline void grad_add(device atomic_uint* address, float value) {
     uint expected = atomic_load_explicit(address, memory_order_relaxed);
     while (!atomic_compare_exchange_weak_explicit(
         address, &expected, as_type<uint>(as_type<float>(expected) + value),
@@ -188,7 +188,7 @@ kernel void moe_routed_gate_input_grad(
     float value = 0.0f;
     for (uint column = 0; column < kGateWidth; ++column)
         value = fma(projection_grad[dy + column], float(weights[weight + column]), value);
-    moe_grad_add(packed_input_grad + ulong(row) * p.width + input, value);
+    grad_add(packed_input_grad + ulong(row) * p.width + input, value);
 }
 
 kernel void moe_shared_gate_input_grad(
@@ -204,7 +204,7 @@ kernel void moe_shared_gate_input_grad(
     for (uint column = 0; column < kGateWidth; ++column)
         value = fma(projection_grad[ulong(row) * kGateWidth + column],
                     float(weights[ulong(input) * kGateWidth + column]), value);
-    moe_grad_add(input_grad + gid, value);
+    grad_add(input_grad + gid, value);
 }
 
 kernel void moe_routed_gate_weight_grad(
@@ -303,10 +303,10 @@ kernel void moe_router_project_grad(
         const uint expert = route_experts[assignment];
         const float dlogit = score_grad[assignment];
         dx = fma(dlogit, float(router[ulong(column) * p.experts + expert]), dx);
-        moe_grad_add(router_grad + ulong(column) * p.experts + expert,
+        grad_add(router_grad + ulong(column) * p.experts + expert,
                      dlogit * float(input[ulong(token) * p.width + column]));
         const uint packed = packed_rows[assignment];
         dx += packed_input_grad[ulong(packed) * p.width + column];
     }
-    moe_grad_add(input_grad + gid, dx);
+    grad_add(input_grad + gid, dx);
 }

@@ -17,7 +17,7 @@ struct ProposalShape {
 
 // Track non-maximal log-sum-exp tail mass without adding +1.0f for the peak,
 // avoiding Softmax Collapse (arXiv:2610.31642) prior to log1p reduction.
-METAL_FUNC void online_tail_push(float logit, thread float& maximum, thread float& tail) {
+METAL_FUNC void push_tail(float logit, thread float& maximum, thread float& tail) {
     if (logit > maximum) {
         if (maximum > -INFINITY) {
             const float scale = exp(maximum - logit);
@@ -69,7 +69,7 @@ kernel void fbt_readout_loss_tiles(
         if (logit > maximum) {
             best_index = first_column + column;
         }
-        online_tail_push(logit, maximum, tail);
+        push_tail(logit, maximum, tail);
     }
     const uint label = labels[row];
     const float target = label >= first_column && label < first_column + 64
@@ -78,7 +78,7 @@ kernel void fbt_readout_loss_tiles(
         float4(maximum, tail, target, as_type<float>(best_index));
 }
 
-METAL_FUNC ulong fbt_decode_mix(ulong value) {
+METAL_FUNC ulong decode_mix(ulong value) {
     value = (value ^ (value >> 30)) * 0xbf58476d1ce4e5b9ul;
     value = (value ^ (value >> 27)) * 0x94d049bb133111ebul;
     return value ^ (value >> 31);
@@ -135,14 +135,14 @@ kernel void fbt_readout_proposal_tiles(
     for (uint column = 0; column < limit; ++column) {
         const uint token = first_column + column;
         const float logit = float(row_logits[column]);
-        online_tail_push(logit, maximum, tail);
+        push_tail(logit, maximum, tail);
         scaled_max = max(scaled_max, logit / max(temperature, 1e-6f));
         float value = logit;
         if (temperature > 0.0f) {
             const uint absolute_row = max(1u, p.row_start + row) - 1;
             const uint sequence = absolute_row / p.context;
             const uint position = absolute_row % p.context;
-            const ulong bits = fbt_decode_mix(
+            const ulong bits = decode_mix(
                 seeds[sequence] ^ (ulong(position) << 32) ^ token);
             const float uniform = (float(uint(bits >> 41)) + 0.5f) / 8388608.0f;
             value -= temperature * log(-log(uniform));
@@ -174,7 +174,7 @@ kernel void fbt_readout_proposal_tiles(
                 index = first_column + column;
             }
             if (score_targets) {
-                online_tail_push(logit, maximum, tail);
+                push_tail(logit, maximum, tail);
             } else if (logit > maximum) {
                 maximum = logit;
             }
@@ -198,9 +198,9 @@ kernel void fbt_readout_proposal_tiles(
             const uint token = first_column + column;
             const float logit = float(row_logits[column]);
             if (score_targets) {
-                online_tail_push(logit, maximum, tail);
+                push_tail(logit, maximum, tail);
             }
-            const ulong bits = fbt_decode_mix(row_seed ^ token);
+            const ulong bits = decode_mix(row_seed ^ token);
             const float uniform = (float(uint(bits >> 41)) + 0.5f) / 8388608.0f;
             const float value = logit - temperature * log(-log(uniform));
             if (value > best || (value == best && token < index)) {

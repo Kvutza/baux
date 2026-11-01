@@ -187,17 +187,17 @@ theorem chainMatch (isFixed : Bool) (fromStep toStep : Aeneas.Std.U64) :
   cases isFixed <;> simp [BauxResearch.Generated.Optimizer.optimizer.provenance.exact_anchored]
 
 /-- Aeneas-extracted `param_tree::routed_count` matches the 5-layer `fbt-pisa1-mhc4-v1`
-routed MoE parameter count `1_036_800_000` (P4/P5). -/
+routed MoE parameter count `125_829_120` (P4/P5). -/
 theorem routedMatch :
     BauxResearch.Generated.Optimizer.optimizer.param_tree.routed_count =
-      Aeneas.Std.Result.ok 1036800000#u64 := by
+      Aeneas.Std.Result.ok 125829120#u64 := by
   rfl
 
 /-- Aeneas-extracted `param_tree::total_count` matches the native `fbt-pisa1-mhc4-v1`
-total parameter count `1_177_723_160` at `patch_size = 1` (P4/P5). -/
+total parameter count `265_623_320` at `patch_size = 1` (P4/P5). -/
 theorem totalMatch :
     BauxResearch.Generated.Optimizer.optimizer.param_tree.total_count =
-      Aeneas.Std.Result.ok 1177723160#u64 := by
+      Aeneas.Std.Result.ok 265623320#u64 := by
   rfl
 
 /-- Aeneas-extracted `window_plan::verify_full` requires `planned > 0`, `prefilled = 0`,
@@ -284,12 +284,12 @@ def exportAnchored (isFixed : Bool) (fromStep toStep : UInt64) : Bool :=
 /-- C-ABI exported Lean 4 routed MoE parameter count (`@[export baux_routed]`). -/
 @[export baux_routed]
 def exportRouted (_ : UInt64) : UInt64 :=
-  1036800000
+  125829120
 
 /-- C-ABI exported Lean 4 total native mHC-4 parameter count (`@[export baux_total]`). -/
 @[export baux_total]
 def exportTotal (_ : UInt64) : UInt64 :=
-  1177723160
+  265623320
 
 /-- C-ABI exported Lean 4 full-window receipt verifier (`@[export baux_window]`). -/
 @[export baux_window]

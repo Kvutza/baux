@@ -135,13 +135,13 @@ const MHC4_COUNTS: [usize; 17] = [
 /// Aeneas-extracted 5-layer `fbt-pisa1-mhc4-v1` routed MoE parameter count
 /// (`ActiveEnergy.lean` P4).
 pub const fn routed_count() -> u64 {
-    1_036_800_000
+    125_829_120
 }
 
 /// Aeneas-extracted native `fbt-pisa1-mhc4-v1` total parameter count at
 /// `patch_size = 1` (`ActiveEnergy.lean` P5).
 pub const fn total_count() -> u64 {
-    1_177_723_160
+    265_623_320
 }
 
 const _: () = assert!(
@@ -252,8 +252,8 @@ mod kani_proofs {
 
     #[kani::proof]
     fn prove_counts() {
-        assert_eq!(routed_count(), 1_036_800_000);
-        assert_eq!(total_count(), 1_177_723_160);
+        assert_eq!(routed_count(), 125_829_120);
+        assert_eq!(total_count(), 265_623_320);
         assert_eq!(
             ParamTree::<usize>::total_parameters(1) as u64,
             total_count()

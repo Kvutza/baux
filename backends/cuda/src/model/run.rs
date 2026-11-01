@@ -152,7 +152,7 @@ pub fn check() -> CudaResult<()> {
         expected.passes, unrolled.passes
     );
     println!(
-        "MODEL_PARITY ok=true layers=5 experts=625 shared=1 streams=4 recurrence=1,2,4 rope=true \
+        "MODEL_PARITY ok=true layers=5 experts=64 shared=1 streams=4 recurrence=1,2,4 rope=true \
          readout=true"
     );
     check_causal(&mut model)?;

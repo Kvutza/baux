@@ -348,7 +348,7 @@ struct DecoderParams {
     float rms_epsilon;
 };
 
-inline uint packed_code_device(
+inline uint packed_code(
     device const uchar* weights,
     PackedLinear linear,
     uint row,
@@ -362,7 +362,7 @@ inline uint packed_code_device(
         ((1u << linear.bits) - 1u);
 }
 
-inline float packed_weight_device(
+inline float packed_weight(
     device const uchar* weights,
     device const float* scales,
     device const float* biases,
@@ -373,7 +373,7 @@ inline float packed_weight_device(
 ) {
     const uint groups = (linear.input_width + linear.group_size - 1u) / linear.group_size;
     const uint group = min(column / linear.group_size, groups - 1u);
-    uint code = packed_code_device(weights, linear, row, column);
+    uint code = packed_code(weights, linear, row, column);
     if (seed.enabled == 0u) {
         return float(code) * scales[linear.scale_offset + row * groups + group] +
             biases[linear.bias_offset + row * groups + group];
@@ -414,7 +414,7 @@ kernel void decoder_project_packed(
     float sum = 0.0f;
     for (uint column = 0; column < linear.input_width; ++column) {
         sum += float(input[ulong(token) * linear.input_width + column]) *
-            packed_weight_device(weights, scales, biases, linear, seed, row, column);
+            packed_weight(weights, scales, biases, linear, seed, row, column);
     }
     output[ulong(token) * linear.output_width + row] = half(sum);
 }
@@ -440,7 +440,7 @@ kernel void decoder_project_packed_simd(
     float sum = 0.0f;
     for (uint column = lane; column < linear.input_width; column += 32u) {
         sum += float(input[ulong(token) * linear.input_width + column]) *
-            packed_weight_device(weights, scales, biases, linear, seed, row, column);
+            packed_weight(weights, scales, biases, linear, seed, row, column);
     }
     sum = simd_sum(sum);
     if (lane == 0u) {
@@ -458,7 +458,7 @@ kernel void packed_dequantize_row_half(
     uint column [[thread_position_in_grid]]) {
     if (column >= linear.input_width || linear.output_width != 1u) return;
     output[column] = half(
-        packed_weight_device(weights, scales, biases, linear, seed, 0u, column)
+        packed_weight(weights, scales, biases, linear, seed, 0u, column)
     );
 }
 
@@ -471,7 +471,7 @@ kernel void packed_dequantize_row_float(
     constant PerturbSeed& seed [[buffer(5)]],
     uint column [[thread_position_in_grid]]) {
     if (column >= linear.input_width || linear.output_width != 1u) return;
-    output[column] = packed_weight_device(
+    output[column] = packed_weight(
         weights, scales, biases, linear, seed, 0u, column
     );
 }
@@ -492,13 +492,13 @@ kernel void kda_short_conv_decode(
     const float current = float(projected_qkv[feature]);
     float value = 0.0f;
     value += float(history[feature]) *
-        packed_weight_device(weights, scales, biases, convolution, seed, feature, 0u);
+        packed_weight(weights, scales, biases, convolution, seed, feature, 0u);
     value += float(history[width + feature]) *
-        packed_weight_device(weights, scales, biases, convolution, seed, feature, 1u);
+        packed_weight(weights, scales, biases, convolution, seed, feature, 1u);
     value += float(history[2u * width + feature]) *
-        packed_weight_device(weights, scales, biases, convolution, seed, feature, 2u);
+        packed_weight(weights, scales, biases, convolution, seed, feature, 2u);
     value += current *
-        packed_weight_device(weights, scales, biases, convolution, seed, feature, 3u);
+        packed_weight(weights, scales, biases, convolution, seed, feature, 3u);
     history[feature] = history[width + feature];
     history[width + feature] = history[2u * width + feature];
     history[2u * width + feature] = half(current);
@@ -593,7 +593,7 @@ kernel void moe_router_topk(
         float score = 0.0f;
         for (uint column = 0; column < router.input_width; ++column) {
             score += float(input[input_start + column]) *
-                packed_weight_device(weights, scales, biases, router_linear, seed, expert, column);
+                packed_weight(weights, scales, biases, router_linear, seed, expert, column);
         }
         for (uint rank = 0; rank < params.top_k; ++rank) {
             if (score > values[rank]) {
@@ -645,7 +645,7 @@ kernel void moe_router_topk_simd(
         float score = 0.0f;
         for (uint column = lane; column < router.input_width; column += 32u) {
             score += float(input[input_start + column]) *
-                packed_weight_device(weights, scales, biases, router_linear, seed, expert, column);
+                packed_weight(weights, scales, biases, router_linear, seed, expert, column);
         }
         score = simd_sum(score);
         if (lane == 0u) scores[expert] = score;
@@ -714,8 +714,8 @@ kernel void moe_gate_up(
     float up_value = 0.0f;
     for (uint column = 0; column < params.hidden_width; ++column) {
         const float x = float(input[input_start + column]);
-        gate_value += x * packed_weight_device(weights, scales, biases, gate_linear, seed, feature, column);
-        up_value += x * packed_weight_device(weights, scales, biases, up_linear, seed, feature, column);
+        gate_value += x * packed_weight(weights, scales, biases, gate_linear, seed, feature, column);
+        up_value += x * packed_weight(weights, scales, biases, up_linear, seed, feature, column);
     }
     const float silu = gate_value / (1.0f + exp(-gate_value));
     activation[(ulong(token) * params.top_k + rank) * params.expert_width + feature] = half(silu * up_value);
@@ -747,7 +747,7 @@ kernel void moe_down(
         const ulong activation_start = selection * params.expert_width;
         for (uint column = 0; column < params.expert_width; ++column) {
             expert_sum += float(activation[activation_start + column]) *
-                packed_weight_device(weights, scales, biases, linear, seed, feature, column);
+                packed_weight(weights, scales, biases, linear, seed, feature, column);
         }
         sum += float(selected_weights[selection]) * expert_sum;
     }
@@ -784,9 +784,9 @@ kernel void moe_gate_up_simd(
     for (uint column = lane; column < params.hidden_width; column += 32u) {
         const float x = float(input[input_start + column]);
         gate_value += x *
-            packed_weight_device(weights, scales, biases, gate_linear, seed, feature, column);
+            packed_weight(weights, scales, biases, gate_linear, seed, feature, column);
         up_value += x *
-            packed_weight_device(weights, scales, biases, up_linear, seed, feature, column);
+            packed_weight(weights, scales, biases, up_linear, seed, feature, column);
     }
     gate_value = simd_sum(gate_value);
     up_value = simd_sum(up_value);
@@ -823,7 +823,7 @@ kernel void moe_down_simd(
         const ulong activation_start = selection * params.expert_width;
         for (uint column = lane; column < params.expert_width; column += 32u) {
             expert_sum += float(activation[activation_start + column]) *
-                packed_weight_device(weights, scales, biases, linear, seed, feature, column);
+                packed_weight(weights, scales, biases, linear, seed, feature, column);
         }
         expert_sum = simd_sum(expert_sum);
         sum += float(selected_weights[selection]) * expert_sum;
@@ -940,7 +940,7 @@ kernel void packed_embedding_lookup(
     const uint token = token_ids[0];
     if (token >= params.vocab_size) return;
     output[column] = half(
-        packed_weight_device(weights, scales, biases, embedding, seed, token, column) *
+        packed_weight(weights, scales, biases, embedding, seed, token, column) *
         params.embedding_scale
     );
 }

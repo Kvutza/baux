@@ -113,7 +113,7 @@ impl ProbeBuffers {
             ),
             gate_up: canary(runtime, (rows * GATE_UP) as usize),
             gate_inner: factor(runtime, EXPERTS, 32, 32),
-            gate_outer: factor(runtime, EXPERTS, 16, 54),
+            gate_outer: factor(runtime, EXPERTS, 16, 64),
             activation: canary(runtime, (rows * EXPERT_WIDTH) as usize),
             down_base: patterned(
                 runtime,
@@ -121,7 +121,7 @@ impl ProbeBuffers {
                 0x0370_7344,
                 0x2000,
             ),
-            down_inner: factor(runtime, EXPERTS, 27, 16),
+            down_inner: factor(runtime, EXPERTS, 32, 16),
             down_outer: factor(runtime, EXPERTS, 32, 32),
             mps_gate_up: canary(runtime, (rows * GATE_UP) as usize),
             mps_down: canary(runtime, (rows * WIDTH) as usize),

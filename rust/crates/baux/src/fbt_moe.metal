@@ -420,7 +420,7 @@ kernel void fbt_mhc_replicate(
         streams[(ulong(row) * 4 + stream) * p.width + column] = value;
 }
 
-inline void fbt_mhc_finish(
+inline void mhc_finish(
     thread const float* raw,
     device float* result,
     device const half* control,
@@ -542,7 +542,7 @@ kernel void fbt_mhc_predict(
     for (uint index = 0; index < kCoefficients; ++index)
         local_raw[index] = raw[index];
     device float* result = coefficients + ulong(row) * kCoefficients;
-    fbt_mhc_finish(local_raw, result, control, p.architecture);
+    mhc_finish(local_raw, result, control, p.architecture);
 }
 
 kernel void fbt_mhc_predict_rows(
@@ -647,7 +647,7 @@ kernel void fbt_mhc_predict_rows(
                 const float dot = active ? result_tile[tid][output] : 0.0f;
                 raw[output] = float(bias[output]) + float(control[group]) * dot * scale;
             }
-            fbt_mhc_finish(
+            mhc_finish(
                 raw,
                 coefficients + ulong(row) * kOutputs,
                 control,

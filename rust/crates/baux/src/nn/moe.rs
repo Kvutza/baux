@@ -263,7 +263,7 @@ impl<'a> StepMoe<'a> {
             .read(self.state.gate)
             .write(self.state.activation.out())
             .bytes(&swiglu_shape)
-            .groups(7, 128);
+            .groups(8, 128);
     }
 
     /// Execute 4-expert Down GEMV.

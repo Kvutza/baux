@@ -543,13 +543,13 @@ def memory.span_end
     Source: 'src/optimizer/param_tree.rs', lines 137:0-139:1
     Visibility: public -/
 def optimizer.param_tree.routed_count : Result Std.U64 := do
-  ok 1036800000#u64
+  ok 125829120#u64
 
 /-- [baux_semantics::optimizer::param_tree::total_count]:
     Source: 'src/optimizer/param_tree.rs', lines 143:0-145:1
     Visibility: public -/
 def optimizer.param_tree.total_count : Result Std.U64 := do
-  ok 1177723160#u64
+  ok 265623320#u64
 
 /-- [baux_semantics::optimizer::provenance::same_world]:
     Source: 'src/optimizer/provenance.rs', lines 6:0-8:1

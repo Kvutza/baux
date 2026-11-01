@@ -57,13 +57,11 @@ impl TrajectoryGenerator {
     /// Deterministic seed-specific latent excitation on the 4-family simplex,
     /// pushed forward through the row-stochastic Tensor-Train core
     /// (`BauxResearch.Optimization.TensorEm.pushForward`).
-    fn seed_chain_share(&self, seed: u64) -> ([f32; FAMILIES], [f32; FAMILIES]) {
+    fn chain_share(&self, seed: u64) -> ([f32; FAMILIES], [f32; FAMILIES]) {
         let mut raw = [0.0_f32; FAMILIES];
         let mut sum = 0.0_f32;
         for (i, slot) in raw.iter_mut().enumerate() {
-            let h = crate::hash::splitmix64(
-                seed ^ (i as u64).wrapping_mul(0x9e37_79b9_7f4a_7c15),
-            );
+            let h = crate::hash::splitmix64(seed ^ (i as u64).wrapping_mul(0x9e37_79b9_7f4a_7c15));
             let unit = (h >> 40) as f32 * (1.0 / 16_777_216.0);
             let w = (0.45 * (unit - 0.5)).exp();
             *slot = w;
@@ -100,7 +98,7 @@ impl TrajectoryGenerator {
             return;
         }
         let uniform = 1.0 / FAMILIES as f32;
-        let (u_seed, pi_seed) = self.seed_chain_share(seed);
+        let (u_seed, pi_seed) = self.chain_share(seed);
         let total_energy: f32 = family_energy
             .iter()
             .copied()
@@ -117,9 +115,7 @@ impl TrajectoryGenerator {
         } else {
             [uniform; FAMILIES]
         };
-        let is_macroscopic_uniform = raw_share
-            .iter()
-            .all(|&s| (s - uniform).abs() < 1e-3);
+        let is_macroscopic_uniform = raw_share.iter().all(|&s| (s - uniform).abs() < 1e-3);
         let family_share = if is_macroscopic_uniform {
             pi_seed
         } else {
@@ -132,10 +128,10 @@ impl TrajectoryGenerator {
             blended.map(|b| b / b_sum.max(1e-12))
         };
 
-        // Cappé & Moulines Online EM + E²M Tensor-Train conditional-count update
-        // (BauxResearch.Optimization.TensorEm):
-        // S_{t+1} = (1 - gamma) S_t + gamma * s_hat_{t+1} on the 4-family simplex
-        // and the 4x4 row-stochastic Tensor-Train core.
+        // Cappé & Moulines Online EM + E²M Tensor-Train conditional-count
+        // update (BauxResearch.Optimization.TensorEm):
+        // S_{t+1} = (1 - gamma) S_t + gamma * s_hat_{t+1} on the 4-family
+        // simplex and the 4x4 row-stochastic Tensor-Train core.
         let s_hat = if gain > 0.0 {
             std::array::from_fn(|g| 0.4 * uniform + 0.6 * family_share[g])
         } else if gain < 0.0 {
@@ -169,9 +165,7 @@ impl TrajectoryGenerator {
         }
         let mut stat_sum = 0.0_f32;
         for g in 0..FAMILIES {
-            let pushed_g: f32 = (0..FAMILIES)
-                .map(|i| uniform * self.tt_core[i][g])
-                .sum();
+            let pushed_g: f32 = (0..FAMILIES).map(|i| uniform * self.tt_core[i][g]).sum();
             let target_g = 0.5 * s_hat[g] + 0.5 * pushed_g;
             self.online_em_stats[g] =
                 ((1.0 - gamma) * self.online_em_stats[g] + gamma * target_g).max(1e-4);
@@ -183,27 +177,31 @@ impl TrajectoryGenerator {
             }
         }
 
-        if self.steps.len() == MAX_HISTORY {
-            let evict_idx = self
-                .steps
-                .iter()
-                .position(|s| !s.accepted && s.base_id != base_id)
-                .or_else(|| {
-                    let rej_count = self.steps.iter().filter(|s| !s.accepted).count();
-                    (rej_count > 8)
-                        .then(|| self.steps.iter().position(|s| !s.accepted))
-                        .flatten()
-                })
-                .unwrap_or(0);
-            self.steps.remove(evict_idx);
-        }
-        self.steps.push(TrajectoryStep {
+        self.push_step(TrajectoryStep {
             seed,
             base_id,
             gain,
             accepted,
             family_share,
         });
+    }
+
+    fn push_step(&mut self, step: TrajectoryStep) {
+        if self.steps.len() == MAX_HISTORY {
+            let stale = self
+                .steps
+                .iter()
+                .position(|s| !s.accepted && s.base_id != step.base_id);
+            let rej_count = self.steps.iter().filter(|s| !s.accepted).count();
+            let first_rej = if rej_count > 8 {
+                self.steps.iter().position(|s| !s.accepted)
+            } else {
+                None
+            };
+            let evict_idx = stale.or(first_rej).unwrap_or(0);
+            self.steps.remove(evict_idx);
+        }
+        self.steps.push(step);
     }
 
     /// Closed-form Online EM M-step update for the 4-family metric weights
@@ -237,7 +235,18 @@ impl TrajectoryGenerator {
             .copied()
             .enumerate()
             .collect();
-        if !accepted_recent.is_empty() {
+        let rejected_local: Vec<(usize, TrajectoryStep)> = self
+            .steps
+            .iter()
+            .rev()
+            .filter(|s| !s.accepted && s.base_id == current_base_id && s.gain < 0.0)
+            .take(4)
+            .copied()
+            .enumerate()
+            .collect();
+        let rej_cap = rejected_local.len().min(TRAJECTORY_SEEDS / 2);
+        let acc_cap = (TRAJECTORY_SEEDS - rej_cap).min(accepted_recent.len());
+        if acc_cap > 0 {
             let max_gain = accepted_recent
                 .iter()
                 .map(|(_, s)| s.gain)
@@ -253,7 +262,7 @@ impl TrajectoryGenerator {
                 .collect();
             scored_acc.sort_by(|a, b| b.1.total_cmp(&a.1));
             for (step, score) in scored_acc {
-                if selected.len() >= 2 {
+                if selected.len() >= acc_cap {
                     break;
                 }
                 if !selected.iter().any(|(prev, _, _)| prev.seed == step.seed) {
@@ -261,38 +270,24 @@ impl TrajectoryGenerator {
                 }
             }
         }
-        let rejected_local: Vec<(usize, TrajectoryStep)> = self
-            .steps
-            .iter()
-            .rev()
-            .filter(|s| !s.accepted && s.base_id == current_base_id && s.gain < 0.0)
-            .take(4)
-            .copied()
-            .enumerate()
-            .collect();
         if !rejected_local.is_empty() {
-            let min_loss = rejected_local
-                .iter()
-                .map(|(_, s)| (-s.gain).max(0.0))
-                .fold(f32::INFINITY, f32::min);
             let max_loss = rejected_local
                 .iter()
                 .map(|(_, s)| (-s.gain).max(0.0))
                 .fold(0.0_f32, f32::max);
-            let scale_loss = (max_loss - min_loss).max(min_loss).max(1e-6);
+            let scale_loss = max_loss.max(1e-6);
             let mut scored_rej: Vec<(TrajectoryStep, f32)> = rejected_local
                 .into_iter()
                 .map(|(rank, s)| {
                     let recency = 0.85_f32.powi(rank as i32);
-                    // Suppress large quadratic-curvature blowups (`-s.gain >> min_loss`)
-                    // while retaining gentle local deflection for small-loss probes.
-                    let boltzmann = (-((-s.gain).max(0.0) - min_loss) / scale_loss).exp();
-                    (s, (0.20 * recency * boltzmann).max(1e-4))
+                    let loss = (-s.gain).max(0.0);
+                    let boltzmann = ((loss - max_loss) / scale_loss).exp();
+                    (s, (0.45 * recency * boltzmann).max(1e-4))
                 })
                 .collect();
             scored_rej.sort_by(|a, b| b.1.total_cmp(&a.1));
             for (step, score) in scored_rej {
-                if selected.len() >= 2 {
+                if selected.len() >= TRAJECTORY_SEEDS {
                     break;
                 }
                 if !selected.iter().any(|(prev, _, _)| prev.seed == step.seed) {
@@ -333,10 +328,12 @@ impl TrajectoryGenerator {
 
         let mut weights = [[0.0_f32; TRAJECTORY_SEEDS]; FAMILIES];
         let mut fresh = [1.0_f32; FAMILIES];
-        let rho_base = (0.12 * k as f32).min(0.36);
+        let n_acc = selected.iter().filter(|(_, _, sign)| *sign > 0.0).count();
+        let n_rej = k - n_acc;
+        let rho_base = (0.18 * n_acc as f32 + 0.12 * n_rej as f32).clamp(0.12, 0.64);
 
         for g in 0..FAMILIES {
-            let rho = (rho_base * (0.5 + 2.0 * self.online_em_stats[g])).clamp(0.05, 0.36);
+            let rho = (rho_base * (0.5 + 2.0 * self.online_em_stats[g])).clamp(0.08, 0.64);
             let mut raw = [0.0_f32; TRAJECTORY_SEEDS];
             let mut raw_sum = 0.0_f32;
             for (j, (step, score, _)) in selected.iter().enumerate() {
@@ -354,7 +351,7 @@ impl TrajectoryGenerator {
                     sq_sum += alpha * alpha;
                 }
             }
-            fresh[g] = (1.0 - sq_sum).max(0.64).sqrt();
+            fresh[g] = (1.0 - sq_sum).max(0.36).sqrt();
         }
 
         (k as u32, seeds, weights, fresh)
@@ -403,6 +400,23 @@ mod tests {
         assert_eq!(seeds_next[0], 101);
         for g in 0..FAMILIES {
             assert!(weights_next[g][0] > 0.0);
+        }
+
+        // Even after multiple accepted steps, local rejected probes at the
+        // current incumbent are retained and weighted by loss magnitude.
+        traj.observe(103, 3, 0.04, true, [0.25; 4]);
+        traj.observe(104, 4, 0.06, true, [0.25; 4]);
+        traj.observe(105, 5, -0.01, false, [0.25; 4]);
+        traj.observe(106, 5, -0.08, false, [0.25; 4]);
+        let (count5, seeds5, weights5, fresh5) = traj.pack(5);
+        assert_eq!(count5, 4);
+        assert_eq!(seeds5[2], 106);
+        assert_eq!(seeds5[3], 105);
+        for g in 0..FAMILIES {
+            assert!(weights5[g][0] > 0.0 && weights5[g][1] > 0.0);
+            assert!(weights5[g][2] < weights5[g][3] && weights5[g][3] < 0.0);
+            let sq: f32 = fresh5[g] * fresh5[g] + weights5[g].iter().map(|w| w * w).sum::<f32>();
+            assert!((sq - 1.0).abs() < 1e-5);
         }
     }
 

@@ -1,7 +1,7 @@
 use super::routing::*;
 use super::*;
 
-const SOURCE: &str = include_str!("../fbt_routing_grad.metal");
+const SOURCE: &str = include_str!("../routing_grad.metal");
 
 pub(crate) struct FineGrainedMoeGrad {
     combine: ComputePipelineState,
@@ -107,7 +107,7 @@ impl MoeGradBuffers {
 impl FineGrainedMoeGrad {
     pub(crate) fn new(runtime: &Runtime) -> Result<Self, String> {
         let precise = |name| runtime.precise(SOURCE, "fine-grained MoE gradient", name);
-        let tensorops = include_str!("../fbt_moe_routing_tensorops.metal");
+        let tensorops = include_str!("../routing_tensorops.metal");
         let metal4 = |name| runtime.pipeline_metal4(tensorops, "MoE gradient replay", name, &[]);
         Ok(Self {
             combine: precise("moe_combine_grad")?,

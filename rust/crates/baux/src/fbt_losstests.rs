@@ -109,7 +109,7 @@ fn vocabulary_loss() -> Result<(), String> {
     autoreleasepool(|| {
         let runtime = Runtime::shared()?;
         let tiles = runtime.precise_metal4(
-            include_str!("fbt_loss_tensorops.metal"),
+            include_str!("loss_tensorops.metal"),
             "complete-vocabulary loss",
             "fbt_readout_loss_tiles",
             &[],
@@ -136,7 +136,7 @@ fn vocabulary_proposals() -> Result<(), String> {
     autoreleasepool(|| {
         let runtime = Runtime::shared()?;
         let tiles = runtime.precise_metal4(
-            include_str!("fbt_loss_tensorops.metal"),
+            include_str!("loss_tensorops.metal"),
             "complete-vocabulary proposals",
             "fbt_readout_proposal_tiles",
             &[],
@@ -209,7 +209,7 @@ fn confident_loss() -> Result<(), String> {
     autoreleasepool(|| {
         let runtime = Runtime::shared()?;
         let tiles = runtime.precise_metal4(
-            include_str!("fbt_loss_tensorops.metal"),
+            include_str!("loss_tensorops.metal"),
             "complete-vocabulary loss",
             "fbt_readout_loss_tiles",
             &[],

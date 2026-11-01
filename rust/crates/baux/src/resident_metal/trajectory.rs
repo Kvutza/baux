@@ -184,7 +184,18 @@ impl TrajectoryGenerator {
         }
 
         if self.steps.len() == MAX_HISTORY {
-            self.steps.remove(0);
+            let evict_idx = self
+                .steps
+                .iter()
+                .position(|s| !s.accepted && s.base_id != base_id)
+                .or_else(|| {
+                    let rej_count = self.steps.iter().filter(|s| !s.accepted).count();
+                    (rej_count > 8)
+                        .then(|| self.steps.iter().position(|s| !s.accepted))
+                        .flatten()
+                })
+                .unwrap_or(0);
+            self.steps.remove(evict_idx);
         }
         self.steps.push(TrajectoryStep {
             seed,

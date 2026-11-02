@@ -397,7 +397,7 @@ inline float2 sym_delta(
         float q_t = q.x * tangent.x + q.y * tangent.y;
         float q_u = q.x * radial.x + q.y * radial.y;
         float delta_t = step * (1.22474487f * q_t);
-        float curv = min(inv_r, 16.0f);
+        float curv = r_sq > 0.25f ? inv_r : (4.0f * r_sq * inv_r);
         float delta_u = step * (0.70710678f * q_u) - 0.5f * delta_t * delta_t * curv;
         return delta_t * tangent + delta_u * radial;
     }

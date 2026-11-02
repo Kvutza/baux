@@ -29,6 +29,7 @@ pub(super) struct TrajectoryGenerator {
     pub(super) steps: Vec<TrajectoryStep>,
     pub(super) online_em_stats: [f32; FAMILIES],
     pub(super) tt_core: [[f32; FAMILIES]; FAMILIES],
+    pub(super) local_streak: usize,
 }
 
 impl Default for TrajectoryGenerator {
@@ -44,6 +45,7 @@ impl TrajectoryGenerator {
             steps: Vec::with_capacity(MAX_HISTORY),
             online_em_stats: [uniform; FAMILIES],
             tt_core: [[uniform; FAMILIES]; FAMILIES],
+            local_streak: 0,
         }
     }
 
@@ -52,6 +54,7 @@ impl TrajectoryGenerator {
         self.steps.clear();
         self.online_em_stats = [uniform; FAMILIES];
         self.tt_core = [[uniform; FAMILIES]; FAMILIES];
+        self.local_streak = 0;
     }
 
     /// Deterministic seed-specific latent excitation on the 4-family simplex,
@@ -115,8 +118,7 @@ impl TrajectoryGenerator {
         } else {
             [uniform; FAMILIES]
         };
-        let is_macroscopic_uniform = raw_share.iter().all(|&s| (s - uniform).abs() < 1e-3);
-        let family_share = if is_macroscopic_uniform {
+        let family_share = if raw_share.iter().all(|&s| (s - uniform).abs() < 1e-3) {
             pi_seed
         } else {
             let mut blended = [0.0_f32; FAMILIES];
@@ -133,17 +135,18 @@ impl TrajectoryGenerator {
         // S_{t+1} = (1 - gamma) S_t + gamma * s_hat_{t+1} on the 4-family
         // simplex and the 4x4 row-stochastic Tensor-Train core.
         let s_hat = if gain > 0.0 {
-            std::array::from_fn(|g| 0.4 * uniform + 0.6 * pi_seed[g])
+            std::array::from_fn(|g| 0.4 * uniform + 0.6 * family_share[g])
         } else if gain < 0.0 {
-            let denom = (FAMILIES as f32 - 1.0).max(1.0);
-            std::array::from_fn(|g| ((1.0 - family_share[g]).max(0.0)) / denom)
+            std::array::from_fn(|g| ((1.0 - family_share[g]).max(0.0)) / (FAMILIES as f32 - 1.0))
         } else {
             [uniform; FAMILIES]
         };
         let gamma = if accepted {
-            0.15_f32
+            0.20_f32
+        } else if self.local_streak >= 10 {
+            0.0_f32
         } else if gain < 0.0 {
-            0.06_f32 * (1.0 - (200.0 * gain).clamp(-20.0, 0.0).exp()).max(0.25)
+            0.03_f32 * (200.0 * gain).clamp(-20.0, 0.0).exp()
         } else {
             0.02_f32
         };
@@ -186,7 +189,34 @@ impl TrajectoryGenerator {
         });
     }
 
+    fn least_informative(&self, base_id: i64) -> Option<usize> {
+        let local: Vec<(usize, f32)> = self
+            .steps
+            .iter()
+            .enumerate()
+            .filter(|(_, s)| !s.accepted && s.base_id == base_id)
+            .map(|(i, s)| (i, s.gain))
+            .collect();
+        if local.is_empty() {
+            return None;
+        }
+        let mean = local.iter().map(|(_, g)| *g).sum::<f32>() / local.len() as f32;
+        local
+            .into_iter()
+            .min_by(|a, b| (a.1 - mean).abs().total_cmp(&(b.1 - mean).abs()))
+            .map(|(i, _)| i)
+    }
+
     fn push_step(&mut self, step: TrajectoryStep) {
+        if step.accepted {
+            self.local_streak = 0;
+        } else {
+            let same_base = self
+                .steps
+                .last()
+                .is_none_or(|prev| prev.accepted || prev.base_id == step.base_id);
+            self.local_streak = if same_base { self.local_streak + 1 } else { 1 };
+        }
         if self.steps.len() == MAX_HISTORY {
             let stale = self
                 .steps
@@ -194,7 +224,11 @@ impl TrajectoryGenerator {
                 .position(|s| !s.accepted && s.base_id != step.base_id);
             let rej_count = self.steps.iter().filter(|s| !s.accepted).count();
             let first_rej = if rej_count > 8 {
-                self.steps.iter().position(|s| !s.accepted)
+                if self.local_streak > 10 {
+                    self.least_informative(step.base_id)
+                } else {
+                    self.steps.iter().position(|s| !s.accepted)
+                }
             } else {
                 None
             };
@@ -207,6 +241,9 @@ impl TrajectoryGenerator {
     /// Closed-form Online EM M-step update for the 4-family metric weights
     /// (`FamilyHistory::weights`, where proposal scale is `1 / sqrt(weight)`).
     pub(super) fn em_weights(&self, current: [f32; FAMILIES]) -> [f32; FAMILIES] {
+        if self.local_streak > 10 {
+            return current;
+        }
         let uniform = 1.0 / FAMILIES as f32;
         let mut logs = [0.0_f32; FAMILIES];
         for g in 0..FAMILIES {
@@ -224,8 +261,70 @@ impl TrajectoryGenerator {
         logs.map(f32::exp)
     }
 
-    fn select_steps(&self, current_base_id: i64) -> Vec<(TrajectoryStep, f32, f32)> {
+    fn select_centered(&self, current_base_id: i64) -> Vec<(TrajectoryStep, f32, f32)> {
+        if self.local_streak % 2 == 0 {
+            return Vec::new();
+        }
         let mut selected: Vec<(TrajectoryStep, f32, f32)> = Vec::with_capacity(TRAJECTORY_SEEDS);
+        if let Some(best_acc) = self
+            .steps
+            .iter()
+            .rev()
+            .filter(|s| s.accepted && s.gain >= 0.0)
+            .take(4)
+            .max_by(|a, b| a.gain.total_cmp(&b.gain))
+        {
+            selected.push((*best_acc, 0.75, 1.0));
+        }
+        let local_rej: Vec<(usize, TrajectoryStep)> = self
+            .steps
+            .iter()
+            .rev()
+            .filter(|s| !s.accepted && s.base_id == current_base_id && s.gain < 0.0)
+            .copied()
+            .enumerate()
+            .collect();
+        if local_rej.is_empty() {
+            return selected;
+        }
+        let mean_gain = local_rej.iter().map(|(_, s)| s.gain).sum::<f32>() / local_rej.len() as f32;
+        let max_dev = local_rej
+            .iter()
+            .map(|(_, s)| (s.gain - mean_gain).abs())
+            .fold(1e-6_f32, f32::max);
+        let mut scored: Vec<(TrajectoryStep, f32, f32)> = local_rej
+            .into_iter()
+            .map(|(rank, s)| {
+                let delta = s.gain - mean_gain;
+                let sign = if delta >= 0.0 { 1.0 } else { -1.0 };
+                let recency = 0.90_f32.powi(rank as i32);
+                let score = (recency * (delta.abs() / max_dev)).max(1e-4);
+                (s, score, sign)
+            })
+            .collect();
+        scored.sort_by(|a, b| b.1.total_cmp(&a.1));
+        for (step, score, sign) in scored {
+            if selected.len() >= TRAJECTORY_SEEDS {
+                break;
+            }
+            if !selected.iter().any(|(prev, _, _)| prev.seed == step.seed) {
+                selected.push((step, score, sign));
+            }
+        }
+        selected
+    }
+
+    fn select_steps(&self, current_base_id: i64) -> Vec<(TrajectoryStep, f32, f32)> {
+        if self.local_streak >= 10 {
+            return self.select_centered(current_base_id);
+        }
+        let mut selected: Vec<(TrajectoryStep, f32, f32)> = Vec::with_capacity(TRAJECTORY_SEEDS);
+        let trailing_rej = self
+            .steps
+            .iter()
+            .rev()
+            .take_while(|s| !s.accepted && s.base_id == current_base_id)
+            .count();
         let accepted_recent: Vec<(usize, TrajectoryStep)> = self
             .steps
             .iter()
@@ -252,10 +351,11 @@ impl TrajectoryGenerator {
                 .map(|(_, s)| s.gain)
                 .fold(0.0_f32, f32::max);
             let scale_gain = max_gain.max(1e-6);
+            let mom_decay = 0.75_f32.powi(trailing_rej as i32);
             let mut scored_acc: Vec<(TrajectoryStep, f32)> = accepted_recent
                 .into_iter()
                 .map(|(rank, s)| {
-                    let recency = 0.85_f32.powi(rank as i32);
+                    let recency = 0.85_f32.powi(rank as i32) * mom_decay;
                     let boltzmann = (1.5 * (s.gain - max_gain) / scale_gain).exp();
                     (s, (recency * boltzmann).max(1e-4))
                 })
@@ -335,10 +435,19 @@ impl TrajectoryGenerator {
             .take_while(|s| !s.accepted && s.base_id == current_base_id)
             .count();
         let streak_damp = 0.70_f32.powi(trailing_rej.saturating_sub(1) as i32);
-        let rho_base = ((0.08 * k as f32).clamp(0.08, 0.28) * streak_damp).clamp(0.03, 0.28);
+        let rho_base = if self.local_streak >= 10 {
+            (0.12 * k as f32).clamp(0.24, 0.48)
+        } else {
+            ((0.08 * k as f32).clamp(0.08, 0.28) * streak_damp).clamp(0.03, 0.28)
+        };
+        let (max_rho, min_fresh) = if self.local_streak >= 10 {
+            (0.56_f32, 0.44_f32)
+        } else {
+            (0.36_f32, 0.64_f32)
+        };
 
         for g in 0..FAMILIES {
-            let rho = (rho_base * (0.5 + 2.0 * self.online_em_stats[g])).clamp(0.02, 0.36);
+            let rho = (rho_base * (0.5 + 2.0 * self.online_em_stats[g])).clamp(0.02, max_rho);
             let mut raw = [0.0_f32; TRAJECTORY_SEEDS];
             let mut raw_sum = 0.0_f32;
             for (j, (step, score, _)) in selected.iter().enumerate() {
@@ -356,7 +465,7 @@ impl TrajectoryGenerator {
                     sq_sum += alpha * alpha;
                 }
             }
-            fresh[g] = (1.0 - sq_sum).max(0.64).sqrt();
+            fresh[g] = (1.0 - sq_sum).max(min_fresh).sqrt();
         }
 
         (k as u32, seeds, weights, fresh)

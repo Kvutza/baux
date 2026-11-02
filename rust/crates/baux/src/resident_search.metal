@@ -386,6 +386,9 @@ inline float2 sym_delta(
         return step * unit_dir;
     }
     float2 q = domain_trajectory(d, pair, mode);
+    if (program == 5u || d.trajectory_active != 0u) {
+        return step * q;
+    }
     float r_sq = base_value.x * base_value.x + base_value.y * base_value.y;
     if (r_sq > 1e-12f) {
         float inv_r = rsqrt(r_sq);

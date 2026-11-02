@@ -464,9 +464,9 @@ impl SearchState {
             let mut acc = [0.0f32; FAMILIES];
             let mut total = 0.0f32;
             for (i, &(_, sq)) in round.changes.iter().enumerate() {
-                if i < family.groups.len() && i < self.blocks.len() {
+                if i < family.groups.len() && i < family.original.len() {
                     let g = family.groups[i];
-                    let e = (sq as f32) * self.blocks[i].weight;
+                    let e = (sq as f32) * family.original[i].weight;
                     acc[g] += e;
                     total += e;
                 }

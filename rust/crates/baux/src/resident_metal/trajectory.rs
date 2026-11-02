@@ -133,7 +133,7 @@ impl TrajectoryGenerator {
         // S_{t+1} = (1 - gamma) S_t + gamma * s_hat_{t+1} on the 4-family
         // simplex and the 4x4 row-stochastic Tensor-Train core.
         let s_hat = if gain > 0.0 {
-            std::array::from_fn(|g| 0.4 * uniform + 0.6 * family_share[g])
+            std::array::from_fn(|g| 0.4 * uniform + 0.6 * pi_seed[g])
         } else if gain < 0.0 {
             let denom = (FAMILIES as f32 - 1.0).max(1.0);
             std::array::from_fn(|g| ((1.0 - family_share[g]).max(0.0)) / denom)
@@ -141,9 +141,9 @@ impl TrajectoryGenerator {
             [uniform; FAMILIES]
         };
         let gamma = if accepted {
-            0.20_f32
+            0.15_f32
         } else if gain < 0.0 {
-            0.03_f32 * (200.0 * gain).clamp(-20.0, 0.0).exp()
+            0.06_f32 * (1.0 - (200.0 * gain).clamp(-20.0, 0.0).exp()).max(0.25)
         } else {
             0.02_f32
         };
@@ -226,12 +226,6 @@ impl TrajectoryGenerator {
 
     fn select_steps(&self, current_base_id: i64) -> Vec<(TrajectoryStep, f32, f32)> {
         let mut selected: Vec<(TrajectoryStep, f32, f32)> = Vec::with_capacity(TRAJECTORY_SEEDS);
-        let trailing_rej = self
-            .steps
-            .iter()
-            .rev()
-            .take_while(|s| !s.accepted && s.base_id == current_base_id)
-            .count();
         let accepted_recent: Vec<(usize, TrajectoryStep)> = self
             .steps
             .iter()
@@ -258,11 +252,10 @@ impl TrajectoryGenerator {
                 .map(|(_, s)| s.gain)
                 .fold(0.0_f32, f32::max);
             let scale_gain = max_gain.max(1e-6);
-            let mom_decay = 0.75_f32.powi(trailing_rej as i32);
             let mut scored_acc: Vec<(TrajectoryStep, f32)> = accepted_recent
                 .into_iter()
                 .map(|(rank, s)| {
-                    let recency = 0.85_f32.powi(rank as i32) * mom_decay;
+                    let recency = 0.85_f32.powi(rank as i32);
                     let boltzmann = (1.5 * (s.gain - max_gain) / scale_gain).exp();
                     (s, (recency * boltzmann).max(1e-4))
                 })

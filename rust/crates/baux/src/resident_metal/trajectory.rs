@@ -261,62 +261,9 @@ impl TrajectoryGenerator {
         logs.map(f32::exp)
     }
 
-    fn select_centered(&self, current_base_id: i64) -> Vec<(TrajectoryStep, f32, f32)> {
-        if self.local_streak % 2 == 0 {
-            return Vec::new();
-        }
-        let mut selected: Vec<(TrajectoryStep, f32, f32)> = Vec::with_capacity(TRAJECTORY_SEEDS);
-        if let Some(best_acc) = self
-            .steps
-            .iter()
-            .rev()
-            .filter(|s| s.accepted && s.gain >= 0.0)
-            .take(4)
-            .max_by(|a, b| a.gain.total_cmp(&b.gain))
-        {
-            selected.push((*best_acc, 0.75, 1.0));
-        }
-        let local_rej: Vec<(usize, TrajectoryStep)> = self
-            .steps
-            .iter()
-            .rev()
-            .filter(|s| !s.accepted && s.base_id == current_base_id && s.gain < 0.0)
-            .copied()
-            .enumerate()
-            .collect();
-        if local_rej.is_empty() {
-            return selected;
-        }
-        let mean_gain = local_rej.iter().map(|(_, s)| s.gain).sum::<f32>() / local_rej.len() as f32;
-        let max_dev = local_rej
-            .iter()
-            .map(|(_, s)| (s.gain - mean_gain).abs())
-            .fold(1e-6_f32, f32::max);
-        let mut scored: Vec<(TrajectoryStep, f32, f32)> = local_rej
-            .into_iter()
-            .map(|(rank, s)| {
-                let delta = s.gain - mean_gain;
-                let sign = if delta >= 0.0 { 1.0 } else { -1.0 };
-                let recency = 0.90_f32.powi(rank as i32);
-                let score = (recency * (delta.abs() / max_dev)).max(1e-4);
-                (s, score, sign)
-            })
-            .collect();
-        scored.sort_by(|a, b| b.1.total_cmp(&a.1));
-        for (step, score, sign) in scored {
-            if selected.len() >= TRAJECTORY_SEEDS {
-                break;
-            }
-            if !selected.iter().any(|(prev, _, _)| prev.seed == step.seed) {
-                selected.push((step, score, sign));
-            }
-        }
-        selected
-    }
-
     fn select_steps(&self, current_base_id: i64) -> Vec<(TrajectoryStep, f32, f32)> {
         if self.local_streak >= 10 {
-            return self.select_centered(current_base_id);
+            return Vec::new();
         }
         let mut selected: Vec<(TrajectoryStep, f32, f32)> = Vec::with_capacity(TRAJECTORY_SEEDS);
         let trailing_rej = self

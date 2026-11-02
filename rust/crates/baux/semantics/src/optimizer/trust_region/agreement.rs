@@ -138,6 +138,7 @@ pub struct ModelAgreement {
     telemetry: TrustRegionStatus,
     consecutive_successes: usize,
     consecutive_failures: usize,
+    floor_bounces: usize,
 }
 
 impl ModelAgreement {
@@ -186,6 +187,7 @@ impl ModelAgreement {
             },
             consecutive_successes: 0,
             consecutive_failures: 0,
+            floor_bounces: 0,
         })
     }
 
@@ -262,40 +264,7 @@ impl ModelAgreement {
             )
         };
 
-        if evidence.accepted {
-            self.consecutive_failures = 0;
-            if action == RadiusAction::Expand {
-                self.consecutive_successes = 0;
-            } else {
-                self.consecutive_successes = self.consecutive_successes.saturating_add(1);
-            }
-        } else {
-            self.consecutive_successes = 0;
-            if action == RadiusAction::Shrink {
-                self.consecutive_failures = 0;
-                self.adequate = PRIOR;
-                self.inadequate = PRIOR;
-            } else {
-                self.consecutive_failures = self.consecutive_failures.saturating_add(1);
-            }
-        }
-
-        self.length = match action {
-            RadiusAction::Expand => {
-                (self.length * self.config.expand_factor).clamp(self.minimum, self.maximum)
-            }
-            RadiusAction::Shrink => {
-                let shrunk = self.length * self.config.shrink_factor;
-                if shrunk >= self.minimum * (1.0 - 1.0e-5) {
-                    shrunk.clamp(self.minimum, self.maximum)
-                } else if self.config.continuous_descent {
-                    (self.minimum / self.config.shrink_factor).clamp(self.minimum, self.initial)
-                } else {
-                    self.initial.clamp(self.minimum, self.maximum)
-                }
-            }
-            RadiusAction::Hold => self.length.clamp(self.minimum, self.maximum),
-        };
+        self.apply_action(action, evidence.accepted);
         self.telemetry = TrustRegionStatus {
             action,
             standardized_error: Some(error),
@@ -311,6 +280,48 @@ impl ModelAgreement {
             length: self.length,
         };
         Ok(self.telemetry)
+    }
+
+    fn apply_action(&mut self, action: RadiusAction, accepted: bool) {
+        if accepted {
+            self.consecutive_failures = 0;
+            self.floor_bounces = 0;
+            if action == RadiusAction::Expand {
+                self.consecutive_successes = 0;
+            } else {
+                self.consecutive_successes = self.consecutive_successes.saturating_add(1);
+            }
+        } else {
+            self.consecutive_successes = 0;
+            if action == RadiusAction::Shrink {
+                self.consecutive_failures = 0;
+                self.adequate = PRIOR;
+                self.inadequate = PRIOR;
+            } else {
+                self.consecutive_failures = self.consecutive_failures.saturating_add(1);
+            }
+        }
+        self.length = match action {
+            RadiusAction::Expand => {
+                (self.length * self.config.expand_factor).clamp(self.minimum, self.maximum)
+            }
+            RadiusAction::Shrink => {
+                let shrunk = self.length * self.config.shrink_factor;
+                if shrunk >= self.minimum * (1.0 - 1.0e-5) {
+                    shrunk.clamp(self.minimum, self.maximum)
+                } else if self.config.continuous_descent {
+                    if self.floor_bounces == 0 {
+                        self.floor_bounces = 1;
+                        (self.minimum / self.config.shrink_factor).clamp(self.minimum, self.initial)
+                    } else {
+                        self.minimum
+                    }
+                } else {
+                    self.initial.clamp(self.minimum, self.maximum)
+                }
+            }
+            RadiusAction::Hold => self.length.clamp(self.minimum, self.maximum),
+        };
     }
 
     fn update_adequacy(&mut self, adequate: bool) {

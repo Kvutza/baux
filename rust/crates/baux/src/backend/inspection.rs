@@ -36,4 +36,46 @@ impl EnnBackend {
                 .unwrap_or(IndexDriver::BpAnnDisk),
         }
     }
+
+    pub fn index_bytes(&self) -> Result<usize, ENNError> {
+        match self {
+            Self::InMemory(b) => b.index_bytes(),
+            Self::Disk(h) => disk_read(h.data())?.index_bytes(),
+        }
+    }
+
+    pub fn index_len(&self) -> usize {
+        match self {
+            Self::InMemory(b) => b.index_len(),
+            Self::Disk(h) => disk_read(h.data()).map(|g| g.len()).unwrap_or(0),
+        }
+    }
+
+    pub fn memory_index(&self) -> Option<&ENNIndex> {
+        match self {
+            Self::InMemory(b) => Some(b.index()),
+            Self::Disk(_) => None,
+        }
+    }
+
+    pub fn x_view(&self) -> Option<ndarray::ArrayView2<'_, f64>> {
+        match self {
+            Self::InMemory(b) => Some(b.x_view()),
+            Self::Disk(_) => None,
+        }
+    }
+
+    pub fn y_view(&self) -> Option<ndarray::ArrayView2<'_, f64>> {
+        match self {
+            Self::InMemory(b) => Some(b.y_view()),
+            Self::Disk(_) => None,
+        }
+    }
+
+    pub fn memory_yvar(&self) -> Option<ndarray::ArrayView2<'_, f64>> {
+        match self {
+            Self::InMemory(b) => b.yvar_view(),
+            Self::Disk(_) => None,
+        }
+    }
 }

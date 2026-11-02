@@ -1,7 +1,7 @@
 //! Text encoding and its persisted identity. Byte corpora have no vocabulary
 //! file.
 
-use super::Result;
+use super::reader::Result;
 use baux::artifact::json::{Value, json};
 use baux::semantics::hnet::{BOS_BYTE, BYTE_VOCAB, EOS_BYTE};
 use std::collections::BTreeMap;

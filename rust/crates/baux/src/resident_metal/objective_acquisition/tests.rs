@@ -305,6 +305,6 @@ fn prime_geometry(search: &mut SearchState) {
         search.noisy_objectives(&proposal, observation).unwrap();
         search.sync().unwrap();
     }
-    search.distance_scaling = crate::config::DistanceScaling::SelfTuning;
+    search.distance_metric = crate::config::DistanceMetric::Conformal;
     search.local_scale_neighbors = 2;
 }

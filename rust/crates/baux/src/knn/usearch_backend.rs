@@ -57,21 +57,18 @@ mod binding {
         index: Index,
     }
 
-    fn options(num_dim: usize) -> IndexOptions {
-        IndexOptions {
-            dimensions: num_dim,
-            metric: MetricKind::L2sq,
-            quantization: ScalarKind::F32,
-            connectivity: 0,
-            expansion_add: 0,
-            expansion_search: 0,
-            multi: false,
-        }
-    }
-
     impl BackendIndex {
         pub(super) fn new(num_dim: usize) -> Result<Self, IndexError> {
-            let index = new_index(&options(num_dim)).map_err(usearch_error)?;
+            let options = IndexOptions {
+                dimensions: num_dim,
+                metric: MetricKind::L2sq,
+                quantization: ScalarKind::F32,
+                connectivity: 0,
+                expansion_add: 0,
+                expansion_search: 0,
+                multi: false,
+            };
+            let index = new_index(&options).map_err(usearch_error)?;
             Ok(Self { index })
         }
 
@@ -341,15 +338,6 @@ impl USearchBackend {
         Ok(())
     }
 
-    fn shortlist_len(&self, k: usize) -> usize {
-        k.max(self.index.expansion_search()).min(self.len())
-    }
-
-    fn shortlist(&self, query: &[f32], count: usize) -> Result<Vec<u64>, IndexError> {
-        let exact = count == self.len();
-        self.index.search(query, count, exact)
-    }
-
     pub(crate) fn search(
         &self,
         queries_scaled: &ArrayView2<f64>,
@@ -365,10 +353,11 @@ impl USearchBackend {
 
         let mut distances = Array2::from_elem((queries_scaled.nrows(), k_eff), f64::INFINITY);
         let mut indices = Array2::zeros((queries_scaled.nrows(), k_eff));
-        let shortlist_len = self.shortlist_len(k_eff);
+        let shortlist_len = k_eff.max(self.index.expansion_search()).min(self.len());
+        let exact = shortlist_len == self.len();
         for (query_index, query) in queries_scaled.rows().into_iter().enumerate() {
             let query_f32: Vec<f32> = query.iter().map(|value| *value as f32).collect();
-            let keys = self.shortlist(&query_f32, shortlist_len)?;
+            let keys = self.index.search(&query_f32, shortlist_len, exact)?;
             let neighbors = rerank(query, &keys, &self.rows, self.num_dim, k_eff)?;
             if neighbors.len() != k_eff {
                 return Err(IndexError::InvalidParameter(format!(

@@ -37,21 +37,6 @@ fit_samples = 10
     assert current["num_samples"] == 10
     assert current == pretrain.lower_study(current)
 
-    reliability = pretrain.lower_study(
-        tomllib.loads(
-            text
-            + """
-[trust-region]
-method='reliability'
-[trust-region.reliability]
-local_scale_neighbors=8
-"""
-        )
-    )
-    assert reliability["trust_region_kind"] == "reliability"
-    assert reliability["reliability_controller"]["local_scale_neighbors"] == 8
-    assert reliability == pretrain.lower_study(reliability)
-
     kernel = pretrain.lower_study(
         tomllib.loads(text + "\n[objective]\nreference='frozen_initial'")
     )

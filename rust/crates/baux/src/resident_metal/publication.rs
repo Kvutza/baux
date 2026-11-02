@@ -176,31 +176,18 @@ fn unrealized_components(
 
 fn family_distances(
     state: &SearchState,
-    distances: &[f32],
     partials: &[Partial],
-    decision: &Decision,
     index: usize,
-) -> Result<(Option<BoundReport>, Option<Vec<[f32; FAMILIES]>>), String> {
-    if state.realized_history() && state.history > state.resident_history && state.family.is_some()
-    {
-        let values = read::<f32>(&state.pool_family_distances, 4 * state.history * FAMILIES);
-        let bounds = Some(state.inspect_bounds(distances, &values, decision.root_seed));
-        let family_distances = Some(
-            values[index * state.history * FAMILIES..(index + 1) * state.history * FAMILIES]
-                .chunks_exact(FAMILIES)
-                .map(|row| row.try_into().unwrap())
-                .collect(),
-        );
-        Ok((bounds, family_distances))
-    } else if let Some(family) = &state.family {
+) -> Result<Option<Vec<[f32; FAMILIES]>>, String> {
+    if let Some(family) = &state.family {
         let base = state.identities[..state.history]
             .iter()
             .position(|&id| id == state.base_id)
             .ok_or("Family history lost its incumbent")?;
         let rows = unrealized_components(state, family, partials, index, base)?;
-        Ok((None, Some(rows)))
+        Ok(Some(rows))
     } else {
-        Ok((None, None))
+        Ok(None)
     }
 }
 
@@ -208,7 +195,7 @@ impl SearchState {
     /// Publish after completion using a timing origin at publication itself.
     /// Staged GPU profiling, when present, supplies ask timings separately;
     /// this wrapper's fallback timer is not end-to-end proposal latency.
-    pub(super) fn publish_ask(&mut self) -> Result<Proposals, String> {
+    pub fn publish_ask(&mut self) -> Result<Proposals, String> {
         self.publish_start(Instant::now())
     }
 
@@ -221,7 +208,7 @@ impl SearchState {
     /// ID, and marks the search started. Expected/procedural norms remain
     /// estimates even when reported alongside realized changes; finite
     /// metadata is not evidence of a useful proposal.
-    pub(super) fn publish_start(&mut self, start: Instant) -> Result<Proposals, String> {
+    pub fn publish_start(&mut self, start: Instant) -> Result<Proposals, String> {
         let total_ms = start.elapsed().as_secs_f32() * 1000.0;
         let decision = read::<Decision>(&self.decision, 1)[0];
         let pool_count = self.pool_layout.count();
@@ -249,8 +236,7 @@ impl SearchState {
             .zip(axis_coordinate)
             .map(|(axis, coordinate)| axis.value(coordinate));
         let changes = block_changes(self, &partials, index)?;
-        let (bounds, family_distances) =
-            family_distances(self, &distances, &partials, &decision, index)?;
+        let family_distances = family_distances(self, &partials, index)?;
         let round = Proposals {
             pool_layout: self.pool_layout,
             owner: self.owner,
@@ -281,7 +267,6 @@ impl SearchState {
             pool_radii,
             pool_cosines,
             reference_cosines,
-            bounds,
             axis_coordinate,
             axis_value,
             basis_seed: decision.basis_seed,

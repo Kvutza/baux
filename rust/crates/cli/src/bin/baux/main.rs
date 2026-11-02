@@ -3,13 +3,13 @@ use std::env;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-#[path = "config.rs"]
-mod cli_cfg;
-#[path = "experiment.rs"]
-mod cli_exp;
-#[path = "radar.rs"]
-mod cli_radar;
+mod config;
+use config as cli_cfg;
 mod cuda_track;
+mod experiment;
+use experiment as cli_exp;
+mod radar;
+use radar as cli_radar;
 #[path = "research/extract.rs"]
 mod ext_ops;
 mod research;

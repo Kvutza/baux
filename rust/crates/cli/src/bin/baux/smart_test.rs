@@ -30,23 +30,44 @@ fn run_buck2(root: &Path, include_gpu: bool) -> Result<(), String> {
         println!("o|test: no modified files detected; running CPU test suite.");
         return run_suite(root, include_gpu);
     }
-    let targets = impacted_targets(root, &files, include_gpu)?;
+    let targets = direct_targets(&files, include_gpu);
     if targets.is_empty() {
-        println!("o|test: no impacted test targets for modified files.");
-        return Ok(());
+        let fallback = impacted_targets(root, &files, include_gpu)?;
+        if fallback.is_empty() {
+            println!("o|test: no impacted test targets for modified files.");
+            return Ok(());
+        }
+        return BuildSystem::Buck2.test_targets(root, &fallback);
     }
-    baux_tooling::build::BuildSystem::Buck2.test_targets(root, &targets)
+    BuildSystem::Buck2.test_targets(root, &targets)
 }
 
 fn run_suite(root: &Path, include_gpu: bool) -> Result<(), String> {
     if include_gpu {
-        return baux_tooling::build::BuildSystem::Buck2.test_all(root);
+        return BuildSystem::Buck2.test_all(root);
     }
     let targets = query_cpu(root)?;
-    baux_tooling::build::BuildSystem::Buck2.test_targets(root, &targets)
+    BuildSystem::Buck2.test_targets(root, &targets)
 }
 
 fn changed_files(root: &Path) -> Result<Vec<String>, String> {
+    if let Ok(output) = Command::new("jj")
+        .current_dir(root)
+        .args(["diff", "--name-only", "--no-pager"])
+        .output()
+    {
+        if output.status.success() {
+            let files: Vec<String> = String::from_utf8_lossy(&output.stdout)
+                .lines()
+                .map(str::trim)
+                .filter(|line| !line.is_empty() && root.join(line).exists())
+                .map(str::to_owned)
+                .collect();
+            if !files.is_empty() {
+                return Ok(files);
+            }
+        }
+    }
     let output = Command::new("git")
         .current_dir(root)
         .args(["status", "--porcelain=v1", "-z"])
@@ -56,6 +77,59 @@ fn changed_files(root: &Path) -> Result<Vec<String>, String> {
         return Ok(Vec::new());
     }
     parse_status(&output.stdout)
+}
+
+fn direct_targets(files: &[String], include_gpu: bool) -> Vec<String> {
+    const TABLE: &[(&str, &str)] = &[
+        (
+            "rust/crates/baux/src/bin/baux-tune/",
+            "root//rust/crates/baux:baux-tune-test",
+        ),
+        ("rust/crates/baux/", "root//rust/crates/baux:baux-unit"),
+        ("rust/crates/fbt/", "root//rust/crates/fbt:fbt-unit"),
+        ("rust/crates/cli/", "root//rust/crates/cli:baux-test"),
+        (
+            "rust/crates/tooling/",
+            "root//rust/crates/tooling:tooling-unit",
+        ),
+        (
+            "rust/crates/runner/",
+            "root//rust/crates/runner:baux-runner-test",
+        ),
+        (
+            "rust/crates/corpus/",
+            "root//rust/crates/corpus:corpus-test",
+        ),
+        (
+            "rust/crates/properties/",
+            "root//rust/crates/properties:properties-unit",
+        ),
+    ];
+    let mut targets = BTreeSet::new();
+    for file in files {
+        if let Some(stem) = file
+            .strip_prefix("rust/crates/baux/tests/")
+            .and_then(|r| r.strip_suffix(".rs"))
+        {
+            let target = format!("root//rust/crates/baux:{stem}_test");
+            if include_gpu || !is_gpu(&target) {
+                targets.insert(target);
+            }
+            continue;
+        }
+        if let Some((_, target)) = TABLE.iter().find(|(p, _)| file.starts_with(p)) {
+            targets.insert((*target).to_string());
+        }
+    }
+    if include_gpu && targets.contains("root//rust/crates/baux:baux-unit") {
+        let gpu_unit = if cfg!(target_os = "macos") {
+            "root//rust/crates/baux:region-metal"
+        } else {
+            "root//rust/crates/baux:baux-unit"
+        };
+        targets.insert(gpu_unit.to_string());
+    }
+    targets.into_iter().collect()
 }
 
 fn parse_status(raw: &[u8]) -> Result<Vec<String>, String> {
@@ -85,7 +159,7 @@ fn parse_status(raw: &[u8]) -> Result<Vec<String>, String> {
 
 fn is_gpu(target: &str) -> bool {
     let name = target.split(':').last().unwrap_or(target);
-    name.contains("metal") || name.contains("opencl") || name.contains("cuda")
+    name.contains("metal") || name.contains("cuda")
 }
 
 fn impacted_targets(

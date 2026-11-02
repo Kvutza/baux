@@ -56,7 +56,15 @@ def _rustname(index_driver: NeighborIndex) -> str:
 
     if index_driver not in INDEX_NAMES:
         raise ValueError(f"Unsupported index driver: {index_driver}")
-    return INDEX_NAMES[index_driver]
+    name = INDEX_NAMES[index_driver]
+    if name in ("cuda", "cuvs", "cuvs_cagra"):
+        try:
+            import importlib
+
+            importlib.import_module("libcuvs").load_library()
+        except Exception:
+            pass
+    return name
 
 
 def _posteriorcoerced(flags):

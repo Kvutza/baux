@@ -4,7 +4,7 @@
 use super::*;
 
 impl RunConfig {
-    pub(super) fn validate_selection(&self) -> Result<bool, String> {
+    pub fn validate_selection(&self) -> Result<bool, String> {
         if !matches!(
             self.experiment,
             Some(
@@ -36,7 +36,7 @@ impl RunConfig {
         ))
     }
 
-    pub(super) fn validate_fields(&self, pretrain: bool) -> Result<(), String> {
+    pub fn validate_fields(&self, pretrain: bool) -> Result<(), String> {
         self.validate_objectives()?;
         self.resident_pool()?;
         self.validate_identity(pretrain)?;
@@ -199,12 +199,8 @@ impl RunConfig {
         if !pretrain && self.objective_reference.is_some() {
             return Err("objective reference is supported only by pretrain experiments".into());
         }
-        if !pretrain
-            && (self.distance_scaling.is_some()
-                || self.history_geometry.is_some()
-                || self.local_scale_neighbors.is_some())
-        {
-            return Err("distance scaling is supported only by pretrain experiments".into());
+        if !pretrain && (self.distance_metric.is_some() || self.local_scale_neighbors.is_some()) {
+            return Err("distance metric is supported only by pretrain experiments".into());
         }
         if !pretrain && self.reps() > 1 {
             return Err("reps greater than one are supported only by pretrain".into());
@@ -233,19 +229,16 @@ impl RunConfig {
                     | crate::procedural_pool::ProposalMethod::QuadraticFlow
             )
         );
-        if lie_or_rotation
-            && (!pretrain || self.history_geometry.unwrap_or_default() != HistoryGeometry::Latent)
-        {
+        if lie_or_rotation && !pretrain {
             return Err(
-                "Lie and pair-rotation require pretraining, Gaussian or Rademacher perturbations, \
-                 and geometry='latent' (sampled parameter history)"
+                "Lie and pair-rotation require pretraining and Gaussian or Rademacher perturbations"
                     .into(),
             );
         }
         Ok(())
     }
 
-    pub(super) fn validate_seeds(&self) -> Result<(), String> {
+    pub fn validate_seeds(&self) -> Result<(), String> {
         if self.reps() > 1
             && [
                 self.model_seed,
@@ -278,31 +271,12 @@ impl RunConfig {
         Ok(())
     }
 
-    pub(super) fn validate_resident(&self, pretrain: bool) -> Result<(), String> {
+    pub fn validate_resident(&self, pretrain: bool) -> Result<(), String> {
         if self.trust_region_kind == Some(TrustRegionKind::Morbo) {
             return Err("the LocalV1 FBT latency run requires the TuRBO trust region".into());
         }
         if !pretrain && self.trust_region_shape.is_some() {
             return Err("trust-region shape is supported only by pretrain experiments".into());
-        }
-        match (self.trust_region_kind, self.reliability_controller) {
-            (Some(TrustRegionKind::Reliability), Some(config)) if pretrain => {
-                config.validate()?;
-            }
-            (Some(TrustRegionKind::Reliability), _) if !pretrain => {
-                return Err(
-                    "the reliability controller is supported only by pretrain experiments".into(),
-                );
-            }
-            (Some(TrustRegionKind::Reliability), None) => {
-                return Err("reliability radius control requires its policy parameters".into());
-            }
-            (_, Some(_)) => {
-                return Err(
-                    "reliability policy parameters require reliability radius control".into(),
-                );
-            }
-            (Some(TrustRegionKind::Turbo) | Some(TrustRegionKind::Morbo) | None, None) => {}
         }
         let effective = self.apply_to(turbo_enn());
         match effective.acquisition {
@@ -324,7 +298,7 @@ impl RunConfig {
         validate_lengths(length)
     }
 
-    pub(super) fn validate_controller(&self) -> Result<(), String> {
+    pub fn validate_controller(&self) -> Result<(), String> {
         let unsupported = self.candidate_rv.is_some()
             || self.num_candidates_factor.is_some()
             || self.min_candidates.is_some()
@@ -359,15 +333,12 @@ mod program_tests {
     #[test]
     fn pair_rotation() {
         let mut config: RunConfig = baux::artifact::toml::from_str(
-            "proposal_method='pair-rotation'\nperturbation='gaussian'\nhistory_geometry='latent'",
+            "proposal_method='pair-rotation'\nperturbation='gaussian'",
         )
         .unwrap();
         assert_eq!(config.proposal_method.unwrap().name(), "pair-rotation");
         assert!(config.validate_program(true).is_ok());
         assert!(config.validate_program(false).is_err());
-        config.history_geometry = Some(HistoryGeometry::Realized);
-        assert!(config.validate_program(true).is_err());
-        config.history_geometry = Some(HistoryGeometry::Latent);
         config.perturbation = Some(crate::ProposalKernel::Rademacher);
         assert!(config.validate_program(true).is_ok());
         assert!(

@@ -156,54 +156,47 @@ fn load_scip(path: &Path) -> Result<Vec<ScipDoc>, String> {
     Ok(docs)
 }
 
-fn scan_dir(dir: &Path) -> Option<PathBuf> {
-    let entries = fs::read_dir(dir).ok()?;
-    let mut matches = Vec::new();
-    for entry in entries.flatten() {
-        let p = entry.path();
-        let name = p.file_name().and_then(|s| s.to_str()).unwrap_or("");
-        if name.starts_with("enn-") && name.ends_with(".scip") {
-            matches.push(p);
-        }
-    }
-    matches.sort();
-    if let Some(first) = matches.into_iter().next() {
-        return Some(first);
-    }
-    let local = dir.join("rust.scip");
-    local.is_file().then_some(local)
-}
-
 fn find_scip(root: &Path, enn_root: &Path) -> Result<PathBuf, String> {
-    let dirs = [
+    for d in [
         root.join(".cache/baux/radar"),
         enn_root.join(".cache/baux/radar"),
-    ];
-    for d in &dirs {
-        if let Some(p) = scan_dir(d) {
-            return Ok(p);
+    ] {
+        let mut matches: Vec<_> = fs::read_dir(&d)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| {
+                p.file_name()
+                    .and_then(|s| s.to_str())
+                    .is_some_and(|n| n.starts_with("enn-") && n.ends_with(".scip"))
+            })
+            .collect();
+        matches.sort();
+        if let Some(first) = matches.into_iter().next().or_else(|| {
+            let local = d.join("rust.scip");
+            local.is_file().then_some(local)
+        }) {
+            return Ok(first);
         }
     }
-    Err(format!("No SCIP index found in {}", dirs[0].display()))
-}
-
-fn line_depth(line: &str, mut depth: i32, mut opened: bool) -> (i32, bool) {
-    let code = line.split("//").next().unwrap_or(line);
-    for ch in code.chars() {
-        if ch == '{' {
-            depth += 1;
-            opened = true;
-        } else if ch == '}' {
-            depth -= 1;
-        }
-    }
-    (depth, opened)
+    Err(format!(
+        "No SCIP index found in {}",
+        root.join(".cache/baux/radar").display()
+    ))
 }
 
 fn body_end(lines: &[&str], start: usize) -> usize {
-    let (mut depth, mut opened) = (0, false);
+    let (mut depth, mut opened) = (0_i32, false);
     for (offset, line) in lines[start..].iter().enumerate() {
-        (depth, opened) = line_depth(line, depth, opened);
+        for ch in line.split("//").next().unwrap_or(line).chars() {
+            if ch == '{' {
+                depth += 1;
+                opened = true;
+            } else if ch == '}' {
+                depth -= 1;
+            }
+        }
         if opened && depth <= 0 {
             return start + offset;
         }
@@ -212,19 +205,19 @@ fn body_end(lines: &[&str], start: usize) -> usize {
 }
 
 fn doc_spans(raw_defs: &[(i32, String)], src_lines: &[&str]) -> Vec<(i32, i32, String)> {
-    let mut spans = Vec::with_capacity(raw_defs.len());
-    for (idx, (st, sym)) in raw_defs.iter().enumerate() {
-        let st_u = (*st).max(0) as usize;
-        let ed = if st_u < src_lines.len() {
-            body_end(src_lines, st_u) as i32
-        } else if idx + 1 < raw_defs.len() {
-            raw_defs[idx + 1].0 - 1
-        } else {
-            *st + 1000
-        };
-        spans.push((*st, (*st).max(ed), sym.clone()));
-    }
-    spans
+    raw_defs
+        .iter()
+        .enumerate()
+        .map(|(idx, (st, sym))| {
+            let st_u = (*st).max(0) as usize;
+            let ed = if st_u < src_lines.len() {
+                body_end(src_lines, st_u) as i32
+            } else {
+                raw_defs.get(idx + 1).map_or(*st + 1000, |(n, _)| n - 1)
+            };
+            (*st, (*st).max(ed), sym.clone())
+        })
+        .collect()
 }
 
 fn find_enclosing<'a>(spans: &'a [(i32, i32, String)], line: i32) -> Option<&'a str> {

@@ -10,7 +10,6 @@ const METRIC_SOURCE: &str = include_str!("../resident_metric.metal");
 const METRIC_CANDIDATES: usize = 9;
 const _: () = assert!(MAX_HISTORY == 128 && FAMILIES == 4);
 #[cfg(test)]
-#[path = "metric_tests.rs"]
 mod tests;
 
 #[repr(C)]
@@ -26,7 +25,7 @@ struct MetricParams {
     aleatoric: f32,
 }
 
-pub(super) struct MetricGpu {
+pub struct MetricGpu {
     runtime: Arc<Runtime>,
     components: Buffer,
     weights: Buffer,

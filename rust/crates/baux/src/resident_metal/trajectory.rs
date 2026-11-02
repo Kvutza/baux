@@ -9,23 +9,23 @@
 //! unit-norm mixing weights (`alpha_fresh^2 + sum_j alpha_j^2 = 1`).
 use super::*;
 
-pub(super) const TRAJECTORY_CAPACITY: usize = 8;
+pub const TRAJECTORY_CAPACITY: usize = 8;
 
 #[derive(Clone, Copy, Debug)]
-pub(super) struct ElementarySeed {
-    pub(super) seed: u64,
-    pub(super) base_id: i64,
-    pub(super) slope: f32,
-    pub(super) precision: f32,
-    pub(super) accepted: bool,
+pub struct ElementarySeed {
+    pub seed: u64,
+    pub base_id: i64,
+    pub slope: f32,
+    pub precision: f32,
+    pub accepted: bool,
 }
 
 #[derive(Clone, Debug)]
-pub(super) struct TrajectoryGenerator {
-    pub(super) steps: Vec<ElementarySeed>,
-    pub(super) curvature: f32,
-    pub(super) slope_scale: f32,
-    pub(super) last_radius: f32,
+pub struct TrajectoryGenerator {
+    pub steps: Vec<ElementarySeed>,
+    pub curvature: f32,
+    pub slope_scale: f32,
+    pub last_radius: f32,
 }
 
 impl Default for TrajectoryGenerator {
@@ -62,7 +62,7 @@ fn update_slope(old: f32, updated: f32, precision: f32, mu_obs: f32, accepted: b
 }
 
 impl TrajectoryGenerator {
-    pub(super) fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             steps: Vec::with_capacity(MAX_HISTORY),
             curvature: 0.0,
@@ -71,7 +71,7 @@ impl TrajectoryGenerator {
         }
     }
 
-    pub(super) fn reset(&mut self) {
+    pub fn reset(&mut self) {
         self.steps.clear();
         self.curvature = 0.0;
         self.slope_scale = 0.0;
@@ -81,14 +81,7 @@ impl TrajectoryGenerator {
     /// Record one completed trial evaluation `(seed, base_id, radius, gain,
     /// accepted)` and update the curvature-centered Kalman posterior over
     /// elementary seeds.
-    pub(super) fn observe(
-        &mut self,
-        seed: u64,
-        base_id: i64,
-        radius: f32,
-        gain: f32,
-        accepted: bool,
-    ) {
+    pub fn observe(&mut self, seed: u64, base_id: i64, radius: f32, gain: f32, accepted: bool) {
         if !gain.is_finite() || !radius.is_finite() || radius <= 0.0 {
             return;
         }
@@ -267,7 +260,7 @@ impl TrajectoryGenerator {
 
     /// Pack up to `TRAJECTORY_CAPACITY` historical elementary seeds and
     /// unit-norm mixing coefficients for the next proposal at `current_base`.
-    pub(super) fn pack(
+    pub fn pack(
         &self,
         current_base: i64,
     ) -> (
@@ -416,7 +409,6 @@ mod tests {
             s.enable_family(vec![0, 1, 2, 3])?;
             let mut config = crate::config::RunConfig {
                 k_neighbors: Some(4),
-                history_geometry: Some(crate::config::HistoryGeometry::Latent),
                 proposal_method: Some(crate::procedural_pool::ProposalMethod::QuadraticFlow),
                 ..Default::default()
             }

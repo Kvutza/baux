@@ -11,9 +11,9 @@ pub use crate::candidates::{
     CandidateSampler, from_unit, generate_candidates, generate_lhd, to_unit,
 };
 pub use crate::config::{
-    AcquisitionConfig, CandidateConfig, DataRecipe, DistanceScaling, ExperimentKind,
-    ExperimentSpec, InitStrategy, ModelArchitecture, ObjectiveReference, OptimizerConfig,
-    SurrogateConfig, TrustRegionKind, lhd_only, turbo_enn, turbo_zero,
+    AcquisitionConfig, CandidateConfig, DataRecipe, DistanceMetric, ExperimentKind, ExperimentSpec,
+    InitStrategy, ModelArchitecture, ObjectiveReference, OptimizerConfig, SurrogateConfig,
+    TrustRegionKind, lhd_only, turbo_enn, turbo_zero,
 };
 pub use crate::draw::{Candidates, ConditionalDraw, DrawInternals, NeighborData};
 pub use crate::error::{ENNError, EPS_VAR};

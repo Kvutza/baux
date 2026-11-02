@@ -4,22 +4,22 @@ use super::{
 use rand::seq::index::sample;
 use rand::{Rng, SeedableRng, rngs::StdRng};
 
-pub(super) fn scale_row(
+pub(super) fn metric_row(
     est: &NeighborValueEstimator,
     distances: &[f64],
     excluded: Option<usize>,
     metric: DistanceMetric,
 ) -> [f64; MAX_HISTORY] {
-    let mut scaled = [0.0_f64; MAX_HISTORY];
+    let mut row_dists = [0.0_f64; MAX_HISTORY];
     let n = distances.len().min(est.len);
-    scaled[..n].copy_from_slice(&distances[..n]);
+    row_dists[..n].copy_from_slice(&distances[..n]);
     let local_k = match metric {
-        DistanceMetric::Euclidean => return scaled,
-        DistanceMetric::SelfTuning { local_k }
+        DistanceMetric::Euclidean => return row_dists,
+        DistanceMetric::Conformal { local_k }
         | DistanceMetric::Hyperbolic { local_k }
         | DistanceMetric::Wasserstein { local_k } => {
             if local_k == 0 || n <= 1 {
-                return scaled;
+                return row_dists;
             }
             local_k
         }
@@ -43,7 +43,7 @@ pub(super) fn scale_row(
         let mut row_len = 0;
         for col in 0..n {
             let d = est.distances[slot][col];
-            if col != slot && d > 0.0 {
+            if col != slot && Some(col) != excluded && d > 0.0 {
                 row[row_len] = d;
                 row_len += 1;
             }
@@ -54,10 +54,10 @@ pub(super) fn scale_row(
             row[..row_len].sort_unstable_by(f64::total_cmp);
             row[local_k.min(row_len) - 1].max(1.0e-12).sqrt()
         };
-        scaled[slot] = match metric {
+        row_dists[slot] = match metric {
             DistanceMetric::Euclidean => distances[slot],
-            DistanceMetric::SelfTuning { .. } => {
-                baux::semantics::neighbor::selftuning_delta(distances[slot], sigma_q, sigma_i)
+            DistanceMetric::Conformal { .. } => {
+                baux::semantics::neighbor::conformal_delta(distances[slot], sigma_q, sigma_i)
             }
             DistanceMetric::Hyperbolic { .. } => {
                 baux::semantics::neighbor::halfspace_delta(distances[slot], sigma_q, sigma_i)
@@ -67,7 +67,7 @@ pub(super) fn scale_row(
             }
         };
     }
-    scaled
+    row_dists
 }
 
 fn effective_scale(est: &NeighborValueEstimator) -> f32 {
@@ -98,9 +98,9 @@ pub(super) fn build_query(
     for i in 0..est.len {
         base_deltas[i] = est.outcomes[i] - y_b;
     }
-    let scaled = scale_row(est, distances, excluded, metric);
+    let row_dists = metric_row(est, distances, excluded, metric);
     let mut pred = baux::semantics::neighbor::query::Query {
-        distances: &scaled[..est.len],
+        distances: &row_dists[..est.len],
         outcomes: &base_deltas[..est.len],
         variances: &est.variances[..est.len],
         draws,
@@ -120,6 +120,31 @@ pub(super) fn build_query(
     Ok(pred)
 }
 
+fn characteristic_distance(est: &NeighborValueEstimator) -> f64 {
+    let n = est.len;
+    let mut sum = 0.0_f64;
+    let mut count = 0usize;
+    for row in 0..n {
+        let row_dists = metric_row(
+            est,
+            &est.distances[row][..n],
+            Some(row),
+            est.distance_metric,
+        );
+        for (col, &d) in row_dists[..n].iter().enumerate() {
+            if row != col && d.is_finite() && d > 0.0 {
+                sum += d;
+                count += 1;
+            }
+        }
+    }
+    if count > 0 {
+        (sum / count as f64).max(1.0e-12)
+    } else {
+        1.0
+    }
+}
+
 pub(super) fn fit(est: &mut NeighborValueEstimator) -> Result<(), String> {
     let n = est.len;
     let sum = est.outcomes[..n]
@@ -136,23 +161,27 @@ pub(super) fn fit(est: &mut NeighborValueEstimator) -> Result<(), String> {
     if !est.y_scale.is_finite() || est.y_scale <= 0.0 {
         est.y_scale = 1.0;
     }
+    let d_scale = characteristic_distance(est);
     let mut rng = StdRng::seed_from_u64(est.fit_seed.wrapping_add(n as u64));
     let mut candidates = Vec::with_capacity(est.fit_candidates + 1);
     let epistemic = (0..est.fit_candidates)
-        .map(|_| 10.0_f64.powf(rng.gen_range(-3.0..=3.0)))
+        .map(|_| 10.0_f64.powf(rng.gen_range(-3.0..=3.0)) / d_scale)
         .collect::<Vec<_>>();
     let aleatoric = (0..est.fit_candidates)
-        .map(|_| 10.0_f64.powf(rng.gen_range(-3.0..=3.0)))
+        .map(|_| 10.0_f64.powf(rng.gen_range(-6.0..=0.0)))
         .collect::<Vec<_>>();
     for (&epistemic, &aleatoric) in epistemic.iter().zip(&aleatoric) {
         candidates.push(NeighborEstimatorParams {
-            neighbors: est.params.neighbors,
+            neighbors: est.defaults.neighbors,
             epistemic,
             aleatoric,
             law: est.uncertainty_law,
         });
     }
-    candidates.push(est.params);
+    candidates.push(NeighborEstimatorParams {
+        neighbors: est.defaults.neighbors,
+        ..est.params
+    });
     let selected = sampled_rows(n, est.fit_samples, &mut rng);
     let mut best: Option<(NeighborEstimatorParams, f64)> = None;
     for candidate in candidates {
@@ -161,9 +190,28 @@ pub(super) fn fit(est: &mut NeighborValueEstimator) -> Result<(), String> {
             best = Some((candidate, score));
         }
     }
-    est.params = best
+    let mut fitted = best
         .ok_or("neighbor value estimator scale fitting produced no finite candidate")?
         .0;
+    if est.adapt_neighbors && n > 2 {
+        let selected_k = sampled_rows(n, est.fit_samples, &mut rng);
+        let largest = est.defaults.neighbors.min(n - 1);
+        let mut best_k: Option<(NeighborEstimatorParams, f64)> = None;
+        for k in 1..=largest {
+            let candidate = NeighborEstimatorParams {
+                neighbors: k,
+                ..fitted
+            };
+            let score = loo_score(est, candidate, &selected_k);
+            if score.is_finite() && best_k.is_none_or(|(_, best_score)| score > best_score) {
+                best_k = Some((candidate, score));
+            }
+        }
+        fitted = best_k
+            .ok_or("neighbor value estimator adaptive k fitting produced no finite candidate")?
+            .0;
+    }
+    est.params = fitted;
     est.fitted = true;
     Ok(())
 }
@@ -175,14 +223,14 @@ fn loo_score(
 ) -> f64 {
     let mut score = 0.0;
     for &held in selected {
-        let scaled = scale_row(
+        let row_dists = metric_row(
             est,
             &est.distances[held][..est.len],
             Some(held),
             est.distance_metric,
         );
         let (mean, standard_error) = posterior(
-            &scaled[..est.len],
+            &row_dists[..est.len],
             &est.outcomes[..est.len],
             &est.variances[..est.len],
             params,

@@ -26,7 +26,7 @@ pub enum UncertaintyLaw {
 pub enum DistanceMetric {
     #[default]
     Euclidean,
-    SelfTuning {
+    Conformal {
         local_k: usize,
     },
     Hyperbolic {
@@ -99,9 +99,10 @@ pub fn retention_cone(
     retention(identities, incumbent)
 }
 
-/// Self-tuning distance normalization (`sq_dist / (scale_a * scale_b)`).
+/// Conformal local-scale distance normalization (`sq_dist / (scale_a *
+/// scale_b)`).
 #[inline(always)]
-pub fn selftuning_delta(sq_dist: f64, scale_a: f64, scale_b: f64) -> f64 {
+pub fn conformal_delta(sq_dist: f64, scale_a: f64, scale_b: f64) -> f64 {
     let a = scale_a.max(1.0e-12);
     let b = scale_b.max(1.0e-12);
     sq_dist.max(0.0) / (a * b)
@@ -118,11 +119,11 @@ pub fn scale_penalty(scale_a: f64, scale_b: f64) -> f64 {
 }
 
 /// Upper half-space Poincare dissimilarity (`arXiv:2305.01356`):
-/// `0.5 * selftuning_delta(sq_dist, scale_a, scale_b) + scale_penalty(scale_a,
+/// `0.5 * conformal_delta(sq_dist, scale_a, scale_b) + scale_penalty(scale_a,
 /// scale_b)`.
 #[inline(always)]
 pub fn halfspace_delta(sq_dist: f64, scale_a: f64, scale_b: f64) -> f64 {
-    0.5 * selftuning_delta(sq_dist, scale_a, scale_b) + scale_penalty(scale_a, scale_b)
+    0.5 * conformal_delta(sq_dist, scale_a, scale_b) + scale_penalty(scale_a, scale_b)
 }
 
 /// Entropic Wasserstein metric on local observation scales.

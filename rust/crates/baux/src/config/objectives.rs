@@ -2,7 +2,6 @@
 use super::*;
 
 #[cfg(test)]
-#[path = "objectives_tests.rs"]
 mod tests;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -142,7 +141,7 @@ impl ResidentObjectiveConfig {
 }
 
 impl RunConfig {
-    pub(super) fn validate_objectives(&self) -> Result<(), String> {
+    pub fn validate_objectives(&self) -> Result<(), String> {
         let vector = self.generation.as_ref().is_some_and(|generation| {
             (!generation.causal_pretrain() || self.objective_acquisition.is_some())
                 && matches!(
@@ -160,19 +159,6 @@ impl RunConfig {
             }) && config.scales.len() != 3
             {
                 return Err("drafted-code requires three acquisition scales".into());
-            }
-            if config.mode == ResidentObjectiveMode::Morbo
-                && self.history_geometry.unwrap_or_default() != HistoryGeometry::Latent
-            {
-                return Err("MORBO requires latent history geometry".into());
-            }
-            if config.mode == ResidentObjectiveMode::Morbo
-                && self.reliability_controller().is_some()
-            {
-                return Err(
-                    "MORBO owns trust-region adaptation and cannot use the reliability controller"
-                        .into(),
-                );
             }
             if !vector {
                 return Err(

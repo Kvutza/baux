@@ -1,7 +1,7 @@
 use super::*;
 
 #[repr(C)]
-pub(super) struct ObjectiveParams {
+pub struct ObjectiveParams {
     outcomes: [[f32; MAX_HISTORY]; MAX_OBJECTIVES],
     variances: [[f32; MAX_HISTORY]; MAX_OBJECTIVES],
     draws: [[f32; MAX_HISTORY]; MAX_OBJECTIVES],
@@ -16,7 +16,7 @@ pub(super) struct ObjectiveParams {
     clip: u32,
 }
 
-pub(super) fn validate_history(state: &SearchState, width: usize) -> Result<(), String> {
+pub fn validate_history(state: &SearchState, width: usize) -> Result<(), String> {
     if state.relative || state.history == 0 {
         return Err("Vector acquisition requires measured absolute objective observations".into());
     }
@@ -37,9 +37,10 @@ pub(super) fn validate_history(state: &SearchState, width: usize) -> Result<(), 
 }
 
 impl ObjectiveParams {
-    pub(super) fn pack(
+    pub fn pack(
         state: &SearchState,
         config: &ObjectivePolicy,
+        trust: Option<&MorboTrustRegion>,
         root: u64,
         ask: RoundConfig,
     ) -> Self {
@@ -63,7 +64,7 @@ impl ObjectiveParams {
         };
         params.scales[..config.scales.len()].copy_from_slice(&config.scales);
         params.fill_observations(state, ask.acquisition.seed);
-        params.configure_mode(state, config);
+        params.configure_mode(config, trust);
         params
     }
 
@@ -80,16 +81,11 @@ impl ObjectiveParams {
         }
     }
 
-    fn configure_mode(&mut self, state: &SearchState, config: &ObjectivePolicy) {
+    fn configure_mode(&mut self, config: &ObjectivePolicy, trust: Option<&MorboTrustRegion>) {
         let ObjectiveAcquisition::Morbo { alpha, .. } = &config.acquisition else {
             return;
         };
-        let morbo = state
-            .objective_selector
-            .as_ref()
-            .and_then(|selector| selector.morbo.as_ref())
-            .expect("validated MORBO selector requires its trust region");
-        let trust = morbo.trust();
+        let trust = trust.expect("validated MORBO selector requires its trust region");
         self.mode = 1;
         self.alpha = *alpha;
         // MORBO acquisition extrapolates beyond observed ranges. Incumbent

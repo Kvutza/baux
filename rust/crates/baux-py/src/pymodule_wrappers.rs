@@ -52,7 +52,7 @@ pub fn pymodule_model(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<crate::py_posterior::PyDevicePosterior>()?;
     m.add_class::<crate::py_posterior::PyDeviceArray>()?;
     m.add_class::<crate::py_model::PyENN>()?;
-    m.add_class::<crate::py_model::PyENNParams>()?;
+    m.add_class::<crate::py_fitter::PyENNParams>()?;
     Ok(())
 }
 
@@ -66,36 +66,17 @@ pub fn pymodule_fit(m: &Bound<'_, PyModule>) -> PyResult<()> {
     Ok(())
 }
 
-/// Experimental native model-package API.
+/// Experimental resident Metal search API.
 #[pymodule]
 #[pyo3(name = "experimental")]
 pub fn pymodule_experimental(m: &Bound<'_, PyModule>) -> PyResult<()> {
-    #[cfg(all(target_os = "linux", target_arch = "x86_64", feature = "native-flame"))]
-    m.add_class::<crate::py_flame::PyFlameEvaluator>()?;
     #[cfg(all(target_os = "macos", feature = "metal"))]
     {
         m.add_class::<crate::py_metal::PyMetalWeights>()?;
-        m.add_class::<crate::py_metal::PyMetalFlameEvaluator>()?;
-        m.add_class::<crate::py_qwen::PyMetalQwenEvaluator>()?;
         m.add_class::<crate::py_metal::PyMetalParamBlock>()?;
         m.add_class::<crate::py_metal::PyMetalSearchState>()?;
         m.add_class::<crate::py_metal::PyMetalProposals>()?;
     }
-    m.add_class::<crate::py_experimental::PyModelPackage>()?;
-    m.add_class::<crate::py_experimental::PyResidentBoSession>()?;
-    #[cfg(all(target_os = "macos", feature = "metal"))]
-    m.add_class::<crate::py_experimental::PyNativeKdaModel>()?;
-    Ok(())
-}
-
-/// Candidate evaluation coordination.
-#[pymodule]
-#[pyo3(name = "search")]
-pub fn pymodule_search(m: &Bound<'_, PyModule>) -> PyResult<()> {
-    m.add_class::<crate::py_weights::PyTrialEngine>()?;
-    m.add_class::<crate::py_weights::PyParameterOptimizer>()?;
-    m.add_class::<crate::py_weights::PyTrial>()?;
-    m.add_class::<crate::py_parameter::PyParameter>()?;
     Ok(())
 }
 
@@ -106,37 +87,10 @@ pub fn pymodule_optimizer(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<crate::py_optimizer::PyBayesOptimizer>()?;
     m.add_class::<crate::py_regions::PyMultiTrustRegion>()?;
     m.add_class::<crate::py_optimizer::PyTelemetry>()?;
-    m.add_class::<crate::py_weights::PyDenseLinear>()?;
-    #[cfg(all(target_os = "linux", target_arch = "x86_64", feature = "cuda"))]
-    m.add_class::<crate::py_weights::PyParamBuffer>()?;
-    #[cfg(all(target_os = "linux", target_arch = "x86_64", feature = "cuda"))]
-    m.add("ParamBuffer", m.getattr("ParameterBuffer")?)?;
-    #[cfg(all(target_os = "linux", target_arch = "x86_64", feature = "cuda"))]
-    m.add_class::<crate::py_bf16::PyParamBlock>()?;
-    #[cfg(all(target_os = "linux", target_arch = "x86_64", feature = "cuda"))]
-    m.add_class::<crate::py_bf16::PySearchState>()?;
-    #[cfg(all(target_os = "linux", target_arch = "x86_64", feature = "cuda"))]
-    m.add_class::<crate::py_bf16::PyProposals>()?;
-    m.add_class::<crate::py_weights::PyBpannHistory>()?;
     m.add_function(wrap_pyfunction!(crate::py_optimizer::create_py, m)?)?;
     m.add_function(wrap_pyfunction!(crate::py_optimizer::enn_py, m)?)?;
     m.add_function(wrap_pyfunction!(crate::py_optimizer::bind_regions, m)?)?;
     m.add_function(wrap_pyfunction!(crate::py_optimizer::bind_zero, m)?)?;
     m.add_function(wrap_pyfunction!(crate::py_optimizer::bind_lhd, m)?)?;
-    m.add_function(wrap_pyfunction!(crate::py_weights::weight_py, m)?)?;
-    m.add_function(wrap_pyfunction!(crate::py_weights::select_weight, m)?)?;
-    m.add_function(wrap_pyfunction!(crate::py_weights::dense_py, m)?)?;
-    m.add_function(wrap_pyfunction!(crate::py_weights::bind_dist, m)?)?;
-    m.add_function(wrap_pyfunction!(crate::py_weights::bind_linear, m)?)?;
-    m.add_function(wrap_pyfunction!(crate::py_weights::sparse_py, m)?)?;
-    m.add_function(wrap_pyfunction!(crate::py_weights::bind_xor, m)?)?;
-    m.add_function(wrap_pyfunction!(crate::py_weights::bind_missing, m)?)?;
-    m.add_function(wrap_pyfunction!(crate::py_weights::bind_merge, m)?)?;
-    m.add_function(wrap_pyfunction!(crate::py_weights::bind_take, m)?)?;
-    m.add_function(wrap_pyfunction!(crate::py_weights::bind_apply, m)?)?;
-    m.add_function(wrap_pyfunction!(crate::py_weights::bind_blocks, m)?)?;
-    m.add_function(wrap_pyfunction!(crate::py_weights::bind_draw, m)?)?;
-    m.add_function(wrap_pyfunction!(crate::py_weights::bind_select, m)?)?;
-    m.add_function(wrap_pyfunction!(crate::py_weights::select_sparse, m)?)?;
     Ok(())
 }

@@ -30,11 +30,11 @@ inline void objective_geometry(
     uint excluded_index,
     thread float *scaled_distances,
     thread uint *nearest) {
-    if (q.distance_scaling != 0) {
+    if (q.distance_metric != 0) {
         float query_neighbors[128];
         uint query_count = 0;
         for (uint i = 0; i < q.history; i++) {
-            if (i == excluded_index) continue;
+            if (i == excluded_index || distances[i] <= 0.0f) continue;
             uint position = query_count;
             while (position > 0 && distances[i] < query_neighbors[position - 1]) {
                 query_neighbors[position] = query_neighbors[position - 1];
@@ -48,8 +48,14 @@ inline void objective_geometry(
             ? 1.0f
             : max(query_neighbors[local_rank - 1], 1.0e-12f);
         for (uint i = 0; i < q.history; i++) {
-            float s_q = sqrt(query_scale), s_h = sqrt(max(q.local_scales[i], 1.0e-12f)), hyp = float(q.distance_scaling >> 1);
-            scaled_distances[i] = (distances[i] + hyp * (s_q - s_h) * (s_q - s_h)) / ((1.0f + hyp) * s_q * s_h);
+            float s_q = sqrt(query_scale), s_h = sqrt(max(q.local_scales[i], 1.0e-12f));
+            if (q.distance_metric == 3) {
+                float diff = abs(s_q - s_h);
+                scaled_distances[i] = distances[i] / sqrt(max(s_q * s_h, 1.0e-12f)) + diff * diff;
+            } else {
+                float hyp = float(q.distance_metric >> 1);
+                scaled_distances[i] = (distances[i] + hyp * (s_q - s_h) * (s_q - s_h)) / ((1.0f + hyp) * s_q * s_h);
+            }
         }
     } else {
         for (uint i = 0; i < q.history; i++) scaled_distances[i] = distances[i];
@@ -126,7 +132,7 @@ inline float acquisition_score(
     return mean + q.beta * epistemic_se;
 }
 
-kernel void bf16_select_objectives(
+kernel void dense_select_objectives(
     device const Partial *aggregates [[buffer(0)]],
     device Decision *decision [[buffer(1)]],
     device float *pool_distances [[buffer(2)]],
@@ -140,21 +146,21 @@ kernel void bf16_select_objectives(
     bool changed[4] = {false, false, false, false};
     bool invalid[4] = {false, false, false, false};
     for (uint candidate = 0; candidate < 4; candidate++) {
-        proposal_norms[candidate] = aggregates[candidate].squared;
+        proposal_norms[candidate] = q.latent_history != 0 ? q.latent_norms[candidate] : aggregates[candidate].squared;
         for (uint row = 0; row < q.history; row++) {
-            distances[candidate][row] = q.exact_history != 0 || q.sampled_history != 0
+            distances[candidate][row] = q.sampled_history != 0
                 ? pool_distances[candidate * q.history + row]
                 : q.implicit_history != 0
                 ? q.base_distances[row] + proposal_norms[candidate]
                 : 0.0f;
-            if (q.program != 0 && q.exact_history == 0)
+            if (q.program != 0)
                 distances[candidate][row] += pool_distances[candidate * q.history + row];
             if (q.axis_enabled != 0) {
                 float delta = q.axis_candidates[candidate] - q.axis_history[row];
                 distances[candidate][row] += q.axis_weight * delta * delta;
             }
         }
-        if (q.exact_history != 0 || q.sampled_history != 0) {
+        if (q.sampled_history != 0) {
             proposal_norms[candidate] = distances[candidate][q.incumbent_index];
             changed[candidate] = proposal_norms[candidate] > 0.0f;
             for (uint row = 0; row < q.history; row++)
@@ -162,7 +168,7 @@ kernel void bf16_select_objectives(
                     || !isfinite(distances[candidate][row]);
         }
     }
-    if (q.exact_history == 0 && q.sampled_history == 0)
+    if (q.latent_history == 0 && q.sampled_history == 0)
     for (uint candidate = 0; candidate < 4; candidate++) {
         for (uint row = 0; row < q.resident_history; row += 2) {
             Partial aggregate = aggregates[(row / 2) * 4 + candidate];
@@ -171,10 +177,10 @@ kernel void bf16_select_objectives(
             changed[candidate] = changed[candidate] || aggregate.changed != 0;
             invalid[candidate] = invalid[candidate] || aggregate.invalid != 0;
             uint first_index = q.implicit_history != 0 ? q.resident_indices[row] : row;
-            if (q.exact_history == 0) distances[candidate][first_index] = first;
+            distances[candidate][first_index] = first;
             if (row + 1 < q.resident_history) {
                 uint second_index = q.implicit_history != 0 ? q.resident_indices[row + 1] : row + 1;
-                if (q.exact_history == 0) distances[candidate][second_index] = second;
+                distances[candidate][second_index] = second;
             }
             invalid[candidate] = invalid[candidate] || !isfinite(first)
                 || (row + 1 < q.resident_history && !isfinite(second));

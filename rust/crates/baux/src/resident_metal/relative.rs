@@ -33,7 +33,7 @@ impl SearchState {
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub(super) fn tell_inner(
+    pub fn tell_inner(
         &mut self,
         round: &Proposals,
         value: f32,

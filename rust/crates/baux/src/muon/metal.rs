@@ -4,7 +4,7 @@ extern crate metal as metal_crate;
 
 use super::{POLAR, Polynomial, Shape, Step};
 use crate::apple_gpu::{Runtime, thread_group};
-use crate::fbt_mps::{Matmul, Matrix};
+use crate::mps::{Matmul, Matrix};
 use metal_crate::foreign_types::{ForeignType, ForeignTypeRef};
 use metal_crate::{
     Buffer, BufferRef, CommandBufferRef, ComputePipelineState, MTLCommandBufferStatus,

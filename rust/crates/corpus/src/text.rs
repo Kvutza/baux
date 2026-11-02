@@ -1,6 +1,6 @@
 //! Document-preserving text streams for base pretraining corpora.
 use super::encoding::Encoding;
-use super::{Result, SPLITS, split};
+use super::reader::{Result, SPLITS, split};
 use arrow_array::{Array, LargeStringArray, RecordBatch, StringArray};
 use baux::artifact::json::{Value, json};
 use deser::Deserialize;

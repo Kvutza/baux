@@ -5,6 +5,8 @@ mod loo_fit;
 pub use baux::semantics::neighbor::{DistanceMetric, MAX_HISTORY, UncertaintyLaw};
 use deser::{Deserialize, Serialize};
 
+pub const INITIAL_OBSERVATIONS: usize = 32;
+
 /// A scalar value prediction with its standard error.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct ValuePrediction {
@@ -33,12 +35,12 @@ pub struct SurrogateSpec {
 impl Default for SurrogateSpec {
     fn default() -> Self {
         Self {
-            neighbors: baux::semantics::INITIAL_OBSERVATIONS,
+            neighbors: INITIAL_OBSERVATIONS,
             epistemic: 0.05,
             aleatoric: 0.05,
             scale: 1.0,
-            fit_candidates: 4,
-            fit_samples: 4,
+            fit_candidates: 30,
+            fit_samples: 10,
             fit: false,
             adaptive: false,
         }
@@ -196,15 +198,6 @@ impl NeighborValueEstimator {
         self
     }
 
-    pub fn with_hyperbolic(self, local_k: usize) -> Self {
-        let metric = if local_k > 0 {
-            DistanceMetric::Hyperbolic { local_k }
-        } else {
-            DistanceMetric::Euclidean
-        };
-        self.with_metric(metric)
-    }
-
     pub fn with_law(mut self, law: UncertaintyLaw) -> Self {
         self.uncertainty_law = law;
         self.defaults.law = law;
@@ -218,6 +211,10 @@ impl NeighborValueEstimator {
 
     pub const fn is_initializing(&self) -> bool {
         self.len < self.defaults.neighbors
+    }
+
+    pub const fn base_slot(&self) -> usize {
+        self.base
     }
 
     pub const fn base_value(&self) -> f32 {

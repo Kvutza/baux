@@ -62,13 +62,13 @@ pub fn family_multiplier(family: &str) -> f32 {
 /// precede one caller-supplied FP16 rounding step. Keeping allocation and RNG
 /// ownership with the caller permits both packed Metal and per-layer CUDA
 /// views.
-pub fn columns(
-    values: &mut [u16],
+pub fn columns<T: Copy>(
+    values: &mut [T],
     input: usize,
     output: usize,
     column_norm: f32,
     mut normal: impl FnMut() -> f32,
-    round: impl Fn(f32) -> u16,
+    round: impl Fn(f32) -> T,
 ) -> Result<(), String> {
     let size = input
         .checked_mul(output)

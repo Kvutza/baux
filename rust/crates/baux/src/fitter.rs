@@ -171,17 +171,29 @@ impl ENNFitter {
         num_random: usize,
         rng: &mut R,
     ) -> Result<Vec<ENNParams>, ENNError> {
+        self.scaled_candidates(num_random, 1.0, rng)
+    }
+
+    fn scaled_candidates<R: Rng>(
+        &self,
+        num_random: usize,
+        d_scale: f64,
+        rng: &mut R,
+    ) -> Result<Vec<ENNParams>, ENNError> {
         if num_random == 0 {
             return Ok(vec![]);
         }
-        let log_min = -3.0;
-        let log_max = 3.0;
+        let d_scale = if d_scale.is_finite() && d_scale > 0.0 {
+            d_scale.max(1.0e-12)
+        } else {
+            1.0
+        };
         let epi: Vec<f64> = (0..num_random)
-            .map(|_| 10f64.powf(rng.gen_range(log_min..=log_max)))
+            .map(|_| 10f64.powf(rng.gen_range(-3.0..=3.0)) / d_scale)
             .collect();
         let ale: Vec<f64> = if self.infer_aleatoric_variance {
             (0..num_random)
-                .map(|_| 10f64.powf(rng.gen_range(log_min..=log_max)))
+                .map(|_| 10f64.powf(rng.gen_range(-6.0..=0.0)))
                 .collect()
         } else {
             vec![0.0; num_random]
@@ -192,7 +204,7 @@ impl ENNFitter {
             .filter_map(|(&e, &a)| ENNParams::new(self.k, e, a).ok())
             .collect();
         if paramss.is_empty() {
-            return ENNParams::new(self.k, 1.0, 0.0)
+            return ENNParams::new(self.k, 1.0 / d_scale, 0.0)
                 .map(|p| vec![p])
                 .map_err(|e| {
                     ENNError::InvalidParameter(format!("Failed to create default params: {e}"))
@@ -204,10 +216,11 @@ impl ENNFitter {
     fn candidates<R: Rng>(
         &self,
         num_candidates: usize,
+        d_scale: f64,
         params_warm_start: Option<&ENNParams>,
         rng: &mut R,
     ) -> Result<Vec<ENNParams>, ENNError> {
-        let mut paramss = self.build_candidates(num_candidates, rng)?;
+        let mut paramss = self.scaled_candidates(num_candidates, d_scale, rng)?;
         let warm = params_warm_start.or(self.params.as_ref());
         if let Some(warm) = warm {
             paramss.push(
@@ -260,7 +273,7 @@ impl ENNFitter {
                 "tell must be called before ask to initialize incremental y statistics".to_string(),
             ));
         }
-        let paramss = self.candidates(num_candidates, params_warm_start, rng)?;
+        let paramss = self.candidates(num_candidates, 1.0, params_warm_start, rng)?;
         let indices: Vec<usize> = {
             let n = model.len();
             let p_actual = num_samples.min(n);
@@ -323,7 +336,8 @@ impl ENNFitter {
             return Ok(best);
         }
         self.y_stats(y);
-        let paramss = self.candidates(num_candidates, params_warm_start, rng)?;
+        let d_scale = characteristic_distance(distances);
+        let paramss = self.candidates(num_candidates, d_scale, params_warm_start, rng)?;
         let y_std = self.y_std();
         let logliks = crate::fit::distance_loglik(
             distances,
@@ -365,6 +379,7 @@ impl ENNFitter {
                 "adaptive neighbor fitting requires max_k > 0".into(),
             ));
         }
+        self.k = max_k;
         let scale_fit = self.ask_distances(
             distances,
             y,
@@ -414,6 +429,26 @@ impl ENNFitter {
         self.k = best.k_neighbors;
         self.params = Some(best);
         Ok(best)
+    }
+}
+
+fn characteristic_distance(distances: &ArrayView2<f64>) -> f64 {
+    let n = distances.nrows();
+    let mut sum = 0.0_f64;
+    let mut count = 0usize;
+    for row in 0..n {
+        for col in 0..n {
+            let d = distances[[row, col]];
+            if row != col && d.is_finite() && d > 0.0 {
+                sum += d;
+                count += 1;
+            }
+        }
+    }
+    if count > 0 {
+        (sum / count as f64).max(1.0e-12)
+    } else {
+        1.0
     }
 }
 

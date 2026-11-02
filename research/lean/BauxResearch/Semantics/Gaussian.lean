@@ -5,7 +5,7 @@ import Mathlib.Data.BitVec
 /-!
 # Integer reachability for the CUDA Gaussian rejection sampler
 
-The word expressions follow `backends/cuda/device/src/fbt_math.rs`. This module does not yet
+The word expressions follow `rust/crates/cuda/device/src/fbt_math.rs`. This module does not yet
 prove extraction correspondence, float/log predicates, the generated host tables,
 or termination of the complete GPU loop. Successful branch witnesses below have
 explicit table or floating-point premises. The retry multiplier is divisible by

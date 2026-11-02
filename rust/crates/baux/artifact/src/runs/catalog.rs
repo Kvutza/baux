@@ -203,35 +203,4 @@ pub fn reindex(root: &Path) -> Result<usize, String> {
     Ok(records.len())
 }
 
-/// Calendar dates are local; RFC3339 inputs specify their own offset.
-pub fn since(input: &str) -> Result<i64, String> {
-    let now = jiff::Zoned::now();
-    let date = match input {
-        "today" => Some(now.date()),
-        "yesterday" => Some(
-            now.date()
-                .checked_sub(jiff::Span::new().days(1))
-                .map_err(|e| e.to_string())?,
-        ),
-        _ => input.parse::<jiff::civil::Date>().ok(),
-    };
-    let timestamp = if let Some(date) = date {
-        date.at(0, 0, 0, 0)
-            .to_zoned(now.time_zone().clone())
-            .map_err(|e| e.to_string())?
-            .timestamp()
-    } else {
-        input
-            .parse::<jiff::Timestamp>()
-            .map_err(|_| "use today, yesterday, YYYY-MM-DD or an RFC3339 timestamp".to_string())?
-    };
-    Ok(timestamp.as_millisecond())
-}
-
-pub fn local_time(millis: i64) -> Result<String, String> {
-    Ok(jiff::Timestamp::from_millisecond(millis)
-        .map_err(|e| e.to_string())?
-        .to_zoned(jiff::tz::TimeZone::system())
-        .strftime("%Y-%m-%d %H:%M:%S %Z")
-        .to_string())
-}
+pub use super::codec::{local_time, since};

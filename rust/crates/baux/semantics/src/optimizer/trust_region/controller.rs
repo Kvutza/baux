@@ -9,8 +9,6 @@ const SIGN_MASK: u64 = 0x8000_0000_0000_0000;
 const EXP_MASK: u64 = 0x7ff0_0000_0000_0000;
 const FRAC_MASK: u64 = 0x000f_ffff_ffff_ffff;
 
-pub type ReliabilityAction = RadiusAction;
-pub type ReliabilityDecision = StepDecision;
 #[cfg(not(cabi_parity))]
 pub type RadiusController = TrustRegionController;
 
@@ -123,19 +121,33 @@ pub struct StepDecision {
 
 #[cfg(not(cabi_parity))]
 #[derive(Clone, Copy, Debug)]
-struct TurboState {
-    length: f64,
-    minimum: f64,
-    maximum: f64,
-    success_limit: usize,
-    failure_limit: usize,
-    successes: usize,
-    failures: usize,
+pub struct TurboState {
+    pub length: f64,
+    pub initial: f64,
+    pub minimum: f64,
+    pub maximum: f64,
+    pub success_limit: usize,
+    pub failure_limit: usize,
+    pub successes: usize,
+    pub failures: usize,
 }
 
 #[cfg(not(cabi_parity))]
 impl TurboState {
-    fn step(&mut self, accepted: bool, fallback: f64) -> RadiusAction {
+    pub fn new(initial: f64, minimum: f64, maximum: f64, failure_limit: usize) -> Self {
+        Self {
+            length: initial,
+            initial,
+            minimum,
+            maximum,
+            success_limit: 3,
+            failure_limit: failure_limit.max(1),
+            successes: 0,
+            failures: 0,
+        }
+    }
+
+    pub fn step(&mut self, accepted: bool) -> RadiusAction {
         if accepted {
             self.failures = 0;
             self.successes += 1;
@@ -153,7 +165,8 @@ impl TurboState {
                 self.failures = 0;
                 let shrunk = self.length * 0.5;
                 if shrunk < self.minimum {
-                    self.length = fallback;
+                    // TuRBO restart: collapse below minimum resets to initial.
+                    self.length = self.initial;
                     self.successes = 0;
                 } else {
                     self.length = shrunk;
@@ -166,37 +179,26 @@ impl TurboState {
     }
 }
 
-/// Calibration and scalar step acceptance around the stochastic trust-region
-/// controller. Invalid evidence leaves both states intact.
+/// Pure TuRBO trust-region adaptation with calibration and numerical
+/// validation.
 #[cfg(not(cabi_parity))]
 pub struct TrustRegionController {
     pub(super) calibration: Calibration,
-    control: super::agreement::ModelAgreement,
-    turbo: Option<TurboState>,
+    turbo: TurboState,
+}
+
+#[cfg(not(cabi_parity))]
+pub(super) fn validate_improvements(observed: f64, predicted: f64) -> Result<(), String> {
+    if !observed.is_finite() || !predicted.is_finite() {
+        return Err("trial-step improvements must be finite".into());
+    }
+    Ok(())
 }
 
 #[cfg(not(cabi_parity))]
 impl TrustRegionController {
     pub fn new(initial: f32, minimum: f32, maximum: f32) -> Result<Self, String> {
-        Self::configured(initial, minimum, maximum, Default::default())
-    }
-
-    pub fn configured(
-        initial: f32,
-        minimum: f32,
-        maximum: f32,
-        policy: super::agreement::TrustRegionSpec,
-    ) -> Result<Self, String> {
-        Ok(Self {
-            calibration: Calibration::default(),
-            control: super::agreement::ModelAgreement::new(
-                policy,
-                f64::from(initial),
-                f64::from(minimum),
-                f64::from(maximum),
-            )?,
-            turbo: None,
-        })
+        Self::with_turbo(initial, minimum, maximum, 4)
     }
 
     pub fn with_turbo(
@@ -205,40 +207,11 @@ impl TrustRegionController {
         maximum: f32,
         failure_limit: usize,
     ) -> Result<Self, String> {
-        let control = super::agreement::ModelAgreement::new(
-            Default::default(),
-            f64::from(initial),
-            f64::from(minimum),
-            f64::from(maximum),
-        )?;
-        Ok(Self {
-            calibration: Calibration::default(),
-            control,
-            turbo: Some(TurboState {
-                length: f64::from(initial),
-                minimum: f64::from(minimum),
-                maximum: f64::from(maximum),
-                success_limit: 3,
-                failure_limit: failure_limit.max(1),
-                successes: 0,
-                failures: 0,
-            }),
-        })
-    }
-
-    pub fn from_policy(
-        initial: f32,
-        minimum: f32,
-        maximum: f32,
-        failure_limit: usize,
-        policy: Option<super::agreement::TrustRegionSpec>,
-    ) -> Result<Self, String> {
         Self::policy_f64(
             f64::from(initial),
             f64::from(minimum),
             f64::from(maximum),
             failure_limit,
-            policy,
         )
     }
 
@@ -247,32 +220,21 @@ impl TrustRegionController {
         minimum: f64,
         maximum: f64,
         failure_limit: usize,
-        policy: Option<super::agreement::TrustRegionSpec>,
     ) -> Result<Self, String> {
-        let control = super::agreement::ModelAgreement::new(
-            policy.unwrap_or_default(),
-            initial,
-            minimum,
-            maximum,
-        )?;
+        if !initial.is_finite() || !minimum.is_finite() || !maximum.is_finite() {
+            return Err("trust-region boundaries must be finite".into());
+        }
+        if minimum <= 0.0 || initial < minimum || initial > maximum {
+            return Err("invalid trust-region radius boundaries".into());
+        }
         Ok(Self {
             calibration: Calibration::default(),
-            control,
-            turbo: policy.is_none().then_some(TurboState {
-                length: initial,
-                minimum,
-                maximum,
-                success_limit: 3,
-                failure_limit: failure_limit.max(1),
-                successes: 0,
-                failures: 0,
-            }),
+            turbo: TurboState::new(initial, minimum, maximum, failure_limit),
         })
     }
 
     pub fn radius_f64(&self) -> f64 {
-        self.turbo
-            .map_or(self.control.length(), |state| state.length)
+        self.turbo.length
     }
 
     pub fn radius(&self) -> f32 {
@@ -300,15 +262,7 @@ impl TrustRegionController {
         predicted_improvement: f64,
         threshold: f64,
     ) -> Result<StepDecision, String> {
-        super::agreement::validate_evidence(super::agreement::TrialStep {
-            observed_improvement,
-            observation_variance: 0.0,
-            predicted_improvement,
-            prediction_variance: 0.0,
-            accepted: false,
-            nominal_radius: f64::from(self.radius()),
-            response_radius: 0.0,
-        })?;
+        validate_improvements(observed_improvement, predicted_improvement)?;
         if !threshold.is_finite() {
             return Err("acceptance margin must be finite".into());
         }
@@ -327,71 +281,13 @@ impl TrustRegionController {
         })
     }
 
-    /// Validate one measured observation, apply the common policy, then update
-    /// calibration when requested. The acceptance margin uses only past errors.
-    pub fn observe(
-        &mut self,
-        observed_improvement: f32,
-        observation_variance: f32,
-        predicted_improvement: f32,
-        prediction_variance: f32,
-        response_radius: f32,
-        calibrate: bool,
-    ) -> Result<StepDecision, String> {
-        self.observe_evidence(
-            super::agreement::TrialStep {
-                observed_improvement: f64::from(observed_improvement),
-                observation_variance: f64::from(observation_variance),
-                predicted_improvement: f64::from(predicted_improvement),
-                prediction_variance: f64::from(prediction_variance),
-                accepted: false,
-                nominal_radius: f64::from(self.radius()),
-                response_radius: f64::from(response_radius),
-            },
-            calibrate,
-        )
-    }
-
-    /// Self-contained round evaluation: computes observed and predicted
-    /// improvements and combined observation/prediction variances internally,
-    /// then runs the calibrated acceptance gate and radius controller update.
-    #[allow(clippy::too_many_arguments)]
-    pub fn evaluate_step(
-        &mut self,
-        value: f32,
-        variance: f32,
-        incumbent_mean: f32,
-        incumbent_se: f32,
-        predicted_mean: f32,
-        predicted_se: f32,
-        radius: f32,
-        calibrate: bool,
-    ) -> Result<StepDecision, String> {
-        let inc_se = f64::from(incumbent_se.max(0.0));
-        let obs_var = f64::from(variance.max(0.0)) + inc_se * inc_se;
-        let pred_se = f64::from(predicted_se.max(0.0));
-        let r = f64::from(radius.abs());
-        self.observe_evidence(
-            super::agreement::TrialStep {
-                observed_improvement: f64::from(value) - f64::from(incumbent_mean),
-                observation_variance: obs_var,
-                predicted_improvement: f64::from(predicted_mean) - f64::from(incumbent_mean),
-                prediction_variance: pred_se * pred_se + inc_se * inc_se,
-                accepted: false,
-                nominal_radius: r,
-                response_radius: r,
-            },
-            calibrate,
-        )
-    }
-
     /// Evaluate a trial step directly from the surrogate's `PoolSelection`,
     /// handling warmup vs. modeled baseline and calibration regime internally.
     pub fn evaluate_selection(
         &mut self,
         value: f32,
         variance: f32,
-        radius: f32,
+        _radius: f32,
         selection: &baux::semantics::optimizer::surrogate::PoolSelection,
     ) -> Result<StepDecision, String> {
         if !variance.is_finite() || variance < 0.0 {
@@ -400,126 +296,42 @@ impl TrustRegionController {
         if selection.initializing {
             return eval_warmup(self, value, variance, selection);
         }
-        if let Some(mut turbo_state) = self.turbo {
-            let improvement = f64::from(value) - f64::from(selection.baseline_value);
-            let predicted =
-                f64::from(selection.candidate.mean) - f64::from(selection.incumbent.mean);
-            let pred_se = f64::from(selection.candidate.standard_error.max(0.0));
-            let obs_var = f64::from(variance);
-            let pred_var = pred_se * pred_se;
-            let r = f64::from(radius.abs());
-            super::agreement::validate_evidence(super::agreement::TrialStep {
-                observed_improvement: improvement,
-                observation_variance: obs_var,
-                predicted_improvement: predicted,
-                prediction_variance: pred_var,
-                accepted: false,
-                nominal_radius: f64::from(self.radius()),
-                response_radius: r,
-            })?;
-            let threshold = 0.0;
-            let accepted = accept_candidate(improvement, threshold);
-            let numerical =
-                baux::semantics::numerical::check(baux::semantics::numerical::Trace::observed(
-                    baux::semantics::numerical::Kind::Paired,
-                    improvement,
-                    0.0,
-                    obs_var,
-                    0.0,
-                    threshold,
-                    accepted,
-                ))?;
-            let mut calibration = self.calibration.clone();
-            calibration.observe(
-                improvement as f32,
-                predicted as f32,
-                (obs_var + pred_var).sqrt() as f32,
-            )?;
-            let action = turbo_state.step(accepted, self.control.length());
-            self.calibration = calibration;
-            self.turbo = Some(turbo_state);
-            return Ok(StepDecision {
-                numerical,
-                accepted,
-                improvement,
-                threshold,
-                predicted_improvement: predicted,
-                action,
-                next_radius: self.radius(),
-                standardized_error: 0.0,
-                sharpness_ratio: 0.0,
-                agreement_ratio: (predicted > 0.0).then_some(improvement / predicted),
-            });
-        }
         let improvement = f64::from(value) - f64::from(selection.baseline_value);
         let predicted = f64::from(selection.candidate.mean) - f64::from(selection.incumbent.mean);
-        let base_var = selection.baseline_se * selection.baseline_se;
-        let obs_var = if variance.to_bits() == base_var.to_bits() {
-            0.0
-        } else {
-            f64::from(variance.max(0.0))
-        };
         let pred_se = f64::from(selection.candidate.standard_error.max(0.0));
-        let inc_se = f64::from(selection.incumbent.standard_error.max(0.0));
-        let cal_scale = (f64::from(self.calibration.multiplier()) * 0.5).max(1.0);
-        let r = f64::from(radius.abs());
-        self.observe_evidence(
-            super::agreement::TrialStep {
-                observed_improvement: improvement,
-                observation_variance: obs_var,
-                predicted_improvement: predicted,
-                prediction_variance: (pred_se * pred_se + inc_se * inc_se) * cal_scale * cal_scale,
-                accepted: false,
-                nominal_radius: r,
-                response_radius: r.max(inc_se * cal_scale),
-            },
-            true,
-        )
-    }
-
-    /// Preserve the FP64 evidence arithmetic used by the Metal adapter. The
-    /// acceptance gate is computed here; the caller's accepted flag is ignored.
-    pub fn observe_evidence(
-        &mut self,
-        mut evidence: super::agreement::TrialStep,
-        calibrate: bool,
-    ) -> Result<StepDecision, String> {
-        let improvement = evidence.observed_improvement;
-        let multiplier = f64::from(self.calibration.multiplier());
-        let threshold = multiplier * evidence.observation_variance.sqrt();
+        let obs_var = f64::from(variance);
+        let pred_var = pred_se * pred_se;
+        let threshold = 0.0;
         let accepted = accept_candidate(improvement, threshold);
         let numerical =
             baux::semantics::numerical::check(baux::semantics::numerical::Trace::observed(
                 baux::semantics::numerical::Kind::Paired,
                 improvement,
-                multiplier,
-                evidence.observation_variance,
+                0.0,
+                obs_var,
                 0.0,
                 threshold,
                 accepted,
             ))?;
         let mut calibration = self.calibration.clone();
-        if calibrate {
-            calibration.observe(
-                improvement as f32,
-                evidence.predicted_improvement as f32,
-                (evidence.observation_variance + evidence.prediction_variance).sqrt() as f32,
-            )?;
-        }
-        evidence.accepted = accepted;
-        let result = self.control.update(evidence)?;
+        calibration.observe(
+            improvement as f32,
+            predicted as f32,
+            (obs_var + pred_var).sqrt() as f32,
+        )?;
+        let action = self.turbo.step(accepted);
         self.calibration = calibration;
         Ok(StepDecision {
             numerical,
             accepted,
             improvement,
             threshold,
-            predicted_improvement: evidence.predicted_improvement,
-            action: result.action,
+            predicted_improvement: predicted,
+            action,
             next_radius: self.radius(),
-            standardized_error: result.standardized_error.unwrap(),
-            sharpness_ratio: result.sharpness_ratio.unwrap(),
-            agreement_ratio: result.agreement_ratio,
+            standardized_error: 0.0,
+            sharpness_ratio: 0.0,
+            agreement_ratio: (predicted > 0.0).then_some(improvement / predicted),
         })
     }
 }
@@ -541,15 +353,7 @@ fn eval_warmup(
     };
     let multiplier = f64::from(ctrl.calibration.multiplier());
     let threshold = multiplier * pair_var.sqrt();
-    super::agreement::validate_evidence(super::agreement::TrialStep {
-        observed_improvement: improvement,
-        observation_variance: 0.0,
-        predicted_improvement: predicted,
-        prediction_variance: 0.0,
-        accepted: false,
-        nominal_radius: f64::from(ctrl.radius()),
-        response_radius: 0.0,
-    })?;
+    super::controller::validate_improvements(improvement, predicted)?;
     if !threshold.is_finite() {
         return Err("acceptance margin must be finite".into());
     }

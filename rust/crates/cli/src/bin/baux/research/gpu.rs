@@ -16,22 +16,22 @@ use std::sync::atomic::{AtomicU64, Ordering};
 const TREES: [&str; 6] = [
     "rust/crates/baux/src",
     "rust/crates/baux/semantics/src",
-    "backends/cuda/src",
-    "backends/cuda/device/src",
-    "backends/cuda/native",
+    "rust/crates/cuda/src",
+    "rust/crates/cuda/device/src",
+    "rust/crates/cuda/native",
     "rust/crates/ptx-synth/src",
 ];
 const FILES: [&str; 15] = [
     "Cargo.toml",
     "Cargo.lock",
     "rust-toolchain.toml",
-    "backends/cuda/Cargo.toml",
-    "backends/cuda/device/Cargo.toml",
-    "backends/cuda/rust-toolchain.toml",
+    "rust/crates/cuda/Cargo.toml",
+    "rust/crates/cuda/device/Cargo.toml",
+    "rust/crates/cuda/rust-toolchain.toml",
     "build/buck2/cuda/defs.bzl",
     "rust/crates/baux/BUCK",
-    "backends/cuda/build.rs",
-    "backends/cuda/BUCK",
+    "rust/crates/cuda/build.rs",
+    "rust/crates/cuda/BUCK",
     "rust/crates/ptx-synth/Cargo.toml",
     "rust/crates/ptx-synth/BUCK",
     "rust/crates/baux/Cargo.toml",
@@ -143,7 +143,7 @@ fn inventory(root: &Path) -> Result<Inventory, String> {
         {
             metal += 1;
             "metal-source"
-        } else if relative.starts_with("backends/cuda/device/src/") {
+        } else if relative.starts_with("rust/crates/cuda/device/src/") {
             cuda += 1;
             "cuda-device-source"
         } else {
@@ -252,7 +252,7 @@ mod tests {
                 "kernel void op() {}",
             )
             .unwrap();
-            fs::write(root.join("backends/cuda/device/src/op.rs"), "fn op() {}").unwrap();
+            fs::write(root.join("rust/crates/cuda/device/src/op.rs"), "fn op() {}").unwrap();
             Self(root)
         }
     }
@@ -276,8 +276,8 @@ mod tests {
         let changed = inventory(&fixture.0).unwrap();
         assert_ne!(original.digest, changed.digest);
         fs::rename(
-            fixture.0.join("backends/cuda/device/src/op.rs"),
-            fixture.0.join("backends/cuda/device/src/renamed.rs"),
+            fixture.0.join("rust/crates/cuda/device/src/op.rs"),
+            fixture.0.join("rust/crates/cuda/device/src/renamed.rs"),
         )
         .unwrap();
         assert_ne!(changed.digest, inventory(&fixture.0).unwrap().digest);
@@ -287,7 +287,7 @@ mod tests {
     #[test]
     fn empty() {
         let fixture = Fixture::new();
-        fs::remove_file(fixture.0.join("backends/cuda/device/src/op.rs")).unwrap();
+        fs::remove_file(fixture.0.join("rust/crates/cuda/device/src/op.rs")).unwrap();
         assert!(inventory(&fixture.0).unwrap_err().contains("empty"));
     }
 

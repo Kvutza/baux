@@ -248,7 +248,7 @@ pub enum GenerationReward {
 }
 
 impl GenerationConfig {
-    pub(crate) fn causal_pretrain(&self) -> bool {
+    pub fn causal_pretrain(&self) -> bool {
         self.purpose == GenerationPurpose::Pretrain
             && (self.corpus_prompt_tokens.is_some() || !self.corpus_prompt.is_empty())
     }

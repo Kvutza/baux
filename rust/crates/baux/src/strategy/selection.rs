@@ -1,9 +1,22 @@
 //! Unified segment-based acquisition selection over candidate pools.
 
-use ndarray::s;
+use ndarray::{Array2, ArrayView2, s};
+use rand::RngCore;
 use rand::seq::SliceRandom;
 
-use super::*;
+use crate::acquisition::{ParetoAcquisition, RandomAcquisition, UCBAcquisition};
+use crate::config::AcquisitionConfig;
+use crate::error::ENNError;
+use crate::optimizer::BayesOptimizer;
+use crate::util::argmax_tie;
+
+#[derive(Clone, Copy)]
+pub(super) struct CandidateSegment {
+    pub(super) start: usize,
+    pub(super) end: usize,
+    pub(super) arms: usize,
+    pub(super) region: usize,
+}
 
 fn single_segment(nrows: usize, num_arms: usize) -> [CandidateSegment; 1] {
     [CandidateSegment {

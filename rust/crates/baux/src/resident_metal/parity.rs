@@ -1,12 +1,9 @@
 use super::*;
 use crate::params::ENNParams;
 use crate::procedural_pool::ProceduralPoolConfig;
-use crate::reliability_region::{
-    ReliabilityAction as MetalAction, ReliabilityController, ReliabilityEvidence, ReliabilityPolicy,
-};
 use crate::trust_region::TRLengthConfig;
 use baux::semantics::optimizer::{
-    INITIAL_OBSERVATIONS, NeighborValueEstimator, PoolShape, RadiusController, ReliabilityAction,
+    INITIAL_OBSERVATIONS, NeighborValueEstimator, PoolShape, RadiusController,
 };
 use ndarray::Array2;
 use rand::{SeedableRng, rngs::StdRng};
@@ -42,8 +39,7 @@ fn rounded_proposal() {
                 num_samples: 4,
                 fit_params: false,
                 adapt_neighbors: false,
-                distance_scaling: crate::config::DistanceScaling::Global,
-                history_geometry: crate::config::HistoryGeometry::Latent,
+                distance_metric: crate::config::DistanceMetric::Euclidean,
                 local_scale_neighbors: 8,
             })
             .unwrap();
@@ -76,7 +72,7 @@ fn posterior_parity() {
         let source = initialization::search_source(true, ProposalKernel::Gaussian);
         let pipeline = state
             .runtime
-            .precise(&source, "Posterior parity", "bf16_posterior_probe")
+            .precise(&source, "Posterior parity", "dense_posterior_probe")
             .unwrap();
         let mut random = 73_u64;
         let mut next = || {
@@ -231,8 +227,8 @@ fn fit_parity() {
             &distances.view(),
             &outcomes.view(),
             Some(&variances.view()),
-            4,
-            4,
+            30,
+            10,
             None,
             &mut rng,
         )
@@ -252,13 +248,19 @@ fn fit_parity() {
 
 #[test]
 fn fitting_trace() {
-    for (k, candidates, samples) in [(10, 30, 10), (3, 7, 4), (32, 4, 4)] {
+    for (k, candidates, samples, adaptive) in [
+        (10, 30, 10, false),
+        (3, 7, 4, false),
+        (32, 4, 4, false),
+        (10, 16, 6, true),
+    ] {
         let seed = 0x1234_5678_9abc_def0;
         let spec = baux::semantics::optimizer::SurrogateSpec {
             neighbors: k,
             fit_candidates: candidates,
             fit_samples: samples,
             fit: true,
+            adaptive,
             ..Default::default()
         };
         let mut host = NeighborValueEstimator::with_spec(-0.4, 0.002, seed, spec).unwrap();
@@ -308,17 +310,32 @@ fn fitting_trace() {
             let outcomes = Array2::from_shape_fn((n, 1), |(r, _)| f64::from(values[r]));
             let variances = Array2::from_shape_fn((n, 1), |(r, _)| f64::from(errors[r]));
             let mut random = StdRng::seed_from_u64(seed.wrapping_add(n as u64));
-            let expected = metal
-                .ask_distances(
-                    &distances.view(),
-                    &outcomes.view(),
-                    Some(&variances.view()),
-                    candidates,
-                    samples,
-                    None,
-                    &mut random,
-                )
-                .unwrap();
+            let expected = if adaptive {
+                metal
+                    .ask_adaptive(
+                        &distances.view(),
+                        &outcomes.view(),
+                        Some(&variances.view()),
+                        k as i32,
+                        candidates,
+                        samples,
+                        None,
+                        &mut random,
+                    )
+                    .unwrap()
+            } else {
+                metal
+                    .ask_distances(
+                        &distances.view(),
+                        &outcomes.view(),
+                        Some(&variances.view()),
+                        candidates,
+                        samples,
+                        None,
+                        &mut random,
+                    )
+                    .unwrap()
+            };
             let actual = host.fit_state();
             assert_eq!(actual.neighbors, expected.k_neighbors as usize);
             assert_eq!(
@@ -337,65 +354,6 @@ fn fitting_trace() {
                 "k={k} n={n}"
             );
         }
-    }
-}
-
-#[test]
-fn radius_parity() {
-    let mut host = RadiusController::new(0.1, 0.1, 2.0).unwrap();
-    let mut metal = ReliabilityController::new(
-        ReliabilityPolicy::default(),
-        TRLengthConfig::new(0.1, 0.1, 2.0),
-    )
-    .unwrap();
-    for step in 0..48 {
-        let observed = (step as f32 * 0.017).sin() * 0.2;
-        let observed_variance = 0.002 + (step % 5) as f32 * 0.0005;
-        let predicted = (step as f32 * 0.011).cos() * 0.15;
-        let predicted_variance = 0.003 + (step % 7) as f32 * 0.0004;
-        let response_radius = 0.03 + (step % 4) as f32 * 0.01;
-        let before = host.radius();
-        let actual = host
-            .observe(
-                observed,
-                observed_variance,
-                predicted,
-                predicted_variance,
-                response_radius,
-                false,
-            )
-            .unwrap();
-        let expected = metal
-            .update(ReliabilityEvidence {
-                observed_improvement: f64::from(observed),
-                observation_variance: f64::from(observed_variance),
-                predicted_improvement: f64::from(predicted),
-                prediction_variance: f64::from(predicted_variance),
-                accepted: actual.accepted,
-                nominal_radius: f64::from(before),
-                response_radius: f64::from(response_radius),
-            })
-            .unwrap();
-        assert_eq!(
-            actual.action,
-            match expected.action {
-                MetalAction::Hold => ReliabilityAction::Hold,
-                MetalAction::Expand => ReliabilityAction::Expand,
-                MetalAction::Shrink => ReliabilityAction::Shrink,
-            }
-        );
-        assert_eq!(
-            actual.next_radius.to_bits(),
-            (metal.length() as f32).to_bits()
-        );
-        assert_eq!(
-            actual.standardized_error.to_bits(),
-            expected.standardized_error.unwrap().to_bits()
-        );
-        assert_eq!(
-            actual.sharpness_ratio.to_bits(),
-            expected.sharpness_ratio.unwrap().to_bits()
-        );
     }
 }
 
@@ -434,13 +392,12 @@ fn warmup_trace() {
                 num_samples: 4,
                 fit_params: false,
                 adapt_neighbors: false,
-                distance_scaling: crate::config::DistanceScaling::Global,
-                history_geometry: crate::config::HistoryGeometry::Latent,
+                distance_metric: crate::config::DistanceMetric::Euclidean,
                 local_scale_neighbors: 8,
             })
             .unwrap();
         state.observe_initial(1_048_576.0, 0.0).unwrap();
-        let host = RadiusController::configured(0.125, 0.03125, 2.0, Default::default()).unwrap();
+        let host = RadiusController::new(0.125, 0.03125, 2.0).unwrap();
         for (step, gain) in [0.01, 0.125, -0.5, 0.01, 0.25, -0.125, 0.01, 0.125, -0.25]
             .into_iter()
             .enumerate()
@@ -462,153 +419,5 @@ fn warmup_trace() {
                 );
             }
         }
-    });
-}
-
-#[test]
-fn paired_trace() {
-    autoreleasepool(|| {
-        let base = vec![0x3c00; 17];
-        // Keep this tiny FP16 fixture above its quantization floor while
-        // exercising contraction, expansion and multiple full-history windows.
-        let bounds = TRLengthConfig::new(0.125, 0.03125, 2.0);
-        let policy = ReliabilityPolicy {
-            failure_tolerance: 4,
-            ..Default::default()
-        };
-        let ask = {
-            let mut config = RoundConfig::default();
-            config.surrogate.neighbors = 1;
-            config
-        };
-        let mut state = SearchState::new_implicit(
-            &base,
-            vec![ParamBlock::new(73, 0, base.len(), 0.25, 1.0).unwrap()],
-            1,
-            bounds,
-            ProposalKernel::Gaussian,
-        )
-        .unwrap();
-        state
-            .configure_enn(crate::config::ResidentEnnConfig {
-                pool: ProceduralPoolConfig {
-                    arms: 1,
-                    candidates_per_arm: 1,
-                }
-                .resolve_resident()
-                .unwrap(),
-                proposal_method: crate::procedural_pool::ProposalMethod::Additive,
-                ask,
-                num_candidates: 4,
-                num_samples: 4,
-                fit_params: false,
-                adapt_neighbors: false,
-                distance_scaling: crate::config::DistanceScaling::Global,
-                history_geometry: crate::config::HistoryGeometry::Latent,
-                local_scale_neighbors: 8,
-            })
-            .unwrap();
-        state.configure_controller(policy).unwrap();
-        state.observe_initial(0.0, 0.0).unwrap();
-        let mut host = RadiusController::configured(0.125, 0.03125, 2.0, policy).unwrap();
-        let mut history = NeighborValueEstimator::with_spec(
-            0.0,
-            0.0,
-            ask.acquisition.seed,
-            baux::semantics::optimizer::SurrogateSpec {
-                neighbors: 1,
-                ..Default::default()
-            },
-        )
-        .unwrap();
-        let mut accepted = 0;
-        for step in 0..384 {
-            let (_, mut round, initializing) = state
-                .propose(73 + step, ask, 0, None)
-                .unwrap_or_else(|error| panic!("step={step}: {error}"));
-            assert!(!initializing);
-            assert_eq!(history.identities(), &state.identities[..state.history]);
-            let distances = round
-                .history_distances
-                .iter()
-                .map(|&(_, distance)| f64::from(distance))
-                .collect::<Vec<_>>();
-            let slot = history.next_slot().unwrap();
-            round.predicted_mean = ((step * 7) % 31) as f32 * 0.011 - 0.1;
-            round.incumbent_mean = ((step * 13) % 29) as f32 * 0.009 - 0.1;
-            round.predicted_standard_error = 0.03 + (step % 5) as f32 * 0.001;
-            round.incumbent_standard_error = 0.02 + (step % 7) as f32 * 0.002;
-            let measured = ((step * 11) % 37) as f32 * 0.017 - 0.2;
-            let variance = 0.001 + (step % 3) as f32 * 0.0001;
-            let blocks = [measured, measured * 0.5];
-            let evidence = baux::semantics::optimizer::ReliabilityEvidence {
-                observed_improvement: f64::from(measured),
-                observation_variance: f64::from(variance),
-                predicted_improvement: f64::from(round.predicted_mean)
-                    - f64::from(round.incumbent_mean),
-                prediction_variance: f64::from(round.predicted_standard_error).powi(2)
-                    + f64::from(round.incumbent_standard_error).powi(2),
-                nominal_radius: f64::from(round.length.abs()),
-                response_radius: baux::semantics::optimizer::response_rms(Some(&blocks), 0.0),
-                accepted: false,
-            };
-            let actual = host.observe_evidence(evidence, true).unwrap();
-            let incumbent = state.best().unwrap();
-            let value = incumbent + measured;
-            let expected = state
-                .paired_blocks(
-                    &round,
-                    value,
-                    variance,
-                    incumbent,
-                    state.best_variance().unwrap(),
-                    measured,
-                    variance,
-                    &blocks,
-                )
-                .unwrap();
-            state.sync().unwrap();
-            history
-                .append(&distances, value, variance, actual.accepted)
-                .unwrap();
-            assert_eq!(
-                history.identities(),
-                &state.identities[..state.history],
-                "step={step} slot={slot}"
-            );
-            assert_eq!(
-                history.base_value().to_bits(),
-                state.best().unwrap().to_bits()
-            );
-            for row in 0..state.history {
-                let reference: Vec<f64> = state.pairwise_distances
-                    [row * MAX_HISTORY..row * MAX_HISTORY + state.history]
-                    .iter()
-                    .map(|&d| f64::from(d))
-                    .collect();
-                assert_eq!(
-                    history.distance_row(row).unwrap(),
-                    &reference,
-                    "step={step} row={row}"
-                );
-            }
-            accepted += usize::from(expected.accepted);
-            assert_eq!(actual.accepted, expected.accepted, "step={step}");
-            assert_eq!(
-                actual.threshold.to_bits(),
-                expected.threshold.to_bits(),
-                "step={step}"
-            );
-            assert_eq!(
-                actual.predicted_improvement.to_bits(),
-                expected.predicted_improvement.unwrap().to_bits()
-            );
-            assert_eq!(
-                actual.next_radius.to_bits(),
-                (state.length().unwrap() as f32).to_bits(),
-                "step={step}"
-            );
-        }
-        assert!(accepted > 0 && accepted < 384);
     });
 }

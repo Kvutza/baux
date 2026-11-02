@@ -1,6 +1,6 @@
 //! Immutable training-corpus and held-out mixture scheduling.
 
-use super::{CausalBatch, PretrainDataset, has_magic};
+use super::{CorpusBatch, CorpusBundle, CorpusPart, CorpusSet, PretrainDataset, has_magic};
 
 use deser::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -9,27 +9,6 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 
 const MIX_FORMAT: &str = "baux.pretraining-evaluation.v1";
-
-#[derive(Debug)]
-pub struct CorpusSet {
-    parts: Vec<CorpusPart>,
-    weight: u64,
-    evaluation: bool,
-}
-
-#[derive(Debug)]
-struct CorpusPart {
-    name: String,
-    weight: u32,
-    data: PretrainDataset,
-}
-
-#[derive(Debug, Clone)]
-pub struct CorpusBatch {
-    pub source: String,
-    pub weight: u32,
-    pub batch: CausalBatch,
-}
 
 #[derive(Deserialize, Serialize)]
 #[deser(deny_unknown_fields, rename_all = "kebab-case")]
@@ -54,14 +33,6 @@ struct MixPart {
     path: PathBuf,
     sha256: String,
     tokenizer_sha256: String,
-}
-
-/// Relocation plan for one corpus or held-out mixture. Only paths change;
-/// source names, weights, counts, hashes and tokenizer identities are retained.
-/// Every destination is generated here, never taken from an input pathname.
-pub struct CorpusBundle {
-    pub files: Vec<(PathBuf, PathBuf)>,
-    pub manifest: Option<Vec<u8>>,
 }
 
 impl CorpusBundle {

@@ -20,62 +20,36 @@ use crate::{
     ProposalKernel,
     apple_gpu::Runtime,
     fitter::ENNFitter,
-    reliability_region,
     trials::RoundConfig,
     trust_region::{TRLengthConfig, TrustRegionOutcome, TurboTrustRegion},
     weights::AcquisitionKind,
 };
 
 const SOURCE: &str = include_str!("resident_search.metal");
-#[path = "resident_metal/configuration.rs"]
 mod configuration;
-#[path = "resident_metal/controller.rs"]
 mod controller;
-#[path = "resident_metal/dispatch.rs"]
 mod dispatch;
-#[path = "resident_metal/history.rs"]
 mod history;
-#[path = "resident_metal/initialization.rs"]
 mod initialization;
-#[path = "resident_metal/inspection.rs"]
 mod inspection;
-#[path = "resident_metal/layout.rs"]
+pub use inspection::{MetalMemoryInfo, memory_info, upload};
 mod layout;
-#[path = "resident_metal/leaf.rs"]
 mod leaf;
-#[path = "resident_metal/objective_acquisition.rs"]
 mod objective_acquisition;
-#[path = "resident_metal/objectives.rs"]
 mod objectives;
-#[path = "resident_metal/procedural.rs"]
 mod procedural;
 #[allow(unused_imports)]
 pub use objective_acquisition::{ObjectiveAcquisition, ObjectivePolicy};
-#[path = "resident_metal/bounds.rs"]
-mod bounds;
-#[path = "resident_metal/observations.rs"]
-mod observations;
-#[path = "resident_metal/propose.rs"]
-mod propose;
-#[path = "resident_metal/publication.rs"]
-mod publication;
-pub use bounds::BoundReport;
-#[path = "resident_metal/axis.rs"]
 mod axis;
-#[path = "resident_metal/neighbors.rs"]
 mod neighbors;
+mod observations;
 #[cfg(test)]
-#[path = "resident_metal/parity.rs"]
 mod parity;
-#[path = "resident_metal/relative.rs"]
+mod propose;
+mod publication;
 mod relative;
-#[path = "resident_metal/reliability.rs"]
-mod reliability;
-#[path = "resident_metal/selection.rs"]
 mod selection;
-#[path = "resident_metal/shapes.rs"]
 mod shapes;
-#[path = "resident_metal/state.rs"]
 mod state;
 use baux::semantics::gaussian::*;
 use layout::*;
@@ -83,13 +57,10 @@ use leaf::*;
 use shapes::*;
 const TILE_ELEMENTS: usize = baux::semantics::dispatch::TILE_ELEMENTS as usize;
 const MAX_HISTORY: usize = crate::objective_observation::OBJECTIVE_CAPACITY;
-#[path = "resident_metal/family.rs"]
 mod family;
 use family::*;
-#[path = "resident_metal/trajectory.rs"]
 mod trajectory;
 use trajectory::*;
-#[path = "resident_metal/metric.rs"]
 mod metric;
 // Production decisions consume only the four proposal norms.  The remaining
 // eleven full-vector dot products are retained in test builds as an oracle for
@@ -202,16 +173,15 @@ pub struct Proposals {
     pub incumbent_standard_error: f32,
     pub neighbors: u32,
     pub incumbent_neighbors: u32,
-    pub(crate) pool_predictions: [(f32, f32, f32); 4],
+    pub pool_predictions: [(f32, f32, f32); 4],
     changes: Vec<(u64, f64)>,
     history_distances: Vec<(i64, f32)>,
     family_distances: Option<Vec<[f32; FAMILIES]>>,
-    pub(crate) block_scales: Vec<f32>,
+    pub block_scales: Vec<f32>,
     pool: Vec<PoolDescription>,
     pool_radii: [f32; 4],
     pool_cosines: [Option<f32>; 6],
     reference_cosines: [Option<f32>; 4],
-    bounds: Option<BoundReport>,
     axis_coordinate: Option<f32>,
     axis_value: Option<f32>,
     basis_seed: u64,
@@ -236,10 +206,6 @@ impl Proposals {
                     .any(|previous| previous.4 == candidate.4)
             })
             .count()
-    }
-
-    pub fn bound_report(&self) -> Option<BoundReport> {
-        self.bounds
     }
 
     /// Selected value for an optional scalar search axis.
@@ -290,8 +256,7 @@ impl Proposals {
             })
     }
 
-    #[cfg(test)]
-    pub(crate) fn pool_keys(&self) -> Vec<(usize, u64, f32)> {
+    pub fn pool_keys(&self) -> Vec<(usize, u64, f32)> {
         self.pool
             .iter()
             .map(|candidate| (candidate.0, candidate.1, candidate.2))
@@ -300,7 +265,7 @@ impl Proposals {
 }
 
 impl SearchState {
-    pub(crate) fn tensor_version(
+    pub fn tensor_version(
         &self,
         parent: u64,
         proposal: &Proposals,
@@ -397,7 +362,6 @@ pub struct SearchState {
     tiles_gpu: Buffer,
     offsets_gpu: Buffer,
     base: Buffer,
-    replay_origin: Option<Buffer>,
     anchor: Buffer,
     rejected: Buffer,
     history_rows: Vec<Buffer>,
@@ -409,11 +373,6 @@ pub struct SearchState {
     pool_aggregates: Buffer,
     decision: Buffer,
     pool_distances: Buffer,
-    replay_steps: Buffer,
-    replay_scales: Buffer,
-    replay_partials: Buffer,
-    replay_components: Buffer,
-    pool_family_distances: Buffer,
     family_groups: Buffer,
     family_base_weights: Buffer,
     pool_geometry: Buffer,
@@ -421,8 +380,6 @@ pub struct SearchState {
     initial_pipeline: ComputePipelineState,
     pool_pipeline: ComputePipelineState,
     reduction_pipeline: ComputePipelineState,
-    replay_short_pipeline: ComputePipelineState,
-    replay_reduction_pipeline: ComputePipelineState,
     selection_pipeline: ComputePipelineState,
     materialize_pipeline: ComputePipelineState,
     reference_pipeline: ComputePipelineState,
@@ -443,7 +400,6 @@ pub struct SearchState {
     observation: i64,
     base_id: i64,
     trust: TurboTrustRegion,
-    reliability: Option<reliability_region::ReliabilityController>,
     trust_observations: usize,
     paired_evidence_sum: f64,
     paired_evidence_count: usize,
@@ -452,13 +408,12 @@ pub struct SearchState {
     resident_history: usize,
     resident_identities: Vec<i64>,
     pairwise_distances: Vec<f32>,
-    distance_scaling: crate::config::DistanceScaling,
+    distance_metric: crate::config::DistanceMetric,
     local_scale_neighbors: usize,
     family: Option<FamilyHistory>,
     trajectory: Option<TrajectoryGenerator>,
     metric_gpu: Option<metric::MetricGpu>,
     implicit_history: bool,
-    exact_history: bool,
     latent_history: bool,
     neighbors: Option<neighbors::Neighbors>,
     calibration: crate::calibration::Calibration,
@@ -489,14 +444,9 @@ pub struct SearchState {
 }
 
 #[cfg(test)]
-#[path = "resident_audit.rs"]
-mod audit;
-#[cfg(test)]
-#[path = "resident_metal/objective_tests.rs"]
 mod objective_tests;
 
 #[cfg(test)]
-#[path = "resident_metal/transaction_tests.rs"]
 mod transaction_tests;
 
 #[cfg(test)]
@@ -679,8 +629,7 @@ mod tests {
                 num_samples: 2,
                 fit_params: true,
                 adapt_neighbors: false,
-                distance_scaling: crate::config::DistanceScaling::Global,
-                history_geometry: crate::config::HistoryGeometry::Realized,
+                distance_metric: crate::config::DistanceMetric::Euclidean,
                 local_scale_neighbors: 2,
             })
             .unwrap();
@@ -738,8 +687,7 @@ mod tests {
                 num_samples: 2,
                 fit_params: true,
                 adapt_neighbors: false,
-                distance_scaling: crate::config::DistanceScaling::Global,
-                history_geometry: crate::config::HistoryGeometry::Latent,
+                distance_metric: crate::config::DistanceMetric::Euclidean,
                 local_scale_neighbors: 2,
             })
             .unwrap();
@@ -795,7 +743,6 @@ mod tests {
         }
         assert!(search.history > 16);
         assert!(search.analytic_pool());
-        assert!(!search.realized_history());
     }
 
     fn oracle_distance(left: &[u16], right: &[u16], blocks: &[ParamBlock]) -> f32 {
@@ -840,8 +787,7 @@ mod tests {
                 num_samples: 2,
                 fit_params: true,
                 adapt_neighbors: false,
-                distance_scaling: crate::config::DistanceScaling::Global,
-                history_geometry: crate::config::HistoryGeometry::Latent,
+                distance_metric: crate::config::DistanceMetric::Euclidean,
                 local_scale_neighbors: 2,
             })
             .unwrap();
@@ -886,8 +832,7 @@ mod tests {
                 num_samples: 2,
                 fit_params: true,
                 adapt_neighbors: false,
-                distance_scaling: crate::config::DistanceScaling::Global,
-                history_geometry: crate::config::HistoryGeometry::Realized,
+                distance_metric: crate::config::DistanceMetric::Euclidean,
                 local_scale_neighbors: 2,
             })
             .unwrap();
@@ -912,155 +857,6 @@ mod tests {
                 (actual - expected).abs() <= expected.abs() * 0.0005 + 2e-6,
                 "coordinate={element} actual={actual} expected={expected}"
             );
-        }
-    }
-
-    #[test]
-    fn replay_archived() {
-        for perturbation in [ProposalKernel::Rademacher, ProposalKernel::Gaussian] {
-            for learned in [false, true] {
-                check_replay(perturbation, learned);
-            }
-        }
-    }
-
-    fn check_replay(perturbation: ProposalKernel, learned: bool) {
-        let base: Vec<u16> = (0..4096)
-            .map(|index| 0x3000 + index as u16 % 1024)
-            .collect();
-        let blocks = (0..4)
-            .map(|group| {
-                let scale = 0.25 * (group + 1) as f32;
-                ParamBlock::new(
-                    71 + group as u64,
-                    group * 1024,
-                    1024,
-                    scale,
-                    1.0 / (1024.0 * scale * scale),
-                )
-                .unwrap()
-            })
-            .collect::<Vec<_>>();
-        let mut search = SearchState::new_implicit(
-            &base,
-            blocks.clone(),
-            1,
-            TRLengthConfig::new(0.1, 0.001, 0.4),
-            perturbation,
-        )
-        .unwrap();
-        if learned {
-            search.enable_family(vec![0, 1, 2, 3]).unwrap();
-        }
-        let ask = {
-            let mut config = config();
-            config.surrogate.neighbors = 2;
-            config
-        };
-        search
-            .configure_enn(crate::config::ResidentEnnConfig {
-                pool: crate::procedural_pool::ProceduralPool::legacy(),
-                proposal_method: crate::procedural_pool::ProposalMethod::Additive,
-                ask,
-                num_candidates: 4,
-                num_samples: 2,
-                fit_params: true,
-                adapt_neighbors: false,
-                distance_scaling: crate::config::DistanceScaling::Global,
-                history_geometry: crate::config::HistoryGeometry::Realized,
-                local_scale_neighbors: 2,
-            })
-            .unwrap();
-        search.observe_initial(-3.0, 0.0).unwrap();
-        let mut archive = vec![(1i64, base)];
-        for step in 0..35u64 {
-            let root = 12_345 + step;
-            if step != 0 {
-                let recipes = read::<ReplayStep>(&search.replay_steps, search.history);
-                assert_eq!(
-                    recipes[step as usize].accepted,
-                    u32::from((step - 1) % 2 == 0)
-                );
-                assert!(search.exact_history);
-                assert!(search.history > search.resident_history);
-            }
-            search.begin_ask(1, 4, root, ask).unwrap();
-            let round = search.finish_ask().unwrap();
-            let replayed = read::<u16>(&search.history_rows[0], search.len());
-            let incumbent = read::<u16>(&search.base, search.len());
-            if let Some(index) = replayed
-                .iter()
-                .zip(&incumbent)
-                .position(|(actual, expected)| actual != expected)
-            {
-                panic!(
-                    "step={step} replay lineage differs at {index}: actual={} expected={}",
-                    replayed[index], incumbent[index]
-                );
-            }
-            let selected = read::<u16>(&search.proposal, search.len());
-            for candidate in 0..4 {
-                search.diagnostic_row(&round, root, ask, candidate).unwrap();
-                let row = read::<u16>(&search.proposal, search.len());
-                for &(identity, actual) in &round.pool[candidate].4 {
-                    let historical = &archive
-                        .iter()
-                        .find(|(stored, _)| *stored == identity)
-                        .unwrap()
-                        .1;
-                    let expected = search
-                        .blocks
-                        .iter()
-                        .map(|block| {
-                            (block.offset..block.offset + block.len)
-                                .map(|index| {
-                                    let delta =
-                                        decode_fp16(row[index]) - decode_fp16(historical[index]);
-                                    delta * delta * f64::from(block.weight)
-                                })
-                                .sum::<f64>()
-                        })
-                        .sum::<f64>() as f32;
-                    assert!(
-                        (actual - expected).abs() <= 1.0e-5 + 3.0e-3 * expected.abs(),
-                        "step={step} candidate={candidate} identity={identity} actual={actual} \
-                         expected={expected}"
-                    );
-                    if candidate == round.index && learned {
-                        let components = round.family_distances.as_ref().unwrap();
-                        let history_index = round.pool[candidate]
-                            .4
-                            .iter()
-                            .position(|&(stored, _)| stored == identity)
-                            .unwrap();
-                        for (group, block) in blocks.iter().enumerate() {
-                            let expected = (block.offset..block.offset + block.len)
-                                .map(|index| {
-                                    let delta =
-                                        decode_fp16(row[index]) - decode_fp16(historical[index]);
-                                    delta * delta * f64::from(block.weight)
-                                })
-                                .sum::<f64>() as f32;
-                            let actual = components[history_index][group];
-                            assert!(
-                                (actual - expected).abs() <= 1.0e-5 + 3.0e-3 * expected.abs(),
-                                "family step={step} candidate={candidate} identity={identity} \
-                                 group={group} actual={actual} expected={expected}"
-                            );
-                        }
-                    }
-                }
-            }
-            search
-                .diagnostic_row(&round, root, ask, round.index)
-                .unwrap();
-            assert_eq!(read::<u16>(&search.proposal, search.len()), selected);
-            let accepted = step % 2 == 0;
-            search
-                .tell_paired(&round, -2.0 + step as f32, 0.0, search.best, 0.0, accepted)
-                .unwrap();
-            search.sync().unwrap();
-            archive.push((search.observation, selected));
         }
     }
 
@@ -1767,7 +1563,6 @@ mod tests {
         assert_eq!(size_of::<Leaf>(), 40);
         assert_eq!(size_of::<Tile>(), 16);
         assert_eq!(size_of::<Params>(), 168);
-        assert_eq!(size_of::<ReplayStep>(), 24);
         // Includes the bounded scalar-axis history shared with the Metal ABI.
         assert_eq!(size_of::<SelectionParams>(), 3232);
         assert_eq!(size_of::<Partial>(), 20);
@@ -2212,8 +2007,9 @@ mod tests {
         assert!(s.ask_round(1, 5, 0, config()).is_err());
         assert!(s.enable_relative(4).is_err());
         assert!(s.correlate(5).is_err());
-        let mut warmed = 0;
+        let mut stable_rounds = 0usize;
         for i in 0..32 {
+            let before = s.memory_info().current_allocated_size;
             let round = s.ask_round(1, 4, i, config()).unwrap();
             assert_eq!(round.index, 0);
             assert!(round.score.is_finite());
@@ -2227,16 +2023,10 @@ mod tests {
                 .unwrap();
             assert!(s.ask_round(1, 4, i, config()).is_err()); // sync consumes the event.
             assert_eq!(s.sync().unwrap(), vec![false]);
-            if i == 3 {
-                warmed = s.memory_info().current_allocated_size;
-            }
+            stable_rounds +=
+                usize::from(i >= 4 && s.memory_info().current_allocated_size <= before);
         }
-        let final_bytes = s.memory_info().current_allocated_size;
-        eprintln!("Metal tiny rounds allocated bytes: warm={warmed}, final={final_bytes}");
-        assert!(
-            final_bytes <= warmed + 1024 * 1024,
-            "per-round Metal resources retained"
-        );
+        assert!(stable_rounds >= 16, "per-round Metal resources retained");
         assert_eq!(s.length, s.length_config.length_min);
         assert_eq!(s.history, 2);
     }

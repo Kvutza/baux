@@ -27,7 +27,7 @@ impl SearchState {
         })
     }
 
-    pub(crate) fn new_unscored(
+    pub fn new_unscored(
         base: &[u16],
         blocks: Vec<ParamBlock>,
         capacity: usize,
@@ -50,7 +50,7 @@ impl SearchState {
     }
 
     /// Full FP16 weight rows with independent per-coordinate innovations.
-    pub(crate) fn new_fp16(
+    pub fn new_fp16(
         base: &[u16],
         blocks: Vec<ParamBlock>,
         capacity: usize,
@@ -72,7 +72,7 @@ impl SearchState {
         })
     }
 
-    pub(crate) fn new_implicit(
+    pub fn new_implicit(
         base: &[u16],
         blocks: Vec<ParamBlock>,
         resident_capacity: usize,
@@ -94,7 +94,7 @@ impl SearchState {
         })
     }
 
-    pub(crate) fn new_mapped(
+    pub fn new_mapped(
         base_buf: Buffer,
         dimensions: usize,
         blocks: Vec<ParamBlock>,
@@ -118,7 +118,7 @@ impl SearchState {
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub(super) fn new_inner(
+    pub fn new_inner(
         base_input: Result<&[u16], (Buffer, usize)>,
         initial: Option<(f32, f32)>,
         blocks: Vec<ParamBlock>,
@@ -129,10 +129,11 @@ impl SearchState {
         implicit_history: bool,
         perturbation: ProposalKernel,
     ) -> Result<Self, String> {
-        let (dimensions, latent_init, length) = match &base_input {
+        let single_pool = matches!(base_input, Err(_));
+        let latent_init = implicit_history;
+        let (dimensions, length) = match &base_input {
             Ok(slice) => (
                 slice.len(),
-                false,
                 validate_base(
                     slice,
                     initial,
@@ -142,7 +143,7 @@ impl SearchState {
                     independent_fp16,
                 )?,
             ),
-            Err((_, dims)) => (*dims, true, checked_length(length)?),
+            Err((_, dims)) => (*dims, checked_length(length)?),
         };
         let res_cap = if latent_init { 1 } else { capacity };
         let window_cap = if implicit_history {
@@ -151,15 +152,13 @@ impl SearchState {
             capacity
         };
         let (tiles, offsets, leaves) = make_layout(&blocks, dimensions)?;
-        let exact_history = independent_fp16 && implicit_history && !latent_init;
-        let (partial_count, aggregate_count, geometry_count, replay_count, sizes, resident_bytes) =
+        let (partial_count, aggregate_count, geometry_count, sizes, resident_bytes) =
             allocation_sizes(
                 dimensions,
                 blocks.len(),
                 tiles.len(),
                 offsets.len(),
                 res_cap,
-                exact_history,
             )?;
         let runtime = Runtime::shared()?;
         preflight(&runtime, &sizes, resident_bytes)?;
@@ -168,27 +167,24 @@ impl SearchState {
             initial_pipeline,
             pool_pipeline,
             reduction_pipeline,
-            replay_short_pipeline,
-            replay_reduction_pipeline,
             selection_pipeline,
             materialize_pipeline,
             reference_pipeline,
             rms_pipeline,
-        ] = compile_pipelines(&runtime, independent_fp16, perturbation, latent_init)?;
-        let (base_buf, history_rows, replay_origin) = match base_input {
-            Ok(slice) => (
-                runtime.buffer_with(slice),
-                (0..capacity)
-                    .map(|_| runtime.buffer::<u16>(dimensions))
-                    .collect(),
-                exact_history.then(|| runtime.buffer_with(slice)),
-            ),
-            Err((buf, _)) => (buf.clone(), vec![buf.clone()], exact_history.then(|| buf)),
-        };
-        let (replay_scale_count, replay_family_count) = if exact_history {
-            (MAX_HISTORY * blocks.len(), 4 * MAX_HISTORY * FAMILIES)
-        } else {
-            (1, 1)
+        ] = compile_pipelines(&runtime, independent_fp16, perturbation, single_pool)?;
+        let (base_buf, history_rows) = match base_input {
+            Ok(slice) => {
+                let base_buf = runtime.buffer_with(slice);
+                let history_rows = if latent_init {
+                    vec![base_buf.clone()]
+                } else {
+                    (0..capacity)
+                        .map(|_| runtime.buffer::<u16>(dimensions))
+                        .collect()
+                };
+                (base_buf, history_rows)
+            }
+            Err((buf, _)) => (buf.clone(), vec![buf]),
         };
         let mut trust = TurboTrustRegion::new(dimensions, length);
         trust.set_arms(1);
@@ -198,7 +194,6 @@ impl SearchState {
             leaves_gpu: runtime.buffer_with(&leaves),
             tiles_gpu: runtime.buffer_with(&tiles),
             offsets_gpu: runtime.buffer_with(&offsets),
-            replay_origin,
             anchor: history_rows[0].clone(),
             rejected: history_rows[history_rows.len().min(2) - 1].clone(),
             history_rows,
@@ -211,11 +206,6 @@ impl SearchState {
             pool_aggregates: runtime.buffer::<Partial>(aggregate_count),
             decision: runtime.buffer::<Decision>(1),
             pool_distances: runtime.buffer::<f32>(5 * MAX_HISTORY),
-            replay_steps: runtime.buffer::<ReplayStep>(MAX_HISTORY),
-            replay_scales: runtime.buffer::<f32>(replay_scale_count),
-            replay_partials: runtime.buffer::<f32>(replay_count),
-            replay_components: runtime.buffer::<f32>(replay_count),
-            pool_family_distances: runtime.buffer::<f32>(replay_family_count),
             family_groups: runtime.buffer_with(&vec![0u32; blocks.len()]),
             family_base_weights: runtime
                 .buffer_with(&blocks.iter().map(|block| block.weight).collect::<Vec<_>>()),
@@ -227,8 +217,6 @@ impl SearchState {
             initial_pipeline,
             pool_pipeline,
             reduction_pipeline,
-            replay_short_pipeline,
-            replay_reduction_pipeline,
             selection_pipeline,
             materialize_pipeline,
             reference_pipeline,
@@ -240,7 +228,7 @@ impl SearchState {
             best: f32::NEG_INFINITY,
             best_variance: 0.0,
             objective_selector: None,
-            pool_layout: if latent_init {
+            pool_layout: if single_pool {
                 crate::procedural_pool::ProceduralPoolConfig {
                     arms: 1,
                     candidates_per_arm: 1,
@@ -257,7 +245,6 @@ impl SearchState {
             observation: 1,
             base_id: 1,
             trust,
-            reliability: None,
             trust_observations: 0,
             paired_evidence_sum: 0.0,
             paired_evidence_count: 0,
@@ -266,13 +253,12 @@ impl SearchState {
             resident_history: 0,
             resident_identities: vec![1; res_cap],
             pairwise_distances: vec![0.0; MAX_HISTORY * MAX_HISTORY],
-            distance_scaling: crate::config::DistanceScaling::Global,
+            distance_metric: crate::config::DistanceMetric::Euclidean,
             local_scale_neighbors: 8,
             family: None,
             trajectory: None,
             metric_gpu: None,
             implicit_history,
-            exact_history,
             latent_history: latent_init,
             neighbors: None,
             calibration: crate::calibration::Calibration::default(),
@@ -317,8 +303,7 @@ fn allocation_sizes(
     tiles: usize,
     offsets: usize,
     capacity: usize,
-    exact_history: bool,
-) -> Result<(usize, usize, usize, usize, [u64; 18], u64), String> {
+) -> Result<(usize, usize, usize, [u64; 13], u64), String> {
     let row_bytes = bytes::<u16>(dimensions)?;
     let partial_count = tiles
         .checked_mul(4)
@@ -330,25 +315,6 @@ fn allocation_sizes(
     let geometry_count = tiles
         .checked_mul(POOL_METRICS)
         .ok_or("BF16 geometry count overflow")?;
-    let replay_count = if exact_history {
-        tiles
-            .checked_mul(4 * MAX_HISTORY)
-            .ok_or("BF16 replay partial count overflow")?
-    } else {
-        1
-    };
-    let replay_scales = if exact_history {
-        MAX_HISTORY
-            .checked_mul(blocks)
-            .ok_or("BF16 replay scale count overflow")?
-    } else {
-        1
-    };
-    let replay_families = if exact_history {
-        4 * MAX_HISTORY * FAMILIES
-    } else {
-        1
-    };
     let sizes = [
         row_bytes,
         bytes::<Leaf>(blocks)?,
@@ -361,17 +327,12 @@ fn allocation_sizes(
         bytes::<Decision>(1)?,
         bytes::<f32>(5 * MAX_HISTORY)?,
         bytes::<f32>(geometry_count)?,
-        bytes::<ReplayStep>(MAX_HISTORY)?,
-        bytes::<f32>(replay_scales)?,
-        bytes::<f32>(replay_count)?,
-        bytes::<f32>(replay_count)?,
-        bytes::<f32>(replay_families)?,
         bytes::<u32>(blocks)?,
         bytes::<f32>(blocks)?,
     ];
     let resident_bytes = sizes.iter().try_fold(
         row_bytes
-            .checked_mul(capacity as u64 + 2 + u64::from(exact_history))
+            .checked_mul(capacity as u64 + 2)
             .ok_or("BF16 memory overflow")?,
         |sum, size| sum.checked_add(*size).ok_or("BF16 memory overflow"),
     )?;
@@ -379,13 +340,12 @@ fn allocation_sizes(
         partial_count,
         aggregate_count,
         geometry_count,
-        replay_count,
         sizes,
         resident_bytes,
     ))
 }
 
-pub(super) fn search_source(independent_fp16: bool, perturbation: ProposalKernel) -> String {
+pub fn search_source(independent_fp16: bool, perturbation: ProposalKernel) -> String {
     let mut defines = format!("#define BAUX_HISTORY {MAX_HISTORY}\n");
     if independent_fp16 {
         defines.push_str("#define FP16_INDEPENDENT\n");
@@ -411,7 +371,7 @@ fn compile_pipelines(
     independent_fp16: bool,
     perturbation: ProposalKernel,
     single_pool: bool,
-) -> Result<[ComputePipelineState; 10], String> {
+) -> Result<[ComputePipelineState; 8], String> {
     let base_source = search_source(independent_fp16, perturbation);
     let source = if single_pool {
         format!("#define PROCEDURAL_SLOTS 1\n#define PROCEDURAL_COUNT 1\n{base_source}")
@@ -419,16 +379,14 @@ fn compile_pipelines(
         base_source
     };
     let pipelines = [
-        runtime.pipeline(&source, "Dense search", "bf16_propose")?,
-        runtime.pipeline(&source, "Dense search", "bf16_propose_initial")?,
-        runtime.pipeline(&source, "Dense search", "bf16_propose_pool")?,
-        runtime.precise(&source, "Dense search", "bf16_reduce_pool")?,
-        runtime.precise(&source, "Dense search", "bf16_replay_short")?,
-        runtime.precise(&source, "Dense search", "bf16_reduce_replay")?,
-        runtime.precise(&source, "Dense search", "bf16_select")?,
-        runtime.pipeline(&source, "Dense search", "bf16_materialize")?,
-        runtime.precise(&source, "Dense search", "bf16_reference")?,
-        runtime.precise(&source, "Dense search", "bf16_reference_rms")?,
+        runtime.pipeline(&source, "Dense search", "dense_propose")?,
+        runtime.pipeline(&source, "Dense search", "dense_propose_initial")?,
+        runtime.pipeline(&source, "Dense search", "dense_propose_pool")?,
+        runtime.precise(&source, "Dense search", "dense_reduce_pool")?,
+        runtime.precise(&source, "Dense search", "dense_select")?,
+        runtime.pipeline(&source, "Dense search", "dense_materialize")?,
+        runtime.precise(&source, "Dense search", "dense_reference")?,
+        runtime.precise(&source, "Dense search", "dense_reference_rms")?,
     ];
     for pipeline in &pipelines {
         if pipeline.max_total_threads_per_threadgroup() < 256 {

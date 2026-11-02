@@ -59,57 +59,30 @@ impl Default for Config {
 
 fn is_notation(token: &str) -> bool {
     let lower = token.to_ascii_lowercase();
-    if lower == "bf16"
-        || lower == "splitmix64"
-        || lower == "mix64"
-        || lower == "mix32"
-        || lower == "dist2"
-        || lower == "l2"
+    if matches!(
+        lower.as_str(),
+        "bf16" | "splitmix64" | "mix64" | "mix32" | "dist2" | "l2"
+    ) || lower.ends_with("bf16")
+        || lower.ends_with("dist2")
+        || lower.ends_with("l2")
     {
         return true;
     }
-    if lower.ends_with("bf16") || lower.ends_with("dist2") || lower.ends_with("l2") {
-        return true;
-    }
-    let bytes = lower.as_bytes();
-    let mut i = bytes.len();
-    while i > 0 && bytes[i - 1].is_ascii_digit() {
-        i -= 1;
-    }
-    if i < bytes.len() && i > 0 {
-        let ch = bytes[i - 1];
-        if ch == b'f' || ch == b'i' || ch == b'u' {
-            return true;
-        }
-    }
-    if lower.starts_with("fp") && lower.len() >= 3 && lower[2..].chars().all(|c| c.is_ascii_digit())
+    let trimmed = lower.trim_end_matches(|c: char| c.is_ascii_digit());
+    if trimmed.len() < lower.len()
+        && (matches!(trimmed, "fp" | "int" | "uint") || trimmed.ends_with(['f', 'i', 'u']))
     {
         return true;
     }
-    if lower.starts_with("int")
-        && lower.len() >= 4
-        && lower[3..].chars().all(|c| c.is_ascii_digit())
-    {
-        return true;
-    }
-    if lower.starts_with("uint")
-        && lower.len() >= 5
-        && lower[4..].chars().all(|c| c.is_ascii_digit())
-    {
-        return true;
-    }
-    if lower.starts_with('e') {
-        if let Some(m_pos) = lower.find('m') {
-            if m_pos > 1
-                && lower[1..m_pos].chars().all(|c| c.is_ascii_digit())
-                && lower[m_pos + 1..].chars().all(|c| c.is_ascii_digit())
-                && !lower[m_pos + 1..].is_empty()
-            {
-                return true;
-            }
-        }
-    }
-    false
+    lower
+        .strip_prefix('e')
+        .and_then(|rest| rest.split_once('m'))
+        .is_some_and(|(e, m)| {
+            !e.is_empty()
+                && !m.is_empty()
+                && e.chars().all(|c| c.is_ascii_digit())
+                && m.chars().all(|c| c.is_ascii_digit())
+        })
 }
 
 fn is_overload(name: &str) -> bool {

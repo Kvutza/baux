@@ -1,4 +1,3 @@
-#[path = "radar/performance.rs"]
 mod performance;
 
 pub use baux_tooling::radar::{PerformanceAction, PerformanceBackend, RadarAction};

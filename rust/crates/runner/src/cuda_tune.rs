@@ -26,7 +26,6 @@ struct Mhc4Job<'a> {
     beta: f32,
     rounds: u32,
     stage_samples: u32,
-    reliability: baux::semantics::optimizer::ReliabilityPolicy,
     surrogate: baux::SurrogateSpec,
     window: Option<u32>,
     reference_seed: u64,
@@ -128,12 +127,8 @@ impl Mhc4Job<'_> {
     }
 
     fn append_policy(&self, args: &mut Vec<OsString>) -> Result<(), String> {
-        let reliability = baux::artifact::json::to_string(&self.reliability)
-            .map_err(|error| error.to_string())?;
         let surrogate =
             baux::artifact::json::to_string(&self.surrogate).map_err(|error| error.to_string())?;
-        args.push(OsString::from("--reliability"));
-        args.push(OsString::from(reliability));
         args.push(OsString::from("--surrogate"));
         args.push(OsString::from(surrogate));
         Ok(())
@@ -285,10 +280,6 @@ pub(crate) fn run(root: &Path, path: &Path, out: &Path) -> Result<(), String> {
             .unwrap_or(baux::config::TrustRegionShape::TensorFamilyStatic),
         stage_samples: run.scorer_stage_samples.unwrap_or(0),
         surrogate: policy.surrogate_spec()?,
-        reliability: run
-            .reliability_controller()
-            .unwrap_or_default()
-            .validate()?,
         output: &output,
     };
     let status = if cfg!(target_os = "linux") {
@@ -347,8 +338,7 @@ fn check_spec(
     )?;
     if policy.proposal_method != baux::procedural_pool::ProposalMethod::Additive
         || run.proposal_kernel() != baux::ProposalKernel::Gaussian
-        || policy.distance_scaling != baux::DistanceScaling::Global
-        || policy.history_geometry != baux::config::HistoryGeometry::Latent
+        || policy.distance_metric != baux::DistanceMetric::Euclidean
     {
         return Err(
             "CUDA mHC-4 does not implement every resolved optimizer field; refusing a partial \
@@ -391,7 +381,7 @@ candidates = 1
 distribution = "gaussian"
 acquisition = "thompson"
 [optimizer.surrogate]
-scaling = "global"
+metric = "euclidean"
 neighbors = 10
 epistemic-scale = 0.05
 aleatoric-scale = 0.05
@@ -452,7 +442,6 @@ max = 0.2
             beta: 2.0,
             rounds: 256,
             stage_samples: 3,
-            reliability: baux::semantics::optimizer::ReliabilityPolicy::default(),
             surrogate: baux::SurrogateSpec {
                 neighbors: 10,
                 fit: true,

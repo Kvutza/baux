@@ -1,6 +1,6 @@
 //! Native FineWeb dataset processing, URL partitioning, deduplication, and
 //! packing.
-use super::{Result, SPLITS};
+use super::reader::{Result, SPLITS};
 use baux::artifact::json::{Value, json};
 use deser::Deserialize;
 use sha2::{Digest, Sha256};

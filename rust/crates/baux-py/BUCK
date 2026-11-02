@@ -15,8 +15,8 @@ app_rust_library(
     dlopen_enable = True,
     edition = RUST_EDITION,
     features = ["default", "usearch-native"] + select({
-        "//:linux-arm64": ["opencl"],
-        "//:linux-x86_64": ["opencl"],
+        "//:linux-arm64": [],
+        "//:linux-x86_64": [],
         "//:macos-arm64": ["metal"],
     }),
     rustc_flags = select({

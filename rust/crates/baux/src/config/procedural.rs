@@ -31,26 +31,8 @@ mod tests {
     #[test]
     fn default_pool() {
         let explicit = parse_tune(&document(1, 4)).unwrap();
-        assert_eq!(explicit.resident_pool().unwrap(), ProceduralPool::legacy());
+        assert_eq!(explicit.resident_pool().unwrap().count(), 4);
         assert_eq!(explicit.resident_enn(17).unwrap().ask.acquisition.seed, 17);
-    }
-
-    #[test]
-    fn unsupported_pool() {
-        let text = document(4, 16);
-        assert!(
-            parse_tune(&text)
-                .unwrap_err()
-                .contains("GPU pool/selection ABI")
-        );
-        let overrides = RunConfig {
-            proposal_pool: Some(ProceduralPoolConfig {
-                arms: 4,
-                candidates_per_arm: 4,
-            }),
-            ..Default::default()
-        };
-        assert!(overrides.resident_enn(0).is_err());
     }
 
     #[test]

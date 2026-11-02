@@ -23,7 +23,7 @@ const GAUSSIAN: &str = "version = 4\n\
     proposal = \"independent\"\n\
     distribution = \"gaussian\"\n\
     [optimizer.surrogate]\n\
-    scaling = \"global\"\n\
+    metric = \"euclidean\"\n\
     neighbors = 32\n\
     epistemic-scale = 0.05\n\
     aleatoric-scale = 0.05\n\
@@ -216,10 +216,8 @@ fn random_acquisition() {
 #[test]
 fn turbo_radius() {
     let config = parse_tune(GAUSSIAN).unwrap();
-    assert_eq!(config.reliability_controller(), None);
     let spec = ExperimentSpec::from_runtime(&config).unwrap();
-    let roundtrip = parse_tune(&spec.to_toml().unwrap()).unwrap();
-    assert_eq!(roundtrip.reliability_controller(), None);
+    let _roundtrip = parse_tune(&spec.to_toml().unwrap()).unwrap();
     assert!(
         parse_tune(&GAUSSIAN.replace(
             "initial = 0.001",
@@ -230,20 +228,17 @@ fn turbo_radius() {
 }
 
 #[test]
-fn hyperbolic_scaling() {
+fn hyperbolic_metric() {
     let text = GAUSSIAN.replace(
-        "scaling = \"global\"",
-        "scaling = \"hyperbolic\"\nlocal-neighbors = 8",
+        "metric = \"euclidean\"",
+        "metric = \"hyperbolic\"\nlocal-neighbors = 8",
     );
     let config = parse_tune(&text).unwrap();
-    assert_eq!(config.distance_scaling, Some(DistanceScaling::Hyperbolic));
+    assert_eq!(config.distance_metric, Some(DistanceMetric::Hyperbolic));
     assert_eq!(config.local_scale_neighbors, Some(8));
     let spec = ExperimentSpec::from_runtime(&config).unwrap();
     let roundtrip = parse_tune(&spec.to_toml().unwrap()).unwrap();
-    assert_eq!(
-        roundtrip.distance_scaling,
-        Some(DistanceScaling::Hyperbolic)
-    );
+    assert_eq!(roundtrip.distance_metric, Some(DistanceMetric::Hyperbolic));
     assert_eq!(roundtrip.local_scale_neighbors, Some(8));
 }
 

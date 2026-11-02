@@ -1,5 +1,5 @@
 //! Repository-disjoint pretraining streams from recorded software-agent traces.
-use super::{Result, split};
+use super::reader::{Result, split};
 use baux::artifact::json::{Value, json};
 use deser::Deserialize;
 use parquet::file::reader::{FileReader, SerializedFileReader};

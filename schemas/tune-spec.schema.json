@@ -210,11 +210,11 @@
               "default": 1.0,
               "description": "Output response scale parameter."
             },
-            "scaling": {
+            "metric": {
               "type": "string",
-              "enum": ["global", "self-tuning", "hyperbolic", "wasserstein"],
-              "default": "global",
-              "description": "Distance normalization mode across parameter dimensions."
+              "enum": ["euclidean", "conformal", "hyperbolic", "wasserstein"],
+              "default": "euclidean",
+              "description": "Distance metric across parameter dimensions."
             },
             "geometry": {
               "type": "string",
@@ -225,7 +225,7 @@
             "local-neighbors": {
               "type": "integer",
               "minimum": 1,
-              "description": "Local neighborhood rank for self-tuning or hyperbolic distance scaling."
+              "description": "Local neighborhood rank for conformal, hyperbolic, or wasserstein distance metrics."
             },
             "fit": {
               "type": "string",

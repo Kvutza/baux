@@ -13,15 +13,8 @@ impl SearchState {
     /// Kernel program tag: 3 for pair rotation, 4 for quadratic flow, otherwise
     /// 0 for the ordinary innovation path. This tag is separate from the
     /// Gaussian/Rademacher sampler mode.
-    pub(super) fn proposal_program(&self) -> u32 {
+    pub fn proposal_program(&self) -> u32 {
         self.proposal_method.program_id()
-    }
-
-    /// Whether full realized/replay geometry, rather than latent-mode geometry,
-    /// is enabled. This flag does not assert metric axioms or prediction
-    /// accuracy.
-    pub(super) fn realized_history(&self) -> bool {
-        self.exact_history && !self.latent_history
     }
 
     /// Whether ask may skip materializing the full parameter-sized pool.
@@ -29,7 +22,7 @@ impl SearchState {
     /// threshold geometry, or procedural approximations. Only the selected row
     /// is fully materialized; `true` does not mean every distance is analytic
     /// or that the selected row is subsequently scored without a forward pass.
-    pub(super) fn analytic_pool(&self) -> bool {
+    pub fn analytic_pool(&self) -> bool {
         self.latent_history
     }
 
@@ -38,7 +31,7 @@ impl SearchState {
     /// additive innovations. It ignores rounding and sample cross terms and is
     /// NOT the exact norm of the state-dependent pair-rotation program. Used
     /// as procedural geometry/metadata, separately from sampled distances.
-    pub(super) fn latent_norm(&self, candidate: usize) -> f32 {
+    pub fn latent_norm(&self, candidate: usize) -> f32 {
         let radius = f64::from(self.radius(candidate));
         self.blocks
             .iter()
@@ -53,7 +46,7 @@ impl SearchState {
     /// Uses original family metric weights with current block scales. Returns
     /// zeros if family learning is disabled; not a measurement of realized
     /// pairs.
-    pub(super) fn latent_components(&self, candidate: usize) -> [f32; FAMILIES] {
+    pub fn latent_components(&self, candidate: usize) -> [f32; FAMILIES] {
         let mut norms = [0.0f64; FAMILIES];
         let Some(family) = &self.family else {
             return [0.0; FAMILIES];
@@ -71,7 +64,7 @@ impl SearchState {
     /// Build single-candidate kernel parameters for parity tests, carrying both
     /// the raw root and derived stream so program-specific seed mapping is
     /// tested.
-    pub(super) fn params(&self, root: u64, candidate: usize) -> Params {
+    pub fn params(&self, root: u64, candidate: usize) -> Params {
         let radius = self.radius(candidate);
         let (trajectory_count, trajectory_seeds, trajectory_weights, trajectory_fresh) =
             self.trajectory.as_ref().map_or(
@@ -100,7 +93,7 @@ impl SearchState {
     /// Preserves the historical fresh-stream mapping for the unspecialized
     /// non-rotation pool. `base_slot = u32::MAX` means no resident incumbent
     /// slot; it is not a valid history index.
-    pub(super) fn pool_params(&self, root: u64) -> Params {
+    pub fn pool_params(&self, root: u64) -> Params {
         let (trajectory_count, trajectory_seeds, trajectory_weights, trajectory_fresh) =
             self.trajectory.as_ref().map_or(
                 (0, [0; TRAJECTORY_CAPACITY], [0.0; TRAJECTORY_CAPACITY], 1.0),
@@ -140,7 +133,7 @@ impl SearchState {
     /// each retained row's neighbor distance scale. History identities map
     /// resident storage to logical observations. `None` uses sentinel 4 for
     /// normal acquisition; the kernel, not this packer, chooses a candidate.
-    pub(super) fn select_params(
+    pub fn select_params(
         &self,
         root: u64,
         mut config: RoundConfig,
@@ -213,16 +206,13 @@ impl SearchState {
             resident_history: self.physical_history() as u32,
             resident_indices,
             implicit_history: u32::from(self.implicit_history),
-            exact_history: u32::from(
-                self.realized_history() && self.history > self.resident_history,
-            ),
             latent_history: u32::from(self.latent_history),
             forced_candidate: forced_candidate.unwrap_or(4) as u32,
-            distance_scaling: match self.distance_scaling {
-                crate::config::DistanceScaling::Global => 0,
-                crate::config::DistanceScaling::SelfTuning => 1,
-                crate::config::DistanceScaling::Hyperbolic => 2,
-                crate::config::DistanceScaling::Wasserstein => 1,
+            distance_metric: match self.distance_metric {
+                crate::config::DistanceMetric::Euclidean => 0,
+                crate::config::DistanceMetric::Conformal => 1,
+                crate::config::DistanceMetric::Hyperbolic => 2,
+                crate::config::DistanceMetric::Wasserstein => 3,
             },
             local_scale_neighbors: self.local_scale_neighbors as u32,
             incumbent_index: base_index as u32,
@@ -234,7 +224,7 @@ impl SearchState {
 
     /// Full parameter rows available to kernels, not the logical observation
     /// count. Implicit history can retain more observations than resident rows.
-    pub(super) fn physical_history(&self) -> usize {
+    pub fn physical_history(&self) -> usize {
         if self.implicit_history {
             self.resident_history
         } else {
@@ -245,7 +235,7 @@ impl SearchState {
     /// Single-slot pools use `self.length`, and multi-slot pools use 0.5x/2x
     /// `self.length` for even/odd arm indices, clamped to configured bounds.
     /// This is not the Euclidean norm of the displacement.
-    pub(super) fn radius(&self, candidate: usize) -> f32 {
+    pub fn radius(&self, candidate: usize) -> f32 {
         (self.length
             * if self.pool_layout.slots() == 1 {
                 1.0
@@ -258,14 +248,14 @@ impl SearchState {
     }
     /// Ensure the optional correlated BF16 reference exists inside an
     /// autorelease pool; a no-op for the independent FP16 representation.
-    pub(super) fn ensure_ref(&mut self) -> Result<(), String> {
+    pub fn ensure_ref(&mut self) -> Result<(), String> {
         autoreleasepool(|| self.init_reference())
     }
 
     /// Lazily allocate and generate the configured correlated reference.
     /// Requires a reference seed outside FP16 mode, checks memory and per-block
     /// RMS, and waits for GPU completion. Drops the new reference on failure.
-    pub(super) fn init_reference(&mut self) -> Result<(), String> {
+    pub fn init_reference(&mut self) -> Result<(), String> {
         if self.independent_fp16 {
             return Ok(());
         }
@@ -294,7 +284,7 @@ impl SearchState {
     /// Reject nonfinite or nonpositive stored reference RMS values.
     /// Checks scale metadata only, not objective quality or every reference
     /// word.
-    pub(super) fn check_reference(&self) -> Result<(), String> {
+    pub fn check_reference(&self) -> Result<(), String> {
         if read::<f32>(&self.reference_scales, self.blocks.len())
             .iter()
             .any(|x| !x.is_finite() || *x <= 0.0)
@@ -308,17 +298,22 @@ impl SearchState {
 
 fn compute_scales(state: &SearchState) -> [f32; MAX_HISTORY] {
     let mut local_scales = [1.0; MAX_HISTORY];
-    if state.distance_scaling != crate::config::DistanceScaling::Global && state.history > 1 {
+    if state.distance_metric != crate::config::DistanceMetric::Euclidean && state.history > 1 {
         let mut values = Vec::with_capacity(state.history - 1);
         for (row, scale) in local_scales[..state.history].iter_mut().enumerate() {
             values.clear();
             values.extend(
                 (0..state.history)
                     .filter(|&column| column != row)
-                    .map(|column| state.total_distance(row, column)),
+                    .map(|column| state.total_distance(row, column))
+                    .filter(|&d| d > 0.0),
             );
-            values.sort_by(f32::total_cmp);
-            *scale = values[state.local_scale_neighbors.min(values.len()) - 1].max(1.0e-12);
+            if values.is_empty() {
+                *scale = 1.0e-12;
+            } else {
+                values.sort_by(f32::total_cmp);
+                *scale = values[state.local_scale_neighbors.min(values.len()) - 1].max(1.0e-12);
+            }
         }
     }
     local_scales

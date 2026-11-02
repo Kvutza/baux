@@ -2,7 +2,8 @@
 //! The finite model fixture exercises production loaders; its trace is not a
 //! proof that every full-workload branch or instruction has executed.
 
-use crate::{ModalClient, Result, SandboxExecOptions};
+use crate::sandbox::Result;
+use modal_rs::{ModalClient, SandboxExecOptions};
 use std::io::{self, Write};
 use std::path::PathBuf;
 
@@ -28,7 +29,7 @@ cupdir="$CUDA_HOME/extras/CUPTI"
 if [ ! -f "$cupdir/include/cupti.h" ]; then cupdir="$CUDA_HOME/targets/x86_64-linux"; fi
 cc -std=c11 -shared -fPIC -Wall -Wextra -Werror \
   -I"$cupdir/include" -I"$CUDA_HOME/include" \
-  backends/cuda/native/capture.c -L"$cupdir/lib64" -L"$cupdir/lib" \
+  rust/crates/cuda/native/capture.c -L"$cupdir/lib64" -L"$cupdir/lib" \
   -Wl,-rpath,"$cupdir/lib64" -Wl,-rpath,"$cupdir/lib" -lcupti \
   -o /tmp/baux-cupti.so
 set +e

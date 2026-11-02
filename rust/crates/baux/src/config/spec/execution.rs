@@ -7,15 +7,15 @@
 
 use super::*;
 
-pub(super) fn default_rounds() -> u32 {
+pub fn default_rounds() -> u32 {
     RunConfig::default().rounds()
 }
 
-pub(super) fn default_reps() -> u32 {
+pub fn default_reps() -> u32 {
     RunConfig::default().reps()
 }
 
-pub(super) fn default_target() -> u32 {
+pub fn default_target() -> u32 {
     RunConfig::default().target_ms()
 }
 

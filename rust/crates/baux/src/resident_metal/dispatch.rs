@@ -2,7 +2,7 @@ use super::*;
 use crate::apple_gpu::thread_group;
 
 impl SearchState {
-    pub(super) fn encode_proposal(&self, command: &CommandBufferRef, params: Params) {
+    pub fn encode_proposal(&self, command: &CommandBufferRef, params: Params) {
         let encoder = command.new_compute_command_encoder();
         let pipeline = if self.independent_fp16 && params.history == 1 && params.base_slot == 0 {
             &self.initial_pipeline
@@ -35,7 +35,7 @@ impl SearchState {
         encoder.dispatch_thread_groups(thread_group(self.tiles.len() as u64), thread_group(256));
         encoder.end_encoding();
     }
-    pub(super) fn encode_pool(&self, command: &CommandBufferRef, params: Params) {
+    pub fn encode_pool(&self, command: &CommandBufferRef, params: Params) {
         for pair in 0..self.resident_history.div_ceil(2) {
             let first = pair * 2;
             let history = (self.resident_history - first).min(2);
@@ -53,7 +53,7 @@ impl SearchState {
             self.encode_pair(command, params, first);
         }
     }
-    pub(super) fn encode_pair(&self, command: &CommandBufferRef, params: Params, first: usize) {
+    pub fn encode_pair(&self, command: &CommandBufferRef, params: Params, first: usize) {
         let encoder = command.new_compute_command_encoder();
         encoder.set_compute_pipeline_state(&self.pool_pipeline);
         for (index, buffer) in [
@@ -81,7 +81,7 @@ impl SearchState {
         encoder.dispatch_thread_groups(thread_group(self.tiles.len() as u64), thread_group(256));
         encoder.end_encoding();
     }
-    pub(super) fn encode_select(
+    pub fn encode_select(
         &self,
         command: &CommandBufferRef,
         root: u64,
@@ -92,10 +92,8 @@ impl SearchState {
         if let Some(neighbors) = &self.neighbors {
             neighbors.encode(self, command, root);
         }
-        let fused_replay = self.realized_history() && self.history > self.resident_history;
-        let needs_replay =
-            self.realized_history() || forced_candidate.is_none() || self.family.is_some();
-        if needs_replay && !fused_replay && !self.analytic_pool() {
+        let needs_reduction = forced_candidate.is_none() || self.family.is_some();
+        if needs_reduction && !self.analytic_pool() {
             let reducer = command.new_compute_command_encoder();
             reducer.set_compute_pipeline_state(&self.reduction_pipeline);
             for (index, buffer) in [&self.partials, &self.pool_geometry, &self.pool_aggregates]
@@ -114,10 +112,6 @@ impl SearchState {
                 thread_group(256),
             );
             reducer.end_encoding();
-        }
-
-        if needs_replay && self.realized_history() && self.history > self.resident_history {
-            self.encode_replay(command, root);
         }
 
         let encoder = command.new_compute_command_encoder();
@@ -143,78 +137,7 @@ impl SearchState {
         encoder.dispatch_thread_groups(thread_group(1), thread_group(1));
         encoder.end_encoding();
     }
-    fn encode_replay(&self, command: &CommandBufferRef, root: u64) {
-        let blit = command.new_blit_command_encoder();
-        blit.copy_from_buffer(
-            self.replay_origin.as_ref().unwrap(),
-            0,
-            &self.history_rows[0],
-            0,
-            self.row_bytes(),
-        );
-        blit.end_encoding();
-        let params = Params {
-            history: self.history as u32,
-            blocks: self.blocks.len() as u32,
-            ..self.pool_params(root)
-        };
-        for start in (0..self.history).step_by(16) {
-            let stage = Params {
-                initialize: start as u32,
-                ..params
-            };
-            let replay = command.new_compute_command_encoder();
-            replay.set_compute_pipeline_state(&self.replay_short_pipeline);
-            for (index, buffer) in [
-                &self.history_rows[0],
-                &self.base,
-                &self.leaves_gpu,
-                &self.tiles_gpu,
-                &self.replay_steps,
-                &self.replay_scales,
-                &self.family_base_weights,
-                &self.replay_partials,
-                &self.replay_components,
-                &self.partials,
-                &self.pool_geometry,
-            ]
-            .iter()
-            .enumerate()
-            {
-                replay.set_buffer(index as u64, Some(buffer), 0);
-            }
-            replay.set_bytes(
-                11,
-                size_of::<Params>() as u64,
-                (&stage as *const Params).cast(),
-            );
-            replay.dispatch_thread_groups(thread_group(self.tiles.len() as u64), thread_group(256));
-            replay.end_encoding();
-        }
-        let replay = command.new_compute_command_encoder();
-        replay.set_compute_pipeline_state(&self.replay_reduction_pipeline);
-        for (index, buffer) in [
-            &self.replay_partials,
-            &self.replay_components,
-            &self.family_groups,
-            &self.tiles_gpu,
-            &self.pool_distances,
-            &self.pool_family_distances,
-        ]
-        .iter()
-        .enumerate()
-        {
-            replay.set_buffer(index as u64, Some(buffer), 0);
-        }
-        replay.set_bytes(
-            6,
-            size_of::<Params>() as u64,
-            (&params as *const Params).cast(),
-        );
-        replay.dispatch_thread_groups(thread_group((4 * self.history) as u64), thread_group(256));
-        replay.end_encoding();
-    }
-    pub(super) fn encode_row(&self, command: &CommandBufferRef) {
+    pub fn encode_row(&self, command: &CommandBufferRef) {
         let encoder = command.new_compute_command_encoder();
         encoder.set_compute_pipeline_state(&self.materialize_pipeline);
         for (index, buffer) in [
@@ -248,7 +171,7 @@ impl SearchState {
         encoder.dispatch_thread_groups(thread_group(self.tiles.len() as u64), thread_group(256));
         encoder.end_encoding();
     }
-    pub(super) fn encode_ref(&self, command: &CommandBufferRef, params: Params) {
+    pub fn encode_ref(&self, command: &CommandBufferRef, params: Params) {
         let encoder = command.new_compute_command_encoder();
         encoder.set_compute_pipeline_state(&self.reference_pipeline);
         for (index, buffer) in [
@@ -286,11 +209,11 @@ impl SearchState {
         encoder.dispatch_thread_groups(thread_group(self.blocks.len() as u64), thread_group(256));
         encoder.end_encoding();
     }
-    pub(super) fn copy(&self, source: &Buffer, destination: &Buffer) -> Result<(), String> {
+    pub fn copy(&self, source: &Buffer, destination: &Buffer) -> Result<(), String> {
         autoreleasepool(|| self.copy_inner(source, destination))
     }
 
-    pub(super) fn copy_inner(&self, source: &Buffer, destination: &Buffer) -> Result<(), String> {
+    pub fn copy_inner(&self, source: &Buffer, destination: &Buffer) -> Result<(), String> {
         let command = self.runtime.queue.new_command_buffer();
         let blit = command.new_blit_command_encoder();
         blit.copy_from_buffer(source, 0, destination, 0, self.row_bytes());

@@ -19,7 +19,6 @@ BAUX_SRCS = glob(
 )
 
 BAUX_SHADER_SRCS = glob([
-    "src/**/*.cl",
     "src/**/*.metal",
 ])
 
@@ -75,26 +74,6 @@ rust_library(
     ],
 )
 
-rust_library(
-    name = "baux_opencl",
-    srcs = BAUX_SRCS,
-    aliases = aliases(),
-    compile_data = BAUX_SHADER_SRCS,
-    crate_features = [
-        "opencl",
-        "usearch-native",
-    ],
-    crate_name = "baux",
-    crate_root = "src/lib.rs",
-    edition = crate_edition(),
-    link_deps = [
-        ":usearch_bridge",
-    ],
-    deps = BAUX_DEPS + [
-        "@crates//:opencl3",
-    ],
-)
-
 alias(
     name = "baux",
     actual = ":baux_cpu",
@@ -103,7 +82,6 @@ alias(
 alias(
     name = "baux_accelerators",
     actual = select({
-        "@platforms//os:linux": ":baux_opencl",
         "@platforms//os:macos": ":baux_metal",
         "//conditions:default": ":baux_cpu",
     }),
@@ -120,50 +98,6 @@ rust_test(
     crate = ":baux_cpu",
     compile_data = ["//experiments:specs"],
     deps = BAUX_TEST_DEPS,
-)
-
-# Metal unit tests are separate from baux_test because the CPU crate compiles
-# accelerator modules out. Keep this target narrow and filter it in local/CI
-# invocations when validating Qwen context compilation.
-rust_test(
-    name = "qwen_metal_test",
-    aliases = aliases(
-        normal_dev = True,
-        proc_macro_dev = True,
-    ),
-    compile_data = ["//experiments:specs"],
-    crate = ":baux_metal",
-    crate_features = [
-        "metal",
-        "usearch-native",
-    ],
-    deps = BAUX_TEST_DEPS,
-    target_compatible_with = ["@platforms//os:macos"],
-)
-
-rust_binary(
-    name = "trial_bench_metal",
-    srcs = ["examples/trial_bench.rs"],
-    aliases = aliases(normal_dev = True),
-    crate_name = "trial_bench_metal",
-    crate_root = "examples/trial_bench.rs",
-    edition = crate_edition(),
-    target_compatible_with = ["@platforms//os:macos"],
-    deps = [
-        ":baux_metal",
-    ],
-)
-
-rust_binary(
-    name = "trial_bench_opencl",
-    srcs = ["examples/trial_bench.rs"],
-    aliases = aliases(normal_dev = True),
-    crate_name = "trial_bench_opencl",
-    crate_root = "examples/trial_bench.rs",
-    edition = crate_edition(),
-    deps = [
-        ":baux_opencl",
-    ],
 )
 
 rust_binary(
@@ -190,37 +124,4 @@ rust_test(
     deps = [
         ":baux_metal",
     ] + baux_crate_deps(["ndarray"]),
-)
-
-rust_test(
-    name = "trial_search_metal_test",
-    srcs = ["tests/trial_search.rs"],
-    aliases = aliases(
-        normal_dev = True,
-        proc_macro_dev = True,
-    ),
-    crate_features = ["metal"],
-    crate_name = "trial_search_metal_test",
-    crate_root = "tests/trial_search.rs",
-    edition = crate_edition(),
-    target_compatible_with = ["@platforms//os:macos"],
-    deps = BAUX_TEST_DEPS + [
-        ":baux_metal",
-    ],
-)
-
-rust_test(
-    name = "trial_search_opencl_test",
-    srcs = ["tests/trial_search.rs"],
-    aliases = aliases(
-        normal_dev = True,
-        proc_macro_dev = True,
-    ),
-    crate_features = ["opencl"],
-    crate_name = "trial_search_opencl_test",
-    crate_root = "tests/trial_search.rs",
-    edition = crate_edition(),
-    deps = BAUX_TEST_DEPS + [
-        ":baux_opencl",
-    ],
 )

@@ -11,7 +11,7 @@ pub mod acquisition;
 pub mod agent_contract;
 #[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "metal"))]
 #[allow(dead_code)]
-mod apple_gpu;
+pub mod apple_gpu;
 #[path = "../artifact/src/lib.rs"]
 pub mod artifact;
 pub use artifact as baux_artifact;
@@ -20,12 +20,9 @@ pub mod base_policy;
 #[path = "../neighbor-index/src/lib.rs"]
 pub mod baux_neighbor_index;
 pub use baux_neighbor_index as neighbor_index;
-#[cfg(all(feature = "cuda", target_os = "linux", target_arch = "x86_64"))]
-#[allow(dead_code)]
-mod resident_cuda;
 #[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "metal"))]
 #[allow(dead_code)]
-mod resident_metal;
+pub mod resident_metal;
 pub use baux::semantics::optimizer::SurrogateSpec;
 pub use baux::semantics::optimizer::calibration;
 pub mod calibrator;
@@ -36,11 +33,6 @@ mod candidates_fast;
 // streams, posterior updates, ENN fitting, acceptance, and radius trajectories
 // are verified in the ordinary cross-backend test suite.
 pub mod capability;
-#[cfg(any(
-    test,
-    all(any(target_os = "macos", target_os = "ios"), feature = "metal")
-))]
-mod code_overlap;
 pub mod coding_outcome;
 pub mod config;
 mod coordinate;
@@ -48,55 +40,28 @@ mod coordinate_flat;
 mod coordinate_scalar;
 pub mod device_posterior;
 pub use baux::semantics::context;
-#[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "metal"))]
-mod context_metal;
-mod dense;
 pub mod disk_bpann;
 pub mod draw;
 pub mod error;
 pub mod experimental;
 #[cfg(feature = "extraction")]
 pub mod extraction;
-pub mod fbt;
 #[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "metal"))]
-#[allow(dead_code)]
-mod fbt_attention;
+pub mod mps;
 #[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "metal"))]
-#[allow(dead_code)]
-mod fbt_metal;
-#[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "metal"))]
-mod fbt_micro;
-#[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "metal"))]
-#[allow(dead_code)]
-mod fbt_model;
-#[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "metal"))]
-#[allow(dead_code)]
-mod fbt_moe;
-#[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "metal"))]
-mod fbt_mps;
-#[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "metal"))]
-#[allow(dead_code)]
-mod fbt_pisa1;
-#[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "metal"))]
-#[path = "fbt_pisa1/grad.rs"]
-mod fbt_pisa1_grad;
+pub use mps as fbt_mps;
 pub mod file_config;
 pub mod fit;
 pub mod fitter;
-#[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "metal"))]
-mod flame_metal;
-#[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "metal"))]
-mod forward_metal;
 #[allow(dead_code)]
-mod forward_program;
-mod forward_weights;
+pub mod forward_program;
 pub mod hash;
 #[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "metal"))]
 pub mod hnet_metal;
 pub mod hypervolume;
 pub mod incumbent_tracker;
 pub mod index;
-mod knn;
+pub mod knn;
 pub mod metric_auto;
 pub mod metric_loo;
 mod metric_rng;
@@ -109,28 +74,22 @@ pub mod model;
 pub mod morbo;
 pub mod muon;
 pub mod ndtri;
-#[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "metal"))]
-#[allow(dead_code)]
-mod nn;
 pub use baux::semantics::neighbor as neighbor_rule;
 pub mod objective_observation;
 pub mod optimizer;
-mod optimizer_config;
+pub mod optimizer_config;
 mod optimizer_dispatch;
 pub mod optimizer_factory;
 mod optimizer_mu;
 pub mod params;
 pub mod posterior;
 pub mod prelude;
-mod pretrain_data;
+pub mod pretrain_data;
 pub mod procedural_pool;
 pub mod proposal_kernel;
-mod quantization;
-#[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "metal"))]
-mod qwen_metal;
+pub mod quantization;
 #[cfg(any(test, all(target_os = "macos", feature = "metal")))]
-mod reconstruction;
-pub mod reliability_region;
+pub mod reconstruction;
 pub mod response_observation;
 pub mod search;
 #[path = "../semantics/src/lib.rs"]
@@ -140,16 +99,13 @@ pub mod stats;
 pub mod strategy;
 pub mod surrogate;
 mod surrogate_api;
-#[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "metal"))]
-#[allow(dead_code)]
-mod tensor;
 pub mod tensor_store;
 pub mod text;
 pub mod traits;
-mod trials;
+pub mod trials;
 pub mod trust_region;
 pub mod util;
-mod weights;
+pub mod weights;
 pub mod y_bounds;
 
 #[cfg(test)]
@@ -180,9 +136,8 @@ pub use coding_outcome::{
     CODING_SCHEMA, CandidateEfficiency, CandidateEligibility, CodingOutcome, ExecutableChecks,
 };
 pub use config::{
-    AcquisitionConfig, CandidateConfig, DataRecipe, DistanceScaling, ExperimentKind,
-    ExperimentSpec, InitStrategy, ModelArchitecture, ObjectiveReference, OptimizerConfig,
-    ResidentEnnConfig, SurrogateConfig, TrustRegionKind, lhd_only, turbo_enn, turbo_zero,
+    DataRecipe, DistanceMetric, ExperimentKind, ExperimentSpec, ModelArchitecture,
+    ObjectiveReference, ResidentEnnConfig, TrustRegionKind,
 };
 pub use draw::{Candidates, ConditionalDraw, DrawInternals, NeighborData};
 pub use error::{ENNError, EPS_VAR};
@@ -200,15 +155,15 @@ pub use morbo::{MorboTRSettings, MorboTrustRegion, Rescalarize};
 pub use ndtri::{ndtri, z_crit};
 pub use optimizer::obs_access::ObsAccess;
 pub use optimizer::{BayesOptimizer, Telemetry};
+pub use optimizer_config::{
+    AcquisitionConfig, CandidateConfig, InitStrategy, OptimizerConfig, SurrogateConfig, lhd_only,
+    turbo_enn, turbo_zero,
+};
 pub use optimizer_factory::{create_lhd, create_optimizer, enn_optimizer};
 pub use params::{ENNNormal, ENNParams, ParamsError, PosteriorFlags};
 pub use posterior::{WeightedPosteriorData, compute_internals, conditional_internals};
 pub use pretrain_data::load_tokens as pretrain_tokens;
 pub use proposal_kernel::ProposalKernel;
-pub use reliability_region::{
-    ReliabilityAction, ReliabilityController, ReliabilityEvidence, ReliabilityPolicy,
-    ReliabilityTelemetry,
-};
 pub use stats::WeightedStats;
 pub use strategy::Strategy;
 pub use surrogate::{

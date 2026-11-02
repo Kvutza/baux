@@ -100,60 +100,6 @@ fn neighbor_query() {
 }
 
 #[test]
-fn radius_bounds() {
-    let mut controller = TrustRegionController::new(0.1, 0.1, 2.0).unwrap();
-    for _ in 0..64 {
-        let decision = controller
-            .observe(-1.0, 0.01, 1.0, 0.01, 0.1, true)
-            .unwrap();
-        assert!((0.1..=2.0).contains(&decision.next_radius));
-    }
-}
-
-#[test]
-fn calibration_trace() {
-    let mut reference = baux::semantics::calibration::Calibration::default();
-    let mut controller = TrustRegionController::new(0.125, 0.001, 2.0).unwrap();
-    for step in 0..192 {
-        let observed = ((step * 13) % 47) as f32 * 0.017 - 0.2;
-        let predicted = ((step * 7) % 41) as f32 * 0.011 - 0.1;
-        let variance = 0.001 + (step % 5) as f32 * 0.0003;
-        let prediction = 0.002 + (step % 7) as f32 * 0.0002;
-        let threshold = f64::from(reference.multiplier()) * f64::from(variance).sqrt();
-        let expected = f64::from(observed) > threshold;
-        let result = controller
-            .observe(observed, variance, predicted, prediction, 0.1, true)
-            .unwrap();
-        assert_eq!(result.accepted, expected);
-        assert_eq!(result.threshold.to_bits(), threshold.to_bits());
-        reference
-            .observe(
-                observed,
-                predicted,
-                (f64::from(variance) + f64::from(prediction)).sqrt() as f32,
-            )
-            .unwrap();
-        assert_eq!(
-            controller.calibration.multiplier().to_bits(),
-            reference.multiplier().to_bits()
-        );
-    }
-}
-
-#[test]
-fn calibration_atomic() {
-    let mut state = TrustRegionController::new(0.125, 0.001, 2.0).unwrap();
-    let radius = state.radius();
-    assert!(
-        state
-            .observe(f32::MAX, 0.0, -f32::MAX, 0.0, 0.1, true)
-            .is_err()
-    );
-    assert_eq!(state.radius().to_bits(), radius.to_bits());
-    assert_eq!(state.calibration.count(), 0);
-}
-
-#[test]
 fn action_priority() {
     assert_eq!(
         decide_action(true, true, true, true, true, true, false),
@@ -233,7 +179,7 @@ fn inclusive_incumbent() {
     };
     let mut est = NeighborValueEstimator::with_spec(-15.0, 0.0028, 7, spec)
         .unwrap()
-        .with_metric(baux::semantics::neighbor::DistanceMetric::SelfTuning { local_k: 2 });
+        .with_metric(baux::semantics::neighbor::DistanceMetric::Conformal { local_k: 2 });
     // Append two older worse points and one accepted better incumbent at tiny
     // raw distances (1.6e-5).
     est.append(&[1.6e-5_f64], -15.2, 0.0028, false).unwrap();
@@ -278,11 +224,28 @@ fn inclusive_incumbent() {
         .with_law(UncertaintyLaw::BiasVariance);
     let acq_hyp = hyp_bv.acquire(&[1.6e-5_f64], 1.0, None).unwrap();
     assert!(acq_hyp.standard_error.is_finite() && acq_hyp.epistemic_error.is_finite());
+
+    // Verify Euclidean LOO fitting with tiny distances (1.6e-5) normalizes
+    // epistemic scale by characteristic distance and selects adaptive k.
+    let mut adaptive_est =
+        NeighborValueEstimator::configured(-15.0, 0.0028, 7, true, true).unwrap();
+    for step in 1..32 {
+        let row: Vec<f64> = (0..step)
+            .map(|prev| ((step - prev) as f64).powi(2) * 1.6e-5)
+            .collect();
+        adaptive_est
+            .append(&row, -15.0 + step as f32 * 0.02, 0.0028, step % 4 == 0)
+            .unwrap();
+    }
+    let state = adaptive_est.fit_state();
+    assert!((1..=31).contains(&state.neighbors));
+    assert!(state.epistemic > 1.0);
+    assert!(state.aleatoric <= 1.0);
 }
 
 #[test]
 fn turbo_selection() {
-    let mut tr = TrustRegionController::from_policy(0.004, 0.001, 0.008, 4, None).unwrap();
+    let mut tr = TrustRegionController::with_turbo(0.004, 0.001, 0.008, 4).unwrap();
     let spec = baux::semantics::SurrogateSpec {
         neighbors: 2,
         ..Default::default()
@@ -342,30 +305,4 @@ fn turbo_selection() {
             assert!((dec.next_radius - 0.004).abs() < 1e-7);
         }
     }
-
-    // ModelAgreement (1-population operator-bo) expands when adequate & sharp
-    // even when local KNN candidate.mean <= incumbent.mean, and shrinks on
-    // failure_tolerance or model inadequacy.
-    let mut agree_tr = TrustRegionController::from_policy(
-        0.004,
-        0.001,
-        0.008,
-        4,
-        Some(TrustRegionSpec {
-            minimum_evidence: 1.0,
-            reliability_threshold: 0.2,
-            failure_tolerance: 2,
-            ..Default::default()
-        }),
-    )
-    .unwrap();
-    let _ = agree_tr
-        .evaluate_selection(-14.99, 0.0, 0.004, &post_sel)
-        .unwrap();
-    let exp_dec = agree_tr
-        .evaluate_selection(-14.99, 0.0, 0.004, &post_sel)
-        .unwrap();
-    assert!(exp_dec.accepted);
-    assert_eq!(exp_dec.action, RadiusAction::Expand);
-    assert!((exp_dec.next_radius - 0.008).abs() < 1e-7);
 }

@@ -121,10 +121,7 @@ pub struct SurrogateRecipe {
     pub epistemic_scale: f64,
     pub aleatoric_scale: f64,
     pub y_scale: f64,
-    /// How historical parameter dissimilarities are represented/computed;
-    /// `latent` is not a reduced-dimensional parameterization of the model.
-    pub geometry: HistoryGeometry,
-    pub scaling: DistanceScaling,
+    pub metric: DistanceMetric,
     pub local_neighbors: Option<usize>,
     /// Scale fitting rule. This is independent of query-local neighbor choice.
     pub fit: SurrogateFit,
@@ -142,8 +139,7 @@ impl Default for SurrogateRecipe {
             epistemic_scale: epistemic_default(),
             aleatoric_scale: aleatoric_default(),
             y_scale: default_scale(),
-            geometry: HistoryGeometry::default(),
-            scaling: DistanceScaling::default(),
+            metric: DistanceMetric::default(),
             local_neighbors: None,
             fit: SurrogateFit::default(),
             fit_candidates: None,
@@ -183,12 +179,12 @@ pub enum NeighborRule {
 
 /// Keep schema defaults aligned with the resident ask's initial neighbor
 /// budget.
-pub(super) fn default_neighbors() -> i32 {
+pub fn default_neighbors() -> i32 {
     crate::trials::RoundConfig::default().surrogate.neighbors as i32
 }
 
 /// Initial epistemic scale from the same ask defaults used by the runtime.
-pub(super) fn epistemic_default() -> f64 {
+pub fn epistemic_default() -> f64 {
     f64::from(
         crate::trials::RoundConfig::default()
             .surrogate
@@ -197,7 +193,7 @@ pub(super) fn epistemic_default() -> f64 {
 }
 
 /// Initial aleatoric scale from the resident ask, before optional fitting.
-pub(super) fn aleatoric_default() -> f64 {
+pub fn aleatoric_default() -> f64 {
     f64::from(
         crate::trials::RoundConfig::default()
             .surrogate
@@ -206,7 +202,7 @@ pub(super) fn aleatoric_default() -> f64 {
 }
 
 /// Initial output scale from the resident ask, before optional fitting.
-pub(super) fn default_scale() -> f64 {
+pub fn default_scale() -> f64 {
     f64::from(crate::trials::RoundConfig::default().surrogate.output_scale)
 }
 
@@ -242,7 +238,7 @@ pub enum AcquisitionSpec {
     },
 }
 
-#[path = "bounds.rs"]
+#[path = "optimizer/bounds.rs"]
 mod bounds;
 pub use bounds::*;
 
@@ -253,4 +249,133 @@ fn default_beta() -> f64 {
         unreachable!()
     };
     beta
+}
+
+impl crate::optimizer_config::OptimizerConfig {
+    /// Compile an ask/tell [`OptimizerConfig`] directly from a v4
+    /// [`OptimizerSpec`].
+    pub fn from_spec(spec: &OptimizerSpec) -> Result<Self, crate::error::ENNError> {
+        use crate::error::ENNError;
+        use crate::optimizer_config::{AcquisitionConfig, CandidateConfig, SurrogateConfig};
+        use crate::trust_region::TrustRegionConfig;
+        match spec {
+            OptimizerSpec::Muon | OptimizerSpec::Adamw => Err(ENNError::InvalidParameter(
+                "Muon and AdamW are matrix pretraining optimizers, not ask/tell BO recipes"
+                    .to_string(),
+            )),
+            OptimizerSpec::OperatorBo {
+                surrogate,
+                trust_region,
+                ..
+            } => {
+                let candidate_generation = spec.candidate_generation().unwrap();
+                let candidates = CandidateConfig::from_spec(&candidate_generation)?;
+                let surrogate_cfg = SurrogateConfig::from_recipe(surrogate)?;
+                let trust_region = TrustRegionConfig::from_spec(trust_region)?;
+                Ok(Self {
+                    surrogate: surrogate_cfg,
+                    trust_region,
+                    candidates,
+                    acquisition: AcquisitionConfig::UCB { beta: 1.0 },
+                    noise_aware: false,
+                    failure_tolerance_dim: None,
+                })
+            }
+            OptimizerSpec::TurboEnn {
+                surrogate,
+                acquisition,
+                trust_region,
+                ..
+            } => {
+                let candidate_generation = spec.candidate_generation().unwrap();
+                let candidates = CandidateConfig::from_spec(&candidate_generation)?;
+                let surrogate_cfg = SurrogateConfig::from_recipe(surrogate)?;
+                let acq_cfg = AcquisitionConfig::from_spec(acquisition);
+                let tr_cfg = TrustRegionConfig::from_spec(trust_region)?;
+                Ok(Self {
+                    surrogate: surrogate_cfg,
+                    trust_region: tr_cfg,
+                    candidates,
+                    acquisition: acq_cfg,
+                    noise_aware: false,
+                    failure_tolerance_dim: None,
+                })
+            }
+        }
+    }
+}
+
+impl crate::optimizer_config::SurrogateConfig {
+    pub fn from_recipe(recipe: &SurrogateRecipe) -> Result<Self, crate::error::ENNError> {
+        use crate::error::ENNError;
+        use crate::surrogate::ENNSurrogateConfig;
+        if recipe.neighbors < 1 {
+            return Err(ENNError::InvalidParameter(format!(
+                "k (number of neighbors) must be > 0, got {}",
+                recipe.neighbors
+            )));
+        }
+        let (num_candidates, num_samples) =
+            recipe.fit_budget().map_err(ENNError::InvalidParameter)?;
+        Ok(Self::ENN(ENNSurrogateConfig {
+            k: recipe.neighbors,
+            num_candidates,
+            num_samples,
+            ..Default::default()
+        }))
+    }
+}
+
+impl crate::optimizer_config::CandidateConfig {
+    pub fn from_spec(spec: &CandidateGenerationSpec) -> Result<Self, crate::error::ENNError> {
+        use crate::candidates::CandidateSampler;
+        use crate::error::ENNError;
+        use crate::procedural_pool::ProposalMethod;
+        if spec.arms == 0 || spec.candidates == 0 || !spec.candidates.is_multiple_of(spec.arms) {
+            return Err(ENNError::InvalidParameter(
+                "candidates must be positive and divisible by arms".to_string(),
+            ));
+        }
+        let per_arm = (spec.candidates / spec.arms) as usize;
+        let total = spec.candidates as usize;
+        let candidate_rv = match spec.proposal {
+            ProposalMethod::Additive => CandidateSampler::RAASP,
+            ProposalMethod::PairMix
+            | ProposalMethod::QuadraticFlow
+            | ProposalMethod::MetricChain => CandidateSampler::Sobol,
+        };
+        Ok(Self {
+            num_candidates_factor: 1.0,
+            min_candidates: total,
+            max_candidates: Some(total),
+            num_candidates_per_arm: Some(per_arm),
+            num_pert: 20,
+            candidate_rv,
+            raasp_fast: false,
+        })
+    }
+}
+
+impl crate::optimizer_config::AcquisitionConfig {
+    pub fn from_spec(spec: &AcquisitionSpec) -> Self {
+        match spec {
+            AcquisitionSpec::Ucb { beta } => Self::UCB { beta: *beta },
+            AcquisitionSpec::Thompson => Self::Thompson,
+            AcquisitionSpec::Random => Self::Random,
+            AcquisitionSpec::Pareto { .. } => Self::Pareto,
+        }
+    }
+}
+
+impl crate::trust_region::TrustRegionConfig {
+    pub fn from_spec(bounds: &TrustRegionBounds) -> Result<Self, crate::error::ENNError> {
+        bounds
+            .validate()
+            .map_err(crate::error::ENNError::InvalidParameter)?;
+        Ok(Self::Turbo(crate::trust_region::TRLengthConfig {
+            length_init: bounds.initial,
+            length_min: bounds.min,
+            length_max: bounds.max,
+        }))
+    }
 }

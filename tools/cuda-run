@@ -35,7 +35,7 @@ case "$cuda_arch" in
 esac
 export BAUX_FLAME_CUDA_ARCH=${BAUX_FLAME_CUDA_ARCH:-$cuda_arch}
 
-cd "$repo_dir/backends/cuda"
+cd "$repo_dir/rust/crates/cuda"
 target_dir=${CARGO_TARGET_DIR:-"$repo_dir/target"}
 case "$target_dir" in
     /*) ;;

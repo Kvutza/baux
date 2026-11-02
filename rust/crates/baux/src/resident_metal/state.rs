@@ -2,30 +2,16 @@ use super::*;
 
 impl SearchState {
     /// Start a fresh bounded ENN window from the current incumbent.
-    pub(crate) fn compact_history(&mut self) -> Result<(), String> {
+    pub fn compact_history(&mut self) -> Result<(), String> {
         self.check_idle()?;
         let missing = self.history != 0 && !self.identities[..self.history].contains(&self.base_id);
         if !self.implicit_history || self.history == 0 || !missing {
             return Ok(());
         }
-        if self.exact_history {
-            self.copy(&self.base, self.replay_origin.as_ref().unwrap())?;
-            unsafe {
-                std::ptr::write_bytes(
-                    self.replay_steps.contents().cast::<u8>(),
-                    0,
-                    self.replay_steps.length() as usize,
-                );
-                std::ptr::write_bytes(
-                    self.replay_scales.contents().cast::<u8>(),
-                    0,
-                    self.replay_scales.length() as usize,
-                );
-            }
-        }
         if self.latent_history {
             self.history_rows[0] = self.base.clone();
             self.resident_history = 0;
+            self.resident_identities[0] = self.base_id;
         } else {
             self.copy(&self.base, &self.history_rows[0])?;
             self.resident_history = 1;
@@ -116,27 +102,17 @@ impl SearchState {
         })
     }
 
-    pub fn reliability_info(
-        &self,
-    ) -> Result<Option<reliability_region::ReliabilityTelemetry>, String> {
-        self.check_healthy()?;
-        Ok(self
-            .reliability
-            .as_ref()
-            .map(reliability_region::ReliabilityController::telemetry))
-    }
-
-    pub(super) fn row_bytes(&self) -> u64 {
+    pub fn row_bytes(&self) -> u64 {
         self.dimensions as u64 * 2
     }
-    pub(super) fn check_healthy(&self) -> Result<(), String> {
+    pub fn check_healthy(&self) -> Result<(), String> {
         if self.poisoned {
             Err("Metal BF16 state is unusable after a failed GPU update".into())
         } else {
             Ok(())
         }
     }
-    pub(super) fn check_idle(&self) -> Result<(), String> {
+    pub fn check_idle(&self) -> Result<(), String> {
         self.check_healthy()?;
         if self.pending.is_some() || self.queued.is_some() || self.async_command.is_some() {
             Err("Tell the pending Metal BF16 proposal and sync before another mutation".into())

@@ -1648,6 +1648,92 @@ reindeer_rust_library(
     visibility = [],
 )
 
+alias(
+    name = "charming",
+    actual = ":charming-0.6",
+    visibility = ["PUBLIC"],
+)
+
+http_archive(
+    name = "charming-0.6.0.crate",
+    sha256 = "df19cf7d4540f4db08203dce5171421fdfc5e83ea3f14d7b5329f0dbff3bf3c2",
+    strip_prefix = "charming-0.6.0",
+    urls = ["https://static.crates.io/crates/charming/0.6.0/download"],
+    visibility = [],
+)
+
+reindeer_rust_library(
+    name = "charming-0.6",
+    srcs = [":charming-0.6.0.crate"],
+    crate = "charming",
+    crate_root = "charming-0.6.0.crate/src/lib.rs",
+    edition = "2021",
+    env = {
+        "CARGO_BIN_NAME": "charming",
+        "CARGO_CRATE_NAME": "charming",
+        "CARGO_MANIFEST_DIR": "charming-0.6.0.crate",
+        "CARGO_PKG_AUTHORS": "Yuankun Zhang <i@yuankun.me>",
+        "CARGO_PKG_DESCRIPTION": "A visualization library for Rust",
+        "CARGO_PKG_HOMEPAGE": "",
+        "CARGO_PKG_NAME": "charming",
+        "CARGO_PKG_README": "README.md",
+        "CARGO_PKG_REPOSITORY": "https://github.com/yuankunzhang/charming",
+        "CARGO_PKG_RUST_VERSION": "1.85",
+        "CARGO_PKG_VERSION": "0.6.0",
+        "CARGO_PKG_VERSION_MAJOR": "0",
+        "CARGO_PKG_VERSION_MINOR": "6",
+        "CARGO_PKG_VERSION_PATCH": "0",
+        "CARGO_PKG_VERSION_PRE": "",
+    },
+    visibility = [],
+    deps = [
+        ":charming_macros-0.1",
+        ":serde-1",
+        ":serde_json-1",
+        ":serde_with-3",
+    ],
+)
+
+http_archive(
+    name = "charming_macros-0.1.0.crate",
+    sha256 = "5ec2398273c047c67d69794a924b1a2a5c14a5fab6bcbe8b24e86a0df9328e5e",
+    strip_prefix = "charming_macros-0.1.0",
+    urls = ["https://static.crates.io/crates/charming_macros/0.1.0/download"],
+    visibility = [],
+)
+
+reindeer_rust_library(
+    name = "charming_macros-0.1",
+    srcs = [":charming_macros-0.1.0.crate"],
+    crate = "charming_macros",
+    crate_root = "charming_macros-0.1.0.crate/src/lib.rs",
+    edition = "2024",
+    env = {
+        "CARGO_BIN_NAME": "charming_macros",
+        "CARGO_CRATE_NAME": "charming_macros",
+        "CARGO_MANIFEST_DIR": "charming_macros-0.1.0.crate",
+        "CARGO_PKG_AUTHORS": "",
+        "CARGO_PKG_DESCRIPTION": "Procedural macros used in charming",
+        "CARGO_PKG_HOMEPAGE": "",
+        "CARGO_PKG_NAME": "charming_macros",
+        "CARGO_PKG_README": "README.md",
+        "CARGO_PKG_REPOSITORY": "https://github.com/yuankunzhang/charming",
+        "CARGO_PKG_RUST_VERSION": "",
+        "CARGO_PKG_VERSION": "0.1.0",
+        "CARGO_PKG_VERSION_MAJOR": "0",
+        "CARGO_PKG_VERSION_MINOR": "1",
+        "CARGO_PKG_VERSION_PATCH": "0",
+        "CARGO_PKG_VERSION_PRE": "",
+    },
+    proc_macro = True,
+    visibility = [],
+    deps = [
+        ":proc-macro2-1",
+        ":quote-1",
+        ":syn-2",
+    ],
+)
+
 http_archive(
     name = "chrono-0.4.45.crate",
     sha256 = "1aa79e62e7697b8e29b513a68abacf485adcd1fe8284a4316c5ae868e6633327",
@@ -1962,6 +2048,44 @@ reindeer_rust_library(
         "CARGO_PKG_VERSION_PATCH": "5",
         "CARGO_PKG_VERSION_PRE": "",
     },
+    visibility = [],
+)
+
+http_archive(
+    name = "colorous-1.0.16.crate",
+    sha256 = "e4e18bf7a165bf7028fde98609a0f1e8f7498d762a212598e6c891f6893556ec",
+    strip_prefix = "colorous-1.0.16",
+    urls = ["https://static.crates.io/crates/colorous/1.0.16/download"],
+    visibility = [],
+)
+
+reindeer_rust_library(
+    name = "colorous-1",
+    srcs = [":colorous-1.0.16.crate"],
+    crate = "colorous",
+    crate_root = "colorous-1.0.16.crate/src/lib.rs",
+    edition = "2021",
+    env = {
+        "CARGO_BIN_NAME": "colorous",
+        "CARGO_CRATE_NAME": "colorous",
+        "CARGO_MANIFEST_DIR": "colorous-1.0.16.crate",
+        "CARGO_PKG_AUTHORS": "David Tolnay <dtolnay@gmail.com>",
+        "CARGO_PKG_DESCRIPTION": "Professional color schemes ported from d3-scale-chromatic",
+        "CARGO_PKG_HOMEPAGE": "",
+        "CARGO_PKG_NAME": "colorous",
+        "CARGO_PKG_README": "README.md",
+        "CARGO_PKG_REPOSITORY": "https://github.com/dtolnay/colorous",
+        "CARGO_PKG_RUST_VERSION": "1.60",
+        "CARGO_PKG_VERSION": "1.0.16",
+        "CARGO_PKG_VERSION_MAJOR": "1",
+        "CARGO_PKG_VERSION_MINOR": "0",
+        "CARGO_PKG_VERSION_PATCH": "16",
+        "CARGO_PKG_VERSION_PRE": "",
+    },
+    features = [
+        "default",
+        "std",
+    ],
     visibility = [],
 )
 
@@ -2963,6 +3087,48 @@ reindeer_rust_library(
 )
 
 http_archive(
+    name = "darling-0.24.1.crate",
+    sha256 = "ed17f5901b6630b993ca003def43f2f8ef4014fc13b047b57aad617ff32bc2ec",
+    strip_prefix = "darling-0.24.1",
+    urls = ["https://static.crates.io/crates/darling/0.24.1/download"],
+    visibility = [],
+)
+
+reindeer_rust_library(
+    name = "darling-0.24",
+    srcs = [":darling-0.24.1.crate"],
+    crate = "darling",
+    crate_root = "darling-0.24.1.crate/src/lib.rs",
+    edition = "2021",
+    env = {
+        "CARGO_BIN_NAME": "darling",
+        "CARGO_CRATE_NAME": "darling",
+        "CARGO_MANIFEST_DIR": "darling-0.24.1.crate",
+        "CARGO_PKG_AUTHORS": "Ted Driggs <ted.driggs@outlook.com>",
+        "CARGO_PKG_DESCRIPTION": "A proc-macro library for reading attributes into structs when\nimplementing custom derives.\n",
+        "CARGO_PKG_HOMEPAGE": "",
+        "CARGO_PKG_NAME": "darling",
+        "CARGO_PKG_README": "README.md",
+        "CARGO_PKG_REPOSITORY": "https://github.com/TedDriggs/darling",
+        "CARGO_PKG_RUST_VERSION": "1.88.0",
+        "CARGO_PKG_VERSION": "0.24.1",
+        "CARGO_PKG_VERSION_MAJOR": "0",
+        "CARGO_PKG_VERSION_MINOR": "24",
+        "CARGO_PKG_VERSION_PATCH": "1",
+        "CARGO_PKG_VERSION_PRE": "",
+    },
+    features = [
+        "default",
+        "suggestions",
+    ],
+    visibility = [],
+    deps = [
+        ":darling_core-0.24",
+        ":darling_macro-0.24",
+    ],
+)
+
+http_archive(
     name = "darling_core-0.20.11.crate",
     sha256 = "0d00b9596d185e565c2207a0b01f8bd1a135483d02d9b7b0a54b11da8d53412e",
     strip_prefix = "darling_core-0.20.11",
@@ -3009,6 +3175,51 @@ reindeer_rust_library(
 )
 
 http_archive(
+    name = "darling_core-0.24.1.crate",
+    sha256 = "6837e2cf7485aaae18f86181d2f0e9a7ed297a025e220aeabf63fdebd3a2ddff",
+    strip_prefix = "darling_core-0.24.1",
+    urls = ["https://static.crates.io/crates/darling_core/0.24.1/download"],
+    visibility = [],
+)
+
+reindeer_rust_library(
+    name = "darling_core-0.24",
+    srcs = [":darling_core-0.24.1.crate"],
+    crate = "darling_core",
+    crate_root = "darling_core-0.24.1.crate/src/lib.rs",
+    edition = "2021",
+    env = {
+        "CARGO_BIN_NAME": "darling_core",
+        "CARGO_CRATE_NAME": "darling_core",
+        "CARGO_MANIFEST_DIR": "darling_core-0.24.1.crate",
+        "CARGO_PKG_AUTHORS": "Ted Driggs <ted.driggs@outlook.com>",
+        "CARGO_PKG_DESCRIPTION": "Helper crate for proc-macro library for reading attributes into structs when\nimplementing custom derives. Use https://crates.io/crates/darling in your code.\n",
+        "CARGO_PKG_HOMEPAGE": "",
+        "CARGO_PKG_NAME": "darling_core",
+        "CARGO_PKG_README": "",
+        "CARGO_PKG_REPOSITORY": "https://github.com/TedDriggs/darling",
+        "CARGO_PKG_RUST_VERSION": "1.88.0",
+        "CARGO_PKG_VERSION": "0.24.1",
+        "CARGO_PKG_VERSION_MAJOR": "0",
+        "CARGO_PKG_VERSION_MINOR": "24",
+        "CARGO_PKG_VERSION_PATCH": "1",
+        "CARGO_PKG_VERSION_PRE": "",
+    },
+    features = [
+        "strsim",
+        "suggestions",
+    ],
+    visibility = [],
+    deps = [
+        ":ident_case-1",
+        ":proc-macro2-1",
+        ":quote-1",
+        ":strsim-0.11",
+        ":syn-3",
+    ],
+)
+
+http_archive(
     name = "darling_macro-0.20.11.crate",
     sha256 = "fc34b93ccb385b40dc71c6fceac4b2ad23662c7eeb248cf10d529b7e055b6ead",
     strip_prefix = "darling_macro-0.20.11",
@@ -3045,6 +3256,46 @@ reindeer_rust_library(
         ":darling_core-0.20",
         ":quote-1",
         ":syn-2",
+    ],
+)
+
+http_archive(
+    name = "darling_macro-0.24.1.crate",
+    sha256 = "2ac7135c3ef02b2f7833bbeb1be5ba7f966dcde8a87c6b87f65a778d71a02785",
+    strip_prefix = "darling_macro-0.24.1",
+    urls = ["https://static.crates.io/crates/darling_macro/0.24.1/download"],
+    visibility = [],
+)
+
+reindeer_rust_library(
+    name = "darling_macro-0.24",
+    srcs = [":darling_macro-0.24.1.crate"],
+    crate = "darling_macro",
+    crate_root = "darling_macro-0.24.1.crate/src/lib.rs",
+    edition = "2021",
+    env = {
+        "CARGO_BIN_NAME": "darling_macro",
+        "CARGO_CRATE_NAME": "darling_macro",
+        "CARGO_MANIFEST_DIR": "darling_macro-0.24.1.crate",
+        "CARGO_PKG_AUTHORS": "Ted Driggs <ted.driggs@outlook.com>",
+        "CARGO_PKG_DESCRIPTION": "Internal support for a proc-macro library for reading attributes into structs when\nimplementing custom derives. Use https://crates.io/crates/darling in your code.\n",
+        "CARGO_PKG_HOMEPAGE": "",
+        "CARGO_PKG_NAME": "darling_macro",
+        "CARGO_PKG_README": "",
+        "CARGO_PKG_REPOSITORY": "https://github.com/TedDriggs/darling",
+        "CARGO_PKG_RUST_VERSION": "1.88.0",
+        "CARGO_PKG_VERSION": "0.24.1",
+        "CARGO_PKG_VERSION_MAJOR": "0",
+        "CARGO_PKG_VERSION_MINOR": "24",
+        "CARGO_PKG_VERSION_PATCH": "1",
+        "CARGO_PKG_VERSION_PRE": "",
+    },
+    proc_macro = True,
+    visibility = [],
+    deps = [
+        ":darling_core-0.24",
+        ":quote-1",
+        ":syn-3",
     ],
 )
 
@@ -3376,6 +3627,52 @@ reindeer_rust_library(
     ],
 )
 
+alias(
+    name = "deser-cbor",
+    actual = ":deser-cbor-0.9",
+    visibility = ["PUBLIC"],
+)
+
+http_archive(
+    name = "deser-cbor-0.9.1.crate",
+    sha256 = "7b02c147e1b97a7b1306c7051307a5d7aa146fb609b3c1ad55e757e598d9ea7d",
+    strip_prefix = "deser-cbor-0.9.1",
+    urls = ["https://static.crates.io/crates/deser-cbor/0.9.1/download"],
+    visibility = [],
+)
+
+reindeer_rust_library(
+    name = "deser-cbor-0.9",
+    srcs = [":deser-cbor-0.9.1.crate"],
+    crate = "deser_cbor",
+    crate_root = "deser-cbor-0.9.1.crate/src/lib.rs",
+    edition = "2024",
+    env = {
+        "CARGO_BIN_NAME": "deser_cbor",
+        "CARGO_CRATE_NAME": "deser_cbor",
+        "CARGO_MANIFEST_DIR": "deser-cbor-0.9.1.crate",
+        "CARGO_PKG_AUTHORS": "Armin Ronacher <armin.ronacher@active-4.com>",
+        "CARGO_PKG_DESCRIPTION": "CBOR support for deser",
+        "CARGO_PKG_HOMEPAGE": "",
+        "CARGO_PKG_NAME": "deser-cbor",
+        "CARGO_PKG_README": "README.md",
+        "CARGO_PKG_REPOSITORY": "https://github.com/mitsuhiko/deser",
+        "CARGO_PKG_RUST_VERSION": "1.88",
+        "CARGO_PKG_VERSION": "0.9.1",
+        "CARGO_PKG_VERSION_MAJOR": "0",
+        "CARGO_PKG_VERSION_MINOR": "9",
+        "CARGO_PKG_VERSION_PATCH": "1",
+        "CARGO_PKG_VERSION_PRE": "",
+    },
+    features = [
+        "default",
+        "io",
+        "std",
+    ],
+    visibility = [],
+    deps = [":deser-core-0.9"],
+)
+
 http_archive(
     name = "deser-core-0.9.1.crate",
     sha256 = "12bd36a68e8d14a98ad4107016d65f3af3e851185f3176f05d873aaec9328472",
@@ -3452,54 +3749,6 @@ reindeer_rust_library(
         ":proc-macro2-1",
         ":quote-1",
         ":syn-3",
-    ],
-)
-
-alias(
-    name = "deser-cbor",
-    actual = ":deser-cbor-0.9",
-    visibility = ["PUBLIC"],
-)
-
-http_archive(
-    name = "deser-cbor-0.9.1.crate",
-    sha256 = "7b02c147e1b97a7b1306c7051307a5d7aa146fb609b3c1ad55e757e598d9ea7d",
-    strip_prefix = "deser-cbor-0.9.1",
-    urls = ["https://static.crates.io/crates/deser-cbor/0.9.1/download"],
-    visibility = [],
-)
-
-reindeer_rust_library(
-    name = "deser-cbor-0.9",
-    srcs = [":deser-cbor-0.9.1.crate"],
-    crate = "deser_cbor",
-    crate_root = "deser-cbor-0.9.1.crate/src/lib.rs",
-    edition = "2024",
-    env = {
-        "CARGO_BIN_NAME": "deser_cbor",
-        "CARGO_CRATE_NAME": "deser_cbor",
-        "CARGO_MANIFEST_DIR": "deser-cbor-0.9.1.crate",
-        "CARGO_PKG_AUTHORS": "Armin Ronacher <armin.ronacher@active-4.com>",
-        "CARGO_PKG_DESCRIPTION": "CBOR support for deser",
-        "CARGO_PKG_HOMEPAGE": "",
-        "CARGO_PKG_NAME": "deser-cbor",
-        "CARGO_PKG_README": "README.md",
-        "CARGO_PKG_REPOSITORY": "https://github.com/mitsuhiko/deser",
-        "CARGO_PKG_RUST_VERSION": "1.88",
-        "CARGO_PKG_VERSION": "0.9.1",
-        "CARGO_PKG_VERSION_MAJOR": "0",
-        "CARGO_PKG_VERSION_MINOR": "9",
-        "CARGO_PKG_VERSION_PATCH": "1",
-        "CARGO_PKG_VERSION_PRE": "",
-    },
-    features = [
-        "default",
-        "io",
-        "std",
-    ],
-    visibility = [],
-    deps = [
-        ":deser-core-0.9",
     ],
 )
 
@@ -6849,6 +7098,227 @@ reindeer_rust_library(
         "CARGO_PKG_VERSION_PRE": "",
     },
     visibility = [],
+)
+
+alias(
+    name = "jiff",
+    actual = ":jiff-0.2",
+    visibility = ["PUBLIC"],
+)
+
+http_archive(
+    name = "jiff-0.2.38.crate",
+    sha256 = "b2b005715dcbeb0089a3c0dab99f2ff1cc3b2525323552703d648585d342a383",
+    strip_prefix = "jiff-0.2.38",
+    urls = ["https://static.crates.io/crates/jiff/0.2.38/download"],
+    visibility = [],
+)
+
+reindeer_rust_library(
+    name = "jiff-0.2",
+    srcs = [":jiff-0.2.38.crate"],
+    crate = "jiff",
+    crate_root = "jiff-0.2.38.crate/src/lib.rs",
+    edition = "2021",
+    env = {
+        "CARGO_BIN_NAME": "jiff",
+        "CARGO_CRATE_NAME": "jiff",
+        "CARGO_MANIFEST_DIR": "jiff-0.2.38.crate",
+        "CARGO_PKG_AUTHORS": "Andrew Gallant <jamslam@gmail.com>",
+        "CARGO_PKG_DESCRIPTION": "A date-time library that encourages you to jump into the pit of success.\n\nThis library is heavily inspired by the Temporal project.\n",
+        "CARGO_PKG_HOMEPAGE": "",
+        "CARGO_PKG_NAME": "jiff",
+        "CARGO_PKG_README": "README.md",
+        "CARGO_PKG_REPOSITORY": "https://github.com/BurntSushi/jiff",
+        "CARGO_PKG_RUST_VERSION": "1.70",
+        "CARGO_PKG_VERSION": "0.2.38",
+        "CARGO_PKG_VERSION_MAJOR": "0",
+        "CARGO_PKG_VERSION_MINOR": "2",
+        "CARGO_PKG_VERSION_PATCH": "38",
+        "CARGO_PKG_VERSION_PRE": "",
+    },
+    features = [
+        "alloc",
+        "default",
+        "perf-inline",
+        "std",
+        "tz-fat",
+        "tz-system",
+        "tzdb-bundle-platform",
+        "tzdb-concatenated",
+        "tzdb-zoneinfo",
+    ],
+    named_deps = {
+        "jcore": ":jiff-core-0.1",
+    },
+    platform = {
+        "windows-gnu": dict(
+            deps = [
+                ":jiff-tzdb-platform-0.1",
+                ":windows-link-0.2",
+            ],
+        ),
+        "windows-msvc": dict(
+            deps = [
+                ":jiff-tzdb-platform-0.1",
+                ":windows-link-0.2",
+            ],
+        ),
+    },
+    visibility = [],
+)
+
+http_archive(
+    name = "jiff-core-0.1.1.crate",
+    sha256 = "5e52fe76043ccecc9005d2305ebaadf7d7fc0cc89ca6baa10a94d6bc68c7128c",
+    strip_prefix = "jiff-core-0.1.1",
+    urls = ["https://static.crates.io/crates/jiff-core/0.1.1/download"],
+    visibility = [],
+)
+
+reindeer_rust_library(
+    name = "jiff-core-0.1",
+    srcs = [":jiff-core-0.1.1.crate"],
+    crate = "jiff_core",
+    crate_root = "jiff-core-0.1.1.crate/src/lib.rs",
+    edition = "2021",
+    env = {
+        "CARGO_BIN_NAME": "jiff_core",
+        "CARGO_CRATE_NAME": "jiff_core",
+        "CARGO_MANIFEST_DIR": "jiff-core-0.1.1.crate",
+        "CARGO_PKG_AUTHORS": "Andrew Gallant <jamslam@gmail.com>",
+        "CARGO_PKG_DESCRIPTION": "Low level datetime primitives for the Jiff library.",
+        "CARGO_PKG_HOMEPAGE": "https://github.com/BurntSushi/jiff/tree/master/crates/jiff-core",
+        "CARGO_PKG_NAME": "jiff-core",
+        "CARGO_PKG_README": "README.md",
+        "CARGO_PKG_REPOSITORY": "https://github.com/BurntSushi/jiff",
+        "CARGO_PKG_RUST_VERSION": "1.70",
+        "CARGO_PKG_VERSION": "0.1.1",
+        "CARGO_PKG_VERSION_MAJOR": "0",
+        "CARGO_PKG_VERSION_MINOR": "1",
+        "CARGO_PKG_VERSION_PATCH": "1",
+        "CARGO_PKG_VERSION_PRE": "",
+    },
+    features = [
+        "alloc",
+        "std",
+        "tz-fat",
+    ],
+    visibility = [],
+)
+
+http_archive(
+    name = "jiff-tzdb-0.1.9.crate",
+    sha256 = "fa8377070c6bae868759445e5a77f66d84f0b72f3a054bfb00e6d038b8282da7",
+    strip_prefix = "jiff-tzdb-0.1.9",
+    urls = ["https://static.crates.io/crates/jiff-tzdb/0.1.9/download"],
+    visibility = [],
+)
+
+reindeer_rust_library(
+    name = "jiff-tzdb-0.1",
+    srcs = [":jiff-tzdb-0.1.9.crate"],
+    crate = "jiff_tzdb",
+    crate_root = "jiff-tzdb-0.1.9.crate/lib.rs",
+    edition = "2021",
+    env = {
+        "CARGO_BIN_NAME": "jiff_tzdb",
+        "CARGO_CRATE_NAME": "jiff_tzdb",
+        "CARGO_MANIFEST_DIR": "jiff-tzdb-0.1.9.crate",
+        "CARGO_PKG_AUTHORS": "Andrew Gallant <jamslam@gmail.com>",
+        "CARGO_PKG_DESCRIPTION": "The entire Time Zone Database embedded into your binary.",
+        "CARGO_PKG_HOMEPAGE": "https://github.com/BurntSushi/jiff/tree/master/crates/jiff-tzdb",
+        "CARGO_PKG_NAME": "jiff-tzdb",
+        "CARGO_PKG_README": "README.md",
+        "CARGO_PKG_REPOSITORY": "https://github.com/BurntSushi/jiff",
+        "CARGO_PKG_RUST_VERSION": "1.70",
+        "CARGO_PKG_VERSION": "0.1.9",
+        "CARGO_PKG_VERSION_MAJOR": "0",
+        "CARGO_PKG_VERSION_MINOR": "1",
+        "CARGO_PKG_VERSION_PATCH": "9",
+        "CARGO_PKG_VERSION_PRE": "",
+    },
+    visibility = [],
+)
+
+http_archive(
+    name = "jiff-tzdb-platform-0.1.3.crate",
+    sha256 = "875a5a69ac2bab1a891711cf5eccbec1ce0341ea805560dcd90b7a2e925132e8",
+    strip_prefix = "jiff-tzdb-platform-0.1.3",
+    urls = ["https://static.crates.io/crates/jiff-tzdb-platform/0.1.3/download"],
+    visibility = [],
+)
+
+reindeer_rust_library(
+    name = "jiff-tzdb-platform-0.1",
+    srcs = [":jiff-tzdb-platform-0.1.3.crate"],
+    crate = "jiff_tzdb_platform",
+    crate_root = "jiff-tzdb-platform-0.1.3.crate/lib.rs",
+    edition = "2021",
+    env = {
+        "CARGO_BIN_NAME": "jiff_tzdb_platform",
+        "CARGO_CRATE_NAME": "jiff_tzdb_platform",
+        "CARGO_MANIFEST_DIR": "jiff-tzdb-platform-0.1.3.crate",
+        "CARGO_PKG_AUTHORS": "Andrew Gallant <jamslam@gmail.com>",
+        "CARGO_PKG_DESCRIPTION": "The entire Time Zone Database embedded into your binary for specific platforms.\n",
+        "CARGO_PKG_HOMEPAGE": "https://github.com/BurntSushi/jiff/tree/master/crates/jiff-tzdb-platform",
+        "CARGO_PKG_NAME": "jiff-tzdb-platform",
+        "CARGO_PKG_README": "README.md",
+        "CARGO_PKG_REPOSITORY": "https://github.com/BurntSushi/jiff",
+        "CARGO_PKG_RUST_VERSION": "1.70",
+        "CARGO_PKG_VERSION": "0.1.3",
+        "CARGO_PKG_VERSION_MAJOR": "0",
+        "CARGO_PKG_VERSION_MINOR": "1",
+        "CARGO_PKG_VERSION_PATCH": "3",
+        "CARGO_PKG_VERSION_PRE": "",
+    },
+    visibility = [],
+    deps = [":jiff-tzdb-0.1"],
+)
+
+alias(
+    name = "kuva",
+    actual = ":kuva-0.6",
+    visibility = ["PUBLIC"],
+)
+
+http_archive(
+    name = "kuva-0.6.0.crate",
+    sha256 = "32a778113ce802ab7bc34eed1a47e20b876ac7f0eb2c4ba88de31acac55af0e9",
+    strip_prefix = "kuva-0.6.0",
+    urls = ["https://static.crates.io/crates/kuva/0.6.0/download"],
+    visibility = [],
+)
+
+reindeer_rust_library(
+    name = "kuva-0.6",
+    srcs = [":kuva-0.6.0.crate"],
+    crate = "kuva",
+    crate_root = "kuva-0.6.0.crate/src/lib.rs",
+    edition = "2021",
+    env = {
+        "CARGO_BIN_NAME": "kuva",
+        "CARGO_CRATE_NAME": "kuva",
+        "CARGO_MANIFEST_DIR": "kuva-0.6.0.crate",
+        "CARGO_PKG_AUTHORS": "James M. Ferguson <j.ferguson@garvan.org.au>",
+        "CARGO_PKG_DESCRIPTION": "Scientific plotting library in Rust with various backends.",
+        "CARGO_PKG_HOMEPAGE": "",
+        "CARGO_PKG_NAME": "kuva",
+        "CARGO_PKG_README": "README.md",
+        "CARGO_PKG_REPOSITORY": "https://github.com/Psy-Fer/kuva",
+        "CARGO_PKG_RUST_VERSION": "1.87",
+        "CARGO_PKG_VERSION": "0.6.0",
+        "CARGO_PKG_VERSION_MAJOR": "0",
+        "CARGO_PKG_VERSION_MINOR": "6",
+        "CARGO_PKG_VERSION_PATCH": "0",
+        "CARGO_PKG_VERSION_PRE": "",
+    },
+    visibility = [],
+    deps = [
+        ":chrono-0.4",
+        ":colorous-1",
+        ":ryu-1",
+    ],
 )
 
 http_archive(
@@ -11971,6 +12441,62 @@ buildscript_run(
     version = "1.13.0",
 )
 
+alias(
+    name = "redb",
+    actual = ":redb-2",
+    visibility = ["PUBLIC"],
+)
+
+http_archive(
+    name = "redb-2.6.4.crate",
+    sha256 = "3d64e07496d293ad8ed401c4d193d5b9f0f97671fbd5bf21d691a0c7d2c53dc8",
+    strip_prefix = "redb-2.6.4",
+    urls = ["https://static.crates.io/crates/redb/2.6.4/download"],
+    visibility = [],
+)
+
+reindeer_rust_library(
+    name = "redb-2",
+    srcs = [":redb-2.6.4.crate"],
+    crate = "redb",
+    crate_root = "redb-2.6.4.crate/src/lib.rs",
+    dlopen_enable = True,
+    edition = "2024",
+    env = {
+        "CARGO_BIN_NAME": "redb",
+        "CARGO_CRATE_NAME": "redb",
+        "CARGO_MANIFEST_DIR": "redb-2.6.4.crate",
+        "CARGO_PKG_AUTHORS": "Christopher Berner <me@cberner.com>",
+        "CARGO_PKG_DESCRIPTION": "Rust Embedded DataBase",
+        "CARGO_PKG_HOMEPAGE": "https://www.redb.org",
+        "CARGO_PKG_NAME": "redb",
+        "CARGO_PKG_README": "README.md",
+        "CARGO_PKG_REPOSITORY": "https://github.com/cberner/redb",
+        "CARGO_PKG_RUST_VERSION": "1.85",
+        "CARGO_PKG_VERSION": "2.6.4",
+        "CARGO_PKG_VERSION_MAJOR": "2",
+        "CARGO_PKG_VERSION_MINOR": "6",
+        "CARGO_PKG_VERSION_PATCH": "4",
+        "CARGO_PKG_VERSION_PRE": "",
+    },
+    linkable_alias = "redb",
+    platform = {
+        "linux-arm64": dict(
+            deps = [":libc-0.2"],
+        ),
+        "linux-x86_64": dict(
+            deps = [":libc-0.2"],
+        ),
+        "macos-arm64": dict(
+            deps = [":libc-0.2"],
+        ),
+        "macos-x86_64": dict(
+            deps = [":libc-0.2"],
+        ),
+    },
+    visibility = [],
+)
+
 http_archive(
     name = "regex-1.13.1.crate",
     sha256 = "f020237b6c8eed93db2e2cb53c00c60a8e1bc73da7d073199a1180401450218d",
@@ -13484,6 +14010,7 @@ reindeer_rust_library(
         "OUT_DIR": "$(location :serde_json-1-build-script-run[out_dir])",
     },
     features = [
+        "alloc",
         "default",
         "std",
     ],
@@ -13521,6 +14048,7 @@ reindeer_rust_binary(
         "CARGO_PKG_VERSION_PRE": "",
     },
     features = [
+        "alloc",
         "default",
         "std",
     ],
@@ -13544,6 +14072,7 @@ buildscript_run(
         "CARGO_PKG_VERSION_PRE": "",
     },
     features = [
+        "alloc",
         "default",
         "std",
     ],
@@ -13627,6 +14156,91 @@ reindeer_rust_library(
         ":itoa-1",
         ":ryu-1",
         ":serde-1",
+    ],
+)
+
+http_archive(
+    name = "serde_with-3.24.0.crate",
+    sha256 = "df9adc193c780ef8f159aee8b61e2d5801aaa555e6eb0947fe45530ec506296f",
+    strip_prefix = "serde_with-3.24.0",
+    urls = ["https://static.crates.io/crates/serde_with/3.24.0/download"],
+    visibility = [],
+)
+
+reindeer_rust_library(
+    name = "serde_with-3",
+    srcs = [":serde_with-3.24.0.crate"],
+    crate = "serde_with",
+    crate_root = "serde_with-3.24.0.crate/src/lib.rs",
+    edition = "2021",
+    env = {
+        "CARGO_BIN_NAME": "serde_with",
+        "CARGO_CRATE_NAME": "serde_with",
+        "CARGO_MANIFEST_DIR": "serde_with-3.24.0.crate",
+        "CARGO_PKG_AUTHORS": "Jonas Bushart:Marcin Kaźmierczak",
+        "CARGO_PKG_DESCRIPTION": "Custom de/serialization functions for Rust's serde",
+        "CARGO_PKG_HOMEPAGE": "",
+        "CARGO_PKG_NAME": "serde_with",
+        "CARGO_PKG_README": "README.md",
+        "CARGO_PKG_REPOSITORY": "https://github.com/jonasbb/serde_with/",
+        "CARGO_PKG_RUST_VERSION": "1.88",
+        "CARGO_PKG_VERSION": "3.24.0",
+        "CARGO_PKG_VERSION_MAJOR": "3",
+        "CARGO_PKG_VERSION_MINOR": "24",
+        "CARGO_PKG_VERSION_PATCH": "0",
+        "CARGO_PKG_VERSION_PRE": "",
+    },
+    features = [
+        "alloc",
+        "default",
+        "macros",
+        "std",
+    ],
+    visibility = [],
+    deps = [
+        ":serde_core-1",
+        ":serde_with_macros-3",
+    ],
+)
+
+http_archive(
+    name = "serde_with_macros-3.24.0.crate",
+    sha256 = "3e17bbc68e28663bbbb90df47e058aa7eda4fb445b89fe70457bb94fbccf6e49",
+    strip_prefix = "serde_with_macros-3.24.0",
+    urls = ["https://static.crates.io/crates/serde_with_macros/3.24.0/download"],
+    visibility = [],
+)
+
+reindeer_rust_library(
+    name = "serde_with_macros-3",
+    srcs = [":serde_with_macros-3.24.0.crate"],
+    crate = "serde_with_macros",
+    crate_root = "serde_with_macros-3.24.0.crate/src/lib.rs",
+    edition = "2021",
+    env = {
+        "CARGO_BIN_NAME": "serde_with_macros",
+        "CARGO_CRATE_NAME": "serde_with_macros",
+        "CARGO_MANIFEST_DIR": "serde_with_macros-3.24.0.crate",
+        "CARGO_PKG_AUTHORS": "Jonas Bushart",
+        "CARGO_PKG_DESCRIPTION": "proc-macro library for serde_with",
+        "CARGO_PKG_HOMEPAGE": "",
+        "CARGO_PKG_NAME": "serde_with_macros",
+        "CARGO_PKG_README": "README.md",
+        "CARGO_PKG_REPOSITORY": "https://github.com/jonasbb/serde_with/",
+        "CARGO_PKG_RUST_VERSION": "1.88",
+        "CARGO_PKG_VERSION": "3.24.0",
+        "CARGO_PKG_VERSION_MAJOR": "3",
+        "CARGO_PKG_VERSION_MINOR": "24",
+        "CARGO_PKG_VERSION_PATCH": "0",
+        "CARGO_PKG_VERSION_PRE": "",
+    },
+    proc_macro = True,
+    visibility = [],
+    deps = [
+        ":darling-0.24",
+        ":proc-macro2-1",
+        ":quote-1",
+        ":syn-3",
     ],
 )
 
@@ -17535,490 +18149,4 @@ buildscript_run(
         "CARGO_PKG_VERSION_PRE": "",
     },
     version = "1.0.23",
-)
-
-http_archive(
-    name = "colorous-1.0.16.crate",
-    sha256 = "e4e18bf7a165bf7028fde98609a0f1e8f7498d762a212598e6c891f6893556ec",
-    strip_prefix = "colorous-1.0.16",
-    urls = ["https://static.crates.io/crates/colorous/1.0.16/download"],
-    visibility = [],
-)
-
-reindeer_rust_library(
-    name = "colorous-1",
-    srcs = [":colorous-1.0.16.crate"],
-    crate = "colorous",
-    crate_root = "colorous-1.0.16.crate/src/lib.rs",
-    edition = "2021",
-    env = {
-        "CARGO_BIN_NAME": "colorous",
-        "CARGO_CRATE_NAME": "colorous",
-        "CARGO_MANIFEST_DIR": "colorous-1.0.16.crate",
-        "CARGO_PKG_AUTHORS": "David Tolnay <dtolnay@gmail.com>",
-        "CARGO_PKG_DESCRIPTION": "Professional color schemes ported from d3-scale-chromatic",
-        "CARGO_PKG_HOMEPAGE": "",
-        "CARGO_PKG_NAME": "colorous",
-        "CARGO_PKG_README": "README.md",
-        "CARGO_PKG_REPOSITORY": "https://github.com/dtolnay/colorous",
-        "CARGO_PKG_RUST_VERSION": "1.60",
-        "CARGO_PKG_VERSION": "1.0.16",
-        "CARGO_PKG_VERSION_MAJOR": "1",
-        "CARGO_PKG_VERSION_MINOR": "0",
-        "CARGO_PKG_VERSION_PATCH": "16",
-        "CARGO_PKG_VERSION_PRE": "",
-    },
-    features = [
-        "default",
-        "std",
-    ],
-    visibility = [],
-)
-
-alias(
-    name = "jiff",
-    actual = ":jiff-0.2",
-    visibility = ["PUBLIC"],
-)
-
-http_archive(
-    name = "jiff-0.2.38.crate",
-    sha256 = "b2b005715dcbeb0089a3c0dab99f2ff1cc3b2525323552703d648585d342a383",
-    strip_prefix = "jiff-0.2.38",
-    urls = ["https://static.crates.io/crates/jiff/0.2.38/download"],
-    visibility = [],
-)
-
-reindeer_rust_library(
-    name = "jiff-0.2",
-    srcs = [":jiff-0.2.38.crate"],
-    crate = "jiff",
-    crate_root = "jiff-0.2.38.crate/src/lib.rs",
-    edition = "2021",
-    env = {
-        "CARGO_BIN_NAME": "jiff",
-        "CARGO_CRATE_NAME": "jiff",
-        "CARGO_MANIFEST_DIR": "jiff-0.2.38.crate",
-        "CARGO_PKG_AUTHORS": "Andrew Gallant <jamslam@gmail.com>",
-        "CARGO_PKG_DESCRIPTION": "A date-time library that encourages you to jump into the pit of success.\n\nThis library is heavily inspired by the Temporal project.\n",
-        "CARGO_PKG_HOMEPAGE": "",
-        "CARGO_PKG_NAME": "jiff",
-        "CARGO_PKG_README": "README.md",
-        "CARGO_PKG_REPOSITORY": "https://github.com/BurntSushi/jiff",
-        "CARGO_PKG_RUST_VERSION": "1.70",
-        "CARGO_PKG_VERSION": "0.2.38",
-        "CARGO_PKG_VERSION_MAJOR": "0",
-        "CARGO_PKG_VERSION_MINOR": "2",
-        "CARGO_PKG_VERSION_PATCH": "38",
-        "CARGO_PKG_VERSION_PRE": "",
-    },
-    features = [
-        "alloc",
-        "default",
-        "perf-inline",
-        "std",
-        "tz-fat",
-        "tz-system",
-        "tzdb-bundle-platform",
-        "tzdb-concatenated",
-        "tzdb-zoneinfo",
-    ],
-    named_deps = {
-        "jcore": ":jiff-core-0.1",
-    },
-    platform = {
-        "windows-gnu": dict(
-            deps = [
-                ":jiff-tzdb-platform-0.1",
-                ":windows-link-0.2",
-            ],
-        ),
-        "windows-msvc": dict(
-            deps = [
-                ":jiff-tzdb-platform-0.1",
-                ":windows-link-0.2",
-            ],
-        ),
-    },
-    visibility = [],
-)
-
-http_archive(
-    name = "jiff-core-0.1.1.crate",
-    sha256 = "5e52fe76043ccecc9005d2305ebaadf7d7fc0cc89ca6baa10a94d6bc68c7128c",
-    strip_prefix = "jiff-core-0.1.1",
-    urls = ["https://static.crates.io/crates/jiff-core/0.1.1/download"],
-    visibility = [],
-)
-
-reindeer_rust_library(
-    name = "jiff-core-0.1",
-    srcs = [":jiff-core-0.1.1.crate"],
-    crate = "jiff_core",
-    crate_root = "jiff-core-0.1.1.crate/src/lib.rs",
-    edition = "2021",
-    env = {
-        "CARGO_BIN_NAME": "jiff_core",
-        "CARGO_CRATE_NAME": "jiff_core",
-        "CARGO_MANIFEST_DIR": "jiff-core-0.1.1.crate",
-        "CARGO_PKG_AUTHORS": "Andrew Gallant <jamslam@gmail.com>",
-        "CARGO_PKG_DESCRIPTION": "Low level datetime primitives for the Jiff library.",
-        "CARGO_PKG_HOMEPAGE": "https://github.com/BurntSushi/jiff/tree/master/crates/jiff-core",
-        "CARGO_PKG_NAME": "jiff-core",
-        "CARGO_PKG_README": "README.md",
-        "CARGO_PKG_REPOSITORY": "https://github.com/BurntSushi/jiff",
-        "CARGO_PKG_RUST_VERSION": "1.70",
-        "CARGO_PKG_VERSION": "0.1.1",
-        "CARGO_PKG_VERSION_MAJOR": "0",
-        "CARGO_PKG_VERSION_MINOR": "1",
-        "CARGO_PKG_VERSION_PATCH": "1",
-        "CARGO_PKG_VERSION_PRE": "",
-    },
-    features = [
-        "alloc",
-        "std",
-        "tz-fat",
-    ],
-    visibility = [],
-)
-
-http_archive(
-    name = "jiff-tzdb-0.1.9.crate",
-    sha256 = "fa8377070c6bae868759445e5a77f66d84f0b72f3a054bfb00e6d038b8282da7",
-    strip_prefix = "jiff-tzdb-0.1.9",
-    urls = ["https://static.crates.io/crates/jiff-tzdb/0.1.9/download"],
-    visibility = [],
-)
-
-reindeer_rust_library(
-    name = "jiff-tzdb-0.1",
-    srcs = [":jiff-tzdb-0.1.9.crate"],
-    crate = "jiff_tzdb",
-    crate_root = "jiff-tzdb-0.1.9.crate/lib.rs",
-    edition = "2021",
-    env = {
-        "CARGO_BIN_NAME": "jiff_tzdb",
-        "CARGO_CRATE_NAME": "jiff_tzdb",
-        "CARGO_MANIFEST_DIR": "jiff-tzdb-0.1.9.crate",
-        "CARGO_PKG_AUTHORS": "Andrew Gallant <jamslam@gmail.com>",
-        "CARGO_PKG_DESCRIPTION": "The entire Time Zone Database embedded into your binary.",
-        "CARGO_PKG_HOMEPAGE": "https://github.com/BurntSushi/jiff/tree/master/crates/jiff-tzdb",
-        "CARGO_PKG_NAME": "jiff-tzdb",
-        "CARGO_PKG_README": "README.md",
-        "CARGO_PKG_REPOSITORY": "https://github.com/BurntSushi/jiff",
-        "CARGO_PKG_RUST_VERSION": "1.70",
-        "CARGO_PKG_VERSION": "0.1.9",
-        "CARGO_PKG_VERSION_MAJOR": "0",
-        "CARGO_PKG_VERSION_MINOR": "1",
-        "CARGO_PKG_VERSION_PATCH": "9",
-        "CARGO_PKG_VERSION_PRE": "",
-    },
-    visibility = [],
-)
-
-http_archive(
-    name = "jiff-tzdb-platform-0.1.3.crate",
-    sha256 = "875a5a69ac2bab1a891711cf5eccbec1ce0341ea805560dcd90b7a2e925132e8",
-    strip_prefix = "jiff-tzdb-platform-0.1.3",
-    urls = ["https://static.crates.io/crates/jiff-tzdb-platform/0.1.3/download"],
-    visibility = [],
-)
-
-reindeer_rust_library(
-    name = "jiff-tzdb-platform-0.1",
-    srcs = [":jiff-tzdb-platform-0.1.3.crate"],
-    crate = "jiff_tzdb_platform",
-    crate_root = "jiff-tzdb-platform-0.1.3.crate/lib.rs",
-    edition = "2021",
-    env = {
-        "CARGO_BIN_NAME": "jiff_tzdb_platform",
-        "CARGO_CRATE_NAME": "jiff_tzdb_platform",
-        "CARGO_MANIFEST_DIR": "jiff-tzdb-platform-0.1.3.crate",
-        "CARGO_PKG_AUTHORS": "Andrew Gallant <jamslam@gmail.com>",
-        "CARGO_PKG_DESCRIPTION": "The entire Time Zone Database embedded into your binary for specific platforms.\n",
-        "CARGO_PKG_HOMEPAGE": "https://github.com/BurntSushi/jiff/tree/master/crates/jiff-tzdb-platform",
-        "CARGO_PKG_NAME": "jiff-tzdb-platform",
-        "CARGO_PKG_README": "README.md",
-        "CARGO_PKG_REPOSITORY": "https://github.com/BurntSushi/jiff",
-        "CARGO_PKG_RUST_VERSION": "1.70",
-        "CARGO_PKG_VERSION": "0.1.3",
-        "CARGO_PKG_VERSION_MAJOR": "0",
-        "CARGO_PKG_VERSION_MINOR": "1",
-        "CARGO_PKG_VERSION_PATCH": "3",
-        "CARGO_PKG_VERSION_PRE": "",
-    },
-    visibility = [],
-    deps = [":jiff-tzdb-0.1"],
-)
-
-alias(
-    name = "kuva",
-    actual = ":kuva-0.6",
-    visibility = ["PUBLIC"],
-)
-
-http_archive(
-    name = "kuva-0.6.0.crate",
-    sha256 = "32a778113ce802ab7bc34eed1a47e20b876ac7f0eb2c4ba88de31acac55af0e9",
-    strip_prefix = "kuva-0.6.0",
-    urls = ["https://static.crates.io/crates/kuva/0.6.0/download"],
-    visibility = [],
-)
-
-reindeer_rust_library(
-    name = "kuva-0.6",
-    srcs = [":kuva-0.6.0.crate"],
-    crate = "kuva",
-    crate_root = "kuva-0.6.0.crate/src/lib.rs",
-    edition = "2021",
-    env = {
-        "CARGO_BIN_NAME": "kuva",
-        "CARGO_CRATE_NAME": "kuva",
-        "CARGO_MANIFEST_DIR": "kuva-0.6.0.crate",
-        "CARGO_PKG_AUTHORS": "James M. Ferguson <j.ferguson@garvan.org.au>",
-        "CARGO_PKG_DESCRIPTION": "Scientific plotting library in Rust with various backends.",
-        "CARGO_PKG_HOMEPAGE": "",
-        "CARGO_PKG_NAME": "kuva",
-        "CARGO_PKG_README": "README.md",
-        "CARGO_PKG_REPOSITORY": "https://github.com/Psy-Fer/kuva",
-        "CARGO_PKG_RUST_VERSION": "1.87",
-        "CARGO_PKG_VERSION": "0.6.0",
-        "CARGO_PKG_VERSION_MAJOR": "0",
-        "CARGO_PKG_VERSION_MINOR": "6",
-        "CARGO_PKG_VERSION_PATCH": "0",
-        "CARGO_PKG_VERSION_PRE": "",
-    },
-    visibility = [],
-    deps = [
-        ":chrono-0.4",
-        ":colorous-1",
-        ":ryu-1",
-    ],
-)
-
-alias(
-    name = "redb",
-    actual = ":redb-2",
-    visibility = ["PUBLIC"],
-)
-
-http_archive(
-    name = "redb-2.6.4.crate",
-    sha256 = "3d64e07496d293ad8ed401c4d193d5b9f0f97671fbd5bf21d691a0c7d2c53dc8",
-    strip_prefix = "redb-2.6.4",
-    urls = ["https://static.crates.io/crates/redb/2.6.4/download"],
-    visibility = [],
-)
-
-reindeer_rust_library(
-    name = "redb-2",
-    srcs = [":redb-2.6.4.crate"],
-    crate = "redb",
-    crate_root = "redb-2.6.4.crate/src/lib.rs",
-    dlopen_enable = True,
-    edition = "2024",
-    env = {
-        "CARGO_BIN_NAME": "redb",
-        "CARGO_CRATE_NAME": "redb",
-        "CARGO_MANIFEST_DIR": "redb-2.6.4.crate",
-        "CARGO_PKG_AUTHORS": "Christopher Berner <me@cberner.com>",
-        "CARGO_PKG_DESCRIPTION": "Rust Embedded DataBase",
-        "CARGO_PKG_HOMEPAGE": "https://www.redb.org",
-        "CARGO_PKG_NAME": "redb",
-        "CARGO_PKG_README": "README.md",
-        "CARGO_PKG_REPOSITORY": "https://github.com/cberner/redb",
-        "CARGO_PKG_RUST_VERSION": "1.85",
-        "CARGO_PKG_VERSION": "2.6.4",
-        "CARGO_PKG_VERSION_MAJOR": "2",
-        "CARGO_PKG_VERSION_MINOR": "6",
-        "CARGO_PKG_VERSION_PATCH": "4",
-        "CARGO_PKG_VERSION_PRE": "",
-    },
-    linkable_alias = "redb",
-    platform = {
-        "linux-arm64": dict(
-            deps = [":libc-0.2"],
-        ),
-        "linux-x86_64": dict(
-            deps = [":libc-0.2"],
-        ),
-        "macos-arm64": dict(
-            deps = [":libc-0.2"],
-        ),
-        "macos-x86_64": dict(
-            deps = [":libc-0.2"],
-        ),
-    },
-    visibility = [],
-)
-
-http_archive(
-    name = "serde_with_macros-3.12.0.crate",
-    sha256 = "8d00caa5193a3c8362ac2b73be6b9e768aa5a4b2f721d8f4b339600c3cb51f8e",
-    strip_prefix = "serde_with_macros-3.12.0",
-    urls = ["https://static.crates.io/crates/serde_with_macros/3.12.0/download"],
-    visibility = [],
-)
-
-reindeer_rust_library(
-    name = "serde_with_macros-3",
-    srcs = [":serde_with_macros-3.12.0.crate"],
-    crate = "serde_with_macros",
-    crate_root = "serde_with_macros-3.12.0.crate/src/lib.rs",
-    edition = "2021",
-    env = {
-        "CARGO_BIN_NAME": "serde_with_macros",
-        "CARGO_CRATE_NAME": "serde_with_macros",
-        "CARGO_MANIFEST_DIR": "serde_with_macros-3.12.0.crate",
-        "CARGO_PKG_AUTHORS": "Jonas Bushart",
-        "CARGO_PKG_DESCRIPTION": "proc-macro library for serde_with",
-        "CARGO_PKG_HOMEPAGE": "",
-        "CARGO_PKG_NAME": "serde_with_macros",
-        "CARGO_PKG_README": "README.md",
-        "CARGO_PKG_REPOSITORY": "https://github.com/jonasbb/serde_with/",
-        "CARGO_PKG_RUST_VERSION": "1.71",
-        "CARGO_PKG_VERSION": "3.12.0",
-        "CARGO_PKG_VERSION_MAJOR": "3",
-        "CARGO_PKG_VERSION_MINOR": "12",
-        "CARGO_PKG_VERSION_PATCH": "0",
-        "CARGO_PKG_VERSION_PRE": "",
-    },
-    proc_macro = True,
-    visibility = [],
-    deps = [
-        ":darling-0.20",
-        ":proc-macro2-1",
-        ":quote-1",
-        ":syn-2",
-    ],
-)
-
-http_archive(
-    name = "serde_with-3.12.0.crate",
-    sha256 = "d6b6f7f2fcb69f747921f79f3926bd1e203fce4fef62c268dd3abfb6d86029aa",
-    strip_prefix = "serde_with-3.12.0",
-    urls = ["https://static.crates.io/crates/serde_with/3.12.0/download"],
-    visibility = [],
-)
-
-reindeer_rust_library(
-    name = "serde_with-3",
-    srcs = [":serde_with-3.12.0.crate"],
-    crate = "serde_with",
-    crate_root = "serde_with-3.12.0.crate/src/lib.rs",
-    edition = "2021",
-    env = {
-        "CARGO_BIN_NAME": "serde_with",
-        "CARGO_CRATE_NAME": "serde_with",
-        "CARGO_MANIFEST_DIR": "serde_with-3.12.0.crate",
-        "CARGO_PKG_AUTHORS": "Jonas Bushart",
-        "CARGO_PKG_DESCRIPTION": "Custom de/serialization functions for Rust's serde",
-        "CARGO_PKG_HOMEPAGE": "",
-        "CARGO_PKG_NAME": "serde_with",
-        "CARGO_PKG_README": "README.md",
-        "CARGO_PKG_REPOSITORY": "https://github.com/jonasbb/serde_with/",
-        "CARGO_PKG_RUST_VERSION": "1.71",
-        "CARGO_PKG_VERSION": "3.12.0",
-        "CARGO_PKG_VERSION_MAJOR": "3",
-        "CARGO_PKG_VERSION_MINOR": "12",
-        "CARGO_PKG_VERSION_PATCH": "0",
-        "CARGO_PKG_VERSION_PRE": "",
-    },
-    features = [
-        "alloc",
-        "default",
-        "macros",
-        "std",
-    ],
-    visibility = [],
-    deps = [
-        ":serde-1",
-        ":serde_derive-1",
-        ":serde_with_macros-3",
-    ],
-)
-
-http_archive(
-    name = "charming_macros-0.1.0.crate",
-    sha256 = "5ec2398273c047c67d69794a924b1a2a5c14a5fab6bcbe8b24e86a0df9328e5e",
-    strip_prefix = "charming_macros-0.1.0",
-    urls = ["https://static.crates.io/crates/charming_macros/0.1.0/download"],
-    visibility = [],
-)
-
-reindeer_rust_library(
-    name = "charming_macros-0.1",
-    srcs = [":charming_macros-0.1.0.crate"],
-    crate = "charming_macros",
-    crate_root = "charming_macros-0.1.0.crate/src/lib.rs",
-    edition = "2024",
-    env = {
-        "CARGO_BIN_NAME": "charming_macros",
-        "CARGO_CRATE_NAME": "charming_macros",
-        "CARGO_MANIFEST_DIR": "charming_macros-0.1.0.crate",
-        "CARGO_PKG_AUTHORS": "Yuankun Zhang <i@yuankun.me>",
-        "CARGO_PKG_DESCRIPTION": "Proc macros for charming",
-        "CARGO_PKG_HOMEPAGE": "",
-        "CARGO_PKG_NAME": "charming_macros",
-        "CARGO_PKG_README": "",
-        "CARGO_PKG_REPOSITORY": "https://github.com/yuankunzhang/charming",
-        "CARGO_PKG_VERSION": "0.1.0",
-        "CARGO_PKG_VERSION_MAJOR": "0",
-        "CARGO_PKG_VERSION_MINOR": "1",
-        "CARGO_PKG_VERSION_PATCH": "0",
-        "CARGO_PKG_VERSION_PRE": "",
-    },
-    proc_macro = True,
-    visibility = [],
-    deps = [
-        ":proc-macro2-1",
-        ":quote-1",
-        ":syn-2",
-    ],
-)
-
-alias(
-    name = "charming",
-    actual = ":charming-0.6",
-    visibility = ["PUBLIC"],
-)
-
-http_archive(
-    name = "charming-0.6.0.crate",
-    sha256 = "df19cf7d4540f4db08203dce5171421fdfc5e83ea3f14d7b5329f0dbff3bf3c2",
-    strip_prefix = "charming-0.6.0",
-    urls = ["https://static.crates.io/crates/charming/0.6.0/download"],
-    visibility = [],
-)
-
-reindeer_rust_library(
-    name = "charming-0.6",
-    srcs = [":charming-0.6.0.crate"],
-    crate = "charming",
-    crate_root = "charming-0.6.0.crate/src/lib.rs",
-    edition = "2021",
-    env = {
-        "CARGO_BIN_NAME": "charming",
-        "CARGO_CRATE_NAME": "charming",
-        "CARGO_MANIFEST_DIR": "charming-0.6.0.crate",
-        "CARGO_PKG_AUTHORS": "Yuankun Zhang <i@yuankun.me>",
-        "CARGO_PKG_DESCRIPTION": "A visualization library for Rust",
-        "CARGO_PKG_HOMEPAGE": "",
-        "CARGO_PKG_NAME": "charming",
-        "CARGO_PKG_README": "README.md",
-        "CARGO_PKG_REPOSITORY": "https://github.com/yuankunzhang/charming",
-        "CARGO_PKG_RUST_VERSION": "1.85",
-        "CARGO_PKG_VERSION": "0.6.0",
-        "CARGO_PKG_VERSION_MAJOR": "0",
-        "CARGO_PKG_VERSION_MINOR": "6",
-        "CARGO_PKG_VERSION_PATCH": "0",
-        "CARGO_PKG_VERSION_PRE": "",
-    },
-    visibility = [],
-    deps = [
-        ":charming_macros-0.1",
-        ":serde-1",
-        ":serde_json-1",
-        ":serde_with-3",
-    ],
 )

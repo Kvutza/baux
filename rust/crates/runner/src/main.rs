@@ -25,9 +25,7 @@ struct Cli {
 enum Action {
     Tune {
         config: PathBuf,
-        #[arg(long, conflicts_with = "rounds")]
-        prepare: bool,
-        #[arg(long, conflicts_with = "prepare")]
+        #[arg(long)]
         rounds: Option<u32>,
     },
     Radar {
@@ -80,11 +78,9 @@ fn run() -> Result<(), String> {
         .map_or_else(|| env::current_dir().map_err(|error| error.to_string()), Ok)?;
     env::set_current_dir(&root).map_err(|error| error.to_string())?;
     match Cli::parse().action {
-        Action::Tune {
-            config,
-            prepare,
-            rounds,
-        } => experiment::run(&root, &config, prepare, rounds, BuildSystem::from_env()),
+        Action::Tune { config, rounds } => {
+            experiment::run(&root, &config, rounds, BuildSystem::from_env())
+        }
         Action::Radar {
             command: RadarAction::Performance { command },
         } => performance::run(&root, command),

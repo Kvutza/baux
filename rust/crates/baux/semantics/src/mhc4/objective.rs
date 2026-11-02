@@ -42,8 +42,10 @@ fn mean_variance(sum: f32, squared: f32, count: u32) -> f32 {
     if count <= 1 {
         return 0.0;
     }
-    let n = count as f32;
-    (squared - sum * sum / n).max(0.0) / (n * (n - 1.0))
+    let n = f64::from(count);
+    let sum = f64::from(sum);
+    let squared = f64::from(squared);
+    ((squared - sum * sum / n).max(0.0) / (n * (n - 1.0))) as f32
 }
 
 impl ObjectiveStats {

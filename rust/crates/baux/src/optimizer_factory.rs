@@ -143,8 +143,8 @@ pub fn lhd_configured(
 mod tests {
     use super::{enn_configured, spec_optimizer};
     use crate::config::{
-        AcquisitionSpec, DistanceScaling, HistoryGeometry, OptimizerSpec, RunConfig, SurrogateFit,
-        SurrogateRecipe, TrustRegionBounds,
+        AcquisitionSpec, DistanceMetric, OptimizerSpec, RunConfig, SurrogateFit, SurrogateRecipe,
+        TrustRegionBounds,
     };
     use crate::procedural_pool::ProposalMethod;
     use ndarray::{Array2, array};
@@ -295,8 +295,7 @@ mod tests {
                 epistemic_scale: 0.7,
                 aleatoric_scale: 0.05,
                 y_scale: 1.0,
-                geometry: HistoryGeometry::Realized,
-                scaling: DistanceScaling::Global,
+                metric: DistanceMetric::Euclidean,
                 local_neighbors: None,
                 fit: SurrogateFit::LeaveOneOut,
                 fit_candidates: Some(8),

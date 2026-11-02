@@ -19,7 +19,7 @@ alias(
     name = "gpu",
     actual = select({
         "@platforms//os:macos": "//rust/crates/baux:baux_metal",
-        "//conditions:default": "//rust/crates/baux:baux_opencl",
+        "//conditions:default": "//rust/crates/baux:baux_cpu",
     }),
 )
 
@@ -79,7 +79,7 @@ test_suite(
     tests = [
         "//rust/crates/baux:baux_test",
         "//rust/crates/properties:properties_test",
-        "//rust/crates/baux:trial_search_metal_test",
+        "//rust/crates/baux:knn_metal_test",
     ],
 )
 

@@ -93,12 +93,6 @@ impl ENNSurrogate {
         self.calibrator.as_ref()
     }
 
-    fn new_fitter(&self) -> ENNFitter {
-        ENNFitter::new(self.config.k, self.config.infer_aleatoric_variance)
-            .with_bounds(self.config.y_bounds.clone())
-            .with_calibration(self.config.calibration_mode)
-    }
-
     fn construct_model(
         &self,
         x: &ArrayView2<f64>,
@@ -140,7 +134,9 @@ impl ENNSurrogate {
             let n = model.len();
             let indices: Vec<usize> = (0..n).collect();
             let (train_x, train_y, train_yvar) = model.natural_rows(&indices)?;
-            let mut fitter = self.new_fitter();
+            let mut fitter = ENNFitter::new(self.config.k, self.config.infer_aleatoric_variance)
+                .with_bounds(self.config.y_bounds.clone())
+                .with_calibration(self.config.calibration_mode);
             let yvar_view = train_yvar.as_ref().map(|v| v.view());
             fitter.tell(&train_x.view(), &train_y.view(), yvar_view.as_ref())?;
             if let Some(p) = self.params {
@@ -204,7 +200,9 @@ impl ENNSurrogate {
             }
             return Ok(());
         }
-        let mut fitter = self.new_fitter();
+        let mut fitter = ENNFitter::new(self.config.k, self.config.infer_aleatoric_variance)
+            .with_bounds(self.config.y_bounds.clone())
+            .with_calibration(self.config.calibration_mode);
         fitter.tell(x_new, y_new, yvar_new)?;
         let model = self.construct_model(x_new, y_new, yvar_new, rng)?;
         self.model = Some(model);
@@ -321,7 +319,9 @@ impl Surrogate for ENNSurrogate {
 
         let model = self.construct_model(x, y, yvar, &mut local_rng)?;
 
-        let mut fitter = self.new_fitter();
+        let mut fitter = ENNFitter::new(self.config.k, self.config.infer_aleatoric_variance)
+            .with_bounds(self.config.y_bounds.clone())
+            .with_calibration(self.config.calibration_mode);
         fitter.tell(x, y, yvar)?;
         if let Some(p) = self.params {
             fitter.set_params(p);

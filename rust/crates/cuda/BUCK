@@ -1,0 +1,126 @@
+load("//build:targets.bzl", "RUST_EDITION")
+load("//build/buck2:reindeer_rules.bzl", "app_rust_binary", "app_rust_library")
+
+filegroup(
+    name = "source",
+    srcs = glob(["**/*.rs", "native/*"]) + [
+        "Cargo.toml",
+        "device/Cargo.toml",
+        "rust-toolchain.toml",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+rust_library(
+    name = "baux-cuda-device",
+    srcs = glob(["device/src/**/*.rs"]) + ["//rust/crates/baux:baux-source"],
+    crate = "baux_cuda_device",
+    crate_root = "device/src/lib.rs",
+    edition = RUST_EDITION,
+    features = ["cuda", "default"],
+    env = {
+        "CARGO_CRATE_NAME": "baux_cuda_device",
+        "CARGO_PKG_NAME": "baux-cuda-device",
+        "CARGO_PKG_VERSION": "0.0.1",
+        "CUDA_OXIDE_DEVICE_CODEGEN_CRATE": "baux_cuda_device",
+        "CUDA_OXIDE_LLC": select({
+            "prelude//os:macos": "/opt/homebrew/opt/llvm/bin/llc",
+            "DEFAULT": "/usr/bin/llc-21",
+        }),
+        "CUDA_OXIDE_PTX_DIR": "/tmp",
+        "CUDA_OXIDE_TARGET": "sm_80",
+    },
+    rustc_flags = [
+        "--cfg=buck_build",
+        "-Zcodegen-backend=/Users/mehulbafna/.cargo/git/checkouts/cuda-oxide-6d394bb007f5e114/6abfaa0/crates/rustc-codegen-cuda/target/debug/librustc_codegen_cuda.dylib",
+        "-Zmir-enable-passes=-JumpThreading",
+        "-Zalways-encode-mir",
+        "-Csymbol-mangling-version=v0",
+        "-Copt-level=3",
+        "-Cdebug-assertions=off",
+        "-Ccodegen-units=1",
+    ],
+    visibility = ["PUBLIC"],
+    deps = [
+        "//rust:cuda-core",
+        "//rust:cuda-device",
+        "//rust:cuda-host",
+        "//rust:deser",
+        "//rust:rand",
+    ],
+)
+
+app_rust_library(
+    name = "baux-cuda",
+    srcs = glob(
+        ["src/**/*.rs"],
+        exclude = [
+            "src/main.rs",
+            "src/main_bench.rs",
+            "src/main_parity.rs",
+            "src/ptx_probe.rs",
+        ],
+    ) + ["//rust/crates/baux:baux-source"],
+    crate = "baux_cuda",
+    crate_root = "src/lib.rs",
+    edition = RUST_EDITION,
+    env = {
+        "CARGO_CRATE_NAME": "baux_cuda",
+        "CARGO_PKG_NAME": "baux-cuda",
+        "CARGO_PKG_VERSION": "0.0.1",
+    },
+    rustc_flags = ["--cfg=buck_build"],
+    visibility = ["PUBLIC"],
+    deps = [
+        ":baux-cuda-device",
+        "//rust:anstream",
+        "//rust:anstyle",
+        "//rust:charming",
+        "//rust:cuda-core",
+        "//rust:cuda-host",
+        "//rust:deser",
+        "//rust:deser-cbor",
+        "//rust:deser-json",
+        "//rust:deser-toml",
+        "//rust:deser-value",
+        "//rust:half",
+        "//rust:jiff",
+        "//rust:kuva",
+        "//rust:memmap2",
+        "//rust:rand",
+        "//rust:rand_distr",
+        "//rust:redb",
+        "//rust:sha2",
+        "//rust/crates/ptx-synth:ptx-synth",
+    ],
+)
+
+app_rust_binary(
+    name = "baux-cuda-bin",
+    srcs = [
+        "src/main.rs",
+        "src/main_bench.rs",
+        "src/main_parity.rs",
+        "src/ptx_probe.rs",
+    ],
+    crate = "baux_cuda",
+    crate_root = "src/main.rs",
+    edition = RUST_EDITION,
+    env = {
+        "CARGO_BIN_NAME": "baux-cuda",
+        "CARGO_CRATE_NAME": "baux_cuda",
+        "CARGO_PKG_NAME": "baux-cuda",
+        "CARGO_PKG_VERSION": "0.0.1",
+    },
+    rustc_flags = [],
+    visibility = ["PUBLIC"],
+    deps = [
+        ":baux-cuda",
+        ":baux-cuda-device",
+        "//rust:cuda-core",
+        "//rust:cuda-host",
+        "//rust:half",
+        "//rust:rand",
+        "//rust/crates/ptx-synth:ptx-synth",
+    ],
+)

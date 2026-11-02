@@ -22,46 +22,7 @@ mod metric;
 #[cfg(test)]
 mod metric_tests;
 pub use access::{EnnIndexAccess, EnnRowAccess};
-
-#[derive(Debug, Clone)]
-pub struct ModelOptions {
-    pub scale_x: bool,
-    pub driver: IndexDriver,
-    pub storage: EnnStorage,
-    pub work_dir: Option<PathBuf>,
-    pub y_bounds: Option<Array2<f64>>,
-}
-
-impl Default for ModelOptions {
-    fn default() -> Self {
-        Self {
-            scale_x: false,
-            driver: IndexDriver::Exact,
-            storage: EnnStorage::InMemory,
-            work_dir: None,
-            y_bounds: None,
-        }
-    }
-}
-
-/// Epistemic Nearest Neighbors model.
-pub struct ENN {
-    pub(crate) backend: EnnBackend,
-    pub(crate) num_obs: usize,
-    pub(crate) num_dim: usize,
-    pub(crate) num_metrics: usize,
-    pub(crate) scale_x: bool,
-    pub(crate) x_scale: Array1<f64>,
-    pub(crate) y_scale: Array1<f64>,
-    pub(crate) y_bounds: Array2<f64>,
-    pub(crate) bounded_outputs: bool,
-    y_sum: Array1<f64>,
-    y_sumsq: Array1<f64>,
-    x_sum: Array1<f64>,
-    x_sumsq: Array1<f64>,
-    work_dir: Option<PathBuf>,
-    metric: Option<crate::metric_auto::AutoMetric>,
-}
+pub use inspection::{ENN, ModelOptions};
 
 impl ENN {
     fn validate_shapes(

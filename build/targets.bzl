@@ -16,24 +16,6 @@ BAUX_PROGRAMS = [
     },
     {
         "version": "0.0.1",
-        "name": "baux-tune-worker",
-        "crate": "baux_tune_worker",
-        "root": "src/bin/baux-tune-worker/main.rs",
-        "crate_deps": ["anstream", "anstyle", "charming", "deser", "deser-cbor", "deser-json", "deser-toml", "deser-value", "jiff", "kuva", "memmap2", "ndarray", "rand", "rand_distr", "rayon", "redb", "sha2", "sobol", "thiserror", "tokenizers"],
-        "local_deps": ["baux"],
-        "required_features": [],
-    },
-    {
-        "version": "0.0.1",
-        "name": "cuda_parity",
-        "crate": "cuda_parity",
-        "root": "examples/cuda_parity.rs",
-        "crate_deps": ["anstream", "anstyle", "charming", "deser", "deser-cbor", "deser-json", "deser-toml", "deser-value", "jiff", "kuva", "memmap2", "ndarray", "numpy", "rand", "rand_chacha", "rand_distr", "rayon", "redb", "sha2", "sobol", "tempfile", "thiserror", "tokenizers"],
-        "local_deps": ["baux"],
-        "required_features": ["cuda"],
-    },
-    {
-        "version": "0.0.1",
         "name": "enn_posterior",
         "crate": "enn_posterior",
         "root": "examples/enn_posterior.rs",
@@ -55,15 +37,6 @@ BAUX_PROGRAMS = [
         "name": "posterior_bench",
         "crate": "posterior_bench",
         "root": "examples/posterior_bench.rs",
-        "crate_deps": ["anstream", "anstyle", "charming", "deser", "deser-cbor", "deser-json", "deser-toml", "deser-value", "jiff", "kuva", "memmap2", "ndarray", "numpy", "rand", "rand_chacha", "rand_distr", "rayon", "redb", "sha2", "sobol", "tempfile", "thiserror", "tokenizers"],
-        "local_deps": ["baux"],
-        "required_features": [],
-    },
-    {
-        "version": "0.0.1",
-        "name": "trial_bench",
-        "crate": "trial_bench",
-        "root": "examples/trial_bench.rs",
         "crate_deps": ["anstream", "anstyle", "charming", "deser", "deser-cbor", "deser-json", "deser-toml", "deser-value", "jiff", "kuva", "memmap2", "ndarray", "numpy", "rand", "rand_chacha", "rand_distr", "rayon", "redb", "sha2", "sobol", "tempfile", "thiserror", "tokenizers"],
         "local_deps": ["baux"],
         "required_features": [],
@@ -98,6 +71,45 @@ CORPUS_PROGRAMS = [
         "root": "src/main.rs",
         "crate_deps": ["arrow-array", "deser", "futures", "opendal", "parquet", "parquet_opendal", "sha2", "tokenizers", "tokio"],
         "local_deps": ["baux"],
+        "required_features": [],
+    },
+]
+
+CUDA_CRATES = ["anstream", "anstyle", "charming", "cuda-core", "cuda-host", "deser", "deser-cbor", "deser-json", "deser-toml", "deser-value", "half", "jiff", "kuva", "memmap2", "rand", "rand_distr", "redb", "sha2"]
+
+CUDA_TEST_CRATES = ["anstream", "anstyle", "charming", "cuda-core", "cuda-host", "deser", "deser-cbor", "deser-json", "deser-toml", "deser-value", "half", "jiff", "kuva", "memmap2", "rand", "rand_distr", "redb", "sha2"]
+
+CUDA_PROGRAMS = [
+    {
+        "version": "0.0.1",
+        "name": "baux-cuda",
+        "crate": "baux_cuda",
+        "root": "src/main.rs",
+        "crate_deps": ["anstream", "anstyle", "charming", "cuda-core", "cuda-host", "deser", "deser-cbor", "deser-json", "deser-toml", "deser-value", "half", "jiff", "kuva", "memmap2", "rand", "rand_distr", "redb", "sha2"],
+        "local_deps": ["cuda", "device", "ptx-synth"],
+        "required_features": [],
+    },
+]
+
+DEVICE_CRATES = ["cuda-core", "cuda-device", "cuda-host", "deser", "rand"]
+
+DEVICE_TEST_CRATES = ["cuda-core", "cuda-device", "cuda-host", "deser", "rand"]
+
+DEVICE_PROGRAMS = [
+]
+
+FBT_CRATES = ["deser", "memmap2", "ndarray", "rand", "rand_distr", "rayon", "sha2", "tokenizers"]
+
+FBT_TEST_CRATES = ["deser", "memmap2", "ndarray", "rand", "rand_chacha", "rand_distr", "rayon", "sha2", "tempfile", "tokenizers"]
+
+FBT_PROGRAMS = [
+    {
+        "version": "0.0.1",
+        "name": "baux-tune-worker",
+        "crate": "baux_tune_worker",
+        "root": "src/bin/baux-tune-worker/main.rs",
+        "crate_deps": ["deser", "memmap2", "ndarray", "rand", "rand_distr", "rayon", "sha2", "tokenizers"],
+        "local_deps": ["baux", "fbt"],
         "required_features": [],
     },
 ]

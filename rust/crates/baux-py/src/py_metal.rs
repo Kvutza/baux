@@ -18,35 +18,8 @@ use pyo3::types::PyDict;
 
 mod py_buf;
 
-pub(crate) use py_buf::weight_buffer;
-pub use py_buf::{PyMetalFlameEvaluator, PyMetalParamBlock, PyMetalWeights};
-
-use crate::py_qwen::PyMetalQwenEvaluator;
-
-pub(super) fn err(message: String) -> PyErr {
-    PyValueError::new_err(message)
-}
-
-fn round_config(
-    neighbors: usize,
-    epistemic_scale: f32,
-    aleatoric_scale: f32,
-    output_scale: f32,
-    beta: f32,
-    kind: AcquisitionKind,
-    seed: u64,
-) -> RoundConfig {
-    RoundConfig {
-        proposal: ProposalParams { radius: 0.0 },
-        surrogate: SurrogateParams {
-            neighbors,
-            epistemic_scale,
-            aleatoric_scale,
-            output_scale,
-        },
-        acquisition: AcquisitionParams { kind, beta, seed },
-    }
-}
+use py_buf::err;
+pub use py_buf::{PyMetalParamBlock, PyMetalWeights};
 
 #[pyclass(name = "MetalSearchState", module = "baux.experimental", unsendable)]
 pub struct PyMetalSearchState {
@@ -129,124 +102,29 @@ impl PyMetalSearchState {
         draw_seed: u64,
     ) -> PyResult<PyMetalProposals> {
         slf.unleased()?;
+        let kind = AcquisitionKind::parse(acquisition).map_err(err)?;
+        let config = RoundConfig {
+            proposal: ProposalParams { radius: 0.0 },
+            surrogate: SurrogateParams {
+                neighbors,
+                epistemic_scale,
+                aleatoric_scale,
+                output_scale: y_scale,
+            },
+            acquisition: AcquisitionParams {
+                kind,
+                beta,
+                seed: draw_seed,
+            },
+        };
         let inner = slf
             .inner
-            .ask_round(
-                arms,
-                candidates,
-                seed,
-                round_config(
-                    neighbors,
-                    epistemic_scale,
-                    aleatoric_scale,
-                    y_scale,
-                    beta,
-                    AcquisitionKind::parse(acquisition).map_err(err)?,
-                    draw_seed,
-                ),
-            )
+            .ask_round(arms, candidates, seed, config)
             .map_err(err)?;
         Ok(PyMetalProposals {
             owner: slf.into(),
             inner,
         })
-    }
-
-    #[pyo3(signature=(evaluator,prompts,max_new_tokens,arms=1,candidates=4,neighbors=2,seed=0,draw_seed=0))]
-    fn ask_generate(
-        mut slf: PyRefMut<'_, Self>,
-        mut evaluator: PyRefMut<'_, PyMetalQwenEvaluator>,
-        prompts: Vec<Vec<i32>>,
-        max_new_tokens: usize,
-        arms: usize,
-        candidates: usize,
-        neighbors: usize,
-        seed: u64,
-        draw_seed: u64,
-    ) -> PyResult<(PyMetalProposals, Vec<Vec<i32>>)> {
-        slf.unleased()?;
-        let buffer = slf
-            .inner
-            .begin_ask(
-                arms,
-                candidates,
-                seed,
-                round_config(
-                    neighbors,
-                    1.0,
-                    0.0,
-                    1.0,
-                    1.0,
-                    AcquisitionKind::Thompson,
-                    draw_seed,
-                ),
-            )
-            .map_err(err)?;
-        let generated = match evaluator
-            .inner
-            .generate_batch(&buffer, &prompts, max_new_tokens)
-        {
-            Ok(generated) => generated,
-            Err(error) => {
-                slf.inner.abort_ask();
-                return Err(err(error));
-            }
-        };
-        let inner = slf.inner.finish_ask().map_err(err)?;
-        Ok((
-            PyMetalProposals {
-                owner: slf.into(),
-                inner,
-            },
-            generated,
-        ))
-    }
-
-    #[pyo3(signature=(evaluator,tokens,masks,arms=1,candidates=4,neighbors=2,seed=0,draw_seed=0))]
-    fn ask_losses(
-        mut slf: PyRefMut<'_, Self>,
-        mut evaluator: PyRefMut<'_, PyMetalQwenEvaluator>,
-        tokens: Vec<Vec<i32>>,
-        masks: Vec<Vec<bool>>,
-        arms: usize,
-        candidates: usize,
-        neighbors: usize,
-        seed: u64,
-        draw_seed: u64,
-    ) -> PyResult<(PyMetalProposals, Vec<f32>)> {
-        slf.unleased()?;
-        let buffer = slf
-            .inner
-            .begin_ask(
-                arms,
-                candidates,
-                seed,
-                round_config(
-                    neighbors,
-                    1.0,
-                    0.0,
-                    1.0,
-                    1.0,
-                    AcquisitionKind::Thompson,
-                    draw_seed,
-                ),
-            )
-            .map_err(err)?;
-        let losses = match evaluator.inner.losses(&buffer, &tokens, &masks) {
-            Ok(losses) => losses,
-            Err(error) => {
-                slf.inner.abort_ask();
-                return Err(err(error));
-            }
-        };
-        let inner = slf.inner.finish_ask().map_err(err)?;
-        Ok((
-            PyMetalProposals {
-                owner: slf.into(),
-                inner,
-            },
-            losses,
-        ))
     }
 
     fn incumbent(&self) -> PyResult<PyMetalWeights> {
@@ -385,20 +263,6 @@ impl PyMetalSearchState {
         info.set_item("success_counter", controller.success_counter)?;
         info.set_item("failure_counter", controller.failure_counter)?;
         info.set_item("restarts", controller.restarts)?;
-        if let Some(reliability) = self.inner.reliability_info().map_err(err)? {
-            info.set_item("reliability_action", format!("{:?}", reliability.action))?;
-            info.set_item("standardized_error", reliability.standardized_error)?;
-            info.set_item("sharpness_ratio", reliability.sharpness_ratio)?;
-            info.set_item("agreement_ratio", reliability.agreement_ratio)?;
-            info.set_item("adequacy_mean", reliability.adequacy_mean)?;
-            info.set_item("adequacy_lower", reliability.adequacy_lower)?;
-            info.set_item("reliability_evidence", reliability.evidence)?;
-            info.set_item("response_radius", reliability.response_radius)?;
-            info.set_item("response_boundary", reliability.response_boundary)?;
-            info.set_item("boundary_fraction", reliability.boundary_fraction)?;
-            info.set_item("radius_conversion", reliability.conversion)?;
-            info.set_item("reliability_length", reliability.length)?;
-        }
         Ok(info)
     }
 

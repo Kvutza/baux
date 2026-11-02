@@ -10,8 +10,7 @@ pub struct ResidentEnnConfig {
     pub num_samples: usize,
     pub fit_params: bool,
     pub adapt_neighbors: bool,
-    pub distance_scaling: DistanceScaling,
-    pub history_geometry: HistoryGeometry,
+    pub distance_metric: DistanceMetric,
     pub local_scale_neighbors: usize,
 }
 
@@ -86,7 +85,7 @@ impl RunConfig {
                 return Err("resident ENN supports only UCB or Thompson acquisition".into());
             }
         };
-        let (distance_scaling, local_scale_neighbors) = self.resident_geometry()?;
+        let (distance_metric, local_scale_neighbors) = self.resident_geometry()?;
         Ok(ResidentEnnConfig {
             pool: self.resident_pool()?,
             proposal_method: self.proposal_method.unwrap_or_default(),
@@ -109,25 +108,24 @@ impl RunConfig {
             num_samples: enn.num_samples,
             fit_params: self.fit_params.unwrap_or(false),
             adapt_neighbors: self.adapt_neighbors.unwrap_or(false),
-            distance_scaling,
-            history_geometry: self.history_geometry.unwrap_or_default(),
+            distance_metric,
             local_scale_neighbors,
         })
     }
 
-    fn resident_geometry(&self) -> Result<(DistanceScaling, usize), String> {
-        let scaling = self.distance_scaling.unwrap_or_default();
+    fn resident_geometry(&self) -> Result<(DistanceMetric, usize), String> {
+        let metric = self.distance_metric.unwrap_or_default();
         let neighbors = self.local_scale_neighbors.unwrap_or(8);
         if neighbors == 0 || neighbors > 128 {
             return Err("resident ENN local_scale_neighbors must be in 1..=128".into());
         }
-        if scaling == DistanceScaling::Global && self.local_scale_neighbors.is_some() {
+        if metric == DistanceMetric::Euclidean && self.local_scale_neighbors.is_some() {
             return Err(
-                "local_scale_neighbors requires distance_scaling = 'self-tuning' or 'hyperbolic'"
+                "local_scale_neighbors requires distance_metric = 'conformal', 'hyperbolic', or 'wasserstein'"
                     .into(),
             );
         }
-        Ok((scaling, neighbors))
+        Ok((metric, neighbors))
     }
 
     /// Resolve an ask for backends that retain only a bounded live history.

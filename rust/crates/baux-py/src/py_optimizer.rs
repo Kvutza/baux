@@ -86,6 +86,10 @@ pub fn parse_dict(dict: &Bound<'_, pyo3::types::PyDict>) -> PyResult<baux::confi
             ("opencl", IndexDriver::OpenCl),
             ("ocl", IndexDriver::OpenCl),
             ("cuda", IndexDriver::Cuda),
+            ("cuvs", IndexDriver::Cuvs),
+            ("cuvs_brute_force", IndexDriver::Cuvs),
+            ("cuvs_cagra", IndexDriver::CuvsCagra),
+            ("cagra", IndexDriver::CuvsCagra),
         ];
         let lower = s.to_lowercase();
         let (_, drv) = drivers

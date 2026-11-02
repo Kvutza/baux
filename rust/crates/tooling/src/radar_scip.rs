@@ -1,38 +1,16 @@
+mod scip_graph;
 mod scip_pb;
 mod scip_split;
 
-use scip_pb::{
-    DEFINITION, Document, ScipIndex, cache_path, format_hit, load_index, local_symbol,
-    require_index, resolve_target, select_symbols,
+use scip_graph::{
+    annotate_line, bfs_walk, build_graph, doc_spans, doctor as graph_doctor, print_symbol,
+    select_symbols,
 };
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use scip_pb::{DEFINITION, cache_path, load_index, local_symbol, require_index, resolve_target};
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::Path;
 use std::process::Command;
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct Span {
-    symbol: String,
-    display: String,
-    callable: bool,
-    start: usize,
-    end: usize,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
-struct Edge {
-    caller: String,
-    callee: String,
-    site: String,
-}
-
-#[derive(Default)]
-struct CallGraph {
-    names: BTreeMap<String, String>,
-    defs: BTreeMap<String, Vec<String>>,
-    callers: BTreeMap<String, Vec<Edge>>,
-    callees: BTreeMap<String, Vec<Edge>>,
-}
 
 pub fn index(root: &Path, target: Option<&Path>, force: bool) -> Result<(), String> {
     scip_pb::index(root, target, force)
@@ -132,7 +110,7 @@ pub fn symbol(
         if position > 0 {
             println!();
         }
-        scip_pb::print_symbol(&value, symbol, references, &mut remaining);
+        print_symbol(&value, symbol, references, &mut remaining);
         if remaining == 0 {
             break;
         }
@@ -310,7 +288,7 @@ pub fn impact(root: &Path, target: Option<&Path>, query: &str) -> Result<(), Str
 }
 
 pub fn doctor(root: &Path) -> Result<(), String> {
-    scip_pb::doctor(root)
+    graph_doctor(root)
 }
 
 pub fn split(
@@ -322,229 +300,58 @@ pub fn split(
     scip_split::split(root, target, granularity, exclude_root)
 }
 
-fn build_graph(root: &Path, index: &ScipIndex) -> CallGraph {
-    let mut graph = CallGraph::default();
-    let mut known = BTreeSet::new();
-    for doc in &index.documents {
-        for info in &doc.symbols {
-            if !local_symbol(&info.symbol) {
-                graph
-                    .names
-                    .entry(info.symbol.clone())
-                    .or_insert_with(|| info.display.clone());
-                known.insert(info.symbol.clone());
-            }
-        }
-        for occ in &doc.occurrences {
-            if occ.roles & DEFINITION != 0 && !local_symbol(&occ.symbol) {
-                graph
-                    .defs
-                    .entry(occ.symbol.clone())
-                    .or_default()
-                    .push(format_hit(&doc.path, occ));
-                known.insert(occ.symbol.clone());
-            }
-        }
-    }
-    let mut seen_edges = BTreeSet::new();
-    for doc in &index.documents {
-        let spans = doc_spans(root, doc);
-        for occ in &doc.occurrences {
-            if occ.roles & DEFINITION != 0 || local_symbol(&occ.symbol) {
-                continue;
-            }
-            if !known.contains(&occ.symbol) {
-                continue;
-            }
-            let Some(&line_raw) = occ.range.first() else {
-                continue;
-            };
-            let line = usize::try_from(line_raw).unwrap_or(0);
-            let Some(enclosing) = enclosing_span(&spans, line) else {
-                continue;
-            };
-            if enclosing.symbol == occ.symbol {
-                continue;
-            }
-            let edge = Edge {
-                caller: enclosing.symbol.clone(),
-                callee: occ.symbol.clone(),
-                site: format_hit(&doc.path, occ),
-            };
-            if seen_edges.insert(edge.clone()) {
-                graph
-                    .callers
-                    .entry(edge.callee.clone())
-                    .or_default()
-                    .push(edge.clone());
-                graph
-                    .callees
-                    .entry(edge.caller.clone())
-                    .or_default()
-                    .push(edge);
-            }
-        }
-    }
-    for defs in graph.defs.values_mut() {
-        defs.sort();
-        defs.dedup();
-    }
-    for edges in graph.callers.values_mut() {
-        edges.sort();
-    }
-    for edges in graph.callees.values_mut() {
-        edges.sort();
-    }
-    graph
-}
-
-fn doc_spans(root: &Path, doc: &Document) -> Vec<Span> {
-    let info_map = doc
-        .symbols
-        .iter()
-        .filter(|info| !local_symbol(&info.symbol))
-        .map(|info| (info.symbol.as_str(), info))
-        .collect::<BTreeMap<_, _>>();
-    let mut raw_defs = Vec::new();
-    for occ in &doc.occurrences {
-        if occ.roles & DEFINITION == 0 || local_symbol(&occ.symbol) {
-            continue;
-        }
-        let Some(&line_raw) = occ.range.first() else {
-            continue;
-        };
-        let start = usize::try_from(line_raw).unwrap_or(0);
-        let (display, callable) = match info_map.get(occ.symbol.as_str()) {
-            Some(info) => {
-                let is_fn = info.symbol.ends_with("().")
-                    || info
-                        .signature
-                        .as_deref()
-                        .is_some_and(|sig| sig.contains("fn "));
-                (info.display.clone(), is_fn)
-            }
-            None => (occ.symbol.clone(), occ.symbol.ends_with("().")),
-        };
-        raw_defs.push((start, occ.symbol.clone(), display, callable));
-    }
-    raw_defs.sort_by_key(|(start, _, _, _)| *start);
-    let source = fs::read_to_string(root.join(&doc.path)).ok();
-    let lines = source
-        .as_deref()
-        .map(|text| text.lines().collect::<Vec<_>>());
-    let mut spans = Vec::with_capacity(raw_defs.len());
-    for (idx, (start, symbol, display, callable)) in raw_defs.iter().enumerate() {
-        let end = match lines.as_deref() {
-            Some(src_lines) if *start < src_lines.len() => body_end(src_lines, *start),
-            _ => raw_defs
-                .get(idx + 1)
-                .map_or(usize::MAX / 2, |(next, _, _, _)| next.saturating_sub(1)),
-        };
-        spans.push(Span {
-            symbol: symbol.clone(),
-            display: display.clone(),
-            callable: *callable,
-            start: *start,
-            end: end.max(*start),
-        });
-    }
-    spans
-}
-
-fn body_end(lines: &[&str], start: usize) -> usize {
-    let mut depth = 0_isize;
-    let mut opened = false;
-    for (offset, line) in lines[start..].iter().enumerate() {
-        let code = line.split("//").next().unwrap_or(line);
-        for ch in code.chars() {
-            if ch == '{' {
-                depth += 1;
-                opened = true;
-            } else if ch == '}' {
-                depth -= 1;
-                if opened && depth <= 0 {
-                    return start + offset;
-                }
-            } else if ch == ';' && !opened {
-                return start + offset;
-            }
-        }
-    }
-    start
-}
-
-fn enclosing_span(spans: &[Span], line: usize) -> Option<&Span> {
-    let containing = spans
-        .iter()
-        .filter(|span| span.start <= line && line <= span.end)
-        .collect::<Vec<_>>();
-    containing
-        .iter()
-        .copied()
-        .filter(|span| span.callable)
-        .min_by_key(|span| (span.end.saturating_sub(span.start), usize::MAX - span.start))
-        .or_else(|| {
-            containing
-                .into_iter()
-                .min_by_key(|span| (span.end.saturating_sub(span.start), usize::MAX - span.start))
-        })
-}
-
-fn annotate_line(line: &str, spans: &BTreeMap<String, Vec<Span>>) -> String {
-    let mut parts = line.splitn(4, ':');
-    let (Some(path), Some(line_str), Some(col), Some(rest)) =
-        (parts.next(), parts.next(), parts.next(), parts.next())
-    else {
-        return line.to_owned();
-    };
-    let Ok(line_one) = line_str.parse::<usize>() else {
-        return line.to_owned();
-    };
-    let Some(doc_spans) = spans.get(path) else {
-        return line.to_owned();
-    };
-    let Some(span) = enclosing_span(doc_spans, line_one.saturating_sub(1)) else {
-        return line.to_owned();
-    };
-    format!("{path}:{line_str}:{col} [{}] {rest}", span.display)
-}
-
-fn bfs_walk(
-    adj: &BTreeMap<String, Vec<Edge>>,
-    root_sym: &str,
-    reverse: bool,
-    max_depth: usize,
-) -> Vec<(usize, Vec<Edge>)> {
-    let mut visited = BTreeSet::new();
-    visited.insert(root_sym.to_owned());
-    let mut frontier = VecDeque::new();
-    frontier.push_back((root_sym.to_owned(), 1_usize));
-    let mut by_depth = BTreeMap::<usize, Vec<Edge>>::new();
-    while let Some((current, depth)) = frontier.pop_front() {
-        if depth > max_depth {
-            continue;
-        }
-        let Some(edges) = adj.get(&current) else {
-            continue;
-        };
-        for edge in edges {
-            by_depth.entry(depth).or_default().push(edge.clone());
-            let next = if reverse { &edge.caller } else { &edge.callee };
-            if visited.insert(next.clone()) {
-                frontier.push_back((next.clone(), depth + 1));
-            }
-        }
-    }
-    by_depth.into_iter().collect()
-}
-
 #[cfg(test)]
 mod tests {
-    use super::scip_pb::{Occurrence, SymbolInfo};
+    use super::scip_graph::body_end;
+    use super::scip_pb::{Document, Occurrence, ScipIndex, SymbolInfo, format_hit, parse_index};
     use super::*;
 
+    fn varint(mut value: u64) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        loop {
+            let mut byte = (value & 0x7f) as u8;
+            value >>= 7;
+            if value != 0 {
+                byte |= 0x80;
+            }
+            bytes.push(byte);
+            if value == 0 {
+                return bytes;
+            }
+        }
+    }
+
+    fn bytes(field: u8, value: &[u8]) -> Vec<u8> {
+        let mut output = varint(u64::from(field) << 3 | 2);
+        output.extend(varint(value.len() as u64));
+        output.extend(value);
+        output
+    }
+
     #[test]
-    fn graph_edges() {
+    fn decode_graph() {
+        let occ = Occurrence {
+            range: vec![4, 2, 9],
+            ..Occurrence::default()
+        };
+        assert_eq!(format_hit("source.rs", &occ), "source.rs:5:3");
+
+        let mut occurrence = bytes(1, &[4, 2, 9]);
+        occurrence.extend(bytes(2, b"rust test symbol"));
+        occurrence.extend([24, 1]);
+        let signature = bytes(5, b"fn test()");
+        let mut info = bytes(1, b"rust test symbol");
+        info.extend(bytes(6, b"test"));
+        info.extend(bytes(7, &signature));
+        let mut document = bytes(1, b"source.rs");
+        document.extend(bytes(2, &occurrence));
+        document.extend(bytes(3, &info));
+        let mut decoded = parse_index(&bytes(2, &document)).expect("valid synthetic SCIP");
+        assert_eq!(decoded.documents[0].path, "source.rs");
+        assert_eq!(select_symbols(&decoded, "source.rs:test").len(), 1);
+        decoded.documents[0].occurrences[0].roles = 0;
+        assert!(select_symbols(&decoded, "test").is_empty());
+
         let index = ScipIndex {
             documents: vec![Document {
                 path: "synthetic.rs".to_owned(),
@@ -580,13 +387,14 @@ mod tests {
             }],
         };
         let graph = build_graph(Path::new("/nonexistent"), &index);
-        let callers = graph.callers.get("crate/callee().").expect("caller edge");
-        assert_eq!(callers.len(), 1);
-        assert_eq!(callers[0].caller, "crate/caller().");
-        assert_eq!(callers[0].site, "synthetic.rs:3:5");
-        let callees = graph.callees.get("crate/caller().").expect("callee edge");
-        assert_eq!(callees.len(), 1);
-        assert_eq!(callees[0].callee, "crate/callee().");
+        assert_eq!(
+            graph.callers["crate/callee()."][0].caller,
+            "crate/caller()."
+        );
+        assert_eq!(
+            graph.callees["crate/caller()."][0].callee,
+            "crate/callee()."
+        );
         assert_eq!(body_end(&["fn a() {", "  b();", "}"], 0), 2);
     }
 }

@@ -20,7 +20,7 @@ impl SearchState {
     /// delegate the already-decided acceptance, history retention, and
     /// radius adaptation. `adapt_region` controls controller work, not
     /// whether weights may commit.
-    pub(super) fn tell_absolute(
+    pub fn tell_absolute(
         &mut self,
         round: &Proposals,
         value: f32,
@@ -30,7 +30,6 @@ impl SearchState {
         accept: bool,
         trust_incumbent: Option<f32>,
         trust_outcome: Option<TrustRegionOutcome>,
-        reliability_evidence: Option<reliability_region::ReliabilityEvidence>,
         adapt_region: bool,
     ) -> Result<(), String> {
         self.absolute_objectives(
@@ -41,7 +40,6 @@ impl SearchState {
             accept,
             trust_incumbent,
             trust_outcome,
-            reliability_evidence,
             adapt_region,
         )
     }
@@ -53,7 +51,7 @@ impl SearchState {
     /// ENN when configured, and adapts the active controller. On success clears
     /// `pending` and queues the acceptance flag for `sync`. Later failures can
     /// follow an earlier weight commit; this method does not promise rollback.
-    pub(super) fn absolute_objectives(
+    pub fn absolute_objectives(
         &mut self,
         round: &Proposals,
         observation: crate::objective_observation::ObjectiveObservation,
@@ -62,7 +60,6 @@ impl SearchState {
         accept: bool,
         trust_incumbent: Option<f32>,
         trust_outcome: Option<TrustRegionOutcome>,
-        reliability_evidence: Option<reliability_region::ReliabilityEvidence>,
         adapt_region: bool,
     ) -> Result<(), String> {
         let mut mutated = false;
@@ -109,7 +106,6 @@ impl SearchState {
                 value,
                 trust_incumbent,
                 trust_outcome,
-                reliability_evidence,
                 adapt_region,
             );
             if let Err(error) = update {
@@ -150,24 +146,17 @@ impl SearchState {
                     },
                 );
             }
-            if self.exact_history {
-                let blit = command.new_blit_command_encoder();
-                blit.copy_from_buffer(&self.proposal, 0, &self.base, 0, self.row_bytes());
-                blit.end_encoding();
-            }
             if let Err(error) = finish(&command) {
                 self.poisoned = true;
                 return Err(error);
             }
-            if !self.exact_history {
-                std::mem::swap(&mut self.base, &mut self.proposal);
-            }
+            std::mem::swap(&mut self.base, &mut self.proposal);
             if let Err(error) = self.check_reference() {
                 self.poisoned = true;
                 return Err(error);
             }
         }
-        Ok(accept && !self.exact_history)
+        Ok(accept)
     }
 
     /// Copy the selected candidate's sampled parameters into its logical slot
@@ -272,35 +261,6 @@ impl SearchState {
     ) -> Result<(), String> {
         if self.implicit_history {
             let next = slot;
-            if self.exact_history {
-                if round.block_scales.len() != self.blocks.len() {
-                    return Err("Exact replay proposal has the wrong block-scale count".into());
-                }
-                let step = ReplayStep {
-                    seed: round.seed,
-                    radius: round.length,
-                    accepted: u32::from(accept),
-                    candidate: round.index as u32,
-                    mode: self.perturbation.shader(),
-                };
-                // Shared Metal buffers are CPU-visible and no command is using
-                // these future-history slots while tell owns the state.
-                unsafe {
-                    self.replay_steps
-                        .contents()
-                        .cast::<ReplayStep>()
-                        .add(next)
-                        .write(step);
-                    std::ptr::copy_nonoverlapping(
-                        round.block_scales.as_ptr(),
-                        self.replay_scales
-                            .contents()
-                            .cast::<f32>()
-                            .add(next * self.blocks.len()),
-                        self.blocks.len(),
-                    );
-                }
-            }
             self.outcomes[next] = value;
             self.variances[next] = variance;
             self.identities[next] = identity;
@@ -344,10 +304,9 @@ impl SearchState {
         Ok(())
     }
     /// Dispatch controller work after observation/weight bookkeeping.
-    /// Priority is multi-region control, then requested reliability adaptation,
-    /// then ordinary trust-region updates. Reliability requires supplied model
-    /// evidence; a trust outcome requires its incumbent baseline. With
-    /// adaptation disabled, only the non-MORBO observation counter
+    /// Priority is multi-region (MORBO) control, then ordinary TuRBO
+    /// trust-region updates. A trust outcome requires its incumbent baseline.
+    /// With adaptation disabled, only the non-MORBO observation counter
     /// advances.
     fn adapt_observation(
         &mut self,
@@ -355,15 +314,10 @@ impl SearchState {
         value: f32,
         trust_incumbent: Option<f32>,
         trust_outcome: Option<TrustRegionOutcome>,
-        reliability_evidence: Option<reliability_region::ReliabilityEvidence>,
         adapt_region: bool,
     ) -> Result<(), String> {
         let update = if self.has_morbo() {
             self.update_morbo(observation)
-        } else if adapt_region && self.reliability.is_some() {
-            reliability_evidence
-                .ok_or_else(|| "Reliability control requires a model-aware tell".to_string())
-                .and_then(|evidence| self.update_reliability(evidence))
         } else if adapt_region {
             match (trust_incumbent, trust_outcome) {
                 (Some(incumbent), Some(outcome)) => self.update_outcome(value, incumbent, outcome),
@@ -453,7 +407,7 @@ impl SearchState {
         result
     }
 
-    pub(super) fn update_trajectory(
+    pub fn update_trajectory(
         &mut self,
         round: &Proposals,
         gain: f32,
@@ -465,7 +419,7 @@ impl SearchState {
         Ok(())
     }
 
-    pub(crate) fn pairwise_distance(&self, row: usize, column: usize) -> f64 {
+    pub fn pairwise_distance(&self, row: usize, column: usize) -> f64 {
         f64::from(self.total_distance(row, column))
     }
 }
@@ -541,24 +495,19 @@ fn validate_commit(
 
 fn choose_slot(state: &SearchState) -> Result<usize, String> {
     if state.implicit_history {
-        if state.exact_history {
-            baux::semantics::neighbor::retention(&state.identities[..state.history], state.base_id)
-                .map_err(str::to_owned)
-        } else {
-            let slope = state.fitted_enn.map_or(1.0, |(_, epistemic, _, y_scale)| {
-                epistemic.max(0.0).sqrt() * y_scale.max(0.0)
-            });
-            baux::semantics::neighbor::retention_cone(
-                &state.identities[..state.history],
-                state.base_id,
-                &state.outcomes[..state.history],
-                &state.variances[..state.history],
-                &state.pairwise_distances,
-                MAX_HISTORY,
-                slope,
-            )
-            .map_err(str::to_owned)
-        }
+        let slope = state.fitted_enn.map_or(1.0, |(_, epistemic, _, y_scale)| {
+            epistemic.max(0.0).sqrt() * y_scale.max(0.0)
+        });
+        baux::semantics::neighbor::retention_cone(
+            &state.identities[..state.history],
+            state.base_id,
+            &state.outcomes[..state.history],
+            &state.variances[..state.history],
+            &state.pairwise_distances,
+            MAX_HISTORY,
+            slope,
+        )
+        .map_err(str::to_owned)
     } else if state.resident_history == state.history_rows.len() {
         Ok(0)
     } else {

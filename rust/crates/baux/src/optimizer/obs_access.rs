@@ -213,6 +213,34 @@ impl<'a> ObsAccess<'a> {
     }
 }
 
+impl BayesOptimizer {
+    /// Row-level observation access (unified posterior store).
+    pub fn obs_access(&self) -> ObsAccess<'_> {
+        ObsAccess::new(self)
+    }
+
+    /// Get surrogate.
+    pub fn surrogate(&self) -> Option<&(dyn Surrogate + Send + Sync)> {
+        self.posterior.surrogate()
+    }
+
+    /// Whether this optimizer fits a surrogate (false for TuRBO-ZERO and
+    /// LHD-only).
+    pub fn has_surrogate(&self) -> bool {
+        self.posterior.has_surrogate()
+    }
+
+    /// Get mutable surrogate.
+    pub fn surrogate_mut(&mut self) -> Option<&mut (dyn Surrogate + Send + Sync)> {
+        self.posterior.surrogate_mut()
+    }
+
+    /// Current number of stored observations.
+    pub fn obs_count(&self) -> usize {
+        self.posterior.obs_count()
+    }
+}
+
 pub fn stack_rows(vecs: &[Array1<f64>]) -> Array2<f64> {
     let n = vecs.len();
     let d = vecs[0].len();

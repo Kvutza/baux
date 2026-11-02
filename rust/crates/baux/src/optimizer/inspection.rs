@@ -83,22 +83,6 @@ impl BayesOptimizer {
         self.regions.length()
     }
 
-    /// Row-level observation access (unified posterior store).
-    pub fn obs_access(&self) -> obs_access::ObsAccess<'_> {
-        obs_access::ObsAccess::new(self)
-    }
-
-    /// Get surrogate.
-    pub fn surrogate(&self) -> Option<&(dyn Surrogate + Send + Sync)> {
-        self.posterior.surrogate()
-    }
-
-    /// Whether this optimizer fits a surrogate (false for TuRBO-ZERO and
-    /// LHD-only).
-    pub fn has_surrogate(&self) -> bool {
-        self.posterior.has_surrogate()
-    }
-
     /// Posterior mean at `x` in natural units, in natural `y` units.
     pub fn posterior_mu(&self, x: &ArrayView2<f64>) -> Result<Array2<f64>, ENNError> {
         crate::optimizer_mu::posterior_mu(
@@ -107,11 +91,6 @@ impl BayesOptimizer {
             self.posterior.surrogate(),
             x,
         )
-    }
-
-    /// Get mutable surrogate.
-    pub fn surrogate_mut(&mut self) -> Option<&mut (dyn Surrogate + Send + Sync)> {
-        self.posterior.surrogate_mut()
     }
 
     /// Get observations in unit space.
@@ -145,5 +124,20 @@ impl BayesOptimizer {
     /// Get incumbent y scalar.
     pub fn y_scalar(&self) -> Option<&Array1<f64>> {
         self.incumbent.y_scalar()
+    }
+
+    /// Get init progress from warmup schedule.
+    pub fn init_progress(&self) -> Option<(usize, usize)> {
+        self.warmup.progress()
+    }
+
+    pub fn update_incumbent(&mut self, rng: &mut dyn RngCore) -> Result<(), ENNError> {
+        self.incumbent.update(
+            &self.posterior,
+            &self.regions,
+            self.domain.num_dim(),
+            self.config.noise_aware,
+            rng,
+        )
     }
 }

@@ -282,9 +282,8 @@ impl SurrogateRecipe {
             epistemic_scale: config.epistemic_scale.unwrap_or_else(epistemic_default),
             aleatoric_scale: config.aleatoric_scale.unwrap_or_else(aleatoric_default),
             y_scale: config.y_scale.unwrap_or_else(default_scale),
-            geometry: resident.history_geometry,
-            scaling: resident.distance_scaling,
-            local_neighbors: (resident.distance_scaling != DistanceScaling::Global)
+            metric: resident.distance_metric,
+            local_neighbors: (resident.distance_metric != DistanceMetric::Euclidean)
                 .then_some(resident.local_scale_neighbors),
             fit: if resident.fit_params {
                 SurrogateFit::LeaveOneOut
@@ -304,10 +303,7 @@ impl SurrogateRecipe {
         config.aleatoric_scale = Some(self.aleatoric_scale);
         config.y_scale = Some(self.y_scale);
         config.adapt_neighbors = Some(self.neighbor_rule == NeighborRule::RiskPrefix);
-        config.history_geometry =
-            (self.geometry != HistoryGeometry::default()).then_some(self.geometry);
-        config.distance_scaling =
-            (self.scaling != DistanceScaling::default()).then_some(self.scaling);
+        config.distance_metric = (self.metric != DistanceMetric::default()).then_some(self.metric);
         match self.fit {
             SurrogateFit::Fixed => {
                 config.fit_params = Some(false);

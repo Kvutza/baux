@@ -8,9 +8,7 @@ const RUNTIME_TARGET: &str = "//rust/crates/runner:baux-runner";
 pub struct Tune {
     #[arg(required_unless_present = "history", conflicts_with_all = ["history", "since", "until", "task", "optimizer", "limit", "reindex", "diff", "serve", "json"])]
     pub config: Option<PathBuf>,
-    #[arg(long, conflicts_with_all = ["rounds", "history"])]
-    pub prepare: bool,
-    #[arg(long, conflicts_with_all = ["prepare", "history"])]
+    #[arg(long, conflicts_with_all = ["history"])]
     pub rounds: Option<u32>,
     #[arg(long, conflicts_with_all = ["history"])]
     pub standalone: bool,
@@ -144,7 +142,7 @@ pub(crate) fn tune(root: &Path, args: Tune, engine: BuildSystem) -> Result<(), S
 }
 
 fn execute_tune(root: &Path, args: Tune, engine: BuildSystem) -> Result<(), String> {
-    if !args.prepare && !args.standalone {
+    if !args.standalone {
         if let Err(err) = crate::work::check_claim(root) {
             eprintln!("warning: continuing standalone without task lease: {err}");
         }
@@ -152,7 +150,6 @@ fn execute_tune(root: &Path, args: Tune, engine: BuildSystem) -> Result<(), Stri
     run(
         root,
         args.config.as_deref().ok_or("missing experiment config")?,
-        args.prepare,
         args.rounds,
         engine,
     )
@@ -240,7 +237,6 @@ fn print_diff(entry: &baux::artifact::json::Value, show_patch: bool) {
 pub(crate) fn run(
     root: &Path,
     path: &Path,
-    prepare: bool,
     rounds: Option<u32>,
     engine: BuildSystem,
 ) -> Result<(), String> {
@@ -249,9 +245,6 @@ pub(crate) fn run(
         "runtime · load experiment engine",
     );
     let mut args = vec!["tune".to_owned(), path.display().to_string()];
-    if prepare {
-        args.push("--prepare".to_owned());
-    }
     if let Some(rounds) = rounds {
         args.extend(["--rounds".to_owned(), rounds.to_string()]);
     }

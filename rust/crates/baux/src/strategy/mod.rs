@@ -1,31 +1,20 @@
 //! Optimization execution strategies for the role-decomposed ask/tell state
 //! machine.
 
-use ndarray::{Array1, Array2, ArrayView1, ArrayView2};
+use ndarray::{Array2, ArrayView1, ArrayView2};
 use rand::RngCore;
-
-use crate::util::argmax_tie;
 
 mod multi;
 mod selection;
-use multi::{ask_multi, tell_multi};
+use multi::{ask_init, ask_multi, tell_common, tell_multi};
 use selection::*;
 
-use crate::acquisition::{ParetoAcquisition, RandomAcquisition, UCBAcquisition};
-use crate::candidates::{draw_turbo, generate_lhd, generate_uniform};
-use crate::config::{AcquisitionConfig, InitStrategy};
+use crate::candidates::draw_turbo;
+use crate::config::InitStrategy;
 use crate::error::ENNError;
 use crate::optimizer::{BayesOptimizer, Telemetry};
 pub use crate::optimizer::{InitStrategyState, Strategy, StrategyState, TurboStrategyState};
 use crate::optimizer_dispatch::{AskGate, TellGate};
-
-#[derive(Clone, Copy)]
-struct CandidateSegment {
-    start: usize,
-    end: usize,
-    arms: usize,
-    region: usize,
-}
 
 impl BayesOptimizer {
     /// Public-boundary ask in natural coordinates.
@@ -213,29 +202,6 @@ fn tell_reinit(
     Ok(())
 }
 
-/// Generate initialization candidates in the unit cube.
-fn ask_init(
-    state: &InitStrategyState,
-    optimizer: &mut BayesOptimizer,
-    num_arms: usize,
-    rng: &mut dyn RngCore,
-) -> Result<Array2<f64>, ENNError> {
-    let num_dim = optimizer.num_dim();
-    let lower = Array1::zeros(num_dim);
-    let upper = Array1::ones(num_dim);
-
-    match state.strategy_type {
-        InitStrategy::LHD => {
-            let mut unit_bounds = Array2::zeros((num_dim, 2));
-            for j in 0..num_dim {
-                unit_bounds[[j, 1]] = 1.0;
-            }
-            Ok(generate_lhd(num_arms, num_dim, &unit_bounds.view(), rng))
-        }
-        InitStrategy::Random => generate_uniform(&lower, &upper, num_arms, rng),
-    }
-}
-
 /// Generate initialization candidates in hybrid mode.
 #[allow(dead_code)]
 fn ask_hybrid(
@@ -258,53 +224,6 @@ fn observe_morbo(optimizer: &mut BayesOptimizer) -> Result<(), ENNError> {
         return Ok(());
     }
     optimizer.regions.morbo_only(&y_all.view())
-}
-
-/// Common tell logic: add observations, fit surrogate, update incumbent.
-fn tell_common(
-    optimizer: &mut BayesOptimizer,
-    x: &ArrayView2<f64>,
-    y: &ArrayView2<f64>,
-    yvar: Option<&ArrayView2<f64>>,
-    telemetry: Option<&mut Telemetry>,
-    rng: &mut dyn RngCore,
-) -> Result<(), ENNError> {
-    if optimizer.regions.is_morbo() {
-        let metrics = optimizer.regions.num_metrics();
-        if y.ncols() != metrics {
-            return Err(ENNError::InvalidParameter(format!(
-                "y has {} metric columns but Morbo expects {metrics}",
-                y.ncols()
-            )));
-        }
-    }
-
-    let delta = optimizer.add_observations(x, y)?;
-    if let Some(dt_fit) = optimizer.posterior.fit_delta(&delta, yvar, rng)? {
-        if let Some(tel) = telemetry {
-            tel.dt_fit = dt_fit;
-        }
-    }
-
-    if optimizer.regions.is_morbo() && delta.new_n > delta.old_n {
-        optimizer.regions.morbo_only(&delta.y_view())?;
-    }
-
-    optimizer.update_incumbent(rng)?;
-
-    if optimizer.regions.is_morbo() && delta.new_n > 0 {
-        let y_inc = optimizer
-            .y_scalar()
-            .ok_or_else(|| ENNError::InvalidParameter("Missing incumbent y".to_string()))?
-            .to_owned();
-        optimizer.regions.update_morbo(&y_inc.view(), delta.new_n)?;
-    }
-
-    if x.nrows() >= 64 {
-        optimizer.posterior.release_pages()?;
-    }
-
-    Ok(())
 }
 
 /// Tell for initialization phase.

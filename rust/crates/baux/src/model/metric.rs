@@ -1,6 +1,10 @@
 //! Optional upstream AUTO metric on ordinary disk ENN, not full model-weight
 //! rows.
-use super::*;
+use ndarray::{Array1, ArrayView2};
+
+use super::inspection::ENN;
+use crate::backend::EnnBackend;
+use crate::error::ENNError;
 use crate::metric_auto::{AutoMetric, MetricSnapshot, ScaleUpdate};
 
 impl ENN {

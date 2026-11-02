@@ -5,7 +5,7 @@
 //!
 //! A pool describes proposals to rank, not objective evaluations or accepted
 //! updates. `count = arms * candidates_per_arm`; the resident Metal backend
-//! supports one or four total proposals and materializes the selected row.
+//! materializes the selected row.
 //! TOML's `optimizer.candidates` is already a TOTAL and is divided
 //! by `arms` in `config::spec::conversion`, before constructing this layout.
 //!
@@ -107,7 +107,7 @@ const fn default_arms() -> u32 {
 }
 
 const fn default_slots() -> u32 {
-    4
+    1
 }
 
 impl Default for ProceduralPoolConfig {
@@ -146,17 +146,13 @@ impl ProceduralPoolConfig {
         })
     }
 
-    /// Validate the resident Metal ABI's one- or four-proposal limit.
-    /// Four proposals may be surrogate-ranked before ONE objective evaluation;
-    /// this count does not request four forward evaluations or four updates.
+    /// Validate the resident Metal ABI's candidate pool count.
+    /// In direct search / operator BO, count is 1. Multi-candidate ranking is
+    /// supported when configured.
     pub fn resolve_resident(self) -> Result<ProceduralPool, String> {
         let pool = self.resolve()?;
-        if pool.count != 1 && pool.count != 4 {
-            return Err(
-                "resident procedural pool requires 1 or 4 total candidates; wider pools require a \
-                 separately measured GPU pool/selection ABI"
-                    .into(),
-            );
+        if pool.count == 0 {
+            return Err("resident procedural pool requires at least 1 candidate".into());
         }
         Ok(pool)
     }
@@ -359,8 +355,11 @@ mod tests {
     #[test]
     fn resident_requests() {
         assert_eq!(
-            ProceduralPoolConfig::default().resolve_resident().unwrap(),
-            ProceduralPool::legacy()
+            ProceduralPoolConfig::default()
+                .resolve_resident()
+                .unwrap()
+                .count(),
+            1
         );
         let single = ProceduralPoolConfig {
             arms: 1,
@@ -368,23 +367,10 @@ mod tests {
         };
         assert_eq!(single.resolve_resident().unwrap().count(), 1);
         let config = ProceduralPoolConfig {
-            arms: 4,
-            candidates_per_arm: 4,
+            arms: 0,
+            candidates_per_arm: 1,
         };
-        assert!(
-            config
-                .resolve_resident()
-                .unwrap_err()
-                .contains("GPU pool/selection ABI")
-        );
-        assert!(
-            ProceduralPoolConfig {
-                arms: 1,
-                candidates_per_arm: 8
-            }
-            .resolve_resident()
-            .is_err()
-        );
+        assert!(config.resolve_resident().is_err());
     }
 
     #[test]

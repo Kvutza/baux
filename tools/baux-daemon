@@ -1,0 +1,429 @@
+#!/usr/bin/env python3
+"""Autonomous background developer daemon for BAUX.
+
+Configured via `[baux.daemon]` in `.buckconfig`. Watches workspace files and
+autonomously runs:
+1. `tools/build-parity --sync` when `Cargo.toml` manifests change
+2. `./tools/reindeerw buckify` when `reindeer.toml` or `Cargo.lock` changes
+3. `//rust/crates/cli:baux` pre-build when CLI/tooling/artifact files change
+4. `./tools/prekw run --all-files` + Buck2 `[check]` subtargets on source edits
+5. Impacted crate unit tests (`./tools/buck2w test`) when `[check]` succeeds
+6. Background SCIP index refresh (`.cache/baux/radar/rust.scip`) when idle
+7. Periodic Beads task lease heartbeats (`./baux context --json`)
+"""
+
+from __future__ import annotations
+
+import configparser
+import hashlib
+import json
+import os
+import signal
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+WATCH_DIRS = ("rust", "build", "tools", "experiments", "schemas")
+WATCH_FILES = (
+    "Cargo.toml",
+    "Cargo.lock",
+    "reindeer.toml",
+    "BUCK",
+    ".buckconfig",
+    "baux",
+)
+WATCH_EXTS = (
+    ".rs",
+    ".py",
+    ".toml",
+    ".json",
+    ".bzl",
+    ".metal",
+    ".cl",
+    ".cpp",
+    ".h",
+    "BUCK",
+)
+IGNORE_DIRS = {
+    ".cache",
+    ".cargo",
+    ".git",
+    ".jj",
+    ".kiss",
+    ".pixi",
+    ".ruff_cache",
+    ".venv",
+    "buck-out",
+    "dist",
+    "target",
+    "vendor",
+}
+CHECK_TARGETS = (
+    "//rust/crates/baux:baux[check]",
+    "//rust/crates/baux:baux-cli[check]",
+    "//rust/crates/fbt:fbt[check]",
+    "//rust/crates/tooling:tooling[check]",
+    "//rust/crates/cli:baux[check]",
+    "//rust/crates/runner:baux-runner[check]",
+    "//rust/crates/baux-py:baux-py[check]",
+)
+TEST_TABLE = (
+    ("rust/crates/baux/src/bin/baux-tune/", "root//rust/crates/baux:baux-tune-test"),
+    ("rust/crates/baux/", "root//rust/crates/baux:baux-unit"),
+    ("rust/crates/fbt/", "root//rust/crates/fbt:fbt-unit"),
+    ("rust/crates/cli/", "root//rust/crates/cli:baux-test"),
+    ("rust/crates/tooling/", "root//rust/crates/tooling:tooling-unit"),
+    ("rust/crates/runner/", "root//rust/crates/runner:baux-runner-test"),
+    ("rust/crates/corpus/", "root//rust/crates/corpus:corpus-test"),
+    ("rust/crates/properties/", "root//rust/crates/properties:properties-unit"),
+)
+
+
+def load_config(root: Path) -> dict[str, int | bool]:
+    cfg = configparser.ConfigParser()
+    cfg.read(root / ".buckconfig", encoding="utf-8")
+    sec = cfg["baux.daemon"] if "baux.daemon" in cfg else {}
+    return {
+        "parity": str(sec.get("auto_parity", "true")).lower() == "true",
+        "reindeer": str(sec.get("auto_reindeer", "true")).lower() == "true",
+        "check": str(sec.get("auto_format_and_check", "true")).lower() == "true",
+        "test": str(sec.get("auto_test", "true")).lower() == "true",
+        "radar": str(sec.get("auto_radar_scip", "true")).lower() == "true",
+        "heartbeat": str(sec.get("auto_beads_heartbeat", "true")).lower() == "true",
+        "radar_idle": int(sec.get("radar_idle_seconds", "15")),
+        "hb_interval": int(sec.get("heartbeat_seconds", "120")),
+    }
+
+
+def stat_entry(root: Path, full: str) -> tuple[str, int, int] | None:
+    try:
+        st = os.stat(full)
+    except OSError:
+        return None
+    return (os.path.relpath(full, root), st.st_mtime_ns, st.st_size)
+
+
+def scan_workspace(root: Path) -> tuple[str, str, str, float]:
+    all_entries: list[tuple[str, int, int]] = []
+    cargo_entries: list[tuple[str, int, int]] = []
+    reindeer_entries: list[tuple[str, int, int]] = []
+    latest_rs = 0.0
+    for rel in WATCH_FILES:
+        item = stat_entry(root, str(root / rel))
+        if item:
+            all_entries.append(item)
+            if rel == "Cargo.toml":
+                cargo_entries.append(item)
+            if rel in ("Cargo.lock", "reindeer.toml"):
+                reindeer_entries.append(item)
+    for d in WATCH_DIRS:
+        base = root / d
+        if not base.exists():
+            continue
+        for dirpath, dirnames, filenames in os.walk(base):
+            dirnames[:] = [n for n in dirnames if n not in IGNORE_DIRS]
+            for fname in filenames:
+                if not fname.endswith(WATCH_EXTS):
+                    continue
+                item = stat_entry(root, os.path.join(dirpath, fname))
+                if not item:
+                    continue
+                all_entries.append(item)
+                if fname == "Cargo.toml":
+                    cargo_entries.append(item)
+                if fname.endswith(".rs"):
+                    latest_rs = max(latest_rs, item[1] / 1e9)
+    return (
+        hash_items(all_entries),
+        hash_items(cargo_entries),
+        hash_items(reindeer_entries),
+        latest_rs,
+    )
+
+
+def hash_items(items: list[tuple[str, int, int]]) -> str:
+    digest = hashlib.sha256()
+    for rel, mtime_ns, size in sorted(items):
+        digest.update(f"{rel}:{mtime_ns}:{size}\n".encode())
+    return digest.hexdigest()
+
+
+def atomic_write(path: Path, content: str) -> None:
+    tmp = path.with_suffix(path.suffix + f".tmp.{os.getpid()}")
+    tmp.write_text(content, encoding="utf-8")
+    tmp.replace(path)
+
+
+def write_status(daemon_dir: Path, **fields: object) -> None:
+    fields["updated_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    atomic_write(daemon_dir / "status.json", json.dumps(fields, indent=2) + "\n")
+
+
+def changed_test_targets(root: Path) -> list[str]:
+    res = subprocess.run(
+        ["jj", "diff", "--name-only", "--no-pager"],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    files = (
+        [line.strip() for line in res.stdout.splitlines() if line.strip()]
+        if res.returncode == 0
+        else []
+    )
+    targets = {
+        target for f in files for prefix, target in TEST_TABLE if f.startswith(prefix)
+    }
+    return sorted(targets)
+
+
+def refresh_cli_binary(root: Path, stamp: Path) -> None:
+    res = subprocess.run(
+        [
+            "./tools/buck2w",
+            "build",
+            "--console",
+            "simple",
+            "-v",
+            "2",
+            "--show-full-output",
+            "//rust/crates/cli:baux",
+        ],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    marker = "root//rust/crates/cli:baux "
+    for line in res.stdout.splitlines() if res.returncode == 0 else []:
+        if marker in line:
+            binary = line.split(marker, 1)[1].strip()
+            atomic_write(stamp, f"{binary}\n")
+            break
+
+
+def run_check_stage(root: Path, daemon_dir: Path, stamp: Path) -> tuple[int, str]:
+    env = os.environ.copy()
+    if stamp.is_file():
+        cli_bin = stamp.read_text(encoding="utf-8").strip()
+        if cli_bin:
+            env["BAUX_BIN"] = str(
+                root / cli_bin if not os.path.isabs(cli_bin) else Path(cli_bin)
+            )
+    prek = subprocess.run(
+        ["./tools/prekw", "run", "--all-files"],
+        cwd=root,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if prek.returncode != 0:
+        prek2 = subprocess.run(
+            ["./tools/prekw", "run", "--all-files"],
+            cwd=root,
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if prek2.returncode == 0:
+            prek = prek2
+            refresh_cli_binary(root, stamp)
+    fp_mid, _, _, _ = scan_workspace(root)
+    bcheck = subprocess.run(
+        [
+            "./tools/buck2w",
+            "build",
+            *CHECK_TARGETS,
+            "--local-only",
+            "--console",
+            "simple",
+            "-v",
+            "2",
+        ],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    fp_after, _, _, _ = scan_workspace(root)
+    rc = 0 if (prek.returncode == 0 and bcheck.returncode == 0) else 1
+    log = (
+        prek.stdout
+        + prek.stderr
+        + ("" if bcheck.returncode == 0 else "\n" + bcheck.stdout + bcheck.stderr)
+    )
+    valid_fp = fp_after if (fp_mid == fp_after and rc == 0) else ""
+    atomic_write(daemon_dir / "check.log", log)
+    atomic_write(daemon_dir / "check.rc", f"{rc}\n")
+    atomic_write(daemon_dir / "check.fp", f"{valid_fp}\n")
+    return rc, valid_fp
+
+
+def run_test_stage(root: Path, daemon_dir: Path) -> tuple[int, str]:
+    targets = changed_test_targets(root)
+    if targets:
+        t_res = subprocess.run(
+            [
+                "./tools/buck2w",
+                "test",
+                "--local-only",
+                "--console",
+                "simple",
+                "-v",
+                "2",
+                *targets,
+            ],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        detail = "" if t_res.returncode == 0 else (t_res.stdout + t_res.stderr)
+        rc, log = (
+            t_res.returncode,
+            f"o|daemon-test: verified {' '.join(targets)}\n" + detail,
+        )
+    else:
+        rc, log = 0, "o|daemon-test: no modified crate targets; clean.\n"
+    fp_final, _, _, _ = scan_workspace(root)
+    atomic_write(daemon_dir / "test.log", log)
+    atomic_write(daemon_dir / "test.rc", f"{rc}\n")
+    atomic_write(daemon_dir / "test.fp", f"{fp_final}\n")
+    return rc, fp_final
+
+
+def run_idle_tasks(
+    root: Path, cfg: dict[str, int | bool], latest_rs: float, last_hb: float
+) -> float:
+    now = time.time()
+    scip = root / ".cache/baux/radar/rust.scip"
+    scip_mtime = scip.stat().st_mtime if scip.is_file() else 0.0
+    if (
+        cfg["radar"]
+        and latest_rs > scip_mtime
+        and (now - latest_rs) >= float(cfg["radar_idle"])
+    ):
+        subprocess.run(
+            ["./baux", "radar", "index", "--force"],
+            cwd=root,
+            capture_output=True,
+            check=False,
+        )
+    if cfg["heartbeat"] and (now - last_hb) >= float(cfg["hb_interval"]):
+        subprocess.run(
+            ["./baux", "context", "--json"], cwd=root, capture_output=True, check=False
+        )
+        return now
+    return last_hb
+
+
+def claim_pid(pid_file: Path) -> bool:
+    if pid_file.is_file():
+        try:
+            old_pid = int(pid_file.read_text(encoding="utf-8").strip())
+            if old_pid != os.getpid():
+                os.kill(old_pid, 0)
+                return False
+        except (ValueError, OSError):
+            pass
+    atomic_write(pid_file, f"{os.getpid()}\n")
+    return True
+
+
+def serve(root: Path) -> int:
+    daemon_dir = root / ".cache/baux/daemon"
+    daemon_dir.mkdir(parents=True, exist_ok=True)
+    pid_file = daemon_dir / "daemon.pid"
+    if not claim_pid(pid_file):
+        return 0
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
+    signal.signal(signal.SIGINT, lambda *_: sys.exit(0))
+    stamp = root / ".cache/baux/cli-bin.path"
+    last_fp, last_cargo, last_rein = "", "", ""
+    last_hb = time.time()
+    while True:
+        cfg = load_config(root)
+        cur_fp, cargo_fp, rein_fp, latest_rs = scan_workspace(root)
+        if cur_fp != last_fp:
+            time.sleep(0.25)
+            cur_fp, cargo_fp, rein_fp, latest_rs = scan_workspace(root)
+            if cfg["parity"] and last_cargo and cargo_fp != last_cargo:
+                subprocess.run(
+                    ["./tools/build-parity", "--sync"],
+                    cwd=root,
+                    capture_output=True,
+                    check=False,
+                )
+            if cfg["reindeer"] and last_rein and rein_fp != last_rein:
+                subprocess.run(
+                    ["./tools/reindeerw", "buckify"],
+                    cwd=root,
+                    capture_output=True,
+                    check=False,
+                )
+            last_cargo, last_rein = cargo_fp, rein_fp
+            atomic_write(daemon_dir / "state", f"CHECK {cur_fp}\n")
+            write_status(daemon_dir, phase="CHECK", fingerprint=cur_fp)
+            refresh_cli_binary(root, stamp)
+            check_rc, last_fp = (
+                run_check_stage(root, daemon_dir, stamp)
+                if cfg["check"]
+                else (0, cur_fp)
+            )
+            test_rc = 0
+            if check_rc == 0 and cfg["test"]:
+                atomic_write(daemon_dir / "state", f"TEST {last_fp}\n")
+                write_status(daemon_dir, phase="TEST", fingerprint=last_fp, check_rc=0)
+                test_rc, last_fp = run_test_stage(root, daemon_dir)
+            atomic_write(daemon_dir / "state", f"IDLE {last_fp}\n")
+            write_status(
+                daemon_dir,
+                phase="IDLE",
+                fingerprint=last_fp,
+                check_rc=check_rc,
+                test_rc=test_rc,
+            )
+        last_hb = run_idle_tasks(root, cfg, latest_rs, last_hb)
+        time.sleep(0.5)
+
+
+def query(root: Path, mode: str) -> int:
+    daemon_dir = root / ".cache/baux/daemon"
+    if mode == "status":
+        st = daemon_dir / "status.json"
+        sys.stdout.write(st.read_text(encoding="utf-8") if st.is_file() else "{}\n")
+        return 0
+    state_file = daemon_dir / "state"
+    deadline = time.time() + 60.0
+    while time.time() < deadline and state_file.is_file():
+        state = state_file.read_text(encoding="utf-8").strip()
+        if state.startswith("CHECK") or (mode == "test" and state.startswith("TEST")):
+            time.sleep(0.1)
+            continue
+        break
+    cur_fp, _, _, _ = scan_workspace(root)
+    fp_file, rc_file, log_file = (
+        daemon_dir / f"{mode}.fp",
+        daemon_dir / f"{mode}.rc",
+        daemon_dir / f"{mode}.log",
+    )
+    if fp_file.is_file() and rc_file.is_file() and log_file.is_file():
+        if fp_file.read_text(encoding="utf-8").strip() == cur_fp:
+            sys.stdout.write(log_file.read_text(encoding="utf-8"))
+            return int(rc_file.read_text(encoding="utf-8").strip())
+    return 2
+
+
+def main() -> int:
+    root = Path(__file__).resolve().parent.parent
+    if len(sys.argv) >= 2 and sys.argv[1] in ("check", "test", "status"):
+        return query(root, sys.argv[1])
+    return serve(root)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

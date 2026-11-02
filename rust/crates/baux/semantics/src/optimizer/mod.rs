@@ -21,10 +21,7 @@ pub mod settings {
 pub mod surrogate;
 pub mod transaction;
 pub mod trust_region;
-pub use trust_region as reliability;
-pub mod window_plan;
 pub use response::response_rms;
-pub use window_plan::{WindowPlan, advance_clock, verify_coverage, verify_full};
 
 // Canonical exports directly at crate root
 pub use param_tree::{ParamFamily, ParamTree};
@@ -35,9 +32,7 @@ pub use surrogate::{
 };
 pub use transaction::{AskPlan, EvalReceipt, Evaluated, RoundId, TellDecision};
 pub use trust_region::{
-    CANDIDATES, INITIAL_OBSERVATIONS, MAX_HISTORY, ModelAgreement, PoolShape, RadiusAction,
-    RadiusControl, RadiusController, ReliabilityAction, ReliabilityDecision, ReliabilityEvidence,
-    ReliabilityPolicy, ReliabilityTelemetry, StepDecision, TrialStep, TrustRegionController,
-    TrustRegionSpec, TrustRegionStatus, accept_bits, accept_candidate, accept_decision,
+    CANDIDATES, INITIAL_OBSERVATIONS, MAX_HISTORY, PoolShape, RadiusAction, RadiusController,
+    StepDecision, TrustRegionController, accept_bits, accept_candidate, accept_decision,
     candidate_seed, decide_action, splitmix64,
 };

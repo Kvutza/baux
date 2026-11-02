@@ -152,37 +152,37 @@ impl StageBuffers {
     }
 }
 
-pub(crate) const EMA_PARTS: usize = 128;
+pub const EMA_PARTS: usize = 128;
 
-pub(crate) struct HNet2Pipelines {
-    pub(crate) prep_mean: ComputePipelineState,
-    pub(crate) prep_byte: ComputePipelineState,
-    pub(crate) prep_proj: ComputePipelineState,
-    pub(crate) prep_readout: ComputePipelineState,
-    pub(crate) s0_reduce: ComputePipelineState,
-    pub(crate) s0_route: ComputePipelineState,
-    pub(crate) s0_scan: ComputePipelineState,
-    pub(crate) s0_pack: ComputePipelineState,
-    pub(crate) s1_reduce: ComputePipelineState,
-    pub(crate) s1_route: ComputePipelineState,
-    pub(crate) s1_scan: ComputePipelineState,
-    pub(crate) s1_pack: ComputePipelineState,
-    pub(crate) tile_advance: ComputePipelineState,
-    pub(crate) s2_load: ComputePipelineState,
-    pub(crate) s2_store: ComputePipelineState,
-    pub(crate) dec1_reduce: ComputePipelineState,
-    pub(crate) dec1_scan: ComputePipelineState,
-    pub(crate) dec0_reduce: ComputePipelineState,
-    pub(crate) dec0_scan: ComputePipelineState,
-    pub(crate) ema0_logits: ComputePipelineState,
-    pub(crate) ro_reduce: ComputePipelineState,
-    pub(crate) ro_scan: ComputePipelineState,
-    pub(crate) ro_advance: ComputePipelineState,
+pub struct HNet2Pipelines {
+    pub prep_mean: ComputePipelineState,
+    pub prep_byte: ComputePipelineState,
+    pub prep_proj: ComputePipelineState,
+    pub prep_readout: ComputePipelineState,
+    pub s0_reduce: ComputePipelineState,
+    pub s0_route: ComputePipelineState,
+    pub s0_scan: ComputePipelineState,
+    pub s0_pack: ComputePipelineState,
+    pub s1_reduce: ComputePipelineState,
+    pub s1_route: ComputePipelineState,
+    pub s1_scan: ComputePipelineState,
+    pub s1_pack: ComputePipelineState,
+    pub tile_advance: ComputePipelineState,
+    pub s2_load: ComputePipelineState,
+    pub s2_store: ComputePipelineState,
+    pub dec1_reduce: ComputePipelineState,
+    pub dec1_scan: ComputePipelineState,
+    pub dec0_reduce: ComputePipelineState,
+    pub dec0_scan: ComputePipelineState,
+    pub ema0_logits: ComputePipelineState,
+    pub ro_reduce: ComputePipelineState,
+    pub ro_scan: ComputePipelineState,
+    pub ro_advance: ComputePipelineState,
 }
 
 impl HNet2Pipelines {
     fn compile(runtime: &Runtime, source: &str) -> Result<Self, String> {
-        let c = |name| runtime.precise_metal4(source, "H-Net 2-stage waves", name, &[]);
+        let c = |name| runtime.metal4_precise(source, "H-Net 2-stage waves", name, &[]);
         Ok(Self {
             prep_mean: c("hnet2_prep_mean")?,
             prep_byte: c("hnet2_prep_byte")?,
@@ -220,23 +220,23 @@ pub struct HNetWaves {
     dechunk_pipe: ComputePipelineState,
     readout_pipe: ComputePipelineState,
     bwd_pipe: ComputePipelineState,
-    pub(crate) mhc_chunk: ComputePipelineState,
-    pub(crate) mhc_chunk_scan: ComputePipelineState,
-    pub(crate) mhc_chunk_pack: ComputePipelineState,
-    pub(crate) mhc_project: ComputePipelineState,
-    pub(crate) mhc_route: ComputePipelineState,
-    pub(crate) mhc_route_state: ComputePipelineState,
-    pub(crate) mhc_readout: ComputePipelineState,
-    pub(crate) mhc_logits: ComputePipelineState,
-    pub(crate) dechunk_grad: ComputePipelineState,
-    pub(crate) route_grad: ComputePipelineState,
-    pub(crate) input_grad: ComputePipelineState,
-    pub(crate) weight_grad: ComputePipelineState,
-    pub(crate) mhc_dechunk: ComputePipelineState,
-    pub(crate) mhc_dechunk_reduce: ComputePipelineState,
-    pub(crate) mhc_dechunk_scan: ComputePipelineState,
-    pub(crate) mhc_dechunk_plug: ComputePipelineState,
-    pub(crate) hnet2: HNet2Pipelines,
+    pub mhc_chunk: ComputePipelineState,
+    pub mhc_chunk_scan: ComputePipelineState,
+    pub mhc_chunk_pack: ComputePipelineState,
+    pub mhc_project: ComputePipelineState,
+    pub mhc_route: ComputePipelineState,
+    pub mhc_route_state: ComputePipelineState,
+    pub mhc_readout: ComputePipelineState,
+    pub mhc_logits: ComputePipelineState,
+    pub dechunk_grad: ComputePipelineState,
+    pub route_grad: ComputePipelineState,
+    pub input_grad: ComputePipelineState,
+    pub weight_grad: ComputePipelineState,
+    pub mhc_dechunk: ComputePipelineState,
+    pub mhc_dechunk_reduce: ComputePipelineState,
+    pub mhc_dechunk_scan: ComputePipelineState,
+    pub mhc_dechunk_plug: ComputePipelineState,
+    pub hnet2: HNet2Pipelines,
 }
 
 impl HNetWaves {
@@ -245,10 +245,10 @@ impl HNetWaves {
         Self::with_runtime(runtime)
     }
 
-    pub(crate) fn with_runtime(runtime: Arc<Runtime>) -> Result<Self, String> {
+    pub fn with_runtime(runtime: Arc<Runtime>) -> Result<Self, String> {
         let source = hnet::metal_source(SOURCE);
         let compile =
-            |name| runtime.precise_metal4(&source, "H-Net dynamic chunking waves", name, &[]);
+            |name| runtime.metal4_precise(&source, "H-Net dynamic chunking waves", name, &[]);
         let hnet2 = HNet2Pipelines::compile(&runtime, &source)?;
         Ok(Self {
             route_pipe: compile("hnet_route")?,

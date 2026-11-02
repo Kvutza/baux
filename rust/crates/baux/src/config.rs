@@ -13,8 +13,8 @@ pub use crate::optimizer_config::{
     turbo_enn, turbo_zero,
 };
 
-#[path = "config/experiment.rs"]
-mod cfg_experiment;
+mod experiment;
+use experiment as cfg_experiment;
 mod diffusion;
 mod feedback;
 mod generation;
@@ -33,7 +33,13 @@ mod spec_conversion;
 mod spec_execution;
 #[path = "config/spec/optimizer.rs"]
 mod spec_optimizer;
+#[cfg(test)]
+#[path = "config/spec/tests.rs"]
+mod spec_tests;
 mod validation;
+pub use cfg_experiment::{
+    DistanceMetric, ObjectiveReference, PretrainSelection, TrainingOptimizer, TrustRegionShape,
+};
 pub use feedback::FeedbackTransition;
 pub use generation::{
     FrozenAttention, FrozenBackend, FrozenReadout, GenerationConfig, GenerationPurpose,
@@ -49,13 +55,6 @@ pub use spec_execution::ObjectiveFunction;
 pub use spec_optimizer::{
     AcquisitionSpec, CandidateGenerationSpec, OptimizerSpec, SurrogateFit, SurrogateRecipe,
     TrustRegionBounds,
-};
-#[cfg(test)]
-#[path = "config/spec/tests.rs"]
-mod spec_tests;
-pub use cfg_experiment::{
-    DistanceScaling, HistoryGeometry, ObjectiveReference, PretrainSelection, TrainingOptimizer,
-    TrustRegionShape,
 };
 
 /// Concrete runtime configuration compiled from a validated experiment recipe.
@@ -85,12 +84,9 @@ pub struct RunConfig {
     pub aleatoric_scale: Option<f64>,
     /// Output uncertainty scale used by accelerator acquisition kernels.
     pub y_scale: Option<f64>,
-    /// Geometry normalization used before ENN neighbor weighting.
-    pub distance_scaling: Option<DistanceScaling>,
-    /// Coordinate system used for resident ENN history distances.
-    pub history_geometry: Option<HistoryGeometry>,
-    /// Neighbor rank defining each point's local radius under self-tuning
-    /// scaling.
+    /// Distance metric used before ENN neighbor weighting.
+    pub distance_metric: Option<DistanceMetric>,
+    /// Neighbor rank defining each point's local radius under local metrics.
     pub local_scale_neighbors: Option<usize>,
     /// Fit resident ENN variance scales by leave-one-out predictive likelihood.
     pub fit_params: Option<bool>,
@@ -169,8 +165,6 @@ pub struct RunConfig {
     pub objective_reference: Option<ObjectiveReference>,
     /// Scalar token loss function used by fixed-corpus pretraining.
     pub objective_function: Option<ObjectiveFunction>,
-    /// Reliability-aware controller parameters for full-weight pretraining.
-    pub reliability_controller: Option<crate::ReliabilityPolicy>,
 }
 
 /// Complete workload selected by a file-driven optimizer configuration.
@@ -247,7 +241,6 @@ pub fn valid_recipe(value: &str) -> bool {
 pub enum TrustRegionKind {
     Turbo,
     Morbo,
-    Reliability,
 }
 
 fn apply_enn(config: &mut OptimizerConfig, overrides: &RunConfig) {
@@ -387,7 +380,6 @@ impl RunConfig {
 
 #[cfg(test)]
 mod serialization_tests {
-    use super::ExperimentSpec;
     use super::{AcquisitionConfig, ExperimentKind, RunConfig, TrustRegionKind, parse_tune};
     use crate::{CandidateSampler, Rescalarize};
 
@@ -565,12 +557,6 @@ impl RunConfig {
             unreachable!("validated resident optimizer configuration")
         };
         length
-    }
-
-    pub fn reliability_controller(&self) -> Option<crate::ReliabilityPolicy> {
-        (self.trust_region_kind == Some(TrustRegionKind::Reliability))
-            .then_some(self.reliability_controller)
-            .flatten()
     }
 
     pub fn output(&self) -> PathBuf {

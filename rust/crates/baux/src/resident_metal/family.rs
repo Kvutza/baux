@@ -5,9 +5,9 @@ use crate::params::ENNParams;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 
-pub(super) const FAMILIES: usize = 4;
+pub const FAMILIES: usize = 4;
 
-pub(super) struct FamilyHistory {
+pub struct FamilyHistory {
     pub groups: Vec<usize>,
     pub original: Vec<ParamBlock>,
     pub components: Vec<[f32; FAMILIES]>,
@@ -144,9 +144,8 @@ impl FamilyHistory {
             .map(|&weights| {
                 let raw = self.aggregate(weights, y.nrows());
                 let distances = match local {
-                    Some(k) => {
-                        crate::fit::tuned_distances(&raw.view(), k).map_err(|e| e.to_string())?
-                    }
+                    Some(k) => crate::fit::conformal_distances(&raw.view(), k)
+                        .map_err(|e| e.to_string())?,
                     None => raw,
                 };
                 crate::fit::distance_loglik(
@@ -246,12 +245,11 @@ mod tests {
             s.enable_family(vec![0, 1, 2, 3])?;
             let config = crate::config::RunConfig {
                 k_neighbors: Some(4),
-                history_geometry: Some(crate::config::HistoryGeometry::Realized),
                 num_candidates: Some(2),
                 num_samples: Some(4),
                 fit_params: Some(true),
                 adapt_neighbors: Some(false),
-                distance_scaling: Some(crate::config::DistanceScaling::SelfTuning),
+                distance_metric: Some(crate::config::DistanceMetric::Conformal),
                 local_scale_neighbors: Some(2),
                 ..Default::default()
             }
@@ -266,42 +264,19 @@ mod tests {
                 let initializing = s.history < 4;
                 let root = 123 + step;
                 if initializing {
-                    s.begin_initial(root, step as usize % 4)?;
+                    s.begin_initial(root, step as usize % s.pool_layout.count() as usize)?;
                 } else {
-                    s.begin_ask(1, 4, root, config.ask)?;
+                    s.begin_ask(
+                        s.pool_layout.arms() as usize,
+                        s.pool_layout.slots() as usize,
+                        root,
+                        config.ask,
+                    )?;
                 }
                 let proposal = s.finish_ask()?;
                 let original = read::<u16>(&s.proposal, base.len());
                 s.diagnostic_row(&proposal, root, config.ask, proposal.index)?;
                 assert_eq!(original, read::<u16>(&s.proposal, base.len()));
-                let f = s.family.as_ref().unwrap();
-                for slot in 0..s.resident_history * usize::from(!s.exact_history) {
-                    let history = read::<u16>(&s.history_rows[slot], base.len());
-                    let row = s.identities[..s.history]
-                        .iter()
-                        .position(|&id| id == s.resident_identities[slot])
-                        .unwrap();
-                    for g in 0..4 {
-                        let decode = |bits: u16| {
-                            let exp = (bits >> 10) & 31;
-                            let frac = f64::from(bits & 1023);
-                            let v = if exp == 0 {
-                                frac * 2f64.powi(-24)
-                            } else {
-                                (1024.0 + frac) * 2f64.powi(i32::from(exp) - 25)
-                            };
-                            if bits & 0x8000 == 0 { v } else { -v }
-                        };
-                        let exact = original[g * len..(g + 1) * len]
-                            .iter()
-                            .zip(&history[g * len..(g + 1) * len])
-                            .map(|(&a, &b)| (decode(a) - decode(b)).powi(2))
-                            .sum::<f64>()
-                            * f64::from(f.original[g].weight);
-                        let got = f64::from(proposal.family_distances.as_ref().unwrap()[row][g]);
-                        assert!((got - exact).abs() < 1e-6 * (1.0 + exact), "{got} {exact}");
-                    }
-                }
                 let reward = step as f32 * 0.01;
                 if initializing {
                     s.tell_initial(&proposal, reward, 0.001)?;

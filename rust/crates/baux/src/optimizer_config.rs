@@ -3,13 +3,8 @@
 use deser::{Deserialize, Serialize};
 
 use crate::candidates::CandidateSampler;
-use crate::config::{
-    AcquisitionSpec, CandidateGenerationSpec, OptimizerSpec, SurrogateRecipe, TrustRegionBounds,
-};
-use crate::error::ENNError;
-use crate::procedural_pool::ProposalMethod;
 use crate::surrogate::ENNSurrogateConfig;
-use crate::trust_region::{TRLengthConfig, TrustRegionConfig};
+use crate::trust_region::TrustRegionConfig;
 
 /// Optimizer configuration decomposed by role.
 #[derive(Debug, Clone)]
@@ -35,66 +30,6 @@ impl Default for OptimizerConfig {
     }
 }
 
-fn length_bounds(bounds: &TrustRegionBounds) -> Result<TRLengthConfig, ENNError> {
-    bounds.validate().map_err(ENNError::InvalidParameter)?;
-    Ok(TRLengthConfig {
-        length_init: bounds.initial,
-        length_min: bounds.min,
-        length_max: bounds.max,
-    })
-}
-
-impl OptimizerConfig {
-    /// Compile an ask/tell [`OptimizerConfig`] directly from a v4
-    /// [`OptimizerSpec`].
-    pub fn from_spec(spec: &OptimizerSpec) -> Result<Self, ENNError> {
-        match spec {
-            OptimizerSpec::Muon | OptimizerSpec::Adamw => Err(ENNError::InvalidParameter(
-                "Muon and AdamW are matrix pretraining optimizers, not ask/tell BO recipes"
-                    .to_string(),
-            )),
-            OptimizerSpec::OperatorBo {
-                surrogate,
-                trust_region,
-                ..
-            } => {
-                let candidate_generation = spec.candidate_generation().unwrap();
-                let candidates = CandidateConfig::from_spec(&candidate_generation)?;
-                let surrogate_cfg = SurrogateConfig::from_recipe(surrogate)?;
-                let trust_region = TrustRegionConfig::Turbo(length_bounds(trust_region)?);
-                Ok(Self {
-                    surrogate: surrogate_cfg,
-                    trust_region,
-                    candidates,
-                    acquisition: AcquisitionConfig::UCB { beta: 1.0 },
-                    noise_aware: false,
-                    failure_tolerance_dim: None,
-                })
-            }
-            OptimizerSpec::TurboEnn {
-                surrogate,
-                acquisition,
-                trust_region,
-                ..
-            } => {
-                let candidate_generation = spec.candidate_generation().unwrap();
-                let candidates = CandidateConfig::from_spec(&candidate_generation)?;
-                let surrogate_cfg = SurrogateConfig::from_recipe(surrogate)?;
-                let acq_cfg = AcquisitionConfig::from_spec(acquisition);
-                let tr_cfg = TrustRegionConfig::from_spec(trust_region)?;
-                Ok(Self {
-                    surrogate: surrogate_cfg,
-                    trust_region: tr_cfg,
-                    candidates,
-                    acquisition: acq_cfg,
-                    noise_aware: false,
-                    failure_tolerance_dim: None,
-                })
-            }
-        }
-    }
-}
-
 #[derive(Debug, Clone)]
 pub enum SurrogateConfig {
     ENN(ENNSurrogateConfig),
@@ -104,25 +39,6 @@ pub enum SurrogateConfig {
 impl Default for SurrogateConfig {
     fn default() -> Self {
         SurrogateConfig::ENN(ENNSurrogateConfig::default())
-    }
-}
-
-impl SurrogateConfig {
-    pub fn from_recipe(recipe: &SurrogateRecipe) -> Result<Self, ENNError> {
-        if recipe.neighbors < 1 {
-            return Err(ENNError::InvalidParameter(format!(
-                "k (number of neighbors) must be > 0, got {}",
-                recipe.neighbors
-            )));
-        }
-        let (num_candidates, num_samples) =
-            recipe.fit_budget().map_err(ENNError::InvalidParameter)?;
-        Ok(SurrogateConfig::ENN(ENNSurrogateConfig {
-            k: recipe.neighbors,
-            num_candidates,
-            num_samples,
-            ..Default::default()
-        }))
     }
 }
 
@@ -152,31 +68,6 @@ impl Default for CandidateConfig {
 }
 
 impl CandidateConfig {
-    pub fn from_spec(spec: &CandidateGenerationSpec) -> Result<Self, ENNError> {
-        if spec.arms == 0 || spec.candidates == 0 || !spec.candidates.is_multiple_of(spec.arms) {
-            return Err(ENNError::InvalidParameter(
-                "candidates must be positive and divisible by arms".to_string(),
-            ));
-        }
-        let per_arm = (spec.candidates / spec.arms) as usize;
-        let total = spec.candidates as usize;
-        let candidate_rv = match spec.proposal {
-            ProposalMethod::Additive => CandidateSampler::RAASP,
-            ProposalMethod::PairMix
-            | ProposalMethod::QuadraticFlow
-            | ProposalMethod::MetricChain => CandidateSampler::Sobol,
-        };
-        Ok(Self {
-            num_candidates_factor: 1.0,
-            min_candidates: total,
-            max_candidates: Some(total),
-            num_candidates_per_arm: Some(per_arm),
-            num_pert: 20,
-            candidate_rv,
-            raasp_fast: false,
-        })
-    }
-
     pub fn num_candidates(&self, num_dim: usize, num_arms: usize) -> usize {
         let is_exact_fixed = self.num_candidates_factor == 1.0
             && self.max_candidates == Some(self.min_candidates)
@@ -218,23 +109,6 @@ pub enum AcquisitionConfig {
 impl Default for AcquisitionConfig {
     fn default() -> Self {
         AcquisitionConfig::UCB { beta: 2.0 }
-    }
-}
-
-impl AcquisitionConfig {
-    pub fn from_spec(spec: &AcquisitionSpec) -> Self {
-        match spec {
-            AcquisitionSpec::Ucb { beta } => Self::UCB { beta: *beta },
-            AcquisitionSpec::Thompson => Self::Thompson,
-            AcquisitionSpec::Random => Self::Random,
-            AcquisitionSpec::Pareto { .. } => Self::Pareto,
-        }
-    }
-}
-
-impl TrustRegionConfig {
-    pub fn from_spec(bounds: &TrustRegionBounds) -> Result<Self, ENNError> {
-        Ok(Self::Turbo(length_bounds(bounds)?))
     }
 }
 

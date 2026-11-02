@@ -1,26 +1,6 @@
-sh_test(
-    name = "readout",
-    test = "readout.py",
-    visibility = ["PUBLIC"],
-)
-
 sh_binary(
     name = "hnet-reference",
     main = "hnet.py",
     visibility = ["PUBLIC"],
 )
 
-genrule(
-    name = "readout-metal",
-    srcs = {
-        "host.swift": "readout.swift",
-        "adjoint.metal": "//rust/crates/baux:readout-adjoint",
-        "forward.metal": "//rust/crates/baux:readout-source",
-    },
-    out = "readout-metal.txt",
-    cmd = "xcrun swiftc -O -module-cache-path $TMP/modules $SRCDIR/host.swift -o $TMP/readout && $TMP/readout $SRCDIR/forward.metal $SRCDIR/adjoint.metal > $OUT",
-    cacheable = False,
-    labels = ["uses_undeclared_inputs"],
-    target_compatible_with = ["prelude//os/constraints:macos"],
-    visibility = ["PUBLIC"],
-)

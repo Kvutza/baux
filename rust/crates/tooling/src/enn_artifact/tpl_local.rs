@@ -25,7 +25,6 @@ use baux::semantics::optimizer::reuse::{conditioned_sign, conditioned_slot};
 use baux::semantics::optimizer::trust_region::controller::{
     RadiusAction, accept_bits, decide_action,
 };
-use baux::semantics::optimizer::window_plan::verify_full;
 
 unsafe extern "C" {
     fn baux_accept(improvement: u64, margin: u64) -> u8;
@@ -158,7 +157,7 @@ fn verify_cabi(numerical_so: &Path) {
         (4096, 0, 2048),
     ] {
         assert_eq!(
-            verify_full(planned, prefilled, scored),
+            planned > 0 && prefilled == 0 && scored == planned,
             unsafe { baux_window(planned, prefilled, scored) != 0 }
         );
     }
@@ -198,10 +197,10 @@ fn verify_cabi(numerical_so: &Path) {
             assert_eq!(numerical::check(trace).unwrap(), Outcome::Checked);
         }
     }
-    let mut controller = RadiusController::new(0.125, 0.01, 1.0).unwrap();
+    let controller = RadiusController::new(0.125, 0.01, 1.0).unwrap();
     for improvement in [3.0, -3.0] {
         let decision = controller
-            .observe(improvement, 1.0, 3.0, 1.0, 0.1, false)
+            .initial_evidence(improvement, 3.0, 0.0)
             .unwrap();
         assert_eq!(decision.numerical, Outcome::Checked);
         assert_eq!(decision.accepted, improvement > 0.0);

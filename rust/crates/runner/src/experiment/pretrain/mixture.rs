@@ -428,12 +428,15 @@ mod tests {
     use super::*;
 
     fn scratch() -> std::path::PathBuf {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        static NEXT_ID: AtomicUsize = AtomicUsize::new(0);
+        let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
         let stamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_nanos();
         let path =
-            std::env::temp_dir().join(format!("baux-mixture-{}-{stamp}", std::process::id()));
+            std::env::temp_dir().join(format!("baux-mixture-{}-{stamp}-{id}", std::process::id()));
         fs::create_dir_all(&path).unwrap();
         path
     }

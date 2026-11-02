@@ -1,5 +1,5 @@
 //! Repository-preserving Rust and Go streams from the filtered Stack v3 corpus.
-use super::{BUCKETS, Document, Job as SelectionJob, Result, Selection, reader};
+use super::reader::{self, BUCKETS, Job as SelectionJob, Result, Selection};
 use baux::artifact::json::{Value, json};
 use deser::Deserialize;
 use std::collections::{BTreeMap, BTreeSet};

@@ -11,24 +11,6 @@ use rand::SeedableRng;
 use rand::rngs::StdRng;
 
 impl SearchState {
-    /// Consume supplied reliability evidence and copy back the next radius.
-    /// Increments the trust observation counter and errors if no reliability
-    /// controller exists. Evidence is computed elsewhere; this is not a new
-    /// measurement or a proof that a radius change improves learning.
-    pub(super) fn update_reliability(
-        &mut self,
-        evidence: reliability_region::ReliabilityEvidence,
-    ) -> Result<(), String> {
-        self.trust_observations += 1;
-        let controller = self
-            .reliability
-            .as_mut()
-            .ok_or("Reliability controller is not configured")?;
-        controller.update(evidence)?;
-        self.length = controller.length();
-        Ok(())
-    }
-
     /// Refit estimator scales from the bounded distance/outcome/variance
     /// tables. Requires initialized fitter parameters. Optional
     /// family-shape selection runs at warm-up completion and every fourth
@@ -37,7 +19,7 @@ impl SearchState {
     /// reproducible seed based on history size. Stores fitted k/scales for
     /// the next ask; query-local risk-prefix selection is a separate kernel
     /// policy. Does not certify calibration or alter weights.
-    pub(super) fn fit_family(&mut self, zero_variance: bool) -> Result<bool, String> {
+    pub fn fit_family(&mut self, zero_variance: bool) -> Result<bool, String> {
         let n = self.history;
         let cadence = (self.observation as usize).max(n);
         let fit_family = cadence == self.initial_observations
@@ -63,7 +45,7 @@ impl SearchState {
                 // Paired warm measurements cross over at H=64 on this Apple
                 // GPU. A tiny history must not pay more launch
                 // latency than CPU work.
-                let local = (self.distance_scaling != crate::config::DistanceScaling::Global)
+                let local = (self.distance_metric != crate::config::DistanceMetric::Euclidean)
                     .then_some(self.local_scale_neighbors);
                 let scores = if n < 64 {
                     family.reference(
@@ -98,26 +80,26 @@ impl SearchState {
         Ok(false)
     }
 
-    pub(super) fn fit_enn(&mut self) -> Result<(), String> {
+    pub fn fit_enn(&mut self) -> Result<(), String> {
         let _ = self.fit_family(false)?;
         let n = self.history;
         let raw_distances = ndarray::Array2::from_shape_fn((n, n), |(row, column)| {
             f64::from(self.total_distance(row, column))
         });
-        let distances = match self.distance_scaling {
-            crate::config::DistanceScaling::SelfTuning => {
-                crate::fit::tuned_distances(&raw_distances.view(), self.local_scale_neighbors)
+        let distances = match self.distance_metric {
+            crate::config::DistanceMetric::Conformal => {
+                crate::fit::conformal_distances(&raw_distances.view(), self.local_scale_neighbors)
                     .map_err(|error| error.to_string())?
             }
-            crate::config::DistanceScaling::Hyperbolic => {
+            crate::config::DistanceMetric::Hyperbolic => {
                 crate::fit::hyperbolic_distances(&raw_distances.view(), self.local_scale_neighbors)
                     .map_err(|error| error.to_string())?
             }
-            crate::config::DistanceScaling::Wasserstein => {
-                crate::fit::tuned_distances(&raw_distances.view(), self.local_scale_neighbors)
+            crate::config::DistanceMetric::Wasserstein => {
+                crate::fit::wasserstein_distances(&raw_distances.view(), self.local_scale_neighbors)
                     .map_err(|error| error.to_string())?
             }
-            crate::config::DistanceScaling::Global => raw_distances,
+            crate::config::DistanceMetric::Euclidean => raw_distances,
         };
         let outcomes =
             ndarray::Array2::from_shape_fn((n, 1), |(row, _)| f64::from(self.outcomes[row]));
@@ -128,10 +110,19 @@ impl SearchState {
             .fitter
             .as_mut()
             .ok_or("Metal implicit ENN is not configured")?;
-        // Fit the variance scales at the configured neighbor count. Query-local
-        // prefix selection is an independent selection-kernel policy.
-        let params = fitter
-            .ask_distances(
+        let params = if self.adapt_neighbors {
+            fitter.ask_adaptive(
+                &distances.view(),
+                &outcomes.view(),
+                Some(&variances.view()),
+                self.initial_observations as i32,
+                self.fit_candidates,
+                self.fit_samples,
+                None,
+                &mut rng,
+            )
+        } else {
+            fitter.ask_distances(
                 &distances.view(),
                 &outcomes.view(),
                 Some(&variances.view()),
@@ -140,7 +131,8 @@ impl SearchState {
                 None,
                 &mut rng,
             )
-            .map_err(|error| error.to_string())?;
+        }
+        .map_err(|error| error.to_string())?;
         let y_scale = fitter.y_std()[0];
         self.fitted_enn = Some((
             usize::try_from(params.k_neighbors)
@@ -157,7 +149,7 @@ impl SearchState {
     /// row, resets trust counters, and collapses only non-implicit logical
     /// history. Copies controller length back without evaluating or
     /// randomizing a model.
-    pub(super) fn update_region(&mut self, value: f32) -> Result<(), String> {
+    pub fn update_region(&mut self, value: f32) -> Result<(), String> {
         self.paired_evidence_sum = 0.0;
         self.paired_evidence_count = 0;
         let value = f64::from(value);
@@ -197,7 +189,7 @@ impl SearchState {
     /// Update ordinary TuRBO against a caller-supplied incumbent reward.
     /// Clears paired evidence and follows the same incumbent-preserving restart
     /// bookkeeping as `update_region`; no estimate variance is consumed here.
-    pub(super) fn update_noisy(&mut self, value: f32, incumbent: f32) -> Result<(), String> {
+    pub fn update_noisy(&mut self, value: f32, incumbent: f32) -> Result<(), String> {
         self.paired_evidence_sum = 0.0;
         self.paired_evidence_count = 0;
         let value = f64::from(value);
@@ -239,7 +231,7 @@ impl SearchState {
     /// reclassify uncertainty. On restart retains incumbent weights, preserves
     /// implicit history, and reseeds the controller with an inconclusive
     /// baseline.
-    pub(super) fn update_outcome(
+    pub fn update_outcome(
         &mut self,
         value: f32,
         incumbent: f32,

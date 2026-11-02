@@ -2,13 +2,15 @@
 
 load("//build/buck2:reindeer_rules.bzl", "app_rust_binary")
 
-def _local_program_dep(name):
+def _local_program_dep(program_name, name):
+    if name == "baux" and program_name in ["baux", "build-graph"]:
+        return "//rust/crates/baux:baux-cli"
     return "//rust/crates/" + name + ":" + name
 
 def _program_deps(program):
-    deps = [_local_program_dep(name) for name in program["local_deps"]]
+    deps = [_local_program_dep(program["name"], name) for name in program["local_deps"]]
     deps += ["//rust:" + crate for crate in program["crate_deps"]]
-    if "baux" in program["local_deps"]:
+    if "baux" in program["local_deps"] and program["name"] not in ["baux", "build-graph"]:
         deps += select({
             "//:macos-arm64": ["//build/buck2/native:openmp-macos"],
             "DEFAULT": [],

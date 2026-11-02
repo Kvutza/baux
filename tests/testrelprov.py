@@ -23,7 +23,7 @@ def repository(tmp_path):
     git(tmp_path, "config", "user.name", "Release test")
     git(tmp_path, "config", "user.email", "release@example.invalid")
     (tmp_path / "Cargo.toml").write_text('[workspace.package]\nversion = "1.2.3"\n')
-    for directory in ("backends/cuda", "backends/cuda/device"):
+    for directory in ("rust/crates/cuda", "rust/crates/cuda/device"):
         package = tmp_path / directory
         package.mkdir(parents=True, exist_ok=True)
         (package / "Cargo.toml").write_text('[package]\nversion = "1.2.3"\n')

@@ -13,7 +13,6 @@ mod pretrain;
 pub(crate) fn run(
     root: &Path,
     path: &Path,
-    prepare: bool,
     rounds: Option<u32>,
     engine: BuildSystem,
 ) -> Result<(), String> {
@@ -30,10 +29,6 @@ pub(crate) fn run(
             prepare_started.elapsed().as_secs_f64()
         ),
     );
-    if prepare {
-        terminal::stderr(Tag::Orchestration, "pretraining inputs are ready");
-        return Ok(());
-    }
 
     let revision = seal_source(root)?;
     terminal::stderr(
@@ -42,7 +37,7 @@ pub(crate) fn run(
     );
     let build_started = Instant::now();
     terminal::stderr(Tag::Orchestration, "build · experiment runner and worker");
-    let worker = engine.build_artifact(root, "//rust/crates/baux:baux-tune-worker")?;
+    let worker = engine.build_artifact(root, "//rust/crates/fbt:baux-tune-worker")?;
     let runner = engine.build_artifact(root, "//rust/crates/baux:baux-tune")?;
     let numerical = baux_tooling::numerical::build(root)?;
     let numerical_root = root.join(".cache/baux/numerical");

@@ -54,7 +54,7 @@ impl SearchState {
 
     /// Synchronously surrogate-score the pool and publish one trial handle.
     /// `candidates` is slots per arm, not objective calls. Shape must match the
-    /// configured layout or its accepted flat 1x4 view. The trial uses the
+    /// configured layout or its accepted flat 1xN view. The trial uses the
     /// state's precision/program; this API is not limited to correlated BF16.
     pub fn ask_round(
         &mut self,
@@ -85,7 +85,7 @@ impl SearchState {
     /// Submit a precommitted pool index instead of acquisition maximization.
     /// Rejects out-of-range indices and otherwise follows `begin_ask`'s queue
     /// lifecycle. This changes selection only, not generation or tell policy.
-    pub(crate) fn begin_forced(
+    pub fn begin_forced(
         &mut self,
         seed: u64,
         config: RoundConfig,
@@ -107,7 +107,7 @@ impl SearchState {
     /// must restore the original selection before tell: this overwrites both
     /// the shared GPU decision and proposal row. Requires the pending handle
     /// and its original root seed, waits for completion, and records no loss.
-    pub(crate) fn diagnostic_row(
+    pub fn diagnostic_row(
         &self,
         round: &Proposals,
         root: u64,
@@ -130,7 +130,7 @@ impl SearchState {
     /// Rejects a completed/unconfigured warm-up or invalid slot. Profiling uses
     /// the ordinary staged path with forced selection; otherwise `initial_row`
     /// avoids full pool ranking. The caller must finish and measure the row.
-    pub(crate) fn begin_initial(&mut self, seed: u64, candidate: usize) -> Result<Buffer, String> {
+    pub fn begin_initial(&mut self, seed: u64, candidate: usize) -> Result<Buffer, String> {
         if !self.implicit_history
             || self.initial_observations == 0
             || self.history >= self.initial_observations
@@ -156,7 +156,7 @@ impl SearchState {
     /// The caller has validated initialization and slot bounds. Activates the
     /// region, prepares program/reference state, clears geometry scratch, and
     /// stores the outstanding command; it does not add a history observation.
-    pub(super) fn initial_row(&mut self, root: u64, candidate: usize) -> Result<Buffer, String> {
+    pub fn initial_row(&mut self, root: u64, candidate: usize) -> Result<Buffer, String> {
         self.check_idle()?;
         self.activate_morbo()?;
         self.ensure_ref()?;
@@ -195,7 +195,7 @@ impl SearchState {
     /// skips full-pool materialization; profiling separates stages into ordered
     /// commands. Mutates queue/scratch state but leaves the incumbent
     /// unchanged.
-    pub(super) fn begin_mode(
+    pub fn begin_mode(
         &mut self,
         arms: usize,
         candidates: usize,
@@ -208,13 +208,12 @@ impl SearchState {
         if self.history == 0 {
             return Err("Measure the initial Metal BF16 incumbent before asking".into());
         }
-        if !((arms == 1 && candidates == 4)
+        if !((arms == 1 && (candidates == 1 || candidates == self.pool_layout.count() as usize))
             || (arms == self.pool_layout.arms() as usize
                 && candidates == self.pool_layout.slots() as usize))
         {
             return Err(
-                "Metal ask shape must match its configured four-candidate procedural layout or \
-                 use the flat 1x4 view"
+                "Metal ask shape must match its configured procedural layout or use 1xN flat view"
                     .into(),
             );
         }
@@ -246,10 +245,7 @@ impl SearchState {
             return Ok(self.proposal.clone());
         }
         let command = self.runtime.queue.new_command_buffer();
-        if !analytic_pool
-            && (forced_candidate.is_some()
-                || !(self.realized_history() && self.history > self.resident_history))
-        {
+        if !analytic_pool {
             self.encode_pool(command, self.pool_params(seed));
         }
         self.encode_select(command, seed, config, forced_candidate);
@@ -294,7 +290,7 @@ impl SearchState {
 
     /// Start the host timer, submit an ask, and publish after GPU completion.
     /// Internal synchronous wrapper; objective evaluation is outside its timer.
-    pub(super) fn ask_inner(
+    pub fn ask_inner(
         &mut self,
         arms: usize,
         candidates: usize,
@@ -309,7 +305,7 @@ impl SearchState {
     /// Finish an outstanding ask with the caller's host timing origin.
     /// Like `finish_ask`, consumes the command and poisons on GPU failure;
     /// `publish_start` uses `start` only for fallback profiling metadata.
-    pub(super) fn finish_askat(&mut self, start: Instant) -> Result<Proposals, String> {
+    pub fn finish_askat(&mut self, start: Instant) -> Result<Proposals, String> {
         let command = self
             .async_command
             .take()
@@ -330,7 +326,7 @@ impl SearchState {
     /// Expects two commands for sampled/procedural geometry or three for an
     /// explicit pool. `total_ms` spans their GPU intervals, not end-to-end host
     /// round time. Clears staged commands on success; rejects missing timings.
-    pub(super) fn finish_profile(&mut self) -> Result<(), String> {
+    pub fn finish_profile(&mut self) -> Result<(), String> {
         if !self.profiling {
             self.last_profile = None;
             return Ok(());

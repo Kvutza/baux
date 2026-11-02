@@ -82,10 +82,10 @@ impl SearchState {
     }
 
     #[cfg(test)]
-    pub(crate) fn test_candidate(&mut self, root: u64, index: usize) -> Result<Buffer, String> {
+    pub fn test_candidate(&mut self, root: u64, index: usize) -> Result<Buffer, String> {
         self.check_idle()?;
-        if index >= 4 {
-            return Err("Metal BF16 candidate index must be below four".into());
+        if index >= self.pool_layout.count() as usize {
+            return Err("Metal BF16 candidate index out of pool bounds".into());
         }
         self.ensure_ref()?;
         let command = self.runtime.queue.new_command_buffer();
@@ -95,11 +95,7 @@ impl SearchState {
     }
 
     #[cfg(test)]
-    pub(crate) fn test_profile(
-        &mut self,
-        root: u64,
-        config: RoundConfig,
-    ) -> Result<[f32; 3], String> {
+    pub fn test_profile(&mut self, root: u64, config: RoundConfig) -> Result<[f32; 3], String> {
         self.check_idle()?;
         check_ask(config)?;
         self.ensure_ref()?;
@@ -187,4 +183,53 @@ impl SearchState {
         self.check_healthy()?;
         Ok(self.history)
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct MetalMemoryInfo {
+    pub name: String,
+    pub has_unified_memory: bool,
+    pub recommended_max_working_set_size: u64,
+    pub current_allocated_size: u64,
+    pub max_buffer_length: u64,
+}
+
+pub fn memory_info() -> Result<MetalMemoryInfo, String> {
+    autoreleasepool(|| {
+        let runtime = Runtime::shared()?;
+        Ok(MetalMemoryInfo {
+            name: runtime.device.name().to_owned(),
+            has_unified_memory: runtime.device.has_unified_memory(),
+            recommended_max_working_set_size: runtime.device.recommended_max_working_set_size(),
+            current_allocated_size: runtime.device.current_allocated_size(),
+            max_buffer_length: runtime.device.max_buffer_length(),
+        })
+    })
+}
+
+pub fn upload(weights: &[u16]) -> Result<Buffer, String> {
+    autoreleasepool(|| {
+        if weights.is_empty() || weights.iter().any(|x| x & 0x7f80 == 0x7f80) {
+            return Err("Metal upload requires nonempty finite BF16 weights".into());
+        }
+        let bytes = weights
+            .len()
+            .checked_mul(2)
+            .filter(|&x| x <= isize::MAX as usize)
+            .ok_or("Metal allocation overflow")? as u64;
+        let runtime = Runtime::shared()?;
+        let recommended = runtime.device.recommended_max_working_set_size();
+        let allocated = runtime.device.current_allocated_size();
+        let limit = recommended - recommended / 10;
+        if bytes > runtime.device.max_buffer_length()
+            || allocated.checked_add(bytes).is_none_or(|x| x > limit)
+        {
+            return Err("Metal weight upload exceeds working set budget".into());
+        }
+        let buffer = runtime.buffer_with(weights);
+        if buffer.contents().is_null() {
+            return Err("Metal could not allocate weights".into());
+        }
+        Ok(buffer)
+    })
 }

@@ -10,15 +10,15 @@ use metal::{Device, FunctionRef};
 static NEXT_ARCHIVE: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) struct ArchiveMetrics {
-    pub(crate) text_bytes: usize,
-    pub(crate) gpr_count: u16,
-    pub(crate) uniform_register_count: u16,
-    pub(crate) spill_bytes: u16,
-    pub(crate) threadgroup_memory_bytes: u16,
+pub struct ArchiveMetrics {
+    pub text_bytes: usize,
+    pub gpr_count: u16,
+    pub uniform_register_count: u16,
+    pub spill_bytes: u16,
+    pub threadgroup_memory_bytes: u16,
 }
 
-pub(crate) fn serialize_cached(
+pub fn serialize_cached(
     device: &Device,
     device_name: &str,
     key: &(String, String),
@@ -48,7 +48,7 @@ pub(crate) fn serialize_cached(
     Ok(bytes)
 }
 
-pub(crate) fn serialize_archive(
+pub fn serialize_archive(
     device: &Device,
     function: &FunctionRef,
     directory: &Path,
@@ -218,7 +218,7 @@ fn read_u64(buf: &[u8], off: usize) -> Option<u64> {
     ))
 }
 
-pub(crate) fn archive_metrics(bytes: &[u8]) -> Option<ArchiveMetrics> {
+pub fn archive_metrics(bytes: &[u8]) -> Option<ArchiveMetrics> {
     let outer = gpu_slice(bytes)?;
     let inner = compute_slice(outer)?;
     let (text_bytes, metadata) = inner_sections(inner)?;

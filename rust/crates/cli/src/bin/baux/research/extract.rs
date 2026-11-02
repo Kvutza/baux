@@ -1,9 +1,17 @@
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Command;
 
-const AENEAS_REV: &str = "e62dd83d133d9043e7d3628096838b7430f36565";
-const CHARON_REV: &str = "de8736f7c995ac54dc490345cef9ea5143c06c62";
+#[path = "extract_slice.rs"]
+pub(crate) mod extract_slice;
+
+use extract_slice::{
+    compare_family, compare_translation, init_probe, local_slice, resolve_source, resolve_tools,
+    short_revision, tree_digest, validate_llbc,
+};
+
+pub(super) const AENEAS_REV: &str = "e62dd83d133d9043e7d3628096838b7430f36565";
+pub(super) const CHARON_REV: &str = "de8736f7c995ac54dc490345cef9ea5143c06c62";
 const FLOAT_ROOTS: [&str; 8] = [
     "crate::random::u64_f53",
     "crate::random::box_muller",
@@ -21,7 +29,7 @@ const LOCAL_ROOTS: [&str; 5] = [
     "crate::optimizer_dispatch::tell_gate",
     "crate::optimizer_dispatch::variance_gate",
 ];
-const ACTION_ROOTS: [&str; 28] = [
+const ACTION_ROOTS: [&str; 27] = [
     "crate::gaussian::normal_bounds",
     "crate::gaussian::mix32",
     "crate::gaussian::bits",
@@ -41,14 +49,12 @@ const ACTION_ROOTS: [&str; 28] = [
     "crate::optimizer::provenance::exact_anchored",
     "crate::optimizer::param_tree::routed_count",
     "crate::optimizer::param_tree::total_count",
-    "crate::optimizer::window_plan::verify_full",
     "crate::optimizer::reuse::conditioned_slot",
     "crate::optimizer::reuse::conditioned_sign",
     "crate::optimizer::transaction::commit_round",
     "crate::float::single_lt",
     "crate::float::double_lt",
     "crate::float::to_double",
-    // These are proof roots, not incidental dependencies of candidate draws.
     "crate::random::sobol_base",
     "crate::random::sobol_seed",
 ];
@@ -68,15 +74,15 @@ pub struct ExtractOpts<'a> {
 }
 
 impl ExtractOpts<'_> {
-    fn tracked_local(&self) -> bool {
+    pub(super) fn tracked_local(&self) -> bool {
         self.local && self.probe.is_empty()
     }
 
-    fn float_backend(&self) -> bool {
+    pub(super) fn float_backend(&self) -> bool {
         self.floats || self.dyn_traits || self.tracked_local() || self.production
     }
 
-    fn family(&self) -> &'static str {
+    pub(super) fn family(&self) -> &'static str {
         if self.tracked_local() {
             "LocalCoord"
         } else if self.floats {
@@ -86,7 +92,7 @@ impl ExtractOpts<'_> {
         }
     }
 
-    fn source_mode(&self) -> &'static str {
+    pub(super) fn source_mode(&self) -> &'static str {
         if self.upstream {
             "upstream"
         } else if self.production {
@@ -97,343 +103,6 @@ impl ExtractOpts<'_> {
             "semantics"
         }
     }
-}
-
-fn copy_tree(source: &Path, destination: &Path) -> Result<(), String> {
-    fs::create_dir_all(destination)
-        .map_err(|error| format!("cannot create {}: {error}", destination.display()))?;
-    for entry in fs::read_dir(source)
-        .map_err(|error| format!("cannot read {}: {error}", source.display()))?
-    {
-        let entry = entry.map_err(|error| error.to_string())?;
-        let source_path = entry.path();
-        let destination_path = destination.join(entry.file_name());
-        if entry
-            .file_type()
-            .map_err(|error| error.to_string())?
-            .is_dir()
-        {
-            copy_tree(&source_path, &destination_path)?;
-        } else {
-            fs::copy(&source_path, &destination_path).map_err(|error| {
-                format!(
-                    "cannot copy {} to {}: {error}",
-                    source_path.display(),
-                    destination_path.display()
-                )
-            })?;
-        }
-    }
-    Ok(())
-}
-
-fn collect_files(root: &Path, path: &Path, files: &mut Vec<PathBuf>) -> Result<(), String> {
-    for entry in
-        fs::read_dir(path).map_err(|error| format!("cannot read {}: {error}", path.display()))?
-    {
-        let entry = entry.map_err(|error| error.to_string())?;
-        let entry_path = entry.path();
-        if entry
-            .file_type()
-            .map_err(|error| error.to_string())?
-            .is_dir()
-        {
-            collect_files(root, &entry_path, files)?;
-        } else {
-            files.push(
-                entry_path
-                    .strip_prefix(root)
-                    .map_err(|error| error.to_string())?
-                    .to_owned(),
-            );
-        }
-    }
-    Ok(())
-}
-
-fn tree_digest(root: &Path) -> Result<String, String> {
-    let mut files = Vec::new();
-    collect_files(root, root, &mut files)?;
-    files.sort();
-    let mut framed = Vec::new();
-    for relative in files {
-        let name = relative.to_string_lossy().as_bytes().to_vec();
-        let bytes = fs::read(root.join(&relative)).map_err(|error| error.to_string())?;
-        framed.extend_from_slice(&(name.len() as u64).to_le_bytes());
-        framed.extend_from_slice(&name);
-        framed.extend_from_slice(&(bytes.len() as u64).to_le_bytes());
-        framed.extend_from_slice(&bytes);
-    }
-    Ok(baux::artifact::runs::digest(&framed))
-}
-
-fn copy_slice(source: &Path, destination: &Path) -> Result<String, String> {
-    if destination.exists() {
-        fs::remove_dir_all(destination)
-            .map_err(|error| format!("cannot clear {}: {error}", destination.display()))?;
-    }
-    let destination_src = destination.join("src");
-    copy_tree(source, &destination_src)?;
-    let source_digest = tree_digest(source)?;
-    if source_digest != tree_digest(&destination_src)? {
-        return Err("extraction slice does not match the production source tree".into());
-    }
-    Ok(source_digest)
-}
-
-fn local_slice(root: &Path, cache: &Path) -> Result<(PathBuf, String), String> {
-    let destination = cache.join("local-slice");
-    let source_digest = copy_slice(&root.join("rust/crates/baux/src"), &destination)?;
-    fs::copy(
-        root.join("research/extraction/local/lib.rs"),
-        destination.join("src/lib.rs"),
-    )
-    .map_err(|error| format!("cannot install local extraction root: {error}"))?;
-    let manifest = fs::read_to_string(root.join("research/extraction/local/Cargo.toml.in"))
-        .map_err(|error| error.to_string())?
-        .replace("@ROOT@", &root.to_string_lossy());
-    fs::write(destination.join("Cargo.toml"), manifest).map_err(|error| error.to_string())?;
-    Ok((destination, source_digest))
-}
-
-fn semantics_slice(root: &Path, cache: &Path) -> Result<PathBuf, String> {
-    let destination = cache.join("semantics-slice");
-    copy_slice(&root.join("rust/crates/baux/semantics/src"), &destination)?;
-    let lib_path = destination.join("src/lib.rs");
-    fs::write(
-        &lib_path,
-        format!(
-            "{}\nextern crate self as baux;\npub use crate as semantics;\n",
-            fs::read_to_string(&lib_path).map_err(|error| error.to_string())?
-        ),
-    )
-    .map_err(|error| error.to_string())?;
-    let _ = fs::copy(root.join("Cargo.lock"), destination.join("Cargo.lock"));
-    fs::write(
-        destination.join("Cargo.toml"),
-        "[workspace]\n\
-            \n\
-            [package]\n\
-            name = \"baux-semantics\"\n\
-            version = \"0.0.1\"\n\
-            edition = \"2024\"\n\
-            rust-version = \"1.88\"\n\
-            license = \"MIT\"\n\
-            publish = false\n\
-            \n\
-            [dependencies]\n\
-            deser = { version = \"=0.9.1\", features = [\"derive\"] }\n\
-            rand = \"0.8\"\n",
-    )
-    .map_err(|error| error.to_string())?;
-    Ok(destination)
-}
-
-fn resolve_tools(root: &Path, opts: &ExtractOpts) -> Result<(PathBuf, PathBuf), String> {
-    let tools = root.join(".cache/baux/tools/aeneas");
-    let mut aeneas = tools.join("bin/aeneas");
-    let charon_root = tools.join("charon");
-    let mut charon = charon_root.join("bin/charon");
-    require_tool(&aeneas, "Aeneas", AENEAS_REV)?;
-    require_tool(&charon, "Charon", CHARON_REV)?;
-    require_revision(&tools, "Aeneas", AENEAS_REV)?;
-    require_revision(&charon_root, "Charon", CHARON_REV)?;
-    if opts.charon_callsite {
-        charon = baux_tooling::extract_ext::build_callsite(root)?;
-        require_tool(&charon, "Charon callsite extension", CHARON_REV)?;
-    }
-    if opts.float_backend() {
-        aeneas = if opts.dyn_traits {
-            baux_tooling::extract_ext::build_dyn(root)?
-        } else {
-            baux_tooling::extract_ext::build_float(root)?
-        };
-        require_tool(&aeneas, "Aeneas float extension", AENEAS_REV)?;
-    }
-    Ok((aeneas, charon))
-}
-
-fn probe_ext(root: &Path, opts: &ExtractOpts) -> Result<String, String> {
-    let builder = root.join("rust/crates/tooling/src/extract_ext.rs");
-    let base = if opts.dyn_traits {
-        format!(
-            "float_patch_sha256={}\n\
-                dyn_patch_sha256={}\n\
-                dyn_dispatch_patch_sha256={}\n\
-                dyn_reborrow_patch_sha256={}\n\
-                dyn_builder_sha256={}\n",
-            baux::artifact::runs::file_digest(
-                &root.join("research/extraction/aeneas-float.patch")
-            )?,
-            baux::artifact::runs::file_digest(&root.join("research/extraction/aeneas-dyn.patch"))?,
-            baux::artifact::runs::file_digest(
-                &root.join("research/extraction/aeneas-dyn-dispatch.patch")
-            )?,
-            baux::artifact::runs::file_digest(
-                &root.join("research/extraction/aeneas-dyn-reborrow.patch")
-            )?,
-            baux::artifact::runs::file_digest(&builder)?,
-        )
-    } else if opts.floats {
-        format!(
-            "float_patch_sha256={}\nfloat_builder_sha256={}\n",
-            baux::artifact::runs::file_digest(
-                &root.join("research/extraction/aeneas-float.patch")
-            )?,
-            baux::artifact::runs::file_digest(&builder)?,
-        )
-    } else {
-        String::new()
-    };
-    if opts.charon_callsite {
-        Ok(format!(
-            "{base}charon_callsite_patch_sha256={}\ncharon_callsite_builder_sha256={}\n",
-            baux::artifact::runs::file_digest(
-                &root.join("research/extraction/charon-callsite.patch")
-            )?,
-            baux::artifact::runs::file_digest(&builder)?,
-        ))
-    } else {
-        Ok(base)
-    }
-}
-
-fn jj_rev(root: &Path) -> Result<String, String> {
-    let output = Command::new("jj")
-        .current_dir(root)
-        .args([
-            "log",
-            "-r",
-            "@",
-            "--no-graph",
-            "--no-pager",
-            "-T",
-            "commit_id",
-        ])
-        .output()
-        .map_err(|error| format!("cannot read local JJ revision: {error}"))?;
-    if !output.status.success() {
-        return Err(format!("cannot read local JJ revision: {}", output.status));
-    }
-    Ok(String::from_utf8(output.stdout)
-        .map_err(|error| error.to_string())?
-        .trim()
-        .to_owned())
-}
-
-fn probe_source(
-    root: &Path,
-    opts: &ExtractOpts,
-    slice_info: Option<&(PathBuf, String)>,
-) -> Result<String, String> {
-    if opts.upstream {
-        return Ok(format!(
-            "upstream_harness_sha256={}\n",
-            baux::artifact::runs::file_digest(&root.join("research/extraction/enn_harness.rs"))?,
-        ));
-    }
-    if opts.production {
-        return Ok(format!(
-            "local_revision={}\n\
-                production_source_tree_sha256={}\n\
-                production_manifest_sha256={}\n\
-                production_extraction_root_sha256={}\n",
-            jj_rev(root)?,
-            tree_digest(&root.join("rust/crates/baux/src"))?,
-            baux::artifact::runs::file_digest(&root.join("rust/crates/baux/Cargo.toml"))?,
-            baux::artifact::runs::file_digest(&root.join("rust/crates/baux/src/extraction.rs"))?,
-        ));
-    }
-    if opts.local {
-        let (_, prod_digest) = slice_info.ok_or("local extraction slice was not prepared")?;
-        return Ok(format!(
-            "local_revision={}\n\
-                local_slice_manifest_sha256={}\n\
-                local_slice_root_sha256={}\n\
-                production_source_tree_sha256={prod_digest}\n\
-                production_extraction_root_sha256={}\n",
-            jj_rev(root)?,
-            baux::artifact::runs::file_digest(
-                &root.join("research/extraction/local/Cargo.toml.in")
-            )?,
-            baux::artifact::runs::file_digest(&root.join("research/extraction/local/lib.rs"))?,
-            baux::artifact::runs::file_digest(&root.join("rust/crates/baux/src/extraction.rs"))?,
-        ));
-    }
-    Ok(String::new())
-}
-
-fn init_probe(
-    root: &Path,
-    cache: &Path,
-    opts: &ExtractOpts,
-    tools: (&Path, &Path),
-    slice_info: Option<&(PathBuf, String)>,
-) -> Result<Option<PathBuf>, String> {
-    if opts.probe.is_empty() {
-        return Ok(None);
-    }
-    let stamp = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_err(|error| error.to_string())?
-        .as_nanos();
-    let path = cache.join(format!("probe-{}-{stamp}", std::process::id()));
-    fs::create_dir(&path).map_err(|error| error.to_string())?;
-    let source_mode = opts.source_mode();
-    fs::write(path.join("source.txt"), format!("{source_mode}\n"))
-        .map_err(|error| error.to_string())?;
-    for (name, items) in [
-        ("roots.txt", opts.probe),
-        ("opaque.txt", opts.opaque),
-        ("include.txt", opts.include),
-    ] {
-        let body = if items.is_empty() {
-            String::new()
-        } else {
-            format!("{}\n", items.join("\n"))
-        };
-        fs::write(path.join(name), body).map_err(|error| error.to_string())?;
-    }
-    let extension = probe_ext(root, opts)?;
-    let source_binding = probe_source(root, opts, slice_info)?;
-    fs::write(
-        path.join("toolchain.txt"),
-        format!(
-            "aeneas_base={AENEAS_REV}\n\
-                charon={CHARON_REV}\n\
-                aeneas_binary_sha256={}\n\
-                charon_binary_sha256={}\n\
-                source={source_mode}\n\
-                {extension}{source_binding}",
-            baux::artifact::runs::file_digest(tools.0)?,
-            baux::artifact::runs::file_digest(tools.1)?,
-        ),
-    )
-    .map_err(|error| error.to_string())?;
-    println!("baux: extraction probe evidence: {}", path.display());
-    Ok(Some(path))
-}
-
-fn resolve_source(
-    root: &Path,
-    opts: &ExtractOpts,
-    probe_root: Option<&Path>,
-    slice_info: Option<&(PathBuf, String)>,
-) -> Result<PathBuf, String> {
-    if opts.upstream {
-        let evidence = probe_root.ok_or("upstream extraction requires a probe")?;
-        return baux_tooling::enn_artifact::snapshot_upstream(root, evidence);
-    }
-    if opts.production {
-        return Ok(root.join("rust/crates/baux"));
-    }
-    if opts.local {
-        return Ok(slice_info
-            .ok_or("local extraction slice was not prepared")?
-            .0
-            .clone());
-    }
-    semantics_slice(root, &root.join(".cache/baux/aeneas"))
 }
 
 fn charon_cmd(
@@ -515,7 +184,7 @@ fn run_charon(
             )
             .map_err(|error| error.to_string())?;
         }
-        crate::research::validate_llbc(&bytes)
+        validate_llbc(&bytes)
     });
     if let Err(error) = &lowered {
         if let Some(path) = probe_root {
@@ -659,9 +328,9 @@ fn finish_extract(
     if opts.check {
         let checked = translated.and_then(|()| {
             if float_backend {
-                crate::research::compare_family(lean_root, check_root, relative)
+                compare_family(lean_root, check_root, relative)
             } else {
-                crate::research::compare_translation(lean_root, check_root)
+                compare_translation(lean_root, check_root)
             }
         });
         let cleaned = fs::remove_dir_all(check_root)
@@ -736,36 +405,4 @@ fn sync_aeneas(lean_root: &Path) -> Result<(), String> {
         .env("MATHLIB_NO_CACHE_ON_UPDATE", "1")
         .args(["update", "aeneas"]);
     crate::execute(update)
-}
-
-fn require_tool(path: &Path, name: &str, revision: &str) -> Result<(), String> {
-    if path.is_file() {
-        Ok(())
-    } else {
-        Err(format!(
-            "{name} {} is not built at {}; install the pinned research toolchain before extraction",
-            short_revision(revision),
-            path.display()
-        ))
-    }
-}
-
-fn require_revision(path: &Path, name: &str, expected: &str) -> Result<(), String> {
-    let output = Command::new("git")
-        .current_dir(path)
-        .args(["rev-parse", "HEAD"])
-        .output()
-        .map_err(|error| format!("cannot inspect cached {name}: {error}"))?;
-    let actual = String::from_utf8_lossy(&output.stdout).trim().to_owned();
-    if output.status.success() && actual == expected {
-        Ok(())
-    } else {
-        Err(format!(
-            "cached {name} is {actual}, but BAUX requires {expected}"
-        ))
-    }
-}
-
-fn short_revision(revision: &str) -> &str {
-    &revision[..7]
 }

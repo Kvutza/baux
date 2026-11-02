@@ -1,4 +1,5 @@
 mod perf_measure;
+mod perf_stats;
 
 use baux::artifact::json::{Value, json, pretty_string};
 use baux::experimental::{

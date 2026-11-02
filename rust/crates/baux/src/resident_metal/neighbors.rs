@@ -30,7 +30,7 @@ struct Point {
     mass: f32,
 }
 
-pub(super) struct Neighbors {
+pub struct Neighbors {
     points: Vec<Point>,
     indices: Vec<usize>,
     descriptors: Buffer,
@@ -45,7 +45,7 @@ pub(super) struct Neighbors {
 }
 
 impl Neighbors {
-    pub(super) fn new(state: &SearchState) -> Result<Self, String> {
+    pub fn new(state: &SearchState) -> Result<Self, String> {
         let mut points = Vec::new();
         let mut indices = Vec::new();
         for (leaf, block) in state.blocks.iter().enumerate() {
@@ -77,11 +77,11 @@ impl Neighbors {
             components: state.runtime.buffer::<f32>(4 * MAX_HISTORY * FAMILIES),
             sample: state
                 .runtime
-                .pipeline(&source, "Neighbour geometry", "bf16_sample")?,
+                .pipeline(&source, "Neighbour geometry", "dense_sample")?,
             distance: state.runtime.precise(
                 &source,
                 "Neighbour geometry",
-                "bf16_sample_distances",
+                "dense_sample_distances",
             )?,
             history_coords: vec![0.0_f64; n_pts * MAX_HISTORY],
             pool_coords: vec![0.0_f64; n_pts * 4],
@@ -91,14 +91,14 @@ impl Neighbors {
         })
     }
 
-    pub(super) fn bytes(&self) -> u64 {
+    pub fn bytes(&self) -> u64 {
         self.descriptors.length()
             + self.history.length()
             + self.pool.length()
             + self.components.length()
     }
 
-    pub(super) fn capture(&mut self, row: usize, model: &Buffer, independent_fp16: bool) {
+    pub fn capture(&mut self, row: usize, model: &Buffer, independent_fp16: bool) {
         assert!(row < MAX_HISTORY);
         // Called only while the search is idle or after the proposal completed.
         let n_pts = self.points.len();
@@ -120,7 +120,7 @@ impl Neighbors {
         }
     }
 
-    pub(super) fn archive(&mut self, row: usize, candidate: usize) {
+    pub fn archive(&mut self, row: usize, candidate: usize) {
         assert!(row < MAX_HISTORY && candidate < 4);
         let n_pts = self.points.len();
         self.history_coords[row * n_pts..(row + 1) * n_pts]
@@ -140,7 +140,7 @@ impl Neighbors {
         }
     }
 
-    pub(super) fn encode(&self, state: &SearchState, command: &CommandBufferRef, root: u64) {
+    pub fn encode(&self, state: &SearchState, command: &CommandBufferRef, root: u64) {
         let params = Params {
             stream_seed: root,
             tiles: self.points.len() as u32,
@@ -198,7 +198,7 @@ impl Neighbors {
         encoder.end_encoding();
     }
 
-    pub(super) fn encode_sample(&self, state: &SearchState, command: &CommandBufferRef, root: u64) {
+    pub fn encode_sample(&self, state: &SearchState, command: &CommandBufferRef, root: u64) {
         let params = Params {
             stream_seed: root,
             tiles: self.points.len() as u32,
@@ -260,7 +260,7 @@ impl Neighbors {
         (sum, grouped.map(|v| v as f32))
     }
 
-    pub(super) fn compute_distances(&mut self, state: &SearchState) -> Vec<Vec<f64>> {
+    pub fn compute_distances(&mut self, state: &SearchState) -> Vec<Vec<f64>> {
         let n_pts = self.points.len();
         let pool_count = state.pool_layout.count() as usize;
         let base_index = state.identities[..state.history]
@@ -329,7 +329,7 @@ impl Neighbors {
         matrix_f64
     }
 
-    pub(super) fn components(&self, candidate: usize, history: usize) -> Vec<[f32; FAMILIES]> {
+    pub fn components(&self, candidate: usize, history: usize) -> Vec<[f32; FAMILIES]> {
         let values = read::<f32>(&self.components, 4 * history * FAMILIES);
         values[candidate * history * FAMILIES..(candidate + 1) * history * FAMILIES]
             .chunks_exact(FAMILIES)
@@ -373,7 +373,7 @@ impl SearchState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{DistanceScaling, HistoryGeometry, ResidentEnnConfig};
+    use crate::config::{DistanceMetric, ResidentEnnConfig};
     use crate::procedural_pool::{ProceduralPoolConfig, ProposalMethod};
 
     fn search(arms: u32, slots: u32, mode: ProposalKernel, method: ProposalMethod) -> SearchState {
@@ -410,8 +410,7 @@ mod tests {
                 num_samples: 2,
                 fit_params: false,
                 adapt_neighbors: false,
-                distance_scaling: DistanceScaling::Global,
-                history_geometry: HistoryGeometry::Latent,
+                distance_metric: DistanceMetric::Euclidean,
                 local_scale_neighbors: 1,
             })
             .unwrap();
@@ -510,21 +509,6 @@ mod tests {
         }
     }
 
-    fn check_hierarchy(sym: &[u16], ind: &[u16]) {
-        for (s_chunk, i_chunk) in sym.chunks_exact(8).zip(ind.chunks_exact(8)) {
-            let raw: Vec<f32> = i_chunk.iter().map(|&b| decode_half(b) - 1.0).collect();
-            let mu8: f32 = raw.iter().sum::<f32>() / 8.0;
-            let s_del: Vec<f32> = s_chunk.iter().map(|&b| decode_half(b) - 1.0).collect();
-            let s_mean: f32 = s_del.iter().sum::<f32>() / 8.0;
-            assert!((s_mean - 0.50 * mu8).abs() < 0.01, "mean mismatch");
-            for (&act, &r) in s_del.iter().zip(&raw) {
-                let residual = act - s_mean;
-                let exp_res = 1.05220856 * (r - mu8);
-                assert!((residual - exp_res).abs() < 0.01, "residual mismatch");
-            }
-        }
-    }
-
     fn symmetry_search(
         base: &[u16],
         blocks: Vec<ParamBlock>,
@@ -556,8 +540,7 @@ mod tests {
                 num_samples: 2,
                 fit_params: false,
                 adapt_neighbors: false,
-                distance_scaling: DistanceScaling::Global,
-                history_geometry: HistoryGeometry::Latent,
+                distance_metric: DistanceMetric::Euclidean,
                 local_scale_neighbors: 1,
             })
             .unwrap();
@@ -568,7 +551,7 @@ mod tests {
     #[test]
     fn symmetry_quotient() {
         autoreleasepool(|| {
-            let base = vec![0x3c00u16; 4 * 640];
+            let base = vec![0x3c00u16; 3 * 640];
             let blocks = vec![
                 ParamBlock::new(101, 0, 640, 0.25, 1.0)
                     .unwrap()
@@ -576,10 +559,7 @@ mod tests {
                 ParamBlock::new(102, 640, 640, 0.25, 1.0)
                     .unwrap()
                     .with_address(ProgramAddress::new(8, Some(0), None).unwrap()),
-                ParamBlock::new(103, 1280, 640, 0.25, 1.0)
-                    .unwrap()
-                    .with_address(ProgramAddress::new(7, None, None).unwrap()),
-                ParamBlock::new(104, 1920, 640, 0.25, 1.0)
+                ParamBlock::new(104, 1280, 640, 0.25, 1.0)
                     .unwrap()
                     .with_address(ProgramAddress::new(1, Some(0), None).unwrap()),
             ];
@@ -588,17 +568,16 @@ mod tests {
             let mut ind_search = symmetry_search(&base, blocks, ProposalMethod::Additive);
             let sym_direct = sym_search.test_candidate(42, 0).unwrap();
             let ind_direct = ind_search.test_candidate(42, 0).unwrap();
-            let sym = read::<u16>(&sym_direct, 4 * 640);
-            let ind = read::<u16>(&ind_direct, 4 * 640);
+            let sym = read::<u16>(&sym_direct, 3 * 640);
+            let ind = read::<u16>(&ind_direct, 3 * 640);
             let sqrt_4_3 = (4.0f32 / 3.0f32).sqrt();
 
             check_fiber(&sym[0..640], &ind[0..640], sqrt_4_3);
             check_fiber(&sym[640..1280], &ind[640..1280], sqrt_4_3);
-            check_hierarchy(&sym[1280..1920], &ind[1280..1920]);
-            assert_ne!(&sym[1920..2560], &ind[1920..2560]);
-            for (s_pair, i_pair) in sym[1920..2560]
+            assert_ne!(&sym[1280..1920], &ind[1280..1920]);
+            for (s_pair, i_pair) in sym[1280..1920]
                 .chunks_exact(2)
-                .zip(ind[1920..2560].chunks_exact(2))
+                .zip(ind[1280..1920].chunks_exact(2))
             {
                 let (dx_ind, dy_ind) = (decode_half(i_pair[0]) - 1.0, decode_half(i_pair[1]) - 1.0);
                 let inv_r = (0.5f32).sqrt();

@@ -1,9 +1,10 @@
 //! Neighbor lookup helpers for posterior computation.
 
-use ndarray::{Array1, Array2, ArrayView1, ArrayView2, Axis};
+use ndarray::{Array1, Array2, Array3, ArrayView1, ArrayView2, Axis};
 
-use crate::draw::NeighborData;
+use crate::draw::{DrawInternals, NeighborData};
 use crate::error::ENNError;
+use crate::index::IndexDriver;
 use crate::model::ENN;
 use crate::params::{ENNParams, PosteriorFlags};
 
@@ -11,6 +12,37 @@ use super::neighbor_dist::{row_query, squared_l2};
 use super::tie_break::{
     FaissPoolFinalizeCtx, PoolTieScratch, finalize_topk, topk_buffers, topk_dists,
 };
+
+pub(crate) fn index_search(
+    model: &ENN,
+    x: &ArrayView2<f64>,
+    search_k: i32,
+    exclude_nearest: bool,
+    tie_neighbors: bool,
+) -> Result<(Array2<f64>, Array2<i64>), ENNError> {
+    if !model.backend.defers_search() {
+        model.ensure_sync()?;
+    }
+    if model.backend_driver() == IndexDriver::Exact {
+        f64_topk(model, x, search_k, exclude_nearest, tie_neighbors)
+    } else {
+        let (_, idx) = model.backend_search(x, search_k, exclude_nearest)?;
+        let dist2s = dist2s_indices(model, x, &idx);
+        Ok((dist2s, idx))
+    }
+}
+
+pub fn empty_internals(model: &ENN, batch_size: usize) -> DrawInternals {
+    DrawInternals::new(
+        vec![vec![]; batch_size],
+        Array3::zeros((batch_size, 0, model.num_metrics())),
+        Array2::ones((batch_size, model.num_metrics())),
+        Array2::zeros((batch_size, model.num_metrics())),
+        Array2::ones((batch_size, model.num_metrics())),
+        Array2::ones((batch_size, model.num_metrics())),
+        Array2::zeros((batch_size, model.num_metrics())),
+    )
+}
 
 fn distance_matrix(
     x: &ArrayView2<f64>,
@@ -231,7 +263,7 @@ pub(crate) fn get_data(
     }
 
     let (dist2s_full, idx_full) =
-        super::index_search(model, x, search_k as i32, exclude_nearest, tie_neighbors)?;
+        index_search(model, x, search_k as i32, exclude_nearest, tie_neighbors)?;
 
     let available_k = if exclude_nearest {
         search_k.saturating_sub(1)
@@ -316,7 +348,7 @@ pub(crate) fn conditional_data(
 
     let train_search_k = search_k.min(n_train);
     let (dist2_train, idx_train) = if train_search_k > 0 {
-        super::index_search(model, x, train_search_k as i32, false, flags.tie_neighbors)?
+        index_search(model, x, train_search_k as i32, false, flags.tie_neighbors)?
     } else {
         (
             Array2::zeros((batch_size, 0)),
@@ -586,7 +618,7 @@ mod tests {
 
     #[test]
     fn index_distances() {
-        use super::super::index_search;
+        use super::index_search;
 
         let train_x = array![[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]];
         let train_y = array![[0.0], [1.0], [1.0]];

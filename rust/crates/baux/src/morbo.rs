@@ -98,7 +98,15 @@ impl MorboTrustRegion {
     }
 
     pub fn resample_weights(&mut self, rng: &mut dyn RngCore) {
-        self.weights = sample_weights(rng, self.num_metrics);
+        let mut samples = Vec::with_capacity(self.num_metrics);
+        let mut sum = 0.0;
+        for _ in 0..self.num_metrics {
+            let u: f64 = rng.r#gen();
+            let g = (-u.ln()).max(1e-300);
+            samples.push(g);
+            sum += g;
+        }
+        self.weights = Array1::from_vec(samples.iter().map(|&v| v / sum).collect());
     }
 
     pub fn set_arms(&mut self, num_arms: usize) {
@@ -434,18 +442,6 @@ fn push_score(
     );
     morbo.score_count += 1;
     Ok(())
-}
-
-fn sample_weights(rng: &mut dyn RngCore, n: usize) -> Array1<f64> {
-    let mut samples = Vec::with_capacity(n);
-    let mut sum = 0.0;
-    for _ in 0..n {
-        let u: f64 = rng.r#gen();
-        let g = (-u.ln()).max(1e-300);
-        samples.push(g);
-        sum += g;
-    }
-    Array1::from_vec(samples.iter().map(|&v| v / sum).collect())
 }
 
 pub fn scalarize_ranges(

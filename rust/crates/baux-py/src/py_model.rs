@@ -36,6 +36,8 @@ fn parse_driver(index_driver: &str) -> PyResult<baux::IndexDriver> {
         "METAL" | "metal" => Ok(baux::IndexDriver::Metal),
         "OPENCL" | "OpenCL" | "opencl" | "ocl" => Ok(baux::IndexDriver::OpenCl),
         "CUDA" | "Cuda" | "cuda" => Ok(baux::IndexDriver::Cuda),
+        "CUVS" | "CuVS" | "cuvs" | "cuvs_brute_force" => Ok(baux::IndexDriver::Cuvs),
+        "CUVS_CAGRA" | "cuvs_cagra" | "CAGRA" | "cagra" => Ok(baux::IndexDriver::CuvsCagra),
         _ => Err(PyValueError::new_err(format!(
             "Unknown index_driver: {index_driver}"
         ))),
@@ -453,45 +455,5 @@ impl PyENN {
             .natural_y(i)
             .map_err(|e| PyValueError::new_err(e.to_string()))?;
         Ok(row.insert_axis(ndarray::Axis(0)).into_pyarray(py))
-    }
-}
-
-/// Wrapper for ENNParams
-#[pyclass(name = "ENNParams", from_py_object)]
-#[derive(Clone, Copy)]
-pub struct PyENNParams {
-    pub(crate) inner: baux::ENNParams,
-}
-
-#[pymethods]
-impl PyENNParams {
-    #[new]
-    #[pyo3(signature = (k_neighbors, epistemic_scale, aleatoric_scale))]
-    fn new(k_neighbors: i32, epistemic_scale: f64, aleatoric_scale: f64) -> PyResult<Self> {
-        let inner = baux::ENNParams::new(k_neighbors, epistemic_scale, aleatoric_scale)
-            .map_err(|e| PyValueError::new_err(e.to_string()))?;
-        Ok(Self { inner })
-    }
-
-    #[getter]
-    fn k_neighbors(&self) -> i32 {
-        self.inner.k_neighbors
-    }
-
-    #[getter]
-    fn epistemic_scale(&self) -> f64 {
-        self.inner.epistemic_scale
-    }
-
-    #[getter]
-    fn aleatoric_scale(&self) -> f64 {
-        self.inner.aleatoric_scale
-    }
-
-    fn __repr__(&self) -> String {
-        format!(
-            "ENNParams(k={}, epi={:.4}, ale={:.4})",
-            self.inner.k_neighbors, self.inner.epistemic_scale, self.inner.aleatoric_scale
-        )
     }
 }

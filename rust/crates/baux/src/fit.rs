@@ -11,43 +11,57 @@ use crate::posterior::{WeightedPosteriorData, compute_posterior, index_search};
 
 const SCALE_FLOOR: f64 = 1.0e-12;
 
-/// Normalize a square matrix of squared distances by per-row local radii.
-///
-/// Each radius is the `k`th positive-or-zero off-diagonal distance. The
-/// geometric mean keeps the result dimensionless while preserving symmetry.
-pub fn tuned_distances(distances: &ArrayView2<f64>, k: usize) -> Result<Array2<f64>, ENNError> {
+fn local_scales(distances: &ArrayView2<f64>, k: usize, label: &str) -> Result<Vec<f64>, ENNError> {
     let n = distances.nrows();
     if distances.ncols() != n || k == 0 {
-        return Err(ENNError::InvalidParameter(
-            "self-tuning distances require a square matrix and positive local k".into(),
-        ));
+        return Err(ENNError::InvalidParameter(format!(
+            "{label} distances require a square matrix and positive local k"
+        )));
     }
     if distances
         .iter()
         .any(|value| !value.is_finite() || *value < 0.0)
     {
-        return Err(ENNError::InvalidParameter(
-            "self-tuning distances must be finite and nonnegative".into(),
-        ));
+        return Err(ENNError::InvalidParameter(format!(
+            "{label} distances must be finite and nonnegative"
+        )));
     }
-    if n <= 1 {
-        return Ok(distances.to_owned());
-    }
-    let scales = (0..n)
+    Ok((0..n)
         .map(|row| {
             let mut values = (0..n)
                 .filter(|&column| column != row)
                 .map(|column| distances[[row, column]])
                 .collect::<Vec<_>>();
-            values.sort_by(f64::total_cmp);
-            values[k.min(values.len()) - 1].max(SCALE_FLOOR)
+            if values.is_empty() {
+                SCALE_FLOOR
+            } else {
+                values.sort_by(f64::total_cmp);
+                values[k.min(values.len()) - 1].max(SCALE_FLOOR)
+            }
         })
-        .collect::<Vec<_>>();
+        .collect())
+}
+
+/// Conformally normalize a square matrix of squared distances by per-row local
+/// radii.
+///
+/// Each radius is the `k`th positive off-diagonal distance. The geometric mean
+/// keeps the result dimensionless while preserving symmetry.
+pub fn conformal_distances(distances: &ArrayView2<f64>, k: usize) -> Result<Array2<f64>, ENNError> {
+    let scales = local_scales(distances, k, "conformal")?;
+    let n = distances.nrows();
+    if n <= 1 {
+        return Ok(distances.to_owned());
+    }
     Ok(Array2::from_shape_fn((n, n), |(row, column)| {
         if row == column {
             0.0
         } else {
-            distances[[row, column]] / (scales[row].sqrt() * scales[column].sqrt())
+            baux::semantics::neighbor::conformal_delta(
+                distances[[row, column]],
+                scales[row].sqrt(),
+                scales[column].sqrt(),
+            )
         }
     }))
 }
@@ -58,42 +72,43 @@ pub fn hyperbolic_distances(
     distances: &ArrayView2<f64>,
     k: usize,
 ) -> Result<Array2<f64>, ENNError> {
+    let scales = local_scales(distances, k, "hyperbolic")?;
     let n = distances.nrows();
-    if distances.ncols() != n || k == 0 {
-        return Err(ENNError::InvalidParameter(
-            "hyperbolic distances require a square matrix and positive local k".into(),
-        ));
-    }
-    if distances
-        .iter()
-        .any(|value| !value.is_finite() || *value < 0.0)
-    {
-        return Err(ENNError::InvalidParameter(
-            "hyperbolic distances must be finite and nonnegative".into(),
-        ));
-    }
     if n <= 1 {
         return Ok(distances.to_owned());
     }
-    let scales = (0..n)
-        .map(|row| {
-            let mut values = (0..n)
-                .filter(|&column| column != row)
-                .map(|column| distances[[row, column]])
-                .collect::<Vec<_>>();
-            values.sort_by(f64::total_cmp);
-            values[k.min(values.len()) - 1].max(SCALE_FLOOR)
-        })
-        .collect::<Vec<_>>();
     Ok(Array2::from_shape_fn((n, n), |(row, column)| {
         if row == column {
             0.0
         } else {
-            let s_row = scales[row].sqrt();
-            let s_col = scales[column].sqrt();
-            let diff = s_row - s_col;
-            0.5 * (distances[[row, column]] / (s_row * s_col))
-                + (diff * diff) / (2.0 * s_row * s_col)
+            baux::semantics::neighbor::halfspace_delta(
+                distances[[row, column]],
+                scales[row].sqrt(),
+                scales[column].sqrt(),
+            )
+        }
+    }))
+}
+
+/// Entropic Wasserstein local-scale dissimilarity matrix.
+pub fn wasserstein_distances(
+    distances: &ArrayView2<f64>,
+    k: usize,
+) -> Result<Array2<f64>, ENNError> {
+    let scales = local_scales(distances, k, "wasserstein")?;
+    let n = distances.nrows();
+    if n <= 1 {
+        return Ok(distances.to_owned());
+    }
+    Ok(Array2::from_shape_fn((n, n), |(row, column)| {
+        if row == column {
+            0.0
+        } else {
+            baux::semantics::neighbor::wasserstein_delta(
+                distances[[row, column]],
+                scales[row].sqrt(),
+                scales[column].sqrt(),
+            )
         }
     }))
 }
@@ -601,17 +616,22 @@ mod tests {
     use rand::rngs::StdRng;
 
     #[test]
-    fn tuned_geometry() {
+    fn conformal_geometry() {
         let distances = array![[0.0, 1.0, 100.0], [1.0, 0.0, 81.0], [100.0, 81.0, 0.0]];
-        let tuned = tuned_distances(&distances.view(), 1).unwrap();
+        let tuned = conformal_distances(&distances.view(), 1).unwrap();
         assert_eq!(tuned[[0, 1]], 1.0);
         assert!((tuned[[0, 2]] - 100.0 / 9.0).abs() < 1.0e-12);
         assert_eq!(tuned[[0, 2]], tuned[[2, 0]]);
         assert!(tuned.iter().all(|value| value.is_finite()));
 
         let duplicates = array![[0.0, 0.0], [0.0, 0.0]];
-        let tuned = tuned_distances(&duplicates.view(), 1).unwrap();
+        let tuned = conformal_distances(&duplicates.view(), 1).unwrap();
         assert!(tuned.iter().all(|value| value.is_finite()));
+
+        let ot = wasserstein_distances(&distances.view(), 1).unwrap();
+        assert_eq!(ot[[0, 2]], ot[[2, 0]]);
+        assert!(ot[[0, 2]] > ot[[0, 1]]);
+        assert!(ot.iter().all(|value| value.is_finite()));
     }
 
     #[test]

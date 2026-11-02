@@ -1,5 +1,5 @@
 //! Deterministic interleaving of complete tokenized corpus units.
-use super::Result;
+use super::reader::Result;
 use baux::artifact::json::{Value, json};
 use deser::Deserialize;
 use std::cmp::Ordering;

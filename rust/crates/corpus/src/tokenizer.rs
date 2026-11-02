@@ -1,4 +1,4 @@
-use super::Result;
+use super::reader::Result;
 use baux::artifact::json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::fs::File;

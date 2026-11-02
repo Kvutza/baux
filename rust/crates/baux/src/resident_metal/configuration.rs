@@ -18,7 +18,7 @@ impl SearchState {
     /// Higher reward is better; pretraining passes negative mean NLL. Delegates
     /// initial-history/controller bookkeeping to `observe_objectives`; this
     /// method neither evaluates weights nor generates a proposal.
-    pub(crate) fn observe_initial(&mut self, value: f32, variance: f32) -> Result<(), String> {
+    pub fn observe_initial(&mut self, value: f32, variance: f32) -> Result<(), String> {
         self.observe_objectives(
             crate::objective_observation::ObjectiveObservation::scalar_adapter(value, variance),
         )
@@ -27,7 +27,7 @@ impl SearchState {
     /// Set failure tolerance while idle and before any published ask.
     /// Updates the ordinary trust-region controller and any configured MORBO
     /// controller; it does not set reliability evidence thresholds or a radius.
-    pub(crate) fn set_tolerance(&mut self, failures: usize) -> Result<(), String> {
+    pub fn set_tolerance(&mut self, failures: usize) -> Result<(), String> {
         self.check_idle()?;
         if self.started {
             return Err("Set Metal BF16 failure tolerance before any asks".into());
@@ -55,16 +55,13 @@ impl SearchState {
     /// neighbor adaptation are separate flags. Configuration can
     /// allocate/compile and is not rollback-atomic on failure; do not reuse
     /// a partially configured state after an error.
-    pub(crate) fn configure_enn(
+    pub fn configure_enn(
         &mut self,
         config: crate::config::ResidentEnnConfig,
     ) -> Result<(), String> {
         self.check_idle()?;
         check_ask(config.ask)?;
-        if config.proposal_method.program_pool()
-            && (!self.independent_fp16
-                || config.history_geometry != crate::config::HistoryGeometry::Latent)
-        {
+        if config.proposal_method.program_pool() && !self.independent_fp16 {
             return Err(
                 "Lie and pair-rotation require FP16 Gaussian or Rademacher proposals and sampled \
                  parameter history"
@@ -99,12 +96,8 @@ impl SearchState {
         self.fit_params = config.fit_params;
         self.adapt_neighbors = config.adapt_neighbors;
         self.fit_seed = config.ask.acquisition.seed;
-        self.distance_scaling = config.distance_scaling;
-        let was_latent = self.latent_history;
-        self.latent_history = config.history_geometry == crate::config::HistoryGeometry::Latent;
-        if self.latent_history && !was_latent {
-            self.release_history();
-        }
+        self.distance_metric = config.distance_metric;
+        self.latent_history = true;
         self.local_scale_neighbors = config.local_scale_neighbors;
         self.fitter = Some(fitter);
         if self.latent_history && self.independent_fp16 {
@@ -129,77 +122,10 @@ impl SearchState {
         Ok(())
     }
 
-    /// Drop full historical rows and exact-replay storage for latent geometry.
-    /// Keeps an incumbent alias for slot-based APIs, resets resident identity
-    /// bookkeeping, substitutes minimal scratch buffers, and adjusts byte
-    /// counts. Logical objective/distance storage remains; sampled
-    /// geometry, when supported, is installed separately later in
-    /// `configure_enn`.
-    fn release_history(&mut self) {
-        let mut released = 0u64;
-        for row in &self.history_rows {
-            if !std::ptr::eq::<metal::BufferRef>(&**row, &*self.base) {
-                released = released.saturating_add(row.length());
-            }
-        }
-        if let Some(origin) = self.replay_origin.take() {
-            released = released.saturating_add(origin.length());
-        }
-        for buffer in [
-            &self.replay_scales,
-            &self.replay_partials,
-            &self.replay_components,
-            &self.pool_family_distances,
-        ] {
-            released = released.saturating_add(buffer.length());
-        }
-        self.history_rows.clear();
-        self.history_rows.push(self.base.clone());
-        self.anchor = self.base.clone();
-        self.rejected = self.base.clone();
-        self.resident_history = 0;
-        self.resident_identities.fill(1);
-        self.replay_scales = self.runtime.buffer::<f32>(1);
-        self.replay_partials = self.runtime.buffer::<f32>(1);
-        self.replay_components = self.runtime.buffer::<f32>(1);
-        self.pool_family_distances = self.runtime.buffer::<f32>(1);
-        self.exact_history = false;
-        let retained = self.replay_scales.length()
-            + self.replay_partials.length()
-            + self.replay_components.length()
-            + self.pool_family_distances.length();
-        self.resident_bytes = self
-            .resident_bytes
-            .saturating_sub(released)
-            .saturating_add(retained);
-    }
-
-    /// Install reliability radius control after ENN configuration, before data.
-    /// Requires idle implicit history with no observations or published asks.
-    /// Validates the policy using existing length bounds; it does not measure
-    /// reliability, fit ENN, or change the proposal direction formula.
-    pub(crate) fn configure_controller(
-        &mut self,
-        config: reliability_region::ReliabilityPolicy,
-    ) -> Result<(), String> {
-        self.check_idle()?;
-        if !self.implicit_history || self.started || self.history != 0 {
-            return Err("Configure reliability control before the initial observation".into());
-        }
-        if self.fitter.is_none() {
-            return Err("Configure the resident ENN before reliability control".into());
-        }
-        self.reliability = Some(reliability_region::ReliabilityController::new(
-            config,
-            self.length_config,
-        )?);
-        Ok(())
-    }
-
     /// Last fitted `(k, epistemic_scale, aleatoric_scale, y_scale)`, if
     /// available. Reading this telemetry does not fit parameters or select
     /// a local k.
-    pub(crate) fn fitted_enn(&self) -> Option<(usize, f32, f32, f32)> {
+    pub fn fitted_enn(&self) -> Option<(usize, f32, f32, f32)> {
         self.fitted_enn
     }
 
@@ -208,7 +134,7 @@ impl SearchState {
     /// groups. Allocates fitting scratch and writes group/base-weight
     /// metadata; this is family-wise scaling, not a learned dense parameter
     /// covariance matrix.
-    pub(crate) fn enable_family(&mut self, groups: Vec<usize>) -> Result<(), String> {
+    pub fn enable_family(&mut self, groups: Vec<usize>) -> Result<(), String> {
         self.check_idle()?;
         if !self.independent_fp16
             || !self.implicit_history
@@ -248,7 +174,7 @@ impl SearchState {
 
     /// Current family metric weights and proposal-scale multipliers, or `None`
     /// for a static shape. Read-only; these are not full parameter-space axes.
-    pub(crate) fn family_shape(&self) -> Option<([f32; FAMILIES], [f32; FAMILIES])> {
+    pub fn family_shape(&self) -> Option<([f32; FAMILIES], [f32; FAMILIES])> {
         self.family.as_ref().map(|f| (f.weights, f.scales()))
     }
 
@@ -258,7 +184,7 @@ impl SearchState {
     }
 
     /// Recompute block scales for GPU leaves.
-    pub(super) fn sync_scales(&mut self) -> Result<(), String> {
+    pub fn sync_scales(&mut self) -> Result<(), String> {
         let Some(family) = &self.family else {
             return Ok(());
         };
@@ -287,7 +213,7 @@ impl SearchState {
     /// reading the shared leaves. Rebuilds aggregate history distances from
     /// family components; a no-op when family learning is disabled. Does
     /// not regenerate model weights.
-    pub(super) fn apply_family(&mut self) -> Result<(), String> {
+    pub fn apply_family(&mut self) -> Result<(), String> {
         self.sync_scales()?;
         let Some(family) = &self.family else {
             return Ok(());
@@ -317,7 +243,7 @@ impl SearchState {
     /// Eagerly build/check the optional reference while idle.
     /// Moves its allocation/GPU work outside a later ask's latency measurement;
     /// a no-op for independent FP16. Does not propose or evaluate a trial.
-    pub(crate) fn prepare_reference(&mut self) -> Result<(), String> {
+    pub fn prepare_reference(&mut self) -> Result<(), String> {
         self.check_idle()?;
         self.ensure_ref()
     }

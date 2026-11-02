@@ -2,7 +2,7 @@
 
 use ndarray::{Array1, Array2, ArrayView2};
 
-use super::ENN;
+use super::inspection::ENN;
 use crate::backend::TrainRows;
 use crate::error::ENNError;
 

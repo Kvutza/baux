@@ -43,7 +43,7 @@ fn damp_innovation(delta: f32, scale: f32, accepted: bool) -> f32 {
     }
 }
 
-fn update_slope(old: f32, updated: f32, precision: f32, accepted: bool) -> f32 {
+fn update_slope(old: f32, updated: f32, precision: f32, mu_obs: f32, accepted: bool) -> f32 {
     if accepted {
         return if old >= 0.0 {
             updated.max(0.50 * old)
@@ -51,10 +51,14 @@ fn update_slope(old: f32, updated: f32, precision: f32, accepted: bool) -> f32 {
             updated.min(0.50 * old)
         };
     }
-    if old < 0.0 || precision > 1.15 {
+    if (old < 0.0 && mu_obs < 0.0) || precision > 1.15 {
         return 0.0;
     }
-    updated.max(0.25 * old)
+    if old >= 0.0 {
+        updated.max(0.25 * old)
+    } else {
+        updated.min(0.25 * old)
+    }
 }
 
 impl TrajectoryGenerator {
@@ -89,12 +93,10 @@ impl TrajectoryGenerator {
             return;
         }
         if self.last_radius > 0.0 && (radius - self.last_radius).abs() > 1e-6 {
-            let scale = self.last_radius / radius;
-            self.curvature *= scale * scale.sqrt();
+            self.curvature *= self.last_radius / radius;
         }
         self.last_radius = radius;
         let (count, hist_seeds, hist_weights, fresh_w) = self.pack(base_id);
-        let antipodal_step = count > 0 && hist_weights[0] < 0.0;
         let mut mu_pred = 0.0_f32;
         for j in 0..count as usize {
             if let Some(s) = self.steps.iter().rev().find(|s| s.seed == hist_seeds[j]) {
@@ -102,14 +104,14 @@ impl TrajectoryGenerator {
             }
         }
         let r_sq = radius * radius;
-        let mu_obs = (gain + 0.85 * self.curvature * r_sq) / radius;
+        let mu_obs = (gain + 0.5 * self.curvature * r_sq) / radius;
         if gain < 0.0 {
             let kappa_obs = (-gain / r_sq).max(1.0);
             self.curvature = if self.curvature == 0.0 {
                 kappa_obs
             } else {
-                let ratio = (kappa_obs / self.curvature).clamp(0.25, 4.0);
-                self.curvature * ratio.powf(0.30 * fresh_w * fresh_w)
+                let ratio = (kappa_obs / self.curvature).clamp(0.5, 1.25);
+                self.curvature * ratio.powf(0.15 * fresh_w * fresh_w)
             };
         } else if self.curvature == 0.0 && radius * mu_pred > gain {
             self.curvature = ((radius * mu_pred - gain) / r_sq).max(1.0);
@@ -120,21 +122,14 @@ impl TrajectoryGenerator {
             count as usize,
             &hist_seeds,
             &hist_weights,
-            mu_pred,
-            delta_eff,
-            radius,
-            accepted,
-        );
-        let mu_fresh = self.fresh_slope(
-            fresh_w,
             mu_obs,
             mu_pred,
             delta_eff,
             radius,
-            gain,
             accepted,
-            antipodal_step,
         );
+        let mu_fresh =
+            self.fresh_slope(fresh_w, mu_obs, mu_pred, delta_eff, radius, gain, accepted);
         let abs_slope = mu_fresh.abs();
         if abs_slope > 0.0 {
             self.slope_scale = if self.slope_scale == 0.0 {
@@ -152,18 +147,20 @@ impl TrajectoryGenerator {
         });
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn update_history(
         &mut self,
         count: usize,
         hist_seeds: &[u64; TRAJECTORY_CAPACITY],
         hist_weights: &[f32; TRAJECTORY_CAPACITY],
+        mu_obs: f32,
         mu_pred: f32,
         delta_eff: f32,
         radius: f32,
         accepted: bool,
     ) {
         let step_shift = if accepted {
-            delta_eff - 0.85 * self.curvature * radius
+            delta_eff - 0.5 * self.curvature * radius
         } else {
             delta_eff.min(-0.35 * mu_pred.abs())
         };
@@ -177,7 +174,7 @@ impl TrajectoryGenerator {
             {
                 let old = s.slope;
                 let updated = old + w * step_shift;
-                s.slope = update_slope(old, updated, s.precision, accepted);
+                s.slope = update_slope(old, updated, s.precision, mu_obs, accepted);
                 s.precision += w * w;
             }
         }
@@ -198,19 +195,16 @@ impl TrajectoryGenerator {
         radius: f32,
         gain: f32,
         accepted: bool,
-        antipodal_step: bool,
     ) -> f32 {
         if accepted {
-            let mu_acc = (gain + 0.85 * self.curvature * radius * radius) / radius;
+            let mu_acc = (gain + 0.5 * self.curvature * radius * radius) / radius;
             if fresh_w >= 0.999 {
                 mu_acc.max(1e-4)
             } else {
                 (fresh_w * delta_eff).max(0.5 * fresh_w * mu_acc).max(1e-4)
             }
-        } else if mu_obs > 0.0 {
+        } else if mu_obs >= 0.0 {
             (fresh_w * (mu_obs - 0.25 * mu_pred.max(0.0))).max(0.1 * fresh_w * mu_obs)
-        } else if antipodal_step {
-            0.0
         } else {
             let raw = mu_obs.min(mu_obs - 0.25 * mu_pred.max(0.0));
             fresh_w * damp_innovation(raw, self.slope_scale, false)

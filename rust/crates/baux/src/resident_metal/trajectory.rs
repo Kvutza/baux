@@ -80,16 +80,16 @@ impl TrajectoryGenerator {
         }
         let r_sq = radius * radius;
         let mu_obs = (gain + self.curvature * r_sq) / radius;
-        let implied = radius * mu_pred - gain;
-        if self.curvature == 0.0 {
-            if gain < 0.0 {
-                self.curvature = (-gain / r_sq).max(1.0);
-            } else if implied > 0.0 {
-                self.curvature = (implied / r_sq).max(1.0);
-            }
-        } else if implied > 0.0 {
-            let kappa_obs = (implied / r_sq).clamp(0.25 * self.curvature, 4.0 * self.curvature);
-            self.curvature = 0.75 * self.curvature + 0.25 * kappa_obs;
+        if gain < 0.0 {
+            let kappa_obs = (-gain / r_sq).max(1.0);
+            self.curvature = if self.curvature == 0.0 {
+                kappa_obs
+            } else {
+                let clamped = kappa_obs.clamp(0.25 * self.curvature, 4.0 * self.curvature);
+                0.75 * self.curvature + 0.25 * clamped
+            };
+        } else if self.curvature == 0.0 && radius * mu_pred > gain {
+            self.curvature = ((radius * mu_pred - gain) / r_sq).max(1.0);
         }
         let delta = mu_obs - mu_pred;
         let delta_eff = damp_innovation(delta, self.slope_scale, accepted);
@@ -102,7 +102,7 @@ impl TrajectoryGenerator {
             radius,
             accepted,
         );
-        let mu_fresh = self.fresh_slope(fresh_w, mu_obs, delta_eff, radius, gain, accepted);
+        let mu_fresh = self.fresh_slope(fresh_w, delta_eff, radius, gain, accepted);
         let abs_slope = mu_fresh.abs();
         if abs_slope > 0.0 {
             self.slope_scale = if self.slope_scale == 0.0 {
@@ -146,12 +146,16 @@ impl TrajectoryGenerator {
             {
                 let old = s.slope;
                 let updated = old + w * step_shift;
+                let floor = if s.precision > 2.5 { 0.0 } else { 0.35 * old };
                 s.slope = if old >= 0.0 {
-                    updated.max(0.15 * old)
+                    updated.max(floor)
                 } else {
-                    updated.min(0.15 * old)
+                    updated.min(floor)
                 };
                 s.precision += w * w;
+                if accepted {
+                    s.accepted = true;
+                }
             }
         }
         if accepted {
@@ -164,7 +168,6 @@ impl TrajectoryGenerator {
     fn fresh_slope(
         &self,
         fresh_w: f32,
-        mu_obs: f32,
         delta_eff: f32,
         radius: f32,
         gain: f32,
@@ -177,11 +180,8 @@ impl TrajectoryGenerator {
             } else {
                 (fresh_w * delta_eff).max(0.5 * fresh_w * mu_acc).max(1e-4)
             }
-        } else if mu_obs >= 0.0 {
-            (fresh_w * delta_eff).max(0.5 * fresh_w * mu_obs)
         } else {
-            let damped_obs = damp_innovation(mu_obs, self.slope_scale, false);
-            (fresh_w * delta_eff).min(0.5 * fresh_w * damped_obs)
+            fresh_w * delta_eff
         }
     }
 
@@ -213,7 +213,7 @@ impl TrajectoryGenerator {
                     acc_rank += 1;
                 }
                 step.slope
-            } else if step.accepted && step.slope > 0.0 {
+            } else if step.accepted && step.slope.abs() > 1e-6 {
                 let decayed = step.slope * 0.90_f32.powi(acc_rank);
                 acc_rank += 1;
                 decayed

@@ -244,9 +244,6 @@ impl ModelAgreement {
         let action = if self.config.continuous_descent {
             continuous_action(
                 evidence.accepted,
-                error,
-                sharpness,
-                self.config.confidence_z,
                 self.consecutive_successes,
                 self.consecutive_failures,
                 self.config.failure_tolerance.clamp(2, 4),
@@ -369,16 +366,11 @@ pub(super) fn validate_evidence(evidence: TrialStep) -> Result<(), String> {
 
 fn continuous_action(
     accepted: bool,
-    error: f64,
-    sharpness: f64,
-    confidence_z: f64,
     consecutive_successes: usize,
     consecutive_failures: usize,
     shrink_limit: usize,
 ) -> RadiusAction {
-    if accepted
-        && (consecutive_successes >= 1 || (error <= 1.25 && sharpness <= confidence_z * 1.5))
-    {
+    if accepted && consecutive_successes >= 1 {
         RadiusAction::Expand
     } else if !accepted && consecutive_failures.saturating_add(1) >= shrink_limit {
         RadiusAction::Shrink

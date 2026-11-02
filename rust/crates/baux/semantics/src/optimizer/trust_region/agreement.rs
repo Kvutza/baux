@@ -246,6 +246,8 @@ impl ModelAgreement {
             let above_initial = self.length > self.initial * (1.0 + 1.0e-5);
             let shrink_limit = if above_initial {
                 2
+            } else if below_initial {
+                4
             } else {
                 self.config.failure_tolerance.max(2)
             };
@@ -292,7 +294,7 @@ impl ModelAgreement {
             }
             RadiusAction::Shrink => {
                 let shrunk = self.length * self.config.shrink_factor;
-                if shrunk >= self.minimum * (1.0 - 1.0e-5) {
+                if self.config.continuous_descent || shrunk >= self.minimum * (1.0 - 1.0e-5) {
                     shrunk.clamp(self.minimum, self.maximum)
                 } else {
                     self.initial.clamp(self.minimum, self.maximum)
@@ -377,7 +379,8 @@ fn continuous_action(
     shrink_limit: usize,
     below_initial: bool,
 ) -> RadiusAction {
-    if accepted && (below_initial || consecutive_successes >= 3) {
+    let expand_limit = if below_initial { 1 } else { 3 };
+    if accepted && consecutive_successes >= expand_limit {
         RadiusAction::Expand
     } else if !accepted && consecutive_failures.saturating_add(1) >= shrink_limit {
         RadiusAction::Shrink

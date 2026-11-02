@@ -428,12 +428,11 @@ impl SearchState {
                 accept,
                 &implicit_distances,
             )?;
-            if self.history >= self.initial_observations {
-                if self.fitter.is_some() {
-                    self.fit_enn()?;
-                } else if self.family.is_some() {
-                    let _ = self.fit_family(true)?;
-                }
+            if self.history >= self.initial_observations
+                && self.fitter.is_none()
+                && self.family.is_some()
+            {
+                let _ = self.fit_family(true)?;
             }
             let gain = value - self.best;
             self.update_trajectory(round, gain, accept)?;

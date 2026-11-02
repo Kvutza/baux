@@ -79,14 +79,14 @@ impl TrajectoryGenerator {
             }
         }
         let r_sq = radius * radius;
-        let mu_obs = (gain + self.curvature * r_sq) / radius;
+        let mu_obs = (gain + 0.5 * self.curvature * r_sq) / radius;
         if gain < 0.0 {
             let kappa_obs = (-gain / r_sq).max(1.0);
             self.curvature = if self.curvature == 0.0 {
                 kappa_obs
             } else {
-                let clamped = kappa_obs.clamp(0.25 * self.curvature, 4.0 * self.curvature);
-                0.75 * self.curvature + 0.25 * clamped
+                let ratio = (kappa_obs / self.curvature).clamp(0.5, 2.0);
+                self.curvature * ratio.powf(0.20 * fresh_w * fresh_w)
             };
         } else if self.curvature == 0.0 && radius * mu_pred > gain {
             self.curvature = ((radius * mu_pred - gain) / r_sq).max(1.0);
@@ -102,7 +102,8 @@ impl TrajectoryGenerator {
             radius,
             accepted,
         );
-        let mu_fresh = self.fresh_slope(fresh_w, delta_eff, radius, gain, accepted);
+        let mu_fresh =
+            self.fresh_slope(fresh_w, mu_obs, mu_pred, delta_eff, radius, gain, accepted);
         let abs_slope = mu_fresh.abs();
         if abs_slope > 0.0 {
             self.slope_scale = if self.slope_scale == 0.0 {
@@ -134,7 +135,7 @@ impl TrajectoryGenerator {
         let step_shift = if accepted {
             delta_eff - 0.5 * self.curvature * radius
         } else {
-            delta_eff.min(-0.20 * mu_pred.abs())
+            delta_eff.min(-0.35 * mu_pred.abs())
         };
         for j in 0..count {
             let w = hist_weights[j];
@@ -146,16 +147,13 @@ impl TrajectoryGenerator {
             {
                 let old = s.slope;
                 let updated = old + w * step_shift;
-                let floor = if s.precision > 2.5 { 0.0 } else { 0.35 * old };
+                let floor = if s.precision > 1.2 { 0.0 } else { 0.20 * old };
                 s.slope = if old >= 0.0 {
                     updated.max(floor)
                 } else {
                     updated.min(floor)
                 };
                 s.precision += w * w;
-                if accepted {
-                    s.accepted = true;
-                }
             }
         }
         if accepted {
@@ -165,9 +163,12 @@ impl TrajectoryGenerator {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn fresh_slope(
         &self,
         fresh_w: f32,
+        mu_obs: f32,
+        mu_pred: f32,
         delta_eff: f32,
         radius: f32,
         gain: f32,
@@ -180,8 +181,11 @@ impl TrajectoryGenerator {
             } else {
                 (fresh_w * delta_eff).max(0.5 * fresh_w * mu_acc).max(1e-4)
             }
+        } else if mu_obs >= 0.0 {
+            (fresh_w * (mu_obs - 0.25 * mu_pred.max(0.0))).max(0.1 * fresh_w * mu_obs)
         } else {
-            fresh_w * delta_eff
+            let raw = mu_obs.min(mu_obs - 0.25 * mu_pred.max(0.0));
+            fresh_w * damp_innovation(raw, self.slope_scale, false)
         }
     }
 

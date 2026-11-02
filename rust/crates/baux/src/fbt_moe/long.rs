@@ -265,9 +265,6 @@ fn build_search(
         weights.search_shaped(run.proposal_kernel(), run.length(), shape)?;
     let policy = run.resident_enn(run.acquisition_seed())?;
     search.configure_enn(policy)?;
-    if run.optimizer() == crate::config::TrainingOptimizer::OperatorBo {
-        search.enable_trajectory()?;
-    }
     if let Some(controller) = run.reliability_controller() {
         search.configure_controller(controller)?;
     }

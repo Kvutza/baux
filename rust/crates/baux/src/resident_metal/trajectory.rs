@@ -189,24 +189,6 @@ impl TrajectoryGenerator {
         });
     }
 
-    fn least_informative(&self, base_id: i64) -> Option<usize> {
-        let local: Vec<(usize, f32)> = self
-            .steps
-            .iter()
-            .enumerate()
-            .filter(|(_, s)| !s.accepted && s.base_id == base_id)
-            .map(|(i, s)| (i, s.gain))
-            .collect();
-        if local.is_empty() {
-            return None;
-        }
-        let mean = local.iter().map(|(_, g)| *g).sum::<f32>() / local.len() as f32;
-        local
-            .into_iter()
-            .min_by(|a, b| (a.1 - mean).abs().total_cmp(&(b.1 - mean).abs()))
-            .map(|(i, _)| i)
-    }
-
     fn push_step(&mut self, step: TrajectoryStep) {
         if step.accepted {
             self.local_streak = 0;
@@ -222,17 +204,7 @@ impl TrajectoryGenerator {
                 .steps
                 .iter()
                 .position(|s| !s.accepted && s.base_id != step.base_id);
-            let rej_count = self.steps.iter().filter(|s| !s.accepted).count();
-            let first_rej = if rej_count > 8 {
-                if self.local_streak > 10 {
-                    self.least_informative(step.base_id)
-                } else {
-                    self.steps.iter().position(|s| !s.accepted)
-                }
-            } else {
-                None
-            };
-            let evict_idx = stale.or(first_rej).unwrap_or(0);
+            let evict_idx = stale.unwrap_or(0);
             self.steps.remove(evict_idx);
         }
         self.steps.push(step);
@@ -241,9 +213,6 @@ impl TrajectoryGenerator {
     /// Closed-form Online EM M-step update for the 4-family metric weights
     /// (`FamilyHistory::weights`, where proposal scale is `1 / sqrt(weight)`).
     pub(super) fn em_weights(&self, current: [f32; FAMILIES]) -> [f32; FAMILIES] {
-        if self.local_streak > 10 {
-            return current;
-        }
         let uniform = 1.0 / FAMILIES as f32;
         let mut logs = [0.0_f32; FAMILIES];
         for g in 0..FAMILIES {
@@ -262,9 +231,6 @@ impl TrajectoryGenerator {
     }
 
     fn select_steps(&self, current_base_id: i64) -> Vec<(TrajectoryStep, f32, f32)> {
-        if self.local_streak >= 10 {
-            return Vec::new();
-        }
         let mut selected: Vec<(TrajectoryStep, f32, f32)> = Vec::with_capacity(TRAJECTORY_SEEDS);
         let trailing_rej = self
             .steps
@@ -510,6 +476,7 @@ mod tests {
             }
             .resolve_resident()?;
             s.configure_enn(config)?;
+            s.enable_trajectory()?;
             assert!(s.trajectory.is_some());
             s.observe_initial(-2.5, 0.001)?;
 

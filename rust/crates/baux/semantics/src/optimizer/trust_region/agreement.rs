@@ -138,7 +138,6 @@ pub struct ModelAgreement {
     telemetry: TrustRegionStatus,
     consecutive_successes: usize,
     consecutive_failures: usize,
-    floor_bounces: usize,
 }
 
 impl ModelAgreement {
@@ -187,7 +186,6 @@ impl ModelAgreement {
             },
             consecutive_successes: 0,
             consecutive_failures: 0,
-            floor_bounces: 0,
         })
     }
 
@@ -264,28 +262,8 @@ impl ModelAgreement {
             )
         };
 
-        self.apply_action(action, evidence.accepted);
-        self.telemetry = TrustRegionStatus {
-            action,
-            standardized_error: Some(error),
-            sharpness_ratio: Some(sharpness),
-            agreement_ratio: ratio,
-            adequacy_mean: mean,
-            adequacy_lower: lower,
-            evidence: amount,
-            response_radius: (evidence.response_radius > 0.0).then_some(evidence.response_radius),
-            response_boundary,
-            boundary_fraction: reached,
-            conversion: self.log_conversion.map(f64::exp),
-            length: self.length,
-        };
-        Ok(self.telemetry)
-    }
-
-    fn apply_action(&mut self, action: RadiusAction, accepted: bool) {
-        if accepted {
+        if evidence.accepted {
             self.consecutive_failures = 0;
-            self.floor_bounces = 0;
             if action == RadiusAction::Expand {
                 self.consecutive_successes = 0;
             } else {
@@ -301,6 +279,7 @@ impl ModelAgreement {
                 self.consecutive_failures = self.consecutive_failures.saturating_add(1);
             }
         }
+
         self.length = match action {
             RadiusAction::Expand => {
                 (self.length * self.config.expand_factor).clamp(self.minimum, self.maximum)
@@ -310,18 +289,28 @@ impl ModelAgreement {
                 if shrunk >= self.minimum * (1.0 - 1.0e-5) {
                     shrunk.clamp(self.minimum, self.maximum)
                 } else if self.config.continuous_descent {
-                    if self.floor_bounces == 0 {
-                        self.floor_bounces = 1;
-                        (self.minimum / self.config.shrink_factor).clamp(self.minimum, self.initial)
-                    } else {
-                        self.minimum
-                    }
+                    (self.minimum / self.config.shrink_factor).clamp(self.minimum, self.initial)
                 } else {
                     self.initial.clamp(self.minimum, self.maximum)
                 }
             }
             RadiusAction::Hold => self.length.clamp(self.minimum, self.maximum),
         };
+        self.telemetry = TrustRegionStatus {
+            action,
+            standardized_error: Some(error),
+            sharpness_ratio: Some(sharpness),
+            agreement_ratio: ratio,
+            adequacy_mean: mean,
+            adequacy_lower: lower,
+            evidence: amount,
+            response_radius: (evidence.response_radius > 0.0).then_some(evidence.response_radius),
+            response_boundary,
+            boundary_fraction: reached,
+            conversion: self.log_conversion.map(f64::exp),
+            length: self.length,
+        };
+        Ok(self.telemetry)
     }
 
     fn update_adequacy(&mut self, adequate: bool) {

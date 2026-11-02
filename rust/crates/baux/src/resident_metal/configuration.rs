@@ -112,9 +112,6 @@ impl SearchState {
             self.resident_bytes += neighbors.bytes();
             self.neighbors = Some(neighbors);
         }
-        if self.pool_layout.count() == 1 && self.family.is_some() {
-            self.trajectory = Some(TrajectoryGenerator::new());
-        }
         Ok(())
     }
 

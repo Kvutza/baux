@@ -242,22 +242,7 @@ impl ModelAgreement {
             && !evidence.accepted
             && self.consecutive_failures.saturating_add(1) >= self.config.failure_tolerance;
         let action = if self.config.continuous_descent {
-            let below_initial = self.length < self.initial * (1.0 - 1.0e-5);
-            let above_initial = self.length > self.initial * (1.0 + 1.0e-5);
-            let shrink_limit = if above_initial {
-                2
-            } else if below_initial {
-                4
-            } else {
-                self.config.failure_tolerance.max(2)
-            };
-            continuous_action(
-                evidence.accepted,
-                self.consecutive_successes,
-                self.consecutive_failures,
-                shrink_limit,
-                below_initial,
-            )
+            self.continuous_action(evidence.accepted)
         } else {
             decide_action(
                 model_adequate,
@@ -294,8 +279,10 @@ impl ModelAgreement {
             }
             RadiusAction::Shrink => {
                 let shrunk = self.length * self.config.shrink_factor;
-                if self.config.continuous_descent || shrunk >= self.minimum * (1.0 - 1.0e-5) {
+                if shrunk >= self.minimum * (1.0 - 1.0e-5) {
                     shrunk.clamp(self.minimum, self.maximum)
+                } else if self.config.continuous_descent {
+                    (self.minimum / self.config.shrink_factor).clamp(self.minimum, self.initial)
                 } else {
                     self.initial.clamp(self.minimum, self.maximum)
                 }
@@ -338,6 +325,27 @@ impl ModelAgreement {
             self.config.evidence_decay * previous + (1.0 - self.config.evidence_decay) * sample
         }));
     }
+
+    fn continuous_action(&self, accepted: bool) -> RadiusAction {
+        let below_initial = self.length < self.initial * (1.0 - 1.0e-5);
+        let shrink_limit = if self.length > self.initial * (1.0 + 1.0e-5) {
+            2
+        } else if self.length <= self.minimum * (1.0 + 1.0e-5) {
+            16
+        } else if below_initial {
+            4
+        } else {
+            self.config.failure_tolerance.max(2)
+        };
+        let expand_limit = if below_initial { 1 } else { 3 };
+        if accepted && self.consecutive_successes >= expand_limit {
+            RadiusAction::Expand
+        } else if !accepted && self.consecutive_failures.saturating_add(1) >= shrink_limit {
+            RadiusAction::Shrink
+        } else {
+            RadiusAction::Hold
+        }
+    }
 }
 
 fn beta_summary(success: f64, failure: f64, z: f64) -> (f64, f64, f64) {
@@ -370,21 +378,4 @@ pub(super) fn validate_evidence(evidence: TrialStep) -> Result<(), String> {
         return Err("invalid model-agreement evidence".into());
     }
     Ok(())
-}
-
-fn continuous_action(
-    accepted: bool,
-    consecutive_successes: usize,
-    consecutive_failures: usize,
-    shrink_limit: usize,
-    below_initial: bool,
-) -> RadiusAction {
-    let expand_limit = if below_initial { 1 } else { 3 };
-    if accepted && consecutive_successes >= expand_limit {
-        RadiusAction::Expand
-    } else if !accepted && consecutive_failures.saturating_add(1) >= shrink_limit {
-        RadiusAction::Shrink
-    } else {
-        RadiusAction::Hold
-    }
 }

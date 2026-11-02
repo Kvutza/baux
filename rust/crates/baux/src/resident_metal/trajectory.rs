@@ -197,7 +197,13 @@ impl TrajectoryGenerator {
         accepted: bool,
     ) -> f32 {
         if accepted {
-            let mu_acc = (gain + 0.5 * self.curvature * radius * radius) / radius;
+            let raw_acc = (gain + 0.5 * self.curvature * radius * radius) / radius;
+            let cap = if self.slope_scale > 0.0 {
+                (2.5 * self.slope_scale).max(1.0)
+            } else {
+                raw_acc.abs().max(1.0)
+            };
+            let mu_acc = raw_acc.min(cap);
             if fresh_w >= 0.999 {
                 mu_acc.max(1e-4)
             } else {

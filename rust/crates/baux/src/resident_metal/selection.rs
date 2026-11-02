@@ -75,12 +75,7 @@ impl SearchState {
         let radius = self.radius(candidate);
         let (trajectory_count, trajectory_seeds, trajectory_weights, trajectory_fresh) =
             self.trajectory.as_ref().map_or(
-                (
-                    0,
-                    [0; TRAJECTORY_SEEDS],
-                    [[0.0; TRAJECTORY_SEEDS]; FAMILIES],
-                    [1.0; FAMILIES],
-                ),
+                (0, [0; TRAJECTORY_CAPACITY], [0.0; TRAJECTORY_CAPACITY], 1.0),
                 |t| t.pack(self.base_id),
             );
         Params {
@@ -95,10 +90,9 @@ impl SearchState {
             mode: self.perturbation.shader(),
             program: self.proposal_program(),
             trajectory_count,
-            trajectory_pad: u32::from(self.trajectory.is_some()),
+            trajectory_fresh,
             trajectory_seeds,
             trajectory_weights,
-            trajectory_fresh,
             ..Params::default()
         }
     }
@@ -109,12 +103,7 @@ impl SearchState {
     pub(super) fn pool_params(&self, root: u64) -> Params {
         let (trajectory_count, trajectory_seeds, trajectory_weights, trajectory_fresh) =
             self.trajectory.as_ref().map_or(
-                (
-                    0,
-                    [0; TRAJECTORY_SEEDS],
-                    [[0.0; TRAJECTORY_SEEDS]; FAMILIES],
-                    [1.0; FAMILIES],
-                ),
+                (0, [0; TRAJECTORY_CAPACITY], [0.0; TRAJECTORY_CAPACITY], 1.0),
                 |t| t.pack(self.base_id),
             );
         Params {
@@ -140,10 +129,9 @@ impl SearchState {
                 .and_then(|slot| u32::try_from(slot).ok())
                 .unwrap_or(u32::MAX),
             trajectory_count,
-            trajectory_pad: u32::from(self.trajectory.is_some()),
+            trajectory_fresh,
             trajectory_seeds,
             trajectory_weights,
-            trajectory_fresh,
             ..Params::default()
         }
     }

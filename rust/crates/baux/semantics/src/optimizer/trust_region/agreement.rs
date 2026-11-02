@@ -249,6 +249,7 @@ impl ModelAgreement {
                 self.config.confidence_z,
                 self.consecutive_successes,
                 self.consecutive_failures,
+                self.config.failure_tolerance.clamp(2, 4),
             )
         } else {
             decide_action(
@@ -289,7 +290,7 @@ impl ModelAgreement {
                 if shrunk >= self.minimum * (1.0 - 1.0e-5) {
                     shrunk.clamp(self.minimum, self.maximum)
                 } else if self.config.continuous_descent {
-                    (self.minimum / self.config.shrink_factor).clamp(self.minimum, self.initial)
+                    self.minimum.clamp(self.minimum, self.maximum)
                 } else {
                     self.initial.clamp(self.minimum, self.maximum)
                 }
@@ -373,12 +374,13 @@ fn continuous_action(
     confidence_z: f64,
     consecutive_successes: usize,
     consecutive_failures: usize,
+    shrink_limit: usize,
 ) -> RadiusAction {
     if accepted
         && (consecutive_successes >= 1 || (error <= 1.25 && sharpness <= confidence_z * 1.5))
     {
         RadiusAction::Expand
-    } else if !accepted && consecutive_failures >= 2 {
+    } else if !accepted && consecutive_failures.saturating_add(1) >= shrink_limit {
         RadiusAction::Shrink
     } else {
         RadiusAction::Hold

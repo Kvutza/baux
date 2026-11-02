@@ -112,6 +112,9 @@ impl SearchState {
             self.resident_bytes += neighbors.bytes();
             self.neighbors = Some(neighbors);
         }
+        if self.independent_fp16 && self.pool_layout.count() == 1 && self.fitter.is_some() {
+            self.trajectory = Some(TrajectoryGenerator::new());
+        }
         Ok(())
     }
 

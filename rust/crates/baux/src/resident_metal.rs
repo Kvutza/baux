@@ -1766,7 +1766,7 @@ mod tests {
         // Three 64-bit coordinates, two floats, and the typed program address.
         assert_eq!(size_of::<Leaf>(), 40);
         assert_eq!(size_of::<Tile>(), 16);
-        assert_eq!(size_of::<Params>(), 184);
+        assert_eq!(size_of::<Params>(), 168);
         assert_eq!(size_of::<ReplayStep>(), 24);
         // Includes the bounded scalar-axis history shared with the Metal ABI.
         assert_eq!(size_of::<SelectionParams>(), 3232);

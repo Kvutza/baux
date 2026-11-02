@@ -428,8 +428,12 @@ impl SearchState {
                 accept,
                 &implicit_distances,
             )?;
-            if self.history >= self.initial_observations && self.family.is_some() {
-                let _ = self.fit_family(true)?;
+            if self.history >= self.initial_observations {
+                if self.fitter.is_some() {
+                    self.fit_enn()?;
+                } else if self.family.is_some() {
+                    let _ = self.fit_family(true)?;
+                }
             }
             let gain = value - self.best;
             self.update_trajectory(round, gain, accept)?;
@@ -456,47 +460,8 @@ impl SearchState {
         gain: f32,
         accept: bool,
     ) -> Result<(), String> {
-        if self.trajectory.is_none() {
-            return Ok(());
-        }
-        let mut energy = [1.0f32; FAMILIES];
-        if let Some(family) = &self.family {
-            let mut acc = [0.0f32; FAMILIES];
-            let mut total = 0.0f32;
-            for (i, &(_, sq)) in round.changes.iter().enumerate() {
-                if i < family.groups.len() && i < self.blocks.len() {
-                    let g = family.groups[i];
-                    let e = (sq as f32) * self.blocks[i].weight;
-                    acc[g] += e;
-                    total += e;
-                }
-            }
-            energy = if total > 1.0e-12 {
-                acc
-            } else if let Some(sampled) = round
-                .family_distances
-                .as_ref()
-                .and_then(|rows| {
-                    let base_idx = self.identities[..self.history]
-                        .iter()
-                        .position(|&id| id == round.base_id)?;
-                    rows.get(base_idx).copied()
-                })
-                .filter(|row| row.iter().copied().sum::<f32>() > 1.0e-12)
-            {
-                sampled
-            } else {
-                self.latent_components(round.index)
-            };
-        }
         if let Some(traj) = &mut self.trajectory {
-            traj.observe(round.seed, round.base_id, gain, accept, energy);
-            if let Some(family) = &mut self.family {
-                family.weights = traj.em_weights(family.weights);
-            }
-        }
-        if self.family.is_some() {
-            self.apply_family()?;
+            traj.observe(round.seed, round.base_id, round.length, gain, accept);
         }
         Ok(())
     }

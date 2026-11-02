@@ -6,8 +6,7 @@ using namespace metal;
 #define PROCEDURAL_COUNT 4
 #endif
 
-#define TRAJECTORY_SEEDS 4
-#define TRAJECTORY_FAMILIES 4
+#define TRAJECTORY_CAPACITY 8
 
 // BAUX_ZIGGURAT_TABLES
 
@@ -36,10 +35,9 @@ struct Params {
     uint blocks;
     uint program;
     uint trajectory_count;
-    uint trajectory_pad;
-    ulong trajectory_seeds[TRAJECTORY_SEEDS];
-    float trajectory_weights[TRAJECTORY_FAMILIES][TRAJECTORY_SEEDS];
-    float trajectory_fresh[TRAJECTORY_FAMILIES];
+    float trajectory_fresh;
+    ulong trajectory_seeds[TRAJECTORY_CAPACITY];
+    float trajectory_weights[TRAJECTORY_CAPACITY];
 };
 struct ReplayStep {
     ulong seed;
@@ -210,10 +208,9 @@ inline bool invalid_value(ushort x) { return (x & 0x7f80u) == 0x7f80u; }
 struct PrecomputedDomains {
     ulong2 fresh;
     uint count;
-    uint trajectory_active;
     float fresh_weight;
-    ulong2 hist[TRAJECTORY_SEEDS];
-    float weights[TRAJECTORY_SEEDS];
+    ulong2 hist[TRAJECTORY_CAPACITY];
+    float weights[TRAJECTORY_CAPACITY];
 };
 inline float2 domain_noise(ulong2 domain, ulong pair, uint mode) {
 #ifdef RADEMACHER_ONLY
@@ -231,18 +228,16 @@ inline float2 noise_pair(ulong seed, ulong key, ulong pair, uint mode) {
 inline PrecomputedDomains make_domains(ulong salted_seed, Leaf leaf, constant Params &p) {
     PrecomputedDomains d;
     d.fresh = ziggurat_domain(salted_seed, leaf.key);
-    d.trajectory_active = p.trajectory_pad;
     if (p.trajectory_count == 0u) {
         d.count = 0u;
         d.fresh_weight = 1.0f;
         return d;
     }
-    uint g = leaf.pad & 3u;
-    d.fresh_weight = p.trajectory_fresh[g];
-    uint n = min(p.trajectory_count, uint(TRAJECTORY_SEEDS));
+    d.fresh_weight = p.trajectory_fresh;
+    uint n = min(p.trajectory_count, uint(TRAJECTORY_CAPACITY));
     uint active = 0u;
     for (uint j = 0u; j < n; j++) {
-        float w = p.trajectory_weights[g][j];
+        float w = p.trajectory_weights[j];
         if (w != 0.0f) {
             ulong hist_salted = p.trajectory_seeds[j] ^ 0x8ebc6af09c88c6e3ul;
             if (hist_salted == salted_seed) {
@@ -386,7 +381,7 @@ inline float2 sym_delta(
         return step * unit_dir;
     }
     float2 q = domain_trajectory(d, pair, mode);
-    if (program == 5u || d.trajectory_active != 0u) {
+    if (program == 5u) {
         return step * q;
     }
     float r_sq = base_value.x * base_value.x + base_value.y * base_value.y;

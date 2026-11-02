@@ -176,20 +176,10 @@ impl SearchState {
         let params = Params {
             seed: self.procedural_seed(root, candidate),
             stream_seed: root,
-            basis_seed: 0,
             radius,
             alternate_radius: radius,
             candidate: candidate as u32,
-            tiles: self.tiles.len() as u32,
-            history: self.physical_history() as u32,
-            mode: self.perturbation.shader(),
-            program: self.proposal_program(),
-            base_slot: self.resident_identities[..self.resident_history]
-                .iter()
-                .position(|&identity| identity == self.base_id)
-                .and_then(|slot| u32::try_from(slot).ok())
-                .unwrap_or(u32::MAX),
-            ..Params::default()
+            ..self.pool_params(root)
         };
         let command = self.runtime.queue.new_command_buffer();
         self.encode_proposal(command, params);

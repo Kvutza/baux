@@ -242,12 +242,19 @@ impl ModelAgreement {
             && !evidence.accepted
             && self.consecutive_failures.saturating_add(1) >= self.config.failure_tolerance;
         let action = if self.config.continuous_descent {
+            let below_initial = self.length < self.initial * (1.0 - 1.0e-5);
+            let above_initial = self.length > self.initial * (1.0 + 1.0e-5);
+            let shrink_limit = if above_initial {
+                2
+            } else {
+                self.config.failure_tolerance.max(2)
+            };
             continuous_action(
                 evidence.accepted,
                 self.consecutive_successes,
                 self.consecutive_failures,
-                self.config.failure_tolerance.max(2),
-                self.length < self.initial * (1.0 - 1.0e-5),
+                shrink_limit,
+                below_initial,
             )
         } else {
             decide_action(
@@ -370,7 +377,7 @@ fn continuous_action(
     shrink_limit: usize,
     below_initial: bool,
 ) -> RadiusAction {
-    if accepted && (below_initial || consecutive_successes >= 1) {
+    if accepted && (below_initial || consecutive_successes >= 3) {
         RadiusAction::Expand
     } else if !accepted && consecutive_failures.saturating_add(1) >= shrink_limit {
         RadiusAction::Shrink

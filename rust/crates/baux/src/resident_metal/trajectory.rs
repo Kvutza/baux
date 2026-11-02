@@ -25,6 +25,7 @@ pub(super) struct TrajectoryGenerator {
     pub(super) steps: Vec<ElementarySeed>,
     pub(super) curvature: f32,
     pub(super) slope_scale: f32,
+    pub(super) last_radius: f32,
 }
 
 impl Default for TrajectoryGenerator {
@@ -42,12 +43,31 @@ fn damp_innovation(delta: f32, scale: f32, accepted: bool) -> f32 {
     }
 }
 
+fn update_slope(old: f32, updated: f32, precision: f32, mu_obs: f32, accepted: bool) -> f32 {
+    if accepted {
+        return if old >= 0.0 {
+            updated.max(0.50 * old)
+        } else {
+            updated.min(0.50 * old)
+        };
+    }
+    if (old < 0.0 && mu_obs < 0.0) || precision > 1.15 {
+        return 0.0;
+    }
+    if old >= 0.0 {
+        updated.max(0.25 * old)
+    } else {
+        updated.min(0.25 * old)
+    }
+}
+
 impl TrajectoryGenerator {
     pub(super) fn new() -> Self {
         Self {
             steps: Vec::with_capacity(MAX_HISTORY),
             curvature: 0.0,
             slope_scale: 0.0,
+            last_radius: 0.0,
         }
     }
 
@@ -55,6 +75,7 @@ impl TrajectoryGenerator {
         self.steps.clear();
         self.curvature = 0.0;
         self.slope_scale = 0.0;
+        self.last_radius = 0.0;
     }
 
     /// Record one completed trial evaluation `(seed, base_id, radius, gain,
@@ -71,6 +92,10 @@ impl TrajectoryGenerator {
         if !gain.is_finite() || !radius.is_finite() || radius <= 0.0 {
             return;
         }
+        if self.last_radius > 0.0 && (radius - self.last_radius).abs() > 1e-6 {
+            self.curvature *= self.last_radius / radius;
+        }
+        self.last_radius = radius;
         let (count, hist_seeds, hist_weights, fresh_w) = self.pack(base_id);
         let mut mu_pred = 0.0_f32;
         for j in 0..count as usize {
@@ -85,8 +110,8 @@ impl TrajectoryGenerator {
             self.curvature = if self.curvature == 0.0 {
                 kappa_obs
             } else {
-                let ratio = (kappa_obs / self.curvature).clamp(0.5, 2.0);
-                self.curvature * ratio.powf(0.20 * fresh_w * fresh_w)
+                let ratio = (kappa_obs / self.curvature).clamp(0.5, 1.25);
+                self.curvature * ratio.powf(0.15 * fresh_w * fresh_w)
             };
         } else if self.curvature == 0.0 && radius * mu_pred > gain {
             self.curvature = ((radius * mu_pred - gain) / r_sq).max(1.0);
@@ -97,6 +122,7 @@ impl TrajectoryGenerator {
             count as usize,
             &hist_seeds,
             &hist_weights,
+            mu_obs,
             mu_pred,
             delta_eff,
             radius,
@@ -127,6 +153,7 @@ impl TrajectoryGenerator {
         count: usize,
         hist_seeds: &[u64; TRAJECTORY_CAPACITY],
         hist_weights: &[f32; TRAJECTORY_CAPACITY],
+        mu_obs: f32,
         mu_pred: f32,
         delta_eff: f32,
         radius: f32,
@@ -147,12 +174,7 @@ impl TrajectoryGenerator {
             {
                 let old = s.slope;
                 let updated = old + w * step_shift;
-                let floor = if s.precision > 1.2 { 0.0 } else { 0.20 * old };
-                s.slope = if old >= 0.0 {
-                    updated.max(floor)
-                } else {
-                    updated.min(floor)
-                };
+                s.slope = update_slope(old, updated, s.precision, mu_obs, accepted);
                 s.precision += w * w;
             }
         }
@@ -229,6 +251,10 @@ impl TrajectoryGenerator {
             }
         }
         candidates.sort_by(|a, b| b.1.abs().total_cmp(&a.1.abs()));
+        if let Some(&(_, first_mu)) = candidates.first() {
+            let cutoff = (0.04 * first_mu.abs()).max(1e-5);
+            candidates.retain(|&(_, mu)| mu.abs() >= cutoff);
+        }
         candidates.truncate(TRAJECTORY_CAPACITY);
         candidates
     }
@@ -257,8 +283,8 @@ impl TrajectoryGenerator {
             return (0, [0; TRAJECTORY_CAPACITY], [0.0; TRAJECTORY_CAPACITY], 1.0);
         }
         let prior_var = (self.slope_scale * self.slope_scale).max(1e-6);
-        let cap = (0.15 * k as f32).clamp(0.15, 0.75);
-        let rho = ((drift_sq / (drift_sq + prior_var)) * cap).clamp(0.05, 0.75);
+        let cap = (0.20 * k as f32).clamp(0.20, 0.65);
+        let rho = ((drift_sq / (drift_sq + prior_var)) * cap).clamp(0.05, 0.65);
         let amp = rho.sqrt();
         let mut sq_sum = 0.0_f32;
         for (j, &(seed, mu)) in selected.iter().enumerate() {

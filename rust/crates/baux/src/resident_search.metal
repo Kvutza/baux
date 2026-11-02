@@ -350,6 +350,7 @@ inline float2 sym_delta(
     float2 base_value,
     Leaf leaf,
     thread const PrecomputedDomains &d,
+    uint program,
     float radius,
     uint mode,
     ulong pair) {
@@ -385,6 +386,9 @@ inline float2 sym_delta(
         return step * unit_dir;
     }
     float2 q = domain_trajectory(d, pair, mode);
+    if (program == 5u || d.trajectory_active != 0u) {
+        return step * q;
+    }
     float r_sq = base_value.x * base_value.x + base_value.y * base_value.y;
     if (r_sq > 1e-12f) {
         float inv_r = rsqrt(r_sq);
@@ -408,7 +412,7 @@ inline float2 sym_continuous(
     ulong pair,
     constant Params &p) {
     PrecomputedDomains d = make_domains(salted_seed, leaf, p);
-    return sym_delta(base_value, leaf, d, radius, mode, pair);
+    return sym_delta(base_value, leaf, d, p.program, radius, mode, pair);
 }
 
 inline float2 proposal_delta(
@@ -421,7 +425,7 @@ inline float2 proposal_delta(
     uint mode,
     ulong pair) {
     if (program == 4u || program == 5u)
-        return sym_delta(base_value, leaf, doms, radius, mode, pair);
+        return sym_delta(base_value, leaf, doms, program, radius, mode, pair);
 
     float2 noise = domain_trajectory(doms, pair, mode);
     if (program == 3u) {

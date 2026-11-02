@@ -397,7 +397,7 @@ impl TrustRegionController {
         if !variance.is_finite() || variance < 0.0 {
             return Err("observation variance must be finite and non-negative".into());
         }
-        if selection.initializing && !self.control.continuous_descent() {
+        if selection.initializing {
             return eval_warmup(self, value, variance, selection);
         }
         if let Some(mut turbo_state) = self.turbo {

@@ -226,6 +226,12 @@ impl TrajectoryGenerator {
 
     fn select_steps(&self, current_base_id: i64) -> Vec<(TrajectoryStep, f32, f32)> {
         let mut selected: Vec<(TrajectoryStep, f32, f32)> = Vec::with_capacity(TRAJECTORY_SEEDS);
+        let trailing_rej = self
+            .steps
+            .iter()
+            .rev()
+            .take_while(|s| !s.accepted && s.base_id == current_base_id)
+            .count();
         let accepted_recent: Vec<(usize, TrajectoryStep)> = self
             .steps
             .iter()
@@ -240,7 +246,7 @@ impl TrajectoryGenerator {
             .iter()
             .rev()
             .filter(|s| !s.accepted && s.base_id == current_base_id && s.gain < 0.0)
-            .take(4)
+            .take(2)
             .copied()
             .enumerate()
             .collect();
@@ -252,10 +258,11 @@ impl TrajectoryGenerator {
                 .map(|(_, s)| s.gain)
                 .fold(0.0_f32, f32::max);
             let scale_gain = max_gain.max(1e-6);
+            let mom_decay = 0.75_f32.powi(trailing_rej as i32);
             let mut scored_acc: Vec<(TrajectoryStep, f32)> = accepted_recent
                 .into_iter()
                 .map(|(rank, s)| {
-                    let recency = 0.85_f32.powi(rank as i32);
+                    let recency = 0.85_f32.powi(rank as i32) * mom_decay;
                     let boltzmann = (1.5 * (s.gain - max_gain) / scale_gain).exp();
                     (s, (recency * boltzmann).max(1e-4))
                 })
@@ -279,7 +286,7 @@ impl TrajectoryGenerator {
             let mut scored_rej: Vec<(TrajectoryStep, f32)> = rejected_local
                 .into_iter()
                 .map(|(rank, s)| {
-                    let recency = 0.85_f32.powi(rank as i32);
+                    let recency = 0.50_f32.powi(rank as i32);
                     let loss = (-s.gain).max(0.0);
                     let boltzmann = ((loss - max_loss) / scale_loss).exp();
                     (s, (0.45 * recency * boltzmann).max(1e-4))
@@ -328,12 +335,17 @@ impl TrajectoryGenerator {
 
         let mut weights = [[0.0_f32; TRAJECTORY_SEEDS]; FAMILIES];
         let mut fresh = [1.0_f32; FAMILIES];
-        let n_acc = selected.iter().filter(|(_, _, sign)| *sign > 0.0).count();
-        let n_rej = k - n_acc;
-        let rho_base = (0.18 * n_acc as f32 + 0.12 * n_rej as f32).clamp(0.12, 0.64);
+        let trailing_rej = self
+            .steps
+            .iter()
+            .rev()
+            .take_while(|s| !s.accepted && s.base_id == current_base_id)
+            .count();
+        let streak_damp = 0.70_f32.powi(trailing_rej.saturating_sub(1) as i32);
+        let rho_base = ((0.08 * k as f32).clamp(0.08, 0.28) * streak_damp).clamp(0.03, 0.28);
 
         for g in 0..FAMILIES {
-            let rho = (rho_base * (0.5 + 2.0 * self.online_em_stats[g])).clamp(0.08, 0.64);
+            let rho = (rho_base * (0.5 + 2.0 * self.online_em_stats[g])).clamp(0.02, 0.36);
             let mut raw = [0.0_f32; TRAJECTORY_SEEDS];
             let mut raw_sum = 0.0_f32;
             for (j, (step, score, _)) in selected.iter().enumerate() {
@@ -351,7 +363,7 @@ impl TrajectoryGenerator {
                     sq_sum += alpha * alpha;
                 }
             }
-            fresh[g] = (1.0 - sq_sum).max(0.36).sqrt();
+            fresh[g] = (1.0 - sq_sum).max(0.64).sqrt();
         }
 
         (k as u32, seeds, weights, fresh)

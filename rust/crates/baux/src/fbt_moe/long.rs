@@ -208,21 +208,12 @@ fn init_surrogate(
 > {
     search.observe_objectives(initial.observation)?;
     let ctrl_info = search.controller_info()?;
-    let reliability_policy = run.reliability_controller().or_else(|| {
-        (run.optimizer() == crate::config::TrainingOptimizer::OperatorBo).then_some(
-            baux::semantics::optimizer::TrustRegionSpec {
-                failure_tolerance: 8,
-                continuous_descent: true,
-                ..Default::default()
-            },
-        )
-    });
     let trust_region = baux::semantics::optimizer::TrustRegionController::policy_f64(
         ctrl_info.length,
         ctrl_info.length_min,
         ctrl_info.length_max,
-        8,
-        reliability_policy,
+        ctrl_info.failure_tolerance.max(1) as usize,
+        None,
     )?;
     let distance_metric = match policy.distance_scaling {
         crate::config::DistanceScaling::SelfTuning => {

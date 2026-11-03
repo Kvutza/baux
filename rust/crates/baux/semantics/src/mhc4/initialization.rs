@@ -15,47 +15,11 @@ impl ScaleShape {
             _ => Err(format!("unsupported mHC-4 trust-region shape {name}")),
         }
     }
-    pub fn multiplier(self, family: &str) -> f32 {
+    pub fn multiplier(self, _family: &str) -> f32 {
         match self {
-            Self::Scalar => 1.0,
-            Self::TensorFamilyStatic => family_multiplier(family),
+            Self::Scalar | Self::TensorFamilyStatic => 1.0,
         }
     }
-}
-
-pub fn expert_multiplier(family: &str, expert: Option<usize>) -> f32 {
-    if matches!(
-        family,
-        "expert_gate_up"
-            | "expert_down"
-            | "qkv"
-            | "attention_output"
-            | "embedding_readout"
-            | "mask_embed"
-            | "index_query"
-            | "router"
-            | "feedback_state"
-            | "feedback_gate"
-            | "mhc_attention_predictor"
-            | "mhc_moe_predictor"
-            | "mhc_attention_bias"
-            | "mhc_attention_control"
-            | "mhc_moe_bias"
-            | "mhc_moe_control"
-            | "attention_norm"
-            | "ffn_norm"
-            | "final_norm"
-    ) {
-        let tree = baux::semantics::optimizer::ParamTree::<usize>::active_multipliers();
-        let mapped = baux::semantics::optimizer::ParamFamily::from_expert(family, expert);
-        *tree.get(mapped)
-    } else {
-        1.0
-    }
-}
-
-pub fn family_multiplier(family: &str) -> f32 {
-    expert_multiplier(family, None)
 }
 
 /// Fill complete row-major matrices. Draw order and FP64 column normalization

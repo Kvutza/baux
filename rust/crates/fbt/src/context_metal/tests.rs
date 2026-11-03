@@ -201,6 +201,63 @@ fn block_visibility() {
 }
 
 #[test]
+fn gap_independent() -> Result<(), String> {
+    check_gap(IndexMode::Independent)
+}
+
+#[test]
+fn gap_shared() -> Result<(), String> {
+    check_gap(IndexMode::Shared)
+}
+
+#[test]
+fn gap_refined() -> Result<(), String> {
+    check_gap(IndexMode::Refined)
+}
+
+fn check_gap(mode: IndexMode) -> Result<(), String> {
+    metal::objc::rc::autoreleasepool(|| {
+        use crate::apple_gpu::slice_mut;
+        let mut probe = Probe::new()?;
+        probe.start = 384; // All diffusion queries see exactly eight blocks, through token 511.
+        probe.fixture.kv.fill(0);
+        probe.fixture.queries.fill(0);
+        for token in 64..128 {
+            probe.fixture.kv[token * 128] = 0x4000; // Block 1: k[0] = 2.
+            probe.fixture.kv[(token + 64) * 128 + 64] = 0x3c00; // Block 2: v[0] = 1.
+        }
+        let qkv = slice_mut::<u16>(&probe.qkv, 128 * 640)?;
+        qkv.fill(0);
+        for row in 0..128 {
+            qkv[row * 640] = 0x4800; // Head 0: q[0] = 8; other heads are zero.
+            probe.fixture.queries[row * 512] = 0x4800;
+        }
+        probe.fixture.tree = Fixture::pyramid(probe.fixture.layout, &probe.fixture.kv);
+        slice_mut::<u16>(&probe.kv, probe.fixture.kv.len())?.copy_from_slice(&probe.fixture.kv);
+        slice_mut::<u16>(&probe.tree, probe.fixture.tree.len())?
+            .copy_from_slice(&probe.fixture.tree);
+        let first = probe.run(mode, true, true)?;
+        for selected in first.0.chunks_exact(8) {
+            assert_eq!(selected, &[0, 6, 7, 1, 2, 3, 4, 5]);
+        }
+        probe.verify(mode, &first.0, &first.1)?;
+        for row in 0..128 {
+            for head in 0..8 {
+                let expected = if head == 0 {
+                    1.0 / (2.0f32.exp() + 7.0)
+                } else {
+                    0.125
+                };
+                assert!((half(first.1[row * 512 + head * 64]) - expected).abs() < 0.0002);
+            }
+        }
+        assert_eq!(first, probe.run(mode, false, true)?);
+        assert_eq!(probe.kernels.index_counts()[0], 32);
+        Ok(())
+    })
+}
+
+#[test]
 fn pisa_reuse() {
     metal::objc::rc::autoreleasepool(|| {
         let runtime = Runtime::shared().unwrap();

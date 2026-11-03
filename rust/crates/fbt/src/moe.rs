@@ -389,26 +389,6 @@ impl Stage {
     ];
 }
 
-fn family_group(family: &str) -> usize {
-    match family {
-        "expert_gate_up" | "expert_down" => 0,
-        "qkv" | "attention_output" | "attention_norm" | "ffn_norm" | "final_norm" => 1,
-        "hnet"
-        | "index_query"
-        | "router"
-        | "feedback_state"
-        | "feedback_gate"
-        | "mhc_attention_predictor"
-        | "mhc_moe_predictor"
-        | "mhc_attention_bias"
-        | "mhc_attention_control"
-        | "mhc_moe_bias"
-        | "mhc_moe_control" => 2,
-        "embedding_readout" | "mask_embed" => 3,
-        _ => unreachable!("unmapped model tensor family"),
-    }
-}
-
 #[derive(Clone, Copy)]
 struct BoControl<'a> {
     length: crate::trust_region::TRLengthConfig,

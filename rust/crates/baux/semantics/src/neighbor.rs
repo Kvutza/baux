@@ -56,49 +56,6 @@ pub fn retention(identities: &[i64], incumbent: i64) -> Result<usize, &'static s
         .ok_or("observation history has no replaceable slot")
 }
 
-/// Append until full, then replace the oldest cone-dominated observation
-/// (`Theorem 3.1` / `SlopeEnvelope.dominates`) other than the incumbent,
-/// falling back to `retention` when no slot is cone-dominated.
-pub fn retention_cone(
-    identities: &[i64],
-    incumbent: i64,
-    outcomes: &[f32],
-    variances: &[f32],
-    pairwise_sq_dists: &[f32],
-    stride: usize,
-    slope: f32,
-) -> Result<usize, &'static str> {
-    if identities.len() < MAX_HISTORY {
-        return retention(identities, incumbent);
-    }
-    let n = identities.len();
-    let lip = slope.max(0.0);
-    if lip > 0.0
-        && outcomes.len() >= n
-        && variances.len() >= n
-        && pairwise_sq_dists.len() >= n * stride
-    {
-        let lower = |k: usize| outcomes[k] - variances[k].max(0.0).sqrt();
-        if let Some((slot, _)) = identities
-            .iter()
-            .enumerate()
-            .filter(|&(j, &id)| {
-                id != incumbent
-                    && (0..n).any(|i| {
-                        i != j && {
-                            let dist = pairwise_sq_dists[i * stride + j].max(0.0).sqrt();
-                            lower(j) <= lower(i) - lip * dist
-                        }
-                    })
-            })
-            .min_by_key(|&(_, &id)| id)
-        {
-            return Ok(slot);
-        }
-    }
-    retention(identities, incumbent)
-}
-
 /// Conformal local-scale distance normalization (`sq_dist / (scale_a *
 /// scale_b)`).
 #[inline(always)]
@@ -136,14 +93,100 @@ pub fn wasserstein_delta(sq_dist: f64, scale_a: f64, scale_b: f64) -> f64 {
     sq_dist.max(0.0) / norm + diff * diff
 }
 
-/// Boroczky binary-tiling L-order cell key (`arXiv:2305.01356`) packing
-/// integer level `floor(log2(scale))` and dilated grid coordinate `floor(coord
-/// * 2^-level)`.
+/// Apply the configured pairwise distance metric transformation to a squared
+/// Euclidean distance given two local lengthscales.
 #[inline(always)]
-pub fn grid_cell(coord: f32, scale: f32) -> u64 {
-    let level = scale.max(1.0e-12).log2().floor() as i32;
-    let grid = (coord * (-level as f32).exp2()).floor() as i32;
-    ((level as u32 as u64) << 32) | (grid as u32 as u64)
+pub fn metric_delta(metric: DistanceMetric, sq_dist: f64, scale_a: f64, scale_b: f64) -> f64 {
+    match metric {
+        DistanceMetric::Euclidean => sq_dist,
+        DistanceMetric::Conformal { .. } => conformal_delta(sq_dist, scale_a, scale_b),
+        DistanceMetric::Hyperbolic { .. } => halfspace_delta(sq_dist, scale_a, scale_b),
+        DistanceMetric::Wasserstein { .. } => wasserstein_delta(sq_dist, scale_a, scale_b),
+    }
+}
+
+/// Per-row `k`th off-diagonal squared distance (floored at `1e-12`) for an
+/// `n x n` distance matrix.
+pub fn local_scales(n: usize, k: usize, dist_at: impl Fn(usize, usize) -> f64) -> Vec<f64> {
+    (0..n)
+        .map(|row| {
+            let mut values = (0..n)
+                .filter(|&col| col != row)
+                .map(|col| dist_at(row, col))
+                .filter(|&d| d > 0.0)
+                .collect::<Vec<_>>();
+            if values.is_empty() {
+                1.0e-12
+            } else {
+                values.sort_by(f64::total_cmp);
+                values[k.min(values.len()) - 1].max(1.0e-12)
+            }
+        })
+        .collect()
+}
+
+/// Mean positive finite off-diagonal squared distance across an `n x n`
+/// distance matrix, floored at `1e-12` (fallback `1.0`).
+pub fn characteristic_distance(n: usize, dist_at: impl Fn(usize, usize) -> f64) -> f64 {
+    let mut sum = 0.0_f64;
+    let mut count = 0usize;
+    for row in 0..n {
+        for col in 0..n {
+            let d = dist_at(row, col);
+            if row != col && d.is_finite() && d > 0.0 {
+                sum += d;
+                count += 1;
+            }
+        }
+    }
+    if count > 0 {
+        (sum / count as f64).max(1.0e-12)
+    } else {
+        1.0
+    }
+}
+
+/// Draw `(epistemic, aleatoric)` variance scale candidates from the canonical
+/// log-uniform hyperparameter prior (`10^[-3, 3] / d_scale` and `10^[-6, 0]`).
+#[cfg(not(cabi_parity))]
+pub fn draw_scales<R: rand::Rng>(
+    num_candidates: usize,
+    d_scale: f64,
+    infer_aleatoric: bool,
+    rng: &mut R,
+) -> Vec<(f64, f64)> {
+    if num_candidates == 0 {
+        return Vec::new();
+    }
+    let d_scale = if d_scale.is_finite() && d_scale > 0.0 {
+        d_scale.max(1.0e-12)
+    } else {
+        1.0
+    };
+    let epi: Vec<f64> = (0..num_candidates)
+        .map(|_| 10.0_f64.powf(rng.gen_range(-3.0..=3.0)) / d_scale)
+        .collect();
+    let ale: Vec<f64> = if infer_aleatoric {
+        (0..num_candidates)
+            .map(|_| 10.0_f64.powf(rng.gen_range(-6.0..=0.0)))
+            .collect()
+    } else {
+        vec![0.0; num_candidates]
+    };
+    epi.into_iter().zip(ale).collect()
+}
+
+/// Sample `count` distinct row indices from `0..n` without replacement (or all
+/// `0..n` in order when `count >= n`).
+#[cfg(not(cabi_parity))]
+pub fn sampled_rows<R: rand::Rng>(n: usize, count: usize, rng: &mut R) -> Vec<usize> {
+    if count >= n {
+        (0..n).collect()
+    } else {
+        rand::seq::index::sample(rng, n, count)
+            .into_iter()
+            .collect()
+    }
 }
 
 #[derive(Clone, Copy, Default)]
@@ -161,7 +204,7 @@ impl Prefix {
         self.weight += precision;
         self.noise += precision * precision * noise;
         let variance_error = self.noise / (self.weight * self.weight).max(1.0e-24);
-        let risk = epistemic * distance + variance_error.sqrt();
+        let risk = epistemic * distance + variance_error;
         if self.count == 0 || risk < self.best {
             self.best = risk;
             self.count = rank;
@@ -189,23 +232,6 @@ mod tests {
         assert!((horo - 0.5).abs() < 1.0e-6);
         let dilated = halfspace_delta(16.0_f64, 4.0_f64, 4.0_f64);
         assert!((horo - dilated).abs() < 1.0e-6);
-        assert_eq!(grid_cell(1.5, 0.5), grid_cell(1.75, 0.5));
-        assert_ne!(grid_cell(1.5, 0.5), grid_cell(1.5, 2.0));
-
-        let ids: Vec<i64> = (1..=MAX_HISTORY as i64).collect();
-        let mut outcomes = vec![-2.0f32; MAX_HISTORY];
-        let variances = vec![0.0f32; MAX_HISTORY];
-        let mut sq_dists = vec![100.0f32; MAX_HISTORY * MAX_HISTORY];
-        for i in 0..MAX_HISTORY {
-            sq_dists[i * MAX_HISTORY + i] = 0.0;
-        }
-        outcomes[0] = -1.0;
-        outcomes[5] = -5.0;
-        sq_dists[0 * MAX_HISTORY + 5] = 0.01;
-        sq_dists[5 * MAX_HISTORY + 0] = 0.01;
-        let slot =
-            retention_cone(&ids, 1, &outcomes, &variances, &sq_dists, MAX_HISTORY, 1.0).unwrap();
-        assert_eq!(slot, 5);
 
         let ot_delta = wasserstein_delta(4.0_f64, 2.0_f64, 2.0_f64);
         assert!((ot_delta - 2.0).abs() < 1.0e-6);

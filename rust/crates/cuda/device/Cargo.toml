@@ -5,8 +5,9 @@ edition = "2024"
 publish = false
 
 [features]
-default = ["cuda"]
+default = ["cuda", "cuda-device"]
 cuda = []
+cuda-device = []
 
 [dependencies]
 cuda-core.workspace = true

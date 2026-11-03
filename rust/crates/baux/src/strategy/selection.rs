@@ -171,8 +171,10 @@ pub(super) fn thompson_segments(
                 let mut values: Vec<f64> = (segment.start..segment.end)
                     .map(|cand| flat_scores[arm * n_cand + cand])
                     .collect();
-                for &prev in &local {
-                    values[prev] = f64::NEG_INFINITY;
+                if local.len() < values.len() {
+                    for &prev in &local {
+                        values[prev] = f64::NEG_INFINITY;
+                    }
                 }
                 local.push(argmax_tie(&values, rng));
             }
@@ -180,7 +182,6 @@ pub(super) fn thompson_segments(
         }
         return Ok(selected);
     }
-    let mask_dups = segments.len() > 1;
     let mut selected = Vec::new();
     for segment in segments {
         let mut local = Vec::with_capacity(segment.arms);
@@ -188,7 +189,7 @@ pub(super) fn thompson_segments(
             let mut values: Vec<f64> = (segment.start..segment.end)
                 .map(|cand| samples[[arm, cand, 0]])
                 .collect();
-            if mask_dups {
+            if local.len() < values.len() {
                 for &prev in &local {
                     values[prev] = f64::NEG_INFINITY;
                 }

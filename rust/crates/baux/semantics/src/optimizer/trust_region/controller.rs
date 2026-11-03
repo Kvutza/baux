@@ -1,10 +1,5 @@
-//! Calibrated step acceptance and trust-region radius controller.
+//! Step acceptance and trust-region radius controller.
 
-#[cfg(not(cabi_parity))]
-use baux::semantics::calibration::Calibration;
-
-pub(super) const MIN_SCALE: f64 = 1.0e-12;
-pub(super) const PRIOR: f64 = 1.0;
 const SIGN_MASK: u64 = 0x8000_0000_0000_0000;
 const EXP_MASK: u64 = 0x7ff0_0000_0000_0000;
 const FRAC_MASK: u64 = 0x000f_ffff_ffff_ffff;
@@ -67,34 +62,6 @@ pub fn accept_decision(clears_margin: bool) -> bool {
     clears_margin
 }
 
-pub type Gate = bool;
-
-/// Select the trust-region radius adaptation action from the controller's
-/// Boolean gates.
-///
-/// This function is deliberately independent of floating-point arithmetic and
-/// controller storage. Both production controllers call it after computing
-/// their evidence predicates, and Aeneas translates this function to Lean.
-pub fn decide_action(
-    model_adequate: Gate,
-    model_inadequate: Gate,
-    sharp: Gate,
-    accepted: Gate,
-    positive_ratio: Gate,
-    boundary_step: Gate,
-    failure: Gate,
-) -> RadiusAction {
-    if model_inadequate {
-        RadiusAction::Shrink
-    } else if model_adequate && sharp && accepted && positive_ratio && boundary_step {
-        RadiusAction::Expand
-    } else if failure && !accepted {
-        RadiusAction::Shrink
-    } else {
-        RadiusAction::Hold
-    }
-}
-
 impl RadiusAction {
     pub const fn name(self) -> &'static str {
         match self {
@@ -114,9 +81,48 @@ pub struct StepDecision {
     pub predicted_improvement: f64,
     pub action: RadiusAction,
     pub next_radius: f32,
-    pub standardized_error: f64,
-    pub sharpness_ratio: f64,
     pub agreement_ratio: Option<f64>,
+}
+
+#[cfg(not(cabi_parity))]
+pub fn turbo_tolerance(num_dim: f64, num_arms: usize) -> i32 {
+    let arms = (num_arms.max(1)) as f64;
+    let tolerance = ((4.0 / arms).max(num_dim / arms)).ceil() as i32;
+    tolerance.max(1)
+}
+
+#[cfg(not(cabi_parity))]
+pub fn turbo_adapt(
+    length: &mut f64,
+    length_max: f64,
+    success_counter: &mut i32,
+    failure_counter: &mut i32,
+    success_tol: i32,
+    failure_tol: i32,
+    improved: Option<bool>,
+) -> RadiusAction {
+    match improved {
+        Some(true) => {
+            *success_counter += 1;
+            *failure_counter = 0;
+        }
+        Some(false) => {
+            *failure_counter += 1;
+            *success_counter = 0;
+        }
+        None => {}
+    }
+    if *success_counter >= success_tol {
+        *length = (*length * 2.0).min(length_max);
+        *success_counter = 0;
+        RadiusAction::Expand
+    } else if *failure_counter >= failure_tol {
+        *length *= 0.5;
+        *failure_counter = 0;
+        RadiusAction::Shrink
+    } else {
+        RadiusAction::Hold
+    }
 }
 
 #[cfg(not(cabi_parity))]
@@ -148,42 +154,31 @@ impl TurboState {
     }
 
     pub fn step(&mut self, accepted: bool) -> RadiusAction {
-        if accepted {
-            self.failures = 0;
-            self.successes += 1;
-            if self.successes >= self.success_limit {
-                self.successes = 0;
-                self.length = (self.length * 2.0).min(self.maximum);
-                RadiusAction::Expand
-            } else {
-                RadiusAction::Hold
-            }
-        } else {
-            self.failures += 1;
+        let mut successes = self.successes as i32;
+        let mut failures = self.failures as i32;
+        let action = turbo_adapt(
+            &mut self.length,
+            self.maximum,
+            &mut successes,
+            &mut failures,
+            self.success_limit as i32,
+            self.failure_limit as i32,
+            Some(accepted),
+        );
+        self.successes = successes as usize;
+        self.failures = failures as usize;
+        if action == RadiusAction::Shrink && self.length < self.minimum {
+            // TuRBO restart: collapse below minimum resets to initial.
+            self.length = self.initial;
             self.successes = 0;
-            if self.failures >= self.failure_limit {
-                self.failures = 0;
-                let shrunk = self.length * 0.5;
-                if shrunk < self.minimum {
-                    // TuRBO restart: collapse below minimum resets to initial.
-                    self.length = self.initial;
-                    self.successes = 0;
-                } else {
-                    self.length = shrunk;
-                }
-                RadiusAction::Shrink
-            } else {
-                RadiusAction::Hold
-            }
         }
+        action
     }
 }
 
-/// Pure TuRBO trust-region adaptation with calibration and numerical
-/// validation.
+/// Pure TuRBO trust-region adaptation with numerical validation.
 #[cfg(not(cabi_parity))]
 pub struct TrustRegionController {
-    pub(super) calibration: Calibration,
     turbo: TurboState,
 }
 
@@ -228,7 +223,6 @@ impl TrustRegionController {
             return Err("invalid trust-region radius boundaries".into());
         }
         Ok(Self {
-            calibration: Calibration::default(),
             turbo: TurboState::new(initial, minimum, maximum, failure_limit),
         })
     }
@@ -241,8 +235,8 @@ impl TrustRegionController {
         self.radius_f64() as f32
     }
 
-    /// Warm observations use the supplied margin without advancing evidence or
-    /// calibration. The incumbent radius remains unchanged.
+    /// Warm observations use the supplied margin without advancing evidence.
+    /// The incumbent radius remains unchanged.
     pub fn observe_initial(
         &self,
         observed_improvement: f32,
@@ -274,15 +268,13 @@ impl TrustRegionController {
             predicted_improvement,
             action: RadiusAction::Hold,
             next_radius: self.radius(),
-            standardized_error: 0.0,
-            sharpness_ratio: 0.0,
             agreement_ratio: (predicted_improvement > 0.0)
                 .then_some(observed_improvement / predicted_improvement),
         })
     }
 
     /// Evaluate a trial step directly from the surrogate's `PoolSelection`,
-    /// handling warmup vs. modeled baseline and calibration regime internally.
+    /// handling warmup vs. modeled baseline internally.
     pub fn evaluate_selection(
         &mut self,
         value: f32,
@@ -298,9 +290,7 @@ impl TrustRegionController {
         }
         let improvement = f64::from(value) - f64::from(selection.baseline_value);
         let predicted = f64::from(selection.candidate.mean) - f64::from(selection.incumbent.mean);
-        let pred_se = f64::from(selection.candidate.standard_error.max(0.0));
         let obs_var = f64::from(variance);
-        let pred_var = pred_se * pred_se;
         let threshold = 0.0;
         let accepted = accept_candidate(improvement, threshold);
         let numerical =
@@ -313,14 +303,7 @@ impl TrustRegionController {
                 threshold,
                 accepted,
             ))?;
-        let mut calibration = self.calibration.clone();
-        calibration.observe(
-            improvement as f32,
-            predicted as f32,
-            (obs_var + pred_var).sqrt() as f32,
-        )?;
         let action = self.turbo.step(accepted);
-        self.calibration = calibration;
         Ok(StepDecision {
             numerical,
             accepted,
@@ -329,8 +312,6 @@ impl TrustRegionController {
             predicted_improvement: predicted,
             action,
             next_radius: self.radius(),
-            standardized_error: 0.0,
-            sharpness_ratio: 0.0,
             agreement_ratio: (predicted > 0.0).then_some(improvement / predicted),
         })
     }
@@ -345,25 +326,16 @@ fn eval_warmup(
 ) -> Result<StepDecision, String> {
     let improvement = f64::from(value) - f64::from(selection.baseline_value);
     let predicted = f64::from(selection.candidate.mean) - f64::from(selection.baseline_value);
-    let base_var = selection.baseline_se * selection.baseline_se;
-    let pair_var = if variance.to_bits() == base_var.to_bits() {
-        0.0
-    } else {
-        f64::from(variance)
-    };
-    let multiplier = f64::from(ctrl.calibration.multiplier());
-    let threshold = multiplier * pair_var.sqrt();
+    let obs_var = f64::from(variance);
+    let threshold = 0.0;
     super::controller::validate_improvements(improvement, predicted)?;
-    if !threshold.is_finite() {
-        return Err("acceptance margin must be finite".into());
-    }
     let accepted = accept_candidate(improvement, threshold);
     let numerical =
         baux::semantics::numerical::check(baux::semantics::numerical::Trace::observed(
             baux::semantics::numerical::Kind::Paired,
             improvement,
-            multiplier,
-            pair_var,
+            0.0,
+            obs_var,
             0.0,
             threshold,
             accepted,
@@ -376,8 +348,6 @@ fn eval_warmup(
         predicted_improvement: predicted,
         action: RadiusAction::Hold,
         next_radius: ctrl.radius(),
-        standardized_error: 0.0,
-        sharpness_ratio: 0.0,
         agreement_ratio: (predicted > 0.0).then_some(improvement / predicted),
     })
 }
@@ -394,20 +364,5 @@ mod kani_proofs {
         let rf = f64::from_bits(right);
         assert_eq!(accept_bits(left, right), lf > rf);
         assert!(!accept_bits(left, left));
-    }
-
-    #[kani::proof]
-    fn prove_action() {
-        let a: bool = kani::any();
-        let b: bool = kani::any();
-        let c: bool = kani::any();
-        let d: bool = kani::any();
-        let e: bool = kani::any();
-        let f: bool = kani::any();
-        let g: bool = kani::any();
-        let action = decide_action(a, b, c, d, e, f, g);
-        if b {
-            assert_eq!(action, RadiusAction::Shrink);
-        }
     }
 }

@@ -216,34 +216,6 @@ impl ParamTree<usize> {
         let counts = Self::mhc4_counts(patch_size);
         counts.zip_with(&counts, |&c, _| c as f64 / total)
     }
-
-    /// Compute the 17-family active-energy multipliers (`ActiveEnergy.lean`
-    /// P4/P5). Balances fan-in-normalized perturbation scales across
-    /// always-active dense/shared projections (`1.0`), routed experts
-    /// (`1.0`), routers/predictors (`0.5`), and sensitive RMSNorms and mHC
-    /// mixing controls (`0.25`).
-    pub fn active_multipliers() -> ParamTree<f32> {
-        let shares = Self::mhc4_shares(1);
-        let routed_share =
-            *shares.get(ParamFamily::RoutedGateUp) + *shares.get(ParamFamily::RoutedDown);
-        let routed_scale = if routed_share > 0.0 { 1.0_f32 } else { 0.0_f32 };
-        ParamTree::from_fn(|family| match family {
-            ParamFamily::RoutedGateUp | ParamFamily::RoutedDown => routed_scale,
-            ParamFamily::TokenEmbed
-            | ParamFamily::AttnQ
-            | ParamFamily::AttnK
-            | ParamFamily::AttnV
-            | ParamFamily::AttnO
-            | ParamFamily::SharedGate
-            | ParamFamily::SharedUp
-            | ParamFamily::SharedDown => 1.0,
-            ParamFamily::Router | ParamFamily::MhcPre | ParamFamily::MhcPost => 0.5,
-            ParamFamily::MhcAlpha
-            | ParamFamily::MhcMix
-            | ParamFamily::AttnNorm
-            | ParamFamily::FfnNorm => 0.25,
-        })
-    }
 }
 
 #[cfg(kani)]

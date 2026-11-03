@@ -221,20 +221,7 @@ impl RunConfig {
         Ok(())
     }
 
-    fn validate_program(&self, pretrain: bool) -> Result<(), String> {
-        let lie_or_rotation = matches!(
-            self.proposal_method,
-            Some(
-                crate::procedural_pool::ProposalMethod::PairMix
-                    | crate::procedural_pool::ProposalMethod::QuadraticFlow
-            )
-        );
-        if lie_or_rotation && !pretrain {
-            return Err(
-                "Lie and pair-rotation require pretraining and Gaussian or Rademacher perturbations"
-                    .into(),
-            );
-        }
+    fn validate_program(&self, _pretrain: bool) -> Result<(), String> {
         Ok(())
     }
 
@@ -331,18 +318,11 @@ mod program_tests {
     use super::*;
 
     #[test]
-    fn pair_rotation() {
-        let mut config: RunConfig = baux::artifact::toml::from_str(
-            "proposal_method='pair-rotation'\nperturbation='gaussian'",
-        )
-        .unwrap();
-        assert_eq!(config.proposal_method.unwrap().name(), "pair-rotation");
+    fn independent_proposal() {
+        let mut config: RunConfig =
+            baux::artifact::toml::from_str("perturbation='gaussian'").unwrap();
         assert!(config.validate_program(true).is_ok());
-        assert!(config.validate_program(false).is_err());
         config.perturbation = Some(crate::ProposalKernel::Rademacher);
         assert!(config.validate_program(true).is_ok());
-        assert!(
-            baux::artifact::toml::from_str::<RunConfig>("proposal_method='lie-operator'").is_err()
-        );
     }
 }

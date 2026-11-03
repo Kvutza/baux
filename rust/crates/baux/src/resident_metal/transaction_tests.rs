@@ -21,7 +21,6 @@ fn state() -> (SearchState, RoundConfig) {
             }
             .resolve_resident()
             .unwrap(),
-            proposal_method: crate::procedural_pool::ProposalMethod::Additive,
             ask,
             num_candidates: 4,
             num_samples: 4,
@@ -111,10 +110,10 @@ fn partial_commit() {
             .unwrap();
         // Inject a bookkeeping failure after the physical weight commit.
         // The public contract is poison-and-stop, not rollback or retry.
-        let dummy = ParamBlock::new(1, 0, 1, 1.0, 1.0).unwrap();
-        search.family = Some(FamilyHistory::new(vec![0, 1, 2, 3], &[dummy; 4]).unwrap());
+        search.fit_params = true;
+        search.fitter = None;
         let error = search.tell_evaluated(&proposal, evaluation).unwrap_err();
-        assert_eq!(error, "Missing family components");
+        assert_eq!(error, "Metal implicit ENN is not configured");
         assert_eq!(read::<u16>(&search.base, 17), proposed);
         assert!(search.poisoned);
         assert!(search.sync().is_err());

@@ -60,7 +60,8 @@ pub(super) fn attach_pair(
             )
         };
     let optimizer_value = baseline + improvement;
-    let optimizer_variance = baseline_variance + improvement_variance;
+    let optimizer_variance = improvement_variance;
+    let _ = baseline_variance;
     if !improvement.is_finite()
         || !improvement_variance.is_finite()
         || improvement_variance < 0.0
@@ -405,21 +406,16 @@ pub(super) fn tell_paired(
     search: &mut crate::resident_metal::SearchState,
     proposal: &crate::resident_metal::Proposals,
     evaluation: &Evaluation,
+    initial: bool,
 ) -> Result<crate::resident_metal::NoisyDecision, String> {
     let paired = evaluation
         .paired
         .ok_or("paired generation lost its response")?;
-    let best = search.best()?;
-    let best_variance = search.best_variance()?;
-    search.paired_modeled(
-        proposal,
-        paired.optimizer_value,
-        paired.optimizer_variance,
-        best,
-        best_variance,
-        paired.improvement,
-        paired.improvement_variance,
-    )
+    if initial {
+        search.tell_initial(proposal, paired.optimizer_value, paired.optimizer_variance)
+    } else {
+        search.tell_modeled(proposal, paired.optimizer_value, paired.optimizer_variance)
+    }
 }
 
 fn conditional_nll(evaluation: &Evaluation) -> Result<f32, String> {

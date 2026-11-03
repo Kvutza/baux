@@ -137,7 +137,7 @@ def create_optimizer(
 
     bounds = np.asarray(bounds, dtype=float)
     plan = _plan(config)
-    n = config.init.num_init or 10
+    n = 10 if config.init.num_init is None else int(config.init.num_init)
     seed = int(rng.integers(2**63 - 1))
     inner = _rust.create_optimizer(
         bounds,

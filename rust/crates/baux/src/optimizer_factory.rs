@@ -146,7 +146,6 @@ mod tests {
         AcquisitionSpec, DistanceMetric, OptimizerSpec, RunConfig, SurrogateFit, SurrogateRecipe,
         TrustRegionBounds,
     };
-    use crate::procedural_pool::ProposalMethod;
     use ndarray::{Array2, array};
     use rand::SeedableRng;
     use rand::rngs::StdRng;
@@ -284,7 +283,6 @@ mod tests {
     fn spec_builds() {
         let bounds = array![[-1.0, 1.0], [-2.0, 2.0]];
         let spec = OptimizerSpec::TurboEnn {
-            proposal: ProposalMethod::Additive,
             candidates: 16,
             arms: 2,
             distribution: None,

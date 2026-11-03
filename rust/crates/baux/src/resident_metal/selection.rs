@@ -10,82 +10,20 @@
 use super::*;
 
 impl SearchState {
-    /// Kernel program tag: 3 for pair rotation, 4 for quadratic flow, otherwise
-    /// 0 for the ordinary innovation path. This tag is separate from the
-    /// Gaussian/Rademacher sampler mode.
-    pub fn proposal_program(&self) -> u32 {
-        self.proposal_method.program_id()
-    }
-
-    /// Whether ask may skip materializing the full parameter-sized pool.
-    /// Latent mode ranks using sampled parameter geometry when installed,
-    /// threshold geometry, or procedural approximations. Only the selected row
-    /// is fully materialized; `true` does not mean every distance is analytic
-    /// or that the selected row is subsequently scored without a forward pass.
-    pub fn analytic_pool(&self) -> bool {
-        self.latent_history
-    }
-
-    /// Procedural squared-norm estimate: sum of `len * weight * (scale*r)^2`.
-    /// Equals the ideal second moment for independent, centered, unit-variance
-    /// additive innovations. It ignores rounding and sample cross terms and is
-    /// NOT the exact norm of the state-dependent pair-rotation program. Used
-    /// as procedural geometry/metadata, separately from sampled distances.
-    pub fn latent_norm(&self, candidate: usize) -> f32 {
-        let radius = f64::from(self.radius(candidate));
-        self.blocks
-            .iter()
-            .map(|block| {
-                let step = f64::from(block.scale) * radius;
-                block.len as f64 * f64::from(block.weight) * step * step
-            })
-            .sum::<f64>() as f32
-    }
-
-    /// Split the same ideal innovation norm into configured tensor families.
-    /// Uses original family metric weights with current block scales. Returns
-    /// zeros if family learning is disabled; not a measurement of realized
-    /// pairs.
-    pub fn latent_components(&self, candidate: usize) -> [f32; FAMILIES] {
-        let mut norms = [0.0f64; FAMILIES];
-        let Some(family) = &self.family else {
-            return [0.0; FAMILIES];
-        };
-        let radius = f64::from(self.radius(candidate));
-        for (index, block) in self.blocks.iter().enumerate() {
-            let step = f64::from(block.scale) * radius;
-            norms[family.groups[index]] +=
-                block.len as f64 * f64::from(family.original[index].weight) * step * step;
-        }
-        norms.map(|norm| norm as f32)
-    }
-
     #[cfg(test)]
     /// Build single-candidate kernel parameters for parity tests, carrying both
     /// the raw root and derived stream so program-specific seed mapping is
     /// tested.
     pub fn params(&self, root: u64, candidate: usize) -> Params {
         let radius = self.radius(candidate);
-        let (trajectory_count, trajectory_seeds, trajectory_weights, trajectory_fresh) =
-            self.trajectory.as_ref().map_or(
-                (0, [0; TRAJECTORY_CAPACITY], [0.0; TRAJECTORY_CAPACITY], 1.0),
-                |t| t.pack(self.base_id),
-            );
         Params {
             seed: self.procedural_seed(root, candidate),
             stream_seed: root,
-            basis_seed: 0,
             radius,
-            alternate_radius: radius,
             candidate: candidate as u32,
             tiles: self.tiles.len() as u32,
             history: self.physical_history() as u32,
             mode: self.perturbation.shader(),
-            program: self.proposal_program(),
-            trajectory_count,
-            trajectory_fresh,
-            trajectory_seeds,
-            trajectory_weights,
             ..Params::default()
         }
     }
@@ -94,37 +32,19 @@ impl SearchState {
     /// non-rotation pool. `base_slot = u32::MAX` means no resident incumbent
     /// slot; it is not a valid history index.
     pub fn pool_params(&self, root: u64) -> Params {
-        let (trajectory_count, trajectory_seeds, trajectory_weights, trajectory_fresh) =
-            self.trajectory.as_ref().map_or(
-                (0, [0; TRAJECTORY_CAPACITY], [0.0; TRAJECTORY_CAPACITY], 1.0),
-                |t| t.pack(self.base_id),
-            );
         Params {
             seed: self.procedural_seed(root, 0),
-            stream_seed: if self.pool_layout == crate::procedural_pool::ProceduralPool::legacy()
-                && !self.proposal_method.program_pool()
-            {
-                candidate_seed(root, 2)
-            } else {
-                root
-            },
-            basis_seed: 0,
+            stream_seed: root,
             radius: self.radius(0),
-            alternate_radius: self.radius(1),
             tiles: self.tiles.len() as u64 as u32,
             history: self.physical_history() as u32,
             mode: self.perturbation.shader(),
-            program: self.proposal_program(),
             blocks: self.blocks.len() as u32,
             base_slot: self.resident_identities[..self.resident_history]
                 .iter()
                 .position(|&identity| identity == self.base_id)
                 .and_then(|slot| u32::try_from(slot).ok())
                 .unwrap_or(u32::MAX),
-            trajectory_count,
-            trajectory_fresh,
-            trajectory_seeds,
-            trajectory_weights,
             ..Params::default()
         }
     }
@@ -150,7 +70,7 @@ impl SearchState {
             .position(|&identity| identity == self.base_id)
             .unwrap_or(0);
         let base_distances = std::array::from_fn(|i| {
-            if self.implicit_history && i < self.history {
+            if i < self.history {
                 self.pairwise_distances[base_index * MAX_HISTORY + i]
             } else {
                 0.0
@@ -160,24 +80,14 @@ impl SearchState {
         let resident_indices = resident_map(self);
         SelectionParams {
             root_seed: root,
-            basis_seed: 0,
             outcomes: std::array::from_fn(|i| self.outcomes.get(i).copied().unwrap_or(0.0)),
             variances: std::array::from_fn(|i| self.variances.get(i).copied().unwrap_or(0.0)),
             draws: std::array::from_fn(|i| {
-                let identity = if self.relative {
-                    self.identities
-                        .get(i)
-                        .copied()
-                        .filter(|&id| id != 0)
-                        .unwrap_or_else(|| i as i64 + 1)
-                } else {
-                    self.identities.get(i).copied().unwrap_or(0)
-                };
+                let identity = self.identities.get(i).copied().unwrap_or(0);
                 crate::hash::normal_metric(config.acquisition.seed, identity, 0) as f32
             }),
             base_distances,
             local_scales,
-            latent_norms: std::array::from_fn(|candidate| self.latent_norm(candidate)),
             axis_history: std::array::from_fn(|i| {
                 self.axis.as_ref().map_or(0.0, |axis| axis.history[i])
             }),
@@ -192,7 +102,6 @@ impl SearchState {
             y_scale: config.surrogate.output_scale,
             beta: config.acquisition.beta,
             radius: self.radius(0),
-            alternate_radius: self.radius(1),
             neighbors: config.surrogate.neighbors as u32,
             history: self.history as u32,
             acquisition: match config.acquisition.kind {
@@ -202,11 +111,9 @@ impl SearchState {
             },
             tiles: self.tiles.len() as u32,
             mode: self.perturbation.shader(),
-            program: self.proposal_program(),
             resident_history: self.physical_history() as u32,
             resident_indices,
             implicit_history: u32::from(self.implicit_history),
-            latent_history: u32::from(self.latent_history),
             forced_candidate: forced_candidate.unwrap_or(4) as u32,
             distance_metric: match self.distance_metric {
                 crate::config::DistanceMetric::Euclidean => 0,
@@ -217,8 +124,8 @@ impl SearchState {
             local_scale_neighbors: self.local_scale_neighbors as u32,
             incumbent_index: base_index as u32,
             candidate_floor: 0,
-            sampled_history: u32::from(self.neighbors.is_some()),
             adaptive_neighbors: u32::from(self.adapt_neighbors),
+            pad: 0,
         }
     }
 
@@ -232,67 +139,11 @@ impl SearchState {
         }
     }
     /// Dimensionless multiplier applied to each block's proposal scale.
-    /// Single-slot pools use `self.length`, and multi-slot pools use 0.5x/2x
-    /// `self.length` for even/odd arm indices, clamped to configured bounds.
-    /// This is not the Euclidean norm of the displacement.
-    pub fn radius(&self, candidate: usize) -> f32 {
-        (self.length
-            * if self.pool_layout.slots() == 1 {
-                1.0
-            } else if candidate & 1 == 0 {
-                0.5
-            } else {
-                2.0
-            })
-        .clamp(self.length_config.length_min, self.length_config.length_max) as f32
-    }
-    /// Ensure the optional correlated BF16 reference exists inside an
-    /// autorelease pool; a no-op for the independent FP16 representation.
-    pub fn ensure_ref(&mut self) -> Result<(), String> {
-        autoreleasepool(|| self.init_reference())
-    }
-
-    /// Lazily allocate and generate the configured correlated reference.
-    /// Requires a reference seed outside FP16 mode, checks memory and per-block
-    /// RMS, and waits for GPU completion. Drops the new reference on failure.
-    pub fn init_reference(&mut self) -> Result<(), String> {
-        if self.independent_fp16 {
-            return Ok(());
-        }
-        let seed = self
-            .reference_seed
-            .ok_or("Enable correlated Metal sampling first")?;
-        if self.reference.is_none() {
-            preflight(&self.runtime, &[self.row_bytes()], self.row_bytes())?;
-            self.reference = Some(self.runtime.buffer::<u16>(self.dimensions));
-            let command = self.runtime.queue.new_command_buffer();
-            self.encode_ref(
-                command,
-                Params {
-                    seed,
-                    initialize: 1,
-                    ..Params::default()
-                },
-            );
-            if let Err(error) = finish(command).and_then(|()| self.check_reference()) {
-                self.reference = None;
-                return Err(error);
-            }
-        }
-        Ok(())
-    }
-    /// Reject nonfinite or nonpositive stored reference RMS values.
-    /// Checks scale metadata only, not objective quality or every reference
-    /// word.
-    pub fn check_reference(&self) -> Result<(), String> {
-        if read::<f32>(&self.reference_scales, self.blocks.len())
-            .iter()
-            .any(|x| !x.is_finite() || *x <= 0.0)
-        {
-            Err("Invalid Metal BF16 reference RMS".into())
-        } else {
-            Ok(())
-        }
+    /// Clamped to configured bounds. This is not the Euclidean norm of the
+    /// displacement.
+    pub fn radius(&self, _candidate: usize) -> f32 {
+        self.length
+            .clamp(self.length_config.length_min, self.length_config.length_max) as f32
     }
 }
 
@@ -319,13 +170,13 @@ fn compute_scales(state: &SearchState) -> [f32; MAX_HISTORY] {
     local_scales
 }
 
-fn resident_map(state: &SearchState) -> [u32; 2] {
+fn resident_map(state: &SearchState) -> [u32; MAX_HISTORY] {
     std::array::from_fn(|i| {
         state.identities[..state.history]
             .iter()
             .position(|identity| {
                 i < state.resident_history && *identity == state.resident_identities[i]
             })
-            .unwrap_or(0) as u32
+            .map_or(u32::MAX, |index| index as u32)
     })
 }

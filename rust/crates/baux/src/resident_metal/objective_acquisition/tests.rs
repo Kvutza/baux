@@ -70,7 +70,6 @@ fn nondominated(report: &ObjectiveSelectionReport, candidate: usize) -> bool {
 fn pareto_control() {
     autoreleasepool(|| {
         let mut search = state();
-        search.correlate(41).unwrap();
         search
             .configure_objectives(Some(config(ObjectiveAcquisition::Pareto)))
             .unwrap();
@@ -101,7 +100,6 @@ fn pareto_control() {
 fn morbo_chebyshev() {
     autoreleasepool(|| {
         let mut search = state();
-        search.correlate(41).unwrap();
         search
             .configure_objectives(Some(config(ObjectiveAcquisition::Morbo {
                 weights: vec![1.0, 2.0],
@@ -137,7 +135,6 @@ fn morbo_chebyshev() {
 fn morbo_state() {
     autoreleasepool(|| {
         let mut search = state();
-        search.correlate(41).unwrap();
         search
             .configure_objectives(Some(config(ObjectiveAcquisition::Morbo {
                 weights: vec![1.0, 1.0],
@@ -182,7 +179,6 @@ fn morbo_state() {
 fn morbo_noise() {
     autoreleasepool(|| {
         let mut search = state();
-        search.correlate(41).unwrap();
         search
             .configure_objectives(Some(config(ObjectiveAcquisition::Morbo {
                 weights: vec![1.0, 1.0],
@@ -228,8 +224,6 @@ fn scalar_optout() {
     autoreleasepool(|| {
         let mut baseline = state();
         let mut toggled = state();
-        baseline.correlate(41).unwrap();
-        toggled.correlate(41).unwrap();
         toggled
             .configure_objectives(Some(config(ObjectiveAcquisition::Pareto)))
             .unwrap();
@@ -261,8 +255,6 @@ fn shared_geometry() {
     autoreleasepool(|| {
         let mut scalar = state();
         let mut vector = state();
-        scalar.correlate(41).unwrap();
-        vector.correlate(41).unwrap();
         prime_geometry(&mut scalar);
         prime_geometry(&mut vector);
         vector

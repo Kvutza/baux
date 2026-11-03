@@ -114,7 +114,7 @@ fn prefix_choice(tc: TestCase) {
             .zip(&points)
             .map(|(&weight, &(_, noise))| weight * weight * noise)
             .sum::<f64>();
-        risks.push(epistemic * distance + (noise / (total * total).max(1.0e-24)).sqrt());
+        risks.push(epistemic * distance + noise / (total * total).max(1.0e-24));
     }
     let expected = risks
         .iter()

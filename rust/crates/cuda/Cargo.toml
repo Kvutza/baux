@@ -5,6 +5,8 @@ edition = "2024"
 publish = false
 
 [features]
+default = ["cuda-host"]
+cuda-host = []
 native-flame = []
 
 [dependencies]

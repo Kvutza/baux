@@ -27,7 +27,6 @@ fn state(initial: ObjectiveObservation) -> SearchState {
 fn vector_history() {
     autoreleasepool(|| {
         let mut search = state(measured(0.0, 10.0, -10.0));
-        search.correlate(41).unwrap();
         for step in 0..5 {
             let proposal = search
                 .ask_round(1, 4, step, RoundConfig::default())
@@ -65,8 +64,6 @@ fn scalar_adapter() {
             length,
         )
         .unwrap();
-        scalar.correlate(41).unwrap();
-        vector.correlate(41).unwrap();
         for (step, value) in [1.0, -1.0, 2.0, -2.0].into_iter().enumerate() {
             let a = scalar
                 .ask_round(1, 4, step as u64, RoundConfig::default())
@@ -102,7 +99,6 @@ fn scalar_adapter() {
 fn retryable_schema() {
     autoreleasepool(|| {
         let mut search = state(measured(0.0, 1.0, 2.0));
-        search.correlate(41).unwrap();
         let proposal = search.ask_round(1, 4, 0, RoundConfig::default()).unwrap();
         let identity = search.observation;
         assert!(

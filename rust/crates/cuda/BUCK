@@ -17,7 +17,7 @@ rust_library(
     crate = "baux_cuda_device",
     crate_root = "device/src/lib.rs",
     edition = RUST_EDITION,
-    features = ["cuda", "default"],
+    features = ["cuda", "cuda-device", "default"],
     env = {
         "CARGO_CRATE_NAME": "baux_cuda_device",
         "CARGO_PKG_NAME": "baux-cuda-device",
@@ -64,6 +64,7 @@ app_rust_library(
     crate = "baux_cuda",
     crate_root = "src/lib.rs",
     edition = RUST_EDITION,
+    features = ["cuda-host", "default"],
     env = {
         "CARGO_CRATE_NAME": "baux_cuda",
         "CARGO_PKG_NAME": "baux-cuda",

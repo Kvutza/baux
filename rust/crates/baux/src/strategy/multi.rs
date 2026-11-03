@@ -84,15 +84,16 @@ pub(super) fn tell_common(
 
 fn ensure_active(
     multi_tr: &mut MultiTrustRegionState,
-    center: &Array1<f64>,
+    rng: &mut dyn RngCore,
 ) -> Result<(), ENNError> {
     if multi_tr.active_count() > 0 {
         return Ok(());
     }
-    let center_view = center.view();
     for region in 0..multi_tr.num_regions() {
+        let fresh_center =
+            Array1::from_shape_fn(multi_tr.num_dim(), |_| rand::Rng::gen_range(rng, 0.0..1.0));
         multi_tr
-            .restart_region(region, &center_view)
+            .restart_region(region, &fresh_center.view())
             .map_err(|e| ENNError::InvalidParameter(e.to_string()))?;
     }
     Ok(())
@@ -100,16 +101,17 @@ fn ensure_active(
 
 fn restart_inactive(
     multi_tr: &mut MultiTrustRegionState,
-    center: &Array1<f64>,
+    rng: &mut dyn RngCore,
 ) -> Result<(), ENNError> {
     if multi_tr.active_count() == 0 {
-        return ensure_active(multi_tr, center);
+        return ensure_active(multi_tr, rng);
     }
-    let center_view = center.view();
     for region in 0..multi_tr.num_regions() {
         if !multi_tr.active_mask[region] {
+            let fresh_center =
+                Array1::from_shape_fn(multi_tr.num_dim(), |_| rand::Rng::gen_range(rng, 0.0..1.0));
             multi_tr
-                .restart_region(region, &center_view)
+                .restart_region(region, &fresh_center.view())
                 .map_err(|e| ENNError::InvalidParameter(e.to_string()))?;
         }
     }
@@ -175,13 +177,9 @@ pub(super) fn ask_multi(
         return ask_init(&state, optimizer, num_arms, rng);
     }
 
-    let center = optimizer
-        .unit_incumbent()
-        .cloned()
-        .unwrap_or_else(|| optimizer.domain.unit_center());
     let batches = match &mut optimizer.regions {
         TrustRegionState::Multi { state, .. } => {
-            ensure_active(state, &center)?;
+            ensure_active(state, rng)?;
             state
                 .allocate(num_arms)
                 .map_err(|e| ENNError::InvalidParameter(e.to_string()))?
@@ -238,27 +236,16 @@ pub(super) fn tell_multi(
     optimizer.telemetry = telemetry;
     res?;
 
-    optimizer.warmup.advance_init(x.nrows());
-    optimizer.warmup.check_transition();
-
-    let center = optimizer
-        .unit_incumbent()
-        .cloned()
-        .unwrap_or_else(|| optimizer.domain.unit_center());
+    let lengthscales = optimizer.surrogate().and_then(|s| s.lengthscales());
+    let ls_ref: Option<ArrayView1<f64>> = lengthscales.as_ref().map(|ls| ls.view());
     let y_scalar = y.column(0);
 
     if let TrustRegionState::Multi { state, pending } = &mut optimizer.regions {
         let pending_regions = pending.take();
-        if let Some(regions) = pending_regions.as_deref() {
-            state
-                .tell(x, &y_scalar, Some(regions))
-                .map_err(|e| ENNError::InvalidParameter(e.to_string()))?;
-        } else {
-            state
-                .tell_update(x, &y_scalar)
-                .map_err(|e| ENNError::InvalidParameter(e.to_string()))?;
-        }
-        restart_inactive(state, &center)?;
+        state
+            .tell_scaled(x, &y_scalar, pending_regions.as_deref(), ls_ref.as_ref())
+            .map_err(|e| ENNError::InvalidParameter(e.to_string()))?;
+        restart_inactive(state, rng)?;
     }
 
     Ok(())

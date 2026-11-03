@@ -109,7 +109,7 @@ fn write_pretrain(
             rep + 1,
             run.reps(),
             run.proposal_kernel().name(),
-            run.proposal_method.unwrap_or_default().name(),
+            "independent",
             objective_reference.name(),
             shape.name(),
             "turbo",

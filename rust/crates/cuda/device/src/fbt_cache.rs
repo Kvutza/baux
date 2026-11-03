@@ -218,8 +218,7 @@ unsafe fn select_score(
 }
 
 #[inline(always)]
-pub(crate) fn select_top(mut score: f32, node: u32, level: u32, tid: u32) -> u32 {
-    let mut max_finite = f32::NEG_INFINITY;
+pub(crate) fn select_top(mut score: f32, node: u32, tid: u32) -> u32 {
     let mut my_chosen = u32::MAX;
     let mut slot = 0_u32;
     while slot < 8 {
@@ -227,10 +226,6 @@ pub(crate) fn select_top(mut score: f32, node: u32, level: u32, tid: u32) -> u32
         for mask in [8, 4, 2, 1] {
             best_score = best_score.max(warp::shuffle_xor_f32(best_score, mask));
         }
-        if best_score.is_finite() && max_finite == f32::NEG_INFINITY {
-            max_finite = best_score;
-        }
-        let drop = level == 0 && max_finite > f32::NEG_INFINITY && best_score < max_finite - 12.0;
         let mut best_node = if score == best_score && best_score > f32::NEG_INFINITY {
             node
         } else {
@@ -240,7 +235,7 @@ pub(crate) fn select_top(mut score: f32, node: u32, level: u32, tid: u32) -> u32
             best_node = best_node.min(warp::shuffle_xor(best_node, mask));
         }
         if tid == slot {
-            my_chosen = if drop { u32::MAX } else { best_node };
+            my_chosen = best_node;
         }
         if best_node != u32::MAX && node == best_node {
             score = f32::NEG_INFINITY;
@@ -276,7 +271,7 @@ pub(crate) fn run_select(
     let mut node = if tid < 16 { tid } else { u32::MAX };
     loop {
         let score = unsafe { select_score(pyramid, query, node, level, sequence, current, leaves) };
-        let my_chosen = select_top(score, node, level, tid);
+        let my_chosen = select_top(score, node, tid);
         if level == 0 {
             if tid < 8 {
                 unsafe { *blocks.get_unchecked_mut(((row << 3) + tid) as usize) = my_chosen };

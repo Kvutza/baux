@@ -59,7 +59,6 @@ pub enum TrustRegionError {
 pub enum TrustRegionOutcome {
     Success,
     Failure,
-    Inconclusive,
 }
 
 /// Configuration for trust region length parameters.

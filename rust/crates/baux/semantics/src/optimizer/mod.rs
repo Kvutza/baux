@@ -6,33 +6,41 @@
 //! - `trust_region`: stochastic trust-region model agreement and radius control
 //!   (`TrustRegionController`)
 
-pub mod calibration;
+#[cfg(feature = "cuda-host")]
+pub use baux_cuda_device::semantics::optimizer::param_tree;
+#[cfg(not(feature = "cuda-host"))]
+pub mod param_tree;
+pub use param_tree::{ParamFamily, ParamTree};
+
+#[cfg(not(feature = "cuda-device"))]
 pub mod core {
     pub use super::surrogate::ValuePrediction;
 }
-pub mod param_tree;
+#[cfg(not(feature = "cuda-device"))]
 pub mod provenance;
-mod response;
-pub mod reuse;
-pub use reuse::{antipodal_slot, conditioned_sign, conditioned_slot};
+#[cfg(not(feature = "cuda-device"))]
 pub mod settings {
     pub use super::surrogate::SurrogateSpec;
 }
+#[cfg(not(feature = "cuda-device"))]
 pub mod surrogate;
+#[cfg(not(feature = "cuda-device"))]
 pub mod transaction;
+#[cfg(not(feature = "cuda-device"))]
 pub mod trust_region;
-pub use response::response_rms;
 
-// Canonical exports directly at crate root
-pub use param_tree::{ParamFamily, ParamTree};
+#[cfg(not(feature = "cuda-device"))]
 pub use provenance::{ChainedObservation, PairedImprovement, WorldId, WorldMismatchError};
+#[cfg(not(feature = "cuda-device"))]
 pub use surrogate::{
     AcquisitionRule, DistanceMetric, FitState, NeighborValueEstimator, PoolSelection, Surrogate,
     SurrogateSpec, UncertaintyLaw, ValuePrediction,
 };
+#[cfg(not(feature = "cuda-device"))]
 pub use transaction::{AskPlan, EvalReceipt, Evaluated, RoundId, TellDecision};
+#[cfg(not(feature = "cuda-device"))]
 pub use trust_region::{
     CANDIDATES, INITIAL_OBSERVATIONS, MAX_HISTORY, PoolShape, RadiusAction, RadiusController,
-    StepDecision, TrustRegionController, accept_bits, accept_candidate, accept_decision,
-    candidate_seed, decide_action, splitmix64,
+    StepDecision, TrustRegionController, TurboState, accept_bits, accept_candidate,
+    accept_decision, candidate_seed, splitmix64, turbo_adapt, turbo_tolerance,
 };

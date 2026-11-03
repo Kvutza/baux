@@ -149,13 +149,38 @@ impl IncumbentLedger {
         if regions.is_morbo() {
             return self.pick_morbo(&candidates, posterior, regions, num_dim, noise_aware, rng);
         }
-        let best_idx = candidates
-            .into_iter()
-            .max_by(|&a, &b| match (posterior.y_row(a), posterior.y_row(b)) {
-                (Ok(ya), Ok(yb)) => ya[0].total_cmp(&yb[0]),
-                _ => std::cmp::Ordering::Equal,
+        if noise_aware && let Some(surrogate) = posterior.surrogate() {
+            let n_cand = candidates.len();
+            let mut x_cand = Array2::zeros((n_cand, num_dim));
+            for (r, &idx) in candidates.iter().enumerate() {
+                let x_row = posterior.x_row(idx)?;
+                for d in 0..num_dim {
+                    x_cand[[r, d]] = x_row[d];
+                }
+            }
+            if let Ok(pred) = surrogate.predict(&x_cand.view()) {
+                let scores: Vec<f64> = (0..n_cand).map(|r| pred.mu[[r, 0]]).collect();
+                let best_pos = argmax_tie(&scores, rng);
+                let best_idx = candidates[best_pos];
+                self.current = Some(IncumbentPoint {
+                    index: best_idx,
+                    unit_x: posterior.x_row(best_idx)?,
+                    y_scalar: pred.mu.row(best_pos).to_owned(),
+                });
+                return Ok(());
+            }
+        }
+        let scores: Vec<f64> = candidates
+            .iter()
+            .map(|&idx| {
+                posterior
+                    .y_row(idx)
+                    .map(|y| y[0])
+                    .unwrap_or(f64::NEG_INFINITY)
             })
-            .ok_or_else(|| ENNError::InvalidParameter("No incumbent candidates".to_string()))?;
+            .collect();
+        let best_pos = argmax_tie(&scores, rng);
+        let best_idx = candidates[best_pos];
         self.current = Some(IncumbentPoint {
             index: best_idx,
             unit_x: posterior.x_row(best_idx)?,

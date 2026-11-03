@@ -14,7 +14,6 @@ fn state(pool: ProceduralPool, perturbation: ProposalKernel) -> SearchState {
     state
         .configure_enn(crate::config::ResidentEnnConfig {
             pool,
-            proposal_method: crate::procedural_pool::ProposalMethod::Additive,
             ask: {
                 let mut config = RoundConfig::default();
                 config.surrogate.neighbors = 1;
@@ -51,6 +50,7 @@ fn check_layout(pool: ProceduralPool, perturbation: ProposalKernel) {
         assert_eq!(proposal.length.to_bits(), radius.to_bits());
         assert_eq!(proposal.arms(), pool.arms() as usize);
         assert_eq!(read::<u16>(&search.proposal, search.dimensions), bits);
+        assert_eq!(proposal.pool_predictions.len(), pool.count() as usize);
         assert_eq!(
             proposal.procedural_candidates().count(),
             pool.count() as usize
@@ -84,5 +84,68 @@ fn resident_layouts() {
                 check_layout(pool, perturbation);
             }
         }
+    });
+}
+
+#[test]
+fn single_pass() {
+    autoreleasepool(|| {
+        let pool = ProceduralPoolConfig {
+            arms: 1,
+            candidates_per_arm: 1,
+        }
+        .resolve_resident()
+        .unwrap();
+        let mut search = state(pool, ProposalKernel::Gaussian);
+        search.set_profiling(true);
+        let root = crate::hash::splitmix64(99);
+        let expected = search.test_candidate(root, 0).unwrap();
+        let bits = read::<u16>(&expected, search.dimensions).to_vec();
+
+        search
+            .begin_ask(1, 1, root, RoundConfig::default())
+            .unwrap();
+        let proposal = search.finish_ask().unwrap();
+        let profile = search.last_profile().unwrap();
+        assert_eq!(profile.materialize_ms, 0.0);
+        assert_eq!(proposal.pool_predictions.len(), 1);
+        assert_eq!(read::<u16>(&search.proposal, search.dimensions), bits);
+        search.tell_noisy(&proposal, -0.5, 0.0).unwrap();
+        search.sync().unwrap();
+
+        let root2 = crate::hash::splitmix64(100);
+        let expected2 = search.test_candidate(root2, 0).unwrap();
+        let bits2 = read::<u16>(&expected2, search.dimensions).to_vec();
+        let distances = search.sample_distances(root2).unwrap();
+        assert_eq!(distances.len(), 1);
+
+        let mut surrogate =
+            baux::semantics::optimizer::NeighborValueEstimator::new(0.0, 0.0, 7).unwrap();
+        surrogate
+            .append(&distances[0][..1], -0.5, 0.0, false)
+            .unwrap();
+        let selection = surrogate
+            .select_pool(
+                &distances,
+                1,
+                baux::semantics::optimizer::surrogate::AcquisitionRule::Ucb { beta: 1.0 },
+                None,
+            )
+            .unwrap();
+        assert_eq!(selection.pool_predictions.len(), 1);
+        let (_buf, proposal2) = search.materialize_selection(root2, &selection).unwrap();
+        assert_eq!(proposal2.pool_predictions.len(), 1);
+        assert_eq!(read::<u16>(&search.proposal, search.dimensions), bits2);
+
+        let eight_way: Vec<Vec<f64>> = (0..8).map(|i| vec![1.0e-4 * (i + 1) as f64; 2]).collect();
+        let sel8 = surrogate
+            .select_pool(
+                &eight_way,
+                2,
+                baux::semantics::optimizer::surrogate::AcquisitionRule::Ucb { beta: 1.0 },
+                None,
+            )
+            .unwrap();
+        assert_eq!(sel8.pool_predictions.len(), 8);
     });
 }

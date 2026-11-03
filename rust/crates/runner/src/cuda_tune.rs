@@ -336,8 +336,7 @@ fn check_spec(
             .unwrap_or(baux::config::TrustRegionShape::TensorFamilyStatic)
             .name(),
     )?;
-    if policy.proposal_method != baux::procedural_pool::ProposalMethod::Additive
-        || run.proposal_kernel() != baux::ProposalKernel::Gaussian
+    if run.proposal_kernel() != baux::ProposalKernel::Gaussian
         || policy.distance_metric != baux::DistanceMetric::Euclidean
     {
         return Err(
@@ -375,7 +374,6 @@ rounds = 1000
 round-target-ms = 1000
 [optimizer]
 algorithm = "turbo-enn"
-proposal = "independent"
 arms = 1
 candidates = 1
 distribution = "gaussian"

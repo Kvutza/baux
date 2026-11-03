@@ -236,7 +236,7 @@ fn init_surrogate(
     };
     let surrogate = baux::semantics::optimizer::Surrogate::with_spec(
         initial.reward,
-        0.0,
+        initial.variance,
         run.acquisition_seed(),
         policy.surrogate_spec()?,
     )?
@@ -255,9 +255,6 @@ fn build_search(
         weights.search_shaped(run.proposal_kernel(), run.length(), shape)?;
     let policy = run.resident_enn(run.acquisition_seed())?;
     search.configure_enn(policy)?;
-    if run.optimizer() == crate::config::TrainingOptimizer::OperatorBo {
-        search.enable_trajectory();
-    }
     search.set_profiling(run.trace());
     Ok((search, updates, policy))
 }
@@ -395,17 +392,32 @@ impl LongState {
             .checked_add(u64::from(step))
             .ok_or("proposal seed overflow")?;
         let ask_start = Instant::now();
-        let rule = match run.acquisition {
-            Some(crate::config::AcquisitionConfig::Thompson) => {
-                baux::semantics::optimizer::AcquisitionRule::Thompson { seed: prop_seed }
+        let acq_seed = run.acquisition_seed().wrapping_add(u64::from(step));
+        let rule = match run.acquisition.unwrap_or_default() {
+            crate::config::AcquisitionConfig::Thompson => {
+                baux::semantics::optimizer::AcquisitionRule::Thompson { seed: acq_seed }
             }
-            Some(crate::config::AcquisitionConfig::UCB { beta }) => {
+            crate::config::AcquisitionConfig::UCB { beta } => {
                 baux::semantics::optimizer::AcquisitionRule::Ucb { beta: beta as f32 }
             }
-            _ => baux::semantics::optimizer::AcquisitionRule::Ucb { beta: 0.0 },
+            crate::config::AcquisitionConfig::Pareto => {
+                baux::semantics::optimizer::AcquisitionRule::Pareto { seed: acq_seed }
+            }
+            crate::config::AcquisitionConfig::Random => {
+                baux::semantics::optimizer::AcquisitionRule::Ucb { beta: 0.0 }
+            }
         };
         let geometry = self.search.sample_distances(prop_seed)?;
-        let selection = self.surrogate.select_pool(&geometry, step, rule, None)?;
+        let random_sel = run.selection == Some(crate::config::PretrainSelection::Random)
+            || matches!(
+                run.acquisition,
+                Some(crate::config::AcquisitionConfig::Random)
+            );
+        let forced_slot = random_sel
+            .then(|| (baux::semantics::random::splitmix64(prop_seed) as usize) % geometry.len());
+        let selection = self
+            .surrogate
+            .select_pool(&geometry, step, rule, forced_slot)?;
         let (row, proposal) = self.search.materialize_selection(prop_seed, &selection)?;
         Ok(RoundProposal {
             geometry,
@@ -426,14 +438,14 @@ impl LongState {
         let tell_start = Instant::now();
         let decision = self.trust_region.evaluate_selection(
             candidate.reward,
-            0.0,
+            candidate.variance,
             proposed.proposal.length,
             &proposed.selection,
         )?;
         let target_slot = self.surrogate.append(
             &proposed.geometry[proposed.selection.selected],
             candidate.reward,
-            0.0,
+            candidate.variance,
             decision.accepted,
         )?;
         let next_radius = self.trust_region.radius_f64();
@@ -444,11 +456,6 @@ impl LongState {
             decision.accepted,
             next_radius,
         )?;
-        if self.search.family_shape().is_some() {
-            let search = &self.search;
-            self.surrogate
-                .sync_distances(|i, j| search.pairwise_distance(i, j));
-        }
         if self.search.sync()? != vec![decision.accepted] {
             return Err("long pretraining acceptance synchronization failed".into());
         }

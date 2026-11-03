@@ -170,7 +170,6 @@ impl OptimizerSpec {
                 return Err("operator-bo requires 1 candidate and 1 arm".into());
             }
             return Ok(Self::OperatorBo {
-                proposal: candidate_generation.proposal,
                 distribution: candidate_generation.distribution.unwrap_or_default(),
                 surrogate,
                 trust_region,
@@ -178,7 +177,6 @@ impl OptimizerSpec {
         }
         let acquisition = AcquisitionSpec::from_config(config);
         Ok(Self::TurboEnn {
-            proposal: candidate_generation.proposal,
             candidates: candidate_generation.candidates,
             arms: candidate_generation.arms,
             distribution: candidate_generation.distribution,
@@ -201,13 +199,11 @@ impl OptimizerSpec {
         match self {
             Self::Muon | Self::Adamw => Ok(()),
             Self::OperatorBo {
-                proposal,
                 distribution,
                 surrogate,
                 trust_region,
             } => {
                 let candidate_generation = CandidateGenerationSpec {
-                    proposal: *proposal,
                     candidates: 1,
                     arms: 1,
                     distribution: Some(*distribution),
@@ -219,7 +215,6 @@ impl OptimizerSpec {
                 Ok(())
             }
             Self::TurboEnn {
-                proposal,
                 candidates,
                 arms,
                 distribution,
@@ -228,7 +223,6 @@ impl OptimizerSpec {
                 trust_region,
             } => {
                 let candidate_generation = CandidateGenerationSpec {
-                    proposal: *proposal,
                     candidates: *candidates,
                     arms: *arms,
                     distribution: *distribution,
@@ -248,7 +242,6 @@ impl CandidateGenerationSpec {
     fn from_config(config: &RunConfig) -> Result<Self, String> {
         let pool = config.resident_pool()?;
         Ok(Self {
-            proposal: config.proposal_method.unwrap_or_default(),
             candidates: pool.count(),
             arms: pool.arms(),
             distribution: config.perturbation,
@@ -263,7 +256,6 @@ impl CandidateGenerationSpec {
             arms: self.arms,
             candidates_per_arm: self.candidates / self.arms,
         });
-        config.proposal_method = Some(self.proposal);
         config.perturbation = self.distribution;
         Ok(())
     }

@@ -1,6 +1,5 @@
 //! Surrogate models for optimization.
 
-use deser::{Deserialize, Serialize};
 use ndarray::{Array1, Array2, Array3, ArrayView2};
 use rand::RngCore;
 use rand::SeedableRng;
@@ -8,22 +7,14 @@ use rand::SeedableRng;
 use std::path::PathBuf;
 
 use crate::backend::EnnStorage;
-use crate::calibrator::{CalibrationMode, Calibrator, PosteriorCalibrator};
 use crate::error::ENNError;
 use crate::fitter::ENNFitter;
 use crate::index::IndexDriver;
+pub use crate::layout::MetricLearning;
 use crate::model::ENN;
 use crate::params::{ENNParams, PosteriorFlags};
 pub use crate::surrogate_api::{BoxedSurrogate, Surrogate, SurrogatePrediction};
 use crate::traits::PosteriorComputation;
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[deser(rename_all = "snake_case")]
-pub enum MetricLearning {
-    #[default]
-    None,
-    Auto,
-}
 
 #[derive(Debug, Clone)]
 pub struct ENNSurrogateConfig {
@@ -39,7 +30,6 @@ pub struct ENNSurrogateConfig {
     pub metric_learning: MetricLearning,
     pub tied_dims: Vec<Vec<usize>>,
     pub unscaled_dims: Vec<usize>,
-    pub calibration_mode: CalibrationMode,
 }
 
 impl Default for ENNSurrogateConfig {
@@ -57,7 +47,6 @@ impl Default for ENNSurrogateConfig {
             metric_learning: MetricLearning::None,
             tied_dims: Vec::new(),
             unscaled_dims: Vec::new(),
-            calibration_mode: CalibrationMode::None,
         }
     }
 }
@@ -67,7 +56,6 @@ pub struct ENNSurrogate {
     model: Option<ENN>,
     params: Option<ENNParams>,
     fitter: Option<ENNFitter>,
-    calibrator: Option<PosteriorCalibrator>,
 }
 
 impl ENNSurrogate {
@@ -77,7 +65,6 @@ impl ENNSurrogate {
             model: None,
             params: None,
             fitter: None,
-            calibrator: None,
         }
     }
 
@@ -87,10 +74,6 @@ impl ENNSurrogate {
 
     pub fn params(&self) -> Option<&ENNParams> {
         self.params.as_ref()
-    }
-
-    pub fn calibrator(&self) -> Option<&PosteriorCalibrator> {
-        self.calibrator.as_ref()
     }
 
     fn construct_model(
@@ -135,8 +118,7 @@ impl ENNSurrogate {
             let indices: Vec<usize> = (0..n).collect();
             let (train_x, train_y, train_yvar) = model.natural_rows(&indices)?;
             let mut fitter = ENNFitter::new(self.config.k, self.config.infer_aleatoric_variance)
-                .with_bounds(self.config.y_bounds.clone())
-                .with_calibration(self.config.calibration_mode);
+                .with_bounds(self.config.y_bounds.clone());
             let yvar_view = train_yvar.as_ref().map(|v| v.view());
             fitter.tell(&train_x.view(), &train_y.view(), yvar_view.as_ref())?;
             if let Some(p) = self.params {
@@ -157,7 +139,6 @@ impl ENNSurrogate {
             rng,
         )?;
         self.params = Some(p);
-        self.calibrator = fitter.calibrator().cloned();
         Ok(())
     }
 
@@ -201,8 +182,7 @@ impl ENNSurrogate {
             return Ok(());
         }
         let mut fitter = ENNFitter::new(self.config.k, self.config.infer_aleatoric_variance)
-            .with_bounds(self.config.y_bounds.clone())
-            .with_calibration(self.config.calibration_mode);
+            .with_bounds(self.config.y_bounds.clone());
         fitter.tell(x_new, y_new, yvar_new)?;
         let model = self.construct_model(x_new, y_new, yvar_new, rng)?;
         self.model = Some(model);
@@ -240,7 +220,6 @@ impl Surrogate for ENNSurrogate {
         self.model = None;
         self.params = None;
         self.fitter = None;
-        self.calibrator = None;
         if let Some(work_dir) = owned_store {
             baux::neighbor_index::remove_store(&work_dir)
                 .map_err(|error| ENNError::InvalidParameter(error.to_string()))?;
@@ -320,8 +299,7 @@ impl Surrogate for ENNSurrogate {
         let model = self.construct_model(x, y, yvar, &mut local_rng)?;
 
         let mut fitter = ENNFitter::new(self.config.k, self.config.infer_aleatoric_variance)
-            .with_bounds(self.config.y_bounds.clone())
-            .with_calibration(self.config.calibration_mode);
+            .with_bounds(self.config.y_bounds.clone());
         fitter.tell(x, y, yvar)?;
         if let Some(p) = self.params {
             fitter.set_params(p);
@@ -334,7 +312,6 @@ impl Surrogate for ENNSurrogate {
             &mut local_rng,
         )?;
         self.params = Some(p);
-        self.calibrator = fitter.calibrator().cloned();
         self.model = Some(model);
         self.fitter = Some(fitter);
 
@@ -410,11 +387,7 @@ impl Surrogate for ENNSurrogate {
             .into_dimensionality::<ndarray::Ix2>()
             .map_err(|e| ENNError::InvalidParameter(format!("Shape error: {}", e)))?;
 
-        let pred = SurrogatePrediction { mu, se };
-        Ok(match self.calibrator.as_ref() {
-            Some(cal) => cal.calibrate_prediction(pred, Some(model.y_bounds())),
-            None => pred,
-        })
+        Ok(SurrogatePrediction { mu, se })
     }
 
     fn sample(
@@ -438,16 +411,7 @@ impl Surrogate for ENNSurrogate {
         let base_seed = u64::from_le_bytes(seed_bytes) as i64;
         let function_seeds: Vec<i64> = (0..num_samples as i64).map(|i| base_seed + i).collect();
 
-        let (mut draws, _) =
-            model.posterior_draw(x, params, &function_seeds, &Default::default())?;
-        if let Some(cal) = self.calibrator.as_ref() {
-            let post = model.posterior(x, params, &PosteriorFlags::new().tie_neighbors(false))?;
-            let mu0 = post
-                .mu
-                .into_dimensionality::<ndarray::Ix2>()
-                .map_err(|e| ENNError::InvalidParameter(format!("Shape error: {e}")))?;
-            cal.calibrate_draws(&mut draws, &mu0.view(), Some(model.y_bounds()));
-        }
+        let (draws, _) = model.posterior_draw(x, params, &function_seeds, &Default::default())?;
 
         Ok(draws)
     }
@@ -755,7 +719,6 @@ mod tests {
             num_candidates: 4,
             num_samples: 3,
             y_bounds: Some(bounds.clone()),
-            calibration_mode: CalibrationMode::Affine,
             ..Default::default()
         };
         let mut sur = ENNSurrogate::new(config);
@@ -769,7 +732,6 @@ mod tests {
         for i in 0..5 {
             assert!((obs_y[[i, 0]] - y[[i, 0]]).abs() < 1e-12);
         }
-        assert!(sur.calibrator().is_some());
         let pred = sur.predict(&array![[0.25, 0.75]].view()).unwrap();
         assert!(pred.mu[[0, 0]] > 0.0 && pred.mu[[0, 0]] < 1.0);
         let draws = sur

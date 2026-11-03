@@ -29,7 +29,7 @@ const LOCAL_ROOTS: [&str; 5] = [
     "crate::optimizer_dispatch::tell_gate",
     "crate::optimizer_dispatch::variance_gate",
 ];
-const ACTION_ROOTS: [&str; 27] = [
+const ACTION_ROOTS: [&str; 24] = [
     "crate::gaussian::normal_bounds",
     "crate::gaussian::mix32",
     "crate::gaussian::bits",
@@ -44,13 +44,10 @@ const ACTION_ROOTS: [&str; 27] = [
     "crate::dispatch::tile_len",
     "crate::optimizer::trust_region::controller::accept_bits",
     "crate::optimizer::trust_region::controller::accept_decision",
-    "crate::optimizer::trust_region::controller::decide_action",
     "crate::optimizer::provenance::same_world",
     "crate::optimizer::provenance::exact_anchored",
     "crate::optimizer::param_tree::routed_count",
     "crate::optimizer::param_tree::total_count",
-    "crate::optimizer::reuse::conditioned_slot",
-    "crate::optimizer::reuse::conditioned_sign",
     "crate::optimizer::transaction::commit_round",
     "crate::float::single_lt",
     "crate::float::double_lt",

@@ -113,15 +113,9 @@ kernel void pisa_index(
                 break;
             }
             uint my_selected = UINT_MAX;
-            float max_finite_score = -INFINITY;
             for (uint slot = 0; slot < 8; ++slot) {
                 const float maximum = simd_max(score);
-                if (maximum < INFINITY && max_finite_score == -INFINITY) {
-                    max_finite_score = maximum;
-                }
-                const bool drop = (level == 0) && (max_finite_score > -INFINITY)
-                    && (maximum < max_finite_score - 12.0f);
-                const uint best = simd_min(score == maximum && score > -INFINITY && !drop ? node : UINT_MAX);
+                const uint best = simd_min(score == maximum && score > -INFINITY ? node : UINT_MAX);
                 if (lane == slot) my_selected = best;
                 if (node == best) score = -INFINITY;
             }
@@ -156,15 +150,9 @@ kernel void pisa_index(
                     }
                 }
             }
-            float max_finite_score = -INFINITY;
             for (uint slot = 0; slot < 8; ++slot) {
                 const float maximum = simd_max(score);
-                if (maximum < INFINITY && max_finite_score == -INFINITY) {
-                    max_finite_score = maximum;
-                }
-                const bool drop = (max_finite_score > -INFINITY)
-                    && (maximum < max_finite_score - 12.0f);
-                const uint best = simd_min(score == maximum && score > -INFINITY && !drop ? node : UINT_MAX);
+                const uint best = simd_min(score == maximum && score > -INFINITY ? node : UINT_MAX);
                 if (lane == slot) selected[query][slot] = best;
                 if (node == best) score = -INFINITY;
             }

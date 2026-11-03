@@ -1,43 +1,6 @@
 use super::*;
 
 impl SearchState {
-    /// Start a fresh bounded ENN window from the current incumbent.
-    pub fn compact_history(&mut self) -> Result<(), String> {
-        self.check_idle()?;
-        let missing = self.history != 0 && !self.identities[..self.history].contains(&self.base_id);
-        if !self.implicit_history || self.history == 0 || !missing {
-            return Ok(());
-        }
-        if self.latent_history {
-            self.history_rows[0] = self.base.clone();
-            self.resident_history = 0;
-            self.resident_identities[0] = self.base_id;
-        } else {
-            self.copy(&self.base, &self.history_rows[0])?;
-            self.resident_history = 1;
-            self.resident_identities[0] = self.base_id;
-        }
-        self.history = 1;
-        if let Some(neighbors) = &mut self.neighbors {
-            neighbors.capture(0, &self.base, self.independent_fp16);
-        }
-        self.objective_history.retain_incumbent();
-        self.outcomes[0] = self.best;
-        self.variances[0] = self.best_variance;
-        self.identities[0] = self.base_id;
-        self.pairwise_distances.fill(0.0);
-        self.retain_axis();
-        if let Some(family) = &mut self.family {
-            family.components.fill([0.0; FAMILIES]);
-            family.weights = [1.0; FAMILIES];
-        }
-        if let Some(traj) = &mut self.trajectory {
-            traj.reset();
-        }
-        self.apply_family()?;
-        self.fitted_enn = None;
-        Ok(())
-    }
     pub fn restarts(&self) -> Result<usize, String> {
         self.check_healthy()?;
         Ok(self.restart_count)

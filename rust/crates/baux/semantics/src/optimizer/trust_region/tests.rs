@@ -2,22 +2,29 @@ use super::*;
 
 #[test]
 fn paired_streams() {
-    assert_eq!(candidate_seed(73, 0), candidate_seed(73, 1));
-    assert_eq!(candidate_seed(73, 2), candidate_seed(73, 3));
-    assert_ne!(candidate_seed(73, 0), candidate_seed(73, 2));
+    for left in 0..4 {
+        for right in left + 1..4 {
+            assert_ne!(candidate_seed(73, left), candidate_seed(73, right));
+        }
+    }
 }
 
 #[test]
 fn pool_parity() {
     let legacy = PoolShape::new(1, 4).unwrap();
     assert_eq!(legacy, PoolShape::legacy());
-    assert_eq!(legacy.seed(73, 0), legacy.seed(73, 1));
-    assert_eq!(legacy.seed(73, 2), legacy.seed(73, 3));
+    for left in 0..4 {
+        for right in left + 1..4 {
+            assert_ne!(legacy.seed(73, left), legacy.seed(73, right));
+        }
+    }
 
     let paired = PoolShape::new(2, 4).unwrap();
-    assert_eq!(paired.seed(73, 0), paired.seed(73, 1));
-    assert_eq!(paired.seed(73, 2), paired.seed(73, 3));
-    assert_ne!(paired.seed(73, 0), paired.seed(73, 2));
+    for left in 0..4 {
+        for right in left + 1..4 {
+            assert_ne!(paired.seed(73, left), paired.seed(73, right));
+        }
+    }
 }
 
 #[test]
@@ -100,26 +107,6 @@ fn neighbor_query() {
 }
 
 #[test]
-fn action_priority() {
-    assert_eq!(
-        decide_action(true, true, true, true, true, true, false),
-        RadiusAction::Shrink
-    );
-    assert_eq!(
-        decide_action(true, false, true, true, true, true, true),
-        RadiusAction::Expand
-    );
-    assert_eq!(
-        decide_action(false, false, false, false, false, false, true),
-        RadiusAction::Shrink
-    );
-    assert_eq!(
-        decide_action(false, false, false, true, false, false, true),
-        RadiusAction::Hold
-    );
-}
-
-#[test]
 fn acceptance_margin() {
     assert!(!accept_candidate(0.0, 0.0));
     assert!(!accept_candidate(0.2, 0.2));
@@ -188,16 +175,16 @@ fn inclusive_incumbent() {
     est.append(&[4.8e-5_f64, 3.2e-5_f64, 1.6e-5_f64], -14.6, 0.0028, true)
         .unwrap();
 
-    // LOO incumbent_prediction excludes the accepted -14.6 incumbent at d^2 =
-    // 0, whereas inclusive incumbent_baseline includes it and therefore
-    // predicts a higher reward.
-    let loo_inc = est.incumbent_prediction().unwrap();
+    // Both incumbent_prediction and incumbent_baseline use inclusive in-sample
+    // query (excluded = None), including the accepted -14.6 incumbent at d^2 =
+    // 0.
+    let inc_pred = est.incumbent_prediction().unwrap();
     let inc_base = est.incumbent_baseline().unwrap();
+    assert_eq!(inc_pred.mean.to_bits(), inc_base.mean.to_bits());
     assert!(
-        inc_base.mean > loo_inc.mean + 0.05,
-        "inclusive baseline {} must exceed LOO baseline {}",
-        inc_base.mean,
-        loo_inc.mean
+        inc_base.mean > -15.05,
+        "inclusive baseline {} must reflect the -14.6 incumbent at d^2 = 0",
+        inc_base.mean
     );
 
     // Self-tuning normalizes 1.6e-5 distances so a candidate near the good
@@ -254,15 +241,19 @@ fn turbo_selection() {
     let rule = baux::semantics::optimizer::surrogate::AcquisitionRule::Ucb { beta: 0.0 };
     let warm_sel = sur.select_pool(&[vec![1.6e-5_f64]], 0, rule, None).unwrap();
     assert!(warm_sel.initializing);
-    // Warmup with distinct variance uses 2.0 * sqrt(variance) without advancing
-    // radius/calibration.
+    // Warmup always uses threshold 0.0 (upstream enn parity) without advancing
+    // radius.
+    let same_var_dec = tr
+        .evaluate_selection(-14.99, 0.0028, 0.004, &warm_sel)
+        .unwrap();
+    assert_eq!(same_var_dec.threshold, 0.0);
+    assert!(same_var_dec.accepted);
     let warm_dec = tr
         .evaluate_selection(-14.88, 0.0025, 0.004, &warm_sel)
         .unwrap();
-    assert!((warm_dec.threshold - 0.1).abs() < 1e-6);
+    assert_eq!(warm_dec.threshold, 0.0);
     assert!(warm_dec.accepted);
     assert_eq!(warm_dec.action, RadiusAction::Hold);
-    assert_eq!(tr.calibration.count(), 0);
 
     // Advance surrogate past warmup with a rejected point strictly below the
     // incumbent so the convex-combination KNN prediction satisfies

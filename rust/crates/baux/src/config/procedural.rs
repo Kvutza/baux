@@ -11,9 +11,7 @@ impl RunConfig {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::config::parse_tune;
-    use crate::procedural_pool::ProceduralPoolConfig;
 
     fn document(arms: u32, candidates: u32) -> String {
         format!(
@@ -21,7 +19,6 @@ mod tests {
              experiment='end-to-end'\n\
              [optimizer]\n\
              algorithm='turbo-enn'\n\
-             proposal='independent'\n\
              arms={arms}\n\
              candidates={candidates}\n\
              acquisition='upper-confidence-bound'\n"

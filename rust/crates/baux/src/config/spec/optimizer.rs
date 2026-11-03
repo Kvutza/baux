@@ -22,7 +22,6 @@ use super::*;
 pub enum OptimizerSpec {
     #[deser(rename = "operator-bo")]
     OperatorBo {
-        proposal: crate::procedural_pool::ProposalMethod,
         #[deser(default)]
         distribution: crate::ProposalKernel,
         #[deser(default)]
@@ -32,7 +31,6 @@ pub enum OptimizerSpec {
     },
     #[deser(rename = "turbo-enn")]
     TurboEnn {
-        proposal: crate::procedural_pool::ProposalMethod,
         #[deser(default = turbo_candidates())]
         candidates: u32,
         #[deser(default = default_arms())]
@@ -54,24 +52,17 @@ pub enum OptimizerSpec {
 impl OptimizerSpec {
     pub fn candidate_generation(&self) -> Option<CandidateGenerationSpec> {
         match self {
-            Self::OperatorBo {
-                proposal,
-                distribution,
-                ..
-            } => Some(CandidateGenerationSpec {
-                proposal: *proposal,
+            Self::OperatorBo { distribution, .. } => Some(CandidateGenerationSpec {
                 candidates: 1,
                 arms: 1,
                 distribution: Some(*distribution),
             }),
             Self::TurboEnn {
-                proposal,
                 candidates,
                 arms,
                 distribution,
                 ..
             } => Some(CandidateGenerationSpec {
-                proposal: *proposal,
                 candidates: *candidates,
                 arms: *arms,
                 distribution: *distribution,
@@ -94,8 +85,6 @@ const fn turbo_candidates() -> u32 {
 /// Pool and transformation used to construct trials around an incumbent.
 /// This does not set the number of forward evaluations or committed updates.
 pub struct CandidateGenerationSpec {
-    /// Transformation program, separate from the underlying noise distribution.
-    pub proposal: crate::procedural_pool::ProposalMethod,
     /// TOTAL proposals across arms, distinct from fitting trials or objective
     /// calls.
     #[deser(default = default_arms())]
@@ -330,7 +319,6 @@ impl crate::optimizer_config::CandidateConfig {
     pub fn from_spec(spec: &CandidateGenerationSpec) -> Result<Self, crate::error::ENNError> {
         use crate::candidates::CandidateSampler;
         use crate::error::ENNError;
-        use crate::procedural_pool::ProposalMethod;
         if spec.arms == 0 || spec.candidates == 0 || !spec.candidates.is_multiple_of(spec.arms) {
             return Err(ENNError::InvalidParameter(
                 "candidates must be positive and divisible by arms".to_string(),
@@ -338,19 +326,13 @@ impl crate::optimizer_config::CandidateConfig {
         }
         let per_arm = (spec.candidates / spec.arms) as usize;
         let total = spec.candidates as usize;
-        let candidate_rv = match spec.proposal {
-            ProposalMethod::Additive => CandidateSampler::RAASP,
-            ProposalMethod::PairMix
-            | ProposalMethod::QuadraticFlow
-            | ProposalMethod::MetricChain => CandidateSampler::Sobol,
-        };
         Ok(Self {
             num_candidates_factor: 1.0,
             min_candidates: total,
             max_candidates: Some(total),
             num_candidates_per_arm: Some(per_arm),
             num_pert: 20,
-            candidate_rv,
+            candidate_rv: CandidateSampler::RAASP,
             raasp_fast: false,
         })
     }

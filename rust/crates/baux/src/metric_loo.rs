@@ -104,8 +104,7 @@ pub fn loo_loglik(x: &[f64], n: usize, d: usize, y: &[f64], m: usize, a: &[f64],
             z[i * d + j] = (x[i * d + j] - mean[j]) / spr[j].sqrt();
         }
     }
-    let a_scaled: Vec<f64> = (0..d).map(|j| a[j] * spr[j]).collect();
-    let (nbr, d2n) = neighbors(&z, &a_scaled, n, d, kk);
+    let (nbr, d2n) = neighbors(&z, a, n, d, kk);
     let mut total = 0.0;
     for col in 0..m {
         let raw: Vec<f64> = (0..n).map(|i| y[i * m + col]).collect();

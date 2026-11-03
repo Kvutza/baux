@@ -3,19 +3,15 @@
 use ndarray::{Array1, Array2, ArrayView2, Axis};
 use rand::Rng;
 
-use crate::calibrator::{CalibrationMode, PosteriorCalibrator};
 use crate::error::ENNError;
 use crate::model::ENN;
 use crate::params::ENNParams;
 
-/// Stateful ENN fitter: running `y` moments, warm-start params, and optional
-/// calibrator.
+/// Stateful ENN fitter: running `y` moments and warm-start params.
 pub struct ENNFitter {
     k: i32,
     infer_aleatoric_variance: bool,
     params: Option<ENNParams>,
-    calibrator: Option<PosteriorCalibrator>,
-    calibration_mode: CalibrationMode,
     y_bounds: Option<Array2<f64>>,
     y_sum: Array1<f64>,
     y_sumsq: Array1<f64>,
@@ -29,8 +25,6 @@ impl ENNFitter {
             k,
             infer_aleatoric_variance,
             params: None,
-            calibrator: None,
-            calibration_mode: CalibrationMode::None,
             y_bounds: None,
             y_sum: Array1::zeros(0),
             y_sumsq: Array1::zeros(0),
@@ -46,23 +40,6 @@ impl ENNFitter {
 
     pub fn set_bounds(&mut self, bounds: Option<Array2<f64>>) {
         self.y_bounds = bounds;
-    }
-
-    pub fn with_calibration(mut self, mode: CalibrationMode) -> Self {
-        self.calibration_mode = mode;
-        self
-    }
-
-    pub fn set_calibration(&mut self, mode: CalibrationMode) {
-        self.calibration_mode = mode;
-    }
-
-    pub fn calibrator(&self) -> Option<&PosteriorCalibrator> {
-        self.calibrator.as_ref()
-    }
-
-    pub fn set_calibrator(&mut self, calibrator: Option<PosteriorCalibrator>) {
-        self.calibrator = calibrator;
     }
 
     pub fn params(&self) -> Option<&ENNParams> {
@@ -145,7 +122,9 @@ impl ENNFitter {
         }
         if let Some(bounds) = self.y_bounds.as_ref() {
             if !crate::y_bounds::identity_bounds(bounds) {
-                let _ = crate::y_bounds::warp_y(*y, bounds)?;
+                let y_z = crate::y_bounds::warp_y(*y, bounds)?;
+                self.update_y(&y_z.view());
+                return Ok(());
             }
         }
         self.update_y(y);
@@ -188,21 +167,15 @@ impl ENNFitter {
         } else {
             1.0
         };
-        let epi: Vec<f64> = (0..num_random)
-            .map(|_| 10f64.powf(rng.gen_range(-3.0..=3.0)) / d_scale)
-            .collect();
-        let ale: Vec<f64> = if self.infer_aleatoric_variance {
-            (0..num_random)
-                .map(|_| 10f64.powf(rng.gen_range(-6.0..=0.0)))
-                .collect()
-        } else {
-            vec![0.0; num_random]
-        };
-        let paramss: Vec<ENNParams> = epi
-            .iter()
-            .zip(ale.iter())
-            .filter_map(|(&e, &a)| ENNParams::new(self.k, e, a).ok())
-            .collect();
+        let paramss: Vec<ENNParams> = baux::semantics::neighbor::draw_scales(
+            num_random,
+            d_scale,
+            self.infer_aleatoric_variance,
+            rng,
+        )
+        .into_iter()
+        .filter_map(|(e, a)| ENNParams::new(self.k, e, a).ok())
+        .collect();
         if paramss.is_empty() {
             return ENNParams::new(self.k, 1.0 / d_scale, 0.0)
                 .map(|p| vec![p])
@@ -254,18 +227,6 @@ impl ENNFitter {
                 ENNError::InvalidParameter(format!("Failed to create default params: {e}"))
             })?;
             self.params = Some(best);
-            self.calibrator = if self.calibration_mode != CalibrationMode::None {
-                Some(crate::calibrator::fit_calibrator(
-                    model,
-                    &best,
-                    num_samples,
-                    rng,
-                    self.calibration_mode,
-                    false,
-                )?)
-            } else {
-                None
-            };
             return Ok(best);
         }
         if self.y_count == 0 {
@@ -274,16 +235,7 @@ impl ENNFitter {
             ));
         }
         let paramss = self.candidates(num_candidates, 1.0, params_warm_start, rng)?;
-        let indices: Vec<usize> = {
-            let n = model.len();
-            let p_actual = num_samples.min(n);
-            if p_actual == n {
-                (0..n).collect()
-            } else {
-                use rand::seq::index::sample;
-                sample(rng, n, p_actual).into_iter().collect()
-            }
-        };
+        let indices = baux::semantics::neighbor::sampled_rows(model.len(), num_samples, rng);
         let y_std = self.y_std();
         let logliks = crate::fit::row_loglik(
             model,
@@ -302,18 +254,6 @@ impl ENNFitter {
             .ok_or_else(|| ENNError::InvalidParameter("no valid likelihood candidates".into()))?;
         let best = paramss[best_idx];
         self.params = Some(best);
-        self.calibrator = if self.calibration_mode != CalibrationMode::None {
-            Some(crate::calibrator::fit_calibrator(
-                model,
-                &best,
-                num_samples,
-                rng,
-                self.calibration_mode,
-                false,
-            )?)
-        } else {
-            None
-        };
         Ok(best)
     }
 
@@ -379,6 +319,7 @@ impl ENNFitter {
                 "adaptive neighbor fitting requires max_k > 0".into(),
             ));
         }
+        let prev_k = self.k;
         self.k = max_k;
         let scale_fit = self.ask_distances(
             distances,
@@ -388,8 +329,14 @@ impl ENNFitter {
             num_samples,
             params_warm_start,
             rng,
-        )?;
+        );
+        self.k = prev_k;
+        let mut scale_fit = scale_fit?;
         if y.nrows() <= 2 {
+            scale_fit.k_neighbors = scale_fit
+                .k_neighbors
+                .min((y.nrows().saturating_sub(1)).max(1) as i32);
+            self.params = Some(scale_fit);
             return Ok(scale_fit);
         }
         let largest = usize::try_from(max_k)
@@ -426,30 +373,15 @@ impl ENNFitter {
             })
             .map(|(params, _)| params)
             .ok_or_else(|| ENNError::InvalidParameter("no valid neighbor count".into()))?;
-        self.k = best.k_neighbors;
         self.params = Some(best);
         Ok(best)
     }
 }
 
 fn characteristic_distance(distances: &ArrayView2<f64>) -> f64 {
-    let n = distances.nrows();
-    let mut sum = 0.0_f64;
-    let mut count = 0usize;
-    for row in 0..n {
-        for col in 0..n {
-            let d = distances[[row, col]];
-            if row != col && d.is_finite() && d > 0.0 {
-                sum += d;
-                count += 1;
-            }
-        }
-    }
-    if count > 0 {
-        (sum / count as f64).max(1.0e-12)
-    } else {
-        1.0
-    }
+    baux::semantics::neighbor::characteristic_distance(distances.nrows(), |row, col| {
+        distances[[row, col]]
+    })
 }
 
 #[cfg(test)]

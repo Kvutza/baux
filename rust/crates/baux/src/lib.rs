@@ -24,8 +24,6 @@ pub use baux_neighbor_index as neighbor_index;
 #[allow(dead_code)]
 pub mod resident_metal;
 pub use baux::semantics::optimizer::SurrogateSpec;
-pub use baux::semantics::optimizer::calibration;
-pub mod calibrator;
 pub mod candidates;
 mod candidates_fast;
 // Compile and execute the backend-independent CUDA mHC4 controller tests on
@@ -59,9 +57,11 @@ pub mod hash;
 #[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "metal"))]
 pub mod hnet_metal;
 pub mod hypervolume;
+pub mod incremental_fit;
 pub mod incumbent_tracker;
 pub mod index;
 pub mod knn;
+pub mod layout;
 pub mod metric_auto;
 pub mod metric_loo;
 mod metric_rng;
@@ -121,10 +121,6 @@ pub use agent_contract::{
 pub use backend::DiskBpannEnnBackend;
 pub use backend::{EnnBackend, EnnStorage, InMemoryEnnBackend};
 pub use base_policy::{BasePolicyManifest, POLICY_SCHEMA, PolicyQualification};
-pub use calibrator::{
-    AffineCalibrator, CalibrationMode, Calibrator, PosteriorCalibrator, ScaleCalibrator,
-    fit_calibrator,
-};
 pub use candidates::{
     CandidateRV, CandidateSampler, draw_turbo, from_unit, generate_candidates, generate_lhd,
     generate_uniform, sobol_masked, sobol_sequence, to_unit,
@@ -146,8 +142,10 @@ pub use fit::{row_loglik, subsample_loglik, subsample_model};
 pub use fitter::ENNFitter;
 pub use hash::normal_hash;
 pub use hypervolume::{hypervolume_max, hypervolume2d_max};
+pub use incremental_fit::{AddToken, IncrementalAsk, IncrementalFit};
 pub use incumbent_tracker::IncumbentTracker;
 pub use index::{ENNIndex, IndexDriver, IndexError};
+pub use layout::EnnLayout;
 pub use metric_auto::MetricLearner;
 pub use model::ENN;
 pub use model::{EnnIndexAccess, EnnRowAccess, ModelOptions};

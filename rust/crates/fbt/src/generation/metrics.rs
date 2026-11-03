@@ -34,18 +34,12 @@ pub(super) fn annotate_proposal(
     record: &mut Value,
 ) {
     record["acquisition"]["distinct_distance_profiles"] = json!(proposal.distance_profiles());
-    let (count, multiplier, coverage) = search.calibration_info();
     record["acquisition"]["neighbors"] = json!(proposal.neighbors);
     record["acquisition"]["incumbent_neighbors"] = json!(proposal.incumbent_neighbors);
     record["acquisition"]["geometry"] = json!({
-        "kind": if search.neighbor_samples() == 0 { "procedural" } else { "stratified-coordinate-quadrature" },
-        "samples": search.neighbor_samples(), "exact": false,
-        "selected_norm_relative_error": search.neighbor_error(proposal),
-    });
-    record["acquisition"]["calibration"] = json!({
-        "kind": "empirical-prequential", "observations": count,
-        "multiplier": multiplier, "observed_coverage": coverage,
-        "coverage_guarantee": false,
+        "kind": "procedural",
+        "samples": 0, "exact": false,
+        "selected_norm_relative_error": Option::<f64>::None,
     });
     if let Some(profile) = search.last_profile() {
         record["proposal_profile"] = json!({

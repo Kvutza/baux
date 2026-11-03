@@ -11,77 +11,7 @@ use rand::SeedableRng;
 use rand::rngs::StdRng;
 
 impl SearchState {
-    /// Refit estimator scales from the bounded distance/outcome/variance
-    /// tables. Requires initialized fitter parameters. Optional
-    /// family-shape selection runs at warm-up completion and every fourth
-    /// later observation; it uses CPU scoring below 64 retained rows and
-    /// GPU scoring otherwise. ENN fitting itself runs on every call with a
-    /// reproducible seed based on history size. Stores fitted k/scales for
-    /// the next ask; query-local risk-prefix selection is a separate kernel
-    /// policy. Does not certify calibration or alter weights.
-    pub fn fit_family(&mut self, zero_variance: bool) -> Result<bool, String> {
-        let n = self.history;
-        let cadence = (self.observation as usize).max(n);
-        let fit_family = cadence == self.initial_observations
-            || (cadence > self.initial_observations
-                && (cadence - self.initial_observations) % 4 == 0);
-        if fit_family {
-            if let Some(family) = &mut self.family {
-                let outcomes =
-                    ndarray::Array2::from_shape_fn((n, 1), |(i, _)| f64::from(self.outcomes[i]));
-                let variances = ndarray::Array2::from_shape_fn((n, 1), |(i, _)| {
-                    if zero_variance {
-                        0.0
-                    } else {
-                        f64::from(self.variances[i])
-                    }
-                });
-                let params = *self
-                    .fitter
-                    .as_ref()
-                    .and_then(|f| f.params())
-                    .ok_or("Family fit needs ENN parameters")?;
-                let candidates = family.candidates();
-                // Paired warm measurements cross over at H=64 on this Apple
-                // GPU. A tiny history must not pay more launch
-                // latency than CPU work.
-                let local = (self.distance_metric != crate::config::DistanceMetric::Euclidean)
-                    .then_some(self.local_scale_neighbors);
-                let scores = if n < 64 {
-                    family.reference(
-                        &candidates,
-                        &outcomes.view(),
-                        &variances.view(),
-                        params,
-                        self.fit_samples,
-                        self.fit_seed.wrapping_add(n as u64),
-                        local,
-                    )?
-                } else {
-                    self.metric_gpu
-                        .as_mut()
-                        .ok_or("Family metric GPU is missing")?
-                        .score(
-                            family,
-                            &candidates,
-                            &outcomes.view(),
-                            &variances.view(),
-                            params,
-                            self.fit_samples,
-                            self.fit_seed.wrapping_add(n as u64),
-                            local,
-                        )?
-                };
-                family.select(&candidates, &scores, self.fit_samples.min(n))?;
-                self.apply_family()?;
-                return Ok(true);
-            }
-        }
-        Ok(false)
-    }
-
     pub fn fit_enn(&mut self) -> Result<(), String> {
-        let _ = self.fit_family(false)?;
         let n = self.history;
         let raw_distances = ndarray::Array2::from_shape_fn((n, n), |(row, column)| {
             f64::from(self.total_distance(row, column))
@@ -150,8 +80,6 @@ impl SearchState {
     /// history. Copies controller length back without evaluating or
     /// randomizing a model.
     pub fn update_region(&mut self, value: f32) -> Result<(), String> {
-        self.paired_evidence_sum = 0.0;
-        self.paired_evidence_count = 0;
         let value = f64::from(value);
         self.trust_observations += 1;
         self.trust
@@ -172,26 +100,22 @@ impl SearchState {
                 self.variances[0] = self.best_variance;
                 self.identities[0] = self.base_id;
                 self.history = 1;
+                self.pairwise_distances.fill(0.0);
+                self.fitted_enn = None;
                 self.objective_history.retain_incumbent();
                 self.retain_axis();
             }
             self.trust_observations = 1;
-            self.trust.set_watermark(0);
-            let best = f64::from(self.best);
-            self.trust
-                .update_batch(&ndarray::ArrayView1::from(&[best]), 1, best)
-                .map_err(|error| error.to_string())?;
+            self.trust.seed_baseline(f64::from(self.best), 1);
         }
         self.length = self.trust.length();
         Ok(())
     }
 
     /// Update ordinary TuRBO against a caller-supplied incumbent reward.
-    /// Clears paired evidence and follows the same incumbent-preserving restart
+    /// Follows the same incumbent-preserving restart
     /// bookkeeping as `update_region`; no estimate variance is consumed here.
     pub fn update_noisy(&mut self, value: f32, incumbent: f32) -> Result<(), String> {
-        self.paired_evidence_sum = 0.0;
-        self.paired_evidence_count = 0;
         let value = f64::from(value);
         self.trust_observations += 1;
         self.trust
@@ -212,15 +136,13 @@ impl SearchState {
                 self.variances[0] = self.best_variance;
                 self.identities[0] = self.base_id;
                 self.history = 1;
+                self.pairwise_distances.fill(0.0);
+                self.fitted_enn = None;
                 self.objective_history.retain_incumbent();
                 self.retain_axis();
             }
             self.trust_observations = 1;
-            self.trust.set_watermark(0);
-            let best = f64::from(self.best);
-            self.trust
-                .update_batch(&ndarray::ArrayView1::from(&[best]), 1, best)
-                .map_err(|error| error.to_string())?;
+            self.trust.seed_baseline(f64::from(self.best), 1);
         }
         self.length = self.trust.length();
         Ok(())
@@ -258,20 +180,13 @@ impl SearchState {
                 self.variances[0] = self.best_variance;
                 self.identities[0] = self.base_id;
                 self.history = 1;
+                self.pairwise_distances.fill(0.0);
+                self.fitted_enn = None;
                 self.objective_history.retain_incumbent();
                 self.retain_axis();
             }
             self.trust_observations = 1;
-            self.trust.set_watermark(0);
-            let seed = [f64::from(self.best)];
-            self.trust
-                .update_outcome(
-                    &ndarray::ArrayView1::from(&seed),
-                    1,
-                    f64::from(self.best),
-                    TrustRegionOutcome::Inconclusive,
-                )
-                .map_err(|error| error.to_string())?;
+            self.trust.seed_baseline(f64::from(self.best), 1);
         }
         self.length = self.trust.length();
         Ok(())

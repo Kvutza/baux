@@ -432,19 +432,6 @@ impl Weights {
         result
     }
 
-    pub(super) fn materialize_basis0(
-        &mut self,
-        backup: &WeightBackup,
-        module: &fbt_model::LoadedModule,
-        stream: &CudaStream,
-        radius: f32,
-    ) -> CudaResult<f32> {
-        let specs = std::mem::take(&mut self.proposal);
-        let result = backup.step_basis0(&specs, &mut self.buffers_mut(), module, stream, radius);
-        self.proposal = specs;
-        result
-    }
-
     pub(super) fn physical_elements(&self) -> u64 {
         self.buffers().into_iter().map(|b| b.len() as u64).sum()
     }

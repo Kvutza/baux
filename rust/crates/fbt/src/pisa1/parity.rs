@@ -1,13 +1,6 @@
 use super::*;
 
 fn expected_blocks(qkv: &[u16], pyramid: &[u16], row: u32) -> [u32; SELECTED as usize] {
-    let mut query = [0.0f32; HEAD_DIM as usize];
-    for dim in 0..HEAD_DIM {
-        for head in 0..QUERY_HEADS {
-            query[dim as usize] +=
-                decode_half(qkv[(row * QKV_WIDTH + head * HEAD_DIM + dim) as usize]);
-        }
-    }
     let position = row % CONTEXT;
     let current = position / BLOCK;
     let previous = current.saturating_sub(1);
@@ -15,11 +8,6 @@ fn expected_blocks(qkv: &[u16], pyramid: &[u16], row: u32) -> [u32; SELECTED as 
     let mut candidates: [u32; 16] = std::array::from_fn(|candidate| candidate as u32);
     let mut chosen = [u32::MAX; SELECTED as usize];
     for level in (0..=2u32).rev() {
-        let offset = match level {
-            2 => 96,
-            1 => 64,
-            _ => 0,
-        };
         let mut scores = [f32::NEG_INFINITY; 16];
         for (slot, &node) in candidates.iter().enumerate() {
             if node == u32::MAX {
@@ -33,12 +21,11 @@ fn expected_blocks(qkv: &[u16], pyramid: &[u16], row: u32) -> [u32; SELECTED as 
             if forced {
                 scores[slot] = f32::INFINITY;
             } else if end < current {
-                let base = ((sequence * NODES + offset + node) * HEAD_DIM) as usize;
-                scores[slot] = query
-                    .iter()
-                    .enumerate()
-                    .map(|(dim, &value)| value * decode_half(pyramid[base + dim]))
-                    .sum();
+                scores[slot] = if level == 0 {
+                    leaf_lse_score(qkv, row, sequence, node)
+                } else {
+                    intermediate_lse_score(qkv, pyramid, row, sequence, node, level)
+                };
             }
         }
         for output in &mut chosen {
@@ -70,6 +57,63 @@ fn expected_blocks(qkv: &[u16], pyramid: &[u16], row: u32) -> [u32; SELECTED as 
         }
     }
     chosen
+}
+
+fn intermediate_lse_score(
+    qkv: &[u16],
+    pyramid: &[u16],
+    row: u32,
+    sequence: u32,
+    node: u32,
+    level: u32,
+) -> f32 {
+    debug_assert!(level > 0);
+    let child_level = level - 1;
+    let child_offset = if child_level == 0 {
+        0
+    } else {
+        2 * LEAVES - (2 * LEAVES >> child_level)
+    };
+    let mut grouped_score = 0.0f32;
+    for head in 0..QUERY_HEADS {
+        let mut logits = [0.0f32; 2];
+        for child in 0..2 {
+            let summary =
+                ((sequence * NODES + child_offset + 2 * node + child) * HEAD_DIM) as usize;
+            let query = (row * QKV_WIDTH + head * HEAD_DIM) as usize;
+            logits[child as usize] = (0..HEAD_DIM as usize)
+                .map(|dim| decode_half(qkv[query + dim]) * decode_half(pyramid[summary + dim]))
+                .sum::<f32>()
+                * 0.125;
+        }
+        let maximum = logits[0].max(logits[1]);
+        grouped_score += maximum + ((logits[0] - maximum).exp() + (logits[1] - maximum).exp()).ln();
+    }
+    grouped_score
+}
+
+fn leaf_lse_score(qkv: &[u16], row: u32, sequence: u32, leaf: u32) -> f32 {
+    let mut grouped_score = 0.0f32;
+    for head in 0..QUERY_HEADS {
+        let query = (row * QKV_WIDTH + head * HEAD_DIM) as usize;
+        let mut logits = [0.0f32; BLOCK as usize];
+        for token in 0..BLOCK {
+            let source = sequence * CONTEXT + leaf * BLOCK + token;
+            let key = (source * QKV_WIDTH + QUERY_WIDTH) as usize;
+            logits[token as usize] = (0..HEAD_DIM as usize)
+                .map(|dim| decode_half(qkv[query + dim]) * decode_half(qkv[key + dim]))
+                .sum::<f32>()
+                * 0.125;
+        }
+        let maximum = logits.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+        grouped_score += maximum
+            + logits
+                .iter()
+                .map(|&logit| (logit - maximum).exp())
+                .sum::<f32>()
+                .ln();
+    }
+    grouped_score
 }
 
 fn validate_selection(pisa: &Pisa1, qkv: &BufferRef) -> Result<(), String> {
@@ -303,6 +347,47 @@ fn check_parity(runtime: &Runtime, pisa: &Pisa1, qkv: &BufferRef) -> Result<f64,
     let fixed_error = validate_attention(pisa, qkv)?.max(validate_q4(pisa)?);
     let fixed_error = fixed_error.max(super::hierarchical::validate(runtime, pisa, qkv)?);
     Ok(fixed_error.max(super::fallback::validate(runtime, pisa, qkv)?))
+}
+
+#[test]
+fn gap_budget() -> Result<(), String> {
+    metal::objc::rc::autoreleasepool(|| {
+        use crate::apple_gpu::buffer_slice;
+        let runtime = Runtime::shared()?;
+        let pisa = Pisa1::new(&runtime)?;
+        let mut values = vec![0u16; (ROWS * QKV_WIDTH) as usize];
+        for row in 0..ROWS {
+            let base = (row * QKV_WIDTH) as usize;
+            values[base] = 0x4800; // Head 0 has q[0] = 8; other heads are zero.
+            match row % CONTEXT / BLOCK {
+                1 => values[base + QUERY_WIDTH as usize] = 0x4000, // k[0] = 2
+                2 => values[base + (QUERY_WIDTH + HEAD_DIM) as usize] = 0x3c00, // v[0] = 1
+                _ => {}
+            }
+        }
+        let qkv = runtime.buffer_with(&values);
+        // A routing-score gap of 16 must not remove blocks that fit the budget.
+        // Compare production selections and outputs with the existing CPU/Q1
+        // oracles.
+        check_parity(&runtime, &pisa, &qkv)?;
+        let output = buffer_slice::<u16>(&pisa.output, (ROWS * QUERY_WIDTH) as usize)?;
+        for sequence in 0..BATCH {
+            let row = sequence * CONTEXT + 511;
+            for head in 0..QUERY_HEADS {
+                let expected = if head == 0 {
+                    1.0 / (2.0f32.exp() + 7.0)
+                } else {
+                    0.125
+                };
+                let actual = decode_half(output[(row * QUERY_WIDTH + head * HEAD_DIM) as usize]);
+                assert!(
+                    (actual - expected).abs() < 0.0002,
+                    "row {row}, head {head}: {actual}"
+                );
+            }
+        }
+        Ok(())
+    })
 }
 
 pub(crate) fn pisa_probe(

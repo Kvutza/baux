@@ -7,7 +7,6 @@ pub(super) struct RoundLog {
     pub accepted: u32,
     pub optimizer_seconds: Vec<f64>,
     pub optimization_records: Vec<baux::artifact::json::Value>,
-    last_family_metric: Option<[f32; 4]>,
 }
 impl RoundLog {
     pub(super) fn new(rounds: u32) -> Self {
@@ -17,7 +16,6 @@ impl RoundLog {
             accepted: 0,
             optimizer_seconds: Vec::with_capacity(rounds as usize),
             optimization_records: Vec::with_capacity(rounds as usize),
-            last_family_metric: None,
         }
     }
 }
@@ -245,26 +243,16 @@ fn tell_round(
             measurement.optimizer_variance,
         );
     }
-    if !paired {
-        return search.tell_modeled(
-            proposal,
-            measurement.optimizer_value,
-            measurement.optimizer_variance,
-        );
+    if paired {
+        let _response = measurement
+            .response
+            .as_ref()
+            .ok_or("paired objective lost its block response")?;
     }
-    let response = measurement
-        .response
-        .as_ref()
-        .ok_or("paired objective lost its block response")?;
-    search.paired_blocks(
+    search.tell_modeled(
         proposal,
         measurement.optimizer_value,
         measurement.optimizer_variance,
-        measurement.incumbent_value,
-        measurement.incumbent_variance,
-        measurement.improvement,
-        measurement.improvement_variance,
-        &response.blocks,
     )
 }
 
@@ -286,23 +274,11 @@ fn prepare_round(
     paired_scorer: &PairedScorer,
     control: BoControl<'_>,
     step: u32,
-    log: &mut RoundLog,
+    _log: &mut RoundLog,
 ) -> Result<PreparedRound, String> {
     let ask_start = Instant::now();
     let history = search.history_len()?;
     let initializing = history < control.enn.ask.surrogate.neighbors;
-    if !initializing {
-        if let Some((metric, scales)) = search.family_shape() {
-            if log.last_family_metric != Some(metric) {
-                eprintln!(
-                    "optimizer.family round={} groups=experts,projections,routers_feedback,norms \
-                     metric={metric:?} proposal={scales:?}",
-                    step + 1
-                );
-                log.last_family_metric = Some(metric);
-            }
-        }
-    }
     let proposal_seed = control
         .proposal_seed
         .checked_add(u64::from(step))
@@ -435,7 +411,7 @@ fn measure_round(
         let response = paired_improvement(&candidate_objective, &incumbent_objective);
         (
             incumbent_value + response.mean,
-            incumbent_variance + response.variance,
+            response.variance,
             response.mean,
             response.variance,
             Some(incumbent_scores),

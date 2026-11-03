@@ -140,7 +140,10 @@ impl SearchState {
         if candidate >= self.pool_layout.count() as usize {
             return Err("Metal initialization candidate must be within pool".into());
         }
-        if !self.profiling {
+        if !self.profiling
+            && self.resident_history == 1
+            && self.resident_identities[0] == self.base_id
+        {
             return self.initial_row(seed, candidate);
         }
         self.begin_mode(
@@ -154,12 +157,11 @@ impl SearchState {
 
     /// Submit one warm-up row and its forced-selection descriptor.
     /// The caller has validated initialization and slot bounds. Activates the
-    /// region, prepares program/reference state, clears geometry scratch, and
-    /// stores the outstanding command; it does not add a history observation.
+    /// region, clears geometry scratch, and stores the outstanding command; it
+    /// does not add a history observation.
     pub fn initial_row(&mut self, root: u64, candidate: usize) -> Result<Buffer, String> {
         self.check_idle()?;
         self.activate_morbo()?;
-        self.ensure_ref()?;
         unsafe {
             std::ptr::write_bytes(
                 self.partials.contents().cast::<u8>(),
@@ -177,7 +179,6 @@ impl SearchState {
             seed: self.procedural_seed(root, candidate),
             stream_seed: root,
             radius,
-            alternate_radius: radius,
             candidate: candidate as u32,
             ..self.pool_params(root)
         };
@@ -220,36 +221,34 @@ impl SearchState {
         check_ask(config)?;
         self.validate_selector()?;
         self.last_profile = None;
-        self.ensure_ref()?;
-        let analytic_pool = self.analytic_pool();
         if self.profiling {
             self.profile_commands.clear();
-            if !analytic_pool {
-                let command = self.runtime.queue.new_command_buffer().to_owned();
-                self.encode_pool(&command, self.pool_params(seed));
-                command.set_label("BF16 proposal pool");
-                command.commit();
-                self.profile_commands.push(command);
-            }
+            let command = self.runtime.queue.new_command_buffer().to_owned();
+            self.encode_pool(&command, self.pool_params(seed));
+            command.set_label("BF16 proposal pool");
+            command.commit();
+            self.profile_commands.push(command);
             let command = self.runtime.queue.new_command_buffer().to_owned();
             self.encode_select(&command, seed, config, forced_candidate);
             command.set_label("BF16 proposal selection");
             command.commit();
             self.profile_commands.push(command);
-            let command = self.runtime.queue.new_command_buffer().to_owned();
-            self.encode_row(&command);
-            command.set_label("BF16 proposal materialization");
-            command.commit();
-            self.profile_commands.push(command);
+            if self.pool_layout.count() > 1 {
+                let command = self.runtime.queue.new_command_buffer().to_owned();
+                self.encode_row(&command);
+                command.set_label("BF16 proposal materialization");
+                command.commit();
+                self.profile_commands.push(command);
+            }
             self.async_command = self.profile_commands.last().cloned();
             return Ok(self.proposal.clone());
         }
         let command = self.runtime.queue.new_command_buffer();
-        if !analytic_pool {
-            self.encode_pool(command, self.pool_params(seed));
-        }
+        self.encode_pool(command, self.pool_params(seed));
         self.encode_select(command, seed, config, forced_candidate);
-        self.encode_row(command);
+        if self.pool_layout.count() > 1 {
+            self.encode_row(command);
+        }
         command.set_label("BF16 resident proposal");
         command.commit();
         self.async_command = Some(command.to_owned());
@@ -331,9 +330,7 @@ impl SearchState {
             self.last_profile = None;
             return Ok(());
         }
-        let analytic_pool = self.analytic_pool();
-        let expected = if analytic_pool { 2 } else { 3 };
-        if self.profile_commands.len() != expected {
+        if !matches!(self.profile_commands.len(), 2 | 3) {
             return Err("Metal BF16 controller trace is incomplete".into());
         }
         let intervals: Vec<_> = self
@@ -352,21 +349,17 @@ impl SearchState {
             .collect::<Result<_, _>>()?;
         let milliseconds =
             |index: usize| ((intervals[index].1 - intervals[index].0) * 1000.0) as f32;
-        let (score_ms, pick_ms, materialize_ms, total_ms) = if analytic_pool {
-            (
-                0.0,
-                milliseconds(0),
-                milliseconds(1),
-                ((intervals[1].1 - intervals[0].0) * 1000.0) as f32,
-            )
-        } else {
-            (
-                milliseconds(0),
-                milliseconds(1),
-                milliseconds(2),
-                ((intervals[2].1 - intervals[0].0) * 1000.0) as f32,
-            )
-        };
+        let last = intervals.len() - 1;
+        let (score_ms, pick_ms, materialize_ms, total_ms) = (
+            milliseconds(0),
+            milliseconds(1),
+            if intervals.len() == 3 {
+                milliseconds(2)
+            } else {
+                0.0
+            },
+            ((intervals[last].1 - intervals[0].0) * 1000.0) as f32,
+        );
         self.last_profile = Some(ProposalProfile {
             score_ms,
             pick_ms,
@@ -388,40 +381,91 @@ impl SearchState {
                     "Measure the initial Metal BF16 incumbent before sampling distances".into(),
                 );
             }
-            self.ensure_ref()?;
+            unsafe {
+                self.decision.contents().cast::<Decision>().write(Decision {
+                    root_seed,
+                    valid: 0,
+                    ..Decision::default()
+                });
+            }
             let pool_count = self.pool_layout.count() as usize;
-            let matrix_f64 = if self.neighbors.is_some() {
-                let command = self.runtime.queue.new_command_buffer();
-                self.neighbors
-                    .as_ref()
-                    .unwrap()
-                    .encode_sample(self, command, root_seed);
-                finish(command)?;
-                let mut neighbors = self.neighbors.take().unwrap();
-                let mat = neighbors.compute_distances(self);
-                self.neighbors = Some(neighbors);
-                mat
-            } else {
-                let base_index = self.identities[..self.history]
-                    .iter()
-                    .position(|&identity| identity == self.base_id)
-                    .unwrap_or(0);
-                let mut mat = vec![vec![0.0_f64; self.history]; 4];
-                unsafe {
-                    let dst = self.pool_distances.contents().cast::<f32>();
-                    for candidate in 0..4 {
-                        let norm = self.latent_norm(candidate);
-                        for i in 0..self.history {
-                            let base_d = self.pairwise_distances[base_index * MAX_HISTORY + i];
-                            let val = f64::from(base_d) + f64::from(norm);
-                            mat[candidate][i] = val;
-                            dst.add(candidate * self.history + i).write(val as f32);
+            let base_index = self.identities[..self.history]
+                .iter()
+                .position(|&identity| identity == self.base_id)
+                .unwrap_or(0);
+            let command = self.runtime.queue.new_command_buffer();
+            self.encode_pool(command, self.pool_params(root_seed));
+            let select_params = self.select_params(root_seed, RoundConfig::default(), None);
+            let reducer = command.new_compute_command_encoder();
+            reducer.set_compute_pipeline_state(&self.reduction_pipeline);
+            for (index, buffer) in [&self.partials, &self.pool_geometry, &self.pool_aggregates]
+                .iter()
+                .enumerate()
+            {
+                reducer.set_buffer(index as u64, Some(buffer), 0);
+            }
+            reducer.set_bytes(
+                3,
+                size_of::<SelectionParams>() as u64,
+                (&select_params as *const SelectionParams).cast(),
+            );
+            reducer.dispatch_thread_groups(
+                crate::apple_gpu::thread_group(self.resident_history.div_ceil(2).max(1) as u64),
+                crate::apple_gpu::thread_group(256),
+            );
+            reducer.end_encoding();
+            finish(command)?;
+
+            let pairs = self.resident_history.div_ceil(2).max(1);
+            let aggregates = read::<Partial>(&self.pool_aggregates, pairs * 4);
+            let mut matrix_f64 = vec![vec![0.0_f64; self.history]; pool_count];
+            unsafe {
+                let dst = self.pool_distances.contents().cast::<f32>();
+                for (candidate, row_f64) in matrix_f64.iter_mut().enumerate() {
+                    let norm = aggregates[candidate].squared;
+                    for (row, cell) in row_f64.iter_mut().enumerate() {
+                        let base_d = if self.implicit_history {
+                            self.pairwise_distances[base_index * MAX_HISTORY + row]
+                        } else {
+                            0.0
+                        };
+                        *cell = f64::from(base_d + norm);
+                    }
+                    for row in (0..self.resident_history).step_by(2) {
+                        let aggregate = aggregates[(row / 2) * 4 + candidate];
+                        let first_index = if self.implicit_history {
+                            select_params.resident_indices[row] as usize
+                        } else {
+                            row
+                        };
+                        if first_index < self.history {
+                            row_f64[first_index] = f64::from(aggregate.anchor);
+                        }
+                        if row + 1 < self.resident_history {
+                            let second_index = if self.implicit_history {
+                                select_params.resident_indices[row + 1] as usize
+                            } else {
+                                row + 1
+                            };
+                            if second_index < self.history {
+                                row_f64[second_index] = f64::from(aggregate.rejected);
+                            }
                         }
                     }
+                    if select_params.axis_enabled != 0 {
+                        for (row, cell) in row_f64.iter_mut().enumerate() {
+                            let delta = select_params.axis_candidates[candidate]
+                                - select_params.axis_history[row];
+                            let val = (*cell as f32) + select_params.axis_weight * delta * delta;
+                            *cell = f64::from(val);
+                        }
+                    }
+                    for (row, &val) in row_f64.iter().enumerate() {
+                        dst.add(candidate * self.history + row).write(val as f32);
+                    }
                 }
-                mat
-            };
-            Ok(matrix_f64.into_iter().take(pool_count).collect())
+            }
+            Ok(matrix_f64)
         })
     }
 
@@ -440,7 +484,7 @@ impl SearchState {
         incumbent_standard_error: f32,
         neighbors: u32,
         incumbent_neighbors: u32,
-        pool_predictions: [(f32, f32, f32); 4],
+        pool_predictions: &[(f32, f32, f32)],
     ) -> Result<(Buffer, Proposals), String> {
         autoreleasepool(|| {
             self.check_idle()?;
@@ -448,48 +492,45 @@ impl SearchState {
             if selected >= pool_count {
                 return Err("Selected candidate index exceeds pool count".into());
             }
-            self.ensure_ref()?;
-            if !self.analytic_pool() {
-                unsafe {
-                    std::ptr::write_bytes(
-                        self.partials.contents().cast::<u8>(),
-                        0,
-                        self.partials.length() as usize,
-                    );
-                    std::ptr::write_bytes(
-                        self.pool_geometry.contents().cast::<u8>(),
-                        0,
-                        self.pool_geometry.length() as usize,
-                    );
-                }
+            let prev = read::<Decision>(&self.decision, 1)[0];
+            let already_materialized =
+                pool_count == 1 && selected == 0 && prev.valid == 0 && prev.root_seed == root_seed;
+            let mut candidate_means = [f32::NAN; 4];
+            let mut candidate_standard_errors = [f32::NAN; 4];
+            let mut candidate_scores = [f32::NAN; 4];
+            for (slot, &(mean, se, cand_score)) in pool_predictions.iter().take(4).enumerate() {
+                candidate_means[slot] = mean;
+                candidate_standard_errors[slot] = se;
+                candidate_scores[slot] = cand_score;
             }
             let decision = Decision {
                 index: selected as u32,
                 valid: 1,
                 root_seed,
                 seed: self.procedural_seed(root_seed, selected),
-                basis_seed: 0,
                 radius: self.radius(selected),
                 score,
                 mode: self.perturbation.shader(),
-                program: self.proposal_program(),
+                pad: 0,
                 predicted_mean,
                 predicted_standard_error,
                 incumbent_mean,
                 incumbent_standard_error,
                 neighbors,
                 incumbent_neighbors,
-                candidate_means: pool_predictions.map(|p| p.0),
-                candidate_standard_errors: pool_predictions.map(|p| p.1),
-                candidate_scores: pool_predictions.map(|p| p.2),
+                candidate_means,
+                candidate_standard_errors,
+                candidate_scores,
             };
             unsafe {
                 self.decision.contents().cast::<Decision>().write(decision);
             }
             let start = Instant::now();
-            let command = self.runtime.queue.new_command_buffer();
-            self.encode_row(command);
-            finish(command)?;
+            if !already_materialized {
+                let command = self.runtime.queue.new_command_buffer();
+                self.encode_row(command);
+                finish(command)?;
+            }
             let proposal = self.publish_start(start)?;
             Ok((self.proposal.clone(), proposal))
         })
@@ -512,7 +553,7 @@ impl SearchState {
             selection.incumbent.standard_error,
             selection.candidate.neighbors as u32,
             selection.incumbent.neighbors as u32,
-            selection.pool_predictions,
+            &selection.pool_predictions,
         )
     }
 }

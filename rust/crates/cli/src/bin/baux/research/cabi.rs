@@ -30,15 +30,11 @@ pub(super) fn verify_cabi(root: &Path) -> Result<(), String> {
         .map_err(|error| format!("cannot read {}: {error}", archive.display()))?;
     for symbol in [
         "baux_accept",
-        "baux_action",
         "baux_world",
         "baux_anchored",
         "baux_routed",
         "baux_total",
         "baux_window",
-        "baux_cell",
-        "baux_slot",
-        "baux_sign",
     ] {
         if !bytes
             .windows(symbol.len())
@@ -69,8 +65,6 @@ pub mod semantics {{
         }}
     }}
 }}
-#[path = "{sem}/optimizer/calibration.rs"]
-pub mod calibration;
 #[path = "{sem}/numerical.rs"]
 pub mod numerical;
 #[path = "{sem}/optimizer/trust_region/controller.rs"]
@@ -81,35 +75,20 @@ pub mod provenance;
 pub mod shape;
 #[path = "{sem}/optimizer/param_tree.rs"]
 pub mod param_tree;
-#[path = "{sem}/optimizer/reuse.rs"]
-pub mod reuse;
 #[path = "{sem}/neighbor.rs"]
 pub mod neighbor;
 
 use param_tree::{{ParamTree, routed_count, total_count}};
 use provenance::{{exact_anchored, same_world}};
-use radius::{{RadiusAction, accept_bits, decide_action}};
-use reuse::{{conditioned_sign, conditioned_slot}};
+use radius::accept_bits;
 
 unsafe extern "C" {{
     fn baux_accept(improvement: u64, margin: u64) -> u8;
-    fn baux_action(
-        adequate: u8,
-        inadequate: u8,
-        sharp: u8,
-        accepted: u8,
-        positive: u8,
-        boundary: u8,
-        failure: u8,
-    ) -> u8;
     fn baux_world(left: u64, right: u64) -> u8;
     fn baux_anchored(is_fixed: u8, from_step: u64, to_step: u64) -> u8;
     fn baux_routed(patch: u64) -> u64;
     fn baux_total(patch: u64) -> u64;
     fn baux_window(planned: u64, prefilled: u64, scored: u64) -> u8;
-    fn baux_cell(level: u32, grid: u32) -> u64;
-    fn baux_slot(slot: u64, accepted: u8) -> u64;
-    fn baux_sign(reversed: u8, accepted: u8) -> u8;
 }}
 
 fn main() {{
@@ -133,26 +112,6 @@ fn main() {{
             let lean_acc = unsafe {{ baux_accept(imp, mar) != 0 }};
             assert_eq!(rust_acc, lean_acc, "accept_bits mismatch for ({{imp:#x}}, {{mar:#x}})");
         }}
-    }}
-    for mask in 0u8..128 {{
-        let b = |bit: u8| (mask >> bit) & 1 != 0;
-        let rust_act = match decide_action(b(0), b(1), b(2), b(3), b(4), b(5), b(6)) {{
-            RadiusAction::Hold => 0u8,
-            RadiusAction::Expand => 1u8,
-            RadiusAction::Shrink => 2u8,
-        }};
-        let lean_act = unsafe {{
-            baux_action(
-                u8::from(b(0)),
-                u8::from(b(1)),
-                u8::from(b(2)),
-                u8::from(b(3)),
-                u8::from(b(4)),
-                u8::from(b(5)),
-                u8::from(b(6)),
-            )
-        }};
-        assert_eq!(rust_act, lean_act, "decide_action mismatch at mask {{mask:#09b}}");
     }}
     for &(l, r) in &[(0u64, 0u64), (42, 42), (42, 43), (u64::MAX, u64::MAX - 1)] {{
         assert_eq!(same_world(l, r), unsafe {{ baux_world(l, r) != 0 }});
@@ -180,26 +139,6 @@ fn main() {{
             planned > 0 && prefilled == 0 && scored == planned,
             unsafe {{ baux_window(planned, prefilled, scored) != 0 }}
         );
-    }}
-    assert_eq!(
-        neighbor::grid_cell(7.0, 8.0),
-        unsafe {{ baux_cell(3, 0) }}
-    );
-    for slot in 0u64..64 {{
-        for acc in [false, true] {{
-            assert_eq!(
-                conditioned_slot(slot, acc),
-                unsafe {{ baux_slot(slot, u8::from(acc)) }}
-            );
-        }}
-    }}
-    for rev in [false, true] {{
-        for acc in [false, true] {{
-            assert_eq!(
-                conditioned_sign(rev, acc),
-                unsafe {{ baux_sign(u8::from(rev), u8::from(acc)) != 0 }}
-            );
-        }}
     }}
 }}
 "#,

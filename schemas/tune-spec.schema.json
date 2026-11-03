@@ -95,7 +95,7 @@
       "oneOf": [
         {
           "title": "Operator BO",
-          "required": ["algorithm", "proposal"],
+          "required": ["algorithm"],
           "properties": {
             "algorithm": { "const": "operator-bo" }
           },
@@ -109,7 +109,7 @@
         },
         {
           "title": "TuRBO ENN",
-          "required": ["algorithm", "proposal", "acquisition"],
+          "required": ["algorithm", "acquisition"],
           "properties": {
             "algorithm": { "const": "turbo-enn" }
           }
@@ -118,7 +118,6 @@
           "title": "Muon",
           "properties": { "algorithm": { "const": "muon" } },
           "allOf": [
-            { "not": { "required": ["proposal"] } },
             { "not": { "required": ["surrogate"] } },
             { "not": { "required": ["acquisition"] } },
             { "not": { "required": ["trust-region"] } }
@@ -128,7 +127,6 @@
           "title": "AdamW",
           "properties": { "algorithm": { "const": "adamw" } },
           "allOf": [
-            { "not": { "required": ["proposal"] } },
             { "not": { "required": ["surrogate"] } },
             { "not": { "required": ["acquisition"] } },
             { "not": { "required": ["trust-region"] } }
@@ -140,11 +138,6 @@
           "type": "string",
           "enum": ["operator-bo", "turbo-enn", "muon", "adamw"],
           "description": "Optimization algorithm: 'operator-bo', 'turbo-enn', 'muon', or 'adamw'."
-        },
-        "proposal": {
-          "type": "string",
-          "enum": ["pair-rotation", "independent", "lie", "metric-chain"],
-          "description": "Procedural proposal method: 'lie' (2nd-order Lie operator flow), 'pair-rotation' (unit-tangent mixing), 'independent' (additive noise), or 'metric-chain' (forward metric calculus chain)."
         },
         "candidates": {
           "type": "integer",

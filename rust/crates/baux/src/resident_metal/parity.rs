@@ -33,7 +33,6 @@ fn rounded_proposal() {
                 }
                 .resolve_resident()
                 .unwrap(),
-                proposal_method: crate::procedural_pool::ProposalMethod::Additive,
                 ask,
                 num_candidates: 4,
                 num_samples: 4,
@@ -386,7 +385,6 @@ fn warmup_trace() {
                 }
                 .resolve_resident()
                 .unwrap(),
-                proposal_method: crate::procedural_pool::ProposalMethod::Additive,
                 ask,
                 num_candidates: 4,
                 num_samples: 4,

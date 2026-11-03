@@ -20,7 +20,6 @@ const GAUSSIAN: &str = "version = 4\n\
     stage-samples = 3\n\
     [optimizer]\n\
     algorithm = \"operator-bo\"\n\
-    proposal = \"independent\"\n\
     distribution = \"gaussian\"\n\
     [optimizer.surrogate]\n\
     metric = \"euclidean\"\n\
@@ -46,7 +45,6 @@ fn resident(acquisition: &str, candidates: u32, arms: u32, fit: &str) -> String 
             experiment='end-to-end'\n\
             [optimizer]\n\
             algorithm='turbo-enn'\n\
-            proposal='independent'\n\
             candidates={candidates}\n\
             arms={arms}\n\
             {acquisition}\n\
@@ -124,24 +122,24 @@ fn closed() {
             "algorithm='muon'\nacquisition='thompson'",
         ),
         GAUSSIAN.replace(
-            "proposal = \"independent\"",
-            "proposal = \"independent\"\ncandidate = 4",
+            "distribution = \"gaussian\"",
+            "distribution = \"gaussian\"\ncandidate = 4",
         ),
         GAUSSIAN.replace(
-            "proposal = \"independent\"",
-            "proposal = \"independent\"\ncandidates = 4",
+            "distribution = \"gaussian\"",
+            "distribution = \"gaussian\"\ncandidates = 4",
         ),
         GAUSSIAN.replace(
-            "proposal = \"independent\"",
-            "proposal = \"independent\"\narms = 2",
+            "distribution = \"gaussian\"",
+            "distribution = \"gaussian\"\narms = 2",
         ),
         GAUSSIAN.replace("neighbors = 32", "neighbors = 32\nneigbors = 10"),
         GAUSSIAN.replace("fit = \"leave-one-out\"", "procedure = \"leave-one-out\""),
         GAUSSIAN.replace("fit = \"leave-one-out\"\n", ""),
         OPERATOR_BO.replace("neighbors = 10", "estimator = \"sub-nn\""),
         GAUSSIAN.replace(
-            "proposal = \"independent\"",
-            "proposal = \"independent\"\nacquisition = \"upper-confidence-bound\"",
+            "distribution = \"gaussian\"",
+            "distribution = \"gaussian\"\nacquisition = \"upper-confidence-bound\"",
         ),
         OPERATOR_BO.replace(
             "acquisition = \"upper-confidence-bound\"",

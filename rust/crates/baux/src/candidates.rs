@@ -5,7 +5,7 @@ use ndarray::{Array1, Array2, ArrayView1, ArrayView2};
 use rand::Rng;
 use rand::RngCore;
 use rand::SeedableRng;
-use rand::distributions::{Bernoulli, Uniform};
+use rand::distributions::Bernoulli;
 use sobol::Sobol;
 use sobol::params::JoeKuoD6;
 use std::sync::OnceLock;
@@ -137,11 +137,13 @@ pub fn sobol_sequence(dim: usize, n: usize, seed: u64) -> Result<Array2<f64>, EN
 }
 
 /// Strategy dispatch for TuRBO candidate drawing.
+#[allow(clippy::too_many_arguments)]
 pub fn draw_turbo<R: Rng + ?Sized>(
     is_morbo: bool,
     candidate_rv: CandidateRV,
     raasp_fast: bool,
     x_center: &ArrayView1<f64>,
+    lengthscales: Option<&Array1<f64>>,
     lower_1d: &Array1<f64>,
     upper_1d: &Array1<f64>,
     num_candidates: usize,
@@ -172,10 +174,11 @@ pub fn draw_turbo<R: Rng + ?Sized>(
             );
         }
     }
+    let ls_view = lengthscales.map(|ls| ls.view());
     generate_candidates(
         || (lower_1d.clone(), upper_1d.clone()),
         x_center,
-        None,
+        ls_view.as_ref(),
         num_candidates,
         candidate_rv,
         rng,
@@ -196,8 +199,11 @@ pub fn generate_uniform<R: Rng + ?Sized>(
 
     for i in 0..num_candidates {
         for j in 0..num_dim {
-            let dist = Uniform::new(lower[j], upper[j]);
-            candidates[[i, j]] = rng.sample(dist);
+            if upper[j] > lower[j] {
+                candidates[[i, j]] = lower[j] + rng.r#gen::<f64>() * (upper[j] - lower[j]);
+            } else {
+                candidates[[i, j]] = lower[j];
+            }
         }
     }
 
@@ -229,37 +235,65 @@ fn generate_raasp<R: Rng + ?Sized>(
     num_pert: usize,
 ) -> Result<Array2<f64>, ENNError> {
     let num_dim = x_center.len();
-    let num_pert = num_pert.max(1);
+    if num_dim == 0 || num_candidates == 0 {
+        return Ok(Array2::zeros((num_candidates, num_dim)));
+    }
+    let num_pert = num_pert.max(1).min(num_dim);
 
     let probs: Array1<f64> = match lengthscales {
-        Some(ls) => {
-            let ls_sum: f64 = ls.sum();
+        Some(ls) if ls.len() == num_dim => {
+            let clean = ls.mapv(|v| if v.is_finite() && v > 0.0 { v } else { 0.0 });
+            let ls_sum: f64 = clean.sum();
             if ls_sum > 0.0 {
-                ls.mapv(|v| v / ls_sum)
+                clean.mapv(|v| v / ls_sum)
             } else {
                 Array1::from_elem(num_dim, 1.0 / num_dim as f64)
             }
         }
-        None => Array1::from_elem(num_dim, 1.0 / num_dim as f64),
+        _ => Array1::from_elem(num_dim, 1.0 / num_dim as f64),
     };
 
     let mut cdf = Array1::zeros(num_dim);
-    let mut c = 0.0;
-    for j in 0..num_dim {
-        c += probs[j];
-        cdf[j] = c;
-    }
-
     let mut candidates = Array2::zeros((num_candidates, num_dim));
     for i in 0..num_candidates {
         for j in 0..num_dim {
             candidates[[i, j]] = x_center[j];
         }
-        for _ in 0..num_pert {
-            let r: f64 = rng.r#gen();
-            let dim_to_perturb = raasp_cdf(&cdf, r, num_dim);
-            let dist = Uniform::new(lower[dim_to_perturb], upper[dim_to_perturb]);
-            candidates[[i, dim_to_perturb]] = rng.sample(dist);
+        if num_pert >= num_dim {
+            for d in 0..num_dim {
+                if upper[d] > lower[d] {
+                    candidates[[i, d]] = lower[d] + rng.r#gen::<f64>() * (upper[d] - lower[d]);
+                } else {
+                    candidates[[i, d]] = lower[d];
+                }
+            }
+        } else {
+            let mut rem = probs.clone();
+            for _ in 0..num_pert {
+                let mut c = 0.0;
+                for j in 0..num_dim {
+                    if rem[j] > 0.0 {
+                        c += rem[j];
+                    }
+                    cdf[j] = c;
+                }
+                let mut dim_to_perturb = if c > 0.0 {
+                    let r = rng.r#gen::<f64>() * c;
+                    raasp_cdf(&cdf, r, num_dim)
+                } else {
+                    0
+                };
+                if rem[dim_to_perturb] < 0.0 {
+                    dim_to_perturb = (0..num_dim).find(|&j| rem[j] >= 0.0).unwrap_or(0);
+                }
+                rem[dim_to_perturb] = -1.0;
+                if upper[dim_to_perturb] > lower[dim_to_perturb] {
+                    candidates[[i, dim_to_perturb]] = lower[dim_to_perturb]
+                        + rng.r#gen::<f64>() * (upper[dim_to_perturb] - lower[dim_to_perturb]);
+                } else {
+                    candidates[[i, dim_to_perturb]] = lower[dim_to_perturb];
+                }
+            }
         }
     }
 
@@ -706,6 +740,7 @@ mod tests {
             CandidateRV::Sobol,
             false,
             &x_center.view(),
+            None,
             &lower,
             &upper,
             3,
@@ -721,6 +756,7 @@ mod tests {
             CandidateRV::Uniform,
             false,
             &x_center.view(),
+            None,
             &lower,
             &upper,
             3,

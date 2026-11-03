@@ -160,63 +160,10 @@ impl PyMetalSearchState {
                 "Paired values must be finite FP32; variances must be nonnegative",
             ));
         }
+        let _ = (incumbent_value, incumbent_variance, accept);
         self.inner
-            .tell_paired(
-                &proposals.inner,
-                value as f32,
-                variance as f32,
-                incumbent_value as f32,
-                incumbent_variance as f32,
-                accept,
-            )
-            .map_err(err)
-    }
-
-    #[pyo3(name = "tell_paired_relative", signature=(proposals, value, variance, incumbent_value, incumbent_variance, improvement, improvement_variance, accept, *, reject_is_failure=true))]
-    fn tell_relative(
-        &mut self,
-        proposals: PyRef<'_, PyMetalProposals>,
-        value: f64,
-        variance: f64,
-        incumbent_value: f64,
-        incumbent_variance: f64,
-        improvement: f64,
-        improvement_variance: f64,
-        accept: bool,
-        reject_is_failure: bool,
-    ) -> PyResult<()> {
-        self.unleased()?;
-        let values = [
-            value,
-            variance,
-            incumbent_value,
-            incumbent_variance,
-            improvement,
-            improvement_variance,
-        ];
-        if values
-            .iter()
-            .any(|v| !v.is_finite() || !(*v as f32).is_finite())
-            || [variance, incumbent_variance, improvement_variance]
-                .iter()
-                .any(|v| *v < 0.0)
-        {
-            return Err(PyValueError::new_err(
-                "Paired values must be finite FP32; variances must be nonnegative",
-            ));
-        }
-        self.inner
-            .tell_relative(
-                &proposals.inner,
-                value as f32,
-                variance as f32,
-                incumbent_value as f32,
-                incumbent_variance as f32,
-                improvement as f32,
-                improvement_variance as f32,
-                accept,
-                reject_is_failure,
-            )
+            .tell_noisy(&proposals.inner, value as f32, variance as f32)
+            .map(|_| ())
             .map_err(err)
     }
 

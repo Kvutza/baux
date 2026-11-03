@@ -28,6 +28,7 @@ pub struct ResidentMorbo {
     scales: Vec<f32>,
     reference: Vec<f64>,
     seed: u64,
+    clip: bool,
     observations: usize,
 }
 
@@ -39,7 +40,7 @@ impl ResidentMorbo {
             alpha,
             seed,
             rescalarize,
-            clip: _,
+            clip,
         } = acquisition
         else {
             return Err("Resident MORBO requires MORBO acquisition".into());
@@ -54,13 +55,6 @@ impl ResidentMorbo {
         if !(2..=8).contains(regions) {
             return Err("Resident MORBO requires 2..=8 trust regions".into());
         }
-        if state.implicit_history && !state.latent_history {
-            return Err(
-                "Multi-region MORBO currently requires latent history geometry so center switches \
-                 preserve the shared ENN geometry"
-                    .into(),
-            );
-        }
         let incumbent = *state
             .objective_history
             .incumbent()
@@ -72,6 +66,7 @@ impl ResidentMorbo {
             scales: Vec::new(),
             reference: Vec::new(),
             seed: *seed,
+            clip: *clip,
             observations: 0,
         };
         // Objective scales are installed by ObjectiveSelector immediately after
@@ -221,6 +216,10 @@ impl ResidentMorbo {
         &self.regions[self.active].trust
     }
 
+    pub fn clip(&self) -> bool {
+        self.clip
+    }
+
     pub fn set_tolerance(&mut self, failures: usize) -> Result<(), String> {
         for region in &mut self.regions {
             region
@@ -361,8 +360,7 @@ impl ObjectiveSelector {
     }
 
     pub fn upload(&self, state: &SearchState, root: u64, ask: RoundConfig) {
-        let trust = self.morbo.as_ref().map(ResidentMorbo::trust);
-        let parameters = ObjectiveParams::pack(state, &self.config, trust, root, ask);
+        let parameters = ObjectiveParams::pack(state, &self.config, self.morbo.as_ref(), root, ask);
         unsafe {
             self.parameters
                 .contents()

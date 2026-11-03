@@ -5,10 +5,8 @@ use super::readout::Mhc4Evaluation;
 use super::weights::WeightBackup;
 use crate::capture::CudaResult;
 use baux::artifact::json::{Value, json};
-use baux::semantics::optimizer::surrogate::PoolSelection;
-use baux::semantics::optimizer::{
-    NeighborValueEstimator, RadiusController, response_rms, splitmix64,
-};
+use baux::semantics::optimizer::surrogate::{AcquisitionRule, PoolSelection};
+use baux::semantics::optimizer::{NeighborValueEstimator, RadiusController, splitmix64};
 use baux_cuda_device::ScoreStats;
 use std::fs;
 use std::io::{BufWriter, Write};
@@ -204,53 +202,23 @@ impl BoLoop {
             })
             .collect::<Vec<_>>();
         let incumbent_pred = self.history.incumbent_prediction()?;
-        let incumbent_base = self.history.incumbent_baseline()?;
         let round_acquire = cfg
             .acquisition_seed
             .checked_add(round as u64)
             .ok_or("CUDA mHC-4 acquisition seed overflow")?;
-        let draws = self
-            .history
-            .identities()
-            .iter()
-            .map(|&id| baux::semantics::random::normal_metric(round_acquire, id, 0) as f32)
-            .collect::<Vec<_>>();
-        let pool = geometry_f64
-            .iter()
-            .map(|row| {
-                self.history.acquire(
-                    row,
-                    cfg.beta,
-                    (cfg.acquisition == "thompson").then_some(draws.as_slice()),
-                )
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        let modeled = pool
-            .iter()
-            .enumerate()
-            .max_by(|(li, l), (ri, r)| l.score.total_cmp(&r.score).then_with(|| ri.cmp(li)))
-            .map(|(i, _)| i)
-            .ok_or("CUDA mHC-4 candidate pool is empty")?;
-        let initializing = self.history.len() < cfg.surrogate.neighbors;
-        let selected = if initializing {
-            round % pool.len()
+        let rule = if cfg.acquisition == "thompson" {
+            AcquisitionRule::Thompson {
+                seed: round_acquire,
+            }
         } else {
-            modeled
+            AcquisitionRule::Ucb { beta: cfg.beta }
         };
-        let cand_pred = pool[selected];
-        let mut pool_predictions = [(0.0_f32, 0.0_f32, 0.0_f32); 4];
-        for (slot, pred) in pool.iter().take(4).enumerate() {
-            pool_predictions[slot] = (pred.mean, pred.standard_error, pred.score);
-        }
-        let selection = PoolSelection {
-            selected,
-            initializing,
-            candidate: cand_pred,
-            incumbent: incumbent_base,
-            baseline_value: self.history.base_value(),
-            baseline_se: self.history.base_variance().max(0.0).sqrt(),
-            pool_predictions,
-        };
+        let selection = self
+            .history
+            .select_pool(&geometry_f64, round as u32, rule, None)?;
+        let selected = selection.selected;
+        let initializing = selection.initializing;
+        let cand_pred = selection.candidate;
         let proposal_ms = model.weights.materialize_gaussian(
             backup,
             &model.module,
@@ -293,7 +261,6 @@ impl BoLoop {
         f32,
         f32,
         usize,
-        f64,
         f32,
     )> {
         let evaluated_stats = evaluated
@@ -306,20 +273,15 @@ impl BoLoop {
             .clone();
         let (responses, paired_mean, paired_var) =
             pair_response(cfg, incumbent_nlls, &candidate_nlls, evaluated)?;
-        let resp_radius = response_rms(Some(&responses), f64::from(prop.round_radius));
         let opt_cand = self.history.base_value() + paired_mean;
-        let opt_var = self.history.base_variance() + paired_var;
+        let opt_var = paired_var;
         let pred_gain = f64::from(prop.candidate_mean) - f64::from(prop.incumbent_mean);
+        let _ = rewarming;
         let decision = if prop.initializing {
-            let threshold = if rewarming {
-                2.0 * (f64::from(opt_var) + f64::from(self.history.base_variance())).sqrt()
-            } else {
-                0.0
-            };
             self.controller.initial_evidence(
                 f64::from(opt_cand) - f64::from(self.history.base_value()),
                 pred_gain,
-                threshold,
+                0.0,
             )?
         } else {
             self.controller.evaluate_selection(
@@ -359,7 +321,6 @@ impl BoLoop {
             paired_mean,
             paired_var,
             responses.len(),
-            resp_radius,
             restore_round,
         ))
     }
@@ -483,20 +444,11 @@ impl BoLoop {
             f32,
             f32,
             usize,
-            f64,
             f32,
         ),
     ) -> Value {
-        let (
-            decision,
-            opt_cand,
-            opt_var,
-            paired_mean,
-            paired_var,
-            channels,
-            resp_radius,
-            restore_round,
-        ) = outcome;
+        let (decision, opt_cand, opt_var, paired_mean, paired_var, channels, restore_round) =
+            outcome;
         let round_ms = prop.proposal_ms + round_inc + evaluated.device_ms + restore_round;
         json!({
             "round": round,
@@ -537,10 +489,7 @@ impl BoLoop {
             "acceptance_threshold": decision.threshold,
             "predicted_improvement": decision.predicted_improvement,
             "reliability_action": decision.action.name(),
-            "standardized_error": decision.standardized_error,
-            "sharpness_ratio": decision.sharpness_ratio,
             "agreement_ratio": decision.agreement_ratio,
-            "response_radius": resp_radius,
             "accepted_rounds": self.accepted_rounds,
             "history": self.history.len(),
             "acceptance_rate": self.accepted_rounds as f64 / (round + 1) as f64,

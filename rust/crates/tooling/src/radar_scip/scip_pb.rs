@@ -3,32 +3,56 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::SystemTime;
 
-pub(super) const DEFINITION: i32 = 1;
+pub(crate) const DEFINITION: i32 = 1;
 
 #[derive(Default)]
-pub(super) struct ScipIndex {
-    pub(super) documents: Vec<Document>,
+pub(crate) struct ScipIndex {
+    pub(crate) documents: Vec<Document>,
 }
 
 #[derive(Default)]
-pub(super) struct Document {
-    pub(super) path: String,
-    pub(super) occurrences: Vec<Occurrence>,
-    pub(super) symbols: Vec<SymbolInfo>,
+pub(crate) struct Document {
+    pub(crate) path: String,
+    pub(crate) occurrences: Vec<Occurrence>,
+    pub(crate) symbols: Vec<SymbolInfo>,
 }
 
-#[derive(Default)]
-pub(super) struct Occurrence {
-    pub(super) range: Vec<i32>,
-    pub(super) symbol: String,
-    pub(super) roles: i32,
+#[derive(Clone, Default, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) struct Occurrence {
+    pub(crate) range: Vec<i32>,
+    pub(crate) symbol: String,
+    pub(crate) roles: i32,
 }
 
-#[derive(Default)]
-pub(super) struct SymbolInfo {
-    pub(super) symbol: String,
-    pub(super) display: String,
-    pub(super) signature: Option<String>,
+#[derive(Clone, Default)]
+pub(crate) struct SymbolInfo {
+    pub(crate) symbol: String,
+    pub(crate) display: String,
+    pub(crate) signature: Option<String>,
+    pub(crate) implements: Vec<String>,
+}
+
+pub(crate) fn canonical_symbol(symbol: String) -> String {
+    let Some(rest) = symbol.strip_prefix("rust-analyzer cargo ") else {
+        return symbol;
+    };
+    let Some((pkg, after_pkg)) = rest.split_once(' ') else {
+        return symbol;
+    };
+    if !matches!(pkg, "baux-cuda" | "baux-cuda-device") {
+        return symbol;
+    }
+    let Some((ver, descriptor)) = after_pkg.split_once(' ') else {
+        return symbol;
+    };
+    if descriptor.starts_with("semantics/")
+        || descriptor.starts_with("artifact/")
+        || descriptor.starts_with("neighbor-index/")
+    {
+        format!("rust-analyzer cargo baux {ver} {descriptor}")
+    } else {
+        symbol
+    }
 }
 
 pub(super) struct SymbolMatch<'a> {
@@ -142,7 +166,7 @@ pub(super) fn require_index(root: &Path, target: &Path) -> Result<ScipIndex, Str
     if target != root && target != canon_root {
         if let Ok(rel) = target.strip_prefix(&canon_root) {
             let root_path = cache_path(root, &canon_root);
-            if root_path.is_file() {
+            if root_path.is_file() && fresh(target, &root_path)? {
                 return slice_index(&root_path, target, rel);
             }
         }
@@ -154,12 +178,20 @@ pub(super) fn require_index(root: &Path, target: &Path) -> Result<ScipIndex, Str
             target.display()
         );
         index(root, Some(target), true)?;
-    } else if !fresh(target, &path)? && std::env::var_os("BAUX_RADAR_REINDEX").is_some() {
-        println!(
-            "o|radar: SCIP index stale for {}; rebuilding automatically...",
-            target.display()
-        );
-        index(root, Some(target), true)?;
+    } else if !fresh(target, &path)? {
+        if std::env::var_os("BAUX_RADAR_REINDEX").is_some() {
+            println!(
+                "o|radar: SCIP index stale for {}; rebuilding automatically...",
+                target.display()
+            );
+            index(root, Some(target), true)?;
+        } else {
+            eprintln!(
+                "warning: SCIP index {} is older than modified source files \
+                 (run `./baux radar index --force` or set BAUX_RADAR_REINDEX=1 to refresh)",
+                path.display()
+            );
+        }
     }
     load_index(&path)
 }
@@ -240,20 +272,56 @@ fn newer(path: &Path, cutoff: SystemTime) -> Result<bool, String> {
     Ok(false)
 }
 
-pub(super) fn load_index(path: &Path) -> Result<ScipIndex, String> {
+pub(crate) fn load_index(path: &Path) -> Result<ScipIndex, String> {
     let bytes = fs::read(path).map_err(|error| format!("read {}: {error}", path.display()))?;
     parse_index(&bytes).map_err(|error| format!("decode {}: {error}", path.display()))
 }
 
 pub(super) fn parse_index(bytes: &[u8]) -> Result<ScipIndex, String> {
-    let mut index = ScipIndex::default();
+    let mut by_path = std::collections::BTreeMap::<String, Document>::new();
+    let mut order = Vec::<String>::new();
     let mut proto = Proto::new(bytes);
     while let Some((field, wire)) = proto.next()? {
         if let (2, Wire::Bytes(bytes)) = (field, wire) {
-            index.documents.push(parse_doc(bytes)?);
+            let doc = parse_doc(bytes)?;
+            if let Some(existing) = by_path.get_mut(&doc.path) {
+                existing.occurrences.extend(doc.occurrences);
+                existing.symbols.extend(doc.symbols);
+            } else {
+                order.push(doc.path.clone());
+                by_path.insert(doc.path.clone(), doc);
+            }
         }
     }
-    Ok(index)
+    let mut documents = Vec::with_capacity(order.len());
+    for path in order {
+        if let Some(mut doc) = by_path.remove(&path) {
+            doc.occurrences.sort();
+            doc.occurrences.dedup();
+            let mut merged_syms = std::collections::BTreeMap::<String, SymbolInfo>::new();
+            for sym in doc.symbols {
+                merged_syms
+                    .entry(sym.symbol.clone())
+                    .and_modify(|existing| {
+                        if existing.display.is_empty() && !sym.display.is_empty() {
+                            existing.display = sym.display.clone();
+                        }
+                        if existing.signature.is_none() && sym.signature.is_some() {
+                            existing.signature = sym.signature.clone();
+                        }
+                        for imp in &sym.implements {
+                            if !existing.implements.contains(imp) {
+                                existing.implements.push(imp.clone());
+                            }
+                        }
+                    })
+                    .or_insert(sym);
+            }
+            doc.symbols = merged_syms.into_values().collect();
+            documents.push(doc);
+        }
+    }
+    Ok(ScipIndex { documents })
 }
 
 fn parse_doc(bytes: &[u8]) -> Result<Document, String> {
@@ -282,7 +350,7 @@ fn parse_occurrence(bytes: &[u8]) -> Result<Occurrence, String> {
                 }
             }
             (1, Wire::Var(value)) => occurrence.range.push(value as i32),
-            (2, Wire::Bytes(bytes)) => occurrence.symbol = parse_text(bytes)?,
+            (2, Wire::Bytes(bytes)) => occurrence.symbol = canonical_symbol(parse_text(bytes)?),
             (3, Wire::Var(value)) => occurrence.roles = value as i32,
             _ => {}
         }
@@ -295,13 +363,32 @@ fn parse_info(bytes: &[u8]) -> Result<SymbolInfo, String> {
     let mut proto = Proto::new(bytes);
     while let Some((field, wire)) = proto.next()? {
         match (field, wire) {
-            (1, Wire::Bytes(bytes)) => info.symbol = parse_text(bytes)?,
+            (1, Wire::Bytes(bytes)) => info.symbol = canonical_symbol(parse_text(bytes)?),
+            (4, Wire::Bytes(bytes)) => {
+                if let Some(target) = parse_relationship(bytes)? {
+                    info.implements.push(target);
+                }
+            }
             (6, Wire::Bytes(bytes)) => info.display = parse_text(bytes)?,
             (7, Wire::Bytes(bytes)) => info.signature = parse_signature(bytes)?,
             _ => {}
         }
     }
     Ok(info)
+}
+
+fn parse_relationship(bytes: &[u8]) -> Result<Option<String>, String> {
+    let mut proto = Proto::new(bytes);
+    let mut symbol = None;
+    let mut is_impl = false;
+    while let Some((field, wire)) = proto.next()? {
+        match (field, wire) {
+            (1, Wire::Bytes(bytes)) => symbol = Some(canonical_symbol(parse_text(bytes)?)),
+            (3, Wire::Var(value)) => is_impl = value != 0,
+            _ => {}
+        }
+    }
+    Ok(if is_impl { symbol } else { None })
 }
 
 fn parse_signature(bytes: &[u8]) -> Result<Option<String>, String> {

@@ -10,12 +10,11 @@ impl SearchState {
             &self.propose_pipeline
         };
         encoder.set_compute_pipeline_state(pipeline);
+        let second_row = self.resident_history.min(2).saturating_sub(1);
         for (index, buffer) in [
             &self.base,
-            &self.anchor,
-            &self.rejected,
-            self.reference.as_ref().unwrap_or(&self.base),
-            &self.reference_scales,
+            &self.history_rows[0],
+            &self.history_rows[second_row],
             &self.leaves_gpu,
             &self.tiles_gpu,
             &self.proposal,
@@ -28,7 +27,7 @@ impl SearchState {
             encoder.set_buffer(index as u64, Some(buffer), 0);
         }
         encoder.set_bytes(
-            10,
+            8,
             size_of::<Params>() as u64,
             (&params as *const Params).cast(),
         );
@@ -60,8 +59,6 @@ impl SearchState {
             &self.base,
             &self.history_rows[first],
             &self.history_rows[(first + 1).min(self.resident_history - 1)],
-            self.reference.as_ref().unwrap_or(&self.base),
-            &self.reference_scales,
             &self.leaves_gpu,
             &self.tiles_gpu,
             &self.proposal,
@@ -74,7 +71,7 @@ impl SearchState {
             encoder.set_buffer(index as u64, Some(buffer), 0);
         }
         encoder.set_bytes(
-            10,
+            8,
             size_of::<Params>() as u64,
             (&params as *const Params).cast(),
         );
@@ -89,30 +86,24 @@ impl SearchState {
         forced_candidate: Option<usize>,
     ) {
         let params = self.select_params(root, config, forced_candidate);
-        if let Some(neighbors) = &self.neighbors {
-            neighbors.encode(self, command, root);
+        let reducer = command.new_compute_command_encoder();
+        reducer.set_compute_pipeline_state(&self.reduction_pipeline);
+        for (index, buffer) in [&self.partials, &self.pool_geometry, &self.pool_aggregates]
+            .iter()
+            .enumerate()
+        {
+            reducer.set_buffer(index as u64, Some(buffer), 0);
         }
-        let needs_reduction = forced_candidate.is_none() || self.family.is_some();
-        if needs_reduction && !self.analytic_pool() {
-            let reducer = command.new_compute_command_encoder();
-            reducer.set_compute_pipeline_state(&self.reduction_pipeline);
-            for (index, buffer) in [&self.partials, &self.pool_geometry, &self.pool_aggregates]
-                .iter()
-                .enumerate()
-            {
-                reducer.set_buffer(index as u64, Some(buffer), 0);
-            }
-            reducer.set_bytes(
-                3,
-                size_of::<SelectionParams>() as u64,
-                (&params as *const SelectionParams).cast(),
-            );
-            reducer.dispatch_thread_groups(
-                thread_group(self.resident_history.div_ceil(2) as u64),
-                thread_group(256),
-            );
-            reducer.end_encoding();
-        }
+        reducer.set_bytes(
+            3,
+            size_of::<SelectionParams>() as u64,
+            (&params as *const SelectionParams).cast(),
+        );
+        reducer.dispatch_thread_groups(
+            thread_group(self.resident_history.div_ceil(2).max(1) as u64),
+            thread_group(256),
+        );
+        reducer.end_encoding();
 
         let encoder = command.new_compute_command_encoder();
         if let Some(selector) = &self.objective_selector {
@@ -142,8 +133,6 @@ impl SearchState {
         encoder.set_compute_pipeline_state(&self.materialize_pipeline);
         for (index, buffer) in [
             &self.base,
-            self.reference.as_ref().unwrap_or(&self.base),
-            &self.reference_scales,
             &self.leaves_gpu,
             &self.tiles_gpu,
             &self.proposal,
@@ -154,59 +143,19 @@ impl SearchState {
         {
             encoder.set_buffer(index as u64, Some(buffer), 0);
         }
-        // Analytic pools select without materializing every candidate. Measure
-        // the one row that is actually evaluated.
-        let account = u32::from(self.analytic_pool());
-        encoder.set_bytes(7, size_of::<u32>() as u64, (&account as *const u32).cast());
-        encoder.set_buffer(8, Some(&self.partials), 0);
+        let account = 0u32;
+        encoder.set_bytes(5, size_of::<u32>() as u64, (&account as *const u32).cast());
+        encoder.set_buffer(6, Some(&self.partials), 0);
         let params = Params {
             tiles: self.tiles.len() as u32,
             ..self.pool_params(0)
         };
         encoder.set_bytes(
-            9,
+            7,
             size_of::<Params>() as u64,
             (&params as *const Params).cast(),
         );
         encoder.dispatch_thread_groups(thread_group(self.tiles.len() as u64), thread_group(256));
-        encoder.end_encoding();
-    }
-    pub fn encode_ref(&self, command: &CommandBufferRef, params: Params) {
-        let encoder = command.new_compute_command_encoder();
-        encoder.set_compute_pipeline_state(&self.reference_pipeline);
-        for (index, buffer) in [
-            self.reference.as_ref().unwrap(),
-            &self.reference_scales,
-            &self.leaves_gpu,
-            &self.tiles_gpu,
-            &self.reference_partials,
-        ]
-        .iter()
-        .enumerate()
-        {
-            encoder.set_buffer(index as u64, Some(buffer), 0);
-        }
-        encoder.set_bytes(
-            5,
-            size_of::<Params>() as u64,
-            (&params as *const Params).cast(),
-        );
-        encoder.dispatch_thread_groups(thread_group(self.tiles.len() as u64), thread_group(256));
-        encoder.end_encoding();
-        let encoder = command.new_compute_command_encoder();
-        encoder.set_compute_pipeline_state(&self.rms_pipeline);
-        for (index, buffer) in [
-            &self.reference_partials,
-            &self.leaves_gpu,
-            &self.offsets_gpu,
-            &self.reference_scales,
-        ]
-        .iter()
-        .enumerate()
-        {
-            encoder.set_buffer(index as u64, Some(buffer), 0);
-        }
-        encoder.dispatch_thread_groups(thread_group(self.blocks.len() as u64), thread_group(256));
         encoder.end_encoding();
     }
     pub fn copy(&self, source: &Buffer, destination: &Buffer) -> Result<(), String> {

@@ -253,18 +253,6 @@ fn save_base(key: u64, base: &[u16]) -> Option<Buffer> {
     map_base(key, base.len())
 }
 
-fn scale_groups(blocks: &mut [ParamBlock], groups: &[usize]) {
-    let mut counts = [0usize; 4];
-    for &group in groups {
-        counts[group] += 1;
-    }
-    for (block, &group) in blocks.iter_mut().zip(groups) {
-        if counts[group] > 0 {
-            block.weight /= counts[group] as f32;
-        }
-    }
-}
-
 fn build_search(
     mapped_base: Option<Buffer>,
     use_cache: bool,
@@ -403,7 +391,6 @@ impl CandidateWeights {
         let mut rms_iter = rms_all.into_iter();
         let mut offset = 0usize;
         let mut blocks = Vec::new();
-        let mut groups = Vec::new();
         let mut updates = UpdateLog::default();
         let mhc4_policy = (self.initialization == crate::config::ModelInitialization::FbtPisa1Mhc4)
             .then(|| Mhc4Initialization::new(self.architecture))
@@ -442,7 +429,6 @@ impl CandidateWeights {
                     scale,
                 )?;
                 let address = ProgramAddress::new(family_code, layer, expert)?;
-                let group = family_group(family);
                 blocks.push(
                     ParamBlock::new_logical(
                         tensor_id,
@@ -454,20 +440,18 @@ impl CandidateWeights {
                     )?
                     .with_address(address),
                 );
-                groups.push(group);
                 if mapped_base.is_none() {
                     base.extend_from_slice(tensor);
                 }
                 offset += tensor.len();
             }
         }
-        scale_groups(&mut blocks, &groups);
         if offset != expected_parameters {
             return Err(format!(
                 "Full-weight inventory has {offset} parameters, expected {expected_parameters}"
             ));
         }
-        let mut search = build_search(
+        let search = build_search(
             mapped_base,
             use_cache,
             key,
@@ -477,9 +461,6 @@ impl CandidateWeights {
             length,
             perturbation,
         )?;
-        if shape == crate::config::TrustRegionShape::TensorFamilyStatic {
-            search.enable_family(groups)?;
-        }
         Ok((search, updates))
     }
 }

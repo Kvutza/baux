@@ -113,6 +113,17 @@ impl SearchState {
         }
     }
 
+    pub fn store_axis(&mut self, round: &Proposals, slot: usize, accept: bool) {
+        let Some(axis) = &mut self.axis else {
+            return;
+        };
+        let coordinate = round.axis_coordinate.unwrap();
+        axis.history[slot] = coordinate;
+        if accept {
+            axis.base = coordinate;
+        }
+    }
+
     pub fn retain_axis(&mut self) {
         if let Some(axis) = &mut self.axis {
             axis.history.fill(0.0);

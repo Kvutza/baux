@@ -31,7 +31,7 @@ impl SearchState {
                     .into(),
             );
         }
-        if pool == self.pool_layout && !self.proposal_method.program_pool() {
+        if pool == self.pool_layout {
             return Ok(());
         }
         let source = self.procedural_source(pool);
@@ -44,6 +44,9 @@ impl SearchState {
         let pool_pipeline =
             self.runtime
                 .pipeline(&source, "Procedural search", "dense_propose_pool")?;
+        let reduce = self
+            .runtime
+            .precise(&source, "Procedural search", "dense_reduce_pool")?;
         let select = self
             .runtime
             .precise(&source, "Procedural search", "dense_select")?;
@@ -53,6 +56,7 @@ impl SearchState {
         self.propose_pipeline = propose;
         self.initial_pipeline = initial;
         self.pool_pipeline = pool_pipeline;
+        self.reduction_pipeline = reduce;
         self.selection_pipeline = select;
         self.materialize_pipeline = materialize;
         self.pool_layout = pool;
@@ -75,7 +79,7 @@ impl SearchState {
     /// and Lie flow.
     pub fn procedural_source(&self, pool: ProceduralPool) -> String {
         let source = initialization::search_source(self.independent_fp16, self.perturbation);
-        if pool == ProceduralPool::legacy() && !self.proposal_method.program_pool() {
+        if pool == ProceduralPool::legacy() {
             source
         } else {
             format!(

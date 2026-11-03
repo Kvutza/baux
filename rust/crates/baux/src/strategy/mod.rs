@@ -12,7 +12,7 @@ use selection::*;
 use crate::candidates::draw_turbo;
 use crate::config::InitStrategy;
 use crate::error::ENNError;
-use crate::optimizer::{BayesOptimizer, Telemetry};
+use crate::optimizer::{BayesOptimizer, Telemetry, TrustRegionState};
 pub use crate::optimizer::{InitStrategyState, Strategy, StrategyState, TurboStrategyState};
 use crate::optimizer_dispatch::{AskGate, TellGate};
 
@@ -152,14 +152,20 @@ impl BayesOptimizer {
         if self.reinit_left().is_some() {
             return tell_reinit(self, x, y, yvar, rng);
         }
-        if self.regions.is_multi() {
-            return tell_multi(self, x, y, yvar, rng);
-        }
         if self.warmup.in_init() {
+            if let TrustRegionState::Multi { pending, .. } = &mut self.regions {
+                *pending = None;
+            }
             self.warmup.advance_init(x.nrows());
             tell_common(self, x, y, yvar, None, rng)?;
             self.warmup.check_transition();
+            if let Some(y_inc) = self.y_scalar().map(|y| y[0]) {
+                self.regions.seed_baseline(y_inc, self.obs_count());
+            }
             return Ok(());
+        }
+        if self.regions.is_multi() {
+            return tell_multi(self, x, y, yvar, rng);
         }
         let mut telemetry = std::mem::take(&mut self.telemetry);
         let result = tell_turbo(self, x, y, yvar, &mut telemetry, rng);
@@ -184,8 +190,7 @@ fn ask_reinit(
     num_arms: usize,
     rng: &mut dyn RngCore,
 ) -> Result<Array2<f64>, ENNError> {
-    let left = optimizer.reinit_left().unwrap_or(num_arms);
-    let count = num_arms.min(left).max(1);
+    let count = num_arms.max(1);
     let state = InitStrategyState::new(optimizer.init_kind(), count);
     ask_init(&state, optimizer, count, rng)
 }
@@ -199,6 +204,11 @@ fn tell_reinit(
 ) -> Result<(), ENNError> {
     tell_common(optimizer, x, y, yvar, None, rng)?;
     optimizer.consume_reinit(x.nrows());
+    if let Some(y_inc) = optimizer.y_scalar().map(|y| y[0]) {
+        optimizer
+            .regions
+            .seed_baseline(y_inc, optimizer.obs_count());
+    }
     Ok(())
 }
 
@@ -248,7 +258,13 @@ fn ask_turbo(
     telemetry: &mut Telemetry,
     rng: &mut dyn RngCore,
 ) -> Result<Array2<f64>, ENNError> {
-    optimizer.regions.resample_propose(rng);
+    if optimizer.regions.resample_propose(rng) {
+        optimizer.update_incumbent(rng)?;
+        let y_inc = optimizer.y_scalar().cloned();
+        optimizer
+            .regions
+            .rescale_morbo(optimizer.obs_count(), y_inc)?;
+    }
     optimizer.regions.set_arms(num_arms);
 
     let x_center = optimizer
@@ -277,6 +293,7 @@ fn ask_turbo(
         config.candidate_rv,
         config.raasp_fast,
         &x_center.view(),
+        lengthscales.as_ref(),
         &lower_1d,
         &upper_1d,
         num_candidates,
@@ -290,20 +307,6 @@ fn ask_turbo(
     telemetry.dt_sel = start.elapsed().as_secs_f64();
 
     Ok(selected)
-}
-
-fn seed_history(optimizer: &mut BayesOptimizer, previous: usize) {
-    if previous == 0 {
-        return;
-    }
-    let Some(y_all) = optimizer.y_obs() else {
-        return;
-    };
-    if y_all.ncols() != 1 || y_all.nrows() < previous {
-        return;
-    }
-    let prefix = y_all.column(0).slice(ndarray::s![..previous]).to_owned();
-    optimizer.regions.seed_history(&prefix.view());
 }
 
 /// Tell for active single-region TuRBO/MORBO phase.
@@ -326,7 +329,6 @@ fn tell_turbo(
     if !optimizer.regions.is_morbo() {
         if optimizer.regions.turbo_obs() == 0 {
             let prev = num_obs.saturating_sub(y.nrows());
-            seed_history(optimizer, prev);
             optimizer.regions.set_obs(prev);
         }
         optimizer
@@ -337,6 +339,10 @@ fn tell_turbo(
         optimizer.regions.restart(Some(rng));
         optimizer.increment_generation();
         observe_morbo(optimizer)?;
+        optimizer.update_incumbent(rng)?;
+        if let Some(y_inc) = optimizer.y_scalar().cloned() {
+            optimizer.regions.update_morbo(&y_inc.view(), num_obs)?;
+        }
     }
     Ok(())
 }

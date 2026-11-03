@@ -53,9 +53,6 @@ impl SearchState {
         self.best = value;
         self.best_variance = variance;
         self.history = 1;
-        if let Some(neighbors) = &mut self.neighbors {
-            neighbors.capture(0, &self.base, self.independent_fp16);
-        }
         self.resident_history = 1;
         self.resident_identities[0] = self.base_id;
         self.objective_history
@@ -70,21 +67,11 @@ impl SearchState {
         &self,
     ) -> Result<impl ExactSizeIterator<Item = &ObjectiveRecord>, String> {
         self.check_healthy()?;
-        if self.relative {
-            return Err(
-                "Paired-relative histories do not contain absolute objective vectors".into(),
-            );
-        }
         Ok(self.objective_history.rows())
     }
 
     pub fn incumbent_objectives(&self) -> Result<Option<&ObjectiveRecord>, String> {
         self.check_healthy()?;
-        if self.relative {
-            return Err(
-                "Paired-relative histories do not contain absolute objective vectors".into(),
-            );
-        }
         Ok(self.objective_history.incumbent())
     }
 }

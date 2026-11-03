@@ -67,18 +67,20 @@ impl SurrogateSpec {
 pub enum AcquisitionRule {
     Ucb { beta: f32 },
     Thompson { seed: u64 },
+    Pareto { seed: u64 },
 }
 
 /// Complete surrogate evaluation and candidate selection for a proposal pool.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct PoolSelection {
     pub selected: usize,
     pub initializing: bool,
     pub candidate: baux::semantics::neighbor::query::Prediction,
     pub incumbent: baux::semantics::neighbor::query::Prediction,
     pub baseline_value: f32,
+    pub baseline_variance: f32,
     pub baseline_se: f32,
-    pub pool_predictions: [(f32, f32, f32); 4],
+    pub pool_predictions: Vec<(f32, f32, f32)>,
 }
 
 /// Type alias matching `SurrogateSpec`.
@@ -250,27 +252,8 @@ impl NeighborValueEstimator {
 
     /// The sampled GPU row and host observation must replace this same slot.
     pub fn next_slot(&self) -> Result<usize, String> {
-        let slope = if self.fitted {
-            (self.params.epistemic.max(0.0).sqrt() * self.y_scale.max(0.0)) as f32
-        } else {
-            1.0
-        };
-        let mut f32_dists = [0.0_f32; MAX_HISTORY * MAX_HISTORY];
-        for i in 0..MAX_HISTORY {
-            for j in 0..MAX_HISTORY {
-                f32_dists[i * MAX_HISTORY + j] = self.distances[i][j] as f32;
-            }
-        }
-        baux::semantics::neighbor::retention_cone(
-            self.identities(),
-            self.identities[self.base],
-            &self.outcomes[..self.len],
-            &self.variances[..self.len],
-            &f32_dists,
-            MAX_HISTORY,
-            slope,
-        )
-        .map_err(str::to_string)
+        baux::semantics::neighbor::retention(self.identities(), self.identities[self.base])
+            .map_err(str::to_string)
     }
 
     pub const fn fit_state(&self) -> FitState {
@@ -294,20 +277,13 @@ impl NeighborValueEstimator {
         self.len = 1;
         self.base = 0;
         self.identities[0] = identity;
+        self.params = self.defaults;
         self.fitted = false;
         self.y_scale = self.default_scale;
     }
 
     pub fn incumbent_prediction(&self) -> Result<ValuePrediction, String> {
-        let prediction = loo_fit::build_query(
-            self,
-            &self.distances[self.base][..self.len],
-            Some(self.base),
-            0.0,
-            None,
-            self.distance_metric,
-            self.uncertainty_law,
-        )?;
+        let prediction = self.incumbent_baseline()?;
         Ok(ValuePrediction {
             mean: prediction.mean,
             standard_error: prediction.standard_error,
@@ -340,35 +316,65 @@ impl NeighborValueEstimator {
         rule: AcquisitionRule,
         forced_slot: Option<usize>,
     ) -> Result<PoolSelection, String> {
-        if geometry.is_empty() || geometry.len() > 4 {
+        if geometry.is_empty() {
             return Err("invalid candidate pool geometry length".into());
         }
+        let pool_count = geometry.len();
         let initializing = self.is_initializing();
         let incumbent = self.incumbent_baseline()?;
-        let (beta, draws) = match rule {
-            AcquisitionRule::Ucb { beta } => (beta, None),
+        let baseline_value = self.base_value();
+        let baseline_variance = self.base_variance().max(0.0);
+        let baseline_se = baseline_variance.sqrt();
+        let (beta, draws, pareto_seed) = match rule {
+            AcquisitionRule::Ucb { beta } => (beta, None, None),
             AcquisitionRule::Thompson { seed } => {
                 let mut buf = [0.0_f32; MAX_HISTORY];
                 for (i, &id) in self.identities().iter().enumerate() {
                     buf[i] = baux::semantics::random::normal_metric(seed, id, 0) as f32;
                 }
-                (0.0, Some(buf))
+                (0.0, Some(buf), None)
             }
+            AcquisitionRule::Pareto { seed } => (1.0, None, Some(seed)),
         };
-        let mut pool_predictions = [(0.0_f32, 0.0_f32, 0.0_f32); 4];
-        let mut candidate_preds = [incumbent; 4];
+        let mut pool_predictions = Vec::with_capacity(pool_count);
+        let mut candidate_preds = Vec::with_capacity(pool_count);
         let mut best_slot = 0usize;
         let mut best_score = f32::NEG_INFINITY;
         for (slot, dist_row) in geometry.iter().enumerate() {
             let pred = self.acquire(dist_row, beta, draws.as_ref().map(|d| &d[..self.len]))?;
-            pool_predictions[slot] = (pred.mean, pred.standard_error, pred.score);
-            candidate_preds[slot] = pred;
+            pool_predictions.push((pred.mean, pred.standard_error, pred.score));
+            candidate_preds.push(pred);
             if pred.score > best_score {
                 best_score = pred.score;
                 best_slot = slot;
             }
         }
-        let pool_count = geometry.len();
+        if let Some(seed) = pareto_seed {
+            let mut best_priority = 0_u64;
+            let mut found = false;
+            for slot in 0..pool_count {
+                let pred = candidate_preds[slot];
+                let dominated = (0..pool_count).any(|other| {
+                    if other == slot {
+                        return false;
+                    }
+                    let o = candidate_preds[other];
+                    o.mean >= pred.mean
+                        && o.standard_error >= pred.standard_error
+                        && (o.mean > pred.mean || o.standard_error > pred.standard_error)
+                });
+                if !dominated {
+                    let priority = baux::semantics::random::splitmix64(
+                        seed ^ (slot as u64).wrapping_mul(0x9e37_79b9_7f4a_7c15),
+                    );
+                    if !found || priority > best_priority {
+                        found = true;
+                        best_priority = priority;
+                        best_slot = slot;
+                    }
+                }
+            }
+        }
         let selected = if let Some(slot) = forced_slot {
             slot % pool_count
         } else if initializing {
@@ -376,14 +382,13 @@ impl NeighborValueEstimator {
         } else {
             best_slot
         };
-        let (baseline_value, baseline_se) =
-            (self.base_value(), self.base_variance().max(0.0).sqrt());
         Ok(PoolSelection {
             selected,
             initializing,
             candidate: candidate_preds[selected],
             incumbent,
             baseline_value,
+            baseline_variance,
             baseline_se,
             pool_predictions,
         })

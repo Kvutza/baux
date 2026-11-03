@@ -24,7 +24,7 @@ inline float objective_chebyshev(thread const float *values, constant ObjectiveP
     return minimum + o.alpha * sum;
 }
 
-inline void objective_geometry(
+inline uint objective_geometry(
     thread const float *distances,
     constant SelectionParams &q,
     uint excluded_index,
@@ -60,8 +60,10 @@ inline void objective_geometry(
     } else {
         for (uint i = 0; i < q.history; i++) scaled_distances[i] = distances[i];
     }
+    uint available = 0;
     for (uint i = 0; i < q.history; i++) {
-        uint position = i;
+        if (i == excluded_index) continue;
+        uint position = available++;
         while (position > 0
             && scaled_distances[i] < scaled_distances[nearest[position - 1]]) {
             nearest[position] = nearest[position - 1];
@@ -69,23 +71,48 @@ inline void objective_geometry(
         }
         nearest[position] = i;
     }
+    return available;
 }
 
 inline float acquisition_score(
     thread const float *scaled_distances,
     thread const uint *nearest,
+    uint available,
     constant SelectionParams &q,
     constant float *outcomes,
     constant float *variances,
     constant float *draws,
     float scale,
     thread float &mean_out,
-    thread float &standard_error_out) {
-    uint count = min(q.neighbors, q.history);
+    thread float &standard_error_out,
+    thread uint &neighbors_out) {
+    uint count = min(q.neighbors, available);
+    if (count == 0) {
+        mean_out = outcomes[q.incumbent_index];
+        standard_error_out = sqrt(max(q.aleatoric_scale, 1.0e-12f)) * scale;
+        neighbors_out = 0;
+        return mean_out;
+    }
+    float y_scale_sq = max(scale * scale, 1.0e-12f);
+    if (q.adaptive_neighbors != 0) {
+        float precision_sum = 0.0f, noise_sum = 0.0f, best_risk = INFINITY;
+        uint chosen = 1;
+        for (uint position = 0; position < count; position++) {
+            uint index = nearest[position];
+            float noise = q.aleatoric_scale + variances[index] / y_scale_sq;
+            float precision = 1.0f / max(1.0e-9f + q.epistemic_scale * scaled_distances[index] + noise, 1.0e-12f);
+            precision_sum += precision;
+            noise_sum += precision * precision * noise;
+            float variance_error = noise_sum / max(precision_sum * precision_sum, 1.0e-24f);
+            float risk = q.epistemic_scale * scaled_distances[index] + variance_error;
+            if (risk < best_risk) { best_risk = risk; chosen = position + 1; }
+        }
+        count = chosen;
+    }
+    neighbors_out = count;
     float sum = 0.0f;
     float value = 0.0f;
     float reference = 1.17549435e-38f;
-    float y_scale_sq = max(scale * scale, 1.0e-12f);
     for (uint position = 0; position < count; position++) {
         uint index = nearest[position];
         float variance = 1.0e-9f
@@ -145,31 +172,13 @@ kernel void dense_select_objectives(
     float proposal_norms[4] = {0.0f, 0.0f, 0.0f, 0.0f};
     bool changed[4] = {false, false, false, false};
     bool invalid[4] = {false, false, false, false};
-    for (uint candidate = 0; candidate < 4; candidate++) {
-        proposal_norms[candidate] = q.latent_history != 0 ? q.latent_norms[candidate] : aggregates[candidate].squared;
+    for (uint candidate = 0; candidate < PROCEDURAL_COUNT; candidate++) {
+        proposal_norms[candidate] = aggregates[candidate].squared;
         for (uint row = 0; row < q.history; row++) {
-            distances[candidate][row] = q.sampled_history != 0
-                ? pool_distances[candidate * q.history + row]
-                : q.implicit_history != 0
+            distances[candidate][row] = q.implicit_history != 0
                 ? q.base_distances[row] + proposal_norms[candidate]
                 : 0.0f;
-            if (q.program != 0)
-                distances[candidate][row] += pool_distances[candidate * q.history + row];
-            if (q.axis_enabled != 0) {
-                float delta = q.axis_candidates[candidate] - q.axis_history[row];
-                distances[candidate][row] += q.axis_weight * delta * delta;
-            }
         }
-        if (q.sampled_history != 0) {
-            proposal_norms[candidate] = distances[candidate][q.incumbent_index];
-            changed[candidate] = proposal_norms[candidate] > 0.0f;
-            for (uint row = 0; row < q.history; row++)
-                invalid[candidate] = invalid[candidate]
-                    || !isfinite(distances[candidate][row]);
-        }
-    }
-    if (q.latent_history == 0 && q.sampled_history == 0)
-    for (uint candidate = 0; candidate < 4; candidate++) {
         for (uint row = 0; row < q.resident_history; row += 2) {
             Partial aggregate = aggregates[(row / 2) * 4 + candidate];
             float first = aggregate.anchor;
@@ -177,17 +186,27 @@ kernel void dense_select_objectives(
             changed[candidate] = changed[candidate] || aggregate.changed != 0;
             invalid[candidate] = invalid[candidate] || aggregate.invalid != 0;
             uint first_index = q.implicit_history != 0 ? q.resident_indices[row] : row;
-            distances[candidate][first_index] = first;
+            if (first_index < q.history) {
+                distances[candidate][first_index] = first;
+            }
             if (row + 1 < q.resident_history) {
                 uint second_index = q.implicit_history != 0 ? q.resident_indices[row + 1] : row + 1;
-                distances[candidate][second_index] = second;
+                if (second_index < q.history) {
+                    distances[candidate][second_index] = second;
+                }
             }
             invalid[candidate] = invalid[candidate] || !isfinite(first)
                 || (row + 1 < q.resident_history && !isfinite(second));
         }
+        if (q.axis_enabled != 0) {
+            for (uint row = 0; row < q.history; row++) {
+                float delta = q.axis_candidates[candidate] - q.axis_history[row];
+                distances[candidate][row] += q.axis_weight * delta * delta;
+            }
+        }
     }
     bool any_changed = false;
-    for (uint candidate = 0; candidate < 4; candidate++) {
+    for (uint candidate = 0; candidate < PROCEDURAL_COUNT; candidate++) {
         changed[candidate] = changed[candidate] || (q.axis_enabled != 0
             && q.axis_candidates[candidate] != q.axis_base);
         any_changed = any_changed || changed[candidate];
@@ -196,21 +215,27 @@ kernel void dense_select_objectives(
     float best = -INFINITY;
     float candidate_means[4];
     float candidate_standard_errors[4];
+    float candidate_scores[4];
+    uint candidate_neighbors[4] = {0, 0, 0, 0};
+    for (uint candidate = 0; candidate < 4; candidate++) {
+        candidate_means[candidate] = NAN;
+        candidate_standard_errors[candidate] = NAN;
+        candidate_scores[candidate] = NAN;
+    }
     float incumbent_distances[128];
     for (uint row = 0; row < q.history; row++)
         incumbent_distances[row] = q.base_distances[row]
             + (q.axis_enabled != 0
                 ? q.axis_weight * (q.axis_base - q.axis_history[row])
                     * (q.axis_base - q.axis_history[row])
-                : 0.0f)
-            + (q.program != 0 ? pool_distances[4 * q.history + row] : 0.0f);
+                : 0.0f);
     float incumbent_mean;
     float incumbent_standard_error;
     uint incumbent_neighbors;
     acquisition_score(
         incumbent_distances,
         q,
-        q.incumbent_index,
+        128u,
         incumbent_mean,
         incumbent_standard_error,
         incumbent_neighbors);
@@ -219,30 +244,36 @@ kernel void dense_select_objectives(
     float scalar_scores[4] = {-INFINITY, -INFINITY, -INFINITY, -INFINITY};
     for (uint candidate = 0; candidate < 4; candidate++) {
         for (uint metric = 0; metric < 8; metric++) vectors[candidate][metric] = NAN;
+    }
+    for (uint candidate = 0; candidate < PROCEDURAL_COUNT; candidate++) {
         if (candidate < q.candidate_floor || invalid[candidate]
             || (any_changed && !changed[candidate])) continue;
         float scaled_distances[128];
         uint nearest[128];
-        objective_geometry(distances[candidate], q, 128u, scaled_distances, nearest);
-        float control_score = acquisition_score(scaled_distances, nearest, q,
+        uint available = objective_geometry(distances[candidate], q, 128u, scaled_distances, nearest);
+        float control_score = acquisition_score(scaled_distances, nearest, available, q,
             q.outcomes, q.variances, q.draws, q.y_scale,
-            candidate_means[candidate], candidate_standard_errors[candidate]);
+            candidate_means[candidate], candidate_standard_errors[candidate],
+            candidate_neighbors[candidate]);
+        candidate_scores[candidate] = control_score;
         eligible[candidate] = isfinite(control_score);
         for (uint metric = 0; metric < o.width; metric++) {
             float mean, error;
+            uint metric_neighbors;
             vectors[candidate][metric] = acquisition_score(
-                scaled_distances, nearest, q, o.outcomes[metric], o.variances[metric],
-                o.draws[metric], o.scales[metric], mean, error);
+                scaled_distances, nearest, available, q, o.outcomes[metric], o.variances[metric],
+                o.draws[metric], o.scales[metric], mean, error, metric_neighbors);
             eligible[candidate] = eligible[candidate] && isfinite(vectors[candidate][metric]);
         }
         if (o.mode == 1) scalar_scores[candidate] = objective_chebyshev(vectors[candidate], o);
+        if (o.mode == 1) candidate_scores[candidate] = scalar_scores[candidate];
         if (o.mode == 1) eligible[candidate] = eligible[candidate] && isfinite(scalar_scores[candidate]);
     }
     uint nondominated_mask = 0;
-    for (uint candidate = 0; candidate < 4; candidate++) {
+    for (uint candidate = 0; candidate < PROCEDURAL_COUNT; candidate++) {
         if (!eligible[candidate]) continue;
         bool dominated = false;
-        for (uint other = 0; other < 4; other++) {
+        for (uint other = 0; other < PROCEDURAL_COUNT; other++) {
             if (other == candidate || !eligible[other]) continue;
             bool no_worse = true, strictly_better = false;
             for (uint metric = 0; metric < o.width; metric++) {
@@ -265,7 +296,7 @@ kernel void dense_select_objectives(
         }
     }
     if (o.mode == 0 && q.forced_candidate >= 4) {
-        for (uint candidate = 0; candidate < 4; candidate++) {
+        for (uint candidate = 0; candidate < PROCEDURAL_COUNT; candidate++) {
             if ((nondominated_mask & (1u << candidate)) == 0) continue;
             if (selected == 4 || o.priorities[candidate] > o.priorities[selected]) selected = candidate;
         }
@@ -282,22 +313,23 @@ kernel void dense_select_objectives(
     decision->valid = selected < 4 ? 1u : 0u;
     decision->root_seed = q.root_seed;
     decision->seed = selected < 4 ? candidate_seed(q.root_seed, selected) : 0ul;
-    decision->basis_seed = q.basis_seed;
-    decision->radius = selected < 4
-        ? proposal_radius(selected, q.program, q.radius, q.alternate_radius)
-        : 0.0f;
+    decision->radius = selected < 4 ? q.radius : 0.0f;
     decision->score = selected < 4 ? best : 0.0f;
     decision->mode = q.mode;
-    decision->program = q.program;
     decision->predicted_mean = selected < 4 ? candidate_means[selected] : 0.0f;
     decision->predicted_standard_error = selected < 4
         ? candidate_standard_errors[selected]
         : 0.0f;
     decision->incumbent_mean = incumbent_mean;
-    decision->neighbors = min(q.neighbors, q.history);
+    decision->neighbors = selected < 4 ? candidate_neighbors[selected] : 0;
     decision->incumbent_neighbors = incumbent_neighbors;
     decision->incumbent_standard_error = incumbent_standard_error;
-    for (uint candidate = 0; candidate < 4; candidate++)
+    for (uint candidate = 0; candidate < PROCEDURAL_COUNT; candidate++) {
+        decision->candidate_means[candidate] = candidate_means[candidate];
+        decision->candidate_standard_errors[candidate] = candidate_standard_errors[candidate];
+        decision->candidate_scores[candidate] = candidate_scores[candidate];
+    }
+    for (uint candidate = 0; candidate < PROCEDURAL_COUNT; candidate++)
         for (uint row = 0; row < q.history; row++)
             pool_distances[candidate * q.history + row] = distances[candidate][row];
 }

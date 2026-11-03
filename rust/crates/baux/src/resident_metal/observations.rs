@@ -17,8 +17,6 @@
 use super::*;
 use baux::semantics::numerical::{self, Kind, Trace};
 
-mod paired;
-
 impl SearchState {
     /// Scalar-reward adapter for `initial_objectives` during ENN warm-up.
     /// The pending trial must come from the same search state; variance is the
@@ -48,10 +46,9 @@ impl SearchState {
     }
 
     /// Implement warm-up acceptance against the stored incumbent.
-    /// Fresh scalar initialization requires positive reward gain; rewarming
-    /// uses two combined standard errors. Records history without normal
-    /// radius adaptation, and initializes controller state when warm-up
-    /// completes.
+    /// Scalar initialization requires positive reward gain (`threshold = 0.0`,
+    /// matching upstream `enn`). Records history without normal radius
+    /// adaptation, and initializes controller state when warm-up completes.
     fn initial_observation(
         &mut self,
         round: &Proposals,
@@ -72,17 +69,7 @@ impl SearchState {
             let incumbent_variance = self.best_variance;
             check_scores(&[value, incumbent_value], &[variance, incumbent_variance])?;
             let control_improvement = f64::from(value) - f64::from(incumbent_value);
-            let rewarming = self.observation as usize > self.history;
-            let pair_variance = if variance.to_bits() == incumbent_variance.to_bits() {
-                0.0
-            } else {
-                f64::from(variance)
-            };
-            let control_threshold = if rewarming {
-                2.0 * (f64::from(variance) + f64::from(incumbent_variance)).sqrt()
-            } else {
-                f64::from(self.calibration.multiplier()) * pair_variance.sqrt()
-            };
+            let control_threshold = 0.0;
             let objectives = self.objective_decision(observation)?;
             let (accepted, improvement) = objectives.unwrap_or((
                 baux::semantics::optimizer::accept_candidate(
@@ -95,27 +82,11 @@ impl SearchState {
                 numerical::unchecked("vector objective override")?
             } else {
                 numerical::check(Trace::observed(
-                    if rewarming {
-                        Kind::Combined
-                    } else {
-                        Kind::Paired
-                    },
+                    Kind::Paired,
                     control_improvement,
-                    if rewarming {
-                        2.0
-                    } else {
-                        f64::from(self.calibration.multiplier())
-                    },
-                    if rewarming {
-                        f64::from(variance)
-                    } else {
-                        pair_variance
-                    },
-                    if rewarming {
-                        f64::from(incumbent_variance)
-                    } else {
-                        0.0
-                    },
+                    0.0,
+                    f64::from(variance),
+                    0.0,
                     control_threshold,
                     accepted,
                 ))?
@@ -131,20 +102,9 @@ impl SearchState {
                 false,
             )?;
             if self.history == self.initial_observations && !self.has_morbo() {
-                let failure_tolerance = self.trust.failure_tolerance() as usize;
-                self.trust = TurboTrustRegion::new(self.dimensions, self.length_config);
-                self.trust.set_arms(1);
-                self.trust
-                    .set_tolerance(failure_tolerance)
-                    .map_err(|error| error.to_string())?;
-                let observed = self.outcomes[..self.history]
-                    .iter()
-                    .map(|&value| f64::from(value))
-                    .collect::<Vec<_>>();
-                self.trust_observations = observed.len();
-                self.trust
-                    .update(&ndarray::ArrayView1::from(&observed), observed.len())
-                    .map_err(|error| error.to_string())?;
+                self.trust.restart();
+                self.trust_observations = self.history;
+                self.trust.seed_baseline(f64::from(self.best), self.history);
                 self.length = self.trust.length();
             }
             Ok(NoisyDecision {
@@ -156,16 +116,17 @@ impl SearchState {
                 threshold: control_threshold,
                 predicted_improvement: None,
                 agreement_ratio: None,
-                trust_outcome: TrustRegionOutcome::Inconclusive,
+                trust_outcome: if accepted {
+                    TrustRegionOutcome::Success
+                } else {
+                    TrustRegionOutcome::Failure
+                },
             })
         })
     }
 
-    /// Scalar adapter for stored-incumbent noisy acceptance.
-    /// Uses `2 * sqrt(candidate_variance + incumbent_variance)` as its
-    /// threshold. No same-condition incumbent measurement or covariance is
-    /// computed here; the caller is responsible for interpreting the
-    /// supplied estimate errors.
+    /// Scalar adapter for stored-incumbent acceptance (`threshold = 0.0`,
+    /// matching upstream `enn`).
     pub fn tell_noisy(
         &mut self,
         round: &Proposals,
@@ -178,10 +139,10 @@ impl SearchState {
         )
     }
 
-    /// Compare a new observation with stored incumbent reward/error metadata.
-    /// Scalar acceptance requires gain above two combined standard errors;
-    /// vector control may override it. Records the trial and adapts the region.
-    /// Unlike `modeled_objectives`, it supplies no reliability-model evidence.
+    /// Compare a new observation with stored incumbent reward metadata.
+    /// Scalar acceptance requires positive reward gain (`threshold = 0.0`,
+    /// matching upstream `enn`); vector control may override it. Records the
+    /// trial and adapts the region.
     pub fn noisy_objectives(
         &mut self,
         round: &Proposals,
@@ -193,18 +154,11 @@ impl SearchState {
         } = observation.control();
         autoreleasepool(|| {
             self.check_round(round)?;
-            if self.relative {
-                return Err("Cannot mix absolute and paired-relative observations".into());
-            }
             let incumbent_value = self.best;
             let incumbent_variance = self.best_variance;
             check_scores(&[value, incumbent_value], &[variance, incumbent_variance])?;
             let control_improvement = f64::from(value) - f64::from(incumbent_value);
-            let combined_variance = f64::from(variance) + f64::from(incumbent_variance);
-            if !combined_variance.is_finite() {
-                return Err("Combined noisy-observation variance is not finite".into());
-            }
-            let control_threshold = 2.0 * combined_variance.sqrt();
+            let control_threshold = 0.0;
             let objectives = self.objective_decision(observation)?;
             let (accepted, improvement, threshold) = objectives.map_or(
                 (
@@ -223,12 +177,17 @@ impl SearchState {
                 numerical::check(Trace::observed(
                     Kind::Combined,
                     control_improvement,
-                    2.0,
+                    0.0,
                     f64::from(variance),
                     f64::from(incumbent_variance),
                     control_threshold,
                     accepted,
                 ))?
+            };
+            let trust_outcome = if accepted {
+                TrustRegionOutcome::Success
+            } else {
+                TrustRegionOutcome::Failure
             };
             let next_incumbent = if accepted { value } else { incumbent_value };
             self.absolute_objectives(
@@ -238,7 +197,7 @@ impl SearchState {
                 incumbent_variance,
                 accepted,
                 Some(next_incumbent),
-                None,
+                Some(trust_outcome),
                 true,
             )?;
             Ok(NoisyDecision {
@@ -250,11 +209,7 @@ impl SearchState {
                 threshold,
                 predicted_improvement: None,
                 agreement_ratio: None,
-                trust_outcome: if accepted {
-                    TrustRegionOutcome::Success
-                } else {
-                    TrustRegionOutcome::Failure
-                },
+                trust_outcome,
             })
         })
     }
@@ -285,9 +240,8 @@ impl SearchState {
     ///   \text{round.incumbent\_mean}$$ measured in nats/token.
     /// * **Incumbent Uncertainty**: $$\sigma_{\text{inc}} =
     ///   \text{round.incumbent\_standard\_error}$$ measured in nats/token.
-    /// * **Control Threshold**: $$\tau = c \cdot \left(\sqrt{\text{variance}} +
-    ///   \sigma_{\text{inc}}\right)$$ where $c$ is the calibration multiplier
-    ///   (`self.calibration.multiplier()`).
+    /// * **Control Threshold**: `control_threshold = 0.0` (standard zero-margin
+    ///   TuRBO acceptance).
     ///
     /// A candidate is accepted when $\Delta > \tau$.
     ///
@@ -426,12 +380,8 @@ impl SearchState {
     /// 1. **Control Improvement**: $$\text{control\_improvement} = \text{value}
     ///    - \text{round.incumbent\_mean}$$ represents the scalar gain over the
     ///    predicted incumbent baseline in nats/token.
-    /// 2. **Control Threshold**: $$\text{control\_threshold} = c \cdot
-    ///    \left(\sqrt{\text{variance}} +
-    ///    \text{round.incumbent\_standard\_error}\right)$$ where $c$ is the
-    ///    historical calibration multiplier (`self.calibration.multiplier()`).
-    ///    The threshold scales with the sum of observation standard error and
-    ///    incumbent posterior standard error.
+    /// 2. **Control Threshold**: `control_threshold = 0.0` (standard
+    ///    zero-margin TuRBO acceptance).
     /// 3. **Acceptance Rule**: The proposal is accepted if
     ///    $\text{control\_improvement} > \text{control\_threshold}$ (or as
     ///    dictated by vector Pareto / multi-objective criteria if
@@ -466,9 +416,6 @@ impl SearchState {
         } = observation.control();
         autoreleasepool(|| {
             self.check_round(round)?;
-            if self.relative {
-                return Err("Cannot mix absolute and paired-relative observations".into());
-            }
             check_scores(
                 &[value, round.predicted_mean, round.incumbent_mean],
                 &[
@@ -481,8 +428,6 @@ impl SearchState {
             let incumbent_variance = round.incumbent_standard_error.powi(2);
             let control_improvement = f64::from(value) - f64::from(incumbent_value);
             let control_threshold = 0.0;
-            let calibration =
-                self.next_calibration(round, value, variance, self.objective_selector.is_some())?;
             let objectives = self.objective_decision(observation)?;
             let (accepted, improvement, threshold) = objectives.map_or(
                 (
@@ -501,7 +446,7 @@ impl SearchState {
                 numerical::check(Trace::observed(
                     Kind::Separate,
                     control_improvement,
-                    f64::from(self.calibration.multiplier()),
+                    0.0,
                     f64::from(variance),
                     f64::from(incumbent_variance),
                     control_threshold,
@@ -515,10 +460,8 @@ impl SearchState {
                 .map(|prediction| improvement / prediction);
             let trust_outcome = if accepted {
                 TrustRegionOutcome::Success
-            } else if improvement < -threshold {
-                TrustRegionOutcome::Failure
             } else {
-                TrustRegionOutcome::Inconclusive
+                TrustRegionOutcome::Failure
             };
             let next_incumbent = if accepted { value } else { incumbent_value };
             self.absolute_objectives(
@@ -531,7 +474,6 @@ impl SearchState {
                 Some(trust_outcome),
                 true,
             )?;
-            self.calibration = calibration;
             Ok(NoisyDecision {
                 numerical,
                 accepted,
@@ -544,28 +486,5 @@ impl SearchState {
                 trust_outcome,
             })
         })
-    }
-
-    /// Prepare, without installing, calibration after the current observation.
-    /// Only scalar observations after warm-up contribute a standardized
-    /// residual against the ask-time candidate prediction. Current
-    /// acceptance still uses the previous calibration state, avoiding use
-    /// of its own residual threshold.
-    fn next_calibration(
-        &self,
-        round: &Proposals,
-        value: f32,
-        variance: f32,
-        vector: bool,
-    ) -> Result<crate::calibration::Calibration, String> {
-        let mut next = self.calibration.clone();
-        if self.history >= self.initial_observations && !vector {
-            next.observe(
-                value,
-                round.predicted_mean,
-                (variance + round.predicted_standard_error.powi(2)).sqrt(),
-            )?;
-        }
-        Ok(next)
     }
 }

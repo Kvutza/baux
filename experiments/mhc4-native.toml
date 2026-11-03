@@ -12,7 +12,6 @@ stage-samples = 3
 
 [optimizer]
 algorithm = "operator-bo"
-proposal = "independent"
 distribution = "gaussian"
 
 [optimizer.surrogate]

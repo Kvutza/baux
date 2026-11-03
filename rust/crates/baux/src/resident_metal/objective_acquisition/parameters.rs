@@ -17,7 +17,7 @@ pub struct ObjectiveParams {
 }
 
 pub fn validate_history(state: &SearchState, width: usize) -> Result<(), String> {
-    if state.relative || state.history == 0 {
+    if state.history == 0 {
         return Err("Vector acquisition requires measured absolute objective observations".into());
     }
     let records = state.objective_history.rows();
@@ -40,7 +40,7 @@ impl ObjectiveParams {
     pub fn pack(
         state: &SearchState,
         config: &ObjectivePolicy,
-        trust: Option<&MorboTrustRegion>,
+        morbo: Option<&ResidentMorbo>,
         root: u64,
         ask: RoundConfig,
     ) -> Self {
@@ -64,7 +64,7 @@ impl ObjectiveParams {
         };
         params.scales[..config.scales.len()].copy_from_slice(&config.scales);
         params.fill_observations(state, ask.acquisition.seed);
-        params.configure_mode(config, trust);
+        params.configure_mode(config, morbo);
         params
     }
 
@@ -81,16 +81,15 @@ impl ObjectiveParams {
         }
     }
 
-    fn configure_mode(&mut self, config: &ObjectivePolicy, trust: Option<&MorboTrustRegion>) {
+    fn configure_mode(&mut self, config: &ObjectivePolicy, morbo: Option<&ResidentMorbo>) {
         let ObjectiveAcquisition::Morbo { alpha, .. } = &config.acquisition else {
             return;
         };
-        let trust = trust.expect("validated MORBO selector requires its trust region");
+        let morbo = morbo.expect("validated MORBO selector requires its state");
+        let trust = morbo.trust();
         self.mode = 1;
         self.alpha = *alpha;
-        // MORBO acquisition extrapolates beyond observed ranges. Incumbent
-        // updates are clipped separately by MorboTrustRegion.
-        self.clip = 0;
+        self.clip = u32::from(morbo.clip());
         for (metric, &weight) in trust.weights().iter().enumerate() {
             self.weights[metric] = weight as f32;
         }

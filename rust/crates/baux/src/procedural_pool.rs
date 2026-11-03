@@ -16,73 +16,6 @@
 //! independence.
 use deser::{Deserialize, Serialize};
 
-/// Program used to construct each dense procedural direction.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[deser(rename_all = "kebab-case")]
-pub enum ProposalMethod {
-    /// Request per-parameter innovations without the parameter-pair mixing
-    /// term. In the resident FP16 path, a trial is the rounded incumbent
-    /// plus `block.scale * radius * noise`; `ProposalKernel` chooses the
-    /// noise sampler.
-    #[default]
-    #[deser(rename = "independent")]
-    Additive,
-    /// Request the resident Metal trigonometric unit-tangent mixing
-    /// parameter-pair transformation.
-    ///
-    /// Before FP16 encoding, unit-tangent mixing applies unit-tangent
-    /// trigonometric mixing in `resident_search.metal` (`program == 3u`):
-    /// `cos(alpha) * noise + sin(alpha) * tangent`
-    /// where `tangent = (y, -x) / sqrt(x^2 + y^2)` and `alpha in {0, pi/6,
-    /// pi/4, pi/3}` for slots `0..3`.
-    /// `configure_enn` rejects unsupported precision, noise, and history modes.
-    #[deser(rename = "pair-rotation")]
-    PairMix,
-    /// Quadratic truncation of a representation-space operator flow:
-    /// W(s) = W * (I + s * X + (s^2 / 2) * X^2)
-    /// where X = Omega + S in k (+) p.
-    #[deser(rename = "lie")]
-    QuadraticFlow,
-    /// Forward Metric Calculus chain: coordinate-level transport along curve of
-    /// maximal slope
-    #[deser(rename = "metric-chain")]
-    MetricChain,
-}
-
-impl ProposalMethod {
-    /// Canonical configuration/report label; not a complete proposal
-    /// specification. Noise distribution, scales, precision, radius, and
-    /// pool remain separate.
-    pub const fn name(self) -> &'static str {
-        match self {
-            Self::Additive => "independent",
-            Self::PairMix => "pair-rotation",
-            Self::QuadraticFlow => "lie",
-            Self::MetricChain => "metric-chain",
-        }
-    }
-
-    /// Metal shader program identifier (`0` for independent innovation, `3` for
-    /// pair rotation, `4` for Lie flow, `5` for metric-chain Cayley-Stiefel).
-    pub const fn program_id(self) -> u32 {
-        match self {
-            Self::Additive => 0,
-            Self::PairMix => 3,
-            Self::QuadraticFlow => 4,
-            Self::MetricChain => 5,
-        }
-    }
-
-    /// Whether this proposal method requires explicit pool-macro specialization
-    /// and FP16 sampled-parameter history.
-    pub const fn program_pool(self) -> bool {
-        match self {
-            Self::Additive => false,
-            Self::PairMix | Self::QuadraticFlow | Self::MetricChain => true,
-        }
-    }
-}
-
 /// Identity of a perturbation within an arm, not an index into model storage.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct CandidateIdentity {
@@ -151,8 +84,8 @@ impl ProceduralPoolConfig {
     /// supported when configured.
     pub fn resolve_resident(self) -> Result<ProceduralPool, String> {
         let pool = self.resolve()?;
-        if pool.count == 0 {
-            return Err("resident procedural pool requires at least 1 candidate".into());
+        if pool.count == 0 || pool.count > 4 {
+            return Err("resident procedural pool requires 1..=4 candidates".into());
         }
         Ok(pool)
     }
@@ -227,7 +160,7 @@ pub fn arm_seed(root: u64, arm: u32) -> u64 {
 /// Radius is chosen elsewhere: a reliability controller can give those slots
 /// the same radius, so sharing a seed need not mean different step sizes.
 pub fn legacy_seed(root: u64, slot: u32) -> u64 {
-    let stream = slot / 2;
+    let stream = slot;
     let (low, high) = (root as u32, (root >> 32) as u32);
     u64::from(stream_word(low, high, stream))
         | (u64::from(stream_word(high, low, stream ^ 0x9e37_79b9)) << 32)
@@ -270,15 +203,9 @@ mod tests {
             let seeds: Vec<_> = (0..4)
                 .map(|i| pool.seed(73, pool.identity(i).unwrap()).unwrap())
                 .collect();
-            if slots == 2 {
-                assert_eq!(seeds[0], seeds[1]);
-                assert_eq!(seeds[2], seeds[3]);
-                assert_ne!(seeds[0], seeds[2]);
-            } else {
-                for i in 0..4 {
-                    for j in 0..i {
-                        assert_ne!(seeds[i], seeds[j]);
-                    }
+            for i in 0..4 {
+                for j in 0..i {
+                    assert_ne!(seeds[i], seeds[j]);
                 }
             }
         }
@@ -346,7 +273,7 @@ mod tests {
                     .unwrap()
             );
         }
-        assert_eq!(
+        assert_ne!(
             pool.seed(7, CandidateIdentity { arm: 0, slot: 0 }).unwrap(),
             pool.seed(7, CandidateIdentity { arm: 0, slot: 1 }).unwrap()
         );
@@ -371,6 +298,11 @@ mod tests {
             candidates_per_arm: 1,
         };
         assert!(config.resolve_resident().is_err());
+        let oversized = ProceduralPoolConfig {
+            arms: 2,
+            candidates_per_arm: 4,
+        };
+        assert!(oversized.resolve_resident().is_err());
     }
 
     #[test]
@@ -386,9 +318,12 @@ mod tests {
             ),
         ] {
             assert_eq!(legacy_seed(root, 0), first);
-            assert_eq!(legacy_seed(root, 1), first);
-            assert_eq!(legacy_seed(root, 2), second);
-            assert_eq!(legacy_seed(root, 3), second);
+            assert_eq!(legacy_seed(root, 1), second);
+            assert_ne!(legacy_seed(root, 2), first);
+            assert_ne!(legacy_seed(root, 2), second);
+            assert_ne!(legacy_seed(root, 3), first);
+            assert_ne!(legacy_seed(root, 3), second);
+            assert_ne!(legacy_seed(root, 2), legacy_seed(root, 3));
         }
     }
 }

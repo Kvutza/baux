@@ -17,9 +17,7 @@ mod initialization;
 pub mod layout;
 #[path = "mhc4/probe.rs"]
 pub mod probe;
-pub use initialization::{
-    Initialization, ScaleShape, columns, expert_multiplier, family_multiplier,
-};
+pub use initialization::{Initialization, ScaleShape, columns};
 pub use layout::{LAYOUT, LayerVisit, MHC4_VISITS, Mhc4Layout, Slot};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

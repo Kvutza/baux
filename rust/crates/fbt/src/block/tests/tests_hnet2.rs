@@ -525,7 +525,7 @@ fn bo_step(
         "version = 4\nexperiment = \"pretrain\"\nmodel = \"fbt-pisa1-hnet-mhc4-v1\"\n\
          recipe = \"fineweb-bytes-100m-v1\"\nobjective = \"cross-entropy\"\n\
          window-tokens = 1048576\nrounds = 4\nround-target-ms = 680\n\
-         [optimizer]\nalgorithm = \"operator-bo\"\nproposal = \"lie\"\n\
+         [optimizer]\nalgorithm = \"operator-bo\"\n\
          distribution = \"gaussian\"\n\
          [optimizer.surrogate]\nneighbors = 8\nepistemic-scale = 0.1\n\
          aleatoric-scale = 0.05\ny-scale = 0.005\n\
@@ -603,7 +603,7 @@ fn bench_1m(
         "version = 4\nexperiment = \"pretrain\"\nmodel = \"fbt-pisa1-hnet-mhc4-v1\"\n\
          recipe = \"fineweb-bytes-100m-v1\"\nobjective = \"cross-entropy\"\n\
          window-tokens = 1048576\nrounds = 5\nround-target-ms = 680\n\
-         [optimizer]\nalgorithm = \"operator-bo\"\nproposal = \"lie\"\n\
+         [optimizer]\nalgorithm = \"operator-bo\"\n\
          distribution = \"gaussian\"\n\
          [optimizer.surrogate]\nneighbors = 8\nepistemic-scale = 0.1\n\
          aleatoric-scale = 0.05\ny-scale = 0.005\n\

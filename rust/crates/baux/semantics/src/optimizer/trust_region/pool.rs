@@ -51,7 +51,7 @@ fn arm_seed(root: u64, arm: usize) -> u64 {
 }
 
 fn legacy_seed(root: u64, slot: usize) -> u64 {
-    let stream = slot as u32 / 2;
+    let stream = slot as u32;
     let low = root as u32;
     let high = (root >> 32) as u32;
     u64::from(stream_word(low, high, stream))

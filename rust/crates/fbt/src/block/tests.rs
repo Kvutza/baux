@@ -958,7 +958,7 @@ fn hnet_objective() -> Result<(), String> {
             "version = 4\nexperiment = \"pretrain\"\nmodel = \"fbt-pisa1-hnet-mhc4-v1\"\n\
              recipe = \"fineweb-bytes-100m-v1\"\nobjective = \"cross-entropy\"\n\
              window-tokens = 4096\nrounds = 4\nround-target-ms = 250\n\
-             [optimizer]\nalgorithm = \"operator-bo\"\nproposal = \"lie\"\n\
+             [optimizer]\nalgorithm = \"operator-bo\"\n\
              distribution = \"gaussian\"\n\
              [optimizer.surrogate]\nneighbors = 8\nepistemic-scale = 0.1\n\
              aleatoric-scale = 0.05\ny-scale = 0.005\n\

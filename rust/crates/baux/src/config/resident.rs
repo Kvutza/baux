@@ -4,7 +4,6 @@ use super::*;
 #[derive(Debug, Clone, Copy)]
 pub struct ResidentEnnConfig {
     pub pool: crate::procedural_pool::ProceduralPool,
-    pub proposal_method: crate::procedural_pool::ProposalMethod,
     pub ask: crate::trials::RoundConfig,
     pub num_candidates: usize,
     pub num_samples: usize,
@@ -88,7 +87,6 @@ impl RunConfig {
         let (distance_metric, local_scale_neighbors) = self.resident_geometry()?;
         Ok(ResidentEnnConfig {
             pool: self.resident_pool()?,
-            proposal_method: self.proposal_method.unwrap_or_default(),
             ask: {
                 let mut config = defaults;
                 config.surrogate = crate::trials::SurrogateParams {

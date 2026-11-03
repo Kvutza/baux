@@ -1,5 +1,5 @@
-mod scip_graph;
-mod scip_pb;
+pub(crate) mod scip_graph;
+pub(crate) mod scip_pb;
 mod scip_split;
 
 use scip_graph::{
@@ -40,12 +40,27 @@ pub fn map(
         let defs = doc
             .occurrences
             .iter()
-            .filter(|occ| occ.roles & DEFINITION != 0 && !local_symbol(&occ.symbol))
+            .filter(|occ| {
+                occ.roles & DEFINITION != 0
+                    && !local_symbol(&occ.symbol)
+                    && !occ.symbol.ends_with('/')
+            })
             .map(|occ| occ.symbol.as_str())
             .collect::<BTreeSet<_>>();
         docs.push((doc.path.clone(), lines, defs.len()));
         for info in &doc.symbols {
-            if !defs.contains(info.symbol.as_str()) {
+            if !defs.contains(info.symbol.as_str())
+                || info.display.is_empty()
+                || info.symbol.ends_with('/')
+            {
+                continue;
+            }
+            let sig = info
+                .signature
+                .as_deref()
+                .map(|text| text.replace('\n', " "))
+                .unwrap_or_else(|| info.display.clone());
+            if sig.starts_with("extern crate") || sig.starts_with("mod ") {
                 continue;
             }
             let in_deg = graph.callers.get(&info.symbol).map_or(0, Vec::len);
@@ -57,11 +72,6 @@ pub fn map(
                 .and_then(|list| list.first())
                 .cloned()
                 .unwrap_or_else(|| doc.path.clone());
-            let sig = info
-                .signature
-                .as_deref()
-                .map(|text| text.replace('\n', " "))
-                .unwrap_or_else(|| info.display.clone());
             ranked.push((score, in_deg, out_deg, site, info.display.clone(), sig));
         }
     }
@@ -377,11 +387,13 @@ mod tests {
                         symbol: "crate/caller().".to_owned(),
                         display: "caller".to_owned(),
                         signature: Some("fn caller()".to_owned()),
+                        ..SymbolInfo::default()
                     },
                     SymbolInfo {
                         symbol: "crate/callee().".to_owned(),
                         display: "callee".to_owned(),
                         signature: Some("fn callee()".to_owned()),
+                        ..SymbolInfo::default()
                     },
                 ],
             }],
@@ -396,5 +408,16 @@ mod tests {
             "crate/callee()."
         );
         assert_eq!(body_end(&["fn a() {", "  b();", "}"], 0), 2);
+        assert_eq!(
+            body_end(&["fn a() {", "  let s = \"{\"; // }", "  b();", "}"], 0),
+            3
+        );
+        assert_eq!(
+            scip_pb::canonical_symbol(
+                "rust-analyzer cargo baux-cuda 0.0.1 semantics/optimizer/surrogate/impl#[NeighborValueEstimator]select_pool()."
+                    .to_owned()
+            ),
+            "rust-analyzer cargo baux 0.0.1 semantics/optimizer/surrogate/impl#[NeighborValueEstimator]select_pool()."
+        );
     }
 }

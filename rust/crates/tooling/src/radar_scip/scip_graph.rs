@@ -223,35 +223,59 @@ pub(super) fn doctor(root: &Path) -> Result<(), String> {
     Ok(())
 }
 
+pub(super) fn is_callable(symbol: &str, signature: Option<&str>) -> bool {
+    symbol.ends_with("().")
+        || symbol.ends_with('!')
+        || signature.is_some_and(|sig| sig.contains("fn ") || sig.contains("macro_rules!"))
+}
+
 pub(super) fn build_graph(root: &Path, index: &ScipIndex) -> CallGraph {
     let mut graph = CallGraph::default();
     let mut known = BTreeSet::new();
+    let mut callable_syms = BTreeSet::new();
+    let mut impl_bridges = Vec::<(String, String)>::new();
     for doc in &index.documents {
         for info in &doc.symbols {
-            if !local_symbol(&info.symbol) {
+            if !local_symbol(&info.symbol) && !info.symbol.ends_with('/') {
                 graph
                     .names
                     .entry(info.symbol.clone())
                     .or_insert_with(|| info.display.clone());
                 known.insert(info.symbol.clone());
+                if is_callable(&info.symbol, info.signature.as_deref()) {
+                    callable_syms.insert(info.symbol.clone());
+                    for trait_sym in &info.implements {
+                        if is_callable(trait_sym, None) {
+                            impl_bridges.push((trait_sym.clone(), info.symbol.clone()));
+                        }
+                    }
+                }
             }
         }
         for occ in &doc.occurrences {
-            if occ.roles & DEFINITION != 0 && !local_symbol(&occ.symbol) {
+            if occ.roles & DEFINITION != 0
+                && !local_symbol(&occ.symbol)
+                && !occ.symbol.ends_with('/')
+            {
                 graph
                     .defs
                     .entry(occ.symbol.clone())
                     .or_default()
                     .push(format_hit(&doc.path, occ));
                 known.insert(occ.symbol.clone());
+                if is_callable(&occ.symbol, None) {
+                    callable_syms.insert(occ.symbol.clone());
+                }
             }
         }
     }
-    let mut seen_edges = BTreeSet::new();
+    let mut seen_callers = BTreeSet::new();
+    let mut seen_callees = BTreeSet::new();
     for doc in &index.documents {
         let spans = doc_spans(root, doc);
         for occ in &doc.occurrences {
-            if occ.roles & DEFINITION != 0 || local_symbol(&occ.symbol) {
+            if occ.roles & DEFINITION != 0 || local_symbol(&occ.symbol) || occ.symbol.ends_with('/')
+            {
                 continue;
             }
             if !known.contains(&occ.symbol) {
@@ -261,7 +285,7 @@ pub(super) fn build_graph(root: &Path, index: &ScipIndex) -> CallGraph {
                 continue;
             };
             let line = usize::try_from(line_raw).unwrap_or(0);
-            let Some(enclosing) = enclosing_span(&spans, line) else {
+            let Some(enclosing) = callable_span(&spans, line) else {
                 continue;
             };
             if enclosing.symbol == occ.symbol {
@@ -272,18 +296,50 @@ pub(super) fn build_graph(root: &Path, index: &ScipIndex) -> CallGraph {
                 callee: occ.symbol.clone(),
                 site: format_hit(&doc.path, occ),
             };
-            if seen_edges.insert(edge.clone()) {
+            if seen_callers.insert(edge.clone()) {
                 graph
                     .callers
                     .entry(edge.callee.clone())
                     .or_default()
                     .push(edge.clone());
+            }
+            if callable_syms.contains(&occ.symbol) && seen_callees.insert(edge.clone()) {
                 graph
                     .callees
                     .entry(edge.caller.clone())
                     .or_default()
                     .push(edge);
             }
+        }
+    }
+    for (trait_sym, impl_sym) in impl_bridges {
+        if !known.contains(&trait_sym) || trait_sym == impl_sym {
+            continue;
+        }
+        let site = graph
+            .defs
+            .get(&impl_sym)
+            .and_then(|defs| defs.first())
+            .cloned()
+            .unwrap_or_default();
+        let edge = Edge {
+            caller: trait_sym,
+            callee: impl_sym,
+            site,
+        };
+        if seen_callers.insert(edge.clone()) {
+            graph
+                .callers
+                .entry(edge.callee.clone())
+                .or_default()
+                .push(edge.clone());
+        }
+        if seen_callees.insert(edge.clone()) {
+            graph
+                .callees
+                .entry(edge.caller.clone())
+                .or_default()
+                .push(edge);
         }
     }
     for defs in graph.defs.values_mut() {
@@ -317,27 +373,31 @@ pub(super) fn doc_spans(root: &Path, doc: &Document) -> Vec<Span> {
         .collect::<BTreeMap<_, _>>();
     let mut raw_defs = Vec::new();
     for occ in &doc.occurrences {
-        if occ.roles & DEFINITION == 0 || local_symbol(&occ.symbol) {
+        if occ.roles & DEFINITION == 0 || local_symbol(&occ.symbol) || occ.symbol.ends_with('/') {
             continue;
         }
         let Some(&line_raw) = occ.range.first() else {
             continue;
         };
         let start = usize::try_from(line_raw).unwrap_or(0);
-        let (display, callable) = match info_map.get(occ.symbol.as_str()) {
+        let (display, callable, is_extern) = match info_map.get(occ.symbol.as_str()) {
             Some(info) => {
-                let is_fn = info.symbol.ends_with("().")
-                    || info
-                        .signature
-                        .as_deref()
-                        .is_some_and(|sig| sig.contains("fn "));
-                (info.display.clone(), is_fn)
+                let is_fn = is_callable(&info.symbol, info.signature.as_deref());
+                let ext = info
+                    .signature
+                    .as_deref()
+                    .is_some_and(|sig| sig.starts_with("extern crate"));
+                (info.display.clone(), is_fn, ext)
             }
-            None => (occ.symbol.clone(), occ.symbol.ends_with("().")),
+            None => (occ.symbol.clone(), is_callable(&occ.symbol, None), false),
         };
+        if is_extern || (!callable && occ.symbol.contains('#') && occ.symbol.ends_with('.')) {
+            continue;
+        }
         raw_defs.push((start, occ.symbol.clone(), display, callable));
     }
-    raw_defs.sort_by_key(|(start, _, _, _)| *start);
+    raw_defs.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
+    raw_defs.dedup_by(|a, b| a.0 == b.0 && a.1 == b.1);
     let source = fs::read_to_string(root.join(&doc.path)).ok();
     let lines = source
         .as_deref()
@@ -361,26 +421,84 @@ pub(super) fn doc_spans(root: &Path, doc: &Document) -> Vec<Span> {
     spans
 }
 
-pub(super) fn body_end(lines: &[&str], start: usize) -> usize {
+pub(crate) fn body_end(lines: &[&str], start: usize) -> usize {
     let mut depth = 0_isize;
     let mut opened = false;
+    let mut in_block_comment = 0_usize;
+    let mut in_string = false;
     for (offset, line) in lines[start..].iter().enumerate() {
-        let code = line.split("//").next().unwrap_or(line);
-        for ch in code.chars() {
-            if ch == '{' {
+        let bytes = line.as_bytes();
+        let mut i = 0;
+        while i < bytes.len() {
+            let b = bytes[i];
+            let next = bytes.get(i + 1).copied();
+            if in_block_comment > 0 {
+                if b == b'/' && next == Some(b'*') {
+                    in_block_comment += 1;
+                    i += 2;
+                    continue;
+                } else if b == b'*' && next == Some(b'/') {
+                    in_block_comment -= 1;
+                    i += 2;
+                    continue;
+                }
+                i += 1;
+                continue;
+            }
+            if in_string {
+                if b == b'\\' {
+                    i += 2;
+                    continue;
+                } else if b == b'"' {
+                    in_string = false;
+                }
+                i += 1;
+                continue;
+            }
+            if b == b'/' && next == Some(b'/') {
+                break;
+            }
+            if b == b'/' && next == Some(b'*') {
+                in_block_comment += 1;
+                i += 2;
+                continue;
+            }
+            if b == b'"' {
+                in_string = true;
+                i += 1;
+                continue;
+            }
+            if b == b'\'' {
+                if next == Some(b'\\') && bytes.get(i + 3) == Some(&b'\'') {
+                    i += 4;
+                    continue;
+                } else if bytes.get(i + 2) == Some(&b'\'') {
+                    i += 3;
+                    continue;
+                }
+            }
+            if b == b'{' {
                 depth += 1;
                 opened = true;
-            } else if ch == '}' {
+            } else if b == b'}' {
                 depth -= 1;
                 if opened && depth <= 0 {
                     return start + offset;
                 }
-            } else if ch == ';' && !opened {
+            } else if b == b';' && !opened {
                 return start + offset;
             }
+            i += 1;
         }
     }
     start
+}
+
+pub(super) fn callable_span(spans: &[Span], line: usize) -> Option<&Span> {
+    spans
+        .iter()
+        .filter(|span| span.callable && span.start <= line && line <= span.end)
+        .min_by_key(|span| (span.end.saturating_sub(span.start), usize::MAX - span.start))
 }
 
 pub(super) fn enclosing_span(spans: &[Span], line: usize) -> Option<&Span> {

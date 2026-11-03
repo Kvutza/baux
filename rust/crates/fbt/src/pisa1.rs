@@ -51,6 +51,12 @@ pub(crate) struct Pipelines {
     pub(super) leaf_kv: ComputePipelineState,
     pub(super) upper_kv: ComputePipelineState,
     pub(super) hierarchical: ComputePipelineState,
+    pub(super) full_clear: ComputePipelineState,
+    pub(super) full_intermediate: ComputePipelineState,
+    pub(super) full_tiles: ComputePipelineState,
+    pub(super) full_leaf_q4: ComputePipelineState,
+    pub(super) full_final: ComputePipelineState,
+    pub(super) full_attention_q4: ComputePipelineState,
     pub(crate) grad: ComputePipelineState,
     pub(super) query_tile: u32,
 }
@@ -66,6 +72,13 @@ pub(crate) struct Pisa1 {
     pub(crate) pipelines: Pipelines,
     pub(super) pyramid: Buffer,
     pub(crate) blocks: Buffer,
+    pub(super) leaf_candidates: Buffer,
+    pub(super) leaf_scores: Buffer,
+    pub(super) leaf_counts: Buffer,
+    pub(super) leaf_refs: Buffer,
+    pub(super) leaf_tiles: Buffer,
+    pub(super) leaf_tile_count: Buffer,
+    pub(super) leaf_tile_capacity: u32,
     pub(super) output: Buffer,
     pub(super) probe: std::cell::OnceCell<ProbeOutputs>,
     pub(super) cached: std::cell::OnceCell<Result<crate::context_metal::ContextKernels, String>>,
@@ -132,14 +145,19 @@ pub(super) fn complete(command: &CommandBufferRef) -> Result<f64, String> {
 impl Pipelines {
     fn new(runtime: &Runtime, context: u32, rows: u32) -> Result<Self, String> {
         let source_text = format!(
-            "#define PISA_CONTEXT {context}\n#define PISA_ROWS {rows}\n{}",
-            include_str!("pisa1.metal")
+            "#define PISA_CONTEXT {context}\n#define PISA_ROWS {rows}\n{}\n{}",
+            include_str!("pisa1.metal"),
+            include_str!("pisa1/full.metal")
         );
         let source = source_text.as_str();
         let compile = |name| runtime.pipeline(source, "PISA-1 attention", name);
         let production_source = format!(
             "#define PISA_SKIP_IDENTITY_RESCALE\n#define PISA_NO_STAGE_SHARED_KV\n#define \
              PISA_QUERY_TILE 4\n{source}"
+        );
+        let full_attention_source = format!(
+            "#define PISA_SKIP_IDENTITY_RESCALE\n#define PISA_NO_STAGE_SHARED_KV\n#define \
+             PISA_QUERY_TILE 4\n#define PISA_REUSE\n{source}"
         );
         let grad_source = include_str!("pisa1_grad.metal");
         let result = Self {
@@ -154,6 +172,16 @@ impl Pipelines {
             leaf_kv: compile("fbt_pisa1_leaf_kv_means")?,
             upper_kv: compile("pisa1_upperkv")?,
             hierarchical: compile("fbt_pisa1_hierarchical_attention")?,
+            full_clear: compile("fbt_pisa_full_clear")?,
+            full_intermediate: compile("fbt_pisa_full_intermediate")?,
+            full_tiles: compile("fbt_pisa_full_tiles")?,
+            full_leaf_q4: compile("fbt_pisa_full_leaf_q4")?,
+            full_final: compile("fbt_pisa_full_final")?,
+            full_attention_q4: runtime.pipeline(
+                &full_attention_source,
+                "full PISA attention",
+                "fbt_pisa1_select_attention_q4",
+            )?,
             grad: runtime.precise(grad_source, "PISA-1 gradient", "fbt_pisa1_grad")?,
             select_attention_q4: runtime.pipeline(
                 &production_source,
@@ -222,19 +250,23 @@ impl Pisa1 {
         if !(4096..=crate::context::MAX_CONTEXT).contains(&context) || !context.is_power_of_two() {
             return Err("PISA context must be a power of two in 4096..2097152".into());
         }
+        let query_rows = query_rows.max(ROWS);
+        let leaves = context / BLOCK;
+        let leaf_tile_capacity = query_rows * 4 + 2 * leaves;
         Ok(Self {
             context,
-            query_rows: query_rows.max(ROWS),
-            pipelines: Pipelines::new(runtime, context, query_rows.max(ROWS))?,
+            query_rows,
+            pipelines: Pipelines::new(runtime, context, query_rows)?,
             pyramid: runtime.buffer::<u16>((BATCH * (2 * context / BLOCK - 1) * HEAD_DIM) as usize),
-            blocks: runtime.buffer_with(&vec![
-                u32::MAX;
-                (query_rows.max(ROWS) * SELECTED) as usize + 64
-            ]),
-            output: runtime.buffer_with(&vec![
-                0x7e00u16;
-                (query_rows.max(ROWS) * QUERY_WIDTH) as usize + 64
-            ]),
+            blocks: runtime.buffer_with(&vec![u32::MAX; (query_rows * SELECTED) as usize + 64]),
+            leaf_candidates: runtime.buffer::<u32>((query_rows * 16) as usize),
+            leaf_scores: runtime.buffer::<f32>((query_rows * 16) as usize),
+            leaf_counts: runtime.buffer::<u32>((2 * leaves) as usize),
+            leaf_refs: runtime.buffer::<u32>((2 * leaves * context) as usize),
+            leaf_tiles: runtime.buffer::<u32>((leaf_tile_capacity * 2) as usize),
+            leaf_tile_count: runtime.buffer::<u32>(1),
+            leaf_tile_capacity,
+            output: runtime.buffer_with(&vec![0x7e00u16; (query_rows * QUERY_WIDTH) as usize + 64]),
             probe: std::cell::OnceCell::new(),
             cached: std::cell::OnceCell::new(),
             indexed: std::cell::OnceCell::new(),

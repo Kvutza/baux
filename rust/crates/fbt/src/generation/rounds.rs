@@ -452,22 +452,20 @@ impl LoopContext<'_> {
         };
         let observation = evaluation.observation;
         let tell_start = Instant::now();
-        let decision = if observation.is_vector() {
-            state.search.modeled_objectives(proposal, observation)?
-        } else if evaluation.paired.is_some() {
-            super::gen_pool::tell_paired(&mut state.search, proposal, &evaluation)?
+        let decision = if evaluation.paired.is_some() {
+            super::gen_pool::tell_paired(&mut state.search, proposal, &evaluation, initial)?
         } else if initial {
-            state.search.initial_objectives(proposal, observation)?
+            if let Some(causal) = evaluation.causal {
+                state
+                    .search
+                    .tell_initial(proposal, causal.optimizer_value, causal.variance)?
+            } else {
+                state.search.initial_objectives(proposal, observation)?
+            }
         } else if let Some(causal) = evaluation.causal {
-            state.search.paired_modeled(
-                proposal,
-                causal.optimizer_value,
-                causal.variance,
-                state.search.best()?,
-                state.search.best_variance()?,
-                causal.improvement,
-                causal.variance,
-            )?
+            state
+                .search
+                .tell_modeled(proposal, causal.optimizer_value, causal.variance)?
         } else {
             state.search.modeled_objectives(proposal, observation)?
         };

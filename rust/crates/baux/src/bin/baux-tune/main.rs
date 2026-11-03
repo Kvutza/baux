@@ -405,10 +405,7 @@ mod tests {
             "t| round 2/100 · 880ms wall · 870ms score · nll 9.00000 · 95.00% changed · 0.500% \
              radius · rejected\n"
         );
-        assert_eq!(
-            plain(b"optimizer.trust round=10 outcome=Inconclusive\n"),
-            ""
-        );
+        assert_eq!(plain(b"optimizer.trust round=10 outcome=Failure\n"), "");
         assert_eq!(plain(b"diagnostic\n"), "t| diagnostic\n");
         assert_eq!(
             plain(b"generation.sample round=3 tokens=4096 nll=9.2 accepted=false\n"),

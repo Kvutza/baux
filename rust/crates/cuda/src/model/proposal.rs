@@ -424,49 +424,4 @@ impl WeightBackup {
         let end = timing_event(stream)?;
         start.elapsed_ms(&end).map_err(cuda_error)
     }
-
-    pub(super) fn step_basis0(
-        &self,
-        specs: &[ProposalSpec],
-        candidates: &mut [&mut DeviceBuffer<f32>],
-        module: &fbt_model::LoadedModule,
-        stream: &CudaStream,
-        radius: f32,
-    ) -> CudaResult<f32> {
-        if !radius.is_finite() || radius <= 0.0 || self.buffers.len() != specs.len() {
-            return Err("CUDA polynomial-threshold proposal is invalid".into());
-        }
-        if candidates.len() != specs.len() {
-            return Err("CUDA proposal did not visit every model buffer".into());
-        }
-        let start = timing_event(stream)?;
-        for (index, candidate) in candidates.iter_mut().enumerate() {
-            let base = self
-                .buffers
-                .get(index)
-                .ok_or("CUDA proposal base is incomplete")?;
-            let spec = specs
-                .get(index)
-                .ok_or("CUDA proposal scale inventory is incomplete")?;
-            let elements = u64::try_from(candidate.len()).map_err(cuda_error)?;
-            let blocks = u32::try_from(candidate.len().div_ceil(256)).map_err(cuda_error)?;
-            let launch = module
-                .prepare_threshold_basis0_fp16(LaunchConfig1D::new(blocks, 256, 0))
-                .map_err(cuda_error)?;
-            module
-                .threshold_basis0_fp16(
-                    stream,
-                    &launch,
-                    base,
-                    &spec.scales,
-                    candidate,
-                    elements,
-                    spec.block_len,
-                    radius,
-                )
-                .map_err(cuda_error)?;
-        }
-        let end = timing_event(stream)?;
-        start.elapsed_ms(&end).map_err(cuda_error)
-    }
 }

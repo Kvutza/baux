@@ -178,25 +178,88 @@ inline bool contains_leaf(uint node, uint level, uint leaf) {
     return leaf >= begin && leaf < begin + (1u << level);
 }
 
+inline float pisa_logaddexp(float left, float right) {
+    const float maximum = max(left, right);
+    return maximum + log(exp(left - maximum) + exp(right - maximum));
+}
+
+// Equation (21): score an intermediate candidate from its two child means,
+// preserving the query-head nonlinearity before summing the GQA group.
+inline float pisa_intermediate_score(
+    device const half* queries,
+    ulong query_base,
+    device const half* pyramid,
+    ulong tree_base,
+    uint node,
+    uint level) {
+    const uint child_level = level - 1;
+    const uint child_offset = child_level == 0
+        ? 0
+        : 2 * kLeaves - (2 * kLeaves >> child_level);
+    float grouped_score = 0.0f;
+    for (uint head = 0; head < kQueryHeads; ++head) {
+        float child_score[2] = {0.0f, 0.0f};
+        for (uint child = 0; child < 2; ++child) {
+            const ulong summary = tree_base
+                + ulong(child_offset + 2 * node + child) * kHeadDim;
+            for (uint dim = 0; dim < kHeadDim; ++dim) {
+                child_score[child] = fma(
+                    float(queries[query_base + head * kHeadDim + dim]),
+                    float(pyramid[summary + dim]),
+                    child_score[child]);
+            }
+            child_score[child] *= 0.125f;
+        }
+        grouped_score += pisa_logaddexp(child_score[0], child_score[1]);
+    }
+    return grouped_score;
+}
+
+// Equation (21) at level one: use all 64 original keys, not the leaf mean.
+inline float pisa_leaf_score(
+    device const half* queries,
+    ulong query_base,
+    device const half* keys,
+    uint key_stride,
+    uint sequence,
+    uint leaf) {
+    float grouped_score = 0.0f;
+    const uint first = sequence * kContext + leaf * kBlock;
+    for (uint head = 0; head < kQueryHeads; ++head) {
+        float maximum = -INFINITY;
+        float total = 0.0f;
+        for (uint token = 0; token < kBlock; ++token) {
+            float score = 0.0f;
+            const ulong key_base = ulong(first + token) * key_stride;
+            for (uint dim = 0; dim < kHeadDim; ++dim) {
+                score = fma(
+                    float(queries[query_base + head * kHeadDim + dim]),
+                    float(keys[key_base + dim]),
+                    score);
+            }
+            score *= 0.125f;
+            const float next_maximum = max(maximum, score);
+            total = total * exp(maximum - next_maximum)
+                + exp(score - next_maximum);
+            maximum = next_maximum;
+        }
+        grouped_score += maximum + log(total);
+    }
+    return grouped_score;
+}
+
 kernel void fbt_pisa1_select(
     device const half* qkv [[buffer(0)]],
     device const half* pyramid [[buffer(1)]],
     device uint* blocks [[buffer(2)]],
     uint row [[threadgroup_position_in_grid]],
     uint lane [[thread_index_in_simdgroup]]) {
-    threadgroup float query[kHeadDim];
     threadgroup float scores[16];
     threadgroup uint candidates[16];
     threadgroup uint chosen[kSelected];
     threadgroup uint expanded[16];
     if (row >= kRows) return;
 
-    for (uint dim = lane; dim < kHeadDim; dim += 32) {
-        float sum = 0.0f;
-        for (uint head = 0; head < kQueryHeads; ++head)
-            sum += float(qkv[ulong(row) * kQkvWidth + head * kHeadDim + dim]);
-        query[dim] = sum;
-    }
     if (lane < 16) candidates[lane] = lane;
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
@@ -204,8 +267,9 @@ kernel void fbt_pisa1_select(
     const uint current = position / kBlock;
     const uint previous = current == 0 ? 0 : current - 1;
     const uint sequence = row / kContext;
+    const ulong query_base = ulong(row) * kQkvWidth;
+    const ulong tree_base = ulong(sequence) * kNodes * kHeadDim;
     for (int level = int(31 - clz(kLeaves)) - 4; level >= 0; --level) {
-        const uint offset = 2 * kLeaves - (2 * kLeaves >> uint(level));
         if (lane < 16) {
             const uint node = candidates[lane];
             float score = -INFINITY;
@@ -218,11 +282,21 @@ kernel void fbt_pisa1_select(
                 if (forced) {
                     score = INFINITY;
                 } else if (last < current) {
-                    score = 0.0f;
-                    const ulong summary =
-                        (ulong(sequence) * kNodes + offset + node) * kHeadDim;
-                    for (uint dim = 0; dim < kHeadDim; ++dim)
-                        score = fma(query[dim], float(pyramid[summary + dim]), score);
+                    score = level == 0
+                        ? pisa_leaf_score(
+                            qkv,
+                            query_base,
+                            qkv + kQueryWidth,
+                            kQkvWidth,
+                            sequence,
+                            node)
+                        : pisa_intermediate_score(
+                            qkv,
+                            query_base,
+                            pyramid,
+                            tree_base,
+                            node,
+                            uint(level));
                 }
             }
             scores[lane] = score;
@@ -474,7 +548,6 @@ kernel void fbt_pisa1_select_attention(
     uint tid [[thread_index_in_threadgroup]],
     uint simdgroup [[simdgroup_index_in_threadgroup]],
     uint lane [[thread_index_in_simdgroup]]) {
-    threadgroup float route_query[kHeadDim];
     threadgroup float route_scores[16];
     threadgroup uint route_candidates[16];
     threadgroup uint selected_blocks[kSelected];
@@ -487,12 +560,6 @@ kernel void fbt_pisa1_select_attention(
     threadgroup float alphas[kQueryHeads];
     if (row >= kRows) return;
 
-    if (tid < kHeadDim) {
-        float sum = 0.0f;
-        for (uint head = 0; head < kQueryHeads; ++head)
-            sum += float(qkv[ulong(row) * kQkvWidth + head * kHeadDim + tid]);
-        route_query[tid] = sum;
-    }
     if (tid < 16) route_candidates[tid] = tid;
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
@@ -500,8 +567,9 @@ kernel void fbt_pisa1_select_attention(
     const uint current = position / kBlock;
     const uint previous = current == 0 ? 0 : current - 1;
     const uint sequence = row / kContext;
-    for (int level = PISA_CONTEXT == 8192 ? 3 : 2; level >= 0; --level) {
-        const uint offset = 2 * kLeaves - (2 * kLeaves >> uint(level));
+    const ulong query_base = ulong(row) * kQkvWidth;
+    const ulong tree_base = ulong(sequence) * kNodes * kHeadDim;
+    for (int level = int(31 - clz(kLeaves)) - 4; level >= 0; --level) {
         if (tid < 16) {
             const uint node = route_candidates[tid];
             float score = -INFINITY;
@@ -514,11 +582,21 @@ kernel void fbt_pisa1_select_attention(
                 if (forced) {
                     score = INFINITY;
                 } else if (last < current) {
-                    score = 0.0f;
-                    const ulong summary =
-                        (ulong(sequence) * kNodes + offset + node) * kHeadDim;
-                    for (uint dim = 0; dim < kHeadDim; ++dim)
-                        score = fma(route_query[dim], float(pyramid[summary + dim]), score);
+                    score = level == 0
+                        ? pisa_leaf_score(
+                            qkv,
+                            query_base,
+                            qkv + kQueryWidth,
+                            kQkvWidth,
+                            sequence,
+                            node)
+                        : pisa_intermediate_score(
+                            qkv,
+                            query_base,
+                            pyramid,
+                            tree_base,
+                            node,
+                            uint(level));
                 }
             }
             route_scores[tid] = score;
@@ -739,6 +817,17 @@ kernel void fbt_pisa1_select_attention_q4(
     const uint kv_stride = kQkvWidth;
 #endif
 
+    // Retain the eight query-head rows in matrix registers for both exact
+    // leaf scoring and the selected-attention computation that follows.
+    simdgroup_half8x8 query[8];
+    PISA_FRAGMENTS(dim, 8)
+        simdgroup_load(
+            query[dim / 8],
+            qkv + ulong(query_row) * query_stride + dim,
+            kHeadDim,
+            ulong2(0, 0));
+    PISA_END_FRAGMENTS
+
 #if !defined(PISA_EXTERNAL_INDEX) && !defined(PISA_REUSE)
     for (uint dim = lane; dim < kHeadDim; dim += 32) {
         float sum = 0.0f;
@@ -758,14 +847,15 @@ kernel void fbt_pisa1_select_attention_q4(
     const uint current = position / kBlock;
     const uint previous = current == 0 ? 0 : current - 1;
     const uint sequence = row / kContext;
+    const ulong route_query_base = ulong(query_row) * query_stride;
+    const ulong route_tree_base = ulong(sequence) * kNodes * kHeadDim;
 #if defined(PISA_EXTERNAL_INDEX) || defined(PISA_REUSE)
     if (lane < kSelected) selected_blocks[simdgroup][lane] = blocks[ulong(query_row) * kSelected + lane];
     simdgroup_barrier(mem_flags::mem_threadgroup);
 #else
     for (int level = int(31 - clz(kLeaves)) - 4; level >= 0; --level) {
-        const uint offset = 2 * kLeaves - (2 * kLeaves >> uint(level));
         float score = -INFINITY;
-        if (lane < 16) {
+        if (level > 0 && lane < 16) {
             if (node != UINT_MAX) {
                 const uint span = 1u << uint(level);
                 const uint last = (node + 1) * span - 1;
@@ -775,32 +865,80 @@ kernel void fbt_pisa1_select_attention_q4(
                 if (forced) {
                     score = INFINITY;
                 } else if (last < current) {
-                    score = 0.0f;
-                    const ulong summary =
-                        (ulong(sequence) * kNodes + offset + node) * kHeadDim;
-                    for (uint dim = 0; dim < kHeadDim; dim += 4) {
-                        const float4 q = *reinterpret_cast<threadgroup const float4*>(&route_query[simdgroup][dim]);
-                        const half4 p_h = *reinterpret_cast<device const half4*>(&pyramid[summary + dim]);
-                        const float4 p = float4(p_h);
-                        score = fma(p.w, q.w, fma(p.z, q.z, fma(p.y, q.y, fma(p.x, q.x, score))));
+                    score = pisa_intermediate_score(
+                        qkv,
+                        route_query_base,
+                        pyramid,
+                        route_tree_base,
+                        node,
+                        uint(level));
+                }
+            }
+        } else if (level == 0) {
+            // All lanes cooperate on one candidate at a time. The 8x64 query
+            // tile times the 64x64 raw-key block produces the exact per-head
+            // logits required by PISA's leaf score.
+            for (uint candidate_slot = 0; candidate_slot < 16; ++candidate_slot) {
+                const uint candidate = simd_broadcast(node, candidate_slot);
+                float candidate_score = -INFINITY;
+                if (candidate != UINT_MAX) {
+                    const bool forced = candidate == 0
+                        || candidate == previous
+                        || candidate == current;
+                    if (forced) {
+                        candidate_score = INFINITY;
+                    } else if (candidate < current) {
+                        for (uint tile = 0; tile < 8; ++tile) {
+                            simdgroup_float8x8 logits(0.0f);
+                            for (uint dim = 0; dim < kHeadDim; dim += 8) {
+                                simdgroup_half8x8 key;
+                                const uint source = sequence * kContext
+                                    + candidate * kBlock + tile * 8;
+                                simdgroup_load(
+                                    key,
+                                    kv + ulong(source) * kv_stride + dim,
+                                    kv_stride,
+                                    ulong2(0, 0),
+                                    true);
+                                simdgroup_multiply_accumulate(
+                                    logits,
+                                    query[dim / 8],
+                                    key,
+                                    logits);
+                            }
+                            simdgroup_store(
+                                logits,
+                                &scores[simdgroup][0][tile * 8],
+                                kBlock + 1,
+                                ulong2(0, 0));
+                        }
+                        simdgroup_barrier(mem_flags::mem_threadgroup);
+                        float head_score = 0.0f;
+                        if (lane < kQueryHeads) {
+                            float maximum = -INFINITY;
+                            float total = 0.0f;
+                            for (uint token = 0; token < kBlock; ++token) {
+                                const float logit =
+                                    scores[simdgroup][lane][token] * 0.125f;
+                                const float next_maximum = max(maximum, logit);
+                                total = total * exp(maximum - next_maximum)
+                                    + exp(logit - next_maximum);
+                                maximum = next_maximum;
+                            }
+                            head_score = maximum + log(total);
+                        }
+                        candidate_score = simd_sum(head_score);
                     }
                 }
+                if (lane == candidate_slot) score = candidate_score;
             }
         }
         uint my_selected = UINT_MAX;
-        float max_finite_score = -INFINITY;
+        // Routing-score gaps do not bound per-head attention mass; retain top-K.
         for (uint slot = 0; slot < kSelected; ++slot) {
             const float best_score = simd_max(score);
-            if (best_score < INFINITY && max_finite_score == -INFINITY) {
-                max_finite_score = best_score;
-            }
-            // Barnes-Hut Slip Clutch: If leaf score is > 12.0 below max finite score,
-            // its attention weight exp(score - max) <= exp(-12) < 6.2e-6 is negligible.
-            // Drop it to UINT_MAX to bypass QK/PV memory traffic.
-            const bool drop = (level == 0) && (max_finite_score > -INFINITY)
-                && (best_score < max_finite_score - 12.0f);
             const uint best = simd_min(
-                score == best_score && score > -INFINITY && !drop ? node : UINT_MAX);
+                score == best_score && score > -INFINITY ? node : UINT_MAX);
             if (lane == slot) {
                 my_selected = best;
             }
@@ -825,14 +963,6 @@ kernel void fbt_pisa1_select_attention_q4(
     simdgroup_float8x8 result[8];
     PISA_FRAGMENTS(tile, 1)
         result[tile] = simdgroup_float8x8(0.0f);
-    PISA_END_FRAGMENTS
-    simdgroup_half8x8 query[8];
-    PISA_FRAGMENTS(dim, 8)
-        simdgroup_load(
-            query[dim / 8],
-            qkv + ulong(query_row) * query_stride + dim,
-            kHeadDim,
-            ulong2(0, 0));
     PISA_END_FRAGMENTS
     simdgroup_barrier(mem_flags::mem_threadgroup);
 #ifdef PISA_STAGE_SHARED_KV

@@ -380,7 +380,7 @@ impl MultiTrustRegionState {
         x_batch: &ArrayView2<f64>,
         y_batch: &ArrayView1<f64>,
     ) -> Result<(), TrustRegionError> {
-        self.tell(x_batch, y_batch, None)
+        self.tell_scaled(x_batch, y_batch, None, None)
     }
 
     /// Update regions, optionally preserving each observation's generating
@@ -390,6 +390,18 @@ impl MultiTrustRegionState {
         x_batch: &ArrayView2<f64>,
         y_batch: &ArrayView1<f64>,
         regions: Option<&[usize]>,
+    ) -> Result<(), TrustRegionError> {
+        self.tell_scaled(x_batch, y_batch, regions, None)
+    }
+
+    /// Update regions with optional generating region IDs and surrogate
+    /// lengthscales.
+    pub fn tell_scaled(
+        &mut self,
+        x_batch: &ArrayView2<f64>,
+        y_batch: &ArrayView1<f64>,
+        regions: Option<&[usize]>,
+        lengthscales: Option<&ArrayView1<f64>>,
     ) -> Result<(), TrustRegionError> {
         let n = x_batch.nrows();
         if n == 0 {
@@ -414,7 +426,7 @@ impl MultiTrustRegionState {
             let mut best_y_in_batch = f64::NEG_INFINITY;
             let mut best_x_idx: Option<usize> = None;
 
-            let (lb, ub) = self.compute_bounds(r, None);
+            let (lb, ub) = self.compute_bounds(r, lengthscales);
 
             for i in 0..n {
                 let x_i = x_batch.row(i);
@@ -422,7 +434,7 @@ impl MultiTrustRegionState {
 
                 let inside = self.accepts(r, i, &x_i, &lb, &ub, regions);
 
-                if regions.is_some_and(|ids| ids[i] == r) {
+                if regions.is_none_or(|ids| ids[i] == r) {
                     self.record(r, y_i);
                 }
                 if inside && y_i > current_best && y_i > best_y_in_batch {
@@ -520,8 +532,11 @@ impl MultiTrustRegionState {
     }
 
     fn priority(&self, region: usize, queued: usize, total_trials: f64, utility: f64) -> f64 {
+        if self.config.exploration == 0.0 {
+            return utility;
+        }
         let trials = self.trial_counts[region] as f64;
-        let effective_trials = trials + queued as f64;
+        let effective_trials = (trials + queued as f64).max(1e-6);
         let uncertainty =
             ((total_trials + self.num_regions as f64 + 1.0).ln() / effective_trials).sqrt();
         utility + self.config.exploration * uncertainty

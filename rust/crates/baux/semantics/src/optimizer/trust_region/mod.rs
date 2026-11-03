@@ -11,8 +11,8 @@ pub use baux::semantics::optimizer::surrogate::{
     PoolSelection, Surrogate, SurrogateSpec, UncertaintyLaw, ValuePrediction,
 };
 pub use controller::{
-    RadiusAction, RadiusController, StepDecision, TrustRegionController, accept_bits,
-    accept_candidate, accept_decision, decide_action,
+    RadiusAction, RadiusController, StepDecision, TrustRegionController, TurboState, accept_bits,
+    accept_candidate, accept_decision, turbo_adapt, turbo_tolerance,
 };
 pub use pool::{PoolShape, candidate_seed, splitmix64};
 

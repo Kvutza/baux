@@ -51,7 +51,84 @@ impl Pisa1 {
         debug_assert_eq!(start % self.pipelines.query_tile, 0);
         debug_assert_eq!(rows % self.pipelines.query_tile, 0);
         let range = [start, rows];
-        encoder.set_compute_pipeline_state(&self.pipelines.select_attention_q4);
+
+        encoder.set_compute_pipeline_state(&self.pipelines.full_clear);
+        encoder.set_buffer(0, Some(&self.leaf_counts), 0);
+        encoder.set_buffer(1, Some(&self.leaf_tile_count), 0);
+        encoder.dispatch_thread_groups(
+            thread_group(u64::from((2 * self.context / BLOCK).div_ceil(128))),
+            thread_group(128),
+        );
+        encoder.memory_barrier_with_resources(&[&self.leaf_counts, &self.leaf_tile_count]);
+
+        encoder.set_compute_pipeline_state(&self.pipelines.full_intermediate);
+        for (index, buffer) in [
+            qkv,
+            pyramid,
+            &self.leaf_candidates,
+            &self.leaf_counts,
+            &self.leaf_refs,
+        ]
+        .iter()
+        .enumerate()
+        {
+            encoder.set_buffer(index as u64, Some(buffer), 0);
+        }
+        encoder.set_bytes(
+            5,
+            std::mem::size_of_val(&range) as u64,
+            range.as_ptr().cast(),
+        );
+        encoder.dispatch_thread_groups(thread_group(u64::from(rows)), thread_group(32));
+        encoder.memory_barrier_with_resources(&[
+            &self.leaf_candidates,
+            &self.leaf_counts,
+            &self.leaf_refs,
+        ]);
+
+        encoder.set_compute_pipeline_state(&self.pipelines.full_tiles);
+        encoder.set_buffer(0, Some(&self.leaf_counts), 0);
+        encoder.set_buffer(1, Some(&self.leaf_tile_count), 0);
+        encoder.set_buffer(2, Some(&self.leaf_tiles), 0);
+        encoder.dispatch_thread_groups(
+            thread_group(u64::from((2 * self.context / BLOCK).div_ceil(128))),
+            thread_group(128),
+        );
+        encoder.memory_barrier_with_resources(&[&self.leaf_tiles, &self.leaf_tile_count]);
+
+        encoder.set_compute_pipeline_state(&self.pipelines.full_leaf_q4);
+        for (index, buffer) in [
+            qkv,
+            &self.leaf_refs,
+            &self.leaf_counts,
+            &self.leaf_tiles,
+            &self.leaf_tile_count,
+            &self.leaf_scores,
+        ]
+        .iter()
+        .enumerate()
+        {
+            encoder.set_buffer(index as u64, Some(buffer), 0);
+        }
+        encoder.dispatch_thread_groups(
+            thread_group(u64::from(self.leaf_tile_capacity)),
+            thread_group(128),
+        );
+        encoder.memory_barrier_with_resources(&[&self.leaf_scores]);
+
+        encoder.set_compute_pipeline_state(&self.pipelines.full_final);
+        encoder.set_buffer(0, Some(&self.leaf_candidates), 0);
+        encoder.set_buffer(1, Some(&self.leaf_scores), 0);
+        encoder.set_buffer(2, Some(&self.blocks), 0);
+        encoder.set_bytes(
+            3,
+            std::mem::size_of_val(&range) as u64,
+            range.as_ptr().cast(),
+        );
+        encoder.dispatch_thread_groups(thread_group(u64::from(rows)), thread_group(32));
+        encoder.memory_barrier_with_resources(&[&self.blocks]);
+
+        encoder.set_compute_pipeline_state(&self.pipelines.full_attention_q4);
         for (index, buffer) in [qkv, pyramid, &self.blocks, &self.output]
             .iter()
             .enumerate()

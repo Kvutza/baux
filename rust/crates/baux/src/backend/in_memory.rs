@@ -113,14 +113,22 @@ impl InMemoryEnnBackend {
         if x.nrows() == 0 {
             return Ok(());
         }
+        let prev_rows = self.train_x_rows.nrows();
         self.train_x_rows.push_rows(x)?;
         self.train_y_rows.push_rows(y)?;
         match (&mut self.train_yvar_rows, yvar) {
             (Some(yvar_rows), Some(yv)) => yvar_rows.push_rows(yv)?,
             (None, Some(yv)) => {
-                self.train_yvar_rows = Some(RowStorage::from_array(yv.to_owned()));
+                let mut storage =
+                    RowStorage::from_array(Array2::zeros((prev_rows, self.num_metrics)));
+                storage.push_rows(yv)?;
+                self.train_yvar_rows = Some(storage);
             }
-            (Some(_), None) | (None, None) => {}
+            (Some(yvar_rows), None) => {
+                let zeros = Array2::zeros((x.nrows(), self.num_metrics));
+                yvar_rows.push_rows(&zeros.view())?;
+            }
+            (None, None) => {}
         }
         Ok(())
     }

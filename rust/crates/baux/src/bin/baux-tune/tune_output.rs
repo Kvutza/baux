@@ -534,13 +534,7 @@ fn generation_record(text: &str) -> Option<String> {
             record_field(text, "status") == Some("accepted")
                 || record_field(text, "status") == Some("applied")
         });
-    let status = if accepted {
-        "accepted"
-    } else if record_field(text, "trust_outcome") == Some("Inconclusive") {
-        "inconclusive"
-    } else {
-        "rejected"
-    };
+    let status = if accepted { "accepted" } else { "rejected" };
     let (label, value) = finite_field(text, "nll").map_or(("reward", reward), |nll| ("nll", nll));
     let total =
         finite_field(text, "total").map_or_else(String::new, |total| format!("/{total:.0}"));

@@ -14,7 +14,14 @@ buck_mod! {
 #[cfg(not(buck_build))]
 #[path = "../../baux/artifact/src/lib.rs"]
 pub mod artifact;
-pub use baux_cuda_device::semantics;
+#[cfg(buck_build)]
+buck_mod! {
+    #[path = "../baux-source/semantics/src/lib.rs"]
+    pub mod semantics;
+}
+#[cfg(not(buck_build))]
+#[path = "../../baux/semantics/src/lib.rs"]
+pub mod semantics;
 pub use baux_cuda_device::{
     BatchValue, FbtShape, FeedbackShape, KNN_K, MAX_DEPTH, MAX_HISTORY, MatmulShape, MoeShape,
     ObjectiveShape, PisaShape, RouteShape, RoutedTile, ScoreStats, THREADS, fbt_model, trials,
@@ -24,11 +31,10 @@ pub use cuda_core::{
     simt::LaunchConfig,
 };
 
-pub use baux::semantics::optimizer::calibration;
 mod capture;
-pub use capture::{
-    CudaResult, Runtime, copy_prefix, cuda_error, device_target, load_module, read_prefix,
-    target_name, timing_event, to_u32,
+pub use capture::{CudaResult, device_target, target_name};
+pub(crate) use capture::{
+    Runtime, copy_prefix, cuda_error, load_module, read_prefix, timing_event, to_u32,
 };
 pub mod gemm;
 mod graph;

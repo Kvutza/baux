@@ -94,7 +94,7 @@ pub(crate) fn run_refine(
     }
     let (node, score) =
         unsafe { refine_score(pyramid, query, candidates, sequence, current, leaves, tid) };
-    let chosen = select_top(score, node, 1, tid);
+    let chosen = select_top(score, node, tid);
     if tid < 8 {
         let out = if chosen == u32::MAX { current } else { chosen };
         unsafe { *blocks.get_unchecked_mut(((row << 3) + tid) as usize) = out };

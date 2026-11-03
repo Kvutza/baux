@@ -130,7 +130,6 @@ impl SearchState {
         perturbation: ProposalKernel,
     ) -> Result<Self, String> {
         let single_pool = matches!(base_input, Err(_));
-        let latent_init = implicit_history;
         let (dimensions, length) = match &base_input {
             Ok(slice) => (
                 slice.len(),
@@ -145,7 +144,7 @@ impl SearchState {
             ),
             Err((_, dims)) => (*dims, checked_length(length)?),
         };
-        let res_cap = if latent_init { 1 } else { capacity };
+        let res_cap = capacity;
         let window_cap = if implicit_history {
             MAX_HISTORY
         } else {
@@ -169,22 +168,23 @@ impl SearchState {
             reduction_pipeline,
             selection_pipeline,
             materialize_pipeline,
-            reference_pipeline,
-            rms_pipeline,
         ] = compile_pipelines(&runtime, independent_fp16, perturbation, single_pool)?;
         let (base_buf, history_rows) = match base_input {
             Ok(slice) => {
                 let base_buf = runtime.buffer_with(slice);
-                let history_rows = if latent_init {
-                    vec![base_buf.clone()]
-                } else {
-                    (0..capacity)
-                        .map(|_| runtime.buffer::<u16>(dimensions))
-                        .collect()
-                };
+                let history_rows = (0..capacity)
+                    .map(|_| runtime.buffer::<u16>(dimensions))
+                    .collect();
                 (base_buf, history_rows)
             }
-            Err((buf, _)) => (buf.clone(), vec![buf]),
+            Err((buf, _)) => {
+                let mut history_rows = Vec::with_capacity(capacity);
+                history_rows.push(buf.clone());
+                for _ in 1..capacity {
+                    history_rows.push(runtime.buffer::<u16>(dimensions));
+                }
+                (buf, history_rows)
+            }
         };
         let mut trust = TurboTrustRegion::new(dimensions, length);
         trust.set_arms(1);
@@ -194,21 +194,13 @@ impl SearchState {
             leaves_gpu: runtime.buffer_with(&leaves),
             tiles_gpu: runtime.buffer_with(&tiles),
             offsets_gpu: runtime.buffer_with(&offsets),
-            anchor: history_rows[0].clone(),
-            rejected: history_rows[history_rows.len().min(2) - 1].clone(),
             history_rows,
             base: base_buf,
             proposal: runtime.buffer::<u16>(dimensions),
-            reference: None,
-            reference_scales: runtime.buffer_with(&vec![1.0f32; blocks.len()]),
-            reference_partials: runtime.buffer::<f32>(tiles.len()),
             partials: runtime.buffer::<Partial>(partial_count),
             pool_aggregates: runtime.buffer::<Partial>(aggregate_count),
             decision: runtime.buffer::<Decision>(1),
             pool_distances: runtime.buffer::<f32>(5 * MAX_HISTORY),
-            family_groups: runtime.buffer_with(&vec![0u32; blocks.len()]),
-            family_base_weights: runtime
-                .buffer_with(&blocks.iter().map(|block| block.weight).collect::<Vec<_>>()),
             pool_geometry: runtime.buffer::<f32>(geometry_count),
             runtime,
             blocks,
@@ -219,8 +211,6 @@ impl SearchState {
             reduction_pipeline,
             selection_pipeline,
             materialize_pipeline,
-            reference_pipeline,
-            rms_pipeline,
             dimensions,
             resident_bytes,
             length_config: length,
@@ -237,7 +227,6 @@ impl SearchState {
             } else {
                 crate::procedural_pool::ProceduralPool::legacy()
             },
-            proposal_method: crate::procedural_pool::ProposalMethod::Additive,
             objective_history: crate::objective_observation::ObjectiveWindow::new(window_cap),
             outcomes: vec![0.0; window_cap],
             variances: vec![0.0; window_cap],
@@ -246,8 +235,6 @@ impl SearchState {
             base_id: 1,
             trust,
             trust_observations: 0,
-            paired_evidence_sum: 0.0,
-            paired_evidence_count: 0,
             restart_count: 0,
             history: 0,
             resident_history: 0,
@@ -255,13 +242,7 @@ impl SearchState {
             pairwise_distances: vec![0.0; MAX_HISTORY * MAX_HISTORY],
             distance_metric: crate::config::DistanceMetric::Euclidean,
             local_scale_neighbors: 8,
-            family: None,
-            trajectory: None,
-            metric_gpu: None,
             implicit_history,
-            latent_history: latent_init,
-            neighbors: None,
-            calibration: crate::calibration::Calibration::default(),
             initial_observations: 0,
             fit_candidates: 0,
             fit_samples: 0,
@@ -270,14 +251,11 @@ impl SearchState {
             fit_seed: 0,
             fitter: None,
             fitted_enn: None,
-            failures: 0,
             owner: NEXT_OWNER.fetch_add(1, Ordering::Relaxed),
             next_id: 0,
             pending: None,
             evaluation: None,
             queued: None,
-            reference_seed: None,
-            relative: false,
             started: false,
             poisoned: false,
             profiling: false,
@@ -287,8 +265,8 @@ impl SearchState {
             tell_profile: None,
             axis: None,
         };
-        if !latent_init {
-            state.copy(&state.base, &state.anchor)?;
+        if !single_pool {
+            state.copy(&state.base, &state.history_rows[0])?;
         }
         if let Some((value, variance)) = initial {
             state.observe_initial(value, variance)?;
@@ -303,7 +281,7 @@ fn allocation_sizes(
     tiles: usize,
     offsets: usize,
     capacity: usize,
-) -> Result<(usize, usize, usize, [u64; 13], u64), String> {
+) -> Result<(usize, usize, usize, [u64; 9], u64), String> {
     let row_bytes = bytes::<u16>(dimensions)?;
     let partial_count = tiles
         .checked_mul(4)
@@ -320,15 +298,11 @@ fn allocation_sizes(
         bytes::<Leaf>(blocks)?,
         bytes::<Tile>(tiles)?,
         bytes::<u32>(offsets)?,
-        bytes::<f32>(blocks)?,
-        bytes::<f32>(tiles)?,
         bytes::<Partial>(partial_count)?,
         bytes::<Partial>(aggregate_count)?,
         bytes::<Decision>(1)?,
         bytes::<f32>(5 * MAX_HISTORY)?,
         bytes::<f32>(geometry_count)?,
-        bytes::<u32>(blocks)?,
-        bytes::<f32>(blocks)?,
     ];
     let resident_bytes = sizes.iter().try_fold(
         row_bytes
@@ -371,7 +345,7 @@ fn compile_pipelines(
     independent_fp16: bool,
     perturbation: ProposalKernel,
     single_pool: bool,
-) -> Result<[ComputePipelineState; 8], String> {
+) -> Result<[ComputePipelineState; 6], String> {
     let base_source = search_source(independent_fp16, perturbation);
     let source = if single_pool {
         format!("#define PROCEDURAL_SLOTS 1\n#define PROCEDURAL_COUNT 1\n{base_source}")
@@ -385,8 +359,6 @@ fn compile_pipelines(
         runtime.precise(&source, "Dense search", "dense_reduce_pool")?,
         runtime.precise(&source, "Dense search", "dense_select")?,
         runtime.pipeline(&source, "Dense search", "dense_materialize")?,
-        runtime.precise(&source, "Dense search", "dense_reference")?,
-        runtime.precise(&source, "Dense search", "dense_reference_rms")?,
     ];
     for pipeline in &pipelines {
         if pipeline.max_total_threads_per_threadgroup() < 256 {

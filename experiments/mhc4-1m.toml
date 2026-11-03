@@ -14,7 +14,6 @@ stage-samples = 3
 
 [optimizer]
 algorithm = "turbo-enn"
-proposal = "pair-rotation"
 arms = 2
 candidates = 4
 distribution = "gaussian"

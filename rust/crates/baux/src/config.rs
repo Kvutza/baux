@@ -70,9 +70,6 @@ pub struct RunConfig {
     /// Logical procedural proposal layout. Current resident kernels accept the
     /// legacy one-arm/four-slot layout only; larger requests fail validation.
     pub proposal_pool: Option<crate::procedural_pool::ProceduralPoolConfig>,
-    /// Program used to turn procedural random bits into a full-coordinate
-    /// direction.
-    pub proposal_method: Option<crate::procedural_pool::ProposalMethod>,
     /// File-driven experiment to run. Programmatic callers may omit it.
     pub experiment: Option<ExperimentKind>,
     pub acquisition: Option<AcquisitionConfig>,

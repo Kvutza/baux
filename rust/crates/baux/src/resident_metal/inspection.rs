@@ -15,14 +15,7 @@ impl SearchState {
     pub fn geometry(&self, round: &Proposals) -> Result<Vec<(usize, f32)>, String> {
         self.check_round(round)?;
         let index = self.pending.as_ref().unwrap().index;
-        Ok(vec![(
-            index,
-            if !self.independent_fp16 && index < 2 {
-                0.75
-            } else {
-                0.0
-            },
-        )])
+        Ok(vec![(index, 0.0)])
     }
 
     pub fn base_id(&self, round: &Proposals) -> Result<i64, String> {
@@ -46,15 +39,7 @@ impl SearchState {
 
     pub fn pool_geometry(&self, round: &Proposals) -> Result<PoolGeometry, String> {
         self.check_round(round)?;
-        Ok((
-            round.pool_radii.to_vec(),
-            POOL_PAIRS
-                .iter()
-                .zip(round.pool_cosines)
-                .map(|(&(left, right), cosine)| (left, right, cosine))
-                .collect(),
-            round.reference_cosines.to_vec(),
-        ))
+        Ok((round.pool_radii, round.pool_cosines))
     }
 
     /// Current accepted BF16 weights, one contiguous row. Read-only lease
@@ -87,7 +72,6 @@ impl SearchState {
         if index >= self.pool_layout.count() as usize {
             return Err("Metal BF16 candidate index out of pool bounds".into());
         }
-        self.ensure_ref()?;
         let command = self.runtime.queue.new_command_buffer();
         self.encode_proposal(command, self.params(root, index));
         finish(command)?;
@@ -98,7 +82,6 @@ impl SearchState {
     pub fn test_profile(&mut self, root: u64, config: RoundConfig) -> Result<[f32; 3], String> {
         self.check_idle()?;
         check_ask(config)?;
-        self.ensure_ref()?;
 
         let start = Instant::now();
         let command = self.runtime.queue.new_command_buffer();
@@ -145,14 +128,6 @@ impl SearchState {
     pub fn read_best(&self) -> Result<Vec<u16>, String> {
         self.check_healthy()?;
         Ok(read(&self.base, self.dimensions))
-    }
-
-    /// Explicit model-sized validation copy; also triggers lazy reference
-    /// initialization.
-    pub fn read_reference(&mut self) -> Result<Vec<u16>, String> {
-        self.check_healthy()?;
-        self.ensure_ref()?;
-        Ok(read(self.reference.as_ref().unwrap(), self.dimensions))
     }
 
     pub fn len(&self) -> usize {

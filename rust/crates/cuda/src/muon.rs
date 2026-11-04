@@ -20,7 +20,6 @@ fn config(count: usize) -> LaunchConfig1D {
 pub struct Workspace {
     capacity: Shape,
     kernels: updates::LoadedModule,
-    gemm: crate::gemm::Gemm,
     x: [DeviceBuffer<u16>; 2],
     transpose: DeviceBuffer<u16>,
     gram: DeviceBuffer<u16>,
@@ -41,7 +40,6 @@ impl Workspace {
         Ok(Self {
             capacity,
             kernels,
-            gemm: crate::gemm::Gemm::for_train(stream.context())?,
             x: [
                 DeviceBuffer::zeroed(stream, count).map_err(cuda_error)?,
                 DeviceBuffer::zeroed(stream, count).map_err(cuda_error)?,
@@ -177,7 +175,7 @@ impl Muon {
             self.shape
         )?;
         let wide = self.shape.wide();
-        let [rows, cols] = [wide.rows as usize, wide.cols as usize];
+        let rows = wide.rows as usize;
         let gram_count = rows * rows * wide.batch as usize;
         for (index, polynomial) in POLAR.iter().copied().enumerate() {
             let (x, next) = if index % 2 == 0 {
@@ -188,6 +186,12 @@ impl Muon {
                 (&b[0], &mut a[0])
             };
             let tiles = wide.rows.div_ceil(16) * wide.cols.div_ceil(16) * wide.batch;
+            let gram_tiles = wide.rows.div_ceil(16) * wide.rows.div_ceil(16) * wide.batch;
+            let gram_shape = Shape {
+                rows: wide.rows,
+                cols: wide.rows,
+                batch: wide.batch,
+            };
             run!(
                 workspace.kernels,
                 prepare_transpose,
@@ -198,13 +202,17 @@ impl Muon {
                 &mut workspace.transpose,
                 wide
             )?;
-            workspace.gemm.batch(
+            run!(
+                workspace.kernels,
+                prepare_gemm,
+                gemm,
+                config(gram_tiles as usize * 256),
                 stream,
                 x,
                 &workspace.transpose,
-                &workspace.product,
-                [rows, rows, cols],
-                wide.batch,
+                &mut workspace.product,
+                gram_shape,
+                wide.cols
             )?;
             run!(
                 workspace.kernels,
@@ -216,13 +224,17 @@ impl Muon {
                 &mut workspace.gram,
                 gram_count as u32
             )?;
-            workspace.gemm.batch(
+            run!(
+                workspace.kernels,
+                prepare_gemm,
+                gemm,
+                config(gram_tiles as usize * 256),
                 stream,
                 &workspace.gram,
                 &workspace.gram,
-                &workspace.product,
-                [rows, rows, rows],
-                wide.batch,
+                &mut workspace.product,
+                gram_shape,
+                wide.rows
             )?;
             run!(
                 workspace.kernels,
@@ -236,13 +248,17 @@ impl Muon {
                 gram_count as u32,
                 polynomial
             )?;
-            workspace.gemm.batch(
+            run!(
+                workspace.kernels,
+                prepare_gemm,
+                gemm,
+                config(tiles as usize * 256),
                 stream,
                 &workspace.polynomial,
                 x,
-                &workspace.product,
-                [rows, cols, rows],
-                wide.batch,
+                &mut workspace.product,
+                wide,
+                wide.rows
             )?;
             run!(
                 workspace.kernels,

@@ -1,6 +1,6 @@
 use modal_rs::{Image, ModalClient, SandboxExecOptions, SandboxOptions, VolumeFromNameOptions};
 use std::io::{self, Write};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use tempfile::NamedTempFile;
 
@@ -250,8 +250,6 @@ pub(crate) async fn pull_file(
 pub(crate) async fn pull_artifacts(
     sandbox: &modal_rs::Sandbox,
     client: &mut ModalClient,
-    output: &Path,
-    synth: Option<u32>,
 ) -> Result<(Vec<u8>, Vec<u8>)> {
     let result = pull_file(
         sandbox,
@@ -267,17 +265,6 @@ pub(crate) async fn pull_artifacts(
         "generation tokens",
     )
     .await?;
-    if synth.is_some() {
-        let gemm = pull_file(
-            sandbox,
-            client,
-            "/tmp/baux-generation/gemm.json",
-            "GEMM measurement",
-        )
-        .await?;
-        std::fs::create_dir_all(output)?;
-        std::fs::write(output.join("gemm.json"), gemm)?;
-    }
     Ok((result, tokens))
 }
 

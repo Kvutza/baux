@@ -1,4 +1,4 @@
-//! Optional evidence from the actual model and generated GEMM loader paths.
+//! Optional evidence from the actual model loader path.
 //!
 //! A cubin record identifies loader input, not relocated device instructions or
 //! a correctness proof. PTX still passes through the driver's unobserved JIT.
@@ -21,9 +21,12 @@ pub type CudaResult<T> = Result<T, String>;
 
 pub fn target_name(context: &CudaContext) -> CudaResult<&'static str> {
     let (major, minor) = context.compute_capability().map_err(cuda_error)?;
-    ptx_synth::TargetArch::from_compute(major, minor)
-        .map(|target| target.ptx_target())
-        .ok_or_else(|| format!("unsupported compute capability {major}.{minor}"))
+    match (major, minor) {
+        (7, 5) => Ok("sm_75"),
+        (8, 0) => Ok("sm_80"),
+        (9, 0) => Ok("sm_90a"),
+        _ => Err(format!("unsupported compute capability {major}.{minor}")),
+    }
 }
 
 pub fn device_target() -> CudaResult<&'static str> {
@@ -335,35 +338,4 @@ pub(crate) fn load_model(context: &Arc<CudaContext>) -> CudaResult<fbt_model::Lo
         }
     }
     Err("CUDA model loaded without a recognized evidence payload".into())
-}
-
-/// Record the PTX compilation and the identical cubin passed to the driver.
-pub(crate) fn assembled(
-    context: &CudaContext,
-    entry: String,
-    target: String,
-    ptx: &[u8],
-    cubin: &[u8],
-    options: Vec<String>,
-) -> CudaResult<()> {
-    let mut recipe = Recipe {
-        backend: Backend::Cuda,
-        device: context.device_name().map_err(cuda_error)?,
-        target,
-        compiler: "ptxas resolved through PATH; executable identity/version unreported".into(),
-        stage: Stage::Compile,
-        entry,
-        input_kind: Kind::Ptx,
-        output_kind: Some(Kind::Cubin),
-        options,
-        constants: Vec::new(),
-    };
-    gpu::record_env(&recipe, ptx, Some(cubin))?;
-    recipe.compiler = "CUDA driver version unreported".into();
-    recipe.stage = Stage::Load;
-    recipe.input_kind = Kind::Cubin;
-    recipe.output_kind = None;
-    recipe.options.clear();
-    gpu::record_env(&recipe, &driver_image(cubin), None)?;
-    Ok(())
 }

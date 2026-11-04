@@ -59,7 +59,6 @@ WHEEL_INPUTS = (
     Path("rust/crates/cuda"),
     Path("rust/crates/modal-runner"),
     Path("rust/crates/properties"),
-    Path("rust/crates/ptx-synth"),
     Path("rust/crates/runner"),
     Path("rust/crates/tooling"),
     Path("rust-toolchain.toml"),

@@ -24,7 +24,6 @@ jiff = "=0.2.38"
 kuva = { version = "=0.6.0", default-features = false }
 memmap2 = "0.9"
 deser.workspace = true
-ptx-synth.workspace = true
 half = "2.7"
 rand.workspace = true
 rand_distr.workspace = true

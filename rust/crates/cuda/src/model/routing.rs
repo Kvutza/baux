@@ -24,7 +24,6 @@ impl FbtModel {
             ..MoeShape::fbt()
         };
         matmul(
-            self.synth.as_ref(),
             &self.module,
             &self.stream,
             &s.normalized,

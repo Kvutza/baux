@@ -2,7 +2,6 @@ use modal_rs::{AppOptions, Image, ModalClient, SandboxExecOptions, SandboxOption
 use std::io;
 use std::path::{Path, PathBuf};
 
-mod capture;
 mod mhc4;
 mod sandbox;
 
@@ -30,11 +29,6 @@ enum Action {
         chunk: u32,
     },
     Mhc4(mhc4::Config),
-    Ptx {
-        output: PathBuf,
-        elements: u32,
-        iterations: u32,
-    },
     Wheel {
         output: PathBuf,
     },
@@ -143,54 +137,18 @@ fn parse_wheel<I: Iterator<Item = std::ffi::OsString>>(args: I) -> Result<Action
     Ok(Action::Wheel { output })
 }
 
-fn parse_ptx<I: Iterator<Item = std::ffi::OsString>>(mut args: I) -> Result<Action> {
-    let mut output = PathBuf::from("results/ptx/t4-kernels.json");
-    let mut elements = 1_048_576_u32;
-    let mut iterations = 100_u32;
-    while let Some(flag) = args.next() {
-        let value = args.next().ok_or_else(|| {
-            io::Error::other(format!("missing value for {}", flag.to_string_lossy()))
-        })?;
-        match flag.to_str() {
-            Some("--output") => output = value.into(),
-            Some("--elements") => elements = value.to_string_lossy().parse()?,
-            Some("--iterations") => iterations = value.to_string_lossy().parse()?,
-            _ => {
-                return Err(io::Error::other(
-                    "usage: baux-modal ptx [--output PATH] [--elements N] [--iterations N]",
-                )
-                .into());
-            }
-        }
-    }
-    if elements == 0 || elements % 4 != 0 || iterations == 0 {
-        return Err(io::Error::other(
-            "PTX probe requires positive iterations and elements divisible by four",
-        )
-        .into());
-    }
-    Ok(Action::Ptx {
-        output,
-        elements,
-        iterations,
-    })
-}
-
 fn parse_args() -> Result<Action> {
     let mut args = std::env::args_os().skip(1);
-    let action = args.next().ok_or_else(|| {
-        io::Error::other("usage: baux-modal <bo | generate | image | ptx | wheel>")
-    })?;
+    let action = args
+        .next()
+        .ok_or_else(|| io::Error::other("usage: baux-modal <bo | generate | image | wheel>"))?;
     match action.to_str() {
         Some("bo") => parse_bo(args),
         Some("image") if args.next().is_none() => Ok(Action::Image),
         Some("generate") => parse_generate(args),
         Some("mhc4") => Ok(Action::Mhc4(mhc4::parse(args)?)),
         Some("wheel") => parse_wheel(args),
-        Some("ptx") => parse_ptx(args),
-        _ => {
-            Err(io::Error::other("usage: baux-modal <bo | generate | image | ptx | wheel>").into())
-        }
+        _ => Err(io::Error::other("usage: baux-modal <bo | generate | image | wheel>").into()),
     }
 }
 
@@ -219,20 +177,6 @@ fn wheel_path() -> String {
     )
 }
 
-fn ptx_cmd(elements: u32, iterations: u32) -> String {
-    let capture = if std::env::var_os("BAUX_GPU_EVIDENCE").is_some() {
-        capture::command()
-    } else {
-        ""
-    };
-    format!(
-        "set -euo pipefail; cd /opt/baux; mkdir -p /tmp/baux-gpu-evidence; \
-         CARGO_HOME=/cache/cargo CARGO_TARGET_DIR=/cache/target ./tools/cuda-run build 2>&1 | tee \
-         /tmp/baux-gpu-evidence/build.log; {capture}\n/cache/target/release/baux-cuda ptx-probe \
-         {elements} {iterations} > /tmp/ptx-synth-result.json; cat /tmp/ptx-synth-result.json"
-    )
-}
-
 fn bo_cmd(candidates: u32, history: u32, iterations: u32) -> String {
     format!(
         "set -euo pipefail; cd /opt/baux; CARGO_HOME=/cache/cargo CARGO_TARGET_DIR=/cache/target \
@@ -251,10 +195,9 @@ fn generation_cmd(
     seed: u64,
     unroll: u32,
     chunk: u32,
-    synth: Option<u32>,
     prompt_file: bool,
 ) -> String {
-    let mut env = synth.map_or(String::new(), |k| format!("export BAUX_SYNTH_GEMM={k}; "));
+    let mut env = String::new();
     if std::env::var_os("BAUX_CUDA_PROFILE").is_some() {
         env.push_str("export BAUX_CUDA_PROFILE=1; ");
     }
@@ -278,69 +221,6 @@ fn generation_cmd(
          /ckpt/looped-571e8175/checkpoint.safetensors /tmp/baux-generation {context} {prompt} \
          {visits} {temperature} {seed} {unroll} {chunk}{prompt_arg}"
     )
-}
-
-async fn ptx_run(
-    client: &mut ModalClient,
-    app: &modal_rs::App,
-    output: &Path,
-    elements: u32,
-    iterations: u32,
-) -> Result<()> {
-    let evidence = capture::destination()?;
-    let archive = source_tar()?;
-    let sandbox = cache_sandbox(client, app).await?;
-    println!("MODAL_SANDBOX id={}", sandbox.id());
-    if let Some(path) = &evidence {
-        std::fs::write(path.join("sandbox.txt"), sandbox.id())?;
-    }
-    let run: Result<(Vec<u8>, Vec<u8>, bool)> = async {
-        upload_source(&sandbox, client, &archive).await?;
-        let status = stream_exec(
-            &sandbox,
-            client,
-            SandboxExecOptions::new(vec!["bash", "-lc", &ptx_cmd(elements, iterations)])
-                .with_timeout(1_100),
-        )
-        .await?;
-        let gate_passed = status.is_success();
-        if let Some(path) = &evidence {
-            capture::pull(&sandbox, client, path).await?;
-        }
-        if !gate_passed {
-            return Err(io::Error::other(format!("CUDA validation failed: {status:?}")).into());
-        }
-        let result = pull_file(
-            &sandbox,
-            client,
-            "/tmp/ptx-synth-result.json",
-            "PTX artifact",
-        )
-        .await?;
-        let sass = pull_file(&sandbox, client, "/tmp/ptx-synth.sass", "PTX SASS").await?;
-        Ok((result, sass, gate_passed))
-    }
-    .await;
-    let stopped = sandbox.terminate(client).await;
-    let (artifact, sass, gate_passed) = run?;
-    stopped?;
-    if let Some(parent) = output.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    std::fs::write(output, artifact)?;
-    let sass_output = output.with_extension("sass");
-    std::fs::write(&sass_output, sass)?;
-    println!(
-        "MODAL_PTX ok={} output={} sass={}",
-        gate_passed,
-        output.display(),
-        sass_output.display()
-    );
-    if gate_passed {
-        Ok(())
-    } else {
-        Err(io::Error::other("PTX hardware gate rejected the measured artifact").into())
-    }
 }
 
 async fn bo_run(
@@ -389,7 +269,7 @@ async fn bo_run(
     Ok(())
 }
 
-fn env_config(chunk: u32, output: &Path) -> Result<(Option<Vec<u8>>, Option<u32>)> {
+fn env_config(chunk: u32, output: &Path) -> Result<Option<Vec<u8>>> {
     let prompt_data = std::env::var_os("BAUX_CUDA_PROMPT")
         .map(std::fs::read)
         .transpose()?;
@@ -403,17 +283,10 @@ fn env_config(chunk: u32, output: &Path) -> Result<(Option<Vec<u8>>, Option<u32>
             );
         }
     }
-    let synth = std::env::var("BAUX_SYNTH_GEMM")
-        .ok()
-        .map(|s| s.parse::<u32>())
-        .transpose()?;
-    if synth.is_some_and(|k| ![8, 16, 32, 64].contains(&k)) {
-        return Err("BAUX_SYNTH_GEMM must be 8, 16, 32, or 64".into());
-    }
     if output.exists() {
         return Err("generation output already exists; choose a fresh result directory".into());
     }
-    Ok((prompt_data, synth))
+    Ok(prompt_data)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -429,7 +302,7 @@ async fn generation_run(
     unroll: u32,
     chunk: u32,
 ) -> Result<()> {
-    let (prompt_data, synth) = env_config(chunk, output)?;
+    let prompt_data = env_config(chunk, output)?;
     let archive = source_tar()?;
     let sandbox = make_sandbox(client, app).await?;
     let run: Result<(Vec<u8>, Vec<u8>)> = async {
@@ -461,7 +334,6 @@ async fn generation_run(
                     seed,
                     unroll,
                     chunk,
-                    synth,
                     prompt_data.is_some(),
                 ),
             ])
@@ -471,7 +343,7 @@ async fn generation_run(
         if !status.is_success() {
             return Err(io::Error::other(format!("CUDA generation failed: {status:?}")).into());
         }
-        pull_artifacts(&sandbox, client, output, synth).await
+        pull_artifacts(&sandbox, client).await
     }
     .await;
     let stopped = sandbox.terminate(client).await;
@@ -572,11 +444,6 @@ async fn run() -> Result<()> {
             .await
         }
         Action::Mhc4(config) => mhc4::run(&mut client, &app, config).await,
-        Action::Ptx {
-            output,
-            elements,
-            iterations,
-        } => ptx_run(&mut client, &app, &output, elements, iterations).await,
         Action::Wheel { output } => wheel_run(&mut client, &app, &output).await,
     }
 }

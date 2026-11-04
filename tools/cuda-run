@@ -55,7 +55,7 @@ build_cuda() {
 
 case "$action" in
     build) build_cuda "$@" ;;
-    context|parity|resident|prefill|model-check|model|generate|diffusion|diffusion-check|ptx-probe|bench)
+    context|parity|resident|prefill|model-check|model|generate|diffusion|diffusion-check|bench)
         build_cuda >&2
         exec "$target_dir/release/baux-cuda" "$action" "$@"
         ;;

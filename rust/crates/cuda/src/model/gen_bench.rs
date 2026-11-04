@@ -35,9 +35,6 @@ pub fn bench(args: &[String]) -> CudaResult<()> {
     }
     let output = Path::new(&args[1]);
     fs::create_dir(output).map_err(|e| format!("create fresh output directory: {e}"))?;
-    if std::env::var_os("BAUX_SYNTH_GEMM").is_some() {
-        fs::write(output.join("gemm.json"), crate::gemm::measure()?).map_err(|e| e.to_string())?;
-    }
     let precision_cases = crate::precision::check()?;
     let (mut model, profile, result, evaluated, load_ms) = exec_bench(
         &args[0],
@@ -264,8 +261,6 @@ fn bench_record(
         "schema": "baux.cuda.generation.v1",
         "fp16_narrowing_cases": precision_cases,
         "fp16_widening_patterns": 65536,
-        "synth_gemm_tile_k": std::env::var("BAUX_SYNTH_GEMM").ok(),
-        "synth_scope": std::env::var_os("BAUX_SYNTH_GEMM").map(|_| "readout_only"),
         "streamed_comparison": comparisons,
         "chunk_rows": chunk,
         "repair_chunk_rows": if chunk == 0 { 0 } else { super::cached::repair_chunk(chunk)? },

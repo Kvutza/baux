@@ -284,7 +284,7 @@ pub(super) async fn run(
                 io::Error::other(format!("CUDA mHC-4 generation failed: {status:?}")).into(),
             );
         }
-        let (record, tokens) = pull_artifacts(&sandbox, client, &config.output, None).await?;
+        let (record, tokens) = pull_artifacts(&sandbox, client).await?;
         let rounds = pull_log(&sandbox, client, "/tmp/baux-generation/rounds.jsonl").await?;
         let validation = if config.validation_interval.is_some() {
             Some(pull_log(&sandbox, client, "/tmp/baux-generation/validation.jsonl").await?)

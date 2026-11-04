@@ -113,7 +113,6 @@ pub struct FbtModel {
     pub(crate) sequence: usize,
     pub(crate) diffusion: Option<DiffusionState>,
     mhc4: Option<readout::Mhc4State>,
-    synth: Option<crate::gemm::Gemm>,
     parallel_mhc: bool,
     cache: Option<cached::State>,
     first: usize,
@@ -306,7 +305,6 @@ impl FbtModel {
         sequence: usize,
     ) -> CudaResult<Self> {
         let module = crate::capture::load_model(&context)?;
-        let synth = crate::gemm::Gemm::from_env(&context)?;
         let scratch = Scratch::new(&stream, rows, sequence)?;
         Ok(Self {
             context,
@@ -318,7 +316,6 @@ impl FbtModel {
             sequence,
             diffusion: None,
             mhc4: None,
-            synth,
             parallel_mhc: true,
             cache: None,
             first: 0,

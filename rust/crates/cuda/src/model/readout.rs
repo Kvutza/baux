@@ -435,7 +435,6 @@ impl FbtModel {
             for first in (0..tokens).step_by(capacity) {
                 let count = capacity.min(tokens - first);
                 matmul_at(
-                    self.synth.as_ref(),
                     &self.module,
                     &self.stream,
                     &self.scratch.normalized,

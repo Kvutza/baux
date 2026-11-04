@@ -30,6 +30,19 @@ unsafe fn sum(values: *mut f32, tid: u32, value: f32) -> f32 {
     unsafe { values.read() }
 }
 
+unsafe fn tile_dot(left: *const f32, right: *const f32, ty: u32, tx: u32, limit: u32) -> f32 {
+    let mut acc = 0.0_f32;
+    let mut k = 0;
+    while k < limit {
+        unsafe {
+            acc +=
+                left.add((ty * 16 + k) as usize).read() * right.add((k * 16 + tx) as usize).read();
+        }
+        k += 1;
+    }
+    acc
+}
+
 #[cuda_module]
 pub mod updates {
     use super::*;
@@ -173,6 +186,55 @@ pub mod updates {
                 *transposed.get_unchecked_mut((base + col * shape.rows + row) as usize) =
                     tile.add((tid % 16 * 17 + tid / 16) as usize).read();
             }
+        }
+    }
+
+    #[kernel(unchecked_indexing)]
+    #[launch_contract(domain = 1, block = (256, 1, 1), dynamic_shared = 0)]
+    pub fn gemm(a: &[u16], b: &[u16], mut c: DisjointSlice<f32>, shape: Shape, inner: u32) {
+        static mut LEFT: SharedArray<f32, 256> = SharedArray::UNINIT;
+        static mut RIGHT: SharedArray<f32, 256> = SharedArray::UNINIT;
+        let left = unsafe { SharedArray::as_raw_mut_ptr(&raw mut LEFT) };
+        let right = unsafe { SharedArray::as_raw_mut_ptr(&raw mut RIGHT) };
+        let tid = thread::threadIdx_x();
+        let cols = shape.cols.div_ceil(16);
+        let tiles = shape.rows.div_ceil(16) * cols;
+        let group = thread::blockIdx_x();
+        let batch = group / tiles;
+        if batch >= shape.batch {
+            return;
+        }
+        let ty = tid / 16;
+        let tx = tid % 16;
+        let row = (group % tiles) / cols * 16 + ty;
+        let col = (group % cols) * 16 + tx;
+        let a_base = batch * shape.rows * inner;
+        let b_base = batch * inner * shape.cols;
+        let mut acc = 0.0_f32;
+        let mut start = 0;
+        while start < inner {
+            let av = if row < shape.rows && start + tx < inner {
+                half(a[(a_base + row * inner + start + tx) as usize])
+            } else {
+                0.0
+            };
+            let bv = if start + ty < inner && col < shape.cols {
+                half(b[(b_base + (start + ty) * shape.cols + col) as usize])
+            } else {
+                0.0
+            };
+            unsafe {
+                left.add(tid as usize).write(av);
+                right.add(tid as usize).write(bv);
+            }
+            thread::sync_threads();
+            acc += unsafe { tile_dot(left, right, ty, tx, (inner - start).min(16)) };
+            thread::sync_threads();
+            start += 16;
+        }
+        if row < shape.rows && col < shape.cols {
+            let out = (batch * shape.rows * shape.cols + row * shape.cols + col) as usize;
+            unsafe { *c.get_unchecked_mut(out) = acc };
         }
     }
 

@@ -13,15 +13,14 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-const TREES: [&str; 6] = [
+const TREES: [&str; 5] = [
     "rust/crates/baux/src",
     "rust/crates/baux/semantics/src",
     "rust/crates/cuda/src",
     "rust/crates/cuda/device/src",
     "rust/crates/cuda/native",
-    "rust/crates/ptx-synth/src",
 ];
-const FILES: [&str; 15] = [
+const FILES: [&str; 13] = [
     "Cargo.toml",
     "Cargo.lock",
     "rust-toolchain.toml",
@@ -32,8 +31,6 @@ const FILES: [&str; 15] = [
     "rust/crates/baux/BUCK",
     "rust/crates/cuda/build.rs",
     "rust/crates/cuda/BUCK",
-    "rust/crates/ptx-synth/Cargo.toml",
-    "rust/crates/ptx-synth/BUCK",
     "rust/crates/baux/Cargo.toml",
     "rust/crates/baux/defs.bzl",
     "build/buck2/baux_targets.bzl",

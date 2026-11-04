@@ -20,7 +20,6 @@ const SKIP_PARTS: &[&str] = &[
     "dist",
     "docs",
     "examples",
-    "ptx-synth",
     "target",
     "vendor",
 ];

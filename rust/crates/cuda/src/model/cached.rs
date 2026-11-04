@@ -246,7 +246,6 @@ impl FbtModel {
         let s = &mut self.scratch;
         let weights = &self.weights.layers[layer];
         matmul(
-            self.synth.as_ref(),
             &self.module,
             &self.stream,
             &s.normalized,
@@ -343,7 +342,6 @@ impl FbtModel {
             .map_err(cuda_error)?;
         mark(events, &self.stream, Stage::Pisa)?;
         matmul(
-            self.synth.as_ref(),
             &self.module,
             &self.stream,
             &s.attended,
@@ -441,7 +439,6 @@ impl FbtModel {
         for first in (start..self.rows).step_by(capacity) {
             let count = capacity.min(self.rows - first);
             matmul_at(
-                self.synth.as_ref(),
                 &self.module,
                 &self.stream,
                 &self.scratch.normalized,

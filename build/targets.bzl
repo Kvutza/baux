@@ -86,7 +86,7 @@ CUDA_PROGRAMS = [
         "crate": "baux_cuda",
         "root": "src/main.rs",
         "crate_deps": ["anstream", "anstyle", "charming", "cuda-core", "cuda-host", "deser", "deser-cbor", "deser-json", "deser-toml", "deser-value", "half", "jiff", "kuva", "memmap2", "rand", "rand_distr", "redb", "sha2"],
-        "local_deps": ["cuda", "device", "ptx-synth"],
+        "local_deps": ["cuda", "device"],
         "required_features": [],
     },
 ]
@@ -174,13 +174,6 @@ TOOLING_PROGRAMS = [
         "local_deps": ["baux", "tooling"],
         "required_features": [],
     },
-]
-
-PTX_SYNTH_CRATES = []
-
-PTX_SYNTH_TEST_CRATES = []
-
-PTX_SYNTH_PROGRAMS = [
 ]
 
 RUST_EDITION = "2024"

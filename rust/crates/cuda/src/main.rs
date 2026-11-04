@@ -4,7 +4,6 @@ use baux_cuda::{FbtPrefill, FbtPrefillProfile};
 
 mod main_bench;
 mod main_parity;
-mod ptx_probe;
 
 use main_bench::benchmark;
 use main_parity::{AppResult, parity};
@@ -23,8 +22,6 @@ fn run() -> AppResult<()> {
         "parity" => parity(),
         "bench" => benchmark(tail),
         "prefill" => prefill(),
-        "gemm-bench" => baux_cuda::gemm::bench().map_err(|e| io::Error::other(e).into()),
-        "ptx-probe" => ptx_probe::run(tail),
         "context" => baux_cuda::context::run(tail).map_err(|e| io::Error::other(e).into()),
         command => run_model(command, tail),
     }
@@ -45,7 +42,7 @@ fn run_model(command: &str, args: &[String]) -> AppResult<()> {
         "mhc4-bo-bench" => baux_cuda::mhc4_bo(args).map_err(|e| io::Error::other(e).into()),
         "model" => baux_cuda::model_run(args).map_err(|e| io::Error::other(e).into()),
         _ => Err(io::Error::other(format!(
-            "unknown command {command:?}; expected parity, prefill, model-check, model, generate, generation-bench, mhc4-bench, mhc4-bo-bench, diffusion, diffusion-check, context, ptx-probe, or bench"
+            "unknown command {command:?}; expected parity, prefill, model-check, model, generate, generation-bench, mhc4-bench, mhc4-bo-bench, diffusion, diffusion-check, context, or bench"
         ))
         .into()),
     }

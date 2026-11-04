@@ -58,7 +58,6 @@ app_rust_library(
             "src/main.rs",
             "src/main_bench.rs",
             "src/main_parity.rs",
-            "src/ptx_probe.rs",
         ],
     ) + ["//rust/crates/baux:baux-source"],
     crate = "baux_cuda",
@@ -92,7 +91,6 @@ app_rust_library(
         "//rust:rand_distr",
         "//rust:redb",
         "//rust:sha2",
-        "//rust/crates/ptx-synth:ptx-synth",
     ],
 )
 
@@ -102,7 +100,6 @@ app_rust_binary(
         "src/main.rs",
         "src/main_bench.rs",
         "src/main_parity.rs",
-        "src/ptx_probe.rs",
     ],
     crate = "baux_cuda",
     crate_root = "src/main.rs",
@@ -122,6 +119,5 @@ app_rust_binary(
         "//rust:cuda-host",
         "//rust:half",
         "//rust:rand",
-        "//rust/crates/ptx-synth:ptx-synth",
     ],
 )

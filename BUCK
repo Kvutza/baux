@@ -122,7 +122,6 @@ cuda_oxide(
         "baux-py": "//rust/crates/baux-py:python-source",
         "fbt": "//rust/crates/fbt:source",
         "modal-runner": "//rust/crates/modal-runner:modal-source",
-        "ptx-synth": "//rust/crates/ptx-synth:ptx-source",
         "properties": "//rust/crates/properties:source",
     },
     cuda = "//rust/crates/cuda:source",

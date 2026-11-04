@@ -94,7 +94,6 @@ impl FbtModel {
         let weights = &self.weights.layers[layer];
         let s = &mut self.scratch;
         matmul(
-            self.synth.as_ref(),
             &self.module,
             &self.stream,
             &s.normalized,
@@ -162,7 +161,6 @@ impl FbtModel {
             .map_err(cuda_error)?;
         mark(events, &self.stream, Stage::Pisa)?;
         matmul(
-            self.synth.as_ref(),
             &self.module,
             &self.stream,
             &s.attended,

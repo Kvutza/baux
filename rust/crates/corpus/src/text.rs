@@ -1,6 +1,6 @@
 //! Document-preserving text streams for base pretraining corpora.
 use super::encoding::Encoding;
-use super::reader::{Result, SPLITS, split};
+use super::reader::{Result, SPLITS, holdout, split_with};
 use arrow_array::{Array, LargeStringArray, RecordBatch, StringArray};
 use baux::artifact::json::{Value, json};
 use deser::Deserialize;
@@ -85,19 +85,33 @@ impl SplitWriter {
         let available = usize::try_from(self.quota - self.tokens)?;
         let total = ids.len().checked_add(2).ok_or("document token overflow")?;
         let count = available.min(total);
-        for token in std::iter::once(bos)
-            .chain(ids.iter().copied())
-            .chain(std::iter::once(eos))
-            .take(count)
+        let body = count.saturating_sub(1).min(ids.len());
+        if bos >= self.vocabulary
+            || ids[..body].iter().any(|&token| token >= self.vocabulary)
+            || (count == total && eos >= self.vocabulary)
         {
-            if token >= self.vocabulary {
-                return Err("text tokenizer emitted an out-of-range token".into());
+            return Err("text tokenizer emitted an out-of-range token".into());
+        }
+        if self.vocabulary > 65_536 && cfg!(target_endian = "little") {
+            self.output.write_all(&bos.to_le_bytes())?;
+            let bytes =
+                unsafe { std::slice::from_raw_parts(ids.as_ptr().cast::<u8>(), body * 4) };
+            self.output.write_all(bytes)?;
+            if count == total {
+                self.output.write_all(&eos.to_le_bytes())?;
             }
-            if self.vocabulary <= 65_536 {
-                self.output
-                    .write_all(&u16::try_from(token)?.to_le_bytes())?;
-            } else {
-                self.output.write_all(&token.to_le_bytes())?;
+        } else {
+            for token in std::iter::once(bos)
+                .chain(ids.iter().copied())
+                .chain(std::iter::once(eos))
+                .take(count)
+            {
+                if self.vocabulary <= 65_536 {
+                    self.output
+                        .write_all(&u16::try_from(token)?.to_le_bytes())?;
+                } else {
+                    self.output.write_all(&token.to_le_bytes())?;
+                }
             }
         }
         self.tokens += u64::try_from(count)?;
@@ -191,7 +205,7 @@ async fn collect(job: &Job, tokenizer: &Encoding) -> Result<Value> {
         )?);
     }
     let operator = build_operator(&job.root)?;
-    let (bos, eos) = tokenizer.boundaries()?;
+    let parts = holdout(job.recipe["split_policy"].as_str())?;
     let mut seen = HashSet::new();
     for (number, path) in job.paths.iter().enumerate() {
         if writers.iter().all(SplitWriter::full) {
@@ -221,17 +235,14 @@ async fn collect(job: &Job, tokenizer: &Encoding) -> Result<Value> {
             }),
         );
         let mut stream = builder
-            .with_batch_size(64)
+            .with_batch_size(512)
             .with_projection(projection)
             .build()?;
         while let Some(batch) = stream.try_next().await? {
             consume(
                 &batch,
-                text_field,
-                id_field,
+                (text_field, id_field, parts),
                 tokenizer,
-                bos,
-                eos,
                 &mut seen,
                 &mut writers,
             )?;
@@ -260,35 +271,33 @@ async fn collect(job: &Job, tokenizer: &Encoding) -> Result<Value> {
     Ok(Value::from(records))
 }
 
-#[allow(clippy::too_many_arguments)]
 fn consume(
     batch: &RecordBatch,
-    text_field: &str,
-    id_field: &str,
+    fields: (&str, &str, u64),
     tokenizer: &Encoding,
-    bos: u32,
-    eos: u32,
     seen: &mut HashSet<String>,
     writers: &mut [SplitWriter],
 ) -> Result<()> {
-    let texts = text_column(batch, text_field)?;
-    let ids = text_column(batch, id_field)?;
+    let texts = text_column(batch, fields.0)?;
+    let ids = text_column(batch, fields.1)?;
+    let (bos, eos) = tokenizer.boundaries()?;
+    let mut targets = Vec::new();
+    let mut pending = Vec::new();
     for row in 0..batch.num_rows() {
-        let Some(id) = ids.value(row) else {
-            continue;
-        };
-        let Some(text) = texts.value(row) else {
+        let (Some(id), Some(text)) = (ids.value(row), texts.value(row)) else {
             continue;
         };
         if text.is_empty() || !seen.insert(id.to_owned()) || !tokenizer.accepts(text) {
             continue;
         }
-        let writer = &mut writers[split(id)];
-        if writer.full() {
-            continue;
+        let target = split_with(id, fields.2);
+        if !writers[target].full() {
+            targets.push(target);
+            pending.push(text);
         }
-        let encoding = tokenizer.encode(text)?;
-        writer.write_document(bos, &encoding, eos)?;
+    }
+    for (target, encoded) in targets.into_iter().zip(tokenizer.encode_batch(&pending)?) {
+        writers[target].write_document(bos, &encoded, eos)?;
     }
     Ok(())
 }
@@ -321,6 +330,7 @@ mod tests {
         let metadata = encoding.persist(&root, &recipe)?;
         assert!(!root.join("tokenizer.json").exists());
         assert_eq!(metadata["special_tokens"]["<eos>"].as_u64(), Some(255));
+        assert!(encoding.encode_batch(&[])?.is_empty());
         let mut writers: Vec<_> = SPLITS
             .iter()
             .map(|&name| SplitWriter::new(&root, name, 8192, encoding.vocabulary()))
@@ -331,7 +341,7 @@ mod tests {
             .map(|target| {
                 (0..1000)
                     .map(|id| format!("document-{id}"))
-                    .find(|id| split(id) == target)
+                    .find(|id| split_with(id, 1) == target)
                     .expect("split has an ID")
             })
             .collect();
@@ -350,11 +360,8 @@ mod tests {
         ])?;
         consume(
             &batch,
-            "text",
-            "id",
+            ("text", "id", 1),
             &encoding,
-            254,
-            255,
             &mut HashSet::new(),
             &mut writers,
         )?;

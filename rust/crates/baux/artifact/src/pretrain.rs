@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 mod corpus;
 #[path = "pretrain/index.rs"]
 mod index;
-use index::{CodeIndex, MAX_TOKENS, TraceIndex, gcd, splitmix64};
+use index::{MAX_TOKENS, SpanIndex, permute_index};
 
 const MAGIC: &[u8; 8] = b"BAUXPTN1";
 const LEGACY_MAGIC: &[u8; 8] = b"BLCKPTN1";
@@ -103,8 +103,7 @@ pub struct PretrainDataset {
     vocabulary: u32,
     sequences: u32,
     tokens: TokenStore,
-    trace: Option<TraceIndex>,
-    code: Option<CodeIndex>,
+    index: Option<SpanIndex>,
 }
 
 /// One fixed corpus condition for causal next-token likelihood.
@@ -138,7 +137,7 @@ fn read_tokens(
     use std::io::Read;
     if vocab > 65536 && cfg!(target_endian = "little") {
         #[cfg(unix)]
-        if elements >= 1_048_576 {
+        if elements > 0 {
             use std::os::fd::AsRawFd;
             let byte_len = HEADER_BYTES + elements * 4;
             let ptr = unsafe { mmap(std::ptr::null_mut(), byte_len, 1, 2, file.as_raw_fd(), 0) };
@@ -168,27 +167,43 @@ fn read_tokens(
     ))
 }
 
+fn manifest_digest(path: &Path) -> Option<String> {
+    let stem = path.file_stem()?.to_str()?;
+    let manifest = path.parent()?.join("manifest.json");
+    let doc: baux::artifact::json::Value =
+        baux::artifact::json::from_reader(File::open(manifest).ok()?).ok()?;
+    doc["splits"][stem]["sha256"].as_str().map(str::to_owned)
+}
+
 fn check_tokens(
     path: &Path,
     meta: &std::fs::Metadata,
     vocab: u32,
     tokens: &[u32],
-) -> Result<(), String> {
+) -> Result<Option<String>, String> {
     let mtime = meta
         .modified()
         .ok()
         .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
         .map(|d| d.as_nanos())
         .unwrap_or(0);
+    let key = (tokens.len() >= 1_048_576 && mtime > 0).then(|| {
+        if let Some(sha256) = manifest_digest(path) {
+            baux::artifact::runs::digest(
+                format!("v1:sha256:{sha256}:{}:{vocab}", meta.len()).as_bytes(),
+            )
+        } else {
+            baux::artifact::runs::digest(
+                format!("v1:{}:{}:{mtime}:{vocab}", path.display(), meta.len()).as_bytes(),
+            )
+        }
+    });
     let cache_dir = Path::new(".cache/baux/digests");
-    let marker = cache_dir.join(format!(
-        "{}.tokens_ok",
-        baux::artifact::runs::digest(
-            format!("v1:{}:{}:{mtime}:{vocab}", path.display(), meta.len()).as_bytes()
-        )
-    ));
-    if tokens.len() > 1_048_576 && mtime > 0 && marker.is_file() {
-        return Ok(());
+    let marker = key
+        .as_ref()
+        .map(|hash| cache_dir.join(format!("{hash}.tokens_ok")));
+    if marker.as_ref().is_some_and(|file| file.is_file()) {
+        return Ok(key);
     }
     if let Some((index, token)) = tokens
         .iter()
@@ -200,14 +215,26 @@ fn check_tokens(
             "pretraining token {token} at offset {index} exceeds the vocabulary"
         ));
     }
-    if tokens.len() > 1_048_576 && mtime > 0 && std::fs::create_dir_all(cache_dir).is_ok() {
-        let _ = std::fs::write(&marker, b"ok");
+    if let Some(marker) = marker {
+        if std::fs::create_dir_all(cache_dir).is_ok() {
+            let _ = std::fs::write(&marker, b"ok");
+        }
     }
-    Ok(())
+    Ok(key)
 }
 
 impl PretrainDataset {
     pub fn load(path: &Path) -> Result<Self, String> {
+        let (mut dataset, key) = Self::open_raw(path)?;
+        dataset.index = SpanIndex::load(path, &dataset.tokens, key.as_deref())?;
+        Ok(dataset)
+    }
+
+    pub fn load_raw(path: &Path) -> Result<Self, String> {
+        Ok(Self::open_raw(path)?.0)
+    }
+
+    fn open_raw(path: &Path) -> Result<(Self, Option<String>), String> {
         use std::io::Read;
         let mut file = File::open(path)
             .map_err(|error| format!("pretraining dataset {}: {error}", path.display()))?;
@@ -257,16 +284,16 @@ impl PretrainDataset {
             ));
         }
         let tokens = read_tokens(path, &mut file, vocab, elements)?;
-        check_tokens(path, &meta, vocab, &tokens)?;
-        let trace = TraceIndex::load(path, &tokens)?;
-        let code = CodeIndex::load(path, &tokens)?;
-        Ok(Self {
-            vocabulary: vocab,
-            sequences,
-            tokens,
-            trace,
-            code,
-        })
+        let key = check_tokens(path, &meta, vocab, &tokens)?;
+        Ok((
+            Self {
+                vocabulary: vocab,
+                sequences,
+                tokens,
+                index: None,
+            },
+            key,
+        ))
     }
 
     pub fn batches(&self) -> u32 {
@@ -326,12 +353,8 @@ impl PretrainDataset {
             ));
         }
         let stride = sequence_tokens.min(CONTEXT as usize);
-        let last = self.tokens.len() - required;
-        let origins = last / stride + 1;
-        let origin = splitmix64(seed ^ u64::from(round).wrapping_mul(0x9e37_79b9_7f4a_7c15))
-            as usize
-            % origins;
-        let offset = origin * stride;
+        let origins = ((self.tokens.len() - required) / stride + 1) as u64;
+        let offset = permute_index(origins, seed, round) * stride;
         let source = &self.tokens[offset..offset + required];
         Ok(CausalBatch {
             tokens: source[..sequence_tokens].to_vec(),
@@ -385,11 +408,8 @@ impl PretrainDataset {
         seed: u64,
         round: u32,
     ) -> Result<Option<(Vec<u32>, Vec<u32>, usize)>, String> {
-        if let Some(trace) = &self.trace {
-            return trace.task(&self.tokens, prompt_cap, output_cap, seed, round);
-        }
-        if let Some(code) = &self.code {
-            return code.task(&self.tokens, prompt_cap, output_cap, seed, round);
+        if let Some(index) = &self.index {
+            return index.task(&self.tokens, prompt_cap, output_cap, seed, round);
         }
         Ok(None)
     }
@@ -413,20 +433,10 @@ impl PretrainDataset {
                 self.tokens()
             ));
         }
-        let sequences = u64::from(self.sequences());
-        let origin = splitmix64(seed) % sequences;
-        let mut stride = splitmix64(seed ^ 0x7769_6e64_6f77_2d78) % sequences;
-        stride = stride.max(1);
-        while gcd(stride, sequences) != 1 {
-            stride = (stride + 1) % sequences;
-            stride = stride.max(1);
-        }
-        let sequence = (origin + u64::from(round) % sequences * stride) % sequences;
-        let offset = usize::try_from(sequence)
-            .map_err(|_| "pretraining sequence index exceeds usize")?
-            .checked_mul(CONTEXT as usize)
-            .ok_or("pretraining corpus offset overflow")?;
-        let source = self.circular(offset, total)?;
+        let stride = total.next_multiple_of(64).min(CONTEXT as usize).max(64);
+        let origins = ((self.tokens() - total) / stride + 1) as u64;
+        let offset = permute_index(origins, seed ^ 0x7769_6e64_6f77_2d78, round) * stride;
+        let source = &self.tokens[offset..offset + total];
         Ok((
             source[..prompt_cap].to_vec(),
             source[prompt_cap..].to_vec(),
@@ -458,7 +468,7 @@ pub fn load_tokens(path: &Path, count: usize) -> Result<Vec<u32>, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::index::{CodeAction, CodeIndex};
+    use super::index::{Span, SpanIndex};
     use super::{CONTEXT, HEADER_BYTES, MAGIC, PretrainDataset, VOCAB};
 
     fn document(sequences: u32) -> Vec<u8> {
@@ -514,6 +524,19 @@ mod tests {
     }
 
     #[test]
+    fn epoch_permutation() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("pretrain.bin");
+        std::fs::write(&path, document(4)).unwrap();
+        let data = PretrainDataset::load_raw(&path).unwrap();
+        let mut offsets = (0..3)
+            .map(|round| data.causal_batch(4096, 17, round).unwrap().offset)
+            .collect::<Vec<_>>();
+        offsets.sort_unstable();
+        assert_eq!(offsets, vec![0, 4096, 8192]);
+    }
+
+    #[test]
     fn nonwrapping_batches() {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("pretrain.bin");
@@ -563,13 +586,16 @@ mod tests {
     #[test]
     fn code_caps() {
         let tokens = (0..1024).collect::<Vec<_>>();
-        let code = CodeIndex {
-            actions: vec![CodeAction {
-                repository_start: 0,
+        let code = SpanIndex {
+            episodes: Vec::new(),
+            origins: Vec::new(),
+            spans: vec![Span {
+                group: 0,
                 start: 128,
                 end: 256,
             }],
             pad: 0,
+            bounded: false,
         };
         let (prompt, output, _) = code.task(&tokens, 512, 256, 17, 0).unwrap().unwrap();
         assert_eq!(prompt.len(), 128);

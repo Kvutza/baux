@@ -1,8 +1,6 @@
 use super::reader::Result;
 use baux::artifact::json::{Value, json};
-use sha2::{Digest, Sha256};
 use std::fs::File;
-use std::io::Read;
 use std::path::Path;
 use tokenizers::Tokenizer;
 
@@ -95,15 +93,5 @@ pub(super) fn boundaries(tokenizer: &Tokenizer) -> Result<(u32, u32)> {
 }
 
 pub(super) fn digest(path: &Path) -> Result<String> {
-    let mut file = File::open(path)?;
-    let mut hash = Sha256::new();
-    let mut buffer = [0u8; 1024 * 1024];
-    loop {
-        let count = file.read(&mut buffer)?;
-        if count == 0 {
-            break;
-        }
-        hash.update(&buffer[..count]);
-    }
-    Ok(format!("{:x}", hash.finalize()))
+    Ok(baux::artifact::runs::file_digest(path)?)
 }

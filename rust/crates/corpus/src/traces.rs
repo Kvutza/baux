@@ -1,5 +1,5 @@
 //! Repository-disjoint pretraining streams from recorded software-agent traces.
-use super::reader::{Result, split};
+use super::reader::{Result, holdout, split_with};
 use baux::artifact::json::{Value, json};
 use deser::Deserialize;
 use parquet::file::reader::{FileReader, SerializedFileReader};
@@ -68,6 +68,7 @@ fn collect(job: &Job) -> Result<(Documents, Vec<Value>)> {
         return Err("trace recipe requires exactly one checksum-pinned source shard".into());
     }
     let mut documents: Documents = std::array::from_fn(|_| Vec::new());
+    let parts = holdout(job.recipe["split_policy"].as_str())?;
     let mut seen = HashSet::new();
     let mut sources = Vec::new();
     for path in &job.paths {
@@ -100,7 +101,7 @@ fn collect(job: &Job) -> Result<(Documents, Vec<Value>)> {
             if !seen.insert((trace.repo.clone(), trace.instance_id.clone())) {
                 continue;
             }
-            let index = split(&trace.repo);
+            let index = split_with(&trace.repo, parts);
             documents[index].push((trace.repo.clone(), render(&trace)?));
         }
         sources.push(json!({"file":path,"sha256":checksum}));
@@ -148,7 +149,6 @@ fn pack_split(
     name: &str,
     tokenizer: &Tokenizer,
 ) -> Result<Value> {
-    let (bos, eos) = super::tokenizer::boundaries(tokenizer)?;
     let quota = job
         .recipe
         .get("materialization")
@@ -166,33 +166,9 @@ fn pack_split(
         return Err("trace split token budget exceeds the corpus format".into());
     }
     let quota = usize::try_from(quota)?;
-    let mut tokens = Vec::with_capacity(quota);
-    let mut episodes = 0;
-    let mut used_repositories = HashSet::new();
-    let mut previous_repository: Option<&str> = None;
-    let mut text = File::create(job.output.join(format!("{name}.txt")))?;
-    for (repository, document) in documents {
-        let first_in_repository = previous_repository != Some(repository.as_str());
-        let serialized = if first_in_repository {
-            document.replacen("<|episode|>\n", "<|episode|><|repository|>\n", 1)
-        } else {
-            document.clone()
-        };
-        let ids = tokenizer.encode(serialized.as_str(), false)?;
-        if tokenizer.decode(ids.get_ids(), false)? != serialized {
-            return Err("tokenizer round-trip changed trace text".into());
-        }
-        used_repositories.insert(repository.clone());
-        text.write_all(serialized.as_bytes())?;
-        tokens.push(bos);
-        tokens.extend_from_slice(ids.get_ids());
-        tokens.push(eos);
-        episodes += 1;
-        previous_repository = Some(repository.as_str());
-        if tokens.len() >= quota {
-            break;
-        }
-    }
+    let text_path = job.output.join(format!("{name}.txt"));
+    let (mut tokens, episodes, repository_names) =
+        encode_episodes(documents, &text_path, tokenizer, quota)?;
     if tokens.len() < quota {
         return Err(format!(
             "{name} has {} tokens; {quota} required; add source shards, do not pad",
@@ -202,24 +178,85 @@ fn pack_split(
     }
     let tail = tokens.len() - quota;
     tokens.truncate(quota);
+    if tokens.iter().any(|&token| token >= 262_144) {
+        return Err("encoded token exceeds the model vocabulary".into());
+    }
     let path = job.output.join(format!("{name}.bauxptn"));
     let mut output = std::io::BufWriter::new(File::create(&path)?);
     output.write_all(b"BAUXPTN1")?;
     for value in [262144, 4096, sequences as u32, 0] {
         output.write_all(&value.to_le_bytes())?;
     }
-    for token in tokens {
-        if token >= 262144 {
-            return Err("encoded token exceeds the model vocabulary".into());
+    if cfg!(target_endian = "little") {
+        let bytes =
+            unsafe { std::slice::from_raw_parts(tokens.as_ptr().cast::<u8>(), tokens.len() * 4) };
+        output.write_all(bytes)?;
+    } else {
+        for token in tokens {
+            output.write_all(&token.to_le_bytes())?;
         }
-        output.write_all(&token.to_le_bytes())?;
     }
     output.flush()?;
-    let mut repository_names: Vec<_> = used_repositories.into_iter().collect();
-    repository_names.sort();
     let record = json!({"sequences":sequences,"tokens":quota,"sha256":digest(&path)?,"episodes":episodes,"repositories":repository_names,"discarded_tail_tokens":tail});
     eprintln!("corpus | {name}: {quota} tokens from {episodes} episodes");
     Ok(record)
+}
+
+fn encode_episodes(
+    documents: &[(String, String)],
+    text_path: &Path,
+    tokenizer: &Tokenizer,
+    quota: usize,
+) -> Result<(Vec<u32>, usize, Vec<String>)> {
+    let (bos, eos) = super::tokenizer::boundaries(tokenizer)?;
+    let mut tokens = Vec::with_capacity(quota);
+    let mut episodes = 0usize;
+    let mut used_repositories = HashSet::new();
+    let mut previous_repository: Option<&str> = None;
+    let mut text = File::create(text_path)?;
+    for chunk in documents.chunks(32) {
+        let batch = serialize_chunk(chunk, &mut previous_repository);
+        let chunk_slices: Vec<&str> = batch.iter().map(String::as_str).collect();
+        let encoded = tokenizer.encode_batch(chunk_slices, false)?;
+        for ((repository, _), (serialized, ids)) in chunk.iter().zip(batch.iter().zip(&encoded)) {
+            if tokenizer.decode(ids.get_ids(), false)? != *serialized {
+                return Err("tokenizer round-trip changed trace text".into());
+            }
+            used_repositories.insert(repository.clone());
+            text.write_all(serialized.as_bytes())?;
+            tokens.push(bos);
+            tokens.extend_from_slice(ids.get_ids());
+            tokens.push(eos);
+            episodes += 1;
+            if tokens.len() >= quota {
+                break;
+            }
+        }
+        if tokens.len() >= quota {
+            break;
+        }
+    }
+    let mut repository_names: Vec<_> = used_repositories.into_iter().collect();
+    repository_names.sort();
+    Ok((tokens, episodes, repository_names))
+}
+
+fn serialize_chunk<'a>(
+    chunk: &'a [(String, String)],
+    previous: &mut Option<&'a str>,
+) -> Vec<String> {
+    chunk
+        .iter()
+        .map(|(repository, document)| {
+            let first = *previous != Some(repository.as_str());
+            *previous = Some(repository.as_str());
+            if first {
+                document.replacen("<|episode|>\n", "<|episode|><|repository|>\n", 1)
+            } else {
+                document.clone()
+            }
+        })
+        .collect()
 }
 
 fn render(trace: &Trace) -> Result<String> {

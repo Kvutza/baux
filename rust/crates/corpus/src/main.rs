@@ -1,7 +1,6 @@
 use std::io::{self, BufReader, BufWriter, Write};
 
 mod encoding;
-mod fineweb;
 mod mix;
 mod reader;
 mod stack;
@@ -22,9 +21,6 @@ async fn main() -> Result<()> {
     }
     if job.get("kind").and_then(|v| v.kind().as_str()) == Some("text") {
         return text::prepare(job).await;
-    }
-    if job.get("kind").and_then(|v| v.kind().as_str()) == Some("fineweb") {
-        return fineweb::prepare(job).await;
     }
     if job.get("kind").and_then(|v| v.kind().as_str()) == Some("mix") {
         return mix::prepare(job);

@@ -59,6 +59,20 @@ impl Encoding {
         }
     }
 
+    pub(super) fn encode_batch(&self, texts: &[&str]) -> Result<Vec<Vec<u32>>> {
+        if texts.is_empty() {
+            return Ok(Vec::new());
+        }
+        match self {
+            Self::Bytes => texts.iter().map(|text| self.encode(text)).collect(),
+            Self::Bpe(tokenizer) => Ok(tokenizer
+                .encode_batch(texts.to_vec(), false)?
+                .into_iter()
+                .map(|encoded| encoded.get_ids().to_vec())
+                .collect()),
+        }
+    }
+
     pub(super) fn accepts(&self, text: &str) -> bool {
         matches!(self, Self::Bytes)
             || !super::tokenizer::MARKERS

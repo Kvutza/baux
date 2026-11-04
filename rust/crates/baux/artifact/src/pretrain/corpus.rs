@@ -3,7 +3,6 @@
 use super::{CorpusBatch, CorpusBundle, CorpusPart, CorpusSet, PretrainDataset, has_magic};
 
 use deser::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use std::collections::HashSet;
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -274,18 +273,9 @@ impl CorpusSet {
 }
 
 fn verify(path: &Path, expected: &str) -> Result<(), String> {
-    let mut file = std::fs::File::open(path)
+    let actual = baux::artifact::runs::file_digest(path)
         .map_err(|error| format!("mixture artifact {}: {error}", path.display()))?;
-    let mut hash = Sha256::new();
-    let mut buffer = [0u8; 65_536];
-    loop {
-        let size = file.read(&mut buffer).map_err(|error| error.to_string())?;
-        if size == 0 {
-            break;
-        }
-        hash.update(&buffer[..size]);
-    }
-    if format!("{:x}", hash.finalize()) != expected {
+    if actual != expected {
         return Err(format!(
             "mixture artifact checksum mismatch: {}",
             path.display()
@@ -313,8 +303,7 @@ mod tests {
     }
 
     fn digest(path: &Path) -> String {
-        let bytes = std::fs::read(path).unwrap();
-        format!("{:x}", Sha256::digest(bytes))
+        baux::artifact::runs::digest(&std::fs::read(path).unwrap())
     }
 
     #[test]

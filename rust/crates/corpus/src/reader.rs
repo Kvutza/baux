@@ -51,8 +51,19 @@ pub(crate) struct Selection {
     pub(crate) seen: HashSet<String>,
 }
 
-pub(crate) fn split(repository: &str) -> usize {
-    split_with(repository, 1)
+pub(crate) fn holdout(policy: Option<&str>) -> Result<u64> {
+    match policy {
+        Some(
+            "repository_sha256_mod20_train_0_15_validation_16_17_test_18_19"
+            | "document_sha256_mod20_train_0_15_validation_16_17_test_18_19",
+        ) => Ok(2),
+        Some(
+            "repository_sha256_mod20_train_0_17_validation_18_test_19"
+            | "document_sha256_mod20_train_0_17_validation_18_test_19",
+        )
+        | None => Ok(1),
+        Some(other) => Err(format!("unsupported corpus split_policy {other:?}").into()),
+    }
 }
 
 fn one() -> u64 {
@@ -72,6 +83,21 @@ pub(crate) fn split_with(repository: &str, holdout: u64) -> usize {
     }
 }
 
+fn test_file(path: &str, name: &str) -> bool {
+    let stem = name.rsplit_once('.').map_or(name, |(stem, _)| stem);
+    path.contains("/test/")
+        || path.contains("/tests/")
+        || path.contains("/benches/")
+        || path.contains("/__tests__/")
+        || name.starts_with("test_")
+        || stem.ends_with("_test")
+        || stem.ends_with("_tests")
+        || stem.ends_with(".test")
+        || stem.ends_with(".spec")
+        || name.ends_with("test.java")
+        || name.ends_with("tests.cs")
+}
+
 pub(crate) fn classify(
     path: &str,
     language: &str,
@@ -84,29 +110,59 @@ pub(crate) fn classify(
         return None;
     }
     if languages.iter().any(|allowed| allowed == language) {
-        return Some(
-            if path.contains("/test/")
-                || path.contains("/tests/")
-                || path.contains("/benches/")
-                || name.ends_with("_test.go")
-            {
-                "tests"
-            } else {
-                "implementation"
-            },
-        );
+        return Some(if test_file(&path, name) {
+            "tests"
+        } else {
+            "implementation"
+        });
     }
-    if matches!(language, "Markdown" | "reStructuredText")
-        || ["readme", "contributing", "architecture"]
-            .iter()
-            .any(|s| name.starts_with(s))
+    if matches!(
+        language,
+        "Markdown" | "reStructuredText" | "AsciiDoc" | "Text"
+    ) || [
+        "readme",
+        "contributing",
+        "architecture",
+        "changelog",
+        "license",
+    ]
+    .iter()
+    .any(|s| name.starts_with(s))
     {
         return Some("documentation");
     }
     (matches!(
         language,
-        "Dockerfile" | "INI" | "JSON" | "Makefile" | "Protocol Buffer" | "Shell" | "TOML" | "YAML"
-    ) || matches!(name, "go.mod" | "build.rs"))
+        "CMake"
+            | "Dockerfile"
+            | "HCL"
+            | "INI"
+            | "JSON"
+            | "Makefile"
+            | "Nix"
+            | "Protocol Buffer"
+            | "Shell"
+            | "Starlark"
+            | "TOML"
+            | "YAML"
+    ) || matches!(
+        name,
+        "go.mod"
+            | "build.rs"
+            | "cmakelists.txt"
+            | "makefile"
+            | "dockerfile"
+            | "justfile"
+            | "buck"
+            | "build"
+            | "build.bazel"
+            | "workspace"
+            | "package.json"
+            | "tsconfig.json"
+            | "pyproject.toml"
+            | "setup.py"
+            | "setup.cfg"
+    ))
     .then_some("configuration")
 }
 
@@ -432,7 +488,7 @@ impl Selection {
                 let text = texts.value(index);
                 // Match Python len(str), not UTF-8 byte length.
                 let count = text.chars().count();
-                if !(64..=job.max_file).contains(&count)
+                if !(1..=job.max_file).contains(&count)
                     || count > job.max_repository - used
                     || text.contains('\0')
                 {
@@ -525,11 +581,13 @@ pub(super) async fn collect(job: Job) -> Result<Selection> {
     .layer(layers::TimeoutLayer::new().with_timeout(std::time::Duration::from_secs(60)))
     .layer(layers::RetryLayer::new().with_max_times(3));
     let mut selected = Selection::new(&job);
+    let global = std::sync::Arc::new(std::sync::atomic::AtomicU16::new(selected.active(&job)));
     let started = std::time::Instant::now();
     let reads = futures::stream::iter(job.paths.iter().enumerate())
         .map(|(index, path)| {
             let operator = &operator;
             let job = &job;
+            let global = global.clone();
             async move {
                 eprintln!(
                     "read | shard {}/{} | {}",
@@ -537,7 +595,7 @@ pub(super) async fn collect(job: Job) -> Result<Selection> {
                     job.paths.len(),
                     path.rsplit('/').next().unwrap_or(path)
                 );
-                read_shard(operator, path, job).await
+                read_shard(operator, path, job, global).await
             }
         })
         .buffered(8);
@@ -545,7 +603,9 @@ pub(super) async fn collect(job: Job) -> Result<Selection> {
     while let Some(shard) = reads.next().await {
         selected.merge(shard?, &job);
         selected.report(&job, started);
-        if selected.active(&job) == 0 {
+        let mask = selected.active(&job);
+        global.store(mask, std::sync::atomic::Ordering::Relaxed);
+        if mask == 0 {
             break;
         }
     }
@@ -556,10 +616,19 @@ pub(super) async fn collect(job: Job) -> Result<Selection> {
     Ok(selected)
 }
 
-async fn read_shard(operator: &Operator, path: &str, job: &Job) -> Result<Selection> {
+async fn read_shard(
+    operator: &Operator,
+    path: &str,
+    job: &Job,
+    global: std::sync::Arc<std::sync::atomic::AtomicU16>,
+) -> Result<Selection> {
     use std::sync::atomic::Ordering;
     let mut selected = Selection::new(job);
-    let active = std::sync::Arc::new(std::sync::atomic::AtomicU16::new(selected.active(job)));
+    let init = selected.active(job) & global.load(Ordering::Relaxed);
+    if init == 0 {
+        return Ok(selected);
+    }
+    let active = std::sync::Arc::new(std::sync::atomic::AtomicU16::new(init));
     let length = operator.stat(path).await?.content_length();
     let reader = operator
         .reader_with(path)
@@ -614,8 +683,9 @@ async fn read_shard(operator: &Operator, path: &str, job: &Job) -> Result<Select
         .build()?;
     while let Some(batch) = stream.try_next().await? {
         selected.accept(&batch, job)?;
-        active.store(selected.active(job), Ordering::Relaxed);
-        if active.load(Ordering::Relaxed) == 0 {
+        let next = selected.active(job) & global.load(Ordering::Relaxed);
+        active.store(next, Ordering::Relaxed);
+        if next == 0 {
             break;
         }
     }

@@ -10,7 +10,7 @@ use tokenizers::Tokenizer;
 
 const CONTEXT: u32 = 4096;
 const VOCABULARY: u32 = 262_144;
-const CHAR_RESERVE: u64 = 4;
+const CHAR_RESERVE: u64 = 6;
 const SOURCE_MARKERS: [&str; 6] = [
     "<|repository|>",
     "<|file|>",
@@ -87,7 +87,7 @@ fn selection_job(job: &Job) -> Result<SelectionJob> {
         target_characters,
         languages,
         excluded_names,
-        holdout_partitions: 2,
+        holdout_partitions: reader::holdout(job.recipe["split_policy"].as_str())?,
         max_file: usize::try_from(
             filter["max_file_characters"]
                 .as_u64()
@@ -147,57 +147,12 @@ fn pack_split(
     split: &str,
     tokenizer: &Tokenizer,
 ) -> Result<Value> {
-    let (bos, eos) = super::tokenizer::boundaries(tokenizer)?;
     let quota = job.recipe["materialization"]["tokens"][split]
         .as_u64()
         .ok_or("Stack recipe has no split token budget")?;
     let sequences = quota / u64::from(CONTEXT);
     let quota = usize::try_from(quota)?;
-    let mut documents = selection.documents[split]
-        .values()
-        .flatten()
-        .collect::<Vec<_>>();
-    documents.sort_by(|left, right| {
-        (&left.repository, &left.path).cmp(&(&right.repository, &right.path))
-    });
-    let mut tokens = Vec::with_capacity(quota + CONTEXT as usize);
-    let mut repositories = BTreeSet::new();
-    let mut files = 0usize;
-    let mut previous: Option<&str> = None;
-    for document in documents {
-        if previous != Some(document.repository.as_str()) {
-            if previous.is_some() {
-                encode(tokenizer, "<|endrepository|>\n", &mut tokens)?;
-                tokens.push(eos);
-            }
-            tokens.push(bos);
-            let header = format!(
-                "<|repository|>\n{}\n{}\n",
-                document.repository, document.commit
-            );
-            encode(tokenizer, &header, &mut tokens)?;
-            repositories.insert(document.repository.clone());
-            previous = Some(&document.repository);
-        }
-        if SOURCE_MARKERS
-            .iter()
-            .any(|marker| document.text.contains(marker))
-        {
-            return Err("Stack source contains a reserved serialization marker".into());
-        }
-        let header = format!("<|file|>\n{}\n<|content|>", document.path);
-        encode(tokenizer, &header, &mut tokens)?;
-        encode(tokenizer, &document.text, &mut tokens)?;
-        encode(tokenizer, "<|endfile|>\n", &mut tokens)?;
-        files += 1;
-        if tokens.len() >= quota {
-            break;
-        }
-    }
-    if previous.is_some() {
-        encode(tokenizer, "<|endrepository|>\n", &mut tokens)?;
-        tokens.push(eos);
-    }
+    let (mut tokens, files, repositories) = pack_tokens(selection, split, tokenizer, quota)?;
     if tokens.len() < quota {
         return Err(format!(
             "{split} produced {} tokens; {quota} required; add Stack shards",
@@ -221,32 +176,117 @@ fn pack_split(
             )
         })
         .collect::<BTreeMap<_, _>>();
-    eprintln!(
-        "corpus | {split}: {quota} tokens from {files} files in {} repositories",
-        repositories.len()
-    );
+    eprintln!("corpus | {split}: {quota} tokens from {files} files in {repositories} repositories");
     Ok(json!({
         "sequences":sequences,
         "tokens":quota,
         "sha256":super::tokenizer::digest(&path)?,
         "files":files,
-        "repositories":repositories.len(),
+        "repositories":repositories,
         "buckets":buckets,
         "discarded_tail_tokens":discarded,
     }))
 }
 
+fn pack_tokens(
+    selection: &Selection,
+    split: &str,
+    tokenizer: &Tokenizer,
+    quota: usize,
+) -> Result<(Vec<u32>, usize, usize)> {
+    let (bos, eos) = super::tokenizer::boundaries(tokenizer)?;
+    let mut documents = selection.documents[split]
+        .values()
+        .flatten()
+        .collect::<Vec<_>>();
+    documents.sort_by(|left, right| {
+        (&left.repository, &left.path).cmp(&(&right.repository, &right.path))
+    });
+    let end_repo = tokenizer
+        .encode("<|endrepository|>\n", false)?
+        .get_ids()
+        .to_vec();
+    let end_file = tokenizer.encode("<|endfile|>\n", false)?.get_ids().to_vec();
+    let mut tokens = Vec::with_capacity(quota + CONTEXT as usize);
+    let mut repositories = BTreeSet::new();
+    let mut files = 0usize;
+    let mut previous: Option<&str> = None;
+    for chunk in documents.chunks(64) {
+        let payloads = chunk
+            .iter()
+            .map(|doc| file_payload(&doc.path, &doc.text))
+            .collect::<Result<Vec<_>>>()?;
+        let batch = tokenizer.encode_batch(payloads, false)?;
+        for (document, encoded) in chunk.iter().zip(&batch) {
+            if previous != Some(document.repository.as_str()) {
+                open_repo(
+                    tokenizer,
+                    (bos, eos),
+                    &end_repo,
+                    (&document.repository, &document.commit),
+                    &mut tokens,
+                )?;
+                repositories.insert(document.repository.clone());
+                previous = Some(&document.repository);
+            }
+            tokens.extend_from_slice(encoded.get_ids());
+            tokens.extend_from_slice(&end_file);
+            files += 1;
+            if tokens.len() >= quota {
+                break;
+            }
+        }
+        if tokens.len() >= quota {
+            break;
+        }
+    }
+    if previous.is_some() {
+        tokens.extend_from_slice(&end_repo);
+        tokens.push(eos);
+    }
+    Ok((tokens, files, repositories.len()))
+}
+
+fn file_payload(path: &str, text: &str) -> Result<String> {
+    if SOURCE_MARKERS.iter().any(|marker| text.contains(marker)) {
+        return Err("Stack source contains a reserved serialization marker".into());
+    }
+    Ok(format!("<|file|>\n{path}\n<|content|>{text}"))
+}
+
+fn open_repo(
+    tokenizer: &Tokenizer,
+    boundaries: (u32, u32),
+    end_repo: &[u32],
+    header: (&str, &str),
+    tokens: &mut Vec<u32>,
+) -> Result<()> {
+    if !tokens.is_empty() {
+        tokens.extend_from_slice(end_repo);
+        tokens.push(boundaries.1);
+    }
+    tokens.push(boundaries.0);
+    let text = format!("<|repository|>\n{}\n{}\n", header.0, header.1);
+    encode(tokenizer, &text, tokens)
+}
+
 fn write_stream(path: &std::path::Path, sequences: u64, tokens: &[u32]) -> Result<()> {
+    if tokens.iter().any(|&token| token >= VOCABULARY) {
+        return Err("Stack tokenizer emitted an out-of-range token".into());
+    }
     let mut output = BufWriter::new(File::create(path)?);
     output.write_all(b"BAUXPTN1")?;
     for value in [VOCABULARY, CONTEXT, sequences as u32, 0] {
         output.write_all(&value.to_le_bytes())?;
     }
-    for &token in tokens {
-        if token >= VOCABULARY {
-            return Err("Stack tokenizer emitted an out-of-range token".into());
+    if cfg!(target_endian = "little") {
+        let bytes =
+            unsafe { std::slice::from_raw_parts(tokens.as_ptr().cast::<u8>(), tokens.len() * 4) };
+        output.write_all(bytes)?;
+    } else {
+        for &token in tokens {
+            output.write_all(&token.to_le_bytes())?;
         }
-        output.write_all(&token.to_le_bytes())?;
     }
     output.flush()?;
     Ok(())

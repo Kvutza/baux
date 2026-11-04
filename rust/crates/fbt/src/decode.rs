@@ -7,6 +7,7 @@ use deser::Serialize;
 use metal::ComputeCommandEncoderRef;
 
 const PADDED_EXPERTS: u32 = 64;
+const DECODE_WINDOW: u32 = 32;
 
 #[path = "decode/mhc.rs"]
 mod mhc;
@@ -206,6 +207,7 @@ fn bytes<T>(encoder: &ComputeCommandEncoderRef, slot: u64, value: &T) {
 }
 
 #[repr(C)]
+#[derive(Clone, Copy)]
 struct Sample {
     seed: u64,
     position: u32,
@@ -231,7 +233,16 @@ fn launch(
     for (target, (buffer, _)) in resources.iter_mut().zip(buffers) {
         *target = buffer;
     }
-    encoder.memory_barrier_with_resources(&resources[..buffers.len()]);
+    let written = if buffers.len() == 3 {
+        if buffers[2].0.length() > 4 {
+            &resources[2..3]
+        } else {
+            &resources[1..3]
+        }
+    } else {
+        &resources[..buffers.len()]
+    };
+    encoder.memory_barrier_with_resources(written);
 }
 
 fn decode_pipelines(
@@ -451,13 +462,95 @@ impl Decoder {
         weights: CandidateRow<'_>,
     ) {
         let elements = MODEL_LAYERS * WIDTH * PADDED_EXPERTS;
-        launch(
+        crate::tensor::Dispatch::new(
             encoder,
             &self.kernels.pad_router,
-            &[(weights.buffer, weights.router), (&self.router, 0)],
-            thread_group(u64::from(elements.div_ceil(256))),
-            256,
-        );
+            crate::tensor::Fence::Writes,
+        )
+        .read(crate::tensor::View::<crate::tensor::F16>::slice(
+            weights.buffer,
+            weights.router,
+            MODEL_LAYERS * WIDTH,
+            routing::ROUTED_EXPERTS,
+        ))
+        .write(crate::tensor::View::<crate::tensor::F16>::whole(&self.router).out())
+        .groups(elements.div_ceil(256), 256);
+    }
+
+    fn sample(
+        &self,
+        encoder: &ComputeCommandEncoderRef,
+        seed: u64,
+        position: u32,
+        first_token: u32,
+        config: &GenerationConfig,
+    ) {
+        crate::tensor::Dispatch::new(encoder, &self.kernels.sample, crate::tensor::Fence::Writes)
+            .read(crate::tensor::View::<crate::tensor::F16>::whole(
+                &self.logits,
+            ))
+            .write(crate::tensor::View::<crate::tensor::U32>::whole(&self.tokens).out())
+            .write(crate::tensor::View::<crate::tensor::U32>::whole(&self.invalid).out())
+            .bytes(&Sample {
+                seed,
+                position,
+                eos: config.eos_token.unwrap_or(u32::MAX),
+                first: first_token,
+                vocabulary: VOCAB,
+                temperature: config.temperature,
+            })
+            .groups(1, 256);
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn decode_positions(
+        &self,
+        runtime: &Runtime,
+        weights: CandidateRow<'_>,
+        config: &GenerationConfig,
+        seed: u64,
+        first_token: u32,
+        start_position: u32,
+        end_position: u32,
+    ) -> Result<f64, String> {
+        if start_position >= end_position {
+            return Ok(0.0);
+        }
+        let window_count = (end_position - start_position).div_ceil(DECODE_WINDOW) as usize;
+        let mut commands = Vec::with_capacity(window_count);
+        let mut window_start = start_position;
+        while window_start < end_position {
+            let window_end = (window_start + DECODE_WINDOW).min(end_position);
+            let command = runtime.queue.new_command_buffer();
+            let encoder = command.new_compute_command_encoder();
+            if window_start == start_position {
+                self.prepare_router(&encoder, weights);
+            }
+            for position in window_start..window_end {
+                self.token(&encoder, weights, position, config.feedback_transition);
+                if position + 1 >= first_token {
+                    self.gemv(
+                        &encoder,
+                        (&self.normalized, 0),
+                        (weights.buffer, weights.readout),
+                        (&self.logits, 0),
+                        WIDTH,
+                        VOCAB,
+                        0,
+                    );
+                    self.sample(&encoder, seed, position, first_token, config);
+                }
+            }
+            encoder.end_encoding();
+            command.commit();
+            commands.push(command.to_owned());
+            window_start = window_end;
+        }
+        let mut total_gpu_seconds = 0.0;
+        for command in &commands {
+            total_gpu_seconds += complete_committed(command)?;
+        }
+        Ok(total_gpu_seconds)
     }
 
     pub(super) fn generate(
@@ -489,44 +582,15 @@ impl Decoder {
             );
             *self.invalid.contents().cast::<u32>() = 0;
         }
-        let command = runtime.queue.new_command_buffer();
-        let encoder = command.new_compute_command_encoder();
-        self.prepare_router(&encoder, weights);
-        for position in 0..positions as u32 {
-            self.token(&encoder, weights, position, config.feedback_transition);
-            if position as usize + 1 >= task.prompt.len() {
-                self.gemv(
-                    &encoder,
-                    (&self.normalized, 0),
-                    (weights.buffer, weights.readout),
-                    (&self.logits, 0),
-                    WIDTH,
-                    VOCAB,
-                    0,
-                );
-                bytes(
-                    &encoder,
-                    3,
-                    &Sample {
-                        seed,
-                        position,
-                        eos: config.eos_token.unwrap_or(u32::MAX),
-                        first: task.prompt.len() as u32,
-                        vocabulary: VOCAB,
-                        temperature: config.temperature,
-                    },
-                );
-                launch(
-                    &encoder,
-                    &self.kernels.sample,
-                    &[(&self.logits, 0), (&self.tokens, 0), (&self.invalid, 0)],
-                    thread_group(1),
-                    256,
-                );
-            }
-        }
-        encoder.end_encoding();
-        let gpu_seconds = complete(command)?;
+        let gpu_seconds = self.decode_positions(
+            runtime,
+            weights,
+            config,
+            seed,
+            task.prompt.len() as u32,
+            0,
+            positions as u32,
+        )?;
         if unsafe { *self.invalid.contents().cast::<u32>() } != 0 {
             return Err("nonfinite generation logits".into());
         }
@@ -593,42 +657,15 @@ impl Decoder {
                 .copy_from_slice(generated);
             *self.invalid.contents().cast::<u32>() = 0;
         }
-        let command = runtime.queue.new_command_buffer();
-        let encoder = command.new_compute_command_encoder();
-        self.prepare_router(&encoder, weights);
-        for position in start_position as u32..positions as u32 {
-            self.token(&encoder, weights, position, config.feedback_transition);
-            self.gemv(
-                &encoder,
-                (&self.normalized, 0),
-                (weights.buffer, weights.readout),
-                (&self.logits, 0),
-                WIDTH,
-                VOCAB,
-                0,
-            );
-            bytes(
-                &encoder,
-                3,
-                &Sample {
-                    seed,
-                    position,
-                    eos: config.eos_token.unwrap_or(u32::MAX),
-                    first: task.prompt.len() as u32,
-                    vocabulary: VOCAB,
-                    temperature: config.temperature,
-                },
-            );
-            launch(
-                &encoder,
-                &self.kernels.sample,
-                &[(&self.logits, 0), (&self.tokens, 0), (&self.invalid, 0)],
-                thread_group(1),
-                256,
-            );
-        }
-        encoder.end_encoding();
-        let gpu_seconds = complete(command)?;
+        let gpu_seconds = self.decode_positions(
+            runtime,
+            weights,
+            config,
+            seed,
+            task.prompt.len() as u32,
+            start_position as u32,
+            positions as u32,
+        )?;
         if unsafe { *self.invalid.contents().cast::<u32>() } != 0 {
             return Err("nonfinite suffix-repair logits".into());
         }

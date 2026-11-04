@@ -386,9 +386,9 @@ impl Runtime {
             .map_err(|error| format!("missing Metal kernel {name}: {error}"))?;
         trace(&format!("Metal function ready for {name}"));
         trace(&format!("creating Metal pipeline for {name}"));
-        let pipeline = self
-            .device
-            .new_compute_pipeline_state_with_function(&function)
+        let cache_id = archive_key(&self.info.name, &key.0, &[&key.1]);
+        let pipeline = load_pipelines(&self.device, &cache_id, &[function.as_ref()])
+            .and_then(|mut list| list.pop().ok_or_else(|| "empty pipeline list".into()))
             .map_err(|error| format!("Metal pipeline {name}: {error}"))?;
         trace(&format!("Metal pipeline ready for {name}"));
         if let Some(directory) = evidence {
@@ -490,7 +490,7 @@ impl Runtime {
         self.device.new_buffer(
             (elements.max(1) * size_of::<T>()) as u64,
             metal::MTLResourceOptions::StorageModeShared
-                | metal::MTLResourceOptions::HazardTrackingModeTracked,
+                | metal::MTLResourceOptions::HazardTrackingModeUntracked,
         )
     }
 
@@ -502,7 +502,7 @@ impl Runtime {
             values.as_ptr().cast(),
             std::mem::size_of_val(values) as u64,
             metal::MTLResourceOptions::StorageModeShared
-                | metal::MTLResourceOptions::HazardTrackingModeTracked,
+                | metal::MTLResourceOptions::HazardTrackingModeUntracked,
         )
     }
 
@@ -575,7 +575,7 @@ impl Runtime {
             ptr,
             aligned as u64,
             metal::MTLResourceOptions::StorageModeShared
-                | metal::MTLResourceOptions::HazardTrackingModeTracked,
+                | metal::MTLResourceOptions::HazardTrackingModeUntracked,
             Some(unsafe { &*(block as *const GlobalBlock).cast() }),
         );
         (buf.length() == aligned as u64).then_some(buf)
@@ -700,6 +700,19 @@ mod tests {
                 None,
             )
             .unwrap();
+        let warm = Runtime::new().unwrap();
+        let warm_pipe = warm
+            .compile_at(
+                source,
+                "capture",
+                "capture_probe",
+                true,
+                None,
+                &[(0, true)],
+                None,
+            )
+            .unwrap();
+        assert_eq!(warm_pipe.thread_execution_width(), 32);
         for _ in 0..2 {
             runtime
                 .compile_at(

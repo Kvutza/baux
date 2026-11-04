@@ -434,29 +434,28 @@ fn proposals_at(
     } else {
         plan.rows
     };
-    let scorer =
-        Scorer {
-            command,
-            encoder: RefCell::new(plan.trace.is_none().then(|| {
-                command.compute_command_encoder_with_dispatch_type(MTLDispatchType::Serial)
-            })),
-            pipelines,
-            tensorops,
-            pisa1,
-            buffers,
-            weights,
-            row_start: plan.row_start,
-            rows: plan.rows,
-            active_rows: std::cell::Cell::new(init_active_rows),
-            cache: plan.cache,
-            dirty: plan.dirty,
-            trace: plan.trace,
-            feedback: weights
-                .architecture
-                .feedback_transition(plan.readout.feedback),
-            diffusion: plan.diffusion,
-            cache_only: plan.hidden_only && plan.diffusion.is_some(),
-        };
+    let scorer = Scorer {
+        command,
+        encoder: RefCell::new(plan.trace.is_none().then(|| {
+            command.compute_command_encoder_with_dispatch_type(MTLDispatchType::Concurrent)
+        })),
+        pipelines,
+        tensorops,
+        pisa1,
+        buffers,
+        weights,
+        row_start: plan.row_start,
+        rows: plan.rows,
+        active_rows: std::cell::Cell::new(init_active_rows),
+        cache: plan.cache,
+        dirty: plan.dirty,
+        trace: plan.trace,
+        feedback: weights
+            .architecture
+            .feedback_transition(plan.readout.feedback),
+        diffusion: plan.diffusion,
+        cache_only: plan.hidden_only && plan.diffusion.is_some(),
+    };
     let result = scorer.encode_hidden().and_then(|()| {
         if let Some(hidden) = plan.readout.hidden {
             scorer.capture_hidden(hidden)?;
@@ -490,29 +489,28 @@ pub(super) fn objective_trace(
     if let Some(trace) = trace {
         trace.reset();
     }
-    let scorer =
-        Scorer {
-            command,
-            encoder: RefCell::new(trace.is_none().then(|| {
-                command.compute_command_encoder_with_dispatch_type(MTLDispatchType::Serial)
-            })),
-            pipelines,
-            tensorops,
-            pisa1,
-            buffers,
-            weights,
-            row_start: 0,
-            rows: ROWS,
-            active_rows: std::cell::Cell::new(ROWS),
-            cache: None,
-            dirty: false,
-            trace,
-            feedback: weights
-                .architecture
-                .feedback_transition(crate::config::FeedbackTransition::ProjectedSigmoid),
-            diffusion: None,
-            cache_only: false,
-        };
+    let scorer = Scorer {
+        command,
+        encoder: RefCell::new(trace.is_none().then(|| {
+            command.compute_command_encoder_with_dispatch_type(MTLDispatchType::Concurrent)
+        })),
+        pipelines,
+        tensorops,
+        pisa1,
+        buffers,
+        weights,
+        row_start: 0,
+        rows: ROWS,
+        active_rows: std::cell::Cell::new(ROWS),
+        cache: None,
+        dirty: false,
+        trace,
+        feedback: weights
+            .architecture
+            .feedback_transition(crate::config::FeedbackTransition::ProjectedSigmoid),
+        diffusion: None,
+        cache_only: false,
+    };
     let result = scorer.encode();
     if let Some(encoder) = scorer.encoder.borrow_mut().take() {
         encoder.end_encoding();
@@ -664,6 +662,7 @@ impl Scorer<'_> {
 
     pub(super) fn encode_to(&self, target: ReplaySite) -> Result<(), String> {
         self.prepare_gateup()?;
+        self.start_stage("embed")?;
         self.embed()?;
         let steps = self.weights.architecture.layer_steps();
         for step in steps {

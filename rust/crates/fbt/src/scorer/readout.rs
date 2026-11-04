@@ -26,7 +26,7 @@ impl Scorer<'_> {
             },
             thread_group(128),
         );
-        encoder.memory_barrier_with_resources(&[loss_partials]);
+        encoder.memory_barrier_with_resources(&[&buffers.normalized, loss_partials]);
         encoder.set_compute_pipeline_state(&pipelines.readout_loss_reduce);
         encoder.set_buffer(0, Some(loss_partials), 0);
         encoder.set_buffer(1, Some(&buffers.losses), 0);
@@ -37,7 +37,7 @@ impl Scorer<'_> {
             (&tiles as *const u32).cast(),
         );
         encoder.dispatch_thread_groups(thread_group(u64::from(self.rows)), thread_group(128));
-        encoder.memory_barrier_with_resources(&[&buffers.losses]);
+        encoder.memory_barrier_with_resources(&[loss_partials, &buffers.losses]);
         encoder.set_compute_pipeline_state(&pipelines.sequence_loss);
         encoder.set_buffer(0, Some(&buffers.losses), 0);
         encoder.set_buffer(1, Some(&buffers.score_mask), 0);
@@ -50,6 +50,7 @@ impl Scorer<'_> {
                 depth: 1,
             },
         );
+        encoder.memory_barrier_with_resources(&[&buffers.losses, &buffers.sequence_scores]);
         Ok(())
     }
 
@@ -110,9 +111,19 @@ impl Scorer<'_> {
             },
             thread_group(128),
         );
-        encoder.memory_barrier_with_resources(&[loss_partials, proposal_partials]);
         if let Some(input) = self.diffusion {
-            encoder.memory_barrier_with_resources(&[input.moments]);
+            encoder.memory_barrier_with_resources(&[
+                &self.buffers.normalized,
+                loss_partials,
+                proposal_partials,
+                input.moments,
+            ]);
+        } else {
+            encoder.memory_barrier_with_resources(&[
+                &self.buffers.normalized,
+                loss_partials,
+                proposal_partials,
+            ]);
         }
         let tiles = self.weights.architecture.vocabulary() / 64;
         let proposal_source = if score_targets && temperature == 0.0 && self.diffusion.is_none() {
@@ -149,7 +160,7 @@ impl Scorer<'_> {
             std::ptr::from_ref(&tiles).cast(),
         );
         encoder.dispatch_thread_groups(thread_group(u64::from(self.rows)), thread_group(128));
-        encoder.memory_barrier_with_resources(&[&self.buffers.losses]);
+        encoder.memory_barrier_with_resources(&[proposal_partials, &self.buffers.losses]);
     }
 
     fn proposal_reduce(
@@ -179,14 +190,21 @@ impl Scorer<'_> {
                 std::mem::size_of_val(&temperature) as u64,
                 std::ptr::from_ref(&temperature).cast(),
             );
+            encoder.dispatch_thread_groups(thread_group(u64::from(self.rows)), thread_group(128));
+            encoder.memory_barrier_with_resources(&[
+                loss_partials,
+                output,
+                input.confidence,
+                input.moments,
+            ]);
         } else {
             encoder.set_bytes(
                 2,
                 std::mem::size_of_val(&tiles) as u64,
                 std::ptr::from_ref(&tiles).cast(),
             );
+            encoder.dispatch_thread_groups(thread_group(u64::from(self.rows)), thread_group(128));
+            encoder.memory_barrier_with_resources(&[loss_partials, output]);
         }
-        encoder.dispatch_thread_groups(thread_group(u64::from(self.rows)), thread_group(128));
-        encoder.memory_barrier_with_resources(&[output]);
     }
 }

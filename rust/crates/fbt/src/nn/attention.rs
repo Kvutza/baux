@@ -100,7 +100,7 @@ impl<'a> Rope<'a> {
         qkv: Out<'_, F16>,
     ) {
         let rope_shape = [1u32, position, self.context, ROPE_PAIRS];
-        Dispatch::new(encoder, self.pipeline, Fence::Bound)
+        Dispatch::new(encoder, self.pipeline, Fence::Writes)
             .write(qkv)
             .read(self.table)
             .bytes(&rope_shape)
@@ -160,13 +160,13 @@ impl<'a> StepAttention<'a> {
         );
         self.rotate(encoder, position, qkv_row.out());
         if position % PISA_BLOCK == PISA_BLOCK - 1 {
-            Dispatch::new(encoder, self.leaf, Fence::Bound)
+            Dispatch::new(encoder, self.leaf, Fence::Writes)
                 .read(View::<F16>::whole(cache.qkv))
                 .write(View::<F16>::whole(cache.pyramid).out())
                 .bytes(&position)
                 .groups(1, 64);
         }
-        Dispatch::new(encoder, self.attention, Fence::Bound)
+        Dispatch::new(encoder, self.attention, Fence::Writes)
             .read(View::<F16>::whole(cache.qkv))
             .read(View::<F16>::whole(cache.pyramid))
             .read(self.blocks)

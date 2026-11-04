@@ -8,8 +8,7 @@ pub(crate) use baux::TRLengthConfig;
 pub use baux::semantics::context;
 pub(crate) use baux::{
     BasePolicyManifest, ProposalKernel, config, forward_program, hash, muon, objective_observation,
-    pretrain_data, procedural_pool, response_observation, search, tensor_store, text, traits,
-    trust_region, weights,
+    pretrain_data, response_observation, search, tensor_store, text, traits, trust_region, weights,
 };
 #[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "metal"))]
 pub(crate) use baux::{apple_gpu, hnet_metal, mps as fbt_mps, reconstruction, resident_metal};

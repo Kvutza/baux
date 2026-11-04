@@ -102,7 +102,12 @@ impl Pisa1 {
             encoder.set_buffer(index as u64, Some(buffer), 0);
         }
         encoder.dispatch_thread_groups_indirect(&self.leaf_tile_count, 0, thread_group(128));
-        encoder.memory_barrier_with_resources(&[&self.leaf_scores]);
+        encoder.memory_barrier_with_resources(&[
+            &self.leaf_refs,
+            &self.leaf_tiles,
+            &self.leaf_tile_count,
+            &self.leaf_scores,
+        ]);
 
         encoder.set_compute_pipeline_state(&self.pipelines.full_final);
         encoder.set_buffer(0, Some(&self.leaf_candidates), 0);
@@ -114,7 +119,11 @@ impl Pisa1 {
             range.as_ptr().cast(),
         );
         encoder.dispatch_thread_groups(thread_group(u64::from(rows)), thread_group(32));
-        encoder.memory_barrier_with_resources(&[&self.blocks]);
+        encoder.memory_barrier_with_resources(&[
+            &self.leaf_candidates,
+            &self.leaf_scores,
+            &self.blocks,
+        ]);
     }
 
     fn pack_refs(&self, encoder: &ComputeCommandEncoderRef, range: [u32; 2]) {
@@ -127,6 +136,7 @@ impl Pisa1 {
         encoder.set_buffer(4, Some(&self.leaf_tiles), 0);
         encoder.dispatch_thread_groups(thread_group(1), thread_group(1));
         encoder.memory_barrier_with_resources(&[
+            &self.leaf_counts,
             &self.leaf_offsets,
             &self.leaf_cursors,
             &self.leaf_tiles,
@@ -146,7 +156,7 @@ impl Pisa1 {
             thread_group(u64::from((rows * 16).div_ceil(128))),
             thread_group(128),
         );
-        encoder.memory_barrier_with_resources(&[&self.leaf_refs]);
+        encoder.memory_barrier_with_resources(&[&self.leaf_cursors, &self.leaf_refs]);
     }
 
     pub(super) fn attend_from(
@@ -179,7 +189,7 @@ impl Pisa1 {
             thread_group(u64::from(rows / self.pipelines.query_tile)),
             thread_group(u64::from(self.pipelines.query_tile * 32)),
         );
-        encoder.memory_barrier_with_resources(&[&self.output]);
+        encoder.memory_barrier_with_resources(&[qkv, pyramid, &self.blocks, &self.output]);
     }
 
     pub(crate) fn attention_from(

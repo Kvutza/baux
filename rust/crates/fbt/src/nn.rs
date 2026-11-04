@@ -42,12 +42,10 @@ impl Rows {
         }
     }
 
-    /// Chunks fence exactly what they write; single steps fence every bound
-    /// resource, which is how the decoder has always encoded.
+    /// Both chunked tiles and single steps fence only the resources they write.
     pub(crate) fn fence(self) -> crate::tensor::Fence {
         match self {
-            Self::Chunk(_) => crate::tensor::Fence::Writes,
-            Self::Step => crate::tensor::Fence::Bound,
+            Self::Chunk(_) | Self::Step => crate::tensor::Fence::Writes,
         }
     }
 }

@@ -244,11 +244,7 @@ impl SearchState {
             return Ok(self.proposal.clone());
         }
         let command = self.runtime.queue.new_command_buffer();
-        self.encode_pool(command, self.pool_params(seed));
-        self.encode_select(command, seed, config, forced_candidate);
-        if self.pool_layout.count() > 1 {
-            self.encode_row(command);
-        }
+        self.encode_ask(command, seed, config, forced_candidate);
         command.set_label("BF16 resident proposal");
         command.commit();
         self.async_command = Some(command.to_owned());

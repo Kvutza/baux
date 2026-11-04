@@ -201,7 +201,7 @@ impl Scorer<'_> {
         );
         crate::apple_gpu::encode_value(encoder, 4, &shape);
         encoder.dispatch_thread_groups(thread_group(u64::from(self.rows)), thread_group(32));
-        encoder.memory_barrier_with_resources(&[&hnet.probs]);
+        encoder.memory_barrier_with_resources(&[&hnet.probs, &hnet.q_state]);
         encoder.set_compute_pipeline_state(&hnet.waves.mhc_chunk_scan);
         crate::apple_gpu::bind_buffers(
             encoder,
@@ -222,6 +222,8 @@ impl Scorer<'_> {
             &hnet.plug_idx,
             &hnet.count,
             &hnet.q_state,
+            &hnet.probs,
+            &hnet.projected,
         ]);
         encoder.set_compute_pipeline_state(&hnet.waves.mhc_chunk_pack);
         crate::apple_gpu::bind_buffers(
@@ -239,8 +241,13 @@ impl Scorer<'_> {
             thread_group(u64::from(shape.max_chunks * WIDTH)),
             thread_group(256),
         );
-        encoder
-            .memory_barrier_with_resources(&[&self.buffers.mhc_streams[0], &hnet.encoder_streams]);
+        encoder.memory_barrier_with_resources(&[
+            &self.buffers.normalized,
+            &self.buffers.mhc_streams[0],
+            &hnet.encoder_streams,
+            &hnet.origins,
+            &hnet.count,
+        ]);
         // Kernels currently dispatch the full capacity. Only the causal prefix
         // contains chunks; no threshold adaptation or truncation is permitted.
         Ok(())
@@ -311,7 +318,13 @@ impl Scorer<'_> {
         );
         crate::apple_gpu::encode_value(encoder, 9, &shape);
         encoder.dispatch_threads(grid_2d, tg_2d);
-        encoder.memory_barrier_with_resources(&[&hnet.chunk_scratch, ema_out_buf]);
+        encoder.memory_barrier_with_resources(&[
+            &self.buffers.normalized,
+            &hnet.part_a,
+            &hnet.part_b,
+            &hnet.chunk_scratch,
+            ema_out_buf,
+        ]);
         encoder.set_compute_pipeline_state(&hnet.waves.mhc_dechunk_plug);
         crate::apple_gpu::bind_buffers(
             encoder,
@@ -329,7 +342,14 @@ impl Scorer<'_> {
             thread_group(u64::from(self.rows * WIDTH)),
             thread_group(256),
         );
-        encoder.memory_barrier_with_resources(&[&self.buffers.mhc_streams[0]]);
+        encoder.memory_barrier_with_resources(&[
+            &self.buffers.mhc_streams[0],
+            &hnet.chunk_scratch,
+            &hnet.plug_idx,
+            &hnet.count,
+            &hnet.residual,
+            ema_in_buf,
+        ]);
         hnet.tile_seen.set(true);
         hnet.ema_parity.set(1 - hnet.ema_parity.get());
         Ok(())
@@ -401,7 +421,7 @@ pub(in crate::moe) fn hnet_stage0(
     let scorer = Scorer {
         command,
         encoder: RefCell::new(Some(
-            command.compute_command_encoder_with_dispatch_type(MTLDispatchType::Serial),
+            command.compute_command_encoder_with_dispatch_type(MTLDispatchType::Concurrent),
         )),
         pipelines,
         tensorops,
@@ -440,7 +460,7 @@ pub(in crate::moe) fn hnet_stage1(
     let scorer = Scorer {
         command,
         encoder: RefCell::new(Some(
-            command.compute_command_encoder_with_dispatch_type(MTLDispatchType::Serial),
+            command.compute_command_encoder_with_dispatch_type(MTLDispatchType::Concurrent),
         )),
         pipelines,
         tensorops,
@@ -478,7 +498,7 @@ pub(in crate::moe) fn bridge_tile(
     let scorer = Scorer {
         command,
         encoder: RefCell::new(Some(
-            command.compute_command_encoder_with_dispatch_type(MTLDispatchType::Serial),
+            command.compute_command_encoder_with_dispatch_type(MTLDispatchType::Concurrent),
         )),
         pipelines,
         tensorops,

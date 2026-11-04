@@ -702,7 +702,7 @@ kernel void dense_propose_pool(
         }
         threadgroup_barrier(mem_flags::mem_threadgroup);
     }
-    if (tid == 0) {
+    if (tid == 0 && p.initialize == 0) {
         for (uint candidate = 0; candidate < 4; candidate++)
             geometry[candidate * p.tiles + tile_index] = sums_a[candidate * 256];
         for (uint pair = 0; pair < 4; pair++)

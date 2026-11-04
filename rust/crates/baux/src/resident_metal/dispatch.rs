@@ -34,8 +34,35 @@ impl SearchState {
         encoder.dispatch_thread_groups(thread_group(self.tiles.len() as u64), thread_group(256));
         encoder.end_encoding();
     }
+    pub fn encode_ask(
+        &self,
+        command: &CommandBufferRef,
+        seed: u64,
+        config: RoundConfig,
+        forced_candidate: Option<usize>,
+    ) {
+        let encoder =
+            command.compute_command_encoder_with_dispatch_type(metal::MTLDispatchType::Concurrent);
+        self.dispatch_pool(encoder, self.pool_params(seed));
+        let pool_resources: [&metal::ResourceRef; 2] = [&self.partials, &self.pool_geometry];
+        encoder.memory_barrier_with_resources(&pool_resources);
+        self.dispatch_select(encoder, seed, config, forced_candidate);
+        if self.pool_layout.count() > 1 {
+            let select_resources: [&metal::ResourceRef; 2] = [&self.decision, &self.pool_distances];
+            encoder.memory_barrier_with_resources(&select_resources);
+            self.dispatch_row(encoder);
+        }
+        encoder.end_encoding();
+    }
     pub fn encode_pool(&self, command: &CommandBufferRef, params: Params) {
-        for pair in 0..self.resident_history.div_ceil(2) {
+        let encoder =
+            command.compute_command_encoder_with_dispatch_type(metal::MTLDispatchType::Concurrent);
+        self.dispatch_pool(encoder, params);
+        encoder.end_encoding();
+    }
+    pub fn dispatch_pool(&self, encoder: &metal::ComputeCommandEncoderRef, params: Params) {
+        let pairs = self.resident_history.div_ceil(2);
+        for pair in 0..pairs {
             let first = pair * 2;
             let history = (self.resident_history - first).min(2);
             let base_slot = usize::try_from(params.base_slot)
@@ -43,17 +70,21 @@ impl SearchState {
                 .and_then(|slot| slot.checked_sub(first))
                 .filter(|&slot| slot < history)
                 .map_or(2, |slot| slot as u32);
-            let params = Params {
+            let pair_params = Params {
                 history: history as u32,
                 initialize: pair as u32,
                 base_slot,
                 ..params
             };
-            self.encode_pair(command, params, first);
+            self.encode_pair(encoder, pair_params, first);
         }
     }
-    pub fn encode_pair(&self, command: &CommandBufferRef, params: Params, first: usize) {
-        let encoder = command.new_compute_command_encoder();
+    pub fn encode_pair(
+        &self,
+        encoder: &metal::ComputeCommandEncoderRef,
+        params: Params,
+        first: usize,
+    ) {
         encoder.set_compute_pipeline_state(&self.pool_pipeline);
         for (index, buffer) in [
             &self.base,
@@ -76,7 +107,6 @@ impl SearchState {
             (&params as *const Params).cast(),
         );
         encoder.dispatch_thread_groups(thread_group(self.tiles.len() as u64), thread_group(256));
-        encoder.end_encoding();
     }
     pub fn encode_select(
         &self,
@@ -85,27 +115,38 @@ impl SearchState {
         config: RoundConfig,
         forced_candidate: Option<usize>,
     ) {
+        let encoder =
+            command.compute_command_encoder_with_dispatch_type(metal::MTLDispatchType::Concurrent);
+        self.dispatch_select(encoder, root, config, forced_candidate);
+        encoder.end_encoding();
+    }
+    pub fn dispatch_select(
+        &self,
+        encoder: &metal::ComputeCommandEncoderRef,
+        root: u64,
+        config: RoundConfig,
+        forced_candidate: Option<usize>,
+    ) {
         let params = self.select_params(root, config, forced_candidate);
-        let reducer = command.new_compute_command_encoder();
-        reducer.set_compute_pipeline_state(&self.reduction_pipeline);
+        encoder.set_compute_pipeline_state(&self.reduction_pipeline);
         for (index, buffer) in [&self.partials, &self.pool_geometry, &self.pool_aggregates]
             .iter()
             .enumerate()
         {
-            reducer.set_buffer(index as u64, Some(buffer), 0);
+            encoder.set_buffer(index as u64, Some(buffer), 0);
         }
-        reducer.set_bytes(
+        encoder.set_bytes(
             3,
             size_of::<SelectionParams>() as u64,
             (&params as *const SelectionParams).cast(),
         );
-        reducer.dispatch_thread_groups(
+        encoder.dispatch_thread_groups(
             thread_group(self.resident_history.div_ceil(2).max(1) as u64),
             thread_group(256),
         );
-        reducer.end_encoding();
+        let resources: [&metal::ResourceRef; 2] = [&self.pool_aggregates, &self.pool_geometry];
+        encoder.memory_barrier_with_resources(&resources);
 
-        let encoder = command.new_compute_command_encoder();
         if let Some(selector) = &self.objective_selector {
             selector.upload(self, root, config);
             encoder.set_compute_pipeline_state(&selector.pipeline);
@@ -126,10 +167,14 @@ impl SearchState {
             (&params as *const SelectionParams).cast(),
         );
         encoder.dispatch_thread_groups(thread_group(1), thread_group(1));
-        encoder.end_encoding();
     }
     pub fn encode_row(&self, command: &CommandBufferRef) {
-        let encoder = command.new_compute_command_encoder();
+        let encoder =
+            command.compute_command_encoder_with_dispatch_type(metal::MTLDispatchType::Concurrent);
+        self.dispatch_row(encoder);
+        encoder.end_encoding();
+    }
+    pub fn dispatch_row(&self, encoder: &metal::ComputeCommandEncoderRef) {
         encoder.set_compute_pipeline_state(&self.materialize_pipeline);
         for (index, buffer) in [
             &self.base,
@@ -156,7 +201,6 @@ impl SearchState {
             (&params as *const Params).cast(),
         );
         encoder.dispatch_thread_groups(thread_group(self.tiles.len() as u64), thread_group(256));
-        encoder.end_encoding();
     }
     pub fn copy(&self, source: &Buffer, destination: &Buffer) -> Result<(), String> {
         autoreleasepool(|| self.copy_inner(source, destination))

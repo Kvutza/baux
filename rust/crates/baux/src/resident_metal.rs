@@ -1,4 +1,4 @@
-//! Dense FP32-compute/BF16-storage correlated search on the shared Apple GPU
+//! Dense FP32-compute/BF16-storage Gaussian search on the shared Apple GPU
 //! runtime.
 //!
 //! Integration: expose this module under `cfg(all(target_os = "macos", feature
@@ -6,8 +6,7 @@
 //! while leases exist, and expose weights read-only. All commands here complete
 //! before returning. Buffer clones keep allocations alive but do not prevent
 //! writes by another Metal consumer. Absolute observations use bounded FIFO
-//! history and the shared CPU TuRBO controller. The old two-row paired-relative
-//! experiment is available only by explicit opt-in.
+//! history and the shared CPU TuRBO controller.
 
 use std::{sync::Arc, time::Instant};
 
@@ -30,6 +29,7 @@ mod configuration;
 mod controller;
 mod dispatch;
 mod history;
+mod import;
 mod initialization;
 mod inspection;
 pub use inspection::{MetalMemoryInfo, memory_info, upload};
@@ -46,12 +46,16 @@ mod observations;
 mod parity;
 mod propose;
 mod publication;
+mod regional;
 mod selection;
 mod shapes;
 mod state;
 use baux::semantics::gaussian::*;
 use layout::*;
 use leaf::*;
+pub use regional::{RegionalProposal, RegionalSearch};
+mod regional_trial;
+pub use regional_trial::{RegionalEvidence, RegionalTrial, regional_trial};
 use shapes::*;
 const TILE_ELEMENTS: usize = baux::semantics::dispatch::TILE_ELEMENTS as usize;
 const MAX_HISTORY: usize = crate::objective_observation::OBJECTIVE_CAPACITY;
@@ -365,6 +369,8 @@ pub struct SearchState {
     reduction_pipeline: ComputePipelineState,
     selection_pipeline: ComputePipelineState,
     materialize_pipeline: ComputePipelineState,
+    import_pipeline: ComputePipelineState,
+    import_reduction: ComputePipelineState,
     dimensions: usize,
     resident_bytes: u64,
     length_config: TRLengthConfig,

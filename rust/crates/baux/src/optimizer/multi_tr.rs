@@ -8,18 +8,24 @@ use deser::{Deserialize, Serialize};
 use ndarray::{Array1, Array2, ArrayView1, ArrayView2};
 use rand::RngCore;
 
+use crate::optimizer_config::AcquisitionConfig;
 use crate::trust_region::{TRLengthConfig, TrustRegionError};
+mod policy;
+mod selection;
+pub use policy::{
+    AllocationPolicy, RegionMethod, RestartCenterPolicy, RestartCenterSelection,
+    RestartMemoryPolicy,
+};
 
-/// Policy for sharing observations across multiple trust regions.
+/// Policy for admitting observations into regional models and incumbents.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[deser(rename_all = "snake_case")]
 pub enum SharingPolicy {
-    /// Shared: all observations update every region whose bounds contain the
-    /// point.
+    /// Any observation may update a containing region's incumbent.
     Shared,
-    /// NearestCenter: observation updates only the nearest region center.
+    /// An observation may update the nearest region's incumbent.
     NearestCenter,
-    /// Independent: observations are assigned only to their generating region.
+    /// Only the generating region may update its incumbent.
     Independent,
 }
 
@@ -42,6 +48,16 @@ pub struct MultiTrustRegionConfig {
     pub fail_tolerance: i32,
     /// Observation sharing policy across regions.
     pub sharing_policy: SharingPolicy,
+    /// Candidate-budget allocation policy, independent of observation sharing.
+    pub allocation_policy: AllocationPolicy,
+    /// Local-model memory policy when a region slot is restarted.
+    pub restart_memory_policy: RestartMemoryPolicy,
+    /// Candidate search used to replace an automatically retired slot.
+    pub restart_center_policy: RestartCenterPolicy,
+    /// Numerical regional controller method, independent of acquisition choice.
+    pub region_method: RegionMethod,
+    /// Per-slot acquisition overrides; `None` inherits the optimizer default.
+    pub region_acquisitions: Vec<Option<AcquisitionConfig>>,
     /// UCB exploration weight used to divide a candidate budget.
     pub exploration: f64,
     /// Minimum normalized Hamming distance between selected perturbation seeds.
@@ -56,6 +72,11 @@ impl MultiTrustRegionConfig {
             succ_tolerance: 3,
             fail_tolerance: 5,
             sharing_policy: SharingPolicy::Shared,
+            allocation_policy: AllocationPolicy::RewardUcb,
+            restart_memory_policy: RestartMemoryPolicy::Fresh,
+            restart_center_policy: RestartCenterPolicy::default(),
+            region_method: RegionMethod::Turbo,
+            region_acquisitions: vec![None; num_regions],
             exploration: 1.0,
             min_seed_distance: 0.0,
         }
@@ -79,6 +100,53 @@ pub struct RegionCandidate {
     pub score: f64,
 }
 
+/// Historical identity of the region instance that proposed an arm.
+///
+/// A slot may be restarted, so its generation is part of the identity. This
+/// records provenance only; observation relevance and progress attribution are
+/// separate policy decisions. See `research/multiregion_optimizer.md`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RegionProvenance {
+    pub slot: usize,
+    pub generation: u64,
+}
+
+/// Identity of one generated evaluation, distinct from its region generation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct EvaluationId(pub u64);
+
+/// Outcome of a generated evaluation; cancellation has no measured reward.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) enum EvaluationStatus {
+    Pending,
+    Observed(f64),
+    Cancelled,
+}
+
+/// Identity and completion state for outstanding regional groups.
+///
+/// A settled slot may append a new group while another slot remains pending.
+/// Warm-up remains one ordered batch; overlapping regional work uses IDs.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PendingProposal {
+    /// Process-wide unique evaluation identities, one per ask row.
+    pub(crate) ids: Vec<EvaluationId>,
+    /// Whether each region slot's controller has received its one settlement.
+    /// Warm-up proposals leave this empty; regional proposals size it to slots.
+    pub(crate) settled_regions: Vec<bool>,
+    /// Region instances for a regional batch; `None` identifies warm-up rows.
+    pub(crate) arms: Option<Vec<RegionProvenance>>,
+    /// Ordered coordinates expected by the legacy complete-batch tell path.
+    /// This is a consistency check, not an evaluation identity.
+    pub(crate) x: Array2<f64>,
+    /// Resolved and unresolved rows. Each region settles after its own rows
+    /// have produced observations or been cancelled, independently of other
+    /// regions in the batch.
+    pub(crate) outcomes: Vec<EvaluationStatus>,
+    /// Ordered tell is valid only before another ask has joined this ledger.
+    pub(crate) ordered_tell_allowed: bool,
+}
+
 /// Multi-Trust Region engine storing $M$ regions in contiguous flat memory.
 #[derive(Debug, Clone)]
 pub struct MultiTrustRegionState {
@@ -98,6 +166,8 @@ pub struct MultiTrustRegionState {
     pub fail_counts: Vec<i32>,
     /// Active mask per region (false when region needs restart).
     pub active_mask: Vec<bool>,
+    /// Lifetime number for each region slot, incremented on restart.
+    generations: Vec<u64>,
     /// Number of completed trials generated by each region.
     pub trial_counts: Vec<u64>,
     /// Online mean objective per region.
@@ -116,9 +186,43 @@ impl MultiTrustRegionState {
         initial_centers: Option<&ArrayView2<f64>>,
         rng: &mut dyn RngCore,
     ) -> Result<Self, TrustRegionError> {
+        let length = config.length;
+        if num_dim == 0
+            || config.succ_tolerance <= 0
+            || config.fail_tolerance <= 0
+            || !length.length_min.is_finite()
+            || !length.length_init.is_finite()
+            || !length.length_max.is_finite()
+            || length.length_min <= 0.0
+            || length.length_min > length.length_init
+            || length.length_init > length.length_max
+        {
+            return Err(TrustRegionError::InvalidParameter(
+                "regions require positive dimensions/tolerances and finite 0 < min <= initial <= max lengths".into(),
+            ));
+        }
         if config.num_regions == 0 {
             return Err(TrustRegionError::InvalidParameter(
                 "num_regions must be > 0".to_string(),
+            ));
+        }
+        if config.restart_center_policy.candidates == 0 {
+            return Err(TrustRegionError::InvalidParameter(
+                "restart center policy needs at least one candidate".into(),
+            ));
+        }
+        if config.region_acquisitions.len() != config.num_regions {
+            return Err(TrustRegionError::InvalidParameter(format!(
+                "region_acquisitions has {} entries; expected {}",
+                config.region_acquisitions.len(),
+                config.num_regions
+            )));
+        }
+        if config.region_acquisitions.iter().flatten().any(|acquisition| {
+            matches!(acquisition, AcquisitionConfig::UCB { beta } if !beta.is_finite() || !(*beta as f32).is_finite())
+        }) {
+            return Err(TrustRegionError::InvalidParameter(
+                "regional UCB beta must be finite FP32".into(),
             ));
         }
         if !config.exploration.is_finite() || config.exploration < 0.0 {
@@ -160,6 +264,7 @@ impl MultiTrustRegionState {
         let succ_counts = vec![0; num_regions];
         let fail_counts = vec![0; num_regions];
         let active_mask = vec![true; num_regions];
+        let generations = vec![0; num_regions];
         let trial_counts = vec![0; num_regions];
         let mean_y = Array1::zeros(num_regions);
         let m2_y = Array1::zeros(num_regions);
@@ -173,6 +278,7 @@ impl MultiTrustRegionState {
             succ_counts,
             fail_counts,
             active_mask,
+            generations,
             trial_counts,
             mean_y,
             m2_y,
@@ -196,181 +302,19 @@ impl MultiTrustRegionState {
         self.config.sharing_policy
     }
 
-    /// Divide a flat candidate budget among active regions with a UCB policy.
-    pub fn allocate(&self, budget: usize) -> Result<Vec<RegionBatch>, TrustRegionError> {
-        self.allocate_with(budget, &self.mean_y.view())
+    /// Resolve a slot's acquisition override against the optimizer default.
+    pub fn acquisition_for(&self, region: usize, default: AcquisitionConfig) -> AcquisitionConfig {
+        self.config
+            .region_acquisitions
+            .get(region)
+            .copied()
+            .flatten()
+            .unwrap_or(default)
     }
 
-    /// Allocate with objective-specific region utility.
-    ///
-    /// Utilities may be scalar trajectory values, hypervolume contributions,
-    /// or feasibility scores. Larger values receive more candidates.
-    pub fn allocate_with(
-        &self,
-        budget: usize,
-        utility: &ArrayView1<f64>,
-    ) -> Result<Vec<RegionBatch>, TrustRegionError> {
-        if utility.len() != self.num_regions || utility.iter().any(|value| !value.is_finite()) {
-            return Err(TrustRegionError::InvalidParameter(
-                "region utility must contain one finite value per region".to_string(),
-            ));
-        }
-        let active: Vec<usize> = self
-            .active_mask
-            .iter()
-            .enumerate()
-            .filter_map(|(r, &is_active)| is_active.then_some(r))
-            .collect();
-        if active.is_empty() {
-            return Err(TrustRegionError::InvalidState(
-                "no active trust regions".to_string(),
-            ));
-        }
-        if budget == 0 {
-            return Err(TrustRegionError::InvalidParameter(
-                "candidate budget must be > 0".to_string(),
-            ));
-        }
-
-        let total_trials = self.trial_counts.iter().sum::<u64>().max(1) as f64;
-        if budget < active.len() {
-            let mut ranked = active;
-            ranked.sort_by(|&a, &b| {
-                self.priority(b, 0, total_trials, utility[b])
-                    .total_cmp(&self.priority(a, 0, total_trials, utility[a]))
-                    .then_with(|| a.cmp(&b))
-            });
-            let mut start = 0;
-            return Ok(ranked
-                .into_iter()
-                .take(budget)
-                .map(|region| {
-                    let batch = RegionBatch {
-                        region,
-                        start,
-                        len: 1,
-                    };
-                    start += 1;
-                    batch
-                })
-                .collect());
-        }
-
-        let mut counts = vec![1usize; self.num_regions];
-        for _ in active.len()..budget {
-            let region = active
-                .iter()
-                .copied()
-                .max_by(|&a, &b| {
-                    self.priority(a, counts[a], total_trials, utility[a])
-                        .total_cmp(&self.priority(b, counts[b], total_trials, utility[b]))
-                        .then_with(|| b.cmp(&a))
-                })
-                .expect("active regions are non-empty");
-            counts[region] += 1;
-        }
-
-        let mut start = 0;
-        Ok(active
-            .into_iter()
-            .map(|region| {
-                let batch = RegionBatch {
-                    region,
-                    start,
-                    len: counts[region],
-                };
-                start += batch.len;
-                batch
-            })
-            .collect())
-    }
-
-    /// Sample variance of completed objectives for a region.
-    pub fn variance(&self, region: usize) -> Option<f64> {
-        let count = *self.trial_counts.get(region)?;
-        (count > 1).then(|| self.m2_y[region] / (count - 1) as f64)
-    }
-
-    /// Select `num_arms` candidates globally while avoiding duplicate
-    /// perturbations.
-    pub fn select(
-        &self,
-        candidates: &[RegionCandidate],
-        num_arms: usize,
-    ) -> Result<Vec<RegionCandidate>, TrustRegionError> {
-        if num_arms == 0 || num_arms > candidates.len() {
-            return Err(TrustRegionError::InvalidParameter(format!(
-                "num_arms {num_arms} is outside 1..={}",
-                candidates.len()
-            )));
-        }
-        if candidates
-            .iter()
-            .any(|c| c.region >= self.num_regions || !c.score.is_finite())
-        {
-            return Err(TrustRegionError::InvalidParameter(
-                "candidate has an invalid region or score".to_string(),
-            ));
-        }
-
-        let mut ranked = candidates.to_vec();
-        ranked.sort_by(|a, b| {
-            b.score
-                .total_cmp(&a.score)
-                .then_with(|| a.index.cmp(&b.index))
-        });
-
-        let mut selected = Vec::with_capacity(num_arms);
-        for candidate in &ranked {
-            if selected
-                .iter()
-                .all(|other: &RegionCandidate| self.seed_distance(candidate.seed, other.seed))
-            {
-                selected.push(*candidate);
-                if selected.len() == num_arms {
-                    return Ok(selected);
-                }
-            }
-        }
-
-        for candidate in ranked {
-            if !selected.iter().any(|other| other.index == candidate.index) {
-                selected.push(candidate);
-                if selected.len() == num_arms {
-                    break;
-                }
-            }
-        }
-        Ok(selected)
-    }
-
-    /// Compute lower and upper bounds for a specific trust region `r`.
-    pub fn compute_bounds(
-        &self,
-        r: usize,
-        lengthscales: Option<&ArrayView1<f64>>,
-    ) -> (Array1<f64>, Array1<f64>) {
-        let center = self.centers.row(r);
-        let len = self.lengths[r];
-        let mut lb = Array1::zeros(self.num_dim);
-        let mut ub = Array1::zeros(self.num_dim);
-
-        if let Some(ls) = lengthscales {
-            let ls_mean = ls.mean().unwrap_or(1.0);
-            for d in 0..self.num_dim {
-                let half = 0.5 * len * (ls[d] / ls_mean);
-                lb[d] = (center[d] - half).clamp(0.0, 1.0);
-                ub[d] = (center[d] + half).clamp(0.0, 1.0);
-            }
-        } else {
-            let half = 0.5 * len;
-            for d in 0..self.num_dim {
-                lb[d] = (center[d] - half).clamp(0.0, 1.0);
-                ub[d] = (center[d] + half).clamp(0.0, 1.0);
-            }
-        }
-
-        (lb, ub)
+    /// Current lifetime number for a region slot.
+    pub fn generation(&self, region: usize) -> Option<u64> {
+        self.generations.get(region).copied()
     }
 
     /// Update trust regions with newly observed batch points `x_batch` (shape
@@ -422,6 +366,8 @@ impl MultiTrustRegionState {
             }
 
             let mut region_improved = false;
+            let mut credited = false;
+            let mut credit_improved = false;
             let current_best = self.incumbents_y[r];
             let mut best_y_in_batch = f64::NEG_INFINITY;
             let mut best_x_idx: Option<usize> = None;
@@ -434,8 +380,10 @@ impl MultiTrustRegionState {
 
                 let inside = self.accepts(r, i, &x_i, &lb, &ub, regions);
 
-                if regions.is_none_or(|ids| ids[i] == r) {
+                if regions.is_some_and(|ids| ids[i] == r) {
+                    credited = true;
                     self.record(r, y_i);
+                    credit_improved |= inside && y_i > current_best;
                 }
                 if inside && y_i > current_best && y_i > best_y_in_batch {
                     best_y_in_batch = y_i;
@@ -452,26 +400,11 @@ impl MultiTrustRegionState {
                         self.centers[[r, d]] = x_best[d];
                     }
                 }
-                self.succ_counts[r] += 1;
-                self.fail_counts[r] = 0;
-
-                if self.succ_counts[r] >= self.config.succ_tolerance {
-                    self.lengths[r] = (2.0 * self.lengths[r]).min(self.config.length.length_max);
-                    self.succ_counts[r] = 0;
-                }
-            } else {
-                self.succ_counts[r] = 0;
-                self.fail_counts[r] += 1;
-
-                if self.fail_counts[r] >= self.config.fail_tolerance {
-                    self.lengths[r] *= 0.5;
-                    self.fail_counts[r] = 0;
-
-                    if self.lengths[r] < self.config.length.length_min {
-                        self.active_mask[r] = false; // Flag for restart
-                    }
-                }
             }
+            if !credited {
+                continue;
+            }
+            self.update_controller(r, credit_improved);
         }
 
         Ok(())
@@ -496,6 +429,33 @@ impl MultiTrustRegionState {
         Ok(())
     }
 
+    fn update_controller(&mut self, region: usize, improved: bool) {
+        // BAUX's fixed-length baseline keeps observation relevance and origin
+        // credit but deliberately disables TuRBO length adaptation.
+        if self.config.region_method == RegionMethod::FixedLength {
+            return;
+        }
+        if improved {
+            self.succ_counts[region] += 1;
+            self.fail_counts[region] = 0;
+            if self.succ_counts[region] >= self.config.succ_tolerance {
+                self.lengths[region] =
+                    (2.0 * self.lengths[region]).min(self.config.length.length_max);
+                self.succ_counts[region] = 0;
+            }
+        } else {
+            self.succ_counts[region] = 0;
+            self.fail_counts[region] += 1;
+            if self.fail_counts[region] >= self.config.fail_tolerance {
+                self.lengths[region] *= 0.5;
+                self.fail_counts[region] = 0;
+                if self.lengths[region] < self.config.length.length_min {
+                    self.active_mask[region] = false;
+                }
+            }
+        }
+    }
+
     /// Restart a inactive region `r` with a new center location.
     pub fn restart_region(
         &mut self,
@@ -516,6 +476,10 @@ impl MultiTrustRegionState {
             )));
         }
 
+        let generation = self.generations[r].checked_add(1).ok_or_else(|| {
+            TrustRegionError::InvalidState(format!("region {r} generation overflow"))
+        })?;
+
         for d in 0..self.num_dim {
             self.centers[[r, d]] = new_center[d].clamp(0.0, 1.0);
         }
@@ -524,6 +488,7 @@ impl MultiTrustRegionState {
         self.fail_counts[r] = 0;
         self.incumbents_y[r] = f64::NEG_INFINITY;
         self.active_mask[r] = true;
+        self.generations[r] = generation;
         self.trial_counts[r] = 0;
         self.mean_y[r] = 0.0;
         self.m2_y[r] = 0.0;
@@ -531,22 +496,7 @@ impl MultiTrustRegionState {
         Ok(())
     }
 
-    fn priority(&self, region: usize, queued: usize, total_trials: f64, utility: f64) -> f64 {
-        if self.config.exploration == 0.0 {
-            return utility;
-        }
-        let trials = self.trial_counts[region] as f64;
-        let effective_trials = (trials + queued as f64).max(1e-6);
-        let uncertainty =
-            ((total_trials + self.num_regions as f64 + 1.0).ln() / effective_trials).sqrt();
-        utility + self.config.exploration * uncertainty
-    }
-
-    fn seed_distance(&self, a: u64, b: u64) -> bool {
-        (a ^ b).count_ones() as f64 / u64::BITS as f64 >= self.config.min_seed_distance
-    }
-
-    fn accepts(
+    pub(crate) fn accepts(
         &self,
         region: usize,
         observation: usize,
@@ -555,16 +505,9 @@ impl MultiTrustRegionState {
         ub: &Array1<f64>,
         regions: Option<&[usize]>,
     ) -> bool {
-        match self.config.sharing_policy {
-            SharingPolicy::Shared => self.contains(x, lb, ub),
-            SharingPolicy::Independent => regions.is_some_and(|ids| ids[observation] == region),
-            SharingPolicy::NearestCenter => {
-                let distance = self.distance_to(region, x);
-                (0..self.num_regions)
-                    .filter(|&other| other != region && self.active_mask[other])
-                    .all(|other| self.distance_to(other, x) >= distance)
-            }
-        }
+        self.config
+            .sharing_policy
+            .accepts(self, region, observation, x, lb, ub, regions)
     }
 
     fn contains(&self, x: &ArrayView1<f64>, lb: &Array1<f64>, ub: &Array1<f64>) -> bool {
@@ -588,6 +531,7 @@ impl MultiTrustRegionState {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::optimizer_config::AcquisitionConfig;
     use ndarray::array;
     use rand::SeedableRng;
     use rand::rngs::StdRng;
@@ -602,6 +546,54 @@ mod tests {
         assert_eq!(tr.num_dim(), 3);
         assert_eq!(tr.active_count(), 4);
         assert_eq!(tr.centers.shape(), &[4, 3]);
+    }
+
+    #[test]
+    fn acquisitionoverride() {
+        let mut rng = StdRng::seed_from_u64(2);
+        let mut config = MultiTrustRegionConfig::new(2, TRLengthConfig::default());
+        config.region_acquisitions[1] = Some(AcquisitionConfig::Random);
+        let state = MultiTrustRegionState::new(1, config.clone(), None, &mut rng).unwrap();
+        let global = AcquisitionConfig::UCB { beta: 1.25 };
+        assert_eq!(state.acquisition_for(0, global), global);
+        assert_eq!(state.acquisition_for(1, global), AcquisitionConfig::Random);
+
+        config.region_acquisitions.pop();
+        assert!(MultiTrustRegionState::new(1, config, None, &mut rng).is_err());
+
+        let mut config = MultiTrustRegionConfig::new(1, TRLengthConfig::default());
+        config.region_acquisitions[0] = Some(AcquisitionConfig::UCB {
+            beta: f64::INFINITY,
+        });
+        assert!(MultiTrustRegionState::new(1, config, None, &mut rng).is_err());
+    }
+
+    #[test]
+    fn fixedlength() {
+        let mut rng = StdRng::seed_from_u64(3);
+        let mut config = MultiTrustRegionConfig::new(
+            1,
+            TRLengthConfig {
+                length_min: 0.1,
+                length_init: 0.25,
+                length_max: 0.5,
+            },
+        );
+        config.region_method = RegionMethod::FixedLength;
+        config.succ_tolerance = 1;
+        config.fail_tolerance = 1;
+        let center = array![[0.5]];
+        let mut state =
+            MultiTrustRegionState::new(1, config, Some(&center.view()), &mut rng).unwrap();
+        state
+            .tell(&array![[0.5]].view(), &array![4.0].view(), Some(&[0]))
+            .unwrap();
+        assert_eq!(state.incumbents_y[0], 4.0);
+        assert_eq!(state.trial_counts, [1]);
+        assert_eq!(state.succ_counts, [0]);
+        assert_eq!(state.fail_counts, [0]);
+        assert_eq!(state.lengths[0], 0.25);
+        assert!(state.active_mask[0]);
     }
 
     #[test]
@@ -620,12 +612,54 @@ mod tests {
         // Tell improvement near center 0
         let x_batch = array![[0.51, 0.51]];
         let y_batch = array![10.0];
-        tr.tell_update(&x_batch.view(), &y_batch.view()).unwrap();
+        tr.tell(&x_batch.view(), &y_batch.view(), Some(&[0]))
+            .unwrap();
         assert_eq!(tr.succ_counts[0], 1);
 
         let y_batch2 = array![15.0];
-        tr.tell_update(&x_batch.view(), &y_batch2.view()).unwrap();
+        tr.tell(&x_batch.view(), &y_batch2.view(), Some(&[0]))
+            .unwrap();
         assert!(tr.lengths[0] > initial_len0, "Region 0 should expand");
+    }
+
+    #[test]
+    fn sharing_credit() {
+        let mut rng = StdRng::seed_from_u64(8);
+        let centers = array![[0.5], [0.5]];
+        let mut state = MultiTrustRegionState::new(
+            1,
+            MultiTrustRegionConfig::new(2, Default::default()),
+            Some(&centers.view()),
+            &mut rng,
+        )
+        .unwrap();
+        state
+            .tell(&array![[0.5]].view(), &array![10.0].view(), Some(&[0]))
+            .unwrap();
+        assert_eq!(state.incumbents_y.to_vec(), vec![10.0, 10.0]);
+        assert_eq!(state.trial_counts, vec![1, 0]);
+        assert_eq!(state.succ_counts, vec![1, 0]);
+        assert_eq!(state.fail_counts, vec![0, 0]);
+
+        state
+            .tell(
+                &array![[0.5], [0.5]].view(),
+                &array![9.0, 20.0].view(),
+                Some(&[0, 1]),
+            )
+            .unwrap();
+        assert_eq!(state.incumbents_y.to_vec(), vec![20.0, 20.0]);
+        assert_eq!(state.trial_counts, vec![2, 1]);
+        assert_eq!(state.fail_counts, vec![1, 0]);
+        assert_eq!(state.succ_counts, vec![0, 1]);
+
+        state
+            .tell_update(&array![[0.5]].view(), &array![30.0].view())
+            .unwrap();
+        assert_eq!(state.incumbents_y.to_vec(), vec![30.0, 30.0]);
+        assert_eq!(state.trial_counts, vec![2, 1]);
+        assert_eq!(state.fail_counts, vec![1, 0]);
+        assert_eq!(state.succ_counts, vec![0, 1]);
     }
 
     #[test]
@@ -771,5 +805,28 @@ mod tests {
         assert!(tr.distance_to(0, &x.view()) < tr.distance_to(1, &x.view()));
         assert!(tr.seed_distance(0, u64::MAX));
         assert!(!tr.seed_distance(0, 1));
+    }
+
+    #[test]
+    fn generation_restart() {
+        let mut rng = StdRng::seed_from_u64(42);
+        let mut tr = MultiTrustRegionState::new(
+            2,
+            MultiTrustRegionConfig::new(2, Default::default()),
+            None,
+            &mut rng,
+        )
+        .unwrap();
+
+        assert_eq!(tr.generation(0), Some(0));
+        assert_eq!(tr.generation(1), Some(0));
+        assert_eq!(tr.generation(2), None);
+
+        tr.restart_region(0, &array![0.25, 0.75].view()).unwrap();
+        assert_eq!(tr.generation(0), Some(1));
+        assert_eq!(tr.generation(1), Some(0));
+
+        tr.restart_region(0, &array![0.75, 0.25].view()).unwrap();
+        assert_eq!(tr.generation(0), Some(2));
     }
 }

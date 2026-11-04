@@ -1,4 +1,51 @@
 load(":suite.bzl", "test_suite")
+load("//build/buck2:python.bzl", "PYTHON_ENVIRONMENT")
+
+sh_test(
+    name = "resident-python",
+    test = "resident.sh",
+    resources = ["//:optimizer-python-source", "//:wheel-macos-arm64"],
+    env = {
+        "BAUX_TEST_PYTHON": ".pixi/envs/" + PYTHON_ENVIRONMENT + "/bin/python",
+        "BAUX_TEST_WHEEL": "$(location //:wheel-macos-arm64)",
+    },
+    target_compatible_with = ["prelude//os/constraints:macos"],
+)
+
+rust_test(
+    name = "resident-regions",
+    srcs = ["portfolio.rs"],
+    crate_root = "portfolio.rs",
+    edition = "2024",
+    deps = ["//rust/crates/baux:baux", "//build/buck2/native:openmp-macos"],
+    rpath = True,
+    runtime_dependency_handling = "symlink",
+    target_compatible_with = ["prelude//os/constraints:macos"],
+)
+
+sh_test(
+    name = "optimizer-python",
+    test = "submission.sh",
+    resources = ["//:optimizer-python-source"],
+    env = {"BAUX_TEST_PYTHON": ".pixi/envs/" + PYTHON_ENVIRONMENT + "/bin/python"},
+)
+
+rust_test(
+    name = "optimizer-provenance",
+    srcs = ["provenance.rs", "provenance/overlap.rs"],
+    crate_root = "provenance.rs",
+    edition = "2024",
+    deps = [
+        "//rust/crates/baux:baux",
+        "//rust:ndarray",
+        "//rust:rand",
+    ] + select({
+        "//:macos-arm64": ["//build/buck2/native:openmp-macos"],
+        "DEFAULT": [],
+    }),
+    rpath = True,
+    runtime_dependency_handling = "symlink",
+)
 
 rust_test(
     name = "metal",
@@ -29,6 +76,8 @@ rust_test(
 )
 
 _TESTS = [
+    ":optimizer-python",
+    ":optimizer-provenance",
     ":neighbor-index",
     "//rust/crates/cli:baux-test",
     "//rust/crates/runner:baux-runner-test",
@@ -41,6 +90,8 @@ _TESTS = [
 ] + select({
     "//:macos-arm64": [
         ":metal",
+        ":resident-regions",
+        ":resident-python",
         "//rust/crates/baux:region-metal",
         "//rust/crates/fbt:fbt-unit",
     ],

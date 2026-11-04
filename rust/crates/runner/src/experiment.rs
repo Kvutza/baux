@@ -9,6 +9,7 @@ use baux_tooling::terminal::{self, Tag};
 use baux_tooling::build::BuildSystem;
 
 mod pretrain;
+mod regional;
 
 pub(crate) fn run(
     root: &Path,
@@ -16,6 +17,7 @@ pub(crate) fn run(
     rounds: Option<u32>,
     engine: BuildSystem,
 ) -> Result<(), String> {
+    if regional::execute(root, path, rounds)? { return Ok(()); }
     let prepare_started = Instant::now();
     terminal::stderr(
         Tag::Orchestration,

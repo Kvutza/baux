@@ -35,3 +35,4 @@ class _Plan:
     kind: str
     k: int = 10
     gp: Any | None = None
+    fit_steps: int = 50

@@ -64,6 +64,19 @@ pub fn file_digest(path: &Path) -> Result<String, String> {
 /// Construct provenance before launching a worker. No work is attributed by
 /// guess.
 pub fn start(root: &Path, output: &Path, config: &str, commit: &str) -> Result<Record, String> {
+    let worker = std::env::var_os("BAUX_WORKER_EXECUTABLE").ok_or("missing worker executable")?;
+    start_worker(root, output, config, commit, Path::new(&worker))
+}
+
+/// Record an in-process or explicitly selected worker without mutating the
+/// process environment. The executable is hashed in the usual manifest.
+pub fn start_worker(
+    root: &Path,
+    output: &Path,
+    config: &str,
+    commit: &str,
+    worker: &Path,
+) -> Result<Record, String> {
     let config_value: Value = baux::artifact::toml::from_str(config).map_err(|e| e.to_string())?;
     let binding_path = root.join(".cache/baux/task.json");
     let binding = match fs::read_to_string(&binding_path) {
@@ -84,7 +97,6 @@ pub fn start(root: &Path, output: &Path, config: &str, commit: &str) -> Result<R
         root,
         &["log", "-r", commit, "--no-graph", "-T", "change_id"],
     )?;
-    let worker = std::env::var_os("BAUX_WORKER_EXECUTABLE").ok_or("missing worker executable")?;
     let started = jiff::Timestamp::now().as_millisecond();
     let output = output.canonicalize().map_err(|e| e.to_string())?;
     let record = Record {
@@ -98,7 +110,7 @@ pub fn start(root: &Path, output: &Path, config: &str, commit: &str) -> Result<R
         commit: commit.into(),
         change: change.trim().into(),
         runner_sha256: file_digest(&std::env::current_exe().map_err(|e| e.to_string())?)?,
-        worker_sha256: file_digest(Path::new(&worker))?,
+        worker_sha256: file_digest(worker)?,
         config_sha256: digest(config.as_bytes()),
         model: field(&config_value, "model").into(),
         optimizer: field(&config_value["optimizer"], "algorithm").into(),

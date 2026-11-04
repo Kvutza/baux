@@ -3,7 +3,7 @@ use rand::RngCore;
 
 use crate::error::ENNError;
 use crate::morbo::{MorboTrustRegion, Rescalarize};
-use crate::optimizer::multi_tr::MultiTrustRegionState;
+use crate::optimizer::multi_tr::{MultiTrustRegionState, PendingProposal};
 use crate::trust_region::{TrustRegionConfig, TrustRegionError, TurboTrustRegion};
 
 #[derive(Debug)]
@@ -12,7 +12,7 @@ pub enum TrustRegionState {
     Morbo(Box<MorboTrustRegion>),
     Multi {
         state: MultiTrustRegionState,
-        pending: Option<Vec<usize>>,
+        pending: Option<PendingProposal>,
     },
 }
 
@@ -32,7 +32,7 @@ impl TrustRegionState {
         }
     }
 
-    pub fn multi(state: MultiTrustRegionState, pending: Option<Vec<usize>>) -> Self {
+    pub fn multi(state: MultiTrustRegionState, pending: Option<PendingProposal>) -> Self {
         Self::Multi { state, pending }
     }
 

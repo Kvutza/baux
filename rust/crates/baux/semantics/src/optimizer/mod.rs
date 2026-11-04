@@ -17,6 +17,8 @@ pub mod core {
     pub use super::surrogate::ValuePrediction;
 }
 #[cfg(not(feature = "cuda-device"))]
+pub mod portfolio;
+#[cfg(not(feature = "cuda-device"))]
 pub mod provenance;
 #[cfg(not(feature = "cuda-device"))]
 pub mod settings {

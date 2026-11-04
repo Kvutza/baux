@@ -1,6 +1,8 @@
 use super::*;
 use kuva::prelude::*;
 
+#[path = "plot/regional.rs"]
+mod regional;
 #[path = "plot/series.rs"]
 mod series;
 pub(super) use series::{
@@ -92,6 +94,9 @@ pub(super) fn render_to(source_dir: &Path, plot_dir: &Path) -> Result<(usize, Va
             }
         }
     }
+    let regional = regional::render(source_dir, plot_dir)?;
+    count += regional.len();
+    summaries.extend(regional);
     Ok((count, json!(summaries)))
 }
 

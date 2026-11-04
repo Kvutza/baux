@@ -27,6 +27,8 @@ pub mod py_hypervolume;
 mod py_metal;
 pub mod py_model;
 pub mod py_optimizer;
+#[cfg(all(target_os = "macos", feature = "metal"))]
+mod py_portfolio;
 pub mod py_posterior;
 pub mod py_regions;
 pub mod py_util;

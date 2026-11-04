@@ -15,6 +15,34 @@ include = [
   "experiments/**/*.toml",
   "performance/configs/**/*.toml",
 ]
+exclude = [
+  "experiments/resident-regions.toml",
+  "experiments/host-regions.toml",
+  "experiments/host-regions-roles.toml",
+  "experiments/host-regions-starts.toml",
+  "experiments/host-regions-landscapes.toml",
+  "experiments/host-regions-auto.toml",
+  "experiments/host-regions-autostart.toml",
+]
 
 [rule.schema]
 path = "schemas/tune-spec.schema.json"
+
+[[rule]]
+include = ["experiments/resident-regions.toml"]
+
+[rule.schema]
+path = "schemas/regional-spec.schema.json"
+
+[[rule]]
+include = [
+  "experiments/host-regions.toml",
+  "experiments/host-regions-roles.toml",
+  "experiments/host-regions-starts.toml",
+  "experiments/host-regions-landscapes.toml",
+  "experiments/host-regions-auto.toml",
+  "experiments/host-regions-autostart.toml",
+]
+
+[rule.schema]
+path = "schemas/host-region.schema.json"

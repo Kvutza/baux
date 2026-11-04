@@ -83,12 +83,108 @@ struct Decision {
     float candidate_scores[4];
 };
 struct Partial { float anchor; float rejected; float squared; uint changed; uint invalid; };
+inline float decode(ushort x);
 
 inline ulong mix64(ulong x) {
     x += 0x9e3779b97f4a7c15ul;
     x = (x ^ (x >> 30)) * 0xbf58476d1ce4e5b9ul;
     x = (x ^ (x >> 27)) * 0x94d049bb133111ebul;
     return x ^ (x >> 31);
+}
+
+// Compare an evaluated resident row with two local history rows and the
+// incumbent. The same block-weighted metric used by the proposal pool applies.
+// Only the first pair computes the incumbent distance. Partial storage is
+// reused while the search state is idle; no parameter row is read by the CPU.
+kernel void import_partial(
+    device const ushort *incoming [[buffer(0)]],
+    device const ushort *first [[buffer(1)]],
+    device const ushort *second [[buffer(2)]],
+    device const ushort *incumbent [[buffer(3)]],
+    device const Leaf *leaves [[buffer(4)]],
+    device const Tile *tiles [[buffer(5)]],
+    device Partial *partials [[buffer(6)]],
+    constant Params &p [[buffer(7)]],
+    uint tile_index [[threadgroup_position_in_grid]],
+    uint tid [[thread_index_in_threadgroup]]) {
+    Tile tile = tiles[tile_index];
+    Leaf leaf = leaves[tile.leaf];
+    float first_sum = 0.0f;
+    float second_sum = 0.0f;
+    float base_sum = 0.0f;
+    for (uint item = tid; item < tile.length; item += 256) {
+        ulong index = leaf.offset + ulong(tile.start) + ulong(item);
+        float value = decode(incoming[index]);
+        float delta = value - decode(first[index]);
+        first_sum += leaf.weight * delta * delta;
+        if (p.history == 2) {
+            delta = value - decode(second[index]);
+            second_sum += leaf.weight * delta * delta;
+        }
+        if (p.initialize == 0) {
+            delta = value - decode(incumbent[index]);
+            base_sum += leaf.weight * delta * delta;
+        }
+    }
+    threadgroup float first_parts[256];
+    threadgroup float second_parts[256];
+    threadgroup float base_parts[256];
+    first_parts[tid] = first_sum;
+    second_parts[tid] = second_sum;
+    base_parts[tid] = base_sum;
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    for (uint stride = 128; stride != 0; stride >>= 1) {
+        if (tid < stride) {
+            first_parts[tid] += first_parts[tid + stride];
+            second_parts[tid] += second_parts[tid + stride];
+            base_parts[tid] += base_parts[tid + stride];
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+    }
+    if (tid == 0) {
+        partials[(p.initialize * 4) * p.tiles + tile_index] = {
+            first_parts[0], second_parts[0], base_parts[0], 0u, 0u
+        };
+    }
+}
+
+// Collapse tile distances to one scalar per retained row and one incumbent
+// scalar. The output is at most 2*BAUX_HISTORY+1 floats.
+kernel void import_reduce(
+    device const Partial *partials [[buffer(0)]],
+    device float *distances [[buffer(1)]],
+    constant uint &tiles [[buffer(2)]],
+    uint pair [[threadgroup_position_in_grid]],
+    uint tid [[thread_index_in_threadgroup]]) {
+    float first_sum = 0.0f;
+    float second_sum = 0.0f;
+    float base_sum = 0.0f;
+    for (uint tile = tid; tile < tiles; tile += 256) {
+        Partial part = partials[(pair * 4) * tiles + tile];
+        first_sum += part.anchor;
+        second_sum += part.rejected;
+        base_sum += part.squared;
+    }
+    threadgroup float first_parts[256];
+    threadgroup float second_parts[256];
+    threadgroup float base_parts[256];
+    first_parts[tid] = first_sum;
+    second_parts[tid] = second_sum;
+    base_parts[tid] = base_sum;
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    for (uint stride = 128; stride != 0; stride >>= 1) {
+        if (tid < stride) {
+            first_parts[tid] += first_parts[tid + stride];
+            second_parts[tid] += second_parts[tid + stride];
+            base_parts[tid] += base_parts[tid + stride];
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+    }
+    if (tid == 0) {
+        distances[pair * 2] = first_parts[0];
+        distances[pair * 2 + 1] = second_parts[0];
+        if (pair == 0) distances[2 * BAUX_HISTORY] = base_parts[0];
+    }
 }
 inline uint mix32(uint value) {
     value ^= value >> 16;

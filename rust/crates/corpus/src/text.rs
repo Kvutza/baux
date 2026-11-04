@@ -94,8 +94,7 @@ impl SplitWriter {
         }
         if self.vocabulary > 65_536 && cfg!(target_endian = "little") {
             self.output.write_all(&bos.to_le_bytes())?;
-            let bytes =
-                unsafe { std::slice::from_raw_parts(ids.as_ptr().cast::<u8>(), body * 4) };
+            let bytes = unsafe { std::slice::from_raw_parts(ids.as_ptr().cast::<u8>(), body * 4) };
             self.output.write_all(bytes)?;
             if count == total {
                 self.output.write_all(&eos.to_le_bytes())?;

@@ -133,6 +133,24 @@ class TestPublicAPIExports:
         assert inspect.isclass(InitStrategy)
         assert inspect.isclass(AcquisitionKind)
 
+    def test_010(self):
+        import numpy as np
+
+        from baux.experimental.multi_region import MultiTrustRegionLoop
+
+        class BrokenState:
+            calls = 0
+
+            def tell(self, x, y, y_var=None):
+                self.calls += 1
+                raise TypeError("failure inside tell")
+
+        state = BrokenState()
+        loop = MultiTrustRegionLoop(state)
+        with pytest.raises(TypeError, match="failure inside tell"):
+            loop.tell(np.ones((1, 2)), np.ones((1, 1)), np.ones((1, 1)))
+        assert state.calls == 1
+
 
 class Test_001:
     """Verify public API does not change unexpectedly."""

@@ -83,4 +83,17 @@ impl SearchState {
             Ok(())
         }
     }
+
+    /// Retire a published proposal that did not produce an observation.
+    /// Selection may have used scratch storage, but history and trust state
+    /// have not been updated by a tell.
+    pub fn cancel_round(&mut self, round: &Proposals) -> Result<(), String> {
+        self.check_round(round)?;
+        if self.queued.is_some() || self.async_command.is_some() {
+            return Err("finish the pending Metal command before cancellation".into());
+        }
+        self.pending = None;
+        self.evaluation = None;
+        Ok(())
+    }
 }

@@ -125,35 +125,6 @@ fn run_files(
         .ok_or_else(|| format!("{program} exited with {status}"))
 }
 
-fn run_sharded(
-    root: &Path,
-    program: &str,
-    arguments: &[&str],
-    files: &[OsString],
-) -> Result<(), String> {
-    if files.is_empty() {
-        return Ok(());
-    }
-    println!("o|check: {program} files={}", files.len());
-    let shards = std::thread::available_parallelism()
-        .map_or(8, usize::from)
-        .min(16)
-        .min(files.len());
-    let mut children = Vec::with_capacity(shards);
-    for slice in files.chunks(files.len().div_ceil(shards)) {
-        let mut cmd = Command::new(program);
-        cmd.current_dir(root).args(arguments).args(slice);
-        children.push(cmd.spawn().map_err(|error| error.to_string())?);
-    }
-    for mut child in children {
-        let status = child.wait().map_err(|error| error.to_string())?;
-        if !status.success() {
-            return Err(format!("{program} exited with {status}"));
-        }
-    }
-    Ok(())
-}
-
 fn run_all(root: &Path, program: &str, arguments: &[&str]) -> Result<(), String> {
     let mut command = Command::new(program);
     command.current_dir(root).args(arguments);
@@ -175,7 +146,9 @@ pub(super) fn run(root: &Path) -> Result<(), String> {
         });
 
     std::thread::scope(|scope| -> Result<(), String> {
-        let rust_job = scope.spawn(|| run_sharded(root, "rustfmt", &["--edition", "2024"], &rust));
+        // Rustfmt recursively follows modules. Separate shards can write the
+        // same child file concurrently, even when their input lists differ.
+        let rust_job = scope.spawn(|| run_files(root, "rustfmt", &["--edition", "2024"], &rust));
         let py_job = scope.spawn(|| -> Result<(), String> {
             run_files(root, "uvx", &["ruff", "format"], &python)?;
             run_files(root, "uvx", &["ruff", "check"], &python)?;

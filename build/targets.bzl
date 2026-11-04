@@ -144,9 +144,9 @@ BAUX_PY_TEST_CRATES = ["ndarray", "numpy", "pyo3", "rand"]
 BAUX_PY_PROGRAMS = [
 ]
 
-RUNNER_CRATES = ["clap", "sha2"]
+RUNNER_CRATES = ["clap", "deser", "ndarray", "rand", "sha2"]
 
-RUNNER_TEST_CRATES = ["clap", "sha2"]
+RUNNER_TEST_CRATES = ["clap", "deser", "ndarray", "rand", "sha2"]
 
 RUNNER_PROGRAMS = [
     {
@@ -154,7 +154,7 @@ RUNNER_PROGRAMS = [
         "name": "baux-runner",
         "crate": "baux_runner",
         "root": "src/main.rs",
-        "crate_deps": ["clap", "sha2"],
+        "crate_deps": ["clap", "deser", "ndarray", "rand", "sha2"],
         "local_deps": ["baux", "tooling"],
         "required_features": [],
     },

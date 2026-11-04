@@ -76,6 +76,8 @@ pub fn pymodule_experimental(m: &Bound<'_, PyModule>) -> PyResult<()> {
         m.add_class::<crate::py_metal::PyMetalParamBlock>()?;
         m.add_class::<crate::py_metal::PyMetalSearchState>()?;
         m.add_class::<crate::py_metal::PyMetalProposals>()?;
+        m.add_class::<crate::py_portfolio::PyRegionalSearch>()?;
+        m.add_class::<crate::py_portfolio::PyRegionalProposal>()?;
     }
     Ok(())
 }

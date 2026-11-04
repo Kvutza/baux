@@ -6,8 +6,8 @@ from collections.abc import Mapping, Sequence
 
 import numpy as np
 
-from .bo import create_optimizer
-from .turbo.config import OptimizerConfig, turbo_enn
+from .bo import AskId, create_optimizer
+from .turbo.config import MultiTrustRegionPolicy, OptimizerConfig, turbo_enn
 
 
 class Space:
@@ -61,14 +61,29 @@ class Loop:
                 "trial adapters require a single-objective optimizer config"
             )
         self.space = space
+        resolved_config = turbo_enn() if config is None else config
+        self._regional = isinstance(
+            resolved_config.trust_region, MultiTrustRegionPolicy
+        )
         self.optimizer = create_optimizer(
             bounds=space.bounds,
-            config=turbo_enn() if config is None else config,
+            config=resolved_config,
             rng=np.random.default_rng(seed),
         )
         self._seen: dict[str, tuple[np.ndarray, float, float | None]] = {}
+        self._issued: dict[tuple[float, ...], AskId] = {}
+
+    def check_health(self) -> None:
+        failure = self.optimizer.ingestion_failure
+        if failure is not None:
+            raise RuntimeError(
+                "BAUX ingestion failed after mutation may have begun; this adapter "
+                "cannot safely retry or accept more observations. Create a new "
+                f"adapter from completed trial history. Cause: {failure}"
+            )
 
     def update(self, records: Mapping[str, tuple[Mapping, float, float | None]]):
+        self.check_health()
         if not self._seen.keys() <= records.keys():
             raise ValueError("completed observations were removed from the history")
         checked = {key: self._record(*record) for key, record in records.items()}
@@ -82,9 +97,23 @@ class Loop:
         for key, (point, score, variance) in checked.items():
             if key in self._seen:
                 continue
-            noise = None if variance is None else np.array([[variance]])
-            self.optimizer.tell(point[None, :], np.array([[score]]), noise)
+            self._ingest(point, score, variance)
             self._seen[key] = (point, score, variance)
+
+    def _ingest(self, point, score, variance):
+        point_key = tuple(point.tolist())
+        identity = self._issued.get(point_key)
+        noise = None if variance is None else np.array([[variance]])
+        y = np.array([[score]])
+        if identity is None:
+            if self._regional:
+                self.optimizer.import_observations(point[None, :], y, noise)
+            else:
+                self.optimizer.tell(point[None, :], y, noise)
+        else:
+            self.optimizer.complete([identity], y, noise)
+            self._issued.pop(point_key)
+        self.check_health()
 
     def _record(self, parameters, score, variance):
         point = self.space.encode(parameters)
@@ -102,12 +131,23 @@ class Loop:
         return np.array_equal(left[0], right[0]) and left[1:] == right[1:]
 
     def suggest(self, pending: Sequence[Mapping[str, float]]) -> dict[str, float]:
+        self.check_health()
         occupied = [self.space.encode(point) for point in pending]
         for _ in range(32):
-            proposal = self.space.decode(self.optimizer.ask(1)[0])
+            identity = None
+            if self._regional:
+                batch = self.optimizer.ask_batch(1)
+                point, identity = batch.points[0], batch.ids[0]
+            else:
+                point = self.optimizer.ask(1)[0]
+            proposal = self.space.decode(point)
             point = self.space.encode(proposal)
             if not any(np.array_equal(point, other) for other in occupied):
+                if identity is not None:
+                    self._issued[tuple(point.tolist())] = identity
                 return proposal
+            if identity is not None:
+                self.optimizer.cancel([identity])
         raise RuntimeError(
             "BAUX could not propose a point distinct from pending trials"
         )

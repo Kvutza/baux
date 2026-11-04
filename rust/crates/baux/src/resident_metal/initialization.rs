@@ -168,6 +168,8 @@ impl SearchState {
             reduction_pipeline,
             selection_pipeline,
             materialize_pipeline,
+            import_pipeline,
+            import_reduction,
         ] = compile_pipelines(&runtime, independent_fp16, perturbation, single_pool)?;
         let (base_buf, history_rows) = match base_input {
             Ok(slice) => {
@@ -211,6 +213,8 @@ impl SearchState {
             reduction_pipeline,
             selection_pipeline,
             materialize_pipeline,
+            import_pipeline,
+            import_reduction,
             dimensions,
             resident_bytes,
             length_config: length,
@@ -345,7 +349,7 @@ fn compile_pipelines(
     independent_fp16: bool,
     perturbation: ProposalKernel,
     single_pool: bool,
-) -> Result<[ComputePipelineState; 6], String> {
+) -> Result<[ComputePipelineState; 8], String> {
     let base_source = search_source(independent_fp16, perturbation);
     let source = if single_pool {
         format!("#define PROCEDURAL_SLOTS 1\n#define PROCEDURAL_COUNT 1\n{base_source}")
@@ -359,6 +363,8 @@ fn compile_pipelines(
         runtime.precise(&source, "Dense search", "dense_reduce_pool")?,
         runtime.precise(&source, "Dense search", "dense_select")?,
         runtime.pipeline(&source, "Dense search", "dense_materialize")?,
+        runtime.precise(&source, "Dense search", "import_partial")?,
+        runtime.precise(&source, "Dense search", "import_reduce")?,
     ];
     for pipeline in &pipelines {
         if pipeline.max_total_threads_per_threadgroup() < 256 {

@@ -41,7 +41,7 @@ impl PyMetalSearchState {
 #[pymethods]
 impl PyMetalSearchState {
     #[new]
-    #[pyo3(signature=(base,base_value,blocks,capacity,max_pending=1,base_variance=0.0,length_init=0.01,length_min=0.0001,length_max=0.08,failure_tolerance=None,sampler="correlated",reference_seed=0))]
+    #[pyo3(signature=(base,base_value,blocks,capacity,max_pending=1,base_variance=0.0,length_init=0.01,length_min=0.0001,length_max=0.08,failure_tolerance=None,sampler="gaussian",reference_seed=0))]
     fn new(
         base: PyRef<'_, PyMetalWeights>,
         base_value: f32,
@@ -56,10 +56,9 @@ impl PyMetalSearchState {
         sampler: &str,
         reference_seed: u64,
     ) -> PyResult<Self> {
-        if sampler != "correlated" || failure_tolerance.is_some() {
+        if sampler != "gaussian" || reference_seed != 0 {
             return Err(PyValueError::new_err(
-                "Metal search requires sampler='correlated' and failure_tolerance=None; the \
-                 shared TuRBO controller derives its tolerance from dimension",
+                "Metal search supports sampler='gaussian' with reference_seed=0; correlated reference search is unavailable",
             ));
         }
         let values =
@@ -74,7 +73,9 @@ impl PyMetalSearchState {
             TRLengthConfig::new(length_init, length_min, length_max),
         )
         .map_err(err)?;
-        inner.correlate(reference_seed).map_err(err)?;
+        if let Some(tolerance) = failure_tolerance {
+            inner.set_tolerance(tolerance).map_err(err)?;
+        }
         Ok(Self {
             inner,
             leases: Rc::new(Cell::new(0)),
@@ -84,7 +85,10 @@ impl PyMetalSearchState {
     #[pyo3(name = "enable_paired_relative", signature=(failure_tolerance=4))]
     fn enable_relative(&mut self, failure_tolerance: usize) -> PyResult<()> {
         self.unleased()?;
-        self.inner.enable_relative(failure_tolerance).map_err(err)
+        let _ = failure_tolerance;
+        Err(PyValueError::new_err(
+            "paired-relative Metal search is unavailable",
+        ))
     }
 
     #[pyo3(signature=(arms,candidates,neighbors,seed,epistemic_scale=1.0,aleatoric_scale=0.0,y_scale=1.0,beta=1.0,acquisition="thompson",draw_seed=0))]
@@ -217,9 +221,11 @@ impl PyMetalSearchState {
         Ok(self.inner.read_best().map_err(err)?.into_pyarray(py))
     }
 
-    fn read_reference<'py>(&mut self, py: Python<'py>) -> PyResult<Bound<'py, PyArray1<u16>>> {
+    fn read_reference<'py>(&mut self, _py: Python<'py>) -> PyResult<Bound<'py, PyArray1<u16>>> {
         self.unleased()?;
-        Ok(self.inner.read_reference().map_err(err)?.into_pyarray(py))
+        Err(PyValueError::new_err(
+            "Gaussian Metal search has no correlated reference",
+        ))
     }
 
     #[getter]
@@ -297,10 +303,7 @@ impl PyMetalProposals {
             .map_err(err)
     }
 
-    fn pool_geometry(
-        &self,
-        py: Python<'_>,
-    ) -> PyResult<(Vec<f32>, Vec<(usize, usize, Option<f32>)>, Vec<Option<f32>>)> {
+    fn pool_geometry(&self, py: Python<'_>) -> PyResult<([f32; 4], [Option<f32>; 6])> {
         self.owner
             .bind(py)
             .try_borrow()?

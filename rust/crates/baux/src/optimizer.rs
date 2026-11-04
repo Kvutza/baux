@@ -5,23 +5,46 @@ mod inspection;
 pub mod multi_tr;
 pub mod obs_access;
 mod observation_delta;
+mod regional_models;
 mod tr_state;
 
 pub use incumbent::{IncumbentLedger, IncumbentPoint, ProposalEngine};
 pub use inspection::DomainFrame;
 pub use multi_tr::{
-    MultiTrustRegionConfig, MultiTrustRegionState, RegionBatch, RegionCandidate, SharingPolicy,
+    AllocationPolicy, EvaluationId, MultiTrustRegionConfig, MultiTrustRegionState, PendingProposal,
+    RegionBatch, RegionCandidate, RegionMethod, RegionProvenance, RestartCenterPolicy,
+    RestartCenterSelection, RestartMemoryPolicy, SharingPolicy,
 };
 pub use obs_access::{PosteriorBackend, PosteriorStore};
 pub use observation_delta::{ObservationDelta, WarmupMode, WarmupSchedule};
+pub use regional_models::{RegionalModelFactory, RegionalModels};
 pub use tr_state::TrustRegionState;
 
 use ndarray::{Array1, Array2, ArrayView2};
 use rand::RngCore;
 
-use crate::config::{InitStrategy, OptimizerConfig, OptimizerSpec};
+use crate::config::{CandidateConfig, InitStrategy, OptimizerConfig, OptimizerSpec};
 use crate::error::ENNError;
 use crate::surrogate::BoxedSurrogate;
+
+fn resolved_candidates(
+    config: &OptimizerConfig,
+    num_dim: usize,
+) -> Result<CandidateConfig, ENNError> {
+    if let crate::optimizer_config::SurrogateConfig::ENN(enn) = &config.surrogate {
+        enn.validate(num_dim)?;
+    }
+    let mut candidates = config.candidates.clone();
+    if candidates.tied_dims.is_empty() {
+        if let crate::optimizer_config::SurrogateConfig::ENN(enn) = &config.surrogate {
+            if !enn.tied_dims.is_empty() {
+                candidates.tied_dims.clone_from(&enn.tied_dims);
+            }
+        }
+    }
+    crate::metric_weights::validate_tied(&candidates.tied_dims, num_dim)?;
+    Ok(candidates)
+}
 
 /// Strategy state for initialization phase.
 #[derive(Debug, Clone)]
@@ -51,7 +74,7 @@ pub struct StrategyState {
     pub init: InitStrategyState,
     pub multi_tr: MultiTrustRegionState,
     pub in_init: bool,
-    pub pending_regions: Option<Vec<usize>>,
+    pub pending_proposal: Option<PendingProposal>,
 }
 
 impl StrategyState {
@@ -63,13 +86,22 @@ impl StrategyState {
     ) -> Result<Self, ENNError> {
         let mut config = MultiTrustRegionConfig::new(num_regions, Default::default());
         config.sharing_policy = SharingPolicy::Shared;
+        Self::configured(num_dim, config, num_init, rng)
+    }
+
+    pub fn configured(
+        num_dim: usize,
+        config: MultiTrustRegionConfig,
+        num_init: usize,
+        rng: &mut dyn RngCore,
+    ) -> Result<Self, ENNError> {
         let multi_tr = MultiTrustRegionState::new(num_dim, config, None, rng)
             .map_err(|e| ENNError::InvalidParameter(e.to_string()))?;
         Ok(Self {
             init: InitStrategyState::new(InitStrategy::LHD, num_init),
             multi_tr,
             in_init: num_init > 0,
-            pending_regions: None,
+            pending_proposal: None,
         })
     }
 }
@@ -147,7 +179,7 @@ impl Strategy {
         self,
     ) -> (
         WarmupSchedule,
-        Option<(MultiTrustRegionState, Option<Vec<usize>>)>,
+        Option<(MultiTrustRegionState, Option<PendingProposal>)>,
     ) {
         match self {
             Strategy::Init(s) => (
@@ -166,7 +198,7 @@ impl Strategy {
                     s.init.completed,
                     s.in_init,
                 ),
-                Some((s.multi_tr, s.pending_regions)),
+                Some((s.multi_tr, s.pending_proposal)),
             ),
         }
     }
@@ -188,10 +220,12 @@ pub struct BayesOptimizer {
     pub(crate) config: OptimizerConfig,
     pub(crate) warmup: WarmupSchedule,
     pub(crate) posterior: PosteriorStore,
+    pub(crate) local_models: Option<RegionalModels>,
     pub(crate) incumbent: IncumbentLedger,
     pub(crate) regions: TrustRegionState,
     pub(crate) proposals: ProposalEngine,
     pub(crate) telemetry: Telemetry,
+    pub(crate) ingestion_error: Option<String>,
 }
 
 impl BayesOptimizer {
@@ -227,7 +261,7 @@ impl BayesOptimizer {
         strategy: Strategy,
         rng: &mut dyn RngCore,
     ) -> Result<Self, ENNError> {
-        Self::new_inner(bounds, config, strategy, None, rng)
+        Self::new_inner(bounds, config, strategy, None, None, rng)
     }
 
     /// Create an optimizer whose surrogate is supplied by an external frontend.
@@ -238,7 +272,26 @@ impl BayesOptimizer {
         surrogate: BoxedSurrogate,
         rng: &mut dyn RngCore,
     ) -> Result<Self, ENNError> {
-        Self::new_inner(bounds, config, strategy, Some(surrogate), rng)
+        Self::new_inner(bounds, config, strategy, Some(surrogate), None, rng)
+    }
+
+    /// Supply a global surrogate and one independent surrogate per region.
+    pub fn new_regional(
+        bounds: Array2<f64>,
+        config: OptimizerConfig,
+        strategy: Strategy,
+        surrogate: BoxedSurrogate,
+        regional_factory: RegionalModelFactory,
+        rng: &mut dyn RngCore,
+    ) -> Result<Self, ENNError> {
+        Self::new_inner(
+            bounds,
+            config,
+            strategy,
+            Some(surrogate),
+            Some(regional_factory),
+            rng,
+        )
     }
 
     fn new_inner(
@@ -246,6 +299,7 @@ impl BayesOptimizer {
         config: OptimizerConfig,
         strategy: Strategy,
         provided_surrogate: Option<BoxedSurrogate>,
+        regional_factory: Option<RegionalModelFactory>,
         rng: &mut dyn RngCore,
     ) -> Result<Self, ENNError> {
         let domain = DomainFrame::new(bounds)?;
@@ -263,21 +317,37 @@ impl BayesOptimizer {
             }
         }
 
-        if let crate::optimizer_config::SurrogateConfig::ENN(enn) = &config.surrogate {
-            enn.validate(num_dim)?;
-        }
-        let mut cand_cfg = config.candidates.clone();
-        if cand_cfg.tied_dims.is_empty() {
-            if let crate::optimizer_config::SurrogateConfig::ENN(enn) = &config.surrogate {
-                if !enn.tied_dims.is_empty() {
-                    cand_cfg.tied_dims.clone_from(&enn.tied_dims);
-                }
+        let candidate_config = resolved_candidates(&config, num_dim)?;
+        let has_external = provided_surrogate.is_some();
+        let local_models = match (&regions, regional_factory) {
+            (TrustRegionState::Multi { state, .. }, Some(factory)) => {
+                Some(RegionalModels::from_factory(state, factory)?)
             }
-        }
-        crate::metric_weights::validate_tied(&cand_cfg.tied_dims, num_dim)?;
-
+            (TrustRegionState::Multi { .. }, None) if has_external => {
+                return Err(ENNError::InvalidParameter(
+                    "modeled multi-region search requires a regional surrogate factory".into(),
+                ));
+            }
+            (TrustRegionState::Multi { state, .. }, None) => match &config.surrogate {
+                crate::config::SurrogateConfig::None => None,
+                _ => Some(
+                    RegionalModels::built_in(&config.surrogate, state)?.ok_or_else(|| {
+                        ENNError::InvalidParameter(
+                            "configured surrogate has no isolated regional model implementation"
+                                .into(),
+                        )
+                    })?,
+                ),
+            },
+            (_, Some(_)) => {
+                return Err(ENNError::InvalidParameter(
+                    "regional surrogate factory requires a multi-region strategy".into(),
+                ));
+            }
+            _ => None,
+        };
         let posterior = PosteriorStore::new(&config.surrogate, provided_surrogate);
-        let proposals = ProposalEngine::new(num_dim, cand_cfg, rng)?;
+        let proposals = ProposalEngine::new(num_dim, candidate_config, rng)?;
         let incumbent = IncumbentLedger::new(&config, regions.num_metrics());
 
         Ok(Self {
@@ -285,10 +355,12 @@ impl BayesOptimizer {
             config,
             warmup,
             posterior,
+            local_models,
             incumbent,
             regions,
             proposals,
             telemetry: Telemetry::default(),
+            ingestion_error: None,
         })
     }
 

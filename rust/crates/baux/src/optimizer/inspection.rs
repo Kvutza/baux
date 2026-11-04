@@ -48,6 +48,22 @@ impl DomainFrame {
 }
 
 impl BayesOptimizer {
+    /// Current observation counts in each isolated regional surrogate.
+    ///
+    /// Returns `None` when this optimizer has no multi-region local models.
+    pub fn model_counts(&self) -> Option<Vec<usize>> {
+        self.local_models.as_ref().map(|models| models.counts())
+    }
+
+    /// Number of configured local region slots, independent of observation
+    /// count.
+    pub fn num_regions(&self) -> usize {
+        match &self.regions {
+            TrustRegionState::Multi { state, .. } => state.num_regions(),
+            _ => 1,
+        }
+    }
+
     /// Get current telemetry.
     pub fn telemetry(&self) -> &Telemetry {
         &self.telemetry

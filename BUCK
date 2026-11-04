@@ -98,6 +98,12 @@ filegroup(
 )
 
 filegroup(
+    name = "optimizer-python-source",
+    srcs = glob(["src/baux/**/*.py", "tests/python_api/*.py"]),
+    visibility = ["//build/buck2/tests:optimizer-python", "//build/buck2/tests:resident-python"],
+)
+
+filegroup(
     name = "cuda-package",
     srcs = glob(["src/baux/**/*.py", "data/recipes/*.json"]) + [
         "LICENSE",

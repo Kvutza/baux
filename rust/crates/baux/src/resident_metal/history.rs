@@ -86,7 +86,6 @@ impl SearchState {
             record_resident(self, &command, accept, slot, identity, commit.retained())?;
             self.record_axis(round, target_slot, accept);
             self.record_observation(
-                round,
                 identity,
                 target_slot,
                 (value, variance),
@@ -201,9 +200,8 @@ impl SearchState {
     /// geometry. Updates symmetric distance rows and fits ENN after warm-up if
     /// enabled. Explicit storage advances its FIFO. Assumes slot/distance
     /// invariants established by proposal publication and the tell caller.
-    fn record_observation(
+    pub(super) fn record_observation(
         &mut self,
-        _round: &Proposals,
         identity: i64,
         slot: usize,
         (value, variance): (f32, f32),
@@ -421,7 +419,7 @@ fn validate_commit(
     Ok((identity, commit))
 }
 
-fn choose_slot(state: &SearchState) -> Result<usize, String> {
+pub(super) fn choose_slot(state: &SearchState) -> Result<usize, String> {
     if state.implicit_history {
         baux::semantics::neighbor::retention(&state.identities[..state.history], state.base_id)
             .map_err(str::to_owned)

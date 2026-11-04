@@ -61,6 +61,7 @@ MetalQwenEvaluator = getattr(_ext.experimental, "MetalQwenEvaluator", None)
 MetalWeights = getattr(_ext.experimental, "MetalWeights", None)
 MetalParamBlock = getattr(_ext.experimental, "MetalParamBlock", None)
 MetalSearchState = getattr(_ext.experimental, "MetalSearchState", None)
+MetalRegionOptimizer = getattr(_ext.experimental, "MetalRegionOptimizer", None)
 ResidentBoSession = getattr(_ext.experimental, "ResidentBoSession", None)
 
 
@@ -76,6 +77,7 @@ __all__ = [
     "MetalParamBlock",
     "MetalQwenEvaluator",
     "MetalSearchState",
+    "MetalRegionOptimizer",
     "MetalWeights",
     "ModelPackage",
     "MultiTrustRegion",

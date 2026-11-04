@@ -15,9 +15,9 @@ pub(super) fn err(message: String) -> PyErr {
 
 #[pyclass(name = "MetalWeights", module = "baux.experimental", unsendable)]
 pub struct PyMetalWeights {
-    pub(super) buffer: Buffer,
-    pub(super) len: usize,
-    pub(super) lease: Option<Rc<Cell<usize>>>,
+    pub(crate) buffer: Buffer,
+    pub(crate) len: usize,
+    pub(crate) lease: Option<Rc<Cell<usize>>>,
 }
 
 impl Drop for PyMetalWeights {
@@ -75,7 +75,7 @@ impl PyMetalWeights {
 
 #[pyclass(name = "MetalParamBlock", module = "baux.experimental", frozen)]
 pub struct PyMetalParamBlock {
-    pub(super) inner: MetalParamBlock,
+    pub(crate) inner: MetalParamBlock,
 }
 
 #[pymethods]

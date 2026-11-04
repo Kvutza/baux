@@ -11,16 +11,16 @@ pub use crate::forward_program::{
 };
 pub use crate::knn::{KnnIndex, KnnPlan, KnnProfile};
 pub use crate::optimizer::{
-    BayesOptimizer, MultiTrustRegionConfig, MultiTrustRegionState, ObservationDelta, RegionBatch,
-    RegionCandidate, SharingPolicy, Telemetry,
+    BayesOptimizer, EvaluationId, MultiTrustRegionConfig, MultiTrustRegionState, ObservationDelta,
+    RegionBatch, RegionCandidate, SharingPolicy, Telemetry,
 };
 pub use crate::optimizer_factory::enn_tr;
 pub use crate::quantization::{FP4_LUT, quantize_e2m1, quantize_int4};
 #[cfg(all(target_os = "macos", feature = "metal"))]
 pub use crate::resident_metal::{
     MetalMemoryInfo, ParamBlock as MetalParamBlock, ProposalProfile as MetalProfileInfo,
-    Proposals as MetalProposals, SearchState as MetalSearchState, memory_info as metal_memory_info,
-    upload as metal_upload,
+    Proposals as MetalProposals, RegionalProposal, RegionalSearch, SearchState as MetalSearchState,
+    memory_info as metal_memory_info, upload as metal_upload,
 };
 pub use crate::response_observation::{
     ProposalMeasure, RESPONSE_SCHEMA, ResponseObservation, ResponseReference, TokenAccounting,

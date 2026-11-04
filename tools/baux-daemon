@@ -6,7 +6,7 @@ autonomously runs:
 1. `tools/build-parity --sync` when `Cargo.toml` manifests change
 2. `./tools/reindeerw buckify` when `reindeer.toml` or `Cargo.lock` changes
 3. `//rust/crates/cli:baux` pre-build when CLI/tooling/artifact files change
-4. `./tools/prekw run --all-files` + Buck2 `[check]` subtargets on source edits
+4. JJ-native `./baux check` + Buck2 `[check]` subtargets on source edits
 5. Impacted crate unit tests (`./tools/buck2w test`) when `[check]` succeeds
 6. Background SCIP index refresh (`.cache/baux/radar/rust.scip`) when idle
 7. Periodic Beads task lease heartbeats (`./baux context --json`)
@@ -206,31 +206,33 @@ def refresh_cli_binary(root: Path, stamp: Path) -> None:
 
 def run_check_stage(root: Path, daemon_dir: Path, stamp: Path) -> tuple[int, str]:
     env = os.environ.copy()
+    env["BAUX_NO_DAEMON"] = "1"
     if stamp.is_file():
         cli_bin = stamp.read_text(encoding="utf-8").strip()
         if cli_bin:
             env["BAUX_BIN"] = str(
                 root / cli_bin if not os.path.isabs(cli_bin) else Path(cli_bin)
             )
-    prek = subprocess.run(
-        ["./tools/prekw", "run", "--all-files"],
+    checker = env.get("BAUX_BIN", "./baux")
+    quality = subprocess.run(
+        [checker, "check"],
         cwd=root,
         env=env,
         capture_output=True,
         text=True,
         check=False,
     )
-    if prek.returncode != 0:
-        prek2 = subprocess.run(
-            ["./tools/prekw", "run", "--all-files"],
+    if quality.returncode != 0:
+        quality2 = subprocess.run(
+            [checker, "check"],
             cwd=root,
             env=env,
             capture_output=True,
             text=True,
             check=False,
         )
-        if prek2.returncode == 0:
-            prek = prek2
+        if quality2.returncode == 0:
+            quality = quality2
             refresh_cli_binary(root, stamp)
     fp_mid, _, _, _ = scan_workspace(root)
     bcheck = subprocess.run(
@@ -250,10 +252,10 @@ def run_check_stage(root: Path, daemon_dir: Path, stamp: Path) -> tuple[int, str
         check=False,
     )
     fp_after, _, _, _ = scan_workspace(root)
-    rc = 0 if (prek.returncode == 0 and bcheck.returncode == 0) else 1
+    rc = 0 if (quality.returncode == 0 and bcheck.returncode == 0) else 1
     log = (
-        prek.stdout
-        + prek.stderr
+        quality.stdout
+        + quality.stderr
         + ("" if bcheck.returncode == 0 else "\n" + bcheck.stdout + bcheck.stderr)
     )
     valid_fp = fp_after if (fp_mid == fp_after and rc == 0) else ""
@@ -398,13 +400,10 @@ def query(root: Path, mode: str) -> int:
         sys.stdout.write(st.read_text(encoding="utf-8") if st.is_file() else "{}\n")
         return 0
     state_file = daemon_dir / "state"
-    deadline = time.time() + 60.0
-    while time.time() < deadline and state_file.is_file():
+    if state_file.is_file():
         state = state_file.read_text(encoding="utf-8").strip()
         if state.startswith("CHECK") or (mode == "test" and state.startswith("TEST")):
-            time.sleep(0.1)
-            continue
-        break
+            return 2
     cur_fp, _, _, _ = scan_workspace(root)
     fp_file, rc_file, log_file = (
         daemon_dir / f"{mode}.fp",

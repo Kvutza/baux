@@ -45,6 +45,9 @@ mod fbt_route;
 mod fbt_stream;
 mod fbt_types;
 pub mod muon;
+mod pisa_refine;
+mod pisa_score;
+mod pisa_select;
 pub use diffusion::diffusion_model;
 pub use fbt::{
     FbtShape, FeedbackShape, GaussianShape, MatmulShape, Mhc4EncodeShape, Mhc4Point, MoeShape,

@@ -21,27 +21,15 @@ case "${BAUX_BUILD_SYSTEM:-buck2}" in
                 daemon_alive=1
             fi
         fi
-        if [ "$daemon_alive" -eq 0 ] && [ -x "$repo_dir/tools/baux-daemon" ]; then
+        if [ "$daemon_alive" -eq 0 ] && [ "${BAUX_NO_DAEMON:-0}" = 0 ] && [ -x "$repo_dir/tools/baux-daemon" ]; then
             nohup "$repo_dir/tools/baux-daemon" >/dev/null 2>&1 &
-            daemon_alive=1
         fi
-        if [ "$daemon_alive" -eq 1 ] && [ $# -eq 1 ]; then
-            case "$1" in
-                check|gate|fmt)
-                    rc=0
-                    "$repo_dir/tools/baux-daemon" check || rc=$?
-                    if [ "$rc" -ne 2 ]; then
-                        exit "$rc"
-                    fi
-                    ;;
-                test)
-                    rc=0
-                    "$repo_dir/tools/baux-daemon" test || rc=$?
-                    if [ "$rc" -ne 2 ]; then
-                        exit "$rc"
-                    fi
-                    ;;
-            esac
+        if [ "$daemon_alive" -eq 1 ] && [ "${BAUX_NO_DAEMON:-0}" = 0 ] && [ $# -eq 1 ] && [ "$1" = test ]; then
+            rc=0
+            "$repo_dir/tools/baux-daemon" test || rc=$?
+            if [ "$rc" -ne 2 ]; then
+                exit "$rc"
+            fi
         fi
         stamp="$repo_dir/.cache/baux/cli-bin.path"
         binary=""

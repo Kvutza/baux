@@ -5,6 +5,7 @@ use std::process::ExitCode;
 
 mod config;
 use config as cli_cfg;
+mod check;
 mod cuda_track;
 mod experiment;
 use experiment as cli_exp;
@@ -49,8 +50,7 @@ enum Action {
     Build,
     /// Run the repository verification test suite.
     Test(smart_test::TestArgs),
-    /// Format and verify repository code quality (rustfmt, ruff, uv, names,
-    /// kiss) via prek.
+    /// Format and verify JJ-tracked repository files.
     #[command(visible_alias = "gate", alias = "fmt")]
     Check,
     #[command(hide = true)]
@@ -90,14 +90,7 @@ fn run() -> Result<(), String> {
         Action::Feedback(args) => work::feedback(&root, args),
         Action::Build => build(&root, settings.build_system),
         Action::Test(args) => smart_test::run(&root, args, settings.build_system),
-        Action::Check => {
-            let mut prekw = std::process::Command::new("./tools/prekw");
-            if let Ok(exe) = env::current_exe() {
-                prekw.env("BAUX_BIN", exe);
-            }
-            prekw.current_dir(&root).args(["run", "--all-files"]);
-            execute(prekw)
-        }
+        Action::Check => check::run(&root),
         Action::Names => baux_tooling::names::cli(&root, &[], false),
         Action::Tune(args) => cli_exp::tune(&root, args, settings.build_system),
         Action::Cuda { command } => cuda_track::run(&root, command),

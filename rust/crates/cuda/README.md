@@ -171,6 +171,11 @@ checks passed with zero errors):
 
 ### Wave 3: 1M-context forward-pass kernel & tree-closure optimization (`native-20261024-kvutza-006`)
 
+> Historical PISA-1 measurements: the selector described in this section
+> pooled the eight query heads and scored leaf means. The current full-PISA
+> selector preserves per-head LogSumExp and scores all 64 raw keys at the leaf;
+> these latency numbers must not be attributed to that implementation.
+
 Using `./baux research kernel-scorecard`, `kernel-diff`, and `kernel-slice` to inspect the 1M-token (`1,048,576` context = `16,384` leaves, `11` tree levels) forward-pass path across both CUDA (`sm_75`) and Apple Silicon (`G16`) exposed four 1M-context scaling bottlenecks:
 1. **`pisa_select` and `pisa_shadow_refine` (`device/src/fbt.rs`)**: `60%` of `pisa_select` (`738` of `1,249` SASS lines) was a thread-0 serial selection loop (`if tid == 0`) over shared memory (`SCORES`, `CANDIDATES`, `CHOSEN`, `EXPANDED`) with `2` `BAR.SYNC` barriers per tree level (`22` barriers per query at 1M context), `3` `MUFU.RCP` divisions, and `2` `BPT.TRAP` branches. Replacing the shared-memory serial loop with in-register 16-lane butterfly warp reductions (`warp::shuffle_xor_f32` / `warp::shuffle_xor` over offsets `8, 4, 2, 1`) and `warp::shuffle_f32_sync(..., tid >> 1)` child expansion reduced shared memory to a single `QUERY` array and `1` `BAR.SYNC` barrier across the entire kernel (`0` `MUFU.RCP`, `0` `BPT.TRAP`, `8 -> 2` `BSYNC`), while preserving exact `[u32; 8]` block parity with `baux::semantics::context::probe::Fixture::blocks`.
 2. **`attention_pos` (`device/src/fbt_route.rs`) and tree builders (`pisaleaves`, `pisaupper`, `cache_leaves`, `rope`, `rms`, `mhc_mix`, `mhc_update`, `combine_routes`, `combine_mhc`)**: Replacing runtime power-of-two divisions/modulos (`row / shape.context`, `row % shape.context`, `((absolute / shape.visibility) + 1) * shape.visibility - 1`) with bitshifts and bitmasks (`row >> shape.context.trailing_zeros()`, `row & (shape.context - 1)`, `absolute | shape.visibility.saturating_sub(1)`) eliminated all remaining `BPT.TRAP`s in `pisa_multihead` (`9 -> 0`) and `pisaleaves` (`384 -> 72` static instructions, `-81.2%`, `29 -> 13` GPRs).
@@ -374,7 +379,7 @@ On a machine with the CUDA-Oxide toolchain installed, use the repository CLI:
 ./baux cuda build
 ./baux cuda parity
 ./baux cuda resident
-./baux cuda bench
+./baux cuda bench muon
 ./baux cuda sanitize
 ```
 

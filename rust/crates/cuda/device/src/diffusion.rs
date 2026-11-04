@@ -213,8 +213,10 @@ pub mod diffusion_model {
             value = unsafe { pooled.add(input as usize).read() }
                 .mul_add(weights[(input * 64 + dim) as usize], value);
         }
-        // pisa_select pools eight heads. Place the projected vector in head
-        // zero and zero the remaining heads.
+        // The learned index supplies one projected routing head. Full PISA
+        // preserves the eight-head nonlinearity; zero heads add only the same
+        // candidate-independent LogSumExp constant, so the ranking is the
+        // projected head's ranking.
         for head in 0..8 {
             unsafe {
                 *output.get_unchecked_mut((row * 640 + head * 64 + dim) as usize) =

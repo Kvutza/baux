@@ -1,10 +1,11 @@
+mod scip_build;
 pub(crate) mod scip_graph;
 pub(crate) mod scip_pb;
 mod scip_split;
 
+use scip_build::build_graph;
 use scip_graph::{
-    annotate_line, bfs_walk, build_graph, doc_spans, doctor as graph_doctor, print_symbol,
-    select_symbols,
+    annotate_line, bfs_walk, doc_spans, doctor as graph_doctor, print_symbol, select_symbols,
 };
 use scip_pb::{DEFINITION, cache_path, load_index, local_symbol, require_index, resolve_target};
 use std::collections::{BTreeMap, BTreeSet};

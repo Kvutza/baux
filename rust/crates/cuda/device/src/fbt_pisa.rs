@@ -1,105 +1,10 @@
 use cuda_device::{DisjointSlice, SharedArray, thread};
 
-use super::fbt_cache::{select_query, select_top};
 use super::fbt_route;
 use super::fbt_types::{
-    FBT_THREADS, PISA_CANDIDATES, PISA_GROUP_HEADS, PISA_HEAD_GROUPS, PISA_HEAD_SCORES,
-    PISA_QUERIES, PISA_SCORES, PISA_SELECTED, PISA_VALUES, PISA_WIDTH, PisaShape, ROUTE_THREADS,
-    RouteShape,
+    FBT_THREADS, PISA_GROUP_HEADS, PISA_HEAD_GROUPS, PISA_HEAD_SCORES, PISA_QUERIES, PISA_SCORES,
+    PISA_SELECTED, PISA_VALUES, PISA_WIDTH, PisaShape, ROUTE_THREADS, RouteShape,
 };
-
-#[inline(always)]
-unsafe fn refine_score(
-    pyramid: &[f32],
-    query: *const f32,
-    candidates: *const u32,
-    sequence: u32,
-    current: u32,
-    leaves: u32,
-    tid: u32,
-) -> (u32, f32) {
-    if tid >= 16 {
-        return (u32::MAX, f32::NEG_INFINITY);
-    }
-    let candidate = unsafe { candidates.add(tid as usize).read() };
-    let mut duplicate = false;
-    let mut earlier = 0;
-    while earlier < tid {
-        duplicate |= unsafe { candidates.add(earlier as usize).read() } == candidate;
-        earlier += 1;
-    }
-    if duplicate || candidate >= leaves {
-        return (candidate, f32::NEG_INFINITY);
-    }
-    let previous = current.saturating_sub(1);
-    if candidate == 0 || candidate == previous || candidate == current {
-        return (candidate, f32::INFINITY);
-    }
-    if candidate > current {
-        return (candidate, f32::NEG_INFINITY);
-    }
-    let nodes = (leaves << 1) - 1;
-    let summary = ((u64::from(sequence) * u64::from(nodes) + u64::from(candidate)) as usize) << 6;
-    let mut score = 0.0;
-    let mut dim = 0usize;
-    while dim < 64 {
-        score += unsafe { query.add(dim).read() * *pyramid.get_unchecked(summary + dim) };
-        dim += 1;
-    }
-    (candidate, score)
-}
-
-#[inline(always)]
-pub(crate) fn run_refine(
-    qkv: &[f32],
-    pyramid: &[f32],
-    incumbent: &[u32],
-    blocks: &mut DisjointSlice<u32>,
-    visit_offset: u32,
-    shape: PisaShape,
-) {
-    static mut QUERY: SharedArray<f32, PISA_WIDTH> = SharedArray::UNINIT;
-    static mut CANDIDATES: SharedArray<u32, PISA_CANDIDATES> = SharedArray::UNINIT;
-    let row = thread::blockIdx_x();
-    let tid = thread::threadIdx_x();
-    if row >= shape.rows {
-        return;
-    }
-    let query = unsafe { SharedArray::as_raw_mut_ptr(&raw mut QUERY) };
-    let candidates = unsafe { SharedArray::as_raw_mut_ptr(&raw mut CANDIDATES) };
-    unsafe { select_query(qkv, query, row, tid, shape) };
-    let (sequence, position) = unsafe { fbt_route::attention_pos(row, shape) };
-    let current = position >> 6;
-    let leaves = shape.context >> 6;
-    if tid < 16 {
-        let old =
-            unsafe { *incumbent.get_unchecked((visit_offset + (row << 3) + (tid & 7)) as usize) };
-        let candidate = if tid < 8 {
-            old
-        } else if tid < 15 {
-            old ^ 1
-        } else {
-            let mut bits = u64::from(row) ^ (u64::from(visit_offset) << 32);
-            bits = bits.wrapping_add(0x9e3779b97f4a7c15);
-            bits = (bits ^ (bits >> 30)).wrapping_mul(0xbf58476d1ce4e5b9);
-            bits = (bits ^ (bits >> 27)).wrapping_mul(0x94d049bb133111eb);
-            bits ^= bits >> 31;
-            (bits as u32) % (current + 1)
-        };
-        unsafe { candidates.add(tid as usize).write(candidate) };
-    }
-    thread::sync_threads();
-    if tid >= 32 {
-        return;
-    }
-    let (node, score) =
-        unsafe { refine_score(pyramid, query, candidates, sequence, current, leaves, tid) };
-    let chosen = select_top(score, node, tid);
-    if tid < 8 {
-        let out = if chosen == u32::MAX { current } else { chosen };
-        unsafe { *blocks.get_unchecked_mut(((row << 3) + tid) as usize) = out };
-    }
-}
 
 #[inline(always)]
 pub(crate) fn run_routetopk(

@@ -138,15 +138,15 @@ pub mod fbt_model {
     }
 
     #[kernel(unchecked_indexing)]
-    #[launch_contract(domain = 1, block = (64, 1, 1), dynamic_shared = 0)]
-    pub fn pisa_select(qkv: &[f32], pyramid: &[f32], mut blocks: DisjointSlice<u32>, shape: PisaShape) {
-        fbt_cache::run_select(qkv, pyramid, &mut blocks, shape);
+    #[launch_contract(domain = 1, block = (256, 1, 1), dynamic_shared = 0)]
+    pub fn pisa_select(qkv: &[f32], kv: &[f32], pyramid: &[f32], mut blocks: DisjointSlice<u32>, shape: PisaShape) {
+        crate::pisa_select::run_select(qkv, kv, pyramid, &mut blocks, shape);
     }
 
     #[kernel(unchecked_indexing)]
-    #[launch_contract(domain = 1, block = (64, 1, 1), dynamic_shared = 0)]
-    pub fn pisa_shadow_refine(qkv: &[f32], pyramid: &[f32], incumbent: &[u32], mut blocks: DisjointSlice<u32>, visit_offset: u32, shape: PisaShape) {
-        fbt_pisa::run_refine(qkv, pyramid, incumbent, &mut blocks, visit_offset, shape);
+    #[launch_contract(domain = 1, block = (256, 1, 1), dynamic_shared = 0)]
+    pub fn pisa_shadow_refine(qkv: &[f32], kv: &[f32], pyramid: &[f32], incumbent: &[u32], mut blocks: DisjointSlice<u32>, visit_offset: u32, shape: PisaShape) {
+        crate::pisa_refine::run_refine(qkv, kv, pyramid, incumbent, &mut blocks, visit_offset, shape);
     }
 
     #[kernel(unchecked_indexing)]

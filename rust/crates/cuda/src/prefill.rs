@@ -227,7 +227,7 @@ impl FbtPrefill {
             .map_err(cuda_error)?;
         let select_launch = self
             .module
-            .prepare_pisa_select(LaunchConfig1D::new(rows as u32, 64, 0))
+            .prepare_pisa_select(LaunchConfig1D::new(rows as u32, 256, 0))
             .map_err(cuda_error)?;
         let attention_launch = self
             .module
@@ -286,6 +286,7 @@ impl FbtPrefill {
             .pisa_select(
                 &self.stream,
                 &select_launch,
+                &self.qkv,
                 &self.qkv,
                 &self.pyramid,
                 &mut self.blocks,

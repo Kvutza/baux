@@ -22,9 +22,9 @@ fn expected_blocks(qkv: &[u16], pyramid: &[u16], row: u32) -> [u32; SELECTED as 
                 scores[slot] = f32::INFINITY;
             } else if end < current {
                 scores[slot] = if level == 0 {
-                    leaf_lse_score(qkv, row, sequence, node)
+                    leaf_score(qkv, row, sequence, node)
                 } else {
-                    intermediate_lse_score(qkv, pyramid, row, sequence, node, level)
+                    intermediate_score(qkv, pyramid, row, sequence, node, level)
                 };
             }
         }
@@ -59,7 +59,7 @@ fn expected_blocks(qkv: &[u16], pyramid: &[u16], row: u32) -> [u32; SELECTED as 
     chosen
 }
 
-fn intermediate_lse_score(
+fn intermediate_score(
     qkv: &[u16],
     pyramid: &[u16],
     row: u32,
@@ -92,7 +92,7 @@ fn intermediate_lse_score(
     grouped_score
 }
 
-fn leaf_lse_score(qkv: &[u16], row: u32, sequence: u32, leaf: u32) -> f32 {
+fn leaf_score(qkv: &[u16], row: u32, sequence: u32, leaf: u32) -> f32 {
     let mut grouped_score = 0.0f32;
     for head in 0..QUERY_HEADS {
         let query = (row * QKV_WIDTH + head * HEAD_DIM) as usize;
@@ -386,6 +386,145 @@ fn gap_budget() -> Result<(), String> {
                 );
             }
         }
+        Ok(())
+    })
+}
+
+#[test]
+fn lse_routing() -> Result<(), String> {
+    metal::objc::rc::autoreleasepool(|| {
+        let runtime = Runtime::shared()?;
+        let pisa = Pisa1::new(&runtime)?;
+
+        // A zero-mean leaf with two large, opposite raw keys is invisible to
+        // PISA-1's mean score but wins full PISA's exact raw-key LSE.
+        let mut leaf_values = vec![0u16; (ROWS * QKV_WIDTH) as usize];
+        for row in 0..ROWS {
+            let base = (row * QKV_WIDTH) as usize;
+            leaf_values[base] = 0x4800; // q[head 0, dim 0] = 8
+        }
+        for sequence in 0..BATCH {
+            let positive = sequence * CONTEXT + 6 * BLOCK;
+            let negative = positive + 1;
+            leaf_values[(positive * QKV_WIDTH + QUERY_WIDTH) as usize] = 0x4800;
+            leaf_values[(negative * QKV_WIDTH + QUERY_WIDTH) as usize] = 0xc800;
+        }
+        let leaf_qkv = runtime.buffer_with(&leaf_values);
+        let command = runtime.queue.new_command_buffer();
+        pisa.encode(command, &leaf_qkv, None);
+        complete(command)?;
+        validate_selection(&pisa, &leaf_qkv)?;
+        let blocks = unsafe {
+            std::slice::from_raw_parts(
+                pisa.blocks.contents().cast::<u32>(),
+                (ROWS * SELECTED) as usize,
+            )
+        };
+        let row = CONTEXT - 1;
+        let selected = &blocks[(row * SELECTED) as usize..((row + 1) * SELECTED) as usize];
+        assert!(
+            selected.contains(&6),
+            "exact leaf LSE did not retain leaf 6: {selected:?}"
+        );
+        assert!(
+            !selected.contains(&5),
+            "mean-score tie set survived exact leaf LSE: {selected:?}"
+        );
+
+        // The eight query heads sum to zero in both active dimensions. PISA-1
+        // therefore ties every route. Full PISA applies LSE per head first:
+        // node 7 wins at level two, then node 14 wins at level one.
+        let mut intermediate_values = vec![0u16; (ROWS * QKV_WIDTH) as usize];
+        for row in 0..ROWS {
+            let base = (row * QKV_WIDTH) as usize;
+            intermediate_values[base] = 0x4800;
+            intermediate_values[base + HEAD_DIM as usize] = 0xc800;
+            intermediate_values[base + (2 * HEAD_DIM + 1) as usize] = 0x4800;
+            intermediate_values[base + (3 * HEAD_DIM + 1) as usize] = 0xc800;
+        }
+        for sequence in 0..BATCH {
+            for leaf in [28, 29] {
+                for token in 0..BLOCK {
+                    let source = sequence * CONTEXT + leaf * BLOCK + token;
+                    let key = (source * QKV_WIDTH + QUERY_WIDTH) as usize;
+                    intermediate_values[key] = 0x4400;
+                    intermediate_values[key + 1] = if leaf == 28 { 0x4400 } else { 0xc400 };
+                }
+            }
+            for leaf in [30, 31] {
+                for token in 0..BLOCK {
+                    let source = sequence * CONTEXT + leaf * BLOCK + token;
+                    let key = (source * QKV_WIDTH + QUERY_WIDTH) as usize;
+                    intermediate_values[key] = 0xc400;
+                }
+            }
+        }
+        let intermediate_qkv = runtime.buffer_with(&intermediate_values);
+        let command = runtime.queue.new_command_buffer();
+        pisa.encode(command, &intermediate_qkv, None);
+        complete(command)?;
+        validate_selection(&pisa, &intermediate_qkv)?;
+        let candidates = unsafe {
+            std::slice::from_raw_parts(
+                pisa.leaf_candidates.contents().cast::<u32>(),
+                (ROWS * 16) as usize,
+            )
+        };
+        let candidates = &candidates[(row * 16) as usize..((row + 1) * 16) as usize];
+        assert!(
+            candidates.contains(&28) && candidates.contains(&29),
+            "per-head intermediate LSE pruned node 14: {candidates:?}"
+        );
+        Ok(())
+    })
+}
+
+#[test]
+#[ignore = "manual fixed-shape full-PISA GPU latency measurement"]
+fn pisa_latency() -> Result<(), String> {
+    metal::objc::rc::autoreleasepool(|| {
+        let runtime = Runtime::shared()?;
+        let pisa = Pisa1::new(&runtime)?;
+        let qkv = runtime.buffer_with(&vec![0u16; (ROWS * QKV_WIDTH) as usize]);
+        let command = runtime.queue.new_command_buffer();
+        pisa.encode(command, &qkv, Some(Stage::Pyramid));
+        complete(command)?;
+        for _ in 0..3 {
+            let command = runtime.queue.new_command_buffer();
+            pisa.encode(command, &qkv, Some(Stage::Attention));
+            complete(command)?;
+        }
+        let measure = |part: u32| -> Result<f64, String> {
+            let mut samples = Vec::with_capacity(9);
+            for _ in 0..9 {
+                let command = runtime.queue.new_command_buffer();
+                if part == 2 {
+                    pisa.encode(command, &qkv, Some(Stage::Attention));
+                } else {
+                    let encoder = command.new_compute_command_encoder();
+                    if part == 0 {
+                        pisa.select_from(&encoder, &qkv, &pisa.pyramid, 0, ROWS);
+                    } else {
+                        pisa.attend_from(&encoder, &qkv, &pisa.pyramid, 0, ROWS);
+                    }
+                    encoder.end_encoding();
+                }
+                samples.push(complete(command)?);
+            }
+            samples.sort_by(f64::total_cmp);
+            Ok(samples[samples.len() / 2])
+        };
+        let selection = measure(0)?;
+        let attention = measure(1)?;
+        let full = measure(2)?;
+        eprintln!(
+            "pisa.full fixed=q8_kv1_d64_c64_k8_g2_q4 rows={} selection_ms={:.6} \
+             attention_ms={:.6} total_ms={:.6}",
+            ROWS,
+            selection * 1000.0,
+            attention * 1000.0,
+            full * 1000.0,
+        );
         Ok(())
     })
 }

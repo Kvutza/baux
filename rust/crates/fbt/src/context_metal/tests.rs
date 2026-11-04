@@ -2,6 +2,48 @@ use super::*;
 use crate::config::IndexMode;
 use crate::context::probe::{Fixture, half};
 
+#[test]
+fn cache_reference() -> Result<(), String> {
+    metal::objc::rc::autoreleasepool(|| {
+        for tokens in [4096, 65536, 1048576] {
+            let layout = Layout::new(tokens, 4)?;
+            let mut cache = ContextCache::new(layout)?;
+            crate::context::probe::run(&mut cache, layout, 1)?;
+        }
+        Ok(())
+    })
+}
+
+#[test]
+fn cache_lse() -> Result<(), String> {
+    metal::objc::rc::autoreleasepool(|| {
+        let layout = Layout::new(4096, 4)?;
+        let mut fixture = Fixture::new(layout);
+        fixture.kv.fill(0);
+        fixture.queries.fill(0);
+        // Opposite heads and opposite keys both cancel before LSE. The full
+        // rule must still select leaf 6, whose mean summary is exactly zero.
+        for query in fixture.queries.chunks_exact_mut(512) {
+            query[0] = 0x4800;
+            query[64] = 0xc800;
+        }
+        fixture.kv[6 * 64 * 128] = 0x4800;
+        fixture.kv[(6 * 64 + 1) * 128] = 0xc800;
+        fixture.tree = Fixture::pyramid(layout, &fixture.kv);
+        let mut cache = ContextCache::new(layout)?;
+        cache.write(0, &fixture.kv)?;
+        let output = cache.query(4092, &fixture.queries)?;
+        fixture.verify(4092, &output.blocks, &output.values)?;
+        assert!(
+            output
+                .blocks
+                .chunks_exact(8)
+                .all(|blocks| blocks.contains(&6))
+        );
+        Ok(())
+    })
+}
+
 struct Probe {
     runtime: Arc<Runtime>,
     kernels: ContextKernels,
@@ -90,7 +132,9 @@ impl Probe {
         for row in 0..128usize {
             let selected = &blocks[row * 8..row * 8 + 8];
             let query = &self.fixture.queries[row * 512..row * 512 + 512];
-            if mode == IndexMode::Independent && selected != self.fixture.blocks(position, query) {
+            if mode == IndexMode::Independent
+                && selected != self.fixture.mean_blocks(position, query)
+            {
                 return Err(format!(
                     "independent support differs from reference at query {row}"
                 ));

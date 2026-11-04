@@ -229,132 +229,6 @@ pub(super) fn is_callable(symbol: &str, signature: Option<&str>) -> bool {
         || signature.is_some_and(|sig| sig.contains("fn ") || sig.contains("macro_rules!"))
 }
 
-pub(super) fn build_graph(root: &Path, index: &ScipIndex) -> CallGraph {
-    let mut graph = CallGraph::default();
-    let mut known = BTreeSet::new();
-    let mut callable_syms = BTreeSet::new();
-    let mut impl_bridges = Vec::<(String, String)>::new();
-    for doc in &index.documents {
-        for info in &doc.symbols {
-            if !local_symbol(&info.symbol) && !info.symbol.ends_with('/') {
-                graph
-                    .names
-                    .entry(info.symbol.clone())
-                    .or_insert_with(|| info.display.clone());
-                known.insert(info.symbol.clone());
-                if is_callable(&info.symbol, info.signature.as_deref()) {
-                    callable_syms.insert(info.symbol.clone());
-                    for trait_sym in &info.implements {
-                        if is_callable(trait_sym, None) {
-                            impl_bridges.push((trait_sym.clone(), info.symbol.clone()));
-                        }
-                    }
-                }
-            }
-        }
-        for occ in &doc.occurrences {
-            if occ.roles & DEFINITION != 0
-                && !local_symbol(&occ.symbol)
-                && !occ.symbol.ends_with('/')
-            {
-                graph
-                    .defs
-                    .entry(occ.symbol.clone())
-                    .or_default()
-                    .push(format_hit(&doc.path, occ));
-                known.insert(occ.symbol.clone());
-                if is_callable(&occ.symbol, None) {
-                    callable_syms.insert(occ.symbol.clone());
-                }
-            }
-        }
-    }
-    let mut seen_callers = BTreeSet::new();
-    let mut seen_callees = BTreeSet::new();
-    for doc in &index.documents {
-        let spans = doc_spans(root, doc);
-        for occ in &doc.occurrences {
-            if occ.roles & DEFINITION != 0 || local_symbol(&occ.symbol) || occ.symbol.ends_with('/')
-            {
-                continue;
-            }
-            if !known.contains(&occ.symbol) {
-                continue;
-            }
-            let Some(&line_raw) = occ.range.first() else {
-                continue;
-            };
-            let line = usize::try_from(line_raw).unwrap_or(0);
-            let Some(enclosing) = callable_span(&spans, line) else {
-                continue;
-            };
-            if enclosing.symbol == occ.symbol {
-                continue;
-            }
-            let edge = Edge {
-                caller: enclosing.symbol.clone(),
-                callee: occ.symbol.clone(),
-                site: format_hit(&doc.path, occ),
-            };
-            if seen_callers.insert(edge.clone()) {
-                graph
-                    .callers
-                    .entry(edge.callee.clone())
-                    .or_default()
-                    .push(edge.clone());
-            }
-            if callable_syms.contains(&occ.symbol) && seen_callees.insert(edge.clone()) {
-                graph
-                    .callees
-                    .entry(edge.caller.clone())
-                    .or_default()
-                    .push(edge);
-            }
-        }
-    }
-    for (trait_sym, impl_sym) in impl_bridges {
-        if !known.contains(&trait_sym) || trait_sym == impl_sym {
-            continue;
-        }
-        let site = graph
-            .defs
-            .get(&impl_sym)
-            .and_then(|defs| defs.first())
-            .cloned()
-            .unwrap_or_default();
-        let edge = Edge {
-            caller: trait_sym,
-            callee: impl_sym,
-            site,
-        };
-        if seen_callers.insert(edge.clone()) {
-            graph
-                .callers
-                .entry(edge.callee.clone())
-                .or_default()
-                .push(edge.clone());
-        }
-        if seen_callees.insert(edge.clone()) {
-            graph
-                .callees
-                .entry(edge.caller.clone())
-                .or_default()
-                .push(edge);
-        }
-    }
-    for defs in graph.defs.values_mut() {
-        defs.sort();
-        defs.dedup();
-    }
-    for edges in graph.callers.values_mut() {
-        edges.sort();
-    }
-    for edges in graph.callees.values_mut() {
-        edges.sort();
-    }
-    graph
-}
-
 pub(super) fn base_dir(dir: &Path) -> &Path {
     if dir.is_file() {
         dir.parent().unwrap_or(dir)
@@ -421,50 +295,61 @@ pub(super) fn doc_spans(root: &Path, doc: &Document) -> Vec<Span> {
     spans
 }
 
-pub(crate) fn body_end(lines: &[&str], start: usize) -> usize {
-    let mut depth = 0_isize;
-    let mut opened = false;
-    let mut in_block_comment = 0_usize;
-    let mut in_string = false;
-    for (offset, line) in lines[start..].iter().enumerate() {
+#[derive(Default)]
+struct BodyScan {
+    depth: isize,
+    opened: bool,
+    block: usize,
+    string: bool,
+}
+
+impl BodyScan {
+    fn skip_context(&mut self, bytes: &[u8], i: usize) -> Option<usize> {
+        let byte = bytes[i];
+        let next = bytes.get(i + 1).copied();
+        if self.block > 0 {
+            if byte == b'/' && next == Some(b'*') {
+                self.block += 1;
+                return Some(i + 2);
+            }
+            if byte == b'*' && next == Some(b'/') {
+                self.block -= 1;
+                return Some(i + 2);
+            }
+            return Some(i + 1);
+        }
+        if !self.string {
+            return None;
+        }
+        if byte == b'\\' {
+            return Some(i + 2);
+        }
+        if byte == b'"' {
+            self.string = false;
+        }
+        Some(i + 1)
+    }
+
+    fn line_end(&mut self, line: &str) -> bool {
         let bytes = line.as_bytes();
         let mut i = 0;
         while i < bytes.len() {
             let b = bytes[i];
             let next = bytes.get(i + 1).copied();
-            if in_block_comment > 0 {
-                if b == b'/' && next == Some(b'*') {
-                    in_block_comment += 1;
-                    i += 2;
-                    continue;
-                } else if b == b'*' && next == Some(b'/') {
-                    in_block_comment -= 1;
-                    i += 2;
-                    continue;
-                }
-                i += 1;
-                continue;
-            }
-            if in_string {
-                if b == b'\\' {
-                    i += 2;
-                    continue;
-                } else if b == b'"' {
-                    in_string = false;
-                }
-                i += 1;
+            if let Some(next_index) = self.skip_context(bytes, i) {
+                i = next_index;
                 continue;
             }
             if b == b'/' && next == Some(b'/') {
                 break;
             }
             if b == b'/' && next == Some(b'*') {
-                in_block_comment += 1;
+                self.block += 1;
                 i += 2;
                 continue;
             }
             if b == b'"' {
-                in_string = true;
+                self.string = true;
                 i += 1;
                 continue;
             }
@@ -478,17 +363,27 @@ pub(crate) fn body_end(lines: &[&str], start: usize) -> usize {
                 }
             }
             if b == b'{' {
-                depth += 1;
-                opened = true;
+                self.depth += 1;
+                self.opened = true;
             } else if b == b'}' {
-                depth -= 1;
-                if opened && depth <= 0 {
-                    return start + offset;
+                self.depth -= 1;
+                if self.opened && self.depth <= 0 {
+                    return true;
                 }
-            } else if b == b';' && !opened {
-                return start + offset;
+            } else if b == b';' && !self.opened {
+                return true;
             }
             i += 1;
+        }
+        false
+    }
+}
+
+pub(crate) fn body_end(lines: &[&str], start: usize) -> usize {
+    let mut scan = BodyScan::default();
+    for (offset, line) in lines[start..].iter().enumerate() {
+        if scan.line_end(line) {
+            return start + offset;
         }
     }
     start

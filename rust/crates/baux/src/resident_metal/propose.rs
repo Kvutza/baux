@@ -418,55 +418,65 @@ impl SearchState {
 
             let pairs = self.resident_history.div_ceil(2).max(1);
             let aggregates = read::<Partial>(&self.pool_aggregates, pairs * 4);
-            let mut matrix_f64 = vec![vec![0.0_f64; self.history]; pool_count];
-            unsafe {
-                let dst = self.pool_distances.contents().cast::<f32>();
-                for (candidate, row_f64) in matrix_f64.iter_mut().enumerate() {
-                    let norm = aggregates[candidate].squared;
-                    for (row, cell) in row_f64.iter_mut().enumerate() {
-                        let base_d = if self.implicit_history {
-                            self.pairwise_distances[base_index * MAX_HISTORY + row]
+            Ok(self.distance_matrix(&select_params, &aggregates, base_index, pool_count))
+        })
+    }
+
+    fn distance_matrix(
+        &self,
+        select_params: &SelectionParams,
+        aggregates: &[Partial],
+        base_index: usize,
+        pool_count: usize,
+    ) -> Vec<Vec<f64>> {
+        let mut matrix_f64 = vec![vec![0.0_f64; self.history]; pool_count];
+        unsafe {
+            let dst = self.pool_distances.contents().cast::<f32>();
+            for (candidate, row_f64) in matrix_f64.iter_mut().enumerate() {
+                let norm = aggregates[candidate].squared;
+                for (row, cell) in row_f64.iter_mut().enumerate() {
+                    let base_d = if self.implicit_history {
+                        self.pairwise_distances[base_index * MAX_HISTORY + row]
+                    } else {
+                        0.0
+                    };
+                    *cell = f64::from(base_d + norm);
+                }
+                for row in (0..self.resident_history).step_by(2) {
+                    let aggregate = aggregates[(row / 2) * 4 + candidate];
+                    let first_index = if self.implicit_history {
+                        select_params.resident_indices[row] as usize
+                    } else {
+                        row
+                    };
+                    if first_index < self.history {
+                        row_f64[first_index] = f64::from(aggregate.anchor);
+                    }
+                    if row + 1 < self.resident_history {
+                        let second_index = if self.implicit_history {
+                            select_params.resident_indices[row + 1] as usize
                         } else {
-                            0.0
+                            row + 1
                         };
-                        *cell = f64::from(base_d + norm);
-                    }
-                    for row in (0..self.resident_history).step_by(2) {
-                        let aggregate = aggregates[(row / 2) * 4 + candidate];
-                        let first_index = if self.implicit_history {
-                            select_params.resident_indices[row] as usize
-                        } else {
-                            row
-                        };
-                        if first_index < self.history {
-                            row_f64[first_index] = f64::from(aggregate.anchor);
+                        if second_index < self.history {
+                            row_f64[second_index] = f64::from(aggregate.rejected);
                         }
-                        if row + 1 < self.resident_history {
-                            let second_index = if self.implicit_history {
-                                select_params.resident_indices[row + 1] as usize
-                            } else {
-                                row + 1
-                            };
-                            if second_index < self.history {
-                                row_f64[second_index] = f64::from(aggregate.rejected);
-                            }
-                        }
-                    }
-                    if select_params.axis_enabled != 0 {
-                        for (row, cell) in row_f64.iter_mut().enumerate() {
-                            let delta = select_params.axis_candidates[candidate]
-                                - select_params.axis_history[row];
-                            let val = (*cell as f32) + select_params.axis_weight * delta * delta;
-                            *cell = f64::from(val);
-                        }
-                    }
-                    for (row, &val) in row_f64.iter().enumerate() {
-                        dst.add(candidate * self.history + row).write(val as f32);
                     }
                 }
+                if select_params.axis_enabled != 0 {
+                    for (row, cell) in row_f64.iter_mut().enumerate() {
+                        let delta = select_params.axis_candidates[candidate]
+                            - select_params.axis_history[row];
+                        let val = (*cell as f32) + select_params.axis_weight * delta * delta;
+                        *cell = f64::from(val);
+                    }
+                }
+                for (row, &val) in row_f64.iter().enumerate() {
+                    dst.add(candidate * self.history + row).write(val as f32);
+                }
             }
-            Ok(matrix_f64)
-        })
+        }
+        matrix_f64
     }
 
     /// Primitive 2 (GPU Engine Seam): Write the host-selected candidate

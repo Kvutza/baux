@@ -155,13 +155,14 @@ impl layout::probe::Cache for ContextCache {
         let begin = timing_event(&self.stream)?;
         let launch = self
             .module
-            .prepare_pisa_select(LaunchConfig1D::new(rows, 64, 0))
+            .prepare_pisa_select(LaunchConfig1D::new(rows, 256, 0))
             .map_err(cuda_error)?;
         self.module
             .pisa_select(
                 &self.stream,
                 &launch,
                 &self.queries,
+                &self.kv,
                 &self.tree,
                 &mut self.blocks,
                 shape,

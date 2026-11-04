@@ -185,7 +185,7 @@ inline float pisa_logaddexp(float left, float right) {
 
 // Equation (21): score an intermediate candidate from its two child means,
 // preserving the query-head nonlinearity before summing the GQA group.
-inline float pisa_intermediate_score(
+inline float pisa_intermediate(
     device const half* queries,
     ulong query_base,
     device const half* pyramid,
@@ -216,7 +216,7 @@ inline float pisa_intermediate_score(
 }
 
 // Equation (21) at level one: use all 64 original keys, not the leaf mean.
-inline float pisa_leaf_score(
+inline float pisa_leaf(
     device const half* queries,
     ulong query_base,
     device const half* keys,
@@ -283,14 +283,14 @@ kernel void fbt_pisa1_select(
                     score = INFINITY;
                 } else if (last < current) {
                     score = level == 0
-                        ? pisa_leaf_score(
+                        ? pisa_leaf(
                             qkv,
                             query_base,
                             qkv + kQueryWidth,
                             kQkvWidth,
                             sequence,
                             node)
-                        : pisa_intermediate_score(
+                        : pisa_intermediate(
                             qkv,
                             query_base,
                             pyramid,
@@ -583,14 +583,14 @@ kernel void fbt_pisa1_select_attention(
                     score = INFINITY;
                 } else if (last < current) {
                     score = level == 0
-                        ? pisa_leaf_score(
+                        ? pisa_leaf(
                             qkv,
                             query_base,
                             qkv + kQueryWidth,
                             kQkvWidth,
                             sequence,
                             node)
-                        : pisa_intermediate_score(
+                        : pisa_intermediate(
                             qkv,
                             query_base,
                             pyramid,
@@ -865,7 +865,7 @@ kernel void fbt_pisa1_select_attention_q4(
                 if (forced) {
                     score = INFINITY;
                 } else if (last < current) {
-                    score = pisa_intermediate_score(
+                    score = pisa_intermediate(
                         qkv,
                         route_query_base,
                         pyramid,
@@ -913,21 +913,17 @@ kernel void fbt_pisa1_select_attention_q4(
                                 ulong2(0, 0));
                         }
                         simdgroup_barrier(mem_flags::mem_threadgroup);
-                        float head_score = 0.0f;
-                        if (lane < kQueryHeads) {
-                            float maximum = -INFINITY;
-                            float total = 0.0f;
-                            for (uint token = 0; token < kBlock; ++token) {
-                                const float logit =
-                                    scores[simdgroup][lane][token] * 0.125f;
-                                const float next_maximum = max(maximum, logit);
-                                total = total * exp(maximum - next_maximum)
-                                    + exp(logit - next_maximum);
-                                maximum = next_maximum;
-                            }
-                            head_score = maximum + log(total);
+                        candidate_score = 0.0f;
+                        for (uint head = 0; head < kQueryHeads; ++head) {
+                            const float logit0 =
+                                scores[simdgroup][head][lane] * 0.125f;
+                            const float logit1 =
+                                scores[simdgroup][head][lane + 32] * 0.125f;
+                            const float maximum = simd_max(max(logit0, logit1));
+                            const float total = simd_sum(
+                                exp(logit0 - maximum) + exp(logit1 - maximum));
+                            candidate_score += maximum + log(total);
                         }
-                        candidate_score = simd_sum(head_score);
                     }
                 }
                 if (lane == candidate_slot) score = candidate_score;

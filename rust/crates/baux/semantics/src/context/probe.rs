@@ -150,7 +150,13 @@ impl Fixture {
         for row in 0..layout.tokens {
             let leaf = row / BLOCK;
             for dim in 0..WIDTH {
-                let key = [0x3800, 0x3c00, 0xb800, 0xbc00][((leaf * 13 + dim * 7) % 4) as usize];
+                // Separate ordinary leaf scores, so backend rounding of
+                // mathematically tied LSEs cannot change the expected top-k.
+                let key = match dim {
+                    0 => bits((leaf % 128) as f32 / 128.0),
+                    1 => bits((leaf / 128) as f32 / 8.0),
+                    _ => [0x3800, 0x3c00, 0xb800, 0xbc00][(dim % 4) as usize],
+                };
                 let value = [0x3400, 0x3800, 0xb400, 0xb800][((row * 11 + dim * 3) % 4) as usize];
                 kv[(row * WIDTH * 2 + dim) as usize] = key;
                 kv[(row * WIDTH * 2 + WIDTH + dim) as usize] = value;
@@ -170,7 +176,13 @@ impl Fixture {
                 let row = index / (HEADS * WIDTH);
                 let head = index / WIDTH % HEADS;
                 let dim = index % WIDTH;
-                [0x3c00, 0x3800, 0xb800, 0x4000][((row + head * 3 + dim * 5) % 4) as usize]
+                match dim {
+                    0 => 0x3c00,
+                    1 => 0x4c00,
+                    _ => {
+                        [0x3c00, 0x3800, 0xb800, 0x4000][((row + head * 3 + dim * 5) % 4) as usize]
+                    }
+                }
             })
             .collect();
         let tree = Self::pyramid(layout, &kv);
@@ -208,20 +220,68 @@ impl Fixture {
         tree
     }
 
+    // Full PISA applies log-sum-exp separately to each query head before
+    // adding head scores. Internal nodes use their two child means; leaves
+    // use all raw keys. Summing heads or keys first would instead give PISA-1.
+    fn score(&self, query: &[f32], node: u32, level: u32) -> f32 {
+        let mut grouped = 0.0;
+        for head in query.chunks_exact(WIDTH as usize) {
+            let mut logits = [0.0f32; BLOCK as usize];
+            let count = if level == 0 { BLOCK } else { 2 };
+            for index in 0..count {
+                let key = if level == 0 {
+                    let first = ((node * BLOCK + index) * 2 * WIDTH) as usize;
+                    &self.kv[first..first + WIDTH as usize]
+                } else {
+                    let child_level = level - 1;
+                    let offset =
+                        2 * self.layout.leaves() - (2 * self.layout.leaves() >> child_level);
+                    let first = ((offset + 2 * node + index) * WIDTH) as usize;
+                    &self.tree[first..first + WIDTH as usize]
+                };
+                logits[index as usize] = head
+                    .iter()
+                    .zip(key)
+                    .map(|(&q, &k)| q * half(k))
+                    .sum::<f32>()
+                    * 0.125;
+            }
+            let logits = &logits[..count as usize];
+            let maximum = logits.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+            grouped += maximum
+                + logits
+                    .iter()
+                    .map(|&x| (x - maximum).exp())
+                    .sum::<f32>()
+                    .ln();
+        }
+        grouped
+    }
+
     pub fn blocks(&self, position: u32, query: &[u16]) -> [u32; SELECTED as usize] {
+        self.select(position, query, true)
+    }
+
+    /// PISA-1 oracle for the separate mean-scored diffusion index policy.
+    pub fn mean_blocks(&self, position: u32, query: &[u16]) -> [u32; SELECTED as usize] {
+        self.select(position, query, false)
+    }
+
+    fn select(&self, position: u32, query: &[u16], full: bool) -> [u32; SELECTED as usize] {
         let current = position / BLOCK;
         let forced = [0, current.saturating_sub(1), current];
-        let route: Vec<f32> = (0..WIDTH)
+        let query: Vec<f32> = query.iter().copied().map(half).collect();
+        let route: Vec<f32> = (0..WIDTH as usize)
             .map(|dim| {
-                (0..HEADS)
-                    .map(|head| half(query[(head * WIDTH + dim) as usize]))
+                query
+                    .chunks_exact(WIDTH as usize)
+                    .map(|head| head[dim])
                     .sum()
             })
             .collect();
         let mut candidates = std::array::from_fn::<_, 16, _>(|slot| slot as u32);
         let mut chosen = [u32::MAX; SELECTED as usize];
         for level in (0..=self.layout.levels() - 4).rev() {
-            let offset = 2 * self.layout.leaves() - (2 * self.layout.leaves() >> level);
             let mut scores = [f32::NEG_INFINITY; 16];
             for (slot, &node) in candidates.iter().enumerate() {
                 if node == u32::MAX {
@@ -232,13 +292,17 @@ impl Fixture {
                 if forced.iter().any(|&leaf| leaf >= begin && leaf <= end) {
                     scores[slot] = f32::INFINITY;
                 } else if end < current {
-                    scores[slot] = route
-                        .iter()
-                        .enumerate()
-                        .map(|(dim, &q)| {
-                            q * half(self.tree[((offset + node) * WIDTH) as usize + dim])
-                        })
-                        .sum();
+                    scores[slot] = if full {
+                        self.score(&query, node, level)
+                    } else {
+                        let offset = 2 * self.layout.leaves() - (2 * self.layout.leaves() >> level);
+                        let first = ((offset + node) * WIDTH) as usize;
+                        route
+                            .iter()
+                            .zip(&self.tree[first..first + WIDTH as usize])
+                            .map(|(&q, &k)| q * half(k))
+                            .sum()
+                    };
                 }
             }
             for output in &mut chosen {
@@ -333,5 +397,76 @@ impl Fixture {
             return Err(format!("context attention error {error} exceeds 0.003"));
         }
         Ok(error)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn blank() -> Fixture {
+        let layout = Layout::new(4096, 4).unwrap();
+        Fixture {
+            layout,
+            kv: vec![0; (layout.tokens * 2 * WIDTH) as usize],
+            queries: vec![0; (layout.queries * HEADS * WIDTH) as usize],
+            tree: vec![0; (layout.nodes() * WIDTH) as usize],
+        }
+    }
+
+    #[test]
+    fn zero_mean() {
+        let mut fixture = blank();
+        let mut query = vec![0; (HEADS * WIDTH) as usize];
+        query[0] = 0x4800; // 8
+        fixture.kv[(6 * BLOCK * 2 * WIDTH) as usize] = 0x4800;
+        fixture.kv[((6 * BLOCK + 1) * 2 * WIDTH) as usize] = 0xc800; // -8
+        fixture.tree = Fixture::pyramid(fixture.layout, &fixture.kv);
+        assert!(fixture.tree.iter().all(|&x| x == 0));
+        assert_eq!(fixture.blocks(4095, &query), [0, 62, 63, 6, 1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn head_scores() {
+        let mut fixture = blank();
+        let mut query = vec![0; (HEADS * WIDTH) as usize];
+        query[0] = 0x4800;
+        query[WIDTH as usize] = 0xc800;
+        query[(2 * WIDTH + 1) as usize] = 0x4800;
+        query[(3 * WIDTH + 1) as usize] = 0xc800;
+        query[(4 * WIDTH + 2) as usize] = 0x4800;
+        query[(5 * WIDTH + 2) as usize] = 0xc800;
+        for leaf in 28..32 {
+            for token in 0..BLOCK {
+                let key = ((leaf * BLOCK + token) * 2 * WIDTH) as usize;
+                fixture.kv[key] = if leaf < 30 { 0x4400 } else { 0xc400 };
+                fixture.kv[key + 1] = match leaf {
+                    28 => 0x4400,
+                    29 => 0xc400,
+                    _ => 0,
+                };
+            }
+        }
+        // Keep child means unchanged, but make leaf 28 win the exact leaf
+        // score after both intermediate levels retain its subtree.
+        fixture.kv[(28 * BLOCK * 2 * WIDTH + 2) as usize] = 0x4800;
+        fixture.kv[((28 * BLOCK + 1) * 2 * WIDTH + 2) as usize] = 0xc800;
+        fixture.tree = Fixture::pyramid(fixture.layout, &fixture.kv);
+        let blocks = fixture.blocks(4095, &query);
+        assert!(blocks.contains(&28), "{blocks:?}");
+        assert!(!fixture.mean_blocks(4095, &query).contains(&28));
+        assert_eq!(
+            fixture.blocks(0, &query),
+            [
+                0,
+                u32::MAX,
+                u32::MAX,
+                u32::MAX,
+                u32::MAX,
+                u32::MAX,
+                u32::MAX,
+                u32::MAX
+            ]
+        );
     }
 }

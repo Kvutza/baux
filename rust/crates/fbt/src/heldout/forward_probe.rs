@@ -5,8 +5,112 @@ use baux::artifact::forward::{ForwardTrace, WordHash};
 use baux::semantics::mhc4::probe::initialized as case;
 use metal::objc::rc::autoreleasepool;
 
+/// Complete causal prefill, including vocabulary readout and loss, without
+/// optimizer work. Long sequences retain every visit's KV cache across chunks.
 #[test]
-#[ignore = "full 1.18B-parameter initialized forward; set BAUX_FORWARD_TRACE to save evidence"]
+#[ignore = "full-model latency; set BAUX_FORWARD_CONTEXT and BAUX_FORWARD_TIMING"]
+fn forward_latency() -> Result<(), String> {
+    autoreleasepool(|| {
+        let context: u32 = std::env::var("BAUX_FORWARD_CONTEXT")
+            .map_err(|error| error.to_string())?
+            .parse::<u32>()
+            .map_err(|error| error.to_string())?;
+        if ![4096, 65_536, 1_048_576].contains(&context) {
+            return Err("forward context must be 4096, 65536, or 1048576".into());
+        }
+        let output = std::env::var_os("BAUX_FORWARD_TIMING")
+            .ok_or("set BAUX_FORWARD_TIMING to an output JSON path")?;
+        let samples = std::env::var("BAUX_FORWARD_SAMPLES")
+            .unwrap_or_else(|_| "3".into())
+            .parse::<usize>()
+            .map_err(|error| error.to_string())?;
+        if samples == 0 {
+            return Err("forward samples must be positive".into());
+        }
+        let runtime = Runtime::shared()?;
+        let architecture = ResidualArchitecture::Mhc4;
+        let weights = CandidateWeights::initialized(
+            &runtime,
+            case::SEED,
+            crate::config::ModelInitialization::FbtPisa1Mhc4,
+            architecture,
+        )?;
+        let packed = runtime.buffer::<u16>(MHC_FULLPARAMS);
+        let command = runtime.queue.new_command_buffer();
+        let blit = command.new_blit_command_encoder();
+        let mut offset = 0;
+        for (_, tensor, _) in weights.tensors() {
+            blit.copy_from_buffer(&tensor, 0, &packed, offset, tensor.length());
+            offset += tensor.length();
+        }
+        blit.end_encoding();
+        complete(command)?;
+        let row = weights.row(&packed)?;
+        drop(weights);
+        let decoder = decode::Decoder::with_visits(
+            &runtime,
+            context,
+            context > ROWS,
+            architecture.layer_steps().len(),
+        )?;
+        let mut scorer =
+            block_decode::BlockDecoder::with_architecture(&runtime, context, architecture)?;
+        let sequence: Vec<u32> = (0..=context)
+            .map(|i| (crate::hash::splitmix64(73 + u64::from(i)) % u64::from(VOCAB)) as u32)
+            .collect();
+        let batch = crate::pretrain_data::CausalBatch {
+            tokens: sequence[..context as usize].to_vec(),
+            labels: sequence[1..].to_vec(),
+            loss_mask: vec![1; context as usize],
+            offset: 0,
+        };
+        let profiled = std::env::var_os("BAUX_FORWARD_PROFILE").is_some();
+        if profiled {
+            scorer.profile(&runtime, Some(context.div_ceil(ROWS) * samples as u32))?;
+        }
+        let mut measurements = Vec::new();
+        for sample in 0..samples {
+            eprintln!("FORWARD_START context={context} sample={sample}");
+            let start = std::time::Instant::now();
+            let score = scorer.score_batch(&runtime, &decoder, row, &batch)?;
+            let wall_seconds = start.elapsed().as_secs_f64();
+            if score.quality.scored_tokens != context as usize
+                || !score.quality.mean_nll.is_finite()
+                || !score.gpu_seconds.is_finite()
+                || score.gpu_seconds <= 0.0
+            {
+                return Err("full forward failed coverage, finite loss, or timing checks".into());
+            }
+            let measurement = baux::artifact::json::json!({
+                "sample":sample,"gpu_ms":score.gpu_seconds * 1000.0,
+                "wall_ms":wall_seconds * 1000.0,"scored_tokens":score.quality.scored_tokens,
+                "mean_nll":score.quality.mean_nll,
+            });
+            println!(
+                "FULL_FORWARD context={context} {}",
+                baux::artifact::json::to_string(&measurement).map_err(|error| error.to_string())?
+            );
+            measurements.push(measurement);
+            let evidence = baux::artifact::json::json!({
+                "backend":"metal","device":runtime.device.name(),"architecture":"mhc4",
+                "parameters":MHC_FULLPARAMS,"seed":case::SEED,"context":context,
+                "chunk_rows":ROWS,"visits":architecture.layer_steps().len(),
+                "scope":"complete-causal-prefill-with-readout-and-loss",
+                "input":"deterministic-synthetic-token-ids","profiled":profiled,
+                "initialization_in_timing":false,"measurements":measurements,
+            });
+            std::fs::write(
+                &output,
+                baux::artifact::json::to_vec(&evidence).map_err(|error| error.to_string())?,
+            )
+            .map_err(|error| error.to_string())?;
+        }
+        Ok(())
+    })
+}
+
+#[test]
+#[ignore = "full-parameter initialized forward; set BAUX_FORWARD_TRACE to save evidence"]
 fn initialized_forward() -> Result<(), String> {
     autoreleasepool(|| {
         let output = std::env::var_os("BAUX_FORWARD_TRACE")

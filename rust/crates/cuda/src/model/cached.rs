@@ -369,13 +369,14 @@ impl FbtModel {
             let visit_offset = u32::try_from(ordinal * self.rows * 8).map_err(cuda_error)?;
             let launch = self
                 .module
-                .prepare_pisa_shadow_refine(LaunchConfig1D::new(rows, 64, 0))
+                .prepare_pisa_shadow_refine(LaunchConfig1D::new(rows, 256, 0))
                 .map_err(cuda_error)?;
             self.module
                 .pisa_shadow_refine(
                     &self.stream,
                     &launch,
                     &cache.queries,
+                    &state.kv,
                     &state.tree,
                     &mhc4.index_incumbent,
                     &mut s.blocks,
@@ -386,13 +387,14 @@ impl FbtModel {
         } else {
             let launch = self
                 .module
-                .prepare_pisa_select(LaunchConfig1D::new(rows, 64, 0))
+                .prepare_pisa_select(LaunchConfig1D::new(rows, 256, 0))
                 .map_err(cuda_error)?;
             self.module
                 .pisa_select(
                     &self.stream,
                     &launch,
                     &cache.queries,
+                    &state.kv,
                     &state.tree,
                     &mut s.blocks,
                     shape,

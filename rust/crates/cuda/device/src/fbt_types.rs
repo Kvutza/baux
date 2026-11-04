@@ -15,6 +15,7 @@ pub const PISA_GROUP_HEADS: usize = 4;
 pub const PISA_HEAD_GROUPS: u32 = 8 / PISA_GROUP_HEADS as u32;
 pub const PISA_HEAD_SCORES: usize = PISA_SCORES * PISA_GROUP_HEADS;
 pub const PISA_QUERIES: usize = PISA_WIDTH * PISA_GROUP_HEADS;
+pub const PISA_ROUTING_QUERIES: usize = PISA_WIDTH * 8;
 pub const PISA_VALUES: usize = 256 * PISA_GROUP_HEADS;
 pub const ROUTE_THREADS: u32 = 256;
 

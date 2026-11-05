@@ -286,6 +286,7 @@ mod tests {
             candidates: 16,
             arms: 2,
             distribution: None,
+            perturbation: None,
             acquisition: AcquisitionSpec::Ucb { beta: 1.5 },
             surrogate: SurrogateRecipe {
                 neighbors: 3,

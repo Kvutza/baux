@@ -53,8 +53,8 @@ pub use objectives::{
 pub use spec::ExperimentSpec;
 pub use spec_execution::ObjectiveFunction;
 pub use spec_optimizer::{
-    AcquisitionSpec, CandidateGenerationSpec, OptimizerSpec, SurrogateFit, SurrogateRecipe,
-    TrustRegionBounds,
+    AcquisitionSpec, CandidateGenerationSpec, OptimizerSpec, PerturbationSpec, SurrogateFit,
+    SurrogateRecipe, TrustRegionBounds,
 };
 
 /// Concrete runtime configuration compiled from a validated experiment recipe.
@@ -91,6 +91,7 @@ pub struct RunConfig {
     pub adapt_neighbors: Option<bool>,
     pub candidate_rv: Option<CandidateSampler>,
     pub raasp_fast: Option<bool>,
+    pub coord_system: Option<crate::CoordSystem>,
     pub num_candidates_factor: Option<f64>,
     pub min_candidates: Option<usize>,
     pub max_candidates: Option<usize>,
@@ -337,6 +338,9 @@ impl RunConfig {
         }
         if let Some(fast) = self.raasp_fast {
             config.candidates.raasp_fast = fast;
+        }
+        if let Some(cs) = self.coord_system {
+            config.candidates.coord_system = cs;
         }
         if let Some(f) = self.num_candidates_factor {
             config.candidates.num_candidates_factor = f;

@@ -25,6 +25,8 @@ pub enum OptimizerSpec {
         #[deser(default)]
         distribution: crate::ProposalKernel,
         #[deser(default)]
+        perturbation: Option<PerturbationSpec>,
+        #[deser(default)]
         surrogate: SurrogateRecipe,
         #[deser(default)]
         trust_region: TrustRegionBounds,
@@ -36,6 +38,8 @@ pub enum OptimizerSpec {
         #[deser(default = default_arms())]
         arms: u32,
         distribution: Option<crate::ProposalKernel>,
+        #[deser(default)]
+        perturbation: Option<PerturbationSpec>,
         #[deser(flatten)]
         acquisition: AcquisitionSpec,
         #[deser(default)]
@@ -52,20 +56,27 @@ pub enum OptimizerSpec {
 impl OptimizerSpec {
     pub fn candidate_generation(&self) -> Option<CandidateGenerationSpec> {
         match self {
-            Self::OperatorBo { distribution, .. } => Some(CandidateGenerationSpec {
+            Self::OperatorBo {
+                distribution,
+                perturbation,
+                ..
+            } => Some(CandidateGenerationSpec {
                 candidates: 1,
                 arms: 1,
                 distribution: Some(*distribution),
+                perturbation: perturbation.clone(),
             }),
             Self::TurboEnn {
                 candidates,
                 arms,
                 distribution,
+                perturbation,
                 ..
             } => Some(CandidateGenerationSpec {
                 candidates: *candidates,
                 arms: *arms,
                 distribution: *distribution,
+                perturbation: perturbation.clone(),
             }),
             Self::Muon | Self::Adamw => None,
         }
@@ -95,6 +106,8 @@ pub struct CandidateGenerationSpec {
     /// Underlying sampler selection; program transformations can change the
     /// distribution of the resulting parameter displacement.
     pub distribution: Option<crate::ProposalKernel>,
+    #[deser(default)]
+    pub perturbation: Option<PerturbationSpec>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -317,13 +330,14 @@ impl crate::optimizer_config::SurrogateConfig {
 
 impl crate::optimizer_config::CandidateConfig {
     pub fn from_spec(spec: &CandidateGenerationSpec) -> Result<Self, crate::error::ENNError> {
-        use crate::candidates::CandidateSampler;
         use crate::error::ENNError;
         if spec.arms == 0 || spec.candidates == 0 || !spec.candidates.is_multiple_of(spec.arms) {
             return Err(ENNError::InvalidParameter(
                 "candidates must be positive and divisible by arms".to_string(),
             ));
         }
+        let pert = spec.perturbation.clone().unwrap_or_default();
+        pert.validate().map_err(ENNError::InvalidParameter)?;
         let per_arm = (spec.candidates / spec.arms) as usize;
         let total = spec.candidates as usize;
         Ok(Self {
@@ -331,10 +345,10 @@ impl crate::optimizer_config::CandidateConfig {
             min_candidates: total,
             max_candidates: Some(total),
             num_candidates_per_arm: Some(per_arm),
-            num_pert: 20,
-            candidate_rv: CandidateSampler::RAASP,
-            raasp_fast: false,
-            coord_system: crate::proposal_kernel::CoordSystem::Cartesian,
+            num_pert: pert.num_pert,
+            candidate_rv: pert.sampler,
+            raasp_fast: pert.raasp_fast,
+            coord_system: pert.coord_system,
             tied_dims: Vec::new(),
         })
     }

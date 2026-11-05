@@ -490,7 +490,7 @@ impl Runtime {
         self.device.new_buffer(
             (elements.max(1) * size_of::<T>()) as u64,
             metal::MTLResourceOptions::StorageModeShared
-                | metal::MTLResourceOptions::HazardTrackingModeUntracked,
+                | metal::MTLResourceOptions::HazardTrackingModeTracked,
         )
     }
 
@@ -502,7 +502,7 @@ impl Runtime {
             values.as_ptr().cast(),
             std::mem::size_of_val(values) as u64,
             metal::MTLResourceOptions::StorageModeShared
-                | metal::MTLResourceOptions::HazardTrackingModeUntracked,
+                | metal::MTLResourceOptions::HazardTrackingModeTracked,
         )
     }
 
@@ -575,7 +575,7 @@ impl Runtime {
             ptr,
             aligned as u64,
             metal::MTLResourceOptions::StorageModeShared
-                | metal::MTLResourceOptions::HazardTrackingModeUntracked,
+                | metal::MTLResourceOptions::HazardTrackingModeTracked,
             Some(unsafe { &*(block as *const GlobalBlock).cast() }),
         );
         (buf.length() == aligned as u64).then_some(buf)

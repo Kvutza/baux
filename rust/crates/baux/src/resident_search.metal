@@ -112,6 +112,7 @@ inline float2 rademacher_pair(ulong2 domain, ulong pair) {
         (first & 2ul) == 0ul ? -1.0f : 1.0f
     );
 }
+#ifndef RADEMACHER_ONLY
 inline uint domain_bits(
     ulong2 domain,
     ulong element,
@@ -128,7 +129,6 @@ inline uint domain_bits(
 inline float ziggurat_uniform(uint bits) {
     return min(float((bits >> 8) + 1u) * 0x1.0p-24f, 0.99999994f);
 }
-#ifndef RADEMACHER_ONLY
 inline float domain_sample(ulong2 domain, ulong element) {
     for (uint attempt = 0;; attempt++) {
         uint bits = domain_bits(domain, element, attempt, 0u);
@@ -225,41 +225,6 @@ inline ulong candidate_seed(ulong root, uint candidate) {
         | (ulong(trial_hash(high, low, stream ^ 0x9e3779b9u)) << 32);
 }
 
-inline float2 coord_step(
-    float2 base_value,
-    float step,
-    float2 noise,
-    ulong2 domain,
-    ulong pair,
-    uint coord) {
-    if (coord == 0u) {
-        return step * noise;
-    }
-    float norm = sqrt(max(noise.x * noise.x + noise.y * noise.y, 1.0e-24f));
-    float2 unit_dir = noise / norm;
-    if (coord == 1u) {
-        return step * unit_dir;
-    }
-    if (coord == 2u) {
-        float radial = ziggurat_uniform(domain_bits(domain, pair, 0u, 3u));
-        return (step * radial) * unit_dir;
-    }
-    float r0_sq = base_value.x * base_value.x + base_value.y * base_value.y;
-    if (r0_sq <= 1.0e-24f) {
-        return step * unit_dir;
-    }
-    float r0 = sqrt(r0_sq);
-    float2 raw = step * unit_dir;
-    float proj = (raw.x * base_value.x + raw.y * base_value.y) / r0_sq;
-    float2 tangent = raw - proj * base_value;
-    if (tangent.x * tangent.x + tangent.y * tangent.y <= 1.0e-24f) {
-        tangent = raw;
-    }
-    float2 disp = base_value + tangent;
-    float disp_norm = sqrt(max(disp.x * disp.x + disp.y * disp.y, 1.0e-24f));
-    return disp * (r0 / disp_norm) - base_value;
-}
-
 #ifdef FP16_INDEPENDENT
 inline ulong proposal_seed(ulong root, uint candidate) {
     return candidate_seed(root, candidate);
@@ -274,7 +239,7 @@ inline float2 proposal_delta(
     uint mode,
     ulong pair) {
     float2 noise = domain_noise(domain, pair, mode);
-    return coord_step(base_value, leaf.scale * radius, noise, domain, pair, leaf.pad);
+    return (leaf.scale * radius) * noise;
 }
 
 inline float2 continuous_pair(float2 base_value, Leaf leaf, ulong seed,
@@ -345,20 +310,9 @@ kernel void dense_propose(
         float base_value = decode(base[index]);
         ushort value = values[element & 1ul];
 #else
+        float noise = sample(p.seed ^ 0x8ebc6af09c88c6e3ul, leaf.key, element, p.mode);
         float base_value = decode(base[index]);
-        ushort value;
-        if (leaf.pad == 0u) {
-            float noise = sample(p.seed ^ 0x8ebc6af09c88c6e3ul, leaf.key, element, p.mode);
-            value = encode(base_value + (leaf.scale * p.radius) * noise);
-        } else {
-            ulong first = (element / 2ul) * 2ul;
-            float2 base_pair = float2(decode(base[leaf.offset + first]),
-                first + 1ul < leaf.length ? decode(base[leaf.offset + first + 1ul]) : 0.0f);
-            ulong2 domain = ziggurat_domain(p.seed ^ 0x8ebc6af09c88c6e3ul, leaf.key);
-            float2 delta_pair = coord_step(base_pair, leaf.scale * p.radius,
-                domain_noise(domain, element / 2ul, p.mode), domain, element / 2ul, leaf.pad);
-            value = encode(base_value + delta_pair[element & 1ul]);
-        }
+        ushort value = encode(base_value + (leaf.scale * p.radius) * noise);
 #endif
         output[index] = value;
         invalid |= uint(invalid_value(value));
@@ -467,19 +421,8 @@ kernel void dense_propose_initial(
         ulong index = leaf.offset + element;
         ushort base_bits = base[index];
         float base_value = decode(base_bits);
-        ushort value;
-        if (leaf.pad == 0u) {
-            float noise = sample(p.seed ^ 0x8ebc6af09c88c6e3ul, leaf.key, element, p.mode);
-            value = encode(base_value + (leaf.scale * p.radius) * noise);
-        } else {
-            ulong first = (element / 2ul) * 2ul;
-            float2 base_pair = float2(decode(base[leaf.offset + first]),
-                first + 1ul < leaf.length ? decode(base[leaf.offset + first + 1ul]) : 0.0f);
-            ulong2 domain = ziggurat_domain(p.seed ^ 0x8ebc6af09c88c6e3ul, leaf.key);
-            float2 delta_pair = coord_step(base_pair, leaf.scale * p.radius,
-                domain_noise(domain, element / 2ul, p.mode), domain, element / 2ul, leaf.pad);
-            value = encode(base_value + delta_pair[element & 1ul]);
-        }
+        float noise = sample(p.seed ^ 0x8ebc6af09c88c6e3ul, leaf.key, element, p.mode);
+        ushort value = encode(base_value + (leaf.scale * p.radius) * noise);
         output[index] = value;
         invalid |= uint(invalid_value(value));
         changed += uint(value != base_bits);
@@ -642,15 +585,11 @@ kernel void dense_propose_pool(
                 rejected_value = base_value;
             float radius = leaf.scale * p.radius;
             ushort values[4];
-            ulong first = (element / 2ul) * 2ul;
-            float2 base_pair = float2(decode(base[leaf.offset + first]),
-                first + 1ul < leaf.length ? decode(base[leaf.offset + first + 1ul]) : 0.0f);
             for (uint candidate = 0; candidate < PROCEDURAL_COUNT; candidate++) {
-                ulong cseed = candidate_seed(p.stream_seed, candidate) ^ 0x8ebc6af09c88c6e3ul;
-                ulong2 domain = ziggurat_domain(cseed, leaf.key);
-                float2 samples = domain_noise(domain, pair, p.mode);
-                float2 delta_pair = coord_step(base_pair, radius, samples, domain, pair, leaf.pad);
-                values[candidate] = encode(base_value + delta_pair[pair_offset]);
+                float2 samples = noise_pair(candidate_seed(p.stream_seed, candidate)
+                    ^ 0x8ebc6af09c88c6e3ul, leaf.key, pair, p.mode);
+                float noise = samples[pair_offset];
+                values[candidate] = encode(base_value + radius * noise);
             }
 #if PROCEDURAL_COUNT == 1
             if (p.initialize == 0) {
@@ -1190,30 +1129,26 @@ kernel void dense_materialize(
             }
         }
 #else
-        ulong2 domain = ziggurat_domain(seed, leaf.key);
-        float2 samples = domain_noise(domain, pair, decision->mode);
-        ushort first_bits = base[index];
-        float2 base_pair = float2(decode(first_bits),
-            item + 1 < tile.length ? decode(base[index + 1]) : 0.0f);
-        float2 delta_pair = coord_step(base_pair, step, samples, domain, pair, leaf.pad);
+        float2 samples = noise_pair(seed, leaf.key, pair, decision->mode);
 
-        output[index] = encode(base_pair.x + delta_pair.x);
+        ushort first_bits = base[index];
+        output[index] = encode(decode(first_bits) + step * samples.x);
         if (account != 0u) {
             ushort value = output[index];
             changed += uint(value != first_bits);
             invalid |= uint(invalid_value(value));
-            float delta = decode(value) - base_pair.x;
+            float delta = decode(value) - decode(first_bits);
             squared += delta * delta;
         }
 
         if (item + 1 < tile.length) {
             ushort second_bits = base[index + 1];
-            output[index + 1] = encode(base_pair.y + delta_pair.y);
+            output[index + 1] = encode(decode(second_bits) + step * samples.y);
             if (account != 0u) {
                 ushort value = output[index + 1];
                 changed += uint(value != second_bits);
                 invalid |= uint(invalid_value(value));
-                float delta = decode(value) - base_pair.y;
+                float delta = decode(value) - decode(second_bits);
                 squared += delta * delta;
             }
         }

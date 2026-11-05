@@ -171,6 +171,7 @@ impl OptimizerSpec {
             }
             return Ok(Self::OperatorBo {
                 distribution: candidate_generation.distribution.unwrap_or_default(),
+                perturbation: candidate_generation.perturbation,
                 surrogate,
                 trust_region,
             });
@@ -180,6 +181,7 @@ impl OptimizerSpec {
             candidates: candidate_generation.candidates,
             arms: candidate_generation.arms,
             distribution: candidate_generation.distribution,
+            perturbation: candidate_generation.perturbation,
             acquisition,
             surrogate,
             trust_region,
@@ -200,6 +202,7 @@ impl OptimizerSpec {
             Self::Muon | Self::Adamw => Ok(()),
             Self::OperatorBo {
                 distribution,
+                perturbation,
                 surrogate,
                 trust_region,
             } => {
@@ -207,6 +210,7 @@ impl OptimizerSpec {
                     candidates: 1,
                     arms: 1,
                     distribution: Some(*distribution),
+                    perturbation: perturbation.clone(),
                 };
                 apply_bounds(config, trust_region)?;
                 config.trust_region_kind = Some(TrustRegionKind::Turbo);
@@ -218,6 +222,7 @@ impl OptimizerSpec {
                 candidates,
                 arms,
                 distribution,
+                perturbation,
                 acquisition,
                 surrogate,
                 trust_region,
@@ -226,6 +231,7 @@ impl OptimizerSpec {
                     candidates: *candidates,
                     arms: *arms,
                     distribution: *distribution,
+                    perturbation: perturbation.clone(),
                 };
                 apply_bounds(config, trust_region)?;
                 config.trust_region_kind = Some(TrustRegionKind::Turbo);
@@ -241,10 +247,27 @@ impl OptimizerSpec {
 impl CandidateGenerationSpec {
     fn from_config(config: &RunConfig) -> Result<Self, String> {
         let pool = config.resident_pool()?;
+        let perturbation = if config.candidate_rv.is_some()
+            || config.num_pert.is_some()
+            || config.raasp_fast.is_some()
+            || config.coord_system.is_some()
+        {
+            let pert = PerturbationSpec {
+                sampler: config.candidate_rv.unwrap_or(CandidateSampler::RAASP),
+                num_pert: config.num_pert.unwrap_or(20),
+                raasp_fast: config.raasp_fast.unwrap_or(false),
+                coord_system: config.coord_system.unwrap_or_default(),
+            };
+            pert.validate()?;
+            Some(pert)
+        } else {
+            None
+        };
         Ok(Self {
             candidates: pool.count(),
             arms: pool.arms(),
             distribution: config.perturbation,
+            perturbation,
         })
     }
 
@@ -257,6 +280,13 @@ impl CandidateGenerationSpec {
             candidates_per_arm: self.candidates / self.arms,
         });
         config.perturbation = self.distribution;
+        if let Some(pert) = &self.perturbation {
+            pert.validate()?;
+            config.candidate_rv = Some(pert.sampler);
+            config.num_pert = Some(pert.num_pert);
+            config.raasp_fast = Some(pert.raasp_fast);
+            config.coord_system = Some(pert.coord_system);
+        }
         Ok(())
     }
 }

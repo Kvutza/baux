@@ -42,3 +42,32 @@ impl TrustRegionBounds {
         Ok(())
     }
 }
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[deser(default, deny_unknown_fields, rename_all = "kebab-case")]
+pub struct PerturbationSpec {
+    pub sampler: CandidateSampler,
+    pub num_pert: usize,
+    pub raasp_fast: bool,
+    pub coord_system: crate::CoordSystem,
+}
+
+impl Default for PerturbationSpec {
+    fn default() -> Self {
+        Self {
+            sampler: CandidateSampler::RAASP,
+            num_pert: 20,
+            raasp_fast: false,
+            coord_system: crate::CoordSystem::Cartesian,
+        }
+    }
+}
+
+impl PerturbationSpec {
+    pub fn validate(&self) -> Result<(), String> {
+        if self.num_pert == 0 {
+            return Err("optimizer.perturbation.num-pert must be positive".into());
+        }
+        Ok(())
+    }
+}

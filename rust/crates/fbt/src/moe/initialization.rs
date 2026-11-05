@@ -238,11 +238,11 @@ impl CandidateWeights {
         policy: Option<Mhc4Initialization>,
         shape: crate::config::TrustRegionShape,
         family: &str,
-        _expert: Option<usize>,
+        expert: Option<usize>,
         initial_rms: f64,
     ) -> Result<(f32, f32), String> {
         let multiplier = if shape != crate::config::TrustRegionShape::Scalar {
-            1.0
+            baux::semantics::mhc4::expert_multiplier(family, expert)
         } else {
             1.0
         };

@@ -96,7 +96,6 @@ pub struct ParamBlock {
     pub scale: f32,
     pub weight: f32,
     pub address: ProgramAddress,
-    pub coord: crate::CoordSystem,
 }
 
 impl ParamBlock {
@@ -122,7 +121,6 @@ impl ParamBlock {
             scale,
             weight,
             address: ProgramAddress::opaque(key),
-            coord: crate::CoordSystem::Cartesian,
         })
     }
 
@@ -143,11 +141,6 @@ impl ParamBlock {
 
     pub fn with_address(mut self, address: ProgramAddress) -> Self {
         self.address = address;
-        self
-    }
-
-    pub fn with_coord(mut self, coord: crate::CoordSystem) -> Self {
-        self.coord = coord;
         self
     }
 }
@@ -1911,27 +1904,6 @@ mod tests {
                     round.index
                 );
             }
-        }
-    }
-
-    #[test]
-    fn metal_coords() {
-        let base = vec![0x3c00u16; 64];
-        for coord in [
-            crate::CoordSystem::Cartesian,
-            crate::CoordSystem::Spherical,
-            crate::CoordSystem::Polar,
-            crate::CoordSystem::OriginSphere,
-        ] {
-            let blocks = vec![
-                ParamBlock::new(71, 0, base.len(), 0.25, 1.0)
-                    .unwrap()
-                    .with_coord(coord),
-            ];
-            let mut s = state(&base, blocks);
-            let round = s.ask_round(1, 4, 42, config()).unwrap();
-            assert!(round.index < 4);
-            assert!(round.score.is_finite());
         }
     }
 }

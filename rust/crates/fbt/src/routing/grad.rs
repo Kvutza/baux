@@ -409,7 +409,11 @@ impl FineGrainedMoeGrad {
             &self.shared_gate_weight,
             u64::from(WIDTH * MOE_GATEUP),
         );
-        encoder.memory_barrier_with_resources(&[&scratch.packed_input, grad.gate_grad.0]);
+        encoder.memory_barrier_with_resources(&[
+            &scratch.packed_input,
+            grad.gate_grad.0,
+            grad.input_grad.0,
+        ]);
     }
 
     fn router(

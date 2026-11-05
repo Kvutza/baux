@@ -493,3 +493,37 @@ fn window_budget() {
         .is_err()
     );
 }
+
+#[test]
+fn perturbation_spec() {
+    let text = format!(
+        "{GAUSSIAN}\
+        [optimizer.perturbation]\n\
+        sampler = \"raasp\"\n\
+        num-pert = 12\n\
+        raasp-fast = true\n\
+        coord-system = \"spherical\"\n"
+    );
+    let config = parse_tune(&text).unwrap();
+    assert_eq!(config.candidate_rv, Some(CandidateSampler::RAASP));
+    assert_eq!(config.num_pert, Some(12));
+    assert_eq!(config.raasp_fast, Some(true));
+    assert_eq!(config.coord_system, Some(crate::CoordSystem::Spherical));
+
+    let spec = ExperimentSpec::from_runtime(&config).unwrap();
+    let opt_cfg = OptimizerConfig::from_spec(&spec.optimizer).unwrap();
+    assert_eq!(
+        opt_cfg.candidates.coord_system,
+        crate::CoordSystem::Spherical
+    );
+    assert_eq!(opt_cfg.candidates.num_pert, 12);
+    assert!(opt_cfg.candidates.raasp_fast);
+
+    let roundtrip = parse_tune(&spec.to_toml().unwrap()).unwrap();
+    assert_eq!(roundtrip.coord_system, Some(crate::CoordSystem::Spherical));
+    assert_eq!(roundtrip.num_pert, Some(12));
+    assert_eq!(roundtrip.raasp_fast, Some(true));
+
+    let invalid = text.replace("num-pert = 12", "num-pert = 0");
+    assert!(parse_tune(&invalid).is_err());
+}

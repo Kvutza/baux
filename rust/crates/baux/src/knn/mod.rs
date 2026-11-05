@@ -24,7 +24,12 @@ use crate::error::IndexError;
 
 #[cfg(all(target_os = "macos", feature = "metal"))]
 pub(crate) use auto::AutoIndex;
-pub(crate) use exact_backend::{ExactBackend, check_rows, flatten_f32, pad_k, unpack_search};
+#[cfg(any(
+    all(target_os = "macos", feature = "metal"),
+    all(target_os = "linux", target_arch = "x86_64", feature = "cuda")
+))]
+pub(crate) use exact_backend::check_rows;
+pub(crate) use exact_backend::{ExactBackend, flatten_f32, pad_k, unpack_search};
 pub use exact_backend::{IndexDriver, disk_driver};
 
 /// KNN execution diagram used by the experimental parity surface.

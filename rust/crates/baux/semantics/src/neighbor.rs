@@ -23,6 +23,15 @@ pub enum UncertaintyLaw {
 
 /// Pairwise distance transformation applied to stored and queried rows.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[cfg_attr(not(cabi_parity), derive(deser::Serialize, deser::Deserialize))]
+#[cfg_attr(
+    not(cabi_parity),
+    deser(
+        tag = "kind",
+        rename_all = "kebab-case",
+        rename_all_fields = "kebab-case"
+    )
+)]
 pub enum DistanceMetric {
     #[default]
     Euclidean,

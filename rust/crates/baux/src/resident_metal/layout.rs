@@ -57,7 +57,7 @@ pub fn make_layout(
             scale: block.scale,
             weight: block.weight,
             address: u32::from(block.address.bits()),
-            pad: block.coord.shader(),
+            pad: 0,
         });
     }
     if covered == 0 || covered != elements {

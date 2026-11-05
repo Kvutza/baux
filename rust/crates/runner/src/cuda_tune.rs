@@ -336,9 +336,8 @@ fn check_spec(
             .unwrap_or(baux::config::TrustRegionShape::TensorFamilyStatic)
             .name(),
     )?;
-    if run.proposal_kernel() != baux::ProposalKernel::Gaussian
-        || policy.distance_metric != baux::DistanceMetric::Euclidean
-    {
+    policy.surrogate_spec()?;
+    if run.proposal_kernel() != baux::ProposalKernel::Gaussian {
         return Err(
             "CUDA mHC-4 does not implement every resolved optimizer field; refusing a partial \
              TOML projection"
@@ -410,6 +409,14 @@ max = 0.2
         let json = baux::artifact::json::to_string(&settings).unwrap();
         let decoded: baux::SurrogateSpec = baux::artifact::json::from_str(&json).unwrap();
         assert_eq!(decoded, settings);
+        let conformal = baux::SurrogateSpec {
+            metric: baux::semantics::neighbor::DistanceMetric::Conformal { local_k: 8 },
+            ..settings
+        };
+        let conformal_json = baux::artifact::json::to_string(&conformal).unwrap();
+        let conformal_decoded: baux::SurrogateSpec =
+            baux::artifact::json::from_str(&conformal_json).unwrap();
+        assert_eq!(conformal_decoded, conformal);
     }
 
     #[test]

@@ -40,27 +40,22 @@ impl ProposalKernel {
 }
 
 /// Coordinate system used to construct perturbation displacements.
-#[repr(u32)]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[deser(rename_all = "kebab-case")]
 pub enum CoordSystem {
     /// Independent axis-aligned perturbation coordinates.
     #[default]
-    Cartesian = 0,
+    Cartesian,
     /// Unit-sphere surface direction scaled by per-dimension half-widths.
-    Spherical = 1,
+    Spherical,
     /// Radial magnitude times unit-sphere direction scaled by half-widths.
-    Polar = 2,
+    Polar,
     /// Tangent-retracted step preserving norm around the origin or center.
-    OriginSphere = 3,
+    #[deser(alias = "origin_sphere")]
+    OriginSphere,
 }
 
 impl CoordSystem {
-    /// Stable value consumed by the accelerator ABI.
-    pub const fn shader(self) -> u32 {
-        self as u32
-    }
-
     /// Machine-readable coordinate system name.
     pub const fn name(self) -> &'static str {
         match self {
@@ -95,10 +90,9 @@ mod tests {
         assert_eq!(setting.perturbation, ProposalKernel::Rademacher);
 
         assert_eq!(CoordSystem::default(), CoordSystem::Cartesian);
-        assert_eq!(CoordSystem::Cartesian.shader(), 0);
-        assert_eq!(CoordSystem::Spherical.shader(), 1);
-        assert_eq!(CoordSystem::Polar.shader(), 2);
-        assert_eq!(CoordSystem::OriginSphere.shader(), 3);
+        assert_eq!(CoordSystem::Cartesian.name(), "cartesian");
+        assert_eq!(CoordSystem::Spherical.name(), "spherical");
+        assert_eq!(CoordSystem::Polar.name(), "polar");
         assert_eq!(CoordSystem::OriginSphere.name(), "origin-sphere");
     }
 }

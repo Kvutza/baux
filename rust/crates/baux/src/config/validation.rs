@@ -286,12 +286,10 @@ impl RunConfig {
     }
 
     pub fn validate_controller(&self) -> Result<(), String> {
-        let unsupported = self.candidate_rv.is_some()
-            || self.num_candidates_factor.is_some()
+        let unsupported = self.num_candidates_factor.is_some()
             || self.min_candidates.is_some()
             || self.max_candidates.is_some()
             || self.num_candidates_per_arm.is_some()
-            || self.num_pert.is_some()
             || self.index_driver.is_some()
             || self.scale_x.is_some()
             || self.noise_aware.is_some()

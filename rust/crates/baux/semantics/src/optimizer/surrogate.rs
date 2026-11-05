@@ -30,6 +30,8 @@ pub struct SurrogateSpec {
     pub fit_samples: usize,
     pub fit: bool,
     pub adaptive: bool,
+    #[deser(default)]
+    pub metric: DistanceMetric,
 }
 
 impl Default for SurrogateSpec {
@@ -43,13 +45,21 @@ impl Default for SurrogateSpec {
             fit_samples: 10,
             fit: false,
             adaptive: false,
+            metric: DistanceMetric::Euclidean,
         }
     }
 }
 
 impl SurrogateSpec {
     pub fn validate(self) -> Result<Self, String> {
+        let valid_metric = match self.metric {
+            DistanceMetric::Euclidean => true,
+            DistanceMetric::Conformal { local_k }
+            | DistanceMetric::Hyperbolic { local_k }
+            | DistanceMetric::Wasserstein { local_k } => (1..=MAX_HISTORY).contains(&local_k),
+        };
         if !(1..=MAX_HISTORY).contains(&self.neighbors)
+            || !valid_metric
             || self.fit_candidates == 0
             || self.fit_samples == 0
             || [self.epistemic, self.aleatoric, self.scale]
@@ -191,7 +201,7 @@ impl NeighborValueEstimator {
             adapt_neighbors: spec.adaptive,
             fitted: false,
             uncertainty_law: UncertaintyLaw::InversePrecision,
-            distance_metric: DistanceMetric::Euclidean,
+            distance_metric: spec.metric,
         })
     }
 

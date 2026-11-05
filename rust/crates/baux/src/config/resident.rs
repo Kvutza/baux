@@ -15,6 +15,19 @@ pub struct ResidentEnnConfig {
 
 impl ResidentEnnConfig {
     pub fn surrogate_spec(&self) -> Result<baux::semantics::optimizer::SurrogateSpec, String> {
+        let local_k = self.local_scale_neighbors;
+        let metric = match self.distance_metric {
+            DistanceMetric::Euclidean => baux::semantics::neighbor::DistanceMetric::Euclidean,
+            DistanceMetric::Conformal => {
+                baux::semantics::neighbor::DistanceMetric::Conformal { local_k }
+            }
+            DistanceMetric::Hyperbolic => {
+                baux::semantics::neighbor::DistanceMetric::Hyperbolic { local_k }
+            }
+            DistanceMetric::Wasserstein => {
+                baux::semantics::neighbor::DistanceMetric::Wasserstein { local_k }
+            }
+        };
         baux::semantics::optimizer::SurrogateSpec {
             neighbors: self.ask.surrogate.neighbors,
             epistemic: self.ask.surrogate.epistemic_scale,
@@ -24,6 +37,7 @@ impl ResidentEnnConfig {
             fit_samples: self.num_samples,
             fit: self.fit_params,
             adaptive: self.adapt_neighbors,
+            metric,
         }
         .validate()
     }

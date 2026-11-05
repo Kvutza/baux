@@ -634,6 +634,7 @@ mod tests {
             num_pert: 20,
             candidate_rv: CandidateSampler::Uniform,
             raasp_fast: false,
+            ..Default::default()
         };
         assert_eq!(config.num_candidates(60, 1), 5000);
         assert_eq!(config.num_candidates(100, 1), 5000);
@@ -755,6 +756,7 @@ mod tests {
             num_pert: 20,
             candidate_rv: CandidateSampler::Uniform,
             raasp_fast: false,
+            ..Default::default()
         };
         assert_eq!(cfg.num_candidates(2, 3), 75);
         assert_eq!(cfg.num_candidates(2, 8), 200);

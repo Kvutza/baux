@@ -4,7 +4,7 @@ use ndarray::{Array1, Array2, ArrayView1, ArrayView2, Axis};
 use rand::RngCore;
 
 use super::selection::{CandidateSegment, select_indices, select_segment};
-use crate::candidates::{generate_candidates, generate_lhd, generate_uniform};
+use crate::candidates::{generate_lhd, generate_uniform, perturb_candidates};
 use crate::config::InitStrategy;
 use crate::error::ENNError;
 use crate::optimizer::{
@@ -141,12 +141,16 @@ fn build_segments(
         let num_candidates = config.num_candidates(num_dim, batch.len);
         optimizer.telemetry.num_candidates += num_candidates;
 
-        let x_cand = generate_candidates(
-            || (lower_1d.clone(), upper_1d.clone()),
+        let x_cand = perturb_candidates(
             &x_center.view(),
-            ls_ref.as_ref(),
+            &lower_1d,
+            &upper_1d,
             num_candidates,
             config.candidate_rv,
+            config.coord_system,
+            &config.tied_dims,
+            false,
+            config.raasp_fast,
             rng,
             optimizer.proposals.sobol_mut(),
             config.num_pert,

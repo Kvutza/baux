@@ -263,8 +263,21 @@ impl BayesOptimizer {
             }
         }
 
+        if let crate::optimizer_config::SurrogateConfig::ENN(enn) = &config.surrogate {
+            enn.validate(num_dim)?;
+        }
+        let mut cand_cfg = config.candidates.clone();
+        if cand_cfg.tied_dims.is_empty() {
+            if let crate::optimizer_config::SurrogateConfig::ENN(enn) = &config.surrogate {
+                if !enn.tied_dims.is_empty() {
+                    cand_cfg.tied_dims.clone_from(&enn.tied_dims);
+                }
+            }
+        }
+        crate::metric_weights::validate_tied(&cand_cfg.tied_dims, num_dim)?;
+
         let posterior = PosteriorStore::new(&config.surrogate, provided_surrogate);
-        let proposals = ProposalEngine::new(num_dim, config.candidates.clone(), rng)?;
+        let proposals = ProposalEngine::new(num_dim, cand_cfg, rng)?;
         let incumbent = IncumbentLedger::new(&config, regions.num_metrics());
 
         Ok(Self {

@@ -334,6 +334,8 @@ impl crate::optimizer_config::CandidateConfig {
             num_pert: 20,
             candidate_rv: CandidateSampler::RAASP,
             raasp_fast: false,
+            coord_system: crate::proposal_kernel::CoordSystem::Cartesian,
+            tied_dims: Vec::new(),
         })
     }
 }

@@ -50,6 +50,7 @@ fn turbo_config2(storage: EnnStorage, work_dir: Option<PathBuf>) -> OptimizerCon
         num_pert: 20,
         candidate_rv: CandidateSampler::Uniform,
         raasp_fast: false,
+        ..Default::default()
     };
     cfg
 }

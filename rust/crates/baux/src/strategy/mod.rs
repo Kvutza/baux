@@ -9,7 +9,7 @@ mod selection;
 use multi::{ask_init, ask_multi, tell_common, tell_multi};
 use selection::*;
 
-use crate::candidates::draw_turbo;
+use crate::candidates::perturb_candidates;
 use crate::config::InitStrategy;
 use crate::error::ENNError;
 use crate::optimizer::{BayesOptimizer, Telemetry, TrustRegionState};
@@ -288,15 +288,16 @@ fn ask_turbo(
     }
 
     let is_morbo = optimizer.regions.is_morbo();
-    let x_cand_unit = draw_turbo(
-        is_morbo,
-        config.candidate_rv,
-        config.raasp_fast,
+    let x_cand_unit = perturb_candidates(
         &x_center.view(),
-        lengthscales.as_ref(),
         &lower_1d,
         &upper_1d,
         num_candidates,
+        config.candidate_rv,
+        config.coord_system,
+        &config.tied_dims,
+        is_morbo,
+        config.raasp_fast,
         rng,
         optimizer.proposals.sobol_mut(),
         config.num_pert,

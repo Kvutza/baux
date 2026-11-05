@@ -145,11 +145,6 @@ impl ENN {
         crate::y_bounds::validate_bounds(&y_bounds, train_y.ncols())?;
         let bounded_outputs = !crate::y_bounds::identity_bounds(&y_bounds);
         let (train_y, train_yvar) = warp_training(train_y, train_yvar, &y_bounds, bounded_outputs)?;
-        if scale_x && disk_driver(driver) {
-            return Err(ENNError::InvalidParameter(
-                "scale_x=True is not compatible with BPANN_DISK".to_string(),
-            ));
-        }
         let num_obs = train_x.nrows();
         let num_dim = train_x.ncols();
         let num_metrics = train_y.ncols();
@@ -196,6 +191,10 @@ impl ENN {
 
         let mut model = Self {
             metric: None,
+            metric_fixed: false,
+            built_scale: x_scale.clone(),
+            unscaled_dims: Vec::new(),
+            tied_groups: Vec::new(),
             backend,
             num_obs,
             num_dim,
@@ -243,6 +242,10 @@ impl ENN {
             .unwrap_or_else(|| crate::y_bounds::unbounded_bounds(num_metrics));
         let mut model = Self {
             metric: None,
+            metric_fixed: false,
+            built_scale: Array1::ones(num_dim),
+            unscaled_dims: Vec::new(),
+            tied_groups: Vec::new(),
             backend,
             num_obs: 0,
             num_dim,
@@ -330,10 +333,9 @@ impl ENN {
             let n = self.backend.len();
             self.y_scale = scale_moments(n, self.num_metrics, &self.y_sum, &self.y_sumsq, 0.0);
 
-            if self.scale_x && self.metric.is_none() {
+            if self.scale_x && !self.metric_fixed {
                 accumulate_columns(&mut self.x_sum, &mut self.x_sumsq, x.view());
-                self.x_scale = scale_moments(n, self.num_dim, &self.x_sum, &self.x_sumsq, 1e-12);
-                self.backend.mark_stale();
+                self.refresh_scale(n)?;
             }
 
             self.num_obs = n;
@@ -487,6 +489,8 @@ fn warp_training(
     Ok(result)
 }
 
+const STATS_CHUNK: usize = 1 << 16;
+
 /// Rebuild observation count and scale moments from persisted backend rows
 /// (disk reopen).
 fn sync_backend(model: &mut ENN) -> Result<(), ENNError> {
@@ -497,17 +501,29 @@ fn sync_backend(model: &mut ENN) -> Result<(), ENNError> {
     if n == 0 {
         return Ok(());
     }
-    let indices: Vec<usize> = (0..n).collect();
-    let (x, y, _) = model.backend.train_rows(&indices)?;
-    let (y_sum, y_sumsq) = column_sumsq(y.view());
+    let mut y_sum = Array1::zeros(model.num_metrics);
+    let mut y_sumsq = Array1::zeros(model.num_metrics);
+    let mut x_sum = Array1::zeros(model.num_dim);
+    let mut x_sumsq = Array1::zeros(model.num_dim);
+    let mut start = 0usize;
+    while start < n {
+        let end = (start + STATS_CHUNK).min(n);
+        let indices: Vec<usize> = (start..end).collect();
+        let (x, y, _) = model.backend.train_rows(&indices)?;
+        accumulate_columns(&mut y_sum, &mut y_sumsq, y.view());
+        if model.scale_x {
+            accumulate_columns(&mut x_sum, &mut x_sumsq, x.view());
+        }
+        start = end;
+    }
     model.y_sum = y_sum;
     model.y_sumsq = y_sumsq;
     model.y_scale = scale_moments(n, model.num_metrics, &model.y_sum, &model.y_sumsq, 0.0);
     if model.scale_x {
-        let (x_sum, x_sumsq) = column_sumsq(x.view());
         model.x_sum = x_sum;
         model.x_sumsq = x_sumsq;
-        model.x_scale = scale_moments(n, model.num_dim, &model.x_sum, &model.x_sumsq, 1e-12);
+        model.x_scale = model.data_scale(n);
+        model.built_scale = model.x_scale.clone();
     }
     model.backend.ensure_sync(model.scale_x, &model.x_scale)?;
     Ok(())

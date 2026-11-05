@@ -123,7 +123,7 @@ pub use backend::{EnnBackend, EnnStorage, InMemoryEnnBackend};
 pub use base_policy::{BasePolicyManifest, POLICY_SCHEMA, PolicyQualification};
 pub use candidates::{
     CandidateRV, CandidateSampler, draw_turbo, from_unit, generate_candidates, generate_lhd,
-    generate_uniform, sobol_masked, sobol_sequence, to_unit,
+    generate_uniform, perturb_candidates, sobol_masked, sobol_sequence, to_unit,
 };
 pub use capability::{
     Backend, Capability, Operation, Support, backends, matrix, operations, support,
@@ -161,7 +161,7 @@ pub use optimizer_factory::{create_lhd, create_optimizer, enn_optimizer};
 pub use params::{ENNNormal, ENNParams, ParamsError, PosteriorFlags};
 pub use posterior::{WeightedPosteriorData, compute_internals, conditional_internals};
 pub use pretrain_data::load_tokens as pretrain_tokens;
-pub use proposal_kernel::ProposalKernel;
+pub use proposal_kernel::{CoordSystem, ProposalKernel};
 pub use stats::WeightedStats;
 pub use strategy::Strategy;
 pub use surrogate::{

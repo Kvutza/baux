@@ -3,6 +3,7 @@
 use deser::{Deserialize, Serialize};
 
 use crate::candidates::CandidateSampler;
+use crate::proposal_kernel::CoordSystem;
 use crate::surrogate::ENNSurrogateConfig;
 use crate::trust_region::TrustRegionConfig;
 
@@ -51,6 +52,8 @@ pub struct CandidateConfig {
     pub num_pert: usize,
     pub candidate_rv: CandidateSampler,
     pub raasp_fast: bool,
+    pub coord_system: CoordSystem,
+    pub tied_dims: Vec<Vec<usize>>,
 }
 
 impl Default for CandidateConfig {
@@ -63,6 +66,8 @@ impl Default for CandidateConfig {
             num_pert: 20,
             candidate_rv: CandidateSampler::Uniform,
             raasp_fast: false,
+            coord_system: CoordSystem::Cartesian,
+            tied_dims: Vec::new(),
         }
     }
 }
@@ -164,6 +169,8 @@ pub fn lhd_only() -> OptimizerConfig {
             num_pert: 20,
             candidate_rv: CandidateSampler::Uniform,
             raasp_fast: false,
+            coord_system: CoordSystem::Cartesian,
+            tied_dims: Vec::new(),
         },
         acquisition: AcquisitionConfig::Random,
         noise_aware: false,

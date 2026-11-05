@@ -44,6 +44,10 @@ pub struct ENN {
     pub(super) x_sumsq: Array1<f64>,
     pub(super) work_dir: Option<PathBuf>,
     pub(super) metric: Option<crate::metric_auto::AutoMetric>,
+    pub(super) metric_fixed: bool,
+    pub(super) built_scale: Array1<f64>,
+    pub(super) unscaled_dims: Vec<usize>,
+    pub(super) tied_groups: Vec<Vec<usize>>,
 }
 
 impl ENN {

@@ -51,6 +51,18 @@ impl Default for ENNSurrogateConfig {
     }
 }
 
+impl ENNSurrogateConfig {
+    pub fn validate(&self, num_dim: usize) -> Result<(), ENNError> {
+        crate::metric_weights::validate_tied(&self.tied_dims, num_dim)?;
+        if self.unscaled_dims.iter().any(|&d| d >= num_dim) {
+            return Err(ENNError::InvalidParameter(
+                "unscaled_dims contains out-of-range dimension".into(),
+            ));
+        }
+        Ok(())
+    }
+}
+
 pub struct ENNSurrogate {
     config: ENNSurrogateConfig,
     model: Option<ENN>,
@@ -101,9 +113,18 @@ impl ENNSurrogate {
         ) {
             let seed = rng.next_u64();
             model.learn_metric(self.config.tied_dims.clone(), seed)?;
-            if !self.config.unscaled_dims.is_empty() {
-                model.set_unscaled(self.config.unscaled_dims.clone())?;
-            }
+        }
+        if !self.config.tied_dims.is_empty() && model.tied_groups().is_empty() {
+            model.set_tied(self.config.tied_dims.clone())?;
+        }
+        if !self.config.unscaled_dims.is_empty()
+            && (self.config.scale_x
+                || matches!(
+                    (&self.config.storage, self.config.metric_learning),
+                    (EnnStorage::Disk, MetricLearning::Auto)
+                ))
+        {
+            model.set_unscaled(self.config.unscaled_dims.clone())?;
         }
         Ok(model)
     }

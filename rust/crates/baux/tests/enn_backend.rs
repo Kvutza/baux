@@ -92,20 +92,15 @@ fn disk_driver2() {
 #[test]
 fn x_disk() {
     let dir = TempDir::new().expect("tempdir");
-    match ENN::new_storage(
-        array![[0.0, 0.0]],
-        array![[0.0]],
+    let model = ENN::new_storage(
+        array![[0.0, 0.0], [2.0, 20.0]],
+        array![[0.0], [1.0]],
         None,
         true,
         IndexDriver::BpAnnDisk,
         EnnStorage::Disk,
         Some(dir.path().to_path_buf()),
-    ) {
-        Ok(_) => panic!("expected scale_x + BpAnnDisk to error"),
-        Err(e) => assert!(
-            e.to_string()
-                .contains("scale_x=True is not compatible with BPANN_DISK"),
-            "unexpected error: {e}"
-        ),
-    }
+    )
+    .expect("scale_x + BpAnnDisk");
+    assert_eq!(model.x_scale(), array![[1.0, 10.0]]);
 }

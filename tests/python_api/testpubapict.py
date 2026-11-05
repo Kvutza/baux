@@ -104,7 +104,8 @@ class TestPublicAPIExports:
         assert callable(experimental.make_region)
         assert inspect.isclass(experimental.BayesOptimizer)
         assert inspect.isclass(experimental.MultiTrustRegion)
-        assert inspect.isclass(experimental.ResidentBoSession)
+        if experimental.MetalRegionOptimizer is not None:
+            assert inspect.isclass(experimental.MetalRegionOptimizer)
         assert callable(experimental.enn_optimizer)
         assert callable(experimental.quantize_int4)
         assert callable(experimental.quantize_e2m1)

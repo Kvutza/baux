@@ -17,7 +17,9 @@ pub(crate) fn run(
     rounds: Option<u32>,
     engine: BuildSystem,
 ) -> Result<(), String> {
-    if regional::execute(root, path, rounds)? { return Ok(()); }
+    if regional::execute(root, path, rounds)? {
+        return Ok(());
+    }
     let prepare_started = Instant::now();
     terminal::stderr(
         Tag::Orchestration,

@@ -67,7 +67,7 @@ py_wheel(
     ],
     strip_path_prefixes = ["src"],
     summary = "Black-box optimization library",
-    version = "0.0.1",
+    version = "0.0.2",
     deps = [
         ":python_sources",
         ":wheel_extension",

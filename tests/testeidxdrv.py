@@ -48,6 +48,7 @@ def test_003(index_driver):
     except ValueError as error:
         unavailable = (
             "index is unavailable",
+            "index is unsupported",
             "no default Metal device found",
             "no OpenCL GPU or CPU device found",
         )

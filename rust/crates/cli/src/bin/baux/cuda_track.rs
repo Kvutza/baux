@@ -155,12 +155,6 @@ pub(crate) enum Action {
     /// guarantee correct coordinate masking, noise variance scheduling, and
     /// cross-entropy loss computation.
     DiffusionCheck,
-    /// Run the architecture-aware synthesized PTX hardware probe on the CUDA
-    /// device.
-    PtxProbe {
-        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
-        args: Vec<String>,
-    },
     /// Run native CUDA actions under compute-sanitizer memcheck.
     ///
     /// Fails on reported device memory-access errors in the executed fixtures.
@@ -217,7 +211,6 @@ impl Action {
             Self::TuneT4 { .. } => Some("T4 experiment"),
             Self::Diffusion { .. } => Some("diffusion"),
             Self::DiffusionCheck => Some("diffusion check"),
-            Self::PtxProbe { .. } => Some("PTX probe"),
             Self::Sanitize { .. } => Some("sanitizer"),
             Self::Bench { .. } => Some("benchmark"),
             Self::Modal { .. } => Some("Modal optimization"),
@@ -250,7 +243,6 @@ impl Action {
             Action::Model { args } => ("model", args.clone()),
             Action::Sanitize { args } => ("sanitize", args.clone()),
             Action::Bench { args } => ("bench", args.clone()),
-            Action::PtxProbe { args } => ("ptx-probe", args.clone()),
             Action::ModelCheck { initialized } => (
                 "model-check",
                 initialized

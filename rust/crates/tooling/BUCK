@@ -17,7 +17,7 @@ app_rust_library(
     deps = [
         "//rust:clap",
         "//rust:deser",
-        "//rust/crates/baux:baux",
+        "//rust/crates/baux:baux-cli",
     ],
     visibility = ["PUBLIC"],
 )
@@ -32,11 +32,8 @@ rust_test(
     deps = [
         "//rust:clap",
         "//rust:deser",
-        "//rust/crates/baux:baux",
-    ] + select({
-        "//:macos-arm64": ["//build/buck2/native:openmp-macos"],
-        "DEFAULT": [],
-    }),
+        "//rust/crates/baux:baux-cli",
+    ],
     rpath = True,
     runtime_dependency_handling = "symlink",
 )

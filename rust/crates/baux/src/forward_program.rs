@@ -1,13 +1,11 @@
-//! Shared contracts for resident model execution.
+//! Semantic execution IR and performance contract helpers.
 
-pub use baux::semantics::graph::*;
-pub use baux::semantics::model::*;
-pub use baux::semantics::recurrence::*;
-pub use baux::semantics::schedule::*;
-pub use baux::semantics::tensor::*;
-#[path = "forward_program/contract.rs"]
 mod contract;
-#[path = "forward_program/diffusion.rs"]
 pub mod diffusion;
+
 pub use baux::semantics::mhc4;
+pub use baux::semantics::model::{ModelProgram, ProgramKind};
+pub use baux::semantics::recurrence::RecurrentCore;
+pub use baux::semantics::schedule::{Backend, BackendSchedule, Compiler, ScheduledKernel};
+pub use baux::semantics::shape::{MHC4_COEFFS, MHC4_PARAMS, MHC4_PATCH, PISA_BYTES};
 pub use contract::*;

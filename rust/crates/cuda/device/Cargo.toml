@@ -1,0 +1,17 @@
+[package]
+name = "baux-cuda-device"
+version = "0.0.1"
+edition = "2024"
+publish = false
+
+[features]
+default = ["cuda", "cuda-device"]
+cuda = []
+cuda-device = []
+
+[dependencies]
+cuda-core.workspace = true
+cuda-device.workspace = true
+cuda-host.workspace = true
+deser.workspace = true
+rand.workspace = true

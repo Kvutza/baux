@@ -20,6 +20,19 @@ impl CudaIndex {
         })
     }
 
+    pub(crate) fn new_mode(
+        dims: usize,
+        train: &ArrayView2<f64>,
+        mode: baux_cuda::CudaKnnMode,
+    ) -> Result<Self, IndexError> {
+        check_shape(dims, train)?;
+        Ok(Self {
+            inner: baux_cuda::CudaIndex::with_mode(dims, &flatten_f32(train), mode)
+                .map_err(index_error)?,
+            dims,
+        })
+    }
+
     pub(crate) fn len(&self) -> usize {
         self.inner.len()
     }
@@ -64,10 +77,10 @@ impl CudaIndex {
             ));
         }
         let k_eff = k_eff.min(self.len());
-        if k_eff > baux_cuda::KNN_K {
+        let max_k = self.inner.max_neighbors();
+        if k_eff > max_k {
             return Err(IndexError::InvalidParameter(format!(
-                "CUDA index supports at most {} neighbors, got {k_eff}",
-                baux_cuda::KNN_K
+                "CUDA index supports at most {max_k} neighbors, got {k_eff}",
             )));
         }
 

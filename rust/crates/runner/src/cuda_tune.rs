@@ -26,7 +26,6 @@ struct Mhc4Job<'a> {
     beta: f32,
     rounds: u32,
     stage_samples: u32,
-    reliability: baux::semantics::optimizer::ReliabilityPolicy,
     surrogate: baux::SurrogateSpec,
     window: Option<u32>,
     reference_seed: u64,
@@ -128,12 +127,8 @@ impl Mhc4Job<'_> {
     }
 
     fn append_policy(&self, args: &mut Vec<OsString>) -> Result<(), String> {
-        let reliability = baux::artifact::json::to_string(&self.reliability)
-            .map_err(|error| error.to_string())?;
         let surrogate =
             baux::artifact::json::to_string(&self.surrogate).map_err(|error| error.to_string())?;
-        args.push(OsString::from("--reliability"));
-        args.push(OsString::from(reliability));
         args.push(OsString::from("--surrogate"));
         args.push(OsString::from(surrogate));
         Ok(())
@@ -200,9 +195,7 @@ fn resolve_digest(root: &Path) -> Result<String, String> {
             Ok(value)
         }
         Ok(_) => Err("BAUX_SOURCE_DIGEST must be a SHA-256 digest".into()),
-        Err(_) => {
-            baux::experimental::perf_digest(root, baux::experimental::ExecutionTarget::CudaOxide)
-        }
+        Err(_) => baux::experimental::perf_digest(root, baux::experimental::Backend::CudaOxide),
     }
 }
 
@@ -287,10 +280,6 @@ pub(crate) fn run(root: &Path, path: &Path, out: &Path) -> Result<(), String> {
             .unwrap_or(baux::config::TrustRegionShape::TensorFamilyStatic),
         stage_samples: run.scorer_stage_samples.unwrap_or(0),
         surrogate: policy.surrogate_spec()?,
-        reliability: run
-            .reliability_controller()
-            .unwrap_or_default()
-            .validate()?,
         output: &output,
     };
     let status = if cfg!(target_os = "linux") {
@@ -347,11 +336,8 @@ fn check_spec(
             .unwrap_or(baux::config::TrustRegionShape::TensorFamilyStatic)
             .name(),
     )?;
-    if policy.proposal_method != baux::procedural_pool::ProposalMethod::Additive
-        || run.proposal_kernel() != baux::ProposalKernel::Gaussian
-        || policy.distance_scaling != baux::DistanceScaling::Global
-        || policy.history_geometry != baux::config::HistoryGeometry::Latent
-    {
+    policy.surrogate_spec()?;
+    if run.proposal_kernel() != baux::ProposalKernel::Gaussian {
         return Err(
             "CUDA mHC-4 does not implement every resolved optimizer field; refusing a partial \
              TOML projection"
@@ -380,37 +366,26 @@ mod tests {
 version = 4
 experiment = "pretrain"
 model = "fbt-pisa1-mhc4-v1"
-[data]
 recipe = "stack-v3-rust-go-v1"
-[objective]
-function = "cross-entropy"
-sampling = "natural"
+objective = "cross-entropy"
 window-tokens = 1048576
-[execution]
 rounds = 1000
 round-target-ms = 1000
 [optimizer]
 algorithm = "turbo-enn"
-[optimizer.candidate-generation]
-generator = "independent"
 arms = 1
 candidates = 1
-[optimizer.candidate-generation.perturbation]
 distribution = "gaussian"
+acquisition = "thompson"
 [optimizer.surrogate]
-estimator = "enn"
-scaling = "global"
+metric = "euclidean"
 neighbors = 10
-neighbor-rule = "fixed"
 epistemic-scale = 0.05
 aleatoric-scale = 0.05
 fit = "leave-one-out"
 fit-candidates = 30
 fit-samples = 10
-[optimizer.acquisition]
-function = "thompson"
 [optimizer.trust-region]
-policy = "turbo"
 initial = 0.02
 min = 0.01
 max = 0.2
@@ -434,6 +409,14 @@ max = 0.2
         let json = baux::artifact::json::to_string(&settings).unwrap();
         let decoded: baux::SurrogateSpec = baux::artifact::json::from_str(&json).unwrap();
         assert_eq!(decoded, settings);
+        let conformal = baux::SurrogateSpec {
+            metric: baux::semantics::neighbor::DistanceMetric::Conformal { local_k: 8 },
+            ..settings
+        };
+        let conformal_json = baux::artifact::json::to_string(&conformal).unwrap();
+        let conformal_decoded: baux::SurrogateSpec =
+            baux::artifact::json::from_str(&conformal_json).unwrap();
+        assert_eq!(conformal_decoded, conformal);
     }
 
     #[test]
@@ -464,7 +447,6 @@ max = 0.2
             beta: 2.0,
             rounds: 256,
             stage_samples: 3,
-            reliability: baux::semantics::optimizer::ReliabilityPolicy::default(),
             surrogate: baux::SurrogateSpec {
                 neighbors: 10,
                 fit: true,

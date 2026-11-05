@@ -10,21 +10,21 @@ from dataclasses import dataclass
 from importlib.util import find_spec
 from typing import Literal
 
-ExecutionTargetName = Literal["cpu", "cuda", "metal", "opencl"]
+BackendName = Literal["cpu", "cuda", "metal", "opencl"]
 
 
 @dataclass(frozen=True, slots=True)
-class TargetCapabilities:
-    """Compiled support, target availability, and transfer requirements.
+class BackendCapabilities:
+    """Native build support, runtime availability, and transfer requirements.
 
     ``available=None`` means compiled but not probed. ``direct_operations``
     describes where arithmetic executes, not memory residency. Operations in
     ``host_operations`` accept/return host arrays. ``array_frameworks`` lists
-    installed Python packages only; it does not establish compiled support.
-    A successful target probe exercises neighbor search, not every operation.
+    installed Python packages only; it does not establish native support.
+    A successful runtime probe exercises neighbor search, not every operation.
     """
 
-    name: ExecutionTargetName
+    name: BackendName
     compiled: bool
     available: bool | None
     reason: str | None
@@ -35,11 +35,11 @@ class TargetCapabilities:
     array_frameworks: tuple[str, ...]
 
 
-def capabilities(*, probe: bool = False) -> tuple[TargetCapabilities, ...]:
-    """Inspect the installed extension; optionally exercise accelerator targets.
+def capabilities(*, probe: bool = False) -> tuple[BackendCapabilities, ...]:
+    """Inspect the installed extension; optionally exercise native runtimes.
 
     Runtime probes can initialize drivers and compile kernels. Python framework
-    installation or GPU detection never substitutes for compiled target support.
+    installation or GPU detection never substitutes for native build support.
     ``posterior`` describes the original host-array interface.
     ``device_posterior`` describes FP32 device queries and DLPack moments/draws
     for explicit CUDA/Metal indices, scale_x=False, and unbounded outputs.
@@ -48,7 +48,7 @@ def capabilities(*, probe: bool = False) -> tuple[TargetCapabilities, ...]:
 
     frameworks = tuple(name for name in ("torch", "jax") if find_spec(name) is not None)
     return tuple(
-        TargetCapabilities(
+        BackendCapabilities(
             name=row["name"],
             compiled=row["compiled"],
             available=row["available"],
@@ -73,4 +73,4 @@ def capabilities(*, probe: bool = False) -> tuple[TargetCapabilities, ...]:
     )
 
 
-__all__ = ["ExecutionTargetName", "TargetCapabilities", "capabilities"]
+__all__ = ["BackendCapabilities", "capabilities"]

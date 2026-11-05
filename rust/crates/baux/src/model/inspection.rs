@@ -1,6 +1,54 @@
 //! Observation shape and output bounds.
 
-use super::*;
+use ndarray::{Array1, Array2};
+use std::path::PathBuf;
+
+use crate::backend::{EnnBackend, EnnStorage};
+use crate::index::IndexDriver;
+
+#[derive(Debug, Clone)]
+pub struct ModelOptions {
+    pub scale_x: bool,
+    pub driver: IndexDriver,
+    pub storage: EnnStorage,
+    pub work_dir: Option<PathBuf>,
+    pub y_bounds: Option<Array2<f64>>,
+}
+
+impl Default for ModelOptions {
+    fn default() -> Self {
+        Self {
+            scale_x: false,
+            driver: IndexDriver::Exact,
+            storage: EnnStorage::InMemory,
+            work_dir: None,
+            y_bounds: None,
+        }
+    }
+}
+
+/// Epistemic Nearest Neighbors model.
+pub struct ENN {
+    pub(crate) backend: EnnBackend,
+    pub(crate) num_obs: usize,
+    pub(crate) num_dim: usize,
+    pub(crate) num_metrics: usize,
+    pub(crate) scale_x: bool,
+    pub(crate) x_scale: Array1<f64>,
+    pub(crate) y_scale: Array1<f64>,
+    pub(crate) y_bounds: Array2<f64>,
+    pub(crate) bounded_outputs: bool,
+    pub(super) y_sum: Array1<f64>,
+    pub(super) y_sumsq: Array1<f64>,
+    pub(super) x_sum: Array1<f64>,
+    pub(super) x_sumsq: Array1<f64>,
+    pub(super) work_dir: Option<PathBuf>,
+    pub(super) metric: Option<crate::metric_auto::AutoMetric>,
+    pub(super) metric_fixed: bool,
+    pub(super) built_scale: Array1<f64>,
+    pub(super) unscaled_dims: Vec<usize>,
+    pub(super) tied_groups: Vec<Vec<usize>>,
+}
 
 impl ENN {
     pub fn len(&self) -> usize {
@@ -48,6 +96,6 @@ impl ENN {
     }
 
     pub fn has_yvar(&self) -> bool {
-        self.num_obs > 0 && self.rows().row_yvar(0).ok().flatten().is_some()
+        self.num_obs > 0 && self.backend.row_yvar(0).ok().flatten().is_some()
     }
 }

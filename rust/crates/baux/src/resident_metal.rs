@@ -1,4 +1,4 @@
-//! Dense FP32-compute/BF16-storage correlated search on the shared Apple GPU
+//! Dense FP32-compute/BF16-storage Gaussian search on the shared Apple GPU
 //! runtime.
 //!
 //! Integration: expose this module under `cfg(all(target_os = "macos", feature
@@ -6,91 +6,63 @@
 //! while leases exist, and expose weights read-only. All commands here complete
 //! before returning. Buffer clones keep allocations alive but do not prevent
 //! writes by another Metal consumer. Absolute observations use bounded FIFO
-//! history and the shared CPU TuRBO controller. The old two-row paired-relative
-//! experiment is available only by explicit opt-in.
+//! history and the shared CPU TuRBO controller.
 
-use std::sync::Arc;
-use std::time::Instant;
+use std::{sync::Arc, time::Instant};
 
-use metal::objc::rc::autoreleasepool;
 use metal::{
     Buffer, CommandBuffer, CommandBufferRef, ComputePipelineState, MTLCommandBufferStatus,
+    objc::rc::autoreleasepool,
 };
 
-use crate::ProposalKernel;
-use crate::apple_gpu::Runtime;
-use crate::compute::AcquisitionKind;
-use crate::fitter::ENNFitter;
-use crate::reliability_region;
-use crate::trials::RoundConfig;
-use crate::trust_region::{TRLengthConfig, TrustRegionOutcome, TurboTrustRegion};
+use crate::{
+    ProposalKernel,
+    apple_gpu::Runtime,
+    fitter::ENNFitter,
+    trials::RoundConfig,
+    trust_region::{TRLengthConfig, TrustRegionOutcome, TurboTrustRegion},
+    weights::AcquisitionKind,
+};
 
 const SOURCE: &str = include_str!("resident_search.metal");
-#[path = "resident_metal/configuration.rs"]
 mod configuration;
-#[path = "resident_metal/controller.rs"]
 mod controller;
-#[path = "resident_metal/dispatch.rs"]
 mod dispatch;
-#[path = "resident_metal/history.rs"]
 mod history;
-#[path = "resident_metal/initialization.rs"]
+mod import;
 mod initialization;
-#[path = "resident_metal/inspection.rs"]
 mod inspection;
-#[path = "resident_metal/layout.rs"]
+pub use inspection::{MetalMemoryInfo, memory_info, upload};
 mod layout;
-#[path = "resident_metal/leaf.rs"]
 mod leaf;
-#[path = "resident_metal/objective_acquisition.rs"]
 mod objective_acquisition;
-#[path = "resident_metal/objectives.rs"]
 mod objectives;
-#[path = "resident_metal/procedural.rs"]
 mod procedural;
 #[allow(unused_imports)]
 pub use objective_acquisition::{ObjectiveAcquisition, ObjectivePolicy};
-#[path = "resident_metal/bounds.rs"]
-mod bounds;
-#[path = "resident_metal/observations.rs"]
-mod observations;
-#[path = "resident_metal/propose.rs"]
-mod propose;
-#[path = "resident_metal/publication.rs"]
-mod publication;
-pub use bounds::BoundReport;
-#[path = "resident_metal/axis.rs"]
 mod axis;
-#[path = "resident_metal/neighbors.rs"]
-mod neighbors;
+mod observations;
 #[cfg(test)]
-#[path = "resident_metal/parity.rs"]
 mod parity;
-#[path = "resident_metal/relative.rs"]
-mod relative;
-#[path = "resident_metal/reliability.rs"]
-mod reliability;
-#[path = "resident_metal/selection.rs"]
+mod propose;
+mod publication;
+mod regional;
 mod selection;
-#[path = "resident_metal/shapes.rs"]
 mod shapes;
-#[path = "resident_metal/state.rs"]
 mod state;
 use baux::semantics::gaussian::*;
 use layout::*;
 use leaf::*;
+pub use regional::{RegionalProposal, RegionalSearch};
+mod regional_trial;
+pub use regional_trial::{RegionalEvidence, RegionalTrial, regional_trial};
 use shapes::*;
 const TILE_ELEMENTS: usize = baux::semantics::dispatch::TILE_ELEMENTS as usize;
 const MAX_HISTORY: usize = crate::objective_observation::OBJECTIVE_CAPACITY;
-#[path = "resident_metal/family.rs"]
-mod family;
-use family::{FAMILIES, FamilyHistory};
-#[path = "resident_metal/metric.rs"]
-mod metric;
 // Production decisions consume only the four proposal norms.  The remaining
-// eleven full-vector dot products are retained in test builds as an oracle for
+// six full-vector dot products are retained in test builds as an oracle for
 // the geometry tests, but must not tax every optimizer round.
-const POOL_METRICS: usize = if cfg!(test) { 15 } else { 4 };
+const POOL_METRICS: usize = if cfg!(test) { 10 } else { 4 };
 const POOL_PAIRS: [(usize, usize); 6] = [(0, 1), (0, 2), (0, 3), (1, 2), (1, 3), (2, 3)];
 static NEXT_OWNER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
 
@@ -179,7 +151,7 @@ impl ParamBlock {
 
 pub type ProposalDescription = (u64, f32, f32, Vec<(u64, f64)>);
 pub type PoolDescription = (usize, u64, f32, f32, Vec<(i64, f32)>);
-pub type PoolGeometry = (Vec<f32>, Vec<(usize, usize, Option<f32>)>, Vec<Option<f32>>);
+pub type PoolGeometry = ([f32; 4], [Option<f32>; 6]);
 
 /// Immutable selected metadata, independent of reusable GPU scratch storage.
 #[derive(Clone, Debug)]
@@ -198,19 +170,15 @@ pub struct Proposals {
     pub incumbent_standard_error: f32,
     pub neighbors: u32,
     pub incumbent_neighbors: u32,
-    pub(crate) pool_predictions: [(f32, f32, f32); 4],
+    pub pool_predictions: Vec<(f32, f32, f32)>,
     changes: Vec<(u64, f64)>,
     history_distances: Vec<(i64, f32)>,
-    family_distances: Option<Vec<[f32; FAMILIES]>>,
-    pub(crate) block_scales: Vec<f32>,
+    pub block_scales: Vec<f32>,
     pool: Vec<PoolDescription>,
     pool_radii: [f32; 4],
     pool_cosines: [Option<f32>; 6],
-    reference_cosines: [Option<f32>; 4],
-    bounds: Option<BoundReport>,
     axis_coordinate: Option<f32>,
     axis_value: Option<f32>,
-    basis_seed: u64,
     direction_norm: f32,
 }
 
@@ -234,22 +202,18 @@ impl Proposals {
             .count()
     }
 
-    pub fn bound_report(&self) -> Option<BoundReport> {
-        self.bounds
-    }
-
     /// Selected value for an optional scalar search axis.
     pub fn axis_value(&self) -> Option<f32> {
         self.axis_value
     }
 
     /// Logical perturbation identity. This does not identify a resident model
-    /// buffer; only the selected proposal is materialized by the Metal path.
+    /// buffer; only the selected proposal is materialized by the backend.
     pub fn identity(&self) -> crate::procedural_pool::CandidateIdentity {
         self.pool_layout.identity(self.index as u32).unwrap()
     }
 
-    /// Describe the realized displacement selected for evaluation.
+    /// Describe the realized, quantized displacement selected for evaluation.
     /// This is measurement metadata; it does not replace the full-state metric
     /// used by the resident neighbor value estimator.
     pub fn measure(
@@ -286,8 +250,7 @@ impl Proposals {
             })
     }
 
-    #[cfg(test)]
-    pub(crate) fn pool_keys(&self) -> Vec<(usize, u64, f32)> {
+    pub fn pool_keys(&self) -> Vec<(usize, u64, f32)> {
         self.pool
             .iter()
             .map(|candidate| (candidate.0, candidate.1, candidate.2))
@@ -296,7 +259,7 @@ impl Proposals {
 }
 
 impl SearchState {
-    pub(crate) fn tensor_version(
+    pub fn tensor_version(
         &self,
         parent: u64,
         proposal: &Proposals,
@@ -393,36 +356,21 @@ pub struct SearchState {
     tiles_gpu: Buffer,
     offsets_gpu: Buffer,
     base: Buffer,
-    replay_origin: Option<Buffer>,
-    anchor: Buffer,
-    rejected: Buffer,
     history_rows: Vec<Buffer>,
     proposal: Buffer,
-    reference: Option<Buffer>,
-    reference_scales: Buffer,
-    reference_partials: Buffer,
     partials: Buffer,
     pool_aggregates: Buffer,
     decision: Buffer,
     pool_distances: Buffer,
-    replay_steps: Buffer,
-    replay_scales: Buffer,
-    replay_partials: Buffer,
-    replay_components: Buffer,
-    pool_family_distances: Buffer,
-    family_groups: Buffer,
-    family_base_weights: Buffer,
     pool_geometry: Buffer,
     propose_pipeline: ComputePipelineState,
     initial_pipeline: ComputePipelineState,
     pool_pipeline: ComputePipelineState,
     reduction_pipeline: ComputePipelineState,
-    replay_short_pipeline: ComputePipelineState,
-    replay_reduction_pipeline: ComputePipelineState,
     selection_pipeline: ComputePipelineState,
     materialize_pipeline: ComputePipelineState,
-    reference_pipeline: ComputePipelineState,
-    rms_pipeline: ComputePipelineState,
+    import_pipeline: ComputePipelineState,
+    import_reduction: ComputePipelineState,
     dimensions: usize,
     resident_bytes: u64,
     length_config: TRLengthConfig,
@@ -432,31 +380,21 @@ pub struct SearchState {
     objective_history: crate::objective_observation::ObjectiveWindow,
     objective_selector: Option<objective_acquisition::ObjectiveSelector>,
     pool_layout: crate::procedural_pool::ProceduralPool,
-    proposal_method: crate::procedural_pool::ProposalMethod,
     outcomes: Vec<f32>,
     variances: Vec<f32>,
     identities: Vec<i64>,
     observation: i64,
     base_id: i64,
     trust: TurboTrustRegion,
-    reliability: Option<reliability_region::ReliabilityController>,
     trust_observations: usize,
-    paired_evidence_sum: f64,
-    paired_evidence_count: usize,
     restart_count: usize,
     history: usize,
     resident_history: usize,
     resident_identities: Vec<i64>,
     pairwise_distances: Vec<f32>,
-    distance_scaling: crate::config::DistanceScaling,
+    distance_metric: crate::config::DistanceMetric,
     local_scale_neighbors: usize,
-    family: Option<FamilyHistory>,
-    metric_gpu: Option<metric::MetricGpu>,
     implicit_history: bool,
-    exact_history: bool,
-    latent_history: bool,
-    neighbors: Option<neighbors::Neighbors>,
-    calibration: crate::calibration::Calibration,
     initial_observations: usize,
     fit_candidates: usize,
     fit_samples: usize,
@@ -465,14 +403,11 @@ pub struct SearchState {
     fit_seed: u64,
     fitter: Option<ENNFitter>,
     fitted_enn: Option<(usize, f32, f32, f32)>,
-    failures: usize,
     owner: u64,
     next_id: u64,
     pending: Option<Proposals>,
     evaluation: Option<baux::semantics::optimizer::WorldId>,
     queued: Option<bool>,
-    reference_seed: Option<u64>,
-    relative: bool,
     started: bool,
     poisoned: bool,
     profiling: bool,
@@ -484,14 +419,9 @@ pub struct SearchState {
 }
 
 #[cfg(test)]
-#[path = "resident_audit.rs"]
-mod audit;
-#[cfg(test)]
-#[path = "resident_metal/objective_tests.rs"]
 mod objective_tests;
 
 #[cfg(test)]
-#[path = "resident_metal/transaction_tests.rs"]
 mod transaction_tests;
 
 #[cfg(test)]
@@ -525,7 +455,6 @@ mod tests {
             ProposalKernel::Gaussian,
         )
         .unwrap();
-        assert!(search.correlate(7).is_err());
         search.observe_initial(-3.0, 0.0).unwrap();
         assert_eq!(search.controller_info().unwrap().dimensions, base.len());
         for step in 0..4 {
@@ -558,7 +487,6 @@ mod tests {
             let proposal = search.ask_round(1, 4, root, config()).unwrap();
             let selected = read::<u16>(&search.proposal, base.len()).to_vec();
             assert_eq!(selected, candidates[proposal.index]);
-            assert!(search.reference.is_none());
             for (index, _, _, correlation, distances) in search.pool(&proposal).unwrap() {
                 assert_eq!(correlation, 0.0);
                 for (slot, (_, distance)) in distances.iter().enumerate() {
@@ -664,7 +592,6 @@ mod tests {
         search
             .configure_enn(crate::config::ResidentEnnConfig {
                 pool: crate::procedural_pool::ProceduralPool::legacy(),
-                proposal_method: crate::procedural_pool::ProposalMethod::Additive,
                 ask: {
                     let mut config = config();
                     config.surrogate.neighbors = 2;
@@ -674,8 +601,7 @@ mod tests {
                 num_samples: 2,
                 fit_params: true,
                 adapt_neighbors: false,
-                distance_scaling: crate::config::DistanceScaling::Global,
-                history_geometry: crate::config::HistoryGeometry::Realized,
+                distance_metric: crate::config::DistanceMetric::Euclidean,
                 local_scale_neighbors: 2,
             })
             .unwrap();
@@ -723,7 +649,6 @@ mod tests {
         search
             .configure_enn(crate::config::ResidentEnnConfig {
                 pool: crate::procedural_pool::ProceduralPool::legacy(),
-                proposal_method: crate::procedural_pool::ProposalMethod::Additive,
                 ask: {
                     let mut config = config();
                     config.surrogate.neighbors = 3;
@@ -733,8 +658,7 @@ mod tests {
                 num_samples: 2,
                 fit_params: true,
                 adapt_neighbors: false,
-                distance_scaling: crate::config::DistanceScaling::Global,
-                history_geometry: crate::config::HistoryGeometry::Latent,
+                distance_metric: crate::config::DistanceMetric::Euclidean,
                 local_scale_neighbors: 2,
             })
             .unwrap();
@@ -743,29 +667,32 @@ mod tests {
         search.begin_initial(12_345, 0).unwrap();
         let first = search.finish_ask().unwrap();
         let first_row = read::<u16>(&search.proposal, base.len());
-        let first_norm = oracle_distance(&base, &first_row, &blocks);
+        let first_dist = oracle_distance(&base, &first_row, &blocks);
         close(
             f64::from(first.history_distances[0].1),
-            f64::from(first_norm),
-            1e-6,
+            f64::from(first_dist),
+            1e-5,
         );
+        assert!(first_dist > 0.0);
         assert!(!search.tell_initial(&first, -1.0, 0.0).unwrap().accepted);
         assert_eq!(search.sync().unwrap(), [false]);
 
         search.begin_initial(12_346, 1).unwrap();
         let second = search.finish_ask().unwrap();
         let second_row = read::<u16>(&search.proposal, base.len());
-        let second_norm = oracle_distance(&base, &second_row, &blocks);
+        let second_base_dist = oracle_distance(&base, &second_row, &blocks);
+        let first_second_dist = oracle_distance(&first_row, &second_row, &blocks);
         close(
             f64::from(second.history_distances[0].1),
-            f64::from(second_norm),
-            1e-6,
+            f64::from(second_base_dist),
+            1e-5,
         );
         close(
             f64::from(second.history_distances[1].1),
-            f64::from(oracle_distance(&first_row, &second_row, &blocks)),
-            1e-6,
+            f64::from(first_second_dist),
+            1e-5,
         );
+        assert!(first_second_dist > 0.0);
         assert!(second.changes.iter().map(|change| change.0).sum::<u64>() > 0);
         search.tell_initial(&second, -1.0, 0.0).unwrap();
         search.sync().unwrap();
@@ -789,8 +716,6 @@ mod tests {
             search.sync().unwrap();
         }
         assert!(search.history > 16);
-        assert!(search.analytic_pool());
-        assert!(!search.realized_history());
     }
 
     fn oracle_distance(left: &[u16], right: &[u16], blocks: &[ParamBlock]) -> f32 {
@@ -825,7 +750,6 @@ mod tests {
         search
             .configure_enn(crate::config::ResidentEnnConfig {
                 pool: crate::procedural_pool::ProceduralPool::legacy(),
-                proposal_method: crate::procedural_pool::ProposalMethod::Additive,
                 ask: {
                     let mut config = config();
                     config.surrogate.neighbors = 3;
@@ -835,8 +759,7 @@ mod tests {
                 num_samples: 2,
                 fit_params: true,
                 adapt_neighbors: false,
-                distance_scaling: crate::config::DistanceScaling::Global,
-                history_geometry: crate::config::HistoryGeometry::Latent,
+                distance_metric: crate::config::DistanceMetric::Euclidean,
                 local_scale_neighbors: 2,
             })
             .unwrap();
@@ -846,13 +769,9 @@ mod tests {
         search.begin_initial(12_345, 0).unwrap();
         let proposal = search.finish_ask().unwrap();
         let decision = search.tell_initial(&proposal, 0.1, 0.01).unwrap();
-        assert!(!decision.accepted);
-        close(
-            decision.threshold,
-            2.0 * (2.0 * f64::from(0.01f32)).sqrt(),
-            1e-12,
-        );
-        assert_eq!(search.sync().unwrap(), [false]);
+        assert!(decision.accepted);
+        assert_eq!(decision.threshold, 0.0);
+        assert_eq!(search.sync().unwrap(), [true]);
     }
 
     #[test]
@@ -871,7 +790,6 @@ mod tests {
         search
             .configure_enn(crate::config::ResidentEnnConfig {
                 pool: crate::procedural_pool::ProceduralPool::legacy(),
-                proposal_method: crate::procedural_pool::ProposalMethod::Additive,
                 ask: {
                     let mut config = config();
                     config.surrogate.neighbors = 2;
@@ -881,8 +799,7 @@ mod tests {
                 num_samples: 2,
                 fit_params: true,
                 adapt_neighbors: false,
-                distance_scaling: crate::config::DistanceScaling::Global,
-                history_geometry: crate::config::HistoryGeometry::Realized,
+                distance_metric: crate::config::DistanceMetric::Euclidean,
                 local_scale_neighbors: 2,
             })
             .unwrap();
@@ -907,155 +824,6 @@ mod tests {
                 (actual - expected).abs() <= expected.abs() * 0.0005 + 2e-6,
                 "coordinate={element} actual={actual} expected={expected}"
             );
-        }
-    }
-
-    #[test]
-    fn replay_archived() {
-        for perturbation in [ProposalKernel::Rademacher, ProposalKernel::Gaussian] {
-            for learned in [false, true] {
-                check_replay(perturbation, learned);
-            }
-        }
-    }
-
-    fn check_replay(perturbation: ProposalKernel, learned: bool) {
-        let base: Vec<u16> = (0..4096)
-            .map(|index| 0x3000 + index as u16 % 1024)
-            .collect();
-        let blocks = (0..4)
-            .map(|group| {
-                let scale = 0.25 * (group + 1) as f32;
-                ParamBlock::new(
-                    71 + group as u64,
-                    group * 1024,
-                    1024,
-                    scale,
-                    1.0 / (1024.0 * scale * scale),
-                )
-                .unwrap()
-            })
-            .collect::<Vec<_>>();
-        let mut search = SearchState::new_implicit(
-            &base,
-            blocks.clone(),
-            1,
-            TRLengthConfig::new(0.1, 0.001, 0.4),
-            perturbation,
-        )
-        .unwrap();
-        if learned {
-            search.enable_family(vec![0, 1, 2, 3]).unwrap();
-        }
-        let ask = {
-            let mut config = config();
-            config.surrogate.neighbors = 2;
-            config
-        };
-        search
-            .configure_enn(crate::config::ResidentEnnConfig {
-                pool: crate::procedural_pool::ProceduralPool::legacy(),
-                proposal_method: crate::procedural_pool::ProposalMethod::Additive,
-                ask,
-                num_candidates: 4,
-                num_samples: 2,
-                fit_params: true,
-                adapt_neighbors: false,
-                distance_scaling: crate::config::DistanceScaling::Global,
-                history_geometry: crate::config::HistoryGeometry::Realized,
-                local_scale_neighbors: 2,
-            })
-            .unwrap();
-        search.observe_initial(-3.0, 0.0).unwrap();
-        let mut archive = vec![(1i64, base)];
-        for step in 0..35u64 {
-            let root = 12_345 + step;
-            if step != 0 {
-                let recipes = read::<ReplayStep>(&search.replay_steps, search.history);
-                assert_eq!(
-                    recipes[step as usize].accepted,
-                    u32::from((step - 1) % 2 == 0)
-                );
-                assert!(search.exact_history);
-                assert!(search.history > search.resident_history);
-            }
-            search.begin_ask(1, 4, root, ask).unwrap();
-            let round = search.finish_ask().unwrap();
-            let replayed = read::<u16>(&search.history_rows[0], search.len());
-            let incumbent = read::<u16>(&search.base, search.len());
-            if let Some(index) = replayed
-                .iter()
-                .zip(&incumbent)
-                .position(|(actual, expected)| actual != expected)
-            {
-                panic!(
-                    "step={step} replay lineage differs at {index}: actual={} expected={}",
-                    replayed[index], incumbent[index]
-                );
-            }
-            let selected = read::<u16>(&search.proposal, search.len());
-            for candidate in 0..4 {
-                search.diagnostic_row(&round, root, ask, candidate).unwrap();
-                let row = read::<u16>(&search.proposal, search.len());
-                for &(identity, actual) in &round.pool[candidate].4 {
-                    let historical = &archive
-                        .iter()
-                        .find(|(stored, _)| *stored == identity)
-                        .unwrap()
-                        .1;
-                    let expected = search
-                        .blocks
-                        .iter()
-                        .map(|block| {
-                            (block.offset..block.offset + block.len)
-                                .map(|index| {
-                                    let delta =
-                                        decode_fp16(row[index]) - decode_fp16(historical[index]);
-                                    delta * delta * f64::from(block.weight)
-                                })
-                                .sum::<f64>()
-                        })
-                        .sum::<f64>() as f32;
-                    assert!(
-                        (actual - expected).abs() <= 1.0e-5 + 3.0e-3 * expected.abs(),
-                        "step={step} candidate={candidate} identity={identity} actual={actual} \
-                         expected={expected}"
-                    );
-                    if candidate == round.index && learned {
-                        let components = round.family_distances.as_ref().unwrap();
-                        let history_index = round.pool[candidate]
-                            .4
-                            .iter()
-                            .position(|&(stored, _)| stored == identity)
-                            .unwrap();
-                        for (group, block) in blocks.iter().enumerate() {
-                            let expected = (block.offset..block.offset + block.len)
-                                .map(|index| {
-                                    let delta =
-                                        decode_fp16(row[index]) - decode_fp16(historical[index]);
-                                    delta * delta * f64::from(block.weight)
-                                })
-                                .sum::<f64>() as f32;
-                            let actual = components[history_index][group];
-                            assert!(
-                                (actual - expected).abs() <= 1.0e-5 + 3.0e-3 * expected.abs(),
-                                "family step={step} candidate={candidate} identity={identity} \
-                                 group={group} actual={actual} expected={expected}"
-                            );
-                        }
-                    }
-                }
-            }
-            search
-                .diagnostic_row(&round, root, ask, round.index)
-                .unwrap();
-            assert_eq!(read::<u16>(&search.proposal, search.len()), selected);
-            let accepted = step % 2 == 0;
-            search
-                .tell_paired(&round, -2.0 + step as f32, 0.0, search.best, 0.0, accepted)
-                .unwrap();
-            search.sync().unwrap();
-            archive.push((search.observation, selected));
         }
     }
 
@@ -1233,37 +1001,24 @@ mod tests {
     fn state(base: &[u16], blocks: Vec<ParamBlock>) -> SearchState {
         let mut s = SearchState::new(
             base,
-            -3.0,
-            0.5,
+            0.0,
+            0.0,
             blocks,
             2,
             1,
             TRLengthConfig::new(0.03125, 0.001953125, 0.125),
         )
         .unwrap();
-        assert!(s.reference.is_none());
-        s.correlate(1234).unwrap();
-        s.enable_relative(4).unwrap();
+        s.identities[1] = 2;
         s
     }
 
-    fn scalar_dirs(s: &SearchState, reference: &[u16], seed: u64, index: usize) -> Vec<f32> {
+    fn scalar_dirs(s: &SearchState, seed: u64) -> Vec<f32> {
         let mut result = vec![0.0; s.len()];
         for block in &s.blocks {
-            let squared = reference[block.offset..block.offset + block.len]
-                .iter()
-                .map(|x| f64::from(decode(*x)).powi(2))
-                .sum::<f64>();
-            let inverse = (block.len as f64 / squared).sqrt() as f32;
             for element in 0..block.len {
                 let noise = normal(seed ^ 0x8ebc_6af0_9c88_c6e3, block.key, element);
-                let direction = if index < 2 {
-                    0.75 * (decode(reference[block.offset + element]) * inverse)
-                        + 0.4375f32.sqrt() * noise
-                } else {
-                    noise
-                };
-                result[block.offset + element] = direction;
+                result[block.offset + element] = noise;
             }
         }
         result
@@ -1382,8 +1137,6 @@ mod tests {
                 let bounds = TRLengthConfig::new(0.03125, 0.001953125, 0.125);
                 let mut s =
                     SearchState::new(&base, -3.0, 0.5, blocks, capacity, 1, bounds).unwrap();
-                s.correlate(1234).unwrap();
-                s.ensure_ref().unwrap();
                 let mut trust = TurboTrustRegion::new(n, bounds);
                 trust.set_arms(1);
                 let mut values = vec![-3.0];
@@ -1405,17 +1158,20 @@ mod tests {
                     };
                     let expected = history_scores(&s, step as u64, config);
                     let round = s.ask_round(1, 4, step as u64, config).unwrap();
-                    let best = expected
-                        .iter()
-                        .map(|v| v.0)
-                        .fold(f64::NEG_INFINITY, f64::max);
+                    let best = if config.acquisition.kind == AcquisitionKind::Pareto {
+                        expected[round.index].0
+                    } else {
+                        expected
+                            .iter()
+                            .map(|v| v.0)
+                            .fold(f64::NEG_INFINITY, f64::max)
+                    };
                     close(f64::from(round.score), best, 5e-5);
                     let bits = read::<u16>(&s.proposal, n);
                     assert_eq!(bits, expected[round.index].1);
                     let value = if step < 4 { step as f32 } else { -4.0 };
                     let accept = step < 4;
-                    s.tell_paired(&round, value, 0.25, s.best, s.best_variance, accept)
-                        .unwrap();
+                    s.tell_noisy(&round, value, 0.25).unwrap();
                     assert_eq!(s.sync().unwrap(), vec![accept]);
                     values.push(f64::from(value));
                     trust
@@ -1440,37 +1196,11 @@ mod tests {
     }
 
     #[test]
-    fn family_recovers() {
-        autoreleasepool(|| {
-            let base = vec![0x3c00; 4096];
-            let blocks = (0..4)
-                .map(|group| {
-                    ParamBlock::new(71 + group as u64, group * 1024, 1024, 0.25, 1.0 / 64.0)
-                        .unwrap()
-                })
-                .collect();
-            let groups = vec![0, 1, 2, 3];
-            let bounds = TRLengthConfig::new(0.03125, 0.001953125, 0.125);
-            let mut search =
-                SearchState::new_implicit(&base, blocks, 1, bounds, ProposalKernel::Rademacher)
-                    .unwrap();
-            search.enable_family(groups).unwrap();
-            search.observe_initial(-3.0, 0.5).unwrap();
-            search.base_id = 73;
-            search.compact_history().unwrap();
-            assert_eq!(search.history, 1);
-            assert_eq!(search.identities[0], 73);
-            assert_eq!(search.resident_identities[0], 73);
-        });
-    }
-
-    #[test]
     fn restart_parity() {
         autoreleasepool(|| {
             let (base, blocks) = fixture(3);
             let bounds = TRLengthConfig::new(0.03125, 0.015625, 0.125);
             let mut s = SearchState::new(&base, 0.0, 0.1, blocks, 3, 1, bounds).unwrap();
-            s.correlate(41).unwrap();
             let mut trust = TurboTrustRegion::new(3, bounds);
             trust.set_arms(1);
             let mut values = vec![0.0];
@@ -1480,7 +1210,7 @@ mod tests {
             let mut restarts = 0;
             for step in 0..14 {
                 let round = s.ask_round(1, 4, step, RoundConfig::default()).unwrap();
-                s.tell_paired(&round, -1.0, 0.2, 0.0, 0.1, false).unwrap();
+                s.tell_noisy(&round, -1.0, 0.2).unwrap();
                 s.sync().unwrap();
                 values.push(-1.0);
                 trust
@@ -1512,14 +1242,12 @@ mod tests {
             let (base, blocks) = fixture(17);
             let bounds = TRLengthConfig::new(0.03125, 0.015625, 0.125);
             let mut s = SearchState::new_unscored(&base, blocks, 2, 1, bounds).unwrap();
-            s.correlate(41).unwrap();
             s.set_tolerance(4).unwrap();
             assert_eq!(s.history_len().unwrap(), 0);
             assert_eq!(s.trust_observations, 0);
             assert!(s.best().is_err());
             assert!(s.best_variance().is_err());
             assert!(s.begin_ask(1, 4, 123, RoundConfig::default()).is_err());
-            assert!(s.reference.is_none());
             assert!(s.async_command.is_none());
             assert!(s.observe_initial(f32::NAN, 0.0).is_err());
             assert!(s.observe_initial(-12.0, -1.0).is_err());
@@ -1539,8 +1267,7 @@ mod tests {
                 let round = s
                     .ask_round(1, 4, step as u64, RoundConfig::default())
                     .unwrap();
-                s.tell_paired(&round, value, 0.0, s.best, s.best_variance, true)
-                    .unwrap();
+                s.tell_noisy(&round, value, 0.0).unwrap();
                 assert_eq!(s.sync().unwrap(), [true]);
                 assert_eq!(s.length().unwrap(), if step < 2 { 0.03125 } else { 0.0625 });
             }
@@ -1550,7 +1277,7 @@ mod tests {
                 let round = s
                     .ask_round(1, 4, 100 + step, RoundConfig::default())
                     .unwrap();
-                s.tell_paired(&round, -13.0, 0.0, -9.0, 0.0, false).unwrap();
+                s.tell_noisy(&round, -13.0, 0.0).unwrap();
                 assert_eq!(s.sync().unwrap(), [false]);
                 assert_eq!(s.read_best().unwrap(), accepted_weights);
                 assert_eq!(s.controller_info().unwrap().failure_tolerance, 4);
@@ -1581,14 +1308,13 @@ mod tests {
             let (base, blocks) = fixture(17);
             let bounds = TRLengthConfig::new(0.03125, 0.001953125, 0.125);
             let mut state = SearchState::new(&base, -3.0, 0.25, blocks, 2, 1, bounds).unwrap();
-            state.correlate(41).unwrap();
             state.set_tolerance(4).unwrap();
 
             let rejected_round = state.ask_round(1, 4, 100, RoundConfig::default()).unwrap();
             let rejected_bits = read::<u16>(&state.proposal, state.len());
-            let rejected = state.tell_noisy(&rejected_round, -1.0, 0.75).unwrap();
-            assert_eq!(rejected.improvement, 2.0);
-            assert_eq!(rejected.threshold, 2.0);
+            let rejected = state.tell_noisy(&rejected_round, -4.0, 0.75).unwrap();
+            assert_eq!(rejected.improvement, -1.0);
+            assert_eq!(rejected.threshold, 0.0);
             assert!(!rejected.accepted);
             assert_eq!(state.sync().unwrap(), [false]);
             assert_eq!(state.best().unwrap(), -3.0);
@@ -1606,7 +1332,7 @@ mod tests {
             let accepted_buffer: *const metal::BufferRef = &*state.proposal;
             let accepted = state.tell_noisy(&accepted_round, 0.0, 0.0).unwrap();
             assert_eq!(accepted.improvement, 3.0);
-            assert_eq!(accepted.threshold, 1.0);
+            assert_eq!(accepted.threshold, 0.0);
             assert!(accepted.accepted);
             assert_eq!(state.sync().unwrap(), [true]);
             assert_eq!(state.best().unwrap(), 0.0);
@@ -1624,7 +1350,6 @@ mod tests {
             let (base, blocks) = fixture(17);
             let bounds = TRLengthConfig::new(0.03125, 0.001953125, 0.125);
             let mut state = SearchState::new(&base, -3.0, 0.25, blocks, 2, 1, bounds).unwrap();
-            state.correlate(41).unwrap();
             state.set_tolerance(4).unwrap();
 
             let mut round = state.ask_round(1, 4, 100, RoundConfig::default()).unwrap();
@@ -1641,47 +1366,13 @@ mod tests {
             round.incumbent_standard_error = 1.0;
             let decision = state.tell_modeled(&round, 0.0, 1.0).unwrap();
             assert!(!decision.accepted);
-            assert_eq!(decision.trust_outcome, TrustRegionOutcome::Inconclusive);
+            assert_eq!(decision.trust_outcome, TrustRegionOutcome::Failure);
             assert_eq!(decision.predicted_improvement, Some(0.0));
             assert_eq!(decision.agreement_ratio, None);
             assert_eq!(state.sync().unwrap(), [false]);
             assert_eq!(state.length().unwrap(), 0.03125);
             assert_eq!(state.controller_info().unwrap().success_counter, 0);
-            assert_eq!(state.controller_info().unwrap().failure_counter, 0);
-        });
-    }
-
-    #[test]
-    fn paired_gain() {
-        autoreleasepool(|| {
-            let (base, blocks) = fixture(17);
-            let bounds = TRLengthConfig::new(0.03125, 0.015625, 0.125);
-            let mut state = SearchState::new(&base, -3.0, 0.01, blocks, 2, 1, bounds).unwrap();
-            state.correlate(41).unwrap();
-            let round = state.ask_round(1, 4, 100, RoundConfig::default()).unwrap();
-            let decision = state
-                .paired_modeled(&round, -2.9, 0.01, -3.0, 0.01, 0.5, 0.01)
-                .unwrap();
-            assert!(decision.accepted);
-            assert_eq!(decision.improvement, 0.5);
-            assert_eq!(state.sync().unwrap(), [true]);
-        });
-    }
-
-    #[test]
-    fn paired_margin() {
-        autoreleasepool(|| {
-            let (base, blocks) = fixture(17);
-            let bounds = TRLengthConfig::new(0.03125, 0.015625, 0.125);
-            let mut state = SearchState::new(&base, -3.0, 0.01, blocks, 2, 1, bounds).unwrap();
-            state.correlate(41).unwrap();
-            let round = state.ask_round(1, 4, 100, RoundConfig::default()).unwrap();
-            let decision = state
-                .paired_modeled(&round, -2.9, 0.01, -3.0, 0.01, 0.1, 0.01)
-                .unwrap();
-            assert!(decision.threshold > decision.improvement);
-            assert!(!decision.accepted);
-            assert_eq!(state.sync().unwrap(), [false]);
+            assert_eq!(state.controller_info().unwrap().failure_counter, 1);
         });
     }
 
@@ -1699,8 +1390,6 @@ mod tests {
                 TRLengthConfig::new(0.01, 0.0001, 0.08),
             )
             .unwrap();
-            s.correlate(41).unwrap();
-            s.ensure_ref().unwrap();
             s.history = MAX_HISTORY;
             s.resident_history = MAX_HISTORY;
             for i in 0..MAX_HISTORY {
@@ -1761,12 +1450,11 @@ mod tests {
         // Three 64-bit coordinates, two floats, and the typed program address.
         assert_eq!(size_of::<Leaf>(), 40);
         assert_eq!(size_of::<Tile>(), 16);
-        assert_eq!(size_of::<Params>(), 64);
-        assert_eq!(size_of::<ReplayStep>(), 24);
+        assert_eq!(size_of::<Params>(), 48);
         // Includes the bounded scalar-axis history shared with the Metal ABI.
-        assert_eq!(size_of::<SelectionParams>(), 3232);
+        assert_eq!(size_of::<SelectionParams>(), 3696);
         assert_eq!(size_of::<Partial>(), 20);
-        assert_eq!(size_of::<Decision>(), 120);
+        assert_eq!(size_of::<Decision>(), 112);
         // Five 2.6 GB rows fit as separate buffers; a combined allocation does
         // not.
         assert!(
@@ -1811,9 +1499,11 @@ mod tests {
         let bounds = checked_length(TRLengthConfig::new(0.03, 0.001, 0.1)).unwrap();
         assert!(bounds.length_min >= 0.001 && bounds.length_max <= 0.1);
         for root in [0, 1, u64::MAX, 0x1234_5678_9abc_def0] {
-            assert_eq!(candidate_seed(root, 0), candidate_seed(root, 1));
-            assert_eq!(candidate_seed(root, 2), candidate_seed(root, 3));
-            assert_ne!(candidate_seed(root, 0), candidate_seed(root, 2));
+            for i in 0..4 {
+                for j in 0..i {
+                    assert_ne!(candidate_seed(root, i), candidate_seed(root, j));
+                }
+            }
         }
         for acquisition_kind in [
             AcquisitionKind::Thompson,
@@ -1843,7 +1533,7 @@ mod tests {
     #[test]
     fn controller_info() {
         let (base, blocks) = fixture(10);
-        let mut state = SearchState::new(
+        let state = SearchState::new(
             &base,
             -3.0,
             0.0,
@@ -1853,7 +1543,6 @@ mod tests {
             TRLengthConfig::new(0.01, 0.0001, 0.08),
         )
         .unwrap();
-        state.correlate(41).unwrap();
 
         let info = state.controller_info().unwrap();
         assert_eq!(info.dimensions, 10);
@@ -1873,25 +1562,7 @@ mod tests {
         autoreleasepool(|| {
             let (base, blocks) = fixture(771);
             let mut s = state(&base, blocks);
-            let reference = s.read_reference().unwrap();
-            for block in &s.blocks {
-                for element in 0..block.len {
-                    let raw = normal(1234 ^ 0xe703_7ed1_a0b4_28db, block.key, element);
-                    rounding(
-                        reference[block.offset + element],
-                        raw,
-                        16.0 * f32::EPSILON * (1.0 + raw.abs()),
-                    );
-                }
-            }
-            let scales = read::<f32>(&s.reference_scales, s.blocks.len());
-            for (block, &scale) in s.blocks.iter().zip(&scales) {
-                let square = reference[block.offset..block.offset + block.len]
-                    .iter()
-                    .map(|x| f64::from(decode(*x)).powi(2))
-                    .sum::<f64>();
-                close(f64::from(scale), (block.len as f64 / square).sqrt(), 2e-6);
-            }
+            s.set_tolerance(4).unwrap();
             let root = 0x8772_5981_91f0_cdd8;
             let mut pool = Vec::new();
             let mut scores = Vec::new();
@@ -1903,7 +1574,7 @@ mod tests {
                 s.encode_proposal(command, p);
                 finish(command).unwrap();
                 let actual = read::<u16>(&s.proposal, s.len());
-                let direction = scalar_dirs(&s, &reference, p.seed, candidate);
+                let direction = scalar_dirs(&s, p.seed);
                 let mut distance = 0.0;
                 for block in &s.blocks {
                     for element in block.offset..block.offset + block.len {
@@ -1955,7 +1626,7 @@ mod tests {
             let selected = scores
                 .iter()
                 .enumerate()
-                .max_by(|a, b| a.1.total_cmp(b.1))
+                .max_by(|a, b| a.1.total_cmp(b.1).then_with(|| b.0.cmp(&a.0)))
                 .unwrap()
                 .0;
             let round = s.ask_round(1, 4, root, config()).unwrap();
@@ -1996,7 +1667,7 @@ mod tests {
                 assert_eq!(description.0, candidate);
                 assert_eq!(description.1, candidate_seed(root, candidate));
                 assert_eq!(description.2, s.radius(candidate));
-                assert_eq!(description.3, if candidate < 2 { 0.75 } else { 0.0 });
+                assert_eq!(description.3, 0.0);
                 assert_eq!(description.4.len(), 1);
                 assert_eq!(description.4[0].0, 1);
                 close(
@@ -2005,7 +1676,7 @@ mod tests {
                     2e-6,
                 );
             }
-            let (radii, cosines, reference_cosines) = s.pool_geometry(&round).unwrap();
+            let (radii, cosines) = s.pool_geometry(&round).unwrap();
             let deltas = pool
                 .iter()
                 .map(|candidate| {
@@ -2025,10 +1696,7 @@ mod tests {
                 let expected = delta.iter().map(|value| value * value).sum::<f64>().sqrt();
                 close(f64::from(radii[candidate]), expected, 2e-6);
             }
-            for (&(left, right), &(actual_left, actual_right, cosine)) in
-                POOL_PAIRS.iter().zip(&cosines)
-            {
-                assert_eq!((actual_left, actual_right), (left, right));
+            for (&(left, right), &cosine) in POOL_PAIRS.iter().zip(&cosines) {
                 let dot = deltas[left]
                     .iter()
                     .zip(&deltas[right])
@@ -2036,38 +1704,6 @@ mod tests {
                     .sum::<f64>();
                 let expected = dot / (f64::from(radii[left]) * f64::from(radii[right]));
                 close(f64::from(cosine.unwrap()), expected, 2e-6);
-            }
-            let reference_delta = s
-                .blocks
-                .iter()
-                .zip(&scales)
-                .flat_map(|(block, &scale)| {
-                    let reference = &reference;
-                    (block.offset..block.offset + block.len).map(move |element| {
-                        f64::from(block.scale)
-                            * f64::from(decode(reference[element]))
-                            * f64::from(scale)
-                            * f64::from(block.weight).sqrt()
-                    })
-                })
-                .collect::<Vec<_>>();
-            let reference_radius = reference_delta
-                .iter()
-                .map(|value| value * value)
-                .sum::<f64>()
-                .sqrt();
-            for (candidate, delta) in deltas.iter().enumerate() {
-                let dot = delta
-                    .iter()
-                    .zip(&reference_delta)
-                    .map(|(left, right)| left * right)
-                    .sum::<f64>();
-                let expected = dot / (f64::from(radii[candidate]) * reference_radius);
-                close(
-                    f64::from(reference_cosines[candidate].unwrap()),
-                    expected,
-                    2e-6,
-                );
             }
             assert_eq!(
                 read::<u16>(&s.propose_buffer(&round).unwrap(), s.len()),
@@ -2091,111 +1727,72 @@ mod tests {
                     .sum();
                 close(squared, expected, 2e-6);
             }
-            assert!(
-                s.tell_relative(&round, f32::NAN, 0.0, 0.0, 0.0, 0.0, 0.0, false, true)
-                    .is_err()
-            );
-            s.tell_relative(&round, 1e8, 0.1, 1e8, 0.2, -1e-6, 0.03125, false, true)
-                .unwrap();
+            assert!(s.tell_noisy(&round, f32::NAN, 0.0).is_err());
+            s.tell_absolute(
+                &round,
+                -1e-6,
+                0.03125,
+                0.0,
+                0.0,
+                false,
+                Some(0.0),
+                Some(TrustRegionOutcome::Failure),
+                true,
+            )
+            .unwrap();
             assert_eq!(s.sync().unwrap(), vec![false]);
             assert_eq!(s.outcomes, [0.0, -1e-6]);
             assert_eq!(s.variances, [0.0, 0.03125]);
             assert_eq!(s.read_best().unwrap(), base);
-            assert_eq!(s.read_reference().unwrap(), reference);
             assert!(s.check_round(&round).is_err());
             assert!(s.propose_buffer(&round).is_err());
             assert_eq!(s.length, 0.03125);
             for rejection in 2..=4 {
                 let trial = s.ask_round(1, 4, root + rejection, config()).unwrap();
                 let bits = read::<u16>(&s.proposal, s.len());
-                s.tell_relative(&trial, -5.0, 0.2, -3.0, 0.1, -0.125, 0.01, false, true)
-                    .unwrap();
+                s.tell_absolute(
+                    &trial,
+                    -5.0,
+                    0.2,
+                    -3.0,
+                    0.1,
+                    false,
+                    Some(-3.0),
+                    Some(TrustRegionOutcome::Failure),
+                    true,
+                )
+                .unwrap();
                 assert_eq!(s.sync().unwrap(), vec![false]);
                 assert_eq!(s.history, 2);
-                assert_eq!(read::<u16>(&s.rejected, s.len()), bits);
-                assert_eq!(s.outcomes, [0.0, -0.125]);
+                assert_eq!(read::<u16>(&s.history_rows[1], s.len()), bits);
+                assert_eq!(s.outcomes[1], -5.0);
                 assert_eq!(s.length, if rejection == 4 { 0.015625 } else { 0.03125 });
             }
-            assert_eq!(s.read_reference().unwrap(), reference);
             let trial = s.ask_round(1, 4, root + 10, config()).unwrap();
             let accepted = read::<u16>(&s.proposal, s.len());
-            let direction = scalar_dirs(&s, &reference, trial.seed, trial.index);
-            s.tell_relative(&trial, -7.0, 0.0625, -1.0, 0.5, 0.125, 0.02, true, true)
-                .unwrap();
+            s.tell_absolute(
+                &trial,
+                -7.0,
+                0.0625,
+                -1.0,
+                0.5,
+                true,
+                Some(-7.0),
+                Some(TrustRegionOutcome::Success),
+                true,
+            )
+            .unwrap();
             assert_eq!(s.sync().unwrap(), vec![true]);
             assert_eq!(s.sync().unwrap(), Vec::<bool>::new());
             assert_eq!(s.best().unwrap(), -7.0); // Explicit decision, not cached absolute reward.
             assert_eq!(s.best_variance().unwrap(), 0.0625);
             assert_eq!(s.length().unwrap(), f64::from(trial.length));
-            assert_eq!(s.history_len().unwrap(), 1);
-            assert_eq!(s.failures, 0);
-            assert_eq!(s.outcomes, [0.0; 2]);
-            assert_eq!(s.variances, [0.0; 2]);
+            assert_eq!(s.history_len().unwrap(), 2);
+            assert_eq!(s.controller_info().unwrap().failure_counter, 0);
             assert_eq!(s.read_best().unwrap(), accepted);
-            assert_eq!(read::<u16>(&s.anchor, s.len()), accepted);
-            for (actual, raw) in s.read_reference().unwrap().into_iter().zip(direction) {
-                rounding(actual, raw, 32.0 * f32::EPSILON * (1.0 + raw.abs()));
-            }
+            assert_eq!(read::<u16>(&s.history_rows[1], s.len()), accepted);
             assert_eq!(s.restarts().unwrap(), 0);
         });
-    }
-
-    #[test]
-    fn unclear_history() {
-        let (base, blocks) = fixture(257);
-        let mut s = state(&base, blocks);
-        let reference = s.read_reference().unwrap();
-        let initial_radius = s.length;
-        // Inconclusive observations between harmful ones preserve, but do not
-        // add to, the accumulated evidence for contraction.
-        for i in 0..8 {
-            let harmful = i % 2 == 0;
-            let round = s.ask_round(1, 4, 100 + i, config()).unwrap();
-            let bits = read::<u16>(&s.proposal, s.len());
-            let improvement = if harmful { -0.5 } else { 0.01 };
-            s.tell_relative(
-                &round,
-                -3.0 + improvement,
-                0.1,
-                -3.0,
-                0.1,
-                improvement,
-                0.1,
-                false,
-                harmful,
-            )
-            .unwrap();
-            assert_eq!(s.sync().unwrap(), vec![false]);
-            assert_eq!(s.history, 2);
-            assert_eq!(s.outcomes, [0.0, improvement]);
-            assert_eq!(s.variances, [0.0, 0.1]);
-            assert_eq!(read::<u16>(&s.rejected, s.len()), bits);
-            assert_eq!(s.read_best().unwrap(), base);
-            assert_eq!(s.read_reference().unwrap(), reference);
-            assert_eq!(s.best().unwrap(), -3.0);
-            assert_eq!(s.failures, ((i + 2) / 2) as usize % 4);
-            assert_eq!(
-                s.length,
-                if i < 6 {
-                    initial_radius
-                } else {
-                    initial_radius * 0.5
-                }
-            );
-        }
-        let round = s.ask_round(1, 4, 200, config()).unwrap();
-        s.tell_relative(&round, -4.0, 0.0, -3.0, 0.0, -1.0, 0.0, false, true)
-            .unwrap();
-        s.sync().unwrap();
-        assert_eq!(s.failures, 1);
-        let round = s.ask_round(1, 4, 201, config()).unwrap();
-        let selected_radius = f64::from(round.length);
-        s.tell_relative(&round, -2.0, 0.0, -3.0, 0.0, 1.0, 0.0, true, false)
-            .unwrap();
-        assert_eq!(s.sync().unwrap(), vec![true]);
-        assert_eq!(s.failures, 0);
-        assert_eq!(s.history, 1);
-        assert_eq!(s.length, selected_radius);
     }
 
     #[test]
@@ -2203,66 +1800,40 @@ mod tests {
         let base = vec![encode(1.0); 33];
         let blocks = vec![ParamBlock::new(7, 0, 33, 1e-20, 1.0).unwrap()];
         let mut s = state(&base, blocks);
+        s.set_tolerance(8).unwrap();
         assert!(s.ask_round(2, 4, 0, config()).is_err());
         assert!(s.ask_round(1, 5, 0, config()).is_err());
-        assert!(s.enable_relative(4).is_err());
-        assert!(s.correlate(5).is_err());
-        let mut warmed = 0;
+        let mut stable_rounds = 0usize;
         for i in 0..32 {
+            let before = s.memory_info().current_allocated_size;
             let round = s.ask_round(1, 4, i, config()).unwrap();
             assert_eq!(round.index, 0);
             assert!(round.score.is_finite());
             assert_eq!(round.changes, vec![(0, 0.0)]);
-            let (radii, cosines, reference_cosines) = s.pool_geometry(&round).unwrap();
-            assert_eq!(radii, vec![0.0; 4]);
-            assert!(cosines.iter().all(|entry| entry.2.is_none()));
-            assert!(reference_cosines.iter().all(Option::is_none));
+            let (radii, cosines) = s.pool_geometry(&round).unwrap();
+            assert_eq!(radii, [0.0; 4]);
+            assert!(cosines.iter().all(Option::is_none));
             assert_eq!(read::<u16>(&s.proposal, s.len()), base);
-            s.tell_relative(&round, -3.0, 0.0, -3.0, 0.0, 0.0, 0.0, false, true)
-                .unwrap();
+            s.tell_absolute(
+                &round,
+                -3.0,
+                0.0,
+                -3.0,
+                0.0,
+                false,
+                Some(-3.0),
+                Some(TrustRegionOutcome::Failure),
+                true,
+            )
+            .unwrap();
             assert!(s.ask_round(1, 4, i, config()).is_err()); // sync consumes the event.
             assert_eq!(s.sync().unwrap(), vec![false]);
-            if i == 3 {
-                warmed = s.memory_info().current_allocated_size;
-            }
+            stable_rounds +=
+                usize::from(i >= 4 && s.memory_info().current_allocated_size <= before);
         }
-        let final_bytes = s.memory_info().current_allocated_size;
-        eprintln!("Metal tiny rounds allocated bytes: warm={warmed}, final={final_bytes}");
-        assert!(
-            final_bytes <= warmed + 1024 * 1024,
-            "per-round Metal resources retained"
-        );
+        assert!(stable_rounds >= 16, "per-round Metal resources retained");
         assert_eq!(s.length, s.length_config.length_min);
         assert_eq!(s.history, 2);
-    }
-
-    #[test]
-    fn tile_reference() {
-        let n = TILE_ELEMENTS + 17;
-        let base = vec![encode(0.125); n];
-        let blocks = vec![ParamBlock::new(99, 0, n, 0.25, 1.0 / n as f32).unwrap()];
-        let mut s = state(&base, blocks);
-        let round = s.ask_round(1, 4, 4521, config()).unwrap();
-        let actual = read::<u16>(&s.proposal, n);
-        let expected = actual
-            .iter()
-            .map(|x| (f64::from(decode(*x)) - 0.125).powi(2))
-            .sum::<f64>();
-        close(round.changes[0].1, expected, 3e-6);
-        assert_eq!(
-            round.changes[0].0,
-            actual.iter().filter(|x| **x != base[0]).count() as u64
-        );
-        let reference = s.read_reference().unwrap();
-        let square = reference
-            .iter()
-            .map(|x| f64::from(decode(*x)).powi(2))
-            .sum::<f64>();
-        close(
-            f64::from(read::<f32>(&s.reference_scales, 1)[0]),
-            (n as f64 / square).sqrt(),
-            2e-6,
-        );
     }
 
     #[test]

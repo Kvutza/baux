@@ -16,15 +16,6 @@ BAUX_PROGRAMS = [
     },
     {
         "version": "0.0.1",
-        "name": "baux-tune-worker",
-        "crate": "baux_tune_worker",
-        "root": "src/bin/baux-tune-worker/main.rs",
-        "crate_deps": ["anstream", "anstyle", "charming", "deser", "deser-cbor", "deser-json", "deser-toml", "deser-value", "jiff", "kuva", "memmap2", "ndarray", "rand", "rand_distr", "rayon", "redb", "sha2", "sobol", "thiserror", "tokenizers"],
-        "local_deps": ["baux"],
-        "required_features": [],
-    },
-    {
-        "version": "0.0.1",
         "name": "enn_posterior",
         "crate": "enn_posterior",
         "root": "examples/enn_posterior.rs",
@@ -84,6 +75,45 @@ CORPUS_PROGRAMS = [
     },
 ]
 
+CUDA_CRATES = ["anstream", "anstyle", "charming", "cuda-core", "cuda-host", "deser", "deser-cbor", "deser-json", "deser-toml", "deser-value", "half", "jiff", "kuva", "memmap2", "rand", "rand_distr", "redb", "sha2"]
+
+CUDA_TEST_CRATES = ["anstream", "anstyle", "charming", "cuda-core", "cuda-host", "deser", "deser-cbor", "deser-json", "deser-toml", "deser-value", "half", "jiff", "kuva", "memmap2", "rand", "rand_distr", "redb", "sha2"]
+
+CUDA_PROGRAMS = [
+    {
+        "version": "0.0.1",
+        "name": "baux-cuda",
+        "crate": "baux_cuda",
+        "root": "src/main.rs",
+        "crate_deps": ["anstream", "anstyle", "charming", "cuda-core", "cuda-host", "deser", "deser-cbor", "deser-json", "deser-toml", "deser-value", "half", "jiff", "kuva", "memmap2", "rand", "rand_distr", "redb", "sha2"],
+        "local_deps": ["cuda", "device"],
+        "required_features": [],
+    },
+]
+
+DEVICE_CRATES = ["cuda-core", "cuda-device", "cuda-host", "deser", "rand"]
+
+DEVICE_TEST_CRATES = ["cuda-core", "cuda-device", "cuda-host", "deser", "rand"]
+
+DEVICE_PROGRAMS = [
+]
+
+FBT_CRATES = ["deser", "memmap2", "ndarray", "rand", "rand_distr", "rayon", "sha2", "tokenizers"]
+
+FBT_TEST_CRATES = ["deser", "memmap2", "ndarray", "rand", "rand_chacha", "rand_distr", "rayon", "sha2", "tempfile", "tokenizers"]
+
+FBT_PROGRAMS = [
+    {
+        "version": "0.0.1",
+        "name": "baux-tune-worker",
+        "crate": "baux_tune_worker",
+        "root": "src/bin/baux-tune-worker/main.rs",
+        "crate_deps": ["deser", "memmap2", "ndarray", "rand", "rand_distr", "rayon", "sha2", "tokenizers"],
+        "local_deps": ["baux", "fbt"],
+        "required_features": [],
+    },
+]
+
 MODAL_RUNNER_CRATES = ["modal-rs", "tempfile", "tokio"]
 
 MODAL_RUNNER_TEST_CRATES = ["modal-rs", "tempfile", "tokio"]
@@ -114,9 +144,9 @@ BAUX_PY_TEST_CRATES = ["ndarray", "numpy", "pyo3", "rand"]
 BAUX_PY_PROGRAMS = [
 ]
 
-RUNNER_CRATES = ["clap", "sha2"]
+RUNNER_CRATES = ["clap", "deser", "ndarray", "rand", "sha2"]
 
-RUNNER_TEST_CRATES = ["clap", "sha2"]
+RUNNER_TEST_CRATES = ["clap", "deser", "ndarray", "rand", "sha2"]
 
 RUNNER_PROGRAMS = [
     {
@@ -124,7 +154,7 @@ RUNNER_PROGRAMS = [
         "name": "baux-runner",
         "crate": "baux_runner",
         "root": "src/main.rs",
-        "crate_deps": ["clap", "sha2"],
+        "crate_deps": ["clap", "deser", "ndarray", "rand", "sha2"],
         "local_deps": ["baux", "tooling"],
         "required_features": [],
     },
@@ -144,13 +174,6 @@ TOOLING_PROGRAMS = [
         "local_deps": ["baux", "tooling"],
         "required_features": [],
     },
-]
-
-PTX_SYNTH_CRATES = []
-
-PTX_SYNTH_TEST_CRATES = []
-
-PTX_SYNTH_PROGRAMS = [
 ]
 
 RUST_EDITION = "2024"

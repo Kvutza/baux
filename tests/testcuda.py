@@ -9,7 +9,7 @@ from click.testing import CliRunner
 from baux import cuda
 
 
-class CudaExtension:
+class Backend:
     def __init__(self) -> None:
         self.checked = False
 
@@ -28,11 +28,11 @@ class CudaExtension:
 
 
 def test_api(monkeypatch, tmp_path):
-    extension = CudaExtension()
-    monkeypatch.setattr(cuda, "_cuda", extension)
+    backend = Backend()
+    monkeypatch.setattr(cuda, "_cuda", backend)
     assert cuda.target() == "sm_75"
     cuda.check()
-    assert extension.checked
+    assert backend.checked
     output = cuda.trace(tmp_path / "trace.json")
     assert cuda.read_trace(output)["format"] == "baux.initialized-mhc4.v1"
 
@@ -48,7 +48,7 @@ def test_unavailable(monkeypatch, tmp_path):
 
 
 def test_cli(monkeypatch, tmp_path):
-    monkeypatch.setattr(cuda, "_cuda", CudaExtension())
+    monkeypatch.setattr(cuda, "_cuda", Backend())
     runner = CliRunner()
     assert runner.invoke(cuda.main, ["target"]).output == "sm_75\n"
     output = tmp_path / "trace.json"

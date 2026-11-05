@@ -98,7 +98,15 @@ impl MorboTrustRegion {
     }
 
     pub fn resample_weights(&mut self, rng: &mut dyn RngCore) {
-        self.weights = sample_weights(rng, self.num_metrics);
+        let mut samples = Vec::with_capacity(self.num_metrics);
+        let mut sum = 0.0;
+        for _ in 0..self.num_metrics {
+            let u: f64 = rng.r#gen();
+            let g = (-u.ln()).max(1e-300);
+            samples.push(g);
+            sum += g;
+        }
+        self.weights = Array1::from_vec(samples.iter().map(|&v| v / sum).collect());
     }
 
     pub fn set_arms(&mut self, num_arms: usize) {
@@ -136,7 +144,7 @@ impl MorboTrustRegion {
         self.score_min = None;
         self.score_max = None;
         self.score_count = 0;
-        self.inner.restart();
+        self.inner.restart_local();
         if let Some(rng) = rng {
             if self.rescalarize == Rescalarize::OnRestart {
                 self.resample_weights(rng);
@@ -182,8 +190,17 @@ impl MorboTrustRegion {
         let mut y_max = Array1::from_elem(m, f64::NEG_INFINITY);
         for i in 0..y.nrows() {
             for j in 0..m {
-                y_min[j] = y_min[j].min(y[[i, j]]);
-                y_max[j] = y_max[j].max(y[[i, j]]);
+                let v = y[[i, j]];
+                if v.is_finite() {
+                    y_min[j] = y_min[j].min(v);
+                    y_max[j] = y_max[j].max(v);
+                }
+            }
+        }
+        for j in 0..m {
+            if !y_min[j].is_finite() || !y_max[j].is_finite() {
+                y_min[j] = 0.0;
+                y_max[j] = 0.0;
             }
         }
         scalarize_ranges(
@@ -207,11 +224,13 @@ impl MorboTrustRegion {
             for row in 0..y_new.nrows() {
                 for m in 0..self.num_metrics {
                     let v = y_new[[row, m]];
-                    if v < y_min[m] {
-                        y_min[m] = v;
-                    }
-                    if v > y_max[m] {
-                        y_max[m] = v;
+                    if v.is_finite() {
+                        if v < y_min[m] {
+                            y_min[m] = v;
+                        }
+                        if v > y_max[m] {
+                            y_max[m] = v;
+                        }
                     }
                 }
             }
@@ -224,11 +243,13 @@ impl MorboTrustRegion {
         for row in 0..y_new.nrows() {
             for m in 0..self.num_metrics {
                 let v = y_new[[row, m]];
-                if v < y_min[m] {
-                    y_min[m] = v;
-                }
-                if v > y_max[m] {
-                    y_max[m] = v;
+                if v.is_finite() {
+                    if v < y_min[m] {
+                        y_min[m] = v;
+                    }
+                    if v > y_max[m] {
+                        y_max[m] = v;
+                    }
                 }
             }
         }
@@ -297,7 +318,16 @@ impl MorboTrustRegion {
         Ok(())
     }
 
-    pub fn rescalarize_weights(&mut self, num_obs: usize) -> Result<(), TrustRegionError> {
+    pub fn rescalarize_weights(
+        &mut self,
+        num_obs: usize,
+        incumbent: Option<Array1<f64>>,
+    ) -> Result<(), TrustRegionError> {
+        if let Some(y_inc) = incumbent {
+            if y_inc.len() == self.num_metrics && y_inc.iter().all(|v| v.is_finite()) {
+                self.incumbent_y_raw = Some(y_inc);
+            }
+        }
         let Some(ref y_inc) = self.incumbent_y_raw else {
             return Ok(());
         };
@@ -314,7 +344,10 @@ impl MorboTrustRegion {
             true,
         )?[0];
         self.inner.set_best(score);
-        push_score(self, num_obs, score)
+        if num_obs > self.inner.prev_obs() {
+            push_score(self, num_obs, score)?;
+        }
+        Ok(())
     }
 
     pub fn update(
@@ -356,6 +389,9 @@ impl MorboTrustRegion {
         for m in 0..self.num_metrics {
             for row in 0..n {
                 let v = y_obs[[row, m]];
+                if !v.is_finite() {
+                    continue;
+                }
                 if v < y_min[m] {
                     y_min[m] = v;
                 }
@@ -436,18 +472,6 @@ fn push_score(
     Ok(())
 }
 
-fn sample_weights(rng: &mut dyn RngCore, n: usize) -> Array1<f64> {
-    let mut samples = Vec::with_capacity(n);
-    let mut sum = 0.0;
-    for _ in 0..n {
-        let u: f64 = rng.r#gen();
-        let g = (-u.ln()).max(1e-300);
-        samples.push(g);
-        sum += g;
-    }
-    Array1::from_vec(samples.iter().map(|&v| v / sum).collect())
-}
-
 pub fn scalarize_ranges(
     y: &ArrayView2<f64>,
     y_min: &ArrayView1<f64>,
@@ -470,12 +494,18 @@ pub fn scalarize_ranges(
     for row in 0..n {
         let mut t_min = f64::INFINITY;
         let mut t_sum = 0.0;
+        let mut row_nan = false;
         for m in 0..num_metrics {
+            let v = y[[row, m]];
+            if !v.is_finite() {
+                row_nan = true;
+                break;
+            }
             let denom = y_max[m] - y_min[m];
-            let z = if denom <= 0.0 {
+            let z = if !denom.is_finite() || denom <= 0.0 {
                 0.5
             } else {
-                let mut z = (y[[row, m]] - y_min[m]) / denom;
+                let mut z = (v - y_min[m]) / denom;
                 if clip {
                     z = z.clamp(0.0, 1.0);
                 }
@@ -485,7 +515,11 @@ pub fn scalarize_ranges(
             t_min = t_min.min(t);
             t_sum += t;
         }
-        scores[row] = t_min + alpha * t_sum;
+        scores[row] = if row_nan {
+            f64::NEG_INFINITY
+        } else {
+            t_min + alpha * t_sum
+        };
     }
     Ok(scores)
 }

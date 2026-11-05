@@ -21,46 +21,11 @@ pub mod dashboard;
 #[path = "runs/plot.rs"]
 mod plot;
 pub use catalog::{Query, history, local_time, reindex, since};
+pub(crate) use codec::atomic;
+use codec::validate;
+pub use codec::{Record, digest, directory, field, jj};
 pub use dashboard::{serve, write_html};
 pub use plot::compare;
-
-/// A versioned execution record; IDs are internal, time and task are
-/// searchable.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Record {
-    pub schema: u32,
-    pub id: String,
-    pub started: i64,
-    pub task: String,
-    pub task_store: String,
-    pub workspace: String,
-    pub output: String,
-    pub commit: String,
-    pub change: String,
-    pub runner_sha256: String,
-    pub worker_sha256: String,
-    pub config_sha256: String,
-    pub data_sha256: String,
-    pub model: String,
-    pub optimizer: String,
-    pub recipe: String,
-    /// Same resolved workload, evaluation and seeds; optimizer is excluded.
-    pub protocol: String,
-    pub status: String,
-    pub ended: Option<i64>,
-    pub report_status: String,
-    pub report_error: Option<String>,
-    pub error: Option<String>,
-    pub measurements: Value,
-}
-
-pub fn field<'a>(value: &'a Value, key: &str) -> &'a str {
-    value.get(key).and_then(|v| v.as_str()).unwrap_or("")
-}
-
-pub fn digest(bytes: &[u8]) -> String {
-    format!("{:x}", Sha256::digest(bytes))
-}
 
 pub fn file_digest(path: &Path) -> Result<String, String> {
     let meta = fs::metadata(path).map_err(|e| format!("stat {}: {e}", path.display()))?;
@@ -96,31 +61,22 @@ pub fn file_digest(path: &Path) -> Result<String, String> {
     Ok(result)
 }
 
-/// Locate the common repository owner without depending on Git or a Beads ID.
-pub fn directory(root: &Path) -> Result<PathBuf, String> {
-    let pointer = root.join(".jj/repo");
-    let repo = if pointer.is_file() {
-        root.join(".jj").join(
-            fs::read_to_string(&pointer)
-                .map_err(|e| e.to_string())?
-                .trim(),
-        )
-    } else {
-        pointer
-    };
-    let repo = repo
-        .canonicalize()
-        .map_err(|e| format!("locate shared JJ repository: {e}"))?;
-    let owner = repo
-        .parent()
-        .and_then(Path::parent)
-        .ok_or("invalid JJ repository path")?;
-    Ok(owner.join(".cache/baux/evidence"))
-}
-
 /// Construct provenance before launching a worker. No work is attributed by
 /// guess.
 pub fn start(root: &Path, output: &Path, config: &str, commit: &str) -> Result<Record, String> {
+    let worker = std::env::var_os("BAUX_WORKER_EXECUTABLE").ok_or("missing worker executable")?;
+    start_worker(root, output, config, commit, Path::new(&worker))
+}
+
+/// Record an in-process or explicitly selected worker without mutating the
+/// process environment. The executable is hashed in the usual manifest.
+pub fn start_worker(
+    root: &Path,
+    output: &Path,
+    config: &str,
+    commit: &str,
+    worker: &Path,
+) -> Result<Record, String> {
     let config_value: Value = baux::artifact::toml::from_str(config).map_err(|e| e.to_string())?;
     let binding_path = root.join(".cache/baux/task.json");
     let binding = match fs::read_to_string(&binding_path) {
@@ -141,7 +97,6 @@ pub fn start(root: &Path, output: &Path, config: &str, commit: &str) -> Result<R
         root,
         &["log", "-r", commit, "--no-graph", "-T", "change_id"],
     )?;
-    let worker = std::env::var_os("BAUX_WORKER_EXECUTABLE").ok_or("missing worker executable")?;
     let started = jiff::Timestamp::now().as_millisecond();
     let output = output.canonicalize().map_err(|e| e.to_string())?;
     let record = Record {
@@ -155,7 +110,7 @@ pub fn start(root: &Path, output: &Path, config: &str, commit: &str) -> Result<R
         commit: commit.into(),
         change: change.trim().into(),
         runner_sha256: file_digest(&std::env::current_exe().map_err(|e| e.to_string())?)?,
-        worker_sha256: file_digest(Path::new(&worker))?,
+        worker_sha256: file_digest(worker)?,
         config_sha256: digest(config.as_bytes()),
         model: field(&config_value, "model").into(),
         optimizer: field(&config_value["optimizer"], "algorithm").into(),
@@ -470,43 +425,6 @@ pub fn publish(root: &Path, record: &Record) -> Result<(), String> {
     catalog::upsert(&directory, record)
 }
 
-fn validate(record: &Record) -> Result<(), String> {
-    if record.schema != 1
-        || record.id.is_empty()
-        || !record
-            .id
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b == b'-')
-    {
-        return Err("unsupported or invalid run manifest".into());
-    }
-    Ok(())
-}
-
-pub(crate) fn atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
-    fs::create_dir_all(path.parent().ok_or("missing parent directory")?)
-        .map_err(|e| e.to_string())?;
-    let temporary = path.with_extension(format!("{}.tmp", std::process::id()));
-    let mut file = File::create(&temporary).map_err(|e| e.to_string())?;
-    file.write_all(bytes).map_err(|e| e.to_string())?;
-    fs::rename(temporary, path).map_err(|e| e.to_string())
-}
-
-pub fn jj(root: &Path, args: &[&str]) -> Result<String, String> {
-    let output = std::process::Command::new("jj")
-        .current_dir(root)
-        .args(args)
-        .output()
-        .map_err(|e| e.to_string())?;
-    if !output.status.success() {
-        return Err(format!(
-            "JJ failed: {}",
-            String::from_utf8_lossy(&output.stderr)
-        ));
-    }
-    String::from_utf8(output.stdout).map_err(|e| e.to_string())
-}
-
 /// Bounded task evidence, with source differences rather than inferred
 /// causality.
 pub fn brief(root: &Path, task: &str, current: &str) -> Result<Value, String> {
@@ -604,7 +522,6 @@ const OPTIMIZER_PATHS: &[&str] = &[
     "rust/crates/ennx/src/fbt_generation",
     "rust/crates/ennx/src/optimizer",
     "rust/crates/ennx/src/posterior",
-    "rust/crates/baux/src/resident_cuda.rs",
     "rust/crates/baux/src/resident_metal",
     "rust/crates/baux/src/resident_search.metal",
     "rust/crates/baux/src/fbt_generation",

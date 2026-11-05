@@ -9,47 +9,56 @@ use crate::model::ENN;
 use crate::params::ENNParams;
 use crate::posterior::{WeightedPosteriorData, compute_posterior, index_search};
 
-const SCALE_FLOOR: f64 = 1.0e-12;
-
-/// Normalize a square matrix of squared distances by per-row local radii.
-///
-/// Each radius is the `k`th positive-or-zero off-diagonal distance. The
-/// geometric mean keeps the result dimensionless while preserving symmetry.
-pub fn tuned_distances(distances: &ArrayView2<f64>, k: usize) -> Result<Array2<f64>, ENNError> {
+fn metric_distances(
+    distances: &ArrayView2<f64>,
+    k: usize,
+    metric: baux::semantics::neighbor::DistanceMetric,
+    label: &str,
+) -> Result<Array2<f64>, ENNError> {
     let n = distances.nrows();
     if distances.ncols() != n || k == 0 {
-        return Err(ENNError::InvalidParameter(
-            "self-tuning distances require a square matrix and positive local k".into(),
-        ));
+        return Err(ENNError::InvalidParameter(format!(
+            "{label} distances require a square matrix and positive local k"
+        )));
     }
     if distances
         .iter()
         .any(|value| !value.is_finite() || *value < 0.0)
     {
-        return Err(ENNError::InvalidParameter(
-            "self-tuning distances must be finite and nonnegative".into(),
-        ));
+        return Err(ENNError::InvalidParameter(format!(
+            "{label} distances must be finite and nonnegative"
+        )));
     }
     if n <= 1 {
         return Ok(distances.to_owned());
     }
-    let scales = (0..n)
-        .map(|row| {
-            let mut values = (0..n)
-                .filter(|&column| column != row)
-                .map(|column| distances[[row, column]])
-                .collect::<Vec<_>>();
-            values.sort_by(f64::total_cmp);
-            values[k.min(values.len()) - 1].max(SCALE_FLOOR)
-        })
-        .collect::<Vec<_>>();
+    let scales = baux::semantics::neighbor::local_scales(n, k, |row, col| distances[[row, col]]);
     Ok(Array2::from_shape_fn((n, n), |(row, column)| {
         if row == column {
             0.0
         } else {
-            distances[[row, column]] / (scales[row].sqrt() * scales[column].sqrt())
+            baux::semantics::neighbor::metric_delta(
+                metric,
+                distances[[row, column]],
+                scales[row].sqrt(),
+                scales[column].sqrt(),
+            )
         }
     }))
+}
+
+/// Conformally normalize a square matrix of squared distances by per-row local
+/// radii.
+///
+/// Each radius is the `k`th positive off-diagonal distance. The geometric mean
+/// keeps the result dimensionless while preserving symmetry.
+pub fn conformal_distances(distances: &ArrayView2<f64>, k: usize) -> Result<Array2<f64>, ENNError> {
+    metric_distances(
+        distances,
+        k,
+        baux::semantics::neighbor::DistanceMetric::Conformal { local_k: k },
+        "conformal",
+    )
 }
 
 /// Upper half-space Poincaré hyperbolic dissimilarity matrix
@@ -58,44 +67,25 @@ pub fn hyperbolic_distances(
     distances: &ArrayView2<f64>,
     k: usize,
 ) -> Result<Array2<f64>, ENNError> {
-    let n = distances.nrows();
-    if distances.ncols() != n || k == 0 {
-        return Err(ENNError::InvalidParameter(
-            "hyperbolic distances require a square matrix and positive local k".into(),
-        ));
-    }
-    if distances
-        .iter()
-        .any(|value| !value.is_finite() || *value < 0.0)
-    {
-        return Err(ENNError::InvalidParameter(
-            "hyperbolic distances must be finite and nonnegative".into(),
-        ));
-    }
-    if n <= 1 {
-        return Ok(distances.to_owned());
-    }
-    let scales = (0..n)
-        .map(|row| {
-            let mut values = (0..n)
-                .filter(|&column| column != row)
-                .map(|column| distances[[row, column]])
-                .collect::<Vec<_>>();
-            values.sort_by(f64::total_cmp);
-            values[k.min(values.len()) - 1].max(SCALE_FLOOR)
-        })
-        .collect::<Vec<_>>();
-    Ok(Array2::from_shape_fn((n, n), |(row, column)| {
-        if row == column {
-            0.0
-        } else {
-            let s_row = scales[row].sqrt();
-            let s_col = scales[column].sqrt();
-            let diff = s_row - s_col;
-            0.5 * (distances[[row, column]] / (s_row * s_col))
-                + (diff * diff) / (2.0 * s_row * s_col)
-        }
-    }))
+    metric_distances(
+        distances,
+        k,
+        baux::semantics::neighbor::DistanceMetric::Hyperbolic { local_k: k },
+        "hyperbolic",
+    )
+}
+
+/// Entropic Wasserstein local-scale dissimilarity matrix.
+pub fn wasserstein_distances(
+    distances: &ArrayView2<f64>,
+    k: usize,
+) -> Result<Array2<f64>, ENNError> {
+    metric_distances(
+        distances,
+        k,
+        baux::semantics::neighbor::DistanceMetric::Wasserstein { local_k: k },
+        "wasserstein",
+    )
 }
 
 /// Validates subsample log-likelihood inputs.
@@ -189,12 +179,7 @@ pub fn subsample_model<R: Rng>(
     if n <= 1 {
         return Ok(vec![0.0; paramss.len()]);
     }
-    let p_actual = p.min(n);
-    let indices: Vec<usize> = if p_actual == n {
-        (0..n).collect()
-    } else {
-        sample(rng, n, p_actual).into_iter().collect()
-    };
+    let indices = sampled_rows(n, p, rng);
     score_rows(model, &indices, paramss, y_std)
 }
 
@@ -229,13 +214,7 @@ pub fn subsample_loglik<R: Rng>(
         ));
     }
 
-    let p_actual = p.min(n);
-
-    let indices: Vec<usize> = if p_actual == n {
-        (0..n).collect()
-    } else {
-        sample(rng, n, p_actual).into_iter().collect()
-    };
+    let indices = sampled_rows(n, p, rng);
 
     let (stored_x, stored_y, _) = model.natural_rows(&indices)?;
     for (i, &id) in indices.iter().enumerate() {
@@ -281,7 +260,7 @@ pub fn row_loglik<R: Rng>(
 
 /// Leave-one-out likelihood from an exact pairwise squared-distance matrix.
 ///
-/// This is equivalent to `row_loglik` for stores that retain observation
+/// This is equivalent to `row_loglik` for backends that retain observation
 /// geometry but cannot afford to materialize every high-dimensional row.
 fn validate_loglik(
     distances: &ArrayView2<f64>,
@@ -334,11 +313,7 @@ fn validate_loglik(
 }
 
 fn sampled_rows<R: Rng>(n: usize, p: usize, rng: &mut R) -> Vec<usize> {
-    if p >= n {
-        (0..n).collect()
-    } else {
-        sample(rng, n, p).into_iter().collect()
-    }
+    baux::semantics::neighbor::sampled_rows(n, p, rng)
 }
 
 fn distance_neighbors(
@@ -507,38 +482,45 @@ fn score_rows(
     y_std: Option<&ArrayView1<f64>>,
 ) -> Result<Vec<f64>, ENNError> {
     validate_params(paramss)?;
-    if rows.is_empty() || model.len() <= 1 {
+    let num_rows = rows.len();
+    let n_obs = model.len();
+    if num_rows == 0 || n_obs <= 1 {
         return Ok(vec![0.0; paramss.len()]);
     }
     let (x, y, _) = model.natural_rows(rows)?;
-    let scale = y_std
-        .map(|s| s.to_owned())
-        .unwrap_or_else(|| y.std_axis(Axis(0), 0.0));
-    if scale.len() != y.ncols() {
+    let scale = match y_std {
+        Some(s) => s.to_owned(),
+        None if model.bounded_outputs() => {
+            let all_indices: Vec<usize> = (0..n_obs).collect();
+            model.natural_rows(&all_indices)?.1.std_axis(Axis(0), 0.0)
+        }
+        None => model.output_scale().clone(),
+    };
+    let num_cols = y.ncols();
+    if scale.len() != num_cols {
         return Err(ENNError::InvalidParameter(
             "y_std must match the number of outputs".into(),
         ));
     }
     let scale = scale.mapv(|v| if v.is_finite() && v > 0.0 { v } else { 1.0 });
     let y_scaled = &y / &scale;
-    let k = paramss
-        .iter()
-        .map(|p| p.k_neighbors as usize)
-        .max()
-        .unwrap()
-        .min(model.len() - 1);
+    let mut k = 0;
+    for p in paramss {
+        k = k.max(p.k_neighbors as usize);
+    }
+    k = k.min(n_obs - 1);
     let neighbors = loo_neighbors(model, rows, &x.view(), k)?;
     let mut scores = Vec::with_capacity(paramss.len());
     let mut cache = std::collections::HashMap::new();
     for params in paramss {
         let used = (params.k_neighbors as usize).min(k);
         if let std::collections::hash_map::Entry::Vacant(entry) = cache.entry(used) {
-            let dist2s = Array2::from_shape_fn((rows.len(), used), |(i, j)| neighbors[i][j].0);
+            let dist2s = Array2::from_shape_fn((num_rows, used), |(i, j)| neighbors[i][j].0);
             let idx: Vec<Vec<usize>> = neighbors
                 .iter()
                 .map(|r| r[..used].iter().map(|v| v.1).collect())
                 .collect();
-            let mut labels = Array2::zeros((rows.len() * used, y.ncols()));
+            let mut labels = Array2::zeros((num_rows * used, num_cols));
             for (i, row) in idx.iter().enumerate() {
                 for (j, &id) in row.iter().enumerate() {
                     labels
@@ -601,17 +583,22 @@ mod tests {
     use rand::rngs::StdRng;
 
     #[test]
-    fn tuned_geometry() {
+    fn conformal_geometry() {
         let distances = array![[0.0, 1.0, 100.0], [1.0, 0.0, 81.0], [100.0, 81.0, 0.0]];
-        let tuned = tuned_distances(&distances.view(), 1).unwrap();
+        let tuned = conformal_distances(&distances.view(), 1).unwrap();
         assert_eq!(tuned[[0, 1]], 1.0);
         assert!((tuned[[0, 2]] - 100.0 / 9.0).abs() < 1.0e-12);
         assert_eq!(tuned[[0, 2]], tuned[[2, 0]]);
         assert!(tuned.iter().all(|value| value.is_finite()));
 
         let duplicates = array![[0.0, 0.0], [0.0, 0.0]];
-        let tuned = tuned_distances(&duplicates.view(), 1).unwrap();
+        let tuned = conformal_distances(&duplicates.view(), 1).unwrap();
         assert!(tuned.iter().all(|value| value.is_finite()));
+
+        let ot = wasserstein_distances(&distances.view(), 1).unwrap();
+        assert_eq!(ot[[0, 2]], ot[[2, 0]]);
+        assert!(ot[[0, 2]] > ot[[0, 1]]);
+        assert!(ot.iter().all(|value| value.is_finite()));
     }
 
     #[test]

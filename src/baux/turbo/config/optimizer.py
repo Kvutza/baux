@@ -15,7 +15,14 @@ from .acquisition import (
 )
 from .candidates import CandidateConfig, RAASPDriver
 from .initialization import InitConfig, LHDOnlyInit
-from .surrogate import ENNSurrogate, GaussianProcess, NoSurrogate, Surrogate
+from .surrogate import (
+    DistanceMetric,
+    ENNSurrogate,
+    ExternalSurrogate,
+    GaussianProcess,
+    NoSurrogate,
+    Surrogate,
+)
 from .trust_region import (
     MorboTrustRegion,
     TrustRegionConfig,
@@ -72,6 +79,10 @@ class OptimizerConfig:
 
 
 def _validate(config: OptimizerConfig) -> None:
+    if isinstance(config.surrogate, ENNSurrogate) and (
+        config.surrogate.distance_metric is not DistanceMetric.SQUARED_L2
+    ):
+        raise ValueError("the native optimizer supports only squared L2 ENN distance")
     if isinstance(config.init.init_strategy, LHDOnlyInit) and not isinstance(
         config.surrogate, NoSurrogate
     ):
@@ -85,5 +96,8 @@ def _validate(config: OptimizerConfig) -> None:
         config.acq_optimizer, NDSOptimizerConfig
     ):
         raise ValueError("ParetoAcquisitionConfig requires NDSOptimizerConfig")
-    if not isinstance(config.surrogate, (NoSurrogate, GaussianProcess, ENNSurrogate)):
+    if not isinstance(
+        config.surrogate,
+        (NoSurrogate, GaussianProcess, ENNSurrogate, ExternalSurrogate),
+    ):
         raise TypeError(f"unsupported surrogate: {type(config.surrogate)!r}")

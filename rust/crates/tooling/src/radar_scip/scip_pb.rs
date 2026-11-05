@@ -1,35 +1,58 @@
-use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::SystemTime;
 
-pub(super) const DEFINITION: i32 = 1;
+pub(crate) const DEFINITION: i32 = 1;
 
 #[derive(Default)]
-pub(super) struct ScipIndex {
-    pub(super) documents: Vec<Document>,
+pub(crate) struct ScipIndex {
+    pub(crate) documents: Vec<Document>,
 }
 
 #[derive(Default)]
-pub(super) struct Document {
-    pub(super) path: String,
-    pub(super) occurrences: Vec<Occurrence>,
-    pub(super) symbols: Vec<SymbolInfo>,
+pub(crate) struct Document {
+    pub(crate) path: String,
+    pub(crate) occurrences: Vec<Occurrence>,
+    pub(crate) symbols: Vec<SymbolInfo>,
 }
 
-#[derive(Default)]
-pub(super) struct Occurrence {
-    pub(super) range: Vec<i32>,
-    pub(super) symbol: String,
-    pub(super) roles: i32,
+#[derive(Clone, Default, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) struct Occurrence {
+    pub(crate) range: Vec<i32>,
+    pub(crate) symbol: String,
+    pub(crate) roles: i32,
 }
 
-#[derive(Default)]
-pub(super) struct SymbolInfo {
-    pub(super) symbol: String,
-    pub(super) display: String,
-    pub(super) signature: Option<String>,
+#[derive(Clone, Default)]
+pub(crate) struct SymbolInfo {
+    pub(crate) symbol: String,
+    pub(crate) display: String,
+    pub(crate) signature: Option<String>,
+    pub(crate) implements: Vec<String>,
+}
+
+pub(crate) fn canonical_symbol(symbol: String) -> String {
+    let Some(rest) = symbol.strip_prefix("rust-analyzer cargo ") else {
+        return symbol;
+    };
+    let Some((pkg, after_pkg)) = rest.split_once(' ') else {
+        return symbol;
+    };
+    if !matches!(pkg, "baux-cuda" | "baux-cuda-device") {
+        return symbol;
+    }
+    let Some((ver, descriptor)) = after_pkg.split_once(' ') else {
+        return symbol;
+    };
+    if descriptor.starts_with("semantics/")
+        || descriptor.starts_with("artifact/")
+        || descriptor.starts_with("neighbor-index/")
+    {
+        format!("rust-analyzer cargo baux {ver} {descriptor}")
+    } else {
+        symbol
+    }
 }
 
 pub(super) struct SymbolMatch<'a> {
@@ -139,27 +162,75 @@ pub(super) fn cache_path(root: &Path, target: &Path) -> PathBuf {
 }
 
 pub(super) fn require_index(root: &Path, target: &Path) -> Result<ScipIndex, String> {
+    let canon_root = fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
+    if target != root && target != canon_root {
+        if let Ok(rel) = target.strip_prefix(&canon_root) {
+            let root_path = cache_path(root, &canon_root);
+            if root_path.is_file() && fresh(target, &root_path)? {
+                return slice_index(&root_path, target, rel);
+            }
+        }
+    }
     let path = cache_path(root, target);
-    if !path.is_file() || !fresh(target, &path)? {
+    if !path.is_file() {
         println!(
-            "o|radar: SCIP index missing or stale for {}; rebuilding automatically...",
+            "o|radar: SCIP index missing for {}; building automatically...",
             target.display()
         );
-        super::index(root, Some(target), true)?;
+        index(root, Some(target), true)?;
+    } else if !fresh(target, &path)? {
+        if std::env::var_os("BAUX_RADAR_REINDEX").is_some() {
+            println!(
+                "o|radar: SCIP index stale for {}; rebuilding automatically...",
+                target.display()
+            );
+            index(root, Some(target), true)?;
+        } else {
+            eprintln!(
+                "warning: SCIP index {} is older than modified source files \
+                 (run `./baux radar index --force` or set BAUX_RADAR_REINDEX=1 to refresh)",
+                path.display()
+            );
+        }
     }
     load_index(&path)
+}
+
+fn slice_index(root_path: &Path, target: &Path, rel: &Path) -> Result<ScipIndex, String> {
+    let mut index = load_index(root_path)?;
+    let rel_str = rel.to_string_lossy();
+    if target.is_file() {
+        let name = target
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or(&rel_str)
+            .to_owned();
+        index.documents.retain_mut(|doc| {
+            let keep = doc.path == rel_str;
+            if keep {
+                doc.path = name.clone();
+            }
+            keep
+        });
+    } else {
+        let prefix = format!("{rel_str}/");
+        index.documents.retain_mut(|doc| {
+            if let Some(rest) = doc.path.strip_prefix(&prefix) {
+                doc.path = rest.to_owned();
+                true
+            } else {
+                false
+            }
+        });
+    }
+    Ok(index)
 }
 
 pub(super) fn fresh(root: &Path, index: &Path) -> Result<bool, String> {
     let Ok(index_time) = fs::metadata(index).and_then(|metadata| metadata.modified()) else {
         return Ok(false);
     };
-    let candidates = [
-        root.join("Cargo.toml"),
-        root.join("src"),
-        root.join("rust"),
-        root.join("backends/cuda"),
-    ];
+    let candidates = [root.join("Cargo.toml"), root.join("src"), root.join("rust")];
     let mut checked = false;
     for path in candidates {
         if path.exists() {
@@ -201,20 +272,56 @@ fn newer(path: &Path, cutoff: SystemTime) -> Result<bool, String> {
     Ok(false)
 }
 
-pub(super) fn load_index(path: &Path) -> Result<ScipIndex, String> {
+pub(crate) fn load_index(path: &Path) -> Result<ScipIndex, String> {
     let bytes = fs::read(path).map_err(|error| format!("read {}: {error}", path.display()))?;
     parse_index(&bytes).map_err(|error| format!("decode {}: {error}", path.display()))
 }
 
-fn parse_index(bytes: &[u8]) -> Result<ScipIndex, String> {
-    let mut index = ScipIndex::default();
+pub(super) fn parse_index(bytes: &[u8]) -> Result<ScipIndex, String> {
+    let mut by_path = std::collections::BTreeMap::<String, Document>::new();
+    let mut order = Vec::<String>::new();
     let mut proto = Proto::new(bytes);
     while let Some((field, wire)) = proto.next()? {
         if let (2, Wire::Bytes(bytes)) = (field, wire) {
-            index.documents.push(parse_doc(bytes)?);
+            let doc = parse_doc(bytes)?;
+            if let Some(existing) = by_path.get_mut(&doc.path) {
+                existing.occurrences.extend(doc.occurrences);
+                existing.symbols.extend(doc.symbols);
+            } else {
+                order.push(doc.path.clone());
+                by_path.insert(doc.path.clone(), doc);
+            }
         }
     }
-    Ok(index)
+    let mut documents = Vec::with_capacity(order.len());
+    for path in order {
+        if let Some(mut doc) = by_path.remove(&path) {
+            doc.occurrences.sort();
+            doc.occurrences.dedup();
+            let mut merged_syms = std::collections::BTreeMap::<String, SymbolInfo>::new();
+            for sym in doc.symbols {
+                merged_syms
+                    .entry(sym.symbol.clone())
+                    .and_modify(|existing| {
+                        if existing.display.is_empty() && !sym.display.is_empty() {
+                            existing.display = sym.display.clone();
+                        }
+                        if existing.signature.is_none() && sym.signature.is_some() {
+                            existing.signature = sym.signature.clone();
+                        }
+                        for imp in &sym.implements {
+                            if !existing.implements.contains(imp) {
+                                existing.implements.push(imp.clone());
+                            }
+                        }
+                    })
+                    .or_insert(sym);
+            }
+            doc.symbols = merged_syms.into_values().collect();
+            documents.push(doc);
+        }
+    }
+    Ok(ScipIndex { documents })
 }
 
 fn parse_doc(bytes: &[u8]) -> Result<Document, String> {
@@ -243,7 +350,7 @@ fn parse_occurrence(bytes: &[u8]) -> Result<Occurrence, String> {
                 }
             }
             (1, Wire::Var(value)) => occurrence.range.push(value as i32),
-            (2, Wire::Bytes(bytes)) => occurrence.symbol = parse_text(bytes)?,
+            (2, Wire::Bytes(bytes)) => occurrence.symbol = canonical_symbol(parse_text(bytes)?),
             (3, Wire::Var(value)) => occurrence.roles = value as i32,
             _ => {}
         }
@@ -256,13 +363,32 @@ fn parse_info(bytes: &[u8]) -> Result<SymbolInfo, String> {
     let mut proto = Proto::new(bytes);
     while let Some((field, wire)) = proto.next()? {
         match (field, wire) {
-            (1, Wire::Bytes(bytes)) => info.symbol = parse_text(bytes)?,
+            (1, Wire::Bytes(bytes)) => info.symbol = canonical_symbol(parse_text(bytes)?),
+            (4, Wire::Bytes(bytes)) => {
+                if let Some(target) = parse_relationship(bytes)? {
+                    info.implements.push(target);
+                }
+            }
             (6, Wire::Bytes(bytes)) => info.display = parse_text(bytes)?,
             (7, Wire::Bytes(bytes)) => info.signature = parse_signature(bytes)?,
             _ => {}
         }
     }
     Ok(info)
+}
+
+fn parse_relationship(bytes: &[u8]) -> Result<Option<String>, String> {
+    let mut proto = Proto::new(bytes);
+    let mut symbol = None;
+    let mut is_impl = false;
+    while let Some((field, wire)) = proto.next()? {
+        match (field, wire) {
+            (1, Wire::Bytes(bytes)) => symbol = Some(canonical_symbol(parse_text(bytes)?)),
+            (3, Wire::Var(value)) => is_impl = value != 0,
+            _ => {}
+        }
+    }
+    Ok(if is_impl { symbol } else { None })
 }
 
 fn parse_signature(bytes: &[u8]) -> Result<Option<String>, String> {
@@ -300,87 +426,6 @@ pub(super) fn print_stats(path: &Path, index: &ScipIndex) {
         definitions,
         occurrences
     );
-}
-
-pub(super) fn select_symbols<'a>(index: &'a ScipIndex, query: &str) -> Vec<SymbolMatch<'a>> {
-    let (file_hint, sym_raw) = if !query.contains("::") {
-        query.split_once(':').map_or((None, query), |(file, sym)| {
-            (Some(file.to_ascii_lowercase()), sym)
-        })
-    } else {
-        (None, query)
-    };
-    let query = sym_raw.to_ascii_lowercase();
-    let mut matches = BTreeMap::<String, (u8, SymbolMatch<'a>)>::new();
-    for document in &index.documents {
-        if let Some(hint) = file_hint.as_deref() {
-            let doc_lower = document.path.to_ascii_lowercase();
-            if !doc_lower.ends_with(hint) && !doc_lower.contains(hint) {
-                continue;
-            }
-        }
-        let definitions = document
-            .occurrences
-            .iter()
-            .filter(|occurrence| occurrence.roles & DEFINITION != 0)
-            .map(|occurrence| occurrence.symbol.as_str())
-            .collect::<BTreeSet<_>>();
-        for info in &document.symbols {
-            if !definitions.contains(info.symbol.as_str()) {
-                continue;
-            }
-            let Some(score) = match_score(info, &query) else {
-                continue;
-            };
-            let key = if local_symbol(&info.symbol) {
-                format!("{}\0{}", document.path, info.symbol)
-            } else {
-                info.symbol.clone()
-            };
-            matches
-                .entry(key)
-                .or_insert((score, SymbolMatch { document, info }));
-        }
-    }
-    let Some(best) = matches.values().map(|(score, _)| *score).min() else {
-        return Vec::new();
-    };
-    matches
-        .into_values()
-        .filter(|(score, _)| *score == best)
-        .map(|(_, info)| info)
-        .collect()
-}
-
-/// Rank case-insensitive exact names ahead of substring and canonical-symbol
-/// matches.
-fn match_score(info: &SymbolInfo, query: &str) -> Option<u8> {
-    let display = info.display.to_ascii_lowercase();
-    let symbol = info.symbol.to_ascii_lowercase();
-    if display == query {
-        return Some(0);
-    }
-    if symbol == query {
-        return Some(1);
-    }
-    if query.contains("::") {
-        let parts = query
-            .split("::")
-            .filter(|part| !part.is_empty())
-            .collect::<Vec<_>>();
-        if let Some((last, prefix)) = parts.split_last() {
-            if display == *last && prefix.iter().all(|part| symbol.contains(part)) {
-                return Some(1);
-            }
-        }
-    }
-    if display.contains(query) {
-        Some(2)
-    } else if symbol.contains(query) {
-        Some(3)
-    } else {
-        None
-    }
 }
 
 pub(super) fn local_symbol(symbol: &str) -> bool {
@@ -423,25 +468,6 @@ pub(super) fn rust_scip(binary: &Path) -> bool {
         })
 }
 
-pub(super) fn has_command(program: &str, argument: &str) -> bool {
-    Command::new(program)
-        .arg(argument)
-        .output()
-        .is_ok_and(|output| output.status.success())
-}
-
-pub(super) fn metal_ready() -> bool {
-    Command::new("xcrun")
-        .args(["-sdk", "macosx", "--find", "metal"])
-        .output()
-        .is_ok_and(|output| output.status.success())
-}
-
-pub(super) fn report(name: &str, ready: bool, detail: &str) {
-    let state = if ready { "ready" } else { "absent" };
-    println!("{name:<12} {state:<6} {detail}");
-}
-
 pub(super) fn index(root: &Path, target: Option<&Path>, force: bool) -> Result<(), String> {
     use std::io::Write;
     let dir = resolve_target(root, target)?;
@@ -472,177 +498,4 @@ pub(super) fn index(root: &Path, target: Option<&Path>, force: bool) -> Result<(
     fs::rename(&temporary, &path).map_err(|error| format!("publish SCIP index: {error}"))?;
     print_stats(&path, &value);
     Ok(())
-}
-
-pub(super) fn doctor(root: &Path) -> Result<(), String> {
-    let path = cache_path(root, root);
-    report(
-        "lexical",
-        has_command("rg", "--version"),
-        "ripgrep lexical search",
-    );
-    let analyzer = resolve_analyzer(root);
-    report("rust", rust_scip(&analyzer), "rust-analyzer SCIP");
-    report(
-        "rust-index",
-        path.is_file() && fresh(root, &path)?,
-        path.to_string_lossy().as_ref(),
-    );
-    report(
-        "lean",
-        has_command("lake", "--version"),
-        "Lean kernel and Lake",
-    );
-    report(
-        "theorem",
-        root.join("research/lean/.lake/packages/LeanSearchClient")
-            .is_dir(),
-        "LeanSearch and Loogle clients",
-    );
-    report("metal", metal_ready(), "Apple Metal compiler");
-    report("cuda", has_command("nvcc", "--version"), "NVIDIA compiler");
-    report(
-        "codeql",
-        has_command("codeql", "version"),
-        "optional batch data-flow analysis",
-    );
-    report(
-        "glean",
-        has_command("glean", "--version"),
-        "optional cross-language fact store",
-    );
-    Ok(())
-}
-
-pub(super) fn print_symbol(
-    index: &ScipIndex,
-    found: &SymbolMatch<'_>,
-    references: bool,
-    limit: &mut usize,
-) {
-    let info = found.info;
-    println!("SYMBOL {}", info.display);
-    if local_symbol(&info.symbol) {
-        println!("canonical: {} @ {}", info.symbol, found.document.path);
-    } else {
-        println!("canonical: {}", info.symbol);
-    }
-    if let Some(signature) = info.signature.as_ref() {
-        println!("signature: {}", signature.replace('\n', " "));
-    }
-    let mut definitions = Vec::new();
-    let mut refs = Vec::new();
-    let documents: &[Document] = if local_symbol(&info.symbol) {
-        std::slice::from_ref(found.document)
-    } else {
-        &index.documents
-    };
-    for document in documents {
-        for occurrence in &document.occurrences {
-            if occurrence.symbol != info.symbol {
-                continue;
-            }
-            let hit = format_hit(&document.path, occurrence);
-            if occurrence.roles & DEFINITION != 0 {
-                definitions.push(hit);
-            } else {
-                refs.push(hit);
-            }
-        }
-    }
-    definitions.sort();
-    refs.sort();
-    for hit in definitions {
-        if *limit == 0 {
-            break;
-        }
-        println!("definition: {hit}");
-        *limit -= 1;
-    }
-    println!("references: {}", refs.len());
-    if references {
-        for hit in refs {
-            if *limit == 0 {
-                break;
-            }
-            println!("reference: {hit}");
-            *limit -= 1;
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn varint(mut value: u64) -> Vec<u8> {
-        let mut bytes = Vec::new();
-        loop {
-            let mut byte = (value & 0x7f) as u8;
-            value >>= 7;
-            if value != 0 {
-                byte |= 0x80;
-            }
-            bytes.push(byte);
-            if value == 0 {
-                return bytes;
-            }
-        }
-    }
-
-    fn bytes(field: u8, value: &[u8]) -> Vec<u8> {
-        let mut output = varint(u64::from(field) << 3 | 2);
-        output.extend(varint(value.len() as u64));
-        output.extend(value);
-        output
-    }
-
-    #[test]
-    fn location() {
-        let occurrence = Occurrence {
-            range: vec![4, 2, 9],
-            ..Occurrence::default()
-        };
-        assert_eq!(format_hit("source.rs", &occurrence), "source.rs:5:3");
-    }
-
-    #[test]
-    fn decode_index() {
-        let mut occurrence = bytes(1, &[4, 2, 9]);
-        occurrence.extend(bytes(2, b"rust test symbol"));
-        occurrence.extend([24, 1]);
-
-        let signature = bytes(5, b"fn test()");
-        let mut info = bytes(1, b"rust test symbol");
-        info.extend(bytes(6, b"test"));
-        info.extend(bytes(7, &signature));
-
-        let mut document = bytes(1, b"source.rs");
-        document.extend(bytes(2, &occurrence));
-        document.extend(bytes(3, &info));
-        let mut index = parse_index(&bytes(2, &document)).expect("valid synthetic SCIP");
-
-        assert_eq!(index.documents[0].path, "source.rs");
-        assert_eq!(index.documents[0].occurrences[0].roles, DEFINITION);
-        assert_eq!(index.documents[0].symbols[0].display, "test");
-        assert_eq!(
-            index.documents[0].symbols[0].signature.as_deref(),
-            Some("fn test()")
-        );
-        for query in [
-            "TEST",
-            "rust test symbol",
-            "tes",
-            "rust test",
-            "source.rs:test",
-        ] {
-            let selected = select_symbols(&index, query);
-            assert_eq!(selected.len(), 1, "{query}");
-            assert_eq!(selected[0].info.symbol, "rust test symbol");
-        }
-        assert!(select_symbols(&index, "other.rs:test").is_empty());
-        assert!(select_symbols(&index, "absent").is_empty());
-        index.documents[0].occurrences[0].roles = 0;
-        assert!(select_symbols(&index, "test").is_empty());
-    }
 }

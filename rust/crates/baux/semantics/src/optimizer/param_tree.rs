@@ -1,4 +1,4 @@
-//! 17-family PyTree parameter algebra for the `fbt-pisa1-mhc4-v1`
+//! 17-family PyTree parameter algebra for the native `fbt-pisa1-mhc4-v1`
 //! architecture.
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -86,37 +86,72 @@ impl<T> ParamTree<T> {
     }
 }
 
+#[cfg(not(cabi_parity))]
+use super::super::shape as mhc4_shape;
+#[cfg(cabi_parity)]
+use crate::shape as mhc4_shape;
+
 const MHC4_COUNTS: [usize; 17] = [
-    262_144 * 512,
-    5 * 2 * 4,
-    5 * 2 * (4 * 512 * 4 + 4),
-    5 * 2 * (4 * 512 * 4 + 4),
-    5 * 2 * (4 * 512 * 16 + 16),
-    5 * 512,
-    5 * 8 * 512 * 64,
-    5 * 512 * 64,
-    5 * 512 * 64,
-    5 * 8 * 64 * 512,
-    5 * 512 + 512,
-    5 * 512 * 625,
-    5 * 512 * 216,
-    5 * 512 * 216,
-    5 * 216 * 512,
-    5 * 625 * 2 * 512 * 216,
-    5 * 625 * 216 * 512,
+    (mhc4_shape::MHC4_VOCABULARY * mhc4_shape::MHC4_WIDTH) as usize,
+    (mhc4_shape::MHC4_LAYERS * 2 * mhc4_shape::MHC4_STREAMS) as usize,
+    (mhc4_shape::MHC4_LAYERS
+        * 2
+        * (mhc4_shape::MHC_INPUT * mhc4_shape::MHC4_STREAMS + mhc4_shape::MHC4_STREAMS))
+        as usize,
+    (mhc4_shape::MHC4_LAYERS
+        * 2
+        * (mhc4_shape::MHC_INPUT * mhc4_shape::MHC4_STREAMS + mhc4_shape::MHC4_STREAMS))
+        as usize,
+    (mhc4_shape::MHC4_LAYERS
+        * 2
+        * (mhc4_shape::MHC_INPUT * (mhc4_shape::MHC4_STREAMS * mhc4_shape::MHC4_STREAMS)
+            + (mhc4_shape::MHC4_STREAMS * mhc4_shape::MHC4_STREAMS))) as usize,
+    (mhc4_shape::MHC4_LAYERS * mhc4_shape::MHC4_WIDTH) as usize,
+    (mhc4_shape::MHC4_LAYERS
+        * mhc4_shape::MHC4_HEADS
+        * mhc4_shape::MHC4_WIDTH
+        * mhc4_shape::MHC4_QUERY) as usize,
+    (mhc4_shape::MHC4_LAYERS * mhc4_shape::MHC4_WIDTH * mhc4_shape::MHC4_QUERY) as usize,
+    (mhc4_shape::MHC4_LAYERS * mhc4_shape::MHC4_WIDTH * mhc4_shape::MHC4_QUERY) as usize,
+    (mhc4_shape::MHC4_LAYERS
+        * mhc4_shape::MHC4_HEADS
+        * mhc4_shape::MHC4_QUERY
+        * mhc4_shape::MHC4_WIDTH) as usize,
+    (mhc4_shape::MHC4_LAYERS * mhc4_shape::MHC4_WIDTH + mhc4_shape::MHC4_WIDTH) as usize,
+    (mhc4_shape::MHC4_LAYERS * mhc4_shape::MHC4_WIDTH * mhc4_shape::ROUTED_COUNT) as usize,
+    (mhc4_shape::MHC4_LAYERS * mhc4_shape::MHC4_WIDTH * mhc4_shape::EXPERT_WIDTH) as usize,
+    (mhc4_shape::MHC4_LAYERS * mhc4_shape::MHC4_WIDTH * mhc4_shape::EXPERT_WIDTH) as usize,
+    (mhc4_shape::MHC4_LAYERS * mhc4_shape::EXPERT_WIDTH * mhc4_shape::MHC4_WIDTH) as usize,
+    (mhc4_shape::MHC4_LAYERS
+        * mhc4_shape::ROUTED_COUNT
+        * mhc4_shape::GATE_WIDTH
+        * mhc4_shape::MHC4_WIDTH) as usize,
+    (mhc4_shape::MHC4_LAYERS
+        * mhc4_shape::ROUTED_COUNT
+        * mhc4_shape::EXPERT_WIDTH
+        * mhc4_shape::MHC4_WIDTH) as usize,
 ];
 
 /// Aeneas-extracted 5-layer `fbt-pisa1-mhc4-v1` routed MoE parameter count
 /// (`ActiveEnergy.lean` P4).
 pub const fn routed_count() -> u64 {
-    1_036_800_000
+    125_829_120
 }
 
-/// Aeneas-extracted `fbt-pisa1-mhc4-v1` total parameter count at
+/// Aeneas-extracted native `fbt-pisa1-mhc4-v1` total parameter count at
 /// `patch_size = 1` (`ActiveEnergy.lean` P5).
 pub const fn total_count() -> u64 {
-    1_177_723_160
+    265_623_320
 }
+
+const _: () = assert!(
+    routed_count()
+        == mhc4_shape::MHC4_LAYERS
+            * mhc4_shape::ROUTED_COUNT
+            * (mhc4_shape::GATE_WIDTH + mhc4_shape::EXPERT_WIDTH)
+            * mhc4_shape::MHC4_WIDTH
+);
+const _: () = assert!(total_count() == mhc4_shape::MHC4_PARAMS);
 
 impl ParamFamily {
     fn expert_family(family: &str, expert: Option<usize>) -> Option<Self> {
@@ -217,8 +252,8 @@ mod kani_proofs {
 
     #[kani::proof]
     fn prove_counts() {
-        assert_eq!(routed_count(), 1_036_800_000);
-        assert_eq!(total_count(), 1_177_723_160);
+        assert_eq!(routed_count(), 125_829_120);
+        assert_eq!(total_count(), 265_623_320);
         assert_eq!(
             ParamTree::<usize>::total_parameters(1) as u64,
             total_count()

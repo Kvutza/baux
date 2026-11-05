@@ -14,8 +14,19 @@ from .acquisition import (
 from .candidates import CandidateSampler, RAASPDriver
 from .initialization import LHDOnlyInit
 from .optimizer import OptimizerConfig
-from .surrogate import ENNSurrogate, GaussianProcess, INDEX_NAMES, NoSurrogate
-from .trust_region import MorboTrustRegion, NoTrustRegion, TurboTrustRegion
+from .surrogate import (
+    ENNSurrogate,
+    ExternalSurrogate,
+    GaussianProcess,
+    INDEX_NAMES,
+    NoSurrogate,
+)
+from .trust_region import (
+    MorboTrustRegion,
+    MultiTrustRegionPolicy,
+    NoTrustRegion,
+    TurboTrustRegion,
+)
 
 ENN_K = 10
 _CAND_FACTOR = 100.0
@@ -68,6 +79,8 @@ def _cand(cfg: OptimizerConfig) -> dict[str, Any]:
 
 def _tr(cfg: OptimizerConfig) -> dict[str, Any]:
     tr = cfg.trust_region
+    if isinstance(tr, MultiTrustRegionPolicy):
+        return encode_multitr(tr)
     if isinstance(tr, MorboTrustRegion):
         out: dict[str, Any] = {
             "trust_region": "morbo",
@@ -119,6 +132,41 @@ def _enn(cfg: OptimizerConfig) -> dict[str, Any]:
     return out
 
 
+def regional_acquisition(acquisition) -> tuple[str | None, float | None]:
+    if acquisition is None:
+        return None, None
+    if isinstance(acquisition, UCBAcquisitionConfig):
+        return "ucb", float(acquisition.beta)
+    if isinstance(acquisition, DrawAcquisitionConfig):
+        return "thompson", None
+    if isinstance(acquisition, RandomAcquisitionConfig):
+        return "random", None
+    raise ValueError(f"unsupported regional acquisition: {type(acquisition)!r}")
+
+
+def encode_multitr(tr: MultiTrustRegionPolicy) -> dict[str, Any]:
+    out = {
+        "region_sharing": tr.sharing_policy,
+        "region_successes": tr.succ_tolerance,
+        "region_failures": tr.fail_tolerance,
+        "region_allocation": tr.allocation_policy,
+        "region_restart_memory": tr.restart_memory_policy,
+        "region_restart_candidates": int(tr.restart_center.candidates),
+        "region_restart_center_selection": tr.restart_center.selection,
+        "region_method": tr.region_method,
+        "length_init": float(tr.length_init),
+        "length_min": float(tr.length_min),
+        "length_max": float(tr.length_max),
+    }
+    if tr.region_acquisitions:
+        acquisitions = [
+            regional_acquisition(acquisition) for acquisition in tr.region_acquisitions
+        ]
+        out["region_acquisitions"] = [item[0] for item in acquisitions]
+        out["region_acquisition_betas"] = [item[1] for item in acquisitions]
+    return out
+
+
 def encode(cfg: OptimizerConfig) -> dict[str, Any] | None:
     out = _acq(cfg) | _cand(cfg) | _tr(cfg) | _enn(cfg)
     return out or None
@@ -127,7 +175,7 @@ def encode(cfg: OptimizerConfig) -> dict[str, Any] | None:
 def supports(cfg: OptimizerConfig) -> bool:
     return isinstance(
         cfg.surrogate,
-        (ENNSurrogate, GaussianProcess, NoSurrogate),
+        (ENNSurrogate, GaussianProcess, NoSurrogate, ExternalSurrogate),
     )
 
 

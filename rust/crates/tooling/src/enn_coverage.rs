@@ -1,10 +1,6 @@
-#[path = "enn_coverage/adversary.rs"]
 mod adversary;
-#[path = "enn_coverage/exclude.rs"]
 mod exclude;
-#[path = "enn_coverage/python.rs"]
 mod python;
-#[path = "enn_coverage/scip.rs"]
 mod scip;
 
 use baux::artifact::json::{self, Map, Value};

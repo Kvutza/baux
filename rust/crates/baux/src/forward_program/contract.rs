@@ -1,4 +1,4 @@
-use baux::semantics::schedule::ExecutionTarget;
+use baux::semantics::schedule::Backend;
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 
@@ -6,73 +6,87 @@ pub use baux::semantics::shape::*;
 
 /// Source files whose behavior contributes directly to a complete generation
 /// and optimization round on the selected accelerator.
-pub fn perf_sources(root: &Path, target: ExecutionTarget) -> Result<Vec<PathBuf>, String> {
+pub fn perf_sources(root: &Path, backend: Backend) -> Result<Vec<PathBuf>, String> {
     let source = root.join("rust/crates/baux/src");
+    let fbt_source = root.join("rust/crates/fbt/src");
     let mut files = [
         "apple_gpu.rs",
-        "code_environment.rs",
         "config.rs",
-        "context_metal.rs",
         "forward_program.rs",
         "hash.rs",
         "objective_observation.rs",
-        "procedural_pool.rs",
         "pretrain_data.rs",
-        "reliability_region.rs",
-        "resident_cuda.rs",
+        "procedural_pool.rs",
         "resident_metal.rs",
         "search.rs",
         "trust_region.rs",
     ]
     .map(|path| source.join(path))
     .to_vec();
-    files.extend([
-        source.join("bin/baux-tune/main.rs"),
-        source.join("bin/baux-tune-worker/main.rs"),
-    ]);
+    files.extend(
+        [
+            "ablation.rs",
+            "block.rs",
+            "code_environment.rs",
+            "context_metal.rs",
+            "contrast.rs",
+            "decode.rs",
+            "generation.rs",
+            "heldout.rs",
+            "loss_tests.rs",
+            "micro.rs",
+            "moe.rs",
+            "pisa1.rs",
+            "reconstruction.rs",
+            "reward.rs",
+            "routing.rs",
+            "scorer.rs",
+            "train.rs",
+            "updates.rs",
+            "bin/baux-tune-worker/main.rs",
+        ]
+        .map(|path| fbt_source.join(path)),
+    );
+    files.push(source.join("bin/baux-tune/main.rs"));
     for directory in [
         root.join("rust/crates/baux/semantics/src"),
         root.join("rust/crates/baux/artifact/src"),
         source.join("config"),
-        source.join("context_metal"),
-        source.join("fbt_block"),
-        source.join("fbt_decode"),
-        source.join("fbt_generation"),
-        source.join("fbt_moe"),
-        source.join("fbt_pisa1"),
-        source.join("fbt_scorer"),
+        fbt_source.join("context_metal"),
+        fbt_source.join("block"),
+        fbt_source.join("decode"),
+        fbt_source.join("generation"),
+        fbt_source.join("heldout"),
+        fbt_source.join("mhc"),
+        fbt_source.join("moe"),
+        fbt_source.join("nn"),
+        fbt_source.join("pisa1"),
+        fbt_source.join("routing"),
+        fbt_source.join("scorer"),
+        fbt_source.join("tensor"),
+        fbt_source.join("train"),
         source.join("forward_program"),
         source.join("resident_metal"),
-        source.join("search"),
     ] {
         collect(&directory, &mut files)?;
     }
-    for entry in std::fs::read_dir(&source).map_err(|error| error.to_string())? {
-        let path = entry.map_err(|error| error.to_string())?.path();
-        if path.is_file()
-            && path
-                .file_name()
-                .is_some_and(|name| name.to_string_lossy().starts_with("fbt"))
-            && path.extension().is_some_and(|extension| extension == "rs")
-        {
-            files.push(path);
-        }
-    }
-    match target {
-        ExecutionTarget::Metal => {
-            for entry in std::fs::read_dir(&source).map_err(|error| error.to_string())? {
-                let path = entry.map_err(|error| error.to_string())?.path();
-                if path
-                    .extension()
-                    .is_some_and(|extension| extension == "metal")
-                {
-                    files.push(path);
+    match backend {
+        Backend::Metal => {
+            for dir in [&source, &fbt_source] {
+                for entry in std::fs::read_dir(dir).map_err(|error| error.to_string())? {
+                    let path = entry.map_err(|error| error.to_string())?.path();
+                    if path
+                        .extension()
+                        .is_some_and(|extension| extension == "metal")
+                    {
+                        files.push(path);
+                    }
                 }
             }
         }
-        ExecutionTarget::CudaOxide => {
-            collect(&root.join("backends/cuda/src"), &mut files)?;
-            collect(&root.join("backends/cuda/device/src"), &mut files)?;
+        Backend::CudaOxide => {
+            collect(&root.join("rust/crates/cuda/src"), &mut files)?;
+            collect(&root.join("rust/crates/cuda/device/src"), &mut files)?;
             collect(&root.join("rust/crates/modal-runner/src"), &mut files)?;
             files.push(root.join("rust/crates/runner/src/cuda_tune.rs"));
         }
@@ -91,9 +105,9 @@ pub fn perf_sources(root: &Path, target: ExecutionTarget) -> Result<Vec<PathBuf>
 
 /// Content identity for the complete hot path. A source change invalidates a
 /// measured baseline even when the semantic schedule remains unchanged.
-pub fn perf_digest(root: &Path, target: ExecutionTarget) -> Result<String, String> {
+pub fn perf_digest(root: &Path, backend: Backend) -> Result<String, String> {
     let mut digest = Sha256::new();
-    for path in perf_sources(root, target)? {
+    for path in perf_sources(root, backend)? {
         let relative = path.strip_prefix(root).unwrap_or(&path);
         let bytes = std::fs::read(&path).map_err(|error| error.to_string())?;
         digest.update(relative.to_string_lossy().as_bytes());
@@ -126,9 +140,9 @@ mod tests {
 
     #[test]
     fn contract_constants() {
-        assert_eq!(MHC4_PARAMS, 1_177_723_160);
+        assert_eq!(MHC4_PARAMS, 265_623_320);
         assert_eq!(MHC4_PATCH, 1);
-        assert_eq!(MHC4_COEFFS, 16_805_376);
+        assert_eq!(MHC4_COEFFS, 16_515_072);
         assert_eq!(PISA_BYTES, 2 * 64 * 2 + 2 * 64 / 64 * 2);
     }
 }

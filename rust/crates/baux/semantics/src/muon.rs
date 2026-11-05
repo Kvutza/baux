@@ -1,4 +1,4 @@
-//! Shared host/device ABI for Muon and AdamW updates.
+//! Shared host/device ABI for native Muon and AdamW updates.
 //!
 //! Imported as a crate dependency by both host and device implementations.
 
@@ -84,7 +84,10 @@ impl Default for Step {
 
 impl Step {
     pub fn muon() -> Self {
-        Self::default()
+        Self {
+            rate: 0.0015,
+            ..Self::default()
+        }
     }
 
     /// AdamW settings used by the PISA from-scratch runs. Muon is reserved

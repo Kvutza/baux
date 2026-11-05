@@ -1,8 +1,7 @@
 //! Framework-neutral tensor identity, versioning, and Safetensors interchange.
 //!
 //! Execution layouts are derived artifacts. Stable tensor IDs and logical
-//! coordinates remain unchanged when an execution path packs or transposes
-//! storage.
+//! coordinates remain unchanged when a backend packs or transposes storage.
 
 use baux::artifact::json::Value;
 use deser::{Deserialize, Serialize};
@@ -124,7 +123,7 @@ impl TensorSpec {
     }
 }
 
-/// Stable identity for a logical interval. Physical byte offsets and packing
+/// Stable identity for a logical interval. Backend byte offsets and packing
 /// deliberately do not participate in this key.
 pub fn block_key(tensor_id: u64, logical_start: u64, logical_len: u64) -> Result<u64, String> {
     if logical_len == 0 || logical_start.checked_add(logical_len).is_none() {
@@ -232,8 +231,8 @@ impl TensorBlock {
     }
 }
 
-/// An exact virtual candidate. Implementations may resolve this transform
-/// lazily per tile instead of allocating a complete candidate arena.
+/// An exact virtual candidate. Backends may resolve this transform lazily per
+/// tile instead of allocating a complete candidate arena.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TensorVersion {
     pub parent: u64,

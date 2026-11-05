@@ -3,7 +3,7 @@ use rand::RngCore;
 
 use crate::error::ENNError;
 use crate::morbo::{MorboTrustRegion, Rescalarize};
-use crate::optimizer::multi_tr::MultiTrustRegionState;
+use crate::optimizer::multi_tr::{MultiTrustRegionState, PendingProposal};
 use crate::trust_region::{TrustRegionConfig, TrustRegionError, TurboTrustRegion};
 
 #[derive(Debug)]
@@ -12,7 +12,7 @@ pub enum TrustRegionState {
     Morbo(Box<MorboTrustRegion>),
     Multi {
         state: MultiTrustRegionState,
-        pending: Option<Vec<usize>>,
+        pending: Option<PendingProposal>,
     },
 }
 
@@ -32,7 +32,7 @@ impl TrustRegionState {
         }
     }
 
-    pub fn multi(state: MultiTrustRegionState, pending: Option<Vec<usize>>) -> Self {
+    pub fn multi(state: MultiTrustRegionState, pending: Option<PendingProposal>) -> Self {
         Self::Multi { state, pending }
     }
 
@@ -81,9 +81,9 @@ impl TrustRegionState {
         }
     }
 
-    pub fn seed_history(&mut self, prefix: &ArrayView1<f64>) {
+    pub fn seed_baseline(&mut self, best_value: f64, prev_obs: usize) {
         if let TrustRegionState::Turbo(t) = self {
-            t.seed_history(prefix);
+            t.seed_baseline(best_value, prev_obs);
         }
     }
 
@@ -131,12 +131,14 @@ impl TrustRegionState {
         }
     }
 
-    pub fn resample_propose(&mut self, rng: &mut dyn RngCore) {
+    pub fn resample_propose(&mut self, rng: &mut dyn RngCore) -> bool {
         if let TrustRegionState::Morbo(m) = self {
             if m.as_ref().rescalarize() == Rescalarize::OnPropose {
                 m.as_mut().resample_weights(rng);
+                return true;
             }
         }
+        false
     }
 
     pub fn num_metrics(&self) -> usize {
@@ -187,11 +189,15 @@ impl TrustRegionState {
         }
     }
 
-    pub fn rescale_morbo(&mut self, num_obs: usize) -> Result<(), ENNError> {
+    pub fn rescale_morbo(
+        &mut self,
+        num_obs: usize,
+        incumbent: Option<ndarray::Array1<f64>>,
+    ) -> Result<(), ENNError> {
         match self {
             TrustRegionState::Morbo(m) => m
                 .as_mut()
-                .rescalarize_weights(num_obs)
+                .rescalarize_weights(num_obs, incumbent)
                 .map_err(|e| ENNError::InvalidParameter(e.to_string())),
             _ => Ok(()),
         }

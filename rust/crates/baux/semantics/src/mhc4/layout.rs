@@ -173,8 +173,8 @@ mod tests {
         }
         assert_eq!(cursor, LAYOUT.total);
         assert_eq!(LAYOUT.total, MHC4_PARAMS);
-        assert_eq!(LAYOUT.total, 1_177_723_160);
-        assert_eq!(LAYOUT.byte_len(), 2_355_446_320);
+        assert_eq!(LAYOUT.total, 265_623_320);
+        assert_eq!(LAYOUT.byte_len(), 531_246_640);
     }
 
     #[test]

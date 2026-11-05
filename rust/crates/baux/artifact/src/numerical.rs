@@ -736,13 +736,10 @@ mod tests {
             thread.join().unwrap();
         }
         checks += 8 * 16;
-        let mut controller =
+        let controller =
             baux::semantics::optimizer::RadiusController::new(0.125, 0.01, 1.0).unwrap();
         for improvement in [3.0, -3.0] {
-            let decision = controller
-                .observe(improvement, 1.0, 3.0, 1.0, 0.1, false)
-                .unwrap();
-            assert_eq!(decision.numerical, Outcome::Checked);
+            let decision = controller.initial_evidence(improvement, 3.0, 0.0).unwrap();
             assert_eq!(decision.accepted, improvement > 0.0);
             checks += 1;
         }

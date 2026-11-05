@@ -1,32 +1,90 @@
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use metal::foreign_types::ForeignType;
 use metal::objc::{
     __send_message as send_message,
+    rc::autoreleasepool,
     runtime::{BOOL, Class, Object, Sel, YES},
 };
-use metal::{Device, FunctionRef};
+use metal::{ComputePipelineState, Device, FunctionRef};
 
 static NEXT_ARCHIVE: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) struct ArchiveMetrics {
-    pub(crate) text_bytes: usize,
-    pub(crate) gpr_count: u16,
-    pub(crate) uniform_register_count: u16,
-    pub(crate) spill_bytes: u16,
-    pub(crate) threadgroup_memory_bytes: u16,
+pub struct ArchiveMetrics {
+    pub text_bytes: usize,
+    pub gpr_count: u16,
+    pub uniform_register_count: u16,
+    pub spill_bytes: u16,
+    pub threadgroup_memory_bytes: u16,
 }
 
-pub(crate) fn serialize_cached(
+pub fn archive_key(device_name: &str, source_digest: &str, specs: &[&str]) -> String {
+    baux::artifact::runs::digest(
+        format!("v1:{device_name}:{source_digest}:{}", specs.join(";")).as_bytes(),
+    )
+}
+
+fn temp_path(directory: &Path, prefix: &str) -> std::path::PathBuf {
+    directory.join(format!(
+        ".{prefix}-{}-{}.tmp",
+        std::process::id(),
+        NEXT_ARCHIVE.fetch_add(1, Ordering::Relaxed)
+    ))
+}
+
+pub fn load_pipelines(
+    device: &Device,
+    cache_id: &str,
+    functions: &[&FunctionRef],
+) -> Result<Vec<ComputePipelineState>, String> {
+    if functions.is_empty() {
+        return Ok(Vec::new());
+    }
+    let cache_dir = Path::new(".cache/baux/metal-archives");
+    let cache_path = cache_dir.join(format!("{cache_id}.bin"));
+    if let Ok(pipelines) = autoreleasepool(|| {
+        if cache_path
+            .metadata()
+            .is_ok_and(|m| m.is_file() && m.len() > 0)
+            && let Some(path_str) = cache_path.to_str()
+            && let Ok(warm) = unsafe { build_archived(device, Some(path_str), None, functions) }
+        {
+            return Ok(warm);
+        }
+        let tmp = std::fs::create_dir_all(cache_dir)
+            .ok()
+            .map(|()| temp_path(cache_dir, cache_id));
+        let cold = unsafe { build_archived(device, None, tmp.as_deref(), functions) };
+        if let Some(tmp_path) = &tmp {
+            if cold.is_ok() && tmp_path.exists() {
+                let _ = std::fs::rename(tmp_path, &cache_path);
+            }
+            let _ = std::fs::remove_file(tmp_path);
+        }
+        cold
+    }) {
+        return Ok(pipelines);
+    }
+    functions
+        .iter()
+        .map(|f| {
+            device
+                .new_compute_pipeline_state_with_function(f)
+                .map_err(|error| format!("Metal pipeline: {error}"))
+        })
+        .collect()
+}
+
+pub fn serialize_cached(
     device: &Device,
     device_name: &str,
     key: &(String, String),
     function: &FunctionRef,
     directory: &Path,
 ) -> Result<Vec<u8>, String> {
-    let cache_id =
-        baux::artifact::runs::digest(format!("v1:{device_name}:{}:{}", key.0, key.1).as_bytes());
+    let cache_id = archive_key(device_name, &key.0, &[&key.1]);
     let cache_dir = Path::new(".cache/baux/metal-archives");
     let cache_path = cache_dir.join(format!("{cache_id}.bin"));
     if let Ok(bytes) = std::fs::read(&cache_path)
@@ -36,34 +94,27 @@ pub(crate) fn serialize_cached(
     }
     let bytes = serialize_archive(device, function, directory)?;
     if std::fs::create_dir_all(cache_dir).is_ok() {
-        let tmp = cache_dir.join(format!(
-            ".{cache_id}-{}-{}.tmp",
-            std::process::id(),
-            NEXT_ARCHIVE.fetch_add(1, Ordering::Relaxed)
-        ));
+        let tmp = temp_path(cache_dir, &cache_id);
         if std::fs::write(&tmp, &bytes).is_ok() {
             let _ = std::fs::rename(&tmp, &cache_path);
+            let _ = std::fs::remove_file(&tmp);
         }
     }
     Ok(bytes)
 }
 
-pub(crate) fn serialize_archive(
+pub fn serialize_archive(
     device: &Device,
     function: &FunctionRef,
     directory: &Path,
 ) -> Result<Vec<u8>, String> {
     std::fs::create_dir_all(directory)
         .map_err(|error| format!("create {}: {error}", directory.display()))?;
-    let temporary = directory.join(format!(
-        ".metal-archive-{}-{}.tmp",
-        std::process::id(),
-        NEXT_ARCHIVE.fetch_add(1, Ordering::Relaxed)
-    ));
+    let temporary = temp_path(directory, "metal-archive");
     let path_str = temporary
         .to_str()
         .ok_or("Metal archive temporary path is not valid UTF-8")?;
-    let result = unsafe { write_archive(device, function, path_str) };
+    let result = autoreleasepool(|| unsafe { write_archive(device, function, path_str) });
     let read_result = result.and_then(|()| {
         std::fs::read(&temporary).map_err(|error| format!("read {}: {error}", temporary.display()))
     });
@@ -71,121 +122,214 @@ pub(crate) fn serialize_archive(
     read_result
 }
 
+unsafe fn release_obj(object: *mut Object) {
+    let _ = unsafe { send_message::<Object, (), ()>(object, Sel::register("release"), ()) };
+}
+
+unsafe fn pipe_descriptor(function: &FunctionRef) -> Result<*mut Object, String> {
+    let cls = Class::get("MTLComputePipelineDescriptor")
+        .ok_or("MTLComputePipelineDescriptor unavailable")?;
+    let desc = unsafe { send_message::<Class, (), *mut Object>(cls, Sel::register("new"), ()) }
+        .ok()
+        .filter(|ptr| !ptr.is_null())
+        .ok_or_else(|| "MTLComputePipelineDescriptor returned nil".to_string())?;
+    let _ = unsafe {
+        send_message::<Object, (*const Object,), ()>(
+            desc,
+            Sel::register("setComputeFunction:"),
+            (function as *const FunctionRef as *const Object,),
+        )
+    };
+    Ok(desc)
+}
+
+unsafe fn build_archived(
+    device: &Device,
+    open_path: Option<&str>,
+    save_tmp: Option<&Path>,
+    functions: &[&FunctionRef],
+) -> Result<Vec<ComputePipelineState>, String> {
+    let archive = unsafe { create_archive(device, open_path)? };
+    let result = (|| unsafe {
+        if open_path.is_none() {
+            for function in functions {
+                add_function(archive, function)?;
+            }
+            if let Some(tmp_str) = save_tmp.and_then(Path::to_str) {
+                let _ = save_url(archive, tmp_str);
+            }
+        }
+        functions
+            .iter()
+            .map(|function| archive_pipeline(device, archive, function))
+            .collect()
+    })();
+    unsafe { release_obj(archive) };
+    result
+}
+
 unsafe fn write_archive(
     device: &Device,
     function: &FunctionRef,
     path_str: &str,
 ) -> Result<(), String> {
-    let release = Sel::register("release");
-    let archive = unsafe { create_archive(device, release)? };
-    if let Err(error) = unsafe { add_function(archive, function, release) } {
-        let _ = unsafe { send_message::<Object, (), ()>(archive, release, ()) };
-        return Err(error);
-    }
-    let save_res = unsafe { save_url(archive, path_str, release) };
-    let _ = unsafe { send_message::<Object, (), ()>(archive, release, ()) };
-    save_res
+    let archive = unsafe { create_archive(device, None)? };
+    let result =
+        unsafe { add_function(archive, function).and_then(|()| save_url(archive, path_str)) };
+    unsafe { release_obj(archive) };
+    result
 }
 
-unsafe fn create_archive(device: &Device, release: Sel) -> Result<*mut Object, String> {
-    let arch_desc_cls =
+unsafe fn create_archive(device: &Device, url_path: Option<&str>) -> Result<*mut Object, String> {
+    let cls =
         Class::get("MTLBinaryArchiveDescriptor").ok_or("MTLBinaryArchiveDescriptor unavailable")?;
-    let arch_desc =
-        unsafe { send_message::<Class, (), *mut Object>(arch_desc_cls, Sel::register("new"), ()) }
-            .map_err(|error| format!("create MTLBinaryArchiveDescriptor: {error:?}"))?;
-    if arch_desc.is_null() {
-        return Err("MTLBinaryArchiveDescriptor returned nil".into());
+    let desc = unsafe { send_message::<Class, (), *mut Object>(cls, Sel::register("new"), ()) }
+        .ok()
+        .filter(|ptr| !ptr.is_null())
+        .ok_or_else(|| "MTLBinaryArchiveDescriptor returned nil".to_string())?;
+    if let Some(path_str) = url_path {
+        let ns_url = unsafe { file_url(path_str) }.inspect_err(|_| unsafe { release_obj(desc) })?;
+        let _ = unsafe {
+            send_message::<Object, (*mut Object,), ()>(desc, Sel::register("setUrl:"), (ns_url,))
+        };
+        unsafe { release_obj(ns_url) };
     }
-    let mut err: *mut Object = std::ptr::null_mut();
+    let mut error_obj: *mut Object = std::ptr::null_mut();
     let archive = unsafe {
         send_message::<Object, (*mut Object, *mut *mut Object), *mut Object>(
             device.as_ref() as *const _ as *const Object,
             Sel::register("newBinaryArchiveWithDescriptor:error:"),
-            (arch_desc, &mut err),
+            (desc, &mut error_obj),
         )
     };
-    let _ = unsafe { send_message::<Object, (), ()>(arch_desc, release, ()) };
-    let archive = archive.map_err(|error| format!("newBinaryArchive: {error:?}"))?;
-    if archive.is_null() {
-        return Err("MTLDevice newBinaryArchiveWithDescriptor returned nil".into());
-    }
-    Ok(archive)
+    unsafe { release_obj(desc) };
+    archive
+        .ok()
+        .filter(|ptr| !ptr.is_null())
+        .ok_or_else(|| "MTLDevice newBinaryArchiveWithDescriptor failed".into())
 }
 
-unsafe fn add_function(
-    archive: *mut Object,
-    function: &FunctionRef,
-    release: Sel,
-) -> Result<(), String> {
-    let pipe_desc_cls = Class::get("MTLComputePipelineDescriptor")
-        .ok_or("MTLComputePipelineDescriptor unavailable")?;
-    let pipe_desc =
-        unsafe { send_message::<Class, (), *mut Object>(pipe_desc_cls, Sel::register("new"), ()) };
-    let pipe_desc = match pipe_desc {
-        Ok(ptr) if !ptr.is_null() => ptr,
-        _ => return Err("MTLComputePipelineDescriptor returned nil".into()),
-    };
-    let _ = unsafe {
-        send_message::<Object, (*const Object,), ()>(
-            pipe_desc,
-            Sel::register("setComputeFunction:"),
-            (function as *const FunctionRef as *const Object,),
-        )
-    };
-    let mut err: *mut Object = std::ptr::null_mut();
+unsafe fn add_function(archive: *mut Object, function: &FunctionRef) -> Result<(), String> {
+    let desc = unsafe { pipe_descriptor(function)? };
+    let mut error_obj: *mut Object = std::ptr::null_mut();
     let added = unsafe {
         send_message::<Object, (*mut Object, *mut *mut Object), BOOL>(
             archive,
             Sel::register("addComputePipelineFunctionsWithDescriptor:error:"),
-            (pipe_desc, &mut err),
+            (desc, &mut error_obj),
         )
     };
-    let _ = unsafe { send_message::<Object, (), ()>(pipe_desc, release, ()) };
-    if !matches!(added, Ok(YES)) {
-        return Err("MTLBinaryArchive addComputePipelineFunctionsWithDescriptor failed".into());
+    unsafe { release_obj(desc) };
+    if matches!(added, Ok(YES)) {
+        Ok(())
+    } else {
+        Err("MTLBinaryArchive addComputePipelineFunctionsWithDescriptor failed".into())
     }
-    Ok(())
 }
 
-unsafe fn save_url(archive: *mut Object, path_str: &str, release: Sel) -> Result<(), String> {
+unsafe fn archive_pipeline(
+    device: &Device,
+    archive: *mut Object,
+    function: &FunctionRef,
+) -> Result<ComputePipelineState, String> {
+    let desc = unsafe { pipe_descriptor(function)? };
+    if let Some(array_cls) = Class::get("NSArray")
+        && let Ok(alloc) =
+            unsafe { send_message::<Class, (), *mut Object>(array_cls, Sel::register("alloc"), ()) }
+        && !alloc.is_null()
+    {
+        let objects: [*mut Object; 1] = [archive];
+        if let Ok(archives) = unsafe {
+            send_message::<Object, (*const *mut Object, usize), *mut Object>(
+                alloc,
+                Sel::register("initWithObjects:count:"),
+                (objects.as_ptr(), 1usize),
+            )
+        } && !archives.is_null()
+        {
+            let _ = unsafe {
+                send_message::<Object, (*mut Object,), ()>(
+                    desc,
+                    Sel::register("setBinaryArchives:"),
+                    (archives,),
+                )
+            };
+            unsafe { release_obj(archives) };
+        }
+    }
+    let mut error_obj: *mut Object = std::ptr::null_mut();
+    let pipeline = unsafe {
+        send_message::<Object, (*mut Object, u64, *mut *mut Object, *mut *mut Object), *mut Object>(
+            device.as_ref() as *const _ as *const Object,
+            Sel::register("newComputePipelineStateWithDescriptor:options:reflection:error:"),
+            (desc, 0u64, std::ptr::null_mut(), &mut error_obj),
+        )
+    };
+    unsafe { release_obj(desc) };
+    let ptr = pipeline
+        .ok()
+        .filter(|ptr| !ptr.is_null())
+        .ok_or_else(|| "newComputePipelineStateWithDescriptor failed".to_string())?;
+    Ok(unsafe { ComputePipelineState::from_ptr(ptr.cast()) })
+}
+
+unsafe fn file_url(path_str: &str) -> Result<*mut Object, String> {
+    let absolute;
+    let resolved = if Path::new(path_str).is_relative()
+        && let Ok(cwd) = std::env::current_dir()
+        && let Some(full) = cwd.join(path_str).to_str().map(str::to_owned)
+    {
+        absolute = full;
+        absolute.as_str()
+    } else {
+        path_str
+    };
     let str_cls = Class::get("NSString").ok_or("NSString unavailable")?;
-    let ns_str_alloc =
+    let str_alloc =
         unsafe { send_message::<Class, (), *mut Object>(str_cls, Sel::register("alloc"), ()) }
             .map_err(|error| format!("NSString alloc: {error:?}"))?;
     let ns_str = unsafe {
         send_message::<Object, (*const u8, usize, usize), *mut Object>(
-            ns_str_alloc,
+            str_alloc,
             Sel::register("initWithBytes:length:encoding:"),
-            (path_str.as_ptr(), path_str.len(), 4usize),
+            (resolved.as_ptr(), resolved.len(), 4usize),
         )
     }
     .map_err(|error| format!("NSString initWithBytes: {error:?}"))?;
     let url_cls = Class::get("NSURL").ok_or("NSURL unavailable")?;
-    let ns_url_alloc =
+    let url_alloc =
         unsafe { send_message::<Class, (), *mut Object>(url_cls, Sel::register("alloc"), ()) }
             .map_err(|error| format!("NSURL alloc: {error:?}"))?;
     let ns_url = unsafe {
         send_message::<Object, (*mut Object,), *mut Object>(
-            ns_url_alloc,
+            url_alloc,
             Sel::register("initFileURLWithPath:"),
             (ns_str,),
         )
-    }
-    .map_err(|error| format!("NSURL initFileURLWithPath: {error:?}"))?;
-    let mut err: *mut Object = std::ptr::null_mut();
+    };
+    unsafe { release_obj(ns_str) };
+    ns_url
+        .ok()
+        .filter(|ptr| !ptr.is_null())
+        .ok_or_else(|| "NSURL initFileURLWithPath failed".into())
+}
+
+unsafe fn save_url(archive: *mut Object, path_str: &str) -> Result<(), String> {
+    let ns_url = unsafe { file_url(path_str)? };
+    let mut error_obj: *mut Object = std::ptr::null_mut();
     let serialized = unsafe {
         send_message::<Object, (*mut Object, *mut *mut Object), BOOL>(
             archive,
             Sel::register("serializeToURL:error:"),
-            (ns_url, &mut err),
+            (ns_url, &mut error_obj),
         )
     };
-    let _ = unsafe { send_message::<Object, (), ()>(ns_url, release, ()) };
-    let _ = unsafe { send_message::<Object, (), ()>(ns_str, release, ()) };
-    if !matches!(serialized, Ok(YES)) {
-        return Err("MTLBinaryArchive serializeToURL failed".into());
+    unsafe { release_obj(ns_url) };
+    if matches!(serialized, Ok(YES)) {
+        Ok(())
+    } else {
+        Err("MTLBinaryArchive serializeToURL failed".into())
     }
-    Ok(())
 }
 
 fn be_u32(buf: &[u8], off: usize) -> Option<u32> {
@@ -206,23 +350,39 @@ fn read_u32(buf: &[u8], off: usize) -> Option<u32> {
     ))
 }
 
-fn read_i32(buf: &[u8], off: usize) -> Option<i32> {
-    Some(i32::from_le_bytes(
-        buf.get(off..off.checked_add(4)?)?.try_into().ok()?,
-    ))
-}
-
 fn read_u64(buf: &[u8], off: usize) -> Option<u64> {
     Some(u64::from_le_bytes(
         buf.get(off..off.checked_add(8)?)?.try_into().ok()?,
     ))
 }
 
-pub(crate) fn archive_metrics(bytes: &[u8]) -> Option<ArchiveMetrics> {
-    let outer = gpu_slice(bytes)?;
-    let inner = compute_slice(outer)?;
-    let (text_bytes, metadata) = inner_sections(inner)?;
-    scan_metadata(metadata, text_bytes)
+pub fn kernel_metrics(
+    device: &Device,
+    device_name: &str,
+    key: &(String, String),
+    function: &FunctionRef,
+) -> Result<ArchiveMetrics, String> {
+    let bytes = serialize_cached(device, device_name, key, function, &std::env::temp_dir())?;
+    archive_metrics(&bytes).ok_or_else(|| "missing Apple GPU archive metadata".into())
+}
+
+pub fn archive_metrics(bytes: &[u8]) -> Option<ArchiveMetrics> {
+    let mut compute = None;
+    visit_sections(gpu_slice(bytes)?, |seg, sect, slice| {
+        if seg.starts_with(b"__TEXT\0") && sect.starts_with(b"__compute\0") && compute.is_none() {
+            compute = Some(slice);
+        }
+    })?;
+    let mut text_bytes = 0usize;
+    let mut metadata = None;
+    visit_sections(compute?, |seg, sect, slice| {
+        if seg.starts_with(b"__TEXT\0") && sect.starts_with(b"__text\0") {
+            text_bytes = slice.len();
+        } else if seg.starts_with(b"__GPU_METADATA") && sect.starts_with(b"__compute\0") {
+            metadata = Some(slice);
+        }
+    })?;
+    scan_metadata(metadata?, text_bytes)
 }
 
 fn gpu_slice(bytes: &[u8]) -> Option<&[u8]> {
@@ -230,100 +390,45 @@ fn gpu_slice(bytes: &[u8]) -> Option<&[u8]> {
     if magic != 0xcbfe_babe && magic != 0xcafe_babe {
         return None;
     }
-    let narch = be_u32(bytes, 4)? as usize;
-    for index in 0..narch {
+    for index in 0..be_u32(bytes, 4)? as usize {
         let entry = 8usize.checked_add(index.checked_mul(20)?)?;
-        let cputype = be_u32(bytes, entry)?;
-        let offset = be_u32(bytes, entry + 8)? as usize;
-        let size = be_u32(bytes, entry + 12)? as usize;
-        if cputype == 0x0100_0013 {
+        if be_u32(bytes, entry)? == 0x0100_0013 {
+            let offset = be_u32(bytes, entry + 8)? as usize;
+            let size = be_u32(bytes, entry + 12)? as usize;
             return bytes.get(offset..offset.checked_add(size)?);
         }
     }
     None
 }
 
-fn compute_slice(outer: &[u8]) -> Option<&[u8]> {
-    if read_u32(outer, 0)? != 0xfeed_facf {
+fn visit_sections<'a>(
+    mach: &'a [u8],
+    mut f: impl FnMut(&'a [u8], &'a [u8], &'a [u8]),
+) -> Option<()> {
+    if read_u32(mach, 0)? != 0xfeed_facf {
         return None;
     }
-    let ncmds = read_u32(outer, 16)? as usize;
     let mut cmd_off = 32usize;
-    for _ in 0..ncmds {
-        let cmd = read_u32(outer, cmd_off)?;
-        let cmdsize = read_u32(outer, cmd_off + 4)? as usize;
+    for _ in 0..read_u32(mach, 16)? as usize {
+        let cmdsize = read_u32(mach, cmd_off + 4)? as usize;
         if cmdsize < 8 {
             return None;
         }
-        if cmd == 0x19 {
-            if let Some(slice) = find_compute(outer, cmd_off)? {
-                return Some(slice);
+        if read_u32(mach, cmd_off)? == 0x19 {
+            for sect in 0..read_u32(mach, cmd_off + 64)? as usize {
+                let so = cmd_off
+                    .checked_add(72)?
+                    .checked_add(sect.checked_mul(80)?)?;
+                let size = read_u64(mach, so + 40)? as usize;
+                let offset = read_u32(mach, so + 48)? as usize;
+                f(
+                    mach.get(so + 16..so + 32)?,
+                    mach.get(so..so + 16)?,
+                    mach.get(offset..offset.checked_add(size)?)?,
+                );
             }
         }
         cmd_off = cmd_off.checked_add(cmdsize)?;
-    }
-    None
-}
-
-fn find_compute(outer: &[u8], cmd_off: usize) -> Option<Option<&[u8]>> {
-    let nsects = read_u32(outer, cmd_off + 64)? as usize;
-    for sect in 0..nsects {
-        let so = cmd_off
-            .checked_add(72)?
-            .checked_add(sect.checked_mul(80)?)?;
-        let sectname = outer.get(so..so + 16)?;
-        let segname = outer.get(so + 16..so + 32)?;
-        if segname.starts_with(b"__TEXT\0") && sectname.starts_with(b"__compute\0") {
-            let size = read_u64(outer, so + 40)? as usize;
-            let offset = read_u32(outer, so + 48)? as usize;
-            return Some(outer.get(offset..offset.checked_add(size)?));
-        }
-    }
-    Some(None)
-}
-
-fn inner_sections(inner: &[u8]) -> Option<(usize, &[u8])> {
-    if read_u32(inner, 0)? != 0xfeed_facf {
-        return None;
-    }
-    let inner_cmds = read_u32(inner, 16)? as usize;
-    let mut icmd_off = 32usize;
-    let mut text_bytes = 0usize;
-    let mut metadata: Option<&[u8]> = None;
-    for _ in 0..inner_cmds {
-        let cmd = read_u32(inner, icmd_off)?;
-        let cmdsize = read_u32(inner, icmd_off + 4)? as usize;
-        if cmdsize < 8 {
-            return None;
-        }
-        if cmd == 0x19 {
-            scan_segment(inner, icmd_off, &mut text_bytes, &mut metadata)?;
-        }
-        icmd_off = icmd_off.checked_add(cmdsize)?;
-    }
-    Some((text_bytes, metadata?))
-}
-
-fn scan_segment<'a>(
-    inner: &'a [u8],
-    icmd_off: usize,
-    text_bytes: &mut usize,
-    metadata: &mut Option<&'a [u8]>,
-) -> Option<()> {
-    let nsects = read_u32(inner, icmd_off + 64)? as usize;
-    for sect in 0..nsects {
-        let so = icmd_off
-            .checked_add(72)?
-            .checked_add(sect.checked_mul(80)?)?;
-        let sectname = inner.get(so..so + 16)?;
-        let segname = inner.get(so + 16..so + 32)?;
-        let size = read_u64(inner, so + 40)? as usize;
-        let offset = read_u32(inner, so + 48)? as usize;
-        if segname.starts_with(b"__TEXT\0") && sectname.starts_with(b"__text\0") {
-            *text_bytes = size;
-        } else if segname.starts_with(b"__GPU_METADATA") && sectname.starts_with(b"__compute\0") {
-            *metadata = inner.get(offset..offset.checked_add(size)?);
-        }
     }
     Some(())
 }
@@ -343,7 +448,7 @@ fn scan_metadata(buf: &[u8], text_bytes: usize) -> Option<ArchiveMetrics> {
 }
 
 fn vtable_metrics(buf: &[u8], pos: usize, text_bytes: usize) -> Option<Option<ArchiveMetrics>> {
-    let soff = read_i32(buf, pos)? as isize;
+    let soff = read_u32(buf, pos)? as i32 as isize;
     let vt_isize = (pos as isize).checked_sub(soff)?;
     if vt_isize < 0 || (vt_isize as usize) + 4 > buf.len() || !(vt_isize as usize).is_multiple_of(2)
     {

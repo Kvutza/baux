@@ -104,7 +104,10 @@ class TestPublicAPIExports:
         assert callable(experimental.make_region)
         assert inspect.isclass(experimental.BayesOptimizer)
         assert inspect.isclass(experimental.MultiTrustRegion)
+        assert inspect.isclass(experimental.ResidentBoSession)
         assert callable(experimental.enn_optimizer)
+        assert callable(experimental.quantize_int4)
+        assert callable(experimental.quantize_e2m1)
         for name in [
             "ParamBlock",
             "ParameterBuffer",
@@ -130,6 +133,24 @@ class TestPublicAPIExports:
         assert inspect.isclass(InitStrategy)
         assert inspect.isclass(AcquisitionKind)
 
+    def test_010(self):
+        import numpy as np
+
+        from baux.experimental.multi_region import MultiTrustRegionLoop
+
+        class BrokenState:
+            calls = 0
+
+            def tell(self, x, y, y_var=None):
+                self.calls += 1
+                raise TypeError("failure inside tell")
+
+        state = BrokenState()
+        loop = MultiTrustRegionLoop(state)
+        with pytest.raises(TypeError, match="failure inside tell"):
+            loop.tell(np.ones((1, 2)), np.ones((1, 1)), np.ones((1, 1)))
+        assert state.calls == 1
+
 
 class Test_001:
     """Verify public API does not change unexpectedly."""
@@ -139,3 +160,16 @@ class Test_001:
         import baux
 
         assert set(baux.__all__) == set(baux._LAZY_ATTRS.keys())
+
+    def test_008(self):
+        import baux
+
+        assert "quantize_int4" not in baux.__all__
+        assert "quantize_e2m1" not in baux.__all__
+
+    def test_009(self):
+        import baux
+
+        for name in ("quantize_int4", "quantize_e2m1"):
+            with pytest.raises(AttributeError):
+                getattr(baux, name)

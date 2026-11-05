@@ -1,32 +1,35 @@
 //! Utility functions Python bindings.
 
 use ndarray::Array1;
-use numpy::{IntoPyArray, PyArray1, PyArray2, PyArrayDyn, PyReadonlyArray1, PyReadonlyArray2};
+use numpy::{
+    IntoPyArray, PyArray1, PyArray2, PyArrayDyn, PyReadonlyArray1, PyReadonlyArray2,
+    PyReadonlyArrayDyn,
+};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 
-/// Inspect this extension's compiled operations; runtime initialization is
+/// Inspect this extension's native operations; runtime initialization is
 /// opt-in.
 #[pyfunction]
 #[pyo3(signature = (*, probe=false))]
 pub fn capabilities(py: Python<'_>, probe: bool) -> PyResult<Bound<'_, pyo3::types::PyList>> {
-    use baux::capability::{ExecutionTarget, execution_targets, operations, support};
+    use baux::capability::{Backend, backends, operations, support};
     use pyo3::types::{PyDict, PyList};
 
     let rows = PyList::empty(py);
-    for &target in execution_targets() {
-        let compiled = target.compiled();
+    for &backend in backends() {
+        let compiled = backend.compiled();
         let (available, reason) = if !compiled {
             (
                 Some(false),
-                Some("execution target was not compiled into this library".to_string()),
+                Some("backend was not compiled into this library".to_string()),
             )
-        } else if target == ExecutionTarget::Cpu {
+        } else if backend == Backend::Cpu {
             (Some(true), None)
         } else if probe {
-            match py.detach(|| target.probe()) {
+            match py.detach(|| backend.probe()) {
                 Ok(()) => (Some(true), None),
                 Err(error) => (Some(false), Some(error)),
             }
@@ -34,14 +37,14 @@ pub fn capabilities(py: Python<'_>, probe: bool) -> PyResult<Bound<'_, pyo3::typ
             (None, None)
         };
         let row = PyDict::new(py);
-        row.set_item("name", target.name())?;
+        row.set_item("name", backend.name())?;
         row.set_item("compiled", compiled)?;
         row.set_item("available", available)?;
         row.set_item("reason", reason)?;
         let ops = PyDict::new(py);
         let mut host = Vec::new();
         for &operation in operations() {
-            let status = support(target, operation);
+            let status = support(backend, operation);
             ops.set_item(operation.name(), status.name())?;
             if status != baux::Support::Missing && operation.host_arrays() {
                 host.push(operation.name());
@@ -207,6 +210,30 @@ pub fn arms_py<'py>(
         }
     }
     Ok(out.into_pyarray(py))
+}
+
+#[pyfunction(name = "quantize_int4")]
+#[pyo3(signature = (arr, scale=1.0))]
+pub fn q_py<'py>(
+    py: Python<'py>,
+    arr: PyReadonlyArrayDyn<f32>,
+    scale: f32,
+) -> PyResult<Bound<'py, PyArray1<u8>>> {
+    let values = arr.as_array();
+    let packed = py.detach(|| baux::experimental::quantize_int4(values.iter().copied(), scale));
+    Ok(Array1::from_vec(packed).into_pyarray(py))
+}
+
+#[pyfunction(name = "quantize_e2m1")]
+#[pyo3(signature = (arr, scale=1.0))]
+pub fn bind_quantize<'py>(
+    py: Python<'py>,
+    arr: PyReadonlyArrayDyn<f32>,
+    scale: f32,
+) -> PyResult<Bound<'py, PyArray1<u8>>> {
+    let values = arr.as_array();
+    let packed = py.detach(|| baux::experimental::quantize_e2m1(values.iter().copied(), scale));
+    Ok(Array1::from_vec(packed).into_pyarray(py))
 }
 
 /// Override baux config path (`None` restores `~/.baux/config.toml`).

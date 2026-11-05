@@ -1,11 +1,11 @@
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub(super) struct Leaf {
-    pub(super) key: u64,
-    pub(super) offset: u64,
-    pub(super) length: u64,
-    pub(super) scale: f32,
-    pub(super) weight: f32,
-    pub(super) address: u32,
-    pub(super) pad: u32,
+pub struct Leaf {
+    pub key: u64,
+    pub offset: u64,
+    pub length: u64,
+    pub scale: f32,
+    pub weight: f32,
+    pub address: u32,
+    pub pad: u32,
 }

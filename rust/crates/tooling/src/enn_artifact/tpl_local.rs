@@ -4,7 +4,7 @@ use rand::SeedableRng;
 use rand::rngs::StdRng;
 use std::path::{Path, PathBuf};
 
-use baux::store::EnnStorage;
+use baux::backend::EnnStorage;
 use baux::candidates::{CandidateSampler, from_unit, to_unit};
 use baux::config::{AcquisitionConfig, RunConfig, TrustRegionKind};
 use baux::morbo::Rescalarize;
@@ -16,36 +16,19 @@ use baux::optimizer_factory::{create_lhd, create_optimizer, enn_configured};
 use baux::params::{ENNParams, PosteriorFlags};
 use baux::traits::PosteriorComputation;
 
-use baux::semantics::neighbor;
 use baux::semantics::numerical::{self, Kind, Outcome, Trace};
 use baux::semantics::optimizer::RadiusController;
 use baux::semantics::optimizer::param_tree::{ParamTree, routed_count, total_count};
 use baux::semantics::optimizer::provenance::{exact_anchored, same_world};
-use baux::semantics::optimizer::reuse::{conditioned_sign, conditioned_slot};
-use baux::semantics::optimizer::trust_region::controller::{
-    RadiusAction, accept_bits, decide_action,
-};
-use baux::semantics::optimizer::window_plan::verify_full;
+use baux::semantics::optimizer::trust_region::controller::accept_bits;
 
 unsafe extern "C" {
     fn baux_accept(improvement: u64, margin: u64) -> u8;
-    fn baux_action(
-        adequate: u8,
-        inadequate: u8,
-        sharp: u8,
-        accepted: u8,
-        positive: u8,
-        boundary: u8,
-        failure: u8,
-    ) -> u8;
     fn baux_world(left: u64, right: u64) -> u8;
     fn baux_anchored(is_fixed: u8, from_step: u64, to_step: u64) -> u8;
     fn baux_routed(patch: u64) -> u64;
     fn baux_total(patch: u64) -> u64;
     fn baux_window(planned: u64, prefilled: u64, scored: u64) -> u8;
-    fn baux_cell(level: u32, grid: u32) -> u64;
-    fn baux_slot(slot: u64, accepted: u8) -> u64;
-    fn baux_sign(reversed: u8, accepted: u8) -> u8;
 }
 
 fn bits_vec<'a>(iter: impl IntoIterator<Item = &'a f64>) -> Vec<u64> {
@@ -115,26 +98,6 @@ fn verify_cabi(numerical_so: &Path) {
             assert_eq!(rust_acc, lean_acc, "accept_bits mismatch for ({imp:#x}, {mar:#x})");
         }
     }
-    for mask in 0u8..128 {
-        let b = |bit: u8| (mask >> bit) & 1 != 0;
-        let rust_act = match decide_action(b(0), b(1), b(2), b(3), b(4), b(5), b(6)) {
-            RadiusAction::Hold => 0u8,
-            RadiusAction::Expand => 1u8,
-            RadiusAction::Shrink => 2u8,
-        };
-        let lean_act = unsafe {
-            baux_action(
-                u8::from(b(0)),
-                u8::from(b(1)),
-                u8::from(b(2)),
-                u8::from(b(3)),
-                u8::from(b(4)),
-                u8::from(b(5)),
-                u8::from(b(6)),
-            )
-        };
-        assert_eq!(rust_act, lean_act, "decide_action mismatch at mask {mask:#09b}");
-    }
     for &(l, r) in &[(0u64, 0u64), (42, 42), (42, 43), (u64::MAX, u64::MAX - 1)] {
         assert_eq!(same_world(l, r), unsafe { baux_world(l, r) != 0 });
         for fixed in [false, true] {
@@ -158,29 +121,9 @@ fn verify_cabi(numerical_so: &Path) {
         (4096, 0, 2048),
     ] {
         assert_eq!(
-            verify_full(planned, prefilled, scored),
+            planned > 0 && prefilled == 0 && scored == planned,
             unsafe { baux_window(planned, prefilled, scored) != 0 }
         );
-    }
-    assert_eq!(
-        neighbor::grid_cell(7.0, 8.0),
-        unsafe { baux_cell(3, 0) }
-    );
-    for slot in 0u64..64 {
-        for acc in [false, true] {
-            assert_eq!(
-                conditioned_slot(slot, acc),
-                unsafe { baux_slot(slot, u8::from(acc)) }
-            );
-        }
-    }
-    for rev in [false, true] {
-        for acc in [false, true] {
-            assert_eq!(
-                conditioned_sign(rev, acc),
-                unsafe { baux_sign(u8::from(rev), u8::from(acc)) != 0 }
-            );
-        }
     }
 
     unsafe { baux::artifact::numerical::install(numerical_so) }.unwrap();
@@ -198,10 +141,10 @@ fn verify_cabi(numerical_so: &Path) {
             assert_eq!(numerical::check(trace).unwrap(), Outcome::Checked);
         }
     }
-    let mut controller = RadiusController::new(0.125, 0.01, 1.0).unwrap();
+    let controller = RadiusController::new(0.125, 0.01, 1.0).unwrap();
     for improvement in [3.0, -3.0] {
         let decision = controller
-            .observe(improvement, 1.0, 3.0, 1.0, 0.1, false)
+            .initial_evidence(improvement, 3.0, 0.0)
             .unwrap();
         assert_eq!(decision.numerical, Outcome::Checked);
         assert_eq!(decision.accepted, improvement > 0.0);

@@ -1,135 +1,12 @@
 //! Trust region implementations for TuRBO optimizer.
 
-use deser::{Deserialize, Serialize};
 use ndarray::{Array1, ArrayView1, s};
-use thiserror::Error;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[deser(rename_all = "kebab-case")]
-pub enum Rescalarize {
-    OnRestart,
-    OnPropose,
-}
-
-impl std::str::FromStr for Rescalarize {
-    type Err = ();
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "on-restart" => Ok(Self::OnRestart),
-            "on-propose" => Ok(Self::OnPropose),
-            _ => Err(()),
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct MorboTRSettings {
-    pub num_metrics: usize,
-    pub alpha: f64,
-    pub length: TRLengthConfig,
-    pub rescalarize: Rescalarize,
-    pub noise_aware: bool,
-}
-
-/// Trust-region configuration (TuRBO or Morbo).
-#[derive(Debug, Clone)]
-pub enum TrustRegionConfig {
-    Turbo(TRLengthConfig),
-    Morbo(MorboTRSettings),
-}
-
-impl Default for TrustRegionConfig {
-    fn default() -> Self {
-        TrustRegionConfig::Turbo(TRLengthConfig::default())
-    }
-}
-
-/// Errors that can occur in trust region operations.
-#[derive(Error, Debug, Clone, PartialEq)]
-pub enum TrustRegionError {
-    /// Invalid parameter value.
-    #[error("Invalid parameter: {0}")]
-    InvalidParameter(String),
-    /// Invalid state for operation.
-    #[error("Invalid state: {0}")]
-    InvalidState(String),
-}
-
-/// Evidence supplied by an objective evaluation about the local model.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TrustRegionOutcome {
-    Success,
-    Failure,
-    Inconclusive,
-}
-
-/// Configuration for trust region length parameters.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct TRLengthConfig {
-    /// Initial trust region length.
-    pub length_init: f64,
-    /// Minimum trust region length.
-    pub length_min: f64,
-    /// Maximum trust region length.
-    pub length_max: f64,
-}
-
-impl Default for TRLengthConfig {
-    fn default() -> Self {
-        Self {
-            length_init: 0.8,
-            length_min: 0.5f64.powi(7), // 0.5^7 ≈ 0.0078
-            length_max: 1.6,
-        }
-    }
-}
-
-impl TRLengthConfig {
-    /// Create new TRLengthConfig with custom values.
-    pub fn new(length_init: f64, length_min: f64, length_max: f64) -> Self {
-        Self {
-            length_init,
-            length_min,
-            length_max,
-        }
-    }
-
-    /// Validated constructor enforcing finite bounds satisfying 0 < length_min
-    /// <= length_init <= length_max.
-    pub fn try_new(
-        length_init: f64,
-        length_min: f64,
-        length_max: f64,
-    ) -> Result<Self, TrustRegionError> {
-        if !length_init.is_finite()
-            || !length_min.is_finite()
-            || !length_max.is_finite()
-            || length_min <= 0.0
-            || length_min > length_init
-            || length_init > length_max
-        {
-            return Err(TrustRegionError::InvalidParameter(
-                "Trust region lengths must be finite and satisfy 0 < min <= init <= max".into(),
-            ));
-        }
-        Ok(Self::new(length_init, length_min, length_max))
-    }
-
-    /// Clamp a candidate radius within [length_min, length_max].
-    #[inline]
-    pub fn clamp_radius(&self, r: f64) -> f64 {
-        if self.length_min.is_nan() || self.length_max.is_nan() {
-            return f64::NAN;
-        }
-        let (low, high) = if self.length_min <= self.length_max {
-            (self.length_min, self.length_max)
-        } else {
-            (self.length_max, self.length_min)
-        };
-        r.clamp(low, high)
-    }
-}
+mod null;
+pub use null::{
+    MorboTRSettings, NoTrustRegion, Rescalarize, TRLengthConfig, TrustRegionConfig,
+    TrustRegionError, TrustRegionOutcome,
+};
 
 /// Trust region for single-objective optimization (TuRBO).
 ///
@@ -156,10 +33,6 @@ pub struct TurboTrustRegion {
     num_arms: Option<usize>,
     /// Length configuration.
     config: TRLengthConfig,
-    /// Min of y[0..prev_obs] for O(1) improvement scale (no full-history scan).
-    hist_ymin: f64,
-    /// Max of y[0..prev_obs] for O(1) improvement scale.
-    hist_ymax: f64,
     /// Optional effective dimension for failure tolerance (defaults to
     /// num_dim).
     failure_tolerance_dim: Option<f64>,
@@ -180,8 +53,6 @@ impl TurboTrustRegion {
             num_dim,
             num_arms: None,
             config,
-            hist_ymin: f64::INFINITY,
-            hist_ymax: f64::NEG_INFINITY,
             failure_tolerance_dim: None,
             failure_tolerance_override: None,
         }
@@ -222,9 +93,23 @@ impl TurboTrustRegion {
         }
         if let Some(num_arms) = self.num_arms {
             let eff_dim = self.failure_tolerance_dim.unwrap_or(self.num_dim as f64);
-            let tolerance = ((4.0 / num_arms as f64).max(eff_dim / num_arms as f64)).ceil() as i32;
-            self.failure_tolerance = Some(tolerance.max(1));
+            self.failure_tolerance = Some(baux::semantics::optimizer::turbo_tolerance(
+                eff_dim, num_arms,
+            ));
         }
+    }
+
+    fn adapt_step(&mut self, improved: Option<bool>) {
+        let failure_tol = self.failure_tolerance();
+        let _ = baux::semantics::optimizer::turbo_adapt(
+            &mut self.length,
+            self.config.length_max,
+            &mut self.success_counter,
+            &mut self.failure_counter,
+            self.success_tolerance,
+            failure_tol,
+            improved,
+        );
     }
 
     /// Get current trust region length.
@@ -285,22 +170,7 @@ impl TurboTrustRegion {
             return Ok(());
         }
         let improved = y_incumbent_value > self.best_value + 1e-3 * scale;
-        if improved {
-            self.success_counter += 1;
-            self.failure_counter = 0;
-        } else {
-            self.failure_counter += 1;
-            self.success_counter = 0;
-        }
-        let success_tol = self.success_tolerance;
-        let failure_tol = self.failure_tolerance.unwrap_or(4);
-        if self.success_counter >= success_tol {
-            self.length = (self.length * 2.0).min(self.config.length_max);
-            self.success_counter = 0;
-        } else if self.failure_counter >= failure_tol {
-            self.length *= 0.5;
-            self.failure_counter = 0;
-        }
+        self.adapt_step(Some(improved));
         self.best_value = self.best_value.max(y_incumbent_value);
         self.prev_obs = num_obs;
         Ok(())
@@ -372,29 +242,10 @@ impl TurboTrustRegion {
         // Check for improvement
         let improvement_threshold = 1e-3 * scale;
         let improved = new_best > self.best_value + improvement_threshold;
-
         if improved {
-            self.success_counter += 1;
-            self.failure_counter = 0;
             self.best_value = self.best_value.max(new_best);
-        } else {
-            self.failure_counter += 1;
-            self.success_counter = 0;
         }
-
-        // Adapt length
-        let success_tol = self.success_tolerance;
-        let failure_tol = self.failure_tolerance.unwrap_or(4);
-
-        if self.success_counter >= success_tol {
-            // Expand: double length
-            self.length = (self.length * 2.0).min(self.config.length_max);
-            self.success_counter = 0;
-        } else if self.failure_counter >= failure_tol {
-            // Contract: halve length
-            self.length *= 0.5;
-            self.failure_counter = 0;
-        }
+        self.adapt_step(Some(improved));
 
         self.prev_obs = n;
         Ok(())
@@ -456,32 +307,14 @@ impl TurboTrustRegion {
 
         if !self.best_value.is_finite() {
             self.best_value = y_incumbent_value;
-            incorporate_hist(&mut self.hist_ymin, &mut self.hist_ymax, y_new);
             self.prev_obs = n;
             return Ok(());
         }
 
         let scale = improvement_scale(self.best_value);
         let improved = y_incumbent_value > self.best_value + 1e-3 * scale;
-        if improved {
-            self.success_counter += 1;
-            self.failure_counter = 0;
-        } else {
-            self.failure_counter += 1;
-            self.success_counter = 0;
-        }
-
-        let success_tol = self.success_tolerance;
-        let failure_tol = self.failure_tolerance.unwrap_or(4);
-        if self.success_counter >= success_tol {
-            self.length = (self.length * 2.0).min(self.config.length_max);
-            self.success_counter = 0;
-        } else if self.failure_counter >= failure_tol {
-            self.length *= 0.5;
-            self.failure_counter = 0;
-        }
+        self.adapt_step(Some(improved));
         self.best_value = self.best_value.max(y_incumbent_value);
-        incorporate_hist(&mut self.hist_ymin, &mut self.hist_ymax, y_new);
         self.prev_obs = n;
         Ok(())
     }
@@ -515,32 +348,21 @@ impl TurboTrustRegion {
             ));
         }
 
-        match outcome {
-            TrustRegionOutcome::Success => {
-                self.success_counter += 1;
-                self.failure_counter = 0;
-            }
-            TrustRegionOutcome::Failure => {
-                self.failure_counter += 1;
-                self.success_counter = 0;
-            }
-            TrustRegionOutcome::Inconclusive => {}
+        if !self.best_value.is_finite() {
+            self.best_value = y_incumbent_value;
+            self.prev_obs = n;
+            return Ok(());
         }
 
-        if self.success_counter >= self.success_tolerance {
-            self.length = (self.length * 2.0).min(self.config.length_max);
-            self.success_counter = 0;
-        } else if self.failure_counter >= self.failure_tolerance() {
-            self.length *= 0.5;
-            self.failure_counter = 0;
-        }
-
-        self.best_value = if self.best_value.is_finite() {
-            self.best_value.max(y_incumbent_value)
-        } else {
-            y_incumbent_value
+        let improved = match outcome {
+            TrustRegionOutcome::Success => Some(true),
+            TrustRegionOutcome::Failure => Some(false),
         };
-        incorporate_hist(&mut self.hist_ymin, &mut self.hist_ymax, y_new);
+        self.adapt_step(improved);
+
+        if outcome == TrustRegionOutcome::Success {
+            self.best_value = self.best_value.max(y_incumbent_value);
+        }
         self.prev_obs = n;
         Ok(())
     }
@@ -585,8 +407,6 @@ impl TurboTrustRegion {
     pub fn restart_local(&mut self) {
         self.restart();
         self.prev_obs = 0;
-        self.hist_ymin = f64::INFINITY;
-        self.hist_ymax = f64::NEG_INFINITY;
     }
 
     /// Set observation watermark without scanning history (post-init /
@@ -595,22 +415,12 @@ impl TurboTrustRegion {
         self.prev_obs = prev_obs;
     }
 
-    /// Seed the scale and incumbent baseline from observations preceding the
-    /// first length update.
-    pub fn seed_history(&mut self, prefix: &ArrayView1<f64>) {
-        incorporate_hist(&mut self.hist_ymin, &mut self.hist_ymax, prefix);
-        if !self.best_value.is_finite() {
-            if let Some(best) = prefix.iter().copied().reduce(f64::max) {
-                self.best_value = best;
-            }
+    /// Seed baseline best value and observation watermark (e.g. after warmup).
+    pub fn seed_baseline(&mut self, best_value: f64, prev_obs: usize) {
+        if best_value.is_finite() {
+            self.best_value = best_value;
         }
-    }
-}
-
-fn incorporate_hist(hist_ymin: &mut f64, hist_ymax: &mut f64, y_new: &ArrayView1<f64>) {
-    for &v in y_new.iter() {
-        *hist_ymin = hist_ymin.min(v);
-        *hist_ymax = hist_ymax.max(v);
+        self.prev_obs = prev_obs;
     }
 }
 
@@ -622,10 +432,5 @@ fn improvement_scale(best_value: f64) -> f64 {
     }
 }
 
-#[path = "trust_region/null.rs"]
-mod null;
-pub use null::NoTrustRegion;
-
 #[cfg(test)]
-#[path = "trust_region/tests.rs"]
 mod tests;

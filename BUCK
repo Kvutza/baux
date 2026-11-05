@@ -98,6 +98,12 @@ filegroup(
 )
 
 filegroup(
+    name = "optimizer-python-source",
+    srcs = glob(["src/baux/**/*.py", "tests/python_api/*.py"]),
+    visibility = ["//build/buck2/tests:optimizer-python", "//build/buck2/tests:resident-python"],
+)
+
+filegroup(
     name = "cuda-package",
     srcs = glob(["src/baux/**/*.py", "data/recipes/*.json"]) + [
         "LICENSE",
@@ -120,11 +126,11 @@ cuda_oxide(
         "tooling": "//rust/crates/tooling:source",
         "baux": "//rust/crates/baux:baux-source",
         "baux-py": "//rust/crates/baux-py:python-source",
+        "fbt": "//rust/crates/fbt:source",
         "modal-runner": "//rust/crates/modal-runner:modal-source",
-        "ptx-synth": "//rust/crates/ptx-synth:ptx-source",
         "properties": "//rust/crates/properties:source",
     },
-    cuda = "//backends/cuda:source",
+    cuda = "//rust/crates/cuda:source",
     parity = "ops/bf16_parity.py",
     click = ":click-wheel",
     python_abi = PYTHON_ABI,

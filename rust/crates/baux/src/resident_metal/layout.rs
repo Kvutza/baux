@@ -1,6 +1,6 @@
 use super::*;
 
-pub(super) fn finish(command: &CommandBufferRef) -> Result<(), String> {
+pub fn finish(command: &CommandBufferRef) -> Result<(), String> {
     command.commit();
     command.wait_until_completed();
     if command.status() != MTLCommandBufferStatus::Completed {
@@ -10,13 +10,13 @@ pub(super) fn finish(command: &CommandBufferRef) -> Result<(), String> {
     }
 }
 
-pub(super) fn read<T: Copy>(buffer: &Buffer, count: usize) -> Vec<T> {
+pub fn read<T: Copy>(buffer: &Buffer, count: usize) -> Vec<T> {
     assert!(std::mem::size_of::<T>() * count <= buffer.length() as usize);
     // All callers use initialized shared buffers after command completion.
     unsafe { std::slice::from_raw_parts(buffer.contents().cast::<T>(), count).to_vec() }
 }
 
-pub(super) fn make_layout(
+pub fn make_layout(
     blocks: &[ParamBlock],
     elements: usize,
 ) -> Result<(Vec<Tile>, Vec<u32>, Vec<Leaf>), String> {
@@ -66,14 +66,14 @@ pub(super) fn make_layout(
     Ok((tiles, offsets, leaves))
 }
 
-pub(super) fn bytes<T>(count: usize) -> Result<u64, String> {
+pub fn bytes<T>(count: usize) -> Result<u64, String> {
     count
         .checked_mul(size_of::<T>())
         .and_then(|x| u64::try_from(x).ok())
         .ok_or_else(|| "Metal BF16 allocation size overflow".into())
 }
 
-pub(super) fn preflight(runtime: &Runtime, sizes: &[u64], additional: u64) -> Result<(), String> {
+pub fn preflight(runtime: &Runtime, sizes: &[u64], additional: u64) -> Result<(), String> {
     check_memory(
         sizes,
         additional,
@@ -83,7 +83,7 @@ pub(super) fn preflight(runtime: &Runtime, sizes: &[u64], additional: u64) -> Re
     )
 }
 
-pub(super) fn check_memory(
+pub fn check_memory(
     sizes: &[u64],
     additional: u64,
     max_buffer: u64,
@@ -109,7 +109,7 @@ pub(super) fn check_memory(
     Ok(())
 }
 
-pub(super) fn checked_length(length: TRLengthConfig) -> Result<TRLengthConfig, String> {
+pub fn checked_length(length: TRLengthConfig) -> Result<TRLengthConfig, String> {
     if [length.length_min, length.length_init, length.length_max]
         .iter()
         .any(|value| !value.is_finite() || !(*value as f32).is_finite() || *value as f32 <= 0.0)
@@ -136,7 +136,7 @@ pub(super) fn checked_length(length: TRLengthConfig) -> Result<TRLengthConfig, S
     Ok(TRLengthConfig::new(initial, min, max))
 }
 
-pub(super) fn check_scores(values: &[f32], variances: &[f32]) -> Result<(), String> {
+pub fn check_scores(values: &[f32], variances: &[f32]) -> Result<(), String> {
     if values.iter().any(|x| !x.is_finite()) || variances.iter().any(|x| !x.is_finite() || *x < 0.0)
     {
         Err("BF16 measurements must be finite with nonnegative finite variances".into())
@@ -145,7 +145,7 @@ pub(super) fn check_scores(values: &[f32], variances: &[f32]) -> Result<(), Stri
     }
 }
 
-pub(super) fn check_ask(config: RoundConfig) -> Result<(), String> {
+pub fn check_ask(config: RoundConfig) -> Result<(), String> {
     if config.surrogate.neighbors == 0
         || config.surrogate.neighbors > MAX_HISTORY
         || [
@@ -166,14 +166,14 @@ pub(super) fn check_ask(config: RoundConfig) -> Result<(), String> {
     Ok(())
 }
 
-pub(super) fn candidate_seed(root: u64, candidate: usize) -> u64 {
+pub fn candidate_seed(root: u64, candidate: usize) -> u64 {
     crate::procedural_pool::legacy_seed(root, candidate as u32)
 }
 
 /// The same FP32 BAUX weighting and shared-per-observation Thompson draw as
 /// CUDA.
 #[cfg(test)]
-pub(super) fn acquisition(
+pub fn acquisition(
     distances: &[f32],
     outcomes: &[f32],
     variances: &[f32],

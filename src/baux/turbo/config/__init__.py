@@ -33,6 +33,7 @@ from .optimizer import (
 from .surrogate import (
     DistanceMetric,
     ENNSurrogate,
+    ExternalSurrogate,
     GaussianProcess,
     NeighborIndex,
     NoSurrogate,
@@ -40,18 +41,24 @@ from .surrogate import (
     SurrogateFit,
 )
 from .trust_region import (
+    AllocationPolicy,
     MorboTrustRegion,
     MultiObjectiveConfig,
     MultiTrustRegionPolicy,
     NoTrustRegion,
     Rescalarize,
     RescalePolicy,
+    RegionMethod,
+    RestartCenterPolicy,
+    RestartCenterSelection,
+    RestartMemoryPolicy,
     TrustRegionBounds,
     TrustRegionConfig,
     TurboTrustRegion,
 )
 
 __all__ = [
+    "AllocationPolicy",
     "AcqOptimizerConfig",
     "AcquisitionConfig",
     "AcquisitionKind",
@@ -60,6 +67,7 @@ __all__ = [
     "DistanceMetric",
     "DrawAcquisitionConfig",
     "ENNSurrogate",
+    "ExternalSurrogate",
     "GaussianProcess",
     "HybridInit",
     "InitConfig",
@@ -80,6 +88,10 @@ __all__ = [
     "RandomAcquisitionConfig",
     "RescalePolicy",
     "Rescalarize",
+    "RegionMethod",
+    "RestartCenterPolicy",
+    "RestartCenterSelection",
+    "RestartMemoryPolicy",
     "Surrogate",
     "SurrogateFit",
     "TrustRegionBounds",

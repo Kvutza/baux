@@ -1,0 +1,47 @@
+Full-model directional diagnostics; Apple M4; initialized model seed 17; 4096 tokens.
+The test checks execution/replay/finiteness. Directional ratios are diagnostics, not an accuracy gate.
+Directions use the sign of each baseline adjoint and family weight RMS. Parameters are restored after each score.
+predicted = sum_i g_i * (rounded_w_plus_i - rounded_w_minus_i); observed = loss_plus - loss_minus.
+Route fields count tokens whose selected set differs from baseline in the FINAL execution only, ignoring order.
+Other than final_norm/readout, each family probes its first physical layer; shared_gate/down probe the shared expert.
+readout probes the first vocabulary-width row, including its tied input-embedding use.
+Gradient signs can change between runs due to atomic sums; before/after directions need not be identical.
+sha256 c301ca9108c6f33c32b71d22106ffa2acdcda1191bef59191d916eb9ae35ee5e rust/crates/baux/src/fbt_train/corpus.rs
+sha256 a27138c267de466c41b5cb820049fced05a077488ce6e6fecc3b70d9917fd4a8 rust/crates/baux/src/fbt_pisa1/grad.rs
+sha256 164f643f15945776ea1fe5822016c1a732450736f6bfd6a88875c3cd662e3d62 rust/crates/baux/src/fbt_train.rs
+sha256 8f66f8637db17326cfa4e7aec0ee62e3ce6d816b52dd2204061651e47cb407f4 rust/crates/baux/src/fbt_train_grad.metal
+Command: ./tools/buck2w test --console simple //rust/crates/baux:baux-unit -- --test-arg=--exact --test-arg=fbt_moe::train::corpus::corpus_replay --test-arg=--ignored --test-arg=--nocapture --env BAUX_CORPUS_DIRECTIONS=1
+CORPUS_REPLAY rows=4096 stream_words=8388608 exact=true nll=14.940422 nonzero_gradients=1062117653 backward_seconds=12.850935208349256 full_gradient_parity=false
+CORPUS_DIRECTION family=final_norm fraction=0.03125 changed=[512, 512] predicted=2.860616890e-1 observed=2.860536575e-1 ratio=9.999719240e-1 last_attention_sets=[0, 0] last_expert_sets=[0, 0] diagnostic_only=true
+CORPUS_DIRECTION family=final_norm fraction=0.015625 changed=[512, 512] predicted=1.430308445e-1 observed=1.430006027e-1 ratio=9.997885647e-1 last_attention_sets=[0, 0] last_expert_sets=[0, 0] diagnostic_only=true
+CORPUS_DIRECTION family=final_norm fraction=0.0078125 changed=[512, 512] predicted=7.151542225e-2 observed=7.150745392e-2 ratio=9.998885789e-1 last_attention_sets=[0, 0] last_expert_sets=[0, 0] diagnostic_only=true
+CORPUS_DIRECTION family=readout fraction=0.03125 changed=[262144, 262144] predicted=1.516888004e-1 observed=1.437520981e-1 ratio=9.476777306e-1 last_attention_sets=[2342, 2333] last_expert_sets=[1640, 1661] diagnostic_only=true
+CORPUS_DIRECTION family=readout fraction=0.015625 changed=[262144, 262144] predicted=7.575892191e-2 observed=6.805038452e-2 ratio=8.982491145e-1 last_attention_sets=[2076, 2261] last_expert_sets=[1361, 1571] diagnostic_only=true
+CORPUS_DIRECTION family=readout fraction=0.0078125 changed=[262144, 262144] predicted=3.801041099e-2 observed=4.492664337e-2 ratio=1.181956264e0 last_attention_sets=[2032, 2220] last_expert_sets=[1268, 1461] diagnostic_only=true
+CORPUS_DIRECTION family=query fraction=0.03125 changed=[327680, 327680] predicted=2.152774342e0 observed=1.344277382e0 ratio=6.244395224e-1 last_attention_sets=[3480, 3462] last_expert_sets=[3769, 3778] diagnostic_only=true
+CORPUS_DIRECTION family=query fraction=0.015625 changed=[327680, 327680] predicted=1.074828485e0 observed=7.906103134e-1 ratio=7.355688132e-1 last_attention_sets=[3264, 3276] last_expert_sets=[3311, 3269] diagnostic_only=true
+CORPUS_DIRECTION family=query fraction=0.0078125 changed=[327680, 327680] predicted=5.396555699e-1 observed=4.203166962e-1 ratio=7.788610358e-1 last_attention_sets=[3036, 3047] last_expert_sets=[2825, 2751] diagnostic_only=true
+CORPUS_DIRECTION family=output fraction=0.03125 changed=[262144, 262144] predicted=1.097331856e0 observed=7.113399506e-1 ratio=6.482450558e-1 last_attention_sets=[3452, 3426] last_expert_sets=[3624, 3600] diagnostic_only=true
+CORPUS_DIRECTION family=output fraction=0.015625 changed=[262144, 262144] predicted=5.488257969e-1 observed=4.313573837e-1 ratio=7.859641186e-1 last_attention_sets=[3251, 3194] last_expert_sets=[3123, 3085] diagnostic_only=true
+CORPUS_DIRECTION family=output fraction=0.0078125 changed=[262144, 262144] predicted=2.773237704e-1 observed=2.053899765e-1 ratio=7.406143954e-1 last_attention_sets=[3026, 2937] last_expert_sets=[2602, 2529] diagnostic_only=true
+CORPUS_DIRECTION family=attention_norm fraction=0.03125 changed=[512, 512] predicted=8.450322906e-2 observed=6.739425659e-2 ratio=7.975346900e-1 last_attention_sets=[3282, 3233] last_expert_sets=[3257, 3250] diagnostic_only=true
+CORPUS_DIRECTION family=attention_norm fraction=0.015625 changed=[512, 512] predicted=4.225161453e-2 observed=1.032733917e-2 ratio=2.444247229e-1 last_attention_sets=[3074, 3042] last_expert_sets=[2756, 2739] diagnostic_only=true
+CORPUS_DIRECTION family=attention_norm fraction=0.0078125 changed=[512, 512] predicted=2.112580726e-2 observed=2.294445038e-2 ratio=1.086086325e0 last_attention_sets=[2809, 2772] last_expert_sets=[2366, 2247] diagnostic_only=true
+CORPUS_DIRECTION family=ffn_norm fraction=0.03125 changed=[512, 512] predicted=1.186451392e-1 observed=5.516910553e-2 ratio=4.649925474e-1 last_attention_sets=[3249, 3234] last_expert_sets=[3345, 3324] diagnostic_only=true
+CORPUS_DIRECTION family=ffn_norm fraction=0.015625 changed=[512, 512] predicted=5.932256961e-2 observed=4.193782806e-2 ratio=7.069455747e-1 last_attention_sets=[3079, 2988] last_expert_sets=[2821, 2775] diagnostic_only=true
+CORPUS_DIRECTION family=ffn_norm fraction=0.0078125 changed=[512, 512] predicted=2.966128481e-2 observed=2.482604980e-2 ratio=8.369849778e-1 last_attention_sets=[2709, 2770] last_expert_sets=[2176, 2302] diagnostic_only=true
+CORPUS_DIRECTION family=router fraction=0.03125 changed=[320000, 320000] predicted=7.113738458e-2 observed=4.089164734e-1 ratio=5.748264092e0 last_attention_sets=[3373, 3393] last_expert_sets=[3388, 3364] diagnostic_only=true
+CORPUS_DIRECTION family=router fraction=0.015625 changed=[320000, 320000] predicted=3.573537141e-2 observed=2.240581512e-1 ratio=6.269926473e0 last_attention_sets=[3251, 3214] last_expert_sets=[3051, 3005] diagnostic_only=true
+CORPUS_DIRECTION family=router fraction=0.0078125 changed=[320000, 320000] predicted=1.779750593e-2 observed=1.638574600e-1 ratio=9.206765299e0 last_attention_sets=[3089, 3026] last_expert_sets=[2705, 2654] diagnostic_only=true
+CORPUS_DIRECTION family=shared_gate fraction=0.03125 changed=[221184, 221184] predicted=2.165679266e0 observed=1.638993263e0 ratio=7.568033222e-1 last_attention_sets=[3208, 3209] last_expert_sets=[3445, 3380] diagnostic_only=true
+CORPUS_DIRECTION family=shared_gate fraction=0.015625 changed=[221184, 221184] predicted=1.081516556e0 observed=8.838338852e-1 ratio=8.172171574e-1 last_attention_sets=[2908, 2859] last_expert_sets=[2756, 2684] diagnostic_only=true
+CORPUS_DIRECTION family=shared_gate fraction=0.0078125 changed=[221184, 221184] predicted=5.427188952e-1 observed=4.728364944e-1 ratio=8.712364700e-1 last_attention_sets=[2568, 2499] last_expert_sets=[2076, 1988] diagnostic_only=true
+CORPUS_DIRECTION family=shared_down fraction=0.03125 changed=[110592, 110592] predicted=1.056786204e0 observed=8.361740112e-1 ratio=7.912423612e-1 last_attention_sets=[2942, 2954] last_expert_sets=[2858, 2871] diagnostic_only=true
+CORPUS_DIRECTION family=shared_down fraction=0.015625 changed=[110592, 110592] predicted=5.247175257e-1 observed=4.547824860e-1 ratio=8.667186890e-1 last_attention_sets=[2561, 2519] last_expert_sets=[2111, 2079] diagnostic_only=true
+CORPUS_DIRECTION family=shared_down fraction=0.0078125 changed=[110592, 110592] predicted=2.590670023e-1 observed=2.273311615e-1 ratio=8.774994865e-1 last_attention_sets=[2151, 2137] last_expert_sets=[1459, 1531] diagnostic_only=true
+CORPUS_DIRECTION family=attention_predictor fraction=0.03125 changed=[49152, 49152] predicted=9.114283203e-4 observed=-4.332542419e-3 ratio=-4.753574497e0 last_attention_sets=[1844, 1799] last_expert_sets=[1151, 1065] diagnostic_only=true
+CORPUS_DIRECTION family=attention_predictor fraction=0.015625 changed=[49152, 49152] predicted=4.550481353e-4 observed=1.377677917e-2 ratio=3.027543266e1 last_attention_sets=[1698, 1731] last_expert_sets=[973, 1023] diagnostic_only=true
+CORPUS_DIRECTION family=attention_predictor fraction=0.0078125 changed=[49152, 49152] predicted=2.284165338e-4 observed=5.336761475e-3 ratio=2.336416452e1 last_attention_sets=[1228, 1628] last_expert_sets=[631, 953] diagnostic_only=true
+CORPUS_DIRECTION family=moe_predictor fraction=0.03125 changed=[49152, 49152] predicted=8.342424314e-4 observed=-2.895355225e-3 ratio=-3.470640087e0 last_attention_sets=[1209, 1174] last_expert_sets=[599, 549] diagnostic_only=true
+CORPUS_DIRECTION family=moe_predictor fraction=0.015625 changed=[49152, 49152] predicted=4.165970696e-4 observed=-2.865791321e-3 ratio=-6.879048198e0 last_attention_sets=[1045, 1201] last_expert_sets=[488, 566] diagnostic_only=true
+CORPUS_DIRECTION family=moe_predictor fraction=0.0078125 changed=[49152, 49152] predicted=2.091154127e-4 observed=4.046440125e-3 ratio=1.935027204e1 last_attention_sets=[978, 837] last_expert_sets=[417, 377] diagnostic_only=true

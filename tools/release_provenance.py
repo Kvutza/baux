@@ -34,7 +34,7 @@ def resolve_release(root: Path, tag: str) -> str:
     commit = git(root, "rev-parse", "--verify", f"{ref}^{{commit}}")
     workspace = tomllib.loads(git(root, "show", f"{commit}:Cargo.toml"))
     versions = {workspace["workspace"]["package"]["version"]}
-    for path in ("backends/cuda/Cargo.toml", "backends/cuda/device/Cargo.toml"):
+    for path in ("rust/crates/cuda/Cargo.toml", "rust/crates/cuda/device/Cargo.toml"):
         package = tomllib.loads(git(root, "show", f"{commit}:{path}"))
         versions.add(package["package"]["version"])
     buck = configparser.ConfigParser()

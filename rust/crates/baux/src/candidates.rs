@@ -5,13 +5,14 @@ use ndarray::{Array1, Array2, ArrayView1, ArrayView2};
 use rand::Rng;
 use rand::RngCore;
 use rand::SeedableRng;
-use rand::distributions::{Bernoulli, Uniform};
+use rand::distributions::Bernoulli;
 use sobol::Sobol;
 use sobol::params::JoeKuoD6;
 use std::sync::OnceLock;
 
 pub use crate::coordinate::{from_unit, to_unit};
 use crate::error::ENNError;
+pub use crate::proposal_kernel::CoordSystem;
 
 fn sobol_params() -> &'static JoeKuoD6 {
     static PARAMS: OnceLock<JoeKuoD6> = OnceLock::new();
@@ -137,11 +138,13 @@ pub fn sobol_sequence(dim: usize, n: usize, seed: u64) -> Result<Array2<f64>, EN
 }
 
 /// Strategy dispatch for TuRBO candidate drawing.
+#[allow(clippy::too_many_arguments)]
 pub fn draw_turbo<R: Rng + ?Sized>(
     is_morbo: bool,
     candidate_rv: CandidateRV,
     raasp_fast: bool,
     x_center: &ArrayView1<f64>,
+    _lengthscales: Option<&Array1<f64>>,
     lower_1d: &Array1<f64>,
     upper_1d: &Array1<f64>,
     num_candidates: usize,
@@ -172,6 +175,8 @@ pub fn draw_turbo<R: Rng + ?Sized>(
             );
         }
     }
+    // Bounds already incorporate lengthscales via compute_bounds; pass None so
+    // RAASP perturbs all dimensions at equal rate (matching upstream TuRBO).
     generate_candidates(
         || (lower_1d.clone(), upper_1d.clone()),
         x_center,
@@ -182,6 +187,86 @@ pub fn draw_turbo<R: Rng + ?Sized>(
         sobol_engine,
         num_pert,
     )
+}
+
+/// Generate candidates with explicit coordinate system and tied coordinate
+/// groups.
+#[allow(clippy::too_many_arguments)]
+pub fn perturb_candidates<R: Rng + ?Sized>(
+    x_center: &ArrayView1<f64>,
+    lower: &Array1<f64>,
+    upper: &Array1<f64>,
+    num_candidates: usize,
+    candidate_rv: CandidateSampler,
+    coord_system: CoordSystem,
+    tied_dims: &[Vec<usize>],
+    is_morbo: bool,
+    raasp_fast: bool,
+    rng: &mut R,
+    mut sobol_engine: Option<&mut SobolEngine>,
+    num_pert: usize,
+) -> Result<Array2<f64>, ENNError> {
+    if coord_system == CoordSystem::Cartesian && tied_dims.is_empty() {
+        return draw_turbo(
+            is_morbo,
+            candidate_rv,
+            raasp_fast,
+            x_center,
+            None,
+            lower,
+            upper,
+            num_candidates,
+            rng,
+            sobol_engine,
+            num_pert,
+        );
+    }
+    let num_dim = x_center.len();
+    if num_dim == 0 || num_candidates == 0 {
+        return Ok(Array2::zeros((num_candidates, num_dim)));
+    }
+    let units = crate::candidates_fast::build_units(num_dim, tied_dims)?;
+    let mut candidates = Array2::zeros((num_candidates, num_dim));
+    let raasp = candidate_rv == CandidateSampler::RAASP;
+    let masked_sobol = is_morbo && candidate_rv == CandidateSampler::Sobol;
+    for i in 0..num_candidates {
+        candidates.row_mut(i).assign(x_center);
+        let sobol_row = match (candidate_rv, sobol_engine.as_deref_mut()) {
+            (CandidateSampler::Sobol, Some(engine)) => Some(engine.sample(rng)?),
+            _ => None,
+        };
+        let active =
+            crate::candidates_fast::select_units(units.len(), raasp, masked_sobol, num_pert, rng)?;
+        let mut row = candidates.row_mut(i);
+        let mut singletons = Vec::new();
+        for u in active {
+            if tied_dims.is_empty() || units[u].len() == 1 {
+                singletons.extend_from_slice(&units[u]);
+            } else {
+                crate::candidates_fast::perturb_group(
+                    &mut row,
+                    x_center,
+                    lower,
+                    upper,
+                    &units[u],
+                    coord_system,
+                    sobol_row.as_deref(),
+                    rng,
+                );
+            }
+        }
+        crate::candidates_fast::perturb_group(
+            &mut row,
+            x_center,
+            lower,
+            upper,
+            &singletons,
+            coord_system,
+            sobol_row.as_deref(),
+            rng,
+        );
+    }
+    Ok(candidates)
 }
 
 /// Generate uniformly random candidates.
@@ -196,8 +281,11 @@ pub fn generate_uniform<R: Rng + ?Sized>(
 
     for i in 0..num_candidates {
         for j in 0..num_dim {
-            let dist = Uniform::new(lower[j], upper[j]);
-            candidates[[i, j]] = rng.sample(dist);
+            if upper[j] > lower[j] {
+                candidates[[i, j]] = lower[j] + rng.r#gen::<f64>() * (upper[j] - lower[j]);
+            } else {
+                candidates[[i, j]] = lower[j];
+            }
         }
     }
 
@@ -229,37 +317,65 @@ fn generate_raasp<R: Rng + ?Sized>(
     num_pert: usize,
 ) -> Result<Array2<f64>, ENNError> {
     let num_dim = x_center.len();
-    let num_pert = num_pert.max(1);
+    if num_dim == 0 || num_candidates == 0 {
+        return Ok(Array2::zeros((num_candidates, num_dim)));
+    }
+    let num_pert = num_pert.max(1).min(num_dim);
 
     let probs: Array1<f64> = match lengthscales {
-        Some(ls) => {
-            let ls_sum: f64 = ls.sum();
+        Some(ls) if ls.len() == num_dim => {
+            let clean = ls.mapv(|v| if v.is_finite() && v > 0.0 { v } else { 0.0 });
+            let ls_sum: f64 = clean.sum();
             if ls_sum > 0.0 {
-                ls.mapv(|v| v / ls_sum)
+                clean.mapv(|v| v / ls_sum)
             } else {
                 Array1::from_elem(num_dim, 1.0 / num_dim as f64)
             }
         }
-        None => Array1::from_elem(num_dim, 1.0 / num_dim as f64),
+        _ => Array1::from_elem(num_dim, 1.0 / num_dim as f64),
     };
 
     let mut cdf = Array1::zeros(num_dim);
-    let mut c = 0.0;
-    for j in 0..num_dim {
-        c += probs[j];
-        cdf[j] = c;
-    }
-
     let mut candidates = Array2::zeros((num_candidates, num_dim));
     for i in 0..num_candidates {
         for j in 0..num_dim {
             candidates[[i, j]] = x_center[j];
         }
-        for _ in 0..num_pert {
-            let r: f64 = rng.r#gen();
-            let dim_to_perturb = raasp_cdf(&cdf, r, num_dim);
-            let dist = Uniform::new(lower[dim_to_perturb], upper[dim_to_perturb]);
-            candidates[[i, dim_to_perturb]] = rng.sample(dist);
+        if num_pert >= num_dim {
+            for d in 0..num_dim {
+                if upper[d] > lower[d] {
+                    candidates[[i, d]] = lower[d] + rng.r#gen::<f64>() * (upper[d] - lower[d]);
+                } else {
+                    candidates[[i, d]] = lower[d];
+                }
+            }
+        } else {
+            let mut rem = probs.clone();
+            for _ in 0..num_pert {
+                let mut c = 0.0;
+                for j in 0..num_dim {
+                    if rem[j] > 0.0 {
+                        c += rem[j];
+                    }
+                    cdf[j] = c;
+                }
+                let mut dim_to_perturb = if c > 0.0 {
+                    let r = rng.r#gen::<f64>() * c;
+                    raasp_cdf(&cdf, r, num_dim)
+                } else {
+                    0
+                };
+                if rem[dim_to_perturb] < 0.0 {
+                    dim_to_perturb = (0..num_dim).find(|&j| rem[j] >= 0.0).unwrap_or(0);
+                }
+                rem[dim_to_perturb] = -1.0;
+                if upper[dim_to_perturb] > lower[dim_to_perturb] {
+                    candidates[[i, dim_to_perturb]] = lower[dim_to_perturb]
+                        + rng.r#gen::<f64>() * (upper[dim_to_perturb] - lower[dim_to_perturb]);
+                } else {
+                    candidates[[i, dim_to_perturb]] = lower[dim_to_perturb];
+                }
+            }
         }
     }
 
@@ -706,6 +822,7 @@ mod tests {
             CandidateRV::Sobol,
             false,
             &x_center.view(),
+            None,
             &lower,
             &upper,
             3,
@@ -721,6 +838,7 @@ mod tests {
             CandidateRV::Uniform,
             false,
             &x_center.view(),
+            None,
             &lower,
             &upper,
             3,
@@ -730,5 +848,164 @@ mod tests {
         )
         .unwrap();
         assert_eq!(turbo_std.shape(), &[3, 2]);
+    }
+
+    #[test]
+    fn aniso_sides() {
+        let sides = crate::metric_weights::trust_sides(&[1.0, 4.0]);
+        assert!((sides[0] - 2.0).abs() < 1e-12);
+        assert!((sides[1] - 0.5).abs() < 1e-12);
+        let prod: f64 = sides.iter().product();
+        assert!((prod - 1.0).abs() < 1e-12);
+
+        let x_center = array![0.5, 0.5, 0.5, 0.5];
+        let lower = array![0.45, 0.1, 0.45, 0.1];
+        let upper = array![0.55, 0.9, 0.55, 0.9];
+        let ls = array![0.25, 2.0, 0.25, 2.0];
+        let mut rng = StdRng::seed_from_u64(19);
+        let cand = draw_turbo(
+            false,
+            CandidateRV::RAASP,
+            false,
+            &x_center.view(),
+            Some(&ls),
+            &lower,
+            &upper,
+            400,
+            &mut rng,
+            None,
+            1,
+        )
+        .unwrap();
+        let mut counts = [0usize; 4];
+        for row in cand.rows() {
+            for j in 0..4 {
+                if (row[j] - x_center[j]).abs() > 1e-12 {
+                    counts[j] += 1;
+                }
+            }
+        }
+        for c in counts {
+            assert!(
+                c > 60 && c < 140,
+                "expected uniform RAASP rate, got {counts:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn coord_systems() {
+        let x_center = array![0.6, 0.7, 0.4, 0.3];
+        let lower = array![0.2, 0.3, 0.0, 0.0];
+        let upper = array![1.0, 1.0, 0.8, 0.6];
+        let mut rng = StdRng::seed_from_u64(77);
+
+        let sph = perturb_candidates(
+            &x_center.view(),
+            &lower,
+            &upper,
+            16,
+            CandidateSampler::Uniform,
+            CoordSystem::Spherical,
+            &[],
+            false,
+            false,
+            &mut rng,
+            None,
+            4,
+        )
+        .unwrap();
+        for row in sph.rows() {
+            let mut norm = 0.0;
+            for j in 0..4 {
+                let half = 0.5 * (upper[j] - lower[j]);
+                let u = (row[j] - x_center[j]) / half;
+                norm += u * u;
+            }
+            assert!((norm.sqrt() - 1.0).abs() < 1e-6);
+        }
+
+        let pol = perturb_candidates(
+            &x_center.view(),
+            &lower,
+            &upper,
+            16,
+            CandidateSampler::Uniform,
+            CoordSystem::Polar,
+            &[],
+            false,
+            false,
+            &mut rng,
+            None,
+            4,
+        )
+        .unwrap();
+        for row in pol.rows() {
+            let mut norm = 0.0;
+            for j in 0..4 {
+                let half = 0.5 * (upper[j] - lower[j]);
+                let u = (row[j] - x_center[j]) / half;
+                norm += u * u;
+            }
+            assert!(norm.sqrt() <= 1.0 + 1e-6);
+        }
+
+        let orig = perturb_candidates(
+            &x_center.view(),
+            &array![0.0, 0.0, 0.0, 0.0],
+            &array![1.0, 1.0, 1.0, 1.0],
+            16,
+            CandidateSampler::Uniform,
+            CoordSystem::OriginSphere,
+            &[],
+            false,
+            false,
+            &mut rng,
+            None,
+            4,
+        )
+        .unwrap();
+        let r0: f64 = x_center
+            .iter()
+            .map(|v| (v - 0.5).powi(2))
+            .sum::<f64>()
+            .sqrt();
+        for row in orig.rows() {
+            let r1: f64 = row.iter().map(|v| (v - 0.5).powi(2)).sum::<f64>().sqrt();
+            assert!((r1 - r0).abs() < 1e-6);
+        }
+    }
+
+    #[test]
+    fn tied_units() {
+        let x_center = array![0.5, 0.5, 0.5, 0.5];
+        let lower = array![0.1, 0.1, 0.1, 0.1];
+        let upper = array![0.9, 0.9, 0.9, 0.9];
+        let groups = vec![vec![0, 1], vec![2, 3]];
+        let mut rng = StdRng::seed_from_u64(99);
+        let cand = perturb_candidates(
+            &x_center.view(),
+            &lower,
+            &upper,
+            32,
+            CandidateSampler::RAASP,
+            CoordSystem::Spherical,
+            &groups,
+            false,
+            false,
+            &mut rng,
+            None,
+            1,
+        )
+        .unwrap();
+        for row in cand.rows() {
+            let a0 = (row[0] - x_center[0]).abs() > 1e-12;
+            let a1 = (row[1] - x_center[1]).abs() > 1e-12;
+            let b0 = (row[2] - x_center[2]).abs() > 1e-12;
+            let b1 = (row[3] - x_center[3]).abs() > 1e-12;
+            assert_eq!(a0, a1);
+            assert_eq!(b0, b1);
+            assert_ne!(a0, b0);
+        }
     }
 }

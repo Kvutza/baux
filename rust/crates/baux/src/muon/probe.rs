@@ -11,7 +11,7 @@ use std::time::Instant;
 pub fn measure() -> Result<Value, String> {
     let runtime = Runtime::shared()?;
     let mut records = Vec::new();
-    for (rows, cols, batch) in [(32, 48, 2), (512, 640, 5), (512, 432, 626)] {
+    for (rows, cols, batch) in [(32, 48, 2), (512, 640, 5), (512, 512, 65)] {
         let shape = Shape::new(rows, cols, batch)?;
         let count = shape.elements();
         let weights = runtime.buffer_with(&vec![0x3800u16; count]);

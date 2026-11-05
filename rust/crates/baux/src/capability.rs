@@ -1,35 +1,34 @@
-//! Execution-target capability declarations.
+//! Backend capability declarations.
 //!
 //! This module is the executable map for accelerator parity work. It should be
 //! updated when an operation becomes resident, gains an explicit fallback, or
-//! is removed from a target.
+//! is removed from a backend.
 //!
 //! General ENN dispatch lives in `posterior.rs` and `posterior/light.rs`.
 //! CUDA reuses `knn/cuda_index.rs` and the posterior kernels in the CUDA
-//! execution target: moments, parameter batches, and shared-seed joint draws.
-//! The current interface narrows host f64 inputs to f32 and downloads its
-//! results. Kernel neighbor limits still apply; empty models and output
-//! transformations have host handling. Metal/OpenCL accelerate neighbor search
-//! but use the CPU general posterior and draw implementation. Their fused trial
-//! selectors are distinct operations and do not establish device-array ENN
-//! posterior support. The separate `device_posterior` interface now provides
-//! target-specific CUDA/Metal moments and draws with DLPack query/output
-//! storage; the host interface above retains its original dispatch and transfer
-//! behavior.
+//! backend: moments, parameter batches, and shared-seed joint draws. The
+//! current interface narrows host f64 inputs to f32 and downloads its results.
+//! Kernel neighbor limits still apply; empty models and output transformations
+//! have host handling. Metal/OpenCL accelerate neighbor search but use the CPU
+//! general posterior and draw implementation. Their fused trial selectors are
+//! distinct operations and do not establish device-array ENN posterior support.
+//! The separate `device_posterior` interface now provides native CUDA/Metal
+//! moments and draws with DLPack query/output storage; the host interface above
+//! retains its original dispatch and transfer behavior.
 
 use deser::{Deserialize, Serialize};
 
-/// Execution target tracked by the capability matrix.
+/// Execution backend tracked by the capability matrix.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[deser(rename_all = "snake_case")]
-pub enum ExecutionTarget {
+pub enum Backend {
     Cpu,
     Cuda,
     Metal,
     OpenCl,
 }
 
-impl ExecutionTarget {
+impl Backend {
     pub const fn name(self) -> &'static str {
         match self {
             Self::Cpu => "cpu",
@@ -39,7 +38,7 @@ impl ExecutionTarget {
         }
     }
 
-    /// Whether this Rust library contains the target, independent of Python.
+    /// Whether this Rust library contains the backend, independent of Python.
     pub const fn compiled(self) -> bool {
         match self {
             Self::Cpu => true,
@@ -53,16 +52,15 @@ impl ExecutionTarget {
         }
     }
 
-    /// Exercise the target-specific neighbor implementation. This can
-    /// initialize a GPU runtime and compile kernels, so capability
-    /// inspection does not call it unless the caller explicitly requests a
-    /// runtime probe.
+    /// Exercise the native neighbor implementation. This can initialize a GPU
+    /// runtime and compile kernels, so capability inspection does not call it
+    /// unless the caller explicitly requests a runtime probe.
     pub fn probe(self) -> Result<(), String> {
         use crate::index::IndexDriver;
         use crate::knn::KnnIndex;
         if !self.compiled() {
             return Err(format!(
-                "{} execution target was not compiled into this library",
+                "{} backend was not compiled into this library",
                 self.name()
             ));
         }
@@ -87,7 +85,7 @@ impl ExecutionTarget {
     }
 }
 
-/// Library operation tracked for target parity.
+/// Library operation tracked for backend parity.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[deser(rename_all = "snake_case")]
 pub enum Operation {
@@ -105,6 +103,8 @@ pub enum Operation {
     DevicePosterior,
     Acquisition,
     Candidate,
+    WeightSelect,
+    TrialSearch,
     ResidentLoop,
 }
 
@@ -119,6 +119,8 @@ impl Operation {
             Self::DevicePosterior => "device_posterior",
             Self::Acquisition => "acquisition",
             Self::Candidate => "candidate",
+            Self::WeightSelect => "weight_select",
+            Self::TrialSearch => "trial_search",
             Self::ResidentLoop => "resident_loop",
         }
     }
@@ -138,11 +140,11 @@ impl Operation {
     }
 }
 
-/// Capability status for one target/operation pair.
+/// Capability status for one backend/operation pair.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[deser(rename_all = "snake_case")]
 pub enum Support {
-    /// A target-specific implementation exists within its
+    /// A native implementation exists for the selected backend within its
     /// validated constraints. Host preparation, transfers, and degenerate-case
     /// handling may still occur; this is not a trace or residency guarantee.
     Direct,
@@ -161,24 +163,17 @@ impl Support {
     }
 }
 
-/// One row in the execution-target capability matrix.
+/// One row in the backend capability matrix.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Capability {
-    /// `backend` is accepted only when reading legacy serialized matrices.
-    #[deser(alias = "backend")]
-    pub target: ExecutionTarget,
+    pub backend: Backend,
     pub operation: Operation,
     pub support: Support,
 }
 
-const TARGETS: [ExecutionTarget; 4] = [
-    ExecutionTarget::Cpu,
-    ExecutionTarget::Cuda,
-    ExecutionTarget::Metal,
-    ExecutionTarget::OpenCl,
-];
+const BACKENDS: [Backend; 4] = [Backend::Cpu, Backend::Cuda, Backend::Metal, Backend::OpenCl];
 
-const OPS: [Operation; 9] = [
+const OPS: [Operation; 11] = [
     Operation::ExactDist,
     Operation::NeighborSearch,
     Operation::Posterior,
@@ -187,12 +182,14 @@ const OPS: [Operation; 9] = [
     Operation::DevicePosterior,
     Operation::Acquisition,
     Operation::Candidate,
+    Operation::WeightSelect,
+    Operation::TrialSearch,
     Operation::ResidentLoop,
 ];
 
-/// Returns every execution target tracked by the matrix.
-pub fn execution_targets() -> &'static [ExecutionTarget] {
-    &TARGETS
+/// Returns every backend tracked by the matrix.
+pub fn backends() -> &'static [Backend] {
+    &BACKENDS
 }
 
 /// Returns every operation tracked by the matrix.
@@ -200,28 +197,33 @@ pub fn operations() -> &'static [Operation] {
     &OPS
 }
 
-/// Returns the declared support for a target/operation pair.
-pub fn support(target: ExecutionTarget, operation: Operation) -> Support {
-    if !target.compiled() {
+/// Returns the declared support for a backend/operation pair.
+pub fn support(backend: Backend, operation: Operation) -> Support {
+    if !backend.compiled() {
         return Support::Missing;
     }
-    match (target, operation) {
-        (ExecutionTarget::Cuda | ExecutionTarget::Metal, Operation::DevicePosterior) => {
-            Support::Direct
-        }
+    match (backend, operation) {
+        (Backend::Cuda | Backend::Metal, Operation::DevicePosterior) => Support::Direct,
         (_, Operation::DevicePosterior) => Support::Missing,
         (_, Operation::ResidentLoop) => Support::Fallback,
-        (ExecutionTarget::Cpu, _) => Support::Direct,
+        (Backend::Cpu, _) => Support::Direct,
         (_, Operation::ExactDist) => Support::Direct,
         (
-            ExecutionTarget::Cuda,
+            Backend::Cuda,
             Operation::NeighborSearch
+            | Operation::TrialSearch
             | Operation::Posterior
             | Operation::PosteriorBatch
             | Operation::PosteriorDraw,
         ) => Support::Direct,
-        (ExecutionTarget::Metal, Operation::NeighborSearch) => Support::Direct,
-        (ExecutionTarget::OpenCl, Operation::NeighborSearch) => Support::Direct,
+        (
+            Backend::Metal,
+            Operation::NeighborSearch | Operation::TrialSearch | Operation::WeightSelect,
+        ) => Support::Direct,
+        (
+            Backend::OpenCl,
+            Operation::NeighborSearch | Operation::TrialSearch | Operation::WeightSelect,
+        ) => Support::Direct,
         (
             _,
             Operation::Posterior
@@ -230,18 +232,19 @@ pub fn support(target: ExecutionTarget, operation: Operation) -> Support {
             | Operation::Acquisition
             | Operation::Candidate,
         ) => Support::Fallback,
+        (_, Operation::WeightSelect) => Support::Missing,
     }
 }
 
 /// Returns the complete capability matrix.
 pub fn matrix() -> Vec<Capability> {
-    let mut rows = Vec::with_capacity(TARGETS.len() * OPS.len());
-    for &target in &TARGETS {
+    let mut rows = Vec::with_capacity(BACKENDS.len() * OPS.len());
+    for &backend in &BACKENDS {
         for &operation in &OPS {
             rows.push(Capability {
-                target,
+                backend,
                 operation,
-                support: support(target, operation),
+                support: support(backend, operation),
             });
         }
     }
@@ -254,24 +257,22 @@ mod tests {
 
     #[test]
     fn compiled_support() {
-        ExecutionTarget::Cpu.probe().unwrap();
-        for &target in execution_targets() {
+        Backend::Cpu.probe().unwrap();
+        for &backend in backends() {
             assert_eq!(
-                support(target, Operation::DevicePosterior),
-                if target.compiled()
-                    && matches!(target, ExecutionTarget::Cuda | ExecutionTarget::Metal)
-                {
+                support(backend, Operation::DevicePosterior),
+                if backend.compiled() && matches!(backend, Backend::Cuda | Backend::Metal) {
                     Support::Direct
                 } else {
                     Support::Missing
                 }
             );
-            if !target.compiled() {
-                assert!(target.probe().is_err());
+            if !backend.compiled() {
+                assert!(backend.probe().is_err());
                 assert!(
                     operations()
                         .iter()
-                        .all(|&op| support(target, op) == Support::Missing)
+                        .all(|&op| support(backend, op) == Support::Missing)
                 );
             }
         }
@@ -280,37 +281,21 @@ mod tests {
     #[test]
     fn posterior_paths() {
         assert_eq!(
-            support(ExecutionTarget::Cpu, Operation::PosteriorDraw),
+            support(Backend::Cpu, Operation::PosteriorDraw),
             Support::Direct
         );
-        if ExecutionTarget::Cuda.compiled() {
+        if Backend::Cuda.compiled() {
             assert_eq!(
-                support(ExecutionTarget::Cuda, Operation::PosteriorDraw),
+                support(Backend::Cuda, Operation::PosteriorDraw),
                 Support::Direct
             );
             assert!(Operation::PosteriorDraw.host_arrays());
         }
-        if ExecutionTarget::Metal.compiled() {
+        if Backend::Metal.compiled() {
             assert_eq!(
-                support(ExecutionTarget::Metal, Operation::PosteriorDraw),
+                support(Backend::Metal, Operation::PosteriorDraw),
                 Support::Fallback
             );
         }
-    }
-
-    #[test]
-    fn target_migration() {
-        let row = Capability {
-            target: ExecutionTarget::Cpu,
-            operation: Operation::NeighborSearch,
-            support: Support::Direct,
-        };
-        let canonical = crate::artifact::json::to_string(&row).unwrap();
-        assert!(canonical.contains("\"target\""));
-        assert!(!canonical.contains("\"backend\""));
-        let legacy: Capability =
-            crate::artifact::json::from_str(&canonical.replace("\"target\"", "\"backend\""))
-                .unwrap();
-        assert_eq!(legacy, row);
     }
 }

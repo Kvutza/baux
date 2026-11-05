@@ -13,17 +13,22 @@ pub struct ExperimentSpec {
     pub experiment: ExperimentKind,
     pub model: Option<ModelArchitecture>,
     pub output: Option<PathBuf>,
+    pub recipe: Option<DataRecipe>,
+    pub train: Option<PathBuf>,
+    pub validation: Option<PathBuf>,
+    pub objective: Option<ObjectiveFunction>,
+    pub window_tokens: Option<u32>,
+    #[deser(default = default_rounds())]
+    pub rounds: u32,
+    #[deser(default = default_reps())]
+    pub repetitions: u32,
+    #[deser(default = default_target())]
+    pub round_target_ms: u32,
+    pub validation_interval: Option<u32>,
     #[deser(default)]
-    pub execution: ExecutionSpec,
-    #[deser(default)]
-    pub evaluation: EvaluationSpec,
-    #[deser(default)]
-    pub data: DataSpec,
+    pub trace: bool,
+    pub stage_samples: Option<u32>,
     pub optimizer: OptimizerSpec,
-    #[deser(default)]
-    pub objective: ObjectiveSpec,
-    #[deser(default)]
-    pub diagnostics: DiagnosticSpec,
     pub generation: Option<GenerationConfig>,
 }
 

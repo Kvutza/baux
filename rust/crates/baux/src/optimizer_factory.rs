@@ -143,11 +143,9 @@ pub fn lhd_configured(
 mod tests {
     use super::{enn_configured, spec_optimizer};
     use crate::config::{
-        AcquisitionSpec, CandidateGenerationSpec, DistanceScaling, HistoryGeometry, OptimizerSpec,
-        RunConfig, SurrogateEstimator, SurrogateFit, SurrogateRecipe, TrustRegionBounds,
-        TrustRegionSpec,
+        AcquisitionSpec, DistanceMetric, OptimizerSpec, RunConfig, SurrogateFit, SurrogateRecipe,
+        TrustRegionBounds,
     };
-    use crate::procedural_pool::ProposalMethod;
     use ndarray::{Array2, array};
     use rand::SeedableRng;
     use rand::rngs::StdRng;
@@ -285,31 +283,24 @@ mod tests {
     fn spec_builds() {
         let bounds = array![[-1.0, 1.0], [-2.0, 2.0]];
         let spec = OptimizerSpec::TurboEnn {
-            candidate_generation: CandidateGenerationSpec {
-                generator: ProposalMethod::Additive,
-                candidates: 16,
-                arms: 2,
-                perturbation: None,
-            },
+            candidates: 16,
+            arms: 2,
+            distribution: None,
+            perturbation: None,
+            acquisition: AcquisitionSpec::Ucb { beta: 1.5 },
             surrogate: SurrogateRecipe {
-                estimator: SurrogateEstimator::Enn,
                 neighbors: 3,
                 neighbor_rule: Default::default(),
                 epistemic_scale: 0.7,
                 aleatoric_scale: 0.05,
                 y_scale: 1.0,
-                geometry: HistoryGeometry::Realized,
-                scaling: DistanceScaling::Global,
+                metric: DistanceMetric::Euclidean,
                 local_neighbors: None,
-                fit: SurrogateFit::LeaveOneOut {
-                    fit_candidates: 8,
-                    fit_samples: 4,
-                },
+                fit: SurrogateFit::LeaveOneOut,
+                fit_candidates: Some(8),
+                fit_samples: Some(4),
             },
-            acquisition: AcquisitionSpec::Ucb { beta: 1.5 },
-            trust_region: TrustRegionSpec::Turbo {
-                bounds: TrustRegionBounds::default(),
-            },
+            trust_region: TrustRegionBounds::default(),
         };
         let mut rng = StdRng::seed_from_u64(99);
         let mut opt = spec_optimizer(bounds, &spec, 2, &mut rng).unwrap();

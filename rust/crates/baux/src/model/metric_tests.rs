@@ -95,3 +95,54 @@ fn metric_rejection() {
     assert_eq!(model.len(), 0);
     assert_eq!(model.metric_snapshot().unwrap().num_seen, 0);
 }
+
+#[test]
+fn disk_moments() {
+    let dir = TempDir::new().unwrap();
+    let x = array![[0.0, 0.0], [2.0, 20.0]];
+    let y = array![[0.0], [1.0]];
+    let mut model = ENN::new_storage(
+        x,
+        y,
+        None,
+        true,
+        IndexDriver::BpAnnDisk,
+        EnnStorage::Disk,
+        Some(dir.path().to_path_buf()),
+    )
+    .unwrap();
+    assert!((model.x_scale()[[0, 0]] - 1.0).abs() < 1e-9);
+    assert!((model.x_scale()[[0, 1]] - 10.0).abs() < 1e-9);
+    model
+        .add(
+            &array![[0.0, 0.0], [2.0, 200.0]].view(),
+            &array![[2.0], [3.0]].view(),
+            None,
+        )
+        .unwrap();
+    assert!(model.x_scale()[[0, 1]] > 50.0);
+}
+
+#[test]
+fn unscaled_adds() {
+    let dir = TempDir::new().unwrap();
+    let x = array![[0.0, 0.0], [2.0, 20.0]];
+    let y = array![[0.0], [1.0]];
+    let mut model = ENN::new_storage(
+        x,
+        y,
+        None,
+        true,
+        IndexDriver::BpAnnDisk,
+        EnnStorage::Disk,
+        Some(dir.path().to_path_buf()),
+    )
+    .unwrap();
+    model.set_unscaled(vec![1]).unwrap();
+    assert!((model.x_scale()[[0, 1]] - 1.0).abs() < 1e-9);
+    model
+        .add(&array![[4.0, 400.0]].view(), &array![[2.0]].view(), None)
+        .unwrap();
+    assert!((model.x_scale()[[0, 1]] - 1.0).abs() < 1e-9);
+    assert!(model.x_scale()[[0, 0]] > 1.0);
+}

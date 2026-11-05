@@ -4,7 +4,7 @@
 use super::*;
 
 impl RunConfig {
-    pub(super) fn validate_selection(&self) -> Result<bool, String> {
+    pub fn validate_selection(&self) -> Result<bool, String> {
         if !matches!(
             self.experiment,
             Some(
@@ -36,7 +36,7 @@ impl RunConfig {
         ))
     }
 
-    pub(super) fn validate_fields(&self, pretrain: bool) -> Result<(), String> {
+    pub fn validate_fields(&self, pretrain: bool) -> Result<(), String> {
         self.validate_objectives()?;
         self.resident_pool()?;
         self.validate_identity(pretrain)?;
@@ -87,8 +87,18 @@ impl RunConfig {
         let Some(tokens) = self.window_tokens else {
             return Ok(());
         };
+        self.validate_hnet(tokens)?;
         if self.experiment != Some(ExperimentKind::Pretrain) {
             return Err("objective.window-tokens requires a pretrain experiment".into());
+        }
+        if matches!(
+            self.optimizer(),
+            TrainingOptimizer::MuonV1 | TrainingOptimizer::AdamwV1
+        ) && (tokens != crate::pretrain_data::CONTEXT
+            || self.model != Some(ModelArchitecture::FbtPisa1Mhc4V1)
+            || self.objective_function() != ObjectiveFunction::CrossEntropy)
+        {
+            return Err("gradient-based matrix training requires MHC4, cross-entropy and window-tokens=4096".into());
         }
         if !(128..=crate::context::MAX_TOKENS).contains(&tokens) || tokens % 128 != 0 {
             return Err(
@@ -101,7 +111,7 @@ impl RunConfig {
                 Some(ModelArchitecture::FbtPisa1Mhc4V1 | ModelArchitecture::FbtPisa1HnetMhc4V1)
             )
         {
-            return Err("pretraining sequences above 4096 tokens require fbt-pisa1-mhc4-v1".into());
+            return Err("pretraining sequences above 4096 positions require MHC4".into());
         }
         if tokens > crate::pretrain_data::CONTEXT
             && !matches!(
@@ -119,6 +129,16 @@ impl RunConfig {
                 "fixed causal pretraining has no reference evaluation; remove objective.reference"
                     .into(),
             );
+        }
+        Ok(())
+    }
+
+    fn validate_hnet(&self, tokens: u32) -> Result<(), String> {
+        if self.model == Some(ModelArchitecture::FbtPisa1HnetMhc4V1)
+            && (tokens > crate::context::MAX_TOKENS
+                || self.objective_function() != ObjectiveFunction::CrossEntropy)
+        {
+            return Err("H-Net optimization requires cross-entropy within 1048576 bytes".into());
         }
         Ok(())
     }
@@ -179,12 +199,8 @@ impl RunConfig {
         if !pretrain && self.objective_reference.is_some() {
             return Err("objective reference is supported only by pretrain experiments".into());
         }
-        if !pretrain
-            && (self.distance_scaling.is_some()
-                || self.history_geometry.is_some()
-                || self.local_scale_neighbors.is_some())
-        {
-            return Err("distance scaling is supported only by pretrain experiments".into());
+        if !pretrain && (self.distance_metric.is_some() || self.local_scale_neighbors.is_some()) {
+            return Err("distance metric is supported only by pretrain experiments".into());
         }
         if !pretrain && self.reps() > 1 {
             return Err("reps greater than one are supported only by pretrain".into());
@@ -205,27 +221,11 @@ impl RunConfig {
         Ok(())
     }
 
-    fn validate_program(&self, pretrain: bool) -> Result<(), String> {
-        let lie_or_rotation = matches!(
-            self.proposal_method,
-            Some(
-                crate::procedural_pool::ProposalMethod::PairMix
-                    | crate::procedural_pool::ProposalMethod::QuadraticFlow
-            )
-        );
-        if lie_or_rotation
-            && (!pretrain || self.history_geometry.unwrap_or_default() != HistoryGeometry::Latent)
-        {
-            return Err(
-                "Lie and pair-rotation require pretraining, Gaussian or Rademacher perturbations, \
-                 and geometry='latent' (sampled parameter history)"
-                    .into(),
-            );
-        }
+    fn validate_program(&self, _pretrain: bool) -> Result<(), String> {
         Ok(())
     }
 
-    pub(super) fn validate_seeds(&self) -> Result<(), String> {
+    pub fn validate_seeds(&self) -> Result<(), String> {
         if self.reps() > 1
             && [
                 self.model_seed,
@@ -258,31 +258,12 @@ impl RunConfig {
         Ok(())
     }
 
-    pub(super) fn validate_resident(&self, pretrain: bool) -> Result<(), String> {
+    pub fn validate_resident(&self, pretrain: bool) -> Result<(), String> {
         if self.trust_region_kind == Some(TrustRegionKind::Morbo) {
             return Err("the LocalV1 FBT latency run requires the TuRBO trust region".into());
         }
         if !pretrain && self.trust_region_shape.is_some() {
             return Err("trust-region shape is supported only by pretrain experiments".into());
-        }
-        match (self.trust_region_kind, self.reliability_controller) {
-            (Some(TrustRegionKind::Reliability), Some(config)) if pretrain => {
-                config.validate()?;
-            }
-            (Some(TrustRegionKind::Reliability), _) if !pretrain => {
-                return Err(
-                    "the reliability controller is supported only by pretrain experiments".into(),
-                );
-            }
-            (Some(TrustRegionKind::Reliability), None) => {
-                return Err("reliability radius control requires its policy parameters".into());
-            }
-            (_, Some(_)) => {
-                return Err(
-                    "reliability policy parameters require reliability radius control".into(),
-                );
-            }
-            (Some(TrustRegionKind::Turbo) | Some(TrustRegionKind::Morbo) | None, None) => {}
         }
         let effective = self.apply_to(turbo_enn());
         match effective.acquisition {
@@ -304,13 +285,11 @@ impl RunConfig {
         validate_lengths(length)
     }
 
-    pub(super) fn validate_controller(&self) -> Result<(), String> {
-        let unsupported = self.candidate_rv.is_some()
-            || self.num_candidates_factor.is_some()
+    pub fn validate_controller(&self) -> Result<(), String> {
+        let unsupported = self.num_candidates_factor.is_some()
             || self.min_candidates.is_some()
             || self.max_candidates.is_some()
             || self.num_candidates_per_arm.is_some()
-            || self.num_pert.is_some()
             || self.index_driver.is_some()
             || self.scale_x.is_some()
             || self.noise_aware.is_some()
@@ -337,21 +316,11 @@ mod program_tests {
     use super::*;
 
     #[test]
-    fn pair_rotation() {
-        let mut config: RunConfig = baux::artifact::toml::from_str(
-            "proposal_method='pair-rotation'\nperturbation='gaussian'\nhistory_geometry='latent'",
-        )
-        .unwrap();
-        assert_eq!(config.proposal_method.unwrap().name(), "pair-rotation");
+    fn independent_proposal() {
+        let mut config: RunConfig =
+            baux::artifact::toml::from_str("perturbation='gaussian'").unwrap();
         assert!(config.validate_program(true).is_ok());
-        assert!(config.validate_program(false).is_err());
-        config.history_geometry = Some(HistoryGeometry::Realized);
-        assert!(config.validate_program(true).is_err());
-        config.history_geometry = Some(HistoryGeometry::Latent);
         config.perturbation = Some(crate::ProposalKernel::Rademacher);
         assert!(config.validate_program(true).is_ok());
-        assert!(
-            baux::artifact::toml::from_str::<RunConfig>("proposal_method='lie-operator'").is_err()
-        );
     }
 }

@@ -1,4 +1,6 @@
-use super::{Result, make_sandbox, pull_artifacts, source_tar, stream_exec, upload_source};
+use crate::sandbox::{
+    Result, make_sandbox, pull_artifacts, source_tar, stream_exec, upload_source,
+};
 use modal_rs::{ModalClient, SandboxExecOptions};
 use std::io;
 use std::path::{Path, PathBuf};
@@ -24,7 +26,6 @@ pub(super) struct Config {
     rounds: u32,
     stage_samples: u32,
     validation_interval: Option<u32>,
-    reliability: baux::ReliabilityPolicy,
     surrogate: baux::semantics::optimizer::SurrogateSpec,
     window: Option<u32>,
     reference_seed: Option<u64>,
@@ -41,10 +42,6 @@ fn apply_opt(config: &mut Config, flag: &str, val: &str) -> Result<bool> {
         "--evaluation-seed" => config.evaluation_seed = Some(val.parse()?),
         "--validation-seed" => config.validation_seed = Some(val.parse()?),
         "--validation-interval" => config.validation_interval = Some(val.parse()?),
-        "--reliability" => {
-            config.reliability =
-                baux::artifact::json::from_str::<baux::ReliabilityPolicy>(val)?.validate()?;
-        }
         "--surrogate" => {
             config.surrogate =
                 baux::artifact::json::from_str::<baux::semantics::optimizer::SurrogateSpec>(val)?
@@ -89,7 +86,7 @@ fn apply_flag(config: &mut Config, flag: &str, val: &str) -> Result<()> {
                  --acquisition-seed N --evaluation-seed N --validation-seed N --radius F \
                  --radius-min F --radius-max F --arms N --candidates N --beta F --rounds N \
                  --stage-samples N [--validation-interval N] [--window-tokens N --reference-seed \
-                 N] [--reliability JSON] [--surrogate JSON] [--trust-shape \
+                 N] [--surrogate JSON] [--trust-shape \
                  scalar|tensor-family-static]",
             )
             .into());
@@ -160,7 +157,6 @@ pub(super) fn parse<I: Iterator<Item = std::ffi::OsString>>(mut args: I) -> Resu
         window: None,
         reference_seed: None,
         trust_shape: None,
-        reliability: Default::default(),
         surrogate: baux::semantics::optimizer::SurrogateSpec {
             fit: true,
             ..Default::default()
@@ -197,11 +193,6 @@ fn command(config: &Config) -> String {
     let acq_seed = config.acquisition_seed.unwrap_or(config.seed);
     let eval_seed = config.evaluation_seed.unwrap_or(config.seed);
     let val_seed = config.validation_seed.unwrap_or(eval_seed);
-    // Only validated numeric policy fields reach this serialization. Quote the
-    // complete argument independently of shell parsing and preserve each field.
-    let reliability = baux::artifact::json::to_string(&config.reliability)
-        .expect("validated numeric reliability policy is serializable")
-        .replace('\'', "'\\''");
     let surrogate = baux::artifact::json::to_string(&config.surrogate)
         .expect("validated surrogate settings serialize")
         .replace('\'', "'\\''");
@@ -231,7 +222,7 @@ fn command(config: &Config) -> String {
          CARGO_TARGET_DIR=/cache/target ./tools/cuda-run build; rm -rf /tmp/baux-generation; \
          /cache/target/release/baux-cuda mhc4-bo-bench {} /tmp/baux-corpus/train/data.bauxptn {} \
          /tmp/baux-generation {} {} {} {} {} {} {} {acq_seed} {eval_seed} {} {} {} {} {} \
-         {val_seed} {}{validation} --reliability '{reliability}' --surrogate '{surrogate}' \
+         {val_seed} {}{validation} --surrogate '{surrogate}' \
          --trust-shape {trust_shape}{causal}",
         config.model_seed,
         config.prompt,
@@ -257,8 +248,7 @@ pub(super) async fn run(
     config: Config,
 ) -> Result<()> {
     let root = std::env::current_dir()?;
-    let digest =
-        baux::experimental::perf_digest(&root, baux::experimental::ExecutionTarget::CudaOxide)?;
+    let digest = baux::experimental::perf_digest(&root, baux::experimental::Backend::CudaOxide)?;
     let dataset = std::env::var_os("BAUX_CUDA_DATASET")
         .ok_or("mHC-4 T4 execution requires BAUX_CUDA_DATASET")?;
     let dataset = PathBuf::from(dataset);
@@ -294,7 +284,7 @@ pub(super) async fn run(
                 io::Error::other(format!("CUDA mHC-4 generation failed: {status:?}")).into(),
             );
         }
-        let (record, tokens) = pull_artifacts(&sandbox, client, &config.output, None).await?;
+        let (record, tokens) = pull_artifacts(&sandbox, client).await?;
         let rounds = pull_log(&sandbox, client, "/tmp/baux-generation/rounds.jsonl").await?;
         let validation = if config.validation_interval.is_some() {
             Some(pull_log(&sandbox, client, "/tmp/baux-generation/validation.jsonl").await?)
@@ -494,7 +484,6 @@ mod tests {
         assert_eq!(config.candidates, 1);
         let command = command(&config);
         assert!(command.contains(&format!("--surrogate '{json}'")));
-        assert!(command.contains("--reliability '"));
         assert!(
             parse(
                 ["--candidates", "2"]

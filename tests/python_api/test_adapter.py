@@ -1,11 +1,17 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from types import SimpleNamespace
 
 import numpy as np
 import pytest
 
-from baux import _rust
+from baux import _rust, create_optimizer, turbo_one
+from baux.turbo.config import (
+    ExternalSurrogate,
+    MultiTrustRegionPolicy,
+    turbo_zero,
+)
 
 
 class StubGP:
@@ -127,3 +133,275 @@ def test_001():
 
     with pytest.raises(ValueError, match="predict must return"):
         opt.ask(2, 403)
+
+
+@pytest.mark.parametrize("sharing", ["shared", "nearest_center", "independent"])
+def test_regionalprovider(sharing):
+    gp = StubGP()
+    local_models: list[StubGP] = []
+
+    def factory(slot: int, generation: int) -> StubGP:
+        assert generation == 0
+        model = StubGP()
+        local_models.append(model)
+        return model
+
+    opt = _rust.create_optimizer(
+        np.array([[0.0, 1.0], [0.0, 1.0]]),
+        "gp",
+        num_init=1,
+        num_regions=3,
+        gp=gp,
+        gp_factory=factory,
+        fit_steps=7,
+        cfg={
+            "region_sharing": sharing,
+            "acquisition": "ucb",
+            "min_candidates": 8,
+            "max_candidates": 8,
+        },
+    )
+    assert opt.num_regions() == 3
+    for _ in range(3):
+        x = opt.ask(3)
+        opt.tell(x, -np.sum(x**2, axis=1, keepdims=True))
+    assert len(gp.fits) == 3
+    assert not gp.preds
+    assert len(local_models) == 3
+    assert all(model.fits and model.preds for model in local_models)
+
+
+def test_missingfactory():
+    with pytest.raises(ValueError, match="requires a regional surrogate factory"):
+        _rust.create_optimizer(
+            np.array([[0.0, 1.0]]),
+            "gp",
+            num_init=1,
+            num_regions=2,
+            gp=StubGP(),
+            fit_steps=7,
+            cfg={"region_sharing": "independent"},
+        )
+
+
+def testbadpolicybinding():
+    with pytest.raises(ValueError, match="unknown regional allocation policy"):
+        _rust.create_optimizer(
+            np.array([[0.0, 1.0]]),
+            "zero",
+            10,
+            1,
+            2,
+            42,
+            cfg={"region_sharing": "shared", "region_allocation": "weighted"},
+        )
+    with pytest.raises(ValueError, match="unknown regional restart memory policy"):
+        _rust.create_optimizer(
+            np.array([[0.0, 1.0]]),
+            "zero",
+            10,
+            1,
+            2,
+            42,
+            cfg={"region_sharing": "shared", "region_restart_memory": "all"},
+        )
+    with pytest.raises(ValueError, match="unknown regional method"):
+        _rust.create_optimizer(
+            np.array([[0.0, 1.0]]),
+            "zero",
+            10,
+            1,
+            2,
+            42,
+            cfg={"region_sharing": "shared", "region_method": "adaptive"},
+        )
+    with pytest.raises(ValueError, match="unknown regional acquisition"):
+        _rust.create_optimizer(
+            np.array([[0.0, 1.0]]),
+            "zero",
+            10,
+            1,
+            2,
+            42,
+            cfg={
+                "region_sharing": "shared",
+                "region_acquisitions": ["ucb", "exploit"],
+            },
+        )
+
+
+def test_failedingestion():
+    class FailAfterWarmup(StubGP):
+        def fit(self, x, y, yvar, *, steps):
+            if self.fits:
+                raise RuntimeError("regional global fit failed")
+            return super().fit(x, y, yvar, steps=steps)
+
+    global_model = FailAfterWarmup()
+    opt = _rust.create_optimizer(
+        np.array([[0.0, 1.0], [0.0, 1.0]]),
+        "gp",
+        num_init=1,
+        num_regions=2,
+        gp=global_model,
+        gp_factory=lambda slot, generation: StubGP(),
+        fit_steps=7,
+        cfg={"region_sharing": "independent", "min_candidates": 8, "max_candidates": 8},
+    )
+    warmup = opt.ask(1)
+    opt.tell(warmup, np.array([[1.0]]))
+    proposal = opt.ask(2)
+    outcomes = np.ones((2, 1))
+    with pytest.raises(ValueError, match="regional global fit failed"):
+        opt.tell(proposal, outcomes)
+    assert "regional global fit failed" in opt.ingestion_failure
+    with pytest.raises(ValueError, match="do not retry"):
+        opt.tell(proposal, outcomes)
+    with pytest.raises(ValueError, match="do not retry"):
+        opt.ask(1)
+    assert len(global_model.fits) == 1
+
+
+def test_regionmodels():
+    global_model = StubGP()
+    local_models: list[StubGP] = []
+
+    def factory(slot: int, generation: int) -> StubGP:
+        assert slot == len(local_models)
+        assert generation == 0
+        model = StubGP()
+        local_models.append(model)
+        return model
+
+    opt = _rust.create_optimizer(
+        np.array([[0.0, 1.0], [0.0, 1.0]]),
+        "gp",
+        num_init=1,
+        num_regions=3,
+        gp=global_model,
+        gp_factory=factory,
+        fit_steps=7,
+        cfg={
+            "region_sharing": "independent",
+            "acquisition": "ucb",
+            "min_candidates": 8,
+            "max_candidates": 8,
+        },
+    )
+    assert len(local_models) == 3
+    x = opt.ask(1)
+    opt.tell(x, np.array([[0.1]]))
+    x = opt.ask(3)
+    opt.tell(x, np.array([[0.2], [0.3], [0.4]]))
+
+    assert global_model.fits[-1][0].shape == (4, 2)
+    assert [model.fits[-1][0].shape[0] for model in local_models] == [2, 2, 2]
+    assert all(model.preds for model in local_models)
+
+
+def test_reusedprovider():
+    model = StubGP()
+    for global_model in [model, StubGP()]:
+        with pytest.raises(ValueError, match="reused a provider"):
+            _rust.create_optimizer(
+                np.array([[0.0, 1.0]]),
+                "gp",
+                num_init=1,
+                num_regions=2,
+                gp=global_model,
+                gp_factory=lambda slot, generation: model,
+                fit_steps=7,
+                cfg={"region_sharing": "independent"},
+            )
+
+
+def test_external():
+    providers: list[StubGP] = []
+
+    def factory() -> StubGP:
+        model = StubGP()
+        providers.append(model)
+        return model
+
+    config = replace(
+        turbo_one(num_init=1),
+        surrogate=ExternalSurrogate(factory, fit_steps=7),
+        trust_region=MultiTrustRegionPolicy(
+            num_regions=3, sharing_policy="independent"
+        ),
+    )
+    opt = create_optimizer(
+        bounds=np.array([[0.0, 1.0], [0.0, 1.0]]),
+        config=config,
+        rng=np.random.default_rng(11),
+    )
+    x = opt.ask(1)
+    opt.tell(x, np.array([[0.1]]))
+    x = opt.ask(3)
+    opt.tell(x, np.array([[0.2], [0.3], [0.4]]))
+
+    assert len(providers) == 4
+    assert providers[0].fits[-1][0].shape == (4, 2)
+    assert [provider.fits[-1][0].shape[0] for provider in providers[1:]] == [2, 2, 2]
+
+
+def testtrialretry():
+    from baux._trials import Loop, Space
+
+    config = replace(
+        turbo_zero(num_init=1),
+        trust_region=MultiTrustRegionPolicy(num_regions=2),
+    )
+    loop = Loop(Space({"x": (0.0, 1.0)}), config, 37)
+    initial = {"seed": ({"x": 0.5}, 1.0, None)}
+    loop.update(initial)
+    warmup = loop.suggest([])
+    history = {**initial, "warmup": (warmup, 0.0, None)}
+    loop.update(history)
+    first = loop.suggest([])
+    first_ids = loop.optimizer.pending_ids
+    assert first_ids is not None
+    second = loop.suggest([first])
+    second_ids = loop.optimizer.pending_ids
+    assert second_ids is not None and len(second_ids) == 2
+    assert set(second_ids) >= set(first_ids)
+    second_id = next(identity for identity in second_ids if identity not in first_ids)
+
+    # Completing one ticket frees its slot while preserving the other ID.
+    history = {**history, "first": (first, 2.0, None)}
+    loop.update(history)
+    assert loop.optimizer.pending_ids == (second_id,)
+    third = loop.suggest([second])
+    third_ids = loop.optimizer.pending_ids
+    assert third_ids is not None and len(third_ids) == 2
+    assert second_id in third_ids
+    third_id = next(identity for identity in third_ids if identity != second_id)
+
+    history = {**history, "second": (second, 3.0, None)}
+    loop.update(history)
+    assert loop.optimizer.pending_ids == (third_id,)
+    loop.update(
+        {
+            **history,
+            "third": (third, 4.0, None),
+        }
+    )
+    assert loop.optimizer.pending_ids is None
+    assert set(loop._seen) == {"seed", "warmup", "first", "second", "third"}
+
+
+def testoneregionimport():
+    from baux._trials import Loop, Space
+
+    config = replace(
+        turbo_zero(num_init=1),
+        trust_region=MultiTrustRegionPolicy(num_regions=1),
+    )
+    loop = Loop(Space({"x": (0.0, 1.0)}), config, 41)
+    initial = {"seed": ({"x": 0.5}, 1.0, None)}
+    loop.update(initial)
+    proposal = loop.suggest([])
+    assert loop.optimizer.pending_ids is not None
+    loop.update({**initial, "trial": (proposal, 2.0, None)})
+    assert loop.optimizer.pending_ids is None
+    assert set(loop._seen) == {"seed", "trial"}

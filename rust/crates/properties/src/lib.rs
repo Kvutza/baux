@@ -68,6 +68,7 @@ fn surrogate_spec(tc: TestCase) {
         fit_samples: tc.draw(gs::integers::<usize>().min_value(1).max_value(128)),
         fit: tc.draw(gs::integers::<u8>().min_value(0).max_value(1)) != 0,
         adaptive: tc.draw(gs::integers::<u8>().min_value(0).max_value(1)) != 0,
+        metric: Default::default(),
     }
     .validate()
     .unwrap();
@@ -114,7 +115,7 @@ fn prefix_choice(tc: TestCase) {
             .zip(&points)
             .map(|(&weight, &(_, noise))| weight * weight * noise)
             .sum::<f64>();
-        risks.push(epistemic * distance + (noise / (total * total).max(1.0e-24)).sqrt());
+        risks.push(epistemic * distance + noise / (total * total).max(1.0e-24));
     }
     let expected = risks
         .iter()
@@ -291,148 +292,6 @@ kernel void abi_read(constant WaveShape& w [[buffer(0)]],
             encode.vocabulary,
             encode.patch,
         ]
-    );
-}
-
-/// Both public adapters must execute the same policy over an adaptive trace,
-/// including configured failure budgets and non-default evidence parameters.
-#[hegel::test]
-fn controller_parity(tc: TestCase) {
-    let policy = baux::ReliabilityPolicy {
-        evidence_decay: tc.draw(gs::floats::<f64>().min_value(0.0).max_value(1.0)),
-        confidence_z: tc.draw(gs::floats::<f64>().min_value(0.25).max_value(4.0)),
-        reliability_threshold: tc.draw(gs::floats::<f64>().min_value(0.01).max_value(0.99)),
-        minimum_evidence: tc.draw(gs::floats::<f64>().min_value(0.1).max_value(8.0)),
-        acceptance_ratio: tc.draw(gs::floats::<f64>().min_value(0.01).max_value(2.0)),
-        boundary_fraction: tc.draw(gs::floats::<f64>().min_value(0.0).max_value(1.0)),
-        expand_factor: tc.draw(gs::floats::<f64>().min_value(1.25).max_value(4.0)),
-        shrink_factor: tc.draw(gs::floats::<f64>().min_value(0.125).max_value(0.9)),
-        failure_tolerance: tc.draw(gs::integers::<usize>().min_value(0).max_value(8)),
-    };
-    let encoded = baux::artifact::json::to_string(&policy).unwrap();
-    let decoded: baux::ReliabilityPolicy = baux::artifact::json::from_str(&encoded).unwrap();
-    assert_eq!(policy, decoded);
-    let mut host =
-        baux::semantics::optimizer::RadiusController::configured(0.125, 1.0 / 65536.0, 2.0, policy)
-            .unwrap();
-    let mut metal = baux::ReliabilityController::new(
-        policy,
-        baux::trust_region::TRLengthConfig::new(0.125, 1.0 / 65536.0, 2.0),
-    )
-    .unwrap();
-    let steps = tc.draw(gs::integers::<usize>().min_value(1).max_value(48));
-    for _ in 0..steps {
-        let observed = tc.draw(gs::floats::<f32>().min_value(-2.0).max_value(2.0));
-        let predicted = tc.draw(gs::floats::<f32>().min_value(-2.0).max_value(2.0));
-        let variance = tc.draw(gs::floats::<f32>().min_value(0.0).max_value(1.0));
-        let prediction = tc.draw(gs::floats::<f32>().min_value(0.0).max_value(1.0));
-        let response = tc.draw(gs::floats::<f32>().min_value(0.0).max_value(1.0));
-        let nominal = f64::from(host.radius());
-        let actual = host
-            .observe(observed, variance, predicted, prediction, response, false)
-            .unwrap();
-        let expected = metal
-            .update(baux::ReliabilityEvidence {
-                observed_improvement: f64::from(observed),
-                observation_variance: f64::from(variance),
-                predicted_improvement: f64::from(predicted),
-                prediction_variance: f64::from(prediction),
-                accepted: actual.accepted,
-                nominal_radius: nominal,
-                response_radius: f64::from(response),
-            })
-            .unwrap();
-        assert_eq!(actual.action, expected.action);
-        assert_eq!(
-            actual.next_radius.to_bits(),
-            (expected.length as f32).to_bits()
-        );
-        assert_eq!(
-            actual.standardized_error.to_bits(),
-            expected.standardized_error.unwrap().to_bits()
-        );
-        assert_eq!(
-            actual.sharpness_ratio.to_bits(),
-            expected.sharpness_ratio.unwrap().to_bits()
-        );
-        assert_eq!(
-            actual.agreement_ratio.map(f64::to_bits),
-            expected.agreement_ratio.map(f64::to_bits)
-        );
-        assert!((1.0 / 65536.0..=2.0).contains(&actual.next_radius));
-    }
-}
-
-/// An accepted observation resets consecutive rejection evidence. With the
-/// adequacy gate inactive, contraction occurs at exactly the declared budget.
-#[hegel::test]
-fn failure_reset(tc: TestCase) {
-    let budget = tc.draw(gs::integers::<usize>().min_value(1).max_value(32));
-    let policy = baux::ReliabilityPolicy {
-        failure_tolerance: budget,
-        minimum_evidence: f64::MAX,
-        ..Default::default()
-    };
-    let mut state =
-        baux::semantics::optimizer::RadiusController::configured(0.125, 0.001, 2.0, policy)
-            .unwrap();
-    for _ in 0..budget - 1 {
-        assert_eq!(
-            state
-                .observe(0.0, 0.0, 0.0, 0.0, 0.0, false)
-                .unwrap()
-                .action,
-            baux::ReliabilityAction::Hold
-        );
-    }
-    assert!(
-        state
-            .observe(1.0, 0.0, 1.0, 0.0, 1.0, false)
-            .unwrap()
-            .accepted
-    );
-    for step in 1..=budget {
-        let result = state.observe(0.0, 0.0, 0.0, 0.0, 0.0, false).unwrap();
-        let expected = if step == budget {
-            baux::ReliabilityAction::Shrink
-        } else {
-            baux::ReliabilityAction::Hold
-        };
-        assert_eq!(result.action, expected);
-    }
-    assert_eq!(state.radius(), 0.0625);
-}
-
-/// Invalid evidence must not consume a failure or change the next transition.
-#[hegel::test]
-fn invalid_atomic(tc: TestCase) {
-    let mut state =
-        baux::semantics::optimizer::RadiusControl::new(Default::default(), 0.125, 0.001, 2.0)
-            .unwrap();
-    let valid = baux::ReliabilityEvidence {
-        observed_improvement: tc.draw(gs::floats::<f64>().min_value(-1.0).max_value(1.0)),
-        observation_variance: 0.01,
-        predicted_improvement: 0.0,
-        prediction_variance: 0.01,
-        accepted: false,
-        nominal_radius: 0.125,
-        response_radius: 0.1,
-    };
-    state.update(valid).unwrap();
-    let mut reference = state.clone();
-    let mut invalid = valid;
-    match tc.draw(gs::integers::<u8>().min_value(0).max_value(5)) {
-        0 => invalid.observed_improvement = f64::NAN,
-        1 => invalid.observation_variance = -1.0,
-        2 => invalid.predicted_improvement = f64::INFINITY,
-        3 => invalid.prediction_variance = -1.0,
-        4 => invalid.nominal_radius = 0.0,
-        _ => invalid.response_radius = -1.0,
-    }
-    assert!(state.update(invalid).is_err());
-    assert_eq!(
-        state.update(valid).unwrap(),
-        reference.update(valid).unwrap()
     );
 }
 

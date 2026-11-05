@@ -4,19 +4,30 @@ use super::*;
 #[derive(Debug, Clone, Copy)]
 pub struct ResidentEnnConfig {
     pub pool: crate::procedural_pool::ProceduralPool,
-    pub proposal_method: crate::procedural_pool::ProposalMethod,
     pub ask: crate::trials::RoundConfig,
     pub num_candidates: usize,
     pub num_samples: usize,
     pub fit_params: bool,
     pub adapt_neighbors: bool,
-    pub distance_scaling: DistanceScaling,
-    pub history_geometry: HistoryGeometry,
+    pub distance_metric: DistanceMetric,
     pub local_scale_neighbors: usize,
 }
 
 impl ResidentEnnConfig {
     pub fn surrogate_spec(&self) -> Result<baux::semantics::optimizer::SurrogateSpec, String> {
+        let local_k = self.local_scale_neighbors;
+        let metric = match self.distance_metric {
+            DistanceMetric::Euclidean => baux::semantics::neighbor::DistanceMetric::Euclidean,
+            DistanceMetric::Conformal => {
+                baux::semantics::neighbor::DistanceMetric::Conformal { local_k }
+            }
+            DistanceMetric::Hyperbolic => {
+                baux::semantics::neighbor::DistanceMetric::Hyperbolic { local_k }
+            }
+            DistanceMetric::Wasserstein => {
+                baux::semantics::neighbor::DistanceMetric::Wasserstein { local_k }
+            }
+        };
         baux::semantics::optimizer::SurrogateSpec {
             neighbors: self.ask.surrogate.neighbors,
             epistemic: self.ask.surrogate.epistemic_scale,
@@ -26,6 +37,7 @@ impl ResidentEnnConfig {
             fit_samples: self.num_samples,
             fit: self.fit_params,
             adaptive: self.adapt_neighbors,
+            metric,
         }
         .validate()
     }
@@ -76,20 +88,19 @@ impl RunConfig {
                 if !beta.is_finite() || !(beta as f32).is_finite() {
                     return Err("resident ENN UCB beta must be finite FP32".into());
                 }
-                (crate::compute::AcquisitionKind::Ucb, beta as f32)
+                (crate::weights::AcquisitionKind::Ucb, beta as f32)
             }
             AcquisitionConfig::Thompson => (
-                crate::compute::AcquisitionKind::Thompson,
+                crate::weights::AcquisitionKind::Thompson,
                 defaults.acquisition.beta,
             ),
             AcquisitionConfig::Random | AcquisitionConfig::Pareto => {
                 return Err("resident ENN supports only UCB or Thompson acquisition".into());
             }
         };
-        let (distance_scaling, local_scale_neighbors) = self.resident_geometry()?;
+        let (distance_metric, local_scale_neighbors) = self.resident_geometry()?;
         Ok(ResidentEnnConfig {
             pool: self.resident_pool()?,
-            proposal_method: self.proposal_method.unwrap_or_default(),
             ask: {
                 let mut config = defaults;
                 config.surrogate = crate::trials::SurrogateParams {
@@ -109,29 +120,27 @@ impl RunConfig {
             num_samples: enn.num_samples,
             fit_params: self.fit_params.unwrap_or(false),
             adapt_neighbors: self.adapt_neighbors.unwrap_or(false),
-            distance_scaling,
-            history_geometry: self.history_geometry.unwrap_or_default(),
+            distance_metric,
             local_scale_neighbors,
         })
     }
 
-    fn resident_geometry(&self) -> Result<(DistanceScaling, usize), String> {
-        let scaling = self.distance_scaling.unwrap_or_default();
+    fn resident_geometry(&self) -> Result<(DistanceMetric, usize), String> {
+        let metric = self.distance_metric.unwrap_or_default();
         let neighbors = self.local_scale_neighbors.unwrap_or(8);
         if neighbors == 0 || neighbors > 128 {
             return Err("resident ENN local_scale_neighbors must be in 1..=128".into());
         }
-        if scaling == DistanceScaling::Global && self.local_scale_neighbors.is_some() {
+        if metric == DistanceMetric::Euclidean && self.local_scale_neighbors.is_some() {
             return Err(
-                "local_scale_neighbors requires distance_scaling = 'self-tuning' or 'hyperbolic'"
+                "local_scale_neighbors requires distance_metric = 'conformal', 'hyperbolic', or 'wasserstein'"
                     .into(),
             );
         }
-        Ok((scaling, neighbors))
+        Ok((metric, neighbors))
     }
 
-    /// Resolve an ask for implementations that retain only a bounded live
-    /// history.
+    /// Resolve an ask for backends that retain only a bounded live history.
     pub fn resident_ask(
         &self,
         live_history: usize,

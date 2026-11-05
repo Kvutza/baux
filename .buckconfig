@@ -46,3 +46,13 @@ remap_src_paths = yes
 
 [baux]
 release_version = 0.0.1
+
+[baux.daemon]
+auto_parity = true
+auto_reindeer = true
+auto_format_and_check = true
+auto_test = true
+auto_radar_scip = true
+auto_beads_heartbeat = true
+radar_idle_seconds = 15
+heartbeat_seconds = 120

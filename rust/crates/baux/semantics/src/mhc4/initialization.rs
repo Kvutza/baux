@@ -62,13 +62,13 @@ pub fn family_multiplier(family: &str) -> f32 {
 /// precede one caller-supplied FP16 rounding step. Keeping allocation and RNG
 /// ownership with the caller permits both packed Metal and per-layer CUDA
 /// views.
-pub fn columns(
-    values: &mut [u16],
+pub fn columns<T: Copy>(
+    values: &mut [T],
     input: usize,
     output: usize,
     column_norm: f32,
     mut normal: impl FnMut() -> f32,
-    round: impl Fn(f32) -> u16,
+    round: impl Fn(f32) -> T,
 ) -> Result<(), String> {
     let size = input
         .checked_mul(output)
@@ -137,7 +137,9 @@ impl Initialization {
         Self {
             residual_depth,
             residual_gain: residual_depth.sqrt().recip(),
-            router_column_norm: (2.0 * 625.0_f32.ln()).sqrt().recip(),
+            router_column_norm: (2.0 * (baux::semantics::shape::ROUTED_COUNT as f32).ln())
+                .sqrt()
+                .recip(),
             predictor_control: 2048.0_f32.sqrt().recip(),
             transport_lambda: 1.0 / (8 * sites) as f32,
             sites,
@@ -153,9 +155,11 @@ impl Initialization {
         Ok(match family {
             "router" => self.router_column_norm / width,
             "qkv" | "expert_gate_up" | "embedding_readout" | "feedback_state" | "feedback_gate"
-            | "mask_embed" => width.recip(),
+            | "mask_embed" | "hnet" => width.recip(),
             "attention_output" => self.residual_gain / width,
-            "expert_down" => self.down_norm() / 216.0_f32.sqrt(),
+            "expert_down" => {
+                self.down_norm() / (baux::semantics::shape::EXPERT_WIDTH as f32).sqrt()
+            }
             "mhc_attention_predictor" | "mhc_moe_predictor" => 2048.0_f32.sqrt().recip(),
             "mhc_attention_bias" | "mhc_attention_control" | "mhc_moe_bias" | "mhc_moe_control" => {
                 self.predictor_control

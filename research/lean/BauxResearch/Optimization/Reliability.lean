@@ -1,6 +1,5 @@
-import BauxResearch.Optimization.Step
 import Mathlib.Algebra.Order.BigOperators.Ring.Finset
-import Mathlib.Data.Real.Basic
+import Mathlib.Basic.Real.Basic
 import Mathlib.Topology.MetricSpace.Basic
 
 /-!

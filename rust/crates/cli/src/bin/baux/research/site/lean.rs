@@ -1,4 +1,4 @@
-use crate::research_site::{DeclRecord, LeanModuleRecord, lean_files};
+use crate::research::site::{DeclRecord, LeanModuleRecord, lean_files};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::Path;
@@ -6,47 +6,10 @@ use std::path::Path;
 fn opt_layer(short: &str) -> (&'static str, &'static str) {
     if matches!(
         short,
-        "Envelope"
-            | "EnvelopeMemory"
-            | "SlopeEnvelope"
-            | "LocalMemory"
-            | "RecentMemory"
-            | "Retention"
-            | "AdaptiveKnn"
-            | "KnnLearning"
-            | "KnnDecision"
-            | "Localized"
-    ) {
-        ("pointwise_metric", "Pointwise Metric & Slope Envelopes")
-    } else if matches!(
-        short,
-        "LieOperator"
-            | "PairRotation"
-            | "Perturbation"
-            | "Smooth"
-            | "Guide"
-            | "EvaluationSpace"
-            | "ActiveEnergy"
-            | "Moments"
-            | "Field"
-            | "Operator"
-            | "Metric"
-            | "SeedSupport"
-            | "Reachability"
+        "VariableMetric" | "SelfInteracting" | "TensorEm" | "KernelBandit"
     ) {
         ("operator_bo", "Neural Operator BO & Matrix Manifolds")
-    } else if matches!(
-        short,
-        "PretrainHorizon"
-            | "PretrainRegret"
-            | "PretrainWorkload"
-            | "Process"
-            | "Trajectory"
-            | "Reliability"
-            | "Statistic"
-            | "Bayes"
-            | "Information"
-    ) {
+    } else if matches!(short, "SpatialSuboptimality" | "Reliability") {
         ("stochastic_tail", "Stochastic Objectives & Tail Bounds")
     } else {
         ("trust_region", "Trust-Region & Surrogate Geometry")

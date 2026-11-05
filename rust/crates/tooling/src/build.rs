@@ -29,7 +29,7 @@ impl BuildSystem {
         }
     }
 
-    pub fn build_targets(self, root: &Path) -> Result<(), String> {
+    pub fn build_native(self, root: &Path) -> Result<(), String> {
         let mut command = match self {
             Self::Buck2 => {
                 let mut cmd = Command::new("./tools/buck2w");
@@ -78,6 +78,29 @@ impl BuildSystem {
                     "--config=release",
                     "--config=constrained",
                 ]);
+                cmd
+            }
+        };
+        command.current_dir(root);
+        crate::execute(command)
+    }
+
+    pub fn test_targets(self, root: &Path, targets: &[String]) -> Result<(), String> {
+        if targets.is_empty() {
+            println!("o|test: no impacted test targets to run.");
+            return Ok(());
+        }
+        let mut command = match self {
+            Self::Buck2 => {
+                let mut cmd = Command::new("./tools/buck2w");
+                cmd.args(["test", "--local-only", "--console", "simple", "-v", "2"]);
+                cmd.args(targets);
+                cmd
+            }
+            Self::Bazel => {
+                let mut cmd = Command::new("bazel");
+                cmd.args(["test", "--config=release", "--config=constrained"]);
+                cmd.args(targets);
                 cmd
             }
         };

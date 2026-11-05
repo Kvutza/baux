@@ -350,7 +350,7 @@ pub fn naturalize(
         let (a, b) = (bounds[[j, 0]], bounds[[j, 1]]);
         let z = *value;
         let jac = jac_inv(z, a, b);
-        *value = inv_scalar(z, a, b);
+        *value = project_mu(inv_scalar(z, a, b), a, b);
         se[[i, j]] *= jac;
         se_epi[[i, j]] *= jac;
         se_ale[[i, j]] *= jac;
@@ -371,7 +371,7 @@ pub fn naturalize_batch(
         let (a, b) = (bounds[[j, 0]], bounds[[j, 1]]);
         let z = *value;
         let jac = jac_inv(z, a, b);
-        *value = inv_scalar(z, a, b);
+        *value = project_mu(inv_scalar(z, a, b), a, b);
         se[[p, i, j]] *= jac;
         se_epi[[p, i, j]] *= jac;
         se_ale[[p, i, j]] *= jac;

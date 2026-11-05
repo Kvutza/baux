@@ -1,0 +1,6 @@
+sh_binary(
+    name = "hnet-reference",
+    main = "hnet.py",
+    visibility = ["PUBLIC"],
+)
+

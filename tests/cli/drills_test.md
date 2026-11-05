@@ -77,9 +77,3 @@ $ ./tools/reindeerw --help | head -n 1
 Usage: reindeer [OPTIONS] <COMMAND>
 ```
 
-Test that Prek pre-commit runner is functional:
-
-```scrut
-$ ./tools/prekw --version | cut -d' ' -f1,2
-prek 0.5.7
-```

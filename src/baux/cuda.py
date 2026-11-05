@@ -15,7 +15,7 @@ import click
 from ._rust import cuda as _cuda
 
 
-def _extension() -> Any:
+def _backend() -> Any:
     if _cuda is None:
         raise RuntimeError("CUDA support requires the Baux CUDA wheel on Linux x86-64")
     return _cuda
@@ -23,19 +23,19 @@ def _extension() -> Any:
 
 def target() -> str:
     """Return the PTX target selected for the current NVIDIA device."""
-    return str(_extension().target())
+    return str(_backend().target())
 
 
 def check() -> None:
     """Run the production CUDA component and recurrent-model checks."""
-    _extension().check()
+    _backend().check()
 
 
 def trace(output: str | Path) -> Path:
-    """Write the initialized production-model trace used for target parity."""
+    """Write the initialized production-model trace used for backend parity."""
     path = Path(output).expanduser().resolve()
     path.parent.mkdir(parents=True, exist_ok=True)
-    _extension().trace(path)
+    _backend().trace(path)
     return path
 
 

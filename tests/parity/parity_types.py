@@ -9,7 +9,7 @@ class ParityCase:
     endpoint: str
     passed: bool
     error: str | None = None
-    implementation: str = "rust_vs_python"
+    backend: str = "rust_vs_python"
     metrics: dict[str, float] | None = None
 
 

@@ -17,11 +17,10 @@ echo "Audit artifacts: $artifact_dir"
 shasum -a 256 "$config" \
     rust/crates/baux/src/resident_metal.rs \
     rust/crates/baux/src/resident_search.metal \
-    rust/crates/baux/src/resident_audit.rs \
-    rust/crates/baux/src/fbt_moe.rs \
-    rust/crates/baux/src/fbt_ablation.rs > "$artifact_dir/source.sha256"
+    rust/crates/fbt/src/moe.rs \
+    rust/crates/fbt/src/ablation.rs > "$artifact_dir/source.sha256"
 for test in history_audit selection_ablation pool_ablation distance_scaling_ablation; do
-    ./tools/buck2w test //rust/crates/baux:baux-unit --local-only -j 1 -- \
+    ./tools/buck2w test //rust/crates/fbt:fbt-unit --local-only -j 1 -- \
         --timeout 900 --test-arg=--ignored --test-arg=--nocapture \
         --test-arg=--test-threads=1 --test-arg="$test" \
         --env "BAUX_ABLATION_CONFIG=$config" \

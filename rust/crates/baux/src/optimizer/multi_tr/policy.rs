@@ -252,7 +252,7 @@ mod tests {
             let plan = state.allocate_with(1, &utility.view()).unwrap();
             assert_eq!(plan.len(), 1);
             assert_eq!(plan[0].region, expected);
-            state.trial_counts[expected] += 1;
+            state.ledger.observe(expected, &[0.0], 0.0).unwrap();
         }
     }
 }

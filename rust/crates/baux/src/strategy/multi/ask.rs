@@ -123,7 +123,11 @@ fn exclude_pending(
     Ok(candidates.select(Axis(0), &keep))
 }
 
-fn append_pending(existing: &mut PendingProposal, next: PendingProposal) -> Result<(), ENNError> {
+fn append_pending(
+    state: &MultiTrustRegionState,
+    existing: &PendingProposal,
+    next: PendingProposal,
+) -> Result<PendingProposal, ENNError> {
     let old_arms = existing.arms.as_ref().ok_or_else(|| {
         ENNError::InvalidParameter("regional ask cannot extend warm-up work".into())
     })?;
@@ -138,8 +142,8 @@ fn append_pending(existing: &mut PendingProposal, next: PendingProposal) -> Resu
         .enumerate()
         .filter_map(|(row, arm)| {
             (matches!(existing.outcomes[row], EvaluationStatus::Pending)
-                || !existing.settled_regions[arm.slot])
-                .then_some(row)
+                || state.validate(arm.ticket).is_ok())
+            .then_some(row)
         })
         .collect::<Vec<_>>();
     let old_x = existing.x.select(Axis(0), &keep);
@@ -156,69 +160,36 @@ fn append_pending(existing: &mut PendingProposal, next: PendingProposal) -> Resu
         .collect::<Vec<_>>();
     outcomes.extend(next.outcomes);
     let mut arms = keep.iter().map(|&row| old_arms[row]).collect::<Vec<_>>();
-    let mut settled_regions = existing.settled_regions.clone();
-    for arm in &new_arms {
-        settled_regions[arm.slot] = false;
-    }
     arms.extend(new_arms);
-    *existing = PendingProposal {
+    Ok(PendingProposal {
         ids,
-        settled_regions,
         arms: Some(arms),
         x,
         outcomes,
         ordered_tell_allowed: false,
-    };
-    Ok(())
+    })
 }
 
 fn allocate_idle(
     state: &mut MultiTrustRegionState,
-    pending: Option<&PendingProposal>,
     num_arms: usize,
     rng: &mut dyn RngCore,
 ) -> Result<Vec<crate::optimizer::RegionBatch>, ENNError> {
-    let mut busy = vec![false; state.num_regions()];
-    if let Some(proposal) = pending {
-        let arms = proposal
-            .arms
-            .as_ref()
-            .expect("regional ask cannot overlap warm-up work");
-        for (arm, outcome) in arms.iter().zip(&proposal.outcomes) {
-            if matches!(outcome, EvaluationStatus::Pending) {
-                busy[arm.slot] = true;
-            }
-        }
-    }
-    for (slot, &is_busy) in busy.iter().enumerate() {
-        if !is_busy && !state.active_mask[slot] {
+    for slot in 0..state.num_regions() {
+        if state.is_pending(slot) == Some(false) && !state.active_mask[slot] {
             restart_slot(state, slot, rng)?;
         }
     }
-    let active = state.active_mask.clone();
-    for (slot, &is_busy) in busy.iter().enumerate() {
-        if is_busy {
-            state.active_mask[slot] = false;
-        }
-    }
-    let result = if state.active_count() == 0 {
-        Err(ENNError::InvalidParameter(
-            "all regional slots have outstanding evaluations".into(),
-        ))
-    } else {
-        state
-            .allocate(num_arms)
-            .map_err(|error| ENNError::InvalidParameter(error.to_string()))
-    };
-    state.active_mask = active;
-    result
+    state
+        .allocate(num_arms)
+        .map_err(|error| ENNError::InvalidParameter(error.to_string()))
 }
 
-pub(in crate::strategy) fn ask_multi(
+fn ask_warmup(
     optimizer: &mut BayesOptimizer,
     num_arms: usize,
     rng: &mut dyn RngCore,
-) -> Result<Array2<f64>, ENNError> {
+) -> Result<Option<Array2<f64>>, ENNError> {
     if matches!(
         &optimizer.regions,
         TrustRegionState::Multi {
@@ -230,27 +201,93 @@ pub(in crate::strategy) fn ask_multi(
             "finish the outstanding warm-up batch before asking again".into(),
         ));
     }
-    if optimizer.warmup.in_init() {
-        let state = InitStrategyState::new(optimizer.warmup.kind, optimizer.warmup.budget);
-        let x = ask_init(&state, optimizer, num_arms, rng)?;
-        let ids = issue_ids(x.nrows())?;
-        if let TrustRegionState::Multi { pending, .. } = &mut optimizer.regions {
-            *pending = Some(PendingProposal {
-                outcomes: vec![EvaluationStatus::Pending; x.nrows()],
-                ids,
-                arms: None,
-                settled_regions: Vec::new(),
-                x: x.clone(),
-                ordered_tell_allowed: true,
-            });
+    if !optimizer.warmup.in_init() {
+        return Ok(None);
+    }
+    let state = InitStrategyState::new(optimizer.warmup.kind, optimizer.warmup.budget);
+    let x = ask_init(&state, optimizer, num_arms, rng)?;
+    let ids = issue_ids(x.nrows())?;
+    if let TrustRegionState::Multi { pending, .. } = &mut optimizer.regions {
+        *pending = Some(PendingProposal {
+            outcomes: vec![EvaluationStatus::Pending; x.nrows()],
+            ids,
+            arms: None,
+            x: x.clone(),
+            ordered_tell_allowed: true,
+        });
+    }
+    Ok(Some(x))
+}
+
+fn record_proposal(
+    optimizer: &mut BayesOptimizer,
+    segments: &[CandidateSegment],
+    selected: &Array2<f64>,
+) -> Result<(), ENNError> {
+    let TrustRegionState::Multi { state, pending } = &mut optimizer.regions else {
+        unreachable!("ask_multi requires TrustRegionState::Multi");
+    };
+    let ids = issue_ids(segments.iter().map(|segment| segment.arms).sum())?;
+    let mut tickets = Vec::with_capacity(segments.len());
+    for segment in segments {
+        match state.issue(segment.region) {
+            Ok(ticket) => tickets.push(ticket),
+            Err(error) => {
+                for ticket in tickets {
+                    let _ = state.retire(ticket);
+                }
+                return Err(ENNError::InvalidParameter(error.to_string()));
+            }
         }
+    }
+    let arms = segments
+        .iter()
+        .zip(tickets.iter().copied())
+        .flat_map(|(segment, ticket)| {
+            std::iter::repeat_n(
+                crate::optimizer::RegionProvenance {
+                    slot: segment.region,
+                    generation: ticket.region.generation,
+                    ticket,
+                },
+                segment.arms,
+            )
+        })
+        .collect::<Vec<_>>();
+    let next = PendingProposal {
+        ids,
+        outcomes: vec![EvaluationStatus::Pending; arms.len()],
+        arms: Some(arms),
+        x: selected.clone(),
+        ordered_tell_allowed: true,
+    };
+    if let Some(existing) = pending.as_ref() {
+        match append_pending(state, existing, next) {
+            Ok(combined) => *pending = Some(combined),
+            Err(error) => {
+                for ticket in tickets {
+                    let _ = state.retire(ticket);
+                }
+                return Err(error);
+            }
+        }
+    } else {
+        *pending = Some(next);
+    }
+    Ok(())
+}
+
+pub(in crate::strategy) fn ask_multi(
+    optimizer: &mut BayesOptimizer,
+    num_arms: usize,
+    rng: &mut dyn RngCore,
+) -> Result<Array2<f64>, ENNError> {
+    if let Some(x) = ask_warmup(optimizer, num_arms, rng)? {
         return Ok(x);
     }
 
     let batches = match &mut optimizer.regions {
-        TrustRegionState::Multi { state, pending } => {
-            allocate_idle(state, pending.as_ref(), num_arms, rng)?
-        }
+        TrustRegionState::Multi { state, .. } => allocate_idle(state, num_arms, rng)?,
         _ => unreachable!("ask_multi requires TrustRegionState::Multi"),
     };
 
@@ -283,37 +320,7 @@ pub(in crate::strategy) fn ask_multi(
     optimizer.telemetry.dt_sel += start.elapsed().as_secs_f64();
     let selected = select_indices(&candidates.view(), &indices);
 
-    if let TrustRegionState::Multi { state, pending } = &mut optimizer.regions {
-        let arms: Vec<crate::optimizer::RegionProvenance> = segments
-            .iter()
-            .flat_map(|segment| {
-                let generation = state
-                    .generation(segment.region)
-                    .expect("candidate segment refers to an active region slot");
-                std::iter::repeat_n(
-                    crate::optimizer::RegionProvenance {
-                        slot: segment.region,
-                        generation,
-                    },
-                    segment.arms,
-                )
-            })
-            .collect();
-        let ids = issue_ids(arms.len())?;
-        let next = PendingProposal {
-            ids,
-            outcomes: vec![EvaluationStatus::Pending; arms.len()],
-            arms: Some(arms),
-            settled_regions: vec![false; state.num_regions()],
-            x: selected.clone(),
-            ordered_tell_allowed: true,
-        };
-        if let Some(existing) = pending.as_mut() {
-            append_pending(existing, next)?;
-        } else {
-            *pending = Some(next);
-        }
-    }
+    record_proposal(optimizer, &segments, &selected)?;
     Ok(selected)
 }
 

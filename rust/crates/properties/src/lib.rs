@@ -68,6 +68,7 @@ fn surrogate_spec(tc: TestCase) {
         fit_samples: tc.draw(gs::integers::<usize>().min_value(1).max_value(128)),
         fit: tc.draw(gs::integers::<u8>().min_value(0).max_value(1)) != 0,
         adaptive: tc.draw(gs::integers::<u8>().min_value(0).max_value(1)) != 0,
+        metric: Default::default(),
     }
     .validate()
     .unwrap();

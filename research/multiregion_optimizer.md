@@ -189,8 +189,10 @@ BAUX design reasoning, not claims that the cited papers prescribe this interface
 
 ## Resident implementation, 2026-11-04
 
-The implementation now adds a backend-neutral `Portfolio<S>` transaction ledger
-and a concrete `RegionalSearch` adapter over the existing Metal `SearchState`.
+The initial resident implementation added a backend-neutral `Portfolio<S>`
+transaction ledger and a concrete `RegionalSearch` adapter over the existing
+Metal `SearchState`. The unified-lifecycle checkpoint below replaces that
+engine-owning container with `RegionalLedger`.
 The ledger owns region lifetimes, allocation statistics and pending transaction
 identities. Engines own numerical methods, parameter storage and model history.
 It accepts explicit region selection, balanced allocation or a reward-UCB
@@ -943,3 +945,35 @@ local optimization. The [pinned pySOT SOP implementation](https://github.com/dme
 uses objective/diversity center ranking and per-center search scales. These
 are distinct alternatives to test; this experiment implements none of their
 complete allocation or start-selection methods.
+
+### Unified host and resident lifecycle, 2026-11-05
+
+Host `BayesOptimizer` and Metal `RegionalSearch` now use the same
+backend-neutral `RegionalLedger`. The ledger owns region and generation
+identity, one outstanding evaluation group per region, balanced or reward-UCB
+allocation, trial moments, incumbents, completion, retirement, and restart.
+It does not own a surrogate, trust-region controller, parameter arrays, Metal
+buffers, or an execution engine.
+
+The host adapter retains candidate generation, global and regional surrogate
+models, numerical trust-region state, partial row completion, and the Python
+frontend. The Metal adapter retains resident `SearchState` objects, buffer
+leases, synchronization, and sharing queues. This is deliberately a lifecycle
+seam rather than a generic optimizer trait: execution-specific state does not
+cross it, while both adapters enforce the same ticket and generation rules.
+
+Host proposal recording is transactional. A ticket is issued once per selected
+regional segment; an append failure retires every newly issued ticket. Partial
+row results update models as they arrive, but regional reward and controller
+credit settle only when that ticket's whole group is observed or cancelled.
+Restart invalidates an outstanding ticket by advancing its generation. Metal
+tell validates and stages all fallible pre-mutation work before dispatch; an
+error after dispatch retires the ticket and poisons that resident state so the
+observation cannot be replayed.
+
+These lifecycle rules are BAUX engineering policy. They preserve the host's
+existing allocation formula and do not claim to implement the pinned TuRBO-m,
+APOSMM, or pySOT policies linked above. The complete `//build/buck2/tests:all`
+suite passes 33 targets, including host provenance, resident Metal, both Python
+frontends, runner experiments, and the shared lifecycle contract. `./baux
+check` reports no formatting, naming, or structural violations.

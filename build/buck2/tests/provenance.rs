@@ -29,7 +29,7 @@ fn cancelled_evaluations() {
     assert!(opt.pending_ids().is_none());
     assert_eq!(opt.obs_count(), 1);
     if let TrustRegionState::Multi { state, .. } = opt.trust_region() {
-        assert_eq!(state.trial_counts.iter().sum::<u64>(), 1);
+        assert_eq!(state.trial_counts().iter().sum::<u64>(), 1);
     }
     assert!(opt.ask(1, &mut rng).is_ok());
 }
@@ -125,7 +125,7 @@ fn imported_observations() {
     .unwrap();
     assert_eq!(opt.obs_count(), 1);
     if let TrustRegionState::Multi { state, pending } = opt.trust_region() {
-        assert_eq!(state.trial_counts, vec![0, 0]);
+        assert_eq!(state.trial_counts(), vec![0, 0]);
         assert_eq!(state.fail_counts, vec![0, 0]);
         assert_eq!(state.succ_counts, vec![0, 0]);
         assert!(pending.is_none());
@@ -243,7 +243,7 @@ fn abandon_restart() {
     );
     if let TrustRegionState::Multi { state, .. } = opt.trust_region() {
         assert_eq!(state.generation(0), Some(old_generation + 1));
-        assert_eq!(state.trial_counts[0], 0);
+        assert_eq!(state.trial_counts()[0], 0);
     }
     opt.import_variance(
         &points.slice(s![1..2, ..]),
@@ -253,7 +253,7 @@ fn abandon_restart() {
     )
     .unwrap();
     if let TrustRegionState::Multi { state, .. } = opt.trust_region() {
-        assert_eq!(state.trial_counts[0], 0);
+        assert_eq!(state.trial_counts()[0], 0);
     }
     opt.complete_ids(&ids[2..], &array![[3.0]].view(), None, &mut rng)
         .unwrap();

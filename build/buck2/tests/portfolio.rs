@@ -1,50 +1,36 @@
-use baux::semantics::optimizer::{
-    RoundId,
-    portfolio::{Allocation, Portfolio},
-};
-
-fn round(id: u64) -> RoundId {
-    RoundId {
-        owner: 1,
-        proposal: id,
-        incumbent: 0,
-    }
-}
+use baux::semantics::optimizer::portfolio::{Allocation, RegionalLedger};
 
 #[test]
 fn independent_completion() {
-    let mut portfolio = Portfolio::new(vec![((), 0.0), ((), 1.0)], Allocation::Balanced).unwrap();
-    let first = portfolio
-        .issue(portfolio.choose().unwrap(), round(1))
-        .unwrap();
-    let second = portfolio
-        .issue(portfolio.choose().unwrap(), round(2))
-        .unwrap();
-    assert!(portfolio.choose().is_err());
-    assert!(portfolio.restart(0, (), 2.0).is_err());
-    assert!(portfolio.complete(first, f64::NAN, 0.0).is_err());
-    portfolio.complete(second, 3.0, 3.0).unwrap();
-    assert!(portfolio.complete(second, 4.0, 4.0).is_err());
-    portfolio.complete(first, 2.0, 2.0).unwrap();
-    assert_eq!(portfolio.trials(), vec![1, 1]);
-    assert_eq!(portfolio.best(), (1, 3.0));
-    portfolio.restart(0, (), 4.0).unwrap();
-    assert_eq!(portfolio.generation(0).unwrap(), 1);
-    assert!(portfolio.validate(first).is_err());
-    let foreign = Portfolio::new(vec![((), 0.0)], Allocation::Balanced).unwrap();
+    let mut ledger = RegionalLedger::new(&[0.0, 1.0], Allocation::Balanced).unwrap();
+    let first_slot = ledger.allocate(1, &[true, true]).unwrap()[0].region;
+    let first = ledger.issue(first_slot).unwrap();
+    let second_slot = ledger.allocate(1, &[true, true]).unwrap()[0].region;
+    let second = ledger.issue(second_slot).unwrap();
+    assert!(ledger.allocate(1, &[true, true]).is_err());
+    assert!(ledger.complete(first, &[f64::NAN], 0.0).is_err());
+    ledger.complete(second, &[3.0], 3.0).unwrap();
+    assert!(ledger.complete(second, &[4.0], 4.0).is_err());
+    ledger.complete(first, &[2.0], 2.0).unwrap();
+    assert_eq!(ledger.trials(), vec![1, 1]);
+    assert_eq!(ledger.best_region(), (1, 3.0));
+    ledger.restart(0, 4.0).unwrap();
+    assert_eq!(ledger.generation(0).unwrap(), 1);
+    assert!(ledger.validate(first).is_err());
+    let foreign = RegionalLedger::new(&[0.0], Allocation::Balanced).unwrap();
     assert!(foreign.validate(second).is_err());
 }
 
 #[test]
 fn retired_completion() {
-    let mut portfolio = Portfolio::new(vec![((), 0.0)], Allocation::Balanced).unwrap();
-    let ticket = portfolio.issue(0, round(1)).unwrap();
-    portfolio.retire(ticket).unwrap();
-    assert!(portfolio.validate(ticket).is_err());
-    assert_eq!(portfolio.trials(), vec![0]);
-    let fresh = portfolio.issue(0, round(2)).unwrap();
-    portfolio.complete(fresh, 1.0, 1.0).unwrap();
-    assert_eq!(portfolio.trials(), vec![1]);
+    let mut ledger = RegionalLedger::new(&[0.0], Allocation::Balanced).unwrap();
+    let ticket = ledger.issue(0).unwrap();
+    ledger.retire(ticket).unwrap();
+    assert!(ledger.validate(ticket).is_err());
+    assert_eq!(ledger.trials(), vec![0]);
+    let fresh = ledger.issue(0).unwrap();
+    ledger.complete(fresh, &[1.0], 1.0).unwrap();
+    assert_eq!(ledger.trials(), vec![1]);
 }
 
 #[test]

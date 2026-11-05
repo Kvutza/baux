@@ -28,7 +28,7 @@ fn automatic_restart() {
     };
     assert_eq!(state.generation(0), Some(1));
     assert!(state.active_mask[0]);
-    assert_eq!(state.trial_counts[0], 0);
+    assert_eq!(state.trial_counts()[0], 0);
     assert!(state.centers[[0, 0]].is_finite());
     assert_eq!(opt.model_counts(), Some(vec![0]));
     assert!(opt.ask(1, &mut rng).is_ok());
@@ -160,7 +160,7 @@ fn overlapping_asks() {
     opt.complete_ids(&pending[1..], &array![[2.0]].view(), None, &mut rng)
         .unwrap();
     if let TrustRegionState::Multi { state, .. } = opt.trust_region() {
-        assert_eq!(state.trial_counts, vec![2, 0]);
+        assert_eq!(state.trial_counts(), vec![2, 0]);
     } else {
         panic!("expected multi-region state");
     }
@@ -173,7 +173,7 @@ fn overlapping_asks() {
         .unwrap();
     assert!(opt.pending_ids().is_none());
     if let TrustRegionState::Multi { state, .. } = opt.trust_region() {
-        assert_eq!(state.trial_counts, vec![3, 1]);
+        assert_eq!(state.trial_counts(), vec![3, 1]);
     } else {
         panic!("expected multi-region state");
     }
@@ -202,9 +202,9 @@ fn arrival_order() {
     first_low
         .tell(&x.view(), &array![10.0].view(), Some(&[0]))
         .unwrap();
-    assert_eq!(first_high.trial_counts, vec![1, 1]);
-    assert_eq!(first_low.trial_counts, vec![1, 1]);
-    assert_eq!(first_high.incumbents_y, first_low.incumbents_y);
+    assert_eq!(first_high.trial_counts(), vec![1, 1]);
+    assert_eq!(first_low.trial_counts(), vec![1, 1]);
+    assert_eq!(first_high.incumbents(), first_low.incumbents());
     assert_eq!(first_high.succ_counts, vec![1, 0]);
     assert_eq!(first_low.succ_counts, vec![1, 1]);
 }
@@ -232,7 +232,7 @@ fn ordered_completion() {
     assert_eq!(opt.obs_count(), 2);
     if let TrustRegionState::Multi { state, pending } = opt.trust_region() {
         assert!(pending.is_none());
-        assert_eq!(state.trial_counts.iter().sum::<u64>(), 2);
+        assert_eq!(state.trial_counts().iter().sum::<u64>(), 2);
     } else {
         panic!("expected multi-region state");
     }
@@ -262,7 +262,7 @@ fn partial_completion() {
     if let TrustRegionState::Multi { state, .. } = opt.trust_region() {
         // The second region has finished its own issued group. Its controller
         // need not wait for the first region's outstanding rows.
-        assert_eq!(state.trial_counts.iter().sum::<u64>(), 1);
+        assert_eq!(state.trial_counts().iter().sum::<u64>(), 1);
     }
 
     opt.complete_ids(&ids[..2], &array![[1.0], [2.0]].view(), None, &mut rng)
@@ -270,7 +270,7 @@ fn partial_completion() {
     assert_eq!(opt.obs_count(), 3);
     assert!(opt.pending_ids().is_none());
     if let TrustRegionState::Multi { state, .. } = opt.trust_region() {
-        assert_eq!(state.trial_counts.iter().sum::<u64>(), 3);
+        assert_eq!(state.trial_counts().iter().sum::<u64>(), 3);
     }
     assert!(opt.ask(1, &mut rng).is_ok());
 }
@@ -285,14 +285,14 @@ fn regional_settlement() {
         .unwrap();
     assert_eq!(opt.pending_ids().unwrap(), ids[1..]);
     if let TrustRegionState::Multi { state, .. } = opt.trust_region() {
-        assert_eq!(state.trial_counts, vec![1, 0]);
+        assert_eq!(state.trial_counts(), vec![1, 0]);
     } else {
         panic!("expected multi-region state");
     }
     opt.cancel_ids(&ids[1..], &mut rng).unwrap();
     if let TrustRegionState::Multi { state, pending } = opt.trust_region() {
         assert!(pending.is_none());
-        assert_eq!(state.trial_counts, vec![1, 0]);
+        assert_eq!(state.trial_counts(), vec![1, 0]);
     } else {
         panic!("expected multi-region state");
     }

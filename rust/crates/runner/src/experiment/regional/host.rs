@@ -591,7 +591,7 @@ fn restart_distance(point: &[f64], state: &baux::optimizer::MultiTrustRegionStat
 
 fn region_trials(optimizer: &baux::BayesOptimizer) -> Result<Vec<u64>, String> {
     match optimizer.trust_region() {
-        baux::optimizer::TrustRegionState::Multi { state, .. } => Ok(state.trial_counts.clone()),
+        baux::optimizer::TrustRegionState::Multi { state, .. } => Ok(state.trial_counts()),
         _ => Err("not a host multi-region optimizer".into()),
     }
 }

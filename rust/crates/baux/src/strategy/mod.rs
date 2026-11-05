@@ -273,7 +273,6 @@ impl BayesOptimizer {
                         proposal.outcomes[row] = EvaluationStatus::Cancelled;
                     }
                 }
-                proposal.settled_regions[slot] = true;
             }
             if proposal
                 .outcomes

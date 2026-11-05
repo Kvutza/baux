@@ -152,7 +152,7 @@ pub(super) fn validate_multi(
             }
             if let Some(arms) = &proposal.arms {
                 for provenance in arms {
-                    if state.generation(provenance.slot) != Some(provenance.generation) {
+                    if state.validate(provenance.ticket).is_err() {
                         return Err(ENNError::InvalidParameter(format!(
                             "observation belongs to stale region {} generation {}",
                             provenance.slot, provenance.generation
@@ -205,7 +205,7 @@ pub(super) fn select_pending(
         selected[row] = true;
         if let Some(arms) = &proposal.arms {
             let provenance = arms[row];
-            if state.generation(provenance.slot) != Some(provenance.generation) {
+            if state.validate(provenance.ticket).is_err() {
                 return Err(ENNError::InvalidParameter(
                     "evaluation belongs to a stale region generation".into(),
                 ));
@@ -291,16 +291,16 @@ fn finish_multi(
     // A slot's controller sees the entire issued group once that group's
     // results are resolved. Other slots in the same ask batch need not wait.
     for slot in 0..state.num_regions() {
-        if proposal.settled_regions[slot] {
-            continue;
-        }
         let rows_for_slot = arms
             .iter()
             .enumerate()
             .filter_map(|(row, arm)| (arm.slot == slot).then_some(row))
             .collect::<Vec<_>>();
         if rows_for_slot.is_empty() {
-            proposal.settled_regions[slot] = true;
+            continue;
+        }
+        let ticket = arms[rows_for_slot[0]].ticket;
+        if state.validate(ticket).is_err() {
             continue;
         }
         if rows_for_slot
@@ -328,8 +328,14 @@ fn finish_multi(
                     ls_ref,
                 )
                 .map_err(|e| ENNError::InvalidParameter(e.to_string()))?;
+            state
+                .finish(ticket)
+                .map_err(|error| ENNError::InvalidParameter(error.to_string()))?;
+        } else {
+            state
+                .retire(ticket)
+                .map_err(|error| ENNError::InvalidParameter(error.to_string()))?;
         }
-        proposal.settled_regions[slot] = true;
     }
     if proposal
         .outcomes

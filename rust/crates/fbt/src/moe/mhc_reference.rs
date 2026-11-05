@@ -1,3 +1,21 @@
+//! Reference oracle for Manifold-Constrained Hyper-Connections (`mHC-4`)
+//! doubly stochastic Sinkhorn-Knopp residual transport onto the Birkhoff
+//! polytope.
+//!
+//! # Academic & Open-Source Attribution
+//! - **mHC Paper**: DeepSeek-AI, *"mHC: Manifold-Constrained
+//!   Hyper-Connections"*, arXiv:2512.24880 (2025).
+//! - **Hyper-Connections Paper**: Defazio / Dongsheng Zhu et al.,
+//!   *"Hyper-Connections"*, ICLR 2025, arXiv:2409.19606.
+//! - **Sinkhorn-Knopp Theorem**: Richard Sinkhorn and Paul Knopp, *"Concerning
+//!   nonnegative matrices and doubly stochastic matrices"*, Pacific Journal of
+//!   Mathematics 21(2), 343–348 (1967).
+//! - **Upstream Open-Source Implementations**:
+//!   - <https://github.com/tokenbender/mHC-manifold-constrained-hyper-connections>
+//!     (`hyper_connections/hyper_connections_mhc.py`, commit
+//!     `ad20d0d8db4d6fc7e8d9b148281167141da20d47`)
+//!   - <https://github.com/lucidrains/hyper-connections>
+
 const STREAMS: usize = 4;
 const SINKHORN_ITERATIONS: usize = 20;
 
@@ -201,4 +219,46 @@ fn extreme_coefficients() {
             .iter()
             .all(|value| value.is_finite() && (0.0..=2.0).contains(value))
     );
+}
+
+#[test]
+fn sinkhorn_manifold() {
+    let matrices: [Matrix; 4] = [
+        [
+            [0.0, -8.0, -8.0, -8.0],
+            [-8.0, 0.0, -8.0, -8.0],
+            [-8.0, -8.0, 0.0, -8.0],
+            [-8.0, -8.0, -8.0, 0.0],
+        ],
+        [
+            [1.2, -0.4, 0.8, -0.6],
+            [-0.8, 1.5, 0.3, 0.5],
+            [0.25, -0.9, -0.5, 1.1],
+            [-0.5, 0.75, -1.1, 0.0],
+        ],
+        [
+            [1.0, 0.5, -1.0, 0.0],
+            [-0.5, -1.2, 0.8, 1.1],
+            [0.9, -0.7, 1.3, -0.4],
+            [0.0, 1.0, -0.6, -0.8],
+        ],
+        [[0.0; STREAMS]; STREAMS],
+    ];
+    for raw in matrices {
+        let projected = sinkhorn(raw);
+        assert_transport(&projected, 1.0e-5);
+        assert!(spectral_norm(&projected) <= 1.0 + 1.0e-5);
+        for lambda in [0.0, 0.01, 0.25, 0.5, 0.75, 1.0] {
+            let mixed = transport(raw, lambda);
+            assert_transport(&mixed, 1.0e-5);
+            assert!(spectral_norm(&mixed) <= 1.0 + 1.0e-5);
+        }
+        for row in raw {
+            let read = input_coefficients(row);
+            assert!((read.iter().sum::<f32>() - 1.0).abs() <= 1.0e-5);
+            assert!(read.iter().all(|v| (0.0..=1.0).contains(v)));
+            let write = output_coefficients(row);
+            assert!(write.iter().all(|v| *v > 0.0 && *v < 2.0));
+        }
+    }
 }

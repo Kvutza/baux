@@ -1,8 +1,6 @@
-use baux::semantics::random::sobol_seed;
+use baux::semantics::random::{prng, sobol_base, sobol_seed};
 use ndarray::{Array1, Array2};
 use rand::RngCore;
-use rand::SeedableRng;
-use rand::rngs::StdRng;
 
 use super::BayesOptimizer;
 use super::obs_access::PosteriorStore;
@@ -35,7 +33,7 @@ impl ProposalEngine {
         };
         let mut seed_bytes = [0u8; 8];
         rng.fill_bytes(&mut seed_bytes);
-        let sobol_base = u64::from_le_bytes(seed_bytes) % (1u64 << 31);
+        let sobol_base = sobol_base(u64::from_le_bytes(seed_bytes));
         Ok(Self {
             config,
             sobol_engine,
@@ -67,7 +65,7 @@ impl ProposalEngine {
         let dimension = engine.dimension();
         let seed = sobol_seed(self.sobol_base, generation, obs_count, arms);
         let mut next = SobolEngine::new(dimension)?;
-        let mut rng = StdRng::seed_from_u64(seed);
+        let mut rng = prng(seed);
         next.scramble(&mut rng);
         self.sobol_engine = Some(next);
         Ok(())
@@ -173,19 +171,26 @@ impl IncumbentLedger {
         let scores: Vec<f64> = candidates
             .iter()
             .map(|&idx| {
-                posterior
-                    .y_row(idx)
-                    .map(|y| y[0])
-                    .unwrap_or(f64::NEG_INFINITY)
+                match &posterior.backend {
+                    super::obs_access::PosteriorBackend::Model(s) => {
+                        s.y_row(idx).ok().map(|y| y[0])
+                    }
+                    super::obs_access::PosteriorBackend::Empirical { y_rows, .. } => {
+                        y_rows.get(idx).map(|y| y[0])
+                    }
+                }
+                .unwrap_or(f64::NEG_INFINITY)
             })
             .collect();
         let best_pos = argmax_tie(&scores, rng);
         let best_idx = candidates[best_pos];
-        self.current = Some(IncumbentPoint {
-            index: best_idx,
-            unit_x: posterior.x_row(best_idx)?,
-            y_scalar: posterior.y_row(best_idx)?,
-        });
+        if self.current.as_ref().is_none_or(|c| c.index != best_idx) {
+            self.current = Some(IncumbentPoint {
+                index: best_idx,
+                unit_x: posterior.x_row(best_idx)?,
+                y_scalar: posterior.y_row(best_idx)?,
+            });
+        }
         Ok(())
     }
 

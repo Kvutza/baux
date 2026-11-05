@@ -21,7 +21,10 @@ pub enum HashError {
     DimensionMismatch(String),
 }
 
-pub use baux::semantics::random::{box_muller, normal_metric, splitmix64, u64_f53};
+pub use baux::semantics::random::{
+    Prng, auto_seed, box_muller, domain_prng, domain_seed, normal_metric, prng, resolve_seed,
+    splitmix_f32, splitmix64, stream_prng, stream_seed, tune_seed, u64_f53,
+};
 
 /// Build sorted-unique neighbor indices and an inverse map for `data_indices`.
 pub fn unique_inverse(data_indices: &[i64]) -> (Vec<i64>, Vec<usize>) {

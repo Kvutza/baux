@@ -5,11 +5,12 @@
 
 #[cfg(all(target_os = "macos", feature = "metal"))]
 pub use crate::apple_gpu::{DeviceInfo as AppleGpuInfo, Target, device_info as apple_gpu_info};
+pub use crate::device::{Device, DeviceMemory};
 pub use crate::forward_program::{
     Backend, BackendSchedule, Compiler, MHC4_COEFFS, MHC4_PARAMS, MHC4_PATCH, ModelProgram,
     PISA_BYTES, ProgramKind, ScheduledKernel, perf_digest, perf_sources,
 };
-pub use crate::knn::{KnnIndex, KnnPlan, KnnProfile};
+pub use crate::knn::{IndexPlan, IndexProfile, KnnIndex, KnnPlan, KnnProfile};
 pub use crate::optimizer::{
     BayesOptimizer, EvaluationId, MultiTrustRegionConfig, MultiTrustRegionState, ObservationDelta,
     RegionBatch, RegionCandidate, SharingPolicy, Telemetry,
@@ -17,10 +18,13 @@ pub use crate::optimizer::{
 pub use crate::optimizer_factory::enn_tr;
 pub use crate::quantization::{FP4_LUT, quantize_e2m1, quantize_int4};
 #[cfg(all(target_os = "macos", feature = "metal"))]
-pub use crate::resident_metal::{
-    MetalMemoryInfo, ParamBlock as MetalParamBlock, ProposalProfile as MetalProfileInfo,
-    Proposals as MetalProposals, RegionalProposal, RegionalSearch, SearchState as MetalSearchState,
-    memory_info as metal_memory_info, upload as metal_upload,
+pub use crate::resident::{
+    MetalMemoryInfo, MetalMemoryInfo as DeviceMemoryInfo, ParamBlock,
+    ParamBlock as MetalParamBlock, Portfolio, ProposalProfile, ProposalProfile as MetalProfileInfo,
+    Proposals, Proposals as MetalProposals, Region, RegionTrial, RegionalEvidence,
+    RegionalProposal, RegionalSearch, RegionalTrial, SearchState, SearchState as MetalSearchState,
+    Span, Trial, Var, memory_info, memory_info as metal_memory_info, regional_trial, upload,
+    upload as metal_upload,
 };
 pub use crate::response_observation::{
     ProposalMeasure, RESPONSE_SCHEMA, ResponseObservation, ResponseReference, TokenAccounting,

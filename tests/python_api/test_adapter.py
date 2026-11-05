@@ -135,7 +135,10 @@ def test_001():
         opt.ask(2, 403)
 
 
-@pytest.mark.parametrize("sharing", ["shared", "nearest_center", "independent"])
+@pytest.mark.parametrize(
+    "sharing",
+    ["box_contain", "ellipsoid_ball", "nearest_center", "origin_only"],
+)
 def test_regionalprovider(sharing):
     gp = StubGP()
     local_models: list[StubGP] = []
@@ -180,7 +183,7 @@ def test_missingfactory():
             num_regions=2,
             gp=StubGP(),
             fit_steps=7,
-            cfg={"region_sharing": "independent"},
+            cfg={"region_sharing": "origin_only"},
         )
 
 
@@ -193,7 +196,7 @@ def testbadpolicybinding():
             1,
             2,
             42,
-            cfg={"region_sharing": "shared", "region_allocation": "weighted"},
+            cfg={"region_sharing": "box_contain", "region_allocation": "weighted"},
         )
     with pytest.raises(ValueError, match="unknown regional restart memory policy"):
         _rust.create_optimizer(
@@ -203,9 +206,9 @@ def testbadpolicybinding():
             1,
             2,
             42,
-            cfg={"region_sharing": "shared", "region_restart_memory": "all"},
+            cfg={"region_sharing": "box_contain", "region_restart_memory": "all"},
         )
-    with pytest.raises(ValueError, match="unknown regional method"):
+    with pytest.raises(ValueError, match="unknown regional controller"):
         _rust.create_optimizer(
             np.array([[0.0, 1.0]]),
             "zero",
@@ -213,7 +216,7 @@ def testbadpolicybinding():
             1,
             2,
             42,
-            cfg={"region_sharing": "shared", "region_controller": "adaptive"},
+            cfg={"region_sharing": "box_contain", "region_controller": "adaptive"},
         )
     with pytest.raises(ValueError, match="unknown regional acquisition"):
         _rust.create_optimizer(
@@ -224,7 +227,7 @@ def testbadpolicybinding():
             2,
             42,
             cfg={
-                "region_sharing": "shared",
+                "region_sharing": "box_contain",
                 "region_acquisitions": ["ucb", "exploit"],
             },
         )
@@ -246,7 +249,7 @@ def test_failedingestion():
         gp=global_model,
         gp_factory=lambda slot, generation: StubGP(),
         fit_steps=7,
-        cfg={"region_sharing": "independent", "min_candidates": 8, "max_candidates": 8},
+        cfg={"region_sharing": "origin_only", "min_candidates": 8, "max_candidates": 8},
     )
     warmup = opt.ask(1)
     opt.tell(warmup, np.array([[1.0]]))
@@ -282,7 +285,7 @@ def test_regionmodels():
         gp_factory=factory,
         fit_steps=7,
         cfg={
-            "region_sharing": "independent",
+            "region_sharing": "origin_only",
             "acquisition": "ucb",
             "min_candidates": 8,
             "max_candidates": 8,
@@ -311,7 +314,7 @@ def test_reusedprovider():
                 gp=global_model,
                 gp_factory=lambda slot, generation: model,
                 fit_steps=7,
-                cfg={"region_sharing": "independent"},
+                cfg={"region_sharing": "origin_only"},
             )
 
 
@@ -326,7 +329,7 @@ def test_external():
     config = replace(
         turbo_one(num_init=1),
         surrogate=ExternalSurrogate(factory, fit_steps=7),
-        trust_region=RegionalSearchPolicy(count=3, sharing="independent"),
+        trust_region=RegionalSearchPolicy(count=3, sharing="origin_only"),
     )
     opt = create_optimizer(
         bounds=np.array([[0.0, 1.0], [0.0, 1.0]]),

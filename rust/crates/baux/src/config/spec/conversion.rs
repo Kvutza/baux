@@ -195,13 +195,13 @@ impl OptimizerSpec {
             Self::OperatorBo { .. } => TrainingOptimizer::OperatorBo,
             Self::BayesianSearch { .. } => TrainingOptimizer::ResidentEnnV1,
             Self::Muon => TrainingOptimizer::MuonV1,
-            Self::Adamw => TrainingOptimizer::AdamwV1,
+            Self::Adamw | Self::Ppo => TrainingOptimizer::AdamwV1,
         }
     }
 
     fn apply(&self, config: &mut RunConfig) -> Result<(), String> {
         match self {
-            Self::Muon | Self::Adamw => Ok(()),
+            Self::Muon | Self::Adamw | Self::Ppo => Ok(()),
             Self::OperatorBo {
                 distribution,
                 perturbation,

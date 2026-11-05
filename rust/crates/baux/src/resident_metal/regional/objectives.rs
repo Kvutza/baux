@@ -50,6 +50,9 @@ pub fn import(
     observation.validate()?;
     let state = search.states.get(slot).ok_or("unknown region")?;
     state.check_healthy()?;
+    if !state.has_surrogate() {
+        return Err("surrogate-free region has no local model history to import into".into());
+    }
     if row.length() != state.row_bytes() {
         return Err("Imported resident row has the wrong byte length".into());
     }
@@ -70,6 +73,7 @@ pub fn import(
     search.pending_imports[slot].push(PendingImport {
         row: stable,
         observation,
+        from_region: false,
     });
     Ok(())
 }

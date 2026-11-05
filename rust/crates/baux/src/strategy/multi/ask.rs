@@ -1,5 +1,6 @@
 //! Issue regional proposals while respecting per-slot capacity.
 
+use super::super::selection::select_joint;
 use super::*;
 
 fn restart_slot(
@@ -175,10 +176,35 @@ fn allocate_idle(
     num_arms: usize,
     rng: &mut dyn RngCore,
 ) -> Result<Vec<crate::optimizer::RegionBatch>, ENNError> {
+    if num_arms == 0 {
+        return Err(ENNError::InvalidParameter(
+            "regional allocation inputs are invalid".into(),
+        ));
+    }
     for slot in 0..state.num_regions() {
         if state.is_pending(slot) == Some(false) && !state.active_mask[slot] {
             restart_slot(state, slot, rng)?;
         }
+    }
+    if state.allocation_policy() == crate::optimizer::AllocationPolicy::JointAcquisition {
+        let mut batches = Vec::new();
+        let mut start = 0;
+        for slot in 0..state.num_regions() {
+            if state.active_mask[slot] && state.is_pending(slot) == Some(false) {
+                batches.push(crate::optimizer::RegionBatch {
+                    region: slot,
+                    start,
+                    len: num_arms,
+                });
+                start += num_arms;
+            }
+        }
+        if batches.is_empty() {
+            return Err(ENNError::InvalidParameter(
+                "all regional slots have outstanding evaluations".into(),
+            ));
+        }
+        return Ok(batches);
     }
     state
         .allocate(num_arms)
@@ -315,8 +341,18 @@ pub(in crate::strategy) fn ask_multi(
     let views = blocks.iter().map(|b| b.view()).collect::<Vec<_>>();
     let candidates = ndarray::concatenate(Axis(0), &views)
         .map_err(|error| ENNError::InvalidParameter(error.to_string()))?;
+    let is_joint = matches!(
+        &optimizer.regions,
+        TrustRegionState::Multi { state, .. }
+            if state.allocation_policy() == crate::optimizer::AllocationPolicy::JointAcquisition
+    );
     let start = std::time::Instant::now();
-    let indices = select_segment(optimizer, &candidates.view(), &segments, rng)?;
+    let (indices, segments) = if is_joint {
+        select_joint(optimizer, &candidates.view(), &segments, num_arms, rng)?
+    } else {
+        let indices = select_segment(optimizer, &candidates.view(), &segments, rng)?;
+        (indices, segments)
+    };
     optimizer.telemetry.dt_sel += start.elapsed().as_secs_f64();
     let selected = select_indices(&candidates.view(), &indices);
 

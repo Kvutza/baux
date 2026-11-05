@@ -6,8 +6,8 @@
 use super::{ArmResult, Config, make_optimizer, score};
 use baux::artifact::json::json;
 use baux::optimizer::{SharingPolicy, TrustRegionState};
+use baux::prng;
 use ndarray::Array2;
-use rand::{SeedableRng, rngs::StdRng};
 
 pub(super) fn run_arm(
     config: &Config,
@@ -19,7 +19,7 @@ pub(super) fn run_arm(
     center_policy: &str,
     objective: &str,
 ) -> Result<ArmResult, String> {
-    let mut rng = StdRng::seed_from_u64(seed);
+    let mut rng = prng(seed);
     let mut optimizer = make_optimizer(
         config,
         centers,

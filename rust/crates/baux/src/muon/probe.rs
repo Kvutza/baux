@@ -149,3 +149,188 @@ fn verify_adam(runtime: &Runtime, records: &mut Vec<Value>) -> Result<(), String
     }
     Ok(())
 }
+
+#[cfg(test)]
+fn floats(value: &Value) -> Vec<f64> {
+    value
+        .as_seq()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_f64().unwrap())
+        .collect()
+}
+
+#[cfg(test)]
+fn check_remez(remez: &Value) {
+    use super::POLAR;
+    let raw = remez["paper_raw_coefficients"].as_seq().unwrap();
+    let polar = remez["paper_polar_coefficients"].as_seq().unwrap();
+    let repo_raw = remez["repo_raw_coefficients"].as_seq().unwrap();
+    let repo = remez["repo_coefficients"].as_seq().unwrap();
+    assert_eq!(raw.len(), POLAR.len());
+    assert_eq!(polar.len(), POLAR.len());
+    let s1 = 1.01_f32;
+    let s3 = s1 * s1 * s1;
+    let s5 = s3 * s1 * s1;
+    for (idx, coeff) in POLAR.iter().enumerate() {
+        let r = floats(&raw[idx]);
+        let p = floats(&polar[idx]);
+        assert!((coeff.a - (r[0] as f32 / s1)).abs() < 1e-6);
+        assert!((coeff.b - (r[1] as f32 / s3)).abs() < 1e-6);
+        assert!((coeff.c - (r[2] as f32 / s5)).abs() < 1e-6);
+        assert!((f64::from(coeff.a) - p[0]).abs() < 1e-6);
+        assert!((f64::from(coeff.b) - p[1]).abs() < 1e-6);
+        assert!((f64::from(coeff.c) - p[2]).abs() < 1e-6);
+        let rr = floats(&repo_raw[idx]);
+        let rc = floats(&repo[idx]);
+        let factor = if idx + 1 < POLAR.len() { 1.01 } else { 1.0 };
+        assert!((rc[0] - rr[0] / factor).abs() < 1e-12);
+        assert!((rc[1] - rr[1] / factor.powi(3)).abs() < 1e-12);
+        assert!((rc[2] - rr[2] / factor.powi(5)).abs() < 1e-12);
+    }
+}
+
+#[cfg(test)]
+fn check_case(runtime: &Runtime, case: &Value) -> Result<(), String> {
+    use super::reference;
+    let rows = case["rows"].as_u64().unwrap() as u32;
+    let cols = case["cols"].as_u64().unwrap() as u32;
+    let batch = case["batch"].as_u64().unwrap() as u32;
+    let shape = Shape::new(rows, cols, batch)?;
+    let count = shape.elements();
+    let weights = runtime.buffer_with(&vec![0x3800u16; count]);
+    let mut workspace = Workspace::new(shape)?;
+    let mut optimizer = Muon::new(shape, &weights, 0)?;
+    let mut expected = vec![0.5f64; count];
+    let mut momentum = vec![0.0f64; count];
+    let step = Step {
+        rate: case["rate"].as_f64().unwrap() as f32,
+        momentum: case["momentum"].as_f64().unwrap() as f32,
+        decay: case["decay"].as_f64().unwrap() as f32,
+        epsilon: case["epsilon"].as_f64().unwrap() as f32,
+        ..Step::default()
+    };
+    for round in case["rounds"].as_seq().unwrap() {
+        let grad: Vec<f32> = floats(&round["gradient"])
+            .into_iter()
+            .map(|v| v as f32)
+            .collect();
+        let target = floats(&round["weights"]);
+        let target_mom = floats(&round["momentum"]);
+        let traj = round["trajectory"].as_seq().unwrap();
+        assert_eq!(traj.len(), 5);
+        let step5 = floats(&traj[4]);
+        let fp64 = floats(&round["polar_fp64"]);
+        let bf16 = floats(&round["polar_bf16"]);
+        for (&s5, &f64v) in step5.iter().zip(&fp64) {
+            assert!((s5 - f64v).abs() < 1e-4);
+        }
+        for (&s5, &b16) in step5.iter().zip(&bf16) {
+            assert!((s5 - b16).abs() < 0.15);
+        }
+        reference::muon(shape, &mut expected, &mut momentum, &grad, step);
+        for (&a, &e) in expected.iter().zip(&target) {
+            assert!((a - e).abs() < 1e-6, "muon weight diff: {a} vs {e}");
+        }
+        for (&a, &e) in momentum.iter().zip(&target_mom) {
+            assert!((a - e).abs() < 1e-6, "muon momentum diff: {a} vs {e}");
+        }
+        let grad_buf = runtime.buffer_with(&grad);
+        let command = runtime.queue.new_command_buffer();
+        optimizer.encode(&mut workspace, command, &weights, 0, &grad_buf, 0, step)?;
+        command.commit();
+        command.wait_until_completed();
+        if command.status() != MTLCommandBufferStatus::Completed {
+            return Err("upstream Muon parity GPU command failed".into());
+        }
+        let actual = unsafe { std::slice::from_raw_parts(weights.contents().cast::<u16>(), count) };
+        reference::error(actual, &target)?;
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+fn check_adam(runtime: &Runtime, case: &Value) -> Result<(), String> {
+    use super::{metal::Adam, reference};
+    let rows = case["rows"].as_u64().unwrap() as u32;
+    let cols = case["cols"].as_u64().unwrap() as u32;
+    let batch = case["batch"].as_u64().unwrap() as u32;
+    let shape = Shape::new(rows, cols, batch)?;
+    let count = shape.elements();
+    let weights = runtime.buffer_with(&vec![0x3800u16; count]);
+    let mut optimizer = Adam::new(&weights, 0, count as u32)?;
+    let mut expected = vec![0.5f64; count];
+    let mut first = vec![0.0f64; count];
+    let mut second = vec![0.0f64; count];
+    let step = Step {
+        rate: case["rate"].as_f64().unwrap() as f32,
+        momentum: case["momentum"].as_f64().unwrap() as f32,
+        beta2: case["beta2"].as_f64().unwrap() as f32,
+        decay: case["decay"].as_f64().unwrap() as f32,
+        epsilon: case["epsilon"].as_f64().unwrap() as f32,
+        ..Step::default()
+    };
+    for (idx, round) in case["rounds"].as_seq().unwrap().iter().enumerate() {
+        let grad: Vec<f32> = floats(&round["gradient"])
+            .into_iter()
+            .map(|v| v as f32)
+            .collect();
+        let target = floats(&round["weights"]);
+        reference::adam(
+            &mut expected,
+            &mut first,
+            &mut second,
+            &grad,
+            step.adam(idx as u32 + 1)?,
+        );
+        for (&a, &e) in expected.iter().zip(&target) {
+            assert!((a - e).abs() < 1e-6, "adam weight diff: {a} vs {e}");
+        }
+        let grad_buf = runtime.buffer_with(&grad);
+        let command = runtime.queue.new_command_buffer();
+        optimizer.encode(command, &weights, 0, &grad_buf, 0, step)?;
+        command.commit();
+        command.wait_until_completed();
+        if command.status() != MTLCommandBufferStatus::Completed {
+            return Err("upstream AdamW parity GPU command failed".into());
+        }
+        let actual = unsafe { std::slice::from_raw_parts(weights.contents().cast::<u16>(), count) };
+        reference::error(actual, &target)?;
+    }
+    Ok(())
+}
+
+/// Differential parity against pinned upstream `PolarExpress`
+/// (`optimal_quintic`, `optimal_composition`, `PolarExpress`) and `Muon`
+/// (`muon_update`, `adam_update`).
+///
+/// # Academic & Open-Source Attribution
+/// - **Polar Express Paper**: Noah Amsel, David Persson, Christopher Musco, and
+///   Robert M. Gower, *"The Polar Express: Optimal Matrix Sign Methods and Their
+///   Application to the Muon Algorithm"*, arXiv:2505.16932v2 (Algorithm 1); upstream
+///   PyTorch implementation in <https://github.com/NoahAmsel/PolarExpress>
+///   (`polar_express.py`, commit `f717e2c6b3ef6f67a5e00ab7f5371a85377e6fbe`).
+/// - **Muon Optimizer**: Keller Jordan et al., *"Muon: An optimizer for hidden
+///   layers in neural networks"*, <https://github.com/KellerJordan/Muon>
+///   (`muon.py`, commit `f98f1cacc0263b04290753e32be8d498c1efc806`).
+#[test]
+fn upstream_polar() -> Result<(), String> {
+    metal::objc::rc::autoreleasepool(|| {
+        let data: Value = baux::artifact::json::from_str(include_str!("fixtures.json")).unwrap();
+        assert_eq!(
+            data["polar_revision"].as_str(),
+            Some("f717e2c6b3ef6f67a5e00ab7f5371a85377e6fbe")
+        );
+        assert_eq!(
+            data["muon_revision"].as_str(),
+            Some("f98f1cacc0263b04290753e32be8d498c1efc806")
+        );
+        check_remez(&data["remez"]);
+        let runtime = Runtime::shared()?;
+        for case in data["cases"].as_seq().unwrap() {
+            check_case(&runtime, case)?;
+        }
+        check_adam(&runtime, &data["adam"])?;
+        Ok(())
+    })
+}

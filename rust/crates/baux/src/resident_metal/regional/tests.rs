@@ -39,8 +39,8 @@ fn vector_state() -> SearchState {
 fn typed_policy() {
     let spec = RegionalSearchSpec {
         count: 2,
-        sharing: ObservationSharing::Independent,
-        allocation: RegionAllocation::Balanced,
+        sharing: ObservationSharing::OriginOnly,
+        allocation: RegionAllocation::LeastTrials,
         controller: RegionController::Turbo,
         success_tolerance: 3,
         failure_tolerance: 5,
@@ -62,7 +62,7 @@ fn typed_policy() {
 #[test]
 fn completion_cleanup() {
     let state = state();
-    let mut ledger = RegionalLedger::new(&[-1.0], Allocation::Balanced).unwrap();
+    let mut ledger = RegionalLedger::new(&[-1.0], Allocation::LeastTrials).unwrap();
     let ticket = ledger.issue(0).unwrap();
     let mut states = vec![state];
     let mut proposals = vec![None];
@@ -88,8 +88,8 @@ fn regional_pareto() {
     autoreleasepool(|| {
         let spec = RegionalSearchSpec {
             count: 2,
-            sharing: ObservationSharing::Independent,
-            allocation: RegionAllocation::UtilityUcb,
+            sharing: ObservationSharing::OriginOnly,
+            allocation: RegionAllocation::IncumbentUcb1,
             controller: RegionController::Turbo,
             success_tolerance: 3,
             failure_tolerance: 5,
@@ -110,5 +110,44 @@ fn regional_pareto() {
         assert!(decision.accepted);
         assert_eq!(search.trials(), [1, 0]);
         assert!(search.best().1 > 0.0);
+    });
+}
+
+#[test]
+fn ellipsoid_zero() {
+    autoreleasepool(|| {
+        let blocks = vec![
+            ParamBlock::new(1, 0, 2, 0.5, 4.0).unwrap(),
+            ParamBlock::new(2, 2, 2, 0.25, 1.0).unwrap(),
+        ];
+        let length = TRLengthConfig::new(0.4, 0.01, 0.8);
+        let first = SearchState::new(&[0x3f80; 4], 0.0, 0.0, blocks.clone(), 0, 1, length).unwrap();
+        let second = SearchState::new(&[0x3f80; 4], 0.0, 0.0, blocks, 0, 1, length).unwrap();
+        assert!(!first.has_surrogate());
+        assert!(!second.has_surrogate());
+        let mut search = RegionalSearch::with_sharing(
+            vec![first, second],
+            Allocation::LeastTrials,
+            SharingPolicy::EllipsoidBall,
+        )
+        .unwrap();
+        let mut ask = RoundConfig::default();
+        ask.acquisition.kind = AcquisitionKind::Random;
+        ask.surrogate.neighbors = 1;
+        let round0 = search.ask_region(0, 11, ask).unwrap();
+        let accepted = search.buffer(&round0).unwrap();
+        let bytes = read::<u16>(&accepted, 4);
+        let decision = search.tell(&round0, 5.0, 0.0).unwrap();
+        assert!(decision.accepted);
+        assert_eq!(search.sharing_backlog(), [0, 1]);
+        search.flush_sharing(1).unwrap();
+        assert_eq!(search.sharing_backlog(), [0, 0]);
+        assert_eq!(search.delivered_imports(), 1);
+        let adopted = read::<u16>(&search.incumbent(1).unwrap(), 4);
+        assert_eq!(adopted, bytes);
+        let round1 = search.ask_region(1, 19, ask).unwrap();
+        let decision1 = search.tell(&round1, 6.0, 0.0).unwrap();
+        assert!(decision1.accepted);
+        assert_eq!(search.best(), (1, 6.0));
     });
 }

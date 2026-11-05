@@ -16,6 +16,16 @@ import numpy as np
 
 from .objective import SolutionObjective
 
+try:
+    from baux import Portfolio, Region, Span, Var
+except ImportError:  # pragma: no cover
+    Var = Span = Region = Portfolio = None
+
+ParameterBuffer = MetalWeights = Var
+ParamBlock = MetalParamBlock = Span
+SearchState = MetalSearchState = Region
+RegionOptimizer = MetalRegionOptimizer = Portfolio
+
 SAMPLERS = ("correlated", "gaussian", "independent")
 REJECTION_POLICIES = ("deterioration", "all")
 # Incremental workspace estimates, excluding resident rows and the reference.
@@ -321,18 +331,15 @@ def _checkrelative(search_cls):
 
 def check_extension(settings: Settings):
     import baux.baux_rust as extension
+    from baux.experimental import ParamBlock, Region, SearchState, Span
 
-    if settings.backend == "metal":
-        from baux.experimental import MetalParamBlock as ParamBlock
-        from baux.experimental import MetalSearchState as SearchState
-    else:
-        from baux.experimental import ParamBlock, SearchState
-
-    if SearchState is None or not hasattr(SearchState, "read_best"):
+    region_cls = SearchState if SearchState is not Region else Region
+    span_cls = ParamBlock if ParamBlock is not Span else Span
+    if region_cls is None or not hasattr(region_cls, "read_best"):
         raise RuntimeError("Rebuild the BAUX extension for the selected backend")
     if settings.minibatch_size is not None:
-        _checkrelative(SearchState)
-    return extension, ParamBlock, SearchState
+        _checkrelative(region_cls)
+    return extension, span_cls, region_cls
 
 
 def build_metadata(

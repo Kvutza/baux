@@ -7,8 +7,7 @@
 //! Controller restarts retain the current incumbent, not a new random model.
 
 use super::*;
-use rand::SeedableRng;
-use rand::rngs::StdRng;
+use crate::hash::prng;
 
 impl SearchState {
     pub fn fit_enn(&mut self) -> Result<(), String> {
@@ -35,7 +34,7 @@ impl SearchState {
             ndarray::Array2::from_shape_fn((n, 1), |(row, _)| f64::from(self.outcomes[row]));
         let variances =
             ndarray::Array2::from_shape_fn((n, 1), |(row, _)| f64::from(self.variances[row]));
-        let mut rng = StdRng::seed_from_u64(self.fit_seed.wrapping_add(n as u64));
+        let mut rng = prng(self.fit_seed.wrapping_add(n as u64));
         let fitter = self
             .fitter
             .as_mut()
@@ -92,8 +91,10 @@ impl SearchState {
         if self.trust.needs_restart() {
             self.trust.restart();
             self.restart_count += 1;
-            self.copy(&self.base, &self.history_rows[0])?;
-            self.resident_history = 1;
+            if !self.history_rows.is_empty() {
+                self.copy(&self.base, &self.history_rows[0])?;
+                self.resident_history = 1;
+            }
             self.resident_identities[0] = self.base_id;
             if !self.implicit_history {
                 self.outcomes[0] = self.best;
@@ -128,8 +129,10 @@ impl SearchState {
         if self.trust.needs_restart() {
             self.trust.restart();
             self.restart_count += 1;
-            self.copy(&self.base, &self.history_rows[0])?;
-            self.resident_history = 1;
+            if !self.history_rows.is_empty() {
+                self.copy(&self.base, &self.history_rows[0])?;
+                self.resident_history = 1;
+            }
             self.resident_identities[0] = self.base_id;
             if !self.implicit_history {
                 self.outcomes[0] = self.best;
@@ -172,8 +175,10 @@ impl SearchState {
         if self.trust.needs_restart() {
             self.trust.restart();
             self.restart_count += 1;
-            self.copy(&self.base, &self.history_rows[0])?;
-            self.resident_history = 1;
+            if !self.history_rows.is_empty() {
+                self.copy(&self.base, &self.history_rows[0])?;
+                self.resident_history = 1;
+            }
             self.resident_identities[0] = self.base_id;
             if !self.implicit_history {
                 self.outcomes[0] = self.best;

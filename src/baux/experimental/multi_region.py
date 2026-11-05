@@ -30,8 +30,8 @@ def _policy(sharing_policy: SharingPolicy | str) -> str:
 def make_region(
     num_dim: int,
     num_regions: int = 4,
-    sharing_policy: SharingPolicy | str = SharingPolicy.SHARED,
-    seed: int = 42,
+    sharing_policy: SharingPolicy | str = SharingPolicy.BOX_CONTAIN,
+    seed: int | None = None,
 ):
     from . import MultiTrustRegion
 

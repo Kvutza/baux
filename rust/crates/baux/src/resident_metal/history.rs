@@ -140,6 +140,9 @@ impl SearchState {
     /// trial row and recycle the displaced allocation. May allocate replacement
     /// scratch when an alias would otherwise corrupt retained/current weights.
     fn archive_proposal(&mut self, slot: usize, zero_copy: bool) {
+        if self.history_rows.is_empty() {
+            return;
+        }
         if zero_copy {
             // `base` now owns the accepted candidate. Archive that allocation
             // and recycle only the FIFO allocation being replaced as proposal
@@ -209,6 +212,16 @@ impl SearchState {
         distances: Option<Vec<(usize, f32)>>,
         accept: bool,
     ) -> Result<(), String> {
+        if self.history_rows.is_empty() && !self.implicit_history {
+            if accept || !self.best.is_finite() {
+                self.outcomes[0] = value;
+                self.variances[0] = variance;
+                self.identities[0] = identity;
+            }
+            self.history = 1;
+            self.objective_history.record(identity, observation, accept);
+            return Ok(());
+        }
         if self.implicit_history {
             let next = slot;
             self.outcomes[next] = value;
@@ -447,6 +460,10 @@ fn record_resident(
     }
     state.observation = identity;
     state.base_id = retained;
+    if state.history_rows.is_empty() {
+        state.resident_identities[0] = retained;
+        return Ok(());
+    }
     state.resident_identities[slot] = identity;
     if state.resident_history == state.history_rows.len() {
         state.history_rows.rotate_left(1);

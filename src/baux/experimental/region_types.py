@@ -5,9 +5,10 @@ from typing import Any, NamedTuple
 
 
 class SharingPolicy(str, Enum):
-    SHARED = "shared"
+    BOX_CONTAIN = "box_contain"
+    ELLIPSOID_BALL = "ellipsoid_ball"
     NEAREST_CENTER = "nearest_center"
-    INDEPENDENT = "independent"
+    ORIGIN_ONLY = "origin_only"
 
 
 class RegionBatch(NamedTuple):

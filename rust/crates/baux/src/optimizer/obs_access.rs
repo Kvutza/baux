@@ -19,7 +19,7 @@ pub enum PosteriorBackend {
 
 /// Unified posterior and observation store for the ask/tell optimizer.
 pub struct PosteriorStore {
-    backend: PosteriorBackend,
+    pub(crate) backend: PosteriorBackend,
     pub(crate) yvar_mode: Option<bool>,
 }
 

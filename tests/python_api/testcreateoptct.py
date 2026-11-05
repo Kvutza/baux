@@ -73,7 +73,12 @@ def test_surrogate():
     [
         (preset, sharing)
         for preset in (turbo_enn, turbo_zero)
-        for sharing in ("shared", "nearest_center", "independent")
+        for sharing in (
+            "box_contain",
+            "ellipsoid_ball",
+            "nearest_center",
+            "origin_only",
+        )
     ],
 )
 def test_regionalfactory(preset, sharing):
@@ -214,7 +219,7 @@ def testregionrestart():
         turbo_zero(num_init=1),
         trust_region=RegionalSearchPolicy(
             count=3,
-            allocation="balanced",
+            allocation="least_trials",
             success_tolerance=1,
         ),
     )
@@ -256,7 +261,7 @@ def testpolicyencode():
     from baux.turbo.config.encode import encode
 
     defaults = RegionalSearchPolicy()
-    assert defaults.allocation == "utility_ucb"
+    assert defaults.allocation == "incumbent_ucb1"
     assert defaults.restart_memory == "fresh"
     assert defaults.controller == "turbo"
 
@@ -264,7 +269,7 @@ def testpolicyencode():
         turbo_enn(num_init=1),
         trust_region=RegionalSearchPolicy(
             count=2,
-            allocation="balanced",
+            allocation="least_trials",
             restart_memory="retain_relevant",
             restart_center=RestartCenterPolicy(candidates=32, selection="maximin"),
             controller="fixed_radius",
@@ -272,7 +277,7 @@ def testpolicyencode():
         ),
     )
     encoded = encode(config)
-    assert encoded["region_allocation"] == "balanced"
+    assert encoded["region_allocation"] == "least_trials"
     assert encoded["region_restart_memory"] == "retain_relevant"
     assert encoded["region_restart_candidates"] == 32
     assert encoded["region_restart_center_selection"] == "maximin"
@@ -285,6 +290,20 @@ def testpolicyencode():
         rng=np.random.default_rng(83),
     )
     assert opt.num_regions == 2
+
+    joint_config = replace(
+        turbo_enn(num_init=1),
+        trust_region=RegionalSearchPolicy(
+            count=2,
+            allocation="joint_acquisition",
+        ),
+    )
+    joint_opt = create_optimizer(
+        bounds=np.array([[0.0, 1.0]]),
+        config=joint_config,
+        rng=np.random.default_rng(85),
+    )
+    assert joint_opt.ask(1).shape == (1, 1)
 
     random_config = replace(
         turbo_zero(num_init=1),
@@ -321,7 +340,10 @@ def test_badregionconfig():
         RegionalSearchPolicy(count=0)
 
 
-@pytest.mark.parametrize("sharing", ["shared", "nearest_center", "independent"])
+@pytest.mark.parametrize(
+    "sharing",
+    ["box_contain", "ellipsoid_ball", "nearest_center", "origin_only"],
+)
 def test_diskregions(tmp_path, sharing):
     base = turbo_enn(num_init=2)
     cfg = replace(

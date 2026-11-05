@@ -55,7 +55,9 @@ class Loop:
     optimizer checkpoint. Trial managers must have a single generating process.
     """
 
-    def __init__(self, space: Space, config: OptimizerConfig | None, seed: int) -> None:
+    def __init__(
+        self, space: Space, config: OptimizerConfig | None, seed: int | None = None
+    ) -> None:
         if config is not None and config.num_metrics is not None:
             raise ValueError(
                 "trial adapters require a single-objective optimizer config"

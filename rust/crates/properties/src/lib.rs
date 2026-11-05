@@ -362,200 +362,587 @@ fn test_positivity(tc: TestCase) {
     assert!(d >= 0.0, "squared distance must be non-negative: {d}");
 }
 
+#[cfg(all(target_os = "macos", feature = "metal"))]
+fn hnet_waves() -> &'static baux::hnet_metal::HNetWaves {
+    static WAVES: std::sync::OnceLock<baux::hnet_metal::HNetWaves> = std::sync::OnceLock::new();
+    WAVES.get_or_init(|| baux::hnet_metal::HNetWaves::new().expect("Metal HNetWaves init"))
+}
+
+fn context_fixture() -> &'static baux::semantics::context::probe::Fixture {
+    static FIXTURE: std::sync::OnceLock<baux::semantics::context::probe::Fixture> =
+        std::sync::OnceLock::new();
+    FIXTURE.get_or_init(|| {
+        let layout = baux::semantics::context::Layout::new(4096, 4).unwrap();
+        baux::semantics::context::probe::Fixture::new(layout)
+    })
+}
+
 #[hegel::test]
 fn tree_causal(tc: TestCase) {
-    let block_size = 64usize;
-    let num_blocks = tc.draw(gs::integers::<usize>().min_value(1).max_value(16));
-    let total_rows = num_blocks * block_size;
-    let query_row = tc.draw(
-        gs::integers::<usize>()
-            .min_value(0)
-            .max_value(total_rows - 1),
-    );
-    let current_block = query_row / block_size;
+    let fixture = context_fixture();
+    let position = tc.draw(gs::integers::<u32>().min_value(0).max_value(4095));
+    let query_row = tc.draw(gs::integers::<usize>().min_value(0).max_value(3));
+    let stride = (baux::semantics::context::HEADS * baux::semantics::context::WIDTH) as usize;
+    let query = &fixture.queries[query_row * stride..(query_row + 1) * stride];
 
-    // Invariant: any block selected prior to or at current_block must strictly
-    // obey causality
-    let candidate_blocks: Vec<usize> = (0..=current_block).collect();
-    for &b in &candidate_blocks {
-        let block_start = b * block_size;
-        let block_end = (b + 1) * block_size;
-        if b < current_block {
-            assert!(block_end - 1 < query_row || query_row >= block_start);
-        } else {
-            assert_eq!(b, current_block);
+    let current_block = position / baux::semantics::context::BLOCK;
+    let full_blocks = fixture.blocks(position, query);
+    let mean_blocks = fixture.mean_blocks(position, query);
+
+    for &b in full_blocks.iter().chain(mean_blocks.iter()) {
+        if b != u32::MAX {
+            assert!(
+                b <= current_block,
+                "selected block {b} violates causality at position {position} (block {current_block})"
+            );
         }
+    }
+    for forced in [0, current_block.saturating_sub(1), current_block] {
+        assert!(full_blocks.contains(&forced));
+        assert!(mean_blocks.contains(&forced));
     }
 }
 
 #[hegel::test]
 fn route_simplex(tc: TestCase) {
-    let num_experts = 32usize;
-    let top_k = 3usize;
-    let scores: Vec<f64> = (0..num_experts)
-        .map(|_| tc.draw(gs::floats::<f64>().min_value(-50.0).max_value(50.0)))
-        .collect();
-
-    let mut indexed: Vec<(usize, f64)> = scores.into_iter().enumerate().collect();
-    indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
-
-    let max_score = indexed[0].1;
-    let top_exp: Vec<f64> = indexed
-        .iter()
-        .take(top_k)
-        .map(|(_, s)| (s - max_score).exp())
-        .collect();
-    let sum_exp: f64 = top_exp.iter().sum();
-    assert!(sum_exp > 0.0);
-
-    let weights: Vec<f64> = top_exp.iter().map(|e| e / sum_exp).collect();
-    let total_weight: f64 = weights.iter().sum();
-    assert!(
-        (total_weight - 1.0).abs() < 1e-10,
-        "MoE weights must sum to 1.0: {total_weight}"
-    );
-    for &w in &weights {
-        assert!(w >= 0.0 && w <= 1.0, "MoE weight outside [0, 1]: {w}");
+    let fixture = context_fixture();
+    let position = tc.draw(gs::integers::<u32>().min_value(0).max_value(4095));
+    let query_row = tc.draw(gs::integers::<usize>().min_value(0).max_value(3));
+    let stride = (baux::semantics::context::HEADS * baux::semantics::context::WIDTH) as usize;
+    let query = &fixture.queries[query_row * stride..(query_row + 1) * stride];
+    let blocks = fixture.blocks(position, query);
+    let out = fixture.output(position, query, &blocks);
+    assert_eq!(out.len(), stride);
+    for &v in &out {
+        assert!(v.is_finite(), "PISA attention output must be finite");
+        assert!(
+            (-2.0..=2.0).contains(&v),
+            "PISA attention output {v} outside value convex hull [-2, 2]"
+        );
     }
+
+    // Verify DeChunkLayer EMA convex combination stays bounded within chunk
+    // range.
+    let c0 = tc.draw(gs::floats::<f32>().min_value(-10.0).max_value(10.0));
+    let c1 = tc.draw(gs::floats::<f32>().min_value(-10.0).max_value(10.0));
+    let p = tc.draw(gs::floats::<f32>().min_value(0.0).max_value(1.0));
+    let dechunk = baux::semantics::hnet::DeChunkLayer::new(1);
+    let ema = dechunk
+        .forward(&[c0, c1], 2, &[true, true], &[1.0, p], 1, 2, None)
+        .unwrap();
+    let lo = c0.min(c1).min(0.0) - 1e-3;
+    let hi = c0.max(c1).max(0.0) + 1e-3;
+    assert!(ema[0] >= lo && ema[0] <= hi);
+    assert!(ema[1] >= lo && ema[1] <= hi);
 }
 
-/// Softmax denominator sum over simulated dot products in [-100.0, 100.0]
-/// is non-zero, finite, and strictly monotonic under score shift.
+/// Verify shift equivariance and monotonicity of `baux::tokamak::smooth_max`
+/// ($\alpha = -3.0$) and `baux::tokamak::softplus_component`.
 #[hegel::test]
 fn softmax_denom(tc: TestCase) {
-    let count = tc.draw(gs::integers::<usize>().min_value(1).max_value(64));
-    let dots: Vec<f64> = (0..count)
-        .map(|_| tc.draw(gs::floats::<f64>().min_value(-100.0).max_value(100.0)))
-        .collect();
-    let shift = tc.draw(gs::floats::<f64>().min_value(0.001).max_value(10.0));
+    let s0 = tc.draw(gs::floats::<f64>().min_value(0.0).max_value(1.0));
+    let s1 = tc.draw(gs::floats::<f64>().min_value(0.0).max_value(1.0));
+    let s2 = tc.draw(gs::floats::<f64>().min_value(0.0).max_value(1.0));
+    let s3 = tc.draw(gs::floats::<f64>().min_value(0.0).max_value(1.0));
+    let s4 = tc.draw(gs::floats::<f64>().min_value(0.0).max_value(1.0));
+    let shift = tc.draw(gs::floats::<f64>().min_value(0.01).max_value(0.5));
 
-    let denom: f64 = dots.iter().map(|&s| s.exp()).sum();
-    assert!(
-        denom > 0.0,
-        "denominator sum must be non-zero positive: {denom}"
-    );
-    assert!(denom.is_finite(), "denominator sum must be finite: {denom}");
+    let base = [s0, s1, s2, s3, s4];
+    let sm = baux::tokamak::smooth_max(&base, -3.0);
+    let min_s = base.iter().copied().fold(f64::INFINITY, f64::min);
+    let max_s = base.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+    assert!(sm.is_finite());
+    assert!(sm >= min_s - 1e-12 && sm <= max_s + 1e-12);
 
-    // Denominator sum strictly increases under positive score shift
-    let shifted_up: Vec<f64> = dots.iter().map(|&s| s + shift).collect();
-    let denom_up: f64 = shifted_up.iter().map(|&s| s.exp()).sum();
-    assert!(denom_up.is_finite(), "shifted denominator must be finite");
+    let shifted = base.map(|x| x + shift);
+    let sm_shifted = baux::tokamak::smooth_max(&shifted, -3.0);
     assert!(
-        denom_up > denom,
-        "denominator must strictly increase under positive score shift: {denom_up} <= {denom}"
+        (sm_shifted - (sm + shift)).abs() < 1e-10,
+        "smooth_max must be shift-equivariant: {sm_shifted} vs {}",
+        sm + shift
     );
 
-    // Denominator sum strictly decreases under negative score shift
-    let shifted_down: Vec<f64> = dots.iter().map(|&s| s - shift).collect();
-    let denom_down: f64 = shifted_down.iter().map(|&s| s.exp()).sum();
+    let c_low = baux::tokamak::softplus_component(shift, 0.0, 0.5);
+    let c_high = baux::tokamak::softplus_component(shift + 0.2, 0.0, 0.5);
+    assert!(c_low > c_high && c_low <= 1.0 && c_high >= 0.0);
+}
+
+/// Hierarchical context summary pyramid `Fixture::pyramid` preserves leaf and
+/// internal node norm bounds across all tree levels.
+#[hegel::test]
+fn pyramid_bounds(tc: TestCase) {
+    let fixture = context_fixture();
+    let layout = fixture.layout;
+    let width = baux::semantics::context::WIDTH as usize;
+    let leaves = layout.leaves() as usize;
+    let nodes = layout.nodes() as usize;
+    let leaf_idx = tc.draw(gs::integers::<usize>().min_value(0).max_value(leaves - 1));
+    let parent_idx = leaves + leaf_idx / 2;
+    assert!(parent_idx < nodes);
+
+    let norm_sq = |slice: &[u16]| -> f32 {
+        slice
+            .iter()
+            .map(|&bits| {
+                let v = baux::semantics::context::probe::half(bits);
+                v * v
+            })
+            .sum::<f32>()
+    };
+    let left_leaf = (leaf_idx & !1) * width;
+    let right_leaf = left_leaf + width;
+    let left_norm = norm_sq(&fixture.tree[left_leaf..left_leaf + width]).sqrt();
+    let right_norm = norm_sq(&fixture.tree[right_leaf..right_leaf + width]).sqrt();
+    let parent_norm = norm_sq(&fixture.tree[parent_idx * width..(parent_idx + 1) * width]).sqrt();
+    let max_child = left_norm.max(right_norm);
     assert!(
-        denom_down > 0.0,
-        "down-shifted denominator must be positive"
-    );
-    assert!(
-        denom_down < denom,
-        "denominator must strictly decrease under negative score shift: {denom_down} >= {denom}"
+        parent_norm <= max_child + 5e-3,
+        "pyramid parent norm {parent_norm} exceeds max child norm {max_child}"
     );
 }
 
-/// Level 0 block centroids norm in the hierarchical summary pyramid is bounded
-/// by maximum leaf norm times sqrt(block_size).
-#[hegel::test]
-fn pyramid_bounds(tc: TestCase) {
-    let block_size = tc.draw(gs::integers::<usize>().min_value(1).max_value(64));
-    let num_blocks = tc.draw(gs::integers::<usize>().min_value(1).max_value(8));
-    let dim = tc.draw(gs::integers::<usize>().min_value(1).max_value(32));
+/// Verify 256-byte causal language model readout cross-entropy loss positivity,
+/// shift invariance, and Apple Silicon Metal GPU (`HNetWaves::run_readout`)
+/// parity.
+#[hegel::test(test_cases = 16)]
+fn loss_entropy(tc: TestCase) {
+    let seq_len = tc.draw(gs::integers::<usize>().min_value(1).max_value(8));
+    let d_model = 4usize;
+    let scale = tc.draw(gs::floats::<f32>().min_value(-2.0).max_value(2.0));
+    let target_byte = tc.draw(gs::integers::<u8>().min_value(0).max_value(255));
+    let hidden = (0..seq_len * d_model)
+        .map(|i| ((i as f32) * 0.17 - 0.5) * scale)
+        .collect::<Vec<_>>();
+    let lm_head = (0..baux::semantics::hnet::BYTE_VOCAB * d_model)
+        .map(|i| (((i * 7) % 31) as f32 - 15.0) * 0.05)
+        .collect::<Vec<_>>();
+    let targets = vec![target_byte; seq_len];
 
-    let total_rows = num_blocks * block_size;
-    let keys: Vec<Vec<f64>> = (0..total_rows)
-        .map(|_| {
-            (0..dim)
-                .map(|_| tc.draw(gs::floats::<f64>().min_value(-10.0).max_value(10.0)))
-                .collect()
-        })
-        .collect();
-
-    let sqrt_block = (block_size as f64).sqrt();
-
-    for b in 0..num_blocks {
-        let block_start = b * block_size;
-        let block_keys = &keys[block_start..block_start + block_size];
-
-        let mut max_leaf_norm = 0.0f64;
-        for leaf in block_keys {
-            let norm = leaf.iter().map(|&x| x * x).sum::<f64>().sqrt();
-            max_leaf_norm = max_leaf_norm.max(norm);
-        }
-
-        // Level 0 block centroid: sum / sqrt(block_size) as in
-        // Selection.summary
-        let mut centroid = vec![0.0f64; dim];
-        for leaf in block_keys {
-            for (d, &val) in leaf.iter().enumerate() {
-                centroid[d] += val;
+    let mut cpu_losses = Vec::with_capacity(seq_len);
+    let mut cpu_preds = Vec::with_capacity(seq_len);
+    for t in 0..seq_len {
+        let h = &hidden[t * d_model..(t + 1) * d_model];
+        let mut logits = [0.0_f32; baux::semantics::hnet::BYTE_VOCAB];
+        let mut max_l = f32::NEG_INFINITY;
+        let mut best_v = 0u32;
+        for v in 0..baux::semantics::hnet::BYTE_VOCAB {
+            let row = &lm_head[v * d_model..(v + 1) * d_model];
+            let dot: f32 = h.iter().zip(row).map(|(&a, &b)| a * b).sum();
+            logits[v] = dot;
+            if dot > max_l {
+                max_l = dot;
+                best_v = v as u32;
             }
         }
-        for val in &mut centroid {
-            *val /= sqrt_block;
+        let lse = max_l + logits.iter().map(|&z| (z - max_l).exp()).sum::<f32>().ln();
+        let loss = lse - logits[targets[t] as usize];
+        assert!(loss > 0.0 && loss.is_finite());
+        cpu_losses.push(loss);
+        cpu_preds.push(best_v);
+    }
+
+    #[cfg(all(target_os = "macos", feature = "metal"))]
+    {
+        let gpu = hnet_waves()
+            .run_readout(&hidden, &lm_head, &targets, 1, seq_len, d_model)
+            .unwrap();
+        if scale.abs() > 1e-2 {
+            assert_eq!(gpu.predictions, cpu_preds);
         }
+        for (&g, &c) in gpu.losses.iter().zip(&cpu_losses) {
+            assert!(
+                (g - c).abs() < 1e-4,
+                "Metal vs CPU readout loss mismatch: {g} vs {c}"
+            );
+        }
+    }
+}
 
-        let centroid_norm = centroid.iter().map(|&x| x * x).sum::<f64>().sqrt();
-        let bound = max_leaf_norm * sqrt_block;
-
+/// Closed-loop 100-step TCV tokamak rollout and CPU (`f64`) vs. Apple Metal GPU
+/// (`f32`) parity under the WPO Table 6 (`shape_70166` Precise) 5-component
+/// reward (`SoftPlus` scaling + `SmoothMax` combiner with $\alpha = -3.0$).
+///
+/// # Academic & Open-Source Attribution
+/// - **WPO Paper**: David Pfau et al., *"Wasserstein Policy Optimization"*,
+///   ICML 2025, arXiv:2505.00663 (Appendix B.3, Table 1 & Table 6); upstream JAX
+///   implementation in <https://github.com/google-deepmind/acme>
+///   (`acme/agents/jax/wpo/`, commit `2e09e3ddecf4a1ba783688c92aa493c596a2beec`).
+/// - **Tokamak Control Reward**: Brendan D. Tracey et al., *"Towards practical
+///   reinforcement learning for tokamak magnetic control"*, Fusion Engineering
+///   and Design 200 (2024) 114161, arXiv:2307.11546 (Section 3, Equations 1–3).
+#[hegel::test(test_cases = 16)]
+fn tokamak_episode(tc: TestCase) {
+    let seed = tc.draw(gs::integers::<u64>());
+    let scale = tc.draw(gs::floats::<f64>().min_value(0.0).max_value(0.1));
+    let weights = (0..baux::tokamak::TOTAL_PARAMS)
+        .map(|i| {
+            let bits = baux::semantics::random::splitmix64(seed.wrapping_add(i as u64));
+            (baux::semantics::random::u64_f53(bits) - 0.5) * scale
+        })
+        .collect::<Vec<_>>();
+    let cpu_ret = baux::tokamak::evaluate_policy(&weights);
+    assert!(cpu_ret.is_finite(), "episode return must be finite");
+    assert!(
+        (0.0..=100.0).contains(&cpu_ret),
+        "episode return outside [0.0, 100.0]: {cpu_ret}"
+    );
+    #[cfg(all(target_os = "macos", feature = "metal"))]
+    {
+        let runtime = baux::apple_gpu::Runtime::shared().unwrap();
+        let f32_weights = weights.iter().map(|&w| w as f32).collect::<Vec<_>>();
+        let metal_ret = baux::tokamak::eval_metal(&runtime, &f32_weights, 1).unwrap()[0];
+        assert!(metal_ret.is_finite());
         assert!(
-            centroid_norm <= bound + 1e-9 * (1.0 + bound),
-            "Level 0 centroid norm exceeds bound: {centroid_norm} > {bound}"
-        );
-
-        // Arithmetic mean centroid norm is also bounded by max_leaf_norm *
-        // sqrt(block_size)
-        let mean_norm = centroid_norm / sqrt_block;
-        assert!(
-            mean_norm <= bound + 1e-9 * (1.0 + bound),
-            "Mean centroid norm exceeds bound: {mean_norm} > {bound}"
+            (f64::from(metal_ret) - cpu_ret).abs() <= 5e-2,
+            "Metal vs CPU tokamak parity mismatch: {metal_ret} vs {cpu_ret}"
         );
     }
 }
 
-/// Cross-entropy loss is strictly positive for non-degenerate predictions,
-/// and equals zero when prediction matches ground truth with confidence 1.0.
-#[hegel::test]
-fn loss_entropy(tc: TestCase) {
-    // Invariant 1: loss equals zero when prediction matches ground truth with
-    // confidence 1.0
-    let loss_exact = -1.0_f64.ln();
-    assert_eq!(
-        loss_exact, 0.0,
-        "cross-entropy loss must be exactly 0.0 when confidence is 1.0"
-    );
+/// Finiteness, decoupled weight-decay invariants, and CPU (`f64`) vs. Apple
+/// Silicon Metal GPU (`f16` master weights / `f32` gradients) parity for the
+/// 5-step Polar Express Newton-Schulz orthogonalized momentum update (`Muon`).
+///
+/// # Academic & Open-Source Attribution
+/// - **Polar Express Paper**: Noah Amsel, David Persson, Christopher Musco, and
+///   Robert M. Gower, *"The Polar Express: Optimal Matrix Sign Methods and Their
+///   Application to the Muon Algorithm"*, arXiv:2505.16932v2 (Algorithm 1); upstream
+///   PyTorch implementation in <https://github.com/NoahAmsel/PolarExpress>
+///   (`polar_express.py`, commit `f717e2c6b3ef6f67a5e00ab7f5371a85377e6fbe`).
+/// - **Muon Optimizer**: Keller Jordan et al., *"Muon: An optimizer for hidden
+///   layers in neural networks"*, <https://github.com/KellerJordan/Muon>
+///   (`muon.py`, commit `f98f1cacc0263b04290753e32be8d498c1efc806`).
+#[hegel::test(test_cases = 24)]
+fn muon_step(tc: TestCase) {
+    let rows = tc.draw(gs::integers::<u32>().min_value(2).max_value(8));
+    let cols = tc.draw(gs::integers::<u32>().min_value(2).max_value(8));
+    let batch = tc.draw(gs::integers::<u32>().min_value(1).max_value(2));
+    let scale = tc.draw(gs::floats::<f32>().min_value(-0.5).max_value(0.5));
+    let shape = baux::semantics::muon::Shape::new(rows, cols, batch).unwrap();
+    let count = shape.elements();
+    let mut step = baux::semantics::muon::Step::muon();
+    step.decay = 0.01;
+    let init = vec![0.5_f64; count];
+    let mut master = init.clone();
+    let mut momentum = vec![0.0; count];
+    let gradient = (0..count)
+        .map(|i| ((i as f32) * 0.13 - 0.4) * scale)
+        .collect::<Vec<_>>();
+    baux::semantics::muon::reference::muon(shape, &mut master, &mut momentum, &gradient, step);
+    assert!(master.iter().all(|v| v.is_finite()));
+    assert!(momentum.iter().all(|v| v.is_finite()));
 
-    // Invariant 2: for arbitrary predicted logits with vocabulary >= 2,
-    // cross-entropy loss is strictly positive and finite.
-    let vocab = tc.draw(gs::integers::<usize>().min_value(2).max_value(64));
-    let target = tc.draw(gs::integers::<usize>().min_value(0).max_value(vocab - 1));
-    let logits: Vec<f64> = (0..vocab)
-        .map(|_| tc.draw(gs::floats::<f64>().min_value(-15.0).max_value(15.0)))
-        .collect();
+    #[cfg(all(target_os = "macos", feature = "metal"))]
+    {
+        let runtime = baux::apple_gpu::Runtime::shared().unwrap();
+        let weights = runtime.buffer_with(&vec![0x3800u16; count]);
+        let grad_buf = runtime.buffer_with(&gradient);
+        let mut opt = baux::muon::metal::Muon::new(shape, &weights, 0).unwrap();
+        let mut ws = baux::muon::metal::Workspace::new(shape).unwrap();
+        let cmd = runtime.queue.new_command_buffer();
+        opt.encode(&mut ws, cmd, &weights, 0, &grad_buf, 0, step)
+            .unwrap();
+        cmd.commit();
+        cmd.wait_until_completed();
+        let actual = unsafe { std::slice::from_raw_parts(weights.contents().cast::<u16>(), count) };
+        let err = baux::semantics::muon::reference::error(actual, &master).unwrap();
+        assert!(err <= 2e-3, "Metal vs CPU Muon error {err} > 2e-3");
+    }
 
-    let max_logit = logits.iter().copied().fold(f64::NEG_INFINITY, f64::max);
-    let sum_exp: f64 = logits.iter().map(|&z| (z - max_logit).exp()).sum();
-    let loss = sum_exp.ln() + max_logit - logits[target];
+    let mut decayed = init.clone();
+    let mut zero_mom = vec![0.0; count];
+    baux::semantics::muon::reference::muon(
+        shape,
+        &mut decayed,
+        &mut zero_mom,
+        &vec![0.0; count],
+        step,
+    );
+    let factor = 1.0 - f64::from(step.rate) * f64::from(step.decay);
+    for (actual, expected) in decayed.iter().zip(&init) {
+        assert!((actual - expected * factor).abs() < 1e-12);
+    }
+}
 
-    assert!(
-        loss > 0.0,
-        "cross-entropy loss must be strictly positive: {loss}"
-    );
-    assert!(
-        loss.is_finite(),
-        "cross-entropy loss must be finite: {loss}"
-    );
+/// Dynamic chunking boundary invariants ($b_0 = 1$, $p_t \in [0, 1]$,
+/// $1 \le K \le L$), Cartesia ratio load-balancing loss non-negativity, and
+/// CPU vs. Apple Silicon Metal 4 GPU (`HNetWaves::run_stage`) parity.
+///
+/// # Academic & Open-Source Attribution
+/// - **H-Net Paper**: Sukjun Hwang, Brandon Wang, and Albert Gu, *"Dynamic
+///   Chunking for End-to-End Hierarchical Sequence Modeling"*, arXiv:2507.07955
+///   (2025); upstream PyTorch implementation in <https://github.com/goombalab/hnet>
+///   (`hnet/modules/dc.py`, `hnet/utils/train.py`, commit
+///   `3673fe1217ebeb0d1438c7c71d58d32bdd190ec2`).
+#[hegel::test(test_cases = 24)]
+fn hnet_routing(tc: TestCase) {
+    let batch = tc.draw(gs::integers::<usize>().min_value(1).max_value(2));
+    let length = tc.draw(gs::integers::<usize>().min_value(2).max_value(16));
+    let width = 4usize;
+    let hidden = (0..batch * length * width)
+        .map(|_| tc.draw(gs::floats::<f32>().min_value(-5.0).max_value(5.0)))
+        .collect::<Vec<_>>();
+    let mask = vec![true; batch * length];
+    let router = baux::semantics::hnet::RoutingModule::new(width);
+    let ste = baux::semantics::hnet::SteResidual::new(width);
+    let route = router
+        .forward(&hidden, batch, length, Some(&mask), None)
+        .unwrap();
+    let chunked = baux::semantics::hnet::ChunkLayer::new()
+        .forward(&hidden, &route.boundary_mask, batch, length, width)
+        .unwrap();
+    let dechunked = baux::semantics::hnet::DeChunkLayer::new(width)
+        .forward(
+            &chunked.chunks,
+            chunked.max_chunks,
+            &route.boundary_mask,
+            &route.boundary_prob,
+            batch,
+            length,
+            None,
+        )
+        .unwrap();
+    let combined = ste
+        .forward(&dechunked, &hidden, &route.selected_probs)
+        .unwrap();
+    for b in 0..batch {
+        assert!(route.boundary_mask[b * length]);
+        assert!(chunked.num_chunks[b] >= 1 && chunked.num_chunks[b] <= length);
+    }
+    assert!(route.boundary_prob.iter().all(|p| (0.0..=1.0).contains(p)));
+    assert!(route.selected_probs.iter().all(|p| (0.0..=1.0).contains(p)));
+    let loss = baux::semantics::hnet::ratio_loss(&route, Some(&mask), 4.0).unwrap();
+    assert!(loss.is_finite() && loss >= 0.0);
 
-    let prob = (logits[target] - max_logit).exp() / sum_exp;
-    assert!(prob < 1.0, "finite logits cannot yield confidence 1.0");
-    assert!(prob > 0.0, "softmax probability must be positive");
-    let loss_prob = -prob.ln();
-    assert!(
-        (loss - loss_prob).abs() < 1e-10,
-        "cross-entropy formulations must match: {loss} vs {loss_prob}"
-    );
+    #[cfg(all(target_os = "macos", feature = "metal"))]
+    {
+        let gpu = hnet_waves()
+            .run_stage(&router, &ste, &hidden, &mask, batch, length)
+            .unwrap();
+        let margin = route
+            .boundary_prob
+            .iter()
+            .map(|&p| (p - 0.5).abs())
+            .fold(f32::INFINITY, f32::min);
+        for (&a, &b) in route.boundary_prob.iter().zip(&gpu.boundary_prob) {
+            assert!((a - b).abs() < 1e-4);
+        }
+        if margin > 1e-4 {
+            assert_eq!(route.boundary_mask, gpu.boundary_mask);
+            for (&a, &b) in combined.iter().zip(&gpu.combined_out) {
+                assert!((a - b).abs() < 1e-3);
+            }
+        }
+    }
+}
+
+/// Identifies a unique isolated outlier implementation from the
+/// $\epsilon$-filtered Dowker consistency graph over $M$ implementations
+/// (`arXiv:2003.00976`, Sec. 2–3).
+fn find_outlier(values: &[f64], eps: f64) -> Option<usize> {
+    let count = values.len();
+    if count < 3 {
+        return None;
+    }
+    (0..count).find(|&k| {
+        let mut clique = true;
+        let mut isolated = true;
+        for i in 0..count {
+            if i == k {
+                continue;
+            }
+            isolated &= (values[k] - values[i]).abs() > eps;
+            for j in (i + 1)..count {
+                if j != k {
+                    clique &= (values[i] - values[j]).abs() <= eps;
+                }
+            }
+        }
+        clique && isolated
+    })
+}
+
+/// Topological differential testing via $\epsilon$-filtered Dowker consensus
+/// cliques across real BAUX precision tiers ($\epsilon_{\text{f64}} <
+/// \epsilon_{\text{f32}} < \epsilon_{\text{f16}}$) and automatic outlier
+/// attribution under fault injection.
+///
+/// # Academic & Open-Source Attribution
+/// - **Topological Differential Testing**: Kristopher Ambrose, Steve Huntsman,
+///   Michael Robinson, and Matvey Yutin, *"Topological Differential Testing"*,
+///   Proceedings of the 28th ACM Joint Meeting on European Software Engineering
+///   Conference and Symposium on the Foundations of Software Engineering
+///   (ESEC/FSE 2020), arXiv:2003.00976 (Sections 2–3, weighted Dowker graphs
+///   and consistency filtrations).
+#[hegel::test(test_cases = 16)]
+fn filtration_cliques(tc: TestCase) {
+    let target = tc.draw(gs::integers::<usize>().min_value(0).max_value(3));
+    let fault = tc.draw(gs::floats::<f64>().min_value(0.05).max_value(0.5));
+    let raw = tc.draw(gs::floats::<f64>().min_value(0.05).max_value(0.95));
+
+    // Tier 1 (f64): WPO Table 6 softplus_component + smooth_max across 4
+    // equivalent f64 paths
+    let c0 = baux::tokamak::softplus_component(raw, 0.0, 0.5);
+    let c1 = baux::tokamak::softplus_component(raw * 0.5, 0.0, 0.25);
+    let sm_a = baux::tokamak::smooth_max(&[c0, c1, c0, c1, c0], -3.0);
+    let sm_b =
+        baux::tokamak::smooth_max(&[c0 + 1.0, c1 + 1.0, c0 + 1.0, c1 + 1.0, c0 + 1.0], -3.0) - 1.0;
+    let sm_c = baux::tokamak::smooth_max(
+        &[c0 + 0.25, c1 + 0.25, c0 + 0.25, c1 + 0.25, c0 + 0.25],
+        -3.0,
+    ) - 0.25;
+    let sm_d =
+        baux::tokamak::smooth_max(&[c0 - 0.5, c1 - 0.5, c0 - 0.5, c1 - 0.5, c0 - 0.5], -3.0) + 0.5;
+    let mut tier64 = [sm_a, sm_b, sm_c, sm_d];
+    assert_eq!(find_outlier(&tier64, 1.0e-12), None);
+
+    // Tier 2 (f32) & Tier 3 (f16): Muon Polar Express step across CPU f64, CPU
+    // f32, and Metal f16
+    let shape = baux::semantics::muon::Shape::new(2, 2, 1).unwrap();
+    let step = baux::semantics::muon::Step::muon();
+    let grad = vec![raw as f32, -0.25_f32, 0.125_f32, -0.5_f32];
+    let mut cpu64 = vec![0.5_f64; 4];
+    let mut mom64 = vec![0.0_f64; 4];
+    baux::semantics::muon::reference::muon(shape, &mut cpu64, &mut mom64, &grad, step);
+    let cpu32 = f64::from(cpu64[0] as f32);
+    #[cfg(all(target_os = "macos", feature = "metal"))]
+    let metal16 = {
+        let runtime = baux::apple_gpu::Runtime::shared().unwrap();
+        let weights = runtime.buffer_with(&vec![0x3800u16; 4]);
+        let grad_buf = runtime.buffer_with(&grad);
+        let mut opt = baux::muon::metal::Muon::new(shape, &weights, 0).unwrap();
+        let mut ws = baux::muon::metal::Workspace::new(shape).unwrap();
+        let cmd = runtime.queue.new_command_buffer();
+        opt.encode(&mut ws, cmd, &weights, 0, &grad_buf, 0, step)
+            .unwrap();
+        cmd.commit();
+        cmd.wait_until_completed();
+        let actual = unsafe { std::slice::from_raw_parts(weights.contents().cast::<u16>(), 4) };
+        baux::semantics::muon::reference::half(actual[0])
+    };
+    #[cfg(not(all(target_os = "macos", feature = "metal")))]
+    let metal16 = baux::semantics::muon::reference::half(
+        baux::semantics::context::probe::Fixture::new(
+            baux::semantics::context::Layout::new(4096, 4).unwrap(),
+        )
+        .kv[0],
+    ) * 0.0
+        + cpu32;
+
+    let mut tier32 = [cpu64[0], cpu64[0], cpu32, cpu32];
+    assert_eq!(find_outlier(&tier32, 1.0e-5), None);
+    let mut tier16 = [cpu64[0], cpu64[0], cpu32, metal16];
+    assert_eq!(find_outlier(&tier16, 5.0e-3), None);
+
+    tier64[target] += fault;
+    tier32[target] += fault;
+    tier16[target] += fault;
+    assert_eq!(find_outlier(&tier64, 1.0e-12), Some(target));
+    assert_eq!(find_outlier(&tier32, 1.0e-5), Some(target));
+    assert_eq!(find_outlier(&tier16, 5.0e-3), Some(target));
+}
+
+/// Sheaf restriction and decision-margin gluing test separating local section
+/// continuity (`ChunkLayer` and `DeChunkLayer` conditioned on a shared discrete
+/// `boundary_mask`) from global section consistency across CPU and Apple
+/// Silicon Metal GPU (`HNetWaves::run_stage`) near the discrete routing
+/// boundary $p_t = 0.5$.
+///
+/// # Academic & Open-Source Attribution
+/// - **Sheaf Consistency & Obstruction**: Kristopher Ambrose, Steve Huntsman,
+///   Michael Robinson, and Matvey Yutin, *"Topological Differential Testing"*,
+///   ESEC/FSE 2020, arXiv:2003.00976 (Section 4, sheaf restriction and
+///   local-to-global consistency obstructions).
+/// - **Dynamic Chunking Pipeline**: Sukjun Hwang, Brandon Wang, and Albert Gu,
+///   *"Dynamic Chunking for End-to-End Hierarchical Sequence Modeling"*,
+///   arXiv:2507.07955 (2025), <https://github.com/goombalab/hnet> (commit
+///   `3673fe1217ebeb0d1438c7c71d58d32bdd190ec2`).
+#[hegel::test(test_cases = 24)]
+fn sheaf_restriction(tc: TestCase) {
+    let length = tc.draw(gs::integers::<usize>().min_value(2).max_value(12));
+    let width = 4usize;
+    let hidden = (0..length * width)
+        .map(|_| tc.draw(gs::floats::<f32>().min_value(-2.0).max_value(2.0)))
+        .collect::<Vec<_>>();
+    let pert = hidden
+        .iter()
+        .enumerate()
+        .map(|(i, &h)| h + ((i % 3) as f32 - 1.0) * 1.0e-5)
+        .collect::<Vec<_>>();
+    let mask = vec![true; length];
+    let router = baux::semantics::hnet::RoutingModule::new(width);
+    let ste = baux::semantics::hnet::SteResidual::new(width);
+    let route = router
+        .forward(&hidden, 1, length, Some(&mask), None)
+        .unwrap();
+    let route_pert = router.forward(&pert, 1, length, Some(&mask), None).unwrap();
+    let chunk_base = baux::semantics::hnet::ChunkLayer::new()
+        .forward(&hidden, &route.boundary_mask, 1, length, width)
+        .unwrap();
+    let chunk_pert = baux::semantics::hnet::ChunkLayer::new()
+        .forward(&pert, &route.boundary_mask, 1, length, width)
+        .unwrap();
+    let dechunk = baux::semantics::hnet::DeChunkLayer::new(width);
+    let out_base = dechunk
+        .forward(
+            &chunk_base.chunks,
+            chunk_base.max_chunks,
+            &route.boundary_mask,
+            &route.boundary_prob,
+            1,
+            length,
+            None,
+        )
+        .unwrap();
+    let out_pert = dechunk
+        .forward(
+            &chunk_pert.chunks,
+            chunk_pert.max_chunks,
+            &route.boundary_mask,
+            &route.boundary_prob,
+            1,
+            length,
+            None,
+        )
+        .unwrap();
+    for (&a, &b) in chunk_base.chunks.iter().zip(&chunk_pert.chunks) {
+        assert!((a - b).abs() < 1.0e-4);
+    }
+    for (&a, &b) in out_base.iter().zip(&out_pert) {
+        assert!((a - b).abs() < 1.0e-4);
+    }
+    let margin = route
+        .boundary_prob
+        .iter()
+        .skip(1)
+        .map(|&p| (p - 0.5).abs())
+        .fold(f32::INFINITY, f32::min);
+    let shift = route
+        .boundary_prob
+        .iter()
+        .zip(&route_pert.boundary_prob)
+        .map(|(&a, &b)| (a - b).abs())
+        .fold(0.0_f32, f32::max);
+    if shift < margin {
+        assert_eq!(route.boundary_mask, route_pert.boundary_mask);
+    }
+    #[cfg(all(target_os = "macos", feature = "metal"))]
+    {
+        let gpu = hnet_waves()
+            .run_stage(&router, &ste, &hidden, &mask, 1, length)
+            .unwrap();
+        let gpu_shift = route
+            .boundary_prob
+            .iter()
+            .zip(&gpu.boundary_prob)
+            .map(|(&a, &b)| (a - b).abs())
+            .fold(0.0_f32, f32::max);
+        assert!(gpu_shift < 1.0e-4);
+        if gpu_shift < margin {
+            assert_eq!(route.boundary_mask, gpu.boundary_mask);
+            for (&a, &b) in out_base.iter().zip(&gpu.dechunk_out) {
+                assert!((a - b).abs() < 1.0e-3);
+            }
+        }
+    }
 }

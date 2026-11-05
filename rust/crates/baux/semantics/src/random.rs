@@ -1,9 +1,9 @@
 //! Integer random-stream identity. Wrapping arithmetic is part of the contract.
 
-#[cfg(test)]
+// Central deterministic PRNG trait and generator.
 use rand::SeedableRng;
 use rand::distributions::{Bernoulli, Uniform};
-#[cfg(test)]
+// Re-exported as `Prng` for deterministic streams across BAUX.
 use rand::rngs::StdRng;
 use rand::{Rng, RngCore};
 
@@ -133,8 +133,7 @@ pub fn sobol_shift<R: RngCore + ?Sized>(dim: usize, rng: &mut R) -> Vec<f64> {
         .map(|_| {
             let mut bytes = [0u8; 8];
             rng.fill_bytes(&mut bytes);
-            let u = u64::from_le_bytes(bytes);
-            (u >> 11) as f64 / ((1u64 << 53) as f64)
+            u64_f53(u64::from_le_bytes(bytes))
         })
         .collect()
 }
@@ -314,6 +313,84 @@ pub fn gen_raasp<R: Rng + ?Sized>(
         }
     }
     candidates
+}
+
+/// Canonical deterministic PRNG type used across BAUX.
+pub type Prng = StdRng;
+
+/// Generate a fresh 64-bit seed from OS entropy when no explicit seed is
+/// provided.
+#[inline]
+pub fn auto_seed() -> u64 {
+    rand::random::<u64>()
+}
+
+/// Resolve an optional seed, generating one automatically from OS entropy when
+/// `None`.
+#[inline]
+pub fn resolve_seed(seed: Option<u64>) -> u64 {
+    seed.unwrap_or_else(auto_seed)
+}
+
+/// Derive a deterministic 62-bit experiment seed from `(experiment, domain,
+/// rep, index)` using the canonical `baux-tune-seed-v2` FNV-1a + SplitMix64
+/// schedule.
+pub fn tune_seed(experiment: &str, domain: &str, rep: u32, index: u64) -> u64 {
+    let mut state = 0xcbf2_9ce4_8422_2325u64;
+    let mut mix = |bytes: &[u8]| {
+        state ^= bytes.len() as u64;
+        state = splitmix64(state);
+        for byte in bytes {
+            state ^= u64::from(*byte);
+            state = state.wrapping_mul(0x0000_0100_0000_01b3);
+        }
+    };
+    mix(b"baux-tune-seed-v2");
+    mix(experiment.as_bytes());
+    mix(domain.as_bytes());
+    mix(&rep.to_le_bytes());
+    mix(&index.to_le_bytes());
+    splitmix64(state) & 0x3fff_ffff_ffff_ffff
+}
+
+/// Construct a deterministic PRNG from a 64-bit seed.
+#[inline(always)]
+pub fn prng(seed: u64) -> Prng {
+    Prng::seed_from_u64(seed)
+}
+
+/// Derive a domain-separated 64-bit seed via SplitMix64(`seed ^ domain`).
+#[inline(always)]
+pub fn domain_seed(seed: u64, domain: u64) -> u64 {
+    splitmix64(seed ^ domain)
+}
+
+/// Derive a stream-indexed 64-bit seed via
+/// SplitMix64(`seed.wrapping_add(stream)`).
+#[inline(always)]
+pub fn stream_seed(seed: u64, stream: u64) -> u64 {
+    splitmix64(seed.wrapping_add(stream))
+}
+
+/// Construct a deterministic PRNG for a domain-separated seed (`seed ^
+/// domain`).
+#[inline(always)]
+pub fn domain_prng(seed: u64, domain: u64) -> Prng {
+    prng(domain_seed(seed, domain))
+}
+
+/// Construct a deterministic PRNG for an additive stream offset (`seed +
+/// stream`).
+#[inline(always)]
+pub fn stream_prng(seed: u64, stream: u64) -> Prng {
+    prng(stream_seed(seed, stream))
+}
+
+/// Convert a 64-bit value into a uniform `f32` in `(0, 1)` via SplitMix64 high
+/// 23 bits.
+#[inline(always)]
+pub fn splitmix_f32(bits: u64) -> f32 {
+    ((splitmix64(bits) >> 41) as f32 + 0.5) / 8_388_608.0
 }
 
 #[cfg(test)]

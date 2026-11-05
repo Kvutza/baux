@@ -1,0 +1,433 @@
+{
+  "upstream_revision": "de0db39f481d9505bb3610b7b7aa0ebf7702e4a5",
+  "source_hashes": {
+    "turbo/turbo_1.py": "1d6e47966275d9875f2f2d745446d97d3b03d6364bdcae306a310a6dfd4c0e76",
+    "turbo/turbo_m.py": "cc09363775cb06ca522f6f4bc6e5ba95aba230ba90aa0a7bc4808488dcda4df8"
+  },
+  "turbo1": {
+    "dim": 4,
+    "batch_size": 1,
+    "succtol": 3,
+    "failtol": 4,
+    "length_init": 0.8,
+    "length_min": 0.0078125,
+    "length_max": 1.6,
+    "initial_fx": 10.0,
+    "steps": [
+      {
+        "fx": 9.0,
+        "length": 0.8,
+        "succcount": 1,
+        "failcount": 0,
+        "needs_restart": false
+      },
+      {
+        "fx": 8.0,
+        "length": 0.8,
+        "succcount": 2,
+        "failcount": 0,
+        "needs_restart": false
+      },
+      {
+        "fx": 7.0,
+        "length": 1.6,
+        "succcount": 0,
+        "failcount": 0,
+        "needs_restart": false
+      },
+      {
+        "fx": 6.0,
+        "length": 1.6,
+        "succcount": 1,
+        "failcount": 0,
+        "needs_restart": false
+      },
+      {
+        "fx": 5.0,
+        "length": 1.6,
+        "succcount": 2,
+        "failcount": 0,
+        "needs_restart": false
+      },
+      {
+        "fx": 4.0,
+        "length": 1.6,
+        "succcount": 0,
+        "failcount": 0,
+        "needs_restart": false
+      },
+      {
+        "fx": 3.9,
+        "length": 1.6,
+        "succcount": 1,
+        "failcount": 0,
+        "needs_restart": false
+      },
+      {
+        "fx": 3.899,
+        "length": 1.6,
+        "succcount": 0,
+        "failcount": 1,
+        "needs_restart": false
+      },
+      {
+        "fx": 4.0,
+        "length": 1.6,
+        "succcount": 0,
+        "failcount": 2,
+        "needs_restart": false
+      },
+      {
+        "fx": 4.1,
+        "length": 1.6,
+        "succcount": 0,
+        "failcount": 3,
+        "needs_restart": false
+      },
+      {
+        "fx": 4.2,
+        "length": 0.8,
+        "succcount": 0,
+        "failcount": 0,
+        "needs_restart": false
+      },
+      {
+        "fx": 5.0,
+        "length": 0.8,
+        "succcount": 0,
+        "failcount": 1,
+        "needs_restart": false
+      },
+      {
+        "fx": 5.0,
+        "length": 0.8,
+        "succcount": 0,
+        "failcount": 2,
+        "needs_restart": false
+      },
+      {
+        "fx": 5.0,
+        "length": 0.8,
+        "succcount": 0,
+        "failcount": 3,
+        "needs_restart": false
+      },
+      {
+        "fx": 5.0,
+        "length": 0.4,
+        "succcount": 0,
+        "failcount": 0,
+        "needs_restart": false
+      },
+      {
+        "fx": 5.0,
+        "length": 0.4,
+        "succcount": 0,
+        "failcount": 1,
+        "needs_restart": false
+      },
+      {
+        "fx": 5.0,
+        "length": 0.4,
+        "succcount": 0,
+        "failcount": 2,
+        "needs_restart": false
+      },
+      {
+        "fx": 5.0,
+        "length": 0.4,
+        "succcount": 0,
+        "failcount": 3,
+        "needs_restart": false
+      },
+      {
+        "fx": 5.0,
+        "length": 0.2,
+        "succcount": 0,
+        "failcount": 0,
+        "needs_restart": false
+      },
+      {
+        "fx": 5.0,
+        "length": 0.2,
+        "succcount": 0,
+        "failcount": 1,
+        "needs_restart": false
+      },
+      {
+        "fx": 5.0,
+        "length": 0.2,
+        "succcount": 0,
+        "failcount": 2,
+        "needs_restart": false
+      },
+      {
+        "fx": 5.0,
+        "length": 0.2,
+        "succcount": 0,
+        "failcount": 3,
+        "needs_restart": false
+      },
+      {
+        "fx": 5.0,
+        "length": 0.1,
+        "succcount": 0,
+        "failcount": 0,
+        "needs_restart": false
+      },
+      {
+        "fx": 5.0,
+        "length": 0.1,
+        "succcount": 0,
+        "failcount": 1,
+        "needs_restart": false
+      },
+      {
+        "fx": 5.0,
+        "length": 0.1,
+        "succcount": 0,
+        "failcount": 2,
+        "needs_restart": false
+      },
+      {
+        "fx": 5.0,
+        "length": 0.1,
+        "succcount": 0,
+        "failcount": 3,
+        "needs_restart": false
+      },
+      {
+        "fx": 5.0,
+        "length": 0.05,
+        "succcount": 0,
+        "failcount": 0,
+        "needs_restart": false
+      },
+      {
+        "fx": 5.0,
+        "length": 0.05,
+        "succcount": 0,
+        "failcount": 1,
+        "needs_restart": false
+      },
+      {
+        "fx": 5.0,
+        "length": 0.05,
+        "succcount": 0,
+        "failcount": 2,
+        "needs_restart": false
+      },
+      {
+        "fx": 5.0,
+        "length": 0.05,
+        "succcount": 0,
+        "failcount": 3,
+        "needs_restart": false
+      },
+      {
+        "fx": 5.0,
+        "length": 0.025,
+        "succcount": 0,
+        "failcount": 0,
+        "needs_restart": false
+      },
+      {
+        "fx": 5.0,
+        "length": 0.025,
+        "succcount": 0,
+        "failcount": 1,
+        "needs_restart": false
+      },
+      {
+        "fx": 5.0,
+        "length": 0.025,
+        "succcount": 0,
+        "failcount": 2,
+        "needs_restart": false
+      },
+      {
+        "fx": 5.0,
+        "length": 0.025,
+        "succcount": 0,
+        "failcount": 3,
+        "needs_restart": false
+      },
+      {
+        "fx": 5.0,
+        "length": 0.0125,
+        "succcount": 0,
+        "failcount": 0,
+        "needs_restart": false
+      },
+      {
+        "fx": 5.0,
+        "length": 0.0125,
+        "succcount": 0,
+        "failcount": 1,
+        "needs_restart": false
+      },
+      {
+        "fx": 5.0,
+        "length": 0.0125,
+        "succcount": 0,
+        "failcount": 2,
+        "needs_restart": false
+      },
+      {
+        "fx": 5.0,
+        "length": 0.0125,
+        "succcount": 0,
+        "failcount": 3,
+        "needs_restart": false
+      },
+      {
+        "fx": 5.0,
+        "length": 0.00625,
+        "succcount": 0,
+        "failcount": 0,
+        "needs_restart": true
+      }
+    ]
+  },
+  "turbom": {
+    "dim": 4,
+    "n_trust_regions": 2,
+    "batch_size": 1,
+    "succtol": 3,
+    "failtol": 5,
+    "initial_fx": [
+      10.0,
+      10.0
+    ],
+    "steps": [
+      {
+        "region": 0,
+        "fx": 9.0,
+        "lengths": [
+          0.8,
+          0.8
+        ],
+        "succcount": [
+          1,
+          0
+        ],
+        "failcount": [
+          0,
+          0
+        ]
+      },
+      {
+        "region": 0,
+        "fx": 8.0,
+        "lengths": [
+          0.8,
+          0.8
+        ],
+        "succcount": [
+          2,
+          0
+        ],
+        "failcount": [
+          0,
+          0
+        ]
+      },
+      {
+        "region": 0,
+        "fx": 7.0,
+        "lengths": [
+          1.6,
+          0.8
+        ],
+        "succcount": [
+          0,
+          0
+        ],
+        "failcount": [
+          0,
+          0
+        ]
+      },
+      {
+        "region": 1,
+        "fx": 10.5,
+        "lengths": [
+          1.6,
+          0.8
+        ],
+        "succcount": [
+          0,
+          0
+        ],
+        "failcount": [
+          0,
+          1
+        ]
+      },
+      {
+        "region": 1,
+        "fx": 10.5,
+        "lengths": [
+          1.6,
+          0.8
+        ],
+        "succcount": [
+          0,
+          0
+        ],
+        "failcount": [
+          0,
+          2
+        ]
+      },
+      {
+        "region": 1,
+        "fx": 10.5,
+        "lengths": [
+          1.6,
+          0.8
+        ],
+        "succcount": [
+          0,
+          0
+        ],
+        "failcount": [
+          0,
+          3
+        ]
+      },
+      {
+        "region": 1,
+        "fx": 10.5,
+        "lengths": [
+          1.6,
+          0.8
+        ],
+        "succcount": [
+          0,
+          0
+        ],
+        "failcount": [
+          0,
+          4
+        ]
+      },
+      {
+        "region": 1,
+        "fx": 10.5,
+        "lengths": [
+          1.6,
+          0.4
+        ],
+        "succcount": [
+          0,
+          0
+        ],
+        "failcount": [
+          0,
+          0
+        ]
+      }
+    ]
+  }
+}

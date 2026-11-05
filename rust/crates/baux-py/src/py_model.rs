@@ -1,5 +1,8 @@
 //! ENN model Python bindings.
 
+#![allow(clippy::too_many_arguments, clippy::type_complexity)]
+
+use crate::py_device::{parse_storage, py_flags, resolve_driver};
 use baux::traits::PosteriorComputation;
 use numpy::{IntoPyArray, PyArray2, PyArrayDyn, PyReadonlyArray2};
 use pyo3::exceptions::PyValueError;
@@ -20,35 +23,12 @@ type PyRows<'py> = (
     Option<Bound<'py, PyArray2<f64>>>,
 );
 
-fn py_flags(model: &PyENN, exclude_nearest: bool, observation_noise: bool) -> baux::PosteriorFlags {
-    baux::PosteriorFlags::new()
-        .exclude_nearest(exclude_nearest)
-        .observation_noise(observation_noise)
-        .tie_neighbors(model.tie_neighbors.get())
-}
-
-fn parse_driver(index_driver: &str) -> PyResult<baux::IndexDriver> {
-    match index_driver {
-        "Exact" | "exact" | "FLAT" | "flat" => Ok(baux::IndexDriver::Exact),
-        "AUTO" | "Auto" | "auto" => Ok(baux::IndexDriver::Auto),
-        "USEARCH" | "USearch" | "usearch" | "hnsw_usearch" => Ok(baux::IndexDriver::USearch),
-        "BPANN_DISK" | "bpann_disk" => Ok(baux::IndexDriver::BpAnnDisk),
-        "METAL" | "metal" => Ok(baux::IndexDriver::Metal),
-        "OPENCL" | "OpenCL" | "opencl" | "ocl" => Ok(baux::IndexDriver::OpenCl),
-        "CUDA" | "Cuda" | "cuda" => Ok(baux::IndexDriver::Cuda),
-        "CUVS" | "CuVS" | "cuvs" | "cuvs_brute_force" => Ok(baux::IndexDriver::Cuvs),
-        "CUVS_CAGRA" | "cuvs_cagra" | "CAGRA" | "cagra" => Ok(baux::IndexDriver::CuvsCagra),
-        _ => Err(PyValueError::new_err(format!(
-            "Unknown index_driver: {index_driver}"
-        ))),
-    }
-}
-
 /// Python wrapper for ENN
 #[pyclass(unsendable, name = "ENN")]
 pub struct PyENN {
     pub(crate) inner: baux::ENN,
     tie_neighbors: std::cell::Cell<bool>,
+    driver: baux::IndexDriver,
 }
 
 #[pymethods]
@@ -78,7 +58,7 @@ impl PyENN {
         }
         let params = baux::ENNParams::new(k_neighbors, epistemic_scale, aleatoric_scale)
             .map_err(|e| PyValueError::new_err(e.to_string()))?;
-        let flags = py_flags(self, exclude_nearest, observation_noise);
+        let flags = py_flags(&self.tie_neighbors, exclude_nearest, observation_noise);
         // SAFETY: validated DLPack dtype, shape and device. Input retains the
         // producer allocation until native compute and its copies complete.
         let posterior = unsafe {
@@ -96,7 +76,7 @@ impl PyENN {
     }
 
     #[new]
-    #[pyo3(signature = (train_x, train_y, train_yvar=None, scale_x=false, index_driver="Exact", work_dir=None, enn_storage=None, y_bounds=None))]
+    #[pyo3(signature = (train_x, train_y, train_yvar=None, scale_x=false, index_driver="Exact", work_dir=None, enn_storage=None, y_bounds=None, device=None, index=None, storage=None))]
     fn new(
         train_x: PyReadonlyArray2<f64>,
         train_y: PyReadonlyArray2<f64>,
@@ -106,19 +86,12 @@ impl PyENN {
         work_dir: Option<&str>,
         enn_storage: Option<&str>,
         y_bounds: Option<PyReadonlyArray2<f64>>,
+        device: Option<&Bound<'_, PyAny>>,
+        index: Option<&str>,
+        storage: Option<&str>,
     ) -> PyResult<Self> {
-        let driver = parse_driver(index_driver)?;
-        let storage = match enn_storage {
-            Some("disk" | "Disk") => baux::EnnStorage::Disk,
-            Some("memory" | "in_memory" | "InMemory") => baux::EnnStorage::InMemory,
-            None if work_dir.is_some() => baux::EnnStorage::Disk,
-            None => baux::EnnStorage::InMemory,
-            Some(other) => {
-                return Err(PyValueError::new_err(format!(
-                    "Unknown enn_storage: {other}"
-                )));
-            }
-        };
+        let driver = resolve_driver(index_driver, device, index)?;
+        let storage = parse_storage(enn_storage, storage, work_dir, driver)?;
         let work_dir = work_dir.map(PathBuf::from);
         if driver == baux::IndexDriver::BpAnnDisk {
             baux::bpann_config().map_err(PyValueError::new_err)?;
@@ -139,7 +112,20 @@ impl PyENN {
         Ok(Self {
             inner: model,
             tie_neighbors: std::cell::Cell::new(true),
+            driver,
         })
+    }
+
+    #[getter]
+    fn device(&self) -> &'static str {
+        match self.driver {
+            baux::IndexDriver::Metal => "metal",
+            baux::IndexDriver::Cuda | baux::IndexDriver::Cuvs | baux::IndexDriver::CuvsCagra => {
+                "cuda"
+            }
+            baux::IndexDriver::OpenCl => "opencl",
+            _ => "cpu",
+        }
     }
 
     #[pyo3(signature = (enabled=true))]
@@ -205,7 +191,7 @@ impl PyENN {
     ) -> PyResult<PosteriorPyOut<'py>> {
         let params = baux::ENNParams::new(k_neighbors, epistemic_scale, aleatoric_scale)
             .map_err(|e| PyValueError::new_err(e.to_string()))?;
-        let flags = py_flags(self, exclude_nearest, observation_noise);
+        let flags = py_flags(&self.tie_neighbors, exclude_nearest, observation_noise);
         let out = self
             .inner
             .posterior(&x.as_array(), &params, &flags)
@@ -253,7 +239,7 @@ impl PyENN {
             paramss.push(params);
         }
 
-        let flags = py_flags(self, exclude_nearest, observation_noise);
+        let flags = py_flags(&self.tie_neighbors, exclude_nearest, observation_noise);
 
         let out = self
             .inner
@@ -283,7 +269,7 @@ impl PyENN {
     ) -> PyResult<(Bound<'py, PyArrayDyn<f64>>, Vec<Vec<usize>>)> {
         let params = baux::ENNParams::new(k_neighbors, epistemic_scale, aleatoric_scale)
             .map_err(|e| PyValueError::new_err(e.to_string()))?;
-        let flags = py_flags(self, exclude_nearest, observation_noise);
+        let flags = py_flags(&self.tie_neighbors, exclude_nearest, observation_noise);
         let (draws, idx) = self
             .inner
             .posterior_draw(&x.as_array(), &params, &function_seeds, &flags)
@@ -308,7 +294,7 @@ impl PyENN {
     ) -> PyResult<PosteriorPyOut<'py>> {
         let params = baux::ENNParams::new(k_neighbors, epistemic_scale, aleatoric_scale)
             .map_err(|e| PyValueError::new_err(e.to_string()))?;
-        let flags = py_flags(self, exclude_nearest, observation_noise);
+        let flags = py_flags(&self.tie_neighbors, exclude_nearest, observation_noise);
         let out = self
             .inner
             .conditional_posterior(
@@ -346,7 +332,7 @@ impl PyENN {
     ) -> PyResult<(Bound<'py, PyArrayDyn<f64>>, Vec<Vec<usize>>)> {
         let params = baux::ENNParams::new(k_neighbors, epistemic_scale, aleatoric_scale)
             .map_err(|e| PyValueError::new_err(e.to_string()))?;
-        let flags = py_flags(self, exclude_nearest, observation_noise);
+        let flags = py_flags(&self.tie_neighbors, exclude_nearest, observation_noise);
         let (draws, idx) = self
             .inner
             .conditional_draw(

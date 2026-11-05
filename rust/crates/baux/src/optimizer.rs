@@ -85,7 +85,7 @@ impl StrategyState {
         rng: &mut dyn RngCore,
     ) -> Result<Self, ENNError> {
         let mut config = MultiTrustRegionConfig::new(num_regions, Default::default());
-        config.sharing_policy = SharingPolicy::Shared;
+        config.sharing_policy = SharingPolicy::BoxContain;
         Self::configured(num_dim, config, num_init, rng)
     }
 
@@ -245,9 +245,20 @@ impl BayesOptimizer {
         num_init: usize,
         rng: &mut dyn RngCore,
     ) -> Result<Self, ENNError> {
+        Self::from_domain(DomainFrame::new(bounds)?, spec, num_init, rng)
+    }
+
+    /// Create a new optimizer from a model-defined [`DomainFrame`] and v4
+    /// [`OptimizerSpec`].
+    pub fn from_domain(
+        domain: DomainFrame,
+        spec: &OptimizerSpec,
+        num_init: usize,
+        rng: &mut dyn RngCore,
+    ) -> Result<Self, ENNError> {
         let config = OptimizerConfig::from_spec(spec)?;
-        let strategy = spec.strategy(bounds.nrows(), num_init, rng)?;
-        Self::new_strategy(bounds, config, strategy, rng)
+        let strategy = spec.strategy(domain.num_dim(), num_init, rng)?;
+        Self::new_domain(domain, config, strategy, None, None, rng)
     }
 
     /// Create a new optimizer with an explicit strategy.
@@ -298,17 +309,38 @@ impl BayesOptimizer {
         regional_factory: Option<RegionalModelFactory>,
         rng: &mut dyn RngCore,
     ) -> Result<Self, ENNError> {
-        let domain = DomainFrame::new(bounds)?;
+        Self::new_domain(
+            DomainFrame::new(bounds)?,
+            config,
+            strategy,
+            provided_surrogate,
+            regional_factory,
+            rng,
+        )
+    }
+
+    fn new_domain(
+        domain: DomainFrame,
+        config: OptimizerConfig,
+        strategy: Strategy,
+        provided_surrogate: Option<BoxedSurrogate>,
+        regional_factory: Option<RegionalModelFactory>,
+        rng: &mut dyn RngCore,
+    ) -> Result<Self, ENNError> {
         let num_dim = domain.num_dim();
         let (warmup, multi_override) = strategy.into_roles();
 
         let mut regions = match multi_override {
-            Some((multi_tr, pending)) => TrustRegionState::multi(multi_tr, pending),
+            Some((mut multi_tr, pending)) => {
+                multi_tr.config.clamp_domain = domain.clamped();
+                TrustRegionState::multi(multi_tr, pending)
+            }
             None => TrustRegionState::from_config(num_dim, &config.trust_region, rng)
                 .map_err(|e| ENNError::InvalidParameter(e.to_string()))?,
         };
-        if let Some(dim) = config.failure_tolerance_dim {
-            if let TrustRegionState::Turbo(t) = &mut regions {
+        if let TrustRegionState::Turbo(t) = &mut regions {
+            t.clamp_domain = domain.clamped();
+            if let Some(dim) = config.failure_tolerance_dim {
                 t.set_dim(dim);
             }
         }

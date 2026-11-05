@@ -57,6 +57,8 @@ pub enum OptimizerSpec {
     Muon,
     #[deser(rename = "adamw")]
     Adamw,
+    #[deser(rename = "ppo")]
+    Ppo,
 }
 
 impl OptimizerSpec {
@@ -84,7 +86,7 @@ impl OptimizerSpec {
                 distribution: *distribution,
                 perturbation: perturbation.clone(),
             }),
-            Self::Muon | Self::Adamw => None,
+            Self::Muon | Self::Adamw | Self::Ppo => None,
         }
     }
 
@@ -96,7 +98,7 @@ impl OptimizerSpec {
             | Self::BayesianSearch {
                 regional_search, ..
             } => regional_search.as_ref(),
-            Self::Muon | Self::Adamw => None,
+            Self::Muon | Self::Adamw | Self::Ppo => None,
         }
     }
 
@@ -119,7 +121,7 @@ impl OptimizerSpec {
             Self::OperatorBo { trust_region, .. } | Self::BayesianSearch { trust_region, .. } => {
                 trust_region
             }
-            Self::Muon | Self::Adamw => unreachable!("matrix optimizer handled above"),
+            Self::Muon | Self::Adamw | Self::Ppo => unreachable!("matrix optimizer handled above"),
         };
         let config = regions
             .runtime(bounds)
@@ -308,10 +310,12 @@ impl crate::optimizer_config::OptimizerConfig {
         use crate::optimizer_config::{AcquisitionConfig, CandidateConfig, SurrogateConfig};
         use crate::trust_region::TrustRegionConfig;
         match spec {
-            OptimizerSpec::Muon | OptimizerSpec::Adamw => Err(ENNError::InvalidParameter(
-                "Muon and AdamW are matrix pretraining optimizers, not ask/tell BO recipes"
-                    .to_string(),
-            )),
+            OptimizerSpec::Muon | OptimizerSpec::Adamw | OptimizerSpec::Ppo => {
+                Err(ENNError::InvalidParameter(
+                    "Muon, AdamW, and PPO are gradient optimizers, not ask/tell BO recipes"
+                        .to_string(),
+                ))
+            }
             OptimizerSpec::OperatorBo {
                 surrogate,
                 trust_region,
@@ -338,7 +342,11 @@ impl crate::optimizer_config::OptimizerConfig {
             } => {
                 let candidate_generation = spec.candidate_generation().unwrap();
                 let candidates = CandidateConfig::from_spec(&candidate_generation)?;
-                let surrogate_cfg = SurrogateConfig::from_recipe(surrogate)?;
+                let surrogate_cfg = if matches!(acquisition, AcquisitionSpec::Random) {
+                    SurrogateConfig::None
+                } else {
+                    SurrogateConfig::from_recipe(surrogate)?
+                };
                 let acq_cfg = AcquisitionConfig::from_spec(acquisition);
                 let tr_cfg = TrustRegionConfig::from_spec(trust_region)?;
                 Ok(Self {

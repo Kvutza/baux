@@ -1,11 +1,10 @@
 //! Independent objective acquisition; scalar control remains caller-supplied.
 use super::*;
 use crate::Rescalarize;
+use crate::hash::domain_prng;
 use crate::morbo::{MorboTRSettings, MorboTrustRegion};
 use crate::objective_observation::MAX_OBJECTIVES;
 use rand::Rng;
-use rand::SeedableRng;
-use rand::rngs::StdRng;
 
 mod parameters;
 use parameters::ObjectiveParams;
@@ -78,7 +77,7 @@ impl ResidentMorbo {
             .map(|estimate| f64::from(estimate.mean) - 1.0)
             .collect();
         for region in 0..*regions {
-            let mut rng = StdRng::seed_from_u64(crate::hash::splitmix64(*seed ^ region as u64));
+            let mut rng = domain_prng(*seed, region as u64);
             let mut trust = MorboTrustRegion::new(
                 state.dimensions,
                 MorboTRSettings {
@@ -127,7 +126,7 @@ impl ResidentMorbo {
 
     fn sample_weights(&mut self, region: usize, epoch: usize) -> Result<(), String> {
         let stream = ((region as u64) << 32) ^ epoch as u64;
-        let mut rng = StdRng::seed_from_u64(crate::hash::splitmix64(self.seed ^ stream));
+        let mut rng = domain_prng(self.seed, stream);
         let samples = self
             .preferences
             .iter()

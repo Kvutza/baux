@@ -3,6 +3,11 @@
 
 AST selection avoids importing CUDA-only mixers. It does not substitute their
 implementations: DeChunkLayer.forward and the full model are not exercised here.
+
+Academic & Open-Source Attribution:
+- Sukjun Hwang, Brandon Wang, and Albert Gu, "Dynamic Chunking for End-to-End
+  Hierarchical Sequence Modeling", arXiv:2507.07955 (2025),
+  https://github.com/goombalab/hnet (commit 3673fe1217ebeb0d1438c7c71d58d32bdd190ec2).
 """
 
 import ast
@@ -13,6 +18,7 @@ from pathlib import Path
 import subprocess
 
 import click
+import numpy as np
 import torch
 from torch import nn
 from torch.nn import functional as F
@@ -237,6 +243,76 @@ class Bridge:
         return result
 
 
+def tokenizer_cases(api):
+    tok = api["ByteTokenizer"]()
+    assert (tok.vocab_size, tok.bos_idx, tok.eos_idx) == (256, 254, 255)
+    cases = []
+    for text in ("", "hello, world!", "é 🦀 λ\n\t0123"):
+        raw = tok.encode([text], add_bos=False, add_eos=False)[0]["input_ids"]
+        assert tok.decode(raw) == text
+        for add_bos in (False, True):
+            for add_eos in (False, True):
+                ids = tok.encode([text], add_bos=add_bos, add_eos=add_eos)[0][
+                    "input_ids"
+                ]
+                cases.append(
+                    {
+                        "text": text,
+                        "add_bos": add_bos,
+                        "add_eos": add_eos,
+                        "tokens": [int(x) for x in ids.tolist()],
+                    }
+                )
+    return cases
+
+
+def ratio_cases(api):
+    specs = [
+        ("balanced", [1.0, 0.2, 0.8, 0.3], [True, False, True, False], 2.0),
+        (
+            "dense",
+            [1.0, 0.9, 0.7, 0.6, 0.2, 0.8],
+            [True, True, True, True, False, True],
+            2.5,
+        ),
+        (
+            "sparse",
+            [1.0, 0.1, 0.15, 0.2, 0.05, 0.3, 0.1, 0.25],
+            [True, False, False, False, False, False, False, False],
+            4.0,
+        ),
+        (
+            "fractional",
+            [1.0, 0.55, 0.45, 0.75, 0.25, 0.65, 0.35, 0.85],
+            [True, True, False, True, False, True, False, True],
+            3.5,
+        ),
+    ]
+    cases = []
+    for name, prob_list, mask_list, target_ratio in specs:
+        p = torch.tensor(prob_list, dtype=torch.float32)
+        bmask = torch.tensor(mask_list, dtype=torch.bool)
+        pair = torch.stack((1.0 - p, p), dim=-1)
+        selected = torch.where(bmask, p, 1.0 - p).unsqueeze(-1)
+        out = api["RoutingModuleOutput"](
+            boundary_prob=pair,
+            boundary_mask=bmask,
+            selected_probs=selected,
+        )
+        loss = api["load_balancing_loss"](out, target_ratio)
+        cases.append(
+            {
+                "name": name,
+                "probability": values(p),
+                "boundary": values(bmask),
+                "selected": values(selected),
+                "target_ratio": target_ratio,
+                "loss": float(loss.item()),
+            }
+        )
+    return cases
+
+
 def main(upstream: Path, output: Path):
     revision = subprocess.check_output(
         ["git", "-C", str(upstream), "rev-parse", "HEAD"], text=True
@@ -248,13 +324,19 @@ def main(upstream: Path, output: Path):
     ):
         raise click.ClickException("Upstream source has local changes")
     api = {
+        "np": np,
         "torch": torch,
         "nn": nn,
         "F": F,
         "dataclass": dataclass,
         "__name__": "__main__",
     }
-    paths = [upstream / "hnet/modules/dc.py", upstream / "hnet/models/hnet.py"]
+    paths = [
+        upstream / "hnet/modules/dc.py",
+        upstream / "hnet/models/hnet.py",
+        upstream / "hnet/utils/tokenizers.py",
+        upstream / "hnet/utils/train.py",
+    ]
     definitions(
         paths[0],
         [
@@ -268,6 +350,8 @@ def main(upstream: Path, output: Path):
         api,
     )
     definitions(paths[1], ["STE", "ste_func"], api)
+    definitions(paths[2], ["ByteTokenizer"], api)
+    definitions(paths[3], ["load_balancing_loss"], api)
     result = {
         "revision": revision,
         "torch": torch.__version__,
@@ -277,11 +361,13 @@ def main(upstream: Path, output: Path):
             str(p.relative_to(upstream)): hashlib.sha256(p.read_bytes()).hexdigest()
             for p in paths
         },
-        "scope": "routing forward/step, chunk packing, upstream recurrent EMA, STE and FP32 hierarchy adjoints with half-stored weights",
+        "scope": "routing forward/step, chunk packing, upstream recurrent EMA, STE, byte tokenizer, ratio loss, and FP32 hierarchy adjoints with half-stored weights",
         "full_model_parity": False,
         "routing": routing_cases(api),
         "recurrent": recurrent_case(api),
         "ste": ste_case(api),
+        "tokenizer": tokenizer_cases(api),
+        "ratio_loss": ratio_cases(api),
         "bridge": [Bridge(api, width).forward() for width in (4, 33)],
     }
     output.write_text(json.dumps(result, indent=2, allow_nan=False) + "\n")

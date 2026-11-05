@@ -5,7 +5,6 @@
 //! mirroring.
 
 use baux::semantics::optimizer::portfolio::{Allocation, RegionTicket, RegionalLedger};
-use deser::{Deserialize, Serialize};
 use ndarray::{Array1, Array2, ArrayView1, ArrayView2};
 use rand::RngCore;
 
@@ -15,26 +14,8 @@ mod policy;
 mod selection;
 pub use policy::{
     AllocationPolicy, RegionController, RestartCenterPolicy, RestartCenterSelection,
-    RestartMemoryPolicy,
+    RestartMemoryPolicy, SharingPolicy,
 };
-
-/// Policy for admitting observations into regional models and incumbents.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[deser(rename_all = "snake_case")]
-pub enum SharingPolicy {
-    /// Any observation may update a containing region's incumbent.
-    Shared,
-    /// An observation may update the nearest region's incumbent.
-    NearestCenter,
-    /// Only the generating region may update its incumbent.
-    Independent,
-}
-
-impl Default for SharingPolicy {
-    fn default() -> Self {
-        Self::Shared
-    }
-}
 
 /// Configuration for Multi-Trust Region state machine.
 #[derive(Debug, Clone, PartialEq)]
@@ -63,6 +44,9 @@ pub struct MultiTrustRegionConfig {
     pub exploration: f64,
     /// Minimum normalized Hamming distance between selected perturbation seeds.
     pub min_seed_distance: f64,
+    /// Whether trust-region perturbation windows and restarts clamp to `[0,
+    /// 1]`.
+    pub clamp_domain: bool,
 }
 
 impl MultiTrustRegionConfig {
@@ -72,14 +56,15 @@ impl MultiTrustRegionConfig {
             length,
             succ_tolerance: 3,
             fail_tolerance: 5,
-            sharing_policy: SharingPolicy::Shared,
-            allocation_policy: AllocationPolicy::UtilityUcb,
+            sharing_policy: SharingPolicy::BoxContain,
+            allocation_policy: AllocationPolicy::IncumbentUcb1,
             restart_memory_policy: RestartMemoryPolicy::Fresh,
             restart_center_policy: RestartCenterPolicy::default(),
             controller: RegionController::Turbo,
             region_acquisitions: vec![None; num_regions],
             exploration: 1.0,
             min_seed_distance: 0.0,
+            clamp_domain: true,
         }
     }
 }
@@ -159,7 +144,7 @@ pub struct MultiTrustRegionState {
     pub active_mask: Vec<bool>,
     ledger: RegionalLedger,
 
-    config: MultiTrustRegionConfig,
+    pub(crate) config: MultiTrustRegionConfig,
 }
 
 impl MultiTrustRegionState {
@@ -248,10 +233,12 @@ impl MultiTrustRegionState {
         let fail_counts = vec![0; num_regions];
         let active_mask = vec![true; num_regions];
         let allocation = match config.allocation_policy {
-            AllocationPolicy::Balanced => Allocation::Balanced,
-            AllocationPolicy::UtilityUcb => Allocation::Ucb {
-                exploration: config.exploration,
-            },
+            AllocationPolicy::LeastTrials => Allocation::LeastTrials,
+            AllocationPolicy::IncumbentUcb1 | AllocationPolicy::JointAcquisition => {
+                Allocation::IncumbentUcb1 {
+                    exploration: config.exploration,
+                }
+            }
         };
         let ledger = RegionalLedger::new(&vec![f64::NEG_INFINITY; num_regions], allocation)
             .map_err(|error| TrustRegionError::InvalidParameter(error.to_string()))?;
@@ -283,6 +270,10 @@ impl MultiTrustRegionState {
 
     pub fn sharing_policy(&self) -> SharingPolicy {
         self.config.sharing_policy
+    }
+
+    pub fn allocation_policy(&self) -> AllocationPolicy {
+        self.config.allocation_policy
     }
 
     /// Resolve a slot's acquisition override against the optimizer default.
@@ -401,20 +392,28 @@ impl MultiTrustRegionState {
             let mut credited_rewards = Vec::new();
             let mut best_y_in_batch = f64::NEG_INFINITY;
             let mut best_x_idx: Option<usize> = None;
-
-            let (lb, ub) = self.compute_bounds(r, lengthscales);
+            let mut bounds: Option<(Array1<f64>, Array1<f64>)> = None;
 
             for i in 0..n {
-                let x_i = x_batch.row(i);
                 let y_i = y_batch[i];
-
-                let inside = self.accepts(r, i, &x_i, &lb, &ub, regions);
-
-                if regions.is_some_and(|ids| ids[i] == r) {
+                let is_origin = regions.is_some_and(|ids| ids[i] == r);
+                if is_origin {
                     credited_rewards.push(y_i);
-                    credit_improved |= inside && y_i > current_best;
                 }
-                if inside && y_i > current_best && y_i > best_y_in_batch {
+                if y_i <= current_best {
+                    continue;
+                }
+                if self.config.sharing_policy == SharingPolicy::OriginOnly && !is_origin {
+                    continue;
+                }
+                let (lb, ub) = bounds.get_or_insert_with(|| self.compute_bounds(r, lengthscales));
+                let x_i = x_batch.row(i);
+                let inside = self.accepts(r, i, &x_i, lb, ub, regions);
+
+                if is_origin {
+                    credit_improved |= inside;
+                }
+                if inside && y_i > best_y_in_batch {
                     best_y_in_batch = y_i;
                     best_x_idx = Some(i);
                     region_improved = true;
@@ -424,7 +423,7 @@ impl MultiTrustRegionState {
             if region_improved {
                 if let Some(idx) = best_x_idx {
                     self.ledger
-                        .set_best(r, y_batch[idx])
+                        .adopt_shared(r, y_batch[idx])
                         .map_err(|error| TrustRegionError::InvalidState(error.to_string()))?;
                     let x_best = x_batch.row(idx);
                     for d in 0..self.num_dim {
@@ -459,9 +458,9 @@ impl MultiTrustRegionState {
                     "generating regions do not match the observation batch".to_string(),
                 ));
             }
-        } else if self.config.sharing_policy == SharingPolicy::Independent {
+        } else if self.config.sharing_policy == SharingPolicy::OriginOnly {
             return Err(TrustRegionError::InvalidParameter(
-                "independent sharing requires generating regions".to_string(),
+                "origin-only sharing requires generating regions".to_string(),
             ));
         }
         Ok(())
@@ -519,7 +518,11 @@ impl MultiTrustRegionState {
             .map_err(|error| TrustRegionError::InvalidState(error.to_string()))?;
 
         for d in 0..self.num_dim {
-            self.centers[[r, d]] = new_center[d].clamp(0.0, 1.0);
+            self.centers[[r, d]] = if self.config.clamp_domain {
+                new_center[d].clamp(0.0, 1.0)
+            } else {
+                new_center[d]
+            };
         }
         self.lengths[r] = self.config.length.length_init;
         self.succ_counts[r] = 0;
@@ -527,29 +530,6 @@ impl MultiTrustRegionState {
         self.active_mask[r] = true;
 
         Ok(())
-    }
-
-    pub(crate) fn accepts(
-        &self,
-        region: usize,
-        observation: usize,
-        x: &ArrayView1<f64>,
-        lb: &Array1<f64>,
-        ub: &Array1<f64>,
-        regions: Option<&[usize]>,
-    ) -> bool {
-        self.config
-            .sharing_policy
-            .accepts(self, region, observation, x, lb, ub, regions)
-    }
-
-    fn contains(&self, x: &ArrayView1<f64>, lb: &Array1<f64>, ub: &Array1<f64>) -> bool {
-        (0..self.num_dim).all(|d| x[d] >= lb[d] && x[d] <= ub[d])
-    }
-
-    fn distance_to(&self, region: usize, x: &ArrayView1<f64>) -> f64 {
-        let center = self.centers.row(region);
-        (0..self.num_dim).map(|d| (x[d] - center[d]).powi(2)).sum()
     }
 }
 
@@ -690,14 +670,14 @@ mod tests {
     #[test]
     fn allocation_trajectory() {
         let mut rng = StdRng::seed_from_u64(42);
+        let x = array![[0.1, 0.1], [0.9, 0.9]];
         let mut tr = MultiTrustRegionState::new(
             2,
             MultiTrustRegionConfig::new(2, Default::default()),
-            None,
+            Some(&x.view()),
             &mut rng,
         )
         .unwrap();
-        let x = array![[0.1, 0.1], [0.9, 0.9]];
         tr.tell(&x.view(), &array![10.0, 1.0].view(), Some(&[0, 1]))
             .unwrap();
 
@@ -796,7 +776,7 @@ mod tests {
     fn independent_region() {
         let mut rng = StdRng::seed_from_u64(42);
         let mut cfg = MultiTrustRegionConfig::new(2, Default::default());
-        cfg.sharing_policy = SharingPolicy::Independent;
+        cfg.sharing_policy = SharingPolicy::OriginOnly;
         let centers = array![[0.5], [0.5]];
         let mut tr = MultiTrustRegionState::new(1, cfg, Some(&centers.view()), &mut rng).unwrap();
 
@@ -829,7 +809,7 @@ mod tests {
 
         assert!(tr.accepts(0, 0, &x.view(), &lb, &ub, None));
         assert!(!tr.accepts(1, 0, &x.view(), &lb, &ub, None));
-        assert!(tr.distance_to(0, &x.view()) < tr.distance_to(1, &x.view()));
+        assert!(policy::distance_to(&tr, 0, &x.view()) < policy::distance_to(&tr, 1, &x.view()));
         assert!(tr.seed_distance(0, u64::MAX));
         assert!(!tr.seed_distance(0, 1));
     }

@@ -4,8 +4,6 @@ use deser::{Deserialize, Serialize};
 use ndarray::{Array1, Array2, ArrayView1, ArrayView2};
 use rand::Rng;
 use rand::RngCore;
-use rand::SeedableRng;
-use rand::distributions::Bernoulli;
 use sobol::Sobol;
 use sobol::params::JoeKuoD6;
 use std::sync::OnceLock;
@@ -99,34 +97,31 @@ pub fn sobol_masked<R: Rng + ?Sized>(
             "num_dim must be > 0".to_string(),
         ));
     }
-    let prob = (num_pert as f64 / num_dim as f64).min(1.0);
-    let bern = Bernoulli::new(prob)
-        .map_err(|e| ENNError::InvalidParameter(format!("binomial mask: {e}")))?;
-    let mut candidates = Array2::zeros((num_candidates, num_dim));
-    for i in 0..num_candidates {
-        for j in 0..num_dim {
-            candidates[[i, j]] = x_center[j];
-        }
-        let sample = engine.sample(rng)?;
-        let mut k = (0..num_dim).filter(|_| rng.sample(bern)).count();
-        if k == 0 {
-            k = 1;
-        }
-        let mut dims: Vec<usize> = (0..num_dim).collect();
-        for t in 0..k {
-            let j = t + rng.gen_range(0..(num_dim - t));
-            dims.swap(t, j);
-            let d = dims[t];
-            candidates[[i, d]] = lower[d] + sample[d] * (upper[d] - lower[d]);
-        }
+    let mut sobol_samples = Vec::with_capacity(num_candidates * num_dim);
+    for _ in 0..num_candidates {
+        sobol_samples.extend_from_slice(&engine.sample(rng)?);
     }
-    Ok(candidates)
+    let x_vec = x_center.to_vec();
+    let lower_vec = lower.to_vec();
+    let upper_vec = upper.to_vec();
+    let flat = baux::semantics::random::sobol_masked(
+        &x_vec,
+        &lower_vec,
+        &upper_vec,
+        num_candidates,
+        rng,
+        &sobol_samples,
+        num_pert,
+    )
+    .map_err(ENNError::InvalidParameter)?;
+    Array2::from_shape_vec((num_candidates, num_dim), flat)
+        .map_err(|e| ENNError::InvalidParameter(format!("masked Sobol shape mismatch: {e}")))
 }
 
 /// Upstream standalone Sobol sequence generation.
 pub fn sobol_sequence(dim: usize, n: usize, seed: u64) -> Result<Array2<f64>, ENNError> {
     let mut engine = SobolEngine::new(dim)?;
-    let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
+    let mut rng = baux::semantics::random::prng(seed);
     let mut out = Array2::zeros((n, dim));
     for i in 0..n {
         let row = engine.sample(&mut rng)?;
@@ -307,9 +302,18 @@ fn raasp_cdf(cdf: &Array1<f64>, r: f64, num_dim: usize) -> usize {
 }
 
 /// Generate RAASP candidates.
+///
+/// Reference:
+/// - Eriksson et al. (2019), "Scalable Global Optimization via Local Bayesian
+///   Optimization" (TuRBO), NeurIPS 2019.
+/// - Knuth (1998), "The Art of Computer Programming, Vol 2", Algorithm 3.4.2P
+///   (Fisher-Yates / Durstenfeld sampling without replacement).
+/// For uniform coordinate perturbation in high dimensions (e.g. D = 160,531, k
+/// = 96,319), partial Fisher-Yates shuffle provides O(k) coordinate selection
+/// without replacement.
 fn generate_raasp<R: Rng + ?Sized>(
     x_center: &ArrayView1<f64>,
-    lengthscales: Option<&ArrayView1<f64>>,
+    _lengthscales: Option<&ArrayView1<f64>>,
     lower: &Array1<f64>,
     upper: &Array1<f64>,
     num_candidates: usize,
@@ -322,58 +326,36 @@ fn generate_raasp<R: Rng + ?Sized>(
     }
     let num_pert = num_pert.max(1).min(num_dim);
 
-    let probs: Array1<f64> = match lengthscales {
-        Some(ls) if ls.len() == num_dim => {
-            let clean = ls.mapv(|v| if v.is_finite() && v > 0.0 { v } else { 0.0 });
-            let ls_sum: f64 = clean.sum();
-            if ls_sum > 0.0 {
-                clean.mapv(|v| v / ls_sum)
-            } else {
-                Array1::from_elem(num_dim, 1.0 / num_dim as f64)
-            }
-        }
-        _ => Array1::from_elem(num_dim, 1.0 / num_dim as f64),
-    };
-
-    let mut cdf = Array1::zeros(num_dim);
     let mut candidates = Array2::zeros((num_candidates, num_dim));
+    let mut indices: Vec<usize> = (0..num_dim).collect();
+    let lo = lower.as_slice().expect("lower bounds contiguous");
+    let hi = upper.as_slice().expect("upper bounds contiguous");
+
     for i in 0..num_candidates {
-        for j in 0..num_dim {
-            candidates[[i, j]] = x_center[j];
-        }
+        candidates.row_mut(i).assign(x_center);
+        let row = candidates
+            .row_mut(i)
+            .into_slice()
+            .expect("candidate row contiguous");
         if num_pert >= num_dim {
             for d in 0..num_dim {
-                if upper[d] > lower[d] {
-                    candidates[[i, d]] = lower[d] + rng.r#gen::<f64>() * (upper[d] - lower[d]);
+                if hi[d] > lo[d] {
+                    row[d] = lo[d] + rng.r#gen::<f64>() * (hi[d] - lo[d]);
                 } else {
-                    candidates[[i, d]] = lower[d];
+                    row[d] = lo[d];
                 }
             }
         } else {
-            let mut rem = probs.clone();
-            for _ in 0..num_pert {
-                let mut c = 0.0;
-                for j in 0..num_dim {
-                    if rem[j] > 0.0 {
-                        c += rem[j];
-                    }
-                    cdf[j] = c;
-                }
-                let mut dim_to_perturb = if c > 0.0 {
-                    let r = rng.r#gen::<f64>() * c;
-                    raasp_cdf(&cdf, r, num_dim)
+            // Partial Fisher-Yates shuffle for O(num_pert) selection
+            for p in 0..num_pert {
+                let swap_idx = p + (rng.r#gen::<usize>() % (num_dim - p));
+                indices.swap(p, swap_idx);
+                let dim_to_perturb = indices[p];
+                if hi[dim_to_perturb] > lo[dim_to_perturb] {
+                    row[dim_to_perturb] = lo[dim_to_perturb]
+                        + rng.r#gen::<f64>() * (hi[dim_to_perturb] - lo[dim_to_perturb]);
                 } else {
-                    0
-                };
-                if rem[dim_to_perturb] < 0.0 {
-                    dim_to_perturb = (0..num_dim).find(|&j| rem[j] >= 0.0).unwrap_or(0);
-                }
-                rem[dim_to_perturb] = -1.0;
-                if upper[dim_to_perturb] > lower[dim_to_perturb] {
-                    candidates[[i, dim_to_perturb]] = lower[dim_to_perturb]
-                        + rng.r#gen::<f64>() * (upper[dim_to_perturb] - lower[dim_to_perturb]);
-                } else {
-                    candidates[[i, dim_to_perturb]] = lower[dim_to_perturb];
+                    row[dim_to_perturb] = lo[dim_to_perturb];
                 }
             }
         }
@@ -425,12 +407,7 @@ impl SobolEngine {
             )));
         }
         if let Some(ref shift) = self.shift {
-            for (s, sh) in sample.iter_mut().zip(shift.iter()) {
-                *s = (*s + *sh) % 1.0;
-                if *s < 0.0 {
-                    *s += 1.0;
-                }
-            }
+            baux::semantics::random::apply_shift(&mut sample, shift);
         }
         Ok(sample)
     }
@@ -445,16 +422,7 @@ impl SobolEngine {
     /// dimension gets a random shift in [0,1]; samples are (x + shift) mod
     /// 1. Preserves low-discrepancy structure while randomizing.
     pub fn scramble<R: RngCore + ?Sized>(&mut self, rng: &mut R) {
-        self.shift = Some(
-            (0..self.dimension)
-                .map(|_| {
-                    let mut bytes = [0u8; 8];
-                    rng.fill_bytes(&mut bytes);
-                    let u = u64::from_le_bytes(bytes);
-                    (u >> 11) as f64 / ((1u64 << 53) as f64)
-                })
-                .collect(),
-        );
+        self.shift = Some(baux::semantics::random::sobol_shift(self.dimension, rng));
     }
 }
 
@@ -465,32 +433,11 @@ pub fn generate_lhd<R: Rng + ?Sized>(
     bounds: &ArrayView2<f64>,
     rng: &mut R,
 ) -> Array2<f64> {
-    let mut result = Array2::zeros((num_samples, num_dim));
-
-    for j in 0..num_dim {
-        let lower = bounds[[j, 0]];
-        let upper = bounds[[j, 1]];
-        let range = upper - lower;
-
-        // Generate stratified samples
-        let mut perm: Vec<usize> = (0..num_samples).collect();
-        // Fisher-Yates shuffle
-        for i in (1..num_samples).rev() {
-            let j_idx = rng.gen_range(0..=i);
-            perm.swap(i, j_idx);
-        }
-
-        for i in 0..num_samples {
-            let bin = perm[i];
-            let bin_start = bin as f64 / num_samples as f64;
-            let bin_end = (bin + 1) as f64 / num_samples as f64;
-            let offset: f64 = rng.r#gen();
-            let unit = bin_start + offset * (bin_end - bin_start);
-            result[[i, j]] = lower + unit * range;
-        }
-    }
-
-    result
+    let pair_bounds: Vec<[f64; 2]> = (0..num_dim)
+        .map(|j| [bounds[[j, 0]], bounds[[j, 1]]])
+        .collect();
+    let flat = baux::semantics::random::gen_lhd(num_samples, num_dim, &pair_bounds, rng);
+    Array2::from_shape_vec((num_samples, num_dim), flat).expect("LHD shape matches")
 }
 
 #[cfg(test)]

@@ -451,7 +451,7 @@ pub(super) fn tell_multi(
     // nearest-center relevance can still update their regional incumbents.
     let Some(_pending_regions) = pending_regions else {
         if let TrustRegionState::Multi { state, .. } = &mut optimizer.regions {
-            if state.sharing_policy() != crate::optimizer::SharingPolicy::Independent {
+            if state.sharing_policy() != crate::optimizer::SharingPolicy::OriginOnly {
                 state
                     .tell_scaled(x, &y.column(0), None, ls_ref.as_ref())
                     .map_err(|e| ENNError::InvalidParameter(e.to_string()))?;

@@ -19,7 +19,7 @@ from .morbo_region import (
     TrustRegionBounds,
 )
 
-AllocationPolicy = Literal["utility_ucb", "balanced"]
+AllocationPolicy = Literal["incumbent_ucb1", "least_trials", "joint_acquisition"]
 RestartMemoryPolicy = Literal["fresh", "retain_relevant"]
 RegionController = Literal["turbo", "fixed_radius"]
 
@@ -113,8 +113,10 @@ class RegionalSearchPolicy:
     length: TrustRegionBounds = TrustRegionBounds()
     success_tolerance: int = 3
     failure_tolerance: int = 5
-    sharing: Literal["shared", "nearest_center", "independent"] = "shared"
-    allocation: AllocationPolicy = "utility_ucb"
+    sharing: Literal[
+        "box_contain", "ellipsoid_ball", "nearest_center", "origin_only"
+    ] = "box_contain"
+    allocation: AllocationPolicy = "incumbent_ucb1"
     restart_memory: RestartMemoryPolicy = "fresh"
     restart_center: RestartCenterPolicy = RestartCenterPolicy()
     controller: RegionController = "turbo"
@@ -125,7 +127,11 @@ class RegionalSearchPolicy:
             raise ValueError("regional search count must be positive")
         if self.success_tolerance <= 0 or self.failure_tolerance <= 0:
             raise ValueError("regional search tolerances must be positive")
-        if self.allocation not in ("utility_ucb", "balanced"):
+        if self.allocation not in (
+            "incumbent_ucb1",
+            "least_trials",
+            "joint_acquisition",
+        ):
             raise ValueError("unknown regional allocation policy")
         if self.restart_memory not in ("fresh", "retain_relevant"):
             raise ValueError("unknown regional restart memory policy")

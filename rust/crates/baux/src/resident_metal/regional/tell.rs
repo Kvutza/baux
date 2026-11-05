@@ -158,6 +158,7 @@ pub(super) fn complete(
             search.pending_imports[slot].push(PendingImport {
                 row: stable.clone(),
                 observation,
+                from_region: true,
             });
         }
     }

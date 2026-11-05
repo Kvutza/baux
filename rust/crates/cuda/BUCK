@@ -21,7 +21,7 @@ rust_library(
     env = {
         "CARGO_CRATE_NAME": "baux_cuda_device",
         "CARGO_PKG_NAME": "baux-cuda-device",
-        "CARGO_PKG_VERSION": "0.0.2",
+        "CARGO_PKG_VERSION": "0.0.3",
         "CUDA_OXIDE_DEVICE_CODEGEN_CRATE": "baux_cuda_device",
         "CUDA_OXIDE_LLC": select({
             "prelude//os:macos": "/opt/homebrew/opt/llvm/bin/llc",
@@ -67,7 +67,7 @@ app_rust_library(
     env = {
         "CARGO_CRATE_NAME": "baux_cuda",
         "CARGO_PKG_NAME": "baux-cuda",
-        "CARGO_PKG_VERSION": "0.0.2",
+        "CARGO_PKG_VERSION": "0.0.3",
     },
     rustc_flags = ["--cfg=buck_build"],
     visibility = ["PUBLIC"],
@@ -108,7 +108,7 @@ app_rust_binary(
         "CARGO_BIN_NAME": "baux-cuda",
         "CARGO_CRATE_NAME": "baux_cuda",
         "CARGO_PKG_NAME": "baux-cuda",
-        "CARGO_PKG_VERSION": "0.0.2",
+        "CARGO_PKG_VERSION": "0.0.3",
     },
     rustc_flags = [],
     visibility = ["PUBLIC"],

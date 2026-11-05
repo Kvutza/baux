@@ -99,7 +99,15 @@ filegroup(
 
 filegroup(
     name = "optimizer-python-source",
-    srcs = glob(["src/baux/**/*.py", "tests/python_api/*.py"]),
+    srcs = glob([
+        "src/baux/**/*.py",
+        "tests/python_api/*.py",
+        "tests/interop/*.py",
+        "benchmarks/torax/*.py",
+        "rust/crates/baux/src/muon/*.json",
+        "rust/crates/baux/src/hnet/*.json",
+        "rust/crates/baux/src/trust_region/*.json",
+    ]),
     visibility = ["//build/buck2/tests:optimizer-python", "//build/buck2/tests:resident-python"],
 )
 
@@ -155,7 +163,7 @@ python_wheel(
         "prelude//cpu/constraints:arm64",
         "prelude//os/constraints:linux",
     ],
-    version = read_config("baux", "release_version", "0.0.2"),
+    version = read_config("baux", "release_version", "0.0.3"),
 )
 
 python_wheel(
@@ -176,7 +184,7 @@ python_wheel(
         "prelude//cpu/constraints:x86_64",
         "prelude//os/constraints:linux",
     ],
-    version = read_config("baux", "release_version", "0.0.2"),
+    version = read_config("baux", "release_version", "0.0.3"),
 )
 
 python_wheel(
@@ -197,7 +205,7 @@ python_wheel(
         "prelude//cpu/constraints:arm64",
         "prelude//os/constraints:macos",
     ],
-    version = read_config("baux", "release_version", "0.0.2"),
+    version = read_config("baux", "release_version", "0.0.3"),
 )
 
 configured_alias(

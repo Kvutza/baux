@@ -16,9 +16,33 @@ struct Config {
     dimensions: usize,
     evaluations: usize,
     regions: Vec<usize>,
-    seeds: Vec<u64>,
+    #[deser(default = default_reps())]
+    repetitions: u32,
+    seeds: Option<Vec<u64>>,
     sharing: Vec<String>,
     starts: Vec<String>,
+}
+
+const fn default_reps() -> u32 {
+    3
+}
+
+pub(super) fn resolved_seeds(
+    experiment: &str,
+    repetitions: u32,
+    seeds: &Option<Vec<u64>>,
+) -> Vec<u64> {
+    seeds.clone().unwrap_or_else(|| {
+        (0..repetitions)
+            .map(|rep| baux::tune_seed(experiment, "proposal", rep, 0))
+            .collect()
+    })
+}
+
+impl Config {
+    fn resolved_seeds(&self) -> Vec<u64> {
+        resolved_seeds(&self.experiment, self.repetitions, &self.seeds)
+    }
 }
 
 pub(super) fn execute(root: &Path, path: &Path, rounds: Option<u32>) -> Result<bool, String> {
@@ -38,13 +62,14 @@ pub(super) fn execute(root: &Path, path: &Path, rounds: Option<u32>) -> Result<b
     if let Some(rounds) = rounds {
         config.evaluations = rounds as usize;
     }
+    let seeds = config.resolved_seeds();
     if config.regions.is_empty()
-        || config.seeds.is_empty()
+        || seeds.is_empty()
         || config.sharing.is_empty()
         || config.starts.is_empty()
     {
         return Err(
-            "regional experiment requires regions, seeds, sharing policies, and start layouts"
+            "regional experiment requires regions, repetitions/seeds, sharing policies, and start layouts"
                 .into(),
         );
     }
@@ -59,11 +84,11 @@ pub(super) fn execute(root: &Path, path: &Path, rounds: Option<u32>) -> Result<b
         .join(nonce.to_string());
     fs::create_dir_all(&output).map_err(|e| e.to_string())?;
     let resolved = format!(
-        "version = 1\nexperiment = \"resident-regions\"\ndimensions = {}\nevaluations = {}\nregions = {:?}\nseeds = {:?}\nsharing = {:?}\nstarts = {:?}\n",
+        "version = 1\nexperiment = \"resident-regions\"\ndimensions = {}\nevaluations = {}\nregions = {:?}\nrepetitions = {}\nsharing = {:?}\nstarts = {:?}\n",
         config.dimensions,
         config.evaluations,
         config.regions,
-        config.seeds,
+        seeds.len(),
         config.sharing,
         config.starts
     );
@@ -94,7 +119,7 @@ fn measure(config: &Config) -> Result<Value, String> {
         semantics::optimizer::portfolio::Allocation,
     };
     let mut results = Vec::new();
-    for &seed in &config.seeds {
+    for seed in config.resolved_seeds() {
         for &regions in &config.regions {
             for layout in &config.starts {
                 let clustered = match layout.as_str() {
@@ -104,14 +129,18 @@ fn measure(config: &Config) -> Result<Value, String> {
                 };
                 for policy_name in &config.sharing {
                     let sharing = match policy_name.as_str() {
-                        "independent" => SharingPolicy::Independent,
-                        "shared" => SharingPolicy::Shared,
+                        "origin_only" => SharingPolicy::OriginOnly,
+                        "box_contain" => SharingPolicy::BoxContain,
+                        "ellipsoid_ball" => SharingPolicy::EllipsoidBall,
                         "nearest_center" => SharingPolicy::NearestCenter,
                         _ => return Err("unknown regional sharing policy".into()),
                     };
                     for (allocation_name, allocation) in [
-                        ("balanced", Allocation::Balanced),
-                        ("ucb", Allocation::Ucb { exploration: 0.1 }),
+                        ("least_trials", Allocation::LeastTrials),
+                        (
+                            "incumbent_ucb1",
+                            Allocation::IncumbentUcb1 { exploration: 0.1 },
+                        ),
                     ] {
                         let evidence = regional_trial(RegionalTrial {
                             dimensions: config.dimensions,

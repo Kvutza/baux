@@ -64,7 +64,7 @@ fn build_gp(
     gp: Option<Py<PyAny>>,
     gp_factory: Option<Py<PyAny>>,
     fit_steps: usize,
-    rng: &mut StdRng,
+    rng: &mut baux::Prng,
 ) -> Result<baux::BayesOptimizer, baux::error::ENNError> {
     let provider = gp.ok_or_else(|| {
         baux::error::ENNError::InvalidParameter("missing surrogate provider".into())
@@ -90,17 +90,19 @@ fn build_gp(
 
 fn parse_sharing(dict: &Bound<'_, pyo3::types::PyDict>) -> PyResult<SharingPolicy> {
     match opt_val::<String>(dict, "region_sharing")?.as_deref() {
-        Some("shared") => Ok(SharingPolicy::Shared),
+        Some("box_contain") => Ok(SharingPolicy::BoxContain),
+        Some("ellipsoid_ball") => Ok(SharingPolicy::EllipsoidBall),
         Some("nearest_center") => Ok(SharingPolicy::NearestCenter),
-        Some("independent") => Ok(SharingPolicy::Independent),
+        Some("origin_only") => Ok(SharingPolicy::OriginOnly),
         _ => Err(PyValueError::new_err("unknown regional sharing policy")),
     }
 }
 
 fn parse_allocation(dict: &Bound<'_, pyo3::types::PyDict>) -> PyResult<AllocationPolicy> {
     match opt_val::<String>(dict, "region_allocation")?.as_deref() {
-        None | Some("utility_ucb") => Ok(AllocationPolicy::UtilityUcb),
-        Some("balanced") => Ok(AllocationPolicy::Balanced),
+        None | Some("incumbent_ucb1") => Ok(AllocationPolicy::IncumbentUcb1),
+        Some("least_trials") => Ok(AllocationPolicy::LeastTrials),
+        Some("joint_acquisition") => Ok(AllocationPolicy::JointAcquisition),
         _ => Err(PyValueError::new_err("unknown regional allocation policy")),
     }
 }
@@ -217,7 +219,7 @@ fn build_state(
     length: baux::TRLengthConfig,
     dict: &Bound<'_, pyo3::types::PyDict>,
     dimension: usize,
-    rng: &mut StdRng,
+    rng: &mut baux::Prng,
 ) -> PyResult<baux::Strategy> {
     let mut regions = MultiTrustRegionConfig::new(num_regions, length);
     regions.succ_tolerance = opt_val(dict, "region_successes")?.unwrap_or(3);
@@ -244,7 +246,7 @@ pub(super) fn build(
     gp: Option<Py<PyAny>>,
     gp_factory: Option<Py<PyAny>>,
     fit_steps: usize,
-    rng: &mut StdRng,
+    rng: &mut baux::Prng,
 ) -> PyResult<baux::BayesOptimizer> {
     let mut config = match kind {
         "enn" | "enn_multi_tr" => baux::turbo_enn(),

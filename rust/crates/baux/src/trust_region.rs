@@ -37,6 +37,7 @@ pub struct TurboTrustRegion {
     /// num_dim).
     failure_tolerance_dim: Option<f64>,
     failure_tolerance_override: Option<i32>,
+    pub(crate) clamp_domain: bool,
 }
 
 impl TurboTrustRegion {
@@ -55,6 +56,7 @@ impl TurboTrustRegion {
             config,
             failure_tolerance_dim: None,
             failure_tolerance_override: None,
+            clamp_domain: true,
         }
     }
 
@@ -385,11 +387,13 @@ impl TurboTrustRegion {
         let lb = x_center - &half_length;
         let ub = x_center + &half_length;
 
-        // Clip to [0, 1]
-        let lb = lb.mapv(|v| v.clamp(0.0, 1.0));
-        let ub = ub.mapv(|v| v.clamp(0.0, 1.0));
-
-        (lb, ub)
+        if self.clamp_domain {
+            let lb = lb.mapv(|v| v.clamp(0.0, 1.0));
+            let ub = ub.mapv(|v| v.clamp(0.0, 1.0));
+            (lb, ub)
+        } else {
+            (lb, ub)
+        }
     }
 
     /// Restart the trust region (reset to initial state).

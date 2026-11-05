@@ -1,9 +1,10 @@
 //! Small resident workload for checking the complete multi-start lifecycle.
 //! This synthetic experiment is not evidence of training quality or scaling.
 use super::*;
+use crate::hash::{Prng, prng};
 use crate::optimizer::multi_tr::SharingPolicy;
 use baux::semantics::optimizer::portfolio::Allocation;
-use rand::{Rng, SeedableRng, rngs::StdRng};
+use rand::Rng;
 use std::time::Duration;
 
 #[derive(Debug, Clone, Copy)]
@@ -57,7 +58,7 @@ impl Objective {
         Ok(value)
     }
 
-    fn start(&self, rng: &mut StdRng) -> Result<SearchState, String> {
+    fn start(&self, rng: &mut Prng) -> Result<SearchState, String> {
         let base: Vec<u16> = (0..self.dimensions)
             .map(|_| {
                 let value: f32 = rng.gen_range(-0.75..0.75);
@@ -101,11 +102,11 @@ fn run_trial(config: RegionalTrial) -> Result<RegionalEvidence, String> {
         runtime,
         dimensions: config.dimensions,
     };
-    let mut starts_rng = StdRng::seed_from_u64(config.seed);
+    let mut starts_rng = prng(config.seed);
     let states = (0..config.regions)
         .map(|_| {
             if config.clustered {
-                objective.start(&mut StdRng::seed_from_u64(config.seed))
+                objective.start(&mut prng(config.seed))
             } else {
                 objective.start(&mut starts_rng)
             }

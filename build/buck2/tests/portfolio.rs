@@ -2,7 +2,7 @@ use baux::semantics::optimizer::portfolio::{Allocation, RegionalLedger};
 
 #[test]
 fn independent_completion() {
-    let mut ledger = RegionalLedger::new(&[0.0, 1.0], Allocation::Balanced).unwrap();
+    let mut ledger = RegionalLedger::new(&[0.0, 1.0], Allocation::LeastTrials).unwrap();
     let first_slot = ledger.allocate(1, &[true, true]).unwrap()[0].region;
     let first = ledger.issue(first_slot).unwrap();
     let second_slot = ledger.allocate(1, &[true, true]).unwrap()[0].region;
@@ -17,13 +17,13 @@ fn independent_completion() {
     ledger.restart(0, 4.0).unwrap();
     assert_eq!(ledger.generation(0).unwrap(), 1);
     assert!(ledger.validate(first).is_err());
-    let foreign = RegionalLedger::new(&[0.0], Allocation::Balanced).unwrap();
+    let foreign = RegionalLedger::new(&[0.0], Allocation::LeastTrials).unwrap();
     assert!(foreign.validate(second).is_err());
 }
 
 #[test]
 fn retired_completion() {
-    let mut ledger = RegionalLedger::new(&[0.0], Allocation::Balanced).unwrap();
+    let mut ledger = RegionalLedger::new(&[0.0], Allocation::LeastTrials).unwrap();
     let ticket = ledger.issue(0).unwrap();
     ledger.retire(ticket).unwrap();
     assert!(ledger.validate(ticket).is_err());
@@ -53,7 +53,7 @@ fn resident_completion() {
         .unwrap()
     };
     let mut search =
-        RegionalSearch::new(vec![state(0.0), state(1.0)], Allocation::Balanced).unwrap();
+        RegionalSearch::new(vec![state(0.0), state(1.0)], Allocation::LeastTrials).unwrap();
     let mut config = RoundConfig::default();
     config.surrogate.neighbors = 1;
     let first = search.ask(12, config).unwrap();

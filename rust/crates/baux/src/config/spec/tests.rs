@@ -217,14 +217,14 @@ fn regional_recipe() {
     use rand::{SeedableRng, rngs::StdRng};
 
     let text = format!(
-        "{}[optimizer.regional-search]\ncount=3\nsharing='nearest-center'\nallocation='balanced'\nfailure-tolerance=4\n",
+        "{}[optimizer.regional-search]\ncount=3\nsharing='nearest-center'\nallocation='least-trials'\nfailure-tolerance=4\n",
         resident("acquisition='thompson'", 3, 3, "fit='fixed'")
     );
     let spec = ExperimentSpec::parse(&text).unwrap();
     let regional = spec.optimizer.regional_search().unwrap();
     assert_eq!(regional.count, 3);
     assert_eq!(regional.sharing, ObservationSharing::NearestCenter);
-    assert_eq!(regional.allocation, RegionAllocation::Balanced);
+    assert_eq!(regional.allocation, RegionAllocation::LeastTrials);
     assert_eq!(regional.failure_tolerance, 4);
 
     let resolved = spec.to_toml().unwrap();

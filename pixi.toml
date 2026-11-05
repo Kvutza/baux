@@ -17,6 +17,10 @@ botorch = "==0.18.1"
 optuna = "==5.0.0"
 ax-platform = "==1.3.1"
 
+[feature.integrations.target.osx-arm64.pypi-dependencies]
+jax = "==0.11.2"
+jax-mps = "==0.11.1"
+
 [feature.test.dependencies]
 ca-certificates = ">=2026.10.19"
 certifi = ">=2026.10.19"
@@ -68,15 +72,21 @@ baux = { features = [
   "gp",
   "py314",
 ], no-default-feature = true }
-baux-py314 = { features = [
-  "baux",
-  "integrations",
-  "test",
-  "py314",
-], no-default-feature = true }
 baux-py315 = { features = [
   "integrations",
   "test",
   "nightly",
   "py315",
 ], no-default-feature = true }
+
+[environments.baux-py314]
+features = [
+  "baux",
+  "integrations",
+  "test",
+  "py314",
+]
+no-default-feature = true
+
+[environments.baux-py314.dependencies]
+h5py = ">=3.16.0,<4"

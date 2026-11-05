@@ -30,7 +30,7 @@ class Sampler(BaseSampler):
         space: Mapping[str, FloatDistribution],
         *,
         config: OptimizerConfig | None = None,
-        seed: int = 0,
+        seed: int | None = None,
     ) -> None:
         self._space = deepcopy(dict(space))
         for distribution in self._space.values():

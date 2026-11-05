@@ -10,11 +10,16 @@ impl SearchState {
             &self.propose_pipeline
         };
         encoder.set_compute_pipeline_state(pipeline);
-        let second_row = self.resident_history.min(2).saturating_sub(1);
+        let (first_row, second_row) = if self.history_rows.is_empty() {
+            (&self.base, &self.base)
+        } else {
+            let second = self.resident_history.min(2).saturating_sub(1);
+            (&self.history_rows[0], &self.history_rows[second])
+        };
         for (index, buffer) in [
             &self.base,
-            &self.history_rows[0],
-            &self.history_rows[second_row],
+            first_row,
+            second_row,
             &self.leaves_gpu,
             &self.tiles_gpu,
             &self.proposal,
@@ -61,6 +66,16 @@ impl SearchState {
         encoder.end_encoding();
     }
     pub fn dispatch_pool(&self, encoder: &metal::ComputeCommandEncoderRef, params: Params) {
+        if self.history_rows.is_empty() {
+            let pair_params = Params {
+                history: 1,
+                initialize: 0,
+                base_slot: 0,
+                ..params
+            };
+            self.encode_buffers(encoder, pair_params, &self.base, &self.base);
+            return;
+        }
         let pairs = self.resident_history.div_ceil(2);
         for pair in 0..pairs {
             let first = pair * 2;
@@ -85,11 +100,26 @@ impl SearchState {
         params: Params,
         first: usize,
     ) {
+        let second = (first + 1).min(self.resident_history - 1);
+        self.encode_buffers(
+            encoder,
+            params,
+            &self.history_rows[first],
+            &self.history_rows[second],
+        );
+    }
+    fn encode_buffers(
+        &self,
+        encoder: &metal::ComputeCommandEncoderRef,
+        params: Params,
+        first_row: &Buffer,
+        second_row: &Buffer,
+    ) {
         encoder.set_compute_pipeline_state(&self.pool_pipeline);
         for (index, buffer) in [
             &self.base,
-            &self.history_rows[first],
-            &self.history_rows[(first + 1).min(self.resident_history - 1)],
+            first_row,
+            second_row,
             &self.leaves_gpu,
             &self.tiles_gpu,
             &self.proposal,

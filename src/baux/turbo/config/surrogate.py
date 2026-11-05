@@ -7,13 +7,19 @@ from typing import Any
 
 import numpy as np
 
-from .neighbor_index import (
+from baux.index import (
     INDEX_NAMES,
     DistanceMetric,
-    GaussianProcess,
+    IndexKind,
     NeighborIndex,
     NoSurrogate,
+    Storage,
 )
+
+
+@dataclass(frozen=True)
+class GaussianProcess:
+    pass
 
 
 @dataclass(frozen=True)
@@ -76,16 +82,20 @@ class ExternalSurrogate:
             raise ValueError("fit_steps must be positive")
 
 
+EnnSurrogate = ENNSurrogate
 Surrogate = NoSurrogate | GaussianProcess | ENNSurrogate | ExternalSurrogate
 
 __all__ = [
     "DistanceMetric",
     "ENNSurrogate",
+    "EnnSurrogate",
     "ExternalSurrogate",
     "GaussianProcess",
     "INDEX_NAMES",
+    "IndexKind",
     "NeighborIndex",
     "NoSurrogate",
+    "Storage",
     "Surrogate",
     "SurrogateFit",
 ]

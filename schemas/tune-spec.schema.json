@@ -13,8 +13,8 @@
     },
     "experiment": {
       "type": "string",
-      "enum": ["end-to-end", "moe-layer", "pretrain", "generation"],
-      "description": "Experiment workflow type: 'pretrain' for foundation model pretraining or 'generation' for sequence generation tasks."
+      "enum": ["end-to-end", "moe-layer", "pretrain", "generation", "tokamak-tcv"],
+      "description": "Experiment workflow type: 'pretrain' for foundation model pretraining, 'generation' for sequence generation tasks, or 'tokamak-tcv' for TCV tokamak policy optimization."
     },
     "model": {
       "type": "string",
@@ -133,13 +133,23 @@
             { "not": { "required": ["trust-region"] } },
             { "not": { "required": ["regional-search"] } }
           ]
+        },
+        {
+          "title": "PPO",
+          "properties": { "algorithm": { "const": "ppo" } },
+          "allOf": [
+            { "not": { "required": ["surrogate"] } },
+            { "not": { "required": ["acquisition"] } },
+            { "not": { "required": ["trust-region"] } },
+            { "not": { "required": ["regional-search"] } }
+          ]
         }
       ],
       "properties": {
         "algorithm": {
           "type": "string",
-          "enum": ["operator-bo", "bayesian-search", "muon", "adamw"],
-          "description": "Optimization recipe: operator BO, Bayesian search, Muon, or AdamW."
+          "enum": ["operator-bo", "bayesian-search", "muon", "adamw", "ppo"],
+          "description": "Optimization recipe: operator BO, Bayesian search, Muon, AdamW, or PPO."
         },
         "candidates": {
           "type": "integer",
@@ -173,6 +183,32 @@
           "type": "array",
           "items": { "type": "number" },
           "description": "Objective scales for multi-objective Pareto acquisition."
+        },
+        "perturbation": {
+          "type": "object",
+          "description": "Coordinate perturbation sampler and subspace cardinality.",
+          "properties": {
+            "sampler": {
+              "type": "string",
+              "enum": ["sobol", "uniform", "raasp"],
+              "default": "raasp"
+            },
+            "num-pert": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 20
+            },
+            "raasp-fast": {
+              "type": "boolean",
+              "default": false
+            },
+            "coord-system": {
+              "type": "string",
+              "enum": ["cartesian", "spherical"],
+              "default": "cartesian"
+            }
+          },
+          "additionalProperties": false
         },
         "surrogate": {
           "type": "object",
@@ -291,12 +327,12 @@
           "properties": {
             "count": { "type": "integer", "minimum": 1 },
             "sharing": {
-              "enum": ["shared", "nearest-center", "independent"],
-              "default": "shared"
+              "enum": ["box-contain", "ellipsoid-ball", "nearest-center", "origin-only"],
+              "default": "box-contain"
             },
             "allocation": {
-              "enum": ["utility-ucb", "balanced"],
-              "default": "utility-ucb"
+              "enum": ["incumbent-ucb1", "least-trials", "joint-acquisition"],
+              "default": "incumbent-ucb1"
             },
             "controller": {
               "enum": ["turbo", "fixed-radius"],

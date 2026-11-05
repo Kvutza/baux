@@ -1,0 +1,30 @@
+#:schema ../schemas/tune-spec.schema.json
+version = 4
+experiment = "tokamak-tcv"
+rounds = 10000
+repetitions = 10
+
+[optimizer]
+algorithm = "bayesian-search"
+candidates = 2
+arms = 1
+acquisition = "random"
+
+[optimizer.perturbation]
+sampler = "raasp"
+num-pert = 16053
+
+[optimizer.trust-region]
+initial = 0.8
+min = 0.00048828125
+max = 1.6
+
+[optimizer.regional-search]
+count = 10
+sharing = "origin-only"
+allocation = "incumbent-ucb1"
+controller = "turbo"
+success-tolerance = 2
+failure-tolerance = 3
+restart-center = "maximin"
+restart-candidates = 8

@@ -21,11 +21,7 @@ fn error(message: String) -> PyErr {
     PyValueError::new_err(message)
 }
 
-#[pyclass(
-    name = "MetalRegionOptimizer",
-    module = "baux.experimental",
-    unsendable
-)]
+#[pyclass(name = "Portfolio", module = "baux", unsendable)]
 pub struct PyRegionalSearch {
     inner: RegionalSearch,
     blocks: Vec<MetalParamBlock>,
@@ -48,12 +44,12 @@ impl PyRegionalSearch {
 #[pymethods]
 impl PyRegionalSearch {
     #[new]
-    #[pyo3(signature=(starts,values,blocks,capacity=8,length_init=0.1,length_min=0.001,length_max=0.8,allocation="balanced",exploration=1.0,sharing="independent"))]
+    #[pyo3(signature=(starts,values,blocks,capacity=8,length_init=0.1,length_min=0.001,length_max=0.8,allocation="least_trials",exploration=1.0,sharing="origin_only"))]
     fn new(
         starts: PyReadonlyArray2<u16>,
         values: PyReadonlyArray1<f32>,
         blocks: Vec<PyRef<PyMetalParamBlock>>,
-        capacity: usize,
+        capacity: Option<usize>,
         length_init: f64,
         length_min: f64,
         length_max: f64,
@@ -61,6 +57,7 @@ impl PyRegionalSearch {
         exploration: f64,
         sharing: &str,
     ) -> PyResult<Self> {
+        let capacity = capacity.unwrap_or(0);
         let starts = starts.as_array();
         let values = values.as_array();
         if starts.nrows() != values.len() {
@@ -69,17 +66,22 @@ impl PyRegionalSearch {
             ));
         }
         let policy = match allocation {
-            "balanced" => Allocation::Balanced,
-            "ucb" => Allocation::Ucb { exploration },
-            _ => return Err(PyValueError::new_err("allocation must be balanced or ucb")),
+            "least_trials" => Allocation::LeastTrials,
+            "incumbent_ucb1" => Allocation::IncumbentUcb1 { exploration },
+            _ => {
+                return Err(PyValueError::new_err(
+                    "allocation must be least_trials or incumbent_ucb1",
+                ));
+            }
         };
         let sharing = match sharing {
-            "independent" => SharingPolicy::Independent,
-            "shared" => SharingPolicy::Shared,
+            "origin_only" => SharingPolicy::OriginOnly,
+            "box_contain" => SharingPolicy::BoxContain,
+            "ellipsoid_ball" => SharingPolicy::EllipsoidBall,
             "nearest_center" => SharingPolicy::NearestCenter,
             _ => {
                 return Err(PyValueError::new_err(
-                    "sharing must be independent, shared, or nearest_center",
+                    "sharing must be origin_only, box_contain, ellipsoid_ball, or nearest_center",
                 ));
             }
         };
@@ -111,17 +113,29 @@ impl PyRegionalSearch {
         })
     }
 
-    #[pyo3(signature=(seed,neighbors=1,region=None))]
+    #[pyo3(signature=(seed=None,neighbors=1,region=None,acquisition="thompson"))]
     fn ask(
         mut slf: PyRefMut<Self>,
-        seed: u64,
+        seed: Option<u64>,
         neighbors: usize,
         region: Option<usize>,
+        acquisition: &str,
     ) -> PyResult<PyRegionalProposal> {
         slf.unleased()?;
+        let seed = baux::resolve_seed(seed);
         let mut config = RoundConfig::default();
         config.surrogate.neighbors = neighbors;
         config.acquisition.seed = seed;
+        config.acquisition.kind = match acquisition {
+            "thompson" => baux::experimental::AcquisitionKind::Thompson,
+            "ucb" => baux::experimental::AcquisitionKind::Ucb,
+            "random" => baux::experimental::AcquisitionKind::Random,
+            _ => {
+                return Err(PyValueError::new_err(
+                    "acquisition must be thompson, ucb, or random",
+                ));
+            }
+        };
         let inner = match region {
             Some(slot) => slf.inner.ask_region(slot, seed, config),
             None => slf.inner.ask(seed, config),
@@ -236,7 +250,7 @@ impl PyRegionalSearch {
     }
 }
 
-#[pyclass(name = "RegionalProposal", module = "baux.experimental", unsendable)]
+#[pyclass(name = "RegionTrial", module = "baux", unsendable)]
 pub struct PyRegionalProposal {
     owner: Py<PyRegionalSearch>,
     inner: RegionalProposal,
@@ -262,5 +276,8 @@ impl PyRegionalProposal {
             len,
             lease: Some(owner.leases.clone()),
         })
+    }
+    fn var(&self, py: Python<'_>) -> PyResult<PyMetalWeights> {
+        self.weights(py)
     }
 }

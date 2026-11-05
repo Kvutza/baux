@@ -130,6 +130,9 @@ impl SearchState {
         perturbation: ProposalKernel,
     ) -> Result<Self, String> {
         let single_pool = matches!(base_input, Err(_));
+        if implicit_history && capacity == 0 {
+            return Err("Metal implicit history requires resident_capacity >= 1".into());
+        }
         let (dimensions, length) = match &base_input {
             Ok(slice) => (
                 slice.len(),
@@ -148,7 +151,7 @@ impl SearchState {
         let window_cap = if implicit_history {
             MAX_HISTORY
         } else {
-            capacity
+            capacity.max(1)
         };
         let (tiles, offsets, leaves) = make_layout(&blocks, dimensions)?;
         let (partial_count, aggregate_count, geometry_count, sizes, resident_bytes) =
@@ -242,7 +245,7 @@ impl SearchState {
             restart_count: 0,
             history: 0,
             resident_history: 0,
-            resident_identities: vec![1; res_cap],
+            resident_identities: vec![1; res_cap.max(1)],
             pairwise_distances: vec![0.0; MAX_HISTORY * MAX_HISTORY],
             distance_metric: crate::config::DistanceMetric::Euclidean,
             local_scale_neighbors: 8,
@@ -269,7 +272,7 @@ impl SearchState {
             tell_profile: None,
             axis: None,
         };
-        if !single_pool {
+        if !single_pool && !state.history_rows.is_empty() {
             state.copy(&state.base, &state.history_rows[0])?;
         }
         if let Some((value, variance)) = initial {
@@ -287,12 +290,13 @@ fn allocation_sizes(
     capacity: usize,
 ) -> Result<(usize, usize, usize, [u64; 9], u64), String> {
     let row_bytes = bytes::<u16>(dimensions)?;
+    let pairs = capacity.max(1).div_ceil(2);
     let partial_count = tiles
         .checked_mul(4)
-        .and_then(|n| n.checked_mul(capacity.div_ceil(2)))
+        .and_then(|n| n.checked_mul(pairs))
         .ok_or("BF16 partial count overflow")?;
     let aggregate_count = 4usize
-        .checked_mul(capacity.div_ceil(2))
+        .checked_mul(pairs)
         .ok_or("BF16 aggregate count overflow")?;
     let geometry_count = tiles
         .checked_mul(POOL_METRICS)
@@ -386,9 +390,9 @@ fn validate_base(
     independent_fp16: bool,
 ) -> Result<TRLengthConfig, String> {
     let length = checked_length(length)?;
-    if capacity == 0 || capacity > MAX_HISTORY || pending_capacity != 1 {
+    if capacity > MAX_HISTORY || pending_capacity != 1 {
         return Err(
-            "Metal correlated search requires capacity in 1..=128 and max_pending=1".into(),
+            "Metal correlated search requires capacity in 0..=128 and max_pending=1".into(),
         );
     }
     if let Some((value, variance)) = initial {

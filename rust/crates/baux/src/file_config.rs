@@ -234,6 +234,9 @@ impl Config {
     }
 }
 
+pub type IndexConfig = BpannConfig;
+pub type TreeConfig = BpannConfig;
+
 /// Install BPANN tuning so the `bpann` crate reads values via [`Config`].
 ///
 /// Snapshot once at install time. Reloading the TOML inside the provider (old
@@ -243,6 +246,11 @@ pub fn bpann_config() -> Result<(), String> {
     let cached = Config::new().load()?.bpann.to_tuning();
     baux::neighbor_index::set_provider(Box::new(move || cached));
     Ok(())
+}
+
+/// Alias for [`bpann_config`].
+pub fn index_config() -> Result<(), String> {
+    bpann_config()
 }
 
 #[cfg(test)]

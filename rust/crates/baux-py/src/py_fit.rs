@@ -4,14 +4,12 @@
 use numpy::{PyReadonlyArray1, PyReadonlyArray2};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use rand::SeedableRng;
-use rand::rngs::StdRng;
 
 use crate::py_model::PyENN;
 
 /// Python wrapper for subsample_loglik
 #[pyfunction(name = "subsample_loglik")]
-#[pyo3(signature = (model, x, y, k_values, epistemic_scales, aleatoric_scales, p, seed, y_std=None))]
+#[pyo3(signature = (model, x, y, k_values, epistemic_scales, aleatoric_scales, p, seed=None, y_std=None))]
 pub fn subsample_py(
     model: &PyENN,
     x: PyReadonlyArray2<f64>,
@@ -20,10 +18,10 @@ pub fn subsample_py(
     epistemic_scales: Vec<f64>,
     aleatoric_scales: Vec<f64>,
     p: usize,
-    seed: u64,
+    seed: Option<u64>,
     y_std: Option<PyReadonlyArray1<f64>>,
 ) -> PyResult<Vec<f64>> {
-    let mut rng = StdRng::seed_from_u64(seed);
+    let mut rng = baux::prng(baux::resolve_seed(seed));
 
     let paramss = fit_params(&k_values, &epistemic_scales, &aleatoric_scales)?;
     let y_std_arr = y_std.as_ref().map(|v| v.as_array());
@@ -41,7 +39,7 @@ pub fn subsample_py(
 
 /// Identity-based likelihood for subsets or reordered training rows.
 #[pyfunction(name = "row_loglik")]
-#[pyo3(signature = (model, rows, k_values, epistemic_scales, aleatoric_scales, p, seed, y_std=None))]
+#[pyo3(signature = (model, rows, k_values, epistemic_scales, aleatoric_scales, p, seed=None, y_std=None))]
 pub fn rows_py(
     model: &PyENN,
     rows: Vec<usize>,
@@ -49,7 +47,7 @@ pub fn rows_py(
     epistemic_scales: Vec<f64>,
     aleatoric_scales: Vec<f64>,
     p: usize,
-    seed: u64,
+    seed: Option<u64>,
     y_std: Option<PyReadonlyArray1<f64>>,
 ) -> PyResult<Vec<f64>> {
     let paramss = fit_params(&k_values, &epistemic_scales, &aleatoric_scales)?;
@@ -59,7 +57,7 @@ pub fn rows_py(
         &rows,
         &paramss,
         p,
-        &mut StdRng::seed_from_u64(seed),
+        &mut baux::prng(baux::resolve_seed(seed)),
         y_std_arr.as_ref(),
     )
     .map_err(|e| PyValueError::new_err(e.to_string()))

@@ -1,51 +1,5 @@
 use super::*;
-
-/// Coordinate frame owning `[num_dim, 2]` natural bounds and unit-cube
-/// transforms.
-#[derive(Debug, Clone)]
-pub struct DomainFrame {
-    bounds: Array2<f64>,
-    num_dim: usize,
-}
-
-impl DomainFrame {
-    pub fn new(bounds: Array2<f64>) -> Result<Self, ENNError> {
-        let num_dim = bounds.nrows();
-        if bounds.ncols() != 2 {
-            return Err(ENNError::InvalidShape {
-                expected: vec![num_dim, 2],
-                got: vec![num_dim, bounds.ncols()],
-            });
-        }
-        Ok(Self { bounds, num_dim })
-    }
-
-    pub fn bounds(&self) -> &Array2<f64> {
-        &self.bounds
-    }
-
-    pub fn num_dim(&self) -> usize {
-        self.num_dim
-    }
-
-    pub fn to_unit(&self, x: &ArrayView2<f64>) -> Array2<f64> {
-        crate::to_unit(x, &self.bounds.view())
-    }
-
-    pub fn from_unit(&self, unit: &ArrayView2<f64>) -> Array2<f64> {
-        crate::from_unit(unit, &self.bounds.view())
-    }
-
-    pub fn natural_point(&self, unit: &Array1<f64>) -> Array1<f64> {
-        let row = unit.clone().insert_axis(ndarray::Axis(0));
-        let natural = crate::candidates::from_unit(&row.view(), &self.bounds.view());
-        natural.row(0).to_owned()
-    }
-
-    pub fn unit_center(&self) -> Array1<f64> {
-        Array1::from_elem(self.num_dim, 0.5)
-    }
-}
+pub use crate::coordinate::DomainFrame;
 
 impl BayesOptimizer {
     /// Current observation counts in each isolated regional surrogate.

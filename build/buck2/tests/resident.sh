@@ -3,7 +3,7 @@ set -eu
 test_dir=$(mktemp -d "${TMPDIR:-/tmp}/baux-regional.XXXXXX")
 trap 'rm -rf "$test_dir"' EXIT HUP INT TERM
 "$BAUX_TEST_PYTHON" -m zipfile -e "$BAUX_TEST_WHEEL" "$test_dir"
-export PYTHONPATH="$test_dir"
+export PYTHONPATH="$test_dir:$PWD"
 exec_python="$BAUX_TEST_PYTHON"
 "$exec_python" -m pytest -q -p no:cacheprovider -c /dev/null \
     --confcutdir=tests/python_api tests/python_api/testresidentregion.py \
@@ -15,4 +15,6 @@ exec_python="$BAUX_TEST_PYTHON"
     tests/python_api/test_adapter.py::test_regionmodels \
     tests/python_api/test_adapter.py::test_reusedprovider \
     tests/python_api/test_adapter.py::test_external \
-    tests/testcfg_optimizer.py::test_enncosinerejected
+    tests/testcfg_optimizer.py::test_enncosinerejected \
+    tests/interop/test_dowker.py \
+    tests/interop/test_resident.py::test_torax

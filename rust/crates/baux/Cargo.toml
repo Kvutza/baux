@@ -31,6 +31,8 @@ unexpected_cfgs = { level = "warn", check-cfg = [
 [dependencies]
 anstream = "1.0"
 anstyle = "1.0"
+candle-core = { workspace = true }
+candle-nn = { workspace = true }
 charming = { version = "=0.6.0", default-features = false }
 deser.workspace = true
 deser-cbor = "=0.9.1"
@@ -65,7 +67,7 @@ buck2-test-data = []
 cuda = ["dep:cuda-core"]
 extraction = []
 native-flame = ["cuda"]
-metal = ["dep:metal"]
+metal = ["dep:metal", "candle-core/metal", "candle-nn/metal"]
 usearch = ["dep:usearch"]
 usearch-native = []
 usearch-numkong = ["dep:usearch", "usearch/numkong"]

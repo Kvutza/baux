@@ -174,6 +174,13 @@ impl ObjectiveWindow {
         self.incumbent.as_ref()
     }
 
+    pub fn adopt(&mut self, identity: i64, observation: ObjectiveObservation) {
+        self.incumbent = Some(ObjectiveRecord {
+            identity,
+            observation,
+        });
+    }
+
     pub fn retain_incumbent(&mut self) {
         self.rows.fill(None);
         self.rows[0] = self.incumbent;

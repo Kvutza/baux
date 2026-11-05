@@ -52,22 +52,15 @@ impl RegionalSearchSpec {
         self.validate()?;
         bounds.validate()?;
         use crate::optimizer::{
-            AllocationPolicy, MultiTrustRegionConfig, RegionController as RuntimeController,
-            RestartCenterPolicy, RestartCenterSelection, RestartMemoryPolicy, SharingPolicy,
+            MultiTrustRegionConfig, RegionController as RuntimeController, RestartCenterPolicy,
+            RestartCenterSelection, RestartMemoryPolicy,
         };
         let mut config = MultiTrustRegionConfig::new(
             self.count,
             crate::trust_region::TRLengthConfig::new(bounds.initial, bounds.min, bounds.max),
         );
-        config.sharing_policy = match self.sharing {
-            ObservationSharing::Shared => SharingPolicy::Shared,
-            ObservationSharing::NearestCenter => SharingPolicy::NearestCenter,
-            ObservationSharing::Independent => SharingPolicy::Independent,
-        };
-        config.allocation_policy = match self.allocation {
-            RegionAllocation::UtilityUcb => AllocationPolicy::UtilityUcb,
-            RegionAllocation::Balanced => AllocationPolicy::Balanced,
-        };
+        config.sharing_policy = self.sharing.runtime();
+        config.allocation_policy = self.allocation.runtime();
         config.controller = match self.controller {
             RegionController::Turbo => RuntimeController::Turbo,
             RegionController::FixedRadius => RuntimeController::FixedRadius,
@@ -97,21 +90,46 @@ impl RegionalSearchSpec {
     }
 }
 
+impl ObservationSharing {
+    fn runtime(self) -> crate::optimizer::SharingPolicy {
+        use crate::optimizer::SharingPolicy;
+        match self {
+            Self::BoxContain => SharingPolicy::BoxContain,
+            Self::EllipsoidBall => SharingPolicy::EllipsoidBall,
+            Self::NearestCenter => SharingPolicy::NearestCenter,
+            Self::OriginOnly => SharingPolicy::OriginOnly,
+        }
+    }
+}
+
+impl RegionAllocation {
+    fn runtime(self) -> crate::optimizer::AllocationPolicy {
+        use crate::optimizer::AllocationPolicy;
+        match self {
+            Self::IncumbentUcb1 => AllocationPolicy::IncumbentUcb1,
+            Self::LeastTrials => AllocationPolicy::LeastTrials,
+            Self::JointAcquisition => AllocationPolicy::JointAcquisition,
+        }
+    }
+}
+
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[deser(rename_all = "kebab-case")]
 pub enum ObservationSharing {
     #[default]
-    Shared,
+    BoxContain,
+    EllipsoidBall,
     NearestCenter,
-    Independent,
+    OriginOnly,
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[deser(rename_all = "kebab-case")]
 pub enum RegionAllocation {
     #[default]
-    UtilityUcb,
-    Balanced,
+    IncumbentUcb1,
+    LeastTrials,
+    JointAcquisition,
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

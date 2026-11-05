@@ -10,6 +10,8 @@ BAUX_BUCK_TEST_DEPS = ["//rust:" + crate for crate in BAUX_TEST_CRATES]
 _BAUX_RUST_SRCS = glob(
     [
         "src/hnet/*.json",
+        "src/muon/*.json",
+        "src/trust_region/*.json",
         "src/**/*.metal",
         "src/**/*.rs",
         "semantics/src/**/*.rs",
@@ -25,6 +27,7 @@ filegroup(
     srcs = glob([
         "examples/**/*.rs",
         "src/**/*.h",
+        "src/**/*.json",
         "src/**/*.metal",
         "src/**/*.rs",
         "semantics/src/**/*.rs",

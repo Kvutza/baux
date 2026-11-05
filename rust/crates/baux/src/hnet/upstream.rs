@@ -1,4 +1,12 @@
 //! Differential fixtures executed from pinned upstream Python definitions.
+//!
+//! # Academic & Open-Source Attribution
+//! - **Paper**: Sukjun Hwang, Brandon Wang, and Albert Gu, *"Dynamic Chunking
+//!   for End-to-End Hierarchical Sequence Modeling"*, arXiv:2507.07955 (2025).
+//! - **Upstream Repository**: Goomba Lab / Cartesia AI, <https://github.com/goombalab/hnet>
+//!   (commit `3673fe1217ebeb0d1438c7c71d58d32bdd190ec2`, files
+//!   `hnet/modules/dc.py`, `hnet/models/hnet.py`, `hnet/utils/tokenizers.py`,
+//!   `hnet/utils/train.py`).
 use super::*;
 use baux::artifact::json::{self, Value};
 
@@ -164,4 +172,49 @@ fn ste() -> Result<(), String> {
         close("GPU STE", &gpu, &expected);
         Ok(())
     })
+}
+
+#[test]
+fn tokenizer() {
+    let data = fixtures();
+    let tok = ByteTokenizer::new();
+    for case in data["tokenizer"].as_seq().unwrap() {
+        let text = case["text"].as_str().unwrap();
+        let bos = case["add_bos"].as_bool().unwrap();
+        let eos = case["add_eos"].as_bool().unwrap();
+        let expected: Vec<u8> = case["tokens"]
+            .as_seq()
+            .unwrap()
+            .iter()
+            .map(|v| size(v) as u8)
+            .collect();
+        let encoded = tok.encode(text, bos, eos);
+        assert_eq!(encoded, expected);
+        if !bos && !eos {
+            assert_eq!(tok.decode(&encoded).unwrap(), text);
+        }
+    }
+}
+
+#[test]
+fn ratio() -> Result<(), String> {
+    let data = fixtures();
+    for case in data["ratio_loss"].as_seq().unwrap() {
+        let probability = floats(&case["probability"]);
+        let boundary = bools(&case["boundary"]);
+        let selected = floats(&case["selected"]);
+        let target = case["target_ratio"].as_f64().unwrap() as f32;
+        let expected = case["loss"].as_f64().unwrap() as f32;
+        let length = probability.len();
+        let output = RoutingOutput {
+            boundary_prob: probability,
+            boundary_mask: boundary,
+            selected_probs: selected,
+            batch_size: 1,
+            seq_len: length,
+        };
+        let actual = ratio_loss(&output, None, target)?;
+        close("ratio loss", &[actual], &[expected]);
+    }
+    Ok(())
 }

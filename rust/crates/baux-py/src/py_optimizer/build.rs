@@ -36,7 +36,7 @@ fn build_optimizer(
         ));
     }
     let runtime = cfg.map(parse_dict).transpose()?;
-    let mut rng = StdRng::seed_from_u64(seed);
+    let mut rng = baux::prng(seed);
     let optimizer = if cfg.is_some_and(|dict| dict.contains("region_sharing").unwrap_or(false)) {
         regional::build(
             bounds,
@@ -95,14 +95,14 @@ fn build_optimizer(
 /// Create a built-in optimizer, optionally with a batched Python surrogate
 /// adapter.
 #[pyfunction(name = "create_optimizer")]
-#[pyo3(signature = (bounds, kind, k=10, num_init=10, num_regions=4, seed=42, cfg=None, gp=None, fit_steps=50, gp_factory=None))]
+#[pyo3(signature = (bounds, kind, k=10, num_init=10, num_regions=4, seed=None, cfg=None, gp=None, fit_steps=50, gp_factory=None))]
 pub fn create_py(
     bounds: PyReadonlyArray2<f64>,
     kind: &str,
     k: i32,
     num_init: usize,
     num_regions: usize,
-    seed: u64,
+    seed: Option<u64>,
     cfg: Option<Bound<'_, pyo3::types::PyDict>>,
     gp: Option<Py<PyAny>>,
     fit_steps: usize,
@@ -115,7 +115,7 @@ pub fn create_py(
         k,
         num_init,
         num_regions,
-        seed,
+        baux::resolve_seed(seed),
         cfg.as_ref(),
         gp,
         gp_factory,
@@ -125,12 +125,12 @@ pub fn create_py(
 
 /// Create TuRBO-ENN optimizer
 #[pyfunction(name = "enn_optimizer")]
-#[pyo3(signature = (bounds, k=10, num_init=10, seed=42, config=None))]
+#[pyo3(signature = (bounds, k=10, num_init=10, seed=None, config=None))]
 pub fn enn_py(
     bounds: PyReadonlyArray2<f64>,
     k: i32,
     num_init: usize,
-    seed: u64,
+    seed: Option<u64>,
     config: Option<Bound<'_, pyo3::types::PyDict>>,
 ) -> PyResult<PyBayesOptimizer> {
     build_optimizer(
@@ -139,7 +139,7 @@ pub fn enn_py(
         k,
         num_init,
         4,
-        seed,
+        baux::resolve_seed(seed),
         config.as_ref(),
         None,
         None,
@@ -149,13 +149,13 @@ pub fn enn_py(
 
 /// Create experimental multi-trust-region TuRBO-ENN optimizer
 #[pyfunction(name = "enn_tr")]
-#[pyo3(signature = (bounds, k=10, num_init=10, num_regions=4, seed=42, config=None))]
+#[pyo3(signature = (bounds, k=10, num_init=10, num_regions=4, seed=None, config=None))]
 pub fn bind_regions(
     bounds: PyReadonlyArray2<f64>,
     k: i32,
     num_init: usize,
     num_regions: usize,
-    seed: u64,
+    seed: Option<u64>,
     config: Option<Bound<'_, pyo3::types::PyDict>>,
 ) -> PyResult<PyBayesOptimizer> {
     build_optimizer(
@@ -164,7 +164,7 @@ pub fn bind_regions(
         k,
         num_init,
         num_regions,
-        seed,
+        baux::resolve_seed(seed),
         config.as_ref(),
         None,
         None,
@@ -174,11 +174,11 @@ pub fn bind_regions(
 
 /// Create TuRBO-ZERO optimizer
 #[pyfunction(name = "create_zero")]
-#[pyo3(signature = (bounds, num_init=10, seed=42, config=None))]
+#[pyo3(signature = (bounds, num_init=10, seed=None, config=None))]
 pub fn bind_zero(
     bounds: PyReadonlyArray2<f64>,
     num_init: usize,
-    seed: u64,
+    seed: Option<u64>,
     config: Option<Bound<'_, pyo3::types::PyDict>>,
 ) -> PyResult<PyBayesOptimizer> {
     build_optimizer(
@@ -187,7 +187,7 @@ pub fn bind_zero(
         10,
         num_init,
         4,
-        seed,
+        baux::resolve_seed(seed),
         config.as_ref(),
         None,
         None,
@@ -197,11 +197,11 @@ pub fn bind_zero(
 
 /// Create LHD-only optimizer
 #[pyfunction(name = "create_lhd")]
-#[pyo3(signature = (bounds, num_init=10, seed=42, config=None))]
+#[pyo3(signature = (bounds, num_init=10, seed=None, config=None))]
 pub fn bind_lhd(
     bounds: PyReadonlyArray2<f64>,
     num_init: usize,
-    seed: u64,
+    seed: Option<u64>,
     config: Option<Bound<'_, pyo3::types::PyDict>>,
 ) -> PyResult<PyBayesOptimizer> {
     build_optimizer(
@@ -210,7 +210,7 @@ pub fn bind_lhd(
         10,
         num_init,
         4,
-        seed,
+        baux::resolve_seed(seed),
         config.as_ref(),
         None,
         None,

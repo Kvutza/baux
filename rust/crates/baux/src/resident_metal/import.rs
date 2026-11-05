@@ -10,6 +10,69 @@ pub(super) struct ImportGeometry {
 }
 
 impl SearchState {
+    pub(super) fn measure_center(&self, incoming: &Buffer) -> Result<f32, String> {
+        self.check_healthy()?;
+        if self.async_command.is_some() {
+            return Err("Finish the resident GPU command before measuring an import".into());
+        }
+        if self.history == 0 {
+            return Err("Measure the regional incumbent before importing observations".into());
+        }
+        if incoming.length() != self.row_bytes() {
+            return Err("Imported resident row has the wrong byte length".into());
+        }
+        if self.axis.is_some() {
+            return Err(
+                "Resident cross-region import does not support a scalar search axis".into(),
+            );
+        }
+        let tiles = u32::try_from(self.tiles.len()).map_err(|_| "Too many resident tiles")?;
+        let command = self.runtime.queue.new_command_buffer();
+        let encoder = command.new_compute_command_encoder();
+        encoder.set_compute_pipeline_state(&self.import_pipeline);
+        let params = Params {
+            initialize: 0,
+            history: 0,
+            tiles,
+            ..Params::default()
+        };
+        let buffers = [
+            incoming,
+            &self.base,
+            &self.base,
+            &self.base,
+            &self.leaves_gpu,
+            &self.tiles_gpu,
+            &self.partials,
+        ];
+        for (slot, buffer) in buffers.iter().enumerate() {
+            encoder.set_buffer(slot as u64, Some(buffer), 0);
+        }
+        encoder.set_bytes(
+            7,
+            size_of::<Params>() as u64,
+            (&params as *const Params).cast(),
+        );
+        encoder.dispatch_thread_groups(thread_group(self.tiles.len() as u64), thread_group(256));
+        encoder.end_encoding();
+
+        let reducer = command.new_compute_command_encoder();
+        reducer.set_compute_pipeline_state(&self.import_reduction);
+        reducer.set_buffer(0, Some(&self.partials), 0);
+        reducer.set_buffer(1, Some(&self.pool_distances), 0);
+        reducer.set_bytes(2, size_of::<u32>() as u64, (&tiles as *const u32).cast());
+        reducer.dispatch_thread_groups(thread_group(1), thread_group(256));
+        reducer.end_encoding();
+        finish(command)?;
+
+        let values = read::<f32>(&self.pool_distances, 2 * MAX_HISTORY + 1);
+        let center = values[2 * MAX_HISTORY];
+        if !center.is_finite() || center < 0.0 {
+            return Err("Resident import produced an invalid incumbent distance".into());
+        }
+        Ok(center)
+    }
+
     pub(super) fn measure_import(&self, incoming: &Buffer) -> Result<ImportGeometry, String> {
         self.check_healthy()?;
         if self.async_command.is_some() {
@@ -194,6 +257,49 @@ impl SearchState {
             self.poisoned = true;
         }
         result
+    }
+
+    /// In surrogate-free (`TuRBO-zero`, `AcquisitionKind::Random`) multi-region
+    /// search, an imported peer observation that falls inside this region's
+    /// anisotropic trust ball and strictly improves upon `self.best` updates
+    /// the local incumbent center (`self.base`, `self.best`,
+    /// `self.trust.set_best`) while keeping local trust-region length and
+    /// success/failure counters owned by this region.
+    pub(super) fn adopt_incumbent(
+        &mut self,
+        incoming: &Buffer,
+        observation: crate::objective_observation::ObjectiveObservation,
+    ) -> Result<bool, String> {
+        if observation.is_vector() || self.has_morbo() {
+            return Ok(false);
+        }
+        let crate::objective_observation::ObjectiveEstimate {
+            mean: value,
+            variance,
+        } = observation.control();
+        if !value.is_finite() || value <= self.best {
+            return Ok(false);
+        }
+        if self
+            .history_rows
+            .iter()
+            .any(|row| std::ptr::eq::<metal::BufferRef>(&**row, &*self.base))
+        {
+            self.base = self.runtime.buffer::<u16>(self.dimensions);
+        }
+        self.copy(incoming, &self.base)?;
+        self.base_id = self.observation;
+        self.best = value;
+        self.best_variance = variance;
+        if self.history_rows.is_empty() {
+            self.outcomes[0] = value;
+            self.variances[0] = variance;
+            self.identities[0] = self.observation;
+            self.resident_identities[0] = self.observation;
+        }
+        self.trust.set_best(f64::from(value));
+        self.objective_history.adopt(self.observation, observation);
+        Ok(true)
     }
 }
 

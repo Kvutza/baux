@@ -403,11 +403,6 @@ impl BayesOptimizer {
         y: &ArrayView2<f64>,
         submission: Submission<'_>,
     ) -> Result<(), ENNError> {
-        if self.regions.is_multi() && y.ncols() != 1 {
-            return Err(ENNError::InvalidParameter(
-                "multi-region observations require one scalar objective column".into(),
-            ));
-        }
         if matches!(submission, Submission::Imported) && !self.regions.is_multi() {
             return Err(ENNError::InvalidParameter(
                 "explicit imports currently require a multi-region optimizer".into(),

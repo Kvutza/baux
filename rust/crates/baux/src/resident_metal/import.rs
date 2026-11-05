@@ -128,6 +128,18 @@ impl SearchState {
         check_scores(&[value], &[variance])?;
         let observation =
             crate::objective_observation::ObjectiveObservation::scalar_adapter(value, variance);
+        self.import_objectives(incoming, observation)
+    }
+
+    pub(super) fn import_objectives(
+        &mut self,
+        incoming: &Buffer,
+        observation: crate::objective_observation::ObjectiveObservation,
+    ) -> Result<(), String> {
+        let crate::objective_observation::ObjectiveEstimate {
+            mean: value,
+            variance,
+        } = observation.control();
         self.objective_history.validate(observation)?;
         let identity = self
             .observation

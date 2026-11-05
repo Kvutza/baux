@@ -10,6 +10,10 @@
 
 use super::*;
 
+#[path = "optimizer/regional.rs"]
+mod regional;
+pub use regional::*;
+
 /// A closed optimizer recipe. The selected algorithm determines which
 /// scientific roles exist; unrelated sections are rejected by deserialization.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -30,9 +34,10 @@ pub enum OptimizerSpec {
         surrogate: SurrogateRecipe,
         #[deser(default)]
         trust_region: TrustRegionBounds,
+        regional_search: Option<RegionalSearchSpec>,
     },
-    #[deser(rename = "turbo-enn")]
-    TurboEnn {
+    #[deser(rename = "bayesian-search")]
+    BayesianSearch {
         #[deser(default = turbo_candidates())]
         candidates: u32,
         #[deser(default = default_arms())]
@@ -46,6 +51,7 @@ pub enum OptimizerSpec {
         surrogate: SurrogateRecipe,
         #[deser(default)]
         trust_region: TrustRegionBounds,
+        regional_search: Option<RegionalSearchSpec>,
     },
     #[deser(rename = "muon")]
     Muon,
@@ -66,7 +72,7 @@ impl OptimizerSpec {
                 distribution: Some(*distribution),
                 perturbation: perturbation.clone(),
             }),
-            Self::TurboEnn {
+            Self::BayesianSearch {
                 candidates,
                 arms,
                 distribution,
@@ -80,6 +86,47 @@ impl OptimizerSpec {
             }),
             Self::Muon | Self::Adamw => None,
         }
+    }
+
+    pub fn regional_search(&self) -> Option<&RegionalSearchSpec> {
+        match self {
+            Self::OperatorBo {
+                regional_search, ..
+            }
+            | Self::BayesianSearch {
+                regional_search, ..
+            } => regional_search.as_ref(),
+            Self::Muon | Self::Adamw => None,
+        }
+    }
+
+    pub(crate) fn strategy(
+        &self,
+        dimensions: usize,
+        num_init: usize,
+        rng: &mut dyn rand::RngCore,
+    ) -> Result<crate::optimizer::Strategy, crate::error::ENNError> {
+        use crate::optimizer::{Strategy, StrategyState};
+        use crate::optimizer_config::InitStrategy;
+        let Some(regions) = self.regional_search() else {
+            return Ok(if num_init > 0 {
+                Strategy::hybrid(InitStrategy::LHD, num_init)
+            } else {
+                Strategy::turbo()
+            });
+        };
+        let bounds = match self {
+            Self::OperatorBo { trust_region, .. } | Self::BayesianSearch { trust_region, .. } => {
+                trust_region
+            }
+            Self::Muon | Self::Adamw => unreachable!("matrix optimizer handled above"),
+        };
+        let config = regions
+            .runtime(bounds)
+            .map_err(crate::error::ENNError::InvalidParameter)?;
+        Ok(Strategy::Experimental(StrategyState::configured(
+            dimensions, config, num_init, rng,
+        )?))
     }
 }
 
@@ -283,7 +330,7 @@ impl crate::optimizer_config::OptimizerConfig {
                     failure_tolerance_dim: None,
                 })
             }
-            OptimizerSpec::TurboEnn {
+            OptimizerSpec::BayesianSearch {
                 surrogate,
                 acquisition,
                 trust_region,

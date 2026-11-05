@@ -95,14 +95,14 @@ impl MultiTrustRegionState {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AllocationPolicy {
     /// Greedily allocate using objective utility and exploration uncertainty.
-    RewardUcb,
+    UtilityUcb,
     /// Favor the least-evaluated active slots, with stable slot-order ties.
     Balanced,
 }
 
 impl Default for AllocationPolicy {
     fn default() -> Self {
-        Self::RewardUcb
+        Self::UtilityUcb
     }
 }
 
@@ -118,14 +118,14 @@ pub enum RestartMemoryPolicy {
 
 /// Numerical method used to update a region's trust-region controller.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RegionMethod {
+pub enum RegionController {
     /// TuRBO-style success and failure counters adapt region length.
     Turbo,
     /// Keep the configured length fixed while retaining relevance and credit.
-    FixedLength,
+    FixedRadius,
 }
 
-impl Default for RegionMethod {
+impl Default for RegionController {
     fn default() -> Self {
         Self::Turbo
     }

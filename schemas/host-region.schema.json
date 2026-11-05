@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Host regional restart-memory comparison",
   "type": "object",
-  "required": ["version", "experiment", "dimensions", "evaluations", "regions", "seeds", "sharing", "starts", "restart_after_evaluations", "allocation", "region_method", "restart_memory"],
+  "required": ["version", "experiment", "dimensions", "evaluations", "regions", "seeds", "sharing", "starts", "restart_after_evaluations", "allocation", "controller", "restart_memory"],
   "properties": {
     "version": {"const": 1},
     "experiment": {"const": "host-regions"},
@@ -14,7 +14,7 @@
     "starts": {"type": "array", "minItems": 1, "items": {"enum": ["separated", "clustered"]}},
     "restart_after_evaluations": {"type": "integer", "minimum": 0},
     "allocation": {"const": "balanced"},
-    "region_method": {"enum": ["fixed_length", "turbo"]},
+    "controller": {"enum": ["fixed_radius", "turbo"]},
     "restart_memory": {"const": ["fresh", "retain_relevant"]},
     "roles": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"enum": ["uniform", "split_beta"]}},
     "restart_centers": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"enum": ["midpoint", "uniform", "maximin"]}},

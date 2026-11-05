@@ -14,7 +14,7 @@ use crate::trust_region::{TRLengthConfig, TrustRegionError};
 mod policy;
 mod selection;
 pub use policy::{
-    AllocationPolicy, RegionMethod, RestartCenterPolicy, RestartCenterSelection,
+    AllocationPolicy, RegionController, RestartCenterPolicy, RestartCenterSelection,
     RestartMemoryPolicy,
 };
 
@@ -56,7 +56,7 @@ pub struct MultiTrustRegionConfig {
     /// Candidate search used to replace an automatically retired slot.
     pub restart_center_policy: RestartCenterPolicy,
     /// Numerical regional controller method, independent of acquisition choice.
-    pub region_method: RegionMethod,
+    pub controller: RegionController,
     /// Per-slot acquisition overrides; `None` inherits the optimizer default.
     pub region_acquisitions: Vec<Option<AcquisitionConfig>>,
     /// UCB exploration weight used to divide a candidate budget.
@@ -73,10 +73,10 @@ impl MultiTrustRegionConfig {
             succ_tolerance: 3,
             fail_tolerance: 5,
             sharing_policy: SharingPolicy::Shared,
-            allocation_policy: AllocationPolicy::RewardUcb,
+            allocation_policy: AllocationPolicy::UtilityUcb,
             restart_memory_policy: RestartMemoryPolicy::Fresh,
             restart_center_policy: RestartCenterPolicy::default(),
-            region_method: RegionMethod::Turbo,
+            controller: RegionController::Turbo,
             region_acquisitions: vec![None; num_regions],
             exploration: 1.0,
             min_seed_distance: 0.0,
@@ -249,7 +249,7 @@ impl MultiTrustRegionState {
         let active_mask = vec![true; num_regions];
         let allocation = match config.allocation_policy {
             AllocationPolicy::Balanced => Allocation::Balanced,
-            AllocationPolicy::RewardUcb => Allocation::Ucb {
+            AllocationPolicy::UtilityUcb => Allocation::Ucb {
                 exploration: config.exploration,
             },
         };
@@ -470,7 +470,7 @@ impl MultiTrustRegionState {
     fn update_controller(&mut self, region: usize, improved: bool) {
         // BAUX's fixed-length baseline keeps observation relevance and origin
         // credit but deliberately disables TuRBO length adaptation.
-        if self.config.region_method == RegionMethod::FixedLength {
+        if self.config.controller == RegionController::FixedRadius {
             return;
         }
         if improved {
@@ -604,7 +604,7 @@ mod tests {
                 length_max: 0.5,
             },
         );
-        config.region_method = RegionMethod::FixedLength;
+        config.controller = RegionController::FixedRadius;
         config.succ_tolerance = 1;
         config.fail_tolerance = 1;
         let center = array![[0.5]];

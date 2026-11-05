@@ -9,7 +9,7 @@ import pytest
 from baux import _rust, create_optimizer, turbo_one
 from baux.turbo.config import (
     ExternalSurrogate,
-    MultiTrustRegionPolicy,
+    RegionalSearchPolicy,
     turbo_zero,
 )
 
@@ -213,7 +213,7 @@ def testbadpolicybinding():
             1,
             2,
             42,
-            cfg={"region_sharing": "shared", "region_method": "adaptive"},
+            cfg={"region_sharing": "shared", "region_controller": "adaptive"},
         )
     with pytest.raises(ValueError, match="unknown regional acquisition"):
         _rust.create_optimizer(
@@ -326,9 +326,7 @@ def test_external():
     config = replace(
         turbo_one(num_init=1),
         surrogate=ExternalSurrogate(factory, fit_steps=7),
-        trust_region=MultiTrustRegionPolicy(
-            num_regions=3, sharing_policy="independent"
-        ),
+        trust_region=RegionalSearchPolicy(count=3, sharing="independent"),
     )
     opt = create_optimizer(
         bounds=np.array([[0.0, 1.0], [0.0, 1.0]]),
@@ -350,7 +348,7 @@ def testtrialretry():
 
     config = replace(
         turbo_zero(num_init=1),
-        trust_region=MultiTrustRegionPolicy(num_regions=2),
+        trust_region=RegionalSearchPolicy(count=2),
     )
     loop = Loop(Space({"x": (0.0, 1.0)}), config, 37)
     initial = {"seed": ({"x": 0.5}, 1.0, None)}
@@ -395,7 +393,7 @@ def testoneregionimport():
 
     config = replace(
         turbo_zero(num_init=1),
-        trust_region=MultiTrustRegionPolicy(num_regions=1),
+        trust_region=RegionalSearchPolicy(count=1),
     )
     loop = Loop(Space({"x": (0.0, 1.0)}), config, 41)
     initial = {"seed": ({"x": 0.5}, 1.0, None)}

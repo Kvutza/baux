@@ -12,7 +12,7 @@ pub use incumbent::{IncumbentLedger, IncumbentPoint, ProposalEngine};
 pub use inspection::DomainFrame;
 pub use multi_tr::{
     AllocationPolicy, EvaluationId, MultiTrustRegionConfig, MultiTrustRegionState, PendingProposal,
-    RegionBatch, RegionCandidate, RegionMethod, RegionProvenance, RestartCenterPolicy,
+    RegionBatch, RegionCandidate, RegionController, RegionProvenance, RestartCenterPolicy,
     RestartCenterSelection, RestartMemoryPolicy, SharingPolicy,
 };
 pub use obs_access::{PosteriorBackend, PosteriorStore};
@@ -246,11 +246,7 @@ impl BayesOptimizer {
         rng: &mut dyn RngCore,
     ) -> Result<Self, ENNError> {
         let config = OptimizerConfig::from_spec(spec)?;
-        let strategy = if num_init > 0 {
-            Strategy::hybrid(InitStrategy::LHD, num_init)
-        } else {
-            Strategy::turbo()
-        };
+        let strategy = spec.strategy(bounds.nrows(), num_init, rng)?;
         Self::new_strategy(bounds, config, strategy, rng)
     }
 

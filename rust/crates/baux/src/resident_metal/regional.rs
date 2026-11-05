@@ -4,19 +4,21 @@
 //! fused multi-region kernel.
 
 use super::*;
-use crate::optimizer::multi_tr::SharingPolicy;
+use crate::{
+    config::{
+        ObservationSharing, RegionAllocation, RegionController, RegionMemory, RegionalSearchSpec,
+        RestartCenter,
+    },
+    optimizer::multi_tr::SharingPolicy,
+};
 use baux::semantics::optimizer::portfolio::{Allocation, RegionTicket, RegionalLedger};
+
+pub mod objectives;
+mod tell;
 
 struct PendingImport {
     row: Buffer,
-    value: f32,
-    variance: f32,
-}
-
-struct TellPlan {
-    source: usize,
-    routes: Vec<usize>,
-    staged: Option<Buffer>,
+    observation: crate::objective_observation::ObjectiveObservation,
 }
 
 #[derive(Clone, Debug)]
@@ -38,120 +40,8 @@ pub enum TellFailure {
     Stale(String),
 }
 
-fn retire_aftertell(
-    ledger: &mut RegionalLedger,
-    states: &mut [SearchState],
-    pending_proposals: &mut [Option<Proposals>],
-    pending_tickets: &mut [Option<RegionTicket>],
-    slot: usize,
-    ticket: RegionTicket,
-    error: String,
-) -> TellFailure {
-    if let Some(state) = states.get_mut(slot) {
-        state.poisoned = true;
-    }
-    let retirement = ledger.retire(ticket);
-    pending_proposals[slot] = None;
-    pending_tickets[slot] = None;
-    let detail = match retirement {
-        Ok(()) => format!("{error}; resident engine poisoned and ticket retired"),
-        Err(retire_error) => format!(
-            "{error}; resident engine poisoned, ticket retirement also failed: {retire_error}"
-        ),
-    };
-    TellFailure::Retired(detail)
-}
-
-fn prepare_tell(
-    search: &RegionalSearch,
-    proposal: &RegionalProposal,
-    value: f32,
-    variance: f32,
-) -> Result<TellPlan, TellFailure> {
-    let source = proposal.ticket.region.slot;
-    if search.pending_tickets.get(source).copied().flatten() != Some(proposal.ticket) {
-        return Err(TellFailure::Stale(
-            "regional proposal is no longer pending in its generation".into(),
-        ));
-    }
-    search
-        .ledger
-        .validate(proposal.ticket)
-        .map_err(|error| TellFailure::Stale(error.to_string()))?;
-    check_scores(&[value], &[variance]).map_err(TellFailure::Retryable)?;
-    let state = search
-        .states
-        .get(source)
-        .ok_or_else(|| TellFailure::Retryable("unknown region".into()))?;
-    let candidate = state
-        .propose_buffer(&proposal.proposal)
-        .map_err(TellFailure::Retryable)?;
-    let routes = search
-        .routes(Some(source), &candidate)
-        .map_err(TellFailure::Retryable)?;
-    if routes
-        .iter()
-        .any(|&slot| search.pending_imports[slot].len() == MAX_HISTORY)
-    {
-        return Err(TellFailure::Retryable(
-            "resident sharing queue is full; complete the pending recipient".into(),
-        ));
-    }
-    // The source proposal scratch may be reused on its next ask. One GPU copy
-    // keeps a stable row for every recipient without host readback.
-    let staged = if routes.is_empty() {
-        None
-    } else {
-        let stable = state.runtime.buffer::<u16>(state.dimensions);
-        state
-            .copy(&candidate, &stable)
-            .map_err(TellFailure::Retryable)?;
-        Some(stable)
-    };
-    Ok(TellPlan {
-        source,
-        routes,
-        staged,
-    })
-}
-
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn completion_cleanup() {
-        let state = SearchState::new_fp16(
-            &[0x3400; 4],
-            vec![ParamBlock::new(1, 0, 4, 0.25, 1.0).unwrap()],
-            2,
-            TRLengthConfig::new(0.1, 0.001, 0.4),
-            ProposalKernel::Gaussian,
-        )
-        .unwrap();
-        let mut ledger = RegionalLedger::new(&[-1.0], Allocation::Balanced).unwrap();
-        let ticket = ledger.issue(0).unwrap();
-        let mut states = vec![state];
-        let mut proposals = vec![None];
-        let mut tickets = vec![Some(ticket)];
-
-        let failure = retire_aftertell(
-            &mut ledger,
-            &mut states,
-            &mut proposals,
-            &mut tickets,
-            0,
-            ticket,
-            "injected ledger completion failure".into(),
-        );
-
-        assert!(matches!(failure, TellFailure::Retired(_)));
-        assert!(states[0].poisoned);
-        assert!(ledger.validate(ticket).is_err());
-        assert!(proposals[0].is_none());
-        assert!(tickets[0].is_none());
-    }
-}
+mod tests;
 
 impl RegionalProposal {
     pub fn ticket(&self) -> RegionTicket {
@@ -170,6 +60,50 @@ pub struct RegionalSearch {
 }
 
 impl RegionalSearch {
+    /// Build resident regional search from the same typed policy as host
+    /// search. Fields not owned by this adapter are rejected explicitly.
+    pub fn from_spec(
+        mut states: Vec<SearchState>,
+        spec: &RegionalSearchSpec,
+    ) -> Result<Self, String> {
+        spec.validate()?;
+        if states.len() != spec.count {
+            return Err("regional search state count does not match its policy".into());
+        }
+        if spec.controller != RegionController::Turbo {
+            return Err("resident regional search supports only the TuRBO controller".into());
+        }
+        if spec.restart_memory != RegionMemory::Fresh
+            || spec.restart_candidates != 1
+            || spec.restart_center != RestartCenter::First
+        {
+            return Err(
+                "resident restart policy is caller-owned and cannot be configured here".into(),
+            );
+        }
+        if !spec.acquisitions.is_empty() {
+            objectives::configure(&mut states, &spec.acquisitions)?;
+        }
+        if spec.success_tolerance != 3 {
+            return Err("resident regional search requires success-tolerance = 3".into());
+        }
+        let failures = usize::try_from(spec.failure_tolerance)
+            .map_err(|_| "regional failure tolerance must fit usize")?;
+        for state in &mut states {
+            state.set_tolerance(failures)?;
+        }
+        let allocation = match spec.allocation {
+            RegionAllocation::UtilityUcb => Allocation::Ucb { exploration: 1.0 },
+            RegionAllocation::Balanced => Allocation::Balanced,
+        };
+        let sharing = match spec.sharing {
+            ObservationSharing::Shared => SharingPolicy::Shared,
+            ObservationSharing::NearestCenter => SharingPolicy::NearestCenter,
+            ObservationSharing::Independent => SharingPolicy::Independent,
+        };
+        Self::with_sharing(states, allocation, sharing)
+    }
+
     pub fn new(states: Vec<SearchState>, allocation: Allocation) -> Result<Self, String> {
         Self::with_sharing(states, allocation, SharingPolicy::Independent)
     }
@@ -195,7 +129,14 @@ impl RegionalSearch {
             .iter()
             .map(|state| {
                 state.check_idle()?;
-                let best = f64::from(state.best()?);
+                let best = if state
+                    .incumbent_objectives()?
+                    .is_some_and(|record| record.observation.is_vector())
+                {
+                    0.0
+                } else {
+                    f64::from(state.best()?)
+                };
                 Ok(best)
             })
             .collect::<Result<Vec<_>, String>>()?;
@@ -310,85 +251,11 @@ impl RegionalSearch {
         value: f32,
         variance: f32,
     ) -> Result<NoisyDecision, TellFailure> {
-        let TellPlan {
-            source,
-            routes,
-            staged,
-        } = prepare_tell(self, proposal, value, variance)?;
-        let state = self
-            .states
-            .get_mut(source)
-            .ok_or_else(|| TellFailure::Retryable("unknown region".into()))?;
-        let decision = match state.tell_noisy(&proposal.proposal, value, variance) {
-            Ok(decision) => decision,
-            Err(error) => {
-                if state.poisoned {
-                    self.ledger
-                        .retire(proposal.ticket)
-                        .map_err(|error| TellFailure::Retired(error.to_string()))?;
-                    self.pending_proposals[source] = None;
-                    self.pending_tickets[source] = None;
-                    return Err(TellFailure::Retired(format!(
-                        "{error}; regional state was partially updated and its ticket was retired"
-                    )));
-                }
-                return Err(TellFailure::Retryable(error));
-            }
-        };
-        if let Err(error) = state.sync() {
-            state.poisoned = true;
-            self.ledger
-                .retire(proposal.ticket)
-                .map_err(|error| TellFailure::Retired(error.to_string()))?;
-            self.pending_proposals[source] = None;
-            self.pending_tickets[source] = None;
-            return Err(TellFailure::Retired(format!(
-                "{error}; resident tell was dispatched and must not be retried"
-            )));
-        }
-        let incumbent = match state.best() {
-            Ok(incumbent) => f64::from(incumbent),
-            Err(error) => {
-                state.poisoned = true;
-                self.ledger
-                    .retire(proposal.ticket)
-                    .map_err(|error| TellFailure::Retired(error.to_string()))?;
-                self.pending_proposals[source] = None;
-                self.pending_tickets[source] = None;
-                return Err(TellFailure::Retired(format!(
-                    "{error}; resident tell completed but ticket was retired"
-                )));
-            }
-        };
-        if let Err(error) = self
-            .ledger
-            .complete(proposal.ticket, &[f64::from(value)], incumbent)
-        {
-            // The engine has already accepted this result, so a ledger failure
-            // cannot be retried safely. Poison it, retire whatever ledger entry
-            // remains, and clear adapter handles even if retirement also fails.
-            return Err(retire_aftertell(
-                &mut self.ledger,
-                &mut self.states,
-                &mut self.pending_proposals,
-                &mut self.pending_tickets,
-                source,
-                proposal.ticket,
-                error.to_string(),
-            ));
-        }
-        self.pending_proposals[source] = None;
-        self.pending_tickets[source] = None;
-        if let Some(stable) = staged {
-            for slot in routes {
-                self.pending_imports[slot].push(PendingImport {
-                    row: stable.clone(),
-                    value,
-                    variance,
-                });
-            }
-        }
-        Ok(decision)
+        tell::complete(
+            self,
+            proposal,
+            crate::objective_observation::ObjectiveObservation::scalar_adapter(value, variance),
+        )
     }
 
     /// Retire an unevaluated proposal without updating regional statistics.
@@ -418,31 +285,12 @@ impl RegionalSearch {
         value: f32,
         variance: f32,
     ) -> Result<(), String> {
-        check_scores(&[value], &[variance])?;
-        let state = self.states.get(slot).ok_or("unknown region")?;
-        state.check_healthy()?;
-        if row.length() != state.row_bytes() {
-            return Err("Imported resident row has the wrong byte length".into());
-        }
-        if state.check_idle().is_ok() {
-            self.states
-                .get_mut(slot)
-                .ok_or("unknown region")?
-                .import_observation(row, value, variance)?;
-            self.delivered_imports += 1;
-            return Ok(());
-        }
-        if self.pending_imports[slot].len() == MAX_HISTORY {
-            return Err("resident sharing queue is full; complete the pending recipient".into());
-        }
-        let stable = state.runtime.buffer::<u16>(state.dimensions);
-        state.copy(row, &stable)?;
-        self.pending_imports[slot].push(PendingImport {
-            row: stable,
-            value,
-            variance,
-        });
-        Ok(())
+        objectives::import(
+            self,
+            slot,
+            row,
+            crate::objective_observation::ObjectiveObservation::scalar_adapter(value, variance),
+        )
     }
 
     /// Route one external row through the configured relevance policy. Rows
@@ -473,8 +321,9 @@ impl RegionalSearch {
         for &slot in &routes {
             self.pending_imports[slot].push(PendingImport {
                 row: stable.clone(),
-                value,
-                variance,
+                observation: crate::objective_observation::ObjectiveObservation::scalar_adapter(
+                    value, variance,
+                ),
             });
         }
         Ok(routes)
@@ -535,7 +384,7 @@ impl RegionalSearch {
         let state = self.states.get_mut(slot).ok_or("unknown region")?;
         state.check_idle()?;
         while let Some(entry) = self.pending_imports[slot].first() {
-            state.import_observation(&entry.row, entry.value, entry.variance)?;
+            state.import_objectives(&entry.row, entry.observation)?;
             self.pending_imports[slot].remove(0);
             self.delivered_imports += 1;
         }

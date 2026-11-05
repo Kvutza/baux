@@ -17,7 +17,7 @@ from baux.turbo.config import (
     LHDOnlyInit,
     MorboTrustRegion,
     MultiObjectiveConfig,
-    MultiTrustRegionPolicy,
+    RegionalSearchPolicy,
     NDSOptimizerConfig,
     NoSurrogate,
     NoTrustRegion,
@@ -270,7 +270,7 @@ def test_enumvalues():
 
 
 def test_multitrlengths():
-    tr = MultiTrustRegionPolicy()
+    tr = RegionalSearchPolicy()
     assert (tr.length_init, tr.length_min, tr.length_max) == (
         tr.length.length_init,
         tr.length.length_min,

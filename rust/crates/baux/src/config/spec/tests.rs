@@ -44,7 +44,7 @@ fn resident(acquisition: &str, candidates: u32, arms: u32, fit: &str) -> String 
         "version=4\n\
             experiment='end-to-end'\n\
             [optimizer]\n\
-            algorithm='turbo-enn'\n\
+            algorithm='bayesian-search'\n\
             candidates={candidates}\n\
             arms={arms}\n\
             {acquisition}\n\
@@ -195,8 +195,8 @@ fn guards() {
 
 #[test]
 fn distinct_roles() {
-    assert!(parse_tune(&GAUSSIAN.replace("operator-bo", "turbo-enn")).is_err());
-    assert!(parse_tune(&OPERATOR_BO.replace("turbo-enn", "operator-bo")).is_err());
+    assert!(parse_tune(&GAUSSIAN.replace("operator-bo", "bayesian-search")).is_err());
+    assert!(parse_tune(&OPERATOR_BO.replace("bayesian-search", "operator-bo")).is_err());
 }
 
 #[test]
@@ -205,10 +205,48 @@ fn random_acquisition() {
     let config = parse_tune(&text).unwrap();
     assert_eq!(config.selection, Some(PretrainSelection::Random));
     let spec = ExperimentSpec::from_runtime(&config).unwrap();
-    let OptimizerSpec::TurboEnn { acquisition, .. } = spec.optimizer else {
-        panic!("expected turbo-enn");
+    let OptimizerSpec::BayesianSearch { acquisition, .. } = spec.optimizer else {
+        panic!("expected Bayesian search");
     };
     assert!(matches!(acquisition, AcquisitionSpec::Random));
+}
+
+#[test]
+fn regional_recipe() {
+    use ndarray::array;
+    use rand::{SeedableRng, rngs::StdRng};
+
+    let text = format!(
+        "{}[optimizer.regional-search]\ncount=3\nsharing='nearest-center'\nallocation='balanced'\nfailure-tolerance=4\n",
+        resident("acquisition='thompson'", 3, 3, "fit='fixed'")
+    );
+    let spec = ExperimentSpec::parse(&text).unwrap();
+    let regional = spec.optimizer.regional_search().unwrap();
+    assert_eq!(regional.count, 3);
+    assert_eq!(regional.sharing, ObservationSharing::NearestCenter);
+    assert_eq!(regional.allocation, RegionAllocation::Balanced);
+    assert_eq!(regional.failure_tolerance, 4);
+
+    let resolved = spec.to_toml().unwrap();
+    let restored = ExperimentSpec::parse(&resolved).unwrap();
+    assert_eq!(resolved, restored.to_toml().unwrap());
+    assert_eq!(
+        restored.compile().unwrap().regional_search.unwrap().count,
+        3
+    );
+
+    let mut rng = StdRng::seed_from_u64(41);
+    let optimizer = crate::optimizer_factory::spec_optimizer(
+        array![[0.0, 1.0], [0.0, 1.0]],
+        &spec.optimizer,
+        2,
+        &mut rng,
+    )
+    .unwrap();
+    let crate::optimizer::TrustRegionState::Multi { state, .. } = optimizer.trust_region() else {
+        panic!("regional recipe did not construct regional host search");
+    };
+    assert_eq!(state.num_regions(), 3);
 }
 
 #[test]

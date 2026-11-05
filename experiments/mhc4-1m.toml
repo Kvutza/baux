@@ -13,7 +13,7 @@ validation-interval = 64
 stage-samples = 3
 
 [optimizer]
-algorithm = "turbo-enn"
+algorithm = "bayesian-search"
 arms = 2
 candidates = 4
 distribution = "gaussian"

@@ -81,7 +81,7 @@ Current path:
 1. `src/baux/bo.py`: `create_optimizer` chooses a native kind through `_plan`,
    based on surrogate type. It always passes a region count of four; it does
    not select the native multi-region kind. `encode._tr` also drops the
-   `MultiTrustRegionPolicy` configuration.
+   `RegionalSearchPolicy` configuration.
 2. `Optimizer.ask` calls the native wrapper in
    `rust/crates/baux-py/src/py_optimizer.rs`, which calls `ask_natural` in Rust.
    Python receives only parameter rows, without proposal identity.
@@ -94,7 +94,7 @@ Current path:
    submitting observations again. Native ingestion failures are not wrapped in
    that exception and are not claimed to be transactional.
 
-The experimental `MultiTrustRegionLoop` instead orchestrates allocation,
+The experimental `RegionalSearchLoop` instead orchestrates allocation,
 proposal callbacks, scoring, and selection around a standalone state. It does
 not call the integrated optimizer's multi-region execution. We must account
 for these existing users without duplicating the evolving regional policies
@@ -195,7 +195,7 @@ Metal `SearchState`. The unified-lifecycle checkpoint below replaces that
 engine-owning container with `RegionalLedger`.
 The ledger owns region lifetimes, allocation statistics and pending transaction
 identities. Engines own numerical methods, parameter storage and model history.
-It accepts explicit region selection, balanced allocation or a reward-UCB
+It accepts explicit region selection, balanced allocation or a utility-UCB
 heuristic. This heuristic is a BAUX engineering policy, not faithful TuRBO-m
 joint Thompson sampling or a stationary-bandit regret claim.
 
@@ -223,7 +223,7 @@ optimizer.tell(second, value)
 # first remains pending and can be evaluated/completed independently.
 ```
 
-The ordinary `create_optimizer` path now forwards `MultiTrustRegionPolicy`
+The ordinary `create_optimizer` path now forwards `RegionalSearchPolicy`
 region count, length bounds, tolerances and sharing choice into the Rust
 multi-region strategy. ENN, no-surrogate and the existing batched Python
 surrogate adapter use that same strategy. `num_regions` reports configured
@@ -938,7 +938,7 @@ multistart method.
 
 The [pinned TuRBO-m implementation](https://github.com/uber-research/TuRBO/blob/de0db39f481d9505bb3610b7b7aa0ebf7702e4a5/turbo/turbo_m.py)
 selects from regional posterior samples in a synchronous global competition;
-BAUX's balanced and reward-UCB policies are different scheduling rules. The
+BAUX's balanced and utility-UCB policies are different scheduling rules. The
 [pinned APOSMM implementation](https://github.com/Libensemble/libensemble/blob/2f79ba6943083ff71875272d6f3f9b5222acd273/libensemble/gen_funcs/persistent_aposmm.py)
 uses distance-based start eligibility and active-run limits for asynchronous
 local optimization. The [pinned pySOT SOP implementation](https://github.com/dme65/pySOT/blob/c8f04fd4ed30d49bb61adb008134741319b512a4/pySOT/strategy/sop_strategy.py)
@@ -950,7 +950,7 @@ complete allocation or start-selection methods.
 
 Host `BayesOptimizer` and Metal `RegionalSearch` now use the same
 backend-neutral `RegionalLedger`. The ledger owns region and generation
-identity, one outstanding evaluation group per region, balanced or reward-UCB
+identity, one outstanding evaluation group per region, balanced or utility-UCB
 allocation, trial moments, incumbents, completion, retirement, and restart.
 It does not own a surrogate, trust-region controller, parameter arrays, Metal
 buffers, or an execution engine.

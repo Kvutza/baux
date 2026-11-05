@@ -3,7 +3,7 @@
 //! Modeled regional search without isolated models is rejected at construction.
 use super::config::opt_val;
 use super::*;
-use baux::optimizer::multi_tr::RegionMethod;
+use baux::optimizer::multi_tr::RegionController;
 use baux::optimizer::{
     AllocationPolicy, MultiTrustRegionConfig, RestartCenterPolicy, RestartCenterSelection,
     RestartMemoryPolicy, SharingPolicy, StrategyState,
@@ -99,7 +99,7 @@ fn parse_sharing(dict: &Bound<'_, pyo3::types::PyDict>) -> PyResult<SharingPolic
 
 fn parse_allocation(dict: &Bound<'_, pyo3::types::PyDict>) -> PyResult<AllocationPolicy> {
     match opt_val::<String>(dict, "region_allocation")?.as_deref() {
-        None | Some("reward_ucb") => Ok(AllocationPolicy::RewardUcb),
+        None | Some("utility_ucb") => Ok(AllocationPolicy::UtilityUcb),
         Some("balanced") => Ok(AllocationPolicy::Balanced),
         _ => Err(PyValueError::new_err("unknown regional allocation policy")),
     }
@@ -115,11 +115,11 @@ fn parse_restart(dict: &Bound<'_, pyo3::types::PyDict>) -> PyResult<RestartMemor
     }
 }
 
-fn parse_method(dict: &Bound<'_, pyo3::types::PyDict>) -> PyResult<RegionMethod> {
-    match opt_val::<String>(dict, "region_method")?.as_deref() {
-        None | Some("turbo") => Ok(RegionMethod::Turbo),
-        Some("fixed_length") => Ok(RegionMethod::FixedLength),
-        _ => Err(PyValueError::new_err("unknown regional method")),
+fn parse_controller(dict: &Bound<'_, pyo3::types::PyDict>) -> PyResult<RegionController> {
+    match opt_val::<String>(dict, "region_controller")?.as_deref() {
+        None | Some("turbo") => Ok(RegionController::Turbo),
+        Some("fixed_radius") => Ok(RegionController::FixedRadius),
+        _ => Err(PyValueError::new_err("unknown regional controller")),
     }
 }
 
@@ -200,12 +200,8 @@ fn parse_acquisition(name: Option<&str>, beta: Option<f64>) -> PyResult<Option<A
         }
         "thompson" if beta.is_none() => AcquisitionConfig::Thompson,
         "random" if beta.is_none() => AcquisitionConfig::Random,
-        "pareto" => {
-            return Err(PyValueError::new_err(
-                "Pareto regional acquisition is unsupported",
-            ));
-        }
-        "thompson" | "random" => {
+        "pareto" if beta.is_none() => AcquisitionConfig::Pareto,
+        "thompson" | "random" | "pareto" => {
             return Err(PyValueError::new_err(
                 "regional acquisition beta is only valid for UCB",
             ));
@@ -230,7 +226,7 @@ fn build_state(
     regions.allocation_policy = parse_allocation(dict)?;
     regions.restart_memory_policy = parse_restart(dict)?;
     regions.restart_center_policy = parse_center(dict)?;
-    regions.region_method = parse_method(dict)?;
+    regions.controller = parse_controller(dict)?;
     regions.region_acquisitions = parse_acquisitions(dict, num_regions)?;
     let state = StrategyState::configured(dimension, regions, num_init, rng)
         .map_err(|e| PyValueError::new_err(e.to_string()))?;

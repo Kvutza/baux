@@ -77,7 +77,7 @@ pub(super) fn run_arm(
         "roles":roles, "restart_center_policy":center_policy,
         "restart_candidates":config.candidates(),
         "region_acquisition_beta":if roles == "split_beta" { vec![0.0,4.0,2.0,2.0] } else { vec![2.0;4] },
-        "region_method":"turbo",
+        "controller":"turbo",
         "length_init":length.length_init, "length_min":length.length_min,
         "length_max":length.length_max,
         "success_tolerance":config.succeed(), "failure_tolerance":config.fail(),

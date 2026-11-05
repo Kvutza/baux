@@ -108,10 +108,10 @@
           ]
         },
         {
-          "title": "TuRBO ENN",
+          "title": "Bayesian search",
           "required": ["algorithm", "acquisition"],
           "properties": {
-            "algorithm": { "const": "turbo-enn" }
+            "algorithm": { "const": "bayesian-search" }
           }
         },
         {
@@ -120,7 +120,8 @@
           "allOf": [
             { "not": { "required": ["surrogate"] } },
             { "not": { "required": ["acquisition"] } },
-            { "not": { "required": ["trust-region"] } }
+            { "not": { "required": ["trust-region"] } },
+            { "not": { "required": ["regional-search"] } }
           ]
         },
         {
@@ -129,27 +130,28 @@
           "allOf": [
             { "not": { "required": ["surrogate"] } },
             { "not": { "required": ["acquisition"] } },
-            { "not": { "required": ["trust-region"] } }
+            { "not": { "required": ["trust-region"] } },
+            { "not": { "required": ["regional-search"] } }
           ]
         }
       ],
       "properties": {
         "algorithm": {
           "type": "string",
-          "enum": ["operator-bo", "turbo-enn", "muon", "adamw"],
-          "description": "Optimization algorithm: 'operator-bo', 'turbo-enn', 'muon', or 'adamw'."
+          "enum": ["operator-bo", "bayesian-search", "muon", "adamw"],
+          "description": "Optimization recipe: operator BO, Bayesian search, Muon, or AdamW."
         },
         "candidates": {
           "type": "integer",
           "minimum": 1,
           "default": 4,
-          "description": "Total proposals generated per round across all arms in turbo-enn."
+          "description": "Total proposals generated per Bayesian-search round across all arms."
         },
         "arms": {
           "type": "integer",
           "minimum": 1,
           "default": 1,
-          "description": "Number of procedural seed namespaces sharing the current incumbent center in turbo-enn."
+          "description": "Number of procedural seed namespaces sharing the current incumbent center."
         },
         "distribution": {
           "type": "string",
@@ -160,7 +162,7 @@
         "acquisition": {
           "type": "string",
           "enum": ["thompson", "random", "upper-confidence-bound", "pareto"],
-          "description": "Acquisition policy for selecting proposals in turbo-enn."
+          "description": "Acquisition policy for selecting Bayesian-search proposals."
         },
         "beta": {
           "type": "number",
@@ -279,6 +281,39 @@
               "enum": ["scalar", "tensor-family-static"],
               "description": "Trust region geometry shape across parameter blocks."
             }
+          },
+          "additionalProperties": false
+        },
+        "regional-search": {
+          "type": "object",
+          "description": "Concurrent regional-search policies, independent of surrogate and acquisition selection.",
+          "required": ["count"],
+          "properties": {
+            "count": { "type": "integer", "minimum": 1 },
+            "sharing": {
+              "enum": ["shared", "nearest-center", "independent"],
+              "default": "shared"
+            },
+            "allocation": {
+              "enum": ["utility-ucb", "balanced"],
+              "default": "utility-ucb"
+            },
+            "controller": {
+              "enum": ["turbo", "fixed-radius"],
+              "default": "turbo"
+            },
+            "success-tolerance": { "type": "integer", "minimum": 1, "default": 3 },
+            "failure-tolerance": { "type": "integer", "minimum": 1, "default": 5 },
+            "restart-memory": {
+              "enum": ["fresh", "retain-relevant"],
+              "default": "fresh"
+            },
+            "restart-candidates": { "type": "integer", "minimum": 1, "default": 1 },
+            "restart-center": {
+              "enum": ["first", "maximin"],
+              "default": "first"
+            },
+            "acquisitions": { "type": "array" }
           },
           "additionalProperties": false
         }

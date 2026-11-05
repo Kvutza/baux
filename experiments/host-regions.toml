@@ -8,5 +8,5 @@ sharing = ["independent", "shared", "nearest_center"]
 starts = ["separated", "clustered"]
 restart_after_evaluations = 32
 allocation = "balanced"
-region_method = "fixed_length"
+controller = "fixed_radius"
 restart_memory = ["fresh", "retain_relevant"]

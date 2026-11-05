@@ -22,7 +22,7 @@ struct Config {
     starts: Vec<String>,
     restart_after_evaluations: usize,
     allocation: String,
-    region_method: String,
+    controller: String,
     restart_memory: Vec<String>,
     roles: Option<Vec<String>>,
     restart_centers: Option<Vec<String>>,
@@ -42,7 +42,7 @@ pub(super) fn execute(root: &Path, rounds: Option<u32>, text: &str) -> Result<bo
     }
     if let Some(rounds) = rounds {
         config.evaluations = rounds as usize;
-        config.restart_after_evaluations = if config.region_method == "turbo" {
+        config.restart_after_evaluations = if config.controller == "turbo" {
             0
         } else {
             config.evaluations / 2
@@ -50,7 +50,7 @@ pub(super) fn execute(root: &Path, rounds: Option<u32>, text: &str) -> Result<bo
     }
     validate(&config)?;
     let resolved = format!(
-        "version = 1\nexperiment = \"host-regions\"\ndimensions = {}\nevaluations = {}\nregions = {}\nseeds = {:?}\nsharing = {:?}\nstarts = {:?}\nrestart_after_evaluations = {}\nallocation = {:?}\nregion_method = {:?}\nrestart_memory = {:?}\nroles = {:?}\nrestart_centers = {:?}\nrestart_candidates = {}\nobjectives = {:?}\nlength_init = {}\nlength_min = {}\nlength_max = {}\nfailure_tolerance = {}\nsuccess_tolerance = {}\n",
+        "version = 1\nexperiment = \"host-regions\"\ndimensions = {}\nevaluations = {}\nregions = {}\nseeds = {:?}\nsharing = {:?}\nstarts = {:?}\nrestart_after_evaluations = {}\nallocation = {:?}\ncontroller = {:?}\nrestart_memory = {:?}\nroles = {:?}\nrestart_centers = {:?}\nrestart_candidates = {}\nobjectives = {:?}\nlength_init = {}\nlength_min = {}\nlength_max = {}\nfailure_tolerance = {}\nsuccess_tolerance = {}\n",
         config.dimensions,
         config.evaluations,
         config.regions,
@@ -59,7 +59,7 @@ pub(super) fn execute(root: &Path, rounds: Option<u32>, text: &str) -> Result<bo
         config.starts,
         config.restart_after_evaluations,
         config.allocation,
-        config.region_method,
+        config.controller,
         config.restart_memory,
         config.roles(),
         config.centers(),
@@ -118,13 +118,10 @@ fn validate(config: &Config) -> Result<(), String> {
         return Err("host-regions requires positive dimensions, evaluations divisible by 8, seeds, sharing policies, and start layouts".into());
     }
     if !matches!(
-        (config.region_method.as_str(), config.restart_after_evaluations),
-        ("fixed_length", n) if n == config.evaluations / 2
+        (config.controller.as_str(), config.restart_after_evaluations),
+        ("fixed_radius", n) if n == config.evaluations / 2
     ) && !matches!(
-        (
-            config.region_method.as_str(),
-            config.restart_after_evaluations
-        ),
+        (config.controller.as_str(), config.restart_after_evaluations),
         ("turbo", 0)
     ) {
         return Err(
@@ -179,7 +176,7 @@ fn validate(config: &Config) -> Result<(), String> {
             .iter()
             .enumerate()
             .any(|(index, name)| centers[..index].contains(name))
-        || (config.region_method == "turbo" && centers.contains(&"midpoint".into()))
+        || (config.controller == "turbo" && centers.contains(&"midpoint".into()))
         || config.candidates() == 0
     {
         return Err("host-regions has an invalid restart-center diagnostic".into());
@@ -254,7 +251,7 @@ fn measure(config: &Config) -> Result<Value, String> {
         "experiment":"host-regions", "dimensions":config.dimensions,
         "objectives":config.objectives(),
         "objective_domain":"x=3*u-1.5 for unit-coordinate u",
-        "interpretation":if config.region_method == "turbo" { "matched fixed-budget host comparison with actual automatic TuRBO retirement and configured candidate-ranked replacement; diagnostic failure tolerance and length bounds make retirement observable; outcomes do not establish policy superiority" } else { "matched fixed-budget host comparison with a forced restart after half the budget; split-beta and maximin are BAUX diagnostics, not MTRBO or APOSMM; outcomes are policy-associated, with no general superiority claim" },
+        "interpretation":if config.controller == "turbo" { "matched fixed-budget host comparison with actual automatic TuRBO retirement and configured candidate-ranked replacement; diagnostic failure tolerance and length bounds make retirement observable; outcomes do not establish policy superiority" } else { "matched fixed-budget host comparison with a forced restart after half the budget; split-beta and maximin are BAUX diagnostics, not MTRBO or APOSMM; outcomes are policy-associated, with no general superiority claim" },
         "results":pairs
     }))
 }
@@ -329,7 +326,7 @@ fn pair_report(
     {
         return Err("matched arms diverged before restart".into());
     }
-    if config.region_method == "turbo" {
+    if config.controller == "turbo" {
         let first = fresh.report["automatic_restarts"]
             .as_seq()
             .and_then(|events| events.first());
@@ -357,7 +354,7 @@ fn pair_report(
         "objective":objective,
         "restart_centers":center_policy,
         "regions":config.regions, "pre_restart_matched":true,
-        "pairing_prefix_semantics":if config.region_method == "turbo" { "observations through first retirement tell and local-model counts before that tell" } else { "observations and local-model counts immediately before forced restart" },
+        "pairing_prefix_semantics":if config.controller == "turbo" { "observations through first retirement tell and local-model counts before that tell" } else { "observations and local-model counts immediately before forced restart" },
         "pre_restart_observation_values":fresh.prefix_values,
         "pre_restart_model_counts":fresh.prefix_counts,
         "fresh":fresh.report, "retain_relevant":retained.report
@@ -392,7 +389,7 @@ fn run_arm(
     center_policy: &str,
     objective: &str,
 ) -> Result<ArmResult, String> {
-    if config.region_method == "turbo" {
+    if config.controller == "turbo" {
         return automatic::run_arm(
             config,
             seed,
@@ -488,8 +485,8 @@ fn make_optimizer(
 ) -> Result<baux::BayesOptimizer, String> {
     use baux::optimizer::{
         AllocationPolicy, InitStrategyState, MultiTrustRegionConfig, MultiTrustRegionState,
-        RegionMethod, RestartCenterPolicy, RestartCenterSelection, RestartMemoryPolicy, Strategy,
-        StrategyState,
+        RegionController, RestartCenterPolicy, RestartCenterSelection, RestartMemoryPolicy,
+        Strategy, StrategyState,
     };
     use ndarray::Array2;
 
@@ -498,10 +495,10 @@ fn make_optimizer(
     config_tr.succ_tolerance = config.succeed();
     config_tr.sharing_policy = sharing;
     config_tr.allocation_policy = AllocationPolicy::Balanced;
-    config_tr.region_method = if config.region_method == "turbo" {
-        RegionMethod::Turbo
+    config_tr.controller = if config.controller == "turbo" {
+        RegionController::Turbo
     } else {
-        RegionMethod::FixedLength
+        RegionController::FixedRadius
     };
     config_tr.restart_memory_policy = match memory {
         "fresh" => RestartMemoryPolicy::Fresh,
@@ -662,7 +659,7 @@ fn arm_report(
         "restart_center_policy":center_policy,
         "restart_candidates":config.candidates(),
         "region_acquisition_beta":if roles == "split_beta" { vec![0.0,4.0,2.0,2.0] } else { vec![2.0;4] },
-        "region_method":config.region_method,
+        "controller":config.controller,
         "acquisition":"turbo_enn (RAASP, ENN, per-region UCB beta as reported)",
         "evaluation_count_including_startup":config.evaluations,
         "initial_region_proposal_budget_indices":[1, config.regions],
@@ -688,7 +685,7 @@ mod tests {
     #[test]
     fn host_config() {
         let config: Config = baux::artifact::toml::from_str(
-            "version=1\nexperiment='host-regions'\ndimensions=8\nevaluations=64\nregions=4\nseeds=[17]\nsharing=['shared']\nstarts=['separated']\nrestart_after_evaluations=32\nallocation='balanced'\nregion_method='fixed_length'\nrestart_memory=['fresh','retain_relevant']\n",
+            "version=1\nexperiment='host-regions'\ndimensions=8\nevaluations=64\nregions=4\nseeds=[17]\nsharing=['shared']\nstarts=['separated']\nrestart_after_evaluations=32\nallocation='balanced'\ncontroller='fixed_radius'\nrestart_memory=['fresh','retain_relevant']\n",
         ).unwrap();
         assert!(validate(&config).is_ok());
         assert_eq!(config.roles(), ["uniform"]);
@@ -714,7 +711,7 @@ mod tests {
     #[test]
     fn automaticretirement() {
         let config: Config = baux::artifact::toml::from_str(
-            "version=1\nexperiment='host-regions'\ndimensions=8\nevaluations=64\nregions=4\nseeds=[17]\nsharing=['independent']\nstarts=['separated']\nrestart_after_evaluations=0\nallocation='balanced'\nregion_method='turbo'\nrestart_memory=['fresh','retain_relevant']\nroles=['uniform']\nrestart_centers=['uniform']\nrestart_candidates=1\nobjectives=['double_well']\nlength_init=0.8\nlength_min=0.2\nlength_max=1.6\nfailure_tolerance=2\nsuccess_tolerance=3\n",
+            "version=1\nexperiment='host-regions'\ndimensions=8\nevaluations=64\nregions=4\nseeds=[17]\nsharing=['independent']\nstarts=['separated']\nrestart_after_evaluations=0\nallocation='balanced'\ncontroller='turbo'\nrestart_memory=['fresh','retain_relevant']\nroles=['uniform']\nrestart_centers=['uniform']\nrestart_candidates=1\nobjectives=['double_well']\nlength_init=0.8\nlength_min=0.2\nlength_max=1.6\nfailure_tolerance=2\nsuccess_tolerance=3\n",
         )
         .unwrap();
         validate(&config).unwrap();

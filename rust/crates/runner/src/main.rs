@@ -137,12 +137,14 @@ fn research_contract(
     let text = std::fs::read_to_string(root.join(path)).map_err(|error| error.to_string())?;
     let spec = ExperimentSpec::parse(&text)?;
     let (spec_candidates, surrogate) = match &spec.optimizer {
-        OptimizerSpec::TurboEnn {
+        OptimizerSpec::BayesianSearch {
             candidates,
             surrogate,
             ..
         } => (*candidates, surrogate),
-        _ => return Err("active Lean target requires optimizer.algorithm = turbo-enn".into()),
+        _ => {
+            return Err("active Lean target requires optimizer.algorithm = bayesian-search".into());
+        }
     };
     let matches = parameters == baux::experimental::MHC4_PARAMS
         && context_tokens == spec.window_tokens.unwrap_or_default()

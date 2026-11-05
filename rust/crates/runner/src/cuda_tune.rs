@@ -372,7 +372,7 @@ window-tokens = 1048576
 rounds = 1000
 round-target-ms = 1000
 [optimizer]
-algorithm = "turbo-enn"
+algorithm = "bayesian-search"
 arms = 1
 candidates = 1
 distribution = "gaussian"

@@ -100,7 +100,7 @@ class TestPublicAPIExports:
         assert experimental is experimental_mod
         assert experimental.experimental is experimental
         assert inspect.isclass(experimental.SharingPolicy)
-        assert inspect.isclass(experimental.MultiTrustRegionLoop)
+        assert inspect.isclass(experimental.RegionalSearchLoop)
         assert callable(experimental.make_region)
         assert inspect.isclass(experimental.BayesOptimizer)
         assert inspect.isclass(experimental.MultiTrustRegion)
@@ -137,7 +137,7 @@ class TestPublicAPIExports:
     def test_010(self):
         import numpy as np
 
-        from baux.experimental.multi_region import MultiTrustRegionLoop
+        from baux.experimental.multi_region import RegionalSearchLoop
 
         class BrokenState:
             calls = 0
@@ -147,7 +147,7 @@ class TestPublicAPIExports:
                 raise TypeError("failure inside tell")
 
         state = BrokenState()
-        loop = MultiTrustRegionLoop(state)
+        loop = RegionalSearchLoop(state)
         with pytest.raises(TypeError, match="failure inside tell"):
             loop.tell(np.ones((1, 2)), np.ones((1, 1)), np.ones((1, 1)))
         assert state.calls == 1

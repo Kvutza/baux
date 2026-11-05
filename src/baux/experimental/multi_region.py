@@ -86,7 +86,7 @@ def _coerceproposal(
     return CandidateProposal(int(region), int(seed), payload)
 
 
-class MultiTrustRegionLoop:
+class RegionalSearchLoop:
     """End-to-end experimental loop around a multi-trust-region state."""
 
     def __init__(self, state) -> None:
@@ -187,7 +187,7 @@ multi_region = sys.modules[__name__]
 
 __all__ = [
     "CandidateProposal",
-    "MultiTrustRegionLoop",
+    "RegionalSearchLoop",
     "RegionBatch",
     "RegionCandidate",
     "RegionRound",

@@ -16,7 +16,7 @@ from .turbo.config.surrogate import (
     GaussianProcess,
     NoSurrogate,
 )
-from .turbo.config.trust_region import MultiTrustRegionPolicy
+from .turbo.config.trust_region import RegionalSearchPolicy
 from .turbo.optimizer_types import Telemetry, _Obs, _Plan, _View
 
 
@@ -334,12 +334,12 @@ def create_optimizer(
     n = 10 if config.init.num_init is None else int(config.init.num_init)
     seed = int(rng.integers(2**63 - 1))
     regions = (
-        config.trust_region.num_regions
-        if isinstance(config.trust_region, MultiTrustRegionPolicy)
+        config.trust_region.count
+        if isinstance(config.trust_region, RegionalSearchPolicy)
         else 1
     )
     provider_factory: Callable[[], Any] | None = None
-    if isinstance(config.trust_region, MultiTrustRegionPolicy):
+    if isinstance(config.trust_region, RegionalSearchPolicy):
         if isinstance(config.surrogate, ExternalSurrogate):
             provider_factory = config.surrogate.factory
         elif isinstance(config.surrogate, GaussianProcess):
@@ -368,7 +368,7 @@ def create_optimizer(
         len(bounds),
         rng,
         inner,
-        identified_asks=isinstance(config.trust_region, MultiTrustRegionPolicy),
+        identified_asks=isinstance(config.trust_region, RegionalSearchPolicy),
     )
 
 

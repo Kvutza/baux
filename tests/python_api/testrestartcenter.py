@@ -3,12 +3,12 @@ from dataclasses import replace
 import pytest
 
 from baux import turbo_zero
-from baux.turbo.config import MultiTrustRegionPolicy, RestartCenterPolicy
+from baux.turbo.config import RegionalSearchPolicy, RestartCenterPolicy
 from baux.turbo.config.encode import encode
 
 
 def testcenterdefault():
-    policy = MultiTrustRegionPolicy()
+    policy = RegionalSearchPolicy()
     assert policy.restart_center == RestartCenterPolicy()
     encoded = encode(replace(turbo_zero(), trust_region=policy))
     assert encoded["region_restart_candidates"] == 1
@@ -16,7 +16,7 @@ def testcenterdefault():
 
 
 def testcenternondefault():
-    policy = MultiTrustRegionPolicy(
+    policy = RegionalSearchPolicy(
         restart_center=RestartCenterPolicy(candidates=32, selection="maximin")
     )
     encoded = encode(replace(turbo_zero(), trust_region=policy))
@@ -43,4 +43,4 @@ def testcenterselection():
 
 def testregioncenterrequired():
     with pytest.raises(TypeError, match="RestartCenterPolicy"):
-        MultiTrustRegionPolicy(restart_center=None)
+        RegionalSearchPolicy(restart_center=None)

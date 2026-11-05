@@ -8,6 +8,7 @@ exec_python="$BAUX_TEST_PYTHON"
 "$exec_python" -m pytest -q -p no:cacheprovider -c /dev/null \
     --confcutdir=tests/python_api tests/python_api/testresidentregion.py \
     tests/python_api/testsubmission.py tests/python_api/testcreateoptct.py \
+    tests/python_api/testregionalpareto.py \
     tests/python_api/testrestartcenter.py \
     tests/python_api/test_adapter.py::test_regionalprovider \
     tests/python_api/test_adapter.py::test_missingfactory \

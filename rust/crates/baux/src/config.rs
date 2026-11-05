@@ -1,9 +1,9 @@
 //! Configuration types for the optimizer.
 
+use crate::backend::EnnStorage;
 use crate::candidates::CandidateSampler;
 use crate::index::IndexDriver;
 use crate::morbo::{MorboTRSettings, Rescalarize};
-use crate::store::EnnStorage;
 use crate::trust_region::{TRLengthConfig, TrustRegionConfig};
 use deser::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -13,8 +13,8 @@ pub use crate::optimizer_config::{
     turbo_enn, turbo_zero,
 };
 
-#[path = "config/experiment.rs"]
-mod cfg_experiment;
+mod experiment;
+use experiment as cfg_experiment;
 mod diffusion;
 mod feedback;
 mod generation;
@@ -33,10 +33,16 @@ mod spec_conversion;
 mod spec_execution;
 #[path = "config/spec/optimizer.rs"]
 mod spec_optimizer;
+#[cfg(test)]
+#[path = "config/spec/tests.rs"]
+mod spec_tests;
 mod validation;
+pub use cfg_experiment::{
+    DistanceMetric, ObjectiveReference, PretrainSelection, TrainingOptimizer, TrustRegionShape,
+};
 pub use feedback::FeedbackTransition;
 pub use generation::{
-    FrozenAttention, FrozenComputeMode, FrozenReadout, GenerationConfig, GenerationPurpose,
+    FrozenAttention, FrozenBackend, FrozenReadout, GenerationConfig, GenerationPurpose,
     GenerationReward, GenerationTask, SignalGate, VerifyConfig, VerifyMode,
 };
 pub use initialization::ModelInitialization;
@@ -45,21 +51,10 @@ pub use objectives::{
     ObjectiveAcquisition, ObjectivePolicy, ResidentObjectiveConfig, ResidentObjectiveMode,
 };
 pub use spec::ExperimentSpec;
-pub use spec_execution::{
-    DataSpec, DiagnosticSpec, EvaluationSpec, ExecutionSpec, ObjectiveFunction, ObjectiveSampling,
-    ObjectiveSpec,
-};
+pub use spec_execution::ObjectiveFunction;
 pub use spec_optimizer::{
-    AcceptanceCriterion, AcceptanceSpec, AcquisitionSpec, CandidateGenerationSpec, OptimizerSpec,
-    ProposalKernelSpec, RadiusControlSpec, SurrogateEstimator, SurrogateFit, SurrogateRecipe,
-    TrustRegionBounds, TrustRegionSpec,
-};
-#[cfg(test)]
-#[path = "config/spec/tests.rs"]
-mod spec_tests;
-pub use cfg_experiment::{
-    DistanceScaling, HistoryGeometry, ObjectiveReference, PretrainSelection, TrainingOptimizer,
-    TrustRegionShape,
+    AcquisitionSpec, CandidateGenerationSpec, OptimizerSpec, PerturbationSpec, SurrogateFit,
+    SurrogateRecipe, TrustRegionBounds,
 };
 
 /// Concrete runtime configuration compiled from a validated experiment recipe.
@@ -75,9 +70,6 @@ pub struct RunConfig {
     /// Logical procedural proposal layout. Current resident kernels accept the
     /// legacy one-arm/four-slot layout only; larger requests fail validation.
     pub proposal_pool: Option<crate::procedural_pool::ProceduralPoolConfig>,
-    /// Program used to turn procedural random bits into a full-coordinate
-    /// direction.
-    pub proposal_method: Option<crate::procedural_pool::ProposalMethod>,
     /// File-driven experiment to run. Programmatic callers may omit it.
     pub experiment: Option<ExperimentKind>,
     pub acquisition: Option<AcquisitionConfig>,
@@ -89,12 +81,9 @@ pub struct RunConfig {
     pub aleatoric_scale: Option<f64>,
     /// Output uncertainty scale used by accelerator acquisition kernels.
     pub y_scale: Option<f64>,
-    /// Geometry normalization used before ENN neighbor weighting.
-    pub distance_scaling: Option<DistanceScaling>,
-    /// Coordinate system used for resident ENN history distances.
-    pub history_geometry: Option<HistoryGeometry>,
-    /// Neighbor rank defining each point's local radius under self-tuning
-    /// scaling.
+    /// Distance metric used before ENN neighbor weighting.
+    pub distance_metric: Option<DistanceMetric>,
+    /// Neighbor rank defining each point's local radius under local metrics.
     pub local_scale_neighbors: Option<usize>,
     /// Fit resident ENN variance scales by leave-one-out predictive likelihood.
     pub fit_params: Option<bool>,
@@ -102,6 +91,7 @@ pub struct RunConfig {
     pub adapt_neighbors: Option<bool>,
     pub candidate_rv: Option<CandidateSampler>,
     pub raasp_fast: Option<bool>,
+    pub coord_system: Option<crate::CoordSystem>,
     pub num_candidates_factor: Option<f64>,
     pub min_candidates: Option<usize>,
     pub max_candidates: Option<usize>,
@@ -173,8 +163,6 @@ pub struct RunConfig {
     pub objective_reference: Option<ObjectiveReference>,
     /// Scalar token loss function used by fixed-corpus pretraining.
     pub objective_function: Option<ObjectiveFunction>,
-    /// Reliability-aware controller parameters for full-weight pretraining.
-    pub reliability_controller: Option<crate::ReliabilityPolicy>,
 }
 
 /// Complete workload selected by a file-driven optimizer configuration.
@@ -251,7 +239,6 @@ pub fn valid_recipe(value: &str) -> bool {
 pub enum TrustRegionKind {
     Turbo,
     Morbo,
-    Reliability,
 }
 
 fn apply_enn(config: &mut OptimizerConfig, overrides: &RunConfig) {
@@ -352,6 +339,9 @@ impl RunConfig {
         if let Some(fast) = self.raasp_fast {
             config.candidates.raasp_fast = fast;
         }
+        if let Some(cs) = self.coord_system {
+            config.candidates.coord_system = cs;
+        }
         if let Some(f) = self.num_candidates_factor {
             config.candidates.num_candidates_factor = f;
         }
@@ -391,7 +381,6 @@ impl RunConfig {
 
 #[cfg(test)]
 mod serialization_tests {
-    use super::ExperimentSpec;
     use super::{AcquisitionConfig, ExperimentKind, RunConfig, TrustRegionKind, parse_tune};
     use crate::{CandidateSampler, Rescalarize};
 
@@ -433,12 +422,14 @@ mod serialization_tests {
 
     #[test]
     fn recipe_seeds() {
-        let input = "version=4\nexperiment='pretrain'\nmodel='fbt-pisa1-mhc4-v1'\n[data]\nrecipe='\
-                     stack-v3-rust-go-v1'\n[evaluation]\ninterval=4\n[optimizer]\nalgorithm='muon'\
-                     \n[objective]\nfunction='cross-entropy'\nsampling='natural'";
+        let input = "version=4\nexperiment='pretrain'\nmodel='fbt-pisa1-mhc4-v1'\n\
+                     recipe='stack-v3-rust-go-v1'\nobjective='cross-entropy'\n\
+                     validation-interval=4\n[optimizer]\nalgorithm='muon'";
         let run = parse_tune(input).unwrap();
         assert_ne!(run.model_seeded(0), run.model_seeded(1));
-        assert!(parse_tune(&input.replace("interval=4", "interval=0")).is_err());
+        assert!(
+            parse_tune(&input.replace("validation-interval=4", "validation-interval=0")).is_err()
+        );
     }
 }
 
@@ -569,12 +560,6 @@ impl RunConfig {
         length
     }
 
-    pub fn reliability_controller(&self) -> Option<crate::ReliabilityPolicy> {
-        (self.trust_region_kind == Some(TrustRegionKind::Reliability))
-            .then_some(self.reliability_controller)
-            .flatten()
-    }
-
     pub fn output(&self) -> PathBuf {
         self.output
             .clone()
@@ -621,8 +606,8 @@ impl RunConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::backend::EnnStorage;
     use crate::candidates::CandidateSampler;
-    use crate::store::EnnStorage;
     use std::path::Path;
 
     #[test]
@@ -653,6 +638,7 @@ mod tests {
             num_pert: 20,
             candidate_rv: CandidateSampler::Uniform,
             raasp_fast: false,
+            ..Default::default()
         };
         assert_eq!(config.num_candidates(60, 1), 5000);
         assert_eq!(config.num_candidates(100, 1), 5000);
@@ -774,6 +760,7 @@ mod tests {
             num_pert: 20,
             candidate_rv: CandidateSampler::Uniform,
             raasp_fast: false,
+            ..Default::default()
         };
         assert_eq!(cfg.num_candidates(2, 3), 75);
         assert_eq!(cfg.num_candidates(2, 8), 200);

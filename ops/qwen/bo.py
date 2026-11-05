@@ -9,10 +9,11 @@ from pathlib import Path
 
 import click
 
+from ops.flame.objective import SolutionObjective
+
 from .bo_export import _ckptheader, _exportbest, _paired, _sha256file
 from .config import Config
 from .metal import Evaluator, proposal_stats
-from .objective import SolutionObjective
 
 _CONTEXT_TARGETS = (4096, 16384, 32768)
 
@@ -85,7 +86,7 @@ def _initreport(
             "radius": cfg["radius"],
             "sampler": "correlated",
             "perturbation_semantics": "dense_full_tensor_correlated_bf16",
-            "runtime": "metal",
+            "backend": "metal",
             "objective_evaluator": "teacher_forced_solution_loss",
             "objective_context_tokens": max_tokens,
             "context_targets": list(_CONTEXT_TARGETS),

@@ -10,6 +10,8 @@ from typing import Any
 
 import click
 
+from ops.flame.objective import SolutionObjective
+
 from .bo import _exportbest, _paired
 from .config import Config
 from .eval import validate_obj
@@ -24,7 +26,6 @@ from .joint_score import (
     _writejson,
 )
 from .metal import Evaluator, proposal_stats
-from .objective import SolutionObjective
 from .tokenizer import load
 
 

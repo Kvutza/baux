@@ -1,0 +1,55 @@
+{
+  "task": "blckbaux-m6h.1",
+  "date": "2026-11-04",
+  "source_revision": "JJ change uxtvsulwrmkmqktzwqwnqwxmmqqklqqp",
+  "base_revision": "3b63ac97",
+  "workspace": "codex-pisa-full",
+  "changes": [
+    "Renamed 12 naming-policy violations including the 1M evidence filename.",
+    "Shared context oracle scores per-head LSE over child means internally and raw keys at leaves; mean_blocks remains explicit for the separate Metal diffusion index.",
+    "Added zero-mean and cancelling-head regression cases, plus Metal cache parity at 4096, 65536 and 1048576 context capacity with four query rows.",
+    "CUDA selector uses 256 threads and explicit KV input; split score, traversal and refinement modules to satisfy complexity checks.",
+    "Removed stale packed-quantized materialize harness calls because the kernel no longer exists. CUDA parity retains proposal, neighbors, embedding and feedback checks; bench now accepts muon.",
+    "Split Metal distance materialization and SCIP graph construction/scanning into focused helpers; repository-wide KISS checks now pass."
+  ],
+  "checks": [
+    { "command": "./baux names", "result": "passed" },
+    { "command": "rustfmt --edition 2024 --check <all changed Rust files>", "result": "passed" },
+    {
+      "command": "./tools/buck2w test //rust/crates/fbt:fbt-unit //rust/crates/baux:baux-unit",
+      "result": "passed",
+      "baux": { "passed": 648, "ignored": 5 },
+      "fbt": { "passed": 98, "ignored": 14 }
+    },
+    {
+      "command": "./tools/buck2w test //rust/crates/tooling:tooling-unit //rust/crates/baux:baux-unit",
+      "result": "passed",
+      "tooling": { "passed": 7, "ignored": 0 },
+      "baux": { "passed": 648, "ignored": 5 }
+    },
+    { "command": "./tools/buck2w build //rust/crates/cuda:baux-cuda-bin", "result": "passed" },
+    {
+      "command": "kiss check .",
+      "result": "passed",
+      "summary": "Analyzed 782 files, 9590 code units, 51549 statements; NO VIOLATIONS"
+    },
+    {
+      "command": "./baux check",
+      "result": "passed with native JJ file discovery",
+      "summary": "563 Rust, 288 Python and 95 TOML files; UV, naming and KISS passed"
+    }
+  ],
+  "integration": {
+    "local_main": "JJ change uxtvsulwrmkmqktzwqwnqwxmmqqklqqp",
+    "parent": "3b63ac97",
+    "default_workspace_revision": "3b63ac97",
+    "conflicts": false,
+    "git_main": "3b63ac97",
+    "note": "Local JJ main is one direct child ahead of main@git. The default workspace remains on the parent and was not rewritten."
+  },
+  "limitations": [
+    "NVIDIA runtime correctness, memory/synchronization validation and latency are deferred by user; executable compilation is not runtime validation.",
+    "The 1M cache check uses four query rows and is not a full 1M forward-pass benchmark.",
+    "The check command is JJ-native and intentionally has no Git or prek compatibility path."
+  ]
+}

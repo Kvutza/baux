@@ -21,14 +21,12 @@ fn state() -> (SearchState, RoundConfig) {
             }
             .resolve_resident()
             .unwrap(),
-            proposal_method: crate::procedural_pool::ProposalMethod::Additive,
             ask,
             num_candidates: 4,
             num_samples: 4,
             fit_params: false,
             adapt_neighbors: false,
-            distance_scaling: crate::config::DistanceScaling::Global,
-            history_geometry: crate::config::HistoryGeometry::Latent,
+            distance_metric: crate::config::DistanceMetric::Euclidean,
             local_scale_neighbors: 8,
         })
         .unwrap();
@@ -112,13 +110,10 @@ fn partial_commit() {
             .unwrap();
         // Inject a bookkeeping failure after the physical weight commit.
         // The public contract is poison-and-stop, not rollback or retry.
-        search.exact_history = true;
-        search.pending.as_mut().unwrap().block_scales.clear();
+        search.fit_params = true;
+        search.fitter = None;
         let error = search.tell_evaluated(&proposal, evaluation).unwrap_err();
-        assert_eq!(
-            error,
-            "Exact replay proposal has the wrong block-scale count"
-        );
+        assert_eq!(error, "Metal implicit ENN is not configured");
         assert_eq!(read::<u16>(&search.base, 17), proposed);
         assert!(search.poisoned);
         assert!(search.sync().is_err());
@@ -132,7 +127,7 @@ fn seam_roundtrip() {
         let (mut search, _ask) = state();
         let mut surrogate = baux::semantics::optimizer::Surrogate::new(0.0, 0.0, 73)
             .unwrap()
-            .with_metric(baux::semantics::neighbor::DistanceMetric::SelfTuning { local_k: 2 });
+            .with_metric(baux::semantics::neighbor::DistanceMetric::Conformal { local_k: 2 });
         let mut trust_region =
             baux::semantics::optimizer::TrustRegionController::new(0.1, 0.001, 0.4).unwrap();
         for (step, value) in [1.5_f32, -0.5_f32].into_iter().enumerate() {
@@ -140,7 +135,14 @@ fn seam_roundtrip() {
             let geometry = search.sample_distances(91 + step as u64).unwrap();
             assert_eq!(geometry.len(), 1);
             assert_eq!(geometry[0].len(), surrogate.len());
-            let selection = surrogate.evaluate_candidate(&geometry[0]).unwrap();
+            let selection = surrogate
+                .select_pool(
+                    &geometry,
+                    step as u32,
+                    baux::semantics::optimizer::AcquisitionRule::Ucb { beta: 0.0 },
+                    None,
+                )
+                .unwrap();
             let (row, proposal) = search
                 .materialize_selection(91 + step as u64, &selection)
                 .unwrap();

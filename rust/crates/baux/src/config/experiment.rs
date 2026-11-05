@@ -20,38 +20,25 @@ pub enum PretrainSelection {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[deser(rename_all = "kebab-case")]
-pub enum DistanceScaling {
+pub enum DistanceMetric {
     #[default]
-    Global,
-    #[deser(rename = "self-tuning")]
-    SelfTuning,
+    #[deser(rename = "euclidean")]
+    Euclidean,
+    #[deser(rename = "conformal")]
+    Conformal,
     #[deser(rename = "hyperbolic")]
     Hyperbolic,
+    #[deser(rename = "wasserstein")]
+    Wasserstein,
 }
 
-impl DistanceScaling {
+impl DistanceMetric {
     pub const fn name(self) -> &'static str {
         match self {
-            Self::Global => "global",
-            Self::SelfTuning => "self-tuning",
+            Self::Euclidean => "euclidean",
+            Self::Conformal => "conformal",
             Self::Hyperbolic => "hyperbolic",
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
-#[deser(rename_all = "kebab-case")]
-pub enum HistoryGeometry {
-    Realized,
-    #[default]
-    Latent,
-}
-
-impl HistoryGeometry {
-    pub const fn name(self) -> &'static str {
-        match self {
-            Self::Realized => "realized",
-            Self::Latent => "latent",
+            Self::Wasserstein => "wasserstein",
         }
     }
 }

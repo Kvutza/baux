@@ -55,7 +55,7 @@ def source_state(channel_override: str | None) -> tuple[str, str, str]:
 
 
 def update_text(path: str, text: str, channel: str, date: str, edition: str) -> str:
-    if path == "backends/cuda/rust-toolchain.toml":
+    if path == "rust/crates/cuda/rust-toolchain.toml":
         return replace_channel(text, channel, path)
     if path == "MODULE.bazel":
         text = replace_one(text, r'^    edition = "[^"]+",$', f'    edition = "{edition}",', path)
@@ -97,9 +97,9 @@ def update_text(path: str, text: str, channel: str, date: str, edition: str) -> 
 
 def synchronized_files(channel: str, date: str, edition: str) -> dict[str, str]:
     paths = [
-        "backends/cuda/rust-toolchain.toml",
-        "backends/cuda/Cargo.toml",
-        "backends/cuda/device/Cargo.toml",
+        "rust/crates/cuda/rust-toolchain.toml",
+        "rust/crates/cuda/Cargo.toml",
+        "rust/crates/cuda/device/Cargo.toml",
         "MODULE.bazel",
         ".buckconfig",
         "ops/cuoxtool.py",

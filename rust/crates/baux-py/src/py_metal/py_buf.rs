@@ -1,30 +1,23 @@
-use std::cell::Cell;
-use std::rc::Rc;
-
+use super::super::py_util;
 use baux::experimental::MetalParamBlock;
 use metal::Buffer;
 use numpy::{IntoPyArray, PyArray1, PyReadonlyArray1};
-use pyo3::exceptions::{PyTypeError, PyValueError};
+use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
+use std::cell::Cell;
+use std::rc::Rc;
 
-use super::{PyMetalProposals, err};
+pub(super) fn err(message: String) -> PyErr {
+    let _ = py_util::format_profile::<baux::experimental::MetalProfileInfo>;
+    PyValueError::new_err(message)
+}
 
 #[pyclass(name = "MetalWeights", module = "baux.experimental", unsendable)]
 pub struct PyMetalWeights {
-    pub(super) buffer: Buffer,
-    pub(super) len: usize,
-    pub(super) lease: Option<Rc<Cell<usize>>>,
-}
-
-impl PyMetalWeights {
-    pub(crate) fn owned(buffer: Buffer, len: usize) -> Self {
-        Self {
-            buffer,
-            len,
-            lease: None,
-        }
-    }
+    pub(crate) buffer: Buffer,
+    pub(crate) len: usize,
+    pub(crate) lease: Option<Rc<Cell<usize>>>,
 }
 
 impl Drop for PyMetalWeights {
@@ -41,7 +34,7 @@ impl PyMetalWeights {
     fn new(bits: PyReadonlyArray1<'_, u16>) -> PyResult<Self> {
         let values = bits.as_slice()?;
         Ok(Self {
-            buffer: baux::experimental::metal_upload_bf16(values).map_err(err)?,
+            buffer: baux::experimental::metal_upload(values).map_err(err)?,
             len: values.len(),
             lease: None,
         })
@@ -52,7 +45,7 @@ impl PyMetalWeights {
         let device = baux::experimental::metal_memory_info().map_err(err)?;
         if !device.has_unified_memory {
             return Err(PyValueError::new_err(
-                "Metal weights require unified memory",
+                "Metal search requires unified memory",
             ));
         }
         let info = PyDict::new(py);
@@ -80,22 +73,9 @@ impl PyMetalWeights {
     }
 }
 
-pub(crate) fn weight_buffer(weights: &Bound<'_, PyAny>) -> PyResult<Buffer> {
-    if let Ok(view) = weights.extract::<PyRef<'_, PyMetalWeights>>() {
-        return Ok(view.buffer.clone());
-    }
-    if let Ok(proposal) = weights.extract::<PyRef<'_, PyMetalProposals>>() {
-        let owner = proposal.owner.bind(weights.py()).try_borrow()?;
-        return owner.inner.propose_buffer(&proposal.inner).map_err(err);
-    }
-    Err(PyTypeError::new_err(
-        "Expected resident MetalWeights or a live Metal proposal",
-    ))
-}
-
 #[pyclass(name = "MetalParamBlock", module = "baux.experimental", frozen)]
 pub struct PyMetalParamBlock {
-    pub(super) inner: MetalParamBlock,
+    pub(crate) inner: MetalParamBlock,
 }
 
 #[pymethods]

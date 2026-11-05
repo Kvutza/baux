@@ -1,0 +1,8 @@
+version = 1
+experiment = "resident-regions"
+dimensions = 64
+evaluations = 64
+regions = [1, 4]
+seeds = [17, 29, 43]
+sharing = ["independent", "shared", "nearest_center"]
+starts = ["separated", "clustered"]

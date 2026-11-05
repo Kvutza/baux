@@ -1,12 +1,5 @@
 //! Causal corpus-window indexing shared by the accelerator dispatchers.
-use super::{PATCH, WaveShape, shape};
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct CausalPlan {
-    pub rows: usize,
-    pub start: usize,
-    pub targets: usize,
-}
+use super::{CausalPlan, PATCH, WaveShape, shape};
 
 impl CausalPlan {
     /// Coarse row zero consumes input patch zero, then predicts label 63.

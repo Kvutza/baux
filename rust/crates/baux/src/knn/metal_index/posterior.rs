@@ -6,31 +6,6 @@ use mtl::{Buffer, BufferRef, MTLCommandBufferStatus};
 
 const POSTERIOR: &str = include_str!("posterior.metal");
 
-#[repr(C)]
-#[derive(Clone, Copy)]
-struct Shape {
-    queries: u32,
-    metrics: u32,
-    input_k: u32,
-    k: u32,
-    skip: u32,
-    has_var: u32,
-    noise: u32,
-    seeds: u32,
-    epistemic: f32,
-    aleatoric: f32,
-}
-
-pub(crate) struct MetalPosterior {
-    runtime: Arc<Runtime>,
-    pub(crate) means: Buffer,
-    pub(crate) errors: Buffer,
-    weights: Buffer,
-    indices: Buffer,
-    l2: Buffer,
-    shape: Shape,
-}
-
 fn completed(command: &metal::CommandBufferRef) -> Result<(), String> {
     command.commit();
     command.wait_until_completed();

@@ -3,17 +3,14 @@ use super::*;
 use crate::Rescalarize;
 use crate::morbo::{MorboTRSettings, MorboTrustRegion};
 use crate::objective_observation::MAX_OBJECTIVES;
-use ndarray::Array1;
 use rand::Rng;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 
-#[path = "objective_acquisition/parameters.rs"]
 mod parameters;
 use parameters::ObjectiveParams;
-#[path = "objective_acquisition/hypervolume.rs"]
 mod hypervolume;
-use hypervolume::{improvement, measured};
+use hypervolume::{exclusive_volume, improvement, max_exclusive, measured, values};
 
 pub use crate::config::{ObjectiveAcquisition, ObjectivePolicy};
 
@@ -24,13 +21,14 @@ struct MorboRegion {
     trials: u64,
 }
 
-pub(super) struct ResidentMorbo {
+pub struct ResidentMorbo {
     regions: Vec<MorboRegion>,
     active: usize,
     preferences: Vec<f32>,
     scales: Vec<f32>,
     reference: Vec<f64>,
     seed: u64,
+    clip: bool,
     observations: usize,
 }
 
@@ -42,18 +40,11 @@ impl ResidentMorbo {
             alpha,
             seed,
             rescalarize,
-            clip: _,
+            clip,
         } = acquisition
         else {
             return Err("Resident MORBO requires MORBO acquisition".into());
         };
-        if state.reliability.is_some() {
-            return Err(
-                "MORBO owns trust-region adaptation and cannot be combined with the scalar \
-                 reliability controller"
-                    .into(),
-            );
-        }
         if *rescalarize != Rescalarize::OnRestart {
             return Err(
                 "Exact resident MORBO requires rescalarize='on_restart'; changing scalarization \
@@ -63,13 +54,6 @@ impl ResidentMorbo {
         }
         if !(2..=8).contains(regions) {
             return Err("Resident MORBO requires 2..=8 trust regions".into());
-        }
-        if state.implicit_history && !state.latent_history {
-            return Err(
-                "Multi-region MORBO currently requires latent history geometry so center switches \
-                 preserve the shared ENN geometry"
-                    .into(),
-            );
         }
         let incumbent = *state
             .objective_history
@@ -82,6 +66,7 @@ impl ResidentMorbo {
             scales: Vec::new(),
             reference: Vec::new(),
             seed: *seed,
+            clip: *clip,
             observations: 0,
         };
         // Objective scales are installed by ObjectiveSelector immediately after
@@ -156,21 +141,12 @@ impl ResidentMorbo {
             .map_err(|error| error.to_string())
     }
 
-    fn values(observation: crate::objective_observation::ObjectiveObservation) -> Array1<f64> {
-        Array1::from_iter(
-            observation
-                .estimates()
-                .iter()
-                .map(|estimate| f64::from(estimate.mean)),
-        )
-    }
-
     fn seed(
         &mut self,
         region: usize,
         observation: crate::objective_observation::ObjectiveObservation,
     ) -> Result<(), String> {
-        let values = Self::values(observation);
+        let values = values(observation);
         let row = values.view().insert_axis(ndarray::Axis(0));
         self.regions[region].trust.update_incremental(&row);
         // The trust region deliberately preserves its global observation
@@ -183,25 +159,22 @@ impl ResidentMorbo {
             .map_err(|error| error.to_string())
     }
 
-    fn hypervolume<'a>(
-        &self,
-        rows: impl Iterator<Item = &'a crate::objective_observation::ObjectiveRecord>,
-        candidate: Option<crate::objective_observation::ObjectiveObservation>,
-    ) -> Result<f64, String> {
-        measured(rows, candidate, &self.reference, &self.scales)
-    }
-
-    pub(super) fn candidate_improves(
+    pub fn candidate_improves(
         &self,
         history: &crate::objective_observation::ObjectiveWindow,
         candidate: crate::objective_observation::ObjectiveObservation,
     ) -> Result<(bool, f64), String> {
-        let before = self.hypervolume(history.rows(), None)?;
-        let after = self.hypervolume(history.rows(), Some(candidate))?;
+        let before = measured(history.rows(), None, &self.reference, &self.scales)?;
+        let after = measured(
+            history.rows(),
+            Some(candidate),
+            &self.reference,
+            &self.scales,
+        )?;
         Ok(improvement(before, after))
     }
 
-    pub(super) fn observe(
+    pub fn observe(
         &mut self,
         candidate: crate::objective_observation::ObjectiveObservation,
         accepted: bool,
@@ -209,7 +182,7 @@ impl ResidentMorbo {
     ) -> Result<(), String> {
         let region = self.active;
         let observation = candidate;
-        let candidate = Self::values(observation);
+        let candidate = values(observation);
         self.regions[region]
             .trust
             .update_incremental(&candidate.view().insert_axis(ndarray::Axis(0)));
@@ -221,14 +194,14 @@ impl ResidentMorbo {
                 observation,
             };
         }
-        let incumbent = Self::values(self.regions[region].record.observation);
+        let incumbent = values(self.regions[region].record.observation);
         self.regions[region]
             .trust
             .update_only(&incumbent.view(), self.observations)
             .map_err(|error| error.to_string())
     }
 
-    pub(super) fn restart(
+    pub fn restart(
         &mut self,
         region: usize,
         epoch: usize,
@@ -239,11 +212,15 @@ impl ResidentMorbo {
         self.seed(region, incumbent)
     }
 
-    pub(super) fn trust(&self) -> &MorboTrustRegion {
+    pub fn trust(&self) -> &MorboTrustRegion {
         &self.regions[self.active].trust
     }
 
-    pub(super) fn set_tolerance(&mut self, failures: usize) -> Result<(), String> {
+    pub fn clip(&self) -> bool {
+        self.clip
+    }
+
+    pub fn set_tolerance(&mut self, failures: usize) -> Result<(), String> {
         for region in &mut self.regions {
             region
                 .trust
@@ -263,15 +240,26 @@ impl ResidentMorbo {
             .iter()
             .map(|region| region.record)
             .collect::<Vec<_>>();
-        let total_volume = self.hypervolume(records.iter(), None).unwrap_or(0.0);
+        let total_volume =
+            measured(records.iter(), None, &self.reference, &self.scales).unwrap_or(0.0);
         self.regions
             .iter()
             .enumerate()
             .max_by(|(left_index, left), (right_index, right)| {
-                let left_score = self.exclusive_volume(&records, *left_index, total_volume)
-                    + (2.0 * total_trials.ln() / left.trials as f64).sqrt();
-                let right_score = self.exclusive_volume(&records, *right_index, total_volume)
-                    + (2.0 * total_trials.ln() / right.trials as f64).sqrt();
+                let left_score = exclusive_volume(
+                    &records,
+                    *left_index,
+                    total_volume,
+                    &self.reference,
+                    &self.scales,
+                ) + (2.0 * total_trials.ln() / left.trials as f64).sqrt();
+                let right_score = exclusive_volume(
+                    &records,
+                    *right_index,
+                    total_volume,
+                    &self.reference,
+                    &self.scales,
+                ) + (2.0 * total_trials.ln() / right.trials as f64).sqrt();
                 left_score
                     .total_cmp(&right_score)
                     .then_with(|| right_index.cmp(left_index))
@@ -284,55 +272,13 @@ impl ResidentMorbo {
         self.regions.len()
     }
 
-    fn best_region(&self) -> Result<usize, String> {
+    fn max_region(&self, excluded: Option<usize>) -> Result<usize, String> {
         let records = self
             .regions
             .iter()
             .map(|region| region.record)
             .collect::<Vec<_>>();
-        let total = self.hypervolume(records.iter(), None)?;
-        Ok((0..records.len())
-            .max_by(|&left, &right| {
-                self.exclusive_volume(&records, left, total)
-                    .total_cmp(&self.exclusive_volume(&records, right, total))
-                    .then_with(|| right.cmp(&left))
-            })
-            .unwrap_or(0))
-    }
-
-    fn restart_source(&self, target: usize) -> Result<usize, String> {
-        let records = self
-            .regions
-            .iter()
-            .map(|region| region.record)
-            .collect::<Vec<_>>();
-        let total = self.hypervolume(records.iter(), None)?;
-        Ok((0..records.len())
-            .filter(|&region| region != target)
-            .max_by(|&left, &right| {
-                self.exclusive_volume(&records, left, total)
-                    .total_cmp(&self.exclusive_volume(&records, right, total))
-                    .then_with(|| right.cmp(&left))
-            })
-            .unwrap_or(target))
-    }
-
-    fn exclusive_volume(
-        &self,
-        records: &[crate::objective_observation::ObjectiveRecord],
-        excluded: usize,
-        total: f64,
-    ) -> f64 {
-        let volume = self
-            .hypervolume(
-                records
-                    .iter()
-                    .enumerate()
-                    .filter_map(|(index, record)| (index != excluded).then_some(record)),
-                None,
-            )
-            .unwrap_or(0.0);
-        total - volume
+        max_exclusive(&records, excluded, &self.reference, &self.scales)
     }
 }
 
@@ -347,13 +293,13 @@ pub struct ObjectiveSelectionReport {
     pad: u32,
 }
 
-pub(super) struct ObjectiveSelector {
+pub struct ObjectiveSelector {
     config: ObjectivePolicy,
     reference: Vec<f64>,
-    pub(super) morbo: Option<ResidentMorbo>,
-    pub(super) pipeline: ComputePipelineState,
-    pub(super) parameters: Buffer,
-    pub(super) report: Buffer,
+    pub morbo: Option<ResidentMorbo>,
+    pub pipeline: ComputePipelineState,
+    pub parameters: Buffer,
+    pub report: Buffer,
 }
 
 impl ObjectiveSelector {
@@ -405,7 +351,7 @@ impl ObjectiveSelector {
             morbo,
             pipeline: state
                 .runtime
-                .precise(&source, "Vector search", "bf16_select_objectives")?,
+                .precise(&source, "Vector search", "dense_select_objectives")?,
             parameters: state.runtime.buffer::<ObjectiveParams>(1),
             report: state
                 .runtime
@@ -413,8 +359,8 @@ impl ObjectiveSelector {
         })
     }
 
-    pub(super) fn upload(&self, state: &SearchState, root: u64, ask: RoundConfig) {
-        let parameters = ObjectiveParams::pack(state, &self.config, root, ask);
+    pub fn upload(&self, state: &SearchState, root: u64, ask: RoundConfig) {
+        let parameters = ObjectiveParams::pack(state, &self.config, self.morbo.as_ref(), root, ask);
         unsafe {
             self.parameters
                 .contents()
@@ -442,14 +388,14 @@ impl SearchState {
         Ok(())
     }
 
-    pub(super) fn validate_selector(&self) -> Result<(), String> {
+    pub fn validate_selector(&self) -> Result<(), String> {
         if let Some(selector) = &self.objective_selector {
             parameters::validate_history(self, selector.config.scales.len())?;
         }
         Ok(())
     }
 
-    pub(super) fn objective_decision(
+    pub fn objective_decision(
         &self,
         candidate: crate::objective_observation::ObjectiveObservation,
     ) -> Result<Option<(bool, f64)>, String> {
@@ -476,7 +422,7 @@ impl SearchState {
         Ok(Some(improvement(before, after)))
     }
 
-    pub(super) fn update_morbo(
+    pub fn update_morbo(
         &mut self,
         candidate: crate::objective_observation::ObjectiveObservation,
     ) -> Result<(), String> {
@@ -493,7 +439,7 @@ impl SearchState {
             morbo.observe(candidate, accepted, self.observation)?;
             if morbo.trust().needs_restart() {
                 self.restart_count += 1;
-                let source = morbo.restart_source(region)?;
+                let source = morbo.max_region(Some(region))?;
                 let source_center = morbo.regions[source]
                     .center
                     .clone()
@@ -514,13 +460,13 @@ impl SearchState {
         result
     }
 
-    pub(super) fn has_morbo(&self) -> bool {
+    pub fn has_morbo(&self) -> bool {
         self.objective_selector
             .as_ref()
             .is_some_and(|selector| selector.morbo.is_some())
     }
 
-    pub(super) fn activate_morbo(&mut self) -> Result<(), String> {
+    pub fn activate_morbo(&mut self) -> Result<(), String> {
         let Some(mut selector) = self.objective_selector.take() else {
             return Ok(());
         };
@@ -582,7 +528,7 @@ impl SearchState {
             return Ok(None);
         };
         let result = (|| {
-            let region = morbo.best_region()?;
+            let region = morbo.max_region(None)?;
             self.switch_region(morbo, region)?;
             let record = morbo.regions[region].record;
             let length = morbo.regions[region].trust.length();
@@ -613,5 +559,4 @@ impl SearchState {
 }
 
 #[cfg(test)]
-#[path = "objective_acquisition/tests.rs"]
 mod tests;

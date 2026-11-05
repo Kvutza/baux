@@ -1,4 +1,4 @@
-//! Shared mHC-4 ABI. Imported by the CUDA host and Metal
+//! Native mHC-4 ABI. Imported by the CUDA host and Metal
 //! dispatcher; shaders use the same repr(C) layouts and canonical row-major F16
 //! weights. Fine encoding rounds after its ordered F32 FMA sum. Decoder base
 //! and prefix remain F32; queries round to F16 before projection; logits and
@@ -17,20 +17,23 @@ mod initialization;
 pub mod layout;
 #[path = "mhc4/probe.rs"]
 pub mod probe;
-pub use causal::CausalPlan;
 pub use initialization::{
     Initialization, ScaleShape, columns, expert_multiplier, family_multiplier,
 };
 pub use layout::{LAYOUT, LayerVisit, MHC4_VISITS, Mhc4Layout, Slot};
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CausalPlan {
+    pub rows: usize,
+    pub start: usize,
+    pub targets: usize,
+}
 
 pub const PATCH: usize = baux::semantics::shape::MHC4_SHAPE.patch as usize;
 pub const QUERY: usize = baux::semantics::shape::MHC4_SHAPE.query as usize;
 pub const VOCABULARY: usize = baux::semantics::shape::MHC4_VOCABULARY as usize;
 pub const SHARD: usize = 128;
 pub const SHARDS: usize = VOCABULARY / SHARD;
-pub const RADIX: usize = 8;
-pub const RADIX_LEVELS: usize = 6;
-pub const HIERARCHY_NODES: usize = 8 + 64 + 512 + 4_096 + 32_768;
 pub const WIDTH: usize = baux::semantics::shape::MHC4_SHAPE.width as usize;
 pub const TARGET_PROMPT: usize = 524_288;
 pub const TARGET_GENERATED: usize = 524_288;

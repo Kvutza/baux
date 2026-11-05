@@ -218,6 +218,43 @@ fn plotting_failure() {
 }
 
 #[test]
+fn hostreport() {
+    let root = root();
+    let mut row = record(root.path(), "host", 100, "task");
+    let report = json!({"experiment":"host-regions","results":[{
+        "objective":"double_well", "sharing":"independent", "roles":"uniform",
+        "restart_centers":"uniform",
+        "fresh":{"observation_values":[-2.0,-3.0,-1.0]},
+        "retain_relevant":{"observation_values":[-2.0,-0.5,-1.0]}
+    }]});
+    fs::write(
+        Path::new(&row.output).join("regional.json"),
+        json::to_string(&report).unwrap(),
+    )
+    .unwrap();
+    finish(root.path(), &mut row, &Ok(())).unwrap();
+    assert_eq!(row.report_status, "complete");
+    let measurements = row.measurements.as_seq().unwrap();
+    assert_eq!(measurements.len(), 2);
+    assert_eq!(
+        measurements[0]["series"],
+        json!([[1.0, -2.0], [2.0, -2.0], [3.0, -1.0]])
+    );
+    assert_eq!(
+        measurements[1]["series"],
+        json!([[1.0, -2.0], [2.0, -0.5], [3.0, -0.5]])
+    );
+    for measurement in measurements {
+        let label = measurement["y"].as_str().unwrap();
+        assert!(
+            Path::new(&row.output)
+                .join(format!("regional.json.{label}.svg"))
+                .exists()
+        );
+    }
+}
+
+#[test]
 fn provenance() {
     let root = root();
     let row = record(root.path(), "a", 100, "task");
@@ -234,12 +271,12 @@ fn provenance() {
 
 #[test]
 fn gpu_provenance() {
-    use baux::artifact::gpu::{DeviceKind, Kind, Recipe, Stage};
+    use baux::artifact::gpu::{Backend, Kind, Recipe, Stage};
     let root = root();
     let row = record(root.path(), "gpu", 100, "task");
     let output = Path::new(&row.output).join("gpu");
     let recipe = Recipe {
-        device_kind: DeviceKind::Metal,
+        backend: Backend::Metal,
         device: "test device".into(),
         target: "test target".into(),
         compiler: "test compiler".into(),
@@ -274,9 +311,9 @@ fn gpu_provenance() {
 }
 
 fn capture_gpu(row: &Record, entry: &str) -> baux::artifact::gpu::Receipt {
-    use baux::artifact::gpu::{DeviceKind, Kind, Recipe, Stage};
+    use baux::artifact::gpu::{Backend, Kind, Recipe, Stage};
     let recipe = Recipe {
-        device_kind: DeviceKind::Metal,
+        backend: Backend::Metal,
         device: "device".into(),
         target: "target".into(),
         compiler: "compiler".into(),

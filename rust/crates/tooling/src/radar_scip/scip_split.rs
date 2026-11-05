@@ -1,7 +1,12 @@
-use super::{DEFINITION, ScipIndex, local_symbol, require_index, resolve_target};
+use super::scip_graph::{Span, base_dir, doc_spans, enclosing_span};
+use super::scip_pb::{
+    DEFINITION, Document, ScipIndex, local_symbol, require_index, resolve_target,
+};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::Path;
+
+const SYMBOL_GRANULARITY: usize = 10;
 
 #[derive(Clone, Debug)]
 struct SplitRefSite {
@@ -63,22 +68,67 @@ impl FasState {
 
 fn module_label(doc_path: &str, granularity: usize) -> String {
     let trimmed = doc_path
-        .strip_prefix("src/")
+        .strip_prefix("rust/crates/")
         .unwrap_or(doc_path)
-        .strip_suffix(".rs")
-        .unwrap_or(doc_path);
+        .strip_prefix("src/")
+        .unwrap_or(doc_path.strip_prefix("rust/crates/").unwrap_or(doc_path));
+    let trimmed = trimmed.strip_suffix(".rs").unwrap_or(trimmed);
     if trimmed == "lib" || trimmed == "main" {
         return "root".to_owned();
     }
     let parts = trimmed
         .split('/')
-        .filter(|&part| part != "mod")
+        .filter(|&part| part != "mod" && part != "src")
         .collect::<Vec<_>>();
-    if parts.is_empty() {
+    if parts.is_empty() || (parts.len() == 1 && (parts[0] == "lib" || parts[0] == "main")) {
         return "root".to_owned();
     }
     let take = parts.len().min(granularity.max(1));
     parts[..take].join("::")
+}
+
+fn unit_spans(dir: &Path, doc: &Document) -> Vec<Span> {
+    doc_spans(dir, doc)
+        .into_iter()
+        .filter(|span| {
+            if span.callable || span.symbol.ends_with('#') || span.symbol.ends_with("().") {
+                return true;
+            }
+            let tail = span.symbol.rsplit('/').next().unwrap_or(&span.symbol);
+            !tail.contains('#')
+        })
+        .collect()
+}
+
+fn span_label(file_mod: &str, span: &Span) -> String {
+    let tail = span.symbol.rsplit('/').next().unwrap_or(&span.symbol);
+    let item = if let Some((ty, _)) = tail.strip_prefix("impl#[").and_then(|s| s.split_once(']')) {
+        let clean_ty = ty
+            .split(',')
+            .next()
+            .unwrap_or(ty)
+            .trim()
+            .trim_matches('`')
+            .split('<')
+            .next()
+            .unwrap_or(ty);
+        format!("{clean_ty}::{}", span.display)
+    } else if let Some((ty, rest)) = tail.split_once('#')
+        && !ty.is_empty()
+        && !rest.is_empty()
+        && ty != span.display
+    {
+        format!("{ty}::{}", span.display)
+    } else if !span.display.is_empty() {
+        span.display.clone()
+    } else {
+        tail.to_owned()
+    };
+    if file_mod == "root" {
+        item
+    } else {
+        format!("{file_mod}::{item}")
+    }
 }
 
 /// Weighted Eades-Lin-Smyth (ELS) minimum feedback-arc-set vertex ordering.
@@ -225,6 +275,7 @@ type ModuleData = (
     BTreeMap<String, String>,
     BTreeMap<String, usize>,
     BTreeMap<String, BTreeSet<String>>,
+    BTreeMap<String, Vec<Span>>,
 );
 
 fn collect_modules(
@@ -233,36 +284,66 @@ fn collect_modules(
     granularity: usize,
     exclude_root: bool,
 ) -> ModuleData {
+    let base = base_dir(dir);
+    let sym_mode = granularity >= SYMBOL_GRANULARITY;
     let mut sym_defs = BTreeMap::new();
     let mut sym_display = BTreeMap::new();
     let mut mod_loc = BTreeMap::<String, usize>::new();
     let mut mod_files = BTreeMap::<String, BTreeSet<String>>::new();
+    let mut spans_by_doc = BTreeMap::<String, Vec<Span>>::new();
 
     for doc in &index.documents {
-        let label = module_label(&doc.path, granularity);
-        if exclude_root && label == "root" {
+        let file_mod = module_label(&doc.path, granularity);
+        if exclude_root && (file_mod == "root" || file_mod.ends_with("::root")) {
             continue;
         }
-        let loc = fs::read_to_string(dir.join(&doc.path))
-            .map(|text| text.lines().count())
-            .unwrap_or(0);
-        *mod_loc.entry(label.clone()).or_insert(0) += loc;
-        mod_files.entry(label).or_default().insert(doc.path.clone());
-
         for info in &doc.symbols {
             if !local_symbol(&info.symbol) {
                 sym_display.insert(info.symbol.clone(), info.display.clone());
             }
         }
-        for occ in &doc.occurrences {
-            if occ.roles & DEFINITION != 0 && !local_symbol(&occ.symbol) {
-                sym_defs
-                    .entry(occ.symbol.clone())
-                    .or_insert_with(|| doc.path.clone());
+        if sym_mode {
+            let spans = unit_spans(base, doc);
+            for span in &spans {
+                let node = span_label(&file_mod, span);
+                let loc = span.end.saturating_sub(span.start) + 1;
+                *mod_loc.entry(node.clone()).or_insert(0) += loc;
+                mod_files
+                    .entry(node.clone())
+                    .or_default()
+                    .insert(doc.path.clone());
+                sym_defs.entry(span.symbol.clone()).or_insert(node);
+            }
+            for occ in &doc.occurrences {
+                if occ.roles & DEFINITION != 0 && !local_symbol(&occ.symbol) {
+                    let line = occ.range.first().copied().unwrap_or(0) as usize;
+                    if let Some(span) = enclosing_span(&spans, line) {
+                        sym_defs
+                            .entry(occ.symbol.clone())
+                            .or_insert_with(|| span_label(&file_mod, span));
+                    }
+                }
+            }
+            spans_by_doc.insert(doc.path.clone(), spans);
+        } else {
+            let loc = fs::read_to_string(base.join(&doc.path))
+                .map(|text| text.lines().count())
+                .unwrap_or(0);
+            *mod_loc.entry(file_mod.clone()).or_insert(0) += loc;
+            mod_files
+                .entry(file_mod.clone())
+                .or_default()
+                .insert(doc.path.clone());
+            for occ in &doc.occurrences {
+                if occ.roles & DEFINITION != 0 && !local_symbol(&occ.symbol) {
+                    sym_defs
+                        .entry(occ.symbol.clone())
+                        .or_insert_with(|| file_mod.clone());
+                }
             }
         }
     }
-    (sym_defs, sym_display, mod_loc, mod_files)
+    (sym_defs, sym_display, mod_loc, mod_files, spans_by_doc)
 }
 
 fn collect_edges(
@@ -272,39 +353,47 @@ fn collect_edges(
     mod_idx: &BTreeMap<String, usize>,
     sym_defs: &BTreeMap<String, String>,
     sym_display: &BTreeMap<String, String>,
+    spans_by_doc: &BTreeMap<String, Vec<Span>>,
 ) -> BTreeMap<(usize, usize), Vec<SplitRefSite>> {
+    let sym_mode = granularity >= SYMBOL_GRANULARITY;
     let mut edge_sites = BTreeMap::<(usize, usize), Vec<SplitRefSite>>::new();
     for doc in &index.documents {
-        let src_mod = module_label(&doc.path, granularity);
-        if exclude_root && src_mod == "root" {
+        let file_mod = module_label(&doc.path, granularity);
+        if exclude_root && (file_mod == "root" || file_mod.ends_with("::root")) {
             continue;
         }
-        let Some(&u) = mod_idx.get(&src_mod) else {
-            continue;
-        };
+        let doc_spans = spans_by_doc.get(&doc.path);
         for occ in &doc.occurrences {
             if occ.roles & DEFINITION != 0 || local_symbol(&occ.symbol) || occ.symbol.ends_with('/')
             {
                 continue;
             }
-            let Some(def_path) = sym_defs.get(&occ.symbol) else {
+            let raw_line = occ.range.first().copied().unwrap_or(0) as usize;
+            let src_node = if sym_mode {
+                let Some(spans) = doc_spans else { continue };
+                let Some(span) = enclosing_span(spans, raw_line) else {
+                    continue;
+                };
+                span_label(&file_mod, span)
+            } else {
+                file_mod.clone()
+            };
+            let Some(&u) = mod_idx.get(&src_node) else {
                 continue;
             };
-            let dst_mod = module_label(def_path, granularity);
-            if exclude_root && dst_mod == "root" {
+            let Some(dst_node) = sym_defs.get(&occ.symbol) else {
                 continue;
-            }
-            let Some(&v) = mod_idx.get(&dst_mod) else {
+            };
+            let Some(&v) = mod_idx.get(dst_node) else {
                 continue;
             };
             if u == v {
                 continue;
             }
-            let line = occ.range.first().copied().unwrap_or(0) as usize + 1;
             let display = sym_display.get(&occ.symbol).cloned().unwrap_or_default();
             edge_sites.entry((u, v)).or_default().push(SplitRefSite {
                 file: doc.path.clone(),
-                line,
+                line: raw_line + 1,
                 symbol: occ.symbol.clone(),
                 display,
             });
@@ -361,8 +450,10 @@ fn print_frontier(
     locked_raw: &BTreeSet<usize>,
 ) {
     let n = modules.len();
+    let total = back_edges.len();
+    let step = (total / 32).max(1);
     let mut already_free = BTreeSet::new();
-    for k in 0..=back_edges.len() {
+    for k in (0..=total).step_by(step).chain(std::iter::once(total)) {
         let cut_set = back_edges[..k]
             .iter()
             .map(|(u, v, _)| (*u, *v))
@@ -410,7 +501,7 @@ pub(super) fn split(
 ) -> Result<(), String> {
     let dir = resolve_target(root, target)?;
     let index = require_index(root, &dir)?;
-    let (sym_defs, sym_display, mod_loc, mod_files) =
+    let (sym_defs, sym_display, mod_loc, mod_files, spans_by_doc) =
         collect_modules(&dir, &index, granularity, exclude_root);
 
     let modules = mod_loc.keys().cloned().collect::<Vec<_>>();
@@ -426,16 +517,15 @@ pub(super) fn split(
         &mod_idx,
         &sym_defs,
         &sym_display,
+        &spans_by_doc,
     );
 
     let n = modules.len();
     let mut adj = vec![Vec::new(); n];
-    for &(u, v) in edge_sites.keys() {
-        adj[u].push(v);
-    }
+    edge_sites.keys().for_each(|&(u, v)| adj[u].push(v));
 
     let raw_sccs = tarjan_scc(n, &adj);
-    let multi_sccs = raw_sccs.iter().filter(|c| c.len() > 1).collect::<Vec<_>>();
+    let multi_sccs: Vec<_> = raw_sccs.iter().filter(|c| c.len() > 1).collect();
     println!(
         "SPLIT target={} granularity={} modules={} total_loc={} raw_sccs={} cyclic_sccs={}",
         dir.display(),
@@ -448,13 +538,9 @@ pub(super) fn split(
 
     let (back_edges, locked_raw) = find_cuts(&multi_sccs, &edge_sites);
     for comp in &raw_sccs {
-        if comp.len() == 1 {
-            let u = comp[0];
-            let m = &modules[u];
-            let deps = adj[u]
-                .iter()
-                .map(|&v| modules[v].as_str())
-                .collect::<Vec<_>>();
+        if let [u] = comp.as_slice() {
+            let m = &modules[*u];
+            let deps: Vec<_> = adj[*u].iter().map(|&v| modules[v].as_str()).collect();
             println!(
                 "dag_ready: {m} loc={} files={} depends_on={deps:?}",
                 mod_loc[m],
@@ -463,11 +549,8 @@ pub(super) fn split(
         }
     }
     for (idx, comp) in multi_sccs.iter().enumerate() {
-        let names = comp
-            .iter()
-            .map(|&u| modules[u].as_str())
-            .collect::<Vec<_>>();
-        let loc = comp.iter().map(|&u| mod_loc[&modules[u]]).sum::<usize>();
+        let names: Vec<_> = comp.iter().map(|&u| modules[u].as_str()).collect();
+        let loc: usize = comp.iter().map(|&u| mod_loc[&modules[u]]).sum();
         println!(
             "cyclic_scc: id={} modules={} loc={loc} members={names:?}",
             idx + 1,
@@ -484,9 +567,10 @@ pub(super) fn split(
             sites.len(),
             syms.join(", ")
         );
-        for site in sites.iter().take(6) {
-            println!("cut_site: {}:{} -> {}", site.file, site.line, site.display);
-        }
+        sites
+            .iter()
+            .take(6)
+            .for_each(|s| println!("cut_site: {}:{} -> {}", s.file, s.line, s.display));
     }
     print_frontier(&modules, &mod_loc, &edge_sites, &back_edges, &locked_raw);
     Ok(())
@@ -502,12 +586,12 @@ mod tests {
             module_label("src/optimizer/trust_region/controller.rs", 2),
             "optimizer::trust_region"
         );
-        let adj = vec![vec![1], vec![2], vec![0]];
-        let sccs = tarjan_scc(3, &adj);
-        assert_eq!(sccs.len(), 1);
-        assert_eq!(sccs[0].len(), 3);
-
-        let edges = vec![
+        assert_eq!(
+            module_label("rust/crates/baux/src/fbt_moe/candidate.rs", 2),
+            "baux::fbt_moe"
+        );
+        assert_eq!(tarjan_scc(3, &[vec![1], vec![2], vec![0]])[0].len(), 3);
+        let edges = [
             WeightedEdge {
                 from: 0,
                 to: 1,
@@ -526,13 +610,7 @@ mod tests {
         ];
         let order = fas_order(&[0, 1, 2], &edges);
         let pos = |node: usize| order.iter().position(|&x| x == node).unwrap();
-        let back = edges
-            .iter()
-            .filter(|e| pos(e.to) < pos(e.from))
-            .collect::<Vec<_>>();
-        assert_eq!(back.len(), 1);
-        assert_eq!(back[0].from, 2);
-        assert_eq!(back[0].to, 0);
-        assert_eq!(back[0].weight, 1);
+        let back: Vec<_> = edges.iter().filter(|e| pos(e.to) < pos(e.from)).collect();
+        assert_eq!((back.len(), back[0].from, back[0].to), (1, 2, 0));
     }
 }

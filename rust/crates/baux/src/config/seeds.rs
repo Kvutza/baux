@@ -44,7 +44,7 @@ impl RunConfig {
             .unwrap_or_else(|| self.derived_seed(rep, "acquisition", 0))
     }
 
-    pub(crate) fn derived_seed(&self, rep: u32, domain: &str, index: u64) -> u64 {
+    pub fn derived_seed(&self, rep: u32, domain: &str, index: u64) -> u64 {
         let mut state = 0xcbf2_9ce4_8422_2325u64;
         let mut mix = |bytes: &[u8]| {
             state ^= bytes.len() as u64;

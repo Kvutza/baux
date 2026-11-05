@@ -1,4 +1,4 @@
-use crate::cli_radar::{PerformanceAction, PerformanceTarget};
+use super::{PerformanceAction, PerformanceBackend};
 use std::path::Path;
 
 const RUNTIME_TARGET: &str = "//rust/crates/runner:baux-runner";
@@ -12,12 +12,12 @@ pub(super) fn run(root: &Path, action: PerformanceAction) -> Result<(), String> 
     match action {
         PerformanceAction::Show {
             config,
-            target,
+            backend,
             run,
             json,
         } => {
             args.extend(["show".to_owned(), config.display().to_string()]);
-            target_arg(&mut args, target);
+            backend_arg(&mut args, backend);
             optional_path(&mut args, "--run", run.as_deref());
             if json {
                 args.push("--json".to_owned());
@@ -25,24 +25,24 @@ pub(super) fn run(root: &Path, action: PerformanceAction) -> Result<(), String> 
         }
         PerformanceAction::Record {
             config,
-            target,
+            backend,
             run,
             output,
         } => {
             args.extend(["record".to_owned(), config.display().to_string()]);
-            target_arg(&mut args, target);
+            backend_arg(&mut args, backend);
             path_arg(&mut args, "--run", &run);
             path_arg(&mut args, "--output", &output);
         }
         PerformanceAction::Gate {
             config,
-            target,
+            backend,
             run,
             baseline,
             tolerance_percent,
         } => {
             args.extend(["gate".to_owned(), config.display().to_string()]);
-            target_arg(&mut args, target);
+            backend_arg(&mut args, backend);
             optional_path(&mut args, "--run", run.as_deref());
             path_arg(&mut args, "--baseline", &baseline);
             args.extend([
@@ -56,8 +56,8 @@ pub(super) fn run(root: &Path, action: PerformanceAction) -> Result<(), String> 
         .run(root, RUNTIME_TARGET, &args)
 }
 
-fn target_arg(args: &mut Vec<String>, target: PerformanceTarget) {
-    args.extend(["--target".to_owned(), target.name().to_owned()]);
+fn backend_arg(args: &mut Vec<String>, backend: PerformanceBackend) {
+    args.extend(["--backend".to_owned(), backend.name().to_owned()]);
 }
 
 fn optional_path(args: &mut Vec<String>, flag: &str, path: Option<&Path>) {

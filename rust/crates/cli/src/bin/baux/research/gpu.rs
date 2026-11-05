@@ -13,27 +13,24 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-const TREES: [&str; 6] = [
+const TREES: [&str; 5] = [
     "rust/crates/baux/src",
     "rust/crates/baux/semantics/src",
-    "backends/cuda/src",
-    "backends/cuda/device/src",
-    "backends/cuda/interop",
-    "rust/crates/ptx-synth/src",
+    "rust/crates/cuda/src",
+    "rust/crates/cuda/device/src",
+    "rust/crates/cuda/native",
 ];
-const FILES: [&str; 15] = [
+const FILES: [&str; 13] = [
     "Cargo.toml",
     "Cargo.lock",
     "rust-toolchain.toml",
-    "backends/cuda/Cargo.toml",
-    "backends/cuda/device/Cargo.toml",
-    "backends/cuda/rust-toolchain.toml",
+    "rust/crates/cuda/Cargo.toml",
+    "rust/crates/cuda/device/Cargo.toml",
+    "rust/crates/cuda/rust-toolchain.toml",
     "build/buck2/cuda/defs.bzl",
     "rust/crates/baux/BUCK",
-    "backends/cuda/build.rs",
-    "backends/cuda/BUCK",
-    "rust/crates/ptx-synth/Cargo.toml",
-    "rust/crates/ptx-synth/BUCK",
+    "rust/crates/cuda/build.rs",
+    "rust/crates/cuda/BUCK",
     "rust/crates/baux/Cargo.toml",
     "rust/crates/baux/defs.bzl",
     "build/buck2/baux_targets.bzl",
@@ -143,7 +140,7 @@ fn inventory(root: &Path) -> Result<Inventory, String> {
         {
             metal += 1;
             "metal-source"
-        } else if relative.starts_with("backends/cuda/device/src/") {
+        } else if relative.starts_with("rust/crates/cuda/device/src/") {
             cuda += 1;
             "cuda-device-source"
         } else {
@@ -161,7 +158,7 @@ fn inventory(root: &Path) -> Result<Inventory, String> {
         }));
     }
     if metal == 0 || cuda == 0 {
-        return Err("GPU source inventory is empty for a required execution target".into());
+        return Err("GPU source inventory is empty for a required backend".into());
     }
     let count = sources.len();
     let digest = digest(&identity);
@@ -252,7 +249,7 @@ mod tests {
                 "kernel void op() {}",
             )
             .unwrap();
-            fs::write(root.join("backends/cuda/device/src/op.rs"), "fn op() {}").unwrap();
+            fs::write(root.join("rust/crates/cuda/device/src/op.rs"), "fn op() {}").unwrap();
             Self(root)
         }
     }
@@ -276,8 +273,8 @@ mod tests {
         let changed = inventory(&fixture.0).unwrap();
         assert_ne!(original.digest, changed.digest);
         fs::rename(
-            fixture.0.join("backends/cuda/device/src/op.rs"),
-            fixture.0.join("backends/cuda/device/src/renamed.rs"),
+            fixture.0.join("rust/crates/cuda/device/src/op.rs"),
+            fixture.0.join("rust/crates/cuda/device/src/renamed.rs"),
         )
         .unwrap();
         assert_ne!(changed.digest, inventory(&fixture.0).unwrap().digest);
@@ -287,7 +284,7 @@ mod tests {
     #[test]
     fn empty() {
         let fixture = Fixture::new();
-        fs::remove_file(fixture.0.join("backends/cuda/device/src/op.rs")).unwrap();
+        fs::remove_file(fixture.0.join("rust/crates/cuda/device/src/op.rs")).unwrap();
         assert!(inventory(&fixture.0).unwrap_err().contains("empty"));
     }
 

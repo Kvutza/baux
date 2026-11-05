@@ -38,7 +38,7 @@ pub fn hypervolume_max(
             reference: ref_point.len(),
         });
     }
-    if y.ncols() == 0 || y.nrows() == 0 {
+    if y.ncols() == 0 || y.nrows() == 0 || !ref_point.iter().all(|v| v.is_finite()) {
         return Ok(0.0);
     }
     let mut points = y
@@ -161,13 +161,16 @@ pub fn hypervolume2d_max(
 
     let ref0 = ref_point[0];
     let ref1 = ref_point[1];
+    if !ref0.is_finite() || !ref1.is_finite() {
+        return Ok(0.0);
+    }
 
     // Collect points that dominate reference point in both dimensions
     let mut dominating: Vec<(f64, f64)> = Vec::with_capacity(y.nrows());
     for row in y.rows() {
         let x0 = row[0];
         let x1 = row[1];
-        if x0 > ref0 && x1 > ref1 {
+        if x0.is_finite() && x1.is_finite() && x0 > ref0 && x1 > ref1 {
             dominating.push((x0, x1));
         }
     }

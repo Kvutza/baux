@@ -1,16 +1,16 @@
 [workspace]
 members = [
-  "backends/cuda",
-  "backends/cuda/device",
-  "rust/crates/corpus",
-  "rust/crates/cli",
-  "rust/crates/runner",
-  "rust/crates/tooling",
   "rust/crates/baux",
   "rust/crates/baux-py",
+  "rust/crates/cli",
+  "rust/crates/corpus",
+  "rust/crates/cuda",
+  "rust/crates/cuda/device",
+  "rust/crates/fbt",
   "rust/crates/modal-runner",
-  "rust/crates/ptx-synth",
   "rust/crates/properties",
+  "rust/crates/runner",
+  "rust/crates/tooling",
 ]
 resolver = "2"
 
@@ -39,7 +39,6 @@ thiserror = "1.0"
 cuda-core = "0.3.1"
 cuda-device = { git = "https://github.com/NVlabs/cuda-oxide.git", rev = "6abfaa091e29a6275c1943895bfbc97efa306e98" }
 cuda-host = { git = "https://github.com/NVlabs/cuda-oxide.git", rev = "6abfaa091e29a6275c1943895bfbc97efa306e98" }
-ptx-synth = { path = "rust/crates/ptx-synth", version = "=0.0.1" }
 
 [profile.dev]
 opt-level = 1

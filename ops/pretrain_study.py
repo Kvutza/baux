@@ -167,13 +167,6 @@ def _lowersurrogate(document: dict) -> None:
 
 def _lowertrust(document: dict) -> None:
     trust_region = section_alias(document, "trust-region", "trust_region")
-    reliability = trust_region.pop("reliability", None)
-    if reliability is not None:
-        if not isinstance(reliability, dict):
-            raise ValueError("trust-region.reliability must be a table")
-        move_absent(
-            document, "trust-region.reliability", "reliability_controller", reliability
-        )
     method = trust_region.pop("method", None)
     if method is not None:
         move_absent(document, "trust_region", "trust_region_kind", method)

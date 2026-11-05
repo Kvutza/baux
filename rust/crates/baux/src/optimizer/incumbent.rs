@@ -149,10 +149,38 @@ impl IncumbentLedger {
         if regions.is_morbo() {
             return self.pick_morbo(&candidates, posterior, regions, num_dim, noise_aware, rng);
         }
-        let best_idx = candidates
-            .into_iter()
-            .max_by(|&a, &b| compare_rows(posterior, a, b))
-            .ok_or_else(|| ENNError::InvalidParameter("No incumbent candidates".to_string()))?;
+        if noise_aware && let Some(surrogate) = posterior.surrogate() {
+            let n_cand = candidates.len();
+            let mut x_cand = Array2::zeros((n_cand, num_dim));
+            for (r, &idx) in candidates.iter().enumerate() {
+                let x_row = posterior.x_row(idx)?;
+                for d in 0..num_dim {
+                    x_cand[[r, d]] = x_row[d];
+                }
+            }
+            if let Ok(pred) = surrogate.predict(&x_cand.view()) {
+                let scores: Vec<f64> = (0..n_cand).map(|r| pred.mu[[r, 0]]).collect();
+                let best_pos = argmax_tie(&scores, rng);
+                let best_idx = candidates[best_pos];
+                self.current = Some(IncumbentPoint {
+                    index: best_idx,
+                    unit_x: posterior.x_row(best_idx)?,
+                    y_scalar: pred.mu.row(best_pos).to_owned(),
+                });
+                return Ok(());
+            }
+        }
+        let scores: Vec<f64> = candidates
+            .iter()
+            .map(|&idx| {
+                posterior
+                    .y_row(idx)
+                    .map(|y| y[0])
+                    .unwrap_or(f64::NEG_INFINITY)
+            })
+            .collect();
+        let best_pos = argmax_tie(&scores, rng);
+        let best_idx = candidates[best_pos];
         self.current = Some(IncumbentPoint {
             index: best_idx,
             unit_x: posterior.x_row(best_idx)?,
@@ -202,13 +230,6 @@ impl IncumbentLedger {
         });
         Ok(())
     }
-}
-
-fn compare_rows(posterior: &PosteriorStore, a: usize, b: usize) -> std::cmp::Ordering {
-    posterior
-        .y_row(a)
-        .and_then(|ya| posterior.y_row(b).map(|yb| ya[0].total_cmp(&yb[0])))
-        .unwrap_or(std::cmp::Ordering::Equal)
 }
 
 impl BayesOptimizer {
@@ -263,28 +284,8 @@ impl BayesOptimizer {
         self.proposals.reseed_sobol(generation, obs_count, arms)
     }
 
-    /// Get init progress from warmup schedule.
-    pub fn init_progress(&self) -> Option<(usize, usize)> {
-        self.warmup.progress()
-    }
-
-    /// Current number of stored observations.
-    pub fn obs_count(&self) -> usize {
-        self.posterior.obs_count()
-    }
-
     #[allow(dead_code)] // retained for tests / morbo callers; tell_turbo must not use it
     pub(crate) fn reset_tracker(&mut self) {
         self.incumbent.reset();
-    }
-
-    pub fn update_incumbent(&mut self, rng: &mut dyn RngCore) -> Result<(), ENNError> {
-        self.incumbent.update(
-            &self.posterior,
-            &self.regions,
-            self.domain.num_dim(),
-            self.config.noise_aware,
-            rng,
-        )
     }
 }

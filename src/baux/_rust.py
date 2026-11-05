@@ -24,6 +24,8 @@ pareto2d_max = _ext.util.pareto2d_max
 sobol_indices = _ext.util.sobol_indices
 sobol_sequence = _ext.util.sobol_sequence
 pareto_arms = _ext.util.pareto_arms
+quantize_int4 = _ext.util.quantize_int4
+quantize_e2m1 = _ext.util.quantize_e2m1
 set_path = _ext.util.set_path
 ensure_config_file = _ext.util.ensure_config_file
 ENN = _ext.model.ENN
@@ -34,25 +36,33 @@ row_loglik = _ext.fit.row_loglik
 BayesOptimizer = _ext.optimizer.BayesOptimizer
 Telemetry = _ext.optimizer.Telemetry
 MultiTrustRegion = _ext.optimizer.MultiTrustRegion
-BpannHistory = _ext.optimizer.BpannHistory
+BpannHistory = getattr(_ext.optimizer, "BpannHistory", None)
 create_optimizer = _ext.optimizer.create_optimizer
 enn_optimizer = _ext.optimizer.enn_optimizer
 enn_tr = _ext.optimizer.enn_tr
 create_zero = _ext.optimizer.create_zero
 create_lhd = _ext.optimizer.create_lhd
-dense_apply = _ext.optimizer.dense_apply
-dense_dist2 = _ext.optimizer.dense_dist2
-dense_linear = _ext.optimizer.dense_linear
-DenseLinear = _ext.optimizer.DenseLinear
+dense_apply = getattr(_ext.optimizer, "dense_apply", None)
+dense_dist2 = getattr(_ext.optimizer, "dense_dist2", None)
+dense_linear = getattr(_ext.optimizer, "dense_linear", None)
+DenseLinear = getattr(_ext.optimizer, "DenseLinear", None)
 ParamBuffer = getattr(_ext.optimizer, "ParamBuffer", None)
 ParameterBuffer = getattr(_ext.optimizer, "ParameterBuffer", ParamBuffer)
 ParamBlock = getattr(_ext.optimizer, "ParamBlock", None)
 SearchState = getattr(_ext.optimizer, "SearchState", None)
 Proposals = getattr(_ext.optimizer, "Proposals", None)
+weight_int4_select_ucb = getattr(_ext.optimizer, "weight_int4_select_ucb", None)
+weight_select_ucb = getattr(_ext.optimizer, "weight_select_ucb", None)
+ModelPackage = getattr(_ext.experimental, "ModelPackage", None)
+NativeKdaModel = getattr(_ext.experimental, "NativeKdaModel", None)
+FlameEvaluator = getattr(_ext.experimental, "FlameEvaluator", None)
+MetalFlameEvaluator = getattr(_ext.experimental, "MetalFlameEvaluator", None)
 MetalQwenEvaluator = getattr(_ext.experimental, "MetalQwenEvaluator", None)
 MetalWeights = getattr(_ext.experimental, "MetalWeights", None)
 MetalParamBlock = getattr(_ext.experimental, "MetalParamBlock", None)
 MetalSearchState = getattr(_ext.experimental, "MetalSearchState", None)
+MetalRegionOptimizer = getattr(_ext.experimental, "MetalRegionOptimizer", None)
+ResidentBoSession = getattr(_ext.experimental, "ResidentBoSession", None)
 
 
 __all__ = [
@@ -62,15 +72,21 @@ __all__ = [
     "DenseLinear",
     "ENNFitter",
     "ENNParams",
+    "FlameEvaluator",
+    "MetalFlameEvaluator",
     "MetalParamBlock",
     "MetalQwenEvaluator",
     "MetalSearchState",
+    "MetalRegionOptimizer",
     "MetalWeights",
+    "ModelPackage",
     "MultiTrustRegion",
+    "NativeKdaModel",
     "ParamBlock",
     "ParamBuffer",
     "ParameterBuffer",
     "Proposals",
+    "ResidentBoSession",
     "SearchState",
     "Telemetry",
     "create_lhd",
@@ -86,10 +102,14 @@ __all__ = [
     "normal_hash",
     "pareto2d_max",
     "pareto_arms",
+    "quantize_e2m1",
+    "quantize_int4",
     "row_loglik",
     "set_path",
     "sobol_indices",
     "sobol_sequence",
     "standardize_y",
     "subsample_loglik",
+    "weight_int4_select_ucb",
+    "weight_select_ucb",
 ]

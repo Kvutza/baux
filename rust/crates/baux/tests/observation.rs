@@ -22,15 +22,15 @@ fn check_rows() {
 }
 
 #[test]
-fn validates_format() {
+fn check_backend() {
     let dir = TempDir::new().unwrap();
     baux::neighbor_index::observation::write_metadata(dir.path(), 0, 4, 1, false, 0).unwrap();
-    baux::neighbor_index::observation::validate_format(
+    baux::neighbor_index::observation::check_backend(
         dir.path(),
-        baux::neighbor_index::observation::INDEX_FORMAT,
+        baux::neighbor_index::observation::INDEX_BACKEND,
     )
     .unwrap();
-    assert!(baux::neighbor_index::observation::validate_format(dir.path(), "wrong_index").is_err());
+    assert!(baux::neighbor_index::observation::check_backend(dir.path(), "wrong_backend").is_err());
 }
 
 #[test]
@@ -44,12 +44,12 @@ fn load_rows() {
 }
 
 #[test]
-fn loads_format() {
+fn load_backend() {
     let dir = TempDir::new().unwrap();
     baux::neighbor_index::observation::write_metadata(dir.path(), 0, 4, 1, false, 0).unwrap();
     assert_eq!(
-        baux::neighbor_index::observation::load_format(dir.path()).as_deref(),
-        Some(baux::neighbor_index::observation::INDEX_FORMAT)
+        baux::neighbor_index::observation::load_backend(dir.path()).as_deref(),
+        Some(baux::neighbor_index::observation::INDEX_BACKEND)
     );
 }
 
@@ -66,8 +66,8 @@ fn write_metadata() {
         Some(3)
     );
     assert_eq!(
-        baux::neighbor_index::observation::load_format(dir.path()).as_deref(),
-        Some(baux::neighbor_index::observation::INDEX_FORMAT)
+        baux::neighbor_index::observation::load_backend(dir.path()).as_deref(),
+        Some(baux::neighbor_index::observation::INDEX_BACKEND)
     );
 }
 

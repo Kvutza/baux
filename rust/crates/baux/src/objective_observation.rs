@@ -60,7 +60,7 @@ impl ObjectiveObservation {
 
     /// Internal adapter defers validation to the existing tell boundary, so
     /// invalid scalar calls retain their established state/error ordering.
-    pub(crate) fn scalar_adapter(mean: f32, variance: f32) -> Self {
+    pub fn scalar_adapter(mean: f32, variance: f32) -> Self {
         let control = ObjectiveEstimate { mean, variance };
         let mut estimates = [ObjectiveEstimate::default(); MAX_OBJECTIVES];
         estimates[0] = control;
@@ -75,7 +75,7 @@ impl ObjectiveObservation {
         &self.estimates[..usize::from(self.width)]
     }
 
-    pub(crate) fn is_vector(&self) -> bool {
+    pub fn is_vector(&self) -> bool {
         self.width > 1
     }
 
@@ -100,7 +100,7 @@ pub struct ObjectiveRecord {
 
 /// Fixed storage owned by the resident search. Recording and borrowing rows
 /// allocate nothing; FIFO retention never retains dense parameter vectors.
-pub(crate) struct ObjectiveWindow {
+pub struct ObjectiveWindow {
     rows: [Option<ObjectiveRecord>; OBJECTIVE_CAPACITY],
     len: usize,
     capacity: usize,
@@ -109,7 +109,7 @@ pub(crate) struct ObjectiveWindow {
 }
 
 impl ObjectiveWindow {
-    pub(crate) fn new(capacity: usize) -> Self {
+    pub fn new(capacity: usize) -> Self {
         assert!((1..=OBJECTIVE_CAPACITY).contains(&capacity));
         Self {
             rows: [None; OBJECTIVE_CAPACITY],
@@ -120,7 +120,7 @@ impl ObjectiveWindow {
         }
     }
 
-    pub(crate) fn validate(&self, observation: ObjectiveObservation) -> Result<(), String> {
+    pub fn validate(&self, observation: ObjectiveObservation) -> Result<(), String> {
         observation.validate()?;
         if self.width != 0 && self.width != observation.estimates().len() {
             return Err("Objective schema width cannot change within a resident search".into());
@@ -128,12 +128,7 @@ impl ObjectiveWindow {
         Ok(())
     }
 
-    pub(crate) fn record(
-        &mut self,
-        identity: i64,
-        observation: ObjectiveObservation,
-        accepted: bool,
-    ) {
+    pub fn record(&mut self, identity: i64, observation: ObjectiveObservation, accepted: bool) {
         let record = ObjectiveRecord {
             identity,
             observation,
@@ -150,7 +145,7 @@ impl ObjectiveWindow {
         }
     }
 
-    pub(crate) fn record_slot(
+    pub fn record_slot(
         &mut self,
         slot: usize,
         identity: i64,
@@ -169,17 +164,17 @@ impl ObjectiveWindow {
         }
     }
 
-    pub(crate) fn rows(&self) -> impl ExactSizeIterator<Item = &ObjectiveRecord> {
+    pub fn rows(&self) -> impl ExactSizeIterator<Item = &ObjectiveRecord> {
         self.rows[..self.len]
             .iter()
             .map(|row| row.as_ref().unwrap())
     }
 
-    pub(crate) fn incumbent(&self) -> Option<&ObjectiveRecord> {
+    pub fn incumbent(&self) -> Option<&ObjectiveRecord> {
         self.incumbent.as_ref()
     }
 
-    pub(crate) fn retain_incumbent(&mut self) {
+    pub fn retain_incumbent(&mut self) {
         self.rows.fill(None);
         self.rows[0] = self.incumbent;
         self.len = usize::from(self.incumbent.is_some());
@@ -187,5 +182,4 @@ impl ObjectiveWindow {
 }
 
 #[cfg(test)]
-#[path = "objective_observation/tests.rs"]
 mod tests;

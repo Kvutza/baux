@@ -3,24 +3,17 @@ use std::env;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-#[path = "config.rs"]
-mod cli_cfg;
-#[path = "experiment.rs"]
-mod cli_exp;
-#[path = "radar.rs"]
-mod cli_radar;
+mod config;
+use config as cli_cfg;
+mod check;
 mod cuda_track;
+mod experiment;
+use experiment as cli_exp;
+mod radar;
+use radar as cli_radar;
 #[path = "research/extract.rs"]
 mod ext_ops;
-#[path = "radar/performance.rs"]
-mod radar_perf;
 mod research;
-#[path = "research/agy.rs"]
-mod research_agy;
-#[path = "research/gpu.rs"]
-mod research_gpu;
-#[path = "research/site.rs"]
-mod research_site;
 #[path = "research/site/aeneas.rs"]
 mod site_aeneas;
 #[path = "research/site/lean.rs"]
@@ -31,9 +24,8 @@ mod site_llbc;
 mod site_payload;
 #[path = "research/site/registry.rs"]
 mod site_registry;
+mod smart_test;
 mod work;
-#[path = "work/store.rs"]
-mod work_store;
 
 #[derive(Parser)]
 #[command(
@@ -54,12 +46,11 @@ enum Action {
     Context(work::Context),
     /// Show task progress or record a checkpoint against the current revision.
     Feedback(work::Feedback),
-    /// Build BAUX Rust targets and Python distribution wheels.
+    /// Build native BAUX targets and Python distribution wheels.
     Build,
     /// Run the repository verification test suite.
-    Test,
-    /// Format and verify repository code quality (rustfmt, ruff, uv, names,
-    /// kiss) via prek.
+    Test(smart_test::TestArgs),
+    /// Format and verify JJ-tracked repository files.
     #[command(visible_alias = "gate", alias = "fmt")]
     Check,
     #[command(hide = true)]
@@ -98,15 +89,8 @@ fn run() -> Result<(), String> {
         Action::Context(args) => work::context(&root, args),
         Action::Feedback(args) => work::feedback(&root, args),
         Action::Build => build(&root, settings.build_system),
-        Action::Test => settings.build_system.test_all(&root),
-        Action::Check => {
-            let mut prekw = std::process::Command::new("./tools/prekw");
-            if let Ok(exe) = env::current_exe() {
-                prekw.env("BAUX_BIN", exe);
-            }
-            prekw.current_dir(&root).args(["run", "--all-files"]);
-            execute(prekw)
-        }
+        Action::Test(args) => smart_test::run(&root, args, settings.build_system),
+        Action::Check => check::run(&root),
         Action::Names => baux_tooling::names::cli(&root, &[], false),
         Action::Tune(args) => cli_exp::tune(&root, args, settings.build_system),
         Action::Cuda { command } => cuda_track::run(&root, command),
@@ -118,8 +102,8 @@ fn run() -> Result<(), String> {
 pub(crate) use baux_tooling::execute;
 
 fn build(root: &Path, engine: cli_cfg::BuildSystem) -> Result<(), String> {
-    println!("o|build [1/2]: building BAUX Rust targets...");
-    engine.build_targets(root)?;
+    println!("o|build [1/2]: building native BAUX targets...");
+    engine.build_native(root)?;
     println!("o|build [2/2]: building Python distribution wheels into dist/...");
     baux_tooling::build::build_dist(root, Path::new("dist"))
 }

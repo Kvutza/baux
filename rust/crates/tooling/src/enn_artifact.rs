@@ -21,15 +21,11 @@ use std::process::Command;
 
 const CABI_SYMBOLS: &[&str] = &[
     "baux_accept",
-    "baux_action",
     "baux_world",
     "baux_anchored",
     "baux_routed",
     "baux_total",
     "baux_window",
-    "baux_cell",
-    "baux_slot",
-    "baux_sign",
     "baux_numerical_init",
     "baux_numerical",
     "baux_numerical_fini",

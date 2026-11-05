@@ -2,22 +2,29 @@ use super::*;
 
 #[test]
 fn paired_streams() {
-    assert_eq!(candidate_seed(73, 0), candidate_seed(73, 1));
-    assert_eq!(candidate_seed(73, 2), candidate_seed(73, 3));
-    assert_ne!(candidate_seed(73, 0), candidate_seed(73, 2));
+    for left in 0..4 {
+        for right in left + 1..4 {
+            assert_ne!(candidate_seed(73, left), candidate_seed(73, right));
+        }
+    }
 }
 
 #[test]
 fn pool_parity() {
     let legacy = PoolShape::new(1, 4).unwrap();
     assert_eq!(legacy, PoolShape::legacy());
-    assert_eq!(legacy.seed(73, 0), legacy.seed(73, 1));
-    assert_eq!(legacy.seed(73, 2), legacy.seed(73, 3));
+    for left in 0..4 {
+        for right in left + 1..4 {
+            assert_ne!(legacy.seed(73, left), legacy.seed(73, right));
+        }
+    }
 
     let paired = PoolShape::new(2, 4).unwrap();
-    assert_eq!(paired.seed(73, 0), paired.seed(73, 1));
-    assert_eq!(paired.seed(73, 2), paired.seed(73, 3));
-    assert_ne!(paired.seed(73, 0), paired.seed(73, 2));
+    for left in 0..4 {
+        for right in left + 1..4 {
+            assert_ne!(paired.seed(73, left), paired.seed(73, right));
+        }
+    }
 }
 
 #[test]
@@ -53,7 +60,7 @@ fn neighbor_query() {
     assert!(estimator.predict(&[]).is_err());
 
     let counts = ParamTree::<usize>::mhc4_counts(1);
-    assert_eq!(ParamTree::<usize>::total_parameters(1), 1_177_723_160);
+    assert_eq!(ParamTree::<usize>::total_parameters(1), 265_623_320);
     assert_eq!(
         ParamTree::<usize>::total_parameters(1) as u64,
         baux::semantics::optimizer::param_tree::total_count()
@@ -62,9 +69,9 @@ fn neighbor_query() {
         *counts.get(ParamFamily::RoutedGateUp) as u64 + *counts.get(ParamFamily::RoutedDown) as u64,
         baux::semantics::optimizer::param_tree::routed_count()
     );
-    assert_eq!(ParamTree::<usize>::total_parameters(64), 1_177_756_440);
+    assert_eq!(ParamTree::<usize>::total_parameters(64), 265_656_600);
     let shares = ParamTree::<usize>::mhc4_shares(1);
-    assert!(*shares.get(ParamFamily::RoutedGateUp) > 0.5);
+    assert!(*shares.get(ParamFamily::RoutedGateUp) > 0.3);
     let doubled = counts.zip_with(&counts, |&a, &b| a + b);
     assert_eq!(
         *doubled.get(ParamFamily::TokenEmbed),
@@ -97,80 +104,6 @@ fn neighbor_query() {
         drift_variance_floor: 0.01,
     };
     assert!(drifted.noise_variance(0.1) > anchored.noise_variance(0.1));
-}
-
-#[test]
-fn radius_bounds() {
-    let mut controller = TrustRegionController::new(0.1, 0.1, 2.0).unwrap();
-    for _ in 0..64 {
-        let decision = controller
-            .observe(-1.0, 0.01, 1.0, 0.01, 0.1, true)
-            .unwrap();
-        assert!((0.1..=2.0).contains(&decision.next_radius));
-    }
-}
-
-#[test]
-fn calibration_trace() {
-    let mut reference = baux::semantics::calibration::Calibration::default();
-    let mut controller = TrustRegionController::new(0.125, 0.001, 2.0).unwrap();
-    for step in 0..192 {
-        let observed = ((step * 13) % 47) as f32 * 0.017 - 0.2;
-        let predicted = ((step * 7) % 41) as f32 * 0.011 - 0.1;
-        let variance = 0.001 + (step % 5) as f32 * 0.0003;
-        let prediction = 0.002 + (step % 7) as f32 * 0.0002;
-        let threshold = f64::from(reference.multiplier()) * f64::from(variance).sqrt();
-        let expected = f64::from(observed) > threshold;
-        let result = controller
-            .observe(observed, variance, predicted, prediction, 0.1, true)
-            .unwrap();
-        assert_eq!(result.accepted, expected);
-        assert_eq!(result.threshold.to_bits(), threshold.to_bits());
-        reference
-            .observe(
-                observed,
-                predicted,
-                (f64::from(variance) + f64::from(prediction)).sqrt() as f32,
-            )
-            .unwrap();
-        assert_eq!(
-            controller.calibration.multiplier().to_bits(),
-            reference.multiplier().to_bits()
-        );
-    }
-}
-
-#[test]
-fn calibration_atomic() {
-    let mut state = TrustRegionController::new(0.125, 0.001, 2.0).unwrap();
-    let radius = state.radius();
-    assert!(
-        state
-            .observe(f32::MAX, 0.0, -f32::MAX, 0.0, 0.1, true)
-            .is_err()
-    );
-    assert_eq!(state.radius().to_bits(), radius.to_bits());
-    assert_eq!(state.calibration.count(), 0);
-}
-
-#[test]
-fn action_priority() {
-    assert_eq!(
-        decide_action(true, true, true, true, true, true, false),
-        RadiusAction::Shrink
-    );
-    assert_eq!(
-        decide_action(true, false, true, true, true, true, true),
-        RadiusAction::Expand
-    );
-    assert_eq!(
-        decide_action(false, false, false, false, false, false, true),
-        RadiusAction::Shrink
-    );
-    assert_eq!(
-        decide_action(false, false, false, true, false, false, true),
-        RadiusAction::Hold
-    );
 }
 
 #[test]
@@ -233,7 +166,7 @@ fn inclusive_incumbent() {
     };
     let mut est = NeighborValueEstimator::with_spec(-15.0, 0.0028, 7, spec)
         .unwrap()
-        .with_metric(baux::semantics::neighbor::DistanceMetric::SelfTuning { local_k: 2 });
+        .with_metric(baux::semantics::neighbor::DistanceMetric::Conformal { local_k: 2 });
     // Append two older worse points and one accepted better incumbent at tiny
     // raw distances (1.6e-5).
     est.append(&[1.6e-5_f64], -15.2, 0.0028, false).unwrap();
@@ -242,16 +175,16 @@ fn inclusive_incumbent() {
     est.append(&[4.8e-5_f64, 3.2e-5_f64, 1.6e-5_f64], -14.6, 0.0028, true)
         .unwrap();
 
-    // LOO incumbent_prediction excludes the accepted -14.6 incumbent at d^2 =
-    // 0, whereas inclusive incumbent_baseline includes it and therefore
-    // predicts a higher reward.
-    let loo_inc = est.incumbent_prediction().unwrap();
+    // Both incumbent_prediction and incumbent_baseline use inclusive in-sample
+    // query (excluded = None), including the accepted -14.6 incumbent at d^2 =
+    // 0.
+    let inc_pred = est.incumbent_prediction().unwrap();
     let inc_base = est.incumbent_baseline().unwrap();
+    assert_eq!(inc_pred.mean.to_bits(), inc_base.mean.to_bits());
     assert!(
-        inc_base.mean > loo_inc.mean + 0.05,
-        "inclusive baseline {} must exceed LOO baseline {}",
-        inc_base.mean,
-        loo_inc.mean
+        inc_base.mean > -15.05,
+        "inclusive baseline {} must reflect the -14.6 incumbent at d^2 = 0",
+        inc_base.mean
     );
 
     // Self-tuning normalizes 1.6e-5 distances so a candidate near the good
@@ -278,33 +211,57 @@ fn inclusive_incumbent() {
         .with_law(UncertaintyLaw::BiasVariance);
     let acq_hyp = hyp_bv.acquire(&[1.6e-5_f64], 1.0, None).unwrap();
     assert!(acq_hyp.standard_error.is_finite() && acq_hyp.epistemic_error.is_finite());
+
+    // Verify Euclidean LOO fitting with tiny distances (1.6e-5) normalizes
+    // epistemic scale by characteristic distance and selects adaptive k.
+    let mut adaptive_est =
+        NeighborValueEstimator::configured(-15.0, 0.0028, 7, true, true).unwrap();
+    for step in 1..32 {
+        let row: Vec<f64> = (0..step)
+            .map(|prev| ((step - prev) as f64).powi(2) * 1.6e-5)
+            .collect();
+        adaptive_est
+            .append(&row, -15.0 + step as f32 * 0.02, 0.0028, step % 4 == 0)
+            .unwrap();
+    }
+    let state = adaptive_est.fit_state();
+    assert!((1..=31).contains(&state.neighbors));
+    assert!(state.epistemic > 1.0);
+    assert!(state.aleatoric <= 1.0);
 }
 
 #[test]
 fn turbo_selection() {
-    let mut tr = TrustRegionController::from_policy(0.004, 0.001, 0.008, 4, None).unwrap();
+    let mut tr = TrustRegionController::with_turbo(0.004, 0.001, 0.008, 4).unwrap();
     let spec = baux::semantics::SurrogateSpec {
         neighbors: 2,
         ..Default::default()
     };
     let mut sur = NeighborValueEstimator::with_spec(-15.0, 0.0028, 7, spec).unwrap();
-    let warm_sel = sur.evaluate_candidate(&[1.6e-5_f64]).unwrap();
+    let rule = baux::semantics::optimizer::surrogate::AcquisitionRule::Ucb { beta: 0.0 };
+    let warm_sel = sur.select_pool(&[vec![1.6e-5_f64]], 0, rule, None).unwrap();
     assert!(warm_sel.initializing);
-    // Warmup with distinct variance uses 2.0 * sqrt(variance) without advancing
-    // radius/calibration.
+    // Warmup always uses threshold 0.0 (upstream enn parity) without advancing
+    // radius.
+    let same_var_dec = tr
+        .evaluate_selection(-14.99, 0.0028, 0.004, &warm_sel)
+        .unwrap();
+    assert_eq!(same_var_dec.threshold, 0.0);
+    assert!(same_var_dec.accepted);
     let warm_dec = tr
         .evaluate_selection(-14.88, 0.0025, 0.004, &warm_sel)
         .unwrap();
-    assert!((warm_dec.threshold - 0.1).abs() < 1e-6);
+    assert_eq!(warm_dec.threshold, 0.0);
     assert!(warm_dec.accepted);
     assert_eq!(warm_dec.action, RadiusAction::Hold);
-    assert_eq!(tr.calibration.count(), 0);
 
     // Advance surrogate past warmup with a rejected point strictly below the
     // incumbent so the convex-combination KNN prediction satisfies
     // candidate.mean < incumbent.mean.
     sur.append(&[1.6e-5_f64], -15.2, 0.0028, false).unwrap();
-    let post_sel = sur.evaluate_candidate(&[3.2e-5_f64, 1.6e-5_f64]).unwrap();
+    let post_sel = sur
+        .select_pool(&[vec![3.2e-5_f64, 1.6e-5_f64]], 1, rule, None)
+        .unwrap();
     assert!(!post_sel.initializing);
     assert!(post_sel.candidate.mean < post_sel.incumbent.mean);
 

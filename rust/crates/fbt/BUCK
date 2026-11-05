@@ -1,0 +1,85 @@
+load("//build/buck2:baux_targets.bzl", "baux_program_targets")
+load("//build/buck2:reindeer_rules.bzl", "app_rust_library")
+load("//build:targets.bzl", "FBT_CRATES", "FBT_PROGRAMS", "FBT_TEST_CRATES", "RUST_EDITION")
+
+FBT_BUCK_DEPS = ["//rust:" + crate for crate in FBT_CRATES]
+
+FBT_BUCK_TEST_DEPS = ["//rust:" + crate for crate in FBT_TEST_CRATES]
+
+_FBT_RUST_SRCS = glob(
+    [
+        "src/**/*.metal",
+        "src/**/*.rs",
+    ],
+    exclude = ["src/bin/**/*.rs"],
+)
+
+filegroup(
+    name = "source",
+    srcs = glob([
+        "src/**/*.metal",
+        "src/**/*.rs",
+    ]) + [
+        "Cargo.toml",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+app_rust_library(
+    name = "fbt",
+    srcs = _FBT_RUST_SRCS,
+    crate = "baux_fbt",
+    crate_root = "src/lib.rs",
+    edition = RUST_EDITION,
+    features = select({
+        "//:linux-arm64": [],
+        "//:linux-x86_64": [],
+        "//:macos-arm64": ["metal"],
+    }),
+    visibility = ["PUBLIC"],
+    deps = FBT_BUCK_DEPS + [
+        "//rust/crates/baux:baux",
+    ] + select({
+        "//:linux-arm64": [],
+        "//:linux-x86_64": [],
+        "//:macos-arm64": ["//rust:metal"],
+    }),
+)
+
+rust_test(
+    name = "fbt-unit",
+    srcs = _FBT_RUST_SRCS + ["//experiments:specs"],
+    crate = "baux_fbt",
+    crate_root = "src/lib.rs",
+    edition = RUST_EDITION,
+    rustc_flags = select({
+        "root//:release-mode": [],
+        "DEFAULT": ["-Zthreads=8", "-Ccodegen-units=16"],
+    }),
+    features = select({
+        "//:macos-arm64": ["buck2-test-data", "metal"],
+        "DEFAULT": ["buck2-test-data"],
+    }),
+    visibility = ["PUBLIC"],
+    deps = FBT_BUCK_TEST_DEPS + [
+        "//rust/crates/baux:baux",
+    ] + select({
+        "//:linux-arm64": [],
+        "//:linux-x86_64": [],
+        "//:macos-arm64": [
+            "//build/buck2/native:openmp-macos",
+            "//rust:metal",
+        ],
+    }),
+    rpath = True,
+    runtime_dependency_handling = "symlink",
+)
+
+[
+    baux_program_targets(
+        [program],
+        RUST_EDITION,
+        glob(["src/bin/" + program["name"] + "/**/*.rs"]) if program["root"].startswith("src/bin/") else [program["root"]],
+    )
+    for program in FBT_PROGRAMS
+]

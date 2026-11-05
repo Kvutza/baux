@@ -19,7 +19,7 @@ def run_parity(
             report,
             name=name,
             endpoint="create_optimizer",
-            implementation="rust",
+            backend="rust",
             reason="Rust not available",
         )
         return
@@ -40,17 +40,14 @@ def run_parity(
                 endpoint="create_optimizer",
                 passed=False,
                 error=str(e),
-                implementation="rust",
+                backend="rust",
             )
         )
         report.failed += 1
     else:
         report.cases.append(
             ParityCase(
-                name=name,
-                endpoint="create_optimizer",
-                passed=True,
-                implementation="rust",
+                name=name, endpoint="create_optimizer", passed=True, backend="rust"
             )
         )
         report.passed += 1

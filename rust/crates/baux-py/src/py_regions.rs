@@ -66,7 +66,7 @@ impl PyMultiTrustRegion {
     }
 
     pub fn get_incumbents<'py>(&self, py: Python<'py>) -> Bound<'py, PyArrayDyn<f64>> {
-        self.inner.incumbents_y.clone().into_dyn().into_pyarray(py)
+        self.inner.incumbents().into_dyn().into_pyarray(py)
     }
 
     pub fn tell(

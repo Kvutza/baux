@@ -2,7 +2,23 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum, auto
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Any, Literal, Protocol
+
+RestartCenterSelection = Literal["first", "maximin"]
+
+
+@dataclass(frozen=True)
+class RestartCenterPolicy:
+    candidates: int = 1
+    selection: RestartCenterSelection = "first"
+
+    def __post_init__(self) -> None:
+        if isinstance(self.candidates, bool) or not isinstance(self.candidates, int):
+            raise TypeError("restart center candidates must be an integer")
+        if self.candidates <= 0:
+            raise ValueError("restart center candidates must be positive")
+        if self.selection not in ("first", "maximin"):
+            raise ValueError("unknown restart center selection")
 
 
 class CandidateSampler(Enum):

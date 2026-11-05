@@ -96,17 +96,11 @@ fn negative_rewards() {
 }
 
 #[test]
-fn inconclusive_evidence() {
+fn outcome_evidence() {
     let mut tr = TurboTrustRegion::new(1_065_494_016, TRLengthConfig::new(0.01, 0.0001, 0.1));
     tr.set_tolerance(4).unwrap();
 
-    tr.update_outcome(
-        &array![-12.0].view(),
-        1,
-        -12.0,
-        TrustRegionOutcome::Inconclusive,
-    )
-    .unwrap();
+    tr.seed_baseline(-12.0, 1);
     for (observation, value) in [(2, -11.0), (3, -10.0)] {
         tr.update_outcome(
             &array![value].view(),
@@ -119,22 +113,11 @@ fn inconclusive_evidence() {
     assert_eq!(tr.success_counter, 2);
     assert_eq!(tr.length(), 0.01);
 
-    tr.update_outcome(
-        &array![-10.0].view(),
-        4,
-        -10.0,
-        TrustRegionOutcome::Inconclusive,
-    )
-    .unwrap();
-    assert_eq!(tr.success_counter, 2);
-    assert_eq!(tr.failure_counter, 0);
-    assert_eq!(tr.length(), 0.01);
-
-    tr.update_outcome(&array![-9.0].view(), 5, -9.0, TrustRegionOutcome::Success)
+    tr.update_outcome(&array![-9.0].view(), 4, -9.0, TrustRegionOutcome::Success)
         .unwrap();
     assert_eq!(tr.length(), 0.02);
 
-    for (observation, value) in [(6, -13.0), (8, -13.0), (10, -13.0), (12, -13.0)] {
+    for (observation, value) in [(5, -13.0), (6, -13.0), (7, -13.0), (8, -13.0)] {
         tr.update_outcome(
             &array![value].view(),
             observation,
@@ -142,15 +125,6 @@ fn inconclusive_evidence() {
             TrustRegionOutcome::Failure,
         )
         .unwrap();
-        if observation < 12 {
-            tr.update_outcome(
-                &array![-9.0].view(),
-                observation + 1,
-                -9.0,
-                TrustRegionOutcome::Inconclusive,
-            )
-            .unwrap();
-        }
     }
     assert_eq!(tr.length(), 0.01);
     assert_eq!(tr.failure_counter, 0);
@@ -246,7 +220,6 @@ fn update_history() {
 fn seeded_scale() {
     let mut tr = TurboTrustRegion::new(2, TRLengthConfig::default());
     tr.set_arms(1);
-    tr.seed_history(&array![-20.0, -5.0].view());
     tr.set_watermark(2);
     tr.update_batch(&array![-4.0].view(), 3, -4.0).unwrap();
     let length_before = tr.length();
@@ -259,8 +232,8 @@ fn seeded_scale() {
 fn absolute_scale() {
     let mut tr = TurboTrustRegion::new(2, TRLengthConfig::default());
     tr.set_arms(1);
-    tr.seed_history(&array![-1000.0, 10.0].view());
-    tr.set_watermark(2);
+    tr.update_batch(&array![-1000.0, 10.0].view(), 2, 10.0)
+        .unwrap();
     tr.update_batch(&array![10.02].view(), 3, 10.02).unwrap();
     assert_eq!(
         tr.success_counter, 1,
@@ -276,8 +249,6 @@ fn restart_scale() {
         .unwrap();
     tr.restart();
     assert_eq!(tr.prev_obs(), 2);
-    assert_eq!(tr.hist_ymin, 0.0);
-    assert_eq!(tr.hist_ymax, 100.0);
 }
 
 #[test]
@@ -321,8 +292,6 @@ fn update_full() {
         assert_eq!(full.prev_obs, mixed.prev_obs);
         assert_eq!(full.success_counter, mixed.success_counter);
         assert_eq!(full.failure_counter, mixed.failure_counter);
-        assert_eq!(full.hist_ymin, mixed.hist_ymin);
-        assert_eq!(full.hist_ymax, mixed.hist_ymax);
     }
 }
 

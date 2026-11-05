@@ -42,7 +42,7 @@ def cuda_oxide(
         cacheable = False,
         labels = ["uses_undeclared_inputs"],
         # CUDA-Oxide pins this compiler; the host workspace uses a newer nightly.
-        # Keep CUDA compilation on the toolchain recorded by backends/cuda/rust-toolchain.toml.
+        # Keep CUDA compilation on the toolchain recorded by rust/crates/cuda/rust-toolchain.toml.
         env = {"RUSTUP_TOOLCHAIN": "nightly-2026-08-28"},
         cmd = " ".join([
             "set -euo pipefail;",
@@ -73,25 +73,26 @@ def cuda_oxide(
             "-C link-arg=-fuse-ld=bfd",
             "-C link-arg=-L$SDK/lib\";",
             "ROOT=$TMP/repo;",
-            "mkdir -p $ROOT/rust/crates $ROOT/backends/cuda;",
+            "mkdir -p $ROOT/rust/crates/cuda;",
             "cp -R $(location {})/. $ROOT/;".format(package),
             "cp -R $(location {})/. $ROOT/;".format(workspace),
         ] + [
             "cp -R $(location {}) $ROOT/rust/crates/{};".format(label, crate)
             for crate, label in crates.items()
         ] + [
-            "cp -R $(location {})/. $ROOT/backends/cuda/;".format(cuda),
+            "cp -R $(location {})/. $ROOT/rust/crates/cuda/;".format(cuda),
             "python3 -c '",
             "p=\"$ROOT/rust/crates/baux/Cargo.toml\";",
             "t=open(p).read()",
             ".replace(\"cuda-core = { workspace = true, optional = true }\",",
-            "\"baux-cuda = { path = \\\"../../../backends/cuda\\\", optional = true }\\n\" +",
+            "\"baux-cuda = { path = \\\"../cuda\\\", optional = true }\\n\" +",
             "\"cuda-core = { workspace = true, optional = true }\")",
             ".replace(\"cuda = [\\\"dep:cuda-core\\\"]\",",
             "\"cuda = [\\\"dep:baux-cuda\\\", \\\"dep:cuda-core\\\"]\")",
-            ";",
+            ".replace(\"native-flame = [\\\"cuda\\\"]\",",
+            "\"native-flame = [\\\"cuda\\\", \\\"baux-cuda/native-flame\\\"]\");",
             "open(p,\"w\").write(t)';",
-            "cd $ROOT/backends/cuda;",
+            "cd $ROOT/rust/crates/cuda;",
             "cargo generate-lockfile --manifest-path $ROOT/Cargo.toml;",
             "cargo oxide build --arch sm_75 --cargo-target-dir $OUT_DIR/target",
             "--device-codegen-crate baux_cuda_device --",
@@ -100,7 +101,7 @@ def cuda_oxide(
             "cd $ROOT;",
             "find rust/crates/baux/src rust/crates/baux/semantics/src",
             "rust/crates/baux/neighbor-index/src rust/crates/baux/artifact/src",
-            "backends/cuda/src backends/cuda/device/src",
+            "rust/crates/cuda/src rust/crates/cuda/device/src",
             "rust/crates/modal-runner/src rust/crates/runner/src/cuda_tune.rs",
             "-type f -print0 | sort -z | xargs -0 shasum -a 256 | shasum -a 256 |",
             "cut -d' ' -f1 > $TMP/source.sha256;",

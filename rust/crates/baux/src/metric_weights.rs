@@ -205,7 +205,12 @@ pub fn trust_sides(weights: &[f64]) -> Vec<f64> {
     if !mean.is_finite() || mean <= 0.0 {
         return vec![1.0; weights.len()];
     }
-    inv.into_iter().map(|v| v / mean).collect()
+    let s: Vec<f64> = inv.iter().map(|v| v / mean).collect();
+    let geo = (s.iter().map(|v| v.ln()).sum::<f64>() / s.len() as f64).exp();
+    if !geo.is_finite() || geo <= 0.0 {
+        return vec![1.0; weights.len()];
+    }
+    s.into_iter().map(|v| v / geo).collect()
 }
 
 pub(crate) fn validate_rows(

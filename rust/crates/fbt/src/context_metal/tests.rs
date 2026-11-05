@@ -1,0 +1,447 @@
+use super::*;
+use crate::config::IndexMode;
+use crate::context::probe::{Fixture, half};
+
+#[test]
+fn cache_reference() -> Result<(), String> {
+    metal::objc::rc::autoreleasepool(|| {
+        for tokens in [4096, 65536, 1048576] {
+            let layout = Layout::new(tokens, 4)?;
+            let mut cache = ContextCache::new(layout)?;
+            crate::context::probe::run(&mut cache, layout, 1)?;
+        }
+        Ok(())
+    })
+}
+
+#[test]
+fn cache_lse() -> Result<(), String> {
+    metal::objc::rc::autoreleasepool(|| {
+        let layout = Layout::new(4096, 4)?;
+        let mut fixture = Fixture::new(layout);
+        fixture.kv.fill(0);
+        fixture.queries.fill(0);
+        // Opposite heads and opposite keys both cancel before LSE. The full
+        // rule must still select leaf 6, whose mean summary is exactly zero.
+        for query in fixture.queries.chunks_exact_mut(512) {
+            query[0] = 0x4800;
+            query[64] = 0xc800;
+        }
+        fixture.kv[6 * 64 * 128] = 0x4800;
+        fixture.kv[(6 * 64 + 1) * 128] = 0xc800;
+        fixture.tree = Fixture::pyramid(layout, &fixture.kv);
+        let mut cache = ContextCache::new(layout)?;
+        cache.write(0, &fixture.kv)?;
+        let output = cache.query(4092, &fixture.queries)?;
+        fixture.verify(4092, &output.blocks, &output.values)?;
+        assert!(
+            output
+                .blocks
+                .chunks_exact(8)
+                .all(|blocks| blocks.contains(&6))
+        );
+        Ok(())
+    })
+}
+
+struct Probe {
+    runtime: Arc<Runtime>,
+    kernels: ContextKernels,
+    fixture: Fixture,
+    qkv: Buffer,
+    kv: Buffer,
+    tree: Buffer,
+    blocks: Buffer,
+    output: Buffer,
+    weights: Buffer,
+    start: u32,
+}
+
+impl Probe {
+    fn new() -> Result<Self, String> {
+        let runtime = Runtime::shared()?;
+        let layout = Layout::new(65536, 128)?;
+        let fixture = Fixture::new(layout);
+        let start = 32768;
+        let mut qkv = vec![0u16; 128 * 640];
+        for row in 0..128usize {
+            qkv[row * 640..row * 640 + 512]
+                .copy_from_slice(&fixture.queries[row * 512..(row + 1) * 512]);
+            qkv[row * 640 + 512..(row + 1) * 640].copy_from_slice(
+                &fixture.kv[(start as usize + row) * 128..(start as usize + row + 1) * 128],
+            );
+        }
+        let mut weights = vec![0u16; 4096];
+        for dim in 0..64 {
+            weights[dim * 64 + dim] = 0x3c00;
+        }
+        Ok(Self {
+            kernels: ContextKernels::with_index(&runtime, layout, true)?,
+            qkv: runtime.buffer_with(&qkv),
+            kv: runtime.buffer_with(&fixture.kv),
+            tree: runtime.buffer_with(&fixture.tree),
+            blocks: runtime.buffer::<u32>(128 * 8),
+            output: runtime.buffer::<u16>(128 * 512),
+            weights: runtime.buffer_with(&weights),
+            runtime,
+            fixture,
+            start,
+        })
+    }
+
+    fn run(
+        &self,
+        mode: IndexMode,
+        fresh: bool,
+        attention: bool,
+    ) -> Result<(Vec<u32>, Vec<u16>), String> {
+        let command = self.runtime.queue.new_command_buffer();
+        let encoder = command.new_compute_command_encoder();
+        self.kernels.encode_policy(
+            &encoder,
+            &self.qkv,
+            &self.kv,
+            &self.tree,
+            &self.blocks,
+            attention.then_some(&*self.output),
+            self.start,
+            128,
+            Some(IndexPolicy {
+                weights: &self.weights,
+                offset: 0,
+                block: 128,
+                mode,
+                layer: 1,
+                fresh,
+                reuse: 0.02,
+            }),
+        )?;
+        encoder.end_encoding();
+        complete(command)?;
+        let blocks = unsafe {
+            std::slice::from_raw_parts(self.blocks.contents().cast::<u32>(), 128 * 8).to_vec()
+        };
+        let output = unsafe {
+            std::slice::from_raw_parts(self.output.contents().cast::<u16>(), 128 * 512).to_vec()
+        };
+        Ok((blocks, output))
+    }
+
+    fn verify(&self, mode: IndexMode, blocks: &[u32], values: &[u16]) -> Result<(), String> {
+        let position = self.start + 127;
+        for row in 0..128usize {
+            let selected = &blocks[row * 8..row * 8 + 8];
+            let query = &self.fixture.queries[row * 512..row * 512 + 512];
+            if mode == IndexMode::Independent
+                && selected != self.fixture.mean_blocks(position, query)
+            {
+                return Err(format!(
+                    "independent support differs from reference at query {row}"
+                ));
+            }
+            let valid = selected
+                .iter()
+                .copied()
+                .filter(|value| *value != u32::MAX)
+                .collect::<Vec<_>>();
+            if valid.iter().any(|block| *block > position / 64)
+                || !valid.contains(&0)
+                || !valid.contains(&(position / 64))
+                || valid
+                    .iter()
+                    .enumerate()
+                    .any(|(i, block)| valid[i + 1..].contains(block))
+            {
+                return Err(
+                    "diffusion selected a future/duplicate block or lost a forced block".into(),
+                );
+            }
+            let expected = self.fixture.output(position, query, selected);
+            if values[row * 512..row * 512 + 512]
+                .iter()
+                .any(|value| !half(*value).is_finite())
+            {
+                return Err("selected attention produced a nonfinite value".into());
+            }
+            let error = expected
+                .iter()
+                .zip(&values[row * 512..row * 512 + 512])
+                .map(|(a, b)| (*a - half(*b)).abs())
+                .fold(0.0f32, f32::max);
+            if error > 0.003 {
+                return Err(format!("selected attention error {error}"));
+            }
+        }
+        Ok(())
+    }
+}
+
+#[test]
+fn block_visibility() {
+    metal::objc::rc::autoreleasepool(|| {
+        let probe = Probe::new().unwrap();
+        for mode in [
+            IndexMode::Independent,
+            IndexMode::Shared,
+            IndexMode::Refined,
+        ] {
+            let first = probe.run(mode, true, true).unwrap();
+            probe.verify(mode, &first.0, &first.1).unwrap();
+            // Cache-only work must retain the selected support and leave the
+            // unread attention output untouched. A later query must still
+            // match.
+            unsafe {
+                std::slice::from_raw_parts_mut(probe.output.contents().cast::<u16>(), 128 * 512)
+                    .fill(0x7e00);
+            }
+            let cached = probe.run(mode, true, false).unwrap();
+            assert_eq!(first.0, cached.0);
+            assert!(cached.1.iter().all(|value| *value == 0x7e00));
+            assert_eq!(first, probe.run(mode, false, true).unwrap());
+            let counts = probe.kernels.index_counts();
+            assert!(counts[0] >= 32);
+            // Poison all future blocks, then force a new traversal. Past
+            // queries must remain exactly invariant, including
+            // their selected support.
+            unsafe {
+                let kv = std::slice::from_raw_parts_mut(
+                    probe.kv.contents().cast::<u16>(),
+                    probe.fixture.kv.len(),
+                );
+                kv[((probe.start + 128) * 128) as usize..].fill(0x4800);
+                let tree = Fixture::pyramid(probe.fixture.layout, kv);
+                std::ptr::copy_nonoverlapping(
+                    tree.as_ptr(),
+                    probe.tree.contents().cast::<u16>(),
+                    tree.len(),
+                );
+            }
+            assert_eq!(first, probe.run(mode, true, true).unwrap());
+            // Restore future content for the next arm.
+            unsafe {
+                std::ptr::copy_nonoverlapping(
+                    probe.fixture.kv.as_ptr(),
+                    probe.kv.contents().cast::<u16>(),
+                    probe.fixture.kv.len(),
+                );
+                std::ptr::copy_nonoverlapping(
+                    probe.fixture.tree.as_ptr(),
+                    probe.tree.contents().cast::<u16>(),
+                    probe.fixture.tree.len(),
+                );
+            }
+        }
+        // Query drift must invalidate cached selections even at the same row.
+        unsafe {
+            let qkv = std::slice::from_raw_parts_mut(probe.qkv.contents().cast::<u16>(), 128 * 640);
+            for row in qkv.chunks_exact_mut(640) {
+                row[..512].fill(0xbc00);
+            }
+        }
+        let before = probe.kernels.index_counts()[1];
+        probe.run(IndexMode::Refined, false, true).unwrap();
+        assert_eq!(probe.kernels.index_counts()[1] - before, 32);
+    });
+}
+
+#[test]
+fn gap_independent() -> Result<(), String> {
+    check_gap(IndexMode::Independent)
+}
+
+#[test]
+fn gap_shared() -> Result<(), String> {
+    check_gap(IndexMode::Shared)
+}
+
+#[test]
+fn gap_refined() -> Result<(), String> {
+    check_gap(IndexMode::Refined)
+}
+
+fn check_gap(mode: IndexMode) -> Result<(), String> {
+    metal::objc::rc::autoreleasepool(|| {
+        use crate::apple_gpu::slice_mut;
+        let mut probe = Probe::new()?;
+        probe.start = 384; // All diffusion queries see exactly eight blocks, through token 511.
+        probe.fixture.kv.fill(0);
+        probe.fixture.queries.fill(0);
+        for token in 64..128 {
+            probe.fixture.kv[token * 128] = 0x4000; // Block 1: k[0] = 2.
+            probe.fixture.kv[(token + 64) * 128 + 64] = 0x3c00; // Block 2: v[0] = 1.
+        }
+        let qkv = slice_mut::<u16>(&probe.qkv, 128 * 640)?;
+        qkv.fill(0);
+        for row in 0..128 {
+            qkv[row * 640] = 0x4800; // Head 0: q[0] = 8; other heads are zero.
+            probe.fixture.queries[row * 512] = 0x4800;
+        }
+        probe.fixture.tree = Fixture::pyramid(probe.fixture.layout, &probe.fixture.kv);
+        slice_mut::<u16>(&probe.kv, probe.fixture.kv.len())?.copy_from_slice(&probe.fixture.kv);
+        slice_mut::<u16>(&probe.tree, probe.fixture.tree.len())?
+            .copy_from_slice(&probe.fixture.tree);
+        let first = probe.run(mode, true, true)?;
+        for selected in first.0.chunks_exact(8) {
+            assert_eq!(selected, &[0, 6, 7, 1, 2, 3, 4, 5]);
+        }
+        probe.verify(mode, &first.0, &first.1)?;
+        for row in 0..128 {
+            for head in 0..8 {
+                let expected = if head == 0 {
+                    1.0 / (2.0f32.exp() + 7.0)
+                } else {
+                    0.125
+                };
+                assert!((half(first.1[row * 512 + head * 64]) - expected).abs() < 0.0002);
+            }
+        }
+        assert_eq!(first, probe.run(mode, false, true)?);
+        assert_eq!(probe.kernels.index_counts()[0], 32);
+        Ok(())
+    })
+}
+
+#[test]
+fn pisa_reuse() {
+    metal::objc::rc::autoreleasepool(|| {
+        let runtime = Runtime::shared().unwrap();
+        for &context_tokens in &[65536u32, 1048576u32] {
+            let query_rows = 128u32;
+            let layout = Layout::new(context_tokens, query_rows).unwrap();
+            let kernels = ContextKernels::new(&runtime, layout).unwrap();
+            let start = context_tokens - query_rows;
+            let qkv = runtime.buffer::<u16>((query_rows * 640) as usize);
+            let kv = runtime.buffer::<u16>((context_tokens * 128) as usize);
+            let tree = runtime.buffer::<u16>((2 * (context_tokens / 64) * 64) as usize);
+            let blocks = runtime.buffer::<u32>((query_rows * 8) as usize);
+            let output = runtime.buffer::<u16>((query_rows * 512) as usize);
+
+            // Warmup Layer 0 (Tree Walk)
+            let cmd = runtime.queue.new_command_buffer();
+            let enc = cmd.new_compute_command_encoder();
+            kernels
+                .encode_csa(
+                    &enc, &qkv, &kv, &tree, &blocks, &output, start, query_rows, false,
+                )
+                .unwrap();
+            enc.end_encoding();
+            complete(cmd).unwrap();
+
+            // Benchmark Layer 0 (Tree Walk)
+            let mut l0_times = Vec::new();
+            for _ in 0..5 {
+                let cmd = runtime.queue.new_command_buffer();
+                let enc = cmd.new_compute_command_encoder();
+                kernels
+                    .encode_csa(
+                        &enc, &qkv, &kv, &tree, &blocks, &output, start, query_rows, false,
+                    )
+                    .unwrap();
+                enc.end_encoding();
+                l0_times.push(complete(cmd).unwrap());
+            }
+            l0_times.sort_by(f64::total_cmp);
+            let l0_median_ms = l0_times[2] * 1000.0;
+
+            // Warmup Layer 1-3 (PISA_REUSE: Skip Tree Walk, Reuse Proposal
+            // Indices)
+            let cmd = runtime.queue.new_command_buffer();
+            let enc = cmd.new_compute_command_encoder();
+            kernels
+                .encode_csa(
+                    &enc, &qkv, &kv, &tree, &blocks, &output, start, query_rows, true,
+                )
+                .unwrap();
+            enc.end_encoding();
+            complete(cmd).unwrap();
+
+            // Benchmark Layer 1-3 (Reuse)
+            let mut reuse_times = Vec::new();
+            for _ in 0..5 {
+                let cmd = runtime.queue.new_command_buffer();
+                let enc = cmd.new_compute_command_encoder();
+                kernels
+                    .encode_csa(
+                        &enc, &qkv, &kv, &tree, &blocks, &output, start, query_rows, true,
+                    )
+                    .unwrap();
+                enc.end_encoding();
+                reuse_times.push(complete(cmd).unwrap());
+            }
+            reuse_times.sort_by(f64::total_cmp);
+            let reuse_median_ms = reuse_times[2] * 1000.0;
+
+            // Pure Attention Kernel Benchmark: attention (with tree walk) vs
+            // reuse (without tree walk)
+            let mut pure_tree_times = Vec::new();
+            for _ in 0..5 {
+                let cmd = runtime.queue.new_command_buffer();
+                let enc = cmd.new_compute_command_encoder();
+                enc.set_compute_pipeline_state(&kernels.attention);
+                for (index, buffer) in [&kernels.queries, &tree, &blocks, &output]
+                    .iter()
+                    .enumerate()
+                {
+                    enc.set_buffer(index as u64, Some(buffer), 0);
+                }
+                bytes(&enc, 4, &[start, query_rows]);
+                enc.set_buffer(5, Some(&kv), 0);
+                enc.dispatch_thread_groups(
+                    thread_group(u64::from(query_rows / 4)),
+                    thread_group(128),
+                );
+                enc.end_encoding();
+                pure_tree_times.push(complete(cmd).unwrap());
+            }
+            pure_tree_times.sort_by(f64::total_cmp);
+            let pure_tree_ms = pure_tree_times[2] * 1000.0;
+
+            let mut pure_reuse_times = Vec::new();
+            for _ in 0..5 {
+                let cmd = runtime.queue.new_command_buffer();
+                let enc = cmd.new_compute_command_encoder();
+                enc.set_compute_pipeline_state(&kernels.reuse);
+                for (index, buffer) in [&kernels.queries, &tree, &blocks, &output]
+                    .iter()
+                    .enumerate()
+                {
+                    enc.set_buffer(index as u64, Some(buffer), 0);
+                }
+                bytes(&enc, 4, &[start, query_rows]);
+                enc.set_buffer(5, Some(&kv), 0);
+                enc.dispatch_thread_groups(
+                    thread_group(u64::from(query_rows / 4)),
+                    thread_group(128),
+                );
+                enc.end_encoding();
+                pure_reuse_times.push(complete(cmd).unwrap());
+            }
+            pure_reuse_times.sort_by(f64::total_cmp);
+            let pure_reuse_ms = pure_reuse_times[2] * 1000.0;
+
+            eprintln!(
+                "\n=== PISA BENCHMARK: Context = {} tokens (Tree Depth = {} levels), Query Chunk \
+                 = {} ===",
+                context_tokens,
+                layout.levels(),
+                query_rows
+            );
+            eprintln!(
+                "Full Attention Sublayer:\nLayer 0 (Pack + Tree Walk + Attn): {:.3} ms\nLayer 1-3 \
+                 (QPack + PISA_REUSE):     {:.3} ms\nSpeedup: {:.2}x ({:.1}% latency saved)",
+                l0_median_ms,
+                reuse_median_ms,
+                l0_median_ms / reuse_median_ms,
+                (1.0 - reuse_median_ms / l0_median_ms) * 100.0
+            );
+            eprintln!(
+                "Kernel Alone (fbt_pisa1_select_attention_q4):\nWith Tree Walk: {:.3} ms\nWith \
+                 PISA_REUSE: {:.3} ms\nKernel Speedup: {:.2}x ({:.1}% kernel time saved)",
+                pure_tree_ms,
+                pure_reuse_ms,
+                pure_tree_ms / pure_reuse_ms,
+                (1.0 - pure_reuse_ms / pure_tree_ms) * 100.0
+            );
+        }
+    });
+}

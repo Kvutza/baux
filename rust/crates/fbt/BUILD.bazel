@@ -1,0 +1,63 @@
+load("@crates//:defs.bzl", "aliases", "crate_edition")
+load("@rules_rust//rust:defs.bzl", "rust_library", "rust_test")
+load("//build:targets.bzl", "FBT_CRATES", "FBT_PROGRAMS", "FBT_TEST_CRATES")
+load("//rust/crates/baux:defs.bzl", "baux_crate_deps", "baux_program_targets")
+
+package(default_visibility = ["//visibility:public"])
+
+exports_files(["Cargo.toml"])
+
+FBT_SRCS = glob(
+    ["src/**/*.rs"],
+    exclude = ["src/bin/**"],
+)
+
+FBT_SHADER_SRCS = glob(["src/**/*.metal"])
+
+FBT_DEPS = baux_crate_deps(FBT_CRATES)
+
+FBT_TEST_DEPS = baux_crate_deps(FBT_TEST_CRATES)
+
+rust_library(
+    name = "fbt",
+    srcs = FBT_SRCS,
+    aliases = aliases(),
+    compile_data = FBT_SHADER_SRCS,
+    crate_features = select({
+        "@platforms//os:macos": ["metal"],
+        "//conditions:default": [],
+    }),
+    crate_name = "baux_fbt",
+    crate_root = "src/lib.rs",
+    edition = crate_edition(),
+    deps = FBT_DEPS + [
+        "//rust/crates/baux:baux_accelerators",
+    ] + select({
+        "@platforms//os:macos": ["@crates//:metal"],
+        "//conditions:default": [],
+    }),
+)
+
+rust_test(
+    name = "fbt_test",
+    aliases = aliases(
+        normal_dev = True,
+        proc_macro_dev = True,
+    ),
+    compile_data = FBT_SHADER_SRCS + ["//experiments:specs"],
+    crate = ":fbt",
+    deps = FBT_TEST_DEPS + [
+        "//rust/crates/baux:baux_accelerators",
+    ] + select({
+        "@platforms//os:macos": ["@crates//:metal"],
+        "//conditions:default": [],
+    }),
+)
+
+[
+    baux_program_targets(
+        [program],
+        glob(["src/bin/" + program["name"] + "/**/*.rs"]) if program["root"].startswith("src/bin/") else [program["root"]],
+    )
+    for program in FBT_PROGRAMS
+]

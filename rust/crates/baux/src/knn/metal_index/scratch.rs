@@ -3,15 +3,41 @@ use super::pad_k;
 use crate::apple_gpu::Runtime;
 use crate::error::IndexError;
 extern crate metal as mtl;
-use mtl::MTLSize;
+use mtl::{Buffer, ComputePipelineState, MTLSize};
 use ndarray::Array2;
 use std::ffi::c_void;
+use std::sync::Arc;
 
 pub(super) const THREADS: u64 = 256;
 pub(super) const TILE_ROWS: usize = 1024;
 pub(super) const GRAM_ROWS: usize = 64;
 pub(super) const GRAM_QUERIES: usize = 8;
 pub(super) const MAX_K: usize = 2048;
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub(super) struct Shape {
+    pub(super) queries: u32,
+    pub(super) metrics: u32,
+    pub(super) input_k: u32,
+    pub(super) k: u32,
+    pub(super) skip: u32,
+    pub(super) has_var: u32,
+    pub(super) noise: u32,
+    pub(super) seeds: u32,
+    pub(super) epistemic: f32,
+    pub(super) aleatoric: f32,
+}
+
+pub(crate) struct MetalPosterior {
+    pub(super) runtime: Arc<Runtime>,
+    pub(crate) means: Buffer,
+    pub(crate) errors: Buffer,
+    pub(super) weights: Buffer,
+    pub(super) indices: Buffer,
+    pub(super) l2: Buffer,
+    pub(super) shape: Shape,
+}
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -113,6 +139,138 @@ impl Scratch {
         self.tree_indices = runtime.buffer::<u32>(lists);
         self.tree_alt_distances = runtime.buffer::<f32>(alt);
         self.tree_alt_indices = runtime.buffer::<u32>(alt);
+    }
+
+    pub(super) fn encode_init(
+        &self,
+        command: &metal::CommandBufferRef,
+        init_results: &ComputePipelineState,
+        rows: usize,
+        dim: usize,
+        queries: usize,
+        k: usize,
+    ) -> Result<(), String> {
+        let init = Params {
+            rows: to_u32(rows, "row count").map_err(|e| e.to_string())?,
+            dim: to_u32(dim, "dimension").map_err(|e| e.to_string())?,
+            queries: to_u32(queries, "query count").map_err(|e| e.to_string())?,
+            tile_start: 0,
+            tile_rows: 0,
+            k: to_u32(k, "neighbor count").map_err(|e| e.to_string())?,
+            lanes: 1,
+            tiles: 0,
+            lists: 0,
+            groups: 0,
+        };
+        let encoder = command.new_compute_command_encoder();
+        encoder.set_compute_pipeline_state(init_results);
+        encoder.set_buffer(0, Some(&self.result_distances), 0);
+        encoder.set_buffer(1, Some(&self.result_indices), 0);
+        set_params(encoder, 2, &init);
+        dispatch(encoder, queries * k);
+        encoder.end_encoding();
+        Ok(())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn reduce_pass(
+        &self,
+        command: &metal::CommandBufferRef,
+        pipeline: &ComputePipelineState,
+        params: &Params,
+        queries: usize,
+        lists: usize,
+        groups: usize,
+        tree_input: bool,
+    ) -> Result<(), String> {
+        let (input_distances, input_indices) = if tree_input {
+            (&self.tree_distances, &self.tree_indices)
+        } else {
+            (&self.tree_alt_distances, &self.tree_alt_indices)
+        };
+        let (output_distances, output_indices) = if groups == 1 {
+            (&self.result_distances, &self.result_indices)
+        } else if tree_input {
+            (&self.tree_alt_distances, &self.tree_alt_indices)
+        } else {
+            (&self.tree_distances, &self.tree_indices)
+        };
+        let params = Params {
+            lists: to_u32(lists, "list count").map_err(|error| error.to_string())?,
+            groups: to_u32(groups, "merge groups").map_err(|error| error.to_string())?,
+            ..*params
+        };
+        let encoder = command.new_compute_command_encoder();
+        encoder.set_compute_pipeline_state(pipeline);
+        encoder.set_buffer(0, Some(input_distances), 0);
+        encoder.set_buffer(1, Some(input_indices), 0);
+        encoder.set_buffer(2, Some(output_distances), 0);
+        encoder.set_buffer(3, Some(output_indices), 0);
+        set_params(encoder, 4, &params);
+        encoder.dispatch_thread_groups(
+            MTLSize {
+                width: (queries * groups) as u64,
+                height: 1,
+                depth: 1,
+            },
+            MTLSize {
+                width: THREADS,
+                height: 1,
+                depth: 1,
+            },
+        );
+        encoder.end_encoding();
+        Ok(())
+    }
+
+    pub(super) fn result_values(&self, queries: usize, k: usize) -> (Vec<f32>, Vec<u32>) {
+        unsafe {
+            (
+                std::slice::from_raw_parts(
+                    self.result_distances.contents().cast::<f32>(),
+                    queries * k,
+                )
+                .to_vec(),
+                std::slice::from_raw_parts(
+                    self.result_indices.contents().cast::<u32>(),
+                    queries * k,
+                )
+                .to_vec(),
+            )
+        }
+    }
+
+    pub(super) fn distance_values(&self, queries: usize) -> Vec<f32> {
+        unsafe {
+            std::slice::from_raw_parts(
+                self.tile_distances.contents().cast::<f32>(),
+                queries * TILE_ROWS,
+            )
+            .to_vec()
+        }
+    }
+}
+
+pub(super) fn dispatch_distance(
+    encoder: &metal::ComputeCommandEncoderRef,
+    simd: bool,
+    queries: usize,
+) {
+    if simd {
+        encoder.dispatch_thread_groups(
+            MTLSize {
+                width: (queries * TILE_ROWS).div_ceil(8) as u64,
+                height: 1,
+                depth: 1,
+            },
+            MTLSize {
+                width: THREADS,
+                height: 1,
+                depth: 1,
+            },
+        );
+    } else {
+        dispatch(encoder, queries * TILE_ROWS);
     }
 }
 

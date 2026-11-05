@@ -364,7 +364,6 @@ impl AutoMetric {
 }
 
 #[cfg(test)]
-#[path = "metric_checks.rs"]
 mod checks;
 
 #[cfg(test)]

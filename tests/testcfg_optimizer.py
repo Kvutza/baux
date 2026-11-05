@@ -276,3 +276,8 @@ def test_multitrlengths():
         tr.length.length_min,
         tr.length.length_max,
     )
+
+
+def test_enncosinerejected():
+    with pytest.raises(ValueError, match="only squared L2 ENN distance"):
+        OptimizerConfig(surrogate=ENNSurrogate(distance_metric=DistanceMetric.COSINE))

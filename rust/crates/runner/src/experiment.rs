@@ -9,14 +9,15 @@ use baux_tooling::terminal::{self, Tag};
 use baux_tooling::build::BuildSystem;
 
 mod pretrain;
+mod regional;
 
 pub(crate) fn run(
     root: &Path,
     path: &Path,
-    prepare: bool,
     rounds: Option<u32>,
     engine: BuildSystem,
 ) -> Result<(), String> {
+    if regional::execute(root, path, rounds)? { return Ok(()); }
     let prepare_started = Instant::now();
     terminal::stderr(
         Tag::Orchestration,
@@ -30,10 +31,6 @@ pub(crate) fn run(
             prepare_started.elapsed().as_secs_f64()
         ),
     );
-    if prepare {
-        terminal::stderr(Tag::Orchestration, "pretraining inputs are ready");
-        return Ok(());
-    }
 
     let revision = seal_source(root)?;
     terminal::stderr(
@@ -42,7 +39,7 @@ pub(crate) fn run(
     );
     let build_started = Instant::now();
     terminal::stderr(Tag::Orchestration, "build · experiment runner and worker");
-    let worker = engine.build_artifact(root, "//rust/crates/baux:baux-tune-worker")?;
+    let worker = engine.build_artifact(root, "//rust/crates/fbt:baux-tune-worker")?;
     let runner = engine.build_artifact(root, "//rust/crates/baux:baux-tune")?;
     let numerical = baux_tooling::numerical::build(root)?;
     let numerical_root = root.join(".cache/baux/numerical");
@@ -118,20 +115,20 @@ pub(crate) fn resolve(
     if let Some(generation) = &mut spec.generation {
         generation.resolve(parent)?;
     }
-    pretrain::prepare(root, &spec, engine)?;
-    pretrain::resolve(root, &mut spec)?;
     if let Some(rounds) = rounds {
-        spec.execution.rounds = rounds;
-    } else if spec.execution.rounds < 128 {
+        spec.rounds = rounds;
+    } else if spec.rounds < 128 {
         return Err("pretraining experiments require at least 128 rounds".into());
     }
+    pretrain::prepare(root, &spec, engine)?;
+    pretrain::resolve(root, &mut spec)?;
     resolved_config(root, &mut spec)
 }
 
 fn validate_authored(spec: &baux::config::ExperimentSpec) -> Result<(), String> {
-    if spec.output.is_some() || spec.data.train.is_some() || spec.data.validation.is_some() {
+    if spec.output.is_some() || spec.train.is_some() || spec.validation.is_some() {
         return Err(
-            "authored pretraining configs select data.recipe; output, data.train, and data.validation exist only in frozen run records"
+            "authored pretraining configs select recipe; output, train, and validation exist only in frozen run records"
                 .into(),
         );
     }
@@ -194,11 +191,8 @@ mod tests {
     const BASE: &str = "version=4\n\
         experiment='pretrain'\n\
         model='fbt-pisa1-mhc4-v1'\n\
-        [data]\n\
         recipe='stack-v3-rust-go-v1'\n\
-        [objective]\n\
-        function='cross-entropy'\n\
-        sampling='natural'\n\
+        objective='cross-entropy'\n\
         [optimizer]\n\
         algorithm='muon'\n";
 

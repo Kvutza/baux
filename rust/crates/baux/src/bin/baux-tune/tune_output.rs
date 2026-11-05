@@ -178,10 +178,6 @@ fn tagged(text: &str, tone: Tone) -> String {
     render(tag, text, true, theme())
 }
 
-fn tagged_as(tag: Tag, text: &str) -> String {
-    render(tag, text, true, theme())
-}
-
 fn machine_only(text: &str) -> bool {
     [
         "generation.stage ",
@@ -208,7 +204,6 @@ fn machine_only(text: &str) -> bool {
         "TURBO_ENN_CTRL ",
         "TURBO_ENN_FAMILY ",
         "TURBO_ENN_PARAMETERS ",
-        "TURBO_ENN_RELIABILITY ",
         "TURBO_ENN round=", // handled by `display_record`; hides malformed records
         "TURBO_ENN complete ",
         "TURBO_ENN setup_",
@@ -239,10 +234,6 @@ fn generated_record(text: &str) -> Option<String> {
 }
 
 fn display_record(text: &str) -> Option<String> {
-    structured_record(text).or_else(|| legacy_record(text))
-}
-
-fn structured_record(text: &str) -> Option<String> {
     experiment_record(text)
         .or_else(|| optimizer_record(text))
         .or_else(|| workload_record(text))
@@ -255,42 +246,78 @@ fn optimizer_record(text: &str) -> Option<String> {
     if text.starts_with("optimizer.round ") {
         return round_record(text).or_else(|| round_line(text));
     }
+    if text.starts_with("TURBO_ENN_ACTUAL_ROUND ") {
+        return round_record(text);
+    }
     if text.starts_with("TURBO_ENN round=") {
         return round_line(text);
     }
     if text.starts_with("optimizer.complete ") || text.starts_with("TURBO_ENN complete ") {
         return summary_line(text);
     }
-    if text.starts_with("optimizer.space ") {
+    if text.starts_with("optimizer.space ") || text.starts_with("TURBO_ENN_FULL_SPACE ") {
         return space_record(text);
     }
-    if text.starts_with("optimizer.initial ") {
-        return initial_record(text);
+    if text.starts_with("optimizer.initial ") || text.starts_with("TURBO_ENN_ACTUAL_INITIAL ") {
+        return Some(tagged(
+            &format!("initial · nll {:.5}", -finite_field(text, "reward")?),
+            Tone::Normal,
+        ));
     }
-    if text.starts_with("optimizer.loop ") {
-        return loop_record(text);
+    if text.starts_with("optimizer.loop ") || text.starts_with("TURBO_ENN_LOOP ") {
+        return Some(tagged(
+            &format!(
+                "loop · {:.3}s · {:.3} rounds/s",
+                finite_field(text, "elapsed_seconds")?,
+                finite_field(text, "rounds_per_second")?,
+            ),
+            Tone::Normal,
+        ));
     }
     text.strip_prefix("optimizer.summary ")
+        .or_else(|| text.strip_prefix("TURBO_ENN_SUMMARY "))
         .and_then(summary_record)
 }
 
 fn workload_record(text: &str) -> Option<String> {
     if text.starts_with("pretrain.initial ") {
-        return pretrain_initial(text);
+        return Some(tagged(
+            &format!(
+                "initial training draw · {} · nll {:.6} · {} tokens · {:.0}ms GPU",
+                record_field(text, "source")?,
+                finite_field(text, "nll")?,
+                record_field(text, "scored_tokens")?,
+                finite_field(text, "gpu_ms")?,
+            ),
+            Tone::Muted,
+        ));
     }
     if text.starts_with("pretrain.round ") {
         return pretrain_round(text);
     }
     if text.starts_with("pretrain.validation ") {
-        return pretrain_validation(text);
+        return Some(render(
+            Tag::Metric,
+            &format!(
+                "validation {} · nll {:.6} · {} · {} evaluated tokens",
+                record_field(text, "round")?,
+                finite_field(text, "nll")?,
+                record_field(text, "sources")?.replace(',', " · "),
+                record_field(text, "evaluated_tokens")?,
+            ),
+            true,
+            theme(),
+        ));
     }
     if text.starts_with("generation.summary ") {
         return generation_summary(text);
     }
     if text.starts_with("Pretraining") || text.starts_with("Generation") {
-        return Some(tagged_as(
+        return Some(render(
             Tag::Orchestration,
             &text.trim().to_ascii_lowercase(),
+            true,
+            theme(),
         ));
     }
     if text.starts_with("generation.round ") {
@@ -326,19 +353,6 @@ fn generation_summary(text: &str) -> Option<String> {
     ))
 }
 
-fn pretrain_initial(text: &str) -> Option<String> {
-    Some(tagged(
-        &format!(
-            "initial training draw · {} · nll {:.6} · {} tokens · {:.0}ms GPU",
-            record_field(text, "source")?,
-            finite_field(text, "nll")?,
-            record_field(text, "scored_tokens")?,
-            finite_field(text, "gpu_ms")?,
-        ),
-        Tone::Muted,
-    ))
-}
-
 fn pretrain_round(text: &str) -> Option<String> {
     let round = record_field(text, "round")?.parse::<u64>().ok()?;
     let accepted = record_field(text, "accepted")? == "true";
@@ -371,68 +385,65 @@ fn pretrain_round(text: &str) -> Option<String> {
     Some(tagged(&row, Tone::Normal))
 }
 
-fn pretrain_validation(text: &str) -> Option<String> {
-    Some(tagged_as(
-        Tag::Metric,
-        &format!(
-            "validation {} · nll {:.6} · {} · {} evaluated tokens",
-            record_field(text, "round")?,
-            finite_field(text, "nll")?,
-            record_field(text, "sources")?.replace(',', " · "),
-            record_field(text, "evaluated_tokens")?,
-        ),
-    ))
-}
-
 fn experiment_record(text: &str) -> Option<String> {
     if text.starts_with("experiment.plan ") {
-        plan_line(text)
-    } else if text.starts_with("experiment.phase ") {
-        phase_line(text)
-    } else if text.starts_with("generation.validation_summary ") {
-        validation_line(text)
-    } else {
-        None
+        return plan_line(text);
     }
+    if text.starts_with("experiment.phase ") {
+        let name = record_field(text, "name")?.replace('-', " ");
+        return match record_field(text, "status")? {
+            "start" => Some(render(
+                Tag::Orchestration,
+                &format!("{name} · running"),
+                true,
+                theme(),
+            )),
+            "done" => Some(render(
+                Tag::Orchestration,
+                &format!(
+                    "{name} · {:.1}s",
+                    finite_field(text, "elapsed_ms")? / 1000.0
+                ),
+                true,
+                theme(),
+            )),
+            _ => None,
+        };
+    }
+    if text.starts_with("generation.validation_summary ") {
+        let metric = record_field(text, "metric")?;
+        return Some(render(
+            Tag::Metric,
+            &format!(
+                "validation {} · {} tasks · {metric} {:.6} · {:.1}s",
+                record_field(text, "phase")?.replace("validation-", ""),
+                record_field(text, "tasks")?,
+                finite_field(text, "value")?,
+                finite_field(text, "elapsed_ms")? / 1000.0,
+            ),
+            true,
+            theme(),
+        ));
+    }
+    None
 }
 
 fn plan_line(text: &str) -> Option<String> {
-    if record_field(text, "sampling") == Some("natural") {
-        return Some(format!(
-            "{}{}{}",
-            tagged_as(
-                Tag::Orchestration,
-                &format!(
-                    "plan · {} · {} · {} rounds · {:.0}ms target",
-                    record_field(text, "model")?,
-                    record_field(text, "optimizer")?.to_ascii_lowercase(),
-                    record_field(text, "rounds")?,
-                    finite_field(text, "target_ms")?,
-                ),
-            ),
-            tagged("data · natural corpus units", Tone::Muted),
-            tagged(
-                &format!(
-                    "objective · {} · validation at powers of two and every {} rounds",
-                    record_field(text, "objective")?,
-                    record_field(text, "validation_interval")?,
-                ),
-                Tone::Muted,
-            ),
-        ));
-    }
-    Some(format!(
-        "{}{}{}",
-        tagged_as(
-            Tag::Orchestration,
-            &format!(
-                "plan · {} · {} · {} rounds · {:.0}ms target",
-                record_field(text, "model")?,
-                record_field(text, "optimizer")?.to_ascii_lowercase(),
-                record_field(text, "rounds")?,
-                finite_field(text, "target_ms")?,
-            ),
+    let head = render(
+        Tag::Orchestration,
+        &format!(
+            "plan · {} · {} · {} rounds · {:.0}ms target",
+            record_field(text, "model")?,
+            record_field(text, "optimizer")?.to_ascii_lowercase(),
+            record_field(text, "rounds")?,
+            finite_field(text, "target_ms")?,
         ),
+        true,
+        theme(),
+    );
+    let mid = if record_field(text, "sampling") == Some("natural") {
+        tagged("data · natural corpus units", Tone::Muted)
+    } else {
         tagged(
             &format!(
                 "capacity · {} context · allocation budget {} prompt / {} generation",
@@ -441,64 +452,17 @@ fn plan_line(text: &str) -> Option<String> {
                 record_field(text, "generation_budget")?,
             ),
             Tone::Muted,
-        ),
-        tagged(
-            &format!(
-                "objective · {} · validation at powers of two and every {} rounds",
-                record_field(text, "objective")?,
-                record_field(text, "validation_interval")?,
-            ),
-            Tone::Muted,
-        ),
-    ))
-}
-
-fn phase_line(text: &str) -> Option<String> {
-    let name = record_field(text, "name")?.replace('-', " ");
-    match record_field(text, "status")? {
-        "start" => Some(tagged_as(Tag::Orchestration, &format!("{name} · running"))),
-        "done" => Some(tagged_as(
-            Tag::Orchestration,
-            &format!(
-                "{name} · {:.1}s",
-                finite_field(text, "elapsed_ms")? / 1000.0
-            ),
-        )),
-        _ => None,
-    }
-}
-
-fn validation_line(text: &str) -> Option<String> {
-    let metric = record_field(text, "metric")?;
-    Some(tagged_as(
-        Tag::Metric,
+        )
+    };
+    let tail = tagged(
         &format!(
-            "validation {} · {} tasks · {metric} {:.6} · {:.1}s",
-            record_field(text, "phase")?.replace("validation-", ""),
-            record_field(text, "tasks")?,
-            finite_field(text, "value")?,
-            finite_field(text, "elapsed_ms")? / 1000.0,
+            "objective · {} · validation at powers of two and every {} rounds",
+            record_field(text, "objective")?,
+            record_field(text, "validation_interval")?,
         ),
-    ))
-}
-
-fn legacy_record(text: &str) -> Option<String> {
-    if text.starts_with("TURBO_ENN_ACTUAL_ROUND ") {
-        return round_record(text);
-    }
-    if text.starts_with("TURBO_ENN_FULL_SPACE ") {
-        return space_record(text);
-    }
-    if text.starts_with("TURBO_ENN_ACTUAL_INITIAL ") {
-        return initial_record(text);
-    }
-    if text.starts_with("TURBO_ENN_LOOP ") {
-        return loop_record(text);
-    }
-    match text.strip_prefix("TURBO_ENN_SUMMARY ") {
-        Some(summary) => summary_record(summary),
-        None => None,
-    }
+        Tone::Muted,
+    );
+    Some(format!("{head}{mid}{tail}"))
 }
 
 fn setup_line(text: &str) -> Option<String> {
@@ -570,13 +534,7 @@ fn generation_record(text: &str) -> Option<String> {
             record_field(text, "status") == Some("accepted")
                 || record_field(text, "status") == Some("applied")
         });
-    let status = if accepted {
-        "accepted"
-    } else if record_field(text, "trust_outcome") == Some("Inconclusive") {
-        "inconclusive"
-    } else {
-        "rejected"
-    };
+    let status = if accepted { "accepted" } else { "rejected" };
     let (label, value) = finite_field(text, "nll").map_or(("reward", reward), |nll| ("nll", nll));
     let total =
         finite_field(text, "total").map_or_else(String::new, |total| format!("/{total:.0}"));
@@ -653,24 +611,6 @@ fn space_record(text: &str) -> Option<String> {
     ))
 }
 
-fn initial_record(text: &str) -> Option<String> {
-    Some(tagged(
-        &format!("initial · nll {:.5}", -finite_field(text, "reward")?),
-        Tone::Normal,
-    ))
-}
-
-fn loop_record(text: &str) -> Option<String> {
-    Some(tagged(
-        &format!(
-            "loop · {:.3}s · {:.3} rounds/s",
-            finite_field(text, "elapsed_seconds")?,
-            finite_field(text, "rounds_per_second")?,
-        ),
-        Tone::Normal,
-    ))
-}
-
 fn summary_record(text: &str) -> Option<String> {
     let field = |name| record_field(text, name);
     let number = |name| {
@@ -703,7 +643,7 @@ mod tests {
     use super::display_record;
 
     #[test]
-    fn structured_label() {
+    fn native_label() {
         assert!(
             display_record("generation.sample round=1 tokens=4096 reward=0.12 accepted=false")
                 .is_none()

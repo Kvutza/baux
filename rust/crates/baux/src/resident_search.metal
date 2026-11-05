@@ -21,9 +21,7 @@ struct Tile { uint leaf; uint start; uint length; uint pad; };
 struct Params {
     ulong seed;
     ulong stream_seed;
-    ulong basis_seed;
     float radius;
-    float alternate_radius;
     uint candidate;
     uint tiles;
     uint history;
@@ -31,24 +29,14 @@ struct Params {
     uint mode;
     uint base_slot;
     uint blocks;
-    uint program;
-};
-struct ReplayStep {
-    ulong seed;
-    float radius;
-    uint accepted;
-    uint candidate;
-    uint mode;
 };
 struct SelectionParams {
     ulong root_seed;
-    ulong basis_seed;
     float outcomes[BAUX_HISTORY];
     float variances[BAUX_HISTORY];
     float draws[BAUX_HISTORY];
     float base_distances[BAUX_HISTORY];
     float local_scales[BAUX_HISTORY];
-    float latent_norms[4];
     float axis_history[BAUX_HISTORY];
     float axis_candidates[4];
     float axis_base;
@@ -59,36 +47,31 @@ struct SelectionParams {
     float y_scale;
     float beta;
     float radius;
-    float alternate_radius;
     uint neighbors;
     uint history;
     uint acquisition;
     uint tiles;
     uint mode;
-    uint program;
     uint resident_history;
-    uint resident_indices[2];
+    uint resident_indices[BAUX_HISTORY];
     uint implicit_history;
-    uint exact_history;
-    uint latent_history;
     uint forced_candidate;
-    uint distance_scaling;
+    uint distance_metric;
     uint local_scale_neighbors;
     uint incumbent_index;
     uint candidate_floor;
-    uint sampled_history;
     uint adaptive_neighbors;
+    uint pad;
 };
 struct Decision {
     uint index;
     uint valid;
     ulong root_seed;
     ulong seed;
-    ulong basis_seed;
     float radius;
     float score;
     uint mode;
-    uint program;
+    uint pad;
     float predicted_mean;
     float predicted_standard_error;
     float incumbent_mean;
@@ -100,12 +83,108 @@ struct Decision {
     float candidate_scores[4];
 };
 struct Partial { float anchor; float rejected; float squared; uint changed; uint invalid; };
+inline float decode(ushort x);
 
 inline ulong mix64(ulong x) {
     x += 0x9e3779b97f4a7c15ul;
     x = (x ^ (x >> 30)) * 0xbf58476d1ce4e5b9ul;
     x = (x ^ (x >> 27)) * 0x94d049bb133111ebul;
     return x ^ (x >> 31);
+}
+
+// Compare an evaluated resident row with two local history rows and the
+// incumbent. The same block-weighted metric used by the proposal pool applies.
+// Only the first pair computes the incumbent distance. Partial storage is
+// reused while the search state is idle; no parameter row is read by the CPU.
+kernel void import_partial(
+    device const ushort *incoming [[buffer(0)]],
+    device const ushort *first [[buffer(1)]],
+    device const ushort *second [[buffer(2)]],
+    device const ushort *incumbent [[buffer(3)]],
+    device const Leaf *leaves [[buffer(4)]],
+    device const Tile *tiles [[buffer(5)]],
+    device Partial *partials [[buffer(6)]],
+    constant Params &p [[buffer(7)]],
+    uint tile_index [[threadgroup_position_in_grid]],
+    uint tid [[thread_index_in_threadgroup]]) {
+    Tile tile = tiles[tile_index];
+    Leaf leaf = leaves[tile.leaf];
+    float first_sum = 0.0f;
+    float second_sum = 0.0f;
+    float base_sum = 0.0f;
+    for (uint item = tid; item < tile.length; item += 256) {
+        ulong index = leaf.offset + ulong(tile.start) + ulong(item);
+        float value = decode(incoming[index]);
+        float delta = value - decode(first[index]);
+        first_sum += leaf.weight * delta * delta;
+        if (p.history == 2) {
+            delta = value - decode(second[index]);
+            second_sum += leaf.weight * delta * delta;
+        }
+        if (p.initialize == 0) {
+            delta = value - decode(incumbent[index]);
+            base_sum += leaf.weight * delta * delta;
+        }
+    }
+    threadgroup float first_parts[256];
+    threadgroup float second_parts[256];
+    threadgroup float base_parts[256];
+    first_parts[tid] = first_sum;
+    second_parts[tid] = second_sum;
+    base_parts[tid] = base_sum;
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    for (uint stride = 128; stride != 0; stride >>= 1) {
+        if (tid < stride) {
+            first_parts[tid] += first_parts[tid + stride];
+            second_parts[tid] += second_parts[tid + stride];
+            base_parts[tid] += base_parts[tid + stride];
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+    }
+    if (tid == 0) {
+        partials[(p.initialize * 4) * p.tiles + tile_index] = {
+            first_parts[0], second_parts[0], base_parts[0], 0u, 0u
+        };
+    }
+}
+
+// Collapse tile distances to one scalar per retained row and one incumbent
+// scalar. The output is at most 2*BAUX_HISTORY+1 floats.
+kernel void import_reduce(
+    device const Partial *partials [[buffer(0)]],
+    device float *distances [[buffer(1)]],
+    constant uint &tiles [[buffer(2)]],
+    uint pair [[threadgroup_position_in_grid]],
+    uint tid [[thread_index_in_threadgroup]]) {
+    float first_sum = 0.0f;
+    float second_sum = 0.0f;
+    float base_sum = 0.0f;
+    for (uint tile = tid; tile < tiles; tile += 256) {
+        Partial part = partials[(pair * 4) * tiles + tile];
+        first_sum += part.anchor;
+        second_sum += part.rejected;
+        base_sum += part.squared;
+    }
+    threadgroup float first_parts[256];
+    threadgroup float second_parts[256];
+    threadgroup float base_parts[256];
+    first_parts[tid] = first_sum;
+    second_parts[tid] = second_sum;
+    base_parts[tid] = base_sum;
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    for (uint stride = 128; stride != 0; stride >>= 1) {
+        if (tid < stride) {
+            first_parts[tid] += first_parts[tid + stride];
+            second_parts[tid] += second_parts[tid + stride];
+            base_parts[tid] += base_parts[tid + stride];
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+    }
+    if (tid == 0) {
+        distances[pair * 2] = first_parts[0];
+        distances[pair * 2 + 1] = second_parts[0];
+        if (pair == 0) distances[2 * BAUX_HISTORY] = base_parts[0];
+    }
 }
 inline uint mix32(uint value) {
     value ^= value >> 16;
@@ -130,7 +209,7 @@ inline float2 rademacher_pair(ulong2 domain, ulong pair) {
     );
 }
 #ifndef RADEMACHER_ONLY
-inline uint ziggurat_bits_domain(
+inline uint domain_bits(
     ulong2 domain,
     ulong element,
     uint attempt,
@@ -146,9 +225,9 @@ inline uint ziggurat_bits_domain(
 inline float ziggurat_uniform(uint bits) {
     return min(float((bits >> 8) + 1u) * 0x1.0p-24f, 0.99999994f);
 }
-inline float ziggurat_sample_domain(ulong2 domain, ulong element) {
+inline float domain_sample(ulong2 domain, ulong element) {
     for (uint attempt = 0;; attempt++) {
-        uint bits = ziggurat_bits_domain(domain, element, attempt, 0u);
+        uint bits = domain_bits(domain, element, attempt, 0u);
         int signed_sample = as_type<int>(bits);
         uint layer = uint(signed_sample) & 255u;
         uint magnitude = signed_sample < 0
@@ -159,10 +238,10 @@ inline float ziggurat_sample_domain(ulong2 domain, ulong element) {
         if (layer == 0u) {
             for (uint tail = 0;; tail++) {
                 float x = -log(ziggurat_uniform(
-                    ziggurat_bits_domain(domain, element, attempt + tail, 1u)))
+                    domain_bits(domain, element, attempt + tail, 1u)))
                     / 3.654152885361009f;
                 float y = -log(ziggurat_uniform(
-                    ziggurat_bits_domain(domain, element, attempt + tail, 2u)));
+                    domain_bits(domain, element, attempt + tail, 2u)));
                 if (2.0f * y >= x * x) {
                     float value = 3.654152885361009f + x;
                     return signed_sample < 0 ? -value : value;
@@ -170,19 +249,19 @@ inline float ziggurat_sample_domain(ulong2 domain, ulong element) {
             }
         }
         float uniform = ziggurat_uniform(
-            ziggurat_bits_domain(domain, element, attempt, 1u));
+            domain_bits(domain, element, attempt, 1u));
         float density = ziggurat_densities[layer]
             + uniform * (ziggurat_densities[layer - 1u] - ziggurat_densities[layer]);
         if (density < exp(-0.5f * sample * sample)) return sample;
     }
 }
 inline float ziggurat_sample(ulong seed, ulong key, ulong element) {
-    return ziggurat_sample_domain(ziggurat_domain(seed, key), element);
+    return domain_sample(ziggurat_domain(seed, key), element);
 }
-inline float2 ziggurat_pair_domain(ulong2 domain, ulong pair) {
+inline float2 domain_ziggurat(ulong2 domain, ulong pair) {
     return float2(
-        ziggurat_sample_domain(domain, pair * 2ul),
-        ziggurat_sample_domain(domain, pair * 2ul + 1ul));
+        domain_sample(domain, pair * 2ul),
+        domain_sample(domain, pair * 2ul + 1ul));
 }
 #endif
 #ifdef FP16_INDEPENDENT
@@ -199,27 +278,22 @@ inline ushort encode(float x) {
 }
 inline bool invalid_value(ushort x) { return (x & 0x7f80u) == 0x7f80u; }
 #endif
-inline float2 noise_pair(ulong seed, ulong key, ulong pair, uint mode) {
-    ulong2 domain = ziggurat_domain(seed, key);
+inline float2 domain_noise(ulong2 domain, ulong pair, uint mode) {
 #ifdef RADEMACHER_ONLY
     return rademacher_pair(domain, pair);
 #else
     if (mode == 1u) {
         return rademacher_pair(domain, pair);
     }
-    return ziggurat_pair_domain(domain, pair);
+    return domain_ziggurat(domain, pair);
 #endif
+}
+inline float2 noise_pair(ulong seed, ulong key, ulong pair, uint mode) {
+    return domain_noise(ziggurat_domain(seed, key), pair, mode);
 }
 inline float sample(ulong seed, ulong key, ulong element, uint mode) {
     float2 pair = noise_pair(seed, key, element / 2, mode);
     return (element & 1ul) == 0ul ? pair.x : pair.y;
-}
-inline float direction(float reference, float inverse_rms, float noise, uint candidate) {
-#if defined(FP16_INDEPENDENT) || (defined(PROCEDURAL_SLOTS) && PROCEDURAL_SLOTS == 1)
-    return noise;
-#else
-    return candidate < 2 ? 0.75f * (reference * inverse_rms) + sqrt(0.4375f) * noise : noise;
-#endif
 }
 inline uint trial_hash(uint low, uint high, uint element) {
     uint value = low ^ (element * 0x9e3779b9u);
@@ -240,239 +314,79 @@ inline ulong candidate_seed(ulong root, uint candidate) {
         root = z ^ (z >> 31);
     }
 #endif
-    uint stream = candidate / 2;
+    uint stream = candidate;
     uint low = uint(root);
     uint high = uint(root >> 32);
     return ulong(trial_hash(low, high, stream))
         | (ulong(trial_hash(high, low, stream ^ 0x9e3779b9u)) << 32);
 }
 
-inline float proposal_radius(
-    uint candidate,
-    uint program,
-    float radius,
-    float alternate_radius) {
-#ifdef PROCEDURAL_SLOTS
-    uint slot = program == 3u ? candidate : candidate % PROCEDURAL_SLOTS;
-#else
-    uint slot = candidate;
-#endif
-    return (slot & 1u) == 0u ? radius : alternate_radius;
-}
-
 #ifdef FP16_INDEPENDENT
-inline ulong proposal_seed(ulong root, uint candidate, uint program) {
+inline ulong proposal_seed(ulong root, uint candidate) {
     return candidate_seed(root, candidate);
 }
 
-// Layerwise symmetry-compatible perturbation operator (arXiv:2605.18106):
-// Applies exact linear variance-preserving quotient projections matched to each
-// module's forward-pass symmetry group encoded in `leaf.address & 31u`:
-// - `4u` (embedding_readout [512, 262144]): on the 64 tied hierarchical octal-tree
-//   readout rows (d < 64), decomposes each 8-leaf sibling block into orthogonal
-//   Level-5 softmax quotient (\Pi_8^\perp z) and Levels 0..4 tree-centroid (\mu_8 1_8)
-//   components with variance-preserving weights (\alpha = 1.05220856, \beta = 0.50,
-//   satisfying (7/8)\alpha^2 + (1/8)\beta^2 = 1) that concentrate energy onto the
-//   Level-5 horizontal quotient while damping coarse centroid drift; on input-only
-//   token rows (d >= 64), uses 1-pair isometric draws.
-// - `0u` (router [512, 640]), `5u, 7u, 9u` (RMSNorms [512]), `>= 10u` (mHC 4-stream
-//   Sinkhorn predictors/biases): exact 4-element horizontal zero-sum quotient
-//   projection \Pi_4^\perp z = \sqrt{4/3} (z - \mu_4 1_4).
-// - `1u, 2u, 3u, 6u` (linear projections and MoE experts): 1-pair isometric draw.
-inline float2 sym_pair_continuous(
+inline float2 proposal_delta(
     float2 base_value,
     Leaf leaf,
-    ulong salted_seed,
+    ulong2 domain,
+    uint candidate,
     float radius,
     uint mode,
     ulong pair) {
-    float step = leaf.scale * radius;
-    if (step == 0.0f) return float2(0.0f, 0.0f);
-    uint family_code = leaf.address & 31u;
-    ulong leaf_pairs = (leaf.length + 1ul) / 2ul;
-    if (family_code == 4u && (pair >> 17) < 64ul && leaf_pairs >= 4ul) {
-        ulong pair_base = min(pair & ~3ul, leaf_pairs - 4ul);
-        uint sub = uint(pair - pair_base);
-        float2 p0 = noise_pair(salted_seed, leaf.key, pair_base, mode);
-        float2 p1 = noise_pair(salted_seed, leaf.key, pair_base + 1ul, mode);
-        float2 p2 = noise_pair(salted_seed, leaf.key, pair_base + 2ul, mode);
-        float2 p3 = noise_pair(salted_seed, leaf.key, pair_base + 3ul, mode);
-        float mu8 = 0.125f * ((p0.x + p0.y) + (p1.x + p1.y) + (p2.x + p2.y) + (p3.x + p3.y));
-        float2 raw = sub == 0u ? p0 : (sub == 1u ? p1 : (sub == 2u ? p2 : p3));
-        float2 unit_dir = 1.05220856f * (raw - mu8) + 0.50f * float2(mu8);
-        return step * unit_dir;
-    }
-    bool center_fiber = family_code == 0u
-        || family_code == 5u
-        || family_code == 7u
-        || family_code == 9u
-        || family_code >= 10u;
-    if (center_fiber && leaf_pairs >= 2ul) {
-        ulong pair_base = min(pair & ~1ul, leaf_pairs - 2ul);
-        uint sub = uint(pair - pair_base);
-        float2 q0 = noise_pair(salted_seed, leaf.key, pair_base, mode);
-        float2 q1 = noise_pair(salted_seed, leaf.key, pair_base + 1ul, mode);
-        float mu4 = 0.25f * ((q0.x + q0.y) + (q1.x + q1.y));
-        float2 raw = sub == 0u ? q0 : q1;
-        float2 unit_dir = 1.15470054f * (raw - mu4);
-        return step * unit_dir;
-    }
-    float2 q = noise_pair(salted_seed, leaf.key, pair, mode);
-    return step * q;
-}
-
-inline float2 proposal_pair_continuous(float2 base_value, Leaf leaf, ulong seed,
-    ulong basis_seed, uint candidate, uint program, float radius, uint mode,
-    ulong pair) {
-    if (program == 4u)
-        return sym_pair_continuous(base_value, leaf, seed ^ 0x8ebc6af09c88c6e3ul, radius, mode, pair);
-
-    float2 noise = noise_pair(seed ^ 0x8ebc6af09c88c6e3ul, leaf.key, pair, mode);
-    if (program == 3u) {
-        float r_sq = base_value.x * base_value.x + base_value.y * base_value.y;
-        float inv_r = r_sq > 1e-12f ? rsqrt(r_sq) : 0.0f;
-        float2 tangent = float2(base_value.y * inv_r, -base_value.x * inv_r);
-        uint slot = candidate & 3u;
-        float alpha = slot == 0u ? 0.0f : (slot == 1u ? 0.5235987756f : (slot == 2u ? 0.7853981634f : 1.0471975512f));
-        noise = cos(alpha) * noise + sin(alpha) * tangent;
-        return (leaf.scale * radius) * noise;
-    }
-    if (program == 5u) {
-        float s = leaf.scale * radius;
-        float kappa = 0.5f * (base_value.x * noise.y - base_value.y * noise.x);
-        float theta = (s * s) * kappa;
-        float c = cos(theta);
-        float s_sin = sin(theta);
-        float x_rot = c * base_value.x - s_sin * base_value.y;
-        float y_rot = s_sin * base_value.x + c * base_value.y;
-        return float2(x_rot - base_value.x, y_rot - base_value.y);
-    }
+    float2 noise = domain_noise(domain, pair, mode);
     return (leaf.scale * radius) * noise;
 }
 
-inline ushort2 sym_pair(
+inline float2 continuous_pair(float2 base_value, Leaf leaf, ulong seed,
+    uint candidate, float radius, uint mode,
+    ulong pair, constant Params &p) {
+    ulong2 domain = ziggurat_domain(seed ^ 0x8ebc6af09c88c6e3ul, leaf.key);
+    return proposal_delta(base_value, leaf, domain, candidate, radius, mode, pair);
+}
+
+inline ushort2 domain_proposal(
     float2 base_value,
     Leaf leaf,
-    ulong salted_seed,
+    ulong2 domain,
+    uint candidate,
     float radius,
     uint mode,
     ulong pair) {
-    float step = leaf.scale * radius;
-    if (step == 0.0f) return encode_pair(base_value);
-    uint family_code = leaf.address & 31u;
-    ulong leaf_pairs = (leaf.length + 1ul) / 2ul;
-    if (family_code == 4u && (pair >> 17) < 64ul && leaf_pairs >= 4ul) {
-        ulong pair_base = min(pair & ~3ul, leaf_pairs - 4ul);
-        uint sub = uint(pair - pair_base);
-        float2 p0 = noise_pair(salted_seed, leaf.key, pair_base, mode);
-        float2 p1 = noise_pair(salted_seed, leaf.key, pair_base + 1ul, mode);
-        float2 p2 = noise_pair(salted_seed, leaf.key, pair_base + 2ul, mode);
-        float2 p3 = noise_pair(salted_seed, leaf.key, pair_base + 3ul, mode);
-        float mu8 = 0.125f * ((p0.x + p0.y) + (p1.x + p1.y) + (p2.x + p2.y) + (p3.x + p3.y));
-        float2 raw = sub == 0u ? p0 : (sub == 1u ? p1 : (sub == 2u ? p2 : p3));
-        float2 unit_dir = 1.05220856f * (raw - mu8) + 0.50f * float2(mu8);
-        return encode_pair(base_value + step * unit_dir);
-    }
-    bool center_fiber = family_code == 0u
-        || family_code == 5u
-        || family_code == 7u
-        || family_code == 9u
-        || family_code >= 10u;
-    if (center_fiber && leaf_pairs >= 2ul) {
-        ulong pair_base = min(pair & ~1ul, leaf_pairs - 2ul);
-        uint sub = uint(pair - pair_base);
-        float2 q0 = noise_pair(salted_seed, leaf.key, pair_base, mode);
-        float2 q1 = noise_pair(salted_seed, leaf.key, pair_base + 1ul, mode);
-        float mu4 = 0.25f * ((q0.x + q0.y) + (q1.x + q1.y));
-        float2 raw = sub == 0u ? q0 : q1;
-        float2 unit_dir = 1.15470054f * (raw - mu4);
-        return encode_pair(base_value + step * unit_dir);
-    }
-    float2 q = noise_pair(salted_seed, leaf.key, pair, mode);
-    return encode_pair(base_value + step * q);
+    return encode_pair(
+        base_value + proposal_delta(base_value, leaf, domain, candidate, radius, mode, pair));
 }
 
 // Seed is the canonical candidate stream, before the single noise-domain salt.
 // Every FP16 materialization path and sampled observation uses this operation.
 inline ushort2 proposal_pair(float2 base_value, Leaf leaf, ulong seed,
-    ulong basis_seed, uint candidate, uint program, float radius, uint mode,
-    ulong pair) {
-    if (program == 4u)
-        return sym_pair(base_value, leaf, seed ^ 0x8ebc6af09c88c6e3ul, radius, mode, pair);
-
-    float2 noise = noise_pair(seed ^ 0x8ebc6af09c88c6e3ul, leaf.key, pair, mode);
-    if (program == 3u) {
-        float r_sq = base_value.x * base_value.x + base_value.y * base_value.y;
-        float inv_r = r_sq > 1e-12f ? rsqrt(r_sq) : 0.0f;
-        float2 tangent = float2(base_value.y * inv_r, -base_value.x * inv_r);
-        uint slot = candidate & 3u;
-        float alpha = slot == 0u ? 0.0f : (slot == 1u ? 0.5235987756f : (slot == 2u ? 0.7853981634f : 1.0471975512f));
-        noise = cos(alpha) * noise + sin(alpha) * tangent;
-        return encode_pair(base_value + (leaf.scale * radius) * noise);
-    }
-    if (program == 5u) {
-        // Exact SO(2) Givens pair rotation: theta = (s * s) * kappa where kappa = 0.5 * (u_i * v_j - v_i * u_j)
-        float s = leaf.scale * radius;
-        float kappa = 0.5f * (base_value.x * noise.y - base_value.y * noise.x);
-        float theta = (s * s) * kappa;
-        float c = cos(theta);
-        float s_sin = sin(theta);
-        float x_rot = c * base_value.x - s_sin * base_value.y;
-        float y_rot = s_sin * base_value.x + c * base_value.y;
-        return encode_pair(float2(x_rot, y_rot));
-    }
-    return encode_pair(base_value + (leaf.scale * radius) * noise);
+    uint candidate, float radius, uint mode,
+    ulong pair, constant Params &p) {
+    ulong2 domain = ziggurat_domain(seed ^ 0x8ebc6af09c88c6e3ul, leaf.key);
+    return domain_proposal(base_value, leaf, domain, candidate, radius, mode, pair);
 }
 
-#ifdef PROCEDURAL_SLOTS
 inline ushort2 procedural_pair(float2 base_value, Leaf leaf, constant Params &p,
     ulong pair,
     uint candidate) {
     return proposal_pair(base_value, leaf,
-        proposal_seed(p.stream_seed, candidate, p.program), p.basis_seed,
-        candidate, p.program,
-        proposal_radius(candidate, p.program, p.radius, p.alternate_radius),
-        p.mode, pair);
+        proposal_seed(p.stream_seed, candidate),
+        candidate,
+        p.radius,
+        p.mode, pair, p);
 }
 #endif
-#endif
 
-inline ushort proposed_value(
-    device const ushort *base,
-    ulong index,
-    Leaf leaf,
-    device const ushort *reference,
-    float inverse_rms,
-    float noise,
-    uint candidate,
-    float radius) {
-    float d = direction(decode(reference[index]), inverse_rms, noise, candidate);
-    return encode(decode(base[index]) + (leaf.scale * radius) * d);
-}
-inline ushort proposed_value_bits(
-    ushort base_bits,
-    ushort reference_bits,
-    Leaf leaf,
-    float inverse_rms,
-    float noise,
-    uint candidate,
-    float radius) {
-    float d = direction(decode(reference_bits), inverse_rms, noise, candidate);
-    return encode(decode(base_bits) + (leaf.scale * radius) * d);
-}
-
-kernel void bf16_propose(
+kernel void dense_propose(
     device const ushort *base [[buffer(0)]],
     device const ushort *anchor [[buffer(1)]],
     device const ushort *rejected [[buffer(2)]],
-    device const ushort *reference [[buffer(3)]],
-    device const float *scales [[buffer(4)]],
-    device const Leaf *leaves [[buffer(5)]],
-    device const Tile *tiles [[buffer(6)]],
-    device ushort *output [[buffer(7)]],
-    device Partial *partials [[buffer(8)]],
-    device float *geometry [[buffer(9)]],
-    constant Params &p [[buffer(10)]],
+    device const Leaf *leaves [[buffer(3)]],
+    device const Tile *tiles [[buffer(4)]],
+    device ushort *output [[buffer(5)]],
+    device Partial *partials [[buffer(6)]],
+    device float *geometry [[buffer(7)]],
+    constant Params &p [[buffer(8)]],
     uint tile_index [[threadgroup_position_in_grid]],
     uint tid [[thread_index_in_threadgroup]]) {
     Tile tile = tiles[tile_index];
@@ -486,18 +400,15 @@ kernel void bf16_propose(
         ulong first = (element / 2ul) * 2ul;
         ushort2 base_pair = ushort2(base[leaf.offset + first],
             first + 1ul < leaf.length ? base[leaf.offset + first + 1ul] : 0);
-        ulong seed = p.program == 3u
-            ? proposal_seed(p.stream_seed, p.candidate, p.program) : p.seed;
-        ushort2 values = proposal_pair(decode_pair(base_pair), leaf, seed,
-            p.basis_seed, p.candidate, p.program, p.radius, p.mode,
-            element / 2ul);
+        ushort2 values = proposal_pair(decode_pair(base_pair), leaf, p.seed,
+            p.candidate, p.radius, p.mode,
+            element / 2ul, p);
         float base_value = decode(base[index]);
         ushort value = values[element & 1ul];
 #else
         float noise = sample(p.seed ^ 0x8ebc6af09c88c6e3ul, leaf.key, element, p.mode);
         float base_value = decode(base[index]);
-        float d = direction(decode(reference[index]), scales[tile.leaf], noise, p.candidate);
-        ushort value = encode(base_value + (leaf.scale * p.radius) * d);
+        ushort value = encode(base_value + (leaf.scale * p.radius) * noise);
 #endif
         output[index] = value;
         invalid |= uint(invalid_value(value));
@@ -556,18 +467,16 @@ kernel void bf16_propose(
 // First-round FP16 search has exactly one history row and the base is that row.
 // Keeping a separate entry point removes two distance accumulators and all
 // history/reference traffic from the billion-coordinate hot loop.
-kernel void bf16_propose_initial(
+kernel void dense_propose_initial(
     device const ushort *base [[buffer(0)]],
     device const ushort *anchor [[buffer(1)]],
     device const ushort *rejected [[buffer(2)]],
-    device const ushort *reference [[buffer(3)]],
-    device const float *scales [[buffer(4)]],
-    device const Leaf *leaves [[buffer(5)]],
-    device const Tile *tiles [[buffer(6)]],
-    device ushort *output [[buffer(7)]],
-    device Partial *partials [[buffer(8)]],
-    device float *geometry [[buffer(9)]],
-    constant Params &p [[buffer(10)]],
+    device const Leaf *leaves [[buffer(3)]],
+    device const Tile *tiles [[buffer(4)]],
+    device ushort *output [[buffer(5)]],
+    device Partial *partials [[buffer(6)]],
+    device float *geometry [[buffer(7)]],
+    constant Params &p [[buffer(8)]],
     uint tile_index [[threadgroup_position_in_grid]],
     uint tid [[thread_index_in_threadgroup]]) {
     Tile tile = tiles[tile_index];
@@ -584,10 +493,8 @@ kernel void bf16_propose_initial(
             ? *reinterpret_cast<device const ushort2*>(base + index)
             : ushort2(base[index], complete_pair ? base[index + 1] : 0);
         float2 base_values = decode_pair(base_pair);
-        ulong seed = p.program == 3u
-            ? proposal_seed(p.stream_seed, p.candidate, p.program) : p.seed;
-        ushort2 values = proposal_pair(base_values, leaf, seed, p.basis_seed,
-            p.candidate, p.program, p.radius, p.mode, element / 2ul);
+        ushort2 values = proposal_pair(base_values, leaf, p.seed,
+            p.candidate, p.radius, p.mode, element / 2ul, p);
         if (aligned_pair) {
             *reinterpret_cast<device ushort2*>(output + index) = values;
         } else {
@@ -651,43 +558,32 @@ kernel void bf16_propose_initial(
 }
 
 
-kernel void bf16_propose_pool(
+kernel void dense_propose_pool(
     device const ushort *base [[buffer(0)]],
     device const ushort *anchor [[buffer(1)]],
     device const ushort *rejected [[buffer(2)]],
-    device const ushort *reference [[buffer(3)]],
-    device const float *scales [[buffer(4)]],
-    device const Leaf *leaves [[buffer(5)]],
-    device const Tile *tiles [[buffer(6)]],
-    device ushort *output [[buffer(7)]],
-    device Partial *partials [[buffer(8)]],
-    device float *geometry [[buffer(9)]],
-    constant Params &p [[buffer(10)]],
+    device const Leaf *leaves [[buffer(3)]],
+    device const Tile *tiles [[buffer(4)]],
+    device ushort *output [[buffer(5)]],
+    device Partial *partials [[buffer(6)]],
+    device float *geometry [[buffer(7)]],
+    constant Params &p [[buffer(8)]],
     uint tile_index [[threadgroup_position_in_grid]],
     uint tid [[thread_index_in_threadgroup]]) {
     Tile tile = tiles[tile_index];
     Leaf leaf = leaves[tile.leaf];
-#ifndef FP16_INDEPENDENT
-    float inverse_rms = scales[tile.leaf];
-#endif
     float a[4] = {0.0f, 0.0f, 0.0f, 0.0f};
     float b[4] = {0.0f, 0.0f, 0.0f, 0.0f};
     float sq[4] = {0.0f, 0.0f, 0.0f, 0.0f};
     float norms[4] = {0.0f, 0.0f, 0.0f, 0.0f};
 #ifdef POOL_GEOMETRY_DIAGNOSTICS
     float dots[6] = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
-    float reference_norm = 0.0f;
-    float reference_dots[4] = {0.0f, 0.0f, 0.0f, 0.0f};
 #endif
     uint changed[4] = {0, 0, 0, 0};
     uint invalid[4] = {0, 0, 0, 0};
-    ulong persistent_seed = p.seed ^ 0x8ebc6af09c88c6e3ul;
-    ulong fresh_seed = p.stream_seed ^ 0x8ebc6af09c88c6e3ul;
     for (uint item = tid * 2; item < tile.length; item += 512) {
         ulong pair_element = ulong(tile.start) + item;
         ulong pair = pair_element / 2;
-        float2 persistent_pair = noise_pair(persistent_seed, leaf.key, pair, p.mode);
-        float2 fresh_pair = noise_pair(fresh_seed, leaf.key, pair, p.mode);
 #ifdef FP16_INDEPENDENT
         ulong first_index = leaf.offset + pair_element;
         bool complete_pair = item + 1 < tile.length;
@@ -713,36 +609,23 @@ kernel void bf16_propose_pool(
             rejected_values = base_values;
         }
         ushort2 values[4];
-        if (p.program == 0u) {
-            float radius = leaf.scale * p.radius;
-            float alternate_radius = leaf.scale * p.alternate_radius;
-            values[0] = encode_pair(base_values + radius * persistent_pair);
-            values[1] = encode_pair(base_values + alternate_radius * persistent_pair);
-            values[2] = encode_pair(base_values + radius * fresh_pair);
-            values[3] = encode_pair(base_values + alternate_radius * fresh_pair);
-        } else {
-#ifdef PROCEDURAL_SLOTS
-            for (uint candidate = 0; candidate < PROCEDURAL_COUNT; candidate++)
-                values[candidate] = procedural_pair(
-                    base_values,
-                    leaf,
-                    p,
-                    pair,
-                    candidate);
-#else
-            for (uint candidate = 0; candidate < 4; candidate++)
-                values[candidate] = proposal_pair(
-                    base_values,
-                    leaf,
-                    proposal_seed(p.stream_seed, candidate, p.program),
-                    p.basis_seed,
-                    candidate,
-                    p.program,
-                    candidate % 2 == 0 ? p.radius : p.alternate_radius,
-                    p.mode,
-                    pair);
-#endif
+        for (uint candidate = 0; candidate < PROCEDURAL_COUNT; candidate++)
+            values[candidate] = procedural_pair(
+                base_values,
+                leaf,
+                p,
+                pair,
+                candidate);
+#if PROCEDURAL_COUNT == 1
+        if (p.initialize == 0) {
+            if (aligned_pair) {
+                *reinterpret_cast<device ushort2*>(output + first_index) = values[0];
+            } else {
+                output[first_index] = values[0].x;
+                if (complete_pair) output[first_index + 1] = values[0].y;
+            }
         }
+#endif
         uint pair_length = complete_pair ? 2u : 1u;
         for (uint pair_offset = 0; pair_offset < pair_length; pair_offset++) {
             ushort base_bits = base_pair[pair_offset];
@@ -787,45 +670,26 @@ kernel void bf16_propose_pool(
             if (item_offset >= tile.length) break;
             ulong element = ulong(tile.start) + item_offset;
             ulong index = leaf.offset + element;
-            float persistent = pair_offset == 0 ? persistent_pair.x : persistent_pair.y;
-            float fresh = pair_offset == 0 ? fresh_pair.x : fresh_pair.y;
             ushort base_bits = base[index];
-#ifdef FP16_INDEPENDENT
-            ushort reference_bits = 0;
-#else
-            ushort reference_bits = reference[index];
-#endif
             float base_value = decode(base_bits);
             float anchor_value = base_value;
             if (p.base_slot != 0) anchor_value = decode(anchor[index]);
-            float reference_value = decode(reference_bits);
             float rejected_value = 0.0f;
             if (p.history == 2 && p.base_slot != 1)
                 rejected_value = decode(rejected[index]);
             else if (p.history == 2)
                 rejected_value = base_value;
-            float persistent_direction = direction(reference_value, inverse_rms, persistent, 0);
-#ifdef POOL_GEOMETRY_DIAGNOSTICS
-            float reference_delta = leaf.scale * reference_value * inverse_rms;
-            reference_norm += reference_delta * reference_delta * leaf.weight;
-#endif
             float radius = leaf.scale * p.radius;
-            float alternate_radius = leaf.scale * p.alternate_radius;
-            ushort values[4] = {
-                encode(base_value + radius * persistent_direction),
-                encode(base_value + alternate_radius * persistent_direction),
-                encode(base_value + radius * fresh),
-                encode(base_value + alternate_radius * fresh),
-            };
-#ifdef PROCEDURAL_SLOTS
+            ushort values[4];
             for (uint candidate = 0; candidate < PROCEDURAL_COUNT; candidate++) {
                 float2 samples = noise_pair(candidate_seed(p.stream_seed, candidate)
                     ^ 0x8ebc6af09c88c6e3ul, leaf.key, pair, p.mode);
                 float noise = samples[pair_offset];
-                float candidate_radius = proposal_radius(
-                    candidate, p.program, p.radius, p.alternate_radius);
-                values[candidate] = proposed_value_bits(base_bits, reference_bits, leaf,
-                    inverse_rms, noise, candidate, candidate_radius);
+                values[candidate] = encode(base_value + radius * noise);
+            }
+#if PROCEDURAL_COUNT == 1
+            if (p.initialize == 0) {
+                output[index] = values[0];
             }
 #endif
 #ifdef POOL_GEOMETRY_DIAGNOSTICS
@@ -842,9 +706,6 @@ kernel void bf16_propose_pool(
 #endif
                 sq[candidate] += delta * delta;
                 norms[candidate] += (delta * delta) * leaf.weight;
-#ifdef POOL_GEOMETRY_DIAGNOSTICS
-                reference_dots[candidate] += delta * reference_delta * leaf.weight;
-#endif
                 if (p.base_slot != 0) {
                     delta = value_float - anchor_value;
                     a[candidate] += (delta * delta) * leaf.weight;
@@ -870,7 +731,7 @@ kernel void bf16_propose_pool(
     } else if (p.base_slot == 1) {
         for (uint candidate = 0; candidate < PROCEDURAL_COUNT; candidate++) b[candidate] = norms[candidate];
     }
-    threadgroup float reduced_a[32], reduced_b[32], reduced_sq[32];
+    threadgroup float reduced_a[32], reduced_b[32], reduced_sq[32], reduced_norm[32];
     threadgroup uint reduced_counts[32], reduced_flags[32];
     uint lane = tid & 31u;
     uint simdgroup = tid >> 5;
@@ -878,6 +739,7 @@ kernel void bf16_propose_pool(
         float a_sum = simd_sum(a[candidate]);
         float b_sum = simd_sum(b[candidate]);
         float sq_sum = simd_sum(sq[candidate]);
+        float norm_sum = simd_sum(norms[candidate]);
         uint changed_sum = simd_sum(changed[candidate]);
         uint invalid_sum = simd_sum(invalid[candidate]);
         if (lane == 0) {
@@ -885,6 +747,7 @@ kernel void bf16_propose_pool(
             reduced_a[slot] = a_sum;
             reduced_b[slot] = b_sum;
             reduced_sq[slot] = sq_sum;
+            reduced_norm[slot] = norm_sum;
             reduced_counts[slot] = changed_sum;
             reduced_flags[slot] = invalid_sum;
         }
@@ -897,31 +760,26 @@ kernel void bf16_propose_pool(
             float a_sum = simd_sum(active ? reduced_a[slot] : 0.0f);
             float b_sum = simd_sum(active ? reduced_b[slot] : 0.0f);
             float sq_sum = simd_sum(active ? reduced_sq[slot] : 0.0f);
+            float norm_sum = simd_sum(active ? reduced_norm[slot] : 0.0f);
             uint changed_sum = simd_sum(active ? reduced_counts[slot] : 0u);
             uint invalid_sum = simd_sum(active ? reduced_flags[slot] : 0u);
             if (lane != 0) continue;
             partials[(p.initialize * 4 + candidate) * p.tiles + tile_index] =
                 {a_sum, b_sum, sq_sum, changed_sum, uint(invalid_sum != 0)};
 #ifndef POOL_GEOMETRY_DIAGNOSTICS
-            if (p.base_slot == 0)
-                geometry[candidate * p.tiles + tile_index] = a_sum;
-            else if (p.base_slot == 1)
-                geometry[candidate * p.tiles + tile_index] = b_sum;
+            if (p.initialize == 0)
+                geometry[candidate * p.tiles + tile_index] = norm_sum;
 #endif
         }
     }
 #ifdef POOL_GEOMETRY_DIAGNOSTICS
-    threadgroup float sums_a[1024], sums_b[1024], sums_sq[1024], sums_ref[768];
+    threadgroup float sums_a[1024], sums_b[1024], sums_sq[512];
     for (uint candidate = 0; candidate < 4; candidate++)
         sums_a[candidate * 256 + tid] = norms[candidate];
     for (uint pair = 0; pair < 4; pair++)
         sums_b[pair * 256 + tid] = dots[pair];
     for (uint pair = 0; pair < 2; pair++)
         sums_sq[pair * 256 + tid] = dots[pair + 4];
-    sums_sq[2 * 256 + tid] = reference_norm;
-    sums_sq[3 * 256 + tid] = reference_dots[0];
-    for (uint candidate = 1; candidate < 4; candidate++)
-        sums_ref[(candidate - 1) * 256 + tid] = reference_dots[candidate];
     threadgroup_barrier(mem_flags::mem_threadgroup);
     for (uint stride = 128; stride != 0; stride >>= 1) {
         if (tid < stride) {
@@ -933,29 +791,20 @@ kernel void bf16_propose_pool(
                 uint slot = pair * 256 + tid;
                 sums_b[slot] += sums_b[slot + stride];
             }
-            for (uint pair = 0; pair < 4; pair++) {
+            for (uint pair = 0; pair < 2; pair++) {
                 uint slot = pair * 256 + tid;
                 sums_sq[slot] += sums_sq[slot + stride];
-            }
-            for (uint candidate = 0; candidate < 3; candidate++) {
-                uint slot = candidate * 256 + tid;
-                sums_ref[slot] += sums_ref[slot + stride];
             }
         }
         threadgroup_barrier(mem_flags::mem_threadgroup);
     }
-    if (tid == 0) {
+    if (tid == 0 && p.initialize == 0) {
         for (uint candidate = 0; candidate < 4; candidate++)
             geometry[candidate * p.tiles + tile_index] = sums_a[candidate * 256];
         for (uint pair = 0; pair < 4; pair++)
             geometry[(pair + 4) * p.tiles + tile_index] = sums_b[pair * 256];
         for (uint pair = 0; pair < 2; pair++)
             geometry[(pair + 8) * p.tiles + tile_index] = sums_sq[pair * 256];
-        geometry[10 * p.tiles + tile_index] = sums_sq[2 * 256];
-        geometry[11 * p.tiles + tile_index] = sums_sq[3 * 256];
-        for (uint candidate = 1; candidate < 4; candidate++)
-            geometry[(candidate + 11) * p.tiles + tile_index]
-                = sums_ref[(candidate - 1) * 256];
     }
 #endif
 }
@@ -968,11 +817,11 @@ inline float acquisition_score(
     thread float &standard_error_out,
     thread uint &neighbors_out) {
     float scaled_distances[BAUX_HISTORY];
-    if (q.distance_scaling != 0) {
+    if (q.distance_metric != 0) {
         float query_neighbors[BAUX_HISTORY];
         uint query_count = 0;
         for (uint i = 0; i < q.history; i++) {
-            if (i == excluded_index) continue;
+            if (i == excluded_index || distances[i] <= 0.0f) continue;
             uint position = query_count;
             while (position > 0 && distances[i] < query_neighbors[position - 1]) {
                 query_neighbors[position] = query_neighbors[position - 1];
@@ -986,8 +835,14 @@ inline float acquisition_score(
             ? 1.0f
             : max(query_neighbors[local_rank - 1], 1.0e-12f);
         for (uint i = 0; i < q.history; i++) {
-            float s_q = sqrt(query_scale), s_h = sqrt(max(q.local_scales[i], 1.0e-12f)), hyp = float(q.distance_scaling >> 1);
-            scaled_distances[i] = (distances[i] + hyp * (s_q - s_h) * (s_q - s_h)) / ((1.0f + hyp) * s_q * s_h);
+            float s_q = sqrt(query_scale), s_h = sqrt(max(q.local_scales[i], 1.0e-12f));
+            if (q.distance_metric == 3) {
+                float diff = abs(s_q - s_h);
+                scaled_distances[i] = distances[i] / sqrt(max(s_q * s_h, 1.0e-12f)) + diff * diff;
+            } else {
+                float hyp = float(q.distance_metric >> 1);
+                scaled_distances[i] = (distances[i] + hyp * (s_q - s_h) * (s_q - s_h)) / ((1.0f + hyp) * s_q * s_h);
+            }
         }
     } else {
         for (uint i = 0; i < q.history; i++) scaled_distances[i] = distances[i];
@@ -1022,7 +877,7 @@ inline float acquisition_score(
             precision_sum += precision;
             noise_sum += precision * precision * noise;
             float variance_error = noise_sum / max(precision_sum * precision_sum, 1.0e-24f);
-            float risk = q.epistemic_scale * scaled_distances[index] + sqrt(variance_error);
+            float risk = q.epistemic_scale * scaled_distances[index] + variance_error;
             if (risk < best_risk) { best_risk = risk; chosen = position + 1; }
         }
         count = chosen;
@@ -1080,7 +935,7 @@ inline float acquisition_score(
 #ifdef POOL_GEOMETRY_DIAGNOSTICS
 // Invoke the production acquisition operation directly; do not duplicate it
 // in the numerical parity harness.
-kernel void bf16_posterior_probe(
+kernel void dense_posterior_probe(
     constant SelectionParams &q [[buffer(0)]],
     device const float *input [[buffer(1)]],
     device float *output [[buffer(2)]],
@@ -1096,295 +951,9 @@ kernel void bf16_posterior_probe(
 }
 #endif
 
-// For the short-history regime, spend every lane on distinct coordinates and
-// reconstruct all historical observations in registers.  This avoids leaving
-// most lanes idle when the replay lineage contains only a handful of rows.
-kernel void bf16_replay_short(
-    device ushort *lineage [[buffer(0)]],
-    device const ushort *base [[buffer(1)]],
-    device const Leaf *leaves [[buffer(2)]],
-    device const Tile *tiles [[buffer(3)]],
-    device const ReplayStep *steps [[buffer(4)]],
-    device const float *historical_scales [[buffer(5)]],
-    device const float *base_weights [[buffer(6)]],
-    device float *partials [[buffer(7)]],
-    device float *components [[buffer(8)]],
-    device Partial *pool_partials [[buffer(9)]],
-    device float *pool_geometry [[buffer(10)]],
-    constant Params &p [[buffer(11)]],
-    uint tile_index [[threadgroup_position_in_grid]],
-    uint tid [[thread_index_in_threadgroup]]) {
-#ifndef FP16_INDEPENDENT
-    return;
-#else
-    Tile tile = tiles[tile_index];
-    Leaf leaf = leaves[tile.leaf];
-    uint active_rows = min(16u, p.history - p.initialize);
-    float sums[64] = {0.0f};
-    float component_sums[64] = {0.0f};
-    float proposal_norms[4] = {0.0f, 0.0f, 0.0f, 0.0f};
-#ifdef POOL_GEOMETRY_DIAGNOSTICS
-    float proposal_dots[6] = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
-#endif
-    float proposal_squared[4] = {0.0f, 0.0f, 0.0f, 0.0f};
-    uint proposal_changed[4] = {0u, 0u, 0u, 0u};
-    uint proposal_invalid[4] = {0u, 0u, 0u, 0u};
-    ulong persistent_seed = p.seed ^ 0x8ebc6af09c88c6e3ul;
-    ulong fresh_seed = p.stream_seed ^ 0x8ebc6af09c88c6e3ul;
-    ulong2 persistent_domain = ziggurat_domain(persistent_seed, leaf.key);
-    ulong2 fresh_domain = ziggurat_domain(fresh_seed, leaf.key);
-    ulong2 history_domains[16] = {ulong2(0ul)};
-    for (uint local = 0u; local < active_rows; local++) {
-        uint row = p.initialize + local;
-        history_domains[local] = ziggurat_domain(
-            steps[row].seed ^ 0x8ebc6af09c88c6e3ul,
-            leaf.key);
-    }
-    uint pair_count = (tile.length + 1u) / 2u;
-    for (uint pair = tid; pair < pair_count; pair += 256u) {
-        uint item = pair * 2u;
-        bool has_second = item + 1u < tile.length;
-        ulong element = ulong(tile.start) + item;
-        ulong index = leaf.offset + element;
-        ushort2 current_lineage = ushort2(
-            lineage[index],
-            has_second ? lineage[index + 1ul] : 0u);
-        ushort2 base_bits = ushort2(base[index], has_second ? base[index + 1ul] : 0u);
-        float2 base_value = decode_pair(base_bits);
-        ushort2 candidates[4];
-        if (p.program == 0u) {
-#ifdef RADEMACHER_ONLY
-            float2 persistent = rademacher_pair(persistent_domain, element / 2ul);
-            float2 fresh = rademacher_pair(fresh_domain, element / 2ul);
-#else
-            float2 persistent = p.mode == 1u
-                ? rademacher_pair(persistent_domain, element / 2ul)
-                : ziggurat_pair_domain(persistent_domain, element / 2ul);
-            float2 fresh = p.mode == 1u
-                ? rademacher_pair(fresh_domain, element / 2ul)
-                : ziggurat_pair_domain(fresh_domain, element / 2ul);
-#endif
-            candidates[0] = encode_pair(base_value + leaf.scale * p.radius * persistent);
-            candidates[1] = encode_pair(base_value + leaf.scale * p.alternate_radius * persistent);
-            candidates[2] = encode_pair(base_value + leaf.scale * p.radius * fresh);
-            candidates[3] = encode_pair(base_value + leaf.scale * p.alternate_radius * fresh);
-        } else {
-#ifdef PROCEDURAL_SLOTS
-            for (uint candidate = 0; candidate < PROCEDURAL_COUNT; candidate++) {
-                float radius = proposal_radius(
-                    candidate, p.program, p.radius, p.alternate_radius);
-                candidates[candidate] = proposal_pair(
-                    base_value, leaf,
-                    proposal_seed(p.stream_seed, candidate, p.program), p.basis_seed,
-                    candidate, p.program, radius, p.mode,
-                    element / 2ul);
-            }
-#else
-            for (uint candidate = 0; candidate < 4; candidate++) {
-                float radius = proposal_radius(
-                    candidate, p.program, p.radius, p.alternate_radius);
-                candidates[candidate] = proposal_pair(
-                    base_value, leaf,
-                    proposal_seed(p.stream_seed, candidate, p.program), p.basis_seed,
-                    candidate, p.program, radius, p.mode,
-                    element / 2ul);
-            }
-#endif
-        }
-#ifdef POOL_GEOMETRY_DIAGNOSTICS
-        float2 candidate_deltas[4] = {float2(0.0f), float2(0.0f), float2(0.0f), float2(0.0f)};
-#endif
-        for (uint candidate = 0; candidate < PROCEDURAL_COUNT; candidate++) {
-            float2 delta = decode_pair(candidates[candidate]) - base_value;
-#ifdef POOL_GEOMETRY_DIAGNOSTICS
-            candidate_deltas[candidate] = delta;
-#endif
-            float2 squared = delta * delta;
-            float pair_squared = squared.x + (has_second ? squared.y : 0.0f);
-            proposal_norms[candidate] += pair_squared * leaf.weight;
-            proposal_squared[candidate] += pair_squared;
-            proposal_changed[candidate] += uint(candidates[candidate].x != base_bits.x)
-                + uint(has_second && candidates[candidate].y != base_bits.y);
-            proposal_invalid[candidate] |= uint(invalid_value(candidates[candidate].x))
-                | uint(has_second && invalid_value(candidates[candidate].y));
-        }
-#ifdef POOL_GEOMETRY_DIAGNOSTICS
-        const uint2 candidate_pairs[6] = {
-            uint2(0u, 1u), uint2(0u, 2u), uint2(0u, 3u),
-            uint2(1u, 2u), uint2(1u, 3u), uint2(2u, 3u),
-        };
-        for (uint dot = 0; dot < 6u; dot++) {
-            float2 product = candidate_deltas[candidate_pairs[dot].x]
-                * candidate_deltas[candidate_pairs[dot].y];
-            proposal_dots[dot] += (product.x + (has_second ? product.y : 0.0f))
-                * leaf.weight;
-        }
-#endif
-        for (uint local = 0; local < active_rows; local++) {
-            uint row = p.initialize + local;
-            ushort2 historical = current_lineage;
-            if (row != 0u) {
-                ReplayStep step = steps[row];
-                if (p.program == 0u) {
-#ifdef RADEMACHER_ONLY
-                    float2 noise = rademacher_pair(
-                        history_domains[local], element / 2ul);
-#else
-                    float2 noise = step.mode == 1u
-                        ? rademacher_pair(history_domains[local], element / 2ul)
-                        : ziggurat_pair_domain(history_domains[local], element / 2ul);
-#endif
-                    float scale = historical_scales[row * p.blocks + tile.leaf];
-                    historical = encode_pair(
-                        decode_pair(current_lineage) + scale * step.radius * noise);
-                } else {
-                    float scale = historical_scales[row * p.blocks + tile.leaf];
-                    Leaf hist_leaf = leaf;
-                    hist_leaf.scale = scale;
-                    historical = proposal_pair(
-                        decode_pair(current_lineage), hist_leaf, step.seed, p.basis_seed,
-                        step.candidate, p.program, step.radius, step.mode,
-                        element / 2ul);
-                }
-            }
-            float2 historical_value = decode_pair(historical);
-            for (uint candidate = 0; candidate < 4; candidate++) {
-                float2 delta = decode_pair(candidates[candidate]) - historical_value;
-                float2 squared = delta * delta;
-                float pair_squared = squared.x + (has_second ? squared.y : 0.0f);
-                uint metric = local * 4u + candidate;
-                sums[metric] += pair_squared * leaf.weight;
-                component_sums[metric] += pair_squared * base_weights[tile.leaf];
-            }
-            if (steps[row].accepted != 0u) current_lineage = historical;
-        }
-        lineage[index] = current_lineage.x;
-        if (has_second) lineage[index + 1ul] = current_lineage.y;
-    }
-    threadgroup float weighted_groups[8 * 64];
-    threadgroup float component_groups[8 * 64];
-    uint lane = tid & 31u;
-    uint simdgroup = tid >> 5;
-    uint metrics = active_rows * 4u;
-    for (uint metric = 0; metric < metrics; metric++) {
-        float weighted = simd_sum(sums[metric]);
-        float component = simd_sum(component_sums[metric]);
-        if (lane == 0u) {
-            weighted_groups[simdgroup * 64u + metric] = weighted;
-            component_groups[simdgroup * 64u + metric] = component;
-        }
-    }
-    threadgroup_barrier(mem_flags::mem_threadgroup);
-    if (tid < metrics) {
-        float weighted = 0.0f;
-        float component = 0.0f;
-        for (uint simd = 0; simd < 8u; simd++) {
-            weighted += weighted_groups[simd * 64u + tid];
-            component += component_groups[simd * 64u + tid];
-        }
-        uint local = tid / 4u;
-        uint row = p.initialize + local;
-        uint candidate = tid - local * 4u;
-        ulong output = (ulong(candidate) * ulong(BAUX_HISTORY) + row) * p.tiles + tile_index;
-        partials[output] = weighted;
-        components[output] = component;
-    }
-    threadgroup float norm_groups[8 * 4];
-    threadgroup float squared_groups[8 * 4];
-    threadgroup uint changed_groups[8 * 4];
-    threadgroup uint invalid_groups[8 * 4];
-    for (uint candidate = 0; candidate < PROCEDURAL_COUNT; candidate++) {
-        float norm = simd_sum(proposal_norms[candidate]);
-        float squared = simd_sum(proposal_squared[candidate]);
-        uint changed = simd_sum(proposal_changed[candidate]);
-        uint invalid = simd_sum(proposal_invalid[candidate]);
-        if (lane == 0u) {
-            uint slot = simdgroup * 4u + candidate;
-            norm_groups[slot] = norm;
-            squared_groups[slot] = squared;
-            changed_groups[slot] = changed;
-            invalid_groups[slot] = invalid;
-        }
-    }
-    threadgroup_barrier(mem_flags::mem_threadgroup);
-    if (tid < PROCEDURAL_COUNT) {
-        float norm = 0.0f;
-        float squared = 0.0f;
-        uint changed = 0u;
-        uint invalid = 0u;
-        for (uint simd = 0; simd < 8u; simd++) {
-            uint slot = simd * 4u + tid;
-            norm += norm_groups[slot];
-            squared += squared_groups[slot];
-            changed += changed_groups[slot];
-            invalid |= invalid_groups[slot];
-        }
-        pool_partials[tid * p.tiles + tile_index] = {
-            0.0f, 0.0f, squared, changed, invalid
-        };
-        pool_geometry[tid * p.tiles + tile_index] = norm;
-    }
-#ifdef POOL_GEOMETRY_DIAGNOSTICS
-    threadgroup float dot_groups[8 * 6];
-    for (uint dot = 0; dot < 6u; dot++) {
-        float value = simd_sum(proposal_dots[dot]);
-        if (lane == 0u) dot_groups[simdgroup * 6u + dot] = value;
-    }
-    threadgroup_barrier(mem_flags::mem_threadgroup);
-    if (tid < 6u) {
-        float value = 0.0f;
-        for (uint simd = 0; simd < 8u; simd++)
-            value += dot_groups[simd * 6u + tid];
-        pool_geometry[(tid + 4u) * p.tiles + tile_index] = value;
-    }
-    if (tid < 5u)
-        pool_geometry[(tid + 10u) * p.tiles + tile_index] = 0.0f;
-#endif
-#endif
-}
-
-kernel void bf16_reduce_replay(
-    device const float *partials [[buffer(0)]],
-    device const float *components [[buffer(1)]],
-    device const uint *family_groups [[buffer(2)]],
-    device const Tile *tiles [[buffer(3)]],
-    device float *distances [[buffer(4)]],
-    device float *family_distances [[buffer(5)]],
-    constant Params &p [[buffer(6)]],
-    uint output [[threadgroup_position_in_grid]],
-    uint tid [[thread_index_in_threadgroup]]) {
-    uint candidate = output / p.history;
-    uint row = output - candidate * p.history;
-    float total = 0.0f;
-    float families[4] = {0.0f, 0.0f, 0.0f, 0.0f};
-    ulong source = (ulong(candidate) * ulong(BAUX_HISTORY) + row) * p.tiles;
-    for (uint tile = tid; tile < p.tiles; tile += 256u) {
-        total += partials[source + tile];
-        uint family = min(family_groups[tiles[tile].leaf], 3u);
-        families[family] += components[source + tile];
-    }
-    threadgroup float reduced[5 * 256];
-    reduced[tid] = total;
-    for (uint family = 0; family < 4; family++)
-        reduced[(family + 1u) * 256u + tid] = families[family];
-    threadgroup_barrier(mem_flags::mem_threadgroup);
-    for (uint stride = 128; stride != 0; stride >>= 1) {
-        if (tid < stride)
-            for (uint value = 0; value < 5; value++)
-                reduced[value * 256u + tid] += reduced[value * 256u + tid + stride];
-        threadgroup_barrier(mem_flags::mem_threadgroup);
-    }
-    if (tid == 0) {
-        distances[candidate * p.history + row] = reduced[0];
-        ulong family_output = (ulong(candidate) * p.history + row) * 4ul;
-        for (uint family = 0; family < 4; family++)
-            family_distances[family_output + family] = reduced[(family + 1u) * 256u];
-    }
-}
-
 // Collapse the per-tile records in parallel before the deliberately scalar
 // acquisition step.  The old selector walked every tile on one GPU thread.
-kernel void bf16_reduce_pool(
+kernel void dense_reduce_pool(
     device const Partial *partials [[buffer(0)]],
     device const float *geometry [[buffer(1)]],
     device Partial *aggregates [[buffer(2)]],
@@ -1450,97 +1019,7 @@ kernel void bf16_reduce_pool(
     }
 }
 
-struct NeighborPoint { ulong element; uint leaf; float mass; };
-
-kernel void bf16_sample(
-    device const ushort *base [[buffer(0)]],
-    device const Leaf *leaves [[buffer(1)]],
-    device const NeighborPoint *points [[buffer(2)]],
-    device ushort *pool [[buffer(3)]],
-    constant Params &p [[buffer(4)]],
-    device float *pool_deltas [[buffer(5)]],
-    uint index [[thread_position_in_grid]]) {
-    if (index >= p.tiles) return;
-    NeighborPoint point = points[index];
-    Leaf leaf = leaves[point.leaf];
-#ifdef FP16_INDEPENDENT
-    ulong first = (point.element / 2ul) * 2ul;
-    ushort2 base_pair = ushort2(base[leaf.offset + first],
-        first + 1ul < leaf.length ? base[leaf.offset + first + 1ul] : 0);
-    float2 base_value = decode_pair(base_pair);
-    for (uint candidate = 0; candidate < PROCEDURAL_COUNT; candidate++) {
-        ushort2 values = proposal_pair(base_value, leaf,
-            proposal_seed(p.stream_seed, candidate, p.program), p.basis_seed,
-            candidate, p.program,
-            proposal_radius(candidate, p.program, p.radius, p.alternate_radius),
-            p.mode, point.element / 2ul);
-        pool[candidate * p.tiles + index] = values[point.element & 1ul];
-        float2 deltas = proposal_pair_continuous(base_value, leaf,
-            proposal_seed(p.stream_seed, candidate, p.program), p.basis_seed,
-            candidate, p.program,
-            proposal_radius(candidate, p.program, p.radius, p.alternate_radius),
-            p.mode, point.element / 2ul);
-        pool_deltas[candidate * p.tiles + index] = deltas[point.element & 1ul];
-    }
-#else
-    float value = decode(base[leaf.offset + point.element]);
-    for (uint candidate = 0; candidate < PROCEDURAL_COUNT; candidate++) {
-        float noise = sample(candidate_seed(p.seed, candidate)
-            ^ 0x8ebc6af09c88c6e3ul, leaf.key, point.element, p.mode);
-        float radius = proposal_radius(
-            candidate, p.program, p.radius, p.alternate_radius);
-        float delta = (leaf.scale * radius) * noise;
-        pool[candidate * p.tiles + index] = encode(value + delta);
-        pool_deltas[candidate * p.tiles + index] = delta;
-    }
-#endif
-}
-
-kernel void bf16_sample_distances(
-    device const ushort *pool [[buffer(0)]],
-    device const ushort *history [[buffer(1)]],
-    device const NeighborPoint *points [[buffer(2)]],
-    device const Leaf *leaves [[buffer(3)]],
-    device float *distances [[buffer(4)]],
-    device const float *base_weights [[buffer(5)]],
-    device const uint *groups [[buffer(6)]],
-    device float *components [[buffer(7)]],
-    constant Params &p [[buffer(8)]],
-    uint pair [[threadgroup_position_in_grid]],
-    uint tid [[thread_index_in_threadgroup]]) {
-    uint candidate = pair / p.history;
-    uint row = pair % p.history;
-    float sum = 0.0f;
-    float grouped[4] = {0.0f, 0.0f, 0.0f, 0.0f};
-    for (uint index = tid; index < p.tiles; index += 256) {
-        NeighborPoint point = points[index];
-        float delta = decode(pool[candidate * p.tiles + index]) - decode(history[row * p.tiles + index]);
-        sum += delta * delta * (point.mass * leaves[point.leaf].weight);
-        if (p.initialize != 0)
-            grouped[groups[point.leaf]] += delta * delta * (point.mass * base_weights[point.leaf]);
-    }
-    threadgroup float partial[256];
-    partial[tid] = sum;
-    threadgroup_barrier(mem_flags::mem_threadgroup);
-    for (uint stride = 128; stride != 0; stride >>= 1) {
-        if (tid < stride) partial[tid] += partial[tid + stride];
-        threadgroup_barrier(mem_flags::mem_threadgroup);
-    }
-    if (tid == 0) distances[pair] = partial[0];
-    if (p.initialize == 0) return;
-    for (uint group = 0; group < 4; group++) {
-        threadgroup_barrier(mem_flags::mem_threadgroup);
-        partial[tid] = grouped[group];
-        threadgroup_barrier(mem_flags::mem_threadgroup);
-        for (uint stride = 128; stride != 0; stride >>= 1) {
-            if (tid < stride) partial[tid] += partial[tid + stride];
-            threadgroup_barrier(mem_flags::mem_threadgroup);
-        }
-        if (tid == 0) components[pair * 4 + group] = partial[0];
-    }
-}
-
-kernel void bf16_select(
+kernel void dense_select(
     device const Partial *aggregates [[buffer(0)]],
     device Decision *decision [[buffer(1)]],
     device float *pool_distances [[buffer(2)]],
@@ -1552,36 +1031,12 @@ kernel void bf16_select(
     bool changed[4] = {false, false, false, false};
     bool invalid[4] = {false, false, false, false};
     for (uint candidate = 0; candidate < PROCEDURAL_COUNT; candidate++) {
-        proposal_norms[candidate] = q.latent_history != 0
-            ? q.latent_norms[candidate]
-            : aggregates[candidate].squared;
+        proposal_norms[candidate] = aggregates[candidate].squared;
         for (uint row = 0; row < q.history; row++) {
-            distances[candidate][row] = q.exact_history != 0 || q.sampled_history != 0
-                ? pool_distances[candidate * q.history + row]
-                : q.implicit_history != 0
+            distances[candidate][row] = q.implicit_history != 0
                 ? q.base_distances[row] + proposal_norms[candidate]
                 : 0.0f;
-            if (q.axis_enabled != 0) {
-                float delta = q.axis_candidates[candidate] - q.axis_history[row];
-                distances[candidate][row] += q.axis_weight * delta * delta;
-            }
         }
-        if (q.exact_history != 0 || q.sampled_history != 0) {
-            proposal_norms[candidate] = distances[candidate][q.incumbent_index];
-            changed[candidate] = proposal_norms[candidate] > 0.0f;
-            for (uint row = 0; row < q.history; row++)
-                invalid[candidate] = invalid[candidate]
-                    || !isfinite(distances[candidate][row]);
-        }
-    }
-    if (q.latent_history != 0 && q.sampled_history == 0) {
-        for (uint candidate = 0; candidate < PROCEDURAL_COUNT; candidate++) {
-            changed[candidate] = proposal_norms[candidate] > 0.0f;
-            invalid[candidate] = !isfinite(proposal_norms[candidate]);
-        }
-    }
-    if (q.exact_history == 0 && q.latent_history == 0 && q.sampled_history == 0)
-    for (uint candidate = 0; candidate < PROCEDURAL_COUNT; candidate++) {
         for (uint row = 0; row < q.resident_history; row += 2) {
             Partial aggregate = aggregates[(row / 2) * 4 + candidate];
             float first = aggregate.anchor;
@@ -1589,15 +1044,23 @@ kernel void bf16_select(
             changed[candidate] = changed[candidate] || aggregate.changed != 0;
             invalid[candidate] = invalid[candidate] || aggregate.invalid != 0;
             uint first_index = q.implicit_history != 0 ? q.resident_indices[row] : row;
-            if (q.exact_history == 0 && q.latent_history == 0)
+            if (first_index < q.history) {
                 distances[candidate][first_index] = first;
+            }
             if (row + 1 < q.resident_history) {
                 uint second_index = q.implicit_history != 0 ? q.resident_indices[row + 1] : row + 1;
-                if (q.exact_history == 0 && q.latent_history == 0)
+                if (second_index < q.history) {
                     distances[candidate][second_index] = second;
+                }
             }
             invalid[candidate] = invalid[candidate] || !isfinite(first)
                 || (row + 1 < q.resident_history && !isfinite(second));
+        }
+        if (q.axis_enabled != 0) {
+            for (uint row = 0; row < q.history; row++) {
+                float delta = q.axis_candidates[candidate] - q.axis_history[row];
+                distances[candidate][row] += q.axis_weight * delta * delta;
+            }
         }
     }
     bool any_changed = false;
@@ -1630,10 +1093,11 @@ kernel void bf16_select(
     acquisition_score(
         incumbent_distances,
         q,
-        q.incumbent_index,
+        BAUX_HISTORY,
         incumbent_mean,
         incumbent_standard_error,
         incumbent_neighbors);
+    bool eligible[4] = {false, false, false, false};
     for (uint candidate = 0; candidate < PROCEDURAL_COUNT; candidate++) {
         if (candidate < q.candidate_floor
             || invalid[candidate]
@@ -1646,6 +1110,7 @@ kernel void bf16_select(
         candidate_standard_errors[candidate] = standard_error;
         candidate_scores[candidate] = score;
         candidate_neighbors[candidate] = neighbors;
+        eligible[candidate] = isfinite(score) && isfinite(mean) && isfinite(standard_error);
         if (q.forced_candidate < 4) {
             if (candidate == q.forced_candidate) {
                 selected = candidate;
@@ -1653,22 +1118,41 @@ kernel void bf16_select(
             }
             continue;
         }
-        if (isfinite(score) && (selected == 4 || score > best)) {
+        if (q.acquisition != 2 && isfinite(score) && (selected == 4 || score > best)) {
             selected = candidate;
             best = score;
+        }
+    }
+    if (q.acquisition == 2 && q.forced_candidate >= 4) {
+        ulong best_priority = 0ul;
+        for (uint candidate = 0; candidate < PROCEDURAL_COUNT; candidate++) {
+            if (!eligible[candidate]) continue;
+            bool dominated = false;
+            for (uint other = 0; other < PROCEDURAL_COUNT; other++) {
+                if (other == candidate || !eligible[other]) continue;
+                bool no_worse = candidate_means[other] >= candidate_means[candidate]
+                    && candidate_standard_errors[other] >= candidate_standard_errors[candidate];
+                bool strictly_better = candidate_means[other] > candidate_means[candidate]
+                    || candidate_standard_errors[other] > candidate_standard_errors[candidate];
+                dominated = dominated || (no_worse && strictly_better);
+            }
+            if (!dominated) {
+                ulong priority = mix64(q.root_seed ^ (ulong(candidate) * 0x9e3779b97f4a7c15ul));
+                if (selected == 4 || priority > best_priority) {
+                    selected = candidate;
+                    best_priority = priority;
+                    best = candidate_scores[candidate];
+                }
+            }
         }
     }
     decision->index = selected;
     decision->valid = selected < 4 ? 1u : 0u;
     decision->root_seed = q.root_seed;
     decision->seed = selected < 4 ? candidate_seed(q.root_seed, selected) : 0ul;
-    decision->basis_seed = q.basis_seed;
-    decision->radius = selected < 4
-        ? proposal_radius(selected, q.program, q.radius, q.alternate_radius)
-        : 0.0f;
+    decision->radius = selected < 4 ? q.radius : 0.0f;
     decision->score = selected < 4 ? best : 0.0f;
     decision->mode = q.mode;
-    decision->program = q.program;
     decision->predicted_mean = selected < 4 ? candidate_means[selected] : 0.0f;
     decision->predicted_standard_error = selected < 4
         ? candidate_standard_errors[selected]
@@ -1687,26 +1171,22 @@ kernel void bf16_select(
             pool_distances[candidate * q.history + row] = distances[candidate][row];
 }
 
-kernel void bf16_materialize(
+kernel void dense_materialize(
     device const ushort *base [[buffer(0)]],
-    device const ushort *reference [[buffer(1)]],
-    device const float *scales [[buffer(2)]],
-    device const Leaf *leaves [[buffer(3)]],
-    device const Tile *tiles [[buffer(4)]],
-    device ushort *output [[buffer(5)]],
-    device const Decision *decision [[buffer(6)]],
-    constant uint &account [[buffer(7)]],
-    device Partial *partials [[buffer(8)]],
-    constant Params &p [[buffer(9)]],
+    device const Leaf *leaves [[buffer(1)]],
+    device const Tile *tiles [[buffer(2)]],
+    device ushort *output [[buffer(3)]],
+    device const Decision *decision [[buffer(4)]],
+    constant uint &account [[buffer(5)]],
+    device Partial *partials [[buffer(6)]],
+    constant Params &p [[buffer(7)]],
     uint tile_index [[threadgroup_position_in_grid]],
     uint tid [[thread_index_in_threadgroup]]) {
     if (decision->valid == 0) return;
     Tile tile = tiles[tile_index];
     Leaf leaf = leaves[tile.leaf];
 #ifdef FP16_INDEPENDENT
-    ulong seed = decision->program == 3u
-        ? proposal_seed(decision->root_seed, decision->index, decision->program)
-        : decision->seed;
+    ulong2 domain = ziggurat_domain(decision->seed ^ 0x8ebc6af09c88c6e3ul, leaf.key);
 #else
     ulong seed = decision->seed ^ 0x8ebc6af09c88c6e3ul;
     const float step = leaf.scale * decision->radius;
@@ -1725,8 +1205,8 @@ kernel void bf16_materialize(
         ushort2 base_pair = aligned_pair
             ? *reinterpret_cast<device const ushort2*>(base + index)
             : ushort2(base[index], complete_pair ? base[index + 1] : 0);
-        ushort2 result = proposal_pair(decode_pair(base_pair), leaf, seed,
-            decision->basis_seed, decision->index, decision->program,
+        ushort2 result = domain_proposal(decode_pair(base_pair), leaf, domain,
+            decision->index,
             decision->radius, decision->mode, pair);
         if (aligned_pair) {
             *reinterpret_cast<device ushort2*>(output + index) = result;
@@ -1746,13 +1226,9 @@ kernel void bf16_materialize(
         }
 #else
         float2 samples = noise_pair(seed, leaf.key, pair, decision->mode);
-        float inverse_rms = scales[tile.leaf];
 
         ushort first_bits = base[index];
-        float first_direction = decision->index < 2
-            ? direction(decode(reference[index]), inverse_rms, samples.x, decision->index)
-            : samples.x;
-        output[index] = encode(decode(first_bits) + step * first_direction);
+        output[index] = encode(decode(first_bits) + step * samples.x);
         if (account != 0u) {
             ushort value = output[index];
             changed += uint(value != first_bits);
@@ -1763,14 +1239,7 @@ kernel void bf16_materialize(
 
         if (item + 1 < tile.length) {
             ushort second_bits = base[index + 1];
-            float second_direction = decision->index < 2
-                ? direction(
-                    decode(reference[index + 1]),
-                    inverse_rms,
-                    samples.y,
-                    decision->index)
-                : samples.y;
-            output[index + 1] = encode(decode(second_bits) + step * second_direction);
+            output[index + 1] = encode(decode(second_bits) + step * samples.y);
             if (account != 0u) {
                 ushort value = output[index + 1];
                 changed += uint(value != second_bits);
@@ -1807,61 +1276,4 @@ kernel void bf16_materialize(
                 uint(total_invalid != 0u)
             };
     }
-}
-
-kernel void bf16_reference(
-    device ushort *reference [[buffer(0)]],
-    device const float *scales [[buffer(1)]],
-    device const Leaf *leaves [[buffer(2)]],
-    device const Tile *tiles [[buffer(3)]],
-    device float *partials [[buffer(4)]],
-    constant Params &p [[buffer(5)]],
-    uint tile_index [[threadgroup_position_in_grid]],
-    uint tid [[thread_index_in_threadgroup]]) {
-    Tile tile = tiles[tile_index];
-    Leaf leaf = leaves[tile.leaf];
-    float sum = 0.0f;
-    for (uint item = tid; item < tile.length; item += 256) {
-        ulong element = ulong(tile.start) + item;
-        ulong index = leaf.offset + element;
-        float value;
-        if (p.initialize != 0) {
-            value = sample(p.seed ^ 0xe7037ed1a0b428dbul, leaf.key, element, p.mode);
-        } else {
-            float noise = sample(p.seed ^ 0x8ebc6af09c88c6e3ul, leaf.key, element, p.mode);
-            value = direction(decode(reference[index]), scales[tile.leaf], noise, p.candidate);
-        }
-        ushort bits = encode(value);
-        reference[index] = bits;
-        float stored = decode(bits);
-        sum += stored * stored;
-    }
-    threadgroup float sums[256];
-    sums[tid] = sum;
-    threadgroup_barrier(mem_flags::mem_threadgroup);
-    for (uint stride = 128; stride != 0; stride >>= 1) {
-        if (tid < stride) sums[tid] += sums[tid + stride];
-        threadgroup_barrier(mem_flags::mem_threadgroup);
-    }
-    if (tid == 0) partials[tile_index] = sums[0];
-}
-
-kernel void bf16_reference_rms(
-    device const float *partials [[buffer(0)]],
-    device const Leaf *leaves [[buffer(1)]],
-    device const uint *offsets [[buffer(2)]],
-    device float *scales [[buffer(3)]],
-    uint leaf [[threadgroup_position_in_grid]],
-    uint tid [[thread_index_in_threadgroup]]) {
-    float sum = 0.0f;
-    for (uint tile = offsets[leaf] + tid; tile < offsets[leaf + 1]; tile += 256)
-        sum += partials[tile];
-    threadgroup float sums[256];
-    sums[tid] = sum;
-    threadgroup_barrier(mem_flags::mem_threadgroup);
-    for (uint stride = 128; stride != 0; stride >>= 1) {
-        if (tid < stride) sums[tid] += sums[tid + stride];
-        threadgroup_barrier(mem_flags::mem_threadgroup);
-    }
-    if (tid == 0) scales[leaf] = sqrt(float(leaves[leaf].length) / sums[0]);
 }

@@ -23,7 +23,7 @@ from cuoxtool import (
 )
 
 DEFAULT_WORKSPACE = Path("/content/cuda-oxide")
-DEFAULT_PROJECT = Path(__file__).resolve().parents[1] / "backends/cuda"
+DEFAULT_PROJECT = Path(__file__).resolve().parents[1] / "rust/crates/cuda"
 LLVM_KEY_URL = "https://apt.llvm.org/llvm-snapshot.gpg.key"
 TOOLCHAIN_STATE = Path.home() / ".cache/baux/cuda-oxide-toolchain.json"
 CUDA_TOOLKIT_ROOT = Path(f"/usr/local/cuda-{CUDA_TOOLKIT_VERSION}")
@@ -281,13 +281,13 @@ def setup(workspace: Path) -> dict[str, object]:
         TOOLCHAIN_STATE.parent.mkdir(parents=True, exist_ok=True)
         TOOLCHAIN_STATE.write_text(json.dumps(expected_state, sort_keys=True) + "\n")
     timings["cargo_oxide"] = time.monotonic() - install_started
-    oxide_started = time.monotonic()
+    backend_started = time.monotonic()
     run(
         [str(cargo), f"+{RUST_TOOLCHAIN}", "oxide", "setup"],
         cwd=workspace,
         env=toolchain_env(),
     )
-    timings["oxide_setup"] = time.monotonic() - oxide_started
+    timings["backend"] = time.monotonic() - backend_started
     return timings
 
 

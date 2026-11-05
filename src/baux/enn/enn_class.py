@@ -21,13 +21,13 @@ def _rustseeds(function_seeds: np.ndarray | list[int]) -> list[int]:
 
 
 def posterior_neighbors(
-    extension_model,
+    rust_model,
     x: np.ndarray,
     *,
     search_k: int,
     flags: PosteriorFlags = PosteriorFlags(),
 ) -> tuple[np.ndarray, np.ndarray]:
-    dist2s, idx = extension_model.posterior_neighbors(
+    dist2s, idx = rust_model.posterior_neighbors(
         np.asarray(x, dtype=float),
         int(search_k),
         bool(flags.exclude_nearest),
@@ -37,13 +37,13 @@ def posterior_neighbors(
 
 
 def nearest_neighbors(
-    extension_model,
+    rust_model,
     x: np.ndarray,
     *,
     search_k: int,
     exclude_nearest: bool,
 ) -> tuple[np.ndarray, np.ndarray]:
-    dist2s, idx = extension_model.nearest_neighbors(
+    dist2s, idx = rust_model.nearest_neighbors(
         np.asarray(x, dtype=float),
         int(search_k),
         bool(exclude_nearest),
@@ -56,7 +56,15 @@ def _rustname(index_driver: NeighborIndex) -> str:
 
     if index_driver not in INDEX_NAMES:
         raise ValueError(f"Unsupported index driver: {index_driver}")
-    return INDEX_NAMES[index_driver]
+    name = INDEX_NAMES[index_driver]
+    if name in ("cuda", "cuvs", "cuvs_cagra"):
+        try:
+            import importlib
+
+            importlib.import_module("libcuvs").load_library()
+        except Exception:
+            pass
+    return name
 
 
 def _posteriorcoerced(flags):
@@ -159,7 +167,7 @@ class ENN:
     def device_posterior(
         self, x, params: ENNParams, *, flags: PosteriorFlags | None = None
     ):
-        """Return a Rust posterior with DLPack mean, SE, and joint draw arrays.
+        """Return a native posterior with DLPack mean, SE, and joint draw arrays.
 
         Queries must be contiguous FP32 device arrays on the explicitly selected
         CUDA or Metal index. Query/result arrays never pass through NumPy. Model
@@ -218,7 +226,7 @@ class ENN:
         return int(self._rust_model.num_outputs)
 
     @property
-    def extension_model(self):
+    def rust_backend(self):
         """Rust surrogate implementation (same lifetime as this wrapper)."""
         return self._rust_model
 

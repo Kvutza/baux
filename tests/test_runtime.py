@@ -38,17 +38,17 @@ def test_immutable():
         row.available = False
 
 
-def test_targets():
+def test_native():
     from baux import baux_rust
 
-    for public, target_row in zip(
+    for public, native in zip(
         baux.capabilities(), baux_rust.capabilities(), strict=True
     ):
         actual = dict.fromkeys(public.direct_operations, "direct")
         actual.update(dict.fromkeys(public.fallback_operations, "fallback"))
         actual.update(dict.fromkeys(public.missing_operations, "missing"))
-        assert actual == target_row["operations"]
-        assert public.compiled == target_row["compiled"]
+        assert actual == native["operations"]
+        assert public.compiled == native["compiled"]
 
 
 def test_imports():

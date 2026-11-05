@@ -7,8 +7,8 @@ pub const MHC4_QUERY: u64 = 64;
 pub const MHC4_VOCABULARY: u64 = 262_144;
 pub const MHC4_STREAMS: u64 = 4;
 pub const MHC4_HEADS: u64 = 8;
-pub const EXPERT_WIDTH: u64 = 216;
-pub const ROUTED_COUNT: u64 = 625;
+pub const EXPERT_WIDTH: u64 = 256;
+pub const ROUTED_COUNT: u64 = 64;
 pub const SHARED_COUNT: u64 = 1;
 pub const EXPERT_COUNT: u64 = ROUTED_COUNT + SHARED_COUNT;
 pub const ACTIVE_COUNT: u64 = 3;
@@ -84,8 +84,8 @@ mod tests {
 
     #[test]
     fn mhc4_shape() {
-        assert_eq!(MHC4_PARAMS, 1_177_723_160);
-        assert_eq!(EXPERT_COUNT, 626);
+        assert_eq!(MHC4_PARAMS, 265_623_320);
+        assert_eq!(EXPERT_COUNT, 65);
         assert_eq!(QKV_WIDTH, (MHC4_HEADS + 2) * MHC4_QUERY);
         assert_eq!(MHC_INPUT, MHC4_STREAMS * MHC4_WIDTH);
         assert_eq!(MHC_COEFS, MHC4_STREAMS * MHC4_STREAMS + 2 * MHC4_STREAMS);

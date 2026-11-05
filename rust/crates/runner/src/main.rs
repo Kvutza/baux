@@ -25,9 +25,7 @@ struct Cli {
 enum Action {
     Tune {
         config: PathBuf,
-        #[arg(long, conflicts_with = "rounds")]
-        prepare: bool,
-        #[arg(long, conflicts_with = "prepare")]
+        #[arg(long)]
         rounds: Option<u32>,
     },
     Radar {
@@ -80,11 +78,9 @@ fn run() -> Result<(), String> {
         .map_or_else(|| env::current_dir().map_err(|error| error.to_string()), Ok)?;
     env::set_current_dir(&root).map_err(|error| error.to_string())?;
     match Cli::parse().action {
-        Action::Tune {
-            config,
-            prepare,
-            rounds,
-        } => experiment::run(&root, &config, prepare, rounds, BuildSystem::from_env()),
+        Action::Tune { config, rounds } => {
+            experiment::run(&root, &config, rounds, BuildSystem::from_env())
+        }
         Action::Radar {
             command: RadarAction::Performance { command },
         } => performance::run(&root, command),
@@ -136,35 +132,30 @@ fn research_contract(
     objective: &str,
     sampling: &str,
 ) -> Result<(), String> {
-    use baux::config::{
-        ExperimentSpec, ModelArchitecture, ObjectiveFunction, ObjectiveSampling, OptimizerSpec,
-        SurrogateEstimator,
-    };
+    use baux::config::{ExperimentSpec, ModelArchitecture, ObjectiveFunction, OptimizerSpec};
 
     let text = std::fs::read_to_string(root.join(path)).map_err(|error| error.to_string())?;
     let spec = ExperimentSpec::parse(&text)?;
-    let (generation, surrogate) = match &spec.optimizer {
+    let (spec_candidates, surrogate) = match &spec.optimizer {
         OptimizerSpec::TurboEnn {
-            candidate_generation,
+            candidates,
             surrogate,
             ..
-        } => (candidate_generation, surrogate),
+        } => (*candidates, surrogate),
         _ => return Err("active Lean target requires optimizer.algorithm = turbo-enn".into()),
     };
     let matches = parameters == baux::experimental::MHC4_PARAMS
-        && context_tokens == spec.objective.window_tokens.unwrap_or_default()
-        && candidates == generation.candidates
+        && context_tokens == spec.window_tokens.unwrap_or_default()
+        && candidates == spec_candidates
         && neighbors == surrogate.neighbors
-        && target_ms <= spec.execution.round_target_ms
-        && spec.execution.round_target_ms <= ceiling_ms
+        && target_ms <= spec.round_target_ms
+        && spec.round_target_ms <= ceiling_ms
         && dense_flops
             == baux::experimental::MHC4_COEFFS
                 * 2
                 * (u64::from(context_tokens) / baux::experimental::MHC4_PATCH)
         && spec.model == Some(ModelArchitecture::FbtPisa1Mhc4V1)
-        && spec.objective.function == Some(ObjectiveFunction::CrossEntropy)
-        && spec.objective.sampling == Some(ObjectiveSampling::Natural)
-        && surrogate.estimator == SurrogateEstimator::Enn
+        && spec.objective == Some(ObjectiveFunction::CrossEntropy)
         && objective == "BauxResearch.ObjectiveMode.causalNll"
         && sampling == "BauxResearch.SamplingMode.natural";
     if !matches {

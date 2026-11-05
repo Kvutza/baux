@@ -7,20 +7,23 @@ BAUX_BUCK_DEPS = ["//rust:" + crate for crate in BAUX_CRATES]
 
 BAUX_BUCK_TEST_DEPS = ["//rust:" + crate for crate in BAUX_TEST_CRATES]
 
-_BAUX_RUST_SRCS = glob([
-    "src/**/*.cl",
-    "src/**/*.metal",
-    "src/**/*.rs",
-    "semantics/src/**/*.rs",
-    "neighbor-index/src/**/*.rs",
-    "artifact/src/**/*.rs",
-])
+_BAUX_RUST_SRCS = glob(
+    [
+        "src/hnet/*.json",
+        "src/**/*.metal",
+        "src/**/*.rs",
+        "semantics/src/**/*.rs",
+        "neighbor-index/src/**/*.rs",
+        "artifact/src/**/*.rs",
+    ],
+    exclude = ["src/bin/**/*.rs"],
+)
+
 
 filegroup(
     name = "baux-source",
     srcs = glob([
         "examples/**/*.rs",
-        "src/**/*.cl",
         "src/**/*.h",
         "src/**/*.metal",
         "src/**/*.rs",
@@ -53,6 +56,47 @@ cxx_library(
     visibility = ["PUBLIC"],
 )
 
+write_file(
+    name = "baux-cli-root",
+    out = "cli_lib.rs",
+    content = [
+        "#![allow(clippy::pedantic, clippy::nursery, clippy::cargo)]",
+        "extern crate self as baux;",
+        "#[path = \"artifact/src/lib.rs\"]",
+        "pub mod artifact;",
+        "pub use artifact as baux_artifact;",
+        "#[path = \"semantics/src/lib.rs\"]",
+        "pub mod semantics;",
+        "pub use semantics as baux_semantics;",
+    ],
+)
+
+app_rust_library(
+    name = "baux-cli",
+    srcs = [":baux-cli-root"] + glob([
+        "artifact/src/**/*.rs",
+        "semantics/src/**/*.rs",
+    ]),
+    crate = "baux",
+    crate_root = "cli_lib.rs",
+    edition = RUST_EDITION,
+    visibility = ["PUBLIC"],
+    deps = [
+        "//rust:anstream",
+        "//rust:charming",
+        "//rust:deser",
+        "//rust:deser-cbor",
+        "//rust:deser-json",
+        "//rust:deser-toml",
+        "//rust:deser-value",
+        "//rust:jiff",
+        "//rust:kuva",
+        "//rust:rand",
+        "//rust:redb",
+        "//rust:sha2",
+    ],
+)
+
 app_rust_library(
     name = "baux",
     srcs = _BAUX_RUST_SRCS,
@@ -60,18 +104,40 @@ app_rust_library(
     crate_root = "src/lib.rs",
     edition = RUST_EDITION,
     features = select({
-        "//:linux-arm64": ["opencl", "usearch-c-api"],
-        "//:linux-x86_64": ["opencl", "usearch-c-api"],
-        "//:macos-arm64": ["metal", "usearch-c-api"],
+        "//:linux-arm64": ["usearch-native"],
+        "//:linux-x86_64": ["usearch-native"],
+        "//:macos-arm64": ["metal", "usearch-native"],
     }),
     visibility = ["PUBLIC"],
     deps = BAUX_BUCK_DEPS + [
         ":usearch-bridge",
     ] + select({
-        "//:linux-arm64": ["//rust:opencl3"],
-        "//:linux-x86_64": ["//rust:opencl3"],
+        "//:linux-arm64": [],
+        "//:linux-x86_64": [],
         "//:macos-arm64": ["//rust:metal"],
     }),
+)
+
+rust_test(
+    name = "region-metal",
+    srcs = _BAUX_RUST_SRCS + ["//experiments:specs"],
+    crate = "baux",
+    crate_root = "src/lib.rs",
+    edition = RUST_EDITION,
+    rustc_flags = select({
+        "root//:release-mode": [],
+        "DEFAULT": ["-Zthreads=8", "-Ccodegen-units=16"],
+    }),
+    features = ["buck2-test-data", "metal", "usearch-native"],
+    visibility = ["PUBLIC"],
+    deps = BAUX_BUCK_TEST_DEPS + [
+        ":usearch-bridge",
+        "//build/buck2/native:openmp-macos",
+        "//rust:metal",
+    ],
+    rpath = True,
+    runtime_dependency_handling = "symlink",
+    target_compatible_with = ["prelude//os/constraints:macos"],
 )
 
 rust_test(
@@ -80,26 +146,22 @@ rust_test(
     crate = "baux",
     crate_root = "src/lib.rs",
     edition = RUST_EDITION,
-    features = select({
-        "//:linux-arm64": ["buck2-test-data", "opencl", "usearch-c-api"],
-        "//:linux-x86_64": ["buck2-test-data", "opencl", "usearch-c-api"],
-        "//:macos-arm64": ["buck2-test-data", "metal", "usearch-c-api"],
+    rustc_flags = select({
+        "root//:release-mode": [],
+        "DEFAULT": ["-Zthreads=8", "-Ccodegen-units=16"],
     }),
+    features = ["buck2-test-data", "usearch-native"],
     visibility = ["//build/buck2/tests:all"],
     deps = BAUX_BUCK_TEST_DEPS + [
         ":usearch-bridge",
     ] + select({
-        "//:linux-arm64": ["//rust:opencl3"],
-        "//:linux-x86_64": ["//rust:opencl3"],
+        "//:linux-arm64": [],
+        "//:linux-x86_64": [],
         "//:macos-arm64": [
             "//build/buck2/native:openmp-macos",
-            "//rust:metal",
         ],
     }),
     rpath = True,
-    # Two workers overlap CPU tests without saturating the shared Metal queue.
-    # Higher counts regress this mixed CPU/GPU suite through device contention.
-    run_env = {"RUST_TEST_THREADS": "2"},
     runtime_dependency_handling = "symlink",
 )
 
@@ -111,7 +173,7 @@ app_rust_library(
     edition = RUST_EDITION,
     features = [
         "metal",
-        "usearch-c-api",
+        "usearch-native",
     ],
     deps = BAUX_BUCK_DEPS + [
         ":usearch-bridge",
@@ -120,18 +182,25 @@ app_rust_library(
     target_compatible_with = ["prelude//os/constraints:macos"],
 )
 
-baux_program_targets(BAUX_PROGRAMS, RUST_EDITION, glob(["src/**/*.rs", "semantics/src/**/*.rs", "neighbor-index/src/**/*.rs", "artifact/src/**/*.rs", "examples/**/*.rs"]))
+[
+    baux_program_targets(
+        [program],
+        RUST_EDITION,
+        glob(["src/bin/" + program["name"] + "/**/*.rs"]) if program["root"].startswith("src/bin/") else [program["root"]],
+    )
+    for program in BAUX_PROGRAMS
+]
 
 # Each integration crate receives the same platform features as the library.
 [
     rust_test(
         name = source.removeprefix("tests/").removesuffix(".rs") + "_test",
-        srcs = [source] + _BAUX_RUST_SRCS,
+        srcs = [source],
         crate_root = source,
         edition = RUST_EDITION,
         features = select({
-            "//:macos-arm64": ["metal", "usearch-c-api"],
-            "DEFAULT": ["opencl", "usearch-c-api"],
+            "//:macos-arm64": ["metal", "usearch-native"],
+            "DEFAULT": ["usearch-native"],
         }),
         deps = [
             ":baux",
@@ -153,12 +222,12 @@ baux_program_targets(BAUX_PROGRAMS, RUST_EDITION, glob(["src/**/*.rs", "semantic
         run_env = {"RUST_TEST_THREADS": "1"},
         target_compatible_with = ["prelude//os/constraints:macos"] if source == "tests/knn_metal.rs" else [],
     )
-    for source in glob(["tests/*.rs"])
+    for source in glob(["tests/*.rs"], exclude = ["tests/resident_metal.rs"])
 ]
 
 _TESTS = [
     ":" + source.removeprefix("tests/").removesuffix(".rs") + "_test"
-    for source in glob(["tests/*.rs"], exclude = ["tests/knn_metal.rs"])
+    for source in glob(["tests/*.rs"], exclude = ["tests/knn_metal.rs", "tests/resident_metal.rs"])
 ] + select({
     "//:macos-arm64": [":knn_metal_test"],
     "DEFAULT": [],

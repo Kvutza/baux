@@ -33,8 +33,9 @@ case "$cuda_arch" in
     sm_75|sm_80|sm_90a) ;;
     *) echo "baux cuda: BAUX_CUDA_ARCH must be sm_75, sm_80, or sm_90a" >&2; exit 2 ;;
 esac
+export BAUX_FLAME_CUDA_ARCH=${BAUX_FLAME_CUDA_ARCH:-$cuda_arch}
 
-cd "$repo_dir/backends/cuda"
+cd "$repo_dir/rust/crates/cuda"
 target_dir=${CARGO_TARGET_DIR:-"$repo_dir/target"}
 case "$target_dir" in
     /*) ;;
@@ -54,7 +55,7 @@ build_cuda() {
 
 case "$action" in
     build) build_cuda "$@" ;;
-    context|parity|resident|prefill|model-check|model|generate|diffusion|diffusion-check|ptx-probe|bench)
+    context|parity|resident|prefill|model-check|model|generate|diffusion|diffusion-check|bench)
         build_cuda >&2
         exec "$target_dir/release/baux-cuda" "$action" "$@"
         ;;

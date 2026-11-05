@@ -148,13 +148,13 @@ pub enum FrozenAttention {
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[deser(rename_all = "kebab-case")]
-pub enum FrozenComputeMode {
+pub enum FrozenBackend {
     Reference,
     Fp32,
     Fp16,
 }
 
-impl FrozenComputeMode {
+impl FrozenBackend {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Reference => "reference",
@@ -223,10 +223,7 @@ pub enum GenerationReward {
         tokenizer_program: PathBuf,
         #[deser(default)]
         tokenizer_args: Vec<String>,
-        /// Precision/execution mode. `backend` remains a read-only legacy
-        /// alias.
-        #[deser(alias = "backend")]
-        mode: FrozenComputeMode,
+        backend: FrozenBackend,
         #[deser(default)]
         readout: FrozenReadout,
         #[deser(default)]
@@ -251,7 +248,7 @@ pub enum GenerationReward {
 }
 
 impl GenerationConfig {
-    pub(crate) fn causal_pretrain(&self) -> bool {
+    pub fn causal_pretrain(&self) -> bool {
         self.purpose == GenerationPurpose::Pretrain
             && (self.corpus_prompt_tokens.is_some() || !self.corpus_prompt.is_empty())
     }

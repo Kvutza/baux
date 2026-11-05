@@ -1,4 +1,29 @@
-use super::*;
+use ndarray::{Array1, Array2, Array3, ArrayView1, ArrayView2};
+
+use crate::draw::DrawInternals;
+use crate::error::{ENNError, EPS_VAR};
+use crate::model::ENN;
+use crate::params::ENNParams;
+use crate::stats::WeightedStats;
+
+/// Split total variance into `se`, `se_epi`, and `se_ale` per the EPS_VAR floor
+/// rule.
+pub(crate) fn se_components(
+    epistemic_var: f64,
+    aleatoric_var: f64,
+    y_scale: f64,
+) -> (f64, f64, f64) {
+    let sum = epistemic_var + aleatoric_var;
+    if sum < EPS_VAR {
+        let se = EPS_VAR.sqrt() * y_scale;
+        (se, se, 0.0)
+    } else {
+        let se = sum.sqrt() * y_scale;
+        let se_epi = epistemic_var.sqrt() * y_scale;
+        let se_ale = aleatoric_var.sqrt() * y_scale;
+        (se, se_epi, se_ale)
+    }
+}
 
 /// Data for weighted posterior computation.
 pub struct WeightedPosteriorData<'a> {

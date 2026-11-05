@@ -232,54 +232,6 @@ impl Config {
         };
         create().map_err(|error| format!("create config {}: {error}", self.path.display()))
     }
-
-    pub fn index_fragment(&self) -> Result<usize, String> {
-        Ok(self.load()?.bpann.index_fragment)
-    }
-
-    pub fn index_max(&self) -> Result<usize, String> {
-        Ok(self.load()?.bpann.index_max)
-    }
-
-    pub fn search_fragment(&self) -> Result<usize, String> {
-        Ok(self.load()?.bpann.search_fragment)
-    }
-
-    pub fn fragment_rows(&self) -> Result<usize, String> {
-        Ok(self.load()?.bpann.fragment_rows)
-    }
-
-    pub fn search_limit(&self) -> Result<usize, String> {
-        Ok(self.load()?.bpann.search_limit)
-    }
-
-    pub fn build_seed(&self) -> Result<Option<u64>, String> {
-        Ok(self.load()?.bpann.build_seed)
-    }
-
-    pub fn soft_threshold(&self) -> Result<usize, String> {
-        Ok(self.load()?.bpann.soft_threshold)
-    }
-
-    pub fn hard_threshold(&self) -> Result<usize, String> {
-        Ok(self.load()?.bpann.resolved_threshold())
-    }
-
-    pub fn structured_limit(&self) -> Result<usize, String> {
-        Ok(self.load()?.bpann.structured_limit)
-    }
-
-    pub fn search_width(&self) -> Result<usize, String> {
-        Ok(self.load()?.bpann.search_width)
-    }
-
-    pub fn exhaustive_limit(&self) -> Result<usize, String> {
-        Ok(self.load()?.bpann.exhaustive_limit)
-    }
-
-    pub fn skip_limit(&self) -> Result<usize, String> {
-        Ok(self.load()?.bpann.skip_limit)
-    }
 }
 
 /// Install BPANN tuning so the `bpann` crate reads values via [`Config`].
@@ -304,13 +256,14 @@ mod tests {
         let path = dir.path().join("config.toml");
         assert!(!path.exists());
         let cfg = Config::with_path(&path);
-        assert_eq!(cfg.index_fragment().unwrap(), 10_000);
-        assert_eq!(cfg.soft_threshold().unwrap(), 250);
-        assert_eq!(cfg.hard_threshold().unwrap(), 3000);
-        assert_eq!(cfg.structured_limit().unwrap(), 1024);
-        assert_eq!(cfg.search_width().unwrap(), 1);
-        assert_eq!(cfg.exhaustive_limit().unwrap(), 2500);
-        assert_eq!(cfg.skip_limit().unwrap(), 150_000);
+        let bpann = cfg.load().unwrap().bpann;
+        assert_eq!(bpann.index_fragment, 10_000);
+        assert_eq!(bpann.soft_threshold, 250);
+        assert_eq!(bpann.resolved_threshold(), 3000);
+        assert_eq!(bpann.structured_limit, 1024);
+        assert_eq!(bpann.search_width, 1);
+        assert_eq!(bpann.exhaustive_limit, 2500);
+        assert_eq!(bpann.skip_limit, 150_000);
         assert!(path.exists());
         let text = fs::read_to_string(&path).unwrap();
         assert!(text.contains("index_fragment"));
@@ -334,7 +287,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("config.toml");
         let cfg = Config::with_path(&path);
-        assert_eq!(cfg.search_limit().unwrap(), 1);
+        assert_eq!(cfg.load().unwrap().bpann.search_limit, 1);
         let mut file = ConfigFile::default();
         file.bpann.search_limit = 7;
         file.bpann.search_width = 4;
@@ -344,38 +297,34 @@ mod tests {
         file.bpann.exhaustive_limit = 5_000;
         file.bpann.skip_limit = 200_000;
         cfg.save(&file).unwrap();
-        assert_eq!(cfg.search_limit().unwrap(), 7);
-        assert_eq!(cfg.search_width().unwrap(), 4);
-        assert_eq!(cfg.soft_threshold().unwrap(), 2_000);
-        assert_eq!(cfg.hard_threshold().unwrap(), 4_000);
-        assert_eq!(cfg.structured_limit().unwrap(), 2_048);
-        assert_eq!(cfg.exhaustive_limit().unwrap(), 5_000);
-        assert_eq!(cfg.skip_limit().unwrap(), 200_000);
+        let bpann = cfg.load().unwrap().bpann;
+        assert_eq!(bpann.search_limit, 7);
+        assert_eq!(bpann.search_width, 4);
+        assert_eq!(bpann.soft_threshold, 2_000);
+        assert_eq!(bpann.resolved_threshold(), 4_000);
+        assert_eq!(bpann.structured_limit, 2_048);
+        assert_eq!(bpann.exhaustive_limit, 5_000);
+        assert_eq!(bpann.skip_limit, 200_000);
     }
 
     #[test]
     fn missing_soft() {
-        // Q5: absent hard must not full-default-fallback when soft is elevated.
-        // Resolve policy: hard = max(DEFAULT_HARD, soft). With
-        // DEFAULT_HARD=3000 and soft=2000, hard becomes 3000; soft
-        // stays 2000.
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("config.toml");
         fs::write(&path, "[bpann]\nsoft_threshold = 2000\nsearch_width = 1\n").unwrap();
-        let cfg = Config::with_path(&path);
-        assert_eq!(cfg.soft_threshold().unwrap(), 2_000);
-        assert_eq!(cfg.hard_threshold().unwrap(), 3_000);
+        let bpann = Config::with_path(&path).load().unwrap().bpann;
+        assert_eq!(bpann.soft_threshold, 2_000);
+        assert_eq!(bpann.resolved_threshold(), 3_000);
     }
 
     #[test]
     fn missing_soft2() {
-        // When soft exceeds DEFAULT_HARD, absent hard resolves to soft.
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("config.toml");
         fs::write(&path, "[bpann]\nsoft_threshold = 5000\nsearch_width = 1\n").unwrap();
-        let cfg = Config::with_path(&path);
-        assert_eq!(cfg.soft_threshold().unwrap(), 5_000);
-        assert_eq!(cfg.hard_threshold().unwrap(), 5_000);
+        let bpann = Config::with_path(&path).load().unwrap().bpann;
+        assert_eq!(bpann.soft_threshold, 5_000);
+        assert_eq!(bpann.resolved_threshold(), 5_000);
     }
 
     #[test]
@@ -383,9 +332,9 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("config.toml");
         fs::write(&path, "[bpann]\nsoft_threshold = 250\nsearch_width = 1\n").unwrap();
-        let cfg = Config::with_path(&path);
-        assert_eq!(cfg.soft_threshold().unwrap(), 250);
-        assert_eq!(cfg.hard_threshold().unwrap(), 3000);
+        let bpann = Config::with_path(&path).load().unwrap().bpann;
+        assert_eq!(bpann.soft_threshold, 250);
+        assert_eq!(bpann.resolved_threshold(), 3000);
     }
 
     #[test]
@@ -456,7 +405,7 @@ mod tests {
         set_path(Some(path.clone())).unwrap();
         let cfg = Config::new();
         assert_eq!(cfg.path(), path.as_path());
-        assert_eq!(cfg.index_max().unwrap(), 32);
+        assert_eq!(cfg.load().unwrap().bpann.index_max, 32);
         set_path(None).unwrap();
     }
 
@@ -488,9 +437,10 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("config.toml");
         let cfg = Config::with_path(&path);
-        assert_eq!(cfg.search_fragment().unwrap(), 80_000);
-        assert_eq!(cfg.fragment_rows().unwrap(), 15_000);
-        assert_eq!(cfg.build_seed().unwrap(), None);
+        let bpann = cfg.load().unwrap().bpann;
+        assert_eq!(bpann.search_fragment, 80_000);
+        assert_eq!(bpann.fragment_rows, 15_000);
+        assert_eq!(bpann.build_seed, None);
 
         let mut file = ConfigFile::default();
         file.bpann.search_fragment = 50_000;
@@ -498,9 +448,10 @@ mod tests {
         file.bpann.build_seed = Some(42);
         cfg.save(&file).unwrap();
 
-        assert_eq!(cfg.search_fragment().unwrap(), 50_000);
-        assert_eq!(cfg.fragment_rows().unwrap(), 9_000);
-        assert_eq!(cfg.build_seed().unwrap(), Some(42));
+        let bpann = cfg.load().unwrap().bpann;
+        assert_eq!(bpann.search_fragment, 50_000);
+        assert_eq!(bpann.fragment_rows, 9_000);
+        assert_eq!(bpann.build_seed, Some(42));
     }
 
     #[test]

@@ -3,55 +3,36 @@ use super::*;
 const PRETRAIN_MUON: &str = "version=4\n\
     experiment='pretrain'\n\
     model='fbt-pisa1-mhc4-v1'\n\
-    [data]\n\
     recipe='stack-v3-rust-go-v1'\n\
+    objective='cross-entropy'\n\
     [optimizer]\n\
-    algorithm='muon'\n\
-    [objective]\n\
-    function='cross-entropy'\n\
-    sampling='natural'\n";
+    algorithm='muon'\n";
 
 const GAUSSIAN: &str = "version = 4\n\
     experiment = \"pretrain\"\n\
     model = \"fbt-pisa1-mhc4-v1\"\n\
-    [data]\n\
     recipe = \"stack-v3-rust-go-v1\"\n\
-    [objective]\n\
-    function = \"cross-entropy\"\n\
-    sampling = \"natural\"\n\
+    objective = \"cross-entropy\"\n\
     window-tokens = 4096\n\
-    [execution]\n\
     rounds = 128\n\
     round-target-ms = 200\n\
-    [evaluation]\n\
-    interval = 128\n\
+    validation-interval = 128\n\
+    stage-samples = 3\n\
     [optimizer]\n\
     algorithm = \"operator-bo\"\n\
-    [optimizer.candidate-generation]\n\
-    generator = \"independent\"\n\
-    arms = 1\n\
-    candidates = 1\n\
-    [optimizer.candidate-generation.perturbation]\n\
     distribution = \"gaussian\"\n\
     [optimizer.surrogate]\n\
-    estimator = \"knn\"\n\
-    scaling = \"global\"\n\
+    metric = \"euclidean\"\n\
     neighbors = 32\n\
-    neighbor-rule = \"fixed\"\n\
     epistemic-scale = 0.05\n\
     aleatoric-scale = 0.05\n\
     fit = \"leave-one-out\"\n\
     fit-candidates = 4\n\
     fit-samples = 4\n\
-    [optimizer.acceptance]\n\
-    criterion = \"positive-improvement\"\n\
-    [optimizer.radius-control]\n\
-    policy = \"turbo\"\n\
+    [optimizer.trust-region]\n\
     initial = 0.001\n\
     min = 0.0001\n\
-    max = 0.016\n\
-    [diagnostics]\n\
-    stage-samples = 3\n";
+    max = 0.016\n";
 
 #[cfg(feature = "buck2-test-data")]
 const OPERATOR_BO: &str = include_str!("../../../specs/mhc4-1m.toml");
@@ -64,17 +45,11 @@ fn resident(acquisition: &str, candidates: u32, arms: u32, fit: &str) -> String 
             experiment='end-to-end'\n\
             [optimizer]\n\
             algorithm='turbo-enn'\n\
-            [optimizer.candidate-generation]\n\
-            generator='independent'\n\
             candidates={candidates}\n\
             arms={arms}\n\
-            [optimizer.surrogate]\n\
-            estimator='enn'\n\
-            {fit}\n\
-            [optimizer.acquisition]\n\
             {acquisition}\n\
-            [optimizer.trust-region]\n\
-            policy='turbo'\n"
+            [optimizer.surrogate]\n\
+            {fit}\n"
     )
 }
 
@@ -91,7 +66,15 @@ fn roundtrip() {
             }),+]
         };
     }
-    for (name, text) in examples!("mhc4-1m.toml", "mhc4-operator-bo.toml") {
+    for (name, text) in examples!(
+        "baux.toml",
+        "muon.toml",
+        "mhc4-slowrun-1000r.toml",
+        "mhc4-slowrun-100m.toml",
+        "hnet-slowrun-1000r.toml",
+        "mhc4-1m.toml",
+        "mhc4-native.toml"
+    ) {
         let spec = ExperimentSpec::parse(text).unwrap_or_else(|error| panic!("{name}: {error}"));
         let resolved = spec.to_toml().unwrap();
         let restored = ExperimentSpec::parse(&resolved).unwrap();
@@ -100,12 +83,29 @@ fn roundtrip() {
 }
 
 #[test]
+fn hnet_long() {
+    let text = GAUSSIAN
+        .replace("fbt-pisa1-mhc4-v1", "fbt-pisa1-hnet-mhc4-v1")
+        .replace("stack-v3-rust-go-v1", "fineweb-bytes-100m-v1");
+    assert!(ExperimentSpec::parse(&text).is_ok());
+    assert!(
+        ExperimentSpec::parse(&text.replace("window-tokens = 4096", "window-tokens = 1048576"))
+            .is_ok()
+    );
+    assert!(
+        ExperimentSpec::parse(&text.replace("window-tokens = 4096", "window-tokens = 2097152"))
+            .is_err()
+    );
+    assert!(ExperimentSpec::parse(&text.replace("cross-entropy", "simpo")).is_err());
+}
+
+#[test]
 fn fixed_data() {
     let spec = ExperimentSpec::parse(GAUSSIAN).unwrap();
-    assert_eq!(spec.objective.window_tokens, Some(4_096));
+    assert_eq!(spec.window_tokens, Some(4_096));
     assert!(spec.generation.is_none());
     let restored = ExperimentSpec::parse(&spec.to_toml().unwrap()).unwrap();
-    assert_eq!(restored.objective.window_tokens, Some(4_096));
+    assert_eq!(restored.window_tokens, Some(4_096));
 }
 
 #[test]
@@ -119,25 +119,33 @@ fn closed() {
         PRETRAIN_MUON.replace("stack-v3-rust-go-v1", "../fineweb"),
         PRETRAIN_MUON.replace(
             "algorithm='muon'",
-            "algorithm='muon'\n[optimizer.acquisition]\nfunction='thompson'",
+            "algorithm='muon'\nacquisition='thompson'",
         ),
         GAUSSIAN.replace(
-            "generator = \"independent\"",
-            "generator = \"independent\"\ncandidate = 4",
+            "distribution = \"gaussian\"",
+            "distribution = \"gaussian\"\ncandidate = 4",
         ),
-        GAUSSIAN.replace("estimator = \"knn\"", "estimator = \"knn\"\nneigbors = 10"),
+        GAUSSIAN.replace(
+            "distribution = \"gaussian\"",
+            "distribution = \"gaussian\"\ncandidates = 4",
+        ),
+        GAUSSIAN.replace(
+            "distribution = \"gaussian\"",
+            "distribution = \"gaussian\"\narms = 2",
+        ),
+        GAUSSIAN.replace("neighbors = 32", "neighbors = 32\nneigbors = 10"),
         GAUSSIAN.replace("fit = \"leave-one-out\"", "procedure = \"leave-one-out\""),
         GAUSSIAN.replace("fit = \"leave-one-out\"\n", ""),
-        OPERATOR_BO.replace("estimator = \"enn\"", "estimator = \"sub-nn\""),
-        format!("{GAUSSIAN}[optimizer.acquisition]\nfunction = \"upper-confidence-bound\"\n"),
-        OPERATOR_BO.replace(
-            "function = \"upper-confidence-bound\"",
-            "function = \"thompson\"\nbeta = 1.0",
-        ),
+        OPERATOR_BO.replace("neighbors = 10", "estimator = \"sub-nn\""),
         GAUSSIAN.replace(
-            "policy = \"turbo\"",
-            "policy = \"turbo\"\nunknown-field = 0.9",
+            "distribution = \"gaussian\"",
+            "distribution = \"gaussian\"\nacquisition = \"upper-confidence-bound\"",
         ),
+        OPERATOR_BO.replace(
+            "acquisition = \"upper-confidence-bound\"",
+            "acquisition = \"thompson\"\nbeta = 1.0",
+        ),
+        GAUSSIAN.replace("initial = 0.001", "initial = 0.001\nunknown-field = 0.9"),
     ] {
         assert!(parse_tune(&text).is_err(), "accepted:\n{text}");
     }
@@ -162,17 +170,18 @@ fn recipe_names() {
 fn guards() {
     for text in [
         PRETRAIN_MUON.replace(
-            "algorithm='muon'",
-            "algorithm='muon'\n[execution]\nrounds=0",
+            "objective='cross-entropy'",
+            "objective='cross-entropy'\nrounds=0",
         ),
-        GAUSSIAN.replace("candidates = 1", "candidates = 0"),
-        GAUSSIAN.replace("candidates = 1", "candidates = 4"),
-        GAUSSIAN.replace("arms = 1", "arms = 2"),
-        resident("function='upper-confidence-bound'", 4, 3, "fit='fixed'"),
+        resident("acquisition='upper-confidence-bound'", 0, 1, "fit='fixed'"),
+        resident("acquisition='upper-confidence-bound'", 4, 3, "fit='fixed'"),
         GAUSSIAN.replace("neighbors = 32", "neighbors = 0"),
         GAUSSIAN.replace("epistemic-scale = 0.05", "epistemic-scale = nan"),
         GAUSSIAN.replace("min = 0.0001", "min = 0.2"),
-        GAUSSIAN.replace("policy = \"turbo\"", "policy = \"reliability\""),
+        GAUSSIAN.replace(
+            "initial = 0.001",
+            "policy = \"reliability\"\ninitial = 0.001",
+        ),
         GAUSSIAN.replace("min = 0.0001", "min = nan"),
         GAUSSIAN.replace("max = 0.016", "max = 0.00001"),
         GAUSSIAN.replace("initial = 0.001", "initial = -1.0"),
@@ -186,8 +195,8 @@ fn guards() {
 
 #[test]
 fn distinct_roles() {
-    assert!(parse_tune(&GAUSSIAN.replace("knn", "enn")).is_err());
     assert!(parse_tune(&GAUSSIAN.replace("operator-bo", "turbo-enn")).is_err());
+    assert!(parse_tune(&OPERATOR_BO.replace("turbo-enn", "operator-bo")).is_err());
 }
 
 #[test]
@@ -205,38 +214,37 @@ fn random_acquisition() {
 #[test]
 fn turbo_radius() {
     let config = parse_tune(GAUSSIAN).unwrap();
-    assert_eq!(config.reliability_controller(), None);
     let spec = ExperimentSpec::from_runtime(&config).unwrap();
-    let roundtrip = parse_tune(&spec.to_toml().unwrap()).unwrap();
-    assert_eq!(roundtrip.reliability_controller(), None);
+    let _roundtrip = parse_tune(&spec.to_toml().unwrap()).unwrap();
     assert!(
-        parse_tune(&GAUSSIAN.replace("policy = \"turbo\"", "policy = \"reliability\"")).is_err()
+        parse_tune(&GAUSSIAN.replace(
+            "initial = 0.001",
+            "policy = \"reliability\"\ninitial = 0.001"
+        ))
+        .is_err()
     );
 }
 
 #[test]
-fn hyperbolic_scaling() {
+fn hyperbolic_metric() {
     let text = GAUSSIAN.replace(
-        "scaling = \"global\"",
-        "scaling = \"hyperbolic\"\nlocal-neighbors = 8",
+        "metric = \"euclidean\"",
+        "metric = \"hyperbolic\"\nlocal-neighbors = 8",
     );
     let config = parse_tune(&text).unwrap();
-    assert_eq!(config.distance_scaling, Some(DistanceScaling::Hyperbolic));
+    assert_eq!(config.distance_metric, Some(DistanceMetric::Hyperbolic));
     assert_eq!(config.local_scale_neighbors, Some(8));
     let spec = ExperimentSpec::from_runtime(&config).unwrap();
     let roundtrip = parse_tune(&spec.to_toml().unwrap()).unwrap();
-    assert_eq!(
-        roundtrip.distance_scaling,
-        Some(DistanceScaling::Hyperbolic)
-    );
+    assert_eq!(roundtrip.distance_metric, Some(DistanceMetric::Hyperbolic));
     assert_eq!(roundtrip.local_scale_neighbors, Some(8));
 }
 
 #[test]
 fn bounded_likelihood() {
     let text = GAUSSIAN.replace(
-        "function = \"cross-entropy\"",
-        "function = \"bounded-log-likelihood\"",
+        "objective = \"cross-entropy\"",
+        "objective = \"bounded-log-likelihood\"",
     );
     let config = parse_tune(&text).unwrap();
     assert_eq!(
@@ -261,7 +269,7 @@ fn bounded_likelihood() {
 fn paths() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("experiment.toml");
-    let text = resident("function='thompson'", 4, 1, "fit='fixed'").replace(
+    let text = resident("acquisition='thompson'", 4, 1, "fit='fixed'").replace(
         "experiment='end-to-end'",
         "experiment='end-to-end'\noutput='results'",
     );
@@ -280,7 +288,7 @@ fn paths() {
         Some(AcquisitionConfig::Thompson)
     ));
     assert!(text.contains("version = 4"));
-    assert!(text.contains("[optimizer.candidate-generation]"));
+    assert!(text.contains("[optimizer]"));
     assert_eq!(std::fs::read_to_string(path).unwrap(), authored);
 }
 
@@ -304,7 +312,7 @@ fn models() {
 #[test]
 fn budgets() {
     let config = parse_tune(&resident(
-        "function='upper-confidence-bound'",
+        "acquisition='upper-confidence-bound'",
         4,
         2,
         "fit='leave-one-out'\nfit-candidates=64\nfit-samples=32",
@@ -322,7 +330,7 @@ fn budgets() {
 #[test]
 fn search_conflict() {
     let ambiguous = resident(
-        "function='upper-confidence-bound'",
+        "acquisition='upper-confidence-bound'",
         4,
         1,
         "fit='leave-one-out-neighbor-search-v1'\nfit-candidates=4\nfit-samples=4",
@@ -332,13 +340,13 @@ fn search_conflict() {
 
 #[test]
 fn neighbor_controls() {
-    let fixed = resident("function='upper-confidence-bound'", 4, 1, "fit='fixed'");
+    let fixed = resident("acquisition='upper-confidence-bound'", 4, 1, "fit='fixed'");
     let fixed = parse_tune(&fixed).unwrap().resident_enn(17).unwrap();
     assert!(!fixed.fit_params);
     assert!(!fixed.adapt_neighbors);
 
     let fitted = resident(
-        "function='upper-confidence-bound'",
+        "acquisition='upper-confidence-bound'",
         4,
         1,
         "fit='leave-one-out'\nfit-candidates=4\nfit-samples=4",
@@ -347,23 +355,21 @@ fn neighbor_controls() {
     assert!(fitted.fit_params);
     assert!(!fitted.adapt_neighbors);
 
-    let adaptive = resident("function='upper-confidence-bound'", 4, 1, "fit='fixed'").replace(
-        "estimator='enn'",
-        "estimator='enn'\nneighbor-rule='risk-prefix'",
+    let adaptive = resident(
+        "acquisition='upper-confidence-bound'",
+        4,
+        1,
+        "neighbor-rule='risk-prefix'\nfit='fixed'",
     );
     let adaptive = parse_tune(&adaptive).unwrap().resident_enn(17).unwrap();
     assert!(!adaptive.fit_params);
     assert!(adaptive.adapt_neighbors);
 
     let fitted_adaptive = resident(
-        "function='upper-confidence-bound'",
+        "acquisition='upper-confidence-bound'",
         4,
         1,
-        "fit='leave-one-out'\nfit-candidates=4\nfit-samples=4",
-    )
-    .replace(
-        "estimator='enn'",
-        "estimator='enn'\nneighbor-rule='risk-prefix'",
+        "neighbor-rule='risk-prefix'\nfit='leave-one-out'\nfit-candidates=4\nfit-samples=4",
     );
     let fitted_adaptive = parse_tune(&fitted_adaptive)
         .unwrap()
@@ -387,7 +393,13 @@ fn vectors() {
         program='score'\n\
         args=[]\n\
         timeout-ms=10\n";
-    let base = resident("function='pareto'\nscales=[1.0,2.0]", 4, 1, "fit='fixed'").replace(
+    let base = resident(
+        "acquisition='pareto'\nscales=[1.0,2.0]",
+        4,
+        1,
+        "fit='fixed'",
+    )
+    .replace(
         "experiment='end-to-end'",
         "experiment='generation'\nmodel='fbt-pisa1-legacy-v1'",
     );
@@ -409,15 +421,12 @@ fn vectors() {
 
 #[test]
 fn causal_recipe() {
-    let base = resident("function='thompson'", 1, 1, "fit='fixed'").replace(
+    let base = resident("acquisition='thompson'", 1, 1, "").replace(
         "experiment='end-to-end'",
         "experiment='pretrain'\n\
             model='fbt-pisa1-mhc4-v1'\n\
-            [data]\n\
             recipe='stack-v3-rust-go-v1'\n\
-            [objective]\n\
-            function='cross-entropy'\n\
-            sampling='natural'\n\
+            objective='cross-entropy'\n\
             window-tokens=1048576",
     );
     let config = parse_tune(&base).unwrap();
@@ -425,7 +434,13 @@ fn causal_recipe() {
     assert!(config.generation.is_none());
     assert!(config.objective_acquisition.is_none());
     assert!(parse_tune(&base.replace("recipe=", "mixture=")).is_err());
-    assert!(parse_tune(&(base.clone() + "\n[objective]\nreference='moving-incumbent'\n")).is_err());
+    assert!(
+        parse_tune(&base.replace(
+            "window-tokens=1048576",
+            "window-tokens=1048576\nreference='moving-incumbent'"
+        ))
+        .is_err()
+    );
     assert!(
         parse_tune(
             &(base
@@ -445,8 +460,7 @@ fn causal_recipe() {
 fn natural_objective() {
     let spec = ExperimentSpec::parse(PRETRAIN_MUON).unwrap();
     let authored = spec.to_toml().unwrap();
-    assert!(authored.contains("function = \"cross-entropy\""));
-    assert!(authored.contains("sampling = \"natural\""));
+    assert!(authored.contains("objective = \"cross-entropy\""));
     assert!(!authored.contains("[generation]"));
     assert!(!authored.contains("max-tokens"));
     assert!(!authored.contains("corpus-prompt-tokens"));
@@ -454,10 +468,62 @@ fn natural_objective() {
 
 #[test]
 fn window_budget() {
-    assert!(ExperimentSpec::parse(&format!("{PRETRAIN_MUON}window-tokens=4096\n")).is_err());
+    let with_window = PRETRAIN_MUON.replace(
+        "objective='cross-entropy'\n",
+        "objective='cross-entropy'\nwindow-tokens=4096\n",
+    );
+    let spec = ExperimentSpec::parse(&with_window).unwrap();
+    let config = spec.compile().unwrap();
+    assert_eq!(config.window_tokens, Some(4096));
+    assert!(config.generation.is_none());
+    assert_eq!(config.optimizer(), TrainingOptimizer::MuonV1);
+    for tokens in [128, 2048, 8192] {
+        let invalid = PRETRAIN_MUON.replace(
+            "objective='cross-entropy'\n",
+            &format!("objective='cross-entropy'\nwindow-tokens={tokens}\n"),
+        );
+        assert!(ExperimentSpec::parse(&invalid).is_err());
+    }
     assert!(ExperimentSpec::parse(&GAUSSIAN.replace("window-tokens = 4096\n", "")).is_err());
     assert!(
-        ExperimentSpec::parse(&GAUSSIAN.replace("sampling = \"natural\"", "sampling = \"window\""))
-            .is_err()
+        ExperimentSpec::parse(&GAUSSIAN.replace(
+            "objective = \"cross-entropy\"",
+            "objective = \"cross-entropy\"\nsampling = \"window\""
+        ))
+        .is_err()
     );
+}
+
+#[test]
+fn perturbation_spec() {
+    let text = format!(
+        "{GAUSSIAN}\
+        [optimizer.perturbation]\n\
+        sampler = \"raasp\"\n\
+        num-pert = 12\n\
+        raasp-fast = true\n\
+        coord-system = \"spherical\"\n"
+    );
+    let config = parse_tune(&text).unwrap();
+    assert_eq!(config.candidate_rv, Some(CandidateSampler::RAASP));
+    assert_eq!(config.num_pert, Some(12));
+    assert_eq!(config.raasp_fast, Some(true));
+    assert_eq!(config.coord_system, Some(crate::CoordSystem::Spherical));
+
+    let spec = ExperimentSpec::from_runtime(&config).unwrap();
+    let opt_cfg = OptimizerConfig::from_spec(&spec.optimizer).unwrap();
+    assert_eq!(
+        opt_cfg.candidates.coord_system,
+        crate::CoordSystem::Spherical
+    );
+    assert_eq!(opt_cfg.candidates.num_pert, 12);
+    assert!(opt_cfg.candidates.raasp_fast);
+
+    let roundtrip = parse_tune(&spec.to_toml().unwrap()).unwrap();
+    assert_eq!(roundtrip.coord_system, Some(crate::CoordSystem::Spherical));
+    assert_eq!(roundtrip.num_pert, Some(12));
+    assert_eq!(roundtrip.raasp_fast, Some(true));
+
+    let invalid = text.replace("num-pert = 12", "num-pert = 0");
+    assert!(parse_tune(&invalid).is_err());
 }

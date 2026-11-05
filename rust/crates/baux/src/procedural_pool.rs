@@ -4,9 +4,9 @@
 //! imply independently materialized centers or independent trust regions.
 //!
 //! A pool describes proposals to rank, not objective evaluations or accepted
-//! updates. `count = arms * candidates_per_arm`; the resident Metal path
-//! supports one or four total proposals and materializes the selected row.
-//! TOML's `candidate-generation.candidates` is already a TOTAL and is divided
+//! updates. `count = arms * candidates_per_arm`; the resident Metal backend
+//! materializes the selected row.
+//! TOML's `optimizer.candidates` is already a TOTAL and is divided
 //! by `arms` in `config::spec::conversion`, before constructing this layout.
 //!
 //! This module owns identities and reproducible seed mapping only. The proposal
@@ -15,48 +15,6 @@
 //! Distinct seed domains are not, by themselves, a proof of statistical
 //! independence.
 use deser::{Deserialize, Serialize};
-
-/// Program used to construct each dense procedural direction.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[deser(rename_all = "kebab-case")]
-pub enum ProposalMethod {
-    /// Request per-parameter innovations without the parameter-pair mixing
-    /// term. In the resident FP16 path, a trial is the rounded incumbent
-    /// plus `block.scale * radius * noise`; `ProposalKernel` chooses the
-    /// noise sampler.
-    #[default]
-    #[deser(rename = "independent")]
-    Additive,
-    /// Request the resident Metal trigonometric unit-tangent mixing
-    /// parameter-pair transformation.
-    ///
-    /// Before FP16 encoding, unit-tangent mixing applies unit-tangent
-    /// trigonometric mixing in `resident_search.metal` (`program == 3u`):
-    /// `cos(alpha) * noise + sin(alpha) * tangent`
-    /// where `tangent = (y, -x) / sqrt(x^2 + y^2)` and `alpha in {0, pi/6,
-    /// pi/4, pi/3}` for slots `0..3`.
-    /// `configure_enn` rejects unsupported precision, noise, and history modes.
-    #[deser(rename = "pair-rotation")]
-    PairMix,
-    /// Quadratic truncation of a representation-space operator flow:
-    /// W(s) = W * (I + s * X + (s^2 / 2) * X^2)
-    /// where X = Omega + S in k (+) p.
-    #[deser(rename = "lie")]
-    QuadraticFlow,
-}
-
-impl ProposalMethod {
-    /// Canonical configuration/report label; not a complete proposal
-    /// specification. Noise distribution, scales, precision, radius, and
-    /// pool remain separate.
-    pub const fn name(self) -> &'static str {
-        match self {
-            Self::Additive => "independent",
-            Self::PairMix => "pair-rotation",
-            Self::QuadraticFlow => "lie",
-        }
-    }
-}
 
 /// Identity of a perturbation within an arm, not an index into model storage.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -82,7 +40,7 @@ const fn default_arms() -> u32 {
 }
 
 const fn default_slots() -> u32 {
-    4
+    1
 }
 
 impl Default for ProceduralPoolConfig {
@@ -104,7 +62,7 @@ pub struct ProceduralPool {
 
 impl ProceduralPoolConfig {
     /// Validate positive dimensions and checked `u32` multiplication.
-    /// This is a metadata-only operation: it does not establish target support
+    /// This is a metadata-only operation: it does not establish backend support
     /// or allocate parameter rows. Use `resolve_resident` for resident Metal.
     pub fn resolve(self) -> Result<ProceduralPool, String> {
         if self.arms == 0 || self.candidates_per_arm == 0 {
@@ -121,17 +79,13 @@ impl ProceduralPoolConfig {
         })
     }
 
-    /// Validate the resident Metal ABI's one- or four-proposal limit.
-    /// Four proposals may be surrogate-ranked before ONE objective evaluation;
-    /// this count does not request four forward evaluations or four updates.
+    /// Validate the resident Metal ABI's candidate pool count.
+    /// In direct search / operator BO, count is 1. Multi-candidate ranking is
+    /// supported when configured.
     pub fn resolve_resident(self) -> Result<ProceduralPool, String> {
         let pool = self.resolve()?;
-        if pool.count != 1 && pool.count != 4 {
-            return Err(
-                "resident procedural pool requires 1 or 4 total candidates; wider pools require a \
-                 separately measured GPU pool/selection ABI"
-                    .into(),
-            );
+        if pool.count == 0 || pool.count > 4 {
+            return Err("resident procedural pool requires 1..=4 candidates".into());
         }
         Ok(pool)
     }
@@ -206,7 +160,7 @@ pub fn arm_seed(root: u64, arm: u32) -> u64 {
 /// Radius is chosen elsewhere: a reliability controller can give those slots
 /// the same radius, so sharing a seed need not mean different step sizes.
 pub fn legacy_seed(root: u64, slot: u32) -> u64 {
-    let stream = slot / 2;
+    let stream = slot;
     let (low, high) = (root as u32, (root >> 32) as u32);
     u64::from(stream_word(low, high, stream))
         | (u64::from(stream_word(high, low, stream ^ 0x9e37_79b9)) << 32)
@@ -249,15 +203,9 @@ mod tests {
             let seeds: Vec<_> = (0..4)
                 .map(|i| pool.seed(73, pool.identity(i).unwrap()).unwrap())
                 .collect();
-            if slots == 2 {
-                assert_eq!(seeds[0], seeds[1]);
-                assert_eq!(seeds[2], seeds[3]);
-                assert_ne!(seeds[0], seeds[2]);
-            } else {
-                for i in 0..4 {
-                    for j in 0..i {
-                        assert_ne!(seeds[i], seeds[j]);
-                    }
+            for i in 0..4 {
+                for j in 0..i {
+                    assert_ne!(seeds[i], seeds[j]);
                 }
             }
         }
@@ -325,7 +273,7 @@ mod tests {
                     .unwrap()
             );
         }
-        assert_eq!(
+        assert_ne!(
             pool.seed(7, CandidateIdentity { arm: 0, slot: 0 }).unwrap(),
             pool.seed(7, CandidateIdentity { arm: 0, slot: 1 }).unwrap()
         );
@@ -334,8 +282,11 @@ mod tests {
     #[test]
     fn resident_requests() {
         assert_eq!(
-            ProceduralPoolConfig::default().resolve_resident().unwrap(),
-            ProceduralPool::legacy()
+            ProceduralPoolConfig::default()
+                .resolve_resident()
+                .unwrap()
+                .count(),
+            1
         );
         let single = ProceduralPoolConfig {
             arms: 1,
@@ -343,23 +294,15 @@ mod tests {
         };
         assert_eq!(single.resolve_resident().unwrap().count(), 1);
         let config = ProceduralPoolConfig {
-            arms: 4,
+            arms: 0,
+            candidates_per_arm: 1,
+        };
+        assert!(config.resolve_resident().is_err());
+        let oversized = ProceduralPoolConfig {
+            arms: 2,
             candidates_per_arm: 4,
         };
-        assert!(
-            config
-                .resolve_resident()
-                .unwrap_err()
-                .contains("GPU pool/selection ABI")
-        );
-        assert!(
-            ProceduralPoolConfig {
-                arms: 1,
-                candidates_per_arm: 8
-            }
-            .resolve_resident()
-            .is_err()
-        );
+        assert!(oversized.resolve_resident().is_err());
     }
 
     #[test]
@@ -375,9 +318,12 @@ mod tests {
             ),
         ] {
             assert_eq!(legacy_seed(root, 0), first);
-            assert_eq!(legacy_seed(root, 1), first);
-            assert_eq!(legacy_seed(root, 2), second);
-            assert_eq!(legacy_seed(root, 3), second);
+            assert_eq!(legacy_seed(root, 1), second);
+            assert_ne!(legacy_seed(root, 2), first);
+            assert_ne!(legacy_seed(root, 2), second);
+            assert_ne!(legacy_seed(root, 3), first);
+            assert_ne!(legacy_seed(root, 3), second);
+            assert_ne!(legacy_seed(root, 2), legacy_seed(root, 3));
         }
     }
 }

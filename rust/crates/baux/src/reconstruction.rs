@@ -4,13 +4,13 @@
 
 use std::collections::HashMap;
 
-pub(crate) struct Reference<T> {
+pub struct Reference<T> {
     length: usize,
     masks: HashMap<T, Vec<u64>>,
 }
 
 impl<T: Copy + Eq + std::hash::Hash> Reference<T> {
-    pub(crate) fn new(tokens: &[T]) -> Self {
+    pub fn new(tokens: &[T]) -> Self {
         let words = tokens.len().div_ceil(64);
         let mut masks = HashMap::<T, Vec<u64>>::new();
         for (position, &token) in tokens.iter().enumerate() {
@@ -23,11 +23,11 @@ impl<T: Copy + Eq + std::hash::Hash> Reference<T> {
         }
     }
 
-    pub(crate) fn len(&self) -> usize {
+    pub fn len(&self) -> usize {
         self.length
     }
 
-    pub(crate) fn distance(&self, tokens: &[T]) -> usize {
+    pub fn distance(&self, tokens: &[T]) -> usize {
         if self.length == 0 {
             return tokens.len();
         }
@@ -51,7 +51,7 @@ impl<T: Copy + Eq + std::hash::Hash> Reference<T> {
         distance
     }
 
-    pub(crate) fn reward(&self, tokens: &[T]) -> (usize, f32) {
+    pub fn reward(&self, tokens: &[T]) -> (usize, f32) {
         let distance = self.distance(tokens);
         let length = self.length.max(tokens.len());
         let reward = if length == 0 {
@@ -97,5 +97,4 @@ fn advance(pv: &mut u64, mv: &mut u64, equal: u64, carry: &mut Carry) -> (u64, u
 }
 
 #[cfg(test)]
-#[path = "reconstruction_tests.rs"]
 mod tests;

@@ -14,8 +14,8 @@ use crate::error::IndexError;
 const SOURCE: &str = include_str!("metal_index.metal");
 
 mod posterior;
-pub(crate) use self::posterior::MetalPosterior;
 mod scratch;
+pub(crate) use self::scratch::MetalPosterior;
 use self::scratch::*;
 
 pub(crate) struct MetalIndex {
@@ -233,26 +233,14 @@ impl MetalIndex {
         queries: usize,
         k: usize,
     ) -> Result<(), String> {
-        let init = Params {
-            rows: to_u32(self.len(), "row count").map_err(|e| e.to_string())?,
-            dim: to_u32(self.num_dim, "dimension").map_err(|e| e.to_string())?,
-            queries: to_u32(queries, "query count").map_err(|e| e.to_string())?,
-            tile_start: 0,
-            tile_rows: 0,
-            k: to_u32(k, "neighbor count").map_err(|e| e.to_string())?,
-            lanes: 1,
-            tiles: 0,
-            lists: 0,
-            groups: 0,
-        };
-        let encoder = command.new_compute_command_encoder();
-        encoder.set_compute_pipeline_state(&self.init_results);
-        encoder.set_buffer(0, Some(&self.scratch.result_distances), 0);
-        encoder.set_buffer(1, Some(&self.scratch.result_indices), 0);
-        set_params(&encoder, 2, &init);
-        dispatch(&encoder, queries * k);
-        encoder.end_encoding();
-
+        self.scratch.encode_init(
+            command,
+            &self.init_results,
+            self.len(),
+            self.num_dim,
+            queries,
+            k,
+        )?;
         for tile_start in (0..self.len()).step_by(TILE_ROWS) {
             let params = Params {
                 rows: to_u32(self.len(), "row count").map_err(|e| e.to_string())?,
@@ -447,70 +435,16 @@ impl MetalIndex {
         while lists > 1 {
             let fan = if plan == Plan::Wide { 2 } else { plan_fan(k) };
             let groups = lists.div_ceil(fan);
-            self.reduce_pass(plan, command, &params, queries, lists, groups, tree_input)?;
+            let reduce = if plan == Plan::Wide {
+                &self.fold
+            } else {
+                &self.reduce16
+            };
+            self.scratch
+                .reduce_pass(command, reduce, &params, queries, lists, groups, tree_input)?;
             lists = groups;
             tree_input = !tree_input;
         }
-        Ok(())
-    }
-
-    fn reduce_pass(
-        &self,
-        plan: Plan,
-        command: &metal::CommandBufferRef,
-        params: &Params,
-        queries: usize,
-        lists: usize,
-        groups: usize,
-        tree_input: bool,
-    ) -> Result<(), String> {
-        let (input_distances, input_indices) = if tree_input {
-            (&self.scratch.tree_distances, &self.scratch.tree_indices)
-        } else {
-            (
-                &self.scratch.tree_alt_distances,
-                &self.scratch.tree_alt_indices,
-            )
-        };
-        let (output_distances, output_indices) = if groups == 1 {
-            (&self.scratch.result_distances, &self.scratch.result_indices)
-        } else if tree_input {
-            (
-                &self.scratch.tree_alt_distances,
-                &self.scratch.tree_alt_indices,
-            )
-        } else {
-            (&self.scratch.tree_distances, &self.scratch.tree_indices)
-        };
-        let params = Params {
-            lists: to_u32(lists, "list count").map_err(|error| error.to_string())?,
-            groups: to_u32(groups, "merge groups").map_err(|error| error.to_string())?,
-            ..*params
-        };
-        let encoder = command.new_compute_command_encoder();
-        encoder.set_compute_pipeline_state(if plan == Plan::Wide {
-            &self.fold
-        } else {
-            &self.reduce16
-        });
-        encoder.set_buffer(0, Some(input_distances), 0);
-        encoder.set_buffer(1, Some(input_indices), 0);
-        encoder.set_buffer(2, Some(output_distances), 0);
-        encoder.set_buffer(3, Some(output_indices), 0);
-        set_params(&encoder, 4, &params);
-        encoder.dispatch_thread_groups(
-            MTLSize {
-                width: (queries * groups) as u64,
-                height: 1,
-                depth: 1,
-            },
-            MTLSize {
-                width: THREADS,
-                height: 1,
-                depth: 1,
-            },
-        );
-        encoder.end_encoding();
         Ok(())
     }
 
@@ -532,7 +466,7 @@ impl MetalIndex {
             groups: 0,
         };
         self.run_distance(0, &params);
-        let reference = self.distance_values(query_count);
+        let reference = self.scratch.distance_values(query_count);
         let runtime = Arc::clone(&self.runtime);
         let choice = runtime
             .race(
@@ -544,7 +478,7 @@ impl MetalIndex {
                     let start = Instant::now();
                     self.run_distance(schedule, &params);
                     let elapsed = start.elapsed();
-                    if !same_distances(&reference, &self.distance_values(query_count)) {
+                    if !same_distances(&reference, &self.scratch.distance_values(query_count)) {
                         return Ok(None);
                     }
                     Ok(Some(elapsed))
@@ -600,7 +534,7 @@ impl MetalIndex {
                         return Ok(None);
                     }
                     let elapsed = self.run_plan(plan, query_count, k)?;
-                    let values = self.result_values(query_count, k);
+                    let values = self.scratch.result_values(query_count, k);
                     if let Some(reference) = &reference {
                         if !same_topk(reference, &values, query_count, k, self.len()) {
                             return Ok(None);
@@ -632,23 +566,6 @@ impl MetalIndex {
         Ok(start.elapsed())
     }
 
-    fn result_values(&self, queries: usize, k: usize) -> (Vec<f32>, Vec<u32>) {
-        unsafe {
-            (
-                std::slice::from_raw_parts(
-                    self.scratch.result_distances.contents().cast::<f32>(),
-                    queries * k,
-                )
-                .to_vec(),
-                std::slice::from_raw_parts(
-                    self.scratch.result_indices.contents().cast::<u32>(),
-                    queries * k,
-                )
-                .to_vec(),
-            )
-        }
-    }
-
     fn run_distance(&self, schedule: usize, params: &Params) {
         let command_buffer = self.runtime.queue.new_command_buffer();
         let encoder = command_buffer.new_compute_command_encoder();
@@ -657,20 +574,14 @@ impl MetalIndex {
         encoder.set_buffer(1, Some(&self.scratch.query), 0);
         encoder.set_buffer(2, Some(&self.scratch.tile_distances), 0);
         set_params(encoder, 3, params);
-        self.scheduled_distance(encoder, schedule, params.queries as usize);
+        dispatch_distance(
+            encoder,
+            schedule + 1 == self.distance.len(),
+            params.queries as usize,
+        );
         encoder.end_encoding();
         command_buffer.commit();
         command_buffer.wait_until_completed();
-    }
-
-    fn distance_values(&self, queries: usize) -> Vec<f32> {
-        unsafe {
-            std::slice::from_raw_parts(
-                self.scratch.tile_distances.contents().cast::<f32>(),
-                queries * TILE_ROWS,
-            )
-            .to_vec()
-        }
     }
 
     fn distance_lanes(&self) -> u32 {
@@ -678,35 +589,8 @@ impl MetalIndex {
     }
 
     fn default_distance(&self, encoder: &metal::ComputeCommandEncoderRef, queries: usize) {
-        self.scheduled_distance(
-            encoder,
-            self.distance_choice.expect("distance schedule calibrated"),
-            queries,
-        );
-    }
-
-    fn scheduled_distance(
-        &self,
-        encoder: &metal::ComputeCommandEncoderRef,
-        schedule: usize,
-        queries: usize,
-    ) {
-        if schedule + 1 == self.distance.len() {
-            encoder.dispatch_thread_groups(
-                MTLSize {
-                    width: (queries * TILE_ROWS).div_ceil(8) as u64,
-                    height: 1,
-                    depth: 1,
-                },
-                MTLSize {
-                    width: THREADS,
-                    height: 1,
-                    depth: 1,
-                },
-            );
-        } else {
-            dispatch(encoder, queries * TILE_ROWS);
-        }
+        let choice = self.distance_choice.expect("distance schedule calibrated");
+        dispatch_distance(encoder, choice + 1 == self.distance.len(), queries);
     }
 
     fn upload_rows(&mut self) {

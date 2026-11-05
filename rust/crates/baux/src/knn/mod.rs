@@ -1,9 +1,11 @@
 //! Index implementations behind [`crate::index::ENNIndex`].
 
-mod exact_index;
+#[cfg(all(target_os = "macos", feature = "metal"))]
+mod auto;
+mod exact_backend;
 
-#[cfg(any(feature = "usearch", feature = "usearch-c-api"))]
-mod usearch_index;
+#[cfg(any(feature = "usearch", feature = "usearch-native"))]
+mod usearch_backend;
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64", feature = "cuda"))]
 pub(crate) mod cuda_index;
@@ -11,50 +13,24 @@ pub(crate) mod cuda_index;
 pub(crate) mod metal_index;
 #[cfg(all(target_os = "macos", feature = "metal"))]
 mod metal_plan;
-#[cfg(feature = "opencl")]
-mod opencl_index;
 
-use deser::{Deserialize, Serialize};
 use ndarray::{Array2, ArrayView2};
 #[cfg(all(target_os = "linux", target_arch = "x86_64", feature = "cuda"))]
 use ndarray::{Array3, ArrayView1};
-#[cfg(all(target_os = "macos", feature = "metal"))]
-use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::Duration;
-#[cfg(all(target_os = "macos", feature = "metal"))]
-use std::time::Instant;
 
 use crate::error::IndexError;
 
-use exact_index::ExactIndex;
-
-#[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
-#[deser(rename_all = "snake_case")]
-pub enum IndexDriver {
-    #[default]
-    Exact,
-    /// Exact CPU/accelerator race calibrated from real query shapes.
-    Auto,
-    /// USearch HNSW shortlist with deterministic exact-distance reranking.
-    #[deser(rename = "usearch")]
-    USearch,
-    /// B+ANN disk index (`EnnStorage::Disk` + `work_dir`).
-    #[deser(rename = "bp_ann_disk")]
-    BpAnnDisk,
-    /// Apple Metal index for device-resident neighbor search.
-    Metal,
-    /// OpenCL index for device-resident neighbor search.
-    #[deser(rename = "opencl")]
-    OpenCl,
-    /// NVIDIA CUDA exact index implemented with CUDA-Oxide.
-    #[deser(rename = "cuda")]
-    Cuda,
-}
-
-pub fn disk_driver(driver: IndexDriver) -> bool {
-    matches!(driver, IndexDriver::BpAnnDisk)
-}
+#[cfg(all(target_os = "macos", feature = "metal"))]
+pub(crate) use auto::AutoIndex;
+#[cfg(any(
+    all(target_os = "macos", feature = "metal"),
+    all(target_os = "linux", target_arch = "x86_64", feature = "cuda")
+))]
+pub(crate) use exact_backend::check_rows;
+pub(crate) use exact_backend::{ExactBackend, flatten_f32, pad_k, unpack_search};
+pub use exact_backend::{IndexDriver, disk_driver};
 
 /// KNN execution diagram used by the experimental parity surface.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -113,12 +89,12 @@ pub(crate) struct CudaParam {
 }
 
 /// Unstable low-level KNN surface for accelerator parity and performance work.
-pub struct KnnIndex(NeighborIndexImpl);
+pub struct KnnIndex(KnnBackend);
 
 impl KnnIndex {
     /// Builds an index using the measured execution plan.
     pub fn new(train: &ArrayView2<f64>, driver: IndexDriver) -> Result<Self, IndexError> {
-        Ok(Self(NeighborIndexImpl::new(train.ncols(), driver, train)?))
+        Ok(Self(KnnBackend::new(train.ncols(), driver, train)?))
     }
 
     /// Builds an index with a requested execution plan.
@@ -127,7 +103,7 @@ impl KnnIndex {
         driver: IndexDriver,
         plan: KnnPlan,
     ) -> Result<Self, IndexError> {
-        Ok(Self(NeighborIndexImpl::new_plan(
+        Ok(Self(KnnBackend::new_plan(
             train.ncols(),
             driver,
             train,
@@ -159,117 +135,34 @@ impl KnnIndex {
         self.0.profile()
     }
 
-    /// Returns the index-owned memory footprint in bytes.
+    /// Returns the backend-owned memory footprint in bytes.
     pub fn memory_bytes(&self) -> usize {
         self.0.memory_bytes()
     }
 }
 
-#[cfg(any(feature = "usearch", feature = "usearch-c-api"))]
-use usearch_index::USearchIndex;
+#[cfg(any(feature = "usearch", feature = "usearch-native"))]
+use usearch_backend::USearchBackend;
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64", feature = "cuda"))]
 use cuda_index::CudaIndex;
 #[cfg(all(target_os = "macos", feature = "metal"))]
 use metal_index::MetalIndex;
-#[cfg(feature = "opencl")]
-use opencl_index::OpenClIndex;
 
 /// In-memory exact and accelerator-backed index implementations.
-pub(crate) enum NeighborIndexImpl {
-    Exact(Mutex<ExactIndex>),
+pub(crate) enum KnnBackend {
+    Exact(Mutex<ExactBackend>),
     #[cfg(all(target_os = "macos", feature = "metal"))]
     Auto(Mutex<AutoIndex>),
-    #[cfg(any(feature = "usearch", feature = "usearch-c-api"))]
-    USearch(Mutex<USearchIndex>),
+    #[cfg(any(feature = "usearch", feature = "usearch-native"))]
+    USearch(Mutex<USearchBackend>),
     #[cfg(all(target_os = "macos", feature = "metal"))]
     Metal(Mutex<MetalIndex>),
-    #[cfg(feature = "opencl")]
-    OpenCl(Mutex<OpenClIndex>),
     #[cfg(all(target_os = "linux", target_arch = "x86_64", feature = "cuda"))]
     Cuda(Mutex<CudaIndex>),
 }
 
-#[cfg(all(target_os = "macos", feature = "metal"))]
-pub(crate) struct AutoIndex {
-    cpu: ExactIndex,
-    gpu: Option<MetalIndex>,
-    decisions: HashMap<(u32, usize, usize), bool>,
-    num_dim: usize,
-}
-
-#[cfg(all(target_os = "macos", feature = "metal"))]
-impl AutoIndex {
-    fn new(num_dim: usize, train: &ArrayView2<f64>) -> Result<Self, IndexError> {
-        Ok(Self {
-            cpu: ExactIndex::new(num_dim, train)?,
-            gpu: MetalIndex::new(num_dim, train).ok(),
-            decisions: HashMap::new(),
-            num_dim,
-        })
-    }
-
-    fn bucket(&self, queries: usize) -> u32 {
-        self.cpu
-            .len()
-            .saturating_mul(queries)
-            .saturating_mul(self.num_dim)
-            .max(1)
-            .ilog2()
-    }
-
-    fn search(
-        &mut self,
-        queries: &ArrayView2<f64>,
-        k_eff: usize,
-        search_k: usize,
-    ) -> Result<(Array2<f64>, Array2<i64>), IndexError> {
-        if self.gpu.is_none() || !MetalIndex::supports_neighbors(k_eff) {
-            return self.cpu.search(queries, k_eff, search_k);
-        }
-        let bucket = (self.bucket(queries.nrows()), k_eff, search_k);
-        if let Some(&gpu) = self.decisions.get(&bucket) {
-            if gpu {
-                if let Some(result) = self.accelerated_search(queries, k_eff, search_k) {
-                    return Ok(result);
-                }
-            }
-            return self.cpu.search(queries, k_eff, search_k);
-        }
-
-        let cpu_start = Instant::now();
-        let cpu = self.cpu.search(queries, k_eff, search_k)?;
-        let cpu_time = cpu_start.elapsed();
-        let gpu_start = Instant::now();
-        let Some(gpu) = self.accelerated_search(queries, k_eff, search_k) else {
-            return Ok(cpu);
-        };
-        let gpu_time = gpu_start.elapsed();
-        let use_gpu = cpu.1 == gpu.1 && gpu_time < cpu_time;
-        self.decisions.insert(bucket, use_gpu);
-        Ok(if use_gpu { gpu } else { cpu })
-    }
-
-    fn accelerated_search(
-        &mut self,
-        queries: &ArrayView2<f64>,
-        k_eff: usize,
-        search_k: usize,
-    ) -> Option<(Array2<f64>, Array2<i64>)> {
-        match self.gpu.as_mut()?.search(queries, k_eff, search_k) {
-            Ok(result) => Some(result),
-            Err(_) => {
-                // Keep the valid CPU mirror; retry acceleration after a
-                // rebuild.
-                self.gpu = None;
-                self.decisions.clear();
-                None
-            }
-        }
-    }
-}
-
-impl NeighborIndexImpl {
+impl KnnBackend {
     pub(crate) fn new(
         num_dim: usize,
         driver: IndexDriver,
@@ -290,7 +183,7 @@ impl NeighborIndexImpl {
             ));
         }
         match driver {
-            IndexDriver::Exact => Ok(Self::Exact(Mutex::new(ExactIndex::new(
+            IndexDriver::Exact => Ok(Self::Exact(Mutex::new(ExactBackend::new(
                 num_dim,
                 train_scaled,
             )?))),
@@ -304,24 +197,24 @@ impl NeighborIndexImpl {
                 }
                 #[cfg(not(all(target_os = "macos", feature = "metal")))]
                 {
-                    Ok(Self::Exact(Mutex::new(ExactIndex::new(
+                    Ok(Self::Exact(Mutex::new(ExactBackend::new(
                         num_dim,
                         train_scaled,
                     )?)))
                 }
             }
             IndexDriver::USearch => {
-                #[cfg(any(feature = "usearch", feature = "usearch-c-api"))]
+                #[cfg(any(feature = "usearch", feature = "usearch-native"))]
                 {
-                    return Ok(Self::USearch(Mutex::new(USearchIndex::new(
+                    return Ok(Self::USearch(Mutex::new(USearchBackend::new(
                         num_dim,
                         train_scaled,
                     )?)));
                 }
-                #[cfg(not(any(feature = "usearch", feature = "usearch-c-api")))]
+                #[cfg(not(any(feature = "usearch", feature = "usearch-native")))]
                 {
                     Err(IndexError::InvalidParameter(
-                        "USearch index is unavailable; build with the usearch or usearch-c-api \
+                        "USearch index is unavailable; build with the usearch or usearch-native \
                          feature"
                             .to_string(),
                     ))
@@ -344,39 +237,38 @@ impl NeighborIndexImpl {
                     ))
                 }
             }
-            IndexDriver::OpenCl => {
-                #[cfg(feature = "opencl")]
-                {
-                    return Ok(Self::OpenCl(Mutex::new(OpenClIndex::new(
-                        num_dim,
-                        train_scaled,
-                    )?)));
-                }
-                #[cfg(not(feature = "opencl"))]
-                {
-                    Err(IndexError::InvalidParameter(
-                        "OpenCL index is unavailable; build with the opencl feature".to_string(),
-                    ))
-                }
-            }
-            IndexDriver::Cuda => {
+            IndexDriver::OpenCl => Err(IndexError::InvalidParameter(
+                "OpenCL index is unsupported".to_string(),
+            )),
+            IndexDriver::Cuda | IndexDriver::Cuvs | IndexDriver::CuvsCagra => {
                 #[cfg(all(target_os = "linux", target_arch = "x86_64", feature = "cuda"))]
                 {
-                    return Ok(Self::Cuda(Mutex::new(CudaIndex::new(
-                        num_dim,
-                        train_scaled,
-                    )?)));
+                    let index = match driver {
+                        IndexDriver::Cuda => CudaIndex::new(num_dim, train_scaled)?,
+                        IndexDriver::Cuvs => CudaIndex::new_mode(
+                            num_dim,
+                            train_scaled,
+                            baux_cuda::CudaKnnMode::CuvsBruteForce,
+                        )?,
+                        IndexDriver::CuvsCagra => CudaIndex::new_mode(
+                            num_dim,
+                            train_scaled,
+                            baux_cuda::CudaKnnMode::CuvsCagra,
+                        )?,
+                        _ => unreachable!(),
+                    };
+                    return Ok(Self::Cuda(Mutex::new(index)));
                 }
                 #[cfg(not(all(target_os = "linux", target_arch = "x86_64", feature = "cuda")))]
                 {
                     Err(IndexError::InvalidParameter(
-                        "CUDA index is unavailable; build on Linux x86_64 with the cuda feature"
+                        "CUDA/cuVS index is unavailable; build on Linux x86_64 with the cuda feature"
                             .to_string(),
                     ))
                 }
             }
             IndexDriver::BpAnnDisk => Err(IndexError::InvalidParameter(
-                "IndexDriver::BpAnnDisk is disk-only; use DiskBpannStore".to_string(),
+                "IndexDriver::BpAnnDisk is disk-only; use DiskBpannEnnBackend".to_string(),
             )),
         }
     }
@@ -386,12 +278,10 @@ impl NeighborIndexImpl {
             Self::Exact(inner) => inner.lock().expect("knn mutex poisoned").len(),
             #[cfg(all(target_os = "macos", feature = "metal"))]
             Self::Auto(inner) => inner.lock().expect("knn mutex poisoned").cpu.len(),
-            #[cfg(any(feature = "usearch", feature = "usearch-c-api"))]
+            #[cfg(any(feature = "usearch", feature = "usearch-native"))]
             Self::USearch(inner) => inner.lock().expect("knn mutex poisoned").len(),
             #[cfg(all(target_os = "macos", feature = "metal"))]
             Self::Metal(inner) => inner.lock().expect("knn mutex poisoned").len(),
-            #[cfg(feature = "opencl")]
-            Self::OpenCl(inner) => inner.lock().expect("knn mutex poisoned").len(),
             #[cfg(all(target_os = "linux", target_arch = "x86_64", feature = "cuda"))]
             Self::Cuda(inner) => inner.lock().expect("knn mutex poisoned").len(),
         }
@@ -402,12 +292,10 @@ impl NeighborIndexImpl {
             Self::Exact(_) => "exact",
             #[cfg(all(target_os = "macos", feature = "metal"))]
             Self::Auto(_) => "auto",
-            #[cfg(any(feature = "usearch", feature = "usearch-c-api"))]
+            #[cfg(any(feature = "usearch", feature = "usearch-native"))]
             Self::USearch(_) => "usearch",
             #[cfg(all(target_os = "macos", feature = "metal"))]
             Self::Metal(inner) => inner.lock().expect("knn mutex poisoned").plan(),
-            #[cfg(feature = "opencl")]
-            Self::OpenCl(_) => "opencl",
             #[cfg(all(target_os = "linux", target_arch = "x86_64", feature = "cuda"))]
             Self::Cuda(inner) => inner
                 .lock()
@@ -442,12 +330,10 @@ impl NeighborIndexImpl {
                 let inner = inner.lock().expect("knn mutex poisoned");
                 inner.cpu.memory_bytes() + inner.gpu.as_ref().map_or(0, MetalIndex::memory_bytes)
             }
-            #[cfg(any(feature = "usearch", feature = "usearch-c-api"))]
+            #[cfg(any(feature = "usearch", feature = "usearch-native"))]
             Self::USearch(inner) => inner.lock().expect("knn mutex poisoned").memory_bytes(),
             #[cfg(all(target_os = "macos", feature = "metal"))]
             Self::Metal(inner) => inner.lock().expect("knn mutex poisoned").memory_bytes(),
-            #[cfg(feature = "opencl")]
-            Self::OpenCl(inner) => inner.lock().expect("knn mutex poisoned").memory_bytes(),
             #[cfg(all(target_os = "linux", target_arch = "x86_64", feature = "cuda"))]
             Self::Cuda(inner) => inner.lock().expect("knn mutex poisoned").memory_bytes(),
         }
@@ -467,18 +353,13 @@ impl NeighborIndexImpl {
                 inner.decisions.clear();
                 Ok(())
             }
-            #[cfg(any(feature = "usearch", feature = "usearch-c-api"))]
+            #[cfg(any(feature = "usearch", feature = "usearch-native"))]
             Self::USearch(inner) => inner
                 .lock()
                 .expect("knn mutex poisoned")
                 .rebuild(train_scaled),
             #[cfg(all(target_os = "macos", feature = "metal"))]
             Self::Metal(inner) => inner
-                .lock()
-                .expect("knn mutex poisoned")
-                .rebuild(train_scaled),
-            #[cfg(feature = "opencl")]
-            Self::OpenCl(inner) => inner
                 .lock()
                 .expect("knn mutex poisoned")
                 .rebuild(train_scaled),
@@ -512,18 +393,13 @@ impl NeighborIndexImpl {
                 inner.decisions.clear();
                 Ok(())
             }
-            #[cfg(any(feature = "usearch", feature = "usearch-c-api"))]
+            #[cfg(any(feature = "usearch", feature = "usearch-native"))]
             Self::USearch(inner) => inner
                 .lock()
                 .expect("knn mutex poisoned")
                 .add(rows_scaled, start_key),
             #[cfg(all(target_os = "macos", feature = "metal"))]
             Self::Metal(inner) => inner
-                .lock()
-                .expect("knn mutex poisoned")
-                .add(rows_scaled, start_key),
-            #[cfg(feature = "opencl")]
-            Self::OpenCl(inner) => inner
                 .lock()
                 .expect("knn mutex poisoned")
                 .add(rows_scaled, start_key),
@@ -555,7 +431,7 @@ impl NeighborIndexImpl {
                     .expect("knn mutex poisoned")
                     .search(queries_scaled, k_eff, search_k)
             }
-            #[cfg(any(feature = "usearch", feature = "usearch-c-api"))]
+            #[cfg(any(feature = "usearch", feature = "usearch-native"))]
             Self::USearch(inner) => {
                 inner
                     .lock()
@@ -564,13 +440,6 @@ impl NeighborIndexImpl {
             }
             #[cfg(all(target_os = "macos", feature = "metal"))]
             Self::Metal(inner) => {
-                inner
-                    .lock()
-                    .expect("knn mutex poisoned")
-                    .search(queries_scaled, k_eff, search_k)
-            }
-            #[cfg(feature = "opencl")]
-            Self::OpenCl(inner) => {
                 inner
                     .lock()
                     .expect("knn mutex poisoned")
@@ -791,313 +660,5 @@ impl NeighborIndexImpl {
     }
 }
 
-#[allow(dead_code)]
-pub(crate) fn check_rows(rows: &ArrayView2<f64>, expected_dim: usize) -> Result<(), IndexError> {
-    if rows.ncols() != expected_dim {
-        return Err(IndexError::InvalidShape {
-            expected: expected_dim,
-            got: rows.ncols(),
-        });
-    }
-    Ok(())
-}
-
-#[allow(dead_code)]
-pub(crate) fn flatten_f32(a: &ArrayView2<f64>) -> Vec<f32> {
-    a.iter().map(|v| *v as f32).collect()
-}
-
-pub(crate) fn pad_k(
-    dist2s: Array2<f64>,
-    idx: Array2<i64>,
-    search_k: usize,
-) -> (Array2<f64>, Array2<i64>) {
-    use ndarray::{Axis, concatenate};
-    let k_eff = dist2s.ncols();
-    if k_eff >= search_k {
-        return (dist2s, idx);
-    }
-    let n_query = dist2s.nrows();
-    if k_eff == 0 {
-        return (
-            Array2::from_elem((n_query, search_k), f64::INFINITY),
-            Array2::zeros((n_query, search_k)),
-        );
-    }
-    let pad_w = search_k - k_eff;
-    let pad_dist = Array2::from_elem((n_query, pad_w), f64::INFINITY);
-    let far = idx.slice(ndarray::s![.., k_eff - 1..k_eff]).to_owned();
-    let mut pad_idx = Array2::zeros((n_query, pad_w));
-    for j in 0..pad_w {
-        pad_idx.column_mut(j).assign(&far.column(0));
-    }
-    (
-        concatenate![Axis(1), dist2s.view(), pad_dist.view()],
-        concatenate![Axis(1), idx.view(), pad_idx.view()],
-    )
-}
-
-#[allow(dead_code)]
-pub(crate) fn unpack_search(
-    n_query: usize,
-    k: usize,
-    distances: &[f32],
-    labels: &[i64],
-) -> (Array2<f64>, Array2<i64>) {
-    let mut dist2s = Array2::zeros((n_query, k));
-    let mut indices = Array2::zeros((n_query, k));
-    for i in 0..n_query {
-        for j in 0..k {
-            let o = i * k + j;
-            dist2s[[i, j]] = f64::from(distances[o]);
-            indices[[i, j]] = labels[o];
-        }
-    }
-    (dist2s, indices)
-}
-
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use ndarray::array;
-
-    #[cfg(all(target_os = "macos", feature = "metal"))]
-    fn metal_unavailable(error: &str) -> bool {
-        error.contains("no default Metal device found")
-    }
-
-    #[test]
-    fn exact_index() {
-        let train = array![[0.0, 0.0], [1.0, 1.0]];
-        let index_impl = NeighborIndexImpl::new(2, IndexDriver::Exact, &train.view()).unwrap();
-        assert_eq!(index_impl.len(), 2);
-        index_impl.add(&array![[2.0, 2.0]].view(), 2).unwrap();
-        assert_eq!(index_impl.len(), 3);
-        let (_d, i) = index_impl.search(&array![[0.0, 0.0]].view(), 2, 2).unwrap();
-        assert_eq!(i[[0, 0]], 0);
-        index_impl.rebuild(&train.view()).unwrap();
-    }
-
-    #[test]
-    fn knn_auto() {
-        let train = array![[0.0, 0.0], [1.0, 1.0], [2.0, 2.0]];
-        #[cfg(all(target_os = "macos", feature = "metal"))]
-        {
-            let mut auto = match AutoIndex::new(2, &train.view()) {
-                Ok(auto) => auto,
-                Err(error) if metal_unavailable(&error.to_string()) => return,
-                Err(error) => panic!("{error}"),
-            };
-            let (_distances, indices) = auto.search(&array![[0.1, 0.1]].view(), 2, 2).unwrap();
-            assert_eq!(indices.row(0).to_vec(), vec![0, 1]);
-        }
-        let index_impl = NeighborIndexImpl::new(2, IndexDriver::Auto, &train.view()).unwrap();
-        assert!(index_impl.memory_bytes() > 0);
-        assert_eq!(flatten_f32(&train.view()).len(), 6);
-        let (_distances, indices) = index_impl.search(&array![[0.1, 0.1]].view(), 2, 2).unwrap();
-        assert_eq!(indices.row(0).to_vec(), vec![0, 1]);
-        index_impl.add(&array![[0.05, 0.05]].view(), 3).unwrap();
-        let (_distances, indices) = index_impl.search(&array![[0.1, 0.1]].view(), 2, 2).unwrap();
-        assert_eq!(indices[[0, 0]], 3);
-    }
-
-    #[cfg(all(target_os = "macos", feature = "metal"))]
-    #[test]
-    fn cpu_search() {
-        let train = array![[0.0], [1.0], [2.0]];
-        let mut auto = match AutoIndex::new(1, &train.view()) {
-            Ok(auto) => auto,
-            Err(error) if metal_unavailable(&error.to_string()) => return,
-            Err(error) => panic!("{error}"),
-        };
-        // A mismatched accelerator mirror forces a real dimension-check error.
-        auto.gpu = Some(match MetalIndex::new(2, &array![[0.0, 0.0]].view()) {
-            Ok(index) => index,
-            Err(error) if metal_unavailable(&error.to_string()) => return,
-            Err(error) => panic!("{error}"),
-        });
-        let query = array![[0.1]];
-        let expected = auto.cpu.search(&query.view(), 2, 2).unwrap();
-        let actual = auto.search(&query.view(), 2, 2).unwrap();
-        assert_eq!(actual, expected);
-        assert!(auto.gpu.is_none());
-        assert_eq!(auto.search(&query.view(), 2, 2).unwrap(), expected);
-    }
-
-    #[cfg(all(target_os = "macos", feature = "metal"))]
-    #[test]
-    fn cached_search() {
-        let train = array![[0.0], [1.0], [2.0]];
-        let mut auto = match AutoIndex::new(1, &train.view()) {
-            Ok(auto) => auto,
-            Err(error) if metal_unavailable(&error.to_string()) => return,
-            Err(error) => panic!("{error}"),
-        };
-        auto.gpu = Some(match MetalIndex::new(2, &array![[0.0, 0.0]].view()) {
-            Ok(index) => index,
-            Err(error) if metal_unavailable(&error.to_string()) => return,
-            Err(error) => panic!("{error}"),
-        });
-        auto.decisions.insert((auto.bucket(1), 2, 2), true);
-        let query = array![[0.1]];
-        assert_eq!(
-            auto.search(&query.view(), 2, 2).unwrap(),
-            auto.cpu.search(&query.view(), 2, 2).unwrap()
-        );
-        assert!(auto.gpu.is_none());
-        assert!(auto.decisions.is_empty());
-    }
-
-    #[cfg(all(target_os = "macos", feature = "metal"))]
-    #[test]
-    fn knn_metal() {
-        let train = array![[0.0, 0.0], [1.0, 1.0], [2.0, 2.0], [0.5, 0.5]];
-        let query = array![[0.1, 0.1], [1.8, 1.8]];
-        let exact = NeighborIndexImpl::new(2, IndexDriver::Exact, &train.view()).unwrap();
-        let metal = match NeighborIndexImpl::new(2, IndexDriver::Metal, &train.view()) {
-            Ok(index) => index,
-            Err(error) if metal_unavailable(&error.to_string()) => return,
-            Err(error) => panic!("{error}"),
-        };
-        let expected = exact.search(&query.view(), 3, 3).unwrap();
-        let actual = metal.search(&query.view(), 3, 3).unwrap();
-        assert_eq!(actual.1, expected.1);
-        for (left, right) in actual.0.iter().zip(expected.0.iter()) {
-            assert!((left - right).abs() <= 1e-5);
-        }
-    }
-
-    #[cfg(all(target_os = "macos", feature = "metal"))]
-    #[test]
-    fn knn_tails() {
-        for dimensions in [3, 5, 32, 33] {
-            let train = Array2::from_shape_fn((67, dimensions), |(row, col)| {
-                ((row * 17 + col * 11) % 101) as f64 / 101.0
-            });
-            let query = Array2::from_shape_fn((7, dimensions), |(row, col)| {
-                ((row * 13 + col * 19 + 3) % 103) as f64 / 103.0
-            });
-            let exact =
-                NeighborIndexImpl::new(dimensions, IndexDriver::Exact, &train.view()).unwrap();
-            let metal = match NeighborIndexImpl::new(dimensions, IndexDriver::Metal, &train.view())
-            {
-                Ok(index) => index,
-                Err(error) if metal_unavailable(&error.to_string()) => return,
-                Err(error) => panic!("{error}"),
-            };
-            let expected = exact.search(&query.view(), 8, 8).unwrap();
-            let actual = metal.search(&query.view(), 8, 8).unwrap();
-            assert_eq!(actual.1, expected.1);
-            for (left, right) in actual.0.iter().zip(expected.0.iter()) {
-                assert!((left - right).abs() <= 1e-4);
-            }
-        }
-    }
-
-    #[test]
-    fn knn_errors() {
-        let train = array![[0.0, 0.0], [1.0, 0.0]];
-        match NeighborIndexImpl::new(2, IndexDriver::BpAnnDisk, &train.view()) {
-            Err(e) => assert!(e.to_string().contains("disk-only")),
-            Ok(_) => panic!("expected BpAnnDisk on NeighborIndexImpl to error"),
-        }
-    }
-
-    #[cfg(any(feature = "usearch", feature = "usearch-c-api"))]
-    #[test]
-    fn knn_usearch() {
-        let train = array![[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]];
-        let index_impl = NeighborIndexImpl::new(2, IndexDriver::USearch, &train.view()).unwrap();
-        assert_eq!(index_impl.len(), 3);
-        assert!(matches!(index_impl, NeighborIndexImpl::USearch(_)));
-    }
-
-    #[cfg(not(any(feature = "usearch", feature = "usearch-c-api")))]
-    #[test]
-    fn knn_feature() {
-        let train = array![[0.0, 0.0]];
-        let error = match NeighborIndexImpl::new(2, IndexDriver::USearch, &train.view()) {
-            Ok(_) => panic!("expected USearch feature error"),
-            Err(error) => error,
-        };
-        assert!(
-            error
-                .to_string()
-                .contains("usearch or usearch-c-api feature")
-        );
-    }
-
-    #[test]
-    fn pad_unpack() {
-        let (d, i) = pad_k(array![[1.0]], array![[0i64]], 3);
-        assert_eq!(d.ncols(), 3);
-        assert_eq!(i.ncols(), 3);
-        let (d2, i2) = unpack_search(1, 2, &[0.5, 1.5], &[0, 1]);
-        assert_eq!(d2[[0, 1]], 1.5);
-        assert_eq!(i2[[0, 1]], 1);
-    }
-
-    #[cfg(any(all(target_os = "macos", feature = "metal"), feature = "opencl"))]
-    fn verify_impl(device: NeighborIndexImpl) {
-        let train = array![[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [2.0, 2.0]];
-        let query = array![[0.2, 0.1], [1.1, 0.2]];
-        let exact = NeighborIndexImpl::new(2, IndexDriver::Exact, &train.view()).unwrap();
-        let expected = exact.search(&query.view(), 3, 3).unwrap();
-        let actual = device.search(&query.view(), 3, 3).unwrap();
-        assert_eq!(actual.1, expected.1);
-        for (actual, expected) in actual.0.iter().zip(expected.0.iter()) {
-            assert!((actual - expected).abs() < 1.0e-5, "{actual} != {expected}");
-        }
-
-        let large_train = Array2::from_shape_fn((1050, 2), |(row, col)| {
-            if col == 0 {
-                row as f64 * 0.01
-            } else {
-                (row % 17) as f64 * 0.1
-            }
-        });
-        let large_query = array![[2.345, 0.7], [7.891, 1.1]];
-        let large_exact =
-            NeighborIndexImpl::new(2, IndexDriver::Exact, &large_train.view()).unwrap();
-        let large_expected = large_exact.search(&large_query.view(), 10, 10).unwrap();
-        device.rebuild(&large_train.view()).unwrap();
-        let large_actual = device.search(&large_query.view(), 10, 10).unwrap();
-        assert_eq!(large_actual.1, large_expected.1);
-        for (actual, expected) in large_actual.0.iter().zip(large_expected.0.iter()) {
-            assert!((actual - expected).abs() < 1.0e-4, "{actual} != {expected}");
-        }
-
-        device.add(&array![[0.2, 0.2]].view(), 4).unwrap();
-        assert_eq!(device.len(), 1051);
-        device.rebuild(&train.view()).unwrap();
-        assert_eq!(device.len(), 4);
-    }
-
-    #[cfg(all(target_os = "macos", feature = "metal"))]
-    #[test]
-    fn metal_index() {
-        let train = array![[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [2.0, 2.0]];
-        let device = match NeighborIndexImpl::new(2, IndexDriver::Metal, &train.view()) {
-            Ok(index) => index,
-            Err(error) => {
-                eprintln!("Metal runtime unavailable: {error}");
-                return;
-            }
-        };
-        verify_impl(device);
-    }
-
-    #[cfg(feature = "opencl")]
-    #[test]
-    fn opencl_index() {
-        let train = array![[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [2.0, 2.0]];
-        let device = match NeighborIndexImpl::new(2, IndexDriver::OpenCl, &train.view()) {
-            Ok(index) => index,
-            Err(error) => {
-                eprintln!("OpenCL runtime unavailable: {error}");
-                return;
-            }
-        };
-        verify_impl(device);
-    }
-}
+mod tests;

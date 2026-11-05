@@ -173,10 +173,7 @@ class MultiTrustRegionLoop:
             y_var.flags.writeable = False
         if y_var is None:
             return self.state.tell(x, y)
-        try:
-            return self.state.tell(x, y, y_var)
-        except TypeError:
-            return self.state.tell(x, y)
+        return self.state.tell(x, y, y_var)
 
     def restart_region(self, region: int, new_center: np.ndarray):
         return self.state.restart_region(region, new_center)

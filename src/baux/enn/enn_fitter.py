@@ -77,7 +77,7 @@ class ENNFitter:
             )
 
         rust_result = self._rust.ask(
-            model.extension_model,
+            model.rust_backend,
             num_candidates,
             num_samples,
             rust_warm_start,

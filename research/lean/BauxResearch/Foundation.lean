@@ -71,7 +71,7 @@ structure OptimizerTarget where
   deriving DecidableEq, Repr
 
 def currentTarget : OptimizerTarget where
-  parameterCount := 1_177_723_160
+  parameterCount := 265_623_320
   contextTokens := 1_048_576
   candidates := 1
   neighbors := 10
@@ -91,7 +91,7 @@ theorem Proposal.finrank (parameterCount : ℕ) :
 
 theorem Proposal.currentRank :
     Module.finrank ℝ (Parameter.Proposal currentTarget.parameterCount) =
-      1_177_723_160 := by
+      265_623_320 := by
   simpa [currentTarget] using Proposal.finrank currentTarget.parameterCount
 
 /-- Meeting the target remains a conjecture until a measured implementation is certified. -/

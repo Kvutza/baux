@@ -1,4 +1,4 @@
-//! Shared Apple GPU runtime used by BAUX Metal execution paths.
+//! Shared Apple GPU runtime used by BAUX Metal backends.
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -13,10 +13,9 @@ use metal::{
     ComputePipelineState, Device, Function, FunctionRef, Library,
 };
 
-#[path = "apple_gpu/archive.rs"]
 mod archive;
 #[allow(unused_imports)]
-pub(crate) use archive::*;
+pub use archive::*;
 
 static RUNTIME: OnceLock<Result<Arc<Runtime>, String>> = OnceLock::new();
 
@@ -35,66 +34,11 @@ pub struct DeviceInfo {
     pub target: Target,
 }
 
-#[derive(Clone, Debug)]
-pub struct MemoryInfo {
-    pub name: String,
-    pub has_unified_memory: bool,
-    pub recommended_max_working_set_size: u64,
-    pub current_allocated_size: u64,
-    pub max_buffer_length: u64,
-}
-
 pub fn device_info() -> Result<DeviceInfo, String> {
     Runtime::shared().map(|runtime| runtime.info().clone())
 }
 
-pub fn memory_info() -> Result<MemoryInfo, String> {
-    let runtime = Runtime::shared()?;
-    Ok(MemoryInfo {
-        name: runtime.device.name().to_owned(),
-        has_unified_memory: runtime.device.has_unified_memory(),
-        recommended_max_working_set_size: runtime.device.recommended_max_working_set_size(),
-        current_allocated_size: runtime.device.current_allocated_size(),
-        max_buffer_length: runtime.device.max_buffer_length(),
-    })
-}
-
-/// Upload a finite BF16 vector into shared Apple GPU memory.
-pub fn upload_bf16(values: &[u16]) -> Result<Buffer, String> {
-    if values.is_empty() || values.iter().any(|value| value & 0x7f80 == 0x7f80) {
-        return Err("Metal upload requires nonempty finite BF16 values".into());
-    }
-    let bytes = values
-        .len()
-        .checked_mul(size_of::<u16>())
-        .and_then(|bytes| u64::try_from(bytes).ok())
-        .ok_or("Metal upload size overflow")?;
-    let runtime = Runtime::shared()?;
-    if bytes > runtime.device.max_buffer_length() {
-        return Err(format!(
-            "Metal upload of {bytes} bytes exceeds maxBufferLength {}",
-            runtime.device.max_buffer_length()
-        ));
-    }
-    let recommended = runtime.device.recommended_max_working_set_size();
-    let allocated = runtime.device.current_allocated_size();
-    let budget = recommended - recommended / 10;
-    if allocated
-        .checked_add(bytes)
-        .is_none_or(|total| total > budget)
-    {
-        return Err(format!(
-            "Metal upload needs {bytes} bytes; {allocated} allocated, conservative budget {budget}"
-        ));
-    }
-    let buffer = runtime.buffer_with(values);
-    if buffer.contents().is_null() {
-        return Err("Metal could not allocate BF16 weights".into());
-    }
-    Ok(buffer)
-}
-
-pub(crate) fn thread_group(width: u64) -> metal::MTLSize {
+pub fn thread_group(width: u64) -> metal::MTLSize {
     metal::MTLSize {
         width,
         height: 1,
@@ -102,7 +46,7 @@ pub(crate) fn thread_group(width: u64) -> metal::MTLSize {
     }
 }
 
-pub(crate) fn bind_buffers(encoder: &ComputeCommandEncoderRef, buffers: &[(&BufferRef, u64)]) {
+pub fn bind_buffers(encoder: &ComputeCommandEncoderRef, buffers: &[(&BufferRef, u64)]) {
     for (slot, &(buffer, offset)) in buffers.iter().enumerate() {
         encoder.set_buffer(slot as u64, Some(buffer), offset);
     }
@@ -110,7 +54,7 @@ pub(crate) fn bind_buffers(encoder: &ComputeCommandEncoderRef, buffers: &[(&Buff
 
 /// Issue an in-pass execution and memory barrier covering all buffer resources
 /// (`[encoder memoryBarrierWithScope:MTLBarrierScopeBuffers]`).
-pub(crate) fn barrier_buffers(encoder: &ComputeCommandEncoderRef) {
+pub fn barrier_buffers(encoder: &ComputeCommandEncoderRef) {
     static BARRIER_SEL: OnceLock<Sel> = OnceLock::new();
     let sel = BARRIER_SEL.get_or_init(|| Sel::register("memoryBarrierWithScope:"));
     unsafe {
@@ -122,7 +66,7 @@ pub(crate) fn barrier_buffers(encoder: &ComputeCommandEncoderRef) {
     }
 }
 
-pub(crate) fn encode_value<T>(encoder: &ComputeCommandEncoderRef, slot: u64, value: &T) {
+pub fn encode_value<T>(encoder: &ComputeCommandEncoderRef, slot: u64, value: &T) {
     encoder.set_bytes(
         slot,
         size_of::<T>() as u64,
@@ -130,7 +74,7 @@ pub(crate) fn encode_value<T>(encoder: &ComputeCommandEncoderRef, slot: u64, val
     );
 }
 
-pub(crate) fn buffer_slice<T: Copy>(buffer: &BufferRef, len: usize) -> Result<&[T], String> {
+pub fn buffer_slice<T: Copy>(buffer: &BufferRef, len: usize) -> Result<&[T], String> {
     let elem = std::mem::size_of::<T>();
     if elem == 0 {
         return Err("zero-sized buffer element type".into());
@@ -150,7 +94,7 @@ pub(crate) fn buffer_slice<T: Copy>(buffer: &BufferRef, len: usize) -> Result<&[
 }
 
 #[allow(clippy::mut_from_ref)]
-pub(crate) fn slice_mut<T: Copy>(buffer: &BufferRef, len: usize) -> Result<&mut [T], String> {
+pub fn slice_mut<T: Copy>(buffer: &BufferRef, len: usize) -> Result<&mut [T], String> {
     let elem = std::mem::size_of::<T>();
     if elem == 0 {
         return Err("zero-sized buffer element type".into());
@@ -171,7 +115,7 @@ pub(crate) fn slice_mut<T: Copy>(buffer: &BufferRef, len: usize) -> Result<&mut 
     Ok(unsafe { std::slice::from_raw_parts_mut(ptr, len) })
 }
 
-pub(crate) fn gpu_interval(command: &CommandBufferRef) -> Option<(f64, f64)> {
+pub fn gpu_interval(command: &CommandBufferRef) -> Option<(f64, f64)> {
     if command.status() != metal::MTLCommandBufferStatus::Completed {
         return None;
     }
@@ -192,12 +136,12 @@ pub(crate) fn gpu_interval(command: &CommandBufferRef) -> Option<(f64, f64)> {
     (start.is_finite() && end.is_finite() && start > 0.0 && end >= start).then_some((start, end))
 }
 
-pub(crate) fn gpu_seconds(command: &CommandBufferRef) -> Option<f64> {
+pub fn gpu_seconds(command: &CommandBufferRef) -> Option<f64> {
     gpu_interval(command).map(|(start, end)| end - start)
 }
 
 /// Read the active power-source policy without changing system settings.
-pub(crate) fn power_mode() -> Result<bool, String> {
+pub fn power_mode() -> Result<bool, String> {
     let class = Class::get("NSProcessInfo").ok_or("NSProcessInfo unavailable")?;
     let info =
         unsafe { send_message::<Class, (), *mut Object>(class, Sel::register("processInfo"), ()) }
@@ -214,7 +158,7 @@ pub(crate) fn power_mode() -> Result<bool, String> {
 
 /// Reject performance comparisons made under the OS energy-saving policy.
 /// Read-only; normal optimization rounds do not call this benchmark guard.
-pub(crate) fn require_power() -> Result<(), String> {
+pub fn require_power() -> Result<(), String> {
     if power_mode()? {
         return Err(
             "Low Power Mode is enabled; turn it off for kernel performance comparisons".into(),
@@ -223,15 +167,15 @@ pub(crate) fn require_power() -> Result<(), String> {
     Ok(())
 }
 
-pub(crate) fn trace(stage: &str) {
+pub fn trace(stage: &str) {
     if std::env::var_os("BAUX_METAL_TRACE").is_some() {
         eprintln!("[baux-metal] {stage}");
     }
 }
 
-pub(crate) struct Runtime {
-    pub(crate) device: Device,
-    pub(crate) queue: CommandQueue,
+pub struct Runtime {
+    pub device: Device,
+    pub queue: CommandQueue,
     info: DeviceInfo,
     libraries: Mutex<HashMap<(String, bool, Option<u64>), Library>>,
     pipelines: Mutex<HashMap<(String, String), (ComputePipelineState, Function)>>,
@@ -241,7 +185,7 @@ pub(crate) struct Runtime {
 }
 
 impl Runtime {
-    pub(crate) fn shared() -> Result<Arc<Self>, String> {
+    pub fn shared() -> Result<Arc<Self>, String> {
         RUNTIME
             .get_or_init(|| Self::new().map(Arc::new))
             .as_ref()
@@ -254,10 +198,19 @@ impl Runtime {
         let device = Device::system_default().ok_or("no default Metal device found")?;
         trace("creating command queue");
         let name = device.name().to_string();
-        let info = DeviceInfo {
-            target: target_name(&name),
-            name,
+        let compact: String = name.chars().filter(|c| !c.is_whitespace()).collect();
+        let target = if compact.starts_with("AppleM1") {
+            Target::G13
+        } else if compact.starts_with("AppleM2") {
+            Target::G14
+        } else if compact.starts_with("AppleM3") {
+            Target::G15
+        } else if compact.starts_with("AppleM4") {
+            Target::G16
+        } else {
+            Target::Unknown
         };
+        let info = DeviceInfo { target, name };
         let queue = device.new_command_queue();
         trace("runtime ready");
         Ok(Self {
@@ -272,11 +225,11 @@ impl Runtime {
         })
     }
 
-    pub(crate) fn info(&self) -> &DeviceInfo {
+    pub fn info(&self) -> &DeviceInfo {
         &self.info
     }
 
-    pub(crate) fn pipeline(
+    pub fn pipeline(
         &self,
         source: &str,
         label: &str,
@@ -285,7 +238,7 @@ impl Runtime {
         self.compile(source, label, name, true, None, &[])
     }
 
-    pub(crate) fn precise(
+    pub fn precise(
         &self,
         source: &str,
         label: &str,
@@ -294,7 +247,7 @@ impl Runtime {
         self.compile(source, label, name, false, None, &[])
     }
 
-    pub(crate) fn precise_metal4(
+    pub fn metal4_precise(
         &self,
         source: &str,
         label: &str,
@@ -304,7 +257,7 @@ impl Runtime {
         self.compile(source, label, name, false, Some(4 << 16), bool_constants)
     }
 
-    pub(crate) fn pipeline_metal4(
+    pub fn metal4_pipeline(
         &self,
         source: &str,
         label: &str,
@@ -341,7 +294,7 @@ impl Runtime {
         )
     }
 
-    fn compile_at(
+    pub fn compile_at(
         &self,
         source: &str,
         label: &str,
@@ -433,9 +386,9 @@ impl Runtime {
             .map_err(|error| format!("missing Metal kernel {name}: {error}"))?;
         trace(&format!("Metal function ready for {name}"));
         trace(&format!("creating Metal pipeline for {name}"));
-        let pipeline = self
-            .device
-            .new_compute_pipeline_state_with_function(&function)
+        let cache_id = archive_key(&self.info.name, &key.0, &[&key.1]);
+        let pipeline = load_pipelines(&self.device, &cache_id, &[function.as_ref()])
+            .and_then(|mut list| list.pop().ok_or_else(|| "empty pipeline list".into()))
             .map_err(|error| format!("Metal pipeline {name}: {error}"))?;
         trace(&format!("Metal pipeline ready for {name}"));
         if let Some(directory) = evidence {
@@ -495,14 +448,14 @@ impl Runtime {
             }
         };
         let recipe = baux::artifact::gpu::Recipe {
-            device_kind: baux::artifact::gpu::DeviceKind::Metal,
+            backend: baux::artifact::gpu::Backend::Metal,
             device: self.info.name.clone(),
             target: format!("{:?}", self.info.target),
             compiler: "Metal runtime compiler (MTLBinaryArchive)".into(),
             stage: baux::artifact::gpu::Stage::Compile,
             entry: name.into(),
             input_kind: baux::artifact::gpu::Kind::MetalSource,
-            output_kind: Some(baux::artifact::gpu::Kind::DeviceImage),
+            output_kind: Some(baux::artifact::gpu::Kind::NativeImage),
             options: vec![
                 format!("fast_math_enabled={fast}"),
                 format!("language_version={version:?}"),
@@ -533,7 +486,7 @@ impl Runtime {
         Ok(())
     }
 
-    pub(crate) fn buffer<T>(&self, elements: usize) -> Buffer {
+    pub fn buffer<T>(&self, elements: usize) -> Buffer {
         self.device.new_buffer(
             (elements.max(1) * size_of::<T>()) as u64,
             metal::MTLResourceOptions::StorageModeShared
@@ -541,7 +494,7 @@ impl Runtime {
         )
     }
 
-    pub(crate) fn buffer_with<T>(&self, values: &[T]) -> Buffer {
+    pub fn buffer_with<T>(&self, values: &[T]) -> Buffer {
         if values.is_empty() {
             return self.buffer::<T>(1);
         }
@@ -553,14 +506,10 @@ impl Runtime {
         )
     }
 
-    pub(crate) fn mmap_buffer(
-        &self,
-        file: &std::fs::File,
-        offset: i64,
-        bytes: usize,
-    ) -> Option<Buffer> {
+    pub fn mmap_buffer(&self, file: &std::fs::File, offset: i64, bytes: usize) -> Option<Buffer> {
         use std::os::fd::AsRawFd;
         unsafe extern "C" {
+            static _NSConcreteGlobalBlock: *const std::ffi::c_void;
             fn mmap(
                 addr: *mut std::ffi::c_void,
                 len: usize,
@@ -569,7 +518,35 @@ impl Runtime {
                 fd: i32,
                 offset: i64,
             ) -> *mut std::ffi::c_void;
+            fn munmap(addr: *mut std::ffi::c_void, len: usize) -> i32;
         }
+        #[repr(C)]
+        struct BlockDescriptor {
+            reserved: usize,
+            size: usize,
+        }
+        #[repr(C)]
+        struct GlobalBlock {
+            isa: usize,
+            flags: i32,
+            reserved: i32,
+            invoke: unsafe extern "C" fn(*const GlobalBlock, *mut std::ffi::c_void, usize),
+            descriptor: usize,
+        }
+        unsafe extern "C" fn unmap_invoke(
+            _block: *const GlobalBlock,
+            ptr: *mut std::ffi::c_void,
+            len: usize,
+        ) {
+            unsafe {
+                let _ = munmap(ptr, len);
+            }
+        }
+        static DESCRIPTOR: BlockDescriptor = BlockDescriptor {
+            reserved: 0,
+            size: std::mem::size_of::<GlobalBlock>(),
+        };
+        static DEALLOCATOR: OnceLock<GlobalBlock> = OnceLock::new();
         let aligned = bytes.next_multiple_of(16_384);
         if aligned == 0 || offset % 16_384 != 0 {
             return None;
@@ -587,56 +564,24 @@ impl Runtime {
         if ptr.is_null() || ptr == usize::MAX as *mut std::ffi::c_void {
             return None;
         }
+        let block = DEALLOCATOR.get_or_init(|| GlobalBlock {
+            isa: std::ptr::addr_of!(_NSConcreteGlobalBlock) as usize,
+            flags: 1 << 28,
+            reserved: 0,
+            invoke: unmap_invoke,
+            descriptor: std::ptr::addr_of!(DESCRIPTOR) as usize,
+        });
         let buf = self.device.new_buffer_with_bytes_no_copy(
             ptr,
             aligned as u64,
             metal::MTLResourceOptions::StorageModeShared
                 | metal::MTLResourceOptions::HazardTrackingModeTracked,
-            None,
+            Some(unsafe { &*(block as *const GlobalBlock).cast() }),
         );
         (buf.length() == aligned as u64).then_some(buf)
     }
 
-    #[allow(dead_code)]
-    pub(crate) fn schedule<F>(
-        &self,
-        family: &str,
-        shape: &[usize],
-        candidates: usize,
-        mut evaluate: F,
-    ) -> Result<usize, String>
-    where
-        F: FnMut(usize) -> Result<Option<std::time::Duration>, String>,
-    {
-        let key = source_hash(&format!("{family}:{shape:?}"));
-        if let Some(choice) = self
-            .schedules
-            .lock()
-            .map_err(|_| "Apple GPU schedule cache poisoned")?
-            .get(&key)
-        {
-            return Ok(*choice);
-        }
-        let mut best = None;
-        for candidate in 0..candidates {
-            let Some(elapsed) = evaluate(candidate)? else {
-                continue;
-            };
-            if best.is_none_or(|(_, current)| elapsed < current) {
-                best = Some((candidate, elapsed));
-            }
-        }
-        let choice = best
-            .map(|(candidate, _)| candidate)
-            .ok_or_else(|| format!("no valid Apple GPU schedule for {family} {shape:?}"))?;
-        self.schedules
-            .lock()
-            .map_err(|_| "Apple GPU schedule cache poisoned")?
-            .insert(key, choice);
-        Ok(choice)
-    }
-
-    pub(crate) fn race<F>(
+    pub fn race<F>(
         &self,
         family: &str,
         shape: &[usize],
@@ -647,7 +592,9 @@ impl Runtime {
     where
         F: FnMut(usize) -> Result<Option<std::time::Duration>, String>,
     {
-        let key = source_hash(&format!("{family}:{shape:?}"));
+        let mut hasher = std::hash::DefaultHasher::new();
+        std::hash::Hash::hash(&format!("{family}:{shape:?}"), &mut hasher);
+        let key = std::hash::Hasher::finish(&hasher);
         if let Some(choice) = self
             .schedules
             .lock()
@@ -697,56 +644,20 @@ impl Runtime {
     }
 }
 
-fn source_hash(source: &str) -> u64 {
-    let mut hasher = std::hash::DefaultHasher::new();
-    std::hash::Hash::hash(&source, &mut hasher);
-    std::hash::Hasher::finish(&hasher)
-}
-
-fn target_name(name: &str) -> Target {
-    let compact: String = name
-        .chars()
-        .filter(|character| !character.is_whitespace())
-        .collect();
-    if compact.starts_with("AppleM1") {
-        Target::G13
-    } else if compact.starts_with("AppleM2") {
-        Target::G14
-    } else if compact.starts_with("AppleM3") {
-        Target::G15
-    } else if compact.starts_with("AppleM4") {
-        Target::G16
-    } else {
-        Target::Unknown
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    fn metal_unavailable(error: &str) -> bool {
-        error.contains("no default Metal device found")
-    }
-
-    #[test]
-    fn maps_generations() {
-        assert_eq!(target_name("Apple M1 Max"), Target::G13);
-        assert_eq!(target_name("Apple M2"), Target::G14);
-        assert_eq!(target_name("Apple M3 Pro"), Target::G15);
-        assert_eq!(target_name("Apple M4"), Target::G16);
-        assert_eq!(target_name("Future GPU"), Target::Unknown);
-    }
 
     #[test]
     fn shared_buffers() {
         let runtime = match Runtime::shared() {
             Ok(runtime) => runtime,
-            Err(error) if metal_unavailable(&error) => return,
+            Err(error) if error.contains("no default Metal device found") => return,
             Err(error) => panic!("{error}"),
         };
         let info = match device_info() {
             Ok(info) => info,
-            Err(error) if metal_unavailable(&error) => return,
+            Err(error) if error.contains("no default Metal device found") => return,
             Err(error) => panic!("{error}"),
         };
         assert_eq!(info, runtime.info().clone());
@@ -757,7 +668,6 @@ mod tests {
             first.thread_execution_width(),
             second.thread_execution_width()
         );
-        assert_eq!(source_hash(source), source_hash(source));
         let buf = runtime.buffer::<u32>(4);
         assert!(buf.length() >= 16);
         assert!(buffer_slice::<u32>(&buf, 0).unwrap().is_empty());
@@ -773,15 +683,8 @@ mod tests {
         let encoder = command.new_compute_command_encoder();
         barrier_buffers(&encoder);
         encoder.end_encoding();
-    }
 
-    #[test]
-    fn capture_inputs() {
-        let runtime = match Runtime::new() {
-            Ok(runtime) => runtime,
-            Err(error) if metal_unavailable(&error) => return,
-            Err(error) => panic!("{error}"),
-        };
+        let runtime = Runtime::new().unwrap();
         let directory = tempfile::tempdir().unwrap();
         let source = "#include <metal_stdlib>\nusing namespace metal;\nconstant bool enabled \
                       [[function_constant(0)]];\nkernel void capture_probe(device uint *x \
@@ -797,6 +700,19 @@ mod tests {
                 None,
             )
             .unwrap();
+        let warm = Runtime::new().unwrap();
+        let warm_pipe = warm
+            .compile_at(
+                source,
+                "capture",
+                "capture_probe",
+                true,
+                None,
+                &[(0, true)],
+                None,
+            )
+            .unwrap();
+        assert_eq!(warm_pipe.thread_execution_width(), 32);
         for _ in 0..2 {
             runtime
                 .compile_at(
@@ -822,13 +738,13 @@ mod tests {
         );
         assert_eq!(
             records[0].1.recipe.output_kind,
-            Some(baux::artifact::gpu::Kind::DeviceImage)
+            Some(baux::artifact::gpu::Kind::NativeImage)
         );
         let output_blob = records[0]
             .1
             .output
             .as_ref()
-            .expect("MTLBinaryArchive captures an executable Apple GPU image");
+            .expect("MTLBinaryArchive captures native Apple GPU binary");
         let output_bytes = std::fs::read(
             directory
                 .path()
@@ -905,70 +821,5 @@ mod tests {
                 .unwrap()
                 .is_empty()
         );
-    }
-
-    #[test]
-    fn zero_spill() {
-        let runtime = match Runtime::new() {
-            Ok(runtime) => runtime,
-            Err(error) if metal_unavailable(&error) => return,
-            Err(error) => panic!("{error}"),
-        };
-        let directory = tempfile::tempdir().unwrap();
-        let pisa_source = include_str!("fbt_pisa1.metal");
-        runtime
-            .compile_at(
-                pisa_source,
-                "pisa1",
-                "fbt_pisa1_select_attention_q4",
-                false,
-                None,
-                &[],
-                Some(directory.path()),
-            )
-            .unwrap();
-        let moe_source = include_str!("fbt_moe.metal");
-        for entry in [
-            "fbt_mhc_mix_rms",
-            "fbt_mhc_mean_rms",
-            "fbt_moe_residual_rms",
-            "fbt_moe_ungroup_residual_rms",
-            "fbt_moe_feedback_fuse_rms",
-        ] {
-            runtime
-                .compile_at(
-                    moe_source,
-                    "moe",
-                    entry,
-                    false,
-                    None,
-                    &[],
-                    Some(directory.path()),
-                )
-                .unwrap();
-        }
-        let records = baux::artifact::gpu::records(directory.path()).unwrap();
-        assert_eq!(records.len(), 6);
-        for (_, record) in records {
-            let blob = record.output.expect("device image output present");
-            let bytes = std::fs::read(
-                directory
-                    .path()
-                    .join("blobs")
-                    .join(format!("{}.bin", blob.sha256)),
-            )
-            .unwrap();
-            let metrics = archive_metrics(&bytes).expect("valid Apple GPU archive metrics");
-            assert!(
-                metrics.text_bytes > 0,
-                "{} has empty machine code",
-                record.recipe.entry
-            );
-            assert_eq!(
-                metrics.spill_bytes, 0,
-                "kernel {} spilled {} bytes/thread to stack",
-                record.recipe.entry, metrics.spill_bytes
-            );
-        }
     }
 }

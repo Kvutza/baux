@@ -12,7 +12,6 @@
 //! not blindly replay the tell against partially advanced state.
 
 use super::*;
-use crate::apple_gpu::gpu_interval;
 
 impl SearchState {
     #[allow(clippy::too_many_arguments)]
@@ -20,7 +19,7 @@ impl SearchState {
     /// delegate the already-decided acceptance, history retention, and
     /// radius adaptation. `adapt_region` controls controller work, not
     /// whether weights may commit.
-    pub(super) fn tell_absolute(
+    pub fn tell_absolute(
         &mut self,
         round: &Proposals,
         value: f32,
@@ -30,7 +29,6 @@ impl SearchState {
         accept: bool,
         trust_incumbent: Option<f32>,
         trust_outcome: Option<TrustRegionOutcome>,
-        reliability_evidence: Option<reliability_region::ReliabilityEvidence>,
         adapt_region: bool,
     ) -> Result<(), String> {
         self.absolute_objectives(
@@ -41,7 +39,6 @@ impl SearchState {
             accept,
             trust_incumbent,
             trust_outcome,
-            reliability_evidence,
             adapt_region,
         )
     }
@@ -53,7 +50,7 @@ impl SearchState {
     /// ENN when configured, and adapts the active controller. On success clears
     /// `pending` and queues the acceptance flag for `sync`. Later failures can
     /// follow an earlier weight commit; this method does not promise rollback.
-    pub(super) fn absolute_objectives(
+    pub fn absolute_objectives(
         &mut self,
         round: &Proposals,
         observation: crate::objective_observation::ObjectiveObservation,
@@ -62,7 +59,6 @@ impl SearchState {
         accept: bool,
         trust_incumbent: Option<f32>,
         trust_outcome: Option<TrustRegionOutcome>,
-        reliability_evidence: Option<reliability_region::ReliabilityEvidence>,
         adapt_region: bool,
     ) -> Result<(), String> {
         let mut mutated = false;
@@ -73,9 +69,6 @@ impl SearchState {
             } = observation.control();
             self.tell_profile = None;
             self.check_round(round)?;
-            if self.relative {
-                return Err("Cannot mix absolute and paired-relative observations".into());
-            }
             check_scores(&[value, incumbent_value], &[variance, incumbent_variance])?;
             self.objective_history.validate(observation)?;
             let (identity, commit) = validate_commit(self, round, accept)?;
@@ -90,11 +83,9 @@ impl SearchState {
             let command = self.runtime.queue.new_command_buffer().to_owned();
             let zero_copy = self.commit_weights(round, accept, &command)?;
             self.archive_proposal(slot, zero_copy);
-            self.archive_samples(round, target_slot);
             record_resident(self, &command, accept, slot, identity, commit.retained())?;
             self.record_axis(round, target_slot, accept);
             self.record_observation(
-                round,
                 identity,
                 target_slot,
                 (value, variance),
@@ -102,14 +93,15 @@ impl SearchState {
                 implicit_distances,
                 accept,
             )?;
-            self.best = if accept { value } else { incumbent_value };
-            self.best_variance = if accept { variance } else { incumbent_variance };
+            if accept || !self.best.is_finite() {
+                self.best = if accept { value } else { incumbent_value };
+                self.best_variance = if accept { variance } else { incumbent_variance };
+            }
             let update = self.adapt_observation(
                 observation,
                 value,
                 trust_incumbent,
                 trust_outcome,
-                reliability_evidence,
                 adapt_region,
             );
             if let Err(error) = update {
@@ -127,55 +119,20 @@ impl SearchState {
         result
     }
 
-    /// If accepted, update reference state and promote the materialized trial.
-    /// Exact-history mode copies into the stable base allocation; otherwise it
-    /// swaps base/proposal ownership after GPU completion. Returns whether that
+    /// If accepted, promote the materialized trial.
+    /// Swaps base/proposal ownership after GPU completion. Returns whether that
     /// zero-copy swap occurred, so archiving does not recycle a live incumbent.
-    /// GPU/reference failure poisons state; rejection leaves weights unchanged.
+    /// Rejection leaves weights unchanged.
     fn commit_weights(
         &mut self,
-        round: &Proposals,
+        _round: &Proposals,
         accept: bool,
-        command: &CommandBufferRef,
+        _command: &CommandBufferRef,
     ) -> Result<bool, String> {
         if accept {
-            if !self.independent_fp16 {
-                self.encode_ref(
-                    &command,
-                    Params {
-                        seed: round.seed,
-                        candidate: round.index as u32,
-                        ..Params::default()
-                    },
-                );
-            }
-            if self.exact_history {
-                let blit = command.new_blit_command_encoder();
-                blit.copy_from_buffer(&self.proposal, 0, &self.base, 0, self.row_bytes());
-                blit.end_encoding();
-            }
-            if let Err(error) = finish(&command) {
-                self.poisoned = true;
-                return Err(error);
-            }
-            if !self.exact_history {
-                std::mem::swap(&mut self.base, &mut self.proposal);
-            }
-            if let Err(error) = self.check_reference() {
-                self.poisoned = true;
-                return Err(error);
-            }
+            std::mem::swap(&mut self.base, &mut self.proposal);
         }
-        Ok(accept && !self.exact_history)
-    }
-
-    /// Copy the selected candidate's sampled parameters into its logical slot
-    /// when sampled neighbor geometry exists. Does not archive a full model or
-    /// decide acceptance; rejected observations need geometry as well.
-    fn archive_samples(&mut self, round: &Proposals, target_slot: usize) {
-        if let Some(neighbors) = &mut self.neighbors {
-            neighbors.archive(target_slot, round.index);
-        }
+        Ok(accept)
     }
 
     /// Rotate resident allocations without reusing the incumbent as scratch.
@@ -183,12 +140,6 @@ impl SearchState {
     /// trial row and recycle the displaced allocation. May allocate replacement
     /// scratch when an alias would otherwise corrupt retained/current weights.
     fn archive_proposal(&mut self, slot: usize, zero_copy: bool) {
-        if self.latent_history {
-            if zero_copy {
-                self.history_rows[0] = self.base.clone();
-            }
-            return;
-        }
         if zero_copy {
             // `base` now owns the accepted candidate. Archive that allocation
             // and recycle only the FIFO allocation being replaced as proposal
@@ -210,58 +161,47 @@ impl SearchState {
     }
 
     /// Map ask-time history identities to current logical slots.
-    /// Implicit history requires one distance for every retained observation;
-    /// missing identities are errors. An optional scalar search axis is removed
-    /// to leave tensor-only components. Explicit resident mode returns `None`.
+    /// Requires one distance for every retained observation; missing identities
+    /// are errors. An optional scalar search axis is removed to leave
+    /// tensor-only components.
     fn observation_distances(
         &self,
         round: &Proposals,
     ) -> Result<Option<Vec<(usize, f32)>>, String> {
-        let distances = if self.implicit_history {
-            if round.history_distances.len() != self.history {
-                return Err("Metal implicit history distance row has the wrong length".into());
-            }
-            Some(
-                round
-                    .history_distances
+        if round.history_distances.len() != self.history {
+            return Err("Metal implicit history distance row has the wrong length".into());
+        }
+        let distances = round
+            .history_distances
+            .iter()
+            .map(|&(previous_identity, distance)| {
+                self.identities[..self.history]
                     .iter()
-                    .map(|&(previous_identity, distance)| {
-                        self.identities[..self.history]
-                            .iter()
-                            .position(|&candidate| candidate == previous_identity)
-                            .map(|previous| {
-                                let tensor_distance = if let (Some(axis), Some(coordinate)) =
-                                    (&self.axis, round.axis_coordinate)
-                                {
-                                    (distance
-                                        - self.axis_distance(coordinate, axis.history[previous]))
-                                    .max(0.0)
-                                } else {
-                                    distance
-                                };
-                                (previous, tensor_distance)
-                            })
-                            .ok_or_else(|| {
-                                "Metal implicit history distance has an unknown identity"
-                                    .to_string()
-                            })
+                    .position(|&candidate| candidate == previous_identity)
+                    .map(|previous| {
+                        let tensor_distance = if let (Some(axis), Some(coordinate)) =
+                            (&self.axis, round.axis_coordinate)
+                        {
+                            (distance - self.axis_distance(coordinate, axis.history[previous]))
+                                .max(0.0)
+                        } else {
+                            distance
+                        };
+                        (previous, tensor_distance)
                     })
-                    .collect::<Result<Vec<_>, _>>()?,
-            )
-        } else {
-            None
-        };
-        Ok(distances)
+                    .ok_or_else(|| {
+                        "Metal implicit history distance has an unknown identity".to_string()
+                    })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(Some(distances))
     }
     /// Write the trial's reward/error, identity, objective vector, and
-    /// geometry. Implicit storage updates symmetric distance/family rows
-    /// and optional exact-replay metadata, then fits ENN after warm-up if
+    /// geometry. Updates symmetric distance rows and fits ENN after warm-up if
     /// enabled. Explicit storage advances its FIFO. Assumes slot/distance
-    /// and family-component invariants established by proposal publication
-    /// and the tell caller.
-    fn record_observation(
+    /// invariants established by proposal publication and the tell caller.
+    pub(super) fn record_observation(
         &mut self,
-        round: &Proposals,
         identity: i64,
         slot: usize,
         (value, variance): (f32, f32),
@@ -271,35 +211,6 @@ impl SearchState {
     ) -> Result<(), String> {
         if self.implicit_history {
             let next = slot;
-            if self.exact_history {
-                if round.block_scales.len() != self.blocks.len() {
-                    return Err("Exact replay proposal has the wrong block-scale count".into());
-                }
-                let step = ReplayStep {
-                    seed: round.seed,
-                    radius: round.length,
-                    accepted: u32::from(accept),
-                    candidate: round.index as u32,
-                    mode: self.perturbation.shader(),
-                };
-                // Shared Metal buffers are CPU-visible and no command is using
-                // these future-history slots while tell owns the state.
-                unsafe {
-                    self.replay_steps
-                        .contents()
-                        .cast::<ReplayStep>()
-                        .add(next)
-                        .write(step);
-                    std::ptr::copy_nonoverlapping(
-                        round.block_scales.as_ptr(),
-                        self.replay_scales
-                            .contents()
-                            .cast::<f32>()
-                            .add(next * self.blocks.len()),
-                        self.blocks.len(),
-                    );
-                }
-            }
             self.outcomes[next] = value;
             self.variances[next] = variance;
             self.identities[next] = identity;
@@ -311,17 +222,6 @@ impl SearchState {
             if self.history < MAX_HISTORY {
                 self.history += 1;
             }
-            if let Some(family) = &mut self.family {
-                let components = round
-                    .family_distances
-                    .as_ref()
-                    .ok_or("Missing family components")?;
-                for (previous, &values) in components.iter().enumerate() {
-                    family.components[next * MAX_HISTORY + previous] = values;
-                    family.components[previous * MAX_HISTORY + next] = values;
-                }
-                family.components[next * MAX_HISTORY + next] = [0.0; FAMILIES];
-            }
             self.objective_history
                 .record_slot(next, identity, observation, accept);
             if self.fit_params && self.history >= self.initial_observations {
@@ -331,8 +231,28 @@ impl SearchState {
             self.outcomes[slot] = value;
             self.variances[slot] = variance;
             self.identities[slot] = identity;
+            for &(previous, distance) in distances.as_ref().unwrap() {
+                self.pairwise_distances[slot * MAX_HISTORY + previous] = distance;
+                self.pairwise_distances[previous * MAX_HISTORY + slot] = distance;
+            }
+            self.pairwise_distances[slot * MAX_HISTORY + slot] = 0.0;
             self.objective_history.record(identity, observation, accept);
             if self.history == self.history_rows.len() {
+                let h = self.history;
+                if h > 1 {
+                    let mut rotated = vec![0.0_f32; h * h];
+                    for r in 0..h {
+                        for c in 0..h {
+                            rotated[r * h + c] = self.pairwise_distances
+                                [((r + 1) % h) * MAX_HISTORY + ((c + 1) % h)];
+                        }
+                    }
+                    for r in 0..h {
+                        for c in 0..h {
+                            self.pairwise_distances[r * MAX_HISTORY + c] = rotated[r * h + c];
+                        }
+                    }
+                }
                 self.outcomes.rotate_left(1);
                 self.variances.rotate_left(1);
                 self.identities.rotate_left(1);
@@ -343,10 +263,9 @@ impl SearchState {
         Ok(())
     }
     /// Dispatch controller work after observation/weight bookkeeping.
-    /// Priority is multi-region control, then requested reliability adaptation,
-    /// then ordinary trust-region updates. Reliability requires supplied model
-    /// evidence; a trust outcome requires its incumbent baseline. With
-    /// adaptation disabled, only the non-MORBO observation counter
+    /// Priority is multi-region (MORBO) control, then ordinary TuRBO
+    /// trust-region updates. A trust outcome requires its incumbent baseline.
+    /// With adaptation disabled, only the non-MORBO observation counter
     /// advances.
     fn adapt_observation(
         &mut self,
@@ -354,15 +273,10 @@ impl SearchState {
         value: f32,
         trust_incumbent: Option<f32>,
         trust_outcome: Option<TrustRegionOutcome>,
-        reliability_evidence: Option<reliability_region::ReliabilityEvidence>,
         adapt_region: bool,
     ) -> Result<(), String> {
         let update = if self.has_morbo() {
             self.update_morbo(observation)
-        } else if adapt_region && self.reliability.is_some() {
-            reliability_evidence
-                .ok_or_else(|| "Reliability control requires a model-aware tell".to_string())
-                .and_then(|evidence| self.update_reliability(evidence))
         } else if adapt_region {
             match (trust_incumbent, trust_outcome) {
                 (Some(incumbent), Some(outcome)) => self.update_outcome(value, incumbent, outcome),
@@ -414,36 +328,17 @@ impl SearchState {
             let command = self.runtime.queue.new_command_buffer().to_owned();
             let zero_copy = self.commit_weights(round, accept, &command)?;
             self.archive_proposal(slot, zero_copy);
-            self.archive_samples(round, target_slot);
-            self.observation = identity;
-            self.base_id = commit.retained();
-            self.record_axis(round, target_slot, accept);
-            self.outcomes[target_slot] = value;
-            self.variances[target_slot] = variance;
-            self.identities[target_slot] = identity;
-            if let Some(distances) = &implicit_distances {
-                for &(previous, distance) in distances {
-                    self.pairwise_distances[target_slot * MAX_HISTORY + previous] = distance;
-                    self.pairwise_distances[previous * MAX_HISTORY + target_slot] = distance;
-                }
-                self.pairwise_distances[target_slot * MAX_HISTORY + target_slot] = 0.0;
-            }
-            if self.history < MAX_HISTORY && target_slot == self.history {
-                self.history += 1;
-            }
-            if let Some(family) = &mut self.family {
-                let components = round
-                    .family_distances
-                    .as_ref()
-                    .ok_or("Missing family components")?;
-                for (previous, &values) in components.iter().enumerate() {
-                    family.components[target_slot * MAX_HISTORY + previous] = values;
-                    family.components[previous * MAX_HISTORY + target_slot] = values;
-                }
-                family.components[target_slot * MAX_HISTORY + target_slot] = [0.0; FAMILIES];
-            }
-            self.objective_history
-                .record_slot(target_slot, identity, observation, accept);
+            record_resident(self, &command, accept, slot, identity, commit.retained())?;
+            store_host(
+                self,
+                round,
+                target_slot,
+                identity,
+                (value, variance),
+                observation,
+                accept,
+                &implicit_distances,
+            )?;
             if accept {
                 self.best = value;
                 self.best_variance = variance;
@@ -460,6 +355,41 @@ impl SearchState {
         }
         result
     }
+
+    pub fn pairwise_distance(&self, row: usize, column: usize) -> f64 {
+        f64::from(self.total_distance(row, column))
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn store_host(
+    state: &mut SearchState,
+    round: &Proposals,
+    target_slot: usize,
+    identity: i64,
+    (value, variance): (f32, f32),
+    observation: crate::objective_observation::ObjectiveObservation,
+    accept: bool,
+    implicit_distances: &Option<Vec<(usize, f32)>>,
+) -> Result<(), String> {
+    state.store_axis(round, target_slot, accept);
+    state.outcomes[target_slot] = value;
+    state.variances[target_slot] = variance;
+    state.identities[target_slot] = identity;
+    if let Some(distances) = implicit_distances {
+        for &(previous, distance) in distances {
+            state.pairwise_distances[target_slot * MAX_HISTORY + previous] = distance;
+            state.pairwise_distances[previous * MAX_HISTORY + target_slot] = distance;
+        }
+        state.pairwise_distances[target_slot * MAX_HISTORY + target_slot] = 0.0;
+    }
+    if state.history < MAX_HISTORY && target_slot == state.history {
+        state.history += 1;
+    }
+    state
+        .objective_history
+        .record_slot(target_slot, identity, observation, accept);
+    Ok(())
 }
 
 fn validate_commit(
@@ -489,26 +419,10 @@ fn validate_commit(
     Ok((identity, commit))
 }
 
-fn choose_slot(state: &SearchState) -> Result<usize, String> {
+pub(super) fn choose_slot(state: &SearchState) -> Result<usize, String> {
     if state.implicit_history {
-        if state.exact_history {
-            baux::semantics::neighbor::retention(&state.identities[..state.history], state.base_id)
-                .map_err(str::to_owned)
-        } else {
-            let slope = state.fitted_enn.map_or(1.0, |(_, epistemic, _, y_scale)| {
-                epistemic.max(0.0).sqrt() * y_scale.max(0.0)
-            });
-            baux::semantics::neighbor::retention_cone(
-                &state.identities[..state.history],
-                state.base_id,
-                &state.outcomes[..state.history],
-                &state.variances[..state.history],
-                &state.pairwise_distances,
-                MAX_HISTORY,
-                slope,
-            )
+        baux::semantics::neighbor::retention(&state.identities[..state.history], state.base_id)
             .map_err(str::to_owned)
-        }
     } else if state.resident_history == state.history_rows.len() {
         Ok(0)
     } else {
@@ -518,36 +432,27 @@ fn choose_slot(state: &SearchState) -> Result<usize, String> {
 
 fn record_resident(
     state: &mut SearchState,
-    command: &CommandBufferRef,
-    accept: bool,
+    _command: &CommandBufferRef,
+    _accept: bool,
     slot: usize,
     identity: i64,
     retained: i64,
 ) -> Result<(), String> {
     if state.profiling {
-        let reference_ms = if accept {
-            gpu_interval(command)
-                .map(|(start, end)| ((end - start) * 1000.0) as f32)
-                .ok_or_else(|| "Metal did not expose a tell GPU interval".to_string())?
-        } else {
-            0.0
-        };
         state.tell_profile = Some(TellProfile {
-            reference_ms,
+            reference_ms: 0.0,
             history_copy_ms: 0.0,
-            total_ms: reference_ms,
+            total_ms: 0.0,
         });
     }
     state.observation = identity;
     state.base_id = retained;
-    if !state.latent_history {
-        state.resident_identities[slot] = identity;
-        if state.resident_history == state.history_rows.len() {
-            state.history_rows.rotate_left(1);
-            state.resident_identities.rotate_left(1);
-        } else {
-            state.resident_history += 1;
-        }
+    state.resident_identities[slot] = identity;
+    if state.resident_history == state.history_rows.len() {
+        state.history_rows.rotate_left(1);
+        state.resident_identities.rotate_left(1);
+    } else {
+        state.resident_history += 1;
     }
     Ok(())
 }

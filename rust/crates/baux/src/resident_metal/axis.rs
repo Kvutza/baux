@@ -1,16 +1,16 @@
 use super::*;
 
-pub(super) struct SearchAxis {
-    pub(super) lower: f32,
-    pub(super) span: f32,
-    pub(super) base: f32,
-    pub(super) history: [f32; MAX_HISTORY],
-    pub(super) weight: f32,
-    pub(super) step: f32,
+pub struct SearchAxis {
+    pub lower: f32,
+    pub span: f32,
+    pub base: f32,
+    pub history: [f32; MAX_HISTORY],
+    pub weight: f32,
+    pub step: f32,
 }
 
 impl SearchAxis {
-    pub(super) fn value(&self, coordinate: f32) -> f32 {
+    pub fn value(&self, coordinate: f32) -> f32 {
         self.lower + coordinate * self.span
     }
 }
@@ -59,7 +59,7 @@ impl SearchState {
         Ok(())
     }
 
-    pub(super) fn axis_candidate(&self, root: u64, candidate: usize) -> Option<f32> {
+    pub fn axis_candidate(&self, root: u64, candidate: usize) -> Option<f32> {
         let axis = self.axis.as_ref()?;
         let pair = candidate / 2;
         let seed = crate::hash::splitmix64(
@@ -82,20 +82,20 @@ impl SearchState {
         Some((axis.base + axis.step * trust_ratio * direction).clamp(0.0, 1.0))
     }
 
-    pub(super) fn axis_distance(&self, left: f32, right: f32) -> f32 {
+    pub fn axis_distance(&self, left: f32, right: f32) -> f32 {
         self.axis
             .as_ref()
             .map_or(0.0, |axis| (left - right).powi(2) * axis.weight)
     }
 
-    pub(super) fn total_distance(&self, row: usize, column: usize) -> f32 {
+    pub fn total_distance(&self, row: usize, column: usize) -> f32 {
         let tensor = self.pairwise_distances[row * MAX_HISTORY + column];
         self.axis.as_ref().map_or(tensor, |axis| {
             tensor + self.axis_distance(axis.history[row], axis.history[column])
         })
     }
 
-    pub(super) fn record_axis(&mut self, round: &Proposals, slot: usize, accept: bool) {
+    pub fn record_axis(&mut self, round: &Proposals, slot: usize, accept: bool) {
         let Some(axis) = &mut self.axis else {
             return;
         };
@@ -113,7 +113,18 @@ impl SearchState {
         }
     }
 
-    pub(super) fn retain_axis(&mut self) {
+    pub fn store_axis(&mut self, round: &Proposals, slot: usize, accept: bool) {
+        let Some(axis) = &mut self.axis else {
+            return;
+        };
+        let coordinate = round.axis_coordinate.unwrap();
+        axis.history[slot] = coordinate;
+        if accept {
+            axis.base = coordinate;
+        }
+    }
+
+    pub fn retain_axis(&mut self) {
         if let Some(axis) = &mut self.axis {
             axis.history.fill(0.0);
             axis.history[0] = axis.base;

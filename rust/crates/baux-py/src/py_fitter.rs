@@ -6,7 +6,47 @@ use pyo3::prelude::*;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 
-use crate::py_model::{PyENN, PyENNParams};
+use crate::py_model::PyENN;
+
+/// Wrapper for ENNParams
+#[pyclass(name = "ENNParams", from_py_object)]
+#[derive(Clone, Copy)]
+pub struct PyENNParams {
+    pub(crate) inner: baux::ENNParams,
+}
+
+#[pymethods]
+impl PyENNParams {
+    #[new]
+    #[pyo3(signature = (k_neighbors, epistemic_scale, aleatoric_scale))]
+    fn new(k_neighbors: i32, epistemic_scale: f64, aleatoric_scale: f64) -> PyResult<Self> {
+        let inner = baux::ENNParams::new(k_neighbors, epistemic_scale, aleatoric_scale)
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        Ok(Self { inner })
+    }
+
+    #[getter]
+    fn k_neighbors(&self) -> i32 {
+        self.inner.k_neighbors
+    }
+
+    #[getter]
+    fn epistemic_scale(&self) -> f64 {
+        self.inner.epistemic_scale
+    }
+
+    #[getter]
+    fn aleatoric_scale(&self) -> f64 {
+        self.inner.aleatoric_scale
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "ENNParams(k={}, epi={:.4}, ale={:.4})",
+            self.inner.k_neighbors, self.inner.epistemic_scale, self.inner.aleatoric_scale
+        )
+    }
+}
 
 #[pyclass(name = "ENNFitter")]
 pub struct PyENNFitter {

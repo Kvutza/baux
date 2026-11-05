@@ -45,7 +45,6 @@ WHEEL_INPUTS = (
     Path("LICENSE"),
     Path("NOTICE"),
     Path("README.md"),
-    Path("backends/cuda"),
     Path("build/buck2/cuda"),
     Path("build/buck2/python.bzl"),
     Path("build/targets.bzl"),
@@ -57,9 +56,9 @@ WHEEL_INPUTS = (
     Path("rust/crates/baux-py"),
     Path("rust/crates/cli"),
     Path("rust/crates/corpus"),
+    Path("rust/crates/cuda"),
     Path("rust/crates/modal-runner"),
     Path("rust/crates/properties"),
-    Path("rust/crates/ptx-synth"),
     Path("rust/crates/runner"),
     Path("rust/crates/tooling"),
     Path("rust-toolchain.toml"),
@@ -109,6 +108,10 @@ image = (
     # CUDA 13 container; using the CUDA 12 extra would test a different runtime
     # from the wheel's target environment.
     .uv_pip_install("jax[cuda13]", "torch")
+    .uv_pip_install(
+        "libcuvs-cu13",
+        extra_index_url="https://pypi.nvidia.com",
+    )
     .uv_pip_install(
         "auditwheel",
         "botorch>=0.18.1,<0.19",

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Callable
 from dataclasses import dataclass, field
+from typing import Any
 
 import numpy as np
 
@@ -60,11 +62,26 @@ class ENNSurrogate:
         return self.fit.num_candidates
 
 
-Surrogate = NoSurrogate | GaussianProcess | ENNSurrogate
+@dataclass(frozen=True)
+class ExternalSurrogate:
+    """Create independent providers implementing ``fit``, ``predict``, and ``draw``."""
+
+    factory: Callable[[], Any]
+    fit_steps: int = 50
+
+    def __post_init__(self) -> None:
+        if not callable(self.factory):
+            raise TypeError("surrogate factory must be callable")
+        if self.fit_steps <= 0:
+            raise ValueError("fit_steps must be positive")
+
+
+Surrogate = NoSurrogate | GaussianProcess | ENNSurrogate | ExternalSurrogate
 
 __all__ = [
     "DistanceMetric",
     "ENNSurrogate",
+    "ExternalSurrogate",
     "GaussianProcess",
     "INDEX_NAMES",
     "NeighborIndex",

@@ -22,17 +22,30 @@ use super::*;
 pub enum OptimizerSpec {
     #[deser(rename = "operator-bo")]
     OperatorBo {
-        candidate_generation: CandidateGenerationSpec,
+        #[deser(default)]
+        distribution: crate::ProposalKernel,
+        #[deser(default)]
+        perturbation: Option<PerturbationSpec>,
+        #[deser(default)]
         surrogate: SurrogateRecipe,
-        acceptance: AcceptanceSpec,
-        radius_control: RadiusControlSpec,
+        #[deser(default)]
+        trust_region: TrustRegionBounds,
     },
     #[deser(rename = "turbo-enn")]
     TurboEnn {
-        candidate_generation: CandidateGenerationSpec,
-        surrogate: SurrogateRecipe,
+        #[deser(default = turbo_candidates())]
+        candidates: u32,
+        #[deser(default = default_arms())]
+        arms: u32,
+        distribution: Option<crate::ProposalKernel>,
+        #[deser(default)]
+        perturbation: Option<PerturbationSpec>,
+        #[deser(flatten)]
         acquisition: AcquisitionSpec,
-        trust_region: TrustRegionSpec,
+        #[deser(default)]
+        surrogate: SurrogateRecipe,
+        #[deser(default)]
+        trust_region: TrustRegionBounds,
     },
     #[deser(rename = "muon")]
     Muon,
@@ -40,68 +53,120 @@ pub enum OptimizerSpec {
     Adamw,
 }
 
+impl OptimizerSpec {
+    pub fn candidate_generation(&self) -> Option<CandidateGenerationSpec> {
+        match self {
+            Self::OperatorBo {
+                distribution,
+                perturbation,
+                ..
+            } => Some(CandidateGenerationSpec {
+                candidates: 1,
+                arms: 1,
+                distribution: Some(*distribution),
+                perturbation: perturbation.clone(),
+            }),
+            Self::TurboEnn {
+                candidates,
+                arms,
+                distribution,
+                perturbation,
+                ..
+            } => Some(CandidateGenerationSpec {
+                candidates: *candidates,
+                arms: *arms,
+                distribution: *distribution,
+                perturbation: perturbation.clone(),
+            }),
+            Self::Muon | Self::Adamw => None,
+        }
+    }
+}
+
+const fn default_arms() -> u32 {
+    1
+}
+
+const fn turbo_candidates() -> u32 {
+    4
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[deser(deny_unknown_fields, rename_all = "kebab-case")]
 /// Pool and transformation used to construct trials around an incumbent.
 /// This does not set the number of forward evaluations or committed updates.
 pub struct CandidateGenerationSpec {
-    /// Transformation program, separate from the underlying noise distribution.
-    pub generator: crate::procedural_pool::ProposalMethod,
     /// TOTAL proposals across arms, distinct from fitting trials or objective
     /// calls.
+    #[deser(default = default_arms())]
     pub candidates: u32,
     /// Seed namespaces sharing a center, not independent trust regions.
+    #[deser(default = default_arms())]
     pub arms: u32,
     /// Underlying sampler selection; program transformations can change the
     /// distribution of the resulting parameter displacement.
-    pub perturbation: Option<ProposalKernelSpec>,
+    pub distribution: Option<crate::ProposalKernel>,
+    #[deser(default)]
+    pub perturbation: Option<PerturbationSpec>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[deser(deny_unknown_fields, rename_all = "kebab-case")]
-/// Noise sampler requested inside a proposal program, not its complete law.
-pub struct ProposalKernelSpec {
-    pub distribution: crate::ProposalKernel,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[deser(rename_all = "kebab-case")]
-pub enum SurrogateEstimator {
-    #[deser(rename = "knn")]
-    NeighborValue,
-    #[deser(rename = "enn")]
-    Enn,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[deser(deny_unknown_fields, rename_all = "kebab-case")]
-/// Estimator, geometry, uncertainty scales, and fitting policy for retained
-/// data. These settings do not by themselves define how a trial direction is
+#[deser(default, deny_unknown_fields, rename_all = "kebab-case")]
+/// Geometry, uncertainty scales, and fitting policy for retained data.
+/// These settings do not by themselves define how a trial direction is
 /// generated.
 pub struct SurrogateRecipe {
-    pub estimator: SurrogateEstimator,
-    #[deser(default = default_neighbors())]
     /// Fixed k, or the configured neighbor budget when a local rule is enabled.
     pub neighbors: i32,
-    #[deser(default)]
     /// Query-local neighbor policy, independent of hyperparameter fitting.
     pub neighbor_rule: NeighborRule,
-    #[deser(default = epistemic_default())]
     pub epistemic_scale: f64,
-    #[deser(default = aleatoric_default())]
     pub aleatoric_scale: f64,
-    #[deser(default = default_scale())]
     pub y_scale: f64,
-    #[deser(default)]
-    /// How historical parameter dissimilarities are represented/computed;
-    /// `latent` is not a reduced-dimensional parameterization of the model.
-    pub geometry: HistoryGeometry,
-    #[deser(default)]
-    pub scaling: DistanceScaling,
+    pub metric: DistanceMetric,
     pub local_neighbors: Option<usize>,
     /// Scale fitting rule. This is independent of query-local neighbor choice.
-    #[deser(flatten)]
     pub fit: SurrogateFit,
+    /// Hyperparameter trials in the fitter, not candidate parameter vectors.
+    pub fit_candidates: Option<usize>,
+    /// Fitter's leave-one-out scoring budget, not fresh model evaluations.
+    pub fit_samples: Option<usize>,
+}
+
+impl Default for SurrogateRecipe {
+    fn default() -> Self {
+        Self {
+            neighbors: default_neighbors(),
+            neighbor_rule: NeighborRule::default(),
+            epistemic_scale: epistemic_default(),
+            aleatoric_scale: aleatoric_default(),
+            y_scale: default_scale(),
+            metric: DistanceMetric::default(),
+            local_neighbors: None,
+            fit: SurrogateFit::default(),
+            fit_candidates: None,
+            fit_samples: None,
+        }
+    }
+}
+
+impl SurrogateRecipe {
+    pub fn fit_budget(&self) -> Result<(usize, usize), String> {
+        match (self.fit, self.fit_candidates, self.fit_samples) {
+            (SurrogateFit::Fixed, None, None) => Ok((0, 0)),
+            (SurrogateFit::Fixed, _, _) => {
+                Err("fit='fixed' cannot specify fit-candidates or fit-samples".into())
+            }
+            (SurrogateFit::LeaveOneOut, Some(candidates), Some(samples))
+                if candidates > 0 && samples > 0 =>
+            {
+                Ok((candidates, samples))
+            }
+            (SurrogateFit::LeaveOneOut, _, _) => {
+                Err("fit='leave-one-out' requires positive fit-candidates and fit-samples".into())
+            }
+        }
+    }
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -116,12 +181,12 @@ pub enum NeighborRule {
 
 /// Keep schema defaults aligned with the resident ask's initial neighbor
 /// budget.
-pub(super) fn default_neighbors() -> i32 {
+pub fn default_neighbors() -> i32 {
     crate::trials::RoundConfig::default().surrogate.neighbors as i32
 }
 
 /// Initial epistemic scale from the same ask defaults used by the runtime.
-pub(super) fn epistemic_default() -> f64 {
+pub fn epistemic_default() -> f64 {
     f64::from(
         crate::trials::RoundConfig::default()
             .surrogate
@@ -130,7 +195,7 @@ pub(super) fn epistemic_default() -> f64 {
 }
 
 /// Initial aleatoric scale from the resident ask, before optional fitting.
-pub(super) fn aleatoric_default() -> f64 {
+pub fn aleatoric_default() -> f64 {
     f64::from(
         crate::trials::RoundConfig::default()
             .surrogate
@@ -139,33 +204,23 @@ pub(super) fn aleatoric_default() -> f64 {
 }
 
 /// Initial output scale from the resident ask, before optional fitting.
-pub(super) fn default_scale() -> f64 {
+pub fn default_scale() -> f64 {
     f64::from(crate::trials::RoundConfig::default().surrogate.output_scale)
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[deser(
-    tag = "fit",
-    rename_all = "kebab-case",
-    rename_all_fields = "kebab-case",
-    deny_unknown_fields
-)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[deser(rename_all = "kebab-case")]
 pub enum SurrogateFit {
     /// Keep supplied hyperparameters; neighbor adaptation remains independent.
+    #[default]
     Fixed,
     #[deser(rename = "leave-one-out")]
-    LeaveOneOut {
-        /// Hyperparameter trials in the fitter, not candidate parameter
-        /// vectors.
-        fit_candidates: usize,
-        /// Fitter's leave-one-out scoring budget, not fresh model evaluations.
-        fit_samples: usize,
-    },
+    LeaveOneOut,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[deser(
-    tag = "function",
+    tag = "acquisition",
     rename_all = "kebab-case",
     rename_all_fields = "kebab-case",
     deny_unknown_fields
@@ -183,15 +238,9 @@ pub enum AcquisitionSpec {
     Pareto {
         scales: Vec<f32>,
     },
-    AugmentedChebyshev {
-        scales: Vec<f32>,
-        preferences: Vec<f32>,
-        alpha: f32,
-        seed_domain: String,
-    },
 }
 
-#[path = "bounds.rs"]
+#[path = "optimizer/bounds.rs"]
 mod bounds;
 pub use bounds::*;
 
@@ -202,4 +251,129 @@ fn default_beta() -> f64 {
         unreachable!()
     };
     beta
+}
+
+impl crate::optimizer_config::OptimizerConfig {
+    /// Compile an ask/tell [`OptimizerConfig`] directly from a v4
+    /// [`OptimizerSpec`].
+    pub fn from_spec(spec: &OptimizerSpec) -> Result<Self, crate::error::ENNError> {
+        use crate::error::ENNError;
+        use crate::optimizer_config::{AcquisitionConfig, CandidateConfig, SurrogateConfig};
+        use crate::trust_region::TrustRegionConfig;
+        match spec {
+            OptimizerSpec::Muon | OptimizerSpec::Adamw => Err(ENNError::InvalidParameter(
+                "Muon and AdamW are matrix pretraining optimizers, not ask/tell BO recipes"
+                    .to_string(),
+            )),
+            OptimizerSpec::OperatorBo {
+                surrogate,
+                trust_region,
+                ..
+            } => {
+                let candidate_generation = spec.candidate_generation().unwrap();
+                let candidates = CandidateConfig::from_spec(&candidate_generation)?;
+                let surrogate_cfg = SurrogateConfig::from_recipe(surrogate)?;
+                let trust_region = TrustRegionConfig::from_spec(trust_region)?;
+                Ok(Self {
+                    surrogate: surrogate_cfg,
+                    trust_region,
+                    candidates,
+                    acquisition: AcquisitionConfig::UCB { beta: 1.0 },
+                    noise_aware: false,
+                    failure_tolerance_dim: None,
+                })
+            }
+            OptimizerSpec::TurboEnn {
+                surrogate,
+                acquisition,
+                trust_region,
+                ..
+            } => {
+                let candidate_generation = spec.candidate_generation().unwrap();
+                let candidates = CandidateConfig::from_spec(&candidate_generation)?;
+                let surrogate_cfg = SurrogateConfig::from_recipe(surrogate)?;
+                let acq_cfg = AcquisitionConfig::from_spec(acquisition);
+                let tr_cfg = TrustRegionConfig::from_spec(trust_region)?;
+                Ok(Self {
+                    surrogate: surrogate_cfg,
+                    trust_region: tr_cfg,
+                    candidates,
+                    acquisition: acq_cfg,
+                    noise_aware: false,
+                    failure_tolerance_dim: None,
+                })
+            }
+        }
+    }
+}
+
+impl crate::optimizer_config::SurrogateConfig {
+    pub fn from_recipe(recipe: &SurrogateRecipe) -> Result<Self, crate::error::ENNError> {
+        use crate::error::ENNError;
+        use crate::surrogate::ENNSurrogateConfig;
+        if recipe.neighbors < 1 {
+            return Err(ENNError::InvalidParameter(format!(
+                "k (number of neighbors) must be > 0, got {}",
+                recipe.neighbors
+            )));
+        }
+        let (num_candidates, num_samples) =
+            recipe.fit_budget().map_err(ENNError::InvalidParameter)?;
+        Ok(Self::ENN(ENNSurrogateConfig {
+            k: recipe.neighbors,
+            num_candidates,
+            num_samples,
+            ..Default::default()
+        }))
+    }
+}
+
+impl crate::optimizer_config::CandidateConfig {
+    pub fn from_spec(spec: &CandidateGenerationSpec) -> Result<Self, crate::error::ENNError> {
+        use crate::error::ENNError;
+        if spec.arms == 0 || spec.candidates == 0 || !spec.candidates.is_multiple_of(spec.arms) {
+            return Err(ENNError::InvalidParameter(
+                "candidates must be positive and divisible by arms".to_string(),
+            ));
+        }
+        let pert = spec.perturbation.clone().unwrap_or_default();
+        pert.validate().map_err(ENNError::InvalidParameter)?;
+        let per_arm = (spec.candidates / spec.arms) as usize;
+        let total = spec.candidates as usize;
+        Ok(Self {
+            num_candidates_factor: 1.0,
+            min_candidates: total,
+            max_candidates: Some(total),
+            num_candidates_per_arm: Some(per_arm),
+            num_pert: pert.num_pert,
+            candidate_rv: pert.sampler,
+            raasp_fast: pert.raasp_fast,
+            coord_system: pert.coord_system,
+            tied_dims: Vec::new(),
+        })
+    }
+}
+
+impl crate::optimizer_config::AcquisitionConfig {
+    pub fn from_spec(spec: &AcquisitionSpec) -> Self {
+        match spec {
+            AcquisitionSpec::Ucb { beta } => Self::UCB { beta: *beta },
+            AcquisitionSpec::Thompson => Self::Thompson,
+            AcquisitionSpec::Random => Self::Random,
+            AcquisitionSpec::Pareto { .. } => Self::Pareto,
+        }
+    }
+}
+
+impl crate::trust_region::TrustRegionConfig {
+    pub fn from_spec(bounds: &TrustRegionBounds) -> Result<Self, crate::error::ENNError> {
+        bounds
+            .validate()
+            .map_err(crate::error::ENNError::InvalidParameter)?;
+        Ok(Self::Turbo(crate::trust_region::TRLengthConfig {
+            length_init: bounds.initial,
+            length_min: bounds.min,
+            length_max: bounds.max,
+        }))
+    }
 }

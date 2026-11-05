@@ -15,38 +15,18 @@ impl ExperimentSpec {
             experiment: config.experiment.unwrap(),
             model: config.model,
             output: config.output.clone(),
-            execution: ExecutionSpec {
-                rounds: config.rounds(),
-                repetitions: config.reps(),
-                round_target_ms: config.target_ms(),
-            },
-            evaluation: EvaluationSpec {
-                interval: config.validation_interval,
-            },
-            data: DataSpec {
-                recipe: config.data_recipe.clone(),
-                train: config.dataset.clone(),
-                validation: config.validation_dataset.clone(),
-            },
+            recipe: config.data_recipe.clone(),
+            train: config.dataset.clone(),
+            validation: config.validation_dataset.clone(),
+            objective: (matrix || fixed).then(|| config.objective_function()),
+            window_tokens: config.window_tokens,
+            rounds: config.rounds(),
+            repetitions: config.reps(),
+            round_target_ms: config.target_ms(),
+            validation_interval: config.validation_interval,
+            trace: config.trace(),
+            stage_samples: config.scorer_stage_samples,
             optimizer: OptimizerSpec::from_config(config)?,
-            objective: ObjectiveSpec {
-                function: (matrix || fixed).then(|| config.objective_function()),
-                sampling: if matrix {
-                    Some(ObjectiveSampling::Natural)
-                } else if fixed {
-                    Some(ObjectiveSampling::Natural)
-                } else {
-                    None
-                },
-                window_tokens: config.window_tokens,
-                reference: config.objective_reference,
-            },
-            diagnostics: DiagnosticSpec {
-                trace: config.trace(),
-                stage_samples: config.scorer_stage_samples,
-                pool_rank: config.pool_rank_audit,
-                kernels: config.kernel_trial.clone(),
-            },
             generation: (!matrix).then(|| config.generation.clone()).flatten(),
         })
     }
@@ -57,22 +37,19 @@ impl ExperimentSpec {
         let mut config = RunConfig {
             experiment: Some(self.experiment),
             model: self.model,
-            data_recipe: self.data.recipe.clone(),
+            data_recipe: self.recipe.clone(),
             output: self.output.clone(),
             optimizer: Some(optimizer),
-            rounds: Some(self.execution.rounds),
-            reps: Some(self.execution.repetitions),
-            target_round_ms: Some(self.execution.round_target_ms),
-            validation_interval: self.evaluation.interval,
-            dataset: self.data.train.clone(),
-            validation_dataset: self.data.validation.clone(),
-            window_tokens: self.objective.window_tokens,
-            objective_reference: self.objective.reference,
-            objective_function: self.objective.function,
-            trace: self.diagnostics.trace.then_some(true),
-            scorer_stage_samples: self.diagnostics.stage_samples,
-            pool_rank_audit: self.diagnostics.pool_rank,
-            kernel_trial: self.diagnostics.kernels.clone(),
+            rounds: Some(self.rounds),
+            reps: Some(self.repetitions),
+            target_round_ms: Some(self.round_target_ms),
+            validation_interval: self.validation_interval,
+            dataset: self.train.clone(),
+            validation_dataset: self.validation.clone(),
+            window_tokens: self.window_tokens,
+            objective_function: self.objective,
+            trace: self.trace.then_some(true),
+            scorer_stage_samples: self.stage_samples,
             generation,
             ..Default::default()
         };
@@ -90,46 +67,45 @@ impl ExperimentSpec {
             TrainingOptimizer::MuonV1 | TrainingOptimizer::AdamwV1
         );
         if self.experiment != ExperimentKind::Pretrain {
-            if self.objective.function.is_some()
-                || self.objective.sampling.is_some()
-                || self.objective.window_tokens.is_some()
-            {
+            if self.objective.is_some() || self.window_tokens.is_some() {
                 return Err("pretraining objective fields require experiment='pretrain'".into());
             }
             return Ok(self.generation.clone());
         }
         if matrix {
+            if self.window_tokens.is_some() {
+                if self.generation.is_some()
+                    || self.objective != Some(ObjectiveFunction::CrossEntropy)
+                {
+                    return Err("fixed-corpus matrix training requires cross-entropy without generation fields".into());
+                }
+                return Ok(None);
+            }
             if self.generation.is_some()
-                || self.objective.function != Some(ObjectiveFunction::CrossEntropy)
-                || self.objective.sampling != Some(ObjectiveSampling::Natural)
-                || self.objective.window_tokens.is_some()
-                || self.objective.reference.is_some()
+                || self.objective != Some(ObjectiveFunction::CrossEntropy)
+                || self.window_tokens.is_some()
             {
-                return Err("Muon and AdamW pretraining require objective \
-                            function='cross-entropy' and sampling='natural', with no generation \
-                            or window fields"
-                    .into());
+                return Err(
+                    "Muon and AdamW pretraining require objective='cross-entropy', \
+                     with no generation fields"
+                        .into(),
+                );
             }
             return matrix_generation(self.model).map(Some);
         }
         if self.generation.is_none()
             && (!matches!(
-                self.objective.function,
+                self.objective,
                 Some(ObjectiveFunction::CrossEntropy | ObjectiveFunction::BoundedLogLikelihood)
-            ) || self.objective.sampling != Some(ObjectiveSampling::Natural)
-                || self.objective.window_tokens.is_none())
+            ) || self.window_tokens.is_none())
         {
             return Err(
-                "Bayesian pretraining requires objective function='cross-entropy' or \
-                 'bounded-log-likelihood', sampling='natural', and window-tokens"
+                "Bayesian pretraining requires objective='cross-entropy' or \
+                 'bounded-log-likelihood' and window-tokens"
                     .into(),
             );
         }
-        if self.generation.is_some()
-            && (self.objective.function.is_some()
-                || self.objective.sampling.is_some()
-                || self.objective.window_tokens.is_some())
-        {
+        if self.generation.is_some() && (self.objective.is_some() || self.window_tokens.is_some()) {
             return Err(
                 "choose either a generated objective or a corpus cross-entropy objective".into(),
             );
@@ -188,40 +164,26 @@ impl OptimizerSpec {
         }
         let candidate_generation = CandidateGenerationSpec::from_config(config)?;
         let surrogate = SurrogateRecipe::from_config(config)?;
+        let trust_region = TrustRegionBounds::from_config(config);
         if config.optimizer() == TrainingOptimizer::OperatorBo {
+            if candidate_generation.candidates != 1 || candidate_generation.arms != 1 {
+                return Err("operator-bo requires 1 candidate and 1 arm".into());
+            }
             return Ok(Self::OperatorBo {
-                candidate_generation,
-                surrogate: SurrogateRecipe {
-                    estimator: SurrogateEstimator::NeighborValue,
-                    ..surrogate
-                },
-                acceptance: AcceptanceSpec {
-                    criterion: AcceptanceCriterion::PositiveImprovement,
-                },
-                radius_control: RadiusControlSpec::from_config(config),
+                distribution: candidate_generation.distribution.unwrap_or_default(),
+                perturbation: candidate_generation.perturbation,
+                surrogate,
+                trust_region,
             });
         }
         let acquisition = AcquisitionSpec::from_config(config);
-        let bounds = TrustRegionBounds::from_config(config);
-        let trust_region = if config
-            .objective_acquisition
-            .as_ref()
-            .is_some_and(|objective| objective.mode == ResidentObjectiveMode::Morbo)
-        {
-            let objective = config.objective_acquisition.as_ref().unwrap();
-            TrustRegionSpec::Morbo {
-                bounds,
-                regions: objective.regions.unwrap(),
-                rescalarize: objective.rescalarize.unwrap(),
-                clip: objective.clip.unwrap(),
-            }
-        } else {
-            TrustRegionSpec::Turbo { bounds }
-        };
         Ok(Self::TurboEnn {
-            candidate_generation,
-            surrogate,
+            candidates: candidate_generation.candidates,
+            arms: candidate_generation.arms,
+            distribution: candidate_generation.distribution,
+            perturbation: candidate_generation.perturbation,
             acquisition,
+            surrogate,
             trust_region,
         })
     }
@@ -236,106 +198,95 @@ impl OptimizerSpec {
     }
 
     fn apply(&self, config: &mut RunConfig) -> Result<(), String> {
-        let (candidate, surrogate, acquisition) = match self {
-            Self::Muon | Self::Adamw => return Ok(()),
+        match self {
+            Self::Muon | Self::Adamw => Ok(()),
             Self::OperatorBo {
-                candidate_generation,
+                distribution,
+                perturbation,
                 surrogate,
-                acceptance,
-                radius_control,
-            } => {
-                if candidate_generation.candidates != 1
-                    || candidate_generation.arms != 1
-                    || candidate_generation.perturbation.is_none()
-                    || surrogate.estimator != SurrogateEstimator::NeighborValue
-                    || acceptance.criterion != AcceptanceCriterion::PositiveImprovement
-                {
-                    return Err("operator-bo requires 1 candidate, 1 arm, perturbation, \
-                                estimator='knn', and positive-improvement acceptance"
-                        .into());
-                }
-                radius_control.apply(config)?;
-                (candidate_generation, surrogate, None)
-            }
-            Self::TurboEnn {
-                candidate_generation,
-                surrogate,
-                acquisition,
                 trust_region,
             } => {
-                if surrogate.estimator != SurrogateEstimator::Enn {
-                    return Err("turbo-enn requires surrogate estimator='enn'".into());
-                }
-                apply_bounds(config, trust_region.bounds())?;
-                match trust_region {
-                    TrustRegionSpec::Turbo { .. } => {
-                        if matches!(acquisition, AcquisitionSpec::AugmentedChebyshev { .. }) {
-                            return Err("augmented-chebyshev acquisition requires trust-region \
-                                        policy='morbo'"
-                                .into());
-                        }
-                        config.trust_region_kind = Some(TrustRegionKind::Turbo);
-                    }
-                    TrustRegionSpec::Morbo {
-                        regions,
-                        rescalarize,
-                        clip,
-                        ..
-                    } => {
-                        if !matches!(acquisition, AcquisitionSpec::AugmentedChebyshev { .. }) {
-                            return Err("trust-region policy='morbo' requires \
-                                        augmented-chebyshev acquisition"
-                                .into());
-                        }
-                        config.trust_region_kind = Some(TrustRegionKind::Turbo);
-                        acquisition.apply(config);
-                        let objective = config.objective_acquisition.as_mut().unwrap();
-                        objective.regions = Some(*regions);
-                        objective.rescalarize = Some(*rescalarize);
-                        objective.clip = Some(*clip);
-                    }
-                }
-                (candidate_generation, surrogate, Some(acquisition))
+                let candidate_generation = CandidateGenerationSpec {
+                    candidates: 1,
+                    arms: 1,
+                    distribution: Some(*distribution),
+                    perturbation: perturbation.clone(),
+                };
+                apply_bounds(config, trust_region)?;
+                config.trust_region_kind = Some(TrustRegionKind::Turbo);
+                candidate_generation.apply(config)?;
+                surrogate.apply(config)?;
+                Ok(())
             }
-        };
-        candidate.apply(config)?;
-        surrogate.apply(config);
-        if let Some(acquisition) = acquisition {
-            acquisition.apply(config);
+            Self::TurboEnn {
+                candidates,
+                arms,
+                distribution,
+                perturbation,
+                acquisition,
+                surrogate,
+                trust_region,
+            } => {
+                let candidate_generation = CandidateGenerationSpec {
+                    candidates: *candidates,
+                    arms: *arms,
+                    distribution: *distribution,
+                    perturbation: perturbation.clone(),
+                };
+                apply_bounds(config, trust_region)?;
+                config.trust_region_kind = Some(TrustRegionKind::Turbo);
+                candidate_generation.apply(config)?;
+                surrogate.apply(config)?;
+                acquisition.apply(config);
+                Ok(())
+            }
         }
-        Ok(())
     }
 }
 
 impl CandidateGenerationSpec {
     fn from_config(config: &RunConfig) -> Result<Self, String> {
         let pool = config.resident_pool()?;
+        let perturbation = if config.candidate_rv.is_some()
+            || config.num_pert.is_some()
+            || config.raasp_fast.is_some()
+            || config.coord_system.is_some()
+        {
+            let pert = PerturbationSpec {
+                sampler: config.candidate_rv.unwrap_or(CandidateSampler::RAASP),
+                num_pert: config.num_pert.unwrap_or(20),
+                raasp_fast: config.raasp_fast.unwrap_or(false),
+                coord_system: config.coord_system.unwrap_or_default(),
+            };
+            pert.validate()?;
+            Some(pert)
+        } else {
+            None
+        };
         Ok(Self {
-            generator: config.proposal_method.unwrap_or_default(),
             candidates: pool.count(),
             arms: pool.arms(),
-            perturbation: config
-                .perturbation
-                .map(|distribution| ProposalKernelSpec { distribution }),
+            distribution: config.perturbation,
+            perturbation,
         })
     }
 
     fn apply(&self, config: &mut RunConfig) -> Result<(), String> {
         if self.arms == 0 || self.candidates == 0 || !self.candidates.is_multiple_of(self.arms) {
-            return Err(
-                "optimizer.candidate-generation.candidates must be positive and divisible by arms"
-                    .into(),
-            );
+            return Err("optimizer.candidates must be positive and divisible by arms".into());
         }
         config.proposal_pool = Some(crate::procedural_pool::ProceduralPoolConfig {
             arms: self.arms,
             candidates_per_arm: self.candidates / self.arms,
         });
-        config.proposal_method = Some(self.generator);
-        config.perturbation = self
-            .perturbation
-            .as_ref()
-            .map(|perturbation| perturbation.distribution);
+        config.perturbation = self.distribution;
+        if let Some(pert) = &self.perturbation {
+            pert.validate()?;
+            config.candidate_rv = Some(pert.sampler);
+            config.num_pert = Some(pert.num_pert);
+            config.raasp_fast = Some(pert.raasp_fast);
+            config.coord_system = Some(pert.coord_system);
+        }
         Ok(())
     }
 }
@@ -343,9 +294,7 @@ impl CandidateGenerationSpec {
 impl SurrogateRecipe {
     fn from_config(config: &RunConfig) -> Result<Self, String> {
         let resident = config.resident_enn(config.acquisition_seed())?;
-        let estimator = SurrogateEstimator::Enn;
         Ok(Self {
-            estimator,
             neighbors: config.k_neighbors.unwrap_or_else(default_neighbors),
             neighbor_rule: if resident.adapt_neighbors {
                 NeighborRule::RiskPrefix
@@ -355,45 +304,39 @@ impl SurrogateRecipe {
             epistemic_scale: config.epistemic_scale.unwrap_or_else(epistemic_default),
             aleatoric_scale: config.aleatoric_scale.unwrap_or_else(aleatoric_default),
             y_scale: config.y_scale.unwrap_or_else(default_scale),
-            geometry: resident.history_geometry,
-            scaling: resident.distance_scaling,
-            local_neighbors: (resident.distance_scaling != DistanceScaling::Global)
+            metric: resident.distance_metric,
+            local_neighbors: (resident.distance_metric != DistanceMetric::Euclidean)
                 .then_some(resident.local_scale_neighbors),
             fit: if resident.fit_params {
-                SurrogateFit::LeaveOneOut {
-                    fit_candidates: resident.num_candidates,
-                    fit_samples: resident.num_samples,
-                }
+                SurrogateFit::LeaveOneOut
             } else {
                 SurrogateFit::Fixed
             },
+            fit_candidates: resident.fit_params.then_some(resident.num_candidates),
+            fit_samples: resident.fit_params.then_some(resident.num_samples),
         })
     }
 
-    fn apply(&self, config: &mut RunConfig) {
+    fn apply(&self, config: &mut RunConfig) -> Result<(), String> {
+        let (fit_candidates, fit_samples) = self.fit_budget()?;
         config.k_neighbors = Some(self.neighbors);
         config.local_scale_neighbors = self.local_neighbors;
         config.epistemic_scale = Some(self.epistemic_scale);
         config.aleatoric_scale = Some(self.aleatoric_scale);
         config.y_scale = Some(self.y_scale);
         config.adapt_neighbors = Some(self.neighbor_rule == NeighborRule::RiskPrefix);
-        config.history_geometry =
-            (self.geometry != HistoryGeometry::default()).then_some(self.geometry);
-        config.distance_scaling =
-            (self.scaling != DistanceScaling::default()).then_some(self.scaling);
-        match &self.fit {
+        config.distance_metric = (self.metric != DistanceMetric::default()).then_some(self.metric);
+        match self.fit {
             SurrogateFit::Fixed => {
                 config.fit_params = Some(false);
             }
-            SurrogateFit::LeaveOneOut {
-                fit_candidates,
-                fit_samples,
-            } => {
+            SurrogateFit::LeaveOneOut => {
                 config.fit_params = Some(true);
-                config.num_candidates = Some(*fit_candidates);
-                config.num_samples = Some(*fit_samples);
+                config.num_candidates = Some(fit_candidates);
+                config.num_samples = Some(fit_samples);
             }
         }
+        Ok(())
     }
 }
 
@@ -403,14 +346,8 @@ impl AcquisitionSpec {
             return Self::Random;
         }
         match config.objective_acquisition.as_ref() {
-            Some(vector) if vector.mode == ResidentObjectiveMode::Pareto => Self::Pareto {
+            Some(vector) => Self::Pareto {
                 scales: vector.scales.clone(),
-            },
-            Some(vector) => Self::AugmentedChebyshev {
-                scales: vector.scales.clone(),
-                preferences: vector.preferences.clone().unwrap(),
-                alpha: vector.alpha.unwrap(),
-                seed_domain: vector.seed_domain.clone().unwrap(),
             },
             None => match config.acquisition.unwrap_or_default() {
                 AcquisitionConfig::UCB { beta } => Self::Ucb { beta },
@@ -427,8 +364,7 @@ impl AcquisitionSpec {
         config.acquisition = Some(match self {
             Self::Ucb { beta } => AcquisitionConfig::UCB { beta: *beta },
             Self::Thompson => AcquisitionConfig::Thompson,
-            Self::Random => AcquisitionConfig::default(),
-            Self::Pareto { .. } | Self::AugmentedChebyshev { .. } => AcquisitionConfig::default(),
+            Self::Random | Self::Pareto { .. } => AcquisitionConfig::default(),
         });
         config.objective_acquisition = match self {
             Self::Pareto { scales } => Some(ResidentObjectiveConfig {
@@ -438,21 +374,6 @@ impl AcquisitionSpec {
                 regions: None,
                 alpha: None,
                 seed_domain: None,
-                rescalarize: None,
-                clip: None,
-            }),
-            Self::AugmentedChebyshev {
-                scales,
-                preferences,
-                alpha,
-                seed_domain,
-            } => Some(ResidentObjectiveConfig {
-                mode: ResidentObjectiveMode::Morbo,
-                scales: scales.clone(),
-                preferences: Some(preferences.clone()),
-                regions: None,
-                alpha: Some(*alpha),
-                seed_domain: Some(seed_domain.clone()),
                 rescalarize: None,
                 clip: None,
             }),
@@ -470,20 +391,6 @@ impl TrustRegionBounds {
             max: length.length_max,
             shape: config.trust_region_shape,
         }
-    }
-}
-
-impl RadiusControlSpec {
-    fn from_config(config: &RunConfig) -> Self {
-        let bounds = TrustRegionBounds::from_config(config);
-        Self::Turbo { bounds }
-    }
-
-    fn apply(&self, config: &mut RunConfig) -> Result<(), String> {
-        apply_bounds(config, self.bounds())?;
-        let Self::Turbo { .. } = self;
-        config.trust_region_kind = Some(TrustRegionKind::Turbo);
-        Ok(())
     }
 }
 

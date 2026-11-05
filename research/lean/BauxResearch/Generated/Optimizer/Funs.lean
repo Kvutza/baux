@@ -237,7 +237,7 @@ def float.double_lt (x : Std.U64) (y : Std.U64) : Result Bool := do
         ok (i < i1)
 
 /-- [baux_semantics::float::to_double]:
-    Source: 'src/float.rs', lines 238:0-282:1
+    Source: 'src/float.rs', lines 238:0-283:1
     Visibility: public -/
 def float.to_double (bits : Std.U32) : Result Std.U64 := do
   let i ← lift (bits &&& float.SIGN_SINGLE)
@@ -321,7 +321,7 @@ def float.to_double (bits : Std.U32) : Result Std.U64 := do
       ok (i6 ||| i7)
 
 /-- [baux_semantics::gaussian::mix32]:
-    Source: 'src/gaussian.rs', lines 7:0-13:1
+    Source: 'src/gaussian.rs', lines 8:0-14:1
     Visibility: public -/
 def gaussian.mix32 (value : Std.U32) : Result Std.U32 := do
   let i ← value >>> 16#i32
@@ -334,7 +334,7 @@ def gaussian.mix32 (value : Std.U32) : Result Std.U32 := do
   ok (value4 ^^^ i2)
 
 /-- [baux_semantics::gaussian::bits]:
-    Source: 'src/gaussian.rs', lines 16:0-24:1
+    Source: 'src/gaussian.rs', lines 17:0-25:1
     Visibility: public -/
 def gaussian.bits
   (seed : Std.U64) (key : Std.U64) (element : Std.U64) (attempt : Std.U32)
@@ -367,7 +367,7 @@ def gaussian.bits
   gaussian.mix32 i20
 
 /-- [baux_semantics::gaussian::normal_bounds]:
-    Source: 'src/gaussian.rs', lines 28:0-30:1
+    Source: 'src/gaussian.rs', lines 30:0-32:1
     Visibility: public -/
 def gaussian.normal_bounds
   (t0 : Std.U32) (t192 : Std.U32) (t129 : Std.U32) (t221 : Std.U32) :
@@ -383,7 +383,7 @@ def gaussian.normal_bounds
   else ok false
 
 /-- [baux_semantics::memory::overlaps]:
-    Source: 'src/memory.rs', lines 25:0-27:1
+    Source: 'src/memory.rs', lines 26:0-28:1
     Visibility: public -/
 def memory.overlaps
   (a : Std.U64) (b : Std.U64) (c : Std.U64) (d : Std.U64) : Result Bool := do
@@ -449,7 +449,7 @@ def hazard.against
   hazard.against_loop active pending 0#usize
 
 /-- [baux_semantics::hazard::flush]: loop body 0:
-    Source: 'src/hazard.rs', lines 37:4-44:1
+    Source: 'src/hazard.rs', lines 38:4-45:1
     Visibility: public -/
 @[rust_loop_body]
 def hazard.flush_loop.body
@@ -469,7 +469,7 @@ def hazard.flush_loop.body
   else ok (done false)
 
 /-- [baux_semantics::hazard::flush]: loop 0:
-    Source: 'src/hazard.rs', lines 37:4-44:1
+    Source: 'src/hazard.rs', lines 38:4-45:1
     Visibility: public -/
 @[rust_loop]
 def hazard.flush_loop
@@ -482,7 +482,7 @@ def hazard.flush_loop
     next
 
 /-- [baux_semantics::hazard::flush]:
-    Source: 'src/hazard.rs', lines 35:0-44:1
+    Source: 'src/hazard.rs', lines 36:0-45:1
     Visibility: public -/
 @[reducible]
 def hazard.flush
@@ -492,7 +492,7 @@ def hazard.flush
   hazard.flush_loop active pending 0#usize
 
 /-- [baux_semantics::hazard::capacity]:
-    Source: 'src/hazard.rs', lines 48:0-53:1
+    Source: 'src/hazard.rs', lines 49:0-54:1
     Visibility: public -/
 def hazard.capacity
   (reads : Std.U32) (writes : Std.U32) (add_reads : Std.U32)
@@ -524,7 +524,7 @@ def memory.view_bytes
   | some elements => ok (U64.checked_mul elements width)
 
 /-- [baux_semantics::memory::span_end]:
-    Source: 'src/memory.rs', lines 12:0-22:1
+    Source: 'src/memory.rs', lines 13:0-23:1
     Visibility: public -/
 def memory.span_end
   (capacity : Std.U64) (offset : Std.U64) (bytes : Std.U64) :
@@ -540,26 +540,26 @@ def memory.span_end
          ok (some i)
 
 /-- [baux_semantics::optimizer::param_tree::routed_count]:
-    Source: 'src/optimizer/param_tree.rs', lines 109:0-111:1
+    Source: 'src/optimizer/param_tree.rs', lines 137:0-139:1
     Visibility: public -/
 def optimizer.param_tree.routed_count : Result Std.U64 := do
-  ok 1036800000#u64
+  ok 125829120#u64
 
 /-- [baux_semantics::optimizer::param_tree::total_count]:
-    Source: 'src/optimizer/param_tree.rs', lines 114:0-116:1
+    Source: 'src/optimizer/param_tree.rs', lines 143:0-145:1
     Visibility: public -/
 def optimizer.param_tree.total_count : Result Std.U64 := do
-  ok 1177723160#u64
+  ok 265623320#u64
 
 /-- [baux_semantics::optimizer::provenance::same_world]:
-    Source: 'src/optimizer/provenance.rs', lines 4:0-6:1
+    Source: 'src/optimizer/provenance.rs', lines 6:0-8:1
     Visibility: public -/
 def optimizer.provenance.same_world
   (left : Std.U64) (right : Std.U64) : Result Bool := do
   ok (left = right)
 
 /-- [baux_semantics::optimizer::provenance::exact_anchored]:
-    Source: 'src/optimizer/provenance.rs', lines 10:0-12:1
+    Source: 'src/optimizer/provenance.rs', lines 13:0-15:1
     Visibility: public -/
 def optimizer.provenance.exact_anchored
   (is_fixed_corpus : Bool) (from_step : Std.U64) (to_step : Std.U64) :
@@ -570,7 +570,7 @@ def optimizer.provenance.exact_anchored
   else ok (from_step = to_step)
 
 /-- [baux_semantics::optimizer::reuse::conditioned_slot]:
-    Source: 'src/optimizer/reuse.rs', lines 12:0-14:1
+    Source: 'src/optimizer/reuse.rs', lines 13:0-15:1
     Visibility: public -/
 def optimizer.reuse.conditioned_slot
   (slot : Std.U64) (accepted : Bool) : Result Std.U64 := do
@@ -580,7 +580,7 @@ def optimizer.reuse.conditioned_slot
        ok (i ^^^ 1#u64)
 
 /-- [baux_semantics::optimizer::reuse::conditioned_sign]:
-    Source: 'src/optimizer/reuse.rs', lines 19:0-21:1
+    Source: 'src/optimizer/reuse.rs', lines 20:0-22:1
     Visibility: public -/
 def optimizer.reuse.conditioned_sign
   (reversed : Bool) (accepted : Bool) : Result Bool := do
@@ -589,7 +589,7 @@ def optimizer.reuse.conditioned_sign
   else ok (¬ reversed)
 
 /-- [baux_semantics::optimizer::transaction::commit_round]:
-    Source: 'src/optimizer/transaction.rs', lines 30:0-47:1
+    Source: 'src/optimizer/transaction.rs', lines 33:0-50:1
     Visibility: public -/
 def optimizer.transaction.commit_round
   (active : optimizer.transaction.RoundId)
@@ -695,7 +695,7 @@ def optimizer.trust_region.controller.accept_bits
         optimizer.trust_region.controller.accept_decision (i > i1)
 
 /-- [baux_semantics::optimizer::trust_region::controller::decide_action]:
-    Source: 'src/optimizer/trust_region/controller.rs', lines 79:0-97:1
+    Source: 'src/optimizer/trust_region/controller.rs', lines 80:0-98:1
     Visibility: public -/
 def optimizer.trust_region.controller.decide_action
   (model_adequate : Bool) (model_inadequate : Bool) (sharp : Bool)
@@ -766,20 +766,20 @@ def optimizer.window_plan.verify_full
   else ok false
 
 /-- [baux_semantics::random::SOBOL_MOD]
-    Source: 'src/random.rs', lines 60:0-60:38
+    Source: 'src/random.rs', lines 63:0-63:38
     Visibility: public -/
 @[global_simps, irreducible]
 def random.SOBOL_MOD : Result Std.U64 := 1#u64 <<< 31#i32
 
 /-- [baux_semantics::random::sobol_base]:
-    Source: 'src/random.rs', lines 64:0-66:1
+    Source: 'src/random.rs', lines 67:0-69:1
     Visibility: public -/
 def random.sobol_base (seed_bytes : Std.U64) : Result Std.U64 := do
   let i ← random.SOBOL_MOD
   seed_bytes % i
 
 /-- [baux_semantics::random::sobol_seed]:
-    Source: 'src/random.rs', lines 70:0-85:1
+    Source: 'src/random.rs', lines 73:0-88:1
     Visibility: public -/
 def random.sobol_seed
   (base : Std.U64) (restart : Std.Usize) (obs : Std.Usize) (arms : Std.Usize) :

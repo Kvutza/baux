@@ -323,7 +323,7 @@ theorem coordinateSmooth (shape : Program.Shape) (index : Index shape) :
     Parameter.State (Program.parameterSlots shape) →L[ℝ] ℝ).contDiff (n := ⊤)
   simpa only [fromFlat, reread, EuclideanSpace.coe_proj] using linear
 
-theorem Current.cardinality : Fintype.card (Index Program.current) = 1177756440 :=
+theorem Current.cardinality : Fintype.card (Index Program.current) = 265656600 :=
   (Parameters.cardinality Program.current).trans Program.Current.slots
 
 /-- The 17 architectural parameter families of `fbt-pisa1-mhc4-v1` (Section 6.2

@@ -30,7 +30,7 @@ structure hazard.Access where
   write : Bool
 
 /-- [baux_semantics::optimizer::transaction::RoundId]
-    Source: 'src/optimizer/transaction.rs', lines 22:0-26:1
+    Source: 'src/optimizer/transaction.rs', lines 24:0-28:1
     Visibility: public -/
 structure optimizer.transaction.RoundId where
   owner : Std.U64

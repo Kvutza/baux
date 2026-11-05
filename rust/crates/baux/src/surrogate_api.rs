@@ -1,5 +1,4 @@
-//! Implementation-independent surrogate interface used by the optimizer state
-//! machine.
+//! Backend-independent surrogate interface used by the optimizer state machine.
 
 use ndarray::{Array1, Array2, Array3, ArrayView2};
 use rand::RngCore;

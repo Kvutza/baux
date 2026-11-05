@@ -14,18 +14,6 @@ pub fn run_pretrain(
     {
         return super::matrix::run(run, dataset_path);
     }
-    if matches!(
-        run.model,
-        Some(
-            crate::config::ModelArchitecture::FbtPisa1Mhc4V1
-                | crate::config::ModelArchitecture::FbtPisa1HnetMhc4V1
-        )
-    ) || run
-        .window_tokens
-        .is_some_and(|tokens| tokens > crate::pretrain_data::CONTEXT)
-    {
-        return super::long::run(run, dataset_path);
-    }
     let rounds = run.rounds();
     if rounds == 0 {
         return Err("pretraining requires positive rounds".into());

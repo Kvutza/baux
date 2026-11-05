@@ -1,8 +1,104 @@
-//! Stateful matrix optimization on the same fixed corpus objective as `long`.
+//! Stateful matrix optimization on a fixed corpus objective.
 //! Repeated training-window exposure is recorded separately from scorer work.
 use super::*;
 use crate::config::{ModelInitialization, RunConfig};
-use crate::pretrain_data::{CorpusBatch, CorpusSet};
+use crate::pretrain_data::{CausalBatch, CorpusBatch, CorpusSet};
+
+fn score_window(
+    scorer: &block_decode::BlockDecoder,
+    runtime: &Runtime,
+    decoder: &decode::Decoder,
+    weights: CandidateRow<'_>,
+    batch: &CausalBatch,
+) -> Result<(f64, f64, f64, usize), String> {
+    let prefill = scorer.prefill_prefix(runtime, decoder, weights, &batch.tokens)?;
+    let result = scorer.score_objective(
+        runtime,
+        decoder,
+        weights,
+        batch,
+        crate::config::ObjectiveFunction::CrossEntropy,
+    )?;
+    Ok((
+        f64::from(result.quality.mean_nll),
+        result.quality.codelength_bits,
+        prefill + result.gpu_seconds,
+        result.quality.scored_tokens,
+    ))
+}
+
+pub(super) fn validate_corpus(
+    scorer: &block_decode::BlockDecoder,
+    runtime: &Runtime,
+    decoder: &decode::Decoder,
+    row: CandidateRow<'_>,
+    dataset: &CorpusSet,
+    window_tokens: usize,
+    seed: u64,
+    round: u32,
+) -> Result<baux::artifact::json::Value, String> {
+    scorer.clear_pair();
+    let mut nll = 0.0f64;
+    let mut bits = 0.0f64;
+    let mut gpu_seconds = 0.0f64;
+    let mut evaluated_tokens = 0usize;
+    let mut sources = Vec::new();
+    for batch in dataset.causal_batches(window_tokens, seed)? {
+        let (mean_nll, codelength, gpu_sec, tokens) =
+            score_window(scorer, runtime, decoder, row, &batch.batch)?;
+        let weight = f64::from(batch.weight);
+        nll += mean_nll * weight;
+        bits += codelength / tokens as f64 * weight;
+        gpu_seconds += gpu_sec;
+        evaluated_tokens += tokens;
+        sources.push(baux::artifact::json::json!({
+            "source": batch.source,
+            "weight": batch.weight,
+            "nll": mean_nll,
+            "bits_per_token": codelength / tokens as f64,
+            "corpus_offset": batch.batch.offset,
+            "scored_tokens": tokens,
+            "gpu_seconds": gpu_sec,
+        }));
+    }
+    let total = dataset.total_weight() as f64;
+    let val_record = baux::artifact::json::json!({
+        "round": round,
+        "nll": nll / total,
+        "bits_per_token": bits / total,
+        "scored_tokens": window_tokens,
+        "evaluated_tokens": evaluated_tokens,
+        "gpu_seconds": gpu_seconds,
+        "used_for_acceptance": false,
+        "scope": "mixture-weighted-causal-likelihood",
+        "sources": sources,
+    });
+    let sources_str = val_record["sources"]
+        .as_seq()
+        .map(|s| {
+            s.iter()
+                .map(|src| {
+                    format!(
+                        "{}:{:.9}",
+                        src["source"].as_str().unwrap_or("unknown"),
+                        src["nll"].as_f64().unwrap_or(f64::NAN),
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join(",")
+        })
+        .unwrap_or_default();
+    eprintln!(
+        "pretrain.validation round={} nll={:.9} bits_per_token={:.9} scored_tokens={} \
+         evaluated_tokens={} sources={sources_str} used_for_acceptance=false",
+        val_record["round"].as_u64().unwrap_or(0),
+        val_record["nll"].as_f64().unwrap_or(f64::NAN),
+        val_record["bits_per_token"].as_f64().unwrap_or(f64::NAN),
+        val_record["scored_tokens"].as_u64().unwrap_or(0),
+        val_record["evaluated_tokens"].as_u64().unwrap_or(0),
+    );
+    Ok(val_record)
+}
 
 struct Session<'a> {
     run: &'a RunConfig,
@@ -70,7 +166,7 @@ impl<'a> Session<'a> {
         self.validation
             .as_ref()
             .map(|data| {
-                long::validate(
+                validate_corpus(
                     &self.scorer,
                     &self.runtime,
                     &self.decoder,

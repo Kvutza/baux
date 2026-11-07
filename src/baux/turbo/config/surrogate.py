@@ -47,10 +47,16 @@ class ENNSurrogate:
     enn_storage: str | None = None
     work_dir: str | os.PathLike[str] | None = None
     y_bounds: np.ndarray | None = None
+    metric_learning: Any = "none"
+    tied_dims: tuple[tuple[int, ...], ...] | None = None
+    unscaled_dims: tuple[int, ...] | None = None
 
     def __post_init__(self) -> None:
-        if self.scale_x and self.index_driver == NeighborIndex.BPANN_DISK:
-            raise ValueError("scale_x=True is not compatible with BPANN_DISK")
+        ml = str(getattr(self.metric_learning, "value", self.metric_learning)).lower()
+        if ml not in ("none", "auto"):
+            raise ValueError(f"Unknown metric_learning: {self.metric_learning!r}")
+        if ml == "auto" and self.scale_x:
+            raise ValueError("metric_learning='auto' requires scale_x=False")
         if self.y_bounds is not None:
             bounds = np.asarray(self.y_bounds, dtype=float)
             if bounds.ndim != 2 or bounds.shape[1] != 2:

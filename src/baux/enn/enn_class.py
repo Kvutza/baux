@@ -6,7 +6,11 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 from baux._rust import ENN as _RustENN
-from baux.enn.posterior_flags import PosteriorFlags
+from baux.enn.posterior_flags import (
+    DiagonalMetric,
+    PosteriorFlags,
+    metric_options,
+)
 from baux.index import INDEX_NAMES, NeighborIndex
 
 if TYPE_CHECKING:
@@ -196,7 +200,15 @@ class ENN:
         y_bounds: np.ndarray | None = None,
         **options: Any,
     ) -> None:
-        unknown = set(options) - {"index", "storage", "device"}
+        unknown = set(options) - {
+            "index",
+            "storage",
+            "device",
+            "metric_learning",
+            "tied_dims",
+            "unscaled_dims",
+            "metric_seed",
+        }
         if unknown:
             raise TypeError(f"Unexpected keyword argument: {sorted(unknown)[0]!r}")
         train_x, train_y, train_yvar = self._inputs(train_x, train_y, train_yvar)
@@ -206,8 +218,7 @@ class ENN:
         enn_storage = _resolvestorage(
             index_driver, enn_storage, options.get("storage"), work_dir
         )
-        if scale_x and index_driver == NeighborIndex.BPANN_DISK:
-            raise ValueError("scale_x=True is not compatible with BPANN_DISK")
+        metric_spec = metric_options(options)
         self._index_driver = index_driver
         rust_kwargs: dict[str, Any] = {
             "train_x": train_x,
@@ -224,6 +235,8 @@ class ENN:
             rust_kwargs["enn_storage"] = enn_storage
         if y_bounds is not None:
             rust_kwargs["y_bounds"] = np.asarray(y_bounds, dtype=float)
+        if metric_spec is not None:
+            rust_kwargs["metric"] = metric_spec
         self._rust_model = _RustENN(**rust_kwargs)
         self.device: str = getattr(self._rust_model, "device", "cpu")
         self.index_kind: str = _INDEX_KINDS.get(index_driver, "exact")
@@ -314,6 +327,10 @@ class ENN:
     @property
     def y_bounds(self) -> np.ndarray:
         return np.asarray(self._rust_model.y_bounds, dtype=float)
+
+    @property
+    def metric(self) -> DiagonalMetric | None:
+        return DiagonalMetric.from_dict(self._rust_model.diagonal_metric)
 
     @property
     def _ytrain(self) -> np.ndarray:

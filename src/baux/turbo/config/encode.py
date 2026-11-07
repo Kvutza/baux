@@ -109,6 +109,16 @@ def _tr(cfg: OptimizerConfig) -> dict[str, Any]:
     return out
 
 
+def _ennmetric(sur: ENNSurrogate, out: dict[str, Any]) -> None:
+    ml = str(getattr(sur.metric_learning, "value", sur.metric_learning)).lower()
+    if ml != "none":
+        out["metric_learning"] = ml
+    if sur.tied_dims is not None:
+        out["tied_dims"] = [[int(c) for c in g] for g in sur.tied_dims]
+    if sur.unscaled_dims is not None:
+        out["unscaled_dims"] = [int(c) for c in sur.unscaled_dims]
+
+
 def _enn(cfg: OptimizerConfig) -> dict[str, Any]:
     sur = cfg.surrogate
     if not isinstance(sur, ENNSurrogate):
@@ -129,6 +139,7 @@ def _enn(cfg: OptimizerConfig) -> dict[str, Any]:
         out["work_dir"] = os.fspath(sur.work_dir)
     if sur.y_bounds is not None:
         out["y_bounds"] = np.asarray(sur.y_bounds, dtype=float)
+    _ennmetric(sur, out)
     return out
 
 

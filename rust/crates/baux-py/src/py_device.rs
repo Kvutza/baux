@@ -198,3 +198,99 @@ pub(crate) fn parse_storage(
         ))),
     }
 }
+
+type MetricSpec = (
+    Option<String>,
+    Option<Vec<Vec<usize>>>,
+    Option<Vec<usize>>,
+    Option<u64>,
+);
+
+fn parse_metric(spec: &Bound<'_, PyAny>) -> PyResult<MetricSpec> {
+    if let Ok(s) = spec.extract::<String>() {
+        return Ok((Some(s), None, None, None));
+    }
+    let dict = spec
+        .cast::<PyDict>()
+        .map_err(|_| PyValueError::new_err("Invalid metric specification"))?;
+    let ml_str = dict
+        .get_item("metric_learning")?
+        .map(|v| v.extract())
+        .transpose()?;
+    let tied = dict
+        .get_item("tied_dims")?
+        .map(|v| v.extract())
+        .transpose()?;
+    let unscaled = dict
+        .get_item("unscaled_dims")?
+        .map(|v| v.extract())
+        .transpose()?;
+    let seed = dict
+        .get_item("metric_seed")?
+        .map(|v| v.extract())
+        .transpose()?;
+    Ok((ml_str, tied, unscaled, seed))
+}
+
+pub(crate) fn apply_metric(
+    model: &mut baux::ENN,
+    metric: Option<&Bound<'_, PyAny>>,
+    scale_x: bool,
+) -> PyResult<()> {
+    let Some(spec) = metric else {
+        return Ok(());
+    };
+    let (ml_str, tied, unscaled, seed) = parse_metric(spec)?;
+    let ml = match ml_str.as_deref() {
+        None => baux::MetricLearning::None,
+        Some(name) => baux::MetricLearning::parse(name)
+            .ok_or_else(|| PyValueError::new_err(format!("Unknown metric_learning: {name}")))?,
+    };
+    if ml == baux::MetricLearning::Auto {
+        if scale_x {
+            return Err(PyValueError::new_err(
+                "metric_learning='auto' requires scale_x=False",
+            ));
+        }
+        model
+            .learn_metric(tied.unwrap_or_default(), baux::resolve_seed(seed))
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+    } else if let Some(groups) = tied {
+        model
+            .set_tied(groups.clone())
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        if scale_x && unscaled.is_none() {
+            let mut uniq: Vec<usize> = groups.into_iter().flatten().collect();
+            uniq.sort_unstable();
+            uniq.dedup();
+            model
+                .set_unscaled(uniq)
+                .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        }
+    }
+    if let Some(dims) = unscaled {
+        model
+            .set_unscaled(dims)
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+    }
+    Ok(())
+}
+
+pub(crate) fn metric_dict<'py>(
+    py: Python<'py>,
+    model: &baux::ENN,
+) -> PyResult<Option<Bound<'py, PyDict>>> {
+    let Some(dm) = model.diagonal_metric() else {
+        return Ok(None);
+    };
+    let dict = PyDict::new(py);
+    dict.set_item("num_seen", dm.num_seen)?;
+    dict.set_item("heldout_gain", dm.heldout_gain)?;
+    dict.set_item("uses_learned_metric", dm.uses_learned)?;
+    dict.set_item("weights", dm.weights)?;
+    dict.set_item("built", dm.built)?;
+    dict.set_item("num_refits", dm.counters.num_refits)?;
+    dict.set_item("num_rescales", dm.counters.num_rescales)?;
+    dict.set_item("num_rebuilds", dm.counters.num_rebuilds)?;
+    Ok(Some(dict))
+}

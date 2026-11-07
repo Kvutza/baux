@@ -1,7 +1,7 @@
-load("//build/buck2:reindeer_rules.bzl", "app_rust_binary", "app_rust_library")
-load("//build/buck2:baux_targets.bzl", "baux_program_targets")
-load("//build/buck2/tests:suite.bzl", "test_suite")
-load("//build:targets.bzl", "BAUX_CRATES", "BAUX_PROGRAMS", "BAUX_TEST_CRATES", "RUST_EDITION")
+load("//admin/buck2:reindeer_rules.bzl", "app_rust_binary", "app_rust_library")
+load("//admin/buck2:baux_targets.bzl", "baux_program_targets")
+load("//admin/buck2/tests:suite.bzl", "test_suite")
+load("//admin:targets.bzl", "BAUX_CRATES", "BAUX_PROGRAMS", "BAUX_TEST_CRATES", "RUST_EDITION")
 
 BAUX_BUCK_DEPS = ["//rust:" + crate for crate in BAUX_CRATES]
 
@@ -50,7 +50,7 @@ cxx_library(
         "-std=c++17",
         "-Wno-unknown-pragmas",
     ],
-    deps = ["//build/buck2/native:usearch"],
+    deps = ["//admin/buck2/native:usearch"],
     exported_linker_flags = select({
         "//:linux-arm64": ["-lstdc++"],
         "//:linux-x86_64": ["-lstdc++"],
@@ -135,7 +135,7 @@ rust_test(
     visibility = ["PUBLIC"],
     deps = BAUX_BUCK_TEST_DEPS + [
         ":usearch-bridge",
-        "//build/buck2/native:openmp-macos",
+        "//admin/buck2/native:openmp-macos",
         "//rust:metal",
     ],
     rpath = True,
@@ -154,14 +154,14 @@ rust_test(
         "DEFAULT": ["-Zthreads=8", "-Ccodegen-units=16"],
     }),
     features = ["buck2-test-data", "usearch-native"],
-    visibility = ["//build/buck2/tests:all"],
+    visibility = ["//admin/buck2/tests:all"],
     deps = BAUX_BUCK_TEST_DEPS + [
         ":usearch-bridge",
     ] + select({
         "//:linux-arm64": [],
         "//:linux-x86_64": [],
         "//:macos-arm64": [
-            "//build/buck2/native:openmp-macos",
+            "//admin/buck2/native:openmp-macos",
         ],
     }),
     rpath = True,
@@ -214,7 +214,7 @@ app_rust_library(
             "//rust:tempfile",
         ] + select({
             "//:macos-arm64": [
-                "//build/buck2/native:openmp-macos",
+                "//admin/buck2/native:openmp-macos",
                 "//rust:metal",
             ],
             "DEFAULT": [],
@@ -239,7 +239,7 @@ _TESTS = [
 test_suite(
     name = "integration",
     tests = _TESTS,
-    visibility = ["//build/buck2/tests:all"],
+    visibility = ["//admin/buck2/tests:all"],
 )
 
 rust_test(
@@ -249,10 +249,10 @@ rust_test(
     crate_root = [program["root"] for program in BAUX_PROGRAMS if program["name"] == "baux-tune"][0],
     edition = RUST_EDITION,
     deps = [":baux", "//rust:anstream", "//rust:tempfile"] + select({
-        "//:macos-arm64": ["//build/buck2/native:openmp-macos"],
+        "//:macos-arm64": ["//admin/buck2/native:openmp-macos"],
         "DEFAULT": [],
     }),
     rpath = True,
     runtime_dependency_handling = "symlink",
-    visibility = ["//build/buck2/tests:all"],
+    visibility = ["//admin/buck2/tests:all"],
 )

@@ -1,8 +1,0 @@
-version = 1
-experiment = "resident-regions"
-dimensions = 64
-evaluations = 64
-regions = [1, 4]
-repetitions = 3
-sharing = ["origin_only", "box_contain", "nearest_center"]
-starts = ["separated", "clustered"]

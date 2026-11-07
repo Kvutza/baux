@@ -1,7 +1,7 @@
 load("@crates//:defs.bzl", "aliases", "crate_edition")
 load("@rules_cc//cc:defs.bzl", "cc_library")
 load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library", "rust_test")
-load("//build:targets.bzl", "BAUX_CRATES", "BAUX_PROGRAMS", "BAUX_TEST_CRATES")
+load("//admin:targets.bzl", "BAUX_CRATES", "BAUX_PROGRAMS", "BAUX_TEST_CRATES")
 load("//rust/crates/baux:defs.bzl", "baux_crate_deps", "baux_program_targets")
 
 package(default_visibility = ["//visibility:public"])

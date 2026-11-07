@@ -1,4 +1,4 @@
-load("//build/buck2:reindeer_rules.bzl", "app_rust_binary")
+load("//admin/buck2:reindeer_rules.bzl", "app_rust_binary")
 
 filegroup(
     name = "source",
@@ -18,7 +18,7 @@ _DEPS = [
     "//rust:tokio",
     "//rust:tokenizers",
 ] + select({
-    "//:macos-arm64": ["//build/buck2/native:openmp-macos"],
+    "//:macos-arm64": ["//admin/buck2/native:openmp-macos"],
     "DEFAULT": [],
 })
 

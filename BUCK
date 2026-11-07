@@ -1,11 +1,11 @@
 load(
-    "//build/buck2:python.bzl",
+    "//admin/buck2:python.bzl",
     "PYTHON_ABI",
     "PYTHON_REQUIRES",
     "python_extension_suffix",
 )
-load("//build/buck2/cuda:defs.bzl", "cuda_oxide")
-load("//build/buck2/wheel:wheel.bzl", "python_wheel")
+load("//admin/buck2/cuda:defs.bzl", "cuda_oxide")
+load("//admin/buck2/wheel:wheel.bzl", "python_wheel")
 
 http_file(
     name = "click-wheel",
@@ -104,22 +104,28 @@ filegroup(
         "tests/python_api/*.py",
         "tests/interop/*.py",
         "benchmarks/torax/*.py",
+        "benchmarks/tokagym/*.py",
+        "research/upstream/*.lock.toml",
         "rust/crates/baux/src/muon/*.json",
         "rust/crates/baux/src/hnet/*.json",
         "rust/crates/baux/src/trust_region/*.json",
     ]),
-    visibility = ["//build/buck2/tests:optimizer-python", "//build/buck2/tests:resident-python"],
+    visibility = ["//admin/buck2/tests:optimizer-python", "//admin/buck2/tests:resident-python"],
 )
 
 filegroup(
     name = "cuda-package",
-    srcs = glob(["src/baux/**/*.py", "data/recipes/*.json"]) + [
-        "LICENSE",
-        "NOTICE",
-        "README.md",
-        "ops/cuda_wheel.py",
-        "rust-toolchain.toml",
-    ],
+    srcs = {
+        path: path
+        for path in glob(["src/baux/**/*.py", "data/recipes/*.json"]) + [
+            "LICENSE",
+            "NOTICE",
+            "README.md",
+            "rust-toolchain.toml",
+        ]
+    } | {
+        "admin/ops/cuda_wheel.py": "//admin:ops/cuda_wheel.py",
+    },
     visibility = ["PUBLIC"],
 )
 
@@ -139,7 +145,7 @@ cuda_oxide(
         "properties": "//rust/crates/properties:source",
     },
     cuda = "//rust/crates/cuda:source",
-    parity = "ops/bf16_parity.py",
+    parity = "//admin:ops/bf16_parity.py",
     click = ":click-wheel",
     python_abi = PYTHON_ABI,
     python_requires = PYTHON_REQUIRES,
@@ -200,7 +206,7 @@ python_wheel(
     python_requires = PYTHON_REQUIRES,
     python_srcs = glob(["src/baux/**/*.py"]),
     readme = "README.md",
-    runtime_libraries = ["//build/buck2/native:openmp-build[lib]"],
+    runtime_libraries = ["//admin/buck2/native:openmp-build[lib]"],
     target_compatible_with = [
         "prelude//cpu/constraints:arm64",
         "prelude//os/constraints:macos",

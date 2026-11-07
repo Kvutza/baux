@@ -215,9 +215,18 @@ def test_torax():
     Tracey et al., arXiv:2307.11546; Citrin et al., arXiv:2406.06718) across
     TORAX 2.0.0, NumPy, PyTorch, JAX, and native Rust/Metal.
     """
+    import json
+    from pathlib import Path
+    from baux import verify_upstream_lock
     from benchmarks.torax.tcv_coupling import ToraxTcvBridge, eval_wpo_table6
 
-    pytest.importorskip("torax")
+    torax = pytest.importorskip("torax")
+    lock = json.loads(
+        verify_upstream_lock(
+            "torax", override_dir=str(Path(torax.__file__).resolve().parent)
+        )
+    )
+    assert "merkle_root_sha512" in lock["merkle"]
 
     bridge = ToraxTcvBridge()
     zeros = np.zeros(160531, dtype=np.float64)
@@ -241,3 +250,33 @@ def test_torax():
     assert abs(seed_np - zero_np) > 1e-3
     np.testing.assert_allclose(seed_np, seed_pt, atol=1e-4)
     np.testing.assert_allclose(seed_np, seed_jx, atol=1e-4)
+
+
+def test_tokagym():
+    """Verify upstream TokaGym provenance lock and closed-loop TCV rollout
+    (Theiler et al., doi:10.1088/1741-4326/ae6d12; Wang et al.,
+    doi:10.1038/s41467-025-63917-3; Zenodo doi:10.5281/zenodo.16621120).
+    """
+    import json
+    from baux import verify_upstream_lock
+    from benchmarks.tokagym.tokagym_rollout import (
+        ACTION_DIM,
+        OBS_DIM,
+        TOKAGYM_STEPS,
+        TOTAL_PARAMS,
+        TokaGymClosedLoopEnv,
+    )
+
+    lock = json.loads(verify_upstream_lock("tokagym"))
+    assert lock["archive"]["doi"] == "10.5281/zenodo.16621120"
+    assert "merkle_root_sha512" in lock["merkle"]
+
+    env = TokaGymClosedLoopEnv.shared(scenario="170kA")
+    zeros = np.zeros(TOTAL_PARAMS, dtype=np.float32)
+    eps = np.zeros((TOKAGYM_STEPS, ACTION_DIM), dtype=np.float32)
+    ret, obs, u, rewards = env.eval_traj(zeros, eps)
+    assert np.isfinite(ret)
+    assert obs.shape == (TOKAGYM_STEPS, OBS_DIM)
+    assert u.shape == (TOKAGYM_STEPS, ACTION_DIM)
+    assert rewards.shape == (TOKAGYM_STEPS,)
+    np.testing.assert_allclose(ret, env.eval_return(zeros), rtol=1e-5, atol=1e-5)

@@ -2,8 +2,9 @@
 
 use ndarray::IxDyn;
 use numpy::{IntoPyArray, PyArrayDyn, PyReadonlyArray1, PyReadonlyArrayDyn};
-use pyo3::exceptions::PyValueError;
+use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
+use std::path::{Path, PathBuf};
 
 /// Python wrapper for normal_hash
 #[pyfunction(name = "normal_hash")]
@@ -38,4 +39,22 @@ pub fn normal_py<'py>(
         }
         Err(e) => Err(PyValueError::new_err(e.to_string())),
     }
+}
+
+/// Verify upstream archive and source lockfiles against their Merkle root
+/// digests.
+#[pyfunction(name = "verify_upstream_lock", signature = (name, override_dir=None, repo_root=None))]
+pub fn verify_lock(
+    name: &str,
+    override_dir: Option<&str>,
+    repo_root: Option<&str>,
+) -> PyResult<String> {
+    let root = match repo_root {
+        Some(path) => PathBuf::from(path),
+        None => std::env::current_dir().map_err(|e| PyRuntimeError::new_err(e.to_string()))?,
+    };
+    let dir = override_dir.map(Path::new);
+    let lock =
+        baux::artifact::merkle::verify_lock(&root, name, dir).map_err(PyRuntimeError::new_err)?;
+    baux::artifact::json::pretty_string(&lock).map_err(|e| PyRuntimeError::new_err(e.to_string()))
 }

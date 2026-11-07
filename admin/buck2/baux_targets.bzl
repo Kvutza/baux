@@ -1,0 +1,37 @@
+"""Buck2 renderer for BAUX's shared logical program catalogue."""
+
+load("//admin/buck2:reindeer_rules.bzl", "app_rust_binary")
+
+def _local_program_dep(program_name, name):
+    if name == "baux" and program_name in ["baux", "build-graph"]:
+        return "//rust/crates/baux:baux-cli"
+    return "//rust/crates/" + name + ":" + name
+
+def _program_deps(program):
+    deps = [_local_program_dep(program["name"], name) for name in program["local_deps"]]
+    deps += ["//rust:" + crate for crate in program["crate_deps"]]
+    if "baux" in program["local_deps"] and program["name"] not in ["baux", "build-graph"]:
+        deps += select({
+            "//:macos-arm64": ["//admin/buck2/native:openmp-macos"],
+            "DEFAULT": [],
+        })
+    return deps
+
+def baux_program_targets(programs, edition, sources):
+    """Declare the Buck2 half of the shared logical program catalogue."""
+    for program in programs:
+        if "cuda" in program["required_features"]:
+            continue
+        app_rust_binary(
+            name = program["name"],
+            srcs = sources,
+            crate = program["crate"],
+            crate_root = program["root"],
+            edition = edition,
+            env = {"CARGO_PKG_VERSION": program["version"]},
+            deps = _program_deps(program),
+            visibility = ["PUBLIC"],
+            rpath = True,
+            runtime_dependency_handling = "symlink",
+            target_compatible_with = ["prelude//os/constraints:macos"] if "metal" in program["required_features"] else [],
+        )

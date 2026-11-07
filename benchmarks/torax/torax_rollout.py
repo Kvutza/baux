@@ -10,6 +10,12 @@ import copy
 import os
 import struct
 import sys
+from pathlib import Path
+
+try:
+    import baux
+except ImportError:
+    baux = None
 import numpy as np
 
 os.environ.setdefault("JAX_PRECISION", "f32")
@@ -358,6 +364,11 @@ class ToraxClosedLoopEnv:
         import jax.numpy as jnp
         import torax
         import torax.experimental as tx
+
+        if hasattr(baux, "verify_upstream_lock"):
+            baux.verify_upstream_lock(
+                "torax", str(Path(torax.__file__).resolve().parent)
+            )
 
         jax.config.update("jax_enable_x64", False)
         torax_cfg = torax.ToraxConfig.from_dict(_toraxcfg())

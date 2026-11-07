@@ -333,6 +333,15 @@ fn length_bounds() {
 /// arXiv:1910.01739).
 #[test]
 fn upstream_turbo() {
+    let root = option_env!("CARGO_MANIFEST_DIR")
+        .map(std::path::Path::new)
+        .and_then(|p| p.parent())
+        .and_then(|p| p.parent())
+        .and_then(|p| p.parent())
+        .unwrap_or(std::path::Path::new("."));
+    if root.join(".cache/baux/upstream/TuRBO").exists() {
+        crate::artifact::merkle::verify_lock(&root, "turbo", None).expect("verify turbo.lock.toml");
+    }
     let fixture: baux::artifact::json::Value =
         baux::artifact::json::from_str(include_str!("fixtures.json")).expect("valid TuRBO fixture");
     assert_eq!(

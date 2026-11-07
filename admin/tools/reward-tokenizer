@@ -1,0 +1,4 @@
+#!/bin/sh
+set -eu
+export PYTHONPATH="${PYTHONPATH:+$PYTHONPATH:}admin"
+exec uv run --group pretrain python -m ops.reward_tokenizer

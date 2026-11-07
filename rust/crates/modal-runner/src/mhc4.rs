@@ -219,7 +219,7 @@ fn command(config: &Config) -> String {
     let exports = env_exports();
     format!(
         "set -euo pipefail; cd /opt/baux; {exports}CARGO_HOME=/cache/cargo \
-         CARGO_TARGET_DIR=/cache/target ./tools/cuda-run build; rm -rf /tmp/baux-generation; \
+         CARGO_TARGET_DIR=/cache/target ./admin/tools/cuda-run build; rm -rf /tmp/baux-generation; \
          /cache/target/release/baux-cuda mhc4-bo-bench {} /tmp/baux-corpus/train/data.bauxptn {} \
          /tmp/baux-generation {} {} {} {} {} {} {} {acq_seed} {eval_seed} {} {} {} {} {} \
          {val_seed} {}{validation} --surrogate '{surrogate}' \

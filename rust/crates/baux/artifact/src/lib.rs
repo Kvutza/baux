@@ -9,6 +9,8 @@ pub mod forward;
 pub mod gpu;
 #[path = "json.rs"]
 pub mod json;
+#[path = "merkle.rs"]
+pub mod merkle;
 #[path = "numerical.rs"]
 pub mod numerical;
 #[path = "pretrain.rs"]

@@ -1,0 +1,114 @@
+# Immutable upstream provenance for the EPFL/MIT TokaGym + contrax TCV
+# tokamak rampdown simulation environment and evaluation harness.
+#
+# Citations:
+# - Christian Theiler et al., "Progress and innovations in the TCV tokamak
+#   research programme", Nuclear Fusion 66 (2026) 116007,
+#   https://doi.org/10.1088/1741-4326/ae6d12 (Section 8, Figure 13, Ref. [124]).
+# - Allen M. Wang et al., "Learning plasma dynamics and robust rampdown
+#   trajectories with predict-first experiments at TCV", Nature Communications
+#   16 (2025) 8877, https://doi.org/10.1038/s41467-025-63917-3.
+
+[archive]
+doi = "10.5281/zenodo.16621120"
+record_id = "16621120"
+url = "https://zenodo.org/api/records/16621120/files/TokaGym.tar.gz/content"
+filename = "TokaGym.tar.gz"
+archive_bytes = 384637766
+zenodo_md5 = "0d5f79d56482e9618220e46e4866d8dd"
+license = "MIT"
+
+[papers]
+theiler_2026_doi = "10.1088/1741-4326/ae6d12"
+wang_2025_doi = "10.1038/s41467-025-63917-3"
+
+[merkle]
+cache_relpath = ".cache/baux/upstream/tokagym/TokaGym"
+merkle_root_sha256 = "73de4cb2a75b90d44a229e3ff8a26de902e53e6bcb5aef9ff1a3d0f9e8c9acf8"
+merkle_root_sha512 = "f4bfd36908f031a33ac8305427fc43f6cb1e3f7e2922c4eddb8a14ab09852a6fe5b621bfc463bf79fb1d5ca5f099d8587931c39e3c7a445d7cde5409b257de88"
+file_count = 281
+total_bytes = 628908628
+
+[input_paths]
+tcv_gym = "toka_gym/tcv_gym.py"
+tcv_env = "toka_gym/tcv_env.py"
+reward_model = "toka_gym/reward_model.py"
+es_fitness_model = "toka_gym/es_fitness_model.py"
+types = "toka_gym/types.py"
+config_170ka = "config/170kA.yaml"
+config_140ka = "config/140kA.yaml"
+contrax_train_model = "submodules/contrax/contrax/examples/plasma/tcv/train_model.py"
+contrax_physics = "submodules/contrax/contrax/examples/plasma/tcv/physics.py"
+contrax_vgr_predictor = "submodules/contrax/contrax/examples/plasma/tcv/vgr_predictor.py"
+contrax_ohmic_and_rad = "submodules/contrax/contrax/examples/plasma/tcv/ohmic_and_rad.py"
+checkpoint_j8tzoy6q_model = "submodules/contrax/contrax/examples/plasma/tcv/checkpoints/j8tzoy6q/404/default/model.eqx"
+checkpoint_vgr_model = "submodules/contrax/contrax/examples/plasma/tcv/checkpoints/vgr/c5xkdvet/2710/default/model.eqx"
+romero_nnv = "submodules/contrax/contrax/examples/plasma/models/romero_nnv.eqx"
+initial_training_validation_nc = "data/initial_training_validation.nc"
+cached_high_level_nc = "data/cached_high_level.nc"
+
+[inputs]
+tcv_gym_sha256 = "0d3baf93b92c73cfcafe9b60754d10ef24312bb3d3f960d6ad88ca5f391fb621"
+tcv_env_sha256 = "0d0a27b2963c822d756c119b52858d114ce39fe2631ed726d80626fd521421ce"
+reward_model_sha256 = "2f89978460875cbcab446d5a3092e8cdf6845069e0660ba280ce821a20cad7a8"
+es_fitness_model_sha256 = "19034c7833765c0cade335b9b8e7c5c7415e6df8fee28582f0fbe26ed868adf2"
+types_sha256 = "498cacb6f6b022a29d89058028634de46868e53d8646930597dc19691e471056"
+config_170ka_sha256 = "ac152c6cb6cd4777f28f375d47ae71906ecc32154b0db2ffa1f9b28a578927a5"
+config_140ka_sha256 = "2b0b890737b5147a7083680b32b1a2de70ed9e23fa341995851ca315df2d8146"
+contrax_train_model_sha256 = "9bb221623e9b39f5b91aac18b0d02cdf8d28d38996d766657e854af468562364"
+contrax_physics_sha256 = "142060ac6d598ea77714a1cdec5f95e78a0d4a04899f892bdbdf9ea17b3bbfb1"
+contrax_vgr_predictor_sha256 = "417f4c76f93dbbb12b2025b2a8e4d9d12e745ff56385794f7d89a0c778a4c212"
+contrax_ohmic_and_rad_sha256 = "5c0e9b41fd3bda5bb7b801f29e0ae86a09985de5cacfea4bc7a74bbe1a791604"
+checkpoint_j8tzoy6q_model_sha256 = "ad332be84efc623ca5587440b0f1c56a2b1140036c012ff8f8234a9cc7ae8a20"
+checkpoint_vgr_model_sha256 = "3f4e749db3a0aef930561417f5b60303ca5d9e06c2619fdc68a2056d9eb464b9"
+romero_nnv_sha256 = "8d895c8103690d514b335145ecfd16257bc9641638764e93357a5ad28f25aa22"
+initial_training_validation_nc_sha256 = "93672ed317ee6b6c02b890049290d0916188d02fe4628e56711f3e4ff3c5a690"
+cached_high_level_nc_sha256 = "7661558fd448e819fda77d5e2da9be622bd0096b53517066f69bb04db0947d9d"
+
+[inputs_sha512]
+tcv_gym_sha512 = "17e79f4b51d4f9a6971373e7bfc75dd209b6ba929a19531c6b2b28292cd533f262793467487810d0a820be7f5e582b3aca847efa086e98771437576501d7e301"
+tcv_env_sha512 = "c10d7f838b681af3961a6eed29234ff9974490e626770e6be2b8810f9447a579844b0e8a9653d004cf0f8dab01415638528b7ba32b8e97c680ef5649f0902cbf"
+reward_model_sha512 = "5e46aba2b0535ec4b737acfd85ffd41cfe16a0698946ae2d7a90e0a78460d703baab39d91c4bfa5856fe6f58f91ced3281f2fd36d1cee0cd2891b686e7051692"
+es_fitness_model_sha512 = "c186fc9c7aff237c59ee480d36a89c29e65a6e573ac7d87331c8bb0f28b313c83f46015dd89d6a1a44296848ef01b8fe49764038ee035b94fbf8fd4b8693010a"
+types_sha512 = "2e0d7c22bd5f678ffc6d66c32c6809c117ec9c725c3f969fcfc946ec07666e5d97f5dcafbddff1ebedd6b3f0a5d43e5e9a148748f8dfe7d9dbb845097885850f"
+config_170ka_sha512 = "32f0eab1641c9646c8c159a700b2a616c75e3fec6b073d69d5c43b70613f8f032d01b1a52725faa8767ac6e655553afc60301904edd9a669e71f263f829b2395"
+config_140ka_sha512 = "3b7ae56ab96ab3964e4186e9000317a25923753f35ca578920ccab13b06e78dc4df422482cb8dce48ea6d6a3dcef1b50ce571e7ee397ca5e562eed034c4f2e36"
+contrax_train_model_sha512 = "50d49a69cf432ea1d44ed6b3cf72e106ca78e4866d16e3dccc1087a91cd8c48c1774563d6abdeda76f34b337a8cc936c8e3978a29859b7c4be7c8afec9a6a88a"
+contrax_physics_sha512 = "98cee8e949b192b58eac80810d374f0bf758f7e5b869ad42687e34ca14d5d05259bb7739a5705751f49256ad3e3f15ea620daf6fcd16ab61c7687b24a9cae72d"
+contrax_vgr_predictor_sha512 = "51b59bce7ac92d49f71544b08446c990e28e8640462950735c2c7dd283e8883885336227d7cd77de4285dc79f5325ac0a9a290cfcc9ded026749dfd80f5f8fce"
+contrax_ohmic_and_rad_sha512 = "0016fe14f137f27bacb4d0eb3a1d28a297a51074e763a2717e5e5c4b2020d580704408bd151ed6867d84191de5bd7de672bf556d4e3306baef6abcb0a3749237"
+checkpoint_j8tzoy6q_model_sha512 = "51cb733419cf07209c6546e6985df462f730d7234c204fd61b0d5eb367f6b3d2463ec3ab65b1af9a8cfee4f678a0061ec029411246202059d6af9889df7f529c"
+checkpoint_vgr_model_sha512 = "a1ff760595a1f4c75896ec39bbb5734888987b3100af67f24f3c3130d79ae11b238f8992acb8aab72163bc5bda22e20f98280ebd06f06d95e75f8f66b7e057d8"
+romero_nnv_sha512 = "1c1b77ae25a8ae740fe1a6515140e4694bbc56004991086a6fc671abe8b9d5ab8ab28a252a24200da24dd17a7cab1ae386b5837168f7b595d0117b95641bfdfd"
+initial_training_validation_nc_sha512 = "af780f2baf94c56630cb3f6708caecb240c99f4d3328d238974d527eb31d8d7a26f5a4594ce7cb785672ba70c62d56613bbef867a46043c490ed00f7128093f1"
+cached_high_level_nc_sha512 = "b335c9336f5d8914f621e3d4663ca5e56f252a8741cbb21cccff10aa50610b28dfd8cd65af40895880c0bfd8e1bee86b4694136391585edd66de3e450d78ab81"
+
+[boundary]
+obs_dim = 11
+action_dim = 8
+hidden_dim = 256
+total_params = 136712
+rollout_steps = 20
+policy = "11 -> 256 -> 256 -> 256 -> 8"
+gym_factory = "toka_gym/tcv_gym.py:build_gym"
+gym_class = "toka_gym/tcv_gym.py:TCVGym"
+gym_reset = "toka_gym/tcv_gym.py:TCVGym.reset"
+gym_step = "toka_gym/tcv_gym.py:TCVGym.step"
+gym_rollout = "toka_gym/tcv_gym.py:TCVGym.rollout_action_traj"
+env_class = "toka_gym/tcv_env.py:TCVEnv"
+env_get_obs = "toka_gym/tcv_env.py:TCVEnv.get_obs"
+env_step = "toka_gym/tcv_env.py:TCVEnv.step_env"
+reward_model = "toka_gym/reward_model.py:RewardModel"
+es_fitness_model = "toka_gym/es_fitness_model.py:ESFitnessModel"
+
+[api]
+gym_factory = "toka_gym/tcv_gym.py:build_gym"
+gym_class = "toka_gym/tcv_gym.py:TCVGym"
+gym_reset = "toka_gym/tcv_gym.py:TCVGym.reset"
+gym_step = "toka_gym/tcv_gym.py:TCVGym.step"
+gym_rollout = "toka_gym/tcv_gym.py:TCVGym.rollout_action_traj"
+env_class = "toka_gym/tcv_env.py:TCVEnv"
+env_get_obs = "toka_gym/tcv_env.py:TCVEnv.get_obs"
+env_step = "toka_gym/tcv_env.py:TCVEnv.step_env"
+reward_model = "toka_gym/reward_model.py:RewardModel"
+es_fitness_model = "toka_gym/es_fitness_model.py:ESFitnessModel"

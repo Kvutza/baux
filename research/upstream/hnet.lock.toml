@@ -1,0 +1,39 @@
+# Immutable source identity for the hnet reference implementation.
+# (Hwang, Wang, and Gu, arXiv:2507.07955, 2025)
+
+[repository]
+url = "https://github.com/goombalab/hnet.git"
+revision = "3673fe1217ebeb0d1438c7c71d58d32bdd190ec2"
+tree = "4ae2beb5f8086c69c8a565a872c7419883b2a166"
+subject = "Merge pull request #21 from bkangs/mha-window-fix"
+committed_at = "2025-09-30T19:45:00-04:00"
+
+[archive]
+archive_sha256 = "589d1fa1156f5f867cb813d01503d864be9ef0daaaf8d13f7af540246963488c"
+archive_sha512 = "c7da7902369574ccb7754ba32d87fd8d9f928fae71e9038ab61852bc37c352ce4b7dad28f836bd0bd3268650bdc8b12747db5654681828f7241047e0936616c3"
+archive_bytes = 39874560
+
+[merkle]
+cache_relpath = ".cache/baux/upstream/hnet"
+merkle_root_sha256 = "4a1cd96373e3f440050777c2d2f61b63e3a0668bf9989327431462ac7a2ba382"
+merkle_root_sha512 = "499f3dc1bf44fe36ac0cf4cc37cb9c8e7e62307633b6b7c1df841722e2523c05c438762d44f2dc436931d0cd8577dab6ecc9fe4ccb47843e97a8022a009cdef5"
+file_count = 32
+total_bytes = 39838559
+
+[input_paths]
+dc = "hnet/modules/dc.py"
+hnet = "hnet/models/hnet.py"
+tokenizers = "hnet/utils/tokenizers.py"
+train = "hnet/utils/train.py"
+
+[inputs]
+dc = "b0a30a75245a0f6911a92a56e6be80a3725fc27aa859bd0e9905c239fe87bb38"
+hnet = "237b0295cf8270e1902aba5761f6ffe7ba137a5770f2d63a9f04209816f10433"
+tokenizers = "54cab079f23c0b8206b547768b05a9359e75b491b5be2ca83af278edcadcc471"
+train = "83534fe9ddf769f78bac331fbb7aacd8a9412a30e2f5cdf180f4d25434c3d27e"
+
+[inputs_sha512]
+dc = "a0d12261c0f1892814aed3d4b89fc0d1b77dcf354da513b26e089460c6b582333c4b98850307d37d5bcf66eb8c78a2ed8767c24ad07894616bcd8d7529972448"
+hnet = "703aa09eb6e3acd98ab7e7f19fdaf3394c2922cbf0ce01fa3a690f45b71fb4c80e9829e57840957d3bb547a8da1d3c243a13c1cd4e57c89021b6fcca85ccf07b"
+tokenizers = "2319f43e9e77d3bfca1994c7a76aaacfc0f01701407108eeb1a31c8b8ca90bc88e049b1f1b275c0022f8e75e6a774053abdc71ca153d787ef2b6b6c7c030b8ed"
+train = "346e6c02ac518bab390dcbd8459e19c59b9002015c213ad4f23277803ca5fbaf9045123b384a48b7ae620a14c608b0b749f7100b817e2e01d32c9a2b1d3218c7"

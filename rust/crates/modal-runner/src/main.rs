@@ -160,13 +160,13 @@ fn wheel_cmd() -> String {
          pip install --quiet --upgrade 'pip>=26.2.2' 'certifi>=2026.10.19'; \
          /tmp/baux-wheel-env/bin/python -m pip install --quiet 'jax[cuda12]'; export \
          PATH=/tmp/baux-wheel-env/bin:$PATH; export XLA_PYTHON_CLIENT_PREALLOCATE=false; unset \
-         LD_LIBRARY_PATH; PARITY=$(./tools/buck2w --isolation-dir cuda build //:cuda-parity \
+         LD_LIBRARY_PATH; PARITY=$(./admin/tools/buck2w --isolation-dir cuda build //:cuda-parity \
          --target-platforms //:linux-x86_64-platform --local-only --num-threads 4 \
-         --show-full-simple-output); cat \"$PARITY\"; ./tools/buck2w --isolation-dir cuda build \
+         --show-full-simple-output); cat \"$PARITY\"; ./admin/tools/buck2w --isolation-dir cuda build \
          //:cuda-wheel --target-platforms //:linux-x86_64-platform --local-only --num-threads 4 \
          --out {wheel}; /tmp/baux-wheel-env/bin/python -m pip install --quiet {wheel}; \
-         /tmp/baux-wheel-env/bin/python ops/cusprbench.py; /tmp/baux-wheel-env/bin/python \
-         ops/bf16_bench.py",
+         /tmp/baux-wheel-env/bin/python admin/ops/cusprbench.py; /tmp/baux-wheel-env/bin/python \
+         admin/ops/bf16_bench.py",
     )
 }
 
@@ -180,7 +180,7 @@ fn wheel_path() -> String {
 fn bo_cmd(candidates: u32, history: u32, iterations: u32) -> String {
     format!(
         "set -euo pipefail; cd /opt/baux; CARGO_HOME=/cache/cargo CARGO_TARGET_DIR=/cache/target \
-         ./tools/cuda-run build; /cache/target/release/baux-cuda parity; \
+         ./admin/tools/cuda-run build; /cache/target/release/baux-cuda parity; \
          /cache/target/release/baux-cuda bf16-curve \
          {candidates} {history} {iterations} > /tmp/baux-bo-result.json; cat \
          /tmp/baux-bo-result.json"
@@ -213,7 +213,7 @@ fn generation_cmd(
     };
     format!(
         "set -euo pipefail; cd /opt/baux; {env}CARGO_HOME=/cache/cargo \
-         CARGO_TARGET_DIR=/cache/target ./tools/cuda-run build; test -f \
+         CARGO_TARGET_DIR=/cache/target ./admin/tools/cuda-run build; test -f \
          /ckpt/looped-571e8175/checkpoint.safetensors; /cache/target/release/baux-cuda \
          model-check; /cache/target/release/baux-cuda diffusion-check; \
          /cache/target/release/baux-cuda context 4096 128 1; rm -rf /tmp/baux-generation; \

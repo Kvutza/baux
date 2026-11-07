@@ -179,10 +179,10 @@ fn impacted_targets(
 
     let mut targets = BTreeSet::new();
     for chunk in relevant.chunks(30) {
-        let mut cmd = Command::new("./tools/buck2w");
+        let mut cmd = Command::new("./admin/tools/buck2w");
         cmd.current_dir(root).args([
             "uquery",
-            "kind('.*test', rdeps(//build/buck2/tests:all, owner('%s')))",
+            "kind('.*test', rdeps(//admin/buck2/tests:all, owner('%s')))",
         ]);
         cmd.args(chunk);
         let out = cmd.output().map_err(|e| format!("buck2 uquery: {e}"))?;
@@ -199,9 +199,9 @@ fn impacted_targets(
 }
 
 fn query_cpu(root: &Path) -> Result<Vec<String>, String> {
-    let mut cmd = Command::new("./tools/buck2w");
+    let mut cmd = Command::new("./admin/tools/buck2w");
     cmd.current_dir(root)
-        .args(["uquery", "kind('.*test', deps(//build/buck2/tests:all))"]);
+        .args(["uquery", "kind('.*test', deps(//admin/buck2/tests:all))"]);
     let out = cmd.output().map_err(|e| format!("buck2 uquery: {e}"))?;
     let mut targets = Vec::new();
     for line in String::from_utf8_lossy(&out.stdout).lines() {

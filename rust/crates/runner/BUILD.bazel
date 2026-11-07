@@ -1,6 +1,6 @@
 load("@crates//:defs.bzl", "aliases", "crate_deps", "crate_edition")
 load("@rules_rust//rust:defs.bzl", "rust_test")
-load("//build:targets.bzl", "RUNNER_PROGRAMS", "RUNNER_TEST_CRATES")
+load("//admin:targets.bzl", "RUNNER_PROGRAMS", "RUNNER_TEST_CRATES")
 load("//rust/crates/baux:defs.bzl", "baux_program_targets")
 
 package(default_visibility = ["//visibility:public"])

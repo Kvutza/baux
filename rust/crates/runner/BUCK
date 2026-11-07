@@ -1,5 +1,5 @@
-load("//build/buck2:baux_targets.bzl", "baux_program_targets")
-load("//build:targets.bzl", "RUNNER_PROGRAMS", "RUNNER_TEST_CRATES", "RUST_EDITION")
+load("//admin/buck2:baux_targets.bzl", "baux_program_targets")
+load("//admin:targets.bzl", "RUNNER_PROGRAMS", "RUNNER_TEST_CRATES", "RUST_EDITION")
 
 filegroup(
     name = "source",
@@ -20,10 +20,10 @@ rust_test(
         "//rust/crates/tooling:tooling",
         "//rust/crates/baux:baux",
     ] + select({
-        "//:macos-arm64": ["//build/buck2/native:openmp-macos"],
+        "//:macos-arm64": ["//admin/buck2/native:openmp-macos"],
         "DEFAULT": [],
     }),
     rpath = True,
     runtime_dependency_handling = "symlink",
-    visibility = ["//build/buck2/tests:all"],
+    visibility = ["//admin/buck2/tests:all"],
 )

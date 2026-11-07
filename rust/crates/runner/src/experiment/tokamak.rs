@@ -34,13 +34,14 @@ const fn default_reps() -> u32 {
 pub(super) fn execute(root: &Path, path: &Path, rounds: Option<u32>) -> Result<bool, String> {
     let text = fs::read_to_string(path).map_err(|e| e.to_string())?;
     let value: Value = baux::artifact::toml::from_str(&text).map_err(|e| e.to_string())?;
-    if value["experiment"].as_str() != Some("tokamak-tcv") {
+    let exp = value["experiment"].as_str().unwrap_or_default();
+    if exp != "tokamak-tcv" && exp != "tokamak-tokagym" {
         return Ok(false);
     }
 
     let mut config: Config = baux::artifact::toml::from_str(&text).map_err(|e| e.to_string())?;
     if config.version != 4 {
-        return Err("tokamak-tcv experiment requires version 4 tune-spec schema".into());
+        return Err("tokamak experiment requires version 4 tune-spec schema".into());
     }
     if let Some(rounds) = rounds {
         config.rounds = rounds as usize;
@@ -63,7 +64,11 @@ pub(super) fn execute(root: &Path, path: &Path, rounds: Option<u32>) -> Result<b
     fs::write(output.join("config.toml"), &resolved).map_err(|e| e.to_string())?;
 
     let mut record = runs::start_worker(root, &output, &resolved, commit.trim(), &executable)?;
-    record.model = "torax-2.0.0-tcv-93-to-19".into();
+    record.model = if is_tokagym(&config) {
+        "tokagym-11-to-8".into()
+    } else {
+        "torax-2.0.0-tcv-93-to-19".into()
+    };
     record.optimizer = if matches!(config.optimizer, OptimizerSpec::Ppo) {
         "candle-ppo-metal".into()
     } else {
@@ -89,30 +94,36 @@ struct ToraxWorker {
     child: Child,
     stdin: ChildStdin,
     stdout: ChildStdout,
+    obs: usize,
+    act: usize,
 }
 
 impl ToraxWorker {
-    fn spawn(root: &Path) -> Result<Self, String> {
+    fn spawn(
+        root: &Path,
+        module: &str,
+        lock: &str,
+        obs: usize,
+        act: usize,
+    ) -> Result<Self, String> {
+        baux::artifact::merkle::verify_lock(root, lock, None)
+            .map_err(|e| format!("{lock} lock: {e}"))?;
         let mut child = Command::new("uv")
-            .args([
-                "run",
-                "python3",
-                "-m",
-                "benchmarks.torax.torax_rollout",
-                "--worker",
-            ])
+            .args(["run", "python3", "-m", module, "--worker"])
             .current_dir(root)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
             .spawn()
-            .map_err(|e| format!("spawn torax worker: {e}"))?;
+            .map_err(|e| format!("spawn {module}: {e}"))?;
         let stdin = child.stdin.take().ok_or("missing worker stdin")?;
         let stdout = child.stdout.take().ok_or("missing worker stdout")?;
         Ok(Self {
             child,
             stdin,
             stdout,
+            obs,
+            act,
         })
     }
 
@@ -120,7 +131,7 @@ impl ToraxWorker {
         self.stdin
             .write_all(&(count as u32).to_le_bytes())
             .map_err(|e| e.to_string())?;
-        let mut payload = Vec::with_capacity(count * baux::tokamak::TOTAL_PARAMS * 4);
+        let mut payload = Vec::with_capacity(batch_weights.len() * 4);
         for &w in batch_weights {
             payload.extend_from_slice(&(w as f32).to_le_bytes());
         }
@@ -129,7 +140,7 @@ impl ToraxWorker {
         let mut resp = vec![0u8; count * 8];
         self.stdout
             .read_exact(&mut resp)
-            .map_err(|e| format!("torax worker read: {e}"))?;
+            .map_err(|e| format!("worker read: {e}"))?;
         Ok(resp
             .chunks_exact(8)
             .map(|c| f64::from_le_bytes(c.try_into().unwrap()))
@@ -156,12 +167,12 @@ impl ToraxWorker {
         self.stdin.write_all(&payload).map_err(|e| e.to_string())?;
         self.stdin.flush().map_err(|e| e.to_string())?;
 
-        let obs_len = steps * baux::tokamak::OBS_DIM;
-        let u_len = steps * baux::tokamak::ACTION_DIM;
+        let obs_len = steps * self.obs;
+        let u_len = steps * self.act;
         let mut resp = vec![0u8; 8 + (obs_len + u_len + steps) * 4];
         self.stdout
             .read_exact(&mut resp)
-            .map_err(|e| format!("torax worker traj read: {e}"))?;
+            .map_err(|e| format!("worker traj read: {e}"))?;
         let score = f64::from_le_bytes(resp[..8].try_into().unwrap());
         let floats: Vec<f32> = resp[8..]
             .chunks_exact(4)
@@ -195,12 +206,24 @@ fn eval_batch(
     Ok(out)
 }
 
+fn is_tokagym(cfg: &Config) -> bool {
+    cfg.experiment == "tokamak-tokagym"
+}
+
+fn exp_domain(cfg: &Config) -> baux::optimizer::DomainFrame {
+    if is_tokagym(cfg) {
+        baux::tokamak::tokagym_domain()
+    } else {
+        baux::tokamak::domain_frame()
+    }
+}
+
 fn make_opt(config: &Config, rng: &mut Prng) -> Result<BayesOptimizer, String> {
-    BayesOptimizer::from_domain(baux::tokamak::domain_frame(), &config.optimizer, 0, rng)
+    BayesOptimizer::from_domain(exp_domain(config), &config.optimizer, 0, rng)
         .map_err(|e| e.to_string())
 }
 
-fn seed_weights(seed: u64) -> Result<Vec<f64>, String> {
+fn seed_weights(seed: u64, config: &Config) -> Result<Vec<f64>, String> {
     let ref_toml = r#"
 algorithm = "bayesian-search"
 candidates = 2
@@ -226,7 +249,7 @@ restart-candidates = 8
     let spec: OptimizerSpec =
         baux::artifact::toml::from_str(ref_toml).map_err(|e| e.to_string())?;
     let mut rng = prng(seed);
-    let domain = baux::tokamak::domain_frame();
+    let domain = exp_domain(config);
     let mut opt = BayesOptimizer::from_domain(domain.clone(), &spec, 0, &mut rng)
         .map_err(|e| e.to_string())?;
     let unit = opt.ask(1, &mut rng).map_err(|e| e.to_string())?;
@@ -239,7 +262,7 @@ restart-candidates = 8
 
 fn run_ppo(config: &Config, rep: u32, worker: &mut Option<ToraxWorker>) -> Result<SeedRun, String> {
     let seed = baux::tune_seed(&config.experiment, "proposal", rep, 0);
-    let init_weights = seed_weights(seed)?;
+    let init_weights = seed_weights(seed, config)?;
     let mut rng = prng(seed ^ 0x5050_4f00);
     let mut agent = baux::tokamak::ppo::CandlePpo::new(&init_weights, &mut rng)?;
     let steps = 20usize;
@@ -290,10 +313,15 @@ fn run_ppo(config: &Config, rep: u32, worker: &mut Option<ToraxWorker>) -> Resul
         total_rounds,
         elapsed_seconds
     );
+    let p_dim = if is_tokagym(config) {
+        baux::tokamak::TOKAGYM_PARAMS
+    } else {
+        baux::tokamak::TOTAL_PARAMS
+    };
     Ok(SeedRun {
         rep,
         seed,
-        num_dim: baux::tokamak::TOTAL_PARAMS,
+        num_dim: p_dim,
         initial_error,
         final_score: best_score,
         final_error,
@@ -351,7 +379,7 @@ fn run_seed(
     let mut best_scores = Vec::with_capacity(total_rounds);
     let start_time = Instant::now();
 
-    let domain = baux::tokamak::domain_frame();
+    let domain = exp_domain(config);
     for round in 1..=total_rounds {
         let unit = optimizer.ask(arms, &mut rng).map_err(|e| e.to_string())?;
         let points = domain.from_unit(&unit.view());
@@ -427,27 +455,51 @@ fn aggregate_traces(runs: &[SeedRun], total_rounds: usize) -> Vec<Value> {
         .collect()
 }
 
+fn spawn_worker(config: &Config, root: Option<&Path>) -> Result<Option<ToraxWorker>, String> {
+    let Some(r) = root else {
+        return Ok(None);
+    };
+    let (mod_name, lock, obs, act) = if is_tokagym(config) {
+        (
+            "benchmarks.tokagym.tokagym_rollout",
+            "tokagym",
+            baux::tokamak::TOKAGYM_OBS,
+            baux::tokamak::TOKAGYM_ACT,
+        )
+    } else {
+        (
+            "benchmarks.torax.torax_rollout",
+            "torax",
+            baux::tokamak::OBS_DIM,
+            baux::tokamak::ACTION_DIM,
+        )
+    };
+    ToraxWorker::spawn(r, mod_name, lock, obs, act).map(Some)
+}
+
 fn run_opt(config: &Config, root: Option<&Path>) -> Result<Value, String> {
     let reps = config.repetitions.max(1);
-    let num_regions = config
+    let regions = config
         .optimizer
         .regional_search()
         .map(|r| r.count)
         .unwrap_or(1);
-    let mut worker = match root {
-        Some(r) => Some(ToraxWorker::spawn(r)?),
-        None => None,
-    };
+    let mut worker = spawn_worker(config, root)?;
     let is_ppo = matches!(config.optimizer, OptimizerSpec::Ppo);
     eprintln!(
-        "[tune] starting TORAX 2.0.0 closed-loop 93->19 {} | rounds={} regions={} repetitions={}",
+        "[tune] starting {} closed-loop {} | rounds={} regions={} repetitions={}",
+        if is_tokagym(config) {
+            "TokaGym"
+        } else {
+            "TORAX 2.0.0"
+        },
         if is_ppo {
             "Candle PPO (Metal GPU)"
         } else {
             "multi-trust-region BO"
         },
         config.rounds,
-        num_regions,
+        regions,
         reps
     );
     let runs: Vec<SeedRun> = (0..reps)
@@ -464,11 +516,11 @@ fn run_opt(config: &Config, root: Option<&Path>) -> Result<Value, String> {
     let final_scores: Vec<f64> = runs.iter().map(|r| r.final_score).collect();
     let final_errs: Vec<f64> = runs.iter().map(|r| r.final_error).collect();
     let reductions: Vec<f64> = runs.iter().map(|r| r.reduction_pct).collect();
-    let (init_err_mean, init_err_sem) = mean_sem(&init_errs);
-    let (final_score_mean, final_score_sem) = mean_sem(&final_scores);
-    let (final_err_mean, final_err_sem) = mean_sem(&final_errs);
+    let (init_mean, init_sem) = mean_sem(&init_errs);
+    let (score_mean, score_sem) = mean_sem(&final_scores);
+    let (err_mean, err_sem) = mean_sem(&final_errs);
     let (red_mean, red_sem) = mean_sem(&reductions);
-    let total_elapsed: f64 = runs.iter().map(|r| r.elapsed_seconds).sum();
+    let elapsed: f64 = runs.iter().map(|r| r.elapsed_seconds).sum();
     let traces = aggregate_traces(&runs, config.rounds);
     let seed_runs: Vec<Value> = runs
         .iter()
@@ -486,22 +538,27 @@ fn run_opt(config: &Config, root: Option<&Path>) -> Result<Value, String> {
             })
         })
         .collect();
+    let (exp_name, task_name) = if is_tokagym(config) {
+        ("tokamak-tokagym", "TCV-11-to-8-Policy-Optimization")
+    } else {
+        ("tokamak-tcv", "TCV-93-to-19-Policy-Optimization")
+    };
     Ok(json!({
-        "experiment": "tokamak-tcv",
-        "task": "TCV-93-to-19-Policy-Optimization",
+        "experiment": exp_name,
+        "task": task_name,
         "parameters": num_dim,
-        "regions": num_regions,
+        "regions": regions,
         "rounds": config.rounds,
         "repetitions": reps,
-        "initial_tracking_error": init_err_mean,
-        "initial_tracking_error_sem": init_err_sem,
-        "final_score_mean": final_score_mean,
-        "final_score_sem": final_score_sem,
-        "final_tracking_error": final_err_mean,
-        "final_tracking_error_sem": final_err_sem,
+        "initial_tracking_error": init_mean,
+        "initial_tracking_error_sem": init_sem,
+        "final_score_mean": score_mean,
+        "final_score_sem": score_sem,
+        "final_tracking_error": err_mean,
+        "final_tracking_error_sem": err_sem,
         "tracking_error_reduction_pct": red_mean,
         "tracking_error_reduction_pct_sem": red_sem,
-        "elapsed_seconds": total_elapsed,
+        "elapsed_seconds": elapsed,
         "traces": traces,
         "seed_runs": seed_runs,
     }))

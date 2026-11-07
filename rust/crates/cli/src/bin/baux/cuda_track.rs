@@ -281,7 +281,7 @@ fn run_modal(
     if let Some(parent) = out.parent() {
         std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
     }
-    let status = Command::new(root.join("tools/buck2w"))
+    let status = Command::new(root.join("admin/tools/buck2w"))
         .current_dir(root)
         .args(["run", "//rust/crates/modal-runner:baux-modal", "--", "bo"])
         .arg("--candidates")
@@ -390,7 +390,7 @@ fn generate_t4(
     {
         return Err("invalid CUDA generation dimensions or sampling parameters".into());
     }
-    let status = Command::new(root.join("tools/buck2w"))
+    let status = Command::new(root.join("admin/tools/buck2w"))
         .current_dir(root)
         .args([
             "run",
@@ -439,7 +439,7 @@ pub(crate) fn run(root: &Path, action: Action) -> Result<(), String> {
     if let Action::Wheel { out } = &action {
         let status = Command::new("modal")
             .current_dir(root)
-            .args(["run", "ops/modal_build.py", "--output-directory"])
+            .args(["run", "admin/ops/modal_build.py", "--output-directory"])
             .arg(out)
             .status()
             .map_err(|error| error.to_string())?;
@@ -455,7 +455,7 @@ pub(crate) fn run(root: &Path, action: Action) -> Result<(), String> {
     );
     let result = match action {
         Action::Setup { args } => {
-            let status = Command::new(root.join("tools/cuda-setup"))
+            let status = Command::new(root.join("admin/tools/cuda-setup"))
                 .args(args)
                 .current_dir(root)
                 .status()
@@ -506,7 +506,7 @@ pub(crate) fn run(root: &Path, action: Action) -> Result<(), String> {
                 );
             }
             let (name, args) = other.command();
-            let status = Command::new(root.join("tools/cuda-run"))
+            let status = Command::new(root.join("admin/tools/cuda-run"))
                 .arg(name)
                 .args(args)
                 .current_dir(root)

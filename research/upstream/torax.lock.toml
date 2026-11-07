@@ -1,0 +1,43 @@
+[archive]
+package = "torax"
+version = "2.0.0"
+url = "https://github.com/google-deepmind/torax"
+dist_info_record_sha256 = "a96fdf6a7af21d35752c487e0d3b3dcc12f2d033716c14b8e941a0e2239a89d7"
+dist_info_record_sha512 = "a279a6f89cbc6a152f763d764ba94140b5eddc77f97465b71d2f1ae736e5916f7e51731563bc4b592837c624cb4382af29ed6e3b723936e4d9bc870a1b8bc9f8"
+license = "Apache-2.0"
+
+[papers]
+citrin_2024_arxiv = "2406.06718"
+tracey_2024_doi = "10.1016/j.fusengdes.2024.114161"
+pfau_2025_arxiv = "2505.00663"
+
+[merkle]
+cache_relpath = ".pixi/envs/baux-py314/lib/python3.14/site-packages/torax"
+merkle_root_sha256 = "c92bf6bcc7e38c9d641f7968802317063bc29e64139357cb52203406018877a4"
+merkle_root_sha512 = "fc61b50d56b9a4231eb65fe3ea219af548fce125f9a9f4c1e3c894b574b12ef02dd1539e400e1988624bc13e0e06ccda34ebd3feccd4550e8809dbab7764b042"
+file_count = 335
+total_bytes = 25512112
+
+[input_paths]
+init = "__init__.py"
+constants = "_src/constants.py"
+chease = "_src/geometry/chease.py"
+geometry_loader = "_src/geometry/geometry_loader.py"
+iterhybrid_mat2cols = "data/third_party/geo/iterhybrid.mat2cols"
+experimental_init = "experimental/__init__.py"
+
+[inputs]
+init_sha256 = "36fd869de7ff6995052315aa5c3d830e5aa3dc50b9977d35814bc7f9da65698f"
+constants_sha256 = "03218a7800c2764db458b852da943f132197a8a66471c64dd66ebf7da9472e13"
+chease_sha256 = "86ba7543baa5605e9a1706a585a0d67ca56b457862f7eabd6d8a0fb8bcaf0321"
+geometry_loader_sha256 = "2625d06692e0b285f9209559bdcb93d7e51357c0735c35e2c47b4eedff71f53c"
+iterhybrid_mat2cols_sha256 = "11d43613bf3b508b1b3d41c63ddefe642d725bf9de8dc0da230ffd3223400e08"
+experimental_init_sha256 = "326f3cd0654bd023a2c3e3f92843b396283de88b9a37b5f808793e7f9f4120b7"
+
+[inputs_sha512]
+init_sha512 = "4db8f4d5b190337c4552a92c5d51f421dd7184ea529d8a24e1a9167ada85798a4362e034b02af18e027b2eba42d44f774770079963d63a27102d453a1d0e06ea"
+constants_sha512 = "fb0af6dd1d9eae003b7bfa9be6bf858fe9697c61cd61e3cd480f39070c5e7dc31acaed6e7dc02d3ec1cd44717d7ab40314c6b666a812fb9ca421ab9f07dbd553"
+chease_sha512 = "1e22a829d69209c5b986e5617564476a0af0482ae7396cfd0933773c133ae07fc3f7167f201ee65294c1a0797bfa6a9d8a925aab7655e6245dce8c097cd9ad49"
+geometry_loader_sha512 = "d4c3506283781c766ab3c3db1fb6a1384412378ed1d72494ce6ba05145b7a9bf51268426f27c1e799d21b89261c2d5574420b67f477bd161b673f6bc84f713cd"
+iterhybrid_mat2cols_sha512 = "1786dd48e63a14e7ae6cb1b9b94ec3e6e76acedf4139cb724e33779ea5a151269945b3ea9a9cea8628ff0f6aa87cd9d88a26331d7fce673a0830db7fab817813"
+experimental_init_sha512 = "838556f364c9e2451da0eeba2ab12f553b268b3b23feed5af2c7119bad77cf9f2de75d2732041b8b7d20a9a0d5bee720f73103afc26e68c134ee2af4c3898a58"

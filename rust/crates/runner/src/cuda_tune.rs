@@ -145,7 +145,7 @@ impl Mhc4Job<'_> {
 }
 
 fn launch_modal(job: &Mhc4Job<'_>) -> Result<std::process::ExitStatus, String> {
-    let mut command = Command::new(job.root.join("tools/buck2w"));
+    let mut command = Command::new(job.root.join("admin/tools/buck2w"));
     command
         .current_dir(job.root)
         .env("BAUX_CUDA_DATASET", job.dataset)
@@ -168,7 +168,7 @@ fn launch_local(job: &Mhc4Job<'_>) -> Result<std::process::ExitStatus, String> {
         }
         path
     } else {
-        let build = Command::new(job.root.join("tools/cuda-run"))
+        let build = Command::new(job.root.join("admin/tools/cuda-run"))
             .current_dir(job.root)
             .env_remove("RUSTUP_TOOLCHAIN")
             .arg("build")

@@ -73,10 +73,10 @@ fn run(options: Options) -> Result<(), String> {
         baux::artifact::json::from_str(&output).map_err(|e| e.to_string())?;
     metadata.packages.sort_by(|a, b| a.name.cmp(&b.name));
     let generated = render(&metadata)?;
-    let path = metadata.workspace_root.join("build/targets.bzl");
+    let path = metadata.workspace_root.join("admin/targets.bzl");
     if options.check {
         if fs::read_to_string(&path).map_err(|e| e.to_string())? != generated {
-            return Err("Cargo projection is stale; run tools/build-parity --sync".into());
+            return Err("Cargo projection is stale; run admin/tools/build-parity --sync".into());
         }
     } else {
         fs::write(path, generated).map_err(|e| e.to_string())?;
@@ -114,7 +114,7 @@ fn packages(metadata: &Metadata) -> impl Iterator<Item = &Package> {
 
 fn render(metadata: &Metadata) -> Result<String, String> {
     let mut output = String::from(
-        "\"\"\"Generated from Cargo metadata by tools/build-parity --sync. Do not edit.\"\"\"\n\n",
+        "\"\"\"Generated from Cargo metadata by admin/tools/build-parity --sync. Do not edit.\"\"\"\n\n",
     );
     for package in packages(metadata) {
         let directory = package
@@ -229,7 +229,7 @@ fn capture(program: &str, args: &[&str]) -> Result<String, String> {
 }
 
 fn parity(metadata: &Metadata) -> Result<(), String> {
-    let buck = capture("./tools/buck2w", &["targets", "//rust/crates/..."])?;
+    let buck = capture("./admin/tools/buck2w", &["targets", "//rust/crates/..."])?;
     let bazel = capture("bazel", &["query", "//rust/crates/...", "--output=label"])?;
     let labels = |text: &str| {
         text.lines()

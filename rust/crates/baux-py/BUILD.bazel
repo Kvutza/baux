@@ -1,7 +1,7 @@
 load("@crates//:defs.bzl", "aliases", "crate_edition")
 load("@rules_rust//rust:defs.bzl", "rust_shared_library")
-load("//build/bazel:python_extension.bzl", "copy_extension")
-load("//build:targets.bzl", "BAUX_PY_CRATES")
+load("//admin/bazel:python_extension.bzl", "copy_extension")
+load("//admin:targets.bzl", "BAUX_PY_CRATES")
 load("//rust/crates/baux:defs.bzl", "baux_crate_deps")
 
 package(default_visibility = ["//visibility:public"])

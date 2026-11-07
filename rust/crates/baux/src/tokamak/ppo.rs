@@ -12,7 +12,10 @@
 //! - **Candle Framework**: HuggingFace Candle (<https://github.com/huggingface/candle>,
 //!   `candle-core` & `candle-nn` `v0.9.2` with Apple `metal` backend).
 
-use super::{ACTION_DIM, MLP_LAYERS, OBS_DIM, TOTAL_PARAMS};
+use super::{
+    ACTION_DIM, MLP_LAYERS, OBS_DIM, TOKAGYM_ACT, TOKAGYM_LAYERS, TOKAGYM_OBS, TOKAGYM_PARAMS,
+    TOTAL_PARAMS,
+};
 use candle_core::{DType, Device, Tensor, Var};
 use candle_nn::{AdamW, Optimizer, ParamsAdamW};
 use rand::Rng;
@@ -62,6 +65,9 @@ struct EpisodeStepBatch {
 /// GPU.
 pub struct CandlePpo {
     device: Device,
+    obs_dim: usize,
+    action_dim: usize,
+    total_params: usize,
     actor_w: [Var; 4],
     actor_b: [Var; 4],
     log_std: Var,
@@ -72,15 +78,20 @@ pub struct CandlePpo {
 }
 
 impl CandlePpo {
-    /// Initializes Actor from `init_weights` (`160,531` parameters) and Critic
-    /// with Kaiming uniform initialization on the Metal GPU device.
+    /// Initializes Actor from `init_weights` (`160,531` TORAX or `136,712`
+    /// TokaGym parameters) and Critic with Kaiming uniform initialization
+    /// on the Metal GPU device.
     pub fn new(init_weights: &[f64], rng: &mut dyn rand::RngCore) -> Result<Self, String> {
-        assert_eq!(init_weights.len(), TOTAL_PARAMS);
+        let (obs_dim, action_dim, layers) = match init_weights.len() {
+            TOTAL_PARAMS => (OBS_DIM, ACTION_DIM, &MLP_LAYERS),
+            TOKAGYM_PARAMS => (TOKAGYM_OBS, TOKAGYM_ACT, &TOKAGYM_LAYERS),
+            n => return Err(format!("unsupported tokamak policy parameter count: {n}")),
+        };
         let device = metal_device()?;
-        let (actor_w, actor_b) = build_actor(init_weights, &device)?;
-        let log_std = Var::from_slice(&[INIT_LOGSTD; ACTION_DIM], (1, ACTION_DIM), &device)
+        let (actor_w, actor_b) = build_actor(init_weights, layers, &device)?;
+        let log_std = Var::from_slice(&vec![INIT_LOGSTD; action_dim], (1, action_dim), &device)
             .map_err(|e| e.to_string())?;
-        let (critic_w, critic_b) = build_critic(rng, &device)?;
+        let (critic_w, critic_b) = build_critic(obs_dim, rng, &device)?;
 
         let mut vars = Vec::with_capacity(15);
         vars.extend(actor_w.iter().cloned());
@@ -99,6 +110,9 @@ impl CandlePpo {
         let opt = AdamW::new(vars, params).map_err(|e| e.to_string())?;
         Ok(Self {
             device,
+            obs_dim,
+            action_dim,
+            total_params: init_weights.len(),
             actor_w,
             actor_b,
             log_std,
@@ -114,10 +128,10 @@ impl CandlePpo {
         self.device.is_metal()
     }
 
-    /// Exports the current 160,531 Actor parameters from Metal GPU memory to
-    /// host `f64`.
+    /// Exports the current Actor parameters from Metal GPU memory to host
+    /// `f64`.
     pub fn actor_weights(&self) -> Result<Vec<f64>, String> {
-        let mut out = Vec::with_capacity(TOTAL_PARAMS);
+        let mut out = Vec::with_capacity(self.total_params);
         for layer in 0..4 {
             let w_vec = self.actor_w[layer]
                 .as_tensor()
@@ -136,7 +150,7 @@ impl CandlePpo {
     }
 
     /// Samples pre-tanh Gaussian exploration noise `eps` of length `steps *
-    /// ACTION_DIM` using the current learnable `log_std` tensor.
+    /// action_dim` using the current learnable `log_std` tensor.
     pub fn sample_noise(
         &self,
         steps: usize,
@@ -144,7 +158,7 @@ impl CandlePpo {
         rng: &mut dyn rand::RngCore,
     ) -> Result<Vec<f32>, String> {
         if deterministic {
-            return Ok(vec![0.0f32; steps * ACTION_DIM]);
+            return Ok(vec![0.0f32; steps * self.action_dim]);
         }
         let log_std_vec = self
             .log_std
@@ -156,7 +170,7 @@ impl CandlePpo {
             .into_iter()
             .map(|ls| ls.clamp(-4.0, -0.5).exp())
             .collect();
-        let mut eps = Vec::with_capacity(steps * ACTION_DIM);
+        let mut eps = Vec::with_capacity(steps * self.action_dim);
         for _ in 0..steps {
             for &s in &stds {
                 let z: f32 = rng.sample(StandardNormal);
@@ -175,8 +189,8 @@ impl CandlePpo {
         rewards: Vec<f32>,
     ) -> Result<bool, String> {
         let steps = rewards.len();
-        assert_eq!(obs.len(), steps * OBS_DIM);
-        assert_eq!(u.len(), steps * ACTION_DIM);
+        assert_eq!(obs.len(), steps * self.obs_dim);
+        assert_eq!(u.len(), steps * self.action_dim);
         self.buffer.push(EpisodeStepBatch {
             obs,
             u,
@@ -260,15 +274,15 @@ impl CandlePpo {
 
     fn ppo_update(&mut self) -> Result<(), String> {
         let total_steps: usize = self.buffer.iter().map(|ep| ep.steps).sum();
-        let mut all_obs = Vec::with_capacity(total_steps * OBS_DIM);
-        let mut all_u = Vec::with_capacity(total_steps * ACTION_DIM);
+        let mut all_obs = Vec::with_capacity(total_steps * self.obs_dim);
+        let mut all_u = Vec::with_capacity(total_steps * self.action_dim);
         for ep in &self.buffer {
             all_obs.extend_from_slice(&ep.obs);
             all_u.extend_from_slice(&ep.u);
         }
-        let obs_t = Tensor::from_vec(all_obs, (total_steps, OBS_DIM), &self.device)
+        let obs_t = Tensor::from_vec(all_obs, (total_steps, self.obs_dim), &self.device)
             .map_err(|e| e.to_string())?;
-        let u_t = Tensor::from_vec(all_u, (total_steps, ACTION_DIM), &self.device)
+        let u_t = Tensor::from_vec(all_u, (total_steps, self.action_dim), &self.device)
             .map_err(|e| e.to_string())?;
         let values_old = self
             .critic_forward(&obs_t)
@@ -291,11 +305,15 @@ impl CandlePpo {
     }
 }
 
-fn build_actor(init_weights: &[f64], device: &Device) -> Result<([Var; 4], [Var; 4]), String> {
+fn build_actor(
+    init_weights: &[f64],
+    layers: &[(usize, usize); 4],
+    device: &Device,
+) -> Result<([Var; 4], [Var; 4]), String> {
     let mut offset = 0usize;
     let mut ws = Vec::with_capacity(4);
     let mut bs = Vec::with_capacity(4);
-    for &(fan_in, fan_out) in &MLP_LAYERS {
+    for &(fan_in, fan_out) in layers {
         let w_len = fan_in * fan_out;
         let w_f32: Vec<f32> = init_weights[offset..offset + w_len]
             .iter()
@@ -347,10 +365,11 @@ fn kaiming_var(
 }
 
 fn build_critic(
+    obs_dim: usize,
     rng: &mut dyn rand::RngCore,
     device: &Device,
 ) -> Result<([Var; 3], [Var; 3]), String> {
-    let (w_in, b_in) = kaiming_var(OBS_DIM, CRITIC_HIDDEN, rng, device)?;
+    let (w_in, b_in) = kaiming_var(obs_dim, CRITIC_HIDDEN, rng, device)?;
     let (w_mid, b_mid) = kaiming_var(CRITIC_HIDDEN, CRITIC_HIDDEN, rng, device)?;
     let (w_out, b_out) = kaiming_var(CRITIC_HIDDEN, 1, rng, device)?;
     Ok(([w_in, w_mid, w_out], [b_in, b_mid, b_out]))

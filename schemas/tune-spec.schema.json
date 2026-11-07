@@ -13,8 +13,8 @@
     },
     "experiment": {
       "type": "string",
-      "enum": ["end-to-end", "moe-layer", "pretrain", "generation", "tokamak-tcv"],
-      "description": "Experiment workflow type: 'pretrain' for foundation model pretraining, 'generation' for sequence generation tasks, or 'tokamak-tcv' for TCV tokamak policy optimization."
+      "enum": ["end-to-end", "moe-layer", "pretrain", "generation", "tokamak-tcv", "tokamak-tokagym"],
+      "description": "Experiment workflow type: 'pretrain' for foundation model pretraining, 'generation' for sequence generation tasks, 'tokamak-tcv' for TORAX TCV policy optimization, or 'tokamak-tokagym' for TokaGym TCV policy optimization."
     },
     "model": {
       "type": "string",

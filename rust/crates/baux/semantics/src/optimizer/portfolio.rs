@@ -5,6 +5,9 @@
 //! their own numerical state and storage. This keeps execution-specific arrays
 //! and device buffers out of the shared interface.
 
+mod policy;
+pub use policy::*;
+
 use std::{
     fmt,
     sync::atomic::{AtomicU64, Ordering},
@@ -34,8 +37,8 @@ pub struct RegionBatch {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Allocation {
-    Balanced,
-    Ucb { exploration: f64 },
+    LeastTrials,
+    IncumbentUcb1 { exploration: f64 },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -93,7 +96,7 @@ impl RegionalLedger {
         {
             return Err(RegionalError::InvalidOutcome);
         }
-        if matches!(allocation, Allocation::Ucb { exploration } if !exploration.is_finite() || exploration < 0.0)
+        if matches!(allocation, Allocation::IncumbentUcb1 { exploration } if !exploration.is_finite() || exploration < 0.0)
         {
             return Err(RegionalError::InvalidAllocation);
         }
@@ -174,7 +177,13 @@ impl RegionalLedger {
         let utility = self
             .regions
             .iter()
-            .map(|region| region.mean)
+            .map(|region| {
+                if region.best.is_finite() {
+                    region.best
+                } else {
+                    region.mean
+                }
+            })
             .collect::<Vec<_>>();
         self.allocate_with(budget, eligible, &utility)
     }
@@ -204,8 +213,8 @@ impl RegionalLedger {
             return Err(RegionalError::NoAvailableRegion);
         }
         match self.allocation {
-            Allocation::Balanced => self.allocate_balanced(budget, available),
-            Allocation::Ucb { exploration } => {
+            Allocation::LeastTrials => self.allocate_least(budget, available),
+            Allocation::IncumbentUcb1 { exploration } => {
                 self.allocate_ucb(budget, available, utility, exploration)
             }
         }
@@ -291,15 +300,19 @@ impl RegionalLedger {
         Ok(())
     }
 
-    pub fn set_best(&mut self, slot: usize, incumbent: f64) -> Result<(), RegionalError> {
-        if incumbent.is_nan() || incumbent == f64::INFINITY {
+    pub fn adopt_shared(&mut self, slot: usize, reward: f64) -> Result<bool, RegionalError> {
+        if !reward.is_finite() {
             return Err(RegionalError::InvalidOutcome);
         }
-        self.regions
+        let region = self
+            .regions
             .get_mut(slot)
-            .ok_or(RegionalError::InvalidRegion)?
-            .best = incumbent;
-        Ok(())
+            .ok_or(RegionalError::InvalidRegion)?;
+        let improved = reward > region.best;
+        if improved {
+            region.best = reward;
+        }
+        Ok(improved)
     }
 
     pub fn finish(&mut self, ticket: RegionTicket) -> Result<(), RegionalError> {
@@ -340,7 +353,7 @@ impl RegionalLedger {
         Ok(abandoned)
     }
 
-    fn allocate_balanced(
+    fn allocate_least(
         &self,
         budget: usize,
         available: Vec<usize>,
@@ -369,6 +382,7 @@ impl RegionalLedger {
         utility: &[f64],
         exploration: f64,
     ) -> Result<Vec<RegionBatch>, RegionalError> {
+        let norm = norm_utility(&available, utility);
         let total = self
             .regions
             .iter()
@@ -377,8 +391,8 @@ impl RegionalLedger {
             .max(1) as f64;
         if budget < available.len() {
             available.sort_by(|&left, &right| {
-                self.priority(right, 0, total, utility[right], exploration)
-                    .total_cmp(&self.priority(left, 0, total, utility[left], exploration))
+                self.priority(right, 0, total, norm[right], exploration)
+                    .total_cmp(&self.priority(left, 0, total, norm[left], exploration))
                     .then_with(|| left.cmp(&right))
             });
             let mut counts = vec![0usize; self.len()];
@@ -396,12 +410,12 @@ impl RegionalLedger {
                 .iter()
                 .copied()
                 .max_by(|&left, &right| {
-                    self.priority(left, counts[left], total, utility[left], exploration)
+                    self.priority(left, counts[left], total, norm[left], exploration)
                         .total_cmp(&self.priority(
                             right,
                             counts[right],
                             total,
-                            utility[right],
+                            norm[right],
                             exploration,
                         ))
                         .then_with(|| right.cmp(&left))
@@ -445,13 +459,34 @@ impl RegionalLedger {
     }
 }
 
+fn norm_utility(available: &[usize], utility: &[f64]) -> Vec<f64> {
+    let lo = available
+        .iter()
+        .map(|&slot| utility[slot])
+        .fold(f64::INFINITY, f64::min);
+    let hi = available
+        .iter()
+        .map(|&slot| utility[slot])
+        .fold(f64::NEG_INFINITY, f64::max);
+    let span = hi - lo;
+    if span > 1e-12 && span.is_finite() {
+        utility
+            .iter()
+            .map(|&val| ((val - lo) / span).clamp(0.0, 1.0))
+            .collect()
+    } else {
+        vec![0.5; utility.len()]
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn lifecycle() {
-        let mut ledger = RegionalLedger::new(&[f64::NEG_INFINITY], Allocation::Balanced).unwrap();
+        let mut ledger =
+            RegionalLedger::new(&[f64::NEG_INFINITY], Allocation::LeastTrials).unwrap();
         let ticket = ledger.issue(0).unwrap();
         ledger.complete(ticket, &[1.0, 3.0], 3.0).unwrap();
         assert_eq!(ledger.trials(), [2]);
@@ -462,7 +497,7 @@ mod tests {
 
     #[test]
     fn allocation() {
-        let mut ledger = RegionalLedger::new(&[0.0; 3], Allocation::Balanced).unwrap();
+        let mut ledger = RegionalLedger::new(&[0.0; 3], Allocation::LeastTrials).unwrap();
         ledger.observe(0, &[1.0], 1.0).unwrap();
         let busy = ledger.issue(1).unwrap();
         let batches = ledger.allocate(4, &[true; 3]).unwrap();
@@ -486,7 +521,7 @@ mod tests {
 
     #[test]
     fn restart_pending() {
-        let mut ledger = RegionalLedger::new(&[1.0], Allocation::Balanced).unwrap();
+        let mut ledger = RegionalLedger::new(&[1.0], Allocation::LeastTrials).unwrap();
         let ticket = ledger.issue(0).unwrap();
         assert_eq!(ledger.restart(0, 3.0).unwrap(), Some(ticket));
         assert_eq!(ledger.generation(0), Some(1));

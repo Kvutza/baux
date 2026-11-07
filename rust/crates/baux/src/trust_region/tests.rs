@@ -326,3 +326,95 @@ fn length_bounds() {
             .is_nan()
     );
 }
+
+/// Differential parity test against unmodified upstream `uber-research/TuRBO`
+/// (`turbo/turbo_1.py` and `turbo/turbo_m.py`, commit
+/// `de0db39f481d9505bb3610b7b7aa0ebf7702e4a5`, Eriksson et al., NeurIPS 2019,
+/// arXiv:1910.01739).
+#[test]
+fn upstream_turbo() {
+    let fixture: baux::artifact::json::Value =
+        baux::artifact::json::from_str(include_str!("fixtures.json")).expect("valid TuRBO fixture");
+    assert_eq!(
+        fixture["upstream_revision"].as_str(),
+        Some("de0db39f481d9505bb3610b7b7aa0ebf7702e4a5")
+    );
+
+    let t1 = &fixture["turbo1"];
+    let cfg = TRLengthConfig::new(
+        t1["length_init"].as_f64().unwrap(),
+        t1["length_min"].as_f64().unwrap(),
+        t1["length_max"].as_f64().unwrap(),
+    );
+    let mut tr = TurboTrustRegion::new(t1["dim"].as_u64().unwrap() as usize, cfg);
+    tr.set_arms(t1["batch_size"].as_u64().unwrap() as usize);
+    assert_eq!(
+        tr.success_tolerance(),
+        t1["succtol"].as_i64().unwrap() as i32
+    );
+    assert_eq!(
+        tr.failure_tolerance(),
+        t1["failtol"].as_i64().unwrap() as i32
+    );
+
+    let mut n_obs = 1usize;
+    let y0 = -t1["initial_fx"].as_f64().unwrap();
+    tr.update_batch(&array![y0].view(), n_obs, y0).unwrap();
+    for step in t1["steps"].as_seq().unwrap() {
+        n_obs += 1;
+        let y_next = -step["fx"].as_f64().unwrap();
+        tr.update_batch(&array![y_next].view(), n_obs, y_next)
+            .unwrap();
+        assert!((tr.length() - step["length"].as_f64().unwrap()).abs() < 1e-15);
+        assert_eq!(
+            tr.success_counter(),
+            step["succcount"].as_i64().unwrap() as i32
+        );
+        assert_eq!(
+            tr.failure_counter(),
+            step["failcount"].as_i64().unwrap() as i32
+        );
+        assert_eq!(tr.needs_restart(), step["needs_restart"].as_bool().unwrap());
+    }
+
+    let tm = &fixture["turbom"];
+    let m_regions = tm["n_trust_regions"].as_u64().unwrap() as usize;
+    let init_fx = tm["initial_fx"].as_seq().unwrap();
+    let mut regions: Vec<TurboTrustRegion> = (0..m_regions)
+        .map(|idx| {
+            let mut region = TurboTrustRegion::new(tm["dim"].as_u64().unwrap() as usize, cfg);
+            region.set_arms(tm["batch_size"].as_u64().unwrap() as usize);
+            region
+                .set_tolerance(tm["failtol"].as_u64().unwrap() as usize)
+                .unwrap();
+            let y_init = -init_fx[idx].as_f64().unwrap();
+            region
+                .update_batch(&array![y_init].view(), 1, y_init)
+                .unwrap();
+            region
+        })
+        .collect();
+    let mut obs_counts = vec![1usize; m_regions];
+    for step in tm["steps"].as_seq().unwrap() {
+        let r = step["region"].as_u64().unwrap() as usize;
+        obs_counts[r] += 1;
+        let y_next = -step["fx"].as_f64().unwrap();
+        regions[r]
+            .update_batch(&array![y_next].view(), obs_counts[r], y_next)
+            .unwrap();
+        let lengths = step["lengths"].as_seq().unwrap();
+        let succs = step["succcount"].as_seq().unwrap();
+        let fails = step["failcount"].as_seq().unwrap();
+        for idx in 0..m_regions {
+            assert!((regions[idx].length() - lengths[idx].as_f64().unwrap()).abs() < 1e-15);
+            assert_eq!(
+                regions[idx].success_counter(),
+                succs[idx].as_i64().unwrap() as i32
+            );
+            assert_eq!(
+                regions[idx].failure_counter(),
+                fails[idx].as_i64().unwrap() as i32
+            );
+        }
+    }
+}

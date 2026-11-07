@@ -10,6 +10,10 @@
 
 use super::*;
 
+#[path = "optimizer/regional.rs"]
+mod regional;
+pub use regional::*;
+
 /// A closed optimizer recipe. The selected algorithm determines which
 /// scientific roles exist; unrelated sections are rejected by deserialization.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -30,9 +34,10 @@ pub enum OptimizerSpec {
         surrogate: SurrogateRecipe,
         #[deser(default)]
         trust_region: TrustRegionBounds,
+        regional_search: Option<RegionalSearchSpec>,
     },
-    #[deser(rename = "turbo-enn")]
-    TurboEnn {
+    #[deser(rename = "bayesian-search")]
+    BayesianSearch {
         #[deser(default = turbo_candidates())]
         candidates: u32,
         #[deser(default = default_arms())]
@@ -46,11 +51,14 @@ pub enum OptimizerSpec {
         surrogate: SurrogateRecipe,
         #[deser(default)]
         trust_region: TrustRegionBounds,
+        regional_search: Option<RegionalSearchSpec>,
     },
     #[deser(rename = "muon")]
     Muon,
     #[deser(rename = "adamw")]
     Adamw,
+    #[deser(rename = "ppo")]
+    Ppo,
 }
 
 impl OptimizerSpec {
@@ -66,7 +74,7 @@ impl OptimizerSpec {
                 distribution: Some(*distribution),
                 perturbation: perturbation.clone(),
             }),
-            Self::TurboEnn {
+            Self::BayesianSearch {
                 candidates,
                 arms,
                 distribution,
@@ -78,8 +86,49 @@ impl OptimizerSpec {
                 distribution: *distribution,
                 perturbation: perturbation.clone(),
             }),
-            Self::Muon | Self::Adamw => None,
+            Self::Muon | Self::Adamw | Self::Ppo => None,
         }
+    }
+
+    pub fn regional_search(&self) -> Option<&RegionalSearchSpec> {
+        match self {
+            Self::OperatorBo {
+                regional_search, ..
+            }
+            | Self::BayesianSearch {
+                regional_search, ..
+            } => regional_search.as_ref(),
+            Self::Muon | Self::Adamw | Self::Ppo => None,
+        }
+    }
+
+    pub(crate) fn strategy(
+        &self,
+        dimensions: usize,
+        num_init: usize,
+        rng: &mut dyn rand::RngCore,
+    ) -> Result<crate::optimizer::Strategy, crate::error::ENNError> {
+        use crate::optimizer::{Strategy, StrategyState};
+        use crate::optimizer_config::InitStrategy;
+        let Some(regions) = self.regional_search() else {
+            return Ok(if num_init > 0 {
+                Strategy::hybrid(InitStrategy::LHD, num_init)
+            } else {
+                Strategy::turbo()
+            });
+        };
+        let bounds = match self {
+            Self::OperatorBo { trust_region, .. } | Self::BayesianSearch { trust_region, .. } => {
+                trust_region
+            }
+            Self::Muon | Self::Adamw | Self::Ppo => unreachable!("matrix optimizer handled above"),
+        };
+        let config = regions
+            .runtime(bounds)
+            .map_err(crate::error::ENNError::InvalidParameter)?;
+        Ok(Strategy::Experimental(StrategyState::configured(
+            dimensions, config, num_init, rng,
+        )?))
     }
 }
 
@@ -261,10 +310,12 @@ impl crate::optimizer_config::OptimizerConfig {
         use crate::optimizer_config::{AcquisitionConfig, CandidateConfig, SurrogateConfig};
         use crate::trust_region::TrustRegionConfig;
         match spec {
-            OptimizerSpec::Muon | OptimizerSpec::Adamw => Err(ENNError::InvalidParameter(
-                "Muon and AdamW are matrix pretraining optimizers, not ask/tell BO recipes"
-                    .to_string(),
-            )),
+            OptimizerSpec::Muon | OptimizerSpec::Adamw | OptimizerSpec::Ppo => {
+                Err(ENNError::InvalidParameter(
+                    "Muon, AdamW, and PPO are gradient optimizers, not ask/tell BO recipes"
+                        .to_string(),
+                ))
+            }
             OptimizerSpec::OperatorBo {
                 surrogate,
                 trust_region,
@@ -283,7 +334,7 @@ impl crate::optimizer_config::OptimizerConfig {
                     failure_tolerance_dim: None,
                 })
             }
-            OptimizerSpec::TurboEnn {
+            OptimizerSpec::BayesianSearch {
                 surrogate,
                 acquisition,
                 trust_region,
@@ -291,7 +342,11 @@ impl crate::optimizer_config::OptimizerConfig {
             } => {
                 let candidate_generation = spec.candidate_generation().unwrap();
                 let candidates = CandidateConfig::from_spec(&candidate_generation)?;
-                let surrogate_cfg = SurrogateConfig::from_recipe(surrogate)?;
+                let surrogate_cfg = if matches!(acquisition, AcquisitionSpec::Random) {
+                    SurrogateConfig::None
+                } else {
+                    SurrogateConfig::from_recipe(surrogate)?
+                };
                 let acq_cfg = AcquisitionConfig::from_spec(acquisition);
                 let tr_cfg = TrustRegionConfig::from_spec(trust_region)?;
                 Ok(Self {

@@ -170,13 +170,13 @@ fn invalid_observations() {
     assert!(
         opt.import_variance(
             &array![[0.5, 0.5]].view(),
-            &array![[1.0, 2.0]].view(),
+            &array![[1.0, f64::NAN]].view(),
             None,
             &mut rng,
         )
         .unwrap_err()
         .to_string()
-        .contains("scalar objective")
+        .contains("finite")
     );
     assert_eq!(opt.obs_count(), 0);
     for variance in [

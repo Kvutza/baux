@@ -14,11 +14,12 @@ def test_001():
     assert experimental.RegionCandidate is mtr.RegionCandidate
     assert experimental.CandidateProposal is mtr.CandidateProposal
     assert experimental.RegionRound is mtr.RegionRound
-    assert experimental.MultiTrustRegionLoop is mtr.MultiTrustRegionLoop
+    assert experimental.RegionalSearchLoop is mtr.RegionalSearchLoop
     assert experimental.make_region is mtr.make_region
-    assert mtr.SharingPolicy.SHARED.value == "shared"
+    assert mtr.SharingPolicy.BOX_CONTAIN.value == "box_contain"
+    assert mtr.SharingPolicy.ELLIPSOID_BALL.value == "ellipsoid_ball"
     assert mtr.SharingPolicy.NEAREST_CENTER.value == "nearest_center"
-    assert mtr.SharingPolicy.INDEPENDENT.value == "independent"
+    assert mtr.SharingPolicy.ORIGIN_ONLY.value == "origin_only"
     assert callable(mtr.allocate_batches)
     assert callable(mtr.select_candidates)
     assert mtr.multi_region is mtr
@@ -64,7 +65,7 @@ def test_003():
         def variance(self, region):
             return float(region)
 
-    loop = mtr.MultiTrustRegionLoop(_FakeState())
+    loop = mtr.RegionalSearchLoop(_FakeState())
 
     def proposal_fn(batch):
         return [

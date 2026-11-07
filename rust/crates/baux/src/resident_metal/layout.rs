@@ -221,5 +221,6 @@ pub fn acquisition(
         }
         AcquisitionKind::Pareto => mean + se,
         AcquisitionKind::Ucb => mean + config.acquisition.beta * se,
+        AcquisitionKind::Random => 0.0,
     }
 }

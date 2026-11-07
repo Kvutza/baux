@@ -7,8 +7,6 @@ use numpy::{
 };
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use rand::SeedableRng;
-use rand::rngs::StdRng;
 
 /// Inspect this extension's native operations; runtime initialization is
 /// opt-in.
@@ -140,27 +138,15 @@ pub fn sobol_py<'py>(
 
 /// Python helper for deterministic Sobol sequence generation.
 #[pyfunction(name = "sobol_sequence")]
-#[pyo3(signature = (dimension, num_points, seed=0))]
+#[pyo3(signature = (dimension, num_points, seed=None))]
 pub fn bind_sobol<'py>(
     py: Python<'py>,
     dimension: usize,
     num_points: usize,
-    seed: u64,
+    seed: Option<u64>,
 ) -> PyResult<Bound<'py, PyArrayDyn<f64>>> {
-    use pyo3::exceptions::PyValueError;
-
-    let mut engine = baux::candidates::SobolEngine::new(dimension)
+    let out = baux::sobol_sequence(dimension, num_points, baux::resolve_seed(seed))
         .map_err(|e| PyValueError::new_err(e.to_string()))?;
-    let mut rng = StdRng::seed_from_u64(seed);
-    let mut out = ndarray::Array2::zeros((num_points, dimension));
-    for i in 0..num_points {
-        let row = engine
-            .sample(&mut rng)
-            .map_err(|e| PyValueError::new_err(e.to_string()))?;
-        for j in 0..dimension {
-            out[[i, j]] = row[j];
-        }
-    }
     Ok(out.into_dyn().into_pyarray(py))
 }
 

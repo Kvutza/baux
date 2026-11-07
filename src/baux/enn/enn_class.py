@@ -7,7 +7,7 @@ import numpy as np
 
 from baux._rust import ENN as _RustENN
 from baux.enn.posterior_flags import PosteriorFlags
-from baux.turbo.config.surrogate import NeighborIndex
+from baux.index import INDEX_NAMES, NeighborIndex
 
 if TYPE_CHECKING:
     from .enn_normal import ENNNormal
@@ -52,8 +52,6 @@ def nearest_neighbors(
 
 
 def _rustname(index_driver: NeighborIndex) -> str:
-    from baux.turbo.config.surrogate import INDEX_NAMES
-
     if index_driver not in INDEX_NAMES:
         raise ValueError(f"Unsupported index driver: {index_driver}")
     name = INDEX_NAMES[index_driver]
@@ -94,7 +92,6 @@ def _finalizedraw(
             f"function draws must be 3D (num_samples, batch, metrics), "
             f"got shape {draws_arr.shape}"
         )
-    # Rust returns (num_samples, batch, metrics); match posterior().sample().
     draws_arr = np.transpose(draws_arr, (1, 2, 0))
     idx_arr = np.array(idx, dtype=int) if idx else np.zeros((x.shape[0], 0), dtype=int)
     return draws_arr, idx_arr
@@ -114,9 +111,76 @@ def _inputs(train_x, train_y, train_yvar):
     return train_x, train_y, train_yvar
 
 
+_DEVICE_DRIVERS = {
+    "cpu": NeighborIndex.FLAT,
+    "metal": NeighborIndex.METAL,
+    "cuda": NeighborIndex.CUDA,
+    "opencl": NeighborIndex.OPENCL,
+}
+_INDEX_ALIASES = {
+    "exact": NeighborIndex.EXACT,
+    "flat": NeighborIndex.EXACT,
+    "hnsw": NeighborIndex.HNSW,
+    "usearch": NeighborIndex.HNSW,
+    "tree": NeighborIndex.TREE,
+    "bpann": NeighborIndex.TREE,
+    "bpann_disk": NeighborIndex.TREE,
+    "auto": NeighborIndex.AUTO,
+}
+_INDEX_KINDS = {
+    NeighborIndex.USEARCH: "hnsw",
+    NeighborIndex.BPANN_DISK: "tree",
+    NeighborIndex.AUTO: "auto",
+}
+
+
+def _resolvedriver(index_driver: NeighborIndex, device: Any) -> NeighborIndex:
+    if device is None or index_driver != NeighborIndex.FLAT:
+        return index_driver
+    kind = getattr(device, "kind", str(device)).lower()
+    if kind not in _DEVICE_DRIVERS:
+        raise ValueError(f"Unsupported device: {device!r}")
+    return _DEVICE_DRIVERS[kind]
+
+
+def _resolveindex(
+    index_driver: NeighborIndex, index: NeighborIndex | str | None, device: Any
+) -> tuple[NeighborIndex, str | None]:
+    if index is None:
+        return _resolvedriver(index_driver, device), None
+    if isinstance(index, NeighborIndex):
+        return _resolvedriver(index, device), None
+    key = str(index).lower()
+    if key in _INDEX_ALIASES:
+        return _resolvedriver(_INDEX_ALIASES[key], device), None
+    return _resolvedriver(index_driver, device), str(index)
+
+
+def _resolvestorage(
+    index_driver: NeighborIndex,
+    enn_storage: str | None,
+    storage: Any,
+    work_dir: str | os.PathLike[str] | None,
+) -> str | None:
+    if storage is not None:
+        enn_storage = getattr(storage, "value", str(storage))
+    has_dir = work_dir is not None or "BAUX_WORK_DIR" in os.environ
+    if index_driver == NeighborIndex.TREE and enn_storage is None and has_dir:
+        return "disk"
+    return enn_storage
+
+
+def _isdevicetensor(x: Any) -> bool:
+    if isinstance(x, np.ndarray) or not hasattr(x, "__dlpack_device__"):
+        return False
+    try:
+        return int(x.__dlpack_device__()[0]) != 1
+    except BufferError:
+        return True
+
+
 class ENN:
     _EPS_VAR = 1e-9
-
     _inputs = staticmethod(_inputs)
 
     def __init__(
@@ -130,19 +194,30 @@ class ENN:
         work_dir: str | os.PathLike[str] | None = None,
         enn_storage: str | None = None,
         y_bounds: np.ndarray | None = None,
+        **options: Any,
     ) -> None:
+        unknown = set(options) - {"index", "storage", "device"}
+        if unknown:
+            raise TypeError(f"Unexpected keyword argument: {sorted(unknown)[0]!r}")
         train_x, train_y, train_yvar = self._inputs(train_x, train_y, train_yvar)
+        index_driver, raw_index = _resolveindex(
+            index_driver, options.get("index"), options.get("device")
+        )
+        enn_storage = _resolvestorage(
+            index_driver, enn_storage, options.get("storage"), work_dir
+        )
         if scale_x and index_driver == NeighborIndex.BPANN_DISK:
             raise ValueError("scale_x=True is not compatible with BPANN_DISK")
         self._index_driver = index_driver
-        idx_driver = _rustname(index_driver)
         rust_kwargs: dict[str, Any] = {
             "train_x": train_x,
             "train_y": train_y,
             "train_yvar": train_yvar,
             "scale_x": scale_x,
-            "index_driver": idx_driver,
+            "index_driver": _rustname(index_driver),
         }
+        if raw_index is not None:
+            rust_kwargs["index"] = raw_index
         if work_dir is not None:
             rust_kwargs["work_dir"] = os.fspath(work_dir)
         if enn_storage is not None:
@@ -150,6 +225,8 @@ class ENN:
         if y_bounds is not None:
             rust_kwargs["y_bounds"] = np.asarray(y_bounds, dtype=float)
         self._rust_model = _RustENN(**rust_kwargs)
+        self.device: str = getattr(self._rust_model, "device", "cpu")
+        self.index_kind: str = _INDEX_KINDS.get(index_driver, "exact")
         self._tie_break_neighbors: bool = True
 
     def add(
@@ -249,11 +326,15 @@ class ENN:
 
     def posterior(
         self,
-        x: np.ndarray,
+        x: Any,
+        params: ENNParams | None = None,
         *,
-        params: ENNParams,
         flags: PosteriorFlags | None = None,
-    ) -> ENNNormal:
+    ) -> Any:
+        if params is None:
+            raise TypeError("posterior() missing required argument: 'params'")
+        if _isdevicetensor(x):
+            return self.device_posterior(x, params, flags=flags)
         from .enn_normal import ENNNormal
 
         flags = _posteriorcoerced(flags)
@@ -398,3 +479,6 @@ class ENN:
             **kw,
         )
         return _finalizedraw(x, draws, idx)
+
+
+Enn = ENN

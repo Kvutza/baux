@@ -1,0 +1,8 @@
+#:schema ../schemas/tune-spec.schema.json
+version = 4
+experiment = "tokamak-tcv"
+rounds = 10000
+repetitions = 10
+
+[optimizer]
+algorithm = "ppo"

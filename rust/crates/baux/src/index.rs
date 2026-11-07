@@ -4,11 +4,11 @@ pub use crate::error::IndexError;
 use crate::knn::KnnBackend;
 #[cfg(all(target_os = "linux", target_arch = "x86_64", feature = "cuda"))]
 use crate::knn::{CudaParam, KnnBatch, KnnPosterior};
-pub use crate::knn::{IndexDriver, disk_driver};
+pub use crate::knn::{IndexDriver, IndexKind, disk_driver};
 
 use std::sync::Mutex;
 
-pub struct ENNIndex {
+pub struct Index {
     pub(crate) inner: KnnBackend,
     num_dim: usize,
     x_scale: Mutex<Array1<f64>>,
@@ -16,7 +16,9 @@ pub struct ENNIndex {
     driver: IndexDriver,
 }
 
-impl ENNIndex {
+pub type ENNIndex = Index;
+
+impl Index {
     pub fn new(
         train_x_scaled: Array2<f64>,
         num_dim: usize,
@@ -36,6 +38,14 @@ impl ENNIndex {
 
     pub fn driver(&self) -> IndexDriver {
         self.driver
+    }
+
+    pub const fn kind(&self) -> IndexKind {
+        self.driver.kind()
+    }
+
+    pub const fn device(&self) -> crate::Device {
+        self.driver.device()
     }
 
     pub fn rebuild_scaled(

@@ -146,6 +146,125 @@ pub(super) fn select_segment(
     )
 }
 
+/// Select `num_arms` winners jointly across all regional candidate segments
+/// (TuRBO-m).
+pub(super) fn select_joint(
+    optimizer: &BayesOptimizer,
+    candidates: &ArrayView2<f64>,
+    segments: &[CandidateSegment],
+    num_arms: usize,
+    rng: &mut dyn RngCore,
+) -> Result<(Vec<usize>, Vec<CandidateSegment>), ENNError> {
+    let TrustRegionState::Multi { state, .. } = optimizer.trust_region() else {
+        unreachable!("select_joint requires TrustRegionState::Multi");
+    };
+    let mut scored = Vec::with_capacity(candidates.nrows());
+    for segment in segments {
+        let local = candidates.slice(s![segment.start..segment.end, ..]);
+        let scores = score_segment(optimizer, state, segment.region, &local, rng)?;
+        for (offset, score) in scores.into_iter().enumerate() {
+            scored.push((score, segment.region, segment.start + offset));
+        }
+    }
+    scored.shuffle(rng);
+    scored.sort_by(|left, right| right.0.total_cmp(&left.0));
+    let chosen = &scored[..num_arms.min(scored.len())];
+    let mut indices = Vec::with_capacity(chosen.len());
+    let mut winners = Vec::new();
+    for segment in segments {
+        let group: Vec<usize> = chosen
+            .iter()
+            .filter(|&&(_, region, _)| region == segment.region)
+            .map(|&(_, _, idx)| idx)
+            .collect();
+        if !group.is_empty() {
+            winners.push(CandidateSegment {
+                start: segment.start,
+                end: segment.end,
+                arms: group.len(),
+                region: segment.region,
+            });
+            indices.extend(group);
+        }
+    }
+    Ok((indices, winners))
+}
+
+fn score_segment(
+    optimizer: &BayesOptimizer,
+    state: &crate::optimizer::MultiTrustRegionState,
+    region: usize,
+    local: &ArrayView2<f64>,
+    rng: &mut dyn RngCore,
+) -> Result<Vec<f64>, ENNError> {
+    let model = optimizer
+        .local_models
+        .as_ref()
+        .map(|models| {
+            if region >= models.slot_count() {
+                return Err(ENNError::InvalidParameter(
+                    "regional model slot is missing".into(),
+                ));
+            }
+            Ok(models.model(region))
+        })
+        .transpose()?
+        .flatten();
+    let global = optimizer.surrogate().filter(|surrogate| {
+        optimizer.posterior.obs_count() > 0
+            || surrogate.observation_count().is_some_and(|count| count > 0)
+    });
+    let surrogate = model.or(global);
+    let acquisition = state.acquisition_for(region, optimizer.config().acquisition);
+    score_with(optimizer, surrogate, local, acquisition, rng)
+}
+
+fn score_with(
+    optimizer: &BayesOptimizer,
+    surrogate: Option<&(dyn crate::surrogate::Surrogate + Send + Sync)>,
+    local: &ArrayView2<f64>,
+    acquisition: AcquisitionConfig,
+    rng: &mut dyn RngCore,
+) -> Result<Vec<f64>, ENNError> {
+    let n = local.nrows();
+    let Some(surrogate) = surrogate else {
+        return Ok((0..n)
+            .map(|_| rand::Rng::gen_range(rng, 0.0..1.0))
+            .collect());
+    };
+    match acquisition {
+        AcquisitionConfig::Random => Ok((0..n)
+            .map(|_| rand::Rng::gen_range(rng, 0.0..1.0))
+            .collect()),
+        AcquisitionConfig::Thompson => {
+            let samples = surrogate.sample(local, 1, rng)?;
+            if optimizer.trust_region().is_morbo() {
+                let scores = morbo_samples(optimizer, &samples, 1, n)?;
+                return Ok(scores.to_vec());
+            }
+            Ok((0..n).map(|i| samples[[0, i, 0]]).collect())
+        }
+        AcquisitionConfig::UCB { beta } => {
+            let pred = surrogate.predict(local)?;
+            if optimizer.trust_region().is_morbo() {
+                let values = &pred.mu + &(pred.se * beta);
+                let scores = optimizer
+                    .trust_region()
+                    .morbo_scalarize(&values.view(), false)
+                    .map_err(|error| ENNError::InvalidParameter(error.to_string()))?;
+                return Ok(scores.to_vec());
+            }
+            Ok((0..n)
+                .map(|i| pred.mu[[i, 0]] + beta * pred.se[[i, 0]])
+                .collect())
+        }
+        AcquisitionConfig::Pareto => {
+            let pred = surrogate.predict(local)?;
+            Ok((0..n).map(|i| pred.mu[[i, 0]] + pred.se[[i, 0]]).collect())
+        }
+    }
+}
+
 fn select_with(
     optimizer: &BayesOptimizer,
     surrogate: Option<&(dyn crate::surrogate::Surrogate + Send + Sync)>,

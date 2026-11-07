@@ -64,7 +64,7 @@ class GenerationNode(ExternalGenerationNode):
         self,
         *,
         config: OptimizerConfig | None = None,
-        seed: int = 0,
+        seed: int | None = None,
         name: str = "BAUX",
     ) -> None:
         super().__init__(name=name)

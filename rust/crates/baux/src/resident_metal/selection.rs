@@ -104,17 +104,31 @@ impl SearchState {
             radius: self.radius(0),
             neighbors: config.surrogate.neighbors as u32,
             history: self.history as u32,
-            acquisition: match config.acquisition.kind {
-                AcquisitionKind::Ucb => 0,
-                AcquisitionKind::Thompson => 1,
-                AcquisitionKind::Pareto => 2,
+            acquisition: if self.history_rows.is_empty() {
+                3
+            } else {
+                match config.acquisition.kind {
+                    AcquisitionKind::Ucb => 0,
+                    AcquisitionKind::Thompson => 1,
+                    AcquisitionKind::Pareto => 2,
+                    AcquisitionKind::Random => 3,
+                }
             },
             tiles: self.tiles.len() as u32,
             mode: self.perturbation.shader(),
             resident_history: self.physical_history() as u32,
             resident_indices,
             implicit_history: u32::from(self.implicit_history),
-            forced_candidate: forced_candidate.unwrap_or(4) as u32,
+            forced_candidate: forced_candidate
+                .or_else(|| {
+                    (self.history_rows.is_empty()
+                        || config.acquisition.kind == AcquisitionKind::Random)
+                        .then(|| {
+                            (crate::hash::splitmix64(root ^ config.acquisition.seed) as usize)
+                                % (self.pool_layout.count() as usize)
+                        })
+                })
+                .unwrap_or(4) as u32,
             distance_metric: match self.distance_metric {
                 crate::config::DistanceMetric::Euclidean => 0,
                 crate::config::DistanceMetric::Conformal => 1,
@@ -132,11 +146,19 @@ impl SearchState {
     /// Full parameter rows available to kernels, not the logical observation
     /// count. Implicit history can retain more observations than resident rows.
     pub fn physical_history(&self) -> usize {
-        if self.implicit_history {
+        if self.history_rows.is_empty() {
+            1
+        } else if self.implicit_history {
             self.resident_history
         } else {
             self.history
         }
+    }
+
+    /// Whether this search state allocates resident history rows for a
+    /// surrogate.
+    pub fn has_surrogate(&self) -> bool {
+        !self.history_rows.is_empty()
     }
     /// Dimensionless multiplier applied to each block's proposal scale.
     /// Clamped to configured bounds. This is not the Euclidean norm of the

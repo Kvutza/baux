@@ -53,8 +53,9 @@ pub use objectives::{
 pub use spec::ExperimentSpec;
 pub use spec_execution::ObjectiveFunction;
 pub use spec_optimizer::{
-    AcquisitionSpec, CandidateGenerationSpec, OptimizerSpec, PerturbationSpec, SurrogateFit,
-    SurrogateRecipe, TrustRegionBounds,
+    AcquisitionSpec, CandidateGenerationSpec, ObservationSharing, OptimizerSpec, PerturbationSpec,
+    RegionAllocation, RegionController, RegionMemory, RegionalSearchSpec, RestartCenter,
+    SurrogateFit, SurrogateRecipe, TrustRegionBounds,
 };
 
 /// Concrete runtime configuration compiled from a validated experiment recipe.
@@ -73,6 +74,8 @@ pub struct RunConfig {
     /// File-driven experiment to run. Programmatic callers may omit it.
     pub experiment: Option<ExperimentKind>,
     pub acquisition: Option<AcquisitionConfig>,
+    /// Orthogonal multi-region policy for host and resident search adapters.
+    pub regional_search: Option<RegionalSearchSpec>,
     /// Neighbors used by the resident accelerator ENN.
     pub k_neighbors: Option<i32>,
     /// Fixed epistemic distance scale for the resident accelerator ENN.

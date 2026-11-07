@@ -152,18 +152,38 @@ def test_rejections(device):
 
 
 def _jaxdevice(device):
-    if device[0] == "mps":
-        pytest.skip("the public JAX route targets CUDA; use Torch for Metal")
     jax = pytest.importorskip("jax")
-    jax.config.update("jax_enable_x64", True)
-    platform = "METAL" if device[0] == "mps" else "cuda"
-    platforms = {"metal"} if device[0] == "mps" else {"gpu", "cuda"}
+    jax.config.update("jax_enable_x64", device[0] != "mps")
+    platform = "MPS" if device[0] == "mps" else "cuda"
+    platforms = {"mps", "metal"} if device[0] == "mps" else {"gpu", "cuda"}
     devices = [d for d in jax.devices() if d.platform.lower() in platforms]
     if not devices:
         if device[0] != "mps":
             pytest.fail("CUDA verification requires a JAX GPU runtime")
         pytest.skip(f"JAX {platform} runtime unavailable")
     return jax, devices[0]
+
+
+def _jaxoutputs(device, native, query, query_host, params, jax_dev):
+    import jax
+    import jax.numpy as jnp
+
+    if device[0] == "mps":
+        with pytest.raises(ValueError, match="JAX Metal arrays are not supported"):
+            native.device_posterior(query, params)
+        actual = native.posterior(query_host, params=params)
+        mean = jax.device_put(jnp.asarray(actual.mu, dtype=jnp.float32), jax_dev)
+        draws_arr, _ = native.posterior_draw(
+            query_host, params, function_seeds=[41, 43]
+        )
+        draws = jax.device_put(
+            jnp.asarray(np.moveaxis(draws_arr, -1, 0), dtype=jnp.float32), jax_dev
+        )
+        return mean, draws
+    snapshot = native.device_posterior(query, params)
+    mean = jax.dlpack.from_dlpack(snapshot.mean, copy=False)
+    draws = jax.dlpack.from_dlpack(snapshot.draw([41, 43]), copy=False).reshape(2, 2, 2)
+    return mean, draws
 
 
 def test_jax(device):
@@ -176,17 +196,48 @@ def test_jax(device):
         jax_dev,
     )
     params = ENNParams(3, 0.7, 0.13)
-    snapshot = native.device_posterior(query, params)
-    mean = jax.dlpack.from_dlpack(snapshot.mean, copy=False)
-    draws = jax.dlpack.from_dlpack(snapshot.draw([41, 43]), copy=False).reshape(2, 2, 2)
     query_host = np.asarray(jax.device_get(query), dtype=float)
     expected = cpu.posterior(query_host, params=params)
-    np.testing.assert_allclose(jax.device_get(mean), expected.mu, rtol=3e-5, atol=3e-6)
     reference, _ = cpu.posterior_draw(query_host, params, function_seeds=[41, 43])
+    mean, draws = _jaxoutputs(device, native, query, query_host, params, jax_dev)
+    np.testing.assert_allclose(jax.device_get(mean), expected.mu, rtol=3e-5, atol=3e-6)
     np.testing.assert_allclose(
         jax.device_get(draws), np.moveaxis(reference, -1, 0), rtol=5e-5, atol=5e-6
     )
     assert next(iter(mean.devices())).id == 0
-    del snapshot, native
+    del native
     gc.collect()
     assert jax.jit(lambda x: x + 1)(draws).shape == draws.shape
+
+
+def test_torax():
+    """Verify TORAX bridge and WPO Table 6 (Pfau et al., arXiv:2505.00663;
+    Tracey et al., arXiv:2307.11546; Citrin et al., arXiv:2406.06718) across
+    TORAX 2.0.0, NumPy, PyTorch, JAX, and native Rust/Metal.
+    """
+    from benchmarks.torax.tcv_coupling import ToraxTcvBridge, eval_wpo_table6
+
+    pytest.importorskip("torax")
+
+    bridge = ToraxTcvBridge()
+    zeros = np.zeros(160531, dtype=np.float64)
+    score = bridge.eval_policy(zeros, steps=1)
+    assert np.isfinite(score)
+    assert 0.0 <= score <= 1.0
+
+    zero_np = eval_wpo_table6(zeros, backend="numpy")
+    zero_pt = eval_wpo_table6(zeros, backend="torch")
+    zero_jx = eval_wpo_table6(zeros, backend="jax")
+    assert 0.0 <= zero_np <= 100.0
+    np.testing.assert_allclose(zero_np, 22.101235, atol=1e-5)
+    np.testing.assert_allclose(zero_np, zero_pt, atol=1e-4)
+    np.testing.assert_allclose(zero_np, zero_jx, atol=1e-4)
+
+    rng = np.random.default_rng(42)
+    seeded = rng.uniform(-0.08, 0.08, size=160531)
+    seed_np = eval_wpo_table6(seeded, backend="numpy")
+    seed_pt = eval_wpo_table6(seeded, backend="torch")
+    seed_jx = eval_wpo_table6(seeded, backend="jax")
+    assert abs(seed_np - zero_np) > 1e-3
+    np.testing.assert_allclose(seed_np, seed_pt, atol=1e-4)
+    np.testing.assert_allclose(seed_np, seed_jx, atol=1e-4)

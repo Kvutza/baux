@@ -278,8 +278,9 @@ mod tests {
         let centers = array![[0.25], [0.75]];
         let origins = [1, 0, 1];
         for (policy, expected) in [
-            (SharingPolicy::Shared, [2, 2]),
-            (SharingPolicy::Independent, [1, 2]),
+            (SharingPolicy::BoxContain, [2, 2]),
+            (SharingPolicy::EllipsoidBall, [2, 2]),
+            (SharingPolicy::OriginOnly, [1, 2]),
             (SharingPolicy::NearestCenter, [2, 1]),
         ] {
             let mut rng = StdRng::seed_from_u64(7);
@@ -315,7 +316,7 @@ mod tests {
         let centers = array![[0.25], [0.75]];
         let mut config = MultiTrustRegionConfig::new(2, TRLengthConfig::default());
         config.restart_memory_policy = RestartMemoryPolicy::RetainRelevant;
-        config.sharing_policy = SharingPolicy::Independent;
+        config.sharing_policy = SharingPolicy::OriginOnly;
         let mut state =
             MultiTrustRegionState::new(1, config, Some(&centers.view()), &mut rng).unwrap();
         // Use the same provider factory path as supplied regional models.

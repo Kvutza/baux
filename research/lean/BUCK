@@ -20,3 +20,9 @@ genrule(
     labels = ["uses_undeclared_inputs"],
     visibility = ["PUBLIC"],
 )
+
+sh_binary(
+    name = "module",
+    main = "module.sh",
+    visibility = ["PUBLIC"],
+)

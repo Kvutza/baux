@@ -53,7 +53,7 @@ impl SearchState {
         self.best = value;
         self.best_variance = variance;
         self.history = 1;
-        self.resident_history = 1;
+        self.resident_history = usize::from(!self.history_rows.is_empty());
         self.resident_identities[0] = self.base_id;
         self.objective_history
             .record(self.base_id, observation, true);

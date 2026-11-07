@@ -19,26 +19,29 @@ from .morbo_region import (
     TrustRegionBounds,
 )
 
-AllocationPolicy = Literal["reward_ucb", "balanced"]
+AllocationPolicy = Literal["incumbent_ucb1", "least_trials", "joint_acquisition"]
 RestartMemoryPolicy = Literal["fresh", "retain_relevant"]
-RegionMethod = Literal["turbo", "fixed_length"]
+RegionController = Literal["turbo", "fixed_radius"]
 
 
 def validate_acquisitions(
-    num_regions: int, acquisitions: tuple[AcquisitionConfig | None, ...]
+    count: int, acquisitions: tuple[AcquisitionConfig | None, ...]
 ) -> None:
     if not isinstance(acquisitions, tuple):
-        raise TypeError("region_acquisitions must be a tuple")
-    if acquisitions and len(acquisitions) != num_regions:
-        raise ValueError("region_acquisitions must be empty or match num_regions")
+        raise TypeError("acquisitions must be a tuple")
+    if acquisitions and len(acquisitions) != count:
+        raise ValueError("acquisitions must be empty or match region count")
     for acquisition in acquisitions:
         if acquisition is None:
             continue
-        if isinstance(acquisition, ParetoAcquisitionConfig):
-            raise ValueError("Pareto regional acquisition is unsupported")
         if not isinstance(
             acquisition,
-            (UCBAcquisitionConfig, DrawAcquisitionConfig, RandomAcquisitionConfig),
+            (
+                UCBAcquisitionConfig,
+                DrawAcquisitionConfig,
+                RandomAcquisitionConfig,
+                ParetoAcquisitionConfig,
+            ),
         ):
             raise TypeError(
                 "each regional acquisition must be an AcquisitionConfig or None"
@@ -105,28 +108,38 @@ class MorboTrustRegion:
 
 
 @dataclass(frozen=True)
-class MultiTrustRegionPolicy:
-    num_regions: int = 4
+class RegionalSearchPolicy:
+    count: int = 4
     length: TrustRegionBounds = TrustRegionBounds()
-    succ_tolerance: int = 3
-    fail_tolerance: int = 5
-    sharing_policy: Literal["shared", "nearest_center", "independent"] = "shared"
-    allocation_policy: AllocationPolicy = "reward_ucb"
-    restart_memory_policy: RestartMemoryPolicy = "fresh"
+    success_tolerance: int = 3
+    failure_tolerance: int = 5
+    sharing: Literal[
+        "box_contain", "ellipsoid_ball", "nearest_center", "origin_only"
+    ] = "box_contain"
+    allocation: AllocationPolicy = "incumbent_ucb1"
+    restart_memory: RestartMemoryPolicy = "fresh"
     restart_center: RestartCenterPolicy = RestartCenterPolicy()
-    region_method: RegionMethod = "turbo"
-    region_acquisitions: tuple[AcquisitionConfig | None, ...] = ()
+    controller: RegionController = "turbo"
+    acquisitions: tuple[AcquisitionConfig | None, ...] = ()
 
     def __post_init__(self) -> None:
-        if self.allocation_policy not in ("reward_ucb", "balanced"):
+        if self.count <= 0:
+            raise ValueError("regional search count must be positive")
+        if self.success_tolerance <= 0 or self.failure_tolerance <= 0:
+            raise ValueError("regional search tolerances must be positive")
+        if self.allocation not in (
+            "incumbent_ucb1",
+            "least_trials",
+            "joint_acquisition",
+        ):
             raise ValueError("unknown regional allocation policy")
-        if self.restart_memory_policy not in ("fresh", "retain_relevant"):
+        if self.restart_memory not in ("fresh", "retain_relevant"):
             raise ValueError("unknown regional restart memory policy")
         if not isinstance(self.restart_center, RestartCenterPolicy):
             raise TypeError("restart_center must be a RestartCenterPolicy")
-        if self.region_method not in ("turbo", "fixed_length"):
-            raise ValueError("unknown regional method")
-        validate_acquisitions(self.num_regions, self.region_acquisitions)
+        if self.controller not in ("turbo", "fixed_radius"):
+            raise ValueError("unknown regional controller")
+        validate_acquisitions(self.count, self.acquisitions)
 
     @property
     def length_init(self) -> float:
@@ -142,18 +155,18 @@ class MultiTrustRegionPolicy:
 
 
 TrustRegionConfig = (
-    NoTrustRegion | TurboTrustRegion | MorboTrustRegion | MultiTrustRegionPolicy
+    NoTrustRegion | TurboTrustRegion | MorboTrustRegion | RegionalSearchPolicy
 )
 
 __all__ = [
     "AllocationPolicy",
     "MorboTrustRegion",
     "MultiObjectiveConfig",
-    "MultiTrustRegionPolicy",
+    "RegionalSearchPolicy",
     "NoTrustRegion",
     "Rescalarize",
     "RescalePolicy",
-    "RegionMethod",
+    "RegionController",
     "RestartCenterPolicy",
     "RestartCenterSelection",
     "RestartMemoryPolicy",

@@ -13,8 +13,8 @@
     },
     "experiment": {
       "type": "string",
-      "enum": ["end-to-end", "moe-layer", "pretrain", "generation"],
-      "description": "Experiment workflow type: 'pretrain' for foundation model pretraining or 'generation' for sequence generation tasks."
+      "enum": ["end-to-end", "moe-layer", "pretrain", "generation", "tokamak-tcv"],
+      "description": "Experiment workflow type: 'pretrain' for foundation model pretraining, 'generation' for sequence generation tasks, or 'tokamak-tcv' for TCV tokamak policy optimization."
     },
     "model": {
       "type": "string",
@@ -108,10 +108,10 @@
           ]
         },
         {
-          "title": "TuRBO ENN",
+          "title": "Bayesian search",
           "required": ["algorithm", "acquisition"],
           "properties": {
-            "algorithm": { "const": "turbo-enn" }
+            "algorithm": { "const": "bayesian-search" }
           }
         },
         {
@@ -120,7 +120,8 @@
           "allOf": [
             { "not": { "required": ["surrogate"] } },
             { "not": { "required": ["acquisition"] } },
-            { "not": { "required": ["trust-region"] } }
+            { "not": { "required": ["trust-region"] } },
+            { "not": { "required": ["regional-search"] } }
           ]
         },
         {
@@ -129,27 +130,38 @@
           "allOf": [
             { "not": { "required": ["surrogate"] } },
             { "not": { "required": ["acquisition"] } },
-            { "not": { "required": ["trust-region"] } }
+            { "not": { "required": ["trust-region"] } },
+            { "not": { "required": ["regional-search"] } }
+          ]
+        },
+        {
+          "title": "PPO",
+          "properties": { "algorithm": { "const": "ppo" } },
+          "allOf": [
+            { "not": { "required": ["surrogate"] } },
+            { "not": { "required": ["acquisition"] } },
+            { "not": { "required": ["trust-region"] } },
+            { "not": { "required": ["regional-search"] } }
           ]
         }
       ],
       "properties": {
         "algorithm": {
           "type": "string",
-          "enum": ["operator-bo", "turbo-enn", "muon", "adamw"],
-          "description": "Optimization algorithm: 'operator-bo', 'turbo-enn', 'muon', or 'adamw'."
+          "enum": ["operator-bo", "bayesian-search", "muon", "adamw", "ppo"],
+          "description": "Optimization recipe: operator BO, Bayesian search, Muon, AdamW, or PPO."
         },
         "candidates": {
           "type": "integer",
           "minimum": 1,
           "default": 4,
-          "description": "Total proposals generated per round across all arms in turbo-enn."
+          "description": "Total proposals generated per Bayesian-search round across all arms."
         },
         "arms": {
           "type": "integer",
           "minimum": 1,
           "default": 1,
-          "description": "Number of procedural seed namespaces sharing the current incumbent center in turbo-enn."
+          "description": "Number of procedural seed namespaces sharing the current incumbent center."
         },
         "distribution": {
           "type": "string",
@@ -160,7 +172,7 @@
         "acquisition": {
           "type": "string",
           "enum": ["thompson", "random", "upper-confidence-bound", "pareto"],
-          "description": "Acquisition policy for selecting proposals in turbo-enn."
+          "description": "Acquisition policy for selecting Bayesian-search proposals."
         },
         "beta": {
           "type": "number",
@@ -171,6 +183,32 @@
           "type": "array",
           "items": { "type": "number" },
           "description": "Objective scales for multi-objective Pareto acquisition."
+        },
+        "perturbation": {
+          "type": "object",
+          "description": "Coordinate perturbation sampler and subspace cardinality.",
+          "properties": {
+            "sampler": {
+              "type": "string",
+              "enum": ["sobol", "uniform", "raasp"],
+              "default": "raasp"
+            },
+            "num-pert": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 20
+            },
+            "raasp-fast": {
+              "type": "boolean",
+              "default": false
+            },
+            "coord-system": {
+              "type": "string",
+              "enum": ["cartesian", "spherical"],
+              "default": "cartesian"
+            }
+          },
+          "additionalProperties": false
         },
         "surrogate": {
           "type": "object",
@@ -279,6 +317,39 @@
               "enum": ["scalar", "tensor-family-static"],
               "description": "Trust region geometry shape across parameter blocks."
             }
+          },
+          "additionalProperties": false
+        },
+        "regional-search": {
+          "type": "object",
+          "description": "Concurrent regional-search policies, independent of surrogate and acquisition selection.",
+          "required": ["count"],
+          "properties": {
+            "count": { "type": "integer", "minimum": 1 },
+            "sharing": {
+              "enum": ["box-contain", "ellipsoid-ball", "nearest-center", "origin-only"],
+              "default": "box-contain"
+            },
+            "allocation": {
+              "enum": ["incumbent-ucb1", "least-trials", "joint-acquisition"],
+              "default": "incumbent-ucb1"
+            },
+            "controller": {
+              "enum": ["turbo", "fixed-radius"],
+              "default": "turbo"
+            },
+            "success-tolerance": { "type": "integer", "minimum": 1, "default": 3 },
+            "failure-tolerance": { "type": "integer", "minimum": 1, "default": 5 },
+            "restart-memory": {
+              "enum": ["fresh", "retain-relevant"],
+              "default": "fresh"
+            },
+            "restart-candidates": { "type": "integer", "minimum": 1, "default": 1 },
+            "restart-center": {
+              "enum": ["first", "maximin"],
+              "default": "first"
+            },
+            "acquisitions": { "type": "array" }
           },
           "additionalProperties": false
         }

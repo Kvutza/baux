@@ -18,7 +18,7 @@ mod tests {
             "version=4\n\
              experiment='end-to-end'\n\
              [optimizer]\n\
-             algorithm='turbo-enn'\n\
+             algorithm='bayesian-search'\n\
              arms={arms}\n\
              candidates={candidates}\n\
              acquisition='upper-confidence-bound'\n"

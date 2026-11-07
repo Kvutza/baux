@@ -5,8 +5,6 @@
 use numpy::{IntoPyArray, PyArrayDyn, PyReadonlyArray1, PyReadonlyArray2, PyUntypedArrayMethods};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use rand::SeedableRng;
-use rand::rngs::StdRng;
 
 mod build;
 mod config;
@@ -17,7 +15,7 @@ pub use build::{bind_lhd, bind_regions, bind_zero, create_py, enn_py};
 #[pyclass(name = "BayesOptimizer")]
 pub struct PyBayesOptimizer {
     inner: baux::BayesOptimizer,
-    rng: StdRng,
+    rng: baux::Prng,
 }
 
 #[pymethods]
@@ -32,7 +30,7 @@ impl PyBayesOptimizer {
     ) -> PyResult<Bound<'py, PyArrayDyn<f64>>> {
         let result = match seed {
             Some(seed) => {
-                let mut rng = StdRng::seed_from_u64(seed);
+                let mut rng = baux::prng(seed);
                 self.inner.ask_natural(num_arms, &mut rng)
             }
             None => self.inner.ask_natural(num_arms, &mut self.rng),
@@ -65,7 +63,7 @@ impl PyBayesOptimizer {
         let yvar_view = y_var.as_ref().map(PyReadonlyArray2::as_array);
         match seed {
             Some(seed) => {
-                let mut rng = StdRng::seed_from_u64(seed);
+                let mut rng = baux::prng(seed);
                 self.inner
                     .complete_ids(&ids, &y_view, yvar_view.as_ref(), &mut rng)
             }
@@ -85,7 +83,7 @@ impl PyBayesOptimizer {
             .collect::<Vec<_>>();
         match seed {
             Some(seed) => {
-                let mut rng = StdRng::seed_from_u64(seed);
+                let mut rng = baux::prng(seed);
                 self.inner.cancel_ids(&ids, &mut rng)
             }
             None => self.inner.cancel_ids(&ids, &mut self.rng),
@@ -105,7 +103,7 @@ impl PyBayesOptimizer {
         let center_view = center.as_array();
         let abandoned = match seed {
             Some(seed) => {
-                let mut rng = StdRng::seed_from_u64(seed);
+                let mut rng = baux::prng(seed);
                 self.inner.restart_natural(slot, &center_view, &mut rng)
             }
             None => self
@@ -130,7 +128,7 @@ impl PyBayesOptimizer {
         let yvar_view = y_var.as_ref().map(PyReadonlyArray2::as_array);
         match seed {
             Some(seed) => {
-                let mut rng = StdRng::seed_from_u64(seed);
+                let mut rng = baux::prng(seed);
                 self.inner
                     .tell_natural(&x_view, &y_view, yvar_view.as_ref(), &mut rng)
             }
@@ -155,7 +153,7 @@ impl PyBayesOptimizer {
         let yvar_view = y_var.as_ref().map(PyReadonlyArray2::as_array);
         match seed {
             Some(seed) => {
-                let mut rng = StdRng::seed_from_u64(seed);
+                let mut rng = baux::prng(seed);
                 self.inner
                     .import_natural(&x_view, &y_view, yvar_view.as_ref(), &mut rng)
             }

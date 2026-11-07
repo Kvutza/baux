@@ -374,3 +374,53 @@ def test_016(tmp_path, driver):
     dx, dy, _ = disk.train_rows(indices)
     np.testing.assert_allclose(mx, dx)
     np.testing.assert_allclose(my, dy)
+
+
+def test_017(tmp_path):
+    from baux import Device, Enn
+    from baux.config import OptimizerConfig
+    from baux.enn.enn_params import ENNParams
+    from baux.index import DistanceMetric, IndexKind, NeighborIndex, Storage
+    from baux.region import GlobalRegion, MorboRegion, RegionPolicy, TurboRegion
+    from baux.surrogate import EnnSurrogate, GaussianProcess, NoSurrogate
+
+    assert (IndexKind.EXACT, IndexKind.HNSW, IndexKind.TREE) == (
+        NeighborIndex.FLAT,
+        NeighborIndex.USEARCH,
+        NeighborIndex.BPANN_DISK,
+    )
+    assert all(
+        (
+            DistanceMetric.SQUARED_L2,
+            EnnSurrogate,
+            GaussianProcess,
+            NoSurrogate,
+            GlobalRegion,
+            MorboRegion,
+            RegionPolicy,
+            TurboRegion,
+            OptimizerConfig,
+        )
+    )
+    train_x = np.array([[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]], dtype=float)
+    train_y = np.array([[0.0], [1.0], [2.0]], dtype=float)
+    tree_dir = tmp_path / "tree_store"
+    model = Enn(train_x, train_y, index="tree", work_dir=str(tree_dir))
+    assert (
+        model.index_kind == "tree"
+        and model.device == "cpu"
+        and (tree_dir / "train_x.bin").exists()
+    )
+    exact_model = Enn(
+        train_x,
+        train_y,
+        index=IndexKind.EXACT,
+        storage=Storage.MEMORY,
+        device=Device.cpu(),
+    )
+    params = ENNParams(k_neighbors=1, epistemic_scale=1.0, aleatoric_scale=0.0)
+    assert exact_model.index_kind == "exact" and exact_model.device == "cpu"
+    np.testing.assert_allclose(
+        exact_model.posterior(train_x[:1], params).mu,
+        exact_model.posterior(train_x[:1], params=params).mu,
+    )

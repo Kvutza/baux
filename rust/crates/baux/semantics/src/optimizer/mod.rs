@@ -32,6 +32,12 @@ pub mod transaction;
 pub mod trust_region;
 
 #[cfg(not(feature = "cuda-device"))]
+pub use portfolio::{
+    Allocation, AllocationPolicy, RegionBatch, RegionController, RegionId, RegionTicket,
+    RegionalError, RegionalLedger, RestartCenterPolicy, RestartCenterSelection,
+    RestartMemoryPolicy, SharingPolicy, contains_ball, contains_box,
+};
+#[cfg(not(feature = "cuda-device"))]
 pub use provenance::{ChainedObservation, PairedImprovement, WorldId, WorldMismatchError};
 #[cfg(not(feature = "cuda-device"))]
 pub use surrogate::{
@@ -44,5 +50,6 @@ pub use transaction::{AskPlan, EvalReceipt, Evaluated, RoundId, TellDecision};
 pub use trust_region::{
     CANDIDATES, INITIAL_OBSERVATIONS, MAX_HISTORY, PoolShape, RadiusAction, RadiusController,
     StepDecision, TrustRegionController, TurboState, accept_bits, accept_candidate,
-    accept_decision, candidate_seed, splitmix64, turbo_adapt, turbo_tolerance,
+    accept_decision, arm_seed, candidate_seed, legacy_seed, splitmix64, stream_word, turbo_adapt,
+    turbo_tolerance,
 };

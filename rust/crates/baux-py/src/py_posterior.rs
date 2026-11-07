@@ -4,7 +4,7 @@ use pyo3::exceptions::{PyBufferError, PyValueError};
 use pyo3::prelude::*;
 use std::sync::Arc;
 
-#[pyclass(name = "DevicePosterior", unsendable)]
+#[pyclass(name = "Posterior", unsendable)]
 pub struct PyDevicePosterior {
     inner: Arc<DevicePosterior>,
 }
@@ -64,7 +64,7 @@ enum ArrayOwner {
     Draw(DeviceDraw),
 }
 
-#[pyclass(name = "DeviceArray", unsendable)]
+#[pyclass(name = "Tensor", unsendable)]
 pub struct PyDeviceArray {
     _owner: ArrayOwner,
     pointer: u64,
@@ -76,6 +76,33 @@ pub struct PyDeviceArray {
 
 #[pymethods]
 impl PyDeviceArray {
+    #[getter]
+    fn shape(&self) -> (usize, usize) {
+        (self.rows, self.columns)
+    }
+
+    #[getter]
+    fn device(&self) -> &'static str {
+        if self.device == 8 {
+            "metal"
+        } else if self.device == 2 {
+            "cuda"
+        } else {
+            "cpu"
+        }
+    }
+
+    #[getter]
+    fn dtype(&self) -> &'static str {
+        if self.bits == 32 {
+            "float32"
+        } else if self.bits == 64 {
+            "float64"
+        } else {
+            "uint16"
+        }
+    }
+
     fn __dlpack_device__(&self) -> (i32, i32) {
         (self.device, 0)
     }

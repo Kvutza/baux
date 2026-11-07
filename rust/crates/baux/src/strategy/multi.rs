@@ -109,15 +109,8 @@ pub(super) fn tell_common(
 pub(super) fn validate_multi(
     optimizer: &BayesOptimizer,
     x: &ArrayView2<f64>,
-    y: &ArrayView2<f64>,
+    _y: &ArrayView2<f64>,
 ) -> Result<(), ENNError> {
-    if y.ncols() != 1 {
-        return Err(ENNError::InvalidParameter(format!(
-            "experimental multi-trust-region strategy expects scalar y, got {} columns",
-            y.ncols()
-        )));
-    }
-
     match &optimizer.regions {
         TrustRegionState::Multi {
             state,
@@ -402,6 +395,10 @@ pub(super) fn tell_warmup(
         let proposal = pending.as_mut().ok_or_else(|| {
             ENNError::InvalidParameter("warm-up completion lost its pending batch".into())
         })?;
+        // Regional adaptation has one scalar control channel. Pareto
+        // acquisition retains every objective in the surrogate; the
+        // first objective is the explicit control value until the host
+        // API accepts a separate control.
         record_pending(proposal, &y.column(0), submission)?;
     }
     finish_warmup(optimizer)
@@ -454,7 +451,7 @@ pub(super) fn tell_multi(
     // nearest-center relevance can still update their regional incumbents.
     let Some(_pending_regions) = pending_regions else {
         if let TrustRegionState::Multi { state, .. } = &mut optimizer.regions {
-            if state.sharing_policy() != crate::optimizer::SharingPolicy::Independent {
+            if state.sharing_policy() != crate::optimizer::SharingPolicy::OriginOnly {
                 state
                     .tell_scaled(x, &y.column(0), None, ls_ref.as_ref())
                     .map_err(|e| ENNError::InvalidParameter(e.to_string()))?;
@@ -467,6 +464,8 @@ pub(super) fn tell_multi(
         let proposal = pending.as_mut().ok_or_else(|| {
             ENNError::InvalidParameter("regional completion lost its pending batch".into())
         })?;
+        // Preserve the full matrix above for the surrogate and Pareto selector;
+        // only the explicit first-objective control reaches region adaptation.
         record_pending(proposal, &y.column(0), submission)?;
     }
     finish_multi(optimizer, ls_ref.as_ref(), rng)

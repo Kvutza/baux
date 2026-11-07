@@ -26,6 +26,9 @@ pub enum EnnStorage {
 }
 
 impl EnnStorage {
+    #[allow(non_upper_case_globals)]
+    pub const Memory: Self = Self::InMemory;
+
     pub fn from_env() -> Self {
         if std::env::var("BAUX_WORK_DIR").is_ok() {
             Self::Disk
@@ -43,6 +46,11 @@ pub enum EnnBackend {
     InMemory(Box<InMemoryEnnBackend>),
     Disk(DiskBackendHandle),
 }
+
+pub type Storage = EnnStorage;
+pub type Store = EnnBackend;
+pub type MemoryStore = InMemoryEnnBackend;
+pub type DiskStore = DiskBpannEnnBackend;
 
 fn disk_read<'a>(
     b: &'a Arc<RwLock<DiskBpannEnnBackend>>,

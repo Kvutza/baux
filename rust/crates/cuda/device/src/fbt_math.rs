@@ -168,12 +168,8 @@ pub fn gaussian_block_key(tensor_id: u64, start: u64, length: u64) -> u64 {
 }
 
 #[inline(always)]
-pub fn splitmix_uniform(mut bits: u64) -> f32 {
-    bits = bits.wrapping_add(0x9e3779b97f4a7c15);
-    bits = (bits ^ (bits >> 30)).wrapping_mul(0xbf58476d1ce4e5b9);
-    bits = (bits ^ (bits >> 27)).wrapping_mul(0x94d049bb133111eb);
-    bits ^= bits >> 31;
-    ((bits >> 41) as f32 + 0.5) / 8388608.0
+pub fn splitmix_uniform(bits: u64) -> f32 {
+    baux::semantics::random::splitmix_f32(bits)
 }
 
 #[inline(always)]

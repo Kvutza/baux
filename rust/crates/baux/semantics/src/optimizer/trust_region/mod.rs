@@ -14,7 +14,7 @@ pub use controller::{
     RadiusAction, RadiusController, StepDecision, TrustRegionController, TurboState, accept_bits,
     accept_candidate, accept_decision, turbo_adapt, turbo_tolerance,
 };
-pub use pool::{PoolShape, candidate_seed, splitmix64};
+pub use pool::{PoolShape, arm_seed, candidate_seed, legacy_seed, splitmix64, stream_word};
 
 #[cfg(test)]
 mod tests;

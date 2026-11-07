@@ -30,8 +30,8 @@ def _policy(sharing_policy: SharingPolicy | str) -> str:
 def make_region(
     num_dim: int,
     num_regions: int = 4,
-    sharing_policy: SharingPolicy | str = SharingPolicy.SHARED,
-    seed: int = 42,
+    sharing_policy: SharingPolicy | str = SharingPolicy.BOX_CONTAIN,
+    seed: int | None = None,
 ):
     from . import MultiTrustRegion
 
@@ -86,7 +86,7 @@ def _coerceproposal(
     return CandidateProposal(int(region), int(seed), payload)
 
 
-class MultiTrustRegionLoop:
+class RegionalSearchLoop:
     """End-to-end experimental loop around a multi-trust-region state."""
 
     def __init__(self, state) -> None:
@@ -187,7 +187,7 @@ multi_region = sys.modules[__name__]
 
 __all__ = [
     "CandidateProposal",
-    "MultiTrustRegionLoop",
+    "RegionalSearchLoop",
     "RegionBatch",
     "RegionCandidate",
     "RegionRound",

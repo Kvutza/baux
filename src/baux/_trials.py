@@ -7,7 +7,7 @@ from collections.abc import Mapping, Sequence
 import numpy as np
 
 from .bo import AskId, create_optimizer
-from .turbo.config import MultiTrustRegionPolicy, OptimizerConfig, turbo_enn
+from .turbo.config import RegionalSearchPolicy, OptimizerConfig, turbo_enn
 
 
 class Space:
@@ -55,16 +55,16 @@ class Loop:
     optimizer checkpoint. Trial managers must have a single generating process.
     """
 
-    def __init__(self, space: Space, config: OptimizerConfig | None, seed: int) -> None:
+    def __init__(
+        self, space: Space, config: OptimizerConfig | None, seed: int | None = None
+    ) -> None:
         if config is not None and config.num_metrics is not None:
             raise ValueError(
                 "trial adapters require a single-objective optimizer config"
             )
         self.space = space
         resolved_config = turbo_enn() if config is None else config
-        self._regional = isinstance(
-            resolved_config.trust_region, MultiTrustRegionPolicy
-        )
+        self._regional = isinstance(resolved_config.trust_region, RegionalSearchPolicy)
         self.optimizer = create_optimizer(
             bounds=space.bounds,
             config=resolved_config,

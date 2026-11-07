@@ -146,36 +146,7 @@ impl ProceduralPool {
     }
 }
 
-/// Arm zero is exactly the historical root; other arms use domain-separated
-/// streams. The caller still owns the experiment seed.
-pub fn arm_seed(root: u64, arm: u32) -> u64 {
-    if arm == 0 {
-        root
-    } else {
-        crate::hash::splitmix64(root ^ 0x7072_6f63_6172_6d31 ^ u64::from(arm))
-    }
-}
-
-/// Derive the historical stream shared by slots 0/1, 2/3, and so on.
-/// Radius is chosen elsewhere: a reliability controller can give those slots
-/// the same radius, so sharing a seed need not mean different step sizes.
-pub fn legacy_seed(root: u64, slot: u32) -> u64 {
-    let stream = slot;
-    let (low, high) = (root as u32, (root >> 32) as u32);
-    u64::from(stream_word(low, high, stream))
-        | (u64::from(stream_word(high, low, stream ^ 0x9e37_79b9)) << 32)
-}
-
-/// Match the Metal `trial_hash` bit mixer using wrapping integer arithmetic.
-/// This is seed derivation, not a Gaussian sampler or an independence theorem.
-pub fn stream_word(low: u32, high: u32, element: u32) -> u32 {
-    let mut value = low ^ element.wrapping_mul(0x9e37_79b9);
-    value ^= value >> 16;
-    value = value.wrapping_mul(0x7feb_352d);
-    value ^= high;
-    value = value.wrapping_mul(0x846c_a68b);
-    value ^ (value >> 15)
-}
+pub use baux::semantics::optimizer::trust_region::pool::{arm_seed, legacy_seed, stream_word};
 
 /// Borrowed acquisition metadata. No candidate model is allocated or retained.
 #[derive(Clone, Copy, Debug)]

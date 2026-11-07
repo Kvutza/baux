@@ -35,6 +35,11 @@ pub use tuning::{
     current_tuning, set_provider,
 };
 
+pub type TreeBackend = BpannBackend;
+pub type TreeIndex = BpannIndex;
+pub type TreeTuning = BpannTuning;
+pub type TreeError = BpannError;
+
 #[cfg(test)]
 #[path = "acceptance_tests.rs"]
 mod acceptance_tests;

@@ -1,15 +1,21 @@
 import numpy as np
 import pytest
 
-from baux.experimental import MetalParamBlock, MetalRegionOptimizer, MetalWeights
+from baux import Device, Portfolio, Region, Span, Var
+from baux.experimental import (
+    ParamBlock,
+    ParameterBuffer,
+    RegionOptimizer,
+    SearchState,
+)
 
 
 def test_residentloop():
     starts = np.full((2, 17), 0x3E80, dtype=np.uint16)
-    opt = MetalRegionOptimizer(
+    opt = RegionOptimizer(
         starts,
         np.array([0, 1], dtype=np.float32),
-        [MetalParamBlock(1, 0, 17, 0.25)],
+        [ParamBlock(1, 0, 17, 0.25)],
         capacity=3,
     )
     first, second = opt.ask(12), opt.ask(13)
@@ -27,7 +33,7 @@ def test_residentloop():
     assert opt.trials == [1, 1]
     with pytest.raises(ValueError, match="no longer pending"):
         opt.tell(first, 2.0)
-    opt.restart(0, MetalWeights(starts[0]), 4.0)
+    opt.restart(0, ParameterBuffer(starts[0]), 4.0)
     fresh = opt.ask(14, region=0)
     assert fresh.generation == 1
     assert opt.tell(fresh, 5.0)
@@ -37,10 +43,10 @@ def test_residentloop():
 
 def test_nearestsharing():
     starts = np.full((2, 17), 0x3E80, dtype=np.uint16)
-    opt = MetalRegionOptimizer(
+    opt = RegionOptimizer(
         starts,
         np.array([0, 1], dtype=np.float32),
-        [MetalParamBlock(1, 0, 17, 0.25)],
+        [ParamBlock(1, 0, 17, 0.25)],
         capacity=3,
         sharing="nearest_center",
     )
@@ -60,11 +66,11 @@ def test_nearestsharing():
 
 def test_sharedzero():
     starts = np.full((2, 17), 0x3E80, dtype=np.uint16)
-    opt = MetalRegionOptimizer(
+    opt = RegionOptimizer(
         starts,
         np.array([0, 1], dtype=np.float32),
-        [MetalParamBlock(1, 0, 17, 0.0)],
-        sharing="shared",
+        [ParamBlock(1, 0, 17, 0.0)],
+        sharing="box_contain",
     )
     proposal = opt.ask(8, region=1)
     opt.tell(proposal, 2.0)
@@ -75,10 +81,10 @@ def test_sharedzero():
 
 def test_cancelproposal():
     starts = np.full((2, 17), 0x3E80, dtype=np.uint16)
-    opt = MetalRegionOptimizer(
+    opt = RegionOptimizer(
         starts,
         np.array([0, 1], dtype=np.float32),
-        [MetalParamBlock(1, 0, 17, 0.25)],
+        [ParamBlock(1, 0, 17, 0.25)],
         capacity=3,
     )
     proposal = opt.ask(12, region=0)
@@ -98,13 +104,13 @@ def test_cancelproposal():
 
 def test_externalimport():
     starts = np.full((2, 17), 0x3E80, dtype=np.uint16)
-    opt = MetalRegionOptimizer(
+    opt = RegionOptimizer(
         starts,
         np.array([0, 1], dtype=np.float32),
-        [MetalParamBlock(1, 0, 17, 0.25)],
+        [ParamBlock(1, 0, 17, 0.25)],
         capacity=3,
     )
-    foreign = MetalWeights(np.full(17, 0x4000, dtype=np.uint16))
+    foreign = ParameterBuffer(np.full(17, 0x4000, dtype=np.uint16))
     opt.import_region(0, foreign, 2.0)
     assert opt.delivered_imports == 1
     assert opt.trials == [0, 0]
@@ -119,18 +125,18 @@ def test_externalimport():
 
 @pytest.mark.parametrize(
     "sharing,expected",
-    [("nearest_center", [0]), ("shared", [0, 1])],
+    [("nearest_center", [0]), ("box_contain", [0, 1])],
 )
 def test_policyimport(sharing, expected):
     starts = np.full((2, 17), 0x3E80, dtype=np.uint16)
-    opt = MetalRegionOptimizer(
+    opt = RegionOptimizer(
         starts,
         np.array([0, 1], dtype=np.float32),
-        [MetalParamBlock(1, 0, 17, 0.25)],
+        [ParamBlock(1, 0, 17, 0.25)],
         capacity=3,
         sharing=sharing,
     )
-    foreign = MetalWeights(starts[0])
+    foreign = ParameterBuffer(starts[0])
     assert opt.import_observations(foreign, 2.0) == expected
     assert opt.sharing_backlog == [int(slot in expected) for slot in range(2)]
     for slot in expected:
@@ -141,12 +147,59 @@ def test_policyimport(sharing, expected):
 
 def test_independentimport():
     starts = np.full((2, 17), 0x3E80, dtype=np.uint16)
-    opt = MetalRegionOptimizer(
+    opt = RegionOptimizer(
         starts,
         np.array([0, 1], dtype=np.float32),
-        [MetalParamBlock(1, 0, 17, 0.25)],
-        sharing="independent",
+        [ParamBlock(1, 0, 17, 0.25)],
+        sharing="origin_only",
     )
-    foreign = MetalWeights(starts[0])
+    foreign = ParameterBuffer(starts[0])
     with pytest.raises(ValueError, match="explicit import_region"):
         opt.import_observations(foreign, 2.0)
+
+
+def test_ellipsoidzero():
+    assert SearchState is not None
+    starts = np.full((2, 16), 0x3F80, dtype=np.uint16)
+    blocks = [
+        ParamBlock(1, 0, 8, 0.5, 4.0),
+        ParamBlock(2, 8, 8, 0.25, 1.0),
+    ]
+    opt = RegionOptimizer(
+        starts,
+        np.array([0.0, 0.0], dtype=np.float32),
+        blocks,
+        capacity=0,
+        length_init=0.4,
+        sharing="ellipsoid_ball",
+    )
+    first = opt.ask(11, region=0, acquisition="random")
+    accepted = first.weights().read()
+    assert opt.tell(first, 5.0)
+    assert opt.sharing_backlog == [0, 1]
+    opt.flush_sharing(1)
+    assert opt.sharing_backlog == [0, 0]
+    assert opt.delivered_imports == 1
+    adopted = opt.incumbent(1).read()
+    np.testing.assert_array_equal(adopted, accepted)
+    second = opt.ask(19, region=1, acquisition="random")
+    assert opt.tell(second, 6.0)
+    assert opt.best == (1, 6.0)
+
+
+def test_candleapi():
+    dev = Device("metal")
+    assert dev.is_metal and dev.kind == "metal" and dev == "metal"
+    assert dev.memory_info()["name"]
+    starts = np.full((2, 17), 0x3E80, dtype=np.uint16)
+    values = np.array([0.0, 1.0], dtype=np.float32)
+    spans = [Span(1, 0, 17, 0.25)]
+    region = Region(Var(starts[0]), 0.0, spans, 2)
+    trial = region.ask()
+    assert trial.var().read().size == 17
+    assert region.tell(trial, 1.0)
+    for cap in (0, 4):
+        portfolio = Portfolio(starts, values, spans, capacity=cap)
+        rt = portfolio.ask(acquisition="random" if cap == 0 else "thompson")
+        assert rt.var().read().size == 17
+        assert portfolio.tell(rt, 2.0)

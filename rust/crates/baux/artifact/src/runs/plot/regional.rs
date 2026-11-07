@@ -23,9 +23,12 @@ fn resident_results(output: &Path, results: &[Value]) -> Result<Vec<Value>, Stri
         let seed = result["seed"].as_u64().ok_or("missing regional seed")?;
         let regions = result["regions"].as_u64().ok_or("missing region count")?;
         let allocation = result["allocation"].as_str().ok_or("missing allocation")?;
-        let sharing = result["sharing"].as_str().unwrap_or("independent");
+        let sharing = result["sharing"].as_str().unwrap_or("origin_only");
         let starts = result["starts"].as_str().unwrap_or("separated");
-        if !matches!(allocation, "balanced" | "ucb") {
+        if !matches!(
+            allocation,
+            "least_trials" | "incumbent_ucb1" | "joint_acquisition" | "balanced" | "ucb"
+        ) {
             return Err("unknown regional allocation".into());
         }
         let trace = result["trace"].as_seq().ok_or("missing regional trace")?;

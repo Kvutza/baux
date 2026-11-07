@@ -6,8 +6,8 @@
 use super::{ArmResult, Config, make_optimizer, score};
 use baux::artifact::json::json;
 use baux::optimizer::{SharingPolicy, TrustRegionState};
+use baux::prng;
 use ndarray::Array2;
-use rand::{SeedableRng, rngs::StdRng};
 
 pub(super) fn run_arm(
     config: &Config,
@@ -19,7 +19,7 @@ pub(super) fn run_arm(
     center_policy: &str,
     objective: &str,
 ) -> Result<ArmResult, String> {
-    let mut rng = StdRng::seed_from_u64(seed);
+    let mut rng = prng(seed);
     let mut optimizer = make_optimizer(
         config,
         centers,
@@ -77,7 +77,7 @@ pub(super) fn run_arm(
         "roles":roles, "restart_center_policy":center_policy,
         "restart_candidates":config.candidates(),
         "region_acquisition_beta":if roles == "split_beta" { vec![0.0,4.0,2.0,2.0] } else { vec![2.0;4] },
-        "region_method":"turbo",
+        "controller":"turbo",
         "length_init":length.length_init, "length_min":length.length_min,
         "length_max":length.length_max,
         "success_tolerance":config.succeed(), "failure_tolerance":config.fail(),

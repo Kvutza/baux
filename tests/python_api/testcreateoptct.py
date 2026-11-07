@@ -9,10 +9,9 @@ import pytest
 from baux import Telemetry, create_optimizer, turbo_enn, turbo_one, turbo_zero
 from baux.bo import AskBatch, AskId, Optimizer
 from baux.turbo.config import (
-    MultiTrustRegionPolicy,
+    RegionalSearchPolicy,
     RestartCenterPolicy,
     NeighborIndex,
-    ParetoAcquisitionConfig,
     RandomAcquisitionConfig,
     TrustRegionBounds,
     UCBAcquisitionConfig,
@@ -74,16 +73,21 @@ def test_surrogate():
     [
         (preset, sharing)
         for preset in (turbo_enn, turbo_zero)
-        for sharing in ("shared", "nearest_center", "independent")
+        for sharing in (
+            "box_contain",
+            "ellipsoid_ball",
+            "nearest_center",
+            "origin_only",
+        )
     ],
 )
 def test_regionalfactory(preset, sharing):
     cfg = replace(
         preset(num_init=2),
-        trust_region=MultiTrustRegionPolicy(
-            num_regions=3,
+        trust_region=RegionalSearchPolicy(
+            count=3,
             length=TrustRegionBounds(length_init=0.3),
-            sharing_policy=sharing,
+            sharing=sharing,
         ),
     )
     opt = create_optimizer(
@@ -107,7 +111,7 @@ def test_regionalfactory(preset, sharing):
 def test_partialcompletion():
     cfg = replace(
         turbo_zero(num_init=1),
-        trust_region=MultiTrustRegionPolicy(num_regions=2),
+        trust_region=RegionalSearchPolicy(count=2),
     )
     opt = create_optimizer(
         bounds=np.array([[0.0, 1.0], [0.0, 1.0]]),
@@ -145,7 +149,7 @@ def test_typedasklifecycle():
     assert PublicAskId is AskId
     cfg = replace(
         turbo_zero(num_init=1),
-        trust_region=MultiTrustRegionPolicy(num_regions=2),
+        trust_region=RegionalSearchPolicy(count=2),
     )
     opt = create_optimizer(
         bounds=np.array([[0.0, 1.0], [0.0, 1.0]]),
@@ -185,7 +189,7 @@ def assertticketvalues(opt, tickets, values):
 def test_overlapaskids():
     config = replace(
         turbo_zero(num_init=1),
-        trust_region=MultiTrustRegionPolicy(num_regions=2),
+        trust_region=RegionalSearchPolicy(count=2),
     )
     opt = create_optimizer(
         bounds=np.array([[0.0, 1.0], [0.0, 1.0]]),
@@ -213,10 +217,10 @@ def test_overlapaskids():
 def testregionrestart():
     config = replace(
         turbo_zero(num_init=1),
-        trust_region=MultiTrustRegionPolicy(
-            num_regions=3,
-            allocation_policy="balanced",
-            succ_tolerance=1,
+        trust_region=RegionalSearchPolicy(
+            count=3,
+            allocation="least_trials",
+            success_tolerance=1,
         ),
     )
     opt = create_optimizer(
@@ -256,28 +260,28 @@ def testidvalidation():
 def testpolicyencode():
     from baux.turbo.config.encode import encode
 
-    defaults = MultiTrustRegionPolicy()
-    assert defaults.allocation_policy == "reward_ucb"
-    assert defaults.restart_memory_policy == "fresh"
-    assert defaults.region_method == "turbo"
+    defaults = RegionalSearchPolicy()
+    assert defaults.allocation == "incumbent_ucb1"
+    assert defaults.restart_memory == "fresh"
+    assert defaults.controller == "turbo"
 
     config = replace(
         turbo_enn(num_init=1),
-        trust_region=MultiTrustRegionPolicy(
-            num_regions=2,
-            allocation_policy="balanced",
-            restart_memory_policy="retain_relevant",
+        trust_region=RegionalSearchPolicy(
+            count=2,
+            allocation="least_trials",
+            restart_memory="retain_relevant",
             restart_center=RestartCenterPolicy(candidates=32, selection="maximin"),
-            region_method="fixed_length",
-            region_acquisitions=(None, UCBAcquisitionConfig(beta=1.25)),
+            controller="fixed_radius",
+            acquisitions=(None, UCBAcquisitionConfig(beta=1.25)),
         ),
     )
     encoded = encode(config)
-    assert encoded["region_allocation"] == "balanced"
+    assert encoded["region_allocation"] == "least_trials"
     assert encoded["region_restart_memory"] == "retain_relevant"
     assert encoded["region_restart_candidates"] == 32
     assert encoded["region_restart_center_selection"] == "maximin"
-    assert encoded["region_method"] == "fixed_length"
+    assert encoded["region_controller"] == "fixed_radius"
     assert encoded["region_acquisitions"] == [None, "ucb"]
     assert encoded["region_acquisition_betas"] == [None, 1.25]
     opt = create_optimizer(
@@ -287,11 +291,25 @@ def testpolicyencode():
     )
     assert opt.num_regions == 2
 
+    joint_config = replace(
+        turbo_enn(num_init=1),
+        trust_region=RegionalSearchPolicy(
+            count=2,
+            allocation="joint_acquisition",
+        ),
+    )
+    joint_opt = create_optimizer(
+        bounds=np.array([[0.0, 1.0]]),
+        config=joint_config,
+        rng=np.random.default_rng(85),
+    )
+    assert joint_opt.ask(1).shape == (1, 1)
+
     random_config = replace(
         turbo_zero(num_init=1),
-        trust_region=MultiTrustRegionPolicy(
-            num_regions=2,
-            region_acquisitions=(None, RandomAcquisitionConfig()),
+        trust_region=RegionalSearchPolicy(
+            count=2,
+            acquisitions=(None, RandomAcquisitionConfig()),
         ),
     )
     random_opt = create_optimizer(
@@ -304,30 +322,28 @@ def testpolicyencode():
 
 def testbadpolicies():
     with pytest.raises(ValueError, match="allocation policy"):
-        MultiTrustRegionPolicy(allocation_policy="unknown")
+        RegionalSearchPolicy(allocation="unknown")
     with pytest.raises(ValueError, match="restart memory policy"):
-        MultiTrustRegionPolicy(restart_memory_policy="unknown")
-    with pytest.raises(ValueError, match="regional method"):
-        MultiTrustRegionPolicy(region_method="dynamic")
-    with pytest.raises(ValueError, match="match num_regions"):
-        MultiTrustRegionPolicy(num_regions=2, region_acquisitions=(None,))
-    with pytest.raises(ValueError, match="Pareto"):
-        MultiTrustRegionPolicy(region_acquisitions=(ParetoAcquisitionConfig(),) * 4)
+        RegionalSearchPolicy(restart_memory="unknown")
+    with pytest.raises(ValueError, match="regional controller"):
+        RegionalSearchPolicy(controller="dynamic")
+    with pytest.raises(ValueError, match="match region count"):
+        RegionalSearchPolicy(count=2, acquisitions=(None,))
     with pytest.raises(ValueError, match="beta"):
-        MultiTrustRegionPolicy(
-            region_acquisitions=(UCBAcquisitionConfig(beta=float("inf")),) * 4
+        RegionalSearchPolicy(
+            acquisitions=(UCBAcquisitionConfig(beta=float("inf")),) * 4
         )
 
 
 def test_badregionconfig():
-    cfg = replace(turbo_zero(), trust_region=MultiTrustRegionPolicy(num_regions=0))
-    with pytest.raises(ValueError, match="num_regions"):
-        create_optimizer(
-            bounds=np.array([[0.0, 1.0]]), config=cfg, rng=np.random.default_rng(1)
-        )
+    with pytest.raises(ValueError, match="count"):
+        RegionalSearchPolicy(count=0)
 
 
-@pytest.mark.parametrize("sharing", ["shared", "nearest_center", "independent"])
+@pytest.mark.parametrize(
+    "sharing",
+    ["box_contain", "ellipsoid_ball", "nearest_center", "origin_only"],
+)
 def test_diskregions(tmp_path, sharing):
     base = turbo_enn(num_init=2)
     cfg = replace(
@@ -339,7 +355,7 @@ def test_diskregions(tmp_path, sharing):
             enn_storage="disk",
             work_dir=tmp_path,
         ),
-        trust_region=MultiTrustRegionPolicy(num_regions=2, sharing_policy=sharing),
+        trust_region=RegionalSearchPolicy(count=2, sharing=sharing),
     )
     opt = create_optimizer(
         bounds=np.array([[0.0, 1.0], [0.0, 1.0]]),
@@ -357,7 +373,7 @@ def test_diskregions(tmp_path, sharing):
 def test_gpregions():
     cfg = turbo_one(
         num_init=2,
-        trust_region=MultiTrustRegionPolicy(num_regions=2),
+        trust_region=RegionalSearchPolicy(count=2),
     )
     opt = create_optimizer(
         bounds=np.array([[0.0, 1.0], [0.0, 1.0]]),
@@ -374,7 +390,7 @@ def test_gpregions():
 def test_explicitimport():
     cfg = replace(
         turbo_zero(num_init=1),
-        trust_region=MultiTrustRegionPolicy(num_regions=2),
+        trust_region=RegionalSearchPolicy(count=2),
     )
     opt = create_optimizer(
         bounds=np.array([[0.0, 1.0], [0.0, 1.0]]),

@@ -30,7 +30,10 @@ pub(crate) use auto::AutoIndex;
 ))]
 pub(crate) use exact_backend::check_rows;
 pub(crate) use exact_backend::{ExactBackend, flatten_f32, pad_k, unpack_search};
-pub use exact_backend::{IndexDriver, disk_driver};
+pub use exact_backend::{IndexDriver, IndexKind, disk_driver};
+
+pub type IndexPlan = KnnPlan;
+pub type IndexProfile = KnnProfile;
 
 /// KNN execution diagram used by the experimental parity surface.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

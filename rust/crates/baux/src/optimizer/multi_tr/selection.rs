@@ -98,14 +98,34 @@ impl MultiTrustRegionState {
             let ls_mean = ls.mean().unwrap_or(1.0);
             for d in 0..self.num_dim {
                 let half = 0.5 * len * (ls[d] / ls_mean);
-                lb[d] = (center[d] - half).clamp(0.0, 1.0);
-                ub[d] = (center[d] + half).clamp(0.0, 1.0);
+                let lo = center[d] - half;
+                let hi = center[d] + half;
+                lb[d] = if self.config.clamp_domain {
+                    lo.clamp(0.0, 1.0)
+                } else {
+                    lo
+                };
+                ub[d] = if self.config.clamp_domain {
+                    hi.clamp(0.0, 1.0)
+                } else {
+                    hi
+                };
             }
         } else {
             let half = 0.5 * len;
-            for d in 0..self.num_dim {
-                lb[d] = (center[d] - half).clamp(0.0, 1.0);
-                ub[d] = (center[d] + half).clamp(0.0, 1.0);
+            let c_slice = center.as_slice().expect("center row contiguous");
+            let lb_slice = lb.as_slice_mut().expect("lb contiguous");
+            let ub_slice = ub.as_slice_mut().expect("ub contiguous");
+            if self.config.clamp_domain {
+                for d in 0..self.num_dim {
+                    lb_slice[d] = (c_slice[d] - half).clamp(0.0, 1.0);
+                    ub_slice[d] = (c_slice[d] + half).clamp(0.0, 1.0);
+                }
+            } else {
+                for d in 0..self.num_dim {
+                    lb_slice[d] = c_slice[d] - half;
+                    ub_slice[d] = c_slice[d] + half;
+                }
             }
         }
 

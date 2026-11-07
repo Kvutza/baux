@@ -11,37 +11,16 @@
 //! https://github.com/Libensemble/libensemble/blob/2f79ba6943083ff71875272d6f3f9b5222acd273/libensemble/gen_funcs/persistent_aposmm.py.
 //! Candidate maximin below is not APOSMM's full start-eligibility rule.
 
+pub use baux::semantics::optimizer::portfolio::{
+    AllocationPolicy, RegionController, RestartCenterPolicy, RestartCenterSelection,
+    RestartMemoryPolicy, SharingPolicy,
+};
+use baux::semantics::optimizer::portfolio::{contains_ball, contains_box};
 use ndarray::{Array1, ArrayView1};
 use rand::RngCore;
 
-use super::{MultiTrustRegionState, SharingPolicy};
+use super::MultiTrustRegionState;
 use crate::trust_region::TrustRegionError;
-
-/// How candidates for a new region center are ranked.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RestartCenterSelection {
-    /// Choose the first unit-cube draw. Further draws permit matched random
-    /// consumption when comparing this rule with another ranking.
-    First,
-    /// Choose the candidate farthest from its nearest active region center.
-    Maximin,
-}
-
-/// Bounded candidate search for an automatically retired region slot.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct RestartCenterPolicy {
-    pub candidates: usize,
-    pub selection: RestartCenterSelection,
-}
-
-impl Default for RestartCenterPolicy {
-    fn default() -> Self {
-        Self {
-            candidates: 1,
-            selection: RestartCenterSelection::First,
-        }
-    }
-}
 
 impl MultiTrustRegionState {
     /// Sample a replacement center using this state's configured policy.
@@ -89,59 +68,9 @@ impl MultiTrustRegionState {
             })
             .fold(f64::INFINITY, f64::min)
     }
-}
-
-/// Policy used to divide a candidate budget among active region slots.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AllocationPolicy {
-    /// Greedily allocate using objective utility and exploration uncertainty.
-    RewardUcb,
-    /// Favor the least-evaluated active slots, with stable slot-order ties.
-    Balanced,
-}
-
-impl Default for AllocationPolicy {
-    fn default() -> Self {
-        Self::RewardUcb
-    }
-}
-
-/// Policy for regional observations when a slot starts a new generation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RestartMemoryPolicy {
-    /// Start with an empty local model, as a new search trajectory.
-    Fresh,
-    /// Refit the new generation on observations previously relevant to the
-    /// slot.
-    RetainRelevant,
-}
-
-/// Numerical method used to update a region's trust-region controller.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RegionMethod {
-    /// TuRBO-style success and failure counters adapt region length.
-    Turbo,
-    /// Keep the configured length fixed while retaining relevance and credit.
-    FixedLength,
-}
-
-impl Default for RegionMethod {
-    fn default() -> Self {
-        Self::Turbo
-    }
-}
-
-impl Default for RestartMemoryPolicy {
-    fn default() -> Self {
-        Self::Fresh
-    }
-}
-
-impl SharingPolicy {
     /// Decide local-model relevance separately from proposal origin and credit.
-    pub(super) fn accepts(
-        self,
-        state: &MultiTrustRegionState,
+    pub(crate) fn accepts(
+        &self,
         region: usize,
         observation: usize,
         x: &ArrayView1<f64>,
@@ -149,17 +78,32 @@ impl SharingPolicy {
         ub: &Array1<f64>,
         origins: Option<&[usize]>,
     ) -> bool {
-        match self {
-            Self::Shared => state.contains(x, lb, ub),
-            Self::Independent => origins.is_some_and(|ids| ids[observation] == region),
-            Self::NearestCenter => {
-                let distance = state.distance_to(region, x);
-                (0..state.num_regions)
-                    .filter(|&other| other != region && state.active_mask[other])
-                    .all(|other| state.distance_to(other, x) >= distance)
+        let x_slice = x.as_slice().expect("row view is contiguous");
+        let lb_slice = lb.as_slice().expect("lb is contiguous");
+        let ub_slice = ub.as_slice().expect("ub is contiguous");
+        match self.config.sharing_policy {
+            SharingPolicy::BoxContain => contains_box(self.num_dim, x_slice, lb_slice, ub_slice),
+            SharingPolicy::EllipsoidBall => {
+                contains_ball(self.num_dim, x_slice, lb_slice, ub_slice)
+            }
+            SharingPolicy::OriginOnly => origins.is_some_and(|ids| ids[observation] == region),
+            SharingPolicy::NearestCenter => {
+                let distance = distance_to(self, region, x);
+                (0..self.num_regions)
+                    .filter(|&other| other != region && self.active_mask[other])
+                    .all(|other| distance_to(self, other, x) >= distance)
             }
         }
     }
+}
+
+pub(super) fn distance_to(
+    state: &MultiTrustRegionState,
+    region: usize,
+    x: &ArrayView1<f64>,
+) -> f64 {
+    let center = state.centers.row(region);
+    (0..state.num_dim).map(|d| (x[d] - center[d]).powi(2)).sum()
 }
 
 impl MultiTrustRegionState {
@@ -222,7 +166,7 @@ mod tests {
     fn balancedallocation() {
         let mut rng = StdRng::seed_from_u64(1);
         let mut config = MultiTrustRegionConfig::new(3, TRLengthConfig::default());
-        config.allocation_policy = AllocationPolicy::Balanced;
+        config.allocation_policy = AllocationPolicy::LeastTrials;
         let state = MultiTrustRegionState::new(1, config, None, &mut rng).unwrap();
         let plan = state
             .allocate_with(5, &array![100.0, -5.0, 0.0].view())
@@ -245,7 +189,7 @@ mod tests {
     fn balancedhistory() {
         let mut rng = StdRng::seed_from_u64(1);
         let mut config = MultiTrustRegionConfig::new(3, TRLengthConfig::default());
-        config.allocation_policy = AllocationPolicy::Balanced;
+        config.allocation_policy = AllocationPolicy::LeastTrials;
         let mut state = MultiTrustRegionState::new(1, config, None, &mut rng).unwrap();
         let utility = array![100.0, -5.0, 0.0];
         for expected in [0, 1, 2, 0, 1, 2] {

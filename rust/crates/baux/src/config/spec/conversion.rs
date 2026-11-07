@@ -174,10 +174,11 @@ impl OptimizerSpec {
                 perturbation: candidate_generation.perturbation,
                 surrogate,
                 trust_region,
+                regional_search: config.regional_search.clone(),
             });
         }
         let acquisition = AcquisitionSpec::from_config(config);
-        Ok(Self::TurboEnn {
+        Ok(Self::BayesianSearch {
             candidates: candidate_generation.candidates,
             arms: candidate_generation.arms,
             distribution: candidate_generation.distribution,
@@ -185,26 +186,28 @@ impl OptimizerSpec {
             acquisition,
             surrogate,
             trust_region,
+            regional_search: config.regional_search.clone(),
         })
     }
 
     const fn training_optimizer(&self) -> TrainingOptimizer {
         match self {
             Self::OperatorBo { .. } => TrainingOptimizer::OperatorBo,
-            Self::TurboEnn { .. } => TrainingOptimizer::ResidentEnnV1,
+            Self::BayesianSearch { .. } => TrainingOptimizer::ResidentEnnV1,
             Self::Muon => TrainingOptimizer::MuonV1,
-            Self::Adamw => TrainingOptimizer::AdamwV1,
+            Self::Adamw | Self::Ppo => TrainingOptimizer::AdamwV1,
         }
     }
 
     fn apply(&self, config: &mut RunConfig) -> Result<(), String> {
         match self {
-            Self::Muon | Self::Adamw => Ok(()),
+            Self::Muon | Self::Adamw | Self::Ppo => Ok(()),
             Self::OperatorBo {
                 distribution,
                 perturbation,
                 surrogate,
                 trust_region,
+                regional_search,
             } => {
                 let candidate_generation = CandidateGenerationSpec {
                     candidates: 1,
@@ -216,9 +219,10 @@ impl OptimizerSpec {
                 config.trust_region_kind = Some(TrustRegionKind::Turbo);
                 candidate_generation.apply(config)?;
                 surrogate.apply(config)?;
+                config.regional_search.clone_from(regional_search);
                 Ok(())
             }
-            Self::TurboEnn {
+            Self::BayesianSearch {
                 candidates,
                 arms,
                 distribution,
@@ -226,6 +230,7 @@ impl OptimizerSpec {
                 acquisition,
                 surrogate,
                 trust_region,
+                regional_search,
             } => {
                 let candidate_generation = CandidateGenerationSpec {
                     candidates: *candidates,
@@ -238,6 +243,7 @@ impl OptimizerSpec {
                 candidate_generation.apply(config)?;
                 surrogate.apply(config)?;
                 acquisition.apply(config);
+                config.regional_search.clone_from(regional_search);
                 Ok(())
             }
         }

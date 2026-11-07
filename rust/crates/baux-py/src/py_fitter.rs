@@ -3,8 +3,6 @@
 use numpy::{PyArray1, PyReadonlyArray2, ToPyArray};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use rand::SeedableRng;
-use rand::rngs::StdRng;
 
 use crate::py_model::PyENN;
 
@@ -51,17 +49,17 @@ impl PyENNParams {
 #[pyclass(name = "ENNFitter")]
 pub struct PyENNFitter {
     inner: baux::ENNFitter,
-    rng: StdRng,
+    rng: baux::Prng,
 }
 
 #[pymethods]
 impl PyENNFitter {
     #[new]
-    #[pyo3(signature = (k, seed, infer_aleatoric_variance_scale=true))]
-    fn new(k: i32, seed: u64, infer_aleatoric_variance_scale: bool) -> Self {
+    #[pyo3(signature = (k, seed=None, infer_aleatoric_variance_scale=true))]
+    fn new(k: i32, seed: Option<u64>, infer_aleatoric_variance_scale: bool) -> Self {
         Self {
             inner: baux::ENNFitter::new(k, infer_aleatoric_variance_scale),
-            rng: StdRng::seed_from_u64(seed),
+            rng: baux::prng(baux::resolve_seed(seed)),
         }
     }
 

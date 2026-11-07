@@ -11,6 +11,9 @@ pub enum AcquisitionKind {
     /// `crate::acquisition::ParetoAcquisition`, which performs
     /// multiobjective Pareto-front selection.
     Pareto,
+    /// Surrogate-free (`TuRBO-zero`) uniform candidate selection within the
+    /// active trust region.
+    Random,
 }
 
 impl AcquisitionKind {
@@ -19,8 +22,9 @@ impl AcquisitionKind {
             "ucb" => Ok(Self::Ucb),
             "thompson" => Ok(Self::Thompson),
             "pareto" => Ok(Self::Pareto),
+            "random" | "zero" => Ok(Self::Random),
             other => Err(format!(
-                "unknown acquisition {other:?}; expected 'ucb', 'thompson', or 'pareto'"
+                "unknown acquisition {other:?}; expected 'ucb', 'thompson', 'pareto', or 'random'"
             )),
         }
     }
@@ -80,5 +84,6 @@ pub fn acquisition_code(acquisition: AcquisitionKind) -> u32 {
         AcquisitionKind::Ucb => 0,
         AcquisitionKind::Thompson => 1,
         AcquisitionKind::Pareto => 2,
+        AcquisitionKind::Random => 3,
     }
 }

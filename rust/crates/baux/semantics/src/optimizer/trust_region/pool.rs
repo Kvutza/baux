@@ -24,16 +24,18 @@ impl PoolShape {
 
     pub fn seed(self, root: u64, candidate: usize) -> u64 {
         let slots = self.count / self.arms;
-        let arm = candidate / slots;
-        let slot = candidate % slots;
+        let arm = (candidate / slots) as u32;
+        let slot = (candidate % slots) as u32;
         legacy_seed(arm_seed(root, arm), slot)
     }
 }
 
 pub use baux::semantics::random::splitmix64;
 
+/// Match the Metal `trial_hash` bit mixer using wrapping integer arithmetic.
+/// This is seed derivation, not a Gaussian sampler or an independence theorem.
 #[inline]
-fn stream_word(low: u32, high: u32, element: u32) -> u32 {
+pub fn stream_word(low: u32, high: u32, element: u32) -> u32 {
     let mut value = low ^ element.wrapping_mul(0x9e37_79b9);
     value ^= value >> 16;
     value = value.wrapping_mul(0x7feb_352d);
@@ -42,16 +44,20 @@ fn stream_word(low: u32, high: u32, element: u32) -> u32 {
     value ^ (value >> 15)
 }
 
-fn arm_seed(root: u64, arm: usize) -> u64 {
+/// Arm zero is the historical root; other arms use domain-separated streams.
+#[inline]
+pub fn arm_seed(root: u64, arm: u32) -> u64 {
     if arm == 0 {
         root
     } else {
-        splitmix64(root ^ 0x7072_6f63_6172_6d31 ^ arm as u64)
+        splitmix64(root ^ 0x7072_6f63_6172_6d31 ^ u64::from(arm))
     }
 }
 
-fn legacy_seed(root: u64, slot: usize) -> u64 {
-    let stream = slot as u32;
+/// Derive the historical stream shared by slots 0/1, 2/3, and so on.
+#[inline]
+pub fn legacy_seed(root: u64, slot: u32) -> u64 {
+    let stream = slot;
     let low = root as u32;
     let high = (root >> 32) as u32;
     u64::from(stream_word(low, high, stream))

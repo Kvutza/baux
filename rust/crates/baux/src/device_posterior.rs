@@ -16,13 +16,13 @@ enum Storage {
     Unavailable,
 }
 
-pub struct DevicePosterior {
+pub struct Posterior {
     storage: Storage,
     pub rows: usize,
     pub metrics: usize,
 }
 
-pub enum DeviceDraw {
+pub enum PosteriorDraw {
     #[cfg(all(target_os = "macos", feature = "metal"))]
     Metal(metal::Buffer),
     #[cfg(all(target_os = "linux", target_arch = "x86_64", feature = "cuda"))]
@@ -30,6 +30,9 @@ pub enum DeviceDraw {
     #[allow(dead_code)]
     Unavailable,
 }
+
+pub type DevicePosterior = Posterior;
+pub type DeviceDraw = PosteriorDraw;
 
 impl ENN {
     /// Evaluate contiguous FP32 device queries. Training observations are
@@ -146,7 +149,7 @@ impl ENN {
                     );
                 }
             };
-            Ok(DevicePosterior {
+            Ok(Posterior {
                 storage,
                 rows,
                 metrics: self.num_metrics(),
@@ -155,7 +158,7 @@ impl ENN {
     }
 }
 
-impl DevicePosterior {
+impl Posterior {
     pub fn device(&self) -> i32 {
         match self.storage {
             #[cfg(all(target_os = "macos", feature = "metal"))]
@@ -181,18 +184,18 @@ impl DevicePosterior {
             _ => 0,
         }
     }
-    pub fn draw(&self, _seeds: &[u64]) -> Result<DeviceDraw, String> {
+    pub fn draw(&self, _seeds: &[u64]) -> Result<PosteriorDraw, String> {
         match &self.storage {
             #[cfg(all(target_os = "macos", feature = "metal"))]
-            Storage::Metal(value) => value.draw(_seeds).map(DeviceDraw::Metal),
+            Storage::Metal(value) => value.draw(_seeds).map(PosteriorDraw::Metal),
             #[cfg(all(target_os = "linux", target_arch = "x86_64", feature = "cuda"))]
-            Storage::Cuda(value) => value.draw(_seeds).map(DeviceDraw::Cuda),
+            Storage::Cuda(value) => value.draw(_seeds).map(PosteriorDraw::Cuda),
             _ => Err("no device posterior implementation".into()),
         }
     }
 }
 
-impl DeviceDraw {
+impl PosteriorDraw {
     pub fn pointer(&self) -> u64 {
         match self {
             #[cfg(all(target_os = "macos", feature = "metal"))]

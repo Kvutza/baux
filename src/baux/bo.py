@@ -16,7 +16,7 @@ from .turbo.config.surrogate import (
     GaussianProcess,
     NoSurrogate,
 )
-from .turbo.config.trust_region import MultiTrustRegionPolicy
+from .turbo.config.trust_region import RegionalSearchPolicy
 from .turbo.optimizer_types import Telemetry, _Obs, _Plan, _View
 
 
@@ -95,6 +95,41 @@ def _plan(cfg: OptimizerConfig) -> _Plan:
     raise ValueError(f"unsupported surrogate: {type(cfg.surrogate)!r}")
 
 
+def _submit(
+    opt: Optimizer,
+    x: np.ndarray,
+    y: np.ndarray,
+    y_var: np.ndarray | None,
+    *,
+    imported: bool,
+) -> np.ndarray:
+    x_arr = np.asarray(x, dtype=float)
+    y_arr = np.asarray(y, dtype=float)
+    y_var_arr = None if y_var is None else np.asarray(y_var, dtype=float)
+    obs = _obs(x_arr, y_arr, y_var_arr, opt._d)
+    if obs.y.shape[0] == 0:
+        return y_arr
+    # Preserve the existing read-only input contract, after shape checks.
+    x_arr.flags.writeable = False
+    y_arr.flags.writeable = False
+    if y_var_arr is not None:
+        y_var_arr.flags.writeable = False
+    submit = opt._inner.import_observations if imported else opt._inner.tell
+    submit(obs.x, obs.y, y_var=obs.yvar)
+    if not opt._inner.has_surrogate():
+        return y_arr
+    try:
+        mu = opt.posterior_mu(obs.x)
+    except Exception as error:
+        raise TellPredictionError(
+            "observations accepted, but prediction retrieval failed; "
+            "retry posterior_mu(x), not the submission"
+        ) from error
+    if y_arr.ndim == 1 and mu.ndim == 2 and mu.shape[1] == 1:
+        return mu.reshape(-1)
+    return mu
+
+
 class Optimizer:
     """Optimize a bounded search space through Rust-owned ask/tell state.
 
@@ -123,9 +158,14 @@ class Optimizer:
         return _View(np.empty((0, 1)) if y is None else y)
 
     @property
-    def region_count(self) -> int:
-        """Legacy retained observation count; use num_regions for region slots."""
+    def num_observations(self) -> int:
+        """Number of completed observations retained by the optimizer."""
         return int(self._inner.region_count())
+
+    def __len__(self) -> int:
+        return int(self._inner.region_count())
+
+    region_count = num_observations
 
     @property
     def num_regions(self) -> int:
@@ -270,47 +310,13 @@ class Optimizer:
         ``TellPredictionError``; repeat only ``posterior_mu(x)`` in that case.
         Native ingestion errors do not imply transactional rollback.
         """
-        return self._submit(x, y, y_var, imported=False)
+        return _submit(self, x, y, y_var, imported=False)
 
     def import_observations(
         self, x: np.ndarray, y: np.ndarray, y_var: np.ndarray | None = None
     ) -> np.ndarray:
         """Add external evaluations without completing an outstanding proposal."""
-        return self._submit(x, y, y_var, imported=True)
-
-    def _submit(
-        self,
-        x: np.ndarray,
-        y: np.ndarray,
-        y_var: np.ndarray | None,
-        *,
-        imported: bool,
-    ) -> np.ndarray:
-        x_arr = np.asarray(x, dtype=float)
-        y_arr = np.asarray(y, dtype=float)
-        y_var_arr = None if y_var is None else np.asarray(y_var, dtype=float)
-        obs = _obs(x_arr, y_arr, y_var_arr, self._d)
-        if obs.y.shape[0] == 0:
-            return y_arr
-        # Preserve the existing read-only input contract, after shape checks.
-        x_arr.flags.writeable = False
-        y_arr.flags.writeable = False
-        if y_var_arr is not None:
-            y_var_arr.flags.writeable = False
-        submit = self._inner.import_observations if imported else self._inner.tell
-        submit(obs.x, obs.y, y_var=obs.yvar)
-        if not self._inner.has_surrogate():
-            return y_arr
-        try:
-            mu = self.posterior_mu(obs.x)
-        except Exception as error:
-            raise TellPredictionError(
-                "observations accepted, but prediction retrieval failed; "
-                "retry posterior_mu(x), not the submission"
-            ) from error
-        if y_arr.ndim == 1 and mu.ndim == 2 and mu.shape[1] == 1:
-            return mu.reshape(-1)
-        return mu
+        return _submit(self, x, y, y_var, imported=True)
 
     def posterior_mu(self, x: np.ndarray) -> np.ndarray:
         """Query fitted means in natural units without submitting observations."""
@@ -334,12 +340,12 @@ def create_optimizer(
     n = 10 if config.init.num_init is None else int(config.init.num_init)
     seed = int(rng.integers(2**63 - 1))
     regions = (
-        config.trust_region.num_regions
-        if isinstance(config.trust_region, MultiTrustRegionPolicy)
+        config.trust_region.count
+        if isinstance(config.trust_region, RegionalSearchPolicy)
         else 1
     )
     provider_factory: Callable[[], Any] | None = None
-    if isinstance(config.trust_region, MultiTrustRegionPolicy):
+    if isinstance(config.trust_region, RegionalSearchPolicy):
         if isinstance(config.surrogate, ExternalSurrogate):
             provider_factory = config.surrogate.factory
         elif isinstance(config.surrogate, GaussianProcess):
@@ -368,7 +374,7 @@ def create_optimizer(
         len(bounds),
         rng,
         inner,
-        identified_asks=isinstance(config.trust_region, MultiTrustRegionPolicy),
+        identified_asks=isinstance(config.trust_region, RegionalSearchPolicy),
     )
 
 

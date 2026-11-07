@@ -39,6 +39,9 @@ impl RunConfig {
     pub fn validate_fields(&self, pretrain: bool) -> Result<(), String> {
         self.validate_objectives()?;
         self.resident_pool()?;
+        if let Some(regional) = &self.regional_search {
+            regional.validate()?;
+        }
         self.validate_identity(pretrain)?;
         if self.validation_dataset.is_some() && !pretrain {
             return Err("data.validation requires a pretraining experiment".into());
@@ -119,7 +122,9 @@ impl RunConfig {
                 TrainingOptimizer::ResidentEnnV1 | TrainingOptimizer::OperatorBo
             )
         {
-            return Err("long fixed-corpus likelihood requires turbo-enn or operator-bo".into());
+            return Err(
+                "long fixed-corpus likelihood requires Bayesian search or operator BO".into(),
+            );
         }
         if self.generation.is_some() {
             return Err("fixed causal pretraining cannot contain generation configuration".into());

@@ -3,8 +3,6 @@
 use numpy::{IntoPyArray, PyArrayDyn, PyReadonlyArray1, PyReadonlyArray2};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use rand::SeedableRng;
-use rand::rngs::StdRng;
 
 /// Python wrapper for MultiTrustRegion state machine
 #[pyclass(name = "MultiTrustRegion")]
@@ -15,20 +13,21 @@ pub struct PyMultiTrustRegion {
 #[pymethods]
 impl PyMultiTrustRegion {
     #[new]
-    #[pyo3(signature = (num_dim, num_regions=4, sharing_policy="shared", seed=42))]
+    #[pyo3(signature = (num_dim, num_regions=4, sharing_policy="box_contain", seed=None))]
     pub fn new(
         num_dim: usize,
         num_regions: usize,
         sharing_policy: &str,
-        seed: u64,
+        seed: Option<u64>,
     ) -> PyResult<Self> {
         use baux::experimental::{MultiTrustRegionConfig, MultiTrustRegionState, SharingPolicy};
 
-        let mut rng = StdRng::seed_from_u64(seed);
+        let mut rng = baux::prng(baux::resolve_seed(seed));
         let policy = match sharing_policy {
-            "shared" => SharingPolicy::Shared,
+            "box_contain" => SharingPolicy::BoxContain,
+            "ellipsoid_ball" => SharingPolicy::EllipsoidBall,
             "nearest_center" => SharingPolicy::NearestCenter,
-            "independent" => SharingPolicy::Independent,
+            "origin_only" => SharingPolicy::OriginOnly,
             _ => {
                 return Err(PyValueError::new_err(format!(
                     "Unknown sharing policy: {}",

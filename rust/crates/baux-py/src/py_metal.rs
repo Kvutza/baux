@@ -8,8 +8,8 @@ use std::rc::Rc;
 
 use baux::TRLengthConfig;
 use baux::experimental::{
-    AcquisitionKind, AcquisitionParams, MetalProposals, MetalSearchState, ProposalParams,
-    RoundConfig, SurrogateParams,
+    AcquisitionKind, AcquisitionParams, MetalSearchState, ProposalParams, RoundConfig,
+    SurrogateParams,
 };
 use numpy::{IntoPyArray, PyArray1};
 use pyo3::exceptions::{PyBufferError, PyValueError};
@@ -19,12 +19,12 @@ use pyo3::types::PyDict;
 mod py_buf;
 
 use py_buf::err;
-pub use py_buf::{PyMetalParamBlock, PyMetalWeights};
+pub use py_buf::{PyMetalParamBlock, PyMetalProposals, PyMetalWeights};
 
-#[pyclass(name = "MetalSearchState", module = "baux.experimental", unsendable)]
+#[pyclass(name = "Region", module = "baux", unsendable)]
 pub struct PyMetalSearchState {
     pub(super) inner: MetalSearchState,
-    leases: Rc<Cell<usize>>,
+    pub(super) leases: Rc<Cell<usize>>,
 }
 
 impl PyMetalSearchState {
@@ -91,13 +91,13 @@ impl PyMetalSearchState {
         ))
     }
 
-    #[pyo3(signature=(arms,candidates,neighbors,seed,epistemic_scale=1.0,aleatoric_scale=0.0,y_scale=1.0,beta=1.0,acquisition="thompson",draw_seed=0))]
+    #[pyo3(signature=(arms=1,candidates=4,neighbors=1,seed=None,epistemic_scale=1.0,aleatoric_scale=0.0,y_scale=1.0,beta=1.0,acquisition="thompson",draw_seed=0))]
     fn ask(
         mut slf: PyRefMut<'_, Self>,
         arms: usize,
         candidates: usize,
         neighbors: usize,
-        seed: u64,
+        seed: Option<u64>,
         epistemic_scale: f32,
         aleatoric_scale: f32,
         y_scale: f32,
@@ -106,6 +106,7 @@ impl PyMetalSearchState {
         draw_seed: u64,
     ) -> PyResult<PyMetalProposals> {
         slf.unleased()?;
+        let seed = baux::resolve_seed(seed);
         let kind = AcquisitionKind::parse(acquisition).map_err(err)?;
         let config = RoundConfig {
             proposal: ProposalParams { radius: 0.0 },
@@ -141,6 +142,20 @@ impl PyMetalSearchState {
             len: self.inner.len(),
             lease: Some(self.leases.clone()),
         })
+    }
+
+    #[pyo3(signature=(proposals, value, variance=0.0))]
+    fn tell(
+        &mut self,
+        proposals: PyRef<'_, PyMetalProposals>,
+        value: f32,
+        variance: f32,
+    ) -> PyResult<bool> {
+        self.unleased()?;
+        self.inner
+            .tell_noisy(&proposals.inner, value, variance)
+            .map(|d| d.accepted)
+            .map_err(err)
     }
 
     #[pyo3(signature=(proposals, value, variance, incumbent_value, incumbent_variance, accept))]
@@ -247,77 +262,5 @@ impl PyMetalSearchState {
     #[getter]
     fn restarts(&self) -> PyResult<usize> {
         self.inner.restarts().map_err(err)
-    }
-}
-
-#[pyclass(name = "MetalProposals", module = "baux.experimental", unsendable)]
-pub struct PyMetalProposals {
-    pub(super) owner: Py<PyMetalSearchState>,
-    pub(super) inner: MetalProposals,
-}
-
-#[pymethods]
-impl PyMetalProposals {
-    fn describe(&self, py: Python<'_>) -> PyResult<Vec<(u64, f32, f32, Vec<(u64, f64)>)>> {
-        self.owner
-            .bind(py)
-            .try_borrow()?
-            .inner
-            .describe(&self.inner)
-            .map_err(err)
-    }
-
-    fn geometry(&self, py: Python<'_>) -> PyResult<Vec<(usize, f32)>> {
-        self.owner
-            .bind(py)
-            .try_borrow()?
-            .inner
-            .geometry(&self.inner)
-            .map_err(err)
-    }
-
-    fn base_id(&self, py: Python<'_>) -> PyResult<i64> {
-        self.owner
-            .bind(py)
-            .try_borrow()?
-            .inner
-            .base_id(&self.inner)
-            .map_err(err)
-    }
-
-    fn history_dists(&self, py: Python<'_>) -> PyResult<Vec<(i64, f32)>> {
-        self.owner
-            .bind(py)
-            .try_borrow()?
-            .inner
-            .history_dists(&self.inner)
-            .map_err(err)
-    }
-
-    fn pool(&self, py: Python<'_>) -> PyResult<Vec<(usize, u64, f32, f32, Vec<(i64, f32)>)>> {
-        self.owner
-            .bind(py)
-            .try_borrow()?
-            .inner
-            .pool(&self.inner)
-            .map_err(err)
-    }
-
-    fn pool_geometry(&self, py: Python<'_>) -> PyResult<([f32; 4], [Option<f32>; 6])> {
-        self.owner
-            .bind(py)
-            .try_borrow()?
-            .inner
-            .pool_geometry(&self.inner)
-            .map_err(err)
-    }
-
-    fn read<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyArray1<u16>>> {
-        let owner = self.owner.bind(py).try_borrow()?;
-        let buffer = owner.inner.propose_buffer(&self.inner).map_err(err)?;
-        let values = unsafe {
-            std::slice::from_raw_parts(buffer.contents().cast::<u16>(), owner.inner.len())
-        };
-        Ok(values.to_vec().into_pyarray(py))
     }
 }

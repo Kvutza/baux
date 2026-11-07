@@ -19,6 +19,7 @@ mod dlpack;
 pub mod link_rpath;
 #[cfg(all(target_os = "linux", target_arch = "x86_64", feature = "cuda"))]
 pub mod py_cuda;
+pub mod py_device;
 pub mod py_fit;
 pub mod py_fitter;
 pub mod py_hash;
@@ -45,6 +46,7 @@ pub use pymodule_wrappers::{
 #[pyo3(name = "baux_rust")]
 pub(crate) fn baux_rust(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(py_util::capabilities, m)?)?;
+    m.add_class::<py_device::PyDevice>()?;
     m.add_class::<py_regions::PyMultiTrustRegion>()?;
     #[cfg(all(target_os = "linux", target_arch = "x86_64", feature = "cuda"))]
     m.add_wrapped(wrap_pymodule!(pymodule_cuda))?;

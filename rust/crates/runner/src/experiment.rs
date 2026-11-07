@@ -10,6 +10,7 @@ use baux_tooling::build::BuildSystem;
 
 mod pretrain;
 mod regional;
+mod tokamak;
 
 pub(crate) fn run(
     root: &Path,
@@ -18,6 +19,9 @@ pub(crate) fn run(
     engine: BuildSystem,
 ) -> Result<(), String> {
     if regional::execute(root, path, rounds)? {
+        return Ok(());
+    }
+    if tokamak::execute(root, path, rounds)? {
         return Ok(());
     }
     let prepare_started = Instant::now();

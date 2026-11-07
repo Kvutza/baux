@@ -73,7 +73,7 @@ fn restartfailure() {
 
     let mut rng = StdRng::seed_from_u64(103);
     let mut config = MultiTrustRegionConfig::new(2, TRLengthConfig::new(0.8, 0.5, 1.6));
-    config.allocation_policy = AllocationPolicy::Balanced;
+    config.allocation_policy = AllocationPolicy::LeastTrials;
     config.fail_tolerance = 1;
     let strategy =
         Strategy::Experimental(StrategyState::configured(1, config, 0, &mut rng).unwrap());
@@ -184,7 +184,7 @@ fn arrival_order() {
     let mut rng = StdRng::seed_from_u64(83);
     let centers = array![[0.5], [0.5]];
     let mut config = MultiTrustRegionConfig::new(2, TRLengthConfig::default());
-    config.sharing_policy = SharingPolicy::Shared;
+    config.sharing_policy = SharingPolicy::BoxContain;
     let mut first_high =
         MultiTrustRegionState::new(1, config.clone(), Some(&centers.view()), &mut rng).unwrap();
     let mut first_low =

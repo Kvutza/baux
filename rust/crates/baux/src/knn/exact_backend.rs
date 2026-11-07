@@ -3,6 +3,58 @@ use ndarray::{Array2, ArrayView2};
 
 use crate::error::IndexError;
 
+/// Algorithmic structure used for nearest-neighbor lookup.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[deser(rename_all = "snake_case")]
+pub enum IndexKind {
+    #[default]
+    Exact,
+    Hnsw,
+    Tree,
+    Cagra,
+    Auto,
+}
+
+impl IndexKind {
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Exact => "exact",
+            Self::Hnsw => "hnsw",
+            Self::Tree => "tree",
+            Self::Cagra => "cagra",
+            Self::Auto => "auto",
+        }
+    }
+
+    pub fn parse(name: &str) -> Result<Self, String> {
+        match name.trim().to_ascii_lowercase().as_str() {
+            "exact" | "flat" => Ok(Self::Exact),
+            "hnsw" | "usearch" => Ok(Self::Hnsw),
+            "tree" | "bpann" | "bpann_disk" | "bp_ann_disk" => Ok(Self::Tree),
+            "cagra" | "cuvs_cagra" => Ok(Self::Cagra),
+            "auto" => Ok(Self::Auto),
+            other => Err(format!(
+                "unknown index kind {other:?}; expected 'exact', 'hnsw', 'tree', 'cagra', or 'auto'"
+            )),
+        }
+    }
+
+    pub const fn resolve(self, device: crate::Device) -> IndexDriver {
+        match self {
+            Self::Auto => IndexDriver::Auto,
+            Self::Hnsw => IndexDriver::USearch,
+            Self::Tree => IndexDriver::BpAnnDisk,
+            Self::Cagra => IndexDriver::CuvsCagra,
+            Self::Exact => match device {
+                crate::Device::Metal => IndexDriver::Metal,
+                crate::Device::Cuda => IndexDriver::Cuda,
+                crate::Device::OpenCl => IndexDriver::OpenCl,
+                crate::Device::Cpu => IndexDriver::Exact,
+            },
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
 #[deser(rename_all = "snake_case")]
 pub enum IndexDriver {
@@ -35,6 +87,25 @@ pub enum IndexDriver {
 impl IndexDriver {
     pub const fn is_cuda(self) -> bool {
         matches!(self, Self::Cuda | Self::Cuvs | Self::CuvsCagra)
+    }
+
+    pub const fn kind(self) -> IndexKind {
+        match self {
+            Self::Exact | Self::Metal | Self::OpenCl | Self::Cuda | Self::Cuvs => IndexKind::Exact,
+            Self::Auto => IndexKind::Auto,
+            Self::USearch => IndexKind::Hnsw,
+            Self::BpAnnDisk => IndexKind::Tree,
+            Self::CuvsCagra => IndexKind::Cagra,
+        }
+    }
+
+    pub const fn device(self) -> crate::Device {
+        match self {
+            Self::Metal => crate::Device::Metal,
+            Self::Cuda | Self::Cuvs | Self::CuvsCagra => crate::Device::Cuda,
+            Self::OpenCl => crate::Device::OpenCl,
+            _ => crate::Device::Cpu,
+        }
     }
 }
 

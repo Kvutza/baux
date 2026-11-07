@@ -29,7 +29,15 @@ quantize_e2m1 = _ext.util.quantize_e2m1
 set_path = _ext.util.set_path
 ensure_config_file = _ext.util.ensure_config_file
 ENN = _ext.model.ENN
+Enn = getattr(_ext.model, "Enn", _ext.model.ENN)
 ENNParams = _ext.model.ENNParams
+Posterior = getattr(
+    _ext.model, "Posterior", getattr(_ext.model, "DevicePosterior", None)
+)
+DevicePosterior = Posterior
+Tensor = getattr(_ext.model, "Tensor", getattr(_ext.model, "DeviceArray", None))
+DeviceArray = Tensor
+Device = getattr(_ext, "Device", None) or getattr(_ext.optimizer, "Device", None)
 ENNFitter = _ext.fit.ENNFitter
 subsample_loglik = _ext.fit.subsample_loglik
 row_loglik = _ext.fit.row_loglik
@@ -46,11 +54,58 @@ dense_apply = getattr(_ext.optimizer, "dense_apply", None)
 dense_dist2 = getattr(_ext.optimizer, "dense_dist2", None)
 dense_linear = getattr(_ext.optimizer, "dense_linear", None)
 DenseLinear = getattr(_ext.optimizer, "DenseLinear", None)
-ParamBuffer = getattr(_ext.optimizer, "ParamBuffer", None)
-ParameterBuffer = getattr(_ext.optimizer, "ParameterBuffer", ParamBuffer)
-ParamBlock = getattr(_ext.optimizer, "ParamBlock", None)
-SearchState = getattr(_ext.optimizer, "SearchState", None)
-Proposals = getattr(_ext.optimizer, "Proposals", None)
+Var = (
+    getattr(_ext.optimizer, "Var", None)
+    or getattr(_ext.experimental, "Var", None)
+    or getattr(_ext.optimizer, "ParameterBuffer", None)
+    or getattr(_ext.experimental, "ParameterBuffer", None)
+    or getattr(_ext.optimizer, "ParamBuffer", None)
+    or getattr(_ext.experimental, "MetalWeights", None)
+)
+Span = (
+    getattr(_ext.optimizer, "Span", None)
+    or getattr(_ext.experimental, "Span", None)
+    or getattr(_ext.optimizer, "ParamBlock", None)
+    or getattr(_ext.experimental, "ParamBlock", None)
+    or getattr(_ext.experimental, "MetalParamBlock", None)
+)
+Region = (
+    getattr(_ext.optimizer, "Region", None)
+    or getattr(_ext.experimental, "Region", None)
+    or getattr(_ext.optimizer, "SearchState", None)
+    or getattr(_ext.experimental, "SearchState", None)
+    or getattr(_ext.experimental, "MetalSearchState", None)
+)
+Trial = (
+    getattr(_ext.optimizer, "Trial", None)
+    or getattr(_ext.experimental, "Trial", None)
+    or getattr(_ext.optimizer, "Proposals", None)
+    or getattr(_ext.experimental, "Proposals", None)
+    or getattr(_ext.experimental, "MetalProposals", None)
+)
+Portfolio = (
+    getattr(_ext.optimizer, "Portfolio", None)
+    or getattr(_ext.experimental, "Portfolio", None)
+    or getattr(_ext.experimental, "RegionOptimizer", None)
+    or getattr(_ext.experimental, "MetalRegionOptimizer", None)
+)
+RegionTrial = (
+    getattr(_ext.optimizer, "RegionTrial", None)
+    or getattr(_ext.experimental, "RegionTrial", None)
+    or getattr(_ext.experimental, "RegionalProposal", None)
+)
+RegionalProposal = RegionTrial
+ParameterBuffer = Var
+ParamBuffer = Var
+MetalWeights = Var
+ParamBlock = Span
+MetalParamBlock = Span
+SearchState = Region
+MetalSearchState = Region
+Proposals = Trial
+MetalProposals = Trial
+RegionOptimizer = Portfolio
+MetalRegionOptimizer = Portfolio
 weight_int4_select_ucb = getattr(_ext.optimizer, "weight_int4_select_ucb", None)
 weight_select_ucb = getattr(_ext.optimizer, "weight_select_ucb", None)
 ModelPackage = getattr(_ext.experimental, "ModelPackage", None)
@@ -58,10 +113,6 @@ NativeKdaModel = getattr(_ext.experimental, "NativeKdaModel", None)
 FlameEvaluator = getattr(_ext.experimental, "FlameEvaluator", None)
 MetalFlameEvaluator = getattr(_ext.experimental, "MetalFlameEvaluator", None)
 MetalQwenEvaluator = getattr(_ext.experimental, "MetalQwenEvaluator", None)
-MetalWeights = getattr(_ext.experimental, "MetalWeights", None)
-MetalParamBlock = getattr(_ext.experimental, "MetalParamBlock", None)
-MetalSearchState = getattr(_ext.experimental, "MetalSearchState", None)
-MetalRegionOptimizer = getattr(_ext.experimental, "MetalRegionOptimizer", None)
 ResidentBoSession = getattr(_ext.experimental, "ResidentBoSession", None)
 
 
@@ -70,14 +121,19 @@ __all__ = [
     "BayesOptimizer",
     "BpannHistory",
     "DenseLinear",
+    "Device",
+    "DeviceArray",
+    "DevicePosterior",
     "ENNFitter",
     "ENNParams",
+    "Enn",
     "FlameEvaluator",
     "MetalFlameEvaluator",
     "MetalParamBlock",
+    "MetalProposals",
     "MetalQwenEvaluator",
-    "MetalSearchState",
     "MetalRegionOptimizer",
+    "MetalSearchState",
     "MetalWeights",
     "ModelPackage",
     "MultiTrustRegion",
@@ -85,10 +141,20 @@ __all__ = [
     "ParamBlock",
     "ParamBuffer",
     "ParameterBuffer",
+    "Portfolio",
+    "Posterior",
     "Proposals",
+    "Region",
+    "RegionOptimizer",
+    "RegionTrial",
+    "RegionalProposal",
     "ResidentBoSession",
     "SearchState",
+    "Span",
     "Telemetry",
+    "Tensor",
+    "Trial",
+    "Var",
     "create_lhd",
     "create_optimizer",
     "create_zero",

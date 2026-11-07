@@ -282,7 +282,7 @@ mod tests {
     #[test]
     fn spec_builds() {
         let bounds = array![[-1.0, 1.0], [-2.0, 2.0]];
-        let spec = OptimizerSpec::TurboEnn {
+        let spec = OptimizerSpec::BayesianSearch {
             candidates: 16,
             arms: 2,
             distribution: None,
@@ -301,6 +301,7 @@ mod tests {
                 fit_samples: Some(4),
             },
             trust_region: TrustRegionBounds::default(),
+            regional_search: None,
         };
         let mut rng = StdRng::seed_from_u64(99);
         let mut opt = spec_optimizer(bounds, &spec, 2, &mut rng).unwrap();

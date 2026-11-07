@@ -259,6 +259,15 @@ impl Proposals {
 }
 
 impl SearchState {
+    pub fn tell(
+        &mut self,
+        proposals: &Proposals,
+        value: f32,
+        variance: f32,
+    ) -> Result<NoisyDecision, String> {
+        self.tell_noisy(proposals, value, variance)
+    }
+
     pub fn tensor_version(
         &self,
         parent: u64,
@@ -289,6 +298,13 @@ impl SearchState {
         )
     }
 }
+
+pub type Var = metal::Buffer;
+pub type Span = ParamBlock;
+pub type Trial = Proposals;
+pub type Region = SearchState;
+pub type Portfolio = RegionalSearch;
+pub type RegionTrial = RegionalProposal;
 
 /// Metal command-buffer GPU intervals for one resident proposal transaction.
 ///
@@ -1071,6 +1087,7 @@ mod tests {
         let multiple = match c.acquisition.kind {
             AcquisitionKind::Ucb => f64::from(c.acquisition.beta),
             AcquisitionKind::Pareto => 1.0,
+            AcquisitionKind::Random => 0.0,
             AcquisitionKind::Thompson => {
                 indices
                     .iter()
@@ -1422,21 +1439,30 @@ mod tests {
 
     #[test]
     fn host_guards() {
-        for capacity in [0, MAX_HISTORY + 1] {
-            let (base, blocks) = fixture(3);
-            assert!(
-                SearchState::new(
-                    &base,
-                    0.0,
-                    0.0,
-                    blocks,
-                    capacity,
-                    1,
-                    TRLengthConfig::new(0.01, 0.001, 0.1)
-                )
-                .is_err()
-            );
-        }
+        let (base, blocks) = fixture(3);
+        let zero_cap = SearchState::new(
+            &base,
+            0.0,
+            0.0,
+            blocks.clone(),
+            0,
+            1,
+            TRLengthConfig::new(0.01, 0.001, 0.1),
+        )
+        .unwrap();
+        assert!(!zero_cap.has_surrogate());
+        assert!(
+            SearchState::new(
+                &base,
+                0.0,
+                0.0,
+                blocks,
+                MAX_HISTORY + 1,
+                1,
+                TRLengthConfig::new(0.01, 0.001, 0.1)
+            )
+            .is_err()
+        );
         for neighbors in [0, MAX_HISTORY + 1] {
             assert!(
                 check_ask({

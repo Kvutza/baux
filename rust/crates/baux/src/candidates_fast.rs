@@ -98,7 +98,7 @@ fn draw_normal<R: Rng + ?Sized>(sobol_val: Option<f64>, rng: &mut R) -> f64 {
     } else {
         let u1 = rng.r#gen::<f64>().clamp(1e-12, 1.0 - 1e-12);
         let u2 = rng.r#gen::<f64>();
-        (-2.0 * u1.ln()).sqrt() * (std::f64::consts::TAU * u2).cos()
+        baux::semantics::random::box_muller(u1, u2)
     }
 }
 

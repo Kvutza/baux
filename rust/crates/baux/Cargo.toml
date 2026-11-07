@@ -26,6 +26,7 @@ include = [
 unexpected_cfgs = { level = "warn", check-cfg = [
   'cfg(kani)',
   'cfg(cabi_parity)',
+  'cfg(feature, values("cuda-host", "cuda-device", "opencl"))',
 ] }
 
 [dependencies]

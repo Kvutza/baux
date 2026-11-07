@@ -1,6 +1,16 @@
 PYTHON_VERSION = read_config("baux", "python_version", "3.14")
 
 _PYTHON_CONFIGS = {
+    "3.12": struct(
+        abi = "cp312",
+        environment = "baux-py312",
+        extension_infix = "312",
+    ),
+    "3.13": struct(
+        abi = "cp313",
+        environment = "baux-py313",
+        extension_infix = "313",
+    ),
     "3.14": struct(
         abi = "cp314",
         environment = "baux-py314",
@@ -13,13 +23,13 @@ _PYTHON_CONFIGS = {
     ),
 }
 if PYTHON_VERSION not in _PYTHON_CONFIGS:
-    fail("baux.python_version must be 3.14 through 3.15, got {}".format(PYTHON_VERSION))
+    fail("baux.python_version must be 3.12 through 3.15, got {}".format(PYTHON_VERSION))
 
 _PYTHON = _PYTHON_CONFIGS[PYTHON_VERSION]
 
 PYTHON_ABI = _PYTHON.abi
 PYTHON_ENVIRONMENT = _PYTHON.environment
-PYTHON_REQUIRES = ">=3.14,<3.16"
+PYTHON_REQUIRES = ">=3.12,<3.16"
 
 def python_extension_suffix(platform):
     if platform == "linux-aarch64":

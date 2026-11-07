@@ -56,7 +56,7 @@ py_wheel(
         "@platforms//os:macos": "macosx_11_0_arm64",
         "//conditions:default": "any",
     }),
-    python_requires = ">=3.14,<3.16",
+    python_requires = ">=3.12,<3.16",
     python_tag = "cp314",
     requires = [
         "ax-platform>=1.3.1,<1.4",

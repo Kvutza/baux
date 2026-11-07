@@ -304,6 +304,7 @@ impl PosteriorComputation for ENN {
 mod batch;
 use batch::{separate_batch, shared_batch};
 mod weighted;
+#[cfg(test)]
 pub(crate) use weighted::se_components;
 pub use weighted::{WeightedPosteriorData, compute_impl, compute_posterior};
 

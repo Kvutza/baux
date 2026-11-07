@@ -8,6 +8,7 @@ use rand::Rng;
 
 use crate::error::ENNError;
 
+#[cfg(any(feature = "usearch", feature = "usearch-native", test))]
 pub(crate) fn insert_neighbor(nearest: &mut [(f32, usize)], distance: f32, index: usize) {
     let Some(position) = nearest.iter().position(|&(other_distance, other_index)| {
         distance < other_distance || (distance == other_distance && index < other_index)

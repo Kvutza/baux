@@ -34,8 +34,10 @@ use baux::semantics::hnet::{self, BYTE_VOCAB, EMA_EPS, HNetShape, RoutingModule,
 use baux::semantics::hnet::{ByteTokenizer, ChunkLayer, DeChunkLayer, RoutingOutput, ratio_loss};
 use metal::{Buffer, ComputePipelineState, MTLCommandBufferStatus, MTLDispatchType};
 
+#[cfg(test)]
+use crate::apple_gpu::slice_mut;
 use crate::apple_gpu::{
-    Runtime, barrier_buffers, bind_buffers, buffer_slice, encode_value, slice_mut, thread_group,
+    Runtime, barrier_buffers, bind_buffers, buffer_slice, encode_value, thread_group,
 };
 
 const SOURCE: &str = concat!(

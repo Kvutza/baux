@@ -29,7 +29,9 @@ pub(crate) use auto::AutoIndex;
     all(target_os = "linux", target_arch = "x86_64", feature = "cuda")
 ))]
 pub(crate) use exact_backend::check_rows;
-pub(crate) use exact_backend::{ExactBackend, flatten_f32, pad_k, unpack_search};
+#[cfg(any(feature = "usearch", feature = "usearch-native"))]
+pub(crate) use exact_backend::unpack_search;
+pub(crate) use exact_backend::{ExactBackend, flatten_f32, pad_k};
 pub use exact_backend::{IndexDriver, IndexKind, disk_driver};
 
 pub type IndexPlan = KnnPlan;

@@ -58,6 +58,14 @@ hydrate_lfs_fixtures
 
 python_version=${BAUX_PYTHON_VERSION:-3.14}
 case "$python_version" in
+    3.12)
+        python_abi=cp312
+        python_environment=baux-py312
+        ;;
+    3.13)
+        python_abi=cp313
+        python_environment=baux-py313
+        ;;
     3.14)
         python_abi=cp314
         python_environment=baux-py314
@@ -206,7 +214,7 @@ if [ "$run_tests" -eq 1 ]; then
     # Includes the smoke cases and BO integrations, against this extracted wheel.
     (
         cd "$repo_dir"
-        BAUX_TEST_WHEEL_ROOT="$verify_dir" \
+        KMP_DUPLICATE_LIB_OK=TRUE BAUX_TEST_WHEEL_ROOT="$verify_dir" \
             PYTHONPATH="$verify_dir:$repo_dir:$repo_dir/tests" \
             "$python_bin" -m pytest -q -p no:cacheprovider \
             -m 'not slow and not gp' tests
@@ -214,7 +222,7 @@ if [ "$run_tests" -eq 1 ]; then
 else
     (
         cd "$verify_dir"
-        PYTHONPATH="$verify_dir" "$python_bin" -m pytest -q -p no:cacheprovider -c /dev/null \
+        KMP_DUPLICATE_LIB_OK=TRUE PYTHONPATH="$verify_dir" "$python_bin" -m pytest -q -p no:cacheprovider -c /dev/null \
             --confcutdir="$repo_dir/tests/python_api" \
             "$repo_dir/tests/python_api/testcreateoptct.py" \
             "$repo_dir/tests/python_api/test_adapter.py" \

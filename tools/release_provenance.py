@@ -12,7 +12,7 @@ from pathlib import Path
 import click
 
 
-PYTHON_ABIS = ("cp314", "cp315")
+PYTHON_ABIS = ("cp312", "cp313", "cp314", "cp315")
 PLATFORM_TAGS = (
     "macosx_11_0_arm64",
     "manylinux_2_28_aarch64",

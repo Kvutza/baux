@@ -24,6 +24,8 @@ python_bin_for_version() {
     local environment=$2
     local override=
     case "$python_version" in
+        3.12) override=${BAUX_PYTHON_312:-} ;;
+        3.13) override=${BAUX_PYTHON_313:-} ;;
         3.14) override=${BAUX_PYTHON_314:-} ;;
         3.15) override=${BAUX_PYTHON_315:-} ;;
         *) echo "unsupported Python version: $python_version" >&2; exit 2 ;;
@@ -84,6 +86,8 @@ PY
 
 python_abi() {
     case "$1" in
+        3.12) printf 'cp312\n' ;;
+        3.13) printf 'cp313\n' ;;
         3.14) printf 'cp314\n' ;;
         3.15) printf 'cp315\n' ;;
         *) echo "unsupported Python version: $1" >&2; exit 2 ;;
@@ -99,8 +103,8 @@ wheel_platform_tag() {
     esac
 }
 
-python_versions=(3.15 3.14)
-environments=(baux-py315 baux-py314)
+python_versions=(3.15 3.14 3.13 3.12)
+environments=(baux-py315 baux-py314 baux-py313 baux-py312)
 python_bins=()
 for index in "${!python_versions[@]}"; do
     python_bin=$(python_bin_for_version "${python_versions[$index]}" "${environments[$index]}")

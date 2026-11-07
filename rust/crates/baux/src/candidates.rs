@@ -287,6 +287,7 @@ pub fn generate_uniform<R: Rng + ?Sized>(
     Ok(candidates)
 }
 
+#[cfg(test)]
 fn raasp_cdf(cdf: &Array1<f64>, r: f64, num_dim: usize) -> usize {
     let mut lo = 0usize;
     let mut hi = num_dim.saturating_sub(1);

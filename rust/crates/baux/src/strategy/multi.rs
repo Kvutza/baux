@@ -10,7 +10,7 @@ fn issue_ids(count: usize) -> Result<Vec<crate::optimizer::EvaluationId>, ENNErr
     let count = u64::try_from(count)
         .map_err(|_| ENNError::InvalidParameter("arm count exceeds identity space".into()))?;
     let start = NEXT_ID
-        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |id| {
+        .try_update(Ordering::Relaxed, Ordering::Relaxed, |id| {
             id.checked_add(count)
         })
         .map_err(|_| ENNError::InvalidParameter("arm identity space exhausted".into()))?;

@@ -145,6 +145,7 @@ impl ENNFitter {
         std.mapv(|v| if v.is_finite() && v > 0.0 { v } else { 1.0 })
     }
 
+    #[cfg(test)]
     pub(crate) fn build_candidates<R: Rng>(
         &self,
         num_random: usize,

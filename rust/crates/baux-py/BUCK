@@ -1,5 +1,5 @@
-load("//build/buck2:reindeer_rules.bzl", "app_rust_library")
-load("//build:targets.bzl", "BAUX_PY_CRATES", "RUST_EDITION")
+load("//admin/buck2:reindeer_rules.bzl", "app_rust_library")
+load("//admin:targets.bzl", "BAUX_PY_CRATES", "RUST_EDITION")
 
 filegroup(
     name = "python-source",
@@ -34,7 +34,7 @@ app_rust_library(
         "//rust/crates/baux:usearch-bridge",
         "//rust/crates/baux:baux",
     ] + ["//rust:" + crate for crate in BAUX_PY_CRATES] + select({
-        "//:macos-arm64": ["//build/buck2/native:openmp-macos", "//rust:metal"],
+        "//:macos-arm64": ["//admin/buck2/native:openmp-macos", "//rust:metal"],
         "DEFAULT": [],
     }),
 )

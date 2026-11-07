@@ -1,7 +1,7 @@
 [cells]
 root = .
 prelude = prelude
-toolchains = build/toolchains
+toolchains = admin/toolchains
 none = none
 
 [cell_aliases]

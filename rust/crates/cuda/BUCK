@@ -1,5 +1,5 @@
-load("//build:targets.bzl", "RUST_EDITION")
-load("//build/buck2:reindeer_rules.bzl", "app_rust_binary", "app_rust_library")
+load("//admin:targets.bzl", "RUST_EDITION")
+load("//admin/buck2:reindeer_rules.bzl", "app_rust_binary", "app_rust_library")
 
 filegroup(
     name = "source",

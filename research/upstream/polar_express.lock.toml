@@ -1,0 +1,29 @@
+# Immutable upstream provenance for PolarExpress optimal matrix sign algorithm.
+
+[repository]
+url = "https://github.com/NoahAmsel/PolarExpress.git"
+revision = "f717e2c6b3ef6f67a5e00ab7f5371a85377e6fbe"
+tree = "69198a6f533362f7b3458afa91b2ace6e02b6294"
+subject = "new plot: partial compositions"
+committed_at = "2026-10-04T17:44:29-04:00"
+
+[archive]
+archive_sha256 = "7b857f73b704d6ba4508a59b7bb789ea70b8a61f08b1772b658ba90131f105ad"
+archive_sha512 = "8bb73f6e38cedc33513c3552754aeee211a175e0addaf8db90af8bf3feac6aeb3722116de1b6d854344f6b80252be6f9827fca78d6b569e580a1704522a92d77"
+archive_bytes = 40960
+
+[merkle]
+cache_relpath = ".cache/baux/upstream/PolarExpress"
+merkle_root_sha256 = "39ebabfbc94a5db5b631ec99a4bf781611aa464271c6ecf93695e1289ea43d69"
+merkle_root_sha512 = "7ad9d2c26fc41bafcf251e43fab415c64558479b8600595dbe4294cda0ed834d6868b9b50e8631d621ed9930fd6d282b2dedf49188ea711db23eb4f36fdb7ccf"
+file_count = 4
+total_bytes = 29242
+
+[input_paths]
+polar_express = "polar_express.py"
+
+[inputs]
+polar_express = "6b6b5dbe7d59422995a7eb3694af74ba5acad7a230705933650a37a56ad75d09"
+
+[inputs_sha512]
+polar_express = "9fb5480582f6ddc85bd2ce366ec4dfba8199efd04457a708ab38e313ebb07b7c14d3a8720c99e7856d7b1fccc29d7908ecf930a12b4a58739886ee244b850b8d"

@@ -32,7 +32,7 @@ impl BuildSystem {
     pub fn build_native(self, root: &Path) -> Result<(), String> {
         let mut command = match self {
             Self::Buck2 => {
-                let mut cmd = Command::new("./tools/buck2w");
+                let mut cmd = Command::new("./admin/tools/buck2w");
                 cmd.args([
                     "build",
                     "//rust/crates/baux:baux",
@@ -58,10 +58,10 @@ impl BuildSystem {
     pub fn test_all(self, root: &Path) -> Result<(), String> {
         let mut command = match self {
             Self::Buck2 => {
-                let mut cmd = Command::new("./tools/buck2w");
+                let mut cmd = Command::new("./admin/tools/buck2w");
                 cmd.args([
                     "test",
-                    "//build/buck2/tests:all",
+                    "//admin/buck2/tests:all",
                     "--local-only",
                     "--console",
                     "simple",
@@ -92,7 +92,7 @@ impl BuildSystem {
         }
         let mut command = match self {
             Self::Buck2 => {
-                let mut cmd = Command::new("./tools/buck2w");
+                let mut cmd = Command::new("./admin/tools/buck2w");
                 cmd.args(["test", "--local-only", "--console", "simple", "-v", "2"]);
                 cmd.args(targets);
                 cmd
@@ -132,7 +132,7 @@ impl BuildSystem {
         let isolation = std::env::var("BUCK_ISOLATION_DIR").unwrap_or_else(|_| "dev".to_string());
         let mut command = match self {
             Self::Buck2 => {
-                let mut command = Command::new("./tools/buck2w");
+                let mut command = Command::new("./admin/tools/buck2w");
                 command.args([
                     "--isolation-dir",
                     &isolation,
@@ -166,9 +166,9 @@ impl BuildSystem {
 fn buck_artifact(root: &Path, target: &str) -> Result<BuiltArtifact, String> {
     let isolation = std::env::var("BUCK_ISOLATION_DIR").unwrap_or_else(|_| "dev".to_string());
     println!(
-        "o|exec: ./tools/buck2w --isolation-dir {isolation} build {target} --show-full-output"
+        "o|exec: ./admin/tools/buck2w --isolation-dir {isolation} build {target} --show-full-output"
     );
-    let output = Command::new("./tools/buck2w")
+    let output = Command::new("./admin/tools/buck2w")
         .current_dir(root)
         .args([
             "--isolation-dir",
@@ -283,6 +283,6 @@ pub fn build_dist(root: &Path, out: &Path) -> Result<(), String> {
     let mut command = Command::new("bash");
     command
         .current_dir(root)
-        .args(["tools/build-wheels", &out.to_string_lossy(), "smoke"]);
+        .args(["admin/tools/build-wheels", &out.to_string_lossy(), "smoke"]);
     crate::execute(command)
 }

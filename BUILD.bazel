@@ -1,6 +1,6 @@
 load("@rules_python//python:defs.bzl", "py_test")
 load("@rules_python//python:packaging.bzl", "py_wheel")
-load("//build/bazel:python_extension.bzl", "copy_extension")
+load("//admin/bazel:python_extension.bzl", "copy_extension")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -85,8 +85,8 @@ test_suite(
 
 py_test(
     name = "audit",
-    srcs = ["//build/bazel:audit_wheel.py"],
+    srcs = ["//admin/bazel:audit_wheel.py"],
     args = ["$(location :wheel)"],
     data = [":wheel"],
-    main = "//build/bazel:audit_wheel.py",
+    main = "//admin/bazel:audit_wheel.py",
 )

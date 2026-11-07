@@ -1,5 +1,0 @@
-filegroup(
-    name = "specs",
-    srcs = glob(["*.toml"]),
-    visibility = ["//visibility:public"],
-)

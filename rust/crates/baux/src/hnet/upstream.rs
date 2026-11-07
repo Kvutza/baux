@@ -11,6 +11,15 @@ use super::*;
 use baux::artifact::json::{self, Value};
 
 pub(super) fn fixtures() -> Value {
+    let root = option_env!("CARGO_MANIFEST_DIR")
+        .map(std::path::Path::new)
+        .and_then(|p| p.parent())
+        .and_then(|p| p.parent())
+        .and_then(|p| p.parent())
+        .unwrap_or(std::path::Path::new("."));
+    if root.join(".cache/baux/upstream/hnet").exists() {
+        crate::artifact::merkle::verify_lock(&root, "hnet", None).expect("verify hnet.lock.toml");
+    }
     let value: Value = json::from_str(include_str!("fixtures.json")).unwrap();
     assert_eq!(
         value["revision"].as_str(),

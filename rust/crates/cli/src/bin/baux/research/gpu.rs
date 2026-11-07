@@ -27,13 +27,13 @@ const FILES: [&str; 13] = [
     "rust/crates/cuda/Cargo.toml",
     "rust/crates/cuda/device/Cargo.toml",
     "rust/crates/cuda/rust-toolchain.toml",
-    "build/buck2/cuda/defs.bzl",
+    "admin/buck2/cuda/defs.bzl",
     "rust/crates/baux/BUCK",
     "rust/crates/cuda/build.rs",
     "rust/crates/cuda/BUCK",
     "rust/crates/baux/Cargo.toml",
     "rust/crates/baux/defs.bzl",
-    "build/buck2/baux_targets.bzl",
+    "admin/buck2/baux_targets.bzl",
 ];
 const OUTPUT: &str = ".cache/baux/verification/gpu-inventory.cbor";
 const GAPS: [&str; 6] = [

@@ -1,6 +1,6 @@
-load("//build/buck2:baux_targets.bzl", "baux_program_targets")
-load("//build/buck2:reindeer_rules.bzl", "app_rust_library")
-load("//build:targets.bzl", "TOOLING_PROGRAMS", "RUST_EDITION")
+load("//admin/buck2:baux_targets.bzl", "baux_program_targets")
+load("//admin/buck2:reindeer_rules.bzl", "app_rust_library")
+load("//admin:targets.bzl", "TOOLING_PROGRAMS", "RUST_EDITION")
 
 filegroup(
     name = "source",
@@ -28,7 +28,7 @@ rust_test(
     crate = "baux_tooling",
     crate_root = "src/lib.rs",
     edition = RUST_EDITION,
-    visibility = ["//build/buck2/tests:all"],
+    visibility = ["//admin/buck2/tests:all"],
     deps = [
         "//rust:clap",
         "//rust:deser",

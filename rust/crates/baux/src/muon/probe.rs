@@ -6,6 +6,7 @@ use super::{
 use crate::apple_gpu::{Runtime, gpu_seconds};
 use baux::artifact::json::{Value, json};
 use metal::MTLCommandBufferStatus;
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 pub fn measure() -> Result<Value, String> {
@@ -109,7 +110,39 @@ pub fn verify() -> Result<Value, String> {
         }
     }
     verify_adam(&runtime, &mut records)?;
+    check_locks(&repo_root())?;
     Ok(json!({"reference":"fp64","tolerance":0.001,"passed":true,"records":records}))
+}
+
+fn repo_root() -> PathBuf {
+    let mut cur = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    while !cur.join("research/upstream").exists() {
+        if let Some(parent) = cur.parent() {
+            cur = parent.to_path_buf();
+        } else {
+            return PathBuf::from(".");
+        }
+    }
+    cur
+}
+
+fn check_locks(root: &Path) -> Result<(), String> {
+    let muon_dir = root.join(".cache/baux/upstream/Muon");
+    let polar_dir = root.join(".cache/baux/upstream/PolarExpress");
+    let mhc_dir = root.join(".cache/baux/upstream/mHC");
+    if muon_dir.exists() && polar_dir.exists() && mhc_dir.exists() {
+        crate::artifact::merkle::verify_lock(root, "muon", None)?;
+        crate::artifact::merkle::verify_lock(root, "polar_express", None)?;
+        crate::artifact::merkle::verify_lock(root, "mhc", None)?;
+        crate::artifact::merkle::verify_lock(root, "acme", None)?;
+    }
+    Ok(())
+}
+
+#[test]
+fn upstream_locks() -> Result<(), String> {
+    let root = repo_root();
+    check_locks(&root)
 }
 
 fn verify_adam(runtime: &Runtime, records: &mut Vec<Value>) -> Result<(), String> {

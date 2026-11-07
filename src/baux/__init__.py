@@ -32,6 +32,14 @@ def _extendextension() -> None:
 
 _extendextension()
 
+try:
+    from . import baux_rust as _baux  # type: ignore
+except ImportError:
+    _baux = None
+
+if _baux is not None:
+    sys.modules.setdefault("baux._baux", _baux)
+
 _LAZY_ATTRS: dict[str, tuple[str, str]] = {
     "Device": ("._rust", "Device"),
     "Tensor": ("._rust", "Tensor"),
@@ -88,7 +96,11 @@ _LAZY_ATTRS: dict[str, tuple[str, str]] = {
     "ExternalSurrogate": (".surrogate", "ExternalSurrogate"),
     "BackendCapabilities": (".runtime", "BackendCapabilities"),
     "capabilities": (".runtime", "capabilities"),
+    "verify_upstream_lock": ("._baux", "verify_upstream_lock"),
 }
+
+if _baux is not None and hasattr(_baux, "verify_upstream_lock"):
+    verify_upstream_lock = _baux.verify_upstream_lock
 
 
 def __getattr__(name: str) -> Any:
@@ -151,4 +163,5 @@ __all__: list[str] = [
     "turbo_enn",
     "turbo_one",
     "turbo_zero",
+    "verify_upstream_lock",
 ]

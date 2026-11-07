@@ -1,6 +1,6 @@
-load("//build/buck2:baux_targets.bzl", "baux_program_targets")
-load("//build/buck2:reindeer_rules.bzl", "app_rust_library")
-load("//build:targets.bzl", "FBT_CRATES", "FBT_PROGRAMS", "FBT_TEST_CRATES", "RUST_EDITION")
+load("//admin/buck2:baux_targets.bzl", "baux_program_targets")
+load("//admin/buck2:reindeer_rules.bzl", "app_rust_library")
+load("//admin:targets.bzl", "FBT_CRATES", "FBT_PROGRAMS", "FBT_TEST_CRATES", "RUST_EDITION")
 
 FBT_BUCK_DEPS = ["//rust:" + crate for crate in FBT_CRATES]
 
@@ -67,7 +67,7 @@ rust_test(
         "//:linux-arm64": [],
         "//:linux-x86_64": [],
         "//:macos-arm64": [
-            "//build/buck2/native:openmp-macos",
+            "//admin/buck2/native:openmp-macos",
             "//rust:metal",
         ],
     }),

@@ -46,6 +46,7 @@ pub use pymodule_wrappers::{
 #[pyo3(name = "baux_rust")]
 pub(crate) fn baux_rust(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(py_util::capabilities, m)?)?;
+    m.add_function(wrap_pyfunction!(py_hash::verify_lock, m)?)?;
     m.add_class::<py_device::PyDevice>()?;
     m.add_class::<py_regions::PyMultiTrustRegion>()?;
     #[cfg(all(target_os = "linux", target_arch = "x86_64", feature = "cuda"))]

@@ -7,14 +7,14 @@ This test suite executes and validates the mechanical commands of the BAUX Workf
 Test that `btd` help operates as expected:
 
 ```scrut
-$ ./tools/btdw --help | head -n 1
+$ ./admin/tools/btdw --help | head -n 1
 Buck-based target determinator
 ```
 
 Test that the one-shot target determination script isolates target levels:
 
 ```scrut
-$ ./tools/btd-targetsw 'root//rust/crates/cli:' | grep -E "^Level [0-9]" | head -n 1
+$ ./admin/tools/btd-targetsw 'root//rust/crates/cli:' | grep -E "^Level [0-9]" | head -n 1
 Level 0
 ```
 
@@ -32,7 +32,7 @@ $ ./baux context | grep -E "\[in_progress\]|\[open\]" | head -n 1 | awk '{print 
 Test that fastmod is installed and executable:
 
 ```scrut
-$ ./tools/fastmodw --version
+$ ./admin/tools/fastmodw --version
 fastmod 0.4.4
 ```
 
@@ -41,7 +41,7 @@ fastmod 0.4.4
 Test that Scrut framework is functional:
 
 ```scrut
-$ ./tools/scrutw --version
+$ ./admin/tools/scrutw --version
 scrut 0.5.0
 ```
 
@@ -50,14 +50,14 @@ scrut 0.5.0
 Test that embedded PostgreSQL daemon is active:
 
 ```scrut
-$ ./tools/pgrustw status | grep "Running" | cut -d' ' -f1
+$ ./admin/tools/pgrustw status | grep "Running" | cut -d' ' -f1
 [pgrustw]
 ```
 
 Test that arXiv paper crawler CLI is available:
 
 ```scrut
-$ ./tools/paper-crawlw 2>&1 | head -n 1 | cut -d' ' -f1,2
+$ ./admin/tools/paper-crawlw 2>&1 | head -n 1 | cut -d' ' -f1,2
 Usage: paper-crawl
 ```
 
@@ -66,14 +66,14 @@ Usage: paper-crawl
 Test that Buck2 wrapper operates hermetically:
 
 ```scrut
-$ ./tools/buck2w --version | cut -d' ' -f1
+$ ./admin/tools/buck2w --version | cut -d' ' -f1
 buck2
 ```
 
 Test that Reindeer Cargo buckifier operates hermetically:
 
 ```scrut
-$ ./tools/reindeerw --help | head -n 1
+$ ./admin/tools/reindeerw --help | head -n 1
 Usage: reindeer [OPTIONS] <COMMAND>
 ```
 

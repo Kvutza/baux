@@ -11,7 +11,7 @@ pub fn verify(root: &Path, engine: BuildSystem) -> Result<(), String> {
     let assignment = format!("BAUX_TEST_NUMERICAL={}", library.display());
     let mut command = match engine {
         BuildSystem::Buck2 => {
-            let mut command = Command::new(root.join("tools/buck2w"));
+            let mut command = Command::new(root.join("admin/tools/buck2w"));
             command.args([
                 "test",
                 "//rust/crates/baux:baux-unit",

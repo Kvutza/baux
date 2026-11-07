@@ -37,6 +37,21 @@ pub fn domain_frame() -> crate::optimizer::DomainFrame {
         .expect("TCV tokamak MLP layer topology is valid")
 }
 
+pub const TOKAGYM_OBS: usize = 11;
+pub const TOKAGYM_ACT: usize = 8;
+pub const TOKAGYM_PARAMS: usize = 11 * 256 + 256 + 256 * 256 + 256 + 256 * 256 + 256 + 256 * 8 + 8; // 136,712
+pub const TOKAGYM_LAYERS: [(usize, usize); 4] = [
+    (TOKAGYM_OBS, HIDDEN_DIM),
+    (HIDDEN_DIM, HIDDEN_DIM),
+    (HIDDEN_DIM, HIDDEN_DIM),
+    (HIDDEN_DIM, TOKAGYM_ACT),
+];
+
+pub fn tokagym_domain() -> crate::optimizer::DomainFrame {
+    crate::optimizer::DomainFrame::kaiming_mlp(&TOKAGYM_LAYERS)
+        .expect("TokaGym MLP layer topology is valid")
+}
+
 const STEPS: usize = 100;
 const ZETA: f64 = -2.944_438_979_166_440_3; // -ln(19), so Bad maps to 0.1
 

@@ -19,9 +19,9 @@ class BuildBootstrapTests(unittest.TestCase):
         self.root = Path(self.temp.name)
         for name in (
             "baux",
-            "tools/build-wheels",
-            "tools/pixiw",
-            "tools/pixi",
+            "admin/tools/build-wheels",
+            "admin/tools/pixiw",
+            "admin/tools/pixi",
         ):
             target = self.root / name
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -42,7 +42,7 @@ class BuildBootstrapTests(unittest.TestCase):
             (self.bin / name).symlink_to(shutil.which(name))
         self.script("bin/uname", 'case "$1" in -s) echo Darwin;; -m) echo arm64;; esac')
         self.script(
-            "tools/buck2-wheel-verify",
+            "admin/tools/buck2-wheel-verify",
             """
 mode=smoke
 [ "$#" -eq 0 ] || mode=$1
@@ -87,9 +87,9 @@ case "$cmd" in
             esac
         done
         if [ "$tests" -eq 1 ]; then
-            exec bash tools/build-wheels "$out" full
+            exec bash admin/tools/build-wheels "$out" full
         fi
-        exec bash tools/build-wheels "$out" smoke
+        exec bash admin/tools/build-wheels "$out" smoke
         ;;
     tune)
         case "${1:-}" in
@@ -114,7 +114,7 @@ esac
 """,
         )
         self.script(
-            "tools/buck2w",
+            "admin/tools/buck2w",
             """
 if [ "${1:-}" = run ]; then
     while [ "$#" -gt 0 ] && [ "$1" != "--" ]; do
@@ -186,7 +186,7 @@ rm -f "$bin/python.broken"
 """,
         )
         self.script(
-            "tools/bootstrap-dotslash",
+            "admin/tools/bootstrap-dotslash",
             """
 echo dotslash >> events
 mkdir -p .buck2-tools/bin
@@ -374,7 +374,7 @@ esac
                 'echo "auditwheel:$0:$1" >> events',
             )
         self.script(
-            "tools/buck2-wheel-verify",
+            "admin/tools/buck2-wheel-verify",
             'echo "verifier-tool:$(command -v auditwheel)" >> events',
         )
         result = self.run_build()
@@ -440,7 +440,7 @@ def assert_builds(test, invocations):
     test.assertEqual(len(invocations), 2)
     test.assertTrue(all("//:wheel" in command for command in invocations))
     test.assertEqual(
-        sum("//build/buck2/tests:all" in command for command in invocations), 1
+        sum("//admin/buck2/tests:all" in command for command in invocations), 1
     )
     test.assertEqual(
         sum("//rust/crates/cli:baux" in command for command in invocations),

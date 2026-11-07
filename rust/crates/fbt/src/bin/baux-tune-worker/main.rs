@@ -67,26 +67,24 @@ fn write_pretrain(
     let optimization_path = artifact_dir.join("optimization.jsonl");
     result.write_optimization(&optimization_path)?;
     if !result.validation.is_empty() {
-        result.write_validation(&artifact_dir.join("validation.json"))?;
-        baux::artifact::json::write_line(
-            std::fs::File::create(artifact_dir.join("comparison.json"))
-                .map_err(|error| error.to_string())?,
-            &baux::artifact::json::json!({
-                "schema": "baux.pretrain_comparison.v1",
-                "model_seed": run.model_seeded(rep),
-                "proposal_seed": proposal_seed,
-                "acquisition_seed": acquisition_seed,
-                "selection": run.selection.unwrap_or_default(),
-                "data_recipe": run.data_recipe,
-                "dataset": run.dataset,
-                "validation_dataset": run.validation_dataset,
-                "es_baseline_implemented": false,
-                "gradient_baseline_implemented": false,
-                "random_is_selection_ablation": true,
-                "learning_seconds": result.learning_seconds,
-            }),
-        )
+        result.write_validation(&artifact_dir.join("validation.cbor"))?;
+        let comparison_bytes = baux::artifact::cbor::to_vec(&baux::artifact::json::json!({
+            "schema": "baux.pretrain_comparison.v1",
+            "model_seed": run.model_seeded(rep),
+            "proposal_seed": proposal_seed,
+            "acquisition_seed": acquisition_seed,
+            "selection": run.selection.unwrap_or_default(),
+            "data_recipe": run.data_recipe,
+            "dataset": run.dataset,
+            "validation_dataset": run.validation_dataset,
+            "es_baseline_implemented": false,
+            "gradient_baseline_implemented": false,
+            "random_is_selection_ablation": true,
+            "learning_seconds": result.learning_seconds,
+        }))
         .map_err(|error| error.to_string())?;
+        std::fs::write(artifact_dir.join("comparison.cbor"), comparison_bytes)
+            .map_err(|error| error.to_string())?;
     }
     std::fs::write(
         artifact_dir.join("result.toml"),

@@ -234,15 +234,13 @@ pub(super) fn prepare_resources(
         let mut audit_tasks = config.tasks.clone();
         audit_tasks.extend_from_slice(validation_tasks);
         if let Some(audit) = evaluator.audit(&audit_tasks, tokenizer)? {
-            baux::artifact::json::pretty_writer(
-                File::create(output.join("reward-controls.json")).map_err(|e| e.to_string())?,
-                &audit,
-            )
-            .map_err(|e| e.to_string())?;
+            let bytes = baux::artifact::cbor::to_vec(&audit).map_err(|e| e.to_string())?;
+            std::fs::write(output.join("reward-controls.cbor"), bytes)
+                .map_err(|e| e.to_string())?;
             if audit["passed"] != true {
                 return Err(
                     "generation reward failed reference-versus-negative controls; \
-                     reward-controls.json retained"
+                     reward-controls.cbor retained"
                         .into(),
                 );
             }
@@ -390,11 +388,8 @@ pub(super) fn write_config(
         },
         "backend":"native_metal_mlx_derived_gemvt_pisa",
         "timing":"proposal+prefill+decode+reward+tell+artifact_writes; initial incumbent excluded"});
-    baux::artifact::json::pretty_writer(
-        File::create(output.join("generation.json")).map_err(|e| e.to_string())?,
-        &resolved,
-    )
-    .map_err(|e| e.to_string())?;
+    let bytes = baux::artifact::cbor::to_vec(&resolved).map_err(|e| e.to_string())?;
+    std::fs::write(output.join("generation.cbor"), bytes).map_err(|e| e.to_string())?;
     Ok(())
 }
 

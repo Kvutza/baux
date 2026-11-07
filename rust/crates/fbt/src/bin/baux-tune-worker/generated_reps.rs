@@ -2,7 +2,7 @@
 
 use baux::artifact::json::{Value, json};
 use baux::config::RunConfig;
-use std::fs::{self, File};
+use std::fs;
 use std::path::Path;
 
 pub(super) fn run(config: &RunConfig, directory: &Path) -> Result<(), String> {
@@ -19,31 +19,37 @@ pub(super) fn run(config: &RunConfig, directory: &Path) -> Result<(), String> {
             output
         };
         let repetition = settings(config, rep);
-        baux::artifact::json::pretty_writer(
-            File::create(output.join("repetition.json")).map_err(|e| e.to_string())?,
-            &json!({"rep":rep+1,"reps":config.reps(),"selection":config.selection.unwrap_or_default(),
-                "model_seed":repetition.model_seed,"proposal_seed":repetition.proposal_seed,
-                "acquisition_seed":repetition.acquisition_seed,"sampling_seed":repetition.sample_seeded(0)}),
-        ).map_err(|e| e.to_string())?;
+        let rep_bytes = baux::artifact::cbor::to_vec(&json!({
+            "rep": rep + 1,
+            "reps": config.reps(),
+            "selection": config.selection.unwrap_or_default(),
+            "model_seed": repetition.model_seed,
+            "proposal_seed": repetition.proposal_seed,
+            "acquisition_seed": repetition.acquisition_seed,
+            "sampling_seed": repetition.sample_seeded(0)
+        }))
+        .map_err(|e| e.to_string())?;
+        fs::write(output.join("repetition.cbor"), rep_bytes).map_err(|e| e.to_string())?;
         eprintln!(
             "generation.repetition rep={} reps={}",
             rep + 1,
             config.reps()
         );
         baux_fbt::run_generated(&repetition, dataset, &output)?;
-        let result: Value = baux::artifact::json::from_reader(
-            File::open(output.join("result.json")).map_err(|e| e.to_string())?,
-        )
-        .map_err(|e| e.to_string())?;
+        let result_bytes = fs::read(output.join("result.cbor")).map_err(|e| e.to_string())?;
+        let result: Value =
+            baux::artifact::cbor::from_slice(&result_bytes).map_err(|e| e.to_string())?;
         results.push(json!({"rep":rep+1,"artifact":output,"result":result}));
     }
     if config.reps() > 1 {
-        baux::artifact::json::pretty_writer(
-            File::create(directory.join("result.json")).map_err(|e| e.to_string())?,
-            &json!({"schema":"baux.generation_repetitions.v1","status":"completed",
-                "generation_in_loop":true,"repetitions":results}),
-        )
+        let out_bytes = baux::artifact::cbor::to_vec(&json!({
+            "schema": "baux.generation_repetitions.v1",
+            "status": "completed",
+            "generation_in_loop": true,
+            "repetitions": results
+        }))
         .map_err(|e| e.to_string())?;
+        fs::write(directory.join("result.cbor"), out_bytes).map_err(|e| e.to_string())?;
     }
     Ok(())
 }

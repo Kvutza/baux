@@ -136,6 +136,7 @@ fn backfill_dir(
         "experiment.toml",
         "config.toml",
         "result.toml",
+        "result.cbor",
         "result.json",
         "ucb-result.json",
     ]
@@ -404,9 +405,21 @@ fn summary_record(
 }
 
 fn read_json(path: &Path) -> Value {
-    fs::read(path)
+    let target = if path.with_extension("cbor").is_file() {
+        path.with_extension("cbor")
+    } else {
+        path.to_path_buf()
+    };
+    fs::read(target)
         .ok()
-        .and_then(|b| json::from_slice(&b).ok())
+        .and_then(|b| {
+            let first = b.iter().find(|byte| !byte.is_ascii_whitespace());
+            if first == Some(&b'{') {
+                json::from_slice(&b).ok()
+            } else {
+                baux::artifact::cbor::from_slice(&b).ok()
+            }
+        })
         .unwrap_or_else(Value::null)
 }
 

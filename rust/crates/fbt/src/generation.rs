@@ -393,12 +393,9 @@ fn run_preflight(
         .and_then(|rollout| rollout.conditional_target_nll)
         .ok_or("optimizer comparison preflight requires conditional target NLL")?;
     let result = probe.preflight(runtime, verifier, &config.tasks[0], config.max_tokens, nll)?;
-    baux::artifact::json::pretty_writer(
-        File::create(output.join("update-alignment-preflight.json"))
-            .map_err(|error| error.to_string())?,
-        &result,
-    )
-    .map_err(|error| error.to_string())
+    let bytes = baux::artifact::cbor::to_vec(&result).map_err(|error| error.to_string())?;
+    std::fs::write(output.join("update-alignment-preflight.cbor"), bytes)
+        .map_err(|error| error.to_string())
 }
 
 fn build_state(
@@ -466,16 +463,14 @@ fn build_state(
 
 fn single_alignment(state: &mut LoopState, output: &Path) -> Result<(), String> {
     state.records.flush().map_err(|error| error.to_string())?;
-    baux::artifact::json::pretty_writer(
-        File::create(output.join("result.json")).map_err(|error| error.to_string())?,
-        &baux::artifact::json::json!({
-            "schema": "baux.update-alignment-single.v1",
-            "status": "completed",
-            "rounds": 1,
-            "context_tokens": crate::context::MAX_TOKENS,
-        }),
-    )
-    .map_err(|error| error.to_string())
+    let bytes = baux::artifact::cbor::to_vec(&baux::artifact::json::json!({
+        "schema": "baux.update-alignment-single.v1",
+        "status": "completed",
+        "rounds": 1,
+        "context_tokens": crate::context::MAX_TOKENS,
+    }))
+    .map_err(|error| error.to_string())?;
+    std::fs::write(output.join("result.cbor"), bytes).map_err(|error| error.to_string())
 }
 
 pub(super) fn run_config(

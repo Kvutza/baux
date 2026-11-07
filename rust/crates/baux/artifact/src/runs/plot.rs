@@ -53,11 +53,16 @@ pub(super) fn render_to(source_dir: &Path, plot_dir: &Path) -> Result<(usize, Va
         summaries.push(series_summary(file, x, y, &data));
         count += 1;
     }
-    if let Some(data) = validation_points(&source_dir.join("validation.json"))?
+    let val_file = if source_dir.join("validation.cbor").exists() {
+        "validation.cbor"
+    } else {
+        "validation.json"
+    };
+    if let Some(data) = validation_points(&source_dir.join(val_file))?
         && !data.is_empty()
     {
-        write_svg(plot_dir, "validation.json", "round", "nll", &data)?;
-        summaries.push(series_summary("validation.json", "round", "nll", &data));
+        write_svg(plot_dir, val_file, "round", "nll", &data)?;
+        summaries.push(series_summary(val_file, "round", "nll", &data));
         count += 1;
     }
     if let Some((rms, coh)) = update_points(&source_dir.join("tensor-updates.bin"))? {
@@ -78,7 +83,12 @@ pub(super) fn render_to(source_dir: &Path, plot_dir: &Path) -> Result<(usize, Va
         }
     }
     if summaries.is_empty() {
-        for file in ["result.json", "ucb-result.json", "thompson-result.json"] {
+        for file in [
+            "result.cbor",
+            "result.json",
+            "ucb-result.json",
+            "thompson-result.json",
+        ] {
             let path = source_dir.join(file);
             if !path.exists() {
                 continue;

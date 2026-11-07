@@ -84,11 +84,8 @@ impl Scorer {
             "max_ngram":self.order,"whitespace_policy":"ignore_ascii_whitespace",
             "extra_model_forwards":0,"functional_correctness_established":false,
             "scoring_ms":start.elapsed().as_secs_f64()*1000.0,"components":components});
-        baux::artifact::json::pretty_writer(
-            std::fs::File::create(path.join("reward.json")).map_err(|e| e.to_string())?,
-            &profile,
-        )
-        .map_err(|e| e.to_string())?;
+        let bytes = baux::artifact::cbor::to_vec(&profile).map_err(|e| e.to_string())?;
+        std::fs::write(path.join("reward.cbor"), bytes).map_err(|e| e.to_string())?;
         Ok(rewards)
     }
 }

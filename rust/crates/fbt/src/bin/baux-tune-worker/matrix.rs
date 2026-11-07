@@ -25,7 +25,7 @@ pub(super) fn write(
     };
     let goal_met = result.max_wall_seconds * 1000.0 <= f64::from(run.target_ms());
     result.write_optimization(&output.join("optimization.jsonl"))?;
-    result.write_validation(&output.join("validation.json"))?;
+    result.write_validation(&output.join("validation.cbor"))?;
     std::fs::write(
         output.join("result.toml"),
         format!(

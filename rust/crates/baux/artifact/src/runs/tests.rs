@@ -228,8 +228,8 @@ fn hostreport() {
         "retain_relevant":{"observation_values":[-2.0,-0.5,-1.0]}
     }]});
     fs::write(
-        Path::new(&row.output).join("regional.json"),
-        json::to_string(&report).unwrap(),
+        Path::new(&row.output).join("regional.cbor"),
+        baux::artifact::cbor::to_vec(&report).unwrap(),
     )
     .unwrap();
     finish(root.path(), &mut row, &Ok(())).unwrap();
@@ -248,7 +248,7 @@ fn hostreport() {
         let label = measurement["y"].as_str().unwrap();
         assert!(
             Path::new(&row.output)
-                .join(format!("regional.json.{label}.svg"))
+                .join(format!("regional.cbor.{label}.svg"))
                 .exists()
         );
     }
@@ -474,8 +474,11 @@ fn pretrain_comparison() {
     )
     .unwrap();
     fs::write(
-        Path::new(&row1.output).join("validation.json"),
-        "{\"measurements\":[{\"round\":0,\"nll\":12.48},{\"round\":2,\"nll\":12.46}]}",
+        Path::new(&row1.output).join("validation.cbor"),
+        baux::artifact::cbor::to_vec(&json!({
+            "measurements": [{"round": 0, "nll": 12.48}, {"round": 2, "nll": 12.46}]
+        }))
+        .unwrap(),
     )
     .unwrap();
     finish(root.path(), &mut row1, &Ok(())).unwrap();
@@ -488,7 +491,7 @@ fn pretrain_comparison() {
     );
     assert!(
         Path::new(&row1.output)
-            .join("validation.json.nll.svg")
+            .join("validation.cbor.nll.svg")
             .exists()
     );
 

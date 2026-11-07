@@ -30,13 +30,21 @@ pub(super) fn measured(
             return causal_measure(root, &run, source, current_digest, target_ms);
         }
     }
-    if run.join("run.log").is_file() && !run.join("result.json").is_file() {
+    if run.join("run.log").is_file()
+        && !run.join("result.cbor").is_file()
+        && !run.join("result.json").is_file()
+    {
         return causal_log(root, &run, source, current_digest, target_ms);
     }
-    let result: Value = baux::artifact::json::from_reader(
-        File::open(run.join("result.json")).map_err(|error| error.to_string())?,
-    )
-    .map_err(|error| error.to_string())?;
+    let result: Value = if run.join("result.cbor").is_file() {
+        let bytes = std::fs::read(run.join("result.cbor")).map_err(|error| error.to_string())?;
+        baux::artifact::cbor::from_slice(&bytes).map_err(|error| error.to_string())?
+    } else {
+        baux::artifact::json::from_reader(
+            File::open(run.join("result.json")).map_err(|error| error.to_string())?,
+        )
+        .map_err(|error| error.to_string())?
+    };
     if run.join("optimization.jsonl").is_file() {
         return metal_measure(root, &run, result, source, current_digest, target_ms);
     }

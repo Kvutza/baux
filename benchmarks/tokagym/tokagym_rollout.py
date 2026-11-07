@@ -31,6 +31,9 @@ ACTION_DIM = 8
 HIDDEN_DIM = 256
 TOTAL_PARAMS = 136712
 TOKAGYM_STEPS = 20
+TOKAGYM_SUBSTEPS = 4
+TOKAGYM_ENVS = 4
+COST_SCALE = 1000.0
 MLP_LAYERS = (
     (OBS_DIM, HIDDEN_DIM),
     (HIDDEN_DIM, HIDDEN_DIM),
@@ -184,14 +187,36 @@ def _obsvec(jnp, env, stateobs):
     )
 
 
-def _trajstep(ctx, stateobs, eps_t):
-    jax, jnp, env, key, weights = ctx
-    obs = _obsvec(jnp, env, stateobs)
-    u = _mlplogits(jax, jnp, obs, weights) + eps_t
-    step_out = env.step_env(key, stateobs, jnp.tanh(u))
-    nxt_stateobs = step_out[2]
-    reward = jnp.asarray(step_out[4], dtype=jnp.float32).reshape(())
-    return nxt_stateobs, (obs, u, reward)
+def _substep(jax, jnp, gym, action, carry):
+    so, al = carry
+    so_new, ob_new, rew, term, info = gym.step(so, action, dt=gym.dt)
+    so_next = jax.tree.map(lambda x, y: jnp.where(al, x, y), so_new, so)
+    ob_next = jax.tree.map(lambda x, y: jnp.where(al, x, y), ob_new, so.obs)
+    al_next = al & (~term)
+    return (so_next, al_next), (
+        so_next,
+        ob_next,
+        action,
+        info["action_actual"],
+        rew,
+        term,
+        info,
+    )
+
+
+def _outerstep(ctx, carry, eps_t):
+    jax, jnp, gym, env, weights = ctx
+    stateobs, alive = carry
+    obs_vec = _obsvec(jnp, env, stateobs)
+    u = _mlplogits(jax, jnp, obs_vec, weights) + eps_t
+    action = env.control_to_action(jnp.tanh(u))
+    (so_end, al_end), sub = jax.lax.scan(
+        lambda c, _: _substep(jax, jnp, gym, action, c),
+        (stateobs, alive),
+        None,
+        length=TOKAGYM_SUBSTEPS,
+    )
+    return (so_end, al_end), (obs_vec, u, sub)
 
 
 class TokaGymClosedLoopEnv:
@@ -221,29 +246,112 @@ class TokaGymClosedLoopEnv:
             obs_norm, state_norm = _buildnorm(root)
             env = TCVEnv(gym, obs_norm, state_norm)
             fitness_model = ESFitnessModel(_fitcfg(gym.config))
-            init_stateobs, _ = gym.reset(jax.random.PRNGKey(0))
-            key = jax.random.PRNGKey(1)
+            keys = jax.random.split(jax.random.PRNGKey(0), TOKAGYM_ENVS)
+            init_stateobs, _ = jax.vmap(gym.reset)(keys)
             zero_eps = jnp.zeros((TOKAGYM_STEPS, ACTION_DIM), dtype=jnp.float32)
 
         self.scenario = scenario
         self.gym = gym
         self.env = env
         self.fitness_model = fitness_model
+        self._rollout_cls = tg.RolloutTuple
         self._jax = jax
         self._jnp = jnp
         self._cpu = cpu
-        self._key = key
         self._init_stateobs = init_stateobs
         self._zero_eps = zero_eps
         self._traj = jax.jit(self._rolltraj)
         self._batch = jax.jit(jax.vmap(lambda w: self._rolltraj(w, self._zero_eps)[3]))
 
-    def _rolltraj(self, weights, eps):
-        ctx = (self._jax, self._jnp, self.env, self._key, weights)
-        _, (obs, u, rewards) = self._jax.lax.scan(
-            lambda s, e: _trajstep(ctx, s, e), self._init_stateobs, eps
+    def _rollsingle(self, stateobs0, weights, eps):
+        jax = self._jax
+        jnp = self._jnp
+        ctx = (jax, jnp, self.gym, self.env, weights)
+        alive0 = jnp.array(True)
+        (final_so, _), (obs_seq, u_seq, sub_hist) = jax.lax.scan(
+            lambda c, e: _outerstep(ctx, c, e), (stateobs0, alive0), eps
         )
-        return obs, u, rewards, self._jnp.mean(rewards)
+        flat = jax.tree.map(lambda x: x.reshape((-1,) + x.shape[2:]), sub_hist)
+        rt = self._rollout_cls(
+            final_state=final_so,
+            final_obs=final_so.obs,
+            states=flat[0],
+            obs=flat[1],
+            action_in=flat[2],
+            action_actual=flat[3],
+            rewards=flat[4],
+            dones=flat[5],
+            infos=flat[6],
+        )
+        return rt, obs_seq, u_seq
+
+    def _stepcosts(self, rt):
+        jnp = self._jnp
+        fm = self.fitness_model
+        t_obs = rt.obs
+        t_mask = fm.get_mask(rt)[0]
+        de_step = jnp.where(
+            t_mask,
+            fm.deenergize["existence_is_pain_cost"]
+            + fm.deenergize["ip_weight"] * jnp.maximum(0.0, t_obs.IP - fm.targets["IP"])
+            + fm.deenergize["wtot_weight"]
+            * jnp.maximum(0.0, t_obs.Wtot - fm.targets["Wtot"]),
+            0.0,
+        )
+        soft_step = jnp.where(
+            t_mask,
+            jnp.maximum(
+                0.0, t_obs.greenwald_frac - fm.soft_limits["greenwald_frac"]["limit"]
+            )
+            + jnp.maximum(0.0, t_obs.beta_p - fm.soft_limits["beta_p"]["limit"])
+            + jnp.maximum(0.0, t_obs.vgr - fm.soft_limits["vgr"]["limit"])
+            + jnp.maximum(0.0, t_obs.iota95 - fm.soft_limits["iota95"]["limit"]),
+            0.0,
+        )
+        hard_step = (
+            jnp.maximum(
+                0.0, t_obs.greenwald_frac - fm.hard_limits["greenwald_frac"]["limit"]
+            )
+            + jnp.maximum(0.0, t_obs.iota95 - fm.hard_limits["iota95"]["limit"])
+            + jnp.maximum(
+                0.0,
+                t_obs.aminor_over_kappa
+                - fm.hard_limits["aminor_over_kappa_ub"]["limit"],
+            )
+            + jnp.maximum(
+                0.0,
+                fm.hard_limits["aminor_over_kappa_lb"]["limit"]
+                - t_obs.aminor_over_kappa,
+            )
+        )
+        step_cost = (
+            fm.weights["deenergize"] * de_step
+            + fm.weights["soft_constraints"] * soft_step
+            + fm.weights["hard_constraints"] * hard_step
+        )
+        return jnp.asarray(
+            step_cost.reshape((TOKAGYM_STEPS, TOKAGYM_SUBSTEPS)).sum(axis=1),
+            dtype=jnp.float32,
+        )
+
+    def _rolltraj(self, weights, eps):
+        jax = self._jax
+        jnp = self._jnp
+        b_rt, b_obs, b_u = jax.vmap(self._rollsingle, in_axes=(0, None, None))(
+            self._init_stateobs, weights, eps
+        )
+        total_cost = self.fitness_model.get_fitness(b_rt)
+        score = -jnp.asarray(total_cost, dtype=jnp.float32) / COST_SCALE
+        w_step = jax.vmap(self._stepcosts)(b_rt).mean(axis=0)
+        w_sum = jnp.sum(w_step)
+        frac = jnp.where(
+            w_sum > 1e-12,
+            w_step / jnp.maximum(w_sum, 1e-12),
+            jnp.full((TOKAGYM_STEPS,), 1.0 / float(TOKAGYM_STEPS), dtype=jnp.float32),
+        )
+        rewards = score * frac
+        mean_r = score / float(TOKAGYM_STEPS)
+        return b_obs[0], b_u[0], rewards, mean_r
 
     def eval_mean(self, weights: np.ndarray) -> float:
         with self._jax.default_device(self._cpu):

@@ -112,18 +112,16 @@ impl Journal {
             return Ok(());
         };
         let result = signal(&self.rewards, gate);
-        baux::artifact::json::pretty_writer(
-            File::create(self.directory.join("signal-gate.json")).map_err(|e| e.to_string())?,
-            &result,
-        )
-        .map_err(|e| e.to_string())?;
+        let bytes = baux::artifact::cbor::to_vec(&result).map_err(|e| e.to_string())?;
+        std::fs::write(self.directory.join("signal-gate.cbor"), bytes)
+            .map_err(|e| e.to_string())?;
         eprintln!(
             "journal.signal_gate {}",
             baux::artifact::json::to_string(&result).map_err(|e| e.to_string())?
         );
         if result["passed"] != true {
             return Err("generation reward has insufficient candidate dispersion; \
-                        signal-gate.json and partial curves retained"
+                        signal-gate.cbor and partial curves retained"
                 .into());
         }
         Ok(())

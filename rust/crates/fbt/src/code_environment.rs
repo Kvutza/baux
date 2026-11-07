@@ -484,11 +484,8 @@ impl Executor {
             "samples":reports,
             "provenance":self.spec.provenance(),
         });
-        baux::artifact::json::pretty_writer(
-            File::create(path.join("reward.json")).map_err(|e| e.to_string())?,
-            &report,
-        )
-        .map_err(|e| e.to_string())?;
+        let bytes = baux::artifact::cbor::to_vec(&report).map_err(|e| e.to_string())?;
+        std::fs::write(path.join("reward.cbor"), bytes).map_err(|e| e.to_string())?;
         eprintln!(
             "code.evaluation syntax={syntax} interface={interface} passed={}/{}",
             passed.iter().sum::<u64>(),

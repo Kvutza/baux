@@ -77,8 +77,8 @@ pub(super) fn execute(root: &Path, path: &Path, rounds: Option<u32>) -> Result<b
     record.protocol = runs::digest(resolved.as_bytes());
 
     let result = run_opt(&config, Some(root)).and_then(|report| {
-        let report_str = json::pretty_string(&report).map_err(|e| e.to_string())?;
-        fs::write(output.join("tokamak.json"), &report_str).map_err(|e| e.to_string())?;
+        let bytes = baux::artifact::cbor::to_vec(&report).map_err(|e| e.to_string())?;
+        fs::write(output.join("tokamak.cbor"), &bytes).map_err(|e| e.to_string())?;
         println!(
             "Tokamak Multi-Trust-Region BO experiment completed. Evidence: {}",
             output.display()
@@ -232,16 +232,21 @@ fn make_opt(config: &Config, rng: &mut Prng) -> Result<BayesOptimizer, String> {
 }
 
 fn seed_weights(seed: u64, config: &Config) -> Result<Vec<f64>, String> {
-    let n_pert = if is_tokagym(config) { 13671 } else { 16053 };
+    let (n_pert, cands, fast) = if is_tokagym(config) {
+        (13671, 4, true)
+    } else {
+        (16053, 2, false)
+    };
     let ref_toml = format!(
         r#"
 algorithm = "bayesian-search"
-candidates = 2
+candidates = {cands}
 arms = 1
 acquisition = "random"
 [perturbation]
 sampler = "raasp"
 num-pert = {n_pert}
+raasp-fast = {fast}
 [trust-region]
 initial = 0.8
 min = 0.00048828125
@@ -611,9 +616,12 @@ failure-tolerance = 5
 "#;
         let config: Config = baux::artifact::toml::from_str(toml_str).expect("parse v4 config");
         let report = run_opt(&config, None).expect("run tokamak multi-region opt");
-        assert_eq!(report["experiment"], "tokamak-tcv");
-        assert_eq!(report["regions"], 2);
-        assert_eq!(report["rounds"], 2);
+        let cbor_bytes = baux::artifact::cbor::to_vec(&report).expect("encode tokamak cbor");
+        let decoded: Value =
+            baux::artifact::cbor::from_slice(&cbor_bytes).expect("decode tokamak cbor");
+        assert_eq!(decoded["experiment"], "tokamak-tcv");
+        assert_eq!(decoded["regions"], 2);
+        assert_eq!(decoded["rounds"], 2);
 
         let ppo_toml = r#"
 version = 4

@@ -144,11 +144,8 @@ fn score_rollouts(
 
 fn write_evaluation(path: &Path, evaluation: &Evaluation) -> Result<(), String> {
     std::fs::create_dir_all(path).map_err(|e| e.to_string())?;
-    baux::artifact::json::pretty_writer(
-        File::create(path.join("evaluation.json")).map_err(|e| e.to_string())?,
-        evaluation,
-    )
-    .map_err(|e| e.to_string())
+    let bytes = baux::artifact::cbor::to_vec(evaluation).map_err(|e| e.to_string())?;
+    std::fs::write(path.join("evaluation.cbor"), bytes).map_err(|e| e.to_string())
 }
 
 pub(super) fn retain(path: &Path, evaluation: &mut Evaluation) -> Result<(), String> {
@@ -244,11 +241,8 @@ fn audit_decode(
         direct_wall_ms: direct.wall_seconds * 1_000.0,
         direct_gpu_ms: direct.gpu_seconds * 1_000.0,
     };
-    baux::artifact::json::pretty_writer(
-        File::create(path.join("direct-audit.json")).map_err(|error| error.to_string())?,
-        &audit,
-    )
-    .map_err(|error| error.to_string())?;
+    let bytes = baux::artifact::cbor::to_vec(&audit).map_err(|error| error.to_string())?;
+    std::fs::write(path.join("direct-audit.cbor"), bytes).map_err(|error| error.to_string())?;
     eprintln!(
         "decode.audit exact={} block_ms={:.3} direct_ms={:.3} first_difference={:?}",
         audit.exact_tokens, audit.block_wall_ms, audit.direct_wall_ms, audit.first_difference

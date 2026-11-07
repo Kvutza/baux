@@ -17,14 +17,14 @@ from .native_parity import mutate_params, reference_loss
 def _toypass(rng, config, params, engine, changed):
     import torch
 
-    from baux.experimental import MetalWeights
+    from baux.experimental import Var
 
     from .reference import forward
 
     if changed:
         mutate_params(params)
     flat = torch.cat([params[name].reshape(-1) for name in sorted(params)])
-    weights = MetalWeights(flat.view(torch.uint16).numpy())
+    weights = Var(flat.view(torch.uint16).numpy())
     rows = [
         [1, 2, 3],
         rng.integers(0, config.vocab, 9).tolist(),
@@ -93,12 +93,12 @@ def toy_forward():
 
 
 def _makesearch(initial, leaves, metric, value):
-    from baux.experimental import MetalParamBlock, MetalSearchState, MetalWeights
+    from baux.experimental import Region, Span, Var
 
-    search = MetalSearchState(
-        MetalWeights(initial),
+    search = Region(
+        Var(initial),
         value,
-        [MetalParamBlock(*leaf, float(metric[leaf[1]])) for leaf in leaves],
+        [Span(*leaf, float(metric[leaf[1]])) for leaf in leaves],
         2,
         reference_seed=123,
         length_init=0.125,

@@ -8,8 +8,8 @@ pub(crate) fn recipe(root: &Path, name: &str) -> Result<Value, String> {
     if !baux::config::valid_recipe(name) {
         return Err("pretraining recipe name must be lowercase kebab-case".into());
     }
-    let path = root.join("data/recipes").join(format!("{name}.json"));
-    let value = baux::artifact::json::from_reader(
+    let path = root.join("data/recipes").join(format!("{name}.toml"));
+    let value = baux::artifact::toml::from_reader(
         fs::File::open(&path)
             .map_err(|error| format!("pretraining recipe {}: {error}", path.display()))?,
     )

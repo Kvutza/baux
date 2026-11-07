@@ -51,7 +51,7 @@ def test_uploadbits(monkeypatch):
     captured = []
     package = ModuleType("baux")
     experimental = ModuleType("baux.experimental")
-    experimental.MetalWeights = lambda bits: captured.append(bits.copy())
+    experimental.Var = lambda bits: captured.append(bits.copy())
     package.experimental = experimental
     monkeypatch.setitem(sys.modules, "baux", package)
     monkeypatch.setitem(sys.modules, "baux.experimental", experimental)
@@ -71,13 +71,13 @@ def gpu():
         pytest.skip("Set BAUX_TEST_METAL=1 to exercise actual Metal bindings")
     from baux import experimental
 
-    assert "Apple" in experimental.MetalWeights.device_info()["name"]
+    assert "Apple" in experimental.Var.device_info()["name"]
     return experimental
 
 
 def test_weightupload(gpu):
     bits = np.array([0x3F80, 0xC000, 0], dtype=np.uint16)
-    weights = gpu.MetalWeights(bits)
+    weights = gpu.Var(bits)
     bits[:] = 0
     np.testing.assert_array_equal(weights.read(), [0x3F80, 0xC000, 0])
     for invalid in (
@@ -90,7 +90,7 @@ def test_weightupload(gpu):
         np.zeros(4, dtype=np.uint16)[::2],
     ):
         with pytest.raises((ValueError, TypeError)):
-            gpu.MetalWeights(invalid)
+            gpu.Var(invalid)
 
 
 def test_forward(gpu):
@@ -119,7 +119,7 @@ def test_forward(gpu):
         with pytest.raises((ValueError, TypeError)):
             gpu.MetalFlameEvaluator(asdict(config), invalid)
     evaluator = gpu.MetalFlameEvaluator(asdict(config), 4)
-    weights = gpu.MetalWeights(np.full(evaluator.weights_len, 0x3D80, dtype=np.uint16))
+    weights = gpu.Var(np.full(evaluator.weights_len, 0x3D80, dtype=np.uint16))
     expected = evaluator.losses(weights, [[1, 2]], [[False, True]])
     for tokens, masks in (
         ([], []),
@@ -134,7 +134,7 @@ def test_forward(gpu):
             evaluator.losses(weights, tokens, masks)
     for invalid in (
         np.zeros(evaluator.weights_len, dtype=np.uint16),
-        gpu.MetalWeights(np.zeros(1, dtype=np.uint16)),
+        gpu.Var(np.zeros(1, dtype=np.uint16)),
     ):
         with pytest.raises((TypeError, ValueError)):
             evaluator.losses(invalid, [[1, 2]], [[False, True]])
@@ -160,7 +160,7 @@ def test_nextlogits(gpu):
     rng = np.random.default_rng(8123)
     values = rng.uniform(-0.1, 0.1, evaluator.weights_len).astype(np.float32)
     bits = (values.view(np.uint32) >> 16).astype(np.uint16)
-    weights = gpu.MetalWeights(bits)
+    weights = gpu.Var(bits)
     workspace_bytes = evaluator.workspace_bytes
     for n in (1, 2, 7, 8, 9, 31, 32, 33, 127, 128, 129, 135, 136, 140, 1):
         tokens = [(i * 13) % config.vocab for i in range(n)]
@@ -172,7 +172,7 @@ def test_nextlogits(gpu):
     retained = next_logits.copy()
     expected = evaluator.next_logits(weights, [0])
     assert_invalid(evaluator, weights, config)
-    for invalid in (bits, object(), gpu.MetalWeights(np.zeros(1, dtype=np.uint16))):
+    for invalid in (bits, object(), gpu.Var(np.zeros(1, dtype=np.uint16))):
         with pytest.raises((ValueError, TypeError)):
             evaluator.next_logits(invalid, [0])
     # Finite BF16 weights can still overflow the LM head. The canonical layout
@@ -192,15 +192,15 @@ def assert_overflow(gpu, evaluator, width):
     overflow = np.full(evaluator.weights_len, 0x3D80, dtype=np.uint16)
     overflow[:width] = 0x7F7F
     with pytest.raises(ValueError, match="nonfinite"):
-        evaluator.next_logits(gpu.MetalWeights(overflow), [0])
+        evaluator.next_logits(gpu.Var(overflow), [0])
 
 
 def test_searchguards(gpu):
     def make():
-        state = gpu.MetalSearchState(
-            gpu.MetalWeights(np.full(257, 0x3F80, dtype=np.uint16)),
+        state = gpu.Region(
+            gpu.Var(np.full(257, 0x3F80, dtype=np.uint16)),
             0.0,
-            [gpu.MetalParamBlock(1, 0, 257, 1.0)],
+            [gpu.Span(1, 0, 257, 1.0)],
             2,
         )
         state.enable_relative()
@@ -241,10 +241,10 @@ def test_searchguards(gpu):
 
 
 def test_fifo(gpu):
-    state = gpu.MetalSearchState(
-        gpu.MetalWeights(np.full(257, 0x3F80, dtype=np.uint16)),
+    state = gpu.Region(
+        gpu.Var(np.full(257, 0x3F80, dtype=np.uint16)),
         0.0,
-        [gpu.MetalParamBlock(1, 0, 257, 1.0)],
+        [gpu.Span(1, 0, 257, 1.0)],
         5,
     )
     initial = state.length
@@ -271,10 +271,10 @@ def assert_variances(state, proposal):
 
 
 def test_inconclusive(gpu):
-    state = gpu.MetalSearchState(
-        gpu.MetalWeights(np.full(257, 0x3F80, dtype=np.uint16)),
+    state = gpu.Region(
+        gpu.Var(np.full(257, 0x3F80, dtype=np.uint16)),
         0.0,
-        [gpu.MetalParamBlock(1, 0, 257, 1.0)],
+        [gpu.Span(1, 0, 257, 1.0)],
         2,
     )
     state.enable_relative()

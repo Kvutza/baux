@@ -19,7 +19,7 @@ from native_fixtures import Source, binding, checkpoint, config, document  # noq
 
 @pytest.mark.parametrize("method", ["enable_relative", "tell_relative"])
 def test_api(checkpoint, document, binding, tmp_path, monkeypatch, method):
-    monkeypatch.delattr(sys.modules["baux.experimental"].SearchState, method)
+    monkeypatch.delattr(sys.modules["baux.experimental"].Region, method)
     with pytest.raises(RuntimeError, match="[Pp]aired"):
         bo.run(
             checkpoint[0],
@@ -51,8 +51,6 @@ def test_signature(
         from ops.flame import metal
 
         module = metal
-        experimental.MetalSearchState = experimental.SearchState
-        experimental.MetalParamBlock = experimental.ParamBlock
         monkeypatch.setattr(metal, "metal_device", lambda: "Apple M4")
 
     def legacy(self, *args):
@@ -70,7 +68,7 @@ def test_signature(
         "invalid-signature": legacy,
     }
     monkeypatch.setattr(
-        experimental.SearchState,
+        experimental.Region,
         "tell_relative",
         methods[signature],
     )
@@ -221,7 +219,7 @@ raise SystemExit(status)
         text=True,
         env={
             **os.environ,
-            "PYTHONPATH": str(root / "src") + os.pathsep + str(root),
+            "PYTHONPATH": str(root / "python") + os.pathsep + str(root),
             "XLA_PYTHON_CLIENT_ALLOCATOR": "bfc",
             "PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1",
         },
@@ -251,8 +249,8 @@ extension = ModuleType('baux.baux_rust')
 for name in ('hypervolume', 'hash', 'util', 'model', 'fit', 'optimizer', 'experimental'):
     setattr(extension, name, Namespace())
 sys.modules['baux.baux_rust'] = extension
-from baux.experimental import ParamBlock, SearchState, FlameEvaluator
-assert ParamBlock is SearchState is FlameEvaluator is sentinel
+from baux.experimental import Span, Region, FlameEvaluator
+assert Span is Region is FlameEvaluator is sentinel
 assert not any(n.split('.')[0] in ('jax', 'jaxlib') for n in sys.modules)
 """,
         ],
@@ -260,7 +258,7 @@ assert not any(n.split('.')[0] in ('jax', 'jaxlib') for n in sys.modules)
         check=False,
         capture_output=True,
         text=True,
-        env={**os.environ, "PYTHONPATH": str(root / "src")},
+        env={**os.environ, "PYTHONPATH": str(root / "python")},
         timeout=30,
     )
     assert result.returncode == 0, result.stdout + result.stderr

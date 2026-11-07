@@ -53,7 +53,7 @@ def run_stress(*, num_obs: int, config_path: Path) -> tuple[float, float]:
     proc = subprocess.run(
         cmd,
         cwd=ROOT,
-        env={**os.environ, "PYTHONPATH": str(ROOT / "src")},
+        env={**os.environ, "PYTHONPATH": str(ROOT / "python")},
         check=True,
         capture_output=True,
         text=True,

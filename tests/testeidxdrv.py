@@ -378,44 +378,44 @@ def test_016(tmp_path, driver):
 
 
 def test_017(tmp_path):
-    from baux import Device, Enn
+    from baux import ENN, Device
     from baux.config import OptimizerConfig
     from baux.enn.enn_params import ENNParams
-    from baux.index import DistanceMetric, IndexKind, NeighborIndex, Storage
-    from baux.region import GlobalRegion, MorboRegion, RegionPolicy, TurboRegion
-    from baux.surrogate import EnnSurrogate, GaussianProcess, NoSurrogate
-
-    assert (IndexKind.EXACT, IndexKind.HNSW, IndexKind.TREE) == (
-        NeighborIndex.FLAT,
-        NeighborIndex.USEARCH,
-        NeighborIndex.BPANN_DISK,
+    from baux.index import DistanceMetric, NeighborIndex, Storage
+    from baux.region import (
+        MorboTrustRegion,
+        NoTrustRegion,
+        RegionalSearchPolicy,
+        TurboTrustRegion,
     )
+    from baux.surrogate import ENNSurrogate, GaussianProcess, NoSurrogate
+
     assert all(
         (
             DistanceMetric.SQUARED_L2,
-            EnnSurrogate,
+            ENNSurrogate,
             GaussianProcess,
             NoSurrogate,
-            GlobalRegion,
-            MorboRegion,
-            RegionPolicy,
-            TurboRegion,
+            NoTrustRegion,
+            MorboTrustRegion,
+            RegionalSearchPolicy,
+            TurboTrustRegion,
             OptimizerConfig,
         )
     )
     train_x = np.array([[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]], dtype=float)
     train_y = np.array([[0.0], [1.0], [2.0]], dtype=float)
     tree_dir = tmp_path / "tree_store"
-    model = Enn(train_x, train_y, index="tree", work_dir=str(tree_dir))
+    model = ENN(train_x, train_y, index="tree", work_dir=str(tree_dir))
     assert (
         model.index_kind == "tree"
         and model.device == "cpu"
         and (tree_dir / "train_x.bin").exists()
     )
-    exact_model = Enn(
+    exact_model = ENN(
         train_x,
         train_y,
-        index=IndexKind.EXACT,
+        index=NeighborIndex.FLAT,
         storage=Storage.MEMORY,
         device=Device.cpu(),
     )

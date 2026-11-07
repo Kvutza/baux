@@ -3,7 +3,7 @@ import sys
 import types
 import zipfile
 
-from build.bazel.audit_wheel import audit_macos, audit_wheel, wheel_paths
+from admin.bazel.audit_wheel import audit_macos, audit_wheel, wheel_paths
 
 
 def test_audit(tmp_path, monkeypatch):
@@ -22,7 +22,6 @@ def test_audit(tmp_path, monkeypatch):
 
     monkeypatch.setattr(subprocess, "check_output", check_output)
     rust = types.ModuleType("baux.baux_rust")
-    rust.search = types.SimpleNamespace(TrialEngine=object)
     package = types.ModuleType("baux")
     package.__path__ = []
     monkeypatch.setitem(sys.modules, "baux", package)

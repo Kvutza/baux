@@ -79,8 +79,8 @@ def test_initialsave(tiny_model, tmp_path, monkeypatch):
         def tell_relative(self, *, reject_is_failure=True):
             pytest.fail("optimization is mocked")
 
-    experimental.SearchState = NativeSearch
-    experimental.ParamBlock = lambda *args: args
+    experimental.Region = NativeSearch
+    experimental.Span = lambda *args: args
     install_extension(monkeypatch, tmp_path, experimental)
     monkeypatch.setattr(
         jax,
@@ -375,8 +375,8 @@ def test_metadata(
         def read_best(self):
             pytest.fail("saving is mocked in this orchestration test")
 
-    experimental.SearchState = NativeSearch
-    experimental.ParamBlock = lambda *args: args
+    experimental.Region = NativeSearch
+    experimental.Span = lambda *args: args
     install_extension(monkeypatch, tmp_path, experimental)
     device = SimpleNamespace(platform="gpu", device_kind="Tesla T4", id=0)
     monkeypatch.setattr(jax, "devices", lambda: [device])

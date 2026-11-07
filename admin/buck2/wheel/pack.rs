@@ -241,7 +241,7 @@ fn zip(entries: &BTreeMap<String, Vec<u8>>) -> Vec<u8> {
 }
 
 fn collect_payloads(args: &Args) -> io::Result<(BTreeMap<String, Vec<u8>>, String, String)> {
-    let source_package = args.src_dir.join("src").join(&args.package);
+    let source_package = args.src_dir.join("python").join(&args.package);
     let all_files = files_below(&args.src_dir)?;
     let extensions: Vec<_> = all_files
         .iter()

@@ -50,7 +50,6 @@ class TestPublicAPIExports:
         from baux import bo
 
         assert baux.Optimizer is bo.Optimizer
-        assert baux.BayesOptimizer is baux.Optimizer
         assert baux.Optimizer.__name__ == "Optimizer"
 
     def test_configclasses(self):
@@ -104,26 +103,23 @@ class TestPublicAPIExports:
         assert callable(experimental.make_region)
         assert inspect.isclass(experimental.BayesOptimizer)
         assert inspect.isclass(experimental.MultiTrustRegion)
-        if experimental.MetalRegionOptimizer is not None:
-            assert inspect.isclass(experimental.MetalRegionOptimizer)
+        if experimental.Portfolio is not None:
+            assert inspect.isclass(experimental.Portfolio)
         assert callable(experimental.enn_optimizer)
-        assert callable(experimental.quantize_int4)
-        assert callable(experimental.quantize_e2m1)
         for name in [
-            "ParamBlock",
-            "ParameterBuffer",
-            "Proposals",
-            "SearchState",
+            "Span",
+            "Var",
+            "Trial",
+            "Region",
             "turbo_enn",
         ]:
             assert name in experimental.__all__
             assert hasattr(experimental, name)
-        if experimental.SearchState is not None:
-            assert inspect.isclass(experimental.ParamBlock)
-            assert inspect.isclass(experimental.ParameterBuffer)
-            assert experimental.ParameterBuffer is experimental.ParamBuffer
-            assert inspect.isclass(experimental.Proposals)
-            assert inspect.isclass(experimental.SearchState)
+        if experimental.Region is not None:
+            assert inspect.isclass(experimental.Span)
+            assert inspect.isclass(experimental.Var)
+            assert inspect.isclass(experimental.Trial)
+            assert inspect.isclass(experimental.Region)
             assert callable(experimental.turbo_enn)
 
     def test_enumtypes(self):

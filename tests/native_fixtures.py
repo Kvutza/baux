@@ -264,8 +264,8 @@ def binding(monkeypatch, tmp_path, config):
             )
 
     experimental.FlameEvaluator = Engine
-    experimental.SearchState = Search
-    experimental.ParamBlock = lambda *args: args
+    experimental.Region = Search
+    experimental.Span = lambda *args: args
     for name, module in (
         ("baux", package),
         ("baux.baux_rust", extension),

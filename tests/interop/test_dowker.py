@@ -16,8 +16,8 @@ Academic & Open-Source Attribution:
   (commit f98f1cacc0263b04290753e32be8d498c1efc806).
 """
 
-import json
 import os
+import tomllib
 from pathlib import Path
 
 os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
@@ -201,9 +201,9 @@ def _polarnp(nesterov: np.ndarray, coeffs: list[list[float]]) -> np.ndarray:
 
 def test_polar():
     fixture_path = (
-        Path(__file__).resolve().parents[2] / "rust/crates/baux/src/muon/fixtures.json"
+        Path(__file__).resolve().parents[2] / "rust/crates/baux/src/muon/fixtures.toml"
     )
-    data = json.loads(fixture_path.read_text())
+    data = tomllib.loads(fixture_path.read_text(encoding="utf-8"))
     coeffs = data["remez"]["paper_polar_coefficients"]
     case = data["cases"][0]
     shape = (case["batch"], case["rows"], case["cols"])

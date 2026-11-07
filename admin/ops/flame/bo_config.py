@@ -21,11 +21,6 @@ try:
 except ImportError:  # pragma: no cover
     Var = Span = Region = Portfolio = None
 
-ParameterBuffer = MetalWeights = Var
-ParamBlock = MetalParamBlock = Span
-SearchState = MetalSearchState = Region
-RegionOptimizer = MetalRegionOptimizer = Portfolio
-
 SAMPLERS = ("correlated", "gaussian", "independent")
 REJECTION_POLICIES = ("deterioration", "all")
 # Incremental workspace estimates, excluding resident rows and the reference.
@@ -331,10 +326,10 @@ def _checkrelative(search_cls):
 
 def check_extension(settings: Settings):
     import baux.baux_rust as extension
-    from baux.experimental import ParamBlock, Region, SearchState, Span
+    from baux.experimental import Region, Span
 
-    region_cls = SearchState if SearchState is not Region else Region
-    span_cls = ParamBlock if ParamBlock is not Span else Span
+    region_cls = Region
+    span_cls = Span
     if region_cls is None or not hasattr(region_cls, "read_best"):
         raise RuntimeError("Rebuild the BAUX extension for the selected backend")
     if settings.minibatch_size is not None:

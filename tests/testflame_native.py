@@ -146,8 +146,6 @@ def test_directsources(
 
         experimental = sys.modules["baux.experimental"]
         experimental.MetalFlameEvaluator = experimental.FlameEvaluator
-        experimental.MetalSearchState = experimental.SearchState
-        experimental.MetalParamBlock = experimental.ParamBlock
         monkeypatch.setattr(metal, "metal_device", lambda: "Apple M4")
         monkeypatch.setattr(metal, "free_memory", lambda: 15 * 1024**3)
         monkeypatch.setattr(metal, "upload_weights", native.upload_weights)

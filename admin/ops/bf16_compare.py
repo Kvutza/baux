@@ -15,7 +15,7 @@ import click
 import jax
 import jax.numpy as jnp
 
-from baux.experimental import ParamBlock, turbo_enn
+from baux.experimental import Span, turbo_enn
 
 
 def measure(dimensions, rounds, sampler):
@@ -23,7 +23,7 @@ def measure(dimensions, rounds, sampler):
     search = turbo_enn(
         base,
         0.0,
-        [ParamBlock(71, 0, dimensions, 1.0, 1.0 / dimensions)],
+        [Span(71, 0, dimensions, 1.0, 1.0 / dimensions)],
         2,
         sampler=sampler,
         length_init=0.01,

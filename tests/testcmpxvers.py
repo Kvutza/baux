@@ -137,12 +137,12 @@ def test_010(seed: int):
 
 def test_011():
     env = _envversion(CURRENT_LABEL)
-    assert str(env["PYTHONPATH"]).split(":")[0].endswith("/src")
+    assert str(env["PYTHONPATH"]).split(":")[0].endswith("/python")
 
 
 def test_012():
     env = _envversion(BASELINE_LABEL)
-    assert "/src" not in env.get("PYTHONPATH", "")
+    assert "/python" not in env.get("PYTHONPATH", "")
 
 
 def test_013():

@@ -2,7 +2,7 @@
 
 Usage:
   python -m tests.parity.parity_harness
-  PYTHONPATH=src python -m tests.parity.parity_harness
+  PYTHONPATH=python python -m tests.parity.parity_harness
 
 Output: writes parity_report.json with per-endpoint pass/fail for CI gating.
 """

@@ -50,11 +50,11 @@ fn tied_weights() {
     assert!(gain > 0.0 && w[0] == w[1]);
     let mut metric = AutoMetric::new(3, 1, vec![vec![0, 1]], 719).unwrap();
     assert!(metric.observe(&x, &y, n).unwrap().is_some());
-    assert!(metric.snapshot().uses_learned);
-    assert_eq!(metric.snapshot().counters.num_refits, 1);
+    assert!(metric.diagonal_metric().uses_learned);
+    assert_eq!(metric.diagonal_metric().counters.num_refits, 1);
     // The next scheduled refit is at ceil(1.5*128)=192 seen rows.
     metric.observe(&x[..3], &y[..1], 1).unwrap();
-    assert_eq!(metric.snapshot().counters.num_refits, 1);
+    assert_eq!(metric.diagonal_metric().counters.num_refits, 1);
 }
 
 #[test]
@@ -66,8 +66,8 @@ fn gate_fallback() {
     let y = vec![1.0; n];
     let mut metric = AutoMetric::new(2, 1, vec![], 719).unwrap();
     metric.observe(&x[..2 * 99], &y[..99], 99).unwrap();
-    assert_eq!(metric.snapshot().counters.num_refits, 0);
+    assert_eq!(metric.diagonal_metric().counters.num_refits, 0);
     metric.observe(&x[2 * 99..], &y[99..], n - 99).unwrap();
-    assert_eq!(metric.snapshot().weights, [1.0, 1.0]);
-    assert!(!metric.snapshot().uses_learned);
+    assert_eq!(metric.diagonal_metric().weights, [1.0, 1.0]);
+    assert!(!metric.diagonal_metric().uses_learned);
 }

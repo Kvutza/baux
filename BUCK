@@ -163,7 +163,7 @@ python_wheel(
         "prelude//cpu/constraints:arm64",
         "prelude//os/constraints:linux",
     ],
-    version = read_config("baux", "release_version", "0.0.4"),
+    version = read_config("baux", "release_version", "0.0.5"),
 )
 
 python_wheel(
@@ -184,7 +184,7 @@ python_wheel(
         "prelude//cpu/constraints:x86_64",
         "prelude//os/constraints:linux",
     ],
-    version = read_config("baux", "release_version", "0.0.4"),
+    version = read_config("baux", "release_version", "0.0.5"),
 )
 
 python_wheel(
@@ -205,7 +205,7 @@ python_wheel(
         "prelude//cpu/constraints:arm64",
         "prelude//os/constraints:macos",
     ],
-    version = read_config("baux", "release_version", "0.0.4"),
+    version = read_config("baux", "release_version", "0.0.5"),
 )
 
 configured_alias(

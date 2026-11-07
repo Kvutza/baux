@@ -16,24 +16,7 @@ pub const AUTO_K: usize = 10;
 pub const REFIT_GROWTH: f64 = 1.5;
 pub const RESCALE_TOL: f64 = 0.01;
 
-/// `None` leaves the metric fixed. `Auto` learns a diagonal metric from a
-/// reservoir.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum MetricLearning {
-    #[default]
-    None,
-    Auto,
-}
-
-impl MetricLearning {
-    pub fn parse(name: &str) -> Option<Self> {
-        match name {
-            "none" | "NONE" | "None" => Some(Self::None),
-            "auto" | "AUTO" | "Auto" => Some(Self::Auto),
-            _ => None,
-        }
-    }
-}
+pub use crate::layout::MetricLearning;
 
 fn floored_log(w: &[f64]) -> Vec<f64> {
     let log_w: Vec<f64> = w.iter().map(|v| v.ln()).collect();
@@ -99,7 +82,7 @@ pub struct MetricCounters {
 }
 
 #[derive(Clone, Debug)]
-pub struct MetricSnapshot {
+pub struct DiagonalMetric {
     pub num_seen: usize,
     pub counters: MetricCounters,
     pub heldout_gain: Option<f64>,
@@ -250,8 +233,8 @@ impl AutoMetric {
         self.rows.num_seen()
     }
 
-    pub fn snapshot(&self) -> MetricSnapshot {
-        MetricSnapshot {
+    pub fn diagonal_metric(&self) -> DiagonalMetric {
+        DiagonalMetric {
             num_seen: self.num_seen(),
             counters: self.counters,
             heldout_gain: self.heldout_gain,

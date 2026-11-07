@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from baux.enn.posterior_flags import DiagonalMetric, MetricLearning
 from baux.turbo.config.surrogate import (
     INDEX_NAMES,
     DistanceMetric,
@@ -16,6 +17,7 @@ from baux.turbo.config.surrogate import (
 )
 
 __all__ = [
+    "DiagonalMetric",
     "DistanceMetric",
     "ENNSurrogate",
     "EnnSurrogate",
@@ -23,6 +25,7 @@ __all__ = [
     "GaussianProcess",
     "INDEX_NAMES",
     "IndexKind",
+    "MetricLearning",
     "NeighborIndex",
     "NoSurrogate",
     "Storage",

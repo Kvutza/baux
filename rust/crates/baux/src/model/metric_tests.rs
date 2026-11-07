@@ -39,7 +39,7 @@ fn disk_metric() {
         .add(&array![[3.0, 2.0]].view(), &array![[4.0]].view(), None)
         .unwrap();
     assert_eq!(model.x_scale(), array![[0.5, 2.0]]); // Appending cannot overwrite the learned metric with input std.
-    let snapshot = model.metric_snapshot().unwrap();
+    let snapshot = model.diagonal_metric().unwrap();
     assert_eq!(snapshot.num_seen, 5);
     assert!(snapshot.counters.num_rescales > 0 && snapshot.counters.num_rebuilds > 0);
     model.persist_index().unwrap();
@@ -57,7 +57,7 @@ fn disk_metric() {
     .unwrap();
     assert_eq!(reopened.len(), 5);
     assert_eq!(reopened.x_scale(), array![[1.0, 1.0]]);
-    assert!(reopened.metric_snapshot().is_none());
+    assert!(reopened.diagonal_metric().is_none());
     let (d, ids) = reopened
         .index_access()
         .nearest_neighbors(&query.view(), 5, false)
@@ -93,7 +93,7 @@ fn metric_rejection() {
             .is_err()
     );
     assert_eq!(model.len(), 0);
-    assert_eq!(model.metric_snapshot().unwrap().num_seen, 0);
+    assert_eq!(model.diagonal_metric().unwrap().num_seen, 0);
 }
 
 #[test]

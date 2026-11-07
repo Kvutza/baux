@@ -112,6 +112,9 @@ pub struct RunConfig {
     pub enn_storage: Option<EnnStorage>,
     pub work_dir: Option<PathBuf>,
     pub y_bounds: Option<Vec<[f64; 2]>>,
+    pub metric_learning: Option<crate::layout::MetricLearning>,
+    pub tied_dims: Option<Vec<Vec<usize>>>,
+    pub unscaled_dims: Option<Vec<usize>>,
     pub trust_region_kind: Option<TrustRegionKind>,
     pub num_metrics: Option<usize>,
     pub alpha: Option<f64>,
@@ -277,6 +280,15 @@ fn apply_enn(config: &mut OptimizerConfig, overrides: &RunConfig) {
                 .expect("fixed-width y_bounds rows"),
         );
     }
+    if let Some(ml) = overrides.metric_learning {
+        enn.metric_learning = ml;
+    }
+    if let Some(tied) = overrides.tied_dims.clone() {
+        enn.tied_dims = tied;
+    }
+    if let Some(unscaled) = overrides.unscaled_dims.clone() {
+        enn.unscaled_dims = unscaled;
+    }
     config.surrogate = SurrogateConfig::ENN(enn);
 }
 
@@ -369,6 +381,9 @@ impl RunConfig {
             || self.enn_storage.is_some()
             || self.work_dir.is_some()
             || self.y_bounds.is_some()
+            || self.metric_learning.is_some()
+            || self.tied_dims.is_some()
+            || self.unscaled_dims.is_some()
         {
             apply_enn(&mut config, self);
         }

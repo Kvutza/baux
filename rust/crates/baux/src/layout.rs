@@ -18,6 +18,23 @@ pub enum MetricLearning {
     Auto,
 }
 
+impl MetricLearning {
+    pub fn parse(name: &str) -> Option<Self> {
+        match name {
+            "none" | "NONE" | "None" => Some(Self::None),
+            "auto" | "AUTO" | "Auto" => Some(Self::Auto),
+            _ => Option::None,
+        }
+    }
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::None => "none",
+            Self::Auto => "auto",
+        }
+    }
+}
+
 /// Legal placement of an ENN model.
 ///
 /// Disk storage exists only with `BpAnnDisk`. `Auto` exists only on disk with

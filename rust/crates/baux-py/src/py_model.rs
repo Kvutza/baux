@@ -2,7 +2,7 @@
 
 #![allow(clippy::too_many_arguments, clippy::type_complexity)]
 
-use crate::py_device::{parse_storage, py_flags, resolve_driver};
+use crate::py_device::{apply_metric, metric_dict, parse_storage, py_flags, resolve_driver};
 use baux::traits::PosteriorComputation;
 use numpy::{IntoPyArray, PyArray2, PyArrayDyn, PyReadonlyArray2};
 use pyo3::exceptions::PyValueError;
@@ -76,7 +76,7 @@ impl PyENN {
     }
 
     #[new]
-    #[pyo3(signature = (train_x, train_y, train_yvar=None, scale_x=false, index_driver="Exact", work_dir=None, enn_storage=None, y_bounds=None, device=None, index=None, storage=None))]
+    #[pyo3(signature = (train_x, train_y, train_yvar=None, scale_x=false, index_driver="Exact", work_dir=None, enn_storage=None, y_bounds=None, device=None, index=None, storage=None, metric=None))]
     fn new(
         train_x: PyReadonlyArray2<f64>,
         train_y: PyReadonlyArray2<f64>,
@@ -89,6 +89,7 @@ impl PyENN {
         device: Option<&Bound<'_, PyAny>>,
         index: Option<&str>,
         storage: Option<&str>,
+        metric: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<Self> {
         let driver = resolve_driver(index_driver, device, index)?;
         let storage = parse_storage(enn_storage, storage, work_dir, driver)?;
@@ -96,7 +97,7 @@ impl PyENN {
         if driver == baux::IndexDriver::BpAnnDisk {
             baux::bpann_config().map_err(PyValueError::new_err)?;
         }
-        let model = baux::ENN::new_options(
+        let mut model = baux::ENN::new_options(
             train_x.as_array().to_owned(),
             train_y.as_array().to_owned(),
             train_yvar.map(|v| v.as_array().to_owned()),
@@ -109,6 +110,7 @@ impl PyENN {
             },
         )
         .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        apply_metric(&mut model, metric, scale_x)?;
         Ok(Self {
             inner: model,
             tie_neighbors: std::cell::Cell::new(true),
@@ -419,8 +421,11 @@ impl PyENN {
     }
 
     #[getter]
-    fn scale_x(&self) -> bool {
-        self.inner.scales_x()
+    fn diagonal_metric<'py>(
+        &self,
+        py: Python<'py>,
+    ) -> PyResult<Option<Bound<'py, pyo3::types::PyDict>>> {
+        metric_dict(py, &self.inner)
     }
 
     fn train_rows<'py>(&self, py: Python<'py>, indices: Vec<usize>) -> PyResult<PyRows<'py>> {

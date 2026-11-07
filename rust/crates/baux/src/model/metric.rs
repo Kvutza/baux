@@ -6,7 +6,7 @@ use super::inspection::ENN;
 use crate::backend::EnnBackend;
 use crate::error::ENNError;
 use crate::index::disk_driver;
-use crate::metric_auto::{AutoMetric, MetricSnapshot, ScaleUpdate};
+use crate::metric_auto::{AutoMetric, DiagonalMetric, ScaleUpdate};
 
 const SCALE_TOL: f64 = 0.01;
 const SCALE_DRIFT: f64 = std::f64::consts::LN_2;
@@ -54,8 +54,8 @@ impl ENN {
         Ok(())
     }
 
-    pub fn metric_snapshot(&self) -> Option<MetricSnapshot> {
-        self.metric.as_ref().map(AutoMetric::snapshot)
+    pub fn diagonal_metric(&self) -> Option<DiagonalMetric> {
+        self.metric.as_ref().map(AutoMetric::diagonal_metric)
     }
 
     pub fn current_weights(&self) -> Option<&[f64]> {

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .posterior_flags import PosteriorFlags
+from .posterior_flags import DiagonalMetric, MetricLearning, PosteriorFlags
 
 
 @dataclass(frozen=True)
@@ -25,4 +25,4 @@ class ENNParams:
             raise ValueError(f"aleatoric_scale must be >= 0, got {ale_scale}")
 
 
-__all__ = ["ENNParams", "PosteriorFlags"]
+__all__ = ["DiagonalMetric", "ENNParams", "MetricLearning", "PosteriorFlags"]

@@ -252,19 +252,20 @@ def test_012(tmp_path):
 
 
 def test_013(tmp_path):
-    train_x = np.array([[0.0, 0.0], [1.0, 1.0]], dtype=float)
-    train_y = np.zeros((2, 1), dtype=float)
-    with pytest.raises(
-        ValueError, match=r"scale_x=True is not compatible with BPANN_DISK"
-    ):
-        ENN(
-            train_x,
-            train_y,
-            scale_x=True,
-            index_driver=NeighborIndex.BPANN_DISK,
-            work_dir=str(tmp_path / "enn_scale_x_bpann"),
-            enn_storage="disk",
-        )
+    train_x = np.array([[0.0, 0.0], [1.0, 10.0], [2.0, 20.0]], dtype=float)
+    train_y = np.array([[0.0], [1.0], [2.0]], dtype=float)
+    model = ENN(
+        train_x,
+        train_y,
+        scale_x=False,
+        metric_learning="auto",
+        tied_dims=((0, 1),),
+        index_driver=NeighborIndex.BPANN_DISK,
+        work_dir=str(tmp_path / "enn_scale_x_bpann"),
+        enn_storage="disk",
+    )
+    assert model.metric is not None
+    assert model.metric.scale[0] == pytest.approx(model.metric.scale[1])
 
 
 def _buildmodel(work_dir, d, rng):

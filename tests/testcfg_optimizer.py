@@ -61,10 +61,20 @@ def test_024():
 
 
 def test_025():
+    cfg = ENNSurrogate(
+        scale_x=True,
+        index_driver=NeighborIndex.BPANN_DISK,
+        tied_dims=((0, 1),),
+        unscaled_dims=(2,),
+    )
+    assert cfg.scale_x is True
+    assert cfg.index_driver == NeighborIndex.BPANN_DISK
+    assert cfg.tied_dims == ((0, 1),)
+    assert cfg.unscaled_dims == (2,)
     with pytest.raises(
-        ValueError, match=r"scale_x=True is not compatible with BPANN_DISK"
+        ValueError, match=r"metric_learning='auto' requires scale_x=False"
     ):
-        ENNSurrogate(scale_x=True, index_driver=NeighborIndex.BPANN_DISK)
+        ENNSurrogate(scale_x=True, metric_learning="auto")
 
 
 def test_026():

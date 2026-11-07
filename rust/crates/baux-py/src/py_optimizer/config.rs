@@ -48,6 +48,14 @@ fn apply_fields(
         });
     }
     config.work_dir = opt_val::<String>(dict, "work_dir")?.map(PathBuf::from);
+    if let Some(s) = opt_val::<String>(dict, "metric_learning")? {
+        config.metric_learning = Some(
+            baux::MetricLearning::parse(&s)
+                .ok_or_else(|| PyValueError::new_err(format!("Unknown metric_learning: {s}")))?,
+        );
+    }
+    config.tied_dims = opt_val(dict, "tied_dims")?;
+    config.unscaled_dims = opt_val(dict, "unscaled_dims")?;
     if let Some(v) = dict.get_item("y_bounds")? {
         let bounds: numpy::PyReadonlyArray2<f64> = v.extract()?;
         if bounds.shape()[1] != 2 {

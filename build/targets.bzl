@@ -6,7 +6,7 @@ BAUX_TEST_CRATES = ["anstream", "anstyle", "candle-core", "candle-nn", "charming
 
 BAUX_PROGRAMS = [
     {
-        "version": "0.0.3",
+        "version": "0.0.4",
         "name": "baux-tune",
         "crate": "baux_tune",
         "root": "src/bin/baux-tune/main.rs",
@@ -15,7 +15,7 @@ BAUX_PROGRAMS = [
         "required_features": [],
     },
     {
-        "version": "0.0.3",
+        "version": "0.0.4",
         "name": "enn_posterior",
         "crate": "enn_posterior",
         "root": "examples/enn_posterior.rs",
@@ -24,7 +24,7 @@ BAUX_PROGRAMS = [
         "required_features": [],
     },
     {
-        "version": "0.0.3",
+        "version": "0.0.4",
         "name": "knn_bench",
         "crate": "knn_bench",
         "root": "examples/knn_bench.rs",
@@ -33,7 +33,7 @@ BAUX_PROGRAMS = [
         "required_features": ["metal"],
     },
     {
-        "version": "0.0.3",
+        "version": "0.0.4",
         "name": "posterior_bench",
         "crate": "posterior_bench",
         "root": "examples/posterior_bench.rs",
@@ -49,7 +49,7 @@ CLI_TEST_CRATES = ["clap"]
 
 CLI_PROGRAMS = [
     {
-        "version": "0.0.3",
+        "version": "0.0.4",
         "name": "baux",
         "crate": "baux",
         "root": "src/bin/baux/main.rs",
@@ -65,7 +65,7 @@ CORPUS_TEST_CRATES = ["arrow-array", "deser", "futures", "opendal", "parquet", "
 
 CORPUS_PROGRAMS = [
     {
-        "version": "0.0.3",
+        "version": "0.0.4",
         "name": "baux-corpus",
         "crate": "baux_corpus",
         "root": "src/main.rs",
@@ -81,7 +81,7 @@ CUDA_TEST_CRATES = ["anstream", "anstyle", "charming", "cuda-core", "cuda-host",
 
 CUDA_PROGRAMS = [
     {
-        "version": "0.0.3",
+        "version": "0.0.4",
         "name": "baux-cuda",
         "crate": "baux_cuda",
         "root": "src/main.rs",
@@ -104,7 +104,7 @@ FBT_TEST_CRATES = ["deser", "memmap2", "ndarray", "rand", "rand_chacha", "rand_d
 
 FBT_PROGRAMS = [
     {
-        "version": "0.0.3",
+        "version": "0.0.4",
         "name": "baux-tune-worker",
         "crate": "baux_tune_worker",
         "root": "src/bin/baux-tune-worker/main.rs",
@@ -120,7 +120,7 @@ MODAL_RUNNER_TEST_CRATES = ["modal-rs", "tempfile", "tokio"]
 
 MODAL_RUNNER_PROGRAMS = [
     {
-        "version": "0.0.3",
+        "version": "0.0.4",
         "name": "baux-modal",
         "crate": "baux_modal",
         "root": "src/main.rs",
@@ -150,7 +150,7 @@ RUNNER_TEST_CRATES = ["clap", "deser", "ndarray", "rand", "sha2"]
 
 RUNNER_PROGRAMS = [
     {
-        "version": "0.0.3",
+        "version": "0.0.4",
         "name": "baux-runner",
         "crate": "baux_runner",
         "root": "src/main.rs",
@@ -166,7 +166,7 @@ TOOLING_TEST_CRATES = ["clap", "deser"]
 
 TOOLING_PROGRAMS = [
     {
-        "version": "0.0.3",
+        "version": "0.0.4",
         "name": "build-graph",
         "crate": "build_graph",
         "root": "src/bin/build-graph.rs",

@@ -107,9 +107,11 @@ def _stubmods() -> None:
 
 
 def _ensuretokagym() -> Path:
-    import baux
-
-    if hasattr(baux, "verify_upstream_lock"):
+    try:
+        import baux
+    except ImportError:
+        baux = None
+    if baux is not None and hasattr(baux, "verify_upstream_lock"):
         baux.verify_upstream_lock("tokagym")
     root = Path(__file__).resolve().parents[2] / ".cache/baux/upstream/tokagym/TokaGym"
     _stubmods()

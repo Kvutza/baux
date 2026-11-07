@@ -210,6 +210,14 @@ fn is_tokagym(cfg: &Config) -> bool {
     cfg.experiment == "tokamak-tokagym"
 }
 
+fn tracking_error(cfg: &Config, score: f64) -> f64 {
+    if is_tokagym(cfg) {
+        (-score).max(0.0)
+    } else {
+        (100.0 - score).max(0.0)
+    }
+}
+
 fn exp_domain(cfg: &Config) -> baux::optimizer::DomainFrame {
     if is_tokagym(cfg) {
         baux::tokamak::tokagym_domain()
@@ -224,14 +232,16 @@ fn make_opt(config: &Config, rng: &mut Prng) -> Result<BayesOptimizer, String> {
 }
 
 fn seed_weights(seed: u64, config: &Config) -> Result<Vec<f64>, String> {
-    let ref_toml = r#"
+    let n_pert = if is_tokagym(config) { 13671 } else { 16053 };
+    let ref_toml = format!(
+        r#"
 algorithm = "bayesian-search"
 candidates = 2
 arms = 1
 acquisition = "random"
 [perturbation]
 sampler = "raasp"
-num-pert = 16053
+num-pert = {n_pert}
 [trust-region]
 initial = 0.8
 min = 0.00048828125
@@ -245,9 +255,10 @@ success-tolerance = 2
 failure-tolerance = 3
 restart-center = "maximin"
 restart-candidates = 8
-"#;
+"#
+    );
     let spec: OptimizerSpec =
-        baux::artifact::toml::from_str(ref_toml).map_err(|e| e.to_string())?;
+        baux::artifact::toml::from_str(&ref_toml).map_err(|e| e.to_string())?;
     let mut rng = prng(seed);
     let domain = exp_domain(config);
     let mut opt = BayesOptimizer::from_domain(domain.clone(), &spec, 0, &mut rng)
@@ -286,7 +297,7 @@ fn run_ppo(config: &Config, rep: u32, worker: &mut Option<ToraxWorker>) -> Resul
             total_accepts += 1;
         }
         if round == 1 {
-            initial_error = (100.0 - score).max(0.0);
+            initial_error = tracking_error(config, score);
         }
         if agent.record_step(obs, u, rewards)? {
             weights = agent.actor_weights()?;
@@ -295,7 +306,7 @@ fn run_ppo(config: &Config, rep: u32, worker: &mut Option<ToraxWorker>) -> Resul
     }
 
     let elapsed_seconds = start_time.elapsed().as_secs_f64();
-    let final_error = (100.0 - best_score).max(0.0);
+    let final_error = tracking_error(config, best_score);
     let reduction_pct = if initial_error > 0.0 {
         ((initial_error - final_error) / initial_error * 100.0).max(0.0)
     } else {
@@ -393,7 +404,7 @@ fn run_seed(
             total_accepts += 1;
         }
         if round == 1 {
-            initial_error = (100.0 - score).max(0.0);
+            initial_error = tracking_error(config, score);
         }
         let y = Array2::from_shape_fn((arms, 1), |(i, _)| scores[i]);
         optimizer
@@ -403,7 +414,7 @@ fn run_seed(
     }
 
     let elapsed_seconds = start_time.elapsed().as_secs_f64();
-    let final_error = (100.0 - best_score).max(0.0);
+    let final_error = tracking_error(config, best_score);
     let reduction_pct = if initial_error > 0.0 {
         ((initial_error - final_error) / initial_error * 100.0).max(0.0)
     } else {
@@ -435,11 +446,11 @@ fn run_seed(
     })
 }
 
-fn aggregate_traces(runs: &[SeedRun], total_rounds: usize) -> Vec<Value> {
+fn aggregate_traces(cfg: &Config, runs: &[SeedRun], total_rounds: usize) -> Vec<Value> {
     (0..total_rounds)
         .map(|idx| {
             let scores: Vec<f64> = runs.iter().map(|r| r.best_scores[idx]).collect();
-            let errors: Vec<f64> = scores.iter().map(|&s| (100.0 - s).max(0.0)).collect();
+            let errors: Vec<f64> = scores.iter().map(|&s| tracking_error(cfg, s)).collect();
             let (mean_score, sem_score) = mean_sem(&scores);
             let (mean_err, sem_err) = mean_sem(&errors);
             json!({
@@ -521,7 +532,7 @@ fn run_opt(config: &Config, root: Option<&Path>) -> Result<Value, String> {
     let (err_mean, err_sem) = mean_sem(&final_errs);
     let (red_mean, red_sem) = mean_sem(&reductions);
     let elapsed: f64 = runs.iter().map(|r| r.elapsed_seconds).sum();
-    let traces = aggregate_traces(&runs, config.rounds);
+    let traces = aggregate_traces(config, &runs, config.rounds);
     let seed_runs: Vec<Value> = runs
         .iter()
         .map(|r| {

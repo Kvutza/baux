@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import gc
-import json
 import time
+import tomllib
 from collections.abc import Callable
 from pathlib import Path
 from typing import NamedTuple
@@ -20,7 +20,7 @@ from baux.enn.enn_params import ENNParams, PosteriorFlags
 pytestmark = pytest.mark.slow
 
 _POSTERIOR_SPEED_BASELINE = (
-    Path(__file__).resolve().parent / "fixtures" / "postspdbase.json"
+    Path(__file__).resolve().parent / "fixtures" / "postspdbase.toml"
 )
 
 
@@ -291,8 +291,7 @@ def test_005(
 ):
     """Self-search: index_search vs FAISS and posterior stats overhead stay bounded."""
     gc.collect()
-    with open(_POSTERIOR_SPEED_BASELINE) as f:
-        baseline = json.load(f)
+    baseline = tomllib.loads(_POSTERIOR_SPEED_BASELINE.read_text(encoding="utf-8"))
     for scenario in baseline["scenarios"]:
         t_post, t_index, t_faiss, index_vs_faiss, posterior_vs_index = _selfratios(
             scenario, tie_neighbors=tie_neighbors

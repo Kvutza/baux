@@ -66,7 +66,7 @@ def test_run(monkeypatch, tmp_path):
     for name in ("baux-runner", "baux-corpus", "baux-cuda"):
         (binaries / name).write_bytes(name.encode())
     (package / "source.sha256").write_text("a" * 64, encoding="utf-8")
-    (recipes / "test.json").write_text("{}", encoding="utf-8")
+    (recipes / "test.toml").write_text("", encoding="utf-8")
     config = tmp_path / "experiment.toml"
     config.write_text("version = 4\n", encoding="utf-8")
     calls = []
@@ -86,5 +86,5 @@ def test_run(monkeypatch, tmp_path):
     assert Path(environment["BAUX_CUDA_EXECUTABLE"]).is_file()
     assert environment["BAUX_SOURCE_DIGEST"] == "a" * 64
     assert (
-        Path(environment["BUILD_WORKSPACE_DIRECTORY"]) / "data/recipes/test.json"
+        Path(environment["BUILD_WORKSPACE_DIRECTORY"]) / "data/recipes/test.toml"
     ).is_file()

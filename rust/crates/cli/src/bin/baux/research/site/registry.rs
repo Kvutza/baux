@@ -1,6 +1,6 @@
 use crate::research::site::{AeneasRecord, DeclRecord, LeanModuleRecord, LlbcRecord, shared_path};
 use crate::site_aeneas::normalize_key;
-use baux::artifact::json::{self, Map, Value};
+use baux::artifact::json::{Map, Value};
 use baux::artifact::wire_json;
 use std::collections::BTreeMap;
 use std::fs;
@@ -424,11 +424,11 @@ pub(crate) fn extract_registry(
     llbc_by_key: &BTreeMap<String, LlbcRecord>,
     sym_lookup: &BTreeMap<String, DeclRecord>,
 ) -> Result<(Vec<Value>, Map), String> {
-    let cov_path = root.join("research/upstream/coverage_manifest.json");
+    let cov_path = root.join("research/upstream/coverage_manifest.toml");
     let cov_bytes =
         fs::read(&cov_path).map_err(|e| format!("failed to read {}: {e}", cov_path.display()))?;
-    let cov_json: Value = json::from_slice(&cov_bytes)
-        .map_err(|e| format!("invalid JSON in {}: {e}", cov_path.display()))?;
+    let cov_json: Value = baux::artifact::toml::from_slice(&cov_bytes)
+        .map_err(|e| format!("invalid TOML in {}: {e}", cov_path.display()))?;
     let cov_functions: Vec<Value> = cov_json
         .get("reachable_functions")
         .or_else(|| cov_json.get("functions"))

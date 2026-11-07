@@ -12,7 +12,7 @@ from numpy import array_equal as arr_eq, concatenate as cat
 from numpy.testing import assert_allclose as allclose
 
 from baux._rust import ENN
-from baux.experimental import ParamBlock, ParameterBuffer, turbo_enn
+from baux.experimental import Span, Var, turbo_enn
 
 MASK64, MAX_F32, F32, F64 = (1 << 64) - 1, 3.4028234663852886e38, np.float32, np.float64
 
@@ -186,7 +186,7 @@ def check_singlesearch():
     search = turbo_enn(
         base,
         -0.75,
-        [ParamBlock(*lf) for lf in leaves],
+        [Span(*lf) for lf in leaves],
         8,
         length_init=0.5,
         failure_tolerance=2,
@@ -239,7 +239,7 @@ def check_export(sampler="independent"):
         search = turbo_enn(
             jnp.ones(16, dtype=jnp.bfloat16),
             0.0,
-            [ParamBlock(17, 0, 16, 1.0)],
+            [Span(17, 0, 16, 1.0)],
             2,
             sampler=sampler,
         )
@@ -283,7 +283,7 @@ def _searchnext(search):
 
 
 def check_search(base, dimensions, leaves):
-    blocks = [ParamBlock(*leaf, w) for leaf, w in zip(leaves, (1.0, 0.5, 2.0))]
+    blocks = [Span(*leaf, w) for leaf, w in zip(leaves, (1.0, 0.5, 2.0))]
     search = turbo_enn(base, -0.75, blocks, 8, max_pending=2, base_variance=0.04)
     search.profile(True)
     prop, bits = search.ask(2, 4, 1, 3, beta=1.3, draw_seed=23), _uints(base).tolist()
@@ -471,7 +471,7 @@ def check_knn() -> None:
 def _checkbuf(base, base_bits, leaves) -> None:
     terms, buf = (
         [(41, 0.25), (73, -0.125), (89, 0.03125)],
-        ParameterBuffer(base, [ParamBlock(*lf) for lf in leaves]),
+        Var(base, [Span(*lf) for lf in leaves]),
     )
     buf.materialize(terms)
     cand = jax.dlpack.from_dlpack(buf)
@@ -480,9 +480,9 @@ def _checkbuf(base, base_bits, leaves) -> None:
     del cand
     gc.collect()
     buf.materialize([(97, 1.0)])
-    bf = lambda x, s: ParameterBuffer(  # noqa: E731
+    bf = lambda x, s: Var(  # noqa: E731
         jax.device_put(jnp.array([x], jnp.uint16)).view(jnp.bfloat16),
-        [ParamBlock(29, 0, 1, s)],
+        [Span(29, 0, 1, s)],
     )
     _fails(partial(bf, 0x7F80, 1.0), "finite")
     _fails(partial(bf(0x7F7F, MAX_F32).materialize, [(101, MAX_F32)]), "overflowed")

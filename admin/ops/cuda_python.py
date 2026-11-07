@@ -36,7 +36,7 @@ def main(extension: Path) -> None:
 
     with tempfile.TemporaryDirectory(prefix="baux-cuda-python-") as directory:
         package = Path(directory) / "baux"
-        shutil.copytree(ROOT / "src/baux", package)
+        shutil.copytree(ROOT / "python/baux", package)
         shutil.copy2(extension, package / "baux_rust.so")
         sys.path.insert(0, directory)
 

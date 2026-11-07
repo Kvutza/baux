@@ -1,6 +1,6 @@
 //! TOML uses the same native Deser value tree as JSON.
 
-pub use deser_toml::{from_str, to_string};
+pub use deser_toml::{from_reader, from_slice, from_str, to_string, to_writer};
 pub use deser_value::{Kind, Map as Table, Value};
 
 pub fn from_value<T: for<'de> deser::Deserialize<'de>>(value: Value) -> Result<T, deser::Error> {

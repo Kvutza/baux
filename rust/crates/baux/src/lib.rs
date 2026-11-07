@@ -162,15 +162,11 @@ pub use index::{ENNIndex, Index, IndexDriver, IndexError, IndexKind};
 pub use layout::EnnLayout;
 pub use metric_auto::MetricLearner;
 pub use model::ENN;
-pub use model::ENN as Enn;
 pub use model::{EnnIndexAccess, EnnRowAccess, ModelOptions};
 pub use morbo::{MorboTRSettings, MorboTrustRegion, Rescalarize};
 pub use ndtri::{ndtri, z_crit};
 pub use optimizer::obs_access::ObsAccess;
-pub use optimizer::{
-    BayesOptimizer, BayesOptimizer as Optimizer, MultiTrustRegionConfig as PortfolioConfig,
-    MultiTrustRegionState as PortfolioState, Telemetry,
-};
+pub use optimizer::{BayesOptimizer, Telemetry};
 pub use optimizer_config::{
     AcquisitionConfig, CandidateConfig, InitStrategy, OptimizerConfig, SurrogateConfig, lhd_only,
     turbo_enn, turbo_zero,

@@ -105,7 +105,7 @@ def fixture(sampler):
     import jax
     import jax.numpy as jnp
 
-    from baux.experimental import ParamBlock, turbo_enn
+    from baux.experimental import Span, turbo_enn
 
     leaves = [
         (17, 0, 1, 2**-20),
@@ -120,7 +120,7 @@ def fixture(sampler):
     search = turbo_enn(
         base,
         0.0,
-        [ParamBlock(*leaf) for leaf in leaves],
+        [Span(*leaf) for leaf in leaves],
         2,
         sampler=sampler,
         reference_seed=0x123456789ABCDEF0,
@@ -283,13 +283,13 @@ def _checkrestart(search, expected):
 def check_copyorder():
     import jax.numpy as jnp
 
-    from baux.experimental import ParamBlock, turbo_enn
+    from baux.experimental import Span, turbo_enn
 
     size = 262_147
     search = turbo_enn(
         jnp.ones(size, dtype=jnp.bfloat16),
         0.0,
-        [ParamBlock(17, 0, size, 1.0)],
+        [Span(17, 0, size, 1.0)],
         2,
         max_pending=5,
         sampler="gaussian",
@@ -322,7 +322,7 @@ def check_copyorder():
 def check_nulls():
     import jax.numpy as jnp
 
-    from baux.experimental import ParamBlock, turbo_enn
+    from baux.experimental import Span, turbo_enn
 
     leaves, bits, radius, root = null_case()
     base = jnp.asarray(bits).view(jnp.bfloat16)
@@ -336,7 +336,7 @@ def check_nulls():
         search = turbo_enn(
             base,
             reward,
-            [ParamBlock(*leaf) for leaf in leaves],
+            [Span(*leaf) for leaf in leaves],
             2,
             sampler=sampler,
             reference_seed=123,
@@ -361,13 +361,13 @@ def check_nulls():
 def check_tiles():
     import jax.numpy as jnp
 
-    from baux.experimental import ParamBlock, turbo_enn
+    from baux.experimental import Span, turbo_enn
 
     leaves, base = [(17, 0, 65_539, 1.0)], encode(np.full(65_539, 1.5))
     search = turbo_enn(
         jnp.asarray(base).view(jnp.bfloat16),
         0.0,
-        [ParamBlock(*leaves[0])],
+        [Span(*leaves[0])],
         2,
         sampler="correlated",
         reference_seed=123,

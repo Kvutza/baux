@@ -30,7 +30,7 @@ alias(
 
 filegroup(
     name = "python_sources",
-    srcs = glob(["src/baux/**/*.py"]),
+    srcs = glob(["python/baux/**/*.py"]),
 )
 
 copy_extension(
@@ -65,7 +65,7 @@ py_wheel(
         "optuna>=5.0,<5.1",
         "scipy>=1.11",
     ],
-    strip_path_prefixes = ["src"],
+    strip_path_prefixes = ["python"],
     summary = "Black-box optimization library",
     version = "0.0.5",
     deps = [

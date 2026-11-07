@@ -215,12 +215,12 @@ pub fn build_manifest(root: &Path) -> Result<Value, String> {
         },
         "source_bindings": {
             "upstream": upstream_meta,
-            "coverage_manifest_sha256": file_sha(&root.join("research/upstream/coverage_manifest.json"))?,
+            "coverage_manifest_sha256": file_sha(&root.join("research/upstream/coverage_manifest.toml"))?,
             "charon_callsite_patch_sha256": file_sha(&root.join("research/extraction/charon-callsite.patch"))?,
             "aeneas_float_patch_sha256": file_sha(&root.join("research/extraction/aeneas-float.patch"))?,
             "aeneas_dyn_patch_sha256": file_sha(&root.join("research/extraction/aeneas-dyn.patch"))?,
             "aeneas_dyn_dispatch_patch_sha256": file_sha(&root.join("research/extraction/aeneas-dyn-dispatch.patch"))?,
-            "box_pair_metadata_sha256": file_sha(&root.join("research/extraction/box.json"))?,
+            "box_pair_metadata_sha256": file_sha(&root.join("research/extraction/box.toml"))?,
             "local_baux_src_tree_sha256": local_digest,
             "local_semantics_src_tree_sha256": tree_digest(&root.join("rust/crates/baux/semantics/src"))?,
             "local_neighbor_index_src_tree_sha256": tree_digest(&root.join("rust/crates/baux/neighbor-index/src"))?,
@@ -241,9 +241,9 @@ pub fn build_manifest(root: &Path) -> Result<Value, String> {
 }
 
 pub fn check_manifest(root: &Path, current: &Value) -> Result<(), String> {
-    let path = root.join("research/extraction/artifact_manifest.json");
+    let path = root.join("research/extraction/artifact_manifest.toml");
     let text = fs::read_to_string(&path).map_err(|_| format!("missing {}", path.display()))?;
-    let recorded: Value = json::from_str(&text).map_err(|e| e.to_string())?;
+    let recorded: Value = baux::artifact::toml::from_str(&text).map_err(|e| e.to_string())?;
     for key in [
         "schema",
         "task_id",
@@ -263,7 +263,7 @@ pub fn check_manifest(root: &Path, current: &Value) -> Result<(), String> {
         || current["compiled_artifacts"]["binaries"] != recorded["compiled_artifacts"]["binaries"]
     {
         return Err("compiled artifact digests drifted from \
-                    research/extraction/artifact_manifest.json"
+                    research/extraction/artifact_manifest.toml"
             .into());
     }
     Ok(())
@@ -282,10 +282,10 @@ pub fn run(root: &Path, check: bool) -> Result<(), String> {
             &sha[..sha.len().min(16)]
         );
     } else {
-        let path = root.join("research/extraction/artifact_manifest.json");
-        let rendered = json::pretty_string(&current).map_err(|e| e.to_string())?;
+        let path = root.join("research/extraction/artifact_manifest.toml");
+        let rendered = baux::artifact::toml::pretty_string(&current).map_err(|e| e.to_string())?;
         fs::write(&path, format!("{rendered}\n")).map_err(|e| e.to_string())?;
-        println!("baux: wrote research/extraction/artifact_manifest.json (suite_sha256={sha})");
+        println!("baux: wrote research/extraction/artifact_manifest.toml (suite_sha256={sha})");
     }
     Ok(())
 }

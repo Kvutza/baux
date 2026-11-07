@@ -15,7 +15,7 @@ def device_info():
         raise RuntimeError("Metal BO requires macOS and an Apple GPU")
     from baux import experimental
 
-    binding = getattr(experimental, "MetalWeights", None)
+    binding = getattr(experimental, "Var", None)
     if binding is None:
         raise RuntimeError("Rebuild the BAUX extension with --features metal")
     return binding.device_info()
@@ -40,11 +40,11 @@ def free_memory():
 def upload_weights(flat):
     import torch
 
-    from baux.experimental import MetalWeights
+    from baux.experimental import Var
 
     if flat.device.type != "cpu" or flat.dtype != torch.bfloat16 or flat.ndim != 1:
         raise ValueError("Metal upload requires a flat CPU BF16 tensor")
-    return MetalWeights(flat.contiguous().view(torch.uint16).numpy())
+    return Var(flat.contiguous().view(torch.uint16).numpy())
 
 
 class NativeEvaluator(_NativeEvaluator):

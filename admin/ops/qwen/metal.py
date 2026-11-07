@@ -132,7 +132,7 @@ def proposal_stats(proposals, total_elements: int) -> dict[str, object]:
 class Evaluator:
     """Own one resident checkpoint and expose proposal-compatible loss calls.
 
-    ``losses`` accepts either ``MetalWeights`` or a live ``MetalProposals``
+    ``losses`` accepts either ``Var`` or a live ``Trial``
     object. This lets the BO loop reuse the checkpoint allocation for every
     candidate instead of creating one Python tensor per proposal.
     """
@@ -337,16 +337,15 @@ class Evaluator:
         radius_max: float = 0.08,
         reference_seed: int = 0,
     ):
-        from baux.experimental import MetalSearchState
-        from baux.experimental import MetalParamBlock
+        from baux.experimental import Region, Span
 
         values = (base_value, radius, radius_min, radius_max)
         if any(not math.isfinite(float(value)) for value in values):
             raise ValueError("base_value and radius settings must be finite")
-        return MetalSearchState(
+        return Region(
             self.weights,
             float(base_value),
-            [MetalParamBlock(*block) for block in self.engine.blocks()],
+            [Span(*block) for block in self.engine.blocks()],
             capacity,
             max_pending=1,
             length_init=radius,

@@ -51,7 +51,9 @@ fn canon_val(v: &Value) -> Value {
     if let Some(map) = v.as_map() {
         let mut sorted = BTreeMap::new();
         for (k, val) in map {
-            if let Some(ks) = k.as_str() {
+            if !val.is_null()
+                && let Some(ks) = k.as_str()
+            {
                 sorted.insert(ks.to_owned(), canon_val(val));
             }
         }
@@ -470,25 +472,8 @@ fn check_manifest(
     errs
 }
 
-fn format_manifest(mut manifest: Value) -> Result<String, String> {
-    let mut refs_rows = Vec::new();
-    let marker = "__BAUX_EXTERNAL_REFERENCES__";
-    if let Some(db) = manifest.get_mut("dependency_boundary")
-        && let Some(map) = db.as_map_mut()
-        && let Some(refs) = map.remove("rust_references")
-    {
-        if let Some(seq) = refs.as_seq() {
-            for r in seq {
-                let line = json::to_string(&canon_val(r)).map_err(|e| e.to_string())?;
-                refs_rows.push(format!("      {line}"));
-            }
-        }
-        map.insert("rust_references", Value::from(marker));
-    }
-    let rendered = json::pretty_string(&canon_val(&manifest)).map_err(|e| e.to_string())?;
-    let replacement = format!("[\n{}\n    ]", refs_rows.join(",\n"));
-    let target = format!("\"{marker}\"");
-    Ok(format!("{}\n", rendered.replacen(&target, &replacement, 1)))
+fn format_manifest(manifest: Value) -> Result<String, String> {
+    toml::to_string(&canon_val(&manifest)).map_err(|e| e.to_string())
 }
 
 fn do_generate(root: &Path, manifest_path: &Path, enn_root: &Path) -> Result<(), String> {
@@ -533,7 +518,7 @@ fn do_generate(root: &Path, manifest_path: &Path, enn_root: &Path) -> Result<(),
         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
     let text = format_manifest(manifest)?;
-    let staging = manifest_path.with_extension("json.tmp");
+    let staging = manifest_path.with_extension("toml.tmp");
     fs::write(&staging, text).map_err(|e| e.to_string())?;
     fs::rename(&staging, manifest_path).map_err(|e| e.to_string())?;
     println!(
@@ -553,7 +538,7 @@ fn do_check(root: &Path, manifest_path: &Path, enn_root: &Path) -> Result<(), St
     let bytes =
         fs::read(manifest_path).map_err(|e| format!("read {}: {e}", manifest_path.display()))?;
     let raw: Value =
-        json::from_slice(&bytes).map_err(|e| format!("parse {}: {e}", manifest_path.display()))?;
+        toml::from_slice(&bytes).map_err(|e| format!("parse {}: {e}", manifest_path.display()))?;
     let manifest = canon_val(&raw);
     let state = derive_state(root, enn_root)?;
     let errs = check_manifest(root, enn_root, &manifest, &state);
@@ -590,7 +575,7 @@ fn do_check(root: &Path, manifest_path: &Path, enn_root: &Path) -> Result<(), St
 }
 
 pub fn run(root: &Path, check: bool) -> Result<(), String> {
-    let manifest_path = root.join("research/upstream/coverage_manifest.json");
+    let manifest_path = root.join("research/upstream/coverage_manifest.toml");
     let enn_root = root.join(".cache/baux/upstream/enn");
     if !enn_root.is_dir() {
         return Err(format!(

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import json
 import sys
+import tomllib
 from pathlib import Path
 
 import numpy as np
@@ -24,9 +24,8 @@ FIXTURES_DIR = Path(__file__).resolve().parent.parent / "fixtures"
 
 
 def assert_ci() -> None:
-    path = FIXTURES_DIR / "optqualbase.json"
-    with open(path) as f:
-        baseline = json.load(f)
+    path = FIXTURES_DIR / "optqualbase.toml"
+    baseline = tomllib.loads(path.read_text(encoding="utf-8"))
     y_range = float(baseline["y_range"])
     tol = 0.02 * y_range
     failures = []

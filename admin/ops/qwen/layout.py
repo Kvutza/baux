@@ -104,10 +104,10 @@ class Layout:
         return torch.cat(pieces)
 
     def metal_blocks(self):
-        from baux.experimental import MetalParamBlock
+        from baux.experimental import Span
 
         return [
-            MetalParamBlock(
+            Span(
                 block.key,
                 block.offset,
                 block.length,

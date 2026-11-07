@@ -6,7 +6,7 @@ from functools import partial
 import numpy as np
 from correlated_parity import decode, read_proposals
 
-from baux.experimental import ParamBlock, SearchState
+from baux.experimental import Region, Span
 
 
 class LegacyExport:
@@ -25,10 +25,10 @@ def fixture(sampler="correlated", capacity=2, value=10.0, variance=0.125):
 
     bits = np.resize(np.array([0x3FC0, 0xBFC0], dtype=np.uint16), 513)
     leaves = [(17, 0, bits.size, 1.0)]
-    search = SearchState(
+    search = Region(
         jnp.asarray(bits).view(jnp.bfloat16),
         value,
-        [ParamBlock(*leaf) for leaf in leaves],
+        [Span(*leaf) for leaf in leaves],
         capacity,
         base_variance=variance,
         sampler=sampler,

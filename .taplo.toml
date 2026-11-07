@@ -1,5 +1,5 @@
 # Taplo configuration file for TOML Language Server (taplo-lsp) and formatter.
-# Provides instant auto-completion, hover docs, schema validation, and formatting
+# Provides instant auto-completion, hover docs, and formatting
 # across VS Code, Cursor, Zed, Helix, and Neovim.
 
 [formatting]
@@ -7,42 +7,10 @@ column_width = 80
 array_auto_expand = true
 array_auto_collapse = false
 
-[schema]
-enabled = true
-
 [[rule]]
-include = [
-  "experiments/**/*.toml",
-  "performance/configs/**/*.toml",
-]
-exclude = [
-  "experiments/resident-regions.toml",
-  "experiments/host-regions.toml",
-  "experiments/host-regions-roles.toml",
-  "experiments/host-regions-starts.toml",
-  "experiments/host-regions-landscapes.toml",
-  "experiments/host-regions-auto.toml",
-  "experiments/host-regions-autostart.toml",
-]
+include = ["research/upstream/coverage_manifest.toml"]
 
-[rule.schema]
-path = "schemas/tune-spec.schema.json"
-
-[[rule]]
-include = ["experiments/resident-regions.toml"]
-
-[rule.schema]
-path = "schemas/regional-spec.schema.json"
-
-[[rule]]
-include = [
-  "experiments/host-regions.toml",
-  "experiments/host-regions-roles.toml",
-  "experiments/host-regions-starts.toml",
-  "experiments/host-regions-landscapes.toml",
-  "experiments/host-regions-auto.toml",
-  "experiments/host-regions-autostart.toml",
-]
-
-[rule.schema]
-path = "schemas/host-region.schema.json"
+[rule.formatting]
+column_width = 240
+array_auto_expand = false
+array_auto_collapse = true

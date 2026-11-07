@@ -38,8 +38,6 @@ pub fn pymodule_util(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(crate::py_util::sobol_py, m)?)?;
     m.add_function(wrap_pyfunction!(crate::py_util::bind_sobol, m)?)?;
     m.add_function(wrap_pyfunction!(crate::py_util::arms_py, m)?)?;
-    m.add_function(wrap_pyfunction!(crate::py_util::q_py, m)?)?;
-    m.add_function(wrap_pyfunction!(crate::py_util::bind_quantize, m)?)?;
     m.add_function(wrap_pyfunction!(crate::py_util::set_py, m)?)?;
     m.add_function(wrap_pyfunction!(crate::py_util::ensure_py, m)?)?;
     Ok(())
@@ -50,11 +48,8 @@ pub fn pymodule_util(m: &Bound<'_, PyModule>) -> PyResult<()> {
 #[pyo3(name = "model")]
 pub fn pymodule_model(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<crate::py_posterior::PyDevicePosterior>()?;
-    m.add("DevicePosterior", m.getattr("Posterior")?)?;
     m.add_class::<crate::py_posterior::PyDeviceArray>()?;
-    m.add("DeviceArray", m.getattr("Tensor")?)?;
     m.add_class::<crate::py_model::PyENN>()?;
-    m.add("Enn", m.getattr("ENN")?)?;
     m.add_class::<crate::py_fitter::PyENNParams>()?;
     Ok(())
 }
@@ -77,23 +72,11 @@ pub fn pymodule_experimental(m: &Bound<'_, PyModule>) -> PyResult<()> {
     #[cfg(all(target_os = "macos", feature = "metal"))]
     {
         m.add_class::<crate::py_metal::PyMetalWeights>()?;
-        m.add("ParameterBuffer", m.getattr("Var")?)?;
-        m.add("ParamBuffer", m.getattr("Var")?)?;
-        m.add("MetalWeights", m.getattr("Var")?)?;
         m.add_class::<crate::py_metal::PyMetalParamBlock>()?;
-        m.add("ParamBlock", m.getattr("Span")?)?;
-        m.add("MetalParamBlock", m.getattr("Span")?)?;
         m.add_class::<crate::py_metal::PyMetalSearchState>()?;
-        m.add("SearchState", m.getattr("Region")?)?;
-        m.add("MetalSearchState", m.getattr("Region")?)?;
         m.add_class::<crate::py_metal::PyMetalProposals>()?;
-        m.add("Proposals", m.getattr("Trial")?)?;
-        m.add("MetalProposals", m.getattr("Trial")?)?;
         m.add_class::<crate::py_portfolio::PyRegionalSearch>()?;
-        m.add("RegionOptimizer", m.getattr("Portfolio")?)?;
-        m.add("MetalRegionOptimizer", m.getattr("Portfolio")?)?;
         m.add_class::<crate::py_portfolio::PyRegionalProposal>()?;
-        m.add("RegionalProposal", m.getattr("RegionTrial")?)?;
     }
     Ok(())
 }

@@ -27,14 +27,13 @@ type PyRows<'py> = (
 #[pyclass(unsendable, name = "ENN")]
 pub struct PyENN {
     pub(crate) inner: baux::ENN,
-    tie_neighbors: std::cell::Cell<bool>,
     driver: baux::IndexDriver,
 }
 
 #[pymethods]
 impl PyENN {
     /// Device FP32 queries in; independent device posterior snapshot out.
-    #[pyo3(signature=(x,k_neighbors,epistemic_scale,aleatoric_scale,exclude_nearest=false,observation_noise=false))]
+    #[pyo3(signature=(x,k_neighbors,epistemic_scale,aleatoric_scale,exclude_nearest=false,observation_noise=false,tie_mode=1))]
     fn device_posterior(
         &self,
         x: &Bound<'_, PyAny>,
@@ -43,6 +42,7 @@ impl PyENN {
         aleatoric_scale: f64,
         exclude_nearest: bool,
         observation_noise: bool,
+        tie_mode: u8,
     ) -> PyResult<crate::py_posterior::PyDevicePosterior> {
         let (device, index): (i32, i32) = x.call_method0("__dlpack_device__")?.extract()?;
         if index != 0 {
@@ -58,7 +58,7 @@ impl PyENN {
         }
         let params = baux::ENNParams::new(k_neighbors, epistemic_scale, aleatoric_scale)
             .map_err(|e| PyValueError::new_err(e.to_string()))?;
-        let flags = py_flags(&self.tie_neighbors, exclude_nearest, observation_noise);
+        let flags = py_flags(tie_mode, exclude_nearest, observation_noise);
         // SAFETY: validated DLPack dtype, shape and device. Input retains the
         // producer allocation until native compute and its copies complete.
         let posterior = unsafe {
@@ -113,7 +113,6 @@ impl PyENN {
         apply_metric(&mut model, metric, scale_x)?;
         Ok(Self {
             inner: model,
-            tie_neighbors: std::cell::Cell::new(true),
             driver,
         })
     }
@@ -128,11 +127,6 @@ impl PyENN {
             baux::IndexDriver::OpenCl => "opencl",
             _ => "cpu",
         }
-    }
-
-    #[pyo3(signature = (enabled=true))]
-    fn set_neighbors(&self, enabled: bool) {
-        self.tie_neighbors.set(enabled);
     }
 
     #[pyo3(signature = (x, y, yvar=None))]
@@ -180,7 +174,7 @@ impl PyENN {
     }
 
     #[allow(clippy::too_many_arguments)]
-    #[pyo3(signature = (x, k_neighbors, epistemic_scale, aleatoric_scale, exclude_nearest=false, observation_noise=false))]
+    #[pyo3(signature = (x, k_neighbors, epistemic_scale, aleatoric_scale, exclude_nearest=false, observation_noise=false, tie_mode=1))]
     fn posterior<'py>(
         &self,
         py: Python<'py>,
@@ -190,10 +184,11 @@ impl PyENN {
         aleatoric_scale: f64,
         exclude_nearest: bool,
         observation_noise: bool,
+        tie_mode: u8,
     ) -> PyResult<PosteriorPyOut<'py>> {
         let params = baux::ENNParams::new(k_neighbors, epistemic_scale, aleatoric_scale)
             .map_err(|e| PyValueError::new_err(e.to_string()))?;
-        let flags = py_flags(&self.tie_neighbors, exclude_nearest, observation_noise);
+        let flags = py_flags(tie_mode, exclude_nearest, observation_noise);
         let out = self
             .inner
             .posterior(&x.as_array(), &params, &flags)
@@ -209,7 +204,7 @@ impl PyENN {
 
     /// Batch posterior with multiple parameter sets.
     #[allow(clippy::too_many_arguments, clippy::type_complexity)]
-    #[pyo3(signature = (x, k_values, epistemic_scales, aleatoric_scales, exclude_nearest=false, observation_noise=false))]
+    #[pyo3(signature = (x, k_values, epistemic_scales, aleatoric_scales, exclude_nearest=false, observation_noise=false, tie_mode=1))]
     fn batch_posterior<'py>(
         &self,
         py: Python<'py>,
@@ -219,6 +214,7 @@ impl PyENN {
         aleatoric_scales: Vec<f64>,
         exclude_nearest: bool,
         observation_noise: bool,
+        tie_mode: u8,
     ) -> PyResult<(
         Bound<'py, PyArrayDyn<f64>>,
         Bound<'py, PyArrayDyn<f64>>,
@@ -241,7 +237,7 @@ impl PyENN {
             paramss.push(params);
         }
 
-        let flags = py_flags(&self.tie_neighbors, exclude_nearest, observation_noise);
+        let flags = py_flags(tie_mode, exclude_nearest, observation_noise);
 
         let out = self
             .inner
@@ -257,7 +253,7 @@ impl PyENN {
 
     /// Posterior function draw - sample from posterior predictive.
     #[allow(clippy::too_many_arguments, clippy::type_complexity)]
-    #[pyo3(signature = (x, k_neighbors, epistemic_scale, aleatoric_scale, function_seeds, exclude_nearest=false, observation_noise=false))]
+    #[pyo3(signature = (x, k_neighbors, epistemic_scale, aleatoric_scale, function_seeds, exclude_nearest=false, observation_noise=false, tie_mode=1))]
     fn posterior_draw<'py>(
         &self,
         py: Python<'py>,
@@ -268,10 +264,11 @@ impl PyENN {
         function_seeds: Vec<i64>,
         exclude_nearest: bool,
         observation_noise: bool,
+        tie_mode: u8,
     ) -> PyResult<(Bound<'py, PyArrayDyn<f64>>, Vec<Vec<usize>>)> {
         let params = baux::ENNParams::new(k_neighbors, epistemic_scale, aleatoric_scale)
             .map_err(|e| PyValueError::new_err(e.to_string()))?;
-        let flags = py_flags(&self.tie_neighbors, exclude_nearest, observation_noise);
+        let flags = py_flags(tie_mode, exclude_nearest, observation_noise);
         let (draws, idx) = self
             .inner
             .posterior_draw(&x.as_array(), &params, &function_seeds, &flags)
@@ -281,7 +278,7 @@ impl PyENN {
 
     /// Conditional posterior with what-if scenarios.
     #[allow(clippy::too_many_arguments)]
-    #[pyo3(signature = (x_whatif, y_whatif, x, k_neighbors, epistemic_scale, aleatoric_scale, exclude_nearest=false, observation_noise=false))]
+    #[pyo3(signature = (x_whatif, y_whatif, x, k_neighbors, epistemic_scale, aleatoric_scale, exclude_nearest=false, observation_noise=false, tie_mode=1))]
     fn conditional_posterior<'py>(
         &self,
         py: Python<'py>,
@@ -293,10 +290,11 @@ impl PyENN {
         aleatoric_scale: f64,
         exclude_nearest: bool,
         observation_noise: bool,
+        tie_mode: u8,
     ) -> PyResult<PosteriorPyOut<'py>> {
         let params = baux::ENNParams::new(k_neighbors, epistemic_scale, aleatoric_scale)
             .map_err(|e| PyValueError::new_err(e.to_string()))?;
-        let flags = py_flags(&self.tie_neighbors, exclude_nearest, observation_noise);
+        let flags = py_flags(tie_mode, exclude_nearest, observation_noise);
         let out = self
             .inner
             .conditional_posterior(
@@ -318,7 +316,7 @@ impl PyENN {
 
     /// Conditional posterior function draw.
     #[allow(clippy::too_many_arguments, clippy::type_complexity)]
-    #[pyo3(signature = (x_whatif, y_whatif, x, k_neighbors, epistemic_scale, aleatoric_scale, function_seeds, exclude_nearest=false, observation_noise=false))]
+    #[pyo3(signature = (x_whatif, y_whatif, x, k_neighbors, epistemic_scale, aleatoric_scale, function_seeds, exclude_nearest=false, observation_noise=false, tie_mode=1))]
     fn conditional_draw<'py>(
         &self,
         py: Python<'py>,
@@ -331,10 +329,11 @@ impl PyENN {
         function_seeds: Vec<i64>,
         exclude_nearest: bool,
         observation_noise: bool,
+        tie_mode: u8,
     ) -> PyResult<(Bound<'py, PyArrayDyn<f64>>, Vec<Vec<usize>>)> {
         let params = baux::ENNParams::new(k_neighbors, epistemic_scale, aleatoric_scale)
             .map_err(|e| PyValueError::new_err(e.to_string()))?;
-        let flags = py_flags(&self.tie_neighbors, exclude_nearest, observation_noise);
+        let flags = py_flags(tie_mode, exclude_nearest, observation_noise);
         let (draws, idx) = self
             .inner
             .conditional_draw(

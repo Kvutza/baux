@@ -268,7 +268,7 @@ summaries even though raw traces existed; regional evidence rendering was then
 added so subsequent runs include separate seed/allocation plots and summaries.
 
 The completed repeat run is archived in
-[`resident-regions.json`](resident-regions.json):
+[`resident-regions.toml`](resident-regions.toml):
 run `cb76110a5681fc3e571eb82ccbf4fd943358dceb573d3e22cf959eb1a845c218`,
 source `2378adfea1cc0fa727c34da8b197f83b20c0fc8e`. All 12 objective traces
 exactly matched the first run, all evaluation budgets summed to 64, and the
@@ -368,7 +368,7 @@ Pre-mutation validation errors leave the ticket retryable.
 The 72-case `./baux tune experiments/resident-regions.toml` run is catalogue
 entry `2eaeeae5d804f0b53a0417da4a91711c6dd07e7aa726f573c18ab2580a1c9022`
 on Apple M4; its raw traces are archived in
-[`resident-regions-sharing.json`](resident-regions-sharing.json). It crosses one/four regions, two allocation rules, three sharing
+[`resident-regions-sharing.toml`](resident-regions-sharing.toml). It crosses one/four regions, two allocation rules, three sharing
 rules, separated/identical starts, and three seeds at 64 dimensions and 64
 evaluations. The separated-start cases delivered no foreign rows. With
 identical four-region starts, nearest-center delivered eight foreign rows

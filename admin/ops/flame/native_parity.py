@@ -79,12 +79,12 @@ def _nanrecovery(engine, params, flat, rows, masks, losses):
 
 
 def _checkbo(engine, flat, rows, masks, losses):
-    from baux.experimental import ParamBlock, SearchState
+    from baux.experimental import Region, Span
 
-    search = SearchState(
+    search = Region(
         flat,
         -float(losses.mean()),
-        [ParamBlock(17, 0, flat.numel(), 1.0)],
+        [Span(17, 0, flat.numel(), 1.0)],
         2,
         sampler="correlated",
         reference_seed=3,
@@ -177,7 +177,7 @@ def _checkbadtensors(engine, config, original, flat, batch, baseline):
 def _checkguards(config, engine):
     import torch
 
-    from baux.experimental import ParamBlock, SearchState
+    from baux.experimental import Region, Span
 
     for tokens, masks in (
         ([], []),
@@ -203,9 +203,7 @@ def _checkguards(config, engine):
         expect_error(lambda bad=bad: engine.losses(bad, rows, masks))
         expect_error(lambda bad=bad: engine.logits(bad, rows[0]))
         expect_error(
-            lambda bad=bad: SearchState(
-                bad, 0.0, [ParamBlock(0, 0, engine.weights_len, 1.0)], 2
-            )
+            lambda bad=bad: Region(bad, 0.0, [Span(0, 0, engine.weights_len, 1.0)], 2)
         )
         np.testing.assert_array_equal(engine.losses(flat, rows, masks), baseline)
     _checkbadtensors(engine, config, original, flat, (rows, masks), baseline)

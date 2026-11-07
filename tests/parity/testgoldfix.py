@@ -6,8 +6,8 @@ produces same outputs for same inputs. Use ENV REGENERATE_GOLDEN=1 to update fix
 
 from __future__ import annotations
 
-import json
 import os
+import tomllib
 from pathlib import Path
 
 import numpy as np
@@ -57,7 +57,7 @@ def _runcapture(bounds, config, seed: int, num_cycles: int, num_arms: int):
 @pytest.mark.skipif(not RUST_AVAILABLE, reason="Rust not available")
 def test_001():
     """Regress against golden TuRBO-ENN fixture."""
-    fixture_path = FIXTURES_DIR / "goldopteseed42.json"
+    fixture_path = FIXTURES_DIR / "goldopteseed42.toml"
     fixture_path.parent.mkdir(parents=True, exist_ok=True)
 
     bounds = np.array([[0.0, 1.0], [0.0, 1.0]], dtype=float)
@@ -73,27 +73,26 @@ def test_001():
     captured = _runcapture(bounds, config, seed, num_cycles, num_arms)
 
     if REGENERATE:
-        baseline = {
-            "description": "Golden fixture: TuRBO-ENN, seed=42, sphere objective",
-            "upstream_enn_revision": "f8f6a5dada9e85d1a196b7281be4b1b070e0a3ef",
-            "rng_semantics": "ENN 0.4.1 owned StdRng fork after constructor draws",
-            "bounds": bounds.tolist(),
-            "num_init": 8,
-            "num_arms": num_arms,
-            "seed": seed,
-            "num_cycles": num_cycles,
-            **captured,
-        }
-        with open(fixture_path, "w") as f:
-            json.dump(baseline, f, indent=2)
+        lines = [
+            'description = "Golden fixture: TuRBO-ENN, seed=42, sphere objective"',
+            'upstream_enn_revision = "f8f6a5dada9e85d1a196b7281be4b1b070e0a3ef"',
+            'rng_semantics = "ENN 0.4.1 owned StdRng fork after constructor draws"',
+            f"bounds = {bounds.tolist()!r}",
+            "num_init = 8",
+            f"num_arms = {num_arms}",
+            f"seed = {seed}",
+            f"num_cycles = {num_cycles}",
+            f"asks = {captured['asks']!r}",
+            f"tr_lengths = {captured['tr_lengths']!r}",
+        ]
+        fixture_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
         pytest.skip("Regenerated golden fixture")
         return
 
     if not fixture_path.exists():
         pytest.skip("Golden fixture not found; run with REGENERATE_GOLDEN=1")
 
-    with open(fixture_path) as f:
-        baseline = json.load(f)
+    baseline = tomllib.loads(fixture_path.read_text(encoding="utf-8"))
 
     assert baseline["upstream_enn_revision"] == (
         "f8f6a5dada9e85d1a196b7281be4b1b070e0a3ef"

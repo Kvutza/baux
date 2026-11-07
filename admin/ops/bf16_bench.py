@@ -8,7 +8,7 @@ import time
 import jax
 import jax.numpy as jnp
 
-from baux.experimental import ParamBlock, turbo_enn
+from baux.experimental import Span, turbo_enn
 
 
 def main() -> None:
@@ -18,7 +18,7 @@ def main() -> None:
     search = turbo_enn(
         base,
         0.0,
-        [ParamBlock(71, 0, dimensions, 0.01, 1.0 / dimensions)],
+        [Span(71, 0, dimensions, 0.01, 1.0 / dimensions)],
         8,
     )
     search.profile(True)

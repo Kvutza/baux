@@ -2,20 +2,14 @@ import numpy as np
 import pytest
 
 from baux import Device, Portfolio, Region, Span, Var
-from baux.experimental import (
-    ParamBlock,
-    ParameterBuffer,
-    RegionOptimizer,
-    SearchState,
-)
 
 
 def test_residentloop():
     starts = np.full((2, 17), 0x3E80, dtype=np.uint16)
-    opt = RegionOptimizer(
+    opt = Portfolio(
         starts,
         np.array([0, 1], dtype=np.float32),
-        [ParamBlock(1, 0, 17, 0.25)],
+        [Span(1, 0, 17, 0.25)],
         capacity=3,
     )
     first, second = opt.ask(12), opt.ask(13)
@@ -33,7 +27,7 @@ def test_residentloop():
     assert opt.trials == [1, 1]
     with pytest.raises(ValueError, match="no longer pending"):
         opt.tell(first, 2.0)
-    opt.restart(0, ParameterBuffer(starts[0]), 4.0)
+    opt.restart(0, Var(starts[0]), 4.0)
     fresh = opt.ask(14, region=0)
     assert fresh.generation == 1
     assert opt.tell(fresh, 5.0)
@@ -43,10 +37,10 @@ def test_residentloop():
 
 def test_nearestsharing():
     starts = np.full((2, 17), 0x3E80, dtype=np.uint16)
-    opt = RegionOptimizer(
+    opt = Portfolio(
         starts,
         np.array([0, 1], dtype=np.float32),
-        [ParamBlock(1, 0, 17, 0.25)],
+        [Span(1, 0, 17, 0.25)],
         capacity=3,
         sharing="nearest_center",
     )
@@ -66,10 +60,10 @@ def test_nearestsharing():
 
 def test_sharedzero():
     starts = np.full((2, 17), 0x3E80, dtype=np.uint16)
-    opt = RegionOptimizer(
+    opt = Portfolio(
         starts,
         np.array([0, 1], dtype=np.float32),
-        [ParamBlock(1, 0, 17, 0.0)],
+        [Span(1, 0, 17, 0.0)],
         sharing="box_contain",
     )
     proposal = opt.ask(8, region=1)
@@ -81,10 +75,10 @@ def test_sharedzero():
 
 def test_cancelproposal():
     starts = np.full((2, 17), 0x3E80, dtype=np.uint16)
-    opt = RegionOptimizer(
+    opt = Portfolio(
         starts,
         np.array([0, 1], dtype=np.float32),
-        [ParamBlock(1, 0, 17, 0.25)],
+        [Span(1, 0, 17, 0.25)],
         capacity=3,
     )
     proposal = opt.ask(12, region=0)
@@ -104,13 +98,13 @@ def test_cancelproposal():
 
 def test_externalimport():
     starts = np.full((2, 17), 0x3E80, dtype=np.uint16)
-    opt = RegionOptimizer(
+    opt = Portfolio(
         starts,
         np.array([0, 1], dtype=np.float32),
-        [ParamBlock(1, 0, 17, 0.25)],
+        [Span(1, 0, 17, 0.25)],
         capacity=3,
     )
-    foreign = ParameterBuffer(np.full(17, 0x4000, dtype=np.uint16))
+    foreign = Var(np.full(17, 0x4000, dtype=np.uint16))
     opt.import_region(0, foreign, 2.0)
     assert opt.delivered_imports == 1
     assert opt.trials == [0, 0]
@@ -129,14 +123,14 @@ def test_externalimport():
 )
 def test_policyimport(sharing, expected):
     starts = np.full((2, 17), 0x3E80, dtype=np.uint16)
-    opt = RegionOptimizer(
+    opt = Portfolio(
         starts,
         np.array([0, 1], dtype=np.float32),
-        [ParamBlock(1, 0, 17, 0.25)],
+        [Span(1, 0, 17, 0.25)],
         capacity=3,
         sharing=sharing,
     )
-    foreign = ParameterBuffer(starts[0])
+    foreign = Var(starts[0])
     assert opt.import_observations(foreign, 2.0) == expected
     assert opt.sharing_backlog == [int(slot in expected) for slot in range(2)]
     for slot in expected:
@@ -147,25 +141,25 @@ def test_policyimport(sharing, expected):
 
 def test_independentimport():
     starts = np.full((2, 17), 0x3E80, dtype=np.uint16)
-    opt = RegionOptimizer(
+    opt = Portfolio(
         starts,
         np.array([0, 1], dtype=np.float32),
-        [ParamBlock(1, 0, 17, 0.25)],
+        [Span(1, 0, 17, 0.25)],
         sharing="origin_only",
     )
-    foreign = ParameterBuffer(starts[0])
+    foreign = Var(starts[0])
     with pytest.raises(ValueError, match="explicit import_region"):
         opt.import_observations(foreign, 2.0)
 
 
 def test_ellipsoidzero():
-    assert SearchState is not None
+    assert Region is not None
     starts = np.full((2, 16), 0x3F80, dtype=np.uint16)
     blocks = [
-        ParamBlock(1, 0, 8, 0.5, 4.0),
-        ParamBlock(2, 8, 8, 0.25, 1.0),
+        Span(1, 0, 8, 0.5, 4.0),
+        Span(2, 8, 8, 0.25, 1.0),
     ]
-    opt = RegionOptimizer(
+    opt = Portfolio(
         starts,
         np.array([0.0, 0.0], dtype=np.float32),
         blocks,

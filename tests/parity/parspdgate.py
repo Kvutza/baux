@@ -11,7 +11,7 @@ from scripts.benchdtsel import run_benchmark  # noqa: E402
 
 
 def assert_ci2() -> None:
-    baseline = ROOT / "tests" / "fixtures" / "optspdbase.json"
+    baseline = ROOT / "tests" / "fixtures" / "optspdbase.toml"
     argv = [
         "--num-obs",
         "100",

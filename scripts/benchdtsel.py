@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import json
 import statistics
 import sys
 import time
+import tomllib
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -84,8 +84,7 @@ def _checkbaseline(
     ask_p95_ms: float,
     fail_on_regression: bool,
 ) -> None:
-    with open(baseline_path) as f:
-        baseline: dict[str, Any] = json.load(f)
+    baseline: dict[str, Any] = tomllib.loads(baseline_path.read_text(encoding="utf-8"))
     limits = baseline.get("ci_ask_limits", [])
     failures: list[str] = []
     for entry in limits:

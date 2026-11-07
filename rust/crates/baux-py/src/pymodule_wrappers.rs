@@ -38,8 +38,6 @@ pub fn pymodule_util(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(crate::py_util::sobol_py, m)?)?;
     m.add_function(wrap_pyfunction!(crate::py_util::bind_sobol, m)?)?;
     m.add_function(wrap_pyfunction!(crate::py_util::arms_py, m)?)?;
-    m.add_function(wrap_pyfunction!(crate::py_util::q_py, m)?)?;
-    m.add_function(wrap_pyfunction!(crate::py_util::bind_quantize, m)?)?;
     m.add_function(wrap_pyfunction!(crate::py_util::set_py, m)?)?;
     m.add_function(wrap_pyfunction!(crate::py_util::ensure_py, m)?)?;
     Ok(())

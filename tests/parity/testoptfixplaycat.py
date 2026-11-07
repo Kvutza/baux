@@ -27,7 +27,7 @@ def test_catalogfiles():
     actual = {
         path.stem
         for subdir in ("optimizer", "morbo")
-        for path in (FIXTURES_ROOT / subdir).glob("*.json")
+        for path in (FIXTURES_ROOT / subdir).glob("*.toml")
     }
     assert set(catalog_names()) == actual
 
@@ -44,12 +44,12 @@ def test_001():
             assert name_prefix(name) == entry.prefix
             assert _config(name) is PREFIX_CONFIG[entry.config_key]
             gen_path = output_path(entry, seed, root)
-            assert gen_path == root / "tests" / "fixtures" / subdir / f"{name}.json"
+            assert gen_path == root / "tests" / "fixtures" / subdir / f"{name}.toml"
             assert load_fixture(name) is not None
 
 
 @pytest.mark.parametrize(
-    "name", ["missing_seed0", "teucboneseed0.json", "../teucboneseed0"]
+    "name", ["missing_seed0", "teucboneseed0.toml", "../teucboneseed0"]
 )
 def test_fixture(name):
     with pytest.raises(ValueError, match="unknown fixture name"):

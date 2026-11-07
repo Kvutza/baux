@@ -43,17 +43,14 @@ pub fn run(root: &Path, check: bool) -> Result<(), String> {
         "adapter_sha256": digest(&adapter_bytes),
         "meaning": "Function equality under shared dependency parameters; no native binding",
     });
-    let meta_json = format!(
-        "{}\n",
-        json::pretty_string(&meta).map_err(|e| e.to_string())?
-    );
+    let meta_toml = baux::artifact::toml::pretty_string(&meta).map_err(|e| e.to_string())?;
     write_out(
         root,
         "research/lean/BauxResearch/Generated/Box.lean",
         &lean,
         check,
     )?;
-    write_out(root, "research/extraction/box.json", &meta_json, check)?;
+    write_out(root, "research/extraction/box.toml", &meta_toml, check)?;
     println!(
         "Paired extraction current; run research check to check its Lean correspondence theorem."
     );

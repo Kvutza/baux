@@ -62,7 +62,7 @@ WHEEL_INPUTS = (
     Path("rust/crates/runner"),
     Path("rust/crates/tooling"),
     Path("rust-toolchain.toml"),
-    Path("src/baux"),
+    Path("python/baux"),
 )
 
 app = modal.App("baux-cuda")

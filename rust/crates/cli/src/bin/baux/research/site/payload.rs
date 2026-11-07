@@ -118,10 +118,10 @@ fn parse_constructions(root: &Path) -> Vec<Value> {
 }
 
 fn coverage_overview(root: &Path) -> Value {
-    let cov_path = root.join("research/upstream/coverage_manifest.json");
+    let cov_path = root.join("research/upstream/coverage_manifest.toml");
     let cov_val: Value = fs::read(&cov_path)
         .ok()
-        .and_then(|b| json::from_slice(&b).ok())
+        .and_then(|b| baux::artifact::toml::from_slice(&b).ok())
         .unwrap_or_else(Value::null);
     let mut excl_by_cat: BTreeMap<String, Vec<Value>> = BTreeMap::new();
     let mut total_exclusions = 0usize;
@@ -180,19 +180,19 @@ fn binary_artifacts(val: &Value) -> Vec<Value> {
 }
 
 fn artifact_manifest(root: &Path) -> Result<(PathBuf, Value, Vec<Value>, Vec<Value>), String> {
-    let p1 = root.join("research/extraction/artifact_manifest.json");
+    let p1 = root.join("research/extraction/artifact_manifest.toml");
     let art_path = if p1.exists() {
         p1
     } else {
-        root.join("research/upstream/artifact_manifest.json")
+        root.join("research/upstream/artifact_manifest.toml")
     };
     if !art_path.exists() {
         return Ok((art_path, Value::null(), Vec::new(), Vec::new()));
     }
     let bytes =
         fs::read(&art_path).map_err(|e| format!("failed to read {}: {e}", art_path.display()))?;
-    let val: Value = json::from_slice(&bytes)
-        .map_err(|e| format!("invalid JSON in {}: {e}", art_path.display()))?;
+    let val: Value = baux::artifact::toml::from_slice(&bytes)
+        .map_err(|e| format!("invalid TOML in {}: {e}", art_path.display()))?;
     if matches!(val.kind(), Kind::Null) {
         return Ok((art_path, val, Vec::new(), Vec::new()));
     }
@@ -448,7 +448,7 @@ fn portal_manifest(
         "registry_function_count": reg_func_count,
         "monograph_count": 0,
         "lean_files_tree_sha256": lean_tree_sha,
-        "coverage_manifest_sha256": file_sha(&root.join("research/upstream/coverage_manifest.json")),
+        "coverage_manifest_sha256": file_sha(&root.join("research/upstream/coverage_manifest.toml")),
         "artifact_manifest_sha256": file_sha(art_path),
         "mathlib_constructions_sha256": file_sha(&root.join("docs/mathlib-constructions.txt")),
         "registry_lean_sha256": file_sha(&root.join("research/lean/BauxResearch/Semantics/Registry.lean")),

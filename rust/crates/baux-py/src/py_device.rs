@@ -114,14 +114,14 @@ impl PyDevice {
 }
 
 pub(crate) fn py_flags(
-    tie_neighbors: &std::cell::Cell<bool>,
+    tie_mode: u8,
     exclude_nearest: bool,
     observation_noise: bool,
 ) -> baux::PosteriorFlags {
     baux::PosteriorFlags::new()
         .exclude_nearest(exclude_nearest)
         .observation_noise(observation_noise)
-        .tie_neighbors(tie_neighbors.get())
+        .tie_neighbors(tie_mode != 0)
 }
 
 pub(crate) fn parse_driver(index_driver: &str) -> PyResult<baux::IndexDriver> {

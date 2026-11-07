@@ -8,7 +8,7 @@
 //!   `hnet/modules/dc.py`, `hnet/models/hnet.py`, `hnet/utils/tokenizers.py`,
 //!   `hnet/utils/train.py`).
 use super::*;
-use baux::artifact::json::{self, Value};
+use baux::artifact::toml::{self, Value};
 
 pub(super) fn fixtures() -> Value {
     let root = option_env!("CARGO_MANIFEST_DIR")
@@ -20,7 +20,7 @@ pub(super) fn fixtures() -> Value {
     if root.join(".cache/baux/upstream/hnet").exists() {
         crate::artifact::merkle::verify_lock(&root, "hnet", None).expect("verify hnet.lock.toml");
     }
-    let value: Value = json::from_str(include_str!("fixtures.json")).unwrap();
+    let value: Value = toml::from_str(include_str!("fixtures.toml")).unwrap();
     assert_eq!(
         value["revision"].as_str(),
         Some("3673fe1217ebeb0d1438c7c71d58d32bdd190ec2")

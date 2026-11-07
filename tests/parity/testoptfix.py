@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import json
+import tomllib
 
 import pytest
 
@@ -12,10 +12,8 @@ from baux.turbo.optimizer_fixtures import (
 
 try:
     load_fixture(EXPECTED_OPTIMIZER_FIXTURE_NAMES[0])
-except json.JSONDecodeError as exc:
-    if exc.doc.startswith("version https://git-lfs.github.com/spec"):
-        pytest.skip("optimizer fixtures require git lfs pull", allow_module_level=True)
-    raise
+except tomllib.TOMLDecodeError:
+    pytest.skip("optimizer fixtures require git lfs pull", allow_module_level=True)
 
 
 @pytest.mark.parametrize("name", EXPECTED_OPTIMIZER_FIXTURE_NAMES)

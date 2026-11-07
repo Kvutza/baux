@@ -297,10 +297,9 @@ fn check_python(path: &Path, root: &Path, config: &Config, findings: &mut Vec<Fi
     };
     let rel = path.strip_prefix(root).unwrap_or(path);
     let rel_str = rel.to_string_lossy().to_string();
-    let is_src = rel
-        .components()
-        .next()
-        .map_or(false, |c| c.as_os_str() == "src");
+    let is_src = rel.components().next().map_or(false, |c| {
+        c.as_os_str() == "src" || c.as_os_str() == "python"
+    });
 
     let mut prev_override = false;
     let mut in_quote = false;

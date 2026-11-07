@@ -23,6 +23,7 @@ os.environ.setdefault("JAX_PRECISION", "f32")
 TOTAL_PARAMS = 160531
 TORAX_STEPS = 20
 WARMUP_STEPS = 15
+MLP_LAYERS = ((93, 256), (256, 256), (256, 256), (256, 19))
 
 
 def _meq2d():
@@ -192,19 +193,11 @@ def _smoothmax(jnp, comps, alpha: float = -3.0):
     return jnp.sum(arr * w) / jnp.sum(w)
 
 
+from python.baux.pytree import flat_mlp
+
+
 def _mlplogits(jax, jnp, obs, weights):
-    w1 = jax.lax.dynamic_slice(weights, (0,), (23808,)).reshape((93, 256))
-    b1 = jax.lax.dynamic_slice(weights, (23808,), (256,))
-    w2 = jax.lax.dynamic_slice(weights, (24064,), (65536,)).reshape((256, 256))
-    b2 = jax.lax.dynamic_slice(weights, (89600,), (256,))
-    w3 = jax.lax.dynamic_slice(weights, (89856,), (65536,)).reshape((256, 256))
-    b3 = jax.lax.dynamic_slice(weights, (155392,), (256,))
-    w4 = jax.lax.dynamic_slice(weights, (155648,), (4864,)).reshape((256, 19))
-    b4 = jax.lax.dynamic_slice(weights, (160512,), (19,))
-    h1 = jax.nn.elu(obs @ w1 + b1)
-    h2 = jax.nn.elu(h1 @ w2 + b2)
-    h3 = jax.nn.elu(h2 @ w3 + b3)
-    return h3 @ w4 + b4
+    return flat_mlp(weights, MLP_LAYERS, obs, act=jax.nn.elu)
 
 
 def _extractobs(jnp, carry, ref, tau):
@@ -401,6 +394,7 @@ class ToraxClosedLoopEnv:
         self._scan_xs = (refs, taus)
         self._zero_eps = jnp.zeros((TORAX_STEPS, 19), dtype=jnp.float32)
         self._traj = jax.jit(self._rolltraj)
+        self._batch = jax.jit(jax.vmap(lambda w: self._rolltraj(w, self._zero_eps)[3]))
 
     def _rolltraj(self, weights, eps):
         ctx = (self._jax, self._jnp, self._geo0, self._step_one, weights)
@@ -416,6 +410,11 @@ class ToraxClosedLoopEnv:
 
     def eval_return(self, weights: np.ndarray) -> float:
         return 100.0 * self.eval_mean(weights)
+
+    def eval_batch(self, batch: np.ndarray) -> np.ndarray:
+        w = self._jnp.asarray(batch, dtype=self._jnp.float32)
+        means = np.asarray(self._batch(w), dtype=np.float64)
+        return 100.0 * means
 
     def eval_traj(self, weights: np.ndarray, eps: np.ndarray):
         w = self._jnp.asarray(weights, dtype=self._jnp.float32)
@@ -457,7 +456,7 @@ def run_worker() -> None:
         if len(raw) < nbytes:
             break
         batch = np.frombuffer(raw, dtype=np.float32).reshape((count, TOTAL_PARAMS))
-        scores = [env.eval_return(batch[i]) for i in range(count)]
+        scores = env.eval_batch(batch)
         stdout.write(struct.pack(f"<{count}d", *scores))
         stdout.flush()
 

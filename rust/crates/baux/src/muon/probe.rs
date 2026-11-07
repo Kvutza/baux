@@ -349,7 +349,7 @@ fn check_adam(runtime: &Runtime, case: &Value) -> Result<(), String> {
 #[test]
 fn upstream_polar() -> Result<(), String> {
     metal::objc::rc::autoreleasepool(|| {
-        let data: Value = baux::artifact::json::from_str(include_str!("fixtures.json")).unwrap();
+        let data: Value = baux::artifact::toml::from_str(include_str!("fixtures.toml")).unwrap();
         assert_eq!(
             data["polar_revision"].as_str(),
             Some("f717e2c6b3ef6f67a5e00ab7f5371a85377e6fbe")

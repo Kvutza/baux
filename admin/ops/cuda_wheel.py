@@ -135,7 +135,7 @@ def build_wheel(
         stage = Path(directory)
         package = stage / "baux"
         shutil.copytree(
-            root / "src/baux",
+            root / "python/baux",
             package,
             ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "*.so"),
         )

@@ -107,8 +107,6 @@ class TestPublicAPIExports:
         if experimental.MetalRegionOptimizer is not None:
             assert inspect.isclass(experimental.MetalRegionOptimizer)
         assert callable(experimental.enn_optimizer)
-        assert callable(experimental.quantize_int4)
-        assert callable(experimental.quantize_e2m1)
         for name in [
             "ParamBlock",
             "ParameterBuffer",

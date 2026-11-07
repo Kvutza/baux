@@ -198,30 +198,6 @@ pub fn arms_py<'py>(
     Ok(out.into_pyarray(py))
 }
 
-#[pyfunction(name = "quantize_int4")]
-#[pyo3(signature = (arr, scale=1.0))]
-pub fn q_py<'py>(
-    py: Python<'py>,
-    arr: PyReadonlyArrayDyn<f32>,
-    scale: f32,
-) -> PyResult<Bound<'py, PyArray1<u8>>> {
-    let values = arr.as_array();
-    let packed = py.detach(|| baux::experimental::quantize_int4(values.iter().copied(), scale));
-    Ok(Array1::from_vec(packed).into_pyarray(py))
-}
-
-#[pyfunction(name = "quantize_e2m1")]
-#[pyo3(signature = (arr, scale=1.0))]
-pub fn bind_quantize<'py>(
-    py: Python<'py>,
-    arr: PyReadonlyArrayDyn<f32>,
-    scale: f32,
-) -> PyResult<Bound<'py, PyArray1<u8>>> {
-    let values = arr.as_array();
-    let packed = py.detach(|| baux::experimental::quantize_e2m1(values.iter().copied(), scale));
-    Ok(Array1::from_vec(packed).into_pyarray(py))
-}
-
 /// Override baux config path (`None` restores `~/.baux/config.toml`).
 #[pyfunction(name = "set_path")]
 #[pyo3(signature = (path=None))]

@@ -221,7 +221,7 @@ raise SystemExit(status)
         text=True,
         env={
             **os.environ,
-            "PYTHONPATH": str(root / "src") + os.pathsep + str(root),
+            "PYTHONPATH": str(root / "python") + os.pathsep + str(root),
             "XLA_PYTHON_CLIENT_ALLOCATOR": "bfc",
             "PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1",
         },
@@ -260,7 +260,7 @@ assert not any(n.split('.')[0] in ('jax', 'jaxlib') for n in sys.modules)
         check=False,
         capture_output=True,
         text=True,
-        env={**os.environ, "PYTHONPATH": str(root / "src")},
+        env={**os.environ, "PYTHONPATH": str(root / "python")},
         timeout=30,
     )
     assert result.returncode == 0, result.stdout + result.stderr

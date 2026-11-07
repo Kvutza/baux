@@ -57,7 +57,7 @@ def _pythonpathsrc2(env: dict[str, str], src: str) -> None:
 
 def _envversion(version_label: str) -> dict[str, str]:
     env = os.environ.copy()
-    src = str(ROOT / "src")
+    src = str(ROOT / "python")
     if version_label == CURRENT_LABEL:
         _pythonpathsrc(env, src)
     else:

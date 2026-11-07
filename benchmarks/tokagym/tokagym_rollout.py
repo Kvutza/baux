@@ -88,8 +88,11 @@ STUB_MODULES = (
 
 def _stubmods() -> None:
     os.environ["ML_DATA_DUMP"] = "/tmp"
+    import functools
+    import equinox as eqx
     import jax
 
+    eqx.static_field = functools.partial(eqx.field, static=True)
     jax.devices("cpu")
     try:
         import jax_plugins.mps.ops as mpsops
@@ -167,19 +170,11 @@ def _fitcfg(config: dict) -> dict:
     return fit_cfg
 
 
+from python.baux.pytree import flat_mlp
+
+
 def _mlplogits(jax, jnp, obs, weights):
-    w1 = jax.lax.dynamic_slice(weights, (0,), (2816,)).reshape((11, 256))
-    b1 = jax.lax.dynamic_slice(weights, (2816,), (256,))
-    w2 = jax.lax.dynamic_slice(weights, (3072,), (65536,)).reshape((256, 256))
-    b2 = jax.lax.dynamic_slice(weights, (68608,), (256,))
-    w3 = jax.lax.dynamic_slice(weights, (68864,), (65536,)).reshape((256, 256))
-    b3 = jax.lax.dynamic_slice(weights, (134400,), (256,))
-    w4 = jax.lax.dynamic_slice(weights, (134656,), (2048,)).reshape((256, 8))
-    b4 = jax.lax.dynamic_slice(weights, (136704,), (8,))
-    h1 = jax.nn.elu(obs @ w1 + b1)
-    h2 = jax.nn.elu(h1 @ w2 + b2)
-    h3 = jax.nn.elu(h2 @ w3 + b3)
-    return h3 @ w4 + b4
+    return flat_mlp(weights, MLP_LAYERS, obs, act=jax.nn.elu)
 
 
 def _obsvec(jnp, env, stateobs):
@@ -241,6 +236,7 @@ class TokaGymClosedLoopEnv:
         self._init_stateobs = init_stateobs
         self._zero_eps = zero_eps
         self._traj = jax.jit(self._rolltraj)
+        self._batch = jax.jit(jax.vmap(lambda w: self._rolltraj(w, self._zero_eps)[3]))
 
     def _rolltraj(self, weights, eps):
         ctx = (self._jax, self._jnp, self.env, self._key, weights)
@@ -256,6 +252,12 @@ class TokaGymClosedLoopEnv:
 
     def eval_return(self, weights: np.ndarray) -> float:
         return float(TOKAGYM_STEPS) * self.eval_mean(weights)
+
+    def eval_batch(self, batch: np.ndarray) -> np.ndarray:
+        with self._jax.default_device(self._cpu):
+            w = self._jnp.asarray(batch, dtype=self._jnp.float32)
+            means = np.asarray(self._batch(w), dtype=np.float64)
+        return float(TOKAGYM_STEPS) * means
 
     def eval_traj(self, weights: np.ndarray, eps: np.ndarray):
         with self._jax.default_device(self._cpu):
@@ -305,7 +307,7 @@ def run_worker() -> None:
         if len(raw) < nbytes:
             break
         batch = np.frombuffer(raw, dtype=np.float32).reshape((count, TOTAL_PARAMS))
-        scores = [env.eval_return(batch[i]) for i in range(count)]
+        scores = env.eval_batch(batch)
         stdout.write(struct.pack(f"<{count}d", *scores))
         stdout.flush()
 

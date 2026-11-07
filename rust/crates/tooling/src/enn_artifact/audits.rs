@@ -165,9 +165,9 @@ fn crate_llbc(
 
 pub fn verify_llbc(root: &Path) -> Result<Value, String> {
     let probe_dir = root.join(".cache/baux/aeneas/probe-full-upstream");
-    let text = fs::read_to_string(root.join("research/upstream/coverage_manifest.json"))
+    let text = fs::read_to_string(root.join("research/upstream/coverage_manifest.toml"))
         .map_err(|e| e.to_string())?;
-    let cov: Value = json::from_str(&text).map_err(|e| e.to_string())?;
+    let cov: Value = baux::artifact::toml::from_str(&text).map_err(|e| e.to_string())?;
     let mut summary = json::Map::new();
     for (crate_name, filename) in [
         ("bpann", "bpann.llbc"),

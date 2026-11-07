@@ -342,8 +342,8 @@ fn upstream_turbo() {
     if root.join(".cache/baux/upstream/TuRBO").exists() {
         crate::artifact::merkle::verify_lock(&root, "turbo", None).expect("verify turbo.lock.toml");
     }
-    let fixture: baux::artifact::json::Value =
-        baux::artifact::json::from_str(include_str!("fixtures.json")).expect("valid TuRBO fixture");
+    let fixture: baux::artifact::toml::Value =
+        baux::artifact::toml::from_str(include_str!("fixtures.toml")).expect("valid TuRBO fixture");
     assert_eq!(
         fixture["upstream_revision"].as_str(),
         Some("de0db39f481d9505bb3610b7b7aa0ebf7702e4a5")

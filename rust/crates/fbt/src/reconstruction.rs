@@ -86,11 +86,8 @@ impl Reconstruction {
             "scoring_ms":start.elapsed().as_secs_f64()*1000.0,
             "components":components,
         });
-        baux::artifact::json::pretty_writer(
-            std::fs::File::create(path.join("reward.json")).map_err(|error| error.to_string())?,
-            &profile,
-        )
-        .map_err(|error| error.to_string())?;
+        let bytes = baux::artifact::cbor::to_vec(&profile).map_err(|error| error.to_string())?;
+        std::fs::write(path.join("reward.cbor"), bytes).map_err(|error| error.to_string())?;
         Ok(rewards)
     }
 }

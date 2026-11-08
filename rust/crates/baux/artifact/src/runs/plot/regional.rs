@@ -2,22 +2,71 @@
 use super::*;
 
 pub(super) fn render(source: &Path, output: &Path) -> Result<Vec<Value>, String> {
-    let path = source.join("regional.json");
-    if !path.exists() {
-        return Ok(Vec::new());
+    let mut summaries = Vec::new();
+    let (file, path) = if source.join("regional.cbor").exists() {
+        ("regional.cbor", source.join("regional.cbor"))
+    } else if source.join("regional.json").exists() {
+        ("regional.json", source.join("regional.json"))
+    } else {
+        ("", PathBuf::new())
+    };
+    if !file.is_empty() {
+        let bytes = fs::read(path).map_err(|e| e.to_string())?;
+        let report: Value = if file.ends_with(".cbor") {
+            baux::artifact::cbor::from_slice(&bytes).map_err(|e| e.to_string())?
+        } else {
+            json::from_slice(&bytes).map_err(|e| e.to_string())?
+        };
+        let results = report["results"]
+            .as_seq()
+            .ok_or("missing regional results")?;
+        if report["experiment"].as_str() == Some("host-regions") {
+            summaries.extend(host_results(output, file, results)?);
+        } else {
+            summaries.extend(resident_results(output, file, results)?);
+        }
     }
-    let text = fs::read_to_string(path).map_err(|e| e.to_string())?;
-    let report: Value = json::from_str(&text).map_err(|e| e.to_string())?;
-    let results = report["results"]
-        .as_seq()
-        .ok_or("missing regional results")?;
-    if report["experiment"].as_str() == Some("host-regions") {
-        return host_results(output, results);
-    }
-    resident_results(output, results)
+    summaries.extend(tokamak_results(source, output)?);
+    Ok(summaries)
 }
 
-fn resident_results(output: &Path, results: &[Value]) -> Result<Vec<Value>, String> {
+fn tokamak_results(source: &Path, output: &Path) -> Result<Vec<Value>, String> {
+    let (file, path) = if source.join("tokamak.cbor").exists() {
+        ("tokamak.cbor", source.join("tokamak.cbor"))
+    } else if source.join("tokamak.json").exists() {
+        ("tokamak.json", source.join("tokamak.json"))
+    } else {
+        return Ok(Vec::new());
+    };
+    let bytes = fs::read(path).map_err(|e| e.to_string())?;
+    let report: Value = if file.ends_with(".cbor") {
+        baux::artifact::cbor::from_slice(&bytes).map_err(|e| e.to_string())?
+    } else {
+        json::from_slice(&bytes).map_err(|e| e.to_string())?
+    };
+    let Some(traces) = report["traces"].as_seq() else {
+        return Ok(Vec::new());
+    };
+    let mut summaries = Vec::new();
+    for y_key in ["mean_tracking_error", "mean_best_score"] {
+        let mut data = Vec::with_capacity(traces.len());
+        for entry in traces {
+            if let (Some(x), Some(y)) = (number(&entry["round"]), number(&entry[y_key]))
+                && x.is_finite()
+                && y.is_finite()
+            {
+                data.push((x, y));
+            }
+        }
+        if !data.is_empty() {
+            write_svg(output, file, "round", y_key, &data)?;
+            summaries.push(series_summary(file, "round", y_key, &data));
+        }
+    }
+    Ok(summaries)
+}
+
+fn resident_results(output: &Path, file: &str, results: &[Value]) -> Result<Vec<Value>, String> {
     let mut summaries = Vec::new();
     for result in results {
         let seed = result["seed"].as_u64().ok_or("missing regional seed")?;
@@ -51,18 +100,13 @@ fn resident_results(output: &Path, results: &[Value]) -> Result<Vec<Value>, Stri
             continue;
         }
         let label = format!("reward-seed{seed}-regions{regions}-{starts}-{sharing}-{allocation}");
-        write_svg(output, "regional.json", "evaluations", &label, &data)?;
-        summaries.push(series_summary(
-            "regional.json",
-            "evaluations",
-            &label,
-            &data,
-        ));
+        write_svg(output, file, "evaluations", &label, &data)?;
+        summaries.push(series_summary(file, "evaluations", &label, &data));
     }
     Ok(summaries)
 }
 
-fn host_results(output: &Path, results: &[Value]) -> Result<Vec<Value>, String> {
+fn host_results(output: &Path, file: &str, results: &[Value]) -> Result<Vec<Value>, String> {
     let mut summaries = Vec::new();
     for (index, result) in results.iter().enumerate() {
         let objective = result["objective"]
@@ -93,13 +137,8 @@ fn host_results(output: &Path, results: &[Value]) -> Result<Vec<Value>, String> 
             let label = format!(
                 "best_reward-host{index:04}-{objective}-{sharing}-{roles}-{centers}-{memory}"
             );
-            write_svg(output, "regional.json", "evaluations", &label, &data)?;
-            summaries.push(series_summary(
-                "regional.json",
-                "evaluations",
-                &label,
-                &data,
-            ));
+            write_svg(output, file, "evaluations", &label, &data)?;
+            summaries.push(series_summary(file, "evaluations", &label, &data));
         }
     }
     Ok(summaries)

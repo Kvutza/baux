@@ -97,8 +97,8 @@ pub(super) fn execute(root: &Path, rounds: Option<u32>, text: &str) -> Result<bo
     record.optimizer = config.experiment.clone();
     record.protocol = runs::digest(resolved.as_bytes());
     let result = measure(&config).and_then(|report| {
-        let report = json::pretty_string(&report).map_err(|e| e.to_string())?;
-        fs::write(output.join("regional.json"), &report).map_err(|e| e.to_string())?;
+        let bytes = baux::artifact::cbor::to_vec(&report).map_err(|e| e.to_string())?;
+        fs::write(output.join("regional.cbor"), &bytes).map_err(|e| e.to_string())?;
         println!(
             "Host regional experiment completed. Evidence: {}",
             output.display()

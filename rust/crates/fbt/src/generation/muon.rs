@@ -376,20 +376,26 @@ impl<'a> Session<'a> {
             crate::config::TrainingOptimizer::AdamwV1 => "baux.adamw-pretraining.v1",
             _ => "baux.matrix-pretraining.v1",
         };
-        baux::artifact::json::pretty_writer(
-            File::create(self.output.join("result.json")).map_err(|error| error.to_string())?,
-            &baux::artifact::json::json!({
-                "schema":schema,"status":"completed","optimizer":self.optimizer_name(),
-                "rounds":self.run.rounds(),"parameters":self.architecture.parameter_count(),
-                "initial_nll":self.first_nll.unwrap(),"final_observed_nll":self.last_nll.unwrap(),
-                "loop_seconds":loop_seconds,"elapsed_seconds":self.started.elapsed().as_secs_f64(),
-                "mean_round_ms":mean * 1000.0,
-                "median_round_ms":median * 1000.0,"target_round_ms":self.run.target_ms(),
-                "goal_met":goal,"validation_tasks":self.validation.len(),
-                "validation_initial":&self.validation_initial,"validation_final":&self.validation_final,
-            }),
-        )
-        .map_err(|error| error.to_string())
+        let bytes = baux::artifact::cbor::to_vec(&baux::artifact::json::json!({
+            "schema": schema,
+            "status": "completed",
+            "optimizer": self.optimizer_name(),
+            "rounds": self.run.rounds(),
+            "parameters": self.architecture.parameter_count(),
+            "initial_nll": self.first_nll.unwrap(),
+            "final_observed_nll": self.last_nll.unwrap(),
+            "loop_seconds": loop_seconds,
+            "elapsed_seconds": self.started.elapsed().as_secs_f64(),
+            "mean_round_ms": mean * 1000.0,
+            "median_round_ms": median * 1000.0,
+            "target_round_ms": self.run.target_ms(),
+            "goal_met": goal,
+            "validation_tasks": self.validation.len(),
+            "validation_initial": &self.validation_initial,
+            "validation_final": &self.validation_final,
+        }))
+        .map_err(|error| error.to_string())?;
+        std::fs::write(self.output.join("result.cbor"), bytes).map_err(|error| error.to_string())
     }
 }
 

@@ -343,15 +343,14 @@ pub struct ActualBoResult {
 
 impl ActualBoResult {
     pub fn write_validation(&self, path: &std::path::Path) -> Result<(), String> {
-        baux::artifact::json::pretty_writer(
-            std::fs::File::create(path).map_err(|error| error.to_string())?,
-            &baux::artifact::json::json!({
-                "schema":"baux.pretrain_validation.v1", "learning_seconds":self.learning_seconds,
-                "used_for_acceptance":false,
-                "measurements":self.validation,
-            }),
-        )
-        .map_err(|error| error.to_string())
+        let bytes = baux::artifact::cbor::to_vec(&baux::artifact::json::json!({
+            "schema": "baux.pretrain_validation.v1",
+            "learning_seconds": self.learning_seconds,
+            "used_for_acceptance": false,
+            "measurements": self.validation,
+        }))
+        .map_err(|error| error.to_string())?;
+        std::fs::write(path, bytes).map_err(|error| error.to_string())
     }
 
     pub fn write_updates(&self, path: &std::path::Path) -> Result<(), String> {

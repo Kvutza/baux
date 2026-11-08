@@ -130,6 +130,15 @@ impl ENNSurrogate {
     }
 
     fn run_fitter(&mut self, rng: &mut rand::rngs::StdRng) -> Result<(), ENNError> {
+        if self.config.num_candidates == 0 || self.config.num_samples == 0 {
+            if self.params.is_none() {
+                self.params = Some(
+                    ENNParams::new(self.config.k, 1.0, 0.0)
+                        .map_err(|e| ENNError::InvalidParameter(e.to_string()))?,
+                );
+            }
+            return Ok(());
+        }
         if self.fitter.is_none() {
             let model = self
                 .model

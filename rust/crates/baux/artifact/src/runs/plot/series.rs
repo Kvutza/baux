@@ -114,6 +114,7 @@ pub(in super::super) fn run_label(record: &Record) -> String {
         .file_name()
         .and_then(|s| s.to_str())
         .unwrap_or("run")
+        .trim_end_matches(".cbor")
         .trim_end_matches(".json");
     format!("{ctx} {} ({short_commit})", slug.get(..14).unwrap_or(slug))
 }
@@ -221,12 +222,21 @@ pub(in super::super) fn extract_series(
     None
 }
 
+fn decode_value(bytes: &[u8]) -> Option<Value> {
+    let first = bytes.iter().find(|b| !b.is_ascii_whitespace());
+    if first == Some(&b'{') {
+        json::from_slice(bytes).ok()
+    } else {
+        baux::artifact::cbor::from_slice(bytes).ok()
+    }
+}
+
 pub(super) fn validation_points(path: &Path) -> Result<Option<Vec<(f64, f64)>>, String> {
     if !path.exists() {
         return Ok(None);
     }
     let bytes = fs::read(path).map_err(|e| e.to_string())?;
-    let Ok(value) = json::from_slice::<Value>(&bytes) else {
+    let Some(value) = decode_value(&bytes) else {
         return Ok(None);
     };
     let Some(measurements) = value.get("measurements").and_then(|v| v.as_seq()) else {
@@ -298,7 +308,7 @@ pub(super) fn update_points(
 
 pub(super) fn observation_points(path: &Path, y: &str) -> Result<Option<Vec<(f64, f64)>>, String> {
     let bytes = fs::read(path).map_err(|e| e.to_string())?;
-    let Ok(value) = json::from_slice::<Value>(&bytes) else {
+    let Some(value) = decode_value(&bytes) else {
         return Ok(None);
     };
     let Some(obs) = value["bo"].get("observations").and_then(|v| v.as_seq()) else {

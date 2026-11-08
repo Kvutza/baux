@@ -224,16 +224,17 @@ pub(super) fn finish_run(
         .incumbent_rollouts
         .first()
         .ok_or("generation produced no final completion")?;
-    baux::artifact::json::pretty_writer(
-        File::create(output.join("completion.tokens.json")).map_err(|e| e.to_string())?,
-        &baux::artifact::json::json!({
+    std::fs::write(
+        output.join("completion.tokens.cbor"),
+        baux::artifact::cbor::to_vec(&baux::artifact::json::json!({
             "schema": "baux.generated_completion.v1",
             "tokens": completion.tokens,
             "token_count": completion.tokens.len(),
             "finish_reason": completion.finish_reason,
             "conditional_target_nll": completion.conditional_target_nll,
             "target_quality": completion.target_quality,
-        }),
+        }))
+        .map_err(|e| e.to_string())?,
     )
     .map_err(|e| e.to_string())?;
     decoded_completion(tokenizer, completion, output, true)?;
@@ -449,11 +450,8 @@ fn write_report(
     state: &LoopState,
     target_met: bool,
 ) -> Result<(), String> {
-    baux::artifact::json::pretty_writer(
-        File::create(output.join("result.json")).map_err(|e| e.to_string())?,
-        result,
-    )
-    .map_err(|e| e.to_string())?;
+    let bytes = baux::artifact::cbor::to_vec(result).map_err(|e| e.to_string())?;
+    std::fs::write(output.join("result.cbor"), bytes).map_err(|e| e.to_string())?;
     eprintln!(
         "generation.summary rounds={} accepted={} loop_s={:.3} mean_round_ms={:.3} \
          max_round_ms={:.3} target_met={} result={}",
@@ -463,7 +461,7 @@ fn write_report(
         state.loop_seconds * 1000.0 / state.walls.len() as f64,
         state.walls.last().ok_or("no generation rounds")? * 1000.0,
         target_met,
-        output.join("result.json").display(),
+        output.join("result.cbor").display(),
     );
     Ok(())
 }

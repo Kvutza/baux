@@ -1,7 +1,7 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/Kvutza/baux/36ba7ba20e432c380031e59637af9242a03a495c/logo-dark.png">
-    <img src="https://raw.githubusercontent.com/Kvutza/baux/36ba7ba20e432c380031e59637af9242a03a495c/logo-light.png" width="660" alt="baux">
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/Kvutza/baux/f86ab334cfe84c5380b065602e94c9c0be9a28ac/logo-dark.png">
+    <img src="https://raw.githubusercontent.com/Kvutza/baux/f86ab334cfe84c5380b065602e94c9c0be9a28ac/logo-light.png" width="660" alt="baux">
   </picture>
   <br>
   <sub>

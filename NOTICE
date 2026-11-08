@@ -1,11 +1,31 @@
-BAUX derives from https://github.com/yubo-research/enn and became an
+baux derives from https://github.com/yubo-research/enn and became an
 independent project on July 28, 2026. At separation, the latest common commit
 was 5e48f4df7da90d9f7958a5ef6d69951ed485e39e.
 
 Original portions are Copyright (c) 2025 yubo research.
-Subsequent modifications are Copyright (c) 2026 BAUX Contributors.
+Subsequent modifications are Copyright (c) 2026 Kvutza and baux contributors.
 
-BAUX is distributed under the MIT License. See LICENSE.
+baux software and documentation are distributed under the MIT License. See
+LICENSE.
+
+Artwork attribution and rights
+
+The README displays two photographic works by Michal Rovner (born 1957):
+
+1. Michal Rovner, "Outside #11" (1990-91). Chromogenic print, 49.5 x 49.5 cm.
+   The Metropolitan Museum of Art, New York, Purchase, The Horace W. Goldsmith
+   Foundation Gift, through Joyce and Robert Menschel, 1992 (Accession No.
+   1992.5040; Object ID 266682).
+   https://www.metmuseum.org/art/collection/search/266682
+
+2. Michal Rovner, "One-Person Game Against Nature, #9V" (1993). Chromogenic
+   print. Whitney Museum of American Art, New York (Accession No. 2000.105).
+   https://www.artnet.com/artists/michal-rovner/one-person-game-against-nature-9v-5GxdbC2HS588DzHCS7hR3w2
+
+Both artworks are Copyright (c) Michal Rovner. All rights in the artworks are
+reserved to the artist and respective rights holders; they are reproduced here
+solely for non-commercial identification and attribution and are excluded from
+the MIT License covering this repository's source code.
 
 Research design acknowledgements
 
@@ -13,9 +33,7 @@ The modular full-weight perturbation interface was independently implemented
 after studying Modular CMA-ES (MIT), IOHexperimenter (BSD-3-Clause),
 fcmaes-rust (MIT), Nevergrad (MIT), evosax (Apache-2.0), and EvoX (GPL-3.0).
 No source code from these projects is incorporated. EvoX is a research
-reference only; no GPL-covered implementation is included. Project links,
-papers, licenses, and the exact design influences are recorded in
-docs/perturbation-lab.md.
+reference only; no GPL-covered implementation is included.
 
 H-Net attribution
 

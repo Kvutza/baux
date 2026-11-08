@@ -255,8 +255,7 @@ pub fn build_statement(root: &Path) -> Result<Value, String> {
                         "aeneas",
                         "lean4",
                         "oxcaml",
-                        "hardcaml",
-                        "tectonic"
+                        "hardcaml"
                     ]
                 },
                 "resolvedDependencies": resolved_dependencies()

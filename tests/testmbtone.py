@@ -1,6 +1,5 @@
 import numpy as np
 import pytest
-
 from baux import create_optimizer
 from baux.benchmarks import DoubleAckley
 from baux.turbo.config import MorboTrustRegion, MultiObjectiveConfig, turbo_one

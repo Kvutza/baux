@@ -3,13 +3,12 @@
 from __future__ import annotations
 
 import numpy as np
-
 from baux.enn.enn_class import ENN
 from baux.enn.enn_params import ENNParams, PosteriorFlags
 
 
 def _userdata(rng: np.random.Generator):
-    """x ~ N(0,1), y ~ N(0, 100^2), flat index, n=20, d=1."""
+    """X ~ N(0,1), y ~ N(0, 100^2), flat index, n=20, d=1."""
     n, d = 20, 1
     train_x = rng.standard_normal((n, d))
     train_y = rng.normal(0.0, 100.0, size=(n, d))

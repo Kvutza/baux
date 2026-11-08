@@ -1,3 +1,5 @@
+"""Surrogate model configuration types for TuRBO optimizers."""
+
 from __future__ import annotations
 
 import os
@@ -6,7 +8,6 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
-
 from baux.index import (
     INDEX_NAMES,
     DistanceMetric,
@@ -18,11 +19,13 @@ from baux.index import (
 
 @dataclass(frozen=True)
 class GaussianProcess:
-    pass
+    """Configuration for a Gaussian process surrogate."""
 
 
 @dataclass(frozen=True)
 class SurrogateFit:
+    """Configuration for fitting surrogate model hyperparameters."""
+
     num_samples: int | None = None
     num_candidates: int | None = None
     infer_aleatoric_variance_scale: bool = True
@@ -38,6 +41,8 @@ class SurrogateFit:
 
 @dataclass(frozen=True)
 class ENNSurrogate:
+    """Configuration for an Epistemic Nearest Neighbors (ENN) surrogate."""
+
     k: int | None = None
     fit: SurrogateFit = field(default_factory=SurrogateFit)
     scale_x: bool = False
@@ -79,10 +84,12 @@ class ENNSurrogate:
 
     @property
     def num_samples(self) -> int | None:
+        """Return the number of fitting samples configured on `fit`."""
         return self.fit.num_samples
 
     @property
     def num_candidates(self) -> int | None:
+        """Return the number of fitting candidates configured on `fit`."""
         return self.fit.num_candidates
 
 

@@ -2,14 +2,11 @@ from __future__ import annotations
 
 import pytest
 from enn_helpers import enn_rows
-
-
 from testefit import _fitmodel, _makedata, _ybatch
 
 
 def test_ennfitwithyvarnone():
     import numpy as np
-
     from baux.enn.enn_class import ENN
     from baux.enn.enn_params import ENNParams
 
@@ -33,7 +30,6 @@ def test_ennfitwithyvarnone():
 
 def test_ennfitwithwarmstart():
     import numpy as np
-
     from baux.enn.enn_class import ENN
     from baux.enn.enn_params import ENNParams
 
@@ -65,7 +61,6 @@ def test_ennfitwithwarmstart():
 
 def test_003():
     import numpy as np
-
     from baux.enn.enn_class import ENN
     from baux.enn.enn_fit import subsample_loglik
     from baux.enn.enn_params import ENNParams
@@ -92,7 +87,6 @@ def test_003():
 
 def test_004():
     import numpy as np
-
     from baux.enn.enn_class import ENN
     from baux.enn.enn_params import ENNParams
 
@@ -120,7 +114,6 @@ def test_004():
 
 def test_005():
     import numpy as np
-
     from baux.enn.enn_fitter import ENNFitter
 
     fitter = ENNFitter(k=2, rng=np.random.default_rng(0))
@@ -130,7 +123,6 @@ def test_005():
 
 def test_006():
     import numpy as np
-
     from baux.enn.enn_class import ENN
     from baux.enn.enn_fitter import ENNFitter
 
@@ -144,7 +136,7 @@ def test_006():
     p_batch = fitter_batch.ask(model, num_candidates=8, num_samples=6)
 
     fitter_inc = ENNFitter(k=3, rng=np.random.default_rng(100))
-    for row_x, row_y in zip(x, y):
+    for row_x, row_y in zip(x, y, strict=True):
         fitter_inc.tell(row_x.reshape(1, -1), row_y.reshape(1, -1))
     p_inc = fitter_inc.ask(model, num_candidates=8, num_samples=6)
 
@@ -155,7 +147,6 @@ def test_006():
 
 def test_007():
     import numpy as np
-
     from baux.enn.enn_class import ENN
     from baux.enn.enn_fitter import ENNFitter
     from baux.enn.enn_params import ENNParams
@@ -187,7 +178,6 @@ def test_007():
 
 def test_008():
     import numpy as np
-
     from baux.enn.enn_class import ENN
     from baux.enn.enn_fitter import ENNFitter
 
@@ -196,7 +186,7 @@ def test_008():
     y_all = rng.standard_normal((8, 1))
     model = ENN(np.empty((0, 2)), np.empty((0, 1)))
     fitter = ENNFitter(k=2, rng=np.random.default_rng(88))
-    for row_x, row_y in zip(x_all, y_all):
+    for row_x, row_y in zip(x_all, y_all, strict=True):
         model.add(row_x.reshape(1, -1), row_y.reshape(1, -1))
         fitter.tell(row_x.reshape(1, -1), row_y.reshape(1, -1))
     params = fitter.ask(model, num_candidates=5, num_samples=4)
@@ -206,7 +196,6 @@ def test_008():
 
 def test_009():
     import numpy as np
-
     from baux.enn.enn_fitter import ENNFitter
 
     fitter = ENNFitter(k=2, rng=np.random.default_rng(0))
@@ -216,7 +205,6 @@ def test_009():
 
 def test_010():
     import numpy as np
-
     from baux.enn.enn_class import ENN
     from baux.enn.enn_fitter import ENNFitter
 
@@ -231,7 +219,6 @@ def test_010():
 
 def test_011():
     import numpy as np
-
     from baux.enn.enn_class import ENN
     from baux.enn.enn_fitter import ENNFitter
 
@@ -249,7 +236,6 @@ def test_011():
 
 def test_012():
     import numpy as np
-
     from baux.enn.enn_class import ENN
     from baux.enn.enn_fitter import ENNFitter
 
@@ -270,7 +256,6 @@ def test_012():
 
 def test_013():
     import numpy as np
-
     from baux.enn.enn_fitter import ENNFitter
 
     fitter = ENNFitter(k=2, rng=np.random.default_rng(0))
@@ -281,7 +266,6 @@ def test_013():
 
 def test_014():
     import numpy as np
-
     from baux.enn.enn_class import ENN
     from baux.enn.enn_fitter import ENNFitter
     from baux.enn.enn_params import ENNParams
@@ -308,7 +292,6 @@ def test_014():
 
 def test_015():
     import numpy as np
-
     from baux.enn.enn_class import ENN
     from baux.enn.enn_fitter import ENNFitter
 
@@ -342,7 +325,6 @@ def test_015():
 
 def test_016():
     import numpy as np
-
     from baux.enn.enn_class import ENN
     from baux.enn.enn_fitter import ENNFitter
 

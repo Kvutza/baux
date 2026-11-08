@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 import pytest
-
 from baux.turbo.config import CandidateConfig
 from baux.turbo.config.candidates import (
-    fixed_candidates,
     default_candidates,
+    fixed_candidates,
 )
 
 

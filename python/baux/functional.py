@@ -2,25 +2,27 @@
 
 from __future__ import annotations
 
+import sys as _sys
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from operator import index
-import sys as _sys
 from typing import Any
 
 import numpy as np
 from numpy.random import Generator
 
-from . import _rust, pytree as _pytree, state as _state
+from . import _rust
+from . import pytree as _pytree
+from . import state as _state
 from .bo import AskBatch, AskId, Telemetry, TellPredictionError, _obs
 from .enn import enn_state as _enn
 from .pytree import PyTreeSpec, pytree_bounds, ravel
 from .state import (
     OptimizerState,
     _Cursor,
-    _Op,
     _foldseed,
     _makeinner,
+    _Op,
     _readonly,
     _resolveseed,
     _snapshot,
@@ -167,7 +169,7 @@ def ask(state: OptimizerState, num_arms: int = 1) -> tuple[OptimizerState, AskBa
     inv_map = {v: k for k, v in id_map.items()}
     if len(new_raw) == n:
         logical_ids = tuple(int(inv_map.get(i, i)) for i in new_raw)
-        for lid, rid in zip(logical_ids, new_raw):
+        for lid, rid in zip(logical_ids, new_raw, strict=True):
             id_map[lid] = rid
     else:
         base_id = (state.epoch + 1) << 32
@@ -444,7 +446,7 @@ def pmap(
 
 
 if _pkg := _sys.modules.get(__package__ or "baux"):
-    setattr(_pkg, "pmap", pmap)
+    _pkg.__dict__["pmap"] = pmap
 
 
 __all__ = [

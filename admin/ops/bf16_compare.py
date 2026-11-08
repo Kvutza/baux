@@ -14,7 +14,6 @@ os.environ.setdefault("XLA_PYTHON_CLIENT_ALLOCATOR", "platform")
 import click
 import jax
 import jax.numpy as jnp
-
 from baux.experimental import Span, turbo_enn
 
 

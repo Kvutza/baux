@@ -9,7 +9,6 @@ from pathlib import Path
 from typing import Any
 
 import click
-
 from ops.flame.objective import SolutionObjective
 
 from .bo import _exportbest, _paired

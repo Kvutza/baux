@@ -13,7 +13,6 @@ import time
 from pathlib import Path
 
 import click
-
 from cuoxtool import (
     CUDA_OXIDE_REV,
     CUDA_TOOLKIT_PACKAGE,

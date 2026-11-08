@@ -4,10 +4,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import baux
 import numpy as np
 import pytest
-
-import baux
 
 
 @dataclass(frozen=True)

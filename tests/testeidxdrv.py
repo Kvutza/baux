@@ -2,10 +2,9 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-
 from baux._rust import ENN as RustENN
-from baux.enn.enn_class import ENN, posterior_neighbors
 from baux.baux_rust import optimizer
+from baux.enn.enn_class import ENN, posterior_neighbors
 from baux.turbo.config.surrogate import INDEX_NAMES, NeighborIndex
 
 

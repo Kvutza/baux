@@ -6,9 +6,8 @@ import json
 import numpy as np
 import pytest
 from click.testing import CliRunner
-
-from ops.flame import coding, generate
 from gen_fixtures import harness  # noqa: F401
+from ops.flame import coding, generate
 
 
 def run(harness):

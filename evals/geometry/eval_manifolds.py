@@ -39,9 +39,8 @@ from __future__ import annotations
 import math
 import time
 
-import numpy as np
-
 import baux
+import numpy as np
 
 
 def _loopair(
@@ -210,7 +209,7 @@ def eval_pmap() -> dict[str, float]:
     dt = max(time.perf_counter() - t0, 1e-9)
     run_b = baux.pmap(root, root.key, branches, branch_fn)
     digests_a = [d for d, _ in run_a]
-    matches = sum(int(a == b) for a, b in zip(run_a, run_b))
+    matches = sum(int(a == b) for a, b in zip(run_a, run_b, strict=True))
     return {
         "digest_match_rate": matches / float(branches),
         "unique_branch_ratio": len(set(digests_a)) / float(branches),

@@ -1,7 +1,7 @@
 """CPU coverage of the BO orchestration contract without the native extension."""
 
-from itertools import product
 from dataclasses import FrozenInstanceError
+from itertools import product
 
 import numpy as np
 import pytest

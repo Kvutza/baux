@@ -1,3 +1,5 @@
+"""Acquisition optimizer configuration types."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -5,6 +7,8 @@ from enum import Enum
 
 
 class AcquisitionKind(Enum):
+    """Supported acquisition function kinds."""
+
     THOMPSON = "thompson"
     PARETO = "pareto"
     UCB = "ucb"
@@ -12,12 +16,12 @@ class AcquisitionKind(Enum):
 
 @dataclass(frozen=True)
 class RAASPOptimizerConfig:
-    pass
+    """Configuration for RAASP acquisition optimization."""
 
 
 @dataclass(frozen=True)
 class NDSOptimizerConfig:
-    pass
+    """Configuration for non-dominated sorting acquisition optimization."""
 
 
 AcqOptimizerConfig = RAASPOptimizerConfig | NDSOptimizerConfig

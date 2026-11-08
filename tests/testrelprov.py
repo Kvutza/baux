@@ -5,7 +5,6 @@ import zipfile
 
 import pytest
 from click.testing import CliRunner
-
 from tools.release_provenance import (
     PLATFORM_TAGS,
     PYTHON_ABIS,

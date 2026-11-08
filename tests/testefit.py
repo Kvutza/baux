@@ -37,14 +37,13 @@ def _fitmodel(
 
 
 def _ybatch(inc_std, batch_std) -> None:
-    for a, b in zip(inc_std, batch_std):
+    for a, b in zip(inc_std, batch_std, strict=True):
         expected = b if b > 1e-10 else 1.0
         assert abs(a - expected) < 1e-10
 
 
 def test_001():
     import numpy as np
-
     from baux.enn.enn_class import ENN
     from baux.enn.enn_fit import subsample_loglik
     from baux.enn.enn_params import ENNParams
@@ -73,7 +72,6 @@ def test_001():
 
 def _captureresult(model, params, num_samples, eval_x, eval_y):
     import numpy as np
-
     from baux.enn.enn_fit import subsample_loglik
 
     loglik = subsample_loglik(
@@ -97,7 +95,6 @@ def _captureresult(model, params, num_samples, eval_x, eval_y):
 
 def _runsweep(x_train, y_train, y_var_train, sample_sizes):
     import numpy as np
-
     from baux.enn.enn_class import ENN
 
     captured = []
@@ -116,7 +113,6 @@ def _runsweep(x_train, y_train, y_var_train, sample_sizes):
 
 def _runsweep2(x_train, y_train, y_var_train, sample_sizes):
     import numpy as np
-
     from baux.enn.enn_class import ENN
     from baux.enn.enn_fit import ENNIncrementalDelta, enn_fit
     from baux.enn.enn_fitter import ENNFitter
@@ -130,7 +126,7 @@ def _runsweep2(x_train, y_train, y_var_train, sample_sizes):
     params_warm_start = None
     captured = []
     for num_samples, (x, y, y_var) in enumerate(
-        zip(x_train, y_train, y_var_train), start=1
+        zip(x_train, y_train, y_var_train, strict=True), start=1
     ):
         row_x = x.reshape(1, -1)
         row_y = y.reshape(1, -1)

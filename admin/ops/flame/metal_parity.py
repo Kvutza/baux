@@ -16,7 +16,6 @@ from .native_parity import mutate_params, reference_loss
 
 def _toypass(rng, config, params, engine, changed):
     import torch
-
     from baux.experimental import Var
 
     from .reference import forward
@@ -50,7 +49,6 @@ def _toypass(rng, config, params, engine, changed):
 
 def toy_forward():
     import torch
-
     from baux.experimental import MetalFlameEvaluator
 
     rng = np.random.default_rng(73)

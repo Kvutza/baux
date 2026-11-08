@@ -1,3 +1,5 @@
+"""Gaussian process surrogate wrapper for TuRBO."""
+
 from __future__ import annotations
 
 import contextlib
@@ -15,6 +17,8 @@ if TYPE_CHECKING:
 
 @dataclass(slots=True)
 class Posterior:
+    """Predictive posterior mean and standard deviation."""
+
     mu: np.ndarray
     sigma: np.ndarray
 
@@ -55,6 +59,8 @@ def _post(model: Any, x: Any) -> Any:
 
 
 class Surrogate:
+    """GPyTorch Gaussian process surrogate supporting fit, predict, and draw."""
+
     def __init__(self) -> None:
         self._model: Any | None = None
         self._mean: float | Any = 0.0
@@ -63,6 +69,7 @@ class Surrogate:
 
     @property
     def lengthscales(self) -> np.ndarray | None:
+        """Return normalized ARD kernel lengthscales from the fitted model."""
         return self._ls
 
     def fit(
@@ -74,6 +81,7 @@ class Surrogate:
         steps: int = 0,
         rng: RandomGenerator | None = None,
     ) -> Self:
+        """Fit the Gaussian process surrogate to observed points and outcomes."""
         from .train import fit
 
         del rng
@@ -114,6 +122,7 @@ class Surrogate:
         return mean[None, :] + std[None, :] * y
 
     def predict(self, x: np.ndarray) -> Posterior:
+        """Compute predictive mean and standard deviation at query points."""
         import torch
 
         if self._model is None:
@@ -138,9 +147,11 @@ class Surrogate:
         return Posterior(self._scale(mu), std[None, :] * np.sqrt(var))
 
     def sample(self, x: np.ndarray, n: int, rng: RandomGenerator) -> np.ndarray:
+        """Draw posterior samples at query points using a NumPy random generator."""
         return self.draw(x, n, int(rng.integers(2**31 - 1)))
 
     def draw(self, x: np.ndarray, n: int, seed: int) -> np.ndarray:
+        """Draw posterior samples at query points using an explicit integer seed."""
         import gpytorch
         import torch
 

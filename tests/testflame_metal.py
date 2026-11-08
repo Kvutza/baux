@@ -7,7 +7,6 @@ from types import ModuleType, SimpleNamespace
 
 import numpy as np
 import pytest
-
 from ops.flame import bo, metal
 from ops.flame.config import Config
 

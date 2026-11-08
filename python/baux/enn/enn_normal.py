@@ -1,3 +1,5 @@
+"""Normal posterior predictive distribution for ENN models."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -10,6 +12,8 @@ if TYPE_CHECKING:
 
 @dataclass
 class ENNNormal:
+    """Posterior predictive normal distribution with epistemic and aleatoric SE."""
+
     mu: np.ndarray
     se: np.ndarray
     se_epi: np.ndarray
@@ -23,6 +27,7 @@ class ENNNormal:
         rng: Generator,
         clip: float | None = None,
     ) -> np.ndarray:
+        """Draw samples from the predictive distribution respecting output bounds."""
         import numpy as np
 
         size = (*self.se.shape, num_samples)

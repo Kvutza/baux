@@ -8,20 +8,19 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-
 from baux.enn.enn_util import (
-    sobol_indices,
     pareto2d_max,
+    sobol_indices,
     standardize_y,
 )
 
 # Try to import Rust implementation
 try:
     from baux._rust import (
-        sobol_indices as rust_calculate_sobol_indices,
+        pareto2d_max as rust_pareto_front,
     )
     from baux._rust import (
-        pareto2d_max as rust_pareto_front,
+        sobol_indices as rust_calculate_sobol_indices,
     )
     from baux._rust import (
         standardize_y as rust_standardize_y,

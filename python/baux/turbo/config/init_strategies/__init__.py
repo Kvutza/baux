@@ -1,3 +1,5 @@
+"""Re-exports of optimizer initialization strategies."""
+
 from ..initialization import HybridInit, InitStrategy, LHDOnlyInit
 
 __all__ = [

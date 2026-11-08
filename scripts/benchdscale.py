@@ -2,10 +2,9 @@ import time
 
 import numpy as np
 import pandas as pd
-
 from baux import (
-    CandidateSampler,
     ENN,
+    CandidateSampler,
     create_optimizer,
     turbo_zero,
 )

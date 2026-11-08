@@ -36,14 +36,17 @@ class ENNState:
 
     @property
     def num_dim(self) -> int:
+        """Return input feature dimension."""
         return int(self.x.shape[1])
 
     @property
     def num_outputs(self) -> int:
+        """Return number of output metrics."""
         return int(self.y.shape[1])
 
     @property
     def key(self) -> Any:
+        """Return content-addressed deterministic PRNG key for this state."""
         from .._rust import Key as _Key
 
         buf = (
@@ -65,10 +68,8 @@ def _wrapenn(base: ENN, rust_model: Any, metric: tuple[str, int] | None = None) 
     out._rust_model = rust_model
     out.device = base.device
     out.index_kind = base.index_kind
-    setattr(
-        out,
-        "_metric",
-        getattr(base, "_metric", ("euclidean", 4)) if metric is None else metric,
+    out._metric = (
+        getattr(base, "_metric", ("euclidean", 4)) if metric is None else metric
     )
     return out
 
@@ -97,6 +98,7 @@ def with_geometry(model: Any, geometry: str, local_k: int = 4) -> Any:
             model, model._rust_model.append_cow(metric=m, local_k=k), (m, k)
         )
     from dataclasses import replace as _replace
+
     from ..state import OptimizerState
     from ..transforms import Transform
     from ..turbo.config.optimizer import OptimizerConfig
@@ -126,7 +128,7 @@ def with_geometry(model: Any, geometry: str, local_k: int = 4) -> Any:
         model._rust = model._rust.with_geometry(m, k)
     elif hasattr(model, "with_geometry") and callable(model.with_geometry):
         return model.with_geometry(m, k)
-    setattr(model, "_geometry", (m, k))
+    model._geometry = m, k
     return model
 
 
@@ -209,6 +211,7 @@ def _codomain(
             target, target._rust_model.append_cow(stiefel=st_arr, affine=aff_tup)
         )
     from dataclasses import replace as _replace
+
     from ..state import OptimizerState
     from ..transforms import Transform
     from ..turbo.config.optimizer import OptimizerConfig

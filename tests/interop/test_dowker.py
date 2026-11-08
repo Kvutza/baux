@@ -31,6 +31,7 @@ jax = pytest.importorskip("jax")
 from baux import ENN, capabilities
 from baux.enn.enn_params import ENNParams, PosteriorFlags
 from baux.turbo.config.surrogate import NeighborIndex
+
 from evals.torax.tcv_coupling import eval_wpo_table6
 
 

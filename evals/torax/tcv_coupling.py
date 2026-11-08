@@ -12,8 +12,9 @@ Academic & Open-Source Attribution:
 """
 
 import copy
-from dataclasses import dataclass
 import os
+from dataclasses import dataclass
+
 import numpy as np
 
 os.environ.setdefault("JAX_PRECISION", "f32")
@@ -100,6 +101,7 @@ class PolicyLayers:
 
     @classmethod
     def unpack(cls, weights: np.ndarray) -> "PolicyLayers":
+        """Unpack a flat parameter vector into structured MLP weight and bias arrays."""
         assert len(weights) == TOTAL_PARAMS, (
             f"Expected {TOTAL_PARAMS} params, got {len(weights)}"
         )
@@ -122,6 +124,7 @@ class PolicyLayers:
         return cls(w1, b1, w2, b2, w3, b3, w4, b4)
 
     def forward(self, obs: np.ndarray) -> np.ndarray:
+        """Compute bounded `[-1, 1]` actuator commands from observation vector `obs`."""
         h1 = _elu(np.dot(obs, self.w1) + self.b1)
         h2 = _elu(np.dot(h1, self.w2) + self.b2)
         h3 = _elu(np.dot(h2, self.w3) + self.b3)
@@ -284,6 +287,7 @@ class ToraxTcvBridge:
         self.target_ti = target_ti
 
     def build_config(self, action: np.ndarray):
+        """Build a TORAX configuration dictionary modulated by policy `action`."""
         from torax.examples.basic_config import CONFIG
 
         delta_ip = float(action[0]) * 1e5
@@ -301,6 +305,7 @@ class ToraxTcvBridge:
     def calc_reward(
         self, central_te: float, central_ti: float, action: np.ndarray
     ) -> float:
+        """Compute the WPO Table 6 SmoothMax multi-component tokamak control reward."""
         lcfs_dist = 0.002 * abs(central_te - self.target_te)
         c_lcfs = softplus_component(lcfs_dist, LCFS_GOOD, LCFS_BAD)
 
@@ -322,10 +327,12 @@ class ToraxTcvBridge:
         return smooth_max([c_lcfs, c_ip, c_pf, c_volt, c_oh], COMBINER_ALPHA)
 
     def eval_rollout(self, weights: np.ndarray, rounds: int = 20) -> float:
+        """Evaluate mean closed-loop TORAX rollout reward for policy `weights`."""
         from evals.torax.torax_rollout import ToraxClosedLoopEnv
 
         _ = rounds
         return ToraxClosedLoopEnv.shared().eval_mean(weights)
 
     def eval_policy(self, weights: np.ndarray, steps: int = 20) -> float:
+        """Evaluate policy `weights` over a closed-loop TORAX episode."""
         return self.eval_rollout(weights, rounds=steps)

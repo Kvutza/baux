@@ -12,11 +12,10 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-
 from baux.turbo.config import (
     AcquisitionKind,
-    SurrogateFit,
     ENNSurrogate,
+    SurrogateFit,
     turbo_enn,
 )
 

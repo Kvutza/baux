@@ -1,8 +1,7 @@
-from pathlib import Path
 import tomllib
+from pathlib import Path
 
 import pytest
-
 from ops import pretrain
 from ops.pretrain_episodes import build_episodes, documents, write_episodes
 

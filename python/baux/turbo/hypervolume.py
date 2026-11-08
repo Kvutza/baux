@@ -1,11 +1,13 @@
+"""Two-dimensional dominated hypervolume computation under maximization."""
+
 from __future__ import annotations
 
 import numpy as np
-
 from baux._rust import hypervolume2d_max as _rust_hypervolume_2d_max
 
 
 def hypervolume2d_max(y: np.ndarray, ref_point: np.ndarray) -> float:
+    """Compute the 2D hypervolume dominated by `y` relative to `ref_point`."""
     y = np.asarray(y, dtype=float)
     ref_point = np.asarray(ref_point, dtype=float)
     if y.size == 0:

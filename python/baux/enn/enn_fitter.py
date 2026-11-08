@@ -1,11 +1,13 @@
+"""Stateful tell/ask hyperparameter fitter for ENN models."""
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
 import numpy as np
 
-from baux._rust import ENNParams as RustENNParams
 from baux._rust import ENNFitter as _RustENNFitter
+from baux._rust import ENNParams as RustENNParams
 
 if TYPE_CHECKING:
     from numpy.random import Generator
@@ -15,6 +17,8 @@ if TYPE_CHECKING:
 
 
 class ENNFitter:
+    """Incremental hyperparameter fitter tracking observation target scale."""
+
     def __init__(
         self,
         k: int,
@@ -51,6 +55,7 @@ class ENNFitter:
         self._rust.tell(x_array, y_array, yvar_array)
 
     def y_std(self) -> np.ndarray:
+        """Return empirical standard deviation of observed targets per output."""
         return np.asarray(self._rust.y_std(), dtype=float)
 
     def ask(

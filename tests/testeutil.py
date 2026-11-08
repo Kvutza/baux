@@ -2,11 +2,10 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-
 from baux.enn.enn_util import (
+    pareto2d_max,
     pareto_arms,
     sobol_indices,
-    pareto2d_max,
     standardize_y,
 )
 

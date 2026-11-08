@@ -4,9 +4,8 @@ import json
 from pathlib import Path
 
 import pytest
-from click.testing import CliRunner
-
 from baux import cuda
+from click.testing import CliRunner
 
 
 class Backend:

@@ -1,5 +1,4 @@
 import numpy as np
-
 from baux.enn.draw_internals import DrawInternals
 from baux.enn.neighbor_data import NeighborData
 from baux.enn.weighted_stats import WeightedStats

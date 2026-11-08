@@ -1,8 +1,8 @@
 """Unpack pinned LLVM archives or merge the data files of Linux SDK packages."""
 
-from pathlib import Path
 import tarfile
 import zipfile
+from pathlib import Path
 
 import click
 

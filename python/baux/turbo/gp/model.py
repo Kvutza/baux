@@ -1,3 +1,5 @@
+"""GPyTorch ExactGP model definitions for TuRBO surrogates."""
+
 from __future__ import annotations
 
 import warnings
@@ -22,19 +24,25 @@ def _base():
 
 
 class Base(_base()):
+    """Base ExactGP model providing Matern covariance and posterior evaluation."""
+
     mean_module: Any
     covar_module: Any
 
     def forward(self, x) -> MultivariateNormal:
+        """Compute the prior multivariate normal distribution at `x`."""
         from gpytorch.distributions import MultivariateNormal
 
         return MultivariateNormal(self.mean_module(x), self.covar_module(x))
 
     def posterior(self, x) -> MultivariateNormal:
+        """Evaluate the predictive posterior distribution at `x`."""
         return self(x)
 
 
 class Exact(Base):
+    """Exact Gaussian process with learned homoscedastic noise."""
+
     def __init__(self, x, y, like, ls_bound, scale_bound, d: int) -> None:
         import torch
         from gpytorch.kernels import MaternKernel, ScaleKernel
@@ -57,6 +65,8 @@ class Exact(Base):
 
 
 class Noisy(Base):
+    """Gaussian process with fixed observation noise variances."""
+
     def __init__(
         self,
         x,

@@ -5,8 +5,7 @@ from __future__ import annotations
 import inspect
 
 import numpy as np
-
-from baux import ENNFitter, ENN
+from baux import ENN, ENNFitter
 from baux.enn.enn_params import ENNParams
 
 

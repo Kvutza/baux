@@ -10,13 +10,18 @@ from typing import Any
 
 import click
 import numpy as np
-
 from baux.enn.enn_class import ENN
 from baux.turbo.config.surrogate import NeighborIndex
 from ops import (
     stress_disk as _disk,
+)
+from ops import (
     stress_draw as _draw,
+)
+from ops import (
     stress_sample as _sample,
+)
+from ops import (
     stress_turbo as _turbo,
 )
 from ops.stress_disk import (

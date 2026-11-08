@@ -9,7 +9,6 @@ import tempfile
 
 import numpy as np
 import pytest
-
 from baux.enn.enn_class import ENN
 from baux.turbo.config.surrogate import NeighborIndex
 

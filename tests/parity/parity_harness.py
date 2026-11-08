@@ -25,8 +25,8 @@ from .parity_types import ParityReport
 def run_harness() -> ParityReport:
     from baux.turbo.config import (
         AcquisitionKind,
-        SurrogateFit,
         ENNSurrogate,
+        SurrogateFit,
         lhd_only,
         turbo_enn,
         turbo_zero,

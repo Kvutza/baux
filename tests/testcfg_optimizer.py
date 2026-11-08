@@ -1,24 +1,21 @@
 from __future__ import annotations
 
 import pytest
-
 from baux.turbo import config as cfg
 from baux.turbo.config import (
     AcquisitionKind,
     CandidateConfig,
     CandidateSampler,
-    DrawAcquisitionConfig,
     DistanceMetric,
-    SurrogateFit,
-    NeighborIndex,
+    DrawAcquisitionConfig,
     ENNSurrogate,
     GaussianProcess,
     InitConfig,
     LHDOnlyInit,
     MorboTrustRegion,
     MultiObjectiveConfig,
-    RegionalSearchPolicy,
     NDSOptimizerConfig,
+    NeighborIndex,
     NoSurrogate,
     NoTrustRegion,
     ObservationHistoryConfig,
@@ -26,6 +23,8 @@ from baux.turbo.config import (
     ParetoAcquisitionConfig,
     RAASPOptimizerConfig,
     RandomAcquisitionConfig,
+    RegionalSearchPolicy,
+    SurrogateFit,
     TurboTrustRegion,
     UCBAcquisitionConfig,
     lhd_only,

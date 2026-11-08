@@ -1,20 +1,17 @@
 """Native orchestration coverage with CPU checkpoints and fake CUDA bindings."""
 # ruff: noqa: F811
 
-from itertools import product
 import os
 import subprocess
 import sys
+from itertools import product
 from pathlib import Path
 
 import pytest
 from click.testing import CliRunner
-
+from native_fixtures import Source, binding, checkpoint, config, document  # noqa: F401
 from ops.flame import bo, native
 from ops.flame.objective import SolutionObjective
-
-
-from native_fixtures import Source, binding, checkpoint, config, document  # noqa: F401
 
 
 @pytest.mark.parametrize("method", ["enable_relative", "tell_relative"])

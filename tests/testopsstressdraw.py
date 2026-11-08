@@ -162,12 +162,12 @@ def test_007():
         DrawStressResult,
         MeanSE,
         SampleStressResult,
-        format_header3,
         format_aggregate,
-        format_summary2,
         format_aggregate2,
-        format_summary,
+        format_header3,
         format_row,
+        format_summary,
+        format_summary2,
     )
 
     assert DURATION_S_FMT == ".4f"
@@ -324,7 +324,6 @@ def _cliline(line: str, method: str, *, with_se: bool) -> None:
 
 def test_009():
     from click.testing import CliRunner
-
     from ops.stress import cli
 
     result = CliRunner().invoke(cli, _cliargs())
@@ -342,7 +341,6 @@ def test_009():
 
 def test_010():
     from click.testing import CliRunner
-
     from ops.stress import cli
 
     result = CliRunner().invoke(cli, _cliargs(num_seeds=3))
@@ -357,7 +355,6 @@ def test_010():
 
 def test_011():
     from click.testing import CliRunner
-
     from ops.stress import DEFAULT_DRAW_NUM_DRAWS, DEFAULT_DRAW_NUM_SEEDS, cli
 
     assert DEFAULT_DRAW_NUM_DRAWS == 100
@@ -372,7 +369,6 @@ def test_011():
 
 def test_012():
     from click.testing import CliRunner
-
     from ops.stress import cli
 
     result = CliRunner().invoke(cli, ["draw", "0", "10"])
@@ -382,7 +378,6 @@ def test_012():
 
 def test_013():
     from click.testing import CliRunner
-
     from ops.stress import cli
 
     result = CliRunner().invoke(cli, ["draw"])

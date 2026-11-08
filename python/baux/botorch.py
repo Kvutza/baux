@@ -40,10 +40,12 @@ class Model(BaseModel):
 
     @property
     def num_outputs(self):
+        """Number of objective outputs modeled by the underlying ENN."""
         return self.enn.num_outputs
 
     @property
     def batch_shape(self):
+        """Empty batch shape for unbatched ENN training data."""
         return torch.Size()
 
     @override
@@ -159,19 +161,23 @@ class Posterior(BasePosterior):
 
     @property
     def device(self):
+        """PyTorch device hosting this posterior's query and output tensors."""
         return self._device
 
     @property
     def dtype(self):
+        """Floating-point dtype of this posterior's mean, variance, and samples."""
         return self._dtype
 
     @property
     def mean(self):
+        """Posterior predictive mean tensor at the queried points."""
         self._check()
         return self._mean
 
     @property
     def variance(self):
+        """Posterior predictive variance tensor at the queried points."""
         self._check()
         return self._variance
 

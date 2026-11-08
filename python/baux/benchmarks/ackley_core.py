@@ -1,9 +1,12 @@
+"""Core numerical evaluation for the Ackley test function."""
+
 import numpy as np
 
 
 def ackley_core(
     x: np.ndarray, a: float = 20.0, b: float = 0.2, c: float = 2 * np.pi
 ) -> np.ndarray:
+    """Compute the standard Ackley function centered at `x = 1`."""
     if x.ndim == 1:
         x = x[None, :]
     x = x - 1

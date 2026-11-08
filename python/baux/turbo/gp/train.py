@@ -1,10 +1,11 @@
+"""Training routines for GPyTorch Gaussian process surrogates."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
-
 from baux.enn.enn_util import standardize_y
 
 from .model import Exact, Noisy
@@ -119,6 +120,7 @@ def fit(
     var: Any | None = None,
     steps: int = 50,
 ) -> _Fit:
+    """Standardize observations, construct a GP model, and optimize its MLL."""
     x = np.asarray(x, dtype=float)
     y = np.asarray(y, dtype=float)
     multi = y.ndim == 2 and y.shape[1] > 1

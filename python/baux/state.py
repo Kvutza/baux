@@ -117,7 +117,7 @@ def _applyop(inner: Any, op: _Op, id_map: dict[int, int]) -> None:
         inner.ask(num_arms, seed=op.seed)
         after = inner.pending_ids() or ()
         new_ids = [i for i in after if i not in before]
-        for orig, cur in zip(orig_ids, new_ids):
+        for orig, cur in zip(orig_ids, new_ids, strict=True):
             id_map[orig] = cur
     elif op.kind == "tell":
         x, y, yvar = op.args
@@ -136,7 +136,7 @@ def _applyop(inner: Any, op: _Op, id_map: dict[int, int]) -> None:
     elif op.kind == "restart":
         slot, center, orig_abandoned = op.args
         abandoned = inner.restart_region(slot, center, seed=op.seed)
-        for orig, cur in zip(orig_abandoned, abandoned):
+        for orig, cur in zip(orig_abandoned, abandoned, strict=True):
             id_map[orig] = cur
 
 
@@ -179,7 +179,7 @@ class OptimizerState:
         ):
             try:
                 return self._cursor.inner.fork(), dict(self._cursor.id_map), False
-            except Exception:
+            except (AttributeError, RuntimeError, TypeError, ValueError):
                 pass
         if self._cursor.epoch == self.epoch:
             return self._cursor.inner, self._cursor.id_map, True
@@ -198,21 +198,25 @@ class OptimizerState:
 
     @property
     def x_obs(self) -> np.ndarray:
+        """Read-only `(n, dim)` matrix of observed parameter vectors."""
         x = self._readonlyview().x_obs()
         return _readonly(np.empty((0, self.dim)) if x is None else x)
 
     @property
     def y_obs(self) -> np.ndarray:
+        """Read-only `(n, m)` matrix of observed objective values."""
         y = self._readonlyview().y_obs()
         return _readonly(np.empty((0, 1)) if y is None else y)
 
     @property
     def incumbent_x(self) -> np.ndarray | None:
+        """Read-only incumbent parameter vector, or `None` if no observations exist."""
         inc = self._readonlyview().incumbent_x()
         return None if inc is None else _readonly(inc)
 
     @property
     def lengthscales(self) -> np.ndarray | None:
+        """Read-only per-dimension surrogate lengthscales, if supported."""
         view = self._readonlyview()
         if not hasattr(view, "lengthscales"):
             return None
@@ -221,11 +225,13 @@ class OptimizerState:
 
     @property
     def metric_weights(self) -> np.ndarray | None:
+        """Read-only inverse lengthscale weights used for metric-aware decoding."""
         ls = self.lengthscales
         return None if ls is None else _readonly(1.0 / np.maximum(ls, 1e-12))
 
     @property
     def incumbent_params(self) -> Any:
+        """Incumbent parameters decoded through `spec`, or `incumbent_x` if unspec'd."""
         inc = self.incumbent_x
         if inc is None or self.spec is None:
             return inc
@@ -233,19 +239,23 @@ class OptimizerState:
 
     @property
     def best_y(self) -> float | None:
+        """Best observed primary objective value, or `None` if empty."""
         y = self.y_obs
         return None if y.size == 0 else float(np.max(y[:, 0]))
 
     def digest(self) -> str:
+        """Return the 64-character hexadecimal BLAKE3 state digest."""
         return str(self._readonlyview().digest_hex())
 
     @property
     def key(self) -> Any:
+        """Deterministic PRNG `Key` derived from this state's BLAKE3 digest."""
         from . import _rust
 
         return _rust.Key.from_bytes(bytes.fromhex(self.digest()))
 
     def fork(self, key: Any = None, *, seed: Any = None) -> OptimizerState:
+        """Return an independent copy of this state with an optional new `key` or `seed`."""
         from dataclasses import replace
 
         inner, id_map, in_place = self._checkout()

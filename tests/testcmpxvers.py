@@ -10,12 +10,12 @@ from click.testing import CliRunner
 from scripts.cmpxvers import (
     BASELINE_LABEL,
     CURRENT_LABEL,
-    cli,
     _comparesummary,
     _envversion,
     _formatrow,
     _runsubprocess,
     _workermain,
+    cli,
     main,
 )
 from scripts.cmpxverscore import (

@@ -3,7 +3,6 @@ from __future__ import annotations
 import tomllib
 
 import pytest
-
 from baux.turbo.optimizer_fixtures import (
     EXPECTED_OPTIMIZER_FIXTURE_NAMES,
     assert_invariants,

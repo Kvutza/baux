@@ -1,3 +1,5 @@
+"""Golden fixture capture, catalog, and replay helpers for TuRBO optimizers."""
+
 from .capture import (
     RNG_SEMANTICS,
     UPSTREAM_ENN_REVISION,
@@ -15,9 +17,9 @@ from .catalog import (
     catalog_names,
     entry_name,
     name_prefix,
-    subdir_entry,
     separable_objective,
     sphere_objective,
+    subdir_entry,
 )
 from .replay import (
     assert_invariants,

@@ -22,6 +22,7 @@ import struct
 import sys
 import types
 from pathlib import Path
+
 import numpy as np
 
 os.environ.setdefault("JAX_PRECISION", "f32")
@@ -92,6 +93,7 @@ STUB_MODULES = (
 def _stubmods() -> None:
     os.environ["ML_DATA_DUMP"] = "/tmp"
     import functools
+
     import equinox as eqx
     import jax
 
@@ -101,7 +103,7 @@ def _stubmods() -> None:
         import jax_plugins.mps.ops as mpsops
 
         orig = getattr(mpsops, "_gelu_original", None)
-    except Exception:
+    except (AttributeError, ImportError, TypeError):
         orig = None
     if orig is not None:
         jax.nn.gelu = orig
@@ -226,6 +228,7 @@ class TokaGymClosedLoopEnv:
 
     @classmethod
     def shared(cls, scenario: str = "170kA") -> "TokaGymClosedLoopEnv":
+        """Return the singleton closed-loop TokaGym environment for `scenario`."""
         if cls._instance is None or cls._instance.scenario != scenario:
             cls._instance = cls(scenario=scenario)
         return cls._instance
@@ -234,9 +237,9 @@ class TokaGymClosedLoopEnv:
         root = _ensuretokagym()
         import jax
         import jax.numpy as jnp
+        import toka_gym.tcv_gym as tg
         from toka_gym.es_fitness_model import ESFitnessModel
         from toka_gym.tcv_env import TCVEnv
-        import toka_gym.tcv_gym as tg
 
         jax.config.update("jax_enable_x64", False)
         cpu = jax.devices("cpu")[0]
@@ -354,20 +357,24 @@ class TokaGymClosedLoopEnv:
         return b_obs[0], b_u[0], rewards, mean_r
 
     def eval_mean(self, weights: np.ndarray) -> float:
+        """Evaluate the mean per-step reward for policy `weights`."""
         with self._jax.default_device(self._cpu):
             w = self._jnp.asarray(weights, dtype=self._jnp.float32)
             return float(self._traj(w, self._zero_eps)[3])
 
     def eval_return(self, weights: np.ndarray) -> float:
+        """Evaluate the total episode return for policy `weights`."""
         return float(TOKAGYM_STEPS) * self.eval_mean(weights)
 
     def eval_batch(self, batch: np.ndarray) -> np.ndarray:
+        """Evaluate total episode returns for a batch of policy weights."""
         with self._jax.default_device(self._cpu):
             w = self._jnp.asarray(batch, dtype=self._jnp.float32)
             means = np.asarray(self._batch(w), dtype=np.float64)
         return float(TOKAGYM_STEPS) * means
 
     def eval_traj(self, weights: np.ndarray, eps: np.ndarray):
+        """Evaluate a perturbed rollout trajectory and return score, observations, controls, and rewards."""
         with self._jax.default_device(self._cpu):
             w = self._jnp.asarray(weights, dtype=self._jnp.float32)
             e = self._jnp.asarray(eps, dtype=self._jnp.float32).reshape(

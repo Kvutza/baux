@@ -1,5 +1,8 @@
+"""TORAX simulation runner for tokamak core transport evaluation."""
+
 import copy
 import os
+
 import numpy as np
 
 # Configure JAX precision before torax/jax are imported anywhere
@@ -22,6 +25,7 @@ class ToraxRunner:
         self.bounds = np.array([[10.0, 150.0], [0.0, 0.8]], dtype=float)
 
     def evaluate(self, p_heat_mw: float, gaussian_loc: float) -> float:
+        """Evaluate negative transport loss for the given heating power and radial location."""
         import torax
         from torax.examples.basic_config import CONFIG
 

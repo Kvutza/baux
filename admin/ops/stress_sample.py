@@ -6,7 +6,6 @@ import time
 from dataclasses import dataclass
 
 import numpy as np
-
 from ops.stress_disk import (
     DEFAULT_DRAW_K,
     DEFAULT_DRAW_NUM_DRAWS,

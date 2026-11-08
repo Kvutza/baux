@@ -1,3 +1,5 @@
+"""Stateful ask/tell Bayesian optimizer interface backed by the native Rust engine."""
+
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -196,10 +198,12 @@ class Optimizer:
 
     @property
     def tr_length(self) -> float:
+        """Current side length of the primary trust region."""
         return float(self._inner.tr_length())
 
     @property
     def init_progress(self) -> tuple[int, int] | None:
+        """Completed and total warm-up initialization counts, if applicable."""
         return self._inner.init_progress()
 
     @property
@@ -208,6 +212,7 @@ class Optimizer:
         return getattr(self._inner, "ingestion_failure", None)
 
     def telemetry(self) -> Telemetry:
+        """Return timing and candidate-count telemetry from the latest round."""
         t = self._inner.telemetry()
         return Telemetry(
             dt_fit=t.dt_fit,

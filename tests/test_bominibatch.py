@@ -7,15 +7,13 @@ jax = pytest.importorskip("jax")
 jnp = pytest.importorskip("jax.numpy")
 pytest.importorskip("safetensors")
 
-from ops.flame import bo
-
-
 from bo_fixtures import (
-    FakeProposals,
     FakePairedSearch,
     FakeProblemEvaluator,
+    FakeProposals,
     minibatch_baseline,
 )
+from ops.flame import bo
 
 
 def test_pairoverride(layout, flat):

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import numpy as np
-
 from baux import create_optimizer
 from baux.turbo.config.encode import supports
 

@@ -3,19 +3,18 @@
 from __future__ import annotations
 
 import numpy as np
-from morbo_objectives import (
-    separable_objective as _separable_unimodal_objective,
-)
-
 from baux import create_optimizer
 from baux.turbo.config import (
     AcquisitionKind,
     CandidateConfig,
-    SurrogateFit,
     ENNSurrogate,
     MorboTrustRegion,
     MultiObjectiveConfig,
+    SurrogateFit,
     turbo_enn,
+)
+from morbo_objectives import (
+    separable_objective as _separable_unimodal_objective,
 )
 
 

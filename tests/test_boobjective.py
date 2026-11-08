@@ -9,15 +9,13 @@ jax = pytest.importorskip("jax")
 jnp = pytest.importorskip("jax.numpy")
 pytest.importorskip("safetensors")
 
-from ops.flame import bo, model
-from ops.flame.layout import Layout
-
-
 from bo_fixtures import (
-    bf16,
     FakeProposals,
     FakeSearchState,
+    bf16,
 )
+from ops.flame import bo, model
+from ops.flame.layout import Layout
 
 
 @pytest.mark.parametrize("batched", [False, True])
@@ -109,7 +107,7 @@ def test_feedback(layout, flat, sampler):
     assert [row["y_scale"] for row in rows] == [1e-6, 0.5, 1.0]
     assert [call[0] for call in search.calls] == ["ask", "tell", "sync"] * 3
     for proposal, candidate, row, ask, tell in zip(
-        proposals, seen, rows, search.calls[::3], search.calls[1::3]
+        proposals, seen, rows, search.calls[::3], search.calls[1::3], strict=True
     ):
         assert proposal.exports == 1
         np.testing.assert_array_equal(candidate, proposal.array)

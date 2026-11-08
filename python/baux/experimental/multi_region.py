@@ -1,3 +1,5 @@
+"""Experimental multi-trust-region batch allocation, scoring, and candidate selection."""
+
 from __future__ import annotations
 
 import sys
@@ -15,6 +17,8 @@ from .region_types import (
 
 
 class RegionRound(NamedTuple):
+    """Batches, proposals, scored candidates, and selected arms from one search round."""
+
     batches: list[RegionBatch]
     proposals: list[CandidateProposal]
     candidates: list[RegionCandidate]
@@ -33,6 +37,7 @@ def make_region(
     sharing_policy: SharingPolicy | str = SharingPolicy.BOX_CONTAIN,
     seed: int | None = None,
 ):
+    """Construct a native `MultiTrustRegion` state with the given sharing policy."""
     from . import MultiTrustRegion
 
     return MultiTrustRegion(
@@ -48,6 +53,7 @@ def allocate_batches(
     budget: int,
     utility: Sequence[float] | np.ndarray | None = None,
 ) -> list[RegionBatch]:
+    """Allocate candidate generation slices across active trust regions."""
     raw_batches = (
         state.allocate(budget)
         if utility is None
@@ -61,6 +67,7 @@ def select_candidates(
     candidates: Sequence[RegionCandidate | Sequence[Any]],
     num_arms: int,
 ) -> list[RegionCandidate]:
+    """Select the top `num_arms` candidates across regions using `state`."""
     raw_candidates = [
         candidate
         if isinstance(candidate, RegionCandidate)
@@ -95,6 +102,7 @@ class RegionalSearchLoop:
     def allocate(
         self, budget: int, utility: Sequence[float] | np.ndarray | None = None
     ) -> list[RegionBatch]:
+        """Allocate candidate generation batches across regions for `budget`."""
         return allocate_batches(self.state, budget, utility)
 
     def propose(
@@ -106,6 +114,7 @@ class RegionalSearchLoop:
         ],
         utility: Sequence[float] | np.ndarray | None = None,
     ) -> tuple[list[RegionBatch], list[CandidateProposal]]:
+        """Allocate region batches and collect candidate proposals from `proposal_fn`."""
         batches = self.allocate(budget, utility)
         proposals: list[CandidateProposal] = []
         for batch in batches:
@@ -124,6 +133,7 @@ class RegionalSearchLoop:
         proposals: Sequence[CandidateProposal | Sequence[Any]],
         scorer: Callable[[CandidateProposal], float],
     ) -> list[RegionCandidate]:
+        """Evaluate `scorer` on each proposal and return indexed `RegionCandidate` records."""
         scored: list[RegionCandidate] = []
         for index, proposal in enumerate(map(_coerceproposal, proposals)):
             scored.append(
@@ -139,6 +149,7 @@ class RegionalSearchLoop:
     def select(
         self, candidates: Sequence[RegionCandidate | Sequence[Any]], num_arms: int
     ) -> list[RegionCandidate]:
+        """Select `num_arms` candidates from `candidates` using the underlying state."""
         return select_candidates(self.state, candidates, num_arms)
 
     def run_round(
@@ -153,6 +164,7 @@ class RegionalSearchLoop:
         num_arms: int | None = None,
         utility: Sequence[float] | np.ndarray | None = None,
     ) -> RegionRound:
+        """Execute one full propose-score-select round and return a `RegionRound`."""
         batches, proposals = self.propose(budget, proposal_fn, utility)
         candidates = self.score(proposals, scorer)
         selected = self.select(candidates, num_arms or len(candidates))
@@ -164,6 +176,7 @@ class RegionalSearchLoop:
         )
 
     def tell(self, x: np.ndarray, y: np.ndarray, y_var: np.ndarray | None = None):
+        """Record observations `(x, y, y_var)` into the multi-trust-region state."""
         x = np.asarray(x, dtype=float)
         y = np.asarray(y, dtype=float)
         x.flags.writeable = False
@@ -176,9 +189,11 @@ class RegionalSearchLoop:
         return self.state.tell(x, y, y_var)
 
     def restart_region(self, region: int, new_center: np.ndarray):
+        """Restart `region` centered at `new_center`."""
         return self.state.restart_region(region, new_center)
 
     def variance(self, region: int):
+        """Return the current posterior variance estimate for `region`."""
         return self.state.variance(region)
 
 

@@ -1,3 +1,5 @@
+"""Top-level optimizer configuration and validation."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -35,7 +37,7 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True)
 class ObservationHistoryConfig:
-    pass
+    """Configuration for observation history retention."""
 
 
 def _randomacquisition() -> RandomAcquisitionConfig:
@@ -48,6 +50,8 @@ def _raaspoptimizer() -> RAASPOptimizerConfig:
 
 @dataclass(frozen=True)
 class OptimizerConfig:
+    """Composite configuration for a TuRBO or MORBO optimizer."""
+
     trust_region: TrustRegionConfig = TurboTrustRegion()
     candidates: CandidateConfig = field(default_factory=CandidateConfig)
     init: InitConfig = field(default_factory=InitConfig)
@@ -61,20 +65,24 @@ class OptimizerConfig:
 
     @property
     def num_metrics(self) -> int | None:
+        """Return the number of metrics for multi-objective trust regions, if set."""
         if isinstance(self.trust_region, MorboTrustRegion):
             return self.trust_region.num_metrics
         return None
 
     @property
     def candidate_sampler(self) -> CandidateSampler:
+        """Return the configured candidate sampler."""
         return self.candidates.sampler
 
     @property
     def num_candidates(self) -> int | None:
+        """Return the configured candidate count override, if any."""
         return self.candidates.num_candidates
 
     @property
     def raasp_driver(self) -> RAASPDriver:
+        """Return the configured RAASP driver."""
         return self.candidates.raasp_driver
 
 

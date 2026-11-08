@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import pytest
-
 from baux.turbo.config import MultiObjectiveConfig
 
 

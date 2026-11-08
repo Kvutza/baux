@@ -1,24 +1,28 @@
+"""Initialization strategy configuration for TuRBO optimizers."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
 
 
 class InitStrategy:
-    pass
+    """Base class for optimizer initialization strategies."""
 
 
 @dataclass(frozen=True)
 class HybridInit(InitStrategy):
-    pass
+    """Hybrid initialization combining initial design with trust-region search."""
 
 
 @dataclass(frozen=True)
 class LHDOnlyInit(InitStrategy):
-    pass
+    """Latin hypercube design-only initialization without surrogate search."""
 
 
 @dataclass(frozen=True)
 class InitConfig:
+    """Configuration for initial design sampling."""
+
     init_strategy: InitStrategy | None = None
     num_init: int | None = None
 
@@ -33,6 +37,7 @@ class InitConfig:
             raise ValueError(f"num_init must be > 0, got {self.num_init}")
 
     def get_strategy(self) -> InitStrategy:
+        """Return the configured initialization strategy or default to HybridInit."""
         if self.init_strategy is not None:
             return self.init_strategy
         return HybridInit()

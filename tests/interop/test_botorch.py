@@ -4,6 +4,9 @@ import pytest
 torch = pytest.importorskip("torch")
 pytest.importorskip("botorch")
 
+from baux import ENN
+from baux.botorch import Model, Sampler
+from baux.enn.enn_params import ENNParams, PosteriorFlags
 from botorch.acquisition.logei import (
     qLogExpectedImprovement,
     qLogNoisyExpectedImprovement,
@@ -16,10 +19,6 @@ from botorch.acquisition.monte_carlo import (
 )
 from botorch.optim import optimize_acqf_discrete
 from botorch.sampling.get_sampler import get_sampler
-
-from baux import ENN
-from baux.botorch import Model, Sampler
-from baux.enn.enn_params import ENNParams, PosteriorFlags
 
 
 @pytest.fixture

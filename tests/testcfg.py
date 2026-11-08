@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import pytest
-
 from baux.turbo import config as cfg
 from baux.turbo.config import (
     CandidateConfig,

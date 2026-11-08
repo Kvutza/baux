@@ -4,7 +4,6 @@ import sys
 
 import numpy as np
 import pytest
-
 from baux._trials import Loop, Space
 
 

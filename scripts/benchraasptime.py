@@ -6,7 +6,6 @@ import time
 from dataclasses import dataclass
 
 import numpy as np
-
 from baux import CandidateSampler, create_optimizer, turbo_zero
 
 

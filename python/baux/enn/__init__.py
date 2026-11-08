@@ -7,7 +7,8 @@ import types
 from typing import Any
 
 from ..pytree import Log, Periodic, Simplex, Space
-from ..transforms import Transform, enn as _enntransform
+from ..transforms import Transform
+from ..transforms import enn as _enntransform
 from .enn_class import ENN
 from .enn_fitter import ENNFitter
 from .enn_normal import ENNNormal
@@ -18,17 +19,27 @@ from .enn_state import (
     Stiefel,
     calibrate,
     enn_append,
-    enn_append as append,
     enn_fit,
-    enn_fit as fit,
     enn_init,
-    enn_init as init,
     enn_posterior,
-    enn_posterior as posterior,
     enn_sample,
-    enn_sample as sample,
     stein,
     with_geometry,
+)
+from .enn_state import (
+    enn_append as append,
+)
+from .enn_state import (
+    enn_fit as fit,
+)
+from .enn_state import (
+    enn_init as init,
+)
+from .enn_state import (
+    enn_posterior as posterior,
+)
+from .enn_state import (
+    enn_sample as sample,
 )
 from .posterior_flags import DiagonalMetric, MetricLearning, PosteriorFlags
 

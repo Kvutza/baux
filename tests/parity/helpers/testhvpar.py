@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-
 from baux.turbo.hypervolume import hypervolume2d_max
 
 # Try to import Rust implementation

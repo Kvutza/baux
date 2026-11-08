@@ -11,7 +11,6 @@ from types import ModuleType, SimpleNamespace
 
 import numpy as np
 import pytest
-
 from ops.flame import bo, native
 from ops.flame.config import ITERATION, MODEL_ID, REVISION, Config
 
@@ -143,7 +142,8 @@ def binding(monkeypatch, tmp_path, config):
             assert isinstance(weights, Source)
             assert len(tokens) == len(masks) == 2
             assert all(
-                len(t) == len(m) and not m[0] and m[-1] for t, m in zip(tokens, masks)
+                len(t) == len(m) and not m[0] and m[-1]
+                for t, m in zip(tokens, masks, strict=True)
             )
             state.calls.append(weights.role)
             state.forwards.append((weights.role, tokens, masks))

@@ -63,7 +63,7 @@ class TestHypervolumeContract:
             hypervolume2d_max(y, ref)
 
     def test_invalidyshaperaises(self):
-        """y with wrong second dimension raises ValueError."""
+        """Y with wrong second dimension raises ValueError."""
         from baux.turbo.hypervolume import hypervolume2d_max
 
         y = np.array([[1.0, 0.5, 0.3]])  # 3D instead of 2D
@@ -99,8 +99,8 @@ class TestEnnHashContract:
     def test_008(self):
         """Hash functions have signature (seeds, indices, num_metrics) -> array."""
         from baux.enn.enn_hash import (
-            normal_philox,
             normal_hash,
+            normal_philox,
         )
 
         for fn in [normal_philox, normal_hash]:

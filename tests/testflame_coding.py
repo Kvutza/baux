@@ -3,11 +3,8 @@ import json
 
 import pytest
 from click.testing import CliRunner
-
+from code_fixtures import CharacterTokenizer, fake_sources, row
 from ops.flame import coding
-
-
-from code_fixtures import CharacterTokenizer, row, fake_sources
 
 
 def test_provenance():

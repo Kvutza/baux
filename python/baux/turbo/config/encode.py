@@ -1,3 +1,5 @@
+"""Serialize optimizer configurations for the native Rust engine."""
+
 from __future__ import annotations
 
 import os
@@ -15,16 +17,16 @@ from .candidates import CandidateSampler, RAASPDriver
 from .initialization import LHDOnlyInit
 from .optimizer import OptimizerConfig
 from .surrogate import (
+    INDEX_NAMES,
     ENNSurrogate,
     ExternalSurrogate,
     GaussianProcess,
-    INDEX_NAMES,
     NoSurrogate,
 )
 from .trust_region import (
     MorboTrustRegion,
-    RegionalSearchPolicy,
     NoTrustRegion,
+    RegionalSearchPolicy,
     TurboTrustRegion,
 )
 
@@ -34,6 +36,7 @@ _CAND_MAX = 5000
 
 
 def enn_k(cfg: OptimizerConfig) -> int:
+    """Resolve the neighbor count k from an ENN surrogate configuration."""
     sur = cfg.surrogate
     if not isinstance(sur, ENNSurrogate):
         raise TypeError(f"expected ENNSurrogate, got {type(sur)!r}")
@@ -168,6 +171,7 @@ def _enn(cfg: OptimizerConfig) -> dict[str, Any]:
 
 
 def regional_acquisition(acquisition) -> tuple[str | None, float | None]:
+    """Encode a regional acquisition config into its native name and optional beta."""
     if acquisition is None:
         return None, None
     if isinstance(acquisition, UCBAcquisitionConfig):
@@ -182,6 +186,7 @@ def regional_acquisition(acquisition) -> tuple[str | None, float | None]:
 
 
 def encode_regions(tr: RegionalSearchPolicy) -> dict[str, Any]:
+    """Encode a regional search policy into native configuration parameters."""
     out = {
         "region_sharing": tr.sharing,
         "region_successes": tr.success_tolerance,
@@ -205,11 +210,13 @@ def encode_regions(tr: RegionalSearchPolicy) -> dict[str, Any]:
 
 
 def encode(cfg: OptimizerConfig) -> dict[str, Any] | None:
+    """Encode an OptimizerConfig into a dictionary for the native engine."""
     out = _acq(cfg) | _cand(cfg) | _tr(cfg) | _enn(cfg)
     return out or None
 
 
 def supports(cfg: OptimizerConfig) -> bool:
+    """Return whether the given OptimizerConfig uses a supported surrogate."""
     return isinstance(
         cfg.surrogate,
         (ENNSurrogate, GaussianProcess, NoSurrogate, ExternalSurrogate),
@@ -217,6 +224,7 @@ def supports(cfg: OptimizerConfig) -> bool:
 
 
 def is_lhd(cfg: OptimizerConfig) -> bool:
+    """Return whether the configuration specifies pure Latin hypercube sampling."""
     return (
         isinstance(cfg.trust_region, NoTrustRegion)
         and isinstance(cfg.init.init_strategy, LHDOnlyInit)

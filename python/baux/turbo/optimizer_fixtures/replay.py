@@ -1,3 +1,5 @@
+"""Golden trajectory loading, invariant checking, and replay verification."""
+
 from __future__ import annotations
 
 import tomllib
@@ -5,16 +7,15 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-
 from baux.turbo.config import OptimizerConfig
 
+from .capture import RNG_SEMANTICS, UPSTREAM_ENN_REVISION
 from .catalog import (
     FIXTURE_OBJECTIVES,
     PREFIX_CONFIG,
     entry_name,
     subdir_entry,
 )
-from .capture import RNG_SEMANTICS, UPSTREAM_ENN_REVISION
 
 _PACKAGE_FIXTURES_ROOT = Path(__file__).resolve().parent / "data"
 _SOURCE_FIXTURES_ROOT = Path(__file__).resolve().parents[4] / "tests" / "fixtures"
@@ -38,6 +39,7 @@ def _dirname(name: str) -> Path:
 
 
 def load_fixture(name: str) -> dict[str, Any]:
+    """Load a golden optimizer trajectory fixture from its TOML file."""
     path = _dirname(name) / f"{name}.toml"
     if not path.is_file():
         raise FileNotFoundError(f"missing optimizer replay fixture: {path}")
@@ -45,6 +47,7 @@ def load_fixture(name: str) -> dict[str, Any]:
 
 
 def assert_invariants(data: dict[str, Any]) -> None:
+    """Assert metadata, bounds, objective, and trust-region invariants on a fixture."""
     assert data["upstream_enn_revision"] == UPSTREAM_ENN_REVISION
     assert data["rng_semantics"] == RNG_SEMANTICS
     bounds = np.array(data["bounds"], dtype=float)
@@ -67,6 +70,7 @@ def assert_invariants(data: dict[str, Any]) -> None:
 
 
 def replay_check(data: dict[str, Any], config: OptimizerConfig) -> None:
+    """Replay an optimizer against a golden fixture and assert step-by-step parity."""
     from baux import create_optimizer
 
     assert_invariants(data)

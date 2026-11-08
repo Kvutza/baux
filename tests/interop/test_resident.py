@@ -211,13 +211,16 @@ def test_jax(device):
 
 
 def test_torax():
-    """Verify TORAX bridge and WPO Table 6 (Pfau et al., arXiv:2505.00663;
-    Tracey et al., arXiv:2307.11546; Citrin et al., arXiv:2406.06718) across
-    TORAX 2.0.0, NumPy, PyTorch, JAX, and native Rust/Metal.
+    """Verify TORAX bridge and WPO Table 6 across TORAX 2.0.0, NumPy, PyTorch, JAX, and Rust/Metal.
+
+    References: Pfau et al., arXiv:2505.00663; Tracey et al., arXiv:2307.11546;
+    Citrin et al., arXiv:2406.06718.
     """
     import json
     from pathlib import Path
+
     from baux import verify_upstream_lock
+
     from evals.torax.tcv_coupling import ToraxTcvBridge, eval_wpo_table6
 
     torax = pytest.importorskip("torax")
@@ -253,12 +256,15 @@ def test_torax():
 
 
 def test_tokagym():
-    """Verify upstream TokaGym provenance lock and closed-loop TCV rollout
-    (Theiler et al., doi:10.1088/1741-4326/ae6d12; Wang et al.,
-    doi:10.1038/s41467-025-63917-3; Zenodo doi:10.5281/zenodo.16621120).
+    """Verify upstream TokaGym provenance lock and closed-loop TCV rollout.
+
+    References: Theiler et al., doi:10.1088/1741-4326/ae6d12; Wang et al.,
+    doi:10.1038/s41467-025-63917-3; Zenodo doi:10.5281/zenodo.16621120.
     """
     import json
+
     from baux import verify_upstream_lock
+
     from evals.tokagym.tokagym_rollout import (
         ACTION_DIM,
         OBS_DIM,

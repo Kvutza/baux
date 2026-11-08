@@ -1,6 +1,5 @@
 import numpy as np
 import pytest
-
 from baux import Device, Portfolio, Region, Span, Var
 
 

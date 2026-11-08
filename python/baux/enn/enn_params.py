@@ -1,3 +1,5 @@
+"""Hyperparameter configuration for Epistemic Nearest Neighbors."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -7,6 +9,8 @@ from .posterior_flags import DiagonalMetric, MetricLearning, PosteriorFlags
 
 @dataclass(frozen=True)
 class ENNParams:
+    """Hyperparameters governing ENN neighbor count and variance scales."""
+
     k_neighbors: int
     epistemic_scale: float
     aleatoric_scale: float

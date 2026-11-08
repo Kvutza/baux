@@ -1,6 +1,5 @@
 import numpy as np
 import pytest
-
 from baux.turbo.hypervolume import hypervolume2d_max
 
 

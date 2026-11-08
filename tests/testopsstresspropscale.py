@@ -4,20 +4,20 @@ import re
 
 import numpy as np
 import pytest
-from click.testing import CliRunner
-
 from baux.turbo.config.surrogate import NeighborIndex
+from click.testing import CliRunner
 from ops.stress import (
     PROPOSAL_SCALE_SEED_CHUNK,
     PROPOSAL_SCALE_WARMUP,
     TURBO_ENN_NUM_INIT,
+    enn_n,
+    enn_proposal,
     format_header4,
     format_row2,
-    enn_proposal,
     proposal_ns,
     run_stress3,
-    enn_n,
 )
+
 from tests.opsstressclihelp import cli_rejects
 
 _PS_ROW_RE = re.compile(r" *\d+ \d+\.\d{4} \d+\.\d{4} \d+\.\d{4}")

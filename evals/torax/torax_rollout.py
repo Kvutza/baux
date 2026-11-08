@@ -348,6 +348,7 @@ class ToraxClosedLoopEnv:
 
     @classmethod
     def shared(cls) -> "ToraxClosedLoopEnv":
+        """Return the singleton compiled closed-loop TORAX environment."""
         if cls._instance is None:
             cls._instance = cls()
         return cls._instance
@@ -405,18 +406,22 @@ class ToraxClosedLoopEnv:
         return obs, u, rewards, self._jnp.mean(rewards)
 
     def eval_mean(self, weights: np.ndarray) -> float:
+        """Evaluate the mean per-step reward for policy `weights`."""
         w = self._jnp.asarray(weights, dtype=self._jnp.float32)
         return float(self._traj(w, self._zero_eps)[3])
 
     def eval_return(self, weights: np.ndarray) -> float:
+        """Evaluate the 100-step scaled episode return for policy `weights`."""
         return 100.0 * self.eval_mean(weights)
 
     def eval_batch(self, batch: np.ndarray) -> np.ndarray:
+        """Evaluate 100-step scaled episode returns for a batch of policy weights."""
         w = self._jnp.asarray(batch, dtype=self._jnp.float32)
         means = np.asarray(self._batch(w), dtype=np.float64)
         return 100.0 * means
 
     def eval_traj(self, weights: np.ndarray, eps: np.ndarray):
+        """Evaluate a perturbed rollout trajectory and return score, observations, controls, and rewards."""
         w = self._jnp.asarray(weights, dtype=self._jnp.float32)
         e = self._jnp.asarray(eps, dtype=self._jnp.float32).reshape((TORAX_STEPS, 19))
         obs, u, r, mean_r = self._traj(w, e)

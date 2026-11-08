@@ -7,7 +7,6 @@ import time
 
 import jax
 import jax.numpy as jnp
-
 from baux.experimental import Span, turbo_enn
 
 

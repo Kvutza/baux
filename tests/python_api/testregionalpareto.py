@@ -1,7 +1,6 @@
 from dataclasses import replace
 
 import numpy as np
-
 from baux import create_optimizer, turbo_enn
 from baux.turbo.config import ParetoAcquisitionConfig, RegionalSearchPolicy
 from baux.turbo.config.encode import encode

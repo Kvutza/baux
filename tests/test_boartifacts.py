@@ -1,10 +1,10 @@
 """CPU coverage of the BO orchestration contract without the native extension."""
 
-from itertools import product
 import hashlib
 import json
 import sys
 from dataclasses import asdict
+from itertools import product
 from types import ModuleType, SimpleNamespace
 
 import numpy as np
@@ -14,14 +14,12 @@ jax = pytest.importorskip("jax")
 jnp = pytest.importorskip("jax.numpy")
 pytest.importorskip("safetensors")
 
-from ops.flame import bo, model
-from ops.flame.config import REVISION
-
-
 from bo_fixtures import (
     FakeProposals,
     FakeSearchState,
 )
+from ops.flame import bo, model
+from ops.flame.config import REVISION
 
 
 def install_extension(monkeypatch, tmp_path, experimental):

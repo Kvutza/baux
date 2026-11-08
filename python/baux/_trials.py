@@ -7,7 +7,7 @@ from collections.abc import Mapping, Sequence
 import numpy as np
 
 from .bo import AskId, create_optimizer
-from .turbo.config import RegionalSearchPolicy, OptimizerConfig, turbo_enn
+from .turbo.config import OptimizerConfig, RegionalSearchPolicy, turbo_enn
 
 
 class Space:

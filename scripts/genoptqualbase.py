@@ -13,10 +13,11 @@ sys.path.insert(0, str(ROOT))
 from baux import create_optimizer  # noqa: E402
 from baux.turbo.config import (  # noqa: E402
     AcquisitionKind,
-    SurrogateFit,
     ENNSurrogate,
+    SurrogateFit,
     turbo_enn,
 )
+
 from scripts.optqualcore import y_best  # noqa: E402
 
 CI_DIMS = (2, 8)

@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from itertools import product
 import io
 import json
 import math
 import pickle
+from itertools import product
 from types import SimpleNamespace
 from typing import ClassVar
 

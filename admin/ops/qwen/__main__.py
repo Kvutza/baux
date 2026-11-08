@@ -7,10 +7,9 @@ from pathlib import Path
 
 import click
 
+from . import bench, bo, coding, eval, joint
 from .checkpoint import fetch_model, load_checkpoint
 from .config import MODEL_ID, REVISION, Config
-from . import bench
-from . import bo, coding, eval, joint
 
 
 @click.group()

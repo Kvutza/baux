@@ -6,7 +6,6 @@ import statistics
 import time
 
 import numpy as np
-
 from baux.search import Parameter, ParameterOptimizer
 
 

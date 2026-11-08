@@ -5,7 +5,6 @@ from types import SimpleNamespace
 
 import numpy as np
 import pytest
-
 from baux import _rust, create_optimizer, turbo_one
 from baux.turbo.config import (
     ExternalSurrogate,

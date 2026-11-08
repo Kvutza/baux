@@ -1,3 +1,5 @@
+"""Metric learning diagnostics and posterior evaluation flags for ENN."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -6,12 +8,16 @@ from typing import Any
 
 
 class MetricLearning(Enum):
+    """Mode for automatic diagonal metric learning in ENN."""
+
     NONE = "none"
     AUTO = "auto"
 
 
 @dataclass(frozen=True)
 class DiagonalMetric:
+    """Learned diagonal input metric weights and rebuild diagnostics."""
+
     num_seen: int
     heldout_gain: float | None
     uses_learned_metric: bool
@@ -23,10 +29,12 @@ class DiagonalMetric:
 
     @property
     def scale(self) -> tuple[float, ...]:
+        """Return per-dimension linear coordinate scales (square root of weights)."""
         return tuple(float(w) ** 0.5 for w in self.weights)
 
     @classmethod
     def from_dict(cls, raw: dict[str, Any] | None) -> DiagonalMetric | None:
+        """Construct a DiagonalMetric instance from a Rust dictionary payload."""
         if raw is None:
             return None
         gain = raw.get("heldout_gain")
@@ -43,6 +51,7 @@ class DiagonalMetric:
 
 
 def metric_options(options: dict[str, Any]) -> dict[str, Any] | None:
+    """Normalize metric-learning keyword options for the Rust ENN backend."""
     ml = options.get("metric_learning")
     tied = options.get("tied_dims")
     unscaled = options.get("unscaled_dims")
@@ -63,6 +72,8 @@ def metric_options(options: dict[str, Any]) -> dict[str, Any] | None:
 
 @dataclass(frozen=True)
 class PosteriorFlags:
+    """Flags controlling neighbor exclusion, observation noise, and tie handling."""
+
     exclude_nearest: bool = False
     observation_noise: bool = False
     tie_neighbors: bool = True

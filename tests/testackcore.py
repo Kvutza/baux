@@ -1,5 +1,4 @@
 import numpy as np
-
 from baux.benchmarks.ackley_core import ackley_core
 
 

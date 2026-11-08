@@ -3,7 +3,6 @@ from __future__ import annotations
 
 def test_001():
     import numpy as np
-
     from baux.enn.enn_class import ENN
     from baux.enn.enn_fit import ENNIncrementalDelta, enn_fit
     from baux.enn.enn_fitter import ENNFitter
@@ -17,7 +16,7 @@ def test_001():
     model = ENN(np.empty((0, 2)), np.empty((0, 1)), np.empty((0, 1)))
     fitter = ENNFitter(k=3, rng=np.random.default_rng(7))
     params: ENNParams | None = None
-    for row_x, row_y, row_yvar in zip(x_all, y_all, yvar_all):
+    for row_x, row_y, row_yvar in zip(x_all, y_all, yvar_all, strict=True):
         row_x = row_x.reshape(1, -1)
         row_y = row_y.reshape(1, -1)
         row_yvar = row_yvar.reshape(1, -1)
@@ -38,7 +37,6 @@ def test_001():
 
 def test_002():
     import numpy as np
-
     from baux.enn.enn_class import ENN
     from baux.enn.enn_fit import ENNIncrementalDelta, enn_fit
     from baux.enn.enn_fitter import ENNFitter
@@ -55,7 +53,7 @@ def test_002():
     fitter_b = ENNFitter(k=2, rng=np.random.default_rng(99))
     params_b = None
 
-    for row_x, row_y in zip(x_all, y_all):
+    for row_x, row_y in zip(x_all, y_all, strict=True):
         row_x = row_x.reshape(1, -1)
         row_y = row_y.reshape(1, -1)
         via_enn_fit.add(row_x, row_y)

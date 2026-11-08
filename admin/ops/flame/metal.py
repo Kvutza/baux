@@ -39,7 +39,6 @@ def free_memory():
 
 def upload_weights(flat):
     import torch
-
     from baux.experimental import Var
 
     if flat.device.type != "cpu" or flat.dtype != torch.bfloat16 or flat.ndim != 1:

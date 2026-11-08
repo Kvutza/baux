@@ -6,7 +6,7 @@ import pytest
 
 pytest.importorskip("tokenizers")
 
-from ops.agent_corpus import build_episodes, train_tokenizer, pack_stream
+from ops.agent_corpus import build_episodes, pack_stream, train_tokenizer
 
 
 def test_episodes():

@@ -1,3 +1,5 @@
+"""Deterministic normal hash functions for ENN posterior function draws."""
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
@@ -11,6 +13,7 @@ from baux._rust import normal_hash as _rust_hash_fast
 def normal_philox(
     function_seeds: np.ndarray, data_indices: np.ndarray, num_metrics: int
 ) -> np.ndarray:
+    """Generate deterministic standard normal draws via Philox counter-based RNG."""
     import numpy as np
     from scipy.special import ndtri
 
@@ -43,6 +46,7 @@ def normal_philox(
 def normal_hash(
     function_seeds: np.ndarray, data_indices: np.ndarray, num_metrics: int
 ) -> np.ndarray:
+    """Generate deterministic standard normal draws using the Rust hash backend."""
     import numpy as np
 
     function_seeds = np.asarray(function_seeds, dtype=np.int64)

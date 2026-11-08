@@ -1,10 +1,9 @@
 """Integration parity for the native corpus reader and the Python reference."""
 
-from itertools import product
 from dataclasses import asdict
+from itertools import product
 
 import pytest
-
 from ops import corpus, pretrain
 
 pa = pytest.importorskip("pyarrow")

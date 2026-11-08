@@ -13,9 +13,9 @@ References:
 
 from __future__ import annotations
 
+import math
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, fields, is_dataclass
-import math
 from typing import Any
 
 import numpy as np
@@ -455,7 +455,7 @@ def flat_mlp(
                 weights[s : s + fi * fo].reshape((fi, fo)),
                 weights[s + fi * fo : s + (fi + 1) * fo],
             )
-            for (fi, fo), s in zip(layers, offsets)
+            for (fi, fo), s in zip(layers, offsets, strict=True)
         )
     h = obs
     for idx, (w, b) in enumerate(weights):

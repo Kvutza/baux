@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-
 from baux import ENN
 from baux.enn.enn_params import ENNParams, PosteriorFlags
 

@@ -2,8 +2,7 @@ import pytest
 
 pytest.importorskip("tokenizers")
 
-from ops import gemma4
-from ops import pretrain
+from ops import gemma4, pretrain
 
 
 def test_vocab():

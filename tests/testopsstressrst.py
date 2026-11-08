@@ -50,7 +50,6 @@ def test_loadnumobsexisting(tmp_path):
 )
 def test_002(tmp_path, index_type, subdir):
     from click.testing import CliRunner
-
     from ops.stress import cli
 
     work_dir = tmp_path / subdir

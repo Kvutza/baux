@@ -1,4 +1,5 @@
 """PyTree-native parameter specifications, non-Cartesian manifold embeddings, and codomain maps.
+
 References: Stein (1956); James & Stein (1961); Efron & Morris (1973); Higham (1986) (`Stiefel`);
 Aitken (1935); Vovk et al. (2005); Lei et al. (2018) (`Affine`); Johnson & Lindenstrauss (1984);
 Achlioptas (2003); Bhattacharyya (1943); Čencov (1982) (`Categorical`, `Periodic`, `Simplex`, `Log`).
@@ -59,10 +60,12 @@ class Categorical:
 
     @property
     def card(self) -> int:
+        """Number of discrete categories."""
         return len(self.categories)
 
     @property
     def kind(self) -> str:
+        """Resolved encoding scheme (`'onehot'` or `'rademacher'`)."""
         cap = _logwidth(max(len(self.categories), 2), self.dim_cap)
         return (
             ("onehot" if len(self.categories) <= cap else "rademacher")
@@ -72,6 +75,7 @@ class Categorical:
 
     @property
     def width(self) -> int:
+        """Embedding dimension in continuous optimization space."""
         return (
             len(self.categories)
             if self.kind == "onehot"
@@ -80,10 +84,12 @@ class Categorical:
 
     @property
     def bounds(self) -> tuple[float, float]:
+        """Per-coordinate lower and upper bounds for the embedded representation."""
         s = float(self.separation) / float(np.sqrt(self.width))
         return (0.0, 1.0) if self.kind == "onehot" else (-s, s)
 
     def codebook(self, variable_idx: int = 0) -> np.ndarray:
+        """Return the `(card, width)` isometric embedding codebook matrix."""
         if self.kind == "onehot":
             return np.eye(len(self.categories), dtype=float)
         w, s = self.width, float(self.separation) / float(np.sqrt(self.width))
@@ -97,6 +103,7 @@ class Categorical:
         return np.array(bits, dtype=float)
 
     def encode(self, value: Any, variable_idx: int = 0) -> np.ndarray:
+        """Encode a category value into its `width`-dimensional codeword vector."""
         m = [
             i
             for i, c in enumerate(self.categories)
@@ -124,6 +131,7 @@ class Categorical:
     def snap(
         self, vec: Any, variable_idx: int = 0, weights: np.ndarray | None = None
     ) -> Any:
+        """Decode a continuous vector to the nearest category by inner product."""
         return argmax_dot(
             np.asarray(vec, dtype=float),
             self.codebook(variable_idx),
@@ -215,22 +223,27 @@ class PyTreeSpec:
 
     @property
     def key(self) -> Any:
+        """Deterministic BLAKE3 key derived from the space structure and bounds."""
         return _spacekey(self.bounds, self.leaves)
 
     def ravel(self, tree: Any) -> np.ndarray:
+        """Flatten `tree` into a 1D vector or 2D batch matrix according to this spec."""
         return ravel(tree, self)
 
     def unflatten(self, flat: Any, weights: np.ndarray | None = None) -> Any:
+        """Reconstruct a single parameter PyTree from a 1D flat vector."""
         return unflatten(flat, self, weights=weights)
 
     def unflatten_batch(
         self, flat_batch: Any, weights: np.ndarray | None = None
     ) -> tuple[Any, ...]:
+        """Reconstruct a tuple of parameter PyTrees from a 2D batch matrix."""
         return unflatten_batch(flat_batch, self, weights=weights)
 
     def unflatten_stacked(
         self, flat_batch: Any, weights: np.ndarray | None = None
     ) -> Any:
+        """Reconstruct a single PyTree with batch-stacked leaves from a 2D batch matrix."""
         return unflatten_stacked(flat_batch, self, weights=weights)
 
     flatten = ravel

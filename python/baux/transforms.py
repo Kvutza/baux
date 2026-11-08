@@ -40,6 +40,7 @@ class Transform:
     fn: Callable[[OptimizerConfig], OptimizerConfig]
 
     def __call__(self, config: OptimizerConfig | None = None) -> OptimizerConfig:
+        """Apply this transformation to `config` (or a default `OptimizerConfig`)."""
         base = OptimizerConfig() if config is None else config
         return self.fn(base)
 

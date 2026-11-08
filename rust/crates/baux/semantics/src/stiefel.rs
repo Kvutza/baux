@@ -120,6 +120,83 @@ fn stiefel_mgs(factors: &[f64], rows: usize, cols: usize) -> Result<Vec<f64>, St
     Ok(q)
 }
 
+fn cov_scatter(y: &[f64], rows: usize, cols: usize) -> Vec<f64> {
+    let mut means = vec![0.0; cols];
+    for r in 0..rows {
+        for c in 0..cols {
+            means[c] += y[r * cols + c];
+        }
+    }
+    for m in &mut means {
+        *m /= rows as f64;
+    }
+    let mut cov = vec![0.0; cols * cols];
+    for r in 0..rows {
+        for i in 0..cols {
+            let yi = y[r * cols + i] - means[i];
+            for j in i..cols {
+                cov[i * cols + j] += yi * (y[r * cols + j] - means[j]);
+            }
+        }
+    }
+    for i in 0..cols {
+        for j in 0..i {
+            cov[i * cols + j] = cov[j * cols + i];
+        }
+    }
+    cov
+}
+
+fn orth_unit(v: &mut [f64], basis: &[f64], cols: usize, rank: usize, upto: usize) -> f64 {
+    for prev in 0..upto {
+        let dot: f64 = (0..cols).map(|m| basis[m * rank + prev] * v[m]).sum();
+        for m in 0..cols {
+            v[m] -= dot * basis[m * rank + prev];
+        }
+    }
+    let norm = v.iter().map(|x| x * x).sum::<f64>().sqrt();
+    if norm > 1.0e-12 {
+        for x in v.iter_mut() {
+            *x /= norm;
+        }
+    }
+    norm
+}
+
+fn next_eigvec(cov: &[f64], basis: &[f64], cols: usize, rank: usize, f: usize) -> Vec<f64> {
+    let best = (0..cols)
+        .max_by(|&a, &b| cov[a * cols + a].total_cmp(&cov[b * cols + b]))
+        .unwrap_or(f);
+    let mut v: Vec<f64> = (0..cols)
+        .map(|i| {
+            if i == best {
+                1.0
+            } else {
+                (i + 1) as f64 * 1e-6
+            }
+        })
+        .collect();
+    if orth_unit(&mut v, basis, cols, rank, f) <= 1.0e-12 {
+        for cand in 0..cols {
+            v.fill(0.0);
+            v[cand] = 1.0;
+            if orth_unit(&mut v, basis, cols, rank, f) > 1.0e-12 {
+                break;
+            }
+        }
+    }
+    for _ in 0..32 {
+        let mut w: Vec<f64> = (0..cols)
+            .map(|i| (0..cols).map(|j| cov[i * cols + j] * v[j]).sum())
+            .collect();
+        if orth_unit(&mut w, basis, cols, rank, f) <= 1.0e-12 {
+            break;
+        }
+        v = w;
+    }
+    v
+}
+
 fn stein_row(proj: &[f64], m_dim: usize, mu_r: &[f64], se_r: &[f64]) -> (Vec<f64>, Vec<f64>) {
     let mut p_r = vec![0.0; m_dim];
     let mut sig_sq = 0.0;
@@ -170,6 +247,34 @@ impl Stiefel {
     pub fn from_factors(factors: &[f64], rows: usize, cols: usize) -> Result<Self, String> {
         let q = stiefel_mgs(factors, rows, cols)?;
         Self::new(q, rows, cols)
+    }
+
+    /// Estimate the top-`rank` principal Stiefel subspace `V_rank(R^cols)` from
+    /// a row-major `(rows, cols)` observation matrix `y`.
+    pub fn from_cov(y: &[f64], rows: usize, cols: usize, rank: usize) -> Result<Self, String> {
+        if rows < 2 || cols == 0 || rank == 0 || rank > cols {
+            return Err("invalid shape or rank for Stiefel::from_cov".to_string());
+        }
+        if y.len() != rows * cols || y.iter().any(|v| !v.is_finite()) {
+            return Err("y must be finite with shape (rows, cols)".to_string());
+        }
+        let mut cov = cov_scatter(y, rows, cols);
+        let mut basis = vec![0.0; cols * rank];
+        for f in 0..rank {
+            let v = next_eigvec(&cov, &basis, cols, rank, f);
+            let mut cv = vec![0.0; cols];
+            for i in 0..cols {
+                cv[i] = (0..cols).map(|j| cov[i * cols + j] * v[j]).sum();
+            }
+            let lam: f64 = (0..cols).map(|i| v[i] * cv[i]).sum();
+            for i in 0..cols {
+                basis[i * rank + f] = v[i];
+                for j in 0..cols {
+                    cov[i * cols + j] -= lam * v[i] * v[j];
+                }
+            }
+        }
+        Ok(Self::from_factors(&basis, cols, rank)?.with_count(rows))
     }
 
     /// Optimal Empirical-Bayes James-Stein orthogonal retention factor.

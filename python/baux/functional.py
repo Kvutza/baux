@@ -111,15 +111,17 @@ def init(
     if not supports(cfg):
         raise ValueError(f"unsupported optimizer config: {cfg!r}")
     spec, bounds = _parsedomain(domain, low, high)
-    if (
-        spec is not None
-        and spec.tied_dims
-        and isinstance(cfg.surrogate, ENNSurrogate)
-        and cfg.surrogate.tied_dims is None
-    ):
+    if spec is not None and spec.tied_dims:
         from dataclasses import replace as _replace
 
-        cfg = _replace(cfg, surrogate=_replace(cfg.surrogate, tied_dims=spec.tied_dims))
+        if cfg.candidates.tied_dims is None:
+            cfg = _replace(
+                cfg, candidates=_replace(cfg.candidates, tied_dims=spec.tied_dims)
+            )
+        if isinstance(cfg.surrogate, ENNSurrogate) and cfg.surrogate.tied_dims is None:
+            cfg = _replace(
+                cfg, surrogate=_replace(cfg.surrogate, tied_dims=spec.tied_dims)
+            )
     default_bytes = (
         spec.key.seed().to_bytes(8, "little")
         if spec is not None

@@ -74,6 +74,8 @@ def _cand(cfg: OptimizerConfig) -> dict[str, Any]:
         out["num_pert"] = int(c.num_pert)
     if c.sampler is CandidateSampler.RAASP:
         out["raasp_fast"] = c.raasp_driver is RAASPDriver.FAST
+    if c.tied_dims is not None:
+        out["tied_dims"] = [[int(col) for col in g] for g in c.tied_dims]
     return out
 
 
@@ -123,6 +125,10 @@ def _ennmetric(sur: ENNSurrogate, out: dict[str, Any]) -> None:
     if sur.stiefel is not None:
         loadings = getattr(sur.stiefel, "loadings", sur.stiefel)
         out["stiefel"] = np.asarray(loadings, dtype=float)
+    if sur.stiefel_rank is not None:
+        out["stiefel_rank"] = int(sur.stiefel_rank)
+    if sur.calibrate_alpha is not None:
+        out["calibrate_alpha"] = float(sur.calibrate_alpha)
     if sur.affine is not None:
         aff = sur.affine
         a, b, c = (

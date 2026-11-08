@@ -66,6 +66,8 @@ fn apply_fields(
         });
     }
     config.local_scale_neighbors = opt_val(dict, "local_k")?;
+    config.stiefel_rank = opt_val(dict, "stiefel_rank")?;
+    config.calibrate_alpha = opt_val(dict, "calibrate_alpha")?;
     if let Some(v) = dict.get_item("stiefel")? {
         let loadings: PyReadonlyArray2<f64> = v.extract()?;
         config.stiefel_loadings = Some(

@@ -234,4 +234,117 @@ impl ENN {
         self.x_scale = scale;
         Ok(())
     }
+
+    pub(crate) fn refresh_finite(&mut self, k: usize, unscaled: &[usize]) -> Result<(), ENNError> {
+        let n = self.num_obs;
+        let d = self.num_dim;
+        let m = self.num_metrics;
+        if self.metric.is_none() || !(9..crate::metric_sobol::DEPENDENCE_ROWS).contains(&n) || d < 2
+        {
+            return Ok(());
+        }
+        let ids: Vec<usize> = (0..n).collect();
+        let (x, y, _) = self.backend.train_rows(&ids)?;
+        let mut s = vec![0.0; d];
+        for col in 0..m {
+            let y_col = y.column(col);
+            let sb = crate::util::sobol_indices(&x.view(), &y_col);
+            for j in 0..d {
+                s[j] += sb[j] / m as f64;
+            }
+        }
+        for g in self.tied_groups().to_vec() {
+            let avg = g.iter().map(|&j| s[j]).sum::<f64>() / g.len().max(1) as f64;
+            for j in g {
+                s[j] = avg;
+            }
+        }
+        let s_max = s.iter().copied().fold(0.0_f64, f64::max);
+        if s_max <= 1.0e-12 {
+            return Ok(());
+        }
+        let mut w: Vec<f64> = s.into_iter().map(|v| v.max(0.05 * s_max)).collect();
+        let mean = w.iter().sum::<f64>() / d as f64;
+        for v in &mut w {
+            *v /= mean.max(1.0e-12);
+        }
+        for &j in unscaled {
+            if j < d {
+                w[j] = 1.0;
+            }
+        }
+        let k_use = k.min(n - 1).max(1);
+        let xs = x.as_slice().expect("standard layout");
+        let ys = y.as_slice().expect("standard layout");
+        let ones = vec![1.0; d];
+        if crate::metric_loo::loo_loglik(xs, n, d, ys, m, &w, k_use)
+            > crate::metric_loo::loo_loglik(xs, n, d, ys, m, &ones, k_use)
+        {
+            self.metric_weights(&w)?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn refresh_codomain(
+        &mut self,
+        params: &crate::params::ENNParams,
+        stiefel_rank: Option<usize>,
+        calibrate_alpha: Option<f64>,
+    ) -> Result<(), ENNError> {
+        let n = self.num_obs;
+        let m = self.num_metrics;
+        if let Some(rank) = stiefel_rank {
+            if n >= 2 && rank >= 1 && rank <= m {
+                let ids: Vec<usize> = (0..n).collect();
+                let (_, y, _) = self.natural_rows(&ids)?;
+                let ys = y.as_standard_layout();
+                if let Ok(st) = baux::semantics::stiefel::Stiefel::from_cov(
+                    ys.as_slice().expect("standard layout"),
+                    n,
+                    m,
+                    rank,
+                ) {
+                    self.stiefel = Some(st.with_count(n));
+                }
+            }
+        }
+        if let Some(alpha) = calibrate_alpha {
+            if n >= 4 {
+                let ids: Vec<usize> = (0..n).collect();
+                let (x, y, _) = self.natural_rows(&ids)?;
+                self.affine = None;
+                let flags = crate::params::PosteriorFlags::new().exclude_nearest(true);
+                let loo = <Self as crate::traits::PosteriorComputation>::posterior(
+                    self,
+                    &x.view(),
+                    params,
+                    &flags,
+                )?;
+                let mu_2d = loo
+                    .mu
+                    .into_dimensionality::<ndarray::Ix2>()
+                    .map_err(|e| ENNError::InvalidParameter(e.to_string()))?;
+                let se_2d = loo
+                    .se
+                    .into_dimensionality::<ndarray::Ix2>()
+                    .map_err(|e| ENNError::InvalidParameter(e.to_string()))?;
+                let f_mu = mu_2d.as_standard_layout();
+                let f_se = se_2d.as_standard_layout();
+                let f_y = y.as_standard_layout();
+                let mu_s = f_mu.as_slice().expect("standard layout");
+                let se_s = f_se.as_slice().expect("standard layout");
+                let y_s = f_y.as_slice().expect("standard layout");
+                if let Ok(mut aff) = baux::semantics::affine::Affine::fit_wls(mu_s, y_s, se_s, n, m)
+                {
+                    if alpha > 0.0 && alpha < 1.0 {
+                        if let Ok(c) = aff.conformal_scale(mu_s, y_s, se_s, n, m, alpha) {
+                            aff.c = c;
+                        }
+                    }
+                    self.affine = Some(aff);
+                }
+            }
+        }
+        Ok(())
+    }
 }

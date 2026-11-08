@@ -117,6 +117,8 @@ pub struct RunConfig {
     pub unscaled_dims: Option<Vec<usize>>,
     pub stiefel_loadings: Option<Vec<Vec<f64>>>,
     pub affine_params: Option<Vec<[f64; 3]>>,
+    pub stiefel_rank: Option<usize>,
+    pub calibrate_alpha: Option<f64>,
     pub trust_region_kind: Option<TrustRegionKind>,
     pub num_metrics: Option<usize>,
     pub alpha: Option<f64>,
@@ -322,6 +324,12 @@ fn apply_enn(config: &mut OptimizerConfig, overrides: &RunConfig) {
             enn.affine = Some(aff);
         }
     }
+    if let Some(rank) = overrides.stiefel_rank {
+        enn.stiefel_rank = Some(rank);
+    }
+    if let Some(cal_a) = overrides.calibrate_alpha {
+        enn.calibrate_alpha = Some(cal_a);
+    }
     config.surrogate = SurrogateConfig::ENN(enn);
 }
 
@@ -404,6 +412,9 @@ impl RunConfig {
         }
         if let Some(n) = self.num_pert {
             config.candidates.num_pert = n.max(1);
+        }
+        if let Some(tied) = self.tied_dims.clone() {
+            config.candidates.tied_dims = tied;
         }
         apply_region(self, &mut config);
         apply_enn(&mut config, self);

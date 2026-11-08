@@ -151,9 +151,44 @@ def _affinetup(affine: Any) -> tuple[list[float], list[float], list[float]] | No
     )
 
 
-def _codomain(target: Any, *, stiefel: Any = None, affine: Any = None) -> Any:
-    st_arr, aff_tup = _stiefelarr(stiefel), _affinetup(affine)
+def _fitcodomain(
+    state: ENNState,
+    stiefel: Any,
+    affine: Any,
+    stiefel_rank: int | None,
+    calibrate_alpha: float | None,
+) -> tuple[Any, Any]:
+    if stiefel is None and stiefel_rank is not None:
+        stiefel = Stiefel.from_cov(state.y, rank=int(stiefel_rank))
+    if affine is None and calibrate_alpha is not None:
+        k_fit = min(10, max(1, len(state) - 1))
+        p = enn_fit(state, k=k_fit, num_candidates=20, num_samples=5)
+        loo = enn_posterior(
+            state, state.x, p, flags=PosteriorFlags(exclude_nearest=True)
+        )
+        aff = Affine.fit_wls(loo.mu, state.y, loo.se)
+        if 0.0 < float(calibrate_alpha) < 1.0:
+            c_q = aff.conformal_scale(
+                loo.mu, state.y, loo.se, alpha=float(calibrate_alpha)
+            )
+            aff = Affine(aff.a, aff.b, c_q)
+        affine = aff
+    return stiefel, affine
+
+
+def _codomain(
+    target: Any,
+    *,
+    stiefel: Any = None,
+    affine: Any = None,
+    stiefel_rank: int | None = None,
+    calibrate_alpha: float | None = None,
+) -> Any:
     if isinstance(target, ENNState):
+        stiefel, affine = _fitcodomain(
+            target, stiefel, affine, stiefel_rank, calibrate_alpha
+        )
+        st_arr, aff_tup = _stiefelarr(stiefel), _affinetup(affine)
         rust_obj = target._model._rust_model.append_cow(stiefel=st_arr, affine=aff_tup)
         opts = dict(target.options)
         if st_arr is not None:
@@ -169,6 +204,7 @@ def _codomain(target: Any, *, stiefel: Any = None, affine: Any = None) -> Any:
             _model=_wrapenn(target._model, rust_obj),
         )
     if isinstance(target, ENN):
+        st_arr, aff_tup = _stiefelarr(stiefel), _affinetup(affine)
         return _wrapenn(
             target, target._rust_model.append_cow(stiefel=st_arr, affine=aff_tup)
         )
@@ -183,21 +219,43 @@ def _codomain(target: Any, *, stiefel: Any = None, affine: Any = None) -> Any:
             raise ValueError(
                 "codomain transform on OptimizerConfig requires ENNSurrogate"
             )
-        kw = {}
-        if stiefel is not None:
-            kw["stiefel"] = stiefel
-        if affine is not None:
-            kw["affine"] = affine
+        kw = {
+            k: v
+            for k, v in (
+                ("stiefel", stiefel),
+                ("affine", affine),
+                ("stiefel_rank", stiefel_rank),
+                ("calibrate_alpha", calibrate_alpha),
+            )
+            if v is not None
+        }
         return _replace(target, surrogate=_replace(target.surrogate, **kw))
     if isinstance(target, Transform):
-        label = "stein()" if stiefel is not None else "calibrate()"
+        label = (
+            "stein()"
+            if (stiefel is not None or stiefel_rank is not None)
+            else "calibrate()"
+        )
         return target | Transform(
-            label, lambda cfg: _codomain(cfg, stiefel=stiefel, affine=affine)
+            label,
+            lambda cfg: _codomain(
+                cfg,
+                stiefel=stiefel,
+                affine=affine,
+                stiefel_rank=stiefel_rank,
+                calibrate_alpha=calibrate_alpha,
+            ),
         )
     if isinstance(target, OptimizerState):
         from ..functional import init as _opt_init
 
-        cfg = _codomain(target.config, stiefel=stiefel, affine=affine)
+        cfg = _codomain(
+            target.config,
+            stiefel=stiefel,
+            affine=affine,
+            stiefel_rank=stiefel_rank,
+            calibrate_alpha=calibrate_alpha,
+        )
         return _opt_init(
             target.spec if target.spec is not None else target.bounds,
             cfg,
@@ -206,21 +264,65 @@ def _codomain(target: Any, *, stiefel: Any = None, affine: Any = None) -> Any:
     raise TypeError(f"Unsupported target for codomain transform: {type(target)!r}")
 
 
-def stein(target: Any, frame: Any = None) -> Any:
-    """Apply Stiefel subspace James-Stein contraction to an `ENNState`, `OptimizerState`, `OptimizerConfig`, or `Transform`."""
-    if frame is None:
-        from ..transforms import Transform
+def stein(target: Any = None, frame: Any = None, *, rank: int | None = None) -> Any:
+    """Applies Stiefel subspace James-Stein contraction to a state, config, or Transform.
 
+    Args:
+        target: Target state/config/Transform, or a Stiefel frame / integer rank
+            when constructing a pipeline Transform.
+        frame: Optional Stiefel frame or integer rank when target is a state or config.
+        rank: Optional principal Stiefel subspace rank for online estimation.
+
+    Returns:
+        Updated state/config or composable Transform.
+    """
+    from ..transforms import Transform
+
+    if target is None:
+        r = 1 if rank is None else int(rank)
+        return Transform(f"stein(rank={r})", lambda cfg: _codomain(cfg, stiefel_rank=r))
+    if isinstance(target, (int, np.integer)):
+        r = int(target)
+        return Transform(f"stein(rank={r})", lambda cfg: _codomain(cfg, stiefel_rank=r))
+    if frame is None and rank is None:
         return Transform("stein()", lambda cfg: _codomain(cfg, stiefel=target))
+    if rank is not None:
+        return _codomain(target, stiefel_rank=int(rank))
+    if isinstance(frame, (int, np.integer)):
+        return _codomain(target, stiefel_rank=int(frame))
     return _codomain(target, stiefel=frame)
 
 
-def calibrate(target: Any, affine: Any = None) -> Any:
-    """Apply an `Affine` posterior location-scale map to an `ENNState`, `OptimizerState`, `OptimizerConfig`, or `Transform`."""
-    if affine is None:
-        from ..transforms import Transform
+def calibrate(
+    target: Any = None, affine: Any = None, *, alpha: float | None = None
+) -> Any:
+    """Applies an Affine posterior location-scale map to a state, config, or Transform.
 
+    Args:
+        target: Target state/config/Transform, or an Affine map / conformal alpha
+            when constructing a pipeline Transform.
+        affine: Optional Affine map or conformal alpha when target is a state or config.
+        alpha: Optional conformal miscoverage rate in (0, 1) for online calibration.
+
+    Returns:
+        Updated state/config or composable Transform.
+    """
+    from ..transforms import Transform
+
+    if target is None:
+        a = 0.0 if alpha is None else float(alpha)
+        return Transform("calibrate()", lambda cfg: _codomain(cfg, calibrate_alpha=a))
+    if isinstance(target, (int, float, np.floating)):
+        a = float(target)
+        return Transform("calibrate()", lambda cfg: _codomain(cfg, calibrate_alpha=a))
+    if affine is None and alpha is None and isinstance(target, (Affine, tuple, list)):
         return Transform("calibrate()", lambda cfg: _codomain(cfg, affine=target))
+    if alpha is not None:
+        return _codomain(target, calibrate_alpha=float(alpha))
+    if isinstance(affine, (int, float, np.floating)):
+        return _codomain(target, calibrate_alpha=float(affine))
+    if affine is None:
+        return _codomain(target, calibrate_alpha=0.0)
     return _codomain(target, affine=affine)
 
 

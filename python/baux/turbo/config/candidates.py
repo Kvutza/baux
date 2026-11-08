@@ -62,6 +62,7 @@ class CandidateConfig:
     num_candidates_per_arm: int | None = None
     num_pert: int | None = None
     raasp_driver: RAASPDriver = RAASPDriver.ORIG
+    tied_dims: tuple[tuple[int, ...], ...] | None = None
 
     def resolve_candidates(self, *, num_dim: int, num_arms: int) -> int:
         base = (

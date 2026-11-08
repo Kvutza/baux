@@ -53,6 +53,8 @@ class ENNSurrogate:
     local_k: int = 4
     stiefel: Any = None
     affine: Any = None
+    stiefel_rank: int | None = None
+    calibrate_alpha: float | None = None
 
     def __post_init__(self) -> None:
         ml = str(getattr(self.metric_learning, "value", self.metric_learning)).lower()

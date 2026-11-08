@@ -162,12 +162,19 @@ impl ENN {
         }
         let dim = mu.raw_dim();
         if let Some(st) = self.stiefel.as_ref() {
-            let flat = mu.as_standard_layout();
-            let proj = st
-                .project(flat.as_slice().expect("standard layout"), nrows)
+            let f_mu = mu.as_standard_layout();
+            let f_se = se.as_standard_layout();
+            let s_old = f_se.as_slice().expect("standard layout");
+            let (m_out, s_out) = st
+                .transform_stein(f_mu.as_slice().expect("standard layout"), s_old, nrows)
                 .map_err(ENNError::InvalidParameter)?;
-            *mu = Array2::from_shape_vec(dim, proj)
-                .map_err(|e| ENNError::InvalidParameter(e.to_string()))?;
+            for (k, (&so, &sn)) in s_old.iter().zip(&s_out).enumerate() {
+                let r = if so > 1.0e-12 { sn / so } else { 1.0 };
+                se_epi.as_slice_memory_order_mut().expect("contiguous")[k] *= r;
+                se_ale.as_slice_memory_order_mut().expect("contiguous")[k] *= r;
+            }
+            *mu = Array2::from_shape_vec(dim, m_out).unwrap();
+            *se = Array2::from_shape_vec(dim, s_out).unwrap();
         }
         if let Some(aff) = self.affine.as_ref() {
             let flat_mu = mu.as_standard_layout();

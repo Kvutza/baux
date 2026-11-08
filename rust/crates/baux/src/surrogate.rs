@@ -33,6 +33,8 @@ pub struct ENNSurrogateConfig {
     pub geometry: crate::semantics::neighbor::DistanceMetric,
     pub stiefel: Option<crate::semantics::stiefel::Stiefel>,
     pub affine: Option<crate::semantics::affine::Affine>,
+    pub stiefel_rank: Option<usize>,
+    pub calibrate_alpha: Option<f64>,
 }
 
 impl Default for ENNSurrogateConfig {
@@ -53,6 +55,8 @@ impl Default for ENNSurrogateConfig {
             geometry: crate::semantics::neighbor::DistanceMetric::Euclidean,
             stiefel: None,
             affine: None,
+            stiefel_rank: None,
+            calibrate_alpha: None,
         }
     }
 }
@@ -138,7 +142,34 @@ impl ENNSurrogate {
         Ok(model)
     }
 
+    fn refresh_online(&mut self) -> Result<(), ENNError> {
+        let Some(p) = self.params else {
+            return Ok(());
+        };
+        let rank = self
+            .config
+            .stiefel
+            .is_none()
+            .then_some(self.config.stiefel_rank)
+            .flatten();
+        let cal = self
+            .config
+            .affine
+            .is_none()
+            .then_some(self.config.calibrate_alpha)
+            .flatten();
+        if let Some(model) = self.model.as_mut() {
+            model.refresh_codomain(&p, rank, cal)?;
+        }
+        Ok(())
+    }
+
     fn run_fitter(&mut self, rng: &mut rand::rngs::StdRng) -> Result<(), ENNError> {
+        if self.config.metric_learning == MetricLearning::Auto {
+            if let Some(model) = self.model.as_mut() {
+                model.refresh_finite(self.config.k.max(1) as usize, &self.config.unscaled_dims)?;
+            }
+        }
         if self.config.num_candidates == 0 || self.config.num_samples == 0 {
             if self.params.is_none() {
                 self.params = Some(
@@ -146,7 +177,7 @@ impl ENNSurrogate {
                         .map_err(|e| ENNError::InvalidParameter(e.to_string()))?,
                 );
             }
-            return Ok(());
+            return self.refresh_online();
         }
         if self.fitter.is_none() {
             let mut fitter = ENNFitter::new(self.config.k, self.config.infer_aleatoric_variance)
@@ -169,7 +200,7 @@ impl ENNSurrogate {
             rng,
         )?;
         self.params = Some(p);
-        Ok(())
+        self.refresh_online()
     }
 }
 
@@ -262,7 +293,10 @@ impl Surrogate for ENNSurrogate {
         rng.fill_bytes(&mut seed_bytes);
         let mut local_rng = rand::rngs::StdRng::from_seed(seed_bytes);
 
-        let model = self.construct_model(x, y, yvar, &mut local_rng)?;
+        let mut model = self.construct_model(x, y, yvar, &mut local_rng)?;
+        if self.config.metric_learning == MetricLearning::Auto {
+            model.refresh_finite(self.config.k.max(1) as usize, &self.config.unscaled_dims)?;
+        }
 
         let mut fitter = ENNFitter::new(self.config.k, self.config.infer_aleatoric_variance)
             .with_bounds(self.config.y_bounds.clone());
@@ -280,8 +314,7 @@ impl Surrogate for ENNSurrogate {
         self.params = Some(p);
         self.model = Some(model);
         self.fitter = Some(fitter);
-
-        Ok(())
+        self.refresh_online()
     }
 
     fn fit_append(

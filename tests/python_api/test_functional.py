@@ -271,11 +271,17 @@ def test_stiefel():
     aff = baux.Affine(np.zeros(3), np.array([1.2, 1.0, 0.8]), np.array([0.5, 0.5, 0.5]))
     s_plain = baux.enn_init(x, y)
     s_mod = baux.calibrate(baux.stein(s_plain, st), aff)
+    s_auto = baux.calibrate(baux.stein(s_plain, rank=1), alpha=0.1)
     p = baux.ENNParams(k_neighbors=4, epistemic_scale=1.0, aleatoric_scale=0.1)
     xq = np.array([[0.1, -0.2, 0.3], [-0.4, 0.2, -0.1]])
     out_plain = baux.posterior(s_plain, xq, p)
     out_mod = baux.posterior(s_mod, xq, p)
+    out_auto = baux.posterior(s_auto, xq, p)
+    d_plain, _ = baux.sample(s_plain, xq, p, seeds=[7, 8])
+    d_mod, _ = baux.sample(s_mod, xq, p, seeds=[7, 8])
     assert not np.allclose(out_plain.mu, out_mod.mu)
+    assert not np.allclose(out_plain.mu, out_auto.mu)
+    assert not np.allclose(d_plain, d_mod)
 
 
 def test_fork():
@@ -382,8 +388,10 @@ def test_bogeometry():
     )
     s_euc = baux.init(sp, cfg_euc)
     s_hyp = baux.init(sp, cfg_hyp)
+    s_zero = baux.init(sp, baux.chain(baux.raasp(4), baux.zero()))
     s_conf = baux.with_geometry(s_euc, "conformal", local_k=2)
     assert s_euc.config.surrogate.tied_dims == sp.tied_dims
+    assert s_zero.config.candidates.tied_dims == sp.tied_dims
     assert s_conf.config.surrogate.geometry == "conformal"
 
     s1_e, b_e = baux.ask(s_euc, 4)
@@ -399,6 +407,23 @@ def test_bogeometry():
     assert b3_e.weights is not None
     assert b3_e.params[0]["opt"] in ("adam", "muon", "sgd")
     assert s2_e.incumbent_params["opt"] in ("adam", "muon", "sgd")
+
+    cfg_online = baux.chain(
+        baux.lhd(6),
+        baux.enn(k=3, num_samples=6, metric_learning="auto"),
+        baux.stein(rank=1),
+        baux.calibrate(alpha=0.1),
+        baux.thompson(),
+    )
+    s_on, b_on = baux.ask(baux.init(sp, cfg_online), 10)
+    y_on = -10.0 * b_on.points[:, -1] ** 2 - 0.01 * np.sum(
+        b_on.points[:, :-1] ** 2, axis=1
+    )
+    s_on2, mu_on = baux.tell(s_on, b_on, y_on)
+    assert (
+        np.all(np.isfinite(mu_on))
+        and s_on2.metric_weights[-1] > s_on2.metric_weights[0]
+    )
 
 
 test_manifold_evals = test_manifolds

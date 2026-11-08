@@ -8,14 +8,12 @@ subject = "Merge pull request #67 from ShizukaKuze/master"
 committed_at = "2026-05-24T11:39:02-07:00"
 
 [archive]
-archive_sha256 = "0e02b787e58ddb4b6dae42548cf716df13a3dbde9450e70187809d7047b6c5f0"
-archive_sha512 = "d442940bea9a57236d0a4987184a65ab2b7d5f34bf604554a7dc14f2479cb6a2b6cf86421fbf8aa40d118f762ae08730ae4d1c0aba50ec084818f05d52109e2c"
+archive_blake3 = "822b71ec7ac0b01d1a3077e83120dd4d59a310b79bececbd06f4b05861b6b6d8"
 archive_bytes = 30720
 
 [merkle]
 cache_relpath = ".cache/baux/upstream/Muon"
-merkle_root_sha256 = "350144c739586a9ffa61c6b2c8a7ba55994ad36e2c3824b095ea2923595c4af1"
-merkle_root_sha512 = "1f9c5f136f79b21972b64e41b35abe689c0631d01aafa372535f1ba021e98bbaac129d5842c44842c9573a13066d40deb7e7d75a494932c1e74269307acc7d7e"
+merkle_root_blake3 = "31a39c7b373dde4b8f09b904356608a3b4df2d0442012b97102d318926d945b0"
 file_count = 5
 total_bytes = 19429
 
@@ -23,7 +21,4 @@ total_bytes = 19429
 muon = "muon.py"
 
 [inputs]
-muon = "2479665a90124f62e4df557816665851ca317e42fcfda2af1da02c1f44ab5f3d"
-
-[inputs_sha512]
-muon = "6beab126c47f6e5f6adea904780e41a63890eed4e37b019beda89096ad4fa004b7eb2f1fac28e415de612b816755befa33eb51fbb7701ec23226fcfeadd6c0ab"
+muon = "6bf4722f9405d50e7ff5ef30f981a22f0e95e004e5a907178157c8580d4c31b3"

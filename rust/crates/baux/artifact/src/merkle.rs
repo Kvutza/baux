@@ -1,17 +1,14 @@
-//! Full-directory RFC-6962 binary Merkle tree (SHA-256 + SHA-512) and
+//! Full-directory RFC-6962 binary Merkle tree (BLAKE3) and
 //! archive/source lock verifier for `research/upstream/*.lock.toml`.
 
-use crate::artifact::{json::Value, toml};
-use sha2::{Digest, Sha256, Sha512};
-use std::fs::{self, File};
-use std::io::Read;
+use crate::artifact::{blake3, json::Value, toml};
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TreeStats {
-    pub root_sha256: String,
-    pub root_sha512: String,
+    pub root_blake3: String,
     pub file_count: u64,
     pub total_bytes: u64,
 }
@@ -20,40 +17,18 @@ pub struct TreeStats {
 pub struct ArchiveStats {
     pub revision: String,
     pub tree: String,
-    pub archive_sha256: String,
-    pub archive_sha512: String,
+    pub archive_blake3: String,
     pub archive_bytes: u64,
 }
 
-pub fn hash_bytes(data: &[u8]) -> (String, String) {
-    let mut s256 = Sha256::new();
-    let mut s512 = Sha512::new();
-    s256.update(data);
-    s512.update(data);
-    (
-        format!("{:x}", s256.finalize()),
-        format!("{:x}", s512.finalize()),
-    )
+pub fn hash_bytes(data: &[u8]) -> String {
+    blake3::hash_hex(data)
 }
 
-fn raw_file(path: &Path) -> Result<([u8; 32], [u8; 64], u64), String> {
-    let mut file = File::open(path).map_err(|e| format!("open {}: {e}", path.display()))?;
-    let mut s256 = Sha256::new();
-    let mut s512 = Sha512::new();
-    let mut size = 0u64;
-    let mut buf = [0u8; 65536];
-    loop {
-        let n = file.read(&mut buf).map_err(|e| e.to_string())?;
-        if n == 0 {
-            break;
-        }
-        s256.update(&buf[..n]);
-        s512.update(&buf[..n]);
-        size += n as u64;
-    }
-    let d256: [u8; 32] = s256.finalize().into();
-    let d512: [u8; 64] = s512.finalize().into();
-    Ok((d256, d512, size))
+fn raw_file(path: &Path) -> Result<([u8; 32], u64), String> {
+    let bytes = fs::read(path).map_err(|e| format!("read {}: {e}", path.display()))?;
+    let sz = bytes.len() as u64;
+    Ok((blake3::hash(&bytes), sz))
 }
 
 fn hex_str(bytes: &[u8]) -> String {
@@ -65,9 +40,9 @@ fn hex_str(bytes: &[u8]) -> String {
     out
 }
 
-pub fn hash_file(path: &Path) -> Result<(String, String, u64), String> {
-    let (d256, d512, sz) = raw_file(path)?;
-    Ok((hex_str(&d256), hex_str(&d512), sz))
+pub fn hash_file(path: &Path) -> Result<(String, u64), String> {
+    let (d, sz) = raw_file(path)?;
+    Ok((hex_str(&d), sz))
 }
 
 fn keep_dir(name: &str) -> bool {
@@ -120,66 +95,33 @@ fn walk_files(root: &Path) -> Result<Vec<String>, String> {
     Ok(rels)
 }
 
-fn leaf_pair(rel: &str, d256: &[u8; 32], d512: &[u8; 64], sz: u64) -> ([u8; 32], [u8; 64]) {
+fn leaf_digest(rel: &str, file_digest: &[u8; 32], sz: u64) -> [u8; 32] {
     let rb = rel.as_bytes();
     let rlen = (rb.len() as u32).to_le_bytes();
     let slen = sz.to_le_bytes();
-    let mut h256 = Sha256::new();
-    h256.update([0x00]);
-    h256.update(rlen);
-    h256.update(rb);
-    h256.update(slen);
-    h256.update(d256);
-    let mut h512 = Sha512::new();
-    h512.update([0x00]);
-    h512.update(rlen);
-    h512.update(rb);
-    h512.update(slen);
-    h512.update(d512);
-    (h256.finalize().into(), h512.finalize().into())
+    let mut buf = Vec::with_capacity(1 + 4 + rb.len() + 8 + 32);
+    buf.push(0x00);
+    buf.extend_from_slice(&rlen);
+    buf.extend_from_slice(rb);
+    buf.extend_from_slice(&slen);
+    buf.extend_from_slice(file_digest);
+    blake3::hash(&buf)
 }
 
-fn fold_sha256(leaves: &[[u8; 32]]) -> String {
+fn fold_blake3(leaves: &[[u8; 32]]) -> String {
     if leaves.is_empty() {
-        let mut h = Sha256::new();
-        h.update([0x00]);
-        return format!("{:x}", h.finalize());
+        return blake3::hash_hex(&[0x00]);
     }
     let mut level = leaves.to_vec();
     while level.len() > 1 {
         let mut nxt = Vec::with_capacity(level.len().div_ceil(2));
         for pair in level.chunks(2) {
             if pair.len() == 2 {
-                let mut h = Sha256::new();
-                h.update([0x01]);
-                h.update(pair[0]);
-                h.update(pair[1]);
-                nxt.push(h.finalize().into());
-            } else {
-                nxt.push(pair[0]);
-            }
-        }
-        level = nxt;
-    }
-    hex_str(&level[0])
-}
-
-fn fold_sha512(leaves: &[[u8; 64]]) -> String {
-    if leaves.is_empty() {
-        let mut h = Sha512::new();
-        h.update([0x00]);
-        return format!("{:x}", h.finalize());
-    }
-    let mut level = leaves.to_vec();
-    while level.len() > 1 {
-        let mut nxt = Vec::with_capacity(level.len().div_ceil(2));
-        for pair in level.chunks(2) {
-            if pair.len() == 2 {
-                let mut h = Sha512::new();
-                h.update([0x01]);
-                h.update(pair[0]);
-                h.update(pair[1]);
-                nxt.push(h.finalize().into());
+                let mut buf = [0u8; 65];
+                buf[0] = 0x01;
+                buf[1..33].copy_from_slice(&pair[0]);
+                buf[33..65].copy_from_slice(&pair[1]);
+                nxt.push(blake3::hash(&buf));
             } else {
                 nxt.push(pair[0]);
             }
@@ -191,19 +133,15 @@ fn fold_sha512(leaves: &[[u8; 64]]) -> String {
 
 pub fn compute_tree(root: &Path) -> Result<TreeStats, String> {
     let rels = walk_files(root)?;
-    let mut l256 = Vec::with_capacity(rels.len());
-    let mut l512 = Vec::with_capacity(rels.len());
+    let mut leaves = Vec::with_capacity(rels.len());
     let mut total_bytes = 0u64;
     for rel in &rels {
-        let (d256, d512, sz) = raw_file(&root.join(rel))?;
-        let (a, b) = leaf_pair(rel, &d256, &d512, sz);
-        l256.push(a);
-        l512.push(b);
+        let (d, sz) = raw_file(&root.join(rel))?;
+        leaves.push(leaf_digest(rel, &d, sz));
         total_bytes += sz;
     }
     Ok(TreeStats {
-        root_sha256: fold_sha256(&l256),
-        root_sha512: fold_sha512(&l512),
+        root_blake3: fold_blake3(&leaves),
         file_count: rels.len() as u64,
         total_bytes,
     })
@@ -236,32 +174,23 @@ pub fn git_archive(repo_dir: &Path, revision: &str) -> Result<ArchiveStats, Stri
     if !arch.status.success() {
         return Err(format!("git archive failed in {}", repo_dir.display()));
     }
-    let (s256, s512) = hash_bytes(&arch.stdout);
     Ok(ArchiveStats {
         revision: revision.to_owned(),
         tree,
-        archive_sha256: s256,
-        archive_sha512: s512,
+        archive_blake3: hash_bytes(&arch.stdout),
         archive_bytes: arch.stdout.len() as u64,
     })
 }
 
 fn check_merkle(target: &Path, sec: &Value) -> Result<(), String> {
     let actual = compute_tree(target)?;
-    if let Some(exp) = sec["merkle_root_sha256"].as_str()
-        && actual.root_sha256 != exp
+    if let Some(exp) = sec["merkle_root_blake3"].as_str()
+        && actual.root_blake3 != exp
     {
         return Err(format!(
-            "merkle_root_sha256 mismatch for {}",
-            target.display()
-        ));
-    }
-    if let Some(exp) = sec["merkle_root_sha512"].as_str()
-        && actual.root_sha512 != exp
-    {
-        return Err(format!(
-            "merkle_root_sha512 mismatch for {}",
-            target.display()
+            "merkle_root_blake3 mismatch for {}: {} != {exp}",
+            target.display(),
+            actual.root_blake3
         ));
     }
     if let Some(exp) = sec["file_count"].as_u64()
@@ -298,15 +227,10 @@ fn check_git(target: &Path, repo_sec: &Value, arch_sec: &Value) -> Result<(), St
     {
         return Err(format!("git tree mismatch for {}", target.display()));
     }
-    if let Some(s) = arch_sec["archive_sha256"].as_str()
-        && info.archive_sha256 != s
+    if let Some(s) = arch_sec["archive_blake3"].as_str()
+        && info.archive_blake3 != s
     {
-        return Err(format!("archive_sha256 mismatch for {}", target.display()));
-    }
-    if let Some(s) = arch_sec["archive_sha512"].as_str()
-        && info.archive_sha512 != s
-    {
-        return Err(format!("archive_sha512 mismatch for {}", target.display()));
+        return Err(format!("archive_blake3 mismatch for {}", target.display()));
     }
     if let Some(b) = arch_sec["archive_bytes"].as_u64()
         && info.archive_bytes != b
@@ -320,27 +244,18 @@ fn check_inputs(target: &Path, lock: &Value) -> Result<(), String> {
     let Some(paths) = lock["input_paths"].as_map() else {
         return Ok(());
     };
-    let sha256_sec = &lock["inputs"];
-    let sha512_sec = &lock["inputs_sha512"];
+    let inputs_sec = &lock["inputs"];
     for (k, v) in paths {
         let Some(key) = k.as_str() else { continue };
         let Some(rel) = v.as_str() else { continue };
-        let (s256, s512, _) = hash_file(&target.join(rel))?;
-        let k256 = format!("{key}_sha256");
-        if let Some(exp) = sha256_sec[k256.as_str()]
+        let (digest, _) = hash_file(&target.join(rel))?;
+        let k_blake3 = format!("{key}_blake3");
+        if let Some(exp) = inputs_sec[k_blake3.as_str()]
             .as_str()
-            .or_else(|| sha256_sec[key].as_str())
-            && s256 != exp
+            .or_else(|| inputs_sec[key].as_str())
+            && digest != exp
         {
-            return Err(format!("SHA-256 mismatch for {rel}: {s256} != {exp}"));
-        }
-        let k512 = format!("{key}_sha512");
-        if let Some(exp) = sha512_sec[k512.as_str()]
-            .as_str()
-            .or_else(|| sha512_sec[key].as_str())
-            && s512 != exp
-        {
-            return Err(format!("SHA-512 mismatch for {rel}: {s512} != {exp}"));
+            return Err(format!("BLAKE3 mismatch for {rel}: {digest} != {exp}"));
         }
     }
     Ok(())

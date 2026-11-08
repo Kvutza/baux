@@ -5,7 +5,6 @@
 
 use baux::artifact::json::{self, Value, json};
 use deser::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -35,26 +34,16 @@ pub fn file_digest(path: &Path) -> Result<String, String> {
         .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
         .map(|d| d.as_nanos())
         .unwrap_or(0);
-    let cache_key = digest(format!("v1:{}:{}:{mtime}", path.display(), meta.len()).as_bytes());
+    let cache_key = digest(format!("v2:{}:{}:{mtime}", path.display(), meta.len()).as_bytes());
     let cache_dir = Path::new(".cache/baux/digests");
-    let cache_path = cache_dir.join(format!("{cache_key}.sha256"));
+    let cache_path = cache_dir.join(format!("{cache_key}.blake3"));
     if mtime > 0
         && let Ok(cached) = fs::read_to_string(&cache_path)
         && cached.len() == 64
     {
         return Ok(cached);
     }
-    let mut file = File::open(path).map_err(|e| format!("hash {}: {e}", path.display()))?;
-    let mut hash = Sha256::new();
-    let mut buffer = [0u8; 65536];
-    loop {
-        let size = file.read(&mut buffer).map_err(|e| e.to_string())?;
-        if size == 0 {
-            break;
-        }
-        hash.update(&buffer[..size]);
-    }
-    let result = format!("{:x}", hash.finalize());
+    let result = baux::artifact::blake3::hash_file(path).map_err(|e| format!("hash {e}"))?;
     if mtime > 0 && fs::create_dir_all(cache_dir).is_ok() {
         let _ = fs::write(&cache_path, &result);
     }

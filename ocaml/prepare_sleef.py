@@ -1,7 +1,6 @@
 """Build the pinned vector math dependency outside the source tree."""
 
 import hashlib
-import os
 from pathlib import Path
 import subprocess
 import sys

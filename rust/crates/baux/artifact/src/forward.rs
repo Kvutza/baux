@@ -4,7 +4,6 @@
 //! not a proof of execution equivalence.
 
 use deser::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[deser(deny_unknown_fields)]
@@ -17,7 +16,7 @@ pub struct WeightHash {
 pub struct WordHash {
     name: String,
     elements: u64,
-    digest: Sha256,
+    bytes: Vec<u8>,
 }
 
 impl WordHash {
@@ -25,7 +24,7 @@ impl WordHash {
         Self {
             name: name.into(),
             elements: 0,
-            digest: Sha256::new(),
+            bytes: Vec::new(),
         }
     }
 
@@ -48,11 +47,11 @@ impl WordHash {
                     std::mem::size_of_val(words),
                 )
             };
-            self.digest.update(bytes);
+            self.bytes.extend_from_slice(bytes);
         }
         #[cfg(target_endian = "big")]
         for word in words {
-            self.digest.update(word.to_le_bytes());
+            self.bytes.extend_from_slice(&word.to_le_bytes());
         }
         Ok(())
     }
@@ -61,7 +60,7 @@ impl WordHash {
         WeightHash {
             name: self.name,
             elements: self.elements,
-            sha256: format!("{:x}", self.digest.finalize()),
+            sha256: baux::artifact::blake3::hash_hex(&self.bytes),
         }
     }
 }
@@ -389,7 +388,7 @@ mod tests {
         assert_eq!(whole.elements, 4);
         assert_eq!(
             whole.sha256,
-            format!("{:x}", Sha256::digest([0, 0, 1, 0, 0, 128, 255, 255]))
+            baux::artifact::blake3::hash_hex(&[0, 0, 1, 0, 0, 128, 255, 255])
         );
     }
 }

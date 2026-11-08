@@ -1,6 +1,10 @@
 //! BAUX's native Deser formats and dynamic values; no Serde compatibility
 //! layer.
 
+#[path = "attestation.rs"]
+pub mod attestation;
+#[path = "blake3.rs"]
+pub mod blake3;
 #[path = "cbor.rs"]
 pub mod cbor;
 #[path = "forward.rs"]

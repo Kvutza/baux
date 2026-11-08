@@ -1,0 +1,7 @@
+File "unsafe_workspace.ml", line 3, characters 30-39:
+3 |   fun () -> ignore (Batch.get workspace 0 : float#)
+                                  ^^^^^^^^^
+Error: This value is "contended"
+         because it is used inside the function at file "unsafe_workspace.ml", line 3, characters 2-51
+         which is expected to be "portable".
+       However, the highlighted expression is expected to be "uncontended".

@@ -104,6 +104,11 @@ pub(crate) use baux_tooling::execute;
 fn build(root: &Path, engine: cli_cfg::BuildSystem) -> Result<(), String> {
     println!("o|build [1/2]: building native BAUX targets...");
     engine.build_native(root)?;
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    {
+        engine.run(root, "//ocaml:tool", &["deps".into()])?;
+        engine.run(root, "//ocaml:tool", &["build".into()])?;
+    }
     println!("o|build [2/2]: building Python distribution wheels into dist/...");
     baux_tooling::build::build_dist(root, Path::new("dist"))
 }

@@ -1,0 +1,4 @@
+(env
+ (_
+  (flags (:standard -extension-universe beta))
+  (ocamlopt_flags (:standard -O3))))

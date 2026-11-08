@@ -1,0 +1,9 @@
+version = 2
+experiment = "oxcaml-catalogue"
+batch_sizes = [1, 256, 4096]
+workers = [1, 2, 4, 8, 10]
+block_pairs = [32, 128, 512]
+samples = 2
+dimension = 16
+quota_ms = 20
+seed = 20261107

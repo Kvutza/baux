@@ -1,0 +1,421 @@
+{
+  "schema_version": 1,
+  "primary_catalogue": "https://www.sfu.ca/~ssurjano/optimization.html",
+  "coverage": [
+    {
+      "source": "https://www.sfu.ca/~ssurjano/ackley.html",
+      "functions": [
+        "ackley"
+      ]
+    },
+    {
+      "source": "https://www.sfu.ca/~ssurjano/bukin6.html",
+      "functions": [
+        "bukin6"
+      ]
+    },
+    {
+      "source": "https://www.sfu.ca/~ssurjano/crossit.html",
+      "functions": [
+        "cross-in-tray"
+      ]
+    },
+    {
+      "source": "https://www.sfu.ca/~ssurjano/drop.html",
+      "functions": [
+        "drop-wave"
+      ]
+    },
+    {
+      "source": "https://www.sfu.ca/~ssurjano/egg.html",
+      "functions": [
+        "eggholder"
+      ]
+    },
+    {
+      "source": "https://www.sfu.ca/~ssurjano/grlee12.html",
+      "functions": [
+        "gramacy-lee"
+      ]
+    },
+    {
+      "source": "https://www.sfu.ca/~ssurjano/griewank.html",
+      "functions": [
+        "griewank"
+      ]
+    },
+    {
+      "source": "https://www.sfu.ca/~ssurjano/holder.html",
+      "functions": [
+        "holder-table"
+      ]
+    },
+    {
+      "source": "https://www.sfu.ca/~ssurjano/langer.html",
+      "functions": [
+        "langermann"
+      ]
+    },
+    {
+      "source": "https://www.sfu.ca/~ssurjano/levy.html",
+      "functions": [
+        "levy"
+      ]
+    },
+    {
+      "source": "https://www.sfu.ca/~ssurjano/levy13.html",
+      "functions": [
+        "levy13"
+      ]
+    },
+    {
+      "source": "https://www.sfu.ca/~ssurjano/rastr.html",
+      "functions": [
+        "rastrigin"
+      ]
+    },
+    {
+      "source": "https://www.sfu.ca/~ssurjano/schaffer2.html",
+      "functions": [
+        "schaffer2"
+      ]
+    },
+    {
+      "source": "https://www.sfu.ca/~ssurjano/schaffer4.html",
+      "functions": [
+        "schaffer4"
+      ]
+    },
+    {
+      "source": "https://www.sfu.ca/~ssurjano/schwef.html",
+      "functions": [
+        "schwefel"
+      ]
+    },
+    {
+      "source": "https://www.sfu.ca/~ssurjano/shubert.html",
+      "functions": [
+        "shubert"
+      ]
+    },
+    {
+      "source": "https://www.sfu.ca/~ssurjano/boha.html",
+      "functions": [
+        "bohachevsky1",
+        "bohachevsky2",
+        "bohachevsky3"
+      ]
+    },
+    {
+      "source": "https://www.sfu.ca/~ssurjano/perm0db.html",
+      "functions": [
+        "perm-zero"
+      ]
+    },
+    {
+      "source": "https://www.sfu.ca/~ssurjano/rothyp.html",
+      "functions": [
+        "rotated-hyperellipsoid"
+      ]
+    },
+    {
+      "source": "https://www.sfu.ca/~ssurjano/spheref.html",
+      "functions": [
+        "sphere",
+        "sphere6-rescaled"
+      ]
+    },
+    {
+      "source": "https://www.sfu.ca/~ssurjano/sumpow.html",
+      "functions": [
+        "sum-powers"
+      ]
+    },
+    {
+      "source": "https://www.sfu.ca/~ssurjano/sumsqu.html",
+      "functions": [
+        "sum-squares"
+      ]
+    },
+    {
+      "source": "https://www.sfu.ca/~ssurjano/trid.html",
+      "functions": [
+        "trid"
+      ]
+    },
+    {
+      "source": "https://www.sfu.ca/~ssurjano/booth.html",
+      "functions": [
+        "booth"
+      ]
+    },
+    {
+      "source": "https://www.sfu.ca/~ssurjano/matya.html",
+      "functions": [
+        "matyas"
+      ]
+    },
+    {
+      "source": "https://www.sfu.ca/~ssurjano/mccorm.html",
+      "functions": [
+        "mccormick"
+      ]
+    },
+    {
+      "source": "https://www.sfu.ca/~ssurjano/powersum.html",
+      "functions": [
+        "power-sum"
+      ]
+    },
+    {
+      "source": "https://www.sfu.ca/~ssurjano/zakharov.html",
+      "functions": [
+        "zakharov"
+      ]
+    },
+    {
+      "source": "https://www.sfu.ca/~ssurjano/camel3.html",
+      "functions": [
+        "three-hump-camel"
+      ]
+    },
+    {
+      "source": "https://www.sfu.ca/~ssurjano/camel6.html",
+      "functions": [
+        "six-hump-camel"
+      ]
+    },
+    {
+      "source": "https://www.sfu.ca/~ssurjano/dixonpr.html",
+      "functions": [
+        "dixon-price"
+      ]
+    },
+    {
+      "source": "https://www.sfu.ca/~ssurjano/rosen.html",
+      "functions": [
+        "rosenbrock",
+        "rosenbrock4-rescaled"
+      ]
+    },
+    {
+      "source": "https://www.sfu.ca/~ssurjano/dejong5.html",
+      "functions": [
+        "de-jong5"
+      ]
+    },
+    {
+      "source": "https://www.sfu.ca/~ssurjano/easom.html",
+      "functions": [
+        "easom"
+      ]
+    },
+    {
+      "source": "https://www.sfu.ca/~ssurjano/michal.html",
+      "functions": [
+        "michalewicz"
+      ]
+    },
+    {
+      "source": "https://www.sfu.ca/~ssurjano/beale.html",
+      "functions": [
+        "beale"
+      ]
+    },
+    {
+      "source": "https://www.sfu.ca/~ssurjano/branin.html",
+      "functions": [
+        "branin",
+        "branin-rescaled",
+        "branin-modified"
+      ]
+    },
+    {
+      "source": "https://www.sfu.ca/~ssurjano/colville.html",
+      "functions": [
+        "colville"
+      ]
+    },
+    {
+      "source": "https://www.sfu.ca/~ssurjano/forretal08.html",
+      "functions": [
+        "forrester",
+        "forrester-low-fidelity"
+      ]
+    },
+    {
+      "source": "https://www.sfu.ca/~ssurjano/goldpr.html",
+      "functions": [
+        "goldstein-price",
+        "goldstein-price-rescaled"
+      ]
+    },
+    {
+      "source": "https://www.sfu.ca/~ssurjano/hart3.html",
+      "functions": [
+        "hartmann3"
+      ]
+    },
+    {
+      "source": "https://www.sfu.ca/~ssurjano/hart4.html",
+      "functions": [
+        "hartmann4"
+      ]
+    },
+    {
+      "source": "https://www.sfu.ca/~ssurjano/hart6.html",
+      "functions": [
+        "hartmann6",
+        "hartmann6-rescaled"
+      ]
+    },
+    {
+      "source": "https://www.sfu.ca/~ssurjano/permdb.html",
+      "functions": [
+        "perm"
+      ]
+    },
+    {
+      "source": "https://www.sfu.ca/~ssurjano/powell.html",
+      "functions": [
+        "powell"
+      ]
+    },
+    {
+      "source": "https://www.sfu.ca/~ssurjano/shekel.html",
+      "functions": [
+        "shekel"
+      ]
+    },
+    {
+      "source": "https://www.sfu.ca/~ssurjano/stybtang.html",
+      "functions": [
+        "styblinski-tang"
+      ]
+    }
+  ],
+  "parameter_defaults": {
+    "ackley": {
+      "a": 20,
+      "b": 0.2,
+      "c": "2*pi"
+    },
+    "michalewicz": {
+      "m": 10
+    },
+    "perm-zero": {
+      "beta": 10
+    },
+    "perm": {
+      "beta": 0.5
+    },
+    "langermann": {
+      "dimension": 2,
+      "m": 5,
+      "c": [
+        1,
+        2,
+        5,
+        2,
+        3
+      ],
+      "A": [
+        [
+          3,
+          5
+        ],
+        [
+          5,
+          2
+        ],
+        [
+          2,
+          1
+        ],
+        [
+          1,
+          4
+        ],
+        [
+          7,
+          9
+        ]
+      ]
+    },
+    "power-sum": {
+      "dimension": 4,
+      "b": [
+        8,
+        18,
+        44,
+        114
+      ]
+    },
+    "shekel": {
+      "m": 10
+    },
+    "forrester-low-fidelity": {
+      "A": 0.5,
+      "B": 10,
+      "C": -5,
+      "formula": "A*f(x) + B*(x-0.5) - C"
+    }
+  },
+  "conventions": [
+    "Deterministic objectives; optional observation noise is not added.",
+    "Recommended domains are metadata, not clipping constraints.",
+    "Hartmann-6 names follow the displayed equations: standard -sum; rescaled (-sum-2.58)/1.94. SFU MATLAB code links appear reversed.",
+    "Sphere6-rescaled follows the displayed weighted equation (sum(2^i*x_i^2)-1745)/899 on the stated unit cube. Its stated zero-mean/unit-variance description does not follow from that equation; no undocumented input transform is applied.",
+    "Langermann uses the positive sum displayed by SFU, unlike the negative sum in SciPy.",
+    "Hartmann3 uses SFU P[4,1]=0.0381; SciPy uses 0.03815.",
+    "Shekel uses SFU center [5,3,5,3]; SciPy uses [5,5,3,3].",
+    "Colville uses SFU first term 100*(x1^2-x2)^2; the pinned SciPy source instead uses 100*(x1-x2^2)^2.",
+    "Schwefel uses SFU constant 418.9829; the pinned SciPy source uses 418.982887.",
+    "Powell supports dimensions divisible by four, summing independent four-coordinate blocks.",
+    "Reference fixture generation records adaptations in tests/generate_reference.py; tests run offline against frozen values."
+  ],
+  "extended_collections": [
+    {
+      "source": "https://www.geocities.ws/eadorio/mvf.pdf",
+      "status": "not_yet_inventoried"
+    },
+    {
+      "source": "https://infinity77.net/global_optimization/test_functions.html",
+      "status": "not_yet_implemented_as_a_complete_collection"
+    },
+    {
+      "source": "http://www-optima.amp.i.kyoto-u.ac.jp/member/student/hedar/Hedar_files/TestGO.htm",
+      "status": "not_yet_inventoried"
+    },
+    {
+      "source": "http://www.uv.es/rmarti/paper/docs/global1.pdf",
+      "status": "not_yet_inventoried"
+    },
+    {
+      "source": "http://www.zsd.ict.pwr.wroc.pl/files/docs/functions.pdf",
+      "status": "not_yet_inventoried"
+    }
+  ],
+  "remaining_capabilities": [
+    "Configurable nondefault function parameters",
+    "Gradients and Hessians",
+    "Controlled Rust performance comparisons"
+  ],
+  "external_simulators": "The simulator/dataset links on other.html have not been ported and require separate interfaces and scope.",
+  "execution": {
+    "catalogue_entries": 56,
+    "backends": [
+      "scalar float64#",
+      "Apple ARM64 NEON float64x2#"
+    ],
+    "shared_formulas": true,
+    "vector_math": "SLEEF 3.9.0, u10 advsimd",
+    "packing": "Reusable mutable flat blocks of interleaved candidate pairs; direct refill; duplicated odd tail",
+    "allocation": "Compiler checked zero_alloc mathematical kernels; preparation, snapshots and scheduling may allocate",
+    "concurrency": "Per-block input/output ownership through Parallel.Arrays.Iarray; stale/uninitialized results rejected; scalar reduction without snapshots",
+    "floating_point": "Tolerance based scalar/vector agreement; no promise of bitwise equality across backends",
+    "experiments": "OCaml OTOML schema and resolved config; Core_bench wall-time regression and bootstrap intervals; backend/worker/block sweeps with independent confirmation",
+    "scope": "Current native arm64 macOS toolchain; CPU SIMD, no GPU backend",
+    "randomized_tests": "base_quickcheck: 50 deterministic generated and shrinkable cases per catalogue entry"
+  }
+}

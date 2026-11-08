@@ -1,0 +1,7 @@
+File "unsafe_capture.ml", line 2, characters 56-63:
+2 | let unsafe : (unit -> unit) @ portable = fun () -> incr counter
+                                                            ^^^^^^^
+Error: This value is "contended"
+         because it is used inside the function at file "unsafe_capture.ml", line 2, characters 41-63
+         which is expected to be "portable".
+       However, the highlighted expression is expected to be "uncontended".

@@ -89,6 +89,7 @@ _TESTS = [
     "//rust/crates/baux:integration",
 ] + select({
     "//:macos-arm64": [
+        "//ocaml:test",
         ":metal",
         ":resident-regions",
         ":resident-python",

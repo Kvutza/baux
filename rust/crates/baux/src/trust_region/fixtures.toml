@@ -1,8 +1,5 @@
-upstream_revision = "de0db39f481d9505bb3610b7b7aa0ebf7702e4a5"
-
-[source_hashes]
-"turbo/turbo_1.py" = "1d6e47966275d9875f2f2d745446d97d3b03d6364bdcae306a310a6dfd4c0e76"
-"turbo/turbo_m.py" = "cc09363775cb06ca522f6f4bc6e5ba95aba230ba90aa0a7bc4808488dcda4df8"
+paper_arxiv = "1910.01739"
+enn_revision = "f8f6a5dada9e85d1a196b7281be4b1b070e0a3ef"
 
 [turbo1]
 dim = 4

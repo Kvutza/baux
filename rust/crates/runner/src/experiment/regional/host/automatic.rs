@@ -1,7 +1,7 @@
 //! Observe actual TuRBO retirement and configured replacement at tell time.
-//! TuRBO-m source: Eriksson et al. (2019),
-//! https://github.com/uber-research/TuRBO/blob/de0db39f481d9505bb3610b7b7aa0ebf7702e4a5/turbo/turbo_m.py.
-//! The controller thresholds in this BAUX diagnostic are configured separately.
+//! TuRBO-m specification: Eriksson et al. (NeurIPS 2019, arXiv:1910.01739,
+//! Section 2). The controller thresholds in this BAUX diagnostic are configured
+//! separately.
 
 use super::{ArmResult, Config, make_optimizer, score};
 use baux::artifact::json::json;

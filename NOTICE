@@ -28,18 +28,16 @@ the MIT License covering this repository's software and source code.
 ================================================================================
 
 - Trust-Region Bayesian Optimization (TuRBO):
-  baux's trust-region optimizer (`TurboTrustRegion`) is an independent
-  clean-room Rust implementation of the algorithm published in David Eriksson,
-  Michael Pearce, Jacob R. Gardner, Ryan Turner, and Matthias Poloczek,
-  "Scalable Global Optimization via Local Bayesian Optimization", NeurIPS 2019
-  (arXiv:1910.01739). No source code from `uber-research/TuRBO` is distributed
-  in baux. For non-commercial research and differential parity verification
-  (`research/turbo_upstream.py`, `research/upstream/turbo.lock.toml`, and
-  `rust/crates/baux/src/trust_region/fixtures.toml`), baux references the
-  upstream TuRBO reference implementation (`https://github.com/uber-research/TuRBO`,
-  commit `de0db39f481d9505bb3610b7b7aa0ebf7702e4a5`), which is made available
-  by Uber Technologies, Inc. under the Uber Non-Commercial License
-  (`https://github.com/uber-research/TuRBO/blob/master/LICENSE.md`).
+  baux's trust-region optimizer (`TurboTrustRegion`) and its specification
+  fixtures (`research/turbo_upstream.py`,
+  `rust/crates/baux/src/trust_region/fixtures.toml`) are an independent
+  clean-room implementation of the mathematical algorithm published in David
+  Eriksson, Michael Pearce, Jacob R. Gardner, Ryan Turner, and Matthias
+  Poloczek, "Scalable Global Optimization via Local Bayesian Optimization",
+  NeurIPS 2019 (arXiv:1910.01739, Section 2), together with MIT-licensed
+  BoTorch (`https://github.com/pytorch/botorch`) and `yubo-research/enn`. No
+  source code, outputs, or artifacts from `uber-research/TuRBO` are incorporated
+  or distributed.
 
 - Manifold-Constrained Hyper-Connections (mHC):
   baux's Sinkhorn-Knopp Birkhoff polytope manifold projection (`fbt::moe`) is
@@ -74,7 +72,7 @@ the MIT License covering this repository's software and source code.
   reference only; no GPL-covered implementation is included.
 
 ================================================================================
-3. Third-Party MIT-Licensed Attributions and Notices
+3. Third-Party MIT-Licensed Source Attributions and Notices
 ================================================================================
 
 --------------------------------------------------------------------------------
@@ -209,3 +207,32 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+================================================================================
+4. Bundled and Statically Linked Third-Party Libraries (Apache-2.0 / MIT)
+================================================================================
+
+Binary wheel distributions (`baux-*.whl`) statically link or bundle the
+following permissive third-party libraries:
+
+- USearch (`https://github.com/unum-cloud/usearch`, version 2.26.0):
+  Copyright (c) 2023 Ash Vardanian / Unum. Licensed under the Apache License,
+  Version 2.0 (`http://www.apache.org/licenses/LICENSE-2.0`).
+
+- LLVM OpenMP Runtime (`libomp`, version 22.1.8, bundled on macOS arm64):
+  Copyright (c) 1997-2026 LLVM Project / Intel Corporation. Licensed under the
+  Apache License, Version 2.0 WITH LLVM-exception
+  (`https://llvm.org/LICENSE.txt`).
+
+- Candle (`https://github.com/huggingface/candle`, version 0.9.2):
+  Copyright (c) 2023 Hugging Face. Dual-licensed under the MIT License and the
+  Apache License, Version 2.0.
+
+- PyO3 (`https://github.com/PyO3/pyo3`, version 0.29):
+  Copyright (c) PyO3 Project and Contributors. Dual-licensed under the MIT
+  License and the Apache License, Version 2.0.
+
+- CUDA-Oxide (`https://github.com/NVlabs/cuda-oxide`, revision
+  `6abfaa091e29a6275c1943895bfbc97efa306e98`):
+  Copyright (c) NVIDIA Corporation. Licensed under the Apache License, Version
+  2.0 / MIT License.

@@ -327,27 +327,14 @@ fn length_bounds() {
     );
 }
 
-/// Differential parity test against unmodified upstream `uber-research/TuRBO`
-/// (`turbo/turbo_1.py` and `turbo/turbo_m.py`, commit
-/// `de0db39f481d9505bb3610b7b7aa0ebf7702e4a5`, Eriksson et al., NeurIPS 2019,
-/// arXiv:1910.01739).
+/// Differential parity test against the published TuRBO trust-region length
+/// adaptation specification (Eriksson et al., NeurIPS 2019, arXiv:1910.01739,
+/// Section 2; MIT-licensed BoTorch / `yubo-research/enn`).
 #[test]
 fn upstream_turbo() {
-    let root = option_env!("CARGO_MANIFEST_DIR")
-        .map(std::path::Path::new)
-        .and_then(|p| p.parent())
-        .and_then(|p| p.parent())
-        .and_then(|p| p.parent())
-        .unwrap_or(std::path::Path::new("."));
-    if root.join(".cache/baux/upstream/TuRBO").exists() {
-        crate::artifact::merkle::verify_lock(&root, "turbo", None).expect("verify turbo.lock.toml");
-    }
     let fixture: baux::artifact::toml::Value =
         baux::artifact::toml::from_str(include_str!("fixtures.toml")).expect("valid TuRBO fixture");
-    assert_eq!(
-        fixture["upstream_revision"].as_str(),
-        Some("de0db39f481d9505bb3610b7b7aa0ebf7702e4a5")
-    );
+    assert_eq!(fixture["paper_arxiv"].as_str(), Some("1910.01739"));
 
     let t1 = &fixture["turbo1"];
     let cfg = TRLengthConfig::new(

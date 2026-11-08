@@ -4,14 +4,11 @@
   "lean_module_count": 132,
   "lean_declaration_count": 3634,
   "registry_function_count": 835,
-  "monograph_count": 1,
   "lean_files_tree_sha256": "a6a7b4b29554df7b1535dab79d663ae9dc8a145cd36b9d3dceba3b9467b2ced1",
   "coverage_manifest_sha256": "6656a9802b7600372898b484865c105e7b81995314a18b183e96b02c67fc0db5",
   "artifact_manifest_sha256": "c3a02938854b852b02adab77820a49c39107a862e8611ce3ce727303b6401ee5",
-  "specification_tex_blake3": "b13dcfe320895b9aabcaabcfb87fd5e999c592e4d78bc06e62ed7745dc1b06b5",
-  "specification_pdf_blake3": "4cec265f978c3631dd9f1c4c8a0402debfeabe3977c3fd1e777c449a93c7d472",
   "mathlib_constructions_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
   "registry_lean_sha256": "da1da351f9b35dd9ac0e2117cdd7297f837617883b13e76ffd3a0cd5fb910a7d",
-  "site_data_js_sha256": "1882a2f707adf7b06e3d114081683fa794fd266e3db7f255d302e3469c366824",
-  "site_data_js_bytes": 2768772
+  "site_data_js_sha256": "4b8b05e738780930690a31ae3fd5062d446c81b63b1034475f1ac82f3b1fd678",
+  "site_data_js_bytes": 2767972
 }

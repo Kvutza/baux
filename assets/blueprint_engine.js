@@ -467,7 +467,7 @@
       '<div class="contract-header-banner">' +
       '<div class="contract-eyebrow">Kvutza/baux &middot; BLAKE3 + SLSA v1.0 Provenance &middot; Charon 0.1.178 &middot; Aeneas e62dd83d &middot; Lean 4.35.0 &middot; OxCaml 5.2.0minus-ox &middot; aarch64-apple-darwin</div>' +
       '<h1 class="contract-main-title">BAUX Mathematical Specification, Formal Verification &amp; BLAKE3 Compiled-Artifact Correspondence</h1>' +
-      '<p class="contract-lead">Two-layer verification architecture of <code>baux</code> (MIT License, Copyright &copy; 2026 Kvutza): (1) canonical <a href="assets/baux_specification.pdf" target="_blank" rel="noopener"><strong>LaTeX Technical Specification &amp; Provenance Monograph (PDF)</strong></a> backed by 189 Lean 4.35 modules (3,616 declarations, 1,170 theorems, 0 <code>sorry</code>) and 4,366 Charon LLBC bodies; and (2) parallel <strong>BLAKE3</strong> Merkle and <strong>in-toto v1 / SLSA v1.0</strong> provenance attestation across compiled Mach-O <code>arm64</code> binaries, Metal shaders, OxCaml SIMD kernels, and Hardcaml RTL circuits.</p>' +
+      '<p class="contract-lead">Verification architecture of <code>baux</code> (MIT License, Copyright &copy; 2026 Kvutza): 189 Lean 4.35 modules (3,616 declarations, 1,170 theorems, 0 <code>sorry</code>), 4,366 Charon LLBC bodies, and parallel <strong>BLAKE3</strong> Merkle and <strong>in-toto v1 / SLSA v1.0</strong> provenance attestation across compiled Mach-O <code>arm64</code> binaries, Metal shaders, OxCaml SIMD kernels, and Hardcaml RTL circuits.</p>' +
       "</div>" +
       '<div class="contract-sub-hdr">' +
       '<span>01 / Verification Pipeline</span>' +

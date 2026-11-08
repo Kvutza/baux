@@ -117,6 +117,24 @@ def _ennmetric(sur: ENNSurrogate, out: dict[str, Any]) -> None:
         out["tied_dims"] = [[int(c) for c in g] for g in sur.tied_dims]
     if sur.unscaled_dims is not None:
         out["unscaled_dims"] = [int(c) for c in sur.unscaled_dims]
+    if sur.geometry != "euclidean":
+        out["geometry"] = sur.geometry
+        out["local_k"] = int(sur.local_k)
+    if sur.shrinkage is not None:
+        loadings = getattr(sur.shrinkage, "loadings", sur.shrinkage)
+        out["shrinkage"] = np.asarray(loadings, dtype=float)
+    if sur.calibrator is not None:
+        cal = sur.calibrator
+        a, b, c = (
+            (cal.a, cal.b, cal.c)
+            if hasattr(cal, "a") and hasattr(cal, "b") and hasattr(cal, "c")
+            else cal
+        )
+        out["calibrator"] = (
+            np.asarray(a, dtype=float).ravel().tolist(),
+            np.asarray(b, dtype=float).ravel().tolist(),
+            np.asarray(c, dtype=float).ravel().tolist(),
+        )
 
 
 def _enn(cfg: OptimizerConfig) -> dict[str, Any]:

@@ -160,27 +160,25 @@ class OptimizerState:
     telemetry: Telemetry
     _log: tuple[_Op, ...]
     _cursor: _Cursor
-    _opt: Any = None
 
-    def __post_init__(self) -> None:
-        if self._opt is None:
-            opt = Optimizer(
-                self.dim,
-                np.random.default_rng(self.seed),
-                self._cursor.inner,
-                identified_asks=self.identified,
-            )
-            object.__setattr__(self, "_opt", opt)
+    @property
+    def _opt(self) -> Optimizer:
+        return Optimizer(
+            self.dim,
+            np.random.default_rng(self.seed),
+            self._readonlyview(),
+            identified_asks=self.identified,
+        )
 
     def _checkout(self) -> tuple[Any, dict[int, int], bool]:
         is_gp = isinstance(self.config.surrogate, (GaussianProcess, ExternalSurrogate))
         if (
             self._cursor.epoch == self.epoch
             and not is_gp
-            and hasattr(self._opt._inner, "fork")
+            and hasattr(self._cursor.inner, "fork")
         ):
             try:
-                return self._opt._inner.fork(), dict(self._cursor.id_map), False
+                return self._cursor.inner.fork(), dict(self._cursor.id_map), False
             except Exception:
                 pass
         if self._cursor.epoch == self.epoch:
@@ -214,11 +212,24 @@ class OptimizerState:
         return None if inc is None else _readonly(inc)
 
     @property
+    def lengthscales(self) -> np.ndarray | None:
+        view = self._readonlyview()
+        if not hasattr(view, "lengthscales"):
+            return None
+        ls = view.lengthscales()
+        return None if ls is None else _readonly(ls).reshape(-1)
+
+    @property
+    def metric_weights(self) -> np.ndarray | None:
+        ls = self.lengthscales
+        return None if ls is None else _readonly(1.0 / np.maximum(ls, 1e-12))
+
+    @property
     def incumbent_params(self) -> Any:
         inc = self.incumbent_x
         if inc is None or self.spec is None:
             return inc
-        return self.spec.unflatten(inc.reshape(-1))
+        return self.spec.unflatten(inc.reshape(-1), weights=self.metric_weights)
 
     @property
     def best_y(self) -> float | None:
@@ -245,7 +256,6 @@ class OptimizerState:
             self,
             seed=self.seed if src is None else _resolveseed(src),
             _cursor=_Cursor(self.epoch, inner, id_map),
-            _opt=None,
         )
 
 
@@ -293,7 +303,7 @@ def _snapshot(
         pending_ids=pending,
         ingestion_failure=getattr(inner, "ingestion_failure", None),
         telemetry=telem,
-        _log=(*prev._log, op),
+        _log=(*prev._log, op) if in_place else (),
         _cursor=cursor,
     )
 

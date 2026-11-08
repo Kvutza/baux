@@ -271,11 +271,15 @@ class PyTreeSpec:
     def unflatten(self, flat: Any, weights: np.ndarray | None = None) -> Any:
         return unflatten(flat, self, weights=weights)
 
-    def unflatten_batch(self, flat_batch: Any) -> tuple[Any, ...]:
-        return unflatten_batch(flat_batch, self)
+    def unflatten_batch(
+        self, flat_batch: Any, weights: np.ndarray | None = None
+    ) -> tuple[Any, ...]:
+        return unflatten_batch(flat_batch, self, weights=weights)
 
-    def unflatten_stacked(self, flat_batch: Any) -> Any:
-        return unflatten_stacked(flat_batch, self)
+    def unflatten_stacked(
+        self, flat_batch: Any, weights: np.ndarray | None = None
+    ) -> Any:
+        return unflatten_stacked(flat_batch, self, weights=weights)
 
     flatten = ravel
 
@@ -391,7 +395,9 @@ def unflatten(flat: Any, spec: PyTreeSpec, weights: np.ndarray | None = None) ->
     )
 
 
-def unflatten_stacked(flat_batch: Any, spec: PyTreeSpec) -> Any:
+def unflatten_stacked(
+    flat_batch: Any, spec: PyTreeSpec, weights: np.ndarray | None = None
+) -> Any:
     """Reconstruct a single PyTree whose leaves have leading batch axis `(n, *leaf_shape)`."""
     arr = (
         flat_batch
@@ -407,7 +413,9 @@ def unflatten_stacked(flat_batch: Any, spec: PyTreeSpec) -> Any:
     for leaf in spec.leaves:
         sub = arr[:, leaf.offset : leaf.offset + leaf.size]
         if leaf.categorical is not None:
-            values[leaf.path] = tuple(leaf.categorical.snap(sub[i]) for i in range(n))
+            values[leaf.path] = tuple(
+                _decodeleaf(arr[i], leaf, weights) for i in range(n)
+            )
         else:
             values[leaf.path] = (
                 leaf.embed.decode(sub)
@@ -417,12 +425,14 @@ def unflatten_stacked(flat_batch: Any, spec: PyTreeSpec) -> Any:
     return _rebuild(spec.template, values, _LEAFTYPES)
 
 
-def unflatten_batch(flat_batch: Any, spec: PyTreeSpec) -> tuple[Any, ...]:
+def unflatten_batch(
+    flat_batch: Any, spec: PyTreeSpec, weights: np.ndarray | None = None
+) -> tuple[Any, ...]:
     """Reconstruct a tuple of `n` parameter PyTrees from a 2D `(n, spec.dim)` batch matrix."""
     arr = np.asarray(flat_batch, dtype=float)
     if arr.ndim != 2 or arr.shape[1] != spec.dim:
         raise ValueError(f"flat_batch must have shape (n, {spec.dim}), got {arr.shape}")
-    return tuple(unflatten(arr[i], spec) for i in range(arr.shape[0]))
+    return tuple(unflatten(arr[i], spec, weights=weights) for i in range(arr.shape[0]))
 
 
 def _encodeleaf(val: Any, leaf: LeafSpec) -> np.ndarray:

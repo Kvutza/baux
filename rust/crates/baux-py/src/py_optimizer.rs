@@ -248,6 +248,13 @@ impl PyBayesOptimizer {
             .map(|x| x.into_dyn().into_pyarray(py))
     }
 
+    /// Get learned surrogate lengthscales (if any).
+    fn lengthscales<'py>(&self, py: Python<'py>) -> Option<Bound<'py, PyArrayDyn<f64>>> {
+        self.inner
+            .lengthscales()
+            .map(|ls| ls.into_dyn().into_pyarray(py))
+    }
+
     /// Get optimizer bounds.
     fn bounds<'py>(&self, py: Python<'py>) -> Bound<'py, PyArrayDyn<f64>> {
         self.inner

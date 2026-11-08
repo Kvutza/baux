@@ -354,4 +354,53 @@ def test_manifolds():
     assert sp.tied_dims == ((0, 1), (2, 3, 4))
 
 
+def test_bogeometry():
+    sp = baux.Space(
+        {
+            "opt": baux.Categorical(["adam", "muon", "sgd"]),
+            "th": baux.Periodic(),
+            "lr": baux.Log(1e-4, 1.0),
+        }
+    )
+    cal = baux.Calibrator([0.1], [1.2], [0.5])
+    cfg_euc = baux.chain(
+        baux.lhd(4),
+        baux.raasp(4),
+        baux.enn(k=3, num_samples=8, metric_learning="auto"),
+        baux.ucb(),
+    )
+    cfg_hyp = baux.chain(
+        baux.lhd(4),
+        baux.raasp(4),
+        baux.enn(
+            k=3,
+            num_samples=8,
+            metric_learning="auto",
+            geometry="hyperbolic",
+            local_k=2,
+            calibrator=cal,
+        ),
+        baux.ucb(),
+    )
+    s_euc = baux.init(sp, cfg_euc)
+    s_hyp = baux.init(sp, cfg_hyp)
+    s_conf = baux.with_geometry(s_euc, "conformal", local_k=2)
+    assert s_euc.config.surrogate.tied_dims == sp.tied_dims
+    assert s_conf.config.surrogate.geometry == "conformal"
+
+    s1_e, b_e = baux.ask(s_euc, 4)
+    y_warm = -np.sum(b_e.points**2, axis=1)
+    s2_e, mu_e = baux.tell(s1_e, b_e, y_warm)
+    s1_h, _ = baux.ask(s_hyp, 4)
+    s2_h, mu_h = baux.tell(s1_h, b_e.points, y_warm)
+    assert not np.allclose(mu_e, mu_h)
+    assert s2_e.lengthscales is not None and s2_e.metric_weights is not None
+    assert len(s2_e._log) == 0
+
+    s3_e, b3_e = baux.ask(s2_e, 2)
+    assert b3_e.weights is not None
+    assert b3_e.params[0]["opt"] in ("adam", "muon", "sgd")
+    assert s2_e.incumbent_params["opt"] in ("adam", "muon", "sgd")
+
+
 test_manifold_evals = test_manifolds

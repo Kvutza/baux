@@ -190,6 +190,11 @@ def enn(
     index: Any = NeighborIndex.FLAT,
     storage: str | None = None,
     metric_learning: str = "none",
+    geometry: str = "euclidean",
+    local_k: int = 4,
+    shrinkage: Any = None,
+    calibrator: Any = None,
+    tied_dims: tuple[tuple[int, ...], ...] | None = None,
 ) -> Transform:
     """Configure the Epistemic Nearest Neighbors (ENN) surrogate model."""
     drv = _driver(index)
@@ -202,6 +207,11 @@ def enn(
             index_driver=drv,
             enn_storage=storage,
             metric_learning=metric_learning,
+            geometry=geometry,
+            local_k=local_k,
+            shrinkage=shrinkage,
+            calibrator=calibrator,
+            tied_dims=tied_dims,
         )
         acq = cfg.acquisition
         acq_opt = cfg.acq_optimizer

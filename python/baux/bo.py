@@ -44,6 +44,7 @@ class AskBatch:
     ids: tuple[AskId, ...]
     points: np.ndarray
     spec: Any = None
+    weights: np.ndarray | None = None
 
     def __post_init__(self) -> None:
         if self.points.ndim != 2 or self.points.shape[0] != len(self.ids):
@@ -53,14 +54,14 @@ class AskBatch:
     def params(self) -> tuple[Any, ...]:
         """Return structured parameter PyTrees (one per arm) when initialized with a PyTreeSpec."""
         if self.spec is not None:
-            return self.spec.unflatten_batch(self.points)
+            return self.spec.unflatten_batch(self.points, weights=self.weights)
         return tuple(self.points[i] for i in range(self.points.shape[0]))
 
     @property
     def stacked(self) -> Any:
         """Return a single PyTree whose leaves have leading batch dimension `(num_arms, *shape)`."""
         if self.spec is not None:
-            return self.spec.unflatten_stacked(self.points)
+            return self.spec.unflatten_stacked(self.points, weights=self.weights)
         return self.points
 
     def __len__(self) -> int:

@@ -23,12 +23,22 @@ impl ENN {
     /// LOO gate and geometric refit schedule. The caller supplies the seed.
     /// This does not select the resident optimizer's tied-family metric policy.
     pub fn learn_metric(&mut self, tied: Vec<Vec<usize>>, seed: u64) -> Result<(), ENNError> {
-        if !matches!(self.backend, EnnBackend::Disk(_))
-            || self.metric_fixed
-            || self.metric.is_some()
-        {
+        if !matches!(self.backend, EnnBackend::Disk(_)) {
             return Err(ENNError::InvalidParameter(
                 "Enable AUTO once on disk BPANN".into(),
+            ));
+        }
+        self.enable_metric(tied, seed)
+    }
+
+    pub(crate) fn enable_metric(
+        &mut self,
+        tied: Vec<Vec<usize>>,
+        seed: u64,
+    ) -> Result<(), ENNError> {
+        if self.metric_fixed || self.metric.is_some() {
+            return Err(ENNError::InvalidParameter(
+                "Enable AUTO metric once per model".into(),
             ));
         }
         let mut uniq: Vec<usize> = tied.iter().flatten().copied().collect();
@@ -45,7 +55,11 @@ impl ENN {
         }
         let weights = metric.weights();
         let scale = Array1::from_iter(weights.iter().map(|v| 1.0 / v.sqrt()));
-        self.backend.set_metric(&scale, true)?;
+        if matches!(self.backend, EnnBackend::Disk(_)) {
+            self.backend.set_metric(&scale, true)?;
+        } else {
+            self.backend.mark_stale();
+        }
         self.built_scale = scale.clone();
         self.x_scale = scale;
         self.scale_x = true;
@@ -209,7 +223,11 @@ impl ENN {
 
     fn apply_metric(&mut self, update: ScaleUpdate) -> Result<(), ENNError> {
         let scale = Array1::from(update.x_scale);
-        self.backend.set_metric(&scale, update.rebuild)?;
+        if matches!(self.backend, EnnBackend::Disk(_)) {
+            self.backend.set_metric(&scale, update.rebuild)?;
+        } else {
+            self.backend.mark_stale();
+        }
         if update.rebuild {
             self.built_scale = scale.clone();
         }

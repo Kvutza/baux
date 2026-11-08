@@ -49,6 +49,10 @@ class ENNSurrogate:
     metric_learning: Any = "none"
     tied_dims: tuple[tuple[int, ...], ...] | None = None
     unscaled_dims: tuple[int, ...] | None = None
+    geometry: str = "euclidean"
+    local_k: int = 4
+    shrinkage: Any = None
+    calibrator: Any = None
 
     def __post_init__(self) -> None:
         ml = str(getattr(self.metric_learning, "value", self.metric_learning)).lower()
@@ -56,6 +60,13 @@ class ENNSurrogate:
             raise ValueError(f"Unknown metric_learning: {self.metric_learning!r}")
         if ml == "auto" and self.scale_x:
             raise ValueError("metric_learning='auto' requires scale_x=False")
+        geom = str(self.geometry).strip().lower()
+        if geom not in ("euclidean", "conformal", "hyperbolic", "wasserstein"):
+            raise ValueError(f"Unknown geometry: {self.geometry!r}")
+        if int(self.local_k) < 1:
+            raise ValueError(f"local_k must be >= 1, got {self.local_k}")
+        object.__setattr__(self, "geometry", geom)
+        object.__setattr__(self, "local_k", int(self.local_k))
         if self.y_bounds is not None:
             bounds = np.asarray(self.y_bounds, dtype=float)
             if bounds.ndim != 2 or bounds.shape[1] != 2:

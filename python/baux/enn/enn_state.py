@@ -96,6 +96,32 @@ def with_geometry(model: Any, geometry: str, local_k: int = 4) -> Any:
         return _wrapenn(
             model, model._rust_model.append_cow(metric=m, local_k=k), (m, k)
         )
+    from dataclasses import replace as _replace
+    from ..state import OptimizerState
+    from ..transforms import Transform
+    from ..turbo.config.optimizer import OptimizerConfig
+    from ..turbo.config.surrogate import ENNSurrogate
+
+    if isinstance(model, OptimizerConfig):
+        if not isinstance(model.surrogate, ENNSurrogate):
+            raise ValueError("with_geometry on OptimizerConfig requires ENNSurrogate")
+        return _replace(
+            model, surrogate=_replace(model.surrogate, geometry=m, local_k=k)
+        )
+    if isinstance(model, Transform):
+        return model | Transform(
+            f"with_geometry({m!r}, local_k={k})",
+            lambda cfg: with_geometry(cfg, m, k),
+        )
+    if isinstance(model, OptimizerState):
+        from ..functional import init as _opt_init
+
+        cfg = with_geometry(model.config, m, k)
+        return _opt_init(
+            model.spec if model.spec is not None else model.bounds,
+            cfg,
+            seed=model.seed,
+        )
     if hasattr(model, "_rust") and hasattr(model._rust, "with_geometry"):
         model._rust = model._rust.with_geometry(m, k)
     elif hasattr(model, "with_geometry") and callable(model.with_geometry):

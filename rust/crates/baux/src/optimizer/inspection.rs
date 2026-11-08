@@ -96,6 +96,11 @@ impl BayesOptimizer {
         self.incumbent.y_scalar()
     }
 
+    /// Current surrogate lengthscales (anisotropic trust-region sides), if any.
+    pub fn lengthscales(&self) -> Option<Array1<f64>> {
+        self.posterior.surrogate().and_then(|s| s.lengthscales())
+    }
+
     /// Get init progress from warmup schedule.
     pub fn init_progress(&self) -> Option<(usize, usize)> {
         self.warmup.progress()

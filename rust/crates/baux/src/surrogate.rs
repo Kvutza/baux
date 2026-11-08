@@ -30,6 +30,9 @@ pub struct ENNSurrogateConfig {
     pub metric_learning: MetricLearning,
     pub tied_dims: Vec<Vec<usize>>,
     pub unscaled_dims: Vec<usize>,
+    pub geometry: crate::semantics::neighbor::DistanceMetric,
+    pub shrinkage: Option<crate::semantics::shrinkage::Shrinkage>,
+    pub calibrator: Option<crate::semantics::calibration::Calibrator>,
 }
 
 impl Default for ENNSurrogateConfig {
@@ -47,6 +50,9 @@ impl Default for ENNSurrogateConfig {
             metric_learning: MetricLearning::None,
             tied_dims: Vec::new(),
             unscaled_dims: Vec::new(),
+            geometry: crate::semantics::neighbor::DistanceMetric::Euclidean,
+            shrinkage: None,
+            calibrator: None,
         }
     }
 }
@@ -108,24 +114,26 @@ impl ENNSurrogate {
                 y_bounds: self.config.y_bounds.clone(),
             },
         )?;
-        if matches!(
-            (&self.config.storage, self.config.metric_learning),
-            (EnnStorage::Disk, MetricLearning::Auto)
-        ) {
+        if self.config.metric_learning == MetricLearning::Auto {
             let seed = rng.next_u64();
-            model.learn_metric(self.config.tied_dims.clone(), seed)?;
+            model.enable_metric(self.config.tied_dims.clone(), seed)?;
         }
         if !self.config.tied_dims.is_empty() && model.tied_groups().is_empty() {
             model.set_tied(self.config.tied_dims.clone())?;
         }
         if !self.config.unscaled_dims.is_empty()
-            && (self.config.scale_x
-                || matches!(
-                    (&self.config.storage, self.config.metric_learning),
-                    (EnnStorage::Disk, MetricLearning::Auto)
-                ))
+            && (self.config.scale_x || self.config.metric_learning == MetricLearning::Auto)
         {
             model.set_unscaled(self.config.unscaled_dims.clone())?;
+        }
+        if self.config.geometry != crate::semantics::neighbor::DistanceMetric::Euclidean {
+            model = model.with_geometry(self.config.geometry);
+        }
+        if let Some(sh) = self.config.shrinkage.clone() {
+            model = model.with_shrinkage(sh)?;
+        }
+        if let Some(cal) = self.config.calibrator.clone() {
+            model = model.with_calibrator(cal)?;
         }
         Ok(model)
     }

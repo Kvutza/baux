@@ -28,6 +28,7 @@ from .state import (
 from .transforms import Transform
 from .turbo.config import OptimizerConfig
 from .turbo.config.encode import supports
+from .turbo.config.surrogate import ENNSurrogate
 from .turbo.config.trust_region import RegionalSearchPolicy
 
 Key, Categorical, categorical = _rust.Key, _pytree.Categorical, _pytree.categorical
@@ -109,6 +110,15 @@ def init(
     if not supports(cfg):
         raise ValueError(f"unsupported optimizer config: {cfg!r}")
     spec, bounds = _parsedomain(domain, low, high)
+    if (
+        spec is not None
+        and spec.tied_dims
+        and isinstance(cfg.surrogate, ENNSurrogate)
+        and cfg.surrogate.tied_dims is None
+    ):
+        from dataclasses import replace as _replace
+
+        cfg = _replace(cfg, surrogate=_replace(cfg.surrogate, tied_dims=spec.tied_dims))
     default_bytes = (
         spec.key.seed().to_bytes(8, "little")
         if spec is not None
@@ -165,6 +175,7 @@ def ask(state: OptimizerState, num_arms: int = 1) -> tuple[OptimizerState, AskBa
         ids=tuple(AskId(i) for i in logical_ids),
         points=points,
         spec=state.spec,
+        weights=next_state.metric_weights,
     )
     return next_state, batch
 
@@ -347,6 +358,22 @@ def step(
     return s2, _readonly(y)
 
 
+class _StepTrace(dict[str, Any]):
+    def __init__(self, state: OptimizerState, step: int, best_y: float | None) -> None:
+        super().__init__(step=step, best_y=best_y)
+        self._state = state
+
+    def __getitem__(self, key: Any) -> Any:
+        if key == "digest" and "digest" not in self:
+            self["digest"] = self._state.digest()
+        return super().__getitem__(key)
+
+    def get(self, key: object, default: Any = None, /) -> Any:
+        if key == "digest" and "digest" not in self:
+            self["digest"] = self._state.digest()
+        return super().get(key, default)
+
+
 def scan(
     state: OptimizerState,
     key: Any,
@@ -370,6 +397,7 @@ def scan(
         raise ValueError("eval_fn must be provided when key is a PRNG key")
     cur_key = key if isinstance(key, Key) else Key(key)
     cur = state.fork(cur_key)
+    best = cur.best_y
     traces: list[dict[str, Any]] = []
     for t in range(n_steps):
         step_key, cur_key = split(cur_key, 2)
@@ -378,8 +406,13 @@ def scan(
             y_val = eval_fn(batch.points)
         except TypeError:
             y_val = eval_fn(t, batch.points)
-        cur, _ = tell(s1, batch, np.asarray(y_val, dtype=float))
-        traces.append({"step": t, "digest": cur.digest(), "best_y": cur.best_y})
+        y_arr = np.asarray(y_val, dtype=float)
+        cur, _ = tell(s1, batch, y_arr)
+        y_col = y_arr.reshape(len(batch), -1)[:, 0]
+        if y_col.size > 0:
+            y_max = float(np.max(y_col))
+            best = y_max if best is None or y_max > best else best
+        traces.append(_StepTrace(cur, t, best))
     return cur, cur_key, traces
 
 

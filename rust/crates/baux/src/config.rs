@@ -115,6 +115,8 @@ pub struct RunConfig {
     pub metric_learning: Option<crate::layout::MetricLearning>,
     pub tied_dims: Option<Vec<Vec<usize>>>,
     pub unscaled_dims: Option<Vec<usize>>,
+    pub shrinkage_loadings: Option<Vec<Vec<f64>>>,
+    pub calibrator_params: Option<Vec<[f64; 3]>>,
     pub trust_region_kind: Option<TrustRegionKind>,
     pub num_metrics: Option<usize>,
     pub alpha: Option<f64>,
@@ -289,6 +291,37 @@ fn apply_enn(config: &mut OptimizerConfig, overrides: &RunConfig) {
     if let Some(unscaled) = overrides.unscaled_dims.clone() {
         enn.unscaled_dims = unscaled;
     }
+    if let Some(dm) = overrides.distance_metric {
+        let local_k = overrides.local_scale_neighbors.unwrap_or(4).max(1);
+        enn.geometry = match dm {
+            DistanceMetric::Euclidean => crate::semantics::neighbor::DistanceMetric::Euclidean,
+            DistanceMetric::Conformal => {
+                crate::semantics::neighbor::DistanceMetric::Conformal { local_k }
+            }
+            DistanceMetric::Hyperbolic => {
+                crate::semantics::neighbor::DistanceMetric::Hyperbolic { local_k }
+            }
+            DistanceMetric::Wasserstein => {
+                crate::semantics::neighbor::DistanceMetric::Wasserstein { local_k }
+            }
+        };
+    }
+    if let Some(rows) = overrides.shrinkage_loadings.as_ref() {
+        let r = rows.len();
+        let c = rows.first().map_or(0, Vec::len);
+        let flat = rows.iter().flatten().copied().collect();
+        if let Ok(sh) = crate::semantics::shrinkage::Shrinkage::new(flat, r, c) {
+            enn.shrinkage = Some(sh);
+        }
+    }
+    if let Some(params) = overrides.calibrator_params.as_ref() {
+        let a = params.iter().map(|p| p[0]).collect();
+        let b = params.iter().map(|p| p[1]).collect();
+        let c = params.iter().map(|p| p[2]).collect();
+        if let Ok(cal) = crate::semantics::calibration::Calibrator::new(a, b, c) {
+            enn.calibrator = Some(cal);
+        }
+    }
     config.surrogate = SurrogateConfig::ENN(enn);
 }
 
@@ -373,20 +406,7 @@ impl RunConfig {
             config.candidates.num_pert = n.max(1);
         }
         apply_region(self, &mut config);
-        if self.k_neighbors.is_some()
-            || self.index_driver.is_some()
-            || self.num_samples.is_some()
-            || self.num_candidates.is_some()
-            || self.scale_x.is_some()
-            || self.enn_storage.is_some()
-            || self.work_dir.is_some()
-            || self.y_bounds.is_some()
-            || self.metric_learning.is_some()
-            || self.tied_dims.is_some()
-            || self.unscaled_dims.is_some()
-        {
-            apply_enn(&mut config, self);
-        }
+        apply_enn(&mut config, self);
         if let Some(na) = self.noise_aware {
             config.noise_aware = na;
         }

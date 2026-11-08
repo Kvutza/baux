@@ -1,13 +1,7 @@
 """PyTree-native parameter specifications, non-Cartesian manifold embeddings, and calibrations.
-
-References:
-- Stein (1956), Proc. Third Berkeley Symp. 1:197-206; James & Stein (1961), Proc.
-  Fourth Berkeley Symp. 1:361-379; Efron & Morris (1973), JASA 68(341):117-130;
-  Higham (1986), SIAM J. Sci. Stat. Comput. 7(4):1160-1174 (`Shrinkage`).
-- Aitken (1935), Proc. R. Soc. Edinburgh 55:42-48; Vovk et al. (2005), Algorithmic
-  Learning in a Random World; Lei et al. (2018), JASA 113(523):1094-1111 (`Calibrator`).
-- Johnson & Lindenstrauss (1984), Contemp. Math. 26:189-206; Achlioptas (2003), JCSS
-  66(4):671-687; Bhattacharyya (1943); Čencov (1982) (`Categorical`, `Periodic`, `Simplex`, `Log`).
+References: Stein (1956); James & Stein (1961); Efron & Morris (1973); Higham (1986) (`Shrinkage`);
+Aitken (1935); Vovk et al. (2005); Lei et al. (2018) (`Calibrator`); Johnson & Lindenstrauss (1984);
+Achlioptas (2003); Bhattacharyya (1943); Čencov (1982) (`Categorical`, `Periodic`, `Simplex`, `Log`).
 """
 
 from __future__ import annotations
@@ -31,6 +25,7 @@ from ._embeddings import (
     _logwidth,
     _readonly,
     _rebuild,
+    _spacekey,
     _walkleaves,
     argmax_dot,
     code_hash,
@@ -265,6 +260,10 @@ class PyTreeSpec:
             for s in self.leaves
             if (s.categorical is not None or s.embed is not None) and s.size > 1
         )
+
+    @property
+    def key(self) -> Any:
+        return _spacekey(self.bounds, self.leaves)
 
     def ravel(self, tree: Any) -> np.ndarray:
         return ravel(tree, self)

@@ -49,7 +49,11 @@ digest, freeze, thaw = _state.digest, _state.freeze, _state.thaw
 
 
 def key(source: Any = None) -> Any:
-    """Create a splittable 128-bit PRNG `Key` from OS entropy (`None`), a domain `str`, or a seed."""
+    """Return a splittable 128-bit `Key` from a state/space/array/bytes, or fresh OS entropy when `None`."""
+    if hasattr(source, "key"):
+        return source.key
+    if isinstance(source, np.ndarray):
+        return Key.from_bytes(np.ascontiguousarray(source).tobytes())
     return Key(source)
 
 
@@ -105,7 +109,12 @@ def init(
     if not supports(cfg):
         raise ValueError(f"unsupported optimizer config: {cfg!r}")
     spec, bounds = _parsedomain(domain, low, high)
-    base_seed = _resolveseed(seed, key)
+    default_bytes = (
+        spec.key.seed().to_bytes(8, "little")
+        if spec is not None
+        else np.ascontiguousarray(bounds, dtype=float).tobytes()
+    ) + repr(cfg).encode("utf-8")
+    base_seed = _resolveseed(seed, key, default_bytes)
     inner = _makeinner(bounds, cfg, base_seed)
     t = inner.telemetry()
     raw_pending = inner.pending_ids()
@@ -386,7 +395,8 @@ def pmap(
         raise ValueError(f"branches must be >= 0, got {n_branches}")
     if n_branches == 0:
         return []
-    subkeys = split(key if isinstance(key, Key) else Key(key), n_branches)
+    root_key = state.key if key is None else (key if isinstance(key, Key) else Key(key))
+    subkeys = split(root_key, n_branches)
     with ThreadPoolExecutor(max_workers=n_branches) as pool:
         return [
             f.result()

@@ -26,18 +26,27 @@ def _foldseed(seed: int, salt: int) -> int:
     return int((z ^ (z >> 31)) & ((1 << 63) - 1))
 
 
-def _resolveseed(seed: Any = None, key: Any = None) -> int:
+def _resolveseed(
+    seed: Any = None, key: Any = None, default_bytes: bytes | None = None
+) -> int:
     src = key if key is not None else seed
     if src is None:
         from . import _rust
 
-        return int(_rust.Key().seed()) & ((1 << 63) - 1)
-    if isinstance(src, str):
+        k = (
+            _rust.Key()
+            if default_bytes is None
+            else _rust.Key.from_bytes(default_bytes)
+        )
+        return int(k.seed()) & ((1 << 63) - 1)
+    if isinstance(src, (bytes, bytearray)):
         from . import _rust
 
-        return int(_rust.Key.domain(src).seed()) & ((1 << 63) - 1)
+        return int(_rust.Key.from_bytes(bytes(src)).seed()) & ((1 << 63) - 1)
     if isinstance(src, Generator):
         return int(src.integers(2**63 - 1))
+    if hasattr(src, "key"):
+        src = src.key
     if hasattr(src, "seed") and callable(src.seed):
         return int(src.seed()) & ((1 << 63) - 1)
     return int(src) & ((1 << 63) - 1)
@@ -218,6 +227,12 @@ class OptimizerState:
 
     def digest(self) -> str:
         return str(self._readonlyview().digest_hex())
+
+    @property
+    def key(self) -> Any:
+        from . import _rust
+
+        return _rust.Key.from_bytes(bytes.fromhex(self.digest()))
 
     def fork(self, key: Any = None, *, seed: Any = None) -> OptimizerState:
         from dataclasses import replace

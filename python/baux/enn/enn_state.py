@@ -42,6 +42,22 @@ class ENNState:
     def num_outputs(self) -> int:
         return int(self.y.shape[1])
 
+    @property
+    def key(self) -> Any:
+        from .._rust import Key as _Key
+
+        buf = (
+            np.ascontiguousarray(self.x, dtype=float).tobytes()
+            + np.ascontiguousarray(self.y, dtype=float).tobytes()
+            + (
+                b""
+                if self.y_var is None
+                else np.ascontiguousarray(self.y_var, dtype=float).tobytes()
+            )
+            + repr(self.options).encode("utf-8")
+        )
+        return _Key.from_bytes(buf)
+
 
 def _wrapenn(base: ENN, rust_model: Any, metric: tuple[str, int] | None = None) -> ENN:
     out = object.__new__(ENN)
@@ -197,7 +213,11 @@ def enn_sample(
     if seeds is None:
         from .._rust import Key as _Key
 
-        root = key if isinstance(key, _Key) else _Key(key)
+        if key is None:
+            qx = _Key.from_bytes(np.ascontiguousarray(x, dtype=float).tobytes())
+            root = state.key.fold(qx.seed())
+        else:
+            root = key if isinstance(key, _Key) else _Key(key)
         fn_seeds = [
             int(sk.seed()) & ((1 << 63) - 1) for sk in root.split_n(int(num_draws))
         ]
@@ -218,7 +238,12 @@ def enn_fit(
     warm: ENNParams | None = None,
 ) -> ENNParams:
     """Pure stateless hyperparameter fit returning `ENNParams` for an immutable `ENNState`."""
-    fit_seed = _resolveseed(seed, key)
+    default_key = (
+        state.key.fold(int(k)).fold(int(num_samples))
+        if (seed is None and key is None)
+        else key
+    )
+    fit_seed = _resolveseed(seed, default_key)
     rust_warm = (
         None
         if warm is None

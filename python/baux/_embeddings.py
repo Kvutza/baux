@@ -53,13 +53,20 @@ def _catseed(categories: tuple[Any, ...], seed: Any = None, key: Any = None) -> 
         for b in repr(categories).encode("utf-8"):
             h = code_hash(b, 0, h)
         return h
+    if hasattr(src, "key"):
+        src = src.key
     if hasattr(src, "seed") and callable(src.seed):
         return int(src.seed()) & _MASK64
-    if isinstance(src, str):
-        from . import _rust
-
-        return int(_rust.Key.domain(src).seed()) & _MASK64
     return int(src) & _MASK64
+
+
+def _spacekey(bounds: np.ndarray, leaves: tuple[Any, ...]) -> Any:
+    from . import _rust
+
+    payload = np.ascontiguousarray(bounds, dtype=float).tobytes() + repr(
+        tuple((s.path, s.shape, s.categorical, s.embed) for s in leaves)
+    ).encode("utf-8")
+    return _rust.Key.from_bytes(payload)
 
 
 def _logwidth(card: int, dim_cap: int) -> int:

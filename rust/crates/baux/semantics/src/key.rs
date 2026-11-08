@@ -23,10 +23,16 @@ impl Key {
         Self::new(super::random::auto_seed())
     }
 
-    /// Construct a deterministic key from a named domain tag.
-    #[inline]
-    pub fn domain(tag: &str) -> Self {
-        Self::new(super::random::tune_seed(tag, "baux-key", 0, 0))
+    /// Construct a deterministic content-addressed key by folding arbitrary
+    /// bytes through SplitMix64.
+    pub fn from_bytes(bytes: &[u8]) -> Self {
+        let mut key = Self::new(bytes.len() as u64);
+        for chunk in bytes.chunks(8) {
+            let mut word = [0u8; 8];
+            word[..chunk.len()].copy_from_slice(chunk);
+            key = key.fold(u64::from_le_bytes(word));
+        }
+        key
     }
 
     /// Construct a key directly from two 64-bit words.
@@ -96,10 +102,11 @@ impl AffineKey {
         Self(Key::entropy())
     }
 
-    /// Construct a deterministic affine key from a named domain tag.
+    /// Construct a deterministic content-addressed affine key from arbitrary
+    /// bytes.
     #[inline]
-    pub fn domain(tag: &str) -> Self {
-        Self(Key::domain(tag))
+    pub fn from_bytes(bytes: &[u8]) -> Self {
+        Self(Key::from_bytes(bytes))
     }
 
     /// Wrap an existing [`Key`] in an affine [`AffineKey`].
@@ -216,11 +223,11 @@ mod tests {
         let mut rng = k0.prng();
         assert_ne!(rng.next_u64(), k1.prng().next_u64());
         let _ = k2.into_key();
-        assert_eq!(Key::domain("sphere"), Key::domain("sphere"));
-        assert_ne!(Key::domain("sphere"), Key::domain("rosenbrock"));
+        assert_eq!(Key::from_bytes(&[1, 2, 3]), Key::from_bytes(&[1, 2, 3]));
+        assert_ne!(Key::from_bytes(&[1, 2, 3]), Key::from_bytes(&[1, 2, 4]));
         assert_eq!(
-            AffineKey::domain("sphere").into_key(),
-            Key::domain("sphere")
+            AffineKey::from_bytes(&[1, 2, 3]).into_key(),
+            Key::from_bytes(&[1, 2, 3])
         );
         let _ = Key::entropy();
         let _ = AffineKey::entropy().into_key();

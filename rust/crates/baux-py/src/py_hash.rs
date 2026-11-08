@@ -90,15 +90,15 @@ impl PyKey {
             Some(obj) => {
                 if let Ok(k) = obj.extract::<PyRef<'_, PyKey>>() {
                     k.inner
-                } else if let Ok(tag) = obj.extract::<&str>() {
-                    baux::Key::domain(tag)
+                } else if let Ok(bytes) = obj.extract::<&[u8]>() {
+                    baux::Key::from_bytes(bytes)
                 } else if let Ok(seed) = obj.extract::<u64>() {
                     baux::Key::new(seed)
                 } else if let Ok(seed_i64) = obj.extract::<i64>() {
                     baux::Key::new(seed_i64 as u64)
                 } else {
                     return Err(PyValueError::new_err(
-                        "Key expects None (entropy), a domain str, an int seed, or an existing Key",
+                        "Key expects None (entropy), bytes, an int seed, or an existing Key",
                     ));
                 }
             }
@@ -114,9 +114,9 @@ impl PyKey {
     }
 
     #[staticmethod]
-    fn domain(tag: &str) -> Self {
+    fn from_bytes(data: &[u8]) -> Self {
         Self {
-            inner: baux::Key::domain(tag),
+            inner: baux::Key::from_bytes(data),
         }
     }
 

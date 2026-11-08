@@ -96,11 +96,11 @@ def eval_hyperbolic() -> dict[str, float]:
 
 def eval_stein() -> dict[str, float]:
     """Evaluate Stiefel `Shrinkage.from_factors` + `transform_stein` across M=6 outputs with rank F=2 structure."""
-    k_theta, k_se, k_noise = baux.split(baux.key("eval/stein"), 3)
     factors = np.array(
         [[1.2, -0.4], [0.9, 0.3], [-0.8, 1.1], [0.5, 0.9], [-1.0, -0.6], [0.7, -0.8]]
     )
     sh = baux.Shrinkage.from_factors(factors)
+    k_theta, k_se, k_noise = baux.split(baux.key(sh.loadings), 3)
     stiefel_err = float(np.linalg.norm(sh.loadings.T @ sh.loadings - np.eye(2)))
     theta = (
         np.random.default_rng(k_theta.seed()).normal(0.0, 1.0, size=(200, 2))
@@ -124,18 +124,19 @@ def eval_stein() -> dict[str, float]:
 
 def eval_calibrator() -> dict[str, float]:
     """Evaluate WLS `Calibrator.fit_wls` and `conformal_scale` vs unweighted OLS under heteroscedastic noise."""
-    rng_cal = np.random.default_rng(baux.key("eval/calibrator/cal").seed())
-    rng_test = np.random.default_rng(baux.key("eval/calibrator/test").seed())
+    se_cal = np.geomspace(0.02, 5.0, 1000)[:, None]
+    k_cal, k_test = baux.split(baux.key(se_cal), 2)
+    rng_cal = np.random.default_rng(k_cal.seed())
+    rng_test = np.random.default_rng(k_test.seed())
     a_true, b_true, alpha = 0.5, 1.8, 0.1
-    mu_cal = rng_cal.uniform(-2.0, 2.0, size=(500, 1))
-    se_cal = np.linspace(0.05, 2.0, 500)[:, None]
-    y_cal = a_true + b_true * mu_cal + se_cal * rng_cal.normal(0.0, 1.0, size=(500, 1))
+    mu_cal = rng_cal.uniform(-2.0, 2.0, size=(1000, 1))
+    y_cal = a_true + b_true * mu_cal + se_cal * rng_cal.normal(0.0, 1.0, size=(1000, 1))
     cal_ols = baux.Calibrator.fit(mu_cal, y_cal, se_cal)
     cal_wls = baux.Calibrator.fit_wls(mu_cal, y_cal, se_cal)
     q = cal_wls.conformal_scale(mu_cal, y_cal, se_cal, alpha=alpha)
-    mu_t = rng_test.uniform(-2.0, 2.0, size=(1000, 1))
-    se_t = rng_test.choice(se_cal[:, 0], size=(1000, 1), replace=True)
-    y_t = a_true + b_true * mu_t + se_t * rng_test.normal(0.0, 1.0, size=(1000, 1))
+    mu_t = rng_test.uniform(-2.0, 2.0, size=(2000, 1))
+    se_t = rng_test.choice(se_cal[:, 0], size=(2000, 1), replace=True)
+    y_t = a_true + b_true * mu_t + se_t * rng_test.normal(0.0, 1.0, size=(2000, 1))
     cov = float(
         np.mean(np.abs(y_t - (cal_wls.a[0] + cal_wls.b[0] * mu_t)) <= q[0] * se_t)
     )
@@ -151,12 +152,9 @@ def eval_calibrator() -> dict[str, float]:
 
 
 def _mahalanobisrate() -> float:
-    k_cat, k_draws = baux.split(baux.key("eval/mahalanobis"), 2)
-    cat = baux.Categorical(
-        tuple(f"c{i}" for i in range(16)), encoding="rademacher", key=k_cat
-    )
+    cat = baux.Categorical(tuple(f"c{i}" for i in range(16)), encoding="rademacher")
     cat_sp, cb = baux.Space(cat), cat.codebook()
-    rng = np.random.default_rng(k_draws.seed())
+    rng = np.random.default_rng(cat_sp.key.seed())
     matches = 0
     for _ in range(100):
         v = rng.normal(0.0, 1.0, size=cat.width)
@@ -197,8 +195,7 @@ def eval_embeddings() -> dict[str, float]:
 def eval_pmap() -> dict[str, float]:
     """Evaluate parallel `pmap` + `scan` trajectory throughput and BLAKE3 digest determinism."""
     cfg = baux.chain(baux.sobol(4), baux.enn(k=3, num_samples=8), baux.ucb())
-    k_init, k_pmap = baux.split(baux.key("eval/pmap"), 2)
-    root = baux.init([[-2.0, 2.0], [-2.0, 2.0], [-2.0, 2.0]], cfg, key=k_init)
+    root = baux.init([[-2.0, 2.0], [-2.0, 2.0], [-2.0, 2.0]], cfg)
     branches, steps = 4, 4
 
     def branch_fn(idx: int, st: baux.OptimizerState, bk: baux.Key) -> tuple[str, float]:
@@ -209,9 +206,9 @@ def eval_pmap() -> dict[str, float]:
         return fin.digest(), float(traces[-1]["best_y"])
 
     t0 = time.perf_counter()
-    run_a = baux.pmap(root, k_pmap, branches, branch_fn)
+    run_a = baux.pmap(root, root.key, branches, branch_fn)
     dt = max(time.perf_counter() - t0, 1e-9)
-    run_b = baux.pmap(root, k_pmap, branches, branch_fn)
+    run_b = baux.pmap(root, root.key, branches, branch_fn)
     digests_a = [d for d, _ in run_a]
     matches = sum(int(a == b) for a, b in zip(run_a, run_b))
     return {

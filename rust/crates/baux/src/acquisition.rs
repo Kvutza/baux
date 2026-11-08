@@ -46,16 +46,57 @@ pub enum AcquisitionError {
 /// Result of acquisition optimization.
 pub type AcquisitionResult = Result<Vec<usize>, AcquisitionError>;
 
-/// UCB (Upper Confidence Bound) acquisition optimizer.
-pub struct UCBAcquisition {
+/// UCB (Upper Confidence Bound) acquisition optimizer parameterized by
+/// [` crate::sense::ObjectiveSense `].
+pub struct UCBAcquisition<O: crate::sense::ObjectiveSense = crate::sense::Sense> {
     /// Beta parameter (exploration weight).
     beta: f64,
+    sense: O,
 }
 
-impl UCBAcquisition {
-    /// Create new UCB acquisition optimizer.
+impl UCBAcquisition<crate::sense::Sense> {
+    /// Create new UCB acquisition optimizer (defaults to maximization).
     pub fn new(beta: f64) -> Self {
-        Self { beta }
+        Self {
+            beta,
+            sense: crate::sense::Sense::Maximize,
+        }
+    }
+}
+
+impl<O: crate::sense::ObjectiveSense> UCBAcquisition<O> {
+    /// Create a UCB acquisition optimizer with an explicit
+    /// [`crate::sense::ObjectiveSense`].
+    pub fn with_sense(beta: f64, sense: O) -> Self {
+        Self { beta, sense }
+    }
+
+    #[inline(always)]
+    pub fn beta(&self) -> f64 {
+        self.beta
+    }
+
+    #[inline(always)]
+    pub fn sense(&self) -> O {
+        self.sense
+    }
+
+    /// Select arms using UCB acquisition into a reusable 64-byte-aligned
+    /// [`crate::scratch::CandidateSoa`] workspace.
+    pub fn select_soa(
+        &self,
+        mu: &ArrayView1<f64>,
+        sigma: &ArrayView1<f64>,
+        num_arms: usize,
+        soa: &mut crate::scratch::CandidateSoa,
+    ) -> AcquisitionResult {
+        if mu.is_empty() {
+            return Err(AcquisitionError::NoCandidates);
+        }
+        if num_arms == 0 {
+            return Ok(Vec::new());
+        }
+        Ok(soa.select_topk(mu, sigma, self.beta, num_arms, self.sense))
     }
 
     /// Select arms using UCB acquisition.
@@ -82,11 +123,17 @@ impl UCBAcquisition {
         }
 
         let k = num_arms.min(mu.len());
+        if k == 1 {
+            return Ok(vec![crate::scratch::CandidateSoa::select_best(
+                mu, sigma, self.beta, self.sense,
+            )]);
+        }
+
         let mut heap = BinaryHeap::with_capacity(k);
 
         // Streaming Top-K pass
         for i in 0..mu.len() {
-            let score = self.beta.mul_add(sigma[i], mu[i]);
+            let score = self.sense.ucb(mu[i], sigma[i], self.beta).raw();
 
             if heap.len() < k {
                 heap.push(MinHeapItem { score, index: i });

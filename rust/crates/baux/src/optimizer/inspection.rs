@@ -101,6 +101,29 @@ impl BayesOptimizer {
         self.warmup.progress()
     }
 
+    /// Get surrogate.
+    pub fn surrogate(&self) -> Option<&(dyn crate::surrogate::Surrogate + Send + Sync)> {
+        self.posterior.surrogate()
+    }
+
+    /// Whether this optimizer fits a surrogate (false for TuRBO-ZERO and
+    /// LHD-only).
+    pub fn has_surrogate(&self) -> bool {
+        self.posterior.has_surrogate()
+    }
+
+    /// Get mutable surrogate.
+    pub fn surrogate_mut(
+        &mut self,
+    ) -> Option<&mut (dyn crate::surrogate::Surrogate + Send + Sync)> {
+        self.posterior.surrogate_mut()
+    }
+
+    /// Current number of stored observations.
+    pub fn obs_count(&self) -> usize {
+        self.posterior.obs_count()
+    }
+
     pub fn update_incumbent(&mut self, rng: &mut dyn RngCore) -> Result<(), ENNError> {
         self.incumbent.update(
             &self.posterior,

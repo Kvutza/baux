@@ -188,5 +188,99 @@ impl ObjectiveWindow {
     }
 }
 
+/// Stack-allocated const-generic multi-objective observation of compile-time
+/// arity `M` ($1 \le M \le 8$).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ConstObservation<const M: usize> {
+    pub estimates: [ObjectiveEstimate; M],
+    pub control: ObjectiveEstimate,
+}
+
+impl<const M: usize> ConstObservation<M> {
+    const VALID_ARITY: () = assert!(M >= 1 && M <= MAX_OBJECTIVES);
+
+    pub fn new(
+        estimates: [ObjectiveEstimate; M],
+        control: ObjectiveEstimate,
+    ) -> Result<Self, String> {
+        let () = Self::VALID_ARITY;
+        control.validate()?;
+        for est in &estimates {
+            est.validate()?;
+        }
+        Ok(Self { estimates, control })
+    }
+
+    pub fn noiseless(means: [f32; M], control_mean: f32) -> Result<Self, String> {
+        let estimates = means.map(|mean| ObjectiveEstimate {
+            mean,
+            variance: 0.0,
+        });
+        Self::new(
+            estimates,
+            ObjectiveEstimate {
+                mean: control_mean,
+                variance: 0.0,
+            },
+        )
+    }
+
+    /// Pareto dominance check parameterized by a per-channel
+    /// [`crate::sense::Sense`] array.
+    pub fn dominates(&self, other: &Self, senses: &[crate::sense::Sense; M]) -> bool {
+        use crate::sense::ObjectiveSense;
+        let mut strictly_better = false;
+        for i in 0..M {
+            let sa = senses[i].score(f64::from(self.estimates[i].mean));
+            let sb = senses[i].score(f64::from(other.estimates[i].mean));
+            if sa < sb {
+                return false;
+            }
+            if sa > sb {
+                strictly_better = true;
+            }
+        }
+        strictly_better
+    }
+
+    /// Stack-allocated augmented Chebyshev scalarization in canonical utility
+    /// space.
+    pub fn chebyshev(
+        &self,
+        utopia: &[f32; M],
+        weights: &[f32; M],
+        senses: &[crate::sense::Sense; M],
+    ) -> f32 {
+        use crate::sense::ObjectiveSense;
+        let mut worst_gap = 0.0_f32;
+        let mut sum_gap = 0.0_f32;
+        for i in 0..M {
+            let u = senses[i].score(f64::from(utopia[i])).raw() as f32;
+            let y = senses[i].score(f64::from(self.estimates[i].mean)).raw() as f32;
+            let gap = weights[i] * (u - y).max(0.0);
+            worst_gap = worst_gap.max(gap);
+            sum_gap += gap;
+        }
+        -(worst_gap + 1e-3 * sum_gap)
+    }
+
+    pub fn into_dynamic(self) -> ObjectiveObservation {
+        let () = Self::VALID_ARITY;
+        let mut estimates = [ObjectiveEstimate::default(); MAX_OBJECTIVES];
+        estimates[..M].copy_from_slice(&self.estimates);
+        ObjectiveObservation {
+            estimates,
+            width: M as u8,
+            control: self.control,
+        }
+    }
+}
+
+impl<const M: usize> From<ConstObservation<M>> for ObjectiveObservation {
+    fn from(value: ConstObservation<M>) -> Self {
+        value.into_dynamic()
+    }
+}
+
 #[cfg(test)]
 mod tests;

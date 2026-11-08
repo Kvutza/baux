@@ -2,6 +2,7 @@
 
 use ndarray::{Array1, Array2, ArrayView2};
 
+pub use crate::coord_space::{CoordPoint, Coords, DomainSpace, OwnedCoords, UnitSpace};
 use crate::error::ENNError;
 
 /// Coordinate frame owning `[num_dim, 2]` natural reference intervals,
@@ -86,6 +87,16 @@ impl DomainFrame {
 
     pub fn from_unit(&self, unit: &ArrayView2<f64>) -> Array2<f64> {
         from_unit(unit, &self.bounds.view())
+    }
+
+    /// Type-checked conversion from [`DomainSpace`] into [`UnitSpace`].
+    pub fn encode_unit(&self, x: Coords<'_, DomainSpace>) -> OwnedCoords<UnitSpace> {
+        OwnedCoords::new(self.to_unit(x.view()))
+    }
+
+    /// Type-checked conversion from [`UnitSpace`] into [`DomainSpace`].
+    pub fn decode_domain(&self, unit: Coords<'_, UnitSpace>) -> OwnedCoords<DomainSpace> {
+        OwnedCoords::new(self.from_unit(unit.view()))
     }
 
     pub fn natural_point(&self, unit: &Array1<f64>) -> Array1<f64> {

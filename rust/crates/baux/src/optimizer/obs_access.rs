@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use ndarray::{Array1, Array2, ArrayView2};
 use rand::RngCore;
 
@@ -109,6 +111,40 @@ impl PosteriorStore {
         }
     }
 
+    /// Zero-copy borrowed row slice when empirical, or surrogate-provided
+    /// slice.
+    pub fn x_slice(&self, idx: usize) -> Result<Cow<'_, [f64]>, ENNError> {
+        match &self.backend {
+            PosteriorBackend::Model(s) => s.x_slice(idx),
+            PosteriorBackend::Empirical { x_rows, .. } => {
+                let row = x_rows.get(idx).ok_or_else(|| {
+                    ENNError::InvalidParameter(format!("observation index {idx} out of range"))
+                })?;
+                Ok(match row.as_slice() {
+                    Some(slice) => Cow::Borrowed(slice),
+                    None => Cow::Owned(row.to_vec()),
+                })
+            }
+        }
+    }
+
+    /// Zero-copy borrowed target slice when empirical, or surrogate-provided
+    /// slice.
+    pub fn y_slice(&self, idx: usize) -> Result<Cow<'_, [f64]>, ENNError> {
+        match &self.backend {
+            PosteriorBackend::Model(s) => s.y_slice(idx),
+            PosteriorBackend::Empirical { y_rows, .. } => {
+                let row = y_rows.get(idx).ok_or_else(|| {
+                    ENNError::InvalidParameter(format!("observation index {idx} out of range"))
+                })?;
+                Ok(match row.as_slice() {
+                    Some(slice) => Cow::Borrowed(slice),
+                    None => Cow::Owned(row.to_vec()),
+                })
+            }
+        }
+    }
+
     pub fn unit_obs(&self) -> Option<Array2<f64>> {
         match &self.backend {
             PosteriorBackend::Model(s) => s.observations_x().ok().flatten(),
@@ -196,10 +232,6 @@ pub struct ObsAccess<'a> {
 }
 
 impl<'a> ObsAccess<'a> {
-    pub(crate) fn new(opt: &'a BayesOptimizer) -> Self {
-        Self { opt }
-    }
-
     pub fn observations_empty(&self) -> bool {
         self.opt.posterior.obs_count() == 0
     }
@@ -216,28 +248,7 @@ impl<'a> ObsAccess<'a> {
 impl BayesOptimizer {
     /// Row-level observation access (unified posterior store).
     pub fn obs_access(&self) -> ObsAccess<'_> {
-        ObsAccess::new(self)
-    }
-
-    /// Get surrogate.
-    pub fn surrogate(&self) -> Option<&(dyn Surrogate + Send + Sync)> {
-        self.posterior.surrogate()
-    }
-
-    /// Whether this optimizer fits a surrogate (false for TuRBO-ZERO and
-    /// LHD-only).
-    pub fn has_surrogate(&self) -> bool {
-        self.posterior.has_surrogate()
-    }
-
-    /// Get mutable surrogate.
-    pub fn surrogate_mut(&mut self) -> Option<&mut (dyn Surrogate + Send + Sync)> {
-        self.posterior.surrogate_mut()
-    }
-
-    /// Current number of stored observations.
-    pub fn obs_count(&self) -> usize {
-        self.posterior.obs_count()
+        ObsAccess { opt: self }
     }
 }
 

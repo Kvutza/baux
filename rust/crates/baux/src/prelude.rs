@@ -29,10 +29,22 @@ pub use crate::model::{ENN, ModelOptions};
 pub use crate::optimizer::{BayesOptimizer, Telemetry};
 pub use crate::optimizer_factory::{create_lhd, create_optimizer, enn_optimizer};
 pub use crate::params::{ENNNormal, ENNParams, ParamsError, PosteriorFlags};
+pub use crate::pipeline::{
+    AcqStage, Active, InitStage, ModelStage, PerturbStage, Pipeline, ProposalTicket,
+    TypedOptimizer, TypedSurrogate, Unfitted, Warmup,
+};
 pub use crate::posterior::{WeightedPosteriorData, compute_internals, conditional_internals};
+pub use crate::scratch::{AlignedBuffer, CandidateSoa, ScratchArena, UnifiedBuffer};
+pub use crate::sense::{
+    BetterScore, EvalId, Lexicographic, Maximize, Minimize, ObjectiveSense, ObsId, RegionId, Sense,
+    Target,
+};
 pub use crate::stats::WeightedStats;
 pub use crate::strategy::Strategy;
 pub use crate::surrogate::{ENNSurrogate, ENNSurrogateConfig, Surrogate, SurrogatePrediction};
+pub use crate::surrogate_api::{
+    IncrementalSurrogate, LengthscaleProvider, ObservationView, Predictor,
+};
 pub use crate::traits::PosteriorComputation;
 pub use crate::trust_region::{
     NoTrustRegion, TRLengthConfig, TrustRegionConfig, TrustRegionError, TurboTrustRegion,

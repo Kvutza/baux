@@ -295,30 +295,13 @@ impl TurboTrustRegion {
         num_obs: usize,
         y_incumbent_value: f64,
     ) -> Result<(), TrustRegionError> {
-        let n_new = y_new.len();
-        if n_new == 0 {
-            return Ok(());
-        }
-        let n = self.prev_obs + n_new;
-        if num_obs != n {
-            return Err(TrustRegionError::InvalidParameter(format!(
-                "num_obs {} must equal prev_obs {} + y_new.len() {}",
-                num_obs, self.prev_obs, n_new
-            )));
-        }
-
-        if !self.best_value.is_finite() {
-            self.best_value = y_incumbent_value;
-            self.prev_obs = n;
-            return Ok(());
-        }
-
-        let scale = improvement_scale(self.best_value);
-        let improved = y_incumbent_value > self.best_value + 1e-3 * scale;
-        self.adapt_step(Some(improved));
-        self.best_value = self.best_value.max(y_incumbent_value);
-        self.prev_obs = n;
-        Ok(())
+        update_sense(
+            self,
+            y_new,
+            num_obs,
+            y_incumbent_value,
+            crate::sense::Maximize,
+        )
     }
 
     /// Update from an explicit model-agreement outcome.
@@ -426,6 +409,43 @@ impl TurboTrustRegion {
         }
         self.prev_obs = prev_obs;
     }
+}
+
+/// Sense-parametric trust-region batch update supporting
+/// [`crate::sense::Maximize`], [`crate::sense::Minimize`], and
+/// [`crate::sense::Target`].
+pub fn update_sense<O: crate::sense::ObjectiveSense>(
+    tr: &mut TurboTrustRegion,
+    y_new: &ArrayView1<f64>,
+    num_obs: usize,
+    y_incumbent_value: f64,
+    sense: O,
+) -> Result<(), TrustRegionError> {
+    let n_new = y_new.len();
+    if n_new == 0 {
+        return Ok(());
+    }
+    let n = tr.prev_obs + n_new;
+    if num_obs != n {
+        return Err(TrustRegionError::InvalidParameter(format!(
+            "num_obs {} must equal prev_obs {} + y_new.len() {}",
+            num_obs, tr.prev_obs, n_new
+        )));
+    }
+
+    let utility = sense.score(y_incumbent_value).raw();
+    if !tr.best_value.is_finite() {
+        tr.best_value = utility;
+        tr.prev_obs = n;
+        return Ok(());
+    }
+
+    let scale = improvement_scale(tr.best_value);
+    let improved = utility > tr.best_value + 1e-3 * scale;
+    tr.adapt_step(Some(improved));
+    tr.best_value = tr.best_value.max(utility);
+    tr.prev_obs = n;
+    Ok(())
 }
 
 fn improvement_scale(best_value: f64) -> f64 {

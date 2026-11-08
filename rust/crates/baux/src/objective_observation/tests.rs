@@ -111,3 +111,18 @@ fn schema_retention() {
     assert_eq!(window.rows().next().unwrap().identity, 7);
     assert_eq!(window.incumbent().unwrap().observation, vector(1.0));
 }
+
+#[test]
+fn const_observation() {
+    use crate::sense::Sense;
+    let a = ConstObservation::<2>::noiseless([10.0, 2.0], 10.0).unwrap();
+    let b = ConstObservation::<2>::noiseless([8.0, 5.0], 8.0).unwrap();
+    let senses = [Sense::Maximize, Sense::Minimize];
+    assert!(a.dominates(&b, &senses));
+    assert!(!b.dominates(&a, &senses));
+    let u = a.chebyshev(&[12.0, 1.0], &[0.5, 0.5], &senses);
+    let v = b.chebyshev(&[12.0, 1.0], &[0.5, 0.5], &senses);
+    assert!(u > v);
+    let dyn_obs: ObjectiveObservation = a.into();
+    assert_eq!(dyn_obs.estimates().len(), 2);
+}

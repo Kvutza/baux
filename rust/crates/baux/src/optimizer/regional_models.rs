@@ -179,7 +179,8 @@ impl RegionalModels {
             .collect()
     }
 
-    /// Warm-up data has no generating region and seeds every local model.
+    /// Warm-up data has no generating region and seeds every local model in
+    /// parallel via [`std::thread::scope`] and counter-folded per-slot PRNGs.
     pub fn warmup(
         &mut self,
         x: &ArrayView2<f64>,
@@ -187,9 +188,27 @@ impl RegionalModels {
         yvar: Option<&ArrayView2<f64>>,
         rng: &mut dyn RngCore,
     ) -> Result<(), ENNError> {
-        for model in &mut self.models {
-            model.fit_append(x, y, yvar, rng)?;
+        let mut seeds = Vec::with_capacity(self.models.len());
+        for slot in 0..self.models.len() {
+            let seed = if self.owned_disk {
+                rng.next_u64()
+            } else {
+                crate::hash::stream_seed(self.generations[slot], slot as u64)
+            };
+            seeds.push(seed);
         }
+        std::thread::scope(|scope| -> Result<(), ENNError> {
+            let mut handles = Vec::with_capacity(self.models.len());
+            for (model, seed) in self.models.iter_mut().zip(seeds) {
+                handles.push(scope.spawn(move || fit_slot(model.as_mut(), x, y, yvar, seed)));
+            }
+            for handle in handles {
+                handle.join().map_err(|_| {
+                    ENNError::InvalidParameter("regional warmup thread panicked".into())
+                })??;
+            }
+            Ok(())
+        })?;
         if self.restart_memory == RestartMemoryPolicy::RetainRelevant {
             for history in &mut self.history {
                 history.push(ModelHistory {
@@ -202,8 +221,8 @@ impl RegionalModels {
         Ok(())
     }
 
-    /// Fit each regional model on the subset selected by the sharing policy.
-    /// The generating region is historical fact; these masks govern learning.
+    /// Fit each regional model on the subset selected by the sharing policy in
+    /// parallel across disjoint region slots via [`std::thread::scope`].
     pub fn route(
         &mut self,
         state: &MultiTrustRegionState,
@@ -215,36 +234,49 @@ impl RegionalModels {
         rng: &mut dyn RngCore,
     ) -> Result<(), ENNError> {
         self.sync(state, rng)?;
-        for (slot, model) in self.models.iter_mut().enumerate() {
+        let retain = self.restart_memory == RestartMemoryPolicy::RetainRelevant;
+        let mut tasks: Vec<(&mut BoxedSurrogate, &mut Vec<ModelHistory>, Vec<usize>, u64)> =
+            Vec::new();
+        for (slot, (model, history)) in self
+            .models
+            .iter_mut()
+            .zip(self.history.iter_mut())
+            .enumerate()
+        {
             if !state.active_mask[slot] {
                 continue;
             }
             let (lower, upper) = state.compute_bounds(slot, lengthscales);
-            let rows = (0..x.nrows())
-                .filter(|&row| state.accepts(slot, row, &x.row(row), &lower, &upper, origins))
-                .collect::<Vec<_>>();
+            let mut rows = Vec::new();
+            for row in 0..x.nrows() {
+                if state.accepts(slot, row, &x.row(row), &lower, &upper, origins) {
+                    rows.push(row);
+                }
+            }
             if rows.is_empty() {
                 continue;
             }
-            let local_x: Array2<f64> = x.select(Axis(0), &rows);
-            let local_y: Array2<f64> = y.select(Axis(0), &rows);
-            let local_var = yvar.map(|values| values.select(Axis(0), &rows));
-            let variance_view = local_var.as_ref().map(|values| values.view());
-            model.fit_append(
-                &local_x.view(),
-                &local_y.view(),
-                variance_view.as_ref(),
-                rng,
-            )?;
-            if self.restart_memory == RestartMemoryPolicy::RetainRelevant {
-                self.history[slot].push(ModelHistory {
-                    x: local_x,
-                    y: local_y,
-                    yvar: local_var,
-                });
-            }
+            let seed = if self.owned_disk {
+                rng.next_u64()
+            } else {
+                crate::hash::stream_seed(self.generations[slot], slot as u64)
+            };
+            tasks.push((model, history, rows, seed));
         }
-        Ok(())
+        std::thread::scope(|scope| -> Result<(), ENNError> {
+            let mut handles = Vec::with_capacity(tasks.len());
+            for (model, history, rows, seed) in tasks {
+                handles.push(scope.spawn(move || {
+                    route_slot(model.as_mut(), history, x, y, yvar, &rows, seed, retain)
+                }));
+            }
+            for handle in handles {
+                handle.join().map_err(|_| {
+                    ENNError::InvalidParameter("regional route thread panicked".into())
+                })??;
+            }
+            Ok(())
+        })
     }
 }
 
@@ -258,6 +290,51 @@ impl Drop for RegionalModels {
             }
         }
     }
+}
+
+fn fit_slot(
+    model: &mut dyn Surrogate,
+    x: &ArrayView2<f64>,
+    y: &ArrayView2<f64>,
+    yvar: Option<&ArrayView2<f64>>,
+    seed: u64,
+) -> Result<(), ENNError> {
+    use rand::SeedableRng;
+    let mut slot_rng = rand::rngs::StdRng::seed_from_u64(seed);
+    model.fit_append(x, y, yvar, &mut slot_rng)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn route_slot(
+    model: &mut dyn Surrogate,
+    history: &mut Vec<ModelHistory>,
+    x: &ArrayView2<f64>,
+    y: &ArrayView2<f64>,
+    yvar: Option<&ArrayView2<f64>>,
+    rows: &[usize],
+    seed: u64,
+    retain: bool,
+) -> Result<(), ENNError> {
+    use rand::SeedableRng;
+    let local_x: Array2<f64> = x.select(Axis(0), rows);
+    let local_y: Array2<f64> = y.select(Axis(0), rows);
+    let local_var = yvar.map(|values| values.select(Axis(0), rows));
+    let variance_view = local_var.as_ref().map(|values| values.view());
+    let mut slot_rng = rand::rngs::StdRng::seed_from_u64(seed);
+    model.fit_append(
+        &local_x.view(),
+        &local_y.view(),
+        variance_view.as_ref(),
+        &mut slot_rng,
+    )?;
+    if retain {
+        history.push(ModelHistory {
+            x: local_x,
+            y: local_y,
+            yvar: local_var,
+        });
+    }
+    Ok(())
 }
 
 #[cfg(test)]

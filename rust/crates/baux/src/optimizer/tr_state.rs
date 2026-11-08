@@ -6,7 +6,7 @@ use crate::morbo::{MorboTrustRegion, Rescalarize};
 use crate::optimizer::multi_tr::{MultiTrustRegionState, PendingProposal};
 use crate::trust_region::{TrustRegionConfig, TrustRegionError, TurboTrustRegion};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum TrustRegionState {
     Turbo(TurboTrustRegion),
     Morbo(Box<MorboTrustRegion>),
@@ -252,6 +252,41 @@ impl TrustRegionState {
                 .update(&y_new.view(), y_incumbent)
                 .map_err(|e| ENNError::InvalidParameter(e.to_string())),
             TrustRegionState::Multi { .. } => Ok(()),
+        }
+    }
+
+    pub(crate) fn hash_state(&self, buf: &mut Vec<u8>) {
+        buf.extend_from_slice(&self.length().to_le_bytes());
+        buf.extend_from_slice(&self.turbo_obs().to_le_bytes());
+        match self {
+            TrustRegionState::Turbo(t) => {
+                buf.push(0u8);
+                buf.extend_from_slice(&t.success_counter().to_le_bytes());
+                buf.extend_from_slice(&t.failure_counter().to_le_bytes());
+            }
+            TrustRegionState::Morbo(m) => {
+                buf.push(1u8);
+                buf.extend_from_slice(&m.success_counter().to_le_bytes());
+                buf.extend_from_slice(&m.failure_counter().to_le_bytes());
+                for &w in m.weights().iter() {
+                    buf.extend_from_slice(&w.to_le_bytes());
+                }
+            }
+            TrustRegionState::Multi { state, pending } => {
+                buf.push(2u8);
+                buf.extend_from_slice(&state.num_regions().to_le_bytes());
+                for &v in state.centers.iter() {
+                    buf.extend_from_slice(&v.to_le_bytes());
+                }
+                for &v in state.lengths.iter() {
+                    buf.extend_from_slice(&v.to_le_bytes());
+                }
+                if let Some(prop) = pending {
+                    for id in &prop.ids {
+                        buf.extend_from_slice(&id.0.to_le_bytes());
+                    }
+                }
+            }
         }
     }
 }

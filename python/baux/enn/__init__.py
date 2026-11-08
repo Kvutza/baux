@@ -6,18 +6,27 @@ import sys
 import types
 from typing import Any
 
+from ..pytree import Log, Periodic, Simplex, Space
 from ..transforms import Transform, enn as _enntransform
 from .enn_class import ENN
 from .enn_fitter import ENNFitter
 from .enn_normal import ENNNormal
 from .enn_params import ENNParams
 from .enn_state import (
+    Calibrator,
     ENNState,
+    Shrinkage,
+    enn_append,
     enn_append as append,
+    enn_fit,
     enn_fit as fit,
+    enn_init,
     enn_init as init,
+    enn_posterior,
     enn_posterior as posterior,
+    enn_sample,
     enn_sample as sample,
+    with_geometry,
 )
 from .posterior_flags import DiagonalMetric, MetricLearning, PosteriorFlags
 
@@ -31,18 +40,30 @@ sys.modules[__name__].__class__ = _EnnModule
 enn: Any = sys.modules[__name__]
 
 __all__ = [
+    "Calibrator",
     "DiagonalMetric",
     "ENN",
     "ENNFitter",
     "ENNNormal",
     "ENNParams",
     "ENNState",
+    "Log",
     "MetricLearning",
+    "Periodic",
     "PosteriorFlags",
+    "Shrinkage",
+    "Simplex",
+    "Space",
     "append",
     "enn",
+    "enn_append",
+    "enn_fit",
+    "enn_init",
+    "enn_posterior",
+    "enn_sample",
     "fit",
     "init",
     "posterior",
     "sample",
+    "with_geometry",
 ]

@@ -13,11 +13,20 @@ use crate::optimizer::{BayesOptimizer, EvaluationId, TrustRegionState};
 /// compile time that each issued ticket is resolved at most once via
 /// [`BayesOptimizer::tell_ticket`] or [`BayesOptimizer::cancel_ticket`].
 #[must_use = "an issued ProposalTicket must be consumed by tell_ticket or cancel_ticket"]
+#[diagnostic::on_move(
+    message = "`ProposalTicket` was already resolved or cancelled",
+    label = "each `ProposalTicket` is an affine token and may be consumed at most once",
+    note = "issue a fresh ticket via `ask_ticket`, `ask_pure`, or `ask_step` for the next round"
+)]
 #[derive(Debug)]
 pub struct ProposalTicket {
     x: OwnedCoords<DomainSpace>,
     ids: Option<Vec<EvaluationId>>,
+    origin_digest: Option<[u8; 32]>,
 }
+
+impl !Clone for ProposalTicket {}
+impl !Copy for ProposalTicket {}
 
 impl ProposalTicket {
     #[inline(always)]
@@ -38,6 +47,11 @@ impl ProposalTicket {
     #[inline(always)]
     pub fn num_arms(&self) -> usize {
         self.x.as_array().nrows()
+    }
+
+    #[inline(always)]
+    pub fn origin_digest(&self) -> Option<[u8; 32]> {
+        self.origin_digest
     }
 }
 
@@ -60,10 +74,30 @@ impl BayesOptimizer {
             }
             _ => None,
         };
+        let mut raw = Vec::with_capacity(natural.len() * 8);
+        for &v in natural.iter() {
+            raw.extend_from_slice(&v.to_le_bytes());
+        }
+        self.proposals.ticket_tag = Some(crate::artifact::blake3::hash(&raw));
+        let origin_digest = Some(self.digest());
         Ok(ProposalTicket {
             x: OwnedCoords::new(natural),
             ids,
+            origin_digest,
         })
+    }
+
+    fn verify_ticket(&mut self, origin_digest: Option<[u8; 32]>) -> Result<(), ENNError> {
+        if let Some(expected) = origin_digest {
+            if self.digest() != expected {
+                return Err(ENNError::InvalidParameter(
+                    "ProposalTicket state digest mismatch: ticket belongs to a different optimizer branch or epoch"
+                        .to_string(),
+                ));
+            }
+        }
+        self.proposals.ticket_tag = None;
+        Ok(())
     }
 
     /// Consume an affine [`ProposalTicket`] by value and record its measured
@@ -75,7 +109,12 @@ impl BayesOptimizer {
         yvar: Option<&ArrayView2<f64>>,
         rng: &mut dyn RngCore,
     ) -> Result<(), ENNError> {
-        let ProposalTicket { x, ids } = ticket;
+        let ProposalTicket {
+            x,
+            ids,
+            origin_digest,
+        } = ticket;
+        self.verify_ticket(origin_digest)?;
         if let Some(eval_ids) = ids {
             if self.regions.is_multi() && y.ncols() == 1 {
                 return self.complete_ids(&eval_ids, y, yvar, rng);
@@ -91,7 +130,10 @@ impl BayesOptimizer {
         ticket: ProposalTicket,
         rng: &mut dyn RngCore,
     ) -> Result<(), ENNError> {
-        let ProposalTicket { ids, .. } = ticket;
+        let ProposalTicket {
+            ids, origin_digest, ..
+        } = ticket;
+        self.verify_ticket(origin_digest)?;
         if let Some(eval_ids) = ids {
             if self.regions.is_multi() {
                 return self.cancel_ids(&eval_ids, rng);

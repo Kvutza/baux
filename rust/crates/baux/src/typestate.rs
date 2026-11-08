@@ -15,16 +15,25 @@ use crate::surrogate::{ENNSurrogate, ENNSurrogateConfig, Surrogate, SurrogatePre
 use crate::surrogate_api::{ObservationView, Predictor};
 pub use crate::ticket::ProposalTicket;
 
+#[path = "typestate/flow.rs"]
+mod flow;
+pub use flow::{Pending, Ready, StepTrace, pmap_branches, scan_step};
+
 /// Typestate marker for an unfitted surrogate model.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Unfitted;
 
 /// Typestate payload for a fitted ENN surrogate model.
+#[derive(Clone)]
 pub struct Fitted {
     inner: ENNSurrogate,
 }
 
 /// Compile-time typestate ENN surrogate preventing `predict` before `fit`.
+#[diagnostic::on_type_error(
+    note = "surrogate typestate mismatch (`{Expected}` vs `{Found}`): call `.fit(...)` on `TypedSurrogate<Unfitted>` before `.predict(...)`"
+)]
+#[derive(Clone)]
 pub struct TypedSurrogate<State = Unfitted> {
     config: ENNSurrogateConfig,
     state: State,
@@ -142,9 +151,39 @@ impl<O: ObjectiveSense, Phase> TypedOptimizer<O, Phase> {
         self.sense
     }
 
+    /// Fork this typestate optimizer into an independent value branch.
+    pub fn fork(&self) -> Result<Self, ENNError> {
+        Ok(Self {
+            inner: self.inner.fork()?,
+            sense: self.sense,
+            phase: PhantomData,
+        })
+    }
+
+    #[inline(always)]
+    pub fn digest(&self) -> [u8; 32] {
+        self.inner.digest()
+    }
+
+    #[inline(always)]
+    pub fn digest_hex(&self) -> String {
+        self.inner.digest_hex()
+    }
+
     fn canonicalize_y(&self, y: &ArrayView2<f64>) -> Array2<f64> {
         let sense = self.sense;
         y.mapv(|val| sense.score(val).raw())
+    }
+
+    /// Current incumbent point in natural domain coordinates.
+    pub fn best_x(&self) -> Option<Array1<f64>> {
+        self.inner.incumbent_x()
+    }
+
+    /// Current incumbent objective value in natural (untransformed) units.
+    pub fn best_y(&self) -> Option<f64> {
+        let raw = self.inner.y_scalar()?.first().copied()?;
+        Some(self.sense.invert(BetterScore(raw)))
     }
 }
 
@@ -207,14 +246,30 @@ impl<O: ObjectiveSense> TypedOptimizer<O, Active> {
         self.inner.tell_ticket(ticket, &y_canon.view(), None, rng)
     }
 
-    /// Current incumbent point in natural domain coordinates.
-    pub fn best_x(&self) -> Option<Array1<f64>> {
-        self.inner.incumbent_x()
+    /// Pure functional candidate proposal: forks `self` and returns `(next,
+    /// ticket)`.
+    pub fn ask_pure(
+        &self,
+        num_arms: usize,
+        key: crate::hash::Key,
+    ) -> Result<(Self, ProposalTicket), ENNError> {
+        let mut next = self.fork()?;
+        let mut rng = key.prng();
+        let ticket = next.ask_ticket(num_arms, &mut rng)?;
+        Ok((next, ticket))
     }
 
-    /// Current incumbent objective value in natural (untransformed) units.
-    pub fn best_y(&self) -> Option<f64> {
-        let raw = self.inner.y_scalar()?.first().copied()?;
-        Some(self.sense.invert(BetterScore(raw)))
+    /// Pure functional observation update: forks `self`, consumes `ticket`, and
+    /// returns `next`.
+    pub fn tell_pure(
+        &self,
+        ticket: ProposalTicket,
+        y: &ArrayView2<f64>,
+        key: crate::hash::Key,
+    ) -> Result<Self, ENNError> {
+        let mut next = self.fork()?;
+        let mut rng = key.prng();
+        next.tell_ticket(ticket, y, &mut rng)?;
+        Ok(next)
     }
 }

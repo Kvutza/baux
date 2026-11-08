@@ -12,8 +12,8 @@ use self::draw_compute::draw_internals;
 #[cfg(all(target_os = "linux", target_arch = "x86_64", feature = "cuda"))]
 use self::light::search_k;
 use self::light::{compute_light, index_array};
-pub use self::neighbor::empty_internals;
 pub(crate) use self::neighbor::index_search;
+pub use self::neighbor::{Pool, TopK, empty_internals};
 use self::neighbor::{conditional_data, get_data};
 use crate::draw::DrawInternals;
 use crate::error::ENNError;
@@ -71,6 +71,7 @@ impl PosteriorComputation for ENN {
                 self.y_bounds(),
             );
         }
+        self.apply_codomain(&mut mu, &mut se, &mut se_epi, &mut se_ale)?;
         let mut normal = ENNNormal::new(
             mu.into_dyn(),
             se.into_dyn(),
@@ -231,6 +232,7 @@ impl PosteriorComputation for ENN {
                 self.y_bounds(),
             );
         }
+        self.apply_codomain(&mut mu, &mut se, &mut se_epi, &mut se_ale)?;
         let mut normal = ENNNormal::new(
             mu.into_dyn(),
             se.into_dyn(),

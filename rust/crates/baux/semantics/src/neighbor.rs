@@ -1,11 +1,26 @@
 //! Shared streaming prefix selection for precision-weighted neighbours.
 //! The distance coefficient is a fitted bias proxy, not a certified Lipschitz
 //! constant. No covariance matrix or gradient estimate is constructed.
+//!
+//! Non-Euclidean local-scale dissimilarities and certified ANN bounds draw on:
+//! - Poincare (1882); Cannon, Floyd, Kenyon, and Parry (1997), *Hyperbolic
+//!   Geometry*, MSRI Publ. 31; Nickel and Kiela (2017), *Poincare Embeddings
+//!   for Learning Hierarchical Representations*, NeurIPS (`arXiv:1705.08039`);
+//!   local-scale half-space dissimilarity (`arXiv:2305.01356`).
+//! - Zelnik-Manor and Perona (2004), *Self-Tuning Spectral Clustering*, NeurIPS
+//!   17 (conformal local-scale normalization).
+//! - Kantorovich (1942); Villani (2009), *Optimal Transport: Old and New*,
+//!   Springer; Peyre and Cuturi (2019), *Computational Optimal Transport*
+//!   (`arXiv:1803.00567`) (Gaussian/entropic Wasserstein-2 local scale
+//!   transport).
 
 /// Resident observation capacity, shared by host state and device scratch.
 pub const MAX_HISTORY: usize = 128;
 #[path = "neighbor/query.rs"]
 pub mod query;
+#[path = "neighbor/simd.rs"]
+pub mod simd;
+pub use simd::{MetricKind, certify_const, refine_const, simd_dot, simd_l2, simd_scaled};
 
 /// Posterior variance law for precision-weighted neighbor estimation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -21,7 +36,8 @@ pub enum UncertaintyLaw {
     Geometric,
 }
 
-/// Pairwise distance transformation applied to stored and queried rows.
+/// Pairwise local-scale dissimilarity transformation applied to stored and
+/// queried rows.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 #[cfg_attr(not(cabi_parity), derive(deser::Serialize, deser::Deserialize))]
 #[cfg_attr(
@@ -45,6 +61,9 @@ pub enum DistanceMetric {
         local_k: usize,
     },
 }
+
+/// Pairwise local-scale dissimilarity geometry alias for [`DistanceMetric`].
+pub type Dissimilarity = DistanceMetric;
 
 /// Append until full, then replace the oldest observation other than the
 /// incumbent. Slots retain their order: Thompson draws follow identities,
@@ -221,6 +240,127 @@ impl Prefix {
     }
 }
 
+/// Analytical boundary parameters for certifying an `f32` candidate pool in
+/// `f64`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PoolBound {
+    /// Unrefined `f32` boundary distance `b_32` (radius of the `(k + extra)`-th
+    /// candidate).
+    pub b32: f64,
+    /// Worst-case `f32 -> f64` coordinate/scale quantization drift `eps_scale`.
+    pub eps_scale: f64,
+}
+
+/// Certified squared-distance lower bound `b_64^2 = max(0, b_32 - eps_scale)^2`
+/// on any omitted point outside an `f32` candidate pool.
+#[inline(always)]
+pub fn refine_bound(bound: PoolBound) -> f64 {
+    if !bound.b32.is_finite() {
+        return f64::INFINITY;
+    }
+    let b64 = (bound.b32 - bound.eps_scale.max(0.0)).max(0.0);
+    b64 * b64
+}
+
+/// Return true if the `k`-th refined `f64` squared distance `d2_k` is certified
+/// not to exceed the analytical lower bound of any unvisited point.
+#[inline(always)]
+pub fn is_certified(d2_k: f64, bound: PoolBound) -> bool {
+    d2_k.is_finite() && d2_k <= refine_bound(bound)
+}
+
+/// Analytical boundary parameters for certifying a non-Euclidean
+/// `DistanceMetric` candidate pool in `f64`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct MetricBound {
+    pub pool: PoolBound,
+    pub s_query: f64,
+    pub s_min: f64,
+    pub s_max: f64,
+}
+
+/// Certified lower bound on `metric_delta(metric, d^2, s_query, s)` over all
+/// omitted points (`d^2 >= refine_bound(bound.pool)`) and training scales
+/// `s in [s_min, s_max]`.
+#[inline(always)]
+pub fn refine_metric(metric: DistanceMetric, bound: MetricBound) -> f64 {
+    let b64_sq = refine_bound(bound.pool);
+    if !b64_sq.is_finite() {
+        return f64::INFINITY;
+    }
+    let sq = bound.s_query.max(1.0e-12);
+    let s_min = bound.s_min.max(1.0e-12);
+    let s_max = bound.s_max.max(s_min);
+    match metric {
+        DistanceMetric::Euclidean => b64_sq,
+        DistanceMetric::Conformal { .. } => conformal_delta(b64_sq, sq, s_max),
+        DistanceMetric::Hyperbolic { .. } => {
+            let s_star = (b64_sq + sq * sq).sqrt().clamp(s_min, s_max);
+            halfspace_delta(b64_sq, sq, s_star)
+        }
+        DistanceMetric::Wasserstein { .. } => {
+            let diff = sq - sq.clamp(s_min, s_max);
+            b64_sq.max(0.0) / (sq * s_max).max(1.0e-12).sqrt() + diff * diff
+        }
+    }
+}
+
+pub(super) fn rank_pool(candidates: &[(f64, i64)], nonneg: bool) -> Vec<(f64, i64)> {
+    let mut valid: Vec<(f64, i64)> = candidates
+        .iter()
+        .copied()
+        .filter(|&(d, idx)| idx >= 0 && d.is_finite() && (!nonneg || d >= 0.0))
+        .collect();
+    valid.sort_by(|a, b| a.1.cmp(&b.1).then(a.0.total_cmp(&b.0)));
+    valid.dedup_by_key(|pair| pair.1);
+    valid.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
+    valid
+}
+
+/// Refine a candidate pool `(delta_64, index)` under `metric`, sort finite
+/// nonnegative candidates with deterministic index tie-breaking, and return
+/// `Some(top_k)` iff `top[k - 1].0 <= refine_metric(metric, bound)`.
+pub fn certify_metric(
+    metric: DistanceMetric,
+    candidates: &[(f64, i64)],
+    k: usize,
+    bound: MetricBound,
+) -> Option<Vec<(f64, i64)>> {
+    if k == 0 {
+        return Some(Vec::new());
+    }
+    let mut valid = rank_pool(candidates, true);
+    if valid.len() < k {
+        return (!bound.pool.b32.is_finite()).then_some(valid);
+    }
+    if valid[k - 1].0 > refine_metric(metric, bound) {
+        return None;
+    }
+    valid.truncate(k);
+    Some(valid)
+}
+
+/// Refine a candidate pool `(d2_64, index)` in `f64`, sort with deterministic
+/// tie-breaking by index, and return `Some(top_k)` iff the margin bound holds.
+pub fn certify_topk(
+    candidates: &[(f64, i64)],
+    k: usize,
+    bound: PoolBound,
+) -> Option<Vec<(f64, i64)>> {
+    if k == 0 {
+        return Some(Vec::new());
+    }
+    let mut valid = rank_pool(candidates, false);
+    if valid.len() < k {
+        return (!bound.b32.is_finite()).then_some(valid);
+    }
+    if !is_certified(valid[k - 1].0, bound) {
+        return None;
+    }
+    valid.truncate(k);
+    Some(valid)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -232,19 +372,79 @@ mod tests {
             noisy.push(rank, 1.0, 0.0, 1.0);
         }
         assert_eq!(noisy.count, 8);
-        let mut separated = Prefix::default();
-        separated.push(1, 0.0, 1.0, 0.01);
-        separated.push(2, 100.0, 1.0, 0.01);
-        assert_eq!(separated.count, 1);
-
-        let horo = halfspace_delta(4.0_f64, 2.0_f64, 2.0_f64);
+        let mut sep = Prefix::default();
+        sep.push(1, 0.0, 1.0, 0.01);
+        sep.push(2, 100.0, 1.0, 0.01);
+        assert_eq!(sep.count, 1);
+        let horo = halfspace_delta(4.0, 2.0, 2.0);
         assert!((horo - 0.5).abs() < 1.0e-6);
-        let dilated = halfspace_delta(16.0_f64, 4.0_f64, 4.0_f64);
-        assert!((horo - dilated).abs() < 1.0e-6);
+        assert!((horo - halfspace_delta(16.0, 4.0, 4.0)).abs() < 1.0e-6);
+        let ot = wasserstein_delta(4.0, 2.0, 2.0);
+        assert!((ot - 2.0).abs() < 1.0e-6 && wasserstein_delta(4.0, 3.0, 1.0) > ot);
+    }
 
-        let ot_delta = wasserstein_delta(4.0_f64, 2.0_f64, 2.0_f64);
-        assert!((ot_delta - 2.0).abs() < 1.0e-6);
-        let ot_diff = wasserstein_delta(4.0_f64, 3.0_f64, 1.0_f64);
-        assert!(ot_diff > ot_delta);
+    #[test]
+    fn pool_bound() {
+        let bound = PoolBound {
+            b32: 5.0,
+            eps_scale: 0.5,
+        };
+        assert!((refine_bound(bound) - 20.25).abs() < 1.0e-12);
+        assert!(is_certified(20.25, bound) && !is_certified(20.26, bound));
+        let clamped = PoolBound {
+            b32: 0.2,
+            eps_scale: 1.0,
+        };
+        assert!(refine_bound(clamped) == 0.0 && is_certified(0.0, clamped));
+        let inf = PoolBound {
+            b32: f64::INFINITY,
+            eps_scale: 0.5,
+        };
+        assert!(refine_bound(inf).is_infinite() && is_certified(1.0e12, inf));
+    }
+
+    #[test]
+    fn certify_pass() {
+        let pool = [(4.0, 3), (1.0, 1), (1.0, 2), (1.0, 1), (9.0, 4)];
+        let pass = PoolBound {
+            b32: 4.0,
+            eps_scale: 0.5,
+        };
+        assert_eq!(certify_topk(&pool, 0, pass), Some(Vec::new()));
+        assert_eq!(certify_topk(&pool, 2, pass), Some(vec![(1.0, 1), (1.0, 2)]));
+        let fail = PoolBound {
+            b32: 2.0,
+            eps_scale: 0.5,
+        };
+        assert_eq!(certify_topk(&pool, 3, fail), None);
+        assert_eq!(certify_topk(&pool, 10, pass), None);
+    }
+
+    #[test]
+    fn metric_bounds() {
+        let pool = PoolBound {
+            b32: 4.0,
+            eps_scale: 0.0,
+        };
+        let mb = MetricBound {
+            pool,
+            s_query: 3.0,
+            s_min: 1.0,
+            s_max: 9.0,
+        };
+        for m in [
+            DistanceMetric::Euclidean,
+            DistanceMetric::Conformal { local_k: 4 },
+            DistanceMetric::Hyperbolic { local_k: 4 },
+            DistanceMetric::Wasserstein { local_k: 4 },
+        ] {
+            let lb = refine_metric(m, mb);
+            for s in [1.0, 3.0, 9.0] {
+                assert!(lb <= metric_delta(m, 16.0, 3.0, s) + 1.0e-12);
+            }
+            let cands = [(lb * 0.5, 2), (lb, 1), (lb + 1.0, 3), (-1.0, 0)];
+            assert!(certify_metric(m, &cands, 2, mb).is_some());
+            assert_eq!(certify_metric(m, &cands, 3, mb), None);
+        }
     }
 }

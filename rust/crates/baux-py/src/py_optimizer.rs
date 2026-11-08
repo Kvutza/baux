@@ -28,14 +28,15 @@ impl PyBayesOptimizer {
         num_arms: usize,
         seed: Option<u64>,
     ) -> PyResult<Bound<'py, PyArrayDyn<f64>>> {
-        let result = match seed {
-            Some(seed) => {
-                let mut rng = baux::prng(seed);
-                self.inner.ask_natural(num_arms, &mut rng)
-            }
-            None => self.inner.ask_natural(num_arms, &mut self.rng),
-        }
-        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        let result = py
+            .detach(|| match seed {
+                Some(seed) => {
+                    let mut rng = baux::prng(seed);
+                    self.inner.ask_natural(num_arms, &mut rng)
+                }
+                None => self.inner.ask_natural(num_arms, &mut self.rng),
+            })
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
         Ok(result.into_dyn().into_pyarray(py))
     }
 
@@ -50,6 +51,7 @@ impl PyBayesOptimizer {
     #[pyo3(signature = (ids, y, seed=None, y_var=None))]
     fn complete_ids(
         &mut self,
+        py: Python<'_>,
         ids: Vec<u64>,
         y: PyReadonlyArray2<f64>,
         seed: Option<u64>,
@@ -61,7 +63,7 @@ impl PyBayesOptimizer {
             .collect::<Vec<_>>();
         let y_view = y.as_array();
         let yvar_view = y_var.as_ref().map(PyReadonlyArray2::as_array);
-        match seed {
+        py.detach(|| match seed {
             Some(seed) => {
                 let mut rng = baux::prng(seed);
                 self.inner
@@ -70,24 +72,24 @@ impl PyBayesOptimizer {
             None => self
                 .inner
                 .complete_ids(&ids, &y_view, yvar_view.as_ref(), &mut self.rng),
-        }
+        })
         .map_err(|e| PyValueError::new_err(e.to_string()))
     }
 
     /// Retire objective evaluations that produced no measured result.
     #[pyo3(signature = (ids, seed=None))]
-    fn cancel_ids(&mut self, ids: Vec<u64>, seed: Option<u64>) -> PyResult<()> {
+    fn cancel_ids(&mut self, py: Python<'_>, ids: Vec<u64>, seed: Option<u64>) -> PyResult<()> {
         let ids = ids
             .into_iter()
             .map(baux::optimizer::EvaluationId)
             .collect::<Vec<_>>();
-        match seed {
+        py.detach(|| match seed {
             Some(seed) => {
                 let mut rng = baux::prng(seed);
                 self.inner.cancel_ids(&ids, &mut rng)
             }
             None => self.inner.cancel_ids(&ids, &mut self.rng),
-        }
+        })
         .map_err(|e| PyValueError::new_err(e.to_string()))
     }
 
@@ -96,21 +98,23 @@ impl PyBayesOptimizer {
     #[pyo3(signature = (slot, center, seed=None))]
     fn restart_region(
         &mut self,
+        py: Python<'_>,
         slot: usize,
         center: PyReadonlyArray1<f64>,
         seed: Option<u64>,
     ) -> PyResult<Vec<u64>> {
         let center_view = center.as_array();
-        let abandoned = match seed {
-            Some(seed) => {
-                let mut rng = baux::prng(seed);
-                self.inner.restart_natural(slot, &center_view, &mut rng)
-            }
-            None => self
-                .inner
-                .restart_natural(slot, &center_view, &mut self.rng),
-        }
-        .map_err(|error| PyValueError::new_err(error.to_string()))?;
+        let abandoned = py
+            .detach(|| match seed {
+                Some(seed) => {
+                    let mut rng = baux::prng(seed);
+                    self.inner.restart_natural(slot, &center_view, &mut rng)
+                }
+                None => self
+                    .inner
+                    .restart_natural(slot, &center_view, &mut self.rng),
+            })
+            .map_err(|error| PyValueError::new_err(error.to_string()))?;
         Ok(abandoned.into_iter().map(|identity| identity.0).collect())
     }
 
@@ -118,6 +122,7 @@ impl PyBayesOptimizer {
     #[pyo3(signature = (x, y, seed=None, y_var=None))]
     fn tell(
         &mut self,
+        py: Python<'_>,
         x: PyReadonlyArray2<f64>,
         y: PyReadonlyArray2<f64>,
         seed: Option<u64>,
@@ -126,7 +131,7 @@ impl PyBayesOptimizer {
         let x_view = x.as_array();
         let y_view = y.as_array();
         let yvar_view = y_var.as_ref().map(PyReadonlyArray2::as_array);
-        match seed {
+        py.detach(|| match seed {
             Some(seed) => {
                 let mut rng = baux::prng(seed);
                 self.inner
@@ -135,7 +140,7 @@ impl PyBayesOptimizer {
             None => self
                 .inner
                 .tell_natural(&x_view, &y_view, yvar_view.as_ref(), &mut self.rng),
-        }
+        })
         .map_err(|e| PyValueError::new_err(e.to_string()))
     }
 
@@ -143,6 +148,7 @@ impl PyBayesOptimizer {
     #[pyo3(signature = (x, y, seed=None, y_var=None))]
     fn import_observations(
         &mut self,
+        py: Python<'_>,
         x: PyReadonlyArray2<f64>,
         y: PyReadonlyArray2<f64>,
         seed: Option<u64>,
@@ -151,7 +157,7 @@ impl PyBayesOptimizer {
         let x_view = x.as_array();
         let y_view = y.as_array();
         let yvar_view = y_var.as_ref().map(PyReadonlyArray2::as_array);
-        match seed {
+        py.detach(|| match seed {
             Some(seed) => {
                 let mut rng = baux::prng(seed);
                 self.inner
@@ -160,7 +166,7 @@ impl PyBayesOptimizer {
             None => self
                 .inner
                 .import_natural(&x_view, &y_view, yvar_view.as_ref(), &mut self.rng),
-        }
+        })
         .map_err(|e| PyValueError::new_err(e.to_string()))
     }
 
@@ -204,8 +210,8 @@ impl PyBayesOptimizer {
         }
     }
 
-    /// Number of retained trust-region observations.
-    fn region_count(&self) -> usize {
+    /// Number of retained observations across the optimizer.
+    fn num_observations(&self) -> usize {
         self.inner.obs_count()
     }
 
@@ -250,6 +256,41 @@ impl PyBayesOptimizer {
             .to_owned()
             .into_dyn()
             .into_pyarray(py)
+    }
+
+    /// Fork an isolated optimizer clone sharing immutable storage.
+    fn fork(&self) -> PyResult<Self> {
+        let inner = self
+            .inner
+            .fork()
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        Ok(Self {
+            inner,
+            rng: self.rng.clone(),
+        })
+    }
+
+    /// Hex-encoded BLAKE3 digest of the optimizer state.
+    fn digest_hex(&self) -> String {
+        self.inner.digest_hex()
+    }
+
+    /// Serialize optimizer state to a portable binary checkpoint.
+    fn freeze<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, pyo3::types::PyBytes>> {
+        let bytes = self
+            .inner
+            .freeze()
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        Ok(pyo3::types::PyBytes::new(py, &bytes))
+    }
+
+    /// Restore optimizer state from a binary checkpoint.
+    fn thaw(&mut self, data: &[u8]) -> PyResult<()> {
+        self.inner = self
+            .inner
+            .thaw(data)
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        Ok(())
     }
 }
 

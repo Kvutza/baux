@@ -1,6 +1,8 @@
 //! Local surrogate ownership for modeled multi-region search.
 //! The global posterior remains the public observation ledger; local models
 //! receive only relevant observations and score their own candidate segments.
+use std::sync::Arc;
+
 use ndarray::{Array2, ArrayView1, ArrayView2, Axis};
 use rand::RngCore;
 
@@ -17,13 +19,14 @@ pub type RegionalModelFactory =
 
 pub struct RegionalModels {
     models: Vec<BoxedSurrogate>,
-    factory: RegionalModelFactory,
+    factory: Arc<RegionalModelFactory>,
     generations: Vec<u64>,
     owned_disk: bool,
     history: Vec<Vec<ModelHistory>>,
     restart_memory: RestartMemoryPolicy,
 }
 
+#[derive(Clone)]
 struct ModelHistory {
     x: Array2<f64>,
     y: Array2<f64>,
@@ -128,7 +131,7 @@ impl RegionalModels {
             .collect::<Result<Vec<_>, _>>()?;
         Ok(Self {
             models,
-            factory,
+            factory: Arc::new(factory),
             generations,
             owned_disk: false,
             history: (0..state.num_regions()).map(|_| Vec::new()).collect(),
@@ -144,6 +147,22 @@ impl RegionalModels {
 
     pub fn slot_count(&self) -> usize {
         self.models.len()
+    }
+
+    pub fn try_clone(&self) -> Result<Self, ENNError> {
+        let models = self
+            .models
+            .iter()
+            .map(|model| model.clone_box())
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(Self {
+            models,
+            factory: Arc::clone(&self.factory),
+            generations: self.generations.clone(),
+            owned_disk: false,
+            history: self.history.clone(),
+            restart_memory: self.restart_memory,
+        })
     }
 
     /// A restarted region starts a new local trajectory. The global model can

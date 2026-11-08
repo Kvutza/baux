@@ -9,7 +9,7 @@ from typing import Any
 import numpy as np
 from numpy.random import Generator
 
-from .bo import Telemetry, _plan
+from .bo import Optimizer, Telemetry, _plan
 from .pytree import PyTreeSpec
 from .turbo.config import OptimizerConfig
 from .turbo.config.encode import encode
@@ -26,12 +26,21 @@ def _foldseed(seed: int, salt: int) -> int:
     return int((z ^ (z >> 31)) & ((1 << 63) - 1))
 
 
-def _resolveseed(seed: int | Generator | None) -> int:
-    if seed is None:
-        return 0x5EED_BA08_2026
-    if isinstance(seed, Generator):
-        return int(seed.integers(2**63 - 1))
-    return int(seed) & ((1 << 63) - 1)
+def _resolveseed(seed: Any = None, key: Any = None) -> int:
+    src = key if key is not None else seed
+    if src is None:
+        from . import _rust
+
+        return int(_rust.Key().seed()) & ((1 << 63) - 1)
+    if isinstance(src, str):
+        from . import _rust
+
+        return int(_rust.Key.domain(src).seed()) & ((1 << 63) - 1)
+    if isinstance(src, Generator):
+        return int(src.integers(2**63 - 1))
+    if hasattr(src, "seed") and callable(src.seed):
+        return int(src.seed()) & ((1 << 63) - 1)
+    return int(src) & ((1 << 63) - 1)
 
 
 def _readonly(arr: Any, dtype: Any = float) -> np.ndarray:
@@ -142,8 +151,29 @@ class OptimizerState:
     telemetry: Telemetry
     _log: tuple[_Op, ...]
     _cursor: _Cursor
+    _opt: Any = None
+
+    def __post_init__(self) -> None:
+        if self._opt is None:
+            opt = Optimizer(
+                self.dim,
+                np.random.default_rng(self.seed),
+                self._cursor.inner,
+                identified_asks=self.identified,
+            )
+            object.__setattr__(self, "_opt", opt)
 
     def _checkout(self) -> tuple[Any, dict[int, int], bool]:
+        is_gp = isinstance(self.config.surrogate, (GaussianProcess, ExternalSurrogate))
+        if (
+            self._cursor.epoch == self.epoch
+            and not is_gp
+            and hasattr(self._opt._inner, "fork")
+        ):
+            try:
+                return self._opt._inner.fork(), dict(self._cursor.id_map), False
+            except Exception:
+                pass
         if self._cursor.epoch == self.epoch:
             return self._cursor.inner, self._cursor.id_map, True
         inner = _makeinner(self.bounds, self.config, self.seed)
@@ -158,10 +188,6 @@ class OptimizerState:
         inner, id_map, _ = self._checkout()
         object.__setattr__(self, "_cursor", _Cursor(self.epoch, inner, id_map))
         return inner
-
-    @property
-    def region_count(self) -> int:
-        return self.num_observations
 
     @property
     def x_obs(self) -> np.ndarray:
@@ -184,6 +210,28 @@ class OptimizerState:
         if inc is None or self.spec is None:
             return inc
         return self.spec.unflatten(inc.reshape(-1))
+
+    @property
+    def best_y(self) -> float | None:
+        y = self.y_obs
+        return None if y.size == 0 else float(np.max(y[:, 0]))
+
+    def digest(self) -> str:
+        return str(self._readonlyview().digest_hex())
+
+    def fork(self, key: Any = None, *, seed: Any = None) -> OptimizerState:
+        from dataclasses import replace
+
+        inner, id_map, in_place = self._checkout()
+        if in_place and hasattr(inner, "fork"):
+            inner = inner.fork()
+        src = key if key is not None else seed
+        return replace(
+            self,
+            seed=self.seed if src is None else _resolveseed(src),
+            _cursor=_Cursor(self.epoch, inner, id_map),
+            _opt=None,
+        )
 
 
 def _snapshot(
@@ -223,7 +271,7 @@ def _snapshot(
         epoch=next_epoch,
         spec=prev.spec,
         identified=prev.identified,
-        num_observations=int(inner.region_count()),
+        num_observations=int(inner.num_observations()),
         num_regions=int(inner.num_regions()),
         tr_length=float(inner.tr_length()),
         init_progress=inner.init_progress(),
@@ -231,6 +279,52 @@ def _snapshot(
         ingestion_failure=getattr(inner, "ingestion_failure", None),
         telemetry=telem,
         _log=(*prev._log, op),
+        _cursor=cursor,
+    )
+
+
+def digest(state: OptimizerState) -> str:
+    """Return the 64-character lowercase hexadecimal BLAKE3 digest of `state`."""
+    return str(state._readonlyview().digest_hex())
+
+
+def freeze(state: OptimizerState) -> bytes:
+    """Serialize `state` into a portable binary checkpoint."""
+    return bytes(state._readonlyview().freeze())
+
+
+def thaw(state: OptimizerState, data: bytes) -> OptimizerState:
+    """Restore an `OptimizerState` from a binary checkpoint without mutating `state`."""
+    inner = state._readonlyview().fork()
+    inner.thaw(bytes(data))
+    t = inner.telemetry()
+    telem = Telemetry(
+        dt_fit=t.dt_fit,
+        dt_gen=t.dt_gen,
+        dt_sel=t.dt_sel,
+        dt_tell=t.dt_tell,
+        num_candidates=int(t.num_candidates),
+    )
+    raw_pending = inner.pending_ids()
+    pending = None if raw_pending is None else tuple(int(i) for i in raw_pending)
+    next_epoch = state.epoch + 1
+    cursor = _Cursor(next_epoch, inner, {})
+    return OptimizerState(
+        dim=state.dim,
+        bounds=state.bounds,
+        config=state.config,
+        seed=state.seed,
+        epoch=next_epoch,
+        spec=state.spec,
+        identified=state.identified,
+        num_observations=int(inner.num_observations()),
+        num_regions=int(inner.num_regions()),
+        tr_length=float(inner.tr_length()),
+        init_progress=inner.init_progress(),
+        pending_ids=pending,
+        ingestion_failure=getattr(inner, "ingestion_failure", None),
+        telemetry=telem,
+        _log=(),
         _cursor=cursor,
     )
 
@@ -244,4 +338,7 @@ __all__ = [
     "_readonly",
     "_resolveseed",
     "_snapshot",
+    "digest",
+    "freeze",
+    "thaw",
 ]

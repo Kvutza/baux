@@ -322,7 +322,7 @@ class ToraxTcvBridge:
         return smooth_max([c_lcfs, c_ip, c_pf, c_volt, c_oh], COMBINER_ALPHA)
 
     def eval_rollout(self, weights: np.ndarray, rounds: int = 20) -> float:
-        from benchmarks.torax.torax_rollout import ToraxClosedLoopEnv
+        from evals.torax.torax_rollout import ToraxClosedLoopEnv
 
         _ = rounds
         return ToraxClosedLoopEnv.shared().eval_mean(weights)

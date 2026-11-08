@@ -31,7 +31,7 @@ jax = pytest.importorskip("jax")
 from baux import ENN, capabilities
 from baux.enn.enn_params import ENNParams, PosteriorFlags
 from baux.turbo.config.surrogate import NeighborIndex
-from benchmarks.torax.tcv_coupling import eval_wpo_table6
+from evals.torax.tcv_coupling import eval_wpo_table6
 
 
 def dowker_matrix(outputs: dict[str, np.ndarray]) -> tuple[list[str], np.ndarray]:

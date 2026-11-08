@@ -224,6 +224,37 @@ impl PosteriorStore {
         }
         Ok(())
     }
+
+    pub fn try_clone(&self) -> Result<Self, ENNError> {
+        let backend = match &self.backend {
+            PosteriorBackend::Empirical { x_rows, y_rows } => PosteriorBackend::Empirical {
+                x_rows: x_rows.clone(),
+                y_rows: y_rows.clone(),
+            },
+            PosteriorBackend::Model(surrogate) => PosteriorBackend::Model(surrogate.clone_box()?),
+        };
+        Ok(Self {
+            backend,
+            yvar_mode: self.yvar_mode,
+        })
+    }
+
+    pub(crate) fn hash_state(&self, buf: &mut Vec<u8>) {
+        let n = self.obs_count();
+        buf.extend_from_slice(&n.to_le_bytes());
+        for i in 0..n {
+            if let Ok(x_row) = self.x_slice(i) {
+                for &v in x_row.iter() {
+                    buf.extend_from_slice(&v.to_le_bytes());
+                }
+            }
+            if let Ok(y_row) = self.y_slice(i) {
+                for &v in y_row.iter() {
+                    buf.extend_from_slice(&v.to_le_bytes());
+                }
+            }
+        }
+    }
 }
 
 /// Public accessor for optimizer observation row reads.

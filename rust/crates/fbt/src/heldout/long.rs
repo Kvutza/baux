@@ -240,7 +240,7 @@ fn init_surrogate(
         run.acquisition_seed(),
         policy.surrogate_spec()?,
     )?
-    .with_metric(distance_metric);
+    .with_geometry(distance_metric);
     Ok((trust_region, surrogate))
 }
 

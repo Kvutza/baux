@@ -6,10 +6,10 @@ use crate::knn::KnnBackend;
 use crate::knn::{CudaParam, KnnBatch, KnnPosterior};
 pub use crate::knn::{IndexDriver, IndexKind, disk_driver};
 
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 pub struct Index {
-    pub(crate) inner: KnnBackend,
+    pub(crate) inner: Arc<KnnBackend>,
     num_dim: usize,
     x_scale: Mutex<Array1<f64>>,
     scale_x: bool,
@@ -17,6 +17,18 @@ pub struct Index {
 }
 
 pub type ENNIndex = Index;
+
+impl Clone for Index {
+    fn clone(&self) -> Self {
+        Self {
+            inner: Arc::clone(&self.inner),
+            num_dim: self.num_dim,
+            x_scale: Mutex::new(self.scale_vec()),
+            scale_x: self.scale_x,
+            driver: self.driver,
+        }
+    }
+}
 
 impl Index {
     pub fn new(
@@ -26,7 +38,7 @@ impl Index {
         scale_x: bool,
         driver: IndexDriver,
     ) -> Result<Self, IndexError> {
-        let inner = KnnBackend::new(num_dim, driver, &train_x_scaled.view())?;
+        let inner = Arc::new(KnnBackend::new(num_dim, driver, &train_x_scaled.view())?);
         Ok(Self {
             inner,
             num_dim,
@@ -34,6 +46,14 @@ impl Index {
             scale_x,
             driver,
         })
+    }
+
+    pub(crate) fn scale_vec(&self) -> Array1<f64> {
+        self.x_scale.lock().expect("x_scale mutex poisoned").clone()
+    }
+
+    pub(crate) fn scales_x(&self) -> bool {
+        self.scale_x
     }
 
     pub fn driver(&self) -> IndexDriver {

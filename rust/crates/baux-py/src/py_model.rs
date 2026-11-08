@@ -27,7 +27,7 @@ type PyRows<'py> = (
 #[pyclass(unsendable, name = "ENN")]
 pub struct PyENN {
     pub(crate) inner: baux::ENN,
-    driver: baux::IndexDriver,
+    pub(crate) driver: baux::IndexDriver,
 }
 
 #[pymethods]
@@ -140,6 +140,51 @@ impl PyENN {
         self.inner
             .add(&x.as_array(), &y.as_array(), yvar_arr.as_ref())
             .map_err(|e| PyValueError::new_err(e.to_string()))
+    }
+
+    #[pyo3(signature = (x=None, y=None, yvar=None, shrinkage=None, calibrator=None, metric=None, local_k=None))]
+    fn append_cow(
+        &self,
+        x: Option<PyReadonlyArray2<f64>>,
+        y: Option<PyReadonlyArray2<f64>>,
+        yvar: Option<PyReadonlyArray2<f64>>,
+        shrinkage: Option<PyReadonlyArray2<f64>>,
+        calibrator: Option<(Vec<f64>, Vec<f64>, Vec<f64>)>,
+        metric: Option<&str>,
+        local_k: Option<usize>,
+    ) -> PyResult<Self> {
+        let mut inner = match (x, y) {
+            (Some(xa), Some(ya)) => {
+                let yvar_arr = yvar.as_ref().map(|v| v.as_array());
+                self.inner
+                    .append_cow(&xa.as_array(), &ya.as_array(), yvar_arr.as_ref())
+                    .map_err(|e| PyValueError::new_err(e.to_string()))?
+            }
+            (None, None) => self.inner.clone(),
+            _ => return Err(PyValueError::new_err("x and y must both be provided")),
+        };
+        if let Some(loadings) = shrinkage {
+            let arr = loadings.as_array();
+            let sh = baux::Shrinkage::new(arr.iter().copied().collect(), arr.nrows(), arr.ncols())
+                .map_err(|e| PyValueError::new_err(e.to_string()))?;
+            inner = inner
+                .with_shrinkage(sh)
+                .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        }
+        if let Some((a, b, c)) = calibrator {
+            let cal =
+                baux::Calibrator::new(a, b, c).map_err(|e| PyValueError::new_err(e.to_string()))?;
+            inner = inner
+                .with_calibrator(cal)
+                .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        }
+        if let Some(m) = metric {
+            inner = inner.with_geometry(parse_dist(m, local_k)?);
+        }
+        Ok(Self {
+            inner,
+            driver: self.driver,
+        })
     }
 
     fn ensure_sync(&self) -> PyResult<()> {
@@ -445,5 +490,22 @@ impl PyENN {
             .natural_y(i)
             .map_err(|e| PyValueError::new_err(e.to_string()))?;
         Ok(row.insert_axis(ndarray::Axis(0)).into_pyarray(py))
+    }
+}
+
+fn parse_dist(
+    metric: &str,
+    local_k: Option<usize>,
+) -> PyResult<baux::semantics::neighbor::DistanceMetric> {
+    use baux::semantics::neighbor::DistanceMetric;
+    let k = local_k.unwrap_or(8).max(1);
+    match metric.to_ascii_lowercase().as_str() {
+        "euclidean" | "l2" | "squared_l2" => Ok(DistanceMetric::Euclidean),
+        "conformal" => Ok(DistanceMetric::Conformal { local_k: k }),
+        "hyperbolic" | "poincare" | "halfspace" => Ok(DistanceMetric::Hyperbolic { local_k: k }),
+        "wasserstein" | "ot" => Ok(DistanceMetric::Wasserstein { local_k: k }),
+        _ => Err(PyValueError::new_err(format!(
+            "Unknown distance metric: {metric}"
+        ))),
     }
 }

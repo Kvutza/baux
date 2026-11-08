@@ -429,6 +429,58 @@ impl BayesOptimizer {
             }
         }
     }
+
+    /// Fork this optimizer into an independent state branch.
+    pub fn fork(&self) -> Result<Self, ENNError> {
+        let local_models = match &self.local_models {
+            Some(models) => Some(models.try_clone()?),
+            None => None,
+        };
+        Ok(Self {
+            domain: self.domain.clone(),
+            config: self.config.clone(),
+            warmup: self.warmup.clone(),
+            posterior: self.posterior.try_clone()?,
+            local_models,
+            incumbent: self.incumbent.clone(),
+            regions: self.regions.clone(),
+            proposals: self.proposals.clone(),
+            telemetry: self.telemetry.clone(),
+            ingestion_error: self.ingestion_error.clone(),
+        })
+    }
+
+    /// Content-addressed BLAKE3 digest of canonical optimizer state.
+    pub fn digest(&self) -> [u8; 32] {
+        let mut buf = Vec::with_capacity(256);
+        for &v in self.domain.bounds().iter() {
+            buf.extend_from_slice(&v.to_le_bytes());
+        }
+        buf.push(u8::from(self.domain.clamped()));
+        self.warmup.hash_state(&mut buf);
+        self.posterior.hash_state(&mut buf);
+        self.regions.hash_state(&mut buf);
+        buf.extend_from_slice(&self.proposals.sobol_base().to_le_bytes());
+        if let Some(tag) = self.proposals.ticket_tag {
+            buf.extend_from_slice(&tag);
+        }
+        crate::artifact::blake3::hash(&buf)
+    }
+
+    /// Lowercase hexadecimal BLAKE3 digest of canonical optimizer state.
+    pub fn digest_hex(&self) -> String {
+        self.digest().iter().map(|b| format!("{b:02x}")).collect()
+    }
+
+    /// Serialize canonical optimizer state with a BLAKE3 integrity tag.
+    pub fn freeze(&self) -> Result<Vec<u8>, ENNError> {
+        observation_delta::freeze_state(self)
+    }
+
+    /// Restore an equivalent optimizer state from a BLAKE3-verified checkpoint.
+    pub fn thaw(&self, bytes: &[u8]) -> Result<Self, ENNError> {
+        observation_delta::thaw_state(self, bytes)
+    }
 }
 
 #[cfg(test)]

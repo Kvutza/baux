@@ -94,7 +94,7 @@ impl ENN {
                 .iter()
                 .map(|&v| v as f32)
                 .collect::<Vec<_>>();
-            let storage = match (&index.inner, device) {
+            let storage = match (&*index.inner, device) {
                 #[cfg(all(target_os = "macos", feature = "metal"))]
                 (KnnBackend::Metal(inner), 8) => Storage::Metal(unsafe {
                     inner

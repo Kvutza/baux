@@ -1,4 +1,13 @@
-#![feature(f16)]
+#![allow(incomplete_features, internal_features)]
+#![feature(
+    f16,
+    adt_const_params,
+    contracts,
+    diagnostic_on_move,
+    diagnostic_on_type_error,
+    negative_impls,
+    portable_simd
+)]
 
 extern crate self as baux;
 

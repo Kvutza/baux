@@ -477,14 +477,14 @@ fn spawn_worker(config: &Config, root: Option<&Path>) -> Result<Option<ToraxWork
     };
     let (mod_name, lock, obs, act) = if is_tokagym(config) {
         (
-            "benchmarks.tokagym.tokagym_rollout",
+            "evals.tokagym.tokagym_rollout",
             "tokagym",
             baux::tokamak::TOKAGYM_OBS,
             baux::tokamak::TOKAGYM_ACT,
         )
     } else {
         (
-            "benchmarks.torax.torax_rollout",
+            "evals.torax.torax_rollout",
             "torax",
             baux::tokamak::OBS_DIM,
             baux::tokamak::ACTION_DIM,

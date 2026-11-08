@@ -4,7 +4,7 @@ use ndarray::{Array1, Array2, ArrayView2, Axis};
 
 use crate::error::ENNError;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) struct RowStorage {
     buf: Vec<f64>,
     nrows: usize,

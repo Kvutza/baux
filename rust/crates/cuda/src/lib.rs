@@ -1,3 +1,13 @@
+#![allow(incomplete_features, internal_features)]
+#![feature(
+    adt_const_params,
+    contracts,
+    diagnostic_on_move,
+    diagnostic_on_type_error,
+    negative_impls,
+    portable_simd
+)]
+
 extern crate self as baux;
 
 macro_rules! buck_mod {

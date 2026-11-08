@@ -4,6 +4,7 @@ use ndarray::{Array1, Array2};
 use std::path::PathBuf;
 
 use crate::backend::{EnnBackend, EnnStorage};
+use crate::error::ENNError;
 use crate::index::IndexDriver;
 
 #[derive(Debug, Clone)]
@@ -38,8 +39,10 @@ pub struct ENN {
     pub(crate) y_scale: Array1<f64>,
     pub(crate) y_bounds: Array2<f64>,
     pub(crate) bounded_outputs: bool,
-    pub(super) y_sum: Array1<f64>,
-    pub(super) y_sumsq: Array1<f64>,
+    pub(crate) shrinkage: Option<baux::semantics::shrinkage::Shrinkage>,
+    pub(crate) calibrator: Option<baux::semantics::calibration::Calibrator>,
+    pub(crate) y_sum: Array1<f64>,
+    pub(crate) y_sumsq: Array1<f64>,
     pub(super) x_sum: Array1<f64>,
     pub(super) x_sumsq: Array1<f64>,
     pub(super) work_dir: Option<PathBuf>,
@@ -48,9 +51,148 @@ pub struct ENN {
     pub(super) built_scale: Array1<f64>,
     pub(super) unscaled_dims: Vec<usize>,
     pub(super) tied_groups: Vec<Vec<usize>>,
+    pub(crate) dist_metric: baux::semantics::neighbor::DistanceMetric,
+    pub(crate) scale_cache:
+        std::sync::Arc<std::sync::OnceLock<crate::posterior::neighbor_dist::ScaleInfo>>,
+}
+
+impl Clone for ENN {
+    fn clone(&self) -> Self {
+        let metric = self.metric.as_ref().and_then(|m| {
+            let mut next = crate::metric_auto::AutoMetric::new(
+                self.num_dim,
+                self.num_metrics,
+                m.tied().to_vec(),
+                m.seed(),
+            )
+            .ok()?;
+            let _ = next.set_unscaled(self.unscaled_dims.clone());
+            let _ = next.set_weights(m.weights());
+            Some(next)
+        });
+        Self {
+            backend: self.backend.clone(),
+            num_obs: self.num_obs,
+            num_dim: self.num_dim,
+            num_metrics: self.num_metrics,
+            scale_x: self.scale_x,
+            x_scale: self.x_scale.clone(),
+            y_scale: self.y_scale.clone(),
+            y_bounds: self.y_bounds.clone(),
+            bounded_outputs: self.bounded_outputs,
+            shrinkage: self.shrinkage.clone(),
+            calibrator: self.calibrator.clone(),
+            y_sum: self.y_sum.clone(),
+            y_sumsq: self.y_sumsq.clone(),
+            x_sum: self.x_sum.clone(),
+            x_sumsq: self.x_sumsq.clone(),
+            work_dir: self.work_dir.clone(),
+            metric,
+            metric_fixed: self.metric_fixed,
+            built_scale: self.built_scale.clone(),
+            unscaled_dims: self.unscaled_dims.clone(),
+            tied_groups: self.tied_groups.clone(),
+            dist_metric: self.dist_metric,
+            scale_cache: self.scale_cache.clone(),
+        }
+    }
 }
 
 impl ENN {
+    /// Return a new `ENN` model configured with a local-scale pairwise
+    /// [`baux::semantics::neighbor::Dissimilarity`] geometry.
+    pub fn with_geometry(&self, geometry: baux::semantics::neighbor::DistanceMetric) -> Self {
+        let mut next = self.clone();
+        next.dist_metric = geometry;
+        next.scale_cache = std::sync::Arc::new(std::sync::OnceLock::new());
+        next
+    }
+
+    /// Return the configured pairwise
+    /// [`baux::semantics::neighbor::Dissimilarity`] geometry.
+    pub fn geometry(&self) -> baux::semantics::neighbor::DistanceMetric {
+        self.dist_metric
+    }
+
+    pub fn with_shrinkage(
+        mut self,
+        sh: baux::semantics::shrinkage::Shrinkage,
+    ) -> Result<Self, ENNError> {
+        if sh.rows() != self.num_metrics {
+            return Err(ENNError::InvalidParameter(format!(
+                "shrinkage rows {} != num_metrics {}",
+                sh.rows(),
+                self.num_metrics
+            )));
+        }
+        self.shrinkage = Some(sh.with_count(self.num_obs));
+        Ok(self)
+    }
+
+    pub fn with_calibrator(
+        mut self,
+        cal: baux::semantics::calibration::Calibrator,
+    ) -> Result<Self, ENNError> {
+        if cal.a.len() != self.num_metrics
+            || cal.b.len() != self.num_metrics
+            || cal.c.len() != self.num_metrics
+        {
+            return Err(ENNError::InvalidParameter(format!(
+                "calibrator cols {} != num_metrics {}",
+                cal.a.len(),
+                self.num_metrics
+            )));
+        }
+        self.calibrator = Some(cal);
+        Ok(self)
+    }
+
+    pub fn shrinkage(&self) -> Option<&baux::semantics::shrinkage::Shrinkage> {
+        self.shrinkage.as_ref()
+    }
+
+    pub fn calibrator(&self) -> Option<&baux::semantics::calibration::Calibrator> {
+        self.calibrator.as_ref()
+    }
+
+    pub(crate) fn apply_codomain(
+        &self,
+        mu: &mut Array2<f64>,
+        se: &mut Array2<f64>,
+        se_epi: &mut Array2<f64>,
+        se_ale: &mut Array2<f64>,
+    ) -> Result<(), ENNError> {
+        let nrows = mu.nrows();
+        if nrows == 0 {
+            return Ok(());
+        }
+        let dim = mu.raw_dim();
+        if let Some(sh) = self.shrinkage.as_ref() {
+            let flat = mu.as_standard_layout();
+            let proj = sh
+                .project(flat.as_slice().expect("standard layout"), nrows)
+                .map_err(ENNError::InvalidParameter)?;
+            *mu = Array2::from_shape_vec(dim, proj)
+                .map_err(|e| ENNError::InvalidParameter(e.to_string()))?;
+        }
+        if let Some(cal) = self.calibrator.as_ref() {
+            let flat_mu = mu.as_standard_layout();
+            let cal_mu = cal
+                .apply_mu(flat_mu.as_slice().expect("standard layout"), nrows)
+                .map_err(ENNError::InvalidParameter)?;
+            *mu = Array2::from_shape_vec(dim, cal_mu)
+                .map_err(|e| ENNError::InvalidParameter(e.to_string()))?;
+            for arr in [se, se_epi, se_ale] {
+                let flat = arr.as_standard_layout();
+                let scaled = cal
+                    .apply_se(flat.as_slice().expect("standard layout"), nrows)
+                    .map_err(ENNError::InvalidParameter)?;
+                *arr = Array2::from_shape_vec(dim, scaled)
+                    .map_err(|e| ENNError::InvalidParameter(e.to_string()))?;
+            }
+        }
+        Ok(())
+    }
     pub fn len(&self) -> usize {
         self.num_obs
     }

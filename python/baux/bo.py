@@ -181,10 +181,10 @@ class Optimizer:
     @property
     def num_observations(self) -> int:
         """Number of completed observations retained by the optimizer."""
-        return int(self._inner.region_count())
+        return int(self._inner.num_observations())
 
     def __len__(self) -> int:
-        return int(self._inner.region_count())
+        return int(self._inner.num_observations())
 
     region_count = num_observations
 

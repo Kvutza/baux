@@ -92,7 +92,7 @@ def test_yvarerrorisatomic():
     with pytest.raises(ValueError, match="y_var must be provided"):
         opt.tell(x, np.array([[2.0]]), 203)
 
-    assert opt.region_count() == 1
+    assert opt.num_observations() == 1
     assert len(gp.fits) == 1
 
 
@@ -113,11 +113,11 @@ def test_fiterrorisatomic():
     with pytest.raises(ValueError, match="fit failed"):
         opt.tell(x, np.array([[1.0]]), 302)
 
-    assert opt.region_count() == 0
+    assert opt.num_observations() == 0
     # ENN 0.4.1 advances initialization before attempting the fallible tell.
     assert opt.init_progress() == (1, 1)
     opt.tell(x, np.array([[1.0]]), 303)
-    assert opt.region_count() == 1
+    assert opt.num_observations() == 1
     assert opt.init_progress() is None
 
 

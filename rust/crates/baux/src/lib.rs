@@ -3,7 +3,21 @@
 //! This crate owns the optimizer semantics shared by the Python API and the
 //! accelerator backends.
 
-#![allow(clippy::pedantic, clippy::nursery, clippy::cargo)]
+#![allow(
+    clippy::pedantic,
+    clippy::nursery,
+    clippy::cargo,
+    incomplete_features,
+    internal_features
+)]
+#![feature(
+    adt_const_params,
+    contracts,
+    diagnostic_on_move,
+    diagnostic_on_type_error,
+    negative_impls,
+    portable_simd
+)]
 
 extern crate self as baux;
 
@@ -61,7 +75,6 @@ pub mod hash;
 #[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "metal"))]
 pub mod hnet_metal;
 pub mod hypervolume;
-pub mod incremental_fit;
 pub mod incumbent_tracker;
 pub mod index;
 pub mod knn;
@@ -109,7 +122,6 @@ pub mod stats;
 pub mod strategy;
 pub mod surrogate;
 pub mod surrogate_api;
-pub mod surrogate_inc;
 pub mod tensor_store;
 pub mod text;
 pub mod ticket;
@@ -162,13 +174,12 @@ pub use file_config::{
     index_config, set_path,
 };
 pub use fit::{row_loglik, subsample_loglik, subsample_model};
-pub use fitter::ENNFitter;
+pub use fitter::{ENNFitter, fit_model};
 pub use hash::{
-    Prng, auto_seed, domain_prng, domain_seed, normal_hash, prng, resolve_seed, splitmix_f32,
-    splitmix64, stream_prng, stream_seed, tune_seed,
+    AffineKey, Key, Prng, auto_seed, domain_prng, domain_seed, normal_hash, prng, resolve_seed,
+    splitmix_f32, splitmix64, stream_prng, stream_seed, tune_seed,
 };
 pub use hypervolume::{hypervolume_max, hypervolume2d_max};
-pub use incremental_fit::{AddToken, IncrementalAsk, IncrementalFit};
 pub use incumbent_tracker::{
     GenericTracker, IncumbentTracker, MaxTracker, MinTracker, TargetTracker,
 };
@@ -192,13 +203,16 @@ pub use pipeline::{
     AcqStage, Active, DesignPipe, Fitted, InitStage, ModelStage, PerturbStage, Pipeline,
     ProposalTicket, SurrogatePipe, TypedOptimizer, TypedSurrogate, Unfitted, Warmup,
 };
-pub use posterior::{WeightedPosteriorData, compute_internals, conditional_internals};
+pub use posterior::{Pool, TopK, WeightedPosteriorData, compute_internals, conditional_internals};
 pub use pretrain_data::load_tokens as pretrain_tokens;
 pub use proposal_kernel::{CoordSystem, ProposalKernel};
 pub use scratch::{
     AlignedBuffer, CacheLine, CandidateSoa, PageBlock, ScratchArena, ScratchScope, UnifiedBuffer,
     UnifiedRead, UnifiedWrite,
 };
+pub use semantics::calibration::Calibrator;
+pub use semantics::categorical::{CatEncoding, CatSpec};
+pub use semantics::shrinkage::Shrinkage;
 pub use sense::{
     BetterScore, EvalId, Lexicographic, Maximize, Minimize, ObjectiveSense, ObsId, RegionId, Sense,
     Target,
@@ -208,7 +222,7 @@ pub use strategy::Strategy;
 pub use surrogate::{
     ENNSurrogate, ENNSurrogateConfig, MetricLearning, Surrogate, SurrogatePrediction,
 };
-pub use surrogate_api::{IncrementalSurrogate, LengthscaleProvider, ObservationView, Predictor};
+pub use surrogate_api::{LengthscaleProvider, ObservationView, Predictor};
 pub use traits::PosteriorComputation;
 pub use trust_region::{
     NoTrustRegion, TRLengthConfig, TrustRegionConfig, TrustRegionError, TurboTrustRegion,

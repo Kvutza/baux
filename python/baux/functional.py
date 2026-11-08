@@ -1,23 +1,19 @@
-"""Pure functional state transitions (`init`, `ask`, `tell`, `step`, `scan`) for BAUX."""
+"""Pure functional state transitions (`init`, `ask`, `tell`, `step`, `scan`, `pmap`) for BAUX."""
 
 from __future__ import annotations
 
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from operator import index
+import sys as _sys
 from typing import Any
 
 import numpy as np
 from numpy.random import Generator
 
+from . import _rust, pytree as _pytree, state as _state
 from .bo import AskBatch, AskId, Telemetry, TellPredictionError, _obs
-from .enn.enn_state import (
-    ENNState,
-    enn_append,
-    enn_fit,
-    enn_init,
-    enn_posterior,
-    enn_sample,
-)
+from .enn import enn_state as _enn
 from .pytree import PyTreeSpec, pytree_bounds, ravel
 from .state import (
     OptimizerState,
@@ -33,6 +29,42 @@ from .transforms import Transform
 from .turbo.config import OptimizerConfig
 from .turbo.config.encode import supports
 from .turbo.config.trust_region import RegionalSearchPolicy
+
+Key, Categorical, categorical = _rust.Key, _pytree.Categorical, _pytree.categorical
+Calibrator, ENNState, Shrinkage = _enn.Calibrator, _enn.ENNState, _enn.Shrinkage
+append, enn_append, enn_fit, enn_init = (
+    _enn.append,
+    _enn.enn_append,
+    _enn.enn_fit,
+    _enn.enn_init,
+)
+enn_posterior, enn_sample, fit, posterior, sample = (
+    _enn.enn_posterior,
+    _enn.enn_sample,
+    _enn.fit,
+    _enn.posterior,
+    _enn.sample,
+)
+digest, freeze, thaw = _state.digest, _state.freeze, _state.thaw
+
+
+def key(source: Any = None) -> Any:
+    """Create a splittable 128-bit PRNG `Key` from OS entropy (`None`), a domain `str`, or a seed."""
+    return Key(source)
+
+
+def split(k: Any, n: int = 2) -> tuple[Any, ...]:
+    """Deterministically split `k` into `n` independent subkeys."""
+    count = int(n)
+    if count == 2:
+        a, b = k.split()
+        return (a, b)
+    return tuple(k.split_n(count))
+
+
+def fold(k: Any, tag: int) -> Any:
+    """Deterministically fold an integer `tag` into `k`."""
+    return k.fold(int(tag) & ((1 << 64) - 1))
 
 
 def _parsedomain(
@@ -59,6 +91,7 @@ def init(
     domain: np.ndarray | PyTreeSpec | Any,
     config: OptimizerConfig | Transform | None = None,
     *,
+    key: Any = None,
     seed: int | Generator | None = None,
     low: Any = -1.0,
     high: Any = 1.0,
@@ -72,7 +105,7 @@ def init(
     if not supports(cfg):
         raise ValueError(f"unsupported optimizer config: {cfg!r}")
     spec, bounds = _parsedomain(domain, low, high)
-    base_seed = _resolveseed(seed)
+    base_seed = _resolveseed(seed, key)
     inner = _makeinner(bounds, cfg, base_seed)
     t = inner.telemetry()
     raw_pending = inner.pending_ids()
@@ -84,7 +117,7 @@ def init(
         epoch=0,
         spec=spec,
         identified=isinstance(cfg.trust_region, RegionalSearchPolicy),
-        num_observations=int(inner.region_count()),
+        num_observations=int(inner.num_observations()),
         num_regions=int(inner.num_regions()),
         tr_length=float(inner.tr_length()),
         init_progress=inner.init_progress(),
@@ -307,41 +340,99 @@ def step(
 
 def scan(
     state: OptimizerState,
-    objective: Callable[[Any], Any],
-    *,
-    steps: int,
+    key: Any,
+    steps: int = 0,
+    eval_fn: Callable[..., Any] | None = None,
     num_arms: int = 1,
-    use_pytree: bool = False,
-) -> tuple[OptimizerState, np.ndarray]:
-    """Fold `steps` optimization rounds over `state`, returning `(final_state, y_history)`."""
+) -> Any:
+    """Fold `steps` pure optimization rounds over `state` and `key`, returning `(final_state, next_key, traces)`."""
     n_steps = int(steps)
     if n_steps < 0:
         raise ValueError(f"steps must be >= 0, got {n_steps}")
-    cur = state
-    history: list[np.ndarray] = []
-    for _ in range(n_steps):
-        cur, y = step(cur, objective, num_arms=num_arms, use_pytree=use_pytree)
-        history.append(y.reshape(-1))
-    out = np.vstack(history) if history else np.empty((0, int(num_arms)), dtype=float)
-    return cur, _readonly(out)
+    if eval_fn is None and callable(key):
+        cur, history = state, []
+        for _ in range(n_steps):
+            cur, y = step(cur, key, num_arms=num_arms, use_pytree=cur.spec is not None)
+            history.append(y.reshape(-1))
+        return cur, _readonly(
+            np.vstack(history) if history else np.empty((0, int(num_arms)), dtype=float)
+        )
+    if eval_fn is None:
+        raise ValueError("eval_fn must be provided when key is a PRNG key")
+    cur_key = key if isinstance(key, Key) else Key(key)
+    cur = state.fork(cur_key)
+    traces: list[dict[str, Any]] = []
+    for t in range(n_steps):
+        step_key, cur_key = split(cur_key, 2)
+        s1, batch = ask(cur.fork(step_key), num_arms)
+        try:
+            y_val = eval_fn(batch.points)
+        except TypeError:
+            y_val = eval_fn(t, batch.points)
+        cur, _ = tell(s1, batch, np.asarray(y_val, dtype=float))
+        traces.append({"step": t, "digest": cur.digest(), "best_y": cur.best_y})
+    return cur, cur_key, traces
+
+
+def pmap(
+    state: OptimizerState,
+    key: Any,
+    branches: int,
+    branch_fn: Callable[[int, OptimizerState, Any], Any],
+) -> list[Any]:
+    """Fork `state` and split `key` across `branches`, executing `branch_fn` in parallel across threads."""
+    n_branches = int(branches)
+    if n_branches < 0:
+        raise ValueError(f"branches must be >= 0, got {n_branches}")
+    if n_branches == 0:
+        return []
+    subkeys = split(key if isinstance(key, Key) else Key(key), n_branches)
+    with ThreadPoolExecutor(max_workers=n_branches) as pool:
+        return [
+            f.result()
+            for f in [
+                pool.submit(branch_fn, i, state.fork(bk), bk)
+                for i, bk in enumerate(subkeys)
+            ]
+        ]
+
+
+if _pkg := _sys.modules.get(__package__ or "baux"):
+    setattr(_pkg, "pmap", pmap)
 
 
 __all__ = [
+    "Calibrator",
+    "Categorical",
     "ENNState",
+    "Key",
     "OptimizerState",
+    "Shrinkage",
+    "append",
     "ask",
     "cancel",
+    "categorical",
     "complete",
+    "digest",
     "enn_append",
     "enn_fit",
     "enn_init",
     "enn_posterior",
     "enn_sample",
+    "fit",
+    "fold",
+    "freeze",
     "import_observations",
     "init",
+    "key",
+    "pmap",
+    "posterior",
     "posterior_mu",
     "restart_region",
+    "sample",
     "scan",
+    "split",
     "step",
     "tell",
+    "thaw",
 ]

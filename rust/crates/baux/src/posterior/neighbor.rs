@@ -1,6 +1,9 @@
 //! Neighbor lookup helpers for posterior computation.
 
-use ndarray::{Array1, Array2, Array3, ArrayView1, ArrayView2, Axis};
+use baux::semantics::neighbor::{
+    DistanceMetric, PoolBound, certify_topk, is_certified, refine_bound,
+};
+use ndarray::{Array2, Array3, ArrayView2, Axis};
 
 use crate::draw::{DrawInternals, NeighborData};
 use crate::error::ENNError;
@@ -8,10 +11,150 @@ use crate::index::IndexDriver;
 use crate::model::ENN;
 use crate::params::{ENNParams, PosteriorFlags};
 
-use super::neighbor_dist::{row_query, squared_l2};
-use super::tie_break::{
-    FaissPoolFinalizeCtx, PoolTieScratch, finalize_topk, topk_buffers, topk_dists,
-};
+use super::neighbor_dist::{metric_row, row_query, squared_l2, train_scales};
+use super::tie_break::{FaissPoolFinalizeCtx, PoolTieScratch, finalize_topk, topk_dists};
+
+#[derive(Debug, Clone)]
+pub struct Pool {
+    pub idx: Array2<i64>,
+    pub dist2_f32: Array2<f64>,
+    pub search_k: usize,
+    pub exclude_nearest: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct TopK {
+    dist2s: Array2<f64>,
+    idx: Array2<i64>,
+}
+
+impl TopK {
+    pub fn dist2s(&self) -> &Array2<f64> {
+        &self.dist2s
+    }
+
+    pub fn idx(&self) -> &Array2<i64> {
+        &self.idx
+    }
+
+    pub fn into_parts(self) -> (Array2<f64>, Array2<i64>) {
+        (self.dist2s, self.idx)
+    }
+}
+
+impl Pool {
+    pub fn search(
+        model: &ENN,
+        x: &ArrayView2<f64>,
+        search_k: i32,
+        exclude_nearest: bool,
+    ) -> Result<Self, ENNError> {
+        let sk = search_k.max(0) as usize;
+        let pool_k = (sk + 8).min(model.num_obs());
+        let (dist2_f32, idx) = if sk == 0 || pool_k == 0 {
+            (
+                Array2::from_elem((x.nrows(), 0), f64::INFINITY),
+                Array2::from_elem((x.nrows(), 0), -1i64),
+            )
+        } else {
+            model.backend_search(x, pool_k as i32, exclude_nearest)?
+        };
+        Ok(Self {
+            idx,
+            dist2_f32,
+            search_k: sk,
+            exclude_nearest,
+        })
+    }
+
+    pub fn row_bound(&self, row: usize, num_obs: usize) -> PoolBound {
+        let b32 = if self.idx.ncols() + usize::from(self.exclude_nearest) >= num_obs {
+            f64::INFINITY
+        } else {
+            self.dist2_f32
+                .row(row)
+                .iter()
+                .zip(self.idx.row(row).iter())
+                .filter_map(|(&d2, &id)| (id >= 0 && d2.is_finite()).then_some(d2))
+                .reduce(f64::max)
+                .map_or(0.0, |d2| d2.max(0.0).sqrt())
+        };
+        PoolBound {
+            b32,
+            eps_scale: 1e-6 * b32.max(1.0),
+        }
+    }
+
+    pub fn certify(
+        self,
+        model: &ENN,
+        x: &ArrayView2<f64>,
+        tie_neighbors: bool,
+    ) -> Result<TopK, ENNError> {
+        let (n_query, n_train, skip) = (
+            x.nrows(),
+            model.num_obs(),
+            usize::from(self.exclude_nearest),
+        );
+        let out_cols = self.search_k.saturating_sub(skip);
+        let k = out_cols.min(n_train.saturating_sub(skip));
+        let mut dist2s = Array2::from_elem((n_query, out_cols), f64::INFINITY);
+        let mut idx = Array2::from_elem((n_query, out_cols), -1i64);
+        if k == 0 {
+            return Ok(TopK { dist2s, idx });
+        }
+        let dist2_f64 = dist2s_indices(model, x, &self.idx);
+        let pool_k = self.idx.ncols() + skip;
+        let metric = model.geometry();
+        let scales = train_scales(model, metric)?;
+        for i in 0..n_query {
+            let pairs = faiss_row(&dist2_f64, &self.idx, i);
+            let bound = self.row_bound(i, n_train);
+            let tie = tie_neighbors
+                && pool_k < n_train
+                && pairs.len() >= k
+                && pairs
+                    .last()
+                    .is_some_and(|l| pairs[k - 1].0.total_cmp(&l.0).is_eq());
+            let top = if let Some((ref sc, local_k, s_min, s_max)) = scales {
+                metric_row(
+                    model,
+                    x.row(i),
+                    &pairs,
+                    (k, skip, bound, tie),
+                    (metric, sc, local_k, s_min, s_max),
+                )
+            } else {
+                (!tie)
+                    .then(|| certify_topk(&pairs, k, bound))
+                    .flatten()
+                    .filter(|t| {
+                        t.last().is_none_or(|&(d, _)| {
+                            is_certified(d, bound) && d <= refine_bound(bound)
+                        })
+                    })
+                    .unwrap_or_else(|| {
+                        if model.x_opt().is_some() || tie_neighbors {
+                            let d = row_query(model, x.row(i));
+                            topk_dists(&d, (k + skip).min(n_train), true)
+                                .into_iter()
+                                .skip(skip)
+                                .take(k)
+                                .map(|t| (d[t], t as i64))
+                                .collect()
+                        } else {
+                            pairs.into_iter().take(k).collect()
+                        }
+                    })
+            };
+            for (j, (d, t)) in top.into_iter().enumerate() {
+                dist2s[[i, j]] = d;
+                idx[[i, j]] = t;
+            }
+        }
+        Ok(TopK { dist2s, idx })
+    }
+}
 
 pub(crate) fn index_search(
     model: &ENN,
@@ -23,12 +166,12 @@ pub(crate) fn index_search(
     if !model.backend.defers_search() {
         model.ensure_sync()?;
     }
-    if model.backend_driver() == IndexDriver::Exact {
+    if model.backend_driver() == IndexDriver::Exact && model.geometry() == DistanceMetric::Euclidean
+    {
         f64_topk(model, x, search_k, exclude_nearest, tie_neighbors)
     } else {
-        let (_, idx) = model.backend_search(x, search_k, exclude_nearest)?;
-        let dist2s = dist2s_indices(model, x, &idx);
-        Ok((dist2s, idx))
+        let pool = Pool::search(model, x, search_k, exclude_nearest)?;
+        Ok(pool.certify(model, x, tie_neighbors)?.into_parts())
     }
 }
 
@@ -44,62 +187,30 @@ pub fn empty_internals(model: &ENN, batch_size: usize) -> DrawInternals {
     )
 }
 
-fn distance_matrix(
-    x: &ArrayView2<f64>,
-    y: &ArrayView2<f64>,
-    scale: bool,
-    x_scale: &ArrayView1<f64>,
-) -> Array2<f64> {
-    let (x_s, y_s) = if scale {
-        (
-            x / &x_scale.view().insert_axis(Axis(0)),
-            y / &x_scale.view().insert_axis(Axis(0)),
-        )
-    } else {
-        (x.to_owned(), y.to_owned())
-    };
-    let xx: Array1<f64> = x_s.map_axis(Axis(1), |r| r.dot(&r));
-    let yy: Array1<f64> = y_s.map_axis(Axis(1), |r| r.dot(&r));
-    let xy = x_s.dot(&y_s.t());
-    let d2 = xx.view().insert_axis(Axis(1)).to_owned() + yy.view().insert_axis(Axis(0)).to_owned()
-        - 2.0 * xy;
-    d2.mapv(|v| v.max(0.0))
-}
-
 pub(crate) fn dist2s_indices(model: &ENN, x: &ArrayView2<f64>, idx: &Array2<i64>) -> Array2<f64> {
-    let n_query = idx.nrows();
-    let k = idx.ncols();
-    let mut out = Array2::zeros((n_query, k));
+    let (n_query, k) = (idx.nrows(), idx.ncols());
     if let Some(train_x) = model.x_opt() {
-        for i in 0..n_query {
-            let x_row = x.row(i);
-            for j in 0..k {
-                let ni = idx[[i, j]];
-                if ni < 0 {
-                    out[[i, j]] = f64::INFINITY;
-                } else {
-                    let t_row = train_x.row(ni as usize);
-                    out[[i, j]] = squared_l2(x_row, t_row, model.scale_x, model.x_scale.view());
-                }
-            }
-        }
-        return out;
-    }
-    let mut unique: Vec<usize> = Vec::new();
-    for i in 0..n_query {
-        for j in 0..k {
+        return Array2::from_shape_fn((n_query, k), |(i, j)| {
             let ni = idx[[i, j]];
-            if ni >= 0 {
-                let u = ni as usize;
-                if !unique.contains(&u) {
-                    unique.push(u);
-                }
+            if ni < 0 {
+                f64::INFINITY
+            } else {
+                squared_l2(
+                    x.row(i),
+                    train_x.row(ni as usize),
+                    model.scale_x,
+                    model.x_scale.view(),
+                )
             }
-        }
+        });
     }
+    let mut unique: Vec<usize> = idx
+        .iter()
+        .filter_map(|&ni| (ni >= 0).then_some(ni as usize))
+        .collect();
     unique.sort_unstable();
-    let mut row_map: std::collections::HashMap<usize, Array1<f64>> =
-        std::collections::HashMap::with_capacity(unique.len());
+    unique.dedup();
+    let mut row_map = std::collections::HashMap::with_capacity(unique.len());
     if !unique.is_empty() {
         let (train_x, _, _) = model
             .rows()
@@ -109,19 +220,15 @@ pub(crate) fn dist2s_indices(model: &ENN, x: &ArrayView2<f64>, idx: &Array2<i64>
             row_map.insert(u, train_x.row(pos).to_owned());
         }
     }
-    for i in 0..n_query {
-        let x_row = x.row(i);
-        for j in 0..k {
-            let ni = idx[[i, j]];
-            if ni < 0 {
-                out[[i, j]] = f64::INFINITY;
-            } else {
-                let t_row = row_map.get(&(ni as usize)).expect("neighbor row").view();
-                out[[i, j]] = squared_l2(x_row, t_row, model.scale_x, model.x_scale.view());
-            }
+    Array2::from_shape_fn((n_query, k), |(i, j)| {
+        let ni = idx[[i, j]];
+        if ni < 0 {
+            f64::INFINITY
+        } else {
+            let t_row = row_map.get(&(ni as usize)).expect("neighbor row").view();
+            squared_l2(x.row(i), t_row, model.scale_x, model.x_scale.view())
         }
-    }
-    out
+    })
 }
 
 fn faiss_row(dist2s_faiss: &Array2<f64>, idx_faiss: &Array2<i64>, row: usize) -> Vec<(f64, i64)> {
@@ -160,26 +267,6 @@ pub(crate) fn f64_topk(
     } else {
         search_k
     };
-
-    let use_matrix_topk = false;
-
-    if use_matrix_topk {
-        let all_indices: Vec<usize> = (0..n_train).collect();
-        let (train_x, _, _) = model.rows().train_rows(&all_indices).expect("train_rows");
-        let dist_mat = distance_matrix(x, &train_x.view(), model.scale_x, &model.x_scale.view());
-        let mut topk_scratch = Vec::with_capacity(n_train);
-        let mut float_buf = Vec::with_capacity(n_train);
-        for i in 0..n_query {
-            let row = dist_mat.row(i);
-            let row_slice = row.as_slice().expect("contiguous row");
-            let best = topk_buffers(row_slice, k, true, &mut topk_scratch, &mut float_buf);
-            for (j, &t) in best.iter().enumerate() {
-                dist2s[[i, j]] = row_slice[t];
-                idx[[i, j]] = t as i64;
-            }
-        }
-        return Ok(apply_nearest(dist2s, idx, exclude_nearest));
-    }
 
     let (dist2s_search, idx_faiss) = model.backend_search(x, faiss_search_k as i32, false)?;
     let dist2s_faiss = if tie_neighbors {
@@ -440,13 +527,9 @@ fn conditional_outcomes(
 
 #[cfg(test)]
 mod tests {
-    use super::super::neighbor_dist::squared_l2;
-    use super::{
-        apply_nearest, conditional_data, dist2s_indices, distance_matrix, f64_topk, faiss_row,
-    };
-    use crate::index::IndexDriver;
-    use crate::model::ENN;
-    use ndarray::{Array2, array};
+    use super::super::neighbor_dist::distance_matrix;
+    use super::*;
+    use ndarray::array;
 
     #[test]
     fn faiss_threshold() {
@@ -708,11 +791,71 @@ mod tests {
         assert!((d0[[0, 0]] - 4.0).abs() < 1e-12);
         assert!((d1[[0, 0]] - 1.0).abs() < 1e-12);
     }
+
+    #[test]
+    fn pool_certify() {
+        use super::Pool;
+        let train_x = array![[0.0, 0.0], [1.0, 0.0], [2.0, 0.0], [10.0, 0.0]];
+        let train_y = array![[0.0], [1.0], [2.0], [3.0]];
+        let model = ENN::new(train_x, train_y, None, false, IndexDriver::Exact).unwrap();
+        let query = array![[0.1, 0.0]];
+        let pool = Pool::search(&model, &query.view(), 2, false).unwrap();
+        let top = pool.certify(&model, &query.view(), true).unwrap();
+        assert_eq!(top.idx().row(0).to_vec(), vec![0, 1]);
+        assert!((top.dist2s()[[0, 0]] - 0.01).abs() < 1e-12);
+        let (d, i) = top.into_parts();
+        assert_eq!(d.shape(), &[1, 2]);
+        assert_eq!(i[[0, 1]], 1);
+    }
+
+    #[test]
+    fn pool_fallback() {
+        use super::Pool;
+        let n = 16usize;
+        let train_x = Array2::from_shape_fn((n, 1), |(i, _)| i as f64);
+        let train_y = Array2::from_shape_fn((n, 1), |(i, _)| i as f64);
+        let model = ENN::new(train_x, train_y, None, false, IndexDriver::Exact).unwrap();
+        let query = array![[0.25]];
+        // Artificial uncertified pool: omits nearest neighbor 0 and has b32 =
+        // 0.0
+        let pool = Pool {
+            idx: array![[5i64, 6, 7]],
+            dist2_f32: array![[0.0, 0.0, 0.0]],
+            search_k: 2,
+            exclude_nearest: false,
+        };
+        let top = pool.certify(&model, &query.view(), true).unwrap();
+        assert_eq!(top.idx().row(0).to_vec(), vec![0, 1]);
+        assert!((top.dist2s()[[0, 0]] - 0.0625).abs() < 1e-12);
+    }
+
+    #[test]
+    fn pool_geometry() {
+        use super::Pool;
+        use baux::semantics::neighbor::DistanceMetric;
+        let train_x = array![[0.0], [1.0], [3.0], [10.0]];
+        let train_y = array![[0.0], [1.0], [2.0], [3.0]];
+        let base = ENN::new(train_x, train_y, None, false, IndexDriver::Exact).unwrap();
+        assert_eq!(base.geometry(), DistanceMetric::Euclidean);
+        let query = array![[0.1]];
+        for m in [
+            DistanceMetric::Conformal { local_k: 1 },
+            DistanceMetric::Hyperbolic { local_k: 1 },
+            DistanceMetric::Wasserstein { local_k: 1 },
+        ] {
+            let model = base.with_geometry(m);
+            assert_eq!(model.geometry(), m);
+            let pool = Pool::search(&model, &query.view(), 2, false).unwrap();
+            let top = pool.certify(&model, &query.view(), true).unwrap();
+            assert_eq!(top.idx().ncols(), 2);
+            assert!(top.dist2s().iter().all(|v| v.is_finite() && *v >= 0.0));
+        }
+    }
 }
 
 fn whatif_distances(model: &ENN, x: &ArrayView2<f64>, x_whatif: &ArrayView2<f64>) -> Array2<f64> {
     if x_whatif.nrows() > 0 {
-        distance_matrix(x, x_whatif, model.scale_x, &model.x_scale.view())
+        super::neighbor_dist::distance_matrix(x, x_whatif, model.scale_x, &model.x_scale.view())
     } else {
         Array2::zeros((x.nrows(), 0))
     }

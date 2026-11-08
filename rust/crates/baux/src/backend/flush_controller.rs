@@ -27,6 +27,17 @@ pub struct DiskBackendHandle {
     last_error: Mutex<Option<String>>,
 }
 
+impl Clone for DiskBackendHandle {
+    fn clone(&self) -> Self {
+        let _ = self.wait_flush();
+        Self {
+            data: Arc::clone(&self.data),
+            job: Mutex::new(None),
+            last_error: Mutex::new(None),
+        }
+    }
+}
+
 /// When true, the flush worker waits on [`FLUSH_WORKER`] after taking the
 /// soft-sync read lock (test-only mid-flight observability).
 #[cfg(test)]

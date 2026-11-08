@@ -127,7 +127,7 @@ fn seam_roundtrip() {
         let (mut search, _ask) = state();
         let mut surrogate = baux::semantics::optimizer::Surrogate::new(0.0, 0.0, 73)
             .unwrap()
-            .with_metric(baux::semantics::neighbor::DistanceMetric::Conformal { local_k: 2 });
+            .with_geometry(baux::semantics::neighbor::DistanceMetric::Conformal { local_k: 2 });
         let mut trust_region =
             baux::semantics::optimizer::TrustRegionController::new(0.1, 0.001, 0.4).unwrap();
         for (step, value) in [1.5_f32, -0.5_f32].into_iter().enumerate() {

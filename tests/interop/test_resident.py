@@ -218,7 +218,7 @@ def test_torax():
     import json
     from pathlib import Path
     from baux import verify_upstream_lock
-    from benchmarks.torax.tcv_coupling import ToraxTcvBridge, eval_wpo_table6
+    from evals.torax.tcv_coupling import ToraxTcvBridge, eval_wpo_table6
 
     torax = pytest.importorskip("torax")
     lock = json.loads(
@@ -226,7 +226,7 @@ def test_torax():
             "torax", override_dir=str(Path(torax.__file__).resolve().parent)
         )
     )
-    assert "merkle_root_sha512" in lock["merkle"]
+    assert "merkle_root_blake3" in lock["merkle"]
 
     bridge = ToraxTcvBridge()
     zeros = np.zeros(160531, dtype=np.float64)
@@ -259,7 +259,7 @@ def test_tokagym():
     """
     import json
     from baux import verify_upstream_lock
-    from benchmarks.tokagym.tokagym_rollout import (
+    from evals.tokagym.tokagym_rollout import (
         ACTION_DIM,
         OBS_DIM,
         TOKAGYM_STEPS,
@@ -269,7 +269,7 @@ def test_tokagym():
 
     lock = json.loads(verify_upstream_lock("tokagym"))
     assert lock["archive"]["doi"] == "10.5281/zenodo.16621120"
-    assert "merkle_root_sha512" in lock["merkle"]
+    assert "merkle_root_blake3" in lock["merkle"]
 
     env = TokaGymClosedLoopEnv.shared(scenario="170kA")
     zeros = np.zeros(TOTAL_PARAMS, dtype=np.float32)

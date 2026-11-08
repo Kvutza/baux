@@ -6,7 +6,7 @@
 //!   for End-to-End Hierarchical Sequence Modeling"*, arXiv:2507.07955 (2025).
 //! - **Blog**: Cartesia AI, *"From Tokens to Bytes, Part 1"* (<https://www.cartesia.ai/blog/from-tokens-to-bytes-part-1>).
 //! - **Upstream Implementation**: Goomba Lab / Cartesia AI, <https://github.com/goombalab/hnet>
-//!   (Apache-2.0 License, `hnet/modules/dc.py` and `hnet/models/hnet.py`:
+//!   (MIT License, `hnet/modules/dc.py` and `hnet/models/hnet.py`:
 //!   `ChunkLayer`, `DeChunkLayer`, `DeChunkState`, `STE`, `ste_func`,
 //!   `residual_proj`, `pad_dimension`).
 

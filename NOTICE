@@ -1,9 +1,12 @@
 baux is Copyright (c) 2026 Kvutza and is distributed under the MIT License. See
 LICENSE.
 
-Artwork attribution and rights
+================================================================================
+1. Artwork Attribution and Exclusion from Software License
+================================================================================
 
-The README displays two photographic works by Michal Rovner (born 1957):
+The repository README (and the `assets` branch) displays a diptych of two
+photographic works by Michal Rovner (born 1957):
 
 1. Michal Rovner, "Outside #11" (1990-91). Chromogenic print, 49.5 x 49.5 cm.
    The Metropolitan Museum of Art, New York, Purchase, The Horace W. Goldsmith
@@ -18,22 +21,71 @@ The README displays two photographic works by Michal Rovner (born 1957):
 Both artworks are Copyright (c) Michal Rovner. All rights in the artworks are
 reserved to the artist and respective rights holders; they are reproduced here
 solely for non-commercial identification and attribution and are excluded from
-the MIT License covering this repository's source code.
+the MIT License covering this repository's software and source code.
 
-Research design acknowledgements
+================================================================================
+2. Clean-Room Implementations, Academic Citations, and Differential References
+================================================================================
 
-The modular full-weight perturbation interface was independently implemented
-after studying Modular CMA-ES (MIT), IOHexperimenter (BSD-3-Clause),
-fcmaes-rust (MIT), Nevergrad (MIT), evosax (Apache-2.0), and EvoX (GPL-3.0).
-No source code from these projects is incorporated. EvoX is a research
-reference only; no GPL-covered implementation is included.
+- Trust-Region Bayesian Optimization (TuRBO):
+  baux's trust-region optimizer (`TurboTrustRegion`) is an independent
+  clean-room Rust implementation of the algorithm published in David Eriksson,
+  Michael Pearce, Jacob R. Gardner, Ryan Turner, and Matthias Poloczek,
+  "Scalable Global Optimization via Local Bayesian Optimization", NeurIPS 2019
+  (arXiv:1910.01739). No source code from `uber-research/TuRBO` is distributed
+  in baux. For non-commercial research and differential parity verification
+  (`research/turbo_upstream.py`, `research/upstream/turbo.lock.toml`, and
+  `rust/crates/baux/src/trust_region/fixtures.toml`), baux references the
+  upstream TuRBO reference implementation (`https://github.com/uber-research/TuRBO`,
+  commit `de0db39f481d9505bb3610b7b7aa0ebf7702e4a5`), which is made available
+  by Uber Technologies, Inc. under the Uber Non-Commercial License
+  (`https://github.com/uber-research/TuRBO/blob/master/LICENSE.md`).
 
-yubo-research/enn attribution
+- Manifold-Constrained Hyper-Connections (mHC):
+  baux's Sinkhorn-Knopp Birkhoff polytope manifold projection (`fbt::moe`) is
+  an independent Rust and Apple Silicon Metal implementation of Zhenda Xie et
+  al., "mHC: Manifold-Constrained Hyper-Connections", arXiv:2512.24880 (2025),
+  verified against `https://github.com/tokenbender/mHC-manifold-constrained-hyper-connections`
+  (commit `ad20d0d8db4d6fc7e8d9b148281167141da20d47`, Apache-2.0 License).
 
-Portions of the neighbor-indexing and ENN code derive from
-https://github.com/yubo-research/enn at commit
-5e48f4df7da90d9f7958a5ef6d69951ed485e39e (separated July 28, 2026). Its license
-follows:
+- Tokamak Magnetic Control and Plasma Transport (WPO / Acme, TORAX, TokaGym):
+  - baux's resident Rust and Metal tokamak control benchmark (`baux::tokamak`,
+    `tokamak_policy.metal`) is a clean-room mathematical implementation of the
+    WPO Table 6 (`shape_70166` Precise) 5-component reward and coupled dynamics
+    from Brendan D. Tracey et al., "Towards practical reinforcement learning for
+    tokamak magnetic control", Fusion Engineering and Design 200 (2024) 114161,
+    and DeepMind Acme (`https://github.com/google-deepmind/acme`, commit
+    `2e09e3ddecf4a1ba783688c92aa493c596a2beec`, Apache-2.0 License).
+  - Optional external transport PDE coupling (`benchmarks/torax/`) interfaces
+    with Google DeepMind TORAX (`https://github.com/google-deepmind/torax`,
+    version 2.0.0, Apache-2.0 License; Jonathan Citrin et al., "TORAX: A Fast
+    and Differentiable Tokamak Transport Simulator in JAX", arXiv:2406.06718).
+  - Optional external TCV rampdown rollout evaluation (`benchmarks/tokagym/`)
+    interfaces with EPFL/MIT TokaGym + contrax (Zenodo DOI
+    `10.5281/zenodo.16621120`, MIT License; Allen M. Wang et al., Nature
+    Communications 16 (2025) 8877; Christian Theiler et al., Nuclear Fusion 66
+    (2026) 116007).
+
+- Full-Weight Perturbation and Evolutionary Optimization Interfaces:
+  The modular full-weight perturbation interface was independently implemented
+  after studying Modular CMA-ES (MIT), IOHexperimenter (BSD-3-Clause),
+  fcmaes-rust (MIT), Nevergrad (MIT), evosax (Apache-2.0), and EvoX (GPL-3.0).
+  No source code from these projects is incorporated. EvoX is a research
+  reference only; no GPL-covered implementation is included.
+
+================================================================================
+3. Third-Party MIT-Licensed Attributions and Notices
+================================================================================
+
+--------------------------------------------------------------------------------
+3.1 yubo-research/enn
+--------------------------------------------------------------------------------
+
+Portions of the neighbor-indexing (`neighbor-index`), ENN surrogate modeling,
+AUTO metric estimator, LOO gate, reservoir, PCG64, and `SeedSequence` code
+derive from https://github.com/yubo-research/enn at commits
+5e48f4df7da90d9f7958a5ef6d69951ed485e39e (separated July 28, 2026) and
+506e98c506eeb849cffbf53d9ddf3a3a799c6830. Its license follows:
 
 MIT License
 
@@ -57,14 +109,88 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
-H-Net attribution
+--------------------------------------------------------------------------------
+3.2 goombalab/hnet (H-Net Dynamic Chunking)
+--------------------------------------------------------------------------------
 
-The dynamic chunking code is adapted from goombalab/hnet at revision
-3673fe1217ebeb0d1438c7c71d58d32bdd190ec2. Its license follows:
+The dynamic chunking, routing, EMA dechunking, straight-through estimator, byte
+tokenizer, and ratio load-balancing loss code (`baux::hnet`,
+`baux::semantics::hnet`) is adapted from https://github.com/goombalab/hnet at
+revision 3673fe1217ebeb0d1438c7c71d58d32bdd190ec2 (Sukjun Hwang, Brandon Wang,
+and Albert Gu, "Dynamic Chunking for End-to-End Hierarchical Sequence Modeling",
+arXiv:2507.07955). Its license follows:
 
 MIT License
 
 Copyright (c) 2025 brwa-cartesia
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+--------------------------------------------------------------------------------
+3.3 ml-explore/mlx (Metal GEMVT Scheduling)
+--------------------------------------------------------------------------------
+
+The Metal GEMVT kernel scheduling in `rust/crates/fbt/src/decode.metal` is
+adapted from Apple MLX (`mlx/backend/metal/kernels/gemv.h`,
+https://github.com/ml-explore/mlx). Its license follows:
+
+MIT License
+
+Copyright (c) 2023-2024 Apple Inc.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+--------------------------------------------------------------------------------
+3.4 KellerJordan/Muon and NoahAmsel/PolarExpress
+--------------------------------------------------------------------------------
+
+The Muon orthogonalized momentum update and PolarExpress Remez optimal quintic
+polynomial composition coefficients and differential fixtures (`baux::muon`,
+`research/muon_upstream.py`) are adapted from or verified against
+https://github.com/KellerJordan/Muon at revision
+f98f1cacc0263b04290753e32be8d498c1efc806 and
+https://github.com/NoahAmsel/PolarExpress at revision
+f717e2c6b3ef6f67a5e00ab7f5371a85377e6fbe (Noah Amsel, David Persson,
+Christopher Musco, and Robert M. Gower, "The Polar Express: Optimal Matrix Sign
+Methods and Their Application to the Muon Algorithm", arXiv:2505.16932). Their
+licenses follow:
+
+MIT License
+
+Copyright (c) 2024 Keller Jordan
+Copyright (c) 2025 Noah Amsel
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

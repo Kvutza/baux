@@ -210,9 +210,9 @@ pub use scratch::{
     AlignedBuffer, CacheLine, CandidateSoa, PageBlock, ScratchArena, ScratchScope, UnifiedBuffer,
     UnifiedRead, UnifiedWrite,
 };
-pub use semantics::calibration::Calibrator;
+pub use semantics::affine::Affine;
 pub use semantics::categorical::{CatEncoding, CatSpec};
-pub use semantics::shrinkage::Shrinkage;
+pub use semantics::stiefel::Stiefel;
 pub use sense::{
     BetterScore, EvalId, Lexicographic, Maximize, Minimize, ObjectiveSense, ObsId, RegionId, Sense,
     Target,

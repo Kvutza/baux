@@ -115,8 +115,8 @@ pub struct RunConfig {
     pub metric_learning: Option<crate::layout::MetricLearning>,
     pub tied_dims: Option<Vec<Vec<usize>>>,
     pub unscaled_dims: Option<Vec<usize>>,
-    pub shrinkage_loadings: Option<Vec<Vec<f64>>>,
-    pub calibrator_params: Option<Vec<[f64; 3]>>,
+    pub stiefel_loadings: Option<Vec<Vec<f64>>>,
+    pub affine_params: Option<Vec<[f64; 3]>>,
     pub trust_region_kind: Option<TrustRegionKind>,
     pub num_metrics: Option<usize>,
     pub alpha: Option<f64>,
@@ -306,20 +306,20 @@ fn apply_enn(config: &mut OptimizerConfig, overrides: &RunConfig) {
             }
         };
     }
-    if let Some(rows) = overrides.shrinkage_loadings.as_ref() {
+    if let Some(rows) = overrides.stiefel_loadings.as_ref() {
         let r = rows.len();
         let c = rows.first().map_or(0, Vec::len);
         let flat = rows.iter().flatten().copied().collect();
-        if let Ok(sh) = crate::semantics::shrinkage::Shrinkage::new(flat, r, c) {
-            enn.shrinkage = Some(sh);
+        if let Ok(st) = crate::semantics::stiefel::Stiefel::new(flat, r, c) {
+            enn.stiefel = Some(st);
         }
     }
-    if let Some(params) = overrides.calibrator_params.as_ref() {
+    if let Some(params) = overrides.affine_params.as_ref() {
         let a = params.iter().map(|p| p[0]).collect();
         let b = params.iter().map(|p| p[1]).collect();
         let c = params.iter().map(|p| p[2]).collect();
-        if let Ok(cal) = crate::semantics::calibration::Calibrator::new(a, b, c) {
-            enn.calibrator = Some(cal);
+        if let Ok(aff) = crate::semantics::affine::Affine::new(a, b, c) {
+            enn.affine = Some(aff);
         }
     }
     config.surrogate = SurrogateConfig::ENN(enn);

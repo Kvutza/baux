@@ -51,8 +51,8 @@ class ENNSurrogate:
     unscaled_dims: tuple[int, ...] | None = None
     geometry: str = "euclidean"
     local_k: int = 4
-    shrinkage: Any = None
-    calibrator: Any = None
+    stiefel: Any = None
+    affine: Any = None
 
     def __post_init__(self) -> None:
         ml = str(getattr(self.metric_learning, "value", self.metric_learning)).lower()

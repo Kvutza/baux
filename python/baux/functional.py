@@ -32,7 +32,8 @@ from .turbo.config.surrogate import ENNSurrogate
 from .turbo.config.trust_region import RegionalSearchPolicy
 
 Key, Categorical, categorical = _rust.Key, _pytree.Categorical, _pytree.categorical
-Calibrator, ENNState, Shrinkage = _enn.Calibrator, _enn.ENNState, _enn.Shrinkage
+Affine, ENNState, Stiefel = _enn.Affine, _enn.ENNState, _enn.Stiefel
+calibrate, stein = _enn.calibrate, _enn.stein
 append, enn_append, enn_fit, enn_init = (
     _enn.append,
     _enn.enn_append,
@@ -445,14 +446,15 @@ if _pkg := _sys.modules.get(__package__ or "baux"):
 
 
 __all__ = [
-    "Calibrator",
+    "Affine",
     "Categorical",
     "ENNState",
     "Key",
     "OptimizerState",
-    "Shrinkage",
+    "Stiefel",
     "append",
     "ask",
+    "calibrate",
     "cancel",
     "categorical",
     "complete",
@@ -475,6 +477,7 @@ __all__ = [
     "sample",
     "scan",
     "split",
+    "stein",
     "step",
     "tell",
     "thaw",

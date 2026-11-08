@@ -66,9 +66,9 @@ fn apply_fields(
         });
     }
     config.local_scale_neighbors = opt_val(dict, "local_k")?;
-    if let Some(v) = dict.get_item("shrinkage")? {
+    if let Some(v) = dict.get_item("stiefel")? {
         let loadings: PyReadonlyArray2<f64> = v.extract()?;
-        config.shrinkage_loadings = Some(
+        config.stiefel_loadings = Some(
             loadings
                 .as_array()
                 .rows()
@@ -77,13 +77,13 @@ fn apply_fields(
                 .collect(),
         );
     }
-    if let Some((a, b, c)) = opt_val::<(Vec<f64>, Vec<f64>, Vec<f64>)>(dict, "calibrator")? {
+    if let Some((a, b, c)) = opt_val::<(Vec<f64>, Vec<f64>, Vec<f64>)>(dict, "affine")? {
         if a.len() != b.len() || a.len() != c.len() || a.is_empty() {
             return Err(PyValueError::new_err(
-                "calibrator vectors (a, b, c) must be non-empty and match in length",
+                "Affine vectors (a, b, c) must be non-empty and match in length",
             ));
         }
-        config.calibrator_params = Some(
+        config.affine_params = Some(
             a.into_iter()
                 .zip(b)
                 .zip(c)

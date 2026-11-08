@@ -1,6 +1,6 @@
-//! Leave-one-out affine posterior calibration (`mu' = a + b * mu`, `se' = c *
-//! se`), inverse-variance Weighted Least Squares (WLS), and split conformal
-//! scaling.
+//! Affine posterior location-scale group elements (`mu' = a + b * mu`, `se' =
+//! c * se` in `Aff(1)^M`), inverse-variance Aitken Weighted Least Squares
+//! (WLS), and split conformal scaling.
 //!
 //! References:
 //! - Aitken (1935), *On Least Squares and Linear Combination of Observations*,
@@ -11,9 +11,9 @@
 //!   Predictive Inference for Regression*, JASA 113(523), 1094-1111
 //!   (`arXiv:1604.04173`).
 
-/// Immutable affine calibration coefficients across `M` output metrics.
+/// Immutable affine location-scale transformation across `M` output metrics.
 #[derive(Clone, Debug, PartialEq)]
-pub struct Calibrator {
+pub struct Affine {
     pub a: Vec<f64>,
     pub b: Vec<f64>,
     pub c: Vec<f64>,
@@ -131,8 +131,8 @@ fn wls_col(mu: &[f64], y: &[f64], se: &[f64], rows: usize, cols: usize, col: usi
     (0.0, 1.0)
 }
 
-impl Calibrator {
-    /// Identity calibrator (`a = 0`, `b = 1`, `c = 1`).
+impl Affine {
+    /// Identity affine map (`a = 0`, `b = 1`, `c = 1`).
     pub fn identity(cols: usize) -> Self {
         Self {
             a: vec![0.0; cols],
@@ -144,14 +144,14 @@ impl Calibrator {
     /// Construct from explicit coefficient vectors `(a, b, c)`.
     pub fn new(a: Vec<f64>, b: Vec<f64>, c: Vec<f64>) -> Result<Self, String> {
         if a.len() != b.len() || b.len() != c.len() {
-            return Err("calibrator coefficient lengths must match".to_string());
+            return Err("Affine coefficient lengths must match".to_string());
         }
         if a.iter()
             .chain(b.iter())
             .chain(c.iter())
             .any(|v| !v.is_finite())
         {
-            return Err("calibrator coefficients must be finite".to_string());
+            return Err("Affine coefficients must be finite".to_string());
         }
         Ok(Self { a, b, c })
     }
@@ -298,11 +298,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn calibrator_fit() {
+    fn affine_fit() {
         let mu = [1.0, 2.0, 3.0];
         let y = [3.0, 5.0, 7.0];
         let se = [0.5, 0.5, 0.5];
-        let cal = Calibrator::fit(&mu, &y, Some(&se), 3, 1).unwrap();
+        let cal = Affine::fit(&mu, &y, Some(&se), 3, 1).unwrap();
         assert!((cal.a[0] - 1.0).abs() < 1e-12);
         assert!((cal.b[0] - 2.0).abs() < 1e-12);
         let mapped = cal.apply_mu(&mu, 3).unwrap();
@@ -312,30 +312,30 @@ mod tests {
     }
 
     #[test]
-    fn calibrator_collinear() {
-        let id = Calibrator::identity(2);
+    fn affine_collinear() {
+        let id = Affine::identity(2);
         assert_eq!(id.a, vec![0.0, 0.0]);
         assert_eq!(id.b, vec![1.0, 1.0]);
         assert_eq!(id.c, vec![1.0, 1.0]);
         let mu = [4.0, 1.0, 4.0, 2.0, 4.0, 3.0];
         let y = [9.0, -1.0, 9.0, -3.0, 9.0, -5.0];
-        let cal = Calibrator::fit(&mu, &y, None, 3, 2).unwrap();
+        let cal = Affine::fit(&mu, &y, None, 3, 2).unwrap();
         assert_eq!(cal.a[0], 0.0);
         assert_eq!(cal.b[0], 1.0);
         assert!((cal.a[1] - 1.0).abs() < 1.0e-12);
         assert!((cal.b[1] + 2.0).abs() < 1.0e-12);
         assert_eq!(cal.c, vec![1.0, 1.0]);
-        let single = Calibrator::fit(&[2.0], &[5.0], None, 1, 1).unwrap();
+        let single = Affine::fit(&[2.0], &[5.0], None, 1, 1).unwrap();
         assert_eq!(single.a, vec![0.0]);
         assert_eq!(single.b, vec![1.0]);
     }
 
     #[test]
-    fn calibrator_scale() {
+    fn affine_scale() {
         let mu = [0.0, 0.0, 1.0, 1.0];
         let y = [1.5, -1.5, 2.5, -0.5];
         let se = [0.5, 0.5, 0.5, 0.5];
-        let cal = Calibrator::fit(&mu, &y, Some(&se), 4, 1).unwrap();
+        let cal = Affine::fit(&mu, &y, Some(&se), 4, 1).unwrap();
         assert!((cal.a[0] - 0.0).abs() < 1.0e-12);
         assert!((cal.b[0] - 1.0).abs() < 1.0e-12);
         assert!((cal.c[0] - 3.0).abs() < 1.0e-12);
@@ -346,13 +346,13 @@ mod tests {
     }
 
     #[test]
-    fn calibrator_errors() {
-        assert!(Calibrator::new(vec![0.0], vec![1.0, 2.0], vec![1.0]).is_err());
-        assert!(Calibrator::new(vec![f64::NAN], vec![1.0], vec![1.0]).is_err());
-        assert!(Calibrator::new(vec![0.0], vec![f64::INFINITY], vec![1.0]).is_err());
-        assert!(Calibrator::fit(&[1.0, 2.0], &[1.0], None, 2, 1).is_err());
-        assert!(Calibrator::fit(&[1.0, 2.0], &[1.0, 2.0], Some(&[0.5]), 2, 1).is_err());
-        let cal = Calibrator::new(vec![1.0], vec![2.0], vec![3.0]).unwrap();
+    fn affine_errors() {
+        assert!(Affine::new(vec![0.0], vec![1.0, 2.0], vec![1.0]).is_err());
+        assert!(Affine::new(vec![f64::NAN], vec![1.0], vec![1.0]).is_err());
+        assert!(Affine::new(vec![0.0], vec![f64::INFINITY], vec![1.0]).is_err());
+        assert!(Affine::fit(&[1.0, 2.0], &[1.0], None, 2, 1).is_err());
+        assert!(Affine::fit(&[1.0, 2.0], &[1.0, 2.0], Some(&[0.5]), 2, 1).is_err());
+        let cal = Affine::new(vec![1.0], vec![2.0], vec![3.0]).unwrap();
         assert!(cal.apply_mu(&[1.0, 2.0], 1).is_err());
         assert!(cal.apply_se(&[1.0, 2.0], 1).is_err());
     }
@@ -362,7 +362,7 @@ mod tests {
         let mu = [0.0, 1.0, 2.0, 2.0];
         let y = [1.0, 3.0, 5.0, 50.0];
         let se = [0.01, 0.01, 0.01, 100.0];
-        let wls = Calibrator::fit_wls(&mu, &y, &se, 4, 1).unwrap();
+        let wls = Affine::fit_wls(&mu, &y, &se, 4, 1).unwrap();
         assert!((wls.a[0] - 1.0).abs() < 1.0e-4);
         assert!((wls.b[0] - 2.0).abs() < 1.0e-4);
 

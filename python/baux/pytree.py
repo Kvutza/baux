@@ -1,6 +1,6 @@
-"""PyTree-native parameter specifications, non-Cartesian manifold embeddings, and calibrations.
-References: Stein (1956); James & Stein (1961); Efron & Morris (1973); Higham (1986) (`Shrinkage`);
-Aitken (1935); Vovk et al. (2005); Lei et al. (2018) (`Calibrator`); Johnson & Lindenstrauss (1984);
+"""PyTree-native parameter specifications, non-Cartesian manifold embeddings, and codomain maps.
+References: Stein (1956); James & Stein (1961); Efron & Morris (1973); Higham (1986) (`Stiefel`);
+Aitken (1935); Vovk et al. (2005); Lei et al. (2018) (`Affine`); Johnson & Lindenstrauss (1984);
 Achlioptas (2003); Bhattacharyya (1943); Čencov (1982) (`Categorical`, `Periodic`, `Simplex`, `Log`).
 """
 
@@ -13,13 +13,12 @@ from typing import Any
 import numpy as np
 
 from ._embeddings import (
+    Affine,
     Log,
     Periodic,
-    Shrinkage,
     Simplex,
-    _as2d,
+    Stiefel,
     _catseed,
-    _fitcal,
     _iscontainer,
     _isnamedtuple,
     _logwidth,
@@ -134,53 +133,6 @@ class Categorical:
 
 
 _LEAFTYPES = (Categorical, Periodic, Simplex, Log)
-
-
-@dataclass(frozen=True)
-class Calibrator:
-    """Affine WLS & conformal epistemic calibrator (Aitken, 1935; Vovk et al., 2005; Lei et al., 2018)."""
-
-    a: np.ndarray
-    b: np.ndarray
-    c: np.ndarray
-
-    def __post_init__(self) -> None:
-        a_arr, b_arr, c_arr = (
-            _readonly(self.a).reshape(-1),
-            _readonly(self.b).reshape(-1),
-            _readonly(self.c).reshape(-1),
-        )
-        if not (a_arr.shape == b_arr.shape == c_arr.shape):
-            raise ValueError("Calibrator a, b, c must have matching lengths")
-        object.__setattr__(self, "a", a_arr)
-        object.__setattr__(self, "b", b_arr)
-        object.__setattr__(self, "c", c_arr)
-
-    @classmethod
-    def fit(
-        cls, mu: np.ndarray, y: np.ndarray, se: np.ndarray | None = None
-    ) -> Calibrator:
-        """Fit unweighted OLS `(a, b)` and residual uncertainty dispersion multiplier `c`."""
-        return cls(*_fitcal(mu, y, se, weighted=False))
-
-    @classmethod
-    def fit_wls(cls, mu: np.ndarray, y: np.ndarray, se: np.ndarray) -> Calibrator:
-        """Fit inverse-variance Weighted Least Squares (`w_i = se_i^-2`) `(a, b)` and dispersion `c`."""
-        return cls(*_fitcal(mu, y, se, weighted=True))
-
-    def conformal_scale(
-        self, mu: np.ndarray, y: np.ndarray, se: np.ndarray, alpha: float = 0.1
-    ) -> np.ndarray:
-        """Compute finite-sample conformal quantile multiplier `q_{1-alpha}` on `|y - (a + b*mu)| / se`."""
-        if not (0.0 < float(alpha) < 1.0):
-            raise ValueError(f"alpha must be in (0, 1), got {alpha}")
-        m2, y2, s2 = _as2d(mu), _as2d(y), np.maximum(_as2d(se), 1e-12)
-        if not (m2.shape == y2.shape == s2.shape and m2.shape[1] == self.a.shape[0]):
-            raise ValueError("mu, y, se shapes must match (N, M)")
-        n = m2.shape[0]
-        z = np.sort(np.abs(y2 - (self.a[None, :] + self.b[None, :] * m2)) / s2, axis=0)
-        idx = min(max(int(np.ceil((n + 1) * (1.0 - float(alpha)))) - 1, 0), n - 1)
-        return _readonly(z[idx])
 
 
 def categorical(
@@ -496,15 +448,15 @@ def ravel(tree: Any, spec: PyTreeSpec | None = None) -> np.ndarray:
 
 
 __all__ = [
-    "Calibrator",
+    "Affine",
     "Categorical",
     "LeafSpec",
     "Log",
     "Periodic",
     "PyTreeSpec",
-    "Shrinkage",
     "Simplex",
     "Space",
+    "Stiefel",
     "argmax_dot",
     "categorical",
     "code_hash",

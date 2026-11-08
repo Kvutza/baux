@@ -1,10 +1,10 @@
-"""Riemannian geometry, manifold embeddings, Stiefel Stein shrinkage, and WLS calibration evaluations."""
+"""Riemannian geometry, manifold embeddings, Stiefel Stein contraction, and WLS affine calibration evaluations."""
 
 from __future__ import annotations
 
 from .eval_manifolds import (
-    eval_calibrator,
-    eval_calibrator as eval_wls_calibrator,
+    eval_affine,
+    eval_affine as eval_wls_affine,
     eval_embeddings,
     eval_embeddings as eval_manifold_embeddings,
     eval_hyperbolic,
@@ -12,13 +12,13 @@ from .eval_manifolds import (
     eval_pmap,
     eval_pmap as eval_parallel_pmap,
     eval_stein,
-    eval_stein as eval_stein_shrinkage,
+    eval_stein as eval_stiefel_stein,
     run_evals,
     run_evals as run_all_evals,
 )
 
 __all__ = [
-    "eval_calibrator",
+    "eval_affine",
     "eval_embeddings",
     "eval_hyperbolic",
     "eval_hyperbolic_knn",
@@ -26,8 +26,8 @@ __all__ = [
     "eval_parallel_pmap",
     "eval_pmap",
     "eval_stein",
-    "eval_stein_shrinkage",
-    "eval_wls_calibrator",
+    "eval_stiefel_stein",
+    "eval_wls_affine",
     "run_all_evals",
     "run_evals",
 ]

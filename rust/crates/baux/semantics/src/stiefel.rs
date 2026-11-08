@@ -1,5 +1,6 @@
-//! Empirical-Bayes multi-output factor shrinkage (`P_w = L diag(w_N) L^T`) and
-//! subspace-targeted James-Stein contraction on the Stiefel manifold.
+//! Empirical-Bayes multi-output factor contraction (`P_w = L diag(w_N) L^T`)
+//! and subspace-targeted James-Stein contraction on the Stiefel manifold
+//! `V_r(R^M)`.
 //!
 //! References:
 //! - Stein (1956), *Inadmissibility of the Usual Estimator for the Mean of a
@@ -14,9 +15,10 @@
 const NORM_TOL: f64 = 1.0e-6;
 const PRIOR_PSEUDO: f64 = 12.0;
 
-/// Immutable multi-output factor shrinkage value.
+/// Immutable orthonormal subspace frame `L in V_r(R^M)` on the Stiefel
+/// manifold.
 #[derive(Clone, Debug, PartialEq)]
-pub struct Shrinkage {
+pub struct Stiefel {
     loadings: Vec<f64>,
     proj: Vec<f64>,
     p1: Vec<f64>,
@@ -27,7 +29,7 @@ pub struct Shrinkage {
 
 fn check_cols(loadings: &[f64], rows: usize, cols: usize) -> Result<(), String> {
     if rows == 0 || cols == 0 {
-        return Err("shrinkage loadings must be non-empty".to_string());
+        return Err("Stiefel loadings must be non-empty".to_string());
     }
     if loadings.len() != rows * cols {
         return Err(format!(
@@ -147,9 +149,9 @@ fn stein_row(proj: &[f64], m_dim: usize, mu_r: &[f64], se_r: &[f64]) -> (Vec<f64
     (mu_out, se_out)
 }
 
-impl Shrinkage {
-    /// Construct a validated multi-output shrinkage projector from row-major
-    /// `(rows, cols)` loadings `L`.
+impl Stiefel {
+    /// Construct a validated Stiefel frame from row-major `(rows, cols)`
+    /// orthonormal loadings `L`.
     pub fn new(loadings: Vec<f64>, rows: usize, cols: usize) -> Result<Self, String> {
         check_cols(&loadings, rows, cols)?;
         let (proj, p1) = build_proj(&loadings, rows, cols);
@@ -164,7 +166,7 @@ impl Shrinkage {
     }
 
     /// Orthonormalize the columns of a row-major `(rows, cols)` factor matrix
-    /// onto the Stiefel manifold `U(rows, cols)` via modified Gram-Schmidt.
+    /// onto the Stiefel manifold `V_cols(R^rows)` via modified Gram-Schmidt.
     pub fn from_factors(factors: &[f64], rows: usize, cols: usize) -> Result<Self, String> {
         let q = stiefel_mgs(factors, rows, cols)?;
         Self::new(q, rows, cols)
@@ -176,7 +178,7 @@ impl Shrinkage {
         stein_alpha(signal_sq, noise_var)
     }
 
-    /// Apply subspace-targeted Empirical-Bayes James-Stein shrinkage to
+    /// Apply subspace-targeted Empirical-Bayes James-Stein contraction to
     /// row-major `(rows, self.rows)` mean `mu` and standard-error `se`
     /// matrices.
     pub fn transform_stein(
@@ -232,7 +234,7 @@ impl Shrinkage {
         &self.proj
     }
 
-    /// Return a new `Shrinkage` value updated to observation count `count`.
+    /// Return a new `Stiefel` frame updated to observation count `count`.
     #[inline(always)]
     pub fn with_count(&self, count: usize) -> Self {
         let mut next = self.clone();
@@ -240,7 +242,7 @@ impl Shrinkage {
         next
     }
 
-    /// Empirical-Bayes shrinkage weight `lambda_N = N / (N + 12)`.
+    /// Empirical-Bayes contraction weight `lambda_N = N / (N + 12)`.
     #[inline(always)]
     pub fn lambda(&self) -> f64 {
         let n = self.count as f64;
@@ -285,9 +287,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn shrinkage_project() {
+    fn stiefel_project() {
         let s2 = 0.5_f64.sqrt();
-        let sh = Shrinkage::new(vec![s2, s2], 2, 1).unwrap().with_count(12);
+        let sh = Stiefel::new(vec![s2, s2], 2, 1).unwrap().with_count(12);
         assert!((sh.lambda() - 0.5).abs() < 1e-12);
         let w = sh.weights();
         assert_eq!(w.len(), 2);
@@ -297,20 +299,20 @@ mod tests {
     }
 
     #[test]
-    fn shrinkage_errors() {
-        assert!(Shrinkage::new(vec![], 0, 1).is_err());
-        assert!(Shrinkage::new(vec![], 1, 0).is_err());
-        assert!(Shrinkage::new(vec![1.0, 0.0], 3, 1).is_err());
-        assert!(Shrinkage::new(vec![f64::NAN, 0.0], 2, 1).is_err());
-        assert!(Shrinkage::new(vec![f64::INFINITY, 0.0], 2, 1).is_err());
-        assert!(Shrinkage::new(vec![0.5, 0.5], 2, 1).is_err());
-        let sh = Shrinkage::new(vec![1.0, 0.0], 2, 1).unwrap();
+    fn stiefel_errors() {
+        assert!(Stiefel::new(vec![], 0, 1).is_err());
+        assert!(Stiefel::new(vec![], 1, 0).is_err());
+        assert!(Stiefel::new(vec![1.0, 0.0], 3, 1).is_err());
+        assert!(Stiefel::new(vec![f64::NAN, 0.0], 2, 1).is_err());
+        assert!(Stiefel::new(vec![f64::INFINITY, 0.0], 2, 1).is_err());
+        assert!(Stiefel::new(vec![0.5, 0.5], 2, 1).is_err());
+        let sh = Stiefel::new(vec![1.0, 0.0], 2, 1).unwrap();
         assert!(sh.project(&[1.0, 2.0, 3.0], 1).is_err());
     }
 
     #[test]
-    fn shrinkage_limits() {
-        let sh0 = Shrinkage::new(vec![1.0, 0.0], 2, 1).unwrap();
+    fn stiefel_limits() {
+        let sh0 = Stiefel::new(vec![1.0, 0.0], 2, 1).unwrap();
         assert_eq!(sh0.rows(), 2);
         assert_eq!(sh0.cols(), 1);
         assert_eq!(sh0.count(), 0);
@@ -329,10 +331,10 @@ mod tests {
     }
 
     #[test]
-    fn shrinkage_multicol() {
+    fn stiefel_multicol() {
         let s2 = 0.5_f64.sqrt();
         let loadings = vec![s2, 0.0, s2, 0.0, 0.0, 1.0];
-        let sh = Shrinkage::new(loadings, 3, 2).unwrap().with_count(12);
+        let sh = Stiefel::new(loadings, 3, 2).unwrap().with_count(12);
         assert_eq!(sh.rows(), 3);
         assert_eq!(sh.cols(), 2);
         let y = [2.0, 4.0, 7.0, 6.0, 2.0, -3.0];
@@ -348,19 +350,19 @@ mod tests {
 
     #[test]
     fn stiefel_stein() {
-        let sh = Shrinkage::from_factors(&[3.0, 1.0, 4.0, 2.0, 0.0, 5.0], 3, 2).unwrap();
+        let sh = Stiefel::from_factors(&[3.0, 1.0, 4.0, 2.0, 0.0, 5.0], 3, 2).unwrap();
         assert_eq!(sh.rows(), 3);
         assert_eq!(sh.cols(), 2);
         let q = sh.loadings();
         let dot01: f64 = (0..3).map(|m| q[m * 2] * q[m * 2 + 1]).sum();
         assert!(dot01.abs() < 1.0e-12);
-        assert!(Shrinkage::from_factors(&[1.0, 2.0, 2.0, 4.0], 2, 2).is_err());
+        assert!(Stiefel::from_factors(&[1.0, 2.0, 2.0, 4.0], 2, 2).is_err());
 
         assert_eq!(stein_alpha(0.0, 0.0), 1.0);
-        assert_eq!(Shrinkage::stein_alpha(0.0, 1.0), 0.0);
+        assert_eq!(Stiefel::stein_alpha(0.0, 1.0), 0.0);
         assert!((stein_alpha(3.0, 1.0) - 0.75).abs() < 1.0e-12);
 
-        let sh1 = Shrinkage::from_factors(&[1.0, 1.0, 1.0], 3, 1).unwrap();
+        let sh1 = Stiefel::from_factors(&[1.0, 1.0, 1.0], 3, 1).unwrap();
         let truth = [2.0, 2.0, 2.0];
         let noisy_mu = [2.6, 1.4, 2.0];
         let se = [1.0, 1.0, 1.0];

@@ -142,14 +142,14 @@ impl PyENN {
             .map_err(|e| PyValueError::new_err(e.to_string()))
     }
 
-    #[pyo3(signature = (x=None, y=None, yvar=None, shrinkage=None, calibrator=None, metric=None, local_k=None))]
+    #[pyo3(signature = (x=None, y=None, yvar=None, stiefel=None, affine=None, metric=None, local_k=None))]
     fn append_cow(
         &self,
         x: Option<PyReadonlyArray2<f64>>,
         y: Option<PyReadonlyArray2<f64>>,
         yvar: Option<PyReadonlyArray2<f64>>,
-        shrinkage: Option<PyReadonlyArray2<f64>>,
-        calibrator: Option<(Vec<f64>, Vec<f64>, Vec<f64>)>,
+        stiefel: Option<PyReadonlyArray2<f64>>,
+        affine: Option<(Vec<f64>, Vec<f64>, Vec<f64>)>,
         metric: Option<&str>,
         local_k: Option<usize>,
     ) -> PyResult<Self> {
@@ -163,19 +163,19 @@ impl PyENN {
             (None, None) => self.inner.clone(),
             _ => return Err(PyValueError::new_err("x and y must both be provided")),
         };
-        if let Some(loadings) = shrinkage {
+        if let Some(loadings) = stiefel {
             let arr = loadings.as_array();
-            let sh = baux::Shrinkage::new(arr.iter().copied().collect(), arr.nrows(), arr.ncols())
+            let st = baux::Stiefel::new(arr.iter().copied().collect(), arr.nrows(), arr.ncols())
                 .map_err(|e| PyValueError::new_err(e.to_string()))?;
             inner = inner
-                .with_shrinkage(sh)
+                .with_stiefel(st)
                 .map_err(|e| PyValueError::new_err(e.to_string()))?;
         }
-        if let Some((a, b, c)) = calibrator {
-            let cal =
-                baux::Calibrator::new(a, b, c).map_err(|e| PyValueError::new_err(e.to_string()))?;
+        if let Some((a, b, c)) = affine {
+            let aff =
+                baux::Affine::new(a, b, c).map_err(|e| PyValueError::new_err(e.to_string()))?;
             inner = inner
-                .with_calibrator(cal)
+                .with_affine(aff)
                 .map_err(|e| PyValueError::new_err(e.to_string()))?;
         }
         if let Some(m) = metric {

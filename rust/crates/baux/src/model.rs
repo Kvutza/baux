@@ -204,8 +204,8 @@ impl ENN {
             y_scale,
             y_bounds,
             bounded_outputs,
-            shrinkage: None,
-            calibrator: None,
+            stiefel: None,
+            affine: None,
             y_sum,
             y_sumsq,
             x_sum,
@@ -217,10 +217,7 @@ impl ENN {
         if disk_reopen || model.num_obs != model.backend.len() {
             sync_backend(&mut model)?;
         }
-        model.shrinkage = model
-            .shrinkage
-            .as_ref()
-            .map(|s| s.with_count(model.num_obs));
+        model.stiefel = model.stiefel.as_ref().map(|s| s.with_count(model.num_obs));
         model.y_metadata()?;
         Ok(model)
     }
@@ -263,8 +260,8 @@ impl ENN {
             y_scale: Array1::ones(num_metrics),
             bounded_outputs: !crate::y_bounds::identity_bounds(&y_bounds),
             y_bounds,
-            shrinkage: None,
-            calibrator: None,
+            stiefel: None,
+            affine: None,
             y_sum: Array1::zeros(num_metrics),
             y_sumsq: Array1::zeros(num_metrics),
             x_sum: Array1::zeros(num_dim),
@@ -352,7 +349,7 @@ impl ENN {
 
             self.num_obs = n;
             self.scale_cache = std::sync::Arc::new(std::sync::OnceLock::new());
-            self.shrinkage = self.shrinkage.as_ref().map(|s| s.with_count(self.num_obs));
+            self.stiefel = self.stiefel.as_ref().map(|s| s.with_count(self.num_obs));
             self.observe_metric(x, y)?;
         }
         Ok(())
@@ -758,23 +755,20 @@ mod tests {
         let train_x = array![[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]];
         let train_y = array![[1.0, 2.0], [2.0, 4.0], [3.0, 6.0]];
         let m1 = ENN::new(train_x, train_y, None, false, IndexDriver::Exact).unwrap();
-        let sh = baux::semantics::shrinkage::Shrinkage::new(vec![1.0, 0.0], 2, 1).unwrap();
-        let cal = baux::semantics::calibration::Calibrator::new(
-            vec![0.5, -0.5],
-            vec![2.0, 1.0],
-            vec![1.5, 0.5],
-        )
-        .unwrap();
-        let m1 = m1.with_shrinkage(sh).unwrap().with_calibrator(cal).unwrap();
-        assert_eq!(m1.shrinkage().unwrap().count(), 3);
+        let st = baux::semantics::stiefel::Stiefel::new(vec![1.0, 0.0], 2, 1).unwrap();
+        let aff =
+            baux::semantics::affine::Affine::new(vec![0.5, -0.5], vec![2.0, 1.0], vec![1.5, 0.5])
+                .unwrap();
+        let m1 = m1.with_stiefel(st).unwrap().with_affine(aff).unwrap();
+        assert_eq!(m1.stiefel().unwrap().count(), 3);
 
         let m2 = m1
             .append_cow(&array![[1.0, 1.0]].view(), &array![[4.0, 8.0]].view(), None)
             .unwrap();
         assert_eq!(m1.len(), 3);
         assert_eq!(m2.len(), 4);
-        assert_eq!(m1.shrinkage().unwrap().count(), 3);
-        assert_eq!(m2.shrinkage().unwrap().count(), 4);
+        assert_eq!(m1.stiefel().unwrap().count(), 3);
+        assert_eq!(m2.stiefel().unwrap().count(), 4);
 
         let params = ENNParams::new(2, 1.0, 0.1).unwrap();
         let flags = PosteriorFlags::new();

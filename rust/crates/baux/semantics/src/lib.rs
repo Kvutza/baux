@@ -49,8 +49,8 @@ pub mod optimizer;
 pub use optimizer::*;
 
 #[cfg(not(feature = "cuda-device"))]
-#[path = "calibration.rs"]
-pub mod calibration;
+#[path = "affine.rs"]
+pub mod affine;
 #[cfg(not(feature = "cuda-device"))]
 #[path = "categorical.rs"]
 pub mod categorical;
@@ -82,8 +82,8 @@ pub mod numerical;
 #[path = "schedule.rs"]
 pub mod schedule;
 #[cfg(not(feature = "cuda-device"))]
-#[path = "shrinkage.rs"]
-pub mod shrinkage;
+#[path = "stiefel.rs"]
+pub mod stiefel;
 #[cfg(not(feature = "cuda-device"))]
 #[path = "tensor.rs"]
 pub mod tensor;

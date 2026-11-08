@@ -120,17 +120,17 @@ def _ennmetric(sur: ENNSurrogate, out: dict[str, Any]) -> None:
     if sur.geometry != "euclidean":
         out["geometry"] = sur.geometry
         out["local_k"] = int(sur.local_k)
-    if sur.shrinkage is not None:
-        loadings = getattr(sur.shrinkage, "loadings", sur.shrinkage)
-        out["shrinkage"] = np.asarray(loadings, dtype=float)
-    if sur.calibrator is not None:
-        cal = sur.calibrator
+    if sur.stiefel is not None:
+        loadings = getattr(sur.stiefel, "loadings", sur.stiefel)
+        out["stiefel"] = np.asarray(loadings, dtype=float)
+    if sur.affine is not None:
+        aff = sur.affine
         a, b, c = (
-            (cal.a, cal.b, cal.c)
-            if hasattr(cal, "a") and hasattr(cal, "b") and hasattr(cal, "c")
-            else cal
+            (aff.a, aff.b, aff.c)
+            if hasattr(aff, "a") and hasattr(aff, "b") and hasattr(aff, "c")
+            else aff
         )
-        out["calibrator"] = (
+        out["affine"] = (
             np.asarray(a, dtype=float).ravel().tolist(),
             np.asarray(b, dtype=float).ravel().tolist(),
             np.asarray(c, dtype=float).ravel().tolist(),

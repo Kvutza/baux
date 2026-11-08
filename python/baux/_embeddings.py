@@ -1,12 +1,12 @@
-"""Riemannian manifold embeddings (`Periodic`, `Simplex`, `Log`) and Stiefel `Shrinkage`.
+"""Riemannian manifold embeddings (`Periodic`, `Simplex`, `Log`), `Stiefel`, and `Affine`.
 
 References:
 - Stein (1956), Proc. Third Berkeley Symp. 1:197-206; James & Stein (1961), Proc.
   Fourth Berkeley Symp. 1:361-379; Efron & Morris (1973), JASA 68(341):117-130;
-  Higham (1986), SIAM J. Sci. Stat. Comput. 7(4):1160-1174 (`Shrinkage`).
+  Higham (1986), SIAM J. Sci. Stat. Comput. 7(4):1160-1174 (`Stiefel`).
 - Aitken (1935), Proc. R. Soc. Edinburgh 55:42-48; Vovk et al. (2005), Algorithmic
-  Learning in a Random World; Lei et al. (2018), JASA 113(523):1094-1111,
-  arXiv:1604.04173.
+  Learning in a Random World; Lei et al. (1918/2018), JASA 113(523):1094-1111,
+  arXiv:1604.04173 (`Affine`).
 - Bhattacharyya (1943), Bull. Calcutta Math. Soc. 35:99-109; Čencov (1982),
   Statistical Decision Rules and Optimal Inference (`Periodic`, `Simplex`, `Log`).
 """
@@ -244,22 +244,20 @@ class Log:
 
 
 @dataclass(frozen=True)
-class Shrinkage:
-    """Stiefel factor loadings `(M, F)` for Empirical-Bayes James-Stein shrinkage (Stein, 1956; James & Stein, 1961; Efron & Morris, 1973; Higham, 1986)."""
+class Stiefel:
+    """Orthonormal subspace frame `(M, F)` on the Stiefel manifold `V_F(R^M)` for James-Stein contraction (Stein, 1956; James & Stein, 1961; Efron & Morris, 1973; Higham, 1986)."""
 
     loadings: np.ndarray
 
     def __post_init__(self) -> None:
         arr = _readonly(self.loadings)
         if arr.ndim != 2 or arr.shape[0] == 0 or arr.shape[1] == 0:
-            raise ValueError(
-                f"Shrinkage.loadings must be non-empty 2D, got {arr.shape}"
-            )
+            raise ValueError(f"Stiefel.loadings must be non-empty 2D, got {arr.shape}")
         object.__setattr__(self, "loadings", arr)
 
     @classmethod
-    def from_factors(cls, factors: np.ndarray) -> Shrinkage:
-        """Project a full-column-rank factor matrix onto the Stiefel manifold U(M, F) (Higham, 1986)."""
+    def from_factors(cls, factors: np.ndarray) -> Stiefel:
+        """Project a full-column-rank factor matrix onto the Stiefel manifold V_F(R^M) (Higham, 1986)."""
         arr = np.asarray(factors, dtype=float)
         if (
             arr.ndim != 2
@@ -273,10 +271,29 @@ class Shrinkage:
             raise ValueError("factors must have full column rank")
         return cls(u @ vh)
 
+    @classmethod
+    def from_cov(cls, y: np.ndarray, rank: int = 1) -> Stiefel:
+        """Extract the top `rank` principal directions of `(N, M)` observations onto `V_rank(R^M)`."""
+        arr = np.asarray(y, dtype=float)
+        r = int(rank)
+        if (
+            arr.ndim != 2
+            or r < 1
+            or r > arr.shape[1]
+            or arr.shape[0] < r
+            or not np.all(np.isfinite(arr))
+        ):
+            raise ValueError("y must be finite (N, M) with min(N, M) >= rank >= 1")
+        yc = arr - np.mean(arr, axis=0, keepdims=True)
+        _, s, vh = np.linalg.svd(yc, full_matrices=False)
+        if np.any(s[:r] <= 1e-12):
+            raise ValueError("y covariance has rank < requested rank")
+        return cls(vh[:r].T)
+
     def transform_stein(
         self, mu: np.ndarray, se: np.ndarray
     ) -> tuple[np.ndarray, np.ndarray]:
-        """Adaptive Empirical-Bayes James-Stein orthogonal-subspace shrinkage per row."""
+        """Adaptive Empirical-Bayes James-Stein orthogonal-subspace contraction per row."""
         mu_in, se_in = np.asarray(mu, dtype=float), np.asarray(se, dtype=float)
         mu_2d = mu_in.reshape(1, -1) if mu_in.ndim == 1 else mu_in
         se_2d = se_in.reshape(1, -1) if se_in.ndim == 1 else se_in
@@ -297,6 +314,53 @@ class Shrinkage:
         if mu_in.ndim == 1:
             return _readonly(mu_out.reshape(-1)), _readonly(se_out.reshape(-1))
         return _readonly(mu_out), _readonly(se_out)
+
+    stein = transform_stein
+
+
+@dataclass(frozen=True)
+class Affine:
+    """Affine location-scale posterior map `(a + b*mu, c*se) in Aff(1)^M` (Aitken, 1935; Vovk et al., 2005; Lei et al., 2018)."""
+
+    a: np.ndarray
+    b: np.ndarray
+    c: np.ndarray
+
+    def __post_init__(self) -> None:
+        a_arr, b_arr, c_arr = (
+            _readonly(self.a).reshape(-1),
+            _readonly(self.b).reshape(-1),
+            _readonly(self.c).reshape(-1),
+        )
+        if not (a_arr.shape == b_arr.shape == c_arr.shape):
+            raise ValueError("Affine a, b, c must have matching lengths")
+        object.__setattr__(self, "a", a_arr)
+        object.__setattr__(self, "b", b_arr)
+        object.__setattr__(self, "c", c_arr)
+
+    @classmethod
+    def fit(cls, mu: np.ndarray, y: np.ndarray, se: np.ndarray | None = None) -> Affine:
+        """Fit unweighted OLS `(a, b)` and residual uncertainty dispersion multiplier `c`."""
+        return cls(*_fitcal(mu, y, se, weighted=False))
+
+    @classmethod
+    def fit_wls(cls, mu: np.ndarray, y: np.ndarray, se: np.ndarray) -> Affine:
+        """Fit inverse-variance Weighted Least Squares (`w_i = se_i^-2`) `(a, b)` and dispersion `c`."""
+        return cls(*_fitcal(mu, y, se, weighted=True))
+
+    def conformal_scale(
+        self, mu: np.ndarray, y: np.ndarray, se: np.ndarray, alpha: float = 0.1
+    ) -> np.ndarray:
+        """Compute finite-sample conformal quantile multiplier `q_{1-alpha}` on `|y - (a + b*mu)| / se`."""
+        if not (0.0 < float(alpha) < 1.0):
+            raise ValueError(f"alpha must be in (0, 1), got {alpha}")
+        m2, y2, s2 = _as2d(mu), _as2d(y), np.maximum(_as2d(se), 1e-12)
+        if not (m2.shape == y2.shape == s2.shape and m2.shape[1] == self.a.shape[0]):
+            raise ValueError("mu, y, se shapes must match (N, M)")
+        n = m2.shape[0]
+        z = np.sort(np.abs(y2 - (self.a[None, :] + self.b[None, :] * m2)) / s2, axis=0)
+        idx = min(max(int(np.ceil((n + 1) * (1.0 - float(alpha)))) - 1, 0), n - 1)
+        return _readonly(z[idx])
 
 
 def _isnamedtuple(obj: Any) -> bool:

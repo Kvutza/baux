@@ -10,7 +10,7 @@ from numpy.random import Generator
 
 from .._rust import ENNParams as _RustENNParams
 from .._rust import fit_model as _fitmodel
-from ..pytree import Calibrator, Log, Periodic, Shrinkage, Simplex, Space
+from ..pytree import Affine, Log, Periodic, Simplex, Space, Stiefel
 from ..state import _readonly, _resolveseed
 from .enn_class import ENN
 from .enn_normal import ENNNormal
@@ -130,14 +130,108 @@ def with_geometry(model: Any, geometry: str, local_k: int = 4) -> Any:
     return model
 
 
+def _stiefelarr(stiefel: Any) -> np.ndarray | None:
+    if stiefel is None:
+        return None
+    return (
+        stiefel.loadings
+        if isinstance(stiefel, Stiefel)
+        else np.asarray(stiefel, dtype=float)
+    )
+
+
+def _affinetup(affine: Any) -> tuple[list[float], list[float], list[float]] | None:
+    if affine is None:
+        return None
+    a, b, c = (affine.a, affine.b, affine.c) if isinstance(affine, Affine) else affine
+    return (
+        np.asarray(a, dtype=float).ravel().tolist(),
+        np.asarray(b, dtype=float).ravel().tolist(),
+        np.asarray(c, dtype=float).ravel().tolist(),
+    )
+
+
+def _codomain(target: Any, *, stiefel: Any = None, affine: Any = None) -> Any:
+    st_arr, aff_tup = _stiefelarr(stiefel), _affinetup(affine)
+    if isinstance(target, ENNState):
+        rust_obj = target._model._rust_model.append_cow(stiefel=st_arr, affine=aff_tup)
+        opts = dict(target.options)
+        if st_arr is not None:
+            opts["stiefel"] = st_arr.tobytes()
+        if aff_tup is not None:
+            opts["affine"] = aff_tup
+        return ENNState(
+            x=target.x,
+            y=target.y,
+            y_var=target.y_var,
+            scale_x=target.scale_x,
+            options=tuple(sorted(opts.items())),
+            _model=_wrapenn(target._model, rust_obj),
+        )
+    if isinstance(target, ENN):
+        return _wrapenn(
+            target, target._rust_model.append_cow(stiefel=st_arr, affine=aff_tup)
+        )
+    from dataclasses import replace as _replace
+    from ..state import OptimizerState
+    from ..transforms import Transform
+    from ..turbo.config.optimizer import OptimizerConfig
+    from ..turbo.config.surrogate import ENNSurrogate
+
+    if isinstance(target, OptimizerConfig):
+        if not isinstance(target.surrogate, ENNSurrogate):
+            raise ValueError(
+                "codomain transform on OptimizerConfig requires ENNSurrogate"
+            )
+        kw = {}
+        if stiefel is not None:
+            kw["stiefel"] = stiefel
+        if affine is not None:
+            kw["affine"] = affine
+        return _replace(target, surrogate=_replace(target.surrogate, **kw))
+    if isinstance(target, Transform):
+        label = "stein()" if stiefel is not None else "calibrate()"
+        return target | Transform(
+            label, lambda cfg: _codomain(cfg, stiefel=stiefel, affine=affine)
+        )
+    if isinstance(target, OptimizerState):
+        from ..functional import init as _opt_init
+
+        cfg = _codomain(target.config, stiefel=stiefel, affine=affine)
+        return _opt_init(
+            target.spec if target.spec is not None else target.bounds,
+            cfg,
+            seed=target.seed,
+        )
+    raise TypeError(f"Unsupported target for codomain transform: {type(target)!r}")
+
+
+def stein(target: Any, frame: Any = None) -> Any:
+    """Apply Stiefel subspace James-Stein contraction to an `ENNState`, `OptimizerState`, `OptimizerConfig`, or `Transform`."""
+    if frame is None:
+        from ..transforms import Transform
+
+        return Transform("stein()", lambda cfg: _codomain(cfg, stiefel=target))
+    return _codomain(target, stiefel=frame)
+
+
+def calibrate(target: Any, affine: Any = None) -> Any:
+    """Apply an `Affine` posterior location-scale map to an `ENNState`, `OptimizerState`, `OptimizerConfig`, or `Transform`."""
+    if affine is None:
+        from ..transforms import Transform
+
+        return Transform("calibrate()", lambda cfg: _codomain(cfg, affine=target))
+    return _codomain(target, affine=affine)
+
+
 def enn_init(
     train_x: Any,
     train_y: Any,
     train_yvar: Any = None,
     *,
     scale_x: bool = False,
-    shrinkage: Shrinkage | np.ndarray | None = None,
-    calibrator: Calibrator | tuple[Any, Any, Any] | None = None,
+    stiefel: Stiefel | np.ndarray | None = None,
+    affine: Affine | tuple[Any, Any, Any] | None = None,
     **options: Any,
 ) -> ENNState:
     """Construct an immutable `ENNState` without mutating caller arrays."""
@@ -149,30 +243,10 @@ def enn_init(
     if yvar is not None and yvar.ndim == 1:
         yvar = _readonly(yvar.reshape(-1, 1))
     model = ENN(x, y, yvar, scale_x=scale_x, **options)
-    sh_arr = (
-        None
-        if shrinkage is None
-        else (
-            shrinkage.loadings
-            if isinstance(shrinkage, Shrinkage)
-            else np.asarray(shrinkage, dtype=float)
-        )
-    )
-    cal_tup = None
-    if calibrator is not None:
-        a, b, c = (
-            (calibrator.a, calibrator.b, calibrator.c)
-            if isinstance(calibrator, Calibrator)
-            else calibrator
-        )
-        cal_tup = (
-            np.asarray(a, dtype=float).ravel().tolist(),
-            np.asarray(b, dtype=float).ravel().tolist(),
-            np.asarray(c, dtype=float).ravel().tolist(),
-        )
-    if sh_arr is not None or cal_tup is not None:
+    st_arr, aff_tup = _stiefelarr(stiefel), _affinetup(affine)
+    if st_arr is not None or aff_tup is not None:
         model = _wrapenn(
-            model, model._rust_model.append_cow(shrinkage=sh_arr, calibrator=cal_tup)
+            model, model._rust_model.append_cow(stiefel=st_arr, affine=aff_tup)
         )
     return ENNState(
         x=x,
@@ -300,14 +374,15 @@ sample = enn_sample
 
 
 __all__ = [
-    "Calibrator",
+    "Affine",
     "ENNState",
     "Log",
     "Periodic",
-    "Shrinkage",
     "Simplex",
     "Space",
+    "Stiefel",
     "append",
+    "calibrate",
     "enn_append",
     "enn_fit",
     "enn_init",
@@ -316,5 +391,6 @@ __all__ = [
     "fit",
     "posterior",
     "sample",
+    "stein",
     "with_geometry",
 ]

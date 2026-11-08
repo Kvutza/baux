@@ -13,9 +13,10 @@ from .enn_fitter import ENNFitter
 from .enn_normal import ENNNormal
 from .enn_params import ENNParams
 from .enn_state import (
-    Calibrator,
+    Affine,
     ENNState,
-    Shrinkage,
+    Stiefel,
+    calibrate,
     enn_append,
     enn_append as append,
     enn_fit,
@@ -26,6 +27,7 @@ from .enn_state import (
     enn_posterior as posterior,
     enn_sample,
     enn_sample as sample,
+    stein,
     with_geometry,
 )
 from .posterior_flags import DiagonalMetric, MetricLearning, PosteriorFlags
@@ -40,7 +42,7 @@ sys.modules[__name__].__class__ = _EnnModule
 enn: Any = sys.modules[__name__]
 
 __all__ = [
-    "Calibrator",
+    "Affine",
     "DiagonalMetric",
     "ENN",
     "ENNFitter",
@@ -51,10 +53,11 @@ __all__ = [
     "MetricLearning",
     "Periodic",
     "PosteriorFlags",
-    "Shrinkage",
     "Simplex",
     "Space",
+    "Stiefel",
     "append",
+    "calibrate",
     "enn",
     "enn_append",
     "enn_fit",
@@ -65,5 +68,6 @@ __all__ = [
     "init",
     "posterior",
     "sample",
+    "stein",
     "with_geometry",
 ]

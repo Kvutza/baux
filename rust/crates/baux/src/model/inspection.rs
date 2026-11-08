@@ -39,8 +39,8 @@ pub struct ENN {
     pub(crate) y_scale: Array1<f64>,
     pub(crate) y_bounds: Array2<f64>,
     pub(crate) bounded_outputs: bool,
-    pub(crate) shrinkage: Option<baux::semantics::shrinkage::Shrinkage>,
-    pub(crate) calibrator: Option<baux::semantics::calibration::Calibrator>,
+    pub(crate) stiefel: Option<baux::semantics::stiefel::Stiefel>,
+    pub(crate) affine: Option<baux::semantics::affine::Affine>,
     pub(crate) y_sum: Array1<f64>,
     pub(crate) y_sumsq: Array1<f64>,
     pub(super) x_sum: Array1<f64>,
@@ -80,8 +80,8 @@ impl Clone for ENN {
             y_scale: self.y_scale.clone(),
             y_bounds: self.y_bounds.clone(),
             bounded_outputs: self.bounded_outputs,
-            shrinkage: self.shrinkage.clone(),
-            calibrator: self.calibrator.clone(),
+            stiefel: self.stiefel.clone(),
+            affine: self.affine.clone(),
             y_sum: self.y_sum.clone(),
             y_sumsq: self.y_sumsq.clone(),
             x_sum: self.x_sum.clone(),
@@ -114,45 +114,39 @@ impl ENN {
         self.dist_metric
     }
 
-    pub fn with_shrinkage(
-        mut self,
-        sh: baux::semantics::shrinkage::Shrinkage,
-    ) -> Result<Self, ENNError> {
-        if sh.rows() != self.num_metrics {
+    pub fn with_stiefel(mut self, st: baux::semantics::stiefel::Stiefel) -> Result<Self, ENNError> {
+        if st.rows() != self.num_metrics {
             return Err(ENNError::InvalidParameter(format!(
-                "shrinkage rows {} != num_metrics {}",
-                sh.rows(),
+                "Stiefel rows {} != num_metrics {}",
+                st.rows(),
                 self.num_metrics
             )));
         }
-        self.shrinkage = Some(sh.with_count(self.num_obs));
+        self.stiefel = Some(st.with_count(self.num_obs));
         Ok(self)
     }
 
-    pub fn with_calibrator(
-        mut self,
-        cal: baux::semantics::calibration::Calibrator,
-    ) -> Result<Self, ENNError> {
-        if cal.a.len() != self.num_metrics
-            || cal.b.len() != self.num_metrics
-            || cal.c.len() != self.num_metrics
+    pub fn with_affine(mut self, aff: baux::semantics::affine::Affine) -> Result<Self, ENNError> {
+        if aff.a.len() != self.num_metrics
+            || aff.b.len() != self.num_metrics
+            || aff.c.len() != self.num_metrics
         {
             return Err(ENNError::InvalidParameter(format!(
-                "calibrator cols {} != num_metrics {}",
-                cal.a.len(),
+                "Affine cols {} != num_metrics {}",
+                aff.a.len(),
                 self.num_metrics
             )));
         }
-        self.calibrator = Some(cal);
+        self.affine = Some(aff);
         Ok(self)
     }
 
-    pub fn shrinkage(&self) -> Option<&baux::semantics::shrinkage::Shrinkage> {
-        self.shrinkage.as_ref()
+    pub fn stiefel(&self) -> Option<&baux::semantics::stiefel::Stiefel> {
+        self.stiefel.as_ref()
     }
 
-    pub fn calibrator(&self) -> Option<&baux::semantics::calibration::Calibrator> {
-        self.calibrator.as_ref()
+    pub fn affine(&self) -> Option<&baux::semantics::affine::Affine> {
+        self.affine.as_ref()
     }
 
     pub(crate) fn apply_codomain(
@@ -167,24 +161,24 @@ impl ENN {
             return Ok(());
         }
         let dim = mu.raw_dim();
-        if let Some(sh) = self.shrinkage.as_ref() {
+        if let Some(st) = self.stiefel.as_ref() {
             let flat = mu.as_standard_layout();
-            let proj = sh
+            let proj = st
                 .project(flat.as_slice().expect("standard layout"), nrows)
                 .map_err(ENNError::InvalidParameter)?;
             *mu = Array2::from_shape_vec(dim, proj)
                 .map_err(|e| ENNError::InvalidParameter(e.to_string()))?;
         }
-        if let Some(cal) = self.calibrator.as_ref() {
+        if let Some(aff) = self.affine.as_ref() {
             let flat_mu = mu.as_standard_layout();
-            let cal_mu = cal
+            let cal_mu = aff
                 .apply_mu(flat_mu.as_slice().expect("standard layout"), nrows)
                 .map_err(ENNError::InvalidParameter)?;
             *mu = Array2::from_shape_vec(dim, cal_mu)
                 .map_err(|e| ENNError::InvalidParameter(e.to_string()))?;
             for arr in [se, se_epi, se_ale] {
                 let flat = arr.as_standard_layout();
-                let scaled = cal
+                let scaled = aff
                     .apply_se(flat.as_slice().expect("standard layout"), nrows)
                     .map_err(ENNError::InvalidParameter)?;
                 *arr = Array2::from_shape_vec(dim, scaled)

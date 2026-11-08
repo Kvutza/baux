@@ -1,4 +1,4 @@
-"""Quantitative evaluations for non-Cartesian manifold embeddings, hyperbolic k-NN, Stein shrinkage, and WLS calibration.
+"""Quantitative evaluations for non-Cartesian manifold embeddings, hyperbolic k-NN, Stiefel Stein contraction, and WLS affine calibration.
 
 References:
 - Poincaré, H. (1882). "Théorie des groupes fuchsiens." Acta Math., 1:1-62.
@@ -95,22 +95,22 @@ def eval_hyperbolic() -> dict[str, float]:
 
 
 def eval_stein() -> dict[str, float]:
-    """Evaluate Stiefel `Shrinkage.from_factors` + `transform_stein` across M=6 outputs with rank F=2 structure."""
+    """Evaluate Stiefel `Stiefel.from_factors` + `transform_stein` across M=6 outputs with rank F=2 structure."""
     factors = np.array(
         [[1.2, -0.4], [0.9, 0.3], [-0.8, 1.1], [0.5, 0.9], [-1.0, -0.6], [0.7, -0.8]]
     )
-    sh = baux.Shrinkage.from_factors(factors)
-    k_theta, k_se, k_noise = baux.split(baux.key(sh.loadings), 3)
-    stiefel_err = float(np.linalg.norm(sh.loadings.T @ sh.loadings - np.eye(2)))
+    st = baux.Stiefel.from_factors(factors)
+    k_theta, k_se, k_noise = baux.split(baux.key(st.loadings), 3)
+    stiefel_err = float(np.linalg.norm(st.loadings.T @ st.loadings - np.eye(2)))
     theta = (
         np.random.default_rng(k_theta.seed()).normal(0.0, 1.0, size=(200, 2))
-        @ sh.loadings.T
+        @ st.loadings.T
     )
     se = np.random.default_rng(k_se.seed()).uniform(0.25, 0.75, size=(200, 6))
     mu_raw = theta + se * np.random.default_rng(k_noise.seed()).normal(
         0.0, 1.0, size=(200, 6)
     )
-    mu_stein, se_stein = sh.transform_stein(mu_raw, se)
+    mu_stein, se_stein = st.transform_stein(mu_raw, se)
     mse_raw = float(np.mean((mu_raw - theta) ** 2))
     mse_stein = float(np.mean((mu_stein - theta) ** 2))
     return {
@@ -122,8 +122,8 @@ def eval_stein() -> dict[str, float]:
     }
 
 
-def eval_calibrator() -> dict[str, float]:
-    """Evaluate WLS `Calibrator.fit_wls` and `conformal_scale` vs unweighted OLS under heteroscedastic noise."""
+def eval_affine() -> dict[str, float]:
+    """Evaluate WLS `Affine.fit_wls` and `conformal_scale` vs unweighted OLS under heteroscedastic noise."""
     se_cal = np.geomspace(0.02, 5.0, 1000)[:, None]
     k_cal, k_test = baux.split(baux.key(se_cal), 2)
     rng_cal = np.random.default_rng(k_cal.seed())
@@ -131,20 +131,20 @@ def eval_calibrator() -> dict[str, float]:
     a_true, b_true, alpha = 0.5, 1.8, 0.1
     mu_cal = rng_cal.uniform(-2.0, 2.0, size=(1000, 1))
     y_cal = a_true + b_true * mu_cal + se_cal * rng_cal.normal(0.0, 1.0, size=(1000, 1))
-    cal_ols = baux.Calibrator.fit(mu_cal, y_cal, se_cal)
-    cal_wls = baux.Calibrator.fit_wls(mu_cal, y_cal, se_cal)
-    q = cal_wls.conformal_scale(mu_cal, y_cal, se_cal, alpha=alpha)
+    aff_ols = baux.Affine.fit(mu_cal, y_cal, se_cal)
+    aff_wls = baux.Affine.fit_wls(mu_cal, y_cal, se_cal)
+    q = aff_wls.conformal_scale(mu_cal, y_cal, se_cal, alpha=alpha)
     mu_t = rng_test.uniform(-2.0, 2.0, size=(2000, 1))
     se_t = rng_test.choice(se_cal[:, 0], size=(2000, 1), replace=True)
     y_t = a_true + b_true * mu_t + se_t * rng_test.normal(0.0, 1.0, size=(2000, 1))
     cov = float(
-        np.mean(np.abs(y_t - (cal_wls.a[0] + cal_wls.b[0] * mu_t)) <= q[0] * se_t)
+        np.mean(np.abs(y_t - (aff_wls.a[0] + aff_wls.b[0] * mu_t)) <= q[0] * se_t)
     )
     return {
-        "slope_err_ols": float(abs(cal_ols.b[0] - b_true)),
-        "slope_err_wls": float(abs(cal_wls.b[0] - b_true)),
-        "intercept_err_ols": float(abs(cal_ols.a[0] - a_true)),
-        "intercept_err_wls": float(abs(cal_wls.a[0] - a_true)),
+        "slope_err_ols": float(abs(aff_ols.b[0] - b_true)),
+        "slope_err_wls": float(abs(aff_wls.b[0] - b_true)),
+        "intercept_err_ols": float(abs(aff_ols.a[0] - a_true)),
+        "intercept_err_wls": float(abs(aff_wls.a[0] - a_true)),
         "conformal_q": float(q[0]),
         "empirical_coverage": cov,
         "target_coverage": 1.0 - alpha,
@@ -223,16 +223,16 @@ def run_evals() -> dict[str, dict[str, float]]:
     """Run all 5 geometry, manifold embedding, and functional combinator evaluations and return their metrics."""
     return {
         "hyperbolic_knn": eval_hyperbolic(),
-        "stein_shrinkage": eval_stein(),
-        "wls_calibrator": eval_calibrator(),
+        "stiefel_stein": eval_stein(),
+        "wls_affine": eval_affine(),
         "manifold_embeddings": eval_embeddings(),
         "parallel_pmap": eval_pmap(),
     }
 
 
 eval_hyperbolic_knn = eval_hyperbolic
-eval_stein_shrinkage = eval_stein
-eval_wls_calibrator = eval_calibrator
+eval_stiefel_stein = eval_stein
+eval_wls_affine = eval_affine
 eval_manifold_embeddings = eval_embeddings
 eval_parallel_pmap = eval_pmap
 run_all_evals = run_evals

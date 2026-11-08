@@ -39,9 +39,9 @@ pub use crate::posterior::{
     Pool, TopK, WeightedPosteriorData, compute_internals, conditional_internals,
 };
 pub use crate::scratch::{AlignedBuffer, CandidateSoa, ScratchArena, UnifiedBuffer};
-pub use crate::semantics::calibration::Calibrator;
+pub use crate::semantics::affine::Affine;
 pub use crate::semantics::categorical::{CatEncoding, CatSpec};
-pub use crate::semantics::shrinkage::Shrinkage;
+pub use crate::semantics::stiefel::Stiefel;
 pub use crate::sense::{
     BetterScore, EvalId, Lexicographic, Maximize, Minimize, ObjectiveSense, ObsId, RegionId, Sense,
     Target,

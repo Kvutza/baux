@@ -31,8 +31,8 @@ pub struct ENNSurrogateConfig {
     pub tied_dims: Vec<Vec<usize>>,
     pub unscaled_dims: Vec<usize>,
     pub geometry: crate::semantics::neighbor::DistanceMetric,
-    pub shrinkage: Option<crate::semantics::shrinkage::Shrinkage>,
-    pub calibrator: Option<crate::semantics::calibration::Calibrator>,
+    pub stiefel: Option<crate::semantics::stiefel::Stiefel>,
+    pub affine: Option<crate::semantics::affine::Affine>,
 }
 
 impl Default for ENNSurrogateConfig {
@@ -51,8 +51,8 @@ impl Default for ENNSurrogateConfig {
             tied_dims: Vec::new(),
             unscaled_dims: Vec::new(),
             geometry: crate::semantics::neighbor::DistanceMetric::Euclidean,
-            shrinkage: None,
-            calibrator: None,
+            stiefel: None,
+            affine: None,
         }
     }
 }
@@ -129,11 +129,11 @@ impl ENNSurrogate {
         if self.config.geometry != crate::semantics::neighbor::DistanceMetric::Euclidean {
             model = model.with_geometry(self.config.geometry);
         }
-        if let Some(sh) = self.config.shrinkage.clone() {
-            model = model.with_shrinkage(sh)?;
+        if let Some(st) = self.config.stiefel.clone() {
+            model = model.with_stiefel(st)?;
         }
-        if let Some(cal) = self.config.calibrator.clone() {
-            model = model.with_calibrator(cal)?;
+        if let Some(aff) = self.config.affine.clone() {
+            model = model.with_affine(aff)?;
         }
         Ok(model)
     }

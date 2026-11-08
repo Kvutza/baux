@@ -192,8 +192,8 @@ def enn(
     metric_learning: str = "none",
     geometry: str = "euclidean",
     local_k: int = 4,
-    shrinkage: Any = None,
-    calibrator: Any = None,
+    stiefel: Any = None,
+    affine: Any = None,
     tied_dims: tuple[tuple[int, ...], ...] | None = None,
 ) -> Transform:
     """Configure the Epistemic Nearest Neighbors (ENN) surrogate model."""
@@ -209,8 +209,8 @@ def enn(
             metric_learning=metric_learning,
             geometry=geometry,
             local_k=local_k,
-            shrinkage=shrinkage,
-            calibrator=calibrator,
+            stiefel=stiefel,
+            affine=affine,
             tied_dims=tied_dims,
         )
         acq = cfg.acquisition

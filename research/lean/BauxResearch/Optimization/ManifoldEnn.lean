@@ -26,7 +26,7 @@ Epistemic Nearest Neighbors (ENN) architecture in `baux::semantics`:
    - Conformal local-scale half-space dissimilarity and branch-and-bound pruning
      (arXiv:2305.01356).
 
-2. **Orthogonal-Subspace James–Stein Shrinkage (`shrinkage.rs`):**
+2. **Orthogonal-Subspace James–Stein Contraction on the Stiefel Manifold (`stiefel.rs`):**
    Decomposes the local surrogate or trajectory displacement into a low-rank
    signal subspace with variance `v_∥` and an orthogonal complement with variance
    `v_⊥ > 0` and squared bias `b_⊥² ≥ 0`. Leaving the signal subspace unshrunk
@@ -42,7 +42,7 @@ Epistemic Nearest Neighbors (ENN) architecture in `baux::semantics`:
    - B. Efron and C. Morris (1973), *Stein's Estimation Rule and Its Competitors—
      An Empirical Bayes Approach*, J. Amer. Statist. Assoc. 68(341), 117–130.
 
-3. **Fisher–Rao GLS & Diagonal Mahalanobis Rademacher Projection (`calibration.rs`):**
+3. **Fisher–Rao GLS & Diagonal Mahalanobis Rademacher Projection (`affine.rs`):**
    Under a diagonal metric tensor `g : Fin w → ℝ` and constant-amplitude codes
    `e_j² = c²` (such as Rademacher vertices `e_j ∈ {-c, +c}`), the Mahalanobis
    squared distance `∑ j, g_j (v_j - e_j)²` expands into a code-independent base

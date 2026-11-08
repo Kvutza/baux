@@ -262,17 +262,15 @@ def test_categorical():
     assert restored["opt"] == "muon" and np.allclose(restored["w"], [0.2, -0.3])
 
 
-def test_shrinkage():
+def test_stiefel():
     raw_l = np.array([[1.0], [0.9], [-0.8]])
     rng = np.random.default_rng(baux.key(raw_l).seed())
     x = rng.uniform(-1.0, 1.0, size=(12, 3))
     y = np.column_stack([x[:, 0], x[:, 0] + 0.1 * x[:, 1], -x[:, 0]])
-    sh = baux.Shrinkage(raw_l / np.linalg.norm(raw_l, axis=0, keepdims=True))
-    cal = baux.Calibrator(
-        np.zeros(3), np.array([1.2, 1.0, 0.8]), np.array([0.5, 0.5, 0.5])
-    )
+    st = baux.Stiefel.from_cov(y, rank=1)
+    aff = baux.Affine(np.zeros(3), np.array([1.2, 1.0, 0.8]), np.array([0.5, 0.5, 0.5]))
     s_plain = baux.enn_init(x, y)
-    s_mod = baux.enn_init(x, y, shrinkage=sh, calibrator=cal)
+    s_mod = baux.calibrate(baux.stein(s_plain, st), aff)
     p = baux.ENNParams(k_neighbors=4, epistemic_scale=1.0, aleatoric_scale=0.1)
     xq = np.array([[0.1, -0.2, 0.3], [-0.4, 0.2, -0.1]])
     out_plain = baux.posterior(s_plain, xq, p)
@@ -318,8 +316,8 @@ def test_manifolds():
     res = run_all_evals()
     hyp, st, cal, ch, vm = (
         res["hyperbolic_knn"],
-        res["stein_shrinkage"],
-        res["wls_calibrator"],
+        res["stiefel_stein"],
+        res["wls_affine"],
         res["manifold_embeddings"],
         res["parallel_pmap"],
     )
@@ -362,7 +360,7 @@ def test_bogeometry():
             "lr": baux.Log(1e-4, 1.0),
         }
     )
-    cal = baux.Calibrator([0.1], [1.2], [0.5])
+    aff = baux.Affine([0.1], [1.2], [0.5])
     cfg_euc = baux.chain(
         baux.lhd(4),
         baux.raasp(4),
@@ -378,8 +376,8 @@ def test_bogeometry():
             metric_learning="auto",
             geometry="hyperbolic",
             local_k=2,
-            calibrator=cal,
         ),
+        baux.calibrate(aff),
         baux.ucb(),
     )
     s_euc = baux.init(sp, cfg_euc)

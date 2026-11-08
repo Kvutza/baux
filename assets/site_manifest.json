@@ -1,14 +1,17 @@
 {
   "schema": "baux-verification-portal-manifest-v1",
-  "lean_module_count": 184,
-  "lean_declaration_count": 4504,
+  "digest_algorithm": "blake3",
+  "lean_module_count": 132,
+  "lean_declaration_count": 3634,
   "registry_function_count": 835,
-  "monograph_count": 0,
-  "lean_files_tree_sha256": "8f24437efe53692560d98a44a3a5616ed0c5481f48914af4f705db97a7088341",
-  "coverage_manifest_sha256": "e51fe48ec27a7aabb2414505cc9234c4c1155580c5c99b86223a544384cb6f4b",
-  "artifact_manifest_sha256": "7bbc5d209ac47366369c132bfc4797e109f0497d24e8ef143f1c7ac5c3c9f01b",
-  "mathlib_constructions_sha256": "ddb1a6d8a73237dbb2ffd1d181977cfb53fbfa80c75bbd2b0381fc4931a171aa",
-  "registry_lean_sha256": "0ba52e89ddf11a3df3d5cd97d43bce13e03ca5d09ad519fe08b40251be7557a4",
-  "site_data_js_sha256": "9d9fdc9ed2a5019114f70128e7b718108f3021b3f1e5040f7ae71631654c4da5",
-  "site_data_js_bytes": 5842079
+  "monograph_count": 1,
+  "lean_files_tree_sha256": "a6a7b4b29554df7b1535dab79d663ae9dc8a145cd36b9d3dceba3b9467b2ced1",
+  "coverage_manifest_sha256": "6656a9802b7600372898b484865c105e7b81995314a18b183e96b02c67fc0db5",
+  "artifact_manifest_sha256": "c3a02938854b852b02adab77820a49c39107a862e8611ce3ce727303b6401ee5",
+  "specification_tex_blake3": "b13dcfe320895b9aabcaabcfb87fd5e999c592e4d78bc06e62ed7745dc1b06b5",
+  "specification_pdf_blake3": "4cec265f978c3631dd9f1c4c8a0402debfeabe3977c3fd1e777c449a93c7d472",
+  "mathlib_constructions_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "registry_lean_sha256": "da1da351f9b35dd9ac0e2117cdd7297f837617883b13e76ffd3a0cd5fb910a7d",
+  "site_data_js_sha256": "1882a2f707adf7b06e3d114081683fa794fd266e3db7f255d302e3469c366824",
+  "site_data_js_bytes": 2768772
 }

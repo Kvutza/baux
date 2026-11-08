@@ -467,7 +467,7 @@
       '<div class="contract-header-banner">' +
       '<div class="contract-eyebrow">Kvutza/baux &middot; BLAKE3 + SLSA v1.0 Provenance &middot; Charon 0.1.178 &middot; Aeneas e62dd83d &middot; Lean 4.35.0 &middot; OxCaml 5.2.0minus-ox &middot; aarch64-apple-darwin</div>' +
       '<h1 class="contract-main-title">BAUX Mathematical Specification, Formal Verification &amp; BLAKE3 Compiled-Artifact Correspondence</h1>' +
-      '<p class="contract-lead">Two-layer verification architecture of <code>baux</code> (MIT License, Copyright &copy; 2026 Kvutza): (1) canonical <a href="papers/baux_specification.pdf" target="_blank" rel="noopener"><strong>LaTeX Technical Specification &amp; Provenance Monograph (PDF)</strong></a> backed by 189 Lean 4.35 modules (3,616 declarations, 1,170 theorems, 0 <code>sorry</code>) and 4,366 Charon LLBC bodies; and (2) parallel <strong>BLAKE3</strong> Merkle and <strong>in-toto v1 / SLSA v1.0</strong> provenance attestation across compiled Mach-O <code>arm64</code> binaries, Metal shaders, OxCaml SIMD kernels, and Hardcaml RTL circuits.</p>' +
+      '<p class="contract-lead">Two-layer verification architecture of <code>baux</code> (MIT License, Copyright &copy; 2026 Kvutza): (1) canonical <a href="assets/baux_specification.pdf" target="_blank" rel="noopener"><strong>LaTeX Technical Specification &amp; Provenance Monograph (PDF)</strong></a> backed by 189 Lean 4.35 modules (3,616 declarations, 1,170 theorems, 0 <code>sorry</code>) and 4,366 Charon LLBC bodies; and (2) parallel <strong>BLAKE3</strong> Merkle and <strong>in-toto v1 / SLSA v1.0</strong> provenance attestation across compiled Mach-O <code>arm64</code> binaries, Metal shaders, OxCaml SIMD kernels, and Hardcaml RTL circuits.</p>' +
       "</div>" +
       '<div class="contract-sub-hdr">' +
       '<span>01 / Verification Pipeline</span>' +
@@ -514,9 +514,9 @@
       "</tr>" +
       '<tr class="clickable-stage-row" data-scroll-to="appendix-divergence">' +
       '<td class="mono">Artifacts</td>' +
-      "<td><strong>Mach-O arm64 &amp; IEEE-754 Parity</strong><div class='sub-mono'>SHA-256 Digest &amp; Bit-Pattern Binding</div></td>" +
+      "<td><strong>Mach-O arm64 &amp; IEEE-754 Parity</strong><div class='sub-mono'>BLAKE3 Digest &amp; Bit-Pattern Binding</div></td>" +
       '<td class="mono"><strong>10</strong> Mach-O · <strong>6</strong> .olean<br/><span class="muted-cell">13 C-ABI symbols · 17 primitives · 5 multi-round trajectories</span></td>' +
-      "<td><code>Artifact.contractOk</code> binds SHA-256 digests of compiled <code>arm64</code> binaries, verifies <code>f64::to_bits()</code> parity, and documents 3 upstream numerical fixes.</td>" +
+      "<td><code>Artifact.contractOk</code> binds BLAKE3 digests of compiled <code>arm64</code> binaries, verifies <code>f64::to_bits()</code> parity, and documents 3 upstream numerical fixes.</td>" +
       '<td class="mono"><span class="link-badge">Appendix &sect;03 &darr;</span></td>' +
       "</tr>" +
       "</tbody>" +
@@ -541,7 +541,7 @@
       '<div class="trust-item-head"><strong>1. CPU LP64 ABI &amp; Pinned Artifact Integrity</strong> ' +
       '<button type="button" class="sym-chip" data-alectryon-sym="contractOk" data-alectryon-mod="BauxResearch.Semantics.Artifact">@Artifact.contractOk</button> ' +
       '<button type="button" class="sym-chip" data-alectryon-sym="pinnedValid" data-alectryon-mod="BauxResearch.Semantics.Artifact">@Artifact.pinnedValid</button></div>' +
-      "<p>Target <code>aarch64-apple-darwin</code> (Mach-O 64-bit LP64 little-endian), IEEE-754 <code>binary64</code> (<code>roundTiesToEven</code>), deterministic PRNG streams (<code>StdRng</code> ChaCha12 &amp; <code>NumpyPcg64</code>/<code>SplitMix64</code>), and exact SHA-256 digests across all 10 compiled binaries and <code>coverage_manifest.json</code>.</p>" +
+      "<p>Target <code>aarch64-apple-darwin</code> (Mach-O 64-bit LP64 little-endian), IEEE-754 <code>binary64</code> (<code>roundTiesToEven</code>), deterministic PRNG streams (<code>StdRng</code> ChaCha12 &amp; <code>NumpyPcg64</code>/<code>SplitMix64</code>), and exact BLAKE3 digests across all 10 compiled binaries and <code>coverage_manifest.json</code>.</p>" +
       "</div>" +
       '<div class="trust-item">' +
       '<div class="trust-item-head"><strong>2. End-to-End Ask / Tell / Mu &amp; Backend Correspondence</strong> ' +

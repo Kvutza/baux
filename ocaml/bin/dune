@@ -1,0 +1,10 @@
+(executable
+ (name benchmarks)
+ (modules benchmarks measure)
+ (libraries core core_bench core_bench.internals baux_benchmarks stdlib_stable stdlib_upstream_compatible
+   parallel parallel.scheduler))
+
+(executable
+ (name hardware_bench)
+ (modules hardware_bench)
+ (libraries baux_hardware yojson))

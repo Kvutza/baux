@@ -1,0 +1,14 @@
+version = 1
+# Exploratory circuit-design experiment; does not implement the BAUX optimizer.
+# The reward and constraints below are provisional, not an FPGA performance model.
+experiment = "hardcaml-distance"
+dimension = 64
+bits = [8, 12, 16, 20]
+lanes = [1, 2, 4, 8, 16, 32]
+pipelines = [false, true]
+samples = 128
+seed = 20261107
+# Maximum absolute squared-distance error divided by dimension, on this corpus.
+max_error = 0.001
+# Sum of signed multiplier output widths in the pre-synthesis circuit graph.
+max_multiplier_bits = 256

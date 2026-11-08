@@ -240,6 +240,15 @@ pub(crate) fn run(
     rounds: Option<u32>,
     engine: BuildSystem,
 ) -> Result<(), String> {
+    let text = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
+    let value: baux::artifact::json::Value =
+        baux::artifact::toml::from_str(&text).map_err(|e| e.to_string())?;
+    if value["experiment"].as_str() == Some("oxcaml-catalogue") {
+        return run_ocaml(root, &text, rounds, engine, OcamlExperiment::Catalogue);
+    }
+    if value["experiment"].as_str() == Some("hardcaml-distance") {
+        return run_ocaml(root, &text, rounds, engine, OcamlExperiment::Hardware);
+    }
     baux_tooling::terminal::stderr(
         baux_tooling::terminal::Tag::Orchestration,
         "runtime · load experiment engine",
@@ -308,4 +317,166 @@ mod tests {
             );
         }
     }
+}
+
+#[derive(Clone, Copy)]
+enum OcamlExperiment {
+    Catalogue,
+    Hardware,
+}
+
+fn run_ocaml(
+    root: &Path,
+    text: &str,
+    rounds: Option<u32>,
+    engine: BuildSystem,
+    kind: OcamlExperiment,
+) -> Result<(), String> {
+    use baux::artifact::{json, runs};
+    use std::{fs, process::Command};
+    let (binary, model, optimizer, recipe) = match kind {
+        OcamlExperiment::Catalogue => (
+            "benchmarks.exe",
+            "sfu-catalogue",
+            "oxcaml-catalogue",
+            "core-bench-packed-scheduling",
+        ),
+        OcamlExperiment::Hardware => {
+            if rounds.is_some() {
+                return Err("Hardcaml runs enumerate the configured design grid; set samples in TOML instead of --rounds".into());
+            }
+            (
+                "hardware_bench.exe",
+                "squared-distance-circuit",
+                "hardcaml-distance",
+                "exhaustive-circuit-grid",
+            )
+        }
+    };
+    if matches!(kind, OcamlExperiment::Catalogue) {
+        engine.run(root, "//ocaml:tool", &["deps".into()])?;
+    }
+    let build = match kind {
+        OcamlExperiment::Catalogue => "build",
+        OcamlExperiment::Hardware => "hardware-build",
+    };
+    engine.run(root, "//ocaml:tool", &[build.into()])?;
+    let worker = root
+        .join(".cache/baux/ocaml-build/default/bin")
+        .join(binary);
+    let commit = runs::jj(root, &["log", "-r", "@", "--no-graph", "-T", "commit_id"])?;
+    let output = root.join(".cache/baux/runs/ocaml").join(
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_err(|e| e.to_string())?
+            .as_nanos()
+            .to_string(),
+    );
+    fs::create_dir_all(&output).map_err(|e| e.to_string())?;
+    let requested = output.join("requested.toml");
+    let resolved_path = output.join("config.toml");
+    fs::write(&requested, text).map_err(|e| e.to_string())?;
+    let mut resolve = Command::new(&worker);
+    resolve.arg("resolve").arg(&requested).arg(&resolved_path);
+    if let Some(rounds) = rounds {
+        resolve.arg(rounds.to_string());
+    }
+    let status = resolve.status().map_err(|e| e.to_string())?;
+    if !status.success() {
+        return Err("OCaml rejected the experiment configuration".into());
+    }
+    let resolved = fs::read_to_string(&resolved_path).map_err(|e| e.to_string())?;
+    let mut record = runs::start_worker(root, &output, &resolved, commit.trim(), &worker)?;
+    record.model = model.into();
+    record.optimizer = optimizer.into();
+    record.recipe = recipe.into();
+    record.protocol = runs::digest(resolved.as_bytes());
+    let result = (|| {
+        if matches!(kind, OcamlExperiment::Catalogue) {
+            let sleef = root.join(".cache/baux/sleef-3.9.0/install/lib/libsleef.a");
+            fs::write(output.join("sleef.sha256"), runs::file_digest(&sleef)?)
+                .map_err(|e| e.to_string())?;
+        }
+        let switch = std::env::var("BAUX_OCAML_SWITCH").unwrap_or_else(|_| "5.2.0+ox".into());
+        let compiler = Command::new("opam")
+            .args(["exec", "--switch", &switch, "--", "ocamlopt", "-config"])
+            .output()
+            .map_err(|e| e.to_string())?;
+        if !compiler.status.success() {
+            return Err("Cannot record OxCaml configuration".into());
+        }
+        fs::write(output.join("compiler.txt"), compiler.stdout).map_err(|e| e.to_string())?;
+        let packages = Command::new("opam")
+            .args([
+                "list",
+                "--switch",
+                &switch,
+                "--installed",
+                "--columns=name,version",
+            ])
+            .output()
+            .map_err(|e| e.to_string())?;
+        if !packages.status.success() {
+            return Err("Cannot record installed toolchain packages".into());
+        }
+        fs::write(output.join("packages.txt"), packages.stdout).map_err(|e| e.to_string())?;
+        if matches!(kind, OcamlExperiment::Catalogue) {
+            fs::copy(
+                root.join("ocaml/coverage.json"),
+                output.join("coverage.json"),
+            )
+            .map_err(|e| e.to_string())?;
+        }
+        let hardware = Command::new("sysctl")
+            .args(["-n", "machdep.cpu.brand_string"])
+            .output()
+            .map_err(|e| e.to_string())?;
+        if !hardware.status.success() {
+            return Err("Cannot record hardware configuration".into());
+        }
+        fs::write(output.join("hardware.txt"), hardware.stdout).map_err(|e| e.to_string())?;
+        let status = Command::new(&worker)
+            .current_dir(root)
+            .arg("experiment")
+            .arg(&resolved_path)
+            .arg(&output)
+            .status()
+            .map_err(|e| e.to_string())?;
+        if !status.success() {
+            return Err(format!("OxCaml experiment failed: {status}"));
+        }
+        if matches!(kind, OcamlExperiment::Hardware) {
+            fs::write(output.join("notes.json"), json::pretty_string(&json::json!({
+                "scope": "Hardcaml cycle simulation and RTL generation; no FPGA execution or synthesis",
+                "search": "exhaustive configured grid; single-design evaluator available for future Rust ask/tell integration",
+                "objective": "maximize reciprocal cycles per vector subject to corpus error and signed-multiplier-output-bit budgets; infeasible reward is negative normalized constraint violation",
+                "resources": "pre-synthesis graph statistics, not LUTs, DSPs, area, power or maximum clock frequency",
+                "timing": "reset excluded; pipeline fill and drain included; unlimited input bandwidth; no host-transfer cost",
+                "precision": "signed fixed point with bits-2 fractional bits; nearest rounding with halfway cases away from zero; full-width difference, square and accumulation"
+            })).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+            return Ok(());
+        }
+        let status = Command::new("python3")
+            .current_dir(root)
+            .arg(root.join("ocaml/audit.py"))
+            .arg(&output)
+            .status()
+            .map_err(|e| e.to_string())?;
+        if !status.success() {
+            return Err("OxCaml generated-code audit failed".into());
+        }
+        fs::write(output.join("notes.json"), json::pretty_string(&json::json!({
+            "timing": "monotonic samples collected inside the scheduler; geometric iteration counts; Core_bench regression with 100 bootstrap trials; raw samples and analysis saved",
+            "allocation": "GC counters retain the runtime domain/global semantics; not aggregate worker allocation. Cycle counter is not collected; only wall-time regressions are interpreted",
+            "comparison": "same formula definitions and inputs; float64; SLEEF 3.9.0 vector elementary functions",
+            "phases": "calibration searches backend/workers/block size; independent confirmation uses changed inputs; packed_pipeline includes refill/run/fold; direct_pipeline generates points/evaluates/reduces",
+            "hardware_caveat": "uncontrolled local machine load; measurements are exploratory",
+            "scope": "local microbenchmarks; no Rust comparison or optimizer convergence claim"
+        })).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+        Ok(())
+    })();
+    runs::finish(root, &mut record, &result)?;
+    result?;
+    println!("{optimizer} evidence: {}", output.display());
+    Ok(())
 }

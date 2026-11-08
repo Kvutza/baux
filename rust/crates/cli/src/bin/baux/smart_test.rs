@@ -107,6 +107,10 @@ fn direct_targets(files: &[String], include_gpu: bool) -> Vec<String> {
     ];
     let mut targets = BTreeSet::new();
     for file in files {
+        if cfg!(all(target_os = "macos", target_arch = "aarch64")) && file.starts_with("ocaml/") {
+            targets.insert("root//ocaml:test".to_string());
+            continue;
+        }
         if let Some(stem) = file
             .strip_prefix("rust/crates/baux/tests/")
             .and_then(|r| r.strip_suffix(".rs"))

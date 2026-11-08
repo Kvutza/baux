@@ -1,0 +1,13 @@
+sh_binary(
+    name = "tool",
+    main = "tool.sh",
+    resources = glob(["**/*.py", "**/*.c", "**/*.ml", "**/*.mli", "**/dune", "dune-project", "**/*.tsv", "**/*.expected", "*.opam", "*.toml", "*.json", ".ocamlformat"]),
+)
+
+sh_test(
+    name = "test",
+    test = "tool.sh",
+    args = ["test"],
+    visibility = ["PUBLIC"],
+    resources = glob(["**/*.py", "**/*.c", "**/*.ml", "**/*.mli", "**/dune", "dune-project", "**/*.tsv", "**/*.expected", "*.opam", "*.toml", "*.json", ".ocamlformat"]),
+)

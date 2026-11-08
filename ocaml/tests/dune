@@ -1,0 +1,54 @@
+(test
+ (name test_benchmarks)
+ (modules test_benchmarks)
+ (deps reference.tsv)
+ (libraries baux_benchmarks stdlib_upstream_compatible stdlib_stable
+   parallel parallel.scheduler))
+
+(rule
+ (alias runtest)
+ (deps unsafe_capture.ml unsafe_capture.expected)
+ (action
+  (progn
+   (with-stderr-to unsafe_capture.actual
+    (with-accepted-exit-codes 2
+     (run %{ocamlc} -extension-universe beta -c unsafe_capture.ml)))
+   (diff unsafe_capture.expected unsafe_capture.actual))))
+
+(test
+ (name test_simd)
+ (modules test_simd)
+ (deps reference.tsv)
+ (libraries baux_benchmarks stdlib_upstream_compatible stdlib_stable
+   parallel parallel.scheduler))
+
+(rule
+ (alias runtest)
+ (deps unsafe_workspace.ml unsafe_workspace.expected
+   ../lib/.baux_benchmarks.objs/byte/baux_benchmarks.cmi
+   ../lib/.baux_benchmarks.objs/byte/baux_benchmarks__Batch.cmi)
+ (action
+  (progn
+   (with-stderr-to unsafe_workspace.actual
+    (with-accepted-exit-codes 2
+     (run %{ocamlc} -extension-universe beta
+      -I ../lib/.baux_benchmarks.objs/byte -c unsafe_workspace.ml)))
+   (diff unsafe_workspace.expected unsafe_workspace.actual))))
+
+(test
+ (name test_properties)
+ (modules test_properties)
+ (libraries baux_benchmarks base base_quickcheck stdlib_stable
+  stdlib_upstream_compatible parallel parallel.scheduler)
+ (preprocess (pps ppx_let)))
+
+(test
+ (name test_config)
+ (modules test_config)
+ (libraries baux_benchmarks str))
+
+(test
+ (name test_hardware)
+ (modules test_hardware)
+ (deps ../hardcaml.toml)
+ (libraries baux_hardware hardcaml yojson str unix))

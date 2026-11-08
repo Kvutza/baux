@@ -1,0 +1,11 @@
+(library
+ (name baux_benchmarks)
+ (public_name baux_benchmarks)
+ (private_modules numeric formulas)
+ (foreign_stubs
+  (language c)
+  (names neon_stubs)
+  (flags :standard -I%{env:BAUX_SLEEF_PREFIX=missing}/include))
+ (c_library_flags %{env:BAUX_SLEEF_PREFIX=missing}/lib/libsleef.a)
+ (libraries otoml base stdlib_upstream_compatible stdlib_stable parallel)
+ (preprocess (pps ppx_template)))

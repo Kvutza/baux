@@ -6,7 +6,7 @@
 // - Blog: Cartesia AI, "From Tokens to Bytes, Part 1"
 //   (https://www.cartesia.ai/blog/from-tokens-to-bytes-part-1).
 // - Upstream Reference: Goomba Lab / Cartesia AI (https://github.com/goombalab/hnet,
-//   Apache-2.0 License, hnet/modules/dc.py, hnet/models/hnet.py, hnet/models/mixer_seq.py).
+//   MIT License, hnet/modules/dc.py, hnet/models/hnet.py, hnet/models/mixer_seq.py).
 
 // Fused RoutingModule: projects q(h_{t-1}) and k(h_t), L2-normalizes via SIMD-group
 // reductions, computes p_t = clamp((1 - cos_sim) / 2, 0, 1) with p_0 = 1.0, and

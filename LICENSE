@@ -19,11 +19,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
----
-
-Third-party notices and artwork exclusion:
-Upstream MIT attributions are recorded in NOTICE. The photographs by Michal
-Rovner displayed in README.md and the `assets` branch ("Outside #11", 1990-91;
-"One-Person Game Against Nature, #9V", 1993) are Copyright (c) Michal Rovner
-(all rights reserved) and are NOT licensed under the MIT License; see NOTICE.

@@ -1,238 +1,201 @@
-baux is Copyright (c) 2026 Kvutza and is distributed under the MIT License. See
-LICENSE.
+baux
+Copyright (c) 2026 Kvutza
 
-================================================================================
-1. Artwork Attribution and Exclusion from Software License
-================================================================================
+This product is licensed under the MIT License (see the LICENSE file).
+It builds upon, ports, or interoperates with the following open-source
+software, academic research artifacts, and visual media:
 
-The repository README (and the `assets` branch) displays a diptych of two
-photographic works by Michal Rovner (born 1957):
+========================================================================
+1. Core Optimization & Surrogate Foundations
+========================================================================
 
-1. Michal Rovner, "Outside #11" (1990-91). Chromogenic print, 49.5 x 49.5 cm.
-   The Metropolitan Museum of Art, New York, Purchase, The Horace W. Goldsmith
-   Foundation Gift, through Joyce and Robert Menschel, 1992 (Accession No.
-   1992.5040; Object ID 266682).
-   https://www.metmuseum.org/art/collection/search/266682
+* enn (Epistemic Nearest Neighbors & TuRBO-ENN)
+  Repository: https://github.com/yubo-research/enn
+  Copyright (c) 2025 yubo research
+  License: MIT
+  Citation:
+    David Sweet, "Tsallis Entropy Guided By Epistemic Nearest Neighbors",
+    arXiv:2502.10390 (2025). https://arxiv.org/abs/2502.10390
 
-2. Michal Rovner, "One-Person Game Against Nature, #9V" (1993). Chromogenic
-   print. Whitney Museum of American Art, New York (Accession No. 2000.105).
-   https://www.artnet.com/artists/michal-rovner/one-person-game-against-nature-9v-5GxdbC2HS588DzHCS7hR3w2
+* TuRBO (Trust Region Bayesian Optimization — Clean-Room Specification)
+  Citation:
+    David Eriksson, Michael Pearce, Jacob R. Gardner, Ryan Turner, and
+    Matthias Poloczek, "Scalable Global Optimization via Local Bayesian
+    Optimization", Advances in Neural Information Processing Systems
+    (NeurIPS 2019), arXiv:1910.01739. https://arxiv.org/abs/1910.01739
+  Reference Implementation (BoTorch):
+    https://github.com/meta-pytorch/botorch
+    Copyright (c) Meta Platforms, Inc. and affiliates.
+    License: MIT
 
-Both artworks are Copyright (c) Michal Rovner. All rights in the artworks are
-reserved to the artist and respective rights holders; they are reproduced here
-solely for non-commercial identification and attribution and are excluded from
-the MIT License covering this repository's software and source code.
+* MORBO (Multi-Objective Regionalized Bayesian Optimization)
+  Citation:
+     Samuel Daulton, David Eriksson, Maximilian Balandat, and Eytan Bakshy,
+    "Multi-Objective Bayesian Optimization over High-Dimensional Search
+    Spaces", Uncertainty in Artificial Intelligence (UAI 2022),
+    arXiv:2109.10964. https://arxiv.org/abs/2109.10964
 
-================================================================================
-2. Clean-Room Implementations, Academic Citations, and Differential References
-================================================================================
+========================================================================
+2. Pretraining, Dynamic Chunking & Optimizer Kernels
+========================================================================
 
-- Trust-Region Bayesian Optimization (TuRBO):
-  baux's trust-region optimizer (`TurboTrustRegion`) and its specification
-  fixtures (`research/turbo_upstream.py`,
-  `rust/crates/baux/src/trust_region/fixtures.toml`) are an independent
-  clean-room implementation of the mathematical algorithm published in David
-  Eriksson, Michael Pearce, Jacob R. Gardner, Ryan Turner, and Matthias
-  Poloczek, "Scalable Global Optimization via Local Bayesian Optimization",
-  NeurIPS 2019 (arXiv:1910.01739, Section 2), together with MIT-licensed
-  BoTorch (`https://github.com/pytorch/botorch`) and `yubo-research/enn`. No
-  source code, outputs, or artifacts from `uber-research/TuRBO` are incorporated
-  or distributed.
+* H-Net (Dynamic Chunking for End-to-End Hierarchical Sequence Modeling)
+  Repository: https://github.com/goombalab/hnet
+  Copyright (c) 2025 Goomba Lab (Sukjun Hwang, Brandon Wang, Albert Gu)
+  License: Apache License 2.0
+  Citation:
+    Sukjun Hwang, Brandon Wang, and Albert Gu, "Dynamic Chunking for
+    End-to-End Hierarchical Sequence Modeling", arXiv:2507.07955 (2025).
+    https://arxiv.org/abs/2507.07955
 
-- Manifold-Constrained Hyper-Connections (mHC):
-  baux's Sinkhorn-Knopp Birkhoff polytope manifold projection (`fbt::moe`) is
-  an independent Rust and Apple Silicon Metal implementation of Zhenda Xie et
-  al., "mHC: Manifold-Constrained Hyper-Connections", arXiv:2512.24880 (2025),
-  verified against `https://github.com/tokenbender/mHC-manifold-constrained-hyper-connections`
-  (commit `ad20d0d8db4d6fc7e8d9b148281167141da20d47`, Apache-2.0 License).
+* MLX (Apple Silicon Metal Array & Reduction Primitives)
+  Repository: https://github.com/ml-explore/mlx
+  Copyright (c) 2023-2024 Apple Inc.
+  License: MIT
+  Notes:
+    Portions of the Apple Silicon Metal reduction and scan idioms in
+    `rust/crates/baux/src/hnet_wave.metal` are adapted from MLX and from
+    the Goomba Lab H-Net reference implementation.
 
-- Tokamak Magnetic Control and Plasma Transport (WPO / Acme, TORAX, TokaGym):
-  - baux's resident Rust and Metal tokamak control benchmark (`baux::tokamak`,
-    `tokamak_policy.metal`) is a clean-room mathematical implementation of the
-    WPO Table 6 (`shape_70166` Precise) 5-component reward and coupled dynamics
-    from Brendan D. Tracey et al., "Towards practical reinforcement learning for
-    tokamak magnetic control", Fusion Engineering and Design 200 (2024) 114161,
-    and DeepMind Acme (`https://github.com/google-deepmind/acme`, commit
-    `2e09e3ddecf4a1ba783688c92aa493c596a2beec`, Apache-2.0 License).
-  - Optional external transport PDE coupling (`benchmarks/torax/`) interfaces
-    with Google DeepMind TORAX (`https://github.com/google-deepmind/torax`,
-    version 2.0.0, Apache-2.0 License; Jonathan Citrin et al., "TORAX: A Fast
-    and Differentiable Tokamak Transport Simulator in JAX", arXiv:2406.06718).
-  - Optional external TCV rampdown rollout evaluation (`benchmarks/tokagym/`)
-    interfaces with EPFL/MIT TokaGym + contrax (Zenodo DOI
-    `10.5281/zenodo.16621120`, MIT License; Allen M. Wang et al., Nature
-    Communications 16 (2025) 8877; Christian Theiler et al., Nuclear Fusion 66
-    (2026) 116007).
+* Muon Optimizer
+  Repository: https://github.com/KellerJordan/Muon
+  Copyright (c) 2024 Keller Jordan and contributors
+  License: MIT
+  Citation:
+    Keller Jordan et al., "Muon: An optimizer for hidden layers in neural
+    networks" (2024). https://github.com/KellerJordan/Muon
 
-- Full-Weight Perturbation and Evolutionary Optimization Interfaces:
-  The modular full-weight perturbation interface was independently implemented
-  after studying Modular CMA-ES (MIT), IOHexperimenter (BSD-3-Clause),
-  fcmaes-rust (MIT), Nevergrad (MIT), evosax (Apache-2.0), and EvoX (GPL-3.0).
-  No source code from these projects is incorporated. EvoX is a research
-  reference only; no GPL-covered implementation is included.
+* Polar Express (Optimal Matrix Sign Methods)
+  Repository: https://github.com/NoahAmsel/PolarExpress
+  Copyright (c) 2025 Noah Amsel, David Persson, Christopher Musco,
+  and Robert M. Gower
+  License: MIT
+  Citation:
+    Noah Amsel, David Persson, Christopher Musco, and Robert M. Gower,
+    "The Polar Express: Optimal Matrix Sign Methods and Their Application
+    to the Muon Algorithm", arXiv:2505.16932 (2025).
+    https://arxiv.org/abs/2505.16932
 
-================================================================================
-3. Third-Party MIT-Licensed Source Attributions and Notices
-================================================================================
+* mHC (Manifold-Constrained Hyper-Connections)
+  Repository: https://github.com/tokenbender/mHC-manifold-constrained-hyper-connections
+  Copyright (c) 2025 tokenbender and contributors
+  License: MIT
+  Citation:
+    Zhenda Xie, Yixuan Wei, Huanqi Cao, et al. (DeepSeek-AI),
+    "mHC: Manifold-Constrained Hyper-Connections", arXiv:2512.24880 (2025).
+    https://arxiv.org/abs/2512.24880
 
---------------------------------------------------------------------------------
-3.1 yubo-research/enn
---------------------------------------------------------------------------------
+========================================================================
+3. Plasma Control, Physics Benchmarks & Reference Suites
+========================================================================
 
-Portions of the neighbor-indexing (`neighbor-index`), ENN surrogate modeling,
-AUTO metric estimator, LOO gate, reservoir, PCG64, and `SeedSequence` code
-derive from https://github.com/yubo-research/enn at commits
-5e48f4df7da90d9f7958a5ef6d69951ed485e39e (separated July 28, 2026) and
-506e98c506eeb849cffbf53d9ddf3a3a799c6830. Its license follows:
+* TORAX (Differentiable Tokamak Core Transport Simulator)
+  Repository: https://github.com/google-deepmind/torax
+  Copyright 2024 DeepMind Technologies Limited
+  License: Apache License 2.0
+  Citation:
+    Jonathan Citrin et al., "TORAX: A Fast and Differentiable Tokamak
+    Transport Simulator in JAX", arXiv:2406.06718 (2024).
+    https://arxiv.org/abs/2406.06718
 
-MIT License
+* TokaGym & contrax (TCV Tokamak Rampdown Simulation & Control Suite)
+  Dataset / Archive: https://doi.org/10.5281/zenodo.16621120
+  Copyright (c) 2025 Allen M. Wang, Christian Theiler, et al. (MIT / EPFL)
+  License: MIT
+  Citations:
+    Allen M. Wang et al., "Learning plasma dynamics and robust rampdown
+    trajectories with predict-first experiments at TCV", Nature
+    Communications 16 (2025) 8877.
+    https://doi.org/10.1038/s41467-025-63917-3
+    Christian Theiler et al., "Progress and innovations in the TCV tokamak
+    research programme", Nuclear Fusion 66 (2026) 116007.
+    https://doi.org/10.1088/1741-4326/ae6d12
 
-Copyright (c) 2025 yubo research
+* Acme (Distributed Reinforcement Learning Framework)
+  Repository: https://github.com/google-deepmind/acme
+  Copyright 2018 DeepMind Technologies Limited
+  License: Apache License 2.0
+  Citation:
+    Matt Hoffman et al., "Acme: A Research Framework for Distributed
+    Reinforcement Learning", arXiv:2006.00979 (2020).
+    https://arxiv.org/abs/2006.00979
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+* Hegel (Property-Based Testing Protocol & Python Harness)
+  Repository: https://github.com/hegeldev/hegel-python
+  Copyright (c) David R. MacIver and contributors
+  License: MIT
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+========================================================================
+4. Bundled & Statically Linked Third-Party Libraries
+========================================================================
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+Binary distributions of `baux` (including compiled Rust binaries, native
+libraries, OxCaml executables, and Python wheels) statically link or bundle
+components from the following open-source projects:
 
---------------------------------------------------------------------------------
-3.2 goombalab/hnet (H-Net Dynamic Chunking)
---------------------------------------------------------------------------------
+* OxCaml & Hardcaml (Unboxed SIMD & RTL Hardware Design Suite in `ocaml/`)
+  Repositories:
+    https://github.com/oxcaml/oxcaml
+    https://github.com/janestreet/hardcaml
+  Copyright (c) Jane Street Group, LLC and contributors
+  License: MIT / LGPL-2.1-only WITH OCaml-LGPL-linking-exception
 
-The dynamic chunking, routing, EMA dechunking, straight-through estimator, byte
-tokenizer, and ratio load-balancing loss code (`baux::hnet`,
-`baux::semantics::hnet`) is adapted from https://github.com/goombalab/hnet at
-revision 3673fe1217ebeb0d1438c7c71d58d32bdd190ec2 (Sukjun Hwang, Brandon Wang,
-and Albert Gu, "Dynamic Chunking for End-to-End Hierarchical Sequence Modeling",
-arXiv:2507.07955). Its license follows:
+* SLEEF (SIMD Library for Evaluating Elementary Functions, v3.9.0 in `ocaml/`)
+  Repository: https://github.com/shibatch/sleef
+  Copyright (c) Naoki Shibata and contributors
+  License: Boost Software License 1.0 (BSL-1.0)
 
-MIT License
+* SciPy (Global Optimization Reference Test Suite in `ocaml/tests/`)
+  Repository: https://github.com/scipy/scipy
+  Copyright (c) 2001-2002 Enthought, Inc. 2003-2024, SciPy Developers
+  License: BSD-3-Clause
 
-Copyright (c) 2025 brwa-cartesia
+* USearch (Unum Cloud Vector Search Engine — bundled under `vendor/usearch/`)
+  Repository: https://github.com/unum-cloud/usearch
+  Copyright (c) 2023 Ash Vardanian / Unum Cloud, Inc.
+  License: Apache License 2.0
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+* FP16 & SimSIMD (Bundled C/C++ headers under `vendor/usearch/`)
+  - `vendor/usearch/fp16`: Copyright (c) 2017-2020 Facebook Inc.,
+    Copyright (c) 2017 Georgia Institute of Technology (Marat Dukhan).
+    License: MIT.
+  - `vendor/usearch/simsimd`: Copyright (c) 2023 Ash Vardanian / Unum Cloud.
+    License: Apache License 2.0.
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+* LLVM OpenMP Runtime (`libomp` — bundled in macOS wheel builds when enabled)
+  Repository: https://github.com/llvm/llvm-project
+  Copyright (c) 1997-2024 The LLVM Project / Intel Corporation
+  License: Apache License 2.0 WITH LLVM-exception
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+* Candle (`candle-core`, `candle-nn`) & Tokenizers (`tokenizers`)
+  Repository: https://github.com/huggingface/candle
+  Copyright (c) 2022-2025 Hugging Face Inc.
+  License: Apache License 2.0 / MIT
 
---------------------------------------------------------------------------------
-3.3 ml-explore/mlx (Metal GEMVT Scheduling)
---------------------------------------------------------------------------------
+* PyO3 & rust-numpy (`pyo3`, `numpy`)
+  Repositories:
+    https://github.com/PyO3/pyo3
+    https://github.com/PyO3/rust-numpy
+  Copyright (c) PyO3 Project and Contributors
+  License: MIT OR Apache-2.0
 
-The Metal GEMVT kernel scheduling in `rust/crates/fbt/src/decode.metal` is
-adapted from Apple MLX (`mlx/backend/metal/kernels/gemv.h`,
-https://github.com/ml-explore/mlx). Its license follows:
+* CUDA-Oxide (`cuda-core`)
+  Repository: https://github.com/NVlabs/cuda-oxide
+  Copyright (c) 2024 NVIDIA Corporation
+  License: Apache License 2.0
 
-MIT License
+Full dependency metadata and cryptographic checksums are recorded in
+`Cargo.lock`, `rust/BUCK`, and `research/extraction/provenance.intoto.json`.
 
-Copyright (c) 2023-2024 Apple Inc.
+========================================================================
+5. Visual Media & Artwork Notice
+========================================================================
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+The diptych header artwork referenced by `README.md` features works by
+Michal Rovner:
+  - "Outside #11" (1991)
+  - "One-Person Game Against Nature #9V" (1993)
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-
---------------------------------------------------------------------------------
-3.4 KellerJordan/Muon and NoahAmsel/PolarExpress
---------------------------------------------------------------------------------
-
-The Muon orthogonalized momentum update and PolarExpress Remez optimal quintic
-polynomial composition coefficients and differential fixtures (`baux::muon`,
-`research/muon_upstream.py`) are adapted from or verified against
-https://github.com/KellerJordan/Muon at revision
-f98f1cacc0263b04290753e32be8d498c1efc806 and
-https://github.com/NoahAmsel/PolarExpress at revision
-f717e2c6b3ef6f67a5e00ab7f5371a85377e6fbe (Noah Amsel, David Persson,
-Christopher Musco, and Robert M. Gower, "The Polar Express: Optimal Matrix Sign
-Methods and Their Application to the Muon Algorithm", arXiv:2505.16932). Their
-licenses follow:
-
-MIT License
-
-Copyright (c) 2024 Keller Jordan
-Copyright (c) 2025 Noah Amsel
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-
-================================================================================
-4. Bundled and Statically Linked Third-Party Libraries (Apache-2.0 / MIT)
-================================================================================
-
-Binary wheel distributions (`baux-*.whl`) statically link or bundle the
-following permissive third-party libraries:
-
-- USearch (`https://github.com/unum-cloud/usearch`, version 2.26.0):
-  Copyright (c) 2023 Ash Vardanian / Unum. Licensed under the Apache License,
-  Version 2.0 (`http://www.apache.org/licenses/LICENSE-2.0`).
-
-- LLVM OpenMP Runtime (`libomp`, version 22.1.8, bundled on macOS arm64):
-  Copyright (c) 1997-2026 LLVM Project / Intel Corporation. Licensed under the
-  Apache License, Version 2.0 WITH LLVM-exception
-  (`https://llvm.org/LICENSE.txt`).
-
-- Candle (`https://github.com/huggingface/candle`, version 0.9.2):
-  Copyright (c) 2023 Hugging Face. Dual-licensed under the MIT License and the
-  Apache License, Version 2.0.
-
-- PyO3 (`https://github.com/PyO3/pyo3`, version 0.29):
-  Copyright (c) PyO3 Project and Contributors. Dual-licensed under the MIT
-  License and the Apache License, Version 2.0.
-
-- CUDA-Oxide (`https://github.com/NVlabs/cuda-oxide`, revision
-  `6abfaa091e29a6275c1943895bfbc97efa306e98`):
-  Copyright (c) NVIDIA Corporation. Licensed under the Apache License, Version
-  2.0 / MIT License.
+Copyright for these artworks remains with Michal Rovner. These visual
+assets are displayed for academic/project identification only and are
+NOT licensed under the MIT License covering the `baux` source code.

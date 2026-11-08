@@ -58,3 +58,17 @@ pub fn verify_lock(
         baux::artifact::merkle::verify_lock(&root, name, dir).map_err(PyRuntimeError::new_err)?;
     baux::artifact::json::pretty_string(&lock).map_err(|e| PyRuntimeError::new_err(e.to_string()))
 }
+
+/// Compute the 64-character lowercase hexadecimal BLAKE3 digest of `data`.
+#[pyfunction(name = "blake3_hex")]
+pub fn py_blake3hex(py: Python<'_>, data: &[u8]) -> String {
+    py.detach(|| baux::artifact::blake3::hash_hex(data))
+}
+
+/// Compute the 64-character lowercase hexadecimal BLAKE3 digest of a file on
+/// disk.
+#[pyfunction(name = "blake3_file")]
+pub fn py_blake3file(py: Python<'_>, path: &str) -> PyResult<String> {
+    py.detach(|| baux::artifact::blake3::hash_file(Path::new(path)))
+        .map_err(PyRuntimeError::new_err)
+}

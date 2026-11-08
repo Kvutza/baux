@@ -81,6 +81,7 @@ pub fn run(root: &Path, check: bool, serve_flag: bool, port: u16) -> Result<(), 
 }
 
 pub fn verify_fresh(root: &Path) -> Result<(), String> {
+    baux::artifact::attestation::verify_statement(root)?;
     let (data_js, manifest_val) = crate::site_payload::compile_payload(root)?;
     let assets_dir = root.join("docs/site/assets");
     let data_js_path = assets_dir.join("site_data.js");
@@ -133,6 +134,17 @@ pub fn verify_fresh(root: &Path) -> Result<(), String> {
 }
 
 pub fn build_site(root: &Path) -> Result<(), String> {
+    baux::artifact::attestation::verify_notices(root)?;
+    let stmt = baux::artifact::attestation::build_statement(root)?;
+    let stmt_str = format!(
+        "{}\n",
+        json::pretty_string(&stmt)
+            .map_err(|e| format!("failed to serialize provenance.intoto.json: {e}"))?
+    );
+    let stmt_path = root.join("research/extraction/provenance.intoto.json");
+    fs::write(&stmt_path, stmt_str.as_bytes())
+        .map_err(|e| format!("failed to write {}: {e}", stmt_path.display()))?;
+
     let (data_js, manifest_val) = crate::site_payload::compile_payload(root)?;
     let assets_dir = root.join("docs/site/assets");
     fs::create_dir_all(&assets_dir)
@@ -287,6 +299,7 @@ fn path_mime(file_path: &Path) -> &'static str {
         Some("json") => "application/json; charset=utf-8",
         Some("svg") => "image/svg+xml",
         Some("png") => "image/png",
+        Some("pdf") => "application/pdf",
         Some("ico") => "image/x-icon",
         _ => "application/octet-stream",
     }

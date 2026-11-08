@@ -6,7 +6,6 @@
 
 use baux::artifact::{cbor, runs::digest};
 use deser::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
@@ -183,7 +182,7 @@ fn verify(path: &Path, expected: &Blob) -> Result<(), String> {
         ));
     }
     let mut file = File::open(path).map_err(|error| format!("open {}: {error}", path.display()))?;
-    let mut hash = Sha256::new();
+    let mut bytes = Vec::with_capacity(expected.bytes as usize);
     let mut buffer = [0u8; 65536];
     let mut total = 0u64;
     loop {
@@ -198,9 +197,9 @@ fn verify(path: &Path, expected: &Blob) -> Result<(), String> {
                 path.display()
             ));
         }
-        hash.update(&buffer[..read]);
+        bytes.extend_from_slice(&buffer[..read]);
     }
-    if total != expected.bytes || format!("{:x}", hash.finalize()) != expected.sha256 {
+    if total != expected.bytes || digest(&bytes) != expected.sha256 {
         return Err(format!(
             "GPU artifact content digest mismatch: {}",
             path.display()

@@ -86,71 +86,110 @@ def load_reference(directory):
     return module
 
 
+def mapped_fun(module, name, x):
+    obj = getattr(module, MAPPING[name])(len(x))
+    if name == "hartmann3":
+        obj.p[3, 0] = 0.0381  # SFU coefficient; SciPy uses 0.03815.
+    elif name == "shekel":
+        obj.A[6] = [5, 3, 5, 3]  # SFU row; SciPy has [5, 5, 3, 3].
+    result = obj.fun(x)
+    if name == "colville":
+        result += 100 * ((x[0] ** 2 - x[1]) ** 2 - (x[0] - x[1] ** 2) ** 2)
+    elif name == "langermann":
+        result = -result
+    elif name == "schwefel":
+        result += len(x) * (418.9829 - 418.982887)
+    return result
+
+
+def hartmann_four(module, x):
+    obj = module.Hartmann6()
+    obj.a, obj.p = obj.a[:, :4], obj.p[:, :4]
+    return (1.1 + obj.fun(x)) / 0.839
+
+
+def levy_fun(x):
+    w = 1 + (x - 1) / 4
+    return (
+        np.sin(np.pi * w[0]) ** 2
+        + sum((v - 1) ** 2 * (1 + 10 * np.sin(np.pi * v + 1) ** 2) for v in w[:-1])
+        + (w[-1] - 1) ** 2 * (1 + np.sin(2 * np.pi * w[-1]) ** 2)
+    )
+
+
+def dejong_five(x):
+    centers = [(a, b) for b in [-32, -16, 0, 16, 32] for a in [-32, -16, 0, 16, 32]]
+    return 1 / (
+        1 / 500
+        + sum(
+            1 / (i + 1 + (x[0] - a) ** 6 + (x[1] - b) ** 6)
+            for i, (a, b) in enumerate(centers)
+        )
+    )
+
+
+CUSTOM = {
+    "hartmann4": hartmann_four,
+    "hartmann6-rescaled": lambda m, x: (reference(m, "hartmann6", x) - 2.58) / 1.94,
+    "branin-rescaled": lambda m, x: (
+        (reference(m, "branin", np.array([15 * x[0] - 5, 15 * x[1]])) - 54.81) / 51.95
+    ),
+    "branin-modified": lambda m, x: reference(m, "branin", x) + 5 * x[0],
+    "goldstein-price-rescaled": lambda m, x: (
+        (np.log(reference(m, "goldstein-price", 4 * x - 2)) - 8.693) / 2.427
+    ),
+    "rosenbrock4-rescaled": lambda m, x: (
+        (reference(m, "rosenbrock", 15 * x - 5) - 382700) / 375500
+    ),
+    "sphere6-rescaled": lambda m, x: (
+        (sum(2 ** (i + 1) * v * v for i, v in enumerate(x)) - 1745) / 899
+    ),
+    "gramacy-lee": lambda m, x: (
+        np.sin(10 * np.pi * x[0]) / (2 * x[0]) + (x[0] - 1) ** 4
+    ),
+    "levy": lambda m, x: levy_fun(x),
+    "sum-squares": lambda m, x: sum((i + 1) * v * v for i, v in enumerate(x)),
+    "rotated-hyperellipsoid": lambda m, x: sum(
+        sum(v * v for v in x[: i + 1]) for i in range(len(x))
+    ),
+    "booth": lambda m, x: (x[0] + 2 * x[1] - 7) ** 2 + (2 * x[0] + x[1] - 5) ** 2,
+    "de-jong5": lambda m, x: dejong_five(x),
+    "forrester": lambda m, x: (6 * x[0] - 2) ** 2 * np.sin(12 * x[0] - 4),
+    "forrester-low-fidelity": lambda m, x: (
+        0.5 * reference(m, "forrester", x) + 10 * (x[0] - 0.5) + 5
+    ),
+}
+
+
 def reference(module, name, x):
     if name == "powell" and len(x) > 4:
         return sum(module.Powell().fun(x[i : i + 4]) for i in range(0, len(x), 4))
     if name in MAPPING:
-        obj = getattr(module, MAPPING[name])(len(x))
-        if name == "hartmann3":
-            obj.p[3, 0] = 0.0381  # SFU coefficient; SciPy uses 0.03815.
-        if name == "shekel":
-            obj.A[6] = [5, 3, 5, 3]  # SFU row; SciPy has [5, 5, 3, 3].
-        result = obj.fun(x)
-        if name == "colville":
-            # SciPy squares x2 in its first term; SFU squares x1.
-            result += 100 * ((x[0] ** 2 - x[1]) ** 2 - (x[0] - x[1] ** 2) ** 2)
-        if name == "langermann":
-            result = -result  # SFU's displayed positive sum.
-        if name == "schwefel":
-            result += len(x) * (418.9829 - 418.982887)
-        return result
-    if name == "hartmann4":
-        obj = module.Hartmann6()
-        obj.a, obj.p = obj.a[:, :4], obj.p[:, :4]
-        return (1.1 + obj.fun(x)) / 0.839
-    if name == "hartmann6-rescaled":
-        return (reference(module, "hartmann6", x) - 2.58) / 1.94
-    if name == "branin-rescaled":
-        return (
-            reference(module, "branin", np.array([15 * x[0] - 5, 15 * x[1]])) - 54.81
-        ) / 51.95
-    if name == "branin-modified":
-        return reference(module, "branin", x) + 5 * x[0]
-    if name == "goldstein-price-rescaled":
-        return (np.log(reference(module, "goldstein-price", 4 * x - 2)) - 8.693) / 2.427
-    if name == "rosenbrock4-rescaled":
-        return (reference(module, "rosenbrock", 15 * x - 5) - 382700) / 375500
-    if name == "sphere6-rescaled":
-        return (sum(2 ** (i + 1) * v * v for i, v in enumerate(x)) - 1745) / 899
-    if name == "gramacy-lee":
-        return np.sin(10 * np.pi * x[0]) / (2 * x[0]) + (x[0] - 1) ** 4
-    if name == "levy":
-        w = 1 + (x - 1) / 4
-        return (
-            np.sin(np.pi * w[0]) ** 2
-            + sum((v - 1) ** 2 * (1 + 10 * np.sin(np.pi * v + 1) ** 2) for v in w[:-1])
-            + (w[-1] - 1) ** 2 * (1 + np.sin(2 * np.pi * w[-1]) ** 2)
-        )
-    if name == "sum-squares":
-        return sum((i + 1) * v * v for i, v in enumerate(x))
-    if name == "rotated-hyperellipsoid":
-        return sum(sum(v * v for v in x[: i + 1]) for i in range(len(x)))
-    if name == "booth":
-        return (x[0] + 2 * x[1] - 7) ** 2 + (2 * x[0] + x[1] - 5) ** 2
-    if name == "de-jong5":
-        centers = [(a, b) for b in [-32, -16, 0, 16, 32] for a in [-32, -16, 0, 16, 32]]
-        return 1 / (
-            1 / 500
-            + sum(
-                1 / (i + 1 + (x[0] - a) ** 6 + (x[1] - b) ** 6)
-                for i, (a, b) in enumerate(centers)
-            )
-        )
-    if name == "forrester":
-        return (6 * x[0] - 2) ** 2 * np.sin(12 * x[0] - 4)
-    if name == "forrester-low-fidelity":
-        return 0.5 * reference(module, "forrester", x) + 10 * (x[0] - 0.5) + 5
+        return mapped_fun(module, name, x)
+    if name in CUSTOM:
+        return CUSTOM[name](module, x)
     raise ValueError(name)
+
+
+def rule_dims(rule, re_mod):
+    if "Multiple_of" in rule:
+        return [4, 8, 12]
+    if rule == "any" or "At_least" in rule:
+        return [2, 5, 12]
+    return [2 if rule == "two" else int(re_mod.search(r"\d+", rule)[0])]
+
+
+def sample_rows(module, name, n):
+    out = []
+    for sample in range(5):
+        x = np.array([(((i + 3) * 17 + sample * 23) % 97 + 1) / 100 for i in range(n)])
+        if sample >= 3:
+            x[::2] *= -1
+        expected = float(reference(module, name, x))
+        assert np.isfinite(expected), (name, x)
+        coords = ",".join(format(v, ".17g") for v in x)
+        out.append(f"{name}\t{n}\t{coords}\t{expected:.17g}")
+    return out
 
 
 def generate(module):
@@ -163,28 +202,8 @@ def generate(module):
     )
     rows = [f"# SciPy revision {REVISION}", "# id\tdimension\tcoordinates\texpected"]
     for name, rule in entries:
-        dimensions = (
-            [2, 5, 12]
-            if rule == "any" or "At_least" in rule
-            else [2 if rule == "two" else int(re.search(r"\d+", rule)[0])]
-        )
-        if "Multiple_of" in rule:
-            dimensions = [4, 8, 12]
-        for n in dimensions:
-            for sample in range(5):
-                # Fixed rational points: no dependence on random generator versions.
-                x = np.array(
-                    [(((i + 3) * 17 + sample * 23) % 97 + 1) / 100 for i in range(n)]
-                )
-                if sample >= 3:
-                    x[::2] *= -1
-                expected = float(reference(module, name, x))
-                assert np.isfinite(expected), (name, x)
-                rows.append(
-                    f"{name}\t{n}\t"
-                    + ",".join(format(v, ".17g") for v in x)
-                    + f"\t{expected:.17g}"
-                )
+        for n in rule_dims(rule, re):
+            rows.extend(sample_rows(module, name, n))
     pathlib.Path(__file__).with_name("reference.tsv").write_text("\n".join(rows) + "\n")
     print(f"Generated {len(rows) - 2} reference cases for {len(entries)} functions.")
 

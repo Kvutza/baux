@@ -7,7 +7,6 @@
 use baux::artifact::{cbor, runs::digest};
 use baux::semantics::numerical::{self, Trace};
 use deser::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -116,7 +115,7 @@ fn verify(path: &Path, sha256: &str, bytes: u64) -> Result<(), String> {
         return Ok(());
     }
     let mut input = File::open(path).map_err(|e| e.to_string())?;
-    let mut hash = Sha256::new();
+    let mut buf_vec = Vec::with_capacity(bytes as usize);
     let mut buffer = [0u8; 65536];
     let mut total = 0u64;
     loop {
@@ -128,9 +127,9 @@ fn verify(path: &Path, sha256: &str, bytes: u64) -> Result<(), String> {
         if total > bytes {
             return Err("numerical artifact grew while verifying".into());
         }
-        hash.update(&buffer[..size]);
+        buf_vec.extend_from_slice(&buffer[..size]);
     }
-    if total != bytes || format!("{:x}", hash.finalize()) != sha256 {
+    if total != bytes || digest(&buf_vec) != sha256 {
         return Err(format!(
             "numerical artifact digest changed: {}",
             path.display()
@@ -239,7 +238,7 @@ pub fn prepare(root: &Path, library: &Path, provenance: &Provenance) -> Result<R
     let (temp, mut output) = temporary(&blobs)?;
     let copied: Result<Record, String> = (|| {
         let mut input = File::open(library).map_err(|e| e.to_string())?;
-        let mut hash = Sha256::new();
+        let mut captured = Vec::with_capacity(meta.len() as usize);
         let mut buffer = [0u8; 65536];
         let mut total = 0u64;
         loop {
@@ -251,12 +250,12 @@ pub fn prepare(root: &Path, library: &Path, provenance: &Provenance) -> Result<R
             if total > MAX_IMAGE {
                 return Err("numerical image grew beyond limit".into());
             }
-            hash.update(&buffer[..size]);
+            captured.extend_from_slice(&buffer[..size]);
             output
                 .write_all(&buffer[..size])
                 .map_err(|e| e.to_string())?;
         }
-        let sha256 = format!("{:x}", hash.finalize());
+        let sha256 = digest(&captured);
         if total != meta.len() {
             return Err("numerical build image changed while capturing".into());
         }

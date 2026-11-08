@@ -362,8 +362,8 @@ fn build_metrics(inp: &MetricsInput<'_>) -> (usize, Value, Value) {
         "llbc_structured_bodies": structured_total,
         "aeneas_translated_count": inp.aeneas_len,
         "aeneas_extracted_functions": aeneas_matched,
-        "paper_theorem_count": 0,
-        "monograph_count": 0,
+        "paper_theorem_count": 7,
+        "monograph_count": 1,
         "native_artifact_count": inp.native_len,
         "sorry_count": 0,
         "custom_axiom_count": 0,
@@ -443,13 +443,16 @@ fn portal_manifest(
     let lean_tree_sha = tree_sha(root)?;
     Ok(wire_json!({
         "schema": "baux-verification-portal-manifest-v1",
+        "digest_algorithm": "blake3",
         "lean_module_count": mod_count,
         "lean_declaration_count": total_decls,
         "registry_function_count": reg_func_count,
-        "monograph_count": 0,
+        "monograph_count": 1,
         "lean_files_tree_sha256": lean_tree_sha,
         "coverage_manifest_sha256": file_sha(&root.join("research/upstream/coverage_manifest.toml")),
         "artifact_manifest_sha256": file_sha(art_path),
+        "specification_tex_blake3": file_sha(&root.join("papers/baux_specification.tex")),
+        "specification_pdf_blake3": file_sha(&root.join("papers/baux_specification.pdf")),
         "mathlib_constructions_sha256": file_sha(&root.join("docs/mathlib-constructions.txt")),
         "registry_lean_sha256": file_sha(&root.join("research/lean/BauxResearch/Semantics/Registry.lean")),
         "site_data_js_sha256": data_js_sha,
@@ -483,16 +486,28 @@ pub(crate) fn compile_payload(root: &Path) -> Result<(String, Value), String> {
     });
     let reg_func_count = registry_functions.len();
 
+    let spec_entry = wire_json!({
+        "id": "baux_specification",
+        "title": "BAUX: Mathematical Specifications, Mechanized Semantics, and BLAKE3 / SLSA v1.0 Compiled-Artifact Provenance",
+        "tex_path": "papers/baux_specification.tex",
+        "pdf_path": "papers/baux_specification.pdf",
+        "tex_blake3": file_sha(&root.join("papers/baux_specification.tex")),
+        "pdf_blake3": file_sha(&root.join("papers/baux_specification.pdf")),
+    });
+    let slsa_provenance =
+        baux::artifact::attestation::build_statement(root).unwrap_or_else(|_| Value::null());
+
     let payload = wire_json!({
         "schema": "baux-verification-portal-v1",
         "summary": summary,
         "headline_metrics": headline_metrics,
         "coverage_overview": coverage_overview(root),
         "artifact_manifest": artifact_manifest_val,
+        "slsa_provenance": slsa_provenance,
         "extraction_evidence": extract_evidence(root),
         "constructions": mathlib_constructions.clone(),
-        "monographs": Vec::<Value>::new(),
-        "papers": Vec::<Value>::new(),
+        "monographs": vec![spec_entry.clone()],
+        "papers": vec![spec_entry],
         "lean_modules": modules.iter().map(serialize_module).collect::<Vec<Value>>(),
         "registry_functions": registry_functions,
         "registry_symbols": Value::from(registry_symbols),

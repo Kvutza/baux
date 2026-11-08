@@ -2,7 +2,6 @@
 
 use baux::artifact::json::{self, Value};
 use deser::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::fs::{self, File};
 use std::io::Write;
@@ -43,7 +42,7 @@ pub fn field<'a>(value: &'a Value, key: &str) -> &'a str {
 }
 
 pub fn digest(bytes: &[u8]) -> String {
-    format!("{:x}", Sha256::digest(bytes))
+    baux::artifact::blake3::hash_hex(bytes)
 }
 
 /// Locate the common repository owner without depending on Git or a Beads ID.

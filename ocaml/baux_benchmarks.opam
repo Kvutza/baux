@@ -18,6 +18,8 @@ depends: [
   "hardcaml" {= "v0.18~preview.130.106+341"}
   "yojson" {= "2.2.2+ox"}
   "core_bench" {= "v0.18~preview.130.106+341"}
+  "core" {= "v0.18~preview.130.106+341"}
+  "core_unix" {= "v0.18~preview.130.106+341"}
   "base_quickcheck" {= "v0.18~preview.130.106+341" & with-test}
   "base" {= "v0.18~preview.130.106+341"}
   "parallel" {= "v0.18~preview.130.106+341"}

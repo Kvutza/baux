@@ -113,7 +113,7 @@ let integer_reference d sample =
          delta * delta)
        sample.x)
 
-let simulate ?(bubbles = false) d circuit samples =
+let simulate ?sim ?(bubbles = false) d circuit samples =
   validate d;
   Array.iter
     (fun s ->
@@ -122,7 +122,9 @@ let simulate ?(bubbles = false) d circuit samples =
       Array.iter (fun x -> ignore (quantize d x)) s.x;
       Array.iter (fun x -> ignore (quantize d x)) s.y)
     samples;
-  let sim = Cyclesim.create circuit in
+  let sim =
+    match sim with Some sim -> sim | None -> Cyclesim.create circuit
+  in
   let port = Cyclesim.in_port sim in
   let clear = port "clear" and valid = port "valid" in
   let first = port "first" and last = port "last" in

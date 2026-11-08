@@ -1,0 +1,28 @@
+version = 1
+experiment = "hardcaml-nested-scaling"
+# Controlled circuit/optimizer diagnostic; not a market or FlowLOB model.
+dimensions = [16, 64]
+seeds = [17, 29]
+budgets = [4, 8]
+methods = ["fixed", "random", "baux"]
+bits = [4, 8, 12, 16, 20]
+lanes = [1, 2, 4, 8, 16]
+pipelines = [false, true]
+# Abrupt change and recurrence; algorithms receive losses, not these labels.
+target-seeds = [101, 101, 203, 203, 101, 101]
+inner-evaluations = 64
+cycle-budget = 256
+cache-capacity = 8
+workers = 2
+
+[inner]
+algorithm = "bayesian-search"
+candidates = 64
+arms = 1
+acquisition = "thompson"
+
+[outer]
+algorithm = "bayesian-search"
+candidates = 64
+arms = 1
+acquisition = "thompson"

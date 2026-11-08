@@ -1,6 +1,38 @@
 open Baux_hardware
 
 let run = function
+  | [ "flow-profile"; width; depth; heads ] ->
+      let model =
+        {
+          Flow_model.levels = 20;
+          steps = 32;
+          width = int_of_string width;
+          depth = int_of_string depth;
+          heads = int_of_string heads;
+          expansion = 4;
+        }
+      in
+      let design =
+        {
+          Flow_core.bits = 28;
+          lanes = 8;
+          banks = 8;
+          pipeline = true;
+          queue = 4;
+        }
+      in
+      let result = Flow_plan.profile model design 1 1 in
+      let result =
+        match result with
+        | `Assoc fields ->
+            `Assoc (("design", `String (Flow_core.name design)) :: fields)
+        | _ -> result
+      in
+      print_endline (Yojson.Basic.to_string result)
+  | [ "flow-worker"; capacity ] -> Flow_worker.serve (int_of_string capacity)
+  | [ "matvec-worker"; capacity ] ->
+      Matvec_search.serve (int_of_string capacity)
+  | [ "worker"; capacity ] -> Search.serve (int_of_string capacity)
   | [ "space"; source ] ->
       Experiment.load source |> Experiment.space |> Yojson.Basic.to_string
       |> print_endline
@@ -23,8 +55,9 @@ let run = function
       print_endline (Yojson.Basic.to_string result)
   | _ ->
       invalid_arg
-        "Usage: space CONFIG | resolve CONFIG OUTPUT | experiment CONFIG \
-         OUTPUT_DIR | evaluate CONFIG BITS LANES PIPELINE OUTPUT_DIR"
+        "Usage: worker CACHE_CAPACITY | space CONFIG | resolve CONFIG OUTPUT | \
+         experiment CONFIG OUTPUT_DIR | evaluate CONFIG BITS LANES PIPELINE \
+         OUTPUT_DIR"
 
 let () =
   try run (List.tl (Array.to_list Sys.argv))

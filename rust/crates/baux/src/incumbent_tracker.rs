@@ -1,74 +1,195 @@
-//! Incremental incumbent candidate tracker for TuRBO optimizers.
+//! Incremental incumbent candidate tracker parameterized over
+//! [`ObjectiveSense`].
+//!
+//! Replaces boolean state flags with an algebraic sum type (`TrackerMode`) and
+//! maintains top-$m$ candidates in a bounded min-heap
+//! (`BinaryHeap<WorstFirst>`) with niche-packed [`ObsId`] indices.
 
-use ndarray::{Array1, ArrayView2};
+use core::cmp::Ordering;
+use ndarray::{Array1, ArrayView1, ArrayView2};
+use std::collections::{BTreeSet, BinaryHeap};
+
+use crate::sense::{BetterScore, Maximize, Minimize, ObjectiveSense, ObsId, Sense, Target};
 
 const ALL_THRESHOLD: usize = 1_000_000_000;
 
-pub struct IncumbentTracker {
-    m: usize,
-    observation_count: usize,
-    all_indices: Vec<usize>,
-    max_y: f64,
-    max_indices: Vec<usize>,
-    max_initialized: bool,
-    top_entries: Vec<(usize, f64)>,
-    per_metric_entries: Vec<Vec<(usize, f64)>>,
-    use_all_candidates: bool,
-    use_noiseless_max: bool,
-    use_scalar_topm: bool,
+/// Heap entry ordered so the *worst* retained candidate sits at the top of a
+/// [`BinaryHeap`] (smallest [`BetterScore`], breaking ties by largest
+/// [`ObsId`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct WorstFirst {
+    score: BetterScore,
+    id: ObsId,
 }
 
-impl IncumbentTracker {
-    pub fn new(m: usize, noise_aware: bool, num_metrics: usize) -> Self {
-        assert!(m >= 1);
-        assert!(num_metrics >= 1);
-        let use_all_candidates = m >= ALL_THRESHOLD;
-        let use_noiseless_max = !use_all_candidates && num_metrics == 1 && !noise_aware;
-        let use_scalar_topm = !use_all_candidates && num_metrics == 1 && noise_aware;
-        let use_multi_topm = !use_all_candidates && num_metrics > 1;
-        let per_metric_entries = if use_multi_topm {
-            (0..num_metrics).map(|_| Vec::new()).collect()
+impl WorstFirst {
+    #[inline(always)]
+    fn is_better(id: ObsId, score: BetterScore, worst: Self) -> bool {
+        match score.cmp(&worst.score) {
+            Ordering::Greater => true,
+            Ordering::Less => false,
+            Ordering::Equal => id < worst.id,
+        }
+    }
+}
+
+impl PartialOrd for WorstFirst {
+    #[inline(always)]
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for WorstFirst {
+    #[inline(always)]
+    fn cmp(&self, other: &Self) -> Ordering {
+        other
+            .score
+            .cmp(&self.score)
+            .then_with(|| self.id.cmp(&other.id))
+    }
+}
+
+/// Algebraic state machine for incumbent candidate tracking.
+#[derive(Clone, Debug)]
+enum TrackerMode {
+    /// Retain all observation indices ($m \ge 10^9$).
+    AllCandidates { indices: Vec<ObsId> },
+    /// Retain exact ties at the best noiseless scalar observation.
+    NoiselessBest {
+        best: Option<(BetterScore, Vec<ObsId>)>,
+    },
+    /// Retain the top-$m$ noisy scalar candidates in $O(\log m)$ per update.
+    ScalarTopM {
+        m: usize,
+        heap: BinaryHeap<WorstFirst>,
+    },
+    /// Retain the union of top-$m$ candidates across $K$ objective columns.
+    MultiTopM {
+        m: usize,
+        heaps: Vec<BinaryHeap<WorstFirst>>,
+    },
+}
+
+impl TrackerMode {
+    fn new(m: usize, noise_aware: bool, num_metrics: usize) -> Self {
+        if m >= ALL_THRESHOLD {
+            Self::AllCandidates {
+                indices: Vec::new(),
+            }
+        } else if num_metrics == 1 && !noise_aware {
+            Self::NoiselessBest { best: None }
+        } else if num_metrics == 1 {
+            Self::ScalarTopM {
+                m,
+                heap: BinaryHeap::with_capacity(m),
+            }
         } else {
-            Vec::new()
-        };
-        Self {
-            m,
-            observation_count: 0,
-            all_indices: Vec::new(),
-            max_y: f64::NEG_INFINITY,
-            max_indices: Vec::new(),
-            max_initialized: false,
-            top_entries: Vec::new(),
-            per_metric_entries,
-            use_all_candidates,
-            use_noiseless_max,
-            use_scalar_topm,
+            Self::MultiTopM {
+                m,
+                heaps: (0..num_metrics)
+                    .map(|_| BinaryHeap::with_capacity(m))
+                    .collect(),
+            }
         }
     }
 
-    pub fn tell(&mut self, index: usize, y: &Array1<f64>) {
-        self.observation_count += 1;
-        if self.use_all_candidates {
-            self.all_indices.push(index);
-            return;
-        }
-        if self.use_noiseless_max {
-            let value = y[0];
-            if !self.max_initialized || value > self.max_y {
-                self.max_y = value;
-                self.max_indices = vec![index];
-                self.max_initialized = true;
-            } else if value == self.max_y {
-                self.max_indices.push(index);
+    fn reset(&mut self) {
+        match self {
+            Self::AllCandidates { indices } => indices.clear(),
+            Self::NoiselessBest { best } => *best = None,
+            Self::ScalarTopM { heap, .. } => heap.clear(),
+            Self::MultiTopM { heaps, .. } => {
+                for heap in heaps {
+                    heap.clear();
+                }
             }
-            return;
         }
-        if self.use_scalar_topm {
-            Self::push_m(&mut self.top_entries, index, y[0], self.m);
-            return;
+    }
+}
+
+/// Sense-parametric incremental incumbent tracker.
+#[derive(Clone, Debug)]
+pub struct GenericTracker<O: ObjectiveSense = Sense> {
+    observation_count: usize,
+    mode: TrackerMode,
+    sense: O,
+}
+
+/// Default runtime-configurable incumbent tracker.
+pub type IncumbentTracker = GenericTracker<Sense>;
+/// Compile-time maximizing incumbent tracker.
+pub type MaxTracker = GenericTracker<Maximize>;
+/// Compile-time minimizing incumbent tracker.
+pub type MinTracker = GenericTracker<Minimize>;
+/// Compile-time target-matching incumbent tracker.
+pub type TargetTracker = GenericTracker<Target>;
+
+impl IncumbentTracker {
+    pub fn new(m: usize, noise_aware: bool, num_metrics: usize) -> Self {
+        Self::with_sense(m, noise_aware, num_metrics, Sense::Maximize)
+    }
+
+    pub fn with_sense(m: usize, noise_aware: bool, num_metrics: usize, sense: Sense) -> Self {
+        Self::with_objective(m, noise_aware, num_metrics, sense)
+    }
+}
+
+impl<O: ObjectiveSense> GenericTracker<O> {
+    pub fn with_objective(m: usize, noise_aware: bool, num_metrics: usize, sense: O) -> Self {
+        assert!(m >= 1);
+        assert!(num_metrics >= 1);
+        Self {
+            observation_count: 0,
+            mode: TrackerMode::new(m, noise_aware, num_metrics),
+            sense,
         }
-        for (col, entries) in self.per_metric_entries.iter_mut().enumerate() {
-            Self::push_m(entries, index, y[col], self.m);
+    }
+
+    #[inline(always)]
+    pub fn sense(&self) -> O {
+        self.sense
+    }
+
+    pub fn tell(&mut self, index: usize, y: &Array1<f64>) {
+        self.tell_view(index, y.view());
+    }
+
+    pub fn tell_slice(&mut self, index: usize, y: &[f64]) {
+        self.tell_view(index, ArrayView1::from(y));
+    }
+
+    pub fn tell_view(&mut self, index: usize, y: ArrayView1<'_, f64>) {
+        let id = ObsId::new(index);
+        self.observation_count += 1;
+        let sense = self.sense;
+        match &mut self.mode {
+            TrackerMode::AllCandidates { indices } => {
+                indices.push(id);
+            }
+            TrackerMode::NoiselessBest { best } => {
+                let score = sense.score(y[0]);
+                match best {
+                    None => *best = Some((score, vec![id])),
+                    Some((best_score, ids)) => match score.cmp(best_score) {
+                        Ordering::Greater => {
+                            *best_score = score;
+                            ids.clear();
+                            ids.push(id);
+                        }
+                        Ordering::Equal => ids.push(id),
+                        Ordering::Less => {}
+                    },
+                }
+            }
+            TrackerMode::ScalarTopM { m, heap } => {
+                Self::push_heap(heap, id, sense.score(y[0]), *m);
+            }
+            TrackerMode::MultiTopM { m, heaps } => {
+                for (col, heap) in heaps.iter_mut().enumerate() {
+                    Self::push_heap(heap, id, sense.score(y[col]), *m);
+                }
+            }
         }
     }
 
@@ -76,26 +197,25 @@ impl IncumbentTracker {
         if self.observation_count == 0 {
             return Vec::new();
         }
-        if self.use_all_candidates {
-            let mut out = self.all_indices.clone();
-            out.sort_unstable();
-            return out;
-        }
-        if self.use_noiseless_max {
-            let mut out = self.max_indices.clone();
-            out.sort_unstable();
-            return out;
-        }
-        if self.use_scalar_topm {
-            return Self::sorted_indices(&self.top_entries);
-        }
-        let mut union: std::collections::BTreeSet<usize> = std::collections::BTreeSet::new();
-        for entries in &self.per_metric_entries {
-            for idx in Self::sorted_indices(entries) {
-                union.insert(idx);
+        match &self.mode {
+            TrackerMode::AllCandidates { indices } => Self::ids_sorted(indices.iter().copied()),
+            TrackerMode::NoiselessBest { best } => match best {
+                Some((_, ids)) => Self::ids_sorted(ids.iter().copied()),
+                None => Vec::new(),
+            },
+            TrackerMode::ScalarTopM { heap, .. } => {
+                Self::ids_sorted(heap.iter().map(|entry| entry.id))
+            }
+            TrackerMode::MultiTopM { heaps, .. } => {
+                let mut union = BTreeSet::new();
+                for heap in heaps {
+                    for entry in heap {
+                        union.insert(entry.id.index());
+                    }
+                }
+                union.into_iter().collect()
             }
         }
-        union.into_iter().collect()
     }
 
     pub fn observation_count(&self) -> usize {
@@ -104,33 +224,44 @@ impl IncumbentTracker {
 
     pub fn reset(&mut self) {
         self.observation_count = 0;
-        self.all_indices.clear();
-        self.max_y = f64::NEG_INFINITY;
-        self.max_indices.clear();
-        self.max_initialized = false;
-        self.top_entries.clear();
-        for entries in &mut self.per_metric_entries {
-            entries.clear();
-        }
+        self.mode.reset();
     }
 
+    /// Zero-copy rebuild over an observation matrix view without per-row heap
+    /// allocation.
     pub fn rebuild(&mut self, y_obs: &ArrayView2<f64>) {
         self.reset();
-        if y_obs.nrows() == 0 {
-            return;
-        }
         for i in 0..y_obs.nrows() {
-            let row = y_obs.row(i).to_owned();
-            self.tell(i, &row);
+            self.tell_view(i, y_obs.row(i));
         }
     }
 
+    #[inline]
+    fn push_heap(heap: &mut BinaryHeap<WorstFirst>, id: ObsId, score: BetterScore, m: usize) {
+        if heap.len() < m {
+            heap.push(WorstFirst { score, id });
+        } else if let Some(&worst) = heap.peek() {
+            if WorstFirst::is_better(id, score, worst) {
+                heap.pop();
+                heap.push(WorstFirst { score, id });
+            }
+        }
+    }
+
+    fn ids_sorted(iter: impl Iterator<Item = ObsId>) -> Vec<usize> {
+        let mut out: Vec<usize> = iter.map(ObsId::index).collect();
+        out.sort_unstable();
+        out
+    }
+
+    #[cfg(test)]
     fn push_m(entries: &mut Vec<(usize, f64)>, index: usize, value: f64, m: usize) {
         entries.push((index, value));
         entries.sort_by(|&(ia, va), &(ib, vb)| vb.total_cmp(&va).then_with(|| ia.cmp(&ib)));
         entries.truncate(m);
     }
 
+    #[cfg(test)]
     fn sorted_indices(entries: &[(usize, f64)]) -> Vec<usize> {
         let mut out: Vec<usize> = entries.iter().map(|(i, _)| *i).collect();
         out.sort_unstable();
@@ -213,6 +344,21 @@ mod tests {
             t.tell(i, &array![v]);
         }
         assert_eq!(t.ask(), vec![0, 1]);
+    }
+
+    #[test]
+    fn sense_tracker() {
+        let mut min_t = MinTracker::with_objective(2, true, 1, Minimize);
+        for (i, v) in [(0, 0.9), (1, -2.5), (2, 0.1), (3, -5.0)] {
+            min_t.tell_slice(i, &[v]);
+        }
+        assert_eq!(min_t.ask(), vec![1, 3]);
+
+        let mut tgt = TargetTracker::with_objective(1, false, 1, Target(10.0));
+        tgt.tell_slice(0, &[12.0]);
+        tgt.tell_slice(1, &[9.8]);
+        tgt.tell_slice(2, &[10.5]);
+        assert_eq!(tgt.ask(), vec![1]);
     }
 
     #[test]

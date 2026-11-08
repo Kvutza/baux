@@ -89,15 +89,29 @@ pub struct IncumbentLedger {
 
 impl IncumbentLedger {
     pub fn new(config: &OptimizerConfig, num_metrics: usize) -> Self {
+        Self::with_sense(config, num_metrics, crate::sense::Sense::Maximize)
+    }
+
+    pub fn with_sense(
+        config: &OptimizerConfig,
+        num_metrics: usize,
+        sense: crate::sense::Sense,
+    ) -> Self {
         let tracker_m = match &config.surrogate {
             SurrogateConfig::ENN(enn_config) => enn_k(enn_config.k),
             SurrogateConfig::None => tracker_surrogate(),
         };
-        let tracker = IncumbentTracker::new(tracker_m, config.noise_aware, num_metrics);
+        let tracker =
+            IncumbentTracker::with_sense(tracker_m, config.noise_aware, num_metrics, sense);
         Self {
             tracker,
             current: None,
         }
+    }
+
+    #[inline(always)]
+    pub fn sense(&self) -> crate::sense::Sense {
+        self.tracker.sense()
     }
 
     pub fn reset(&mut self) {
@@ -107,6 +121,10 @@ impl IncumbentLedger {
 
     pub fn tell_row(&mut self, index: usize, y_row: &Array1<f64>) {
         self.tracker.tell(index, y_row);
+    }
+
+    pub fn tell_view(&mut self, index: usize, y_view: ndarray::ArrayView1<'_, f64>) {
+        self.tracker.tell_view(index, y_view);
     }
 
     pub fn unit_x(&self) -> Option<&Array1<f64>> {
@@ -129,6 +147,7 @@ impl IncumbentLedger {
         noise_aware: bool,
         rng: &mut dyn RngCore,
     ) -> Result<(), ENNError> {
+        use crate::sense::ObjectiveSense;
         let obs_count = posterior.obs_count();
         if obs_count == 0 {
             self.current = None;
@@ -147,17 +166,20 @@ impl IncumbentLedger {
         if regions.is_morbo() {
             return self.pick_morbo(&candidates, posterior, regions, num_dim, noise_aware, rng);
         }
+        let sense = self.tracker.sense();
         if noise_aware && let Some(surrogate) = posterior.surrogate() {
             let n_cand = candidates.len();
             let mut x_cand = Array2::zeros((n_cand, num_dim));
             for (r, &idx) in candidates.iter().enumerate() {
-                let x_row = posterior.x_row(idx)?;
+                let x_row = posterior.x_slice(idx)?;
                 for d in 0..num_dim {
                     x_cand[[r, d]] = x_row[d];
                 }
             }
             if let Ok(pred) = surrogate.predict(&x_cand.view()) {
-                let scores: Vec<f64> = (0..n_cand).map(|r| pred.mu[[r, 0]]).collect();
+                let scores: Vec<f64> = (0..n_cand)
+                    .map(|r| sense.score(pred.mu[[r, 0]]).raw())
+                    .collect();
                 let best_pos = argmax_tie(&scores, rng);
                 let best_idx = candidates[best_pos];
                 self.current = Some(IncumbentPoint {
@@ -171,15 +193,12 @@ impl IncumbentLedger {
         let scores: Vec<f64> = candidates
             .iter()
             .map(|&idx| {
-                match &posterior.backend {
-                    super::obs_access::PosteriorBackend::Model(s) => {
-                        s.y_row(idx).ok().map(|y| y[0])
-                    }
-                    super::obs_access::PosteriorBackend::Empirical { y_rows, .. } => {
-                        y_rows.get(idx).map(|y| y[0])
-                    }
-                }
-                .unwrap_or(f64::NEG_INFINITY)
+                posterior
+                    .y_slice(idx)
+                    .ok()
+                    .and_then(|y| y.first().copied())
+                    .map(|v| sense.score(v).raw())
+                    .unwrap_or(f64::NEG_INFINITY)
             })
             .collect();
         let best_pos = argmax_tie(&scores, rng);

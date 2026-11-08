@@ -1,9 +1,15 @@
-//! Backend-independent surrogate interface used by the optimizer state machine.
+//! Backend-independent surrogate interface and split capability traits.
+
+use std::borrow::Cow;
 
 use ndarray::{Array1, Array2, Array3, ArrayView2};
 use rand::RngCore;
 
 use crate::error::ENNError;
+pub use crate::metric_provider::LengthscaleProvider;
+pub use crate::obs_view::ObservationView;
+pub use crate::predictor::Predictor;
+pub use crate::surrogate_inc::IncrementalSurrogate;
 
 #[derive(Debug, Clone)]
 pub struct SurrogatePrediction {
@@ -64,6 +70,18 @@ pub trait Surrogate: Send + Sync {
         Err(ENNError::InvalidParameter(
             "y_row not supported for this surrogate".to_string(),
         ))
+    }
+
+    /// Zero-copy borrowed row slice when backed by in-memory storage, or owned
+    /// vector when reconstructed from disk.
+    fn x_slice(&self, idx: usize) -> Result<Cow<'_, [f64]>, ENNError> {
+        Ok(Cow::Owned(self.x_row(idx)?.into_raw_vec_and_offset().0))
+    }
+
+    /// Zero-copy borrowed target slice when backed by in-memory storage, or
+    /// owned vector when reconstructed from disk.
+    fn y_slice(&self, idx: usize) -> Result<Cow<'_, [f64]>, ENNError> {
+        Ok(Cow::Owned(self.y_row(idx)?.into_raw_vec_and_offset().0))
     }
 
     fn observations_y(&self) -> Result<Option<Array2<f64>>, ENNError> {

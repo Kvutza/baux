@@ -35,6 +35,7 @@ mod candidates_fast;
 pub mod capability;
 pub mod coding_outcome;
 pub mod config;
+pub mod coord_space;
 mod coordinate;
 mod coordinate_flat;
 mod coordinate_scalar;
@@ -67,6 +68,7 @@ pub mod knn;
 pub mod layout;
 pub mod metric_auto;
 pub mod metric_loo;
+pub mod metric_provider;
 mod metric_rng;
 #[allow(dead_code)]
 mod metric_rows;
@@ -79,13 +81,16 @@ pub mod muon;
 pub mod ndtri;
 pub use baux::semantics::neighbor as neighbor_rule;
 pub mod objective_observation;
+pub mod obs_view;
 pub mod optimizer;
 pub mod optimizer_config;
 mod optimizer_dispatch;
 pub mod optimizer_factory;
 mod optimizer_mu;
 pub mod params;
+pub mod pipeline;
 pub mod posterior;
+pub mod predictor;
 pub mod prelude;
 pub mod pretrain_data;
 pub mod procedural_pool;
@@ -94,20 +99,26 @@ pub mod quantization;
 #[cfg(any(test, all(target_os = "macos", feature = "metal")))]
 pub mod reconstruction;
 pub mod response_observation;
+pub mod scratch;
 pub mod search;
 #[path = "../semantics/src/lib.rs"]
 pub mod semantics;
 pub use semantics as baux_semantics;
+pub mod sense;
 pub mod stats;
 pub mod strategy;
 pub mod surrogate;
-mod surrogate_api;
+pub mod surrogate_api;
+pub mod surrogate_inc;
 pub mod tensor_store;
 pub mod text;
+pub mod ticket;
 pub mod tokamak;
 pub mod traits;
 pub mod trials;
 pub mod trust_region;
+pub mod typestate;
+pub mod unified_mem;
 pub mod util;
 pub mod weights;
 pub mod y_bounds;
@@ -141,6 +152,7 @@ pub use config::{
     DataRecipe, DistanceMetric, ExperimentKind, ExperimentSpec, ModelArchitecture,
     ObjectiveReference, ResidentEnnConfig, TrustRegionKind,
 };
+pub use coordinate::{CoordPoint, Coords, DomainFrame, DomainSpace, OwnedCoords, UnitSpace};
 pub use device::{Device, DeviceMemory};
 pub use device_posterior::{Posterior, PosteriorDraw};
 pub use draw::{Candidates, ConditionalDraw, DrawInternals, NeighborData};
@@ -157,7 +169,9 @@ pub use hash::{
 };
 pub use hypervolume::{hypervolume_max, hypervolume2d_max};
 pub use incremental_fit::{AddToken, IncrementalAsk, IncrementalFit};
-pub use incumbent_tracker::IncumbentTracker;
+pub use incumbent_tracker::{
+    GenericTracker, IncumbentTracker, MaxTracker, MinTracker, TargetTracker,
+};
 pub use index::{ENNIndex, Index, IndexDriver, IndexError, IndexKind};
 pub use layout::EnnLayout;
 pub use metric_auto::MetricLearner;
@@ -165,6 +179,7 @@ pub use model::ENN;
 pub use model::{EnnIndexAccess, EnnRowAccess, ModelOptions};
 pub use morbo::{MorboTRSettings, MorboTrustRegion, Rescalarize};
 pub use ndtri::{ndtri, z_crit};
+pub use objective_observation::ConstObservation;
 pub use optimizer::obs_access::ObsAccess;
 pub use optimizer::{BayesOptimizer, Telemetry};
 pub use optimizer_config::{
@@ -173,14 +188,27 @@ pub use optimizer_config::{
 };
 pub use optimizer_factory::{create_lhd, create_optimizer, enn_optimizer};
 pub use params::{ENNNormal, ENNParams, ParamsError, PosteriorFlags};
+pub use pipeline::{
+    AcqStage, Active, DesignPipe, Fitted, InitStage, ModelStage, PerturbStage, Pipeline,
+    ProposalTicket, SurrogatePipe, TypedOptimizer, TypedSurrogate, Unfitted, Warmup,
+};
 pub use posterior::{WeightedPosteriorData, compute_internals, conditional_internals};
 pub use pretrain_data::load_tokens as pretrain_tokens;
 pub use proposal_kernel::{CoordSystem, ProposalKernel};
+pub use scratch::{
+    AlignedBuffer, CacheLine, CandidateSoa, PageBlock, ScratchArena, ScratchScope, UnifiedBuffer,
+    UnifiedRead, UnifiedWrite,
+};
+pub use sense::{
+    BetterScore, EvalId, Lexicographic, Maximize, Minimize, ObjectiveSense, ObsId, RegionId, Sense,
+    Target,
+};
 pub use stats::WeightedStats;
 pub use strategy::Strategy;
 pub use surrogate::{
     ENNSurrogate, ENNSurrogateConfig, MetricLearning, Surrogate, SurrogatePrediction,
 };
+pub use surrogate_api::{IncrementalSurrogate, LengthscaleProvider, ObservationView, Predictor};
 pub use traits::PosteriorComputation;
 pub use trust_region::{
     NoTrustRegion, TRLengthConfig, TrustRegionConfig, TrustRegionError, TurboTrustRegion,

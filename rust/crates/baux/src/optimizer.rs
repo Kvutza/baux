@@ -419,11 +419,14 @@ impl BayesOptimizer {
     }
 
     pub(crate) fn commit_observations(&mut self, delta: &ObservationDelta) {
+        let is_empirical = matches!(self.posterior.backend, PosteriorBackend::Empirical { .. });
         for i in 0..delta.x_new.nrows() {
-            let y_row: Array1<f64> = delta.y_new.row(i).to_owned();
-            self.incumbent.tell_row(delta.old_n + i, &y_row);
-            self.posterior
-                .push_empirical(delta.x_new.row(i).to_owned(), y_row);
+            let y_view = delta.y_new.row(i);
+            self.incumbent.tell_view(delta.old_n + i, y_view);
+            if is_empirical {
+                self.posterior
+                    .push_empirical(delta.x_new.row(i).to_owned(), y_view.to_owned());
+            }
         }
     }
 }

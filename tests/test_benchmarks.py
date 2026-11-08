@@ -1,5 +1,4 @@
 import numpy as np
-
 from baux.benchmarks import Ackley, DoubleAckley
 
 
@@ -58,7 +57,7 @@ def test_003():
     x = np.zeros((5, 5))
     try:
         obj(x)
-        assert False, "Should have raised ValueError"
+        raise AssertionError("Should have raised ValueError")
     except ValueError:
         pass
 

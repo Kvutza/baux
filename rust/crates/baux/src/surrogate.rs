@@ -30,6 +30,11 @@ pub struct ENNSurrogateConfig {
     pub metric_learning: MetricLearning,
     pub tied_dims: Vec<Vec<usize>>,
     pub unscaled_dims: Vec<usize>,
+    pub geometry: crate::semantics::neighbor::DistanceMetric,
+    pub stiefel: Option<crate::semantics::stiefel::Stiefel>,
+    pub affine: Option<crate::semantics::affine::Affine>,
+    pub stiefel_rank: Option<usize>,
+    pub calibrate_alpha: Option<f64>,
 }
 
 impl Default for ENNSurrogateConfig {
@@ -47,6 +52,11 @@ impl Default for ENNSurrogateConfig {
             metric_learning: MetricLearning::None,
             tied_dims: Vec::new(),
             unscaled_dims: Vec::new(),
+            geometry: crate::semantics::neighbor::DistanceMetric::Euclidean,
+            stiefel: None,
+            affine: None,
+            stiefel_rank: None,
+            calibrate_alpha: None,
         }
     }
 }
@@ -63,6 +73,7 @@ impl ENNSurrogateConfig {
     }
 }
 
+#[derive(Clone)]
 pub struct ENNSurrogate {
     config: ENNSurrogateConfig,
     model: Option<ENN>,
@@ -107,29 +118,58 @@ impl ENNSurrogate {
                 y_bounds: self.config.y_bounds.clone(),
             },
         )?;
-        if matches!(
-            (&self.config.storage, self.config.metric_learning),
-            (EnnStorage::Disk, MetricLearning::Auto)
-        ) {
+        if self.config.metric_learning == MetricLearning::Auto {
             let seed = rng.next_u64();
-            model.learn_metric(self.config.tied_dims.clone(), seed)?;
+            model.enable_metric(self.config.tied_dims.clone(), seed)?;
         }
         if !self.config.tied_dims.is_empty() && model.tied_groups().is_empty() {
             model.set_tied(self.config.tied_dims.clone())?;
         }
         if !self.config.unscaled_dims.is_empty()
-            && (self.config.scale_x
-                || matches!(
-                    (&self.config.storage, self.config.metric_learning),
-                    (EnnStorage::Disk, MetricLearning::Auto)
-                ))
+            && (self.config.scale_x || self.config.metric_learning == MetricLearning::Auto)
         {
             model.set_unscaled(self.config.unscaled_dims.clone())?;
+        }
+        if self.config.geometry != crate::semantics::neighbor::DistanceMetric::Euclidean {
+            model = model.with_geometry(self.config.geometry);
+        }
+        if let Some(st) = self.config.stiefel.clone() {
+            model = model.with_stiefel(st)?;
+        }
+        if let Some(aff) = self.config.affine.clone() {
+            model = model.with_affine(aff)?;
         }
         Ok(model)
     }
 
+    fn refresh_online(&mut self) -> Result<(), ENNError> {
+        let Some(p) = self.params else {
+            return Ok(());
+        };
+        let rank = self
+            .config
+            .stiefel
+            .is_none()
+            .then_some(self.config.stiefel_rank)
+            .flatten();
+        let cal = self
+            .config
+            .affine
+            .is_none()
+            .then_some(self.config.calibrate_alpha)
+            .flatten();
+        if let Some(model) = self.model.as_mut() {
+            model.refresh_codomain(&p, rank, cal)?;
+        }
+        Ok(())
+    }
+
     fn run_fitter(&mut self, rng: &mut rand::rngs::StdRng) -> Result<(), ENNError> {
+        if self.config.metric_learning == MetricLearning::Auto {
+            if let Some(model) = self.model.as_mut() {
+                model.refresh_finite(self.config.k.max(1) as usize, &self.config.unscaled_dims)?;
+            }
+        }
         if self.config.num_candidates == 0 || self.config.num_samples == 0 {
             if self.params.is_none() {
                 self.params = Some(
@@ -137,20 +177,11 @@ impl ENNSurrogate {
                         .map_err(|e| ENNError::InvalidParameter(e.to_string()))?,
                 );
             }
-            return Ok(());
+            return self.refresh_online();
         }
         if self.fitter.is_none() {
-            let model = self
-                .model
-                .as_ref()
-                .ok_or_else(|| ENNError::InvalidParameter("Surrogate not fitted".to_string()))?;
-            let n = model.len();
-            let indices: Vec<usize> = (0..n).collect();
-            let (train_x, train_y, train_yvar) = model.natural_rows(&indices)?;
             let mut fitter = ENNFitter::new(self.config.k, self.config.infer_aleatoric_variance)
                 .with_bounds(self.config.y_bounds.clone());
-            let yvar_view = train_yvar.as_ref().map(|v| v.view());
-            fitter.tell(&train_x.view(), &train_y.view(), yvar_view.as_ref())?;
             if let Some(p) = self.params {
                 fitter.set_params(p);
             }
@@ -169,71 +200,7 @@ impl ENNSurrogate {
             rng,
         )?;
         self.params = Some(p);
-        Ok(())
-    }
-
-    fn fit_internal(
-        &mut self,
-        x_new: &ArrayView2<f64>,
-        y_new: &ArrayView2<f64>,
-        yvar_new: Option<&ArrayView2<f64>>,
-        rng: &mut rand::rngs::StdRng,
-    ) -> Result<(), ENNError> {
-        // Large disk tells (stress seed chunks) must not run neighbor-based
-        // hyperparameter search: each fit query faults mmap pages and peak RSS
-        // grows with N. Tiny disk tells (--tell-all) must also skip once params
-        // exist: otherwise every row pays a full fitter.ask. y-stats still
-        // update; predict uses last/default params until a non-skipped
-        // tell refreshes.
-        const BULK_ROWS: usize = 4_096;
-        if let Some(model) = &mut self.model {
-            model.add(x_new, y_new, yvar_new)?;
-            if let Some(fitter) = self.fitter.as_mut() {
-                fitter.tell(x_new, y_new, yvar_new)?;
-            }
-            let is_disk = model.backend_driver() == IndexDriver::BpAnnDisk;
-            let bulk_disk = is_disk && x_new.nrows() >= BULK_ROWS;
-            // Skip HP search on disk bulk tells, and on subsequent disk tells
-            // after the first fit (streaming / --tell-all thrash).
-            let skip_fit = bulk_disk || (is_disk && self.params.is_some());
-            // Drain pending before neighbor fit, or after large bulk appends so
-            // later search is not stuck with Θ(N) pending mmap scans.
-            if !skip_fit || bulk_disk {
-                model.ensure_sync()?;
-            }
-            if !skip_fit {
-                self.run_fitter(rng)?;
-            }
-            if !skip_fit || bulk_disk {
-                if let Some(model) = &self.model {
-                    model.index_access().release_pages()?;
-                }
-            }
-            return Ok(());
-        }
-        let mut fitter = ENNFitter::new(self.config.k, self.config.infer_aleatoric_variance)
-            .with_bounds(self.config.y_bounds.clone());
-        fitter.tell(x_new, y_new, yvar_new)?;
-        let model = self.construct_model(x_new, y_new, yvar_new, rng)?;
-        self.model = Some(model);
-        self.fitter = Some(fitter);
-        let skip_fit =
-            self.config.index_driver == IndexDriver::BpAnnDisk && x_new.nrows() >= BULK_ROWS;
-        if !skip_fit {
-            // First construct: sync+fit so subsequent disk streaming can skip.
-            if self.config.index_driver == IndexDriver::BpAnnDisk {
-                if let Some(model) = &self.model {
-                    model.ensure_sync()?;
-                }
-            }
-            self.run_fitter(rng)?;
-            if self.config.index_driver == IndexDriver::BpAnnDisk {
-                if let Some(model) = &self.model {
-                    model.index_access().release_pages()?;
-                }
-            }
-        }
-        Ok(())
+        self.refresh_online()
     }
 }
 
@@ -326,7 +293,10 @@ impl Surrogate for ENNSurrogate {
         rng.fill_bytes(&mut seed_bytes);
         let mut local_rng = rand::rngs::StdRng::from_seed(seed_bytes);
 
-        let model = self.construct_model(x, y, yvar, &mut local_rng)?;
+        let mut model = self.construct_model(x, y, yvar, &mut local_rng)?;
+        if self.config.metric_learning == MetricLearning::Auto {
+            model.refresh_finite(self.config.k.max(1) as usize, &self.config.unscaled_dims)?;
+        }
 
         let mut fitter = ENNFitter::new(self.config.k, self.config.infer_aleatoric_variance)
             .with_bounds(self.config.y_bounds.clone());
@@ -344,8 +314,7 @@ impl Surrogate for ENNSurrogate {
         self.params = Some(p);
         self.model = Some(model);
         self.fitter = Some(fitter);
-
-        Ok(())
+        self.refresh_online()
     }
 
     fn fit_append(
@@ -355,10 +324,40 @@ impl Surrogate for ENNSurrogate {
         yvar_new: Option<&ArrayView2<f64>>,
         rng: &mut dyn RngCore,
     ) -> Result<(), ENNError> {
+        const BULK_ROWS: usize = 4_096;
         let mut seed_bytes = [0u8; 32];
         rng.fill_bytes(&mut seed_bytes);
         let mut local_rng = rand::rngs::StdRng::from_seed(seed_bytes);
-        self.fit_internal(x_new, y_new, yvar_new, &mut local_rng)
+        let is_disk = self.config.index_driver == IndexDriver::BpAnnDisk;
+        let bulk_disk = is_disk && x_new.nrows() >= BULK_ROWS;
+        let skip_fit = if let Some(model) = &mut self.model {
+            model.add(x_new, y_new, yvar_new)?;
+            if let Some(fitter) = self.fitter.as_mut() {
+                fitter.tell(x_new, y_new, yvar_new)?;
+            }
+            bulk_disk || (is_disk && self.params.is_some())
+        } else {
+            let mut fitter = ENNFitter::new(self.config.k, self.config.infer_aleatoric_variance)
+                .with_bounds(self.config.y_bounds.clone());
+            fitter.tell(x_new, y_new, yvar_new)?;
+            self.model = Some(self.construct_model(x_new, y_new, yvar_new, &mut local_rng)?);
+            self.fitter = Some(fitter);
+            bulk_disk
+        };
+        if !skip_fit || bulk_disk {
+            if let Some(model) = &self.model {
+                model.ensure_sync()?;
+            }
+        }
+        if !skip_fit {
+            self.run_fitter(&mut local_rng)?;
+        }
+        if (!skip_fit || bulk_disk) && is_disk {
+            if let Some(model) = &self.model {
+                model.index_access().release_pages()?;
+            }
+        }
+        Ok(())
     }
 
     fn schedule_flush(&self) -> Result<(), ENNError> {
@@ -470,6 +469,10 @@ impl Surrogate for ENNSurrogate {
             Some(bounds) => crate::y_bounds::warp_y(*y, bounds),
             None => Ok(y.to_owned()),
         }
+    }
+
+    fn clone_box(&self) -> Result<BoxedSurrogate, ENNError> {
+        Ok(Box::new(self.clone()))
     }
 }
 
@@ -593,12 +596,30 @@ mod tests {
         assert_eq!(cloned.mu.shape(), &[2, 1]);
         assert_eq!(cloned.se.shape(), &[2, 1]);
         assert_eq!(cloned.mu[[1, 0]], 2.0);
-    }
 
-    #[test]
-    fn default_neighbors() {
-        let cfg = ENNSurrogateConfig::default();
-        assert!(cfg.k >= 1);
+        let config = ENNSurrogateConfig {
+            k: 2,
+            num_candidates: 4,
+            num_samples: 2,
+            ..Default::default()
+        };
+        let mut sur = ENNSurrogate::new(config);
+        let mut rng = StdRng::seed_from_u64(42);
+        let x = array![[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]];
+        let y = array![[0.0], [1.0], [2.0]];
+        sur.fit(&x.view(), &y.view(), None, &mut rng).unwrap();
+        let mut boxed = sur.clone_box().unwrap();
+        boxed
+            .fit_append(
+                &array![[1.0, 1.0]].view(),
+                &array![[10.0]].view(),
+                None,
+                &mut rng,
+            )
+            .unwrap();
+        assert_eq!(sur.observation_count(), Some(3));
+        assert_eq!(boxed.observation_count(), Some(4));
+        assert!(ENNSurrogateConfig::default().k >= 1);
     }
 
     #[test]

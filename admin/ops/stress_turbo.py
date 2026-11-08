@@ -9,7 +9,6 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-
 from baux.turbo.config.surrogate import NeighborIndex
 from ops.stress_disk import (
     DURATION_S_FMT,

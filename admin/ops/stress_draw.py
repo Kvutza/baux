@@ -6,7 +6,6 @@ import time
 from dataclasses import dataclass
 
 import numpy as np
-
 from baux.enn.enn_class import ENN
 from baux.enn.enn_fit import enn_fit
 from ops.stress_disk import (

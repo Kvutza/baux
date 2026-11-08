@@ -19,6 +19,7 @@ cuda = getattr(_ext, "cuda", None)
 
 hypervolume2d_max = _ext.hypervolume.hypervolume2d_max
 normal_hash = _ext.hash.normal_hash
+Key = _ext.hash.Key
 standardize_y = _ext.util.standardize_y
 pareto2d_max = _ext.util.pareto2d_max
 sobol_indices = _ext.util.sobol_indices
@@ -33,6 +34,7 @@ Posterior = getattr(_ext.model, "Posterior", None)
 Tensor = getattr(_ext.model, "Tensor", None)
 Device = getattr(_ext, "Device", None) or getattr(_ext.optimizer, "Device", None)
 ENNFitter = _ext.fit.ENNFitter
+fit_model = _ext.fit.fit_model
 subsample_loglik = _ext.fit.subsample_loglik
 row_loglik = _ext.fit.row_loglik
 BayesOptimizer = _ext.optimizer.BayesOptimizer
@@ -80,6 +82,7 @@ __all__ = [
     "ENNFitter",
     "ENNParams",
     "FlameEvaluator",
+    "Key",
     "MetalFlameEvaluator",
     "MetalQwenEvaluator",
     "ModelPackage",
@@ -104,6 +107,7 @@ __all__ = [
     "enn_optimizer",
     "enn_tr",
     "ensure_config_file",
+    "fit_model",
     "hypervolume2d_max",
     "normal_hash",
     "pareto2d_max",

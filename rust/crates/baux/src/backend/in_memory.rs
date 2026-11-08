@@ -19,6 +19,26 @@ pub struct InMemoryEnnBackend {
     index_synced_obs: Mutex<usize>,
 }
 
+impl Clone for InMemoryEnnBackend {
+    fn clone(&self) -> Self {
+        let empty_x = Array2::<f64>::zeros((0, self.num_dim));
+        let scale_x = self.index.scales_x();
+        let x_scale = self.index.scale_vec();
+        let index = ENNIndex::new(empty_x, self.num_dim, x_scale, scale_x, self.driver())
+            .expect("clone empty ENNIndex");
+        Self {
+            train_x_rows: self.train_x_rows.clone(),
+            train_y_rows: self.train_y_rows.clone(),
+            train_yvar_rows: self.train_yvar_rows.clone(),
+            num_dim: self.num_dim,
+            num_metrics: self.num_metrics,
+            index,
+            index_stale: Mutex::new(scale_x),
+            index_synced_obs: Mutex::new(0),
+        }
+    }
+}
+
 impl InMemoryEnnBackend {
     pub fn new(
         train_x: Array2<f64>,

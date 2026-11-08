@@ -52,7 +52,7 @@ class Layout:
     blocks: tuple[Block, ...]
 
     @classmethod
-    def from_torch(cls, params, *, zero_scale: float | None = None) -> "Layout":
+    def from_torch(cls, params, *, zero_scale: float | None = None) -> Layout:
         if not params or any(not isinstance(name, str) for name in params):
             raise ValueError("params must be a nonempty mapping of named tensors")
         names = tuple(sorted(params))

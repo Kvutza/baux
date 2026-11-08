@@ -2,17 +2,16 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-from morbo_objectives import separable_objective
-
 from baux import create_optimizer, turbo_enn
 from baux.turbo.config import (
     AcquisitionKind,
     CandidateConfig,
-    SurrogateFit,
     ENNSurrogate,
     MorboTrustRegion,
     MultiObjectiveConfig,
+    SurrogateFit,
 )
+from morbo_objectives import separable_objective
 
 pytest.importorskip("baux._rust")
 

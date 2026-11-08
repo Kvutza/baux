@@ -2,10 +2,10 @@
 
 import hashlib
 import json
-from pathlib import Path
 import re
 import subprocess
 import sys
+from pathlib import Path
 
 root = Path.cwd()
 output = Path(sys.argv[1])

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-
 from baux.turbo.config.surrogate import NeighborIndex
 
 pytestmark = pytest.mark.slow
@@ -54,7 +53,6 @@ def test_002(tmp_path):
 
 def test_003(tmp_path):
     from click.testing import CliRunner
-
     from ops.stress import cli
 
     work_dir = tmp_path / "enn_sample_cli"
@@ -76,7 +74,6 @@ def test_003(tmp_path):
 
 def test_004():
     from click.testing import CliRunner
-
     from ops.stress import cli
 
     result = CliRunner().invoke(
@@ -89,7 +86,6 @@ def test_004():
 
 def test_005():
     from click.testing import CliRunner
-
     from ops.stress import cli
 
     result = CliRunner().invoke(cli, ["sample"])
@@ -181,7 +177,6 @@ def test_007(tmp_path):
 
 def test_008(tmp_path):
     from click.testing import CliRunner
-
     from ops.stress import cli
 
     work_dir = tmp_path / "enn_sample_invalid"

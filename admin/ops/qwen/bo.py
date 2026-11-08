@@ -8,7 +8,6 @@ import time
 from pathlib import Path
 
 import click
-
 from ops.flame.objective import SolutionObjective
 
 from .bo_export import _ckptheader, _exportbest, _paired, _sha256file

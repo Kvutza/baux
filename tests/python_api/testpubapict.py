@@ -132,7 +132,6 @@ class TestPublicAPIExports:
 
     def test_010(self):
         import numpy as np
-
         from baux.experimental.multi_region import RegionalSearchLoop
 
         class BrokenState:

@@ -205,8 +205,8 @@ impl NeighborValueEstimator {
         })
     }
 
-    pub fn with_metric(mut self, metric: DistanceMetric) -> Self {
-        self.distance_metric = metric;
+    pub fn with_geometry(mut self, geometry: DistanceMetric) -> Self {
+        self.distance_metric = geometry;
         self
     }
 

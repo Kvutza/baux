@@ -107,6 +107,7 @@ def run(config: str | Path, output: str | Path) -> Path:
 
 @click.group(help=__doc__)
 def main() -> None:
+    """Entry point for the Baux CUDA command-line interface."""
     pass
 
 

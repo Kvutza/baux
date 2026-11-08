@@ -1,3 +1,5 @@
+"""Surrogate model configuration types for TuRBO optimizers."""
+
 from __future__ import annotations
 
 import os
@@ -6,7 +8,6 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
-
 from baux.index import (
     INDEX_NAMES,
     DistanceMetric,
@@ -18,11 +19,13 @@ from baux.index import (
 
 @dataclass(frozen=True)
 class GaussianProcess:
-    pass
+    """Configuration for a Gaussian process surrogate."""
 
 
 @dataclass(frozen=True)
 class SurrogateFit:
+    """Configuration for fitting surrogate model hyperparameters."""
+
     num_samples: int | None = None
     num_candidates: int | None = None
     infer_aleatoric_variance_scale: bool = True
@@ -38,6 +41,8 @@ class SurrogateFit:
 
 @dataclass(frozen=True)
 class ENNSurrogate:
+    """Configuration for an Epistemic Nearest Neighbors (ENN) surrogate."""
+
     k: int | None = None
     fit: SurrogateFit = field(default_factory=SurrogateFit)
     scale_x: bool = False
@@ -49,6 +54,12 @@ class ENNSurrogate:
     metric_learning: Any = "none"
     tied_dims: tuple[tuple[int, ...], ...] | None = None
     unscaled_dims: tuple[int, ...] | None = None
+    geometry: str = "euclidean"
+    local_k: int = 4
+    stiefel: Any = None
+    affine: Any = None
+    stiefel_rank: int | None = None
+    calibrate_alpha: float | None = None
 
     def __post_init__(self) -> None:
         ml = str(getattr(self.metric_learning, "value", self.metric_learning)).lower()
@@ -56,6 +67,13 @@ class ENNSurrogate:
             raise ValueError(f"Unknown metric_learning: {self.metric_learning!r}")
         if ml == "auto" and self.scale_x:
             raise ValueError("metric_learning='auto' requires scale_x=False")
+        geom = str(self.geometry).strip().lower()
+        if geom not in ("euclidean", "conformal", "hyperbolic", "wasserstein"):
+            raise ValueError(f"Unknown geometry: {self.geometry!r}")
+        if int(self.local_k) < 1:
+            raise ValueError(f"local_k must be >= 1, got {self.local_k}")
+        object.__setattr__(self, "geometry", geom)
+        object.__setattr__(self, "local_k", int(self.local_k))
         if self.y_bounds is not None:
             bounds = np.asarray(self.y_bounds, dtype=float)
             if bounds.ndim != 2 or bounds.shape[1] != 2:
@@ -66,10 +84,12 @@ class ENNSurrogate:
 
     @property
     def num_samples(self) -> int | None:
+        """Return the number of fitting samples configured on `fit`."""
         return self.fit.num_samples
 
     @property
     def num_candidates(self) -> int | None:
+        """Return the number of fitting candidates configured on `fit`."""
         return self.fit.num_candidates
 
 

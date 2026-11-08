@@ -25,6 +25,7 @@ pub fn pymodule_hypervolume(m: &Bound<'_, PyModule>) -> PyResult<()> {
 #[pymodule]
 #[pyo3(name = "hash")]
 pub fn pymodule_hash(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_class::<crate::py_hash::PyKey>()?;
     m.add_function(wrap_pyfunction!(crate::py_hash::normal_py, m)?)?;
     Ok(())
 }
@@ -59,6 +60,7 @@ pub fn pymodule_model(m: &Bound<'_, PyModule>) -> PyResult<()> {
 #[pyo3(name = "fit")]
 pub fn pymodule_fit(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<crate::py_fitter::PyENNFitter>()?;
+    m.add_function(wrap_pyfunction!(crate::py_fitter::fit_model, m)?)?;
     m.add_function(wrap_pyfunction!(crate::py_fit::subsample_py, m)?)?;
     m.add_function(wrap_pyfunction!(crate::py_fit::rows_py, m)?)?;
     Ok(())

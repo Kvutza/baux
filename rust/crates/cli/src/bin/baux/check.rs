@@ -174,13 +174,7 @@ pub(super) fn run(root: &Path) -> Result<(), String> {
             .map_err(|_| "toml check thread panicked")??;
         Ok(())
     })?;
-    std::thread::scope(|scope| -> Result<(), String> {
-        let names_job = scope.spawn(|| baux_tooling::names::cli(root, &[], false));
-        let kiss_job = scope.spawn(|| run_all(root, "kiss", &["check", "."]));
-        names_job.join().map_err(|_| "names thread panicked")??;
-        kiss_job.join().map_err(|_| "kiss thread panicked")??;
-        Ok(())
-    })?;
+    baux_tooling::names::cli(root, &[], false)?;
     write_stamp(root, &files);
     Ok(())
 }

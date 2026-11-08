@@ -1,3 +1,5 @@
+"""Internal arrays produced during ENN posterior draws."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -9,6 +11,8 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True)
 class DrawInternals:
+    """Intermediate neighbor weights and moments for an ENN draw."""
+
     idx: np.ndarray
     w_normalized: np.ndarray
     l2: np.ndarray

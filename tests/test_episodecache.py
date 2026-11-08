@@ -1,5 +1,4 @@
 import pytest
-
 from ops import pretrain
 
 

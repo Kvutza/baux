@@ -1,3 +1,5 @@
+"""Re-exports of ENN internal data structures."""
+
 from .draw_internals import DrawInternals
 from .neighbor_data import NeighborData
 from .weighted_stats import WeightedStats

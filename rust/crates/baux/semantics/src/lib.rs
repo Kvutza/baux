@@ -49,6 +49,12 @@ pub mod optimizer;
 pub use optimizer::*;
 
 #[cfg(not(feature = "cuda-device"))]
+#[path = "affine.rs"]
+pub mod affine;
+#[cfg(not(feature = "cuda-device"))]
+#[path = "categorical.rs"]
+pub mod categorical;
+#[cfg(not(feature = "cuda-device"))]
 #[path = "dispatch.rs"]
 pub mod dispatch;
 #[cfg(not(feature = "cuda-device"))]
@@ -61,6 +67,9 @@ pub mod hazard;
 #[path = "hnet.rs"]
 pub mod hnet;
 #[cfg(not(feature = "cuda-device"))]
+#[path = "key.rs"]
+pub mod key;
+#[cfg(not(feature = "cuda-device"))]
 #[path = "memory.rs"]
 pub mod memory;
 #[cfg(not(feature = "cuda-device"))]
@@ -72,6 +81,9 @@ pub mod numerical;
 #[cfg(not(feature = "cuda-device"))]
 #[path = "schedule.rs"]
 pub mod schedule;
+#[cfg(not(feature = "cuda-device"))]
+#[path = "stiefel.rs"]
+pub mod stiefel;
 #[cfg(not(feature = "cuda-device"))]
 #[path = "tensor.rs"]
 pub mod tensor;

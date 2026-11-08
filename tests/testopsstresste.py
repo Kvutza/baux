@@ -4,19 +4,19 @@ import re
 
 import numpy as np
 import pytest
-from click.testing import CliRunner
-
 from baux.turbo.config import UCBAcquisitionConfig
 from baux.turbo.config.surrogate import NeighborIndex
+from click.testing import CliRunner
 from ops.stress import (
     TURBO_ENN_NUM_FIT_SAMPLES,
     TURBO_ENN_NUM_INIT,
     enn_config,
     enn_header,
     enn_row,
-    enn_stress2,
     enn_stops,
+    enn_stress2,
 )
+
 from tests.opsstressclihelp import cli_rejects
 from tests.opsstresstehelp import (
     RecordingObjective,

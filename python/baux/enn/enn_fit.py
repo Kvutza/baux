@@ -1,3 +1,5 @@
+"""Hyperparameter fitting and log-likelihood scoring for ENN models."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass

@@ -51,7 +51,7 @@ class Config:
             raise ValueError("Special token ID exceeds the vocabulary")
 
     @classmethod
-    def from_json(cls, data: dict) -> "Config":
+    def from_json(cls, data: dict) -> Config:
         if not isinstance(data, dict) or data.get("model_type") != "qwen2":
             raise ValueError("Checkpoint is not a Qwen2 model")
         required = {
@@ -76,7 +76,7 @@ class Config:
         return config
 
     @classmethod
-    def from_file(cls, path: Path) -> "Config":
+    def from_file(cls, path: Path) -> Config:
         try:
             data = json.loads(path.read_text())
         except (OSError, json.JSONDecodeError) as error:

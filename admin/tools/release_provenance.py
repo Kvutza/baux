@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 import configparser
-from email.parser import Parser
 import subprocess
 import tomllib
 import zipfile
+from email.parser import Parser
 from pathlib import Path
 
 import click
-
 
 PYTHON_ABIS = ("cp312", "cp313", "cp314", "cp315")
 PLATFORM_TAGS = (

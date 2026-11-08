@@ -17,16 +17,16 @@ Academic & Open-Source Attribution:
 
 import ast
 import hashlib
-from itertools import repeat
 import json
+import subprocess
+from itertools import repeat
 from math import inf, sqrt
 from pathlib import Path
-import subprocess
 
 import click
 import numpy as np
-from numpy.polynomial import Polynomial
 import torch
+from numpy.polynomial import Polynomial
 
 POLAR_REVISION = "f717e2c6b3ef6f67a5e00ab7f5371a85377e6fbe"
 MUON_REVISION = "f98f1cacc0263b04290753e32be8d498c1efc806"

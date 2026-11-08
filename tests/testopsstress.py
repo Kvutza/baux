@@ -5,7 +5,6 @@ import time
 
 import numpy as np
 import pytest
-
 from baux.turbo.config.surrogate import NeighborIndex
 
 pytestmark = pytest.mark.slow

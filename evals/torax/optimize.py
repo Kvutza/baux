@@ -1,9 +1,12 @@
+"""Bayesian optimization experiment over TORAX core transport parameters."""
+
 import numpy as np
 from baux import bo
 from runner import ToraxRunner
 
 
 def run_experiment(rounds: int = 5, seed: int = 42) -> None:
+    """Run a Bayesian optimization loop over TORAX heating power and location."""
     runner = ToraxRunner(target_te=15.0, target_ti=12.0, max_steps=1)
     rng = np.random.default_rng(seed)
     cfg = bo.OptimizerConfig()

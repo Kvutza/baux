@@ -5,7 +5,6 @@ from __future__ import annotations
 import inspect
 
 import numpy as np
-
 from baux import ENN
 from baux.enn.enn_normal import ENNNormal
 from baux.enn.enn_params import ENNParams, PosteriorFlags

@@ -1,5 +1,6 @@
 from __future__ import annotations
-from typing import NamedTuple, Any
+
+from typing import Any, NamedTuple
 
 
 class EnnFixture(NamedTuple):
@@ -18,7 +19,6 @@ def sphere_objective(x):
 
 def enn_model(n=20, d=3, seed=0, yvar_scale=0.1):
     import numpy as np
-
     from baux.enn.enn_class import ENN
 
     rng = np.random.default_rng(seed)

@@ -10,9 +10,8 @@ _STRESS_ROW_RE = re.compile(r" *\d+ \d+\.\d{4} \d+\.\d{4}")
 
 
 def test_001(monkeypatch):
-    from click.testing import CliRunner
-
     from baux.enn.enn_fitter import ENNFitter
+    from click.testing import CliRunner
     from ops.stress import cli
 
     tell_calls: list[int] = []
@@ -36,7 +35,6 @@ def test_001(monkeypatch):
 
 def test_ennstresscli():
     from click.testing import CliRunner
-
     from ops.stress import cli
 
     result = CliRunner().invoke(
@@ -56,7 +54,6 @@ def test_ennstresscli():
 
 def test_002():
     from click.testing import CliRunner
-
     from ops.stress import cli
 
     result = CliRunner().invoke(
@@ -69,7 +66,6 @@ def test_002():
 
 def test_003():
     from click.testing import CliRunner
-
     from ops.stress import cli
 
     result = CliRunner().invoke(cli, ["enn", "bpann_disk", "10"])
@@ -83,7 +79,6 @@ def test_003():
 )
 def test_ennstressclidisk(tmp_path, index_type, subdir):
     from click.testing import CliRunner
-
     from ops.stress import cli
 
     work_dir = tmp_path / subdir
@@ -101,7 +96,6 @@ def test_ennstressclidisk(tmp_path, index_type, subdir):
 
 def test_004(tmp_path):
     from click.testing import CliRunner
-
     from ops.stress import cli
 
     work_dir = tmp_path / "enn_cli_batch"
@@ -119,7 +113,6 @@ def test_004(tmp_path):
 
 def test_005():
     from click.testing import CliRunner
-
     from ops.stress import cli
 
     result = CliRunner().invoke(
@@ -132,7 +125,6 @@ def test_005():
 
 def test_006():
     from click.testing import CliRunner
-
     from ops.stress import cli
 
     result = CliRunner().invoke(cli, ["enn", "10", "flat"])
@@ -141,7 +133,6 @@ def test_006():
 
 def test_007():
     from click.testing import CliRunner
-
     from ops.stress import cli
 
     result = CliRunner().invoke(
@@ -158,7 +149,6 @@ def test_007():
 
 def test_008():
     from click.testing import CliRunner
-
     from ops.stress import cli
 
     result = CliRunner().invoke(cli, ["enn", "flat", "10", "--num-dim", "0"])

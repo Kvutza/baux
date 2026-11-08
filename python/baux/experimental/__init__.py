@@ -1,3 +1,5 @@
+"""Experimental native evaluators, multi-region search loops, and resident GPU sessions."""
+
 from __future__ import annotations
 
 import sys

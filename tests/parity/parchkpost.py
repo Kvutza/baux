@@ -34,7 +34,6 @@ def _recordcase(
 
 def run_simple(report: ParityReport) -> None:
     import numpy as np
-
     from baux import ENN
     from baux.enn.enn_params import ENNParams, PosteriorFlags
 
@@ -120,7 +119,6 @@ def run_simple(report: ParityReport) -> None:
 
 def run_noise(report: ParityReport) -> None:
     import numpy as np
-
     from baux import ENN
     from baux.enn.enn_params import ENNParams, PosteriorFlags
 

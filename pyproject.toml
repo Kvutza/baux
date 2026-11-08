@@ -43,8 +43,18 @@ extend-exclude = [
 ]
 
 [tool.ruff.lint]
-select = ["E4", "E7", "E9", "F"]
-ignore = ["E402"]
+select = ["E4", "E7", "E9", "F", "I", "UP", "B", "BLE", "D"]
+ignore = ["E402", "D105", "D107"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["D100", "D101", "D102", "D103", "D104", "BLE001"]
+"admin/**" = ["D100", "D101", "D102", "D103", "D104", "BLE001", "B905"]
+"scripts/**" = ["D100", "D101", "D102", "D103", "D104", "BLE001", "B905"]
+"ocaml/**" = ["D100", "D101", "D102", "D103", "D104", "BLE001", "B905"]
+"research/**" = ["D100", "D101", "D102", "D103", "D104", "BLE001", "B905"]
 
 [tool.ty.environment]
 root = ["./python", "./admin", "."]

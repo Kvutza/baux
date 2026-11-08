@@ -1,3 +1,5 @@
+"""Internal data structures and telemetry records for TuRBO optimizers."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -23,6 +25,8 @@ class _Obs:
 
 @dataclass(frozen=True, slots=True)
 class Telemetry:
+    """Timing and candidate-count telemetry from an optimizer proposal step."""
+
     dt_fit: float
     dt_sel: float
     dt_gen: float = 0.0

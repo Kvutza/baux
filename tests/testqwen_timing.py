@@ -5,7 +5,6 @@ from types import SimpleNamespace
 
 import numpy as np
 import pytest
-
 from ops.qwen import bo
 
 
@@ -130,7 +129,7 @@ def test_roundtime(monkeypatch, tmp_path, refresh, expected_evaluations):
     settings = report["settings"]
     assert_settings(settings, report)
     assert_timing(timing)
-    for row, evaluations in zip(timing["rounds"], expected_evaluations):
+    for row, evaluations in zip(timing["rounds"], expected_evaluations, strict=True):
         assert row["objective_evaluations"] == evaluations
         assert row["acquisition_candidates"] == 4
         assert row["selected_candidates_evaluated"] == 1

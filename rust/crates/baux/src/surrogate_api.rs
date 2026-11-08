@@ -9,7 +9,6 @@ use crate::error::ENNError;
 pub use crate::metric_provider::LengthscaleProvider;
 pub use crate::obs_view::ObservationView;
 pub use crate::predictor::Predictor;
-pub use crate::surrogate_inc::IncrementalSurrogate;
 
 #[derive(Debug, Clone)]
 pub struct SurrogatePrediction {
@@ -120,6 +119,12 @@ pub trait Surrogate: Send + Sync {
 
     fn warp_y(&self, y: &ArrayView2<f64>) -> Result<Array2<f64>, ENNError> {
         Ok(y.to_owned())
+    }
+
+    fn clone_box(&self) -> Result<BoxedSurrogate, ENNError> {
+        Err(ENNError::InvalidParameter(
+            "surrogate does not support cloning".to_string(),
+        ))
     }
 }
 

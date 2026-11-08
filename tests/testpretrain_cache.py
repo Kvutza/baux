@@ -5,7 +5,6 @@ from pathlib import Path
 from types import ModuleType
 
 import pytest
-
 from ops import pretrain
 
 

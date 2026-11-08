@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import pytest
-
 from baux.turbo.optimizer_fixtures import load_fixture
 
 try:

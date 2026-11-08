@@ -1,3 +1,5 @@
+"""ENN model construction and hyperparameter fitting helpers for proposals."""
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
@@ -5,13 +7,11 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 if TYPE_CHECKING:
-    from numpy.random import Generator
-
     from baux.enn.enn_class import ENN
     from baux.enn.enn_params import ENNParams
+    from numpy.random import Generator
 
-    from .config.surrogate import SurrogateFit
-    from .config.surrogate import NeighborIndex
+    from .config.surrogate import NeighborIndex, SurrogateFit
 
 
 def mk_enn(
@@ -26,6 +26,7 @@ def mk_enn(
     rng: Generator | None = None,
     params_warm_start: ENNParams | None = None,
 ) -> tuple[ENN | None, ENNParams | None]:
+    """Construct an ENN surrogate from observations and optionally fit its parameters."""
     from baux.enn.enn_class import ENN
     from baux.enn.enn_params import ENNParams
 

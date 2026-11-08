@@ -95,3 +95,27 @@ pub(super) fn assign_result(
             .slice_axis(Axis(0), ndarray::Slice::from(..)),
     );
 }
+
+pub(super) fn codomain_batch(
+    model: &ENN,
+    mu_all: &mut Array3<f64>,
+    se_all: &mut Array3<f64>,
+    se_epi_all: &mut Array3<f64>,
+    se_ale_all: &mut Array3<f64>,
+) -> Result<(), ENNError> {
+    if model.stiefel().is_none() && model.affine().is_none() {
+        return Ok(());
+    }
+    for p in 0..mu_all.shape()[0] {
+        let mut mu = mu_all.index_axis(Axis(0), p).to_owned();
+        let mut se = se_all.index_axis(Axis(0), p).to_owned();
+        let mut epi = se_epi_all.index_axis(Axis(0), p).to_owned();
+        let mut ale = se_ale_all.index_axis(Axis(0), p).to_owned();
+        model.apply_codomain(&mut mu, &mut se, &mut epi, &mut ale)?;
+        mu_all.index_axis_mut(Axis(0), p).assign(&mu);
+        se_all.index_axis_mut(Axis(0), p).assign(&se);
+        se_epi_all.index_axis_mut(Axis(0), p).assign(&epi);
+        se_ale_all.index_axis_mut(Axis(0), p).assign(&ale);
+    }
+    Ok(())
+}

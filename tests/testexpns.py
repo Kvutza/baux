@@ -27,9 +27,8 @@ def test_001():
 
 
 def test_003():
-    import numpy as np
-
     import baux.experimental.multi_region as mtr
+    import numpy as np
 
     class _FakeState:
         def allocate(self, budget, utility=None):

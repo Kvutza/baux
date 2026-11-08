@@ -10,6 +10,7 @@ import hashlib
 import json
 import random
 from pathlib import Path
+
 from tokenizers import Tokenizer, models, pre_tokenizers, trainers
 
 SPECIAL_TAGS = [

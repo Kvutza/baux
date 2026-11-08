@@ -11,15 +11,13 @@ jax = pytest.importorskip("jax")
 jnp = pytest.importorskip("jax.numpy")
 pytest.importorskip("safetensors")
 
-from ops.flame import bo
-from ops.flame.config import ITERATION, MODEL_ID, REVISION, Config
-
-
 from bo_fixtures import (
-    bf16,
     FakeProposals,
     FakeSearchState,
+    bf16,
 )
+from ops.flame import bo
+from ops.flame.config import ITERATION, MODEL_ID, REVISION, Config
 
 
 def test_seeds(layout, flat):

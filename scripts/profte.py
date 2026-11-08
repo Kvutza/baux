@@ -8,12 +8,11 @@ from typing import Any
 
 import click
 import numpy as np
-
 from baux import create_optimizer
 from baux.turbo.config.acquisition import AcquisitionKind
 from baux.turbo.config.candidates import CandidateConfig
-from baux.turbo.config.surrogate import SurrogateFit, ENNSurrogate
 from baux.turbo.config.factory import turbo_enn
+from baux.turbo.config.surrogate import ENNSurrogate, SurrogateFit
 from baux.turbo.config.trust_region import TurboTrustRegion
 
 

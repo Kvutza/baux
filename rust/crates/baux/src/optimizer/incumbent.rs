@@ -12,10 +12,12 @@ use crate::incumbent_tracker::{IncumbentTracker, enn_k, tracker_surrogate};
 use crate::util::argmax_tie;
 
 /// Encapsulated candidate proposal generator and quasi-random sampler state.
+#[derive(Clone)]
 pub struct ProposalEngine {
     config: CandidateConfig,
     sobol_engine: Option<SobolEngine>,
-    sobol_base: u64,
+    pub(crate) sobol_base: u64,
+    pub(crate) ticket_tag: Option<[u8; 32]>,
 }
 
 impl ProposalEngine {
@@ -38,6 +40,7 @@ impl ProposalEngine {
             config,
             sobol_engine,
             sobol_base,
+            ticket_tag: None,
         })
     }
 
@@ -82,6 +85,7 @@ pub struct IncumbentPoint {
 }
 
 /// Unified incumbent tracker and active incumbent point ledger.
+#[derive(Debug, Clone)]
 pub struct IncumbentLedger {
     pub(crate) tracker: IncumbentTracker,
     current: Option<IncumbentPoint>,
@@ -287,6 +291,7 @@ impl BayesOptimizer {
         self.incumbent.reset();
         self.regions.restart_local();
         self.warmup.restart_local();
+        self.proposals.ticket_tag = None;
         Ok(())
     }
 

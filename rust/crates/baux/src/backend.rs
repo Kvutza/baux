@@ -42,8 +42,9 @@ impl EnnStorage {
     }
 }
 
+#[derive(Clone)]
 pub enum EnnBackend {
-    InMemory(Box<InMemoryEnnBackend>),
+    InMemory(Arc<InMemoryEnnBackend>),
     Disk(DiskBackendHandle),
 }
 
@@ -82,7 +83,7 @@ impl EnnBackend {
         x_scale: Array1<f64>,
         driver: IndexDriver,
     ) -> Result<Self, ENNError> {
-        Ok(Self::InMemory(Box::new(InMemoryEnnBackend::new(
+        Ok(Self::InMemory(Arc::new(InMemoryEnnBackend::new(
             train_x, train_y, train_yvar, scale_x, x_scale, driver,
         )?)))
     }
@@ -116,7 +117,7 @@ impl EnnBackend {
         soft_threshold: Option<usize>,
     ) -> Result<Self, ENNError> {
         match storage {
-            EnnStorage::InMemory => Ok(Self::InMemory(Box::new(InMemoryEnnBackend::new_empty(
+            EnnStorage::InMemory => Ok(Self::InMemory(Arc::new(InMemoryEnnBackend::new_empty(
                 num_dim,
                 num_metrics,
                 driver,
@@ -184,7 +185,7 @@ impl EnnBackend {
         yvar: Option<&ArrayView2<f64>>,
     ) -> Result<(), ENNError> {
         match self {
-            Self::InMemory(b) => b.append_rows(x, y, yvar),
+            Self::InMemory(b) => Arc::make_mut(b).append_rows(x, y, yvar),
             Self::Disk(h) => disk_write(h.data())?.append_rows(x, y, yvar),
         }
     }
@@ -267,6 +268,11 @@ pub(crate) fn enn_pages(backend: &EnnBackend) -> Result<(), ENNError> {
 
 impl Drop for EnnBackend {
     fn drop(&mut self) {
+        if let Self::Disk(h) = self {
+            if Arc::strong_count(h.data()) > 1 {
+                return;
+            }
+        }
         if let Err(e) = enn_index(self) {
             eprintln!("baux: persist_index on drop failed: {e}");
         }

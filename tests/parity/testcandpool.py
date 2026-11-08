@@ -2,9 +2,8 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-
 from baux import create_optimizer, turbo_enn, turbo_zero
-from baux.turbo.config import CandidateConfig, SurrogateFit, ENNSurrogate
+from baux.turbo.config import CandidateConfig, ENNSurrogate, SurrogateFit
 from baux.turbo.config.encode import encode
 
 pytest.importorskip("baux._rust")

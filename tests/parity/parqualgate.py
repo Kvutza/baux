@@ -5,12 +5,11 @@ import tomllib
 from pathlib import Path
 
 import numpy as np
-
 from baux import create_optimizer
 from baux.turbo.config import (
     AcquisitionKind,
-    SurrogateFit,
     ENNSurrogate,
+    SurrogateFit,
     turbo_enn,
 )
 

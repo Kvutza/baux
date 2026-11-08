@@ -8,11 +8,11 @@ from functools import partial, reduce
 import jax
 import jax.numpy as jnp
 import numpy as np
-from numpy import array_equal as arr_eq, concatenate as cat
-from numpy.testing import assert_allclose as allclose
-
 from baux._rust import ENN
 from baux.experimental import Span, Var, turbo_enn
+from numpy import array_equal as arr_eq
+from numpy import concatenate as cat
+from numpy.testing import assert_allclose as allclose
 
 MASK64, MAX_F32, F32, F64 = (1 << 64) - 1, 3.4028234663852886e38, np.float32, np.float64
 

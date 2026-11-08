@@ -13,7 +13,6 @@ import click
 from .metal import Evaluator
 from .tokenizer import load
 
-
 REFERENCE_MAX_TOKENS = 256
 TARGET_CONTEXT_LENGTHS = (4096, 16384, 32768)
 

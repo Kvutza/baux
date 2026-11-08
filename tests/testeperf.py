@@ -9,11 +9,10 @@ from typing import NamedTuple
 
 import numpy as np
 import pytest
-
-from baux import ENNFitter, ENN
+from baux import ENN, ENNFitter
 from baux.enn.enn_class import (
-    posterior_neighbors,
     nearest_neighbors,
+    posterior_neighbors,
 )
 from baux.enn.enn_params import ENNParams, PosteriorFlags
 
@@ -192,7 +191,7 @@ def test_002():
 
 
 def test_003():
-    """lattice posterior(x_train) tie-break-on must track tie-break-off at n=1024."""
+    """Lattice posterior(x_train) tie-break-on must track tie-break-off at n=1024."""
     n, d = 1024, 10
     x = np.linspace(0.0, 1.0, n)[:, None]
     x = np.tile(x, (1, d))

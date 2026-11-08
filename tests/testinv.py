@@ -2,14 +2,13 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-from enn_helpers import sphere_objective
-
 from baux.turbo.config import (
     OptimizerConfig,
     turbo_enn,
     turbo_one,
     turbo_zero,
 )
+from enn_helpers import sphere_objective
 
 
 def _unit(x: np.ndarray, bounds: np.ndarray) -> np.ndarray:

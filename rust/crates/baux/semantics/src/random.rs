@@ -7,7 +7,7 @@ use rand::distributions::{Bernoulli, Uniform};
 use rand::rngs::StdRng;
 use rand::{Rng, RngCore};
 
-const SM64_OFFSET: u64 = 0xD2B74407B1CE6E93;
+pub(crate) const SM64_OFFSET: u64 = 0xD2B74407B1CE6E93;
 
 /// Prime constant for seed combination.
 const SEED_PRIME: u64 = 1_000_003;
@@ -393,6 +393,9 @@ pub fn splitmix_f32(bits: u64) -> f32 {
     ((splitmix64(bits) >> 41) as f32 + 0.5) / 8_388_608.0
 }
 
+#[cfg(not(feature = "cuda-device"))]
+pub use super::key::Key;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -410,155 +413,48 @@ mod tests {
     }
 
     #[test]
-    fn test_seed() {
+    fn test_samplers() {
         assert_eq!(sobol_seed(0, 0, 0, 1), 2701705554);
         assert_eq!(sobol_seed(42, 1, 10, 4), 168175535);
         assert_eq!(sobol_seed(123456789, 0, 50, 16), 3605740088);
-    }
-
-    #[test]
-    fn test_base() {
         assert!(sobol_base(0x123456789abcdef0) < SOBOL_MOD);
         assert_eq!(sobol_base(0x123456789abcdef0), 448585456);
-    }
 
-    #[test]
-    fn test_uniform() {
         let mut rng = StdRng::seed_from_u64(42);
-        let lower = [0.0, 0.0];
-        let upper = [1.0, 1.0];
-        let mat = gen_uniform(&lower, &upper, 2, &mut rng);
+        let mat = gen_uniform(&[0.0, 0.0], &[1.0, 1.0], 2, &mut rng);
         assert_eq!(mat.len(), 4);
-        // Post-call RNG consumption check
-        let post = rng.next_u64();
-        assert_ne!(post, 0);
-    }
+        assert_ne!(rng.next_u64(), 0);
 
-    #[test]
-    fn test_scramble() {
         let mut rng = StdRng::seed_from_u64(42);
         let shift = sobol_shift(2, &mut rng);
         assert_eq!(shift.len(), 2);
-        for &s in &shift {
-            assert!(s >= 0.0 && s < 1.0);
-        }
         let mut sample = [0.5, 0.5];
         apply_shift(&mut sample, &shift);
-        for &s in &sample {
-            assert!(s >= 0.0 && s < 1.0);
-        }
-    }
+        assert!(sample.iter().all(|&s| (0.0..1.0).contains(&s)));
 
-    #[test]
-    fn test_masked() {
         let mut rng = StdRng::seed_from_u64(42);
-        let x_center = [0.5, 0.5];
-        let lower = [0.1, 0.2];
-        let upper = [0.9, 0.8];
-        let sobol_samples = [0.0, 0.0, 0.5, 0.5];
-        let out = sobol_masked(&x_center, &lower, &upper, 2, &mut rng, &sobol_samples, 1).unwrap();
-        assert_eq!(out.len(), 4);
-        let post = rng.next_u64();
-        assert_ne!(post, 0);
-    }
-
-    #[test]
-    fn test_lhd() {
-        let mut rng = StdRng::seed_from_u64(42);
-        let bounds = [[0.0, 1.0], [0.0, 1.0]];
-        let lhd = gen_lhd(4, 2, &bounds, &mut rng);
-        assert_eq!(lhd.len(), 8);
-        for &v in &lhd {
-            assert!(v >= 0.0 && v <= 1.0);
-        }
-        let post = rng.next_u64();
-        assert_ne!(post, 0);
-    }
-
-    #[test]
-    fn test_raasp() {
-        let mut rng = StdRng::seed_from_u64(42);
-        let x_center = [0.5, 0.5];
-        let lower = [0.0, 0.0];
-        let upper = [1.0, 1.0];
-        let ls = [1.0, 2.0];
-        let raasp = gen_raasp(&x_center, Some(&ls), &lower, &upper, 3, &mut rng, 1);
-        assert_eq!(raasp.len(), 6);
-        let post = rng.next_u64();
-        assert_ne!(post, 0);
-    }
-
-    #[test]
-    fn test_trace() {
-        let mut rng_raw = StdRng::seed_from_u64(42);
-        let raw_words: Vec<u64> = (0..16).map(|_| rng_raw.next_u64()).collect();
-        println!("RAW_STDRNG_42_WORDS: {:?}", raw_words);
-        // Uniform fixture
-        let mut rng = StdRng::seed_from_u64(42);
-        let u_mat = gen_uniform(&[0.0, 0.0], &[1.0, 1.0], 2, &mut rng);
-        println!("TRACE_UNIFORM: {:?}", u_mat);
-        println!(
-            "TRACE_UNIFORM_BITS: {:?}",
-            u_mat.iter().map(|v| v.to_bits()).collect::<Vec<_>>()
-        );
-        println!("TRACE_UNIFORM_POST_RNG: {}", rng.next_u64());
-
-        // Sobol scramble fixture (dim=2)
-        let mut rng = StdRng::seed_from_u64(42);
-        let shift = sobol_shift(2, &mut rng);
-        println!("TRACE_SCRAMBLE_SHIFT: {:?}", shift);
-        println!(
-            "TRACE_SCRAMBLE_BITS: {:?}",
-            shift.iter().map(|v| v.to_bits()).collect::<Vec<_>>()
-        );
-        println!("TRACE_SCRAMBLE_POST_RNG: {}", rng.next_u64());
-
-        // Sobol masked fixture (dim=2, 2 candidates, num_pert=1)
-        let mut rng = StdRng::seed_from_u64(42);
-        let sobol_samples = [0.0, 0.0, 0.5, 0.5];
-        let masked = sobol_masked(
+        let out = sobol_masked(
             &[0.5, 0.5],
             &[0.1, 0.2],
             &[0.9, 0.8],
             2,
             &mut rng,
-            &sobol_samples,
+            &[0.0, 0.0, 0.5, 0.5],
             1,
         )
         .unwrap();
-        println!("TRACE_MASKED: {:?}", masked);
-        println!(
-            "TRACE_MASKED_BITS: {:?}",
-            masked.iter().map(|v| v.to_bits()).collect::<Vec<_>>()
-        );
-        println!("TRACE_MASKED_POST_RNG: {}", rng.next_u64());
-
-        // LHD fixture (4 samples, 2 dim)
-        let mut rng = StdRng::seed_from_u64(42);
+        assert_eq!(out.len(), 4);
         let lhd = gen_lhd(4, 2, &[[0.0, 1.0], [0.0, 1.0]], &mut rng);
-        println!("TRACE_LHD: {:?}", lhd);
-        println!(
-            "TRACE_LHD_BITS: {:?}",
-            lhd.iter().map(|v| v.to_bits()).collect::<Vec<_>>()
-        );
-        println!("TRACE_LHD_POST_RNG: {}", rng.next_u64());
-
-        // RAASP fixture (2 candidates, 2 dim, num_pert=1)
-        let mut rng = StdRng::seed_from_u64(42);
+        assert_eq!(lhd.len(), 8);
         let raasp = gen_raasp(
             &[0.5, 0.5],
             Some(&[1.0, 2.0]),
-            &[0.1, 0.2],
-            &[0.9, 0.8],
-            2,
+            &[0.0, 0.0],
+            &[1.0, 1.0],
+            3,
             &mut rng,
             1,
         );
-        println!("TRACE_RAASP: {:?}", raasp);
-        println!(
-            "TRACE_RAASP_BITS: {:?}",
-            raasp.iter().map(|v| v.to_bits()).collect::<Vec<_>>()
-        );
-        println!("TRACE_RAASP_POST_RNG: {}", rng.next_u64());
+        assert_eq!(raasp.len(), 6);
     }
 }

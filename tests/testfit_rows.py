@@ -1,6 +1,5 @@
 import numpy as np
 import pytest
-
 from baux.enn.enn_class import ENN
 from baux.enn.enn_fit import row_loglik, subsample_loglik
 from baux.enn.enn_params import ENNParams

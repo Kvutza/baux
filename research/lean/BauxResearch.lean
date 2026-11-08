@@ -12,6 +12,7 @@ import BauxResearch.Generated.Optimizer.Funs
 import BauxResearch.Extraction.Optimizer
 import BauxResearch.Representation.Blocks
 import BauxResearch.Optimization.EnnCommit
+import BauxResearch.Optimization.ManifoldEnn
 import BauxResearch.Optimization.Reliability
 import BauxResearch.Optimization.VariableMetric
 import BauxResearch.Optimization.SpatialSuboptimality

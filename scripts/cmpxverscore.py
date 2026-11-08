@@ -24,10 +24,10 @@ def _importconfigs() -> dict[str, Any]:
         from baux.turbo.config import (
             AcquisitionKind,
             CandidateConfig,
-            SurrogateFit,
             ENNSurrogate,
             MorboTrustRegion,
             MultiObjectiveConfig,
+            SurrogateFit,
             TurboTrustRegion,
             turbo_enn,
             turbo_one,
@@ -36,10 +36,10 @@ def _importconfigs() -> dict[str, Any]:
         from baux.turbo.config import (
             AcquisitionKind,
             CandidateConfig,
-            SurrogateFit,
             ENNSurrogate,
             MorboTrustRegion,
             MultiObjectiveConfig,
+            SurrogateFit,
             TurboTrustRegion,
             turbo_enn,
             turbo_one,
@@ -331,7 +331,6 @@ def run_benchmark(
     version_label: str,
 ) -> BenchmarkResult:
     import torch
-
     from baux import create_optimizer
 
     torch.manual_seed(problem.torch_seed)

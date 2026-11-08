@@ -11,8 +11,8 @@ def config():
     from baux import turbo_enn
     from baux.turbo.config import (
         CandidateConfig,
-        SurrogateFit,
         ENNSurrogate,
+        SurrogateFit,
     )
 
     return turbo_enn(

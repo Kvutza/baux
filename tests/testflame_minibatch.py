@@ -1,11 +1,10 @@
 """NumPy-only coverage of paired finite-population screening."""
 
-from itertools import product
 from dataclasses import FrozenInstanceError
+from itertools import product
 
 import numpy as np
 import pytest
-
 from ops.flame.minibatch import PairedLosses, paired_losses, sample_indices
 
 

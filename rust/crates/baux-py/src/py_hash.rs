@@ -72,3 +72,99 @@ pub fn py_blake3file(py: Python<'_>, path: &str) -> PyResult<String> {
     py.detach(|| baux::artifact::blake3::hash_file(Path::new(path)))
         .map_err(PyRuntimeError::new_err)
 }
+
+/// Splittable 128-bit cryptographic PRNG key for functional pipelines.
+#[pyclass(name = "Key", frozen, from_py_object)]
+#[derive(Clone, Copy)]
+pub struct PyKey {
+    pub(crate) inner: baux::Key,
+}
+
+#[pymethods]
+impl PyKey {
+    #[new]
+    #[pyo3(signature = (source=None))]
+    fn new(source: Option<&Bound<'_, PyAny>>) -> PyResult<Self> {
+        let inner = match source {
+            None => baux::Key::entropy(),
+            Some(obj) => {
+                if let Ok(k) = obj.extract::<PyRef<'_, PyKey>>() {
+                    k.inner
+                } else if let Ok(bytes) = obj.extract::<&[u8]>() {
+                    baux::Key::from_bytes(bytes)
+                } else if let Ok(seed) = obj.extract::<u64>() {
+                    baux::Key::new(seed)
+                } else if let Ok(seed_i64) = obj.extract::<i64>() {
+                    baux::Key::new(seed_i64 as u64)
+                } else {
+                    return Err(PyValueError::new_err(
+                        "Key expects None (entropy), bytes, an int seed, or an existing Key",
+                    ));
+                }
+            }
+        };
+        Ok(Self { inner })
+    }
+
+    #[staticmethod]
+    fn entropy() -> Self {
+        Self {
+            inner: baux::Key::entropy(),
+        }
+    }
+
+    #[staticmethod]
+    fn from_bytes(data: &[u8]) -> Self {
+        Self {
+            inner: baux::Key::from_bytes(data),
+        }
+    }
+
+    #[staticmethod]
+    fn from_pair(hi: u64, lo: u64) -> Self {
+        Self {
+            inner: baux::Key(hi, lo),
+        }
+    }
+
+    #[getter]
+    fn hi(&self) -> u64 {
+        self.inner.0
+    }
+
+    #[getter]
+    fn lo(&self) -> u64 {
+        self.inner.1
+    }
+
+    fn seed(&self) -> u64 {
+        self.inner.seed()
+    }
+
+    fn split(&self) -> (Self, Self) {
+        let (a, b) = self.inner.split();
+        (Self { inner: a }, Self { inner: b })
+    }
+
+    fn split_n(&self, n: usize) -> Vec<Self> {
+        self.inner
+            .split_n(n)
+            .into_iter()
+            .map(|inner| Self { inner })
+            .collect()
+    }
+
+    fn fold(&self, tag: u64) -> Self {
+        Self {
+            inner: self.inner.fold(tag),
+        }
+    }
+
+    fn __repr__(&self) -> String {
+        format!("Key(0x{:016x}, 0x{:016x})", self.inner.0, self.inner.1)
+    }
+
+    fn __eq__(&self, other: &Self) -> bool {
+        self.inner == other.inner
+    }
+}

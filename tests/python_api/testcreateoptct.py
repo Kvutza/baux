@@ -5,14 +5,13 @@ from dataclasses import replace
 
 import numpy as np
 import pytest
-
 from baux import Telemetry, create_optimizer, turbo_enn, turbo_one, turbo_zero
 from baux.bo import AskBatch, AskId, Optimizer
 from baux.turbo.config import (
-    RegionalSearchPolicy,
-    RestartCenterPolicy,
     NeighborIndex,
     RandomAcquisitionConfig,
+    RegionalSearchPolicy,
+    RestartCenterPolicy,
     TrustRegionBounds,
     UCBAcquisitionConfig,
     lhd_only,

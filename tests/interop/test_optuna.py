@@ -3,11 +3,10 @@ import numpy as np
 import pytest
 
 optuna = pytest.importorskip("optuna")
-from optuna.distributions import FloatDistribution, IntDistribution
-from optuna.trial import TrialState
-
 from baux import create_optimizer
 from baux.optuna import Sampler
+from optuna.distributions import FloatDistribution, IntDistribution
+from optuna.trial import TrialState
 
 
 def space():

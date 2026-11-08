@@ -1,3 +1,5 @@
+"""Data container for ENN nearest-neighbor query results."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -9,6 +11,8 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True)
 class NeighborData:
+    """Squared distances, indices, and target values for k nearest neighbors."""
+
     dist2s: np.ndarray
     idx: np.ndarray
     y_neighbors: np.ndarray

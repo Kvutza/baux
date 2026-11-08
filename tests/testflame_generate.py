@@ -5,7 +5,6 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 from click.testing import CliRunner
-
 from ops.flame import coding, generate
 from ops.flame.config import Config
 

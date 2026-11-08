@@ -2,16 +2,14 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-
 from baux.turbo.config import (
     AcquisitionKind,
-    SurrogateFit,
     ENNSurrogate,
+    SurrogateFit,
     turbo_enn,
     turbo_zero,
 )
-from baux.turbo.config.candidates import CandidateConfig
-from baux.turbo.config.candidates import CandidateSampler
+from baux.turbo.config.candidates import CandidateConfig, CandidateSampler
 
 pytest.importorskip("baux._rust")
 

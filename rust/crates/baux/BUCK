@@ -63,7 +63,8 @@ write_file(
     name = "baux-cli-root",
     out = "cli_lib.rs",
     content = [
-        "#![allow(clippy::pedantic, clippy::nursery, clippy::cargo)]",
+        "#![allow(clippy::pedantic, clippy::nursery, clippy::cargo, incomplete_features, internal_features)]",
+        "#![feature(adt_const_params, contracts, diagnostic_on_move, diagnostic_on_type_error, negative_impls, portable_simd)]",
         "extern crate self as baux;",
         "#[path = \"artifact/src/lib.rs\"]",
         "pub mod artifact;",

@@ -1,11 +1,11 @@
 """Build the pinned vector math dependency outside the source tree."""
 
 import hashlib
-from pathlib import Path
 import subprocess
 import sys
 import tarfile
 import urllib.request
+from pathlib import Path
 
 VERSION = "3.9.0"
 SHA256 = "af60856abac08a3b5e72a8d156dd71fec1f7ac23de8ee67793f45f9edcdf0908"

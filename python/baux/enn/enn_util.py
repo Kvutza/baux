@@ -1,3 +1,5 @@
+"""Utility functions for target standardization, Sobol sensitivity, and Pareto fronts."""
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
@@ -5,13 +7,13 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 from baux._rust import (
+    pareto2d_max as _rust_pareto_front_2d_maximize,
+)
+from baux._rust import (
     pareto_arms as _rust_arms_from_pareto_fronts,
 )
 from baux._rust import (
     sobol_indices as _rust_calculate_sobol_indices,
-)
-from baux._rust import (
-    pareto2d_max as _rust_pareto_front_2d_maximize,
 )
 from baux._rust import (
     standardize_y as _rust_standardize_y,
@@ -22,6 +24,7 @@ if TYPE_CHECKING:
 
 
 def standardize_y(y: np.ndarray | list[float] | Any) -> tuple[float, float]:
+    """Compute robust center and scale statistics for target values."""
     y_array = np.asarray(y, dtype=float)
     center, scale = _rust_standardize_y(y_array)
     return float(center), float(scale)
@@ -78,6 +81,7 @@ def pareto_arms(
     num_arms: int,
     rng: Generator | Any,
 ) -> np.ndarray:
+    """Select candidate arms from mean-uncertainty Pareto fronts."""
     x_array = np.asarray(x_cand, dtype=np.float64)
     mu_array = np.asarray(mu, dtype=np.float64)
     se_array = np.asarray(se, dtype=np.float64)

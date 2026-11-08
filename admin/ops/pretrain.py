@@ -14,10 +14,13 @@ from importlib.metadata import version
 from pathlib import Path
 
 import click
-
 from ops import (
     pretrain_base as _base,
+)
+from ops import (
     pretrain_stage as _stage,
+)
+from ops import (
     pretrain_study as _study,
 )
 from ops.pretrain_base import (

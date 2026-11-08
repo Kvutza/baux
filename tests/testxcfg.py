@@ -4,7 +4,6 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-
 from baux._rust import ENN as RustENN
 from baux._rust import ensure_config_file, set_path
 

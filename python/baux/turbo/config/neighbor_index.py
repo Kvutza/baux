@@ -1,3 +1,5 @@
+"""Re-exports of neighbor index and surrogate symbols."""
+
 from __future__ import annotations
 
 from baux.index import (

@@ -10,7 +10,6 @@ import numpy as np
 
 try:
     from baux.baux_rust import optimizer
-
     from baux.experimental import quantize_e2m1
 
     print("[✓] Successfully imported native BAUX components and quantization helpers.")

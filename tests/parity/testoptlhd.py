@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-
 from baux.turbo.config import lhd_only
 
 pytest.importorskip("baux._rust")

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import numpy as np
-
 from baux.enn.enn_class import ENN
 from baux.enn.enn_params import ENNParams, PosteriorFlags
 

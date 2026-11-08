@@ -366,6 +366,7 @@ fn generate_raasp<R: Rng + ?Sized>(
 }
 
 /// Sobol quasi-random sequence generator.
+#[derive(Clone)]
 pub struct SobolEngine {
     dimension: usize,
     sequence: Sobol<f64>,

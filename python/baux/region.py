@@ -1,3 +1,5 @@
+"""Trust-region controllers, multi-region search policies, and portfolio primitives."""
+
 from __future__ import annotations
 
 from baux._rust import Portfolio, Region, RegionTrial, Trial

@@ -1,3 +1,5 @@
+"""MORBO multi-objective trust-region bounds and rescalarization policies."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -5,12 +7,16 @@ from enum import Enum
 
 
 class Rescalarize(Enum):
+    """Schedule for updating MORBO scalarization weights."""
+
     ON_RESTART = "on_restart"
     ON_PROPOSE = "on_propose"
 
 
 @dataclass(frozen=True)
 class TrustRegionBounds:
+    """Bounds on trust-region side length."""
+
     length_init: float = 0.8
     length_min: float = 0.5**7
     length_max: float = 1.6
@@ -38,6 +44,8 @@ class TrustRegionBounds:
 
 @dataclass(frozen=True)
 class MultiObjectiveConfig:
+    """Multi-objective settings for MORBO trust regions."""
+
     num_metrics: int
     alpha: float = 0.05
 
@@ -52,4 +60,6 @@ class MultiObjectiveConfig:
 
 @dataclass(frozen=True)
 class RescalePolicy:
+    """Policy controlling when MORBO rescalarizes objective weights."""
+
     rescalarize: Rescalarize = Rescalarize.ON_PROPOSE

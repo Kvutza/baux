@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-
 from baux import create_optimizer, turbo_zero
 from baux.turbo.config.encode import supports
 

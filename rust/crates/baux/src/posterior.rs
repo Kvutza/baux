@@ -12,8 +12,8 @@ use self::draw_compute::draw_internals;
 #[cfg(all(target_os = "linux", target_arch = "x86_64", feature = "cuda"))]
 use self::light::search_k;
 use self::light::{compute_light, index_array};
-pub use self::neighbor::empty_internals;
 pub(crate) use self::neighbor::index_search;
+pub use self::neighbor::{Pool, TopK, empty_internals};
 use self::neighbor::{conditional_data, get_data};
 use crate::draw::DrawInternals;
 use crate::error::ENNError;
@@ -71,6 +71,7 @@ impl PosteriorComputation for ENN {
                 self.y_bounds(),
             );
         }
+        self.apply_codomain(&mut mu, &mut se, &mut se_epi, &mut se_ale)?;
         let mut normal = ENNNormal::new(
             mu.into_dyn(),
             se.into_dyn(),
@@ -145,6 +146,13 @@ impl PosteriorComputation for ENN {
                 self.y_bounds(),
             );
         }
+        codomain_batch(
+            self,
+            &mut mu_all,
+            &mut se_all,
+            &mut se_epi_all,
+            &mut se_ale_all,
+        )?;
         let mut normal = ENNNormal::new(
             mu_all.into_dyn(),
             se_all.into_dyn(),
@@ -196,7 +204,15 @@ impl PosteriorComputation for ENN {
                 return Ok((draws, indices));
             }
         }
-        let internals = compute_internals(self, x, params, flags)?;
+        let mut internals = compute_internals(self, x, params, flags)?;
+        if !self.bounded_outputs() {
+            self.apply_codomain(
+                &mut internals.mu,
+                &mut internals.se,
+                &mut internals.se_epi,
+                &mut internals.se_ale,
+            )?;
+        }
         let mut draws = draw_internals(self, &internals, function_seeds)?;
         if self.bounded_outputs() {
             crate::y_bounds::inverse_draws(&mut draws, self.y_bounds());
@@ -231,6 +247,7 @@ impl PosteriorComputation for ENN {
                 self.y_bounds(),
             );
         }
+        self.apply_codomain(&mut mu, &mut se, &mut se_epi, &mut se_ale)?;
         let mut normal = ENNNormal::new(
             mu.into_dyn(),
             se.into_dyn(),
@@ -292,7 +309,16 @@ impl PosteriorComputation for ENN {
                 return Ok((draws, indices));
             }
         }
-        let internals = conditional_internals(self, x, x_whatif, &y_whatif.view(), params, flags)?;
+        let mut internals =
+            conditional_internals(self, x, x_whatif, &y_whatif.view(), params, flags)?;
+        if !self.bounded_outputs() {
+            self.apply_codomain(
+                &mut internals.mu,
+                &mut internals.se,
+                &mut internals.se_epi,
+                &mut internals.se_ale,
+            )?;
+        }
         let mut draws = draw_internals(self, &internals, function_seeds)?;
         if self.bounded_outputs() {
             crate::y_bounds::inverse_draws(&mut draws, self.y_bounds());
@@ -302,7 +328,7 @@ impl PosteriorComputation for ENN {
 }
 
 mod batch;
-use batch::{separate_batch, shared_batch};
+use batch::{codomain_batch, separate_batch, shared_batch};
 mod weighted;
 #[cfg(test)]
 pub(crate) use weighted::se_components;

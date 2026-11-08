@@ -4,6 +4,7 @@ use ndarray::{Array1, Array2};
 use std::path::PathBuf;
 
 use crate::backend::{EnnBackend, EnnStorage};
+use crate::error::ENNError;
 use crate::index::IndexDriver;
 
 #[derive(Debug, Clone)]
@@ -38,8 +39,10 @@ pub struct ENN {
     pub(crate) y_scale: Array1<f64>,
     pub(crate) y_bounds: Array2<f64>,
     pub(crate) bounded_outputs: bool,
-    pub(super) y_sum: Array1<f64>,
-    pub(super) y_sumsq: Array1<f64>,
+    pub(crate) stiefel: Option<baux::semantics::stiefel::Stiefel>,
+    pub(crate) affine: Option<baux::semantics::affine::Affine>,
+    pub(crate) y_sum: Array1<f64>,
+    pub(crate) y_sumsq: Array1<f64>,
     pub(super) x_sum: Array1<f64>,
     pub(super) x_sumsq: Array1<f64>,
     pub(super) work_dir: Option<PathBuf>,
@@ -48,9 +51,149 @@ pub struct ENN {
     pub(super) built_scale: Array1<f64>,
     pub(super) unscaled_dims: Vec<usize>,
     pub(super) tied_groups: Vec<Vec<usize>>,
+    pub(crate) dist_metric: baux::semantics::neighbor::DistanceMetric,
+    pub(crate) scale_cache:
+        std::sync::Arc<std::sync::OnceLock<crate::posterior::neighbor_dist::ScaleInfo>>,
+}
+
+impl Clone for ENN {
+    fn clone(&self) -> Self {
+        let metric = self.metric.as_ref().and_then(|m| {
+            let mut next = crate::metric_auto::AutoMetric::new(
+                self.num_dim,
+                self.num_metrics,
+                m.tied().to_vec(),
+                m.seed(),
+            )
+            .ok()?;
+            let _ = next.set_unscaled(self.unscaled_dims.clone());
+            let _ = next.set_weights(m.weights());
+            Some(next)
+        });
+        Self {
+            backend: self.backend.clone(),
+            num_obs: self.num_obs,
+            num_dim: self.num_dim,
+            num_metrics: self.num_metrics,
+            scale_x: self.scale_x,
+            x_scale: self.x_scale.clone(),
+            y_scale: self.y_scale.clone(),
+            y_bounds: self.y_bounds.clone(),
+            bounded_outputs: self.bounded_outputs,
+            stiefel: self.stiefel.clone(),
+            affine: self.affine.clone(),
+            y_sum: self.y_sum.clone(),
+            y_sumsq: self.y_sumsq.clone(),
+            x_sum: self.x_sum.clone(),
+            x_sumsq: self.x_sumsq.clone(),
+            work_dir: self.work_dir.clone(),
+            metric,
+            metric_fixed: self.metric_fixed,
+            built_scale: self.built_scale.clone(),
+            unscaled_dims: self.unscaled_dims.clone(),
+            tied_groups: self.tied_groups.clone(),
+            dist_metric: self.dist_metric,
+            scale_cache: self.scale_cache.clone(),
+        }
+    }
 }
 
 impl ENN {
+    /// Return a new `ENN` model configured with a local-scale pairwise
+    /// [`baux::semantics::neighbor::Dissimilarity`] geometry.
+    pub fn with_geometry(&self, geometry: baux::semantics::neighbor::DistanceMetric) -> Self {
+        let mut next = self.clone();
+        next.dist_metric = geometry;
+        next.scale_cache = std::sync::Arc::new(std::sync::OnceLock::new());
+        next
+    }
+
+    /// Return the configured pairwise
+    /// [`baux::semantics::neighbor::Dissimilarity`] geometry.
+    pub fn geometry(&self) -> baux::semantics::neighbor::DistanceMetric {
+        self.dist_metric
+    }
+
+    pub fn with_stiefel(mut self, st: baux::semantics::stiefel::Stiefel) -> Result<Self, ENNError> {
+        if st.rows() != self.num_metrics {
+            return Err(ENNError::InvalidParameter(format!(
+                "Stiefel rows {} != num_metrics {}",
+                st.rows(),
+                self.num_metrics
+            )));
+        }
+        self.stiefel = Some(st.with_count(self.num_obs));
+        Ok(self)
+    }
+
+    pub fn with_affine(mut self, aff: baux::semantics::affine::Affine) -> Result<Self, ENNError> {
+        if aff.a.len() != self.num_metrics
+            || aff.b.len() != self.num_metrics
+            || aff.c.len() != self.num_metrics
+        {
+            return Err(ENNError::InvalidParameter(format!(
+                "Affine cols {} != num_metrics {}",
+                aff.a.len(),
+                self.num_metrics
+            )));
+        }
+        self.affine = Some(aff);
+        Ok(self)
+    }
+
+    pub fn stiefel(&self) -> Option<&baux::semantics::stiefel::Stiefel> {
+        self.stiefel.as_ref()
+    }
+
+    pub fn affine(&self) -> Option<&baux::semantics::affine::Affine> {
+        self.affine.as_ref()
+    }
+
+    pub(crate) fn apply_codomain(
+        &self,
+        mu: &mut Array2<f64>,
+        se: &mut Array2<f64>,
+        se_epi: &mut Array2<f64>,
+        se_ale: &mut Array2<f64>,
+    ) -> Result<(), ENNError> {
+        let nrows = mu.nrows();
+        if nrows == 0 {
+            return Ok(());
+        }
+        let dim = mu.raw_dim();
+        if let Some(st) = self.stiefel.as_ref() {
+            let f_mu = mu.as_standard_layout();
+            let f_se = se.as_standard_layout();
+            let s_old = f_se.as_slice().expect("standard layout");
+            let (m_out, s_out) = st
+                .transform_stein(f_mu.as_slice().expect("standard layout"), s_old, nrows)
+                .map_err(ENNError::InvalidParameter)?;
+            for (k, (&so, &sn)) in s_old.iter().zip(&s_out).enumerate() {
+                let r = if so > 1.0e-12 { sn / so } else { 1.0 };
+                se_epi.as_slice_memory_order_mut().expect("contiguous")[k] *= r;
+                se_ale.as_slice_memory_order_mut().expect("contiguous")[k] *= r;
+            }
+            *mu = Array2::from_shape_vec(dim, m_out).unwrap();
+            *se = Array2::from_shape_vec(dim, s_out).unwrap();
+        }
+        if let Some(aff) = self.affine.as_ref() {
+            let flat_mu = mu.as_standard_layout();
+            let cal_mu = aff
+                .apply_mu(flat_mu.as_slice().expect("standard layout"), nrows)
+                .map_err(ENNError::InvalidParameter)?;
+            *mu = Array2::from_shape_vec(dim, cal_mu)
+                .map_err(|e| ENNError::InvalidParameter(e.to_string()))?;
+            for arr in [se, se_epi, se_ale] {
+                let flat = arr.as_standard_layout();
+                let scaled = aff
+                    .apply_se(flat.as_slice().expect("standard layout"), nrows)
+                    .map_err(ENNError::InvalidParameter)?;
+                *arr = Array2::from_shape_vec(dim, scaled)
+                    .map_err(|e| ENNError::InvalidParameter(e.to_string()))?;
+            }
+        }
+        Ok(())
+    }
     pub fn len(&self) -> usize {
         self.num_obs
     }

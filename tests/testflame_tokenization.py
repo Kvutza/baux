@@ -3,11 +3,8 @@ import sys
 from types import SimpleNamespace
 
 import pytest
-
-from ops.flame import coding
-
-
 from code_fixtures import CharacterTokenizer
+from ops.flame import coding
 
 
 @pytest.mark.parametrize(

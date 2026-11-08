@@ -4,7 +4,6 @@ import sys
 from pathlib import Path
 
 import pytest
-
 from ops.flame import codecheck
 
 

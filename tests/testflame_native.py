@@ -1,18 +1,17 @@
 """Native orchestration coverage with CPU checkpoints and fake CUDA bindings."""
 # ruff: noqa: F811
 
-from itertools import product
 import hashlib
 import json
 import sys
+from itertools import product
 
 import numpy as np
 import pytest
 from click.testing import CliRunner
-
+from native_fixtures import binding, checkpoint, config, document  # noqa: F401
 from ops.flame import bo, native
 from ops.flame.layout import Layout
-from native_fixtures import binding, checkpoint, config, document  # noqa: F401
 
 
 def test_cpucheckpoint(checkpoint, config):

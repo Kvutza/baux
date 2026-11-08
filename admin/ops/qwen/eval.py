@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import Any
 
 import click
-
 from ops.flame.codecheck import check_solution
 from ops.flame.objective import SolutionObjective
 

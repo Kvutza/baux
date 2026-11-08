@@ -102,3 +102,28 @@ impl PyENNFitter {
         Ok(PyENNParams { inner: result })
     }
 }
+
+/// Pure stateless hyperparameter fit over an ENN model.
+#[pyfunction(name = "fit_model")]
+#[pyo3(signature = (model, k, num_candidates, num_samples, infer_aleatoric=true, seed=0, warm=None))]
+pub fn fit_model(
+    model: &PyENN,
+    k: i32,
+    num_candidates: usize,
+    num_samples: usize,
+    infer_aleatoric: bool,
+    seed: u64,
+    warm: Option<PyENNParams>,
+) -> PyResult<PyENNParams> {
+    let inner = baux::fit_model(
+        &model.inner,
+        k,
+        num_candidates,
+        num_samples,
+        infer_aleatoric,
+        warm.map(|w| w.inner),
+        baux::Key::new(seed),
+    )
+    .map_err(|e| PyValueError::new_err(e.to_string()))?;
+    Ok(PyENNParams { inner })
+}

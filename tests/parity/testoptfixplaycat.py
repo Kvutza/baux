@@ -3,17 +3,16 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-
 from baux.turbo.optimizer_fixtures import (
     EXPECTED_OPTIMIZER_FIXTURE_NAMES,
     FIXTURE_GENERATOR_ENTRIES,
     PREFIX_CONFIG,
     catalog_names,
     entry_name,
+    load_fixture,
     name_prefix,
     output_path,
     subdir_entry,
-    load_fixture,
 )
 from baux.turbo.optimizer_fixtures.replay import FIXTURES_ROOT, _config
 

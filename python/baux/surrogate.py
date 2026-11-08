@@ -1,3 +1,5 @@
+"""Surrogate model configurations, neighbor indices, and metric learning policies."""
+
 from __future__ import annotations
 
 from baux.enn.posterior_flags import DiagonalMetric, MetricLearning

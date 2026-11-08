@@ -136,8 +136,7 @@
           "aeneas",
           "lean4",
           "oxcaml",
-          "hardcaml",
-          "tectonic"
+          "hardcaml"
         ]
       },
       "resolvedDependencies": [

@@ -1,3 +1,5 @@
+"""Serialize optimizer configurations for the native Rust engine."""
+
 from __future__ import annotations
 
 import os
@@ -15,16 +17,16 @@ from .candidates import CandidateSampler, RAASPDriver
 from .initialization import LHDOnlyInit
 from .optimizer import OptimizerConfig
 from .surrogate import (
+    INDEX_NAMES,
     ENNSurrogate,
     ExternalSurrogate,
     GaussianProcess,
-    INDEX_NAMES,
     NoSurrogate,
 )
 from .trust_region import (
     MorboTrustRegion,
-    RegionalSearchPolicy,
     NoTrustRegion,
+    RegionalSearchPolicy,
     TurboTrustRegion,
 )
 
@@ -34,6 +36,7 @@ _CAND_MAX = 5000
 
 
 def enn_k(cfg: OptimizerConfig) -> int:
+    """Resolve the neighbor count k from an ENN surrogate configuration."""
     sur = cfg.surrogate
     if not isinstance(sur, ENNSurrogate):
         raise TypeError(f"expected ENNSurrogate, got {type(sur)!r}")
@@ -74,6 +77,8 @@ def _cand(cfg: OptimizerConfig) -> dict[str, Any]:
         out["num_pert"] = int(c.num_pert)
     if c.sampler is CandidateSampler.RAASP:
         out["raasp_fast"] = c.raasp_driver is RAASPDriver.FAST
+    if c.tied_dims is not None:
+        out["tied_dims"] = [[int(col) for col in g] for g in c.tied_dims]
     return out
 
 
@@ -117,6 +122,28 @@ def _ennmetric(sur: ENNSurrogate, out: dict[str, Any]) -> None:
         out["tied_dims"] = [[int(c) for c in g] for g in sur.tied_dims]
     if sur.unscaled_dims is not None:
         out["unscaled_dims"] = [int(c) for c in sur.unscaled_dims]
+    if sur.geometry != "euclidean":
+        out["geometry"] = sur.geometry
+        out["local_k"] = int(sur.local_k)
+    if sur.stiefel is not None:
+        loadings = getattr(sur.stiefel, "loadings", sur.stiefel)
+        out["stiefel"] = np.asarray(loadings, dtype=float)
+    if sur.stiefel_rank is not None:
+        out["stiefel_rank"] = int(sur.stiefel_rank)
+    if sur.calibrate_alpha is not None:
+        out["calibrate_alpha"] = float(sur.calibrate_alpha)
+    if sur.affine is not None:
+        aff = sur.affine
+        a, b, c = (
+            (aff.a, aff.b, aff.c)
+            if hasattr(aff, "a") and hasattr(aff, "b") and hasattr(aff, "c")
+            else aff
+        )
+        out["affine"] = (
+            np.asarray(a, dtype=float).ravel().tolist(),
+            np.asarray(b, dtype=float).ravel().tolist(),
+            np.asarray(c, dtype=float).ravel().tolist(),
+        )
 
 
 def _enn(cfg: OptimizerConfig) -> dict[str, Any]:
@@ -144,6 +171,7 @@ def _enn(cfg: OptimizerConfig) -> dict[str, Any]:
 
 
 def regional_acquisition(acquisition) -> tuple[str | None, float | None]:
+    """Encode a regional acquisition config into its native name and optional beta."""
     if acquisition is None:
         return None, None
     if isinstance(acquisition, UCBAcquisitionConfig):
@@ -158,6 +186,7 @@ def regional_acquisition(acquisition) -> tuple[str | None, float | None]:
 
 
 def encode_regions(tr: RegionalSearchPolicy) -> dict[str, Any]:
+    """Encode a regional search policy into native configuration parameters."""
     out = {
         "region_sharing": tr.sharing,
         "region_successes": tr.success_tolerance,
@@ -181,11 +210,13 @@ def encode_regions(tr: RegionalSearchPolicy) -> dict[str, Any]:
 
 
 def encode(cfg: OptimizerConfig) -> dict[str, Any] | None:
+    """Encode an OptimizerConfig into a dictionary for the native engine."""
     out = _acq(cfg) | _cand(cfg) | _tr(cfg) | _enn(cfg)
     return out or None
 
 
 def supports(cfg: OptimizerConfig) -> bool:
+    """Return whether the given OptimizerConfig uses a supported surrogate."""
     return isinstance(
         cfg.surrogate,
         (ENNSurrogate, GaussianProcess, NoSurrogate, ExternalSurrogate),
@@ -193,6 +224,7 @@ def supports(cfg: OptimizerConfig) -> bool:
 
 
 def is_lhd(cfg: OptimizerConfig) -> bool:
+    """Return whether the configuration specifies pure Latin hypercube sampling."""
     return (
         isinstance(cfg.trust_region, NoTrustRegion)
         and isinstance(cfg.init.init_strategy, LHDOnlyInit)

@@ -3,7 +3,6 @@
 import json
 
 import pytest
-
 from ops.qwen import checkpoint
 from ops.qwen.config import Config
 

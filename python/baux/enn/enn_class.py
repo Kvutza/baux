@@ -1,3 +1,5 @@
+"""Epistemic Nearest Neighbors (ENN) surrogate model wrapper."""
+
 from __future__ import annotations
 
 import os
@@ -6,11 +8,7 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 from baux._rust import ENN as _RustENN
-from baux.enn.posterior_flags import (
-    DiagonalMetric,
-    PosteriorFlags,
-    metric_options,
-)
+from baux.enn.posterior_flags import DiagonalMetric, PosteriorFlags, metric_options
 from baux.index import INDEX_NAMES, NeighborIndex
 
 if TYPE_CHECKING:
@@ -25,12 +23,10 @@ def _rustseeds(function_seeds: np.ndarray | list[int]) -> list[int]:
 
 
 def posterior_neighbors(
-    rust_model,
-    x: np.ndarray,
-    *,
-    search_k: int,
-    flags: PosteriorFlags = PosteriorFlags(),
+    rust_model, x: np.ndarray, *, search_k: int, flags: PosteriorFlags | None = None
 ) -> tuple[np.ndarray, np.ndarray]:
+    """Query posterior neighbor squared distances and indices."""
+    flags = PosteriorFlags() if flags is None else flags
     dist2s, idx = rust_model.posterior_neighbors(
         np.asarray(x, dtype=float),
         int(search_k),
@@ -41,16 +37,11 @@ def posterior_neighbors(
 
 
 def nearest_neighbors(
-    rust_model,
-    x: np.ndarray,
-    *,
-    search_k: int,
-    exclude_nearest: bool,
+    rust_model, x: np.ndarray, *, search_k: int, exclude_nearest: bool
 ) -> tuple[np.ndarray, np.ndarray]:
+    """Query nearest neighbor squared distances and indices."""
     dist2s, idx = rust_model.nearest_neighbors(
-        np.asarray(x, dtype=float),
-        int(search_k),
-        bool(exclude_nearest),
+        np.asarray(x, dtype=float), int(search_k), bool(exclude_nearest)
     )
     return np.asarray(dist2s, dtype=float), np.asarray(idx, dtype=int)
 
@@ -64,7 +55,15 @@ def _rustname(index_driver: NeighborIndex) -> str:
             import importlib
 
             importlib.import_module("libcuvs").load_library()
-        except Exception:
+        except (
+            ImportError,
+            OSError,
+            RuntimeError,
+            ValueError,
+            TypeError,
+            ArithmeticError,
+            np.linalg.LinAlgError,
+        ):
             pass
     return name
 
@@ -185,7 +184,10 @@ def _isdevicetensor(x: Any) -> bool:
 
 
 class ENN:
+    """Epistemic Nearest Neighbors surrogate model."""
+
     _EPS_VAR = 1e-9
+    _metric: tuple[str, int] = ("euclidean", 4)
     _inputs = staticmethod(_inputs)
 
     def __init__(
@@ -242,16 +244,13 @@ class ENN:
         self.device: str = getattr(self._rust_model, "device", "cpu")
         self.index_kind: str = _INDEX_KINDS.get(index_driver, "exact")
 
-    def add(
-        self,
-        x: np.ndarray,
-        y: np.ndarray,
-        yvar: np.ndarray | None = None,
-    ) -> None:
+    def add(self, x: np.ndarray, y: np.ndarray, yvar: np.ndarray | None = None) -> None:
+        """Append observations to the training set."""
         x, y, yvar = self._inputs(x, y, yvar)
         self._rust_model.add(x, y, yvar)
 
     def ensure_sync(self) -> None:
+        """Synchronize pending observations with the neighbor index."""
         self._rust_model.ensure_sync()
 
     def device_posterior(
@@ -292,14 +291,17 @@ class ENN:
         return self._rust_model.device_posterior(x, **kwargs)
 
     def schedule_flush(self) -> None:
+        """Schedule an asynchronous flush of buffered observations."""
         self._rust_model.schedule_flush()
 
     def persist_index(self) -> None:
+        """Persist the neighbor index to storage."""
         self._rust_model.persist_index()
 
     def train_rows(
         self, indices: list[int] | np.ndarray
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray | None]:
+        """Fetch training inputs, targets, and noise variances for row indices."""
         idx = [int(i) for i in np.asarray(indices, dtype=int).ravel()]
         x, y, yvar = self._rust_model.train_rows(idx)
         x_arr = np.asarray(x, dtype=float)
@@ -308,10 +310,12 @@ class ENN:
         return x_arr, y_arr, yvar_arr
 
     def index_bytes(self) -> int:
+        """Return memory footprint of the neighbor index in bytes."""
         return int(self._rust_model.index_bytes())
 
     @property
     def num_outputs(self) -> int:
+        """Return number of output metrics."""
         return int(self._rust_model.num_outputs)
 
     @property
@@ -325,10 +329,12 @@ class ENN:
 
     @property
     def y_bounds(self) -> np.ndarray:
+        """Return lower and upper output bounds per metric."""
         return np.asarray(self._rust_model.y_bounds, dtype=float)
 
     @property
     def metric(self) -> DiagonalMetric | None:
+        """Return learned diagonal metric diagnostics, if enabled."""
         return DiagonalMetric.from_dict(self._rust_model.diagonal_metric)
 
     @property
@@ -347,6 +353,7 @@ class ENN:
         *,
         flags: PosteriorFlags | None = None,
     ) -> Any:
+        """Compute posterior normal moments at query points."""
         if params is None:
             raise TypeError("posterior() missing required argument: 'params'")
         if _isdevicetensor(x):
@@ -375,6 +382,7 @@ class ENN:
         params: ENNParams,
         flags: PosteriorFlags | None = None,
     ) -> ENNNormal:
+        """Compute posterior moments conditioned on hypothetical observations."""
         from .enn_normal import ENNNormal
 
         flags = _posteriorcoerced(flags)
@@ -398,6 +406,7 @@ class ENN:
         *,
         flags: PosteriorFlags | None = None,
     ) -> ENNNormal:
+        """Compute posterior moments across a batch of hyperparameter sets."""
         from .enn_normal import ENNNormal
 
         flags = _posteriorcoerced(flags)
@@ -424,6 +433,7 @@ class ENN:
     def neighbors(
         self, x: np.ndarray, k: int, *, exclude_nearest: bool = False
     ) -> np.ndarray:
+        """Return indices of the k nearest neighbors for a single query point."""
         x = np.asarray(x, dtype=float)
         if x.ndim == 1:
             x = x[np.newaxis, :]
@@ -452,6 +462,7 @@ class ENN:
         function_seeds: np.ndarray | list[int],
         flags: PosteriorFlags | None = None,
     ) -> tuple[np.ndarray, np.ndarray]:
+        """Draw deterministic posterior function samples at query points."""
         flags = _posteriorcoerced(flags)
         seeds = _rustseeds(function_seeds)
         kw = _rustkwargs(params, flags, seeds)
@@ -468,24 +479,17 @@ class ENN:
         function_seeds: np.ndarray | list[int],
         flags: PosteriorFlags | None = None,
     ) -> tuple[np.ndarray, np.ndarray]:
+        """Draw posterior function samples conditioned on hypothetical observations."""
         flags = _posteriorcoerced(flags)
         x_whatif = np.asarray(x_whatif, dtype=float)
         if x_whatif.ndim != 2 or x_whatif.shape[1] != self._numdim:
             raise ValueError(x_whatif.shape)
         if x_whatif.shape[0] == 0:
             return self.posterior_draw(
-                x,
-                params,
-                function_seeds=function_seeds,
-                flags=flags,
+                x, params, function_seeds=function_seeds, flags=flags
             )
 
         seeds = _rustseeds(function_seeds)
         kw = _rustkwargs(params, flags, seeds)
-        draws, idx = self._rust_model.conditional_draw(
-            x_whatif,
-            y_whatif,
-            x,
-            **kw,
-        )
+        draws, idx = self._rust_model.conditional_draw(x_whatif, y_whatif, x, **kw)
         return _finalizedraw(x, draws, idx)

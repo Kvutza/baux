@@ -7,7 +7,26 @@ use crate::error::ENNError;
 use crate::model::ENN;
 use crate::params::ENNParams;
 
+/// Pure functional hyperparameter fitting over an immutable `ENN` model.
+pub fn fit_model(
+    model: &ENN,
+    k: i32,
+    num_candidates: usize,
+    num_samples: usize,
+    infer_aleatoric: bool,
+    warm: Option<ENNParams>,
+    key: crate::hash::Key,
+) -> Result<ENNParams, ENNError> {
+    let mut rng = key.prng();
+    let mut fitter = ENNFitter::new(k, infer_aleatoric);
+    if model.bounded_outputs() {
+        fitter = fitter.with_bounds(Some(model.y_bounds().clone()));
+    }
+    fitter.ask(model, num_candidates, num_samples, warm.as_ref(), &mut rng)
+}
+
 /// Stateful ENN fitter: running `y` moments and warm-start params.
+#[derive(Debug, Clone)]
 pub struct ENNFitter {
     k: i32,
     infer_aleatoric_variance: bool,
@@ -230,10 +249,11 @@ impl ENNFitter {
             self.params = Some(best);
             return Ok(best);
         }
-        if self.y_count == 0 {
-            return Err(ENNError::InvalidParameter(
-                "tell must be called before ask to initialize incremental y statistics".to_string(),
-            ));
+        if self.y_count != model.num_obs() || self.num_metrics != model.num_metrics() {
+            self.y_count = model.num_obs();
+            self.num_metrics = model.num_metrics();
+            self.y_sum = model.y_sum.clone();
+            self.y_sumsq = model.y_sumsq.clone();
         }
         let paramss = self.candidates(num_candidates, 1.0, params_warm_start, rng)?;
         let indices = baux::semantics::neighbor::sampled_rows(model.len(), num_samples, rng);
@@ -615,5 +635,20 @@ mod tests {
             .unwrap();
         assert!((1..=3).contains(&fitted.k_neighbors));
         assert_eq!(fitter.params(), Some(&fitted));
+    }
+
+    #[test]
+    fn pure_fit() {
+        let model = create_test_model();
+        let key = crate::hash::Key::new(42);
+        let p1 = fit_model(&model, 2, 5, 3, true, None, key).unwrap();
+        let p2 = fit_model(&model, 2, 5, 3, true, None, key).unwrap();
+        assert_eq!(p1, p2);
+        assert_eq!(p1.k_neighbors, 2);
+
+        let mut fitter = ENNFitter::new(2, true);
+        let mut rng = key.prng();
+        let p3 = fitter.ask(&model, 5, 3, None, &mut rng).unwrap();
+        assert_eq!(p1, p3);
     }
 }

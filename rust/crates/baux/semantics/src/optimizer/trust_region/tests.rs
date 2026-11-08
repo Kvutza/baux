@@ -166,7 +166,7 @@ fn inclusive_incumbent() {
     };
     let mut est = NeighborValueEstimator::with_spec(-15.0, 0.0028, 7, spec)
         .unwrap()
-        .with_metric(baux::semantics::neighbor::DistanceMetric::Conformal { local_k: 2 });
+        .with_geometry(baux::semantics::neighbor::DistanceMetric::Conformal { local_k: 2 });
     // Append two older worse points and one accepted better incumbent at tiny
     // raw distances (1.6e-5).
     est.append(&[1.6e-5_f64], -15.2, 0.0028, false).unwrap();
@@ -207,7 +207,7 @@ fn inclusive_incumbent() {
     // take effect in acquire().
     let hyp_bv = NeighborValueEstimator::with_spec(-15.0, 0.0028, 7, spec)
         .unwrap()
-        .with_metric(DistanceMetric::Hyperbolic { local_k: 2 })
+        .with_geometry(DistanceMetric::Hyperbolic { local_k: 2 })
         .with_law(UncertaintyLaw::BiasVariance);
     let acq_hyp = hyp_bv.acquire(&[1.6e-5_f64], 1.0, None).unwrap();
     assert!(acq_hyp.standard_error.is_finite() && acq_hyp.epistemic_error.is_finite());

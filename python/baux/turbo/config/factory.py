@@ -1,3 +1,5 @@
+"""Factory functions for standard TuRBO and LHD optimizer configurations."""
+
 from __future__ import annotations
 
 from .acquisition import (
@@ -53,6 +55,7 @@ def turbo_one(
     sampler: CandidateSampler = CandidateSampler.SOBOL,
     acquisition: AcquisitionKind = AcquisitionKind.THOMPSON,
 ) -> OptimizerConfig:
+    """Build a TuRBO-1 configuration backed by a Gaussian process surrogate."""
     acq_config, acq_optimizer = _acqconfigs(acquisition)
     return OptimizerConfig(
         trust_region=trust_region or TurboTrustRegion(),
@@ -72,6 +75,7 @@ def turbo_zero(
     trust_region: TrustRegionConfig | None = None,
     sampler: CandidateSampler = CandidateSampler.SOBOL,
 ) -> OptimizerConfig:
+    """Build a surrogate-free TuRBO-0 configuration using random acquisition."""
     return OptimizerConfig(
         trust_region=trust_region or TurboTrustRegion(),
         candidates=_candidates(
@@ -94,6 +98,7 @@ def turbo_enn(
     num_init: int | None = None,
     acquisition: AcquisitionKind = AcquisitionKind.PARETO,
 ) -> OptimizerConfig:
+    """Build a TuRBO configuration backed by an Epistemic Nearest Neighbors surrogate."""
     acq_config, acq_optimizer = _acqconfigs(acquisition)
     surrogate = enn if enn is not None else ENNSurrogate()
     if surrogate.fit.num_samples is None and acquisition != AcquisitionKind.PARETO:
@@ -117,6 +122,7 @@ def lhd_only(
     trust_region: TrustRegionConfig | None = None,
     sampler: CandidateSampler = CandidateSampler.SOBOL,
 ) -> OptimizerConfig:
+    """Build a Latin hypercube design-only optimizer configuration."""
     return OptimizerConfig(
         trust_region=trust_region or NoTrustRegion(),
         candidates=_candidates(sampler, num_candidates),

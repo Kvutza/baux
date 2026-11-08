@@ -217,8 +217,34 @@ mod tests {
         let x = array![[0.1, 0.2], [0.4, 0.5], [0.8, 0.9]];
         let y = array![[1.0], [2.0], [3.0]];
         let fitted = unfitted.fit(&x.view(), &y.view(), None, &mut rng).unwrap();
-        assert_eq!(fitted.obs_len(), 3);
-        let pred = fitted.predict(&array![[0.2, 0.3]].view()).unwrap();
+        let cloned = fitted.clone();
+        assert_eq!(cloned.obs_len(), 3);
+        let pred = cloned.predict(&array![[0.2, 0.3]].view()).unwrap();
         assert_eq!(pred.mu.shape(), &[1, 1]);
+    }
+
+    #[test]
+    fn pure_branching() {
+        let mut rng = StdRng::seed_from_u64(42);
+        let bounds = array![[-5.0, 5.0], [-5.0, 5.0]];
+        let pipe = InitStage::Lhd(4)
+            | PerturbStage::Raasp(32)
+            | ModelStage::Enn(3)
+            | AcqStage::ucb_sense(1.5, Minimize);
+        let mut warmup = pipe.build(bounds, &mut rng).unwrap();
+        let x0 = warmup.warmup_design(4, &mut rng).unwrap();
+        let y0 = array![[1.0], [2.0], [0.5], [3.0]];
+        let branch_a = warmup.activate(&x0.view(), &y0.view(), &mut rng).unwrap();
+        let branch_b = branch_a.fork().unwrap();
+
+        let key = crate::hash::Key::new(101);
+        let (next_a, ticket_a) = branch_a.ask_pure(2, key).unwrap();
+        let (next_b, ticket_b) = branch_b.ask_pure(2, key).unwrap();
+        assert_eq!(ticket_a.as_array(), ticket_b.as_array());
+        assert_eq!(next_a.digest(), next_b.digest());
+
+        let y_step = array![[0.25], [0.75]];
+        let advanced_a = next_a.tell_pure(ticket_a, &y_step.view(), key).unwrap();
+        assert!(advanced_a.tell_pure(ticket_b, &y_step.view(), key).is_err());
     }
 }

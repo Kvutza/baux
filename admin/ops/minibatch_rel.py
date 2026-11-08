@@ -4,9 +4,8 @@ import gc
 from functools import partial
 
 import numpy as np
-from correlated_parity import decode, read_proposals
-
 from baux.experimental import Region, Span
+from correlated_parity import decode, read_proposals
 
 
 class LegacyExport:

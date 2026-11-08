@@ -1,10 +1,11 @@
+"""Golden trajectory capture utilities for TuRBO optimizer regression tests."""
+
 from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
 
 import numpy as np
-
 from baux.turbo.config import OptimizerConfig
 
 from .catalog import (
@@ -14,7 +15,6 @@ from .catalog import (
     FixtureRunSpec,
     subdir_entry,
 )
-
 
 UPSTREAM_ENN_REVISION = "f8f6a5dada9e85d1a196b7281be4b1b070e0a3ef"
 RNG_SEMANTICS = "ENN 0.4.1 owned StdRng fork after constructor draws"
@@ -26,6 +26,7 @@ def capture_optimizer(
     seed: int,
     run: FixtureRunSpec,
 ) -> dict[str, Any]:
+    """Run an optimizer for `run.num_cycles` steps and record its trajectory."""
     from baux import create_optimizer
 
     objective_fn = FIXTURE_OBJECTIVES[run.objective]
@@ -57,10 +58,12 @@ def capture_optimizer(
 
 
 def build_fixture(entry: FixtureGeneratorEntry, seed: int) -> dict[str, Any]:
+    """Build a golden fixture payload for a catalog entry and random seed."""
     config = PREFIX_CONFIG[entry.config_key]
     return capture_optimizer(entry.bounds, config, seed, entry.run)
 
 
 def output_path(entry: FixtureGeneratorEntry, seed: int, root: Path) -> Path:
+    """Resolve the output TOML file path for a fixture entry and seed."""
     subdir = subdir_entry(entry)
     return root / "tests" / "fixtures" / subdir / f"{entry.prefix}{seed}.toml"

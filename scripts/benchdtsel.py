@@ -11,9 +11,8 @@ from typing import Any
 
 import click
 import numpy as np
-
 from baux import AcquisitionKind, create_optimizer, turbo_enn
-from baux.turbo.config import SurrogateFit, ENNSurrogate
+from baux.turbo.config import ENNSurrogate, SurrogateFit
 
 
 def make_bounds(num_dim: int) -> np.ndarray:

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import numpy as np
-
 from baux.turbo.config import SurrogateFit
 from baux.turbo.proposal import mk_enn
 

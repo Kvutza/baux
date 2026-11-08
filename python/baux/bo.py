@@ -1,3 +1,5 @@
+"""Stateful ask/tell Bayesian optimizer interface backed by the native Rust engine."""
+
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -44,6 +46,7 @@ class AskBatch:
     ids: tuple[AskId, ...]
     points: np.ndarray
     spec: Any = None
+    weights: np.ndarray | None = None
 
     def __post_init__(self) -> None:
         if self.points.ndim != 2 or self.points.shape[0] != len(self.ids):
@@ -53,14 +56,14 @@ class AskBatch:
     def params(self) -> tuple[Any, ...]:
         """Return structured parameter PyTrees (one per arm) when initialized with a PyTreeSpec."""
         if self.spec is not None:
-            return self.spec.unflatten_batch(self.points)
+            return self.spec.unflatten_batch(self.points, weights=self.weights)
         return tuple(self.points[i] for i in range(self.points.shape[0]))
 
     @property
     def stacked(self) -> Any:
         """Return a single PyTree whose leaves have leading batch dimension `(num_arms, *shape)`."""
         if self.spec is not None:
-            return self.spec.unflatten_stacked(self.points)
+            return self.spec.unflatten_stacked(self.points, weights=self.weights)
         return self.points
 
     def __len__(self) -> int:
@@ -181,10 +184,10 @@ class Optimizer:
     @property
     def num_observations(self) -> int:
         """Number of completed observations retained by the optimizer."""
-        return int(self._inner.region_count())
+        return int(self._inner.num_observations())
 
     def __len__(self) -> int:
-        return int(self._inner.region_count())
+        return int(self._inner.num_observations())
 
     region_count = num_observations
 
@@ -195,10 +198,12 @@ class Optimizer:
 
     @property
     def tr_length(self) -> float:
+        """Current side length of the primary trust region."""
         return float(self._inner.tr_length())
 
     @property
     def init_progress(self) -> tuple[int, int] | None:
+        """Completed and total warm-up initialization counts, if applicable."""
         return self._inner.init_progress()
 
     @property
@@ -207,6 +212,7 @@ class Optimizer:
         return getattr(self._inner, "ingestion_failure", None)
 
     def telemetry(self) -> Telemetry:
+        """Return timing and candidate-count telemetry from the latest round."""
         t = self._inner.telemetry()
         return Telemetry(
             dt_fit=t.dt_fit,

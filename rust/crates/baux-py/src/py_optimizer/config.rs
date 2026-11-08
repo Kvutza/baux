@@ -56,6 +56,43 @@ fn apply_fields(
     }
     config.tied_dims = opt_val(dict, "tied_dims")?;
     config.unscaled_dims = opt_val(dict, "unscaled_dims")?;
+    if let Some(s) = opt_val::<String>(dict, "geometry")? {
+        config.distance_metric = Some(match s.to_lowercase().as_str() {
+            "euclidean" => baux::config::DistanceMetric::Euclidean,
+            "conformal" => baux::config::DistanceMetric::Conformal,
+            "hyperbolic" => baux::config::DistanceMetric::Hyperbolic,
+            "wasserstein" => baux::config::DistanceMetric::Wasserstein,
+            _ => return Err(PyValueError::new_err(format!("Unknown geometry: {s}"))),
+        });
+    }
+    config.local_scale_neighbors = opt_val(dict, "local_k")?;
+    config.stiefel_rank = opt_val(dict, "stiefel_rank")?;
+    config.calibrate_alpha = opt_val(dict, "calibrate_alpha")?;
+    if let Some(v) = dict.get_item("stiefel")? {
+        let loadings: PyReadonlyArray2<f64> = v.extract()?;
+        config.stiefel_loadings = Some(
+            loadings
+                .as_array()
+                .rows()
+                .into_iter()
+                .map(|r| r.to_vec())
+                .collect(),
+        );
+    }
+    if let Some((a, b, c)) = opt_val::<(Vec<f64>, Vec<f64>, Vec<f64>)>(dict, "affine")? {
+        if a.len() != b.len() || a.len() != c.len() || a.is_empty() {
+            return Err(PyValueError::new_err(
+                "Affine vectors (a, b, c) must be non-empty and match in length",
+            ));
+        }
+        config.affine_params = Some(
+            a.into_iter()
+                .zip(b)
+                .zip(c)
+                .map(|((ai, bi), ci)| [ai, bi, ci])
+                .collect(),
+        );
+    }
     if let Some(v) = dict.get_item("y_bounds")? {
         let bounds: numpy::PyReadonlyArray2<f64> = v.extract()?;
         if bounds.shape()[1] != 2 {

@@ -4,7 +4,6 @@ pytest.importorskip("ax")
 from ax.api.client import Client
 from ax.api.configs import RangeParameterConfig
 from ax.generation_strategy.generation_strategy import GenerationStrategy
-
 from baux.ax import GenerationNode
 
 

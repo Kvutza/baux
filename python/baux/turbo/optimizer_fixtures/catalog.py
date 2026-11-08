@@ -1,3 +1,5 @@
+"""Catalog of golden optimizer fixture configurations and objective functions."""
+
 from __future__ import annotations
 
 import re
@@ -5,27 +7,27 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 import numpy as np
-
 from baux.benchmarks.separable_unimodal import separable_objective
 from baux.turbo.config import (
     AcquisitionKind,
     CandidateConfig,
-    SurrogateFit,
     ENNSurrogate,
     MorboTrustRegion,
     MultiObjectiveConfig,
+    OptimizerConfig,
+    SurrogateFit,
     TurboTrustRegion,
     lhd_only,
     turbo_enn,
     turbo_zero,
 )
-from baux.turbo.config import OptimizerConfig
 
 UNIT_BOX_BOUNDS = np.array([[0.0, 1.0], [0.0, 1.0]], dtype=float)
 MORBO_SEPARABLE_BOUNDS = np.array([[-300.0, 600.0], [0.2, 1.0]], dtype=float)
 
 
 def sphere_objective(x: np.ndarray) -> np.ndarray:
+    """Evaluate negative squared Euclidean distance from `[0.5, ..., 0.5]`."""
     return (-np.sum((x - 0.5) ** 2, axis=1)).reshape(-1, 1)
 
 
@@ -37,6 +39,8 @@ FIXTURE_OBJECTIVES: dict[str, Callable[[np.ndarray], np.ndarray]] = {
 
 @dataclass(frozen=True)
 class FixtureRunSpec:
+    """Execution parameters for a fixture run."""
+
     num_cycles: int
     num_arms: int
     objective: str
@@ -44,6 +48,8 @@ class FixtureRunSpec:
 
 @dataclass(frozen=True)
 class FixtureGeneratorEntry:
+    """Specification for generating a family of golden optimizer fixtures."""
+
     prefix: str
     config_key: str
     bounds: np.ndarray
@@ -139,11 +145,13 @@ FIXTURE_GENERATOR_ENTRIES: tuple[FixtureGeneratorEntry, ...] = (
 
 
 def name_prefix(name: str) -> str:
+    """Strip trailing seed digits from a fixture name to obtain its prefix."""
     m = re.fullmatch(r"(.+seed)[0-9]+", name)
     return m.group(1) if m else name
 
 
 def entry_name(name: str) -> FixtureGeneratorEntry:
+    """Look up the catalog generator entry matching a fixture name."""
     key = name_prefix(name)
     for entry in FIXTURE_GENERATOR_ENTRIES:
         if entry.prefix == key:
@@ -152,10 +160,12 @@ def entry_name(name: str) -> FixtureGeneratorEntry:
 
 
 def subdir_entry(entry: FixtureGeneratorEntry) -> str:
+    """Return the fixture subdirectory name (`morbo` or `optimizer`) for an entry."""
     return "morbo" if entry.morbo else "optimizer"
 
 
 def catalog_names() -> tuple[str, ...]:
+    """Return all expected fixture names across catalog entries and seeds."""
     return tuple(
         f"{entry.prefix}{seed}"
         for entry in FIXTURE_GENERATOR_ENTRIES

@@ -104,7 +104,6 @@ def append_history(history, bits, reward):
 def fixture(sampler):
     import jax
     import jax.numpy as jnp
-
     from baux.experimental import Span, turbo_enn
 
     leaves = [
@@ -282,7 +281,6 @@ def _checkrestart(search, expected):
 
 def check_copyorder():
     import jax.numpy as jnp
-
     from baux.experimental import Span, turbo_enn
 
     size = 262_147
@@ -321,7 +319,6 @@ def check_copyorder():
 
 def check_nulls():
     import jax.numpy as jnp
-
     from baux.experimental import Span, turbo_enn
 
     leaves, bits, radius, root = null_case()
@@ -360,7 +357,6 @@ def check_nulls():
 
 def check_tiles():
     import jax.numpy as jnp
-
     from baux.experimental import Span, turbo_enn
 
     leaves, base = [(17, 0, 65_539, 1.0)], encode(np.full(65_539, 1.5))
@@ -406,7 +402,6 @@ def main(cpu_only):
         )
         return
     import jax
-
     from ops.bf16_parity import check_export
 
     device = jax.devices()[0]

@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 import numpy as np
-from enn_helpers import enn_model
-
 from baux.enn.enn_class import ENN
 from baux.enn.enn_params import ENNParams, PosteriorFlags
+from enn_helpers import enn_model
 
 
 def test_001():

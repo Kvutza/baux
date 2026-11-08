@@ -1,14 +1,13 @@
 from __future__ import annotations
 
 import pytest
-
 from baux.turbo.config import (
     AcquisitionKind,
     CandidateConfig,
     CandidateSampler,
+    ENNSurrogate,
     RAASPDriver,
     SurrogateFit,
-    ENNSurrogate,
     UCBAcquisitionConfig,
     turbo_enn,
 )

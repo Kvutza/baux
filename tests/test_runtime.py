@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-import pytest
-
 import baux
+import pytest
 
 
 def test_capabilities():

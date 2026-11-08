@@ -1,9 +1,12 @@
+"""Separable two-objective unimodal quadratic benchmark function."""
+
 from __future__ import annotations
 
 import numpy as np
 
 
 def separable_objective(x: np.ndarray) -> np.ndarray:
+    """Evaluate a separable two-objective quadratic test function at `x`."""
     x1 = x[:, 0]
     x2 = x[:, 1]
     y1 = 500_000.0 - 8.0 * (x1 - 120.0) ** 2

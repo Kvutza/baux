@@ -21,6 +21,7 @@ pub enum HashError {
     DimensionMismatch(String),
 }
 
+pub use baux::semantics::key::{AffineKey, Key};
 pub use baux::semantics::random::{
     Prng, auto_seed, box_muller, domain_prng, domain_seed, normal_metric, prng, resolve_seed,
     splitmix_f32, splitmix64, stream_prng, stream_seed, tune_seed, u64_f53,

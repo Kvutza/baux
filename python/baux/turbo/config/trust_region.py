@@ -1,3 +1,5 @@
+"""Trust-region and multi-region search policies."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -27,6 +29,7 @@ RegionController = Literal["turbo", "fixed_radius"]
 def validate_acquisitions(
     count: int, acquisitions: tuple[AcquisitionConfig | None, ...]
 ) -> None:
+    """Validate that per-region acquisition configurations match the region count."""
     if not isinstance(acquisitions, tuple):
         raise TypeError("acquisitions must be a tuple")
     if acquisitions and len(acquisitions) != count:
@@ -54,29 +57,38 @@ def validate_acquisitions(
 
 @dataclass(frozen=True)
 class NoTrustRegion:
+    """Configuration disabling trust-region search in favor of global bounds."""
+
     noise_aware: bool = False
 
 
 @dataclass(frozen=True)
 class TurboTrustRegion:
+    """Single-objective TuRBO trust-region configuration."""
+
     length: TrustRegionBounds = TrustRegionBounds()
     noise_aware: bool = False
 
     @property
     def length_init(self) -> float:
+        """Return initial trust-region side length."""
         return self.length.length_init
 
     @property
     def length_min(self) -> float:
+        """Return minimum trust-region side length."""
         return self.length.length_min
 
     @property
     def length_max(self) -> float:
+        """Return maximum trust-region side length."""
         return self.length.length_max
 
 
 @dataclass(frozen=True)
 class MorboTrustRegion:
+    """Multi-objective MORBO trust-region configuration."""
+
     multi_objective: MultiObjectiveConfig
     length: TrustRegionBounds = TrustRegionBounds()
     rescale_policy: RescalePolicy = RescalePolicy()
@@ -84,31 +96,39 @@ class MorboTrustRegion:
 
     @property
     def rescalarize(self) -> Rescalarize:
+        """Return the MORBO weight rescalarization policy."""
         return self.rescale_policy.rescalarize
 
     @property
     def num_metrics(self) -> int:
+        """Return the number of objective metrics."""
         return self.multi_objective.num_metrics
 
     @property
     def alpha(self) -> float:
+        """Return the Chebyshev scalarization weight parameter alpha."""
         return self.multi_objective.alpha
 
     @property
     def length_init(self) -> float:
+        """Return initial trust-region side length."""
         return self.length.length_init
 
     @property
     def length_min(self) -> float:
+        """Return minimum trust-region side length."""
         return self.length.length_min
 
     @property
     def length_max(self) -> float:
+        """Return maximum trust-region side length."""
         return self.length.length_max
 
 
 @dataclass(frozen=True)
 class RegionalSearchPolicy:
+    """Multi-region search policy with region sharing and allocation rules."""
+
     count: int = 4
     length: TrustRegionBounds = TrustRegionBounds()
     success_tolerance: int = 3
@@ -143,14 +163,17 @@ class RegionalSearchPolicy:
 
     @property
     def length_init(self) -> float:
+        """Return initial trust-region side length."""
         return self.length.length_init
 
     @property
     def length_min(self) -> float:
+        """Return minimum trust-region side length."""
         return self.length.length_min
 
     @property
     def length_max(self) -> float:
+        """Return maximum trust-region side length."""
         return self.length.length_max
 
 

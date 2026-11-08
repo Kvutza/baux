@@ -2,15 +2,14 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-
 from baux.enn.enn_class import (
     ENN,
-    posterior_neighbors,
     nearest_neighbors,
+    posterior_neighbors,
 )
 from baux.enn.enn_hash import (
-    normal_philox,
     normal_hash,
+    normal_philox,
 )
 from baux.enn.enn_params import ENNParams, PosteriorFlags
 from baux.turbo.config.surrogate import NeighborIndex

@@ -176,7 +176,6 @@ def _checkbadtensors(engine, config, original, flat, batch, baseline):
 
 def _checkguards(config, engine):
     import torch
-
     from baux.experimental import Region, Span
 
     for tokens, masks in (
@@ -237,7 +236,6 @@ def _checkconfigs():
 
 def toy_parity():
     import torch
-
     from baux.experimental import FlameEvaluator
 
     rng = np.random.default_rng(73)
@@ -317,7 +315,6 @@ def _loadflat(checkpoint, config):
 def checkpoint_parity(checkpoint, document):
     import jax
     import torch
-
     from baux.experimental import FlameEvaluator
 
     from . import model

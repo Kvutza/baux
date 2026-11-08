@@ -1,3 +1,5 @@
+"""Weighted neighbor statistics for ENN posterior evaluation."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -9,6 +11,8 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True)
 class WeightedStats:
+    """Normalized neighbor weights and predictive moments for ENN queries."""
+
     w_normalized: np.ndarray
     l2: np.ndarray
     mu: np.ndarray

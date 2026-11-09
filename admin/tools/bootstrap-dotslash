@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-repo_dir=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
+repo_dir=$(CDPATH='' cd -- "$(dirname -- "$0")/../.." && pwd)
 bin_dir="$repo_dir/.buck2-tools/bin"
 dotslash="$bin_dir/dotslash"
 
@@ -15,15 +15,15 @@ os=$(uname -s)
 arch=$(uname -m)
 case "$os:$arch" in
     Darwin:arm64|Darwin:x86_64)
-        archive=dotslash-macos.v0.5.9.tar.gz
+        archive="dotslash-macos.v0.5.9.tar.gz"
         checksum=67963df97f5ce512f900a85950add6e883722c3460ee5d752a6e62665fd2f986
         ;;
     Linux:aarch64|Linux:arm64)
-        archive=dotslash-linux-musl.arm64.v0.5.9.tar.gz
+        archive="dotslash-linux-musl.arm64.v0.5.9.tar.gz"
         checksum=e58374446dacd4a228388cd275d974bbd8f946916b513cf0eb86bdff5d9d675e
         ;;
     Linux:x86_64)
-        archive=dotslash-linux-musl.x86_64.v0.5.9.tar.gz
+        archive="dotslash-linux-musl.x86_64.v0.5.9.tar.gz"
         checksum=4c75c6eb7890ae35993b962073f6d9bbe78b42b81a5691303ad70f63bfbf7196
         ;;
     *)

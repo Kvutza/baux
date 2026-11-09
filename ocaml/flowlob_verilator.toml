@@ -1,0 +1,41 @@
+version = 1
+experiment = "hardcaml-flowlob"
+seeds = [17]
+budgets = [2]
+methods = ["fixed", "random", "baux"]
+bits = [24, 28]
+lanes = [4, 8]
+pipelines = [false, true]
+target-seeds = [101, 203]
+inner-evaluations = 8
+cycle-budget = 350000000
+cache-capacity = 4
+workers = 2
+
+[flow]
+models = [
+  { levels = 20, steps = 32, width = 8, depth = 2, heads = 2, expansion = 4 },
+  { levels = 20, steps = 32, width = 16, depth = 2, heads = 4, expansion = 4 },
+]
+banks = [2, 8]
+queues = [1, 4]
+samples = 1
+backend = "verilator"
+ready-period = 1
+initial-seed = 41
+radius = 0.1
+solver = "euler"
+solver-steps = 10
+guidance = 1.0
+
+[inner]
+algorithm = "bayesian-search"
+candidates = 32
+arms = 1
+acquisition = "thompson"
+
+[outer]
+algorithm = "bayesian-search"
+candidates = 32
+arms = 1
+acquisition = "thompson"

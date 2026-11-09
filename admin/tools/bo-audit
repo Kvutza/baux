@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
 # Bounded diagnostics; does not change the configured training run.
 set -euo pipefail
-repo_dir=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
+repo_dir=$(CDPATH='' cd -- "$(dirname -- "$0")/../.." && pwd)
 cd "$repo_dir"
 if [ "$#" -ne 2 ]; then
     echo 'Usage: bash admin/tools/bo-audit RESOLVED_STUDY_TOML OUTPUT_ROOT' >&2
     exit 2
 fi
-config_dir=$(CDPATH= cd -- "$(dirname -- "$1")" && pwd)
+config_dir=$(CDPATH='' cd -- "$(dirname -- "$1")" && pwd)
 config="$config_dir/$(basename -- "$1")"
 [ -f "$config" ] || { echo "Missing config: $config" >&2; exit 2; }
 mkdir -p -- "$2"
-artifact_root=$(CDPATH= cd -- "$2" && pwd)
+artifact_root=$(CDPATH='' cd -- "$2" && pwd)
 artifact_dir=$(mktemp -d "$artifact_root/run-XXXXXXXX")
 echo "Audit artifacts: $artifact_dir"
 shasum -a 256 "$config" \

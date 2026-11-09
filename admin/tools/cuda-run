@@ -5,17 +5,17 @@ action=${1:-}
 [ -n "$action" ] || { echo "baux cuda: missing action" >&2; exit 2; }
 shift
 
-repo_dir=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
+repo_dir=$(CDPATH='' cd -- "$(dirname -- "$0")/../.." && pwd)
 cargo_home=${CARGO_HOME:-"$HOME/.cargo"}
 cargo_bin="$cargo_home/bin/cargo"
 [ -x "$cargo_bin" ] || cargo_bin=cargo
 
-export CUDA_HOME=${CUDA_HOME:-/usr/local/cuda-13.0}
-export CUDA_PATH=${CUDA_PATH:-$CUDA_HOME}
-export CUDA_TOOLKIT_PATH=${CUDA_TOOLKIT_PATH:-$CUDA_HOME}
-export CUDA_OXIDE_LLC=${CUDA_OXIDE_LLC:-/usr/bin/llc-21}
-export LIBCLANG_PATH=${LIBCLANG_PATH:-/usr/lib/llvm-21/lib}
-export LLVM_CONFIG_PATH=${LLVM_CONFIG_PATH:-/usr/bin/llvm-config-21}
+export CUDA_HOME="${CUDA_HOME:-/usr/local/cuda-13.0}"
+export CUDA_PATH="${CUDA_PATH:-$CUDA_HOME}"
+export CUDA_TOOLKIT_PATH="${CUDA_TOOLKIT_PATH:-$CUDA_HOME}"
+export CUDA_OXIDE_LLC="${CUDA_OXIDE_LLC:-/usr/bin/llc-21}"
+export LIBCLANG_PATH="${LIBCLANG_PATH:-/usr/lib/llvm-21/lib}"
+export LLVM_CONFIG_PATH="${LLVM_CONFIG_PATH:-/usr/bin/llvm-config-21}"
 export CARGO_PROFILE_RELEASE_LTO=false
 export PATH="$cargo_home/bin:/usr/lib/llvm-21/bin:$CUDA_HOME/bin:$PATH"
 
@@ -33,7 +33,7 @@ case "$cuda_arch" in
     sm_75|sm_80|sm_90a) ;;
     *) echo "baux cuda: BAUX_CUDA_ARCH must be sm_75, sm_80, or sm_90a" >&2; exit 2 ;;
 esac
-export BAUX_FLAME_CUDA_ARCH=${BAUX_FLAME_CUDA_ARCH:-$cuda_arch}
+export BAUX_FLAME_CUDA_ARCH="${BAUX_FLAME_CUDA_ARCH:-$cuda_arch}"
 
 cd "$repo_dir/rust/crates/cuda"
 target_dir=${CARGO_TARGET_DIR:-"$repo_dir/target"}

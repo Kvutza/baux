@@ -1,5 +1,6 @@
 open Hardcaml
 module N = Flow_numeric
+module Fixed = Hardcaml_fixed_point.Signed (Signal)
 
 type design = {
   bits : int;
@@ -22,11 +23,9 @@ let name d =
     (Bool.to_int d.pipeline) d.queue
 
 let saturate bits x =
-  let open Signal in
-  let w = width x in
-  let lo = of_int_trunc ~width:w (-(1 lsl (bits - 1))) in
-  let hi = of_int_trunc ~width:w (N.bound bits) in
-  uresize (mux2 (x <+ hi) (mux2 (x <+ lo) lo x) hi) ~width:bits
+  let f = N.frac bits in
+  let fix = Fixed.create f x in
+  Fixed.signal (Fixed.resize ~overflow:Fixed.Overflow.saturate fix 12 f)
 
 let lookup bits address values =
   (Signal.rom ~read_addresses:[| address |]
@@ -93,14 +92,32 @@ let create d =
     List.init d.lanes (fun lane ->
         let a = input (Printf.sprintf "a%d" lane) d.bits in
         let b = input (Printf.sprintf "b%d" lane) d.bits in
-        let product = saturate d.bits (sra (a *+ b) ~by:(N.frac d.bits)) in
+        let f = N.frac d.bits in
+        let af = Fixed.create f a in
+        let bf = Fixed.create f b in
+        let product =
+          Fixed.signal
+            (Fixed.resize ~overflow:Fixed.Overflow.saturate
+               Fixed.(af *: bf)
+               12 f)
+        in
         products := product :: !products;
+        let sum =
+          Fixed.signal
+            (Fixed.resize ~overflow:Fixed.Overflow.saturate
+               Fixed.(af +: bf)
+               12 f)
+        in
+        let diff =
+          Fixed.signal
+            (Fixed.resize ~overflow:Fixed.Overflow.saturate
+               Fixed.(af -: bf)
+               12 f)
+        in
         mux op
           [
-            saturate d.bits
-              (sresize a ~width:(d.bits + 1) +: sresize b ~width:(d.bits + 1));
-            saturate d.bits
-              (sresize a ~width:(d.bits + 1) -: sresize b ~width:(d.bits + 1));
+            sum;
+            diff;
             product;
             mux2 (a >+ b) a b;
             nonlinear d.bits N.Exp a;

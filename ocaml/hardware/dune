@@ -1,3 +1,3 @@
 (library
  (name baux_hardware)
- (libraries hardcaml hardcaml_verilator jane_rope otoml yojson base core core_unix))
+ (libraries hardcaml hardcaml_fixed_point hardcaml_waveterm hardcaml_verilator jane_rope otoml yojson base core core_unix))

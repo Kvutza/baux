@@ -17,7 +17,7 @@
   // 1. SHARED APPLICATION STATE & FAST SYMBOL INDEXES
   // -------------------------------------------------------------------------
   const appState = (window.BAUX_APP_STATE = window.BAUX_APP_STATE || {
-    activeTab: "monograph",
+    activeTab: "inspector",
     theme: document.documentElement.getAttribute("data-theme") || "archival",
     selectedFnIdx: 0,
     inspectorCrateFilter: "all",
@@ -519,6 +519,7 @@
     if (tabName === "explorer" || tabName === "code") return "inspector";
     if (tabName === "blueprint") return "dag";
     if (tabName === "reference" || tabName === "lean") return "api";
+    if (tabName === "monograph") return "inspector";
     return tabName;
   }
 
@@ -530,24 +531,13 @@
       btn.classList.toggle("active", normalizeTabName(btn.dataset.tab) === tabName);
     });
 
-    const viewIds = ["monograph", "dag", "inspector", "api"];
+    const viewIds = ["dag", "inspector", "api"];
     viewIds.forEach((v) => {
       const el = document.getElementById(`view-${v}`);
       if (el) el.classList.toggle("active", v === tabName);
     });
 
-    if (tabName === "monograph") {
-      if (
-        window.BauxBlueprintEngine &&
-        typeof window.BauxBlueprintEngine.renderMonographView === "function"
-      ) {
-        window.BauxBlueprintEngine.renderMonographView();
-      }
-      const monoEl = document.getElementById("view-monograph");
-      if (monoEl && monoEl.children.length === 0) {
-        renderFallbackMonographView(monoEl);
-      }
-    } else if (tabName === "dag") {
+    if (tabName === "dag") {
       if (
         window.BauxBlueprintEngine &&
         typeof window.BauxBlueprintEngine.renderDagView === "function"
@@ -2762,62 +2752,6 @@
     }
   }
 
-  // Fallback Verification Contract View if blueprint_engine.js is not yet loaded
-  function renderFallbackMonographView(container) {
-    const guides = DATA.guides || [];
-    const activeGuide = guides[appState.selectedMonograph || 0] || guides[0] || {
-      title: "BAUX Formal Verification Contract",
-      path: "research/lean/README.md",
-      content: "Formal verification archive.",
-    };
-
-    container.innerHTML = `
-      <div class="monograph-shell">
-        <aside class="monograph-outline">
-          <div class="outline-section-header">
-            <span>VERIFICATION GUIDES</span>
-            <span>${guides.length} DOCS</span>
-          </div>
-          <div class="monograph-switcher" id="fb-mono-switcher">
-            ${guides
-              .map(
-                (g, i) => `
-              <button class="monograph-switch-btn ${i === (appState.selectedMonograph || 0) ? "active" : ""}" data-gidx="${i}">
-                <span class="ms-tag">GUIDE 0${i + 1}</span>
-                <span class="ms-title">${esc(g.title)}</span>
-                <span class="ms-sub">${esc(g.path)}</span>
-              </button>
-            `
-              )
-              .join("")}
-          </div>
-        </aside>
-        <div class="monograph-reader">
-          <article class="monograph-article">
-            <header class="monograph-frontmatter">
-              <div class="monograph-kicker">BAUX FORMAL VERIFICATION CONTRACT</div>
-              <h1 class="monograph-title">${esc(activeGuide.title)}</h1>
-              <div class="monograph-byline">
-                <span>Source: ${esc(activeGuide.path)}</span>
-                <span>SHA-256: ${esc((activeGuide.sha256 || "").slice(0, 16))}…</span>
-              </div>
-            </header>
-            <div class="monograph-prose">
-              <pre class="mono" style="white-space:pre-wrap;font-size:12px;line-height:1.65;background:var(--bg-surface);padding:18px;border:1px solid var(--border-hairline);">${esc(activeGuide.content)}</pre>
-            </div>
-          </article>
-        </div>
-      </div>
-    `;
-
-    container.querySelectorAll(".monograph-switch-btn").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        appState.selectedMonograph = Number(btn.dataset.gidx);
-        renderFallbackMonographView(container);
-      });
-    });
-  }
-
   // Fallback Sugiyama Layered DAG View if blueprint_engine.js is not yet loaded
   function renderFallbackDagView(container) {
     const mods = DATA.lean_modules || [];
@@ -2986,7 +2920,7 @@
       apiRendered = true;
       renderArtifactsView();
       artifactsRendered = true;
-      activateTab(appState.activeTab || "monograph");
+      activateTab(appState.activeTab || "inspector");
     },
     activateTab,
     selectFunction,

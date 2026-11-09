@@ -1,7 +1,7 @@
 #!/bin/sh
 # Retained diagnostic test adapter. Complete rounds use the typed native runner.
 set -eu
-repo_dir=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
+repo_dir=$(CDPATH='' cd -- "$(dirname -- "$0")/../.." && pwd)
 cd "$repo_dir"
 [ "$#" -eq 1 ] || { echo 'Use admin/tools/fbt-bo --check or --gemm' >&2; exit 2; }
 case "$1" in

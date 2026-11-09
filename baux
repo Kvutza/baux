@@ -1,6 +1,6 @@
 #!/bin/sh
 set -eu
-repo_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+repo_dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 cd "$repo_dir"
 if [ "$(uname -s)" = Linux ] && [ "${1:-}" = cuda ] && [ "${2:-}" = setup ]; then
     shift 2

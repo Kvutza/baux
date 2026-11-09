@@ -24,7 +24,7 @@ imports=$(awk '
 if [ -n "$imports" ]; then
     # Module names deliberately expand to individual arguments, without globbing.
     set -f
-    lake exe cache get $imports
+    lake exe cache get "$imports"
 fi
 lake build "$module"
 # Replay the source, including its explicit axiom reports, even on a cache hit.

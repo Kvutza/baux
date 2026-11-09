@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-repo_dir=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
+repo_dir=$(CDPATH='' cd -- "$(dirname -- "$0")/../.." && pwd)
 cd "$repo_dir"
 
 run_tests=0
@@ -45,6 +45,7 @@ hydrate_lfs_fixtures() {
         mkdir -p "$fixture_restore_dir/files/$(dirname "$fixture")"
         cp "$fixture" "$fixture_restore_dir/files/$fixture"
         materialized="$fixture_restore_dir/materialized"
+        # shellcheck disable=SC2094
         .buck2-tools/bin/dotslash admin/tools/git-lfs smudge -- "$fixture" < "$fixture" > "$materialized"
         if grep -Fqx 'version https://git-lfs.github.com/spec/v1' "$materialized"; then
             echo "Git LFS object is unavailable for fixture: $fixture" >&2
@@ -151,6 +152,7 @@ case $(uname -s) in
         ;;
     Linux)
         test ! -e "$verify_dir/baux/.dylibs/librust_crates_baux-py_baux-py.so"
+        # shellcheck disable=SC2016
         readelf -d "$extension" | grep -F '$ORIGIN/.dylibs'
         if readelf -d "$extension" | grep -E '/home/|/\\.pixi/|conda'; then
             echo "wheel extension contains a host-specific library path" >&2

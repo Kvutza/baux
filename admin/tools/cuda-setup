@@ -52,9 +52,9 @@ if [ ! -f "$workspace/.baux-revision" ] || [ "$(cat "$workspace/.baux-revision" 
     echo "$revision" > "$workspace/.baux-revision"
 fi
 
-export CUDA_HOME=$cuda_root
-export CUDA_PATH=$cuda_root
-export CUDA_TOOLKIT_PATH=$cuda_root
+export CUDA_HOME="$cuda_root"
+export CUDA_PATH="$cuda_root"
+export CUDA_TOOLKIT_PATH="$cuda_root"
 export CUDA_OXIDE_LLC="/usr/bin/llc-$llvm_major"
 export LIBCLANG_PATH="/usr/lib/llvm-$llvm_major/lib"
 export LLVM_CONFIG_PATH="/usr/bin/llvm-config-$llvm_major"

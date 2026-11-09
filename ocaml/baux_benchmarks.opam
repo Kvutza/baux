@@ -16,6 +16,8 @@ depends: [
   "otoml" {= "1.0.5+ox"}
   "jane_rope" {= "v0.18~preview.130.106+341"}
   "hardcaml" {= "v0.18~preview.130.106+341"}
+  "hardcaml_fixed_point" {= "v0.18~preview.130.106+341"}
+  "hardcaml_waveterm" {= "v0.18~preview.130.106+341"}
   "hardcaml_verilator" {= "v0.18~preview.130.106+341"}
   "yojson" {= "2.2.2+ox"}
   "core_bench" {= "v0.18~preview.130.106+341"}

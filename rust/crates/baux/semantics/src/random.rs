@@ -7,7 +7,7 @@ use rand::distributions::{Bernoulli, Uniform};
 use rand::rngs::StdRng;
 use rand::{Rng, RngCore};
 
-pub(crate) const SM64_OFFSET: u64 = 0xD2B74407B1CE6E93;
+pub const SM64_OFFSET: u64 = 0xD2B74407B1CE6E93;
 
 /// Prime constant for seed combination.
 const SEED_PRIME: u64 = 1_000_003;

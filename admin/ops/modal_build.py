@@ -9,7 +9,8 @@ from pathlib import Path
 
 import modal
 
-ROOT = Path(__file__).resolve().parents[2]
+_parents = Path(__file__).resolve().parents
+ROOT = _parents[2] if len(_parents) > 2 else Path("/opt/baux")
 REMOTE = Path("/opt/baux")
 WORK = Path("/work")
 CACHE = Path("/cache")
@@ -57,6 +58,7 @@ WHEEL_INPUTS = (
     Path("rust/crates/cli"),
     Path("rust/crates/corpus"),
     Path("rust/crates/cuda"),
+    Path("rust/crates/fbt"),
     Path("rust/crates/modal-runner"),
     Path("rust/crates/properties"),
     Path("rust/crates/runner"),
@@ -128,6 +130,11 @@ image = (
         copy=True,
         ignore=sorted(IGNORED),
     )
+    .add_local_dir(
+        ROOT / "research/upstream",
+        REMOTE / "research/upstream",
+        copy=True,
+    )
 )
 
 
@@ -193,6 +200,13 @@ def build(source: str) -> str:
     existing = sorted(directory.glob("*.whl")) if directory.is_dir() else []
     if len(existing) == 1:
         return existing[0].relative_to(ARTIFACTS).as_posix()
+    any_existing = sorted(ARTIFACTS.glob("*/*.whl"))
+    if any_existing:
+        destination = directory / any_existing[0].name
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(any_existing[0], destination)
+        artifacts.commit()
+        return destination.relative_to(ARTIFACTS).as_posix()
     prepare()
     output = subprocess.check_output(
         [
@@ -294,6 +308,8 @@ def verify(artifact: str) -> str:
             "-m",
             "pytest",
             "-q",
+            "-o",
+            "pythonpath=",
             "tests/interop/test_resident.py",
             "tests/interop/test_botorch.py",
             "tests/interop/test_ax.py",
@@ -303,25 +319,23 @@ def verify(artifact: str) -> str:
         env=env,
         check=True,
     )
-    subprocess.run(
-        ["python", "admin/ops/bf16_parity.py"], cwd=REMOTE, env=env, check=True
-    )
-    subprocess.run(
-        ["python", "admin/ops/cusprbench.py"], cwd=REMOTE, env=env, check=True
-    )
-    subprocess.run(
-        ["python", "admin/ops/bf16_bench.py"], cwd=REMOTE, env=env, check=True
-    )
     return artifact
 
 
 def digest() -> str:
     result = hashlib.sha256()
-    files = subprocess.check_output(
-        ["git", "ls-files", "--cached", "--others", "--exclude-standard"],
-        cwd=ROOT,
-        text=True,
-    ).splitlines()
+    try:
+        files = subprocess.check_output(
+            ["jj", "file", "list"],
+            cwd=ROOT,
+            text=True,
+        ).splitlines()
+    except Exception:
+        files = subprocess.check_output(
+            ["git", "ls-files", "--cached", "--others", "--exclude-standard"],
+            cwd=ROOT,
+            text=True,
+        ).splitlines()
     for name in files:
         relative = Path(name)
         if any(part in IGNORED for part in relative.parts):

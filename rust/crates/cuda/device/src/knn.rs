@@ -247,7 +247,7 @@ pub(super) unsafe fn write_list(
 }
 
 #[inline(always)]
-pub(super) unsafe fn block_sum(values: *mut f32) -> f32 {
+pub(crate) unsafe fn block_sum(values: *mut f32) -> f32 {
     let thread_index = thread::threadIdx_x();
     thread::sync_threads();
     let mut stride = THREADS / 2;

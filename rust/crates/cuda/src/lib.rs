@@ -1,4 +1,4 @@
-#![allow(incomplete_features, internal_features)]
+#![allow(incomplete_features, internal_features, unsafe_op_in_unsafe_fn)]
 #![feature(
     adt_const_params,
     contracts,
@@ -60,7 +60,10 @@ pub mod context;
 mod knn;
 mod model;
 mod prefill;
-pub use knn::{CUVS_MAX_K, CudaIndex, CudaKnnMode, KnnProfile};
+pub use knn::{
+    BatchOutput, BatchSpec, CUVS_MAX_K, CudaIndex, CudaKnnMode, DeviceDraw, DevicePosterior,
+    DrawOutput, KnnProfile, PosteriorOutput, PosteriorSpec, WeightedOutput, WeightedSpec,
+};
 pub use model::diffusion_run::{check as diffusion_check, run as model_diffusion};
 pub use model::run::initialized_check;
 pub use model::run::{

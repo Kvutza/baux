@@ -188,7 +188,10 @@ pub fn reindex(root: &Path) -> Result<usize, String> {
     let directory = directory(root)?;
     let _lock = lock(&directory)?;
     backfill::discover(root, &directory)?;
-    let records = codec::manifests(&directory.join("manifests"))?;
+    let mut records = codec::manifests(&directory.join("manifests"))?;
+    for record in &mut records {
+        refresh_record(&directory, record);
+    }
     let temporary = directory.join("rebuild.db");
     if temporary.exists() {
         fs::remove_file(&temporary).map_err(|e| e.to_string())?;
@@ -201,6 +204,38 @@ pub fn reindex(root: &Path) -> Result<usize, String> {
     }
     fs::rename(temporary, directory.join("catalog.db")).map_err(|e| e.to_string())?;
     Ok(records.len())
+}
+
+fn refresh_record(directory: &Path, record: &mut Record) {
+    let output = Path::new(&record.output);
+    if !output.exists() {
+        return;
+    }
+    let mut dirty = false;
+    if record.recipe.is_empty()
+        && let Some(recipe) = plot::infer_recipe(output)
+    {
+        record.recipe = recipe;
+        dirty = true;
+    }
+    if record.status == "completed"
+        && record.report_status == "no_measurements"
+        && let Ok((count, measurements)) = plot::render(output)
+        && count > 0
+    {
+        record.report_status = "complete".into();
+        record.measurements = measurements;
+        dirty = true;
+    }
+    if dirty && let Ok(bytes) = codec::encode(record) {
+        let _ = atomic(&output.join("run.cbor"), &bytes);
+        let _ = atomic(
+            &directory
+                .join("manifests")
+                .join(format!("{}.cbor", record.id)),
+            &bytes,
+        );
+    }
 }
 
 pub use super::codec::{local_time, since};

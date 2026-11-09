@@ -243,8 +243,8 @@ function wbFilter(mode, btn) {
   }
   WB_RUNS.forEach((r, i) => {
     if (mode === 'all') WB_VISIBLE[i] = true;
-    else if (mode === 'bo') WB_VISIBLE[i] = (r.optimizer !== 'muon' && r.last_nll >= 12.1);
-    else WB_VISIBLE[i] = (r.ctx === mode && r.last_nll >= 12.1);
+    else if (mode === 'bo') WB_VISIBLE[i] = (r.optimizer !== 'muon' && (!['1M','577K','64K','4K'].includes(r.ctx) || r.last_nll >= 12.1));
+    else WB_VISIBLE[i] = (r.ctx === mode && (!['1M','577K','64K','4K'].includes(r.ctx) || r.last_nll >= 12.1));
   });
   document.querySelectorAll('.wb-run-check input').forEach((cb, i) => {
     cb.checked = WB_VISIBLE[i];

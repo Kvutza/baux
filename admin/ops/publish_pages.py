@@ -125,13 +125,36 @@ def transform_explorer(src_js: str) -> str:
     return js
 
 
+def build_ui() -> None:
+    ui_target = DOCS_SITE / "assets/baux_ui.js"
+    ui_src = ROOT / "admin/ui/baux_ui.ml"
+    if ui_src.exists():
+        needs_build = (
+            not ui_target.exists() or ui_src.stat().st_mtime > ui_target.stat().st_mtime
+        )
+        if needs_build:
+            print("Building OCaml frontend (baux_ui.js) with dune and js_of_ocaml...")
+            try:
+                subprocess.check_call(
+                    ["opam", "exec", "--", "dune", "build", "./baux_ui.js"],
+                    cwd=str(ROOT / "admin/ui"),
+                )
+                built_js = ROOT / "admin/ui/_build/default/baux_ui.js"
+                if built_js.exists():
+                    shutil.copy2(built_js, ui_target)
+                    print("✓ Compiled and copied baux_ui.js to docs/site/assets/")
+            except Exception as e:
+                print(f"Notice: OCaml UI build via dune skipped or failed ({e})")
+
+
 def assemble_bundle(dest_dir: Path) -> None:
+    build_ui()
     dest_dir.mkdir(parents=True, exist_ok=True)
     dest_assets = dest_dir / "assets"
     dest_assets.mkdir(parents=True, exist_ok=True)
 
     # Copy and transform static assets
-    for name in ["site_data.js", "site_manifest.json"]:
+    for name in ["site_data.js", "site_manifest.json", "baux_ui.js"]:
         src = DOCS_SITE / "assets" / name
         if src.exists():
             shutil.copy2(src, dest_assets / name)

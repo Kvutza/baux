@@ -1,0 +1,13 @@
+(executable
+ (name baux_ui)
+ (modes js)
+ (flags (:standard -w -3))
+ (libraries js_of_ocaml)
+ (preprocess (pps js_of_ocaml-ppx))
+ (js_of_ocaml
+  (flags (:standard --opt 3))))
+
+(rule
+ (targets baux_ui.js)
+ (deps baux_ui.bc.js)
+ (action (copy baux_ui.bc.js baux_ui.js)))

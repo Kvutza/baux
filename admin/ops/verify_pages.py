@@ -121,6 +121,7 @@ def check_assets(target_dir: Path) -> None:
         "assets/site_manifest.json",
         "assets/blueprint_engine.js",
         "assets/explorer_engine.js",
+        "assets/baux_ui.js",
     ]
     for rel in required_files:
         p = target_dir / rel

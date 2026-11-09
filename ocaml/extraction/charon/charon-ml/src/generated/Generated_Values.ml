@@ -1,0 +1,94 @@
+(** The primitive values. *)
+include BigInt
+
+include Uchar
+
+(** A char value *)
+type char_value = (Uchar.t[@visitors.opaque]) [@@deriving show, eq, ord]
+
+(* Ancestors for the scalar visitors *)
+class ['self] iter_scalar_base =
+  object (self : 'self)
+    inherit [_] Generated_Meta.iter_meta
+    method visit_char_value : 'env -> char_value -> unit = fun _ _ -> ()
+  end
+
+class ['self] map_scalar_base =
+  object (self : 'self)
+    inherit [_] Generated_Meta.map_meta
+    method visit_char_value : 'env -> char_value -> char_value = fun _ x -> x
+  end
+
+class virtual ['self] reduce_scalar_base =
+  object (self : 'self)
+    inherit [_] Generated_Meta.reduce_meta
+    method visit_char_value : 'env -> char_value -> 'a = fun _ _ -> self#zero
+  end
+
+class virtual ['self] mapreduce_scalar_base =
+  object (self : 'self)
+    inherit [_] Generated_Meta.mapreduce_meta
+
+    method visit_char_value : 'env -> char_value -> char_value * 'a =
+      fun _ x -> (x, self#zero)
+  end
+
+type float_type = F16 | F32 | F64 | F128
+
+(** This is simlar to the Scalar value above. However, instead of storing the
+    float value itself, we store its String representation. This allows to
+    derive the Eq and Ord traits, which are not implemented for floats *)
+and float_value = { float_value : string; float_ty : float_type }
+
+and int_ty = Isize | I8 | I16 | I32 | I64 | I128
+and integer_type = Signed of int_ty | Unsigned of u_int_ty
+
+(** A scalar value. *)
+and integer_value =
+  | UnsignedInteger of u_int_ty * big_int
+  | SignedInteger of int_ty * big_int
+
+(** Types of primitive scalar values. *)
+and scalar_type =
+  | TInteger of integer_type
+  | TFloat of float_type
+  | TBool
+  | TChar
+
+and u_int_ty = Usize | U8 | U16 | U32 | U64 | U128
+[@@deriving
+  show,
+  eq,
+  ord,
+  visitors
+    {
+      name = "iter_scalar";
+      monomorphic = [ "env" ];
+      variety = "iter";
+      ancestors = [ "iter_scalar_base" ];
+      nude = true (* Don't inherit VisitorsRuntime *);
+    },
+  visitors
+    {
+      name = "map_scalar";
+      monomorphic = [ "env" ];
+      variety = "map";
+      ancestors = [ "map_scalar_base" ];
+      nude = true (* Don't inherit VisitorsRuntime *);
+    },
+  visitors
+    {
+      name = "reduce_scalar";
+      monomorphic = [ "env" ];
+      variety = "reduce";
+      ancestors = [ "reduce_scalar_base" ];
+      nude = true (* Don't inherit VisitorsRuntime *);
+    },
+  visitors
+    {
+      name = "mapreduce_scalar";
+      monomorphic = [ "env" ];
+      variety = "mapreduce";
+      ancestors = [ "mapreduce_scalar_base" ];
+      nude = true (* Don't inherit VisitorsRuntime *);
+    }]

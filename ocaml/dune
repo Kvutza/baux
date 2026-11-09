@@ -1,3 +1,5 @@
+(dirs lib hardware bin tests)
+
 (env
  (_
   (flags (:standard -extension-universe beta))

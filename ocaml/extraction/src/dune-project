@@ -1,0 +1,47 @@
+(lang dune 3.7)
+(map_workspace_root false)
+
+(name aeneas)
+
+(version 0.1)
+
+(generate_opam_files true)
+
+(source
+ (uri git+https://github.com/AeneasVerif/aeneas.git))
+
+(homepage "https://github.com/AeneasVerif/aeneas")
+
+(bug_reports "https://github.com/AeneasVerif/aeneas/issues")
+
+(authors
+  "Son Ho"
+  "Jonathan Protzenko"
+  "Aymeric Fromherz"
+  "Sidney Congard")
+
+(license Apache-2.0)
+
+(package
+ (name aeneas)
+ (synopsis "Compiler from Rust to pure code")
+ (description "")
+ (depends
+   calendar
+   core_unix
+   domainslib
+   easy_logging
+   logs
+   menhir
+   ocamlgraph
+   ppx_deriving
+   ppx_deriving_yojson
+   ppxlib
+   progress
+   unionFind
+   visitors
+   yojson
+   zarith
+   (ocamlformat :with-test)
+ )
+)

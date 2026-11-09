@@ -1,7 +1,14 @@
 sh_binary(
     name = "tool",
     main = "tool.sh",
-    resources = glob(["**/*.sh", "**/*.c", "**/*.ml", "**/*.mli", "**/dune", "dune-project", "**/*.tsv", "**/*.expected", "*.opam", "*.toml", "*.json", ".ocamlformat"]),
+    resources = glob(["**/*.sh", "**/*.c", "**/*.ml", "**/*.mli", "**/dune", "**/dune-project", "**/*.tsv", "**/*.expected", "**/*.opam", "*.toml", "*.json", ".ocamlformat", "extraction/bin/*"]),
+)
+
+sh_binary(
+    name = "extraction",
+    main = "extraction.sh",
+    visibility = ["PUBLIC"],
+    resources = glob(["**/*.sh", "**/*.c", "**/*.ml", "**/*.mli", "**/dune", "**/dune-project", "**/*.tsv", "**/*.expected", "**/*.opam", "*.toml", "*.json", ".ocamlformat", "extraction/bin/*"]),
 )
 
 sh_test(
@@ -9,5 +16,5 @@ sh_test(
     test = "tool.sh",
     args = ["test"],
     visibility = ["PUBLIC"],
-    resources = glob(["**/*.sh", "**/*.c", "**/*.ml", "**/*.mli", "**/dune", "dune-project", "**/*.tsv", "**/*.expected", "*.opam", "*.toml", "*.json", ".ocamlformat"]),
+    resources = glob(["**/*.sh", "**/*.c", "**/*.ml", "**/*.mli", "**/dune", "**/dune-project", "**/*.tsv", "**/*.expected", "**/*.opam", "*.toml", "*.json", ".ocamlformat", "extraction/bin/*"]),
 )

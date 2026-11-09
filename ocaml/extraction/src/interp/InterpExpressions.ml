@@ -1,0 +1,1558 @@
+open Types
+open Values
+open Scalars
+open Expressions
+open Utils
+open Contexts
+open TypesUtils
+open ValuesUtils
+open SynthesizeSymbolic
+open Cps
+open InterpUtils
+open InterpExpansion
+open InterpPaths
+
+(** The local logger *)
+let log = Logging.expressions_log
+
+(** As long as there are symbolic values at a given place (potentially in
+    subvalues) which contain borrows and are expandable, expand them.
+
+    We use this function before copying values.
+
+    Note that the place should have been prepared so that there are no remaining
+    loans. *)
+let expand_if_borrows_at_place (span : Meta.span) (access : access_kind)
+    (p : place) : cm_fun =
+ fun ctx ->
+  (* Small helper *)
+  let rec expand : cm_fun =
+   fun ctx ->
+    let _, v = read_place span access p ctx in
+    match
+      find_first_expandable_sv_with_borrows (Some span) ctx.type_ctx.type_decls
+        ctx.type_ctx.type_infos v
+    with
+    | None -> (ctx, fun e -> e)
+    | Some sv ->
+        let ctx, cc =
+          expand_symbolic_value_no_branching span sv
+            (Some (mk_mplace span p ctx))
+            ctx
+        in
+        comp cc (expand ctx)
+  in
+  (* Apply *)
+  expand ctx
+
+(** Read a place.
+
+    We check that the value *doesn't contain bottoms or reserved borrows*. *)
+let read_place_check (span : Meta.span) (access : access_kind) (p : place)
+    (ctx : eval_ctx) : loan_id option * tvalue * path =
+  let lid, v, path = eval_place span access p ctx in
+  (* Check that there are no bottoms in the value *)
+  [%cassert] span
+    (not (bottom_in_value ctx.ended_regions v))
+    "There should be no bottoms in the value";
+  (* Check that there are no reserved borrows in the value *)
+  [%cassert] span
+    (not (reserved_in_value v))
+    "There should be no reserved borrows in the value";
+  (* Return *)
+  (lid, v, path)
+
+let access_rplace_reorganize_and_read (config : config) (span : Meta.span)
+    (greedy_expand : bool) (access : access_kind) (p : place) (ctx : eval_ctx) :
+    loan_id option
+    * tvalue
+    * path
+    * eval_ctx
+    * (SymbolicAst.expr -> SymbolicAst.expr) =
+  (* Make sure we can evaluate the path *)
+  let ctx, cc = update_ctx_along_read_place config span access p ctx in
+  (* End the proper loans at the place itself *)
+  let ctx, cc = comp cc (end_loans_at_place config span access p ctx) in
+  (* Expand the copyable values which contain borrows (which are necessarily shared
+   * borrows) *)
+  let ctx, cc =
+    comp cc
+      (if greedy_expand then expand_if_borrows_at_place span access p ctx
+       else (ctx, fun e -> e))
+  in
+  (* Read the place - note that this checks that the value doesn't contain bottoms *)
+  let lid, value, path = read_place_check span access p ctx in
+  (* Compose *)
+  (lid, value, path, ctx, cc)
+
+let access_rplace_reorganize (config : config) (span : Meta.span)
+    (greedy_expand : bool) (access : access_kind) (p : place) : cm_fun =
+ fun ctx ->
+  if ExpressionsUtils.place_accesses_global p then (ctx, fun x -> x)
+  else
+    let _, _, _, ctx, f =
+      access_rplace_reorganize_and_read config span greedy_expand access p ctx
+    in
+    (ctx, f)
+
+(** Convert an operand constant operand value to a typed value *)
+let literal_to_tvalue (span : Meta.span) (ty : scalar_type) (cv : literal)
+    (ctx : eval_ctx) : tvalue =
+  (* Check the type while converting - we actually need some information
+   * contained in the type *)
+  [%ltrace "- cv: " ^ Print.literal_to_string cv];
+  let min_ptr_size = get_target_min_ptr_size ctx.crate in
+  match (ty, cv) with
+  (* Scalar, boolean... *)
+  | TBool, VBool v -> { value = VLiteral (VBool v); ty = TScalar ty }
+  | TChar, VChar v -> { value = VLiteral (VChar v); ty = TScalar ty }
+  | TFloat float_ty, VFloat v when float_ty = v.float_ty ->
+      { value = VLiteral (VFloat v); ty = TScalar ty }
+  | TInteger (Signed int_ty), VScalar (SignedInteger (sv_ty, _) as sv) ->
+      (* Check the type and the ranges *)
+      [%sanity_check] span (int_ty = sv_ty);
+      [%sanity_check] span (check_integer_value_in_range min_ptr_size sv);
+      { value = VLiteral (VScalar sv); ty = TScalar ty }
+  | TInteger (Unsigned int_ty), VScalar (UnsignedInteger (sv_ty, _) as sv) ->
+      (* Check the type and the ranges *)
+      [%sanity_check] span (int_ty = sv_ty);
+      [%sanity_check] span (check_integer_value_in_range min_ptr_size sv);
+      { value = VLiteral (VScalar sv); ty = TScalar ty }
+  (* Remaining cases (invalid) *)
+  | _, _ -> [%craise] span "Improperly typed constant value"
+
+(** Copy a value, and return the: the original value (we may have need to update
+    it - see the remark about the symbolic values with borrows) and the
+    resulting value.
+
+    This function essentially duplicates the value while refreshing the shared
+    borrow identifiers (which uniquely identify shared borrows).
+
+    Also, this function is actually more general than it should be: it can be
+    used to copy concrete ADT values, while ADT copy should be done through the
+    Copy trait (i.e., by calling a dedicated function). This is why we added a
+    parameter to control this copy ([allow_adt_copy]). Note that here by ADT we
+    mean the user-defined ADTs (not tuples or builtin types).
+
+    **Symbolic values with borrows**: Side note about copying symbolic values
+    with borrows: in order to make the joins easier to compute, especially for
+    the loops, whenever we copy a symbolic value containing borrows we introduce
+    an auxiliary abstraction and freshen the copied value. This enforces the
+    invariant that there can't be several occurrences of the same borrow
+    projector over the same symbolic value. More precisely, we do something like
+    this:
+    {[
+      // x -> s0
+      y = copy x
+      // x -> s1
+      // y -> s2
+      // abs { proj_borrows s0, proj_loans s1, proj_loans s2 }
+    ]} *)
+let rec copy_value (span : Meta.span) (allow_adt_copy : bool) (config : config)
+    (ctx : eval_ctx) (v : tvalue) :
+    tvalue * tvalue * eval_ctx * (SymbolicAst.expr -> SymbolicAst.expr) =
+  [%ltrace
+    tvalue_to_string ~span:(Some span) ctx v
+    ^ "\n- context:\n"
+    ^ eval_ctx_to_string ~span:(Some span) ctx];
+  (* Remark: at some point we rewrote this function to use iterators, but then
+   * we reverted the changes: the result was less clear actually. In particular,
+   * the fact that we have exhaustive matches below makes very obvious the cases
+   * in which we need to fail *)
+  match v.value with
+  | VLiteral _ -> (v, v, ctx, fun e -> e)
+  | VAdt av ->
+      (* Sanity check *)
+      (match v.ty with
+      | TAdt { builtin = Some TBox; _ } ->
+          [%craise] span "Can't copy an builtin value other than Option"
+      | TAdt { builtin = None; _ } as ty ->
+          [%sanity_check] span (allow_adt_copy || ty_is_copyable ty)
+      | TAdt { builtin = Some TTuple; _ } -> () (* Ok *)
+      | TArray (ty, _, _) | TSlice (ty, _) ->
+          [%cassert] span (ty_is_copyable ty)
+            "The type is not primitively copyable"
+      | _ -> [%craise] span "Unreachable");
+      let (ctx, cc), fields =
+        List.fold_left_map
+          (fun (ctx, cc) v ->
+            let v, copied, ctx, cc1 =
+              copy_value span allow_adt_copy config ctx v
+            in
+            ((ctx, cc_comp cc cc1), (v, copied)))
+          (ctx, fun e -> e)
+          av.fields
+      in
+      let fields, copied_fields = List.split fields in
+      let copied = { v with value = VAdt { av with fields = copied_fields } } in
+      let v = { v with value = VAdt { av with fields } } in
+      (v, copied, ctx, cc)
+  | VBottom -> [%craise] span "Can't copy ⊥"
+  | VBorrow bc -> (
+      (* We can only copy shared borrows *)
+      match bc with
+      | VSharedBorrow (bid, _) ->
+          (* We need to create a new borrow id for the copied borrow, and
+           * update the context accordingly *)
+          let sid' = ctx.fresh_shared_borrow_id () in
+          ( v,
+            { v with value = VBorrow (VSharedBorrow (bid, sid')) },
+            ctx,
+            fun e -> e )
+      | VMutBorrow (_, _) -> [%craise] span "Can't copy a mutable borrow"
+      | VReservedMutBorrow _ ->
+          [%craise] span "Can't copy a reserved mut borrow")
+  | VLoan lc -> (
+      (* We can only copy shared loans *)
+      match lc with
+      | VMutLoan _ -> [%craise] span "Can't copy a mutable loan"
+      | VSharedLoan (sids, sv) ->
+          (* We don't copy the shared loan: only the shared value inside *)
+          let updt_value, copied_value, ctx, cf =
+            copy_value span allow_adt_copy config ctx sv
+          in
+          ( { v with value = VLoan (VSharedLoan (sids, updt_value)) },
+            copied_value,
+            ctx,
+            cf ))
+  | VSymbolic sp ->
+      (* We can copy only if the type is "primitively" copyable.
+         Note that in the general case, copy is a trait: copying values
+         thus requires calling the proper function. Here, we copy values
+         for very simple types such as integers, shared borrows, etc. *)
+      [%cassert] span
+        (ty_is_copyable (Substitute.erase_regions sp.sv_ty))
+        "Not primitively copyable";
+      (* Check if the symbolic value contains borrows: if it does, we need to
+         introduce au auxiliary region abstraction (see document of the function) *)
+      if not (ty_has_borrows (Some span) ctx.type_ctx.type_infos v.ty) then
+        (* No borrows: refresh the copied value. This prevents a later
+           expansion of the copy from also expanding the copied value,
+           which may be stored in a frozen abstraction. *)
+        let copied_sv = mk_fresh_symbolic_value span ctx sp.sv_ty in
+        let copied = mk_tvalue_from_symbolic_value copied_sv in
+        let cf e =
+          SymbolicAst.IntroSymbolic
+            (ctx, None, copied_sv, SymbolicAst.VaSingleValue v, e)
+        in
+        (v, copied, ctx, cf)
+      else begin
+        (* There are borrows: check that they are all live (i.e., the symbolic
+           value doesn't contain bottom) *)
+        [%cassert] span
+          (not (symbolic_value_has_ended_regions ctx.ended_regions sp))
+          "Attempted to copy a symbolic value containing ended borrows";
+        let ctx0 = ctx in
+        (* There are borrows: we need to introduce one region abstraction per live
+           region present in the type *)
+        let regions, ty =
+          InterpBorrowsCore.refresh_live_regions_in_ty span ctx sp.sv_ty
+        in
+        let updated_sv = mk_fresh_symbolic_value span ctx ty in
+        let copied_sv = mk_fresh_symbolic_value span ctx ty in
+
+        (* Note that the static region is not refreshed: if the type contains
+           it (it may be hidden in an ADT, see
+           {!TypesUtils.adt_has_hidden_static}) we also need to introduce an
+           abstraction for the static region. *)
+        let regions =
+          List.map (fun rid -> RVar (Free rid)) (RegionId.Map.values regions)
+          @
+          if
+            ty_has_regions_in_set ctx.type_ctx.type_infos
+              (RegionSet.singleton RStatic)
+              ty
+          then [ RStatic ]
+          else []
+        in
+        let abs =
+          List.map
+            (fun r ->
+              let owned = RegionSet.singleton r in
+
+              (* Create the continuation, for the translation *)
+              let abs_cont : abs_cont =
+                (* Note that the values don't give back anything (we will
+                   simplify the given back value to unit when translating
+                   to pure) so we can simply ignore them. *)
+                {
+                  input = Some (mk_eignored None mk_unit_ty);
+                  output = Some { value = EIgnored None; ty };
+                }
+              in
+
+              (* Create the abstraction values *)
+              let mk_proj (is_borrows : bool) sv_id : tavalue =
+                let proj : symbolic_proj = { sv_id; proj_ty = ty } in
+                let proj =
+                  if is_borrows then AProjBorrows { proj; loans = [] }
+                  else AProjLoans { proj; consumed = []; borrows = [] }
+                in
+                let value = ASymbolic (PNone, proj) in
+                { value; ty }
+              in
+              let sv = mk_proj true sp.sv_id in
+              let updated_sv = mk_proj false updated_sv.sv_id in
+              let copied_sv = mk_proj false copied_sv.sv_id in
+
+              let abs =
+                {
+                  abs_id = ctx.fresh_abs_id ();
+                  kind = CopySymbolicValue;
+                  can_end = true;
+                  parents = AbsId.Set.empty;
+                  regions = { owned };
+                  ended_subabs = AbsLevelSet.empty;
+                  avalues = [ sv; updated_sv; copied_sv ];
+                  cont = Some abs_cont;
+                }
+              in
+              Invariants.opt_type_check_abs span ctx abs;
+              (* *)
+              abs
+              (*mk_abs rid [ sv; updated_sv; copied_sv ]*))
+            regions
+        in
+        let abs = List.map (fun a -> EAbs a) (List.rev abs) in
+        let ctx = { ctx with env = abs @ ctx.env } in
+        (* Create the continuation: we need to introduce intermediate let-bindings *)
+        let cf e =
+          let mk sv e =
+            SymbolicAst.IntroSymbolic
+              (ctx0, None, sv, SymbolicAst.VaSingleValue v, e)
+          in
+          mk updated_sv (mk copied_sv e)
+        in
+        ( mk_tvalue_from_symbolic_value updated_sv,
+          mk_tvalue_from_symbolic_value copied_sv,
+          ctx,
+          cf )
+      end
+
+(** Reorganize the environment in preparation for the evaluation of an operand.
+
+    Evaluating an operand requires reorganizing the environment to get access to
+    a given place (by ending borrows, expanding symbolic values...) then
+    applying the operand operation (move, copy, etc.).
+
+    Sometimes, we want to decouple the two operations. Consider the following
+    example:
+    {[
+      context = {
+        x -> shared_borrow l0
+        y -> shared_loan {l0} v
+      }
+
+      dest <- f(move x, move y);
+      ...
+    ]}
+
+    Because of the way {!end_borrow} is implemented, when giving back the borrow
+    [l0] upon evaluating [move y], if we have already moved the value of x, we
+    won't notice that [shared_borrow l0] has disappeared from the environment
+    (it has been moved and not assigned yet, and so is hanging in "thin air").
+
+    By first "preparing" the operands evaluation, we make sure no such thing
+    happens. To be more precise, we make sure all the updates to borrows
+    triggered by access *and* move operations have already been applied.
+
+    Rem.: in the formalization, we always have an explicit "reorganization" step
+    in the rule premises, before the actual operand evaluation, that allows to
+    reorganize the environment so that it satisfies the proper conditions. This
+    function's role is to do the reorganization.
+
+    Rem.: doing this is actually not completely necessary because when
+    generating MIR, rustc introduces intermediate assignments for all the
+    function parameters. Still, it is better for soundness purposes, and
+    corresponds to what we do in the formalization (because we don't enforce the
+    same constraints as MIR in the formalization). *)
+let prepare_eval_operand_reorganize (config : config) (span : Meta.span)
+    (op : operand) : cm_fun =
+ fun ctx ->
+  match op with
+  | Constant _ ->
+      (* No need to reorganize the context *)
+      (ctx, fun e -> e)
+  | Copy p ->
+      (* Access the value *)
+      let access = Read in
+      (* Expand the symbolic values, if necessary *)
+      let greedy_expand = true in
+      access_rplace_reorganize config span greedy_expand access p ctx
+  | Move p ->
+      (* Access the value *)
+      let access = Move in
+      let greedy_expand = false in
+      access_rplace_reorganize config span greedy_expand access p ctx
+
+(** Evaluate an operand, without reorganizing the context before *)
+let eval_operand_no_reorganize (config : config) (span : Meta.span)
+    (op : operand) (ctx : eval_ctx) :
+    tvalue * eval_ctx * (SymbolicAst.expr -> SymbolicAst.expr) =
+  (* Debug *)
+  [%ltrace
+    "op: " ^ operand_to_string ctx op ^ "\n- ctx:\n"
+    ^ eval_ctx_to_string ~span:(Some span) ctx];
+  (* Evaluate *)
+  match op with
+  | Constant cv -> begin
+      [%ldebug "constant of type: " ^ ty_to_string ctx cv.ty];
+      match cv.kind with
+      | CBool _ | CInteger _ | CChar _ | CFloat _ -> (
+          [%ldebug "scalar constant"];
+          match cv.ty with
+          | TScalar lit_ty ->
+              let lit = TypesUtils.constant_expr_as_literal cv in
+              (literal_to_tvalue span lit_ty lit ctx, ctx, fun e -> e)
+          | _ ->
+              [%craise] span
+                ("Unsupported type for scalar constant: "
+               ^ ty_to_string ctx cv.ty))
+      | CStr v -> (
+          [%ldebug "string constant"];
+          (* FIXME: the str type is not in [scalar_type] *)
+          let lit = VStr v in
+          match cv.ty with
+          | TAdt { builtin = Some TStr; _ } ->
+              let v : tvalue = { value = VLiteral lit; ty = cv.ty } in
+              (v, ctx, fun e -> e)
+          | TRef
+              ( (RErased | RStatic),
+                (TAdt { builtin = Some TStr; _ } as str_ty),
+                RShared ) ->
+              (* Reference to a string *)
+              (* Generate a fresh symbolic value for the string. In the translation,
+                 this fresh symbolic value will be defined as equal to the value of
+                 the string.
+
+                 We then create a reference to the string: we put the
+                 corresponding shared loan in a region abstraction owning the
+                 static region. *)
+              let sv = mk_fresh_symbolic_value span ctx str_ty in
+              let sval = mk_tvalue_from_symbolic_value sv in
+              let ctx, borrow =
+                push_value_to_static_shared_loan span ctx sval str_ty
+              in
+              (* Create the symbolic expression *)
+              let cf e =
+                let v : tvalue = { value = VLiteral lit; ty = str_ty } in
+                SA.IntroSymbolic (ctx, None, sv, VaSingleValue v, e)
+              in
+              (* *)
+              (borrow, ctx, cf)
+          | _ ->
+              [%craise] span
+                ("Unsupported type for string constant: "
+               ^ ty_to_string ctx cv.ty))
+      | CTraitConst (trait_ref, const_id) -> (
+          [%ldebug "trait constant"];
+          let ctx0 = ctx in
+          (* Simply introduce a fresh symbolic value.
+
+             Remark: there is a special case if the value is a static reference:
+             in this case we directly introduce the expanded borrow.
+
+             We put the corresponding shared loan in a region abstraction owning
+             the static region. *)
+
+          let ty = cv.ty in
+          match ty with
+          | TRef ((RStatic | RErased), ty_inner, ref_kind) ->
+              [%ldebug "static ref"];
+              [%cassert] span (ref_kind = RShared)
+                "Mutable references for lifetime 'static are not supported";
+              let sval = mk_fresh_symbolic_tvalue span ctx ty_inner in
+              (* Create a shared loan containing the constant (in a region
+                 abstraction owning the static region), as well as a shared
+                 borrow *)
+              let ctx, borrow =
+                push_value_to_static_shared_loan span ctx sval ty_inner
+              in
+
+              (* Wrap the generated expression *)
+              let cf e =
+                SymbolicAst.IntroSymbolic
+                  ( ctx0,
+                    None,
+                    value_as_symbolic span sval.value,
+                    SymbolicAst.VaTraitConstValue (trait_ref, const_id),
+                    e )
+              in
+              (borrow, ctx, cf)
+          | _ ->
+              [%ldebug "not a static ref"];
+              let v = mk_fresh_symbolic_tvalue span ctx ty in
+              (* Wrap the generated expression *)
+              let cf e =
+                SymbolicAst.IntroSymbolic
+                  ( ctx0,
+                    None,
+                    value_as_symbolic span v.value,
+                    SymbolicAst.VaTraitConstValue (trait_ref, const_id),
+                    e )
+              in
+              (v, ctx, cf))
+      | CVar var ->
+          let vid = expect_free_var (Some span) var in
+          let ctx0 = ctx in
+          (* In concrete mode: lookup the const generic value.
+             In symbolic mode: introduce a fresh symbolic value.
+
+             We have nothing to do: the value is copyable, so we can freely
+             duplicate it.
+          *)
+          let ctx, cv, cc =
+            let cv = ctx_lookup_const_generic_value ctx vid in
+            match config.mode with
+            | ConcreteMode ->
+                (* Copy the value *)
+                let allow_adt_copy = false in
+                let updated_value, copied_value, ctx, cc =
+                  copy_value span allow_adt_copy config ctx cv
+                in
+                (* As we are copying a const generic, we shouldn't have updated
+                   the original value *)
+                [%sanity_check] span (cv = updated_value);
+                (* *)
+                (ctx, copied_value, cc)
+            | SymbolicMode ->
+                (* We use the looked up value only for its type *)
+                let v = mk_fresh_symbolic_tvalue span ctx cv.ty in
+                (ctx, v, fun e -> e)
+          in
+          (* We have to wrap the generated expression *)
+          let cf e =
+            (* If we are synthesizing a symbolic AST, it means that we are in symbolic
+               mode: the value of the const generic is necessarily symbolic. *)
+            [%sanity_check] span (is_symbolic cv.value);
+            (* *)
+            SymbolicAst.IntroSymbolic
+              ( ctx0,
+                None,
+                value_as_symbolic span cv.value,
+                SymbolicAst.VaCgValue vid,
+                e )
+          in
+          (cv, ctx, cc_comp cc cf)
+      | CFnDef ptr ->
+          let sv = mk_fresh_symbolic_tvalue span ctx cv.ty in
+          let cf e =
+            SymbolicAst.IntroSymbolic
+              (ctx, None, tvalue_as_symbolic span sv, SymbolicAst.VaFnDef ptr, e)
+          in
+          (sv, ctx, cf)
+      | CRawMemory _ ->
+          [%craise] span "Raw memory cannot be interpreted by the interpreter"
+      | COpaque reason ->
+          [%craise] span ("Charon failed to compile constant: " ^ reason)
+      | _ ->
+          [%craise] span
+            ("Found unexpected constant: " ^ constant_expr_to_string ctx cv)
+    end
+  | Copy p ->
+      (* Access the value *)
+      let access = Read in
+      let _, v, path = read_place_check span access p ctx in
+      (* Sanity checks *)
+      [%cassert] span
+        (not (bottom_in_value ctx.ended_regions v))
+        "Can not copy a value containing bottom";
+      [%sanity_check] span
+        (Option.is_none
+           (find_first_expandable_sv_with_borrows (Some span)
+              ctx.type_ctx.type_decls ctx.type_ctx.type_infos v));
+      (* Copy the value *)
+      let allow_adt_copy = false in
+      let updated_value, copied_value, ctx, cc =
+        copy_value span allow_adt_copy config ctx v
+      in
+      (* Update the original value *)
+      let ctx = write_path span path updated_value ctx in
+      (* *)
+      (copied_value, ctx, cc)
+  | Move p ->
+      (* Access the value *)
+      let access = Move in
+      let _, v, path = read_place_check span access p ctx in
+      (* Check that there are no bottoms in the value we are about to move *)
+      [%cassert] span
+        (not (bottom_in_value ctx.ended_regions v))
+        "There should be no bottoms in the value we are about to move";
+      (* Move the value *)
+      let bottom : tvalue = { value = VBottom; ty = v.ty } in
+      let ctx = write_path span path bottom ctx in
+      (v, ctx, fun e -> e)
+
+let eval_operand (config : config) (span : Meta.span) (op : operand)
+    (ctx : eval_ctx) :
+    tvalue * eval_ctx * (SymbolicAst.expr -> SymbolicAst.expr) =
+  (* Debug *)
+  [%ltrace
+    "op: " ^ operand_to_string ctx op ^ "\n- ctx:\n"
+    ^ eval_ctx_to_string ~span:(Some span) ctx];
+  (* We reorganize the context, then evaluate the operand *)
+  let ctx, cc = prepare_eval_operand_reorganize config span op ctx in
+  comp2 cc (eval_operand_no_reorganize config span op ctx)
+
+(** Small utility.
+
+    See [prepare_eval_operand_reorganize]. *)
+let prepare_eval_operands_reorganize (config : config) (span : Meta.span)
+    (ops : operand list) : cm_fun =
+  fold_left_apply_continuation (prepare_eval_operand_reorganize config span) ops
+
+(** Evaluate several operands. *)
+let eval_operands (config : config) (span : Meta.span) (ops : operand list)
+    (ctx : eval_ctx) :
+    tvalue list * eval_ctx * (SymbolicAst.expr -> SymbolicAst.expr) =
+  (* Prepare the operands *)
+  let ctx, cc = prepare_eval_operands_reorganize config span ops ctx in
+  (* Evaluate the operands *)
+  comp2 cc
+    (map_apply_continuation (eval_operand_no_reorganize config span) ops ctx)
+
+let eval_two_operands (config : config) (span : Meta.span) (op1 : operand)
+    (op2 : operand) (ctx : eval_ctx) :
+    (tvalue * tvalue) * eval_ctx * (SymbolicAst.expr -> SymbolicAst.expr) =
+  let res, ctx, cc = eval_operands config span [ op1; op2 ] ctx in
+  let res =
+    match res with
+    | [ v1; v2 ] -> (v1, v2)
+    | _ -> [%craise] span "Unreachable"
+  in
+  (res, ctx, cc)
+
+let eval_unary_op_concrete (config : config) (span : Meta.span) (unop : unop)
+    (op : operand) (ctx : eval_ctx) :
+    (tvalue, eval_error) result
+    * eval_ctx
+    * (SymbolicAst.expr -> SymbolicAst.expr) =
+  (* Evaluate the operand *)
+  let v, ctx, cc = eval_operand config span op ctx in
+  let min_ptr_size = get_target_min_ptr_size ctx.crate in
+  let r =
+    match (unop, v.value) with
+    | Not, VLiteral (VBool b) -> Ok { v with value = VLiteral (VBool (not b)) }
+    | Not, VLiteral (VScalar i) ->
+        (* The ! operator flips the bits.
+           In effect, this does the operation we implement below.
+        *)
+        let int_ty = get_ty i in
+        let x =
+          if integer_type_is_signed int_ty then Z.of_int (-1)
+          else
+            let ptr_size = get_target_ptr_size span ctx.crate in
+            scalar_max ptr_size int_ty
+        in
+        let value = Z.sub x (get_val i) in
+        Ok
+          {
+            v with
+            value =
+              VLiteral
+                (VScalar
+                   (Result.get_ok (mk_integer_value min_ptr_size int_ty value)));
+          }
+    | Neg OPanic, VLiteral (VScalar sv) -> (
+        let i = Z.neg (get_val sv) in
+        let ptr_size = get_target_ptr_size span ctx.crate in
+        match mk_integer_value ptr_size (get_ty sv) i with
+        | Error _ -> Error EPanic
+        | Ok sv -> Ok { v with value = VLiteral (VScalar sv) })
+    | Cast (CastScalar tgt), VLiteral (VScalar sv)
+      when scalar_type_is_integer tgt -> (
+        (* Cast between integers *)
+        let tgt_ty = scalar_as_integer tgt in
+        let i = get_val sv in
+        let ptr_size = get_target_ptr_size span ctx.crate in
+        match mk_integer_value ptr_size tgt_ty i with
+        | Error _ -> Error EPanic
+        | Ok sv ->
+            let ty = TScalar tgt in
+            let value = VLiteral (VScalar sv) in
+            Ok { ty; value })
+    | Cast (CastScalar tgt), VLiteral (VBool sv) when scalar_type_is_integer tgt
+      -> (
+        (* Cast bool -> int *)
+        let tgt_ty = scalar_as_integer tgt in
+        let i = Z.of_int (if sv then 1 else 0) in
+        let ptr_size = get_target_ptr_size span ctx.crate in
+        match mk_integer_value ptr_size tgt_ty i with
+        | Error _ -> Error EPanic
+        | Ok sv ->
+            let ty = TScalar tgt in
+            let value = VLiteral (VScalar sv) in
+            Ok { ty; value })
+    | Cast (CastScalar TBool), VLiteral (VScalar sv) ->
+        (* Cast int -> bool *)
+        let b =
+          if Z.of_int 0 = get_val sv then false
+          else if Z.of_int 1 = get_val sv then true
+          else [%craise] span "Conversion from int to bool: out of range"
+        in
+        let value = VLiteral (VBool b) in
+        let ty = TScalar TBool in
+        Ok { ty; value }
+    | _ -> [%craise] span ("Invalid input for unop: " ^ unop_to_string ctx unop)
+  in
+  (r, ctx, cc)
+
+let cast_unsize_to_modified_fields (span : Meta.span) (ctx : eval_ctx)
+    (ty0 : ty) (ty1 : ty) :
+    (type_decl_id * generic_args * FieldId.id * ty * ty) option =
+  let mk_msg () =
+    "Invalid inputs for unsized cast:\n- input ty: " ^ ty_to_string ctx ty0
+    ^ "\n- output ty: " ^ ty_to_string ctx ty1
+  in
+  if (not (ty_is_box ty0)) || not (ty_is_box ty1) then
+    [%craise] span (mk_msg ())
+  else
+    let ty0 = ty_as_box ty0 in
+    let ty1 = ty_as_box ty1 in
+    let compatible_array_slice (ty0, ty1) =
+      if ty_is_array ty0 && ty_is_slice ty1 then
+        let ty0, _ = ty_as_array ty0 in
+        let ty1 = ty_as_slice ty1 in
+        ty0 = ty1
+      else false
+    in
+    (* Case 1: array to slice *)
+    if compatible_array_slice (ty0, ty1) then None
+    else if
+      (* Case 2: ADT to ADT *)
+      ty_is_custom_adt ty0 && ty_is_custom_adt ty1
+    then (
+      let id0, generics0 = ty_as_custom_adt ty0 in
+      let id1, generics1 = ty_as_custom_adt ty1 in
+      [%cassert] span (id0 = id1) (mk_msg ());
+      (* Retrieve the instantiated fields and make sure they are all the same
+         but the last *)
+      let fields_tys0 =
+        Contexts.ctx_type_get_instantiated_variants_fields_etypes span ctx id0
+          generics0
+      in
+      let fields_tys1 =
+        Contexts.ctx_type_get_instantiated_variants_fields_etypes span ctx id1
+          generics1
+      in
+      (* The ADTs should be structures *)
+      let fields_tys0, fields_tys1 =
+        match (fields_tys0, fields_tys1) with
+        | [ (None, tys0) ], [ (None, tys1) ] -> (tys0, tys1)
+        | _ -> [%craise] span (mk_msg ())
+      in
+      [%cassert] span
+        (List.length fields_tys0 = List.length fields_tys1
+        && List.length fields_tys0 > 0)
+        (mk_msg ());
+      let fields_tys = List.combine fields_tys0 fields_tys1 in
+      let fields_beg, last_field = Collections.List.pop_last fields_tys in
+      [%cassert] span
+        (List.for_all (fun (ty0, ty1) -> ty0 = ty1) fields_beg)
+        (mk_msg ());
+      [%ldebug
+        "structure cast unsized:\n- input field type: "
+        ^ ty_to_string ctx (fst last_field)
+        ^ "\n- output field type: "
+        ^ ty_to_string ctx (snd last_field)];
+      [%cassert] span (compatible_array_slice last_field) (mk_msg ());
+      Some
+        ( id0,
+          generics0,
+          FieldId.of_int (List.length fields_beg),
+          fst last_field,
+          snd last_field ))
+    else [%craise] span (mk_msg ())
+
+let eval_unary_op_symbolic (config : config) (span : Meta.span) (unop : unop)
+    (op : operand) (ctx : eval_ctx) :
+    (tvalue, eval_error) result
+    * eval_ctx
+    * (SymbolicAst.expr -> SymbolicAst.expr) =
+  (* Evaluate the operand *)
+  let v, ctx, cc = eval_operand config span op ctx in
+  (* There is a special case for casts which convert dyn traits (for instance:
+     [Box<...>] to [Box<dyn ...>]) *)
+  match unop with
+  | Cast (CastUnsize (ty1, MetaVTable (trait_ref, _))) -> (
+      let ty0 = v.ty in
+      [%cassert] span
+        (trait_ref.binder_regions = [])
+        "Higher-ranked vtables are not supported";
+      let trait_ref = Charon.Substitute.poly_trait_ref_erase_binder trait_ref in
+      (* Casting a type to a dyn trait *)
+      [%ltrace
+        "dyn trait cast:" ^ "\n- ty0: " ^ ty_to_string ctx ty0 ^ "\n- ty1: "
+        ^ ty_to_string ctx ty1 ^ "\n- trait_ref: "
+        ^ trait_ref_to_string ctx trait_ref];
+
+      (* We support the following cases:
+         - Box<...> to Box<dyn (...)>
+         - &... to &dyn (...)
+
+         We have to treat the shared borrow case separately from the box case.
+      *)
+      match (ty1, v.value) with
+      | TAdt { builtin = Some TBox; _ }, _ ->
+          [%cassert] span
+            (not (tvalue_has_borrows (Some span) ctx v))
+            "Unimplemented use of dynamic traits";
+          let sv = mk_fresh_symbolic_value span ctx ty1 in
+          let cf e =
+            SA.IntroSymbolic
+              ( ctx,
+                mk_opt_place_from_op span op ctx,
+                sv,
+                VaDynTrait (v, trait_ref),
+                e )
+          in
+          let res = Ok (mk_tvalue_from_symbolic_value sv) in
+          (res, ctx, cc_comp cc cf)
+      | TRef (_, dyn_ty, RShared), _ ->
+          (* This case is annoying because there happens practical cases where
+             the inner value is itself a borrow. For instance:
+             {[
+               y = unsize<&'_ (&'_ bool), &'_ (dyn ...)>(move x);
+             ]}
+
+             We do the following, which is conservative (borrow-checking is correct,
+             though maybe a bit too constrained):
+             - we collect all the *shared borrows* [bids] (and check there are no mutable
+               borrows) transitively reachable from the inner value.
+             - we generate a fresh shared borrow [bid']
+             - we output [bid'] and link it to the other borrows through a region
+               abstraction [abs { SB bid0, ..., SB bidn, SL bid' s }] where [s]
+               is a fresh symbolic value of type [dyn (...)]. This way, if we want
+               to end any of the borrows we need to invalidate the dyn object.
+               Of course, this works only if **we can't clone the dyn object**.
+
+             TODO: I don't understand how rustc borrow-checks this kind of cases.
+          *)
+          (* [dyn_ty] being the inner destination type it should be a dyn type -
+           in particular, it shouldn't contain regions *)
+          [%sanity_check] span (not (ty_has_regions dyn_ty));
+          let dyn_sv = mk_fresh_symbolic_value span ctx dyn_ty in
+          let dyn_v = mk_tvalue_from_symbolic_value dyn_sv in
+
+          (* Collect the shared borrows *)
+          let sborrows = ref [] in
+          let collector =
+            object (self)
+              inherit [_] iter_tvalue as super
+              method! visit_tvalue _ v = super#visit_tvalue v.ty v
+
+              method! visit_VSymbolic ty _ =
+                [%cassert] span (ty_no_regions ty) "Unimplemented"
+
+              method! visit_VSharedBorrow ty bid _ =
+                let inner_ty =
+                  match ty with
+                  | TRef (_, ty, _) -> ty
+                  | _ -> [%internal_error] span
+                in
+                sborrows := (bid, inner_ty) :: !sborrows;
+                (* Lookup the loan and recurse *)
+                let sv =
+                  InterpBorrowsCore.ctx_lookup_shared_value span ctx bid
+                in
+                self#visit_tvalue sv.ty sv
+            end
+          in
+          collector#visit_tvalue v.ty v;
+
+          (* Create the region abstraction *)
+          let rid = ctx.fresh_region_id () in
+          let abs_id = ctx.fresh_abs_id () in
+
+          (* It's a bit annoying: we have to replace all the regions in the types *)
+          let replace_regions ty =
+            let visitor =
+              object
+                inherit [_] map_ty
+                method! visit_RErased _ = RVar (Free rid)
+
+                method! visit_TDynTrait _ pred =
+                  (* Don't dive into the dyn trait type *)
+                  [%sanity_check] span Config.type_analysis_ignore_dyn;
+                  TDynTrait pred
+              end
+            in
+            visitor#visit_ty () ty
+          in
+
+          let borrows =
+            List.map
+              (fun (bid, ty) ->
+                ({
+                   value =
+                     ABorrow
+                       (ASharedBorrow (PNone, bid, ctx.fresh_shared_borrow_id ()));
+                   ty = TRef (RVar (Free rid), replace_regions ty, RShared);
+                 }
+                  : tavalue))
+              !sborrows
+          in
+          let lid = ctx.fresh_borrow_id () in
+          let loan : tavalue =
+            {
+              value =
+                ALoan
+                  (ASharedLoan (PNone, lid, dyn_v, mk_aignored span dyn_ty None));
+              ty = TRef (RVar (Free rid), dyn_ty, RShared);
+            }
+          in
+          let abs =
+            {
+              abs_id;
+              kind = CopySymbolicValue;
+              can_end = true;
+              parents = AbsId.Set.empty;
+              regions = { owned = RegionSet.singleton (RVar (Free rid)) };
+              ended_subabs = AbsLevelSet.empty;
+              avalues = borrows @ [ loan ];
+              cont =
+                Some
+                  {
+                    output = Some (mk_etuple ~borrow_proj:true []);
+                    input = Some (mk_etuple ~borrow_proj:false []);
+                  };
+            }
+          in
+          let ctx = { ctx with env = EAbs abs :: ctx.env } in
+
+          (* Create the output value *)
+          let output : tvalue =
+            {
+              value =
+                VBorrow (VSharedBorrow (lid, ctx.fresh_shared_borrow_id ()));
+              ty = TRef (RErased, dyn_ty, RShared);
+            }
+          in
+          [%ltrace
+            "- input: " ^ tvalue_to_string ctx v ^ "\n- new abs:\n"
+            ^ abs_to_string span ctx abs ^ "\n- output: "
+            ^ tvalue_to_string ctx output];
+
+          (* Put everything together *)
+          let cf e =
+            SA.IntroSymbolic
+              ( ctx,
+                mk_opt_place_from_op span op ctx,
+                dyn_sv,
+                VaDynTrait (v, trait_ref),
+                e )
+          in
+          (Ok output, ctx, cc_comp cc cf)
+      | TRef (_, dyn_ty, RMut), VBorrow (VMutBorrow (bid, inner_v)) ->
+          [%sanity_check] span (not (ty_has_regions dyn_ty));
+          [%cassert] span (ty_no_regions inner_v.ty) "Unimplemented";
+          let dyn_sv = mk_fresh_symbolic_value span ctx dyn_ty in
+          let dyn_v = mk_tvalue_from_symbolic_value dyn_sv in
+
+          let rid = ctx.fresh_region_id () in
+          let abs_id = ctx.fresh_abs_id () in
+          let lid = ctx.fresh_borrow_id () in
+          let borrow : tavalue =
+            {
+              value =
+                ABorrow
+                  (AMutBorrow (PNone, bid, mk_aignored span inner_v.ty None));
+              ty = TRef (RVar (Free rid), inner_v.ty, RMut);
+            }
+          in
+          let loan : tavalue =
+            {
+              value =
+                ALoan (AMutLoan (PNone, lid, mk_aignored span dyn_ty None));
+              ty = TRef (RVar (Free rid), dyn_ty, RMut);
+            }
+          in
+          let abs =
+            {
+              abs_id;
+              kind = DynTraitMut (inner_v, trait_ref);
+              can_end = true;
+              parents = AbsId.Set.empty;
+              regions = { owned = RegionSet.singleton (RVar (Free rid)) };
+              ended_subabs = AbsLevelSet.empty;
+              avalues = [ borrow; loan ];
+              cont = None;
+            }
+          in
+          let ctx = { ctx with env = EAbs abs :: ctx.env } in
+          let output : tvalue =
+            {
+              value = VBorrow (VMutBorrow (lid, dyn_v));
+              ty = TRef (RErased, dyn_ty, RMut);
+            }
+          in
+          let cf e =
+            SA.IntroSymbolic
+              ( ctx,
+                mk_opt_place_from_op span op ctx,
+                dyn_sv,
+                VaDynTrait (inner_v, trait_ref),
+                e )
+          in
+          (Ok output, ctx, cc_comp cc cf)
+      | _ -> [%craise] span "Unsupported cast to a dynamic trait")
+  | Cast (CastUnsize (ty1, MetaVTableUpcast fields)) ->
+      let ty0 = v.ty in
+      (* Casting a dyn trait to a dyn trait *)
+      [%ltrace
+        "dyn trait upcast:" ^ "\n- ty0: " ^ ty_to_string ctx ty0 ^ "\n- ty1: "
+        ^ ty_to_string ctx ty1 ^ "\n- fields: "
+        ^ Print.list_to_string FieldId.to_string fields];
+      [%cassert] span (fields = [])
+        "Unsized cast between dynamic traits: unimplemented case";
+      [%cassert] span (ty1 = ty0)
+        "Unsized cast between dynamic traits: unimplemented case";
+      [%cassert] span
+        (not (tvalue_has_borrows (Some span) ctx v))
+        "Unsized cast between dynamic traits: unimplemented case";
+
+      (* Nothing to do: the cast is the identity *)
+      (Ok v, ctx, cc)
+  | _ ->
+      (* Regular case *)
+      (* Generate a fresh symbolic value to store the result *)
+      let res_sv_id = ctx.fresh_symbolic_value_id () in
+      let res_sv_ty =
+        match (unop, v.ty) with
+        | Not, (TScalar TBool as lty) -> lty
+        | Not, (TScalar (TInteger (Signed _)) as lty) -> lty
+        | Not, (TScalar (TInteger (Unsigned _)) as lty) -> lty
+        | Neg OPanic, (TScalar (TInteger (Signed _)) as lty) -> lty
+        | Neg OPanic, (TScalar (TInteger (Unsigned _)) as lty) -> lty
+        | Neg _, (TScalar (TFloat _) as lty) -> lty
+        | Cast (CastScalar tgt_ty), _ -> TScalar tgt_ty
+        | Cast (CastUnsize (ty1, _)), ty0 ->
+            (* If the following function succeeds, then it means the cast is well-formed
+           (otherwise it throws an exception) *)
+            let _ = cast_unsize_to_modified_fields span ctx ty0 ty1 in
+            ty1
+        | Cast (CastRawPtr tgt_ty), _ -> tgt_ty
+        | _ ->
+            [%craise] span
+              ("Invalid input for unop: " ^ unop_to_string ctx unop ^ " on "
+             ^ ty_to_string ctx v.ty)
+      in
+      let res_sv = { sv_id = res_sv_id; sv_ty = res_sv_ty } in
+      (* Compute the result *)
+      let res = Ok (mk_tvalue_from_symbolic_value res_sv) in
+      (* Synthesize the symbolic AST *)
+      let cc =
+        cc_comp cc
+          (synthesize_unary_op span ctx unop v
+             (mk_opt_place_from_op span op ctx)
+             res_sv None)
+      in
+      (res, ctx, cc)
+
+let eval_unary_op (config : config) (span : Meta.span) (unop : unop)
+    (op : operand) (ctx : eval_ctx) :
+    (tvalue, eval_error) result
+    * eval_ctx
+    * (SymbolicAst.expr -> SymbolicAst.expr) =
+  match config.mode with
+  | ConcreteMode -> eval_unary_op_concrete config span unop op ctx
+  | SymbolicMode -> eval_unary_op_symbolic config span unop op ctx
+
+(** Small helper for [eval_binary_op_concrete]: computes the result of applying
+    the binop *after* the operands have been successfully evaluated *)
+let eval_binary_op_concrete_compute (span : Meta.span) (binop : binop)
+    (v1 : tvalue) (v2 : tvalue) (ctx : eval_ctx) : (tvalue, eval_error) result =
+  (* Equality check binops (Eq, Ne) accept values from a wide variety of types.
+   * The remaining binops only operate on scalars. *)
+  if binop = Eq || binop = Ne then (
+    (* Equality operations *)
+    [%cassert] span (v1.ty = v2.ty)
+      "The arguments given to the binop don't have the same type";
+    (* Equality/inequality check is primitive only for a subset of types *)
+    [%cassert] span (ty_is_copyable v1.ty) "Type is not primitively copyable";
+    let b = v1 = v2 in
+    Ok { value = VLiteral (VBool b); ty = TScalar TBool })
+  else
+    (* For the non-equality operations, the input values are necessarily scalars,
+       with the exception of the comparison operations which also accept booleans
+       (booleans are ordered: [false < true]). *)
+    match (v1.value, v2.value) with
+    | VLiteral (VBool b1), VLiteral (VBool b2) -> begin
+        (* Booleans only support the comparison operations and bitwise operators (&, |, ^) *)
+        match binop with
+        | Lt | Le | Ge | Gt | BitAnd | BitOr | BitXor ->
+            let b =
+              match binop with
+              | Lt -> (not b1) && b2
+              | Le -> (not b1) || b2
+              | Ge -> b1 || not b2
+              | Gt -> b1 && not b2
+              | BitAnd -> b1 && b2
+              | BitOr -> b1 || b2
+              | BitXor -> b1 <> b2
+              | _ -> [%craise] span "Unreachable"
+            in
+            Ok ({ value = VLiteral (VBool b); ty = TScalar TBool } : tvalue)
+        | _ ->
+            [%craise] span ("Invalid inputs for binop: " ^ binop_to_string binop)
+      end
+    | VLiteral (VScalar sv1), VLiteral (VScalar sv2) -> begin
+        let sv1_value, sv2_value = (get_val sv1, get_val sv2) in
+        let sv1_int_ty, sv2_int_ty = (get_ty sv1, get_ty sv2) in
+        (* There are binops which require the two operands to have the same
+           type, and binops for which it is not the case.
+           There are also binops which return booleans, and binops which
+           return integers.
+        *)
+        match binop with
+        | Lt | Le | Ge | Gt ->
+            (* The two operands must have the same type and the result is a boolean *)
+            [%sanity_check] span (sv1_int_ty = sv2_int_ty);
+            let b =
+              match binop with
+              | Lt -> Z.lt sv1_value sv2_value
+              | Le -> Z.leq sv1_value sv2_value
+              | Ge -> Z.geq sv1_value sv2_value
+              | Gt -> Z.gt sv1_value sv2_value
+              | _ -> [%craise] span "Unreachable"
+            in
+            Ok ({ value = VLiteral (VBool b); ty = TScalar TBool } : tvalue)
+        | Div OPanic
+        | Rem OPanic
+        | Add OPanic
+        | Sub OPanic
+        | Mul OPanic
+        | BitXor | BitAnd | BitOr -> (
+            (* The two operands must have the same type and the result is an integer *)
+            [%sanity_check] span (sv1_int_ty = sv2_int_ty);
+            let res : _ result =
+              match binop with
+              | Div OPanic ->
+                  if sv2_value = Z.zero then Error ()
+                  else
+                    let ptr_size = get_target_ptr_size span ctx.crate in
+                    mk_integer_value ptr_size sv1_int_ty
+                      (Z.div sv1_value sv2_value)
+              | Rem OPanic ->
+                  (* See [https://github.com/ocaml/Zarith/blob/master/z.mli] *)
+                  if sv2_value = Z.zero then Error ()
+                  else
+                    let ptr_size = get_target_ptr_size span ctx.crate in
+                    mk_integer_value ptr_size sv1_int_ty
+                      (Z.rem sv1_value sv2_value)
+              | Add OPanic ->
+                  let ptr_size = get_target_ptr_size span ctx.crate in
+                  mk_integer_value ptr_size sv1_int_ty
+                    (Z.add sv1_value sv2_value)
+              | Sub OPanic ->
+                  let ptr_size = get_target_ptr_size span ctx.crate in
+                  mk_integer_value ptr_size sv1_int_ty
+                    (Z.sub sv1_value sv2_value)
+              | Mul OPanic ->
+                  let ptr_size = get_target_ptr_size span ctx.crate in
+                  mk_integer_value ptr_size sv1_int_ty
+                    (Z.mul sv1_value sv2_value)
+              | BitXor -> raise Unimplemented
+              | BitAnd -> raise Unimplemented
+              | BitOr -> raise Unimplemented
+              | _ -> [%craise] span "Unreachable"
+            in
+            match res with
+            | Error _ -> Error EPanic
+            | Ok sv ->
+                Ok
+                  {
+                    value = VLiteral (VScalar sv);
+                    ty = TScalar (integer_as_scalar sv1_int_ty);
+                  })
+        | Ne | Eq -> [%craise] span "Unreachable"
+        | _ ->
+            [%craise] span
+              ("Unimplemented binary operation: " ^ binop_to_string binop)
+      end
+    | _ -> [%craise] span ("Invalid inputs for binop: " ^ binop_to_string binop)
+
+let eval_binary_op_concrete (config : config) (span : Meta.span) (binop : binop)
+    (op1 : operand) (op2 : operand) (ctx : eval_ctx) :
+    (tvalue, eval_error) result
+    * eval_ctx
+    * (SymbolicAst.expr -> SymbolicAst.expr) =
+  (* Evaluate the operands *)
+  let (v1, v2), ctx, cc = eval_two_operands config span op1 op2 ctx in
+  (* Compute the result of the binop *)
+  let r = eval_binary_op_concrete_compute span binop v1 v2 ctx in
+  (* Return *)
+  (r, ctx, cc)
+
+let eval_binary_op_symbolic (config : config) (span : Meta.span) (binop : binop)
+    (op1 : operand) (op2 : operand) (ctx : eval_ctx) :
+    (tvalue, eval_error) result
+    * eval_ctx
+    * (SymbolicAst.expr -> SymbolicAst.expr) =
+  (* Evaluate the operands *)
+  let (v1, v2), ctx, cc = eval_two_operands config span op1 op2 ctx in
+  (* Generate a fresh symbolic value to store the result *)
+  let res_sv_id = ctx.fresh_symbolic_value_id () in
+  let res_sv_ty =
+    if binop = Eq || binop = Ne then (
+      (* Equality operations *)
+      [%sanity_check] span (v1.ty = v2.ty);
+      (* Equality/inequality check is primitive only for a subset of types *)
+      [%cassert] span (ty_is_copyable v1.ty)
+        "The type is not primitively copyable";
+      TScalar TBool)
+    else
+      (* Other operations: input types can be booleans for comparison operators
+       (booleans are ordered: [false < true]), or bitwise operators (&, |, ^).
+       In the other cases, input types are integers *)
+      match (v1.ty, v2.ty) with
+      | TScalar (TFloat ty1), TScalar (TFloat ty2) when ty1 = ty2 -> (
+          match binop with
+          | Lt | Le | Ge | Gt -> TScalar TBool
+          | Add _ | Sub _ | Mul _ | Div _ | Rem _ -> TScalar (TFloat ty1)
+          | _ -> [%craise] span "Unsupported floating-point binary operation")
+      | TScalar TBool, TScalar TBool
+        when binop = Lt || binop = Le || binop = Ge || binop = Gt
+             || binop = BitAnd || binop = BitOr || binop = BitXor ->
+          TScalar TBool
+      | TScalar lty1, TScalar lty2
+        when scalar_type_is_integer lty1 && scalar_type_is_integer lty2 -> (
+          let int_ty1, int_ty2 = (ty_as_integer v1.ty, ty_as_integer v2.ty) in
+          match binop with
+          | Lt | Le | Ge | Gt ->
+              [%sanity_check] span (int_ty1 = int_ty2);
+              TScalar TBool
+          | Div _ | Rem _ | Add _ | Sub _ | Mul _ | BitXor | BitAnd | BitOr ->
+              [%sanity_check] span (int_ty1 = int_ty2);
+              TScalar (integer_as_scalar int_ty1)
+          | Cmp ->
+              [%sanity_check] span (int_ty1 = int_ty2);
+              TScalar (TInteger (Signed I8))
+          (* These return `(int, bool)` / a pointer which isn't a literal type *)
+          | AddChecked | SubChecked | MulChecked | Offset ->
+              [%craise] span "Unimplemented binary operation"
+          | Shl _ | Shr _ ->
+              (* The number of bits can be of a different integer type
+                 than the operand *)
+              TScalar (integer_as_scalar int_ty1)
+          | Ne | Eq -> [%craise] span "Unreachable")
+      | _ -> [%craise] span "Invalid inputs for binop"
+  in
+  let res_sv = { sv_id = res_sv_id; sv_ty = res_sv_ty } in
+  let v = mk_tvalue_from_symbolic_value res_sv in
+  (* Synthesize the symbolic AST *)
+  let p1 = mk_opt_place_from_op span op1 ctx in
+  let p2 = mk_opt_place_from_op span op2 ctx in
+  let cc =
+    cc_comp cc (synthesize_binary_op span ctx binop v1 p1 v2 p2 res_sv None)
+  in
+  (* Compose and apply *)
+  (Ok v, ctx, cc)
+
+let eval_binary_op (config : config) (span : Meta.span) (binop : binop)
+    (op1 : operand) (op2 : operand) (ctx : eval_ctx) :
+    (tvalue, eval_error) result
+    * eval_ctx
+    * (SymbolicAst.expr -> SymbolicAst.expr) =
+  match config.mode with
+  | ConcreteMode -> eval_binary_op_concrete config span binop op1 op2 ctx
+  | SymbolicMode -> eval_binary_op_symbolic config span binop op1 op2 ctx
+
+(** Evaluate an rvalue which creates a reference (i.e., an rvalue which is `&p`
+    or `&mut p` or `&two-phase p`) *)
+let eval_rvalue_ref (config : config) (span : Meta.span) (p : place)
+    (bkind : borrow_kind) (ctx : eval_ctx) :
+    tvalue * eval_ctx * (SymbolicAst.expr -> SymbolicAst.expr) =
+  match bkind with
+  | BShared | BTwoPhaseMut | BShallow ->
+      (* **REMARK**: we initially treated shallow borrows like shared borrows.
+         In practice this restricted the behaviour too much, so for now we
+         forbid them and remove them in the prepasses (see the comments there
+         as to why this is sound).
+      *)
+      [%sanity_check] span (bkind <> BShallow);
+
+      (* Access the value *)
+      let access =
+        match bkind with
+        | BShared | BShallow -> Read
+        | BTwoPhaseMut -> Write
+        | _ -> [%craise] span "Unreachable"
+      in
+
+      let greedy_expand = false in
+      let lid, v, path, ctx, cc =
+        access_rplace_reorganize_and_read config span greedy_expand access p ctx
+      in
+      (* Generate the fresh shared borrow id *)
+      let sid = ctx.fresh_shared_borrow_id () in
+      (* Compute the loan value, with which to replace the value at place p *)
+      let bid, nv =
+        match (lid, v.value) with
+        | Some lid, _ | None, VLoan (VSharedLoan (lid, _)) ->
+            (* The value is (directly inside) a shared loan: we do not need to do anything *)
+            (lid, v)
+        | _ ->
+            (* Not a shared loan: add a wrapper *)
+            let bid = ctx.fresh_borrow_id () in
+            let v' = VLoan (VSharedLoan (bid, v)) in
+            (bid, { v with value = v' })
+      in
+      (* Update the value in the context to replace it with the loan *)
+      let ctx = write_path span path nv ctx in
+      (* Compute the rvalue - simply a shared borrow with the fresh id.
+       * Note that the reference is *mutable* if we do a two-phase borrow *)
+      let ref_kind =
+        match bkind with
+        | BShared | BShallow -> RShared
+        | BTwoPhaseMut -> RMut
+        | _ -> [%craise] span "Unreachable"
+      in
+      let rv_ty = TRef (RErased, v.ty, ref_kind) in
+      let bc =
+        match bkind with
+        | BShared | BShallow ->
+            (* See the remark at the beginning of the match branch: we
+               handle shallow borrows like shared borrows *)
+            VSharedBorrow (bid, sid)
+        | BTwoPhaseMut -> VReservedMutBorrow (bid, sid)
+        | _ -> [%craise] span "Unreachable"
+      in
+      let rv : tvalue = { value = VBorrow bc; ty = rv_ty } in
+      (* Return *)
+      (rv, ctx, cc)
+  | BMut | BUniqueImmutable ->
+      (* We treat unique immutable borrows or mutable borrows: the difference is not
+         that important in our case *)
+      (* Access the value *)
+      let access = Write in
+      let greedy_expand = false in
+      let _, v, path, ctx, cc =
+        access_rplace_reorganize_and_read config span greedy_expand access p ctx
+      in
+      (* Compute the rvalue - wrap the value in a mutable borrow with a fresh id *)
+      let bid = ctx.fresh_borrow_id () in
+      let rv_ty = TRef (RErased, v.ty, RMut) in
+      let rv : tvalue = { value = VBorrow (VMutBorrow (bid, v)); ty = rv_ty } in
+      (* Compute the loan value with which to replace the value at place p *)
+      let nv = { v with value = VLoan (VMutLoan bid) } in
+      (* Update the value in the context to replace it with the loan *)
+      let ctx = write_path span path nv ctx in
+      (* Return *)
+      (rv, ctx, cc)
+
+let eval_rvalue_aggregate (config : config) (span : Meta.span)
+    (aggregate_kind : aggregate_kind) (ops : operand list) (ctx : eval_ctx) :
+    tvalue * eval_ctx * (SymbolicAst.expr -> SymbolicAst.expr) =
+  (* Evaluate the operands *)
+  let values, ctx, cc = eval_operands config span ops ctx in
+  (* Compute the value *)
+  let v, cf_compute =
+    (* Match on the aggregate kind *)
+    match aggregate_kind with
+    | AggregatedAdt (tref, opt_variant_id, opt_field_id) -> (
+        let generics = tref.generics in
+        (* The opt_field_id is Some only for unions, that we don't support *)
+        [%sanity_check] span (opt_field_id = None);
+        match tref.builtin with
+        | Some TTuple ->
+            let v = VAdt { variant_id = None; fields = values } in
+            let ty = TAdt tref in
+            let aggregated : tvalue = { value = v; ty } in
+            (aggregated, fun e -> e)
+        | None ->
+            let def_id = tref.id in
+            (* Sanity checks *)
+            let type_decl = ctx_lookup_type_decl span ctx def_id in
+            [%sanity_check] span
+              (List.length type_decl.generics.regions
+              = List.length generics.regions);
+            let expected_field_types =
+              ctx_type_get_instantiated_field_etypes span ctx def_id
+                opt_variant_id generics
+            in
+            [%sanity_check] span
+              (expected_field_types = List.map (fun (v : tvalue) -> v.ty) values);
+            (* Construct the value *)
+            let av : adt_value =
+              { variant_id = opt_variant_id; fields = values }
+            in
+            let aty = TAdt tref in
+            let aggregated : tvalue = { value = VAdt av; ty = aty } in
+            (* Call the continuation *)
+            (aggregated, fun e -> e)
+        | Some _ -> [%craise] span "Unreachable")
+    | AggregatedArray (ety, cg, _) ->
+        (* Sanity check: all the values have the proper type *)
+        [%classert] span
+          (List.for_all (fun (v : tvalue) -> v.ty = ety) values)
+          (lazy
+            ("Aggregated array: some values don't have the proper type:"
+           ^ "\n- expected type: " ^ ty_to_string ctx ety ^ "\n- values: ["
+            ^ String.concat ", "
+                (List.map
+                   (fun (v : tvalue) ->
+                     tvalue_to_string ctx v ^ " : " ^ ty_to_string ctx v.ty)
+                   values)
+            ^ "]"));
+        (* Sanity check: the number of values is consistent with the length *)
+        let len = get_val (constant_expr_as_integer cg) in
+        [%sanity_check] span (len = Z.of_int (List.length values));
+        let ty = TArray (ety, cg, None) in
+        (* In order to generate a better AST, we introduce a symbolic
+           value equal to the array. The reason is that otherwise, the
+           array we introduce here might be duplicated in the generated
+           code: by introducing a symbolic value we introduce a let-binding
+           in the generated code.
+
+           TODO: generalize to the case where we have an array of borrows.
+           For now, we introduce a symbolic value only in the case the
+           array doesn't contain borrows.
+        *)
+        if ty_has_borrows (Some span) ctx.type_ctx.type_infos ty then
+          let value = VAdt { variant_id = None; fields = values } in
+          let value : tvalue = { value; ty } in
+          (value, fun e -> e)
+        else
+          let saggregated = mk_fresh_symbolic_tvalue span ctx ty in
+          (* Update the symbolic ast *)
+          let cf e =
+            (* Introduce the symbolic value in the AST *)
+            let sv = ValuesUtils.value_as_symbolic span saggregated.value in
+            SymbolicAst.IntroSymbolic (ctx, None, sv, VaArray values, e)
+          in
+          (saggregated, cf)
+    | AggregatedRawPtr _ ->
+        [%craise] span "Aggregated raw pointers are not supported yet"
+  in
+  (v, ctx, cc_comp cc cf_compute)
+
+let eval_discriminant (config : config) (span : Meta.span) (p : place)
+    (ctx : eval_ctx) :
+    tvalue * eval_ctx * (SymbolicAst.expr -> SymbolicAst.expr) =
+  (* TODO: not implemented yet in concrete mode *)
+  [%sanity_check] span (config.mode = SymbolicMode);
+
+  (* Read the place *)
+  let access = Read in
+  let expand_prim_copy = false in
+  let _, v, _, ctx, cf_read =
+    access_rplace_reorganize_and_read config span expand_prim_copy access p ctx
+  in
+  let v = value_strip_shared_loans v in
+
+  let adt_id, _generics =
+    match v.ty with
+    | TAdt { id; generics; builtin } -> (
+        match builtin with
+        | None -> (id, generics)
+        | Some TTuple ->
+            [%craise] span
+              ("Attempting to read the discriminant of a tuple: ("
+             ^ tvalue_to_string ctx v ^ " : " ^ ty_to_string ctx v.ty ^ ")")
+        | Some _ ->
+            [%craise] span
+              ("Attempting to read the discriminant of a builtin type: ("
+             ^ tvalue_to_string ctx v ^ " : " ^ ty_to_string ctx v.ty ^ ")"))
+    | _ ->
+        [%craise] span
+          ("Attempting to read the discriminant of a value which is not an \
+            adt: (" ^ tvalue_to_string ctx v ^ " : " ^ ty_to_string ctx v.ty
+         ^ ")")
+  in
+
+  (* We need to lookup the type declaration to retrieve the values of the
+     discriminants - this is important even when reading the discriminant
+     of a symbolic value, because we need to compute its type *)
+  let decl =
+    [%unwrap_with_span] span
+      (TypeDeclId.Map.find_opt adt_id ctx.type_ctx.type_decls)
+      "Could not lookup the definition of the type we're reading the \
+       discriminant from"
+  in
+  let variants =
+    match decl.kind with
+    | Enum variants -> variants
+    | _ ->
+        [%craise] span
+          ("Attempting to read the discriminant of a value which is not an \
+            enumeration: (" ^ tvalue_to_string ctx v ^ " : "
+         ^ ty_to_string ctx v.ty ^ ")")
+  in
+
+  (* Retrieve the type of the discriminants - we simply look at the first variant *)
+  let discr_ty =
+    [%sanity_check] span (variants <> []);
+    let variant0 = List.hd variants in
+    match variant0.discriminant with
+    | SignedInteger (ty, _) -> TScalar (TInteger (Signed ty))
+    | UnsignedInteger (ty, _) -> TScalar (TInteger (Unsigned ty))
+  in
+
+  (* Case disjunction: is the value concrete or symbolic?
+     If we have a concrete variant, we can compute the discriminant directly.
+     Otherwise, we introduce a symbolic value. *)
+  match v.value with
+  | VAdt { variant_id = Some variant_id; fields = _ } ->
+      (* Lookup the proper variant *)
+      let variant =
+        [%unwrap_with_span] span
+          (VariantId.nth_opt variants variant_id)
+          "Internal error: please find an issue"
+      in
+
+      let v : tvalue =
+        let value = variant.discriminant in
+        { value = VLiteral (VScalar value); ty = discr_ty }
+      in
+      (v, ctx, cf_read)
+  | VSymbolic adt_sv ->
+      (* Introduce a fresh symbolic value *)
+      let sv_id = ctx.fresh_symbolic_value_id () in
+      let sv : symbolic_value = { sv_id; sv_ty = discr_ty } in
+      let v : tvalue = { value = VSymbolic sv; ty = discr_ty } in
+
+      (* Add a node in the symbolic AST to register the fact that we read a
+         discriminant *)
+      let cf_discr (e : SA.expr) : SA.expr =
+        let mp = mk_mplace span p ctx in
+        SA.IntroSymbolic (ctx, Some mp, sv, VaDiscriminant adt_sv, e)
+      in
+
+      (* *)
+      (v, ctx, cc_comp cf_read cf_discr)
+  | _ -> [%internal_error] span
+
+let eval_rvalue_not_global (config : config) (span : Meta.span)
+    (rvalue : rvalue) (ctx : eval_ctx) :
+    (tvalue, eval_error) result
+    * eval_ctx
+    * (SymbolicAst.expr -> SymbolicAst.expr) =
+  [%ltrace ""];
+  (* Small helper *)
+  let wrap_in_result (v, ctx, cc) = (Ok v, ctx, cc) in
+  (* Delegate to the proper auxiliary function *)
+  match rvalue with
+  | Use (op, _) -> wrap_in_result (eval_operand config span op ctx)
+  | RvRef (p, bkind, _) ->
+      wrap_in_result (eval_rvalue_ref config span p bkind ctx)
+  | UnaryOp (unop, op) -> eval_unary_op config span unop op ctx
+  | BinaryOp (binop, op1, op2) -> eval_binary_op config span binop op1 op2 ctx
+  | Aggregate (aggregate_kind, ops) ->
+      wrap_in_result (eval_rvalue_aggregate config span aggregate_kind ops ctx)
+  | Discriminant p -> wrap_in_result (eval_discriminant config span p ctx)
+  | Len _ -> [%craise] span "Unhandled Len"
+  | _ ->
+      [%craise] span
+        ("Unsupported operation: " ^ Print.EvalCtx.rvalue_to_string ctx rvalue)
+
+let eval_fake_read (config : config) (span : Meta.span) (p : place) : cm_fun =
+ fun ctx ->
+  let greedy_expand = false in
+  let _, v, _, ctx, cc =
+    access_rplace_reorganize_and_read config span greedy_expand Read p ctx
+  in
+  [%cassert] span
+    (not (bottom_in_value ctx.ended_regions v))
+    "Fake read: the value contains bottom";
+  (ctx, cc)

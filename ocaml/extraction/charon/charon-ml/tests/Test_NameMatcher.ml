@@ -1,0 +1,274 @@
+open Charon
+open Charon.LlbcAst
+open Charon.Meta
+open Charon.GAstUtils
+open Logging
+open NameMatcher
+module Log = (val Logs.src_log main_log : Logs.LOG)
+
+let parse_tests () =
+  let patterns : string list =
+    [
+      "x";
+      "x::y";
+      "x::y1::Z2::a";
+      "{@T}";
+      "{@1}";
+      "x::{@T}";
+      "x::{[@T]}";
+      "x::{[@T; @N]}";
+      "x::{&'R @T1}";
+      "x::{&'R mut @T1}";
+      "{Box<@T>}";
+      "alloc::{Box<@T>}::new";
+      "alloc::{Foo<@T, @C>}::new";
+      "core::slice::index::SliceIndex<@T, @I>";
+      "core::slice::index::SliceIndex<Range>";
+      "core::slice::index::SliceIndex<Range, [@T]>";
+      "core::slice::index::SliceIndex<Range<usize>, [@T]>";
+      "{()}";
+      "{(@T, @T, Range<usize>)}";
+      "{fn ()}";
+      "{fn (@T, @U)}";
+      "{fn (@T, @U) -> u32}";
+      "{*const @T}";
+      "{*mut @T}";
+      "x::{Result<!, @E>}::f";
+      "x::y::x86_64-apple-darwin";
+      "test_crate::foo::aarch64-unknown-linux-gnu";
+    ]
+  in
+  let _ = List.map parse_pattern patterns in
+  ()
+
+let name_map_tests () =
+  let bindings =
+    [
+      "a";
+      "a::b::{Type<@>}";
+      "a::b::{Type<@T>}::c";
+      "a::b::{Type<@>}::d";
+      "a::b::{Type<@1>}::d::e";
+      "a::b";
+      "a::c";
+      "a::{Type1<'a, @T>}::h";
+      "a::{Type1<'b, @T>}::e";
+    ]
+  in
+  let bindings = List.mapi (fun i p -> (parse_pattern p, i)) bindings in
+  let m = NameMatcherMap.of_list bindings in
+  List.iter
+    (fun (p, i) -> assert (snd (NameMatcherMap.replace p (-1) m) = Some i))
+    bindings
+
+(* Annotations in rust code like `#[pattern::pass("<pattern>")]`. The exact syntax is:
+   - `#[pattern::pass("<pattern>")]`: the item name must match that pattern.
+   - `#[pattern::pass(call[<number>], "<pattern>")]`: for functions only; the
+          `number`th `Call` statement must match that pattern.
+   And the same with `fail` instead of `pass` for negative tests.
+*)
+module PatternTest = struct
+  type t = {
+    pattern : pattern option;
+    pattern_to_name : string option;
+    call_idx : int option;
+    success : bool;
+  }
+
+  type env = {
+    ctx : ctx;
+    file_name : string;
+    match_config : match_config;
+    fmt_env : Print.fmt_env;
+    print_config : print_config;
+    to_pat_config : to_pat_config;
+  }
+
+  let mk_env (ctx : ctx) file_name : env =
+    let tgt = TkPattern in
+    let match_with_trait_decl_refs = true in
+    {
+      ctx;
+      file_name;
+      match_config = { map_vars_to_vars = false; match_with_trait_decl_refs };
+      print_config = { tgt };
+      fmt_env = ctx_to_fmt_env ctx;
+      to_pat_config = { tgt; use_trait_decl_refs = match_with_trait_decl_refs };
+    }
+
+  (* Parse a test from the annotation string as given by Charon. *)
+  let parse (attribute : raw_attribute) : t option =
+    let fail () =
+      failwith
+        ("Couldn't parse attribute: `"
+        ^ Print.raw_attribute_to_string attribute
+        ^ "`")
+    in
+    let is_pattern_test =
+      attribute.path = "pattern::pass" || attribute.path = "pattern::fail"
+    in
+    let is_pattern_to_name_test = attribute.path = "pattern::to_name" in
+    if is_pattern_test || is_pattern_to_name_test then
+      match attribute.args with
+      | None -> fail ()
+      | Some arg -> begin
+          let re =
+            Re.compile (Re.Pcre.re "^(call\\s*\\[(\\d+)\\],\\s*)?\"(.*)\"$")
+          in
+          match Re.exec_opt re arg with
+          | Some groups ->
+              let success =
+                is_pattern_to_name_test || attribute.path = "pattern::pass"
+              in
+              let call_idx =
+                Option.map int_of_string (Re.Group.get_opt groups 2)
+              in
+              let pattern = Re.Group.get groups 3 in
+              let pattern, pattern_to_name =
+                if is_pattern_test then (Some (parse_pattern pattern), None)
+                else (None, Some pattern)
+              in
+              Some { pattern; pattern_to_name; call_idx; success }
+          | None -> fail ()
+        end
+    else None
+
+  (* Check that the given function declaration matches the pattern. *)
+  let check_fun_decl (env : env) (decl : fun_decl) (test : t) : bool =
+    let fn_ptr =
+      match test.call_idx with
+      | None ->
+          let generics =
+            TypesUtils.generic_args_of_params decl.item_meta.span decl.generics
+          in
+          Types.{ kind = Fun decl.def_id; generics }
+      | Some idx ->
+          (* Find the nth function call in the function body. *)
+          let rec list_stmt_calls (statement : statement) : call list =
+            match statement.kind with
+            | Call (call, _) -> [ call ]
+            | Switch
+                ({ scrutinee = SwitchValue _; branches = cases; _ }, branches)
+              when List.exists
+                     (fun ((case : Charon.Types.constant_expr), _) ->
+                       match case.kind with
+                       | CBool _ -> true
+                       | _ -> false)
+                     cases -> List.concat_map list_block_calls branches
+            | Switch _ ->
+                failwith
+                  "Only `if then else` are supported in name matcher tests, \
+                   `switch` and `match` statements are not"
+            | Loop _ -> failwith "Loops are unsupported in name matcher tests"
+            | _ -> []
+          and list_block_calls (blk : block) : call list =
+            List.concat_map list_stmt_calls blk.statements
+          in
+          let calls =
+            list_block_calls (body_as_structured_exn decl.body).body
+          in
+          let fn_ptrs =
+            List.map
+              (fun call ->
+                match call.func with
+                | FnOpRegular fn_ptr -> fn_ptr
+                | FnOpDynamic _ ->
+                    failwith
+                      "Indirect calls are unsupported un name matcher tests")
+              calls
+          in
+          List.nth fn_ptrs idx
+    in
+    (* Exercise the round-trip assertions in both pattern conversion functions. *)
+    let _ = name_to_pattern env.ctx env.to_pat_config decl.item_meta.name in
+    let _ = fn_ptr_to_pattern env.ctx env.to_pat_config decl.generics fn_ptr in
+    let match_success =
+      match test.pattern with
+      | Some pattern -> match_fn_ptr env.ctx env.match_config pattern fn_ptr
+      | None -> true
+    in
+    let pattern_name, pattern_to_name_success =
+      match test.pattern_to_name with
+      | Some tgt_name ->
+          assert test.success;
+          let pattern =
+            name_to_pattern env.ctx env.to_pat_config decl.item_meta.name
+          in
+          let name = pattern_to_string { tgt = TkName } pattern in
+          (Some (pattern, name), tgt_name = name)
+      | None -> (None, true)
+    in
+    if test.success && not match_success then (
+      let fn_ptr =
+        try fn_ptr_to_pattern env.ctx env.to_pat_config decl.generics fn_ptr
+        with _ -> [ PIdent ("ERROR", 0, []) ]
+      in
+      Log.err (fun m ->
+          m "Pattern %s failed to match function %s (in `%s`)"
+            (pattern_to_string env.print_config (Option.get test.pattern))
+            (pattern_to_string env.print_config fn_ptr)
+            env.file_name);
+      false)
+    else if (not test.success) && match_success then (
+      Log.err (fun m ->
+          m "Pattern %s matches function %s but shouldn't"
+            (pattern_to_string env.print_config (Option.get test.pattern))
+            (Print.name_to_string env.fmt_env decl.item_meta.name));
+      false)
+    else if test.success && not pattern_to_name_success then (
+      let pattern, name = Option.get pattern_name in
+      Log.err (fun m ->
+          m
+            "Pattern '%s' converted to name is '%s' but is expected to be '%s' \
+             (in %s)"
+            (pattern_to_string env.print_config pattern)
+            name
+            (Option.get test.pattern_to_name)
+            env.file_name);
+      false)
+    else true
+end
+
+(* This reads the output generated from the `ui/ml-name-matcher-tests.rs` test
+   file, and verifies that for each `#[pattern::...]` annotation, the item
+   matches the pattern. See the `PatternTest` module for details of what
+   annotations are available. *)
+let annotated_rust_tests test_file =
+  (* We read the llbc file generated from the annotated rust file. *)
+  Log.debug (fun m -> m "Deserializing LLBC file: %s" test_file);
+  let (crate : crate) =
+    match OfJson.crate_of_json_file test_file with
+    | Error s ->
+        Log.err (fun m -> m "Error when deserializing file %s: %s" test_file s);
+        exit 1
+    | Ok crate -> crate
+  in
+
+  (* We look through all declarations for our special attributes and check each case. *)
+  let ctx = ctx_from_crate crate in
+  let env = PatternTest.mk_env ctx test_file in
+  let all_pass =
+    T.FunDeclId.Map.for_all
+      (fun _ (decl : fun_decl) ->
+        let attrs =
+          List.filter_map
+            (function
+              | AttrUnknown attr -> Some attr
+              | _ -> None)
+            decl.item_meta.attr_info.attributes
+        in
+        let tests = List.filter_map PatternTest.parse attrs in
+        let test_results =
+          List.map (PatternTest.check_fun_decl env decl) tests
+        in
+        List.for_all (fun b -> b) test_results)
+      crate.fun_decls
+  in
+
+  if all_pass then Log.info (fun m -> m "Name matcher tests: success")
+  else exit 1
+
+let run_tests test_file =
+  parse_tests ();
+  name_map_tests ();
+  annotated_rust_tests test_file

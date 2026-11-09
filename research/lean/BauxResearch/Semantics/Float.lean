@@ -209,33 +209,33 @@ theorem doubleZeros :
 /-! ## 6. Translation Correspondence with Aeneas Extraction -/
 
 theorem singleSign :
-    BauxResearch.Generated.Optimizer.float.SIGN_SINGLE.bv = signSingle := by
-  unfold BauxResearch.Generated.Optimizer.float.SIGN_SINGLE signSingle
+    BauxResearch.Generated.Optimizer.float.bits.SIGN_SINGLE.bv = signSingle := by
+  unfold BauxResearch.Generated.Optimizer.float.bits.SIGN_SINGLE signSingle
   decide
 
 theorem singleExp :
-    BauxResearch.Generated.Optimizer.float.EXP_SINGLE.bv = expSingle := by
-  unfold BauxResearch.Generated.Optimizer.float.EXP_SINGLE expSingle
+    BauxResearch.Generated.Optimizer.float.bits.EXP_SINGLE.bv = expSingle := by
+  unfold BauxResearch.Generated.Optimizer.float.bits.EXP_SINGLE expSingle
   decide
 
 theorem singleFrac :
-    BauxResearch.Generated.Optimizer.float.FRAC_SINGLE.bv = fracSingle := by
-  unfold BauxResearch.Generated.Optimizer.float.FRAC_SINGLE fracSingle
+    BauxResearch.Generated.Optimizer.float.bits.FRAC_SINGLE.bv = fracSingle := by
+  unfold BauxResearch.Generated.Optimizer.float.bits.FRAC_SINGLE fracSingle
   decide
 
 theorem doubleSign :
-    BauxResearch.Generated.Optimizer.float.SIGN_DOUBLE.bv = signDouble := by
-  unfold BauxResearch.Generated.Optimizer.float.SIGN_DOUBLE signDouble
+    BauxResearch.Generated.Optimizer.float.bits.SIGN_DOUBLE.bv = signDouble := by
+  unfold BauxResearch.Generated.Optimizer.float.bits.SIGN_DOUBLE signDouble
   decide
 
 theorem doubleExp :
-    BauxResearch.Generated.Optimizer.float.EXP_DOUBLE.bv = expDouble := by
-  unfold BauxResearch.Generated.Optimizer.float.EXP_DOUBLE expDouble
+    BauxResearch.Generated.Optimizer.float.bits.EXP_DOUBLE.bv = expDouble := by
+  unfold BauxResearch.Generated.Optimizer.float.bits.EXP_DOUBLE expDouble
   decide
 
 theorem doubleFrac :
-    BauxResearch.Generated.Optimizer.float.FRAC_DOUBLE.bv = fracDouble := by
-  unfold BauxResearch.Generated.Optimizer.float.FRAC_DOUBLE fracDouble
+    BauxResearch.Generated.Optimizer.float.bits.FRAC_DOUBLE.bv = fracDouble := by
+  unfold BauxResearch.Generated.Optimizer.float.bits.FRAC_DOUBLE fracDouble
   decide
 
 theorem nanMatch (bits : Aeneas.Std.U32) :
@@ -243,9 +243,9 @@ theorem nanMatch (bits : Aeneas.Std.U32) :
       Aeneas.Std.Result.ok (nanSingle bits.bv) := by
   simp only [BauxResearch.Generated.Optimizer.float.single_nan,
     Aeneas.Std.lift, Aeneas.Std.bind_ok]
-  rw [show BauxResearch.Generated.Optimizer.float.EXP_SINGLE =
+  rw [show BauxResearch.Generated.Optimizer.float.bits.EXP_SINGLE =
       (⟨expSingle⟩ : Aeneas.Std.U32) by exact Aeneas.Std.U32.bv_eq_imp_eq _ _ singleExp]
-  rw [show BauxResearch.Generated.Optimizer.float.FRAC_SINGLE =
+  rw [show BauxResearch.Generated.Optimizer.float.bits.FRAC_SINGLE =
       (⟨fracSingle⟩ : Aeneas.Std.U32) by exact Aeneas.Std.U32.bv_eq_imp_eq _ _ singleFrac]
   simp [Aeneas.Std.UScalar.eq_equiv_bv_eq, nanSingle]
   split <;> simp_all [bne, BEq.beq]
@@ -255,7 +255,7 @@ theorem zeroMatch (bits : Aeneas.Std.U32) :
       Aeneas.Std.Result.ok (zeroSingle bits.bv) := by
   simp only [BauxResearch.Generated.Optimizer.float.single_zero,
     Aeneas.Std.lift, Aeneas.Std.bind_ok]
-  rw [show BauxResearch.Generated.Optimizer.float.SIGN_SINGLE =
+  rw [show BauxResearch.Generated.Optimizer.float.bits.SIGN_SINGLE =
       (⟨signSingle⟩ : Aeneas.Std.U32) by exact Aeneas.Std.U32.bv_eq_imp_eq _ _ singleSign]
   simp [Aeneas.Std.UScalar.eq_equiv_bv_eq, zeroSingle]
 
@@ -264,7 +264,7 @@ theorem orderMatch (bits : Aeneas.Std.U32) :
       Aeneas.Std.Result.ok (⟨orderSingle bits.bv⟩ : Aeneas.Std.U32) := by
   simp only [BauxResearch.Generated.Optimizer.float.single_order,
     Aeneas.Std.lift, Aeneas.Std.bind_ok]
-  rw [show BauxResearch.Generated.Optimizer.float.SIGN_SINGLE =
+  rw [show BauxResearch.Generated.Optimizer.float.bits.SIGN_SINGLE =
       (⟨signSingle⟩ : Aeneas.Std.U32) by exact Aeneas.Std.U32.bv_eq_imp_eq _ _ singleSign]
   simp [Aeneas.Std.UScalar.eq_equiv_bv_eq, orderSingle]
   split <;> simp_all [Aeneas.Std.UScalar.eq_equiv_bv_eq]
@@ -291,9 +291,9 @@ theorem wideNan (bits : Aeneas.Std.U64) :
       Aeneas.Std.Result.ok (nanDouble bits.bv) := by
   simp only [BauxResearch.Generated.Optimizer.float.double_nan,
     Aeneas.Std.lift, Aeneas.Std.bind_ok]
-  rw [show BauxResearch.Generated.Optimizer.float.EXP_DOUBLE =
+  rw [show BauxResearch.Generated.Optimizer.float.bits.EXP_DOUBLE =
       (⟨expDouble⟩ : Aeneas.Std.U64) by exact Aeneas.Std.U64.bv_eq_imp_eq _ _ doubleExp]
-  rw [show BauxResearch.Generated.Optimizer.float.FRAC_DOUBLE =
+  rw [show BauxResearch.Generated.Optimizer.float.bits.FRAC_DOUBLE =
       (⟨fracDouble⟩ : Aeneas.Std.U64) by exact Aeneas.Std.U64.bv_eq_imp_eq _ _ doubleFrac]
   simp [Aeneas.Std.UScalar.eq_equiv_bv_eq, nanDouble]
   split <;> simp_all [bne, BEq.beq]
@@ -303,7 +303,7 @@ theorem wideZero (bits : Aeneas.Std.U64) :
       Aeneas.Std.Result.ok (zeroDouble bits.bv) := by
   simp only [BauxResearch.Generated.Optimizer.float.double_zero,
     Aeneas.Std.lift, Aeneas.Std.bind_ok]
-  rw [show BauxResearch.Generated.Optimizer.float.SIGN_DOUBLE =
+  rw [show BauxResearch.Generated.Optimizer.float.bits.SIGN_DOUBLE =
       (⟨signDouble⟩ : Aeneas.Std.U64) by exact Aeneas.Std.U64.bv_eq_imp_eq _ _ doubleSign]
   simp [Aeneas.Std.UScalar.eq_equiv_bv_eq, zeroDouble]
 
@@ -312,7 +312,7 @@ theorem wideOrder (bits : Aeneas.Std.U64) :
       Aeneas.Std.Result.ok (⟨orderDouble bits.bv⟩ : Aeneas.Std.U64) := by
   simp only [BauxResearch.Generated.Optimizer.float.double_order,
     Aeneas.Std.lift, Aeneas.Std.bind_ok]
-  rw [show BauxResearch.Generated.Optimizer.float.SIGN_DOUBLE =
+  rw [show BauxResearch.Generated.Optimizer.float.bits.SIGN_DOUBLE =
       (⟨signDouble⟩ : Aeneas.Std.U64) by exact Aeneas.Std.U64.bv_eq_imp_eq _ _ doubleSign]
   simp [Aeneas.Std.UScalar.eq_equiv_bv_eq, orderDouble]
   split <;> simp_all [Aeneas.Std.UScalar.eq_equiv_bv_eq]

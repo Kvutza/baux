@@ -105,11 +105,15 @@ pub(super) fn semantics_slice(root: &Path, cache: &Path) -> Result<PathBuf, Stri
     let destination = cache.join("semantics-slice");
     copy_slice(&root.join("rust/crates/baux/semantics/src"), &destination)?;
     let lib_path = destination.join("src/lib.rs");
+    let original = fs::read_to_string(&lib_path).map_err(|error| error.to_string())?;
     fs::write(
         &lib_path,
         format!(
-            "{}\nextern crate self as baux;\npub use crate as semantics;\n",
-            fs::read_to_string(&lib_path).map_err(|error| error.to_string())?
+            "#![allow(incomplete_features, internal_features)]\n\
+             #![feature(min_adt_const_params, adt_const_params, contracts, diagnostic_on_move, negative_impls, portable_simd)]\n\
+             {original}\n\
+             extern crate self as baux;\n\
+             pub use crate as semantics;\n"
         ),
     )
     .map_err(|error| error.to_string())?;
@@ -124,13 +128,30 @@ pub(super) fn semantics_slice(root: &Path, cache: &Path) -> Result<PathBuf, Stri
 
 pub(super) fn resolve_tools(root: &Path, opts: &ExtractOpts) -> Result<(PathBuf, PathBuf), String> {
     let tools = root.join(".cache/baux/tools/aeneas");
-    let mut aeneas = tools.join("bin/aeneas");
+    let mut aeneas = if let Ok(bin) = std::env::var("BAUX_AENEAS_BIN") {
+        PathBuf::from(bin)
+    } else {
+        let native_bin = root.join("ocaml/extraction/bin/aeneas");
+        if native_bin.exists() {
+            native_bin
+        } else {
+            tools.join("bin/aeneas")
+        }
+    };
     let charon_root = tools.join("charon");
-    let mut charon = charon_root.join("bin/charon");
+    let mut charon = if let Ok(bin) = std::env::var("BAUX_CHARON_BIN") {
+        PathBuf::from(bin)
+    } else {
+        charon_root.join("bin/charon")
+    };
     require_tool(&aeneas, "Aeneas", AENEAS_REV)?;
     require_tool(&charon, "Charon", CHARON_REV)?;
-    require_revision(&tools, "Aeneas", AENEAS_REV)?;
-    require_revision(&charon_root, "Charon", CHARON_REV)?;
+    if tools.join(".git").exists() {
+        require_revision(&tools, "Aeneas", AENEAS_REV)?;
+    }
+    if charon_root.join(".git").exists() {
+        require_revision(&charon_root, "Charon", CHARON_REV)?;
+    }
     if opts.charon_callsite {
         charon = baux_tooling::extract_ext::build_callsite(root)?;
         require_tool(&charon, "Charon callsite extension", CHARON_REV)?;

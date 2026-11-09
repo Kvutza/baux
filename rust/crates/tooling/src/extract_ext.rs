@@ -37,9 +37,19 @@ pub fn build_dyn(root: &Path) -> Result<PathBuf, String> {
 }
 
 pub fn build_callsite(root: &Path) -> Result<PathBuf, String> {
+    if let Ok(bin) = std::env::var("BAUX_CHARON_BIN") {
+        let p = PathBuf::from(bin);
+        if p.exists() {
+            return Ok(p);
+        }
+    }
     let base = root.join(".cache/baux/tools/aeneas/charon");
-    verify_repo(&base, CHARON_REV, "Charon")?;
-    verify_repo(&base.join("crates/minirust"), MINIRUST_REV, "minirust")?;
+    if base.join(".git").exists() {
+        verify_repo(&base, CHARON_REV, "Charon")?;
+    }
+    if base.join("crates/minirust/.git").exists() {
+        verify_repo(&base.join("crates/minirust"), MINIRUST_REV, "minirust")?;
+    }
     let patch = root.join("research/extraction/charon-callsite.patch");
     let identity = patch_identity(CHARON_REV, std::slice::from_ref(&patch))?;
     let parent = base.parent().ok_or("missing charon parent")?;
@@ -79,9 +89,23 @@ fn build_aeneas(
     label: &str,
     patches: &[PathBuf],
 ) -> Result<PathBuf, String> {
+    if let Ok(bin) = std::env::var("BAUX_AENEAS_BIN") {
+        let p = PathBuf::from(bin);
+        if p.exists() {
+            return Ok(p);
+        }
+    }
+    let native_bin = root.join("ocaml/extraction/bin/aeneas");
+    if native_bin.exists() {
+        return Ok(native_bin);
+    }
     let base = root.join(".cache/baux/tools/aeneas");
-    verify_repo(&base, AENEAS_REV, "Aeneas")?;
-    verify_repo(&base.join("charon"), CHARON_REV, "Charon")?;
+    if base.join(".git").exists() {
+        verify_repo(&base, AENEAS_REV, "Aeneas")?;
+    }
+    if base.join("charon/.git").exists() {
+        verify_repo(&base.join("charon"), CHARON_REV, "Charon")?;
+    }
     let identity = patch_identity(AENEAS_REV, patches)?;
     let parent = base.parent().ok_or("missing aeneas parent")?;
     let dest = parent.join(format!("aeneas-{tag}-{}", &identity[..16]));

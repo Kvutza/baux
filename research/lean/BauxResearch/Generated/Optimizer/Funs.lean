@@ -2,6 +2,7 @@
 -- [baux_semantics]: function definitions
 module
 public import Aeneas
+public import BauxResearch.Extraction.Native
 public import BauxResearch.Generated.Optimizer.Types
 @[expose] public section
 open Aeneas Aeneas.Std Result ControlFlow Error
@@ -95,95 +96,98 @@ def dispatch.tiles
   (leaf : Std.U32) : Result (Option (alloc.vec.Vec (Std.U32 × Std.U32))) := do
   dispatch.tiles_loop 0#u32 leaf (alloc.vec.Vec.new (Std.U32 × Std.U32))
 
-/-- [baux_semantics::float::SIGN_SINGLE]
-    Source: 'src/float.rs', lines 8:0-8:41
-    Visibility: public -/
-@[global_simps, irreducible] def float.SIGN_SINGLE : Std.U32 := 2147483648#u32
-
-/-- [baux_semantics::float::EXP_SINGLE]
-    Source: 'src/float.rs', lines 9:0-9:40
-    Visibility: public -/
-@[global_simps, irreducible] def float.EXP_SINGLE : Std.U32 := 2139095040#u32
-
-/-- [baux_semantics::float::FRAC_SINGLE]
-    Source: 'src/float.rs', lines 10:0-10:41
-    Visibility: public -/
-@[global_simps, irreducible] def float.FRAC_SINGLE : Std.U32 := 8388607#u32
-
-/-- [baux_semantics::float::SIGN_DOUBLE]
-    Source: 'src/float.rs', lines 17:0-17:51
+/-- [baux_semantics::float::bits::SIGN_SINGLE]
+    Source: 'src/float/bits.rs', lines 1:0-1:41
     Visibility: public -/
 @[global_simps, irreducible]
-def float.SIGN_DOUBLE : Std.U64 := 9223372036854775808#u64
+def float.bits.SIGN_SINGLE : Std.U32 := 2147483648#u32
 
-/-- [baux_semantics::float::EXP_DOUBLE]
-    Source: 'src/float.rs', lines 18:0-18:50
+/-- [baux_semantics::float::bits::EXP_SINGLE]
+    Source: 'src/float/bits.rs', lines 2:0-2:40
     Visibility: public -/
 @[global_simps, irreducible]
-def float.EXP_DOUBLE : Std.U64 := 9218868437227405312#u64
+def float.bits.EXP_SINGLE : Std.U32 := 2139095040#u32
 
-/-- [baux_semantics::float::FRAC_DOUBLE]
-    Source: 'src/float.rs', lines 19:0-19:51
+/-- [baux_semantics::float::bits::FRAC_SINGLE]
+    Source: 'src/float/bits.rs', lines 3:0-3:41
     Visibility: public -/
 @[global_simps, irreducible]
-def float.FRAC_DOUBLE : Std.U64 := 4503599627370495#u64
+def float.bits.FRAC_SINGLE : Std.U32 := 8388607#u32
+
+/-- [baux_semantics::float::bits::SIGN_DOUBLE]
+    Source: 'src/float/bits.rs', lines 10:0-10:51
+    Visibility: public -/
+@[global_simps, irreducible]
+def float.bits.SIGN_DOUBLE : Std.U64 := 9223372036854775808#u64
+
+/-- [baux_semantics::float::bits::EXP_DOUBLE]
+    Source: 'src/float/bits.rs', lines 11:0-11:50
+    Visibility: public -/
+@[global_simps, irreducible]
+def float.bits.EXP_DOUBLE : Std.U64 := 9218868437227405312#u64
+
+/-- [baux_semantics::float::bits::FRAC_DOUBLE]
+    Source: 'src/float/bits.rs', lines 12:0-12:51
+    Visibility: public -/
+@[global_simps, irreducible]
+def float.bits.FRAC_DOUBLE : Std.U64 := 4503599627370495#u64
 
 /-- [baux_semantics::float::single_nan]:
-    Source: 'src/float.rs', lines 40:0-42:1
+    Source: 'src/float.rs', lines 21:0-23:1
     Visibility: public -/
 def float.single_nan (bits : Std.U32) : Result Bool := do
-  let i ← lift (bits &&& float.EXP_SINGLE)
-  if i = float.EXP_SINGLE
-  then let i1 ← lift (bits &&& float.FRAC_SINGLE)
+  let i ← lift (bits &&& float.bits.EXP_SINGLE)
+  if i = float.bits.EXP_SINGLE
+  then let i1 ← lift (bits &&& float.bits.FRAC_SINGLE)
        ok (i1 != 0#u32)
   else ok false
 
 /-- [baux_semantics::float::single_zero]:
-    Source: 'src/float.rs', lines 55:0-57:1
+    Source: 'src/float.rs', lines 36:0-38:1
     Visibility: public -/
 def float.single_zero (bits : Std.U32) : Result Bool := do
-  let i ← lift (~~~ float.SIGN_SINGLE)
+  let i ← lift (~~~ float.bits.SIGN_SINGLE)
   let i1 ← lift (bits &&& i)
   ok (i1 = 0#u32)
 
 /-- [baux_semantics::float::double_nan]:
-    Source: 'src/float.rs', lines 60:0-62:1
+    Source: 'src/float.rs', lines 41:0-43:1
     Visibility: public -/
 def float.double_nan (bits : Std.U64) : Result Bool := do
-  let i ← lift (bits &&& float.EXP_DOUBLE)
-  if i = float.EXP_DOUBLE
-  then let i1 ← lift (bits &&& float.FRAC_DOUBLE)
+  let i ← lift (bits &&& float.bits.EXP_DOUBLE)
+  if i = float.bits.EXP_DOUBLE
+  then let i1 ← lift (bits &&& float.bits.FRAC_DOUBLE)
        ok (i1 != 0#u64)
   else ok false
 
 /-- [baux_semantics::float::double_zero]:
-    Source: 'src/float.rs', lines 75:0-77:1
+    Source: 'src/float.rs', lines 56:0-58:1
     Visibility: public -/
 def float.double_zero (bits : Std.U64) : Result Bool := do
-  let i ← lift (~~~ float.SIGN_DOUBLE)
+  let i ← lift (~~~ float.bits.SIGN_DOUBLE)
   let i1 ← lift (bits &&& i)
   ok (i1 = 0#u64)
 
 /-- [baux_semantics::float::single_order]:
-    Source: 'src/float.rs', lines 104:0-110:1
+    Source: 'src/float.rs', lines 63:0-69:1
     Visibility: public -/
 def float.single_order (bits : Std.U32) : Result Std.U32 := do
-  let i ← lift (bits &&& float.SIGN_SINGLE)
+  let i ← lift (bits &&& float.bits.SIGN_SINGLE)
   if i = 0#u32
-  then ok (bits ||| float.SIGN_SINGLE)
+  then ok (bits ||| float.bits.SIGN_SINGLE)
   else ok (~~~ bits)
 
 /-- [baux_semantics::float::double_order]:
-    Source: 'src/float.rs', lines 113:0-119:1
+    Source: 'src/float.rs', lines 72:0-78:1
     Visibility: public -/
 def float.double_order (bits : Std.U64) : Result Std.U64 := do
-  let i ← lift (bits &&& float.SIGN_DOUBLE)
+  let i ← lift (bits &&& float.bits.SIGN_DOUBLE)
   if i = 0#u64
-  then ok (bits ||| float.SIGN_DOUBLE)
+  then ok (bits ||| float.bits.SIGN_DOUBLE)
   else ok (~~~ bits)
 
 /-- [baux_semantics::float::single_lt]:
-    Source: 'src/float.rs', lines 124:0-130:1
+    Source: 'src/float.rs', lines 83:0-89:1
     Visibility: public -/
 def float.single_lt (x : Std.U32) (y : Std.U32) : Result Bool := do
   let b ← float.single_nan x
@@ -210,7 +214,7 @@ def float.single_lt (x : Std.U32) (y : Std.U32) : Result Bool := do
         ok (i < i1)
 
 /-- [baux_semantics::float::double_lt]:
-    Source: 'src/float.rs', lines 178:0-184:1
+    Source: 'src/float.rs', lines 137:0-143:1
     Visibility: public -/
 def float.double_lt (x : Std.U64) (y : Std.U64) : Result Bool := do
   let b ← float.double_nan x
@@ -235,90 +239,6 @@ def float.double_lt (x : Std.U64) (y : Std.U64) : Result Bool := do
         let i ← float.double_order x
         let i1 ← float.double_order y
         ok (i < i1)
-
-/-- [baux_semantics::float::to_double]:
-    Source: 'src/float.rs', lines 238:0-283:1
-    Visibility: public -/
-def float.to_double (bits : Std.U32) : Result Std.U64 := do
-  let i ← lift (bits &&& float.SIGN_SINGLE)
-  let i1 ← lift (UScalar.cast .U64 i)
-  let sign ← i1 <<< 32#i32
-  let i2 ← lift (bits &&& float.EXP_SINGLE)
-  let exp ← i2 >>> 23#i32
-  let i3 ← lift (bits &&& float.FRAC_SINGLE)
-  let frac ← lift (UScalar.cast .U64 i3)
-  if exp = 0#u32
-  then
-    if frac = 0#u64
-    then ok sign
-    else
-      let i4 ← lift (frac &&& 8388480#u64)
-      let (f, shift) ←
-        if i4 = 0#u64
-        then
-          do
-          let f1 ← frac <<< 16#i32
-          let shift1 ← 0#u64 + 16#u64
-          ok (f1, shift1)
-        else ok (frac, 0#u64)
-      let i5 ← lift (f &&& 8355840#u64)
-      let (f1, shift1) ←
-        if i5 = 0#u64
-        then
-          do
-          let f2 ← f <<< 8#i32
-          let shift2 ← shift + 8#u64
-          ok (f2, shift2)
-        else ok (f, shift)
-      let i6 ← lift (f1 &&& 7864320#u64)
-      let (f2, shift2) ←
-        if i6 = 0#u64
-        then
-          do
-          let f3 ← f1 <<< 4#i32
-          let shift3 ← shift1 + 4#u64
-          ok (f3, shift3)
-        else ok (f1, shift1)
-      let i7 ← lift (f2 &&& 6291456#u64)
-      let (f3, shift3) ←
-        if i7 = 0#u64
-        then
-          do
-          let f4 ← f2 <<< 2#i32
-          let shift4 ← shift2 + 2#u64
-          ok (f4, shift4)
-        else ok (f2, shift2)
-      let i8 ← lift (f3 &&& 4194304#u64)
-      let (f4, shift4) ←
-        if i8 = 0#u64
-        then
-          do
-          let f5 ← f3 <<< 1#i32
-          let shift5 ← shift3 + 1#u64
-          ok (f5, shift5)
-        else ok (f3, shift3)
-      let i9 ← f4 <<< 1#i32
-      let i10 ← lift (UScalar.cast .U64 float.FRAC_SINGLE)
-      let norm_frac ← lift (i9 &&& i10)
-      let i11 ← 896#u64 - shift4
-      let new_exp ← i11 <<< 52#i32
-      let i12 ← lift (sign ||| new_exp)
-      let i13 ← norm_frac <<< 29#i32
-      ok (i12 ||| i13)
-  else
-    if exp = 255#u32
-    then
-      let i4 ← 2047#u64 <<< 52#i32
-      let i5 ← lift (sign ||| i4)
-      let i6 ← frac <<< 29#i32
-      ok (i5 ||| i6)
-    else
-      let i4 ← lift (UScalar.cast .U64 exp)
-      let i5 ← i4 + 896#u64
-      let new_exp ← i5 <<< 52#i32
-      let i6 ← lift (sign ||| new_exp)
-      let i7 ← frac <<< 29#i32
-      ok (i6 ||| i7)
 
 /-- [baux_semantics::gaussian::mix32]:
     Source: 'src/gaussian.rs', lines 8:0-14:1
@@ -569,25 +489,6 @@ def optimizer.provenance.exact_anchored
   then ok true
   else ok (from_step = to_step)
 
-/-- [baux_semantics::optimizer::reuse::conditioned_slot]:
-    Source: 'src/optimizer/reuse.rs', lines 13:0-15:1
-    Visibility: public -/
-def optimizer.reuse.conditioned_slot
-  (slot : Std.U64) (accepted : Bool) : Result Std.U64 := do
-  if accepted
-  then ok (slot &&& 3#u64)
-  else let i ← lift (slot &&& 3#u64)
-       ok (i ^^^ 1#u64)
-
-/-- [baux_semantics::optimizer::reuse::conditioned_sign]:
-    Source: 'src/optimizer/reuse.rs', lines 20:0-22:1
-    Visibility: public -/
-def optimizer.reuse.conditioned_sign
-  (reversed : Bool) (accepted : Bool) : Result Bool := do
-  if accepted
-  then ok reversed
-  else ok (¬ reversed)
-
 /-- [baux_semantics::optimizer::transaction::commit_round]:
     Source: 'src/optimizer/transaction.rs', lines 33:0-50:1
     Visibility: public -/
@@ -614,25 +515,25 @@ def optimizer.transaction.commit_round
           else ok (some active.incumbent)
 
 /-- [baux_semantics::optimizer::trust_region::controller::SIGN_MASK]
-    Source: 'src/optimizer/trust_region/controller.rs', lines 8:0-8:45 -/
+    Source: 'src/optimizer/trust_region/controller.rs', lines 3:0-3:45 -/
 @[global_simps, irreducible]
 def optimizer.trust_region.controller.SIGN_MASK : Std.U64 :=
   9223372036854775808#u64
 
 /-- [baux_semantics::optimizer::trust_region::controller::EXP_MASK]
-    Source: 'src/optimizer/trust_region/controller.rs', lines 9:0-9:44 -/
+    Source: 'src/optimizer/trust_region/controller.rs', lines 4:0-4:44 -/
 @[global_simps, irreducible]
 def optimizer.trust_region.controller.EXP_MASK : Std.U64 :=
   9218868437227405312#u64
 
 /-- [baux_semantics::optimizer::trust_region::controller::FRAC_MASK]
-    Source: 'src/optimizer/trust_region/controller.rs', lines 10:0-10:45 -/
+    Source: 'src/optimizer/trust_region/controller.rs', lines 5:0-5:45 -/
 @[global_simps, irreducible]
 def optimizer.trust_region.controller.FRAC_MASK : Std.U64 :=
   4503599627370495#u64
 
 /-- [baux_semantics::optimizer::trust_region::controller::nan_bits]:
-    Source: 'src/optimizer/trust_region/controller.rs', lines 33:0-35:1 -/
+    Source: 'src/optimizer/trust_region/controller.rs', lines 26:0-28:1 -/
 def optimizer.trust_region.controller.nan_bits
   (bits : Std.U64) : Result Bool := do
   let i ← lift (bits &&& optimizer.trust_region.controller.EXP_MASK)
@@ -643,7 +544,7 @@ def optimizer.trust_region.controller.nan_bits
   else ok false
 
 /-- [baux_semantics::optimizer::trust_region::controller::zero_bits]:
-    Source: 'src/optimizer/trust_region/controller.rs', lines 37:0-39:1 -/
+    Source: 'src/optimizer/trust_region/controller.rs', lines 30:0-32:1 -/
 def optimizer.trust_region.controller.zero_bits
   (bits : Std.U64) : Result Bool := do
   let i ← lift (~~~ optimizer.trust_region.controller.SIGN_MASK)
@@ -651,7 +552,7 @@ def optimizer.trust_region.controller.zero_bits
   ok (i1 = 0#u64)
 
 /-- [baux_semantics::optimizer::trust_region::controller::order_bits]:
-    Source: 'src/optimizer/trust_region/controller.rs', lines 41:0-47:1 -/
+    Source: 'src/optimizer/trust_region/controller.rs', lines 34:0-40:1 -/
 def optimizer.trust_region.controller.order_bits
   (bits : Std.U64) : Result Std.U64 := do
   let i ← lift (bits &&& optimizer.trust_region.controller.SIGN_MASK)
@@ -660,14 +561,14 @@ def optimizer.trust_region.controller.order_bits
   else ok (~~~ bits)
 
 /-- [baux_semantics::optimizer::trust_region::controller::accept_decision]:
-    Source: 'src/optimizer/trust_region/controller.rs', lines 68:0-70:1
+    Source: 'src/optimizer/trust_region/controller.rs', lines 61:0-63:1
     Visibility: public -/
 def optimizer.trust_region.controller.accept_decision
   (clears_margin : Bool) : Result Bool := do
   ok clears_margin
 
 /-- [baux_semantics::optimizer::trust_region::controller::accept_bits]:
-    Source: 'src/optimizer/trust_region/controller.rs', lines 55:0-63:1
+    Source: 'src/optimizer/trust_region/controller.rs', lines 48:0-56:1
     Visibility: public -/
 def optimizer.trust_region.controller.accept_bits
   (improvement : Std.U64) (margin : Std.U64) : Result Bool := do
@@ -693,77 +594,6 @@ def optimizer.trust_region.controller.accept_bits
         let i ← optimizer.trust_region.controller.order_bits improvement
         let i1 ← optimizer.trust_region.controller.order_bits margin
         optimizer.trust_region.controller.accept_decision (i > i1)
-
-/-- [baux_semantics::optimizer::trust_region::controller::decide_action]:
-    Source: 'src/optimizer/trust_region/controller.rs', lines 80:0-98:1
-    Visibility: public -/
-def optimizer.trust_region.controller.decide_action
-  (model_adequate : Bool) (model_inadequate : Bool) (sharp : Bool)
-  (accepted : Bool) (positive_ratio : Bool) (boundary_step : Bool)
-  (failure : Bool) :
-  Result optimizer.trust_region.controller.RadiusAction
-  := do
-  if model_inadequate
-  then ok optimizer.trust_region.controller.RadiusAction.Shrink
-  else
-    if model_adequate
-    then
-      if sharp
-      then
-        if accepted
-        then
-          if positive_ratio
-          then
-            if boundary_step
-            then ok optimizer.trust_region.controller.RadiusAction.Expand
-            else
-              if failure
-              then
-                if accepted
-                then ok optimizer.trust_region.controller.RadiusAction.Hold
-                else ok optimizer.trust_region.controller.RadiusAction.Shrink
-              else ok optimizer.trust_region.controller.RadiusAction.Hold
-          else
-            if failure
-            then
-              if accepted
-              then ok optimizer.trust_region.controller.RadiusAction.Hold
-              else ok optimizer.trust_region.controller.RadiusAction.Shrink
-            else ok optimizer.trust_region.controller.RadiusAction.Hold
-        else
-          if failure
-          then
-            if accepted
-            then ok optimizer.trust_region.controller.RadiusAction.Hold
-            else ok optimizer.trust_region.controller.RadiusAction.Shrink
-          else ok optimizer.trust_region.controller.RadiusAction.Hold
-      else
-        if failure
-        then
-          if accepted
-          then ok optimizer.trust_region.controller.RadiusAction.Hold
-          else ok optimizer.trust_region.controller.RadiusAction.Shrink
-        else ok optimizer.trust_region.controller.RadiusAction.Hold
-    else
-      if failure
-      then
-        if accepted
-        then ok optimizer.trust_region.controller.RadiusAction.Hold
-        else ok optimizer.trust_region.controller.RadiusAction.Shrink
-      else ok optimizer.trust_region.controller.RadiusAction.Hold
-
-/-- [baux_semantics::optimizer::window_plan::verify_full]:
-    Source: 'src/optimizer/window_plan.rs', lines 51:0-53:1
-    Visibility: public -/
-def optimizer.window_plan.verify_full
-  (planned : Std.U64) (prefilled : Std.U64) (scored : Std.U64) :
-  Result Bool
-  := do
-  if planned > 0#u64
-  then if prefilled = 0#u64
-       then ok (scored = planned)
-       else ok false
-  else ok false
 
 /-- [baux_semantics::random::SOBOL_MOD]
     Source: 'src/random.rs', lines 63:0-63:38

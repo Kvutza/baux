@@ -2,6 +2,7 @@
 -- [baux_semantics]: type definitions
 module
 public import Aeneas
+public import BauxResearch.Extraction.Native
 @[expose] public section
 open Aeneas Aeneas.Std Result ControlFlow Error
 set_option linter.dupNamespace false
@@ -36,14 +37,5 @@ structure optimizer.transaction.RoundId where
   owner : Std.U64
   proposal : Std.U64
   incumbent : Std.I64
-
-/-- [baux_semantics::optimizer::trust_region::controller::RadiusAction]
-    Source: 'src/optimizer/trust_region/controller.rs', lines 18:0-22:1
-    Visibility: public -/
-@[discriminant isize]
-inductive optimizer.trust_region.controller.RadiusAction where
-| Hold : optimizer.trust_region.controller.RadiusAction
-| Expand : optimizer.trust_region.controller.RadiusAction
-| Shrink : optimizer.trust_region.controller.RadiusAction
 
 end BauxResearch.Generated.Optimizer

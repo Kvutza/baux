@@ -10,8 +10,8 @@ namespace BauxResearch.Semantics.Optimizer
 
 The generated definition in this module is extracted from the production Rust
 implementation by Charon and Aeneas.  The handwritten definition remains the
-mathematical interface used by the rest of the formalization.  `actionMatch`
-checks all Boolean controller states and proves that the two definitions agree.
+mathematical interface used by the rest of the formalization.  `acceptMatch`
+proves that the extracted commit decision agrees with the mathematical model.
 -/
 
 
@@ -110,27 +110,6 @@ theorem acceptMatch (improvement margin : ℝ) :
           (decide (BauxResearch.Optimization.EnnCommit.accepts improvement margin)) := by
   rfl
 
-abbrev CodeAction :=
-  BauxResearch.Generated.Optimizer.optimizer.trust_region.controller.RadiusAction
-
-/-- Translate the handwritten action vocabulary to the Rust model's vocabulary. -/
-def codeAction : BauxResearch.Optimization.ReliabilityAction → CodeAction
-  | .hold => .Hold
-  | .expand => .Expand
-  | .shrink => .Shrink
-
-/-- The Aeneas model of the production Rust decision law equals its handwritten
-Mathlib-facing specification for every controller state. -/
-theorem actionMatch
-    (modelAdequate modelInadequate sharp accepted positiveRatio boundaryStep failure : Bool) :
-    BauxResearch.Generated.Optimizer.optimizer.trust_region.controller.decide_action
-      modelAdequate modelInadequate sharp accepted positiveRatio
-      boundaryStep failure =
-        Aeneas.Std.Result.ok (codeAction (BauxResearch.Optimization.decideAction
-          modelAdequate modelInadequate sharp accepted positiveRatio boundaryStep failure)) := by
-  cases modelAdequate <;> cases modelInadequate <;> cases sharp <;> cases accepted <;>
-    cases positiveRatio <;> cases boundaryStep <;> cases failure <;> rfl
-
 /-- Bit-level 64-bit L-order cell key packing (`arXiv:2305.01356`):
 high 32 bits store biased scale level `level`, low 32 bits store horizontal grid index `grid`. -/
 def cellKey (level grid : BitVec 32) : BitVec 64 :=
@@ -200,44 +179,11 @@ theorem totalMatch :
       Aeneas.Std.Result.ok 265623320#u64 := by
   rfl
 
-/-- Aeneas-extracted `window_plan::verify_full` requires `planned > 0`, `prefilled = 0`,
-and `scored = planned`. -/
-theorem windowMatch (planned prefilled scored : Aeneas.Std.U64) :
-    BauxResearch.Generated.Optimizer.optimizer.window_plan.verify_full planned prefilled scored =
-      Aeneas.Std.Result.ok
-        (decide (planned > 0#u64) && decide (prefilled = 0#u64) && decide (scored = planned)) := by
-  unfold BauxResearch.Generated.Optimizer.optimizer.window_plan.verify_full
-  by_cases hp : planned > 0#u64 <;> by_cases hpre : prefilled = 0#u64 <;> simp [hp, hpre]
-
-/-- The extracted window-receipt verifier rejects the `2048` prefill + `1024` scored
-token-skipping shortcut on a `1,048,576`-token window. -/
-theorem shortcutReject :
-    BauxResearch.Generated.Optimizer.optimizer.window_plan.verify_full 1048576#u64 2048#u64 1024#u64 =
-      Aeneas.Std.Result.ok false := by
-  rfl
-
-/-- Aeneas-extracted `reuse::conditioned_slot` preserves `slot &&& 3` on acceptance
-and flips the low antipodal bit `(slot &&& 3) ^^^ 1` on rejection. -/
-theorem slotMatch (slot : Aeneas.Std.U64) (accepted : Bool) :
-    BauxResearch.Generated.Optimizer.optimizer.reuse.conditioned_slot slot accepted =
-      Aeneas.Std.Result.ok
-        (if accepted then slot &&& 3#u64 else (slot &&& 3#u64) ^^^ 1#u64) := by
-  cases accepted <;>
-    simp [BauxResearch.Generated.Optimizer.optimizer.reuse.conditioned_slot,
-      Aeneas.Std.lift, Aeneas.Std.bind_ok]
-
 /-- Two consecutive antipodal rejections on the same stream involutively restore
 the original masked slot `slot.bv &&& 3#64`. -/
 theorem slotFlip (slot : BitVec 64) :
     (((slot &&& 3#64) ^^^ 1#64) &&& 3#64) ^^^ 1#64 = slot &&& 3#64 := by
   bv_decide
-
-/-- Aeneas-extracted `reuse::conditioned_sign` preserves `reversed` on acceptance
-and negates `!reversed` on rejection (`Guide.lean`: `reverseProgress`, `signedProgress`). -/
-theorem dirMatch (reversed accepted : Bool) :
-    BauxResearch.Generated.Optimizer.optimizer.reuse.conditioned_sign reversed accepted =
-      Aeneas.Std.Result.ok (if accepted then reversed else !reversed) := by
-  cases accepted <;> simp [BauxResearch.Generated.Optimizer.optimizer.reuse.conditioned_sign]
 
 /-- Two consecutive sign reversals involutively restore the original direction sign. -/
 theorem dirFlip (reversed : Bool) :

@@ -2,12 +2,13 @@ open Hardcaml
 module N = Flow_numeric
 module C = Flow_core
 
-type mode = Float | Integer | Rtl
+type mode = Float | Integer | Rtl | Verilator
 
 let mode = function
   | "float" -> Float
   | "integer" -> Integer
   | "rtl" -> Rtl
+  | "verilator" -> Verilator
   | _ -> invalid_arg "unknown flow backend"
 
 type stats = {
@@ -43,7 +44,10 @@ let create ?(period = 1) mode design =
   C.validate design;
   if period < 1 || period > 1000 then invalid_arg "invalid memory ready period";
   let sim =
-    if mode = Rtl then Some (Cyclesim.create (C.create design)) else None
+    match mode with
+    | Rtl -> Some (Cyclesim.create (C.create design))
+    | Verilator -> Some (Hardcaml_verilator.create (C.create design))
+    | Float | Integer -> None
   in
   reset_sim sim;
   {
@@ -85,7 +89,8 @@ let json t =
           (match t.mode with
           | Float -> "float"
           | Integer -> "integer"
-          | Rtl -> "rtl") );
+          | Rtl -> "rtl"
+          | Verilator -> "verilator") );
       ("cycles", `Int s.cycles);
       ("operand_words", `Int s.operands);
       ("scalar_operations", `Int s.operations);

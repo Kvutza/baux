@@ -10,7 +10,7 @@ build="$root/.cache/baux/ocaml-build"
 export BAUX_SLEEF_PREFIX="$root/.cache/baux/sleef-3.9.0/install"
 case "${1:-test}" in
     deps)
-        exec python3 "$root/ocaml/prepare_sleef.py" "$root/.cache/baux/sleef-3.9.0"
+        exec "$root/ocaml/prepare_sleef.sh" "$root/.cache/baux/sleef-3.9.0"
         ;;
     build)
         exec opam exec --switch="$switch" -- dune build --profile release --root "$root/ocaml" --build-dir "$build" @all
@@ -22,7 +22,7 @@ case "${1:-test}" in
         exec opam exec --switch="$switch" -- dune exec --profile release --root "$root/ocaml" --build-dir "$build" tests/test_flow.exe
         ;;
     test)
-        python3 "$root/ocaml/prepare_sleef.py" "$root/.cache/baux/sleef-3.9.0"
+        "$root/ocaml/prepare_sleef.sh" "$root/.cache/baux/sleef-3.9.0"
         exec opam exec --switch="$switch" -- dune runtest --profile release --root "$root/ocaml" --build-dir "$build"
         ;;
     fmt)

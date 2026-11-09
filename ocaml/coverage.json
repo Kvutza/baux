@@ -372,7 +372,7 @@
     "Colville uses SFU first term 100*(x1^2-x2)^2; the pinned SciPy source instead uses 100*(x1-x2^2)^2.",
     "Schwefel uses SFU constant 418.9829; the pinned SciPy source uses 418.982887.",
     "Powell supports dimensions divisible by four, summing independent four-coordinate blocks.",
-    "Reference fixture generation records adaptations in tests/generate_reference.py; tests run offline against frozen values."
+    "Reference fixture generation records adaptations in admin/fixtures/gen_ocamlref.py; tests run offline against frozen values."
   ],
   "extended_collections": [
     {

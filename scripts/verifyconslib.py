@@ -1,54 +1,97 @@
 """End-to-end consumer verification script for BAUX library.
 
-Exercises real FP4/FP8 quantized PackedSearch, BPANN indexing, and high-level
-TuRBO optimization to guarantee runtime library functionality beyond unit tests.
+Exercises stateful ask/tell, functional state transitions (init, step, scan),
+PyTree parameter bounds, composable transform pipelines, and the ENN surrogate.
 """
+
+from __future__ import annotations
 
 import sys
 
 import numpy as np
 
 try:
-    from baux.baux_rust import optimizer
-    from baux.experimental import quantize_e2m1
+    import baux
 
-    print("[✓] Successfully imported native BAUX components and quantization helpers.")
-except ImportError as e:
-    print(f"[X] Import failed: {e}")
+    print(f"[✓] Successfully imported baux from {baux.__file__}")
+except ImportError as exc:
+    print(f"[X] Import failed: {exc}")
     sys.exit(1)
 
 
-def test_main():
-    print("\n--- Running End-to-End FP4/FP8 Quantized PackedSearch ---")
-    raw_data = np.random.randn(512).astype(np.float32)
-
-    # 1. Quantize data using quantization module
-    packed_bytes = quantize_e2m1(raw_data, scale=0.5)
-    print(f"Quantized 512 floats into {len(packed_bytes)} packed bytes.")
-
-    # 2. Build PackedLeaf schema tuples: (offset, length, bits, scale, weight, radius)
-    leaf = (0, 512, 4, 0.5, 1.0, 0.75)
-
-    # 3. Instantiate native PackedSearch engine (CPU & GPU backend)
-    for backend in ["cpu", "metal"]:
-        search = optimizer.PackedSearch(packed_bytes, 0.25, [leaf], 4, backend)
-
-        trial_index, trial_seed, trial_score = search.ask(
-            np.array([19, 23, 29, 31], dtype=np.uint64), 0.65, 1
-        )
-        print(
-            f"  [{backend}] Winning trial index: {trial_index}, seed: {trial_seed}, score: {trial_score:.4f}"
-        )
-
-        row_bytes = search.row()
-        assert len(row_bytes) == len(packed_bytes), "Materialized row length mismatch"
-        search.tell(0.85, True)
-
-    print("[✓] FP4/FP8 Quantized PackedSearch verified across backends.")
+def check_asktell() -> None:
+    """Verify stateful Ask/Tell loop."""
+    print("\n--- 1. Testing Stateful Ask / Tell Loop ---")
+    bounds = np.array([[-5.0, 5.0]] * 8)
+    opt = baux.create_optimizer(
+        bounds=bounds,
+        config=baux.turbo_enn(num_init=4),
+        rng=np.random.default_rng(0),
+    )
+    for _ in range(5):
+        x = opt.ask(2)
+        y = -np.sum(x**2, axis=1)
+        opt.tell(x, y)
+    print("[✓] Completed ask/tell loop over 5 cycles.")
 
 
-if __name__ == "__main__":
-    test_main()
+def check_pytree() -> None:
+    """Verify functional pipeline and PyTree scan."""
+    print("\n--- 2. Testing Functional Pipeline & PyTree Scan ---")
+    spec = baux.pytree_bounds({"w": (4, 4), "b": (4,)}, low=-2.0, high=2.0)
+    cfg = (
+        baux.lhd(4)
+        | baux.raasp(8, num_candidates=32)
+        | baux.enn(k=3, num_samples=16)
+        | baux.ucb(beta=1.5)
+        | baux.tr_bounds(length_init=0.8, length_min=0.05, length_max=1.6)
+        | baux.regions(2, sharing="ellipsoid_ball", allocation="least_trials")
+    )
+    state = baux.init(spec, cfg, seed=0)
+
+    def objective(tree: dict[str, np.ndarray]) -> np.ndarray:
+        return -np.sum(tree["w"] ** 2, axis=(-2, -1)) - np.sum(tree["b"] ** 2, axis=-1)
+
+    final_state, hist = baux.scan(
+        state,
+        objective,
+        steps=5,
+        num_arms=2,
+        use_pytree=True,
+    )
+    assert len(hist) == 5, f"Expected 5 history steps, got {len(hist)}"
+    assert final_state.step_count == 5
+    print(
+        f"[✓] Successfully executed pure functional scan over PyTrees (steps={final_state.step_count})."
+    )
+
+
+def check_enn() -> None:
+    """Verify standalone ENN surrogate lifecycle."""
+    print("\n--- 3. Testing Standalone ENN Surrogate ---")
+    x = np.random.default_rng(42).uniform(-2.0, 2.0, size=(16, 4))
+    y = -np.sum(x**2, axis=1)
+
+    st = baux.enn.init(x, y, scale_x=True)
+    params = baux.enn.fit(st, k=3, num_samples=16, seed=42)
+    post = baux.enn.posterior(st, x[:4], params)
+    assert post.mu.shape[0] == 4, f"Expected 4 predictions, got {post.mu.shape}"
+    draws, idx = baux.enn.sample(st, x[:4], params, seeds=[0, 1, 2])
+    assert draws.shape == (4, 1, 3), f"Expected shape (4, 1, 3), got {draws.shape}"
+    print(
+        f"[✓] ENN surrogate fit, posterior (mean range: [{post.mu.min():.3f}, {post.mu.max():.3f}]), and sample verified."
+    )
+
+
+def main() -> None:
+    """Execute all consumer integration checks."""
+    check_asktell()
+    check_pytree()
+    check_enn()
     print(
         "\n[SUMMARY] ALL END-TO-END CONSUMER LIBRARY INTEGRATION CHECKS PASSED SUCCESSFULLY!"
     )
+
+
+if __name__ == "__main__":
+    main()

@@ -161,6 +161,11 @@ def assemble_bundle(dest_dir: Path) -> None:
     public_explorer = transform_explorer(raw_explorer)
     (dest_assets / "explorer_engine.js").write_text(public_explorer, encoding="utf-8")
 
+    # Copy docs.html if present
+    docs_html = DOCS_SITE / "docs.html"
+    if docs_html.exists():
+        shutil.copy2(docs_html, dest_dir / "docs.html")
+
     # Preserve logos if present in dest or source
     for logo in ["logo-light.svg", "logo-dark.svg"]:
         src_logo = DOCS_SITE / "assets" / logo

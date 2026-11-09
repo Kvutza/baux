@@ -12,3 +12,7 @@
     &copy; Michal Rovner.
   </sub>
 </p>
+
+<p align="center">
+  <a href="https://kvutza.github.io/baux/"><strong>Documentation &rarr;</strong></a>
+</p>

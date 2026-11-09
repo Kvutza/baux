@@ -114,6 +114,7 @@ def check_sensitive(target_dir: Path) -> None:
 def check_assets(target_dir: Path) -> None:
     required_files = [
         "index.html",
+        "docs.html",
         ".nojekyll",
         "assets/site_style.css",
         "assets/site_data.js",

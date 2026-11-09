@@ -1,4 +1,4 @@
-#![allow(incomplete_features, internal_features)]
+#![allow(incomplete_features, internal_features, unsafe_op_in_unsafe_fn)]
 #![feature(
     f16,
     adt_const_params,
@@ -57,6 +57,7 @@ pub mod muon;
 mod pisa_refine;
 mod pisa_score;
 mod pisa_select;
+mod trial_knn;
 pub use diffusion::diffusion_model;
 pub use fbt::{
     FbtShape, FeedbackShape, GaussianShape, MatmulShape, Mhc4EncodeShape, Mhc4Point, MoeShape,
@@ -98,6 +99,111 @@ pub mod trials {
     #[launch_contract(domain = 1, block = (256, 1, 1), dynamic_shared = 0)]
     pub fn merge_topk(input_distances: &[f32], input_indices: &[u32], mut output_distances: DisjointSlice<f32>, mut output_indices: DisjointSlice<u32>, params: MergeParams) {
         knn::run_mergetopk(input_distances, input_indices, &mut output_distances, &mut output_indices, params);
+    }
+
+    #[kernel(unchecked_indexing)]
+    #[launch_contract(domain = 1, block = (256, 1, 1), dynamic_shared = 0)]
+    pub fn posterior_light(
+        distances: &[f32],
+        indices: &[u32],
+        outcomes: &[f32],
+        scales: &[f32],
+        mut means: DisjointSlice<f32>,
+        mut errors: DisjointSlice<f32>,
+        mut selected: DisjointSlice<u32>,
+        params: PosteriorParams,
+    ) {
+        trial_knn::run_postlight(
+            distances,
+            indices,
+            outcomes,
+            scales,
+            &mut means,
+            &mut errors,
+            &mut selected,
+            params,
+        );
+    }
+
+    #[kernel(unchecked_indexing)]
+    #[launch_contract(domain = 1, block = (256, 1, 1), dynamic_shared = 0)]
+    pub fn posterior_full(
+        distances: &[f32],
+        indices: &[u32],
+        outcomes: &[f32],
+        variances: &[f32],
+        scales: &[f32],
+        mut weights_out: DisjointSlice<f32>,
+        mut l2_out: DisjointSlice<f32>,
+        mut means: DisjointSlice<f32>,
+        mut errors: DisjointSlice<f32>,
+        mut epistemic: DisjointSlice<f32>,
+        mut aleatoric: DisjointSlice<f32>,
+        mut selected: DisjointSlice<u32>,
+        params: WeightedParams,
+    ) {
+        trial_knn::run_postfull(
+            distances,
+            indices,
+            outcomes,
+            variances,
+            scales,
+            &mut weights_out,
+            &mut l2_out,
+            &mut means,
+            &mut errors,
+            &mut epistemic,
+            &mut aleatoric,
+            &mut selected,
+            params,
+        );
+    }
+
+    #[kernel(unchecked_indexing)]
+    #[launch_contract(domain = 1, block = (256, 1, 1), dynamic_shared = 0)]
+    pub fn posterior_batch(
+        distances: &[f32],
+        indices: &[u32],
+        outcomes: &[f32],
+        variances: &[f32],
+        scales: &[f32],
+        values: &[BatchValue],
+        mut means: DisjointSlice<f32>,
+        mut errors: DisjointSlice<f32>,
+        mut epistemic: DisjointSlice<f32>,
+        mut aleatoric: DisjointSlice<f32>,
+        params: BatchParams,
+    ) {
+        trial_knn::run_postbatch(
+            distances,
+            indices,
+            outcomes,
+            variances,
+            scales,
+            values,
+            &mut means,
+            &mut errors,
+            &mut epistemic,
+            &mut aleatoric,
+            params,
+        );
+    }
+
+    #[kernel(unchecked_indexing)]
+    #[launch_contract(domain = 1, block = (256, 1, 1), dynamic_shared = 0)]
+    pub fn posterior_draw(
+        weights: &[f32],
+        l2: &[f32],
+        means: &[f32],
+        errors: &[f32],
+        indices: &[u32],
+        seeds: &[u64],
+        mut draws: DisjointSlice<f64>,
+        params: DrawParams,
+    ) {
+        trial_knn::run_postdraw(
+            weights, l2, means, errors, indices, seeds, &mut draws, params,
+        );
     }
 }
 }

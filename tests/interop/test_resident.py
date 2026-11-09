@@ -262,6 +262,13 @@ def test_tokagym():
     doi:10.1038/s41467-025-63917-3; Zenodo doi:10.5281/zenodo.16621120.
     """
     import json
+    from pathlib import Path
+
+    upstream = (
+        Path(__file__).resolve().parents[2] / ".cache/baux/upstream/tokagym/TokaGym"
+    )
+    if not upstream.is_dir():
+        pytest.skip(f"upstream directory missing: {upstream}")
 
     from baux import verify_upstream_lock
 

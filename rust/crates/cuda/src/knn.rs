@@ -1,10 +1,19 @@
+use std::mem::size_of;
 use std::sync::{Arc, OnceLock};
 
 pub mod cuvs;
 mod cuvs_api;
 mod cuvs_ffi;
 mod dlpack;
+mod knn_post;
+mod resident;
 pub use cuvs::{CUVS_MAX_K, CudaKnnMode};
+use knn_post::PosteriorScratch;
+pub use knn_post::{
+    BatchOutput, BatchSpec, DrawOutput, PosteriorOutput, PosteriorSpec, WeightedOutput,
+    WeightedSpec,
+};
+pub use resident::{DeviceDraw, DevicePosterior};
 
 use super::capture::{
     CudaResult, Runtime, copy_prefix, cuda_error, read_prefix, timing_event, to_u32,
@@ -27,11 +36,11 @@ struct ScanMeta {
 }
 
 #[derive(Clone, Copy, Debug)]
-struct ScanProblem {
-    rows: usize,
-    dims: usize,
-    queries: usize,
-    neighbors: usize,
+pub(super) struct ScanProblem {
+    pub(super) rows: usize,
+    pub(super) dims: usize,
+    pub(super) queries: usize,
+    pub(super) neighbors: usize,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -127,24 +136,24 @@ pub struct KnnProfile {
     pub kind: &'static str,
 }
 
-struct SearchStage {
-    plan_name: &'static str,
-    input_a: bool,
-    queries: usize,
-    neighbors: usize,
-    start: CudaEvent,
-    scan_end: CudaEvent,
-    merge_end: CudaEvent,
+pub(super) struct SearchStage {
+    pub(super) plan_name: &'static str,
+    pub(super) input_a: bool,
+    pub(super) queries: usize,
+    pub(super) neighbors: usize,
+    pub(super) start: CudaEvent,
+    pub(super) scan_end: CudaEvent,
+    pub(super) merge_end: CudaEvent,
 }
 
-struct KnnScratch {
-    query_capacity: usize,
-    partial_capacity: usize,
-    queries: DeviceBuffer<f32>,
-    distances_a: DeviceBuffer<f32>,
-    distances_b: DeviceBuffer<f32>,
-    indices_a: DeviceBuffer<u32>,
-    indices_b: DeviceBuffer<u32>,
+pub(super) struct KnnScratch {
+    pub(super) query_capacity: usize,
+    pub(super) partial_capacity: usize,
+    pub(super) queries: DeviceBuffer<f32>,
+    pub(super) distances_a: DeviceBuffer<f32>,
+    pub(super) distances_b: DeviceBuffer<f32>,
+    pub(super) indices_a: DeviceBuffer<u32>,
+    pub(super) indices_b: DeviceBuffer<u32>,
 }
 
 impl KnnScratch {
@@ -181,15 +190,16 @@ impl KnnScratch {
 }
 
 pub struct CudaIndex {
-    runtime: Arc<Runtime>,
-    rows: DeviceBuffer<f32>,
-    row_capacity: usize,
-    row_count: usize,
-    dims: usize,
-    mode: CudaKnnMode,
-    cuvs: Option<cuvs::CuvsState>,
-    scratch: KnnScratch,
-    profile: Option<KnnProfile>,
+    pub(super) runtime: Arc<Runtime>,
+    pub(super) rows: DeviceBuffer<f32>,
+    pub(super) row_capacity: usize,
+    pub(super) row_count: usize,
+    pub(super) dims: usize,
+    pub(super) mode: CudaKnnMode,
+    pub(super) cuvs: Option<cuvs::CuvsState>,
+    pub(super) scratch: KnnScratch,
+    pub(super) posterior: PosteriorScratch,
+    pub(super) profile: Option<KnnProfile>,
 }
 
 impl CudaIndex {
@@ -216,6 +226,7 @@ impl CudaIndex {
             None
         };
         let scratch = KnnScratch::new(&runtime.stream)?;
+        let posterior = PosteriorScratch::new(&runtime.stream)?;
         let row_capacity = next_capacity(rows.len())?;
         let row_buffer = DeviceBuffer::zeroed(&runtime.stream, row_capacity).map_err(cuda_error)?;
         copy_prefix(&row_buffer, rows, &runtime.stream)?;
@@ -229,6 +240,7 @@ impl CudaIndex {
             mode,
             cuvs,
             scratch,
+            posterior,
             profile: None,
         })
     }
@@ -319,7 +331,7 @@ impl CudaIndex {
         Ok(output)
     }
 
-    fn stage_search(
+    pub(super) fn stage_search(
         &mut self,
         queries: &[f32],
         query_count: usize,
@@ -329,7 +341,7 @@ impl CudaIndex {
         self.stage_input(problem, Some(queries), 0)
     }
 
-    fn stage_input(
+    pub(super) fn stage_input(
         &mut self,
         problem: ScanProblem,
         host: Option<&[f32]>,
@@ -490,7 +502,7 @@ impl CudaIndex {
         }
     }
 
-    fn set_profile(&mut self, stage: &SearchStage, end: &CudaEvent) -> CudaResult<()> {
+    pub(super) fn set_profile(&mut self, stage: &SearchStage, end: &CudaEvent) -> CudaResult<()> {
         self.profile = Some(KnnProfile {
             rows: self.row_count,
             queries: stage.queries,
@@ -687,7 +699,7 @@ fn copy_at<T: DeviceCopy>(
     }
 }
 
-fn next_capacity(value: usize) -> CudaResult<usize> {
+pub(super) fn next_capacity(value: usize) -> CudaResult<usize> {
     value
         .max(1)
         .checked_next_power_of_two()

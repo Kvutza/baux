@@ -21,11 +21,21 @@ pub use crate::quantization::{FP4_LUT, quantize_e2m1, quantize_int4};
 pub use crate::resident::{
     MetalMemoryInfo, MetalMemoryInfo as DeviceMemoryInfo, ParamBlock,
     ParamBlock as MetalParamBlock, Portfolio, ProposalProfile, ProposalProfile as MetalProfileInfo,
-    Proposals, Proposals as MetalProposals, Region, RegionTrial, RegionalEvidence,
-    RegionalProposal, RegionalSearch, RegionalTrial, SearchState, SearchState as MetalSearchState,
-    Span, Trial, Var, memory_info, memory_info as metal_memory_info, regional_trial, upload,
-    upload as metal_upload,
+    ProposalProfile as ProfileInfo, Proposals, Proposals as MetalProposals, Region, RegionTrial,
+    RegionalEvidence, RegionalProposal, RegionalSearch, RegionalTrial, SearchState,
+    SearchState as MetalSearchState, Span, Trial, Var, memory_info,
+    memory_info as metal_memory_info, regional_trial, upload, upload as metal_upload,
 };
+#[cfg(not(all(target_os = "macos", feature = "metal")))]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct ProfileInfo {
+    pub score_ms: f32,
+    pub pick_ms: f32,
+    pub materialize_ms: f32,
+    pub total_ms: f32,
+}
+#[cfg(not(all(target_os = "macos", feature = "metal")))]
+pub type ProposalProfile = ProfileInfo;
 pub use crate::response_observation::{
     ProposalMeasure, RESPONSE_SCHEMA, ResponseObservation, ResponseReference, TokenAccounting,
 };

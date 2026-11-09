@@ -1,7 +1,7 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/Kvutza/baux/99a2659696dc50bbea459f86ee5c8ef59af95a8c/assets/logo-dark.svg">
-    <img src="https://raw.githubusercontent.com/Kvutza/baux/99a2659696dc50bbea459f86ee5c8ef59af95a8c/assets/logo-light.svg" width="100%" alt="baux">
+    <source media="(prefers-color-scheme: dark)" srcset="assets/inspiration-dark.svg">
+    <img src="assets/inspiration-light.svg" width="100%" alt="baux inspiration">
   </picture>
   <br>
   <sub>

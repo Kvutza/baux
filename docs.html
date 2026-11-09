@@ -197,7 +197,7 @@
       <h3>Python API Reference</h3>
       <a href="#optimizer">baux.create_optimizer</a>
       <a href="#turbo">Trust-Region (TuRBO)</a>
-      <a href="#enn">Epistemic Neural Networks</a>
+      <a href="#enn">Epistemic Nearest Neighbors</a>
       <a href="#botorch">BoTorch &amp; Ax Interop</a>
       <a href="#optuna">Optuna Interop</a>
 
@@ -226,7 +226,7 @@
       </p>
       <ul>
         <li><strong>Resident GPU Execution:</strong> State transitions, trust-region scaling, and neighbor search stay entirely inside accelerator memory with zero host-to-device synchronization per evaluation round.</li>
-        <li><strong>Dual-Surrogate Architecture:</strong> Combines local Gaussian Processes with global Epistemic Neural Networks (ENN) to capture both sharp local gradients and multimodal uncertainty.</li>
+        <li><strong>Dual-Surrogate Architecture:</strong> Combines local Gaussian Processes with global Epistemic Nearest Neighbors (ENN) to capture both sharp local gradients and multimodal uncertainty across complex non-stationary domains.</li>
         <li><strong>Formally Checked Foundations:</strong> 189 formal Lean 4 modules prove compiler correspondence, IEEE-754 bit-exact reproducibility, and zero-sorry type signatures.</li>
       </ul>
 
@@ -333,19 +333,28 @@ cfg = OptimizerConfig(
     failure_tolerance=5,
 )</code></pre>
 
-      <h3 id="enn">Epistemic Neural Networks (ENN)</h3>
+      <h3 id="enn">Epistemic Nearest Neighbors (ENN)</h3>
       <p>
-        ENN surrogates decompose predictive variance into epistemic (model ignorance) and aleatoric (noise) components
-        using randomized prior networks and ensemble heads:
+        ENN surrogates decompose predictive variance into epistemic (model ignorance / spatial sparsity) and aleatoric (observation noise) components
+        through distance-weighted metric neighborhoods and GPU-accelerated spatial indexes:
       </p>
-      <pre><code>from baux.enn import ENN, ENNFitter
+      <pre><code>from baux.enn import ENN, ENNParams
+from baux.index import NeighborIndex
+import numpy as np
 
-enn = ENN(input_dim=10, hidden_dim=64, num_heads=16)
-fitter = ENNFitter(learning_rate=1e-3, epochs=20)
-fitter.fit(enn, train_x, train_y)
+# Construct the Epistemic Nearest Neighbors surrogate over observed points
+model = ENN(train_x, train_y, index_driver=NeighborIndex.FLAT)
 
-# Sample posterior draw
-draw = enn.posterior_draw(test_x)</code></pre>
+# Evaluate posterior distribution with calibrated k-nearest neighbors
+params = ENNParams(k_neighbors=8, epistemic_scale=1.0, aleatoric_scale=0.1)
+post = model.posterior(query_x, params=params)
+
+print("Posterior mean:", post.mu)
+print("Epistemic standard error:", post.se_epi)
+print("Aleatoric standard error:", post.se_ale)
+
+# Draw non-parametric posterior sample trajectories
+draws, indices = model.posterior_draw(query_x, params=params, function_seeds=[42])</code></pre>
 
       <h3 id="botorch">BoTorch &amp; Ax Platform Interop</h3>
       <p>Drop-in replacement for standard Gaussian Process models in existing BoTorch/Ax pipelines:</p>

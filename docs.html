@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BAUX // Software Documentation &amp; Developer Guide</title>
+  <link rel="stylesheet" href="assets/site_style.css" />
+  <style>
+    .docs-container {
+      display: grid;
+      grid-template-columns: 260px 1fr;
+      min-height: calc(100vh - 54px);
+      max-width: 1400px;
+      margin: 0 auto;
+    }
+    .docs-sidebar {
+      border-right: 1px solid var(--hairline);
+      background: var(--bg-surface);
+      padding: 24px 16px;
+      position: sticky;
+      top: 54px;
+      height: calc(100vh - 54px);
+      overflow-y: auto;
+    }
+    .docs-sidebar h3 {
+      font-size: 11px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--fg-muted);
+      margin: 18px 0 8px;
+      padding-left: 8px;
+    }
+    .docs-sidebar h3:first-child {
+      margin-top: 0;
+    }
+    .docs-sidebar a {
+      display: block;
+      padding: 6px 10px;
+      color: var(--fg-secondary);
+      text-decoration: none;
+      font-size: 13px;
+      border-radius: 4px;
+      line-height: 1.4;
+      margin-bottom: 2px;
+      transition: background 0.15s, color 0.15s;
+    }
+    .docs-sidebar a:hover {
+      background: var(--bg-hover);
+      color: var(--fg-primary);
+    }
+    .docs-sidebar a.active {
+      background: var(--bg-active);
+      color: var(--klein);
+      font-weight: 600;
+    }
+    .docs-content {
+      padding: 36px 48px 96px;
+      max-width: 920px;
+    }
+    .docs-content h1 {
+      font-size: 32px;
+      font-weight: 700;
+      color: var(--fg-primary);
+      margin-top: 0;
+      margin-bottom: 8px;
+      letter-spacing: -0.02em;
+    }
+    .docs-lead {
+      font-size: 16px;
+      line-height: 1.6;
+      color: var(--fg-secondary);
+      margin-bottom: 32px;
+      border-bottom: 1px solid var(--hairline);
+      padding-bottom: 24px;
+    }
+    .docs-content h2 {
+      font-size: 22px;
+      font-weight: 600;
+      color: var(--fg-primary);
+      margin-top: 48px;
+      margin-bottom: 16px;
+      padding-bottom: 6px;
+      border-bottom: 1px solid var(--hairline);
+    }
+    .docs-content h3 {
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--fg-primary);
+      margin-top: 28px;
+      margin-bottom: 10px;
+    }
+    .docs-content p, .docs-content li {
+      font-size: 14px;
+      line-height: 1.7;
+      color: var(--fg-secondary);
+    }
+    .docs-content ul, .docs-content ol {
+      padding-left: 20px;
+      margin-bottom: 16px;
+    }
+    .docs-content li {
+      margin-bottom: 6px;
+    }
+    .docs-content pre {
+      background: var(--bg-code);
+      border: 1px solid var(--hairline);
+      border-radius: 6px;
+      padding: 16px 20px;
+      overflow-x: auto;
+      font-family: var(--font-mono, monospace);
+      font-size: 13px;
+      line-height: 1.55;
+      margin: 16px 0 24px;
+      color: var(--fg-primary);
+    }
+    .docs-content code {
+      font-family: var(--font-mono, monospace);
+      font-size: 12.5px;
+      background: var(--bg-hover);
+      padding: 2px 5px;
+      border-radius: 3px;
+      color: var(--fg-primary);
+    }
+    .docs-content pre code {
+      background: none;
+      padding: 0;
+    }
+    .docs-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 20px 0 28px;
+      font-size: 13px;
+    }
+    .docs-table th {
+      text-align: left;
+      padding: 10px 14px;
+      border-bottom: 2px solid var(--hairline-strong);
+      color: var(--fg-primary);
+      font-weight: 600;
+    }
+    .docs-table td {
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--hairline);
+      color: var(--fg-secondary);
+    }
+    .badge {
+      display: inline-block;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 2px 7px;
+      border-radius: 3px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .badge-metal { background: var(--emerald-soft); color: var(--emerald); border: 1px solid var(--emerald); }
+    .badge-cuda { background: var(--ochre-soft); color: var(--ochre); border: 1px solid var(--ochre); }
+    .badge-cpu { background: var(--klein-soft); color: var(--klein); border: 1px solid var(--klein); }
+    @media (max-width: 860px) {
+      .docs-container { grid-template-columns: 1fr; }
+      .docs-sidebar { display: none; }
+      .docs-content { padding: 24px 20px 64px; }
+    }
+  </style>
+</head>
+<body>
+  <header class="top-masthead" id="masthead">
+    <div class="masthead-brand">
+      <span class="brand-name">baux</span>
+      <span class="brand-sep">/</span>
+      <span class="brand-sub">software documentation &amp; developer guide</span>
+    </div>
+
+    <nav class="primary-nav" id="primary-nav-tabs" aria-label="Primary Navigation">
+      <a href="docs.html" class="nav-tab active">Docs</a>
+      <a href="index.html#inspector" class="nav-tab">Functions <span class="tab-count">835</span></a>
+      <a href="index.html#dag" class="nav-tab">Module Graph <span class="tab-count">189</span></a>
+    </nav>
+
+    <div class="masthead-meta">
+      <button type="button" class="meta-btn" id="theme-toggle-btn" title="Toggle Light / Dark theme">
+        <span id="theme-toggle-label">Dark</span>
+      </button>
+      <a href="https://github.com/Kvutza/baux" class="meta-btn" target="_blank" rel="noopener" style="text-decoration:none;">
+        <span>GitHub &nearr;</span>
+      </a>
+    </div>
+  </header>
+
+  <div class="docs-container">
+    <aside class="docs-sidebar">
+      <h3>Getting Started</h3>
+      <a href="#overview" class="active">Overview &amp; Philosophy</a>
+      <a href="#installation">Installation</a>
+      <a href="#hardware">Hardware Acceleration</a>
+      <a href="#quickstart">Python Quickstart</a>
+
+      <h3>Python API Reference</h3>
+      <a href="#optimizer">baux.create_optimizer</a>
+      <a href="#turbo">Trust-Region (TuRBO)</a>
+      <a href="#enn">Epistemic Neural Networks</a>
+      <a href="#botorch">BoTorch &amp; Ax Interop</a>
+      <a href="#optuna">Optuna Interop</a>
+
+      <h3>Rust Crate API</h3>
+      <a href="#rust-baux">baux Crate Overview</a>
+      <a href="#rust-acquisition">baux::acquisition</a>
+      <a href="#rust-semantics">baux::semantics</a>
+      <a href="#rust-resident">Resident GPU Runners</a>
+
+      <h3>Verification</h3>
+      <a href="#formal">Lean 4 &amp; BLAKE3 Audit</a>
+    </aside>
+
+    <main class="docs-content">
+      <h1 id="overview">BAUX Software Documentation</h1>
+      <p class="docs-lead">
+        High-performance black-box Bayesian optimization powered by resident GPU state,
+        Epistemic Nearest Neighbors (ENN), and mathematically checked Lean 4 transition laws.
+      </p>
+
+      <h2>1. Overview &amp; Philosophy</h2>
+      <p>
+        <strong>BAUX</strong> is a modern, production-grade Bayesian optimization framework designed
+        for high-throughput simulation loops, complex scientific engineering (including fusion plasma control in
+        TokaGym and 1D transport PDEs in Torax), and non-stationary black-box search spaces.
+      </p>
+      <ul>
+        <li><strong>Resident GPU Execution:</strong> State transitions, trust-region scaling, and neighbor search stay entirely inside accelerator memory with zero host-to-device synchronization per evaluation round.</li>
+        <li><strong>Dual-Surrogate Architecture:</strong> Combines local Gaussian Processes with global Epistemic Neural Networks (ENN) to capture both sharp local gradients and multimodal uncertainty.</li>
+        <li><strong>Formally Checked Foundations:</strong> 189 formal Lean 4 modules prove compiler correspondence, IEEE-754 bit-exact reproducibility, and zero-sorry type signatures.</li>
+      </ul>
+
+      <h2 id="installation">2. Installation</h2>
+      <p>Pre-compiled binary distribution wheels are published for CPython 3.12 through 3.15 across macOS and Linux:</p>
+
+      <h3>Python Package</h3>
+      <pre><code>pip install baux</code></pre>
+
+      <table class="docs-table">
+        <thead>
+          <tr>
+            <th>Platform</th>
+            <th>Architecture</th>
+            <th>Acceleration Backend</th>
+            <th>Wheel Distribution</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>macOS 11.0+</strong></td>
+            <td>Apple Silicon (arm64)</td>
+            <td><span class="badge badge-metal">Metal MPS</span> Unified Memory</td>
+            <td><code>baux-0.0.5-cp314-cp314-macosx_11_0_arm64.whl</code></td>
+          </tr>
+          <tr>
+            <td><strong>Linux</strong></td>
+            <td>x86_64</td>
+            <td><span class="badge badge-cuda">CUDA sm_75+</span> Tensor Cores</td>
+            <td><code>baux-0.0.5-cp314-cp314-manylinux_2_28_x86_64.whl</code></td>
+          </tr>
+          <tr>
+            <td><strong>Fallback</strong></td>
+            <td>Any</td>
+            <td><span class="badge badge-cpu">CPU SIMD</span> AVX-512 / NEON</td>
+            <td>Automatic pure-Rust fallback</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>Rust Dependency</h3>
+      <p>Add <code>baux</code> directly to your <code>Cargo.toml</code>:</p>
+      <pre><code>[dependencies]
+baux = "0.0.5"</code></pre>
+
+      <h2 id="hardware">3. Hardware Acceleration &amp; Capabilities</h2>
+      <p>You can query the compiled and available acceleration backends directly from Python:</p>
+      <pre><code>import baux
+
+caps = baux.capabilities(probe=True)
+print(caps)
+# => BackendCapabilities(name='metal', compiled=True, available=True, direct_operations=('exact_dist', 'neighbor_search', 'posterior', ...))</code></pre>
+
+      <h2 id="quickstart">4. Python Quickstart</h2>
+      <p>Standard ask/tell loop over continuous bounded parameters:</p>
+      <pre><code>import baux
+import numpy as np
+
+# Synthetic non-convex objective (Ackley in 10 dimensions)
+def objective(x):
+    return -np.sum(x**2, axis=-1)
+
+# Create TuRBO-1 optimizer on [0, 1]^10 with batch size 4
+opt = baux.create_optimizer(dim=10, batch_size=4, max_evals=100)
+
+for iteration in range(25):
+    # Ask for candidate points
+    trial = opt.ask()
+    print(f"Iteration {iteration}: evaluating {len(trial.candidates)} candidates")
+
+    # Evaluate your black-box simulation or physical experiment
+    rewards = objective(trial.candidates)
+
+    # Tell outcomes back to the optimizer
+    opt.tell(trial.ask_id, rewards)
+
+print("Optimization complete!")
+print("Best candidate:", opt.best_x)
+print("Best reward:", opt.best_y)</code></pre>
+
+      <h2 id="optimizer">5. Python API Reference</h2>
+
+      <h3><code>baux.create_optimizer</code></h3>
+      <p>Factory method initializing a production optimizer instance:</p>
+      <pre><code>opt = baux.create_optimizer(
+    dim=10,                      # Dimension of input domain [0, 1]^d
+    batch_size=4,                # Number of candidates proposed per ask()
+    max_evals=200,               # Maximum budget
+    surrogate="enn",             # "enn" | "gp" | "hybrid"
+    device="auto",               # "auto" | "metal" | "cuda" | "cpu"
+)</code></pre>
+
+      <h3 id="turbo">Trust-Region (TuRBO-1 &amp; TuRBO-m)</h3>
+      <p>
+        BAUX incorporates an exact native implementation of Trust-Region Bayesian Optimization with
+        adaptive lengthscale shrinkage upon consecutive failures and expansion upon successful discoveries:
+      </p>
+      <pre><code>from baux.turbo.config import OptimizerConfig
+
+cfg = OptimizerConfig(
+    length_min=0.5**7,
+    length_max=1.6,
+    success_tolerance=3,
+    failure_tolerance=5,
+)</code></pre>
+
+      <h3 id="enn">Epistemic Neural Networks (ENN)</h3>
+      <p>
+        ENN surrogates decompose predictive variance into epistemic (model ignorance) and aleatoric (noise) components
+        using randomized prior networks and ensemble heads:
+      </p>
+      <pre><code>from baux.enn import ENN, ENNFitter
+
+enn = ENN(input_dim=10, hidden_dim=64, num_heads=16)
+fitter = ENNFitter(learning_rate=1e-3, epochs=20)
+fitter.fit(enn, train_x, train_y)
+
+# Sample posterior draw
+draw = enn.posterior_draw(test_x)</code></pre>
+
+      <h3 id="botorch">BoTorch &amp; Ax Platform Interop</h3>
+      <p>Drop-in replacement for standard Gaussian Process models in existing BoTorch/Ax pipelines:</p>
+      <pre><code>from baux.botorch import BauxModel
+import torch
+
+train_X = torch.rand(20, 5)
+train_Y = torch.sin(train_X[:, 0:1])
+
+model = BauxModel(train_X, train_Y)
+posterior = model.posterior(torch.rand(10, 5))
+print("Posterior mean:", posterior.mean)
+print("Posterior variance:", posterior.variance)</code></pre>
+
+      <h3 id="optuna">Optuna Sampler Interop</h3>
+      <pre><code>import optuna
+from baux.optuna import BauxSampler
+
+def objective(trial):
+    x = trial.suggest_float("x", -5.0, 5.0)
+    y = trial.suggest_float("y", -5.0, 5.0)
+    return -(x**2 + y**2)
+
+study = optuna.create_study(sampler=BauxSampler(), direction="maximize")
+study.optimize(objective, n_trials=50)</code></pre>
+
+      <h2 id="rust-baux">6. Rust Crate API Reference</h2>
+      <p>For high-frequency algorithmic control, compile directly against the <code>baux</code> Rust crate:</p>
+      <pre><code>use baux::base_policy::OptimizationPolicy;
+use baux::semantics::optimizer::State;
+
+fn main() -> Result&lt;(), Box&lt;dyn std::error::Error&gt;&gt; {
+    let state = State::new(10);
+    println!("Optimizer initialized with dim: {}", state.dim());
+    Ok(())
+}</code></pre>
+
+      <h2 id="formal">7. Formal Verification &amp; Provenance</h2>
+      <p>
+        To inspect mathematical proofs, compiler AST reachability, and BLAKE3 binary attestations:
+      </p>
+      <ul>
+        <li><a href="index.html#inspector"><strong>Functions Inspector (835 functions)</strong></a>: Source-linked call trees and Charon LLBC MIR translations.</li>
+        <li><a href="index.html#dag"><strong>Module Graph (189 modules)</strong></a>: Sugiyama layered DAG of all Lean 4 formalization files with interactive proof viewers.</li>
+      </ul>
+    </main>
+  </div>
+
+  <script>
+    // Theme toggle
+    const themeBtn = document.getElementById("theme-toggle-btn");
+    const themeLabel = document.getElementById("theme-toggle-label");
+    function toggleTheme() {
+      const current = document.documentElement.getAttribute("data-theme") || "light";
+      const nxt = current === "light" ? "dark" : "light";
+      document.documentElement.setAttribute("data-theme", nxt);
+      if (themeLabel) themeLabel.textContent = nxt === "light" ? "Dark" : "Light";
+    }
+    if (themeBtn) themeBtn.addEventListener("click", toggleTheme);
+
+    // Active anchor scroll spy
+    const links = document.querySelectorAll(".docs-sidebar a");
+    window.addEventListener("scroll", () => {
+      const fromTop = window.scrollY + 80;
+      links.forEach(link => {
+        const id = link.getAttribute("href").replace("#", "");
+        const sec = document.getElementById(id);
+        if (sec && sec.offsetTop <= fromTop && (sec.offsetTop + sec.offsetHeight) > fromTop) {
+          links.forEach(l => l.classList.remove("active"));
+          link.classList.add("active");
+        }
+      });
+    });
+  </script>
+</body>
+</html>

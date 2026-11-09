@@ -1,0 +1,24 @@
+\title{baux}
+\author{Kvutza}
+\date{2026-11-11}
+\meta{external}{https://github.com/Kvutza/baux}
+
+\p{
+  \strong{baux} is a black box optimization library built around Epistemic Nearest Neighbors (Bafna et al. [[BJS25]](https://arxiv.org/abs/2506.12818)) and trust-region search.
+}
+
+\transclude{baux-0006}
+
+\transclude{baux-0003}
+
+\transclude{baux-0008}
+
+\transclude{baux-0009}
+
+\transclude{baux-0005}
+
+\transclude{baux-0004}
+
+\transclude{baux-0007}
+
+\transclude{baux-0002}

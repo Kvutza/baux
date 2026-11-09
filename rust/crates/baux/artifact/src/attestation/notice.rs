@@ -177,6 +177,22 @@ components from the following open-source projects:
   Copyright (c) 1997-2024 The LLVM Project / Intel Corporation
   License: Apache License 2.0 WITH LLVM-exception
 
+* Apache TVM and Apache TVM FFI (bundled native compiled-program runtimes)
+  Repositories:
+    https://github.com/apache/tvm
+    https://github.com/apache/tvm-ffi
+  License: Apache License 2.0
+  Exact native artifacts and hashes: admin/buck2/tvm/BUCK.
+  The upstream license and notice texts accompany the runtime bundles.
+
+* OpenXLA PJRT CPU plugin (packaged by cyxla-pjrt-cpu)
+  Repositories:
+    https://github.com/openxla/xla
+    https://github.com/nardi/cyxla
+  License: Apache License 2.0
+  Exact native artifact, matching header and source revisions: admin/buck2/pjrt/BUCK.
+  The upstream license accompanies the native artifact as PJRT-LICENSE.
+
 * Candle (`candle-core`, `candle-nn`) & Tokenizers (`tokenizers`)
   Repository: https://github.com/huggingface/candle
   Copyright (c) 2022-2025 Hugging Face Inc.

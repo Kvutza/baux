@@ -99,16 +99,20 @@ def init(
     domain: np.ndarray | PyTreeSpec | Any,
     config: OptimizerConfig | Transform | None = None,
     *,
+    pipe: OptimizerConfig | Transform | None = None,
     key: Any = None,
     seed: int | Generator | None = None,
     low: Any = -1.0,
     high: Any = 1.0,
 ) -> OptimizerState:
     """Initialize an immutable `OptimizerState` from bounds or a parameter PyTree."""
+    if config is not None and pipe is not None:
+        raise ValueError("pass either `config` or `pipe`, not both")
+    raw_cfg = pipe if config is None else config
     cfg = (
         OptimizerConfig()
-        if config is None
-        else (config() if isinstance(config, Transform) else config)
+        if raw_cfg is None
+        else (raw_cfg() if isinstance(raw_cfg, Transform) else raw_cfg)
     )
     if not supports(cfg):
         raise ValueError(f"unsupported optimizer config: {cfg!r}")
@@ -155,26 +159,34 @@ def init(
     )
 
 
-def ask(state: OptimizerState, num_arms: int = 1) -> tuple[OptimizerState, AskBatch]:
+def ask(
+    state: OptimizerState,
+    num_arms: int | None = None,
+    *,
+    n: int | None = None,
+) -> tuple[OptimizerState, AskBatch]:
     """Pure transition `(state, num_arms) -> (next_state, batch)`."""
-    n = int(num_arms)
-    if n <= 0:
-        raise ValueError(f"num_arms must be > 0, got {n}")
+    if num_arms is not None and n is not None:
+        raise ValueError("pass either `num_arms` or `n`, not both")
+    raw_arms = num_arms if num_arms is not None else n
+    arms = 1 if raw_arms is None else int(raw_arms)
+    if arms <= 0:
+        raise ValueError(f"num_arms must be > 0, got {arms}")
     inner, id_map, in_place = state._checkout()
     step_seed = _foldseed(state.seed, state.epoch + 1)
     before = set(inner.pending_ids() or ())
-    points = _readonly(inner.ask(n, seed=step_seed))
+    points = _readonly(inner.ask(arms, seed=step_seed))
     after = inner.pending_ids() or ()
     new_raw = tuple(int(i) for i in after if i not in before)
     inv_map = {v: k for k, v in id_map.items()}
-    if len(new_raw) == n:
+    if len(new_raw) == arms:
         logical_ids = tuple(int(inv_map.get(i, i)) for i in new_raw)
         for lid, rid in zip(logical_ids, new_raw, strict=True):
             id_map[lid] = rid
     else:
         base_id = (state.epoch + 1) << 32
-        logical_ids = tuple(base_id + i for i in range(n))
-    op = _Op("ask", (n, logical_ids), step_seed)
+        logical_ids = tuple(base_id + i for i in range(arms))
+    op = _Op("ask", (arms, logical_ids), step_seed)
     next_state = _snapshot(state, inner, id_map, in_place, op)
     batch = AskBatch(
         ids=tuple(AskId(i) for i in logical_ids),
@@ -381,7 +393,7 @@ class _StepTrace(dict[str, Any]):
 
 def scan(
     state: OptimizerState,
-    key: Any,
+    key: Any = None,
     steps: int = 0,
     eval_fn: Callable[..., Any] | None = None,
     num_arms: int = 1,
@@ -400,7 +412,7 @@ def scan(
         )
     if eval_fn is None:
         raise ValueError("eval_fn must be provided when key is a PRNG key")
-    cur_key = key if isinstance(key, Key) else Key(key)
+    cur_key = state.key if key is None else (key if isinstance(key, Key) else Key(key))
     cur = state.fork(cur_key)
     best = cur.best_y
     traces: list[dict[str, Any]] = []

@@ -1,0 +1,94 @@
+\title{API Reference}
+
+\subtree{
+  \title{State Transitions}
+
+  \p{
+    \code{OptimizerState} is an immutable record exposing the incumbent \code{.best_x}, \code{.best_y}, decoded \code{.best_params}, observation arrays \code{.x_obs} and \code{.y_obs} (\code{.num_observations}), regional epoch counter \code{.epoch}, trust-region length \code{.tr_length}, and content-addressed \code{.key} derived from \code{baux.digest(state)}.
+  }
+
+  \pre{
+baux.init(
+    domain: np.ndarray | PyTreeSpec | Any,
+    config: OptimizerConfig | Transform | None = None,
+    *,
+    pipe: OptimizerConfig | Transform | None = None,
+    key: Key | None = None,
+    seed: int | np.random.Generator | None = None,
+    low: Any = -1.0,
+    high: Any = 1.0,
+) -> OptimizerState
+  }
+
+  \p{
+    \code{baux.ask(state, num_arms=1)} returns \code{(next_state, batch)}, where \code{AskBatch} carries proposal IDs, coordinate arrays, decoded parameter dictionaries, and stacked tensors.
+  }
+
+  \p{
+    \code{baux.tell(state, x, y, y_var=None)} appends observations and returns \code{(next_state, mu)}. \code{baux.step(state, objective)} runs one \code{ask -> evaluate -> tell} cycle.
+  }
+
+  \p{
+    \code{baux.scan(state, key, steps, eval_fn, num_arms)} folds transitions across rounds. \code{baux.pmap(state, key, branches, branch_fn)} forks snapshots and splits keys across worker threads.
+  }
+
+  \p{
+    Asynchronous regional completions and cancellations use \code{baux.complete(state, ids, y, y_var=None)} and \code{baux.cancel(state, ids)}. States hash via \code{baux.digest(state)} (BLAKE3) and serialize via \code{baux.freeze(state)} and \code{baux.thaw(state, data)}.
+  }
+}
+
+\subtree{
+  \title{PRNG Keys}
+
+  \p{
+    \code{baux.key(seed)} constructs a 128-bit \code{(u64, u64)} SplitMix64 key from an integer, byte buffer, array, state digest, or OS entropy, seeding deterministic ChaCha12 and optimizer streams. \code{baux.split(k, n)} partitions #{k} into #{n} subkeys, and \code{baux.fold(k, tag)} mixes in an integer tag without mutating #{k}, keeping proposal generation, hyperparameter fitting, and posterior sampling independent.
+  }
+}
+
+\subtree{
+  \title{Pipeline Transforms}
+
+  \p{
+    Pipelines compose \code{Transform} stages into an \code{OptimizerConfig} via \code{baux.chain(*steps)} or \code{t1 | t2}.
+  }
+
+  \p{
+    Initialization and perturbation use \code{baux.lhd(num_init=10)}, \code{baux.sobol(num_candidates=1024)}, \code{baux.raasp(num_pert=20)}, and \code{baux.uniform_pert(num_candidates=1024)}. Surrogates attach via \code{baux.enn(k=10, geometry="euclidean")}, \code{baux.gp()}, or \code{baux.zero()}; acquisitions attach via \code{baux.ucb(beta=2.0)}, \code{baux.thompson()}, \code{baux.pareto()}, or \code{baux.random_acq()}.
+  }
+
+  \p{
+    Geometry and regional layout are configured with \code{baux.tr_bounds(length_init=0.8)}, \code{baux.regions(count=4, sharing="ellipsoid_ball")}, \code{baux.with_geometry(target, "hyperbolic")}, \code{baux.stein(target, rank=4)}, and \code{baux.calibrate(target, alpha=0.1)}.
+  }
+}
+
+\subtree{
+  \title{PyTree Domains & Codomain Operators}
+
+  \p{
+    Parameter spaces are written as nested Python dicts, tuples, and lists of leaf charts, compiled by \code{baux.pytree_bounds(tree)} into a \code{PyTreeSpec}.
+  }
+
+  \p{
+    Domain leaf charts include \code{baux.Log(low, high)}, \code{baux.Periodic(low, high)}, \code{baux.Simplex(dim)}, and \code{baux.categorical(categories, encoding="auto")}. \code{baux.ravel(tree, spec)} and \code{baux.unflatten(flat, spec)} map between nested Python values and flat solver coordinates. Multi-output codomain operators use \code{baux.Stiefel(loadings)} (with \code{baux.stein}) and \code{baux.Affine(scale, shift, conformal_q=1.0)} (with \code{baux.calibrate}).
+  }
+}
+
+\subtree{
+  \title{ENN Surrogate}
+
+  \p{
+    \code{baux.enn_init(train_x, train_y, scale_x=True)} builds an immutable surrogate state; \code{baux.append(state, x, y)} appends observations via copy-on-write; \code{baux.fit(state, k=10, key=k0)} selects scale parameters by subsampled leave-one-out log-pseudolikelihood.
+  }
+
+  \p{
+    \code{baux.posterior(state, x, params)} evaluates posterior mean, aleatoric standard error, and epistemic standard error at \code{x}. \code{baux.sample(state, x, params, key=k1, num_draws=16)} returns \code{(draws, idx)}, with function draws of shape \code{(batch, metrics, num_draws)} and neighbor indices of shape \code{(batch, k)}.
+  }
+}
+
+\subtree{
+  \title{Adapters}
+
+  \p{
+    \code{baux.create_optimizer(bounds=bounds, config=config, rng=rng)} wraps the functional core in a stateful \code{Optimizer} exposing \code{opt.ask(num_arms)}, \code{opt.tell(x, y)}, \code{opt.posterior_mu(x)}, and \code{opt.telemetry()}. \code{from baux.optuna import Sampler} provides an Optuna \code{BaseSampler} over continuous \code{FloatDistribution} spaces. \code{baux.capabilities(probe=False)} lists compiled and active backends (\code{"cpu"}, \code{"metal"}, \code{"cuda"}, \code{"opencl"}).
+  }
+}

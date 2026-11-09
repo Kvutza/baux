@@ -17,16 +17,16 @@
     },
     {
       "name": "NOTICE",
-      "size_bytes": 8591,
+      "size_bytes": 9245,
       "digest": {
-        "blake3": "3b759e63b729fe09963eb4a74b1a5b4fd7fd1cfeb305012a130a81c7d3fef5e4"
+        "blake3": "95b914da38cdf71ea4f7c10997ea9ee1e55a5a98e4b77cf8165f6864dbe9d910"
       }
     },
     {
       "name": "rust/crates/baux/NOTICE",
-      "size_bytes": 8591,
+      "size_bytes": 9245,
       "digest": {
-        "blake3": "3b759e63b729fe09963eb4a74b1a5b4fd7fd1cfeb305012a130a81c7d3fef5e4"
+        "blake3": "95b914da38cdf71ea4f7c10997ea9ee1e55a5a98e4b77cf8165f6864dbe9d910"
       }
     },
     {
@@ -274,6 +274,24 @@
           "copyright": "Copyright (c) 2023 Ash Vardanian / Unum Cloud, Inc.",
           "scope": "vendored-native-library",
           "citation": "vendor/usearch"
+        },
+        {
+          "name": "apache-tvm",
+          "uri": "https://github.com/apache/tvm",
+          "version": "0.27.0.post1",
+          "license": "Apache-2.0",
+          "copyright": "Copyright 2019-2026 The Apache Software Foundation",
+          "scope": "bundled-native-runtime",
+          "citation": "admin/buck2/tvm/BUCK"
+        },
+        {
+          "name": "openxla-pjrt",
+          "uri": "https://github.com/openxla/xla",
+          "version": "0.12.0.1",
+          "license": "Apache-2.0",
+          "copyright": "Copyright The OpenXLA Authors; cyxla packaging",
+          "scope": "bundled-native-runtime",
+          "citation": "admin/buck2/pjrt/BUCK"
         },
         {
           "name": "candle",

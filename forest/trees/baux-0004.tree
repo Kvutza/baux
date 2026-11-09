@@ -1,0 +1,141 @@
+\title{Tokamak Control Benchmarks}
+
+\p{
+  We evaluate \strong{baux} on two closed-loop tokamak policy-search benchmarks motivated by TCV magnetic control (Degrave et al. [[Deg+22]](https://doi.org/10.1038/s41586-021-04301-9), Tracey et al. [[Tra+24]](https://doi.org/10.1016/j.fusengdes.2024.114161), Pfau et al. [[Pfa+25]](https://arxiv.org/abs/2505.00663)): an \strong{ENN-UCB} surrogate benchmark on the open-source EPFL/MIT \code{toka_gym} rampdown simulator (Wang et al. [[Wan+25]](https://doi.org/10.1038/s41467-025-63917-3), Theiler et al. [[The+26]](https://doi.org/10.1088/1741-4326/ae6d12)), and a 10,000-round regional-sharing ablation in \strong{TORAX 2.0.0} (Citrin et al. [[Cit+24]](https://arxiv.org/abs/2406.06718)).
+}
+
+\subtree{
+  \title{TokaGym Rampdown Control with ENN-UCB}
+
+  \p{
+    On the \code{toka_gym} TCV rampdown benchmark ([[Wan+25]](https://doi.org/10.1038/s41467-025-63917-3), [[The+26]](https://doi.org/10.1088/1741-4326/ae6d12)), a four-layer policy #{\pi_\theta : \mathbb{R}^{11} \to [-1, 1]^8} of hidden width #{256} (#{D = 136{,}712} parameters) is searched directly from closed-loop trajectories (#{20} steps #{\times\, 4} substeps). Multi-region \strong{ENN-TuRBO} fits a #{K = 10} Epistemic Nearest Neighbor surrogate by LOO pseudolikelihood with UCB acquisition across #{R = 10} regions (\code{incumbent-ucb1}, \code{raasp-fast} with #{d_p = 13{,}671}, #{4} candidates and #{1} evaluated arm per round). Across #{n = 10} paired seeds over #{100} rounds, tracking error falls from \code{65.72} at initialization to \strong{\code{1.79}} (\code{ellipsoid-ball} sharing) and \strong{\code{1.68}} (\code{origin-only}) versus \code{20.59} for on-policy Metal PPO at matching round budget.
+  }
+}
+
+\subtree{
+  \title{TORAX Core-Transport & Shaping Regional Ablation}
+
+  \p{
+    Because EPFL's free-boundary Grad–Shafranov coil-circuit simulator \code{FGE} used in [[Deg+22]](https://doi.org/10.1038/s41586-021-04301-9), [[Tra+24]](https://doi.org/10.1016/j.fusengdes.2024.114161), and [[Pfa+25]](https://arxiv.org/abs/2505.00663) is proprietary, we evaluate the #{93 \to 256 \to 256 \to 256 \to 19} ELU+#{\tanh} policy architecture (#{D = 160{,}531} parameters) in open-source \strong{TORAX 2.0.0} [[Cit+24]](https://arxiv.org/abs/2406.06718). Rather than solving free-boundary \code{E}/\code{F}/\code{OH}/\code{FPS} coil circuits from #{38} magnetic probes and #{34} flux loops, this benchmark evolves \code{iterhybrid} CHEASE/\code{MEQ} geometry (#{R_0 = 6.2\text{ m}}, #{B_0 = 5.3\text{ T}}, #{15} warmup steps followed by #{T = 20} controlled steps) coupled to four 1D radial transport PDEs for #{T_e(\hat{\rho})}, #{T_i(\hat{\rho})}, #{n_e(\hat{\rho})}, and #{\psi(\hat{\rho})} over #{\hat{\rho} \in [0, 1]}, mapping #{93} radial profile and shaping residuals to #{19} normalized plasma current, heating, current-drive, pellet/gas fueling, and Miller local-equilibrium shaping (\code{kappa}, \code{delta_u}, \code{delta_l}, #{Z_{\mathrm{axis}}}; Miller et al. [[Mil+98]](https://doi.org/10.1063/1.872666)) actuators:
+  }
+
+  ##{
+    \begin{aligned}
+      R(\hat{\rho}, \vartheta) &= R_{\mathrm{geo}}(\hat{\rho}) + \hat{\rho}\,a_{\min}\cos\bigl(\vartheta + \arcsin(\delta(\hat{\rho},\vartheta))\sin\vartheta\bigr), \\[4pt]
+      Z(\hat{\rho}, \vartheta) &= Z_{\mathrm{axis}} + \kappa(\hat{\rho})\,\hat{\rho}\,a_{\min}\sin\vartheta.
+    \end{aligned}
+  }
+
+  \p{
+    Adapting the multi-component reward structure of Pfau et al. [[Pfa+25]](https://arxiv.org/abs/2505.00663) (Table 6, Eq. 31), five normalized tracking and actuator-regularization scores—normalized Miller contour error against the 32-point \code{shape_70166} aspect template, plasma current tracking #{I_p}, shaping-effort margin, actuator bounds compliance, and auxiliary balance—are mapped through sigmoids #{c_m(v) = \operatorname{clip}\bigl(2\sigma(\zeta\frac{v - g_m}{b_m - g_m}), 0, 1\bigr)} (#{\zeta = -\ln 19}) and averaged over #{T = 20} steps on a #{[0, 100]} scale via \code{SmoothMax} (#{\alpha = -3.0}):
+  }
+
+  ##{
+    \begin{aligned}
+      \mathcal{J}(\theta) &= \frac{100}{T}\sum_{t=1}^{T} \operatorname{SmoothMax}_{\alpha = -3}\bigl(c_{\mathrm{LCFS},t},\, c_{I_p,t},\, c_{\mathrm{PF},t},\, c_{\mathrm{volt},t},\, c_{\mathrm{OH},t}\bigr), \\[4pt]
+      \operatorname{SmoothMax}_{\alpha}(x_1,\dots,x_5) &= \frac{\sum_{m=1}^{5} x_m e^{\alpha x_m}}{\sum_{m=1}^{5} e^{\alpha x_m}}.
+    \end{aligned}
+  }
+
+  \p{
+    To isolate the effect of cross-region incumbent adoption over #{10{,}000} sequential evaluations without surrogate fitting overhead, both configurations below run \strong{surrogate-free multi-region RAASP TuRBO} (\code{acquisition = "random"}, i.e. \code{TuRBO-zero}, with #{R = 10} regions, \code{incumbent-ucb1} routing, #{d_p = 16{,}053}, #{2} candidates and #{1} arm per round) across #{n = 10} paired random seeds (entries report sample \code{mean ± SEM} with \code{ddof = 1}; unadjusted two-sided paired #{t_9} #{p}-values are shown at rounds 8,000 and 10,000, while Holm–Bonferroni adjustment across the #{6} post-init checkpoints gives #{p_{\mathrm{Holm}} = 0.246}; an on-policy PPO baseline reaches \code{44.25} at round 10,000). The interactive viewer additionally renders cross-device vessel and coil geometries (\code{TCV}, \code{ARC}, \code{ITER}, \code{DIII-D}) extracted from \strong{FUSE.jl} (Meneghini et al. [[Men+24]](https://arxiv.org/abs/2409.05894)) alongside analytical Miller flux contours interpolated from these checkpoints.
+  }
+
+  \<table>{
+    \<tr>{
+      \<th>{Round}
+      \<th>{Shared TuRBO-zero (\code{ellipsoid-ball})}
+      \<th>{Independent TuRBO-zero (\code{origin-only})}
+      \<th>{Paired Diff (\code{mean ± SEM})}
+    }
+    \<tr>{
+      \<td>{\code{0} (Init)}
+      \<td>{\code{5.97 ± 1.13}}
+      \<td>{\code{5.97 ± 1.13}}
+      \<td>{\code{+0.00 ± 0.00}}
+    }
+    \<tr>{
+      \<td>{\code{300}}
+      \<td>{\code{53.36 ± 5.90}}
+      \<td>{\code{52.38 ± 5.13}}
+      \<td>{\code{+0.98 ± 4.02}}
+    }
+    \<tr>{
+      \<td>{\code{1,000}}
+      \<td>{\code{70.77 ± 5.95}}
+      \<td>{\code{71.39 ± 4.74}}
+      \<td>{\code{−0.62 ± 3.98}}
+    }
+    \<tr>{
+      \<td>{\code{3,000}}
+      \<td>{\code{83.25 ± 2.60}}
+      \<td>{\code{80.93 ± 2.97}}
+      \<td>{\code{+2.32 ± 1.64}}
+    }
+    \<tr>{
+      \<td>{\code{5,000}}
+      \<td>{\code{87.65 ± 1.81}}
+      \<td>{\code{86.28 ± 1.14}}
+      \<td>{\code{+1.38 ± 1.59}}
+    }
+    \<tr>{
+      \<td>{\code{8,000}}
+      \<td>{\code{90.52 ± 0.65}}
+      \<td>{\code{88.60 ± 0.81}}
+      \<td>{\code{+1.92 ± 0.81} (#{p_2 = 0.0421})}
+    }
+    \<tr>{
+      \<td>{\strong{\code{10,000}}}
+      \<td>{\strong{\code{91.57 ± 0.55}}}
+      \<td>{\code{89.41 ± 0.97}}
+      \<td>{\strong{\code{+2.16 ± 0.91}} (#{p_2 = 0.0410})}
+    }
+  }
+}
+
+\subtree{
+  \title{Hardware Backends}
+
+  \p{
+    Distance sweeps, top-#{K} neighbor search, and candidate evaluation dispatch across three backends:
+  }
+
+  \p{
+    On Apple Silicon, custom Metal Shading Language (\code{.metal}) compute kernels run exact distance sweeps, top-#{K} neighbor selection, FP32 device posteriors, and resident trust-region search (#{N \le 128}) over unified memory, while general host \code{f64} posterior and trajectory-draw calls execute on CPU.
+  }
+
+  \p{
+    On Linux \code{x86_64} with NVIDIA GPUs (\code{sm_75+}), CUDA kernels evaluate pairwise distances via shared-memory (\code{__shared__}) tiles, global-memory top-#{K} merge buffers, and Box–Muller Gaussian posterior draws.
+  }
+
+  \p{
+    Without a GPU, exact flat search runs \code{f64} CPU scans alongside portable \code{core::simd::f64x4} inner-product and squared-distance kernels compiled for the target architecture baseline (\code{x86_64} / \code{aarch64}).
+  }
+
+  \<table>{
+    \<tr>{
+      \<th>{Platform}
+      \<th>{Architecture}
+      \<th>{Backend Kernels}
+      \<th>{Wheel Targets (Python 3.12–3.15)}
+    }
+    \<tr>{
+      \<td>{\strong{macOS 11.0+}}
+      \<td>{arm64}
+      \<td>{Custom Metal compute shaders + CPU \code{f64} host}
+      \<td>{\code{macosx_11_0_arm64}}
+    }
+    \<tr>{
+      \<td>{\strong{Linux CUDA}}
+      \<td>{x86_64}
+      \<td>{CUDA (\code{sm_75+}) shared-tile distance & Box–Muller}
+      \<td>{\code{manylinux_2_28_x86_64} (\code{+cuda75})}
+    }
+    \<tr>{
+      \<td>{\strong{CPU Baseline}}
+      \<td>{x86_64 / aarch64}
+      \<td>{Portable \code{f64x4} SIMD & scalar \code{f64} scans}
+      \<td>{Source distribution & \code{manylinux} / \code{macosx} wheels}
+    }
+  }
+}

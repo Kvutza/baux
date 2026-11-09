@@ -17,4 +17,7 @@ target/
 **/*.rs.bk
 .DS_Store
 _build/
+**/node_modules/
+/forest/output/
+/forest/build/
 *~

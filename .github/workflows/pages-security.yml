@@ -1,0 +1,99 @@
+name: Security Audit & Pages Provenance
+
+on:
+  push:
+    branches:
+      - main
+      - gh-pages
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+# Strict least-privilege default: all jobs start with zero token permissions.
+permissions: {}
+
+concurrency:
+  group: pages-security-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  security-audit:
+    name: Static Analysis & Dependency Audit
+    if: github.ref != 'refs/heads/gh-pages'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read # Required to check out repository sources
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          enable-cache: false
+
+      - name: Audit GitHub Actions workflows with zizmor
+        run: uvx zizmor --pedantic .github/workflows/
+
+      - name: Validate and run custom Semgrep rules
+        env:
+          SEMGREP_SEND_METRICS: "off"
+        run: |
+          uvx semgrep scan --metrics=off --validate --config .semgrep/baux-web-security.yml
+          targets=(admin/ops admin/ui/baux_ui.ml)
+          for extra_dir in forest/theme forest/js; do
+            if [ -d "$extra_dir" ]; then
+              targets+=("$extra_dir")
+            fi
+          done
+          uvx semgrep scan --metrics=off --no-git-ignore --error --config .semgrep/baux-web-security.yml \
+            --exclude node_modules \
+            --exclude forester.js \
+            --exclude __pycache__ \
+            --exclude _build \
+            --exclude fonts \
+            "${targets[@]}"
+
+      - name: Audit locked Python dependencies with pip-audit
+        run: |
+          uv export --frozen --no-emit-project --no-hashes --output-file /tmp/baux-locked-requirements.txt
+          uvx pip-audit --strict --no-deps --disable-pip -r /tmp/baux-locked-requirements.txt
+
+  verify-and-attest-pages:
+    name: Verify & Attest gh-pages Bundle
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/gh-pages') || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read # Required to check out main verifier scripts and gh-pages bundle
+      attestations: write # Required by actions/attest-build-provenance to publish SLSA attestations
+      id-token: write # Required for Sigstore OIDC signing of SLSA build provenance
+    steps:
+      - name: Checkout verifier scripts from main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          path: verifier
+          persist-credentials: false
+
+      - name: Checkout public bundle from gh-pages
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: gh-pages
+          path: bundle
+          persist-credentials: false
+
+      - name: Verify gh-pages bundle and archive subject
+        run: |
+          # Note: verify_pages.py exposes verify_bundle(target_dir) as its library entrypoint.
+          python3 -c "from pathlib import Path; import sys; sys.path.insert(0, 'verifier/admin/ops'); from verify_pages import verify_bundle; verify_bundle(Path('bundle'))"
+          tar --exclude='./.git' -C bundle -czf /tmp/pages-bundle.tar.gz .
+
+      - name: Attest SLSA build provenance for gh-pages bundle
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: /tmp/pages-bundle.tar.gz

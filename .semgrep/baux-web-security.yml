@@ -1,0 +1,249 @@
+rules:
+  - id: baux-js-prototype-chain-bypass
+    message: >-
+      URL or user-controlled key `$KEY` from `$PARAMS.get(...)` is used to index
+      `$OBJ[$KEY]` without an own-property check. Keys like `constructor`,
+      `toString`, or `__proto__` resolve via `Object.prototype` and bypass
+      truthiness checks. Guard with
+      `Object.prototype.hasOwnProperty.call($OBJ, $KEY)` or `Object.hasOwn($OBJ, $KEY)`.
+    severity: ERROR
+    languages:
+      - javascript
+      - typescript
+    paths:
+      exclude:
+        - "**/node_modules/**"
+        - "**/forester.js"
+    metadata:
+      category: security
+      cwe:
+        - "CWE-1321: Improperly Controlled Modification of Object Prototype Attributes ('Prototype Pollution')"
+      confidence: HIGH
+      likelihood: MEDIUM
+      impact: MEDIUM
+      references:
+        - https://github.com/trailofbits/semgrep-rules
+    patterns:
+      - pattern-either:
+          - pattern: |
+              $KEY = $PARAMS.get($PARAM);
+              ...
+              if ($OBJ[$KEY]) $BODY
+          - pattern: |
+              $KEY = $PARAMS.get($PARAM);
+              ...
+              if ($COND && $OBJ[$KEY]) $BODY
+          - pattern: |
+              $KEY = $PARAMS.get($PARAM);
+              ...
+              if ($OBJ[$KEY] && $COND) $BODY
+          - pattern: $OBJ[$PARAMS.get($PARAM)]
+      - pattern-not: |
+          $KEY = $PARAMS.get($PARAM);
+          ...
+          if ($PRE && Object.prototype.hasOwnProperty.call($OBJ, $KEY)) $BODY
+      - pattern-not: |
+          $KEY = $PARAMS.get($PARAM);
+          ...
+          if ($PRE && Object.hasOwn($OBJ, $KEY)) $BODY
+      - pattern-not: |
+          $KEY = $PARAMS.get($PARAM);
+          ...
+          if (Object.prototype.hasOwnProperty.call($OBJ, $KEY)) $BODY
+      - pattern-not: |
+          $KEY = $PARAMS.get($PARAM);
+          ...
+          if (Object.hasOwn($OBJ, $KEY)) $BODY
+      - pattern-not-inside: |
+          if (Object.prototype.hasOwnProperty.call($OBJ, $KEY)) $GUARD
+      - pattern-not-inside: |
+          if ($PRE && Object.prototype.hasOwnProperty.call($OBJ, $KEY)) $GUARD
+      - pattern-not-inside: |
+          if (Object.prototype.hasOwnProperty.call($OBJ, $KEY) && $POST) $GUARD
+      - pattern-not-inside: |
+          if (Object.hasOwn($OBJ, $KEY)) $GUARD
+      - pattern-not-inside: |
+          if ($PRE && Object.hasOwn($OBJ, $KEY)) $GUARD
+      - pattern-not-inside: |
+          if (Object.hasOwn($OBJ, $KEY) && $POST) $GUARD
+
+  - id: baux-js-unsafe-dynamic-code-execution
+    message: >-
+      Avoid dynamic code execution via `eval(...)` or `new Function(...)` in
+      site JavaScript. Dynamic evaluation undermines strict Content Security
+      Policy (`script-src 'self'`) and enables DOM XSS if untrusted input
+      reaches the sink.
+    severity: ERROR
+    languages:
+      - javascript
+      - typescript
+    paths:
+      exclude:
+        - "**/node_modules/**"
+        - "**/forester.js"
+    metadata:
+      category: security
+      cwe:
+        - "CWE-95: Improper Neutralization of Directives in Dynamically Evaluated Code ('Eval Injection')"
+      confidence: HIGH
+      likelihood: MEDIUM
+      impact: HIGH
+      references:
+        - https://github.com/trailofbits/semgrep-rules
+    pattern-either:
+      - pattern: eval(...)
+      - pattern: window.eval(...)
+      - pattern: globalThis.eval(...)
+      - pattern: new Function(...)
+      - pattern: Function(...)
+      - pattern: setTimeout("...", ...)
+      - pattern: setInterval("...", ...)
+
+  - id: baux-python-subprocess-shell-true
+    message: >-
+      `subprocess.$FUNC(..., shell=True, ...)` invokes a system shell and is an
+      OS command injection sink when arguments include external paths or git/jj
+      refs. Pass an explicit argv list (`[cmd, arg1, ...]`) with `shell=False`.
+    severity: ERROR
+    languages:
+      - python
+    metadata:
+      category: security
+      cwe:
+        - "CWE-78: Improper Neutralization of Special Elements used in an OS Command ('OS Command Injection')"
+      confidence: HIGH
+      likelihood: MEDIUM
+      impact: HIGH
+      references:
+        - https://github.com/trailofbits/semgrep-rules
+    pattern: subprocess.$FUNC(..., shell=True, ...)
+
+  - id: baux-python-yaml-unsafe-load
+    message: >-
+      `yaml.load(...)` without `SafeLoader` / `CSafeLoader` (or `yaml.unsafe_load`
+      / `yaml.full_load`) allows arbitrary Python object instantiation. Use
+      `yaml.safe_load(...)` or `yaml.load(..., Loader=yaml.SafeLoader)`.
+    severity: ERROR
+    languages:
+      - python
+    metadata:
+      category: security
+      cwe:
+        - "CWE-502: Deserialization of Untrusted Data"
+      confidence: HIGH
+      likelihood: MEDIUM
+      impact: HIGH
+      references:
+        - https://github.com/trailofbits/semgrep-rules
+    patterns:
+      - pattern-either:
+          - pattern: yaml.load(...)
+          - pattern: yaml.unsafe_load(...)
+          - pattern: yaml.full_load(...)
+      - pattern-not: yaml.load(..., Loader=yaml.SafeLoader, ...)
+      - pattern-not: yaml.load(..., Loader=yaml.CSafeLoader, ...)
+      - pattern-not: yaml.load(..., Loader=SafeLoader, ...)
+      - pattern-not: yaml.load(..., Loader=CSafeLoader, ...)
+
+  - id: baux-xsl-inline-script-without-src
+    message: >-
+      Inline `<script>` tag without a `src=` attribute found in XSL template.
+      Inline scripts require `'unsafe-inline'` in CSP and create XSS injection
+      vectors when interpolating XML values (`<xsl:value-of>`). Move code to an
+      external `.js` file and pass data via `data-*` attributes.
+    severity: ERROR
+    languages:
+      - regex
+    paths:
+      include:
+        - "*.xsl"
+        - "*.xslt"
+    metadata:
+      category: security
+      cwe:
+        - "CWE-79: Improper Neutralization of Input During Web Page Generation ('Cross-site Scripting')"
+      confidence: HIGH
+      likelihood: MEDIUM
+      impact: MEDIUM
+      references:
+        - https://github.com/trailofbits/semgrep-rules
+    pattern-regex: <script\b(?![^>]*\bsrc\s*=)[^>]*>
+
+  - id: baux-xsl-target-blank-without-noreferrer
+    message: >-
+      External anchor with `target="_blank"` is missing `noreferrer` in its
+      `rel` attribute. Always set `rel="noopener noreferrer"` on `target="_blank"`
+      links to prevent reverse tabnabbing and cross-origin referrer leakage.
+    severity: ERROR
+    languages:
+      - regex
+    paths:
+      include:
+        - "*.xsl"
+        - "*.xslt"
+        - "*.html"
+      exclude:
+        - "**/node_modules/**"
+    metadata:
+      category: security
+      cwe:
+        - "CWE-1022: Use of Web Link to Untrusted Target with window.opener Access"
+      confidence: HIGH
+      likelihood: LOW
+      impact: LOW
+      references:
+        - https://github.com/trailofbits/semgrep-rules
+    pattern-regex: <a\b(?=[^>]*\btarget\s*=\s*["']_blank["'])(?![^>]*\brel\s*=\s*["'][^"']*\bnoreferrer\b[^"']*["'])[^>]*>
+
+  - id: baux-ocaml-jsoo-eval-string
+    message: >-
+      Avoid `Js.Unsafe.eval_string` in `js_of_ocaml` frontend code. It emits
+      runtime `eval(...)`, violating strict Content Security Policy
+      (`script-src 'self'`) and creating a code-injection sink. Use
+      `Js.Unsafe.js_expr` for compile-time parsed JavaScript or typed bindings.
+    severity: ERROR
+    languages:
+      - regex
+    paths:
+      include:
+        - "*.ml"
+      exclude:
+        - "**/_build/**"
+    metadata:
+      category: security
+      cwe:
+        - "CWE-95: Improper Neutralization of Directives in Dynamically Evaluated Code ('Eval Injection')"
+      confidence: HIGH
+      likelihood: MEDIUM
+      impact: HIGH
+      references:
+        - https://github.com/trailofbits/semgrep-rules
+    pattern-regex: Js\.Unsafe\.eval_string\b
+
+  - id: baux-ocaml-jsoo-unescaped-search-innerhtml
+    message: >-
+      Unsafe DOM sink or unguarded URL parameter prototype lookup in OCaml
+      `js_of_ocaml` UI source (`baux_ui.ml`): always wrap `%s` interpolations in
+      `html_escape` before assigning `innerHTML`, and guard `.get("machine")`
+      indexing into `MACHINES[...]` with `Object.prototype.hasOwnProperty.call`.
+    severity: ERROR
+    languages:
+      - regex
+    paths:
+      include:
+        - "*.ml"
+      exclude:
+        - "**/_build/**"
+    metadata:
+      category: security
+      cwe:
+        - "CWE-79: Improper Neutralization of Input During Web Page Generation ('Cross-site Scripting')"
+        - "CWE-1321: Improperly Controlled Modification of Object Prototype Attributes ('Prototype Pollution')"
+      confidence: HIGH
+      likelihood: MEDIUM
+      impact: MEDIUM
+      references:
+        - https://github.com/trailofbits/semgrep-rules
+    pattern-either:
+      - pattern-regex: id=\\"api-search-input\\"[^>]*value=\\"%s\\"[\s\S]{0,1500}?"\s*!search_query\s+in\s+root##\.innerHTML\s*:=\s*js\b
+      - pattern-regex: \.get\(["']machine["']\)\s*;\s*if\s*\((?![^\n)]*(?:hasOwnProperty|hasOwn))[^\n)]*\bMACHINES\[

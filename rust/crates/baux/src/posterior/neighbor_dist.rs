@@ -2,7 +2,8 @@ use std::sync::Arc;
 
 use baux::semantics::neighbor::simd::{simd_l2, simd_scaled};
 use baux::semantics::neighbor::{
-    DistanceMetric, MetricBound, PoolBound, certify_metric, local_scales, metric_delta,
+    DistanceMetric, MetricBound, PoolBound, certify_metric, is_certified, local_scales,
+    metric_delta,
 };
 use ndarray::{Array1, Array2, ArrayView1, ArrayView2, Axis};
 
@@ -97,13 +98,13 @@ pub(crate) fn train_scales(
         let (tx, _, _) = model.rows().train_rows(&ids)?;
         distance_matrix(&tx.view(), &tx.view(), model.scale_x, &model.x_scale.view())
     };
-    let sc: Arc<[f64]> = local_scales(n, local_k, |r, c| d2[[r, c]]).into();
-    let s_min = sc
-        .iter()
-        .copied()
-        .fold(f64::INFINITY, f64::min)
-        .max(1.0e-12);
-    let s_max = sc.iter().copied().fold(1.0e-12_f64, f64::max).max(s_min);
+    let sc: Arc<[f64]> = local_scales(n, local_k, |r, c| d2[[r, c]])
+        .into_iter()
+        .map(|s2| s2.max(1.0e-12).sqrt())
+        .collect::<Vec<_>>()
+        .into();
+    let s_min = sc.iter().copied().fold(f64::INFINITY, f64::min).max(1.0e-6);
+    let s_max = sc.iter().copied().fold(1.0e-6_f64, f64::max).max(s_min);
     let info = (sc, local_k, s_min, s_max);
     if metric == model.dist_metric {
         let _ = model.scale_cache.set(info.clone());
@@ -118,35 +119,35 @@ pub(crate) fn metric_row(
     (k, skip, pool, tie): (usize, usize, PoolBound, bool),
     (metric, sc, local_k, s_min, s_max): (DistanceMetric, &[f64], usize, f64, f64),
 ) -> Vec<(f64, i64)> {
-    let s_query = pairs
+    let mut pos_d2: Vec<f64> = pairs
         .iter()
         .map(|&(d, _)| d)
         .filter(|&d| d.is_finite() && d > 0.0)
-        .nth(local_k.saturating_sub(1))
-        .or_else(|| {
-            pairs
-                .iter()
-                .map(|&(d, _)| d)
-                .filter(|&d| d.is_finite() && d > 0.0)
-                .last()
-        })
-        .unwrap_or(s_min)
-        .max(1.0e-12);
-    let cands: Vec<(f64, i64)> = pairs
-        .iter()
-        .map(|&(d2, t)| (metric_delta(metric, d2, s_query, sc[t as usize]), t))
         .collect();
-    let mb = MetricBound {
-        pool,
-        s_query,
-        s_min,
-        s_max,
-    };
-    if let Some(top) = (!tie)
-        .then(|| certify_metric(metric, &cands, k, mb))
-        .flatten()
-    {
-        return top;
+    pos_d2.sort_by(f64::total_cmp);
+    let scale_certified = (pos_d2.len() >= local_k
+        && is_certified(pos_d2[local_k.saturating_sub(1)], pool))
+        || !pool.b32.is_finite();
+    if !tie && scale_certified {
+        let s_query = pos_d2
+            .get(local_k.saturating_sub(1))
+            .or_else(|| pos_d2.last())
+            .map(|&d2| d2.max(1.0e-12).sqrt())
+            .unwrap_or(s_min)
+            .max(1.0e-6);
+        let cands: Vec<(f64, i64)> = pairs
+            .iter()
+            .map(|&(d2, t)| (metric_delta(metric, d2, s_query, sc[t as usize]), t))
+            .collect();
+        let mb = MetricBound {
+            pool,
+            s_query,
+            s_min,
+            s_max,
+        };
+        if let Some(top) = certify_metric(metric, &cands, k, mb) {
+            return top;
+        }
     }
     let d2_all = row_query(model, q_row);
     let mut all_pos: Vec<f64> = d2_all
@@ -157,9 +158,9 @@ pub(crate) fn metric_row(
     all_pos.sort_by(f64::total_cmp);
     let sq = all_pos
         .get(local_k.min(all_pos.len()).saturating_sub(1))
-        .copied()
+        .map(|&d2| d2.max(1.0e-12).sqrt())
         .unwrap_or(s_min)
-        .max(1.0e-12);
+        .max(1.0e-6);
     let dm: Vec<f64> = d2_all
         .iter()
         .enumerate()

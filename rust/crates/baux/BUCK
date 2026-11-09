@@ -225,6 +225,8 @@ rust_test(
         "//admin/buck2/native:openmp-macos",
         "//rust:metal",
     ],
+    resources = [":hlo-import"],
+    run_env = {"BAUX_MLIR_IMPORTER": "$(location :hlo-import)"},
     rpath = True,
     runtime_dependency_handling = "symlink",
     target_compatible_with = ["prelude//os/constraints:macos"],
@@ -250,6 +252,14 @@ rust_test(
         "//:macos-arm64": [
             "//admin/buck2/native:openmp-macos",
         ],
+    }),
+    resources = select({
+        "//:macos-arm64": [":hlo-import"],
+        "DEFAULT": [],
+    }),
+    run_env = select({
+        "//:macos-arm64": {"BAUX_MLIR_IMPORTER": "$(location :hlo-import)"},
+        "DEFAULT": {},
     }),
     rpath = True,
     runtime_dependency_handling = "symlink",

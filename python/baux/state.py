@@ -238,10 +238,25 @@ class OptimizerState:
         return self.spec.unflatten(inc.reshape(-1), weights=self.metric_weights)
 
     @property
+    def best_x(self) -> np.ndarray | None:
+        """Read-only best observed parameter vector (alias for `incumbent_x`)."""
+        return self.incumbent_x
+
+    @property
+    def best_params(self) -> Any:
+        """Best observed parameters decoded through `spec` (alias for `incumbent_params`)."""
+        return self.incumbent_params
+
+    @property
     def best_y(self) -> float | None:
         """Best observed primary objective value, or `None` if empty."""
         y = self.y_obs
         return None if y.size == 0 else float(np.max(y[:, 0]))
+
+    @property
+    def incumbent_y(self) -> float | None:
+        """Best observed primary objective value (alias for `best_y`)."""
+        return self.best_y
 
     def digest(self) -> str:
         """Return the 64-character hexadecimal BLAKE3 state digest."""

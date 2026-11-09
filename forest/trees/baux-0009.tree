@@ -1,0 +1,90 @@
+\title{Trust-Region Dynamics & Portfolio State}
+
+\subtree{
+  \title{Trust-Region Adaptation & Candidate Sampling}
+
+  \p{
+    Following TuRBO (Eriksson et al. [[EPG+19]](https://arxiv.org/abs/1910.01739)), let #{T(x_0, \ell) \subset \mathcal{X}} denote an axis-aligned trust region centered at incumbent #{x_0 \in \mathcal{X}} with side length #{\ell \in [\underline{\ell}, \overline{\ell}]}. In solver coordinates #{u \in \mathcal{U} \subseteq \mathbb{R}^D}, component #{j} spans #{[u_{0,j} - \frac{1}{2}\ell_j,\, u_{0,j} + \frac{1}{2}\ell_j]} clipped to domain bounds. Consecutive counters #{c_{\mathrm{succ}}, c_{\mathrm{fail}}} start at zero; after evaluating a batch #{B} with best value #{y^* \eqdef \max_{(x, y) \in B} y} and relative improvement threshold #{\tau_y(x_0) \eqdef y(x_0) + 10^{-3}|y(x_0)|}, the state updates by
+  }
+
+  ##{
+    (\ell', c_{\mathrm{succ}}', c_{\mathrm{fail}}') = \begin{cases}
+      (\min(2\ell, \overline{\ell}),\, 0,\, 0), & \text{if } y^* > \tau_y(x_0) \text{ and } c_{\mathrm{succ}} + 1 \ge \tau_{\mathrm{succ}}, \\[4pt]
+      (\ell,\, c_{\mathrm{succ}} + 1,\, 0), & \text{if } y^* > \tau_y(x_0) \text{ and } c_{\mathrm{succ}} + 1 < \tau_{\mathrm{succ}}, \\[4pt]
+      (\ell / 2,\, 0,\, 0), & \text{if } y^* \le \tau_y(x_0) \text{ and } c_{\mathrm{fail}} + 1 \ge \tau_{\mathrm{fail}}, \\[4pt]
+      (\ell,\, 0,\, c_{\mathrm{fail}} + 1), & \text{if } y^* \le \tau_y(x_0) \text{ and } c_{\mathrm{fail}} + 1 < \tau_{\mathrm{fail}}.
+    \end{cases}
+  }
+
+  \p{
+    Initial space-filling designs draw from Latin Hypercube sampling (McKay, Beckman, & Conover [[MBC79]](https://doi.org/10.1080/00401706.1979.10489755)) or Sobol' sequences [[Sob67]](https://doi.org/10.1016/0041-5553(67)90144-9). Local candidate pools of size #{Q} are generated via Random Axis-Aligned Subspace Perturbation (RAASP [[EPG+19]](https://arxiv.org/abs/1910.01739), [[DEB+22]](https://proceedings.mlr.press/v180/daulton22a.html); cf. Rashidi et al. [[RJG24]](https://proceedings.mlr.press/v238/rashidi24a.html)): the default \code{ORIG} driver perturbs an exact uniform subset of #{k = \min(D, \max(1, d_p))} coordinates (or tied chart blocks) per candidate, while the \code{FAST} driver samples binomial masks with probability #{p = \min(1, d_p / D)} clamped to at least one active coordinate. Two observation regimes are supported:
+  }
+
+  \p{
+    In the \strong{noise-free regime}, #{T(x_0, \ell)} centers at #{x_0 \eqdef \arg\max_i y_i} and can select #{q} arms by peeling non-dominated #{(\mu(x_c), \sigma(x_c))} skyline fronts across #{Q} candidates in #{\mathcal{O}\bigl(Q(N D + N \log N) + q Q \log Q\bigr)} time.
+  }
+
+  \p{
+    In the \strong{noisy regime}, #{x_0 \eqdef \arg\max_{i \in I_K} \mu(x_i)} centers at the highest smoothed mean over the #{K} highest raw observations #{I_K}, and arms are selected by Upper Confidence Bound #{\arg\max_{x_c} [\mu(x_c) + \beta \sigma_e(x_c)]} (Srinivas et al. [[SKK+10]](https://arxiv.org/abs/0912.3995)) or Thompson function draws #{\arg\max_{x_c} \tilde{f}_s(x_c)} (Thompson [[Tho33]](https://doi.org/10.1093/biomet/25.3-4.285), Russo et al. [[RVR+18]](https://doi.org/10.1561/2200000070)).
+  }
+
+  \p{
+    Whenever contraction drives #{\ell < \underline{\ell}}, single-region search resets #{\ell \leftarrow \ell_0} and schedules a fresh Latin Hypercube warmup, while multi-region portfolios increment the region epoch and re-center #{x_{0,r}} uniformly or by maximin distance over random candidates.
+  }
+}
+
+\subtree{
+  \title{Multi-Region Portfolios & Scalarization}
+
+  \p{
+    Concurrent trust regions #{\{T_r(x_{0,r}, \ell_r)\}_{r=1}^R} (Daulton et al. [[DEB+22]](https://proceedings.mlr.press/v180/daulton22a.html)) coordinate asynchronous batches through an epoch-guarded ledger:
+  }
+
+  \p{
+    Under \strong{UCB1 arm allocation} (Auer, Cesa-Bianchi, & Fischer [[ACF02]](https://doi.org/10.1023/A:1013689704352)), each initialized region's incumbent value is min–max normalized to #{\tilde{u}_r \in [0, 1]} across active regions, and arms route to #{\arg\max_r \bigl[\tilde{u}_r + c\sqrt{\ln(\sum_{r'} \tilde{n}_{r'}) / \tilde{n}_r}\bigr]} where #{\tilde{n}_r = n_r + q_r} counts completed plus in-flight evaluations. Each issued proposal carries a ticket #{\mathrm{AskId} = (r, g, a)} stamped with region #{r}'s current epoch #{g = g_r}; completions always append to the global dataset #{\mathcal{D}}, and update #{T_r}'s side length if and only if #{g = g_r}.
+  }
+
+  \p{
+    Under \strong{regional sharing} (\code{sharing="ellipsoid_ball"}), region #{r} adopts a better global observation as its incumbent whenever it falls inside the Euclidean ball circumscribing #{T_r}'s axis-aligned trust-region box around #{x_{0,r}} (whereas \code{sharing="origin_only"} restricts incumbent updates to proposals originated by region #{r}).
+  }
+
+  \p{
+    For multi-objective problems with #{M \ge 2} outputs (MORBO [[DEB+22]](https://proceedings.mlr.press/v180/daulton22a.html); cf. qEHVI [[DBB20]](https://arxiv.org/abs/2006.05078)), empirical observations are min–max normalized per objective to #{\tilde{y}_j \in [0, 1]}, and each region draws simplex weights #{w \sim \mathrm{Dirichlet}(\mathbf{1}_M)} to maximize the ParEGO augmented Chebyshev scalarization (Knowles [[Kno06]](https://doi.org/10.1109/TEVC.2005.851274), Paria et al. [[PKP20]](https://proceedings.mlr.press/v115/paria20a.html)):
+  }
+
+  ##{
+    s_w(\tilde{y}) \eqdef \min_{1 \le j \le M} \bigl(w_j\, \tilde{y}_j\bigr) + \eta \sum_{j=1}^M w_j\, \tilde{y}_j, \qquad \eta = 0.05.
+  }
+}
+
+\subtree{
+  \title{Functional State & Checkpoint Replay}
+
+  \p{
+    Observation history #{\mathcal{D}}, regional ledgers #{\{T_r\}_{r=1}^R}, splittable 128-bit PRNG state #{k \in \mathcal{K}} (Claessen & Pałka [[CP13]](https://doi.org/10.1145/2503778.2503784), Steele et al. [[SLF14]](https://doi.org/10.1145/2660193.2660195)), and compiled domain specification #{\mathrm{Spec}(\mathcal{M})} form an immutable state space #{S}:
+  }
+
+  ##{
+    \begin{aligned}
+      S &\eqdef \mathcal{K} \times \mathcal{D} \times \prod_{r=1}^R T_r \times \mathrm{Spec}(\mathcal{M}), \\
+      \alpha_{\mathrm{ask}} &: S \times \mathbb{N} \to S \times \operatorname{List}(\mathcal{X}), \\
+      \alpha_{\mathrm{tell}} &: S \times \operatorname{List}(\mathcal{X} \times \mathbb{R}^M) \to S \times \mathbb{R}^{B \times M}.
+    \end{aligned}
+  }
+
+  \p{
+    Note that #{\alpha_{\mathrm{ask}}} and #{\alpha_{\mathrm{tell}}} form a stateful Mealy protocol rather than commuting operations (appending observations changes the surrogate neighborhood and regional incumbents for subsequent proposals). Determinism instead comes from pure functional transitions and lossless binary serialization: for any pure round transition #{\Phi_f : S \to S} induced by an objective #{f} and template state #{s_0 \in S} fixing #{\mathrm{Spec}(\mathcal{M})}, canonical snapshot encoding #{\mathrm{freeze} : S \to \mathcal{B}} and decoding #{\mathrm{thaw}_{s_0} : \mathcal{B} \to S} satisfy #{\mathrm{thaw}_{s_0} \circ \mathrm{freeze} = \mathrm{id}_S}, so serialized step execution #{\widehat{\Phi}_f \eqdef \mathrm{freeze} \circ \Phi_f \circ \mathrm{thaw}_{s_0}} commutes strictly with in-memory rollout:
+  }
+
+  ##{
+    \begin{CD}
+      S @>{\Phi_f}>> S \\
+      @V{\mathrm{freeze}}VV @AA{\mathrm{thaw}_{s_0}}A \\
+      \mathcal{B} @>>{\widehat{\Phi}_f}> \mathcal{B}
+    \end{CD}
+  }
+
+  \p{
+    Likewise, \code{pmap} splits a parent key #{k \mapsto (k_1, \dots, k_B)} before dispatching worker threads, ensuring identical results regardless of thread scheduling.
+  }
+}

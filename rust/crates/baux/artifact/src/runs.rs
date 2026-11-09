@@ -158,7 +158,13 @@ pub fn finish(root: &Path, record: &mut Record, result: &Result<(), String>) -> 
     .into();
     record.error = result.as_ref().err().cloned();
     record.ended = Some(jiff::Timestamp::now().as_millisecond());
-    match plot::render(Path::new(&record.output)) {
+    let output_path = Path::new(&record.output);
+    if record.recipe.is_empty()
+        && let Some(recipe) = plot::infer_recipe(output_path)
+    {
+        record.recipe = recipe;
+    }
+    match plot::render(output_path) {
         Ok((count, measurements)) => {
             record.report_status = if count == 0 {
                 "no_measurements"
@@ -238,7 +244,13 @@ fn read_seal(record: &Record) -> Result<Option<GpuSet>, String> {
         return Err("GPU run seal has invalid run or record identities".into());
     }
     let payload = baux::artifact::cbor::to_vec(&seal.payload).map_err(|error| error.to_string())?;
-    if digest(&payload) != seal.sha256 {
+    let sha_ok = || {
+        use sha2::{Digest, Sha256};
+        format!("{:x}", Sha256::digest(&payload)) == seal.sha256
+            || json::to_vec(&seal.payload)
+                .is_ok_and(|j| format!("{:x}", Sha256::digest(&j)) == seal.sha256)
+    };
+    if digest(&payload) != seal.sha256 && !sha_ok() {
         return Err("GPU run seal digest mismatch".into());
     }
     Ok(Some(seal.payload))

@@ -6,8 +6,8 @@ mod regional;
 #[path = "plot/series.rs"]
 mod series;
 pub(super) use series::{
-    candidate_series, cohort_tag, comparison_curve, context_tag, extract_series, incumbent_series,
-    number, run_label, summary_only,
+    candidate_series, cohort_tag, comparison_band, comparison_curve, context_tag, extract_series,
+    incumbent_series, infer_recipe, number, run_label, summary_only,
 };
 use series::{observation_points, points, update_points, validation_points};
 
@@ -117,18 +117,34 @@ fn write_svg(
     y: &str,
     data: &[(f64, f64)],
 ) -> Result<(), String> {
-    let plots: Vec<Plot> = vec![
-        LinePlot::new()
-            .with_data(data.to_vec())
-            .with_color("steelblue")
-            .into(),
-    ];
+    write_band(output, file, x, y, data, &[])
+}
+
+pub(super) fn write_band(
+    output: &Path,
+    file: &str,
+    x: &str,
+    y: &str,
+    data: &[(f64, f64)],
+    sems: &[f64],
+) -> Result<(), String> {
+    let mut line = LinePlot::new()
+        .with_data(data.to_vec())
+        .with_color(PALETTE[0])
+        .with_stroke_width(2.2);
+    if sems.len() == data.len() && sems.iter().any(|&s| s > 0.0) {
+        let lower: Vec<f64> = data.iter().zip(sems).map(|(&(_, py), &s)| py - s).collect();
+        let upper: Vec<f64> = data.iter().zip(sems).map(|(&(_, py), &s)| py + s).collect();
+        line = line.with_band(lower, upper);
+    }
+    let plots: Vec<Plot> = vec![line.into()];
     let mut layout = Layout::auto_from_plots(&plots)
+        .with_theme(Theme::minimal())
         .with_title(file)
         .with_x_label(x)
         .with_y_label(y)
         .with_interactive();
-    if y.contains("nll") || y.contains("reward") {
+    if y.contains("nll") || y.contains("reward") || y.contains("score") || y.contains("error") {
         layout = layout.with_y_tick_format(TickFormat::Fixed(3));
     }
     let svg = render_to_svg(plots, layout);
@@ -136,30 +152,55 @@ fn write_svg(
 }
 
 pub(super) fn series_summary(file: &str, x: &str, y: &str, data: &[(f64, f64)]) -> Value {
-    let compact: Vec<[f64; 2]> = downsample(data, 512)
-        .into_iter()
-        .map(|(px, py)| [px, py])
-        .collect();
-    json!({
-        "source": file,
-        "x": x,
-        "y": y,
-        "points": data.len(),
-        "first": data.first(),
-        "last": data.last(),
-        "series": compact,
-    })
+    series_band(file, x, y, data, &[])
 }
 
-fn downsample(data: &[(f64, f64)], max_points: usize) -> Vec<(f64, f64)> {
-    if data.len() <= max_points || max_points < 4 {
-        return data.to_vec();
+pub(super) fn series_band(
+    file: &str,
+    x: &str,
+    y: &str,
+    data: &[(f64, f64)],
+    sems: &[f64],
+) -> Value {
+    let indices = sample_indices(data.len(), 512);
+    let compact: Vec<[f64; 2]> = indices
+        .iter()
+        .map(|&idx| [data[idx].0, data[idx].1])
+        .collect();
+    if sems.len() == data.len() && sems.iter().any(|&s| s > 0.0) {
+        let compact_sem: Vec<f64> = indices.iter().map(|&idx| sems[idx]).collect();
+        json!({
+            "source": file,
+            "x": x,
+            "y": y,
+            "points": data.len(),
+            "first": data.first(),
+            "last": data.last(),
+            "series": compact,
+            "sem": compact_sem,
+        })
+    } else {
+        json!({
+            "source": file,
+            "x": x,
+            "y": y,
+            "points": data.len(),
+            "first": data.first(),
+            "last": data.last(),
+            "series": compact,
+        })
+    }
+}
+
+fn sample_indices(len: usize, max_points: usize) -> Vec<usize> {
+    if len <= max_points || max_points < 4 {
+        return (0..len).collect();
     }
     let mut out = Vec::with_capacity(max_points);
-    let step = (data.len() - 1) as f64 / (max_points - 1) as f64;
+    let step = (len - 1) as f64 / (max_points - 1) as f64;
     for i in 0..max_points {
-        let idx = ((i as f64 * step).round() as usize).min(data.len() - 1);
-        out.push(data[idx]);
+        let idx = ((i as f64 * step).round() as usize).min(len - 1);
+        out.push(idx);
     }
     out
 }
@@ -193,6 +234,27 @@ pub fn compare(root: &Path, records: &[Record]) -> Result<Value, String> {
         ("nll_by_time", "ΔNLL vs. Time", "time (s)", "ΔNLL", false),
         ("validation_nll", "Val ΔNLL", "step", "val ΔNLL", false),
         ("wall_ms", "ms/round", "step", "ms/round", true),
+        (
+            "mean_tracking_error",
+            "Mean Tracking Error",
+            "round",
+            "tracking error",
+            false,
+        ),
+        (
+            "mean_best_score",
+            "Mean Best Score",
+            "round",
+            "best score",
+            false,
+        ),
+        (
+            "regional_reward",
+            "Regional Best Reward",
+            "evaluations",
+            "best reward",
+            false,
+        ),
     ];
     let mut generated = Vec::new();
     for &(name, title, x_label, y_label, log_y) in specs {
@@ -212,8 +274,9 @@ pub fn compare(root: &Path, records: &[Record]) -> Result<Value, String> {
                 continue;
             };
             let sig = format!(
-                "{}:{:.5}:{:.5}:{}",
+                "{}:{}:{:.5}:{:.5}:{}",
                 record.optimizer,
+                record.recipe,
                 pts.first().map_or(0.0, |p| p.1),
                 pts.last().map_or(0.0, |p| p.1),
                 pts.len()
@@ -226,10 +289,18 @@ pub fn compare(root: &Path, records: &[Record]) -> Result<Value, String> {
             let short_commit = record.commit.get(..8).unwrap_or(&record.commit);
             let label = run_label(record);
             let mut lp = LinePlot::new()
-                .with_data(pts)
+                .with_data(pts.clone())
                 .with_color(color)
                 .with_stroke_width(2.2)
                 .with_legend(label.clone());
+            if let Some(sems) = comparison_band(record, name)
+                && sems.len() == pts.len()
+                && sems.iter().any(|&s| s > 0.0)
+            {
+                let lower: Vec<f64> = pts.iter().zip(&sems).map(|(&(_, y), &s)| y - s).collect();
+                let upper: Vec<f64> = pts.iter().zip(&sems).map(|(&(_, y), &s)| y + s).collect();
+                lp = lp.with_band(lower, upper);
+            }
             if matches!(name, "nll" | "delta_nll" | "nll_by_time") {
                 lp = lp.with_step();
             }
@@ -265,7 +336,13 @@ fn emit_comparison(
         .with_x_label(x_label)
         .with_y_label(y_label)
         .with_legend_position(LegendPosition::OutsideRightTop)
-        .with_log_x();
+        .with_interactive();
+    if !matches!(
+        name,
+        "mean_tracking_error" | "mean_best_score" | "regional_reward"
+    ) {
+        layout = layout.with_log_x();
+    }
     layout = match (
         log_y,
         matches!(name, "delta_nll" | "nll_by_time" | "validation_nll"),

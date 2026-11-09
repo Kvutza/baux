@@ -48,6 +48,27 @@ pub fn write_html(
         ("validation_nll", "Val ΔNLL", "step", "val ΔNLL", false),
         ("nll_by_time", "ΔNLL vs. Time", "time (s)", "ΔNLL", false),
         ("wall_ms", "ms/round", "step", "ms/round", true),
+        (
+            "mean_tracking_error",
+            "Mean Tracking Error",
+            "round",
+            "tracking error",
+            false,
+        ),
+        (
+            "mean_best_score",
+            "Mean Best Score",
+            "round",
+            "best score",
+            false,
+        ),
+        (
+            "regional_reward",
+            "Regional Best Reward",
+            "evaluations",
+            "best reward",
+            false,
+        ),
     ];
 
     let mut chart_configs = Vec::new();
@@ -113,15 +134,30 @@ fn select_runs(
     let mut views = Vec::new();
     let mut seen_sigs = Vec::new();
     for (idx, r) in records.iter().enumerate() {
-        let raw_pts = plot::extract_series(r, false, nll_keys);
+        let raw_nll = plot::extract_series(r, false, nll_keys);
+        let is_nll = raw_nll.is_some();
+        let raw_pts = raw_nll.or_else(|| {
+            plot::extract_series(
+                r,
+                false,
+                &[
+                    "mean_tracking_error",
+                    "tracking_error",
+                    "mean_best_score",
+                    "best_score",
+                ],
+            )
+            .or_else(|| plot::comparison_curve(r, "regional_reward", false, false, &[], &[], &[]))
+        });
         let points = raw_pts.as_ref().map_or(0, Vec::len);
-        let summary_only = plot::summary_only(r) || (has_deep_runs && points < 8);
-        let nll_pts = if summary_only {
+        let summary_only = plot::summary_only(r) || (is_nll && has_deep_runs && points < 8);
+        let nll_pts = if !is_nll || summary_only {
             raw_pts
         } else {
             plot::incumbent_series(r, nll_keys)
         };
-        if let Some(ref pts) = nll_pts
+        if is_nll
+            && let Some(ref pts) = nll_pts
             && has_full_vocab
             && pts.first().is_some_and(|(_, y)| *y < 11.0)
         {
@@ -219,7 +255,16 @@ fn base_chart(metric: &str, x_label: &str, y_label: &str, log_y: bool) -> Chart 
         )
         .x_axis(
             component::Axis::new()
-                .type_(element::AxisType::Log)
+                .type_(
+                    if matches!(
+                        metric,
+                        "mean_tracking_error" | "mean_best_score" | "regional_reward"
+                    ) {
+                        element::AxisType::Value
+                    } else {
+                        element::AxisType::Log
+                    },
+                )
                 .name(x_label)
                 .name_location(element::NameLocation::Middle)
                 .name_gap(28.0)

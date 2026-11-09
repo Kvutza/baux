@@ -81,14 +81,86 @@ pub(in super::super) fn comparison_curve(
                 .map(|(x, y)| (x.max(0.0) + 1.0, y.max(1.0)))
                 .collect(),
         ),
+        "mean_tracking_error" => {
+            extract_series(record, false, &["mean_tracking_error", "tracking_error"])
+        }
+        "mean_best_score" => extract_series(record, false, &["mean_best_score", "best_score"]),
+        "regional_reward" => extract_prefix(record, &["reward-", "best_reward-"]),
         _ => None,
     }
 }
 
+pub(in super::super) fn comparison_band(record: &Record, name: &str) -> Option<Vec<f64>> {
+    let keys: &[&str] = match name {
+        "mean_tracking_error" => &["mean_tracking_error", "tracking_error"],
+        "mean_best_score" => &["mean_best_score", "best_score"],
+        _ => return None,
+    };
+    let seq = record.measurements.as_seq()?;
+    for key in keys {
+        for item in seq {
+            if field(item, "y") == *key
+                && let Some(raw) = item.get("sem").and_then(|v| v.as_seq())
+            {
+                let sems: Vec<f64> = raw.iter().filter_map(number).collect();
+                if !sems.is_empty() {
+                    return Some(sems);
+                }
+            }
+        }
+    }
+    None
+}
+
+pub(in super::super) fn infer_recipe(output: &Path) -> Option<String> {
+    let text = fs::read_to_string(output.join("config.toml")).ok()?;
+    let val: Value = baux::artifact::toml::from_str(&text).ok()?;
+    let exp = val["experiment"].as_str().unwrap_or("");
+    if exp == "tokamak-tcv" || exp == "tokamak-tokagym" {
+        let tag = if exp == "tokamak-tokagym" {
+            "tokagym"
+        } else {
+            "tcv"
+        };
+        let rounds = val["rounds"].as_u64().unwrap_or(0);
+        let reps = val["repetitions"].as_u64().unwrap_or(1);
+        let alg = val["optimizer"]["algorithm"].as_str().unwrap_or("");
+        if alg == "ppo" {
+            return Some(format!("{tag}-ppo-r{rounds}x{reps}"));
+        }
+        let reg = &val["optimizer"]["regional-search"];
+        if let Some(count) = reg["count"].as_u64() {
+            let sh = reg["sharing"].as_str().unwrap_or("shared");
+            let al = reg["allocation"].as_str().unwrap_or("ucb");
+            return Some(format!("{tag}-{count}tr-{sh}-{al}-r{rounds}x{reps}"));
+        }
+        return Some(format!("{tag}-{alg}-r{rounds}x{reps}"));
+    }
+    if exp == "resident-regions" || exp == "host-regions" {
+        let dim = val["dimensions"].as_u64().unwrap_or(0);
+        let evals = val["evaluations"].as_u64().unwrap_or(0);
+        return Some(format!("regional-d{dim}-e{evals}"));
+    }
+    None
+}
+
 pub(in super::super) fn run_label(record: &Record) -> String {
-    let ctx = context_tag(&record.recipe);
+    let recipe = if record.recipe.is_empty() {
+        infer_recipe(Path::new(&record.output)).unwrap_or_default()
+    } else {
+        record.recipe.clone()
+    };
+    let ctx = context_tag(&recipe);
     let out = &record.output;
     let short_commit = record.commit.get(..8).unwrap_or(&record.commit);
+    if matches!(ctx, "TCV" | "TokaGym" | "Regional") {
+        let detail = recipe
+            .strip_prefix("tcv-")
+            .or_else(|| recipe.strip_prefix("tokagym-"))
+            .or_else(|| recipe.strip_prefix("regional-"))
+            .unwrap_or(&recipe);
+        return format!("{ctx} {detail} ({short_commit})");
+    }
     if out.contains("bo-muon-state") {
         let m = if record.optimizer == "muon" {
             "muon"
@@ -138,6 +210,15 @@ pub(in super::super) fn cohort_tag(record: &Record) -> &'static str {
 }
 
 pub(in super::super) fn context_tag(recipe: &str) -> &'static str {
+    if recipe.starts_with("tcv") {
+        return "TCV";
+    }
+    if recipe.starts_with("tokagym") {
+        return "TokaGym";
+    }
+    if recipe.starts_with("regional") {
+        return "Regional";
+    }
     [
         ("@1048576", "1M"),
         ("@1056510", "1M"),
@@ -206,13 +287,7 @@ pub(in super::super) fn extract_series(
                 continue;
             }
             if let Some(raw) = item.get("series").and_then(|v| v.as_seq()) {
-                let pts: Vec<(f64, f64)> = raw
-                    .iter()
-                    .filter_map(|pair| {
-                        let arr = pair.as_seq()?;
-                        Some((number(arr.first()?)?, number(arr.get(1)?)?))
-                    })
-                    .collect();
+                let pts = parse_points(raw);
                 if !pts.is_empty() {
                     return Some(pts);
                 }
@@ -220,6 +295,35 @@ pub(in super::super) fn extract_series(
         }
     }
     None
+}
+
+pub(in super::super) fn extract_prefix(
+    record: &Record,
+    prefixes: &[&str],
+) -> Option<Vec<(f64, f64)>> {
+    let seq = record.measurements.as_seq()?;
+    for prefix in prefixes {
+        for item in seq {
+            if field(item, "y").starts_with(prefix)
+                && let Some(raw) = item.get("series").and_then(|v| v.as_seq())
+            {
+                let pts = parse_points(raw);
+                if !pts.is_empty() {
+                    return Some(pts);
+                }
+            }
+        }
+    }
+    None
+}
+
+fn parse_points(raw: &[Value]) -> Vec<(f64, f64)> {
+    raw.iter()
+        .filter_map(|pair| {
+            let arr = pair.as_seq()?;
+            Some((number(arr.first()?)?, number(arr.get(1)?)?))
+        })
+        .collect()
 }
 
 fn decode_value(bytes: &[u8]) -> Option<Value> {

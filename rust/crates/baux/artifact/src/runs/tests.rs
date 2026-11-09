@@ -563,3 +563,36 @@ fn binary_updates() {
             .exists()
     );
 }
+
+#[test]
+fn tokamak_comparison() {
+    let root = root();
+    let mut row_a = record(root.path(), "toka", 200, "task");
+    row_a.recipe.clear();
+    fs::write(
+        Path::new(&row_a.output).join("config.toml"),
+        "version = 4\nexperiment = \"tokamak-tcv\"\nrounds = 2\nrepetitions = 10\n[optimizer]\nalgorithm = \"bayesian-search\"\n[optimizer.regional-search]\ncount = 10\nsharing = \"ellipsoid-ball\"\nallocation = \"incumbent-ucb1\"\n",
+    )
+    .unwrap();
+    fs::write(
+        Path::new(&row_a.output).join("tokamak.cbor"),
+        baux::artifact::cbor::to_vec(&json!({
+            "traces": [
+                {"round": 1, "mean_tracking_error": 94.0, "sem_tracking_error": 1.2, "mean_best_score": 6.0, "sem_best_score": 1.2},
+                {"round": 2, "mean_tracking_error": 4.6, "sem_tracking_error": 0.4, "mean_best_score": 95.4, "sem_best_score": 0.4}
+            ]
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    finish(root.path(), &mut row_a, &Ok(())).unwrap();
+    assert_eq!(row_a.report_status, "complete");
+    assert_eq!(row_a.recipe, "tcv-10tr-ellipsoid-ball-incumbent-ucb1-r2x10");
+    let cmp = compare(root.path(), std::slice::from_ref(&row_a)).unwrap();
+    assert_eq!(cmp.as_seq().unwrap().len(), 2);
+    let diffs = source_diffs(root.path(), std::slice::from_ref(&row_a), false);
+    let html_path = write_html(root.path(), std::slice::from_ref(&row_a), &cmp, &diffs).unwrap();
+    let html = fs::read_to_string(html_path).unwrap();
+    assert!(html.contains("Mean Tracking Error"));
+    assert!(html.contains("Mean Best Score"));
+}

@@ -48,19 +48,34 @@ fn tokamak_results(source: &Path, output: &Path) -> Result<Vec<Value>, String> {
         return Ok(Vec::new());
     };
     let mut summaries = Vec::new();
-    for y_key in ["mean_tracking_error", "mean_best_score"] {
+    for (y_key, alt_key, sem_key) in [
+        (
+            "mean_tracking_error",
+            "tracking_error",
+            "sem_tracking_error",
+        ),
+        ("mean_best_score", "best_score", "sem_best_score"),
+    ] {
         let mut data = Vec::with_capacity(traces.len());
+        let mut sems = Vec::with_capacity(traces.len());
         for entry in traces {
-            if let (Some(x), Some(y)) = (number(&entry["round"]), number(&entry[y_key]))
+            let y_val = number(&entry[y_key]).or_else(|| number(&entry[alt_key]));
+            if let (Some(x), Some(y)) = (number(&entry["round"]), y_val)
                 && x.is_finite()
                 && y.is_finite()
             {
                 data.push((x, y));
+                let sem = number(&entry[sem_key]).unwrap_or(0.0);
+                sems.push(if sem.is_finite() && sem > 0.0 {
+                    sem
+                } else {
+                    0.0
+                });
             }
         }
         if !data.is_empty() {
-            write_svg(output, file, "round", y_key, &data)?;
-            summaries.push(series_summary(file, "round", y_key, &data));
+            write_band(output, file, "round", y_key, &data, &sems)?;
+            summaries.push(series_band(file, "round", y_key, &data, &sems));
         }
     }
     Ok(summaries)

@@ -141,7 +141,9 @@ def build_ui() -> None:
                 )
                 built_js = ROOT / "admin/ui/_build/default/baux_ui.js"
                 if built_js.exists():
-                    shutil.copy2(built_js, ui_target)
+                    ui_target.unlink(missing_ok=True)
+                    shutil.copyfile(built_js, ui_target)
+                    ui_target.chmod(0o644)
                     print("✓ Compiled and copied baux_ui.js to docs/site/assets/")
             except Exception as e:
                 print(f"Notice: OCaml UI build via dune skipped or failed ({e})")

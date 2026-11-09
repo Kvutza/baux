@@ -7,43 +7,56 @@
   <link rel="stylesheet" href="assets/site_style.css" />
 </head>
 <body>
-  <header class="top-header">
-    <div class="header-container">
-      <a href="#" class="brand">baux</a>
-      <nav class="nav-links">
-        <a href="#installation" class="nav-link">Install</a>
-        <a href="#lineage" class="nav-link">Lineage</a>
-        <a href="#quickstart" class="nav-link">Quickstart</a>
-        <a href="#turbo" class="nav-link">TuRBO</a>
-        <a href="#enn" class="nav-link">ENN</a>
-        <a href="#hardware" class="nav-link">Hardware</a>
-      </nav>
-      <div class="nav-actions">
-        <button type="button" class="header-btn" id="theme-toggle-btn" title="Toggle theme">
+  <header class="site-header">
+    <div class="header-inner">
+      <div class="header-brand">
+        <a href="index.html" class="brand-title">baux</a>
+        <span class="brand-tag">research / documentation</span>
+      </div>
+      <nav class="header-nav">
+        <a href="index.html" class="nav-link active">Monograph</a>
+        <a href="docs.html" class="nav-link">API Reference</a>
+        <a href="https://github.com/Kvutza/baux" class="nav-link" target="_blank" rel="noopener">GitHub &nearr;</a>
+        <a href="https://pypi.org/project/baux/" class="nav-link" target="_blank" rel="noopener">PyPI &nearr;</a>
+        <button type="button" class="theme-toggle-btn" id="theme-toggle-btn" title="Toggle color theme">
           <span id="theme-toggle-label">Light</span>
         </button>
-        <a href="https://github.com/Kvutza/baux" class="header-btn" target="_blank" rel="noopener">
-          <span>GitHub &nearr;</span>
-        </a>
-      </div>
+      </nav>
     </div>
   </header>
 
-  <main class="main-wrapper">
-    <div class="hero">
-      <div class="hero-pill">v0.0.5 &middot; Python &amp; Rust &middot; Metal &amp; CUDA</div>
-      <h1 class="hero-title">baux</h1>
-      <p class="hero-lead">A black box optimization library in Python and Rust.</p>
+  <main class="document-container">
+    <header class="document-header">
+      <h1 class="article-title">baux</h1>
+      <p class="article-subhead">A black box optimization library in Python and Rust.</p>
+      <div class="article-metadata">
+        <span>v0.0.5</span>
+        <span class="meta-dot">&middot;</span>
+        <span>November 2026</span>
+        <span class="meta-dot">&middot;</span>
+        <span>Kvutza Lab</span>
+        <span class="meta-dot">&middot;</span>
+        <a href="https://github.com/Kvutza/baux" target="_blank" rel="noopener">GitHub</a>
+        <span class="meta-dot">&middot;</span>
+        <a href="https://pypi.org/project/baux/" target="_blank" rel="noopener">PyPI</a>
+        <span class="meta-dot">&middot;</span>
+        <a href="https://crates.io/crates/baux" target="_blank" rel="noopener">Crates.io</a>
+      </div>
+    </header>
+
+    <div class="abstract-box">
+      <p>
+        <strong>baux</strong> is a black box optimization library designed for expensive, derivative-free evaluation loops over continuous and bounded domains. It couples trust-region local search (TuRBO) with non-parametric Epistemic Nearest Neighbors (ENN) to balance local exploitation and global exploration without incurring the cubic computational bottlenecks of Gaussian Process inference.
+      </p>
+      <p>
+        Compute kernels for distance metrics, candidate perturbation, and posterior sampling execute directly on Apple Silicon (Metal MPS) and NVIDIA GPUs (CUDA), backed by an AVX-512 and ARM NEON SIMD pure-Rust CPU engine.
+      </p>
     </div>
 
-    <!-- Installation Terminal -->
-    <div class="install-terminal" id="installation">
+    <!-- Installation Typographic Specimen -->
+    <div class="install-container" id="installation">
       <div class="install-header">
-        <div class="terminal-dots">
-          <span class="dot red"></span>
-          <span class="dot yellow"></span>
-          <span class="dot green"></span>
-        </div>
+        <span class="install-label">Distribution Wheel</span>
         <div class="install-pills">
           <button type="button" class="install-pill active" data-platform="macos">macOS (Metal)</button>
           <button type="button" class="install-pill" data-platform="linux">Linux (CUDA)</button>
@@ -61,22 +74,9 @@
       </div>
     </div>
 
-    <!-- Overview -->
-    <section id="overview">
-      <h2>1. Overview</h2>
-      <p>
-        <strong>baux</strong> implements an ask/tell optimization loop using trust-region search (TuRBO) and Epistemic Nearest Neighbors (ENN), with acceleration on Apple Silicon (Metal), NVIDIA GPUs (CUDA), and CPU SIMD:
-      </p>
-      <ul>
-        <li><strong>Trust-Region Search (TuRBO):</strong> Proposes candidate batches inside a local hypercube centered at the incumbent. Dynamically expands upon consecutive successes and contracts upon stagnation.</li>
-        <li><strong>Epistemic Nearest Neighbors (ENN):</strong> Decomposes uncertainty into epistemic (spatial sparsity of evaluations) and aleatoric (observation noise) components through calibrated <em>k</em>-nearest neighbor distance fields.</li>
-        <li><strong>Resident GPU Execution:</strong> State updates, distance metrics, and candidate sampling run on-device (Apple Silicon Metal MPS or NVIDIA CUDA) with zero host synchronization per evaluation.</li>
-      </ul>
-    </section>
-
-    <!-- Baseline & Lineage -->
+    <!-- Section 1: Baseline & Lineage -->
     <section id="lineage">
-      <h2>2. Baseline &amp; Lineage</h2>
+      <h2>1. Baseline &amp; Lineage</h2>
       <p>
         <strong>baux</strong> builds on <a href="https://github.com/yubo-research/enn" target="_blank" rel="noopener"><code>yubo-research/enn</code></a> (v0.4.1), using its TuRBO trust-region state machine and Epistemic Nearest Neighbors formulation as the algorithmic baseline.
       </p>
@@ -88,17 +88,62 @@
       </ul>
     </section>
 
-    <!-- Quickstart -->
-    <section id="quickstart">
-      <h2>3. Quickstart (Ask / Tell Loop)</h2>
+    <!-- Section 2: Algorithmic Formulation -->
+    <section id="architecture">
+      <h2>2. Algorithmic Formulation</h2>
+
+      <h3>Trust-Region Local Search (TuRBO)</h3>
       <p>
-        The core optimization flow is a clean <code>ask(batch_size)</code> and <code>tell(candidates, scores)</code> loop:
+        High-dimensional black box optimization frequently suffers from the curse of dimensionality when fitting global surrogate models over the entire parameter space. <strong>baux</strong> confines candidate proposal to a local hypercube &mdash; the trust region &mdash; centered at the current incumbent point \(x^* \in [0, 1]^D\):
+      </p>
+      <pre><code>TR_t = { x in [0, 1]^D : max_i |x_i - x_i^*| / L_t &le; 1/2 }</code></pre>
+      <p>
+        The base side length \(L_t\) adapts dynamically based on observation feedback:
+      </p>
+      <ul>
+        <li><strong>Expansion:</strong> If consecutive candidate batches improve upon the incumbent, the search volume expands: \(L_{t+1} = \min(L_t \times 1.5,\, L_{\max})\).</li>
+        <li><strong>Contraction:</strong> If the optimizer fails to find an improvement across a sequence of failure tolerance rounds (\(\tau_{\text{fail}}\)), the volume contracts: \(L_{t+1} = \max(L_t \times 0.5,\, L_{\min})\).</li>
+        <li><strong>Restart:</strong> When \(L_t\) shrinks below \(L_{\min}\), the trust region resets with a new anchor point to prevent asymptotic stagnation in local minima.</li>
+      </ul>
+
+      <h3>Epistemic Nearest Neighbors (ENN)</h3>
+      <p>
+        Standard Gaussian Process regression requires \(\mathcal{O}(N^3)\) Cholesky factorization of the kernel covariance matrix, creating a computational bottleneck when evaluation counts grow into thousands of trials.
+      </p>
+      <p>
+        ENN models function uncertainty through a non-parametric metric projection over the \(k\)-nearest observed points. Posterior uncertainty decomposes into two independent orthogonal fields:
+      </p>
+      <ul>
+        <li><strong>Epistemic Uncertainty (\(\sigma_{\text{epi}}\)):</strong> Measures the sparsity of evaluations in the local metric space. Epistemic uncertainty scales proportionally with distance to neighboring observations: it vanishes in densely sampled domains and expands in unexplored regions.</li>
+        <li><strong>Aleatoric Uncertainty (\(\sigma_{\text{ale}}\)):</strong> Captures irreducible evaluation noise inherent to stochastic objective evaluations.</li>
+      </ul>
+
+      <div class="aside-box">
+        <strong>Computational Advantage:</strong> Because ENN evaluates uncertainty via nearest-neighbor distance fields rather than matrix inversion, candidate ranking within the trust region runs in linear time with respect to observed trials, allowing sub-millisecond proposal latency across tens of thousands of evaluations.
+      </div>
+
+      <h3>Resident GPU Execution Pipeline</h3>
+      <p>
+        In high-throughput experimental loops, latency is dominated by host-device memory synchronization. On Apple Silicon, <strong>baux</strong> leverages Unified Memory Architecture (UMA) via Metal compute pipelines:
+      </p>
+      <ul>
+        <li>Observation buffers and trust-region states reside in unified system memory without duplicate host/device allocations.</li>
+        <li>Batch candidate generation, Sobol sequence perturbations, and nearest-neighbor distance sweeps execute on Metal shading pipelines.</li>
+        <li>On Linux environments with NVIDIA hardware, custom CUDA kernels handle distance computation and posterior draws across large candidate batches.</li>
+      </ul>
+    </section>
+
+    <!-- Section 3: Interactive Code Specimens -->
+    <section id="quickstart">
+      <h2>3. Code Specimens &amp; Workflows</h2>
+      <p>
+        The primary Python interface is structured around a non-blocking <code>ask(batch_size)</code> and <code>tell(candidates, scores)</code> loop. Select a workflow below:
       </p>
 
-      <div class="code-hub">
+      <div class="code-hub breakout">
         <div class="code-hub-tabs">
           <button type="button" class="code-tab-btn active" data-tab="tab-quickstart">Ask / Tell Loop</button>
-          <button type="button" class="code-tab-btn" data-tab="tab-enn">ENN Surrogate</button>
+          <button type="button" class="code-tab-btn" data-tab="tab-enn">ENN Posterior</button>
           <button type="button" class="code-tab-btn" data-tab="tab-botorch">BoTorch Interop</button>
           <button type="button" class="code-tab-btn" data-tab="tab-optuna">Optuna Sampler</button>
           <button type="button" class="code-tab-btn" data-tab="tab-rust">Rust Crate</button>
@@ -110,29 +155,29 @@
           <pre><code><span class="syn-kw">import</span> numpy <span class="syn-kw">as</span> np
 <span class="syn-kw">from</span> baux <span class="syn-kw">import</span> create_optimizer, turbo_enn
 
-<span class="syn-com"># Define parameter bounds: 2 continuous dimensions in [-2.0, 2.0]</span>
-bounds = np.array([[-<span class="syn-num">2.0</span>, <span class="syn-num">2.0</span>], [-<span class="syn-num">2.0</span>, <span class="syn-num">2.0</span>]])
+<span class="syn-com"># Define parameter domain: continuous bounds for each dimension</span>
+bounds = np.array([[-<span class="syn-num">5.0</span>, <span class="syn-num">5.0</span>], [-<span class="syn-num">5.0</span>, <span class="syn-num">5.0</span>]])
 
-<span class="syn-com"># Create optimizer with TuRBO trust-region and ENN surrogate</span>
+<span class="syn-com"># Initialize TuRBO optimizer with Epistemic Nearest Neighbors surrogate</span>
 opt = create_optimizer(
     bounds=bounds,
     config=turbo_enn(),
     rng=np.random.default_rng(<span class="syn-num">42</span>),
 )
 
-<span class="syn-com"># Run optimization rounds</span>
-<span class="syn-kw">for</span> iteration <span class="syn-kw">in</span> range(<span class="syn-num">20</span>):
-    <span class="syn-com"># 1. Ask for a batch of candidate points</span>
-    candidates = opt.ask(<span class="syn-num">4</span>)
+<span class="syn-com"># Optimization loop: propose batches, evaluate, and report scores</span>
+<span class="syn-kw">for</span> step <span class="syn-kw">in</span> range(<span class="syn-num">25</span>):
+    <span class="syn-com"># 1. Ask for a batch of candidate trial vectors</span>
+    candidates = opt.ask(batch_size=<span class="syn-num">4</span>)
 
-    <span class="syn-com"># 2. Evaluate your objective function (baux maximizes rewards)</span>
+    <span class="syn-com"># 2. Evaluate objective (baux maximizes rewards; negate for minimization)</span>
     scores = -np.sum(candidates**<span class="syn-num">2</span>, axis=<span class="syn-num">1</span>)
 
     <span class="syn-com"># 3. Tell observations back to the optimizer</span>
     opt.tell(candidates, scores)
 
-print(<span class="syn-str">"Best observed candidate:"</span>, opt.best_x)
-print(<span class="syn-str">"Best observed reward:"</span>, opt.best_y)</code></pre>
+print(<span class="syn-str">"Incumbent parameters:"</span>, opt.best_x)
+print(<span class="syn-str">"Incumbent reward:"</span>, opt.best_y)</code></pre>
         </div>
 
         <!-- Panel 2: ENN -->
@@ -143,18 +188,18 @@ print(<span class="syn-str">"Best observed reward:"</span>, opt.best_y)</code></
 <span class="syn-kw">from</span> baux.enn.enn_params <span class="syn-kw">import</span> ENNParams
 <span class="syn-kw">from</span> baux.index <span class="syn-kw">import</span> NeighborIndex
 
-<span class="syn-com"># Fit surrogate over observed points (train_x: NxD, train_y: Nx1)</span>
+<span class="syn-com"># Train surrogate on evaluated points (train_x: NxD, train_y: Nx1)</span>
 model = ENN(train_x, train_y, index_driver=NeighborIndex.FLAT)
 
-<span class="syn-com"># Query posterior distribution with calibrated k-nearest neighbors</span>
+<span class="syn-com"># Query posterior distribution with calibrated k-NN parameters</span>
 params = ENNParams(k_neighbors=<span class="syn-num">8</span>, epistemic_scale=<span class="syn-num">1.0</span>, aleatoric_scale=<span class="syn-num">0.1</span>)
 post = model.posterior(query_x, params=params)
 
 print(<span class="syn-str">"Posterior mean:"</span>, post.mu)
 print(<span class="syn-str">"Epistemic uncertainty (spatial sparsity):"</span>, post.se_epi)
-print(<span class="syn-str">"Aleatoric uncertainty (noise):"</span>, post.se_ale)
+print(<span class="syn-str">"Aleatoric uncertainty (measurement noise):"</span>, post.se_ale)
 
-<span class="syn-com"># Draw non-parametric posterior sample functions</span>
+<span class="syn-com"># Draw continuous non-parametric posterior sample functions</span>
 samples, indices = model.posterior_draw(query_x, params=params, function_seeds=[<span class="syn-num">42</span>])</code></pre>
         </div>
 
@@ -167,13 +212,13 @@ samples, indices = model.posterior_draw(query_x, params=params, function_seeds=[
 <span class="syn-kw">from</span> baux.botorch <span class="syn-kw">import</span> Model
 <span class="syn-kw">from</span> baux.enn.enn_params <span class="syn-kw">import</span> ENNParams
 
-<span class="syn-com"># Wrap an ENN model as a BoTorch-compatible Model</span>
-train_x = np.random.normal(size=(<span class="syn-num">20</span>, <span class="syn-num">3</span>))
-train_y = np.sin(train_x[:, :<span class="syn-num">1</span>])
-model = Model(ENN(train_x, train_y), ENNParams(k_neighbors=<span class="syn-num">4</span>, epistemic_scale=<span class="syn-num">1.0</span>, aleatoric_scale=<span class="syn-num">0.1</span>))
+<span class="syn-com"># Wrap an ENN surrogate model as a BoTorch-compatible Model</span>
+train_x = np.random.normal(size=(<span class="syn-num">24</span>, <span class="syn-num">4</span>))
+train_y = np.cos(train_x[:, :<span class="syn-num">1</span>])
+model = Model(ENN(train_x, train_y), ENNParams(k_neighbors=<span class="syn-num">6</span>))
 
-<span class="syn-com"># Query through standard BoTorch posterior interface</span>
-test_x = torch.randn(<span class="syn-num">5</span>, <span class="syn-num">3</span>, dtype=torch.double)
+<span class="syn-com"># Interoperate with BoTorch acquisition functions</span>
+test_x = torch.randn(<span class="syn-num">5</span>, <span class="syn-num">4</span>, dtype=torch.double)
 posterior = model.posterior(test_x)
 print(<span class="syn-str">"Mean:"</span>, posterior.mean)
 print(<span class="syn-str">"Variance:"</span>, posterior.variance)</code></pre>
@@ -188,110 +233,99 @@ print(<span class="syn-str">"Variance:"</span>, posterior.variance)</code></pre>
 <span class="syn-kw">from</span> optuna.distributions <span class="syn-kw">import</span> FloatDistribution
 
 search_space = {
-    <span class="syn-str">"x"</span>: FloatDistribution(-<span class="syn-num">5.0</span>, <span class="syn-num">5.0</span>),
-    <span class="syn-str">"y"</span>: FloatDistribution(-<span class="syn-num">5.0</span>, <span class="syn-num">5.0</span>),
+    <span class="syn-str">"learning_rate"</span>: FloatDistribution(<span class="syn-num">1e-4</span>, <span class="syn-num">1e-1</span>, log=<span class="syn-kw">True</span>),
+    <span class="syn-str">"weight_decay"</span>: FloatDistribution(<span class="syn-num">1e-6</span>, <span class="syn-num">1e-2</span>, log=<span class="syn-kw">True</span>),
 }
 sampler = Sampler(search_space, config=turbo_enn(), seed=<span class="syn-num">42</span>)
 
 <span class="syn-kw">def</span> <span class="syn-fn">objective</span>(trial):
-    x = trial.suggest_float(<span class="syn-str">"x"</span>, -<span class="syn-num">5.0</span>, <span class="syn-num">5.0</span>)
-    y = trial.suggest_float(<span class="syn-str">"y"</span>, -<span class="syn-num">5.0</span>, <span class="syn-num">5.0</span>)
-    <span class="syn-kw">return</span> -(x**<span class="syn-num">2</span> + y**<span class="syn-num">2</span>)
+    lr = trial.suggest_float(<span class="syn-str">"learning_rate"</span>, <span class="syn-num">1e-4</span>, <span class="syn-num">1e-1</span>, log=<span class="syn-kw">True</span>)
+    wd = trial.suggest_float(<span class="syn-str">"weight_decay"</span>, <span class="syn-num">1e-6</span>, <span class="syn-num">1e-2</span>, log=<span class="syn-kw">True</span>)
+    <span class="syn-kw">return</span> -( (lr - <span class="syn-num">0.01</span>)**<span class="syn-num">2</span> + (wd - <span class="syn-num">0.001</span>)**<span class="syn-num">2</span> )
 
 study = optuna.create_study(sampler=sampler, direction=<span class="syn-str">"maximize"</span>)
-study.optimize(objective, n_trials=<span class="syn-num">30</span>)
-print(<span class="syn-str">"Best parameters:"</span>, study.best_params)</code></pre>
+study.optimize(objective, n_trials=<span class="syn-num">40</span>)
+print(<span class="syn-str">"Optimized parameters:"</span>, study.best_params)</code></pre>
         </div>
 
         <!-- Panel 5: Rust -->
         <div class="code-panel" id="tab-rust">
           <button type="button" class="copy-btn">Copy</button>
-          <pre><code><span class="syn-com">// Add `baux = "0.0.5"` to Cargo.toml</span>
+          <pre><code><span class="syn-com">// Add `baux = "0.0.5"` to Cargo.toml dependencies</span>
 <span class="syn-kw">use</span> baux::neighbor_index::NeighborIndex;
 
 <span class="syn-kw">fn</span> <span class="syn-fn">main</span>() {
-    println!(<span class="syn-str">"baux Rust engine initialized with index: {:?}"</span>, NeighborIndex::Flat);
+    <span class="syn-com">// Instantiate flat L2 Euclidean distance index</span>
+    <span class="syn-kw">let</span> index = NeighborIndex::Flat;
+    println!(<span class="syn-str">"baux core engine active with index: {:?}"</span>, index);
 }</code></pre>
         </div>
       </div>
     </section>
 
-    <!-- TuRBO Details -->
-    <section id="turbo">
-      <h2>4. Trust-Region Mechanics (TuRBO)</h2>
-      <p>
-        TuRBO maintains a bounding hypercube of side length <em>L</em> centered at the best observed point (the incumbent):
-      </p>
-      <ul>
-        <li><strong>Expansion:</strong> When consecutive candidate batches yield discoveries that improve on the incumbent, the trust region expands (<em>L &larr; min(L &times; 1.5, L<sub>max</sub>)</em>).</li>
-        <li><strong>Contraction:</strong> When candidates stall across <em>failure_tolerance</em> consecutive batches, the trust region shrinks (<em>L &larr; max(L &times; 0.5, L<sub>min</sub>)</em>).</li>
-        <li><strong>Restart:</strong> If <em>L</em> shrinks below <em>length_min</em>, the trust region resets with a new anchor point to escape local traps.</li>
-      </ul>
-      <p>Pre-configured search policies:</p>
-      <ul>
-        <li><code>turbo_enn()</code>: Trust-region search using an Epistemic Nearest Neighbors surrogate.</li>
-        <li><code>turbo_one()</code>: Single trust region with Gaussian Process surrogate.</li>
-        <li><code>turbo_zero()</code>: Local trust-region search without a surrogate model.</li>
-      </ul>
-    </section>
-
-    <!-- ENN Details -->
-    <section id="enn">
-      <h2>5. Epistemic Nearest Neighbors (ENN)</h2>
-      <p>
-        ENN models function predictions by weighting observations by metric distance in the normalized input space:
-      </p>
-      <ul>
-        <li><code>post.mu</code>: Empirical weighted mean prediction at query coordinates.</li>
-        <li><code>post.se_epi</code>: Epistemic standard error, scaling with distance to the nearest evaluated points (large in unexplored space, small near observations).</li>
-        <li><code>post.se_ale</code>: Aleatoric noise floor, reflecting evaluation variability.</li>
-      </ul>
-    </section>
-
-    <!-- Hardware Capabilities -->
+    <!-- Section 4: Hardware Matrix -->
     <section id="hardware">
-      <h2>6. Hardware Backends &amp; Runtime Probing</h2>
-      <p>Query compiled and available hardware capabilities directly in Python:</p>
+      <h2>4. Hardware Backends &amp; Distribution</h2>
+      <p>
+        Hardware capabilities can be inspected programmatically at runtime to confirm which acceleration engine is active:
+      </p>
       <pre><code><span class="syn-kw">import</span> baux
 
 <span class="syn-kw">for</span> cap <span class="syn-kw">in</span> baux.capabilities():
-    state = <span class="syn-str">"available"</span> <span class="syn-kw">if</span> cap.available <span class="syn-kw">else</span> <span class="syn-str">"not available"</span>
-    print(f<span class="syn-str">"{cap.name}: {state}"</span>)</code></pre>
+    state = <span class="syn-str">"active"</span> <span class="syn-kw">if</span> cap.available <span class="syn-kw">else</span> <span class="syn-str">"inactive"</span>
+    print(f<span class="syn-str">"{cap.name:15}: {state} &mdash; {cap.description}"</span>)</code></pre>
 
-      <p>Pre-built binary wheels are published to PyPI for Python 3.12 through 3.15:</p>
-      <div class="data-table-wrap">
-        <table class="docs-table">
+      <div class="data-table-wrap breakout">
+        <table class="specimen-table">
           <thead>
             <tr>
-              <th>Platform</th>
+              <th>Target Platform</th>
               <th>Architecture</th>
-              <th>Hardware Acceleration</th>
-              <th>Wheel</th>
+              <th>Hardware Backend</th>
+              <th>Published Wheel</th>
             </tr>
           </thead>
           <tbody>
             <tr>
               <td><strong>macOS 11.0+</strong></td>
               <td>Apple Silicon (arm64)</td>
-              <td><span class="install-badge badge-metal">Metal</span> MPS Unified Memory</td>
-              <td><code>baux-0.0.5-*-macosx_11_0_arm64.whl</code></td>
+              <td><span class="install-badge badge-metal">Metal MPS</span> Unified Memory</td>
+              <td><code>baux-0.0.5-cp312-cp312-macosx_11_0_arm64.whl</code></td>
             </tr>
             <tr>
               <td><strong>Linux</strong></td>
               <td>x86_64</td>
               <td><span class="install-badge badge-cuda">CUDA</span> sm_75+ Tensor Cores</td>
-              <td><code>baux-0.0.5-*-manylinux_2_28_x86_64.whl</code></td>
+              <td><code>baux-0.0.5-cp312-cp312-manylinux_2_28_x86_64.whl</code></td>
             </tr>
             <tr>
               <td><strong>CPU Fallback</strong></td>
               <td>Any</td>
-              <td><span class="install-badge badge-cpu">CPU</span> AVX-512 &amp; NEON SIMD</td>
-              <td>Pure-Rust CPU routines</td>
+              <td><span class="install-badge badge-cpu">SIMD</span> AVX-512 &amp; ARM NEON</td>
+              <td>Pure-Rust native SIMD vectorization</td>
             </tr>
           </tbody>
         </table>
       </div>
+
+      <p>
+        For detailed method signatures, parameter tables, and mathematical guarantees, consult the companion <a href="docs.html">API Reference Manual</a>.
+      </p>
     </section>
+
+    <footer class="site-footer">
+      <div>
+        <span>&copy; 2026 Kvutza Lab</span>
+        <span class="meta-dot">&middot;</span>
+        <span>baux v0.0.5</span>
+      </div>
+      <div class="footer-links">
+        <a href="index.html">Monograph</a>
+        <a href="docs.html">API Reference</a>
+        <a href="https://github.com/Kvutza/baux" target="_blank" rel="noopener">GitHub</a>
+        <a href="https://pypi.org/project/baux/" target="_blank" rel="noopener">PyPI</a>
+      </div>
+    </footer>
   </main>
 
   <script src="assets/baux_ui.js"></script>

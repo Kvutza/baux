@@ -3,295 +3,301 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>baux — Black Box Optimization</title>
+  <title>baux — API Reference</title>
   <link rel="stylesheet" href="assets/site_style.css" />
 </head>
 <body>
-  <header class="top-header">
-    <div class="header-container">
-      <a href="#" class="brand">baux</a>
-      <nav class="nav-links">
-        <a href="#installation" class="nav-link">Install</a>
-        <a href="#lineage" class="nav-link">Lineage</a>
-        <a href="#quickstart" class="nav-link">Quickstart</a>
-        <a href="#turbo" class="nav-link">TuRBO</a>
-        <a href="#enn" class="nav-link">ENN</a>
-        <a href="#hardware" class="nav-link">Hardware</a>
-      </nav>
-      <div class="nav-actions">
-        <button type="button" class="header-btn" id="theme-toggle-btn" title="Toggle theme">
+  <header class="site-header">
+    <div class="header-inner">
+      <div class="header-brand">
+        <a href="index.html" class="brand-title">baux</a>
+        <span class="brand-tag">research / documentation</span>
+      </div>
+      <nav class="header-nav">
+        <a href="index.html" class="nav-link">Monograph</a>
+        <a href="docs.html" class="nav-link active">API Reference</a>
+        <a href="https://github.com/Kvutza/baux" class="nav-link" target="_blank" rel="noopener">GitHub &nearr;</a>
+        <a href="https://pypi.org/project/baux/" class="nav-link" target="_blank" rel="noopener">PyPI &nearr;</a>
+        <button type="button" class="theme-toggle-btn" id="theme-toggle-btn" title="Toggle color theme">
           <span id="theme-toggle-label">Light</span>
         </button>
-        <a href="https://github.com/Kvutza/baux" class="header-btn" target="_blank" rel="noopener">
-          <span>GitHub &nearr;</span>
-        </a>
-      </div>
+      </nav>
     </div>
   </header>
 
-  <main class="main-wrapper">
-    <div class="hero">
-      <div class="hero-pill">v0.0.5 &middot; Python &amp; Rust &middot; Metal &amp; CUDA</div>
-      <h1 class="hero-title">baux</h1>
-      <p class="hero-lead">A black box optimization library in Python and Rust.</p>
+  <main class="document-container">
+    <header class="document-header">
+      <h1 class="article-title">API Reference</h1>
+      <p class="article-subhead">Complete interface specifications, mathematical contracts, and runtime guarantees.</p>
+      <div class="article-metadata">
+        <span>v0.0.5</span>
+        <span class="meta-dot">&middot;</span>
+        <span>Python &amp; Rust</span>
+        <span class="meta-dot">&middot;</span>
+        <a href="index.html">&larr; Return to Monograph</a>
+      </div>
+    </header>
+
+    <!-- Overview Note -->
+    <div class="abstract-box">
+      <p>
+        This document defines the formal public API for the <code>baux</code> library across Python 3.12&ndash;3.15 and native Rust. All coordinates and candidate bounds follow continuous \([ \text{lower}, \text{upper} ]\) bounding hypercubes. baux models objectives under a <strong>maximization</strong> contract.
+      </p>
     </div>
 
-    <!-- Installation Terminal -->
-    <div class="install-terminal" id="installation">
-      <div class="install-header">
-        <div class="terminal-dots">
-          <span class="dot red"></span>
-          <span class="dot yellow"></span>
-          <span class="dot green"></span>
-        </div>
-        <div class="install-pills">
-          <button type="button" class="install-pill active" data-platform="macos">macOS (Metal)</button>
-          <button type="button" class="install-pill" data-platform="linux">Linux (CUDA)</button>
-          <button type="button" class="install-pill" data-platform="cpu">CPU SIMD</button>
-        </div>
-      </div>
-      <div class="install-body">
-        <span class="prompt">$</span>
-        <span class="install-cmd-text" id="install-cmd-text">pip install baux</span>
-        <button type="button" class="copy-btn" id="install-copy-btn">Copy</button>
-      </div>
-      <div class="install-footer" id="install-details">
-        <span class="install-badge badge-metal">Metal MPS</span>
-        <span>Pre-compiled wheel with unified memory acceleration for Apple Silicon (M1&ndash;M4).</span>
-      </div>
-    </div>
-
-    <!-- Overview -->
-    <section id="overview">
-      <h2>1. Overview</h2>
+    <!-- Section 1: Core Optimizer -->
+    <section id="core-optimizer">
+      <h2>1. Core Optimizer: <code>baux.create_optimizer</code></h2>
       <p>
-        <strong>baux</strong> implements an ask/tell optimization loop using trust-region search (TuRBO) and Epistemic Nearest Neighbors (ENN), with acceleration on Apple Silicon (Metal), NVIDIA GPUs (CUDA), and CPU SIMD:
+        The primary factory function for instantiating black box trust-region optimizers:
       </p>
-      <ul>
-        <li><strong>Trust-Region Search (TuRBO):</strong> Proposes candidate batches inside a local hypercube centered at the incumbent. Dynamically expands upon consecutive successes and contracts upon stagnation.</li>
-        <li><strong>Epistemic Nearest Neighbors (ENN):</strong> Decomposes uncertainty into epistemic (spatial sparsity of evaluations) and aleatoric (observation noise) components through calibrated <em>k</em>-nearest neighbor distance fields.</li>
-        <li><strong>Resident GPU Execution:</strong> State updates, distance metrics, and candidate sampling run on-device (Apple Silicon Metal MPS or NVIDIA CUDA) with zero host synchronization per evaluation.</li>
-      </ul>
-    </section>
+      <pre><code><span class="syn-fn">create_optimizer</span>(
+    bounds: np.ndarray,
+    config: Optional[OptimizerConfig] = <span class="syn-kw">None</span>,
+    rng: Optional[np.random.Generator] = <span class="syn-kw">None</span>,
+) -&gt; Optimizer</code></pre>
 
-    <!-- Baseline & Lineage -->
-    <section id="lineage">
-      <h2>2. Baseline &amp; Lineage</h2>
-      <p>
-        <strong>baux</strong> builds on <a href="https://github.com/yubo-research/enn" target="_blank" rel="noopener"><code>yubo-research/enn</code></a> (v0.4.1), using its TuRBO trust-region state machine and Epistemic Nearest Neighbors formulation as the algorithmic baseline.
-      </p>
-      <p>It extends this baseline with:</p>
-      <ul>
-        <li><strong>A single crate:</strong> Consolidates <code>ennbo</code>, <code>bpann</code>, and <code>enn-py</code> into a single self-contained <code>baux</code> library and binary wheel (<code>pip install baux</code>).</li>
-        <li><strong>GPU acceleration:</strong> Implements Apple Silicon Metal and NVIDIA CUDA compute kernels.</li>
-        <li><strong>Direct interface:</strong> Exposes a clean <code>ask</code>/<code>tell</code> loop with native batch proposals.</li>
-      </ul>
-    </section>
-
-    <!-- Quickstart -->
-    <section id="quickstart">
-      <h2>3. Quickstart (Ask / Tell Loop)</h2>
-      <p>
-        The core optimization flow is a clean <code>ask(batch_size)</code> and <code>tell(candidates, scores)</code> loop:
-      </p>
-
-      <div class="code-hub">
-        <div class="code-hub-tabs">
-          <button type="button" class="code-tab-btn active" data-tab="tab-quickstart">Ask / Tell Loop</button>
-          <button type="button" class="code-tab-btn" data-tab="tab-enn">ENN Surrogate</button>
-          <button type="button" class="code-tab-btn" data-tab="tab-botorch">BoTorch Interop</button>
-          <button type="button" class="code-tab-btn" data-tab="tab-optuna">Optuna Sampler</button>
-          <button type="button" class="code-tab-btn" data-tab="tab-rust">Rust Crate</button>
-        </div>
-
-        <!-- Panel 1: Quickstart -->
-        <div class="code-panel active" id="tab-quickstart">
-          <button type="button" class="copy-btn">Copy</button>
-          <pre><code><span class="syn-kw">import</span> numpy <span class="syn-kw">as</span> np
-<span class="syn-kw">from</span> baux <span class="syn-kw">import</span> create_optimizer, turbo_enn
-
-<span class="syn-com"># Define parameter bounds: 2 continuous dimensions in [-2.0, 2.0]</span>
-bounds = np.array([[-<span class="syn-num">2.0</span>, <span class="syn-num">2.0</span>], [-<span class="syn-num">2.0</span>, <span class="syn-num">2.0</span>]])
-
-<span class="syn-com"># Create optimizer with TuRBO trust-region and ENN surrogate</span>
-opt = create_optimizer(
-    bounds=bounds,
-    config=turbo_enn(),
-    rng=np.random.default_rng(<span class="syn-num">42</span>),
-)
-
-<span class="syn-com"># Run optimization rounds</span>
-<span class="syn-kw">for</span> iteration <span class="syn-kw">in</span> range(<span class="syn-num">20</span>):
-    <span class="syn-com"># 1. Ask for a batch of candidate points</span>
-    candidates = opt.ask(<span class="syn-num">4</span>)
-
-    <span class="syn-com"># 2. Evaluate your objective function (baux maximizes rewards)</span>
-    scores = -np.sum(candidates**<span class="syn-num">2</span>, axis=<span class="syn-num">1</span>)
-
-    <span class="syn-com"># 3. Tell observations back to the optimizer</span>
-    opt.tell(candidates, scores)
-
-print(<span class="syn-str">"Best observed candidate:"</span>, opt.best_x)
-print(<span class="syn-str">"Best observed reward:"</span>, opt.best_y)</code></pre>
-        </div>
-
-        <!-- Panel 2: ENN -->
-        <div class="code-panel" id="tab-enn">
-          <button type="button" class="copy-btn">Copy</button>
-          <pre><code><span class="syn-kw">import</span> numpy <span class="syn-kw">as</span> np
-<span class="syn-kw">from</span> baux <span class="syn-kw">import</span> ENN
-<span class="syn-kw">from</span> baux.enn.enn_params <span class="syn-kw">import</span> ENNParams
-<span class="syn-kw">from</span> baux.index <span class="syn-kw">import</span> NeighborIndex
-
-<span class="syn-com"># Fit surrogate over observed points (train_x: NxD, train_y: Nx1)</span>
-model = ENN(train_x, train_y, index_driver=NeighborIndex.FLAT)
-
-<span class="syn-com"># Query posterior distribution with calibrated k-nearest neighbors</span>
-params = ENNParams(k_neighbors=<span class="syn-num">8</span>, epistemic_scale=<span class="syn-num">1.0</span>, aleatoric_scale=<span class="syn-num">0.1</span>)
-post = model.posterior(query_x, params=params)
-
-print(<span class="syn-str">"Posterior mean:"</span>, post.mu)
-print(<span class="syn-str">"Epistemic uncertainty (spatial sparsity):"</span>, post.se_epi)
-print(<span class="syn-str">"Aleatoric uncertainty (noise):"</span>, post.se_ale)
-
-<span class="syn-com"># Draw non-parametric posterior sample functions</span>
-samples, indices = model.posterior_draw(query_x, params=params, function_seeds=[<span class="syn-num">42</span>])</code></pre>
-        </div>
-
-        <!-- Panel 3: BoTorch -->
-        <div class="code-panel" id="tab-botorch">
-          <button type="button" class="copy-btn">Copy</button>
-          <pre><code><span class="syn-kw">import</span> torch
-<span class="syn-kw">import</span> numpy <span class="syn-kw">as</span> np
-<span class="syn-kw">from</span> baux <span class="syn-kw">import</span> ENN
-<span class="syn-kw">from</span> baux.botorch <span class="syn-kw">import</span> Model
-<span class="syn-kw">from</span> baux.enn.enn_params <span class="syn-kw">import</span> ENNParams
-
-<span class="syn-com"># Wrap an ENN model as a BoTorch-compatible Model</span>
-train_x = np.random.normal(size=(<span class="syn-num">20</span>, <span class="syn-num">3</span>))
-train_y = np.sin(train_x[:, :<span class="syn-num">1</span>])
-model = Model(ENN(train_x, train_y), ENNParams(k_neighbors=<span class="syn-num">4</span>, epistemic_scale=<span class="syn-num">1.0</span>, aleatoric_scale=<span class="syn-num">0.1</span>))
-
-<span class="syn-com"># Query through standard BoTorch posterior interface</span>
-test_x = torch.randn(<span class="syn-num">5</span>, <span class="syn-num">3</span>, dtype=torch.double)
-posterior = model.posterior(test_x)
-print(<span class="syn-str">"Mean:"</span>, posterior.mean)
-print(<span class="syn-str">"Variance:"</span>, posterior.variance)</code></pre>
-        </div>
-
-        <!-- Panel 4: Optuna -->
-        <div class="code-panel" id="tab-optuna">
-          <button type="button" class="copy-btn">Copy</button>
-          <pre><code><span class="syn-kw">import</span> optuna
-<span class="syn-kw">from</span> baux <span class="syn-kw">import</span> turbo_enn
-<span class="syn-kw">from</span> baux.optuna <span class="syn-kw">import</span> Sampler
-<span class="syn-kw">from</span> optuna.distributions <span class="syn-kw">import</span> FloatDistribution
-
-search_space = {
-    <span class="syn-str">"x"</span>: FloatDistribution(-<span class="syn-num">5.0</span>, <span class="syn-num">5.0</span>),
-    <span class="syn-str">"y"</span>: FloatDistribution(-<span class="syn-num">5.0</span>, <span class="syn-num">5.0</span>),
-}
-sampler = Sampler(search_space, config=turbo_enn(), seed=<span class="syn-num">42</span>)
-
-<span class="syn-kw">def</span> <span class="syn-fn">objective</span>(trial):
-    x = trial.suggest_float(<span class="syn-str">"x"</span>, -<span class="syn-num">5.0</span>, <span class="syn-num">5.0</span>)
-    y = trial.suggest_float(<span class="syn-str">"y"</span>, -<span class="syn-num">5.0</span>, <span class="syn-num">5.0</span>)
-    <span class="syn-kw">return</span> -(x**<span class="syn-num">2</span> + y**<span class="syn-num">2</span>)
-
-study = optuna.create_study(sampler=sampler, direction=<span class="syn-str">"maximize"</span>)
-study.optimize(objective, n_trials=<span class="syn-num">30</span>)
-print(<span class="syn-str">"Best parameters:"</span>, study.best_params)</code></pre>
-        </div>
-
-        <!-- Panel 5: Rust -->
-        <div class="code-panel" id="tab-rust">
-          <button type="button" class="copy-btn">Copy</button>
-          <pre><code><span class="syn-com">// Add `baux = "0.0.5"` to Cargo.toml</span>
-<span class="syn-kw">use</span> baux::neighbor_index::NeighborIndex;
-
-<span class="syn-kw">fn</span> <span class="syn-fn">main</span>() {
-    println!(<span class="syn-str">"baux Rust engine initialized with index: {:?}"</span>, NeighborIndex::Flat);
-}</code></pre>
-        </div>
-      </div>
-    </section>
-
-    <!-- TuRBO Details -->
-    <section id="turbo">
-      <h2>4. Trust-Region Mechanics (TuRBO)</h2>
-      <p>
-        TuRBO maintains a bounding hypercube of side length <em>L</em> centered at the best observed point (the incumbent):
-      </p>
-      <ul>
-        <li><strong>Expansion:</strong> When consecutive candidate batches yield discoveries that improve on the incumbent, the trust region expands (<em>L &larr; min(L &times; 1.5, L<sub>max</sub>)</em>).</li>
-        <li><strong>Contraction:</strong> When candidates stall across <em>failure_tolerance</em> consecutive batches, the trust region shrinks (<em>L &larr; max(L &times; 0.5, L<sub>min</sub>)</em>).</li>
-        <li><strong>Restart:</strong> If <em>L</em> shrinks below <em>length_min</em>, the trust region resets with a new anchor point to escape local traps.</li>
-      </ul>
-      <p>Pre-configured search policies:</p>
-      <ul>
-        <li><code>turbo_enn()</code>: Trust-region search using an Epistemic Nearest Neighbors surrogate.</li>
-        <li><code>turbo_one()</code>: Single trust region with Gaussian Process surrogate.</li>
-        <li><code>turbo_zero()</code>: Local trust-region search without a surrogate model.</li>
-      </ul>
-    </section>
-
-    <!-- ENN Details -->
-    <section id="enn">
-      <h2>5. Epistemic Nearest Neighbors (ENN)</h2>
-      <p>
-        ENN models function predictions by weighting observations by metric distance in the normalized input space:
-      </p>
-      <ul>
-        <li><code>post.mu</code>: Empirical weighted mean prediction at query coordinates.</li>
-        <li><code>post.se_epi</code>: Epistemic standard error, scaling with distance to the nearest evaluated points (large in unexplored space, small near observations).</li>
-        <li><code>post.se_ale</code>: Aleatoric noise floor, reflecting evaluation variability.</li>
-      </ul>
-    </section>
-
-    <!-- Hardware Capabilities -->
-    <section id="hardware">
-      <h2>6. Hardware Backends &amp; Runtime Probing</h2>
-      <p>Query compiled and available hardware capabilities directly in Python:</p>
-      <pre><code><span class="syn-kw">import</span> baux
-
-<span class="syn-kw">for</span> cap <span class="syn-kw">in</span> baux.capabilities():
-    state = <span class="syn-str">"available"</span> <span class="syn-kw">if</span> cap.available <span class="syn-kw">else</span> <span class="syn-str">"not available"</span>
-    print(f<span class="syn-str">"{cap.name}: {state}"</span>)</code></pre>
-
-      <p>Pre-built binary wheels are published to PyPI for Python 3.12 through 3.15:</p>
       <div class="data-table-wrap">
-        <table class="docs-table">
+        <table class="specimen-table">
           <thead>
             <tr>
-              <th>Platform</th>
-              <th>Architecture</th>
-              <th>Hardware Acceleration</th>
-              <th>Wheel</th>
+              <th>Parameter</th>
+              <th>Type</th>
+              <th>Default</th>
+              <th>Description</th>
             </tr>
           </thead>
           <tbody>
             <tr>
-              <td><strong>macOS 11.0+</strong></td>
-              <td>Apple Silicon (arm64)</td>
-              <td><span class="install-badge badge-metal">Metal</span> MPS Unified Memory</td>
-              <td><code>baux-0.0.5-*-macosx_11_0_arm64.whl</code></td>
+              <td><code>bounds</code></td>
+              <td><code>np.ndarray</code></td>
+              <td><em>required</em></td>
+              <td>2D array of shape <code>(D, 2)</code> with <code>float64</code> row entries <code>[lower, upper]</code>. Must satisfy <code>lower &lt; upper</code> for each dimension.</td>
             </tr>
             <tr>
-              <td><strong>Linux</strong></td>
-              <td>x86_64</td>
-              <td><span class="install-badge badge-cuda">CUDA</span> sm_75+ Tensor Cores</td>
-              <td><code>baux-0.0.5-*-manylinux_2_28_x86_64.whl</code></td>
+              <td><code>config</code></td>
+              <td><code>OptimizerConfig</code></td>
+              <td><code>turbo_enn()</code></td>
+              <td>Search policy configuration. Built using <code>turbo_enn()</code>, <code>turbo_one()</code>, or <code>turbo_zero()</code>.</td>
             </tr>
             <tr>
-              <td><strong>CPU Fallback</strong></td>
-              <td>Any</td>
-              <td><span class="install-badge badge-cpu">CPU</span> AVX-512 &amp; NEON SIMD</td>
-              <td>Pure-Rust CPU routines</td>
+              <td><code>rng</code></td>
+              <td><code>np.random.Generator</code></td>
+              <td><code>None</code></td>
+              <td>Optional seeded NumPy random generator for deterministic candidate generation.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="aside-box">
+        <strong>Invariants:</strong> Bounds must be finite real numbers. If bounds contain NaNs or infinite bounds, <code>ValueError</code> is raised. Inputs are internally normalized into the unit hypercube \([0, 1]^D\) during search.
+      </div>
+    </section>
+
+    <!-- Section 2: Optimizer Interface -->
+    <section id="optimizer-methods">
+      <h2>2. <code>Optimizer</code> Methods &amp; Properties</h2>
+      <p>
+        The object returned by <code>create_optimizer</code> implements the non-blocking <code>ask</code> / <code>tell</code> interface:
+      </p>
+
+      <h3><code>ask(batch_size: int = 1) -&gt; np.ndarray</code></h3>
+      <p>
+        Proposes a batch of candidate points located inside the active trust region \(\mathcal{TR}_t\).
+      </p>
+      <ul>
+        <li><strong>Arguments:</strong> <code>batch_size</code> (positive integer, number of trials to sample).</li>
+        <li><strong>Returns:</strong> 2D NumPy array of shape <code>(batch_size, D)</code> within parameter bounds.</li>
+        <li><strong>Latency:</strong> Evaluated on GPU (Metal MPS or CUDA) when hardware is present; runs sub-millisecond on CPU SIMD fallback.</li>
+      </ul>
+
+      <h3><code>tell(candidates: np.ndarray, scores: np.ndarray) -&gt; None</code></h3>
+      <p>
+        Updates the optimizer state with observed evaluations.
+      </p>
+      <ul>
+        <li><strong>Arguments:</strong>
+          <ul>
+            <li><code>candidates</code>: 2D array of shape <code>(B, D)</code> containing evaluated points.</li>
+            <li><code>scores</code>: 1D array of shape <code>(B,)</code> containing scalar objective evaluations.</li>
+          </ul>
+        </li>
+        <li><strong>Objective:</strong> baux maximizes objective scores. To minimize a loss \(f(x)\), pass \(-f(x)\).</li>
+        <li><strong>State Machine:</strong> Evaluates whether any point in <code>scores</code> exceeds the incumbent by at least the improvement threshold. Expands or shrinks the trust region side length \(L_t\) accordingly.</li>
+      </ul>
+
+      <h3>Incumbent Properties</h3>
+      <ul>
+        <li><code>opt.best_x -&gt; np.ndarray</code>: 1D array of shape <code>(D,)</code> representing the coordinates of the highest-scoring candidate observed thus far.</li>
+        <li><code>opt.best_y -&gt; float</code>: Scalar float representing the highest score observed.</li>
+      </ul>
+    </section>
+
+    <!-- Section 3: Configurations -->
+    <section id="configurations">
+      <h2>3. Trust-Region Configurations</h2>
+      <p>
+        Pre-built configuration factories define the search policy and surrogate model:
+      </p>
+
+      <div class="data-table-wrap">
+        <table class="specimen-table">
+          <thead>
+            <tr>
+              <th>Factory Function</th>
+              <th>Surrogate Engine</th>
+              <th>Typical Application</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>turbo_enn()</code></td>
+              <td>Epistemic Nearest Neighbors</td>
+              <td>Default recommended policy. Non-parametric uncertainty modeling with sub-millisecond proposal latency. Scales to 10,000+ trials.</td>
+            </tr>
+            <tr>
+              <td><code>turbo_one()</code></td>
+              <td>Gaussian Process (Exact)</td>
+              <td>Single trust region with exact GP kernel inference. Suited for low evaluation counts (&lt; 200 trials).</td>
+            </tr>
+            <tr>
+              <td><code>turbo_zero()</code></td>
+              <td>None (Model-free)</td>
+              <td>Direct local trust-region perturbation without surrogate fitting. Ideal for noisy or discontinuous functions.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>Tunable TuRBO hyperparameters accepted across all configuration builders:</p>
+      <ul>
+        <li><code>length_min: float = 0.5**7</code> &mdash; Minimum trust region side length before triggering a restart.</li>
+        <li><code>length_max: float = 1.6</code> &mdash; Maximum trust region side length cap.</li>
+        <li><code>success_tolerance: int = 3</code> &mdash; Consecutive discovery rounds required to trigger trust region expansion (\(L \times 1.5\)).</li>
+        <li><code>failure_tolerance: int = 5</code> &mdash; Consecutive stagnation rounds tolerated before trust region contraction (\(L \times 0.5\)).</li>
+        <li><code>batch_size: int = 4</code> &mdash; Default proposal batch size.</li>
+      </ul>
+    </section>
+
+    <!-- Section 4: ENN Surrogate -->
+    <section id="enn-surrogate">
+      <h2>4. Epistemic Nearest Neighbors (ENN)</h2>
+      <p>
+        The ENN model provides stand-alone non-parametric regression and posterior uncertainty quantification:
+      </p>
+
+      <pre><code><span class="syn-kw">from</span> baux <span class="syn-kw">import</span> ENN
+<span class="syn-kw">from</span> baux.enn.enn_params <span class="syn-kw">import</span> ENNParams
+<span class="syn-kw">from</span> baux.index <span class="syn-kw">import</span> NeighborIndex
+
+<span class="syn-com"># Initialize model with training coordinates (N, D) and targets (N, 1)</span>
+model = ENN(train_x, train_y, index_driver=NeighborIndex.FLAT)
+
+<span class="syn-com"># Configure k-NN parameters</span>
+params = ENNParams(k_neighbors=<span class="syn-num">8</span>, epistemic_scale=<span class="syn-num">1.0</span>, aleatoric_scale=<span class="syn-num">0.1</span>)
+
+<span class="syn-com"># Compute posterior distribution at query locations (M, D)</span>
+post = model.posterior(query_x, params=params)</code></pre>
+
+      <h3><code>Posterior</code> Attributes</h3>
+      <ul>
+        <li><code>post.mu: np.ndarray</code> &mdash; Posterior mean predictions at query coordinates (shape <code>(M, 1)</code>).</li>
+        <li><code>post.se_epi: np.ndarray</code> &mdash; Epistemic standard error reflecting spatial evaluation sparsity (shape <code>(M, 1)</code>).</li>
+        <li><code>post.se_ale: np.ndarray</code> &mdash; Aleatoric noise standard deviation (shape <code>(M, 1)</code>).</li>
+      </ul>
+
+      <h3><code>posterior_draw(query_x, params=None, function_seeds=None)</code></h3>
+      <p>
+        Draws continuous sample paths directly from the non-parametric posterior distribution:
+      </p>
+      <ul>
+        <li><strong>Arguments:</strong> <code>query_x</code> (shape <code>(M, D)</code>), optional <code>params</code>, and <code>function_seeds</code> (list of integers).</li>
+        <li><strong>Returns:</strong> <code>(samples, neighbor_indices)</code> where <code>samples</code> is of shape <code>(M, len(function_seeds))</code>.</li>
+        <li><strong>Thompson Sampling:</strong> Enables batch acquisition without constructing or factorizing \(N \times N\) covariance matrices.</li>
+      </ul>
+    </section>
+
+    <!-- Section 5: Adapters -->
+    <section id="adapters">
+      <h2>5. Framework Interoperability</h2>
+
+      <h3>BoTorch Integration (<code>baux.botorch.Model</code>)</h3>
+      <p>
+        Wraps an ENN model as a standard PyTorch / BoTorch surrogate:
+      </p>
+      <pre><code><span class="syn-kw">from</span> baux.botorch <span class="syn-kw">import</span> Model
+
+model = Model(ENN(train_x, train_y), params=ENNParams(k_neighbors=<span class="syn-num">6</span>))
+posterior = model.posterior(torch_test_x)
+<span class="syn-com"># Compatible with botorch.acquisition functions</span></code></pre>
+
+      <h3>Optuna Integration (<code>baux.optuna.Sampler</code>)</h3>
+      <p>
+        Provides a native search sampler for Optuna hyperparameter optimization:
+      </p>
+      <pre><code><span class="syn-kw">import</span> optuna
+<span class="syn-kw">from</span> baux <span class="syn-kw">import</span> turbo_enn
+<span class="syn-kw">from</span> baux.optuna <span class="syn-kw">import</span> Sampler
+
+sampler = Sampler(search_space, config=turbo_enn(), seed=<span class="syn-num">42</span>)
+study = optuna.create_study(sampler=sampler, direction=<span class="syn-str">"maximize"</span>)</code></pre>
+    </section>
+
+    <!-- Section 6: Hardware Introspection -->
+    <section id="hardware-introspection">
+      <h2>6. Hardware Introspection</h2>
+      <p>
+        Query compiled and available hardware execution backends at runtime:
+      </p>
+      <pre><code><span class="syn-kw">import</span> baux
+
+<span class="syn-kw">for</span> cap <span class="syn-kw">in</span> baux.capabilities():
+    print(f<span class="syn-str">"{cap.name}: available={cap.available}"</span>)</code></pre>
+
+      <div class="data-table-wrap">
+        <table class="specimen-table">
+          <thead>
+            <tr>
+              <th>Capability</th>
+              <th>Condition for Activation</th>
+              <th>Execution Mechanism</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>metal</code></td>
+              <td>macOS running on Apple Silicon (arm64, M1&ndash;M4)</td>
+              <td>Metal Shading Language (MSL) compute shaders with unified memory zero-copy buffers.</td>
+            </tr>
+            <tr>
+              <td><code>cuda</code></td>
+              <td>Linux with NVIDIA GPU (Compute Capability &ge; 7.5)</td>
+              <td>Custom CUDA C++ kernels utilizing Tensor Cores for batch distance calculations.</td>
+            </tr>
+            <tr>
+              <td><code>simd_cpu</code></td>
+              <td>Always available on all platforms</td>
+              <td>Pure-Rust AVX-512 (x86_64) and ARM NEON (aarch64) vector instructions.</td>
             </tr>
           </tbody>
         </table>
       </div>
     </section>
+
+    <footer class="site-footer">
+      <div>
+        <span>&copy; 2026 Kvutza Lab</span>
+        <span class="meta-dot">&middot;</span>
+        <span>baux v0.0.5</span>
+      </div>
+      <div class="footer-links">
+        <a href="index.html">Monograph</a>
+        <a href="docs.html">API Reference</a>
+        <a href="https://github.com/Kvutza/baux" target="_blank" rel="noopener">GitHub</a>
+        <a href="https://pypi.org/project/baux/" target="_blank" rel="noopener">PyPI</a>
+      </div>
+    </footer>
   </main>
 
   <script src="assets/baux_ui.js"></script>

@@ -57,6 +57,94 @@ let protocol_checks pipeline =
     (Bits.to_unsigned_int !result = 3 * 64 * 64)
     "reset retained stale accumulator"
 
+let worker_checks () =
+  let open Yojson.Basic.Util in
+  let evaluate = Search.create 1 in
+  let request bits seed weights =
+    `Assoc
+      [
+        ("version", `Int 1);
+        ("dimension", `Int 3);
+        ("bits", `Int bits);
+        ("lanes", `Int 2);
+        ("pipeline", `Bool true);
+        ("target_seed", `Int seed);
+        ( "weights",
+          `List (Array.to_list (Array.map (fun x -> `Float x) weights)) );
+      ]
+  in
+  let weights = [| 0.; 0.25; -0.5 |] in
+  let original = request 8 19 weights in
+  let first = evaluate original in
+  let second = evaluate original in
+  check (not (first |> member "cache_hit" |> to_bool)) "cold cache hit";
+  check (second |> member "cache_hit" |> to_bool) "simulator not reused";
+  List.iter
+    (fun key ->
+      check (member key first = member key second) "cached result changed")
+    [ "loss"; "reference_loss"; "cycles" ];
+  let changed = evaluate (request 8 23 weights) in
+  check
+    (member "reference_loss" changed <> member "reference_loss" first)
+    "regime change did not change target";
+  ignore (evaluate (request 12 19 weights));
+  let evicted = evaluate original in
+  check (not (evicted |> member "cache_hit" |> to_bool)) "LRU capacity ignored";
+  check
+    (evicted |> member "cache_entries" |> to_int = 1)
+    "cache grew past capacity";
+  check (member "loss" first = member "loss" evicted) "eviction changed result";
+  let target = Search.target ~dimension:3 ~seed:19 in
+  let optimum = evaluate (request 12 19 target) in
+  check (optimum |> member "loss" |> to_float = 0.) "target not circuit optimum";
+  check
+    (optimum |> member "reference_loss" |> to_float = 0.)
+    "reference optimum";
+  rejects (fun () -> evaluate (request 8 19 [| 0. |]));
+  rejects (fun () -> Search.create 0)
+
+let cache_stress () =
+  let open Yojson.Basic.Util in
+  let evaluate = Search.create 8 in
+  let checked = ref 0 in
+  List.iter
+    (fun dimension ->
+      let weights =
+        `List (List.init dimension (fun i -> `Float (sin (float_of_int i))))
+      in
+      for bits = 4 to 20 do
+        for lanes = 1 to 32 do
+          List.iter
+            (fun pipeline ->
+              let result =
+                evaluate
+                  (`Assoc
+                    [
+                      ("version", `Int 1);
+                      ("dimension", `Int dimension);
+                      ("bits", `Int bits);
+                      ("lanes", `Int lanes);
+                      ("pipeline", `Bool pipeline);
+                      ("target_seed", `Int 101);
+                      ("weights", weights);
+                    ])
+              in
+              check
+                (not (result |> member "cache_hit" |> to_bool))
+                "distinct circuits aliased in cache";
+              check
+                (result |> member "cache_entries" |> to_int <= 8)
+                "cache stress exceeded capacity";
+              check
+                (Float.is_finite (result |> member "loss" |> to_float))
+                "nonfinite circuit result";
+              incr checked)
+            [ false; true ]
+        done
+      done)
+    [ 32; 64 ];
+  Printf.printf "Hardcaml cache stress: %d distinct circuits checked\n" !checked
+
 let () =
   let configurations = ref 0 and checked = ref 0 in
   List.iter
@@ -100,6 +188,8 @@ let () =
         [ 4; 8; 12; 20 ])
     [ 1; 3; 17; 64; 1024 ];
   List.iter protocol_checks [ false; true ];
+  worker_checks ();
+  cache_stress ();
   let d = { D.dimension = 1; bits = 4; lanes = 1; pipeline = false } in
   check
     (D.quantize d 0.125 = 1 && D.quantize d (-0.125) = -1)

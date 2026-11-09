@@ -1,0 +1,50 @@
+version = 1
+experiment = "hardcaml-flowlob"
+seeds = [17]
+budgets = [2]
+methods = ["fixed", "random", "baux"]
+bits = [24, 28]
+lanes = [4, 8]
+pipelines = [false, true]
+# Controlled synthetic regime changes; no calibrated-market claim.
+target-seeds = [101, 203]
+inner-evaluations = 8
+cycle-budget = 350000000
+cache-capacity = 4
+workers = 2
+
+[flow]
+# Complete 640-token graph at reduced width. These are reconstruction choices,
+# not the undisclosed exact configuration of the authors' ~100M model.
+models = [
+  { levels = 20, steps = 32, width = 8, depth = 2, heads = 2, expansion = 4 },
+  { levels = 20, steps = 32, width = 16, depth = 2, heads = 4, expansion = 4 },
+]
+banks = [2, 8]
+queues = [1, 4]
+samples = 1
+# "rtl" executes every kernel cycle in Hardcaml. "integer" executes the same
+# fixed-point primitives and independent transfer/FIFO schedule in software.
+backend = "integer"
+ready-period = 1
+initial-seed = 41
+radius = 0.1
+solver = "euler"
+solver-steps = 10
+guidance = 1.0
+# Optional dataset JSON contains version=1 and train/validation/test arrays.
+# Each entry has tick_size, previous_mid, time_of_day and past/future windows;
+# each snapshot has prices and volumes ordered outer ask to outer bid.
+# Optional checkpoint JSON has version=1, model and flattened weights.
+
+[inner]
+algorithm = "bayesian-search"
+candidates = 32
+arms = 1
+acquisition = "thompson"
+
+[outer]
+algorithm = "bayesian-search"
+candidates = 32
+arms = 1
+acquisition = "thompson"

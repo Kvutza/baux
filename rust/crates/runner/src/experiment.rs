@@ -8,6 +8,7 @@ use baux_tooling::terminal::{self, Tag};
 
 use baux_tooling::build::BuildSystem;
 
+mod hardcaml;
 mod pretrain;
 mod regional;
 mod tokamak;
@@ -18,6 +19,9 @@ pub(crate) fn run(
     rounds: Option<u32>,
     engine: BuildSystem,
 ) -> Result<(), String> {
+    if hardcaml::execute(root, path, rounds, engine)? {
+        return Ok(());
+    }
     if regional::execute(root, path, rounds)? {
         return Ok(());
     }

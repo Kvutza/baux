@@ -52,3 +52,18 @@
  (modules test_hardware)
  (deps ../hardcaml.toml)
  (libraries baux_hardware hardcaml yojson str unix))
+
+(test
+ (name test_matvec)
+ (modules test_matvec)
+ (libraries baux_hardware hardcaml yojson))
+
+(test
+ (name test_flow)
+ (modules test_flow)
+ (libraries baux_hardware hardcaml yojson))
+
+(test
+ (name test_flow_full)
+ (modules test_flow_full)
+ (libraries baux_hardware yojson))

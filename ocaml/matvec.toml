@@ -1,0 +1,37 @@
+version = 1
+experiment = "hardcaml-matvec"
+# Runtime-programmable W*x/sqrt(cols), changing synthetic teachers and IO.
+seeds = [17, 29]
+budgets = [4, 8]
+methods = ["fixed", "random", "baux"]
+bits = [4, 8, 12, 16, 20]
+lanes = [1, 2, 4, 8, 16]
+pipelines = [false, true]
+target-seeds = [101, 101, 203, 203, 101, 101]
+inner-evaluations = 16
+# Includes reset, programming, computation, output stalls, and validation.
+cycle-budget = 50000
+cache-capacity = 8
+workers = 2
+
+[matrix]
+shapes = [{ rows = 4, cols = 16 }, { rows = 16, cols = 64 }]
+banks = [1, 2, 4, 8, 16]
+queues = [1, 2, 4, 8]
+samples = 4
+ready-periods = [1, 7, 7, 3, 1, 7]
+ready-cycles = [1]
+initial-stalls = [0, 200, 200, 80, 0, 200]
+load-gaps = [0, 0, 1, 1, 0, 0]
+
+[inner]
+algorithm = "bayesian-search"
+candidates = 64
+arms = 1
+acquisition = "thompson"
+
+[outer]
+algorithm = "bayesian-search"
+candidates = 64
+arms = 1
+acquisition = "thompson"

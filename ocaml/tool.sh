@@ -18,6 +18,9 @@ case "${1:-test}" in
     hardware-build)
         exec opam exec --switch="$switch" -- dune build --profile release --root "$root/ocaml" --build-dir "$build" bin/hardware_bench.exe
         ;;
+    test-flow)
+        exec opam exec --switch="$switch" -- dune exec --profile release --root "$root/ocaml" --build-dir "$build" tests/test_flow.exe
+        ;;
     test)
         python3 "$root/ocaml/prepare_sleef.py" "$root/.cache/baux/sleef-3.9.0"
         exec opam exec --switch="$switch" -- dune runtest --profile release --root "$root/ocaml" --build-dir "$build"
@@ -32,5 +35,5 @@ case "${1:-test}" in
     list|eval|batch|resolve|experiment)
         exec opam exec --switch="$switch" -- dune exec --profile release --root "$root/ocaml" --build-dir "$build" bin/benchmarks.exe -- "$@"
         ;;
-    *) echo 'Usage: buck2w run //ocaml:tool -- deps|build|hardware-build|test|fmt|list|eval|batch|resolve|experiment|hardware' >&2; exit 2 ;;
+    *) echo 'Usage: buck2w run //ocaml:tool -- deps|build|hardware-build|test|test-flow|fmt|list|eval|batch|resolve|experiment|hardware' >&2; exit 2 ;;
 esac

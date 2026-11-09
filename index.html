@@ -3,76 +3,624 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>baux — Bayesian Optimization</title>
+  <title>baux — Black Box Optimization</title>
   <link rel="stylesheet" href="assets/site_style.css" />
+  <style>
+    /* Layout & Sidebar */
+    .docs-container {
+      display: grid;
+      grid-template-columns: 240px minmax(0, 1fr);
+      min-height: calc(100vh - 54px);
+      max-width: 1360px;
+      margin: 0 auto;
+    }
+    .docs-sidebar {
+      border-right: 1px solid var(--hairline);
+      background: var(--bg-surface);
+      padding: 24px 16px;
+      position: sticky;
+      top: 54px;
+      height: calc(100vh - 54px);
+      overflow-y: auto;
+    }
+    .docs-sidebar h3 {
+      font-size: 11px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--fg-muted);
+      margin: 20px 0 8px;
+      padding-left: 8px;
+      font-weight: 600;
+    }
+    .docs-sidebar h3:first-child { margin-top: 0; }
+    .docs-sidebar a {
+      display: block;
+      padding: 6px 10px;
+      color: var(--fg-secondary);
+      text-decoration: none;
+      font-size: 13px;
+      border-radius: 4px;
+      line-height: 1.4;
+      margin-bottom: 2px;
+      transition: background 0.15s, color 0.15s;
+    }
+    .docs-sidebar a:hover {
+      background: var(--bg-hover);
+      color: var(--fg-primary);
+    }
+    .docs-sidebar a.active {
+      background: var(--bg-active);
+      color: var(--klein);
+      font-weight: 600;
+    }
+    .docs-content {
+      padding: 36px 48px 120px;
+      max-width: 900px;
+    }
+
+    /* Hero */
+    .hero-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      font-weight: 600;
+      padding: 4px 10px;
+      background: var(--klein-soft);
+      color: var(--klein);
+      border: 1px solid var(--klein-border);
+      border-radius: 20px;
+      margin-bottom: 16px;
+      letter-spacing: 0.02em;
+    }
+    .hero-title {
+      font-size: 34px;
+      font-weight: 700;
+      color: var(--fg-primary);
+      margin: 0 0 12px;
+      letter-spacing: -0.025em;
+      line-height: 1.2;
+    }
+    .hero-lead {
+      font-size: 16px;
+      line-height: 1.6;
+      color: var(--fg-secondary);
+      margin: 0 0 24px;
+    }
+
+    /* Headings & Typography */
+    .docs-content h2 {
+      font-size: 22px;
+      font-weight: 700;
+      color: var(--fg-primary);
+      margin-top: 48px;
+      margin-bottom: 14px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--hairline);
+      letter-spacing: -0.015em;
+    }
+    .docs-content h3 {
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--fg-primary);
+      margin-top: 24px;
+      margin-bottom: 10px;
+    }
+    .docs-content p, .docs-content li {
+      font-size: 14px;
+      line-height: 1.7;
+      color: var(--fg-secondary);
+    }
+    .docs-content ul, .docs-content ol {
+      padding-left: 20px;
+      margin-bottom: 18px;
+    }
+    .docs-content li { margin-bottom: 6px; }
+
+    /* Interactive Code Tabs */
+    .code-hub {
+      margin: 24px 0 32px;
+      border: 1px solid var(--hairline);
+      border-radius: 8px;
+      overflow: hidden;
+      background: var(--bg-code);
+    }
+    .code-hub-tabs {
+      display: flex;
+      background: var(--bg-surface);
+      border-bottom: 1px solid var(--hairline);
+      overflow-x: auto;
+    }
+    .code-tab-btn {
+      padding: 10px 16px;
+      font-size: 12.5px;
+      font-weight: 600;
+      color: var(--fg-muted);
+      background: none;
+      border: none;
+      border-bottom: 2px solid transparent;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: all 0.15s ease;
+    }
+    .code-tab-btn:hover {
+      color: var(--fg-primary);
+    }
+    .code-tab-btn.active {
+      color: var(--klein);
+      border-bottom-color: var(--klein);
+      background: var(--bg-code);
+    }
+    .code-panel {
+      display: none;
+      position: relative;
+    }
+    .code-panel.active {
+      display: block;
+    }
+    .code-panel pre {
+      margin: 0;
+      padding: 20px 22px;
+      border: none;
+      border-radius: 0;
+      background: var(--bg-code);
+    }
+
+    /* Code Blocks & Copy Button */
+    .docs-content pre {
+      position: relative;
+      background: var(--bg-code);
+      border: 1px solid var(--hairline);
+      border-radius: 6px;
+      padding: 16px 20px;
+      overflow-x: auto;
+      font-family: var(--font-mono, monospace);
+      font-size: 13px;
+      line-height: 1.55;
+      margin: 16px 0 24px;
+      color: var(--fg-primary);
+    }
+    .copy-btn {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      background: var(--bg-surface);
+      color: var(--fg-secondary);
+      border: 1px solid var(--hairline-mid);
+      border-radius: 4px;
+      padding: 4px 8px;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      opacity: 0.7;
+      transition: opacity 0.15s, background 0.15s, border-color 0.15s, color 0.15s;
+    }
+    .docs-content pre:hover .copy-btn,
+    .code-panel:hover .copy-btn {
+      opacity: 1;
+    }
+    .copy-btn:hover {
+      background: var(--bg-hover);
+      color: var(--fg-primary);
+    }
+    .copy-btn.copied {
+      background: var(--emerald-soft);
+      color: var(--emerald);
+      border-color: var(--emerald);
+      opacity: 1;
+    }
+
+    /* Syntax Tokens */
+    .syn-kw { color: #d73a49; font-weight: 600; }
+    .syn-fn { color: #6f42c1; }
+    .syn-str { color: #032f62; }
+    .syn-com { color: #6a737d; font-style: italic; }
+    .syn-num { color: #005cc5; }
+    html[data-theme="dark"] .syn-kw { color: #ff7b72; font-weight: 600; }
+    html[data-theme="dark"] .syn-fn { color: #d2a8ff; }
+    html[data-theme="dark"] .syn-str { color: #a5d6ff; }
+    html[data-theme="dark"] .syn-com { color: #8b949e; font-style: italic; }
+    html[data-theme="dark"] .syn-num { color: #79c0ff; }
+
+    /* Interactive Install Switcher */
+    .install-box {
+      background: var(--bg-surface);
+      border: 1px solid var(--hairline);
+      border-radius: 8px;
+      padding: 18px 20px;
+      margin: 18px 0 28px;
+    }
+    .install-pills {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 14px;
+      flex-wrap: wrap;
+    }
+    .install-pill {
+      background: var(--bg-elevated);
+      border: 1px solid var(--hairline-mid);
+      border-radius: 4px;
+      padding: 6px 12px;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--fg-secondary);
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .install-pill:hover {
+      color: var(--fg-primary);
+      border-color: var(--fg-muted);
+    }
+    .install-pill.active {
+      background: var(--klein);
+      color: #FFFFFF;
+      border-color: var(--klein);
+    }
+    .install-cmd-row {
+      display: flex;
+      align-items: center;
+      background: var(--bg-code);
+      border: 1px solid var(--hairline);
+      border-radius: 4px;
+      padding: 10px 14px;
+      font-family: var(--font-mono, monospace);
+      font-size: 13px;
+      position: relative;
+    }
+    .install-cmd-text {
+      flex: 1;
+      color: var(--fg-primary);
+      overflow-x: auto;
+    }
+    .install-details {
+      margin-top: 10px;
+      font-size: 12px;
+      color: var(--fg-muted);
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .install-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 2px 7px;
+      border-radius: 3px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .badge-metal { background: var(--emerald-soft); color: var(--emerald); border: 1px solid var(--emerald); }
+    .badge-cuda { background: var(--ochre-soft); color: var(--ochre); border: 1px solid var(--ochre); }
+    .badge-cpu { background: var(--klein-soft); color: var(--klein); border: 1px solid var(--klein); }
+
+    /* Tables */
+    .docs-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 16px 0 24px;
+      font-size: 13px;
+    }
+    .docs-table th {
+      text-align: left;
+      padding: 8px 12px;
+      border-bottom: 2px solid var(--hairline-strong);
+      color: var(--fg-primary);
+      font-weight: 600;
+    }
+    .docs-table td {
+      padding: 8px 12px;
+      border-bottom: 1px solid var(--hairline);
+      color: var(--fg-secondary);
+    }
+
+    @media (max-width: 860px) {
+      .docs-container { grid-template-columns: 1fr; }
+      .docs-sidebar { display: none; }
+      .docs-content { padding: 24px 20px 80px; }
+      .hero-title { font-size: 26px; }
+    }
+  </style>
 </head>
 <body>
   <header class="top-masthead" id="masthead">
     <div class="masthead-brand">
       <span class="brand-name">baux</span>
-      <span class="brand-sep">/</span>
-      <span class="brand-sub">bayesian optimization</span>
     </div>
 
-    <nav class="primary-nav" id="primary-nav-tabs" aria-label="Primary Navigation">
-      <a href="docs.html" class="nav-tab" style="text-decoration:none;">Docs</a>
-      <button type="button" class="nav-tab active" data-tab="inspector" id="tab-btn-inspector">
-        Functions <span class="tab-count">835</span>
-      </button>
-      <button type="button" class="nav-tab" data-tab="dag" id="tab-btn-dag">
-        Module Graph <span class="tab-count">189</span>
-      </button>
-    </nav>
-
-    <div class="masthead-meta">
-      <button type="button" class="meta-btn" id="open-cmd-btn" title="Search declarations (Cmd+K or /)">
-        <span>Search</span>
-        <kbd>/</kbd>
-      </button>
+    <div class="masthead-meta" style="margin-left:auto;">
       <button type="button" class="meta-btn" id="theme-toggle-btn" title="Toggle Light / Dark theme">
         <span id="theme-toggle-label">Dark</span>
       </button>
+      <a href="https://github.com/Kvutza/baux" class="meta-btn" target="_blank" rel="noopener" style="text-decoration:none;">
+        <span>GitHub &nearr;</span>
+      </a>
     </div>
   </header>
 
-  <main class="stage-root" id="main-workspace">
-    <section class="view-panel active" id="view-inspector" data-view="inspector"></section>
-    <section class="view-panel" id="view-dag" data-view="dag"></section>
-    <section class="view-panel" id="view-api" data-view="api"></section>
-  </main>
+  <div class="docs-container">
+    <aside class="docs-sidebar">
+      <h3>Getting Started</h3>
+      <a href="#overview" class="active">Overview</a>
+      <a href="#installation">Installation</a>
+      <a href="#lineage">Baseline &amp; Lineage</a>
+      <a href="#quickstart">Quickstart (Ask/Tell)</a>
 
-  <aside class="proof-sheet closed" id="global-alectryon-drawer" aria-label="Lean 4 Declaration Inspector">
-    <div class="proof-sheet-header" id="global-alectryon-drawer-header">
-      <div>
-        <div class="proof-sheet-kicker" id="global-alectryon-drawer-subtitle">Lean 4 Declaration</div>
-        <div class="proof-sheet-title" id="global-alectryon-drawer-title">Declaration</div>
-      </div>
-      <button type="button" class="meta-btn" id="global-alectryon-drawer-close" title="Close (Esc)">Close &times;</button>
-    </div>
-    <div class="proof-sheet-body" id="global-alectryon-drawer-body"></div>
-  </aside>
+      <h3>Algorithms</h3>
+      <a href="#turbo">Trust-Region (TuRBO)</a>
+      <a href="#enn">Epistemic Nearest Neighbors</a>
 
-  <div class="docgen-tooltip" id="docgen-tooltip" role="tooltip" aria-hidden="true"></div>
+      <h3>Integrations</h3>
+      <a href="#botorch">BoTorch &amp; Ax</a>
+      <a href="#optuna">Optuna Sampler</a>
+      <a href="#rust">Rust Engine Crate</a>
 
-  <div class="cmd-backdrop" id="cmd-backdrop">
-    <div class="cmd-modal" id="cmd-modal" role="dialog" aria-modal="true" aria-label="Search Archive">
-      <input
-        type="text"
-        class="cmd-input"
-        id="cmd-input"
-        placeholder="Search 835 reachable functions, 59 Lean modules, or formal declarations…"
-        autocomplete="off"
-      />
-      <div class="cmd-results" id="cmd-results"></div>
-      <div class="cmd-footer">
-        <span>↑↓ Navigate &middot; Enter Open &middot; Shift+Enter Inspect Declaration</span>
-        <span>Esc Close</span>
-      </div>
-    </div>
+      <h3>Hardware</h3>
+      <a href="#hardware">GPU Backends &amp; Probing</a>
+    </aside>
+
+    <main class="docs-content">
+      <div class="hero-badge">v0.0.5 &middot; Python &amp; Rust &middot; Metal &amp; CUDA</div>
+      <h1 class="hero-title">baux</h1>
+      <p class="hero-lead">
+        A black box optimization library in Python and Rust.
+      </p>
+
+      <!-- Installation -->
+      <section id="installation">
+        <div class="install-box">
+          <div class="install-pills">
+            <button type="button" class="install-pill active" data-platform="macos">macOS (Metal)</button>
+            <button type="button" class="install-pill" data-platform="linux">Linux (CUDA)</button>
+            <button type="button" class="install-pill" data-platform="cpu">CPU SIMD</button>
+          </div>
+          <div class="install-cmd-row">
+            <span class="install-cmd-text" id="install-cmd-text">pip install baux</span>
+            <button type="button" class="copy-btn" id="install-copy-btn">Copy</button>
+          </div>
+          <div class="install-details" id="install-details">
+            <span class="install-badge badge-metal">Metal MPS</span>
+            <span>Pre-compiled wheel with unified memory acceleration for Apple Silicon.</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Overview -->
+      <section id="overview">
+        <h2>1. Overview</h2>
+        <p>
+          <strong>baux</strong> implements an ask/tell optimization loop using trust-region search (TuRBO) and Epistemic Nearest Neighbors (ENN), with acceleration on Apple Silicon (Metal), NVIDIA GPUs (CUDA), and CPU SIMD:
+        </p>
+        <ul>
+          <li><strong>Trust-Region Search (TuRBO):</strong> Proposes candidate batches inside a local hypercube centered at the incumbent. Dynamically expands upon consecutive successes and contracts upon stagnation.</li>
+          <li><strong>Epistemic Nearest Neighbors (ENN):</strong> Decomposes uncertainty into epistemic (spatial sparsity of evaluations) and aleatoric (observation noise) components through calibrated <em>k</em>-nearest neighbor distance fields.</li>
+          <li><strong>Resident GPU Execution:</strong> State updates, distance metrics, and candidate sampling run on-device (Apple Silicon Metal MPS or NVIDIA CUDA) with zero host synchronization per evaluation.</li>
+        </ul>
+      </section>
+
+      <!-- Baseline & Lineage -->
+      <section id="lineage">
+        <h2>2. Baseline &amp; Lineage</h2>
+        <p>
+          <strong>baux</strong> builds on <a href="https://github.com/yubo-research/enn" target="_blank" rel="noopener"><code>yubo-research/enn</code></a> (v0.4.1), using its TuRBO trust-region state machine and Epistemic Nearest Neighbors formulation as the algorithmic baseline.
+        </p>
+        <p>It extends this baseline with:</p>
+        <ul>
+          <li><strong>A single crate:</strong> Consolidates <code>ennbo</code>, <code>bpann</code>, and <code>enn-py</code> into a single self-contained <code>baux</code> library and binary wheel (<code>pip install baux</code>).</li>
+          <li><strong>GPU acceleration:</strong> Implements Apple Silicon Metal and NVIDIA CUDA compute kernels.</li>
+          <li><strong>Direct interface:</strong> Exposes a clean <code>ask</code>/<code>tell</code> loop with native batch proposals.</li>
+        </ul>
+      </section>
+
+      <!-- Quickstart -->
+      <section id="quickstart">
+        <h2>3. Quickstart (Ask / Tell Loop)</h2>
+        <p>
+          The core optimization flow is a clean <code>ask(batch_size)</code> and <code>tell(candidates, scores)</code> loop:
+        </p>
+
+        <div class="code-hub">
+          <div class="code-hub-tabs">
+            <button type="button" class="code-tab-btn active" data-tab="tab-quickstart">Ask / Tell Loop</button>
+            <button type="button" class="code-tab-btn" data-tab="tab-enn">ENN Surrogate</button>
+            <button type="button" class="code-tab-btn" data-tab="tab-botorch">BoTorch Interop</button>
+            <button type="button" class="code-tab-btn" data-tab="tab-optuna">Optuna Sampler</button>
+            <button type="button" class="code-tab-btn" data-tab="tab-rust">Rust Crate</button>
+          </div>
+
+          <!-- Panel 1: Quickstart -->
+          <div class="code-panel active" id="tab-quickstart">
+            <button type="button" class="copy-btn">Copy</button>
+            <pre><code><span class="syn-kw">import</span> numpy <span class="syn-kw">as</span> np
+<span class="syn-kw">from</span> baux <span class="syn-kw">import</span> create_optimizer, turbo_enn
+
+<span class="syn-com"># Define parameter bounds: 2 continuous dimensions in [-2.0, 2.0]</span>
+bounds = np.array([[-<span class="syn-num">2.0</span>, <span class="syn-num">2.0</span>], [-<span class="syn-num">2.0</span>, <span class="syn-num">2.0</span>]])
+
+<span class="syn-com"># Create optimizer with TuRBO trust-region and ENN surrogate</span>
+opt = create_optimizer(
+    bounds=bounds,
+    config=turbo_enn(),
+    rng=np.random.default_rng(<span class="syn-num">42</span>),
+)
+
+<span class="syn-com"># Run optimization rounds</span>
+<span class="syn-kw">for</span> iteration <span class="syn-kw">in</span> range(<span class="syn-num">20</span>):
+    <span class="syn-com"># 1. Ask for a batch of candidate points</span>
+    candidates = opt.ask(<span class="syn-num">4</span>)
+
+    <span class="syn-com"># 2. Evaluate your objective function (baux maximizes rewards)</span>
+    scores = -np.sum(candidates**<span class="syn-num">2</span>, axis=<span class="syn-num">1</span>)
+
+    <span class="syn-com"># 3. Tell observations back to the optimizer</span>
+    opt.tell(candidates, scores)
+
+print(<span class="syn-str">"Best observed candidate:"</span>, opt.best_x)
+print(<span class="syn-str">"Best observed reward:"</span>, opt.best_y)</code></pre>
+          </div>
+
+          <!-- Panel 2: ENN -->
+          <div class="code-panel" id="tab-enn">
+            <button type="button" class="copy-btn">Copy</button>
+            <pre><code><span class="syn-kw">import</span> numpy <span class="syn-kw">as</span> np
+<span class="syn-kw">from</span> baux <span class="syn-kw">import</span> ENN
+<span class="syn-kw">from</span> baux.enn.enn_params <span class="syn-kw">import</span> ENNParams
+<span class="syn-kw">from</span> baux.index <span class="syn-kw">import</span> NeighborIndex
+
+<span class="syn-com"># Fit surrogate over observed points (train_x: NxD, train_y: Nx1)</span>
+model = ENN(train_x, train_y, index_driver=NeighborIndex.FLAT)
+
+<span class="syn-com"># Query posterior distribution with calibrated k-nearest neighbors</span>
+params = ENNParams(k_neighbors=<span class="syn-num">8</span>, epistemic_scale=<span class="syn-num">1.0</span>, aleatoric_scale=<span class="syn-num">0.1</span>)
+post = model.posterior(query_x, params=params)
+
+print(<span class="syn-str">"Posterior mean:"</span>, post.mu)
+print(<span class="syn-str">"Epistemic uncertainty (spatial sparsity):"</span>, post.se_epi)
+print(<span class="syn-str">"Aleatoric uncertainty (noise):"</span>, post.se_ale)
+
+<span class="syn-com"># Draw non-parametric posterior sample functions</span>
+samples, indices = model.posterior_draw(query_x, params=params, function_seeds=[<span class="syn-num">42</span>])</code></pre>
+          </div>
+
+          <!-- Panel 3: BoTorch -->
+          <div class="code-panel" id="tab-botorch">
+            <button type="button" class="copy-btn">Copy</button>
+            <pre><code><span class="syn-kw">import</span> torch
+<span class="syn-kw">import</span> numpy <span class="syn-kw">as</span> np
+<span class="syn-kw">from</span> baux <span class="syn-kw">import</span> ENN
+<span class="syn-kw">from</span> baux.botorch <span class="syn-kw">import</span> Model
+<span class="syn-kw">from</span> baux.enn.enn_params <span class="syn-kw">import</span> ENNParams
+
+<span class="syn-com"># Wrap an ENN model as a BoTorch-compatible Model</span>
+train_x = np.random.normal(size=(<span class="syn-num">20</span>, <span class="syn-num">3</span>))
+train_y = np.sin(train_x[:, :<span class="syn-num">1</span>])
+model = Model(ENN(train_x, train_y), ENNParams(k_neighbors=<span class="syn-num">4</span>, epistemic_scale=<span class="syn-num">1.0</span>, aleatoric_scale=<span class="syn-num">0.1</span>))
+
+<span class="syn-com"># Query through standard BoTorch posterior interface</span>
+test_x = torch.randn(<span class="syn-num">5</span>, <span class="syn-num">3</span>, dtype=torch.double)
+posterior = model.posterior(test_x)
+print(<span class="syn-str">"Mean:"</span>, posterior.mean)
+print(<span class="syn-str">"Variance:"</span>, posterior.variance)</code></pre>
+          </div>
+
+          <!-- Panel 4: Optuna -->
+          <div class="code-panel" id="tab-optuna">
+            <button type="button" class="copy-btn">Copy</button>
+            <pre><code><span class="syn-kw">import</span> optuna
+<span class="syn-kw">from</span> baux <span class="syn-kw">import</span> turbo_enn
+<span class="syn-kw">from</span> baux.optuna <span class="syn-kw">import</span> Sampler
+<span class="syn-kw">from</span> optuna.distributions <span class="syn-kw">import</span> FloatDistribution
+
+search_space = {
+    <span class="syn-str">"x"</span>: FloatDistribution(-<span class="syn-num">5.0</span>, <span class="syn-num">5.0</span>),
+    <span class="syn-str">"y"</span>: FloatDistribution(-<span class="syn-num">5.0</span>, <span class="syn-num">5.0</span>),
+}
+sampler = Sampler(search_space, config=turbo_enn(), seed=<span class="syn-num">42</span>)
+
+<span class="syn-kw">def</span> <span class="syn-fn">objective</span>(trial):
+    x = trial.suggest_float(<span class="syn-str">"x"</span>, -<span class="syn-num">5.0</span>, <span class="syn-num">5.0</span>)
+    y = trial.suggest_float(<span class="syn-str">"y"</span>, -<span class="syn-num">5.0</span>, <span class="syn-num">5.0</span>)
+    <span class="syn-kw">return</span> -(x**<span class="syn-num">2</span> + y**<span class="syn-num">2</span>)
+
+study = optuna.create_study(sampler=sampler, direction=<span class="syn-str">"maximize"</span>)
+study.optimize(objective, n_trials=<span class="syn-num">30</span>)
+print(<span class="syn-str">"Best parameters:"</span>, study.best_params)</code></pre>
+          </div>
+
+          <!-- Panel 5: Rust -->
+          <div class="code-panel" id="tab-rust">
+            <button type="button" class="copy-btn">Copy</button>
+            <pre><code><span class="syn-com">// Add `baux = "0.0.5"` to Cargo.toml</span>
+<span class="syn-kw">use</span> baux::neighbor_index::NeighborIndex;
+
+<span class="syn-kw">fn</span> <span class="syn-fn">main</span>() {
+    println!(<span class="syn-str">"baux Rust engine initialized with index: {:?}"</span>, NeighborIndex::Flat);
+}</code></pre>
+          </div>
+        </div>
+      </section>
+
+      <!-- TuRBO Details -->
+      <section id="turbo">
+        <h2>4. Trust-Region Mechanics (TuRBO)</h2>
+        <p>
+          TuRBO maintains a bounding hypercube of side length <em>L</em> centered at the best observed point (the incumbent):
+        </p>
+        <ul>
+          <li><strong>Expansion:</strong> When consecutive candidate batches yield discoveries that improve on the incumbent, the trust region expands (<em>L &larr; min(L &times; 1.5, L<sub>max</sub>)</em>).</li>
+          <li><strong>Contraction:</strong> When candidates stall across <em>failure_tolerance</em> consecutive batches, the trust region shrinks (<em>L &larr; max(L &times; 0.5, L<sub>min</sub>)</em>).</li>
+          <li><strong>Restart:</strong> If <em>L</em> shrinks below <em>length_min</em>, the trust region resets with a new anchor point to escape local traps.</li>
+        </ul>
+        <p>Pre-configured search policies:</p>
+        <ul>
+          <li><code>turbo_enn()</code>: Trust-region search using an Epistemic Nearest Neighbors surrogate.</li>
+          <li><code>turbo_one()</code>: Single trust region with Gaussian Process surrogate.</li>
+          <li><code>turbo_zero()</code>: Local trust-region search without a surrogate model.</li>
+        </ul>
+      </section>
+
+      <!-- ENN Details -->
+      <section id="enn">
+        <h2>5. Epistemic Nearest Neighbors (ENN)</h2>
+        <p>
+          ENN models function predictions by weighting observations by metric distance in the normalized input space:
+        </p>
+        <ul>
+          <li><code>post.mu</code>: Empirical weighted mean prediction at query coordinates.</li>
+          <li><code>post.se_epi</code>: Epistemic standard error, scaling with distance to the nearest evaluated points (large in unexplored space, small near observations).</li>
+          <li><code>post.se_ale</code>: Aleatoric noise floor, reflecting evaluation variability.</li>
+        </ul>
+      </section>
+
+      <!-- Hardware Capabilities -->
+      <section id="hardware">
+        <h2>6. Hardware Backends &amp; Runtime Probing</h2>
+        <p>Query compiled and available hardware capabilities directly in Python:</p>
+        <pre><code><span class="syn-kw">import</span> baux
+
+<span class="syn-kw">for</span> cap <span class="syn-kw">in</span> baux.capabilities():
+    state = <span class="syn-str">"available"</span> <span class="syn-kw">if</span> cap.available <span class="syn-kw">else</span> <span class="syn-str">"not available"</span>
+    print(f<span class="syn-str">"{cap.name}: {state}"</span>)</code></pre>
+
+        <p>Pre-built binary wheels are published to PyPI for Python 3.12 through 3.15:</p>
+        <table class="docs-table">
+          <thead>
+            <tr>
+              <th>Platform</th>
+              <th>Architecture</th>
+              <th>Hardware Acceleration</th>
+              <th>Wheel</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>macOS 11.0+</strong></td>
+              <td>Apple Silicon (arm64)</td>
+              <td><span class="install-badge badge-metal">Metal</span> MPS Unified Memory</td>
+              <td><code>baux-0.0.5-*-macosx_11_0_arm64.whl</code></td>
+            </tr>
+            <tr>
+              <td><strong>Linux</strong></td>
+              <td>x86_64</td>
+              <td><span class="install-badge badge-cuda">CUDA</span> sm_75+ Tensor Cores</td>
+              <td><code>baux-0.0.5-*-manylinux_2_28_x86_64.whl</code></td>
+            </tr>
+            <tr>
+              <td><strong>CPU Fallback</strong></td>
+              <td>Any</td>
+              <td><span class="install-badge badge-cpu">CPU</span> AVX-512 &amp; NEON SIMD</td>
+              <td>Pure-Rust CPU routines</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+    </main>
   </div>
 
-  <script src="assets/site_data.js"></script>
-  <script src="assets/blueprint_engine.js"></script>
-  <script src="assets/explorer_engine.js"></script>
+  <script src="assets/baux_ui.js"></script>
 </body>
 </html>

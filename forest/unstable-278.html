@@ -1,0 +1,49 @@
+<!DOCTYPE html PUBLIC "" "">
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:fr="http://www.jonmsterling.com/jms-005P.xml" data-base-url=""><head><meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<meta name="viewport" content="width=device-width"></meta><link rel="stylesheet" href="style.css"></link><link rel="stylesheet" href="katex.min.css"></link><script type="text/javascript"></script><script type="module" src="forester.js"></script><title>Baux API Reference › Optimizer Methods</title></head><body><ninja-keys placeholder="Start typing a note title or ID"></ninja-keys><header class="header"><nav class="nav"><div class="logo"><a href="index.html" title="Home">« Home</a></div></nav></header><div id="grid-wrapper"><article><section xmlns="" lang="en" class="block" data-taxon="Interface"><details id="id1" open="open"><summary><header><h1>
+<span class="taxon">Interface. </span><span class="link local"><a href="baux-0007.xml" title="Baux API Reference">Baux API Reference</a></span> › Optimizer Methods  </h1>
+<div class="metadata"><ul><li class="meta-item"><address class="author">Kvutza</address></li></ul></div></header></summary><ul xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">
+<li>
+<strong><code>ask(batch_size=1) -&gt; np.ndarray</code></strong>: Proposes a candidate trial matrix of shape <code>(batch_size, D)</code> bounded within the active trust region.</li>
+    <li>
+<strong><code>tell(candidates, scores) -&gt; None</code></strong>: Updates trust-region state machine with observed evaluations under a maximization objective.</li>
+    <li>
+<strong><code>best_x -&gt; np.ndarray</code></strong>: Coordinates of the incumbent parameter point.</li>
+    <li>
+<strong><code>best_y -&gt; float</code></strong>: Best observed reward value.</li>
+</ul></details></section><footer xmlns=""><section lang="en" class="block hide-metadata"><details id="id2" open="open"><summary><header><h1>
+<span class="taxon"></span>Context  </h1>
+<div class="metadata"><ul></ul></div></header></summary><section lang="en" class="block" data-taxon="Reference"><details id="id3"><summary><header><h1>
+<span class="taxon">Reference. </span>Baux API Reference  </h1>
+<div class="metadata"><ul><li class="meta-item"><address class="author">Kvutza</address></li></ul></div></header></summary><p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">Complete formal interface specifications and dimensional invariants for the <code>baux</code> black box optimization library.</p>
+<section lang="en" class="block hide-metadata" data-taxon="Function"><details id="id4" open="open"><summary><header><h1>
+<span class="taxon">Function. </span>Optimizer Factory: <code xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">baux.create_optimizer</code>  </h1>
+<div class="metadata"><ul><li class="meta-item"><address class="author">Kvutza</address></li></ul></div></header></summary><p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">Instantiates an optimization state machine over a bounded continuous domain.</p>
+<pre xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">create_optimizer(
+    bounds: np.ndarray,
+    config: Optional[OptimizerConfig] = None,
+    rng: Optional[np.random.Generator] = None,
+) -&gt; Optimizer</pre>
+<ul xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">
+<li>
+<strong><code>bounds</code></strong>: 2D array of shape <code>(D, 2)</code> defining lower and upper bounds <code>[l_i, u_i]</code> for each parameter dimension.</li>
+    <li>
+<strong><code>config</code></strong>: Search policy preset: <code>turbo_enn()</code>, <code>turbo_one()</code>, or <code>turbo_zero()</code>.</li>
+    <li>
+<strong><code>rng</code></strong>: Seeded NumPy random generator for deterministic sampling reproducibility.</li>
+</ul></details></section><section lang="en" class="block hide-metadata" data-taxon="Interface"><details id="id5" open="open"><summary><header><h1>
+<span class="taxon">Interface. </span>Optimizer Methods  </h1>
+<div class="metadata"><ul><li class="meta-item"><address class="author">Kvutza</address></li></ul></div></header></summary><ul xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">
+<li>
+<strong><code>ask(batch_size=1) -&gt; np.ndarray</code></strong>: Proposes a candidate trial matrix of shape <code>(batch_size, D)</code> bounded within the active trust region.</li>
+    <li>
+<strong><code>tell(candidates, scores) -&gt; None</code></strong>: Updates trust-region state machine with observed evaluations under a maximization objective.</li>
+    <li>
+<strong><code>best_x -&gt; np.ndarray</code></strong>: Coordinates of the incumbent parameter point.</li>
+    <li>
+<strong><code>best_y -&gt; float</code></strong>: Best observed reward value.</li>
+</ul></details></section><section lang="en" class="block hide-metadata" data-taxon="Surrogate"><details id="id6" open="open"><summary><header><h1>
+<span class="taxon">Surrogate. </span>Epistemic Nearest Neighbors: <code xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">baux.ENN</code>  </h1>
+<div class="metadata"><ul><li class="meta-item"><address class="author">Kvutza</address></li></ul></div></header></summary><pre xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">model = ENN(train_x, train_y, index_driver=NeighborIndex.FLAT)
+post = model.posterior(query_x, params=ENNParams(k_neighbors=8))</pre>
+<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">The returned <code>Posterior</code> object yields expected mean <code>post.mu</code>, epistemic uncertainty <code>post.se_epi</code>, and aleatoric uncertainty <code>post.se_ale</code>.</p></details></section></details></section></details></section></footer></article></div></body></html>

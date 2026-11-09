@@ -1,0 +1,226 @@
+<!DOCTYPE html PUBLIC "" "">
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:fr="http://www.jonmsterling.com/jms-005P.xml" data-base-url=""><head><meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<meta name="viewport" content="width=device-width"></meta><link rel="stylesheet" href="style.css"></link><link rel="stylesheet" href="katex.min.css"></link><script type="text/javascript"></script><script type="module" src="forester.js"></script><title>Epistemic Nearest Neighbors (ENN)</title></head><body><ninja-keys placeholder="Start typing a note title or ID"></ninja-keys><header class="header"><nav class="nav"><div class="logo"><a href="index.html" title="Home">« Home</a></div></nav></header><div id="grid-wrapper"><article><section xmlns="" lang="en" class="block" data-taxon="Surrogate"><details id="id1" open="open"><summary><header><h1>
+<span class="taxon">Surrogate. </span>Epistemic Nearest Neighbors (ENN)  </h1>
+<div class="metadata"><ul><li class="meta-item"><address class="author">Kvutza</address></li></ul></div></header></summary><p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">Standard Gaussian Process regression requires \(\mathcal {O}(N^3)\) Cholesky factorization of the kernel covariance matrix, creating a computational bottleneck when evaluation counts scale into thousands of trials.</p>
+<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">ENN models function uncertainty through a non-parametric metric projection over the \(k\)-nearest observed points. Posterior uncertainty decomposes into two independent orthogonal fields:</p>\[   p(y \mid  x, \mathcal {D}) = \mathcal {N}\left (\mu _{\text {post}}(x),\, \sigma _{\text {epi}}^2(x) + \sigma _{\text {ale}}^2\right ) \]<ul xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">
+<li>
+<strong>Epistemic Uncertainty (\(\sigma _{\text {epi}}\)):</strong> Measures spatial evaluation sparsity. Scales proportionally with metric distance to neighboring observations: it vanishes near evaluations and expands in unexplored regions.</li>
+  <li>
+<strong>Aleatoric Uncertainty (\(\sigma _{\text {ale}}\)):</strong> Captures irreducible observation noise inherent to stochastic objective evaluations.</li>
+</ul>
+<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">Because ENN evaluates uncertainty via nearest-neighbor distance fields rather than matrix inversion, candidate ranking within the trust region runs in linear time with respect to observed trials, allowing sub-millisecond proposal latency across tens of thousands of evaluations.</p></details></section><footer xmlns=""><section lang="en" class="block hide-metadata"><details id="id2" open="open"><summary><header><h1>
+<span class="taxon"></span>Context  </h1>
+<div class="metadata"><ul></ul></div></header></summary><section lang="en" class="block" data-taxon="Monograph"><details id="id3"><summary><header><h1>
+<span class="taxon">Monograph. </span>Baux — Black Box Optimization  </h1>
+<div class="metadata"><ul>
+<li class="meta-item">November 9, 2026</li>
+<li class="meta-item"><address class="author">Kvutza</address></li>
+<li class="meta-item"><a class="link external" href="https://github.com/Kvutza/baux">https://github.com/Kvutza/baux</a></li>
+</ul></div></header></summary><p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><strong>baux</strong> is a black box optimization library in Python and Rust designed for expensive, derivative-free evaluation loops over continuous and bounded domains. It couples trust-region local search (<a class="link local" href="baux-0002.xml">Algorithm []</a>) with non-parametric Epistemic Nearest Neighbors (<a class="link local" href="baux-0003.xml">Surrogate []</a>) to balance local exploitation and global exploration without incurring the cubic computational bottlenecks of Gaussian Process inference.</p>
+<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">Compute kernels for distance metrics, candidate perturbation, and posterior sampling execute directly on Apple Silicon (Metal MPS) and NVIDIA GPUs (CUDA), backed by an AVX-512 and ARM NEON SIMD pure-Rust CPU engine (<a class="link local" href="baux-0004.xml">Architecture []</a>).</p>
+<section lang="en" class="block hide-metadata" data-taxon="Lineage"><details id="id4" open="open"><summary><header><h1>
+<span class="taxon">Lineage. </span>Baseline &amp; Lineage  </h1>
+<div class="metadata"><ul><li class="meta-item"><address class="author">Kvutza</address></li></ul></div></header></summary><p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><strong>baux</strong> builds on <span class="link external"><a href="https://github.com/yubo-research/enn" title="">yubo-research/enn</a></span> (v0.4.1), using its TuRBO trust-region state machine and Epistemic Nearest Neighbors formulation as the algorithmic baseline.</p>
+<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">It extends this baseline with:</p>
+<ul xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">
+<li>
+<strong>A single crate</strong>: Consolidates <code>ennbo</code>, <code>bpann</code>, and <code>enn-py</code> into a single self-contained <code>baux</code> library and binary wheel (<code>pip install baux</code>).</li>
+  <li>
+<strong>GPU acceleration</strong>: Implements Apple Silicon Metal and NVIDIA CUDA compute kernels.</li>
+  <li>
+<strong>Direct interface</strong>: Exposes a clean <code>ask</code>/<code>tell</code> loop with native batch proposals.</li>
+</ul></details></section><section lang="en" class="block hide-metadata" data-taxon="Algorithm"><details id="id5" open="open"><summary><header><h1>
+<span class="taxon">Algorithm. </span>Trust-Region Local Search (TuRBO)  </h1>
+<div class="metadata"><ul><li class="meta-item"><address class="author">Kvutza</address></li></ul></div></header></summary><p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">High-dimensional black box optimization frequently suffers from the curse of dimensionality when fitting global surrogate models over the entire parameter space. <strong>baux</strong> confines candidate proposal to a local hypercube &amp;mdash; the trust region &amp;mdash; centered at the current incumbent point \(x^* \in  [0, 1]^D\):</p>\[   \mathcal {TR}_t = \left \{ x \in  [0, 1]^D : \max _{i=1,\dots ,D} \frac {|x_i - x_i^*|}{L_t} \le  \frac {1}{2} \right \} \]<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">The base side length \(L_t\) adapts dynamically based on observation feedback:</p>
+<ul xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">
+<li>
+<strong>Expansion</strong>: If consecutive candidate batches improve upon the incumbent, the search volume expands: \(L_{t+1} = \min (L_t \times  1.5,\, L_{\max })\).</li>
+  <li>
+<strong>Contraction</strong>: If the optimizer fails to find an improvement across a sequence of failure tolerance rounds (\(\tau _{\text {fail}}\)), the volume contracts: \(L_{t+1} = \max (L_t \times  0.5,\, L_{\min })\).</li>
+  <li>
+<strong>Restart</strong>: When \(L_t\) shrinks below \(L_{\min }\), the trust region resets with a new anchor point to prevent asymptotic stagnation in local minima.</li>
+</ul></details></section><section lang="en" class="block hide-metadata" data-taxon="Surrogate"><details id="id6" open="open"><summary><header><h1>
+<span class="taxon">Surrogate. </span>Epistemic Nearest Neighbors (ENN)  </h1>
+<div class="metadata"><ul><li class="meta-item"><address class="author">Kvutza</address></li></ul></div></header></summary><p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">Standard Gaussian Process regression requires \(\mathcal {O}(N^3)\) Cholesky factorization of the kernel covariance matrix, creating a computational bottleneck when evaluation counts scale into thousands of trials.</p>
+<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">ENN models function uncertainty through a non-parametric metric projection over the \(k\)-nearest observed points. Posterior uncertainty decomposes into two independent orthogonal fields:</p>\[   p(y \mid  x, \mathcal {D}) = \mathcal {N}\left (\mu _{\text {post}}(x),\, \sigma _{\text {epi}}^2(x) + \sigma _{\text {ale}}^2\right ) \]<ul xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">
+<li>
+<strong>Epistemic Uncertainty (\(\sigma _{\text {epi}}\)):</strong> Measures spatial evaluation sparsity. Scales proportionally with metric distance to neighboring observations: it vanishes near evaluations and expands in unexplored regions.</li>
+  <li>
+<strong>Aleatoric Uncertainty (\(\sigma _{\text {ale}}\)):</strong> Captures irreducible observation noise inherent to stochastic objective evaluations.</li>
+</ul>
+<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">Because ENN evaluates uncertainty via nearest-neighbor distance fields rather than matrix inversion, candidate ranking within the trust region runs in linear time with respect to observed trials, allowing sub-millisecond proposal latency across tens of thousands of evaluations.</p></details></section><section lang="en" class="block hide-metadata" data-taxon="Architecture"><details id="id7" open="open"><summary><header><h1>
+<span class="taxon">Architecture. </span>Hardware Compute Backends  </h1>
+<div class="metadata"><ul><li class="meta-item"><address class="author">Kvutza</address></li></ul></div></header></summary><p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">In high-throughput experimental loops, latency is dominated by host-device memory synchronization. On Apple Silicon, <strong>baux</strong> leverages Unified Memory Architecture (UMA) via Metal compute pipelines:</p>
+<ul xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">
+<li>Observation buffers and trust-region states reside in unified system memory without duplicate host/device allocations.</li>
+  <li>Batch candidate generation, Sobol sequence perturbations, and nearest-neighbor distance sweeps execute directly on Metal shading pipelines.</li>
+  <li>On Linux environments with NVIDIA hardware, custom CUDA kernels handle distance computation and posterior draws across large candidate batches.</li>
+  <li>On systems without GPU support, pure-Rust AVX-512 and ARM NEON SIMD routines provide vectorized CPU fallback.</li>
+</ul></details></section><section lang="en" class="block hide-metadata" data-taxon="Interface"><details id="id8" open="open"><summary><header><h1>
+<span class="taxon">Interface. </span>API Specifications &amp; Workflows  </h1>
+<div class="metadata"><ul><li class="meta-item"><address class="author">Kvutza</address></li></ul></div></header></summary><div xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="quickstart">
+<p>The primary Python interface is structured around a non-blocking <code>ask(batch_size)</code> and <code>tell(candidates, scores)</code> loop:</p>
+
+<pre>import numpy as np
+from baux import create_optimizer, turbo_enn
+
+# Define parameter domain: continuous bounds for each dimension
+bounds = np.array([[-5.0, 5.0], [-5.0, 5.0]])
+
+# Initialize TuRBO optimizer with Epistemic Nearest Neighbors surrogate
+opt = create_optimizer(
+    bounds=bounds,
+    config=turbo_enn(),
+    rng=np.random.default_rng(42),
+)
+
+# Propose trial batch, evaluate objective, and report back
+for step in range(25):
+    candidates = opt.ask(batch_size=4)
+    scores = -np.sum(candidates**2, axis=1)
+    opt.tell(candidates, scores)
+
+print("Incumbent parameters:", opt.best_x)
+print("Incumbent reward:", opt.best_y)</pre>
+</div></details></section><section lang="en" class="block hide-metadata" data-taxon="Reference"><details id="id9" open="open"><summary><header><h1>
+<span class="taxon">Reference. </span>Baux API Reference  </h1>
+<div class="metadata"><ul><li class="meta-item"><address class="author">Kvutza</address></li></ul></div></header></summary><p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">Complete formal interface specifications and dimensional invariants for the <code>baux</code> black box optimization library.</p>
+<section lang="en" class="block hide-metadata" data-taxon="Function"><details id="id10" open="open"><summary><header><h1>
+<span class="taxon">Function. </span>Optimizer Factory: <code xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">baux.create_optimizer</code>  </h1>
+<div class="metadata"><ul><li class="meta-item"><address class="author">Kvutza</address></li></ul></div></header></summary><p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">Instantiates an optimization state machine over a bounded continuous domain.</p>
+<pre xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">create_optimizer(
+    bounds: np.ndarray,
+    config: Optional[OptimizerConfig] = None,
+    rng: Optional[np.random.Generator] = None,
+) -&gt; Optimizer</pre>
+<ul xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">
+<li>
+<strong><code>bounds</code></strong>: 2D array of shape <code>(D, 2)</code> defining lower and upper bounds <code>[l_i, u_i]</code> for each parameter dimension.</li>
+    <li>
+<strong><code>config</code></strong>: Search policy preset: <code>turbo_enn()</code>, <code>turbo_one()</code>, or <code>turbo_zero()</code>.</li>
+    <li>
+<strong><code>rng</code></strong>: Seeded NumPy random generator for deterministic sampling reproducibility.</li>
+</ul></details></section><section lang="en" class="block hide-metadata" data-taxon="Interface"><details id="id11" open="open"><summary><header><h1>
+<span class="taxon">Interface. </span>Optimizer Methods  </h1>
+<div class="metadata"><ul><li class="meta-item"><address class="author">Kvutza</address></li></ul></div></header></summary><ul xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">
+<li>
+<strong><code>ask(batch_size=1) -&gt; np.ndarray</code></strong>: Proposes a candidate trial matrix of shape <code>(batch_size, D)</code> bounded within the active trust region.</li>
+    <li>
+<strong><code>tell(candidates, scores) -&gt; None</code></strong>: Updates trust-region state machine with observed evaluations under a maximization objective.</li>
+    <li>
+<strong><code>best_x -&gt; np.ndarray</code></strong>: Coordinates of the incumbent parameter point.</li>
+    <li>
+<strong><code>best_y -&gt; float</code></strong>: Best observed reward value.</li>
+</ul></details></section><section lang="en" class="block hide-metadata" data-taxon="Surrogate"><details id="id12" open="open"><summary><header><h1>
+<span class="taxon">Surrogate. </span>Epistemic Nearest Neighbors: <code xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">baux.ENN</code>  </h1>
+<div class="metadata"><ul><li class="meta-item"><address class="author">Kvutza</address></li></ul></div></header></summary><pre xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">model = ENN(train_x, train_y, index_driver=NeighborIndex.FLAT)
+post = model.posterior(query_x, params=ENNParams(k_neighbors=8))</pre>
+<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">The returned <code>Posterior</code> object yields expected mean <code>post.mu</code>, epistemic uncertainty <code>post.se_epi</code>, and aleatoric uncertainty <code>post.se_ale</code>.</p></details></section></details></section></details></section></details></section><section lang="en" class="block hide-metadata"><details id="id13" open="open"><summary><header><h1>
+<span class="taxon"></span>Backlinks  </h1>
+<div class="metadata"><ul></ul></div></header></summary><section lang="en" class="block" data-taxon="Monograph"><details id="id14"><summary><header><h1>
+<span class="taxon">Monograph. </span>Baux — Black Box Optimization  </h1>
+<div class="metadata"><ul>
+<li class="meta-item">November 9, 2026</li>
+<li class="meta-item"><address class="author">Kvutza</address></li>
+<li class="meta-item"><a class="link external" href="https://github.com/Kvutza/baux">https://github.com/Kvutza/baux</a></li>
+</ul></div></header></summary><p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><strong>baux</strong> is a black box optimization library in Python and Rust designed for expensive, derivative-free evaluation loops over continuous and bounded domains. It couples trust-region local search (<a class="link local" href="baux-0002.xml">Algorithm []</a>) with non-parametric Epistemic Nearest Neighbors (<a class="link local" href="baux-0003.xml">Surrogate []</a>) to balance local exploitation and global exploration without incurring the cubic computational bottlenecks of Gaussian Process inference.</p>
+<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">Compute kernels for distance metrics, candidate perturbation, and posterior sampling execute directly on Apple Silicon (Metal MPS) and NVIDIA GPUs (CUDA), backed by an AVX-512 and ARM NEON SIMD pure-Rust CPU engine (<a class="link local" href="baux-0004.xml">Architecture []</a>).</p>
+<section lang="en" class="block hide-metadata" data-taxon="Lineage"><details id="id15" open="open"><summary><header><h1>
+<span class="taxon">Lineage. </span>Baseline &amp; Lineage  </h1>
+<div class="metadata"><ul><li class="meta-item"><address class="author">Kvutza</address></li></ul></div></header></summary><p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><strong>baux</strong> builds on <span class="link external"><a href="https://github.com/yubo-research/enn" title="">yubo-research/enn</a></span> (v0.4.1), using its TuRBO trust-region state machine and Epistemic Nearest Neighbors formulation as the algorithmic baseline.</p>
+<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">It extends this baseline with:</p>
+<ul xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">
+<li>
+<strong>A single crate</strong>: Consolidates <code>ennbo</code>, <code>bpann</code>, and <code>enn-py</code> into a single self-contained <code>baux</code> library and binary wheel (<code>pip install baux</code>).</li>
+  <li>
+<strong>GPU acceleration</strong>: Implements Apple Silicon Metal and NVIDIA CUDA compute kernels.</li>
+  <li>
+<strong>Direct interface</strong>: Exposes a clean <code>ask</code>/<code>tell</code> loop with native batch proposals.</li>
+</ul></details></section><section lang="en" class="block hide-metadata" data-taxon="Algorithm"><details id="id16" open="open"><summary><header><h1>
+<span class="taxon">Algorithm. </span>Trust-Region Local Search (TuRBO)  </h1>
+<div class="metadata"><ul><li class="meta-item"><address class="author">Kvutza</address></li></ul></div></header></summary><p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">High-dimensional black box optimization frequently suffers from the curse of dimensionality when fitting global surrogate models over the entire parameter space. <strong>baux</strong> confines candidate proposal to a local hypercube &amp;mdash; the trust region &amp;mdash; centered at the current incumbent point \(x^* \in  [0, 1]^D\):</p>\[   \mathcal {TR}_t = \left \{ x \in  [0, 1]^D : \max _{i=1,\dots ,D} \frac {|x_i - x_i^*|}{L_t} \le  \frac {1}{2} \right \} \]<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">The base side length \(L_t\) adapts dynamically based on observation feedback:</p>
+<ul xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">
+<li>
+<strong>Expansion</strong>: If consecutive candidate batches improve upon the incumbent, the search volume expands: \(L_{t+1} = \min (L_t \times  1.5,\, L_{\max })\).</li>
+  <li>
+<strong>Contraction</strong>: If the optimizer fails to find an improvement across a sequence of failure tolerance rounds (\(\tau _{\text {fail}}\)), the volume contracts: \(L_{t+1} = \max (L_t \times  0.5,\, L_{\min })\).</li>
+  <li>
+<strong>Restart</strong>: When \(L_t\) shrinks below \(L_{\min }\), the trust region resets with a new anchor point to prevent asymptotic stagnation in local minima.</li>
+</ul></details></section><section lang="en" class="block hide-metadata" data-taxon="Surrogate"><details id="id17" open="open"><summary><header><h1>
+<span class="taxon">Surrogate. </span>Epistemic Nearest Neighbors (ENN)  </h1>
+<div class="metadata"><ul><li class="meta-item"><address class="author">Kvutza</address></li></ul></div></header></summary><p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">Standard Gaussian Process regression requires \(\mathcal {O}(N^3)\) Cholesky factorization of the kernel covariance matrix, creating a computational bottleneck when evaluation counts scale into thousands of trials.</p>
+<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">ENN models function uncertainty through a non-parametric metric projection over the \(k\)-nearest observed points. Posterior uncertainty decomposes into two independent orthogonal fields:</p>\[   p(y \mid  x, \mathcal {D}) = \mathcal {N}\left (\mu _{\text {post}}(x),\, \sigma _{\text {epi}}^2(x) + \sigma _{\text {ale}}^2\right ) \]<ul xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">
+<li>
+<strong>Epistemic Uncertainty (\(\sigma _{\text {epi}}\)):</strong> Measures spatial evaluation sparsity. Scales proportionally with metric distance to neighboring observations: it vanishes near evaluations and expands in unexplored regions.</li>
+  <li>
+<strong>Aleatoric Uncertainty (\(\sigma _{\text {ale}}\)):</strong> Captures irreducible observation noise inherent to stochastic objective evaluations.</li>
+</ul>
+<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">Because ENN evaluates uncertainty via nearest-neighbor distance fields rather than matrix inversion, candidate ranking within the trust region runs in linear time with respect to observed trials, allowing sub-millisecond proposal latency across tens of thousands of evaluations.</p></details></section><section lang="en" class="block hide-metadata" data-taxon="Architecture"><details id="id18" open="open"><summary><header><h1>
+<span class="taxon">Architecture. </span>Hardware Compute Backends  </h1>
+<div class="metadata"><ul><li class="meta-item"><address class="author">Kvutza</address></li></ul></div></header></summary><p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">In high-throughput experimental loops, latency is dominated by host-device memory synchronization. On Apple Silicon, <strong>baux</strong> leverages Unified Memory Architecture (UMA) via Metal compute pipelines:</p>
+<ul xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">
+<li>Observation buffers and trust-region states reside in unified system memory without duplicate host/device allocations.</li>
+  <li>Batch candidate generation, Sobol sequence perturbations, and nearest-neighbor distance sweeps execute directly on Metal shading pipelines.</li>
+  <li>On Linux environments with NVIDIA hardware, custom CUDA kernels handle distance computation and posterior draws across large candidate batches.</li>
+  <li>On systems without GPU support, pure-Rust AVX-512 and ARM NEON SIMD routines provide vectorized CPU fallback.</li>
+</ul></details></section><section lang="en" class="block hide-metadata" data-taxon="Interface"><details id="id19" open="open"><summary><header><h1>
+<span class="taxon">Interface. </span>API Specifications &amp; Workflows  </h1>
+<div class="metadata"><ul><li class="meta-item"><address class="author">Kvutza</address></li></ul></div></header></summary><div xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="quickstart">
+<p>The primary Python interface is structured around a non-blocking <code>ask(batch_size)</code> and <code>tell(candidates, scores)</code> loop:</p>
+
+<pre>import numpy as np
+from baux import create_optimizer, turbo_enn
+
+# Define parameter domain: continuous bounds for each dimension
+bounds = np.array([[-5.0, 5.0], [-5.0, 5.0]])
+
+# Initialize TuRBO optimizer with Epistemic Nearest Neighbors surrogate
+opt = create_optimizer(
+    bounds=bounds,
+    config=turbo_enn(),
+    rng=np.random.default_rng(42),
+)
+
+# Propose trial batch, evaluate objective, and report back
+for step in range(25):
+    candidates = opt.ask(batch_size=4)
+    scores = -np.sum(candidates**2, axis=1)
+    opt.tell(candidates, scores)
+
+print("Incumbent parameters:", opt.best_x)
+print("Incumbent reward:", opt.best_y)</pre>
+</div></details></section><section lang="en" class="block hide-metadata" data-taxon="Reference"><details id="id20" open="open"><summary><header><h1>
+<span class="taxon">Reference. </span>Baux API Reference  </h1>
+<div class="metadata"><ul><li class="meta-item"><address class="author">Kvutza</address></li></ul></div></header></summary><p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">Complete formal interface specifications and dimensional invariants for the <code>baux</code> black box optimization library.</p>
+<section lang="en" class="block hide-metadata" data-taxon="Function"><details id="id21" open="open"><summary><header><h1>
+<span class="taxon">Function. </span>Optimizer Factory: <code xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">baux.create_optimizer</code>  </h1>
+<div class="metadata"><ul><li class="meta-item"><address class="author">Kvutza</address></li></ul></div></header></summary><p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">Instantiates an optimization state machine over a bounded continuous domain.</p>
+<pre xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">create_optimizer(
+    bounds: np.ndarray,
+    config: Optional[OptimizerConfig] = None,
+    rng: Optional[np.random.Generator] = None,
+) -&gt; Optimizer</pre>
+<ul xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">
+<li>
+<strong><code>bounds</code></strong>: 2D array of shape <code>(D, 2)</code> defining lower and upper bounds <code>[l_i, u_i]</code> for each parameter dimension.</li>
+    <li>
+<strong><code>config</code></strong>: Search policy preset: <code>turbo_enn()</code>, <code>turbo_one()</code>, or <code>turbo_zero()</code>.</li>
+    <li>
+<strong><code>rng</code></strong>: Seeded NumPy random generator for deterministic sampling reproducibility.</li>
+</ul></details></section><section lang="en" class="block hide-metadata" data-taxon="Interface"><details id="id22" open="open"><summary><header><h1>
+<span class="taxon">Interface. </span>Optimizer Methods  </h1>
+<div class="metadata"><ul><li class="meta-item"><address class="author">Kvutza</address></li></ul></div></header></summary><ul xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">
+<li>
+<strong><code>ask(batch_size=1) -&gt; np.ndarray</code></strong>: Proposes a candidate trial matrix of shape <code>(batch_size, D)</code> bounded within the active trust region.</li>
+    <li>
+<strong><code>tell(candidates, scores) -&gt; None</code></strong>: Updates trust-region state machine with observed evaluations under a maximization objective.</li>
+    <li>
+<strong><code>best_x -&gt; np.ndarray</code></strong>: Coordinates of the incumbent parameter point.</li>
+    <li>
+<strong><code>best_y -&gt; float</code></strong>: Best observed reward value.</li>
+</ul></details></section><section lang="en" class="block hide-metadata" data-taxon="Surrogate"><details id="id23" open="open"><summary><header><h1>
+<span class="taxon">Surrogate. </span>Epistemic Nearest Neighbors: <code xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">baux.ENN</code>  </h1>
+<div class="metadata"><ul><li class="meta-item"><address class="author">Kvutza</address></li></ul></div></header></summary><pre xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">model = ENN(train_x, train_y, index_driver=NeighborIndex.FLAT)
+post = model.posterior(query_x, params=ENNParams(k_neighbors=8))</pre>
+<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">The returned <code>Posterior</code> object yields expected mean <code>post.mu</code>, epistemic uncertainty <code>post.se_epi</code>, and aleatoric uncertainty <code>post.se_ale</code>.</p></details></section></details></section></details></section></details></section></footer></article></div></body></html>

@@ -1,0 +1,354 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet type="text/xsl" href="default.xsl"?>
+<fr:tree
+toc="true"
+numbered="true"
+show-heading="true"
+show-metadata="true"
+expanded="true"
+root="false"
+xmlns:fr="http://www.jonmsterling.com/jms-005P.xml"><fr:frontmatter><fr:anchor>341</fr:anchor><fr:addr
+type="user">baux-0002</fr:addr><fr:route>baux-0002.xml</fr:route><fr:title
+text="Trust-Region Local Search (TuRBO)">Trust-Region Local Search (TuRBO)</fr:title><fr:taxon>Algorithm</fr:taxon><fr:authors><fr:author>Kvutza</fr:author></fr:authors></fr:frontmatter><fr:mainmatter><fr:p>High-dimensional black box optimization frequently suffers from the curse of dimensionality when fitting global surrogate models over the entire parameter space. <fr:strong>baux</fr:strong> confines candidate proposal to a local hypercube &amp;mdash; the trust region &amp;mdash; centered at the current incumbent point <fr:tex
+display="inline"><![CDATA[x^* \in  [0, 1]^D]]></fr:tex>:</fr:p><fr:tex
+display="block"><![CDATA[   \mathcal {TR}_t = \left \{ x \in  [0, 1]^D : \max _{i=1,\dots ,D} \frac {|x_i - x_i^*|}{L_t} \le  \frac {1}{2} \right \} ]]></fr:tex><fr:p>The base side length <fr:tex
+display="inline"><![CDATA[L_t]]></fr:tex> adapts dynamically based on observation feedback:</fr:p><fr:ul><fr:li><fr:strong>Expansion</fr:strong>: If consecutive candidate batches improve upon the incumbent, the search volume expands: <fr:tex
+display="inline"><![CDATA[L_{t+1} = \min (L_t \times  1.5,\, L_{\max })]]></fr:tex>.</fr:li>
+  <fr:li><fr:strong>Contraction</fr:strong>: If the optimizer fails to find an improvement across a sequence of failure tolerance rounds (<fr:tex
+display="inline"><![CDATA[\tau _{\text {fail}}]]></fr:tex>), the volume contracts: <fr:tex
+display="inline"><![CDATA[L_{t+1} = \max (L_t \times  0.5,\, L_{\min })]]></fr:tex>.</fr:li>
+  <fr:li><fr:strong>Restart</fr:strong>: When <fr:tex
+display="inline"><![CDATA[L_t]]></fr:tex> shrinks below <fr:tex
+display="inline"><![CDATA[L_{\min }]]></fr:tex>, the trust region resets with a new anchor point to prevent asymptotic stagnation in local minima.</fr:li></fr:ul></fr:mainmatter><fr:backmatter><fr:tree
+toc="false"
+numbered="false"
+show-heading="true"
+show-metadata="false"
+expanded="true"
+root="false"
+xmlns:fr="http://www.jonmsterling.com/jms-005P.xml"><fr:frontmatter><fr:title
+text="Context">Context</fr:title><fr:authors /></fr:frontmatter><fr:mainmatter><fr:tree
+toc="true"
+numbered="false"
+show-heading="true"
+show-metadata="true"
+expanded="false"
+root="false"
+xmlns:fr="http://www.jonmsterling.com/jms-005P.xml"><fr:frontmatter><fr:anchor>343</fr:anchor><fr:addr
+type="user">baux-0001</fr:addr><fr:route>baux-0001.xml</fr:route><fr:title
+text="Baux — Black Box Optimization">Baux — Black Box Optimization</fr:title><fr:taxon>Monograph</fr:taxon><fr:date><fr:year>2026</fr:year><fr:month>11</fr:month><fr:day>9</fr:day></fr:date><fr:authors><fr:author>Kvutza</fr:author></fr:authors><fr:meta
+name="external">https://github.com/Kvutza/baux</fr:meta></fr:frontmatter><fr:mainmatter><fr:p><fr:strong>baux</fr:strong> is a black box optimization library in Python and Rust designed for expensive, derivative-free evaluation loops over continuous and bounded domains. It couples trust-region local search (<fr:ref
+addr="baux-0002"
+href="baux-0002.xml"
+taxon="Algorithm" />) with non-parametric Epistemic Nearest Neighbors (<fr:ref
+addr="baux-0003"
+href="baux-0003.xml"
+taxon="Surrogate" />) to balance local exploitation and global exploration without incurring the cubic computational bottlenecks of Gaussian Process inference.</fr:p><fr:p>Compute kernels for distance metrics, candidate perturbation, and posterior sampling execute directly on Apple Silicon (Metal MPS) and NVIDIA GPUs (CUDA), backed by an AVX-512 and ARM NEON SIMD pure-Rust CPU engine (<fr:ref
+addr="baux-0004"
+href="baux-0004.xml"
+taxon="Architecture" />).</fr:p><fr:tree
+toc="true"
+numbered="true"
+show-heading="true"
+show-metadata="false"
+expanded="true"
+root="false"
+xmlns:fr="http://www.jonmsterling.com/jms-005P.xml"><fr:frontmatter><fr:anchor>285</fr:anchor><fr:addr
+type="user">baux-0006</fr:addr><fr:route>baux-0006.xml</fr:route><fr:title
+text="Baseline &amp; Lineage">Baseline &amp; Lineage</fr:title><fr:taxon>Lineage</fr:taxon><fr:authors><fr:author>Kvutza</fr:author></fr:authors></fr:frontmatter><fr:mainmatter><fr:p><fr:strong>baux</fr:strong> builds on <fr:link
+type="external"
+href="https://github.com/yubo-research/enn">yubo-research/enn</fr:link> (v0.4.1), using its TuRBO trust-region state machine and Epistemic Nearest Neighbors formulation as the algorithmic baseline.</fr:p><fr:p>It extends this baseline with:</fr:p><fr:ul><fr:li><fr:strong>A single crate</fr:strong>: Consolidates <fr:code>ennbo</fr:code>, <fr:code>bpann</fr:code>, and <fr:code>enn-py</fr:code> into a single self-contained <fr:code>baux</fr:code> library and binary wheel (<fr:code>pip install baux</fr:code>).</fr:li>
+  <fr:li><fr:strong>GPU acceleration</fr:strong>: Implements Apple Silicon Metal and NVIDIA CUDA compute kernels.</fr:li>
+  <fr:li><fr:strong>Direct interface</fr:strong>: Exposes a clean <fr:code>ask</fr:code>/<fr:code>tell</fr:code> loop with native batch proposals.</fr:li></fr:ul></fr:mainmatter><fr:backmatter /></fr:tree><fr:tree
+toc="true"
+numbered="true"
+show-heading="true"
+show-metadata="false"
+expanded="true"
+root="false"
+xmlns:fr="http://www.jonmsterling.com/jms-005P.xml"><fr:frontmatter><fr:anchor>287</fr:anchor><fr:addr
+type="user">baux-0002</fr:addr><fr:route>baux-0002.xml</fr:route><fr:title
+text="Trust-Region Local Search (TuRBO)">Trust-Region Local Search (TuRBO)</fr:title><fr:taxon>Algorithm</fr:taxon><fr:authors><fr:author>Kvutza</fr:author></fr:authors></fr:frontmatter><fr:mainmatter><fr:p>High-dimensional black box optimization frequently suffers from the curse of dimensionality when fitting global surrogate models over the entire parameter space. <fr:strong>baux</fr:strong> confines candidate proposal to a local hypercube &amp;mdash; the trust region &amp;mdash; centered at the current incumbent point <fr:tex
+display="inline"><![CDATA[x^* \in  [0, 1]^D]]></fr:tex>:</fr:p><fr:tex
+display="block"><![CDATA[   \mathcal {TR}_t = \left \{ x \in  [0, 1]^D : \max _{i=1,\dots ,D} \frac {|x_i - x_i^*|}{L_t} \le  \frac {1}{2} \right \} ]]></fr:tex><fr:p>The base side length <fr:tex
+display="inline"><![CDATA[L_t]]></fr:tex> adapts dynamically based on observation feedback:</fr:p><fr:ul><fr:li><fr:strong>Expansion</fr:strong>: If consecutive candidate batches improve upon the incumbent, the search volume expands: <fr:tex
+display="inline"><![CDATA[L_{t+1} = \min (L_t \times  1.5,\, L_{\max })]]></fr:tex>.</fr:li>
+  <fr:li><fr:strong>Contraction</fr:strong>: If the optimizer fails to find an improvement across a sequence of failure tolerance rounds (<fr:tex
+display="inline"><![CDATA[\tau _{\text {fail}}]]></fr:tex>), the volume contracts: <fr:tex
+display="inline"><![CDATA[L_{t+1} = \max (L_t \times  0.5,\, L_{\min })]]></fr:tex>.</fr:li>
+  <fr:li><fr:strong>Restart</fr:strong>: When <fr:tex
+display="inline"><![CDATA[L_t]]></fr:tex> shrinks below <fr:tex
+display="inline"><![CDATA[L_{\min }]]></fr:tex>, the trust region resets with a new anchor point to prevent asymptotic stagnation in local minima.</fr:li></fr:ul></fr:mainmatter><fr:backmatter /></fr:tree><fr:tree
+toc="true"
+numbered="true"
+show-heading="true"
+show-metadata="false"
+expanded="true"
+root="false"
+xmlns:fr="http://www.jonmsterling.com/jms-005P.xml"><fr:frontmatter><fr:anchor>289</fr:anchor><fr:addr
+type="user">baux-0003</fr:addr><fr:route>baux-0003.xml</fr:route><fr:title
+text="Epistemic Nearest Neighbors (ENN)">Epistemic Nearest Neighbors (ENN)</fr:title><fr:taxon>Surrogate</fr:taxon><fr:authors><fr:author>Kvutza</fr:author></fr:authors></fr:frontmatter><fr:mainmatter><fr:p>Standard Gaussian Process regression requires <fr:tex
+display="inline"><![CDATA[\mathcal {O}(N^3)]]></fr:tex> Cholesky factorization of the kernel covariance matrix, creating a computational bottleneck when evaluation counts scale into thousands of trials.</fr:p><fr:p>ENN models function uncertainty through a non-parametric metric projection over the <fr:tex
+display="inline"><![CDATA[k]]></fr:tex>-nearest observed points. Posterior uncertainty decomposes into two independent orthogonal fields:</fr:p><fr:tex
+display="block"><![CDATA[   p(y \mid  x, \mathcal {D}) = \mathcal {N}\left (\mu _{\text {post}}(x),\, \sigma _{\text {epi}}^2(x) + \sigma _{\text {ale}}^2\right ) ]]></fr:tex><fr:ul><fr:li><fr:strong>Epistemic Uncertainty (<fr:tex
+display="inline"><![CDATA[\sigma _{\text {epi}}]]></fr:tex>):</fr:strong> Measures spatial evaluation sparsity. Scales proportionally with metric distance to neighboring observations: it vanishes near evaluations and expands in unexplored regions.</fr:li>
+  <fr:li><fr:strong>Aleatoric Uncertainty (<fr:tex
+display="inline"><![CDATA[\sigma _{\text {ale}}]]></fr:tex>):</fr:strong> Captures irreducible observation noise inherent to stochastic objective evaluations.</fr:li></fr:ul><fr:p>Because ENN evaluates uncertainty via nearest-neighbor distance fields rather than matrix inversion, candidate ranking within the trust region runs in linear time with respect to observed trials, allowing sub-millisecond proposal latency across tens of thousands of evaluations.</fr:p></fr:mainmatter><fr:backmatter /></fr:tree><fr:tree
+toc="true"
+numbered="true"
+show-heading="true"
+show-metadata="false"
+expanded="true"
+root="false"
+xmlns:fr="http://www.jonmsterling.com/jms-005P.xml"><fr:frontmatter><fr:anchor>291</fr:anchor><fr:addr
+type="user">baux-0004</fr:addr><fr:route>baux-0004.xml</fr:route><fr:title
+text="Hardware Compute Backends">Hardware Compute Backends</fr:title><fr:taxon>Architecture</fr:taxon><fr:authors><fr:author>Kvutza</fr:author></fr:authors></fr:frontmatter><fr:mainmatter><fr:p>In high-throughput experimental loops, latency is dominated by host-device memory synchronization. On Apple Silicon, <fr:strong>baux</fr:strong> leverages Unified Memory Architecture (UMA) via Metal compute pipelines:</fr:p><fr:ul><fr:li>Observation buffers and trust-region states reside in unified system memory without duplicate host/device allocations.</fr:li>
+  <fr:li>Batch candidate generation, Sobol sequence perturbations, and nearest-neighbor distance sweeps execute directly on Metal shading pipelines.</fr:li>
+  <fr:li>On Linux environments with NVIDIA hardware, custom CUDA kernels handle distance computation and posterior draws across large candidate batches.</fr:li>
+  <fr:li>On systems without GPU support, pure-Rust AVX-512 and ARM NEON SIMD routines provide vectorized CPU fallback.</fr:li></fr:ul></fr:mainmatter><fr:backmatter /></fr:tree><fr:tree
+toc="true"
+numbered="true"
+show-heading="true"
+show-metadata="false"
+expanded="true"
+root="false"
+xmlns:fr="http://www.jonmsterling.com/jms-005P.xml"><fr:frontmatter><fr:anchor>293</fr:anchor><fr:addr
+type="user">baux-0005</fr:addr><fr:route>baux-0005.xml</fr:route><fr:title
+text="API Specifications &amp; Workflows">API Specifications &amp; Workflows</fr:title><fr:taxon>Interface</fr:taxon><fr:authors><fr:author>Kvutza</fr:author></fr:authors></fr:frontmatter><fr:mainmatter><div
+id="quickstart">
+<fr:p>The primary Python interface is structured around a non-blocking <fr:code>ask(batch_size)</fr:code> and <fr:code>tell(candidates, scores)</fr:code> loop:</fr:p>
+
+<fr:pre>import numpy as np
+from baux import create_optimizer, turbo_enn
+
+# Define parameter domain: continuous bounds for each dimension
+bounds = np.array([[-5.0, 5.0], [-5.0, 5.0]])
+
+# Initialize TuRBO optimizer with Epistemic Nearest Neighbors surrogate
+opt = create_optimizer(
+    bounds=bounds,
+    config=turbo_enn(),
+    rng=np.random.default_rng(42),
+)
+
+# Propose trial batch, evaluate objective, and report back
+for step in range(25):
+    candidates = opt.ask(batch_size=4)
+    scores = -np.sum(candidates**2, axis=1)
+    opt.tell(candidates, scores)
+
+print("Incumbent parameters:", opt.best_x)
+print("Incumbent reward:", opt.best_y)</fr:pre>
+</div></fr:mainmatter><fr:backmatter /></fr:tree><fr:tree
+toc="true"
+numbered="true"
+show-heading="true"
+show-metadata="false"
+expanded="true"
+root="false"
+xmlns:fr="http://www.jonmsterling.com/jms-005P.xml"><fr:frontmatter><fr:anchor>295</fr:anchor><fr:addr
+type="user">baux-0007</fr:addr><fr:route>baux-0007.xml</fr:route><fr:title
+text="Baux API Reference">Baux API Reference</fr:title><fr:taxon>Reference</fr:taxon><fr:authors><fr:author>Kvutza</fr:author></fr:authors></fr:frontmatter><fr:mainmatter><fr:p>Complete formal interface specifications and dimensional invariants for the <fr:code>baux</fr:code> black box optimization library.</fr:p><fr:tree
+toc="true"
+numbered="true"
+show-heading="true"
+show-metadata="false"
+expanded="true"
+root="false"
+xmlns:fr="http://www.jonmsterling.com/jms-005P.xml"><fr:frontmatter><fr:anchor>297</fr:anchor><fr:addr
+type="machine">#277</fr:addr><fr:route>unstable-277.xml</fr:route><fr:title
+text="Optimizer Factory: baux.create_optimizer">Optimizer Factory: <fr:code>baux.create_optimizer</fr:code></fr:title><fr:taxon>Function</fr:taxon><fr:authors><fr:author>Kvutza</fr:author></fr:authors></fr:frontmatter><fr:mainmatter><fr:p>Instantiates an optimization state machine over a bounded continuous domain.</fr:p><fr:pre>create_optimizer(
+    bounds: np.ndarray,
+    config: Optional[OptimizerConfig] = None,
+    rng: Optional[np.random.Generator] = None,
+) -&gt; Optimizer</fr:pre><fr:ul><fr:li><fr:strong><fr:code>bounds</fr:code></fr:strong>: 2D array of shape <fr:code>(D, 2)</fr:code> defining lower and upper bounds <fr:code>[l_i, u_i]</fr:code> for each parameter dimension.</fr:li>
+    <fr:li><fr:strong><fr:code>config</fr:code></fr:strong>: Search policy preset: <fr:code>turbo_enn()</fr:code>, <fr:code>turbo_one()</fr:code>, or <fr:code>turbo_zero()</fr:code>.</fr:li>
+    <fr:li><fr:strong><fr:code>rng</fr:code></fr:strong>: Seeded NumPy random generator for deterministic sampling reproducibility.</fr:li></fr:ul></fr:mainmatter><fr:backmatter /></fr:tree><fr:tree
+toc="true"
+numbered="true"
+show-heading="true"
+show-metadata="false"
+expanded="true"
+root="false"
+xmlns:fr="http://www.jonmsterling.com/jms-005P.xml"><fr:frontmatter><fr:anchor>299</fr:anchor><fr:addr
+type="machine">#278</fr:addr><fr:route>unstable-278.xml</fr:route><fr:title
+text="Optimizer Methods">Optimizer Methods</fr:title><fr:taxon>Interface</fr:taxon><fr:authors><fr:author>Kvutza</fr:author></fr:authors></fr:frontmatter><fr:mainmatter><fr:ul><fr:li><fr:strong><fr:code>ask(batch_size=1) -&gt; np.ndarray</fr:code></fr:strong>: Proposes a candidate trial matrix of shape <fr:code>(batch_size, D)</fr:code> bounded within the active trust region.</fr:li>
+    <fr:li><fr:strong><fr:code>tell(candidates, scores) -&gt; None</fr:code></fr:strong>: Updates trust-region state machine with observed evaluations under a maximization objective.</fr:li>
+    <fr:li><fr:strong><fr:code>best_x -&gt; np.ndarray</fr:code></fr:strong>: Coordinates of the incumbent parameter point.</fr:li>
+    <fr:li><fr:strong><fr:code>best_y -&gt; float</fr:code></fr:strong>: Best observed reward value.</fr:li></fr:ul></fr:mainmatter><fr:backmatter /></fr:tree><fr:tree
+toc="true"
+numbered="true"
+show-heading="true"
+show-metadata="false"
+expanded="true"
+root="false"
+xmlns:fr="http://www.jonmsterling.com/jms-005P.xml"><fr:frontmatter><fr:anchor>301</fr:anchor><fr:addr
+type="machine">#279</fr:addr><fr:route>unstable-279.xml</fr:route><fr:title
+text="Epistemic Nearest Neighbors: baux.ENN">Epistemic Nearest Neighbors: <fr:code>baux.ENN</fr:code></fr:title><fr:taxon>Surrogate</fr:taxon><fr:authors><fr:author>Kvutza</fr:author></fr:authors></fr:frontmatter><fr:mainmatter><fr:pre>model = ENN(train_x, train_y, index_driver=NeighborIndex.FLAT)
+post = model.posterior(query_x, params=ENNParams(k_neighbors=8))</fr:pre><fr:p>The returned <fr:code>Posterior</fr:code> object yields expected mean <fr:code>post.mu</fr:code>, epistemic uncertainty <fr:code>post.se_epi</fr:code>, and aleatoric uncertainty <fr:code>post.se_ale</fr:code>.</fr:p></fr:mainmatter><fr:backmatter /></fr:tree></fr:mainmatter><fr:backmatter /></fr:tree></fr:mainmatter><fr:backmatter /></fr:tree></fr:mainmatter><fr:backmatter /></fr:tree><fr:tree
+toc="false"
+numbered="false"
+show-heading="true"
+show-metadata="false"
+expanded="true"
+root="false"
+xmlns:fr="http://www.jonmsterling.com/jms-005P.xml"><fr:frontmatter><fr:title
+text="Backlinks">Backlinks</fr:title><fr:authors /></fr:frontmatter><fr:mainmatter><fr:tree
+toc="true"
+numbered="false"
+show-heading="true"
+show-metadata="true"
+expanded="false"
+root="false"
+xmlns:fr="http://www.jonmsterling.com/jms-005P.xml"><fr:frontmatter><fr:anchor>345</fr:anchor><fr:addr
+type="user">baux-0001</fr:addr><fr:route>baux-0001.xml</fr:route><fr:title
+text="Baux — Black Box Optimization">Baux — Black Box Optimization</fr:title><fr:taxon>Monograph</fr:taxon><fr:date><fr:year>2026</fr:year><fr:month>11</fr:month><fr:day>9</fr:day></fr:date><fr:authors><fr:author>Kvutza</fr:author></fr:authors><fr:meta
+name="external">https://github.com/Kvutza/baux</fr:meta></fr:frontmatter><fr:mainmatter><fr:p><fr:strong>baux</fr:strong> is a black box optimization library in Python and Rust designed for expensive, derivative-free evaluation loops over continuous and bounded domains. It couples trust-region local search (<fr:ref
+addr="baux-0002"
+href="baux-0002.xml"
+taxon="Algorithm" />) with non-parametric Epistemic Nearest Neighbors (<fr:ref
+addr="baux-0003"
+href="baux-0003.xml"
+taxon="Surrogate" />) to balance local exploitation and global exploration without incurring the cubic computational bottlenecks of Gaussian Process inference.</fr:p><fr:p>Compute kernels for distance metrics, candidate perturbation, and posterior sampling execute directly on Apple Silicon (Metal MPS) and NVIDIA GPUs (CUDA), backed by an AVX-512 and ARM NEON SIMD pure-Rust CPU engine (<fr:ref
+addr="baux-0004"
+href="baux-0004.xml"
+taxon="Architecture" />).</fr:p><fr:tree
+toc="true"
+numbered="true"
+show-heading="true"
+show-metadata="false"
+expanded="true"
+root="false"
+xmlns:fr="http://www.jonmsterling.com/jms-005P.xml"><fr:frontmatter><fr:anchor>285</fr:anchor><fr:addr
+type="user">baux-0006</fr:addr><fr:route>baux-0006.xml</fr:route><fr:title
+text="Baseline &amp; Lineage">Baseline &amp; Lineage</fr:title><fr:taxon>Lineage</fr:taxon><fr:authors><fr:author>Kvutza</fr:author></fr:authors></fr:frontmatter><fr:mainmatter><fr:p><fr:strong>baux</fr:strong> builds on <fr:link
+type="external"
+href="https://github.com/yubo-research/enn">yubo-research/enn</fr:link> (v0.4.1), using its TuRBO trust-region state machine and Epistemic Nearest Neighbors formulation as the algorithmic baseline.</fr:p><fr:p>It extends this baseline with:</fr:p><fr:ul><fr:li><fr:strong>A single crate</fr:strong>: Consolidates <fr:code>ennbo</fr:code>, <fr:code>bpann</fr:code>, and <fr:code>enn-py</fr:code> into a single self-contained <fr:code>baux</fr:code> library and binary wheel (<fr:code>pip install baux</fr:code>).</fr:li>
+  <fr:li><fr:strong>GPU acceleration</fr:strong>: Implements Apple Silicon Metal and NVIDIA CUDA compute kernels.</fr:li>
+  <fr:li><fr:strong>Direct interface</fr:strong>: Exposes a clean <fr:code>ask</fr:code>/<fr:code>tell</fr:code> loop with native batch proposals.</fr:li></fr:ul></fr:mainmatter><fr:backmatter /></fr:tree><fr:tree
+toc="true"
+numbered="true"
+show-heading="true"
+show-metadata="false"
+expanded="true"
+root="false"
+xmlns:fr="http://www.jonmsterling.com/jms-005P.xml"><fr:frontmatter><fr:anchor>287</fr:anchor><fr:addr
+type="user">baux-0002</fr:addr><fr:route>baux-0002.xml</fr:route><fr:title
+text="Trust-Region Local Search (TuRBO)">Trust-Region Local Search (TuRBO)</fr:title><fr:taxon>Algorithm</fr:taxon><fr:authors><fr:author>Kvutza</fr:author></fr:authors></fr:frontmatter><fr:mainmatter><fr:p>High-dimensional black box optimization frequently suffers from the curse of dimensionality when fitting global surrogate models over the entire parameter space. <fr:strong>baux</fr:strong> confines candidate proposal to a local hypercube &amp;mdash; the trust region &amp;mdash; centered at the current incumbent point <fr:tex
+display="inline"><![CDATA[x^* \in  [0, 1]^D]]></fr:tex>:</fr:p><fr:tex
+display="block"><![CDATA[   \mathcal {TR}_t = \left \{ x \in  [0, 1]^D : \max _{i=1,\dots ,D} \frac {|x_i - x_i^*|}{L_t} \le  \frac {1}{2} \right \} ]]></fr:tex><fr:p>The base side length <fr:tex
+display="inline"><![CDATA[L_t]]></fr:tex> adapts dynamically based on observation feedback:</fr:p><fr:ul><fr:li><fr:strong>Expansion</fr:strong>: If consecutive candidate batches improve upon the incumbent, the search volume expands: <fr:tex
+display="inline"><![CDATA[L_{t+1} = \min (L_t \times  1.5,\, L_{\max })]]></fr:tex>.</fr:li>
+  <fr:li><fr:strong>Contraction</fr:strong>: If the optimizer fails to find an improvement across a sequence of failure tolerance rounds (<fr:tex
+display="inline"><![CDATA[\tau _{\text {fail}}]]></fr:tex>), the volume contracts: <fr:tex
+display="inline"><![CDATA[L_{t+1} = \max (L_t \times  0.5,\, L_{\min })]]></fr:tex>.</fr:li>
+  <fr:li><fr:strong>Restart</fr:strong>: When <fr:tex
+display="inline"><![CDATA[L_t]]></fr:tex> shrinks below <fr:tex
+display="inline"><![CDATA[L_{\min }]]></fr:tex>, the trust region resets with a new anchor point to prevent asymptotic stagnation in local minima.</fr:li></fr:ul></fr:mainmatter><fr:backmatter /></fr:tree><fr:tree
+toc="true"
+numbered="true"
+show-heading="true"
+show-metadata="false"
+expanded="true"
+root="false"
+xmlns:fr="http://www.jonmsterling.com/jms-005P.xml"><fr:frontmatter><fr:anchor>289</fr:anchor><fr:addr
+type="user">baux-0003</fr:addr><fr:route>baux-0003.xml</fr:route><fr:title
+text="Epistemic Nearest Neighbors (ENN)">Epistemic Nearest Neighbors (ENN)</fr:title><fr:taxon>Surrogate</fr:taxon><fr:authors><fr:author>Kvutza</fr:author></fr:authors></fr:frontmatter><fr:mainmatter><fr:p>Standard Gaussian Process regression requires <fr:tex
+display="inline"><![CDATA[\mathcal {O}(N^3)]]></fr:tex> Cholesky factorization of the kernel covariance matrix, creating a computational bottleneck when evaluation counts scale into thousands of trials.</fr:p><fr:p>ENN models function uncertainty through a non-parametric metric projection over the <fr:tex
+display="inline"><![CDATA[k]]></fr:tex>-nearest observed points. Posterior uncertainty decomposes into two independent orthogonal fields:</fr:p><fr:tex
+display="block"><![CDATA[   p(y \mid  x, \mathcal {D}) = \mathcal {N}\left (\mu _{\text {post}}(x),\, \sigma _{\text {epi}}^2(x) + \sigma _{\text {ale}}^2\right ) ]]></fr:tex><fr:ul><fr:li><fr:strong>Epistemic Uncertainty (<fr:tex
+display="inline"><![CDATA[\sigma _{\text {epi}}]]></fr:tex>):</fr:strong> Measures spatial evaluation sparsity. Scales proportionally with metric distance to neighboring observations: it vanishes near evaluations and expands in unexplored regions.</fr:li>
+  <fr:li><fr:strong>Aleatoric Uncertainty (<fr:tex
+display="inline"><![CDATA[\sigma _{\text {ale}}]]></fr:tex>):</fr:strong> Captures irreducible observation noise inherent to stochastic objective evaluations.</fr:li></fr:ul><fr:p>Because ENN evaluates uncertainty via nearest-neighbor distance fields rather than matrix inversion, candidate ranking within the trust region runs in linear time with respect to observed trials, allowing sub-millisecond proposal latency across tens of thousands of evaluations.</fr:p></fr:mainmatter><fr:backmatter /></fr:tree><fr:tree
+toc="true"
+numbered="true"
+show-heading="true"
+show-metadata="false"
+expanded="true"
+root="false"
+xmlns:fr="http://www.jonmsterling.com/jms-005P.xml"><fr:frontmatter><fr:anchor>291</fr:anchor><fr:addr
+type="user">baux-0004</fr:addr><fr:route>baux-0004.xml</fr:route><fr:title
+text="Hardware Compute Backends">Hardware Compute Backends</fr:title><fr:taxon>Architecture</fr:taxon><fr:authors><fr:author>Kvutza</fr:author></fr:authors></fr:frontmatter><fr:mainmatter><fr:p>In high-throughput experimental loops, latency is dominated by host-device memory synchronization. On Apple Silicon, <fr:strong>baux</fr:strong> leverages Unified Memory Architecture (UMA) via Metal compute pipelines:</fr:p><fr:ul><fr:li>Observation buffers and trust-region states reside in unified system memory without duplicate host/device allocations.</fr:li>
+  <fr:li>Batch candidate generation, Sobol sequence perturbations, and nearest-neighbor distance sweeps execute directly on Metal shading pipelines.</fr:li>
+  <fr:li>On Linux environments with NVIDIA hardware, custom CUDA kernels handle distance computation and posterior draws across large candidate batches.</fr:li>
+  <fr:li>On systems without GPU support, pure-Rust AVX-512 and ARM NEON SIMD routines provide vectorized CPU fallback.</fr:li></fr:ul></fr:mainmatter><fr:backmatter /></fr:tree><fr:tree
+toc="true"
+numbered="true"
+show-heading="true"
+show-metadata="false"
+expanded="true"
+root="false"
+xmlns:fr="http://www.jonmsterling.com/jms-005P.xml"><fr:frontmatter><fr:anchor>293</fr:anchor><fr:addr
+type="user">baux-0005</fr:addr><fr:route>baux-0005.xml</fr:route><fr:title
+text="API Specifications &amp; Workflows">API Specifications &amp; Workflows</fr:title><fr:taxon>Interface</fr:taxon><fr:authors><fr:author>Kvutza</fr:author></fr:authors></fr:frontmatter><fr:mainmatter><div
+id="quickstart">
+<fr:p>The primary Python interface is structured around a non-blocking <fr:code>ask(batch_size)</fr:code> and <fr:code>tell(candidates, scores)</fr:code> loop:</fr:p>
+
+<fr:pre>import numpy as np
+from baux import create_optimizer, turbo_enn
+
+# Define parameter domain: continuous bounds for each dimension
+bounds = np.array([[-5.0, 5.0], [-5.0, 5.0]])
+
+# Initialize TuRBO optimizer with Epistemic Nearest Neighbors surrogate
+opt = create_optimizer(
+    bounds=bounds,
+    config=turbo_enn(),
+    rng=np.random.default_rng(42),
+)
+
+# Propose trial batch, evaluate objective, and report back
+for step in range(25):
+    candidates = opt.ask(batch_size=4)
+    scores = -np.sum(candidates**2, axis=1)
+    opt.tell(candidates, scores)
+
+print("Incumbent parameters:", opt.best_x)
+print("Incumbent reward:", opt.best_y)</fr:pre>
+</div></fr:mainmatter><fr:backmatter /></fr:tree><fr:tree
+toc="true"
+numbered="true"
+show-heading="true"
+show-metadata="false"
+expanded="true"
+root="false"
+xmlns:fr="http://www.jonmsterling.com/jms-005P.xml"><fr:frontmatter><fr:anchor>295</fr:anchor><fr:addr
+type="user">baux-0007</fr:addr><fr:route>baux-0007.xml</fr:route><fr:title
+text="Baux API Reference">Baux API Reference</fr:title><fr:taxon>Reference</fr:taxon><fr:authors><fr:author>Kvutza</fr:author></fr:authors></fr:frontmatter><fr:mainmatter><fr:p>Complete formal interface specifications and dimensional invariants for the <fr:code>baux</fr:code> black box optimization library.</fr:p><fr:tree
+toc="true"
+numbered="true"
+show-heading="true"
+show-metadata="false"
+expanded="true"
+root="false"
+xmlns:fr="http://www.jonmsterling.com/jms-005P.xml"><fr:frontmatter><fr:anchor>297</fr:anchor><fr:addr
+type="machine">#277</fr:addr><fr:route>unstable-277.xml</fr:route><fr:title
+text="Optimizer Factory: baux.create_optimizer">Optimizer Factory: <fr:code>baux.create_optimizer</fr:code></fr:title><fr:taxon>Function</fr:taxon><fr:authors><fr:author>Kvutza</fr:author></fr:authors></fr:frontmatter><fr:mainmatter><fr:p>Instantiates an optimization state machine over a bounded continuous domain.</fr:p><fr:pre>create_optimizer(
+    bounds: np.ndarray,
+    config: Optional[OptimizerConfig] = None,
+    rng: Optional[np.random.Generator] = None,
+) -&gt; Optimizer</fr:pre><fr:ul><fr:li><fr:strong><fr:code>bounds</fr:code></fr:strong>: 2D array of shape <fr:code>(D, 2)</fr:code> defining lower and upper bounds <fr:code>[l_i, u_i]</fr:code> for each parameter dimension.</fr:li>
+    <fr:li><fr:strong><fr:code>config</fr:code></fr:strong>: Search policy preset: <fr:code>turbo_enn()</fr:code>, <fr:code>turbo_one()</fr:code>, or <fr:code>turbo_zero()</fr:code>.</fr:li>
+    <fr:li><fr:strong><fr:code>rng</fr:code></fr:strong>: Seeded NumPy random generator for deterministic sampling reproducibility.</fr:li></fr:ul></fr:mainmatter><fr:backmatter /></fr:tree><fr:tree
+toc="true"
+numbered="true"
+show-heading="true"
+show-metadata="false"
+expanded="true"
+root="false"
+xmlns:fr="http://www.jonmsterling.com/jms-005P.xml"><fr:frontmatter><fr:anchor>299</fr:anchor><fr:addr
+type="machine">#278</fr:addr><fr:route>unstable-278.xml</fr:route><fr:title
+text="Optimizer Methods">Optimizer Methods</fr:title><fr:taxon>Interface</fr:taxon><fr:authors><fr:author>Kvutza</fr:author></fr:authors></fr:frontmatter><fr:mainmatter><fr:ul><fr:li><fr:strong><fr:code>ask(batch_size=1) -&gt; np.ndarray</fr:code></fr:strong>: Proposes a candidate trial matrix of shape <fr:code>(batch_size, D)</fr:code> bounded within the active trust region.</fr:li>
+    <fr:li><fr:strong><fr:code>tell(candidates, scores) -&gt; None</fr:code></fr:strong>: Updates trust-region state machine with observed evaluations under a maximization objective.</fr:li>
+    <fr:li><fr:strong><fr:code>best_x -&gt; np.ndarray</fr:code></fr:strong>: Coordinates of the incumbent parameter point.</fr:li>
+    <fr:li><fr:strong><fr:code>best_y -&gt; float</fr:code></fr:strong>: Best observed reward value.</fr:li></fr:ul></fr:mainmatter><fr:backmatter /></fr:tree><fr:tree
+toc="true"
+numbered="true"
+show-heading="true"
+show-metadata="false"
+expanded="true"
+root="false"
+xmlns:fr="http://www.jonmsterling.com/jms-005P.xml"><fr:frontmatter><fr:anchor>301</fr:anchor><fr:addr
+type="machine">#279</fr:addr><fr:route>unstable-279.xml</fr:route><fr:title
+text="Epistemic Nearest Neighbors: baux.ENN">Epistemic Nearest Neighbors: <fr:code>baux.ENN</fr:code></fr:title><fr:taxon>Surrogate</fr:taxon><fr:authors><fr:author>Kvutza</fr:author></fr:authors></fr:frontmatter><fr:mainmatter><fr:pre>model = ENN(train_x, train_y, index_driver=NeighborIndex.FLAT)
+post = model.posterior(query_x, params=ENNParams(k_neighbors=8))</fr:pre><fr:p>The returned <fr:code>Posterior</fr:code> object yields expected mean <fr:code>post.mu</fr:code>, epistemic uncertainty <fr:code>post.se_epi</fr:code>, and aleatoric uncertainty <fr:code>post.se_ale</fr:code>.</fr:p></fr:mainmatter><fr:backmatter /></fr:tree></fr:mainmatter><fr:backmatter /></fr:tree></fr:mainmatter><fr:backmatter /></fr:tree></fr:mainmatter><fr:backmatter /></fr:tree></fr:backmatter></fr:tree>

@@ -193,6 +193,17 @@ def deploy_pages(ws_dir: Path) -> None:
     print("✓ Successfully pushed kvutza/pages to origin/gh-pages!")
 
 
+def ensure_workspace(ws_dir: Path) -> None:
+    """Ensure the target directory is an active jj workspace tracking gh-pages."""
+    if not (ws_dir / ".jj").exists():
+        if ws_dir.exists():
+            shutil.rmtree(ws_dir)
+        subprocess.check_call(
+            ["jj", "workspace", "add", str(ws_dir), "-r", "gh-pages"],
+            cwd=str(ROOT),
+        )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -216,6 +227,9 @@ def main() -> None:
     if not args.skip_check_local:
         print("Checking that local docs/site is fresh...")
         subprocess.check_call(["./baux", "research", "site", "--check"], cwd=str(ROOT))
+
+    if args.deploy:
+        ensure_workspace(args.target_dir)
 
     print(f"Assembling two-view public bundle into {args.target_dir}...")
     assemble_bundle(args.target_dir)

@@ -217,7 +217,7 @@ impl SearchState {
     /// Scalar adapter for ENN-predicted-incumbent acceptance.
     ///
     /// Evaluates whether a proposed parameter candidate improves upon the
-    /// current incumbent using an Epistemic Neural Network (ENN) posterior
+    /// current incumbent using an Epistemic Nearest Neighbors (ENN) posterior
     /// prediction of the incumbent rather than an expensive contemporaneous
     /// forward pass on the incumbent.
     ///
@@ -359,7 +359,7 @@ impl SearchState {
     /// Accept against the ENN incumbent prediction carried by the pending ask.
     ///
     /// Decides acceptance of an evaluated candidate against the Epistemic
-    /// Neural Network (ENN) posterior prediction of the incumbent,
+    /// Nearest Neighbors (ENN) posterior prediction of the incumbent,
     /// supporting either scalar or multi-objective vector observations.
     ///
     /// # Units and Semantics

@@ -35,5 +35,12 @@ case "${1:-test}" in
     list|eval|batch|resolve|experiment)
         exec opam exec --switch="$switch" -- dune exec --profile release --root "$root/ocaml" --build-dir "$build" bin/benchmarks.exe -- "$@"
         ;;
-    *) echo 'Usage: buck2w run //ocaml:tool -- deps|build|hardware-build|test|test-flow|fmt|list|eval|batch|resolve|experiment|hardware' >&2; exit 2 ;;
+    extraction)
+        shift
+        exec "$root/ocaml/extraction/bin/aeneas" "$@"
+        ;;
+    extraction-build)
+        exec opam exec --switch="$switch" -- dune build --profile release --root "$root/ocaml/extraction/src" main.exe
+        ;;
+    *) echo 'Usage: buck2w run //ocaml:tool -- deps|build|hardware-build|test|test-flow|fmt|list|eval|batch|resolve|experiment|hardware|extraction|extraction-build' >&2; exit 2 ;;
 esac

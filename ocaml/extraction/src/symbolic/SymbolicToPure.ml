@@ -1,0 +1,423 @@
+open Pure
+open PureUtils
+open SymbolicToPureCore
+open SymbolicToPureTypes
+open SymbolicToPureExpressions
+open Errors
+
+(** The local logger *)
+let log = Logging.symbolic_to_pure_log
+
+let translate_fun_decl_body (ctx : bs_ctx) (signature : fun_sig) (body : S.expr)
+    : fun_body =
+  let def = ctx.fun_decl in
+  let def_id = def.def_id in
+  [%ltrace
+    name_to_string ctx def.item_meta.name
+    ^ "\n- body:\n"
+    ^ bs_ctx_expr_to_string ctx body
+    ^ "\n\n- decomposed_fun_sig:\n"
+    ^ decomposed_fun_sig_to_string ctx ctx.sg];
+
+  let effect_info = get_fun_effect_info ctx (FunId def_id) None in
+  let mk_return (ctx : bs_ctx) v =
+    match v with
+    | None ->
+        raise
+          (Failure
+             "Unexpected: reached a return expression without value in a \
+              function forward expression")
+    | Some output ->
+        (* Wrap in a result if the function can fail *)
+        if effect_info.can_fail then mk_result_ok_texpr ctx.span output
+        else output
+  in
+  let mk_panic =
+    (* TODO: we should use a [Fail] function *)
+    let mk_output output_ty =
+      mk_result_fail_texpr_with_error_id ctx.span error_failure_id output_ty
+    in
+    let back_tys = compute_back_tys ctx.sg.fun_ty in
+    let back_tys = List.filter_map (fun x -> x) back_tys in
+    let tys =
+      if ctx.sg.fun_ty.fwd_info.ignore_output then back_tys
+      else ctx.sg.fun_ty.fwd_output :: back_tys
+    in
+    let output = mk_simpl_tuple_ty tys in
+    mk_output output
+  in
+  let ctx = { ctx with mk_return = Some mk_return; mk_panic = Some mk_panic } in
+  let body = translate_expr body ctx in
+  (* Sanity check *)
+  type_check_texpr ctx body;
+  (* Group the inputs together *)
+  let inputs = ctx.forward_inputs in
+  (* Sanity check *)
+  [%ltrace
+    name_to_string ctx def.item_meta.name
+    ^ "\n- ctx.forward_inputs: "
+    ^ String.concat ", " (List.map show_fvar ctx.forward_inputs)
+    ^ "\n- signature.inputs: "
+    ^ String.concat ", " (List.map (pure_ty_to_string ctx) signature.inputs)
+    ^ "\n- inputs: "
+    ^ String.concat ", " (List.map (fvar_to_string ctx) inputs)
+    ^ "\n- body:\n" ^ texpr_to_string ctx body];
+  (* TODO: we need to normalize the types *)
+  if !Config.type_check_pure_code then
+    [%sanity_check] def.item_meta.span
+      (List.for_all
+         (fun (var, ty) -> (var : fvar).ty = ty)
+         (List.combine inputs signature.inputs));
+  let inputs = List.map (mk_tpat_from_fvar None) inputs in
+  mk_closed_fun_body def.item_meta.span inputs body
+
+let translate_fun_decl (ctx : bs_ctx) (body : S.expr option) : fun_decl =
+  (* Translate *)
+  let def = ctx.fun_decl in
+  assert (ctx.bid = None);
+  [%ltrace name_to_string ctx def.item_meta.name];
+
+  (* Translate the declaration *)
+  let def_id = def.def_id in
+  let name = name_to_string ctx def.item_meta.name in
+  (* Translate the signature *)
+  let signature = translate_fun_sig_from_decomposed ctx.sg in
+  (* Translate the body, if there is *)
+  let body =
+    match body with
+    | None -> None
+    | Some body -> (
+        try Some (translate_fun_decl_body ctx signature body)
+        with CFailure _ ->
+          (* We could not translate the body because of an error (note that we do
+           not need to rethrow the error as it was already registered and will
+           be showed to the user) *)
+          None)
+  in
+
+  (* Note that for now, the loops are still *inside* the function body (and we
+     haven't counted them): we will extract them from there later, in {!PureMicroPasses}
+     (by "splitting" the definition). *)
+  let num_loops = 0 in
+  let loop_id = None in
+
+  (* Assemble the declaration *)
+  let backend_attributes = { reducible = false } in
+  (* Check if the function is builtin *)
+  let builtin_info =
+    let funs_map = ExtractBuiltin.builtin_funs_map () in
+    if def.item_meta.diagnostic_item = Some "box_new" then
+      Some
+        {
+          Pure.keep_params = None;
+          keep_trait_clauses = None;
+          extract_name = "alloc.boxed.Box.new";
+          can_fail = false;
+          stateful = false;
+          lift = false;
+          has_default = false;
+        }
+    else
+      match_name_find_opt ctx.decls_ctx def.item_meta.name funs_map
+  in
+  let def : fun_decl =
+    {
+      def_id;
+      item_meta = def.item_meta;
+      builtin_info;
+      src = def.src;
+      backend_attributes;
+      num_loops;
+      loop_id;
+      loop_pos = [];
+      name;
+      signature;
+      is_global_decl_body = LlbcAstUtils.fun_decl_is_global_initializer def;
+      body;
+    }
+  in
+  (* Debugging *)
+  [%ltrace "translated:\n" ^ fun_decl_to_string ctx def];
+  (* return *)
+  def
+
+let translate_type_decls (ctx : Contexts.decls_ctx) : type_decl list =
+  List.filter_map
+    (fun d ->
+      try Some (translate_type_decl ctx d)
+      with CFailure error ->
+        let env = PrintPure.decls_ctx_to_fmt_env ctx in
+        let name = PrintPure.name_to_string env d.item_meta.name in
+        let name_pattern =
+          try
+            TranslateCore.name_to_pattern_string (Some d.item_meta.span) ctx
+              d.item_meta.name
+          with CFailure _ ->
+            "(could not compute the name pattern due to a different error)"
+        in
+        [%warn_opt_span] error.span
+          ("Could not translate type decl '" ^ name
+         ^ " because of previous error\nName pattern: '" ^ name_pattern ^ "'"
+          ^ Contexts.compute_local_uses_error_message ctx (IdType d.def_id));
+        None)
+    (TypeDeclId.Map.values ctx.type_ctx.to_extract)
+
+let translate_binder (span : span option) (translate_inside : 'a -> 'b)
+    (x : 'a T.binder) : 'b binder =
+  let binder_llbc_generics = x.T.binder_params in
+  let binder_generics, binder_preds =
+    translate_generic_params span binder_llbc_generics
+  in
+  let binder_explicit_info = compute_explicit_info binder_generics [] in
+  {
+    binder_value = translate_inside x.T.binder_value;
+    binder_generics;
+    binder_preds;
+    binder_explicit_info;
+    binder_llbc_generics;
+  }
+
+let translate_trait_method (ctx : Contexts.decls_ctx) (span : span option)
+    (translate_ty : T.ty -> ty) (trait_decl : A.trait_decl)
+    (method_id : TraitMethodId.id) (bound_method : A.trait_method T.binder) :
+    trait_method =
+  let method_ = bound_method.binder_value in
+  let signature =
+    translate_trait_method_sig ctx trait_decl method_id bound_method
+  in
+  {
+    method_id;
+    item_name = method_.name;
+    item_meta = method_.item_meta;
+    signature;
+    default =
+      translate_binder span
+        (fun (m : A.trait_method) ->
+          Option.map (translate_fun_decl_ref span translate_ty) m.default)
+        bound_method;
+  }
+
+let translate_trait_decl (ctx : Contexts.decls_ctx) (trait_decl : A.trait_decl)
+    : trait_decl =
+  let {
+    def_id;
+    item_meta;
+    src = _;
+    generics = llbc_generics;
+    implied_clauses = llbc_parent_clauses;
+    consts;
+    types;
+    methods = _;
+    is_unsafe = _;
+    vtable = _;
+  } : A.trait_decl =
+    trait_decl
+  in
+  let span = item_meta.span in
+  let opt_span = Some span in
+  let translate_ty = translate_fwd_ty opt_span ctx in
+  let name =
+    Print.name_to_string
+      (Print.Contexts.decls_ctx_to_fmt_env ctx)
+      item_meta.name
+  in
+  let generics, preds = translate_generic_params opt_span llbc_generics in
+  let explicit_info = compute_explicit_info generics [] in
+  let parent_clauses =
+    List.map (translate_trait_clause opt_span) llbc_parent_clauses
+  in
+  (* Lookup the builtin information, if there is *)
+  let builtin_info =
+    match_name_find_opt ctx trait_decl.item_meta.name
+      (ExtractBuiltin.builtin_trait_decls_map ())
+  in
+  if (not (T.AssocTypeId.Map.is_empty types)) && builtin_info = None then
+    (* Most associated types are removed by Charon's `--remove-associated-types`. *)
+    [%warn] span
+      ("Found an associated type in a trait declaration; trait associated \
+        types are usually lifted to become parameters of the trait definition, \
+        but this can fail with mutually-recursive traits as well as GATs. \
+        Aeneas cannot handle such types today, and the generated code will \
+        likely be incorrect." ^ "\nTrait declaration: " ^ name ^ "\nSource: "
+     ^ Errors.span_to_string span
+      ^ Contexts.compute_local_uses_error_message ctx
+          (IdTraitDecl trait_decl.def_id));
+  let types =
+    List.map
+      (fun ((type_id, t) : T.AssocTypeId.id * A.trait_assoc_ty T.binder) ->
+        [%cassert] span
+          (t.binder_params = TypesUtils.empty_generic_params)
+          "Can not extract trait associated types with parameters";
+        let t = t.binder_value in
+        [%cassert] span (t.implied_clauses = [])
+          "Can not extract trait associated types with implied trait clauses";
+        (type_id, t.name))
+      (T.AssocTypeId.Map.to_list types)
+  in
+  let consts =
+    List.map
+      (fun ((const_id, c) : T.AssocConstId.id * A.trait_assoc_const) ->
+        (const_id, c.name, translate_ty c.ty))
+      (T.AssocConstId.Map.to_list consts)
+  in
+  let methods_to_extract =
+    TraitDeclId.Map.find def_id ctx.trait_methods_to_extract
+  in
+  let methods =
+    List.map
+      (fun ((method_id, m) : TraitMethodId.id * A.trait_method T.binder) ->
+        translate_trait_method ctx opt_span translate_ty trait_decl method_id m)
+      (TraitMethodId.Map.to_list methods_to_extract)
+  in
+  {
+    def_id;
+    name;
+    item_meta;
+    builtin_info;
+    generics;
+    explicit_info;
+    llbc_generics;
+    preds;
+    parent_clauses;
+    llbc_parent_clauses;
+    consts;
+    types;
+    methods;
+  }
+
+let translate_trait_impl (ctx : Contexts.decls_ctx) (trait_impl : A.trait_impl)
+    : trait_impl =
+  [%ltrace
+    let ctx = Print.Contexts.decls_ctx_to_fmt_env ctx in
+    "- trait impl: implemented trait: "
+    ^ Print.trait_decl_ref_to_string ctx trait_impl.impl_trait];
+  let {
+    A.def_id;
+    item_meta;
+    src = _;
+    impl_trait = llbc_impl_trait;
+    generics = llbc_generics;
+    implied_trait_refs;
+    consts;
+    types = _;
+    methods;
+    is_unsafe = _;
+    is_negative = _;
+    vtable = _;
+  } =
+    trait_impl
+  in
+  let span = Some item_meta.span in
+  let translate_ty = translate_fwd_ty span ctx in
+  let impl_trait =
+    (translate_trait_decl_ref span translate_ty) llbc_impl_trait
+  in
+  let name =
+    Print.name_to_string
+      (Print.Contexts.decls_ctx_to_fmt_env ctx)
+      item_meta.name
+  in
+  let generics, preds = translate_generic_params span llbc_generics in
+  let explicit_info = compute_explicit_info generics [] in
+  let parent_trait_refs =
+    List.map
+      (translate_region_binder (translate_fwd_trait_ref span ctx))
+      implied_trait_refs
+  in
+  let consts =
+    List.map
+      (fun ((const_id, gref) : T.AssocConstId.id * _) ->
+        let name =
+          Charon.GAstUtils.get_assoc_const_name ctx.crate
+            trait_impl.impl_trait.id const_id
+        in
+        (const_id, name, translate_global_decl_ref span translate_ty gref))
+      (T.AssocConstId.Map.to_list consts)
+  in
+  (* We checked that there were no types in the trait declaration already. *)
+  let types = [] in
+  let methods =
+    List.map
+      (fun ((method_id, m) : TraitMethodId.id * T.fun_decl_ref T.binder) ->
+        let name =
+          Charon.GAstUtils.get_method_name ctx.crate trait_impl.impl_trait.id
+            method_id
+        in
+        ( method_id,
+          name,
+          translate_binder span (translate_fun_decl_ref span translate_ty) m ))
+      (TraitMethodId.Map.to_list methods)
+  in
+  (* Lookup the builtin information, if there is *)
+  let builtin_info =
+    let decl_id = trait_impl.impl_trait.id in
+    let trait_decl =
+      [%silent_unwrap_opt_span] span
+        (TraitDeclId.Map.find_opt decl_id ctx.crate.trait_decls)
+    in
+    match_name_with_generics_find_opt ctx trait_decl.item_meta.name
+      llbc_impl_trait.generics
+      (ExtractBuiltin.builtin_trait_impls_map ())
+  in
+  {
+    def_id;
+    name;
+    item_meta;
+    builtin_info;
+    impl_trait;
+    llbc_impl_trait;
+    generics;
+    explicit_info;
+    llbc_generics;
+    preds;
+    parent_trait_refs;
+    consts;
+    types;
+    methods;
+  }
+
+let translate_global (ctx : Contexts.decls_ctx) (decl : A.global_decl) :
+    global_decl =
+  let { A.item_meta; def_id; generics = llbc_generics; ty; src; _ } = decl in
+  let body_id = Option.get (Charon.GAstUtils.init_fun_id_of_global decl) in
+  let name =
+    Print.name_to_string
+      (Print.Contexts.decls_ctx_to_fmt_env ctx)
+      item_meta.name
+  in
+  let generics, preds =
+    translate_generic_params (Some decl.item_meta.span) llbc_generics
+  in
+  let explicit_info = compute_explicit_info generics [] in
+  let output_ty = translate_fwd_ty (Some decl.item_meta.span) ctx ty in
+  let builtin_info =
+    match_name_find_opt ctx item_meta.name
+      (ExtractBuiltin.builtin_globals_map ())
+  in
+  let can_fail =
+    match builtin_info with
+    | Some info -> info.can_fail
+    | None -> (
+        match
+          FunsAnalysis.lookup_fun_decl_info ctx.fun_ctx.fun_infos body_id
+        with
+        | None -> (* Don't know: true by default *) true
+        | Some info -> info.can_fail)
+  in
+  let ty = if can_fail then mk_result_ty output_ty else output_ty in
+  {
+    span = item_meta.span;
+    def_id;
+    item_meta;
+    builtin_info;
+    name;
+    llbc_generics;
+    generics;
+    explicit_info;
+    preds;
+    ty;
+    output_ty;
+    can_fail;
+    src;
+    body_id;
+  }

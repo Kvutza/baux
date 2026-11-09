@@ -1,0 +1,68 @@
+#!/bin/sh
+set -eu
+
+if [ -n "${BAUX_AENEAS_BIN:-}" ] && [ -x "$BAUX_AENEAS_BIN" ]; then
+    aeneas_exe="$BAUX_AENEAS_BIN"
+else
+    dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd -P)
+    repo_root=$(CDPATH='' cd -- "$dir/../.." && pwd -P)
+    aeneas_exe=""
+    for cand in \
+        "$repo_root/.cache/baux/tools/aeneas/bin/aeneas" \
+        "$repo_root/.cache/baux/ocaml-build/extraction/main.exe" \
+        "$repo_root/ocaml/extraction/src/_build/default/main.exe" \
+        "/Users/mehulbafna/research/blckbaux-enn-aeneas-dyn/.cache/blckbaux/tools/aeneas-dyn-3d8ad7a7e5a8d090/src/_build/default/main.exe"
+    do
+        if [ -x "$cand" ]; then
+            aeneas_exe="$cand"
+            break
+        fi
+    done
+fi
+
+if [ -z "${aeneas_exe:-}" ]; then
+    echo "baux: Aeneas binary not found. Build it via ./baux or specify BAUX_AENEAS_BIN." >&2
+    exit 1
+fi
+
+"$aeneas_exe" "$@"
+status=$?
+if [ "$status" -ne 0 ]; then
+    exit "$status"
+fi
+
+dest_dir=""
+subdir=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -dest)
+            shift
+            if [ $# -gt 0 ]; then
+                dest_dir="$1"
+            fi
+            ;;
+        -subdir)
+            shift
+            if [ $# -gt 0 ]; then
+                subdir="$1"
+            fi
+            ;;
+    esac
+    shift || true
+done
+
+target_dir="$dest_dir"
+if [ -n "$dest_dir" ] && [ -n "$subdir" ]; then
+    target_dir="$dest_dir/$subdir"
+fi
+
+if [ -n "$target_dir" ] && [ -d "$target_dir" ]; then
+    find "$target_dir" -name "*.lean" -type f ! -path "*/.lake/*" | while IFS= read -r f; do
+        if grep -q "BlckbauxResearch" "$f" 2>/dev/null; then
+            tmp="${f}.tmp.$$"
+            sed 's/BlckbauxResearch/BauxResearch/g' "$f" > "$tmp" && mv "$tmp" "$f"
+        fi
+    done
+fi
+
+exit "$status"

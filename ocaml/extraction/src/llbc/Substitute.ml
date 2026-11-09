@@ -1,0 +1,242 @@
+(** This file implements various substitution utilities to instantiate types,
+    function bodies, etc. *)
+
+include Charon.Substitute
+open Charon.TypesUtils
+open Types
+open Values
+open LlbcAst
+
+(** Visitor to erase the static region *)
+let erase_static_visitor =
+  object
+    inherit [_] map_ty
+    method! visit_RStatic _ = RErased
+  end
+
+(** Erase the regions in a type.
+
+    This shadows {!Charon.Substitute.erase_regions}: the difference is that we
+    also erase the static region (the types of the values in the environment
+    should have all their regions erased). *)
+let erase_regions (ty : ty) : ty =
+  erase_static_visitor#visit_ty () (Charon.Substitute.erase_regions ty)
+
+(** Shadows {!Charon.Substitute.generic_args_erase_regions} (we also erase the
+    static region) *)
+let generic_args_erase_regions (generics : generic_args) : generic_args =
+  erase_static_visitor#visit_generic_args ()
+    (Charon.Substitute.generic_args_erase_regions generics)
+
+(** Shadows {!Charon.Substitute.erase_regions_substitute_types} (we also erase
+    the static region) *)
+let erase_regions_substitute_types (subst : subst) (ty : ty) : ty =
+  erase_static_visitor#visit_ty ()
+    (Charon.Substitute.erase_regions_substitute_types subst ty)
+
+(** Shadows {!Charon.Substitute.type_decl_get_instantiated_field_etypes} (we
+    also erase the static region) *)
+let type_decl_get_instantiated_field_etypes (def : type_decl)
+    (opt_variant_id : VariantId.id option) (generics : generic_args) : ty list =
+  List.map erase_regions
+    (type_decl_get_instantiated_field_types def opt_variant_id generics)
+
+(* Fails if the variable is bound *)
+let expect_free_var span (var : 'id de_bruijn_var) : 'id =
+  match var with
+  | Bound _ -> [%craise_opt_span] span "Found unexpected bound variable"
+  | Free id -> id
+
+(** Generate fresh regions for region variables. *)
+let fresh_regions_with_substs (region_vars : RegionId.id list)
+    (fresh_region_id : unit -> region_id) : RegionId.id -> RegionId.id =
+  (* Map each region var id to a fresh region *)
+  let rid_map =
+    RegionId.Map.of_list
+      (List.map (fun var -> (var, fresh_region_id ())) region_vars)
+  in
+  fun id -> RegionId.Map.find id rid_map
+
+let make_subst_from_generics file line span (params : generic_params)
+    (args : generic_args) (tr_self : trait_ref_kind) : subst =
+  try subst_free_vars (make_sb_subst_from_generics params args tr_self)
+  with Invalid_argument _ when not !Config.fail_hard ->
+    Errors.internal_error_opt_span file line span
+
+let fresh_regions_with_substs_from_vars (region_vars : region_param list)
+    (fresh_region_id : unit -> region_id) : RegionId.id -> RegionId.id =
+  fresh_regions_with_substs
+    (List.map (fun (r : region_param) -> r.index) region_vars)
+    fresh_region_id
+
+(** Substitute a function signature, together with the regions hierarchy
+    associated to that signature. *)
+let substitute_signature (asubst : RegionGroupId.id -> AbsId.id)
+    (r_id_subst : RegionId.id -> RegionId.id) (ty_sb_subst : TypeVarId.id -> ty)
+    (cg_sb_subst : ConstGenericVarId.id -> constant_expr_kind)
+    (tr_sb_subst : TraitClauseId.id -> region_args -> trait_ref_kind)
+    (tr_sb_self : trait_ref_kind) (sg : bound_fun_sig)
+    (regions_hierarchy : region_groups) : inst_fun_sig =
+  let { item_binder_params = generics; item_binder_value = sg } = sg in
+  let r_sb_subst id = RVar (Free (r_id_subst id)) in
+  let subst =
+    subst_free_vars
+      { r_sb_subst; ty_sb_subst; cg_sb_subst; tr_sb_subst; tr_sb_self }
+  in
+  let inputs = List.map (ty_substitute subst) sg.inputs in
+  let output = ty_substitute subst sg.output in
+  let subst_region (r : region) : region =
+    match r with
+    | RVar (Free rid) -> RVar (Free (r_id_subst rid))
+    | _ -> r
+  in
+  let subst_abs_region_group (rg : region_group) : abs_region_group =
+    let id = asubst rg.id in
+    let regions = List.map subst_region rg.regions in
+    let parents = List.map asubst rg.parents in
+    ({ id; regions; parents } : abs_region_group)
+  in
+  let abs_regions_hierarchy =
+    List.map subst_abs_region_group regions_hierarchy
+  in
+  let subst_region_group (rg : region_group) : region_group =
+    let id = rg.id in
+    let regions = List.map subst_region rg.regions in
+    let parents = rg.parents in
+    ({ id; regions; parents } : region_group)
+  in
+  let regions_hierarchy = List.map subst_region_group regions_hierarchy in
+  let trait_type_constraints =
+    List.map
+      (st_substitute_visitor#visit_region_binder
+         trait_type_constraint_substitute subst)
+      generics.trait_type_constraints
+  in
+  {
+    inputs;
+    output;
+    regions_hierarchy;
+    abs_regions_hierarchy;
+    trait_type_constraints;
+  }
+
+type id_subst = {
+  r_subst : RegionId.id -> RegionId.id;
+  ty_subst : TypeVarId.id -> TypeVarId.id;
+  cg_subst : ConstGenericVarId.id -> ConstGenericVarId.id;
+  ssubst : SymbolicValueId.id -> SymbolicValueId.id;
+  bsubst : BorrowId.id -> BorrowId.id;
+  sbsubst : SharedBorrowId.id -> SharedBorrowId.id;
+  asubst : AbsId.id -> AbsId.id;
+}
+
+let empty_id_subst =
+  {
+    r_subst = (fun x -> x);
+    ty_subst = (fun x -> x);
+    cg_subst = (fun x -> x);
+    ssubst = (fun x -> x);
+    bsubst = (fun x -> x);
+    sbsubst = (fun x -> x);
+    asubst = (fun x -> x);
+  }
+
+let no_abs_id_subst span =
+  let asubst _ = [%craise] span "Unreachable" in
+  { empty_id_subst with asubst }
+
+let subst_ids_visitor (subst : id_subst) =
+  object (self : 'self)
+    inherit [_] map_env
+    method! visit_type_var_id _ id = subst.ty_subst id
+    method! visit_const_generic_var_id _ id = subst.cg_subst id
+    method! visit_region_id _ rid = subst.r_subst rid
+    method! visit_borrow_id _ bid = subst.bsubst bid
+    method! visit_shared_borrow_id _ sid = subst.sbsubst sid
+    method! visit_loan_id _ bid = subst.bsubst bid
+    method! visit_symbolic_value_id _ id = subst.ssubst id
+
+    (** We *do* visit meta-values *)
+    method! visit_msymbolic_value env sv = self#visit_symbolic_value env sv
+
+    (** We *do* visit meta-values *)
+    method! visit_mvalue env v = self#visit_tvalue env v
+
+    method! visit_abs_id _ id = subst.asubst id
+  end
+
+let tvalue_subst_ids (subst : id_subst) (v : tvalue) : tvalue =
+  let vis = subst_ids_visitor subst in
+  vis#visit_tvalue () v
+
+let ty_subst_ids (subst : id_subst) (x : ty) : ty =
+  let vis = subst_ids_visitor subst in
+  vis#visit_ty () x
+
+let tvalue_subst_rids (span : Meta.span) (r_subst : RegionId.id -> RegionId.id)
+    (v : tvalue) : tvalue =
+  tvalue_subst_ids { (no_abs_id_subst span) with r_subst } v
+
+let ty_subst_rids (span : Meta.span) (r_subst : RegionId.id -> RegionId.id)
+    (x : ty) : ty =
+  ty_subst_ids { (no_abs_id_subst span) with r_subst } x
+
+let abs_subst_ids (subst : id_subst) (x : abs) : abs =
+  let vis = subst_ids_visitor subst in
+  vis#visit_abs () x
+
+let env_subst_ids (subst : id_subst) (x : env) : env =
+  let vis = subst_ids_visitor subst in
+  vis#visit_env () x
+
+let tavalue_subst_rids (span : Meta.span) (r_subst : RegionId.id -> RegionId.id)
+    (x : tavalue) : tavalue =
+  let vis = subst_ids_visitor { (no_abs_id_subst span) with r_subst } in
+  vis#visit_tavalue () x
+
+let env_subst_rids (r_subst : RegionId.id -> RegionId.id) (x : env) : env =
+  let vis = subst_ids_visitor { empty_id_subst with r_subst } in
+  vis#visit_env () x
+
+(** A substitution that erases the *free* regions (replacing them with
+    [RErased]) but leaves the *bound* regions untouched. This is used to erase
+    the regions of a signature while preserving the locally-bound regions of
+    higher-ranked trait bounds (e.g. [for<'a> Trait<&'a _>]). *)
+let erase_free_regions_subst : subst =
+  {
+    empty_subst with
+    r_subst =
+      (function
+      | Free _ -> RErased
+      | Bound _ as var -> RVar var);
+  }
+
+let generic_args_of_params_erase_regions (span : Meta.span option)
+    (generics : generic_params) : generic_args =
+  let generics = Charon.TypesUtils.generic_args_of_params span generics in
+  (* Note that put aside erasing the regions, we don't need to perform any susbtitutions
+     actually, and we only need to erase the regions inside the trait clauses. *)
+  let regions = List.map (fun _ -> RErased) generics.regions in
+  (* Erase the free regions in the trait clauses, but keep the bound regions.
+     A trait clause may be higher-ranked (e.g. [for<'a> Trait<&'a _>]), in which
+     case its [poly_trait_ref] carries bound regions in [binder_regions]: we
+     preserve those (and their uses inside the binder) rather than erasing them.
+     Lifetime constraints over the bound regions (e.g. [for<'a> 'a : 'b]) are not
+     supported and are rejected elsewhere (outlives guards). *)
+  let trait_refs =
+    List.map
+      (st_substitute_visitor#visit_region_binder
+         st_substitute_visitor#visit_trait_ref erase_free_regions_subst)
+      generics.trait_refs
+  in
+  { generics with regions; trait_refs }
+
+let type_decl_get_instantiated_variants_fields_types (span : Meta.span)
+    (def : type_decl) (generics : generic_args) :
+    (VariantId.id option * ty list) list =
+  let subst () =
+    Charon.Substitute.type_decl_get_instantiated_variants_fields_types def
+      generics
+  in
+  if !Config.fail_hard then subst ()
+  else try subst () with Failure _ -> [%craise] span "Unexpected error"

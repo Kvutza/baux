@@ -43,12 +43,12 @@ def roundFlops (shape : Program.Shape) : ℕ :=
 
 /-- The partial dense-contraction account derived by the Rust performance
 certificate from the same source shape. -/
-def contractFlops : ℕ := 35_243_427_889_152
+def contractFlops : ℕ := 34_634_616_274_944
 
-theorem currentMacs : roundMacs Program.current = 275_339_280_384 := by
+theorem currentMacs : roundMacs Program.current = 270_582_939_648 := by
   decide
 
-theorem currentFlops : roundFlops Program.current = 35_243_427_889_152 := by
+theorem currentFlops : roundFlops Program.current = 34_634_616_274_944 := by
   decide
 
 /-- Rust and Lean now derive the same partial dense-contraction count. This is

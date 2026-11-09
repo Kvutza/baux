@@ -1,0 +1,412 @@
+open Types
+open TypesUtils
+open GAst
+
+let get_target_information crate =
+  match crate.target_information with
+  | [ (_, info) ] -> info
+  | (_, info) :: rest when List.for_all (fun (_, i) -> i = info) rest ->
+      (* All targets agree on the layout — safe to use any one. *)
+      info
+  | _ ->
+      failwith "`get_target_information` can't be used in a multi-layout crate"
+
+(** Small utility: list the transitive parents of a region var group. We don't
+    do that in an efficient manner, but it doesn't matter.
+
+    This list *doesn't* include the current region. *)
+let rec list_ancestor_region_groups (regions_hierarchy : region_var_groups)
+    (gid : RegionGroupId.id) : RegionGroupId.Set.t =
+  let rg = RegionGroupId.nth regions_hierarchy gid in
+  let parents =
+    List.fold_left
+      (fun s gid ->
+        (* Compute the parents *)
+        let parents = list_ancestor_region_groups regions_hierarchy gid in
+        (* Parents U current region *)
+        let parents = RegionGroupId.Set.add gid parents in
+        (* Make the union with the accumulator *)
+        RegionGroupId.Set.union s parents)
+      RegionGroupId.Set.empty rg.parents
+  in
+  parents
+
+(** Small utility: same as {!list_ancestor_region_groups}, but returns an
+    ordered list. *)
+let list_ordered_ancestor_region_groups (regions_hierarchy : region_var_groups)
+    (gid : RegionGroupId.id) : RegionGroupId.id list =
+  let pset = list_ancestor_region_groups regions_hierarchy gid in
+  let parents =
+    List.filter
+      (fun (rg : region_var_group) -> RegionGroupId.Set.mem rg.id pset)
+      regions_hierarchy
+  in
+  let parents = List.map (fun (rg : region_var_group) -> rg.id) parents in
+  parents
+
+let locals_get_input_vars (locals : locals) : local list =
+  let args = List.tl locals.locals in
+  Collections.List.prefix locals.arg_count args
+
+let fun_body_get_input_vars (fbody : 'body gexpr_body) : local list =
+  locals_get_input_vars fbody.locals
+
+(** If this is a switch over a boolean, return its [then] and [else] branches.
+*)
+let switch_as_if (data : switch_data) : (branch_id * branch_id) option =
+  match data.scrutinee with
+  | SwitchValue op ->
+      let ty =
+        match op with
+        | Expressions.Copy p | Expressions.Move p -> p.ty
+        | Expressions.Constant cv -> cv.ty
+      in
+      if ty <> TScalar TBool then None
+      else
+        let branch_for value =
+          match
+            List.find_map
+              (fun ((case : constant_expr), branch_id) ->
+                match case.kind with
+                | CBool case_value when case_value = value -> Some branch_id
+                | _ -> None)
+              data.branches
+          with
+          | Some branch_id -> Some branch_id
+          | None -> data.fallback
+        in
+        Option.bind (branch_for true) (fun then_branch ->
+            Option.map
+              (fun else_branch -> (then_branch, else_branch))
+              (branch_for false))
+  | SwitchDiscriminant _ -> None
+
+(** Group the explicit switch values by the branch they select. *)
+let switch_group_by_branch (data : switch_data) : constant_expr list list =
+  let num_branches =
+    match data.fallback with
+    | None -> 0
+    | Some branch_id -> BranchId.to_int branch_id + 1
+  in
+  let num_branches =
+    List.fold_left
+      (fun num_branches (_, branch_id) ->
+        Int.max num_branches (BranchId.to_int branch_id + 1))
+      num_branches data.branches
+  in
+  let grouped = Array.make num_branches [] in
+  List.iter
+    (fun (value, branch_id) ->
+      let i = BranchId.to_int branch_id in
+      grouped.(i) <- value :: grouped.(i))
+    data.branches;
+  grouped |> Array.map List.rev |> Array.to_list
+
+(** Get the signature of this function as a bound value, i.e. including its
+    generics parameters. *)
+let bound_fun_sig_of_decl (def : fun_decl) : bound_fun_sig =
+  { item_binder_params = def.generics; item_binder_value = def.signature }
+
+(** Lookup a method in this trait decl. The two levels of binders in the output
+    reflect that there are two binding levels: the trait generics and the method
+    generics. *)
+let lookup_trait_decl_method (tdecl : trait_decl) (id : trait_method_id) :
+    trait_method binder item_binder option =
+  Option.map
+    (fun m -> { item_binder_params = tdecl.generics; item_binder_value = m })
+    (TraitMethodId.Map.find_opt id tdecl.methods)
+
+let lookup_trait_decl_method_ref (tdecl : trait_decl) (id : trait_method_id) :
+    fun_decl_ref binder item_binder option =
+  Option.bind (lookup_trait_decl_method tdecl id) (fun m ->
+      Option.map
+        (fun default ->
+          {
+            item_binder_params = m.item_binder_params;
+            item_binder_value =
+              {
+                binder_params = m.item_binder_value.binder_params;
+                binder_value = default;
+              };
+          })
+        m.item_binder_value.binder_value.default)
+
+(** Lookup a method in this trait impl. The two levels of binders in the output
+    reflect that there are two binding levels: the impl generics and the method
+    generics. *)
+let lookup_trait_impl_method (timpl : trait_impl) (id : trait_method_id) :
+    fun_decl_ref binder item_binder option =
+  Option.map
+    (fun bound_fn ->
+      { item_binder_params = timpl.generics; item_binder_value = bound_fn })
+    (TraitMethodId.Map.find_opt id timpl.methods)
+
+(** Resolve an [assoc_item_id] to a name. *)
+let get_assoc_item_name (crate : crate) (trait_id : trait_decl_id)
+    (id : assoc_item_id) : trait_item_name =
+  let names = TraitDeclId.Map.find trait_id crate.assoc_item_names in
+  match id with
+  | AssocIdMethod id -> TraitMethodId.nth names.methods id
+  | AssocIdConst id -> AssocConstId.nth names.consts id
+  | AssocIdType id -> AssocTypeId.nth names.types id
+
+(** Resolve a [trait_method_id] to a name. *)
+let get_method_name (crate : crate) (trait_id : trait_decl_id)
+    (id : trait_method_id) : trait_item_name =
+  let names = TraitDeclId.Map.find trait_id crate.assoc_item_names in
+  TraitMethodId.nth names.methods id
+
+(** Resolve a [assoc_type_id] to a name. *)
+let get_assoc_type_name (crate : crate) (trait_id : trait_decl_id)
+    (id : assoc_type_id) : trait_item_name =
+  let names = TraitDeclId.Map.find trait_id crate.assoc_item_names in
+  AssocTypeId.nth names.types id
+
+(** Resolve a [assoc_const_id] to a name. *)
+let get_assoc_const_name (crate : crate) (trait_id : trait_decl_id)
+    (id : assoc_const_id) : trait_item_name =
+  let names = TraitDeclId.Map.find trait_id crate.assoc_item_names in
+  AssocConstId.nth names.consts id
+
+let g_declaration_group_to_list (g : 'a g_declaration_group) : 'a list =
+  match g with
+  | RecGroup ids -> ids
+  | NonRecGroup id -> [ id ]
+
+let g_declaration_group_map (f : 'a -> 'a) (g : 'a g_declaration_group) :
+    'a g_declaration_group =
+  match g with
+  | RecGroup ids -> RecGroup (List.map f ids)
+  | NonRecGroup id -> NonRecGroup (f id)
+
+let g_declaration_group_iter (f : 'a -> unit) (g : 'a g_declaration_group) :
+    unit =
+  let ids = g_declaration_group_to_list g in
+  List.iter f ids
+
+(** List all the ids in this declaration group. *)
+let declaration_group_to_list (g : declaration_group) : item_id list =
+  match g with
+  | FunGroup g -> List.map (fun id -> IdFun id) (g_declaration_group_to_list g)
+  | TypeGroup g ->
+      List.map (fun id -> IdType id) (g_declaration_group_to_list g)
+  | TraitDeclGroup g ->
+      List.map (fun id -> IdTraitDecl id) (g_declaration_group_to_list g)
+  | GlobalGroup g ->
+      List.map (fun id -> IdGlobal id) (g_declaration_group_to_list g)
+  | TraitImplGroup g ->
+      List.map (fun id -> IdTraitImpl id) (g_declaration_group_to_list g)
+  | MixedGroup g -> g_declaration_group_to_list g
+
+let body_as_structured : body -> LlbcAst.expr_body option = function
+  | StructuredBody body -> Some body
+  | _ -> None
+
+let body_as_structured_exn : body -> LlbcAst.expr_body = function
+  | StructuredBody body -> body
+  | _ -> failwith "Expected a structured body"
+
+let body_as_unstructured : body -> UllbcAst.expr_body option = function
+  | UnstructuredBody body -> Some body
+  | _ -> None
+
+let body_as_unstructured_exn : body -> UllbcAst.expr_body = function
+  | UnstructuredBody body -> body
+  | _ -> failwith "Expected an unstructured body"
+
+let has_body : body -> bool = function
+  | StructuredBody _ | UnstructuredBody _ -> true
+  | IntrinsicBody _
+  | ExternBody _
+  | OpaqueBody
+  | TargetDispatchBody _
+  | MissingBody
+  | ErrorBody _ -> false
+
+(** Returns the ID of this global's initializer, to mimic the now removed
+    [global_decl.init] field. *)
+let init_fun_id_of_global (global : global_decl) : fun_decl_id option =
+  match global.value.kind with
+  | CCall ({ kind = Fun id; _ }, []) -> Some id
+  | _ -> None
+
+(** Split a module's declarations between types, functions and globals *)
+let split_declarations (decls : declaration_group list) :
+    type_declaration_group list
+    * fun_declaration_group list
+    * global_declaration_group list
+    * trait_declaration_group list
+    * trait_impl_group list
+    * mixed_declaration_group list =
+  let rec split decls =
+    match decls with
+    | [] -> ([], [], [], [], [], [])
+    | d :: decls' -> (
+        let types, funs, globals, trait_decls, trait_impls, mixeds =
+          split decls'
+        in
+        match d with
+        | TypeGroup decl ->
+            (decl :: types, funs, globals, trait_decls, trait_impls, mixeds)
+        | FunGroup decl ->
+            (types, decl :: funs, globals, trait_decls, trait_impls, mixeds)
+        | GlobalGroup decl ->
+            (types, funs, decl :: globals, trait_decls, trait_impls, mixeds)
+        | TraitDeclGroup decl ->
+            (types, funs, globals, decl :: trait_decls, trait_impls, mixeds)
+        | TraitImplGroup decl ->
+            (types, funs, globals, trait_decls, decl :: trait_impls, mixeds)
+        | MixedGroup decls ->
+            (types, funs, globals, trait_decls, trait_impls, decls :: mixeds))
+  in
+  split decls
+
+(** Split a module's declarations into three maps from type/fun/global ids to
+    declaration groups. *)
+let split_declarations_to_group_maps (decls : declaration_group list) :
+    type_declaration_group TypeDeclId.Map.t
+    * fun_declaration_group FunDeclId.Map.t
+    * global_declaration_group GlobalDeclId.Map.t
+    * trait_declaration_group TraitDeclId.Map.t
+    * trait_impl_group TraitImplId.Map.t
+    * mixed_declaration_group list =
+  let module G (M : Map.S) = struct
+    let add_group (map : M.key g_declaration_group M.t)
+        (group : M.key g_declaration_group) : M.key g_declaration_group M.t =
+      List.fold_left
+        (fun map id -> M.add id group map)
+        map
+        (g_declaration_group_to_list group)
+
+    let create_map (groups : M.key g_declaration_group list) :
+        M.key g_declaration_group M.t =
+      List.fold_left add_group M.empty groups
+  end in
+  let types, funs, globals, trait_decls, trait_impls, mixed_groups =
+    split_declarations decls
+  in
+  let module TG = G (TypeDeclId.Map) in
+  let types = TG.create_map types in
+  let module FG = G (FunDeclId.Map) in
+  let funs = FG.create_map funs in
+  let module GG = G (GlobalDeclId.Map) in
+  let globals = GG.create_map globals in
+  let module TDG = G (TraitDeclId.Map) in
+  let trait_decls = TDG.create_map trait_decls in
+  let module TIG = G (TraitImplId.Map) in
+  let trait_impls = TIG.create_map trait_impls in
+  (types, funs, globals, trait_decls, trait_impls, mixed_groups)
+
+module OrderedAnyDeclId : Collections.OrderedType with type t = item_id = struct
+  type t = item_id
+
+  let compare = compare_item_id
+  let to_string = show_item_id
+  let pp_t fmt x = Format.pp_print_string fmt (show_item_id x)
+  let show_t = show_item_id
+end
+
+module AnyDeclIdSet = Collections.MakeSet (OrderedAnyDeclId)
+module AnyDeclIdMap = Collections.MakeMap (OrderedAnyDeclId)
+
+let item_id_to_kind_name (id : item_id) : string =
+  match id with
+  | IdType _ -> "type decl"
+  | IdFun _ -> "fun decl"
+  | IdGlobal _ -> "global decl"
+  | IdTraitDecl _ -> "trait decl"
+  | IdTraitImpl _ -> "trait impl"
+
+let g_declaration_group_filter_map (f : 'a -> 'a option)
+    (g : 'a g_declaration_group) : 'a g_declaration_group option =
+  match g with
+  | NonRecGroup id -> begin
+      match f id with
+      | Some id -> Some (NonRecGroup id)
+      | None -> None
+    end
+  | RecGroup ids ->
+      let ids = List.filter_map f ids in
+      if ids = [] then None else Some (RecGroup ids)
+
+class ['self] filter_decl_id =
+  object (self : 'self (* inherit [_] VisitorsRuntime.iter *))
+    method visit_type_decl_id _ (id : TypeDeclId.id) = Some id
+    method visit_fun_decl_id _ (id : FunDeclId.id) = Some id
+    method visit_global_decl_id _ (id : GlobalDeclId.id) = Some id
+    method visit_trait_decl_id _ (id : TraitDeclId.id) = Some id
+    method visit_trait_impl_id _ (id : TraitImplId.id) = Some id
+
+    method visit_item_id (env : 'a) (id : item_id) : item_id option =
+      match id with
+      | IdType id ->
+          Option.map (fun id -> IdType id) (self#visit_type_decl_id env id)
+      | IdFun id ->
+          Option.map (fun id -> IdFun id) (self#visit_fun_decl_id env id)
+      | IdGlobal id ->
+          Option.map (fun id -> IdGlobal id) (self#visit_global_decl_id env id)
+      | IdTraitDecl id ->
+          Option.map
+            (fun id -> IdTraitDecl id)
+            (self#visit_trait_decl_id env id)
+      | IdTraitImpl id ->
+          Option.map
+            (fun id -> IdTraitImpl id)
+            (self#visit_trait_impl_id env id)
+
+    method visit_type_declaration_group env (g : type_declaration_group) :
+        type_declaration_group option =
+      g_declaration_group_filter_map (self#visit_type_decl_id env) g
+
+    method visit_fun_declaration_group env (g : fun_declaration_group) :
+        fun_declaration_group option =
+      g_declaration_group_filter_map (self#visit_fun_decl_id env) g
+
+    method visit_global_declaration_group env (g : global_declaration_group) :
+        global_declaration_group option =
+      g_declaration_group_filter_map (self#visit_global_decl_id env) g
+
+    method visit_trait_declaration_group env (g : trait_declaration_group) :
+        trait_declaration_group option =
+      g_declaration_group_filter_map (self#visit_trait_decl_id env) g
+
+    method visit_trait_impl_group env (g : trait_impl_group) :
+        trait_impl_group option =
+      g_declaration_group_filter_map (self#visit_trait_impl_id env) g
+
+    method visit_mixed_declaration_group env (g : mixed_declaration_group) :
+        mixed_declaration_group option =
+      g_declaration_group_filter_map (self#visit_item_id env) g
+
+    method visit_declaration_group env (g : declaration_group) :
+        declaration_group option =
+      match g with
+      | TypeGroup g ->
+          Option.map
+            (fun g -> TypeGroup g)
+            (self#visit_type_declaration_group env g)
+      | FunGroup g ->
+          Option.map
+            (fun g -> FunGroup g)
+            (self#visit_fun_declaration_group env g)
+      | GlobalGroup g ->
+          Option.map
+            (fun g -> GlobalGroup g)
+            (self#visit_global_declaration_group env g)
+      | TraitDeclGroup g ->
+          Option.map
+            (fun g -> TraitDeclGroup g)
+            (self#visit_trait_declaration_group env g)
+      | TraitImplGroup g ->
+          Option.map
+            (fun g -> TraitImplGroup g)
+            (self#visit_trait_impl_group env g)
+      | MixedGroup g ->
+          Option.map
+            (fun g -> MixedGroup g)
+            (self#visit_mixed_declaration_group env g)
+
+    method visit_declaration_groups env (gl : declaration_group list) :
+        declaration_group list =
+      List.filter_map (self#visit_declaration_group env) gl
+  end

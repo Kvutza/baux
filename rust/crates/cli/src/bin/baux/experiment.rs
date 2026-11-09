@@ -404,7 +404,7 @@ fn record_ocaml(
     }
     let status = Command::new("python3")
         .current_dir(root)
-        .arg(root.join("ocaml/audit.py"))
+        .arg(root.join("admin/ops/audit_simd.py"))
         .arg(output)
         .status()
         .map_err(|e| e.to_string())?;

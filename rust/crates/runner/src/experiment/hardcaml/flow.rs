@@ -63,7 +63,7 @@ impl Config {
                 .enumerate()
                 .any(|(i, m)| self.models[..i].contains(m))
             || !(1..=128).contains(&self.samples)
-            || !["integer", "rtl"].contains(&self.backend.as_str())
+            || !["integer", "rtl", "verilator"].contains(&self.backend.as_str())
             || !(1..=1000).contains(&self.ready_period)
             || !self.radius.is_finite()
             || !(0.0..=1.0).contains(&self.radius)

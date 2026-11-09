@@ -1,5 +1,8 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/Kvutza/baux/50e9b88c88fb9598ab10fc209c32238afd32ef42/assets/header.png" width="100%" alt="baux">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/Kvutza/baux/99a2659696dc50bbea459f86ee5c8ef59af95a8c/assets/logo-dark.svg">
+    <img src="https://raw.githubusercontent.com/Kvutza/baux/99a2659696dc50bbea459f86ee5c8ef59af95a8c/assets/logo-light.svg" width="100%" alt="baux">
+  </picture>
   <br>
   <sub>
     Michal Rovner, <a href="https://www.metmuseum.org/art/collection/search/266682"><i>Outside #11</i></a> (1990–91), The Metropolitan Museum of Art (1992.5040)

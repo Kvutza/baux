@@ -1,14 +1,14 @@
 {
   "schema": "baux-verification-portal-manifest-v1",
   "digest_algorithm": "blake3",
-  "lean_module_count": 132,
-  "lean_declaration_count": 3634,
+  "lean_module_count": 133,
+  "lean_declaration_count": 3639,
   "registry_function_count": 835,
-  "lean_files_tree_sha256": "a6a7b4b29554df7b1535dab79d663ae9dc8a145cd36b9d3dceba3b9467b2ced1",
+  "lean_files_tree_sha256": "0550a1c414397c754f66c623daf6dbf74ebcda52c929689205bde1774516d30f",
   "coverage_manifest_sha256": "6656a9802b7600372898b484865c105e7b81995314a18b183e96b02c67fc0db5",
   "artifact_manifest_sha256": "c3a02938854b852b02adab77820a49c39107a862e8611ce3ce727303b6401ee5",
-  "mathlib_constructions_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "mathlib_constructions_sha256": "541d38e1a7892b2bb241630e042a9b9598b6713fb194e64f587f0b7aa44b1176",
   "registry_lean_sha256": "da1da351f9b35dd9ac0e2117cdd7297f837617883b13e76ffd3a0cd5fb910a7d",
-  "site_data_js_sha256": "4b8b05e738780930690a31ae3fd5062d446c81b63b1034475f1ac82f3b1fd678",
-  "site_data_js_bytes": 2767972
+  "site_data_js_sha256": "bf0944d3605341494e6d74c830d73d74d08f78e996175d24f3c08228d7c2349c",
+  "site_data_js_bytes": 3239007
 }

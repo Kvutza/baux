@@ -189,216 +189,228 @@
   <div class="docs-container">
     <aside class="docs-sidebar">
       <h3>Getting Started</h3>
-      <a href="#overview" class="active">Overview &amp; Philosophy</a>
+      <a href="#overview" class="active">Overview</a>
       <a href="#installation">Installation</a>
-      <a href="#hardware">Hardware Acceleration</a>
-      <a href="#quickstart">Python Quickstart</a>
+      <a href="#hardware">Hardware Backends</a>
+      <a href="#quickstart">Quickstart</a>
 
-      <h3>Python API Reference</h3>
-      <a href="#optimizer">baux.create_optimizer</a>
-      <a href="#turbo">Trust-Region (TuRBO)</a>
+      <h3>Python API</h3>
+      <a href="#optimizer">create_optimizer</a>
+      <a href="#turbo">Trust Regions (TuRBO)</a>
       <a href="#enn">Epistemic Nearest Neighbors</a>
       <a href="#botorch">BoTorch &amp; Ax Interop</a>
       <a href="#optuna">Optuna Interop</a>
 
-      <h3>Rust Crate API</h3>
-      <a href="#rust-baux">baux Crate Overview</a>
-      <a href="#rust-acquisition">baux::acquisition</a>
-      <a href="#rust-semantics">baux::semantics</a>
-      <a href="#rust-resident">Resident GPU Runners</a>
+      <h3>Rust API</h3>
+      <a href="#rust-baux">baux Crate</a>
 
       <h3>Verification</h3>
-      <a href="#formal">Lean 4 &amp; BLAKE3 Audit</a>
+      <a href="#formal">Verification Portal</a>
     </aside>
 
     <main class="docs-content">
-      <h1 id="overview">BAUX Software Documentation</h1>
+      <h1 id="overview">baux Documentation</h1>
       <p class="docs-lead">
-        High-performance black-box Bayesian optimization powered by resident GPU state,
-        Epistemic Nearest Neighbors (ENN), and mathematically checked Lean 4 transition laws.
+        Black-box Bayesian optimization in Python and Rust with trust-region search,
+        Epistemic Nearest Neighbors (ENN) surrogates, and GPU acceleration.
       </p>
 
-      <h2>1. Overview &amp; Philosophy</h2>
+      <h2>1. Overview</h2>
       <p>
-        <strong>BAUX</strong> is a modern, production-grade Bayesian optimization framework designed
-        for high-throughput simulation loops, complex scientific engineering (including fusion plasma control in
-        TokaGym and 1D transport PDEs in Torax), and non-stationary black-box search spaces.
+        <strong>baux</strong> provides a straightforward ask/tell optimization loop for bounded continuous search spaces.
+        The core algorithms are implemented in Rust with optional GPU kernels (Apple Metal and NVIDIA CUDA) and
+        first-class Python bindings.
       </p>
       <ul>
-        <li><strong>Resident GPU Execution:</strong> State transitions, trust-region scaling, and neighbor search stay entirely inside accelerator memory with zero host-to-device synchronization per evaluation round.</li>
-        <li><strong>Dual-Surrogate Architecture:</strong> Combines local Gaussian Processes with global Epistemic Nearest Neighbors (ENN) to capture both sharp local gradients and multimodal uncertainty across complex non-stationary domains.</li>
-        <li><strong>Formally Checked Foundations:</strong> 189 formal Lean 4 modules prove compiler correspondence, IEEE-754 bit-exact reproducibility, and zero-sorry type signatures.</li>
+        <li><strong>Trust-Region Search (TuRBO):</strong> Local trust regions that adapt bounding box scale based on consecutive successes and failures.</li>
+        <li><strong>Epistemic Nearest Neighbors (ENN):</strong> Non-parametric surrogate modeling that estimates both function values and spatial epistemic uncertainty through distance-weighted metric neighborhoods.</li>
+        <li><strong>Hardware Acceleration:</strong> Metal and CUDA routines accelerate distance calculations, neighbor indexing, and candidate proposals when GPUs are present.</li>
+        <li><strong>Ecosystem Integrations:</strong> Adapters for BoTorch, Ax, and Optuna.</li>
       </ul>
 
       <h2 id="installation">2. Installation</h2>
-      <p>Pre-compiled binary distribution wheels are published for CPython 3.12 through 3.15 across macOS and Linux:</p>
-
-      <h3>Python Package</h3>
+      <p>Install the Python package using <code>pip</code>:</p>
       <pre><code>pip install baux</code></pre>
 
+      <p>Pre-built binary wheels are available on PyPI for Python 3.12 through 3.15:</p>
       <table class="docs-table">
         <thead>
           <tr>
             <th>Platform</th>
             <th>Architecture</th>
-            <th>Acceleration Backend</th>
-            <th>Wheel Distribution</th>
+            <th>Backend</th>
+            <th>Package</th>
           </tr>
         </thead>
         <tbody>
           <tr>
-            <td><strong>macOS 11.0+</strong></td>
+            <td><strong>macOS</strong></td>
             <td>Apple Silicon (arm64)</td>
-            <td><span class="badge badge-metal">Metal MPS</span> Unified Memory</td>
-            <td><code>baux-0.0.5-cp314-cp314-macosx_11_0_arm64.whl</code></td>
+            <td><span class="badge badge-metal">Metal</span> Unified Memory</td>
+            <td><code>baux-0.0.5-*-macosx_11_0_arm64.whl</code></td>
           </tr>
           <tr>
             <td><strong>Linux</strong></td>
             <td>x86_64</td>
-            <td><span class="badge badge-cuda">CUDA sm_75+</span> Tensor Cores</td>
-            <td><code>baux-0.0.5-cp314-cp314-manylinux_2_28_x86_64.whl</code></td>
+            <td><span class="badge badge-cuda">CUDA</span> sm_75+</td>
+            <td><code>baux-0.0.5-*-manylinux_2_28_x86_64.whl</code></td>
           </tr>
           <tr>
             <td><strong>Fallback</strong></td>
             <td>Any</td>
-            <td><span class="badge badge-cpu">CPU SIMD</span> AVX-512 / NEON</td>
-            <td>Automatic pure-Rust fallback</td>
+            <td><span class="badge badge-cpu">CPU SIMD</span></td>
+            <td>Pure Rust CPU routines</td>
           </tr>
         </tbody>
       </table>
 
-      <h3>Rust Dependency</h3>
-      <p>Add <code>baux</code> directly to your <code>Cargo.toml</code>:</p>
+      <h3>Rust Crate</h3>
+      <p>To use baux from Rust, add it to your <code>Cargo.toml</code>:</p>
       <pre><code>[dependencies]
 baux = "0.0.5"</code></pre>
 
-      <h2 id="hardware">3. Hardware Acceleration &amp; Capabilities</h2>
-      <p>You can query the compiled and available acceleration backends directly from Python:</p>
+      <h2 id="hardware">3. Hardware Backends</h2>
+      <p>Check available hardware acceleration at runtime:</p>
       <pre><code>import baux
 
-caps = baux.capabilities(probe=True)
-print(caps)
-# => BackendCapabilities(name='metal', compiled=True, available=True, direct_operations=('exact_dist', 'neighbor_search', 'posterior', ...))</code></pre>
+for backend in baux.capabilities():
+    status = "available" if backend.available else "not available"
+    print(f"{backend.name}: {status}")</code></pre>
 
-      <h2 id="quickstart">4. Python Quickstart</h2>
-      <p>Standard ask/tell loop over continuous bounded parameters:</p>
-      <pre><code>import baux
-import numpy as np
+      <h2 id="quickstart">4. Quickstart</h2>
+      <p>A standard ask/tell loop minimizing a sphere function:</p>
+      <pre><code>import numpy as np
+from baux import create_optimizer, turbo_enn
 
-# Synthetic non-convex objective (Ackley in 10 dimensions)
-def objective(x):
-    return -np.sum(x**2, axis=-1)
+# Search space: 2 dimensions in [-2.0, 2.0]
+bounds = np.array([[-2.0, 2.0], [-2.0, 2.0]])
 
-# Create TuRBO-1 optimizer on [0, 1]^10 with batch size 4
-opt = baux.create_optimizer(dim=10, batch_size=4, max_evals=100)
+# Initialize optimizer with TuRBO trust-regions and ENN surrogate
+opt = create_optimizer(
+    bounds=bounds,
+    config=turbo_enn(),
+    rng=np.random.default_rng(42),
+)
 
-for iteration in range(25):
-    # Ask for candidate points
-    trial = opt.ask()
-    print(f"Iteration {iteration}: evaluating {len(trial.candidates)} candidates")
+# Run optimization rounds
+for iteration in range(20):
+    # Ask for a batch of candidate points
+    candidates = opt.ask(4)
 
-    # Evaluate your black-box simulation or physical experiment
-    rewards = objective(trial.candidates)
+    # Evaluate objective (baux maximizes rewards; negate for minimization)
+    scores = -np.sum(candidates**2, axis=1)
 
     # Tell outcomes back to the optimizer
-    opt.tell(trial.ask_id, rewards)
+    opt.tell(candidates, scores)
 
-print("Optimization complete!")
-print("Best candidate:", opt.best_x)
-print("Best reward:", opt.best_y)</code></pre>
+print("Optimization finished.")</code></pre>
 
       <h2 id="optimizer">5. Python API Reference</h2>
 
-      <h3><code>baux.create_optimizer</code></h3>
-      <p>Factory method initializing a production optimizer instance:</p>
-      <pre><code>opt = baux.create_optimizer(
-    dim=10,                      # Dimension of input domain [0, 1]^d
-    batch_size=4,                # Number of candidates proposed per ask()
-    max_evals=200,               # Maximum budget
-    surrogate="enn",             # "enn" | "gp" | "hybrid"
-    device="auto",               # "auto" | "metal" | "cuda" | "cpu"
-)</code></pre>
+      <h3><code>create_optimizer</code></h3>
+      <p>Factory function to build an optimizer instance:</p>
+      <pre><code>from baux import create_optimizer, turbo_enn, turbo_one, turbo_zero
+import numpy as np
 
-      <h3 id="turbo">Trust-Region (TuRBO-1 &amp; TuRBO-m)</h3>
-      <p>
-        BAUX incorporates an exact native implementation of Trust-Region Bayesian Optimization with
-        adaptive lengthscale shrinkage upon consecutive failures and expansion upon successful discoveries:
-      </p>
-      <pre><code>from baux.turbo.config import OptimizerConfig
+bounds = np.array([[-1.0, 1.0], [-1.0, 1.0]])
 
-cfg = OptimizerConfig(
-    length_min=0.5**7,
-    length_max=1.6,
-    success_tolerance=3,
-    failure_tolerance=5,
-)</code></pre>
+# Choose configuration: turbo_enn(), turbo_one(), or turbo_zero()
+opt = create_optimizer(
+    bounds=bounds,
+    config=turbo_enn(),
+    rng=np.random.default_rng(0),
+)
+
+# Propose candidates:
+candidates = opt.ask(4)  # returns ndarray of shape (4, 2)
+
+# Record observations:
+opt.tell(candidates, scores)</code></pre>
+
+      <h3 id="turbo">Trust-Region Configurations</h3>
+      <p>Pre-configured search policies:</p>
+      <ul>
+        <li><code>turbo_enn()</code>: Trust-region optimization using an Epistemic Nearest Neighbors surrogate.</li>
+        <li><code>turbo_one()</code>: Single trust region with Gaussian Process surrogate.</li>
+        <li><code>turbo_zero()</code>: Baseline local trust region with no surrogate model.</li>
+      </ul>
 
       <h3 id="enn">Epistemic Nearest Neighbors (ENN)</h3>
-      <p>
-        ENN surrogates decompose predictive variance into epistemic (model ignorance / spatial sparsity) and aleatoric (observation noise) components
-        through distance-weighted metric neighborhoods and GPU-accelerated spatial indexes:
-      </p>
-      <pre><code>from baux.enn import ENN, ENNParams
+      <p>Use the ENN model standalone for regression and uncertainty estimation:</p>
+      <pre><code>from baux import ENN
+from baux.enn.enn_params import ENNParams
 from baux.index import NeighborIndex
 import numpy as np
 
-# Construct the Epistemic Nearest Neighbors surrogate over observed points
+# Fit over observed points (train_x: NxD, train_y: Nx1)
 model = ENN(train_x, train_y, index_driver=NeighborIndex.FLAT)
 
-# Evaluate posterior distribution with calibrated k-nearest neighbors
+# Evaluate posterior distribution at query points
 params = ENNParams(k_neighbors=8, epistemic_scale=1.0, aleatoric_scale=0.1)
 post = model.posterior(query_x, params=params)
 
-print("Posterior mean:", post.mu)
-print("Epistemic standard error:", post.se_epi)
-print("Aleatoric standard error:", post.se_ale)
+print("Mean:", post.mu)
+print("Epistemic uncertainty:", post.se_epi)
+print("Aleatoric noise:", post.se_ale)
 
 # Draw non-parametric posterior sample trajectories
 draws, indices = model.posterior_draw(query_x, params=params, function_seeds=[42])</code></pre>
 
-      <h3 id="botorch">BoTorch &amp; Ax Platform Interop</h3>
-      <p>Drop-in replacement for standard Gaussian Process models in existing BoTorch/Ax pipelines:</p>
-      <pre><code>from baux.botorch import BauxModel
-import torch
+      <h3 id="botorch">BoTorch &amp; Ax Interoperability</h3>
+      <p>Wrap an ENN model inside a BoTorch-compatible <code>Model</code>:</p>
+      <pre><code>import torch
+import numpy as np
+from baux import ENN
+from baux.botorch import Model, Sampler
+from baux.enn.enn_params import ENNParams
 
-train_X = torch.rand(20, 5)
-train_Y = torch.sin(train_X[:, 0:1])
+x = np.random.normal(size=(20, 3))
+y = np.sin(x[:, :1])
+model = Model(ENN(x, y), ENNParams(k_neighbors=4, epistemic_scale=1.0, aleatoric_scale=0.1))
 
-model = BauxModel(train_X, train_Y)
-posterior = model.posterior(torch.rand(10, 5))
-print("Posterior mean:", posterior.mean)
-print("Posterior variance:", posterior.variance)</code></pre>
+# Query through the standard BoTorch posterior interface
+test_x = torch.randn(5, 3, dtype=torch.double)
+posterior = model.posterior(test_x)
+print("Mean:", posterior.mean)
+print("Variance:", posterior.variance)</code></pre>
 
-      <h3 id="optuna">Optuna Sampler Interop</h3>
+      <h3 id="optuna">Optuna Interoperability</h3>
+      <p>Use baux as a custom sampler in Optuna:</p>
       <pre><code>import optuna
-from baux.optuna import BauxSampler
+from baux import turbo_enn
+from baux.optuna import Sampler
+from optuna.distributions import FloatDistribution
+
+search_space = {
+    "x": FloatDistribution(-5.0, 5.0),
+    "y": FloatDistribution(-5.0, 5.0),
+}
+sampler = Sampler(search_space, config=turbo_enn(), seed=42)
 
 def objective(trial):
     x = trial.suggest_float("x", -5.0, 5.0)
     y = trial.suggest_float("y", -5.0, 5.0)
     return -(x**2 + y**2)
 
-study = optuna.create_study(sampler=BauxSampler(), direction="maximize")
-study.optimize(objective, n_trials=50)</code></pre>
+study = optuna.create_study(sampler=sampler, direction="maximize")
+study.optimize(objective, n_trials=30)
+print("Best parameters:", study.best_params)</code></pre>
 
-      <h2 id="rust-baux">6. Rust Crate API Reference</h2>
-      <p>For high-frequency algorithmic control, compile directly against the <code>baux</code> Rust crate:</p>
-      <pre><code>use baux::base_policy::OptimizationPolicy;
-use baux::semantics::optimizer::State;
+      <h2 id="rust-baux">6. Rust API</h2>
+      <p>The <code>baux</code> crate exposes the underlying algorithms for Rust applications:</p>
+      <pre><code>use baux::neighbor_index::NeighborIndex;
 
-fn main() -> Result&lt;(), Box&lt;dyn std::error::Error&gt;&gt; {
-    let state = State::new(10);
-    println!("Optimizer initialized with dim: {}", state.dim());
-    Ok(())
+fn main() {
+    println!("baux Rust engine initialized");
 }</code></pre>
 
-      <h2 id="formal">7. Formal Verification &amp; Provenance</h2>
+      <h2 id="formal">7. Verification Portal</h2>
       <p>
-        To inspect mathematical proofs, compiler AST reachability, and BLAKE3 binary attestations:
+        The interactive web portal provides tools to browse the codebase and specifications:
       </p>
       <ul>
-        <li><a href="index.html#inspector"><strong>Functions Inspector (835 functions)</strong></a>: Source-linked call trees and Charon LLBC MIR translations.</li>
-        <li><a href="index.html#dag"><strong>Module Graph (189 modules)</strong></a>: Sugiyama layered DAG of all Lean 4 formalization files with interactive proof viewers.</li>
+        <li><a href="index.html#inspector"><strong>Functions Inspector:</strong></a> Search functions, inspect call graphs, and review extracted representations.</li>
+        <li><a href="index.html#dag"><strong>Module Graph:</strong></a> Explore dependencies across formalization modules.</li>
       </ul>
     </main>
   </div>

@@ -101,9 +101,9 @@
     },
     {
       "name": "ocaml/baux_benchmarks.opam",
-      "size_bytes": 857,
+      "size_bytes": 1110,
       "digest": {
-        "blake3": "aaf872a81a97f46c82a1213cc2328da940ea585a0aa83c1c327cde13ca67982d"
+        "blake3": "29f893de502f8d6ae6cfb3f084dbeb485ad79b17d53b292608b5a4623cd68d43"
       }
     },
     {
@@ -115,9 +115,9 @@
     },
     {
       "name": "ocaml/hardware/distance.ml",
-      "size_bytes": 7608,
+      "size_bytes": 7660,
       "digest": {
-        "blake3": "88b4e06aa38c0c00125ba5ec57a78d1419c368e7c81cdfe25a96fd8538680157"
+        "blake3": "ffb1a16e0ae3991b20590f5981ec84cf48b73d32e4452e3c73d56a1c03b5d7b5"
       }
     }
   ],

@@ -16,4 +16,5 @@ target/
 **/*.dylib
 **/*.rs.bk
 .DS_Store
+_build/
 *~

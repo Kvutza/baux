@@ -4,47 +4,81 @@
   xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
   xmlns:fr="http://www.jonmsterling.com/jms-005P.xml">
 
-  <xsl:key name="tree-with-uri" match="/fr:tree/fr:mainmatter//fr:tree" use="fr:frontmatter/fr:uri/text()" />
+  <xsl:key name="tree-with-uri" match="fr:tree" use="fr:frontmatter/fr:uri" />
+  <xsl:key name="tree-with-addr" match="fr:tree" use="fr:frontmatter/fr:addr" />
 
   <xsl:template match="/">
     <html xmlns="http://www.w3.org/1999/xhtml" data-base-url="{/fr:tree/@base-url}">
       <head>
-        <meta name="viewport" content="width=device-width" />
+        <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'" />
+        <meta name="referrer" content="strict-origin-when-cross-origin" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <link rel="stylesheet" href="{/fr:tree/@base-url}style.css" />
         <link rel="stylesheet" href="{/fr:tree/@base-url}katex.min.css" />
-        <script type="text/javascript">
-          <xsl:if test="/fr:tree/fr:frontmatter/fr:source-path">
-            <xsl:text>window.sourcePath = '</xsl:text>
-            <xsl:value-of select="/fr:tree/fr:frontmatter/fr:source-path" />
-            <xsl:text>'</xsl:text>
-          </xsl:if>
-        </script>
         <script type="module" src="{/fr:tree/@base-url}forester.js"></script>
+        <script type="text/javascript" src="{/fr:tree/@base-url}assets/baux_ui.js" defer="defer"></script>
         <title>
           <xsl:value-of select="/fr:tree/fr:frontmatter/fr:title/@text" />
         </title>
       </head>
       <body>
-        <ninja-keys placeholder="Start typing a note title or ID"></ninja-keys>
-        <xsl:if test="not(/fr:tree[@root = 'true'])">
-          <header class="header">
-            <nav class="nav">
-              <div class="logo">
-                <a href="{/fr:tree/@base-url}index.html" title="Home">
-                  <xsl:text>« Home</xsl:text>
-                </a>
-              </div>
+        <xsl:variable name="current-addr" select="/fr:tree/fr:frontmatter/fr:addr" />
+        <header class="masthead">
+          <div class="masthead-inner">
+            <div class="masthead-brand">
+              <a href="{/fr:tree/@base-url}index.html" class="brand-title">baux</a>
+            </div>
+            <nav class="masthead-nav">
+              <a href="{/fr:tree/@base-url}index.html">
+                <xsl:attribute name="class">
+                  <xsl:text>nav-item</xsl:text>
+                  <xsl:if test="$current-addr = 'baux-0001'">
+                    <xsl:text> active</xsl:text>
+                  </xsl:if>
+                </xsl:attribute>
+                <xsl:text>Overview</xsl:text>
+              </a>
+              <a href="{/fr:tree/@base-url}docs.html">
+                <xsl:attribute name="class">
+                  <xsl:text>nav-item</xsl:text>
+                  <xsl:if test="$current-addr = 'baux-0007'">
+                    <xsl:text> active</xsl:text>
+                  </xsl:if>
+                </xsl:attribute>
+                <xsl:text>API Reference</xsl:text>
+              </a>
+              <a href="{/fr:tree/@base-url}simulation.html">
+                <xsl:attribute name="class">
+                  <xsl:text>nav-item</xsl:text>
+                  <xsl:if test="$current-addr = 'baux-0004'">
+                    <xsl:text> active</xsl:text>
+                  </xsl:if>
+                </xsl:attribute>
+                <xsl:text>Playground</xsl:text>
+              </a>
+              <a href="https://github.com/Kvutza/baux" class="nav-item external" target="_blank" rel="noopener noreferrer">
+                <xsl:text>GitHub</xsl:text>
+              </a>
+              <a href="https://pypi.org/project/baux/" class="nav-item external" target="_blank" rel="noopener noreferrer">
+                <xsl:text>PyPI</xsl:text>
+              </a>
+              <a href="https://crates.io/crates/baux" class="nav-item external" target="_blank" rel="noopener noreferrer">
+                <xsl:text>Crates.io</xsl:text>
+              </a>
             </nav>
-          </header>
-        </xsl:if>
+          </div>
+        </header>
         <div id="grid-wrapper">
           <article>
+            <xsl:if test="$current-addr = 'baux-0007'">
+              <div id="baux-api-explorer"></div>
+            </xsl:if>
             <xsl:apply-templates select="fr:tree" />
           </article>
           <xsl:if test="fr:tree/fr:mainmatter/fr:tree[not(@toc='false')] and not(/fr:tree/fr:frontmatter/fr:meta[@name = 'toc']/.='false')">
             <nav id="toc">
               <div class="block">
-                <h1>Table of Contents</h1>
+                <h1>Contents</h1>
                 <xsl:apply-templates select="fr:tree/fr:mainmatter" mode="toc" />
               </div>
             </nav>
@@ -56,7 +90,6 @@
 
   <xsl:template match="fr:tree" mode="tree-taxon-with-number">
     <xsl:param name="suffix" select="''" />
-    <xsl:param name="taxon" select="fr:frontmatter/fr:taxon" />
     <xsl:param name="number" select="fr:frontmatter/fr:number" />
     <xsl:param name="fallback-number" />
     <xsl:param name="in-backmatter" select="ancestor::fr:backmatter" />
@@ -67,13 +100,6 @@
     <xsl:variable name="implicitly-unnumbered" select="count(../fr:tree) = 1 and not(count(fr:mainmatter/fr:tree) > 1)" />
 
     <xsl:variable name="should-number" select="$number != '' or (not($in-backmatter) and not($tree-is-root) and not($explicitly-unnumbered)) and not($implicitly-unnumbered)" />
-
-    <xsl:if test="$taxon != ''">
-      <xsl:value-of select="$taxon" />
-      <xsl:if test="$should-number or $fallback-number != ''">
-        <xsl:text>&#160;</xsl:text>
-      </xsl:if>
-    </xsl:if>
 
     <xsl:choose>
       <xsl:when test="$should-number">
@@ -91,7 +117,7 @@
       </xsl:when>
     </xsl:choose>
 
-    <xsl:if test="$taxon != '' or $fallback-number != '' or $should-number">
+    <xsl:if test="$fallback-number != '' or $should-number">
       <xsl:value-of select="$suffix" />
     </xsl:if>
   </xsl:template>
@@ -133,49 +159,25 @@
   <xsl:template match="fr:tree" mode="toc">
     <li>
       <xsl:for-each select="fr:frontmatter">
-        <a class="bullet">
-          <xsl:choose>
-            <xsl:when test="fr:display-uri and fr:route">
-              <xsl:attribute name="href">
-                <xsl:value-of select="fr:route" />
-              </xsl:attribute>
-              <xsl:attribute name="title">
-                <xsl:value-of select="fr:title/@text" />
-                <xsl:text>&#160;[</xsl:text>
-                <xsl:value-of select="fr:display-uri" />
-                <xsl:text>]</xsl:text>
-              </xsl:attribute>
-            </xsl:when>
-            <xsl:otherwise>
-              <xsl:attribute name="href">
-                <xsl:text>#</xsl:text>
-                <xsl:value-of select="generate-id(..)" />
-              </xsl:attribute>
-              <xsl:attribute name="title">
-                <xsl:value-of select="fr:title" />
-              </xsl:attribute>
-            </xsl:otherwise>
-          </xsl:choose>
-          <xsl:text>■</xsl:text>
-        </a>
-        <span class="link local" data-target="#{generate-id(..)}">
+        <a class="link local" href="#{generate-id(..)}" data-target="#{generate-id(..)}">
           <span class="taxon">
-            <xsl:apply-templates select=".." mode="tree-taxon-with-number">
+            <xsl:apply-templates select=".." mode="contextual-number">
               <xsl:with-param name="suffix">.&#160;</xsl:with-param>
             </xsl:apply-templates>
           </span>
-
           <xsl:apply-templates select="fr:title" />
-        </span>
+        </a>
       </xsl:for-each>
       <xsl:apply-templates select="fr:mainmatter" mode="toc" />
     </li>
   </xsl:template>
 
   <xsl:template match="fr:mainmatter" mode="toc">
-    <ul class="block">
-      <xsl:apply-templates select="fr:tree[not(@toc='false')]" mode="toc" />
-    </ul>
+    <xsl:if test="fr:tree[not(@toc='false')]">
+      <ul class="block">
+        <xsl:apply-templates select="fr:tree[not(@toc='false')]" mode="toc" />
+      </ul>
+    </xsl:if>
   </xsl:template>
 
   <xsl:template match="fr:frontmatter/fr:title">
@@ -183,18 +185,10 @@
   </xsl:template>
 
   <xsl:template match="fr:mainmatter">
-     <xsl:apply-templates />
+    <xsl:apply-templates />
   </xsl:template>
 
-  <xsl:template match="fr:display-uri[../fr:route]">
-    <a class="slug" href="{../fr:route}">
-      <xsl:text>[</xsl:text>
-      <xsl:value-of select="." />
-      <xsl:text>]</xsl:text>
-    </a>
-  </xsl:template>
-
-  <xsl:template match="fr:display-uri[not(../fr:route)]">
+  <xsl:template match="fr:display-uri">
   </xsl:template>
 
   <xsl:template match="fr:resource">
@@ -206,74 +200,64 @@
   </xsl:template>
 
   <xsl:template match="fr:source-path">
-    <a class="edit-button" href="{concat('vscode://file', .)}">
-      <xsl:text>[edit]</xsl:text>
-    </a>
   </xsl:template>
 
   <xsl:template match="fr:taxon">
-    <xsl:value-of select="." />
   </xsl:template>
 
   <xsl:template match="fr:frontmatter">
     <header>
       <h1>
-        <span class="taxon">
-          <xsl:apply-templates select=".." mode="tree-taxon-with-number">
+        <xsl:variable name="sec-num">
+          <xsl:apply-templates select=".." mode="contextual-number">
             <xsl:with-param name="suffix">.&#160;</xsl:with-param>
           </xsl:apply-templates>
+        </xsl:variable>
+        <xsl:if test="string-length($sec-num) &gt; 0">
+          <span class="sec-num">
+            <xsl:value-of select="$sec-num" />
+          </span>
+        </xsl:if>
+        <span class="sec-title">
+          <xsl:apply-templates select="fr:title" />
         </span>
-
-        <xsl:apply-templates select="fr:title" />
-        <xsl:text>&#032;</xsl:text>
-        <xsl:apply-templates select="fr:display-uri" />
-        <xsl:text>&#032;</xsl:text>
-        <xsl:apply-templates select="fr:source-path" />
       </h1>
-      <div class="metadata">
-        <ul>
-          <xsl:apply-templates select="fr:date" />
-          <xsl:if test="not(fr:meta[@name = 'author']/.='false')">
-            <xsl:apply-templates select="fr:authors" />
-          </xsl:if>
-          <xsl:apply-templates select="fr:meta[@name='position']" />
-          <xsl:apply-templates select="fr:meta[@name='institution']" />
-          <xsl:apply-templates select="fr:meta[@name='venue']" />
-          <xsl:apply-templates select="fr:meta[@name='source']" />
-          <xsl:apply-templates select="fr:meta[@name='doi']" />
-          <xsl:apply-templates select="fr:meta[@name='orcid']" />
-          <xsl:apply-templates select="fr:meta[@name='external']" />
-          <xsl:apply-templates select="fr:meta[@name='slides']" />
-          <xsl:apply-templates select="fr:meta[@name='video']" />
-        </ul>
-      </div>
     </header>
   </xsl:template>
 
   <xsl:template match="fr:ref">
+    <xsl:variable name="target-key">
+      <xsl:choose>
+        <xsl:when test="@addr"><xsl:value-of select="@addr" /></xsl:when>
+        <xsl:otherwise><xsl:value-of select="@uri" /></xsl:otherwise>
+      </xsl:choose>
+    </xsl:variable>
+
+    <xsl:variable name="target-tree" select="key('tree-with-addr', $target-key) | key('tree-with-uri', $target-key)" />
+
     <xsl:variable name="fallback-number">
       <xsl:text>[</xsl:text>
-      <xsl:value-of select="@uri" />
+      <xsl:value-of select="$target-key" />
       <xsl:text>]</xsl:text>
     </xsl:variable>
 
-    <xsl:variable name="taxon">
-      <xsl:choose>
-        <xsl:when test="@taxon">
-          <xsl:value-of select="@taxon" />
-        </xsl:when>
-        <xsl:otherwise>
-          <xsl:text>§</xsl:text>
-        </xsl:otherwise>
-      </xsl:choose>
-    </xsl:variable>
+    <xsl:variable name="check-href"
+      select="translate(normalize-space(@href), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ&#9;&#10;&#13; ', 'abcdefghijklmnopqrstuvwxyz')" />
+    <xsl:variable name="unsafe-scheme"
+      select="starts-with($check-href, 'javascript:') or starts-with($check-href, 'vbscript:') or starts-with($check-href, 'data:') or starts-with($check-href, 'blob:') or starts-with($check-href, 'file:')" />
 
     <a class="link local">
       <xsl:attribute name="href">
         <xsl:choose>
-          <xsl:when test="key('tree-with-uri',current()/@uri)">
+          <xsl:when test="$target-tree">
             <xsl:text>#</xsl:text>
-            <xsl:value-of select="generate-id(key('tree-with-uri',current()/@uri))" />
+            <xsl:value-of select="generate-id($target-tree[1])" />
+          </xsl:when>
+          <xsl:when test="$unsafe-scheme">
+            <xsl:text>#</xsl:text>
+          </xsl:when>
+          <xsl:when test="substring(@href, string-length(@href) - 3) = '.xml'">
+            <xsl:value-of select="concat(substring(@href, 1, string-length(@href) - 4), '.html')" />
           </xsl:when>
           <xsl:otherwise>
             <xsl:value-of select="@href" />
@@ -281,26 +265,20 @@
         </xsl:choose>
       </xsl:attribute>
 
+      <xsl:text>§&#160;</xsl:text>
       <xsl:choose>
-        <xsl:when test="key('tree-with-uri', current()/@uri)">
-          <xsl:apply-templates select="key('tree-with-uri', current()/@uri)" mode="tree-taxon-with-number">
+        <xsl:when test="$target-tree">
+          <xsl:apply-templates select="$target-tree[1]" mode="contextual-number">
             <xsl:with-param name="in-backmatter" select="boolean(ancestor::fr:backmatter)" />
             <xsl:with-param name="number" select="@number" />
             <xsl:with-param name="fallback-number" select="$fallback-number" />
-            <xsl:with-param name="taxon" select="$taxon" />
           </xsl:apply-templates>
         </xsl:when>
+        <xsl:when test="@number">
+          <xsl:value-of select="@number" />
+        </xsl:when>
         <xsl:otherwise>
-          <xsl:value-of select="$taxon" />
-          <xsl:text>&#160;</xsl:text>
-          <xsl:choose>
-            <xsl:when test="@number">
-              <xsl:value-of select="@number" />
-            </xsl:when>
-            <xsl:otherwise>
-              <xsl:value-of select="$fallback-number" />
-            </xsl:otherwise>
-          </xsl:choose>
+          <xsl:value-of select="$fallback-number" />
         </xsl:otherwise>
       </xsl:choose>
     </a>
@@ -326,13 +304,7 @@
     </xsl:choose>
   </xsl:template>
 
-  <xsl:template match="/fr:tree[@root='true']/fr:backmatter">
-  </xsl:template>
-
-  <xsl:template match="/fr:tree[not(@root='true')]/fr:backmatter">
-    <footer>
-      <xsl:apply-templates />
-    </footer>
+  <xsl:template match="/fr:tree/fr:backmatter">
   </xsl:template>
 
   <xsl:template match="fr:mainmatter//fr:backmatter">
@@ -351,41 +323,26 @@
           <xsl:otherwise>en</xsl:otherwise>
         </xsl:choose>
       </xsl:attribute>
-
-      <xsl:choose>
-        <xsl:when test="@show-metadata = 'false'">
-          <xsl:attribute name="class">block hide-metadata</xsl:attribute>
-        </xsl:when>
-        <xsl:otherwise>
-          <xsl:attribute name="class">block</xsl:attribute>
-        </xsl:otherwise>
-      </xsl:choose>
-      <xsl:if test="fr:frontmatter/fr:taxon">
-        <xsl:attribute name="data-taxon">
-          <xsl:value-of select="fr:frontmatter/fr:taxon" />
-        </xsl:attribute>
-      </xsl:if>
+      <xsl:attribute name="class">block</xsl:attribute>
 
       <xsl:choose>
         <xsl:when test="not(@show-heading='false')">
-          <details id="{generate-id(.)}">
-            <xsl:if test="not(@expanded = 'false')">
-              <xsl:attribute name="open">open</xsl:attribute>
+          <div class="tree-node" id="{generate-id(.)}">
+            <xsl:apply-templates select="fr:frontmatter" />
+            <xsl:if test="fr:frontmatter/fr:addr = 'baux-0004'">
+              <div id="tokamak-cad-simulation"></div>
             </xsl:if>
-            <summary>
-              <xsl:apply-templates select="fr:frontmatter" />
-            </summary>
             <xsl:apply-templates select="fr:mainmatter" />
-            <xsl:apply-templates select="fr:frontmatter/fr:meta[@name='bibtex']" />
-          </details>
+          </div>
         </xsl:when>
         <xsl:otherwise>
+          <xsl:if test="fr:frontmatter/fr:addr = 'baux-0004'">
+            <div id="tokamak-cad-simulation"></div>
+          </xsl:if>
           <xsl:apply-templates select="fr:mainmatter" />
         </xsl:otherwise>
       </xsl:choose>
     </section>
-
-    <xsl:apply-templates select="fr:backmatter" />
   </xsl:template>
 
   <xsl:template match="fr:tree"></xsl:template>

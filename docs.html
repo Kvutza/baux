@@ -1,306 +1,54 @@
-<!DOCTYPE html>
-<html lang="en" data-theme="dark">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>baux — API Reference</title>
-  <link rel="stylesheet" href="assets/site_style.css" />
-</head>
-<body>
-  <header class="site-header">
-    <div class="header-inner">
-      <div class="header-brand">
-        <a href="index.html" class="brand-title">baux</a>
-        <span class="brand-tag">research / documentation</span>
-      </div>
-      <nav class="header-nav">
-        <a href="index.html" class="nav-link">Monograph</a>
-        <a href="docs.html" class="nav-link active">API Reference</a>
-        <a href="forest/baux-0001.html" class="nav-link">Forester Graph &nearr;</a>
-        <a href="https://github.com/Kvutza/baux" class="nav-link" target="_blank" rel="noopener">GitHub &nearr;</a>
-        <a href="https://pypi.org/project/baux/" class="nav-link" target="_blank" rel="noopener">PyPI &nearr;</a>
-        <button type="button" class="theme-toggle-btn" id="theme-toggle-btn" title="Toggle color theme">
-          <span id="theme-toggle-label">Light</span>
-        </button>
-      </nav>
-    </div>
-  </header>
-
-  <main class="document-container">
-    <header class="document-header">
-      <h1 class="article-title">API Reference</h1>
-      <p class="article-subhead">Complete interface specifications, mathematical contracts, and runtime guarantees.</p>
-      <div class="article-metadata">
-        <span>v0.0.5</span>
-        <span class="meta-dot">&middot;</span>
-        <span>Python &amp; Rust</span>
-        <span class="meta-dot">&middot;</span>
-        <a href="index.html">&larr; Return to Monograph</a>
-      </div>
-    </header>
-
-    <!-- Overview Note -->
-    <div class="abstract-box">
-      <p>
-        This document defines the formal public API for the <code>baux</code> library across Python 3.12&ndash;3.15 and native Rust. All coordinates and candidate bounds follow continuous \([ \text{lower}, \text{upper} ]\) bounding hypercubes. baux models objectives under a <strong>maximization</strong> contract.
-      </p>
-    </div>
-
-    <!-- Section 1: Core Optimizer -->
-    <section id="core-optimizer">
-      <h2>1. Core Optimizer: <code>baux.create_optimizer</code></h2>
-      <p>
-        The primary factory function for instantiating black box trust-region optimizers:
-      </p>
-      <pre><code><span class="syn-fn">create_optimizer</span>(
-    bounds: np.ndarray,
-    config: Optional[OptimizerConfig] = <span class="syn-kw">None</span>,
-    rng: Optional[np.random.Generator] = <span class="syn-kw">None</span>,
-) -&gt; Optimizer</code></pre>
-
-      <div class="data-table-wrap">
-        <table class="specimen-table">
-          <thead>
-            <tr>
-              <th>Parameter</th>
-              <th>Type</th>
-              <th>Default</th>
-              <th>Description</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td><code>bounds</code></td>
-              <td><code>np.ndarray</code></td>
-              <td><em>required</em></td>
-              <td>2D array of shape <code>(D, 2)</code> with <code>float64</code> row entries <code>[lower, upper]</code>. Must satisfy <code>lower &lt; upper</code> for each dimension.</td>
-            </tr>
-            <tr>
-              <td><code>config</code></td>
-              <td><code>OptimizerConfig</code></td>
-              <td><code>turbo_enn()</code></td>
-              <td>Search policy configuration. Built using <code>turbo_enn()</code>, <code>turbo_one()</code>, or <code>turbo_zero()</code>.</td>
-            </tr>
-            <tr>
-              <td><code>rng</code></td>
-              <td><code>np.random.Generator</code></td>
-              <td><code>None</code></td>
-              <td>Optional seeded NumPy random generator for deterministic candidate generation.</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-
-      <div class="aside-box">
-        <strong>Invariants:</strong> Bounds must be finite real numbers. If bounds contain NaNs or infinite bounds, <code>ValueError</code> is raised. Inputs are internally normalized into the unit hypercube \([0, 1]^D\) during search.
-      </div>
-    </section>
-
-    <!-- Section 2: Optimizer Interface -->
-    <section id="optimizer-methods">
-      <h2>2. <code>Optimizer</code> Methods &amp; Properties</h2>
-      <p>
-        The object returned by <code>create_optimizer</code> implements the non-blocking <code>ask</code> / <code>tell</code> interface:
-      </p>
-
-      <h3><code>ask(batch_size: int = 1) -&gt; np.ndarray</code></h3>
-      <p>
-        Proposes a batch of candidate points located inside the active trust region \(\mathcal{TR}_t\).
-      </p>
-      <ul>
-        <li><strong>Arguments:</strong> <code>batch_size</code> (positive integer, number of trials to sample).</li>
-        <li><strong>Returns:</strong> 2D NumPy array of shape <code>(batch_size, D)</code> within parameter bounds.</li>
-        <li><strong>Latency:</strong> Evaluated on GPU (Metal MPS or CUDA) when hardware is present; runs sub-millisecond on CPU SIMD fallback.</li>
-      </ul>
-
-      <h3><code>tell(candidates: np.ndarray, scores: np.ndarray) -&gt; None</code></h3>
-      <p>
-        Updates the optimizer state with observed evaluations.
-      </p>
-      <ul>
-        <li><strong>Arguments:</strong>
-          <ul>
-            <li><code>candidates</code>: 2D array of shape <code>(B, D)</code> containing evaluated points.</li>
-            <li><code>scores</code>: 1D array of shape <code>(B,)</code> containing scalar objective evaluations.</li>
-          </ul>
-        </li>
-        <li><strong>Objective:</strong> baux maximizes objective scores. To minimize a loss \(f(x)\), pass \(-f(x)\).</li>
-        <li><strong>State Machine:</strong> Evaluates whether any point in <code>scores</code> exceeds the incumbent by at least the improvement threshold. Expands or shrinks the trust region side length \(L_t\) accordingly.</li>
-      </ul>
-
-      <h3>Incumbent Properties</h3>
-      <ul>
-        <li><code>opt.best_x -&gt; np.ndarray</code>: 1D array of shape <code>(D,)</code> representing the coordinates of the highest-scoring candidate observed thus far.</li>
-        <li><code>opt.best_y -&gt; float</code>: Scalar float representing the highest score observed.</li>
-      </ul>
-    </section>
-
-    <!-- Section 3: Configurations -->
-    <section id="configurations">
-      <h2>3. Trust-Region Configurations</h2>
-      <p>
-        Pre-built configuration factories define the search policy and surrogate model:
-      </p>
-
-      <div class="data-table-wrap">
-        <table class="specimen-table">
-          <thead>
-            <tr>
-              <th>Factory Function</th>
-              <th>Surrogate Engine</th>
-              <th>Typical Application</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td><code>turbo_enn()</code></td>
-              <td>Epistemic Nearest Neighbors</td>
-              <td>Default recommended policy. Non-parametric uncertainty modeling with sub-millisecond proposal latency. Scales to 10,000+ trials.</td>
-            </tr>
-            <tr>
-              <td><code>turbo_one()</code></td>
-              <td>Gaussian Process (Exact)</td>
-              <td>Single trust region with exact GP kernel inference. Suited for low evaluation counts (&lt; 200 trials).</td>
-            </tr>
-            <tr>
-              <td><code>turbo_zero()</code></td>
-              <td>None (Model-free)</td>
-              <td>Direct local trust-region perturbation without surrogate fitting. Ideal for noisy or discontinuous functions.</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-
-      <p>Tunable TuRBO hyperparameters accepted across all configuration builders:</p>
-      <ul>
-        <li><code>length_min: float = 0.5**7</code> &mdash; Minimum trust region side length before triggering a restart.</li>
-        <li><code>length_max: float = 1.6</code> &mdash; Maximum trust region side length cap.</li>
-        <li><code>success_tolerance: int = 3</code> &mdash; Consecutive discovery rounds required to trigger trust region expansion (\(L \times 1.5\)).</li>
-        <li><code>failure_tolerance: int = 5</code> &mdash; Consecutive stagnation rounds tolerated before trust region contraction (\(L \times 0.5\)).</li>
-        <li><code>batch_size: int = 4</code> &mdash; Default proposal batch size.</li>
-      </ul>
-    </section>
-
-    <!-- Section 4: ENN Surrogate -->
-    <section id="enn-surrogate">
-      <h2>4. Epistemic Nearest Neighbors (ENN)</h2>
-      <p>
-        The ENN model provides stand-alone non-parametric regression and posterior uncertainty quantification:
-      </p>
-
-      <pre><code><span class="syn-kw">from</span> baux <span class="syn-kw">import</span> ENN
-<span class="syn-kw">from</span> baux.enn.enn_params <span class="syn-kw">import</span> ENNParams
-<span class="syn-kw">from</span> baux.index <span class="syn-kw">import</span> NeighborIndex
-
-<span class="syn-com"># Initialize model with training coordinates (N, D) and targets (N, 1)</span>
-model = ENN(train_x, train_y, index_driver=NeighborIndex.FLAT)
-
-<span class="syn-com"># Configure k-NN parameters</span>
-params = ENNParams(k_neighbors=<span class="syn-num">8</span>, epistemic_scale=<span class="syn-num">1.0</span>, aleatoric_scale=<span class="syn-num">0.1</span>)
-
-<span class="syn-com"># Compute posterior distribution at query locations (M, D)</span>
-post = model.posterior(query_x, params=params)</code></pre>
-
-      <h3><code>Posterior</code> Attributes</h3>
-      <ul>
-        <li><code>post.mu: np.ndarray</code> &mdash; Posterior mean predictions at query coordinates (shape <code>(M, 1)</code>).</li>
-        <li><code>post.se_epi: np.ndarray</code> &mdash; Epistemic standard error reflecting spatial evaluation sparsity (shape <code>(M, 1)</code>).</li>
-        <li><code>post.se_ale: np.ndarray</code> &mdash; Aleatoric noise standard deviation (shape <code>(M, 1)</code>).</li>
-      </ul>
-
-      <h3><code>posterior_draw(query_x, params=None, function_seeds=None)</code></h3>
-      <p>
-        Draws continuous sample paths directly from the non-parametric posterior distribution:
-      </p>
-      <ul>
-        <li><strong>Arguments:</strong> <code>query_x</code> (shape <code>(M, D)</code>), optional <code>params</code>, and <code>function_seeds</code> (list of integers).</li>
-        <li><strong>Returns:</strong> <code>(samples, neighbor_indices)</code> where <code>samples</code> is of shape <code>(M, len(function_seeds))</code>.</li>
-        <li><strong>Thompson Sampling:</strong> Enables batch acquisition without constructing or factorizing \(N \times N\) covariance matrices.</li>
-      </ul>
-    </section>
-
-    <!-- Section 5: Adapters -->
-    <section id="adapters">
-      <h2>5. Framework Interoperability</h2>
-
-      <h3>BoTorch Integration (<code>baux.botorch.Model</code>)</h3>
-      <p>
-        Wraps an ENN model as a standard PyTorch / BoTorch surrogate:
-      </p>
-      <pre><code><span class="syn-kw">from</span> baux.botorch <span class="syn-kw">import</span> Model
-
-model = Model(ENN(train_x, train_y), params=ENNParams(k_neighbors=<span class="syn-num">6</span>))
-posterior = model.posterior(torch_test_x)
-<span class="syn-com"># Compatible with botorch.acquisition functions</span></code></pre>
-
-      <h3>Optuna Integration (<code>baux.optuna.Sampler</code>)</h3>
-      <p>
-        Provides a native search sampler for Optuna hyperparameter optimization:
-      </p>
-      <pre><code><span class="syn-kw">import</span> optuna
-<span class="syn-kw">from</span> baux <span class="syn-kw">import</span> turbo_enn
-<span class="syn-kw">from</span> baux.optuna <span class="syn-kw">import</span> Sampler
-
-sampler = Sampler(search_space, config=turbo_enn(), seed=<span class="syn-num">42</span>)
-study = optuna.create_study(sampler=sampler, direction=<span class="syn-str">"maximize"</span>)</code></pre>
-    </section>
-
-    <!-- Section 6: Hardware Introspection -->
-    <section id="hardware-introspection">
-      <h2>6. Hardware Introspection</h2>
-      <p>
-        Query compiled and available hardware execution backends at runtime:
-      </p>
-      <pre><code><span class="syn-kw">import</span> baux
-
-<span class="syn-kw">for</span> cap <span class="syn-kw">in</span> baux.capabilities():
-    print(f<span class="syn-str">"{cap.name}: available={cap.available}"</span>)</code></pre>
-
-      <div class="data-table-wrap">
-        <table class="specimen-table">
-          <thead>
-            <tr>
-              <th>Capability</th>
-              <th>Condition for Activation</th>
-              <th>Execution Mechanism</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td><code>metal</code></td>
-              <td>macOS running on Apple Silicon (arm64, M1&ndash;M4)</td>
-              <td>Metal Shading Language (MSL) compute shaders with unified memory zero-copy buffers.</td>
-            </tr>
-            <tr>
-              <td><code>cuda</code></td>
-              <td>Linux with NVIDIA GPU (Compute Capability &ge; 7.5)</td>
-              <td>Custom CUDA C++ kernels utilizing Tensor Cores for batch distance calculations.</td>
-            </tr>
-            <tr>
-              <td><code>simd_cpu</code></td>
-              <td>Always available on all platforms</td>
-              <td>Pure-Rust AVX-512 (x86_64) and ARM NEON (aarch64) vector instructions.</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </section>
-
-    <footer class="site-footer">
-      <div>
-        <span>&copy; 2026 Kvutza Lab</span>
-        <span class="meta-dot">&middot;</span>
-        <span>baux v0.0.5</span>
-      </div>
-      <div class="footer-links">
-        <a href="index.html">Monograph</a>
-        <a href="docs.html">API Reference</a>
-        <a href="https://github.com/Kvutza/baux" target="_blank" rel="noopener">GitHub</a>
-        <a href="https://pypi.org/project/baux/" target="_blank" rel="noopener">PyPI</a>
-      </div>
-    </footer>
-  </main>
-
-  <script src="assets/baux_ui.js"></script>
-</body>
-</html>
+<!DOCTYPE html PUBLIC "" "">
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:fr="http://www.jonmsterling.com/jms-005P.xml" data-base-url=""><head><meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'"></meta><meta name="referrer" content="strict-origin-when-cross-origin"></meta><meta name="viewport" content="width=device-width, initial-scale=1.0"></meta><link rel="stylesheet" href="style.css?v=d574a7446707" integrity="sha384-2dcI2pVu7JiSNXPT0eaGYoH6Wef6mOmbJRPuPUQXOSMMGUTTToo2FOZjn7YX4AzE"></link><link rel="stylesheet" href="katex.min.css?v=18c1c9fb05e7" integrity="sha384-TPqpCe9iqIJJFMUr4nZhfVfnhPwt6zFQ0llYbuKCrML4vxvk3koGtCzSoij1dOEx"></link><script type="module" src="forester.js?v=8f33e155074f" integrity="sha384-xGSQiQu0kX1eP1SDLdMBK8nvtlny/KN8EmWrdGiKFvVJS601GfKKTJCMCk7KddQg"></script><script type="text/javascript" src="assets/baux_ui.js?v=11b7aebc824a" defer integrity="sha384-+iRNfvsw8BfeJ0WrNhPlk8naeMztyEgNS7FbnocjD/P2f5Va4pLv8i2h07VF5ZHC"></script><title>API Reference</title></head><body><header class="masthead"><div class="masthead-inner"><div class="masthead-brand"><a href="index.html" class="brand-title">baux</a></div><nav class="masthead-nav"><a href="index.html" class="nav-item">Overview</a><a href="docs.html" class="nav-item active">API Reference</a><a href="simulation.html" class="nav-item">Playground</a><a href="https://github.com/Kvutza/baux" class="nav-item external" target="_blank" rel="noopener noreferrer">GitHub</a><a href="https://pypi.org/project/baux/" class="nav-item external" target="_blank" rel="noopener noreferrer">PyPI</a><a href="https://crates.io/crates/baux" class="nav-item external" target="_blank" rel="noopener noreferrer">Crates.io</a></nav></div></header><div id="grid-wrapper"><article><div id="baux-api-explorer"></div><section xmlns="" lang="en" class="block"><div class="tree-node" id="id1">
+<header><h1><span class="sec-title">API Reference</span></h1></header><section lang="en" class="block"><div class="tree-node" id="id2">
+<header><h1>
+<span class="sec-num">1. </span><span class="sec-title">State Transitions</span>
+</h1></header><p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><code>OptimizerState</code> is an immutable record exposing the incumbent <code>.best_x</code>, <code>.best_y</code>, decoded <code>.best_params</code>, observation arrays <code>.x_obs</code> and <code>.y_obs</code> (<code>.num_observations</code>), regional epoch counter <code>.epoch</code>, trust-region length <code>.tr_length</code>, and content-addressed <code>.key</code> derived from <code>baux.digest(state)</code>.</p>
+<pre xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">baux.init(
+    domain: np.ndarray | PyTreeSpec | Any,
+    config: OptimizerConfig | Transform | None = None,
+    *,
+    pipe: OptimizerConfig | Transform | None = None,
+    key: Key | None = None,
+    seed: int | np.random.Generator | None = None,
+    low: Any = -1.0,
+    high: Any = 1.0,
+) -&gt; OptimizerState</pre>
+<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><code>baux.ask(state, num_arms=1)</code> returns <code>(next_state, batch)</code>, where <code>AskBatch</code> carries proposal IDs, coordinate arrays, decoded parameter dictionaries, and stacked tensors.</p>
+<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><code>baux.tell(state, x, y, y_var=None)</code> appends observations and returns <code>(next_state, mu)</code>. <code>baux.step(state, objective)</code> runs one <code>ask -&gt; evaluate -&gt; tell</code> cycle.</p>
+<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><code>baux.scan(state, key, steps, eval_fn, num_arms)</code> folds transitions across rounds. <code>baux.pmap(state, key, branches, branch_fn)</code> forks snapshots and splits keys across worker threads.</p>
+<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">Asynchronous regional completions and cancellations use <code>baux.complete(state, ids, y, y_var=None)</code> and <code>baux.cancel(state, ids)</code>. States hash via <code>baux.digest(state)</code> (BLAKE3) and serialize via <code>baux.freeze(state)</code> and <code>baux.thaw(state, data)</code>.</p>
+</div></section><section lang="en" class="block"><div class="tree-node" id="id3">
+<header><h1>
+<span class="sec-num">2. </span><span class="sec-title">PRNG Keys</span>
+</h1></header><p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><code>baux.key(seed)</code> constructs a 128-bit <code>(u64, u64)</code> SplitMix64 key from an integer, byte buffer, array, state digest, or OS entropy, seeding deterministic ChaCha12 and optimizer streams. <code>baux.split(k, n)</code> partitions \(k\) into \(n\) subkeys, and <code>baux.fold(k, tag)</code> mixes in an integer tag without mutating \(k\), keeping proposal generation, hyperparameter fitting, and posterior sampling independent.</p>
+</div></section><section lang="en" class="block"><div class="tree-node" id="id4">
+<header><h1>
+<span class="sec-num">3. </span><span class="sec-title">Pipeline Transforms</span>
+</h1></header><p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">Pipelines compose <code>Transform</code> stages into an <code>OptimizerConfig</code> via <code>baux.chain(*steps)</code> or <code>t1 | t2</code>.</p>
+<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">Initialization and perturbation use <code>baux.lhd(num_init=10)</code>, <code>baux.sobol(num_candidates=1024)</code>, <code>baux.raasp(num_pert=20)</code>, and <code>baux.uniform_pert(num_candidates=1024)</code>. Surrogates attach via <code>baux.enn(k=10, geometry="euclidean")</code>, <code>baux.gp()</code>, or <code>baux.zero()</code>; acquisitions attach via <code>baux.ucb(beta=2.0)</code>, <code>baux.thompson()</code>, <code>baux.pareto()</code>, or <code>baux.random_acq()</code>.</p>
+<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">Geometry and regional layout are configured with <code>baux.tr_bounds(length_init=0.8)</code>, <code>baux.regions(count=4, sharing="ellipsoid_ball")</code>, <code>baux.with_geometry(target, "hyperbolic")</code>, <code>baux.stein(target, rank=4)</code>, and <code>baux.calibrate(target, alpha=0.1)</code>.</p>
+</div></section><section lang="en" class="block"><div class="tree-node" id="id5">
+<header><h1>
+<span class="sec-num">4. </span><span class="sec-title">PyTree Domains &amp; Codomain Operators</span>
+</h1></header><p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">Parameter spaces are written as nested Python dicts, tuples, and lists of leaf charts, compiled by <code>baux.pytree_bounds(tree)</code> into a <code>PyTreeSpec</code>.</p>
+<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">Domain leaf charts include <code>baux.Log(low, high)</code>, <code>baux.Periodic(low, high)</code>, <code>baux.Simplex(dim)</code>, and <code>baux.categorical(categories, encoding="auto")</code>. <code>baux.ravel(tree, spec)</code> and <code>baux.unflatten(flat, spec)</code> map between nested Python values and flat solver coordinates. Multi-output codomain operators use <code>baux.Stiefel(loadings)</code> (with <code>baux.stein</code>) and <code>baux.Affine(scale, shift, conformal_q=1.0)</code> (with <code>baux.calibrate</code>).</p>
+</div></section><section lang="en" class="block"><div class="tree-node" id="id6">
+<header><h1>
+<span class="sec-num">5. </span><span class="sec-title">ENN Surrogate</span>
+</h1></header><p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><code>baux.enn_init(train_x, train_y, scale_x=True)</code> builds an immutable surrogate state; <code>baux.append(state, x, y)</code> appends observations via copy-on-write; <code>baux.fit(state, k=10, key=k0)</code> selects scale parameters by subsampled leave-one-out log-pseudolikelihood.</p>
+<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><code>baux.posterior(state, x, params)</code> evaluates posterior mean, aleatoric standard error, and epistemic standard error at <code>x</code>. <code>baux.sample(state, x, params, key=k1, num_draws=16)</code> returns <code>(draws, idx)</code>, with function draws of shape <code>(batch, metrics, num_draws)</code> and neighbor indices of shape <code>(batch, k)</code>.</p>
+</div></section><section lang="en" class="block"><div class="tree-node" id="id7">
+<header><h1>
+<span class="sec-num">6. </span><span class="sec-title">Adapters</span>
+</h1></header><p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><code>baux.create_optimizer(bounds=bounds, config=config, rng=rng)</code> wraps the functional core in a stateful <code>Optimizer</code> exposing <code>opt.ask(num_arms)</code>, <code>opt.tell(x, y)</code>, <code>opt.posterior_mu(x)</code>, and <code>opt.telemetry()</code>. <code>from baux.optuna import Sampler</code> provides an Optuna <code>BaseSampler</code> over continuous <code>FloatDistribution</code> spaces. <code>baux.capabilities(probe=False)</code> lists compiled and active backends (<code>"cpu"</code>, <code>"metal"</code>, <code>"cuda"</code>, <code>"opencl"</code>).</p>
+</div></section>
+</div></section></article><nav id="toc"><div class="block"><h1>Contents</h1><ul xmlns="" class="block">
+<li><a class="link local" href="#id2" data-target="#id2"><span class="taxon">1. </span>State Transitions</a></li>
+<li><a class="link local" href="#id3" data-target="#id3"><span class="taxon">2. </span>PRNG Keys</a></li>
+<li><a class="link local" href="#id4" data-target="#id4"><span class="taxon">3. </span>Pipeline Transforms</a></li>
+<li><a class="link local" href="#id5" data-target="#id5"><span class="taxon">4. </span>PyTree Domains &amp; Codomain Operators</a></li>
+<li><a class="link local" href="#id6" data-target="#id6"><span class="taxon">5. </span>ENN Surrogate</a></li>
+<li><a class="link local" href="#id7" data-target="#id7"><span class="taxon">6. </span>Adapters</a></li>
+</ul></div></nav></div></body></html>

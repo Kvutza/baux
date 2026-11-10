@@ -1,227 +1,92 @@
 <!DOCTYPE html PUBLIC "" "">
 <html xmlns="http://www.w3.org/1999/xhtml" xmlns:fr="http://www.jonmsterling.com/jms-005P.xml" data-base-url=""><head><meta http-equiv="Content-Type" content="text/html; charset=utf-8">
-<meta name="viewport" content="width=device-width"></meta><link rel="stylesheet" href="style.css"></link><link rel="stylesheet" href="katex.min.css"></link><script type="text/javascript"></script><script type="module" src="forester.js"></script><title>Trust-Region Local Search (TuRBO)</title></head><body><ninja-keys placeholder="Start typing a note title or ID"></ninja-keys><header class="header"><nav class="nav"><div class="logo"><a href="index.html" title="Home">« Home</a></div></nav></header><div id="grid-wrapper"><article><section xmlns="" lang="en" class="block" data-taxon="Algorithm"><details id="id1" open="open"><summary><header><h1>
-<span class="taxon">Algorithm. </span>Trust-Region Local Search (TuRBO)  </h1>
-<div class="metadata"><ul><li class="meta-item"><address class="author">Kvutza</address></li></ul></div></header></summary><p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">High-dimensional black box optimization frequently suffers from the curse of dimensionality when fitting global surrogate models over the entire parameter space. <strong>baux</strong> confines candidate proposal to a local hypercube &amp;mdash; the trust region &amp;mdash; centered at the current incumbent point \(x^* \in  [0, 1]^D\):</p>\[   \mathcal {TR}_t = \left \{ x \in  [0, 1]^D : \max _{i=1,\dots ,D} \frac {|x_i - x_i^*|}{L_t} \le  \frac {1}{2} \right \} \]<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">The base side length \(L_t\) adapts dynamically based on observation feedback:</p>
-<ul xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'"></meta><meta name="referrer" content="strict-origin-when-cross-origin"></meta><meta name="viewport" content="width=device-width, initial-scale=1.0"></meta><link rel="stylesheet" href="style.css?v=d574a7446707" integrity="sha384-2dcI2pVu7JiSNXPT0eaGYoH6Wef6mOmbJRPuPUQXOSMMGUTTToo2FOZjn7YX4AzE"></link><link rel="stylesheet" href="katex.min.css?v=18c1c9fb05e7" integrity="sha384-TPqpCe9iqIJJFMUr4nZhfVfnhPwt6zFQ0llYbuKCrML4vxvk3koGtCzSoij1dOEx"></link><script type="module" src="forester.js?v=8f33e155074f" integrity="sha384-xGSQiQu0kX1eP1SDLdMBK8nvtlny/KN8EmWrdGiKFvVJS601GfKKTJCMCk7KddQg"></script><script type="text/javascript" src="assets/baux_ui.js?v=11b7aebc824a" defer integrity="sha384-+iRNfvsw8BfeJ0WrNhPlk8naeMztyEgNS7FbnocjD/P2f5Va4pLv8i2h07VF5ZHC"></script><title>References</title></head><body><header class="masthead"><div class="masthead-inner"><div class="masthead-brand"><a href="index.html" class="brand-title">baux</a></div><nav class="masthead-nav"><a href="index.html" class="nav-item">Overview</a><a href="docs.html" class="nav-item">API Reference</a><a href="simulation.html" class="nav-item">Playground</a><a href="https://github.com/Kvutza/baux" class="nav-item external" target="_blank" rel="noopener noreferrer">GitHub</a><a href="https://pypi.org/project/baux/" class="nav-item external" target="_blank" rel="noopener noreferrer">PyPI</a><a href="https://crates.io/crates/baux" class="nav-item external" target="_blank" rel="noopener noreferrer">Crates.io</a></nav></div></header><div id="grid-wrapper"><article><section xmlns="" lang="en" class="block"><div class="tree-node" id="id1">
+<header><h1><span class="sec-title">References</span></h1></header><ul xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">
 <li>
-<strong>Expansion</strong>: If consecutive candidate batches improve upon the incumbent, the search volume expands: \(L_{t+1} = \min (L_t \times  1.5,\, L_{\max })\).</li>
+<strong>[ACF02]</strong> Auer, P., Cesa-Bianchi, N., &amp; Fischer, P. (2002). <span class="link external"><a href="https://doi.org/10.1023/A:1013689704352" rel="noopener noreferrer" title="">Finite-time analysis of the multiarmed bandit problem</a></span>. Mach. Learn. 47(2–3):235–256.</li>
   <li>
-<strong>Contraction</strong>: If the optimizer fails to find an improvement across a sequence of failure tolerance rounds (\(\tau _{\text {fail}}\)), the volume contracts: \(L_{t+1} = \max (L_t \times  0.5,\, L_{\min })\).</li>
+<strong>[Ach03]</strong> Achlioptas, D. (2003). <span class="link external"><a href="https://doi.org/10.1016/S0022-0000(03)00025-4" rel="noopener noreferrer" title="">Database-friendly random projections: Johnson–Lindenstrauss with binary coins</a></span>. J. Comput. Syst. Sci. 66(4):671–687.</li>
   <li>
-<strong>Restart</strong>: When \(L_t\) shrinks below \(L_{\min }\), the trust region resets with a new anchor point to prevent asymptotic stagnation in local minima.</li>
-</ul></details></section><footer xmlns=""><section lang="en" class="block hide-metadata"><details id="id2" open="open"><summary><header><h1>
-<span class="taxon"></span>Context  </h1>
-<div class="metadata"><ul></ul></div></header></summary><section lang="en" class="block" data-taxon="Monograph"><details id="id3"><summary><header><h1>
-<span class="taxon">Monograph. </span>Baux — Black Box Optimization  </h1>
-<div class="metadata"><ul>
-<li class="meta-item">November 9, 2026</li>
-<li class="meta-item"><address class="author">Kvutza</address></li>
-<li class="meta-item"><a class="link external" href="https://github.com/Kvutza/baux">https://github.com/Kvutza/baux</a></li>
-</ul></div></header></summary><p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><strong>baux</strong> is a black box optimization library in Python and Rust designed for expensive, derivative-free evaluation loops over continuous and bounded domains. It couples trust-region local search (<a class="link local" href="baux-0002.xml">Algorithm []</a>) with non-parametric Epistemic Nearest Neighbors (<a class="link local" href="baux-0003.xml">Surrogate []</a>) to balance local exploitation and global exploration without incurring the cubic computational bottlenecks of Gaussian Process inference.</p>
-<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">Compute kernels for distance metrics, candidate perturbation, and posterior sampling execute directly on Apple Silicon (Metal MPS) and NVIDIA GPUs (CUDA), backed by an AVX-512 and ARM NEON SIMD pure-Rust CPU engine (<a class="link local" href="baux-0004.xml">Architecture []</a>).</p>
-<section lang="en" class="block hide-metadata" data-taxon="Lineage"><details id="id4" open="open"><summary><header><h1>
-<span class="taxon">Lineage. </span>Baseline &amp; Lineage  </h1>
-<div class="metadata"><ul><li class="meta-item"><address class="author">Kvutza</address></li></ul></div></header></summary><p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><strong>baux</strong> builds on <span class="link external"><a href="https://github.com/yubo-research/enn" title="">yubo-research/enn</a></span> (v0.4.1), using its TuRBO trust-region state machine and Epistemic Nearest Neighbors formulation as the algorithmic baseline.</p>
-<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">It extends this baseline with:</p>
-<ul xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">
-<li>
-<strong>A single crate</strong>: Consolidates <code>ennbo</code>, <code>bpann</code>, and <code>enn-py</code> into a single self-contained <code>baux</code> library and binary wheel (<code>pip install baux</code>).</li>
+<strong>[Ait35]</strong> Aitken, A. C. (1935). <span class="link external"><a href="https://doi.org/10.1017/S0370164600014346" rel="noopener noreferrer" title="">On least squares and linear combination of observations</a></span>. Proc. R. Soc. Edinburgh 55:42–48.</li>
   <li>
-<strong>GPU acceleration</strong>: Implements Apple Silicon Metal and NVIDIA CUDA compute kernels.</li>
+<strong>[Bha43]</strong> Bhattacharyya, A. (1943). <span class="link external"><a href="https://www.jstor.org/stable/25047882" rel="noopener noreferrer" title="">On a measure of divergence between two statistical populations defined by their probability distributions</a></span>. Bull. Calcutta Math. Soc. 35:99–109.</li>
   <li>
-<strong>Direct interface</strong>: Exposes a clean <code>ask</code>/<code>tell</code> loop with native batch proposals.</li>
-</ul></details></section><section lang="en" class="block hide-metadata" data-taxon="Algorithm"><details id="id5" open="open"><summary><header><h1>
-<span class="taxon">Algorithm. </span>Trust-Region Local Search (TuRBO)  </h1>
-<div class="metadata"><ul><li class="meta-item"><address class="author">Kvutza</address></li></ul></div></header></summary><p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">High-dimensional black box optimization frequently suffers from the curse of dimensionality when fitting global surrogate models over the entire parameter space. <strong>baux</strong> confines candidate proposal to a local hypercube &amp;mdash; the trust region &amp;mdash; centered at the current incumbent point \(x^* \in  [0, 1]^D\):</p>\[   \mathcal {TR}_t = \left \{ x \in  [0, 1]^D : \max _{i=1,\dots ,D} \frac {|x_i - x_i^*|}{L_t} \le  \frac {1}{2} \right \} \]<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">The base side length \(L_t\) adapts dynamically based on observation feedback:</p>
-<ul xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">
-<li>
-<strong>Expansion</strong>: If consecutive candidate batches improve upon the incumbent, the search volume expands: \(L_{t+1} = \min (L_t \times  1.5,\, L_{\max })\).</li>
+<strong>[BJS25]</strong> Bafna, M., Jadhav, S., &amp; Sweet, D. R. (2026). <span class="link external"><a href="https://arxiv.org/abs/2506.12818" rel="noopener noreferrer" title="">Taking the GP Out of the Loop</a></span>. Proc. 43rd Int. Conf. Mach. Learn. (ICML), PMLR 306:5179–5199 (arXiv:2506.12818).</li>
   <li>
-<strong>Contraction</strong>: If the optimizer fails to find an improvement across a sequence of failure tolerance rounds (\(\tau _{\text {fail}}\)), the volume contracts: \(L_{t+1} = \max (L_t \times  0.5,\, L_{\min })\).</li>
+<strong>[Cen82]</strong> Čencov, N. N. (1982). <span class="link external"><a href="https://doi.org/10.1090/mmono/053" rel="noopener noreferrer" title="">Statistical Decision Rules and Optimal Inference</a></span>. Translations of Mathematical Monographs, Vol. 53, American Mathematical Society.</li>
   <li>
-<strong>Restart</strong>: When \(L_t\) shrinks below \(L_{\min }\), the trust region resets with a new anchor point to prevent asymptotic stagnation in local minima.</li>
-</ul></details></section><section lang="en" class="block hide-metadata" data-taxon="Surrogate"><details id="id6" open="open"><summary><header><h1>
-<span class="taxon">Surrogate. </span>Epistemic Nearest Neighbors (ENN)  </h1>
-<div class="metadata"><ul><li class="meta-item"><address class="author">Kvutza</address></li></ul></div></header></summary><p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">Standard Gaussian Process regression requires \(\mathcal {O}(N^3)\) Cholesky factorization of the kernel covariance matrix, creating a computational bottleneck when evaluation counts scale into thousands of trials.</p>
-<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">ENN models function uncertainty through a non-parametric metric projection over the \(k\)-nearest observed points. Posterior uncertainty decomposes into two independent orthogonal fields:</p>\[   p(y \mid  x, \mathcal {D}) = \mathcal {N}\left (\mu _{\text {post}}(x),\, \sigma _{\text {epi}}^2(x) + \sigma _{\text {ale}}^2\right ) \]<ul xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">
-<li>
-<strong>Epistemic Uncertainty (\(\sigma _{\text {epi}}\)):</strong> Measures spatial evaluation sparsity. Scales proportionally with metric distance to neighboring observations: it vanishes near evaluations and expands in unexplored regions.</li>
+<strong>[CFK+97]</strong> Cannon, J. W., Floyd, W. J., Kenyon, R., &amp; Parry, W. R. (1997). <span class="link external"><a href="https://library.slmath.org/books/Book31/files/cannon.pdf" rel="noopener noreferrer" title="">Hyperbolic Geometry</a></span>. Flavors of Geometry, MSRI Publications 31:59–115.</li>
   <li>
-<strong>Aleatoric Uncertainty (\(\sigma _{\text {ale}}\)):</strong> Captures irreducible observation noise inherent to stochastic objective evaluations.</li>
+<strong>[Cit+24]</strong> Citrin, J., Goodfellow, I., Raju, A., Chen, J., Degrave, J., et al. (2024). <span class="link external"><a href="https://arxiv.org/abs/2406.06718" rel="noopener noreferrer" title="">TORAX: A Fast and Differentiable Tokamak Transport Simulator in JAX</a></span>. arXiv:2406.06718.</li>
+  <li>
+<strong>[Coc54]</strong> Cochran, W. G. (1954). <span class="link external"><a href="https://doi.org/10.2307/3001666" rel="noopener noreferrer" title="">The combination of estimates from different experiments</a></span>. Biometrics 10(1):101–129.</li>
+  <li>
+<strong>[CP13]</strong> Claessen, K., &amp; Pałka, M. H. (2013). <span class="link external"><a href="https://doi.org/10.1145/2503778.2503784" rel="noopener noreferrer" title="">Splittable pseudorandom number generators using cryptographic hashing</a></span>. Proc. ACM SIGPLAN Haskell Symp., pp. 47–58.</li>
+  <li>
+<strong>[DBB20]</strong> Daulton, S., Balandat, M., &amp; Bakshy, E. (2020). <span class="link external"><a href="https://arxiv.org/abs/2006.05078" rel="noopener noreferrer" title="">Differentiable Expected Hypervolume Improvement for Parallel Multi-Objective Bayesian Optimization</a></span>. NeurIPS 33:9851–9864.</li>
+  <li>
+<strong>[DEB+22]</strong> Daulton, S., Eriksson, D., Balandat, M., &amp; Bakshy, E. (2022). <span class="link external"><a href="https://proceedings.mlr.press/v180/daulton22a.html" rel="noopener noreferrer" title="">Multi-Objective Bayesian Optimization over High-Dimensional Search Spaces</a></span>. UAI, PMLR 180:507–517.</li>
+  <li>
+<strong>[Deg+22]</strong> Degrave, J., Felici, F., Buchli, J., Neunert, M., Tracey, B., et al. (2022). <span class="link external"><a href="https://doi.org/10.1038/s41586-021-04301-9" rel="noopener noreferrer" title="">Magnetic control of tokamak plasmas through deep reinforcement learning</a></span>. Nature 602(7897):414–419.</li>
+  <li>
+<strong>[EM73]</strong> Efron, B., &amp; Morris, C. (1973). <span class="link external"><a href="https://doi.org/10.1080/01621459.1973.10481350" rel="noopener noreferrer" title="">Stein's estimation rule and its competitors—an empirical Bayes approach</a></span>. J. Amer. Statist. Assoc. 68(341):117–130.</li>
+  <li>
+<strong>[EPG+19]</strong> Eriksson, D., Pearce, M., Gardner, J., Turner, R. D., &amp; Poloczek, M. (2019). <span class="link external"><a href="https://arxiv.org/abs/1910.01739" rel="noopener noreferrer" title="">Scalable Global Optimization via Local Bayesian Optimization</a></span>. NeurIPS 32:5496–5507 (arXiv:1910.01739).</li>
+  <li>
+<strong>[Hig86]</strong> Higham, N. J. (1986). <span class="link external"><a href="https://doi.org/10.1137/0907079" rel="noopener noreferrer" title="">Computing the polar decomposition—with applications</a></span>. SIAM J. Sci. Stat. Comput. 7(4):1160–1174.</li>
+  <li>
+<strong>[JL84]</strong> Johnson, W. B., &amp; Lindenstrauss, J. (1984). <span class="link external"><a href="https://doi.org/10.1090/conm/026/737400" rel="noopener noreferrer" title="">Extensions of Lipschitz mappings into a Hilbert space</a></span>. Contemp. Math. 26:189–206, American Mathematical Society.</li>
+  <li>
+<strong>[JS61]</strong> James, W., &amp; Stein, C. (1961). <span class="link external"><a href="https://projecteuclid.org/ebooks/berkeley-symposium-on-mathematical-statistics-and-probability/Proceedings-of-the-Fourth-Berkeley-Symposium-on-Mathematical-Statistics-and/chapter/Estimation-with-Quadratic-Loss/bsmsp/1200512173" rel="noopener noreferrer" title="">Estimation with quadratic loss</a></span>. Proc. Fourth Berkeley Symp. Math. Statist. Probab. 1:361–379.</li>
+  <li>
+<strong>[Kno06]</strong> Knowles, J. (2006). <span class="link external"><a href="https://doi.org/10.1109/TEVC.2005.851274" rel="noopener noreferrer" title="">ParEGO: A hybrid algorithm with on-line landscape approximation for expensive multiobjective optimization problems</a></span>. IEEE Trans. Evol. Comput. 10(1):50–66.</li>
+  <li>
+<strong>[KvW24]</strong> Kisfaludi-Bak, S., &amp; van Wordragen, G. (2024). <span class="link external"><a href="https://arxiv.org/abs/2305.01356" rel="noopener noreferrer" title="">Quadtrees and Approximate Nearest Neighbour Search in Hyperbolic Space</a></span>. arXiv:2305.01356.</li>
+  <li>
+<strong>[Lep91]</strong> Lepski, O. V. (1991). <span class="link external"><a href="https://doi.org/10.1137/1135065" rel="noopener noreferrer" title="">On a problem of adaptive estimation in Gaussian white noise</a></span>. Theory Probab. Appl. 35(3):454–466.</li>
+  <li>
+<strong>[LGR+18]</strong> Lei, J., G'Sell, M., Rinaldo, A., Tibshirani, R. J., &amp; Wasserman, L. (2018). <span class="link external"><a href="https://doi.org/10.1080/01621459.2017.1307116" rel="noopener noreferrer" title="">Distribution-free predictive inference for regression</a></span>. J. Amer. Statist. Assoc. 113(523):1094–1111.</li>
+  <li>
+<strong>[MBC79]</strong> McKay, M. D., Beckman, R. J., &amp; Conover, W. J. (1979). <span class="link external"><a href="https://doi.org/10.1080/00401706.1979.10489755" rel="noopener noreferrer" title="">A comparison of three methods for selecting values of input variables in the analysis of output from a computer code</a></span>. Technometrics 21(2):239–245.</li>
+  <li>
+<strong>[Men+24]</strong> Meneghini, O., Slendebroek, T., Lyons, B. C., McClenaghan, J., Neiser, T. F., et al. (2024). <span class="link external"><a href="https://arxiv.org/abs/2409.05894" rel="noopener noreferrer" title="">FUSE (Fusion Synthesis Engine): A Next Generation Framework for Integrated Design of Fusion Pilot Plants</a></span>. arXiv:2409.05894.</li>
+  <li>
+<strong>[Mil+98]</strong> Miller, R. L., Chu, M. S., Greene, J. M., Lin-Liu, Y. R., &amp; Waltz, R. E. (1998). <span class="link external"><a href="https://doi.org/10.1063/1.872666" rel="noopener noreferrer" title="">Noncircular, finite aspect ratio, local equilibrium model</a></span>. Phys. Plasmas 5(4):973–978.</li>
+  <li>
+<strong>[NK17]</strong> Nickel, M., &amp; Kiela, D. (2017). <span class="link external"><a href="https://arxiv.org/abs/1705.08039" rel="noopener noreferrer" title="">Poincaré Embeddings for Learning Hierarchical Representations</a></span>. NeurIPS 30:6338–6347 (arXiv:1705.08039).</li>
+  <li>
+<strong>[Pap+02]</strong> Papadopoulos, H., Proedrou, K., Vovk, V., &amp; Gammerman, A. (2002). <span class="link external"><a href="https://doi.org/10.1007/3-540-36755-1_29" rel="noopener noreferrer" title="">Inductive confidence machines for regression</a></span>. ECML, LNCS 2430:345–356.</li>
+  <li>
+<strong>[PC19]</strong> Peyré, G., &amp; Cuturi, M. (2019). <span class="link external"><a href="https://doi.org/10.1561/2200000073" rel="noopener noreferrer" title="">Computational Optimal Transport</a></span>. Found. Trends Mach. Learn. 11(5–6):355–607.</li>
+  <li>
+<strong>[Pfa+25]</strong> Pfau, D., Davies, I., Borsa, D., Araújo, J. G. M., Tracey, B., &amp; van Hasselt, H. (2025). <span class="link external"><a href="https://arxiv.org/abs/2505.00663" rel="noopener noreferrer" title="">Wasserstein Policy Optimization</a></span>. Proc. 42nd Int. Conf. Mach. Learn. (ICML), PMLR 267 (arXiv:2505.00663).</li>
+  <li>
+<strong>[PKP20]</strong> Paria, B., Kandasamy, K., &amp; Póczos, B. (2020). <span class="link external"><a href="https://proceedings.mlr.press/v115/paria20a.html" rel="noopener noreferrer" title="">A Flexible Framework for Multi-Objective Bayesian Optimization using Random Scalarizations</a></span>. UAI, PMLR 115:766–776.</li>
+  <li>
+<strong>[RJG24]</strong> Rashidi, B., Johnstonbaugh, K., &amp; Gao, C. (2024). <span class="link external"><a href="https://proceedings.mlr.press/v238/rashidi24a.html" rel="noopener noreferrer" title="">Cylindrical Thompson Sampling for High-Dimensional Bayesian Optimization</a></span>. AISTATS, PMLR 238:3502–3510.</li>
+  <li>
+<strong>[RVR+18]</strong> Russo, D. J., Van Roy, B., Kazerouni, A., Osband, I., &amp; Wen, Z. (2018). <span class="link external"><a href="https://doi.org/10.1561/2200000070" rel="noopener noreferrer" title="">A Tutorial on Thompson Sampling</a></span>. Found. Trends Mach. Learn. 11(1):1–96.</li>
+  <li>
+<strong>[SKK+10]</strong> Srinivas, N., Krause, A., Kakade, S. M., &amp; Seeger, M. W. (2012). <span class="link external"><a href="https://arxiv.org/abs/0912.3995" rel="noopener noreferrer" title="">Information-Theoretic Regret Bounds for Gaussian Process Optimization in the Bandit Setting</a></span>. IEEE Trans. Inf. Theory 58(5):3250–3265 (ICML 2010; arXiv:0912.3995).</li>
+  <li>
+<strong>[SLF14]</strong> Steele, G. L., Jr., Lea, D., &amp; Flood, C. H. (2014). <span class="link external"><a href="https://doi.org/10.1145/2660193.2660195" rel="noopener noreferrer" title="">Fast splittable pseudorandom number generators</a></span>. Proc. ACM OOPSLA, pp. 453–472.</li>
+  <li>
+<strong>[Sob67]</strong> Sobol', I. M. (1967). <span class="link external"><a href="https://doi.org/10.1016/0041-5553(67)90144-9" rel="noopener noreferrer" title="">On the distribution of points in a cube and the approximate evaluation of integrals</a></span>. USSR Comput. Math. Math. Phys. 7(4):86–112.</li>
+  <li>
+<strong>[Ste56]</strong> Stein, C. (1956). <span class="link external"><a href="https://projecteuclid.org/ebooks/berkeley-symposium-on-mathematical-statistics-and-probability/Proceedings-of-the-Third-Berkeley-Symposium-on-Mathematical-Statistics-and/chapter/Inadmissibility-of-the-Usual-Estimator-for-the-Mean-of-a/bsmsp/1200501656" rel="noopener noreferrer" title="">Inadmissibility of the usual estimator for the mean of a multivariate normal distribution</a></span>. Proc. Third Berkeley Symp. Math. Statist. Probab. 1:197–206.</li>
+  <li>
+<strong>[The+26]</strong> Theiler, C., et al. (2026). <span class="link external"><a href="https://doi.org/10.1088/1741-4326/ae6d12" rel="noopener noreferrer" title="">Progress and innovations in the TCV tokamak research programme</a></span>. Nucl. Fusion 66:116007.</li>
+  <li>
+<strong>[Tho33]</strong> Thompson, W. R. (1933). <span class="link external"><a href="https://doi.org/10.1093/biomet/25.3-4.285" rel="noopener noreferrer" title="">On the likelihood that one unknown probability exceeds another in view of the evidence of two samples</a></span>. Biometrika 25(3–4):285–294.</li>
+  <li>
+<strong>[Tra+24]</strong> Tracey, B. D., Michoski, C., Felici, F., Galperti, C., Merle, A., et al. (2024). <span class="link external"><a href="https://doi.org/10.1016/j.fusengdes.2024.114161" rel="noopener noreferrer" title="">Towards practical reinforcement learning for tokamak magnetic control</a></span>. Fusion Eng. Des. 200:114161.</li>
+  <li>
+<strong>[VGS05]</strong> Vovk, V., Gammerman, A., &amp; Shafer, G. (2005). <span class="link external"><a href="https://doi.org/10.1007/b106715" rel="noopener noreferrer" title="">Algorithmic Learning in a Random World</a></span>. Springer.</li>
+  <li>
+<strong>[Vil09]</strong> Villani, C. (2009). <span class="link external"><a href="https://doi.org/10.1007/978-3-540-71050-9" rel="noopener noreferrer" title="">Optimal Transport: Old and New</a></span>. Grundlehren der mathematischen Wissenschaften, Vol. 338, Springer.</li>
+  <li>
+<strong>[Wan+25]</strong> Wang, A. M., et al. (2025). <span class="link external"><a href="https://doi.org/10.1038/s41467-025-63917-3" rel="noopener noreferrer" title="">Learning plasma dynamics and robust rampdown trajectories with predict-first experiments at TCV</a></span>. Nature Commun. 16:8877.</li>
+  <li>
+<strong>[ZP04]</strong> Zelnik-Manor, L., &amp; Perona, P. (2004). <span class="link external"><a href="https://proceedings.neurips.cc/paper/2004/hash/40173ea48d9567f1f393b20c855bb40b-Abstract.html" rel="noopener noreferrer" title="">Self-Tuning Spectral Clustering</a></span>. NeurIPS 17:1601–1608.</li>
 </ul>
-<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">Because ENN evaluates uncertainty via nearest-neighbor distance fields rather than matrix inversion, candidate ranking within the trust region runs in linear time with respect to observed trials, allowing sub-millisecond proposal latency across tens of thousands of evaluations.</p></details></section><section lang="en" class="block hide-metadata" data-taxon="Architecture"><details id="id7" open="open"><summary><header><h1>
-<span class="taxon">Architecture. </span>Hardware Compute Backends  </h1>
-<div class="metadata"><ul><li class="meta-item"><address class="author">Kvutza</address></li></ul></div></header></summary><p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">In high-throughput experimental loops, latency is dominated by host-device memory synchronization. On Apple Silicon, <strong>baux</strong> leverages Unified Memory Architecture (UMA) via Metal compute pipelines:</p>
-<ul xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">
-<li>Observation buffers and trust-region states reside in unified system memory without duplicate host/device allocations.</li>
-  <li>Batch candidate generation, Sobol sequence perturbations, and nearest-neighbor distance sweeps execute directly on Metal shading pipelines.</li>
-  <li>On Linux environments with NVIDIA hardware, custom CUDA kernels handle distance computation and posterior draws across large candidate batches.</li>
-  <li>On systems without GPU support, pure-Rust AVX-512 and ARM NEON SIMD routines provide vectorized CPU fallback.</li>
-</ul></details></section><section lang="en" class="block hide-metadata" data-taxon="Interface"><details id="id8" open="open"><summary><header><h1>
-<span class="taxon">Interface. </span>API Specifications &amp; Workflows  </h1>
-<div class="metadata"><ul><li class="meta-item"><address class="author">Kvutza</address></li></ul></div></header></summary><div xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="quickstart">
-<p>The primary Python interface is structured around a non-blocking <code>ask(batch_size)</code> and <code>tell(candidates, scores)</code> loop:</p>
-
-<pre>import numpy as np
-from baux import create_optimizer, turbo_enn
-
-# Define parameter domain: continuous bounds for each dimension
-bounds = np.array([[-5.0, 5.0], [-5.0, 5.0]])
-
-# Initialize TuRBO optimizer with Epistemic Nearest Neighbors surrogate
-opt = create_optimizer(
-    bounds=bounds,
-    config=turbo_enn(),
-    rng=np.random.default_rng(42),
-)
-
-# Propose trial batch, evaluate objective, and report back
-for step in range(25):
-    candidates = opt.ask(batch_size=4)
-    scores = -np.sum(candidates**2, axis=1)
-    opt.tell(candidates, scores)
-
-print("Incumbent parameters:", opt.best_x)
-print("Incumbent reward:", opt.best_y)</pre>
-</div></details></section><section lang="en" class="block hide-metadata" data-taxon="Reference"><details id="id9" open="open"><summary><header><h1>
-<span class="taxon">Reference. </span>Baux API Reference  </h1>
-<div class="metadata"><ul><li class="meta-item"><address class="author">Kvutza</address></li></ul></div></header></summary><p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">Complete formal interface specifications and dimensional invariants for the <code>baux</code> black box optimization library.</p>
-<section lang="en" class="block hide-metadata" data-taxon="Function"><details id="id10" open="open"><summary><header><h1>
-<span class="taxon">Function. </span>Optimizer Factory: <code xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">baux.create_optimizer</code>  </h1>
-<div class="metadata"><ul><li class="meta-item"><address class="author">Kvutza</address></li></ul></div></header></summary><p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">Instantiates an optimization state machine over a bounded continuous domain.</p>
-<pre xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">create_optimizer(
-    bounds: np.ndarray,
-    config: Optional[OptimizerConfig] = None,
-    rng: Optional[np.random.Generator] = None,
-) -&gt; Optimizer</pre>
-<ul xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">
-<li>
-<strong><code>bounds</code></strong>: 2D array of shape <code>(D, 2)</code> defining lower and upper bounds <code>[l_i, u_i]</code> for each parameter dimension.</li>
-    <li>
-<strong><code>config</code></strong>: Search policy preset: <code>turbo_enn()</code>, <code>turbo_one()</code>, or <code>turbo_zero()</code>.</li>
-    <li>
-<strong><code>rng</code></strong>: Seeded NumPy random generator for deterministic sampling reproducibility.</li>
-</ul></details></section><section lang="en" class="block hide-metadata" data-taxon="Interface"><details id="id11" open="open"><summary><header><h1>
-<span class="taxon">Interface. </span>Optimizer Methods  </h1>
-<div class="metadata"><ul><li class="meta-item"><address class="author">Kvutza</address></li></ul></div></header></summary><ul xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">
-<li>
-<strong><code>ask(batch_size=1) -&gt; np.ndarray</code></strong>: Proposes a candidate trial matrix of shape <code>(batch_size, D)</code> bounded within the active trust region.</li>
-    <li>
-<strong><code>tell(candidates, scores) -&gt; None</code></strong>: Updates trust-region state machine with observed evaluations under a maximization objective.</li>
-    <li>
-<strong><code>best_x -&gt; np.ndarray</code></strong>: Coordinates of the incumbent parameter point.</li>
-    <li>
-<strong><code>best_y -&gt; float</code></strong>: Best observed reward value.</li>
-</ul></details></section><section lang="en" class="block hide-metadata" data-taxon="Surrogate"><details id="id12" open="open"><summary><header><h1>
-<span class="taxon">Surrogate. </span>Epistemic Nearest Neighbors: <code xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">baux.ENN</code>  </h1>
-<div class="metadata"><ul><li class="meta-item"><address class="author">Kvutza</address></li></ul></div></header></summary><pre xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">model = ENN(train_x, train_y, index_driver=NeighborIndex.FLAT)
-post = model.posterior(query_x, params=ENNParams(k_neighbors=8))</pre>
-<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">The returned <code>Posterior</code> object yields expected mean <code>post.mu</code>, epistemic uncertainty <code>post.se_epi</code>, and aleatoric uncertainty <code>post.se_ale</code>.</p></details></section></details></section></details></section></details></section><section lang="en" class="block hide-metadata"><details id="id13" open="open"><summary><header><h1>
-<span class="taxon"></span>Backlinks  </h1>
-<div class="metadata"><ul></ul></div></header></summary><section lang="en" class="block" data-taxon="Monograph"><details id="id14"><summary><header><h1>
-<span class="taxon">Monograph. </span>Baux — Black Box Optimization  </h1>
-<div class="metadata"><ul>
-<li class="meta-item">November 9, 2026</li>
-<li class="meta-item"><address class="author">Kvutza</address></li>
-<li class="meta-item"><a class="link external" href="https://github.com/Kvutza/baux">https://github.com/Kvutza/baux</a></li>
-</ul></div></header></summary><p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><strong>baux</strong> is a black box optimization library in Python and Rust designed for expensive, derivative-free evaluation loops over continuous and bounded domains. It couples trust-region local search (<a class="link local" href="baux-0002.xml">Algorithm []</a>) with non-parametric Epistemic Nearest Neighbors (<a class="link local" href="baux-0003.xml">Surrogate []</a>) to balance local exploitation and global exploration without incurring the cubic computational bottlenecks of Gaussian Process inference.</p>
-<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">Compute kernels for distance metrics, candidate perturbation, and posterior sampling execute directly on Apple Silicon (Metal MPS) and NVIDIA GPUs (CUDA), backed by an AVX-512 and ARM NEON SIMD pure-Rust CPU engine (<a class="link local" href="baux-0004.xml">Architecture []</a>).</p>
-<section lang="en" class="block hide-metadata" data-taxon="Lineage"><details id="id15" open="open"><summary><header><h1>
-<span class="taxon">Lineage. </span>Baseline &amp; Lineage  </h1>
-<div class="metadata"><ul><li class="meta-item"><address class="author">Kvutza</address></li></ul></div></header></summary><p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><strong>baux</strong> builds on <span class="link external"><a href="https://github.com/yubo-research/enn" title="">yubo-research/enn</a></span> (v0.4.1), using its TuRBO trust-region state machine and Epistemic Nearest Neighbors formulation as the algorithmic baseline.</p>
-<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">It extends this baseline with:</p>
-<ul xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">
-<li>
-<strong>A single crate</strong>: Consolidates <code>ennbo</code>, <code>bpann</code>, and <code>enn-py</code> into a single self-contained <code>baux</code> library and binary wheel (<code>pip install baux</code>).</li>
-  <li>
-<strong>GPU acceleration</strong>: Implements Apple Silicon Metal and NVIDIA CUDA compute kernels.</li>
-  <li>
-<strong>Direct interface</strong>: Exposes a clean <code>ask</code>/<code>tell</code> loop with native batch proposals.</li>
-</ul></details></section><section lang="en" class="block hide-metadata" data-taxon="Algorithm"><details id="id16" open="open"><summary><header><h1>
-<span class="taxon">Algorithm. </span>Trust-Region Local Search (TuRBO)  </h1>
-<div class="metadata"><ul><li class="meta-item"><address class="author">Kvutza</address></li></ul></div></header></summary><p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">High-dimensional black box optimization frequently suffers from the curse of dimensionality when fitting global surrogate models over the entire parameter space. <strong>baux</strong> confines candidate proposal to a local hypercube &amp;mdash; the trust region &amp;mdash; centered at the current incumbent point \(x^* \in  [0, 1]^D\):</p>\[   \mathcal {TR}_t = \left \{ x \in  [0, 1]^D : \max _{i=1,\dots ,D} \frac {|x_i - x_i^*|}{L_t} \le  \frac {1}{2} \right \} \]<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">The base side length \(L_t\) adapts dynamically based on observation feedback:</p>
-<ul xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">
-<li>
-<strong>Expansion</strong>: If consecutive candidate batches improve upon the incumbent, the search volume expands: \(L_{t+1} = \min (L_t \times  1.5,\, L_{\max })\).</li>
-  <li>
-<strong>Contraction</strong>: If the optimizer fails to find an improvement across a sequence of failure tolerance rounds (\(\tau _{\text {fail}}\)), the volume contracts: \(L_{t+1} = \max (L_t \times  0.5,\, L_{\min })\).</li>
-  <li>
-<strong>Restart</strong>: When \(L_t\) shrinks below \(L_{\min }\), the trust region resets with a new anchor point to prevent asymptotic stagnation in local minima.</li>
-</ul></details></section><section lang="en" class="block hide-metadata" data-taxon="Surrogate"><details id="id17" open="open"><summary><header><h1>
-<span class="taxon">Surrogate. </span>Epistemic Nearest Neighbors (ENN)  </h1>
-<div class="metadata"><ul><li class="meta-item"><address class="author">Kvutza</address></li></ul></div></header></summary><p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">Standard Gaussian Process regression requires \(\mathcal {O}(N^3)\) Cholesky factorization of the kernel covariance matrix, creating a computational bottleneck when evaluation counts scale into thousands of trials.</p>
-<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">ENN models function uncertainty through a non-parametric metric projection over the \(k\)-nearest observed points. Posterior uncertainty decomposes into two independent orthogonal fields:</p>\[   p(y \mid  x, \mathcal {D}) = \mathcal {N}\left (\mu _{\text {post}}(x),\, \sigma _{\text {epi}}^2(x) + \sigma _{\text {ale}}^2\right ) \]<ul xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">
-<li>
-<strong>Epistemic Uncertainty (\(\sigma _{\text {epi}}\)):</strong> Measures spatial evaluation sparsity. Scales proportionally with metric distance to neighboring observations: it vanishes near evaluations and expands in unexplored regions.</li>
-  <li>
-<strong>Aleatoric Uncertainty (\(\sigma _{\text {ale}}\)):</strong> Captures irreducible observation noise inherent to stochastic objective evaluations.</li>
-</ul>
-<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">Because ENN evaluates uncertainty via nearest-neighbor distance fields rather than matrix inversion, candidate ranking within the trust region runs in linear time with respect to observed trials, allowing sub-millisecond proposal latency across tens of thousands of evaluations.</p></details></section><section lang="en" class="block hide-metadata" data-taxon="Architecture"><details id="id18" open="open"><summary><header><h1>
-<span class="taxon">Architecture. </span>Hardware Compute Backends  </h1>
-<div class="metadata"><ul><li class="meta-item"><address class="author">Kvutza</address></li></ul></div></header></summary><p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">In high-throughput experimental loops, latency is dominated by host-device memory synchronization. On Apple Silicon, <strong>baux</strong> leverages Unified Memory Architecture (UMA) via Metal compute pipelines:</p>
-<ul xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">
-<li>Observation buffers and trust-region states reside in unified system memory without duplicate host/device allocations.</li>
-  <li>Batch candidate generation, Sobol sequence perturbations, and nearest-neighbor distance sweeps execute directly on Metal shading pipelines.</li>
-  <li>On Linux environments with NVIDIA hardware, custom CUDA kernels handle distance computation and posterior draws across large candidate batches.</li>
-  <li>On systems without GPU support, pure-Rust AVX-512 and ARM NEON SIMD routines provide vectorized CPU fallback.</li>
-</ul></details></section><section lang="en" class="block hide-metadata" data-taxon="Interface"><details id="id19" open="open"><summary><header><h1>
-<span class="taxon">Interface. </span>API Specifications &amp; Workflows  </h1>
-<div class="metadata"><ul><li class="meta-item"><address class="author">Kvutza</address></li></ul></div></header></summary><div xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="quickstart">
-<p>The primary Python interface is structured around a non-blocking <code>ask(batch_size)</code> and <code>tell(candidates, scores)</code> loop:</p>
-
-<pre>import numpy as np
-from baux import create_optimizer, turbo_enn
-
-# Define parameter domain: continuous bounds for each dimension
-bounds = np.array([[-5.0, 5.0], [-5.0, 5.0]])
-
-# Initialize TuRBO optimizer with Epistemic Nearest Neighbors surrogate
-opt = create_optimizer(
-    bounds=bounds,
-    config=turbo_enn(),
-    rng=np.random.default_rng(42),
-)
-
-# Propose trial batch, evaluate objective, and report back
-for step in range(25):
-    candidates = opt.ask(batch_size=4)
-    scores = -np.sum(candidates**2, axis=1)
-    opt.tell(candidates, scores)
-
-print("Incumbent parameters:", opt.best_x)
-print("Incumbent reward:", opt.best_y)</pre>
-</div></details></section><section lang="en" class="block hide-metadata" data-taxon="Reference"><details id="id20" open="open"><summary><header><h1>
-<span class="taxon">Reference. </span>Baux API Reference  </h1>
-<div class="metadata"><ul><li class="meta-item"><address class="author">Kvutza</address></li></ul></div></header></summary><p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">Complete formal interface specifications and dimensional invariants for the <code>baux</code> black box optimization library.</p>
-<section lang="en" class="block hide-metadata" data-taxon="Function"><details id="id21" open="open"><summary><header><h1>
-<span class="taxon">Function. </span>Optimizer Factory: <code xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">baux.create_optimizer</code>  </h1>
-<div class="metadata"><ul><li class="meta-item"><address class="author">Kvutza</address></li></ul></div></header></summary><p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">Instantiates an optimization state machine over a bounded continuous domain.</p>
-<pre xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">create_optimizer(
-    bounds: np.ndarray,
-    config: Optional[OptimizerConfig] = None,
-    rng: Optional[np.random.Generator] = None,
-) -&gt; Optimizer</pre>
-<ul xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">
-<li>
-<strong><code>bounds</code></strong>: 2D array of shape <code>(D, 2)</code> defining lower and upper bounds <code>[l_i, u_i]</code> for each parameter dimension.</li>
-    <li>
-<strong><code>config</code></strong>: Search policy preset: <code>turbo_enn()</code>, <code>turbo_one()</code>, or <code>turbo_zero()</code>.</li>
-    <li>
-<strong><code>rng</code></strong>: Seeded NumPy random generator for deterministic sampling reproducibility.</li>
-</ul></details></section><section lang="en" class="block hide-metadata" data-taxon="Interface"><details id="id22" open="open"><summary><header><h1>
-<span class="taxon">Interface. </span>Optimizer Methods  </h1>
-<div class="metadata"><ul><li class="meta-item"><address class="author">Kvutza</address></li></ul></div></header></summary><ul xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">
-<li>
-<strong><code>ask(batch_size=1) -&gt; np.ndarray</code></strong>: Proposes a candidate trial matrix of shape <code>(batch_size, D)</code> bounded within the active trust region.</li>
-    <li>
-<strong><code>tell(candidates, scores) -&gt; None</code></strong>: Updates trust-region state machine with observed evaluations under a maximization objective.</li>
-    <li>
-<strong><code>best_x -&gt; np.ndarray</code></strong>: Coordinates of the incumbent parameter point.</li>
-    <li>
-<strong><code>best_y -&gt; float</code></strong>: Best observed reward value.</li>
-</ul></details></section><section lang="en" class="block hide-metadata" data-taxon="Surrogate"><details id="id23" open="open"><summary><header><h1>
-<span class="taxon">Surrogate. </span>Epistemic Nearest Neighbors: <code xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">baux.ENN</code>  </h1>
-<div class="metadata"><ul><li class="meta-item"><address class="author">Kvutza</address></li></ul></div></header></summary><pre xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">model = ENN(train_x, train_y, index_driver=NeighborIndex.FLAT)
-post = model.posterior(query_x, params=ENNParams(k_neighbors=8))</pre>
-<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">The returned <code>Posterior</code> object yields expected mean <code>post.mu</code>, epistemic uncertainty <code>post.se_epi</code>, and aleatoric uncertainty <code>post.se_ale</code>.</p></details></section></details></section></details></section></details></section></footer></article></div></body></html>
+</div></section></article></div></body></html>

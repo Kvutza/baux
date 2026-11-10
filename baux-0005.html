@@ -1,0 +1,98 @@
+<!DOCTYPE html PUBLIC "" "">
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:fr="http://www.jonmsterling.com/jms-005P.xml" data-base-url=""><head><meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'"></meta><meta name="referrer" content="strict-origin-when-cross-origin"></meta><meta name="viewport" content="width=device-width, initial-scale=1.0"></meta><link rel="stylesheet" href="style.css?v=d574a7446707" integrity="sha384-2dcI2pVu7JiSNXPT0eaGYoH6Wef6mOmbJRPuPUQXOSMMGUTTToo2FOZjn7YX4AzE"></link><link rel="stylesheet" href="katex.min.css?v=18c1c9fb05e7" integrity="sha384-TPqpCe9iqIJJFMUr4nZhfVfnhPwt6zFQ0llYbuKCrML4vxvk3koGtCzSoij1dOEx"></link><script type="module" src="forester.js?v=8f33e155074f" integrity="sha384-xGSQiQu0kX1eP1SDLdMBK8nvtlny/KN8EmWrdGiKFvVJS601GfKKTJCMCk7KddQg"></script><script type="text/javascript" src="assets/baux_ui.js?v=11b7aebc824a" defer integrity="sha384-+iRNfvsw8BfeJ0WrNhPlk8naeMztyEgNS7FbnocjD/P2f5Va4pLv8i2h07VF5ZHC"></script><title>Usage</title></head><body><header class="masthead"><div class="masthead-inner"><div class="masthead-brand"><a href="index.html" class="brand-title">baux</a></div><nav class="masthead-nav"><a href="index.html" class="nav-item">Overview</a><a href="docs.html" class="nav-item">API Reference</a><a href="simulation.html" class="nav-item">Playground</a><a href="https://github.com/Kvutza/baux" class="nav-item external" target="_blank" rel="noopener noreferrer">GitHub</a><a href="https://pypi.org/project/baux/" class="nav-item external" target="_blank" rel="noopener noreferrer">PyPI</a><a href="https://crates.io/crates/baux" class="nav-item external" target="_blank" rel="noopener noreferrer">Crates.io</a></nav></div></header><div id="grid-wrapper"><article><section xmlns="" lang="en" class="block"><div class="tree-node" id="id1">
+<header><h1><span class="sec-title">Usage</span></h1></header><pre xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">pip install baux</pre>
+<div xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="quickstart">
+<pre>import numpy as np
+import baux
+
+bounds = np.array([[-5.0, 5.0], [-5.0, 5.0]])
+pipe = baux.lhd(10) | baux.raasp(20) | baux.enn(k=10) | baux.ucb(beta=2.0)
+
+state = baux.init(bounds, pipe, key=baux.key(42))
+
+for _ in range(25):
+    state, batch = baux.ask(state, num_arms=4)
+    y = -np.sum(batch.points**2, axis=1)
+    state, mu = baux.tell(state, batch, y)
+
+print(state.best_x, state.best_y, baux.digest(state))</pre>
+</div>
+<section lang="en" class="block"><div class="tree-node" id="id2">
+<header><h1>
+<span class="sec-num">1. </span><span class="sec-title">PyTree &amp; Non-Euclidean Spaces</span>
+</h1></header><pre xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">import math
+import numpy as np
+import baux
+
+space = {
+    "scale": baux.Log(1e-4, 1e-1),
+    "phase": baux.Periodic(0.0, 2.0 * math.pi),
+    "mixture": baux.Simplex(4),
+    "kernel": baux.categorical(["matern", "rbf", "rational"]),
+}
+target = np.array([0.4, 0.3, 0.2, 0.1])
+penalty = {"matern": 0.0, "rbf": 0.05, "rational": 0.1}
+
+
+def objective(p):
+    scale_err = (math.log10(p["scale"]) + 2.0) ** 2
+    phase_err = 1.0 - math.cos(p["phase"] - math.pi / 3.0)
+    mix_err = float(np.sum((np.sqrt(p["mixture"]) - np.sqrt(target)) ** 2))
+    return -(scale_err + phase_err + mix_err + penalty[p["kernel"]])
+
+
+state = baux.init(space, baux.turbo_enn(), key=baux.key(0))
+state, batch = baux.ask(state, num_arms=4)
+y = np.array([objective(p) for p in batch.params])
+state, mu = baux.tell(state, batch, y)
+print(state.best_params, state.best_y)</pre>
+</div></section><section lang="en" class="block"><div class="tree-node" id="id3">
+<header><h1>
+<span class="sec-num">2. </span><span class="sec-title">Scanned &amp; Parallel Rollouts (<code xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">scan</code> / <code xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">pmap</code>)</span>
+</h1></header><pre xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">import numpy as np
+import baux
+
+bounds = np.array([[-5.0, 5.0], [-5.0, 5.0]])
+s0 = baux.init(bounds, baux.turbo_enn(), key=baux.key(7))
+
+final_state, next_key, traces = baux.scan(
+    s0,
+    baux.key(7),
+    steps=20,
+    eval_fn=lambda x: -np.sum(x**2, axis=1),
+    num_arms=4,
+)
+
+branches = baux.pmap(
+    s0,
+    baux.key(99),
+    branches=4,
+    branch_fn=lambda i, st, k: baux.scan(
+        st, k, steps=10, eval_fn=lambda x: -np.sum(x**2, axis=1), num_arms=2
+    )[0].best_y,
+)</pre>
+</div></section><section lang="en" class="block"><div class="tree-node" id="id4">
+<header><h1>
+<span class="sec-num">3. </span><span class="sec-title">Functional ENN Surrogate</span>
+</h1></header><pre xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">import numpy as np
+import baux
+
+rng = np.random.default_rng(0)
+train_x = rng.uniform(-2.0, 2.0, size=(32, 3))
+train_y = -np.sum(train_x**2, axis=1, keepdims=True)
+query_x = rng.uniform(-2.0, 2.0, size=(8, 3))
+
+k0, k1 = baux.split(baux.key(42), 2)
+enn_state = baux.enn_init(train_x, train_y, scale_x=True)
+enn_state = baux.with_geometry(enn_state, "hyperbolic", local_k=4)
+
+params = baux.fit(enn_state, k=10, key=k0)
+post = baux.posterior(enn_state, query_x, params)
+draws, idx = baux.sample(enn_state, query_x, params, key=k1, num_draws=16)</pre>
+</div></section>
+</div></section></article><nav id="toc"><div class="block"><h1>Contents</h1><ul xmlns="" class="block">
+<li><a class="link local" href="#id2" data-target="#id2"><span class="taxon">1. </span>PyTree &amp; Non-Euclidean Spaces</a></li>
+<li><a class="link local" href="#id3" data-target="#id3"><span class="taxon">2. </span>Scanned &amp; Parallel Rollouts (<code xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">scan</code> / <code xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">pmap</code>)</a></li>
+<li><a class="link local" href="#id4" data-target="#id4"><span class="taxon">3. </span>Functional ENN Surrogate</a></li>
+</ul></div></nav></div></body></html>

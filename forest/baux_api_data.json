@@ -1,0 +1,588 @@
+{
+  "modules": [
+    {
+      "id": "core",
+      "title": "Functional Transitions",
+      "desc": "Pure functional state transitions, execution folds, and parallel execution.",
+      "symbols": [
+        {
+          "name": "init",
+          "kind": "function",
+          "sig": "(domain: 'np.ndarray | PyTreeSpec | Any', config: 'OptimizerConfig | Transform | None' = None, *, pipe: 'OptimizerConfig | Transform | None' = None, key: 'Any' = None, seed: 'int | Generator | None' = None, low: 'Any' = -1.0, high: 'Any' = 1.0) -> 'OptimizerState'",
+          "doc": "Initialize an immutable `OptimizerState` from bounds or a parameter PyTree."
+        },
+        {
+          "name": "ask",
+          "kind": "function",
+          "sig": "(state: 'OptimizerState', num_arms: 'int | None' = None, *, n: 'int | None' = None) -> 'tuple[OptimizerState, AskBatch]'",
+          "doc": "Pure transition `(state, num_arms) -> (next_state, batch)`."
+        },
+        {
+          "name": "tell",
+          "kind": "function",
+          "sig": "(state: 'OptimizerState', x: 'Any', y: 'Any', *, y_var: 'Any' = None) -> 'tuple[OptimizerState, np.ndarray]'",
+          "doc": "Pure transition `(state, x, y) -> (next_state, fitted_mu)` leaving `state` untouched."
+        },
+        {
+          "name": "step",
+          "kind": "function",
+          "sig": "(state: 'OptimizerState', objective: 'Callable[[Any], Any]', *, num_arms: 'int' = 1, use_pytree: 'bool' = False) -> 'tuple[OptimizerState, np.ndarray]'",
+          "doc": "Execute one pure `(ask -> objective -> tell)` step."
+        },
+        {
+          "name": "scan",
+          "kind": "function",
+          "sig": "(state: 'OptimizerState', key: 'Any' = None, steps: 'int' = 0, eval_fn: 'Callable[..., Any] | None' = None, num_arms: 'int' = 1) -> 'Any'",
+          "doc": "Fold `steps` pure optimization rounds over `state` and `key`, returning `(final_state, next_key, traces)`."
+        },
+        {
+          "name": "pmap",
+          "kind": "function",
+          "sig": "(state: 'OptimizerState', key: 'Any', branches: 'int', branch_fn: 'Callable[[int, OptimizerState, Any], Any]') -> 'list[Any]'",
+          "doc": "Fork `state` and split `key` across `branches`, executing `branch_fn` in parallel across threads."
+        },
+        {
+          "name": "complete",
+          "kind": "function",
+          "sig": "(state: 'OptimizerState', ids: 'AskBatch | tuple[AskId, ...] | list[AskId]', y: 'Any', *, y_var: 'Any' = None) -> 'OptimizerState'",
+          "doc": "Pure transition completing a subset of pending regional evaluation IDs."
+        },
+        {
+          "name": "cancel",
+          "kind": "function",
+          "sig": "(state: 'OptimizerState', ids: 'AskBatch | tuple[AskId, ...] | list[AskId]') -> 'OptimizerState'",
+          "doc": "Pure transition retiring unevaluated IDs without recording a reward."
+        },
+        {
+          "name": "digest",
+          "kind": "function",
+          "sig": "(state: 'OptimizerState') -> 'str'",
+          "doc": "Return the 64-character lowercase hexadecimal BLAKE3 digest of `state`."
+        },
+        {
+          "name": "freeze",
+          "kind": "function",
+          "sig": "(state: 'OptimizerState') -> 'bytes'",
+          "doc": "Serialize `state` into a portable binary checkpoint."
+        },
+        {
+          "name": "thaw",
+          "kind": "function",
+          "sig": "(state: 'OptimizerState', data: 'bytes') -> 'OptimizerState'",
+          "doc": "Restore an `OptimizerState` from a binary checkpoint without mutating `state`."
+        },
+        {
+          "name": "OptimizerState",
+          "kind": "class",
+          "sig": "(dim: 'int', bounds: 'np.ndarray', config: 'OptimizerConfig', seed: 'int', epoch: 'int', spec: 'PyTreeSpec | None', identified: 'bool', num_observations: 'int', num_regions: 'int', tr_length: 'float', init_progress: 'tuple[int, int] | None', pending_ids: 'tuple[int, ...] | None', ingestion_failure: 'str | None', telemetry: 'Telemetry', _log: 'tuple[_Op, ...]', _cursor: '_Cursor') -> None",
+          "doc": "Immutable, forkable value token representing the full state of a BAUX optimizer."
+        },
+        {
+          "name": "AskBatch",
+          "kind": "class",
+          "sig": "(ids: 'tuple[AskId, ...]', points: 'np.ndarray', spec: 'Any' = None, weights: 'np.ndarray | None' = None) -> None",
+          "doc": "Coordinates, evaluation identities, and structured PyTree views from one ask."
+        },
+        {
+          "name": "AskId",
+          "kind": "class",
+          "sig": "(value: 'int') -> None",
+          "doc": "Opaque, process-wide identity for one regional evaluation.\n\nThe optimizer checks this token against the proposal's stored generation\nprovenance when completing or cancelling it. Pass it back unchanged."
+        }
+      ]
+    },
+    {
+      "id": "keys",
+      "title": "PRNG Key Algebra",
+      "desc": "Deterministic, splittable 128-bit pseudo-random key generation and folding.",
+      "symbols": [
+        {
+          "name": "key",
+          "kind": "function",
+          "sig": "(source: 'Any' = None) -> 'Any'",
+          "doc": "Return a splittable 128-bit `Key` from a state/space/array/bytes, or fresh OS entropy when `None`."
+        },
+        {
+          "name": "split",
+          "kind": "function",
+          "sig": "(k: 'Any', n: 'int' = 2) -> 'tuple[Any, ...]'",
+          "doc": "Deterministically split `k` into `n` independent subkeys."
+        },
+        {
+          "name": "fold",
+          "kind": "function",
+          "sig": "(k: 'Any', tag: 'int') -> 'Any'",
+          "doc": "Deterministically fold an integer `tag` into `k`."
+        },
+        {
+          "name": "Key",
+          "kind": "class",
+          "sig": "(source=None)",
+          "doc": "Splittable 128-bit cryptographic PRNG key for functional pipelines."
+        }
+      ]
+    },
+    {
+      "id": "transforms",
+      "title": "Pipeline Transforms",
+      "desc": "Composable optimization pipeline combinators adhering to the Transform protocol.",
+      "symbols": [
+        {
+          "name": "chain",
+          "kind": "function",
+          "sig": "(*steps: 'Transform | Callable[[OptimizerConfig], OptimizerConfig] | OptimizerConfig') -> 'OptimizerConfig'",
+          "doc": "Compose left-to-right pipeline transforms into a validated `OptimizerConfig`."
+        },
+        {
+          "name": "lhd",
+          "kind": "function",
+          "sig": "(num_init: 'int' = 10, *, only: 'bool' = False) -> 'Transform'",
+          "doc": "Configure Latin Hypercube Design warm-up (or pure LHD exploration when `only=True`)."
+        },
+        {
+          "name": "sobol",
+          "kind": "function",
+          "sig": "(num_candidates: 'int | None' = None, *, per_arm: 'int | None' = None, num_pert: 'int | None' = None) -> 'Transform'",
+          "doc": "Configure scrambled Sobol quasi-Monte Carlo candidate sampling."
+        },
+        {
+          "name": "raasp",
+          "kind": "function",
+          "sig": "(num_pert: 'int | None' = 20, *, num_candidates: 'int | None' = None, per_arm: 'int | None' = None, driver: 'RAASPDriver' = <RAASPDriver.ORIG: 1>) -> 'Transform'",
+          "doc": "Configure RAASP sparse coordinate perturbation candidate sampling."
+        },
+        {
+          "name": "uniform_pert",
+          "kind": "function",
+          "sig": "(num_candidates: 'int | None' = None, *, per_arm: 'int | None' = None, num_pert: 'int | None' = None) -> 'Transform'",
+          "doc": "Configure uniform random trust-region perturbation candidate sampling."
+        },
+        {
+          "name": "enn",
+          "kind": "object",
+          "sig": "(**kwargs: 'Any') -> 'Transform'",
+          "doc": "Functional & object-oriented Epistemic Nearest Neighbors (ENN) namespace."
+        },
+        {
+          "name": "gp",
+          "kind": "function",
+          "sig": "() -> 'Transform'",
+          "doc": "Configure the Gaussian Process (TuRBO-1) surrogate model."
+        },
+        {
+          "name": "zero",
+          "kind": "function",
+          "sig": "() -> 'Transform'",
+          "doc": "Configure surrogate-free TuRBO-zero optimization."
+        },
+        {
+          "name": "ucb",
+          "kind": "function",
+          "sig": "(beta: 'float' = 2.0) -> 'Transform'",
+          "doc": "Configure Upper Confidence Bound (UCB) acquisition."
+        },
+        {
+          "name": "thompson",
+          "kind": "function",
+          "sig": "() -> 'Transform'",
+          "doc": "Configure Thompson Sampling posterior draw acquisition."
+        },
+        {
+          "name": "pareto",
+          "kind": "function",
+          "sig": "() -> 'Transform'",
+          "doc": "Configure Pareto non-dominated sorting (mu, sigma) acquisition."
+        },
+        {
+          "name": "random_acq",
+          "kind": "function",
+          "sig": "() -> 'Transform'",
+          "doc": "Configure uniform random candidate selection within the trust region."
+        },
+        {
+          "name": "tr_bounds",
+          "kind": "function",
+          "sig": "(*, length_init: 'float' = 0.8, length_min: 'float' = 0.0078125, length_max: 'float' = 1.6) -> 'Transform'",
+          "doc": "Configure trust-region side-length bounds `(length_init, length_min, length_max)`."
+        },
+        {
+          "name": "regions",
+          "kind": "function",
+          "sig": "(count: 'int' = 4, *, sharing: 'Any' = 'ellipsoid_ball', allocation: 'Any' = 'incumbent_ucb1', success_tolerance: 'int' = 3, failure_tolerance: 'int' = 5, length: 'TrustRegionBounds | None' = None) -> 'Transform'",
+          "doc": "Configure multi-region search (`RegionalSearchPolicy`) with sharing & allocation policies."
+        },
+        {
+          "name": "with_geometry",
+          "kind": "function",
+          "sig": "(model: 'Any', geometry: 'str', local_k: 'int' = 4) -> 'Any'",
+          "doc": "Return a model or `ENNState` configured with a local-scale Riemannian dissimilarity geometry."
+        },
+        {
+          "name": "stein",
+          "kind": "function",
+          "sig": "(target: 'Any' = None, frame: 'Any' = None, *, rank: 'int | None' = None) -> 'Any'",
+          "doc": "Applies Stiefel subspace James-Stein contraction to a state, config, or Transform.\n\nArgs:\n    target: Target state/config/Transform, or a Stiefel frame / integer rank\n        when constructing a pipeline Transform.\n    frame: Optional Stiefel frame or integer rank when target is a state or config.\n    rank: Optional principal Stiefel subspace rank for online estimation.\n\nReturns:\n    Updated state/config or composable Transform."
+        },
+        {
+          "name": "calibrate",
+          "kind": "function",
+          "sig": "(target: 'Any' = None, affine: 'Any' = None, *, alpha: 'float | None' = None) -> 'Any'",
+          "doc": "Applies an Affine posterior location-scale map to a state, config, or Transform.\n\nArgs:\n    target: Target state/config/Transform, or an Affine map / conformal alpha\n        when constructing a pipeline Transform.\n    affine: Optional Affine map or conformal alpha when target is a state or config.\n    alpha: Optional conformal miscoverage rate in (0, 1) for online calibration.\n\nReturns:\n    Updated state/config or composable Transform."
+        },
+        {
+          "name": "Transform",
+          "kind": "class",
+          "sig": "(name: 'str', fn: 'Callable[[OptimizerConfig], OptimizerConfig]') -> None",
+          "doc": "Composable pure transformation `OptimizerConfig -> OptimizerConfig`."
+        },
+        {
+          "name": "OptimizerConfig",
+          "kind": "class",
+          "sig": "(trust_region: 'TrustRegionConfig' = TurboTrustRegion(length=TrustRegionBounds(length_init=0.8, length_min=0.0078125, length_max=1.6), noise_aware=False), candidates: 'CandidateConfig' = <factory>, init: 'InitConfig' = <factory>, surrogate: 'Surrogate' = NoSurrogate(), acquisition: 'AcquisitionConfig' = <factory>, acq_optimizer: 'AcqOptimizerConfig' = <factory>, observation_history: 'ObservationHistoryConfig' = ObservationHistoryConfig()) -> None",
+          "doc": "Composite configuration for a TuRBO or MORBO optimizer."
+        }
+      ]
+    },
+    {
+      "id": "charts",
+      "title": "Domain Charts & PyTree",
+      "desc": "Structured parameter manifolds, section\u2013retraction charts, and tree flattening.",
+      "symbols": [
+        {
+          "name": "pytree_bounds",
+          "kind": "function",
+          "sig": "(tree: 'Any', low: 'Any' = -1.0, high: 'Any' = 1.0) -> 'PyTreeSpec'",
+          "doc": "Construct a `PyTreeSpec` (`Space`) from a template PyTree of arrays, shapes, or manifold embeddings."
+        },
+        {
+          "name": "Log",
+          "kind": "class",
+          "sig": "(low: 'float', high: 'float') -> None",
+          "doc": "Scale-invariant multiplicative Riemannian embedding on [low, high] subset R_+ (\u010cencov, 1982)."
+        },
+        {
+          "name": "Periodic",
+          "kind": "class",
+          "sig": "(low: 'float' = 0.0, high: 'float' = 6.283185307179586) -> None",
+          "doc": "Isometric S^1 circle embedding mapping theta in [low, high) to 2 tied coordinates in [0, 1]^2."
+        },
+        {
+          "name": "Simplex",
+          "kind": "class",
+          "sig": "(dim: 'int') -> None",
+          "doc": "Fisher-Rao Hellinger square-root embedding psi_i(p) = sqrt(p_i) on Delta^{d-1} (Bhattacharyya, 1943; \u010cencov, 1982)."
+        },
+        {
+          "name": "categorical",
+          "kind": "function",
+          "sig": "(categories: 'Sequence[Any]', *, encoding: 'str' = 'auto', key: 'Any' = None, seed: 'Any' = None, separation: 'float' = 10.0, dim_cap: 'int' = 48) -> 'Categorical'",
+          "doc": "Construct an isometric `Categorical` leaf specification."
+        },
+        {
+          "name": "Categorical",
+          "kind": "class",
+          "sig": "(categories: 'tuple[Any, ...]', encoding: 'str' = 'auto', seed: 'Any' = None, separation: 'float' = 10.0, dim_cap: 'int' = 48, key: 'Any' = None) -> None",
+          "doc": "Isometric one-hot or Rademacher JL specification (Johnson & Lindenstrauss, 1984; Achlioptas, 2003)."
+        },
+        {
+          "name": "Stiefel",
+          "kind": "class",
+          "sig": "(loadings: 'np.ndarray') -> None",
+          "doc": "Orthonormal subspace frame `(M, F)` on the Stiefel manifold `V_F(R^M)` for James-Stein contraction (Stein, 1956; James & Stein, 1961; Efron & Morris, 1973; Higham, 1986)."
+        },
+        {
+          "name": "Affine",
+          "kind": "class",
+          "sig": "(a: 'np.ndarray', b: 'np.ndarray', c: 'np.ndarray') -> None",
+          "doc": "Affine location-scale posterior map `(a + b*mu, c*se) in Aff(1)^M` (Aitken, 1935; Vovk et al., 2005; Lei et al., 2018)."
+        },
+        {
+          "name": "ravel",
+          "kind": "function",
+          "sig": "(tree: 'Any', spec: 'PyTreeSpec | None' = None) -> 'np.ndarray'",
+          "doc": "Flatten a single PyTree into `(dim,)` or a stacked/sequence batch into `(n, dim)`."
+        },
+        {
+          "name": "unflatten",
+          "kind": "function",
+          "sig": "(flat: 'Any', spec: 'PyTreeSpec', weights: 'np.ndarray | None' = None) -> 'Any'",
+          "doc": "Reconstruct a single parameter PyTree from a 1D flat vector of length `spec.dim`."
+        },
+        {
+          "name": "unflatten_batch",
+          "kind": "function",
+          "sig": "(flat_batch: 'Any', spec: 'PyTreeSpec', weights: 'np.ndarray | None' = None) -> 'tuple[Any, ...]'",
+          "doc": "Reconstruct a tuple of `n` parameter PyTrees from a 2D `(n, spec.dim)` batch matrix."
+        },
+        {
+          "name": "unflatten_stacked",
+          "kind": "function",
+          "sig": "(flat_batch: 'Any', spec: 'PyTreeSpec', weights: 'np.ndarray | None' = None) -> 'Any'",
+          "doc": "Reconstruct a single PyTree whose leaves have leading batch axis `(n, *leaf_shape)`."
+        },
+        {
+          "name": "PyTreeSpec",
+          "kind": "class",
+          "sig": "(dim: 'Any', bounds: 'Any' = None, leaves: 'Any' = None, template: 'Any' = None, *, low: 'Any' = -1.0, high: 'Any' = 1.0) -> 'None'",
+          "doc": "Immutable structural specification, manifold embeddings, and bounds for a parameter PyTree."
+        },
+        {
+          "name": "LeafSpec",
+          "kind": "class",
+          "sig": "(path: 'tuple[Any, ...]', shape: 'tuple[int, ...]', offset: 'int', size: 'int', low: 'np.ndarray', high: 'np.ndarray', categorical: 'Categorical | None' = None, embed: 'Any' = None) -> None",
+          "doc": "Metadata and natural bounds for a single leaf in a parameter PyTree."
+        },
+        {
+          "name": "Space",
+          "kind": "class",
+          "sig": "(dim: 'Any', bounds: 'Any' = None, leaves: 'Any' = None, template: 'Any' = None, *, low: 'Any' = -1.0, high: 'Any' = 1.0) -> 'None'",
+          "doc": "Immutable structural specification, manifold embeddings, and bounds for a parameter PyTree."
+        }
+      ]
+    },
+    {
+      "id": "surrogate",
+      "title": "Functional ENN Surrogate",
+      "desc": "Epistemic Nearest Neighbor surrogate initialization, likelihood fitting, and posterior sampling.",
+      "symbols": [
+        {
+          "name": "enn_init",
+          "kind": "function",
+          "sig": "(train_x: 'Any', train_y: 'Any', train_yvar: 'Any' = None, *, scale_x: 'bool' = False, stiefel: 'Stiefel | np.ndarray | None' = None, affine: 'Affine | tuple[Any, Any, Any] | None' = None, **options: 'Any') -> 'ENNState'",
+          "doc": "Construct an immutable `ENNState` without mutating caller arrays."
+        },
+        {
+          "name": "enn_append",
+          "kind": "function",
+          "sig": "(state: 'ENNState', x: 'Any', y: 'Any', y_var: 'Any' = None) -> 'ENNState'",
+          "doc": "Return a new `ENNState` with appended observations via Rust COW, leaving `state` untouched."
+        },
+        {
+          "name": "enn_fit",
+          "kind": "function",
+          "sig": "(state: 'ENNState', k: 'int' = 10, *, num_candidates: 'int' = 100, num_samples: 'int' = 10, infer_aleatoric: 'bool' = True, key: 'Any' = None, seed: 'int | Generator | None' = None, warm: 'ENNParams | None' = None) -> 'ENNParams'",
+          "doc": "Pure stateless hyperparameter fit returning `ENNParams` for an immutable `ENNState`."
+        },
+        {
+          "name": "enn_posterior",
+          "kind": "function",
+          "sig": "(state: 'ENNState', x: 'Any', params: 'ENNParams', *, flags: 'PosteriorFlags | None' = None) -> 'ENNNormal'",
+          "doc": "Pure posterior query on an immutable `ENNState`."
+        },
+        {
+          "name": "enn_sample",
+          "kind": "function",
+          "sig": "(state: 'ENNState', x: 'Any', params: 'ENNParams', *, key: 'Any' = None, num_draws: 'int' = 1, seeds: 'np.ndarray | list[int] | tuple[int, ...] | None' = None, flags: 'PosteriorFlags | None' = None) -> 'tuple[np.ndarray, np.ndarray]'",
+          "doc": "Pure posterior function draw on an immutable `ENNState`."
+        },
+        {
+          "name": "fit",
+          "kind": "function",
+          "sig": "(state: 'ENNState', k: 'int' = 10, *, num_candidates: 'int' = 100, num_samples: 'int' = 10, infer_aleatoric: 'bool' = True, key: 'Any' = None, seed: 'int | Generator | None' = None, warm: 'ENNParams | None' = None) -> 'ENNParams'",
+          "doc": "Pure stateless hyperparameter fit returning `ENNParams` for an immutable `ENNState`."
+        },
+        {
+          "name": "posterior",
+          "kind": "function",
+          "sig": "(state: 'ENNState', x: 'Any', params: 'ENNParams', *, flags: 'PosteriorFlags | None' = None) -> 'ENNNormal'",
+          "doc": "Pure posterior query on an immutable `ENNState`."
+        },
+        {
+          "name": "sample",
+          "kind": "function",
+          "sig": "(state: 'ENNState', x: 'Any', params: 'ENNParams', *, key: 'Any' = None, num_draws: 'int' = 1, seeds: 'np.ndarray | list[int] | tuple[int, ...] | None' = None, flags: 'PosteriorFlags | None' = None) -> 'tuple[np.ndarray, np.ndarray]'",
+          "doc": "Pure posterior function draw on an immutable `ENNState`."
+        },
+        {
+          "name": "append",
+          "kind": "function",
+          "sig": "(state: 'ENNState', x: 'Any', y: 'Any', y_var: 'Any' = None) -> 'ENNState'",
+          "doc": "Return a new `ENNState` with appended observations via Rust COW, leaving `state` untouched."
+        },
+        {
+          "name": "ENNState",
+          "kind": "class",
+          "sig": "(x: 'np.ndarray', y: 'np.ndarray', y_var: 'np.ndarray | None', scale_x: 'bool', options: 'tuple[tuple[str, Any], ...]', _model: 'ENN') -> None",
+          "doc": "Immutable value token representing an Epistemic Nearest Neighbors dataset & index."
+        },
+        {
+          "name": "ENNParams",
+          "kind": "class",
+          "sig": "(k_neighbors: 'int', epistemic_scale: 'float', aleatoric_scale: 'float') -> None",
+          "doc": "Hyperparameters governing ENN neighbor count and variance scales."
+        },
+        {
+          "name": "ENN",
+          "kind": "class",
+          "sig": "(train_x: 'np.ndarray', train_y: 'np.ndarray', train_yvar: 'np.ndarray | None' = None, *, scale_x: 'bool' = False, index_driver: 'NeighborIndex' = <NeighborIndex.FLAT: 1>, work_dir: 'str | os.PathLike[str] | None' = None, enn_storage: 'str | None' = None, y_bounds: 'np.ndarray | None' = None, **options: 'Any') -> 'None'",
+          "doc": "Epistemic Nearest Neighbors surrogate model."
+        },
+        {
+          "name": "ENNFitter",
+          "kind": "class",
+          "sig": "(k: 'int', rng: 'Generator', *, infer_aleatoric_variance_scale: 'bool' = True) -> 'None'",
+          "doc": "Incremental hyperparameter fitter tracking observation target scale."
+        },
+        {
+          "name": "ENNSurrogate",
+          "kind": "class",
+          "sig": "(k: 'int | None' = None, fit: 'SurrogateFit' = <factory>, scale_x: 'bool' = False, index_driver: 'NeighborIndex' = <NeighborIndex.FLAT: 1>, distance_metric: 'DistanceMetric' = <DistanceMetric.SQUARED_L2: 'squared_l2'>, enn_storage: 'str | None' = None, work_dir: 'str | os.PathLike[str] | None' = None, y_bounds: 'np.ndarray | None' = None, metric_learning: 'Any' = 'none', tied_dims: 'tuple[tuple[int, ...], ...] | None' = None, unscaled_dims: 'tuple[int, ...] | None' = None, geometry: 'str' = 'euclidean', local_k: 'int' = 4, stiefel: 'Any' = None, affine: 'Any' = None, stiefel_rank: 'int | None' = None, calibrate_alpha: 'float | None' = None) -> None",
+          "doc": "Configuration for an Epistemic Nearest Neighbors (ENN) surrogate."
+        }
+      ]
+    },
+    {
+      "id": "adapters",
+      "title": "Hardware & Adapters",
+      "desc": "Device capability enumeration, stateful wrappers, and Optuna integration.",
+      "symbols": [
+        {
+          "name": "capabilities",
+          "kind": "function",
+          "sig": "(*, probe: 'bool' = False) -> 'tuple[BackendCapabilities, ...]'",
+          "doc": "Inspect the installed extension; optionally exercise native runtimes.\n\nRuntime probes can initialize drivers and compile kernels. Python framework\ninstallation or GPU detection never substitutes for native build support.\n``posterior`` describes the original host-array interface.\n``device_posterior`` describes FP32 device queries and DLPack moments/draws\nfor explicit CUDA/Metal indices, scale_x=False, and unbounded outputs."
+        },
+        {
+          "name": "create_optimizer",
+          "kind": "function",
+          "sig": "(*, bounds: 'np.ndarray', config: 'OptimizerConfig', rng: 'Generator') -> 'Optimizer'",
+          "doc": "Build an optimizer from the Python config."
+        },
+        {
+          "name": "Optimizer",
+          "kind": "class",
+          "sig": "(d: 'int', rng: 'Generator', inner: 'Any', *, identified_asks: 'bool' = False) -> 'None'",
+          "doc": "Optimize a bounded search space through Rust-owned ask/tell state.\n\n``ask`` returns parameter rows for objective evaluation. ``tell`` records\nobjective values and optional observation variances. Objective evaluation\nbelongs to the caller; constructing this object does not select a Python\narray framework or imply that posterior computation runs on an accelerator."
+        },
+        {
+          "name": "turbo_enn",
+          "kind": "function",
+          "sig": "(*, enn: 'ENNSurrogate | None' = None, trust_region: 'TrustRegionConfig | None' = None, candidates: 'CandidateConfig | None' = None, num_init: 'int | None' = None, acquisition: 'AcquisitionKind' = <AcquisitionKind.PARETO: 'pareto'>) -> 'OptimizerConfig'",
+          "doc": "Build a TuRBO configuration backed by an Epistemic Nearest Neighbors surrogate."
+        },
+        {
+          "name": "turbo_one",
+          "kind": "function",
+          "sig": "(*, num_candidates: 'int | None' = None, num_init: 'int | None' = None, trust_region: 'TrustRegionConfig | None' = None, sampler: 'CandidateSampler' = <CandidateSampler.SOBOL: 'sobol'>, acquisition: 'AcquisitionKind' = <AcquisitionKind.THOMPSON: 'thompson'>) -> 'OptimizerConfig'",
+          "doc": "Build a TuRBO-1 configuration backed by a Gaussian process surrogate."
+        },
+        {
+          "name": "turbo_zero",
+          "kind": "function",
+          "sig": "(*, num_candidates: 'int | None' = None, num_candidates_per_arm: 'int | None' = None, num_init: 'int | None' = None, trust_region: 'TrustRegionConfig | None' = None, sampler: 'CandidateSampler' = <CandidateSampler.SOBOL: 'sobol'>) -> 'OptimizerConfig'",
+          "doc": "Build a surrogate-free TuRBO-0 configuration using random acquisition."
+        },
+        {
+          "name": "lhd_only",
+          "kind": "function",
+          "sig": "(*, num_candidates: 'int | None' = None, num_init: 'int | None' = None, trust_region: 'TrustRegionConfig | None' = None, sampler: 'CandidateSampler' = <CandidateSampler.SOBOL: 'sobol'>) -> 'OptimizerConfig'",
+          "doc": "Build a Latin hypercube design-only optimizer configuration."
+        },
+        {
+          "name": "BackendCapabilities",
+          "kind": "class",
+          "sig": "(name: 'BackendName', compiled: 'bool', available: 'bool | None', reason: 'str | None', direct_operations: 'tuple[str, ...]', fallback_operations: 'tuple[str, ...]', missing_operations: 'tuple[str, ...]', host_operations: 'tuple[str, ...]', array_frameworks: 'tuple[str, ...]') -> None",
+          "doc": "Native build support, runtime availability, and transfer requirements.\n\n``available=None`` means compiled but not probed. ``direct_operations``\ndescribes where arithmetic executes, not memory residency. Operations in\n``host_operations`` accept/return host arrays. ``array_frameworks`` lists\ninstalled Python packages only; it does not establish native support.\nA successful runtime probe exercises neighbor search, not every operation."
+        },
+        {
+          "name": "Telemetry",
+          "kind": "class",
+          "sig": "(dt_fit: 'float', dt_sel: 'float', dt_gen: 'float' = 0.0, dt_tell: 'float' = 0.0, num_candidates: 'int' = 0) -> None",
+          "doc": "Timing and candidate-count telemetry from an optimizer proposal step."
+        },
+        {
+          "name": "TellPredictionError",
+          "kind": "class",
+          "sig": "(...)",
+          "doc": "Native ingestion succeeded, but retrieving the fitted mean failed.\n\nRetry ``optimizer.posterior_mu(x)``, not ``optimizer.tell(x, y)``.\nThis does not classify failures raised by native ingestion itself."
+        }
+      ]
+    }
+  ],
+  "graph": {
+    "nodes": [
+      {
+        "id": "domain",
+        "label": "Domain Space (PyTree, Manifolds)",
+        "desc": "Section-retraction charts (Log, Periodic, Simplex, Categorical) compiled to coordinates.",
+        "deps": []
+      },
+      {
+        "id": "state",
+        "label": "Optimizer State (S)",
+        "desc": "Immutable state snapshot: incumbent, buffers, step, and PRNG key.",
+        "deps": [
+          "domain",
+          "keys"
+        ]
+      },
+      {
+        "id": "keys",
+        "label": "PRNG Key Algebra",
+        "desc": "Splittable 128-bit keys for deterministic execution and parallel branches.",
+        "deps": []
+      },
+      {
+        "id": "pipeline",
+        "label": "Transform Pipeline",
+        "desc": "Composable search operators: initialization, perturbation, surrogate, and acquisition.",
+        "deps": [
+          "domain"
+        ]
+      },
+      {
+        "id": "ask",
+        "label": "Proposal Transition (ask)",
+        "desc": "Pure function generating candidate arm batches via RAASP / Sobol / Pareto.",
+        "deps": [
+          "state",
+          "pipeline",
+          "surrogate_eng"
+        ]
+      },
+      {
+        "id": "tell",
+        "label": "Observation Transition (tell)",
+        "desc": "Pure function incorporating target observations and updating surrogate posterior.",
+        "deps": [
+          "state",
+          "surrogate_eng"
+        ]
+      },
+      {
+        "id": "surrogate_eng",
+        "label": "ENN Surrogate Engine",
+        "desc": "Epistemic Nearest Neighbors with local Riemannian / hyperbolic metrics.",
+        "deps": [
+          "hardware"
+        ]
+      },
+      {
+        "id": "hardware",
+        "label": "Hardware Kernels",
+        "desc": "Vectorized distance sweeps and posterior draws across CPU SIMD, Metal, and CUDA.",
+        "deps": []
+      },
+      {
+        "id": "rollouts",
+        "label": "Rollouts (scan / pmap)",
+        "desc": "Deterministic trajectory folding and multi-threaded parallel mapping.",
+        "deps": [
+          "ask",
+          "tell",
+          "keys"
+        ]
+      },
+      {
+        "id": "adapters",
+        "label": "Adapters (Optuna, Harness)",
+        "desc": "Stateful wrappers and Optuna BaseSampler compatibility.",
+        "deps": [
+          "state",
+          "ask",
+          "tell"
+        ]
+      }
+    ]
+  }
+}

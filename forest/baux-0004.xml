@@ -7,12 +7,193 @@ show-heading="true"
 show-metadata="true"
 expanded="true"
 root="false"
-xmlns:fr="http://www.jonmsterling.com/jms-005P.xml"><fr:frontmatter><fr:anchor>327</fr:anchor><fr:addr
+xmlns:fr="http://www.jonmsterling.com/jms-005P.xml"><fr:frontmatter><fr:anchor>383</fr:anchor><fr:addr
 type="user">baux-0004</fr:addr><fr:route>baux-0004.xml</fr:route><fr:title
-text="Hardware Compute Backends">Hardware Compute Backends</fr:title><fr:taxon>Architecture</fr:taxon><fr:authors><fr:author>Kvutza</fr:author></fr:authors></fr:frontmatter><fr:mainmatter><fr:p>In high-throughput experimental loops, latency is dominated by host-device memory synchronization. On Apple Silicon, <fr:strong>baux</fr:strong> leverages Unified Memory Architecture (UMA) via Metal compute pipelines:</fr:p><fr:ul><fr:li>Observation buffers and trust-region states reside in unified system memory without duplicate host/device allocations.</fr:li>
-  <fr:li>Batch candidate generation, Sobol sequence perturbations, and nearest-neighbor distance sweeps execute directly on Metal shading pipelines.</fr:li>
-  <fr:li>On Linux environments with NVIDIA hardware, custom CUDA kernels handle distance computation and posterior draws across large candidate batches.</fr:li>
-  <fr:li>On systems without GPU support, pure-Rust AVX-512 and ARM NEON SIMD routines provide vectorized CPU fallback.</fr:li></fr:ul></fr:mainmatter><fr:backmatter><fr:tree
+text="Tokamak Control Benchmarks">Tokamak Control Benchmarks</fr:title><fr:authors /></fr:frontmatter><fr:mainmatter><fr:p>We evaluate <fr:strong>baux</fr:strong> on two closed-loop tokamak policy-search benchmarks motivated by TCV magnetic control (Degrave et al. <fr:link
+type="external"
+href="https://doi.org/10.1038/s41586-021-04301-9">[Deg+22]</fr:link>, Tracey et al. <fr:link
+type="external"
+href="https://doi.org/10.1016/j.fusengdes.2024.114161">[Tra+24]</fr:link>, Pfau et al. <fr:link
+type="external"
+href="https://arxiv.org/abs/2505.00663">[Pfa+25]</fr:link>): an <fr:strong>ENN-UCB</fr:strong> surrogate benchmark on the open-source EPFL/MIT <fr:code>toka_gym</fr:code> rampdown simulator (Wang et al. <fr:link
+type="external"
+href="https://doi.org/10.1038/s41467-025-63917-3">[Wan+25]</fr:link>, Theiler et al. <fr:link
+type="external"
+href="https://doi.org/10.1088/1741-4326/ae6d12">[The+26]</fr:link>), and a 10,000-round regional-sharing ablation in <fr:strong>TORAX 2.0.0</fr:strong> (Citrin et al. <fr:link
+type="external"
+href="https://arxiv.org/abs/2406.06718">[Cit+24]</fr:link>).</fr:p><fr:tree
+toc="true"
+numbered="true"
+show-heading="true"
+show-metadata="false"
+expanded="true"
+root="false"
+xmlns:fr="http://www.jonmsterling.com/jms-005P.xml"><fr:frontmatter><fr:anchor>319</fr:anchor><fr:addr
+type="machine">#277</fr:addr><fr:route>unstable-277.xml</fr:route><fr:title
+text="TokaGym Rampdown Control with ENN-UCB">TokaGym Rampdown Control with ENN-UCB</fr:title><fr:authors /></fr:frontmatter><fr:mainmatter><fr:p>On the <fr:code>toka_gym</fr:code> TCV rampdown benchmark (<fr:link
+type="external"
+href="https://doi.org/10.1038/s41467-025-63917-3">[Wan+25]</fr:link>, <fr:link
+type="external"
+href="https://doi.org/10.1088/1741-4326/ae6d12">[The+26]</fr:link>), a four-layer policy <fr:tex
+display="inline"><![CDATA[\pi _\theta  : \mathbb {R}^{11} \to  [-1, 1]^8]]></fr:tex> of hidden width <fr:tex
+display="inline"><![CDATA[256]]></fr:tex> (<fr:tex
+display="inline"><![CDATA[D = 136{,}712]]></fr:tex> parameters) is searched directly from closed-loop trajectories (<fr:tex
+display="inline"><![CDATA[20]]></fr:tex> steps <fr:tex
+display="inline"><![CDATA[\times \, 4]]></fr:tex> substeps). Multi-region <fr:strong>ENN-TuRBO</fr:strong> fits a <fr:tex
+display="inline"><![CDATA[K = 10]]></fr:tex> Epistemic Nearest Neighbor surrogate by LOO pseudolikelihood with UCB acquisition across <fr:tex
+display="inline"><![CDATA[R = 10]]></fr:tex> regions (<fr:code>incumbent-ucb1</fr:code>, <fr:code>raasp-fast</fr:code> with <fr:tex
+display="inline"><![CDATA[d_p = 13{,}671]]></fr:tex>, <fr:tex
+display="inline"><![CDATA[4]]></fr:tex> candidates and <fr:tex
+display="inline"><![CDATA[1]]></fr:tex> evaluated arm per round). Across <fr:tex
+display="inline"><![CDATA[n = 10]]></fr:tex> paired seeds over <fr:tex
+display="inline"><![CDATA[100]]></fr:tex> rounds, tracking error falls from <fr:code>65.72</fr:code> at initialization to <fr:strong><fr:code>1.79</fr:code></fr:strong> (<fr:code>ellipsoid-ball</fr:code> sharing) and <fr:strong><fr:code>1.68</fr:code></fr:strong> (<fr:code>origin-only</fr:code>) versus <fr:code>20.59</fr:code> for on-policy Metal PPO at matching round budget.</fr:p></fr:mainmatter><fr:backmatter /></fr:tree><fr:tree
+toc="true"
+numbered="true"
+show-heading="true"
+show-metadata="false"
+expanded="true"
+root="false"
+xmlns:fr="http://www.jonmsterling.com/jms-005P.xml"><fr:frontmatter><fr:anchor>320</fr:anchor><fr:addr
+type="machine">#278</fr:addr><fr:route>unstable-278.xml</fr:route><fr:title
+text="TORAX Core-Transport &amp; Shaping Regional Ablation">TORAX Core-Transport &amp; Shaping Regional Ablation</fr:title><fr:authors /></fr:frontmatter><fr:mainmatter><fr:p>Because EPFL's free-boundary Grad–Shafranov coil-circuit simulator <fr:code>FGE</fr:code> used in <fr:link
+type="external"
+href="https://doi.org/10.1038/s41586-021-04301-9">[Deg+22]</fr:link>, <fr:link
+type="external"
+href="https://doi.org/10.1016/j.fusengdes.2024.114161">[Tra+24]</fr:link>, and <fr:link
+type="external"
+href="https://arxiv.org/abs/2505.00663">[Pfa+25]</fr:link> is proprietary, we evaluate the <fr:tex
+display="inline"><![CDATA[93 \to  256 \to  256 \to  256 \to  19]]></fr:tex> ELU+<fr:tex
+display="inline"><![CDATA[\tanh ]]></fr:tex> policy architecture (<fr:tex
+display="inline"><![CDATA[D = 160{,}531]]></fr:tex> parameters) in open-source <fr:strong>TORAX 2.0.0</fr:strong> <fr:link
+type="external"
+href="https://arxiv.org/abs/2406.06718">[Cit+24]</fr:link>. Rather than solving free-boundary <fr:code>E</fr:code>/<fr:code>F</fr:code>/<fr:code>OH</fr:code>/<fr:code>FPS</fr:code> coil circuits from <fr:tex
+display="inline"><![CDATA[38]]></fr:tex> magnetic probes and <fr:tex
+display="inline"><![CDATA[34]]></fr:tex> flux loops, this benchmark evolves <fr:code>iterhybrid</fr:code> CHEASE/<fr:code>MEQ</fr:code> geometry (<fr:tex
+display="inline"><![CDATA[R_0 = 6.2\text { m}]]></fr:tex>, <fr:tex
+display="inline"><![CDATA[B_0 = 5.3\text { T}]]></fr:tex>, <fr:tex
+display="inline"><![CDATA[15]]></fr:tex> warmup steps followed by <fr:tex
+display="inline"><![CDATA[T = 20]]></fr:tex> controlled steps) coupled to four 1D radial transport PDEs for <fr:tex
+display="inline"><![CDATA[T_e(\hat {\rho })]]></fr:tex>, <fr:tex
+display="inline"><![CDATA[T_i(\hat {\rho })]]></fr:tex>, <fr:tex
+display="inline"><![CDATA[n_e(\hat {\rho })]]></fr:tex>, and <fr:tex
+display="inline"><![CDATA[\psi (\hat {\rho })]]></fr:tex> over <fr:tex
+display="inline"><![CDATA[\hat {\rho } \in  [0, 1]]]></fr:tex>, mapping <fr:tex
+display="inline"><![CDATA[93]]></fr:tex> radial profile and shaping residuals to <fr:tex
+display="inline"><![CDATA[19]]></fr:tex> normalized plasma current, heating, current-drive, pellet/gas fueling, and Miller local-equilibrium shaping (<fr:code>kappa</fr:code>, <fr:code>delta_u</fr:code>, <fr:code>delta_l</fr:code>, <fr:tex
+display="inline"><![CDATA[Z_{\mathrm {axis}}]]></fr:tex>; Miller et al. <fr:link
+type="external"
+href="https://doi.org/10.1063/1.872666">[Mil+98]</fr:link>) actuators:</fr:p><fr:tex
+display="block"><![CDATA[     \begin {aligned}       R(\hat {\rho }, \vartheta ) &= R_{\mathrm {geo}}(\hat {\rho }) + \hat {\rho }\,a_{\min }\cos \bigl (\vartheta  + \arcsin (\delta (\hat {\rho },\vartheta ))\sin \vartheta \bigr ), \\[4pt]       Z(\hat {\rho }, \vartheta ) &= Z_{\mathrm {axis}} + \kappa (\hat {\rho })\,\hat {\rho }\,a_{\min }\sin \vartheta .     \end {aligned}   ]]></fr:tex><fr:p>Adapting the multi-component reward structure of Pfau et al. <fr:link
+type="external"
+href="https://arxiv.org/abs/2505.00663">[Pfa+25]</fr:link> (Table 6, Eq. 31), five normalized tracking and actuator-regularization scores—normalized Miller contour error against the 32-point <fr:code>shape_70166</fr:code> aspect template, plasma current tracking <fr:tex
+display="inline"><![CDATA[I_p]]></fr:tex>, shaping-effort margin, actuator bounds compliance, and auxiliary balance—are mapped through sigmoids <fr:tex
+display="inline"><![CDATA[c_m(v) = \operatorname {clip}\bigl (2\sigma (\zeta \frac {v - g_m}{b_m - g_m}), 0, 1\bigr )]]></fr:tex> (<fr:tex
+display="inline"><![CDATA[\zeta  = -\ln  19]]></fr:tex>) and averaged over <fr:tex
+display="inline"><![CDATA[T = 20]]></fr:tex> steps on a <fr:tex
+display="inline"><![CDATA[[0, 100]]]></fr:tex> scale via <fr:code>SmoothMax</fr:code> (<fr:tex
+display="inline"><![CDATA[\alpha  = -3.0]]></fr:tex>):</fr:p><fr:tex
+display="block"><![CDATA[     \begin {aligned}       \mathcal {J}(\theta ) &= \frac {100}{T}\sum _{t=1}^{T} \operatorname {SmoothMax}_{\alpha  = -3}\bigl (c_{\mathrm {LCFS},t},\, c_{I_p,t},\, c_{\mathrm {PF},t},\, c_{\mathrm {volt},t},\, c_{\mathrm {OH},t}\bigr ), \\[4pt]       \operatorname {SmoothMax}_{\alpha }(x_1,\dots ,x_5) &= \frac {\sum _{m=1}^{5} x_m e^{\alpha  x_m}}{\sum _{m=1}^{5} e^{\alpha  x_m}}.     \end {aligned}   ]]></fr:tex><fr:p>To isolate the effect of cross-region incumbent adoption over <fr:tex
+display="inline"><![CDATA[10{,}000]]></fr:tex> sequential evaluations without surrogate fitting overhead, both configurations below run <fr:strong>surrogate-free multi-region RAASP TuRBO</fr:strong> (<fr:code>acquisition = "random"</fr:code>, i.e. <fr:code>TuRBO-zero</fr:code>, with <fr:tex
+display="inline"><![CDATA[R = 10]]></fr:tex> regions, <fr:code>incumbent-ucb1</fr:code> routing, <fr:tex
+display="inline"><![CDATA[d_p = 16{,}053]]></fr:tex>, <fr:tex
+display="inline"><![CDATA[2]]></fr:tex> candidates and <fr:tex
+display="inline"><![CDATA[1]]></fr:tex> arm per round) across <fr:tex
+display="inline"><![CDATA[n = 10]]></fr:tex> paired random seeds (entries report sample <fr:code>mean ± SEM</fr:code> with <fr:code>ddof = 1</fr:code>; unadjusted two-sided paired <fr:tex
+display="inline"><![CDATA[t_9]]></fr:tex> <fr:tex
+display="inline"><![CDATA[p]]></fr:tex>-values are shown at rounds 8,000 and 10,000, while Holm–Bonferroni adjustment across the <fr:tex
+display="inline"><![CDATA[6]]></fr:tex> post-init checkpoints gives <fr:tex
+display="inline"><![CDATA[p_{\mathrm {Holm}} = 0.246]]></fr:tex>; an on-policy PPO baseline reaches <fr:code>44.25</fr:code> at round 10,000). The interactive viewer additionally renders cross-device vessel and coil geometries (<fr:code>TCV</fr:code>, <fr:code>ARC</fr:code>, <fr:code>ITER</fr:code>, <fr:code>DIII-D</fr:code>) extracted from <fr:strong>FUSE.jl</fr:strong> (Meneghini et al. <fr:link
+type="external"
+href="https://arxiv.org/abs/2409.05894">[Men+24]</fr:link>) alongside analytical Miller flux contours interpolated from these checkpoints.</fr:p><table>
+    <tr>
+      <th>Round</th>
+      <th>Shared TuRBO-zero (<fr:code>ellipsoid-ball</fr:code>)</th>
+      <th>Independent TuRBO-zero (<fr:code>origin-only</fr:code>)</th>
+      <th>Paired Diff (<fr:code>mean ± SEM</fr:code>)</th>
+    </tr>
+    <tr>
+      <td><fr:code>0</fr:code> (Init)</td>
+      <td><fr:code>5.97 ± 1.13</fr:code></td>
+      <td><fr:code>5.97 ± 1.13</fr:code></td>
+      <td><fr:code>+0.00 ± 0.00</fr:code></td>
+    </tr>
+    <tr>
+      <td><fr:code>300</fr:code></td>
+      <td><fr:code>53.36 ± 5.90</fr:code></td>
+      <td><fr:code>52.38 ± 5.13</fr:code></td>
+      <td><fr:code>+0.98 ± 4.02</fr:code></td>
+    </tr>
+    <tr>
+      <td><fr:code>1,000</fr:code></td>
+      <td><fr:code>70.77 ± 5.95</fr:code></td>
+      <td><fr:code>71.39 ± 4.74</fr:code></td>
+      <td><fr:code>−0.62 ± 3.98</fr:code></td>
+    </tr>
+    <tr>
+      <td><fr:code>3,000</fr:code></td>
+      <td><fr:code>83.25 ± 2.60</fr:code></td>
+      <td><fr:code>80.93 ± 2.97</fr:code></td>
+      <td><fr:code>+2.32 ± 1.64</fr:code></td>
+    </tr>
+    <tr>
+      <td><fr:code>5,000</fr:code></td>
+      <td><fr:code>87.65 ± 1.81</fr:code></td>
+      <td><fr:code>86.28 ± 1.14</fr:code></td>
+      <td><fr:code>+1.38 ± 1.59</fr:code></td>
+    </tr>
+    <tr>
+      <td><fr:code>8,000</fr:code></td>
+      <td><fr:code>90.52 ± 0.65</fr:code></td>
+      <td><fr:code>88.60 ± 0.81</fr:code></td>
+      <td><fr:code>+1.92 ± 0.81</fr:code> (<fr:tex
+display="inline"><![CDATA[p_2 = 0.0421]]></fr:tex>)</td>
+    </tr>
+    <tr>
+      <td><fr:strong><fr:code>10,000</fr:code></fr:strong></td>
+      <td><fr:strong><fr:code>91.57 ± 0.55</fr:code></fr:strong></td>
+      <td><fr:code>89.41 ± 0.97</fr:code></td>
+      <td><fr:strong><fr:code>+2.16 ± 0.91</fr:code></fr:strong> (<fr:tex
+display="inline"><![CDATA[p_2 = 0.0410]]></fr:tex>)</td>
+    </tr>
+  </table></fr:mainmatter><fr:backmatter /></fr:tree><fr:tree
+toc="true"
+numbered="true"
+show-heading="true"
+show-metadata="false"
+expanded="true"
+root="false"
+xmlns:fr="http://www.jonmsterling.com/jms-005P.xml"><fr:frontmatter><fr:anchor>321</fr:anchor><fr:addr
+type="machine">#279</fr:addr><fr:route>unstable-279.xml</fr:route><fr:title
+text="Hardware Backends">Hardware Backends</fr:title><fr:authors /></fr:frontmatter><fr:mainmatter><fr:p>Distance sweeps, top-<fr:tex
+display="inline"><![CDATA[K]]></fr:tex> neighbor search, and candidate evaluation dispatch across three backends:</fr:p><fr:p>On Apple Silicon, custom Metal Shading Language (<fr:code>.metal</fr:code>) compute kernels run exact distance sweeps, top-<fr:tex
+display="inline"><![CDATA[K]]></fr:tex> neighbor selection, FP32 device posteriors, and resident trust-region search (<fr:tex
+display="inline"><![CDATA[N \le  128]]></fr:tex>) over unified memory, while general host <fr:code>f64</fr:code> posterior and trajectory-draw calls execute on CPU.</fr:p><fr:p>On Linux <fr:code>x86_64</fr:code> with NVIDIA GPUs (<fr:code>sm_75+</fr:code>), CUDA kernels evaluate pairwise distances via shared-memory (<fr:code>__shared__</fr:code>) tiles, global-memory top-<fr:tex
+display="inline"><![CDATA[K]]></fr:tex> merge buffers, and Box–Muller Gaussian posterior draws.</fr:p><fr:p>Without a GPU, exact flat search runs <fr:code>f64</fr:code> CPU scans alongside portable <fr:code>core::simd::f64x4</fr:code> inner-product and squared-distance kernels compiled for the target architecture baseline (<fr:code>x86_64</fr:code> / <fr:code>aarch64</fr:code>).</fr:p><table>
+    <tr>
+      <th>Platform</th>
+      <th>Architecture</th>
+      <th>Backend Kernels</th>
+      <th>Wheel Targets (Python 3.12–3.15)</th>
+    </tr>
+    <tr>
+      <td><fr:strong>macOS 11.0+</fr:strong></td>
+      <td>arm64</td>
+      <td>Custom Metal compute shaders + CPU <fr:code>f64</fr:code> host</td>
+      <td><fr:code>macosx_11_0_arm64</fr:code></td>
+    </tr>
+    <tr>
+      <td><fr:strong>Linux CUDA</fr:strong></td>
+      <td>x86_64</td>
+      <td>CUDA (<fr:code>sm_75+</fr:code>) shared-tile distance &amp; Box–Muller</td>
+      <td><fr:code>manylinux_2_28_x86_64</fr:code> (<fr:code>+cuda75</fr:code>)</td>
+    </tr>
+    <tr>
+      <td><fr:strong>CPU Baseline</fr:strong></td>
+      <td>x86_64 / aarch64</td>
+      <td>Portable <fr:code>f64x4</fr:code> SIMD &amp; scalar <fr:code>f64</fr:code> scans</td>
+      <td>Source distribution &amp; <fr:code>manylinux</fr:code> / <fr:code>macosx</fr:code> wheels</td>
+    </tr>
+  </table></fr:mainmatter><fr:backmatter /></fr:tree></fr:mainmatter><fr:backmatter><fr:tree
 toc="false"
 numbered="false"
 show-heading="true"
@@ -27,321 +208,1062 @@ show-heading="true"
 show-metadata="true"
 expanded="false"
 root="false"
+xmlns:fr="http://www.jonmsterling.com/jms-005P.xml"><fr:frontmatter><fr:anchor>384</fr:anchor><fr:addr
+type="user">baux-0001</fr:addr><fr:route>baux-0001.xml</fr:route><fr:title
+text="Baux">Baux</fr:title><fr:date><fr:year>2026</fr:year><fr:month>11</fr:month><fr:day>11</fr:day></fr:date><fr:authors><fr:author>Kvutza</fr:author></fr:authors><fr:meta
+name="external">https://github.com/Kvutza/baux</fr:meta></fr:frontmatter><fr:mainmatter><fr:p><fr:strong>baux</fr:strong> is a black box optimization library built around Epistemic Nearest Neighbors (Bafna et al. <fr:link
+type="external"
+href="https://arxiv.org/abs/2506.12818">[BJS25]</fr:link>) and trust-region search.</fr:p><fr:tree
+toc="true"
+numbered="true"
+show-heading="true"
+show-metadata="false"
+expanded="true"
+root="false"
+xmlns:fr="http://www.jonmsterling.com/jms-005P.xml"><fr:frontmatter><fr:anchor>302</fr:anchor><fr:addr
+type="user">baux-0006</fr:addr><fr:route>baux-0006.xml</fr:route><fr:title
+text="Baseline &amp; Lineage">Baseline &amp; Lineage</fr:title><fr:authors /></fr:frontmatter><fr:mainmatter><fr:p>The surrogate and trust-region loop follow Bafna, Jadhav, &amp; Sweet <fr:link
+type="external"
+href="https://arxiv.org/abs/2506.12818">[BJS25]</fr:link> (<fr:link
+type="external"
+href="https://arxiv.org/abs/2506.12818">Taking the GP Out of the Loop</fr:link>) and <fr:link
+type="external"
+href="https://github.com/yubo-research/enn">yubo-research/enn</fr:link>, replacing Gaussian Process matrix inversion with inverse-variance nearest-neighbor smoothing (Aitken <fr:link
+type="external"
+href="https://doi.org/10.1017/S0370164600014346">[Ait35]</fr:link>, Cochran <fr:link
+type="external"
+href="https://doi.org/10.2307/3001666">[Coc54]</fr:link>). <fr:strong>baux</fr:strong> extends this surrogate across non-Euclidean domain charts <fr:tex
+display="inline"><![CDATA[\mathcal {M}]]></fr:tex> and multi-region portfolios.</fr:p><fr:p>Exact Gaussian Process inference over <fr:tex
+display="inline"><![CDATA[N]]></fr:tex> observations inverts an <fr:tex
+display="inline"><![CDATA[N \times  N]]></fr:tex> Gram matrix in <fr:tex
+display="inline"><![CDATA[\mathcal {O}(N^3)]]></fr:tex> time. Bafna et al. <fr:link
+type="external"
+href="https://arxiv.org/abs/2506.12818">[BJS25]</fr:link> instead treat each observation as a local location–variance estimate and combine the <fr:tex
+display="inline"><![CDATA[K]]></fr:tex> nearest neighbors of a query in <fr:tex
+display="inline"><![CDATA[\mathcal {O}(N D + N \log  N)]]></fr:tex> exact flat-scan time (or <fr:tex
+display="inline"><![CDATA[\mathcal {O}(N D + N \log  K)]]></fr:tex> with bounded top-<fr:tex
+display="inline"><![CDATA[K]]></fr:tex> selection) on <fr:tex
+display="inline"><![CDATA[\mathbb {R}^D]]></fr:tex>.</fr:p><fr:p>Local-scale dissimilarities replace stationary lengthscales with conformal radius normalization (Zelnik-Manor &amp; Perona <fr:link
+type="external"
+href="https://proceedings.neurips.cc/paper/2004/hash/40173ea48d9567f1f393b20c855bb40b-Abstract.html">[ZP04]</fr:link>), Poincaré half-space chordal invariants (Cannon et al. <fr:link
+type="external"
+href="https://library.slmath.org/books/Book31/files/cannon.pdf">[CFK+97]</fr:link>, Nickel &amp; Kiela <fr:link
+type="external"
+href="https://arxiv.org/abs/1705.08039">[NK17]</fr:link>, Kisfaludi-Bak &amp; van Wordragen <fr:link
+type="external"
+href="https://arxiv.org/abs/2305.01356">[KvW24]</fr:link>), and a hybrid conformal–transport cost motivated by optimal transport (Villani <fr:link
+type="external"
+href="https://doi.org/10.1007/978-3-540-71050-9">[Vil09]</fr:link>, Peyré &amp; Cuturi <fr:link
+type="external"
+href="https://doi.org/10.1561/2200000073">[PC19]</fr:link>).</fr:p><fr:p>Product spaces <fr:tex
+display="inline"><![CDATA[\mathcal {M} = \prod _\ell  \mathcal {M}_\ell ]]></fr:tex> map to solver coordinates via section–retraction charts <fr:tex
+display="inline"><![CDATA[\psi _\ell  : \mathcal {M}_\ell  \to  \mathcal {U}_\ell  \subseteq  \mathbb {R}^{d_\ell }]]></fr:tex> and <fr:tex
+display="inline"><![CDATA[\rho _\ell  : \mathcal {U}_\ell  \to  \mathcal {M}_\ell ]]></fr:tex> covering positive scales (Čencov <fr:link
+type="external"
+href="https://doi.org/10.1090/mmono/053">[Cen82]</fr:link>), circular phases, probability simplices in Bhattacharyya coordinates <fr:link
+type="external"
+href="https://www.jstor.org/stable/25047882">[Bha43]</fr:link>, and discrete codebooks via one-hot or Rademacher embeddings (Johnson &amp; Lindenstrauss <fr:link
+type="external"
+href="https://doi.org/10.1090/conm/026/737400">[JL84]</fr:link>, Achlioptas <fr:link
+type="external"
+href="https://doi.org/10.1016/S0022-0000(03)00025-4">[Ach03]</fr:link>). Multi-output codomains support polar Stiefel projection (Higham <fr:link
+type="external"
+href="https://doi.org/10.1137/0907079">[Hig86]</fr:link>), orthogonal subspace shrinkage (Stein <fr:link
+type="external"
+href="https://projecteuclid.org/ebooks/berkeley-symposium-on-mathematical-statistics-and-probability/Proceedings-of-the-Third-Berkeley-Symposium-on-Mathematical-Statistics-and/chapter/Inadmissibility-of-the-Usual-Estimator-for-the-Mean-of-a/bsmsp/1200501656">[Ste56]</fr:link>, James &amp; Stein <fr:link
+type="external"
+href="https://projecteuclid.org/ebooks/berkeley-symposium-on-mathematical-statistics-and-probability/Proceedings-of-the-Fourth-Berkeley-Symposium-on-Mathematical-Statistics-and/chapter/Estimation-with-Quadratic-Loss/bsmsp/1200512173">[JS61]</fr:link>), and split-conformal residual scaling (Papadopoulos et al. <fr:link
+type="external"
+href="https://doi.org/10.1007/3-540-36755-1_29">[Pap+02]</fr:link>, Vovk et al. <fr:link
+type="external"
+href="https://doi.org/10.1007/b106715">[VGS05]</fr:link>, Lei et al. <fr:link
+type="external"
+href="https://doi.org/10.1080/01621459.2017.1307116">[LGR+18]</fr:link>).</fr:p><fr:p>Trust-region search (Eriksson et al. <fr:link
+type="external"
+href="https://arxiv.org/abs/1910.01739">[EPG+19]</fr:link>) adapts bounding side lengths from consecutive improvement and failure counters, perturbs axis-aligned coordinate subsets (RAASP <fr:link
+type="external"
+href="https://arxiv.org/abs/1910.01739">[EPG+19]</fr:link>, Rashidi et al. <fr:link
+type="external"
+href="https://proceedings.mlr.press/v238/rashidi24a.html">[RJG24]</fr:link>), and coordinates multi-region portfolios (Daulton et al. <fr:link
+type="external"
+href="https://proceedings.mlr.press/v180/daulton22a.html">[DEB+22]</fr:link>, <fr:link
+type="external"
+href="https://arxiv.org/abs/2006.05078">[DBB20]</fr:link>) through epoch-guarded ledgers and augmented Chebyshev scalarizations (Knowles <fr:link
+type="external"
+href="https://doi.org/10.1109/TEVC.2005.851274">[Kno06]</fr:link>, Paria et al. <fr:link
+type="external"
+href="https://proceedings.mlr.press/v115/paria20a.html">[PKP20]</fr:link>).</fr:p><fr:p>The runtime represents optimizer state as an immutable snapshot paired with a splittable 128-bit PRNG key (Claessen &amp; Pałka <fr:link
+type="external"
+href="https://doi.org/10.1145/2503778.2503784">[CP13]</fr:link>, Steele et al. <fr:link
+type="external"
+href="https://doi.org/10.1145/2660193.2660195">[SLF14]</fr:link>), folding rollouts via <fr:code>scan</fr:code> and executing distance and candidate kernels on portable SIMD CPU, Metal, and CUDA backends.</fr:p></fr:mainmatter><fr:backmatter /></fr:tree><fr:tree
+toc="true"
+numbered="true"
+show-heading="true"
+show-metadata="false"
+expanded="true"
+root="false"
+xmlns:fr="http://www.jonmsterling.com/jms-005P.xml"><fr:frontmatter><fr:anchor>303</fr:anchor><fr:addr
+type="user">baux-0003</fr:addr><fr:route>baux-0003.xml</fr:route><fr:title
+text="Theoretical Foundations">Theoretical Foundations</fr:title><fr:authors /></fr:frontmatter><fr:mainmatter><fr:tree
+toc="true"
+numbered="true"
+show-heading="true"
+show-metadata="false"
+expanded="true"
+root="false"
+xmlns:fr="http://www.jonmsterling.com/jms-005P.xml"><fr:frontmatter><fr:anchor>304</fr:anchor><fr:addr
+type="machine">#283</fr:addr><fr:route>unstable-283.xml</fr:route><fr:title
+text="Precision-Weighted Nearest Neighbors">Precision-Weighted Nearest Neighbors</fr:title><fr:authors /></fr:frontmatter><fr:mainmatter><fr:p>Let <fr:tex
+display="inline"><![CDATA[\mathcal {X} \subseteq  \mathbb {R}^D]]></fr:tex> denote the coordinate domain, and let <fr:tex
+display="inline"><![CDATA[\mathcal {D} = \{(x_m, y_m, s_m)\}_{m=1}^N \subset  \mathcal {X} \times  \mathbb {R} \times  \mathbb {R}_+]]></fr:tex> denote <fr:tex
+display="inline"><![CDATA[N]]></fr:tex> evaluations with observation noise <fr:tex
+display="inline"><![CDATA[y_m = f(x_m) + s_m \varepsilon _m]]></fr:tex>, where <fr:tex
+display="inline"><![CDATA[\varepsilon _m \stackrel {\text {i.i.d.}}{\sim } \mathcal {N}(0, 1)]]></fr:tex>. Rather than inverting an <fr:tex
+display="inline"><![CDATA[N \times  N]]></fr:tex> covariance matrix in <fr:tex
+display="inline"><![CDATA[\mathcal {O}(N^3)]]></fr:tex> time, Epistemic Nearest Neighbors (Bafna et al. <fr:link
+type="external"
+href="https://arxiv.org/abs/2506.12818">[BJS25]</fr:link>) treats each observation as a local working estimate and combines its <fr:tex
+display="inline"><![CDATA[K]]></fr:tex> nearest neighbors by inverse-variance weighting (Aitken <fr:link
+type="external"
+href="https://doi.org/10.1017/S0370164600014346">[Ait35]</fr:link>, Cochran <fr:link
+type="external"
+href="https://doi.org/10.2307/3001666">[Coc54]</fr:link>). Given a nonnegative pairwise dissimilarity <fr:tex
+display="inline"><![CDATA[\delta  : \mathcal {X} \times  \mathcal {X} \to  \mathbb {R}_+]]></fr:tex>, empirical target variance scale <fr:tex
+display="inline"><![CDATA[\hat {\sigma }_y^2 > 0]]></fr:tex>, and dimensionless scale parameters <fr:tex
+display="inline"><![CDATA[\theta  = (s_0^2, c_e) \in  \mathbb {R}_+ \times  \mathbb {R}_+]]></fr:tex>, observation <fr:tex
+display="inline"><![CDATA[m]]></fr:tex> is assigned the working moments</fr:p><fr:tex
+display="block"><![CDATA[     \begin {aligned}       \mu (x \mid  x_m, y_m, s_m) &= y_m, \\       \sigma _a^2(x \mid  x_m, y_m, s_m) &= \hat {\sigma }_y^2 s_0^2 + s_m^2, \\       \sigma _e^2(x \mid  x_m, y_m, s_m) &= \hat {\sigma }_y^2 c_e\, \delta (x, x_m).     \end {aligned}   ]]></fr:tex><fr:p>Let <fr:tex
+display="inline"><![CDATA[\pi _1(x), \dots , \pi _K(x) \in  \{1, \dots , N\}]]></fr:tex> index the <fr:tex
+display="inline"><![CDATA[K]]></fr:tex> nearest neighbors of <fr:tex
+display="inline"><![CDATA[x]]></fr:tex> ordered by nondecreasing <fr:tex
+display="inline"><![CDATA[\delta (x, x_{\pi _i(x)})]]></fr:tex> (breaking ties by smaller datum index), and write <fr:tex
+display="inline"><![CDATA[N_K(x) \eqdef  \{\pi _1(x), \dots , \pi _K(x)\}]]></fr:tex>. With variance floor <fr:tex
+display="inline"><![CDATA[\varepsilon _{\mathrm {var}} = 10^{-9} \hat {\sigma }_y^2]]></fr:tex> preventing division by zero when <fr:tex
+display="inline"><![CDATA[x = x_m]]></fr:tex> and <fr:tex
+display="inline"><![CDATA[s_0 = s_m = 0]]></fr:tex>, the precision weights <fr:tex
+display="inline"><![CDATA[w_i(x) \eqdef  \bigl (\varepsilon _{\mathrm {var}} + \sigma _a^2(x \mid  x_{\pi _i(x)}) + \sigma _e^2(x \mid  x_{\pi _i(x)})\bigr )^{-1}]]></fr:tex> define a deterministic local smoothing surrogate evaluated in <fr:tex
+display="inline"><![CDATA[\mathcal {O}(N D + N \log  N)]]></fr:tex> exact flat-scan time per query:</fr:p><fr:tex
+display="block"><![CDATA[     \begin {aligned}       \mu (x) &= \frac {\sum _{i=1}^K w_i(x)\, y_{\pi _i(x)}}{\sum _{i=1}^K w_i(x)}, \\[6pt]       \sigma _a^2(x) &= \frac {\sum _{i=1}^K w_i(x)\, \sigma _a^2(x \mid  x_{\pi _i(x)}, y_{\pi _i(x)}, s_{\pi _i(x)})}{\sum _{i=1}^K w_i(x)}, \\[6pt]       \sigma _e^2(x) &= \frac {1}{\sum _{i=1}^K w_i(x)}, \qquad  \sigma ^2(x) \eqdef  \sigma _e^2(x) + \sigma _a^2(x).     \end {aligned}   ]]></fr:tex><fr:p>Here <fr:tex
+display="inline"><![CDATA[\sigma _e^2(x)]]></fr:tex> is a distance-sensitive dispersion proxy rather than a joint Gaussian posterior variance: under independent neighbor errors of variances <fr:tex
+display="inline"><![CDATA[v_i = \sigma _a^2(x \mid  x_{\pi _i(x)})]]></fr:tex>, the noise variance of the linear combination <fr:tex
+display="inline"><![CDATA[\mu (x)]]></fr:tex> is <fr:tex
+display="inline"><![CDATA[\sum _{i=1}^K w_i^2(x) v_i / (\sum _{i=1}^K w_i(x))^2]]></fr:tex>. When observations are well-separated relative to observation noise and <fr:tex
+display="inline"><![CDATA[f]]></fr:tex> satisfies a local envelope <fr:tex
+display="inline"><![CDATA[|f(x_{\pi _i(x)}) - f(x)| \le  \hat {\sigma }_y \sqrt {c_e\,\delta (x, x_{\pi _i(x)})}]]></fr:tex>, including distant neighbors increases worst-case squared bias faster than it reduces noise variance. Motivated by adaptive bandwidth selection (Lepski <fr:link
+type="external"
+href="https://doi.org/10.1137/1135065">[Lep91]</fr:link>), the optional <fr:code>RiskPrefix</fr:code> rule scores each prefix <fr:tex
+display="inline"><![CDATA[r \in  \{1, \dots , K\}]]></fr:tex> by</fr:p><fr:tex
+display="block"><![CDATA[     \mathcal {R}(r; x) \eqdef  \hat {\sigma }_y^2 c_e\, \delta (x, x_{\pi _r(x)}) + \frac {\sum _{i=1}^r w_i^2(x)\, \sigma _a^2(x \mid  x_{\pi _i(x)}, y_{\pi _i(x)}, s_{\pi _i(x)})}{\bigl (\sum _{i=1}^r w_i(x)\bigr )^2},   ]]></fr:tex><fr:p>and truncates the neighbor prefix at <fr:tex
+display="inline"><![CDATA[r^*(x) \eqdef  \arg \min _{1 \le  r \le  K} \mathcal {R}(r; x)]]></fr:tex>, whereas the default <fr:code>ENN</fr:code> configuration retains the full <fr:tex
+display="inline"><![CDATA[K]]></fr:tex>-neighbor prefix.</fr:p></fr:mainmatter><fr:backmatter /></fr:tree><fr:tree
+toc="true"
+numbered="true"
+show-heading="true"
+show-metadata="false"
+expanded="true"
+root="false"
+xmlns:fr="http://www.jonmsterling.com/jms-005P.xml"><fr:frontmatter><fr:anchor>305</fr:anchor><fr:addr
+type="machine">#284</fr:addr><fr:route>unstable-284.xml</fr:route><fr:title
+text="Pseudolikelihood Estimation &amp; Coherent Function Draws">Pseudolikelihood Estimation &amp; Coherent Function Draws</fr:title><fr:authors /></fr:frontmatter><fr:mainmatter><fr:p>Hyperparameters <fr:tex
+display="inline"><![CDATA[\theta  = (s_0^2, c_e)]]></fr:tex> are selected by maximizing a subsampled leave-one-out (LOO) Gaussian log-pseudolikelihood over <fr:tex
+display="inline"><![CDATA[S_P \subset  \{1, \dots , N\}]]></fr:tex> of size <fr:tex
+display="inline"><![CDATA[P \le  N]]></fr:tex> (Bafna et al. <fr:link
+type="external"
+href="https://arxiv.org/abs/2506.12818">[BJS25]</fr:link>):</fr:p><fr:tex
+display="block"><![CDATA[     \begin {aligned}       \widehat {\log  \mathcal {L}}(\theta ) &\eqdef  \frac {1}{P} \sum _{n \in  S_P} \ell _{-n}(\theta ), \\[4pt]       \ell _{-n}(\theta ) &\eqdef  -\frac {1}{2}\left [\log \bigl (2\pi  \sigma _{-n}^2(x_n; \theta )\bigr ) + \frac {\bigl (y_n - \mu _{-n}(x_n; \theta )\bigr )^2}{\sigma _{-n}^2(x_n; \theta )}\right ],     \end {aligned}   ]]></fr:tex><fr:p>where <fr:tex
+display="inline"><![CDATA[\mu _{-n}(x_n; \theta )]]></fr:tex> and <fr:tex
+display="inline"><![CDATA[\sigma _{-n}^2(x_n; \theta ) \eqdef  \sigma _{e,-n}^2(x_n; \theta ) + \sigma _{a,-n}^2(x_n; \theta )]]></fr:tex> exclude datum <fr:tex
+display="inline"><![CDATA[n]]></fr:tex> from its own <fr:tex
+display="inline"><![CDATA[K]]></fr:tex>-neighbor set. Candidate pairs are drawn by log-uniform Monte Carlo sampling from <fr:tex
+display="inline"><![CDATA[c_e \bar {\delta } \in  [10^{-3}, 10^3]]]></fr:tex> and <fr:tex
+display="inline"><![CDATA[s_0^2 \in  [10^{-6}, 1]]]></fr:tex> (together with optional warm-start candidates), where <fr:tex
+display="inline"><![CDATA[\bar {\delta }]]></fr:tex> denotes the mean positive off-diagonal dissimilarity in the optimizer's internal LOO fitter and <fr:tex
+display="inline"><![CDATA[\bar {\delta } = 1]]></fr:tex> on unit-scaled standalone <fr:code>enn_fit</fr:code> states.</fr:p><fr:p><fr:strong>Proposition 2.1</fr:strong> (Coherent Function Draws)<fr:strong>.</fr:strong> Fix seed <fr:tex
+display="inline"><![CDATA[s]]></fr:tex> and output metric <fr:tex
+display="inline"><![CDATA[j]]></fr:tex>, and associate an independent standard normal variable <fr:tex
+display="inline"><![CDATA[z_{s,m,j} \stackrel {\text {i.i.d.}}{\sim } \mathcal {N}(0, 1)]]></fr:tex> with each global datum index <fr:tex
+display="inline"><![CDATA[m \in  \{1, \dots , N\}]]></fr:tex>. For query <fr:tex
+display="inline"><![CDATA[x \in  \mathcal {X}]]></fr:tex> with ordered neighbor indices <fr:tex
+display="inline"><![CDATA[\pi _1(x), \dots , \pi _K(x)]]></fr:tex>, let <fr:tex
+display="inline"><![CDATA[\bar {w}_{i,j}(x) \eqdef  w_{i,j}(x) / \sum _{r=1}^K w_{r,j}(x)]]></fr:tex> and write <fr:tex
+display="inline"><![CDATA[\tilde {w}_{m,j}(x) \eqdef  \bar {w}_{i,j}(x)]]></fr:tex> when <fr:tex
+display="inline"><![CDATA[m = \pi _i(x) \in  N_K(x)]]></fr:tex> (and <fr:tex
+display="inline"><![CDATA[0]]></fr:tex> otherwise). Define the latent function draw</fr:p><fr:tex
+display="block"><![CDATA[     \tilde {f}_{s,j}(x) \eqdef  \mu _j(x) + \frac {\sigma _{e,j}(x)}{\Vert \bar {w}_j(x)\Vert _2} \sum _{i=1}^K \bar {w}_{i,j}(x)\, z_{s,\pi _i(x),j}, \qquad  \Vert \bar {w}_j(x)\Vert _2 \eqdef  \Bigl (\sum _{i=1}^K \bar {w}_{i,j}^2(x)\Bigr )^{1/2}.   ]]></fr:tex><fr:p>(Replacing <fr:tex
+display="inline"><![CDATA[\sigma _{e,j}(x)]]></fr:tex> by <fr:tex
+display="inline"><![CDATA[\sigma _j(x)]]></fr:tex> yields noisy observation draws.) Then for every <fr:tex
+display="inline"><![CDATA[x \in  \mathcal {X}]]></fr:tex>, <fr:tex
+display="inline"><![CDATA[\tilde {f}_{s,j}(x) \sim  \mathcal {N}\bigl (\mu _j(x),\, \sigma _{e,j}^2(x)\bigr )]]></fr:tex>, trajectories are smooth within the interior of each order-<fr:tex
+display="inline"><![CDATA[K]]></fr:tex> Voronoi cell where <fr:tex
+display="inline"><![CDATA[N_K(x)]]></fr:tex> is constant (with step transitions across Voronoi boundaries), and any two queries <fr:tex
+display="inline"><![CDATA[x, x' \in  \mathcal {X}]]></fr:tex> sharing neighbors <fr:tex
+display="inline"><![CDATA[S_K(x, x') \eqdef  N_K(x) \cap  N_K(x') \ne  \emptyset ]]></fr:tex> satisfy</fr:p><fr:tex
+display="block"><![CDATA[     \operatorname {Cov}\bigl (\tilde {f}_{s,j}(x),\, \tilde {f}_{s,j}(x')\bigr ) = \frac {\sigma _{e,j}(x)\,\sigma _{e,j}(x')}{\Vert \bar {w}_j(x)\Vert _2\,\Vert \bar {w}_j(x')\Vert _2} \sum _{m \in  S_K(x, x')} \tilde {w}_{m,j}(x)\,\tilde {w}_{m,j}(x') > 0.   ]]></fr:tex><fr:p><fr:strong>Proof.</fr:strong> By linearity of expectation, <fr:tex
+display="inline"><![CDATA[\mathbb {E}[\tilde {f}_{s,j}(x)] = \mu _j(x)]]></fr:tex>. Because <fr:tex
+display="inline"><![CDATA[\pi _1(x), \dots , \pi _K(x)]]></fr:tex> are distinct global indices in <fr:tex
+display="inline"><![CDATA[\{1, \dots , N\}]]></fr:tex>, the variables <fr:tex
+display="inline"><![CDATA[z_{s,\pi _1(x),j}, \dots , z_{s,\pi _K(x),j}]]></fr:tex> are independent standard Gaussians, so <fr:tex
+display="inline"><![CDATA[\xi _j(x) \eqdef  \sum _{i=1}^K \bar {w}_{i,j}(x)\, z_{s,\pi _i(x),j} = \sum _{m=1}^N \tilde {w}_{m,j}(x)\, z_{s,m,j}]]></fr:tex> is Gaussian with variance <fr:tex
+display="inline"><![CDATA[\sum _{i=1}^K \bar {w}_{i,j}^2(x) = \Vert \bar {w}_j(x)\Vert _2^2 > 0]]></fr:tex>. Scaling <fr:tex
+display="inline"><![CDATA[\xi _j(x)]]></fr:tex> by <fr:tex
+display="inline"><![CDATA[\sigma _{e,j}(x) / \Vert \bar {w}_j(x)\Vert _2]]></fr:tex> yields marginal variance</fr:p><fr:tex
+display="block"><![CDATA[     \operatorname {Var}\bigl (\tilde {f}_{s,j}(x)\bigr ) = \left (\frac {\sigma _{e,j}(x)}{\Vert \bar {w}_j(x)\Vert _2}\right )^2 \Vert \bar {w}_j(x)\Vert _2^2 = \sigma _{e,j}^2(x).   ]]></fr:tex><fr:p>For any pair <fr:tex
+display="inline"><![CDATA[x, x']]></fr:tex>, bilinearity and <fr:tex
+display="inline"><![CDATA[\mathbb {E}[z_{s,m,j}\, z_{s,m',j}] = \delta _{m,m'}]]></fr:tex> over global datum indices give</fr:p><fr:tex
+display="block"><![CDATA[     \operatorname {Cov}\bigl (\xi _j(x),\, \xi _j(x')\bigr ) = \sum _{m=1}^N \sum _{m'=1}^N \tilde {w}_{m,j}(x)\,\tilde {w}_{m',j}(x')\,\delta _{m,m'} = \sum _{m \in  S_K(x, x')} \tilde {w}_{m,j}(x)\,\tilde {w}_{m,j}(x').   ]]></fr:tex><fr:p>Since <fr:tex
+display="inline"><![CDATA[\tilde {w}_{m,j}(x) > 0]]></fr:tex> and <fr:tex
+display="inline"><![CDATA[\tilde {w}_{m,j}(x') > 0]]></fr:tex> for every <fr:tex
+display="inline"><![CDATA[m \in  S_K(x, x')]]></fr:tex> and <fr:tex
+display="inline"><![CDATA[S_K(x, x') \ne  \emptyset ]]></fr:tex>, the sum is strictly positive.<fr:tex
+display="inline"><![CDATA[\;\square ]]></fr:tex></fr:p></fr:mainmatter><fr:backmatter /></fr:tree><fr:tree
+toc="true"
+numbered="true"
+show-heading="true"
+show-metadata="false"
+expanded="true"
+root="false"
+xmlns:fr="http://www.jonmsterling.com/jms-005P.xml"><fr:frontmatter><fr:anchor>306</fr:anchor><fr:addr
+type="machine">#285</fr:addr><fr:route>unstable-285.xml</fr:route><fr:title
+text="Local-Scale Dissimilarities">Local-Scale Dissimilarities</fr:title><fr:authors /></fr:frontmatter><fr:mainmatter><fr:p>Let <fr:tex
+display="inline"><![CDATA[d(x, x') \eqdef  \Vert  x - x'\Vert _2]]></fr:tex> denote Euclidean (or coordinate-scaled Euclidean) distance. For local scale order <fr:tex
+display="inline"><![CDATA[k_0 \ge  1]]></fr:tex> and floor <fr:tex
+display="inline"><![CDATA[\underline {\sigma } = 10^{-6}]]></fr:tex>, let <fr:tex
+display="inline"><![CDATA[\sigma (x) \eqdef  \max \bigl (d(x, x_{(k_0)}),\, \underline {\sigma }\bigr )]]></fr:tex> denote the <fr:tex
+display="inline"><![CDATA[k_0]]></fr:tex>-th positive Euclidean neighbor radius at <fr:tex
+display="inline"><![CDATA[x]]></fr:tex> (excluding zero-distance self-matches). Because <fr:tex
+display="inline"><![CDATA[\sigma (x)]]></fr:tex> depends on the empirical configuration <fr:tex
+display="inline"><![CDATA[\mathcal {D}]]></fr:tex>, the resulting transformations are symmetric nonnegative dissimilarities rather than triangle-inequality metrics:</fr:p><fr:p>Under <fr:strong>conformal normalization</fr:strong> (Zelnik-Manor &amp; Perona <fr:link
+type="external"
+href="https://proceedings.neurips.cc/paper/2004/hash/40173ea48d9567f1f393b20c855bb40b-Abstract.html">[ZP04]</fr:link>), squared distance is normalized by the product of endpoint radii, yielding a dimensionless ratio:</fr:p><fr:tex
+display="block"><![CDATA[     \delta _c(x, x_m) \eqdef  \frac {d^2(x, x_m)}{\sigma (x)\, \sigma (x_m)}.   ]]></fr:tex><fr:p>Under the <fr:strong>Poincaré half-space dissimilarity</fr:strong> (Cannon et al. <fr:link
+type="external"
+href="https://library.slmath.org/books/Book31/files/cannon.pdf">[CFK+97]</fr:link>, Nickel &amp; Kiela <fr:link
+type="external"
+href="https://arxiv.org/abs/1705.08039">[NK17]</fr:link>, Kisfaludi-Bak &amp; van Wordragen <fr:link
+type="external"
+href="https://arxiv.org/abs/2305.01356">[KvW24]</fr:link>), points lift into the upper half-space <fr:tex
+display="inline"><![CDATA[\mathbb {H}(\mathcal {X}) \eqdef  \mathcal {X} \times  \mathbb {R}_+]]></fr:tex> with metric <fr:tex
+display="inline"><![CDATA[ds^2 = (\Vert  dx\Vert _2^2 + d\sigma ^2)/\sigma ^2]]></fr:tex> via <fr:tex
+display="inline"><![CDATA[\Lambda (x) \eqdef  (x, \sigma (x))]]></fr:tex>:</fr:p><fr:tex
+display="block"><![CDATA[     \begin {CD}       \mathcal {X} \times  \mathcal {X} @>{\Lambda  \times  \Lambda }>> \mathbb {H}(\mathcal {X}) \times  \mathbb {H}(\mathcal {X}) \\       @V{\delta _h}VV @VV{\cosh  d_{\mathbb {H}} - 1}V \\       \mathbb {R}_+ @= \mathbb {R}_+     \end {CD}   ]]></fr:tex><fr:p>The isometric invariant <fr:tex
+display="inline"><![CDATA[\cosh  d_{\mathbb {H}}\bigl (\Lambda (x), \Lambda (x_m)\bigr ) - 1]]></fr:tex> decomposes into conformal horizontal separation and dimensionless vertical scale mismatch:</fr:p><fr:tex
+display="block"><![CDATA[     \delta _h(x, x_m) \eqdef  \frac {d^2(x, x_m)}{2\,\sigma (x)\,\sigma (x_m)} + \frac {\bigl (\sigma (x) - \sigma (x_m)\bigr )^2}{2\,\sigma (x)\,\sigma (x_m)}.   ]]></fr:tex><fr:p>Under the <fr:strong>hybrid conformal–transport dissimilarity</fr:strong>, motivated by Gaussian optimal transport (Villani <fr:link
+type="external"
+href="https://doi.org/10.1007/978-3-540-71050-9">[Vil09]</fr:link>, Peyré &amp; Cuturi <fr:link
+type="external"
+href="https://doi.org/10.1561/2200000073">[PC19]</fr:link>), geometric-mean scale normalization is paired additively with the 1D squared radius transport penalty <fr:tex
+display="inline"><![CDATA[(\sigma (x) - \sigma (x_m))^2]]></fr:tex>:</fr:p><fr:tex
+display="block"><![CDATA[     \delta _w(x, x_m) \eqdef  \frac {d^2(x, x_m)}{\sqrt {\sigma (x)\,\sigma (x_m)}} + \bigl (\sigma (x) - \sigma (x_m)\bigr )^2.   ]]></fr:tex></fr:mainmatter><fr:backmatter /></fr:tree></fr:mainmatter><fr:backmatter /></fr:tree><fr:tree
+toc="true"
+numbered="true"
+show-heading="true"
+show-metadata="false"
+expanded="true"
+root="false"
+xmlns:fr="http://www.jonmsterling.com/jms-005P.xml"><fr:frontmatter><fr:anchor>307</fr:anchor><fr:addr
+type="user">baux-0008</fr:addr><fr:route>baux-0008.xml</fr:route><fr:title
+text="Domain Charts &amp; Codomain Operators">Domain Charts &amp; Codomain Operators</fr:title><fr:authors /></fr:frontmatter><fr:mainmatter><fr:tree
+toc="true"
+numbered="true"
+show-heading="true"
+show-metadata="false"
+expanded="true"
+root="false"
+xmlns:fr="http://www.jonmsterling.com/jms-005P.xml"><fr:frontmatter><fr:anchor>308</fr:anchor><fr:addr
+type="machine">#286</fr:addr><fr:route>unstable-286.xml</fr:route><fr:title
+text="Section–Retraction Manifold Charts">Section–Retraction Manifold Charts</fr:title><fr:authors /></fr:frontmatter><fr:mainmatter><fr:p>Search spaces decompose as products <fr:tex
+display="inline"><![CDATA[\mathcal {M} = \prod _{\ell =1}^L \mathcal {M}_\ell ]]></fr:tex> of coordinate factors: positive intervals <fr:tex
+display="inline"><![CDATA[[a, b] \subset  \mathbb {R}_+]]></fr:tex>, periodic intervals <fr:tex
+display="inline"><![CDATA[\lbrack  a, b\rparen  \cong  S^1]]></fr:tex>, probability simplices <fr:tex
+display="inline"><![CDATA[\Delta ^{d-1}]]></fr:tex>, and finite categorical sets. Each factor <fr:tex
+display="inline"><![CDATA[\mathcal {M}_\ell ]]></fr:tex> carries an embedding <fr:tex
+display="inline"><![CDATA[\psi _\ell  : \mathcal {M}_\ell  \to  \mathcal {U}_\ell  \subseteq  \mathbb {R}^{d_\ell }]]></fr:tex> and retraction <fr:tex
+display="inline"><![CDATA[\rho _\ell  : \mathcal {U}_\ell  \to  \mathcal {M}_\ell ]]></fr:tex> satisfying the left-inverse identity <fr:tex
+display="inline"><![CDATA[\rho _\ell  \circ  \psi _\ell  = \mathrm {id}_{\mathcal {M}_\ell }]]></fr:tex> (deterministically for <fr:code>Log</fr:code>, <fr:code>Periodic</fr:code>, <fr:code>Simplex</fr:code>, and one-hot <fr:code>Categorical</fr:code>, and whenever Rademacher codewords are distinct):</fr:p><fr:tex
+display="block"><![CDATA[     \begin {CD}       \mathcal {M}_\ell  @>{\psi _\ell }>> \mathcal {U}_\ell  \\       @V{\mathrm {id}_{\mathcal {M}_\ell }}VV @VV{\rho _\ell }V \\       \mathcal {M}_\ell  @= \mathcal {M}_\ell      \end {CD}   ]]></fr:tex><fr:p><fr:strong>Proposition 3.1</fr:strong> (Chart Metric Properties)<fr:strong>.</fr:strong> The factor charts <fr:tex
+display="inline"><![CDATA[(\psi _\ell , \rho _\ell )]]></fr:tex> satisfy:</fr:p><fr:p>1. <fr:strong>Multiplicative positive reals</fr:strong> (Čencov <fr:link
+type="external"
+href="https://doi.org/10.1090/mmono/053">[Cen82]</fr:link>): For <fr:tex
+display="inline"><![CDATA[0 < a < b < \infty ]]></fr:tex> on <fr:tex
+display="inline"><![CDATA[[a, b]]]></fr:tex> equipped with the scale-invariant metric <fr:tex
+display="inline"><![CDATA[ds^2 = (dx / x)^2]]></fr:tex>, the logarithmic chart</fr:p><fr:tex
+display="block"><![CDATA[     \psi (x) \eqdef  \frac {\log (x / a)}{\log (b / a)} \in  [0, 1], \qquad  \rho (u) \eqdef  a \left (\frac {b}{a}\right )^{\Pi _{[0,1]}(u)},   ]]></fr:tex><fr:p>satisfies <fr:tex
+display="inline"><![CDATA[|\psi (x) - \psi (x')| = \frac {1}{\log (b/a)}|\log (x/x')|]]></fr:tex>, an exact isometry up to constant factor <fr:tex
+display="inline"><![CDATA[\log (b / a)]]></fr:tex>.</fr:p><fr:p>2. <fr:strong>Periodic angular phases</fr:strong>: For period <fr:tex
+display="inline"><![CDATA[P = b - a > 0]]></fr:tex> on <fr:tex
+display="inline"><![CDATA[\lbrack  a, b\rparen  \cong  S^1]]></fr:tex> with phase <fr:tex
+display="inline"><![CDATA[\phi (x) \eqdef  2\pi (x - a)/P \in  \lbrack  0, 2\pi \rparen ]]></fr:tex>, the circular trigonometric embedding maps <fr:tex
+display="inline"><![CDATA[S^1]]></fr:tex> onto the circle of radius <fr:tex
+display="inline"><![CDATA[(2\pi )^{-1}]]></fr:tex> centered at <fr:tex
+display="inline"><![CDATA[(\tfrac {1}{2}, \tfrac {1}{2}) \in  [0, 1]^2]]></fr:tex>:</fr:p><fr:tex
+display="block"><![CDATA[     \begin {aligned}       \psi (x) &\eqdef  \left (\frac {1}{2} + \frac {\cos \phi (x)}{2\pi },\, \frac {1}{2} + \frac {\sin \phi (x)}{2\pi }\right ), \\       \rho (u_1, u_2) &\eqdef  a + \frac {P}{2\pi }\Bigl (\operatorname {atan2}\bigl (u_2 - \tfrac {1}{2},\, u_1 - \tfrac {1}{2}\bigr ) \bmod  2\pi \Bigr ),     \end {aligned}   ]]></fr:tex><fr:p>with <fr:tex
+display="inline"><![CDATA[\rho ]]></fr:tex> smooth on <fr:tex
+display="inline"><![CDATA[\mathbb {R}^2 \setminus  \{(\tfrac {1}{2}, \tfrac {1}{2})\}]]></fr:tex>. The embedded curve has unit arc-length circumference, and its Euclidean chord distance <fr:tex
+display="inline"><![CDATA[\Vert \psi (x) - \psi (x')\Vert _2 = \frac {1}{\pi }\bigl |\sin (\Delta \phi  / 2)\bigr |]]></fr:tex> is strictly increasing in shortest circular angle <fr:tex
+display="inline"><![CDATA[\Delta \phi  \in  [0, \pi ]]]></fr:tex>.</fr:p><fr:p>3. <fr:strong>Probability simplex</fr:strong> (Bhattacharyya <fr:link
+type="external"
+href="https://www.jstor.org/stable/25047882">[Bha43]</fr:link>): On <fr:tex
+display="inline"><![CDATA[\Delta ^{d-1} \eqdef  \{p \in  \mathbb {R}_+^d : \sum _{j=1}^d p_j = 1\}]]></fr:tex> with Fisher–Rao metric <fr:tex
+display="inline"><![CDATA[g_{\mathrm {FR}} = \sum _{j=1}^d (dp_j)^2 / p_j]]></fr:tex>, the positive-orthant square-root map and clamped retraction (for <fr:tex
+display="inline"><![CDATA[\max (u, 0) \ne  0]]></fr:tex>)</fr:p><fr:tex
+display="block"><![CDATA[     \psi (p) \eqdef  \bigl (\sqrt {p_1}, \dots , \sqrt {p_d}\bigr ) \in  S_+^{d-1}, \qquad  \rho (u) \eqdef  \frac {\max (u, 0)^{\odot  2}}{\Vert \max (u, 0)\Vert _2^2},   ]]></fr:tex><fr:p>satisfy <fr:tex
+display="inline"><![CDATA[\psi ^* g_{\mathbb {R}^d} = \frac {1}{4}\, g_{\mathrm {FR}}]]></fr:tex> on the interior of <fr:tex
+display="inline"><![CDATA[\Delta ^{d-1}]]></fr:tex>, while squared chord distance gives the squared Hellinger distance:</fr:p><fr:tex
+display="block"><![CDATA[     \Vert \psi (p) - \psi (q)\Vert _2^2 = \sum _{j=1}^d \bigl (\sqrt {p_j} - \sqrt {q_j}\bigr )^2 = 2 \left (1 - \sum _{j=1}^d \sqrt {p_j q_j}\right ).   ]]></fr:tex><fr:p>4. <fr:strong>Discrete categorical codebooks</fr:strong>: For <fr:tex
+display="inline"><![CDATA[C]]></fr:tex> categories, <fr:code>encoding="auto"</fr:code> embeds small sets (<fr:tex
+display="inline"><![CDATA[C \le  15]]></fr:tex>) via scaled one-hot vectors in <fr:tex
+display="inline"><![CDATA[\mathbb {R}^C]]></fr:tex> (pairwise distance <fr:tex
+display="inline"><![CDATA[\sqrt {2}\,s]]></fr:tex> for <fr:tex
+display="inline"><![CDATA[c \ne  c']]></fr:tex>, <fr:tex
+display="inline"><![CDATA[s = 10]]></fr:tex>), and larger sets into <fr:tex
+display="inline"><![CDATA[\mathbb {R}^{d_c}]]></fr:tex> (<fr:tex
+display="inline"><![CDATA[d_c = \lceil  8 \ln  C \rceil ]]></fr:tex>) via Rademacher codewords <fr:tex
+display="inline"><![CDATA[\psi (c) \in  \{-s/\sqrt {d_c},\, +s/\sqrt {d_c}\}^{d_c}]]></fr:tex> (Johnson &amp; Lindenstrauss <fr:link
+type="external"
+href="https://doi.org/10.1090/conm/026/737400">[JL84]</fr:link>, Achlioptas <fr:link
+type="external"
+href="https://doi.org/10.1016/S0022-0000(03)00025-4">[Ach03]</fr:link>), retracting by nearest codeword:</fr:p><fr:tex
+display="block"><![CDATA[     \rho (u) \eqdef  \arg \min _{c \in  \{1, \dots , C\}} \Vert  u - \psi (c)\Vert _2.   ]]></fr:tex><fr:p><fr:strong>Proof.</fr:strong> On <fr:tex
+display="inline"><![CDATA[[a, b]]]></fr:tex>, <fr:tex
+display="inline"><![CDATA[d\psi  = dx / (x \log (b/a))]]></fr:tex>, so <fr:tex
+display="inline"><![CDATA[(d\psi )^2 = (dx / x)^2 / \log ^2(b/a)]]></fr:tex>. On <fr:tex
+display="inline"><![CDATA[\lbrack  a, b\rparen ]]></fr:tex>, <fr:tex
+display="inline"><![CDATA[\Vert \psi (x) - \psi (x')\Vert _2^2 = \frac {1}{4\pi ^2}\bigl ((\cos \phi  - \cos \phi ')^2 + (\sin \phi  - \sin \phi ')^2\bigr ) = \frac {1}{2\pi ^2}(1 - \cos \Delta \phi ) = \frac {1}{\pi ^2}\sin ^2(\Delta \phi  / 2)]]></fr:tex>, which is strictly increasing for <fr:tex
+display="inline"><![CDATA[\Delta \phi  \in  [0, \pi ]]]></fr:tex>. On <fr:tex
+display="inline"><![CDATA[\mathrm {int}(\Delta ^{d-1})]]></fr:tex>, <fr:tex
+display="inline"><![CDATA[d\psi _j = dp_j / (2\sqrt {p_j})]]></fr:tex>, whence <fr:tex
+display="inline"><![CDATA[\sum _{j=1}^d (d\psi _j)^2 = \frac {1}{4}\sum _{j=1}^d (dp_j)^2 / p_j]]></fr:tex>, and expanding <fr:tex
+display="inline"><![CDATA[\sum _{j=1}^d (\sqrt {p_j} - \sqrt {q_j})^2]]></fr:tex> with <fr:tex
+display="inline"><![CDATA[\sum _j p_j = \sum _j q_j = 1]]></fr:tex> yields <fr:tex
+display="inline"><![CDATA[2(1 - \sum _j \sqrt {p_j q_j})]]></fr:tex>. Finally, since every one-hot or Rademacher codeword has constant Euclidean norm (<fr:tex
+display="inline"><![CDATA[\Vert \psi (c)\Vert _2^2 = s^2]]></fr:tex>), <fr:tex
+display="inline"><![CDATA[\Vert  u - \psi (c)\Vert _2^2 = \Vert  u\Vert _2^2 + s^2 - 2\langle  u, \psi (c)\rangle ]]></fr:tex>, so nearest-neighbor retraction coincides with <fr:tex
+display="inline"><![CDATA[\arg \max _c \langle  u, \psi (c)\rangle ]]></fr:tex> (breaking ties deterministically).<fr:tex
+display="inline"><![CDATA[\;\square ]]></fr:tex></fr:p></fr:mainmatter><fr:backmatter /></fr:tree><fr:tree
+toc="true"
+numbered="true"
+show-heading="true"
+show-metadata="false"
+expanded="true"
+root="false"
+xmlns:fr="http://www.jonmsterling.com/jms-005P.xml"><fr:frontmatter><fr:anchor>309</fr:anchor><fr:addr
+type="machine">#287</fr:addr><fr:route>unstable-287.xml</fr:route><fr:title
+text="Codomain Shrinkage &amp; Calibration">Codomain Shrinkage &amp; Calibration</fr:title><fr:authors /></fr:frontmatter><fr:mainmatter><fr:p>Given raw loading matrix <fr:tex
+display="inline"><![CDATA[L \in  \mathbb {R}^{M \times  r}]]></fr:tex> (<fr:tex
+display="inline"><![CDATA[1 \le  r < M]]></fr:tex>) orthonormalized onto the Stiefel manifold <fr:tex
+display="inline"><![CDATA[V = L(L^\top  L)^{-1/2} \in  \mathrm {St}(r, M)]]></fr:tex> via polar decomposition (Higham <fr:link
+type="external"
+href="https://doi.org/10.1137/0907079">[Hig86]</fr:link>) with orthogonal complement <fr:tex
+display="inline"><![CDATA[V_\perp  \in  \mathrm {St}(M-r, M)]]></fr:tex>, the orthogonal isomorphism <fr:tex
+display="inline"><![CDATA[P \eqdef  (V^\top ,\, V_\perp ^\top )^\top  : \mathbb {R}^M \xrightarrow {\cong } \mathbb {R}^r \oplus  \mathbb {R}^{M-r}]]></fr:tex> factors codomain contraction (Stein <fr:link
+type="external"
+href="https://projecteuclid.org/ebooks/berkeley-symposium-on-mathematical-statistics-and-probability/Proceedings-of-the-Third-Berkeley-Symposium-on-Mathematical-Statistics-and/chapter/Inadmissibility-of-the-Usual-Estimator-for-the-Mean-of-a/bsmsp/1200501656">[Ste56]</fr:link>, James &amp; Stein <fr:link
+type="external"
+href="https://projecteuclid.org/ebooks/berkeley-symposium-on-mathematical-statistics-and-probability/Proceedings-of-the-Fourth-Berkeley-Symposium-on-Mathematical-Statistics-and/chapter/Estimation-with-Quadratic-Loss/bsmsp/1200512173">[JS61]</fr:link>):</fr:p><fr:tex
+display="block"><![CDATA[     \begin {CD}       \mathbb {R}^M @>{P}>> \mathbb {R}^r \oplus  \mathbb {R}^{M-r} \\       @V{\hat {T}_{\alpha }}VV @VV{I_r \oplus  \alpha  I_{M-r}}V \\       \mathbb {R}^M @<<{P^\top }< \mathbb {R}^r \oplus  \mathbb {R}^{M-r}     \end {CD}   ]]></fr:tex><fr:p><fr:strong>Theorem 3.2</fr:strong> (Oracle Linear-Bayes Subspace Dominance)<fr:strong>.</fr:strong> Let <fr:tex
+display="inline"><![CDATA[y = \theta  + \eta  \in  \mathbb {R}^M]]></fr:tex> satisfy <fr:tex
+display="inline"><![CDATA[\mathbb {E}[\eta ] = 0]]></fr:tex>, and decompose <fr:tex
+display="inline"><![CDATA[y]]></fr:tex> along <fr:tex
+display="inline"><![CDATA[V \in  \mathrm {St}(r, M)]]></fr:tex> (<fr:tex
+display="inline"><![CDATA[1 \le  r < M]]></fr:tex>) into <fr:tex
+display="inline"><![CDATA[z_\parallel  \eqdef  V^\top  y \in  \mathbb {R}^r]]></fr:tex> with noise variance <fr:tex
+display="inline"><![CDATA[v_\parallel  \eqdef  \mathbb {E}\Vert  V^\top  \eta \Vert _2^2]]></fr:tex> and normal coordinates <fr:tex
+display="inline"><![CDATA[z_\perp  \eqdef  V_\perp ^\top  y \in  \mathbb {R}^{M-r}]]></fr:tex> with noise variance <fr:tex
+display="inline"><![CDATA[v_\perp  \eqdef  \mathbb {E}\Vert  V_\perp ^\top  \eta \Vert _2^2 > 0]]></fr:tex> and squared orthogonal signal norm <fr:tex
+display="inline"><![CDATA[b_\perp ^2 \eqdef  \Vert  V_\perp ^\top  \theta \Vert _2^2 \ge  0]]></fr:tex>. Over the linear class <fr:tex
+display="inline"><![CDATA[\hat {\theta }_\alpha  \eqdef  V z_\parallel  + \alpha  V_\perp  z_\perp ]]></fr:tex> (<fr:tex
+display="inline"><![CDATA[\alpha  \in  \mathbb {R}]]></fr:tex>), the oracle linear-Bayes weight <fr:tex
+display="inline"><![CDATA[\alpha ^* \eqdef  b_\perp ^2 / (b_\perp ^2 + v_\perp )]]></fr:tex> uniquely minimizes <fr:tex
+display="inline"><![CDATA[\mathcal {R}(\alpha ) \eqdef  \mathbb {E}\Vert \hat {\theta }_\alpha  - \theta \Vert _2^2]]></fr:tex>, achieving</fr:p><fr:tex
+display="block"><![CDATA[     \mathcal {R}(\alpha ^*) = v_\parallel  + \frac {v_\perp  b_\perp ^2}{b_\perp ^2 + v_\perp } < \mathcal {R}(1) = v_\parallel  + v_\perp .   ]]></fr:tex><fr:p><fr:strong>Proof.</fr:strong> By orthogonality of <fr:tex
+display="inline"><![CDATA[V]]></fr:tex> and <fr:tex
+display="inline"><![CDATA[V_\perp ]]></fr:tex> and <fr:tex
+display="inline"><![CDATA[\mathbb {E}[z_\perp  - V_\perp ^\top  \theta ] = 0]]></fr:tex>,</fr:p><fr:tex
+display="block"><![CDATA[     \mathcal {R}(\alpha ) = \mathbb {E}\Vert  V^\top  \eta \Vert _2^2 + \mathbb {E}\Vert \alpha  V_\perp ^\top  \eta  - (1 - \alpha ) V_\perp ^\top  \theta \Vert _2^2 = v_\parallel  + \alpha ^2 v_\perp  + (1 - \alpha )^2 b_\perp ^2.   ]]></fr:tex><fr:p>Since <fr:tex
+display="inline"><![CDATA[v_\perp  + b_\perp ^2 > 0]]></fr:tex>, <fr:tex
+display="inline"><![CDATA[\mathcal {R}(\alpha )]]></fr:tex> is strictly convex with unique stationary point <fr:tex
+display="inline"><![CDATA[2\alpha  v_\perp  - 2(1 - \alpha )b_\perp ^2 = 0]]></fr:tex>, giving <fr:tex
+display="inline"><![CDATA[\alpha ^* = b_\perp ^2 / (b_\perp ^2 + v_\perp ) \in  \lbrack  0, 1\rparen ]]></fr:tex>. Substituting <fr:tex
+display="inline"><![CDATA[\alpha ^*]]></fr:tex> gives</fr:p><fr:tex
+display="block"><![CDATA[     \begin {aligned}       \mathcal {R}(\alpha ^*) &= v_\parallel  + \frac {b_\perp ^4 v_\perp  + v_\perp ^2 b_\perp ^2}{(b_\perp ^2 + v_\perp )^2} = v_\parallel  + \frac {v_\perp  b_\perp ^2}{b_\perp ^2 + v_\perp }, \\[4pt]       \mathcal {R}(1) - \mathcal {R}(\alpha ^*) &= v_\perp  - \frac {v_\perp  b_\perp ^2}{b_\perp ^2 + v_\perp } = \frac {v_\perp ^2}{b_\perp ^2 + v_\perp } > 0.\;\square      \end {aligned}   ]]></fr:tex><fr:p>Because <fr:tex
+display="inline"><![CDATA[b_\perp ^2]]></fr:tex> is unknown in practice, finite-sample dominance requires estimating <fr:tex
+display="inline"><![CDATA[\alpha ^*]]></fr:tex>. Under isotropic Gaussian noise <fr:tex
+display="inline"><![CDATA[\eta  \sim  \mathcal {N}(0, \sigma ^2 I_M)]]></fr:tex> whenever the <fr:em>normal codimension</fr:em> satisfies <fr:tex
+display="inline"><![CDATA[M - r \ge  3]]></fr:tex>, the positive-part James–Stein weight <fr:tex
+display="inline"><![CDATA[\hat {\alpha }_{\mathrm {JS}} = \bigl (1 - (M - r - 2)\sigma ^2 / \Vert  z_\perp \Vert _2^2\bigr )_+]]></fr:tex> uniformly dominates <fr:tex
+display="inline"><![CDATA[\alpha  = 1]]></fr:tex> in frequentist risk (James &amp; Stein <fr:link
+type="external"
+href="https://projecteuclid.org/ebooks/berkeley-symposium-on-mathematical-statistics-and-probability/Proceedings-of-the-Fourth-Berkeley-Symposium-on-Mathematical-Statistics-and/chapter/Estimation-with-Quadratic-Loss/bsmsp/1200512173">[JS61]</fr:link>, Efron &amp; Morris <fr:link
+type="external"
+href="https://doi.org/10.1080/01621459.1973.10481350">[EM73]</fr:link>); <fr:strong>baux</fr:strong>'s online <fr:code>stein</fr:code> operator applies the moment-ratio plug-in <fr:tex
+display="inline"><![CDATA[\hat {\alpha } = \Vert  z_\perp \Vert _2^2 / (\Vert  z_\perp \Vert _2^2 + \hat {v}_\perp )]]></fr:tex> across arbitrary codimension <fr:tex
+display="inline"><![CDATA[M - r \ge  1]]></fr:tex>.</fr:p><fr:p>Residual dispersion can be post-hoc rescaled via affine weighted least squares <fr:link
+type="external"
+href="https://doi.org/10.1017/S0370164600014346">[Ait35]</fr:link> and split-conformal prediction (Papadopoulos et al. <fr:link
+type="external"
+href="https://doi.org/10.1007/3-540-36755-1_29">[Pap+02]</fr:link>, Vovk et al. <fr:link
+type="external"
+href="https://doi.org/10.1007/b106715">[VGS05]</fr:link>, Lei et al. <fr:link
+type="external"
+href="https://doi.org/10.1080/01621459.2017.1307116">[LGR+18]</fr:link>). Given an independent held-out calibration split <fr:tex
+display="inline"><![CDATA[\mathcal {D}_{\mathrm {cal}} = \{(x_i, y_i)\}_{i=1}^{N_c}]]></fr:tex> and miscoverage level <fr:tex
+display="inline"><![CDATA[\alpha  \in  \bigl \lbrack \frac {1}{N_c + 1},\, 1\bigr \rparen ]]></fr:tex>, standardized scores <fr:tex
+display="inline"><![CDATA[E_i \eqdef  |y_i - \hat {\mu }(x_i)| / \hat {\sigma }(x_i)]]></fr:tex> define the order-statistic multiplier</fr:p><fr:tex
+display="block"><![CDATA[     \begin {aligned}       \hat {q}_{1-\alpha } &\eqdef  E_{(\lceil (N_c + 1)(1 - \alpha )\rceil )}, \\       C_{1-\alpha }(x) &\eqdef  \bigl [\hat {\mu }(x) - \hat {q}_{1-\alpha }\,\hat {\sigma }(x),\, \hat {\mu }(x) + \hat {q}_{1-\alpha }\,\hat {\sigma }(x)\bigr ].     \end {aligned}   ]]></fr:tex><fr:p>(For <fr:tex
+display="inline"><![CDATA[\alpha  < \frac {1}{N_c + 1}]]></fr:tex>, the implementation clamps the rank to <fr:tex
+display="inline"><![CDATA[N_c]]></fr:tex>, returning the empirical maximum residual; for <fr:code>alpha=None</fr:code>, it uses RMS residual scaling.) When <fr:tex
+display="inline"><![CDATA[\mathcal {D}_{\mathrm {cal}} \cup  \{(x_{\mathrm {new}}, y_{\mathrm {new}})\}]]></fr:tex> is exchangeable and disjoint from the surrogate training history, <fr:tex
+display="inline"><![CDATA[\mathbb {P}\bigl (y_{\mathrm {new}} \in  C_{1-\alpha }(x_{\mathrm {new}})\bigr ) \ge  1 - \alpha ]]></fr:tex>; on adaptive sequential optimization histories where exchangeability fails, <fr:tex
+display="inline"><![CDATA[\hat {q}_{1-\alpha }]]></fr:tex> serves as an empirical scale heuristic rather than a distribution-free coverage guarantee.</fr:p></fr:mainmatter><fr:backmatter /></fr:tree></fr:mainmatter><fr:backmatter /></fr:tree><fr:tree
+toc="true"
+numbered="true"
+show-heading="true"
+show-metadata="false"
+expanded="true"
+root="false"
+xmlns:fr="http://www.jonmsterling.com/jms-005P.xml"><fr:frontmatter><fr:anchor>310</fr:anchor><fr:addr
+type="user">baux-0009</fr:addr><fr:route>baux-0009.xml</fr:route><fr:title
+text="Trust-Region Dynamics &amp; Portfolio State">Trust-Region Dynamics &amp; Portfolio State</fr:title><fr:authors /></fr:frontmatter><fr:mainmatter><fr:tree
+toc="true"
+numbered="true"
+show-heading="true"
+show-metadata="false"
+expanded="true"
+root="false"
+xmlns:fr="http://www.jonmsterling.com/jms-005P.xml"><fr:frontmatter><fr:anchor>311</fr:anchor><fr:addr
+type="machine">#280</fr:addr><fr:route>unstable-280.xml</fr:route><fr:title
+text="Trust-Region Adaptation &amp; Candidate Sampling">Trust-Region Adaptation &amp; Candidate Sampling</fr:title><fr:authors /></fr:frontmatter><fr:mainmatter><fr:p>Following TuRBO (Eriksson et al. <fr:link
+type="external"
+href="https://arxiv.org/abs/1910.01739">[EPG+19]</fr:link>), let <fr:tex
+display="inline"><![CDATA[T(x_0, \ell ) \subset  \mathcal {X}]]></fr:tex> denote an axis-aligned trust region centered at incumbent <fr:tex
+display="inline"><![CDATA[x_0 \in  \mathcal {X}]]></fr:tex> with side length <fr:tex
+display="inline"><![CDATA[\ell  \in  [\underline {\ell }, \overline {\ell }]]]></fr:tex>. In solver coordinates <fr:tex
+display="inline"><![CDATA[u \in  \mathcal {U} \subseteq  \mathbb {R}^D]]></fr:tex>, component <fr:tex
+display="inline"><![CDATA[j]]></fr:tex> spans <fr:tex
+display="inline"><![CDATA[[u_{0,j} - \frac {1}{2}\ell _j,\, u_{0,j} + \frac {1}{2}\ell _j]]]></fr:tex> clipped to domain bounds. Consecutive counters <fr:tex
+display="inline"><![CDATA[c_{\mathrm {succ}}, c_{\mathrm {fail}}]]></fr:tex> start at zero; after evaluating a batch <fr:tex
+display="inline"><![CDATA[B]]></fr:tex> with best value <fr:tex
+display="inline"><![CDATA[y^* \eqdef  \max _{(x, y) \in  B} y]]></fr:tex> and relative improvement threshold <fr:tex
+display="inline"><![CDATA[\tau _y(x_0) \eqdef  y(x_0) + 10^{-3}|y(x_0)|]]></fr:tex>, the state updates by</fr:p><fr:tex
+display="block"><![CDATA[     (\ell ', c_{\mathrm {succ}}', c_{\mathrm {fail}}') = \begin {cases}       (\min (2\ell , \overline {\ell }),\, 0,\, 0), & \text {if } y^* > \tau _y(x_0) \text { and } c_{\mathrm {succ}} + 1 \ge  \tau _{\mathrm {succ}}, \\[4pt]       (\ell ,\, c_{\mathrm {succ}} + 1,\, 0), & \text {if } y^* > \tau _y(x_0) \text { and } c_{\mathrm {succ}} + 1 < \tau _{\mathrm {succ}}, \\[4pt]       (\ell  / 2,\, 0,\, 0), & \text {if } y^* \le  \tau _y(x_0) \text { and } c_{\mathrm {fail}} + 1 \ge  \tau _{\mathrm {fail}}, \\[4pt]       (\ell ,\, 0,\, c_{\mathrm {fail}} + 1), & \text {if } y^* \le  \tau _y(x_0) \text { and } c_{\mathrm {fail}} + 1 < \tau _{\mathrm {fail}}.     \end {cases}   ]]></fr:tex><fr:p>Initial space-filling designs draw from Latin Hypercube sampling (McKay, Beckman, &amp; Conover <fr:link
+type="external"
+href="https://doi.org/10.1080/00401706.1979.10489755">[MBC79]</fr:link>) or Sobol' sequences <fr:link
+type="external"
+href="https://doi.org/10.1016/0041-5553(67)90144-9">[Sob67]</fr:link>. Local candidate pools of size <fr:tex
+display="inline"><![CDATA[Q]]></fr:tex> are generated via Random Axis-Aligned Subspace Perturbation (RAASP <fr:link
+type="external"
+href="https://arxiv.org/abs/1910.01739">[EPG+19]</fr:link>, <fr:link
+type="external"
+href="https://proceedings.mlr.press/v180/daulton22a.html">[DEB+22]</fr:link>; cf. Rashidi et al. <fr:link
+type="external"
+href="https://proceedings.mlr.press/v238/rashidi24a.html">[RJG24]</fr:link>): the default <fr:code>ORIG</fr:code> driver perturbs an exact uniform subset of <fr:tex
+display="inline"><![CDATA[k = \min (D, \max (1, d_p))]]></fr:tex> coordinates (or tied chart blocks) per candidate, while the <fr:code>FAST</fr:code> driver samples binomial masks with probability <fr:tex
+display="inline"><![CDATA[p = \min (1, d_p / D)]]></fr:tex> clamped to at least one active coordinate. Two observation regimes are supported:</fr:p><fr:p>In the <fr:strong>noise-free regime</fr:strong>, <fr:tex
+display="inline"><![CDATA[T(x_0, \ell )]]></fr:tex> centers at <fr:tex
+display="inline"><![CDATA[x_0 \eqdef  \arg \max _i y_i]]></fr:tex> and can select <fr:tex
+display="inline"><![CDATA[q]]></fr:tex> arms by peeling non-dominated <fr:tex
+display="inline"><![CDATA[(\mu (x_c), \sigma (x_c))]]></fr:tex> skyline fronts across <fr:tex
+display="inline"><![CDATA[Q]]></fr:tex> candidates in <fr:tex
+display="inline"><![CDATA[\mathcal {O}\bigl (Q(N D + N \log  N) + q Q \log  Q\bigr )]]></fr:tex> time.</fr:p><fr:p>In the <fr:strong>noisy regime</fr:strong>, <fr:tex
+display="inline"><![CDATA[x_0 \eqdef  \arg \max _{i \in  I_K} \mu (x_i)]]></fr:tex> centers at the highest smoothed mean over the <fr:tex
+display="inline"><![CDATA[K]]></fr:tex> highest raw observations <fr:tex
+display="inline"><![CDATA[I_K]]></fr:tex>, and arms are selected by Upper Confidence Bound <fr:tex
+display="inline"><![CDATA[\arg \max _{x_c} [\mu (x_c) + \beta  \sigma _e(x_c)]]]></fr:tex> (Srinivas et al. <fr:link
+type="external"
+href="https://arxiv.org/abs/0912.3995">[SKK+10]</fr:link>) or Thompson function draws <fr:tex
+display="inline"><![CDATA[\arg \max _{x_c} \tilde {f}_s(x_c)]]></fr:tex> (Thompson <fr:link
+type="external"
+href="https://doi.org/10.1093/biomet/25.3-4.285">[Tho33]</fr:link>, Russo et al. <fr:link
+type="external"
+href="https://doi.org/10.1561/2200000070">[RVR+18]</fr:link>).</fr:p><fr:p>Whenever contraction drives <fr:tex
+display="inline"><![CDATA[\ell  < \underline {\ell }]]></fr:tex>, single-region search resets <fr:tex
+display="inline"><![CDATA[\ell  \leftarrow  \ell _0]]></fr:tex> and schedules a fresh Latin Hypercube warmup, while multi-region portfolios increment the region epoch and re-center <fr:tex
+display="inline"><![CDATA[x_{0,r}]]></fr:tex> uniformly or by maximin distance over random candidates.</fr:p></fr:mainmatter><fr:backmatter /></fr:tree><fr:tree
+toc="true"
+numbered="true"
+show-heading="true"
+show-metadata="false"
+expanded="true"
+root="false"
+xmlns:fr="http://www.jonmsterling.com/jms-005P.xml"><fr:frontmatter><fr:anchor>312</fr:anchor><fr:addr
+type="machine">#281</fr:addr><fr:route>unstable-281.xml</fr:route><fr:title
+text="Multi-Region Portfolios &amp; Scalarization">Multi-Region Portfolios &amp; Scalarization</fr:title><fr:authors /></fr:frontmatter><fr:mainmatter><fr:p>Concurrent trust regions <fr:tex
+display="inline"><![CDATA[\{T_r(x_{0,r}, \ell _r)\}_{r=1}^R]]></fr:tex> (Daulton et al. <fr:link
+type="external"
+href="https://proceedings.mlr.press/v180/daulton22a.html">[DEB+22]</fr:link>) coordinate asynchronous batches through an epoch-guarded ledger:</fr:p><fr:p>Under <fr:strong>UCB1 arm allocation</fr:strong> (Auer, Cesa-Bianchi, &amp; Fischer <fr:link
+type="external"
+href="https://doi.org/10.1023/A:1013689704352">[ACF02]</fr:link>), each initialized region's incumbent value is min–max normalized to <fr:tex
+display="inline"><![CDATA[\tilde {u}_r \in  [0, 1]]]></fr:tex> across active regions, and arms route to <fr:tex
+display="inline"><![CDATA[\arg \max _r \bigl [\tilde {u}_r + c\sqrt {\ln (\sum _{r'} \tilde {n}_{r'}) / \tilde {n}_r}\bigr ]]]></fr:tex> where <fr:tex
+display="inline"><![CDATA[\tilde {n}_r = n_r + q_r]]></fr:tex> counts completed plus in-flight evaluations. Each issued proposal carries a ticket <fr:tex
+display="inline"><![CDATA[\mathrm {AskId} = (r, g, a)]]></fr:tex> stamped with region <fr:tex
+display="inline"><![CDATA[r]]></fr:tex>'s current epoch <fr:tex
+display="inline"><![CDATA[g = g_r]]></fr:tex>; completions always append to the global dataset <fr:tex
+display="inline"><![CDATA[\mathcal {D}]]></fr:tex>, and update <fr:tex
+display="inline"><![CDATA[T_r]]></fr:tex>'s side length if and only if <fr:tex
+display="inline"><![CDATA[g = g_r]]></fr:tex>.</fr:p><fr:p>Under <fr:strong>regional sharing</fr:strong> (<fr:code>sharing="ellipsoid_ball"</fr:code>), region <fr:tex
+display="inline"><![CDATA[r]]></fr:tex> adopts a better global observation as its incumbent whenever it falls inside the Euclidean ball circumscribing <fr:tex
+display="inline"><![CDATA[T_r]]></fr:tex>'s axis-aligned trust-region box around <fr:tex
+display="inline"><![CDATA[x_{0,r}]]></fr:tex> (whereas <fr:code>sharing="origin_only"</fr:code> restricts incumbent updates to proposals originated by region <fr:tex
+display="inline"><![CDATA[r]]></fr:tex>).</fr:p><fr:p>For multi-objective problems with <fr:tex
+display="inline"><![CDATA[M \ge  2]]></fr:tex> outputs (MORBO <fr:link
+type="external"
+href="https://proceedings.mlr.press/v180/daulton22a.html">[DEB+22]</fr:link>; cf. qEHVI <fr:link
+type="external"
+href="https://arxiv.org/abs/2006.05078">[DBB20]</fr:link>), empirical observations are min–max normalized per objective to <fr:tex
+display="inline"><![CDATA[\tilde {y}_j \in  [0, 1]]]></fr:tex>, and each region draws simplex weights <fr:tex
+display="inline"><![CDATA[w \sim  \mathrm {Dirichlet}(\mathbf {1}_M)]]></fr:tex> to maximize the ParEGO augmented Chebyshev scalarization (Knowles <fr:link
+type="external"
+href="https://doi.org/10.1109/TEVC.2005.851274">[Kno06]</fr:link>, Paria et al. <fr:link
+type="external"
+href="https://proceedings.mlr.press/v115/paria20a.html">[PKP20]</fr:link>):</fr:p><fr:tex
+display="block"><![CDATA[     s_w(\tilde {y}) \eqdef  \min _{1 \le  j \le  M} \bigl (w_j\, \tilde {y}_j\bigr ) + \eta  \sum _{j=1}^M w_j\, \tilde {y}_j, \qquad  \eta  = 0.05.   ]]></fr:tex></fr:mainmatter><fr:backmatter /></fr:tree><fr:tree
+toc="true"
+numbered="true"
+show-heading="true"
+show-metadata="false"
+expanded="true"
+root="false"
+xmlns:fr="http://www.jonmsterling.com/jms-005P.xml"><fr:frontmatter><fr:anchor>313</fr:anchor><fr:addr
+type="machine">#282</fr:addr><fr:route>unstable-282.xml</fr:route><fr:title
+text="Functional State &amp; Checkpoint Replay">Functional State &amp; Checkpoint Replay</fr:title><fr:authors /></fr:frontmatter><fr:mainmatter><fr:p>Observation history <fr:tex
+display="inline"><![CDATA[\mathcal {D}]]></fr:tex>, regional ledgers <fr:tex
+display="inline"><![CDATA[\{T_r\}_{r=1}^R]]></fr:tex>, splittable 128-bit PRNG state <fr:tex
+display="inline"><![CDATA[k \in  \mathcal {K}]]></fr:tex> (Claessen &amp; Pałka <fr:link
+type="external"
+href="https://doi.org/10.1145/2503778.2503784">[CP13]</fr:link>, Steele et al. <fr:link
+type="external"
+href="https://doi.org/10.1145/2660193.2660195">[SLF14]</fr:link>), and compiled domain specification <fr:tex
+display="inline"><![CDATA[\mathrm {Spec}(\mathcal {M})]]></fr:tex> form an immutable state space <fr:tex
+display="inline"><![CDATA[S]]></fr:tex>:</fr:p><fr:tex
+display="block"><![CDATA[     \begin {aligned}       S &\eqdef  \mathcal {K} \times  \mathcal {D} \times  \prod _{r=1}^R T_r \times  \mathrm {Spec}(\mathcal {M}), \\       \alpha _{\mathrm {ask}} &: S \times  \mathbb {N} \to  S \times  \operatorname {List}(\mathcal {X}), \\       \alpha _{\mathrm {tell}} &: S \times  \operatorname {List}(\mathcal {X} \times  \mathbb {R}^M) \to  S \times  \mathbb {R}^{B \times  M}.     \end {aligned}   ]]></fr:tex><fr:p>Note that <fr:tex
+display="inline"><![CDATA[\alpha _{\mathrm {ask}}]]></fr:tex> and <fr:tex
+display="inline"><![CDATA[\alpha _{\mathrm {tell}}]]></fr:tex> form a stateful Mealy protocol rather than commuting operations (appending observations changes the surrogate neighborhood and regional incumbents for subsequent proposals). Determinism instead comes from pure functional transitions and lossless binary serialization: for any pure round transition <fr:tex
+display="inline"><![CDATA[\Phi _f : S \to  S]]></fr:tex> induced by an objective <fr:tex
+display="inline"><![CDATA[f]]></fr:tex> and template state <fr:tex
+display="inline"><![CDATA[s_0 \in  S]]></fr:tex> fixing <fr:tex
+display="inline"><![CDATA[\mathrm {Spec}(\mathcal {M})]]></fr:tex>, canonical snapshot encoding <fr:tex
+display="inline"><![CDATA[\mathrm {freeze} : S \to  \mathcal {B}]]></fr:tex> and decoding <fr:tex
+display="inline"><![CDATA[\mathrm {thaw}_{s_0} : \mathcal {B} \to  S]]></fr:tex> satisfy <fr:tex
+display="inline"><![CDATA[\mathrm {thaw}_{s_0} \circ  \mathrm {freeze} = \mathrm {id}_S]]></fr:tex>, so serialized step execution <fr:tex
+display="inline"><![CDATA[\widehat {\Phi }_f \eqdef  \mathrm {freeze} \circ  \Phi _f \circ  \mathrm {thaw}_{s_0}]]></fr:tex> commutes strictly with in-memory rollout:</fr:p><fr:tex
+display="block"><![CDATA[     \begin {CD}       S @>{\Phi _f}>> S \\       @V{\mathrm {freeze}}VV @AA{\mathrm {thaw}_{s_0}}A \\       \mathcal {B} @>>{\widehat {\Phi }_f}> \mathcal {B}     \end {CD}   ]]></fr:tex><fr:p>Likewise, <fr:code>pmap</fr:code> splits a parent key <fr:tex
+display="inline"><![CDATA[k \mapsto  (k_1, \dots , k_B)]]></fr:tex> before dispatching worker threads, ensuring identical results regardless of thread scheduling.</fr:p></fr:mainmatter><fr:backmatter /></fr:tree></fr:mainmatter><fr:backmatter /></fr:tree><fr:tree
+toc="true"
+numbered="true"
+show-heading="true"
+show-metadata="false"
+expanded="true"
+root="false"
+xmlns:fr="http://www.jonmsterling.com/jms-005P.xml"><fr:frontmatter><fr:anchor>314</fr:anchor><fr:addr
+type="user">baux-0005</fr:addr><fr:route>baux-0005.xml</fr:route><fr:title
+text="Usage">Usage</fr:title><fr:authors /></fr:frontmatter><fr:mainmatter><fr:pre>pip install baux</fr:pre><div
+id="quickstart">
+<fr:pre>import numpy as np
+import baux
+
+bounds = np.array([[-5.0, 5.0], [-5.0, 5.0]])
+pipe = baux.lhd(10) | baux.raasp(20) | baux.enn(k=10) | baux.ucb(beta=2.0)
+
+state = baux.init(bounds, pipe, key=baux.key(42))
+
+for _ in range(25):
+    state, batch = baux.ask(state, num_arms=4)
+    y = -np.sum(batch.points**2, axis=1)
+    state, mu = baux.tell(state, batch, y)
+
+print(state.best_x, state.best_y, baux.digest(state))</fr:pre>
+</div><fr:tree
+toc="true"
+numbered="true"
+show-heading="true"
+show-metadata="false"
+expanded="true"
+root="false"
+xmlns:fr="http://www.jonmsterling.com/jms-005P.xml"><fr:frontmatter><fr:anchor>315</fr:anchor><fr:addr
+type="machine">#294</fr:addr><fr:route>unstable-294.xml</fr:route><fr:title
+text="PyTree &amp; Non-Euclidean Spaces">PyTree &amp; Non-Euclidean Spaces</fr:title><fr:authors /></fr:frontmatter><fr:mainmatter><fr:pre>import math
+import numpy as np
+import baux
+
+space = {
+    "scale": baux.Log(1e-4, 1e-1),
+    "phase": baux.Periodic(0.0, 2.0 * math.pi),
+    "mixture": baux.Simplex(4),
+    "kernel": baux.categorical(["matern", "rbf", "rational"]),
+}
+target = np.array([0.4, 0.3, 0.2, 0.1])
+penalty = {"matern": 0.0, "rbf": 0.05, "rational": 0.1}
+
+
+def objective(p):
+    scale_err = (math.log10(p["scale"]) + 2.0) ** 2
+    phase_err = 1.0 - math.cos(p["phase"] - math.pi / 3.0)
+    mix_err = float(np.sum((np.sqrt(p["mixture"]) - np.sqrt(target)) ** 2))
+    return -(scale_err + phase_err + mix_err + penalty[p["kernel"]])
+
+
+state = baux.init(space, baux.turbo_enn(), key=baux.key(0))
+state, batch = baux.ask(state, num_arms=4)
+y = np.array([objective(p) for p in batch.params])
+state, mu = baux.tell(state, batch, y)
+print(state.best_params, state.best_y)</fr:pre></fr:mainmatter><fr:backmatter /></fr:tree><fr:tree
+toc="true"
+numbered="true"
+show-heading="true"
+show-metadata="false"
+expanded="true"
+root="false"
+xmlns:fr="http://www.jonmsterling.com/jms-005P.xml"><fr:frontmatter><fr:anchor>316</fr:anchor><fr:addr
+type="machine">#295</fr:addr><fr:route>unstable-295.xml</fr:route><fr:title
+text="Scanned &amp; Parallel Rollouts (scan / pmap)">Scanned &amp; Parallel Rollouts (<fr:code>scan</fr:code> / <fr:code>pmap</fr:code>)</fr:title><fr:authors /></fr:frontmatter><fr:mainmatter><fr:pre>import numpy as np
+import baux
+
+bounds = np.array([[-5.0, 5.0], [-5.0, 5.0]])
+s0 = baux.init(bounds, baux.turbo_enn(), key=baux.key(7))
+
+final_state, next_key, traces = baux.scan(
+    s0,
+    baux.key(7),
+    steps=20,
+    eval_fn=lambda x: -np.sum(x**2, axis=1),
+    num_arms=4,
+)
+
+branches = baux.pmap(
+    s0,
+    baux.key(99),
+    branches=4,
+    branch_fn=lambda i, st, k: baux.scan(
+        st, k, steps=10, eval_fn=lambda x: -np.sum(x**2, axis=1), num_arms=2
+    )[0].best_y,
+)</fr:pre></fr:mainmatter><fr:backmatter /></fr:tree><fr:tree
+toc="true"
+numbered="true"
+show-heading="true"
+show-metadata="false"
+expanded="true"
+root="false"
+xmlns:fr="http://www.jonmsterling.com/jms-005P.xml"><fr:frontmatter><fr:anchor>317</fr:anchor><fr:addr
+type="machine">#296</fr:addr><fr:route>unstable-296.xml</fr:route><fr:title
+text="Functional ENN Surrogate">Functional ENN Surrogate</fr:title><fr:authors /></fr:frontmatter><fr:mainmatter><fr:pre>import numpy as np
+import baux
+
+rng = np.random.default_rng(0)
+train_x = rng.uniform(-2.0, 2.0, size=(32, 3))
+train_y = -np.sum(train_x**2, axis=1, keepdims=True)
+query_x = rng.uniform(-2.0, 2.0, size=(8, 3))
+
+k0, k1 = baux.split(baux.key(42), 2)
+enn_state = baux.enn_init(train_x, train_y, scale_x=True)
+enn_state = baux.with_geometry(enn_state, "hyperbolic", local_k=4)
+
+params = baux.fit(enn_state, k=10, key=k0)
+post = baux.posterior(enn_state, query_x, params)
+draws, idx = baux.sample(enn_state, query_x, params, key=k1, num_draws=16)</fr:pre></fr:mainmatter><fr:backmatter /></fr:tree></fr:mainmatter><fr:backmatter /></fr:tree><fr:tree
+toc="true"
+numbered="true"
+show-heading="true"
+show-metadata="false"
+expanded="true"
+root="false"
+xmlns:fr="http://www.jonmsterling.com/jms-005P.xml"><fr:frontmatter><fr:anchor>318</fr:anchor><fr:addr
+type="user">baux-0004</fr:addr><fr:route>baux-0004.xml</fr:route><fr:title
+text="Tokamak Control Benchmarks">Tokamak Control Benchmarks</fr:title><fr:authors /></fr:frontmatter><fr:mainmatter><fr:p>We evaluate <fr:strong>baux</fr:strong> on two closed-loop tokamak policy-search benchmarks motivated by TCV magnetic control (Degrave et al. <fr:link
+type="external"
+href="https://doi.org/10.1038/s41586-021-04301-9">[Deg+22]</fr:link>, Tracey et al. <fr:link
+type="external"
+href="https://doi.org/10.1016/j.fusengdes.2024.114161">[Tra+24]</fr:link>, Pfau et al. <fr:link
+type="external"
+href="https://arxiv.org/abs/2505.00663">[Pfa+25]</fr:link>): an <fr:strong>ENN-UCB</fr:strong> surrogate benchmark on the open-source EPFL/MIT <fr:code>toka_gym</fr:code> rampdown simulator (Wang et al. <fr:link
+type="external"
+href="https://doi.org/10.1038/s41467-025-63917-3">[Wan+25]</fr:link>, Theiler et al. <fr:link
+type="external"
+href="https://doi.org/10.1088/1741-4326/ae6d12">[The+26]</fr:link>), and a 10,000-round regional-sharing ablation in <fr:strong>TORAX 2.0.0</fr:strong> (Citrin et al. <fr:link
+type="external"
+href="https://arxiv.org/abs/2406.06718">[Cit+24]</fr:link>).</fr:p><fr:tree
+toc="true"
+numbered="true"
+show-heading="true"
+show-metadata="false"
+expanded="true"
+root="false"
+xmlns:fr="http://www.jonmsterling.com/jms-005P.xml"><fr:frontmatter><fr:anchor>319</fr:anchor><fr:addr
+type="machine">#277</fr:addr><fr:route>unstable-277.xml</fr:route><fr:title
+text="TokaGym Rampdown Control with ENN-UCB">TokaGym Rampdown Control with ENN-UCB</fr:title><fr:authors /></fr:frontmatter><fr:mainmatter><fr:p>On the <fr:code>toka_gym</fr:code> TCV rampdown benchmark (<fr:link
+type="external"
+href="https://doi.org/10.1038/s41467-025-63917-3">[Wan+25]</fr:link>, <fr:link
+type="external"
+href="https://doi.org/10.1088/1741-4326/ae6d12">[The+26]</fr:link>), a four-layer policy <fr:tex
+display="inline"><![CDATA[\pi _\theta  : \mathbb {R}^{11} \to  [-1, 1]^8]]></fr:tex> of hidden width <fr:tex
+display="inline"><![CDATA[256]]></fr:tex> (<fr:tex
+display="inline"><![CDATA[D = 136{,}712]]></fr:tex> parameters) is searched directly from closed-loop trajectories (<fr:tex
+display="inline"><![CDATA[20]]></fr:tex> steps <fr:tex
+display="inline"><![CDATA[\times \, 4]]></fr:tex> substeps). Multi-region <fr:strong>ENN-TuRBO</fr:strong> fits a <fr:tex
+display="inline"><![CDATA[K = 10]]></fr:tex> Epistemic Nearest Neighbor surrogate by LOO pseudolikelihood with UCB acquisition across <fr:tex
+display="inline"><![CDATA[R = 10]]></fr:tex> regions (<fr:code>incumbent-ucb1</fr:code>, <fr:code>raasp-fast</fr:code> with <fr:tex
+display="inline"><![CDATA[d_p = 13{,}671]]></fr:tex>, <fr:tex
+display="inline"><![CDATA[4]]></fr:tex> candidates and <fr:tex
+display="inline"><![CDATA[1]]></fr:tex> evaluated arm per round). Across <fr:tex
+display="inline"><![CDATA[n = 10]]></fr:tex> paired seeds over <fr:tex
+display="inline"><![CDATA[100]]></fr:tex> rounds, tracking error falls from <fr:code>65.72</fr:code> at initialization to <fr:strong><fr:code>1.79</fr:code></fr:strong> (<fr:code>ellipsoid-ball</fr:code> sharing) and <fr:strong><fr:code>1.68</fr:code></fr:strong> (<fr:code>origin-only</fr:code>) versus <fr:code>20.59</fr:code> for on-policy Metal PPO at matching round budget.</fr:p></fr:mainmatter><fr:backmatter /></fr:tree><fr:tree
+toc="true"
+numbered="true"
+show-heading="true"
+show-metadata="false"
+expanded="true"
+root="false"
+xmlns:fr="http://www.jonmsterling.com/jms-005P.xml"><fr:frontmatter><fr:anchor>320</fr:anchor><fr:addr
+type="machine">#278</fr:addr><fr:route>unstable-278.xml</fr:route><fr:title
+text="TORAX Core-Transport &amp; Shaping Regional Ablation">TORAX Core-Transport &amp; Shaping Regional Ablation</fr:title><fr:authors /></fr:frontmatter><fr:mainmatter><fr:p>Because EPFL's free-boundary Grad–Shafranov coil-circuit simulator <fr:code>FGE</fr:code> used in <fr:link
+type="external"
+href="https://doi.org/10.1038/s41586-021-04301-9">[Deg+22]</fr:link>, <fr:link
+type="external"
+href="https://doi.org/10.1016/j.fusengdes.2024.114161">[Tra+24]</fr:link>, and <fr:link
+type="external"
+href="https://arxiv.org/abs/2505.00663">[Pfa+25]</fr:link> is proprietary, we evaluate the <fr:tex
+display="inline"><![CDATA[93 \to  256 \to  256 \to  256 \to  19]]></fr:tex> ELU+<fr:tex
+display="inline"><![CDATA[\tanh ]]></fr:tex> policy architecture (<fr:tex
+display="inline"><![CDATA[D = 160{,}531]]></fr:tex> parameters) in open-source <fr:strong>TORAX 2.0.0</fr:strong> <fr:link
+type="external"
+href="https://arxiv.org/abs/2406.06718">[Cit+24]</fr:link>. Rather than solving free-boundary <fr:code>E</fr:code>/<fr:code>F</fr:code>/<fr:code>OH</fr:code>/<fr:code>FPS</fr:code> coil circuits from <fr:tex
+display="inline"><![CDATA[38]]></fr:tex> magnetic probes and <fr:tex
+display="inline"><![CDATA[34]]></fr:tex> flux loops, this benchmark evolves <fr:code>iterhybrid</fr:code> CHEASE/<fr:code>MEQ</fr:code> geometry (<fr:tex
+display="inline"><![CDATA[R_0 = 6.2\text { m}]]></fr:tex>, <fr:tex
+display="inline"><![CDATA[B_0 = 5.3\text { T}]]></fr:tex>, <fr:tex
+display="inline"><![CDATA[15]]></fr:tex> warmup steps followed by <fr:tex
+display="inline"><![CDATA[T = 20]]></fr:tex> controlled steps) coupled to four 1D radial transport PDEs for <fr:tex
+display="inline"><![CDATA[T_e(\hat {\rho })]]></fr:tex>, <fr:tex
+display="inline"><![CDATA[T_i(\hat {\rho })]]></fr:tex>, <fr:tex
+display="inline"><![CDATA[n_e(\hat {\rho })]]></fr:tex>, and <fr:tex
+display="inline"><![CDATA[\psi (\hat {\rho })]]></fr:tex> over <fr:tex
+display="inline"><![CDATA[\hat {\rho } \in  [0, 1]]]></fr:tex>, mapping <fr:tex
+display="inline"><![CDATA[93]]></fr:tex> radial profile and shaping residuals to <fr:tex
+display="inline"><![CDATA[19]]></fr:tex> normalized plasma current, heating, current-drive, pellet/gas fueling, and Miller local-equilibrium shaping (<fr:code>kappa</fr:code>, <fr:code>delta_u</fr:code>, <fr:code>delta_l</fr:code>, <fr:tex
+display="inline"><![CDATA[Z_{\mathrm {axis}}]]></fr:tex>; Miller et al. <fr:link
+type="external"
+href="https://doi.org/10.1063/1.872666">[Mil+98]</fr:link>) actuators:</fr:p><fr:tex
+display="block"><![CDATA[     \begin {aligned}       R(\hat {\rho }, \vartheta ) &= R_{\mathrm {geo}}(\hat {\rho }) + \hat {\rho }\,a_{\min }\cos \bigl (\vartheta  + \arcsin (\delta (\hat {\rho },\vartheta ))\sin \vartheta \bigr ), \\[4pt]       Z(\hat {\rho }, \vartheta ) &= Z_{\mathrm {axis}} + \kappa (\hat {\rho })\,\hat {\rho }\,a_{\min }\sin \vartheta .     \end {aligned}   ]]></fr:tex><fr:p>Adapting the multi-component reward structure of Pfau et al. <fr:link
+type="external"
+href="https://arxiv.org/abs/2505.00663">[Pfa+25]</fr:link> (Table 6, Eq. 31), five normalized tracking and actuator-regularization scores—normalized Miller contour error against the 32-point <fr:code>shape_70166</fr:code> aspect template, plasma current tracking <fr:tex
+display="inline"><![CDATA[I_p]]></fr:tex>, shaping-effort margin, actuator bounds compliance, and auxiliary balance—are mapped through sigmoids <fr:tex
+display="inline"><![CDATA[c_m(v) = \operatorname {clip}\bigl (2\sigma (\zeta \frac {v - g_m}{b_m - g_m}), 0, 1\bigr )]]></fr:tex> (<fr:tex
+display="inline"><![CDATA[\zeta  = -\ln  19]]></fr:tex>) and averaged over <fr:tex
+display="inline"><![CDATA[T = 20]]></fr:tex> steps on a <fr:tex
+display="inline"><![CDATA[[0, 100]]]></fr:tex> scale via <fr:code>SmoothMax</fr:code> (<fr:tex
+display="inline"><![CDATA[\alpha  = -3.0]]></fr:tex>):</fr:p><fr:tex
+display="block"><![CDATA[     \begin {aligned}       \mathcal {J}(\theta ) &= \frac {100}{T}\sum _{t=1}^{T} \operatorname {SmoothMax}_{\alpha  = -3}\bigl (c_{\mathrm {LCFS},t},\, c_{I_p,t},\, c_{\mathrm {PF},t},\, c_{\mathrm {volt},t},\, c_{\mathrm {OH},t}\bigr ), \\[4pt]       \operatorname {SmoothMax}_{\alpha }(x_1,\dots ,x_5) &= \frac {\sum _{m=1}^{5} x_m e^{\alpha  x_m}}{\sum _{m=1}^{5} e^{\alpha  x_m}}.     \end {aligned}   ]]></fr:tex><fr:p>To isolate the effect of cross-region incumbent adoption over <fr:tex
+display="inline"><![CDATA[10{,}000]]></fr:tex> sequential evaluations without surrogate fitting overhead, both configurations below run <fr:strong>surrogate-free multi-region RAASP TuRBO</fr:strong> (<fr:code>acquisition = "random"</fr:code>, i.e. <fr:code>TuRBO-zero</fr:code>, with <fr:tex
+display="inline"><![CDATA[R = 10]]></fr:tex> regions, <fr:code>incumbent-ucb1</fr:code> routing, <fr:tex
+display="inline"><![CDATA[d_p = 16{,}053]]></fr:tex>, <fr:tex
+display="inline"><![CDATA[2]]></fr:tex> candidates and <fr:tex
+display="inline"><![CDATA[1]]></fr:tex> arm per round) across <fr:tex
+display="inline"><![CDATA[n = 10]]></fr:tex> paired random seeds (entries report sample <fr:code>mean ± SEM</fr:code> with <fr:code>ddof = 1</fr:code>; unadjusted two-sided paired <fr:tex
+display="inline"><![CDATA[t_9]]></fr:tex> <fr:tex
+display="inline"><![CDATA[p]]></fr:tex>-values are shown at rounds 8,000 and 10,000, while Holm–Bonferroni adjustment across the <fr:tex
+display="inline"><![CDATA[6]]></fr:tex> post-init checkpoints gives <fr:tex
+display="inline"><![CDATA[p_{\mathrm {Holm}} = 0.246]]></fr:tex>; an on-policy PPO baseline reaches <fr:code>44.25</fr:code> at round 10,000). The interactive viewer additionally renders cross-device vessel and coil geometries (<fr:code>TCV</fr:code>, <fr:code>ARC</fr:code>, <fr:code>ITER</fr:code>, <fr:code>DIII-D</fr:code>) extracted from <fr:strong>FUSE.jl</fr:strong> (Meneghini et al. <fr:link
+type="external"
+href="https://arxiv.org/abs/2409.05894">[Men+24]</fr:link>) alongside analytical Miller flux contours interpolated from these checkpoints.</fr:p><table>
+    <tr>
+      <th>Round</th>
+      <th>Shared TuRBO-zero (<fr:code>ellipsoid-ball</fr:code>)</th>
+      <th>Independent TuRBO-zero (<fr:code>origin-only</fr:code>)</th>
+      <th>Paired Diff (<fr:code>mean ± SEM</fr:code>)</th>
+    </tr>
+    <tr>
+      <td><fr:code>0</fr:code> (Init)</td>
+      <td><fr:code>5.97 ± 1.13</fr:code></td>
+      <td><fr:code>5.97 ± 1.13</fr:code></td>
+      <td><fr:code>+0.00 ± 0.00</fr:code></td>
+    </tr>
+    <tr>
+      <td><fr:code>300</fr:code></td>
+      <td><fr:code>53.36 ± 5.90</fr:code></td>
+      <td><fr:code>52.38 ± 5.13</fr:code></td>
+      <td><fr:code>+0.98 ± 4.02</fr:code></td>
+    </tr>
+    <tr>
+      <td><fr:code>1,000</fr:code></td>
+      <td><fr:code>70.77 ± 5.95</fr:code></td>
+      <td><fr:code>71.39 ± 4.74</fr:code></td>
+      <td><fr:code>−0.62 ± 3.98</fr:code></td>
+    </tr>
+    <tr>
+      <td><fr:code>3,000</fr:code></td>
+      <td><fr:code>83.25 ± 2.60</fr:code></td>
+      <td><fr:code>80.93 ± 2.97</fr:code></td>
+      <td><fr:code>+2.32 ± 1.64</fr:code></td>
+    </tr>
+    <tr>
+      <td><fr:code>5,000</fr:code></td>
+      <td><fr:code>87.65 ± 1.81</fr:code></td>
+      <td><fr:code>86.28 ± 1.14</fr:code></td>
+      <td><fr:code>+1.38 ± 1.59</fr:code></td>
+    </tr>
+    <tr>
+      <td><fr:code>8,000</fr:code></td>
+      <td><fr:code>90.52 ± 0.65</fr:code></td>
+      <td><fr:code>88.60 ± 0.81</fr:code></td>
+      <td><fr:code>+1.92 ± 0.81</fr:code> (<fr:tex
+display="inline"><![CDATA[p_2 = 0.0421]]></fr:tex>)</td>
+    </tr>
+    <tr>
+      <td><fr:strong><fr:code>10,000</fr:code></fr:strong></td>
+      <td><fr:strong><fr:code>91.57 ± 0.55</fr:code></fr:strong></td>
+      <td><fr:code>89.41 ± 0.97</fr:code></td>
+      <td><fr:strong><fr:code>+2.16 ± 0.91</fr:code></fr:strong> (<fr:tex
+display="inline"><![CDATA[p_2 = 0.0410]]></fr:tex>)</td>
+    </tr>
+  </table></fr:mainmatter><fr:backmatter /></fr:tree><fr:tree
+toc="true"
+numbered="true"
+show-heading="true"
+show-metadata="false"
+expanded="true"
+root="false"
+xmlns:fr="http://www.jonmsterling.com/jms-005P.xml"><fr:frontmatter><fr:anchor>321</fr:anchor><fr:addr
+type="machine">#279</fr:addr><fr:route>unstable-279.xml</fr:route><fr:title
+text="Hardware Backends">Hardware Backends</fr:title><fr:authors /></fr:frontmatter><fr:mainmatter><fr:p>Distance sweeps, top-<fr:tex
+display="inline"><![CDATA[K]]></fr:tex> neighbor search, and candidate evaluation dispatch across three backends:</fr:p><fr:p>On Apple Silicon, custom Metal Shading Language (<fr:code>.metal</fr:code>) compute kernels run exact distance sweeps, top-<fr:tex
+display="inline"><![CDATA[K]]></fr:tex> neighbor selection, FP32 device posteriors, and resident trust-region search (<fr:tex
+display="inline"><![CDATA[N \le  128]]></fr:tex>) over unified memory, while general host <fr:code>f64</fr:code> posterior and trajectory-draw calls execute on CPU.</fr:p><fr:p>On Linux <fr:code>x86_64</fr:code> with NVIDIA GPUs (<fr:code>sm_75+</fr:code>), CUDA kernels evaluate pairwise distances via shared-memory (<fr:code>__shared__</fr:code>) tiles, global-memory top-<fr:tex
+display="inline"><![CDATA[K]]></fr:tex> merge buffers, and Box–Muller Gaussian posterior draws.</fr:p><fr:p>Without a GPU, exact flat search runs <fr:code>f64</fr:code> CPU scans alongside portable <fr:code>core::simd::f64x4</fr:code> inner-product and squared-distance kernels compiled for the target architecture baseline (<fr:code>x86_64</fr:code> / <fr:code>aarch64</fr:code>).</fr:p><table>
+    <tr>
+      <th>Platform</th>
+      <th>Architecture</th>
+      <th>Backend Kernels</th>
+      <th>Wheel Targets (Python 3.12–3.15)</th>
+    </tr>
+    <tr>
+      <td><fr:strong>macOS 11.0+</fr:strong></td>
+      <td>arm64</td>
+      <td>Custom Metal compute shaders + CPU <fr:code>f64</fr:code> host</td>
+      <td><fr:code>macosx_11_0_arm64</fr:code></td>
+    </tr>
+    <tr>
+      <td><fr:strong>Linux CUDA</fr:strong></td>
+      <td>x86_64</td>
+      <td>CUDA (<fr:code>sm_75+</fr:code>) shared-tile distance &amp; Box–Muller</td>
+      <td><fr:code>manylinux_2_28_x86_64</fr:code> (<fr:code>+cuda75</fr:code>)</td>
+    </tr>
+    <tr>
+      <td><fr:strong>CPU Baseline</fr:strong></td>
+      <td>x86_64 / aarch64</td>
+      <td>Portable <fr:code>f64x4</fr:code> SIMD &amp; scalar <fr:code>f64</fr:code> scans</td>
+      <td>Source distribution &amp; <fr:code>manylinux</fr:code> / <fr:code>macosx</fr:code> wheels</td>
+    </tr>
+  </table></fr:mainmatter><fr:backmatter /></fr:tree></fr:mainmatter><fr:backmatter /></fr:tree><fr:tree
+toc="true"
+numbered="true"
+show-heading="true"
+show-metadata="false"
+expanded="true"
+root="false"
+xmlns:fr="http://www.jonmsterling.com/jms-005P.xml"><fr:frontmatter><fr:anchor>322</fr:anchor><fr:addr
+type="user">baux-0007</fr:addr><fr:route>baux-0007.xml</fr:route><fr:title
+text="API Reference">API Reference</fr:title><fr:authors /></fr:frontmatter><fr:mainmatter><fr:tree
+toc="true"
+numbered="true"
+show-heading="true"
+show-metadata="false"
+expanded="true"
+root="false"
+xmlns:fr="http://www.jonmsterling.com/jms-005P.xml"><fr:frontmatter><fr:anchor>323</fr:anchor><fr:addr
+type="machine">#288</fr:addr><fr:route>unstable-288.xml</fr:route><fr:title
+text="State Transitions">State Transitions</fr:title><fr:authors /></fr:frontmatter><fr:mainmatter><fr:p><fr:code>OptimizerState</fr:code> is an immutable record exposing the incumbent <fr:code>.best_x</fr:code>, <fr:code>.best_y</fr:code>, decoded <fr:code>.best_params</fr:code>, observation arrays <fr:code>.x_obs</fr:code> and <fr:code>.y_obs</fr:code> (<fr:code>.num_observations</fr:code>), regional epoch counter <fr:code>.epoch</fr:code>, trust-region length <fr:code>.tr_length</fr:code>, and content-addressed <fr:code>.key</fr:code> derived from <fr:code>baux.digest(state)</fr:code>.</fr:p><fr:pre>baux.init(
+    domain: np.ndarray | PyTreeSpec | Any,
+    config: OptimizerConfig | Transform | None = None,
+    *,
+    pipe: OptimizerConfig | Transform | None = None,
+    key: Key | None = None,
+    seed: int | np.random.Generator | None = None,
+    low: Any = -1.0,
+    high: Any = 1.0,
+) -&gt; OptimizerState</fr:pre><fr:p><fr:code>baux.ask(state, num_arms=1)</fr:code> returns <fr:code>(next_state, batch)</fr:code>, where <fr:code>AskBatch</fr:code> carries proposal IDs, coordinate arrays, decoded parameter dictionaries, and stacked tensors.</fr:p><fr:p><fr:code>baux.tell(state, x, y, y_var=None)</fr:code> appends observations and returns <fr:code>(next_state, mu)</fr:code>. <fr:code>baux.step(state, objective)</fr:code> runs one <fr:code>ask -&gt; evaluate -&gt; tell</fr:code> cycle.</fr:p><fr:p><fr:code>baux.scan(state, key, steps, eval_fn, num_arms)</fr:code> folds transitions across rounds. <fr:code>baux.pmap(state, key, branches, branch_fn)</fr:code> forks snapshots and splits keys across worker threads.</fr:p><fr:p>Asynchronous regional completions and cancellations use <fr:code>baux.complete(state, ids, y, y_var=None)</fr:code> and <fr:code>baux.cancel(state, ids)</fr:code>. States hash via <fr:code>baux.digest(state)</fr:code> (BLAKE3) and serialize via <fr:code>baux.freeze(state)</fr:code> and <fr:code>baux.thaw(state, data)</fr:code>.</fr:p></fr:mainmatter><fr:backmatter /></fr:tree><fr:tree
+toc="true"
+numbered="true"
+show-heading="true"
+show-metadata="false"
+expanded="true"
+root="false"
+xmlns:fr="http://www.jonmsterling.com/jms-005P.xml"><fr:frontmatter><fr:anchor>324</fr:anchor><fr:addr
+type="machine">#289</fr:addr><fr:route>unstable-289.xml</fr:route><fr:title
+text="PRNG Keys">PRNG Keys</fr:title><fr:authors /></fr:frontmatter><fr:mainmatter><fr:p><fr:code>baux.key(seed)</fr:code> constructs a 128-bit <fr:code>(u64, u64)</fr:code> SplitMix64 key from an integer, byte buffer, array, state digest, or OS entropy, seeding deterministic ChaCha12 and optimizer streams. <fr:code>baux.split(k, n)</fr:code> partitions <fr:tex
+display="inline"><![CDATA[k]]></fr:tex> into <fr:tex
+display="inline"><![CDATA[n]]></fr:tex> subkeys, and <fr:code>baux.fold(k, tag)</fr:code> mixes in an integer tag without mutating <fr:tex
+display="inline"><![CDATA[k]]></fr:tex>, keeping proposal generation, hyperparameter fitting, and posterior sampling independent.</fr:p></fr:mainmatter><fr:backmatter /></fr:tree><fr:tree
+toc="true"
+numbered="true"
+show-heading="true"
+show-metadata="false"
+expanded="true"
+root="false"
+xmlns:fr="http://www.jonmsterling.com/jms-005P.xml"><fr:frontmatter><fr:anchor>325</fr:anchor><fr:addr
+type="machine">#290</fr:addr><fr:route>unstable-290.xml</fr:route><fr:title
+text="Pipeline Transforms">Pipeline Transforms</fr:title><fr:authors /></fr:frontmatter><fr:mainmatter><fr:p>Pipelines compose <fr:code>Transform</fr:code> stages into an <fr:code>OptimizerConfig</fr:code> via <fr:code>baux.chain(*steps)</fr:code> or <fr:code>t1 | t2</fr:code>.</fr:p><fr:p>Initialization and perturbation use <fr:code>baux.lhd(num_init=10)</fr:code>, <fr:code>baux.sobol(num_candidates=1024)</fr:code>, <fr:code>baux.raasp(num_pert=20)</fr:code>, and <fr:code>baux.uniform_pert(num_candidates=1024)</fr:code>. Surrogates attach via <fr:code>baux.enn(k=10, geometry="euclidean")</fr:code>, <fr:code>baux.gp()</fr:code>, or <fr:code>baux.zero()</fr:code>; acquisitions attach via <fr:code>baux.ucb(beta=2.0)</fr:code>, <fr:code>baux.thompson()</fr:code>, <fr:code>baux.pareto()</fr:code>, or <fr:code>baux.random_acq()</fr:code>.</fr:p><fr:p>Geometry and regional layout are configured with <fr:code>baux.tr_bounds(length_init=0.8)</fr:code>, <fr:code>baux.regions(count=4, sharing="ellipsoid_ball")</fr:code>, <fr:code>baux.with_geometry(target, "hyperbolic")</fr:code>, <fr:code>baux.stein(target, rank=4)</fr:code>, and <fr:code>baux.calibrate(target, alpha=0.1)</fr:code>.</fr:p></fr:mainmatter><fr:backmatter /></fr:tree><fr:tree
+toc="true"
+numbered="true"
+show-heading="true"
+show-metadata="false"
+expanded="true"
+root="false"
+xmlns:fr="http://www.jonmsterling.com/jms-005P.xml"><fr:frontmatter><fr:anchor>326</fr:anchor><fr:addr
+type="machine">#291</fr:addr><fr:route>unstable-291.xml</fr:route><fr:title
+text="PyTree Domains &amp; Codomain Operators">PyTree Domains &amp; Codomain Operators</fr:title><fr:authors /></fr:frontmatter><fr:mainmatter><fr:p>Parameter spaces are written as nested Python dicts, tuples, and lists of leaf charts, compiled by <fr:code>baux.pytree_bounds(tree)</fr:code> into a <fr:code>PyTreeSpec</fr:code>.</fr:p><fr:p>Domain leaf charts include <fr:code>baux.Log(low, high)</fr:code>, <fr:code>baux.Periodic(low, high)</fr:code>, <fr:code>baux.Simplex(dim)</fr:code>, and <fr:code>baux.categorical(categories, encoding="auto")</fr:code>. <fr:code>baux.ravel(tree, spec)</fr:code> and <fr:code>baux.unflatten(flat, spec)</fr:code> map between nested Python values and flat solver coordinates. Multi-output codomain operators use <fr:code>baux.Stiefel(loadings)</fr:code> (with <fr:code>baux.stein</fr:code>) and <fr:code>baux.Affine(scale, shift, conformal_q=1.0)</fr:code> (with <fr:code>baux.calibrate</fr:code>).</fr:p></fr:mainmatter><fr:backmatter /></fr:tree><fr:tree
+toc="true"
+numbered="true"
+show-heading="true"
+show-metadata="false"
+expanded="true"
+root="false"
+xmlns:fr="http://www.jonmsterling.com/jms-005P.xml"><fr:frontmatter><fr:anchor>327</fr:anchor><fr:addr
+type="machine">#292</fr:addr><fr:route>unstable-292.xml</fr:route><fr:title
+text="ENN Surrogate">ENN Surrogate</fr:title><fr:authors /></fr:frontmatter><fr:mainmatter><fr:p><fr:code>baux.enn_init(train_x, train_y, scale_x=True)</fr:code> builds an immutable surrogate state; <fr:code>baux.append(state, x, y)</fr:code> appends observations via copy-on-write; <fr:code>baux.fit(state, k=10, key=k0)</fr:code> selects scale parameters by subsampled leave-one-out log-pseudolikelihood.</fr:p><fr:p><fr:code>baux.posterior(state, x, params)</fr:code> evaluates posterior mean, aleatoric standard error, and epistemic standard error at <fr:code>x</fr:code>. <fr:code>baux.sample(state, x, params, key=k1, num_draws=16)</fr:code> returns <fr:code>(draws, idx)</fr:code>, with function draws of shape <fr:code>(batch, metrics, num_draws)</fr:code> and neighbor indices of shape <fr:code>(batch, k)</fr:code>.</fr:p></fr:mainmatter><fr:backmatter /></fr:tree><fr:tree
+toc="true"
+numbered="true"
+show-heading="true"
+show-metadata="false"
+expanded="true"
+root="false"
+xmlns:fr="http://www.jonmsterling.com/jms-005P.xml"><fr:frontmatter><fr:anchor>328</fr:anchor><fr:addr
+type="machine">#293</fr:addr><fr:route>unstable-293.xml</fr:route><fr:title
+text="Adapters">Adapters</fr:title><fr:authors /></fr:frontmatter><fr:mainmatter><fr:p><fr:code>baux.create_optimizer(bounds=bounds, config=config, rng=rng)</fr:code> wraps the functional core in a stateful <fr:code>Optimizer</fr:code> exposing <fr:code>opt.ask(num_arms)</fr:code>, <fr:code>opt.tell(x, y)</fr:code>, <fr:code>opt.posterior_mu(x)</fr:code>, and <fr:code>opt.telemetry()</fr:code>. <fr:code>from baux.optuna import Sampler</fr:code> provides an Optuna <fr:code>BaseSampler</fr:code> over continuous <fr:code>FloatDistribution</fr:code> spaces. <fr:code>baux.capabilities(probe=False)</fr:code> lists compiled and active backends (<fr:code>"cpu"</fr:code>, <fr:code>"metal"</fr:code>, <fr:code>"cuda"</fr:code>, <fr:code>"opencl"</fr:code>).</fr:p></fr:mainmatter><fr:backmatter /></fr:tree></fr:mainmatter><fr:backmatter /></fr:tree><fr:tree
+toc="true"
+numbered="true"
+show-heading="true"
+show-metadata="false"
+expanded="true"
+root="false"
 xmlns:fr="http://www.jonmsterling.com/jms-005P.xml"><fr:frontmatter><fr:anchor>329</fr:anchor><fr:addr
-type="user">baux-0001</fr:addr><fr:route>baux-0001.xml</fr:route><fr:title
-text="Baux — Black Box Optimization">Baux — Black Box Optimization</fr:title><fr:taxon>Monograph</fr:taxon><fr:date><fr:year>2026</fr:year><fr:month>11</fr:month><fr:day>9</fr:day></fr:date><fr:authors><fr:author>Kvutza</fr:author></fr:authors><fr:meta
-name="external">https://github.com/Kvutza/baux</fr:meta></fr:frontmatter><fr:mainmatter><fr:p><fr:strong>baux</fr:strong> is a black box optimization library in Python and Rust designed for expensive, derivative-free evaluation loops over continuous and bounded domains. It couples trust-region local search (<fr:ref
-addr="baux-0002"
-href="baux-0002.xml"
-taxon="Algorithm" />) with non-parametric Epistemic Nearest Neighbors (<fr:ref
-addr="baux-0003"
-href="baux-0003.xml"
-taxon="Surrogate" />) to balance local exploitation and global exploration without incurring the cubic computational bottlenecks of Gaussian Process inference.</fr:p><fr:p>Compute kernels for distance metrics, candidate perturbation, and posterior sampling execute directly on Apple Silicon (Metal MPS) and NVIDIA GPUs (CUDA), backed by an AVX-512 and ARM NEON SIMD pure-Rust CPU engine (<fr:ref
-addr="baux-0004"
-href="baux-0004.xml"
-taxon="Architecture" />).</fr:p><fr:tree
-toc="true"
-numbered="true"
-show-heading="true"
-show-metadata="false"
-expanded="true"
-root="false"
-xmlns:fr="http://www.jonmsterling.com/jms-005P.xml"><fr:frontmatter><fr:anchor>285</fr:anchor><fr:addr
-type="user">baux-0006</fr:addr><fr:route>baux-0006.xml</fr:route><fr:title
-text="Baseline &amp; Lineage">Baseline &amp; Lineage</fr:title><fr:taxon>Lineage</fr:taxon><fr:authors><fr:author>Kvutza</fr:author></fr:authors></fr:frontmatter><fr:mainmatter><fr:p><fr:strong>baux</fr:strong> builds on <fr:link
-type="external"
-href="https://github.com/yubo-research/enn">yubo-research/enn</fr:link> (v0.4.1), using its TuRBO trust-region state machine and Epistemic Nearest Neighbors formulation as the algorithmic baseline.</fr:p><fr:p>It extends this baseline with:</fr:p><fr:ul><fr:li><fr:strong>A single crate</fr:strong>: Consolidates <fr:code>ennbo</fr:code>, <fr:code>bpann</fr:code>, and <fr:code>enn-py</fr:code> into a single self-contained <fr:code>baux</fr:code> library and binary wheel (<fr:code>pip install baux</fr:code>).</fr:li>
-  <fr:li><fr:strong>GPU acceleration</fr:strong>: Implements Apple Silicon Metal and NVIDIA CUDA compute kernels.</fr:li>
-  <fr:li><fr:strong>Direct interface</fr:strong>: Exposes a clean <fr:code>ask</fr:code>/<fr:code>tell</fr:code> loop with native batch proposals.</fr:li></fr:ul></fr:mainmatter><fr:backmatter /></fr:tree><fr:tree
-toc="true"
-numbered="true"
-show-heading="true"
-show-metadata="false"
-expanded="true"
-root="false"
-xmlns:fr="http://www.jonmsterling.com/jms-005P.xml"><fr:frontmatter><fr:anchor>287</fr:anchor><fr:addr
 type="user">baux-0002</fr:addr><fr:route>baux-0002.xml</fr:route><fr:title
-text="Trust-Region Local Search (TuRBO)">Trust-Region Local Search (TuRBO)</fr:title><fr:taxon>Algorithm</fr:taxon><fr:authors><fr:author>Kvutza</fr:author></fr:authors></fr:frontmatter><fr:mainmatter><fr:p>High-dimensional black box optimization frequently suffers from the curse of dimensionality when fitting global surrogate models over the entire parameter space. <fr:strong>baux</fr:strong> confines candidate proposal to a local hypercube &amp;mdash; the trust region &amp;mdash; centered at the current incumbent point <fr:tex
-display="inline"><![CDATA[x^* \in  [0, 1]^D]]></fr:tex>:</fr:p><fr:tex
-display="block"><![CDATA[   \mathcal {TR}_t = \left \{ x \in  [0, 1]^D : \max _{i=1,\dots ,D} \frac {|x_i - x_i^*|}{L_t} \le  \frac {1}{2} \right \} ]]></fr:tex><fr:p>The base side length <fr:tex
-display="inline"><![CDATA[L_t]]></fr:tex> adapts dynamically based on observation feedback:</fr:p><fr:ul><fr:li><fr:strong>Expansion</fr:strong>: If consecutive candidate batches improve upon the incumbent, the search volume expands: <fr:tex
-display="inline"><![CDATA[L_{t+1} = \min (L_t \times  1.5,\, L_{\max })]]></fr:tex>.</fr:li>
-  <fr:li><fr:strong>Contraction</fr:strong>: If the optimizer fails to find an improvement across a sequence of failure tolerance rounds (<fr:tex
-display="inline"><![CDATA[\tau _{\text {fail}}]]></fr:tex>), the volume contracts: <fr:tex
-display="inline"><![CDATA[L_{t+1} = \max (L_t \times  0.5,\, L_{\min })]]></fr:tex>.</fr:li>
-  <fr:li><fr:strong>Restart</fr:strong>: When <fr:tex
-display="inline"><![CDATA[L_t]]></fr:tex> shrinks below <fr:tex
-display="inline"><![CDATA[L_{\min }]]></fr:tex>, the trust region resets with a new anchor point to prevent asymptotic stagnation in local minima.</fr:li></fr:ul></fr:mainmatter><fr:backmatter /></fr:tree><fr:tree
-toc="true"
-numbered="true"
-show-heading="true"
-show-metadata="false"
-expanded="true"
-root="false"
-xmlns:fr="http://www.jonmsterling.com/jms-005P.xml"><fr:frontmatter><fr:anchor>289</fr:anchor><fr:addr
-type="user">baux-0003</fr:addr><fr:route>baux-0003.xml</fr:route><fr:title
-text="Epistemic Nearest Neighbors (ENN)">Epistemic Nearest Neighbors (ENN)</fr:title><fr:taxon>Surrogate</fr:taxon><fr:authors><fr:author>Kvutza</fr:author></fr:authors></fr:frontmatter><fr:mainmatter><fr:p>Standard Gaussian Process regression requires <fr:tex
-display="inline"><![CDATA[\mathcal {O}(N^3)]]></fr:tex> Cholesky factorization of the kernel covariance matrix, creating a computational bottleneck when evaluation counts scale into thousands of trials.</fr:p><fr:p>ENN models function uncertainty through a non-parametric metric projection over the <fr:tex
-display="inline"><![CDATA[k]]></fr:tex>-nearest observed points. Posterior uncertainty decomposes into two independent orthogonal fields:</fr:p><fr:tex
-display="block"><![CDATA[   p(y \mid  x, \mathcal {D}) = \mathcal {N}\left (\mu _{\text {post}}(x),\, \sigma _{\text {epi}}^2(x) + \sigma _{\text {ale}}^2\right ) ]]></fr:tex><fr:ul><fr:li><fr:strong>Epistemic Uncertainty (<fr:tex
-display="inline"><![CDATA[\sigma _{\text {epi}}]]></fr:tex>):</fr:strong> Measures spatial evaluation sparsity. Scales proportionally with metric distance to neighboring observations: it vanishes near evaluations and expands in unexplored regions.</fr:li>
-  <fr:li><fr:strong>Aleatoric Uncertainty (<fr:tex
-display="inline"><![CDATA[\sigma _{\text {ale}}]]></fr:tex>):</fr:strong> Captures irreducible observation noise inherent to stochastic objective evaluations.</fr:li></fr:ul><fr:p>Because ENN evaluates uncertainty via nearest-neighbor distance fields rather than matrix inversion, candidate ranking within the trust region runs in linear time with respect to observed trials, allowing sub-millisecond proposal latency across tens of thousands of evaluations.</fr:p></fr:mainmatter><fr:backmatter /></fr:tree><fr:tree
-toc="true"
-numbered="true"
-show-heading="true"
-show-metadata="false"
-expanded="true"
-root="false"
-xmlns:fr="http://www.jonmsterling.com/jms-005P.xml"><fr:frontmatter><fr:anchor>291</fr:anchor><fr:addr
-type="user">baux-0004</fr:addr><fr:route>baux-0004.xml</fr:route><fr:title
-text="Hardware Compute Backends">Hardware Compute Backends</fr:title><fr:taxon>Architecture</fr:taxon><fr:authors><fr:author>Kvutza</fr:author></fr:authors></fr:frontmatter><fr:mainmatter><fr:p>In high-throughput experimental loops, latency is dominated by host-device memory synchronization. On Apple Silicon, <fr:strong>baux</fr:strong> leverages Unified Memory Architecture (UMA) via Metal compute pipelines:</fr:p><fr:ul><fr:li>Observation buffers and trust-region states reside in unified system memory without duplicate host/device allocations.</fr:li>
-  <fr:li>Batch candidate generation, Sobol sequence perturbations, and nearest-neighbor distance sweeps execute directly on Metal shading pipelines.</fr:li>
-  <fr:li>On Linux environments with NVIDIA hardware, custom CUDA kernels handle distance computation and posterior draws across large candidate batches.</fr:li>
-  <fr:li>On systems without GPU support, pure-Rust AVX-512 and ARM NEON SIMD routines provide vectorized CPU fallback.</fr:li></fr:ul></fr:mainmatter><fr:backmatter /></fr:tree><fr:tree
-toc="true"
-numbered="true"
-show-heading="true"
-show-metadata="false"
-expanded="true"
-root="false"
-xmlns:fr="http://www.jonmsterling.com/jms-005P.xml"><fr:frontmatter><fr:anchor>293</fr:anchor><fr:addr
-type="user">baux-0005</fr:addr><fr:route>baux-0005.xml</fr:route><fr:title
-text="API Specifications &amp; Workflows">API Specifications &amp; Workflows</fr:title><fr:taxon>Interface</fr:taxon><fr:authors><fr:author>Kvutza</fr:author></fr:authors></fr:frontmatter><fr:mainmatter><div
-id="quickstart">
-<fr:p>The primary Python interface is structured around a non-blocking <fr:code>ask(batch_size)</fr:code> and <fr:code>tell(candidates, scores)</fr:code> loop:</fr:p>
-
-<fr:pre>import numpy as np
-from baux import create_optimizer, turbo_enn
-
-# Define parameter domain: continuous bounds for each dimension
-bounds = np.array([[-5.0, 5.0], [-5.0, 5.0]])
-
-# Initialize TuRBO optimizer with Epistemic Nearest Neighbors surrogate
-opt = create_optimizer(
-    bounds=bounds,
-    config=turbo_enn(),
-    rng=np.random.default_rng(42),
-)
-
-# Propose trial batch, evaluate objective, and report back
-for step in range(25):
-    candidates = opt.ask(batch_size=4)
-    scores = -np.sum(candidates**2, axis=1)
-    opt.tell(candidates, scores)
-
-print("Incumbent parameters:", opt.best_x)
-print("Incumbent reward:", opt.best_y)</fr:pre>
-</div></fr:mainmatter><fr:backmatter /></fr:tree><fr:tree
-toc="true"
-numbered="true"
-show-heading="true"
-show-metadata="false"
-expanded="true"
-root="false"
-xmlns:fr="http://www.jonmsterling.com/jms-005P.xml"><fr:frontmatter><fr:anchor>295</fr:anchor><fr:addr
-type="user">baux-0007</fr:addr><fr:route>baux-0007.xml</fr:route><fr:title
-text="Baux API Reference">Baux API Reference</fr:title><fr:taxon>Reference</fr:taxon><fr:authors><fr:author>Kvutza</fr:author></fr:authors></fr:frontmatter><fr:mainmatter><fr:p>Complete formal interface specifications and dimensional invariants for the <fr:code>baux</fr:code> black box optimization library.</fr:p><fr:tree
-toc="true"
-numbered="true"
-show-heading="true"
-show-metadata="false"
-expanded="true"
-root="false"
-xmlns:fr="http://www.jonmsterling.com/jms-005P.xml"><fr:frontmatter><fr:anchor>297</fr:anchor><fr:addr
-type="machine">#277</fr:addr><fr:route>unstable-277.xml</fr:route><fr:title
-text="Optimizer Factory: baux.create_optimizer">Optimizer Factory: <fr:code>baux.create_optimizer</fr:code></fr:title><fr:taxon>Function</fr:taxon><fr:authors><fr:author>Kvutza</fr:author></fr:authors></fr:frontmatter><fr:mainmatter><fr:p>Instantiates an optimization state machine over a bounded continuous domain.</fr:p><fr:pre>create_optimizer(
-    bounds: np.ndarray,
-    config: Optional[OptimizerConfig] = None,
-    rng: Optional[np.random.Generator] = None,
-) -&gt; Optimizer</fr:pre><fr:ul><fr:li><fr:strong><fr:code>bounds</fr:code></fr:strong>: 2D array of shape <fr:code>(D, 2)</fr:code> defining lower and upper bounds <fr:code>[l_i, u_i]</fr:code> for each parameter dimension.</fr:li>
-    <fr:li><fr:strong><fr:code>config</fr:code></fr:strong>: Search policy preset: <fr:code>turbo_enn()</fr:code>, <fr:code>turbo_one()</fr:code>, or <fr:code>turbo_zero()</fr:code>.</fr:li>
-    <fr:li><fr:strong><fr:code>rng</fr:code></fr:strong>: Seeded NumPy random generator for deterministic sampling reproducibility.</fr:li></fr:ul></fr:mainmatter><fr:backmatter /></fr:tree><fr:tree
-toc="true"
-numbered="true"
-show-heading="true"
-show-metadata="false"
-expanded="true"
-root="false"
-xmlns:fr="http://www.jonmsterling.com/jms-005P.xml"><fr:frontmatter><fr:anchor>299</fr:anchor><fr:addr
-type="machine">#278</fr:addr><fr:route>unstable-278.xml</fr:route><fr:title
-text="Optimizer Methods">Optimizer Methods</fr:title><fr:taxon>Interface</fr:taxon><fr:authors><fr:author>Kvutza</fr:author></fr:authors></fr:frontmatter><fr:mainmatter><fr:ul><fr:li><fr:strong><fr:code>ask(batch_size=1) -&gt; np.ndarray</fr:code></fr:strong>: Proposes a candidate trial matrix of shape <fr:code>(batch_size, D)</fr:code> bounded within the active trust region.</fr:li>
-    <fr:li><fr:strong><fr:code>tell(candidates, scores) -&gt; None</fr:code></fr:strong>: Updates trust-region state machine with observed evaluations under a maximization objective.</fr:li>
-    <fr:li><fr:strong><fr:code>best_x -&gt; np.ndarray</fr:code></fr:strong>: Coordinates of the incumbent parameter point.</fr:li>
-    <fr:li><fr:strong><fr:code>best_y -&gt; float</fr:code></fr:strong>: Best observed reward value.</fr:li></fr:ul></fr:mainmatter><fr:backmatter /></fr:tree><fr:tree
-toc="true"
-numbered="true"
-show-heading="true"
-show-metadata="false"
-expanded="true"
-root="false"
-xmlns:fr="http://www.jonmsterling.com/jms-005P.xml"><fr:frontmatter><fr:anchor>301</fr:anchor><fr:addr
-type="machine">#279</fr:addr><fr:route>unstable-279.xml</fr:route><fr:title
-text="Epistemic Nearest Neighbors: baux.ENN">Epistemic Nearest Neighbors: <fr:code>baux.ENN</fr:code></fr:title><fr:taxon>Surrogate</fr:taxon><fr:authors><fr:author>Kvutza</fr:author></fr:authors></fr:frontmatter><fr:mainmatter><fr:pre>model = ENN(train_x, train_y, index_driver=NeighborIndex.FLAT)
-post = model.posterior(query_x, params=ENNParams(k_neighbors=8))</fr:pre><fr:p>The returned <fr:code>Posterior</fr:code> object yields expected mean <fr:code>post.mu</fr:code>, epistemic uncertainty <fr:code>post.se_epi</fr:code>, and aleatoric uncertainty <fr:code>post.se_ale</fr:code>.</fr:p></fr:mainmatter><fr:backmatter /></fr:tree></fr:mainmatter><fr:backmatter /></fr:tree></fr:mainmatter><fr:backmatter /></fr:tree></fr:mainmatter><fr:backmatter /></fr:tree><fr:tree
-toc="false"
-numbered="false"
-show-heading="true"
-show-metadata="false"
-expanded="true"
-root="false"
-xmlns:fr="http://www.jonmsterling.com/jms-005P.xml"><fr:frontmatter><fr:title
-text="Backlinks">Backlinks</fr:title><fr:authors /></fr:frontmatter><fr:mainmatter><fr:tree
-toc="true"
-numbered="false"
-show-heading="true"
-show-metadata="true"
-expanded="false"
-root="false"
-xmlns:fr="http://www.jonmsterling.com/jms-005P.xml"><fr:frontmatter><fr:anchor>331</fr:anchor><fr:addr
-type="user">baux-0001</fr:addr><fr:route>baux-0001.xml</fr:route><fr:title
-text="Baux — Black Box Optimization">Baux — Black Box Optimization</fr:title><fr:taxon>Monograph</fr:taxon><fr:date><fr:year>2026</fr:year><fr:month>11</fr:month><fr:day>9</fr:day></fr:date><fr:authors><fr:author>Kvutza</fr:author></fr:authors><fr:meta
-name="external">https://github.com/Kvutza/baux</fr:meta></fr:frontmatter><fr:mainmatter><fr:p><fr:strong>baux</fr:strong> is a black box optimization library in Python and Rust designed for expensive, derivative-free evaluation loops over continuous and bounded domains. It couples trust-region local search (<fr:ref
-addr="baux-0002"
-href="baux-0002.xml"
-taxon="Algorithm" />) with non-parametric Epistemic Nearest Neighbors (<fr:ref
-addr="baux-0003"
-href="baux-0003.xml"
-taxon="Surrogate" />) to balance local exploitation and global exploration without incurring the cubic computational bottlenecks of Gaussian Process inference.</fr:p><fr:p>Compute kernels for distance metrics, candidate perturbation, and posterior sampling execute directly on Apple Silicon (Metal MPS) and NVIDIA GPUs (CUDA), backed by an AVX-512 and ARM NEON SIMD pure-Rust CPU engine (<fr:ref
-addr="baux-0004"
-href="baux-0004.xml"
-taxon="Architecture" />).</fr:p><fr:tree
-toc="true"
-numbered="true"
-show-heading="true"
-show-metadata="false"
-expanded="true"
-root="false"
-xmlns:fr="http://www.jonmsterling.com/jms-005P.xml"><fr:frontmatter><fr:anchor>285</fr:anchor><fr:addr
-type="user">baux-0006</fr:addr><fr:route>baux-0006.xml</fr:route><fr:title
-text="Baseline &amp; Lineage">Baseline &amp; Lineage</fr:title><fr:taxon>Lineage</fr:taxon><fr:authors><fr:author>Kvutza</fr:author></fr:authors></fr:frontmatter><fr:mainmatter><fr:p><fr:strong>baux</fr:strong> builds on <fr:link
+text="References">References</fr:title><fr:authors /></fr:frontmatter><fr:mainmatter><fr:ul><fr:li><fr:strong>[ACF02]</fr:strong> Auer, P., Cesa-Bianchi, N., &amp; Fischer, P. (2002). <fr:link
 type="external"
-href="https://github.com/yubo-research/enn">yubo-research/enn</fr:link> (v0.4.1), using its TuRBO trust-region state machine and Epistemic Nearest Neighbors formulation as the algorithmic baseline.</fr:p><fr:p>It extends this baseline with:</fr:p><fr:ul><fr:li><fr:strong>A single crate</fr:strong>: Consolidates <fr:code>ennbo</fr:code>, <fr:code>bpann</fr:code>, and <fr:code>enn-py</fr:code> into a single self-contained <fr:code>baux</fr:code> library and binary wheel (<fr:code>pip install baux</fr:code>).</fr:li>
-  <fr:li><fr:strong>GPU acceleration</fr:strong>: Implements Apple Silicon Metal and NVIDIA CUDA compute kernels.</fr:li>
-  <fr:li><fr:strong>Direct interface</fr:strong>: Exposes a clean <fr:code>ask</fr:code>/<fr:code>tell</fr:code> loop with native batch proposals.</fr:li></fr:ul></fr:mainmatter><fr:backmatter /></fr:tree><fr:tree
-toc="true"
-numbered="true"
-show-heading="true"
-show-metadata="false"
-expanded="true"
-root="false"
-xmlns:fr="http://www.jonmsterling.com/jms-005P.xml"><fr:frontmatter><fr:anchor>287</fr:anchor><fr:addr
-type="user">baux-0002</fr:addr><fr:route>baux-0002.xml</fr:route><fr:title
-text="Trust-Region Local Search (TuRBO)">Trust-Region Local Search (TuRBO)</fr:title><fr:taxon>Algorithm</fr:taxon><fr:authors><fr:author>Kvutza</fr:author></fr:authors></fr:frontmatter><fr:mainmatter><fr:p>High-dimensional black box optimization frequently suffers from the curse of dimensionality when fitting global surrogate models over the entire parameter space. <fr:strong>baux</fr:strong> confines candidate proposal to a local hypercube &amp;mdash; the trust region &amp;mdash; centered at the current incumbent point <fr:tex
-display="inline"><![CDATA[x^* \in  [0, 1]^D]]></fr:tex>:</fr:p><fr:tex
-display="block"><![CDATA[   \mathcal {TR}_t = \left \{ x \in  [0, 1]^D : \max _{i=1,\dots ,D} \frac {|x_i - x_i^*|}{L_t} \le  \frac {1}{2} \right \} ]]></fr:tex><fr:p>The base side length <fr:tex
-display="inline"><![CDATA[L_t]]></fr:tex> adapts dynamically based on observation feedback:</fr:p><fr:ul><fr:li><fr:strong>Expansion</fr:strong>: If consecutive candidate batches improve upon the incumbent, the search volume expands: <fr:tex
-display="inline"><![CDATA[L_{t+1} = \min (L_t \times  1.5,\, L_{\max })]]></fr:tex>.</fr:li>
-  <fr:li><fr:strong>Contraction</fr:strong>: If the optimizer fails to find an improvement across a sequence of failure tolerance rounds (<fr:tex
-display="inline"><![CDATA[\tau _{\text {fail}}]]></fr:tex>), the volume contracts: <fr:tex
-display="inline"><![CDATA[L_{t+1} = \max (L_t \times  0.5,\, L_{\min })]]></fr:tex>.</fr:li>
-  <fr:li><fr:strong>Restart</fr:strong>: When <fr:tex
-display="inline"><![CDATA[L_t]]></fr:tex> shrinks below <fr:tex
-display="inline"><![CDATA[L_{\min }]]></fr:tex>, the trust region resets with a new anchor point to prevent asymptotic stagnation in local minima.</fr:li></fr:ul></fr:mainmatter><fr:backmatter /></fr:tree><fr:tree
-toc="true"
-numbered="true"
-show-heading="true"
-show-metadata="false"
-expanded="true"
-root="false"
-xmlns:fr="http://www.jonmsterling.com/jms-005P.xml"><fr:frontmatter><fr:anchor>289</fr:anchor><fr:addr
-type="user">baux-0003</fr:addr><fr:route>baux-0003.xml</fr:route><fr:title
-text="Epistemic Nearest Neighbors (ENN)">Epistemic Nearest Neighbors (ENN)</fr:title><fr:taxon>Surrogate</fr:taxon><fr:authors><fr:author>Kvutza</fr:author></fr:authors></fr:frontmatter><fr:mainmatter><fr:p>Standard Gaussian Process regression requires <fr:tex
-display="inline"><![CDATA[\mathcal {O}(N^3)]]></fr:tex> Cholesky factorization of the kernel covariance matrix, creating a computational bottleneck when evaluation counts scale into thousands of trials.</fr:p><fr:p>ENN models function uncertainty through a non-parametric metric projection over the <fr:tex
-display="inline"><![CDATA[k]]></fr:tex>-nearest observed points. Posterior uncertainty decomposes into two independent orthogonal fields:</fr:p><fr:tex
-display="block"><![CDATA[   p(y \mid  x, \mathcal {D}) = \mathcal {N}\left (\mu _{\text {post}}(x),\, \sigma _{\text {epi}}^2(x) + \sigma _{\text {ale}}^2\right ) ]]></fr:tex><fr:ul><fr:li><fr:strong>Epistemic Uncertainty (<fr:tex
-display="inline"><![CDATA[\sigma _{\text {epi}}]]></fr:tex>):</fr:strong> Measures spatial evaluation sparsity. Scales proportionally with metric distance to neighboring observations: it vanishes near evaluations and expands in unexplored regions.</fr:li>
-  <fr:li><fr:strong>Aleatoric Uncertainty (<fr:tex
-display="inline"><![CDATA[\sigma _{\text {ale}}]]></fr:tex>):</fr:strong> Captures irreducible observation noise inherent to stochastic objective evaluations.</fr:li></fr:ul><fr:p>Because ENN evaluates uncertainty via nearest-neighbor distance fields rather than matrix inversion, candidate ranking within the trust region runs in linear time with respect to observed trials, allowing sub-millisecond proposal latency across tens of thousands of evaluations.</fr:p></fr:mainmatter><fr:backmatter /></fr:tree><fr:tree
-toc="true"
-numbered="true"
-show-heading="true"
-show-metadata="false"
-expanded="true"
-root="false"
-xmlns:fr="http://www.jonmsterling.com/jms-005P.xml"><fr:frontmatter><fr:anchor>291</fr:anchor><fr:addr
-type="user">baux-0004</fr:addr><fr:route>baux-0004.xml</fr:route><fr:title
-text="Hardware Compute Backends">Hardware Compute Backends</fr:title><fr:taxon>Architecture</fr:taxon><fr:authors><fr:author>Kvutza</fr:author></fr:authors></fr:frontmatter><fr:mainmatter><fr:p>In high-throughput experimental loops, latency is dominated by host-device memory synchronization. On Apple Silicon, <fr:strong>baux</fr:strong> leverages Unified Memory Architecture (UMA) via Metal compute pipelines:</fr:p><fr:ul><fr:li>Observation buffers and trust-region states reside in unified system memory without duplicate host/device allocations.</fr:li>
-  <fr:li>Batch candidate generation, Sobol sequence perturbations, and nearest-neighbor distance sweeps execute directly on Metal shading pipelines.</fr:li>
-  <fr:li>On Linux environments with NVIDIA hardware, custom CUDA kernels handle distance computation and posterior draws across large candidate batches.</fr:li>
-  <fr:li>On systems without GPU support, pure-Rust AVX-512 and ARM NEON SIMD routines provide vectorized CPU fallback.</fr:li></fr:ul></fr:mainmatter><fr:backmatter /></fr:tree><fr:tree
-toc="true"
-numbered="true"
-show-heading="true"
-show-metadata="false"
-expanded="true"
-root="false"
-xmlns:fr="http://www.jonmsterling.com/jms-005P.xml"><fr:frontmatter><fr:anchor>293</fr:anchor><fr:addr
-type="user">baux-0005</fr:addr><fr:route>baux-0005.xml</fr:route><fr:title
-text="API Specifications &amp; Workflows">API Specifications &amp; Workflows</fr:title><fr:taxon>Interface</fr:taxon><fr:authors><fr:author>Kvutza</fr:author></fr:authors></fr:frontmatter><fr:mainmatter><div
-id="quickstart">
-<fr:p>The primary Python interface is structured around a non-blocking <fr:code>ask(batch_size)</fr:code> and <fr:code>tell(candidates, scores)</fr:code> loop:</fr:p>
-
-<fr:pre>import numpy as np
-from baux import create_optimizer, turbo_enn
-
-# Define parameter domain: continuous bounds for each dimension
-bounds = np.array([[-5.0, 5.0], [-5.0, 5.0]])
-
-# Initialize TuRBO optimizer with Epistemic Nearest Neighbors surrogate
-opt = create_optimizer(
-    bounds=bounds,
-    config=turbo_enn(),
-    rng=np.random.default_rng(42),
-)
-
-# Propose trial batch, evaluate objective, and report back
-for step in range(25):
-    candidates = opt.ask(batch_size=4)
-    scores = -np.sum(candidates**2, axis=1)
-    opt.tell(candidates, scores)
-
-print("Incumbent parameters:", opt.best_x)
-print("Incumbent reward:", opt.best_y)</fr:pre>
-</div></fr:mainmatter><fr:backmatter /></fr:tree><fr:tree
-toc="true"
-numbered="true"
-show-heading="true"
-show-metadata="false"
-expanded="true"
-root="false"
-xmlns:fr="http://www.jonmsterling.com/jms-005P.xml"><fr:frontmatter><fr:anchor>295</fr:anchor><fr:addr
-type="user">baux-0007</fr:addr><fr:route>baux-0007.xml</fr:route><fr:title
-text="Baux API Reference">Baux API Reference</fr:title><fr:taxon>Reference</fr:taxon><fr:authors><fr:author>Kvutza</fr:author></fr:authors></fr:frontmatter><fr:mainmatter><fr:p>Complete formal interface specifications and dimensional invariants for the <fr:code>baux</fr:code> black box optimization library.</fr:p><fr:tree
-toc="true"
-numbered="true"
-show-heading="true"
-show-metadata="false"
-expanded="true"
-root="false"
-xmlns:fr="http://www.jonmsterling.com/jms-005P.xml"><fr:frontmatter><fr:anchor>297</fr:anchor><fr:addr
-type="machine">#277</fr:addr><fr:route>unstable-277.xml</fr:route><fr:title
-text="Optimizer Factory: baux.create_optimizer">Optimizer Factory: <fr:code>baux.create_optimizer</fr:code></fr:title><fr:taxon>Function</fr:taxon><fr:authors><fr:author>Kvutza</fr:author></fr:authors></fr:frontmatter><fr:mainmatter><fr:p>Instantiates an optimization state machine over a bounded continuous domain.</fr:p><fr:pre>create_optimizer(
-    bounds: np.ndarray,
-    config: Optional[OptimizerConfig] = None,
-    rng: Optional[np.random.Generator] = None,
-) -&gt; Optimizer</fr:pre><fr:ul><fr:li><fr:strong><fr:code>bounds</fr:code></fr:strong>: 2D array of shape <fr:code>(D, 2)</fr:code> defining lower and upper bounds <fr:code>[l_i, u_i]</fr:code> for each parameter dimension.</fr:li>
-    <fr:li><fr:strong><fr:code>config</fr:code></fr:strong>: Search policy preset: <fr:code>turbo_enn()</fr:code>, <fr:code>turbo_one()</fr:code>, or <fr:code>turbo_zero()</fr:code>.</fr:li>
-    <fr:li><fr:strong><fr:code>rng</fr:code></fr:strong>: Seeded NumPy random generator for deterministic sampling reproducibility.</fr:li></fr:ul></fr:mainmatter><fr:backmatter /></fr:tree><fr:tree
-toc="true"
-numbered="true"
-show-heading="true"
-show-metadata="false"
-expanded="true"
-root="false"
-xmlns:fr="http://www.jonmsterling.com/jms-005P.xml"><fr:frontmatter><fr:anchor>299</fr:anchor><fr:addr
-type="machine">#278</fr:addr><fr:route>unstable-278.xml</fr:route><fr:title
-text="Optimizer Methods">Optimizer Methods</fr:title><fr:taxon>Interface</fr:taxon><fr:authors><fr:author>Kvutza</fr:author></fr:authors></fr:frontmatter><fr:mainmatter><fr:ul><fr:li><fr:strong><fr:code>ask(batch_size=1) -&gt; np.ndarray</fr:code></fr:strong>: Proposes a candidate trial matrix of shape <fr:code>(batch_size, D)</fr:code> bounded within the active trust region.</fr:li>
-    <fr:li><fr:strong><fr:code>tell(candidates, scores) -&gt; None</fr:code></fr:strong>: Updates trust-region state machine with observed evaluations under a maximization objective.</fr:li>
-    <fr:li><fr:strong><fr:code>best_x -&gt; np.ndarray</fr:code></fr:strong>: Coordinates of the incumbent parameter point.</fr:li>
-    <fr:li><fr:strong><fr:code>best_y -&gt; float</fr:code></fr:strong>: Best observed reward value.</fr:li></fr:ul></fr:mainmatter><fr:backmatter /></fr:tree><fr:tree
-toc="true"
-numbered="true"
-show-heading="true"
-show-metadata="false"
-expanded="true"
-root="false"
-xmlns:fr="http://www.jonmsterling.com/jms-005P.xml"><fr:frontmatter><fr:anchor>301</fr:anchor><fr:addr
-type="machine">#279</fr:addr><fr:route>unstable-279.xml</fr:route><fr:title
-text="Epistemic Nearest Neighbors: baux.ENN">Epistemic Nearest Neighbors: <fr:code>baux.ENN</fr:code></fr:title><fr:taxon>Surrogate</fr:taxon><fr:authors><fr:author>Kvutza</fr:author></fr:authors></fr:frontmatter><fr:mainmatter><fr:pre>model = ENN(train_x, train_y, index_driver=NeighborIndex.FLAT)
-post = model.posterior(query_x, params=ENNParams(k_neighbors=8))</fr:pre><fr:p>The returned <fr:code>Posterior</fr:code> object yields expected mean <fr:code>post.mu</fr:code>, epistemic uncertainty <fr:code>post.se_epi</fr:code>, and aleatoric uncertainty <fr:code>post.se_ale</fr:code>.</fr:p></fr:mainmatter><fr:backmatter /></fr:tree></fr:mainmatter><fr:backmatter /></fr:tree></fr:mainmatter><fr:backmatter /></fr:tree></fr:mainmatter><fr:backmatter /></fr:tree></fr:backmatter></fr:tree>
+href="https://doi.org/10.1023/A:1013689704352">Finite-time analysis of the multiarmed bandit problem</fr:link>. Mach. Learn. 47(2–3):235–256.</fr:li>
+  <fr:li><fr:strong>[Ach03]</fr:strong> Achlioptas, D. (2003). <fr:link
+type="external"
+href="https://doi.org/10.1016/S0022-0000(03)00025-4">Database-friendly random projections: Johnson–Lindenstrauss with binary coins</fr:link>. J. Comput. Syst. Sci. 66(4):671–687.</fr:li>
+  <fr:li><fr:strong>[Ait35]</fr:strong> Aitken, A. C. (1935). <fr:link
+type="external"
+href="https://doi.org/10.1017/S0370164600014346">On least squares and linear combination of observations</fr:link>. Proc. R. Soc. Edinburgh 55:42–48.</fr:li>
+  <fr:li><fr:strong>[Bha43]</fr:strong> Bhattacharyya, A. (1943). <fr:link
+type="external"
+href="https://www.jstor.org/stable/25047882">On a measure of divergence between two statistical populations defined by their probability distributions</fr:link>. Bull. Calcutta Math. Soc. 35:99–109.</fr:li>
+  <fr:li><fr:strong>[BJS25]</fr:strong> Bafna, M., Jadhav, S., &amp; Sweet, D. R. (2026). <fr:link
+type="external"
+href="https://arxiv.org/abs/2506.12818">Taking the GP Out of the Loop</fr:link>. Proc. 43rd Int. Conf. Mach. Learn. (ICML), PMLR 306:5179–5199 (arXiv:2506.12818).</fr:li>
+  <fr:li><fr:strong>[Cen82]</fr:strong> Čencov, N. N. (1982). <fr:link
+type="external"
+href="https://doi.org/10.1090/mmono/053">Statistical Decision Rules and Optimal Inference</fr:link>. Translations of Mathematical Monographs, Vol. 53, American Mathematical Society.</fr:li>
+  <fr:li><fr:strong>[CFK+97]</fr:strong> Cannon, J. W., Floyd, W. J., Kenyon, R., &amp; Parry, W. R. (1997). <fr:link
+type="external"
+href="https://library.slmath.org/books/Book31/files/cannon.pdf">Hyperbolic Geometry</fr:link>. Flavors of Geometry, MSRI Publications 31:59–115.</fr:li>
+  <fr:li><fr:strong>[Cit+24]</fr:strong> Citrin, J., Goodfellow, I., Raju, A., Chen, J., Degrave, J., et al. (2024). <fr:link
+type="external"
+href="https://arxiv.org/abs/2406.06718">TORAX: A Fast and Differentiable Tokamak Transport Simulator in JAX</fr:link>. arXiv:2406.06718.</fr:li>
+  <fr:li><fr:strong>[Coc54]</fr:strong> Cochran, W. G. (1954). <fr:link
+type="external"
+href="https://doi.org/10.2307/3001666">The combination of estimates from different experiments</fr:link>. Biometrics 10(1):101–129.</fr:li>
+  <fr:li><fr:strong>[CP13]</fr:strong> Claessen, K., &amp; Pałka, M. H. (2013). <fr:link
+type="external"
+href="https://doi.org/10.1145/2503778.2503784">Splittable pseudorandom number generators using cryptographic hashing</fr:link>. Proc. ACM SIGPLAN Haskell Symp., pp. 47–58.</fr:li>
+  <fr:li><fr:strong>[DBB20]</fr:strong> Daulton, S., Balandat, M., &amp; Bakshy, E. (2020). <fr:link
+type="external"
+href="https://arxiv.org/abs/2006.05078">Differentiable Expected Hypervolume Improvement for Parallel Multi-Objective Bayesian Optimization</fr:link>. NeurIPS 33:9851–9864.</fr:li>
+  <fr:li><fr:strong>[DEB+22]</fr:strong> Daulton, S., Eriksson, D., Balandat, M., &amp; Bakshy, E. (2022). <fr:link
+type="external"
+href="https://proceedings.mlr.press/v180/daulton22a.html">Multi-Objective Bayesian Optimization over High-Dimensional Search Spaces</fr:link>. UAI, PMLR 180:507–517.</fr:li>
+  <fr:li><fr:strong>[Deg+22]</fr:strong> Degrave, J., Felici, F., Buchli, J., Neunert, M., Tracey, B., et al. (2022). <fr:link
+type="external"
+href="https://doi.org/10.1038/s41586-021-04301-9">Magnetic control of tokamak plasmas through deep reinforcement learning</fr:link>. Nature 602(7897):414–419.</fr:li>
+  <fr:li><fr:strong>[EM73]</fr:strong> Efron, B., &amp; Morris, C. (1973). <fr:link
+type="external"
+href="https://doi.org/10.1080/01621459.1973.10481350">Stein's estimation rule and its competitors—an empirical Bayes approach</fr:link>. J. Amer. Statist. Assoc. 68(341):117–130.</fr:li>
+  <fr:li><fr:strong>[EPG+19]</fr:strong> Eriksson, D., Pearce, M., Gardner, J., Turner, R. D., &amp; Poloczek, M. (2019). <fr:link
+type="external"
+href="https://arxiv.org/abs/1910.01739">Scalable Global Optimization via Local Bayesian Optimization</fr:link>. NeurIPS 32:5496–5507 (arXiv:1910.01739).</fr:li>
+  <fr:li><fr:strong>[Hig86]</fr:strong> Higham, N. J. (1986). <fr:link
+type="external"
+href="https://doi.org/10.1137/0907079">Computing the polar decomposition—with applications</fr:link>. SIAM J. Sci. Stat. Comput. 7(4):1160–1174.</fr:li>
+  <fr:li><fr:strong>[JL84]</fr:strong> Johnson, W. B., &amp; Lindenstrauss, J. (1984). <fr:link
+type="external"
+href="https://doi.org/10.1090/conm/026/737400">Extensions of Lipschitz mappings into a Hilbert space</fr:link>. Contemp. Math. 26:189–206, American Mathematical Society.</fr:li>
+  <fr:li><fr:strong>[JS61]</fr:strong> James, W., &amp; Stein, C. (1961). <fr:link
+type="external"
+href="https://projecteuclid.org/ebooks/berkeley-symposium-on-mathematical-statistics-and-probability/Proceedings-of-the-Fourth-Berkeley-Symposium-on-Mathematical-Statistics-and/chapter/Estimation-with-Quadratic-Loss/bsmsp/1200512173">Estimation with quadratic loss</fr:link>. Proc. Fourth Berkeley Symp. Math. Statist. Probab. 1:361–379.</fr:li>
+  <fr:li><fr:strong>[Kno06]</fr:strong> Knowles, J. (2006). <fr:link
+type="external"
+href="https://doi.org/10.1109/TEVC.2005.851274">ParEGO: A hybrid algorithm with on-line landscape approximation for expensive multiobjective optimization problems</fr:link>. IEEE Trans. Evol. Comput. 10(1):50–66.</fr:li>
+  <fr:li><fr:strong>[KvW24]</fr:strong> Kisfaludi-Bak, S., &amp; van Wordragen, G. (2024). <fr:link
+type="external"
+href="https://arxiv.org/abs/2305.01356">Quadtrees and Approximate Nearest Neighbour Search in Hyperbolic Space</fr:link>. arXiv:2305.01356.</fr:li>
+  <fr:li><fr:strong>[Lep91]</fr:strong> Lepski, O. V. (1991). <fr:link
+type="external"
+href="https://doi.org/10.1137/1135065">On a problem of adaptive estimation in Gaussian white noise</fr:link>. Theory Probab. Appl. 35(3):454–466.</fr:li>
+  <fr:li><fr:strong>[LGR+18]</fr:strong> Lei, J., G'Sell, M., Rinaldo, A., Tibshirani, R. J., &amp; Wasserman, L. (2018). <fr:link
+type="external"
+href="https://doi.org/10.1080/01621459.2017.1307116">Distribution-free predictive inference for regression</fr:link>. J. Amer. Statist. Assoc. 113(523):1094–1111.</fr:li>
+  <fr:li><fr:strong>[MBC79]</fr:strong> McKay, M. D., Beckman, R. J., &amp; Conover, W. J. (1979). <fr:link
+type="external"
+href="https://doi.org/10.1080/00401706.1979.10489755">A comparison of three methods for selecting values of input variables in the analysis of output from a computer code</fr:link>. Technometrics 21(2):239–245.</fr:li>
+  <fr:li><fr:strong>[Men+24]</fr:strong> Meneghini, O., Slendebroek, T., Lyons, B. C., McClenaghan, J., Neiser, T. F., et al. (2024). <fr:link
+type="external"
+href="https://arxiv.org/abs/2409.05894">FUSE (Fusion Synthesis Engine): A Next Generation Framework for Integrated Design of Fusion Pilot Plants</fr:link>. arXiv:2409.05894.</fr:li>
+  <fr:li><fr:strong>[Mil+98]</fr:strong> Miller, R. L., Chu, M. S., Greene, J. M., Lin-Liu, Y. R., &amp; Waltz, R. E. (1998). <fr:link
+type="external"
+href="https://doi.org/10.1063/1.872666">Noncircular, finite aspect ratio, local equilibrium model</fr:link>. Phys. Plasmas 5(4):973–978.</fr:li>
+  <fr:li><fr:strong>[NK17]</fr:strong> Nickel, M., &amp; Kiela, D. (2017). <fr:link
+type="external"
+href="https://arxiv.org/abs/1705.08039">Poincaré Embeddings for Learning Hierarchical Representations</fr:link>. NeurIPS 30:6338–6347 (arXiv:1705.08039).</fr:li>
+  <fr:li><fr:strong>[Pap+02]</fr:strong> Papadopoulos, H., Proedrou, K., Vovk, V., &amp; Gammerman, A. (2002). <fr:link
+type="external"
+href="https://doi.org/10.1007/3-540-36755-1_29">Inductive confidence machines for regression</fr:link>. ECML, LNCS 2430:345–356.</fr:li>
+  <fr:li><fr:strong>[PC19]</fr:strong> Peyré, G., &amp; Cuturi, M. (2019). <fr:link
+type="external"
+href="https://doi.org/10.1561/2200000073">Computational Optimal Transport</fr:link>. Found. Trends Mach. Learn. 11(5–6):355–607.</fr:li>
+  <fr:li><fr:strong>[Pfa+25]</fr:strong> Pfau, D., Davies, I., Borsa, D., Araújo, J. G. M., Tracey, B., &amp; van Hasselt, H. (2025). <fr:link
+type="external"
+href="https://arxiv.org/abs/2505.00663">Wasserstein Policy Optimization</fr:link>. Proc. 42nd Int. Conf. Mach. Learn. (ICML), PMLR 267 (arXiv:2505.00663).</fr:li>
+  <fr:li><fr:strong>[PKP20]</fr:strong> Paria, B., Kandasamy, K., &amp; Póczos, B. (2020). <fr:link
+type="external"
+href="https://proceedings.mlr.press/v115/paria20a.html">A Flexible Framework for Multi-Objective Bayesian Optimization using Random Scalarizations</fr:link>. UAI, PMLR 115:766–776.</fr:li>
+  <fr:li><fr:strong>[RJG24]</fr:strong> Rashidi, B., Johnstonbaugh, K., &amp; Gao, C. (2024). <fr:link
+type="external"
+href="https://proceedings.mlr.press/v238/rashidi24a.html">Cylindrical Thompson Sampling for High-Dimensional Bayesian Optimization</fr:link>. AISTATS, PMLR 238:3502–3510.</fr:li>
+  <fr:li><fr:strong>[RVR+18]</fr:strong> Russo, D. J., Van Roy, B., Kazerouni, A., Osband, I., &amp; Wen, Z. (2018). <fr:link
+type="external"
+href="https://doi.org/10.1561/2200000070">A Tutorial on Thompson Sampling</fr:link>. Found. Trends Mach. Learn. 11(1):1–96.</fr:li>
+  <fr:li><fr:strong>[SKK+10]</fr:strong> Srinivas, N., Krause, A., Kakade, S. M., &amp; Seeger, M. W. (2012). <fr:link
+type="external"
+href="https://arxiv.org/abs/0912.3995">Information-Theoretic Regret Bounds for Gaussian Process Optimization in the Bandit Setting</fr:link>. IEEE Trans. Inf. Theory 58(5):3250–3265 (ICML 2010; arXiv:0912.3995).</fr:li>
+  <fr:li><fr:strong>[SLF14]</fr:strong> Steele, G. L., Jr., Lea, D., &amp; Flood, C. H. (2014). <fr:link
+type="external"
+href="https://doi.org/10.1145/2660193.2660195">Fast splittable pseudorandom number generators</fr:link>. Proc. ACM OOPSLA, pp. 453–472.</fr:li>
+  <fr:li><fr:strong>[Sob67]</fr:strong> Sobol', I. M. (1967). <fr:link
+type="external"
+href="https://doi.org/10.1016/0041-5553(67)90144-9">On the distribution of points in a cube and the approximate evaluation of integrals</fr:link>. USSR Comput. Math. Math. Phys. 7(4):86–112.</fr:li>
+  <fr:li><fr:strong>[Ste56]</fr:strong> Stein, C. (1956). <fr:link
+type="external"
+href="https://projecteuclid.org/ebooks/berkeley-symposium-on-mathematical-statistics-and-probability/Proceedings-of-the-Third-Berkeley-Symposium-on-Mathematical-Statistics-and/chapter/Inadmissibility-of-the-Usual-Estimator-for-the-Mean-of-a/bsmsp/1200501656">Inadmissibility of the usual estimator for the mean of a multivariate normal distribution</fr:link>. Proc. Third Berkeley Symp. Math. Statist. Probab. 1:197–206.</fr:li>
+  <fr:li><fr:strong>[The+26]</fr:strong> Theiler, C., et al. (2026). <fr:link
+type="external"
+href="https://doi.org/10.1088/1741-4326/ae6d12">Progress and innovations in the TCV tokamak research programme</fr:link>. Nucl. Fusion 66:116007.</fr:li>
+  <fr:li><fr:strong>[Tho33]</fr:strong> Thompson, W. R. (1933). <fr:link
+type="external"
+href="https://doi.org/10.1093/biomet/25.3-4.285">On the likelihood that one unknown probability exceeds another in view of the evidence of two samples</fr:link>. Biometrika 25(3–4):285–294.</fr:li>
+  <fr:li><fr:strong>[Tra+24]</fr:strong> Tracey, B. D., Michoski, C., Felici, F., Galperti, C., Merle, A., et al. (2024). <fr:link
+type="external"
+href="https://doi.org/10.1016/j.fusengdes.2024.114161">Towards practical reinforcement learning for tokamak magnetic control</fr:link>. Fusion Eng. Des. 200:114161.</fr:li>
+  <fr:li><fr:strong>[VGS05]</fr:strong> Vovk, V., Gammerman, A., &amp; Shafer, G. (2005). <fr:link
+type="external"
+href="https://doi.org/10.1007/b106715">Algorithmic Learning in a Random World</fr:link>. Springer.</fr:li>
+  <fr:li><fr:strong>[Vil09]</fr:strong> Villani, C. (2009). <fr:link
+type="external"
+href="https://doi.org/10.1007/978-3-540-71050-9">Optimal Transport: Old and New</fr:link>. Grundlehren der mathematischen Wissenschaften, Vol. 338, Springer.</fr:li>
+  <fr:li><fr:strong>[Wan+25]</fr:strong> Wang, A. M., et al. (2025). <fr:link
+type="external"
+href="https://doi.org/10.1038/s41467-025-63917-3">Learning plasma dynamics and robust rampdown trajectories with predict-first experiments at TCV</fr:link>. Nature Commun. 16:8877.</fr:li>
+  <fr:li><fr:strong>[ZP04]</fr:strong> Zelnik-Manor, L., &amp; Perona, P. (2004). <fr:link
+type="external"
+href="https://proceedings.neurips.cc/paper/2004/hash/40173ea48d9567f1f393b20c855bb40b-Abstract.html">Self-Tuning Spectral Clustering</fr:link>. NeurIPS 17:1601–1608.</fr:li></fr:ul></fr:mainmatter><fr:backmatter /></fr:tree></fr:mainmatter><fr:backmatter /></fr:tree></fr:mainmatter><fr:backmatter /></fr:tree></fr:backmatter></fr:tree>

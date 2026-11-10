@@ -1,161 +1,54 @@
 <!DOCTYPE html PUBLIC "" "">
 <html xmlns="http://www.w3.org/1999/xhtml" xmlns:fr="http://www.jonmsterling.com/jms-005P.xml" data-base-url=""><head><meta http-equiv="Content-Type" content="text/html; charset=utf-8">
-<meta name="viewport" content="width=device-width"></meta><link rel="stylesheet" href="style.css"></link><link rel="stylesheet" href="katex.min.css"></link><script type="text/javascript"></script><script type="module" src="forester.js"></script><title>Baux API Reference</title></head><body><ninja-keys placeholder="Start typing a note title or ID"></ninja-keys><header class="header"><nav class="nav"><div class="logo"><a href="index.html" title="Home">« Home</a></div></nav></header><div id="grid-wrapper"><article><section xmlns="" lang="en" class="block" data-taxon="Reference"><details id="id1" open="open"><summary><header><h1>
-<span class="taxon">Reference. </span>Baux API Reference  </h1>
-<div class="metadata"><ul><li class="meta-item"><address class="author">Kvutza</address></li></ul></div></header></summary><p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">Complete formal interface specifications and dimensional invariants for the <code>baux</code> black box optimization library.</p>
-<section lang="en" class="block hide-metadata" data-taxon="Function"><details id="id2" open="open"><summary><header><h1>
-<span class="taxon">Function 1. </span>Optimizer Factory: <code xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">baux.create_optimizer</code>  </h1>
-<div class="metadata"><ul><li class="meta-item"><address class="author">Kvutza</address></li></ul></div></header></summary><p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">Instantiates an optimization state machine over a bounded continuous domain.</p>
-<pre xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">create_optimizer(
-    bounds: np.ndarray,
-    config: Optional[OptimizerConfig] = None,
-    rng: Optional[np.random.Generator] = None,
-) -&gt; Optimizer</pre>
-<ul xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">
-<li>
-<strong><code>bounds</code></strong>: 2D array of shape <code>(D, 2)</code> defining lower and upper bounds <code>[l_i, u_i]</code> for each parameter dimension.</li>
-    <li>
-<strong><code>config</code></strong>: Search policy preset: <code>turbo_enn()</code>, <code>turbo_one()</code>, or <code>turbo_zero()</code>.</li>
-    <li>
-<strong><code>rng</code></strong>: Seeded NumPy random generator for deterministic sampling reproducibility.</li>
-</ul></details></section><section lang="en" class="block hide-metadata" data-taxon="Interface"><details id="id3" open="open"><summary><header><h1>
-<span class="taxon">Interface 2. </span>Optimizer Methods  </h1>
-<div class="metadata"><ul><li class="meta-item"><address class="author">Kvutza</address></li></ul></div></header></summary><ul xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">
-<li>
-<strong><code>ask(batch_size=1) -&gt; np.ndarray</code></strong>: Proposes a candidate trial matrix of shape <code>(batch_size, D)</code> bounded within the active trust region.</li>
-    <li>
-<strong><code>tell(candidates, scores) -&gt; None</code></strong>: Updates trust-region state machine with observed evaluations under a maximization objective.</li>
-    <li>
-<strong><code>best_x -&gt; np.ndarray</code></strong>: Coordinates of the incumbent parameter point.</li>
-    <li>
-<strong><code>best_y -&gt; float</code></strong>: Best observed reward value.</li>
-</ul></details></section><section lang="en" class="block hide-metadata" data-taxon="Surrogate"><details id="id4" open="open"><summary><header><h1>
-<span class="taxon">Surrogate 3. </span>Epistemic Nearest Neighbors: <code xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">baux.ENN</code>  </h1>
-<div class="metadata"><ul><li class="meta-item"><address class="author">Kvutza</address></li></ul></div></header></summary><pre xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">model = ENN(train_x, train_y, index_driver=NeighborIndex.FLAT)
-post = model.posterior(query_x, params=ENNParams(k_neighbors=8))</pre>
-<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">The returned <code>Posterior</code> object yields expected mean <code>post.mu</code>, epistemic uncertainty <code>post.se_epi</code>, and aleatoric uncertainty <code>post.se_ale</code>.</p></details></section></details></section><footer xmlns=""><section lang="en" class="block hide-metadata"><details id="id5" open="open"><summary><header><h1>
-<span class="taxon"></span>Context  </h1>
-<div class="metadata"><ul></ul></div></header></summary><section lang="en" class="block" data-taxon="Monograph"><details id="id6"><summary><header><h1>
-<span class="taxon">Monograph. </span>Baux: Black Box Optimization  </h1>
-<div class="metadata"><ul>
-<li class="meta-item">November 9, 2026</li>
-<li class="meta-item"><address class="author">Kvutza</address></li>
-<li class="meta-item"><a class="link external" href="https://github.com/Kvutza/baux">https://github.com/Kvutza/baux</a></li>
-</ul></div></header></summary><p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><strong>baux</strong> is a black box optimization library in Python and Rust designed for expensive, derivative-free evaluation loops over continuous and bounded domains. It couples trust-region local search (<a class="link local" href="baux-0002.xml">Algorithm []</a>) with non-parametric Epistemic Nearest Neighbors (<a class="link local" href="baux-0003.xml">Surrogate []</a>) to balance local exploitation and global exploration without incurring the cubic computational bottlenecks of Gaussian Process inference.</p>
-<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">Compute kernels for distance metrics, candidate perturbation, and posterior sampling execute directly on Apple Silicon (Metal MPS) and NVIDIA GPUs (CUDA), backed by an AVX-512 and ARM NEON SIMD pure-Rust CPU engine (<a class="link local" href="baux-0004.xml">Architecture []</a>).</p>
-<section lang="en" class="block hide-metadata" data-taxon="Lineage"><details id="id7" open="open"><summary><header><h1>
-<span class="taxon">Lineage. </span>Baseline &amp; Lineage  </h1>
-<div class="metadata"><ul><li class="meta-item"><address class="author">Kvutza</address></li></ul></div></header></summary><p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><strong>baux</strong> builds on <span class="link external"><a href="https://github.com/yubo-research/enn" title="">yubo-research/enn</a></span> (v0.4.1), using its TuRBO trust-region state machine and Epistemic Nearest Neighbors formulation as the algorithmic baseline.</p>
-<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">It extends this baseline with:</p>
-<ul xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">
-<li>
-<strong>A single crate</strong>: Consolidates <code>ennbo</code>, <code>bpann</code>, and <code>enn-py</code> into a single self-contained <code>baux</code> library and binary wheel (<code>pip install baux</code>).</li>
-  <li>
-<strong>GPU acceleration</strong>: Implements Apple Silicon Metal and NVIDIA CUDA compute kernels.</li>
-  <li>
-<strong>Direct interface</strong>: Exposes a clean <code>ask</code>/<code>tell</code> loop with native batch proposals.</li>
-</ul></details></section><section lang="en" class="block hide-metadata" data-taxon="Algorithm"><details id="id8" open="open"><summary><header><h1>
-<span class="taxon">Algorithm. </span>Trust-Region Local Search (TuRBO)  </h1>
-<div class="metadata"><ul><li class="meta-item"><address class="author">Kvutza</address></li></ul></div></header></summary><p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">High-dimensional black box optimization frequently suffers from the curse of dimensionality when fitting global surrogate models over the entire parameter space. <strong>baux</strong> confines candidate proposal to a local hypercube &amp;mdash; the trust region &amp;mdash; centered at the current incumbent point \(x^* \in  [0, 1]^D\):</p>\[   \mathcal {TR}_t = \left \{ x \in  [0, 1]^D : \max _{i=1,\dots ,D} \frac {|x_i - x_i^*|}{L_t} \le  \frac {1}{2} \right \} \]<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">The base side length \(L_t\) adapts dynamically based on observation feedback:</p>
-<ul xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">
-<li>
-<strong>Expansion</strong>: If consecutive candidate batches improve upon the incumbent, the search volume expands: \(L_{t+1} = \min (L_t \times  1.5,\, L_{\max })\).</li>
-  <li>
-<strong>Contraction</strong>: If the optimizer fails to find an improvement across a sequence of failure tolerance rounds (\(\tau _{\text {fail}}\)), the volume contracts: \(L_{t+1} = \max (L_t \times  0.5,\, L_{\min })\).</li>
-  <li>
-<strong>Restart</strong>: When \(L_t\) shrinks below \(L_{\min }\), the trust region resets with a new anchor point to prevent asymptotic stagnation in local minima.</li>
-</ul></details></section><section lang="en" class="block hide-metadata" data-taxon="Surrogate"><details id="id9" open="open"><summary><header><h1>
-<span class="taxon">Surrogate. </span>Epistemic Nearest Neighbors (ENN)  </h1>
-<div class="metadata"><ul><li class="meta-item"><address class="author">Kvutza</address></li></ul></div></header></summary><p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">Standard Gaussian Process regression requires \(\mathcal {O}(N^3)\) Cholesky factorization of the kernel covariance matrix, creating a computational bottleneck when evaluation counts scale into thousands of trials.</p>
-<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">ENN models function uncertainty through a non-parametric metric projection over the \(k\)-nearest observed points. Posterior uncertainty decomposes into two independent orthogonal fields:</p>\[   p(y \mid  x, \mathcal {D}) = \mathcal {N}\left (\mu _{\text {post}}(x),\, \sigma _{\text {epi}}^2(x) + \sigma _{\text {ale}}^2\right ) \]<ul xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">
-<li>
-<strong>Epistemic Uncertainty (\(\sigma _{\text {epi}}\)):</strong> Measures spatial evaluation sparsity. Scales proportionally with metric distance to neighboring observations: it vanishes near evaluations and expands in unexplored regions.</li>
-  <li>
-<strong>Aleatoric Uncertainty (\(\sigma _{\text {ale}}\)):</strong> Captures irreducible observation noise inherent to stochastic objective evaluations.</li>
-</ul>
-<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">Because ENN evaluates uncertainty via nearest-neighbor distance fields rather than matrix inversion, candidate ranking within the trust region runs in linear time with respect to observed trials, allowing sub-millisecond proposal latency across tens of thousands of evaluations.</p></details></section><section lang="en" class="block hide-metadata" data-taxon="Architecture"><details id="id10" open="open"><summary><header><h1>
-<span class="taxon">Architecture. </span>Hardware Compute Backends  </h1>
-<div class="metadata"><ul><li class="meta-item"><address class="author">Kvutza</address></li></ul></div></header></summary><p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">In high-throughput experimental loops, latency is dominated by host-device memory synchronization. On Apple Silicon, <strong>baux</strong> leverages Unified Memory Architecture (UMA) via Metal compute pipelines:</p>
-<ul xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">
-<li>Observation buffers and trust-region states reside in unified system memory without duplicate host/device allocations.</li>
-  <li>Batch candidate generation, Sobol sequence perturbations, and nearest-neighbor distance sweeps execute directly on Metal shading pipelines.</li>
-  <li>On Linux environments with NVIDIA hardware, custom CUDA kernels handle distance computation and posterior draws across large candidate batches.</li>
-  <li>On systems without GPU support, pure-Rust AVX-512 and ARM NEON SIMD routines provide vectorized CPU fallback.</li>
-</ul></details></section><section lang="en" class="block hide-metadata" data-taxon="Interface"><details id="id11" open="open"><summary><header><h1>
-<span class="taxon">Interface. </span>API Specifications &amp; Workflows  </h1>
-<div class="metadata"><ul><li class="meta-item"><address class="author">Kvutza</address></li></ul></div></header></summary><p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">The primary Python interface is structured around a non-blocking <code>ask(batch_size)</code> and <code>tell(candidates, scores)</code> loop:</p>
-<pre xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">import numpy as np
-from baux import create_optimizer, turbo_enn
-
-# Define parameter domain: continuous bounds for each dimension
-bounds = np.array([[-5.0, 5.0], [-5.0, 5.0]])
-
-# Initialize TuRBO optimizer with Epistemic Nearest Neighbors surrogate
-opt = create_optimizer(
-    bounds=bounds,
-    config=turbo_enn(),
-    rng=np.random.default_rng(42),
-)
-
-# Propose trial batch, evaluate objective, and report back
-for step in range(25):
-    candidates = opt.ask(batch_size=4)
-    scores = -np.sum(candidates**2, axis=1)
-    opt.tell(candidates, scores)
-
-print("Incumbent parameters:", opt.best_x)
-print("Incumbent reward:", opt.best_y)</pre>
-<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">Standalone posterior inference with the Epistemic Nearest Neighbors surrogate:</p>
-<pre xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">from baux import ENN
-from baux.enn.enn_params import ENNParams
-from baux.index import NeighborIndex
-
-model = ENN(train_x, train_y, index_driver=NeighborIndex.FLAT)
-params = ENNParams(k_neighbors=8, epistemic_scale=1.0, aleatoric_scale=0.1)
-post = model.posterior(query_x, params=params)
-
-# Draw non-parametric posterior sample functions
-samples, indices = model.posterior_draw(query_x, params=params, function_seeds=[42])</pre></details></section><section lang="en" class="block hide-metadata" data-taxon="Reference"><details id="id12" open="open"><summary><header><h1>
-<span class="taxon">Reference. </span>Baux API Reference  </h1>
-<div class="metadata"><ul><li class="meta-item"><address class="author">Kvutza</address></li></ul></div></header></summary><p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">Complete formal interface specifications and dimensional invariants for the <code>baux</code> black box optimization library.</p>
-<section lang="en" class="block hide-metadata" data-taxon="Function"><details id="id13" open="open"><summary><header><h1>
-<span class="taxon">Function. </span>Optimizer Factory: <code xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">baux.create_optimizer</code>  </h1>
-<div class="metadata"><ul><li class="meta-item"><address class="author">Kvutza</address></li></ul></div></header></summary><p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">Instantiates an optimization state machine over a bounded continuous domain.</p>
-<pre xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">create_optimizer(
-    bounds: np.ndarray,
-    config: Optional[OptimizerConfig] = None,
-    rng: Optional[np.random.Generator] = None,
-) -&gt; Optimizer</pre>
-<ul xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">
-<li>
-<strong><code>bounds</code></strong>: 2D array of shape <code>(D, 2)</code> defining lower and upper bounds <code>[l_i, u_i]</code> for each parameter dimension.</li>
-    <li>
-<strong><code>config</code></strong>: Search policy preset: <code>turbo_enn()</code>, <code>turbo_one()</code>, or <code>turbo_zero()</code>.</li>
-    <li>
-<strong><code>rng</code></strong>: Seeded NumPy random generator for deterministic sampling reproducibility.</li>
-</ul></details></section><section lang="en" class="block hide-metadata" data-taxon="Interface"><details id="id14" open="open"><summary><header><h1>
-<span class="taxon">Interface. </span>Optimizer Methods  </h1>
-<div class="metadata"><ul><li class="meta-item"><address class="author">Kvutza</address></li></ul></div></header></summary><ul xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">
-<li>
-<strong><code>ask(batch_size=1) -&gt; np.ndarray</code></strong>: Proposes a candidate trial matrix of shape <code>(batch_size, D)</code> bounded within the active trust region.</li>
-    <li>
-<strong><code>tell(candidates, scores) -&gt; None</code></strong>: Updates trust-region state machine with observed evaluations under a maximization objective.</li>
-    <li>
-<strong><code>best_x -&gt; np.ndarray</code></strong>: Coordinates of the incumbent parameter point.</li>
-    <li>
-<strong><code>best_y -&gt; float</code></strong>: Best observed reward value.</li>
-</ul></details></section><section lang="en" class="block hide-metadata" data-taxon="Surrogate"><details id="id15" open="open"><summary><header><h1>
-<span class="taxon">Surrogate. </span>Epistemic Nearest Neighbors: <code xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">baux.ENN</code>  </h1>
-<div class="metadata"><ul><li class="meta-item"><address class="author">Kvutza</address></li></ul></div></header></summary><pre xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">model = ENN(train_x, train_y, index_driver=NeighborIndex.FLAT)
-post = model.posterior(query_x, params=ENNParams(k_neighbors=8))</pre>
-<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">The returned <code>Posterior</code> object yields expected mean <code>post.mu</code>, epistemic uncertainty <code>post.se_epi</code>, and aleatoric uncertainty <code>post.se_ale</code>.</p></details></section></details></section></details></section></details></section></footer></article><nav id="toc"><div class="block"><h1>Table of Contents</h1><ul xmlns="" class="block">
-<li>
-<a class="bullet" href="#id2" title="Optimizer Factory: baux.create_optimizer">■</a><span class="link local" data-target="#id2"><span class="taxon">Function 1. </span>Optimizer Factory: <code xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">baux.create_optimizer</code></span><ul class="block"></ul>
-</li>
-<li>
-<a class="bullet" href="#id3" title="Optimizer Methods">■</a><span class="link local" data-target="#id3"><span class="taxon">Interface 2. </span>Optimizer Methods</span><ul class="block"></ul>
-</li>
-<li>
-<a class="bullet" href="#id4" title="Epistemic Nearest Neighbors: baux.ENN">■</a><span class="link local" data-target="#id4"><span class="taxon">Surrogate 3. </span>Epistemic Nearest Neighbors: <code xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">baux.ENN</code></span><ul class="block"></ul>
-</li>
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'"></meta><meta name="referrer" content="strict-origin-when-cross-origin"></meta><meta name="viewport" content="width=device-width, initial-scale=1.0"></meta><link rel="stylesheet" href="style.css?v=d574a7446707" integrity="sha384-2dcI2pVu7JiSNXPT0eaGYoH6Wef6mOmbJRPuPUQXOSMMGUTTToo2FOZjn7YX4AzE"></link><link rel="stylesheet" href="katex.min.css?v=18c1c9fb05e7" integrity="sha384-TPqpCe9iqIJJFMUr4nZhfVfnhPwt6zFQ0llYbuKCrML4vxvk3koGtCzSoij1dOEx"></link><script type="module" src="forester.js?v=8f33e155074f" integrity="sha384-xGSQiQu0kX1eP1SDLdMBK8nvtlny/KN8EmWrdGiKFvVJS601GfKKTJCMCk7KddQg"></script><script type="text/javascript" src="assets/baux_ui.js?v=11b7aebc824a" defer integrity="sha384-+iRNfvsw8BfeJ0WrNhPlk8naeMztyEgNS7FbnocjD/P2f5Va4pLv8i2h07VF5ZHC"></script><title>API Reference</title></head><body><header class="masthead"><div class="masthead-inner"><div class="masthead-brand"><a href="index.html" class="brand-title">baux</a></div><nav class="masthead-nav"><a href="index.html" class="nav-item">Overview</a><a href="docs.html" class="nav-item active">API Reference</a><a href="simulation.html" class="nav-item">Playground</a><a href="https://github.com/Kvutza/baux" class="nav-item external" target="_blank" rel="noopener noreferrer">GitHub</a><a href="https://pypi.org/project/baux/" class="nav-item external" target="_blank" rel="noopener noreferrer">PyPI</a><a href="https://crates.io/crates/baux" class="nav-item external" target="_blank" rel="noopener noreferrer">Crates.io</a></nav></div></header><div id="grid-wrapper"><article><div id="baux-api-explorer"></div><section xmlns="" lang="en" class="block"><div class="tree-node" id="id1">
+<header><h1><span class="sec-title">API Reference</span></h1></header><section lang="en" class="block"><div class="tree-node" id="id2">
+<header><h1>
+<span class="sec-num">1. </span><span class="sec-title">State Transitions</span>
+</h1></header><p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><code>OptimizerState</code> is an immutable record exposing the incumbent <code>.best_x</code>, <code>.best_y</code>, decoded <code>.best_params</code>, observation arrays <code>.x_obs</code> and <code>.y_obs</code> (<code>.num_observations</code>), regional epoch counter <code>.epoch</code>, trust-region length <code>.tr_length</code>, and content-addressed <code>.key</code> derived from <code>baux.digest(state)</code>.</p>
+<pre xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">baux.init(
+    domain: np.ndarray | PyTreeSpec | Any,
+    config: OptimizerConfig | Transform | None = None,
+    *,
+    pipe: OptimizerConfig | Transform | None = None,
+    key: Key | None = None,
+    seed: int | np.random.Generator | None = None,
+    low: Any = -1.0,
+    high: Any = 1.0,
+) -&gt; OptimizerState</pre>
+<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><code>baux.ask(state, num_arms=1)</code> returns <code>(next_state, batch)</code>, where <code>AskBatch</code> carries proposal IDs, coordinate arrays, decoded parameter dictionaries, and stacked tensors.</p>
+<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><code>baux.tell(state, x, y, y_var=None)</code> appends observations and returns <code>(next_state, mu)</code>. <code>baux.step(state, objective)</code> runs one <code>ask -&gt; evaluate -&gt; tell</code> cycle.</p>
+<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><code>baux.scan(state, key, steps, eval_fn, num_arms)</code> folds transitions across rounds. <code>baux.pmap(state, key, branches, branch_fn)</code> forks snapshots and splits keys across worker threads.</p>
+<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">Asynchronous regional completions and cancellations use <code>baux.complete(state, ids, y, y_var=None)</code> and <code>baux.cancel(state, ids)</code>. States hash via <code>baux.digest(state)</code> (BLAKE3) and serialize via <code>baux.freeze(state)</code> and <code>baux.thaw(state, data)</code>.</p>
+</div></section><section lang="en" class="block"><div class="tree-node" id="id3">
+<header><h1>
+<span class="sec-num">2. </span><span class="sec-title">PRNG Keys</span>
+</h1></header><p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><code>baux.key(seed)</code> constructs a 128-bit <code>(u64, u64)</code> SplitMix64 key from an integer, byte buffer, array, state digest, or OS entropy, seeding deterministic ChaCha12 and optimizer streams. <code>baux.split(k, n)</code> partitions \(k\) into \(n\) subkeys, and <code>baux.fold(k, tag)</code> mixes in an integer tag without mutating \(k\), keeping proposal generation, hyperparameter fitting, and posterior sampling independent.</p>
+</div></section><section lang="en" class="block"><div class="tree-node" id="id4">
+<header><h1>
+<span class="sec-num">3. </span><span class="sec-title">Pipeline Transforms</span>
+</h1></header><p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">Pipelines compose <code>Transform</code> stages into an <code>OptimizerConfig</code> via <code>baux.chain(*steps)</code> or <code>t1 | t2</code>.</p>
+<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">Initialization and perturbation use <code>baux.lhd(num_init=10)</code>, <code>baux.sobol(num_candidates=1024)</code>, <code>baux.raasp(num_pert=20)</code>, and <code>baux.uniform_pert(num_candidates=1024)</code>. Surrogates attach via <code>baux.enn(k=10, geometry="euclidean")</code>, <code>baux.gp()</code>, or <code>baux.zero()</code>; acquisitions attach via <code>baux.ucb(beta=2.0)</code>, <code>baux.thompson()</code>, <code>baux.pareto()</code>, or <code>baux.random_acq()</code>.</p>
+<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">Geometry and regional layout are configured with <code>baux.tr_bounds(length_init=0.8)</code>, <code>baux.regions(count=4, sharing="ellipsoid_ball")</code>, <code>baux.with_geometry(target, "hyperbolic")</code>, <code>baux.stein(target, rank=4)</code>, and <code>baux.calibrate(target, alpha=0.1)</code>.</p>
+</div></section><section lang="en" class="block"><div class="tree-node" id="id5">
+<header><h1>
+<span class="sec-num">4. </span><span class="sec-title">PyTree Domains &amp; Codomain Operators</span>
+</h1></header><p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">Parameter spaces are written as nested Python dicts, tuples, and lists of leaf charts, compiled by <code>baux.pytree_bounds(tree)</code> into a <code>PyTreeSpec</code>.</p>
+<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">Domain leaf charts include <code>baux.Log(low, high)</code>, <code>baux.Periodic(low, high)</code>, <code>baux.Simplex(dim)</code>, and <code>baux.categorical(categories, encoding="auto")</code>. <code>baux.ravel(tree, spec)</code> and <code>baux.unflatten(flat, spec)</code> map between nested Python values and flat solver coordinates. Multi-output codomain operators use <code>baux.Stiefel(loadings)</code> (with <code>baux.stein</code>) and <code>baux.Affine(scale, shift, conformal_q=1.0)</code> (with <code>baux.calibrate</code>).</p>
+</div></section><section lang="en" class="block"><div class="tree-node" id="id6">
+<header><h1>
+<span class="sec-num">5. </span><span class="sec-title">ENN Surrogate</span>
+</h1></header><p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><code>baux.enn_init(train_x, train_y, scale_x=True)</code> builds an immutable surrogate state; <code>baux.append(state, x, y)</code> appends observations via copy-on-write; <code>baux.fit(state, k=10, key=k0)</code> selects scale parameters by subsampled leave-one-out log-pseudolikelihood.</p>
+<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><code>baux.posterior(state, x, params)</code> evaluates posterior mean, aleatoric standard error, and epistemic standard error at <code>x</code>. <code>baux.sample(state, x, params, key=k1, num_draws=16)</code> returns <code>(draws, idx)</code>, with function draws of shape <code>(batch, metrics, num_draws)</code> and neighbor indices of shape <code>(batch, k)</code>.</p>
+</div></section><section lang="en" class="block"><div class="tree-node" id="id7">
+<header><h1>
+<span class="sec-num">6. </span><span class="sec-title">Adapters</span>
+</h1></header><p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><code>baux.create_optimizer(bounds=bounds, config=config, rng=rng)</code> wraps the functional core in a stateful <code>Optimizer</code> exposing <code>opt.ask(num_arms)</code>, <code>opt.tell(x, y)</code>, <code>opt.posterior_mu(x)</code>, and <code>opt.telemetry()</code>. <code>from baux.optuna import Sampler</code> provides an Optuna <code>BaseSampler</code> over continuous <code>FloatDistribution</code> spaces. <code>baux.capabilities(probe=False)</code> lists compiled and active backends (<code>"cpu"</code>, <code>"metal"</code>, <code>"cuda"</code>, <code>"opencl"</code>).</p>
+</div></section>
+</div></section></article><nav id="toc"><div class="block"><h1>Contents</h1><ul xmlns="" class="block">
+<li><a class="link local" href="#id2" data-target="#id2"><span class="taxon">1. </span>State Transitions</a></li>
+<li><a class="link local" href="#id3" data-target="#id3"><span class="taxon">2. </span>PRNG Keys</a></li>
+<li><a class="link local" href="#id4" data-target="#id4"><span class="taxon">3. </span>Pipeline Transforms</a></li>
+<li><a class="link local" href="#id5" data-target="#id5"><span class="taxon">4. </span>PyTree Domains &amp; Codomain Operators</a></li>
+<li><a class="link local" href="#id6" data-target="#id6"><span class="taxon">5. </span>ENN Surrogate</a></li>
+<li><a class="link local" href="#id7" data-target="#id7"><span class="taxon">6. </span>Adapters</a></li>
 </ul></div></nav></div></body></html>

@@ -277,14 +277,17 @@ fn collect_payloads(args: &Args) -> io::Result<(BTreeMap<String, Vec<u8>>, Strin
         format!("{}/baux_rust{}", args.package, args.extension_suffix),
         fs::read(extensions[0])?,
     );
-    if let Some(openmp) = all_files
-        .iter()
-        .find(|path| path.file_name().and_then(|name| name.to_str()) == Some("libomp.dylib"))
-    {
-        wheel_files.insert(
-            format!("{}/.dylibs/libomp.dylib", args.package),
-            fs::read(openmp)?,
-        );
+    if args.platform_tag.starts_with("macosx") {
+        for library in all_files
+            .iter()
+            .filter(|path| path.extension().and_then(|name| name.to_str()) == Some("dylib"))
+        {
+            let name = library.file_name().unwrap().to_string_lossy();
+            wheel_files.insert(
+                format!("{}/.dylibs/{name}", args.package),
+                fs::read(library)?,
+            );
+        }
     }
     if args.platform_tag.starts_with("manylinux") {
         for library in all_files.iter().filter(|path| {

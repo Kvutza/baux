@@ -8,6 +8,13 @@ from typing import Any
 from .._lazy import module_attr
 
 _LAZY_ATTRS: dict[str, tuple[str, str]] = {
+    "compile": (".program", "compile"),
+    "TensorSpec": (".program", "TensorSpec"),
+    "Executable": (".program", "Executable"),
+    "Invocation": (".program", "Invocation"),
+    "ResidentModel": (".program", "ResidentModel"),
+    "ModelOutput": (".program", "ModelOutput"),
+    "ModelInvocation": (".program", "ModelInvocation"),
     "Device": (".._rust", "Device"),
     "Tensor": (".._rust", "Tensor"),
     "Var": (".._rust", "Var"),
@@ -119,6 +126,13 @@ def __getattr__(name: str) -> Any:
 
 
 __all__: list[str] = [
+    "compile",
+    "TensorSpec",
+    "Invocation",
+    "ResidentModel",
+    "ModelOutput",
+    "ModelInvocation",
+    "Executable",
     "BayesOptimizer",
     "BpannHistory",
     "CandidateProposal",

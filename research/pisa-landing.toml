@@ -2,7 +2,6 @@ task = "blckbaux-m6h.1"
 date = "2026-11-04"
 source_revision = "JJ change uxtvsulwrmkmqktzwqwnqwxmmqqklqqp"
 base_revision = "3b63ac97"
-workspace = "codex-pisa-full"
 changes = [
   "Renamed 12 naming-policy violations including the 1M evidence filename.",
   "Shared context oracle scores per-head LSE over child means internally and raw keys at leaves; mean_blocks remains explicit for the separate Metal diffusion index.",

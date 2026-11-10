@@ -247,14 +247,17 @@ fn run_reps(run: &baux::config::RunConfig, artifact_dir: &std::path::Path) -> Re
 }
 
 fn run() -> Result<(), String> {
-    let path = std::env::args_os()
+    let program = std::env::args_os()
         .nth(1)
+        .is_some_and(|arg| arg == "--program");
+    let offset = usize::from(program);
+    let path = std::env::args_os()
+        .nth(1 + offset)
         .ok_or("expected a resolved TuRBO-ENN TOML path")?;
     let artifact_dir = std::env::args_os()
-        .nth(2)
+        .nth(2 + offset)
         .map(std::path::PathBuf::from)
         .ok_or("expected an artifact directory")?;
-    let (run, _) = baux::config::load_tune(std::path::Path::new(&path))?;
     let numerical_root =
         std::env::var_os("BAUX_NUMERICAL_ROOT").ok_or("missing numerical artifact store")?;
     let numerical_id = std::env::var("BAUX_NUMERICAL_RECEIPT")
@@ -271,6 +274,13 @@ fn run() -> Result<(), String> {
     // trusts the compiler.
     unsafe { baux::artifact::numerical::install(&numerical.library)? };
     baux::semantics::numerical::require()?;
+    if program {
+        #[cfg(target_os = "macos")]
+        return baux_fbt::moe::program::experiment::run(std::path::Path::new(&path), &artifact_dir);
+        #[cfg(not(target_os = "macos"))]
+        return Err("resident-program requires Metal".into());
+    }
+    let (run, _) = baux::config::load_tune(std::path::Path::new(&path))?;
     #[cfg(target_os = "macos")]
     {
         if run.experiment == Some(baux::ExperimentKind::Generation) {

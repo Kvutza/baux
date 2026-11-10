@@ -30,13 +30,13 @@ mod envelope;
 use envelope::*;
 
 mod candidate;
+pub mod program;
 use candidate::*;
 
 #[path = "heldout/causal.rs"]
 mod causal;
-#[cfg(test)]
 #[path = "heldout/forward_probe.rs"]
-mod forward_probe;
+pub mod forward_probe;
 #[path = "heldout/long.rs"]
 mod long;
 #[path = "heldout/matrix.rs"]

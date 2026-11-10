@@ -17,9 +17,12 @@ pub mod adapter;
 )]
 mod dlpack;
 pub mod link_rpath;
+mod py_backend;
 #[cfg(all(target_os = "linux", target_arch = "x86_64", feature = "cuda"))]
 pub mod py_cuda;
 pub mod py_device;
+#[cfg(all(target_os = "macos", feature = "metal"))]
+mod py_fbt;
 pub mod py_fit;
 pub mod py_fitter;
 pub mod py_hash;
@@ -27,10 +30,13 @@ pub mod py_hypervolume;
 #[cfg(all(target_os = "macos", feature = "metal"))]
 mod py_metal;
 pub mod py_model;
+#[cfg(target_os = "macos")]
+mod py_native;
 pub mod py_optimizer;
 #[cfg(all(target_os = "macos", feature = "metal"))]
 mod py_portfolio;
 pub mod py_posterior;
+mod py_program;
 pub mod py_regions;
 pub mod py_util;
 
@@ -45,6 +51,17 @@ pub use pymodule_wrappers::{
 #[pymodule]
 #[pyo3(name = "baux_rust")]
 pub(crate) fn baux_rust(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_class::<py_program::PyProgram>()?;
+    m.add_class::<py_backend::PyBackendQueue>()?;
+    m.add_class::<py_backend::PyBackendCall>()?;
+    #[cfg(target_os = "macos")]
+    {
+        m.add_class::<py_native::PyNativeSession>()?;
+        m.add_class::<py_native::PyNativeBuffer>()?;
+        m.add_class::<py_native::PyNativePending>()?;
+    }
+    #[cfg(all(target_os = "macos", feature = "metal"))]
+    m.add_class::<py_fbt::PyResidentModel>()?;
     m.add_function(wrap_pyfunction!(py_util::capabilities, m)?)?;
     m.add_function(wrap_pyfunction!(py_hash::verify_lock, m)?)?;
     m.add_function(wrap_pyfunction!(py_hash::py_blake3hex, m)?)?;

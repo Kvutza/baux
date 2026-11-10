@@ -42,6 +42,7 @@ impl SearchState {
         round: &Proposals,
         observation: crate::objective_observation::ObjectiveObservation,
     ) -> Result<NoisyDecision, String> {
+        self.check_unleased()?;
         self.initial_observation(round, observation)
     }
 
@@ -153,6 +154,7 @@ impl SearchState {
             variance,
         } = observation.control();
         autoreleasepool(|| {
+            self.check_unleased()?;
             self.check_round(round)?;
             let incumbent_value = self.best;
             let incumbent_variance = self.best_variance;
@@ -277,6 +279,7 @@ impl SearchState {
         round: &Proposals,
         world: baux::semantics::optimizer::WorldId,
     ) -> Result<baux::semantics::optimizer::AskPlan, String> {
+        self.check_unleased()?;
         self.check_round(round)?;
         if self.base_id != round.base_id || self.evaluation.is_some_and(|planned| planned != world)
         {
@@ -321,6 +324,7 @@ impl SearchState {
         observation: crate::objective_observation::ObjectiveObservation,
     ) -> Result<NoisyDecision, String> {
         use baux::semantics::optimizer::{RoundId, TellDecision};
+        self.check_unleased()?;
         self.check_round(round)?;
         // Public proposal metadata is inspectable/mutable by callers. Only the
         // saved publication describes the materialized row and its prediction.
@@ -415,6 +419,7 @@ impl SearchState {
             variance,
         } = observation.control();
         autoreleasepool(|| {
+            self.check_unleased()?;
             self.check_round(round)?;
             check_scores(
                 &[value, round.predicted_mean, round.incumbent_mean],

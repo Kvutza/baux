@@ -32,6 +32,7 @@ mod history;
 mod import;
 mod initialization;
 mod inspection;
+mod program;
 pub use inspection::{MetalMemoryInfo, memory_info, upload};
 mod layout;
 mod leaf;
@@ -420,6 +421,7 @@ pub struct SearchState {
     fitter: Option<ENNFitter>,
     fitted_enn: Option<(usize, f32, f32, f32)>,
     owner: u64,
+    leases: Arc<std::sync::atomic::AtomicUsize>,
     next_id: u64,
     pending: Option<Proposals>,
     evaluation: Option<baux::semantics::optimizer::WorldId>,

@@ -1,5 +1,17 @@
 load(":suite.bzl", "test_suite")
-load("//admin/buck2:python.bzl", "PYTHON_ENVIRONMENT")
+load("//admin/buck2:python.bzl", "PYTHON_COMPILER_ENVIRONMENT", "PYTHON_ENVIRONMENT")
+
+sh_test(
+    name = "compiler-python",
+    test = "compiler.sh",
+    args = ["-k", read_config("baux", "compiler_filter", ""), "-o", "faulthandler_timeout=30"],
+    resources = ["//:compiler-source", "//:wheel-macos-arm64"],
+    env = {
+        "BAUX_TEST_PYTHON": ".pixi/envs/" + PYTHON_COMPILER_ENVIRONMENT + "/bin/python",
+        "BAUX_TEST_WHEEL": "$(location //:wheel-macos-arm64)",
+    },
+    target_compatible_with = ["prelude//os/constraints:macos"],
+)
 
 sh_test(
     name = "resident-python",
@@ -102,5 +114,27 @@ _TESTS = [
 test_suite(
     name = "all",
     tests = _TESTS,
+    visibility = ["PUBLIC"],
+)
+
+rust_test(
+    name = "program",
+    srcs = ["program.rs"],
+    crate_root = "program.rs",
+    edition = "2024",
+    deps = ["//rust/crates/baux:portable"],
+    resources = ["//admin/buck2/iree:round-cpu", "//admin/buck2/iree:round-metal"],
+    run_env = {
+        "BAUX_VMFB_CPU": "$(location //admin/buck2/iree:round-cpu)",
+        "BAUX_VMFB_METAL": "$(location //admin/buck2/iree:round-metal)",
+    },
+    rpath = True,
+    runtime_dependency_handling = "symlink",
+    target_compatible_with = ["prelude//os/constraints:macos"],
+)
+
+test_suite(
+    name = "compiler",
+    tests = [":program", ":compiler-python", "//ocaml:program", "//rust/crates/baux:compute-test"],
     visibility = ["PUBLIC"],
 )

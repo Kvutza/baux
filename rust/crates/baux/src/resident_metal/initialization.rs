@@ -259,6 +259,7 @@ impl SearchState {
             fitter: None,
             fitted_enn: None,
             owner: NEXT_OWNER.fetch_add(1, Ordering::Relaxed),
+            leases: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             next_id: 0,
             pending: None,
             evaluation: None,

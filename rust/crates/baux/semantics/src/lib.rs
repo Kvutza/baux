@@ -55,6 +55,8 @@ pub mod affine;
 #[path = "categorical.rs"]
 pub mod categorical;
 #[cfg(not(feature = "cuda-device"))]
+pub mod compute;
+#[cfg(not(feature = "cuda-device"))]
 #[path = "dispatch.rs"]
 pub mod dispatch;
 #[cfg(not(feature = "cuda-device"))]

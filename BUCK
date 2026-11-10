@@ -115,6 +115,12 @@ filegroup(
 )
 
 filegroup(
+    name = "compiler-source",
+    srcs = glob(["python/baux/**/*.py", "tests/compiler/*.py"]),
+    visibility = ["//admin/buck2/tests:compiler-python"],
+)
+
+filegroup(
     name = "cuda-package",
     srcs = {
         path: path
@@ -207,7 +213,10 @@ python_wheel(
     python_requires = PYTHON_REQUIRES,
     python_srcs = glob(["python/baux/**/*.py"]),
     readme = "README.md",
-    runtime_libraries = ["//admin/buck2/native:openmp-build[lib]"],
+    runtime_libraries = [
+        "//admin/buck2/native:openmp-build[lib]",
+        "//admin/buck2/iree:build[library]",
+    ],
     target_compatible_with = [
         "prelude//cpu/constraints:arm64",
         "prelude//os/constraints:macos",

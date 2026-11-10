@@ -12,7 +12,6 @@ interpretation = [
 ]
 
 [source]
-workspace = "/Users/mehulbafna/research/baux-pisa-full"
 jj_change = "uxtvsulwrmkmqktzwqwnqwxmmqqklqqp"
 measured_commit = "910cb6b832a91bf1679dc5e1ad57786538816f8a"
 test_executable_sha256 = "f4ec6f07cf4fd6a72dc0883361e1f39223ca28eeafe692d9a0a81e9fffad1e7d"
@@ -52,7 +51,8 @@ exit_code = 0
 [verification.baux_check]
 command = "./baux check"
 exit_code = 1
-output = "o|exec (in /Users/mehulbafna/research/baux-pisa-full): ./tools/prekw run --all-files\nerror: Not in a Git repository. Change to a Git repository, or run `git init` to create one.\ne|baux: command exited with exit status: 2\n"
+# Local checkout path redacted from the recorded diagnostic.
+output = "o|exec (in <repository>): ./tools/prekw run --all-files\nerror: Not in a Git repository. Change to a Git repository, or run `git init` to create one.\ne|baux: command exited with exit status: 2\n"
 
 [reproduce]
 build = "./tools/buck2w build //rust/crates/fbt:fbt-unit --show-output"

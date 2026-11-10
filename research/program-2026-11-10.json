@@ -1,0 +1,232 @@
+{
+  "schema": "baux.resident_program_evidence.v1",
+  "date": "2026-11-10",
+  "command": "./baux tune research/resident-program.toml",
+  "provenance": {
+    "id": "afbe9b3d40c94078eb8edcfe4c5a33c11100d86997eb86042b1b94a917c8307a",
+    "commit": "891375824de1b6a8b53a9602c0516b3d4313e7f5",
+    "worker_sha256": "b81afc0d2c6ac9b29d775588c7f57f29b93995e38724f3abef1c052026fed492",
+    "config_sha256": "fe817e96ce20826c32a166e48f38cf22bd8b1e4243330c51d198209fa3ab463b",
+    "status": "completed",
+    "report_status": "complete"
+  },
+  "result": {
+    "schema": "baux.resident_program.v1",
+    "model": "fbt-pisa1-mhc4-v1",
+    "parameters": 265623320,
+    "parameter_dtype": "float16",
+    "device": "Apple M4",
+    "batch": 2,
+    "context": 4096,
+    "data": "deterministic synthetic vocabulary IDs; no learning-quality claim",
+    "initial_reward": -13.006917,
+    "optimizer_evaluations": 4,
+    "audit_evaluations": 3,
+    "round_parameter_readbacks": 0,
+    "timing": "continuous proposal through settlement; audit follows each completed round; initialization excluded",
+    "old_observations_preserved": true,
+    "rounds": [
+      {
+        "seed": 43,
+        "initializing": false,
+        "changed_parameters": 259648068,
+        "selected": 0,
+        "predicted_mean": -13.006917,
+        "reward": -13.00186,
+        "variance": 0.00012098518,
+        "scored_tokens": 8190,
+        "sequence_nlls": [
+          12.991398,
+          13.012322
+        ],
+        "accepted": true,
+        "numerical": "arithmetic-checked",
+        "history": 2,
+        "forward_gpu_seconds": 0.8274172083474696,
+        "proposal_seconds": 0.04250875,
+        "forward_wall_seconds": 0.828788875,
+        "tell_seconds": 0.32641975,
+        "round_seconds": 1.197717666,
+        "audit_seconds": 0.846418417,
+        "parity_max_abs": 0.0,
+        "parameter_allocation_identical": true,
+        "lease_rejected_mutation": true,
+        "round": 1,
+        "mean_nll": 13.001859664916992,
+        "wall_ms": 1197.717666
+      },
+      {
+        "seed": 44,
+        "initializing": false,
+        "changed_parameters": 259649416,
+        "selected": 0,
+        "predicted_mean": -13.00186,
+        "reward": -13.009317,
+        "variance": 0.00010194248,
+        "scored_tokens": 8190,
+        "sequence_nlls": [
+          12.997751,
+          13.020883
+        ],
+        "accepted": false,
+        "numerical": "arithmetic-checked",
+        "history": 3,
+        "forward_gpu_seconds": 0.8401480000466108,
+        "proposal_seconds": 0.033993666,
+        "forward_wall_seconds": 0.841523459,
+        "tell_seconds": 6.6167e-05,
+        "round_seconds": 0.875583333,
+        "audit_seconds": 0.889090833,
+        "parity_max_abs": 0.0,
+        "parameter_allocation_identical": true,
+        "lease_rejected_mutation": true,
+        "round": 2,
+        "mean_nll": 13.009317398071289,
+        "wall_ms": 875.583333
+      },
+      {
+        "seed": 45,
+        "initializing": false,
+        "changed_parameters": 259649924,
+        "selected": 0,
+        "predicted_mean": -13.00186,
+        "reward": -13.004499,
+        "variance": 0.000105511375,
+        "scored_tokens": 8190,
+        "sequence_nlls": [
+          13.000915,
+          13.008084
+        ],
+        "accepted": false,
+        "numerical": "arithmetic-checked",
+        "history": 4,
+        "forward_gpu_seconds": 0.8638347500236705,
+        "proposal_seconds": 0.046241916,
+        "forward_wall_seconds": 0.8652732089999999,
+        "tell_seconds": 3.3084e-05,
+        "round_seconds": 0.911548416,
+        "audit_seconds": 0.872139375,
+        "parity_max_abs": 0.0,
+        "parameter_allocation_identical": true,
+        "lease_rejected_mutation": true,
+        "round": 3,
+        "mean_nll": 13.004499435424805,
+        "wall_ms": 911.548416
+      }
+    ]
+  },
+  "interpretation": [
+    "Checks native-runtime integration against the existing direct Metal scorer; this is not an independent proof of model or PISA mathematics.",
+    "Round time continuously spans proposal, parameter import, forward, explicit observation readback, tell and sync. Audit forwards follow settlement and are excluded.",
+    "One initial objective plus three candidate objectives; three extra reference forwards are audit evaluations.",
+    "Zero parameter readbacks refers to the optimizer rounds. Existing model/search initialization can stage and inspect weights on the host.",
+    "Three rounds on synthetic token IDs establish integration and observed timing, not training quality or a 1M-context latency result.",
+    "The existing acceptance policy is preserved: one accepted candidate, two rejected; every observation enters history.",
+    "Shared Rust runtime is used by Python and OxCaml compiler APIs. The new full-model factory is Rust-only; Python/OxCaml model factories remain open."
+  ],
+  "earlier_runs": [
+    {
+      "id": "0b2059e70ebea666bf2a556524a4a3e8fbeafdac2ff9594de933c9da3f365faf",
+      "commit": "a96127499f388d03f14a4488ea078bbb17cd4e0e",
+      "worker_sha256": "6eac7fc15c63fec50fabda254a71e2e3870d985e64cc434cfdb38f69c8796024",
+      "config_sha256": "fe817e96ce20826c32a166e48f38cf22bd8b1e4243330c51d198209fa3ab463b",
+      "status": "completed",
+      "report_status": "complete",
+      "timing": "sum of measured phases; audit preceded settlement; superseded by continuous timing above",
+      "round_seconds": [
+        1.252099457,
+        0.9101185420000001,
+        0.951331583
+      ],
+      "parity_max_abs": [
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "id": "dd1d432e8dab632a51c525b1908498776fec087778e147d16913740090bd8e00",
+      "commit": "3cef1a38a5d8857ac140c00346565ab8647901bc",
+      "worker_sha256": "93f780cfbf1eb4d2e8f656e4a4f6d8d1e4f094bfca9669388e55e4c0a2561868",
+      "config_sha256": "fe817e96ce20826c32a166e48f38cf22bd8b1e4243330c51d198209fa3ab463b",
+      "status": "completed",
+      "report_status": "no_measurements",
+      "timing": "sum of measured phases; audit preceded settlement; superseded by continuous timing above",
+      "round_seconds": [
+        0.929431083,
+        0.8714228749999999,
+        0.9167085
+      ],
+      "parity_max_abs": [
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "id": "fbe3a561e0754fc3ea3a034cbae2048d1672b177932697006cdfae8e6ff898f8",
+      "commit": "863708afda9630ecd5e88d6fcfa004dadea87126",
+      "worker_sha256": "081d1bc4e57f7d3dcb362f92c06a56af13efe0e445131c51a87c4d4754e1200e",
+      "config_sha256": "fe817e96ce20826c32a166e48f38cf22bd8b1e4243330c51d198209fa3ab463b",
+      "status": "completed",
+      "report_status": "no_measurements",
+      "timing": "sum of measured phases; audit preceded settlement; superseded by continuous timing above",
+      "round_seconds": [
+        2.4466309170000002,
+        0.907706959,
+        0.957939541
+      ],
+      "parity_max_abs": [
+        0.0,
+        0.0,
+        0.0
+      ]
+    }
+  ],
+  "checks": {
+    "compiler_suite": {
+      "python": 28,
+      "rust_signature": 1,
+      "rust_runtime": 6,
+      "oxcaml_devices": [
+        "CPU",
+        "Metal"
+      ],
+      "log": ".cache/program-suite.log"
+    },
+    "expanded_runtime": {
+      "passed": 7,
+      "log": ".cache/interop-test.log",
+      "includes": "dropped invocation retains external lease through completion"
+    },
+    "regular_oxcaml_build": "passed",
+    "baux_check": "11 inherited Ruff errors in admin/ops/apply_cad_upgrade.py and admin/ops/extract_fuse_cad.py",
+    "baux_names": "4 inherited violations; no new-file violations"
+  },
+  "sha256": {
+    "admin/buck2/iree/bridge.m": "21dbdad07b056fc9ac813770558fa5d6dfeda32ee31f1d6fbd556709a521c443",
+    "admin/buck2/iree/bridge.h": "c8cd8dadc39914afb5ff885e8b0ee545254d5b588a6d0289683f79f688afb567",
+    "admin/buck2/iree/CMakeLists.txt": "2be4e8958a8e6d7950e0b2191b24aaf237857191f6362ff76ce8c3746a6cdb43",
+    "rust/crates/baux/src/portable/mod.rs": "b80759d55d023f202a33ac5387a27f03c14454faef058fc68f29fa9e0569deca",
+    "rust/crates/baux/src/portable/interop.rs": "e31cff8687fdf2294c7114737009d71414d563fcd9bba52732ca7960d129407b",
+    "rust/crates/baux/src/portable/raw.rs": "f6dd40c809f5b131302e083695237ca9d85ac841847a655c2e42043df2e5960d",
+    "rust/crates/baux/src/portable/pending.rs": "fba17be816c322bbe8b354ea0efdcc73afd07f14e2e9b8d4f3ffb0dbb479fe92",
+    "rust/crates/baux/src/resident_metal.rs": "a7763def1acdaeae75fc61c6a3950ae70fdb934c67785a88857b4f1275e0c917",
+    "rust/crates/baux/src/resident_metal/program.rs": "9a0edb33a6c8b0a45bdefa61b664665d573a7ec40fddce9cf4235174144b6821",
+    "rust/crates/baux/src/resident_metal/initialization.rs": "ca62c228de7f5d982a18faf1455173abde938ae77a50bb18b47adee73ed22dd0",
+    "rust/crates/baux/src/resident_metal/inspection.rs": "00349b0b97e462085613a8cd0af86f6a0c9bcd29548558fc769d67ffd1938a6c",
+    "rust/crates/baux/src/resident_metal/history.rs": "d4b9ff35ca130ffb37c720ffdf8e8e8ec263aa7c634a8229441ad75a5ebf6dcd",
+    "rust/crates/baux/src/resident_metal/observations.rs": "76b1045e445f8819c29580934c794e7d64be108e3e8101bd147499b7ab55313d",
+    "rust/crates/baux/src/resident_metal/propose.rs": "656422df03b752442bd09f7089776add5a68f08f952999c548bc54d0d3ee220b",
+    "rust/crates/baux/src/resident_metal/state.rs": "cfb9dd8dae5f78661faed2fad75266d4f8f25895e0b07cb81c2976cc140080b4",
+    "rust/crates/fbt/src/moe.rs": "be2e2703f9266bbb3b8214899b9b12fafda200924aa42e81c08f27816063ea7d",
+    "rust/crates/fbt/src/moe/program.rs": "b5038d783240635b2d8218c5e6ee66005d232ca2b9fdf28908c7c89c9b211458",
+    "rust/crates/fbt/src/moe/program/experiment.rs": "cc5992dee88683cc0058e01d0bc57207c560f744d38c232bf25521487e99d00a",
+    "rust/crates/fbt/src/moe/objective.rs": "470d5c83d3f016054d9b6ee630d431243341fd5ed434f8e3f207b30681379ff1",
+    "rust/crates/fbt/src/bin/baux-tune-worker/main.rs": "4a7f23df39a4d6b36864515b3b6d0114a7526c15e9cbb797fd1da70b70657136",
+    "rust/crates/runner/src/experiment.rs": "be417cf15a4397e9fcc4fe44c08132138e639d3d640b71e35d6c102d26112a01",
+    "rust/crates/runner/src/experiment/program.rs": "7f0e759382f3f5f2c8eddcf6c30e3b1db3b33a208bdd7e6a08962228224961cc",
+    "admin/buck2/tests/program.rs": "706a9e956bb430ebdb14dbfdcbfe3a50f3e49176485c8bcb1e4f04ba3e6f1c0c",
+    "research/resident-program.toml": "243430529a890716ce27f9f44199ad63b7c57ee41410ee28c9d1450ca9047a9a"
+  }
+}

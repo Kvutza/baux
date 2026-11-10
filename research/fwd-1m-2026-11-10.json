@@ -1,0 +1,41 @@
+{
+  "schema": "baux.resident_forward.v1",
+  "run": {
+    "id": "8610bb67f6ca2c0daa1c0aaac25f3a121f5f7f5e3bc0e2e641ebca351c682cbe",
+    "status": "completed",
+    "task": "blckbaux-6tx",
+    "commit": "edc37fce9b8f1601756a93383145e1f6f0e16fd5",
+    "change": "zwnxslsqyzkunslspozoptqxlqvuqnoy",
+    "runner_sha256": "b57bfa98d044875e70c69dc845240253a2be4aa14cee8c27d908dce6050cbfad",
+    "worker_sha256": "df1535410d3f607d7d888c4bdc8a4ae3dc0b421dbdca3f241705ee06952f2eb1",
+    "config_sha256": "2c62df0d8dc56dabdd5780a37d86fa7bec01ff5a4690db2ef34c684a73a481bb",
+    "forward_sha256": "317a6a3963d955b6105d28ab9bfe17321b1b96754da2adacc8eae25613688043"
+  },
+  "backend": "metal",
+  "device": "Apple M4",
+  "architecture": "mhc4",
+  "parameters": 265623320,
+  "seed": 17,
+  "context": 1048576,
+  "chunk_rows": 8192,
+  "visits": 7,
+  "scope": "complete-causal-prefill-with-readout-and-loss",
+  "input": "deterministic-synthetic-token-ids",
+  "profiled": false,
+  "initialization_in_timing": false,
+  "measurements": [
+    {
+      "sample": 0,
+      "gpu_ms": 334392.5635406049,
+      "wall_ms": 334914.9745,
+      "scored_tokens": 1048576,
+      "mean_nll": 12.975597
+    }
+  ],
+  "interpretation": [
+    "Every requested token was scored with retained per-visit KV across 8192-row chunks.",
+    "The finite synthetic-input NLL is execution evidence, not a learning-quality measurement.",
+    "This run misses the one-second latency target by more than two orders of magnitude.",
+    "Host load was uncontrolled; no causal performance comparison is claimed."
+  ]
+}

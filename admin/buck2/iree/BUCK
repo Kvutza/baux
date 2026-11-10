@@ -1,0 +1,45 @@
+# IREE runtime 3.13.1 and its recorded FlatCC submodule; no Cargo resolution.
+http_archive(
+    name = "source",
+    urls = ["https://github.com/iree-org/iree/archive/a35e28d2a6c172e11e876c0307ec194f83a9d2cc.tar.gz"],
+    sha256 = "228ffc04f2f7c05140b24a705d267c223a576a3fc2739adaba996e31fbdb67bc",
+    strip_prefix = "iree-a35e28d2a6c172e11e876c0307ec194f83a9d2cc",
+)
+
+http_archive(
+    name = "flatcc",
+    urls = ["https://github.com/dvidelabs/flatcc/archive/9362cd00f0007d8cbee7bff86e90fb4b6b227ff3.tar.gz"],
+    sha256 = "f77f842e996f5bbfa25305a7b38b40d1325fb44154f2bf9880c58356ece92c62",
+    strip_prefix = "flatcc-9362cd00f0007d8cbee7bff86e90fb4b6b227ff3",
+)
+
+genrule(
+    name = "build",
+    srcs = ["build.sh", "CMakeLists.txt", "bridge.m", "bridge.h"],
+    outs = {"library": ["libbaux_iree.dylib"]},
+    default_outs = ["libbaux_iree.dylib"],
+    visibility = ["PUBLIC"],
+    cmd = 'sh "$SRCDIR/build.sh" "$(location :source)" "$(location :flatcc)" "$SRCDIR" "$OUT"',
+    target_compatible_with = ["prelude//os/constraints:macos"],
+)
+
+prebuilt_cxx_library(
+    name = "runtime",
+    shared_lib = ":build[library]",
+    soname = "libbaux_iree.dylib",
+    preferred_linkage = "shared",
+    visibility = ["PUBLIC"],
+    target_compatible_with = ["prelude//os/constraints:macos"],
+)
+
+[
+    genrule(
+        name = "round-" + device,
+        srcs = ["round.mlir", "compile.sh"],
+        out = "round-" + device + ".vmfb",
+        cmd = 'sh "$SRCDIR/compile.sh" "$SRCDIR/round.mlir" "$OUT" ' + backend,
+        visibility = ["PUBLIC"],
+        target_compatible_with = ["prelude//os/constraints:macos"],
+    )
+    for device, backend in [("cpu", "llvm-cpu"), ("metal", "metal-spirv")]
+]

@@ -102,6 +102,8 @@ pub mod optimizer_factory;
 mod optimizer_mu;
 pub mod params;
 pub mod pipeline;
+#[cfg(target_os = "macos")]
+pub mod portable;
 pub mod posterior;
 pub mod predictor;
 pub mod prelude;

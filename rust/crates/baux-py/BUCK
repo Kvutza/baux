@@ -34,7 +34,11 @@ app_rust_library(
         "//rust/crates/baux:usearch-bridge",
         "//rust/crates/baux:baux",
     ] + ["//rust:" + crate for crate in BAUX_PY_CRATES] + select({
-        "//:macos-arm64": ["//admin/buck2/native:openmp-macos", "//rust:metal"],
+        "//:macos-arm64": [
+            "//admin/buck2/native:openmp-macos",
+            "//rust/crates/fbt:fbt",
+            "//rust:metal",
+        ],
         "DEFAULT": [],
     }),
 )

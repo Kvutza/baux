@@ -7,23 +7,16 @@ use metal::objc::rc::autoreleasepool;
 
 /// Complete causal prefill, including vocabulary readout and loss, without
 /// optimizer work. Long sequences retain every visit's KV cache across chunks.
-#[test]
-#[ignore = "full-model latency; set BAUX_FORWARD_CONTEXT and BAUX_FORWARD_TIMING"]
-fn forward_latency() -> Result<(), String> {
+pub fn run_latency(
+    context: u32,
+    samples: usize,
+    profiled: bool,
+    output: &std::path::Path,
+) -> Result<baux::artifact::json::Value, String> {
     autoreleasepool(|| {
-        let context: u32 = std::env::var("BAUX_FORWARD_CONTEXT")
-            .map_err(|error| error.to_string())?
-            .parse::<u32>()
-            .map_err(|error| error.to_string())?;
         if ![4096, 65_536, 1_048_576].contains(&context) {
             return Err("forward context must be 4096, 65536, or 1048576".into());
         }
-        let output = std::env::var_os("BAUX_FORWARD_TIMING")
-            .ok_or("set BAUX_FORWARD_TIMING to an output JSON path")?;
-        let samples = std::env::var("BAUX_FORWARD_SAMPLES")
-            .unwrap_or_else(|_| "3".into())
-            .parse::<usize>()
-            .map_err(|error| error.to_string())?;
         if samples == 0 {
             return Err("forward samples must be positive".into());
         }
@@ -64,7 +57,6 @@ fn forward_latency() -> Result<(), String> {
             loss_mask: vec![1; context as usize],
             offset: 0,
         };
-        let profiled = std::env::var_os("BAUX_FORWARD_PROFILE").is_some();
         if profiled {
             scorer.profile(&runtime, Some(context.div_ceil(ROWS) * samples as u32))?;
         }
@@ -82,7 +74,7 @@ fn forward_latency() -> Result<(), String> {
                 return Err("full forward failed coverage, finite loss, or timing checks".into());
             }
             let measurement = baux::artifact::json::json!({
-                "sample":sample,"gpu_ms":score.gpu_seconds * 1000.0,
+                "sample":sample,"round":sample,"gpu_ms":score.gpu_seconds * 1000.0,
                 "wall_ms":wall_seconds * 1000.0,"scored_tokens":score.quality.scored_tokens,
                 "mean_nll":score.quality.mean_nll,
             });
@@ -100,13 +92,37 @@ fn forward_latency() -> Result<(), String> {
                 "initialization_in_timing":false,"measurements":measurements,
             });
             std::fs::write(
-                &output,
+                output,
                 baux::artifact::json::to_vec(&evidence).map_err(|error| error.to_string())?,
             )
             .map_err(|error| error.to_string())?;
         }
-        Ok(())
+        Ok(baux::artifact::json::json!({
+            "backend":"metal","device":runtime.device.name(),"architecture":"mhc4",
+            "parameters":MHC_FULLPARAMS,"seed":case::SEED,"context":context,
+            "chunk_rows":ROWS,"visits":architecture.layer_steps().len(),
+            "scope":"complete-causal-prefill-with-readout-and-loss",
+            "input":"deterministic-synthetic-token-ids","profiled":profiled,
+            "initialization_in_timing":false,"measurements":measurements,
+        }))
     })
+}
+
+#[test]
+#[ignore = "full-model latency; set BAUX_FORWARD_CONTEXT and BAUX_FORWARD_TIMING"]
+fn forward_latency() -> Result<(), String> {
+    let context = std::env::var("BAUX_FORWARD_CONTEXT")
+        .map_err(|error| error.to_string())?
+        .parse::<u32>()
+        .map_err(|error| error.to_string())?;
+    let output = std::env::var_os("BAUX_FORWARD_TIMING")
+        .ok_or("set BAUX_FORWARD_TIMING to an output JSON path")?;
+    let samples = std::env::var("BAUX_FORWARD_SAMPLES")
+        .unwrap_or_else(|_| "3".into())
+        .parse::<usize>()
+        .map_err(|error| error.to_string())?;
+    let profiled = std::env::var_os("BAUX_FORWARD_PROFILE").is_some();
+    run_latency(context, samples, profiled, std::path::Path::new(&output)).map(|_| ())
 }
 
 #[test]

@@ -37,6 +37,14 @@ auditwheel = "*"
 patchelf = "*"
 binutils = "*"
 
+[feature.compiler.pypi-dependencies]
+optree = "==0.20.0"
+jax = "==0.12.0.1"
+jaxlib = "==0.12.0.1"
+iree-base-compiler = "==3.13.0"
+iree-base-runtime = "==3.13.1"
+apache-tvm = "==0.27.0.post1"
+
 [feature.gp.dependencies]
 pytorch = ">=2.0"
 gpytorch = ">=1.11"
@@ -94,6 +102,26 @@ baux-py315 = { features = [
   "integrations",
   "test",
   "nightly",
+  "py315",
+], no-default-feature = true }
+compiler-py312 = { features = [
+  "compiler",
+  "test",
+  "py312",
+], no-default-feature = true }
+compiler-py313 = { features = [
+  "compiler",
+  "test",
+  "py313",
+], no-default-feature = true }
+compiler-py314 = { features = [
+  "compiler",
+  "test",
+  "py314",
+], no-default-feature = true }
+compiler-py315 = { features = [
+  "compiler",
+  "test",
   "py315",
 ], no-default-feature = true }
 

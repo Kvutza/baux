@@ -1,7 +1,13 @@
-sh_binary(
+command_alias(
     name = "tool",
+    exe = ":driver",
+    args = ["--program-libs", "$(location //rust/crates/fbt:model-bundle)"],
+)
+
+sh_binary(
+    name = "driver",
     main = "tool.sh",
-    resources = glob(["**/*.sh", "**/*.c", "**/*.ml", "**/*.mli", "**/dune", "**/dune-project", "**/*.tsv", "**/*.expected", "**/*.opam", "*.toml", "*.json", ".ocamlformat", "extraction/bin/*"]),
+    resources = ["//rust/crates/fbt:model-bundle"] + glob(["**/*.sh", "**/*.c", "**/*.ml", "**/*.mli", "**/dune", "**/dune-project", "**/*.tsv", "**/*.expected", "**/*.opam", "*.toml", "*.json", ".ocamlformat", "extraction/bin/*"]),
 )
 
 sh_binary(
@@ -14,7 +20,24 @@ sh_binary(
 sh_test(
     name = "test",
     test = "tool.sh",
-    args = ["test"],
+    args = ["--program-libs", "$(location //rust/crates/fbt:model-bundle)", "test"],
     visibility = ["PUBLIC"],
-    resources = glob(["**/*.sh", "**/*.c", "**/*.ml", "**/*.mli", "**/dune", "**/dune-project", "**/*.tsv", "**/*.expected", "**/*.opam", "*.toml", "*.json", ".ocamlformat", "extraction/bin/*"]),
+    resources = ["//rust/crates/fbt:model-bundle"] + glob(["**/*.sh", "**/*.c", "**/*.ml", "**/*.mli", "**/dune", "**/dune-project", "**/*.tsv", "**/*.expected", "**/*.opam", "*.toml", "*.json", ".ocamlformat", "extraction/bin/*"]),
+)
+
+sh_test(
+    name = "program",
+    test = "program/test.sh",
+    resources = glob(["program/*", "dune-project"]) + [
+        "//rust/crates/fbt:model-bundle",
+        "//admin/buck2/iree:round-cpu",
+        "//admin/buck2/iree:round-metal",
+    ],
+    env = {
+        "BAUX_PROGRAM_LIB": "$(location //rust/crates/fbt:model-bundle)",
+        "BAUX_VMFB_CPU": "$(location //admin/buck2/iree:round-cpu)",
+        "BAUX_VMFB_METAL": "$(location //admin/buck2/iree:round-metal)",
+    },
+    target_compatible_with = ["prelude//os/constraints:macos"],
+    visibility = ["PUBLIC"],
 )

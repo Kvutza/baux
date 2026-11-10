@@ -1,4 +1,4 @@
-(dirs lib hardware bin tests)
+(dirs lib hardware bin tests program)
 
 (env
  (_

@@ -1,0 +1,15 @@
+(library
+ (name baux_program)
+ (modules baux_program)
+ (libraries bigarray threads)
+ (foreign_stubs
+  (language c)
+  (names bridge)
+  (flags (:standard -std=c11 -I%{env:BAUX_PROGRAM_LIB=.})))
+ (c_library_flags -L%{env:BAUX_PROGRAM_LIB=.} -lbaux_program -lbaux_iree
+  -Wl,-rpath,%{env:BAUX_PROGRAM_LIB=.}))
+
+(executable
+ (name testprogram)
+ (modules testprogram)
+ (libraries baux_program bigarray threads))

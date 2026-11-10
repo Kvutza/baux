@@ -68,6 +68,7 @@ impl SearchState {
                 variance,
             } = observation.control();
             self.tell_profile = None;
+            self.check_unleased()?;
             self.check_round(round)?;
             check_scores(&[value, incumbent_value], &[variance, incumbent_variance])?;
             self.objective_history.validate(observation)?;
@@ -324,6 +325,7 @@ impl SearchState {
                 variance,
             } = observation.control();
             self.tell_profile = None;
+            self.check_unleased()?;
             self.check_round(round)?;
             check_scores(&[value], &[variance])?;
             self.objective_history.validate(observation)?;

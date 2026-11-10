@@ -5,6 +5,10 @@ if [ ! -f "$root/ocaml/dune-project" ]; then
     echo 'Run this target from the BAUX repository root.' >&2
     exit 2
 fi
+if [ "${1:-}" = --program-libs ]; then
+    export BAUX_PROGRAM_LIB="$2"
+    shift 2
+fi
 switch=${BAUX_OCAML_SWITCH:-5.2.0+ox}
 build="$root/.cache/baux/ocaml-build"
 export BAUX_SLEEF_PREFIX="$root/.cache/baux/sleef-3.9.0/install"
@@ -27,6 +31,9 @@ case "${1:-test}" in
         ;;
     fmt)
         exec opam exec --switch="$switch" -- ocamlformat --enable-outside-detected-project --inplace "$root"/ocaml/lib/*.ml "$root"/ocaml/lib/*.mli "$root"/ocaml/hardware/*.ml "$root"/ocaml/bin/*.ml "$root"/ocaml/tests/test_*.ml
+        ;;
+    program-fmt)
+        exec opam exec --switch="$switch" -- ocamlformat --enable-outside-detected-project --inplace "$root"/ocaml/program/*.ml "$root"/ocaml/program/*.mli
         ;;
     hardware)
         shift

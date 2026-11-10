@@ -32,14 +32,26 @@ pub(super) fn mean_variance(samples: &[f32]) -> (f32, f32) {
 
 pub(super) fn sequence_objective(buffers: &Buffers) -> Result<ObjectiveStats, String> {
     let values = crate::apple_gpu::buffer_slice::<f32>(&buffers.sequence_scores, BATCH as usize)?;
-    let scores = [values[0], values[1]];
-    if scores.iter().any(|value| !value.is_finite()) {
-        return Err(format!(
-            "candidate objective produced invalid sequence scores: {scores:?}"
-        ));
-    }
     let losses = crate::apple_gpu::buffer_slice::<f32>(&buffers.losses, ROWS as usize)?;
     let mask = crate::apple_gpu::buffer_slice::<u8>(&buffers.score_mask, ROWS as usize)?;
+    tensor_objective(values, losses, mask)
+}
+
+pub(super) fn tensor_objective(
+    values: &[f32],
+    losses: &[f32],
+    mask: &[u8],
+) -> Result<ObjectiveStats, String> {
+    if values.len() != BATCH as usize
+        || losses.len() != ROWS as usize
+        || mask.len() != ROWS as usize
+    {
+        return Err("objective tensor dimensions differ from the scorer signature".into());
+    }
+    let scores = [values[0], values[1]];
+    if scores.iter().any(|value| !value.is_finite()) {
+        return Err("nonfinite sequence observation".into());
+    }
     let mut block_nlls = [0.0f32; OBJECTIVE_BLOCKS];
     let mut total_nll = 0.0f64;
     let mut scored_tokens = 0usize;

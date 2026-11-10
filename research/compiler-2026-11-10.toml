@@ -1,0 +1,141 @@
+task = "blckbaux-6tx"
+date = "2026-11-10"
+source_revision = "891375824de1b6a8b53a9602c0516b3d4313e7f5"
+base_revision = "5b6dee55"
+system = "macOS 27.0.1 arm64"
+hardware = "Apple M4"
+status = "native Rust/OxCaml CPU and Metal execution plus Rust FBT/PISA resident integration verified; broader compiler integration remains open"
+limitations = [
+  "Native Rust and OxCaml consume compiled IREE VMFB artifacts; source tracing and compiler selection remain in Python.",
+  "XLA and TVM execution adapters still use Python; no native Rust/OxCaml adapters for those runtimes.",
+  "FBT/PISA and the resident optimizer run through the Rust native Metal interface and expose Python/OxCaml model entry points. See program-2026-11-10.json and fwd-1m-2026-11-10.json.",
+  "Native asynchronous execution uses a serialized worker queue and Rust Future completion; no overlapping GPU streams or buffer donation contract.",
+  "TVM supports a checked subset of StableHLO; reductions, convolution, control flow and custom calls are not lowered.",
+  "Only static shapes; Metal buffers support cross-executable adoption. No distributed placement or CPU cross-executable adoption.",
+  "Native runtime builds currently target macOS arm64 CPU/Metal. CUDA, ROCm, Vulkan and other host platforms were not executed. Full-model timings cover only the measured Metal workload; no training-quality or 1M-context claim.",
+  "Compiler dependencies are provided by the source-tree compiler dependency group, not a published wheel extra.",
+]
+
+[versions]
+python = "3.12.15"
+optree = "0.20.0"
+jax = "0.12.0.1"
+jaxlib = "0.12.0.1"
+iree_compiler = "3.13.0"
+iree_runtime = "3.13.1"
+tvm = "0.27.0.post1"
+oxcaml_compiler_pin = "5.2.0minus39"
+iree_native_revision = "a35e28d2a6c172e11e876c0307ec194f83a9d2cc"
+flatcc_revision = "9362cd00f0007d8cbee7bff86e90fb4b6b227ff3"
+
+[[checks]]
+command = "./admin/tools/buck2w test -c baux.python_version=3.12 //admin/buck2/tests:compiler"
+result = "passed"
+python_passed = 28
+rust_passed = 7
+oxcaml_devices_passed = ["CPU", "Metal"]
+log = ".cache/program-suite.log"
+targets = ["IREE CPU", "IREE Metal", "XLA CPU", "TVM CPU"]
+coverage = [
+  "Two rounds reusing resident parameter outputs with vector observations in Rust, Python and OxCaml.",
+  "Shared Rust-owned IREE sessions and buffers, without the Python IREE runtime.",
+  "Native queue completion, Python asyncio awaits, dropped caller references and concurrent native callers.",
+  "OxCaml portable/contended handles checked with Domain.Safe.spawn; GC and compaction while invocations remain live.",
+  "Malformed bytecode, missing entry, wrong input/output signatures and double completion rejected.",
+  "All nine declared tensor storage dtypes preserve values on CPU, including uint64 above the signed range.",
+  "Existing MLP forward helper compiled from a callable with nested parameter dictionaries.",
+  "Batched contraction with nonstandard axes and non-final-axis broadcasting.",
+  "Constants, passthrough results, unused inputs and scalar uint64/float64 preservation on CPU.",
+  "Registered dataclasses and static metadata; incorrect tree/signature rejection.",
+  "Host mutation after upload does not alter resident inputs; foreign buffers and implicit NumPy copies rejected.",
+]
+
+[[checks]]
+command = "./baux check"
+result = "failed: 11 inherited Ruff violations in admin/ops/apply_cad_upgrade.py and admin/ops/extract_fuse_cad.py"
+log = ".cache/program-check.log"
+note = "No new-file Ruff errors were reported; the aggregate check stops before uv check and naming."
+
+[[checks]]
+command = "./baux names"
+result = "failed: four inherited naming violations, none in changed files"
+log = ".cache/program-names.log"
+
+[[checks]]
+command = "./admin/tools/buck2w run //ocaml:tool -- build"
+result = "passed"
+log = ".cache/program-ocaml.log"
+note = "Initial attempt lacked sleef.h; the existing pinned SLEEF prerequisite was installed through //ocaml:tool -- deps, then the full build passed."
+
+[[checks]]
+command = "./admin/tools/buck2w run //ocaml:tool -- program-fmt"
+result = "passed"
+log = ".cache/ocaml-format.log"
+
+[[resolved]]
+problem = "Python wheels and OxCaml executables could not load the new native runtime libraries."
+change = "Bundle the pinned IREE library in the macOS wheel and export a self-contained Rust/C runtime bundle for the regular OxCaml Buck/Dune build."
+
+[[resolved]]
+problem = "TVM compilation segfaulted in its LLVM parser after IREE execution in the same process."
+evidence = "IREE + TVM reproduced the crash; XLA + TVM and TVM alone passed."
+change = "Compile TVM in a separate process and load the exported library in the caller; execution remains in-process with resident buffers."
+scope = "Mixed-runtime tests now pass; the underlying upstream ABI cause has not been established."
+
+[[resolved]]
+problem = "IREE default input conversion changed an f64 result to f32."
+change = "Disable all input dtype demotion/promotion flags and verify result shape/dtype at the call boundary."
+
+[[checks]]
+command = "./admin/tools/buck2w test //admin/buck2/tests:program"
+result = "passed"
+rust_runtime_passed = 7
+log = ".cache/interop-test.log"
+note = "Expanded suite includes retained Metal subspans, allocation adoption, native result validation and abandoned-invocation lease lifetime."
+
+[[checks]]
+command = "./baux tune research/resident-program.toml"
+result = "passed: three full-model resident rounds, exact direct-scorer parity, mutation leases and persistent observations"
+evidence = "research/program-2026-11-10.json"
+
+[sha256]
+"rust/crates/baux/semantics/src/compute.rs" = "46faad8a657a4d8ff1f3078f77e84b40b9b5c44b3ec68c736b17f9bd88a3659a"
+"rust/crates/baux/src/portable/mod.rs" = "b80759d55d023f202a33ac5387a27f03c14454faef058fc68f29fa9e0569deca"
+"rust/crates/baux/src/portable/raw.rs" = "f6dd40c809f5b131302e083695237ca9d85ac841847a655c2e42043df2e5960d"
+"rust/crates/baux/src/portable/pending.rs" = "fba17be816c322bbe8b354ea0efdcc73afd07f14e2e9b8d4f3ffb0dbb479fe92"
+"rust/crates/baux/src/portable/exports.rs" = "0183e4ee93680d5f434e935bc94c77fa9cef6fd23cb808f6f6e4d3f9d41132ca"
+"rust/crates/baux/src/portable/portable.h" = "4d1606dc4f7af891d248474e2a8f822d18d8249e74fa776e80f1f5bb68a5eaa5"
+"rust/crates/baux-py/src/py_native.rs" = "d84ebb96da2741b937d3804c31ec5947adc6d90601eef405d3e83423aaf0547e"
+"admin/buck2/iree/bridge.m" = "21dbdad07b056fc9ac813770558fa5d6dfeda32ee31f1d6fbd556709a521c443"
+"admin/buck2/iree/BUCK" = "a0751c3194b0dbecdfa41c3646b1719176bfebc663e4fa1bb3546ff91b887a55"
+"admin/buck2/tests/program.rs" = "706a9e956bb430ebdb14dbfdcbfe3a50f3e49176485c8bcb1e4f04ba3e6f1c0c"
+"ocaml/program/baux_program.ml" = "f00747997a42703cbfa84daf605f63b762b4bcb10cbeaef20a62ade710fd5bab"
+"ocaml/program/baux_program.mli" = "b3ce17955425c62b16d467928cd29b8493d4e7ef89239161ccce49f2b0033562"
+"ocaml/program/bridge.c" = "3b55abee017e985607d3fb6a1d51a5b2cbc50679f1aba918b6e6898036987c6d"
+"ocaml/program/testprogram.ml" = "165262d192614120d7e18b7dd218be1e20fb4b4f04bcfd6948c3a47b8b7dffff"
+"python/baux/experimental/program.py" = "6f44088239e2638d0364146bced687e3716ab124d8b53aebc1ed6e89c95e3fbf"
+"python/baux/experimental/_program.py" = "58db8da57a778d09f614eeade8c17170c5dfa426310e5e0d49f610c1722f0d8f"
+"python/baux/experimental/_trace.py" = "6a36bae8a955f550f5c76084e797992974ddb563eae6adfd03e18ff317dc2e96"
+"python/baux/experimental/_relax.py" = "e63fa9c0529ba1706d5a42521743a42618723a1be92b376326433bab75ed3104"
+"python/baux/experimental/_hlo.py" = "1b71b7854a077f0ec59e9db253b92dda480404890d1c6ce8b29ed9d356c40c02"
+"python/baux/experimental/_tvm.py" = "d3838e9816ca408d331f035880c96f30e72446ac3b24c5dd3b6f5dae3eea2575"
+"tests/compiler/testprogram.py" = "6def576fdc06539324dafa110846492c9c53a4cb09b7a91ed211a7a233158e30"
+"admin/buck2/iree/bridge.h" = "c8cd8dadc39914afb5ff885e8b0ee545254d5b588a6d0289683f79f688afb567"
+"admin/buck2/iree/CMakeLists.txt" = "2be4e8958a8e6d7950e0b2191b24aaf237857191f6362ff76ce8c3746a6cdb43"
+"rust/crates/baux/src/portable/interop.rs" = "e31cff8687fdf2294c7114737009d71414d563fcd9bba52732ca7960d129407b"
+"rust/crates/baux/src/resident_metal.rs" = "a7763def1acdaeae75fc61c6a3950ae70fdb934c67785a88857b4f1275e0c917"
+"rust/crates/baux/src/resident_metal/program.rs" = "9a0edb33a6c8b0a45bdefa61b664665d573a7ec40fddce9cf4235174144b6821"
+"rust/crates/baux/src/resident_metal/initialization.rs" = "ca62c228de7f5d982a18faf1455173abde938ae77a50bb18b47adee73ed22dd0"
+"rust/crates/baux/src/resident_metal/inspection.rs" = "00349b0b97e462085613a8cd0af86f6a0c9bcd29548558fc769d67ffd1938a6c"
+"rust/crates/baux/src/resident_metal/history.rs" = "d4b9ff35ca130ffb37c720ffdf8e8e8ec263aa7c634a8229441ad75a5ebf6dcd"
+"rust/crates/baux/src/resident_metal/observations.rs" = "76b1045e445f8819c29580934c794e7d64be108e3e8101bd147499b7ab55313d"
+"rust/crates/baux/src/resident_metal/propose.rs" = "656422df03b752442bd09f7089776add5a68f08f952999c548bc54d0d3ee220b"
+"rust/crates/baux/src/resident_metal/state.rs" = "cfb9dd8dae5f78661faed2fad75266d4f8f25895e0b07cb81c2976cc140080b4"
+"rust/crates/fbt/src/moe.rs" = "be2e2703f9266bbb3b8214899b9b12fafda200924aa42e81c08f27816063ea7d"
+"rust/crates/fbt/src/moe/program.rs" = "b5038d783240635b2d8218c5e6ee66005d232ca2b9fdf28908c7c89c9b211458"
+"rust/crates/fbt/src/moe/program/experiment.rs" = "cc5992dee88683cc0058e01d0bc57207c560f744d38c232bf25521487e99d00a"
+"rust/crates/fbt/src/moe/objective.rs" = "470d5c83d3f016054d9b6ee630d431243341fd5ed434f8e3f207b30681379ff1"
+"rust/crates/fbt/src/bin/baux-tune-worker/main.rs" = "4a7f23df39a4d6b36864515b3b6d0114a7526c15e9cbb797fd1da70b70657136"
+"rust/crates/runner/src/experiment.rs" = "be417cf15a4397e9fcc4fe44c08132138e639d3d640b71e35d6c102d26112a01"
+"rust/crates/runner/src/experiment/program.rs" = "7f0e759382f3f5f2c8eddcf6c30e3b1db3b33a208bdd7e6a08962228224961cc"
+"research/resident-program.toml" = "243430529a890716ce27f9f44199ad63b7c57ee41410ee28c9d1450ca9047a9a"

@@ -3,21 +3,25 @@ PYTHON_VERSION = read_config("baux", "python_version", "3.14")
 _PYTHON_CONFIGS = {
     "3.12": struct(
         abi = "cp312",
+        compiler_environment = "compiler-py312",
         environment = "baux-py312",
         extension_infix = "312",
     ),
     "3.13": struct(
         abi = "cp313",
+        compiler_environment = "compiler-py313",
         environment = "baux-py313",
         extension_infix = "313",
     ),
     "3.14": struct(
         abi = "cp314",
+        compiler_environment = "compiler-py314",
         environment = "baux-py314",
         extension_infix = "314",
     ),
     "3.15": struct(
         abi = "cp315",
+        compiler_environment = "compiler-py315",
         environment = "baux-py315",
         extension_infix = "315",
     ),
@@ -28,6 +32,7 @@ if PYTHON_VERSION not in _PYTHON_CONFIGS:
 _PYTHON = _PYTHON_CONFIGS[PYTHON_VERSION]
 
 PYTHON_ABI = _PYTHON.abi
+PYTHON_COMPILER_ENVIRONMENT = _PYTHON.compiler_environment
 PYTHON_ENVIRONMENT = _PYTHON.environment
 PYTHON_REQUIRES = ">=3.12,<3.16"
 

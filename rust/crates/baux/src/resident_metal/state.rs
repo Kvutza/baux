@@ -76,6 +76,7 @@ impl SearchState {
         }
     }
     pub fn check_idle(&self) -> Result<(), String> {
+        self.check_unleased()?;
         self.check_healthy()?;
         if self.pending.is_some() || self.queued.is_some() || self.async_command.is_some() {
             Err("Tell the pending Metal BF16 proposal and sync before another mutation".into())
@@ -88,6 +89,7 @@ impl SearchState {
     /// Selection may have used scratch storage, but history and trust state
     /// have not been updated by a tell.
     pub fn cancel_round(&mut self, round: &Proposals) -> Result<(), String> {
+        self.check_unleased()?;
         self.check_round(round)?;
         if self.queued.is_some() || self.async_command.is_some() {
             return Err("finish the pending Metal command before cancellation".into());

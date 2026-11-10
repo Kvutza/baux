@@ -114,6 +114,7 @@ impl SearchState {
         config: RoundConfig,
         candidate: usize,
     ) -> Result<Buffer, String> {
+        self.check_unleased()?;
         self.check_round(round)?;
         let decision = read::<Decision>(&self.decision, 1)[0];
         if candidate >= self.pool_layout.count() as usize || root != decision.root_seed {

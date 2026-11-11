@@ -43,7 +43,6 @@ jax = "==0.12.0.1"
 jaxlib = "==0.12.0.1"
 iree-base-compiler = "==3.13.0"
 iree-base-runtime = "==3.13.1"
-apache-tvm = "==0.27.0.post1"
 
 [feature.gp.dependencies]
 pytorch = ">=2.0"

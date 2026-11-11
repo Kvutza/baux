@@ -1,52 +1,110 @@
-# Reuse the exact TVM/FFI artifacts recorded in uv.lock. Only their native
-# headers and runtime libraries are used here; execution does not embed Python.
-load("//admin/buck2:python.bzl", "PYTHON_COMPILER_ENVIRONMENT")
+# Apache TVM 0.27.0.post1 and its stable C ABI are pinned as native artifacts.
+# Python is deliberately not part of this boundary.
+http_archive(
+    name = "ffi-wheel",
+    sha256 = "4ab5fb3a5aea0b9958f6d171cf06e2a8fe58dc0687689017096b3f0c701b348f",
+    type = "zip",
+    urls = [
+        "https://files.pythonhosted.org/packages/b0/e2/87dae58e4eee964c7c5aa1cab78ee125f720ea71e2cc9bb439b55c65dffc/apache_tvm_ffi-0.1.15.post2-cp314-cp314-macosx_11_0_arm64.whl",
+    ],
+    target_compatible_with = [
+        "prelude//cpu/constraints:arm64",
+        "prelude//os/constraints:macos",
+    ],
+)
+
+http_archive(
+    name = "tvm-wheel",
+    sha256 = "d61102c6b039b889dd66a2cbd4058d0308e43b02a04d86981478674a0a5de2e9",
+    type = "zip",
+    urls = [
+        "https://files.pythonhosted.org/packages/c9/d0/3b205508851072b40bd651147fcd508d5cb0e3dc7c81dc182e5cd4b139d9/apache_tvm-0.27.0.post1-py3-none-macosx_11_0_arm64.whl",
+    ],
+    target_compatible_with = [
+        "prelude//cpu/constraints:arm64",
+        "prelude//os/constraints:macos",
+    ],
+)
 
 genrule(
-    name = "round",
-    srcs = ["compile.sh"],
-    out = "round.so",
-    cmd = 'sh "$SRCDIR/compile.sh" "' + PYTHON_COMPILER_ENVIRONMENT + '" "$(location //:wheel-macos-arm64)" "$(location //admin/buck2/iree:round-source)" "$OUT"',
-    target_compatible_with = ["prelude//os/constraints:macos"],
+    name = "ffi-library",
     visibility = ["PUBLIC"],
-)
-http_file(
-    name = "tvm-wheel",
-    urls = ["https://files.pythonhosted.org/packages/c9/d0/3b205508851072b40bd651147fcd508d5cb0e3dc7c81dc182e5cd4b139d9/apache_tvm-0.27.0.post1-py3-none-macosx_11_0_arm64.whl"],
-    sha256 = "d61102c6b039b889dd66a2cbd4058d0308e43b02a04d86981478674a0a5de2e9",
-    out = "tvm.whl",
+    srcs = [":ffi-wheel"],
+    out = "libtvm_ffi.dylib",
+    cmd = 'cp "$(location :ffi-wheel)/tvm_ffi/lib/libtvm_ffi.dylib" "$OUT"',
 )
 
-http_file(
-    name = "ffi-wheel",
-    urls = ["https://files.pythonhosted.org/packages/b0/e2/87dae58e4eee964c7c5aa1cab78ee125f720ea71e2cc9bb439b55c65dffc/apache_tvm_ffi-0.1.15.post2-cp314-cp314-macosx_11_0_arm64.whl"],
-    sha256 = "4ab5fb3a5aea0b9958f6d171cf06e2a8fe58dc0687689017096b3f0c701b348f",
-    out = "ffi.whl",
+genrule(
+    name = "testing-library",
+    srcs = [":ffi-wheel"],
+    out = "libtvm_ffi_testing.dylib",
+    cmd = 'cp "$(location :ffi-wheel)/tvm_ffi/lib/libtvm_ffi_testing.dylib" "$OUT" && install_name_tool -change @loader_path/libtvm_ffi.dylib @rpath/libtvm_ffi.dylib "$OUT" && codesign --force --sign - "$OUT"',
+    visibility = ["//admin/buck2/tests:program"],
 )
 
+genrule(
+    name = "runtime-library",
+    visibility = ["PUBLIC"],
+    srcs = [":tvm-wheel"],
+    out = "libtvm_runtime.dylib",
+    cmd = 'cp "$(location :tvm-wheel)/tvm/lib/libtvm_runtime.dylib" "$OUT"',
+)
+
+genrule(
+    name = "compiler-library",
+    visibility = ["PUBLIC"],
+    srcs = [":tvm-wheel"],
+    out = "libtvm_compiler.dylib",
+    cmd = 'cp "$(location :tvm-wheel)/tvm/lib/libtvm_compiler.dylib" "$OUT" && install_name_tool -change @loader_path/libtvm_runtime.dylib @rpath/libtvm_runtime.dylib "$OUT" && codesign --force --sign - "$OUT"',
+)
+
+prebuilt_cxx_library(
+    name = "ffi",
+    shared_lib = ":ffi-library",
+    soname = "libtvm_ffi.dylib",
+    preferred_linkage = "shared",
+    visibility = ["PUBLIC"],
+    target_compatible_with = ["prelude//os/constraints:macos"],
+)
+
+prebuilt_cxx_library(
+    name = "runtime",
+    shared_lib = ":runtime-library",
+    soname = "libtvm_runtime.dylib",
+    preferred_linkage = "shared",
+    deps = [":ffi"],
+    visibility = ["PUBLIC"],
+    target_compatible_with = ["prelude//os/constraints:macos"],
+)
+
+prebuilt_cxx_library(
+    name = "compiler",
+    shared_lib = ":compiler-library",
+    soname = "libtvm_compiler.dylib",
+    preferred_linkage = "shared",
+    deps = [":runtime"],
+    visibility = ["PUBLIC"],
+    target_compatible_with = ["prelude//os/constraints:macos"],
+)
+
+# The shared portable C ABI still loads precompiled TVM artifacts. Keep that
+# bridge beside the native Rust compiler until the C consumers compile source.
 genrule(
     name = "build",
     srcs = ["build.sh", "bridge.cc"],
-    outs = {"bridge": ["libbaux_tvm.dylib"], "engine": ["libtvm_runtime.dylib"], "ffi": ["libtvm_ffi.dylib"], "license": ["TVM-LICENSE"], "ffi-license": ["TVM-FFI-LICENSE"], "notice": ["TVM-FFI-NOTICE"]},
-    default_outs = ["libbaux_tvm.dylib", "libtvm_runtime.dylib", "libtvm_ffi.dylib"],
+    outs = {"bridge": ["libbaux_tvm.dylib"], "license": ["TVM-LICENSE"], "ffi-license": ["TVM-FFI-LICENSE"], "notice": ["TVM-FFI-NOTICE"]},
+    default_outs = ["libbaux_tvm.dylib"],
     cmd = 'sh "$SRCDIR/build.sh" "$(location :tvm-wheel)" "$(location :ffi-wheel)" "$SRCDIR/bridge.cc" "$OUT"',
     target_compatible_with = ["prelude//os/constraints:macos"],
     visibility = ["PUBLIC"],
 )
 
-[
-    prebuilt_cxx_library(
-        name = name,
-        shared_lib = ":build[" + artifact + "]",
-        soname = library,
-        preferred_linkage = "shared",
-        exported_deps = deps,
-        visibility = ["PUBLIC"],
-        target_compatible_with = ["prelude//os/constraints:macos"],
-    )
-    for name, artifact, library, deps in [
-        ("ffi", "ffi", "libtvm_ffi.dylib", []),
-        ("engine", "engine", "libtvm_runtime.dylib", [":ffi"]),
-        ("runtime", "bridge", "libbaux_tvm.dylib", [":engine", ":ffi"]),
-    ]
-]
+prebuilt_cxx_library(
+    name = "bridge",
+    shared_lib = ":build[bridge]",
+    soname = "libbaux_tvm.dylib",
+    preferred_linkage = "shared",
+    exported_deps = [":runtime", ":ffi"],
+    visibility = ["PUBLIC"],
+    target_compatible_with = ["prelude//os/constraints:macos"],
+)

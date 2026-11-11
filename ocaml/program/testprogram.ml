@@ -108,7 +108,6 @@ let exercise device path compiler =
 let () =
   exercise Cpu (Sys.getenv "BAUX_VMFB_CPU") `Iree;
   exercise Metal (Sys.getenv "BAUX_VMFB_METAL") `Iree;
-  exercise Cpu (Sys.getenv "BAUX_TVM") `Tvm;
   exercise Cpu (Sys.getenv "BAUX_STABLEHLO") `Xla;
   let model = create_model ~seed:42L in
   if model_parameters model <> 265_623_320 || model_rows model <> 8192 then

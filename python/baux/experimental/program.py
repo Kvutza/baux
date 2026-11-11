@@ -288,7 +288,7 @@ def compile(
     inputs: Any,
     outputs: Any = None,
     *,
-    backend: Literal["iree", "xla", "tvm"] = "iree",
+    backend: Literal["iree", "tvm"] = "iree",
     device: str = "cpu",
     entry: str = "main",
 ) -> Executable:
@@ -301,6 +301,10 @@ def compile(
     ``inputs`` and ``outputs`` are trees of TensorSpec leaves. The order is
     OpTree's deterministic traversal order. Compilation and execution failures
     propagate; an unavailable backend never falls back to another device.
+
+    TVM currently targets CPU and static float32 tensors: elementwise math,
+    reshapes, transposes, broadcasts, constants and unbatched dot products.
+    Unsupported operations are rejected during compilation.
     """
     from .. import baux_rust
 

@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 # Isolated stdlib only: no compiler Python packages, site-packages or PYTHONPATH.
-exec "$BAUX_TEST_PYTHON" -I -S - "$BAUX_TEST_WHEEL" "$BAUX_TVM" "$BAUX_STABLEHLO" <<'PY'
+exec "$BAUX_TEST_PYTHON" -I -S - "$BAUX_TEST_WHEEL" "$BAUX_STABLEHLO" <<'PY'
 import ctypes as c
 import shutil
 import sys
@@ -17,8 +17,6 @@ with tempfile.TemporaryDirectory(prefix="baux-native-package-") as directory:
             assert len(matches) == 1 and len(wheel.read(matches[0])) > 100, name
         wheel.extractall(root)
     libraries = root / "baux" / ".dylibs"
-    artifact = root / "round.so"
-    shutil.copyfile(sys.argv[2], artifact)
     size, pointer, text = c.c_size_t, c.c_void_p, c.c_char_p
     shape = (size * 1)(4)
     error = c.create_string_buffer(2048)
@@ -28,8 +26,8 @@ with tempfile.TemporaryDirectory(prefix="baux-native-package-") as directory:
         function.restype, function.argtypes = result, arguments
         return function
 
-    for runtime in ("tvm", "pjrt"):
-        library = c.CDLL(str(libraries / ("libbaux_" + runtime + ".dylib")))
+    for runtime in ("pjrt",):
+        library = c.CDLL(str(libraries / "libbaux_pjrt.dylib"))
         put = bind("put", c.c_int, pointer, c.POINTER(size), size, c.c_uint32,
                    pointer, size, c.POINTER(pointer), pointer, size)
         call = bind("call", c.c_int, pointer, c.POINTER(pointer), size,
@@ -38,15 +36,11 @@ with tempfile.TemporaryDirectory(prefix="baux-native-package-") as directory:
         release = bind("release", None, pointer)
         close = bind("close", None, pointer)
         session, tensor = pointer(), pointer()
-        if runtime == "tvm":
-            load = bind("load", c.c_int, text, text, text, c.POINTER(pointer), pointer, size)
-            status = load(bytes(artifact), b"main", b"cpu", c.byref(session), error, len(error))
-        else:
-            compile = bind("compile", c.c_int, text, size, text, text, size, size, c.POINTER(pointer), pointer, size)
-            source = Path(sys.argv[3]).read_bytes()
-            # One replica/partition and two f32[4] argument ShapeProtos.
-            options = bytes([0x1a, 4, 0x20, 1, 0x28, 1] + [0x0a, 4, 0x10, 11, 0x18, 4] * 2)
-            status = compile(source, len(source), b"cpu", options, len(options), 2, c.byref(session), error, len(error))
+        compile = bind("compile", c.c_int, text, size, text, text, size, size, c.POINTER(pointer), pointer, size)
+        source = Path(sys.argv[2]).read_bytes()
+        # One replica/partition and two f32[4] argument ShapeProtos.
+        options = bytes([0x1a, 4, 0x20, 1, 0x28, 1] + [0x0a, 4, 0x10, 11, 0x18, 4] * 2)
+        status = compile(source, len(source), b"cpu", options, len(options), 2, c.byref(session), error, len(error))
         assert status == 0, error.value
         try:
             values = (c.c_float * 4)(1, 2, 3, 4)
@@ -71,7 +65,9 @@ with tempfile.TemporaryDirectory(prefix="baux-native-package-") as directory:
     dyld._dyld_get_image_name.restype = text
     images = [Path(dyld._dyld_get_image_name(i).decode()).resolve()
               for i in range(dyld._dyld_image_count())]
-    for name in ("libbaux_tvm.dylib", "libtvm_runtime.dylib", "libtvm_ffi.dylib", "libbaux_pjrt.dylib", "libpjrt_cpu.dylib"):
+    for name in ("libbaux_tvm.dylib", "libtvm_runtime.dylib", "libtvm_ffi.dylib", "libtvm_compiler.dylib", "libbaux_pjrt.dylib", "libpjrt_cpu.dylib"):
+        assert (libraries / name).is_file(), name
+    for name in ("libbaux_pjrt.dylib", "libpjrt_cpu.dylib"):
         assert [path for path in images if path.name == name] == [(libraries / name).resolve()], name
-    print("Relocated wheel: native TVM/XLA execution, bundled dependencies and upstream licenses passed")
+    print("Relocated wheel: native XLA execution, TVM compiler payload, bundled dependencies and upstream licenses passed")
 PY

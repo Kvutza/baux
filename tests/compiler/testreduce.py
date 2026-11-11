@@ -130,6 +130,21 @@ def test_zeros(kind, element):
         np.testing.assert_array_equal(value, np.zeros(4))
 
 
+def test_commutativity():
+    data = np.array([1, 2, 3], np.int32)
+    code = source(data.shape, (0,), "i32", ["add"]).replace(
+        '"stablehlo.add"(%a0, %a1)', '"stablehlo.add"(%a1, %a0)'
+    )
+    executable = compile(
+        code,
+        (TensorSpec(data.shape, "int32"), TensorSpec((), "int32")),
+        (TensorSpec((), "int32"),),
+        backend="tvm",
+    )
+    result = executable.get(executable(executable.put((data, np.array(7, np.int32)))))
+    np.testing.assert_array_equal(result[0], np.array(13, np.int32))
+
+
 @pytest.mark.parametrize("body", ["subtract", "multiply"])
 def test_rejected(body):
     code = source((3,), (0,), "f32", [body])

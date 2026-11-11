@@ -37,6 +37,8 @@ mod py_portfolio;
 pub mod py_posterior;
 mod py_program;
 pub mod py_regions;
+#[cfg(target_os = "macos")]
+mod py_tvm;
 pub mod py_util;
 
 mod pymodule_wrappers;
@@ -56,6 +58,9 @@ pub(crate) fn baux_rust(m: &Bound<'_, PyModule>) -> PyResult<()> {
         m.add_class::<py_native::PyNativeSession>()?;
         m.add_class::<py_native::PyNativeBuffer>()?;
         m.add_class::<py_native::PyNativePending>()?;
+        m.add_class::<py_tvm::PyTvmSession>()?;
+        m.add_class::<py_tvm::PyTvmBuffer>()?;
+        m.add_class::<py_tvm::PyTvmPending>()?;
     }
     #[cfg(all(target_os = "macos", feature = "metal"))]
     m.add_class::<py_fbt::PyResidentModel>()?;

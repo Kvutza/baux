@@ -14,6 +14,7 @@ pub use crate::semantics::compute::Tensor;
 pub use pending::Pending;
 use std::ffi::{CString, c_void};
 use std::sync::{Arc, Mutex};
+pub use tvm::{TvmExecutable, TvmFfiVersion, TvmFunction, TvmModule, TvmTensor};
 
 pub type Result<T> = std::result::Result<T, String>;
 /// A native device kernel must finish its writes before returning resident

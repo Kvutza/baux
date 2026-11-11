@@ -10,16 +10,6 @@ fn load(device: &str) -> Executable {
         return Executable::compile_xla(&source, "cpu", vec![spec(), spec()], vec![spec(), spec()])
             .unwrap();
     }
-    if device == "tvm" {
-        return Executable::load_tvm(
-            &std::env::var("BAUX_TVM").unwrap(),
-            "main",
-            "cpu",
-            vec![spec(), spec()],
-            vec![spec(), spec()],
-        )
-        .unwrap();
-    }
     let key = if device == "cpu" {
         "BAUX_VMFB_CPU"
     } else {
@@ -50,7 +40,7 @@ fn values(buffer: &Buffer) -> Vec<f32> {
 
 #[test]
 fn rounds() {
-    for device in ["cpu", "metal", "tvm", "xla"] {
+    for device in ["cpu", "metal", "xla"] {
         let executable = load(device);
         let weights = put(&executable, [1., -2., 3., 0.]);
         let noise = put(&executable, [0.25, -0.5, 0., 2.]);
@@ -95,7 +85,7 @@ fn xla() {
     }
     let program = load("xla");
     let input = put(&program, [1.; 4]);
-    let foreign = put(&load("tvm"), [0.; 4]);
+    let foreign = put(&load("cpu"), [0.; 4]);
     assert!(program.run(&[input.clone(), foreign]).is_err());
     let first = program.run(&[input.clone(), input.clone()]).unwrap();
     let calls: Vec<_> = (0..8)
@@ -111,45 +101,6 @@ fn xla() {
     }
     assert_eq!(values(&first[0]), [2.; 4]);
     assert_eq!(values(&input), [1.; 4]);
-}
-
-#[test]
-fn tvm() {
-    let path = std::env::var("BAUX_TVM").unwrap();
-    assert!(
-        Executable::load_tvm("/missing/baux-program.so", "main", "cpu", vec![], vec![]).is_err()
-    );
-    assert!(Executable::load_tvm(&path, "missing", "cpu", vec![], vec![]).is_err());
-    let program = load("tvm");
-    let input = put(&program, [1.; 4]);
-    assert!(program.put(spec(), &[0; 3]).is_err());
-    assert!(program.run(&[]).is_err());
-    let foreign = put(&load("cpu"), [0.; 4]);
-    assert!(program.run(&[input.clone(), foreign]).is_err());
-    assert!(unsafe { input.metal() }.is_err());
-    let wrong = Executable::load_tvm(
-        &path,
-        "main",
-        "cpu",
-        vec![spec(), spec()],
-        vec![Tensor::new(vec![2], "float32").unwrap(), spec()],
-    )
-    .unwrap();
-    let value = put(&wrong, [0.; 4]);
-    assert!(
-        wrong
-            .submit(vec![value.clone(), value])
-            .unwrap()
-            .wait()
-            .is_err()
-    );
-    let calls: Vec<_> = (0..8)
-        .map(|_| program.submit(vec![input.clone(), input.clone()]).unwrap())
-        .collect();
-    drop((program, input));
-    for call in calls {
-        assert_eq!(values(&call.wait().unwrap()[0]), [2.; 4]);
-    }
 }
 
 #[test]

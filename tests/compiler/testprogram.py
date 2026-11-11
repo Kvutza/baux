@@ -20,7 +20,7 @@ OUTPUTS = {"parameters": TensorSpec((4,)), "residuals": TensorSpec((4,))}
 
 @pytest.mark.parametrize(
     "backend,device",
-    [("iree", "cpu"), ("iree", "metal"), ("xla", "cpu"), ("tvm", "cpu")],
+    [("iree", "cpu"), ("iree", "metal"), ("tvm", "cpu")],
 )
 def test_round(backend, device):
     executable = compile(SOURCE, INPUTS, OUTPUTS, backend=backend, device=device)
@@ -59,7 +59,7 @@ def test_contract():
 
 @pytest.mark.parametrize(
     "backend,device",
-    [("iree", "cpu"), ("iree", "metal"), ("xla", "cpu"), ("tvm", "cpu")],
+    [("iree", "cpu"), ("iree", "metal"), ("tvm", "cpu")],
 )
 def test_forward(backend, device):
     import jax
@@ -135,7 +135,7 @@ def test_dataclass():
 
 @pytest.mark.parametrize(
     "backend,device",
-    [("iree", "cpu"), ("iree", "metal"), ("xla", "cpu"), ("tvm", "cpu")],
+    [("iree", "cpu"), ("iree", "metal")],
 )
 def test_axes(backend, device):
     from jax import lax
@@ -161,7 +161,7 @@ def test_axes(backend, device):
     np.testing.assert_array_equal(actual["state"], args[2])
 
 
-@pytest.mark.parametrize("backend", ["iree", "xla", "tvm"])
+@pytest.mark.parametrize("backend", ["iree"])
 def test_scalar(backend):
     import jax.numpy as jnp
 
@@ -181,7 +181,7 @@ def test_scalar(backend):
 
 @pytest.mark.parametrize(
     "backend,device",
-    [("iree", "cpu"), ("iree", "metal"), ("xla", "cpu"), ("tvm", "cpu")],
+    [("iree", "cpu"), ("iree", "metal"), ("tvm", "cpu")],
 )
 def test_pending(backend, device):
     import asyncio

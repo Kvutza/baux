@@ -1,0 +1,38 @@
+date = "2026-11-11"
+task = "blckbaux-9k7"
+revision = "oqptpyvxtwsnozpxyutqpmzuorsktskl"
+status = "complete"
+
+[architecture]
+tvm_compile = "Native Rust StableHLO importer, TVM TOPI/TIR lowering, LLVM codegen, Relax VM"
+xla_execute = "Pinned public PJRT C API through the shared Rust executable and buffer runtime"
+python = "Thin frontend over native TvmSession and NativeSession"
+ocaml = "Shared portable C ABI for IREE and XLA; precompiled TVM loader retained"
+
+[verified]
+command = "./admin/tools/buck2w test //admin/buck2/tests:native-package //rust/crates/baux:tvm-test //admin/buck2/pjrt:test"
+build_id = "9b955717-fdac-4a00-8b61-73b37acea4ec"
+result = "pass"
+tvm_rust_tests = 7
+pjrt_probe = "pass"
+relocated_wheel = "pass"
+
+[completion]
+command = "./admin/tools/buck2w test //admin/buck2/tests:compiler //rust/crates/baux:tvm-test //ocaml:test //admin/buck2/pjrt:test"
+build_id = "41febdf4-7f0b-4922-aa5c-7e67b91cb28a"
+result = "8 targets passed"
+python = "67 passed"
+tvm_rust = "7 passed"
+pjrt = "native XLA CPU compilation, execution, events, and owned upload passed"
+ocaml = "CPU, Metal, XLA CPU, and FBT/PISA passed"
+relocated_wheel = "native XLA, TVM payload, dependencies, and licenses passed"
+
+[final_check]
+command = "./baux check && ./admin/tools/buck2w test //admin/buck2/tests:compiler-python"
+build_id = "d914f74c-0852-411b-87bf-164ede2d1044"
+result = "repository checks passed; 67 Python compiler contracts passed"
+
+[reduction]
+implementation = "Bounded native TVM TE commutative reducer with separate reduction and initializer stages"
+semantics = "Variadic reducer regions, commutative operand order, explicit initializers, empty axes, empty dimensions, boolean and integer predicates, NaN propagation, infinities, and signed zero"
+fallback = "none"

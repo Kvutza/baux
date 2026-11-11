@@ -64,7 +64,7 @@ def verify(program: Any) -> None:
 
 
 class Native:
-    """Resident execution owned by Rust; transfers remain explicit."""
+    """Shared transfers and completion protocol for Rust-owned sessions."""
 
     session: Any
 
@@ -87,7 +87,10 @@ class Iree(Native):
     """IREE compiler with execution owned by the shared Rust runtime."""
 
     def __init__(self, program: Any, device: str) -> None:
-        import iree.compiler as compiler
+        import importlib.util
+        import subprocess
+        from pathlib import Path
+
         from jaxlib.mlir import ir
 
         from .. import baux_rust
@@ -110,12 +113,27 @@ class Iree(Native):
             # Compile embedded MSL at module load without Apple's separate
             # offline Metal toolchain.
             options.append("--iree-metal-compile-to-metallib=false")
-        artifact = compiler.compile_str(
-            program.source,
-            target_backends=[target],
-            input_type="stablehlo",
-            extra_args=options,
+        # Compiler LLVM versions must not share a process with TVM's LLVM.
+        # The wheel ships a native CLI alongside its Python bindings.
+        package = importlib.util.find_spec("iree.compiler")
+        if package is None or package.origin is None:
+            raise ImportError("install the IREE compiler extra")
+        compiler = Path(package.origin).parent / "_mlir_libs" / "iree-compile"
+        compiled = subprocess.run(
+            [
+                str(compiler),
+                "-",
+                "--iree-input-type=stablehlo",
+                f"--iree-hal-target-backends={target}",
+                *options,
+            ],
+            input=program.source.encode(),
+            capture_output=True,
+            check=False,
         )
+        if compiled.returncode:
+            raise ValueError(compiled.stderr.decode(errors="replace"))
+        artifact = compiled.stdout
         module = parse(program.source)
         symbol = (
             ir.StringAttr(module.operation.attributes["sym_name"]).value
@@ -128,6 +146,22 @@ class Iree(Native):
             device,
             program.inputs,
             program.outputs,
+        )
+
+
+class Tvm(Native):
+    """Native StableHLO importer, TVM compiler and CPU Relax VM."""
+
+    def __init__(self, program: Any, device: str) -> None:
+        from pathlib import Path
+
+        from .. import baux_rust
+
+        if device != "cpu":
+            raise ValueError(f"native TVM currently supports CPU, got {device!r}")
+        importer = Path(baux_rust.__file__).parent / ".dylibs" / "hlo_import"
+        self.session = baux_rust.TvmSession(
+            program.source, program.entry, str(importer)
         )
 
 
@@ -147,10 +181,8 @@ class Xla(Native):
 def create(program: Any, backend: str, device: str) -> Any:
     if backend == "iree":
         return Iree(program, device)
+    if backend == "tvm":
+        return Tvm(program, device)
     if backend == "xla":
         return Xla(program, device)
-    if backend == "tvm":
-        from ._tvm import Tvm
-
-        return Tvm(program, device)
     raise ValueError(f"unknown compiler backend {backend!r}")

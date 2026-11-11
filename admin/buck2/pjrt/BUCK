@@ -1,0 +1,46 @@
+# OpenXLA's CPU plugin, packaged by cyxla; no Python runtime is used.
+# Build provenance: nardi/cyxla d9640778d20561cc5e9d88442fe07ccd1366d505,
+# cyxla-pjrt-cpu/plugin.toml: JAX dc4af684446e65ee98eee8090e1ff6f8211473fb,
+# XLA d867969800d4a8fd045505eabc65e1e66f30794f. Matches jaxlib 0.12.0.1.
+http_file(
+    name = "cpu-wheel",
+    urls = ["https://files.pythonhosted.org/packages/91/b1/e0c0676914fedc49978122dfffd6d595633cf0414b24cb76df88f60e0154/cyxla_pjrt_cpu-0.12.0.1-py3-none-macosx_11_0_arm64.whl"],
+    sha256 = "260d4e33eecbcaae488f31541737bd944b02e7496d775c84bd77d1ee6005103c",
+    out = "cpu.whl",
+)
+
+http_file(
+    name = "header",
+    urls = ["https://raw.githubusercontent.com/openxla/xla/d867969800d4a8fd045505eabc65e1e66f30794f/xla/pjrt/c/pjrt_c_api.h"],
+    sha256 = "174b44736ccb200cb402c2466822220971ba578e1e8dfd690c56f822a9e71582",
+    out = "pjrt_c_api.h",
+    visibility = ["PUBLIC"],
+)
+
+genrule(
+    name = "build",
+    srcs = ["build.sh", "probe.cc"],
+    outs = {"library": ["libpjrt_cpu.dylib"], "license": ["PJRT-LICENSE"], "probe": ["probe"]},
+    default_outs = ["libpjrt_cpu.dylib", "PJRT-LICENSE", "probe"],
+    cmd = 'sh "$SRCDIR/build.sh" "$(location :cpu-wheel)" "$(location :header)" "$SRCDIR/probe.cc" "$OUT"',
+    target_compatible_with = ["prelude//os/constraints:macos"],
+    visibility = ["PUBLIC"],
+)
+
+prebuilt_cxx_library(
+    name = "cpu",
+    shared_lib = ":build[library]",
+    soname = "libpjrt_cpu.dylib",
+    preferred_linkage = "shared",
+    visibility = ["PUBLIC"],
+    target_compatible_with = ["prelude//os/constraints:macos"],
+)
+
+sh_test(
+    name = "test",
+    test = "test.sh",
+    resources = [":build"],
+    env = {"BAUX_PJRT_PROBE": "$(location :build[probe])", "BAUX_PJRT_LIBRARY": "$(location :build[library])"},
+    target_compatible_with = ["prelude//os/constraints:macos"],
+    visibility = ["PUBLIC"],
+)

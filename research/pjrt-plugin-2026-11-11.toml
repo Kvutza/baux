@@ -1,0 +1,41 @@
+date = "2026-11-11"
+task = "blckbaux-7pg"
+status = "Pinned public PJRT CPU plugin and verified native compilation and execution"
+platform = "macOS 27.0.1 arm64"
+package = "cyxla-pjrt-cpu 0.12.0.1"
+publisher_revision = "d9640778d20561cc5e9d88442fe07ccd1366d505"
+jax_revision = "dc4af684446e65ee98eee8090e1ff6f8211473fb"
+xla_revision = "d867969800d4a8fd045505eabc65e1e66f30794f"
+api = "PJRT 0.116"
+wheel_sha256 = "260d4e33eecbcaae488f31541737bd944b02e7496d775c84bd77d1ee6005103c"
+header_sha256 = "174b44736ccb200cb402c2466822220971ba578e1e8dfd690c56f822a9e71582"
+sources = [
+  "https://pypi.org/project/cyxla-pjrt-cpu/0.12.0.1/",
+  "https://github.com/nardi/cyxla/blob/d9640778d20561cc5e9d88442fe07ccd1366d505/cyxla-pjrt-cpu/plugin.toml",
+  "https://github.com/nardi/cyxla/blob/d9640778d20561cc5e9d88442fe07ccd1366d505/cyxla-pjrt-cpu/bazel/entry.cc",
+  "https://github.com/openxla/xla/blob/d867969800d4a8fd045505eabc65e1e66f30794f/xla/pjrt/c/pjrt_c_api.h",
+  "https://github.com/openxla/xla/blob/d867969800d4a8fd045505eabc65e1e66f30794f/xla/pjrt/proto/compile_options.proto",
+]
+limitations = [
+  "This is OpenXLA's CPU plugin implementation distributed by the third-party cyxla project, not an OpenXLA-published binary.",
+  "The plugin exposes CPU devices only; it does not provide Metal support.",
+  "This prerequisite verifies the native public C ABI; it does not establish Rust/Python/OxCaml integration or multi-platform execution.",
+]
+
+[[checks]]
+command = "./admin/tools/buck2w test //admin/buck2/pjrt:test"
+build_id = "d9d5ddd0-4ac8-4085-af31-1fa9a6121c92"
+result = "passed"
+log = ".cache/pjrt-probe.log"
+coverage = [
+  "Link and relocate a standalone C++ executable and the plugin with no Python runtime dependency.",
+  "Verify GetPjrtApi table size and exact 0.116 header/API version, initialize the plugin and enumerate CPU devices.",
+  "Compile StableHLO, upload immutable host data, mutate the source, execute two tensor outputs and compare exact values.",
+  "Await and destroy transfer/execution events, destroy buffers, executable and client.",
+]
+
+[[resolved]]
+build_id = "5779de54-91c8-4c19-8d2d-992dda4e3fd2"
+result = "process aborted during compilation with empty options"
+cause = "Empty CompileOptionsProto supplies zero replicas, causing an upstream fatal check."
+change = "Encode executable_build_options with one replica and one partition using the exact pinned protobuf schema."

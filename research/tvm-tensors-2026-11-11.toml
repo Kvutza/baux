@@ -1,0 +1,72 @@
+date = "2026-11-11"
+task = "blckbaux-3e0"
+change = "zxomolosmwywyukypvmzylvlwwknoztn"
+bookmark = "kvutza/native-coverage"
+base = "933f76b7"
+status = "complete"
+
+[implementation]
+pipeline = "Native MLIR parse/verification/inlining, Rust tensor lowering, native TVM TE/TIR LLVM compilation, Relax VM execution"
+compiler_fallback = "none"
+operations = [
+  "General dot contractions: batching, multiple reduction axes, vectors, outer products, wider accumulation and boolean results",
+  "Gather: batched operands, collapsed windows, arbitrary or implicit index-vector dimensions, clamped starts",
+  "Static and dynamic slices, dynamic updates, concatenate, reverse, edge/interior padding and cropping",
+  "Iota, comparisons, selection, dtype conversion, typed dense and splat constants",
+  "IEEE total ordering, NaN-propagating extrema, signed zeros and rounding modes",
+  "BF16 compute/storage legalization in the native compiler pipeline",
+]
+specification = "https://openxla.org/stablehlo/spec"
+
+[decoder]
+test = "tests/compiler/testtensor.py::test_decoder"
+components = "Embedding gather, RMS normalization, QKV projection, multi-head causal attention, softmax, residuals, feedforward layer, tied logits and scalar loss"
+batch = 2
+sequence = 5
+width = 8
+heads = 2
+vocabulary = 11
+parameter_sets = 2
+reference = "Independent NumPy forward, including attention and loss"
+relative_tolerance = 0.00002
+absolute_tolerance = 0.00002
+execution = "Public Python compile/put/submit/wait/get API; compilation and execution are native"
+
+[initial_verification]
+build_id = "e433f0ae-302b-40ea-83fb-179e3951deaa"
+result = "74 Python compiler cases passed"
+edge_build_id = "4aab99f5-ca2d-495f-a22e-1340156b691a"
+edge_result = "20 targeted edge cases passed, including BF16 arithmetic and native XLA total-order cross-checks"
+
+[regression]
+build_id = "c637e576-8c8d-4e10-b166-d44f1f9c703a"
+result = "97 Python cases passed; 2 failed; the other seven test targets passed"
+findings = "Gather's canonical attribute printer omits index_vector_dim=0; fixed the default. Rounding test was added after the wheel build started and correctly rejected that older artifact; native lowering is included in the subsequent build."
+
+[rust]
+build_id = "7057d769-da05-4efc-8da1-2e7c90161ba1"
+result = "7 native compiler/runtime tests passed"
+mlp_maximum_absolute_error = 0.000000044703484
+mlp_parameter_seeds = 3
+
+[rounding_regression]
+build_id = "858b4881-5619-47e0-9564-c76a9837560d"
+result = "98 Python cases passed; ties-away-from-zero rounding failed; the other five test targets passed"
+finding = "Pinned TVM's round mapping returned ties-to-even. Replaced that mapping with truncation plus a conditional signed unit adjustment, avoiding the large-value error of adding 0.5 before rounding."
+assertions = "Half-integers, signed zero, infinities, NaNs and large exactly integral float32 values"
+
+[scope]
+tvm_target = "CPU LLVM"
+validation = "Static tensor programs and the models above; this is not a universal StableHLO conformance claim"
+not_measured = "FBT/PISA through TVM and 1M-context TVM performance; the separate resident FBT/PISA checks exercise the existing native model path"
+
+[completion]
+command = "./admin/tools/buck2w test //admin/buck2/tests:compiler-python //rust/crates/baux:tvm-test"
+build_id = "5f938fd3-2691-4501-91dc-6986da8fd218"
+result = "99 Python compiler cases and 7 native Rust tests passed"
+checks = "./baux check passed"
+auxiliary_build_ids = [
+  "c637e576-8c8d-4e10-b166-d44f1f9c703a",
+  "858b4881-5619-47e0-9564-c76a9837560d",
+]
+auxiliary_results = "Rust shared runtime, native PJRT, OxCaml CPU/Metal/XLA/FBT-PISA, complete OxCaml suite, and relocated native package checks passed"

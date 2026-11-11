@@ -1,6 +1,6 @@
 //! Owned snapshot of verified MLIR. C handles never escape the parser session.
 //! ABI: IREE 3.13 compiler/mlir_interop.h and MLIR C API IR.h/BuiltinTypes.h.
-use super::graph::{Graph, Node};
+use super::graph::{Attribute, Graph, Node};
 use crate::portable::Result;
 use std::ffi::c_void;
 use std::sync::Once;
@@ -104,12 +104,41 @@ unsafe extern "C" {
     fn array_length(attr: Handle) -> isize;
     #[link_name = "mlirDenseI64ArrayGetElement"]
     fn array_element(attr: Handle, i: isize) -> i64;
-    #[link_name = "mlirAttributeIsADenseFPElements"]
-    fn dense_float(attr: Handle) -> bool;
     #[link_name = "mlirElementsAttrGetNumElements"]
     fn elements(attr: Handle) -> i64;
-    #[link_name = "mlirDenseElementsAttrGetFloatValue"]
-    fn float_value(attr: Handle, i: isize) -> f32;
+    #[link_name = "mlirAttributeIsAInteger"]
+    fn integer_attr(attr: Handle) -> bool;
+    #[link_name = "mlirIntegerAttrGetValueInt"]
+    fn integer_value(attr: Handle) -> i64;
+    #[link_name = "mlirAttributeIsADenseElements"]
+    fn dense(attr: Handle) -> bool;
+    #[link_name = "mlirDenseElementsAttrIsSplat"]
+    fn splat(attr: Handle) -> bool;
+    #[link_name = "mlirDenseElementsAttrGetRawData"]
+    fn raw_data(attr: Handle) -> *const u8;
+    #[link_name = "mlirDenseElementsAttrGetBoolValue"]
+    fn bool_value(attr: Handle, index: isize) -> bool;
+    #[link_name = "mlirPassManagerCreate"]
+    fn pass_manager(context: Handle) -> Handle;
+    #[link_name = "mlirPassManagerDestroy"]
+    fn destroy_passes(manager: Handle);
+    #[link_name = "mlirCreateTransformsInlinerPass"]
+    fn inliner() -> Handle;
+    #[link_name = "mlirPassManagerAddOwnedPass"]
+    fn add_pass(manager: Handle, pass: Handle);
+    #[link_name = "mlirPassManagerRunOnOp"]
+    fn run_passes(manager: Handle, op: Handle) -> LogicalResult;
+}
+
+#[repr(C)]
+struct LogicalResult {
+    value: i8,
+}
+struct PassManager(Handle);
+impl Drop for PassManager {
+    fn drop(&mut self) {
+        unsafe { destroy_passes(self.0) }
+    }
 }
 
 struct Session(*mut c_void);
@@ -173,10 +202,45 @@ unsafe fn inspect(op: Handle, inputs: Vec<usize>) -> Result<Node> {
         reducer: String::new(),
         dot: String::new(),
         constant: vec![],
+        attributes: std::collections::BTreeMap::new(),
     };
+    for key in [
+        "comparison_direction",
+        "compare_type",
+        "start_indices",
+        "limit_indices",
+        "strides",
+        "dimension",
+        "iota_dimension",
+        "edge_padding_low",
+        "edge_padding_high",
+        "interior_padding",
+        "slice_sizes",
+        "dimension_numbers",
+    ] {
+        let a = unsafe { attribute(op, Text::new(key)) };
+        if a.0.is_null() {
+            continue;
+        }
+        let value = if unsafe { dense_i64(a) } {
+            Attribute::Integers(
+                (0..unsafe { array_length(a) })
+                    .map(|i| unsafe { array_element(a, i) })
+                    .collect(),
+            )
+        } else if unsafe { integer_attr(a) } {
+            Attribute::Integer(unsafe { integer_value(a) })
+        } else {
+            let mut text = String::new();
+            unsafe { print(a, append, (&raw mut text).cast()) };
+            Attribute::Text(text)
+        };
+        node.attributes.insert(key.into(), value);
+    }
     let key = match node.name.as_str() {
         "stablehlo.transpose" => "permutation",
         "stablehlo.broadcast_in_dim" => "broadcast_dimensions",
+        "stablehlo.reverse" => "dimensions",
         _ => "",
     };
     if !key.is_empty() {
@@ -200,12 +264,37 @@ unsafe fn inspect(op: Handle, inputs: Vec<usize>) -> Result<Node> {
     }
     if node.name == "stablehlo.constant" {
         let a = unsafe { attribute(op, Text::new("value")) };
-        if a.0.is_null() || !unsafe { dense_float(a) } {
-            return Err("expected dense float32 constant".into());
+        if a.0.is_null() || !unsafe { dense(a) } {
+            return Err("expected dense tensor constant".into());
         }
-        node.constant = (0..unsafe { elements(a) })
-            .map(|i| unsafe { float_value(a, i as isize) }.to_bits())
-            .collect();
+        let count = usize::try_from(unsafe { elements(a) }).map_err(|e| e.to_string())?;
+        if node.dtype == "bool" {
+            node.constant = (0..count)
+                .map(|i| u8::from(unsafe { bool_value(a, i as isize) }))
+                .collect();
+        } else if count != 0 {
+            let width = match node.dtype.as_str() {
+                "float16" | "bfloat16" => 2,
+                "float32" | "int32" | "uint32" => 4,
+                "float64" | "int64" | "uint64" => 8,
+                _ => return Err("unsupported constant dtype".into()),
+            };
+            let pointer = unsafe { raw_data(a) };
+            if pointer.is_null() {
+                return Err("missing dense constant storage".into());
+            }
+            let splat = unsafe { splat(a) };
+            for i in 0..count {
+                // Verified DenseElementsAttr stores one element for a splat,
+                // otherwise count elements; native byte order matches TVM.
+                node.constant.extend_from_slice(unsafe {
+                    std::slice::from_raw_parts(
+                        pointer.add(if splat { 0 } else { i * width }),
+                        width,
+                    )
+                });
+            }
+        }
     }
     Ok(node)
 }
@@ -296,6 +385,7 @@ unsafe fn reduction(op: Handle, inputs: &[usize]) -> Result<Vec<(Handle, Node)>>
                     reducer: reducers[index].clone(),
                     dot: String::new(),
                     constant: vec![],
+                    attributes: std::collections::BTreeMap::new(),
                 },
             ))
         })
@@ -321,6 +411,11 @@ impl Graph {
         let module = Module(module);
         if !unsafe { verify(operation(module.0)) } {
             return Err("StableHLO verification failed".into());
+        }
+        let passes = PassManager(unsafe { pass_manager(context) });
+        unsafe { add_pass(passes.0, inliner()) };
+        if unsafe { run_passes(passes.0, operation(module.0)) }.value == 0 {
+            return Err("StableHLO function inlining failed".into());
         }
         let mut op = unsafe { first(body(module.0)) };
         while !op.0.is_null() {

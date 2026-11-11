@@ -135,7 +135,7 @@ def test_dataclass():
 
 @pytest.mark.parametrize(
     "backend,device",
-    [("iree", "cpu"), ("iree", "metal")],
+    [("iree", "cpu"), ("iree", "metal"), ("tvm", "cpu")],
 )
 def test_axes(backend, device):
     from jax import lax
@@ -161,7 +161,7 @@ def test_axes(backend, device):
     np.testing.assert_array_equal(actual["state"], args[2])
 
 
-@pytest.mark.parametrize("backend", ["iree"])
+@pytest.mark.parametrize("backend", ["iree", "tvm"])
 def test_scalar(backend):
     import jax.numpy as jnp
 

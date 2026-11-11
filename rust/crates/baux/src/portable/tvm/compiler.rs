@@ -12,18 +12,18 @@ fn text(s: &str) -> Result<Value> {
     Value::string(s)
 }
 
-fn primitive(dtype: &str) -> Result<Value> {
+pub(super) fn primitive(dtype: &str) -> Result<Value> {
     call("ir.PrimType", &mut [text(dtype)?])
 }
 
-fn integer(dtype: &str, value: i64) -> Result<Value> {
+pub(super) fn integer(dtype: &str, value: i64) -> Result<Value> {
     call(
         "ir.IntImm",
         &mut [text(dtype)?, Value::integer(value), Value::none()],
     )
 }
 
-fn floating(dtype: &str, value: f64) -> Result<Value> {
+pub(super) fn floating(dtype: &str, value: f64) -> Result<Value> {
     call(
         "ir.FloatImm",
         &mut [text(dtype)?, Value::float(value), Value::none()],
@@ -37,7 +37,7 @@ fn variable(dtype: &str, name: &str) -> Result<Value> {
     )
 }
 
-fn binary(name: &str, lhs: Value, rhs: Value) -> Result<Value> {
+pub(super) fn binary(name: &str, lhs: Value, rhs: Value) -> Result<Value> {
     call(name, &mut [lhs, rhs, Value::none()])
 }
 
@@ -101,7 +101,7 @@ fn extreme(dtype: &str, name: &str, lhs: Value, rhs: Value) -> Result<Value> {
     )
 }
 
-fn combine(dtype: &str, reducer: &str, lhs: Value, rhs: Value) -> Result<Value> {
+pub(super) fn combine(dtype: &str, reducer: &str, lhs: Value, rhs: Value) -> Result<Value> {
     match reducer {
         "add" => binary("prim._OpAdd", lhs, rhs),
         "multiply" => binary("prim._OpMul", lhs, rhs),
@@ -159,7 +159,7 @@ fn identity(dtype: &str, reducer: &str) -> Result<Value> {
     }
 }
 
-fn iteration(extent: i64, name: &str, kind: i64) -> Result<(Value, Value)> {
+pub(super) fn iteration(extent: i64, name: &str, kind: i64) -> Result<(Value, Value)> {
     let variable = variable("int64", name)?;
     let range = call(
         "ir.Range_from_min_extent",
@@ -338,6 +338,7 @@ pub(super) fn build(args: &[Value]) -> Result<TvmModule> {
         "s_tir.transform.StmtSimplify",
         "s_tir.transform.LowerOpaqueBlock",
         "tirx.transform.FlattenBuffer",
+        "tirx.transform.BF16ComputeLegalize",
         "tirx.transform.StorageRewrite",
         "tirx.transform.UnrollLoop",
         "tirx.transform.StmtSimplify",
@@ -346,6 +347,7 @@ pub(super) fn build(args: &[Value]) -> Result<TvmModule> {
         "tirx.transform.AnnotateEntryFunc",
         "tirx.transform.SplitHostDevice",
         "tirx.transform.MakePackedAPI",
+        "tirx.transform.BF16StorageLegalize",
         "tirx.transform.LowerTVMBuiltin",
         "tirx.transform.LowerIntrin",
     ] {

@@ -6,13 +6,18 @@
 
 use std::ffi::{CString, c_char, c_void};
 use std::ptr::NonNull;
+mod comparison;
 mod compiler;
+mod contraction;
+mod element;
+mod gather;
 mod graph;
 mod lower;
 #[cfg(test)]
 #[path = "tvm/tests.rs"]
 mod model_tests;
 mod tensor;
+mod transform;
 pub use lower::TvmExecutable;
 pub use tensor::TvmTensor;
 

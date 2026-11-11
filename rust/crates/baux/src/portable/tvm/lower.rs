@@ -57,56 +57,7 @@ fn axes(values: &[i64]) -> Result<Value> {
     )
 }
 
-fn dot_dims(text: &str, key: &str) -> Result<Vec<usize>> {
-    let Some((_, tail)) = text.split_once(&format!("{key} = [")) else {
-        return Ok(vec![]);
-    };
-    let (values, _) = tail.split_once(']').ok_or("invalid dot dimensions")?;
-    if values.is_empty() {
-        return Ok(vec![]);
-    }
-    values
-        .split(',')
-        .map(|n| n.trim().parse::<usize>().map_err(|e| e.to_string()))
-        .collect()
-}
-
-fn dot(node: &Node, args: &mut [Value], shapes: &[Vec<i64>]) -> Result<Value> {
-    if args.len() != 2 {
-        return Err("dot requires two operands".into());
-    }
-    let lhs = &shapes[node.inputs[0]];
-    let rhs = &shapes[node.inputs[1]];
-    let lc = dot_dims(&node.dot, "lhs_contracting_dimensions")?;
-    let rc = dot_dims(&node.dot, "rhs_contracting_dimensions")?;
-    let lb = dot_dims(&node.dot, "lhs_batching_dimensions")?;
-    let rb = dot_dims(&node.dot, "rhs_batching_dimensions")?;
-    if !lb.is_empty() || !rb.is_empty() {
-        return Err("native TVM dot_general does not yet support batch dimensions".into());
-    }
-    let lf = (0..lhs.len())
-        .filter(|i| !lc.contains(i))
-        .collect::<Vec<_>>();
-    let rf = (0..rhs.len())
-        .filter(|i| !rc.contains(i))
-        .collect::<Vec<_>>();
-    let lp = lf.iter().chain(&lc).map(|&i| i as i64).collect::<Vec<_>>();
-    let rp = rc.iter().chain(&rf).map(|&i| i as i64).collect::<Vec<_>>();
-    let m = lf.iter().map(|&i| lhs[i]).product();
-    let n = rf.iter().map(|&i| rhs[i]).product();
-    let k = lc.iter().map(|&i| lhs[i]).product();
-    let a = call("topi.transpose", &mut [args[0].clone(), axes(&lp)?])?;
-    let b = call("topi.transpose", &mut [args[1].clone(), axes(&rp)?])?;
-    let a = call("topi.reshape", &mut [a, dims(&[m, k])?])?;
-    let b = call("topi.reshape", &mut [b, dims(&[k, n])?])?;
-    let result = call(
-        "topi.matmul",
-        &mut [a, b, Value::boolean(false), Value::boolean(false)],
-    )?;
-    call("topi.reshape", &mut [result, dims(&node.shape)?])
-}
-
-fn lower(node: &Node, values: &[Value], shapes: &[Vec<i64>]) -> Result<Value> {
+fn lower(node: &Node, values: &[Value], shapes: &[Vec<i64>], dtypes: &[String]) -> Result<Value> {
     let mut args = node
         .inputs
         .iter()
@@ -121,14 +72,50 @@ fn lower(node: &Node, values: &[Value], shapes: &[Vec<i64>]) -> Result<Value> {
         "subtract" => Some("subtract"),
         "multiply" => Some("multiply"),
         "divide" => Some("divide"),
-        "maximum" => Some("maximum"),
-        "minimum" => Some("minimum"),
         _ => None,
     };
     if let Some(name) = binary {
+        if node.dtype == "bool" && matches!(op, "add" | "multiply") {
+            return call(
+                if op == "add" {
+                    "topi.logical_or"
+                } else {
+                    "topi.logical_and"
+                },
+                &mut args,
+            );
+        }
         return call(&format!("topi.{name}"), &mut args);
     }
     match op {
+        "round_nearest_afz" => super::element::compute(&node.shape, op, |indices| {
+            super::element::round(super::element::load(&args[0], indices)?, &node.dtype)
+        }),
+        "floor" | "ceil" | "round_nearest_even" | "is_finite" => {
+            let intrinsic = match op {
+                "floor" => "tirx.floor",
+                "ceil" => "prim.ceil",
+                "round_nearest_even" => "tirx.nearbyint",
+                _ => "tirx.isfinite",
+            };
+            super::element::compute(&node.shape, op, |indices| {
+                call(
+                    intrinsic,
+                    &mut [super::element::load(&args[0], indices)?, Value::none()],
+                )
+            })
+        }
+        "maximum" | "minimum" | "and" | "or" | "xor" => {
+            super::element::compute(&node.shape, op, |indices| {
+                super::compiler::combine(
+                    &node.dtype,
+                    op,
+                    super::element::load(&args[0], indices)?,
+                    super::element::load(&args[1], indices)?,
+                )
+            })
+        }
+        "compare" => super::comparison::lower(node, &args, &dtypes[node.inputs[0]]),
         "reduce" => {
             if node.dimensions.iter().any(|&axis| {
                 usize::try_from(axis)
@@ -167,7 +154,7 @@ fn lower(node: &Node, values: &[Value], shapes: &[Vec<i64>]) -> Result<Value> {
         "negate" => call("topi.negative", &mut args),
         "cosine" => call("topi.cos", &mut args),
         "sine" => call("topi.sin", &mut args),
-        "dot_general" => dot(node, &mut args, shapes),
+        "dot_general" => super::contraction::lower(node, &args, shapes),
         "reshape" => call("topi.reshape", &mut [args[0].clone(), dims(&node.shape)?]),
         "transpose" => call(
             "topi.transpose",
@@ -181,7 +168,7 @@ fn lower(node: &Node, values: &[Value], shapes: &[Vec<i64>]) -> Result<Value> {
             let value = call("topi.reshape", &mut [args[0].clone(), dims(&shape)?])?;
             call("topi.broadcast_to", &mut [value, dims(&node.shape)?])
         }
-        _ => Err(format!("unsupported StableHLO operation {}", node.name)),
+        _ => super::transform::lower(node, &args, shapes),
     }
 }
 
@@ -204,7 +191,7 @@ struct Program {
 // including destruction, is exclusive; TvmExecutable serializes calls.
 unsafe impl Send for Program {}
 
-/// A compiled static float32 StableHLO function running in the native Relax VM.
+/// A compiled static StableHLO function running in the native Relax VM.
 /// Inputs and results are owned CPU allocations. Unsupported operations fail
 /// at compile time, before any model invocation.
 #[derive(Clone)]
@@ -223,6 +210,7 @@ impl TvmExecutable {
         }
         let aliases = graph.nodes.is_empty().then(|| graph.outputs.clone());
         let mut shapes = graph.inputs.clone();
+        let mut dtypes = graph.input_dtypes.clone();
         let mut values = graph
             .inputs
             .iter()
@@ -240,26 +228,23 @@ impl TvmExecutable {
                 parameters.push(value.clone());
                 parameter_shapes.push(node.shape.clone());
                 parameter_dtypes.push(node.dtype.clone());
-                let bytes = node
-                    .constant
-                    .iter()
-                    .flat_map(|n| n.to_ne_bytes())
-                    .collect::<Vec<_>>();
-                constants.push(TvmTensor::put(spec(&node.shape, &node.dtype)?, &bytes)?);
+                constants.push(TvmTensor::put(
+                    spec(&node.shape, &node.dtype)?,
+                    &node.constant,
+                )?);
                 value
             } else {
-                lower(node, &values, &shapes)?
+                lower(node, &values, &shapes, &dtypes)?
             };
             values.push(value);
             shapes.push(node.shape.clone());
+            dtypes.push(node.dtype.clone());
         }
         let output_shapes = graph
             .outputs
             .iter()
             .map(|&i| shapes[i].clone())
             .collect::<Vec<_>>();
-        let mut dtypes = graph.input_dtypes.clone();
-        dtypes.extend(graph.nodes.iter().map(|node| node.dtype.clone()));
         let output_dtypes = graph
             .outputs
             .iter()

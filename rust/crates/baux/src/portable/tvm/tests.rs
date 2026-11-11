@@ -137,14 +137,14 @@ fn rejects_unsupported() {
     assert!(compile("not MLIR").is_err());
     let error = compile(
         r#"module { func.func @main(%x: tensor<2xf32>) -> tensor<2xf32> {
-        %0 = stablehlo.floor %x : tensor<2xf32>
+        %0 = stablehlo.custom_call @missing(%x) : (tensor<2xf32>) -> tensor<2xf32>
         return %0 : tensor<2xf32>
     }}"#,
     )
     .err()
     .unwrap();
     assert!(
-        error.contains("unsupported StableHLO operation stablehlo.floor"),
+        error.contains("unsupported StableHLO operation stablehlo.custom_call"),
         "{error}"
     );
 }

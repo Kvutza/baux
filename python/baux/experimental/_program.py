@@ -131,66 +131,24 @@ class Iree(Native):
         )
 
 
-class Xla:
-    """Compile StableHLO directly through the installed PJRT client."""
+class Xla(Native):
+    """Native XLA compiler and PJRT execution owned by the Rust runtime."""
 
     def __init__(self, program: Any, device: str) -> None:
-        from jax._src import xla_bridge
-        from jaxlib import xla_client
+        from .. import baux_rust
 
         if program.entry != "main":
             raise ValueError("XLA requires the exported entry to be named main")
-        self.client = xla_bridge.get_backend(device)
-        self.device = self.client.local_devices()[0]
-        self.call = self.client.compile_and_load(
-            program.source, [self.device], xla_client.CompileOptions()
+        self.session = baux_rust.NativeSession.compile_xla(
+            program.source, device, program.inputs, program.outputs
         )
-
-    def put(self, value: Any) -> Any:
-        import jax
-
-        with jax.enable_x64():
-            return jax.device_put(value, self.device)
-
-    def get(self, value: Any) -> Any:
-        return np.array(value, copy=True)
-
-    def run(self, values: list[Any]) -> list[Any]:
-        return list(self.call.execute(values))
-
-
-class QueuedAdapter:
-    """Rust-owned queue around a backend's Python execution object.
-
-    XLA compilation, buffer conversion, and execution still use its Python
-    bindings. One Rust worker serializes calls, and completions have the same
-    consumable ownership contract as the direct IREE and TVM runtimes.
-    """
-
-    def __init__(self, engine: Any) -> None:
-        from .. import baux_rust
-
-        self.engine = engine
-        self.session = baux_rust.BackendQueue(engine)
-
-    def put(self, value: Any) -> Any:
-        return self.engine.put(value)
-
-    def get(self, value: Any) -> Any:
-        return self.engine.get(value)
-
-    def run(self, values: list[Any]) -> list[Any]:
-        return self.session.run(values)
-
-    def submit(self, values: list[Any]) -> Any:
-        return self.session.submit(values)
 
 
 def create(program: Any, backend: str, device: str) -> Any:
     if backend == "iree":
         return Iree(program, device)
     if backend == "xla":
-        return QueuedAdapter(Xla(program, device))
+        return Xla(program, device)
     if backend == "tvm":
         from ._tvm import Tvm
 

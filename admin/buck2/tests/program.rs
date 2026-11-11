@@ -5,6 +5,11 @@ fn spec() -> Tensor {
     Tensor::new(vec![4], "float32").unwrap()
 }
 fn load(device: &str) -> Executable {
+    if device == "xla" {
+        let source = std::fs::read_to_string(std::env::var("BAUX_STABLEHLO").unwrap()).unwrap();
+        return Executable::compile_xla(&source, "cpu", vec![spec(), spec()], vec![spec(), spec()])
+            .unwrap();
+    }
     if device == "tvm" {
         return Executable::load_tvm(
             &std::env::var("BAUX_TVM").unwrap(),
@@ -45,7 +50,7 @@ fn values(buffer: &Buffer) -> Vec<f32> {
 
 #[test]
 fn rounds() {
-    for device in ["cpu", "metal", "tvm"] {
+    for device in ["cpu", "metal", "tvm", "xla"] {
         let executable = load(device);
         let weights = put(&executable, [1., -2., 3., 0.]);
         let noise = put(&executable, [0.25, -0.5, 0., 2.]);
@@ -61,6 +66,51 @@ fn rounds() {
         assert_eq!(values(&second[0]), [1.5, -3., 3., 4.]);
         assert_eq!(values(&second[1]), [2.25, 9., 9., 16.]);
     }
+}
+
+#[test]
+fn xla() {
+    let source = std::fs::read_to_string(std::env::var("BAUX_STABLEHLO").unwrap()).unwrap();
+    assert!(Executable::compile_xla("invalid", "cpu", vec![], vec![]).is_err());
+    assert!(Executable::compile_xla(&source, "metal", vec![], vec![]).is_err());
+    assert!(Executable::compile_xla(&source, "cpu", vec![], vec![spec(), spec()]).is_err());
+    for wrong in [
+        Tensor::new(vec![2], "float32").unwrap(),
+        Tensor::new(vec![2, 2], "float32").unwrap(),
+        Tensor::new(vec![4], "int32").unwrap(),
+    ] {
+        assert!(
+            Executable::compile_xla(&source, "cpu", vec![wrong, spec()], vec![spec(), spec()],)
+                .is_err()
+        );
+    }
+    for outputs in [
+        vec![spec()],
+        vec![Tensor::new(vec![2], "float32").unwrap(), spec()],
+    ] {
+        let program =
+            Executable::compile_xla(&source, "cpu", vec![spec(), spec()], outputs).unwrap();
+        let input = put(&program, [1.; 4]);
+        assert!(program.run(&[input.clone(), input]).is_err());
+    }
+    let program = load("xla");
+    let input = put(&program, [1.; 4]);
+    let foreign = put(&load("tvm"), [0.; 4]);
+    assert!(program.run(&[input.clone(), foreign]).is_err());
+    let first = program.run(&[input.clone(), input.clone()]).unwrap();
+    let calls: Vec<_> = (0..8)
+        .map(|_| {
+            program
+                .submit(vec![first[0].clone(), input.clone()])
+                .unwrap()
+        })
+        .collect();
+    drop(program);
+    for call in calls {
+        assert_eq!(values(&call.wait().unwrap()[0]), [3.; 4]);
+    }
+    assert_eq!(values(&first[0]), [2.; 4]);
+    assert_eq!(values(&input), [1.; 4]);
 }
 
 #[test]

@@ -27,16 +27,20 @@ let rejects f =
   | () -> failwith "invalid operation succeeded"
   | (exception Invalid_argument _) | (exception Failure _) -> ()
 
-let exercise device path tvm =
+let exercise device path compiler =
   let leaf = tensor float32 [| 4 |] in
   let inputs = pair leaf leaf and outputs = record leaf in
   let load () =
-    if tvm then load_tvm ~library:path ~entry:"main" ~device ~inputs ~outputs
-    else
-      let bytecode =
-        In_channel.with_open_bin path In_channel.input_all |> Bytes.of_string
-      in
-      load ~bytecode ~entry:"round.main" ~device ~inputs ~outputs
+    match compiler with
+    | `Tvm -> load_tvm ~library:path ~entry:"main" ~device ~inputs ~outputs
+    | `Xla ->
+        let source = In_channel.with_open_bin path In_channel.input_all in
+        compile_xla ~source ~device ~inputs ~outputs
+    | `Iree ->
+        let bytecode =
+          In_channel.with_open_bin path In_channel.input_all |> Bytes.of_string
+        in
+        load ~bytecode ~entry:"round.main" ~device ~inputs ~outputs
   in
   let program = load () in
   let weights = floats [| 1.; -2.; 3.; 0. |] in
@@ -83,24 +87,29 @@ let exercise device path tvm =
     domains;
   rejects (fun () ->
       ignore
-        (if tvm then
-           load_tvm ~library:path ~entry:"missing" ~device ~inputs ~outputs
-         else
-           Baux_program.load
-             ~bytecode:(Bytes.of_string "invalid")
-             ~entry:"round.main" ~device ~inputs ~outputs));
+        (match compiler with
+        | `Tvm ->
+            load_tvm ~library:path ~entry:"missing" ~device ~inputs ~outputs
+        | `Xla -> compile_xla ~source:"invalid" ~device ~inputs ~outputs
+        | `Iree ->
+            Baux_program.load
+              ~bytecode:(Bytes.of_string "invalid")
+              ~entry:"round.main" ~device ~inputs ~outputs));
   let label =
-    if tvm then "TVM CPU"
-    else match device with Cpu -> "CPU" | Metal -> "Metal"
+    match compiler with
+    | `Tvm -> "TVM CPU"
+    | `Xla -> "XLA CPU"
+    | `Iree -> ( match device with Cpu -> "CPU" | Metal -> "Metal")
   in
   Printf.printf
     "OxCaml %s: structured rounds, ownership, GC, domains, rejection passed\n%!"
     label
 
 let () =
-  exercise Cpu (Sys.getenv "BAUX_VMFB_CPU") false;
-  exercise Metal (Sys.getenv "BAUX_VMFB_METAL") false;
-  exercise Cpu (Sys.getenv "BAUX_TVM") true;
+  exercise Cpu (Sys.getenv "BAUX_VMFB_CPU") `Iree;
+  exercise Metal (Sys.getenv "BAUX_VMFB_METAL") `Iree;
+  exercise Cpu (Sys.getenv "BAUX_TVM") `Tvm;
+  exercise Cpu (Sys.getenv "BAUX_STABLEHLO") `Xla;
   let model = create_model ~seed:42L in
   if model_parameters model <> 265_623_320 || model_rows model <> 8192 then
     failwith "resident model metadata differs";

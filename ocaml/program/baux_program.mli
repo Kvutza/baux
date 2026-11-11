@@ -52,6 +52,14 @@ val load_tvm :
 (** Load a trusted TVM shared library for CPU execution. The library remains
     loaded while any buffer or pending call uses it. *)
 
+val compile_xla :
+  source:string ->
+  device:device ->
+  inputs:('a, 'b) layout ->
+  outputs:('c, 'd) layout ->
+  ('a, 'b, 'c, 'd) t
+(** Compile StableHLO with a [main] entry using the native XLA CPU plugin. *)
+
 val put : ('a, 'b, 'c, 'd) t -> 'a -> 'b
 val run : ('a, 'b, 'c, 'd) t -> 'b -> 'd
 val read : ('a, 'b) layout -> 'b -> 'a

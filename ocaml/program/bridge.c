@@ -108,7 +108,7 @@ static bauxspec* specs(value values) {
   return result;
 }
 
-static value load(value bytes, value entry, value device, value ins, value outs, int tvm) {
+static value load(value bytes, value entry, value device, value ins, value outs, int runtime) {
   CAMLparam5(bytes, entry, device, ins, outs);
   CAMLlocal1(result);
   result = empty(&sessionops);
@@ -126,9 +126,10 @@ static value load(value bytes, value entry, value device, value ins, value outs,
   memcpy(code, Bytes_val(bytes), length);
   code[length] = 0;
   caml_enter_blocking_section();
-  bauxprogram* program = tvm
-    ? bauxprogram_tvm((char*)code, function, driver, inputs, ni, outputs, no)
-    : bauxprogram_load(code, length, function, driver, inputs, ni, outputs, no);
+  bauxprogram* program;
+  if (runtime == 2) program = bauxprogram_xla(code, length, driver, inputs, ni, outputs, no);
+  else if (runtime == 1) program = bauxprogram_tvm((char*)code, function, driver, inputs, ni, outputs, no);
+  else program = bauxprogram_load(code, length, function, driver, inputs, ni, outputs, no);
   free(inputs); free(outputs); free(code); free(function); free(driver);
   caml_leave_blocking_section();
   if (!program) fail();
@@ -141,6 +142,9 @@ CAMLprim value bauxocaml_load(value bytes, value entry, value device, value ins,
 }
 CAMLprim value bauxocaml_tvm(value path, value entry, value device, value ins, value outs) {
   return load(path, entry, device, ins, outs, 1);
+}
+CAMLprim value bauxocaml_xla(value source, value entry, value device, value ins, value outs) {
+  return load(source, entry, device, ins, outs, 2);
 }
 
 CAMLprim value bauxocaml_put(value session, value dtype, value data) {

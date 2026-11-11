@@ -54,6 +54,22 @@ pub struct PyNativeSession {
 #[pymethods]
 impl PyNativeSession {
     #[staticmethod]
+    fn compile_xla(
+        py: Python<'_>,
+        source: &str,
+        device: &str,
+        inputs: Vec<Spec>,
+        outputs: Vec<Spec>,
+    ) -> PyResult<Self> {
+        let inputs = specs(inputs)?;
+        let outputs = specs(outputs)?;
+        let inner = py
+            .detach(|| Executable::compile_xla(source, device, inputs, outputs))
+            .map_err(PyValueError::new_err)?;
+        Ok(Self { inner })
+    }
+
+    #[staticmethod]
     fn load_tvm(
         py: Python<'_>,
         library: &str,

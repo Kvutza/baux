@@ -14,6 +14,9 @@ typedef struct bauxbatch bauxbatch;
 // dtype codes: bool, i32, i64, u32, u64, f16, bf16, f32, f64 (0..8).
 typedef struct { const size_t* shape; size_t rank; size_t dtype; } bauxspec;
 const char* bauxprogram_error(void);
+// Compile StableHLO source with a main entry through the native XLA CPU plugin.
+bauxprogram* bauxprogram_xla(const uint8_t*, size_t, const char*,
+                             const bauxspec*, size_t, const bauxspec*, size_t);
 bauxprogram* bauxprogram_load(const uint8_t*, size_t, const char*, const char*,
                               const bauxspec*, size_t, const bauxspec*, size_t);
 // Load a trusted TVM shared library by path, retaining its native module.

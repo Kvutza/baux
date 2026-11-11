@@ -222,6 +222,9 @@ python_wheel(
         "//admin/buck2/tvm:build[license]",
         "//admin/buck2/tvm:build[ffi-license]",
         "//admin/buck2/tvm:build[notice]",
+        "//admin/buck2/pjrt:bridge",
+        "//admin/buck2/pjrt:build[library]",
+        "//admin/buck2/pjrt:build[license]",
     ],
     target_compatible_with = [
         "prelude//cpu/constraints:arm64",

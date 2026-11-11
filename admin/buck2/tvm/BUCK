@@ -40,7 +40,7 @@ genrule(
         shared_lib = ":build[" + artifact + "]",
         soname = library,
         preferred_linkage = "shared",
-        deps = deps,
+        exported_deps = deps,
         visibility = ["PUBLIC"],
         target_compatible_with = ["prelude//os/constraints:macos"],
     )

@@ -1,0 +1,105 @@
+tested_revision = "b831c34c7c92762666d1943462dfa314ba027b80"
+date = "2026-11-11"
+task = "blckbaux-hcw"
+status = "Verified native XLA CPU execution in the shared Rust runtime"
+platform = "macOS 27.0.1 arm64"
+plugin_evidence = "research/pjrt-plugin-2026-11-11.toml"
+scope = "Native StableHLO compilation and PJRT execution from Rust, Python and OxCaml; shared immutable buffers and asynchronous completions"
+changes = [
+  "Added a private ownership adapter over the pinned public PJRT C API, with RAII cleanup and exception containment.",
+  "Preserve all input buffers by disabling donation; await upload, execution and readback events before exposing completion.",
+  "Host readback requests dense row-major layout, independent of compiler-chosen device layouts.",
+  "Encode declared input ShapeProtos in compile options so XLA rejects incorrect types and shapes, including equal-byte-size mismatches.",
+  "Check native parameter/output counts; shared Rust contracts enforce session identity and output shape/type.",
+  "Expose compile_xla through the Rust executable, Python NativeSession and typed OxCaml program APIs.",
+  "Remove the Python-backed BackendQueue and QueuedAdapter execution path.",
+  "Export transitive native runtime dependencies and package the PJRT bridge, plugin and license.",
+  "Reuse the native-compiler workspace's Rust metadata-pipelining fix after reproducing its E0463 failure.",
+]
+limitations = [
+  "Native XLA execution is currently available on macOS arm64 CPU only. Metal requests fail explicitly; GPU XLA and other host builds remain unfinished.",
+  "IREE CPU/Metal and TVM CPU share the runtime; TVM still compiles in an isolated Python process in this workspace.",
+  "The separate native-compiler workspace has overlapping work that has not yet been integrated.",
+  "This evidence establishes functional correctness and ownership, not throughput or 1M-context latency improvements.",
+  "Compiled programs use one replica and one partition; distributed multi-device execution is not implemented.",
+]
+
+[[checks]]
+command = "./admin/tools/buck2w test //admin/buck2/tests:compiler //ocaml:test //admin/buck2/pjrt:test"
+build_id = "58ea3511-48c2-48b1-a23a-abb6f6ab0748"
+result = "7 targets passed; no failures"
+python_passed = 73
+rust_runtime_passed = 9
+rust_signature_passed = 1
+log = ".cache/pjrt-runtime-final.log"
+coverage = [
+  "All nine tensor dtypes round-trip through IREE, XLA and TVM, including bfloat16 and uint64 above the signed range.",
+  "Python structured rounds, callable MLP forward, tensor observations, explicit transfers, async completion and existing reduction coverage pass.",
+  "Rust verifies malformed source, unsupported device, input-count mismatch, wrong dtype, wrong shape including equal byte size, output-count/shape mismatch and foreign-session buffers.",
+  "Queued Rust calls retain sessions and buffers; earlier outputs and inputs remain valid after subsequent calls and executor destruction.",
+  "OxCaml runs XLA CPU through the same structured rounds, retained results, GC/compaction, domains and invalid-program rejection checks as other runtimes.",
+  "Existing initialized FBT/PISA model forward passes.",
+  "Relocated wheel executes native TVM and XLA using isolated Python stdlib ctypes only; dyld confirms all five runtime libraries load from that wheel directory and upstream notices are present.",
+  "Standalone PJRT executable confirms exact header/API version 0.116 and native CPU compilation/execution/events without Python.",
+]
+
+[[checks]]
+command = "./baux check"
+result = "passed: eight Rust files formatted, two Python files formatted/linted, Python type checks and naming"
+log = ".cache/pjrt-runtime-check.log"
+
+[[checks]]
+command = "./admin/tools/buck2w run //ocaml:tool -- program-fmt"
+build_id = "6a714625-1f01-43ca-8288-dc2ed8cb7b1b"
+result = "passed"
+log = ".cache/pjrt-runtime-format.log"
+
+[[checks]]
+command = "./admin/tools/buck2w build //admin/buck2/pjrt:runtime"
+result = "passed with C++17 -Wall -Wextra -Werror -pedantic"
+log = ".cache/pjrt-bridge-final.log"
+
+[[resolved]]
+problem = "Pinned Rust nightly metadata-only dependency artifacts caused E0463 for the Python extension's FBT dependency."
+change = "Use real dependency rlibs via nightly_features=False in the Buck toolchain; preserve the compiler pin and language features."
+
+[[resolved]]
+build_id = "e2129ced-896c-4397-9369-8345b3b1d15f"
+problem = "Rust test startup could not resolve libpjrt_cpu.dylib; wheel relocation and Python/OxCaml tests passed."
+change = "Declare native shared runtime dependencies as exported_deps; verify the Buck runtime symlink tree includes all transitive libraries."
+
+[[resolved]]
+problem = "PJRT execution accepted an int32 buffer for an f32 parameter because both allocations had the same size."
+change = "Provide declared input ShapeProtos during native compilation and verify XLA rejects equal-width dtype and equal-byte-size shape mismatches."
+
+[sha256]
+"BUCK" = "642059256f6a9d38c351b551590e7b141e899f894718ce883a9c89ea0d564c0b"
+"admin/buck2/pjrt/BUCK" = "3ff274c881fa49f9e51b28a92a8b14b0359e47a8141ee5d921be51b30d73e473"
+"admin/buck2/pjrt/bridge.cc" = "addc7052f6e0cffc65c8bf61f7e694b21e017e6b79f74354c132aa4f71043726"
+"admin/buck2/pjrt/bridge.h" = "e661e08eef4965e88af360c3ed0ee11d4906c7b178408f2275d6fffcd5baf671"
+"admin/buck2/pjrt/bridge.sh" = "265053713ad09801fa32b6d74295f08698bef217630dd36b0d21a01b93ddc991"
+"admin/buck2/pjrt/buffer.cc" = "682aa6bb817dafd875d678631f162ee3da48d7d112f4eb2040e1ffb631c80aec"
+"admin/buck2/tests/BUCK" = "b26dd8a27df506f58a986172eee800da164424161e9a76a09b4e19ab04e2bc75"
+"admin/buck2/tests/native.sh" = "eeeaa0b66ea128ddf2912d1d9ab7046abb3dc6dc23a46033cbc90666fdb8b200"
+"admin/buck2/tests/program.rs" = "74e8bec2d72e5e4cfb07aa3ceeee593cd88dc5c6b09aa0c540532c590b4b634f"
+"admin/buck2/tvm/BUCK" = "44f93d0a049f943426953f36af081eda452d8fabccd527ae5e99d64c10bb761a"
+"admin/toolchains/rust.bzl" = "0942007523611bb5d5537287603ddf4457a60e3809037c50d42b4b41b5c60971"
+"ocaml/BUCK" = "f9271c27ef4565fe8409d9aecbf21eca177fc2fb7ba09a56c521322bfaf337a5"
+"ocaml/program/baux_program.ml" = "52220d2b913e71a16e0883b89318319fc1dcd50c140a9e42ee8819590632195a"
+"ocaml/program/baux_program.mli" = "7a0e79e124c623ae61a3fed5bc3a118fb19e8be4e4c0a19c5e79842816389fba"
+"ocaml/program/bridge.c" = "03a52f4df703f0f8768b1af54c94971d5e1a903e9c0c3738d2b7cd1bcb0f397e"
+"ocaml/program/testprogram.ml" = "c33a67689787b438c1ad255d365f6645d9bb942f9e01de8200a1e750552cef0d"
+"python/baux/experimental/_program.py" = "ba551cb962d625dea7df7a18b3be3229629aa7856d18760a6be9840bc14c798a"
+"rust/crates/baux/BUCK" = "a630284d0cb456dd1e860f26861ff50db115c719b0152bbb9f37904ca11d00c5"
+"rust/crates/baux/src/portable/bundle.sh" = "85c498790ab4592203f4f9e94ebd2624563b792160abb0ff2f7a97d8915cd287"
+"rust/crates/baux/src/portable/exports.rs" = "8e35901292f8279b745619400aa501011f9d1f2337a5e56b07b17cbc192871bf"
+"rust/crates/baux/src/portable/mod.rs" = "cabaa9a94bd04fa1c06f4feef07957bdf0c754e2df3d8658cc1f48e421588189"
+"rust/crates/baux/src/portable/pjrt.rs" = "36e7bc94fd2e6f99995a4a1430aab24211ee6905c398de8a3f26aee0fd9c7fc7"
+"rust/crates/baux/src/portable/portable.h" = "0bbef78c4929950c383c0a021c456156baddc28315550ed2188f8891d9b160dc"
+"rust/crates/baux/src/portable/raw/api.rs" = "04396ecd3f03d2cdcfa4f3b75f3b0c1d0f9cea47b8ba63703f3c4e0fab67729e"
+"rust/crates/baux/src/portable/raw.rs" = "0c8a74424e3699e989e01a95d1c24e90a8b967fa31d89e6bb6b5340faa103cda"
+"rust/crates/baux-py/src/lib.rs" = "2597bf6600be4a2d0546aaa612aa048f0f26cbde5f3a79bc0aff0e4ab2aa40ee"
+"rust/crates/baux-py/src/py_native.rs" = "e300f0d11f48115953fe615aa2ca0a87119124b4fcc700437126ccf2add961c4"
+"rust/crates/fbt/BUCK" = "455eafcc687060af7ce67460be0260080dce1248f64904748f641a91b3f11d51"
+"rust/crates/fbt/src/moe/program/bundle.sh" = "cf93831fb8d08f8c9007048f148f1d575bd536295020adebf9f359405d104441"
+"tests/compiler/testprogram.py" = "3019d82f829746d2e3ee4456a7e461a6f7f1baa9ae64b4f51225e55086513276"

@@ -205,6 +205,7 @@ def test_pending(backend, device):
         calls[0].wait()
 
 
+@pytest.mark.parametrize("backend", ["iree", "xla", "tvm"])
 @pytest.mark.parametrize(
     "dtype",
     [
@@ -219,14 +220,14 @@ def test_pending(backend, device):
         "float64",
     ],
 )
-def test_storage(dtype):
+def test_storage(dtype, backend):
     import ml_dtypes
 
     kind = ml_dtypes.bfloat16 if dtype == "bfloat16" else dtype
     host = np.array([0, 1], dtype=kind)
     if dtype == "uint64":
         host[1] = 2**63 + 7
-    executable = compile(lambda value: value, TensorSpec((2,), dtype))
+    executable = compile(lambda value: value, TensorSpec((2,), dtype), backend=backend)
     result = executable.get(executable(executable.put(host)))
     assert result.dtype == host.dtype
     np.testing.assert_array_equal(result, host)

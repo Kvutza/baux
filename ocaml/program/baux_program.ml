@@ -48,6 +48,14 @@ external tvm_native :
   (int * int array) array ->
   session @@ portable = "bauxocaml_tvm"
 
+external xla_native :
+  string ->
+  string ->
+  string ->
+  (int * int array) array ->
+  (int * int array) array ->
+  session @@ portable = "bauxocaml_xla"
+
 external read_native : allocation -> ('a, 'b, c_layout) Genarray.t -> unit
   @@ portable = "bauxocaml_read"
 
@@ -224,12 +232,12 @@ type 'result pending = {
   consumed : bool Atomic.t;
 }
 
+let specs layout =
+  List.map (fun (dtype, shape) -> (dtype, Array.of_list shape)) layout.specs
+  |> Array.of_list
+
 let load ~bytecode ~entry ~device ~inputs ~outputs =
   let device = match device with Cpu -> "cpu" | Metal -> "metal" in
-  let specs layout =
-    List.map (fun (dtype, shape) -> (dtype, Array.of_list shape)) layout.specs
-    |> Array.of_list
-  in
   let session =
     load_native bytecode entry device (specs inputs) (specs outputs)
   in
@@ -238,12 +246,15 @@ let load ~bytecode ~entry ~device ~inputs ~outputs =
 let load_tvm ~library ~entry ~device ~inputs ~outputs =
   if String.contains library '\000' then invalid_arg "library path contains NUL";
   let device = match device with Cpu -> "cpu" | Metal -> "metal" in
-  let specs layout =
-    List.map (fun (dtype, shape) -> (dtype, Array.of_list shape)) layout.specs
-    |> Array.of_list
-  in
   let session =
     tvm_native library entry device (specs inputs) (specs outputs)
+  in
+  { session; inputs; outputs }
+
+let compile_xla ~source ~device ~inputs ~outputs =
+  let device = match device with Cpu -> "cpu" | Metal -> "metal" in
+  let session =
+    xla_native source "main" device (specs inputs) (specs outputs)
   in
   { session; inputs; outputs }
 

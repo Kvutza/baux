@@ -1,9 +1,20 @@
 //! Private C ABI; all access is serialized by the owning Session mutex.
 use std::ffi::{CStr, c_char, c_int, c_void};
 mod api;
-pub use api::{Api, IREE, TVM};
+pub use api::{Api, IREE, PJRT, TVM};
 
 unsafe extern "C" {
+    pub fn bauxpjrt_compile(
+        source: *const u8,
+        length: usize,
+        device: *const c_char,
+        options: *const u8,
+        options_length: usize,
+        input_count: usize,
+        output: *mut *mut c_void,
+        error: *mut c_char,
+        capacity: usize,
+    ) -> c_int;
     pub fn bauxiree_open(
         driver: *const c_char,
         output: *mut *mut c_void,

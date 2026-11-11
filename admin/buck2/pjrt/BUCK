@@ -36,6 +36,25 @@ prebuilt_cxx_library(
     target_compatible_with = ["prelude//os/constraints:macos"],
 )
 
+genrule(
+    name = "bridge",
+    srcs = ["bridge.sh", "bridge.h", "bridge.cc", "buffer.cc"],
+    out = "libbaux_pjrt.dylib",
+    cmd = 'sh "$SRCDIR/bridge.sh" "$(location :build[library])" "$(location :header)" "$SRCDIR" "$OUT"',
+    visibility = ["PUBLIC"],
+    target_compatible_with = ["prelude//os/constraints:macos"],
+)
+
+prebuilt_cxx_library(
+    name = "runtime",
+    shared_lib = ":bridge",
+    soname = "libbaux_pjrt.dylib",
+    preferred_linkage = "shared",
+    exported_deps = [":cpu"],
+    visibility = ["PUBLIC"],
+    target_compatible_with = ["prelude//os/constraints:macos"],
+)
+
 sh_test(
     name = "test",
     test = "test.sh",

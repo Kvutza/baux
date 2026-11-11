@@ -112,3 +112,15 @@ runtime!(
     bauxtvm_call,
     bauxtvm_matches
 );
+
+runtime!(
+    PJRT,
+    false,
+    bauxpjrt_close,
+    bauxpjrt_retain,
+    bauxpjrt_release,
+    bauxpjrt_put,
+    bauxpjrt_read,
+    bauxpjrt_call,
+    bauxpjrt_matches
+);

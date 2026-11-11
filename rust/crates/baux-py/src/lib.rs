@@ -17,7 +17,6 @@ pub mod adapter;
 )]
 mod dlpack;
 pub mod link_rpath;
-mod py_backend;
 #[cfg(all(target_os = "linux", target_arch = "x86_64", feature = "cuda"))]
 pub mod py_cuda;
 pub mod py_device;
@@ -52,8 +51,6 @@ pub use pymodule_wrappers::{
 #[pyo3(name = "baux_rust")]
 pub(crate) fn baux_rust(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<py_program::PyProgram>()?;
-    m.add_class::<py_backend::PyBackendQueue>()?;
-    m.add_class::<py_backend::PyBackendCall>()?;
     #[cfg(target_os = "macos")]
     {
         m.add_class::<py_native::PyNativeSession>()?;

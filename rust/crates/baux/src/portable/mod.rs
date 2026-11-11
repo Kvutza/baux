@@ -1,11 +1,12 @@
 //! Native compiled execution shared by Rust, Python and OxCaml.
 //!
-//! IREE and TVM own device code and allocations. This module owns session
+//! IREE, TVM and PJRT own device code and allocations. This module owns session
 //! lifetime, typed buffer contracts and a serial asynchronous invocation queue.
 //! Reference: <https://iree.dev/reference/bindings/c-api/#runtime-api>.
 mod exports;
 mod interop;
 mod pending;
+mod pjrt;
 mod raw;
 mod tvm;
 

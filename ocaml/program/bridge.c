@@ -108,7 +108,7 @@ static bauxspec* specs(value values) {
   return result;
 }
 
-CAMLprim value bauxocaml_load(value bytes, value entry, value device, value ins, value outs) {
+static value load(value bytes, value entry, value device, value ins, value outs, int tvm) {
   CAMLparam5(bytes, entry, device, ins, outs);
   CAMLlocal1(result);
   result = empty(&sessionops);
@@ -116,7 +116,7 @@ CAMLprim value bauxocaml_load(value bytes, value entry, value device, value ins,
   // Copy descriptors before relinquishing the runtime lock.
   bauxspec* inputs = specs(ins);
   bauxspec* outputs = specs(outs);
-  uint8_t* code = malloc(length ? length : 1);
+  uint8_t* code = malloc(length + 1);
   char* function = strdup(String_val(entry));
   char* driver = strdup(String_val(device));
   if (!inputs || !outputs || !code || !function || !driver) {
@@ -124,13 +124,23 @@ CAMLprim value bauxocaml_load(value bytes, value entry, value device, value ins,
     caml_raise_out_of_memory();
   }
   memcpy(code, Bytes_val(bytes), length);
+  code[length] = 0;
   caml_enter_blocking_section();
-  bauxprogram* program = bauxprogram_load(code, length, function, driver, inputs, ni, outputs, no);
+  bauxprogram* program = tvm
+    ? bauxprogram_tvm((char*)code, function, driver, inputs, ni, outputs, no)
+    : bauxprogram_load(code, length, function, driver, inputs, ni, outputs, no);
   free(inputs); free(outputs); free(code); free(function); free(driver);
   caml_leave_blocking_section();
   if (!program) fail();
   HANDLE(result) = program;
   CAMLreturn(result);
+}
+
+CAMLprim value bauxocaml_load(value bytes, value entry, value device, value ins, value outs) {
+  return load(bytes, entry, device, ins, outs, 0);
+}
+CAMLprim value bauxocaml_tvm(value path, value entry, value device, value ins, value outs) {
+  return load(path, entry, device, ins, outs, 1);
 }
 
 CAMLprim value bauxocaml_put(value session, value dtype, value data) {

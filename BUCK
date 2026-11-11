@@ -216,6 +216,12 @@ python_wheel(
     runtime_libraries = [
         "//admin/buck2/native:openmp-build[lib]",
         "//admin/buck2/iree:build[library]",
+        "//admin/buck2/tvm:build[bridge]",
+        "//admin/buck2/tvm:build[engine]",
+        "//admin/buck2/tvm:build[ffi]",
+        "//admin/buck2/tvm:build[license]",
+        "//admin/buck2/tvm:build[ffi-license]",
+        "//admin/buck2/tvm:build[notice]",
     ],
     target_compatible_with = [
         "prelude//cpu/constraints:arm64",

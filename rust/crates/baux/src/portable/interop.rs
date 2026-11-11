@@ -35,7 +35,7 @@ impl Executable {
         };
         raw::status(code, &error)?;
         Ok(Self {
-            owner: Arc::new(Session(Mutex::new(raw::Context(context)))),
+            owner: Arc::new(Session(Mutex::new(raw::Context(context, &raw::IREE)))),
             inputs: inputs.into(),
             outputs: outputs.into(),
             queue: pending::Queue::new()?,
@@ -61,6 +61,9 @@ impl Executable {
         let (dtype, length) = layout(&spec)?;
         let shape: Vec<usize> = spec.shape.clone();
         let context = self.owner.0.lock().map_err(|_| "session mutex poisoned")?;
+        if !context.1.metal {
+            return Err("runtime does not support Metal imports".into());
+        }
         let mut pointer = std::ptr::null_mut();
         let mut error = [0; 2048];
         // Caller supplies a live, synchronized, leased MTLBuffer. C validates
@@ -115,16 +118,16 @@ impl Executable {
             if leases.len() == output.0.leases.len() {
                 continue;
             }
-            // Each new Storage must own a retained IREE view reference.
-            let _guard = self.owner.0.lock().unwrap_or_else(|e| e.into_inner());
-            unsafe { raw::bauxiree_retain(output.0.pointer) };
+            // Each new Storage must own a retained native view reference.
+            let context = self.owner.0.lock().unwrap_or_else(|e| e.into_inner());
+            unsafe { (context.1.retain)(output.0.pointer) };
             let replacement = Buffer(Arc::new(Storage {
                 owner: self.owner.clone(),
                 pointer: output.0.pointer,
                 spec: output.spec().clone(),
                 leases,
             }));
-            drop(_guard);
+            drop(context);
             *output = replacement;
         }
     }
@@ -144,6 +147,9 @@ impl Buffer {
             .0
             .lock()
             .map_err(|_| "session mutex poisoned")?;
+        if !context.1.metal {
+            return Err("runtime does not expose Metal allocations".into());
+        }
         let mut handle = std::ptr::null_mut();
         let mut offset = 0;
         let mut error = [0; 2048];

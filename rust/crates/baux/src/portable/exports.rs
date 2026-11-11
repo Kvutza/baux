@@ -95,6 +95,29 @@ pub unsafe extern "C" fn bauxprogram_load(
     .unwrap_or(std::ptr::null_mut())
 }
 #[unsafe(no_mangle)]
+pub unsafe extern "C" fn bauxprogram_tvm(
+    library: *const c_char,
+    entry: *const c_char,
+    device: *const c_char,
+    inputs: *const Spec,
+    input_count: usize,
+    outputs: *const Spec,
+    output_count: usize,
+) -> *mut Executable {
+    report(|| unsafe {
+        Executable::load_tvm(
+            string(library)?,
+            string(entry)?,
+            string(device)?,
+            specs(inputs, input_count)?,
+            specs(outputs, output_count)?,
+        )
+    })
+    .map(|value| Box::into_raw(Box::new(value)))
+    .unwrap_or(std::ptr::null_mut())
+}
+
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn bauxprogram_drop(pointer: *mut Executable) {
     if !pointer.is_null() {
         drop(unsafe { Box::from_raw(pointer) });

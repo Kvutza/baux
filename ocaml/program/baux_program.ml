@@ -40,6 +40,14 @@ external put_native :
   session -> int -> ('a, 'b, c_layout) Genarray.t -> allocation @@ portable
   = "bauxocaml_put"
 
+external tvm_native :
+  string ->
+  string ->
+  string ->
+  (int * int array) array ->
+  (int * int array) array ->
+  session @@ portable = "bauxocaml_tvm"
+
 external read_native : allocation -> ('a, 'b, c_layout) Genarray.t -> unit
   @@ portable = "bauxocaml_read"
 
@@ -227,6 +235,18 @@ let load ~bytecode ~entry ~device ~inputs ~outputs =
   in
   { session; inputs; outputs }
 
+let load_tvm ~library ~entry ~device ~inputs ~outputs =
+  if String.contains library '\000' then invalid_arg "library path contains NUL";
+  let device = match device with Cpu -> "cpu" | Metal -> "metal" in
+  let specs layout =
+    List.map (fun (dtype, shape) -> (dtype, Array.of_list shape)) layout.specs
+    |> Array.of_list
+  in
+  let session =
+    tvm_native library entry device (specs inputs) (specs outputs)
+  in
+  { session; inputs; outputs }
+
 let put program values =
   let buffers =
     List.map2
@@ -287,16 +307,14 @@ let model_layout model =
     ~host:
       ( (fun (result : model_observation) ->
           (result.token_losses, result.sequence_nlls)),
-        fun (token_losses, sequence_nlls) ->
-          ({ token_losses; sequence_nlls } : model_observation) )
+        fun (token_losses, sequence_nlls) : model_observation ->
+          { token_losses; sequence_nlls } )
     ~resident:
       ( (fun (result : model_output) ->
           (result.token_losses, result.sequence_nlls)),
-        fun (token_losses, sequence_nlls) ->
-          ({ token_losses; sequence_nlls } : model_output) )
-    (pair
-       (tensor float32 [| model_rows model |])
-       (tensor float32 [| 2 |]))
+        fun (token_losses, sequence_nlls) : model_output ->
+          { token_losses; sequence_nlls } )
+    (pair (tensor float32 [| model_rows model |]) (tensor float32 [| 2 |]))
 
 let submit_model model ~tokens ~labels ~mask =
   let outputs = model_layout model in

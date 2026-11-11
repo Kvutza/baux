@@ -16,22 +16,18 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any
 
+from ._program import Native
 
-class Tvm:
-    """Relax VM retaining its loaded library, device and resident buffers."""
+
+class Tvm(Native):
+    """TVM compiler with execution owned by the shared Rust runtime."""
 
     def __init__(self, program: Any, device: str) -> None:
-        import tvm
-        from tvm.runtime.vm import VirtualMachine
+        from .. import baux_rust
 
         targets = {"cpu": "llvm", "metal": "metal", "cuda": "cuda", "vulkan": "vulkan"}
         if device not in targets:
             raise ValueError(f"unsupported TVM device {device!r}")
-        # TVMFFI returns its core Device while the VM annotation names the
-        # compatibility wrapper; they are the same runtime value.
-        self.device: Any = tvm.device(device)
-        if not getattr(self.device, "exist", False):
-            raise RuntimeError(f"TVM device {device!r} is unavailable")
         self._storage = TemporaryDirectory(prefix="baux-tvm-")
         library = Path(self._storage.name) / "program.so"
         request = {
@@ -53,19 +49,9 @@ class Tvm:
             raise RuntimeError(
                 f"TVM compiler exited with {process.returncode}: {process.stderr}"
             )
-        artifact = tvm.runtime.load_module(str(library))
-        self.vm = VirtualMachine(artifact, self.device)
-
-    def put(self, value: Any) -> Any:
-        import tvm
-
-        return tvm.runtime.tensor(value, self.device)
-
-    def get(self, value: Any) -> Any:
-        return value.numpy()
-
-    def run(self, values: list[Any]) -> list[Any]:
-        return list(self.vm["main"](*values))
+        self.session = baux_rust.NativeSession.load_tvm(
+            str(library), "main", device, program.inputs, program.outputs
+        )
 
 
 def main() -> None:

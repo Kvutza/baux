@@ -1,12 +1,13 @@
 //! Native compiled execution shared by Rust, Python and OxCaml.
 //!
-//! IREE owns device code and allocations. This module owns session lifetime,
-//! typed buffer contracts and a serial asynchronous invocation queue.
+//! IREE and TVM own device code and allocations. This module owns session
+//! lifetime, typed buffer contracts and a serial asynchronous invocation queue.
 //! Reference: <https://iree.dev/reference/bindings/c-api/#runtime-api>.
 mod exports;
 mod interop;
 mod pending;
 mod raw;
+mod tvm;
 
 pub use crate::semantics::compute::Tensor;
 pub use pending::Pending;
@@ -58,9 +59,9 @@ unsafe impl Send for Storage {}
 unsafe impl Sync for Storage {}
 impl Drop for Storage {
     fn drop(&mut self) {
-        let _guard = self.owner.0.lock().unwrap_or_else(|e| e.into_inner());
-        // Exactly one Storage owns this retained IREE reference.
-        unsafe { raw::bauxiree_release(self.pointer) };
+        let context = self.owner.0.lock().unwrap_or_else(|e| e.into_inner());
+        // Exactly one Storage owns this retained native buffer reference.
+        unsafe { (context.1.release)(self.pointer) };
     }
 }
 
@@ -95,7 +96,7 @@ impl Buffer {
         // The buffer retains this session. The destination is writable for
         // length.
         let code = unsafe {
-            raw::bauxiree_read(
+            (context.1.read)(
                 context.0,
                 self.0.pointer,
                 bytes.as_mut_ptr(),
@@ -108,7 +109,8 @@ impl Buffer {
     }
 }
 
-/// A loaded VMFB function. State and RNG are ordinary tensor inputs/outputs.
+/// A native compiled function. State and RNG are ordinary tensor
+/// inputs/outputs.
 #[derive(Clone)]
 pub struct Executable {
     owner: Arc<Session>,
@@ -150,7 +152,7 @@ impl Executable {
             )
         };
         raw::status(code, &error)?;
-        let owner = Arc::new(Session(Mutex::new(raw::Context(context))));
+        let owner = Arc::new(Session(Mutex::new(raw::Context(context, &raw::IREE))));
         Ok(Self {
             owner,
             inputs: inputs.into(),
@@ -171,7 +173,7 @@ impl Executable {
         let mut error = [0; 2048];
         // C copies the supplied bytes into a device-owned allocation.
         let code = unsafe {
-            raw::bauxiree_put(
+            (context.1.put)(
                 context.0,
                 shape.as_ptr(),
                 shape.len(),
@@ -222,7 +224,7 @@ impl Executable {
         // Inputs remain retained and the bridge returns owned result
         // references.
         let code = unsafe {
-            raw::bauxiree_call(
+            (context.1.call)(
                 context.0,
                 pointers.as_ptr(),
                 pointers.len(),
@@ -240,11 +242,11 @@ impl Executable {
                 let shape: Vec<usize> = spec.shape.clone();
                 let dtype = layout(spec).expect("validated signature").0;
                 // Output references are live and Session is locked.
-                unsafe { raw::bauxiree_matches(pointer, shape.as_ptr(), shape.len(), dtype) != 0 }
+                unsafe { (context.1.matches)(pointer, shape.as_ptr(), shape.len(), dtype) != 0 }
             });
         if !valid {
             for pointer in outputs {
-                unsafe { raw::bauxiree_release(pointer) };
+                unsafe { (context.1.release)(pointer) };
             }
             return Err("compiled output differs from program signature".into());
         }

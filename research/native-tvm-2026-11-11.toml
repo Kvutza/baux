@@ -1,0 +1,100 @@
+tested_revision = "ddd0b45b65c3945624a061ef7928135cc03b96d5"
+date = "2026-11-11"
+task = "blckbaux-uzc"
+change = "nwvxsumxzvwlprosolsmllzpknmrumkn"
+status = "Native TVM CPU execution verified through the shared Rust runtime"
+platform = "macOS 27.0.1 arm64"
+scope = "Compiled TVM library loading, owned resident buffers and asynchronous completion from Rust, Python and OxCaml"
+limitations = [
+  "TVM native execution is CPU-only; GPU TVM execution and other host platforms are not validated.",
+  "TVM compilation still uses an isolated Python compiler subprocess; execution neither invokes Python nor converts resident tensors through Python.",
+  "XLA still uses the existing Python adapter in this workspace. Full cross-platform model portability remains unfinished.",
+  "No throughput or large-model latency improvement is claimed.",
+  "The separate native-compiler workspace has overlapping compiler work; this change has not been integrated with it.",
+]
+
+[pins]
+tvm_native = "0.27.0.post1"
+ffi_native = "0.1.15.post2"
+tvm_compiler_environment = "0.27.0.post1"
+ffi_compiler_environment = "0.1.16"
+ffi_note = "Native libraries and headers use exact uv.lock hashes. The existing compiler environment has FFI 0.1.16 installed; tested artifacts interoperate with the bundled 0.1.15.post2 runtime. No lockfiles were changed."
+
+[[checks]]
+command = "./admin/tools/buck2w test //admin/buck2/tests:compiler //ocaml:test"
+build_id = "d5c8b0e7-2c6c-495c-a9d6-6c6b9b061ae3"
+result = "5 targets passed, no failures"
+python_passed = 55
+rust_runtime_passed = 8
+rust_signature_passed = 1
+oxcaml = "Full suite plus structured CPU/Metal/TVM rounds, GC, domain completion, retained output values and initialized FBT/PISA model forward passed"
+log = ".cache/tvm-native-final.log"
+coverage = [
+  "Rust and OxCaml load and execute TVM artifacts without Python bindings.",
+  "Queued calls retain their session and inputs after caller references are dropped.",
+  "Earlier output buffers preserve their values after subsequent invocations.",
+  "Wrong upload size, input count, foreign session, output shape, missing entry and missing artifact produce errors.",
+  "Existing Python compiler cases retain arithmetic, dtype, reduction and tensor-observation parity across IREE CPU/Metal, XLA CPU and TVM CPU.",
+]
+
+[[checks]]
+command = "./admin/tools/buck2w test //admin/buck2/tests:tvm-package"
+build_id = "29a63b79-bf2c-40fb-983f-cc7b3bb43a78"
+result = "passed; subsequently included in the compiler suite"
+log = ".cache/tvm-native-relocation.log"
+coverage = [
+  "Relocate the wheel and compiled artifact to a fresh directory, then execute using Python -I -S and ctypes only.",
+  "Native TVM outputs match expected addition and squared values.",
+  "dyld resolves all three TVM libraries from the relocated wheel directory.",
+  "Upstream TVM/FFI license and notice files are present and nonempty.",
+]
+
+[[checks]]
+command = "./admin/tools/buck2w build //:wheel-macos-arm64 //rust/crates/baux:portable-bundle //rust/crates/fbt:model-bundle --show-full-json-output"
+build_id = "031b7172-50aa-4d7d-9aee-b8371d24adaf"
+result = "passed"
+log = ".cache/tvm-native-package.log"
+
+[[checks]]
+command = "./admin/tools/buck2w run //ocaml:tool -- program-fmt"
+build_id = "2ea19a98-bce9-4fd9-97e6-1aebf38408d7"
+result = "passed"
+log = ".cache/tvm-native-format.log"
+
+[[checks]]
+command = "./baux check"
+result = "passed: changed Rust formatting, Python formatting/lint/type checks and naming"
+log = ".cache/tvm-native-check.log"
+
+[sha256]
+"BUCK" = "032aca4a7f6c9884a42023f6d8f92409168eb7d307e124fa533d1489dc0c3c0f"
+"NOTICE" = "4f3a85e97813a305963df62e87c841b19da61bf56a0e7ffd82996b8ce0100bba"
+"admin/buck2/iree/BUCK" = "f8d597a9af677fcde080eea3418e591e58a1119bc0d4a5cf2765fcc9c7c32e29"
+"admin/buck2/tests/BUCK" = "63b5c55b0f84a51a59d68b8941dfd98e0232c492d8a73c0132e74d6c67090dec"
+"admin/buck2/tests/program.rs" = "dd0ad067fabd5d9ae0f0dc7316ba48de9d8b89ced2f945db855394e1a7419b2a"
+"admin/buck2/tests/tvm.sh" = "565e704d136faea6288a458371a1a5787181afa536be453985459aed682b1967"
+"admin/buck2/tvm/BUCK" = "425d6fb22cb6ce5144a21c06fe67035105af47e80a51a0ac2316f451f3ebb977"
+"admin/buck2/tvm/bridge.cc" = "cf2c2cb95aeaab485dbcb9e46a48810040e82f8010e2a22ed1645becff8b630b"
+"admin/buck2/tvm/build.sh" = "95e15bd7c749e5e2ae9f3747d51a7b8165a6539578d78d31605cda9f089e4356"
+"admin/buck2/tvm/compile.sh" = "9770866dac56511040cf07138fe12b7ccf474c748f293e6e02f26dc9868db56a"
+"admin/buck2/wheel/pack.rs" = "36ac0fea69215bf73ca7da46a3bce4fc4f1e0bdeaa26a5d883eb0d4075db208a"
+"ocaml/BUCK" = "0173387da8b99dd9b86cd07ff29f61dc0ff3a37bf34fa8bfb449e6c282136bfd"
+"ocaml/program/baux_program.ml" = "a946e6d90209d93c80f05a06983495225d01b64bd88e13040b1be8a43fcb8b68"
+"ocaml/program/baux_program.mli" = "d7218821db42bab8c818f4ab4ed31ce9dafc31335cea9cfab515a60e4d7f4185"
+"ocaml/program/bridge.c" = "5105b97b863b424be6d0355a83c7ee7e87b9c783ac08e6f0a6d7df29ed534046"
+"ocaml/program/testprogram.ml" = "6d359587e0b562fd542e5d8526baa18565326609dd1bbe42da0c8d06a3457575"
+"python/baux/experimental/_program.py" = "3981b9cb6f565d5539095017e8df92f7f48791a7885ff50c5edb6648fdaf2375"
+"python/baux/experimental/_tvm.py" = "ed297092e2dcf2b5d5b932f0c563c52360c62880b2562a1eea06bec3f56986b0"
+"rust/crates/baux/BUCK" = "ed372aa492429bb9219f0bc7f2b3b73a750df5bab92b085967c41c3696637ab4"
+"rust/crates/baux/src/portable/bundle.sh" = "12b8d927460db336b3c9ac34cb78cfb534f89bacbb7df4f477283efeee9e93cc"
+"rust/crates/baux/src/portable/exports.rs" = "33b50891d17d611f44950a9f49af11d8bd312814bd69a59aeb852a3775f4d70b"
+"rust/crates/baux/src/portable/interop.rs" = "dca20cf84fe14ea23617fcbffe2dd734d02ab3f824e33cf231ca19c00e5f1f69"
+"rust/crates/baux/src/portable/mod.rs" = "b2812d9448c91b0b0213fbcf53707e0871c3c5398b5e3b9da0d3b96da918b3e0"
+"rust/crates/baux/src/portable/portable.h" = "4f0633648245cbc722305485e7ab1ee33b14498491a54569a0f335056fc9dd72"
+"rust/crates/baux/src/portable/raw/api.rs" = "e6c7556b96d298db5c90f34da7fb9bbbc4b0f62eb26c1a3c556711da7305f0e0"
+"rust/crates/baux/src/portable/raw.rs" = "4e8ab152c19c6bae03845c771f2f90ee4c9bc8d13a1fc558322f8b0d71b932c2"
+"rust/crates/baux/src/portable/tvm.rs" = "184881b9399ba7aaa5fda5d3adb5f76c3f8a21b040e0960ee6e7a3d0d8b927e2"
+"rust/crates/baux-py/src/py_native.rs" = "9d7722d85bc684eba24a4f18870989e76b97328e13f3437805c37d700eb5d0dc"
+"rust/crates/fbt/BUCK" = "6dbb7ebdfd5609dff67ff4cc225cc08d5c1f113d6b472d6d712c24ca5fb3b99d"
+"rust/crates/fbt/src/moe/program/bundle.sh" = "cd58c67cc175b21045f6c522f12cf28abf4a24f04ee25c8e8f818ccaf0a88b08"
+"tests/compiler/testprogram.py" = "448ee01e66942a9c896beca26ccbcc96d21709e5c32d2a900d40207b1b456311"

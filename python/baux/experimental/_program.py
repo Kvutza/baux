@@ -63,7 +63,27 @@ def verify(program: Any) -> None:
             )
 
 
-class Iree:
+class Native:
+    """Resident execution owned by Rust; transfers remain explicit."""
+
+    session: Any
+
+    def put(self, value: Any) -> Any:
+        return self.session.put(list(value.shape), str(value.dtype), value.tobytes())
+
+    def get(self, value: Any) -> Any:
+        return (
+            np.frombuffer(value.read(), dtype=value.dtype).reshape(value.shape).copy()
+        )
+
+    def run(self, values: list[Any]) -> list[Any]:
+        return self.session.run(values)
+
+    def submit(self, values: list[Any]) -> Any:
+        return self.session.submit(values)
+
+
+class Iree(Native):
     """IREE compiler with execution owned by the shared Rust runtime."""
 
     def __init__(self, program: Any, device: str) -> None:
@@ -110,20 +130,6 @@ class Iree:
             program.outputs,
         )
 
-    def put(self, value: Any) -> Any:
-        return self.session.put(list(value.shape), str(value.dtype), value.tobytes())
-
-    def get(self, value: Any) -> Any:
-        return (
-            np.frombuffer(value.read(), dtype=value.dtype).reshape(value.shape).copy()
-        )
-
-    def run(self, values: list[Any]) -> list[Any]:
-        return self.session.run(values)
-
-    def submit(self, values: list[Any]) -> Any:
-        return self.session.submit(values)
-
 
 class Xla:
     """Compile StableHLO directly through the installed PJRT client."""
@@ -156,9 +162,9 @@ class Xla:
 class QueuedAdapter:
     """Rust-owned queue around a backend's Python execution object.
 
-    XLA and TVM compilation, buffer conversion, and execution still use their
-    Python bindings. One Rust worker serializes calls, and completions have the
-    same consumable ownership contract as the direct IREE runtime.
+    XLA compilation, buffer conversion, and execution still use its Python
+    bindings. One Rust worker serializes calls, and completions have the same
+    consumable ownership contract as the direct IREE and TVM runtimes.
     """
 
     def __init__(self, engine: Any) -> None:
@@ -188,5 +194,5 @@ def create(program: Any, backend: str, device: str) -> Any:
     if backend == "tvm":
         from ._tvm import Tvm
 
-        return QueuedAdapter(Tvm(program, device))
+        return Tvm(program, device)
     raise ValueError(f"unknown compiler backend {backend!r}")

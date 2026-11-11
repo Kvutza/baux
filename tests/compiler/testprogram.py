@@ -34,6 +34,9 @@ def test_round(backend, device):
     host = executable.get(second)
     np.testing.assert_array_equal(host["parameters"], reference + 2 * noise)
     np.testing.assert_array_equal(host["residuals"], (reference + 2 * noise) ** 2)
+    np.testing.assert_array_equal(
+        executable.get(first)["parameters"], reference + noise
+    )
     with pytest.raises(TypeError, match="get"):
         np.asarray(first["parameters"])
     with pytest.raises(ValueError, match="signature"):

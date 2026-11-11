@@ -1,4 +1,5 @@
 # IREE runtime 3.13.1 and its recorded FlatCC submodule; no Cargo resolution.
+export_file(name = "round-source", src = "round.mlir", visibility = ["PUBLIC"])
 http_archive(
     name = "source",
     urls = ["https://github.com/iree-org/iree/archive/a35e28d2a6c172e11e876c0307ec194f83a9d2cc.tar.gz"],

@@ -1,0 +1,52 @@
+# Reuse the exact TVM/FFI artifacts recorded in uv.lock. Only their native
+# headers and runtime libraries are used here; execution does not embed Python.
+load("//admin/buck2:python.bzl", "PYTHON_COMPILER_ENVIRONMENT")
+
+genrule(
+    name = "round",
+    srcs = ["compile.sh"],
+    out = "round.so",
+    cmd = 'sh "$SRCDIR/compile.sh" "' + PYTHON_COMPILER_ENVIRONMENT + '" "$(location //:wheel-macos-arm64)" "$(location //admin/buck2/iree:round-source)" "$OUT"',
+    target_compatible_with = ["prelude//os/constraints:macos"],
+    visibility = ["PUBLIC"],
+)
+http_file(
+    name = "tvm-wheel",
+    urls = ["https://files.pythonhosted.org/packages/c9/d0/3b205508851072b40bd651147fcd508d5cb0e3dc7c81dc182e5cd4b139d9/apache_tvm-0.27.0.post1-py3-none-macosx_11_0_arm64.whl"],
+    sha256 = "d61102c6b039b889dd66a2cbd4058d0308e43b02a04d86981478674a0a5de2e9",
+    out = "tvm.whl",
+)
+
+http_file(
+    name = "ffi-wheel",
+    urls = ["https://files.pythonhosted.org/packages/b0/e2/87dae58e4eee964c7c5aa1cab78ee125f720ea71e2cc9bb439b55c65dffc/apache_tvm_ffi-0.1.15.post2-cp314-cp314-macosx_11_0_arm64.whl"],
+    sha256 = "4ab5fb3a5aea0b9958f6d171cf06e2a8fe58dc0687689017096b3f0c701b348f",
+    out = "ffi.whl",
+)
+
+genrule(
+    name = "build",
+    srcs = ["build.sh", "bridge.cc"],
+    outs = {"bridge": ["libbaux_tvm.dylib"], "engine": ["libtvm_runtime.dylib"], "ffi": ["libtvm_ffi.dylib"], "license": ["TVM-LICENSE"], "ffi-license": ["TVM-FFI-LICENSE"], "notice": ["TVM-FFI-NOTICE"]},
+    default_outs = ["libbaux_tvm.dylib", "libtvm_runtime.dylib", "libtvm_ffi.dylib"],
+    cmd = 'sh "$SRCDIR/build.sh" "$(location :tvm-wheel)" "$(location :ffi-wheel)" "$SRCDIR/bridge.cc" "$OUT"',
+    target_compatible_with = ["prelude//os/constraints:macos"],
+    visibility = ["PUBLIC"],
+)
+
+[
+    prebuilt_cxx_library(
+        name = name,
+        shared_lib = ":build[" + artifact + "]",
+        soname = library,
+        preferred_linkage = "shared",
+        deps = deps,
+        visibility = ["PUBLIC"],
+        target_compatible_with = ["prelude//os/constraints:macos"],
+    )
+    for name, artifact, library, deps in [
+        ("ffi", "ffi", "libtvm_ffi.dylib", []),
+        ("engine", "engine", "libtvm_runtime.dylib", [":ffi"]),
+        ("runtime", "bridge", "libbaux_tvm.dylib", [":engine", ":ffi"]),
+    ]
+]

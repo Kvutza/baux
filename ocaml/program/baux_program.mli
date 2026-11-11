@@ -1,7 +1,7 @@
 @@ portable
 
 open Bigarray
-(** Typed structures over the shared Rust/IREE runtime. Transfers are explicit.
+(** Typed structures over the shared Rust runtime. Transfers are explicit.
     Native sessions are serialized; [submit] queues work without blocking the
     calling domain. Device results stay resident until [read]. *)
 
@@ -41,6 +41,16 @@ val load :
   ('a, 'b, 'c, 'd) t
 (** Load a compiled VMFB artifact. [entry] is its qualified module.function
     name. CPU and Metal artifacts must be compiled for the selected device. *)
+
+val load_tvm :
+  library:string ->
+  entry:string ->
+  device:device ->
+  inputs:('a, 'b) layout ->
+  outputs:('c, 'd) layout ->
+  ('a, 'b, 'c, 'd) t
+(** Load a trusted TVM shared library for CPU execution. The library remains
+    loaded while any buffer or pending call uses it. *)
 
 val put : ('a, 'b, 'c, 'd) t -> 'a -> 'b
 val run : ('a, 'b, 'c, 'd) t -> 'b -> 'd

@@ -53,6 +53,23 @@ pub struct PyNativeSession {
 }
 #[pymethods]
 impl PyNativeSession {
+    #[staticmethod]
+    fn load_tvm(
+        py: Python<'_>,
+        library: &str,
+        entry: &str,
+        device: &str,
+        inputs: Vec<Spec>,
+        outputs: Vec<Spec>,
+    ) -> PyResult<Self> {
+        let inputs = specs(inputs)?;
+        let outputs = specs(outputs)?;
+        let inner = py
+            .detach(|| Executable::load_tvm(library, entry, device, inputs, outputs))
+            .map_err(PyValueError::new_err)?;
+        Ok(Self { inner })
+    }
+
     #[new]
     fn new(
         py: Python<'_>,

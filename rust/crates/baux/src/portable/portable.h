@@ -16,6 +16,9 @@ typedef struct { const size_t* shape; size_t rank; size_t dtype; } bauxspec;
 const char* bauxprogram_error(void);
 bauxprogram* bauxprogram_load(const uint8_t*, size_t, const char*, const char*,
                               const bauxspec*, size_t, const bauxspec*, size_t);
+// Load a trusted TVM shared library by path, retaining its native module.
+bauxprogram* bauxprogram_tvm(const char*, const char*, const char*,
+                             const bauxspec*, size_t, const bauxspec*, size_t);
 void bauxprogram_drop(bauxprogram*);
 bauxbuffer* bauxprogram_put(const bauxprogram*, const bauxspec*, const uint8_t*, size_t);
 void bauxbuffer_drop(bauxbuffer*);

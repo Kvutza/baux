@@ -14,6 +14,18 @@ sh_test(
 )
 
 sh_test(
+    name = "tvm-package",
+    test = "tvm.sh",
+    resources = ["//:wheel-macos-arm64", "//admin/buck2/tvm:round"],
+    env = {
+        "BAUX_TEST_PYTHON": ".pixi/envs/" + PYTHON_COMPILER_ENVIRONMENT + "/bin/python",
+        "BAUX_TEST_WHEEL": "$(location //:wheel-macos-arm64)",
+        "BAUX_TVM": "$(location //admin/buck2/tvm:round)",
+    },
+    target_compatible_with = ["prelude//os/constraints:macos"],
+)
+
+sh_test(
     name = "resident-python",
     test = "resident.sh",
     resources = ["//:optimizer-python-source", "//:wheel-macos-arm64"],
@@ -123,10 +135,11 @@ rust_test(
     crate_root = "program.rs",
     edition = "2024",
     deps = ["//rust/crates/baux:portable"],
-    resources = ["//admin/buck2/iree:round-cpu", "//admin/buck2/iree:round-metal"],
+    resources = ["//admin/buck2/iree:round-cpu", "//admin/buck2/iree:round-metal", "//admin/buck2/tvm:round"],
     run_env = {
         "BAUX_VMFB_CPU": "$(location //admin/buck2/iree:round-cpu)",
         "BAUX_VMFB_METAL": "$(location //admin/buck2/iree:round-metal)",
+        "BAUX_TVM": "$(location //admin/buck2/tvm:round)",
     },
     rpath = True,
     runtime_dependency_handling = "symlink",
@@ -135,6 +148,6 @@ rust_test(
 
 test_suite(
     name = "compiler",
-    tests = [":program", ":compiler-python", "//ocaml:program", "//rust/crates/baux:compute-test"],
+    tests = [":program", ":compiler-python", ":tvm-package", "//ocaml:program", "//rust/crates/baux:compute-test"],
     visibility = ["PUBLIC"],
 )

@@ -32,11 +32,13 @@ sh_test(
         "//rust/crates/fbt:model-bundle",
         "//admin/buck2/iree:round-cpu",
         "//admin/buck2/iree:round-metal",
+        "//admin/buck2/tvm:round",
     ],
     env = {
         "BAUX_PROGRAM_LIB": "$(location //rust/crates/fbt:model-bundle)",
         "BAUX_VMFB_CPU": "$(location //admin/buck2/iree:round-cpu)",
         "BAUX_VMFB_METAL": "$(location //admin/buck2/iree:round-metal)",
+        "BAUX_TVM": "$(location //admin/buck2/tvm:round)",
     },
     target_compatible_with = ["prelude//os/constraints:macos"],
     visibility = ["PUBLIC"],

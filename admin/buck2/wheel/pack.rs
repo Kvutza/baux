@@ -308,6 +308,13 @@ fn collect_payloads(args: &Args) -> io::Result<(BTreeMap<String, Vec<u8>>, Strin
         format!("{dist_info}/licenses/LICENSE"),
         fs::read(args.src_dir.join("LICENSE"))?,
     );
+    // Native artifacts supply uniquely named upstream license/notice files.
+    for path in &all_files {
+        let name = path.file_name().unwrap().to_string_lossy();
+        if name.ends_with("-LICENSE") || name.ends_with("-NOTICE") {
+            wheel_files.insert(format!("{dist_info}/licenses/{name}"), fs::read(path)?);
+        }
+    }
     wheel_files.insert(
         format!("{dist_info}/licenses/NOTICE"),
         fs::read(args.src_dir.join("NOTICE"))?,

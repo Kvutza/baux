@@ -27,13 +27,17 @@ let rejects f =
   | () -> failwith "invalid operation succeeded"
   | (exception Invalid_argument _) | (exception Failure _) -> ()
 
-let exercise device path =
-  let bytecode =
-    In_channel.with_open_bin path In_channel.input_all |> Bytes.of_string
-  in
+let exercise device path tvm =
   let leaf = tensor float32 [| 4 |] in
   let inputs = pair leaf leaf and outputs = record leaf in
-  let load () = load ~bytecode ~entry:"round.main" ~device ~inputs ~outputs in
+  let load () =
+    if tvm then load_tvm ~library:path ~entry:"main" ~device ~inputs ~outputs
+    else
+      let bytecode =
+        In_channel.with_open_bin path In_channel.input_all |> Bytes.of_string
+      in
+      load ~bytecode ~entry:"round.main" ~device ~inputs ~outputs
+  in
   let program = load () in
   let weights = floats [| 1.; -2.; 3.; 0. |] in
   let noise = floats [| 0.25; -0.5; 0.; 2. |] in
@@ -46,6 +50,7 @@ let exercise device path =
   let result = wait pending |> read outputs in
   assertvalues result.parameters [| 1.5; -3.; 3.; 4. |];
   assertvalues result.residuals [| 2.25; 9.; 9.; 16. |];
+  assertvalues (read outputs first).parameters [| 1.25; -2.5; 3.; 2. |];
   rejects (fun () -> ignore (wait pending));
   let foreign = put (load ()) (weights, noise) in
   rejects (fun () -> ignore (run program foreign));
@@ -78,17 +83,24 @@ let exercise device path =
     domains;
   rejects (fun () ->
       ignore
-        (Baux_program.load
-           ~bytecode:(Bytes.of_string "invalid")
-           ~entry:"round.main" ~device ~inputs ~outputs));
-  let label = match device with Cpu -> "CPU" | Metal -> "Metal" in
+        (if tvm then
+           load_tvm ~library:path ~entry:"missing" ~device ~inputs ~outputs
+         else
+           Baux_program.load
+             ~bytecode:(Bytes.of_string "invalid")
+             ~entry:"round.main" ~device ~inputs ~outputs));
+  let label =
+    if tvm then "TVM CPU"
+    else match device with Cpu -> "CPU" | Metal -> "Metal"
+  in
   Printf.printf
     "OxCaml %s: structured rounds, ownership, GC, domains, rejection passed\n%!"
     label
 
 let () =
-  exercise Cpu (Sys.getenv "BAUX_VMFB_CPU");
-  exercise Metal (Sys.getenv "BAUX_VMFB_METAL");
+  exercise Cpu (Sys.getenv "BAUX_VMFB_CPU") false;
+  exercise Metal (Sys.getenv "BAUX_VMFB_METAL") false;
+  exercise Cpu (Sys.getenv "BAUX_TVM") true;
   let model = create_model ~seed:42L in
   if model_parameters model <> 265_623_320 || model_rows model <> 8192 then
     failwith "resident model metadata differs";
@@ -101,8 +113,9 @@ let () =
   let call = submit_model model ~tokens ~labels ~mask in
   ignore (ready call);
   let observation = wait call |> read_model model in
-  if Genarray.dims observation.token_losses <> [| 8192 |]
-     || Genarray.dims observation.sequence_nlls <> [| 2 |]
+  if
+    Genarray.dims observation.token_losses <> [| 8192 |]
+    || Genarray.dims observation.sequence_nlls <> [| 2 |]
   then failwith "resident model output shape differs";
   let sequence_nlls = array1_of_genarray observation.sequence_nlls in
   if not (Float.is_finite sequence_nlls.{0} && Float.is_finite sequence_nlls.{1})

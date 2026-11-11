@@ -222,7 +222,12 @@ fn zip(entries: &BTreeMap<String, Vec<u8>>) -> Vec<u8> {
         u16_le(&mut central, 0);
         u16_le(&mut central, 0);
         u16_le(&mut central, 0);
-        u32_le(&mut central, 0o100644 << 16);
+        let mode = if name.ends_with(b"/.dylibs/hlo_import") {
+            0o100755
+        } else {
+            0o100644
+        };
+        u32_le(&mut central, mode << 16);
         u32_le(&mut central, offset);
         central.extend_from_slice(name);
     }
@@ -278,10 +283,10 @@ fn collect_payloads(args: &Args) -> io::Result<(BTreeMap<String, Vec<u8>>, Strin
         fs::read(extensions[0])?,
     );
     if args.platform_tag.starts_with("macosx") {
-        for library in all_files
-            .iter()
-            .filter(|path| path.extension().and_then(|name| name.to_str()) == Some("dylib"))
-        {
+        for library in all_files.iter().filter(|path| {
+            path.extension().and_then(|name| name.to_str()) == Some("dylib")
+                || path.file_name().and_then(|name| name.to_str()) == Some("hlo_import")
+        }) {
             let name = library.file_name().unwrap().to_string_lossy();
             wheel_files.insert(
                 format!("{}/.dylibs/{name}", args.package),

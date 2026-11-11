@@ -43,6 +43,11 @@ def _rust_toolchain_impl(ctx):
             rustc_target_triple = ctx.attrs.triple,
             default_edition = RUST_EDITION,
             panic_runtime = PanicRuntime("unwind"),
+            # The pinned nightly gives baux's -Zno-codegen metadata a different
+            # crate hash from its linked rlib (FBT -> Python fails E0463).
+            # Use real rlibs for dependencies until that compiler issue is fixed.
+            # The compiler itself remains nightly; source features still work.
+            nightly_features = False,
             rustc_flags = flags,
             rustc_binary_flags = ["-Clto=thin"] if profile == "release" else [],
             rustc_test_flags = ["-Clto=thin"] if profile == "release" else [],

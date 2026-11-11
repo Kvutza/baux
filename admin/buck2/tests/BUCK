@@ -123,10 +123,15 @@ rust_test(
     crate_root = "program.rs",
     edition = "2024",
     deps = ["//rust/crates/baux:portable"],
-    resources = ["//admin/buck2/iree:round-cpu", "//admin/buck2/iree:round-metal"],
+    resources = [
+        "//admin/buck2/iree:round-cpu",
+        "//admin/buck2/iree:round-metal",
+        "//admin/buck2/tvm:testing-library",
+    ],
     run_env = {
         "BAUX_VMFB_CPU": "$(location //admin/buck2/iree:round-cpu)",
         "BAUX_VMFB_METAL": "$(location //admin/buck2/iree:round-metal)",
+        "BAUX_TVM_TEST_LIBRARY": "$(location //admin/buck2/tvm:testing-library)",
     },
     rpath = True,
     runtime_dependency_handling = "symlink",

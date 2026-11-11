@@ -1,5 +1,5 @@
 //! Direct Rust execution tests, independent of the Python and OCaml bindings.
-use baux_program::{Buffer, Executable, Tensor};
+use baux_program::{Buffer, Executable, Tensor, TvmFfiVersion, TvmFunction, TvmModule};
 
 fn spec() -> Tensor {
     Tensor::new(vec![4], "float32").unwrap()
@@ -51,6 +51,61 @@ fn rounds() {
         assert_eq!(values(&second[0]), [1.5, -3., 3., 4.]);
         assert_eq!(values(&second[1]), [2.25, 9., 9., 16.]);
     }
+}
+
+#[test]
+fn links_tvm() {
+    let version = TvmFfiVersion::linked();
+    assert_eq!((version.major, version.minor), (0, 1));
+    assert!(
+        TvmFunction::global("ffi.ModuleLoadFromFile")
+            .unwrap()
+            .is_some()
+    );
+    assert!(
+        TvmFunction::global("relax.BlockBuilderCreate")
+            .unwrap()
+            .is_some()
+    );
+    let path = std::env::var("BAUX_TVM_TEST_LIBRARY").unwrap();
+    let _module = TvmModule::load(&path).unwrap();
+    let add_one = TvmFunction::global("testing.add_one").unwrap().unwrap();
+    assert_eq!(add_one.call_i64(10).unwrap(), 11);
+    let input = baux_program::TvmTensor::put(spec(), &[0; 16]).unwrap();
+    let echo = TvmFunction::global("testing.echo").unwrap().unwrap();
+    let outputs = echo.run(&[&input]).unwrap();
+    drop(input);
+    assert_eq!(outputs[0].spec(), &spec());
+    assert_eq!(outputs[0].read().unwrap(), vec![0; 16]);
+    let array = TvmFunction::global("ffi.Array").unwrap().unwrap();
+    let pair = array.run(&[&outputs[0], &outputs[0]]).unwrap();
+    drop(outputs);
+    assert_eq!(pair.len(), 2);
+    assert_eq!(pair[1].read().unwrap(), vec![0; 16]);
+}
+
+#[test]
+fn tvm_tensors() {
+    use baux_program::TvmTensor;
+    for dtype in [
+        "bool", "int32", "int64", "uint32", "uint64", "float16", "bfloat16", "float32", "float64",
+    ] {
+        let width = match dtype {
+            "bool" => 1,
+            "float16" | "bfloat16" => 2,
+            "int64" | "uint64" | "float64" => 8,
+            _ => 4,
+        };
+        for shape in [vec![], vec![2, 3], vec![0]] {
+            let length = shape.iter().product::<usize>() * width;
+            let bytes = vec![1; length];
+            let spec = Tensor::new(shape, dtype).unwrap();
+            let tensor = TvmTensor::put(spec.clone(), &bytes).unwrap();
+            assert_eq!(tensor.spec(), &spec);
+            assert_eq!(tensor.read().unwrap(), bytes);
+        }
+    }
+    assert!(TvmTensor::put(spec(), &[0; 3]).is_err());
 }
 
 #[test]

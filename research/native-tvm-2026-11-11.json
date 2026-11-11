@@ -1,0 +1,57 @@
+{
+  "task": "blckbaux-1oi",
+  "date": "2026-11-11",
+  "jj_change": "vrtxryrrkyyvrrlvkrmomtktmmrypykm",
+  "bookmark": "kvutza/native-compiler",
+  "hardware": "Apple M4",
+  "os": "macOS 27.0.1",
+  "pipeline": [
+    "Rust importer using the pinned MLIR C API in an isolated native process",
+    "Native TVM TOPI tensor expressions and TIR legalization",
+    "LLVM kernel code generation",
+    "Relax destination-passing function and VM lowering/linking",
+    "Rust-owned CPU tensors and asynchronous completion"
+  ],
+  "pins": {
+    "tvm": "0.27.0.post1",
+    "tvm_ffi": "0.1.15.post2",
+    "iree_compiler": "3.13.0"
+  },
+  "checks": [
+    {
+      "command": "./admin/tools/buck2w test //admin/buck2/tests:compiler //rust/crates/baux:tvm-test",
+      "build_id": "6008d51f-cdd9-46ae-8454-8ac895d54fce",
+      "result": "5 targets passed; 0 failed",
+      "details": {
+        "native_tvm": "7 Rust tests passed",
+        "shared_runtime": "9 Rust tests passed",
+        "signature": "1 Rust test passed",
+        "python": "24 installed-wheel tests passed, including TVM model, perturbation round and asynchronous submissions",
+        "oxcaml": "CPU and Metal ownership/GC/domain tests and initialized FBT/PISA forward passed"
+      }
+    },
+    {
+      "command": "./baux check",
+      "result": "passed"
+    }
+  ],
+  "model_evidence": {
+    "python_model": "baux._embeddings.mlp_forward, 32 -> 16 -> 8, tanh, explicit parameter perturbation and residual output",
+    "python_reference": "NumPy; rtol=1e-5, atol=1e-5",
+    "rust_model": "3-row batch, 8 -> 16 -> 4, tanh, predictions and hidden activations",
+    "rust_reference": "Independent scalar Rust evaluation across three deterministic parameter sets",
+    "rust_max_absolute_error": 4.4703484e-8,
+    "scope": "Correctness evidence only; no throughput or large-model latency claim"
+  },
+  "limitations": [
+    "Native compiler artifacts are pinned for Apple Silicon, macOS 13 or newer",
+    "TVM lowering supports static float32 tensors, elementwise math, reshape, transpose, broadcast, constants and unbatched dot_general",
+    "Batched dot, explicit dot algorithms, control flow, reductions, convolution and other unsupported operations fail compilation",
+    "XLA remains unavailable pending the native PJRT prerequisite blckbaux-7pg"
+  ],
+  "integration_fixes": [
+    "Separate IREE/MLIR compiler execution from TVM to avoid incompatible LLVM weak-symbol coalescing",
+    "Disable Buck metadata-only pipelining for the pinned Rust compiler: its no-codegen baux artifact had a different crate hash from the linked rlib, breaking the FBT Python dependency",
+    "Ship native compiler/runtime libraries and executable importer with correct wheel permissions and deployment tag"
+  ]
+}

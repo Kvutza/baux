@@ -63,11 +63,34 @@ def verify(program: Any) -> None:
             )
 
 
-class Iree:
+class Native:
+    """Shared transfers and completion protocol for Rust-owned sessions."""
+
+    session: Any
+
+    def put(self, value: Any) -> Any:
+        return self.session.put(list(value.shape), str(value.dtype), value.tobytes())
+
+    def get(self, value: Any) -> Any:
+        return (
+            np.frombuffer(value.read(), dtype=value.dtype).reshape(value.shape).copy()
+        )
+
+    def run(self, values: list[Any]) -> list[Any]:
+        return self.session.run(values)
+
+    def submit(self, values: list[Any]) -> Any:
+        return self.session.submit(values)
+
+
+class Iree(Native):
     """IREE compiler with execution owned by the shared Rust runtime."""
 
     def __init__(self, program: Any, device: str) -> None:
-        import iree.compiler as compiler
+        import importlib.util
+        import subprocess
+        from pathlib import Path
+
         from jaxlib.mlir import ir
 
         from .. import baux_rust
@@ -90,12 +113,27 @@ class Iree:
             # Compile embedded MSL at module load without Apple's separate
             # offline Metal toolchain.
             options.append("--iree-metal-compile-to-metallib=false")
-        artifact = compiler.compile_str(
-            program.source,
-            target_backends=[target],
-            input_type="stablehlo",
-            extra_args=options,
+        # Compiler LLVM versions must not share a process with TVM's LLVM.
+        # The wheel ships a native CLI alongside its Python bindings.
+        package = importlib.util.find_spec("iree.compiler")
+        if package is None or package.origin is None:
+            raise ImportError("install the IREE compiler extra")
+        compiler = Path(package.origin).parent / "_mlir_libs" / "iree-compile"
+        compiled = subprocess.run(
+            [
+                str(compiler),
+                "-",
+                "--iree-input-type=stablehlo",
+                f"--iree-hal-target-backends={target}",
+                *options,
+            ],
+            input=program.source.encode(),
+            capture_output=True,
+            check=False,
         )
+        if compiled.returncode:
+            raise ValueError(compiled.stderr.decode(errors="replace"))
+        artifact = compiled.stdout
         module = parse(program.source)
         symbol = (
             ir.StringAttr(module.operation.attributes["sym_name"]).value
@@ -110,83 +148,26 @@ class Iree:
             program.outputs,
         )
 
-    def put(self, value: Any) -> Any:
-        return self.session.put(list(value.shape), str(value.dtype), value.tobytes())
 
-    def get(self, value: Any) -> Any:
-        return (
-            np.frombuffer(value.read(), dtype=value.dtype).reshape(value.shape).copy()
-        )
-
-    def run(self, values: list[Any]) -> list[Any]:
-        return self.session.run(values)
-
-    def submit(self, values: list[Any]) -> Any:
-        return self.session.submit(values)
-
-
-class Xla:
-    """Compile StableHLO directly through the installed PJRT client."""
+class Tvm(Native):
+    """Native StableHLO importer, TVM compiler and CPU Relax VM."""
 
     def __init__(self, program: Any, device: str) -> None:
-        from jax._src import xla_bridge
-        from jaxlib import xla_client
+        from pathlib import Path
 
-        if program.entry != "main":
-            raise ValueError("XLA requires the exported entry to be named main")
-        self.client = xla_bridge.get_backend(device)
-        self.device = self.client.local_devices()[0]
-        self.call = self.client.compile_and_load(
-            program.source, [self.device], xla_client.CompileOptions()
-        )
-
-    def put(self, value: Any) -> Any:
-        import jax
-
-        with jax.enable_x64():
-            return jax.device_put(value, self.device)
-
-    def get(self, value: Any) -> Any:
-        return np.array(value, copy=True)
-
-    def run(self, values: list[Any]) -> list[Any]:
-        return list(self.call.execute(values))
-
-
-class QueuedAdapter:
-    """Rust-owned queue around a backend's Python execution object.
-
-    XLA and TVM compilation, buffer conversion, and execution still use their
-    Python bindings. One Rust worker serializes calls, and completions have the
-    same consumable ownership contract as the direct IREE runtime.
-    """
-
-    def __init__(self, engine: Any) -> None:
         from .. import baux_rust
 
-        self.engine = engine
-        self.session = baux_rust.BackendQueue(engine)
-
-    def put(self, value: Any) -> Any:
-        return self.engine.put(value)
-
-    def get(self, value: Any) -> Any:
-        return self.engine.get(value)
-
-    def run(self, values: list[Any]) -> list[Any]:
-        return self.session.run(values)
-
-    def submit(self, values: list[Any]) -> Any:
-        return self.session.submit(values)
+        if device != "cpu":
+            raise ValueError(f"native TVM currently supports CPU, got {device!r}")
+        importer = Path(baux_rust.__file__).parent / ".dylibs" / "hlo_import"
+        self.session = baux_rust.TvmSession(
+            program.source, program.entry, str(importer)
+        )
 
 
 def create(program: Any, backend: str, device: str) -> Any:
     if backend == "iree":
         return Iree(program, device)
-    if backend == "xla":
-        return QueuedAdapter(Xla(program, device))
     if backend == "tvm":
-        from ._tvm import Tvm
-
-        return QueuedAdapter(Tvm(program, device))
+        return Tvm(program, device)
     raise ValueError(f"unknown compiler backend {backend!r}")

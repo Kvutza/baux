@@ -4,7 +4,7 @@ load("//admin/buck2/tests:suite.bzl", "test_suite")
 load("//admin:targets.bzl", "BAUX_CRATES", "BAUX_PROGRAMS", "BAUX_TEST_CRATES", "RUST_EDITION")
 
 _PROGRAM_DEPS = select({
-    "//:macos-arm64": ["//admin/buck2/iree:runtime"],
+    "//:macos-arm64": ["//admin/buck2/iree:runtime", "//admin/buck2/tvm:ffi", "//admin/buck2/tvm:runtime", "//admin/buck2/tvm:compiler"],
     "DEFAULT": [],
 })
 
@@ -29,6 +29,31 @@ export_file(
     visibility = ["PUBLIC"],
 )
 
+rust_test(
+    name = "tvm-test",
+    srcs = [":portable-root", "semantics/src/compute.rs"] + glob(["src/portable/**/*.rs"]),
+    crate_root = "portable.rs",
+    edition = RUST_EDITION,
+    deps = ["//admin/buck2/iree:runtime", "//admin/buck2/tvm:ffi", "//admin/buck2/tvm:runtime", "//admin/buck2/tvm:compiler", "//rust:deser", "//rust:deser-json"],
+    resources = [":hlo-import"],
+    run_env = {"BAUX_MLIR_IMPORTER": "$(location :hlo-import)", "RUST_TEST_NOCAPTURE": "1"},
+    rpath = True,
+    runtime_dependency_handling = "symlink",
+    visibility = ["PUBLIC"],
+)
+
+app_rust_binary(
+    name = "hlo-import",
+    srcs = ["src/portable/tvm/importer.rs", "src/portable/tvm/mlir.rs", "src/portable/tvm/graph.rs"],
+    crate_root = "src/portable/tvm/importer.rs",
+    edition = RUST_EDITION,
+    deps = ["//admin/buck2/iree:compiler", "//rust:deser", "//rust:deser-json"],
+    rpath = True,
+    runtime_dependency_handling = "symlink",
+    rustc_flags = ["-Clink-arg=-Wl,-rpath,@loader_path"],
+    visibility = ["PUBLIC"],
+)
+
 app_rust_library(
     name = "portable",
     srcs = [":portable-root", "semantics/src/compute.rs"] + glob(["src/portable/**/*.rs"]),
@@ -36,7 +61,14 @@ app_rust_library(
     crate_root = "portable.rs",
     edition = RUST_EDITION,
     dlopen_enable = True,
-    deps = ["//admin/buck2/iree:runtime"],
+    deps = [
+        "//admin/buck2/iree:runtime",
+        "//rust:deser",
+        "//rust:deser-json",
+        "//admin/buck2/tvm:ffi",
+        "//admin/buck2/tvm:runtime",
+        "//admin/buck2/tvm:compiler",
+    ],
     rustc_flags = ["-Clink-arg=-Wl,-rpath,@loader_path"],
     visibility = ["PUBLIC"],
     target_compatible_with = ["prelude//os/constraints:macos"],
@@ -46,7 +78,7 @@ genrule(
     name = "portable-bundle",
     srcs = ["src/portable/bundle.sh"],
     out = "baux-program",
-    cmd = 'sh "$SRCDIR/src/portable/bundle.sh" "$(location :portable[shared])" "$(location //admin/buck2/iree:build[library])" "$(location :portable-header)" "$OUT"',
+    cmd = 'sh "$SRCDIR/src/portable/bundle.sh" "$(location :portable[shared])" "$(location //admin/buck2/iree:build[library])" "$(location :portable-header)" "$OUT" "$(location //admin/buck2/tvm:ffi-library)" "$(location //admin/buck2/tvm:runtime-library)" "$(location //admin/buck2/tvm:compiler-library)" "$(location //admin/buck2/iree:compiler-library)" "$(location :hlo-import)"',
     visibility = ["PUBLIC"],
     target_compatible_with = ["prelude//os/constraints:macos"],
 )

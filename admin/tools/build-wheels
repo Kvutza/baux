@@ -96,7 +96,7 @@ python_abi() {
 
 wheel_platform_tag() {
     case "$(uname -s):$(uname -m)" in
-        Darwin:arm64) printf 'macosx_11_0_arm64\n' ;;
+        Darwin:arm64) printf 'macosx_13_0_arm64\n' ;;
         Linux:x86_64) printf 'manylinux_2_28_x86_64\n' ;;
         Linux:aarch64 | Linux:arm64) printf 'manylinux_2_28_aarch64\n' ;;
         *) echo "unsupported build host: $(uname -s) $(uname -m)" >&2; exit 1 ;;

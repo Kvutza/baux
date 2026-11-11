@@ -208,7 +208,7 @@ python_wheel(
     license = "LICENSE",
     notice = "NOTICE",
     package = "baux",
-    platform_tag = "macosx_11_0_arm64",
+    platform_tag = "macosx_13_0_arm64",
     python_abi = PYTHON_ABI,
     python_requires = PYTHON_REQUIRES,
     python_srcs = glob(["python/baux/**/*.py"]),
@@ -216,6 +216,11 @@ python_wheel(
     runtime_libraries = [
         "//admin/buck2/native:openmp-build[lib]",
         "//admin/buck2/iree:build[library]",
+        "//admin/buck2/iree:compiler-library",
+        "//admin/buck2/tvm:ffi-library",
+        "//admin/buck2/tvm:runtime-library",
+        "//admin/buck2/tvm:compiler-library",
+        "//rust/crates/baux:hlo-import",
     ],
     target_compatible_with = [
         "prelude//cpu/constraints:arm64",

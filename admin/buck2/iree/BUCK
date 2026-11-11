@@ -1,3 +1,31 @@
+# Keep artifact generation on the same interpreter environment as the wheel
+# ABI selected by baux.python_version.
+load("//admin/buck2:python.bzl", "PYTHON_COMPILER_ENVIRONMENT")
+
+# Same compiler pin as uv.lock. Only the native MLIR C API is linked here.
+http_archive(
+    name = "compiler-wheel",
+    type = "zip",
+    urls = ["https://files.pythonhosted.org/packages/9b/ed/14d46d679d3cb0c0674480fb8643cf1dbde40050a6f8a1dfeb87fab80466/iree_base_compiler-3.13.0-cp312-abi3-macosx_13_0_universal2.whl"],
+    sha256 = "31143d2b12736b37e3ad197aeb65bb18ef42baa18eb78db1243f2d882c1e46ec",
+)
+
+genrule(
+    name = "compiler-library",
+    visibility = ["PUBLIC"],
+    out = "libIREECompiler.dylib",
+    cmd = 'cp "$(location :compiler-wheel)/iree/compiler/_mlir_libs/libIREECompiler.dylib" "$OUT"',
+)
+
+prebuilt_cxx_library(
+    name = "compiler",
+    shared_lib = ":compiler-library",
+    soname = "libIREECompiler.dylib",
+    preferred_linkage = "shared",
+    visibility = ["PUBLIC"],
+    target_compatible_with = ["prelude//os/constraints:macos"],
+)
+
 # IREE runtime 3.13.1 and its recorded FlatCC submodule; no Cargo resolution.
 http_archive(
     name = "source",
@@ -37,7 +65,7 @@ prebuilt_cxx_library(
         name = "round-" + device,
         srcs = ["round.mlir", "compile.sh"],
         out = "round-" + device + ".vmfb",
-        cmd = 'sh "$SRCDIR/compile.sh" "$SRCDIR/round.mlir" "$OUT" ' + backend,
+        cmd = 'sh "$SRCDIR/compile.sh" "$SRCDIR/round.mlir" "$OUT" ' + backend + ' ".pixi/envs/' + PYTHON_COMPILER_ENVIRONMENT + '/bin/iree-compile"',
         visibility = ["PUBLIC"],
         target_compatible_with = ["prelude//os/constraints:macos"],
     )

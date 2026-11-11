@@ -1,0 +1,88 @@
+# Apache TVM 0.27.0.post1 and its stable C ABI are pinned as native artifacts.
+# Python is deliberately not part of this boundary.
+http_archive(
+    name = "ffi-wheel",
+    sha256 = "4ab5fb3a5aea0b9958f6d171cf06e2a8fe58dc0687689017096b3f0c701b348f",
+    type = "zip",
+    urls = [
+        "https://files.pythonhosted.org/packages/b0/e2/87dae58e4eee964c7c5aa1cab78ee125f720ea71e2cc9bb439b55c65dffc/apache_tvm_ffi-0.1.15.post2-cp314-cp314-macosx_11_0_arm64.whl",
+    ],
+    target_compatible_with = [
+        "prelude//cpu/constraints:arm64",
+        "prelude//os/constraints:macos",
+    ],
+)
+
+http_archive(
+    name = "tvm-wheel",
+    sha256 = "d61102c6b039b889dd66a2cbd4058d0308e43b02a04d86981478674a0a5de2e9",
+    type = "zip",
+    urls = [
+        "https://files.pythonhosted.org/packages/c9/d0/3b205508851072b40bd651147fcd508d5cb0e3dc7c81dc182e5cd4b139d9/apache_tvm-0.27.0.post1-py3-none-macosx_11_0_arm64.whl",
+    ],
+    target_compatible_with = [
+        "prelude//cpu/constraints:arm64",
+        "prelude//os/constraints:macos",
+    ],
+)
+
+genrule(
+    name = "ffi-library",
+    visibility = ["PUBLIC"],
+    srcs = [":ffi-wheel"],
+    out = "libtvm_ffi.dylib",
+    cmd = 'cp "$(location :ffi-wheel)/tvm_ffi/lib/libtvm_ffi.dylib" "$OUT"',
+)
+
+genrule(
+    name = "testing-library",
+    srcs = [":ffi-wheel"],
+    out = "libtvm_ffi_testing.dylib",
+    cmd = 'cp "$(location :ffi-wheel)/tvm_ffi/lib/libtvm_ffi_testing.dylib" "$OUT" && install_name_tool -change @loader_path/libtvm_ffi.dylib @rpath/libtvm_ffi.dylib "$OUT" && codesign --force --sign - "$OUT"',
+    visibility = ["//admin/buck2/tests:program"],
+)
+
+genrule(
+    name = "runtime-library",
+    visibility = ["PUBLIC"],
+    srcs = [":tvm-wheel"],
+    out = "libtvm_runtime.dylib",
+    cmd = 'cp "$(location :tvm-wheel)/tvm/lib/libtvm_runtime.dylib" "$OUT"',
+)
+
+genrule(
+    name = "compiler-library",
+    visibility = ["PUBLIC"],
+    srcs = [":tvm-wheel"],
+    out = "libtvm_compiler.dylib",
+    cmd = 'cp "$(location :tvm-wheel)/tvm/lib/libtvm_compiler.dylib" "$OUT" && install_name_tool -change @loader_path/libtvm_runtime.dylib @rpath/libtvm_runtime.dylib "$OUT" && codesign --force --sign - "$OUT"',
+)
+
+prebuilt_cxx_library(
+    name = "ffi",
+    shared_lib = ":ffi-library",
+    soname = "libtvm_ffi.dylib",
+    preferred_linkage = "shared",
+    visibility = ["PUBLIC"],
+    target_compatible_with = ["prelude//os/constraints:macos"],
+)
+
+prebuilt_cxx_library(
+    name = "runtime",
+    shared_lib = ":runtime-library",
+    soname = "libtvm_runtime.dylib",
+    preferred_linkage = "shared",
+    deps = [":ffi"],
+    visibility = ["PUBLIC"],
+    target_compatible_with = ["prelude//os/constraints:macos"],
+)
+
+prebuilt_cxx_library(
+    name = "compiler",
+    shared_lib = ":compiler-library",
+    soname = "libtvm_compiler.dylib",
+    preferred_linkage = "shared",
+    deps = [":runtime"],
+    visibility = ["PUBLIC"],
+    target_compatible_with = ["prelude//os/constraints:macos"],
+)

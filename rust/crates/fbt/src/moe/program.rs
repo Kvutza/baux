@@ -7,6 +7,16 @@ use metal::foreign_types::{ForeignType, ForeignTypeRef};
 use std::sync::{Arc, Mutex};
 pub mod experiment;
 mod exports;
+mod tvm;
+
+/// Execution orchestration; both paths use the production Metal kernels.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, deser::Deserialize)]
+#[deser(rename_all = "kebab-case")]
+pub enum Backend {
+    #[default]
+    Native,
+    Tvm,
+}
 
 /// A full initialized model and its existing resident search controller.
 /// The forward signature is (FP16 parameters, u32 tokens, u32 labels, bool
@@ -17,6 +27,7 @@ pub struct Resident {
     pub forward: Executable,
     pub search: SearchState,
     pub parameters: usize,
+    pub backend: Backend,
     state: Arc<Mutex<State>>,
 }
 
@@ -48,10 +59,14 @@ fn metal(value: &TensorBuffer) -> Result<metal::Buffer, String> {
 
 impl State {
     fn execute(&mut self, inputs: &[TensorBuffer]) -> Result<f64, String> {
-        let weights = metal(&inputs[0])?;
-        self.buffers.tokens = metal(&inputs[1])?;
-        self.buffers.labels = metal(&inputs[2])?;
-        self.buffers.score_mask = metal(&inputs[3])?;
+        self.execute_on(&inputs.iter().map(metal).collect::<Result<Vec<_>, _>>()?)
+    }
+
+    fn execute_on(&mut self, inputs: &[metal::Buffer]) -> Result<f64, String> {
+        let weights = &inputs[0];
+        self.buffers.tokens = inputs[1].clone();
+        self.buffers.labels = inputs[2].clone();
+        self.buffers.score_mask = inputs[3].clone();
         let command = self.runtime.queue.new_command_buffer();
         scorer::objective_fused(
             command,
@@ -59,13 +74,13 @@ impl State {
             &self.tensorops,
             &self.pisa,
             &self.buffers,
-            self.layout.view(&weights),
+            self.layout.view(weights),
         )?;
         self.gpu_seconds = complete(command)?;
         Ok(self.gpu_seconds)
     }
 
-    fn publish(&self, program: &Executable) -> Result<Vec<TensorBuffer>, String> {
+    fn outputs(&self) -> Result<Vec<(metal::Buffer, usize)>, String> {
         // Scorer scratch is reused on the next call. Publish independent device
         // allocations rather than allowing a later round to overwrite results.
         let sources = [
@@ -82,7 +97,11 @@ impl State {
         }
         blit.end_encoding();
         complete(command)?;
-        copied
+        Ok(copied)
+    }
+
+    fn publish(&self, program: &Executable) -> Result<Vec<TensorBuffer>, String> {
+        self.outputs()?
             .into_iter()
             .map(|(buffer, count)| {
                 let handle = buffer.as_ptr().cast();
@@ -105,6 +124,24 @@ impl Resident {
         length: crate::trust_region::TRLengthConfig,
         perturbation: crate::ProposalKernel,
     ) -> Result<Self, String> {
+        Self::with_backend(
+            model,
+            initialization,
+            seed,
+            length,
+            perturbation,
+            Backend::Native,
+        )
+    }
+
+    pub fn with_backend(
+        model: crate::config::ModelArchitecture,
+        initialization: crate::config::ModelInitialization,
+        seed: u64,
+        length: crate::trust_region::TRLengthConfig,
+        perturbation: crate::ProposalKernel,
+        backend: Backend,
+    ) -> Result<Self, String> {
         metal::objc::rc::autoreleasepool(|| {
             let runtime = Runtime::shared()?;
             let architecture = ResidualArchitecture::from_model(model);
@@ -122,7 +159,6 @@ impl Resident {
                 layout,
                 gpu_seconds: 0.0,
             }));
-            let captured = state.clone();
             let inputs = vec![
                 tensor(parameters, "float16")?,
                 tensor(ROWS as usize, "uint32")?,
@@ -133,17 +169,25 @@ impl Resident {
                 tensor(ROWS as usize, "float32")?,
                 tensor(BATCH as usize, "float32")?,
             ];
-            let forward = Executable::native("metal", inputs, outputs, move |program, inputs| {
-                metal::objc::rc::autoreleasepool(|| {
-                    let mut state = captured.lock().map_err(|_| "FBT scorer mutex poisoned")?;
-                    state.execute(inputs)?;
-                    state.publish(program)
-                })
-            })?;
+            let forward = match backend {
+                Backend::Tvm => tvm::forward(state.clone(), inputs, outputs)?,
+                Backend::Native => {
+                    let captured = state.clone();
+                    Executable::native("metal", inputs, outputs, move |program, inputs| {
+                        metal::objc::rc::autoreleasepool(|| {
+                            let mut state =
+                                captured.lock().map_err(|_| "FBT scorer mutex poisoned")?;
+                            state.execute(inputs)?;
+                            state.publish(program)
+                        })
+                    })?
+                }
+            };
             Ok(Self {
                 forward,
                 search,
                 parameters,
+                backend,
                 state,
             })
         })

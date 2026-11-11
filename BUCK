@@ -224,6 +224,7 @@ python_wheel(
         "//admin/buck2/tvm:ffi-library",
         "//admin/buck2/tvm:runtime-library",
         "//admin/buck2/tvm:compiler-library",
+        "//admin/buck2/tvm:metal-library",
         "//rust/crates/baux:hlo-import",
         "//admin/buck2/pjrt:bridge",
         "//admin/buck2/pjrt:build[library]",

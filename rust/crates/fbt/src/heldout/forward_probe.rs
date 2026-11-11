@@ -4,6 +4,8 @@ use super::*;
 use baux::artifact::forward::{ForwardTrace, WordHash};
 use baux::semantics::mhc4::probe::initialized as case;
 use metal::objc::rc::autoreleasepool;
+#[path = "forward_runtime.rs"]
+mod execution;
 
 /// Complete causal prefill, including vocabulary readout and loss, without
 /// optimizer work. Long sequences retain every visit's KV cache across chunks.
@@ -12,6 +14,17 @@ pub fn run_latency(
     samples: usize,
     profiled: bool,
     output: &std::path::Path,
+) -> Result<baux::artifact::json::Value, String> {
+    run_backend(context, samples, profiled, output, program::Backend::Native)
+}
+
+/// Execute the same full causal model through the selected runtime.
+pub fn run_backend(
+    context: u32,
+    samples: usize,
+    profiled: bool,
+    output: &std::path::Path,
+    backend: program::Backend,
 ) -> Result<baux::artifact::json::Value, String> {
     autoreleasepool(|| {
         if ![4096, 65_536, 1_048_576].contains(&context) {
@@ -38,7 +51,7 @@ pub fn run_latency(
         }
         blit.end_encoding();
         complete(command)?;
-        let row = weights.row(&packed)?;
+        let layout = Mhc4Layout::from_weights(&weights, 0);
         drop(weights);
         let decoder = decode::Decoder::with_visits(
             &runtime,
@@ -58,25 +71,41 @@ pub fn run_latency(
             offset: 0,
         };
         if profiled {
-            scorer.profile(&runtime, Some(context.div_ceil(ROWS) * samples as u32))?;
+            let passes = samples as u32 + u32::from(backend == program::Backend::Tvm);
+            scorer.profile(&runtime, Some(context.div_ceil(ROWS) * passes))?;
         }
+        let (forward, reference) = execution::Forward::new(
+            execution::State {
+                runtime: runtime.clone(),
+                decoder,
+                scorer,
+                layout,
+                batch,
+            },
+            packed,
+            backend,
+        )?;
         let mut measurements = Vec::new();
         for sample in 0..samples {
             eprintln!("FORWARD_START context={context} sample={sample}");
-            let start = std::time::Instant::now();
-            let score = scorer.score_batch(&runtime, &decoder, row, &batch)?;
-            let wall_seconds = start.elapsed().as_secs_f64();
-            if score.quality.scored_tokens != context as usize
-                || !score.quality.mean_nll.is_finite()
+            let score = forward.run()?;
+            if score.scored_tokens != context as usize
+                || !score.mean_nll.is_finite()
                 || !score.gpu_seconds.is_finite()
                 || score.gpu_seconds <= 0.0
             {
                 return Err("full forward failed coverage, finite loss, or timing checks".into());
             }
+            if let Some(expected) = &reference {
+                if score.losses != expected.losses || score.mean_nll != expected.mean_nll {
+                    return Err("TVM full causal token losses differ from direct Metal".into());
+                }
+            }
             let measurement = baux::artifact::json::json!({
                 "sample":sample,"round":sample,"gpu_ms":score.gpu_seconds * 1000.0,
-                "wall_ms":wall_seconds * 1000.0,"scored_tokens":score.quality.scored_tokens,
-                "mean_nll":score.quality.mean_nll,
+                "wall_ms":score.wall_seconds * 1000.0,"scored_tokens":score.scored_tokens,
+                "mean_nll":score.mean_nll,
+                "token_losses_bitwise_equal":reference.as_ref().map(|_| true),
             });
             println!(
                 "FULL_FORWARD context={context} {}",
@@ -85,6 +114,8 @@ pub fn run_latency(
             measurements.push(measurement);
             let evidence = baux::artifact::json::json!({
                 "backend":"metal","device":runtime.device.name(),"architecture":"mhc4",
+                "runtime":if backend == program::Backend::Tvm { "tvm-relax" } else { "native" },
+                "kernels":"production-metal","audit_evaluations":usize::from(reference.is_some()),
                 "parameters":MHC_FULLPARAMS,"seed":case::SEED,"context":context,
                 "chunk_rows":ROWS,"visits":architecture.layer_steps().len(),
                 "scope":"complete-causal-prefill-with-readout-and-loss",
@@ -99,6 +130,8 @@ pub fn run_latency(
         }
         Ok(baux::artifact::json::json!({
             "backend":"metal","device":runtime.device.name(),"architecture":"mhc4",
+            "runtime":if backend == program::Backend::Tvm { "tvm-relax" } else { "native" },
+            "kernels":"production-metal","audit_evaluations":usize::from(reference.is_some()),
             "parameters":MHC_FULLPARAMS,"seed":case::SEED,"context":context,
             "chunk_rows":ROWS,"visits":architecture.layer_steps().len(),
             "scope":"complete-causal-prefill-with-readout-and-loss",

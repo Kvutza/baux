@@ -184,6 +184,7 @@ fn spec(shape: &[i64], dtype: &str) -> Result<Tensor> {
 
 struct Program {
     module: Option<TvmModule>,
+    registration: Option<super::callback::Registration>,
     constants: Vec<TvmTensor>,
     aliases: Option<Vec<usize>>,
 }
@@ -191,15 +192,16 @@ struct Program {
 // including destruction, is exclusive; TvmExecutable serializes calls.
 unsafe impl Send for Program {}
 
-/// A compiled static StableHLO function running in the native Relax VM.
-/// Inputs and results are owned CPU allocations. Unsupported operations fail
-/// at compile time, before any model invocation.
+/// A native Relax VM executable. StableHLO compilation produces CPU kernels;
+/// native callbacks can also consume retained Metal tensors. Input devices are
+/// checked before invoking either kind of kernel.
 #[derive(Clone)]
 pub struct TvmExecutable {
     program: Arc<Mutex<Program>>,
     inputs: Vec<Tensor>,
     outputs: Vec<Tensor>,
     queue: crate::portable::pending::Queue,
+    device: i32,
 }
 
 impl TvmExecutable {
@@ -270,9 +272,11 @@ impl TvmExecutable {
         Ok(Self {
             program: Arc::new(Mutex::new(Program {
                 module,
+                registration: None,
                 constants,
                 aliases,
             })),
+            device: 1,
             queue: crate::portable::pending::Queue::new()?,
             inputs: graph
                 .inputs
@@ -292,11 +296,52 @@ impl TvmExecutable {
         &self.inputs
     }
 
+    /// Compile a Relax call to an owned native tensor kernel. The callback
+    /// must complete all writes before returning immutable resident results.
+    /// This integrates a native kernel; it does not translate that kernel.
+    pub fn native(
+        inputs: Vec<Tensor>,
+        outputs: Vec<Tensor>,
+        device: &str,
+        kernel: impl Fn(&[TvmTensor]) -> Result<Vec<TvmTensor>> + Send + Sync + 'static,
+    ) -> Result<Self> {
+        for spec in inputs.iter().chain(&outputs) {
+            crate::portable::layout(spec)?;
+        }
+        let device = match device {
+            "cpu" => 1,
+            "metal" => {
+                super::device::metal()?;
+                8
+            }
+            _ => return Err(format!("unsupported TVM native device {device}")),
+        };
+        let registration =
+            super::callback::Registration::new(inputs.clone(), outputs.clone(), kernel)?;
+        let module =
+            super::compiler::external(&registration.name, &inputs, &outputs, i64::from(device))?;
+        Ok(Self {
+            program: Arc::new(Mutex::new(Program {
+                module: Some(module),
+                registration: Some(registration),
+                constants: vec![],
+                aliases: None,
+            })),
+            device,
+            inputs,
+            outputs,
+            queue: crate::portable::pending::Queue::new()?,
+        })
+    }
+
     pub fn submit(&self, inputs: Vec<TvmTensor>) -> Result<crate::portable::Pending<TvmTensor>> {
         if inputs.len() != self.inputs.len()
-            || inputs.iter().zip(&self.inputs).any(|(v, s)| v.spec() != s)
+            || inputs
+                .iter()
+                .zip(&self.inputs)
+                .any(|(v, s)| v.spec() != s || v.device != self.device)
         {
-            return Err("TVM input tensors differ from compiled signature".into());
+            return Err("TVM input tensors differ from compiled signature or device".into());
         }
         let model = self.clone();
         self.queue
@@ -308,9 +353,12 @@ impl TvmExecutable {
 
     pub fn run(&self, inputs: &[&TvmTensor]) -> Result<Vec<TvmTensor>> {
         if inputs.len() != self.inputs.len()
-            || inputs.iter().zip(&self.inputs).any(|(v, s)| v.spec() != s)
+            || inputs
+                .iter()
+                .zip(&self.inputs)
+                .any(|(v, s)| v.spec() != s || v.device != self.device)
         {
-            return Err("TVM input tensors differ from compiled signature".into());
+            return Err("TVM input tensors differ from compiled signature or device".into());
         }
         let program = self
             .program

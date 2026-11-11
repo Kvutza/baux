@@ -1,0 +1,28 @@
+{
+  "backend": "metal",
+  "device": "Apple M4",
+  "architecture": "mhc4",
+  "runtime": "tvm-relax",
+  "kernels": "production-metal",
+  "audit_evaluations": 1,
+  "parameters": 265623320,
+  "seed": 17,
+  "context": 1048576,
+  "chunk_rows": 8192,
+  "visits": 7,
+  "scope": "complete-causal-prefill-with-readout-and-loss",
+  "input": "deterministic-synthetic-token-ids",
+  "profiled": false,
+  "initialization_in_timing": false,
+  "measurements": [
+    {
+      "sample": 0,
+      "round": 0,
+      "gpu_ms": 269128.80487483926,
+      "wall_ms": 269289.387125,
+      "scored_tokens": 1048576,
+      "mean_nll": 12.975597381591797,
+      "token_losses_bitwise_equal": true
+    }
+  ]
+}

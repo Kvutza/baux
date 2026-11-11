@@ -83,6 +83,25 @@ prebuilt_cxx_library(
     soname = "libtvm_compiler.dylib",
     preferred_linkage = "shared",
     deps = [":runtime"],
+    exported_deps = [":metal"],
+    visibility = ["PUBLIC"],
+    target_compatible_with = ["prelude//os/constraints:macos"],
+)
+
+genrule(
+    name = "metal-library",
+    visibility = ["PUBLIC"],
+    srcs = [":tvm-wheel"],
+    out = "libtvm_runtime_metal.dylib",
+    cmd = 'cp "$(location :tvm-wheel)/tvm/lib/libtvm_runtime_metal.dylib" "$OUT" && install_name_tool -change @loader_path/libtvm_runtime.dylib @rpath/libtvm_runtime.dylib -add_rpath @loader_path "$OUT" && codesign --force --sign - "$OUT"',
+)
+
+prebuilt_cxx_library(
+    name = "metal",
+    shared_lib = ":metal-library",
+    soname = "libtvm_runtime_metal.dylib",
+    preferred_linkage = "shared",
+    deps = [":runtime"],
     visibility = ["PUBLIC"],
     target_compatible_with = ["prelude//os/constraints:macos"],
 )

@@ -6,6 +6,8 @@
 typedef struct bauxmodel bauxmodel;
 const char* bauxmodel_error(void);
 bauxmodel* bauxmodel_create(uint64_t seed);
+// backend: 0 = direct native Metal, 1 = TVM Relax with native Metal kernels.
+bauxmodel* bauxmodel_createon(uint64_t seed, uint32_t backend);
 void bauxmodel_drop(bauxmodel*);
 size_t bauxmodel_parameters(const bauxmodel*);
 size_t bauxmodel_rows(const bauxmodel*);

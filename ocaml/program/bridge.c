@@ -38,13 +38,14 @@ static value empty(struct custom_operations* ops) {
 static void fail(void) { caml_failwith(bauxprogram_error()); }
 static void modelfail(void) { caml_failwith(bauxmodel_error()); }
 
-CAMLprim value bauxocaml_model_create(value seed) {
-  CAMLparam1(seed);
+CAMLprim value bauxocaml_model_create(value seed, value backend) {
+  CAMLparam2(seed, backend);
   CAMLlocal1(result);
   result = empty(&modelops);
   uint64_t seed_value = Int64_val(seed);
+  uint32_t backend_value = Int_val(backend);
   caml_enter_blocking_section();
-  bauxmodel* model = bauxmodel_create(seed_value);
+  bauxmodel* model = bauxmodel_createon(seed_value, backend_value);
   caml_leave_blocking_section();
   if (!model) modelfail();
   HANDLE(result) = model;

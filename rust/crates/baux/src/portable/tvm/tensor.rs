@@ -4,6 +4,7 @@ use super::{RawAny, RawValue, TvmFunction};
 use crate::portable::{Result, Tensor, layout};
 use std::ffi::c_void;
 use std::ptr::NonNull;
+mod metal;
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -66,6 +67,7 @@ fn invoke(name: &str, args: &mut [RawAny]) -> Result<RawAny> {
 #[derive(Clone)]
 pub struct TvmTensor {
     pub(super) value: RawAny,
+    pub(super) device: i32,
     spec: Tensor,
 }
 
@@ -75,7 +77,7 @@ unsafe impl Send for TvmTensor {}
 unsafe impl Sync for TvmTensor {}
 
 impl TvmTensor {
-    fn from_value(value: RawAny) -> Result<Self> {
+    pub(super) fn from_value(value: RawAny) -> Result<Self> {
         if value.type_index != 70 {
             return Err("TVM result is not a tensor".into());
         }
@@ -92,8 +94,8 @@ impl TvmTensor {
             return Err("unsupported DLPack major version".into());
         }
         let tensor = &managed.tensor;
-        if tensor.device.kind != 1 || tensor.device.index != 0 {
-            return Err("TVM tensor execution currently requires CPU tensors".into());
+        if ![1, 8].contains(&tensor.device.kind) || tensor.device.index != 0 {
+            return Err("TVM tensor device must be CPU or Metal device zero".into());
         }
         let rank = usize::try_from(tensor.dimensions).map_err(|e| e.to_string())?;
         let dimensions = if rank == 0 {
@@ -123,7 +125,11 @@ impl TvmTensor {
         };
         let spec = Tensor::new(shape, dtype)?;
         layout(&spec)?;
-        Ok(Self { value, spec })
+        Ok(Self {
+            value,
+            spec,
+            device: tensor.device.kind,
+        })
     }
     /// Allocate and upload a CPU tensor, validating byte size before FFI.
     pub fn put(spec: Tensor, bytes: &[u8]) -> Result<Self> {
@@ -183,7 +189,11 @@ impl TvmTensor {
         if value.type_index != 70 {
             return Err("TVM allocator returned a non-tensor".into());
         }
-        let tensor = Self { value, spec };
+        let tensor = Self {
+            value,
+            spec,
+            device: 1,
+        };
         tensor.transfer(
             "runtime.TVMTensorCopyFromBytes",
             bytes.as_ptr().cast_mut(),

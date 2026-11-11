@@ -14,6 +14,8 @@ struct Config {
     seed: u64,
     rounds: u32,
     radius: f64,
+    #[deser(default)]
+    backend: Backend,
 }
 
 #[derive(Deserialize)]
@@ -24,6 +26,8 @@ struct ForwardConfig {
     context: u32,
     samples: usize,
     profile: bool,
+    #[deser(default)]
+    backend: Backend,
 }
 
 struct Batch {
@@ -218,11 +222,12 @@ pub fn run(path: &Path, output: &Path) -> Result<(), String> {
         if config.experiment != "resident-forward" {
             return Err("invalid resident-forward experiment".into());
         }
-        let report = crate::moe::forward_probe::run_latency(
+        let report = crate::moe::forward_probe::run_backend(
             config.context,
             config.samples,
             config.profile,
             &output.join("forward.json"),
+            config.backend,
         )?;
         let bytes = baux::artifact::json::pretty_vec(&report).map_err(|e| e.to_string())?;
         fs::write(output.join("forward.json"), &bytes).map_err(|e| e.to_string())?;
@@ -248,12 +253,13 @@ pub fn run(path: &Path, output: &Path) -> Result<(), String> {
         config.radius * 2.0,
     )
     .map_err(|e| e.to_string())?;
-    let mut model = Resident::new(
+    let mut model = Resident::with_backend(
         config.model,
         config.initialization,
         config.seed,
         length,
         crate::ProposalKernel::Gaussian,
+        config.backend,
     )?;
     let policy = policy(config.radius as f32, config.seed)?;
     model.search.configure_enn(policy)?;
@@ -303,6 +309,8 @@ pub fn run(path: &Path, output: &Path) -> Result<(), String> {
         return Err("a subsequent round overwrote published observations".into());
     }
     let report = json!({"schema": "baux.resident_program.v1", "model": config.model.id(),
+        "runtime": if config.backend == Backend::Tvm { "tvm-relax" } else { "native" },
+        "kernels": "production-metal",
         "parameters": model.parameters, "parameter_dtype": "float16", "device": Runtime::shared()?.device.name(),
         "batch": BATCH, "context": CONTEXT, "data": "deterministic synthetic vocabulary IDs; no learning-quality claim",
         "initial_reward": initial.reward, "optimizer_evaluations": config.rounds + 1,

@@ -80,7 +80,7 @@ genrule(
     name = "portable-bundle",
     srcs = ["src/portable/bundle.sh"],
     out = "baux-program",
-    cmd = 'sh "$SRCDIR/src/portable/bundle.sh" "$(location :portable[shared])" "$(location //admin/buck2/iree:build[library])" "$(location :portable-header)" "$OUT" "$(location //admin/buck2/tvm:build[bridge])" "$(location //admin/buck2/tvm:ffi-library)" "$(location //admin/buck2/tvm:runtime-library)" "$(location //admin/buck2/tvm:compiler-library)" "$(location //admin/buck2/tvm:build[license])" "$(location //admin/buck2/tvm:build[ffi-license])" "$(location //admin/buck2/tvm:build[notice])" "$(location //admin/buck2/iree:compiler-library)" "$(location :hlo-import)" "$(location //admin/buck2/pjrt:bridge)" "$(location //admin/buck2/pjrt:build[library])" "$(location //admin/buck2/pjrt:build[license])"',
+    cmd = 'sh "$SRCDIR/src/portable/bundle.sh" "$(location :portable[shared])" "$(location //admin/buck2/iree:build[library])" "$(location :portable-header)" "$OUT" "$(location //admin/buck2/tvm:build[bridge])" "$(location //admin/buck2/tvm:ffi-library)" "$(location //admin/buck2/tvm:runtime-library)" "$(location //admin/buck2/tvm:compiler-library)" "$(location //admin/buck2/tvm:metal-library)" "$(location //admin/buck2/tvm:build[license])" "$(location //admin/buck2/tvm:build[ffi-license])" "$(location //admin/buck2/tvm:build[notice])" "$(location //admin/buck2/iree:compiler-library)" "$(location :hlo-import)" "$(location //admin/buck2/pjrt:bridge)" "$(location //admin/buck2/pjrt:build[library])" "$(location //admin/buck2/pjrt:build[license])"',
     visibility = ["PUBLIC"],
     target_compatible_with = ["prelude//os/constraints:macos"],
 )

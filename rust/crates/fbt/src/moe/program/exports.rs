@@ -45,13 +45,24 @@ pub extern "C" fn bauxmodel_error() -> *const c_char {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn bauxmodel_create(seed: u64) -> *mut Model {
+    bauxmodel_createon(seed, 0)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn bauxmodel_createon(seed: u64, backend: u32) -> *mut Model {
     report(|| {
-        Resident::new(
+        let backend = match backend {
+            0 => super::Backend::Native,
+            1 => super::Backend::Tvm,
+            _ => return Err("unknown resident model backend".into()),
+        };
+        Resident::with_backend(
             crate::config::ModelArchitecture::FbtPisa1Mhc4V1,
             crate::config::ModelInitialization::FbtPisa1Mhc4,
             seed,
             crate::trust_region::TRLengthConfig::default(),
             crate::ProposalKernel::Gaussian,
+            backend,
         )
         .map(|resident| Model(Mutex::new(resident)))
     })

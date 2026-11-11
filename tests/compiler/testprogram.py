@@ -233,10 +233,12 @@ def test_storage(dtype, backend):
     np.testing.assert_array_equal(result, host)
 
 
-def test_residentmodel():
+@pytest.mark.parametrize("backend", ["native", "tvm"])
+def test_residentmodel(backend):
     from baux.experimental import ResidentModel
 
-    model = ResidentModel(seed=42)
+    model = ResidentModel(seed=42, backend=backend)
+    assert model.backend == backend
     assert model.parameters == 265_623_320
     assert model.rows == 8192
     tokens = np.zeros(model.rows, dtype=np.uint32)

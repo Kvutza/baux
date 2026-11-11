@@ -65,9 +65,13 @@ with tempfile.TemporaryDirectory(prefix="baux-native-package-") as directory:
     dyld._dyld_get_image_name.restype = text
     images = [Path(dyld._dyld_get_image_name(i).decode()).resolve()
               for i in range(dyld._dyld_image_count())]
-    for name in ("libbaux_tvm.dylib", "libtvm_runtime.dylib", "libtvm_ffi.dylib", "libtvm_compiler.dylib", "libbaux_pjrt.dylib", "libpjrt_cpu.dylib"):
+    for name in ("libbaux_tvm.dylib", "libtvm_runtime.dylib", "libtvm_runtime_metal.dylib", "libtvm_ffi.dylib", "libtvm_compiler.dylib", "libbaux_pjrt.dylib", "libpjrt_cpu.dylib"):
         assert (libraries / name).is_file(), name
-    for name in ("libbaux_pjrt.dylib", "libpjrt_cpu.dylib"):
+    # Loading the Metal plugin must resolve entirely within the relocated wheel.
+    metal = c.CDLL(str(libraries / "libtvm_runtime_metal.dylib"))
+    images = [Path(dyld._dyld_get_image_name(i).decode()).resolve()
+              for i in range(dyld._dyld_image_count())]
+    for name in ("libbaux_pjrt.dylib", "libpjrt_cpu.dylib", "libtvm_runtime_metal.dylib", "libtvm_runtime.dylib", "libtvm_ffi.dylib"):
         assert [path for path in images if path.name == name] == [(libraries / name).resolve()], name
     print("Relocated wheel: native XLA execution, TVM compiler payload, bundled dependencies and upstream licenses passed")
 PY

@@ -148,3 +148,78 @@ fn rejects_unsupported() {
         "{error}"
     );
 }
+
+#[test]
+fn native_kernel() {
+    super::device::metal().unwrap();
+    assert!(
+        super::TvmFunction::global("device_api.metal")
+            .unwrap()
+            .is_some()
+    );
+    use std::sync::Arc;
+    let owner = Arc::new(());
+    let weak = Arc::downgrade(&owner);
+    let spec = crate::portable::Tensor::new(vec![2], "float32").unwrap();
+    let model =
+        super::TvmExecutable::native(vec![spec.clone()], vec![spec], "cpu", move |inputs| {
+            let _held = &owner;
+            Ok(vec![inputs[0].clone()])
+        })
+        .unwrap();
+    let input = put(vec![2], &[2., -3.]);
+    let outputs = model.run(&[&input]).unwrap();
+    drop(input);
+    drop(model);
+    assert_eq!(numbers(&outputs[0]), [2., -3.]);
+    assert!(
+        weak.upgrade().is_none(),
+        "VM or registry leaked callback state"
+    );
+    let spec = crate::portable::Tensor::new(vec![2], "float32").unwrap();
+    let failed = super::TvmExecutable::native(vec![spec.clone()], vec![spec], "cpu", |_| {
+        Err("kernel failure".into())
+    })
+    .unwrap();
+    let error = failed.run(&[&outputs[0]]).err().unwrap();
+    assert!(error.contains("kernel failure"), "{error}");
+}
+
+#[test]
+fn metal_alias() {
+    use std::sync::Arc;
+    let spec = Tensor::new(vec![2], "float32").unwrap();
+    let storage =
+        crate::portable::Executable::native("metal", vec![], vec![], |_, _| Ok(vec![])).unwrap();
+    let data = [2f32, -3.]
+        .into_iter()
+        .flat_map(f32::to_ne_bytes)
+        .collect::<Vec<_>>();
+    let original = storage.put(spec.clone(), &data).unwrap();
+    let (pointer, offset) = unsafe { original.metal().unwrap() };
+    let input =
+        unsafe { TvmTensor::import_metal(spec.clone(), pointer, offset, Arc::new(original)) }
+            .unwrap();
+    let program =
+        TvmExecutable::native(vec![spec.clone()], vec![spec.clone()], "metal", |inputs| {
+            Ok(inputs.to_vec())
+        })
+        .unwrap();
+    let cpu = TvmTensor::put(spec, &data).unwrap();
+    assert!(program.run(&[&cpu]).err().unwrap().contains("device"));
+    assert!(program.submit(vec![cpu]).err().unwrap().contains("device"));
+    let cpu = compile("module { func.func @main(%x: tensor<2xf32>) -> tensor<2xf32> { return %x : tensor<2xf32> } }").unwrap();
+    assert!(cpu.run(&[&input]).err().unwrap().contains("device"));
+    assert!(
+        cpu.submit(vec![input.clone()])
+            .err()
+            .unwrap()
+            .contains("device")
+    );
+    let output = program.run(&[&input]).unwrap();
+    assert_eq!(unsafe { output[0].metal().unwrap() }, (pointer, offset));
+    drop(input);
+    drop(storage);
+    drop(program);
+    assert_eq!(output[0].read().unwrap(), data);
+}

@@ -1,6 +1,6 @@
 //! Full FBT/PISA model entry point over the shared resident tensor runtime.
 use crate::py_native::PyNativePending;
-use baux_fbt::moe::program::Resident;
+use baux_fbt::moe::program::{Backend, Resident};
 use numpy::PyReadonlyArray1;
 use pyo3::{exceptions::PyValueError, prelude::*};
 use std::sync::{Arc, Mutex};
@@ -40,24 +40,55 @@ pub struct PyResidentModel {
 #[pymethods]
 impl PyResidentModel {
     #[new]
-    #[pyo3(signature = (*, model="fbt-pisa1-mhc4-v1", initialization="fbt-pisa1-mhc4", seed=42))]
-    fn new(py: Python<'_>, model: &str, initialization: &str, seed: u64) -> PyResult<Self> {
+    #[pyo3(signature = (*, model="fbt-pisa1-mhc4-v1", initialization="fbt-pisa1-mhc4", seed=42, backend="native"))]
+    fn new(
+        py: Python<'_>,
+        model: &str,
+        initialization: &str,
+        seed: u64,
+        backend: &str,
+    ) -> PyResult<Self> {
         let model = architecture(model)?;
         let initialization = initialization_kind(initialization)?;
+        let backend = match backend {
+            "native" => Backend::Native,
+            "tvm" => Backend::Tvm,
+            _ => {
+                return Err(PyValueError::new_err(format!(
+                    "unknown resident backend {backend:?}"
+                )));
+            }
+        };
         let inner = py
             .detach(|| {
-                Resident::new(
+                Resident::with_backend(
                     model,
                     initialization,
                     seed,
                     baux::trust_region::TRLengthConfig::default(),
                     baux::ProposalKernel::Gaussian,
+                    backend,
                 )
             })
             .map_err(PyValueError::new_err)?;
         Ok(Self {
             inner: Arc::new(Mutex::new(inner)),
         })
+    }
+
+    #[getter]
+    fn backend(&self) -> PyResult<&'static str> {
+        Ok(
+            match self
+                .inner
+                .lock()
+                .map_err(|_| PyValueError::new_err("resident model mutex poisoned"))?
+                .backend
+            {
+                Backend::Native => "native",
+                Backend::Tvm => "tvm",
+            },
+        )
     }
 
     #[getter]

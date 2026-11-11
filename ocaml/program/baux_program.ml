@@ -10,6 +10,7 @@ type session : value mod contended portable
 type allocation : value mod contended portable
 type invocation : value mod contended portable
 type model : value mod contended portable
+type model_backend = Native | Tvm
 
 type ('a, 'b) buffer = {
   allocation : allocation;
@@ -70,7 +71,7 @@ external ready_native : invocation -> bool @@ portable = "bauxocaml_ready"
 external wait_native : invocation -> allocation array @@ portable
   = "bauxocaml_wait"
 
-external create_model_native : int64 -> model @@ portable
+external create_model_native : int64 -> int -> model @@ portable
   = "bauxocaml_model_create"
 
 external model_parameters : model -> int @@ portable
@@ -311,7 +312,8 @@ type model_observation = {
   sequence_nlls : (float, float32_elt, c_layout) Genarray.t;
 }
 
-let create_model ~seed = create_model_native seed
+let create_on backend ~seed = create_model_native seed (match backend with Native -> 0 | Tvm -> 1)
+let create_model ~seed = create_on Native ~seed
 
 let model_layout model =
   map

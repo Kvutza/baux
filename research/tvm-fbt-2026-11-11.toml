@@ -1,0 +1,85 @@
+date = "2026-11-11"
+task = "blckbaux-iie"
+change = "qllwvyuuxknyvqomuwnwrzzrlvqyqsyr"
+bookmark = "kvutza/tvm-resident"
+tested_commit = "c1afb21304e641c6d5ddb651ebcb24ec48b2829e"
+worker_sha256 = "62a622c19bb41228051576795ece4f714a4887318a082a30833e821cdc6921cc"
+
+[implementation]
+execution = "Native Rust TVM FFI builds and runs Relax calls to the production FBT Metal kernels"
+ownership = "Retained DLPack Metal allocations; optimizer mutation leases retained through completion; fresh output allocations"
+entry_points = [
+  "Rust Resident::with_backend",
+  "Python ResidentModel(backend='tvm')",
+  "C bauxmodel_createon",
+  "OxCaml create_on Tvm",
+]
+compiler_fallback = "none"
+scope = "External native-kernel integration. FBT kernels are not generated from StableHLO. Static StableHLO-to-TIR/Relax CPU lowering is verified separately in tvm-tensors-2026-11-11.toml."
+
+[verification]
+compiler_cases = 101
+native_tvm_cases = 9
+functional_build = "207fd9ec-9a8f-45a3-a4af-f553e807045a"
+functional_results = "Python compiler suite, production FBT parity, native TVM ownership/device rejection, and OxCaml CPU/Metal/XLA/FBT passed"
+package_build = "30b71363-41e1-4364-89f7-99ff2a5f07b9"
+package_results = "Relocated native package, TVM Metal plugin dependency resolution, and shared Rust runtime passed"
+numerical_gate = "baux tune numerical verification passed; 6415 Lean build jobs completed"
+resolved_failures = "Added CPU device initialization and input-device checks; fixed the Metal plugin loader rpath exposed by relocation testing"
+repository_scope = "Targeted compiler/runtime checks. The separate daemon's broad baux-unit/fbt-unit suite could not resolve the existing //experiments:specs target in this checkout."
+
+[environment]
+device = "Apple M4"
+memory_bytes = 25769803776
+build_recovery = "Disk exhaustion interrupted initial verification. Cleaned generated artifacts in the assigned workspace and reused dependency caches with exactly matching Lean version and package revisions. Verification was rerun."
+lean = "4.35.0"
+mathlib = "56a005855ea17e0b0958f73ec801ae140b0a1679"
+floatlib = "51e6940eaa4014691be91f663a49ca7239ca0c07"
+aeneas = "e62dd83d133d9043e7d3628096838b7430f36565"
+
+[resident]
+config = "research/tvm-program.toml"
+run = "77a02eecd212cebedf318641a672daed1b1424ee40cfd4eb67f133f09718b577"
+evidence = "research/tvm-round-1111.json"
+parameters = 265623320
+parity_max_abs = 0.0
+parameter_readbacks = 0
+parameter_allocation_identical = true
+lease_rejected_mutation = true
+old_observations_preserved = true
+round_wall_seconds = 4.625134
+
+[forward]
+parameters = 265623320
+seed = 17
+input = "Deterministic synthetic token IDs; no training-quality claim"
+scope = "Complete causal prefill with vocabulary readout and loss"
+samples_per_context = 1
+audit_passes_per_context = 1
+timing = "Initialization and compilation excluded. Direct Metal reference runs first; timed TVM run includes native-kernel execution and publication. Host output readback and parity comparison follow timing."
+parity = "Every token loss is bitwise equal to direct Metal at all three context lengths"
+performance_claim = "Measured latency only. No speedup claim; the one-second 1M target is not achieved."
+
+[[contexts]]
+tokens = 4096
+config = "research/tvm-forward-4k.toml"
+run = "6529b2535271efcd9397a97185163136306283dcc81a428438c25036e8f781f7"
+evidence = "research/tvm-4k-2026-11-11.json"
+gpu_seconds = 0.9583779167151079
+wall_seconds = 0.960134375
+
+[[contexts]]
+tokens = 65536
+config = "research/tvm-forward-64k.toml"
+run = "118b68cafafc157ccbc33edd5cc7febc0f172d9e48973976245f368148ee7542"
+evidence = "research/tvm-64k-2026-11-11.json"
+gpu_seconds = 15.883580416673794
+wall_seconds = 15.894502333
+
+[[contexts]]
+tokens = 1048576
+config = "research/tvm-forward-1m.toml"
+run = "4df6527b80ee4d7ea6fb66d3225dcf71a19d6bcb135bb3a947b3c79efc6fd02e"
+evidence = "research/tvm-1m-2026-11-11.json"
+gpu_seconds = 269.12880487483926
+wall_seconds = 269.289387125

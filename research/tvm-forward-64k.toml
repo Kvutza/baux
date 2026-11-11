@@ -1,0 +1,6 @@
+version = 1
+experiment = "resident-forward"
+context = 65536
+samples = 1
+profile = false
+backend = "tvm"

@@ -109,7 +109,8 @@ let () =
   exercise Cpu (Sys.getenv "BAUX_VMFB_CPU") `Iree;
   exercise Metal (Sys.getenv "BAUX_VMFB_METAL") `Iree;
   exercise Cpu (Sys.getenv "BAUX_STABLEHLO") `Xla;
-  let model = create_model ~seed:42L in
+  let exercise_model backend =
+  let model = create_on backend ~seed:42L in
   if model_parameters model <> 265_623_320 || model_rows model <> 8192 then
     failwith "resident model metadata differs";
   let tokens = Genarray.create int32 c_layout [| model_rows model |] in
@@ -128,4 +129,7 @@ let () =
   let sequence_nlls = array1_of_genarray observation.sequence_nlls in
   if not (Float.is_finite sequence_nlls.{0} && Float.is_finite sequence_nlls.{1})
   then failwith "resident model produced nonfinite observations";
-  Printf.printf "OxCaml FBT/PISA: initialized model forward passed\n%!"
+  Printf.printf "OxCaml FBT/PISA %s: initialized model forward passed\n%!"
+    (match backend with Native -> "native" | Tvm -> "TVM Relax")
+  in
+  List.iter exercise_model [Native; Tvm]

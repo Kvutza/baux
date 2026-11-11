@@ -425,6 +425,59 @@ pub(super) fn vm(
         "relax.op.call_dps_packed",
         &mut [external, arguments, array(&types)?],
     )?;
+    finish(Some(kernel), params, body, 1)
+}
+
+pub(super) fn external(
+    name: &str,
+    inputs: &[super::super::Tensor],
+    outputs: &[super::super::Tensor],
+    device: i64,
+) -> Result<TvmModule> {
+    let signature = |spec: &super::super::Tensor| {
+        let shape = spec
+            .shape
+            .iter()
+            .map(|&n| i64::try_from(n).map_err(|e| e.to_string()))
+            .collect::<Result<Vec<_>>>()?;
+        tensor_type(&shape, &spec.dtype)
+    };
+    let params = inputs
+        .iter()
+        .enumerate()
+        .map(|(i, spec)| {
+            call(
+                "ir.Var",
+                &mut [text(&format!("arg{i}"))?, signature(spec)?, Value::none()],
+            )
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let types = outputs.iter().map(signature).collect::<Result<Vec<_>>>()?;
+    let result = call("ir.TupleType", &mut [array(&types)?, Value::none()])?;
+    let function = call(
+        "relax.ExternFunc",
+        &mut [text(name)?, Value::none(), Value::none()],
+    )?;
+    let body = call(
+        "ir.Call",
+        &mut [
+            result.clone(),
+            function,
+            array(&params)?,
+            Value::none(),
+            array(&[result])?,
+            Value::none(),
+        ],
+    )?;
+    finish(None, params, body, device)
+}
+
+fn finish(
+    kernel: Option<&TvmModule>,
+    params: Vec<Value>,
+    body: Value,
+    device: i64,
+) -> Result<TvmModule> {
     let builder = call("relax.BlockBuilderCreate", &mut [Value::none()])?;
     call(
         "relax.BlockBuilderBeginScope",
@@ -459,7 +512,7 @@ pub(super) fn vm(
             array(&params)?,
             body,
             Value::none(),
-            Value::boolean(true),
+            Value::boolean(kernel.is_some()),
             attrs,
             Value::none(),
         ],
@@ -492,16 +545,20 @@ pub(super) fn vm(
     let builder = call("relax.ExecBuilderCreate", &mut [])?;
     call("relax.VMCodeGen", &mut [builder.clone(), module])?;
     let target = call("target.Target", &mut [text("llvm")?])?;
-    super::status(
-        unsafe { super::ffi_increment(kernel.0.as_ptr()) },
-        "retain kernel",
-    )?;
-    let library = Value {
-        type_index: 73,
-        padding: 0,
-        value: super::RawValue {
-            pointer: kernel.0.as_ptr(),
-        },
+    let library = if let Some(kernel) = kernel {
+        super::status(
+            unsafe { super::ffi_increment(kernel.0.as_ptr()) },
+            "retain kernel",
+        )?;
+        Value {
+            type_index: 73,
+            padding: 0,
+            value: super::RawValue {
+                pointer: kernel.0.as_ptr(),
+            },
+        }
+    } else {
+        Value::none()
     };
     let mut result = call(
         "relax.VMLink",
@@ -525,9 +582,13 @@ pub(super) fn vm(
         return Err("TVM loader returned a non-module".into());
     }
     let vm = TvmModule(std::ptr::NonNull::new(result.take()).ok_or("null VM")?);
+    let mut devices = vec![Value::integer(device), Value::integer(0), Value::integer(2)];
+    if device != 1 {
+        devices.extend([Value::integer(1), Value::integer(0), Value::integer(2)]);
+    }
     vm.function("vm_initialization")?
         .ok_or("missing VM initialization")?
-        .call(&mut [Value::integer(1), Value::integer(0), Value::integer(2)])?;
+        .call(&mut devices)?;
     Ok(vm)
 }
 

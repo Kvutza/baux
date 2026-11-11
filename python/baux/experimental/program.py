@@ -209,6 +209,8 @@ class ResidentModel:
 
     Inputs are copied into owned native allocations at submission. Results stay
     resident until :meth:`get`; dropping an invocation does not cancel work.
+    ``backend="tvm"`` invokes the production Metal kernels through native Relax
+    with retained device buffers. ``backend="native"`` invokes them directly.
     """
 
     def __init__(
@@ -217,12 +219,18 @@ class ResidentModel:
         model: str = "fbt-pisa1-mhc4-v1",
         initialization: str = "fbt-pisa1-mhc4",
         seed: int = 42,
+        backend: Literal["native", "tvm"] = "native",
     ) -> None:
         from .. import baux_rust
 
         self._native = baux_rust.ResidentModel(
-            model=model, initialization=initialization, seed=seed
+            model=model, initialization=initialization, seed=seed, backend=backend
         )
+
+    @property
+    def backend(self) -> str:
+        """Execution runtime; both options retain the production Metal kernels."""
+        return self._native.backend
 
     @property
     def parameters(self) -> int:
@@ -302,9 +310,11 @@ def compile(
     OpTree's deterministic traversal order. Compilation and execution failures
     propagate; an unavailable backend never falls back to another device.
 
-    TVM currently targets CPU and static float32 tensors: elementwise math,
-    reshapes, transposes, broadcasts, constants and unbatched dot products.
-    Unsupported operations are rejected during compilation.
+    TVM compiles static tensor graphs to CPU through native StableHLO lowering,
+    TIR and Relax. This includes typed constants, batched contractions, gathers,
+    slices, updates, reductions and elementwise operations. Compilation checks
+    operation, shape and dtype semantics before execution. ResidentModel exposes
+    the separate native Metal kernel integration.
     """
     from .. import baux_rust
 

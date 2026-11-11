@@ -1,0 +1,49 @@
+{
+  "schema": "baux.resident_program.v1",
+  "model": "fbt-pisa1-mhc4-v1",
+  "runtime": "tvm-relax",
+  "kernels": "production-metal",
+  "parameters": 265623320,
+  "parameter_dtype": "float16",
+  "device": "Apple M4",
+  "batch": 2,
+  "context": 4096,
+  "data": "deterministic synthetic vocabulary IDs; no learning-quality claim",
+  "initial_reward": -12.982233,
+  "optimizer_evaluations": 2,
+  "audit_evaluations": 1,
+  "round_parameter_readbacks": 0,
+  "timing": "continuous proposal through settlement; audit follows each completed round; initialization excluded",
+  "old_observations_preserved": true,
+  "rounds": [
+    {
+      "seed": 20,
+      "initializing": false,
+      "changed_parameters": 208411101,
+      "selected": 0,
+      "predicted_mean": -12.982233,
+      "reward": -12.979096,
+      "variance": 0.00012929853,
+      "scored_tokens": 8190,
+      "sequence_nlls": [
+        12.9754925,
+        12.9827
+      ],
+      "accepted": true,
+      "numerical": "arithmetic-checked",
+      "history": 2,
+      "forward_gpu_seconds": 1.8474924999754876,
+      "proposal_seconds": 0.07861275,
+      "forward_wall_seconds": 1.849769458,
+      "tell_seconds": 2.696751292,
+      "round_seconds": 4.625134,
+      "audit_seconds": 1.877945583,
+      "parity_max_abs": 0.0,
+      "parameter_allocation_identical": true,
+      "lease_rejected_mutation": true,
+      "round": 1,
+      "mean_nll": 12.979096412658691,
+      "wall_ms": 4625.134
+    }
+  ]
+}

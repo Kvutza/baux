@@ -6,9 +6,11 @@
 
 use std::ffi::{CString, c_char, c_void};
 use std::ptr::NonNull;
+mod callback;
 mod comparison;
 mod compiler;
 mod contraction;
+mod device;
 mod element;
 mod gather;
 mod graph;

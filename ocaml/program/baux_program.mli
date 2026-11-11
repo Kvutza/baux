@@ -76,6 +76,7 @@ val wait : 'a pending -> 'a
 (** Consume completion exactly once. Blocking releases the OCaml runtime lock. *)
 
 type model : value mod contended portable
+type model_backend = Native | Tvm
 
 type model_output = {
   token_losses : (float, float32_elt) buffer;
@@ -89,6 +90,9 @@ type model_observation = {
 
 val create_model : seed:int64 -> model
 (** Initialize the fixed-shape 265M-parameter FBT/PISA MHC4 model on Metal. *)
+
+val create_on : model_backend -> seed:int64 -> model
+(** Select direct native execution or TVM Relax, preserving the same Metal kernels. *)
 
 val model_parameters : model -> int
 val model_rows : model -> int

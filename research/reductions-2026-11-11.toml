@@ -1,0 +1,54 @@
+date = "2026-11-11"
+task = "blckbaux-dn6"
+tested_revision = "5051bbc95ddd0808d3b72dd28c765cfaf177afb9"
+status = "verified loss reductions through the structured compiler interface"
+scope = "TVM reduction lowering; existing model and native runtime regression checks"
+references = [
+  "https://openxla.org/stablehlo/spec#reduce",
+  "https://openxla.org/stablehlo/spec#maximum",
+  "https://openxla.org/stablehlo/spec#minimum",
+  "https://tvm.apache.org/docs/reference/api/python/te.html",
+]
+limitations = [
+  "TVM accepts independent binary add/multiply/minimum/maximum/and/or/xor reducers. Coupled or composed reducer bodies are rejected.",
+  "A runtime initial value participates once per output. StableHLO allows implementation-defined reduction trees and initializer placement; nonidentity initializers and floating-point reassociation need not match other compilers bit for bit.",
+  "TVM reduction execution was checked on CPU. IREE CPU/Metal and XLA CPU additionally execute the existing MLP forward with its mean squared loss.",
+  "This change adds no native Rust/OxCaml XLA or TVM adapter, no additional accelerator validation, and no FBT/PISA portability or latency claim.",
+]
+
+[[checks]]
+command = "./admin/tools/buck2w test //admin/buck2/tests:compiler"
+build_id = "9ae0a945-1ea2-4e0f-a7dc-f21cc1a4b672"
+result = "passed: all four Buck targets"
+python_passed = 55
+rust_runtime_passed = 7
+rust_signature_passed = 1
+oxcaml = "CPU/Metal structured rounds, ownership, GC, domains, rejection and initialized FBT/PISA forward passed"
+log = ".cache/reduction-suite.log"
+coverage = [
+  "Existing MLP perturbation, forward, vector residual and mean squared loss agree with NumPy on IREE CPU/Metal, XLA CPU and TVM CPU.",
+  "Variadic reductions preserve noncontiguous/reordered axes, scalar results, empty dimension sets, empty reduced dimensions and empty output tensors.",
+  "Nonidentity runtime initializers participate in sum/product/minimum/maximum. Integer results are compared exactly, including uint64 values above the signed range and modular overflow.",
+  "Boolean add/multiply/minimum/maximum match OR/AND semantics; Boolean AND/OR/XOR reducers pass.",
+  "Extrema propagate input and initializer NaNs and preserve infinities; signed zero ordering passes for float16/float32/float64.",
+  "Unsupported and malformed reducer bodies are rejected before execution.",
+]
+
+[[checks]]
+command = "./baux check"
+result = "passed: formatting, Ruff, Python type checks and naming"
+log = ".cache/reduction-check.log"
+
+[[resolved]]
+build_id = "6af0370c-45cf-4509-979a-6eb708f03e13"
+result = "initial targeted run: 5 failed, 18 passed, 27 deselected"
+problem = "Pinned TVM TE lowering discarded Reduce.init; Boolean NE emitted invalid LLVM floating comparison on i1."
+change = "Apply the runtime initializer explicitly after reduction and express Boolean XOR with logical operators. Independent NumPy reference cases verify the corrected results."
+
+[sha256]
+"python/baux/experimental/_reduce.py" = "a023719e0e368b6f1f29e5a85301a77427e6199741a645d5e236e887dd6a3702"
+"python/baux/experimental/_relax.py" = "6c404f6a4ff0c2bbfcf17fd12bdb7b6e355517f95720619f7a62a27919ee98c9"
+"python/baux/experimental/_hlo.py" = "db429a0d3515fe1ccb04c67678aa48aa09ede557956c3f4b592fa3a77097ef58"
+"tests/compiler/testprogram.py" = "7112367f7715b82e09afc09c3fb27956d9e4a3b5c1da4ff56589d919368b7279"
+"tests/compiler/testreduce.py" = "1bbd4f9e2d3a767c525c797f89a81a7a4e90ca629d7431745872ca6eb187414c"
+"admin/buck2/tests/compiler.sh" = "068259ea351e29358725610e89a0160c4cea91e018c67fe6d1ee79c76c4149fd"

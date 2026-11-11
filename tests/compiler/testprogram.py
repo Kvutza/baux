@@ -68,7 +68,8 @@ def test_forward(backend, device):
         weights, noise, observation, target = state
         moved = jax.tree.map(lambda w, n: w + n, weights, noise)
         prediction = mlp_forward(moved, observation, act=jnp.tanh)
-        return moved, prediction - target
+        residual = prediction - target
+        return moved, residual, jnp.mean(residual * residual)
 
     rng = np.random.default_rng(64)
     weights = [
@@ -85,7 +86,8 @@ def test_forward(backend, device):
     target = rng.normal(size=8).astype(np.float32)
     args = (weights, noise, observation, target)
     moved = optree.tree_map(lambda w, n: w + n, weights, noise)
-    expected = (moved, mlp_forward(moved, observation, act=np.tanh) - target)
+    residual = mlp_forward(moved, observation, act=np.tanh) - target
+    expected = (moved, residual, np.mean(residual * residual))
 
     def specs(tree):
         return optree.tree_map(lambda x: TensorSpec(x.shape, str(x.dtype)), tree)

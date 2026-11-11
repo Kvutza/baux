@@ -6,4 +6,4 @@ trap 'test_status=$?; rm -rf "$test_dir"; exit "$test_status"' EXIT HUP INT TERM
 export PYTHONPATH="$test_dir"
 export PYTHONFAULTHANDLER=1
 "$BAUX_TEST_PYTHON" -m pytest -q -p no:cacheprovider -c /dev/null \
-    --confcutdir=tests/compiler tests/compiler/testprogram.py "$@"
+    --confcutdir=tests/compiler tests/compiler/test*.py "$@"

@@ -12,6 +12,7 @@ from tvm.relax.frontend.stablehlo.stablehlo_translator import StableHLOImporter
 
 from ._hlo import configure
 from ._program import function, parse
+from ._reduce import lower as reduce
 
 
 class Importer(StableHLOImporter):
@@ -54,11 +55,17 @@ def lower(program: Any) -> Any:
                     ]
                     returned = builder.emit_output(relax.Tuple(values))
                     break
-                if len(op.results) != 1 or name not in importer.convert_map:
+                if name == "stablehlo.reduce":
+                    for value, result in zip(
+                        op.results, reduce(importer, op), strict=True
+                    ):
+                        importer.values[value] = result
+                elif len(op.results) != 1 or name not in importer.convert_map:
                     raise NotImplementedError(
                         f"TVM StableHLO lowering unavailable for {name}"
                     )
-                importer.values[op.results[0]] = importer.convert_map[name](op)
+                else:
+                    importer.values[op.results[0]] = importer.convert_map[name](op)
             if returned is None:
                 raise ValueError("entry function has no return")
         builder.emit_func_output(returned)

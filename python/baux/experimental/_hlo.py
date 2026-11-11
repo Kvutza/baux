@@ -85,8 +85,8 @@ def dot(importer: Any, node: Any) -> Any:
 def configure(importer: Any) -> None:
     from tvm import relax
 
-    # Upstream convolution, reduction, round and window handlers assume special
-    # cases without checking all attributes. Reject those until fully lowered.
+    # Remove upstream handlers that assume special cases. Reduce is handled
+    # separately because it may return multiple tensors.
     for name in ["convolution", "reduce", "reduce_window", "round_nearest_afz"]:
         importer.convert_map.pop("stablehlo." + name, None)
     importer.convert_map["stablehlo.broadcast_in_dim"] = lambda op: broadcast(

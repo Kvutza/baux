@@ -7,6 +7,9 @@ use metal::foreign_types::{ForeignType, ForeignTypeRef};
 use std::sync::{Arc, Mutex};
 pub mod experiment;
 mod exports;
+mod inspect;
+mod layout;
+pub use layout::layout;
 mod tvm;
 
 /// Execution orchestration; both paths use the production Metal kernels.
@@ -117,6 +120,21 @@ impl State {
 }
 
 impl Resident {
+    /// Explicit host snapshot for export or independent compiler parity checks.
+    /// The read holds the same immutable search lease used by a forward call.
+    ///
+    /// # Returns
+    /// Owned native-endian FP16 bytes in canonical packed order. Reading blocks
+    /// until the device copy completes; editing the result does not mutate the
+    /// resident parameters. [`layout`] describes the MHC4 parameter views.
+    ///
+    /// # Errors
+    /// Returns an error if the optimizer cannot grant an immutable lease or
+    /// the native readback fails.
+    pub fn weights(&self) -> Result<Vec<u8>, String> {
+        self.search.program_base(&self.forward)?.read()
+    }
+
     pub fn new(
         model: crate::config::ModelArchitecture,
         initialization: crate::config::ModelInitialization,

@@ -60,6 +60,28 @@ val compile_xla :
   ('a, 'b, 'c, 'd) t
 (** Compile StableHLO with a [main] entry using the native XLA CPU plugin. *)
 
+val compile_tvm :
+  source:string -> entry:string -> importer:string ->
+  inputs:('a, 'b) layout -> outputs:('c, 'd) layout -> ('a, 'b, 'c, 'd) t
+(** Compile a static StableHLO function to CPU TIR/Relax through native Rust FFI.
+
+    @param source Module text with explicit tensor parameters.
+    @param entry Exported function name.
+    @param importer Path to the bundled [hlo_import] executable. MLIR parsing
+      runs in a separate process to isolate its LLVM from TVM's compiler.
+    @param inputs Structured static input shapes and dtypes.
+    @param outputs Structured static output shapes and dtypes.
+    @return An owned CPU program. Buffers and pending calls retain its session.
+    @raise Failure If import, lowering, compilation or signature validation fails.
+
+    Compilation blocks and releases the OCaml runtime lock. It transfers no
+    model inputs. Use [put] to upload, [run] for blocking execution or [submit]
+    and [wait] for queued execution, and [read] for explicit host copies.
+    Buffers stay in TVM between calls. No device fallback is performed.
+
+    Floating-point equivalence with other runtimes requires separate validation;
+    see [research/fbt-graph-2026-11-11.toml] for the experimental FBT results. *)
+
 val put : ('a, 'b, 'c, 'd) t -> 'a -> 'b
 val run : ('a, 'b, 'c, 'd) t -> 'b -> 'd
 val read : ('a, 'b) layout -> 'b -> 'a

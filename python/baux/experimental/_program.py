@@ -160,8 +160,12 @@ class Tvm(Native):
         if device != "cpu":
             raise ValueError(f"native TVM currently supports CPU, got {device!r}")
         importer = Path(baux_rust.__file__).parent / ".dylibs" / "hlo_import"
-        self.session = baux_rust.TvmSession(
-            program.source, program.entry, str(importer)
+        self.session = baux_rust.NativeSession.compile_tvm(
+            program.source,
+            program.entry,
+            str(importer),
+            program.inputs,
+            program.outputs,
         )
 
 

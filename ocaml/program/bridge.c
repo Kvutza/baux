@@ -128,7 +128,8 @@ static value load(value bytes, value entry, value device, value ins, value outs,
   code[length] = 0;
   caml_enter_blocking_section();
   bauxprogram* program;
-  if (runtime == 2) program = bauxprogram_xla(code, length, driver, inputs, ni, outputs, no);
+  if (runtime == 3) program = bauxprogram_compile(code, length, function, driver, inputs, ni, outputs, no);
+  else if (runtime == 2) program = bauxprogram_xla(code, length, driver, inputs, ni, outputs, no);
   else if (runtime == 1) program = bauxprogram_tvm((char*)code, function, driver, inputs, ni, outputs, no);
   else program = bauxprogram_load(code, length, function, driver, inputs, ni, outputs, no);
   free(inputs); free(outputs); free(code); free(function); free(driver);
@@ -146,6 +147,9 @@ CAMLprim value bauxocaml_tvm(value path, value entry, value device, value ins, v
 }
 CAMLprim value bauxocaml_xla(value source, value entry, value device, value ins, value outs) {
   return load(source, entry, device, ins, outs, 2);
+}
+CAMLprim value bauxocaml_compile(value source, value entry, value importer, value ins, value outs) {
+  return load(source, entry, importer, ins, outs, 3);
 }
 
 CAMLprim value bauxocaml_put(value session, value dtype, value data) {

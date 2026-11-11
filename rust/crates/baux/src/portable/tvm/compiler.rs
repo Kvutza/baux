@@ -319,8 +319,12 @@ pub(super) fn placeholder(shape: &[i64], dtype: &str, name: &str) -> Result<Valu
 }
 
 pub(super) fn build(args: &[Value]) -> Result<TvmModule> {
+    library(lowered(args, "kernel")?)
+}
+
+pub(super) fn lowered(args: &[Value], name: &str) -> Result<Value> {
     let function = call("te.CreatePrimFunc", &mut [array(args)?, Value::none()])?;
-    let function = attr(function, "global_symbol", text("kernel")?)?;
+    let function = attr(function, "global_symbol", text(name)?)?;
     let target = call("target.Target", &mut [text("llvm")?])?;
     let target = call("target.WithHost", &mut [target.clone(), target])?;
     let function = attr(function, "target", target.clone())?;
@@ -357,6 +361,12 @@ pub(super) fn build(args: &[Value]) -> Result<TvmModule> {
             pass(module, name, &mut [])?
         };
     }
+    Ok(module)
+}
+
+pub(super) fn library(module: Value) -> Result<TvmModule> {
+    let target = call("target.Target", &mut [text("llvm")?])?;
+    let target = call("target.WithHost", &mut [target.clone(), target])?;
     let mut result = call("target.build.llvm", &mut [module, target])?;
     if result.type_index != 73 {
         return Err("TVM codegen returned a non-module".into());
@@ -366,7 +376,7 @@ pub(super) fn build(args: &[Value]) -> Result<TvmModule> {
     ))
 }
 
-fn tensor_type(shape: &[i64], dtype: &str) -> Result<Value> {
+pub(super) fn tensor_type(shape: &[i64], dtype: &str) -> Result<Value> {
     let dims = shape
         .iter()
         .map(|&n| {
@@ -472,7 +482,7 @@ pub(super) fn external(
     finish(None, params, body, device)
 }
 
-fn finish(
+pub(super) fn finish(
     kernel: Option<&TvmModule>,
     params: Vec<Value>,
     body: Value,

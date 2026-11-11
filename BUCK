@@ -117,7 +117,7 @@ filegroup(
 filegroup(
     name = "compiler-source",
     srcs = glob(["python/baux/**/*.py", "tests/compiler/*.py"]),
-    visibility = ["//admin/buck2/tests:compiler-python"],
+    visibility = ["//admin/buck2/tests:compiler-python", "//admin/buck2/tests:fbt-research"],
 )
 
 filegroup(

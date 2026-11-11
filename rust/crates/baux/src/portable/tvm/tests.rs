@@ -46,6 +46,55 @@ fn numbers(tensor: &TvmTensor) -> Vec<f32> {
 }
 
 #[test]
+fn partitioned_graph() {
+    use std::fmt::Write;
+    let mut source = String::from(
+        "module { func.func @main(%x: tensor<2xf32>) -> (tensor<2xf32>, tensor<2xf32>, tensor<2xf32>, tensor<2xf32>) {\n %c = stablehlo.constant dense<0.25> : tensor<2xf32>\n %v0 = stablehlo.add %x, %c : tensor<2xf32>\n",
+    );
+    for index in 1..300 {
+        writeln!(
+            &mut source,
+            "%v{index} = stablehlo.add %v{}, %c : tensor<2xf32>",
+            index - 1
+        )
+        .unwrap();
+    }
+    source.push_str("return %v299, %v100, %x, %v299 : tensor<2xf32>, tensor<2xf32>, tensor<2xf32>, tensor<2xf32> }}");
+    let model = compile(&source).unwrap();
+    let pending = model.submit(vec![put(vec![2], &[1., 2.])]).unwrap();
+    drop(model);
+    let outputs = pending.wait().unwrap();
+    assert_eq!(numbers(&outputs[0]), [76., 77.]);
+    assert_eq!(numbers(&outputs[1]), [26.25, 27.25]);
+    assert_eq!(numbers(&outputs[2]), [1., 2.]);
+    assert_eq!(numbers(&outputs[3]), [76., 77.]);
+}
+
+#[test]
+fn partitioned_constants() {
+    use std::fmt::Write;
+    let mut source = String::from(
+        "module { func.func @main(%x: tensor<2xf32>) -> (tensor<2xf32>, tensor<f32>) {\n",
+    );
+    for index in 0..150 {
+        writeln!(
+            &mut source,
+            "%v{index} = stablehlo.constant dense<0.25> : tensor<f32>"
+        )
+        .unwrap();
+    }
+    source.push_str("return %x, %v149 : tensor<2xf32>, tensor<f32> }}");
+    let model = compile(&source).unwrap();
+    let outputs = model
+        .submit(vec![put(vec![2], &[1., 2.])])
+        .unwrap()
+        .wait()
+        .unwrap();
+    assert_eq!(numbers(&outputs[0]), [1., 2.]);
+    assert_eq!(numbers(&outputs[1]), [0.25]);
+}
+
+#[test]
 fn mlp_forward() {
     let start = std::time::Instant::now();
     let model = compile(MLP).unwrap();

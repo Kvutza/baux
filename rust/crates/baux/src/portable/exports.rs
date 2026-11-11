@@ -72,6 +72,30 @@ pub extern "C" fn bauxprogram_error() -> *const c_char {
 }
 
 #[unsafe(no_mangle)]
+pub unsafe extern "C" fn bauxprogram_compile(
+    data: *const u8,
+    length: usize,
+    entry: *const c_char,
+    importer: *const c_char,
+    inputs: *const Spec,
+    input_count: usize,
+    outputs: *const Spec,
+    output_count: usize,
+) -> *mut Executable {
+    report(|| unsafe {
+        Executable::compile_tvm(
+            std::str::from_utf8(slice(data, length)?).map_err(|e| e.to_string())?,
+            string(entry)?,
+            std::path::Path::new(string(importer)?),
+            specs(inputs, input_count)?,
+            specs(outputs, output_count)?,
+        )
+    })
+    .map(|value| Box::into_raw(Box::new(value)))
+    .unwrap_or(std::ptr::null_mut())
+}
+
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn bauxprogram_xla(
     data: *const u8,
     length: usize,

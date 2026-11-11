@@ -104,6 +104,33 @@ def test_rounding():
     np.testing.assert_array_equal(np.signbit(actual[3][5:7]), [True, False])
 
 
+def test_sign():
+    from jax import lax
+
+    floating = np.array([-np.inf, -3.25, -0.0, 0.0, 3.25, np.inf, np.nan], np.float32)
+    integer = np.array([-2147483648, -5, -1, 0, 1, 5, 2147483647], np.int32)
+
+    def model(values):
+        x, n = values
+        return (
+            lax.sign(x),
+            lax.rem(x, np.float32(2)),
+            lax.sign(n),
+            lax.rem(n, np.int32(2)),
+        )
+
+    with np.errstate(invalid="ignore"):
+        remainder = np.fmod(floating, 2)
+    # StableHLO sign preserves signed zero and propagates NaNs.
+    expected = np.where(floating == 0, floating, np.sign(floating))
+    actual = check(
+        model,
+        (floating, integer),
+        (expected, remainder, np.sign(integer), np.fmod(integer, 2)),
+    )
+    np.testing.assert_array_equal(np.signbit(actual[0][2:4]), [True, False])
+
+
 @pytest.mark.parametrize("start", [-5, 1, 100])
 def test_dynamic(start):
     from jax import lax

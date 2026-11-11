@@ -14,6 +14,15 @@ typedef struct bauxbatch bauxbatch;
 // dtype codes: bool, i32, i64, u32, u64, f16, bf16, f32, f64 (0..8).
 typedef struct { const size_t* shape; size_t rank; size_t dtype; } bauxspec;
 const char* bauxprogram_error(void);
+// Native StableHLO -> TIR/Relax CPU compilation. importer is the bundled
+// hlo_import executable path; its LLVM is isolated in a child process.
+// Blocks; uploads no inputs. Specs must match the exported function. Returns
+// an owning session, or NULL with details in bauxprogram_error(). Source and
+// metadata ranges are borrowed only during this call. Buffers retain sessions.
+bauxprogram* bauxprogram_compile(const uint8_t* source, size_t length,
+                                 const char* entry, const char* importer,
+                                 const bauxspec* inputs, size_t input_count,
+                                 const bauxspec* outputs, size_t output_count);
 // Compile StableHLO source with a main entry through the native XLA CPU plugin.
 bauxprogram* bauxprogram_xla(const uint8_t*, size_t, const char*,
                              const bauxspec*, size_t, const bauxspec*, size_t);

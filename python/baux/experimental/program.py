@@ -1,8 +1,9 @@
 """Structured calls to verified StableHLO programs.
 
-References:
-    OpenXLA, StableHLO specification: https://openxla.org/stablehlo/spec
-    OpTree, tree operations: https://optree.readthedocs.io/en/stable/api.html
+References
+----------
+OpenXLA, StableHLO specification: https://openxla.org/stablehlo/spec
+OpTree, tree operations: https://optree.readthedocs.io/en/stable/api.html
 
 Compilation specializes tensor shapes and dtypes. Transfers are explicit through
 ``put`` and ``get``; calls accept resident buffers and return resident buffers.
@@ -269,6 +270,22 @@ class ResidentModel:
         inputs = self._inputs(tokens, labels, mask)
         return ModelInvocation(self, self._native.submit(*inputs))
 
+    def weights(self) -> np.ndarray:
+        """Copy a consistent parameter snapshot from Metal to the host.
+
+        Returns
+        -------
+        numpy.ndarray
+            Independent, writable FP16 array of shape ``(parameters,)`` in
+            canonical packed order. Mutating it does not update the model.
+
+        Notes
+        -----
+        Blocks until readback completes and holds an immutable optimizer lease
+        during the read. This explicit export is outside the resident hot path.
+        """
+        return np.frombuffer(self._native.weights(), dtype=np.float16).copy()
+
     def __call__(self, tokens: Any, labels: Any, mask: Any) -> ModelOutput:
         """Run one model forward pass and retain its outputs on device."""
         return self.submit(tokens, labels, mask).wait()
@@ -296,25 +313,66 @@ def compile(
     inputs: Any,
     outputs: Any = None,
     *,
-    backend: Literal["iree", "tvm"] = "iree",
+    backend: Literal["iree", "tvm", "xla"] = "iree",
     device: str = "cpu",
     entry: str = "main",
 ) -> Executable:
     """Compile StableHLO with a checked structured tensor signature.
 
-    A callable takes one input tree and returns one output tree. Its tensor
-    operations must be JAX-traceable; the output signature is inferred. For raw
-    StableHLO, supply both input and output specifications explicitly.
+    Parameters
+    ----------
+    source : str or callable
+        StableHLO text, or a JAX-traceable function taking one tensor tree and
+        returning one tensor tree. Callable output specifications are inferred.
+    inputs : tree of TensorSpec
+        Static tensor shapes and dtypes in OpTree's deterministic leaf order.
+    outputs : tree of TensorSpec, optional
+        Required for source text; must be omitted for a callable.
+    backend : {"iree", "tvm", "xla"}, optional
+        Native compiler/runtime. Defaults to IREE. TVM uses TIR/Relax and LLVM;
+        XLA uses the bundled PJRT CPU plugin. No backend fallback is performed.
+    device : {"cpu", "metal"}, optional
+        Execution device. Defaults to CPU. Metal is supported by IREE; the
+        native StableHLO TVM and XLA compilation paths currently target CPU.
+    entry : str, optional
+        Exported function name. Defaults to ``main``; callables and XLA require
+        that name.
 
-    ``inputs`` and ``outputs`` are trees of TensorSpec leaves. The order is
-    OpTree's deterministic traversal order. Compilation and execution failures
-    propagate; an unavailable backend never falls back to another device.
+    Returns
+    -------
+    Executable
+        Owner of the compiled session and structured tensor signature. Upload
+        with ``put``, execute synchronously by calling it or asynchronously with
+        ``submit``, and explicitly copy results to the host with ``get``.
 
-    TVM compiles static tensor graphs to CPU through native StableHLO lowering,
-    TIR and Relax. This includes typed constants, batched contractions, gathers,
-    slices, updates, reductions and elementwise operations. Compilation checks
-    operation, shape and dtype semantics before execution. ResidentModel exposes
-    the separate native Metal kernel integration.
+    Raises
+    ------
+    ValueError
+        Invalid signature, source, entry, backend or device selection.
+    RuntimeError
+        Native compilation or runtime initialization fails.
+
+    Notes
+    -----
+    Compilation is synchronous and does not upload model inputs. Buffers and
+    pending calls retain the native session. A submitted call retains inputs
+    until completion; dropping its completion object does not cancel work.
+    Supported operations and floating-point results depend on the compiler.
+    Successful compilation alone does not establish model numerical parity.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> spec = TensorSpec((4,), "float32")
+    >>> program = compile(lambda x: x + x, spec, backend="tvm")
+    >>> values = program.put(np.arange(4, dtype=np.float32))
+    >>> program.get(program(values)).tolist()
+    [0.0, 2.0, 4.0, 6.0]
+
+    See Also
+    --------
+    Fbt : Experimental compiler-visible model graph.
+    ResidentModel : Native Metal model execution and parameter export.
     """
     from .. import baux_rust
 

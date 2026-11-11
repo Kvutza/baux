@@ -1,0 +1,5 @@
+# TIRx-style API contracts use NumPy sections within the experimental frontend.
+extend = "../../../pyproject.toml"
+
+[lint.pydocstyle]
+convention = "numpy"

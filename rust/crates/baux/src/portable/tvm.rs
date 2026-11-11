@@ -18,6 +18,8 @@ mod lower;
 #[cfg(test)]
 #[path = "tvm/tests.rs"]
 mod model_tests;
+mod network;
+mod session;
 mod tensor;
 mod transform;
 pub use lower::TvmExecutable;

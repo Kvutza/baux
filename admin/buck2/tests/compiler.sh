@@ -7,5 +7,10 @@ trap 'test_status=$?; rm -rf "$test_dir"; exit "$test_status"' EXIT HUP INT TERM
 chmod +x "$test_dir/baux/.dylibs/hlo_import"
 export PYTHONPATH="$test_dir"
 export PYTHONFAULTHANDLER=1
+case "${BAUX_TEST_SUITE:-compiler}" in
+    compiler) set -- tests/compiler/test*.py "$@" ;;
+    fbt) set -- tests/compiler/researchfbt.py "$@" ;;
+    *) echo "Unknown compiler validation suite: $BAUX_TEST_SUITE" >&2; exit 2 ;;
+esac
 "$BAUX_TEST_PYTHON" -m pytest -q -p no:cacheprovider -c /dev/null \
-    --confcutdir=tests/compiler tests/compiler/test*.py "$@"
+    --confcutdir=tests/compiler "$@"

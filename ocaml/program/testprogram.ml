@@ -33,6 +33,10 @@ let exercise device path compiler =
   let load () =
     match compiler with
     | `Tvm -> load_tvm ~library:path ~entry:"main" ~device ~inputs ~outputs
+    | `Compile ->
+        let source = In_channel.with_open_bin path In_channel.input_all in
+        let importer = Filename.concat (Sys.getenv "BAUX_PROGRAM_LIB") "hlo_import" in
+        compile_tvm ~source ~entry:"main" ~importer ~inputs ~outputs
     | `Xla ->
         let source = In_channel.with_open_bin path In_channel.input_all in
         compile_xla ~source ~device ~inputs ~outputs
@@ -91,6 +95,9 @@ let exercise device path compiler =
         | `Tvm ->
             load_tvm ~library:path ~entry:"missing" ~device ~inputs ~outputs
         | `Xla -> compile_xla ~source:"invalid" ~device ~inputs ~outputs
+        | `Compile -> compile_tvm ~source:"invalid" ~entry:"main"
+            ~importer:(Filename.concat (Sys.getenv "BAUX_PROGRAM_LIB") "hlo_import")
+            ~inputs ~outputs
         | `Iree ->
             Baux_program.load
               ~bytecode:(Bytes.of_string "invalid")
@@ -99,6 +106,7 @@ let exercise device path compiler =
     match compiler with
     | `Tvm -> "TVM CPU"
     | `Xla -> "XLA CPU"
+    | `Compile -> "native TVM compiler"
     | `Iree -> ( match device with Cpu -> "CPU" | Metal -> "Metal")
   in
   Printf.printf
@@ -109,6 +117,7 @@ let () =
   exercise Cpu (Sys.getenv "BAUX_VMFB_CPU") `Iree;
   exercise Metal (Sys.getenv "BAUX_VMFB_METAL") `Iree;
   exercise Cpu (Sys.getenv "BAUX_STABLEHLO") `Xla;
+  exercise Cpu (Sys.getenv "BAUX_STABLEHLO") `Compile;
   let exercise_model backend =
   let model = create_on backend ~seed:42L in
   if model_parameters model <> 265_623_320 || model_rows model <> 8192 then

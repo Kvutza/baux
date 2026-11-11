@@ -1,6 +1,6 @@
 //! Python handles for the shared native program runtime.
 use baux::portable::{Buffer, Executable, Pending, Tensor};
-use pyo3::exceptions::PyValueError;
+use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
 use std::sync::Mutex;
@@ -53,6 +53,31 @@ pub struct PyNativeSession {
 }
 #[pymethods]
 impl PyNativeSession {
+    #[staticmethod]
+    fn compile_tvm(
+        py: Python<'_>,
+        source: &str,
+        entry: &str,
+        importer: &str,
+        inputs: Vec<Spec>,
+        outputs: Vec<Spec>,
+    ) -> PyResult<Self> {
+        let inputs = specs(inputs)?;
+        let outputs = specs(outputs)?;
+        let inner = py
+            .detach(|| {
+                Executable::compile_tvm(
+                    source,
+                    entry,
+                    std::path::Path::new(importer),
+                    inputs,
+                    outputs,
+                )
+            })
+            .map_err(PyRuntimeError::new_err)?;
+        Ok(Self { inner })
+    }
+
     #[staticmethod]
     fn compile_xla(
         py: Python<'_>,

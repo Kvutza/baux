@@ -1,0 +1,77 @@
+date = "2026-11-11"
+task = "blckbaux-mfw"
+bookmark = "kvutza/fbt-graph"
+status = "Experimental compiler implementation; required regression passes; strict full-model Metal parity remains open"
+change = "pzvpyqmonxlrlzkqsnuowwmrnzwkrqwx"
+numerical_source_commit = "86f7b52061b52f92692371e9d1e771df24b164e8"
+
+[implementation]
+model = "MHC4 FBT, full PISA, seven weight-tied visits, 65 experts, tied vocabulary readout"
+parameters = 265623320
+vocabulary = 262144
+visits = [0, 1, 2, 1, 2, 3, 4]
+export = "Python Fbt.lower emits ordinary StableHLO; no opaque forward callback"
+layout = "Offsets, parameter extents and visit order are supplied by canonical Rust model metadata"
+runtime = "Rust-owned XLA PJRT, IREE CPU/Metal, and native TVM TIR/Relax CPU"
+interfaces = "Shared resident-buffer Executable; Python compile, Rust compile_tvm, C bauxprogram_compile and OxCaml compile_tvm"
+partition = "Large TVM graphs use bounded TE kernels, explicit Relax bindings, and Relax intermediate-storage planning"
+limitations = "All experts are evaluated before token-choice selection; sparse expert scheduling and long-context memory optimization remain"
+
+[environment]
+device = "Apple M4"
+memory_bytes = 25769803776
+
+[verification]
+export_context = 4096
+export_batch = 2
+export_result = "Passed: canonical shape, 265623320 parameters, seven visits and no custom_call"
+pisa_result = "Passed: full 4096-key binary refinement, six query positions, independent NumPy selection reference, XLA/IREE/TVM CPU"
+tail_result = "Passed: dominant-class non-peak log1p tail is preserved, XLA/IREE/TVM CPU"
+subgraph_build = "604dadad-56e6-4feb-ad05-a547d4691337"
+native_build = "22bbd50c-4973-4891-90a8-bfb3f1006100"
+native_result = "11 Rust tests passed, including partition boundaries, constants, repeated outputs, async lifetime and native Metal ownership"
+regression_build = "1e70d52b-4267-4d68-b047-f894b044dd4b"
+regression_result = "113 passed, four strict FBT parity failures, no deselection; 508.10 seconds. Native libm remainder lowering passed."
+same_input_moe = "Full native 8192-row batch replay, first 128 rows copied at every visit. All router scores and expert IDs match exactly on XLA CPU, IREE CPU, IREE Metal and TVM CPU. Maximum branch error 0.0009765625 on CPUs, zero on IREE Metal; unchanged tolerance 0.004."
+ocaml_result = "Native source compilation and resident-buffer lifetime/GC/domain checks passed in build 604dadad-56e6-4feb-ad05-a547d4691337"
+
+[forward]
+model_seed = 19
+token_seed = 84
+input = "Uniform random token IDs over the full vocabulary; labels are shifted tokens"
+context = 128
+batch = 1
+scope = "All production parameters, visits, experts and vocabulary; causal prefix compared against native 4096-context Metal forward"
+absolute_tolerance = 0.03
+relative_tolerance = 0.0
+xla_cpu_max_error = 0.6688671112060547
+iree_cpu_max_error = 0.4227743148803711
+iree_metal_max_error = 0.6078939437866211
+tvm_cpu_max_error = 0.2399425506591797
+result = "Executed the full-width 128-token model on all four runtime paths; all four fail the strict loss comparison"
+diagnosis = "Earlier 128-row replay audit: XLA visit zero had identical expert IDs and maximum residual error 0.00146484375; first expert-set difference occurred at visit one, token 85, with native FP16 logits tied at 0.5054. Replay inspection now retains the full native row count to preserve packing/matmul schedules. Same-input MoE checks pass. This supports routing sensitivity but does not establish the complete cause of whole-model error."
+tvm = "Partitioned full model compiled and executed successfully in regression build 1e70d52b-4267-4d68-b047-f894b044dd4b. Earlier monolithic compilation was stopped; a subsequent run timed out while compiling an additional diagnostic graph. Automatic diagnostic recompilation was removed; numerical assertions were preserved."
+long_context = "4096-context export only; no 4096/65536/1048576 compiled-graph execution or latency claim"
+distinction = "Previous tvm-fbt-2026-11-11.toml results execute native Metal callbacks and do not establish parity or performance for these generated kernels"
+
+[validation_policy]
+required_target = "//admin/buck2/tests:compiler-python"
+required_scope = "Compiler operators, numerical edge cases, source export, full PISA selection, readout tail, same-input production MoE, device ownership and asynchronous lifetime"
+research_target = "//admin/buck2/tests:fbt-research"
+research_command = "./admin/tools/buck2w test //admin/buck2/tests:fbt-research"
+research_scope = "Four complete experimental FBT forward comparisons, preserving rtol=0 and atol=0.03; failures remain nonzero test results, with no skip or xfail markers"
+model_status = "Experimental; no replacement of the production Metal forward or claim of long-context equivalence"
+followup_task = "blckbaux-nmd"
+
+[merge_verification]
+build = "d5d9aab1-a299-4b41-9d43-cfb7b1c9f13b"
+python_result = "115 passed with no skips or deselection, including executable documentation examples"
+rust_result = "11 passed"
+ocaml_result = "CPU, Metal, XLA, native TVM source compilation, native/TVM FBT, ownership, GC, domains and rejection checks passed"
+style_result = "baux check passed with scoped NumPy docstring linting for the experimental Python frontend"
+documentation = "TIRx-style parameter/return contracts, shapes, dtypes, device scope, transfers, synchronization, ownership, errors, numerical limits and executable examples; equivalent rustdoc/C/OCaml contracts"
+package_build = "551b2054-10ba-40a5-bae2-b8e816a52315"
+package_result = "Relocated native wheel passed: XLA execution, TVM compiler payload, Metal plugin/dependency resolution and upstream licenses"
+research_target_build = "34e327ae-c2f8-43c0-b316-14807572a5d1"
+research_target_result = "Dedicated target with baux.fbt_filter=xla reproduced the strict numerical failure; one failed, three deselected. This is a verified open finding, not a passing gate."
+target_recovery = "Added explicit source visibility for the new Buck target. A subsequent wheel extraction exhausted disk; removed only generated weight caches in the assigned workspace and reran successfully to the numerical assertion."

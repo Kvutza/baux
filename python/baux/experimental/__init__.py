@@ -8,6 +8,7 @@ from typing import Any
 from .._lazy import module_attr
 
 _LAZY_ATTRS: dict[str, tuple[str, str]] = {
+    "Fbt": (".fbt", "Fbt"),
     "compile": (".program", "compile"),
     "TensorSpec": (".program", "TensorSpec"),
     "Executable": (".program", "Executable"),
@@ -126,6 +127,7 @@ def __getattr__(name: str) -> Any:
 
 
 __all__: list[str] = [
+    "Fbt",
     "compile",
     "TensorSpec",
     "Invocation",

@@ -219,8 +219,17 @@ impl TvmTensor {
     pub fn read(&self) -> Result<Vec<u8>> {
         let (_, length) = layout(&self.spec)?;
         let mut bytes = vec![0; length];
-        self.transfer("runtime.TVMTensorCopyToBytes", bytes.as_mut_ptr(), length)?;
+        self.read_into(&mut bytes)?;
         Ok(bytes)
+    }
+
+    /// Explicit readback into a caller-owned, exactly sized byte range.
+    pub fn read_into(&self, bytes: &mut [u8]) -> Result<()> {
+        let (_, length) = layout(&self.spec)?;
+        if bytes.len() != length {
+            return Err("TVM readback length differs from tensor signature".into());
+        }
+        self.transfer("runtime.TVMTensorCopyToBytes", bytes.as_mut_ptr(), length)
     }
 
     /// Tensor signature fixed at allocation.

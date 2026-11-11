@@ -39,6 +39,52 @@ pub struct PyResidentModel {
 
 #[pymethods]
 impl PyResidentModel {
+    fn inspect<'py>(
+        &self,
+        py: Python<'py>,
+        tokens: PyReadonlyArray1<'_, u32>,
+        rows: usize,
+    ) -> PyResult<Vec<(String, Bound<'py, pyo3::types::PyBytes>)>> {
+        let tokens = contiguous(&tokens, "tokens")?.to_vec();
+        let tensors = py
+            .detach(|| {
+                self.inner
+                    .lock()
+                    .map_err(|_| "resident model mutex poisoned".to_string())?
+                    .inspect(&tokens, rows)
+            })
+            .map_err(PyValueError::new_err)?;
+        Ok(tensors
+            .into_iter()
+            .map(|(name, bytes)| (name, pyo3::types::PyBytes::new(py, &bytes)))
+            .collect())
+    }
+
+    #[staticmethod]
+    fn layout() -> Vec<(&'static str, usize, Vec<usize>)> {
+        baux_fbt::moe::program::layout()
+    }
+
+    #[staticmethod]
+    fn visits() -> Vec<usize> {
+        baux::semantics::mhc4::layout::MHC4_VISITS
+            .iter()
+            .map(|visit| visit.layer as usize)
+            .collect()
+    }
+
+    fn weights<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, pyo3::types::PyBytes>> {
+        let bytes = py
+            .detach(|| {
+                self.inner
+                    .lock()
+                    .map_err(|_| "resident model mutex poisoned".to_string())?
+                    .weights()
+            })
+            .map_err(PyValueError::new_err)?;
+        Ok(pyo3::types::PyBytes::new(py, &bytes))
+    }
+
     #[new]
     #[pyo3(signature = (*, model="fbt-pisa1-mhc4-v1", initialization="fbt-pisa1-mhc4", seed=42, backend="native"))]
     fn new(

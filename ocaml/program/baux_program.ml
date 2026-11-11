@@ -41,6 +41,11 @@ external put_native :
   session -> int -> ('a, 'b, c_layout) Genarray.t -> allocation @@ portable
   = "bauxocaml_put"
 
+external compile_native :
+  string -> string -> string ->
+  (int * int array) array -> (int * int array) array ->
+  session @@ portable = "bauxocaml_compile"
+
 external tvm_native :
   string ->
   string ->
@@ -257,6 +262,12 @@ let compile_xla ~source ~device ~inputs ~outputs =
   let session =
     xla_native source "main" device (specs inputs) (specs outputs)
   in
+  { session; inputs; outputs }
+
+let compile_tvm ~source ~entry ~importer ~inputs ~outputs =
+  if String.contains importer '\000' || String.contains entry '\000'
+  then invalid_arg "TVM entry and importer must not contain NUL";
+  let session = compile_native source entry importer (specs inputs) (specs outputs) in
   { session; inputs; outputs }
 
 let put program values =

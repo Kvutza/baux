@@ -34,6 +34,21 @@ pub(super) fn load(value: &Value, indices: &[Value]) -> Result<Value> {
 pub(super) fn index(n: i64) -> Result<Value> {
     integer("int64", n)
 }
+
+pub(super) fn intrinsic(name: &str, dtype: &str, args: &[Value]) -> Result<Value> {
+    let op = call("ir.GetOp", &mut [Value::string(name)?])?;
+    call(
+        "ir.Call",
+        &mut [
+            super::compiler::primitive(dtype)?,
+            op,
+            array(args)?,
+            Value::none(),
+            array(&[])?,
+            Value::none(),
+        ],
+    )
+}
 pub(super) fn cast(value: Value, dtype: &str) -> Result<Value> {
     call(
         "prim.Cast",

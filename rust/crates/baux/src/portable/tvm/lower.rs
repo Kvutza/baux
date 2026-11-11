@@ -57,7 +57,12 @@ fn axes(values: &[i64]) -> Result<Value> {
     )
 }
 
-fn lower(node: &Node, values: &[Value], shapes: &[Vec<i64>], dtypes: &[String]) -> Result<Value> {
+pub(super) fn lower(
+    node: &Node,
+    values: &[Value],
+    shapes: &[Vec<i64>],
+    dtypes: &[String],
+) -> Result<Value> {
     let mut args = node
         .inputs
         .iter()
@@ -88,6 +93,59 @@ fn lower(node: &Node, values: &[Value], shapes: &[Vec<i64>], dtypes: &[String]) 
         return call(&format!("topi.{name}"), &mut args);
     }
     match op {
+        "log_plus_one" => super::element::compute(&node.shape, op, |indices| {
+            super::element::intrinsic(
+                "tirx.log1p",
+                &node.dtype,
+                &[super::element::load(&args[0], indices)?],
+            )
+        }),
+        "sign" => super::element::compute(&node.shape, op, |indices| {
+            use super::compiler::{binary, floating, integer};
+            let value = super::element::load(&args[0], indices)?;
+            let number = |n: i64| {
+                if node.dtype.starts_with("float") || node.dtype == "bfloat16" {
+                    floating(&node.dtype, n as f64)
+                } else {
+                    integer(&node.dtype, n)
+                }
+            };
+            let positive = binary("prim._OpGT", value.clone(), number(0)?)?;
+            let result = super::element::select(positive, number(1)?, value.clone())?;
+            if node.dtype.starts_with("uint") {
+                return Ok(result);
+            }
+            let negative = binary("prim._OpLT", value, number(0)?)?;
+            super::element::select(negative, number(-1)?, result)
+        }),
+        "remainder" => super::element::compute(&node.shape, op, |indices| {
+            if node.dtype.starts_with("float") || node.dtype == "bfloat16" {
+                // TVM 0.27 registers tirx.fmod but lacks its LLVM intrinsic
+                // rule. Use libm directly, preserving NaNs and signed zero.
+                let dtype = if node.dtype == "float64" {
+                    "float64"
+                } else {
+                    "float32"
+                };
+                let symbol = if dtype == "float64" { "fmod" } else { "fmodf" };
+                let name = call("ir.StringImm", &mut [Value::string(symbol)?, Value::none()])?;
+                let value = super::element::intrinsic(
+                    "tirx.call_pure_extern",
+                    dtype,
+                    &[
+                        name,
+                        super::element::cast(super::element::load(&args[0], indices)?, dtype)?,
+                        super::element::cast(super::element::load(&args[1], indices)?, dtype)?,
+                    ],
+                )?;
+                return super::element::cast(value, &node.dtype);
+            }
+            super::compiler::binary(
+                "prim._OpTruncMod",
+                super::element::load(&args[0], indices)?,
+                super::element::load(&args[1], indices)?,
+            )
+        }),
         "round_nearest_afz" => super::element::compute(&node.shape, op, |indices| {
             super::element::round(super::element::load(&args[0], indices)?, &node.dtype)
         }),
@@ -147,7 +205,13 @@ fn lower(node: &Node, values: &[Value], shapes: &[Vec<i64>], dtypes: &[String]) 
                 "stablehlo_reduce",
             )
         }
-        "tanh" | "exp" | "log" | "sqrt" | "rsqrt" | "negative" | "abs" | "cos" | "sin" => {
+        "abs" => super::element::compute(&node.shape, op, |indices| {
+            call(
+                "tirx.abs",
+                &mut [super::element::load(&args[0], indices)?, Value::none()],
+            )
+        }),
+        "tanh" | "exp" | "log" | "sqrt" | "rsqrt" | "negative" | "cos" | "sin" => {
             call(&format!("topi.{op}"), &mut args)
         }
         "exponential" => call("topi.exp", &mut args),
@@ -172,7 +236,7 @@ fn lower(node: &Node, values: &[Value], shapes: &[Vec<i64>], dtypes: &[String]) 
     }
 }
 
-fn spec(shape: &[i64], dtype: &str) -> Result<Tensor> {
+pub(super) fn spec(shape: &[i64], dtype: &str) -> Result<Tensor> {
     Tensor::new(
         shape
             .iter()
@@ -205,10 +269,33 @@ pub struct TvmExecutable {
 }
 
 impl TvmExecutable {
+    /// Compile a static StableHLO function into a native CPU Relax executable.
+    ///
+    /// `source` contains the module, `entry` names its exported function, and
+    /// `importer` points to the bundled `hlo_import` binary. Compilation
+    /// blocks; source and path are borrowed only until it returns.
+    /// Constants are owned by the executable. Large graphs are partitioned
+    /// into bounded TIR kernels connected by Relax bindings with planned
+    /// intermediate storage.
+    ///
+    /// # Returns
+    /// A session with inferred [`Self::inputs`] and [`Self::outputs`]
+    /// signatures. Upload matching [`TvmTensor`] inputs, then use
+    /// [`Self::run`] or [`Self::submit`]. Calls are serialized and retain
+    /// their native resources.
+    ///
+    /// # Errors
+    /// Returns an error for invalid source, no tensor outputs, unsupported
+    /// lowering, importer I/O failures, or native compilation/linking failures.
+    /// CPU code generation does not imply parity with another backend's
+    /// floating-point kernels. See `research/fbt-graph-2026-11-11.toml`.
     pub fn compile(source: &str, entry: &str, importer: &std::path::Path) -> Result<Self> {
         let graph = import(source, entry, importer)?;
         if graph.outputs.is_empty() {
             return Err("TVM function must return a tensor".into());
+        }
+        if graph.nodes.len() > 128 {
+            return Self::network(&graph);
         }
         let aliases = graph.nodes.is_empty().then(|| graph.outputs.clone());
         let mut shapes = graph.inputs.clone();
@@ -294,6 +381,40 @@ impl TvmExecutable {
 
     pub fn inputs(&self) -> &[Tensor] {
         &self.inputs
+    }
+
+    fn network(graph: &Graph) -> Result<Self> {
+        let (module, constants) = super::network::compile(graph)?;
+        let inputs = graph
+            .inputs
+            .iter()
+            .zip(&graph.input_dtypes)
+            .map(|(shape, dtype)| spec(shape, dtype))
+            .collect::<Result<Vec<_>>>()?;
+        let outputs = graph
+            .outputs
+            .iter()
+            .map(|&index| {
+                if index < inputs.len() {
+                    Ok(inputs[index].clone())
+                } else {
+                    let node = &graph.nodes[index - inputs.len()];
+                    spec(&node.shape, &node.dtype)
+                }
+            })
+            .collect::<Result<Vec<_>>>()?;
+        Ok(Self {
+            program: Arc::new(Mutex::new(Program {
+                module: Some(module),
+                registration: None,
+                constants,
+                aliases: None,
+            })),
+            device: 1,
+            queue: crate::portable::pending::Queue::new()?,
+            inputs,
+            outputs,
+        })
     }
 
     /// Compile a Relax call to an owned native tensor kernel. The callback

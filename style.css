@@ -60,6 +60,54 @@
   src: url('fonts/lmmonolt10-bold.woff2') format('woff2');
 }
 
+@font-face {
+  font-family: 'Inria Sans';
+  font-style: normal;
+  font-weight: 300;
+  font-display: swap;
+  src: url('fonts/inria-sans-v14-latin_latin-ext-300.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Inria Sans';
+  font-style: italic;
+  font-weight: 300;
+  font-display: swap;
+  src: url('fonts/inria-sans-v14-latin_latin-ext-300italic.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Inria Sans';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('fonts/inria-sans-v14-latin_latin-ext-regular.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Inria Sans';
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+  src: url('fonts/inria-sans-v14-latin_latin-ext-italic.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Inria Sans';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('fonts/inria-sans-v14-latin_latin-ext-700.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Inria Sans';
+  font-style: italic;
+  font-weight: 700;
+  font-display: swap;
+  src: url('fonts/inria-sans-v14-latin_latin-ext-700italic.woff2') format('woff2');
+}
+
 :root {
   --bg-canvas: #FFFFFF;
   --bg-surface: #FAFAFA;
@@ -81,7 +129,9 @@
   --font-serif: 'Latin Modern Roman', 'Computer Modern', 'CMU Serif', Georgia, serif;
   --font-sans: 'Latin Modern Sans', 'Computer Modern Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
   --font-sc: 'Latin Modern Roman Caps', 'Latin Modern Roman', Georgia, serif;
-  --font-mono: 'Latin Modern Mono', 'KaTeX_Typewriter', 'CMU Typewriter Text', monospace;
+  --font-code: ui-monospace, 'SFMono-Regular', 'SF Mono', 'JetBrains Mono', 'IBM Plex Mono', 'Fira Code', Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
+  --font-mono: var(--font-code);
+  --font-api-sans: 'Inria Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
 
   --radius: 3px;
   --bg-box: #f9f9fb;
@@ -409,9 +459,11 @@ pre {
   border: 1px solid var(--border-code);
   border-radius: var(--radius);
   padding: 0.85rem 1.1rem;
-  font-family: var(--font-mono);
-  font-size: 0.88rem;
-  line-height: 1.48;
+  font-family: var(--font-code);
+  font-size: 0.84rem;
+  line-height: 1.52;
+  font-variant-ligatures: none;
+  font-feature-settings: "zero" 1, "tnum" 1;
   color: var(--fg-primary);
   margin: 1rem 0 1.25rem 0;
   max-width: 100%;
@@ -421,8 +473,10 @@ pre {
 }
 
 code {
-  font-family: var(--font-mono);
-  font-size: 0.94em;
+  font-family: var(--font-code);
+  font-size: 0.875em;
+  font-variant-ligatures: none;
+  font-feature-settings: "zero" 1, "tnum" 1;
   background: transparent;
   border: none;
   padding: 0;
@@ -432,8 +486,10 @@ code {
 }
 
 h1 code {
-  font-family: var(--font-mono);
+  font-family: var(--font-code);
   font-size: 0.92em;
+  font-variant-ligatures: none;
+  font-feature-settings: "zero" 1, "tnum" 1;
 }
 
 pre code {
@@ -686,8 +742,83 @@ hr {
 /* Semantic API Reference & Progressive Filter Bar (JAX / Equinox / AMS)      */
 /* -------------------------------------------------------------------------- */
 
+body[data-page="baux-0007"] {
+  font-family: var(--font-api-sans);
+  font-size: 16px;
+  line-height: 1.56;
+}
+
+body[data-page="baux-0007"] article p {
+  text-align: left;
+  hyphens: none;
+}
+
+body[data-page="baux-0007"] em,
+body[data-page="baux-0007"] i {
+  font-style: italic;
+}
+
+body[data-page="baux-0007"] h1,
+body[data-page="baux-0007"] h2,
+body[data-page="baux-0007"] h3,
+body[data-page="baux-0007"] table {
+  font-family: var(--font-api-sans);
+}
+
+@media only screen and (min-width: 1120px) {
+  body[data-page="baux-0007"] #grid-wrapper {
+    max-width: 1140px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 230px;
+    gap: 2.75rem;
+    align-items: start;
+  }
+
+  body[data-page="baux-0007"] nav#toc {
+    display: block;
+    position: sticky;
+    top: 4.5rem;
+    max-height: calc(100vh - 5.5rem);
+    overflow-y: auto;
+    font-family: var(--font-api-sans);
+    font-size: 0.83rem;
+    border-left: 1px solid var(--hairline);
+    padding-left: 1rem;
+  }
+
+  body[data-page="baux-0007"] nav#toc h1 {
+    font-family: var(--font-api-sans);
+    font-size: 0.73rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--fg-muted);
+  }
+}
+
 #baux-api-filter {
   margin: 1.15rem 0 1.8rem 0;
+}
+
+@media (min-width: 651px) {
+  #baux-api-filter {
+    position: sticky;
+    top: 3.15rem;
+    z-index: 40;
+    padding: 0.35rem 0;
+    background: rgba(255, 255, 255, 0.94);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+  }
+
+  [data-theme="dark"] #baux-api-filter {
+    background: rgba(15, 17, 21, 0.94);
+  }
+
+  .api-entry,
+  body[data-page="baux-0007"] section.block {
+    scroll-margin-top: 7.5rem;
+  }
 }
 
 .api-filter-bar {
@@ -739,10 +870,12 @@ hr {
   border: 1px solid var(--hairline-mid);
   border-radius: var(--radius);
   padding: 0.26rem 0.58rem;
-  font-family: var(--font-mono);
+  font-family: var(--font-code);
   font-size: 0.75rem;
   line-height: 1.3;
   letter-spacing: 0.02em;
+  font-variant-ligatures: none;
+  font-feature-settings: "zero" 1, "tnum" 1;
   color: var(--fg-secondary);
   cursor: pointer;
   transition: border-color 0.12s ease, color 0.12s ease, background-color 0.12s ease;
@@ -768,10 +901,12 @@ hr {
 }
 
 .api-filter-count {
-  font-family: var(--font-mono);
+  font-family: var(--font-code);
   font-size: 0.76rem;
   color: var(--fg-muted);
   white-space: nowrap;
+  font-variant-ligatures: none;
+  font-feature-settings: "zero" 1, "tnum" 1;
 }
 
 .api-filter-clear {
@@ -781,16 +916,48 @@ hr {
   border: 1px solid var(--hairline-mid);
   border-radius: var(--radius);
   padding: 0.2rem 0.48rem;
-  font-family: var(--font-mono);
+  font-family: var(--font-code);
   font-size: 0.73rem;
   line-height: 1.25;
   color: var(--fg-secondary);
   cursor: pointer;
+  font-variant-ligatures: none;
+  font-feature-settings: "zero" 1, "tnum" 1;
 }
 
 .api-filter-clear:hover {
   border-color: var(--hairline-strong);
   color: var(--fg-primary);
+}
+
+.api-section-jumps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.45rem;
+  margin-top: 0.45rem;
+  padding: 0.2rem 0;
+}
+
+.api-jump-chip {
+  appearance: none;
+  -webkit-appearance: none;
+  background: var(--bg-surface);
+  border: 1px solid var(--hairline-mid);
+  border-radius: var(--radius);
+  padding: 0.2rem 0.5rem;
+  font-family: var(--font-api-sans, var(--font-sans));
+  font-size: 0.76rem;
+  line-height: 1.25;
+  color: var(--fg-secondary);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: border-color 0.12s ease, color 0.12s ease, background-color 0.12s ease;
+}
+
+.api-jump-chip:hover {
+  border-color: var(--hairline-strong);
+  color: var(--fg-primary);
+  background: var(--bg-canvas);
 }
 
 /* Module Summary Tables */
@@ -831,10 +998,12 @@ hr {
 .api-summary-table th:first-child,
 .api-summary-table td:first-child {
   white-space: nowrap;
-  font-family: var(--font-mono);
+  font-family: var(--font-code);
   font-size: 0.86rem;
   width: 28%;
   padding-left: 0.25rem;
+  font-variant-ligatures: none;
+  font-feature-settings: "zero" 1, "tnum" 1;
 }
 
 .api-summary-table td:first-child code {
@@ -848,6 +1017,23 @@ hr {
   padding-top: 1.15rem;
   border-top: 1px solid var(--hairline);
   scroll-margin-top: 4.5rem;
+}
+
+.api-entry.api-entry-compact {
+  margin: 1.05rem 0 1.15rem 0;
+  padding-top: 0.75rem;
+}
+
+.api-entry.api-entry-compact > pre {
+  padding: 0.5rem 0.75rem;
+  margin: 0.3rem 0 0.45rem 0;
+  font-size: 0.81rem;
+}
+
+.api-entry.api-entry-compact > p {
+  margin: 0.25rem 0 0.2rem 0;
+  font-size: 0.92rem;
+  color: var(--fg-secondary);
 }
 
 .api-entry:target {
@@ -871,17 +1057,21 @@ hr {
 }
 
 .api-entry-title {
-  font-family: var(--font-mono);
+  font-family: var(--font-code);
   font-size: 1.02rem;
   font-weight: 700;
   color: var(--fg-primary);
+  font-variant-ligatures: none;
+  font-feature-settings: "zero" 1, "tnum" 1;
 }
 
 .api-entry-title code {
-  font-family: var(--font-mono);
+  font-family: var(--font-code);
   font-size: 1.02rem;
   font-weight: 700;
   color: inherit;
+  font-variant-ligatures: none;
+  font-feature-settings: "zero" 1, "tnum" 1;
 }
 
 .api-entry-title a,
@@ -900,7 +1090,7 @@ hr {
 
 .api-kind-badge {
   display: inline-block;
-  font-family: var(--font-mono);
+  font-family: var(--font-code);
   font-size: 0.7rem;
   line-height: 1.3;
   text-transform: lowercase;
@@ -910,6 +1100,8 @@ hr {
   border-radius: 3px;
   color: var(--fg-secondary);
   background: var(--bg-surface);
+  font-variant-ligatures: none;
+  font-feature-settings: "zero" 1, "tnum" 1;
 }
 
 .api-entry > pre {
@@ -956,6 +1148,38 @@ hr {
   text-align: left;
 }
 
+.api-spec-list dd pre {
+  background: var(--bg-code);
+  border: 1px solid var(--border-code);
+  border-radius: var(--radius);
+  padding: 0.75rem 0.95rem;
+  font-family: var(--font-code);
+  font-size: 0.82rem;
+  line-height: 1.5;
+  overflow-x: auto;
+  margin: 0.35rem 0 0.5rem 0;
+  font-variant-ligatures: none;
+  font-feature-settings: "zero" 1, "tnum" 1;
+}
+
+.api-example-wrap {
+  position: relative;
+  margin: 0.35rem 0 0.5rem 0;
+}
+
+.api-example-wrap .copy-btn {
+  position: absolute;
+  top: 0.45rem;
+  right: 0.45rem;
+  opacity: 0.82;
+  transition: opacity 0.15s ease, border-color 0.12s ease, color 0.12s ease;
+  z-index: 2;
+}
+
+.api-example-wrap .copy-btn:hover {
+  opacity: 1;
+}
+
 .api-spec-list dd ul,
 .api-spec-list dd ol {
   margin: 0.2rem 0;
@@ -990,10 +1214,12 @@ hr {
   border: 1px solid var(--hairline-mid);
   border-radius: var(--radius);
   padding: 0.18rem 0.5rem;
-  font-family: var(--font-mono);
+  font-family: var(--font-code);
   font-size: 0.72rem;
   color: var(--fg-secondary);
   cursor: pointer;
+  font-variant-ligatures: none;
+  font-feature-settings: "zero" 1, "tnum" 1;
 }
 
 .copy-btn:hover,
@@ -1005,6 +1231,14 @@ hr {
 @media (max-width: 650px) {
   #baux-api-filter {
     margin: 0.95rem 0 1.4rem 0;
+  }
+
+  .api-section-jumps {
+    display: flex;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: 0.25rem;
   }
 
   .api-filter-bar {

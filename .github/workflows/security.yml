@@ -14,7 +14,7 @@ on:
 permissions: {}
 
 concurrency:
-  group: pages-security-${{ github.ref }}
+  group: security-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -43,14 +43,14 @@ jobs:
         env:
           SEMGREP_SEND_METRICS: "off"
         run: |
-          uvx semgrep scan --metrics=off --validate --config .semgrep/baux-web-security.yml
+          uvx semgrep scan --metrics=off --validate --config .semgrep/security.yml
           targets=(admin/ops admin/ui/baux_ui.ml)
           for extra_dir in forest/theme forest/js; do
             if [ -d "$extra_dir" ]; then
               targets+=("$extra_dir")
             fi
           done
-          uvx semgrep scan --metrics=off --no-git-ignore --error --config .semgrep/baux-web-security.yml \
+          uvx semgrep scan --metrics=off --no-git-ignore --error --config .semgrep/security.yml \
             --exclude node_modules \
             --exclude forester.js \
             --exclude __pycache__ \

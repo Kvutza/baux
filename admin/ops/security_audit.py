@@ -2,7 +2,7 @@
 
 Executes Trail of Bits security checks locally and in CI:
 1. GitHub Actions workflow audit via `uvx zizmor --pedantic .github/workflows/`.
-2. Custom static analysis rules via `uvx semgrep` (`.semgrep/baux-web-security.yml`)
+2. Custom static analysis rules via `uvx semgrep` (`.semgrep/security.yml`)
    across `admin/ops/`, `forest/theme/`, `forest/js/`, and `admin/ui/baux_ui.ml`
    (excluding `node_modules` and minified `forester.js`).
 3. Locked Python dependency vulnerability audit via `uvx pip-audit --strict`
@@ -27,7 +27,7 @@ sys.path.insert(0, str(ROOT / "admin/ops"))
 from verify_pages import verify_bundle
 
 WORKFLOWS_DIR = ROOT / ".github/workflows"
-SEMGREP_CONFIG = ROOT / ".semgrep/baux-web-security.yml"
+SEMGREP_CONFIG = ROOT / ".semgrep/security.yml"
 
 NETWORK_ERROR_MARKERS = (
     "ConnectionError",

@@ -255,37 +255,55 @@ impl TrustRegionState {
         }
     }
 
-    pub(crate) fn hash_state(&self, buf: &mut Vec<u8>) {
-        buf.extend_from_slice(&self.length().to_le_bytes());
-        buf.extend_from_slice(&self.turbo_obs().to_le_bytes());
+    pub(crate) fn freeze_regions(&self, buf: &mut Vec<u8>) {
         match self {
             TrustRegionState::Turbo(t) => {
-                buf.push(0u8);
-                buf.extend_from_slice(&t.success_counter().to_le_bytes());
-                buf.extend_from_slice(&t.failure_counter().to_le_bytes());
+                buf.push(0);
+                t.freeze_turbo(buf);
             }
             TrustRegionState::Morbo(m) => {
-                buf.push(1u8);
-                buf.extend_from_slice(&m.success_counter().to_le_bytes());
-                buf.extend_from_slice(&m.failure_counter().to_le_bytes());
-                for &w in m.weights().iter() {
-                    buf.extend_from_slice(&w.to_le_bytes());
-                }
+                buf.push(1);
+                m.freeze_morbo(buf);
             }
             TrustRegionState::Multi { state, pending } => {
-                buf.push(2u8);
-                buf.extend_from_slice(&state.num_regions().to_le_bytes());
-                for &v in state.centers.iter() {
-                    buf.extend_from_slice(&v.to_le_bytes());
-                }
-                for &v in state.lengths.iter() {
-                    buf.extend_from_slice(&v.to_le_bytes());
-                }
-                if let Some(prop) = pending {
-                    for id in &prop.ids {
-                        buf.extend_from_slice(&id.0.to_le_bytes());
-                    }
-                }
+                buf.push(2);
+                state.freeze_multi(pending.as_ref(), buf);
+            }
+        }
+    }
+
+    pub(crate) fn thaw_regions(
+        &mut self,
+        reader: &mut crate::snapshot_io::WireReader<'_>,
+    ) -> Result<(), ENNError> {
+        use crate::snapshot_io::bad_state;
+        let tag = reader.read_byte()?;
+        match (tag, self) {
+            (0, TrustRegionState::Turbo(t)) => t.thaw_turbo(reader),
+            (1, TrustRegionState::Morbo(m)) => m.thaw_morbo(reader),
+            (2, TrustRegionState::Multi { state, pending }) => {
+                *pending = state.thaw_multi(reader)?;
+                Ok(())
+            }
+            _ => Err(bad_state(
+                "frozen trust-region variant does not match template optimizer",
+            )),
+        }
+    }
+
+    pub(crate) fn hash_state(&self, buf: &mut Vec<u8>) {
+        match self {
+            TrustRegionState::Turbo(t) => {
+                buf.push(0);
+                t.hash_turbo(buf);
+            }
+            TrustRegionState::Morbo(m) => {
+                buf.push(1);
+                m.hash_morbo(buf);
+            }
+            TrustRegionState::Multi { state, pending } => {
+                buf.push(2);
+                state.hash_multi(pending.as_ref(), buf);
             }
         }
     }

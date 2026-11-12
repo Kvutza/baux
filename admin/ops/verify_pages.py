@@ -92,6 +92,7 @@ def check_assets(target_dir: Path) -> None:
         "forest.json",
         ".nojekyll",
         "assets/baux_ui.js",
+        "assets/baux_env.json",
     ]
     for rel in required_files:
         p = target_dir / rel

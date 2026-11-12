@@ -9,6 +9,7 @@ use baux_tooling::terminal::{self, Tag};
 use baux_tooling::build::BuildSystem;
 
 mod hardcaml;
+mod julia;
 mod pretrain;
 mod program;
 mod regional;
@@ -30,6 +31,9 @@ pub(crate) fn run(
         return Ok(());
     }
     if tokamak::execute(root, path, rounds)? {
+        return Ok(());
+    }
+    if julia::execute(root, path, rounds)? {
         return Ok(());
     }
     let prepare_started = Instant::now();

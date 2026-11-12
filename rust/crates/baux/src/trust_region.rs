@@ -149,6 +149,125 @@ impl TurboTrustRegion {
         self.best_value = value;
     }
 
+    pub(crate) fn freeze_turbo(&self, buf: &mut Vec<u8>) {
+        use crate::snapshot_io::{write_bool, write_int, write_len, write_real};
+        write_real(buf, self.length);
+        write_int(buf, self.failure_counter);
+        write_int(buf, self.success_counter);
+        write_real(buf, self.best_value);
+        write_len(buf, self.prev_obs);
+        write_int(buf, self.success_tolerance);
+        match self.failure_tolerance {
+            Some(ft) => {
+                write_bool(buf, true);
+                write_int(buf, ft);
+            }
+            None => write_bool(buf, false),
+        }
+        match self.num_arms {
+            Some(na) => {
+                write_bool(buf, true);
+                write_len(buf, na);
+            }
+            None => write_bool(buf, false),
+        }
+        match self.failure_tolerance_dim {
+            Some(fd) => {
+                write_bool(buf, true);
+                write_real(buf, fd);
+            }
+            None => write_bool(buf, false),
+        }
+        match self.failure_tolerance_override {
+            Some(fo) => {
+                write_bool(buf, true);
+                write_int(buf, fo);
+            }
+            None => write_bool(buf, false),
+        }
+        write_bool(buf, self.clamp_domain);
+    }
+
+    pub(crate) fn thaw_turbo(
+        &mut self,
+        reader: &mut crate::snapshot_io::WireReader<'_>,
+    ) -> Result<(), crate::error::ENNError> {
+        use crate::snapshot_io::{MAX_OBS, bad_state};
+        let length = reader.read_finite()?;
+        if length <= 0.0 || length > self.config.length_max {
+            return Err(bad_state("frozen TuRBO length out of valid range"));
+        }
+        let failure_counter = reader.read_int()?;
+        let success_counter = reader.read_int()?;
+        if failure_counter < 0 || success_counter < 0 {
+            return Err(bad_state("frozen TuRBO counters must be non-negative"));
+        }
+        let best_value = reader.read_real()?;
+        if best_value.is_nan() || best_value == f64::INFINITY {
+            return Err(bad_state("invalid frozen TuRBO best_value"));
+        }
+        let prev_obs = reader.read_len(MAX_OBS)?;
+        let success_tolerance = reader.read_int()?;
+        if success_tolerance <= 0 {
+            return Err(bad_state("frozen TuRBO success_tolerance must be > 0"));
+        }
+        let failure_tolerance = if reader.read_bool()? {
+            let ft = reader.read_int()?;
+            if ft <= 0 {
+                return Err(bad_state("frozen TuRBO failure_tolerance must be > 0"));
+            }
+            Some(ft)
+        } else {
+            None
+        };
+        let num_arms = if reader.read_bool()? {
+            let na = reader.read_len(MAX_OBS)?;
+            if na == 0 {
+                return Err(bad_state("frozen TuRBO num_arms must be > 0"));
+            }
+            Some(na)
+        } else {
+            None
+        };
+        let failure_tolerance_dim = if reader.read_bool()? {
+            let fd = reader.read_finite()?;
+            if fd <= 0.0 {
+                return Err(bad_state("frozen TuRBO failure_tolerance_dim must be > 0"));
+            }
+            Some(fd)
+        } else {
+            None
+        };
+        let failure_tolerance_override = if reader.read_bool()? {
+            let fo = reader.read_int()?;
+            if fo <= 0 {
+                return Err(bad_state(
+                    "frozen TuRBO failure_tolerance_override must be > 0",
+                ));
+            }
+            Some(fo)
+        } else {
+            None
+        };
+        let clamp_domain = reader.read_bool()?;
+        self.length = length;
+        self.failure_counter = failure_counter;
+        self.success_counter = success_counter;
+        self.best_value = best_value;
+        self.prev_obs = prev_obs;
+        self.success_tolerance = success_tolerance;
+        self.failure_tolerance = failure_tolerance;
+        self.num_arms = num_arms;
+        self.failure_tolerance_dim = failure_tolerance_dim;
+        self.failure_tolerance_override = failure_tolerance_override;
+        self.clamp_domain = clamp_domain;
+        Ok(())
+    }
+
+    pub(crate) fn hash_turbo(&self, buf: &mut Vec<u8>) {
+        self.freeze_turbo(buf);
+    }
+
     /// Morbo: update using zero-padded history and a scalar incumbent value
     /// (Python parity).
     pub fn update_scalar(

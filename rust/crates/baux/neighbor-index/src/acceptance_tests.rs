@@ -39,7 +39,10 @@ fn dim_limit() {
 fn stride_limit() {
     let huge_dim = MAX_STRIDE / 8 + 1;
     let err = backend::open_stride(huge_dim).unwrap_err();
-    assert!(err.to_string().contains("record_stride") || err.to_string().contains("8388608"));
+    assert!(
+        err.to_string().contains("record_stride")
+            || err.to_string().contains(&MAX_STRIDE.to_string())
+    );
 }
 
 #[test]

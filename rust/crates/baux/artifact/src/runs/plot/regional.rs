@@ -27,14 +27,29 @@ pub(super) fn render(source: &Path, output: &Path) -> Result<Vec<Value>, String>
         }
     }
     summaries.extend(tokamak_results(source, output)?);
+    for (cbor_name, json_name) in [
+        ("oceananigans.cbor", "oceananigans.json"),
+        ("fuse.cbor", "fuse.json"),
+    ] {
+        summaries.extend(trace_results(source, output, cbor_name, json_name)?);
+    }
     Ok(summaries)
 }
 
 fn tokamak_results(source: &Path, output: &Path) -> Result<Vec<Value>, String> {
-    let (file, path) = if source.join("tokamak.cbor").exists() {
-        ("tokamak.cbor", source.join("tokamak.cbor"))
-    } else if source.join("tokamak.json").exists() {
-        ("tokamak.json", source.join("tokamak.json"))
+    trace_results(source, output, "tokamak.cbor", "tokamak.json")
+}
+
+fn trace_results(
+    source: &Path,
+    output: &Path,
+    cbor_name: &str,
+    json_name: &str,
+) -> Result<Vec<Value>, String> {
+    let (file, path) = if source.join(cbor_name).exists() {
+        (cbor_name, source.join(cbor_name))
+    } else if source.join(json_name).exists() {
+        (json_name, source.join(json_name))
     } else {
         return Ok(Vec::new());
     };

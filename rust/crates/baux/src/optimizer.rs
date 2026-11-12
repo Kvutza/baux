@@ -16,7 +16,7 @@ pub use multi_tr::{
     RestartCenterSelection, RestartMemoryPolicy, SharingPolicy,
 };
 pub use obs_access::{PosteriorBackend, PosteriorStore};
-pub use observation_delta::{ObservationDelta, WarmupMode, WarmupSchedule};
+pub use observation_delta::{HostCursor, ObservationDelta, WarmupMode, WarmupSchedule};
 pub use regional_models::{RegionalModelFactory, RegionalModels};
 pub use tr_state::TrustRegionState;
 
@@ -257,8 +257,114 @@ impl BayesOptimizer {
         rng: &mut dyn RngCore,
     ) -> Result<Self, ENNError> {
         let config = OptimizerConfig::from_spec(spec)?;
+        Self::with_domain(domain, config, spec, num_init, rng)
+    }
+
+    /// Create an in-memory optimizer from a pre-customized [`OptimizerConfig`]
+    /// and regional [`OptimizerSpec`].
+    pub fn with_domain(
+        domain: DomainFrame,
+        config: OptimizerConfig,
+        spec: &OptimizerSpec,
+        num_init: usize,
+        rng: &mut dyn RngCore,
+    ) -> Result<Self, ENNError> {
         let strategy = spec.strategy(domain.num_dim(), num_init, rng)?;
         Self::new_domain(domain, config, strategy, None, None, rng)
+    }
+
+    /// Create a disk-mapped (`DiskBpann`) optimizer with bounded host RSS for
+    /// million-parameter ($D \ge 1\text{M}$) physics rollouts.
+    pub fn from_disk(
+        domain: DomainFrame,
+        spec: &OptimizerSpec,
+        num_init: usize,
+        work_dir: std::path::PathBuf,
+        rng: &mut dyn RngCore,
+    ) -> Result<Self, ENNError> {
+        let config = OptimizerConfig::from_spec(spec)?;
+        Self::with_disk(domain, config, spec, num_init, work_dir, rng)
+    }
+
+    /// Create a disk-mapped (`DiskBpann`) optimizer from a pre-customized
+    /// [`OptimizerConfig`] and regional [`OptimizerSpec`].
+    pub fn with_disk(
+        domain: DomainFrame,
+        mut config: OptimizerConfig,
+        spec: &OptimizerSpec,
+        num_init: usize,
+        work_dir: std::path::PathBuf,
+        rng: &mut dyn RngCore,
+    ) -> Result<Self, ENNError> {
+        let num_dim = domain.num_dim();
+        let global_surrogate =
+            if let crate::config::SurrogateConfig::ENN(enn) = &mut config.surrogate {
+                enn.storage = crate::backend::EnnStorage::Disk;
+                enn.index_driver = crate::index::IndexDriver::BpAnnDisk;
+                enn.work_dir = Some(work_dir.clone());
+                let mut global_cfg = enn.clone();
+                global_cfg.work_dir = Some(work_dir.join("global"));
+                Some(Box::new(crate::surrogate::ENNSurrogate::new(global_cfg)) as BoxedSurrogate)
+            } else {
+                None
+            };
+        let strategy = spec.strategy(num_dim, num_init, rng)?;
+        let mut opt = if let Some(gs) = global_surrogate {
+            let mut local_cfg = config.clone();
+            let (warmup, multi_override) = strategy.into_roles();
+            let (regions, local_models, strategy_rebuilt) = match multi_override {
+                Some((mut multi_tr, pending)) => {
+                    multi_tr.config.clamp_domain = domain.clamped();
+                    let lm = RegionalModels::built_in(&local_cfg.surrogate, &multi_tr)?
+                        .ok_or_else(|| {
+                            ENNError::InvalidParameter(
+                                "configured surrogate has no isolated regional model".into(),
+                            )
+                        })?;
+                    let tr = TrustRegionState::multi(multi_tr, pending);
+                    (tr, Some(lm), warmup)
+                }
+                None => {
+                    let mut tr =
+                        TrustRegionState::from_config(num_dim, &local_cfg.trust_region, rng)
+                            .map_err(|e| ENNError::InvalidParameter(e.to_string()))?;
+                    if let TrustRegionState::Turbo(t) = &mut tr {
+                        t.clamp_domain = domain.clamped();
+                        if let Some(dim) = local_cfg.failure_tolerance_dim {
+                            t.set_dim(dim);
+                        }
+                    }
+                    (tr, None, warmup)
+                }
+            };
+            let cand_cfg = resolved_candidates(&local_cfg, num_dim)?;
+            let posterior = PosteriorStore::new(&local_cfg.surrogate, Some(gs));
+            let proposals = ProposalEngine::new(num_dim, cand_cfg, rng)?;
+            let incumbent = IncumbentLedger::new(&local_cfg, regions.num_metrics());
+            local_cfg.noise_aware = config.noise_aware;
+            Self {
+                domain,
+                config: local_cfg,
+                warmup: strategy_rebuilt,
+                posterior,
+                local_models,
+                incumbent,
+                regions,
+                proposals,
+                telemetry: Telemetry::default(),
+                ingestion_error: None,
+            }
+        } else {
+            Self::new_domain(domain, config, strategy, None, None, rng)?
+        };
+        if matches!(opt.posterior.backend, PosteriorBackend::Empirical { .. }) {
+            opt.posterior = PosteriorStore::new_disk(
+                work_dir.join("empirical"),
+                num_dim,
+                opt.regions.num_metrics(),
+            )?;
+        }
+        Ok(opt)
     }
 
     /// Create a new optimizer with an explicit strategy.
@@ -420,12 +526,20 @@ impl BayesOptimizer {
 
     pub(crate) fn commit_observations(&mut self, delta: &ObservationDelta) {
         let is_empirical = matches!(self.posterior.backend, PosteriorBackend::Empirical { .. });
+        let is_disk = matches!(self.posterior.backend, PosteriorBackend::Disk { .. });
         for i in 0..delta.x_new.nrows() {
             let y_view = delta.y_new.row(i);
             self.incumbent.tell_view(delta.old_n + i, y_view);
             if is_empirical {
                 self.posterior
                     .push_empirical(delta.x_new.row(i).to_owned(), y_view.to_owned());
+            }
+        }
+        if is_disk {
+            if let Err(err) = self.posterior.append_disk(&delta.x_view(), &delta.y_view()) {
+                self.ingestion_error = Some(err.to_string());
+            } else {
+                let _ = self.posterior.release_pages();
             }
         }
     }
@@ -452,17 +566,30 @@ impl BayesOptimizer {
 
     /// Content-addressed BLAKE3 digest of canonical optimizer state.
     pub fn digest(&self) -> [u8; 32] {
-        let mut buf = Vec::with_capacity(256);
+        let mut buf = Vec::with_capacity(512);
         for &v in self.domain.bounds().iter() {
-            buf.extend_from_slice(&v.to_le_bytes());
+            buf.extend_from_slice(&v.to_bits().to_le_bytes());
         }
         buf.push(u8::from(self.domain.clamped()));
         self.warmup.hash_state(&mut buf);
+        self.proposals.hash_state(&mut buf);
         self.posterior.hash_state(&mut buf);
+        self.incumbent.hash_state(&mut buf);
         self.regions.hash_state(&mut buf);
-        buf.extend_from_slice(&self.proposals.sobol_base().to_le_bytes());
-        if let Some(tag) = self.proposals.ticket_tag {
-            buf.extend_from_slice(&tag);
+        match &self.local_models {
+            Some(models) => {
+                buf.push(1);
+                models.hash_models(&mut buf);
+            }
+            None => buf.push(0),
+        }
+        match &self.ingestion_error {
+            Some(err) => {
+                buf.push(1);
+                buf.extend_from_slice(&(err.len() as u64).to_le_bytes());
+                buf.extend_from_slice(err.as_bytes());
+            }
+            None => buf.push(0),
         }
         crate::artifact::blake3::hash(&buf)
     }
@@ -472,14 +599,37 @@ impl BayesOptimizer {
         self.digest().iter().map(|b| format!("{b:02x}")).collect()
     }
 
+    /// Lowercase hexadecimal BLAKE3 digest folding host cursor state.
+    pub fn digest_host(&self, seed: u64, epoch: u64, identified: bool) -> String {
+        let mut buf = [0u8; 49];
+        buf[..32].copy_from_slice(&self.digest());
+        buf[32..40].copy_from_slice(&seed.to_le_bytes());
+        buf[40..48].copy_from_slice(&epoch.to_le_bytes());
+        buf[48] = u8::from(identified);
+        crate::artifact::blake3::hash(&buf)
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect()
+    }
+
     /// Serialize canonical optimizer state with a BLAKE3 integrity tag.
     pub fn freeze(&self) -> Result<Vec<u8>, ENNError> {
         observation_delta::freeze_state(self)
     }
 
+    /// Serialize canonical optimizer state plus host cursor metadata.
+    pub fn freeze_host(&self, host: &HostCursor) -> Result<Vec<u8>, ENNError> {
+        observation_delta::freeze_full(self, Some(host))
+    }
+
     /// Restore an equivalent optimizer state from a BLAKE3-verified checkpoint.
     pub fn thaw(&self, bytes: &[u8]) -> Result<Self, ENNError> {
         observation_delta::thaw_state(self, bytes)
+    }
+
+    /// Restore optimizer state and optional host cursor metadata.
+    pub fn thaw_host(&self, bytes: &[u8]) -> Result<(Self, Option<HostCursor>), ENNError> {
+        observation_delta::thaw_full(self, bytes)
     }
 }
 

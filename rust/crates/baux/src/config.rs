@@ -53,9 +53,9 @@ pub use objectives::{
 pub use spec::ExperimentSpec;
 pub use spec_execution::ObjectiveFunction;
 pub use spec_optimizer::{
-    AcquisitionSpec, CandidateGenerationSpec, ObservationSharing, OptimizerSpec, PerturbationSpec,
-    RegionAllocation, RegionController, RegionMemory, RegionalSearchSpec, RestartCenter,
-    SurrogateFit, SurrogateRecipe, TrustRegionBounds,
+    AcquisitionSpec, CandidateGenerationSpec, NeighborRule, ObservationSharing, OptimizerSpec,
+    PerturbationSpec, RegionAllocation, RegionController, RegionMemory, RegionalSearchSpec,
+    RestartCenter, SurrogateFit, SurrogateRecipe, TrustRegionBounds,
 };
 
 /// Concrete runtime configuration compiled from a validated experiment recipe.

@@ -51,6 +51,7 @@ fn fuse_se(
     dist2s: &ArrayView2<f64>,
     idx: &ArrayView2<i64>,
     params: &ENNParams,
+    adapt_neighbors: bool,
 ) -> PosteriorLightOut {
     let n_query = dist2s.nrows();
     let k = dist2s.ncols();
@@ -69,9 +70,36 @@ fn fuse_se(
     for i in 0..n_query {
         let dist_row = dist2s.row(i);
         let idx_row = idx.row(i);
+        let valid_k = (0..k)
+            .take_while(|&j| idx_row[j] >= 0 && dist_row[j].is_finite())
+            .count();
+        for j in 0..k {
+            idx_out[[i, j]] = idx_row[j];
+        }
+        if valid_k == 0 {
+            for m in 0..num_metrics {
+                se[[i, m]] = 1.0;
+                se_epi[[i, m]] = 1.0;
+            }
+            continue;
+        }
+        let k_used = if adapt_neighbors {
+            let mut prefix = crate::semantics::neighbor::Prefix::default();
+            for j in 0..valid_k {
+                prefix.push(
+                    (j + 1) as u32,
+                    dist_row[j],
+                    epistemic_scale,
+                    aleatoric_scale,
+                );
+            }
+            (prefix.count as usize).clamp(1, valid_k)
+        } else {
+            valid_k
+        };
 
         let mut norm = 0.0;
-        for j in 0..k {
+        for j in 0..k_used {
             let var_total = EPS_VAR + epistemic_scale * dist_row[j] + aleatoric_scale;
             w[j] = 1.0 / var_total;
             norm += w[j];
@@ -79,20 +107,16 @@ fn fuse_se(
         let inv_norm = 1.0 / norm;
         let se_base = inv_norm.max(EPS_VAR).sqrt();
 
-        for j in 0..k {
-            idx_out[[i, j]] = idx_row[j];
-        }
-
         for m in 0..num_metrics {
             let mut mu_val = 0.0;
             let y_scale_m = y_scale[m];
             if let Some(y_view) = model.y_opt() {
-                for j in 0..k {
+                for j in 0..k_used {
                     let w_norm = w[j] * inv_norm;
                     mu_val += w_norm * y_view[[idx_row[j] as usize, m]];
                 }
             } else {
-                for j in 0..k {
+                for j in 0..k_used {
                     let w_norm = w[j] * inv_norm;
                     let y_row = model.rows().row_y(idx_row[j] as usize).expect("row_y");
                     mu_val += w_norm * y_row[m];
@@ -196,7 +220,13 @@ pub(crate) fn compute_light(
 
     let dist2s = dist2s_full.slice_axis(Axis(1), ndarray::Slice::from(..k));
     let idx = idx_full.slice_axis(Axis(1), ndarray::Slice::from(..k));
-    Ok(fuse_se(model, &dist2s, &idx, params))
+    Ok(fuse_se(
+        model,
+        &dist2s,
+        &idx,
+        params,
+        flags.adaptive_neighbors,
+    ))
 }
 
 #[cfg(test)]
@@ -333,7 +363,7 @@ mod tests {
         let dist2s = array![[0.0, 1.0], [1.0, 0.0], [2.0, 1.0], [1.0, 2.0]];
         let idx = array![[0, 1], [1, 0], [2, 3], [3, 2]];
         let (mu, se, _se_epi, _se_ale, idx_out) =
-            fuse_se(&model, &dist2s.view(), &idx.view(), &params);
+            fuse_se(&model, &dist2s.view(), &idx.view(), &params, false);
         assert_eq!(mu.nrows(), 4);
         assert_eq!(se.nrows(), 4);
         assert_eq!(idx_out.shape(), &[4, 2]);

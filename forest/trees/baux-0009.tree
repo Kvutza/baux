@@ -1,42 +1,26 @@
-\title{Functional State & Asynchronous Portfolios}
+\title{Local Trust Regions & Functional State}
 
 \subtree{
-  \title{Pure State Transitions & Epoch-Stamped Regional Ledgers}
+  \title{Multi-Region Search & Asynchronous Evaluation}
 
   \p{
-    Optimization state is an immutable tuple in the product space
-  }
-
-  ##{
-    S \eqdef \mathcal{K} \times \mathcal{D} \times \prod_{r=1}^R T_r \times \mathrm{Spec}(\mathcal{M}),
+    Over high-dimensional domains, global uncertainty grows toward box boundaries, pulling unconstrained acquisition away from promising basins. [baux.regions](docs.html#baux.regions) maintains #{R} local axis-aligned trust regions #{\{T_r(x_{0,r}, \ell_r, g_r)\}_{r=1}^R} centered at regional incumbents #{x_{0,r}} with side lengths #{\ell_r} and restart generation #{g_r} (Eriksson et al. [[EPG+19]](https://arxiv.org/abs/1910.01739), Daulton et al. [[DEB+22]](https://proceedings.mlr.press/v180/daulton22a.html)). Consecutive improvements double #{\ell_r}, consecutive stalls halve #{\ell_r} down to a restart threshold, and candidate pools perturb sparse coordinate subsets around #{x_{0,r}} when #{D} is large. On multi-objective problems (#{M \ge 2}), each region scalarizes normalized outputs with simplex weights [[DEB+22]](https://proceedings.mlr.press/v180/daulton22a.html).
   }
 
   \p{
-    joining a splittable 128-bit PRNG key #{k \in \mathcal{K}} (Claessen & Pałka [[CP13]](https://doi.org/10.1145/2503778.2503784), Steele, Lea, & Flood [[SLF14]](https://doi.org/10.1145/2660193.2660195)), global observation history #{\mathcal{D}}, #{R} concurrent local trust-region ledgers #{\{T_r(x_{0,r}, \ell_r, g_r)\}_{r=1}^R} (Eriksson et al. [[EPG+19]](https://arxiv.org/abs/1910.01739), Daulton et al. [[DEB+22]](https://proceedings.mlr.press/v180/daulton22a.html)), and the compiled domain chart specification #{\mathrm{Spec}(\mathcal{M})}. Multi-objective portfolios (#{M \ge 2}) draw per-region simplex weights to scalarize normalized objectives [[DEB+22]](https://proceedings.mlr.press/v180/daulton22a.html), while arm allocation across regions balances normalized incumbent value against completed plus in-flight evaluations.
-  }
-
-  \p{
-    Asynchronous evaluation decouples global surrogate updates from regional side-length adaptation via epoch-stamped tickets #{\mathrm{AskId} = (r, g, a)}, recording originating region #{r}, its generation epoch #{g = g_r} at dispatch, and arm slot #{a}. Out-of-order completions via [baux.complete](docs.html#baux.complete) always append observations to #{\mathcal{D}}, whereas trust-region expansion/contraction on #{T_r} applies if and only if #{g = g_r}—preventing delayed evaluations from a pre-restart epoch from perturbing a freshly re-centered basin—and [baux.cancel](docs.html#baux.cancel) releases in-flight slot reservations without altering #{\mathcal{D}}. Cross-region coordination is governed by incumbent adoption: \code{sharing="origin_only"} restricts #{x_{0,r}} updates to region-#{r} proposals, whereas \code{sharing="ellipsoid_ball"} adopts any superior global observation falling inside the Euclidean ball circumscribing #{T_r}'s solver-coordinate box around #{x_{0,r}}, propagating local gains across overlapping basins while preserving distinct modes.
+    Cross-region incumbent updates follow one of two rules: \code{sharing="origin_only"} updates #{x_{0,r}} only from evaluations proposed by region #{r}, whereas \code{sharing="ellipsoid_ball"} adopts any higher-scoring global observation inside the Euclidean ball circumscribing #{T_r}'s box in solver coordinates. When evaluations run asynchronously, each proposed arm carries an \code{AskId} ticket #{(r, g, a)} recording its originating region #{r}, dispatch generation #{g = g_r}, and slot #{a}. Out-of-order completions via [baux.complete](docs.html#baux.complete) always append observations to #{\mathcal{D}}, while side-length updates on #{T_r} apply only when #{g = g_r} so delayed evaluations from before a restart do not alter the re-centered region. [baux.cancel](docs.html#baux.cancel) releases abandoned slots without modifying #{\mathcal{D}}.
   }
 }
 
 \subtree{
-  \title{Splittable Rollouts & Canonical Snapshot Commutativity}
+  \title{Deterministic Rollouts & Checkpointing}
 
   \p{
-    Because appending observations alters neighbor sets and regional incumbents, [baux.ask](docs.html#baux.ask) and [baux.tell](docs.html#baux.tell) form an order-dependent Mealy transition system rather than commuting updates. Reproducibility instead rests on pure functional folding ([baux.scan](docs.html#baux.scan)), pre-split parallel branch keys #{k \mapsto (k_1, \dots, k_B)} ([baux.pmap](docs.html#baux.pmap)) that render parallel rollouts invariant to worker scheduling, and lossless binary checkpointing. For a template state #{s_0 \in S} fixing #{\mathrm{Spec}(\mathcal{M})} and any pure step transition #{\Phi_f : S \to S}, canonical serialization [baux.freeze](docs.html#baux.freeze) #{: S \to \mathcal{B}} and deserialization [baux.thaw](docs.html#baux.thaw) #{: \mathcal{B} \to S} commute with rollout execution #{\widehat{\Phi}_f \eqdef \mathrm{freeze} \circ \Phi_f \circ \mathrm{thaw}_{s_0}}:
-  }
-
-  ##{
-    \begin{CD}
-      S @>{\Phi_f}>> S \\
-      @V{\mathrm{freeze}}VV @AA{\mathrm{thaw}_{s_0}}A \\
-      \mathcal{B} @>>{\widehat{\Phi}_f}> \mathcal{B}
-    \end{CD}
+    Each [\code{OptimizerState}](docs.html#baux.OptimizerState) pairs observation arrays and regional trust-region state with a splittable 128-bit PRNG key (Claessen & Pałka [[CP13]](https://doi.org/10.1145/2503778.2503784), Steele, Lea, & Flood [[SLF14]](https://doi.org/10.1145/2660193.2660195)). Sequential loops via [baux.scan](docs.html#baux.scan) and pre-split parallel branches #{k \mapsto (k_1, \dots, k_B)} via [baux.pmap](docs.html#baux.pmap) produce deterministic trajectories independent of worker thread scheduling.
   }
 
   \p{
-    The example below dispatches overlapping regional batches, completes and cancels tickets out of order via \code{batch.ids}, verifies canonical [baux.freeze](docs.html#baux.freeze)/[baux.thaw](docs.html#baux.thaw) idempotence and [baux.digest](docs.html#baux.digest) parity, and confirms bit-identical parallel [baux.pmap](docs.html#baux.pmap) rollout digests across restored snapshots:
+    [baux.freeze](docs.html#baux.freeze) and [baux.thaw](docs.html#baux.thaw) serialize the full search state—observations, surrogate fit state, trust-region side lengths and success/failure counters, pending asynchronous tickets, and PRNG state—into an authenticated binary snapshot summarized by [baux.digest](docs.html#baux.digest). Restoring against a domain-compatible template state #{s_0} satisfies #{\mathrm{thaw}(s_0, \mathrm{freeze}(s)) = s}, so resumed runs propose identical candidate batches and parallel rollouts:
   }
 
   \pre{
@@ -71,8 +55,16 @@ blob = baux.freeze(s_live)
 restored_a = baux.thaw(s0, blob)
 restored_b = baux.thaw(s0, baux.freeze(restored_a))
 assert baux.freeze(restored_a) == blob
-assert baux.digest(restored_a) == baux.digest(restored_b)
+assert baux.digest(s_live) == baux.digest(restored_a) == baux.digest(restored_b)
 
+rollouts_live = baux.pmap(
+    s_live,
+    baux.key(77),
+    branches=4,
+    branch_fn=lambda i, st, k: baux.digest(
+        baux.scan(st, k, steps=4, eval_fn=anisotropic_loss, num_arms=2)[0]
+    ),
+)
 rollouts_a = baux.pmap(
     restored_a,
     baux.key(77),
@@ -89,6 +81,6 @@ rollouts_b = baux.pmap(
         baux.scan(st, k, steps=4, eval_fn=anisotropic_loss, num_arms=2)[0]
     ),
 )
-assert rollouts_a == rollouts_b and len(set(rollouts_a)) == 4
+assert rollouts_live == rollouts_a == rollouts_b and len(set(rollouts_live)) == 4
   }
 }

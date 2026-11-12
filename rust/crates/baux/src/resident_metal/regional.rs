@@ -266,6 +266,14 @@ impl RegionalSearch {
         )
     }
 
+    pub fn tell_objectives(
+        &mut self,
+        proposal: &RegionalProposal,
+        observation: crate::objective_observation::ObjectiveObservation,
+    ) -> Result<NoisyDecision, String> {
+        objectives::tell(self, proposal, observation)
+    }
+
     /// Retire an unevaluated proposal without updating regional statistics.
     pub fn cancel(&mut self, proposal: &RegionalProposal) -> Result<(), String> {
         self.ledger

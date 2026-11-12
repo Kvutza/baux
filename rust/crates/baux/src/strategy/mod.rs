@@ -6,6 +6,7 @@ use rand::RngCore;
 
 mod multi;
 mod selection;
+pub(crate) use multi::bump_ids;
 use multi::{ask_init, ask_multi, select_pending, tell_common, tell_multi, validate_multi};
 use selection::*;
 

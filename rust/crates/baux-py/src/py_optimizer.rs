@@ -282,11 +282,39 @@ impl PyBayesOptimizer {
         self.inner.digest_hex()
     }
 
+    /// Hex-encoded BLAKE3 digest folding Python cursor state.
+    fn digest_host(&self, seed: u64, epoch: u64, identified: bool) -> String {
+        self.inner.digest_host(seed, epoch, identified)
+    }
+
     /// Serialize optimizer state to a portable binary checkpoint.
     fn freeze<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, pyo3::types::PyBytes>> {
         let bytes = self
             .inner
             .freeze()
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        Ok(pyo3::types::PyBytes::new(py, &bytes))
+    }
+
+    /// Serialize optimizer state and Python cursor metadata to a portable
+    /// binary checkpoint.
+    fn freeze_host<'py>(
+        &self,
+        py: Python<'py>,
+        seed: u64,
+        epoch: u64,
+        identified: bool,
+        id_map: Vec<(u64, u64)>,
+    ) -> PyResult<Bound<'py, pyo3::types::PyBytes>> {
+        let host = baux::optimizer::HostCursor {
+            seed,
+            epoch,
+            identified,
+            id_map,
+        };
+        let bytes = self
+            .inner
+            .freeze_host(&host)
             .map_err(|e| PyValueError::new_err(e.to_string()))?;
         Ok(pyo3::types::PyBytes::new(py, &bytes))
     }
@@ -298,6 +326,26 @@ impl PyBayesOptimizer {
             .thaw(data)
             .map_err(|e| PyValueError::new_err(e.to_string()))?;
         Ok(())
+    }
+
+    /// Restore optimizer state and Python cursor metadata from a binary
+    /// checkpoint.
+    fn thaw_host(
+        &mut self,
+        data: &[u8],
+        default_seed: u64,
+        default_epoch: u64,
+        default_identified: bool,
+    ) -> PyResult<(u64, u64, bool, Vec<(u64, u64)>)> {
+        let (next, host) = self
+            .inner
+            .thaw_host(data)
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        self.inner = next;
+        match host {
+            Some(h) => Ok((h.seed, h.epoch, h.identified, h.id_map)),
+            None => Ok((default_seed, default_epoch, default_identified, Vec::new())),
+        }
     }
 }
 

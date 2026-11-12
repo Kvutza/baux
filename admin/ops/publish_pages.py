@@ -15,15 +15,11 @@ import argparse
 import base64
 import hashlib
 import re
-import shutil
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-FOREST_DIR = ROOT / "forest"
-FOREST_OUT = FOREST_DIR / "output"
 sys.path.insert(0, str(ROOT / "admin/ops"))
 from verify_pages import verify_bundle
 
@@ -34,22 +30,6 @@ _SRI_ASSETS = (
     "assets/baux_ui.js",
 )
 _VERSIONED_ASSETS = _SRI_ASSETS
-_RUNTIME_ROOT_FILES = (
-    "style.css",
-    "katex.min.css",
-    "forester.js",
-    "forest.json",
-    "favicon.ico",
-    "favicon-16x16.png",
-    "favicon-32x32.png",
-    "apple-touch-icon.png",
-    "android-chrome-192x192.png",
-    "android-chrome-512x512.png",
-)
-_RUNTIME_ROOT_DIRS = (
-    "fonts",
-    "LICENSES",
-)
 _ASSET_TAG_RE = re.compile(
     r"<(link|script)\b(?:[^>\"']|\"[^\"]*\"|'[^']*')*>",
     flags=re.IGNORECASE,
@@ -173,195 +153,20 @@ def stamp_sri(bundle_dir: Path, fallback_dir: Path | None = None) -> None:
             html_file.write_text(new_txt, encoding="utf-8")
 
 
-def build_forest() -> None:
-    forest_toml = FOREST_DIR / "forest.toml"
-    if not forest_toml.is_file():
-        raise FileNotFoundError(f"Missing Forester manifest: {forest_toml}")
-
-    print("Building documentation forest via Forester (OCaml)...")
-    if FOREST_OUT.exists():
-        shutil.rmtree(FOREST_OUT)
-
-    subprocess.check_call(
-        [
-            "opam",
-            "exec",
-            "--switch=forester",
-            "--",
-            "forester",
-            "build",
-            "forest.toml",
-        ],
-        cwd=str(FOREST_DIR),
-    )
-
-    theme_dir = FOREST_DIR / "theme"
-    for ext in ("*.xsl", "*.css", "*.js"):
-        for asset in theme_dir.glob(ext):
-            shutil.copy2(asset, FOREST_OUT / asset.name)
-
-    for xml in sorted(FOREST_OUT.glob("*.xml")):
-        if xml.name.startswith("unstable-"):
-            continue
-        html = xml.with_suffix(".html")
-        with open(html, "w", encoding="utf-8") as out:
-            subprocess.check_call(
-                ["xsltproc", "default.xsl", xml.name],
-                cwd=str(FOREST_OUT),
-                stdout=out,
-            )
-
-    route_aliases = (
-        ("baux-0001.html", "index.html"),
-        ("baux-0007.html", "docs.html"),
-        ("baux-0004.html", "simulation.html"),
-    )
-    for src_name, dst_name in route_aliases:
-        src_html = FOREST_OUT / src_name
-        if not src_html.is_file():
-            raise FileNotFoundError(f"Expected compiled tree HTML missing: {src_html}")
-        shutil.copyfile(src_html, FOREST_OUT / dst_name)
-
-    print("✓ Compiled Forester trees to static HTML in forest/output")
-
-
-def build_ui() -> None:
-    ui_src = ROOT / "admin/ui/baux_ui.ml"
-    if not ui_src.is_file():
-        raise FileNotFoundError(f"Missing OCaml UI source: {ui_src}")
-
-    print("Building OCaml frontend (baux_ui.js) with dune and js_of_ocaml...")
-    subprocess.check_call(
-        [
-            "opam",
-            "exec",
-            "--switch=5.2.0+ox",
-            "--",
-            "dune",
-            "build",
-            "./baux_ui.js",
-        ],
-        cwd=str(ROOT / "admin/ui"),
-    )
-    built_js = ROOT / "admin/ui/_build/default/baux_ui.js"
-    if not built_js.is_file():
-        raise FileNotFoundError(f"Compiled OCaml bundle not found: {built_js}")
-
-    payload = built_js.read_bytes()
-    forest_assets = FOREST_OUT / "assets"
-    forest_assets.mkdir(parents=True, exist_ok=True)
-    forest_ui = forest_assets / "baux_ui.js"
-    forest_ui.unlink(missing_ok=True)
-    forest_ui.write_bytes(payload)
-    forest_ui.chmod(0o644)
-    print("✓ Compiled baux_ui.js into forest/output/assets/")
-
-
-def clean_bundle(dest_dir: Path) -> None:
-    """Remove all existing files in dest_dir while preserving VCS metadata (.jj / .git)."""
-    if not dest_dir.exists():
-        dest_dir.mkdir(parents=True, exist_ok=True)
-        return
-    for entry in dest_dir.iterdir():
-        if entry.name in {".jj", ".git"}:
-            continue
-        if entry.is_dir():
-            shutil.rmtree(entry)
-        else:
-            entry.unlink()
-
-
 def assemble_bundle(dest_dir: Path) -> None:
-    build_forest()
-    build_ui()
-
-    clean_bundle(dest_dir)
-    dest_assets = dest_dir / "assets"
-    dest_assets.mkdir(parents=True, exist_ok=True)
-
-    for html_file in sorted(FOREST_OUT.glob("*.html")):
-        if html_file.name.startswith("unstable-"):
-            continue
-        shutil.copy2(html_file, dest_dir / html_file.name)
-
-    for rel_name in _RUNTIME_ROOT_FILES:
-        src = FOREST_OUT / rel_name
-        if not src.is_file():
-            raise FileNotFoundError(f"Missing runtime Forester asset: {src}")
-        shutil.copy2(src, dest_dir / rel_name)
-
-    for dir_name in _RUNTIME_ROOT_DIRS:
-        src_dir = FOREST_OUT / dir_name
-        if src_dir.is_dir():
-            shutil.copytree(src_dir, dest_dir / dir_name)
-
-    src_ui = FOREST_OUT / "assets/baux_ui.js"
-    dst_ui = dest_assets / "baux_ui.js"
-    shutil.copy2(src_ui, dst_ui)
-    dst_ui.chmod(0o644)
-
-    (dest_dir / ".nojekyll").touch()
-
-    for html_dir in (FOREST_OUT, dest_dir):
-        stamp_sri(html_dir, fallback_dir=dest_dir)
+    """Delegate static site & Playground bundle assembly to `./baux pages build`."""
+    subprocess.check_call(
+        [str(ROOT / "baux"), "pages", "build", "--bundle-dir", str(dest_dir)],
+        cwd=str(ROOT),
+    )
 
 
 def deploy_pages() -> None:
-    ws_name = "gh-pages-deploy"
-    subprocess.run(
-        ["jj", "workspace", "forget", ws_name],
+    """Delegate verified bundle build and gh-pages push to `./baux pages deploy`."""
+    subprocess.check_call(
+        [str(ROOT / "baux"), "pages", "deploy"],
         cwd=str(ROOT),
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        check=False,
     )
-    with tempfile.TemporaryDirectory(prefix="baux-gh-pages-") as tmp_str:
-        ws_dir = Path(tmp_str) / "ws"
-        try:
-            subprocess.check_call(
-                [
-                    "jj",
-                    "workspace",
-                    "add",
-                    str(ws_dir),
-                    "--name",
-                    ws_name,
-                    "-r",
-                    "gh-pages",
-                ],
-                cwd=str(ROOT),
-            )
-            subprocess.check_call(
-                ["jj", "new", "gh-pages"],
-                cwd=str(ws_dir),
-            )
-            print(f"Assembling clean public bundle in transient workspace {ws_dir}...")
-            assemble_bundle(ws_dir)
-            print("Verifying assembled bundle...")
-            verify_bundle(ws_dir)
-
-            print("--- Deploying clean runtime bundle to origin/gh-pages ---")
-            subprocess.check_call(
-                ["jj", "describe", "-m", "kvutza/pages"],
-                cwd=str(ws_dir),
-            )
-            subprocess.check_call(
-                ["jj", "bookmark", "set", "gh-pages", "-r", "@"],
-                cwd=str(ws_dir),
-            )
-            subprocess.check_call(
-                ["jj", "git", "push", "--bookmark", "gh-pages"],
-                cwd=str(ws_dir),
-            )
-            print("✓ Successfully pushed clean runtime bundle to origin/gh-pages!")
-        finally:
-            subprocess.run(
-                ["jj", "workspace", "forget", ws_name],
-                cwd=str(ROOT),
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                check=False,
-            )
 
 
 def main() -> None:

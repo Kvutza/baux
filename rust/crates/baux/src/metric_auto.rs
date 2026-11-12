@@ -344,6 +344,86 @@ impl AutoMetric {
         }
         Ok(self.num_seen() >= self.next_refit)
     }
+
+    pub(crate) fn freeze_metric(&self, buf: &mut Vec<u8>) {
+        use crate::snapshot_io::{write_bool, write_len, write_real, write_slice};
+        self.rows.freeze_rows(buf);
+        write_slice(buf, &self.weights);
+        write_slice(buf, &self.built);
+        write_real(buf, self.rebuild_drift);
+        write_real(buf, self.refit_growth);
+        write_len(buf, self.next_refit);
+        match self.heldout_gain {
+            Some(g) => {
+                write_bool(buf, true);
+                write_real(buf, g);
+            }
+            None => write_bool(buf, false),
+        }
+        write_len(buf, self.counters.num_refits);
+        write_len(buf, self.counters.num_rescales);
+        write_len(buf, self.counters.num_rebuilds);
+    }
+
+    pub(crate) fn thaw_metric(
+        num_dim: usize,
+        num_outputs: usize,
+        tied: Vec<Vec<usize>>,
+        unscaled: Vec<usize>,
+        reader: &mut crate::snapshot_io::WireReader<'_>,
+    ) -> Result<Self, ENNError> {
+        use crate::snapshot_io::{MAX_OBS, bad_state};
+        validate_tied(&tied, num_dim)?;
+        let rows = RowReservoir::thaw_rows(num_dim, num_outputs, reader)?;
+        let weights = reader.read_vec(num_dim, true)?;
+        let built = reader.read_vec(num_dim, true)?;
+        if weights.len() != num_dim
+            || built.len() != num_dim
+            || weights.iter().chain(&built).any(|&w| w <= 0.0)
+        {
+            return Err(bad_state("invalid frozen AUTO metric weights"));
+        }
+        let rebuild_drift = reader.read_finite()?;
+        let refit_growth = reader.read_finite()?;
+        if rebuild_drift < 0.0 || refit_growth <= 1.0 {
+            return Err(bad_state("invalid frozen AUTO metric schedule"));
+        }
+        let next_refit = reader.read_len(MAX_OBS.saturating_mul(4))?;
+        let heldout_gain = if reader.read_bool()? {
+            let g = reader.read_real()?;
+            if g.is_nan() {
+                return Err(bad_state("NaN heldout_gain in frozen AUTO metric"));
+            }
+            Some(g)
+        } else {
+            None
+        };
+        let counters = MetricCounters {
+            num_refits: reader.read_len(MAX_OBS)?,
+            num_rescales: reader.read_len(MAX_OBS)?,
+            num_rebuilds: reader.read_len(MAX_OBS)?,
+        };
+        let mut metric = Self {
+            rows,
+            tied,
+            unscaled: Vec::new(),
+            weights,
+            built,
+            rebuild_drift,
+            refit_growth,
+            next_refit,
+            heldout_gain,
+            counters,
+        };
+        if !unscaled.is_empty() {
+            metric.set_unscaled(unscaled)?;
+        }
+        Ok(metric)
+    }
+
+    pub(crate) fn hash_metric(&self, buf: &mut Vec<u8>) {
+        self.freeze_metric(buf);
+    }
 }
 
 #[cfg(test)]

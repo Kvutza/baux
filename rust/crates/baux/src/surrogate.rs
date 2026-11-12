@@ -23,6 +23,10 @@ pub struct ENNSurrogateConfig {
     pub num_candidates: usize,
     pub num_samples: usize,
     pub infer_aleatoric_variance: bool,
+    pub epistemic_scale: f64,
+    pub aleatoric_scale: f64,
+    pub y_scale: Option<f64>,
+    pub adapt_neighbors: bool,
     pub index_driver: IndexDriver,
     pub storage: EnnStorage,
     pub work_dir: Option<PathBuf>,
@@ -45,6 +49,10 @@ impl Default for ENNSurrogateConfig {
             num_candidates: 30,
             num_samples: 10,
             infer_aleatoric_variance: true,
+            epistemic_scale: 1.0,
+            aleatoric_scale: 0.0,
+            y_scale: None,
+            adapt_neighbors: false,
             index_driver: IndexDriver::Exact,
             storage: EnnStorage::InMemory,
             work_dir: None,
@@ -164,6 +172,15 @@ impl ENNSurrogate {
         Ok(())
     }
 
+    fn seed_params(&self) -> Result<ENNParams, ENNError> {
+        ENNParams::new(
+            self.config.k,
+            self.config.epistemic_scale,
+            self.config.aleatoric_scale,
+        )
+        .map_err(|e| ENNError::InvalidParameter(e.to_string()))
+    }
+
     fn run_fitter(&mut self, rng: &mut rand::rngs::StdRng) -> Result<(), ENNError> {
         if self.config.metric_learning == MetricLearning::Auto {
             if let Some(model) = self.model.as_mut() {
@@ -172,10 +189,7 @@ impl ENNSurrogate {
         }
         if self.config.num_candidates == 0 || self.config.num_samples == 0 {
             if self.params.is_none() {
-                self.params = Some(
-                    ENNParams::new(self.config.k, 1.0, 0.0)
-                        .map_err(|e| ENNError::InvalidParameter(e.to_string()))?,
-                );
+                self.params = Some(self.seed_params()?);
             }
             return self.refresh_online();
         }
@@ -191,12 +205,16 @@ impl ENNSurrogate {
             .model
             .as_ref()
             .ok_or_else(|| ENNError::InvalidParameter("Surrogate not fitted".to_string()))?;
+        let prior = match self.params {
+            Some(p) => Some(p),
+            None => Some(self.seed_params()?),
+        };
         let fitter = self.fitter.as_mut().expect("fitter");
         let p = fitter.ask(
             model,
             self.config.num_candidates,
             self.config.num_samples,
-            self.params.as_ref(),
+            prior.as_ref(),
             rng,
         )?;
         self.params = Some(p);
@@ -298,17 +316,30 @@ impl Surrogate for ENNSurrogate {
             model.refresh_finite(self.config.k.max(1) as usize, &self.config.unscaled_dims)?;
         }
 
+        if self.config.num_candidates == 0 || self.config.num_samples == 0 {
+            if self.params.is_none() {
+                self.params = Some(self.seed_params()?);
+            }
+            self.model = Some(model);
+            self.fitter = None;
+            return self.refresh_online();
+        }
+
         let mut fitter = ENNFitter::new(self.config.k, self.config.infer_aleatoric_variance)
             .with_bounds(self.config.y_bounds.clone());
         fitter.tell(x, y, yvar)?;
         if let Some(p) = self.params {
             fitter.set_params(p);
         }
+        let prior = match self.params {
+            Some(p) => Some(p),
+            None => Some(self.seed_params()?),
+        };
         let p = fitter.ask(
             &model,
             self.config.num_candidates,
             self.config.num_samples,
-            self.params.as_ref(),
+            prior.as_ref(),
             &mut local_rng,
         )?;
         self.params = Some(p);
@@ -395,15 +426,15 @@ impl Surrogate for ENNSurrogate {
         let params = match self.params.as_ref() {
             Some(p) => *p,
             None => {
-                // Bulk disk tells may skip neighbor fit; use default params
-                // until a small tell refreshes hyperparameters.
-                ENNParams::new(self.config.k, 1.0, 0.0).map_err(|e| {
-                    ENNError::InvalidParameter(format!("Failed to create default params: {e}"))
-                })?
+                // Bulk disk tells may skip neighbor fit; use configured seed
+                // params until a small tell refreshes hyperparameters.
+                self.seed_params()?
             }
         };
 
-        let flags = PosteriorFlags::new().tie_neighbors(false);
+        let flags = PosteriorFlags::new()
+            .tie_neighbors(false)
+            .adaptive_neighbors(self.config.adapt_neighbors);
         let posterior = model.posterior(x, &params, &flags)?;
 
         // Convert from dynamic dimension to fixed 2D
@@ -411,10 +442,22 @@ impl Surrogate for ENNSurrogate {
             .mu
             .into_dimensionality::<ndarray::Ix2>()
             .map_err(|e| ENNError::InvalidParameter(format!("Shape error: {}", e)))?;
-        let se = posterior
+        let mut se = posterior
             .se
             .into_dimensionality::<ndarray::Ix2>()
             .map_err(|e| ENNError::InvalidParameter(format!("Shape error: {}", e)))?;
+        if let Some(ys) = self.config.y_scale {
+            if self.config.num_candidates == 0 || self.config.num_samples == 0 {
+                let cur = model.output_scale();
+                for m in 0..se.ncols() {
+                    let denom = cur[m].max(1.0e-12);
+                    let factor = ys / denom;
+                    for i in 0..se.nrows() {
+                        se[[i, m]] *= factor;
+                    }
+                }
+            }
+        }
 
         Ok(SurrogatePrediction { mu, se })
     }
@@ -429,10 +472,14 @@ impl Surrogate for ENNSurrogate {
             .model
             .as_ref()
             .ok_or_else(|| ENNError::InvalidParameter("Surrogate not fitted".to_string()))?;
-        let params = self
-            .params
-            .as_ref()
-            .ok_or_else(|| ENNError::InvalidParameter("Surrogate not fitted".to_string()))?;
+        let seeded;
+        let params = match self.params.as_ref() {
+            Some(params) => params,
+            None => {
+                seeded = self.seed_params()?;
+                &seeded
+            }
+        };
 
         // Use deterministic seeds based on current state
         let mut seed_bytes = [0u8; 8];
@@ -440,7 +487,8 @@ impl Surrogate for ENNSurrogate {
         let base_seed = u64::from_le_bytes(seed_bytes) as i64;
         let function_seeds: Vec<i64> = (0..num_samples as i64).map(|i| base_seed + i).collect();
 
-        let (draws, _) = model.posterior_draw(x, params, &function_seeds, &Default::default())?;
+        let flags = PosteriorFlags::default().adaptive_neighbors(self.config.adapt_neighbors);
+        let (draws, _) = model.posterior_draw(x, params, &function_seeds, &flags)?;
 
         Ok(draws)
     }
@@ -469,6 +517,92 @@ impl Surrogate for ENNSurrogate {
             Some(bounds) => crate::y_bounds::warp_y(*y, bounds),
             None => Ok(y.to_owned()),
         }
+    }
+
+    fn freeze_surrogate(&self, buf: &mut Vec<u8>) -> Result<(), ENNError> {
+        use crate::snapshot_io::{write_bool, write_int, write_real};
+        match &self.model {
+            Some(model) => {
+                write_bool(buf, true);
+                model.freeze_model(buf)?;
+            }
+            None => {
+                write_bool(buf, false);
+                return Ok(());
+            }
+        }
+        match self.params {
+            Some(p) => {
+                write_bool(buf, true);
+                write_int(buf, p.k_neighbors);
+                write_real(buf, p.epistemic_scale);
+                write_real(buf, p.aleatoric_scale);
+            }
+            None => write_bool(buf, false),
+        }
+        match &self.fitter {
+            Some(fitter) => {
+                write_bool(buf, true);
+                fitter.freeze_fitter(buf);
+            }
+            None => write_bool(buf, false),
+        }
+        Ok(())
+    }
+
+    fn thaw_surrogate(&mut self, bytes: &[u8], pos: &mut usize) -> Result<(), ENNError> {
+        use crate::snapshot_io::{WireReader, bad_state};
+        let mut reader = WireReader::from_slice(bytes, *pos);
+        self.clear_observations()?;
+        if !reader.read_bool()? {
+            *pos = reader.position();
+            return Ok(());
+        }
+        let model = ENN::thaw_model(
+            crate::ModelOptions {
+                scale_x: self.config.scale_x,
+                driver: self.config.index_driver,
+                storage: self.config.storage,
+                work_dir: self.config.work_dir.clone(),
+                y_bounds: self.config.y_bounds.clone(),
+            },
+            self.config.tied_dims.clone(),
+            if self.config.scale_x || self.config.metric_learning == MetricLearning::Auto {
+                self.config.unscaled_dims.clone()
+            } else {
+                Vec::new()
+            },
+            self.config.geometry,
+            self.config.stiefel.clone(),
+            self.config.affine.clone(),
+            &mut reader,
+        )?;
+        let params = if reader.read_bool()? {
+            let kn = reader.read_int()?;
+            let ep = reader.read_finite()?;
+            let al = reader.read_finite()?;
+            Some(ENNParams::new(kn, ep, al).map_err(|e| bad_state(e.to_string()))?)
+        } else {
+            None
+        };
+        let fitter = if reader.read_bool()? {
+            Some(ENNFitter::thaw_fitter(
+                self.config.y_bounds.clone(),
+                &mut reader,
+            )?)
+        } else {
+            None
+        };
+        self.model = Some(model);
+        self.params = params;
+        self.fitter = fitter;
+        self.refresh_online()?;
+        *pos = reader.position();
+        Ok(())
+    }
+
+    fn hash_surrogate(&self, buf: &mut Vec<u8>) {
+        let _ = self.freeze_surrogate(buf);
     }
 
     fn clone_box(&self) -> Result<BoxedSurrogate, ENNError> {

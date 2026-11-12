@@ -120,6 +120,7 @@ pub mod search;
 pub mod semantics;
 pub use semantics as baux_semantics;
 pub mod sense;
+pub(crate) mod snapshot_io;
 pub mod stats;
 pub mod strategy;
 pub mod surrogate;

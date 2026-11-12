@@ -69,6 +69,64 @@ impl ENNFitter {
         self.params = Some(params);
     }
 
+    pub(crate) fn freeze_fitter(&self, buf: &mut Vec<u8>) {
+        use crate::snapshot_io::{write_arr, write_bool, write_int, write_len, write_real};
+        write_int(buf, self.k);
+        write_bool(buf, self.infer_aleatoric_variance);
+        match self.params {
+            Some(p) => {
+                write_bool(buf, true);
+                write_int(buf, p.k_neighbors);
+                write_real(buf, p.epistemic_scale);
+                write_real(buf, p.aleatoric_scale);
+            }
+            None => write_bool(buf, false),
+        }
+        write_len(buf, self.y_count);
+        write_len(buf, self.num_metrics);
+        write_arr(buf, &self.y_sum);
+        write_arr(buf, &self.y_sumsq);
+    }
+
+    pub(crate) fn thaw_fitter(
+        y_bounds: Option<Array2<f64>>,
+        reader: &mut crate::snapshot_io::WireReader<'_>,
+    ) -> Result<Self, ENNError> {
+        use crate::snapshot_io::{MAX_METRICS, MAX_OBS, bad_state};
+        let k = reader.read_int()?;
+        if k <= 0 {
+            return Err(bad_state("frozen fitter k must be > 0"));
+        }
+        let infer_aleatoric = reader.read_bool()?;
+        let params = if reader.read_bool()? {
+            let kn = reader.read_int()?;
+            let ep = reader.read_finite()?;
+            let al = reader.read_finite()?;
+            Some(ENNParams::new(kn, ep, al).map_err(|e| bad_state(e.to_string()))?)
+        } else {
+            None
+        };
+        let y_count = reader.read_len(MAX_OBS)?;
+        let num_metrics = reader.read_len(MAX_METRICS)?;
+        let expected = if y_count == 0 { 0 } else { num_metrics };
+        let y_sum = reader.read_arr(expected, true)?;
+        let y_sumsq = reader.read_arr(expected, true)?;
+        Ok(Self {
+            k,
+            infer_aleatoric_variance: infer_aleatoric,
+            params,
+            y_bounds,
+            y_sum,
+            y_sumsq,
+            y_count,
+            num_metrics,
+        })
+    }
+
+    pub(crate) fn hash_fitter(&self, buf: &mut Vec<u8>) {
+        self.freeze_fitter(buf);
+    }
+
     pub fn y_stats(&mut self, y: &ArrayView2<f64>) {
         self.y_count = y.nrows();
         self.num_metrics = y.ncols();

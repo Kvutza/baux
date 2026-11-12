@@ -293,6 +293,47 @@ pub fn hash_file(path: &Path) -> Result<String, String> {
     Ok(hash_hex(&bytes))
 }
 
+/// Compute the 64-character lowercase hexadecimal SHA-256 digest of `input`.
+pub fn sha256_hex(input: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    let digest: [u8; 32] = Sha256::digest(input).into();
+    hex_encode(&digest)
+}
+
+/// Compute the standard base64-encoded SHA-384 digest for Subresource Integrity
+/// (`sha384-...`).
+pub fn sha384_sri(input: &[u8]) -> String {
+    use sha2::{Digest, Sha384};
+    let digest = Sha384::digest(input);
+    base64_encode(&digest)
+}
+
+fn base64_encode(bytes: &[u8]) -> String {
+    const B64: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    let mut i = 0;
+    while i < bytes.len() {
+        let b0 = bytes[i];
+        let b1 = if i + 1 < bytes.len() { bytes[i + 1] } else { 0 };
+        let b2 = if i + 2 < bytes.len() { bytes[i + 2] } else { 0 };
+        let n = ((b0 as u32) << 16) | ((b1 as u32) << 8) | (b2 as u32);
+        out.push(B64[((n >> 18) & 0x3f) as usize] as char);
+        out.push(B64[((n >> 12) & 0x3f) as usize] as char);
+        out.push(if i + 1 < bytes.len() {
+            B64[((n >> 6) & 0x3f) as usize] as char
+        } else {
+            '='
+        });
+        out.push(if i + 2 < bytes.len() {
+            B64[(n & 0x3f) as usize] as char
+        } else {
+            '='
+        });
+        i += 3;
+    }
+    out
+}
+
 fn hex_encode(bytes: &[u8; OUT_LEN]) -> String {
     const LUT: &[u8; 16] = b"0123456789abcdef";
     let mut out = String::with_capacity(OUT_LEN * 2);

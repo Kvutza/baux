@@ -300,19 +300,152 @@ def test_fork():
 
 
 def test_freeze():
-    cfg = baux.chain(baux.sobol(4), baux.enn(k=3), baux.ucb())
-    s0 = baux.init([[-2.0, 2.0], [-2.0, 2.0]], cfg)
-    s1, batch = baux.ask(s0, 4)
-    s2, _ = baux.tell(s1, batch, -np.sum(batch.points**2, axis=1))
-    d_orig = baux.digest(s2)
-    s_restored = baux.thaw(s0, baux.freeze(s2))
-    assert (
-        baux.digest(s_restored) == d_orig
-        and s_restored.num_observations == s2.num_observations
+    cfg = baux.chain(
+        baux.lhd(8),
+        baux.sobol(64),
+        baux.enn(k=5, scale_x=True),
+        baux.ucb(),
     )
-    assert np.allclose(s_restored.x_obs, s2.x_obs) and np.allclose(
-        s_restored.y_obs, s2.y_obs
+    bounds = np.tile([-3.0, 3.0], (40, 1))
+    s0 = baux.init(bounds, cfg, key=baux.key(42))
+
+    s = s0
+    for step in range(10):
+        s, batch = baux.ask(s, 8)
+        norm = np.sum(batch.points**2, axis=1)
+        y = (100.0 - 1e-3 * norm) if step == 0 else (-50.0 * float(step) - 1e-3 * norm)
+        yvar = 0.01 + 0.002 * np.arange(8, dtype=float)
+        s, _ = baux.tell(s, batch, y, y_var=yvar)
+
+    assert s.num_observations == 80
+    assert s.epoch == 20
+    assert abs(s.tr_length - 0.4) < 1e-12
+
+    blob = baux.freeze(s)
+    s_restored = baux.thaw(s0, blob)
+    assert s_restored.num_observations == 80
+    assert s_restored.epoch == s.epoch == 20
+    assert s_restored.seed == s.seed
+    assert s_restored.tr_length == s.tr_length
+    assert baux.digest(s_restored) == baux.digest(s)
+    assert baux.freeze(s_restored) == blob
+    assert np.array_equal(s_restored.x_obs, s.x_obs)
+    assert np.array_equal(s_restored.y_obs, s.y_obs)
+
+    xq = np.linspace(-1.0, 1.0, 80).reshape(2, 40)
+    assert np.array_equal(baux.posterior_mu(s_restored, xq), baux.posterior_mu(s, xq))
+
+    s_after_live = s
+    s_after_rest = s_restored
+    for _ in range(2):
+        s_next_live, b_live = baux.ask(s_after_live, 8)
+        s_next_rest, b_rest = baux.ask(s_after_rest, 8)
+        assert np.array_equal(b_live.points, b_rest.points)
+        assert b_live.ids == b_rest.ids
+        assert baux.digest(s_next_live) == baux.digest(s_next_rest)
+        y_fail = -500.0 - np.sum(b_live.points**2, axis=1)
+        yv_fail = 0.02 + 0.001 * np.arange(8, dtype=float)
+        s_after_live, _ = baux.tell(s_next_live, b_live, y_fail, y_var=yv_fail)
+        s_after_rest, _ = baux.tell(s_next_rest, b_rest, y_fail, y_var=yv_fail)
+        assert s_after_rest.tr_length == s_after_live.tr_length
+        assert baux.digest(s_after_rest) == baux.digest(s_after_live)
+    assert abs(s_after_rest.tr_length - 0.2) < 1e-12
+
+    # Verify y_var requirement is preserved on restored state
+    with pytest.raises(ValueError, match="y_var"):
+        baux.tell(s_restored, b_rest, y_fail)
+
+    # Forked seed + scan/pmap rollout commutativity
+    s_clean, _ = baux.scan(
+        s0,
+        baux.key(19),
+        steps=6,
+        eval_fn=lambda x: -np.sum((x - 0.25) ** 2, axis=1),
+        num_arms=4,
+    )[:2]
+    s_fork = s_clean.fork(baux.key(777))
+    assert baux.digest(s_fork) != baux.digest(s_clean)
+    s_fork_rest = baux.thaw(s0, baux.freeze(s_fork))
+    assert baux.digest(s_fork_rest) == baux.digest(s_fork)
+
+    def fn(x):
+        return -np.sum((x - 0.25) ** 2, axis=1)
+
+    roll_live = baux.pmap(
+        s_fork,
+        baux.key(99),
+        branches=4,
+        branch_fn=lambda i, st, k: baux.digest(
+            baux.scan(st, k, steps=3, eval_fn=fn, num_arms=2)[0]
+        ),
     )
+    roll_rest = baux.pmap(
+        s_fork_rest,
+        baux.key(99),
+        branches=4,
+        branch_fn=lambda i, st, k: baux.digest(
+            baux.scan(st, k, steps=3, eval_fn=fn, num_arms=2)[0]
+        ),
+    )
+    assert roll_live == roll_rest and len(set(roll_live)) == 4
+
+
+def test_freezeportfolio():
+    bounds = np.tile([-3.0, 3.0], (4, 1))
+    pipe = (
+        baux.lhd(6)
+        | baux.enn(k=4)
+        | baux.thompson()
+        | baux.regions(count=4, sharing="ellipsoid_ball")
+    )
+    s0 = baux.init(bounds, pipe, key=baux.key(101))
+
+    def fn(x):
+        return -np.sum((x - 0.35) ** 2, axis=1)
+
+    s_warm, b_init = baux.ask(s0, num_arms=6)
+    s_warm = baux.complete(s_warm, b_init.ids, fn(b_init.points))
+
+    s_live, b1 = baux.ask(s_warm, num_arms=2)
+    s_live, b2 = baux.ask(s_live, num_arms=2)
+    s_live = baux.complete(s_live, [b2.ids[0]], fn(b2.points[:1]))
+    s_live = baux.cancel(s_live, [b2.ids[1]])
+
+    # Checkpoint while b1 is STILL in flight
+    assert s_live.pending_ids is not None and len(s_live.pending_ids) == 2
+    blob = baux.freeze(s_live)
+    s_rest = baux.thaw(s0, blob)
+    assert s_rest.pending_ids == s_live.pending_ids
+    assert s_rest.epoch == s_live.epoch
+    assert baux.digest(s_rest) == baux.digest(s_live)
+    assert baux.freeze(s_rest) == blob
+
+    # Resolve in-flight b1 on both live and restored states
+    s_live_done = baux.complete(s_live, b1.ids, fn(b1.points))
+    s_rest_done = baux.complete(s_rest, b1.ids, fn(b1.points))
+    assert s_rest_done.pending_ids is None
+    assert baux.digest(s_rest_done) == baux.digest(s_live_done)
+
+    s_live_next, bn_live = baux.ask(s_live_done, num_arms=2)
+    s_rest_next, bn_rest = baux.ask(s_rest_done, num_arms=2)
+    assert np.array_equal(bn_live.points, bn_rest.points)
+    assert baux.digest(s_live_next) == baux.digest(s_rest_next)
+
+    # Gate 3 adversarial inputs across FFI
+    import pytest
+
+    with pytest.raises(TypeError):
+        baux.thaw(s0, 12345)  # type: ignore[arg-type]
+    with pytest.raises(ValueError):
+        baux.thaw(s0, b"")
+    with pytest.raises(ValueError):
+        baux.thaw(s0, blob[:-1] + bytes([blob[-1] ^ 0xFF]))
+    s_other_bounds = baux.init(np.tile([-1.0, 1.0], (4, 1)), pipe, key=baux.key(101))
+    with pytest.raises(ValueError):
+        baux.thaw(s_other_bounds, blob)
+    s_single = baux.init(bounds, baux.lhd(6) | baux.enn(k=4), key=baux.key(101))
+    with pytest.raises(ValueError):
+        baux.thaw(s_single, blob)
 
 
 def test_manifolds():

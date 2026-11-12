@@ -33,6 +33,7 @@ pub(super) fn shared_batch(
             y_neighbors: &data.y_neighbors.view(),
             params: &paramss[0],
             observation_noise: flags.observation_noise,
+            adaptive_neighbors: flags.adaptive_neighbors,
             yvar_neighbors_override: None,
         };
 

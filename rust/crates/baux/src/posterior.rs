@@ -387,6 +387,7 @@ pub fn compute_internals(
             y_neighbors: &data.y_neighbors.view(),
             params,
             observation_noise: flags.observation_noise,
+            adaptive_neighbors: flags.adaptive_neighbors,
             yvar_neighbors_override: None,
         };
         compute_posterior(model, wp_data, None)
@@ -484,6 +485,7 @@ pub fn conditional_internals(
             y_neighbors: &data.y_neighbors.view(),
             params,
             observation_noise: flags.observation_noise,
+            adaptive_neighbors: flags.adaptive_neighbors,
             yvar_neighbors_override: None,
         };
         compute_posterior(model, wp_data, Some(&y_scale_cond.view()))

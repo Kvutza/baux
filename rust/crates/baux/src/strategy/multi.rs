@@ -6,6 +6,10 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 static NEXT_ID: AtomicU64 = AtomicU64::new(1);
 
+pub(crate) fn bump_ids(min_next: u64) {
+    let _ = NEXT_ID.fetch_max(min_next, Ordering::Relaxed);
+}
+
 fn issue_ids(count: usize) -> Result<Vec<crate::optimizer::EvaluationId>, ENNError> {
     let count = u64::try_from(count)
         .map_err(|_| ENNError::InvalidParameter("arm count exceeds identity space".into()))?;

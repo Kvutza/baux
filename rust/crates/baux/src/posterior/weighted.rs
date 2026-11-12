@@ -32,6 +32,7 @@ pub struct WeightedPosteriorData<'a> {
     pub y_neighbors: &'a ArrayView2<'a, f64>,
     pub params: &'a ENNParams,
     pub observation_noise: bool,
+    pub adaptive_neighbors: bool,
     /// When set, use this instead of gathering from model (for conditional with
     /// whatif).
     pub yvar_neighbors_override: Option<&'a Array2<f64>>,
@@ -81,12 +82,13 @@ pub fn compute_posterior(
         None
     };
 
-    let stats = compute_impl(
+    let stats = compute_adaptive(
         data.dist2s,
         data.y_neighbors,
         yvar_neighbors.as_ref().map(|v| v.view()),
         data.params,
         data.observation_noise,
+        data.adaptive_neighbors,
         &y_scale.view(),
     )?;
 
@@ -185,6 +187,26 @@ pub fn compute_impl(
     observation_noise: bool,
     y_scale: &ArrayView1<f64>,
 ) -> Result<WeightedStats, ENNError> {
+    compute_adaptive(
+        dist2s,
+        y_neighbors,
+        yvar_neighbors,
+        params,
+        observation_noise,
+        false,
+        y_scale,
+    )
+}
+
+pub fn compute_adaptive(
+    dist2s: &ArrayView2<f64>,
+    y_neighbors: &ArrayView2<f64>,
+    yvar_neighbors: Option<ArrayView2<f64>>,
+    params: &ENNParams,
+    observation_noise: bool,
+    adapt_neighbors: bool,
+    y_scale: &ArrayView1<f64>,
+) -> Result<WeightedStats, ENNError> {
     let n_query = dist2s.nrows();
     let k = dist2s.ncols();
     let num_metrics = y_scale.len();
@@ -208,17 +230,36 @@ pub fn compute_impl(
     let yvar_ref = yvar_neighbors.as_ref();
 
     for i in 0..n_query {
+        let dist_row = dist2s.row(i);
         let var_epi_row = var_epi.row(i);
-        for j in 0..k {
-            let var_epi_ij = var_epi_row[j];
-            let idx = i * k + j;
-            for m in 0..num_metrics {
+        for m in 0..num_metrics {
+            let k_used = if adapt_neighbors && k > 0 {
+                let mut prefix = crate::semantics::neighbor::Prefix::default();
+                for j in 0..k {
+                    let var_y = if let Some(yv) = yvar_ref {
+                        yv[[i * k + j, m]] / y_scale_sq[m]
+                    } else {
+                        0.0
+                    };
+                    prefix.push(
+                        (j + 1) as u32,
+                        dist_row[j],
+                        epistemic_scale,
+                        aleatoric_scale + var_y,
+                    );
+                }
+                (prefix.count as usize).clamp(1, k)
+            } else {
+                k
+            };
+            for j in 0..k_used {
+                let idx = i * k + j;
                 let var_y = if let Some(yv) = yvar_ref {
                     yv[[idx, m]] / y_scale_sq[m]
                 } else {
                     0.0
                 };
-                let var_total = EPS_VAR + var_epi_ij + aleatoric_scale + var_y;
+                let var_total = EPS_VAR + var_epi_row[j] + aleatoric_scale + var_y;
                 w[[idx, m]] = 1.0 / var_total;
             }
         }

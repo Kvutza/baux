@@ -6,13 +6,14 @@ use crate::knn::KnnBackend;
 use crate::knn::{CudaParam, KnnBatch, KnnPosterior};
 pub use crate::knn::{IndexDriver, IndexKind, disk_driver};
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 pub struct Index {
     pub(crate) inner: Arc<KnnBackend>,
     num_dim: usize,
     x_scale: Mutex<Array1<f64>>,
-    scale_x: bool,
+    scale_x: AtomicBool,
     driver: IndexDriver,
 }
 
@@ -24,7 +25,7 @@ impl Clone for Index {
             inner: Arc::clone(&self.inner),
             num_dim: self.num_dim,
             x_scale: Mutex::new(self.scale_vec()),
-            scale_x: self.scale_x,
+            scale_x: AtomicBool::new(self.scales_x()),
             driver: self.driver,
         }
     }
@@ -43,7 +44,7 @@ impl Index {
             inner,
             num_dim,
             x_scale: Mutex::new(x_scale),
-            scale_x,
+            scale_x: AtomicBool::new(scale_x),
             driver,
         })
     }
@@ -53,7 +54,11 @@ impl Index {
     }
 
     pub(crate) fn scales_x(&self) -> bool {
-        self.scale_x
+        self.scale_x.load(Ordering::Acquire)
+    }
+
+    pub(crate) fn set_scaling(&self, scale_x: bool) {
+        self.scale_x.store(scale_x, Ordering::Release);
     }
 
     pub fn driver(&self) -> IndexDriver {
@@ -87,7 +92,7 @@ impl Index {
         }
         let x_scale = self.x_scale.lock().expect("x_scale mutex poisoned").clone();
         let start_key = self.len() as u64;
-        if self.scale_x {
+        if self.scales_x() {
             let x_scaled = x / &x_scale.view().insert_axis(Axis(0));
             self.inner.add(&x_scaled.view(), start_key)
         } else {
@@ -125,7 +130,7 @@ impl Index {
             )
         } else {
             let k_eff = search_k.min(n_train);
-            if self.scale_x {
+            if self.scales_x() {
                 let x_scaled = x / &x_scale.view().insert_axis(Axis(0));
                 self.inner.search(&x_scaled.view(), k_eff, search_k)?
             } else {
@@ -171,7 +176,7 @@ impl Index {
             });
         }
         let x_scale = self.x_scale.lock().expect("x_scale mutex poisoned").clone();
-        if self.scale_x {
+        if self.scales_x() {
             let x_scaled = x / &x_scale.view().insert_axis(Axis(0));
             self.inner.cuda_posterior(
                 &x_scaled.view(),
@@ -219,7 +224,7 @@ impl Index {
             });
         }
         let x_scale = self.x_scale.lock().expect("x_scale mutex poisoned").clone();
-        if self.scale_x {
+        if self.scales_x() {
             let x_scaled = x / &x_scale.view().insert_axis(Axis(0));
             self.inner.cuda_weighted(
                 &x_scaled.view(),
@@ -269,7 +274,7 @@ impl Index {
             });
         }
         let x_scale = self.x_scale.lock().expect("x_scale mutex poisoned").clone();
-        if self.scale_x {
+        if self.scales_x() {
             let x_scaled = x / &x_scale.view().insert_axis(Axis(0));
             self.inner.cuda_batch(
                 &x_scaled.view(),
@@ -318,7 +323,7 @@ impl Index {
             });
         }
         let x_scale = self.x_scale.lock().expect("x_scale mutex poisoned").clone();
-        if self.scale_x {
+        if self.scales_x() {
             let x_scaled = x / &x_scale.view().insert_axis(Axis(0));
             self.inner.cuda_draws(
                 &x_scaled.view(),
@@ -373,7 +378,7 @@ impl Index {
             });
         }
         let x_scale = self.x_scale.lock().expect("x_scale mutex poisoned").clone();
-        if self.scale_x {
+        if self.scales_x() {
             let (x_scaled, whatif_scaled): (Array2<f64>, Array2<f64>) = (
                 x / &x_scale.view().insert_axis(Axis(0)),
                 x_whatif / &x_scale.view().insert_axis(Axis(0)),
@@ -432,7 +437,7 @@ impl Index {
             });
         }
         let x_scale = self.x_scale.lock().expect("x_scale mutex poisoned").clone();
-        if self.scale_x {
+        if self.scales_x() {
             let (x_scaled, whatif_scaled): (Array2<f64>, Array2<f64>) = (
                 x / &x_scale.view().insert_axis(Axis(0)),
                 x_whatif / &x_scale.view().insert_axis(Axis(0)),

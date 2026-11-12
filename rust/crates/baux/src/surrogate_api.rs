@@ -126,6 +126,24 @@ pub trait Surrogate: Send + Sync {
             "surrogate does not support cloning".to_string(),
         ))
     }
+
+    fn freeze_surrogate(&self, buf: &mut Vec<u8>) -> Result<(), ENNError> {
+        let _ = buf;
+        Err(ENNError::InvalidParameter(
+            "surrogate does not support binary checkpointing".to_string(),
+        ))
+    }
+
+    fn thaw_surrogate(&mut self, bytes: &[u8], pos: &mut usize) -> Result<(), ENNError> {
+        let _ = (bytes, pos);
+        Err(ENNError::InvalidParameter(
+            "surrogate does not support binary checkpointing".to_string(),
+        ))
+    }
+
+    fn hash_surrogate(&self, buf: &mut Vec<u8>) {
+        let _ = buf;
+    }
 }
 
 pub type BoxedSurrogate = Box<dyn Surrogate + Send + Sync>;

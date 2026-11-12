@@ -47,6 +47,30 @@ def test_snippets():
         ns: dict = {}
         exec(snippet, ns, ns)
 
+    docs_path = ROOT / "forest/output/baux-0007.html"
+    if not docs_path.is_file():
+        docs_path = ROOT / ".cache/pages-bundle/docs.html"
+    if not docs_path.is_file():
+        with tempfile.TemporaryDirectory() as tmpdir:
+            bundle_dir = Path(tmpdir)
+            assemble_bundle(bundle_dir)
+            cand = bundle_dir / "docs.html"
+            if not cand.is_file():
+                cand = bundle_dir / "baux-0007.html"
+            docs_html = cand.read_text(encoding="utf-8")
+    else:
+        docs_html = docs_path.read_text(encoding="utf-8")
+
+    docs_snippets = [
+        html.unescape(s)
+        for s in re.findall(r"<pre[^>]*>(.*?)</pre>", docs_html, flags=re.DOTALL)
+        if "import baux" in s
+    ]
+    assert len(docs_snippets) >= 6
+    for snippet in docs_snippets:
+        ns: dict = {}
+        exec(snippet, ns, ns)
+
 
 def write_synthetic(dest: Path) -> None:
     (dest / "assets").mkdir(parents=True, exist_ok=True)

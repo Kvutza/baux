@@ -1,67 +1,53 @@
-\title{Product Manifolds & Subspace Contraction}
+\title{Structured Inputs & Multi-Output Shrinkage}
 
 \subtree{
-  \title{Section–Retraction Charts on Product Spaces}
+  \title{Parameter Coordinate Maps}
 
   \p{
-    Structured parameter spaces factor as products #{\mathcal{M} = \prod_{\ell=1}^L \mathcal{M}_\ell} across multiplicative scales, periodic phases, probability simplices, and discrete sets. Each factor #{\mathcal{M}_\ell} is equipped with a section #{\psi_\ell : \mathcal{M}_\ell \to \mathcal{U}_\ell \subseteq \mathbb{R}^{d_\ell}} into flat solver coordinates and a retraction #{\rho_\ell : \mathcal{U}_\ell \to \mathcal{M}_\ell} satisfying #{\rho_\ell \circ \psi_\ell = \mathrm{id}_{\mathcal{M}_\ell}}, so neighbor search and trust-region perturbations operate in #{\mathcal{U} = \prod_\ell \mathcal{U}_\ell} while evaluations retract cleanly onto #{\mathcal{M}}:
-  }
-
-  ##{
-    \begin{CD}
-      \mathcal{M}_\ell @>{\psi_\ell}>> \mathcal{U}_\ell \\
-      @V{\mathrm{id}_{\mathcal{M}_\ell}}VV @VV{\rho_\ell}V \\
-      \mathcal{M}_\ell @= \mathcal{M}_\ell
-    \end{CD}
-  }
-
-  \p{
-    Euclidean distance on #{\mathcal{U}_\ell} pulls back to intrinsic geometry on each factor:
+    Domains passed to [baux.init](docs.html#baux.init) can be nested Python dicts, tuples, or dataclasses (\code{PyTree}s) combining positive scale variables, periodic angles, mixture weights, and discrete choices #{\mathcal{M} = \prod_{\ell=1}^L \mathcal{M}_\ell}. Each leaf specification maps parameter values #{x \in \mathcal{M}_\ell} into flat solver coordinates #{\psi_\ell : \mathcal{M}_\ell \to \mathcal{U}_\ell \subseteq \mathbb{R}^{d_\ell}} where neighbor distances and trust-region boxes are computed, and decodes proposals back via #{\rho_\ell : \mathcal{U}_\ell \to \mathcal{M}_\ell} with #{\rho_\ell(\psi_\ell(x)) = x}:
   }
 
   \ul{
     \li{
-      \strong{Multiplicative intervals} ([baux.Log](docs.html#baux.Log)): On #{[a, b] \subset \mathbb{R}_+}, the logarithmic section and exponential retraction
+      \strong{Log-scale intervals} ([baux.Log](docs.html#baux.Log)): On #{[a, b] \subset \mathbb{R}_+},
       ##{
-        \psi(x) = \frac{\log x - \log a}{\log b - \log a} \in [0, 1], \qquad \rho(u) = a\left(\frac{b}{a}\right)^{\Pi_{[0,1]}(u)}
+        \psi(x) = \frac{\log x - \log a}{\log b - \log a} \in [0, 1], \qquad \rho(u) = a\left(\frac{b}{a}\right)^{\Pi_{[0,1]}(u)},
       }
-      pull back Euclidean distance to the scale-invariant metric #{ds^2 = \tfrac{dx^2}{x^2}} up to #{\bigl(\log b - \log a\bigr)^{-2}}.
+      so uniform steps in #{u} correspond to constant multiplicative ratios in #{x}.
     }
     \li{
-      \strong{Circular phases} ([baux.Periodic](docs.html#baux.Periodic)): On #{\lbrack a, b\rparen \cong S^1} of period #{P = b - a} with phase #{\phi(x) = \tfrac{2\pi(x - a)}{P}}, the unit-circumference embedding and #{\operatorname{atan2}} retraction
+      \strong{Periodic intervals} ([baux.Periodic](docs.html#baux.Periodic)): On #{\lbrack a, b\rparen} of period #{P = b - a} with phase #{\phi(x) = \tfrac{2\pi(x - a)}{P}}, circle embedding and #{\operatorname{atan2}} decoding,
       ##{
-        \psi(x) = \left(\frac{1}{2} + \frac{\cos\phi(x)}{2\pi},\; \frac{1}{2} + \frac{\sin\phi(x)}{2\pi}\right), \qquad d_{\mathcal{U}}\bigl(\psi(x), \psi(x')\bigr) = \frac{1}{\pi}\left|\sin\left(\frac{\phi(x) - \phi(x')}{2}\right)\right|
+        \psi(x) = \left(\frac{1}{2} + \frac{\cos\phi(x)}{2\pi},\; \frac{1}{2} + \frac{\sin\phi(x)}{2\pi}\right), \qquad d_{\mathcal{U}}\bigl(\psi(x), \psi(x')\bigr) = \frac{1}{\pi}\left|\sin\left(\frac{\phi(x) - \phi(x')}{2}\right)\right|,
       }
-      induce chordal distance on #{S^1} without boundary-wrap discontinuities.
+      avoid artificial jumps across the wrap boundary #{a \equiv b}.
     }
     \li{
-      \strong{Probability simplices} ([baux.Simplex](docs.html#baux.Simplex)): On #{\Delta^{d-1}}, the positive-orthant square-root section and projective retraction
+      \strong{Probability simplices} ([baux.Simplex](docs.html#baux.Simplex)): On #{\Delta^{d-1}}, the square-root map onto the positive unit sphere and radial normalization,
       ##{
-        \psi(p) = \bigl(\sqrt{p_1}, \dots, \sqrt{p_d}\bigr) \in S_+^{d-1}, \qquad \rho(u) = \frac{\max(u, 0)^{\odot 2}}{\Vert\max(u, 0)\Vert_2^2}
+        \psi(p) = \bigl(\sqrt{p_1}, \dots, \sqrt{p_d}\bigr) \in S_+^{d-1}, \qquad \rho(u) = \frac{\max(u, 0)^{\odot 2}}{\Vert\max(u, 0)\Vert_2^2},
       }
-      pull back the ambient metric to #{\tfrac{1}{4}\,g_{\mathrm{FR}}} on #{\operatorname{int}(\Delta^{d-1})}, with squared chordal distance matching squared Hellinger distance #{\sum_{j=1}^d \bigl(\sqrt{p_j} - \sqrt{q_j}\bigr)^2}.
+      make squared Euclidean distance in #{\mathcal{U}} equal to squared Hellinger distance #{\sum_{j=1}^d \bigl(\sqrt{p_j} - \sqrt{q_j}\bigr)^2}.
     }
-    \li{\strong{Constant-norm discrete codebooks} ([baux.categorical](docs.html#baux.categorical)): Finite sets #{\{1, \dots, C\}} embed into #{\mathbb{R}^{d_c}} via constant-norm orthogonal or Rademacher codewords #{\psi(c)}, reducing nearest-codeword retraction #{\rho(u) = \arg\min_c \Vert u - \psi(c)\Vert_2} to maximum inner-product decoding #{\arg\max_c \langle u, \psi(c)\rangle}.}
+    \li{
+      \strong{Discrete sets} ([baux.categorical](docs.html#baux.categorical)): Finite choices #{\{1, \dots, C\}} map to equal-norm orthogonal or Rademacher codewords #{\psi(c) \in \mathbb{R}^{d_c}}, reducing nearest-codeword decoding to #{\rho(u) = \arg\max_c \langle u, \psi(c)\rangle}.
+    }
   }
 }
 
 \subtree{
-  \title{Stiefel Signal-Subspace Contraction}
+  \title{Linear Subspace Shrinkage}
 
   \p{
-    When evaluations return correlated multi-output vectors #{y = \theta + \eta \in \mathbb{R}^M} concentrated near a low-rank signal subspace, a loading matrix #{L \in \mathbb{R}^{M \times r}} (#{1 \le r < M}) orthonormalizes onto the Stiefel manifold #{V = L(L^\top L)^{-\frac{1}{2}} \in \mathrm{St}(r, M)} ([baux.Stiefel](docs.html#baux.Stiefel)) with orthogonal complement #{V_\perp \in \mathrm{St}(M-r, M)}. Under #{P \eqdef (V^\top,\, V_\perp^\top)^\top : \mathbb{R}^M \xrightarrow{\cong} \mathbb{R}^r \oplus \mathbb{R}^{M-r}}, subspace contraction leaves tangent coordinates #{z_\parallel = V^\top y} intact while shrinking normal coordinates #{z_\perp = V_\perp^\top y} (Stein [[Ste56]](https://projecteuclid.org/ebooks/berkeley-symposium-on-mathematical-statistics-and-probability/Proceedings-of-the-Third-Berkeley-Symposium-on-Mathematical-Statistics-and/chapter/Inadmissibility-of-the-Usual-Estimator-for-the-Mean-of-a/bsmsp/1200501656), James & Stein [[JS61]](https://projecteuclid.org/ebooks/berkeley-symposium-on-mathematical-statistics-and-probability/Proceedings-of-the-Fourth-Berkeley-Symposium-on-Mathematical-Statistics-and/chapter/Estimation-with-Quadratic-Loss/bsmsp/1200512173)):
+    When each evaluation returns #{M} noisy outputs #{y = \theta + \eta \in \mathbb{R}^M} concentrated near a low-rank subspace, [baux.Stiefel](docs.html#baux.Stiefel) orthonormalizes a basis matrix #{L \in \mathbb{R}^{M \times r}} (#{1 \le r < M}) into #{V = L(L^\top L)^{-1/2}} with orthogonal complement #{V_\perp}. Writing #{z_\parallel = V^\top y} and #{z_\perp = V_\perp^\top y}, a linear shrinkage estimator leaves components in #{\operatorname{col}(V)} unchanged and damps the orthogonal residual by #{\alpha \in [0, 1]} (Stein [[Ste56]](https://projecteuclid.org/ebooks/berkeley-symposium-on-mathematical-statistics-and-probability/Proceedings-of-the-Third-Berkeley-Symposium-on-Mathematical-Statistics-and/chapter/Inadmissibility-of-the-Usual-Estimator-for-the-Mean-of-a/bsmsp/1200501656), James & Stein [[JS61]](https://projecteuclid.org/ebooks/berkeley-symposium-on-mathematical-statistics-and-probability/Proceedings-of-the-Fourth-Berkeley-Symposium-on-Mathematical-Statistics-and/chapter/Estimation-with-Quadratic-Loss/bsmsp/1200512173)):
   }
 
   ##{
-    \begin{CD}
-      \mathbb{R}^M @>{P}>> \mathbb{R}^r \oplus \mathbb{R}^{M-r} \\
-      @V{\hat{T}_{\alpha}}VV @VV{I_r \oplus \alpha I_{M-r}}V \\
-      \mathbb{R}^M @<<{P^\top}< \mathbb{R}^r \oplus \mathbb{R}^{M-r}
-    \end{CD}
+    \hat{\theta}_\alpha = V V^\top y + \alpha (I_M - V V^\top) y = V z_\parallel + \alpha V_\perp z_\perp.
   }
 
   \p{
-    With zero-mean noise variances #{v_\parallel \eqdef \mathbb{E}\Vert V^\top \eta\Vert_2^2} and #{v_\perp \eqdef \mathbb{E}\Vert V_\perp^\top \eta\Vert_2^2 > 0} and off-subspace signal energy #{b_\perp^2 \eqdef \Vert V_\perp^\top \theta\Vert_2^2}, the linear class #{\hat{\theta}_\alpha = V z_\parallel + \alpha V_\perp z_\perp} attains its minimum quadratic risk #{\mathcal{R}(\alpha) = \mathbb{E}\Vert\hat{\theta}_\alpha - \theta\Vert_2^2} at the oracle contraction factor #{\alpha^*}, strictly improving upon unshrunk estimation:
+    With zero-mean noise variances #{v_\parallel = \mathbb{E}\Vert V^\top \eta\Vert_2^2} and #{v_\perp = \mathbb{E}\Vert V_\perp^\top \eta\Vert_2^2 > 0} and off-subspace signal energy #{b_\perp^2 = \Vert V_\perp^\top \theta\Vert_2^2}, the mean squared error #{\mathcal{R}(\alpha) = \mathbb{E}\Vert\hat{\theta}_\alpha - \theta\Vert_2^2} is minimized at
   }
 
   ##{
@@ -69,19 +55,11 @@
   }
 
   \p{
-    Under isotropic Gaussian noise in normal codimension #{M - r \ge 3}, positive-part James–Stein shrinkage uniformly dominates #{\alpha = 1} ([[JS61]](https://projecteuclid.org/ebooks/berkeley-symposium-on-mathematical-statistics-and-probability/Proceedings-of-the-Fourth-Berkeley-Symposium-on-Mathematical-Statistics-and/chapter/Estimation-with-Quadratic-Loss/bsmsp/1200512173), Efron & Morris [[EM73]](https://doi.org/10.1080/01621459.1973.10481350)), whereas [baux.stein](docs.html#baux.stein) applies the empirical moment-ratio plug-in across any #{M - r \ge 1}:
-  }
-
-  ##{
-    \hat{\alpha} = \frac{\Vert z_\perp\Vert_2^2}{\Vert z_\perp\Vert_2^2 + \hat{v}_\perp}.
+    Under isotropic Gaussian noise in orthogonal dimension #{M - r \ge 3}, positive-part James–Stein shrinkage dominates #{\alpha = 1} uniformly ([[JS61]](https://projecteuclid.org/ebooks/berkeley-symposium-on-mathematical-statistics-and-probability/Proceedings-of-the-Fourth-Berkeley-Symposium-on-Mathematical-Statistics-and/chapter/Estimation-with-Quadratic-Loss/bsmsp/1200512173), Efron & Morris [[EM73]](https://doi.org/10.1080/01621459.1973.10481350)); [baux.stein](docs.html#baux.stein) applies the empirical moment plug-in #{\hat{\alpha} = \Vert z_\perp\Vert_2^2 / (\Vert z_\perp\Vert_2^2 + \hat{v}_\perp)} for any #{M - r \ge 1}. When held-out validation pairs are available, [baux.calibrate](docs.html#baux.calibrate) fits an affine variance rescaling and residual quantile multiplier to posterior standard errors.
   }
 
   \p{
-    When held-out calibration pairs are available, [baux.calibrate](docs.html#baux.calibrate) rescales predictive dispersion via affine weighted least squares and standardized residual quantiles, yielding finite-sample coverage on exchangeable splits and an empirical dispersion adjustment on adaptive optimization histories where sequential selection breaks exchangeability.
-  }
-
-  \p{
-    Below, a PyTree product domain combining logarithmic gain, periodic phase, simplex filter weights, and categorical windowing drives a noisy 6-channel spectral response concentrated near a rank-2 Stiefel frame:
+    Below, a \code{PyTree} domain combining logarithmic gain, periodic phase, simplex filter weights, and a categorical window drives a noisy 6-channel response concentrated near a rank-2 frame:
   }
 
   \pre{

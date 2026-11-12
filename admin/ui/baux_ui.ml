@@ -48,7 +48,7 @@ let init_copy_buttons () =
   List.iter (fun btn_raw ->
     let btn : htmlElement Js.t = Js.Unsafe.coerce btn_raw in
     add_click btn_raw (fun () ->
-      let parent = btn##.parentElement in
+      let parent = Js.Unsafe.get btn (js "parentElement") in
       let text =
         match Js.Opt.to_option parent with
         | Some p ->
@@ -159,6 +159,7 @@ type api_entry_rec = {
   ent_symbol : string;
   ent_kind : string;
   ent_haystack : string;
+  ent_has_example : bool;
   mutable ent_visible : bool;
 }
 
@@ -221,12 +222,61 @@ let init_api_reference () =
             | None -> ""
           in
           let hay = (String.lowercase_ascii sym) ^ " " ^ (text_of_element ent_el) ^ extra in
+          let pres = query_within ent_el "pre" in
+          let has_example =
+            List.exists (fun pr -> string_contains (text_of_element pr) "import baux") pres
+          in
+          List.iter (fun pr ->
+            if string_contains (text_of_element pr) "import baux" then begin
+              let is_wrapped =
+                match Js.Opt.to_option pr##.parentNode with
+                | Some pn ->
+                    let p_el : element Js.t = Js.Unsafe.coerce pn in
+                    (try Js.to_bool (p_el##.classList##contains (js "api-example-wrap"))
+                     with _ -> false)
+                | None -> false
+              in
+              if not is_wrapped then begin
+                match Js.Opt.to_option pr##.parentNode with
+                | Some parent_node ->
+                    let wrap = createDiv document in
+                    wrap##.className := js "api-example-wrap";
+                    ignore (parent_node##insertBefore (wrap :> Dom.node Js.t) (Js.some (pr :> Dom.node Js.t)));
+                    Dom.appendChild wrap pr;
+                    let copy_btn = createButton ~_type:(js "button") document in
+                    copy_btn##.className := js "copy-btn";
+                    copy_btn##.textContent := Js.some (js "Copy");
+                    add_click (copy_btn :> element Js.t) (fun () ->
+                      let text =
+                        match Js.Opt.to_option pr##.textContent with
+                        | Some s -> Js.to_string s
+                        | None ->
+                            let h : htmlElement Js.t = Js.Unsafe.coerce pr in
+                            Js.to_string h##.innerText
+                      in
+                      try
+                        let clip = Js.Unsafe.global##.navigator##.clipboard in
+                        let _ = clip##writeText (js text) in
+                        copy_btn##.textContent := Js.some (js "Copied \u{2713}");
+                        copy_btn##.classList##add (js "copied");
+                        set_timeout (fun () ->
+                          copy_btn##.textContent := Js.some (js "Copy");
+                          copy_btn##.classList##remove (js "copied")
+                        ) 2000.0
+                      with _ -> ()
+                    );
+                    Dom.appendChild wrap copy_btn
+                | None -> ()
+              end
+            end
+          ) pres;
           {
             ent_el;
             ent_id = id_attr;
             ent_symbol = sym;
             ent_kind = kind;
             ent_haystack = hay;
+            ent_has_example = has_example;
             ent_visible = true;
           }
         ) raw_entries
@@ -263,7 +313,7 @@ let init_api_reference () =
       let inp = createInput ~_type:(js "search") document in
       inp##.id := js "api-filter-input";
       inp##.className := js "api-filter-input";
-      inp##.placeholder := js "Filter symbols, signatures, or parameters\u{2026} (press / to focus)";
+      inp##.placeholder := js "Filter symbols or parameters\u{2026}  (press /)";
       inp##setAttribute (js "autocomplete") (js "off");
       inp##setAttribute (js "spellcheck") (js "false");
       inp##setAttribute (js "aria-label") (js "Filter API symbols");
@@ -285,7 +335,8 @@ let init_api_reference () =
       let pill_all = make_pill "All" "all" true in
       let pill_fn = make_pill "Functions" "function" false in
       let pill_cls = make_pill "Classes" "class" false in
-      let pill_buttons = [pill_all; pill_fn; pill_cls] in
+      let pill_ex = make_pill "Examples" "examples" false in
+      let pill_buttons = [pill_all; pill_fn; pill_cls; pill_ex] in
 
       let meta_wrap = createDiv document in
       meta_wrap##.className := js "api-filter-meta";
@@ -305,13 +356,68 @@ let init_api_reference () =
       Dom.appendChild bar pills_wrap;
       Dom.appendChild bar meta_wrap;
 
+      let active_kind = ref "all" in
+
+      (* Build compact .api-section-jumps strip below .api-filter-bar *)
+      let jumps_wrap = createDiv document in
+      jumps_wrap##.className := js "api-section-jumps";
+      let top_sections = query_all "article > section.block > .tree-node > section.block" in
+      let jump_count = ref 0 in
+      let reset_filter_ref = ref (fun () -> ()) in
+      List.iter (fun sec_el ->
+        let sec_entries = query_within sec_el ".api-entry" in
+        if sec_entries <> [] then begin
+          let h1_nodes = query_within sec_el "header h1" in
+          let title =
+            match h1_nodes with
+            | h1 :: _ ->
+                (match Js.Opt.to_option h1##.textContent with
+                | Some s ->
+                    let raw = Js.to_string s in
+                    let b = Buffer.create (String.length raw) in
+                    let len = String.length raw in
+                    let rec loop i =
+                      if i >= len then Buffer.contents b
+                      else if Char.code raw.[i] = 0xC2 && i + 1 < len && Char.code raw.[i+1] = 0xA0 then begin
+                        Buffer.add_char b ' ';
+                        loop (i + 2)
+                      end else begin
+                        Buffer.add_char b raw.[i];
+                        loop (i + 1)
+                      end
+                    in
+                    String.trim (loop 0)
+                | None -> "")
+            | [] -> ""
+          in
+          if title <> "" then begin
+            let chip = createButton ~_type:(js "button") document in
+            chip##.className := js "api-jump-chip";
+            chip##.textContent := Js.some (js title);
+            add_click (chip :> element Js.t) (fun () ->
+              let raw_q = String.trim (Js.to_string inp##.value) in
+              if raw_q <> "" || !active_kind <> "all" then !reset_filter_ref ();
+              try
+                let opts = Js.Unsafe.obj [|
+                  ("behavior", Js.Unsafe.inject (js "smooth"));
+                  ("block", Js.Unsafe.inject (js "start"));
+                |] in
+                ignore ((Js.Unsafe.coerce sec_el)##scrollIntoView opts)
+              with _ ->
+                sec_el##scrollIntoView Js._true
+            );
+            Dom.appendChild jumps_wrap chip;
+            incr jump_count
+          end
+        end
+      ) top_sections;
+
       let empty_el = createDiv document in
       empty_el##.className := js "api-empty-state api-hidden";
 
       Dom.appendChild root bar;
+      if !jump_count > 0 then Dom.appendChild root jumps_wrap;
       Dom.appendChild root empty_el;
-
-      let active_kind = ref "all" in
 
       let sync_pills () =
         List.iter (fun (k, (btn : buttonElement Js.t)) ->
@@ -332,7 +438,11 @@ let init_api_reference () =
         Hashtbl.clear sym_vis_tbl;
         let visible_count = ref 0 in
         List.iter (fun ent ->
-          let kind_ok = (!active_kind = "all") || (ent.ent_kind = !active_kind) in
+          let kind_ok =
+            if !active_kind = "all" then true
+            else if !active_kind = "examples" then ent.ent_has_example
+            else ent.ent_kind = !active_kind
+          in
           let tok_ok = List.for_all (fun tok -> string_contains ent.ent_haystack tok) tokens in
           let ok = kind_ok && tok_ok in
           ent.ent_visible <- ok;
@@ -384,10 +494,17 @@ let init_api_reference () =
         if total_count > 0 && !visible_count = 0 && is_filtered then begin
           let msg =
             if raw_q <> "" && !active_kind <> "all" then
-              let k_lbl = if !active_kind = "class" then "class" else "function" in
+              let k_lbl =
+                if !active_kind = "class" then "class"
+                else if !active_kind = "function" then "function"
+                else if !active_kind = "examples" then "example"
+                else "matching"
+              in
               Printf.sprintf "No %s symbols match \"%s\"." k_lbl raw_q
             else if raw_q <> "" then
               Printf.sprintf "No symbols match \"%s\"." raw_q
+            else if !active_kind = "examples" then
+              "No symbols with runnable examples found."
             else
               "No matching symbols found."
           in
@@ -405,6 +522,7 @@ let init_api_reference () =
         sync_pills ();
         apply_filter ()
       in
+      reset_filter_ref := reset_filter;
 
       (* Bind pill clicks *)
       List.iter (fun (k, (btn : buttonElement Js.t)) ->
@@ -466,7 +584,7 @@ let init_api_reference () =
             let tag = String.uppercase_ascii (Js.to_string active##.tagName) in
             let ce =
               let h : htmlElement Js.t = Js.Unsafe.coerce active in
-              Js.to_bool h##.isContentEditable
+              Js.to_bool (Js.Unsafe.get h (js "isContentEditable"))
             in
             tag = "INPUT" || tag = "TEXTAREA" || tag = "SELECT" || ce
       in
@@ -511,7 +629,7 @@ let init_api_reference () =
 
       apply_filter ()
 
-(* --- Tokamak 3D WebGL CAD & Benchmark Explorer (arXiv:2505.00663 Fig. 8-9 + 10-Seed TORAX 2.0.0) --- *)
+(* --- Central 3D WebGL CAD Simulation (FUSE.jl Tokamaks & Oceananigans.jl 3D Fluid Tanks) --- *)
 let mount_tokamak_cad () =
   let boot_fn = Js.Unsafe.js_expr {|
 (function() {
@@ -524,7 +642,7 @@ let mount_tokamak_cad () =
       .replace(/'/g, "&#x27;");
   }
 
-  // Exact 25-vertex TCV vacuum vessel inner contour extracted from arXiv:2505.00663 Fig. 9 (state0_refs.pdf)
+  // Exact 25-vertex TCV vacuum vessel inner contour extracted from arXiv:2505.00663 Fig. 9
   var VESSEL_INNER_RZ = [
     [0.6240,  0.0000], [0.6241,  0.7091], [0.6475,  0.7270], [0.6662,  0.7500],
     [0.9733,  0.7498], [0.9907,  0.7252], [1.1289,  0.5599], [1.1360,  0.5351],
@@ -534,159 +652,298 @@ let mount_tokamak_cad () =
     [0.6662, -0.7500], [0.6475, -0.7270], [0.6241, -0.7091], [0.6240, -0.4933]
   ];
 
-  // Outer octagonal TCV vacuum vessel shell (arXiv:2505.00663 Fig. 8)
   var VESSEL_OUTER_RZ = [
-    [0.592, -0.725], [0.592,  0.725], [0.654,  0.792], [0.988,  0.792],
-    [1.174,  0.555], [1.174, -0.575], [0.988, -0.792], [0.654, -0.792]
+    [1.174, -0.575], [1.174,  0.555], [0.988,  0.792], [0.654,  0.792],
+    [0.592,  0.725], [0.592, -0.725], [0.654, -0.792], [0.988, -0.792]
   ];
 
   var VESSEL_WALL_IN_RZ = [
-    [0.624, -0.708], [0.624,  0.708], [0.666,  0.748], [0.973,  0.748],
-    [1.134,  0.535], [1.134, -0.558], [0.973, -0.748], [0.666, -0.748]
+    [1.134, -0.558], [1.134,  0.535], [0.973,  0.748], [0.666,  0.748],
+    [0.624,  0.708], [0.624, -0.708], [0.666, -0.748], [0.973, -0.748]
+  ];
+
+  var TCV_TF_OUT = [
+    [1.52, -1.06], [1.52, 1.06], [0.36, 1.06], [0.36, -1.06]
+  ];
+  var TCV_TF_IN = [
+    [1.40, -0.94], [1.40, 0.94], [0.53, 0.94], [0.53, -0.94]
   ];
 
   var TCV_CAD = {
     id: "tcv",
+    kind: "tokamak",
+    solver: "EPFL TokaGym + TORAX 2.0.0",
     name: "TCV (Tokamak à Configuration Variable)",
-    shortName: "TCV (EPFL)",
-    R0: 0.88, a: 0.25, B0: 1.43, ipNominal: 1.49,
-    dist: 5.55,
-    rMin: 0.55, rMax: 1.25, zMin: -0.85, zMax: 0.85,
-    rTicks: [0.65, 0.90, 1.10],
-    zTicks: [-0.6, 0.0, 0.6],
+    shortName: "TCV · EPFL",
+    R0: 0.88, Z0: 0.0, a: 0.25, B0: 1.43, ipNominal: 1.49, q95: 3.24, betaN: 1.85, pFusMW: 0.0,
+    dist: 5.75,
+    rMin: 0.30, rMax: 1.56, zMin: -1.12, zMax: 1.12,
+    rTicks: [0.5, 0.9, 1.3],
+    zTicks: [-0.8, 0.0, 0.8],
+    n_tf: 16,
+    tf_outer: TCV_TF_OUT,
+    tf_inner: TCV_TF_IN,
     vessel_outer: VESSEL_OUTER_RZ,
     vessel_inner: VESSEL_WALL_IN_RZ,
     first_wall: VESSEL_INNER_RZ,
     coils: [
-      {name: "OH1-Top", r: 0.325, z: 0.885, w: 0.100, h: 0.090},
-      {name: "OH1-Bot", r: 0.325, z: -0.885, w: 0.100, h: 0.090},
-      {name: "OH2-Top", r: 0.455, z: 0.910, w: 0.080, h: 0.100},
-      {name: "OH2-Bot", r: 0.455, z: -0.910, w: 0.080, h: 0.100},
-      {name: "E1", r: 0.480, z: -0.672, w: 0.096, h: 0.176},
-      {name: "E2", r: 0.480, z: -0.480, w: 0.096, h: 0.176},
-      {name: "E3", r: 0.480, z: -0.288, w: 0.096, h: 0.176},
-      {name: "E4", r: 0.480, z: -0.096, w: 0.096, h: 0.176},
-      {name: "E5", r: 0.480, z:  0.096, w: 0.096, h: 0.176},
-      {name: "E6", r: 0.480, z:  0.288, w: 0.096, h: 0.176},
-      {name: "E7", r: 0.480, z:  0.480, w: 0.096, h: 0.176},
-      {name: "E8", r: 0.480, z:  0.672, w: 0.096, h: 0.176},
-      {name: "F1", r: 1.296, z: -0.720, w: 0.143, h: 0.160},
-      {name: "F2", r: 1.296, z: -0.518, w: 0.143, h: 0.160},
-      {name: "F3", r: 1.296, z: -0.316, w: 0.143, h: 0.160},
-      {name: "F4", r: 1.296, z: -0.114, w: 0.143, h: 0.160},
-      {name: "F5", r: 1.296, z:  0.088, w: 0.143, h: 0.160},
-      {name: "F6", r: 1.296, z:  0.290, w: 0.143, h: 0.160},
-      {name: "F7", r: 1.296, z:  0.492, w: 0.143, h: 0.160},
-      {name: "F8", r: 1.296, z:  0.694, w: 0.143, h: 0.160}
+      {name: "OH1-Top", r: 0.325, z: 0.885, w: 0.100, h: 0.090, current_ma: 0.62},
+      {name: "OH1-Bot", r: 0.325, z: -0.885, w: 0.100, h: 0.090, current_ma: 0.58},
+      {name: "OH2-Top", r: 0.455, z: 0.910, w: 0.080, h: 0.100, current_ma: 0.44},
+      {name: "OH2-Bot", r: 0.455, z: -0.910, w: 0.080, h: 0.100, current_ma: 0.21},
+      {name: "E1", r: 0.480, z: -0.672, w: 0.096, h: 0.176, current_ma: -0.18},
+      {name: "E2", r: 0.480, z: -0.480, w: 0.096, h: 0.176, current_ma: -0.45},
+      {name: "E3", r: 0.480, z: -0.288, w: 0.096, h: 0.176, current_ma: -0.68},
+      {name: "E4", r: 0.480, z: -0.096, w: 0.096, h: 0.176, current_ma: -0.52},
+      {name: "E5", r: 0.480, z:  0.096, w: 0.096, h: 0.176, current_ma: 0.49},
+      {name: "E6", r: 0.480, z:  0.288, w: 0.096, h: 0.176, current_ma: 0.64},
+      {name: "E7", r: 0.480, z:  0.480, w: 0.096, h: 0.176, current_ma: 0.35},
+      {name: "E8", r: 0.480, z:  0.672, w: 0.096, h: 0.176, current_ma: -0.12},
+      {name: "F1", r: 1.296, z: -0.720, w: 0.143, h: 0.160, current_ma: -0.38},
+      {name: "F2", r: 1.296, z: -0.518, w: 0.143, h: 0.160, current_ma: -0.61},
+      {name: "F3", r: 1.296, z: -0.316, w: 0.143, h: 0.160, current_ma: 0.72},
+      {name: "F4", r: 1.296, z: -0.114, w: 0.143, h: 0.160, current_ma: 0.55},
+      {name: "F5", r: 1.296, z:  0.088, w: 0.143, h: 0.160, current_ma: -0.42},
+      {name: "F6", r: 1.296, z:  0.290, w: 0.143, h: 0.160, current_ma: -0.41},
+      {name: "F7", r: 1.296, z:  0.492, w: 0.143, h: 0.160, current_ma: 0.14},
+      {name: "F8", r: 1.296, z:  0.694, w: 0.143, h: 0.160, current_ma: 0.22}
     ]
   };
 
+  // Baseline parametric tokamak shells prior to async FUSE.jl `assets/baux_env.json` hydration
+  function makeDLoop(rIn, rOut, zMax, nPts) {
+    var out = [];
+    for (var i = 0; i < nPts; i++) {
+      var th = (2.0 * Math.PI * i) / nPts;
+      var rm = 0.5 * (rIn + rOut);
+      var a = 0.5 * (rOut - rIn);
+      var r = rm + a * Math.cos(th + 0.36 * Math.sin(th));
+      var z = zMax * Math.sin(th);
+      out.push([r, z]);
+    }
+    return out;
+  }
+
+  var SPARC_CAD = {
+    id: "sparc",
+    kind: "tokamak",
+    solver: "FUSE.jl 1.2.1 · TEQUILA + ActorPFactive",
+    name: "SPARC (Commonwealth Fusion Systems)",
+    shortName: "SPARC · CFS (FUSE.jl)",
+    R0: 1.85, Z0: 0.0, a: 0.53, B0: 12.2, ipNominal: 8.70, q95: 3.00, betaN: 1.55, pFusMW: 140.0,
+    dist: 12.8,
+    rMin: 0.35, rMax: 3.90, zMin: -2.40, zMax: 2.40,
+    rTicks: [1.0, 2.0, 3.0],
+    zTicks: [-1.5, 0.0, 1.5],
+    n_tf: 18,
+    tf_outer: makeDLoop(0.70, 3.72, 2.15, 64),
+    tf_inner: makeDLoop(1.04, 3.08, 1.82, 64),
+    vessel_outer: makeDLoop(1.06, 2.72, 1.48, 64),
+    vessel_inner: makeDLoop(1.13, 2.65, 1.40, 64),
+    first_wall: makeDLoop(1.16, 2.62, 1.35, 64),
+    coils: [
+      {name: "CS1U", r: 0.56, z: 0.48, w: 0.24, h: 0.82, current_ma: -3.2},
+      {name: "CS1L", r: 0.56, z: -0.48, w: 0.24, h: 0.82, current_ma: -3.2},
+      {name: "CS2U", r: 0.56, z: 1.35, w: 0.24, h: 0.78, current_ma: -2.4},
+      {name: "CS2L", r: 0.56, z: -1.35, w: 0.24, h: 0.78, current_ma: -2.4},
+      {name: "PF1U", r: 1.15, z: 2.05, w: 0.30, h: 0.30, current_ma: 2.1},
+      {name: "PF1L", r: 1.15, z: -2.05, w: 0.30, h: 0.30, current_ma: 2.1},
+      {name: "PF3U", r: 3.35, z: 1.42, w: 0.28, h: 0.28, current_ma: -1.8},
+      {name: "PF3L", r: 3.35, z: -1.42, w: 0.28, h: 0.28, current_ma: -1.8}
+    ]
+  };
 
   var ARC_CAD = {
     id: "arc",
-    name: "ARC (Affordable Robust Compact)",
-    shortName: "ARC (MIT / CFS)",
-    R0: 3.30, a: 1.13, B0: 9.20, ipNominal: 7.80,
-    dist: 22.8,
-    rMin: 0.60, rMax: 6.60, zMin: -4.60, zMax: 4.60,
-    rTicks: [1.5, 3.0, 4.5, 6.0],
+    kind: "tokamak",
+    solver: "FUSE.jl 1.2.1 · ARCv3a IMAS + TEQUILA",
+    name: "ARCv3a (MIT PSFC / CFS Compact Pilot Plant)",
+    shortName: "ARC · MIT/CFS (FUSE.jl)",
+    R0: 4.62, Z0: 0.0, a: 1.18, B0: 11.4, ipNominal: 12.00, q95: 3.53, betaN: 2.25, pFusMW: 525.0,
+    dist: 28.5,
+    rMin: 0.65, rMax: 9.10, zMin: -5.40, zMax: 5.40,
+    rTicks: [2.0, 4.5, 7.0],
     zTicks: [-4.0, -2.0, 0.0, 2.0, 4.0],
-    vessel_outer: [[3.330,0.000], [3.330,-0.859], [3.581,-2.068], [3.370,-2.260], [3.370,-2.386], [3.696,-2.549], [4.284,-3.528], [4.722,-4.180], [5.400,-4.180], [5.400,-3.210], [4.973,-3.406], [4.298,-2.367], [4.834,-1.904], [5.299,-1.357], [5.750,-0.794], [5.910,-0.315], [5.910,0.000], [5.910,0.315], [5.750,0.794], [5.299,1.357], [4.834,1.904], [4.298,2.367], [4.973,3.406], [5.400,3.210], [5.400,4.180], [4.722,4.180], [4.284,3.528], [3.696,2.549], [3.370,2.386], [3.370,2.260], [3.581,2.068], [3.330,0.859], [3.330,0.000]],
-    vessel_inner: [[3.405,0.000], [3.405,-0.852], [3.664,-2.095], [3.445,-2.293], [3.445,-2.339], [3.749,-2.491], [4.347,-3.488], [4.762,-4.105], [5.325,-4.105], [5.325,-3.327], [4.946,-3.501], [4.200,-2.353], [4.781,-1.851], [5.242,-1.310], [5.683,-0.757], [5.835,-0.302], [5.835,0.000], [5.835,0.302], [5.683,0.757], [5.242,1.310], [4.781,1.851], [4.200,2.353], [4.946,3.501], [5.325,3.327], [5.325,4.105], [4.762,4.105], [4.347,3.488], [3.749,2.491], [3.445,2.339], [3.445,2.293], [3.664,2.095], [3.405,0.852], [3.405,0.000]],
-    first_wall: [[3.415,0.000], [3.415,-0.851], [3.675,-2.098], [3.455,-2.298], [3.455,-2.333], [3.756,-2.484], [4.356,-3.483], [4.767,-4.095], [5.315,-4.095], [5.315,-3.342], [4.942,-3.514], [4.187,-2.351], [4.774,-1.843], [5.234,-1.303], [5.675,-0.752], [5.825,-0.301], [5.825,0.000], [5.825,0.301], [5.675,0.752], [5.234,1.303], [4.774,1.843], [4.187,2.351], [4.942,3.514], [5.315,3.342], [5.315,4.095], [4.767,4.095], [4.356,3.483], [3.756,2.484], [3.455,2.333], [3.455,2.298], [3.675,2.098], [3.415,0.851], [3.415,0.000]],
+    n_tf: 18,
+    tf_outer: makeDLoop(1.48, 8.85, 4.95, 64),
+    tf_inner: makeDLoop(2.38, 7.68, 4.30, 64),
+    vessel_outer: makeDLoop(3.31, 5.89, 3.85, 64),
+    vessel_inner: makeDLoop(3.38, 5.81, 3.74, 64),
+    first_wall: makeDLoop(3.39, 5.80, 3.68, 64),
     coils: [
-    {name: "cs1u", r: 1.105, z: 0.750, w: 0.756, h: 1.387},
-    {name: "cs1l", r: 1.105, z: -0.750, w: 0.756, h: 1.387},
-    {name: "cs2u", r: 1.105, z: 1.900, w: 0.756, h: 0.687},
-    {name: "cs2l", r: 1.105, z: -1.900, w: 0.756, h: 0.687},
-    {name: "cs3u", r: 1.105, z: 2.700, w: 0.756, h: 0.687},
-    {name: "cs3l", r: 1.105, z: -2.700, w: 0.756, h: 0.687},
-    {name: "pf1u", r: 1.400, z: 3.900, w: 0.590, h: 0.590},
-    {name: "pf1l", r: 1.400, z: -3.900, w: 0.590, h: 0.590},
-    {name: "pf2u", r: 1.900, z: 4.750, w: 0.690, h: 0.690},
-    {name: "pf2l", r: 1.900, z: -4.750, w: 0.690, h: 0.690},
-    {name: "pf3u", r: 6.200, z: 2.950, w: 0.489, h: 0.489},
-    {name: "pf3l", r: 6.200, z: -2.950, w: 0.489, h: 0.489},
-    {name: "pf4u", r: 6.200, z: 2.250, w: 0.489, h: 0.489},
-    {name: "pf4l", r: 6.200, z: -2.250, w: 0.489, h: 0.489},
-    {name: "pf5u", r: 6.950, z: 1.600, w: 0.389, h: 0.389},
-    {name: "pf5l", r: 6.950, z: -1.600, w: 0.389, h: 0.389}
-  ]
+      {name: "cs1u", r: 1.105, z: 0.750, w: 0.756, h: 1.387, current_ma: -8.2},
+      {name: "cs1l", r: 1.105, z: -0.750, w: 0.756, h: 1.387, current_ma: -8.2},
+      {name: "pf1u", r: 1.400, z: 3.900, w: 0.590, h: 0.590, current_ma: 5.1},
+      {name: "pf1l", r: 1.400, z: -3.900, w: 0.590, h: 0.590, current_ma: 5.1},
+      {name: "pf3u", r: 6.200, z: 2.950, w: 0.489, h: 0.489, current_ma: -3.8},
+      {name: "pf3l", r: 6.200, z: -2.950, w: 0.489, h: 0.489, current_ma: -3.8}
+    ]
   };
-
 
   var ITER_CAD = {
     id: "iter",
-    name: "ITER (International Thermonuclear Experimental Reactor)",
-    shortName: "ITER (Cadarache)",
-    R0: 6.20, a: 2.00, B0: 5.30, ipNominal: 15.00,
-    dist: 39.5,
-    rMin: 1.10, rMax: 9.60, zMin: -6.00, zMax: 6.50,
-    rTicks: [2.0, 4.0, 6.0, 8.0],
-    zTicks: [-4.0, -2.0, 0.0, 2.0, 4.0],
-    vessel_outer: [[6.716,-3.493], [7.732,-2.704], [8.350,-1.787], [8.756,-0.870], [8.844,1.085], [8.720,2.135], [8.356,2.915], [7.851,3.630], [7.002,4.376], [5.353,4.984], [4.535,5.170], [3.925,4.787], [3.725,4.035], [3.705,3.022], [3.705,2.007], [3.705,0.990], [3.705,-0.926], [3.705,-1.941], [3.705,-2.954], [3.542,-2.986], [3.715,-2.996], [3.814,-3.027], [3.905,-3.078], [3.984,-3.146], [4.048,-3.228], [4.094,-3.322], [4.120,-3.422], [4.126,-3.527], [4.110,-3.630], [4.074,-3.728], [3.762,-4.367], [3.788,-4.333], [4.091,-4.356], [4.245,-4.193], [4.328,-4.167], [4.414,-4.156], [4.500,-4.162], [4.584,-4.184], [4.663,-4.220], [4.733,-4.271], [4.793,-4.334], [4.853,-4.432], [4.872,-4.711], [5.157,-4.995], [5.164,-5.024], [5.164,-4.373], [5.169,-4.243], [5.189,-4.146], [5.237,-4.025], [5.308,-3.917], [5.399,-3.825], [5.508,-3.753], [5.628,-3.704], [5.755,-3.680], [6.715,-3.679], [6.813,-3.695]],
-    vessel_inner: [[6.486,-3.263], [7.502,-2.474], [8.120,-1.557], [8.526,-0.640], [8.614,0.855], [8.490,1.905], [8.126,2.685], [7.622,3.400], [6.772,4.146], [5.553,4.754], [4.735,4.940], [4.125,4.557], [3.925,3.805], [3.905,2.792], [3.905,1.777], [3.905,0.760], [3.905,-0.696], [3.905,-1.711], [3.905,-2.724], [3.742,-2.756], [3.915,-2.766], [4.014,-2.797], [4.105,-2.848], [4.184,-2.916], [4.248,-2.998], [4.294,-3.092], [4.321,-3.192], [4.326,-3.297], [4.310,-3.400], [4.274,-3.498], [3.962,-4.138], [3.988,-4.103], [4.292,-4.127], [4.445,-3.963], [4.528,-3.937], [4.614,-3.926], [4.700,-3.932], [4.784,-3.954], [4.863,-3.990], [4.933,-4.041], [4.993,-4.104], [5.053,-4.202], [5.072,-4.481], [5.357,-4.765], [5.364,-4.794], [5.364,-4.144], [5.369,-4.013], [5.389,-3.916], [5.437,-3.795], [5.508,-3.687], [5.599,-3.595], [5.708,-3.523], [5.828,-3.474], [5.955,-3.450], [6.485,-3.449], [6.583,-3.465]],
-    first_wall: [[6.266,-3.043], [7.282,-2.254], [7.900,-1.337], [8.306,-0.420], [8.394,0.635], [8.270,1.685], [7.906,2.465], [7.402,3.180], [6.552,3.926], [5.753,4.534], [4.935,4.720], [4.325,4.337], [4.125,3.585], [4.105,2.572], [4.105,1.557], [4.105,0.540], [4.105,-0.476], [4.105,-1.491], [4.105,-2.504], [3.942,-2.536], [4.115,-2.546], [4.214,-2.577], [4.305,-2.628], [4.384,-2.696], [4.448,-2.778], [4.494,-2.872], [4.521,-2.973], [4.526,-3.077], [4.510,-3.180], [4.474,-3.277], [4.162,-3.917], [4.188,-3.883], [4.492,-3.906], [4.645,-3.743], [4.728,-3.717], [4.814,-3.706], [4.900,-3.712], [4.984,-3.733], [5.063,-3.770], [5.133,-3.821], [5.193,-3.884], [5.253,-3.982], [5.272,-4.261], [5.557,-4.545], [5.564,-4.574], [5.564,-3.924], [5.569,-3.793], [5.589,-3.696], [5.637,-3.575], [5.708,-3.467], [5.800,-3.375], [5.908,-3.303], [6.028,-3.254], [6.155,-3.230], [6.265,-3.229], [6.363,-3.245]],
+    kind: "tokamak",
+    solver: "FUSE.jl 1.2.1 · ITER ODS + Equilibrium",
+    name: "ITER (Q = 10 Burning Plasma Baseline)",
+    shortName: "ITER · Cadarache (FUSE.jl)",
+    R0: 6.20, Z0: 0.35, a: 2.00, B0: 5.30, ipNominal: 15.00, q95: 3.05, betaN: 1.80, pFusMW: 500.0,
+    dist: 41.5,
+    rMin: 1.10, rMax: 12.60, zMin: -8.20, zMax: 8.20,
+    rTicks: [3.0, 6.0, 9.0, 12.0],
+    zTicks: [-6.0, -3.0, 0.0, 3.0, 6.0],
+    n_tf: 18,
+    tf_outer: makeDLoop(2.65, 10.65, 6.80, 64),
+    tf_inner: makeDLoop(3.52, 9.75, 5.90, 64),
+    vessel_outer: makeDLoop(3.72, 8.84, 4.95, 64),
+    vessel_inner: makeDLoop(3.92, 8.60, 4.72, 64),
+    first_wall: makeDLoop(4.10, 8.38, 4.52, 64),
     coils: [
-    {name: "Central Solenoid 3U (CS3U)", r: 1.687, z: 5.464, w: 0.740, h: 2.093},
-    {name: "Central Solenoid 2U (CS2U)", r: 1.687, z: 3.278, w: 0.740, h: 2.093},
-    {name: "Central Solenoid 1U (CS1U)", r: 1.687, z: 1.092, w: 0.740, h: 2.093},
-    {name: "Central Solenoid 1L (CS1L)", r: 1.687, z: -1.072, w: 0.740, h: 2.093},
-    {name: "Central Solenoid 2L (CS2L)", r: 1.687, z: -3.258, w: 0.740, h: 2.093},
-    {name: "Central Solenoid 3L (CS3L)", r: 1.687, z: -5.444, w: 0.740, h: 2.093},
-    {name: "Poloidal Field Coil 1 (PF1)", r: 3.943, z: 7.574, w: 0.959, h: 0.984},
-    {name: "Poloidal Field Coil 2 (PF2)", r: 8.285, z: 6.540, w: 0.580, h: 0.715},
-    {name: "Poloidal Field Coil 3 (PF3)", r: 11.992, z: 3.275, w: 0.696, h: 0.954},
-    {name: "Poloidal Field Coil 4 (PF4)", r: 11.963, z: -2.234, w: 0.638, h: 0.954},
-    {name: "Poloidal Field Coil 5 (PF5)", r: 8.391, z: -6.727, w: 0.812, h: 0.954},
-    {name: "Poloidal Field Coil 6 (PF6)", r: 4.334, z: -7.466, w: 1.559, h: 1.107}
-  ]
+      {name: "CS3U", r: 1.687, z: 5.464, w: 0.740, h: 2.093, current_ma: -6.5},
+      {name: "CS2U", r: 1.687, z: 3.278, w: 0.740, h: 2.093, current_ma: -9.8},
+      {name: "CS1U", r: 1.687, z: 1.092, w: 0.740, h: 2.093, current_ma: -12.1},
+      {name: "CS1L", r: 1.687, z: -1.072, w: 0.740, h: 2.093, current_ma: -12.1},
+      {name: "CS2L", r: 1.687, z: -3.258, w: 0.740, h: 2.093, current_ma: -9.8},
+      {name: "CS3L", r: 1.687, z: -5.444, w: 0.740, h: 2.093, current_ma: -6.5},
+      {name: "PF1", r: 3.943, z: 7.574, w: 0.959, h: 0.984, current_ma: 4.8},
+      {name: "PF2", r: 8.285, z: 6.540, w: 0.580, h: 0.715, current_ma: -2.6},
+      {name: "PF3", r: 11.992, z: 3.275, w: 0.696, h: 0.954, current_ma: -4.2},
+      {name: "PF4", r: 11.963, z: -2.234, w: 0.638, h: 0.954, current_ma: -3.9},
+      {name: "PF5", r: 8.391, z: -6.727, w: 0.812, h: 0.954, current_ma: -5.4},
+      {name: "PF6", r: 4.334, z: -7.466, w: 1.559, h: 1.107, current_ma: 11.2}
+    ]
   };
-
 
   var D3D_CAD = {
     id: "d3d",
-    name: "DIII-D National Fusion Facility",
-    shortName: "DIII-D (General Atomics)",
-    R0: 1.67, a: 0.67, B0: 2.17, ipNominal: 1.60,
-    dist: 10.1,
-    rMin: 0.55, rMax: 2.50, zMin: -1.70, zMax: 1.70,
-    rTicks: [0.8, 1.3, 1.8, 2.3],
-    zTicks: [-1.2, -0.6, 0.0, 0.6, 1.2],
-    vessel_outer: [[0.876,-0.160], [0.876,1.124], [0.876,1.128], [0.876,1.161], [0.876,1.179], [0.876,1.237], [0.876,1.230], [0.876,1.256], [0.876,1.273], [0.876,1.298], [0.876,1.307], [0.872,1.325], [0.861,1.377], [0.889,1.377], [0.902,1.322], [0.906,1.322], [0.916,1.323], [0.957,1.325], [0.968,1.326], [0.976,1.326], [0.994,1.329], [1.008,1.332], [1.022,1.336], [1.041,1.343], [1.042,1.343], [1.045,1.345], [1.050,1.348], [1.055,1.351], [1.061,1.356], [1.069,1.362], [1.075,1.368], [1.082,1.374], [1.088,1.381], [1.094,1.391], [1.099,1.398], [1.102,1.404], [1.108,1.414], [1.118,1.438], [1.123,1.450], [1.140,1.491], [1.140,1.507], [1.140,1.508], [1.170,1.508], [1.188,1.508], [1.221,1.508], [1.240,1.508], [1.279,1.508], [1.279,1.470], [1.232,1.470], [1.232,1.452], [1.468,1.255], [1.507,1.237], [1.945,1.237], [2.230,1.200], [2.288,1.153], [2.405,0.869], [2.483,0.679], [2.537,0.549], [2.512,0.560], [2.511,0.497], [2.511,0.365], [2.514,0.228], [2.514,-0.160], [2.514,-0.228], [2.513,-0.365], [2.511,-0.497], [2.513,-0.560], [2.537,-0.549], [2.294,-1.133], [1.946,-1.334], [1.928,-1.371], [1.928,-1.410], [1.842,-1.410], [1.232,-1.410], [1.232,-1.489], [1.280,-1.489], [1.280,-1.523], [1.133,-1.523], [1.013,-1.523], [0.876,-1.383], [0.876,-1.383], [0.876,-0.990], [0.876,-0.960], [0.876,-0.575], [0.876,-0.560], [0.876,-0.161], [0.876,-0.160]],
-    vessel_inner: [[0.946,-0.080], [0.946,1.044], [0.946,1.048], [0.946,1.081], [0.946,1.099], [0.946,1.157], [0.946,1.150], [0.946,1.176], [0.946,1.193], [0.946,1.218], [0.946,1.227], [0.942,1.245], [0.931,1.297], [0.959,1.297], [0.972,1.242], [0.976,1.242], [0.986,1.243], [1.027,1.244], [1.038,1.246], [1.046,1.246], [1.064,1.249], [1.078,1.252], [1.092,1.256], [1.111,1.263], [1.112,1.264], [1.115,1.265], [1.120,1.268], [1.125,1.271], [1.131,1.276], [1.139,1.282], [1.145,1.288], [1.152,1.294], [1.158,1.301], [1.164,1.311], [1.169,1.318], [1.172,1.324], [1.178,1.334], [1.188,1.358], [1.193,1.370], [1.210,1.411], [1.210,1.427], [1.210,1.428], [1.240,1.428], [1.258,1.428], [1.291,1.428], [1.310,1.428], [1.349,1.428], [1.349,1.390], [1.302,1.390], [1.302,1.372], [1.538,1.175], [1.577,1.157], [1.865,1.157], [2.150,1.120], [2.208,1.073], [2.325,0.789], [2.403,0.599], [2.457,0.469], [2.432,0.480], [2.431,0.417], [2.431,0.285], [2.434,0.148], [2.434,-0.080], [2.434,-0.148], [2.433,-0.285], [2.431,-0.417], [2.433,-0.480], [2.457,-0.469], [2.214,-1.053], [1.866,-1.254], [1.848,-1.291], [1.848,-1.330], [1.762,-1.330], [1.302,-1.330], [1.302,-1.409], [1.350,-1.409], [1.350,-1.443], [1.203,-1.443], [1.083,-1.443], [0.946,-1.303], [0.946,-1.303], [0.946,-0.910], [0.946,-0.880], [0.946,-0.495], [0.946,-0.480], [0.946,-0.081], [0.946,-0.080]],
-    first_wall: [[1.016,0.000], [1.016,0.964], [1.016,0.968], [1.016,1.001], [1.016,1.019], [1.016,1.077], [1.016,1.070], [1.016,1.096], [1.016,1.113], [1.016,1.138], [1.016,1.147], [1.012,1.165], [1.001,1.217], [1.029,1.217], [1.042,1.162], [1.046,1.162], [1.056,1.163], [1.097,1.165], [1.108,1.166], [1.116,1.166], [1.134,1.169], [1.148,1.172], [1.162,1.176], [1.181,1.183], [1.182,1.183], [1.185,1.185], [1.190,1.188], [1.195,1.191], [1.201,1.196], [1.209,1.202], [1.215,1.208], [1.222,1.214], [1.228,1.221], [1.234,1.231], [1.239,1.238], [1.242,1.244], [1.248,1.254], [1.258,1.278], [1.263,1.290], [1.280,1.331], [1.280,1.347], [1.280,1.348], [1.310,1.348], [1.328,1.348], [1.361,1.348], [1.380,1.348], [1.419,1.348], [1.419,1.310], [1.372,1.310], [1.372,1.292], [1.608,1.095], [1.647,1.077], [1.785,1.077], [2.070,1.040], [2.128,0.993], [2.245,0.709], [2.323,0.519], [2.377,0.389], [2.352,0.400], [2.351,0.337], [2.351,0.205], [2.354,0.068], [2.354,0.000], [2.354,-0.068], [2.353,-0.205], [2.351,-0.337], [2.353,-0.400], [2.377,-0.389], [2.134,-0.973], [1.786,-1.174], [1.768,-1.211], [1.768,-1.250], [1.682,-1.250], [1.372,-1.250], [1.372,-1.329], [1.420,-1.329], [1.420,-1.363], [1.273,-1.363], [1.153,-1.363], [1.016,-1.223], [1.016,-1.223], [1.016,-0.830], [1.016,-0.800], [1.016,-0.415], [1.016,-0.400], [1.016,-0.001], [1.016,0.000]],
+    kind: "tokamak",
+    solver: "FUSE.jl 1.2.1 · DIII-D H-mode EFIT",
+    name: "DIII-D National Fusion Facility (H-mode)",
+    shortName: "DIII-D · GA (FUSE.jl)",
+    R0: 1.67, Z0: 0.0, a: 0.61, B0: 2.17, ipNominal: 1.60, q95: 4.15, betaN: 2.10, pFusMW: 0.0,
+    dist: 11.2,
+    rMin: 0.40, rMax: 3.25, zMin: -2.15, zMax: 2.15,
+    rTicks: [0.8, 1.6, 2.4, 3.0],
+    zTicks: [-1.5, 0.0, 1.5],
+    n_tf: 24,
+    tf_outer: makeDLoop(0.52, 3.10, 2.02, 64),
+    tf_inner: makeDLoop(0.76, 2.82, 1.78, 64),
+    vessel_outer: makeDLoop(0.88, 2.52, 1.50, 64),
+    vessel_inner: makeDLoop(0.95, 2.44, 1.42, 64),
+    first_wall: makeDLoop(1.01, 2.36, 1.35, 64),
     coils: [
-    {name: "OH0", r: 0.688, z: 0.038, w: 0.059, h: 0.074},
-    {name: "OH1", r: 0.757, z: 0.038, w: 0.059, h: 0.074},
-    {name: "OH2", r: 0.879, z: 1.712, w: 0.114, h: 0.029},
-    {name: "OH3", r: 0.879, z: -1.713, w: 0.114, h: 0.029},
-    {name: "OH4", r: 0.953, z: -1.945, w: 0.059, h: 0.056},
-    {name: "OH5", r: 0.953, z: 1.946, w: 0.059, h: 0.056},
-    {name: "PF6", r: 0.861, z: 0.168, w: 0.051, h: 0.321},
-    {name: "PF7", r: 0.861, z: 0.508, w: 0.051, h: 0.321},
-    {name: "PF8", r: 0.863, z: 0.849, w: 0.051, h: 0.321},
-    {name: "PF9", r: 0.861, z: 1.190, w: 0.051, h: 0.321},
-    {name: "PF13", r: 1.252, z: 1.602, w: 0.235, h: 0.085},
-    {name: "PF14", r: 1.689, z: 1.587, w: 0.169, h: 0.133},
-    {name: "PF15", r: 0.861, z: -0.174, w: 0.051, h: 0.321},
-    {name: "PF16", r: 0.861, z: -0.513, w: 0.051, h: 0.321},
-    {name: "PF17", r: 0.861, z: -0.854, w: 0.051, h: 0.321},
-    {name: "PF18", r: 0.863, z: -1.196, w: 0.051, h: 0.321},
-    {name: "PF22", r: 1.252, z: -1.603, w: 0.235, h: 0.085},
-    {name: "PF23", r: 1.689, z: -1.578, w: 0.169, h: 0.133}
-  ]
+      {name: "PF6", r: 0.861, z: 0.168, w: 0.051, h: 0.321, current_ma: 0.25},
+      {name: "PF7", r: 0.861, z: 0.508, w: 0.051, h: 0.321, current_ma: 0.31},
+      {name: "PF13", r: 1.252, z: 1.602, w: 0.235, h: 0.085, current_ma: 0.42},
+      {name: "PF14", r: 1.689, z: 1.587, w: 0.169, h: 0.133, current_ma: -0.28},
+      {name: "PF22", r: 1.252, z: -1.603, w: 0.235, h: 0.085, current_ma: 0.48},
+      {name: "PF23", r: 1.689, z: -1.578, w: 0.169, h: 0.133, current_ma: -0.32}
+    ]
   };
 
+  // Baseline Oceananigans.jl 3D Fluid Tank environments (hydrated asynchronously with exact PDE grids from assets/baux_env.json)
+  function synthKH(nx, nz, billowAmp) {
+    var b = [], u = [], w = [];
+    for (var k = 0; k < nz; k++) {
+      var z = -5.0 + 10.0 * (k + 0.5) / nz;
+      for (var i = 0; i < nx; i++) {
+        var x = -5.0 + 10.0 * (i + 0.5) / nx;
+        var kx = (4.0 * Math.PI * x) / 10.0;
+        var env = Math.exp(-0.5 * (z / 0.85) * (z / 0.85));
+        var disp = billowAmp * env * Math.sin(kx - 0.55 * z);
+        var zb = z - 1.35 * disp;
+        b.push(0.025 * Math.tanh(zb / 0.32));
+        u.push(Math.tanh(zb) - 0.45 * billowAmp * env * Math.cos(kx));
+        w.push(0.55 * billowAmp * env * Math.cos(kx));
+      }
+    }
+    return { b: b, u: u, w: w };
+  }
+  var kh0 = synthKH(32, 32, 0.85);
+  var kh1 = synthKH(32, 32, 0.16);
+
+  var OCEAN_KH = {
+    id: "ocean_kh",
+    kind: "ocean",
+    solver: "Oceananigans.jl 0.117.2 · NonhydrostaticModel (RK3, Upwind-5)",
+    name: "Stratified Kelvin–Helmholtz 3D Shear Channel",
+    shortName: "KH Shear Tank (Oceananigans.jl)",
+    nx: 32, ny: 4, nz: 32, dim: 8192,
+    xMin: -5.0, xMax: 5.0, yMin: -2.5, yMax: 2.5, zMin: -5.0, zMax: 5.0,
+    dist: 15.6, ri: 0.10, re: 5000.0,
+    score_init: -1.00, score_opt: -0.34,
+    actuators: [
+      {name: "S-Act-1", x: -4.2, y: 0.0, z: -0.85, wx: 0.72, wy: 4.6, wz: 0.24},
+      {name: "S-Act-2", x: -3.0, y: 0.0, z:  0.85, wx: 0.72, wy: 4.6, wz: 0.24},
+      {name: "S-Act-3", x: -1.8, y: 0.0, z: -0.85, wx: 0.72, wy: 4.6, wz: 0.24},
+      {name: "S-Act-4", x: -0.6, y: 0.0, z:  0.85, wx: 0.72, wy: 4.6, wz: 0.24},
+      {name: "S-Act-5", x:  0.6, y: 0.0, z: -0.85, wx: 0.72, wy: 4.6, wz: 0.24},
+      {name: "S-Act-6", x:  1.8, y: 0.0, z:  0.85, wx: 0.72, wy: 4.6, wz: 0.24},
+      {name: "S-Act-7", x:  3.0, y: 0.0, z: -0.85, wx: 0.72, wy: 4.6, wz: 0.24},
+      {name: "S-Act-8", x:  4.2, y: 0.0, z:  0.85, wx: 0.72, wy: 4.6, wz: 0.24}
+    ],
+    b_init: kh0.b, u_init: kh0.u, w_init: kh0.w,
+    b_opt: kh1.b, u_opt: kh1.u, w_opt: kh1.w
+  };
+
+  function synthWM(nx, nz, matched) {
+    var b = [], u = [], w = [];
+    for (var k = 0; k < nz; k++) {
+      var z = -128.0 + 128.0 * (k + 0.5) / nz;
+      for (var i = 0; i < nx; i++) {
+        var x = 1000.0 * (i + 0.5) / nx;
+        var kx = (2.0 * Math.PI * x) / 1000.0;
+        var mld = matched ? (-32.0 - 10.0 * Math.cos(kx)) : (-14.0 - 3.0 * Math.sin(kx));
+        var strat = 0.01 * z;
+        var mixed = (z > mld) ? (0.01 * mld + 0.02 * (z - mld) / 32.0) : strat;
+        b.push(mixed);
+        u.push((z > mld ? -0.18 : -0.02) * (1.0 + 0.45 * Math.cos(kx)) * (matched ? 1.0 : 0.25));
+        w.push(0.0);
+      }
+    }
+    return { b: b, u: u, w: w };
+  }
+  var wm0 = synthWM(24, 24, false);
+  var wm1 = synthWM(24, 24, true);
+
+  var OCEAN_WIND = {
+    id: "ocean_wind",
+    kind: "ocean",
+    solver: "Oceananigans.jl 0.117.2 · HydrostaticFreeSurfaceModel (FPlane)",
+    name: "3D Ocean Wind-Stress & Cooling Mixed-Layer Basin",
+    shortName: "Wind-Mixing Basin (Oceananigans.jl)",
+    nx: 24, ny: 4, nz: 24, dim: 192,
+    xMin: 0.0, xMax: 1000.0, yMin: 0.0, yMax: 500.0, zMin: -128.0, zMax: 0.0,
+    dist: 15.8, ri: 0.25, re: 12800.0,
+    score_init: -0.92, score_opt: -0.04,
+    actuators: [
+      {name: "Flux-Plate-1", x: 80.0,  y: 250.0, z: -2.5, wx: 95.0, wy: 440.0, wz: 4.5},
+      {name: "Flux-Plate-2", x: 220.0, y: 250.0, z: -2.5, wx: 95.0, wy: 440.0, wz: 4.5},
+      {name: "Flux-Plate-3", x: 360.0, y: 250.0, z: -2.5, wx: 95.0, wy: 440.0, wz: 4.5},
+      {name: "Flux-Plate-4", x: 500.0, y: 250.0, z: -2.5, wx: 95.0, wy: 440.0, wz: 4.5},
+      {name: "Flux-Plate-5", x: 640.0, y: 250.0, z: -2.5, wx: 95.0, wy: 440.0, wz: 4.5},
+      {name: "Flux-Plate-6", x: 780.0, y: 250.0, z: -2.5, wx: 95.0, wy: 440.0, wz: 4.5},
+      {name: "Flux-Plate-7", x: 920.0, y: 250.0, z: -2.5, wx: 95.0, wy: 440.0, wz: 4.5}
+    ],
+    b_init: wm0.b, u_init: wm0.u, w_init: wm0.w,
+    b_opt: wm1.b, u_opt: wm1.u, w_opt: wm1.w
+  };
 
   var MACHINES = {
     tcv: TCV_CAD,
+    sparc: SPARC_CAD,
     arc: ARC_CAD,
     iter: ITER_CAD,
-    d3d: D3D_CAD
+    d3d: D3D_CAD,
+    ocean_kh: OCEAN_KH,
+    ocean_wind: OCEAN_WIND
   };
 
-  // Exact 32 shape_70166 reference LCFS control points extracted from arXiv:2505.00663 Fig. 9 (state0_refs.pdf)
+  var LIVE_RUNS = {
+    fuseWorkerS: 5.83,
+    oceanWorkerS: 0.24
+  };
+
+  // Exact 32 shape_70166 reference LCFS control points extracted from arXiv:2505.00663 Fig. 9
   var SHAPE_70166_REFS = [
     [0.6250,  0.1943], [0.6299,  0.1413], [0.6393,  0.0889], [0.6551,  0.0380],
     [0.6803, -0.0088], [0.7187, -0.0458], [0.7685, -0.0641], [0.8217, -0.0638],
@@ -698,9 +955,8 @@ let mount_tokamak_cad () =
     [0.6464,  0.4051], [0.6340,  0.3533], [0.6270,  0.3006], [0.6241,  0.2475]
   ];
   var SHAPE_70166_AXIS = [0.8788, 0.2339];
-  var SHAPE_70166_LIMIT = [0.6240, 0.2339];
 
-  // Verified 10-Seed x 10,000-Round Paired TORAX 2.0.0 TuRBO-zero Benchmark Data (D = 160,531, 93->256->256->256->19)
+  // Verified 10-Seed x 10,000-Round Paired TORAX 2.0.0 TuRBO-zero Benchmark Data (D = 160,531)
   var ROUNDS = [0, 300, 1000, 2000, 3000, 5000, 8000, 10000];
   var BENCH = {
     shared: {
@@ -714,7 +970,7 @@ let mount_tokamak_cad () =
       dR: 0.0015, dZ: -0.002, dKappa: -0.01, dTri: 0.00,
       comps: [0.952, 0.964, 0.892, 0.948, 0.885],
       te0: 14.8, ti0: 12.1, ne0: 1.02, ip: 1.49, q95: 3.24,
-      coils: [0.62, 0.58, 0.44, 0.21, -0.18, -0.45, -0.68, -0.52, 0.49, 0.64, 0.35, -0.12, -0.38, -0.61, 0.72, 0.55, -0.42, -0.41, 0.14]
+      coils: [0.62, 0.58, 0.44, 0.21, -0.18, -0.45, -0.68, -0.52, 0.49, 0.64, 0.35, -0.12, -0.38, -0.61, 0.72, 0.55, -0.42, -0.41, 0.14, 0.22]
     },
     indep: {
       name: "Independent TuRBO-zero (origin-only)",
@@ -727,10 +983,10 @@ let mount_tokamak_cad () =
       dR: 0.0045, dZ: -0.006, dKappa: -0.03, dTri: -0.02,
       comps: [0.924, 0.941, 0.865, 0.928, 0.860],
       te0: 14.2, ti0: 11.6, ne0: 0.99, ip: 1.47, q95: 3.19,
-      coils: [0.55, 0.51, 0.39, 0.18, -0.15, -0.41, -0.62, -0.48, 0.44, 0.58, 0.31, -0.15, -0.34, -0.55, 0.66, 0.49, -0.39, -0.44, 0.19]
+      coils: [0.55, 0.51, 0.39, 0.18, -0.15, -0.41, -0.62, -0.48, 0.44, 0.58, 0.31, -0.15, -0.34, -0.55, 0.66, 0.49, -0.39, -0.44, 0.19, 0.18]
     },
     init: {
-      name: "Initial Random Policy θ₀ (Round 0)",
+      name: "Initial Unoptimized θ₀ (Round 0)",
       short: "Initial θ₀",
       color: "#dc2626",
       accent: "#ef4444",
@@ -740,7 +996,7 @@ let mount_tokamak_cad () =
       dR: -0.048, dZ: -0.135, dKappa: -0.34, dTri: -0.25,
       comps: [0.062, 0.115, 0.084, 0.190, 0.045],
       te0: 3.2, ti0: 2.6, ne0: 0.45, ip: 0.72, q95: 2.12,
-      coils: [-0.12, 0.08, -0.19, 0.24, -0.05, 0.14, -0.22, 0.11, -0.18, 0.09, 0.21, -0.15, 0.07, -0.13, 0.16, -0.09, -0.82, 0.44, -0.68]
+      coils: [-0.12, 0.08, -0.19, 0.24, -0.05, 0.14, -0.22, 0.11, -0.18, 0.09, 0.21, -0.15, 0.07, -0.13, 0.16, -0.09, -0.82, 0.44, -0.68, -0.31]
     }
   };
 
@@ -765,28 +1021,23 @@ let mount_tokamak_cad () =
     }
 
     var progress = Math.min(1.0, Math.max(0.0, (scoreMean - pol.mean[0]) / Math.max(1e-3, 91.57 - pol.mean[0])));
+    if (polKey === "indep") progress *= 0.89;
     var initPol = BENCH.init;
 
     var dR = lerp(initPol.dR, pol.dR, progress);
     var dZ = lerp(initPol.dZ, pol.dZ, progress);
     var dKappa = lerp(initPol.dKappa, pol.dKappa, progress);
     var dTri = lerp(initPol.dTri, pol.dTri, progress);
-    var te0 = lerp(initPol.te0, pol.te0, progress);
-    var ti0 = lerp(initPol.ti0, pol.ti0, progress);
-    var ne0 = lerp(initPol.ne0, pol.ne0, progress);
-    var ip = lerp(initPol.ip, pol.ip, progress);
     var q95 = lerp(initPol.q95, pol.q95, progress);
 
     var comps = [];
     for (var c = 0; c < 5; c++) {
       comps.push(lerp(initPol.comps[c], pol.comps[c], progress));
     }
-
     var coils = [];
     for (var ci = 0; ci < initPol.coils.length; ci++) {
       coils.push(lerp(initPol.coils[ci], pol.coils[ci], progress));
     }
-
     var lcfsErrMm = lerp(48.2, (polKey === "shared" ? 2.1 : (polKey === "indep" ? 6.4 : 48.2)), progress);
 
     return {
@@ -794,16 +1045,13 @@ let mount_tokamak_cad () =
       policy: pol,
       round: r,
       seedIdx: seedIdx,
+      progress: progress,
       score: score,
       sem: semVal,
       dR: dR,
       dZ: dZ,
       dKappa: dKappa,
       dTri: dTri,
-      te0: te0,
-      ti0: ti0,
-      ne0: ne0,
-      ip: ip,
       q95: q95,
       comps: comps,
       coils: coils,
@@ -811,13 +1059,34 @@ let mount_tokamak_cad () =
     };
   }
 
+  // Solved FUSE.jl TEQUILA LCFS contour (when mach.lcfs is present) or analytical Miller fallback
   function plasmaContour(rho, st, nPts, mach) {
     mach = mach || TCV_CAD;
+    var scaleA = mach.a / 0.25;
+    if (mach.lcfs && mach.lcfs.length >= 16) {
+      var axR0 = (typeof mach.axisR === "number") ? mach.axisR : mach.R0;
+      var axZ0 = (typeof mach.axisZ === "number") ? mach.axisZ : (mach.Z0 || 0.0);
+      var curR0 = axR0 + st.dR * 0.45 * scaleA;
+      var curZ0 = axZ0 + st.dZ * 0.45 * scaleA;
+      var kS = (1.0 + st.dKappa * 0.35) * (0.84 + 0.16 * rho);
+      var rS = 1.0 + st.dTri * 0.18;
+      var outPts = [];
+      var src = mach.lcfs;
+      for (var j = 0; j < src.length; j++) {
+        var dr = (src[j][0] - axR0) * rho * rS;
+        var dz = (src[j][1] - axZ0) * rho * kS;
+        outPts.push([curR0 + dr, curZ0 + dz]);
+      }
+      var rxS = (typeof mach.rx === "number") ? (curR0 + (mach.rx - axR0)) : (curR0 - mach.a * 0.40);
+      var zxS = (typeof mach.zx === "number") ? (curZ0 + (mach.zx - axZ0) * kS) : (curZ0 - mach.a * 1.55);
+      return { pts: outPts, R0: curR0, Z0: curZ0, Rx: rxS, Zx: zxS };
+    }
+
     var pts = [];
-    var R0 = mach.R0 + (mach.id === "tcv" ? st.dR * 0.7 : 0.0);
-    var Z0 = (mach.id === "tcv" ? (-0.045 + st.dZ * 0.8) : (mach.id === "iter" ? 0.35 : 0.0));
+    var R0 = mach.R0 + (mach.id === "tcv" ? st.dR * 0.7 : st.dR * 0.35 * scaleA);
+    var Z0 = (mach.id === "tcv" ? (-0.045 + st.dZ * 0.8) : ((mach.Z0 || 0.0) + st.dZ * 0.35 * scaleA));
     var a = (mach.a * 0.86) * rho;
-    var baseKappa = (mach.id === "tcv") ? (1.58 + st.dKappa * 0.45) : (mach.id === "arc" ? 1.78 : (mach.id === "iter" ? 1.82 : 1.75));
+    var baseKappa = (mach.id === "tcv") ? (1.58 + st.dKappa * 0.45) : (1.78 + st.dKappa * 0.25);
     var kappa = baseKappa * (0.78 + 0.22 * rho);
     var deltaU = ((mach.id === "tcv" ? (0.36 + st.dTri * 0.4) : 0.38)) * rho;
     var deltaL = ((mach.id === "tcv" ? (0.52 + st.dTri * 0.4) : 0.48)) * rho;
@@ -825,7 +1094,6 @@ let mount_tokamak_cad () =
     for (var i = 0; i < nPts; i++) {
       var th = (2.0 * Math.PI * i) / nPts;
       var s = Math.sin(th);
-      var c = Math.cos(th);
       var d = (s >= 0.0) ? deltaU : deltaL;
       var r = R0 + a * Math.cos(th + Math.asin(Math.max(-0.95, Math.min(0.95, d))) * s);
       var z = Z0 + kappa * a * s;
@@ -840,23 +1108,6 @@ let mount_tokamak_cad () =
     return { pts: pts, R0: R0, Z0: Z0, Rx: rx, Zx: zx };
   }
 
-  // Deform the exact 32-point shape_70166 reference contour from Fig. 9 according to policy state
-  function plasmaContourFig9(rho, st) {
-    var R0 = SHAPE_70166_AXIS[0] + st.dR;
-    var Z0 = SHAPE_70166_AXIS[1] + st.dZ;
-    var kScale = 1.0 + st.dKappa * 0.55;
-    var rScale = 1.0 + st.dTri * 0.25;
-    var pts = [];
-    for (var i = 0; i < SHAPE_70166_REFS.length; i++) {
-      var refR = SHAPE_70166_REFS[i][0];
-      var refZ = SHAPE_70166_REFS[i][1];
-      var dR = (refR - SHAPE_70166_AXIS[0]) * rho * rScale;
-      var dZ = (refZ - SHAPE_70166_AXIS[1]) * rho * kScale;
-      pts.push([R0 + dR, Z0 + dZ]);
-    }
-    return { pts: pts, R0: R0, Z0: Z0 };
-  }
-
   var VS_CAD = [
     "attribute vec3 aPos;",
     "attribute vec3 aNorm;",
@@ -868,11 +1119,9 @@ let mount_tokamak_cad () =
     "varying vec4 vCol;",
     "varying vec3 vNorm;",
     "varying vec3 vViewDir;",
-    "varying vec3 vWorldPos;",
     "varying float vUnlit;",
     "void main() {",
     "  vec4 wp = uModel * vec4(aPos, 1.0);",
-    "  vWorldPos = wp.xyz;",
     "  vNorm = normalize(mat3(uModel) * aNorm);",
     "  vViewDir = normalize(uCamPos - wp.xyz);",
     "  vCol = aCol;",
@@ -886,7 +1135,6 @@ let mount_tokamak_cad () =
     "varying vec4 vCol;",
     "varying vec3 vNorm;",
     "varying vec3 vViewDir;",
-    "varying vec3 vWorldPos;",
     "varying float vUnlit;",
     "void main() {",
     "  if (vUnlit > 0.5) {",
@@ -895,6 +1143,7 @@ let mount_tokamak_cad () =
     "  }",
     "  vec3 n = normalize(vNorm);",
     "  vec3 v = normalize(vViewDir);",
+    "  if (dot(n, v) < 0.0) n = -n;",
     "  vec3 l1 = normalize(vec3(0.55, 0.85, 0.45));",
     "  vec3 l2 = normalize(vec3(-0.65, 0.35, -0.65));",
     "  float diff1 = max(dot(n, l1), 0.0);",
@@ -909,12 +1158,7 @@ let mount_tokamak_cad () =
   ].join("\n");
 
   function mat4Identity() {
-    return new Float32Array([
-      1,0,0,0,
-      0,1,0,0,
-      0,0,1,0,
-      0,0,0,1
-    ]);
+    return new Float32Array([1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1]);
   }
 
   function mat4Mul(a, b) {
@@ -922,9 +1166,7 @@ let mount_tokamak_cad () =
     for (var i = 0; i < 4; i++) {
       for (var j = 0; j < 4; j++) {
         var sum = 0.0;
-        for (var k = 0; k < 4; k++) {
-          sum += a[k * 4 + i] * b[j * 4 + k];
-        }
+        for (var k = 0; k < 4; k++) sum += a[k * 4 + i] * b[j * 4 + k];
         out[j * 4 + i] = sum;
       }
     }
@@ -962,7 +1204,7 @@ let mount_tokamak_cad () =
     out[0] = x0; out[4] = x1; out[8] = x2; out[12] = -(x0 * ex + x1 * ey + x2 * ez);
     out[1] = y0; out[5] = y1; out[9] = y2; out[13] = -(y0 * ex + y1 * ey + y2 * ez);
     out[2] = z0; out[6] = z1; out[10] = z2; out[14] = -(z0 * ex + z1 * ey + z2 * ez);
-    out[3] = 0.0; out[7] = 0.0; out[11] = 0.0; out[15] = 1.0;
+    out[15] = 1.0;
     return out;
   }
 
@@ -973,15 +1215,255 @@ let mount_tokamak_cad () =
     return [R * c - off * s, Z, R * s + off * c];
   }
 
-  // Build the complete 3D CAD mesh buffers for active tokamak geometry
+  // Thermal/haline scientific colormap t in [0, 1] -> [r, g, b, 1]
+  function oceanPalette(t) {
+    var u = Math.max(0.0, Math.min(1.0, t));
+    if (u < 0.25) {
+      var s = u / 0.25;
+      return [lerp(0.07, 0.08, s), lerp(0.16, 0.42, s), lerp(0.38, 0.68, s), 1.0];
+    } else if (u < 0.50) {
+      var s2 = (u - 0.25) / 0.25;
+      return [lerp(0.08, 0.18, s2), lerp(0.42, 0.72, s2), lerp(0.68, 0.72, s2), 1.0];
+    } else if (u < 0.75) {
+      var s3 = (u - 0.50) / 0.25;
+      return [lerp(0.18, 0.92, s3), lerp(0.72, 0.74, s3), lerp(0.72, 0.24, s3), 1.0];
+    } else {
+      var s4 = (u - 0.75) / 0.25;
+      return [lerp(0.92, 0.96, s4), lerp(0.74, 0.36, s4), lerp(0.24, 0.14, s4), 1.0];
+    }
+  }
+
+  // Build 3D CAD mesh buffers for Oceananigans.jl 3D Stratified Shear Tank / Wind-Mixing Basin
+  function buildOceanCADBuffers(gl, mach, st, opts) {
+    var pos = [], norm = [], col = [], linePos = [], lineCol = [];
+    function pushVert(p, n, c) {
+      pos.push(p[0], p[1], p[2]);
+      norm.push(n[0], n[1], n[2]);
+      col.push(c[0], c[1], c[2], c[3]);
+    }
+    function pushTri(p1, p2, p3, n1, n2, n3, c1, c2, c3) {
+      pushVert(p1, n1, c1);
+      pushVert(p2, n2, c2 || c1);
+      pushVert(p3, n3, c3 || c1);
+    }
+    function pushLine(p1, p2, c) {
+      linePos.push(p1[0], p1[1], p1[2], p2[0], p2[1], p2[2]);
+      lineCol.push(c[0], c[1], c[2], c[3], c[0], c[1], c[2], c[3]);
+    }
+    function addBox3D(x0, x1, y0, y1, z0, z1, sideCol, topCol, edgeCol) {
+      // WebGL coords: X = x, Y = z (vertical), Z = y (spanwise depth)
+      var p000 = [x0, y0, z0], p100 = [x1, y0, z0], p110 = [x1, y1, z0], p010 = [x0, y1, z0];
+      var p001 = [x0, y0, z1], p101 = [x1, y0, z1], p111 = [x1, y1, z1], p011 = [x0, y1, z1];
+      var tc = topCol || sideCol;
+      // Front (+Z), Back (-Z), Left (-X), Right (+X), Top (+Y), Bottom (-Y)
+      pushTri(p001, p101, p111, [0,0,1], [0,0,1], [0,0,1], sideCol);
+      pushTri(p001, p111, p011, [0,0,1], [0,0,1], [0,0,1], sideCol);
+      pushTri(p100, p000, p010, [0,0,-1], [0,0,-1], [0,0,-1], sideCol);
+      pushTri(p100, p010, p110, [0,0,-1], [0,0,-1], [0,0,-1], sideCol);
+      pushTri(p000, p001, p011, [-1,0,0], [-1,0,0], [-1,0,0], sideCol);
+      pushTri(p000, p011, p010, [-1,0,0], [-1,0,0], [-1,0,0], sideCol);
+      pushTri(p101, p100, p110, [1,0,0], [1,0,0], [1,0,0], sideCol);
+      pushTri(p101, p110, p111, [1,0,0], [1,0,0], [1,0,0], sideCol);
+      pushTri(p011, p111, p110, [0,1,0], [0,1,0], [0,1,0], tc);
+      pushTri(p011, p110, p010, [0,1,0], [0,1,0], [0,1,0], tc);
+      pushTri(p000, p100, p101, [0,-1,0], [0,-1,0], [0,-1,0], sideCol);
+      pushTri(p000, p101, p001, [0,-1,0], [0,-1,0], [0,-1,0], sideCol);
+      if (edgeCol) {
+        pushLine(p011, p111, edgeCol); pushLine(p111, p110, edgeCol);
+        pushLine(p110, p010, edgeCol); pushLine(p010, p011, edgeCol);
+      }
+    }
+
+    // Map physical tank box to canonical 3D CAD engineering envelope: X in [-4.6, 4.6], Y_vert in [-2.35, 2.35], Z_depth in [-2.3, 2.3]
+    var XW = 4.6, YH = 2.35, ZD = 2.25, wt = 0.16;
+    function mapX(xp) { return -XW + 2.0 * XW * ((xp - mach.xMin) / Math.max(1e-6, mach.xMax - mach.xMin)); }
+    function mapY(zp) { return -YH + 2.0 * YH * ((zp - mach.zMin) / Math.max(1e-6, mach.zMax - mach.zMin)); }
+    function mapZ(yp) { return -ZD + 2.0 * ZD * ((yp - mach.yMin) / Math.max(1e-6, mach.yMax - mach.yMin)); }
+
+    var steelOuter = [0.55, 0.58, 0.63, 1.0];
+    var rimWhite   = [0.96, 0.97, 0.99, 1.0];
+    var rimEdge    = [0.16, 0.18, 0.22, 0.85];
+
+    // 1. Cutaway Structural Tank Shell (Baseplate, Rear Wall, Left Wall, Half-Cut Right Flange)
+    addBox3D(-XW - wt, XW + wt, -YH - wt, -YH, -ZD - wt, ZD + wt, steelOuter, [0.22, 0.25, 0.30, 1.0], rimEdge);
+    addBox3D(-XW - wt, XW + wt, -YH, YH + 0.08, ZD, ZD + wt, steelOuter, rimWhite, rimEdge);
+    addBox3D(-XW - wt, -XW, -YH, YH + 0.08, -ZD, ZD + wt, steelOuter, rimWhite, rimEdge);
+    addBox3D(XW, XW + wt, -YH, -0.35 * YH, -ZD, ZD + wt, steelOuter, rimWhite, rimEdge);
+
+    // Front transparent acrylic/glass CAD frame edges (facing viewer at Z = -ZD)
+    var frameCol = [0.42, 0.52, 0.64, 0.85];
+    pushLine([-XW, -YH, -ZD], [XW, -YH, -ZD], frameCol);
+    pushLine([-XW, YH, -ZD], [XW, YH, -ZD], frameCol);
+    pushLine([-XW, -YH, -ZD], [-XW, YH, -ZD], frameCol);
+    pushLine([XW, -YH, -ZD], [XW, YH, -ZD], frameCol);
+    pushLine([XW, -YH, ZD], [XW, YH, ZD], frameCol);
+    pushLine([XW, YH, -ZD], [XW, YH, ZD], frameCol);
+
+    // 2. Interpolate solved Oceananigans.jl PDE buoyancy & velocity fields across Rollout Round
+    var nx = mach.nx || 32, nz = mach.nz || 32;
+    var prog = st.progress;
+    var bField = new Float32Array(nx * nz);
+    var uField = new Float32Array(nx * nz);
+    var wField = new Float32Array(nx * nz);
+    var bMin = 1e9, bMax = -1e9;
+    for (var idx = 0; idx < nx * nz; idx++) {
+      var bv = lerp(mach.b_init[idx] || 0.0, mach.b_opt[idx] || 0.0, prog);
+      var uv = lerp(mach.u_init[idx] || 0.0, mach.u_opt[idx] || 0.0, prog);
+      var wv = lerp((mach.w_init && mach.w_init[idx]) || 0.0, (mach.w_opt && mach.w_opt[idx]) || 0.0, prog);
+      bField[idx] = bv;
+      uField[idx] = uv;
+      wField[idx] = wv;
+      if (bv < bMin) bMin = bv;
+      if (bv > bMax) bMax = bv;
+    }
+    var bSpan = Math.max(1e-6, bMax - bMin);
+    function bAt(i, k) {
+      var ii = Math.max(0, Math.min(nx - 1, i));
+      var kk = Math.max(0, Math.min(nz - 1, k));
+      return bField[kk * nx + ii];
+    }
+
+    // 3. Rear Interior Fluid Cutaway Cross-Section + Right Cutaway Face
+    var zBack = ZD - 0.02;
+    for (var k = 0; k < nz - 1; k++) {
+      var y0 = -YH + 2.0 * YH * (k / (nz - 1));
+      var y1 = -YH + 2.0 * YH * ((k + 1) / (nz - 1));
+      for (var i = 0; i < nx - 1; i++) {
+        var x0 = -XW + 2.0 * XW * (i / (nx - 1));
+        var x1 = -XW + 2.0 * XW * ((i + 1) / (nx - 1));
+        var c00 = oceanPalette((bAt(i, k) - bMin) / bSpan);
+        var c10 = oceanPalette((bAt(i + 1, k) - bMin) / bSpan);
+        var c11 = oceanPalette((bAt(i + 1, k + 1) - bMin) / bSpan);
+        var c01 = oceanPalette((bAt(i, k + 1) - bMin) / bSpan);
+        var nFront = [0, 0, -1];
+        pushTri([x0, y0, zBack], [x1, y1, zBack], [x1, y0, zBack], nFront, nFront, nFront, c00, c11, c10);
+        pushTri([x0, y0, zBack], [x0, y1, zBack], [x1, y1, zBack], nFront, nFront, nFront, c00, c01, c11);
+      }
+    }
+
+    // 4. Three 3D Phong-Lit Volumetric Isopycnal Material Surfaces across the 3D Tank
+    var isoLevels = [0.28, 0.50, 0.72];
+    var nSpanSeg = 14;
+    for (var il = 0; il < isoLevels.length; il++) {
+      var targetT = isoLevels[il];
+      var targetB = bMin + targetT * bSpan;
+      var isoCol = oceanPalette(targetT);
+      // Extract height profile hIso[i] across x where b(i, k) crosses targetB
+      var hIso = new Float32Array(nx);
+      for (var i2 = 0; i2 < nx; i2++) {
+        var bestK = (nz - 1) * targetT;
+        var bestDiff = 1e9;
+        for (var k2 = 0; k2 < nz - 1; k2++) {
+          var v0 = bAt(i2, k2) - targetB;
+          var v1 = bAt(i2, k2 + 1) - targetB;
+          if ((v0 <= 0.0 && v1 >= 0.0) || (v0 >= 0.0 && v1 <= 0.0)) {
+            var frac = Math.abs(v0) / Math.max(1e-9, Math.abs(v0 - v1));
+            bestK = k2 + frac;
+            bestDiff = 0.0;
+          } else if (Math.abs(v0) < bestDiff) {
+            bestDiff = Math.abs(v0);
+            bestK = k2;
+          }
+        }
+        hIso[i2] = -YH + 2.0 * YH * (bestK / Math.max(1, nz - 1));
+      }
+
+      for (var s = 0; s < nSpanSeg; s++) {
+        var zA = -ZD * 0.92 + (1.84 * ZD) * (s / nSpanSeg);
+        var zB = -ZD * 0.92 + (1.84 * ZD) * ((s + 1) / nSpanSeg);
+        var spanModA = (1.0 - prog * 0.75) * 0.14 * Math.sin((2.0 * Math.PI * s) / nSpanSeg + il);
+        var spanModB = (1.0 - prog * 0.75) * 0.14 * Math.sin((2.0 * Math.PI * (s + 1)) / nSpanSeg + il);
+        for (var i3 = 0; i3 < nx - 1; i3++) {
+          var xa = -XW + 2.0 * XW * (i3 / (nx - 1));
+          var xb = -XW + 2.0 * XW * ((i3 + 1) / (nx - 1));
+          var ya0 = Math.max(-YH + 0.05, Math.min(YH - 0.05, hIso[i3] + spanModA));
+          var yb0 = Math.max(-YH + 0.05, Math.min(YH - 0.05, hIso[i3 + 1] + spanModA));
+          var yb1 = Math.max(-YH + 0.05, Math.min(YH - 0.05, hIso[i3 + 1] + spanModB));
+          var ya1 = Math.max(-YH + 0.05, Math.min(YH - 0.05, hIso[i3] + spanModB));
+          var dyx = yb0 - ya0;
+          var dx = xb - xa;
+          var nrm = Math.hypot(dx, dyx) || 1.0;
+          var nSurf = [-dyx / nrm, dx / nrm, 0.08];
+          pushTri([xa, ya0, zA], [xb, yb0, zA], [xb, yb1, zB], nSurf, nSurf, nSurf, isoCol);
+          pushTri([xa, ya0, zA], [xb, yb1, zB], [xa, ya1, zB], nSurf, nSurf, nSurf, isoCol);
+          if (s === 0) {
+            pushLine([xa, ya0, zA - 0.01], [xb, yb0, zA - 0.01], [0.96, 0.98, 1.0, 0.92]);
+          }
+        }
+      }
+    }
+
+    // 5. 3D Actuator Manifolds / Surface Wind-Stress & Cooling Flux Vanes
+    if (opts.showCoils && mach.actuators) {
+      var actGain = 0.25 + 0.75 * prog;
+      for (var ai = 0; ai < mach.actuators.length; ai++) {
+        var ac = mach.actuators[ai];
+        var ax0 = mapX(ac.x - 0.5 * ac.wx), ax1 = mapX(ac.x + 0.5 * ac.wx);
+        var ay0 = mapY(ac.z - 0.5 * ac.wz), ay1 = mapY(ac.z + 0.5 * ac.wz);
+        var az0 = Math.max(-ZD * 0.88, mapZ(ac.y - 0.5 * ac.wy));
+        var az1 = Math.min( ZD * 0.88, mapZ(ac.y + 0.5 * ac.wy));
+        var cAct = (ai % 2 === 0)
+          ? [0.72 + 0.16 * actGain, 0.48 + 0.10 * actGain, 0.14, 1.0]
+          : [0.24 + 0.08 * actGain, 0.42 + 0.14 * actGain, 0.64 + 0.12 * actGain, 1.0];
+        var cTop = [Math.min(1.0, cAct[0] + 0.12), Math.min(1.0, cAct[1] + 0.12), Math.min(1.0, cAct[2] + 0.10), 1.0];
+        addBox3D(ax0, ax1, ay0, ay1, az0, az1, cAct, cTop, rimEdge);
+      }
+    }
+
+    // 6. 3D Velocity Streamlines Advected through Oceananigans.jl (u, w) Field
+    if (opts.showFieldLines) {
+      var zPlanes = [-ZD * 0.65, 0.0, ZD * 0.65];
+      for (var zp = 0; zp < zPlanes.length; zp++) {
+        for (var seedRow = 0; seedRow < 5; seedRow++) {
+          var sx = -XW * 0.90;
+          var sy = -YH * 0.72 + (1.44 * YH) * (seedRow / 4.0);
+          var dir = (sy >= 0.0 || mach.id === "ocean_wind") ? 1.0 : -1.0;
+          if (dir < 0.0) sx = XW * 0.90;
+          var prev = [sx, sy, zPlanes[zp]];
+          for (var step = 0; step < 36; step++) {
+            var gi = Math.max(0, Math.min(nx - 1, Math.round(((sx + XW) / (2.0 * XW)) * (nx - 1))));
+            var gk = Math.max(0, Math.min(nz - 1, Math.round(((sy + YH) / (2.0 * YH)) * (nz - 1))));
+            var uu = uField[gk * nx + gi];
+            var ww = wField[gk * nx + gi];
+            var uScale = (mach.id === "ocean_wind") ? -2.2 : 0.28;
+            var nxPt = sx + (Math.abs(uu) > 1e-4 ? uu * uScale : dir * 0.24);
+            var nyPt = Math.max(-YH * 0.92, Math.min(YH * 0.92, sy + ww * 0.36));
+            if (nxPt < -XW * 0.95 || nxPt > XW * 0.95) break;
+            var cur = [nxPt, nyPt, zPlanes[zp]];
+            pushLine(prev, cur, [1.0, 0.90, 0.45, 0.92]);
+            prev = cur;
+            sx = nxPt;
+            sy = nyPt;
+          }
+        }
+      }
+    }
+
+    function makeBuf(arr) {
+      var b = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, b);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(arr), gl.STATIC_DRAW);
+      return b;
+    }
+    return {
+      posBuf: makeBuf(pos),
+      normBuf: makeBuf(norm),
+      colBuf: makeBuf(col),
+      triCount: pos.length / 3,
+      linePosBuf: makeBuf(linePos),
+      lineColBuf: makeBuf(lineCol),
+      lineCount: linePos.length / 3
+    };
+  }
+
+  // Build the complete 3D CAD mesh buffers for active FUSE.jl / TCV tokamak geometry
   function buildTokamakCADBuffers(gl, st, opts) {
     var mKey = opts.machine || "tcv";
     var mach = Object.prototype.hasOwnProperty.call(MACHINES, mKey) ? MACHINES[mKey] : MACHINES.tcv;
-    var pos = [];
-    var norm = [];
-    var col = [];
-    var linePos = [];
-    var lineCol = [];
+    if (mach.kind === "ocean") {
+      return buildOceanCADBuffers(gl, mach, st, opts);
+    }
+    var pos = [], norm = [], col = [], linePos = [], lineCol = [];
 
     function pushVert(p, n, c) {
       pos.push(p[0], p[1], p[2]);
@@ -1011,11 +1493,8 @@ let mount_tokamak_cad () =
         var pb = cylToXYZ(b[0], b[1], phi, dn);
         var ca = (typeof colorFn === "function") ? colorFn(a[0], a[1]) : colorFn;
         var cb = (typeof colorFn === "function") ? colorFn(b[0], b[1], i) : colorFn;
-        if (signNorm > 0) {
-          pushTri(pc, pa, pb, n, n, n, cc, ca, cb);
-        } else {
-          pushTri(pc, pb, pa, n, n, n, cc, cb, ca);
-        }
+        if (signNorm > 0) pushTri(pc, pa, pb, n, n, n, cc, ca, cb);
+        else pushTri(pc, pb, pa, n, n, n, cc, cb, ca);
         if (edgeCol) {
           var paE = cylToXYZ(a[0], a[1], phi, dn + signNorm * 0.0012);
           var pbE = cylToXYZ(b[0], b[1], phi, dn + signNorm * 0.0012);
@@ -1028,20 +1507,15 @@ let mount_tokamak_cad () =
       var m = polyRZ.length;
       var dPhi = (phi1 - phi0) / nSeg;
       for (var s = 0; s < nSeg; s++) {
-        var a0 = phi0 + s * dPhi;
-        var a1 = a0 + dPhi;
+        var a0 = phi0 + s * dPhi, a1 = a0 + dPhi;
         var c0 = Math.cos(a0), s0 = Math.sin(a0);
         var c1 = Math.cos(a1), s1 = Math.sin(a1);
         for (var i = 0; i < m; i++) {
-          var v0 = polyRZ[i];
-          var v1 = polyRZ[(i + 1) % m];
-          var dr = v1[0] - v0[0];
-          var dz = v1[1] - v0[1];
+          var v0 = polyRZ[i], v1 = polyRZ[(i + 1) % m];
+          var dr = v1[0] - v0[0], dz = v1[1] - v0[1];
           var len = Math.hypot(dr, dz) || 1.0;
-          var nr = dz / len;
-          var nz = -dr / len;
-          var n0 = [nr * c0, nz, nr * s0];
-          var n1 = [nr * c1, nz, nr * s1];
+          var nr = dz / len, nz = -dr / len;
+          var n0 = [nr * c0, nz, nr * s0], n1 = [nr * c1, nz, nr * s1];
           var p00 = [v0[0] * c0, v0[1], v0[0] * s0];
           var p10 = [v1[0] * c0, v1[1], v1[0] * s0];
           var p11 = [v1[0] * c1, v1[1], v1[0] * s1];
@@ -1064,8 +1538,7 @@ let mount_tokamak_cad () =
       var m = Math.min(outerRZ.length, innerRZ.length);
       var dPhi = (phi1 - phi0) / nSeg;
       for (var s = 0; s < nSeg; s++) {
-        var a0 = phi0 + s * dPhi;
-        var a1 = a0 + dPhi;
+        var a0 = phi0 + s * dPhi, a1 = a0 + dPhi;
         var c0 = Math.cos(a0), s0 = Math.sin(a0);
         var c1 = Math.cos(a1), s1 = Math.sin(a1);
         for (var i = 0; i < m; i++) {
@@ -1084,10 +1557,10 @@ let mount_tokamak_cad () =
         }
       }
       if (rimCol) {
-        var nUp = [0.0, 0.35, -0.94];
         for (var endIdx = 0; endIdx < 2; endIdx++) {
           var phi = (endIdx === 0) ? phi0 : phi1;
           var signN = (endIdx === 0) ? -1.0 : 1.0;
+          var nSide = [-Math.sin(phi) * signN, 0.12, Math.cos(phi) * signN];
           for (var i = 0; i < m; i++) {
             var o0 = outerRZ[i], o1 = outerRZ[(i + 1) % m];
             var k0 = innerRZ[i], k1 = innerRZ[(i + 1) % m];
@@ -1095,17 +1568,15 @@ let mount_tokamak_cad () =
             var po1 = cylToXYZ(o1[0], o1[1], phi, 0.002 * signN);
             var pk1 = cylToXYZ(k1[0], k1[1], phi, 0.002 * signN);
             var pk0 = cylToXYZ(k0[0], k0[1], phi, 0.002 * signN);
-            pushTri(po0, po1, pk1, nUp, nUp, nUp, rimCol, rimCol, rimCol);
-            pushTri(po0, pk1, pk0, nUp, nUp, nUp, rimCol, rimCol, rimCol);
+            pushTri(po0, po1, pk1, nSide, nSide, nSide, rimCol, rimCol, rimCol);
+            pushTri(po0, pk1, pk0, nSide, nSide, nSide, rimCol, rimCol, rimCol);
           }
         }
       }
     }
 
     function addToroidalBoxRing(rIn, rOut, zBot, zTop, phi0, phi1, nSeg, sideCol, capCol) {
-      var poly = [
-        [rIn, zBot], [rOut, zBot], [rOut, zTop], [rIn, zTop]
-      ];
+      var poly = [[rIn, zBot], [rOut, zBot], [rOut, zTop], [rIn, zTop]];
       addRevolvedSolid(poly, phi0, phi1, nSeg, sideCol, capCol, null, [0.5 * (rIn + rOut), 0.5 * (zBot + zTop)]);
     }
 
@@ -1118,7 +1589,26 @@ let mount_tokamak_cad () =
     var phiVessel0 = (-90.0 + 58.0 * scaleCut) * deg;
     var phiVessel1 = (270.0 - 58.0 * scaleCut) * deg;
 
-    // 1. Render All Poloidal Field & Solenoid Magnetic Coils
+    // 0. Discrete 3D Superconducting / Copper Toroidal Field (TF) D-Coils from FUSE.jl dd.build.layer
+    if (opts.showTF && mach.tf_outer && mach.tf_inner && mach.tf_outer.length >= 4 && mach.tf_outer.length === mach.tf_inner.length) {
+      var nTF = mach.n_tf || 18;
+      var halfAng = (Math.PI / nTF) * 0.34;
+      var tfCaseCol = (mach.id === "tcv" || mach.id === "d3d")
+        ? [0.64, 0.39, 0.20, 1.0]
+        : [0.34, 0.43, 0.54, 1.0];
+      var tfSideCol = (mach.id === "tcv" || mach.id === "d3d")
+        ? [0.76, 0.49, 0.26, 1.0]
+        : [0.46, 0.56, 0.68, 1.0];
+      for (var ti = 0; ti < nTF; ti++) {
+        var phiC = -0.5 * Math.PI + (2.0 * Math.PI * ti) / nTF;
+        // Leave front cutaway sector open so vessel cutaway & protruding 3D plasma torus stay unobstructed
+        if (phiC > (phiVessel0 + 8.0 * deg) && phiC < (phiVessel1 - 8.0 * deg)) {
+          addHollowShell(mach.tf_outer, mach.tf_inner, phiC - halfAng, phiC + halfAng, 2, tfCaseCol, tfCaseCol, tfSideCol);
+        }
+      }
+    }
+
+    // 1. Poloidal Field & Central Solenoid Coils (colored by solved FUSE.jl ActorPFactive currents / policy state)
     if (opts.showCoils && mach.coils) {
       for (var ci = 0; ci < mach.coils.length; ci++) {
         var c = mach.coils[ci];
@@ -1128,50 +1618,47 @@ let mount_tokamak_cad () =
         var zTop = c.z + c.h * 0.5;
         var isInner = (c.r < mach.R0);
         var isCS = c.name && (c.name.indexOf("cs") !== -1 || c.name.indexOf("CS") !== -1 || c.name.indexOf("OH") !== -1 || c.name.indexOf("Central") !== -1);
-        var act = (mach.id === "tcv" && ci < st.coils.length) ? Math.abs(st.coils[ci]) : 0.35;
+        var baseCur = (typeof c.current_ma === "number" && Math.abs(c.current_ma) > 1e-4)
+          ? Math.min(1.0, Math.abs(c.current_ma) / Math.max(1.0, mach.ipNominal * 0.65))
+          : 0.42;
+        var act = (mach.id === "tcv" && ci < st.coils.length) ? Math.abs(st.coils[ci]) : lerp(0.18, baseCur, st.progress);
         var cBody, cCap;
         if (isCS) {
-          cBody = [0.42 + 0.06 * act, 0.27 + 0.05 * act, 0.48 + 0.07 * act, 1.0];
-          cCap  = [0.56 + 0.07 * act, 0.37 + 0.06 * act, 0.63 + 0.07 * act, 1.0];
+          cBody = [0.42 + 0.08 * act, 0.27 + 0.05 * act, 0.48 + 0.09 * act, 1.0];
+          cCap  = [0.56 + 0.09 * act, 0.37 + 0.06 * act, 0.63 + 0.09 * act, 1.0];
         } else if (isInner) {
-          cBody = [0.24 + 0.07 * act, 0.37 + 0.10 * act, 0.54 + 0.12 * act, 1.0];
-          cCap  = [0.32 + 0.08 * act, 0.47 + 0.11 * act, 0.66 + 0.12 * act, 1.0];
+          cBody = [0.24 + 0.08 * act, 0.37 + 0.11 * act, 0.54 + 0.14 * act, 1.0];
+          cCap  = [0.32 + 0.09 * act, 0.47 + 0.12 * act, 0.66 + 0.14 * act, 1.0];
         } else {
-          cBody = [0.68 + 0.10 * act, 0.47 + 0.09 * act, 0.14 + 0.04 * act, 1.0];
-          cCap  = [0.82 + 0.10 * act, 0.58 + 0.09 * act, 0.20 + 0.04 * act, 1.0];
+          cBody = [0.68 + 0.12 * act, 0.47 + 0.10 * act, 0.14 + 0.04 * act, 1.0];
+          cCap  = [0.82 + 0.12 * act, 0.58 + 0.10 * act, 0.20 + 0.04 * act, 1.0];
         }
-        var p0 = isInner ? phiInner0 : phiOuter0;
-        var p1 = isInner ? phiInner1 : phiOuter1;
-        addToroidalBoxRing(rIn, rOut, zBot, zTop, p0, p1, 48, cBody, cCap);
+        addToroidalBoxRing(rIn, rOut, zBot, zTop, isInner ? phiInner0 : phiOuter0, isInner ? phiInner1 : phiOuter1, 44, cBody, cCap);
       }
     }
 
-    // 2. Hollow 3D Vacuum Vessel Shell (Exterior Steel, Charcoal Interior, White Cutaway Rim)
+    // 2. Hollow 3D Double-Wall Vacuum Vessel Shell
     var vesselShellCol = [0.60, 0.62, 0.65, 1.0];
     var vesselInnerCol = [0.15, 0.16, 0.17, 1.0];
     var whiteRimCol    = [0.97, 0.98, 1.00, 1.0];
-    addHollowShell(mach.vessel_outer, mach.vessel_inner, phiVessel0, phiVessel1, 64, vesselShellCol, vesselInnerCol, whiteRimCol);
+    addHollowShell(mach.vessel_outer, mach.vessel_inner, phiVessel0, phiVessel1, 60, vesselShellCol, vesselInnerCol, whiteRimCol);
 
-    // 3. Cutaway Faces & Protruding Plasma Torus
+    // 3. Cutaway Faces & Protruding Solved TEQUILA / Miller Plasma Torus
     var eq = plasmaContour(1.0, st, 64, mach);
 
     function buildCutawayFace(phiVesselPlane, signN, isLeftProtruding) {
-      var phiSolPlane = isLeftProtruding ? (phiVesselPlane - 9.5 * deg) : phiVesselPlane;
       var phiPlasmaPlane = isLeftProtruding ? (phiVesselPlane - 13.5 * deg) : phiVesselPlane;
+      var dnScale = Math.max(1.0, mach.R0 * 0.55);
 
-      // Layer A: White vessel cutaway rim
       addCutawayFan(
-        mach.vessel_outer, [mach.R0, 0.0], phiVesselPlane, signN, 0.001 * signN,
+        mach.vessel_outer, [mach.R0, mach.Z0 || 0.0], phiVesselPlane, signN, 0.001 * dnScale * signN,
         whiteRimCol, [0.16, 0.17, 0.19, 0.85]
       );
-
-      // Layer B: Dark interior first-wall cavity
       addCutawayFan(
-        mach.first_wall, [mach.R0, 0.0], phiVesselPlane, signN, 0.004 * signN,
+        mach.first_wall, [mach.R0, mach.Z0 || 0.0], phiVesselPlane, signN, 0.004 * dnScale * signN,
         [0.15, 0.16, 0.17, 1.0], [0.93, 0.95, 0.97, 0.95]
       );
 
-      // Layer C: 3D Scrape-Off Layer & Plasma Torus jutting forward on left
       if (isLeftProtruding) {
         addRevolvedSolid(
           eq.pts, phiPlasmaPlane, phiVesselPlane, 18,
@@ -1179,7 +1666,6 @@ let mount_tokamak_cad () =
         );
       }
 
-      // Layer D: Nested Plasma Flux Surfaces at phiPlasmaPlane
       var fluxBands = [
         { rho: 1.00, col: [0.98, 0.56, 0.10, 1.0], edge: isLeftProtruding ? null : [0.30, 0.88, 0.94, 0.95] },
         { rho: 0.80, col: [1.00, 0.70, 0.22, 1.0], edge: null },
@@ -1191,15 +1677,14 @@ let mount_tokamak_cad () =
         var band = fluxBands[b];
         var cData = plasmaContour(band.rho, st, 56, mach);
         addCutawayFan(
-          cData.pts, [cData.R0, cData.Z0], phiPlasmaPlane, signN, (0.008 + 0.0018 * b) * signN,
+          cData.pts, [cData.R0, cData.Z0], phiPlasmaPlane, signN, (0.008 + 0.0018 * b) * dnScale * signN,
           band.col, band.edge
         );
       }
 
-      // Layer E: Cyan Divertor Strike Lines
-      var pX = cylToXYZ(eq.Rx, eq.Zx, phiVesselPlane, 0.0085 * signN);
-      var pLegIn = cylToXYZ(eq.Rx - mach.a * 0.18, eq.Zx - mach.a * 0.35, phiVesselPlane, 0.0085 * signN);
-      var pLegOut = cylToXYZ(eq.Rx + mach.a * 0.32, eq.Zx - mach.a * 0.32, phiVesselPlane, 0.0085 * signN);
+      var pX = cylToXYZ(eq.Rx, eq.Zx, phiVesselPlane, 0.0085 * dnScale * signN);
+      var pLegIn = cylToXYZ(eq.Rx - mach.a * 0.18, eq.Zx - mach.a * 0.28, phiVesselPlane, 0.0085 * dnScale * signN);
+      var pLegOut = cylToXYZ(eq.Rx + mach.a * 0.28, eq.Zx - mach.a * 0.26, phiVesselPlane, 0.0085 * dnScale * signN);
       var cyanLine = [0.30, 0.88, 0.94, 1.0];
       pushLine(pX, pLegIn, cyanLine);
       pushLine(pX, pLegOut, cyanLine);
@@ -1208,8 +1693,9 @@ let mount_tokamak_cad () =
     buildCutawayFace(phiVessel0, -1.0, true);
     buildCutawayFace(phiVessel1,  1.0, false);
 
-    // 4. Helical Magnetic Field Lines
+    // 4. Helical q95 Magnetic Field Lines on LCFS
     if (opts.showFieldLines) {
+      var qEff = (mach.q95 || 3.2) * (0.72 + 0.28 * st.progress);
       var nLines = 3;
       for (var l = 0; l < nLines; l++) {
         var th0 = (2.0 * Math.PI * l) / nLines;
@@ -1219,13 +1705,11 @@ let mount_tokamak_cad () =
         var pEnd = phiVessel1 - 11.0 * deg;
         for (var k = 0; k <= steps; k++) {
           var phi = pEnd + (pStart - pEnd) * (k / steps);
-          var th = th0 + st.q95 * (phi - pEnd);
+          var th = th0 + qEff * (phi - pEnd);
           var idx = ((Math.floor((th / (2.0 * Math.PI)) * eq.pts.length) % eq.pts.length) + eq.pts.length) % eq.pts.length;
           var rz = eq.pts[idx];
           var pt = cylToXYZ(rz[0] * 1.003, rz[1], phi, 0.0);
-          if (prevPt) {
-            pushLine(prevPt, pt, [1.0, 0.92, 0.55, 0.90]);
-          }
+          if (prevPt) pushLine(prevPt, pt, [1.0, 0.92, 0.55, 0.92]);
           prevPt = pt;
         }
       }
@@ -1237,7 +1721,6 @@ let mount_tokamak_cad () =
       gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(arr), gl.STATIC_DRAW);
       return b;
     }
-
     return {
       posBuf: makeBuf(pos),
       normBuf: makeBuf(norm),
@@ -1249,8 +1732,123 @@ let mount_tokamak_cad () =
     };
   }
 
-  // --- Center Panel: Poloidal Equilibrium Cross Section & Flux Surfaces ---
-  function renderFigure9Canvas(canvas, st, mach) {
+  // Render 2D Scientific Cross-Section for Oceananigans.jl 3D Fluid Environments
+  function renderOcean2DCanvas(ctx, w, h, st, mach, isDark) {
+    var compact = w < 420;
+    var padTop = compact ? 24 : 30;
+    var padBot = compact ? 30 : 38;
+    var padLeft = compact ? 36 : 44;
+    var padRight = compact ? 10 : 14;
+    var gap = compact ? 12 : 18;
+    var boxW = Math.max(60, Math.floor((w - padLeft - padRight - gap) * 0.5));
+    var boxH = Math.min(Math.max(80, h - padTop - padBot), Math.round(boxW * 1.08));
+    var startY = padTop + Math.floor((h - padTop - padBot - boxH) * 0.5);
+    var leftX = padLeft;
+    var rightX = leftX + boxW + gap;
+
+    var nx = mach.nx || 32, nz = mach.nz || 32;
+    var prog = st.progress;
+    var bGrid = new Float32Array(nx * nz);
+    var uGrid = new Float32Array(nx * nz);
+    var bMin = 1e9, bMax = -1e9, uMax = 1e-6;
+    for (var m = 0; m < nx * nz; m++) {
+      var bv = lerp(mach.b_init[m] || 0.0, mach.b_opt[m] || 0.0, prog);
+      var uv = lerp(mach.u_init[m] || 0.0, mach.u_opt[m] || 0.0, prog);
+      bGrid[m] = bv;
+      uGrid[m] = uv;
+      if (bv < bMin) bMin = bv;
+      if (bv > bMax) bMax = bv;
+      if (Math.abs(uv) > uMax) uMax = Math.abs(uv);
+    }
+    var bSpan = Math.max(1e-6, bMax - bMin);
+
+    var titleFont = compact ? "700 11px 'Latin Modern Roman', Georgia, serif" : "700 12.5px 'Latin Modern Roman', Georgia, serif";
+    var tickFont = "400 9px 'Latin Modern Mono', monospace";
+    var axisFont = "italic 10.5px 'Latin Modern Roman', Georgia, serif";
+
+    function drawFieldBox(bx, titleStr, isVel, showZ) {
+      ctx.fillStyle = isDark ? "#e6edf3" : "#111111";
+      ctx.font = titleFont;
+      ctx.textAlign = "center";
+      ctx.fillText(titleStr, bx + boxW * 0.5, startY - 8);
+
+      var cw = boxW / nx, ch = boxH / nz;
+      for (var k = 0; k < nz; k++) {
+        var py = startY + boxH - (k + 1) * ch;
+        for (var i = 0; i < nx; i++) {
+          var px = bx + i * cw;
+          var idx = k * nx + i;
+          if (!isVel) {
+            var c = oceanPalette((bGrid[idx] - bMin) / bSpan);
+            ctx.fillStyle = "rgb(" + Math.round(c[0]*255) + "," + Math.round(c[1]*255) + "," + Math.round(c[2]*255) + ")";
+          } else {
+            var un = Math.max(-1.0, Math.min(1.0, uGrid[idx] / uMax));
+            var rC = un >= 0 ? 255 : Math.round(255 * (1 + un * 0.82));
+            var gC = Math.round(255 * (1 - 0.65 * Math.abs(un)));
+            var bC = un <= 0 ? 255 : Math.round(255 * (1 - un * 0.82));
+            ctx.fillStyle = "rgb(" + rC + "," + gC + "," + bC + ")";
+          }
+          ctx.fillRect(px, py, Math.ceil(cw + 0.6), Math.ceil(ch + 0.6));
+        }
+      }
+
+      // Overlay CAD actuators on left panel
+      if (!isVel && mach.actuators) {
+        ctx.fillStyle = "rgba(217, 119, 6, 0.88)";
+        ctx.strokeStyle = "#111111";
+        ctx.lineWidth = 0.8;
+        for (var a = 0; a < mach.actuators.length; a++) {
+          var ac = mach.actuators[a];
+          var rx0 = bx + ((ac.x - 0.5 * ac.wx - mach.xMin) / (mach.xMax - mach.xMin)) * boxW;
+          var rw  = Math.max(3, (ac.wx / (mach.xMax - mach.xMin)) * boxW);
+          var ry0 = startY + ((mach.zMax - (ac.z + 0.5 * ac.wz)) / (mach.zMax - mach.zMin)) * boxH;
+          var rh  = Math.max(3, (ac.wz / (mach.zMax - mach.zMin)) * boxH);
+          ctx.fillRect(rx0, ry0, rw, rh);
+          ctx.strokeRect(rx0, ry0, rw, rh);
+        }
+      }
+
+      ctx.strokeStyle = isDark ? "#8b949e" : "#111111";
+      ctx.lineWidth = 1.1;
+      ctx.strokeRect(bx, startY, boxW, boxH);
+
+      ctx.fillStyle = isDark ? "#8b949e" : "#222222";
+      ctx.font = tickFont;
+      ctx.textAlign = "center";
+      var xm = 0.5 * (mach.xMin + mach.xMax);
+      var xTicks = [mach.xMin, xm, mach.xMax];
+      for (var ti = 0; ti < 3; ti++) {
+        var tx = bx + (ti * 0.5) * boxW;
+        ctx.fillText(xTicks[ti].toFixed(0), tx, startY + boxH + 12);
+      }
+      ctx.font = axisFont;
+      ctx.fillText(mach.id === "ocean_wind" ? "x [m]" : "x / h", bx + boxW * 0.5, startY + boxH + 26);
+
+      if (showZ) {
+        ctx.font = tickFont;
+        ctx.textAlign = "right";
+        var zm = 0.5 * (mach.zMin + mach.zMax);
+        var zTicks = [mach.zMin, zm, mach.zMax];
+        for (var zj = 0; zj < 3; zj++) {
+          var ty = startY + boxH - (zj * 0.5) * boxH;
+          ctx.fillText(zTicks[zj].toFixed(0), bx - 4, ty + 3);
+        }
+        ctx.save();
+        ctx.translate(bx - (compact ? 26 : 31), startY + boxH * 0.5);
+        ctx.rotate(-Math.PI * 0.5);
+        ctx.font = axisFont;
+        ctx.textAlign = "center";
+        ctx.fillText(mach.id === "ocean_wind" ? "z [m]" : "z / h", 0, 0);
+        ctx.restore();
+      }
+    }
+
+    drawFieldBox(leftX, compact ? "Buoyancy b(x,z)" : "CAD & Buoyancy b(x, z)", false, true);
+    drawFieldBox(rightX, compact ? "Velocity u(x,z)" : "Velocity Shear u(x, z)", true, false);
+  }
+
+  // Right Panel: 2D Physical Cross-Section (FUSE.jl Tokamak Equilibrium OR Oceananigans.jl PDE Slice)
+  function renderFigure9Canvas(canvas, st, mach, opts) {
     mach = mach || MACHINES.tcv;
     var dpr = window.devicePixelRatio || 1;
     var rect = canvas.getBoundingClientRect();
@@ -1268,6 +1866,12 @@ let mount_tokamak_cad () =
     ctx.fillStyle = isDark ? "#0d1117" : "#ffffff";
     ctx.fillRect(0, 0, w, h);
 
+    if (mach.kind === "ocean") {
+      renderOcean2DCanvas(ctx, w, h, st, mach, isDark);
+      ctx.restore();
+      return;
+    }
+
     var compact = w < 420;
     var ultraCompact = w < 330;
     var padTop = compact ? 24 : 30;
@@ -1279,7 +1883,7 @@ let mount_tokamak_cad () =
     var availW = Math.max(60, (w - padLeft - padRight - gap) * 0.5);
 
     var rMin = mach.rMin, rMax = mach.rMax, zMin = mach.zMin, zMax = mach.zMax;
-    var dR = rMax - rMin, dZ = zMax - zMin;
+    var dR = Math.max(0.2, rMax - rMin), dZ = Math.max(0.2, zMax - zMin);
     var geomAspect = dZ / dR;
     var boxH = Math.min(availH, availW * geomAspect);
     var boxW = boxH / geomAspect;
@@ -1288,9 +1892,10 @@ let mount_tokamak_cad () =
     var startY = padTop + Math.floor((availH - boxH) * 0.5);
 
     function rzToXY(boxX, r, z) {
-      var x = boxX + ((r - rMin) / dR) * boxW;
-      var y = startY + ((zMax - z) / dZ) * boxH;
-      return [x, y];
+      return [
+        boxX + ((r - rMin) / dR) * boxW,
+        startY + ((zMax - z) / dZ) * boxH
+      ];
     }
 
     var tickFont = ultraCompact
@@ -1303,14 +1908,21 @@ let mount_tokamak_cad () =
       ? "700 10px 'Latin Modern Roman', Georgia, serif"
       : (compact ? "700 11.2px 'Latin Modern Roman', Georgia, serif" : "700 13px 'Latin Modern Roman', Georgia, serif");
 
+    var rTicks = mach.rTicks;
+    if (!rTicks || !rTicks.length) {
+      rTicks = [rMin + 0.22 * dR, rMin + 0.52 * dR, rMin + 0.82 * dR];
+    }
+    var zTicks = mach.zTicks;
+    if (!zTicks || !zTicks.length) {
+      zTicks = [Math.round(zMin * 0.65 * 10) / 10, 0.0, Math.round(zMax * 0.65 * 10) / 10];
+    }
+
     function drawBoxTicks(boxX, showZLabels) {
       ctx.save();
       ctx.strokeStyle = isDark ? "#8b949e" : "#111111";
       ctx.fillStyle = isDark ? "#8b949e" : "#222222";
       ctx.font = tickFont;
       ctx.lineWidth = 0.9;
-
-      var rTicks = mach.rTicks || [mach.R0];
       ctx.textAlign = "center";
       for (var i = 0; i < rTicks.length; i++) {
         if (ultraCompact && rTicks.length >= 4 && (i % 2 === 1)) continue;
@@ -1321,11 +1933,9 @@ let mount_tokamak_cad () =
         ctx.stroke();
         ctx.fillText(rTicks[i].toFixed(1), pt[0], startY + boxH + (compact ? 11.5 : 13));
       }
-
       ctx.font = axisFont;
       ctx.fillText("R [m]", boxX + boxW * 0.5, startY + boxH + (compact ? 23.5 : 28));
 
-      var zTicks = mach.zTicks || [0.0];
       ctx.textAlign = "right";
       ctx.font = tickFont;
       for (var j = 0; j < zTicks.length; j++) {
@@ -1338,7 +1948,6 @@ let mount_tokamak_cad () =
           ctx.fillText((zTicks[j] > 0 ? "+" : "") + zTicks[j].toFixed(1), boxX - 4.5, pz[1] + 3);
         }
       }
-
       if (showZLabels) {
         ctx.save();
         ctx.translate(boxX - (ultraCompact ? 24 : (compact ? 28 : 32)), startY + boxH * 0.5);
@@ -1352,7 +1961,29 @@ let mount_tokamak_cad () =
     }
 
     function drawCoils(boxX) {
-      if (!mach.coils) return;
+      if (opts && opts.showTF && mach.tf_outer && mach.tf_outer.length >= 4) {
+        ctx.save();
+        ctx.strokeStyle = "#94a3b8";
+        ctx.lineWidth = 1.0;
+        ctx.beginPath();
+        for (var t0 = 0; t0 < mach.tf_outer.length; t0++) {
+          var p0 = rzToXY(boxX, mach.tf_outer[t0][0], mach.tf_outer[t0][1]);
+          if (t0 === 0) ctx.moveTo(p0[0], p0[1]); else ctx.lineTo(p0[0], p0[1]);
+        }
+        ctx.closePath();
+        ctx.stroke();
+        if (mach.tf_inner && mach.tf_inner.length >= 4) {
+          ctx.beginPath();
+          for (var t1 = 0; t1 < mach.tf_inner.length; t1++) {
+            var p1 = rzToXY(boxX, mach.tf_inner[t1][0], mach.tf_inner[t1][1]);
+            if (t1 === 0) ctx.moveTo(p1[0], p1[1]); else ctx.lineTo(p1[0], p1[1]);
+          }
+          ctx.closePath();
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
+      if (!mach.coils || (opts && !opts.showCoils)) return;
       ctx.save();
       for (var ci = 0; ci < mach.coils.length; ci++) {
         var c = mach.coils[ci];
@@ -1371,7 +2002,6 @@ let mount_tokamak_cad () =
 
     function drawMachineProfiles(boxX) {
       ctx.save();
-      // Vessel Outer Shell
       ctx.strokeStyle = "#64748b";
       ctx.lineWidth = 1.2;
       ctx.beginPath();
@@ -1382,14 +2012,13 @@ let mount_tokamak_cad () =
       ctx.closePath();
       ctx.stroke();
 
-      // First Wall / Divertor Limiter
       ctx.strokeStyle = "#00008b";
-      ctx.lineWidth = 1.6;
+      ctx.lineWidth = 1.5;
       ctx.setLineDash([6, 2]);
       ctx.beginPath();
-      for (var i = 0; i < mach.first_wall.length; i++) {
-        var p = rzToXY(boxX, mach.first_wall[i][0], mach.first_wall[i][1]);
-        if (i === 0) ctx.moveTo(p[0], p[1]); else ctx.lineTo(p[0], p[1]);
+      for (var j = 0; j < mach.first_wall.length; j++) {
+        var pf = rzToXY(boxX, mach.first_wall[j][0], mach.first_wall[j][1]);
+        if (j === 0) ctx.moveTo(pf[0], pf[1]); else ctx.lineTo(pf[0], pf[1]);
       }
       ctx.closePath();
       ctx.stroke();
@@ -1397,12 +2026,11 @@ let mount_tokamak_cad () =
       ctx.restore();
     }
 
-    // Left Plot: References & Machine Geometry
     var leftX = startX;
     ctx.fillStyle = isDark ? "#e6edf3" : "#111111";
     ctx.font = titleFont;
     ctx.textAlign = "center";
-    ctx.fillText("CAD & Target", leftX + boxW * 0.5, startY - (compact ? 7 : 9));
+    ctx.fillText(mach.lcfs ? "FUSE CAD & LCFS" : "CAD & Target", leftX + boxW * 0.5, startY - (compact ? 7 : 9));
 
     ctx.fillStyle = "#ffffff";
     ctx.fillRect(leftX, startY, boxW, boxH);
@@ -1418,44 +2046,43 @@ let mount_tokamak_cad () =
     drawCoils(leftX);
     drawMachineProfiles(leftX);
 
-    // References target dots (for TCV) or nominal LCFS (for others)
-    if (mach.id === "tcv") {
+    var refPoly = (mach.id === "tcv") ? SHAPE_70166_REFS : mach.lcfs;
+    if (refPoly && refPoly.length >= 8) {
       ctx.strokeStyle = "#0022ff";
       ctx.lineWidth = 1.15;
       ctx.beginPath();
-      for (var i = 0; i < SHAPE_70166_REFS.length; i++) {
-        var p = rzToXY(leftX, SHAPE_70166_REFS[i][0], SHAPE_70166_REFS[i][1]);
-        if (i === 0) ctx.moveTo(p[0], p[1]); else ctx.lineTo(p[0], p[1]);
+      for (var rIdx = 0; rIdx < refPoly.length; rIdx++) {
+        var pr = rzToXY(leftX, refPoly[rIdx][0], refPoly[rIdx][1]);
+        if (rIdx === 0) ctx.moveTo(pr[0], pr[1]); else ctx.lineTo(pr[0], pr[1]);
       }
       ctx.closePath();
       ctx.stroke();
-
-      ctx.fillStyle = "#0022ff";
-      for (var i = 0; i < SHAPE_70166_REFS.length; i++) {
-        var p = rzToXY(leftX, SHAPE_70166_REFS[i][0], SHAPE_70166_REFS[i][1]);
-        ctx.beginPath();
-        ctx.arc(p[0], p[1], 2.4, 0, Math.PI * 2);
-        ctx.fill();
+      if (mach.id === "tcv") {
+        ctx.fillStyle = "#0022ff";
+        for (var dIdx = 0; dIdx < refPoly.length; dIdx++) {
+          var pd = rzToXY(leftX, refPoly[dIdx][0], refPoly[dIdx][1]);
+          ctx.beginPath();
+          ctx.arc(pd[0], pd[1], 2.2, 0, Math.PI * 2);
+          ctx.fill();
+        }
       }
     }
 
-    // Achieved LCFS boundary
     var eqTarget = plasmaContour(1.0, st, 64, mach);
     ctx.save();
     ctx.strokeStyle = st.policy.color;
-    ctx.lineWidth = 1.6;
+    ctx.lineWidth = 1.65;
     ctx.setLineDash([3, 2]);
     ctx.beginPath();
-    for (var i = 0; i < eqTarget.pts.length; i++) {
-      var p = rzToXY(leftX, eqTarget.pts[i][0], eqTarget.pts[i][1]);
-      if (i === 0) ctx.moveTo(p[0], p[1]); else ctx.lineTo(p[0], p[1]);
+    for (var ei = 0; ei < eqTarget.pts.length; ei++) {
+      var pe = rzToXY(leftX, eqTarget.pts[ei][0], eqTarget.pts[ei][1]);
+      if (ei === 0) ctx.moveTo(pe[0], pe[1]); else ctx.lineTo(pe[0], pe[1]);
     }
     ctx.closePath();
     ctx.stroke();
     ctx.restore();
     ctx.restore();
 
-    // Right Plot: Poloidal Flux Surfaces ψ(R, Z)
     var rightX = leftX + boxW + gap;
     ctx.fillStyle = isDark ? "#e6edf3" : "#111111";
     ctx.font = titleFont;
@@ -1490,9 +2117,9 @@ let mount_tokamak_cad () =
       ctx.strokeStyle = fl.col;
       ctx.lineWidth = fl.width;
       ctx.beginPath();
-      for (var i = 0; i < fData.pts.length; i++) {
-        var p = rzToXY(rightX, fData.pts[i][0], fData.pts[i][1]);
-        if (i === 0) ctx.moveTo(p[0], p[1]); else ctx.lineTo(p[0], p[1]);
+      for (var fi = 0; fi < fData.pts.length; fi++) {
+        var pfl = rzToXY(rightX, fData.pts[fi][0], fData.pts[fi][1]);
+        if (fi === 0) ctx.moveTo(pfl[0], pfl[1]); else ctx.lineTo(pfl[0], pfl[1]);
       }
       ctx.closePath();
       ctx.stroke();
@@ -1504,146 +2131,32 @@ let mount_tokamak_cad () =
     ctx.arc(pAxis[0], pAxis[1], 3.0, 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
-
     ctx.restore();
   }
 
-  // --- Main Interactive Figure Mounting & Controls ---
   function mountTokamakCADViewer(root) {
     if (!root) return;
     if (root.getAttribute("data-tcv-mounted") === "1") return;
     root.setAttribute("data-tcv-mounted", "1");
 
-    if (!document.getElementById("baux-tokamak-cad-styles")) {
-      var stEl = document.createElement("style");
-      stEl.id = "baux-tokamak-cad-styles";
-      stEl.textContent = [
-        ".tcv-cad-outer { position: relative; margin: 1.75rem 0 2.4rem 0; width: 100%; max-width: 100%; box-sizing: border-box; overflow: visible; }",
-        ".tcv-cad-shell { width: 100%; max-width: 100%; box-sizing: border-box; overflow: hidden; border-top: 1.5px solid var(--hairline-strong, #111111); border-bottom: 1.5px solid var(--hairline-strong, #111111); border-left: 1px solid var(--hairline, #dddddd); border-right: 1px solid var(--hairline, #dddddd); background: var(--bg-canvas, #ffffff); font-family: var(--font-serif, 'Latin Modern Roman', Georgia, serif); color: var(--fg-primary, #111111); }",
-        "html[data-theme='dark'] .tcv-cad-shell { background: #0d1117; border-color: #30363d; border-top-color: #e6edf3; border-bottom-color: #e6edf3; color: #e6edf3; }",
-        ".tcv-side-controls { position: absolute; left: calc(100% + 22px); top: 0; width: 232px; box-sizing: border-box; border-top: 1.5px solid var(--hairline-strong, #111111); border-bottom: 1.5px solid var(--hairline-strong, #111111); border-left: 1px solid var(--hairline, #dddddd); border-right: 1px solid var(--hairline, #dddddd); background: var(--bg-canvas, #ffffff); font-family: var(--font-serif, 'Latin Modern Roman', Georgia, serif); color: var(--fg-primary, #111111); display: flex; flex-direction: column; }",
-        "html[data-theme='dark'] .tcv-side-controls { background: #0d1117; border-color: #30363d; border-top-color: #e6edf3; border-bottom-color: #e6edf3; color: #e6edf3; }",
-        ".tcv-ctrl-sec { padding: 8px 12px; border-bottom: 1px solid var(--hairline, #dddddd); display: flex; flex-direction: column; gap: 5px; }",
-        "html[data-theme='dark'] .tcv-ctrl-sec { border-color: #30363d; }",
-        ".tcv-ctrl-sec:last-child { border-bottom: none; }",
-        ".tcv-ctrl-hdr { font-family: var(--font-sc, 'Latin Modern Roman Caps', serif); font-size: 11px; letter-spacing: 0.05em; color: var(--fg-muted, #555555); display: flex; justify-content: space-between; align-items: baseline; gap: 6px; }",
-        "html[data-theme='dark'] .tcv-ctrl-hdr { color: #8b949e; }",
-        ".tcv-select { width: 100%; font-family: var(--font-serif, Georgia, serif); font-size: 12px; padding: 4px 6px; border-radius: 2px; border: 1px solid var(--hairline-mid, #bbbbbb); background: var(--bg-canvas, #ffffff); color: inherit; cursor: pointer; box-sizing: border-box; }",
-        ".tcv-select.mono { font-family: var(--font-mono, monospace); font-size: 11.5px; }",
-        "html[data-theme='dark'] .tcv-select { background: #161b22; border-color: #30363d; color: #c9d1d9; }",
-        ".tcv-pol-group { display: flex; flex-direction: column; gap: 5px; }",
-        ".tcv-pol-btn { width: 100%; text-align: left; padding: 4.5px 8px; font-family: var(--font-serif, 'Latin Modern Roman', Georgia, serif); font-size: 12px; font-weight: 400; border-radius: 2px; border: 1px solid var(--hairline-mid, #bbbbbb); background: var(--bg-canvas, #ffffff); color: var(--fg-secondary, #222222); cursor: pointer; display: flex; justify-content: space-between; align-items: baseline; gap: 4px; transition: all 0.12s; box-sizing: border-box; }",
-        ".tcv-pol-btn:hover { border-color: var(--hairline-strong, #111111); color: var(--fg-primary, #111111); background: var(--bg-surface, #fafafa); }",
-        ".tcv-pol-btn.active { background: var(--hairline-strong, #111111); color: #ffffff; border-color: var(--hairline-strong, #111111); font-weight: 700; }",
-        "html[data-theme='dark'] .tcv-pol-btn { background: #161b22; border-color: #30363d; color: #c9d1d9; }",
-        "html[data-theme='dark'] .tcv-pol-btn.active { background: #f0f6fc; color: #0d1117; border-color: #f0f6fc; }",
-        ".tcv-round-row { display: flex; flex-direction: column; gap: 5px; }",
-        ".tcv-layers-row { display: flex; flex-direction: column; gap: 5px; }",
-        ".tcv-side-controls input[type='range'] { accent-color: #111111; width: 100%; height: 22px; cursor: pointer; margin: 0; }",
-        "html[data-theme='dark'] .tcv-side-controls input[type='range'] { accent-color: #f0f6fc; }",
-        ".tcv-side-controls input[type='checkbox'] { accent-color: #111111; width: 15px; height: 15px; cursor: pointer; margin: 0; flex-shrink: 0; }",
-        "html[data-theme='dark'] .tcv-side-controls input[type='checkbox'] { accent-color: #f0f6fc; }",
-        ".tcv-chk-row { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--fg-secondary, #222222); cursor: pointer; user-select: none; }",
-        "html[data-theme='dark'] .tcv-chk-row { color: #c9d1d9; }",
-        ".tcv-grid { display: grid; grid-template-columns: 1.16fr 1fr; width: 100%; }",
-        ".tcv-pane { position: relative; min-width: 0; overflow: hidden; border-right: 1px solid var(--hairline, #dddddd); min-height: 420px; display: flex; flex-direction: column; }",
-        "html[data-theme='dark'] .tcv-pane { border-color: #30363d; }",
-        ".tcv-pane:nth-child(2n) { border-right: none; }",
-        ".tcv-subtable-cell { border-top: 1px solid var(--hairline, #dddddd); border-right: 1px solid var(--hairline, #dddddd); padding: 10px 14px; background: var(--bg-canvas, #ffffff); display: flex; flex-direction: column; justify-content: center; gap: 6px; min-width: 0; }",
-        "html[data-theme='dark'] .tcv-subtable-cell { background: #0d1117; border-color: #30363d; }",
-        ".tcv-subtable-cell:last-child { border-right: none; }",
-        ".tcv-subtable-hdr { font-family: var(--font-sc, 'Latin Modern Roman Caps', serif); font-size: 11.5px; letter-spacing: 0.05em; color: var(--fg-muted, #555555); border-bottom: 1px solid var(--hairline-mid, #bbbbbb); padding-bottom: 4px; display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }",
-        "html[data-theme='dark'] .tcv-subtable-hdr { color: #8b949e; border-color: #30363d; }",
-        ".tcv-kv-list { display: flex; flex-direction: column; gap: 3.5px; }",
-        ".tcv-kv-row { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-size: 12px; }",
-        ".tcv-kv-lbl { color: var(--fg-secondary, #333333); min-width: 0; }",
-        "html[data-theme='dark'] .tcv-kv-lbl { color: #8b949e; }",
-        ".tcv-kv-val { font-family: var(--font-mono, 'Latin Modern Mono', monospace); font-size: 11.5px; font-weight: 500; color: var(--fg-primary, #111111); text-align: right; white-space: nowrap; }",
-        "html[data-theme='dark'] .tcv-kv-val { color: #e6edf3; }",
-        ".tcv-wpo-stack { display: flex; flex-direction: column; gap: 4px; }",
-        ".tcv-wpo-item { display: grid; grid-template-columns: minmax(112px, 140px) 1fr 46px; align-items: center; gap: 8px; font-size: 12px; }",
-        ".tcv-wpo-lbl { color: var(--fg-secondary, #333333); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }",
-        "html[data-theme='dark'] .tcv-wpo-lbl { color: #8b949e; }",
-        ".tcv-wpo-track { position: relative; height: 5px; background: var(--hairline-light, #eeeeee); border-radius: 2px; overflow: hidden; }",
-        "html[data-theme='dark'] .tcv-wpo-track { background: #21262d; }",
-        ".tcv-wpo-fill { height: 100%; transition: width 0.15s ease-out; }",
-        ".tcv-wpo-val { font-family: var(--font-mono, 'Latin Modern Mono', monospace); font-size: 11px; text-align: right; color: var(--fg-primary, #111111); }",
-        "html[data-theme='dark'] .tcv-wpo-val { color: #e6edf3; }",
-        ".tcv-canvas-wrap { position: relative; flex: 1 1 0; min-height: 380px; width: 100%; }",
-        ".tcv-canvas-wrap canvas { position: absolute; left: 0; top: 0; width: 100%; height: 100%; display: block; }",
-        "#tcv-webgl-canvas { touch-action: none; -webkit-user-select: none; user-select: none; cursor: grab; }",
-        "#tcv-webgl-canvas:active { cursor: grabbing; }",
-        ".tcv-hud-badge { padding: 6px 12px; border-bottom: 1px solid var(--hairline, #dddddd); font-size: 12.5px; font-family: var(--font-serif, 'Latin Modern Roman', Georgia, serif); background: var(--bg-surface, #fafafa); color: var(--fg-primary, #111111); display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }",
-        "html[data-theme='dark'] .tcv-hud-badge { background: #161b22; border-color: #30363d; color: #e6edf3; }",
-        ".tcv-touch-hint { font-family: var(--font-sc, 'Latin Modern Roman Caps', serif); font-size: 10.5px; letter-spacing: 0.04em; color: var(--fg-muted, #666666); white-space: nowrap; }",
-        "html[data-theme='dark'] .tcv-touch-hint { color: #8b949e; }",
-        ".tcv-fig-caption { padding: 9px 14px; border-top: 1px solid var(--hairline-strong, #111111); background: var(--bg-surface, #fafafa); font-family: var(--font-serif, 'Latin Modern Roman', Georgia, serif); font-size: 12.5px; line-height: 1.48; color: var(--fg-secondary, #222222); }",
-        "html[data-theme='dark'] .tcv-fig-caption { background: #161b22; border-color: #30363d; color: #c9d1d9; }",
-        "@media (max-width: 1260px) {",
-        "  .tcv-side-controls { position: static; width: 100%; margin-bottom: 10px; display: grid; grid-template-columns: 1fr 1fr; }",
-        "  .tcv-ctrl-title { display: none; }",
-        "  .tcv-ctrl-device { grid-column: 1; border-right: 1px solid var(--hairline, #dddddd); }",
-        "  html[data-theme='dark'] .tcv-ctrl-device { border-right-color: #30363d; }",
-        "  .tcv-ctrl-seed { grid-column: 2; }",
-        "  .tcv-ctrl-policy { grid-column: 1 / -1; }",
-        "  .tcv-pol-group { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }",
-        "  .tcv-ctrl-round { grid-column: 1 / -1; }",
-        "  .tcv-round-row { flex-direction: row; align-items: center; gap: 10px; }",
-        "  .tcv-round-row input[type='range'] { flex: 1 1 auto; min-height: 34px; }",
-        "  #tcv-play-btn { width: auto; flex: 0 0 auto; padding: 6px 12px; white-space: nowrap; }",
-        "  .tcv-ctrl-layers { grid-column: 1 / -1; border-bottom: none; }",
-        "  .tcv-layers-row { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 8px 14px; }",
-        "  .tcv-ctrl-layers .tcv-ctrl-hdr { display: none; }",
-        "  #tcv-reset-cam { width: auto; margin-left: auto; margin-top: 0 !important; padding: 5px 10px; }",
-        "}",
-        "@media (max-width: 820px) {",
-        "  .tcv-grid { grid-template-columns: 1fr; }",
-        "  .tcv-pane { border-right: none; border-bottom: 1px solid var(--hairline, #dddddd); min-height: 0; }",
-        "  html[data-theme='dark'] .tcv-pane { border-bottom-color: #30363d; }",
-        "  .tcv-pane:nth-child(2) { border-bottom: none; }",
-        "  .tcv-subtable-cell { border-right: none; }",
-        "  #tcv-webgl-wrap { min-height: 290px; height: 290px; flex: none; }",
-        "  #tcv-fig9-wrap { min-height: 300px; height: 300px; flex: none; }",
-        "}",
-        "@media (max-width: 640px) {",
-        "  .tcv-cad-outer { margin: 1.15rem 0 1.75rem 0; }",
-        "  .tcv-ctrl-sec { padding: 7px 10px; gap: 4px; }",
-        "  .tcv-select, .tcv-select.mono { font-size: 16px; min-height: 38px; padding: 5px 6px; }",
-        "  .tcv-pol-group { gap: 5px; }",
-        "  .tcv-pol-btn { min-height: 38px; padding: 5px 6px; font-size: 11.5px; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 1px; }",
-        "  #tcv-play-btn, #tcv-reset-cam { flex-direction: row; font-size: 12px; min-height: 36px; }",
-        "  .tcv-chk-row { min-height: 34px; font-size: 12.5px; }",
-        "  #tcv-webgl-wrap { min-height: 245px; height: 245px; }",
-        "  #tcv-fig9-wrap { min-height: 255px; height: 255px; }",
-        "  .tcv-hud-badge { padding: 5px 10px; font-size: 11.5px; }",
-        "  .tcv-subtable-cell { padding: 9px 10px; }",
-        "  .tcv-kv-row { font-size: 11.5px; }",
-        "  .tcv-kv-val { font-size: 11px; }",
-        "  .tcv-wpo-item { grid-template-columns: minmax(104px, 126px) 1fr 42px; gap: 6px; font-size: 11.5px; }",
-        "  .tcv-fig-caption { padding: 8px 10px; font-size: 11.5px; }",
-        "}",
-        "@media (max-width: 345px) {",
-        "  .tcv-side-controls { grid-template-columns: 1fr; }",
-        "  .tcv-ctrl-device { grid-column: 1; border-right: none; }",
-        "  .tcv-ctrl-seed { grid-column: 1; }",
-        "  #tcv-webgl-wrap { min-height: 225px; height: 225px; }",
-        "  #tcv-fig9-wrap { min-height: 235px; height: 235px; }",
-        "}"
-      ].join("\n");
-      document.head.appendChild(stEl);
-    }
-
     root.innerHTML = [
       '<div class="tcv-cad-outer">',
-      '  <aside class="tcv-side-controls" aria-label="Controls">',
-      '    <div class="tcv-hud-badge tcv-ctrl-title" style="padding:5px 12px;font-size:12px;"><strong>Controls</strong></div>',
+      '  <aside class="tcv-side-controls" aria-label="Simulation Controls">',
+      '    <div class="tcv-hud-badge tcv-ctrl-title" style="padding:5px 12px;font-size:12px;"><strong>Simulation Controls</strong></div>',
       '    <div class="tcv-ctrl-sec tcv-ctrl-device">',
-      '      <div class="tcv-ctrl-hdr"><span>Device</span><span>FUSE.jl</span></div>',
+      '      <div class="tcv-ctrl-hdr"><span>Environment</span><span id="tcv-builder-tag">FUSE.jl</span></div>',
       '      <select id="tcv-machine-sel" class="tcv-select">',
-      '        <option value="tcv" selected>TCV · EPFL</option>',
-      '        <option value="arc">ARC · MIT/CFS</option>',
-      '        <option value="iter">ITER · Cadarache</option>',
-      '        <option value="d3d">DIII-D · GA</option>',
+      '        <optgroup label="Tokamaks · FUSE.jl">',
+      '          <option value="tcv" selected>TCV · EPFL</option>',
+      '          <option value="sparc">SPARC · CFS (FUSE.jl)</option>',
+      '          <option value="arc">ARC · MIT/CFS (FUSE.jl)</option>',
+      '          <option value="iter">ITER · Cadarache (FUSE.jl)</option>',
+      '          <option value="d3d">DIII-D · GA (FUSE.jl)</option>',
+      '        </optgroup>',
+      '        <optgroup label="Stratified Fluids · Oceananigans.jl">',
+      '          <option value="ocean_kh">KH Shear Tank · 3D</option>',
+      '          <option value="ocean_wind">Wind-Mixing Basin · 3D</option>',
+      '        </optgroup>',
       '      </select>',
       '    </div>',
       '    <div class="tcv-ctrl-sec tcv-ctrl-seed">',
@@ -1678,10 +2191,11 @@ let mount_tokamak_cad () =
       '      </div>',
       '    </div>',
       '    <div class="tcv-ctrl-sec tcv-ctrl-layers">',
-      '      <div class="tcv-ctrl-hdr"><span>Layers</span></div>',
+      '      <div class="tcv-ctrl-hdr"><span>CAD Layers</span></div>',
       '      <div class="tcv-layers-row">',
-      '        <label class="tcv-chk-row"><input type="checkbox" id="tcv-chk-coils" checked /> Coils</label>',
-      '        <label class="tcv-chk-row"><input type="checkbox" id="tcv-chk-field" /> B-Field</label>',
+      '        <label class="tcv-chk-row"><input type="checkbox" id="tcv-chk-coils" checked /> <span id="tcv-lbl-coils">PF/CS Coils</span></label>',
+      '        <label class="tcv-chk-row" id="tcv-row-tf"><input type="checkbox" id="tcv-chk-tf" checked /> <span>TF Magnets</span></label>',
+      '        <label class="tcv-chk-row"><input type="checkbox" id="tcv-chk-field" checked /> <span id="tcv-lbl-field">B-Field / Flow</span></label>',
       '        <button type="button" id="tcv-reset-cam" class="tcv-pol-btn" style="justify-content:center;margin-top:3px;">Reset View</button>',
       '      </div>',
       '    </div>',
@@ -1689,28 +2203,28 @@ let mount_tokamak_cad () =
       '  <div class="tcv-cad-shell">',
       '    <div class="tcv-grid">',
       '      <div class="tcv-pane">',
-      '        <div class="tcv-hud-badge"><span id="tcv-badge-a"><strong>(a)</strong> Cutaway</span><span class="tcv-touch-hint">Drag · Pinch</span></div>',
+      '        <div class="tcv-hud-badge"><span id="tcv-badge-a"><strong>(a)</strong> 3D Cutaway CAD</span><span class="tcv-touch-hint">Drag · Pinch</span></div>',
       '        <div class="tcv-canvas-wrap" id="tcv-webgl-wrap">',
       '          <canvas id="tcv-webgl-canvas"></canvas>',
       '        </div>',
       '      </div>',
       '      <div class="tcv-pane">',
-      '        <div class="tcv-hud-badge"><span id="tcv-badge-b"><strong>(b)</strong> Miller Contour</span></div>',
+      '        <div class="tcv-hud-badge"><span id="tcv-badge-b"><strong>(b)</strong> Equilibrium Cross-Section</span></div>',
       '        <div class="tcv-canvas-wrap" id="tcv-fig9-wrap">',
       '          <canvas id="tcv-fig9-canvas"></canvas>',
       '        </div>',
       '      </div>',
       '      <div class="tcv-subtable-cell">',
-      '        <div class="tcv-subtable-hdr"><span id="tcv-subtable-title">FUSE.jl Geometry</span><span id="tcv-subtable-device">TCV (EPFL)</span></div>',
+      '        <div class="tcv-subtable-hdr"><span id="tcv-subtable-title">FUSE.jl 1.2.1 Environment</span><span id="tcv-subtable-device">TCV · EPFL</span></div>',
       '        <div class="tcv-kv-list" id="tcv-kv-list"></div>',
       '      </div>',
       '      <div class="tcv-subtable-cell">',
-      '        <div class="tcv-subtable-hdr"><span>TORAX SmoothMax (α = −3, TuRBO-0)</span><span>Score</span></div>',
+      '        <div class="tcv-subtable-hdr"><span id="tcv-obj-hdr">Multi-Component Objective (TuRBO-0)</span><span>Score</span></div>',
       '        <div class="tcv-wpo-stack" id="tcv-wpo-strip"></div>',
       '      </div>',
       '    </div>',
       '    <div class="tcv-fig-caption" id="tcv-fig-caption">',
-      '      <strong>Figure 1.</strong> Cross-device tokamak geometry and analytical Miller flux contours interpolated across the 10-seed, 10,000-round TORAX 2.0.0 regional-sharing benchmark (<em>D</em> = 160,531, surrogate-free TuRBO-zero). <em>(a)</em> Vacuum vessel, divertor, central solenoid, and poloidal field coils from FUSE.jl IMAS descriptions (Meneghini et al., 2024: TCV, ARC, ITER, DIII-D). <em>(b)</em> Analytical Miller flux surfaces ψ(<em>R</em>, <em>Z</em>) and coil cross-sections; recorded TORAX SmoothMax scores (adapted from Pfau et al., 2025) appear at right.',
+      '      <strong>Figure 1.</strong> 3D cutaway geometries, 2D equilibrium and field cross-sections, and closed-loop rollout trajectories across tokamak models exported from <code>FUSE.jl</code> (TCV, SPARC, ARC, ITER, DIII-D; Meneghini et al., 2024) and stratified fluid models from <code>Oceananigans.jl</code> (Ramadhan et al., 2020).',
       '    </div>',
       '  </div>',
       '</div>'
@@ -1726,34 +2240,44 @@ let mount_tokamak_cad () =
     var machineSel = root.querySelector("#tcv-machine-sel");
     var playBtn = root.querySelector("#tcv-play-btn");
     var chkCoils = root.querySelector("#tcv-chk-coils");
+    var chkTF = root.querySelector("#tcv-chk-tf");
     var chkField = root.querySelector("#tcv-chk-field");
+    var rowTF = root.querySelector("#tcv-row-tf");
+    var lblCoils = root.querySelector("#tcv-lbl-coils");
+    var lblField = root.querySelector("#tcv-lbl-field");
     var resetCamBtn = root.querySelector("#tcv-reset-cam");
     var badgeA = root.querySelector("#tcv-badge-a");
     var badgeB = root.querySelector("#tcv-badge-b");
+    var builderTag = root.querySelector("#tcv-builder-tag");
+    var subtableTitle = root.querySelector("#tcv-subtable-title");
     var subtableDevice = root.querySelector("#tcv-subtable-device");
+    var objHdr = root.querySelector("#tcv-obj-hdr");
 
     var initialMach = "tcv";
     try {
       var qParams = new URLSearchParams(window.location.search);
       var qm = qParams.get("machine");
-      if (qm && Object.prototype.hasOwnProperty.call(MACHINES, qm)) initialMach = qm;
+      if (qm && Object.prototype.hasOwnProperty.call(MACHINES, qm)) {
+        initialMach = qm;
+      }
     } catch (e) {}
     if (machineSel) machineSel.value = initialMach;
 
+    var initObj = Object.prototype.hasOwnProperty.call(MACHINES, initialMach) ? MACHINES[initialMach] : MACHINES.tcv;
     var uiState = {
       machine: initialMach,
       policyKey: "shared",
       round: 10000,
       seedIdx: -1,
       showCoils: true,
-      showFieldLines: false,
+      showTF: true,
+      showFieldLines: true,
       cutawayDeg: 56.0,
-      yaw: -Math.PI * 0.5,
-      pitch: 0.46,
-      dist: (Object.prototype.hasOwnProperty.call(MACHINES, initialMach) ? MACHINES[initialMach] : MACHINES.tcv).dist,
+      yaw: initObj.kind === "ocean" ? -1.18 : -Math.PI * 0.5,
+      pitch: initObj.kind === "ocean" ? 0.36 : 0.46,
+      dist: initObj.dist,
       playing: false
     };
-    uiState.dist = (Object.prototype.hasOwnProperty.call(MACHINES, uiState.machine) ? MACHINES[uiState.machine] : MACHINES.tcv).dist;
 
     var gl = glCanvas.getContext("webgl", { antialias: true, alpha: false, preserveDrawingBuffer: true });
     var prog = null;
@@ -1778,38 +2302,64 @@ let mount_tokamak_cad () =
 
     function renderAll() {
       var mach = Object.prototype.hasOwnProperty.call(MACHINES, uiState.machine) ? MACHINES[uiState.machine] : MACHINES.tcv;
+      var isOcean = (mach.kind === "ocean");
       var st = evalState(uiState.policyKey, uiState.round, uiState.seedIdx);
-      var jStr = st.score.toFixed(2) + (uiState.seedIdx < 0 ? (" ± " + st.sem.toFixed(2)) : (" (S" + (uiState.seedIdx + 1) + ")"));
 
-      if (badgeA) badgeA.innerHTML = "<strong>(a)</strong> Cutaway — " + escHtml(mach.shortName);
-      if (badgeB) badgeB.innerHTML = "<strong>(b)</strong> Miller Contour — " + escHtml(mach.shortName);
+      if (builderTag) builderTag.textContent = isOcean ? "Oceananigans.jl" : "FUSE.jl";
+      if (lblCoils) lblCoils.textContent = isOcean ? "3D Actuators" : "PF/CS Coils";
+      if (lblField) lblField.textContent = isOcean ? "Streamlines" : "B-Field Lines";
+      if (rowTF) rowTF.style.display = isOcean ? "none" : "inline-flex";
+
+      if (badgeA) badgeA.innerHTML = "<strong>(a)</strong> 3D Cutaway CAD — " + escHtml(mach.shortName);
+      if (badgeB) {
+        badgeB.innerHTML = isOcean
+          ? ("<strong>(b)</strong> PDE Cross-Section — " + escHtml(mach.shortName))
+          : ("<strong>(b)</strong> Equilibrium & Flux — " + escHtml(mach.shortName));
+      }
+      if (subtableTitle) subtableTitle.textContent = isOcean ? "Oceananigans.jl 0.117.2" : "FUSE.jl 1.2.1 Geometry";
       if (subtableDevice) subtableDevice.textContent = mach.shortName;
+      if (objHdr) {
+        objHdr.textContent = isOcean
+          ? "BAUX Regional Control Decomposition"
+          : "TORAX / FUSE SmoothMax (α = −3)";
+      }
 
       if (kvList) {
-        var ipVal = mach.ipNominal.toFixed(2);
-        var b0Val = mach.B0.toFixed(2);
-        var aspectVal = (mach.R0 / Math.max(0.01, mach.a)).toFixed(2);
-        var contourLbl = (mach.id === "tcv") ? "Miller Contour Δ" : "Scaled Template Δ";
-        var contourVal = (mach.id === "tcv")
-          ? (st.lcfsErrMm.toFixed(2) + " mm")
-          : ((st.lcfsErrMm / 2.50).toFixed(2) + "% a");
-        kvList.innerHTML = [
-          '<div class="tcv-kv-row"><span class="tcv-kv-lbl">TORAX Return <em>J</em>(θ)</span><span class="tcv-kv-val" style="color:' + escHtml(st.policy.color) + ';">' + escHtml(jStr) + '</span></div>',
-          '<div class="tcv-kv-row"><span class="tcv-kv-lbl">Nominal <em>I<sub>p</sub></em> (FUSE.jl)</span><span class="tcv-kv-val">' + escHtml(ipVal) + ' MA</span></div>',
-          '<div class="tcv-kv-row"><span class="tcv-kv-lbl">Toroidal Field <em>B</em><sub>0</sub></span><span class="tcv-kv-val">' + escHtml(b0Val) + ' T</span></div>',
-          '<div class="tcv-kv-row"><span class="tcv-kv-lbl">Aspect Ratio <em>R</em><sub>0</sub>/<em>a</em></span><span class="tcv-kv-val">' + escHtml(aspectVal) + '</span></div>',
-          '<div class="tcv-kv-row"><span class="tcv-kv-lbl">Major / Minor Radius</span><span class="tcv-kv-val"><em>R</em>₀=' + escHtml(mach.R0.toFixed(2)) + ', <em>a</em>=' + escHtml(mach.a.toFixed(2)) + ' m</span></div>',
-          '<div class="tcv-kv-row"><span class="tcv-kv-lbl">' + escHtml(contourLbl) + '</span><span class="tcv-kv-val">' + escHtml(contourVal) + '</span></div>'
-        ].join("");
+        if (isOcean) {
+          var scCur = lerp(mach.score_init, mach.score_opt, st.progress);
+          var suppPct = (100.0 * (1.0 - Math.abs(scCur) / Math.max(1e-6, Math.abs(mach.score_init)))).toFixed(1) + "%";
+          var gridStr = mach.nx + "×" + mach.ny + "×" + mach.nz + " (D=" + mach.dim + ")";
+          kvList.innerHTML = [
+            '<div class="tcv-kv-row"><span class="tcv-kv-lbl">Normalized PDE Objective</span><span class="tcv-kv-val" style="color:' + escHtml(st.policy.color) + ';">' + escHtml(scCur.toFixed(3)) + '</span></div>',
+            '<div class="tcv-kv-row"><span class="tcv-kv-lbl">Perturbation Suppression</span><span class="tcv-kv-val">' + escHtml(suppPct) + '</span></div>',
+            '<div class="tcv-kv-row"><span class="tcv-kv-lbl">3D Grid & Control Dim</span><span class="tcv-kv-val">' + escHtml(gridStr) + '</span></div>',
+            '<div class="tcv-kv-row"><span class="tcv-kv-lbl">Richardson / Reynolds</span><span class="tcv-kv-val">Ri=' + escHtml(mach.ri.toFixed(2)) + ', Re=' + escHtml(mach.re.toFixed(0)) + '</span></div>',
+            '<div class="tcv-kv-row"><span class="tcv-kv-lbl">Domain Span</span><span class="tcv-kv-val">[' + escHtml(mach.xMin.toFixed(0)) + ',' + escHtml(mach.xMax.toFixed(0)) + ']×[' + escHtml(mach.zMin.toFixed(0)) + ',' + escHtml(mach.zMax.toFixed(0)) + ']</span></div>',
+            '<div class="tcv-kv-row"><span class="tcv-kv-lbl">Solver Step Time</span><span class="tcv-kv-val">' + escHtml(LIVE_RUNS.oceanWorkerS.toFixed(2)) + ' s</span></div>'
+          ].join("");
+        } else {
+          var jStr = st.score.toFixed(2) + (uiState.seedIdx < 0 ? (" ± " + st.sem.toFixed(2)) : (" (S" + (uiState.seedIdx + 1) + ")"));
+          var qVal = ((mach.q95 || 3.2) * (0.72 + 0.28 * st.progress)).toFixed(2);
+          var nCoils = (mach.coils ? mach.coils.length : 0) + " PF + " + (mach.n_tf || 18) + " TF";
+          var extraLbl = (mach.pFusMW && mach.pFusMW > 1.0) ? "Fusion Power <em>P</em><sub>fus</sub>" : "LCFS Contour Δ";
+          var extraVal = (mach.pFusMW && mach.pFusMW > 1.0)
+            ? ((mach.pFusMW * (0.25 + 0.75 * st.progress)).toFixed(1) + " MW")
+            : (st.lcfsErrMm.toFixed(2) + " mm");
+          kvList.innerHTML = [
+            '<div class="tcv-kv-row"><span class="tcv-kv-lbl">Return <em>J</em>(θ)</span><span class="tcv-kv-val" style="color:' + escHtml(st.policy.color) + ';">' + escHtml(jStr) + '</span></div>',
+            '<div class="tcv-kv-row"><span class="tcv-kv-lbl">Plasma Current / <em>B</em><sub>0</sub></span><span class="tcv-kv-val">' + escHtml(mach.ipNominal.toFixed(2)) + ' MA · ' + escHtml(mach.B0.toFixed(2)) + ' T</span></div>',
+            '<div class="tcv-kv-row"><span class="tcv-kv-lbl">Safety Factor <em>q</em><sub>95</sub> / β<sub><em>N</em></sub></span><span class="tcv-kv-val">' + escHtml(qVal) + ' · ' + escHtml((mach.betaN || 1.8).toFixed(2)) + '</span></div>',
+            '<div class="tcv-kv-row"><span class="tcv-kv-lbl">Radii <em>R</em><sub>0</sub>, <em>a</em></span><span class="tcv-kv-val">' + escHtml(mach.R0.toFixed(2)) + ' m, ' + escHtml(mach.a.toFixed(2)) + ' m</span></div>',
+            '<div class="tcv-kv-row"><span class="tcv-kv-lbl">Magnet CAD Coils</span><span class="tcv-kv-val">' + escHtml(nCoils) + '</span></div>',
+            '<div class="tcv-kv-row"><span class="tcv-kv-lbl">' + extraLbl + '</span><span class="tcv-kv-val">' + escHtml(extraVal) + '</span></div>'
+          ].join("");
+        }
       }
+
       if (wpoStrip) {
-        var cLabels = [
-          "Miller Shape",
-          "Plasma Current <em>I<sub>p</sub></em>",
-          "Shaping Margin",
-          "Actuators ∈ [−1, 1]",
-          "Aux. Balance"
-        ];
+        var cLabels = isOcean
+          ? ["Billow / Misfit Energy", "Shear Stabilization", "Isopycnal Smoothness", "Control Effort L₂", "CFL Stability Margin"]
+          : ["LCFS / TEQUILA Shape", "Plasma Current <em>I<sub>p</sub></em>", "PF Coil Margin", "Actuators ∈ [−1, 1]", "Safety Factor <em>q</em><sub>95</sub>"];
         var stripHtml = [];
         for (var ci = 0; ci < 5; ci++) {
           var pct = (st.comps[ci] * 100.0).toFixed(1) + "%";
@@ -1824,7 +2374,6 @@ let mount_tokamak_cad () =
         wpoStrip.innerHTML = stripHtml.join("");
       }
 
-      // 1. Render 3D Tokamak Cutaway in WebGL
       if (gl && prog) {
         var dpr = window.devicePixelRatio || 1;
         var rect = glCanvas.getBoundingClientRect();
@@ -1861,9 +2410,9 @@ let mount_tokamak_cad () =
           effDist * Math.sin(uiState.pitch),
           effDist * Math.cos(uiState.pitch) * Math.sin(uiState.yaw)
         ];
-        var farPlane = Math.max(60.0, effDist * 3.5);
+        var farPlane = Math.max(80.0, effDist * 3.8);
         var projMat = mat4Perspective(32.0 * Math.PI / 180.0, aspect, 0.2, farPlane);
-        var viewMat = mat4LookAt(eye, [0.0, -0.04, 0.0], [0.0, 1.0, 0.0]);
+        var viewMat = mat4LookAt(eye, [0.0, isOcean ? -0.10 : (mach.Z0 || -0.04) * 0.2, 0.0], [0.0, 1.0, 0.0]);
         var mvp = mat4Mul(projMat, viewMat);
         var model = mat4Identity();
 
@@ -1876,7 +2425,6 @@ let mount_tokamak_cad () =
         var aNorm = gl.getAttribLocation(prog, "aNorm");
         var aCol = gl.getAttribLocation(prog, "aCol");
 
-        // Solid CAD triangles
         gl.uniform1f(gl.getUniformLocation(prog, "uUnlit"), 0.0);
         gl.bindBuffer(gl.ARRAY_BUFFER, cachedBuffers.posBuf);
         gl.enableVertexAttribArray(aPos);
@@ -1892,7 +2440,6 @@ let mount_tokamak_cad () =
 
         gl.drawArrays(gl.TRIANGLES, 0, cachedBuffers.triCount);
 
-        // Crisp CAD feature-edge lines & helical field lines
         if (cachedBuffers.lineCount > 0) {
           gl.uniform1f(gl.getUniformLocation(prog, "uUnlit"), 1.0);
           gl.bindBuffer(gl.ARRAY_BUFFER, cachedBuffers.linePosBuf);
@@ -1904,20 +2451,66 @@ let mount_tokamak_cad () =
         }
       }
 
-      // 2. Render Poloidal Equilibrium Cross Section & Flux Surfaces
-      renderFigure9Canvas(fig9Canvas, st, mach);
+      renderFigure9Canvas(fig9Canvas, st, mach, uiState);
     }
 
-    // Bind Machine Dropdown
+    // Hydrate real FUSE.jl & Oceananigans.jl 3D CAD environments from assets/baux_env.json
+    if (typeof window.fetch === "function") {
+      window.fetch("assets/baux_env.json")
+        .then(function(r) { return r.ok ? r.json() : null; })
+        .then(function(data) {
+          if (!data || typeof data !== "object") return;
+          if (data.fuse && data.fuse.machines) {
+            var fm = data.fuse.machines;
+            var fKeys = ["sparc", "arc", "iter", "d3d"];
+            for (var fk = 0; fk < fKeys.length; fk++) {
+              var k = fKeys[fk];
+              if (Object.prototype.hasOwnProperty.call(fm, k) && fm[k] && fm[k].vessel_outer && fm[k].vessel_outer.length >= 6) {
+                MACHINES[k] = fm[k];
+              }
+            }
+          }
+          if (data.ocean && data.ocean.environments) {
+            var oe = data.ocean.environments;
+            var oKeys = ["ocean_kh", "ocean_wind"];
+            for (var ok = 0; ok < oKeys.length; ok++) {
+              var okName = oKeys[ok];
+              if (Object.prototype.hasOwnProperty.call(oe, okName) && oe[okName] && oe[okName].b_init) {
+                MACHINES[okName] = oe[okName];
+              }
+            }
+          }
+          if (Array.isArray(data.runs)) {
+            for (var ri = 0; ri < data.runs.length; ri++) {
+              var rec = data.runs[ri];
+              if (rec && rec.metrics && typeof rec.metrics.worker_s === "number") {
+                if (rec.task === "oceananigans" && rec.metrics.worker_s > 0.01) {
+                  LIVE_RUNS.oceanWorkerS = rec.metrics.worker_s;
+                } else if (rec.task === "fuse" && rec.metrics.worker_s > 0.01) {
+                  LIVE_RUNS.fuseWorkerS = rec.metrics.worker_s;
+                }
+              }
+            }
+          }
+          var activeM = Object.prototype.hasOwnProperty.call(MACHINES, uiState.machine) ? MACHINES[uiState.machine] : MACHINES.tcv;
+          uiState.dist = activeM.dist;
+          meshDirty = true;
+          renderAll();
+        })
+        .catch(function() {});
+    }
+
     machineSel.addEventListener("change", function() {
-      uiState.machine = Object.prototype.hasOwnProperty.call(MACHINES, machineSel.value) ? machineSel.value : "tcv";
+      var val = machineSel.value;
+      uiState.machine = Object.prototype.hasOwnProperty.call(MACHINES, val) ? val : "tcv";
       var m = Object.prototype.hasOwnProperty.call(MACHINES, uiState.machine) ? MACHINES[uiState.machine] : MACHINES.tcv;
       uiState.dist = m.dist;
+      uiState.yaw = (m.kind === "ocean") ? -1.18 : -Math.PI * 0.5;
+      uiState.pitch = (m.kind === "ocean") ? 0.36 : 0.46;
       meshDirty = true;
       renderAll();
     });
 
-    // Bind Policy Buttons
     var polBtns = root.querySelectorAll(".tcv-pol-btn[data-pol]");
     for (var i = 0; i < polBtns.length; i++) {
       (function(btn) {
@@ -1953,6 +2546,14 @@ let mount_tokamak_cad () =
       renderAll();
     });
 
+    if (chkTF) {
+      chkTF.addEventListener("change", function() {
+        uiState.showTF = chkTF.checked;
+        meshDirty = true;
+        renderAll();
+      });
+    }
+
     chkField.addEventListener("change", function() {
       uiState.showFieldLines = chkField.checked;
       meshDirty = true;
@@ -1961,13 +2562,12 @@ let mount_tokamak_cad () =
 
     resetCamBtn.addEventListener("click", function() {
       var m = Object.prototype.hasOwnProperty.call(MACHINES, uiState.machine) ? MACHINES[uiState.machine] : MACHINES.tcv;
-      uiState.yaw = -Math.PI * 0.5;
-      uiState.pitch = 0.46;
+      uiState.yaw = (m.kind === "ocean") ? -1.18 : -Math.PI * 0.5;
+      uiState.pitch = (m.kind === "ocean") ? 0.36 : 0.46;
       uiState.dist = m.dist;
       renderAll();
     });
 
-    // Play / Pause Rollout Animation
     var animTimer = null;
     playBtn.addEventListener("click", function() {
       uiState.playing = !uiState.playing;
@@ -1992,7 +2592,6 @@ let mount_tokamak_cad () =
       }
     });
 
-    // 3D Orbit & Zoom Mouse + Touch Handlers on WebGL Canvas
     var dragging = false, lastX = 0, lastY = 0;
     glCanvas.addEventListener("mousedown", function(e) {
       dragging = true;
@@ -2014,13 +2613,10 @@ let mount_tokamak_cad () =
       e.preventDefault();
       var m = Object.prototype.hasOwnProperty.call(MACHINES, uiState.machine) ? MACHINES[uiState.machine] : MACHINES.tcv;
       var zoomScale = m.dist / 5.85;
-      var minDist = m.dist * 0.35;
-      var maxDist = m.dist * 2.8;
-      uiState.dist = Math.max(minDist, Math.min(maxDist, uiState.dist + e.deltaY * 0.0025 * zoomScale));
+      uiState.dist = Math.max(m.dist * 0.35, Math.min(m.dist * 2.8, uiState.dist + e.deltaY * 0.0025 * zoomScale));
       renderAll();
     }, { passive: false });
 
-    // Single-finger touch orbit, two-finger pinch zoom, and double-tap camera reset
     var touchMode = 0, tStartX = 0, tStartY = 0, tLastX = 0, tLastY = 0;
     var pinchSpan0 = 1.0, pinchDist0 = 5.85, lastTapMs = 0;
     glCanvas.addEventListener("touchstart", function(e) {
@@ -2042,12 +2638,10 @@ let mount_tokamak_cad () =
         e.preventDefault();
         var cx = e.touches[0].clientX;
         var cy = e.touches[0].clientY;
-        var dx = cx - tLastX;
-        var dy = cy - tLastY;
+        uiState.yaw += (cx - tLastX) * 0.010;
+        uiState.pitch = Math.max(-1.1, Math.min(1.25, uiState.pitch + (cy - tLastY) * 0.010));
         tLastX = cx;
         tLastY = cy;
-        uiState.yaw += dx * 0.010;
-        uiState.pitch = Math.max(-1.1, Math.min(1.25, uiState.pitch + dy * 0.010));
         renderAll();
       } else if (touchMode === 2 && e.touches.length >= 2) {
         e.preventDefault();
@@ -2067,8 +2661,8 @@ let mount_tokamak_cad () =
         if (moved < 10) {
           if (now - lastTapMs < 300) {
             var m = Object.prototype.hasOwnProperty.call(MACHINES, uiState.machine) ? MACHINES[uiState.machine] : MACHINES.tcv;
-            uiState.yaw = -Math.PI * 0.5;
-            uiState.pitch = 0.46;
+            uiState.yaw = (m.kind === "ocean") ? -1.18 : -Math.PI * 0.5;
+            uiState.pitch = (m.kind === "ocean") ? 0.36 : 0.46;
             uiState.dist = m.dist;
             renderAll();
             lastTapMs = 0;

@@ -198,6 +198,103 @@ impl RegionalModels {
             .collect()
     }
 
+    pub(crate) fn freeze_models(&self, buf: &mut Vec<u8>) -> Result<(), ENNError> {
+        use crate::snapshot_io::{write_bool, write_len, write_mat, write_word};
+        write_len(buf, self.models.len());
+        for slot in 0..self.models.len() {
+            write_word(buf, self.generations[slot]);
+            self.models[slot].freeze_surrogate(buf)?;
+            write_len(buf, self.history[slot].len());
+            for chunk in &self.history[slot] {
+                write_mat(buf, &chunk.x);
+                write_mat(buf, &chunk.y);
+                match &chunk.yvar {
+                    Some(yv) => {
+                        write_bool(buf, true);
+                        write_mat(buf, yv);
+                    }
+                    None => write_bool(buf, false),
+                }
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) fn thaw_models(
+        &mut self,
+        num_dim: usize,
+        bytes: &[u8],
+        pos: &mut usize,
+    ) -> Result<(), ENNError> {
+        use crate::snapshot_io::{MAX_METRICS, MAX_OBS, MAX_REGIONS, WireReader, bad_state};
+        let mut reader = WireReader::from_slice(bytes, *pos);
+        let slot_count = reader.read_len(MAX_REGIONS)?;
+        if slot_count != self.models.len() {
+            return Err(bad_state("frozen RegionalModels slot count mismatch"));
+        }
+        let mut new_models = Vec::new();
+        new_models
+            .try_reserve_exact(slot_count)
+            .map_err(|_| bad_state("allocation failed"))?;
+        let mut new_gens = Vec::new();
+        new_gens
+            .try_reserve_exact(slot_count)
+            .map_err(|_| bad_state("allocation failed"))?;
+        let mut new_hist = Vec::new();
+        new_hist
+            .try_reserve_exact(slot_count)
+            .map_err(|_| bad_state("allocation failed"))?;
+
+        for slot in 0..slot_count {
+            let generation = reader.read_word()?;
+            let mut slot_model = (self.factory)(slot, generation)?;
+            let mut cur_pos = reader.position();
+            slot_model.thaw_surrogate(bytes, &mut cur_pos)?;
+            reader = WireReader::from_slice(bytes, cur_pos);
+
+            let chunk_count = reader.read_len(MAX_OBS)?;
+            let mut chunks = Vec::new();
+            chunks
+                .try_reserve_exact(chunk_count)
+                .map_err(|_| bad_state("allocation failed"))?;
+            for _ in 0..chunk_count {
+                let x = reader.read_mat(MAX_OBS, num_dim, true)?;
+                let y = reader.read_mat(x.nrows(), MAX_METRICS, true)?;
+                if x.ncols() != num_dim || y.nrows() != x.nrows() || y.ncols() == 0 {
+                    return Err(bad_state("invalid ModelHistory chunk shape"));
+                }
+                let yvar = if reader.read_bool()? {
+                    let yv = reader.read_mat(x.nrows(), y.ncols(), true)?;
+                    if yv.shape() != y.shape() || yv.iter().any(|&v| v < 0.0) {
+                        return Err(bad_state("invalid ModelHistory yvar chunk"));
+                    }
+                    Some(yv)
+                } else {
+                    None
+                };
+                chunks.push(ModelHistory { x, y, yvar });
+            }
+            new_models.push(slot_model);
+            new_gens.push(generation);
+            new_hist.push(chunks);
+        }
+
+        if self.owned_disk {
+            for model in &mut self.models {
+                let _ = model.clear_observations();
+            }
+        }
+        self.models = new_models;
+        self.generations = new_gens;
+        self.history = new_hist;
+        *pos = reader.position();
+        Ok(())
+    }
+
+    pub(crate) fn hash_models(&self, buf: &mut Vec<u8>) {
+        let _ = self.freeze_models(buf);
+    }
+
     /// Warm-up data has no generating region and seeds every local model in
     /// parallel via [`std::thread::scope`] and counter-folded per-slot PRNGs.
     pub fn warmup(

@@ -86,6 +86,83 @@ impl RowReservoir {
         &self.ys[..self.len * self.num_outputs]
     }
 
+    pub(crate) fn freeze_rows(&self, buf: &mut Vec<u8>) {
+        use crate::snapshot_io::{
+            write_bool, write_len, write_quad, write_slice, write_uint, write_word,
+        };
+        write_len(buf, self.capacity);
+        write_word(buf, self.seed);
+        let (state, inc, has_buf, buf_val) = self.rng.snapshot();
+        write_quad(buf, state);
+        write_quad(buf, inc);
+        write_bool(buf, has_buf);
+        write_uint(buf, buf_val);
+        write_len(buf, self.len);
+        write_len(buf, self.num_seen);
+        write_slice(buf, self.x());
+        write_slice(buf, self.y());
+    }
+
+    pub(crate) fn thaw_rows(
+        num_dim: usize,
+        num_outputs: usize,
+        reader: &mut crate::snapshot_io::WireReader<'_>,
+    ) -> Result<Self, ENNError> {
+        use crate::snapshot_io::{MAX_OBS, bad_state};
+        let capacity = reader.read_len(100_000)?;
+        if capacity < 1 {
+            return Err(bad_state("frozen reservoir capacity must be >= 1"));
+        }
+        let seed = reader.read_word()?;
+        let state = reader.read_quad()?;
+        let inc = reader.read_quad()?;
+        let has_buf = reader.read_bool()?;
+        let buf_val = reader.read_uint()?;
+        let len = reader.read_len(capacity)?;
+        let num_seen = reader.read_len(MAX_OBS)?;
+        if num_seen < len {
+            return Err(bad_state("frozen reservoir num_seen < len"));
+        }
+        let x_cap = capacity
+            .checked_mul(num_dim)
+            .ok_or_else(|| bad_state("reservoir x capacity overflow"))?;
+        let y_cap = capacity
+            .checked_mul(num_outputs)
+            .ok_or_else(|| bad_state("reservoir y capacity overflow"))?;
+        let x_used = len
+            .checked_mul(num_dim)
+            .ok_or_else(|| bad_state("reservoir x length overflow"))?;
+        let y_used = len
+            .checked_mul(num_outputs)
+            .ok_or_else(|| bad_state("reservoir y length overflow"))?;
+        let x_vals = reader.read_vec(x_used, true)?;
+        let y_vals = reader.read_vec(y_used, true)?;
+        if x_vals.len() != x_used || y_vals.len() != y_used {
+            return Err(bad_state("frozen reservoir slice length mismatch"));
+        }
+        let mut xs = Vec::new();
+        xs.try_reserve_exact(x_cap)
+            .map_err(|_| bad_state("reservoir x allocation failed"))?;
+        xs.extend_from_slice(&x_vals);
+        xs.resize(x_cap, 0.0);
+        let mut ys = Vec::new();
+        ys.try_reserve_exact(y_cap)
+            .map_err(|_| bad_state("reservoir y allocation failed"))?;
+        ys.extend_from_slice(&y_vals);
+        ys.resize(y_cap, 0.0);
+        Ok(Self {
+            num_dim,
+            num_outputs,
+            capacity,
+            seed,
+            rng: MetricRng::restore(state, inc, has_buf, buf_val),
+            xs,
+            ys,
+            len,
+            num_seen,
+        })
+    }
+
     pub fn configure(&mut self, seed: u64, capacity: usize) -> Result<(), ENNError> {
         let x_count = capacity
             .checked_mul(self.num_dim)

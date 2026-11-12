@@ -21,8 +21,8 @@
           <xsl:value-of select="/fr:tree/fr:frontmatter/fr:title/@text" />
         </title>
       </head>
-      <body>
-        <xsl:variable name="current-addr" select="/fr:tree/fr:frontmatter/fr:addr" />
+      <xsl:variable name="current-addr" select="/fr:tree/fr:frontmatter/fr:addr" />
+      <body data-page="{$current-addr}">
         <header class="masthead">
           <div class="masthead-inner">
             <div class="masthead-brand">
@@ -54,7 +54,7 @@
                     <xsl:text> active</xsl:text>
                   </xsl:if>
                 </xsl:attribute>
-                <xsl:text>Playground</xsl:text>
+                <xsl:text>Simulation</xsl:text>
               </a>
               <a href="https://github.com/Kvutza/baux" class="nav-item external" target="_blank" rel="noopener noreferrer">
                 <xsl:text>GitHub</xsl:text>

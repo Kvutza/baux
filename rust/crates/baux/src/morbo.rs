@@ -152,6 +152,106 @@ impl MorboTrustRegion {
         }
     }
 
+    pub(crate) fn freeze_morbo(&self, buf: &mut Vec<u8>) {
+        use crate::snapshot_io::{write_arr, write_bool, write_len, write_real};
+        self.inner.freeze_turbo(buf);
+        write_len(buf, self.num_metrics);
+        write_arr(buf, &self.weights);
+        match &self.y_min {
+            Some(v) => {
+                write_bool(buf, true);
+                write_arr(buf, v);
+            }
+            None => write_bool(buf, false),
+        }
+        match &self.y_max {
+            Some(v) => {
+                write_bool(buf, true);
+                write_arr(buf, v);
+            }
+            None => write_bool(buf, false),
+        }
+        match &self.incumbent_y_raw {
+            Some(v) => {
+                write_bool(buf, true);
+                write_arr(buf, v);
+            }
+            None => write_bool(buf, false),
+        }
+        match self.score_min {
+            Some(v) => {
+                write_bool(buf, true);
+                write_real(buf, v);
+            }
+            None => write_bool(buf, false),
+        }
+        match self.score_max {
+            Some(v) => {
+                write_bool(buf, true);
+                write_real(buf, v);
+            }
+            None => write_bool(buf, false),
+        }
+        write_len(buf, self.score_count);
+    }
+
+    pub(crate) fn thaw_morbo(
+        &mut self,
+        reader: &mut crate::snapshot_io::WireReader<'_>,
+    ) -> Result<(), crate::error::ENNError> {
+        use crate::snapshot_io::{MAX_METRICS, MAX_OBS, bad_state};
+        self.inner.thaw_turbo(reader)?;
+        let nm = reader.read_len(MAX_METRICS)?;
+        if nm != self.num_metrics {
+            return Err(bad_state("frozen MORBO metric count mismatch"));
+        }
+        let weights = reader.read_arr(nm, true)?;
+        if weights.iter().any(|&w| w <= 0.0) {
+            return Err(bad_state("frozen MORBO weights must be positive"));
+        }
+        let y_min = if reader.read_bool()? {
+            Some(reader.read_arr(nm, true)?)
+        } else {
+            None
+        };
+        let y_max = if reader.read_bool()? {
+            Some(reader.read_arr(nm, true)?)
+        } else {
+            None
+        };
+        if y_min.is_some() != y_max.is_some() {
+            return Err(bad_state("frozen MORBO y_min/y_max presence mismatch"));
+        }
+        let incumbent_y_raw = if reader.read_bool()? {
+            Some(reader.read_arr(nm, true)?)
+        } else {
+            None
+        };
+        let score_min = if reader.read_bool()? {
+            Some(reader.read_finite()?)
+        } else {
+            None
+        };
+        let score_max = if reader.read_bool()? {
+            Some(reader.read_finite()?)
+        } else {
+            None
+        };
+        let score_count = reader.read_len(MAX_OBS)?;
+        self.weights = weights;
+        self.y_min = y_min;
+        self.y_max = y_max;
+        self.incumbent_y_raw = incumbent_y_raw;
+        self.score_min = score_min;
+        self.score_max = score_max;
+        self.score_count = score_count;
+        Ok(())
+    }
+
+    pub(crate) fn hash_morbo(&self, buf: &mut Vec<u8>) {
+        self.freeze_morbo(buf);
+    }
+
     pub fn compute_bounds(
         &self,
         x_center: &ArrayView1<f64>,

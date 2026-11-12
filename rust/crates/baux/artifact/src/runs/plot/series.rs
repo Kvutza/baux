@@ -141,6 +141,24 @@ pub(in super::super) fn infer_recipe(output: &Path) -> Option<String> {
         let evals = val["evaluations"].as_u64().unwrap_or(0);
         return Some(format!("regional-d{dim}-e{evals}"));
     }
+    if exp == "oceananigans" {
+        let rounds = val["rounds"].as_u64().unwrap_or(0);
+        let reps = val["repetitions"].as_u64().unwrap_or(1);
+        let task = val["ocean"]["task"].as_str().unwrap_or("kh");
+        let nx = val["ocean"]["nx"].as_u64().unwrap_or(64);
+        let nz = val["ocean"]["nz"].as_u64().unwrap_or(64);
+        return Some(format!("ocean-{task}-{nx}x{nz}-r{rounds}x{reps}"));
+    }
+    if exp == "fuse" {
+        let rounds = val["rounds"].as_u64().unwrap_or(0);
+        let reps = val["repetitions"].as_u64().unwrap_or(1);
+        let case = val["fuse"]["case"].as_str().unwrap_or("ARC");
+        let wf = val["fuse"]["workflow"].as_str().unwrap_or("wf");
+        return Some(format!(
+            "fuse-{}-{wf}-r{rounds}x{reps}",
+            case.to_ascii_lowercase()
+        ));
+    }
     None
 }
 
@@ -153,11 +171,16 @@ pub(in super::super) fn run_label(record: &Record) -> String {
     let ctx = context_tag(&recipe);
     let out = &record.output;
     let short_commit = record.commit.get(..8).unwrap_or(&record.commit);
-    if matches!(ctx, "TCV" | "TokaGym" | "Regional") {
+    if matches!(
+        ctx,
+        "TCV" | "TokaGym" | "Regional" | "Oceananigans" | "FUSE"
+    ) {
         let detail = recipe
             .strip_prefix("tcv-")
             .or_else(|| recipe.strip_prefix("tokagym-"))
             .or_else(|| recipe.strip_prefix("regional-"))
+            .or_else(|| recipe.strip_prefix("ocean-"))
+            .or_else(|| recipe.strip_prefix("fuse-"))
             .unwrap_or(&recipe);
         return format!("{ctx} {detail} ({short_commit})");
     }
@@ -218,6 +241,12 @@ pub(in super::super) fn context_tag(recipe: &str) -> &'static str {
     }
     if recipe.starts_with("regional") {
         return "Regional";
+    }
+    if recipe.starts_with("ocean") {
+        return "Oceananigans";
+    }
+    if recipe.starts_with("fuse") {
+        return "FUSE";
     }
     [
         ("@1048576", "1M"),

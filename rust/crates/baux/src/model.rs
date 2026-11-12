@@ -487,6 +487,211 @@ impl ENN {
         }
         self.backend.search(x, search_k, exclude_nearest)
     }
+
+    pub(crate) fn freeze_model(&self, buf: &mut Vec<u8>) -> Result<(), ENNError> {
+        use crate::snapshot_io::{write_arr, write_bool, write_len, write_mat};
+        self.backend.wait_flush()?;
+        let n = self.num_obs;
+        let indices: Vec<usize> = (0..n).collect();
+        let (x, y_stored, yvar_stored) = if n > 0 {
+            self.rows().train_rows(&indices)?
+        } else {
+            (
+                Array2::zeros((0, self.num_dim)),
+                Array2::zeros((0, self.num_metrics)),
+                None,
+            )
+        };
+        write_len(buf, n);
+        write_len(buf, self.num_dim);
+        write_len(buf, self.num_metrics);
+        write_mat(buf, &x);
+        write_mat(buf, &y_stored);
+        match yvar_stored {
+            Some(ref yv) => {
+                write_bool(buf, true);
+                write_mat(buf, yv);
+            }
+            None => write_bool(buf, false),
+        }
+        write_bool(buf, self.scale_x);
+        write_bool(buf, self.metric_fixed);
+        write_arr(buf, &self.x_scale);
+        write_arr(buf, &self.built_scale);
+        write_arr(buf, &self.y_scale);
+        write_arr(buf, &self.y_sum);
+        write_arr(buf, &self.y_sumsq);
+        write_arr(buf, &self.x_sum);
+        write_arr(buf, &self.x_sumsq);
+        match &self.metric {
+            Some(m) => {
+                write_bool(buf, true);
+                m.freeze_metric(buf);
+            }
+            None => write_bool(buf, false),
+        }
+        Ok(())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn thaw_model(
+        options: ModelOptions,
+        tied: Vec<Vec<usize>>,
+        unscaled: Vec<usize>,
+        geometry: baux::semantics::neighbor::DistanceMetric,
+        stiefel: Option<baux::semantics::stiefel::Stiefel>,
+        affine: Option<baux::semantics::affine::Affine>,
+        reader: &mut crate::snapshot_io::WireReader<'_>,
+    ) -> Result<Self, ENNError> {
+        use crate::snapshot_io::{MAX_DIM, MAX_METRICS, MAX_OBS, bad_state};
+        let n = reader.read_len(MAX_OBS)?;
+        let num_dim = reader.read_len(MAX_DIM)?;
+        let num_metrics = reader.read_len(MAX_METRICS)?;
+        if num_dim == 0 || num_metrics == 0 {
+            return Err(bad_state("frozen ENN model must have positive shape"));
+        }
+        crate::metric_weights::validate_tied(&tied, num_dim)?;
+        if unscaled.iter().any(|&d| d >= num_dim) {
+            return Err(bad_state("frozen ENN unscaled dimension out of range"));
+        }
+        let train_x = reader.read_mat(n, num_dim, true)?;
+        let train_y = reader.read_mat(n, num_metrics, true)?;
+        if train_x.shape() != [n, num_dim] || train_y.shape() != [n, num_metrics] {
+            return Err(bad_state("frozen ENN matrix shape mismatch"));
+        }
+        let train_yvar = if reader.read_bool()? {
+            let yv = reader.read_mat(n, num_metrics, true)?;
+            if yv.shape() != [n, num_metrics] || yv.iter().any(|&v| v < 0.0) {
+                return Err(bad_state("invalid frozen ENN yvar matrix"));
+            }
+            Some(yv)
+        } else {
+            None
+        };
+        let scale_x = reader.read_bool()?;
+        let metric_fixed = reader.read_bool()?;
+        let x_scale = reader.read_arr(num_dim, true)?;
+        let built_scale = reader.read_arr(num_dim, true)?;
+        let y_scale = reader.read_arr(num_metrics, true)?;
+        if x_scale.iter().chain(built_scale.iter()).any(|&v| v <= 0.0)
+            || y_scale.iter().any(|&v| v <= 0.0)
+        {
+            return Err(bad_state("frozen ENN scales must be positive"));
+        }
+        let y_sum = reader.read_arr(num_metrics, true)?;
+        let y_sumsq = reader.read_arr(num_metrics, true)?;
+        let x_sum = reader.read_arr(num_dim, true)?;
+        let x_sumsq = reader.read_arr(num_dim, true)?;
+        let metric = if reader.read_bool()? {
+            let mut auto_unscaled: Vec<usize> = tied.iter().flatten().copied().collect();
+            auto_unscaled.extend(unscaled.iter().copied());
+            auto_unscaled.sort_unstable();
+            auto_unscaled.dedup();
+            let only_extra: Vec<usize> = unscaled
+                .iter()
+                .copied()
+                .filter(|j| !tied.iter().flatten().any(|t| t == j))
+                .collect();
+            Some(crate::metric_auto::AutoMetric::thaw_metric(
+                num_dim,
+                num_metrics,
+                tied.clone(),
+                only_extra,
+                reader,
+            )?)
+        } else {
+            None
+        };
+
+        let ModelOptions {
+            driver,
+            storage,
+            work_dir,
+            y_bounds,
+            ..
+        } = options;
+        let disk_work_dir = work_dir.clone().or_else(EnnStorage::work_env);
+        let y_bounds = match y_bounds {
+            Some(requested) => requested,
+            None => crate::y_bounds::unbounded_bounds(num_metrics),
+        };
+        crate::y_bounds::validate_bounds(&y_bounds, num_metrics)?;
+        let bounded_outputs = !crate::y_bounds::identity_bounds(&y_bounds);
+        let backend = match storage {
+            EnnStorage::InMemory => EnnBackend::new_memory(
+                train_x,
+                train_y,
+                train_yvar,
+                scale_x,
+                x_scale.clone(),
+                driver,
+            )?,
+            EnnStorage::Disk => {
+                if !disk_driver(driver) {
+                    return Err(bad_state("Disk storage requires IndexDriver::BpAnnDisk"));
+                }
+                let dir = work_dir
+                    .or_else(EnnStorage::work_env)
+                    .ok_or_else(|| bad_state("Disk storage requires work_dir or BAUX_WORK_DIR"))?;
+                EnnBackend::new_disk(
+                    dir,
+                    train_x,
+                    train_y,
+                    train_yvar,
+                    scale_x,
+                    x_scale.clone(),
+                    driver,
+                )?
+            }
+        };
+        let mut model_unscaled = unscaled;
+        if metric.is_some() {
+            for &j in tied.iter().flatten() {
+                if !model_unscaled.contains(&j) {
+                    model_unscaled.push(j);
+                }
+            }
+            model_unscaled.sort_unstable();
+            model_unscaled.dedup();
+        }
+        let mut model = Self {
+            metric,
+            metric_fixed,
+            built_scale,
+            unscaled_dims: model_unscaled,
+            tied_groups: tied,
+            backend,
+            num_obs: n,
+            num_dim,
+            num_metrics,
+            scale_x,
+            x_scale,
+            y_scale,
+            y_bounds,
+            bounded_outputs,
+            stiefel: None,
+            affine: None,
+            y_sum,
+            y_sumsq,
+            x_sum,
+            x_sumsq,
+            work_dir: disk_work_dir,
+            dist_metric: geometry,
+            scale_cache: std::sync::Arc::new(std::sync::OnceLock::new()),
+        };
+        if let Some(st) = stiefel {
+            model = model.with_stiefel(st)?;
+        }
+        if let Some(aff) = affine {
+            model = model.with_affine(aff)?;
+        }
+        model.y_metadata()?;
+        Ok(model)
+    }
+
+    pub(crate) fn hash_model(&self, buf: &mut Vec<u8>) {
+        let _ = self.freeze_model(buf);
+    }
 }
 
 fn warp_training(

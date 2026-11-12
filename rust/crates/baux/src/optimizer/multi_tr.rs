@@ -531,6 +531,291 @@ impl MultiTrustRegionState {
 
         Ok(())
     }
+
+    fn write_core(&self, buf: &mut Vec<u8>) {
+        use crate::snapshot_io::{
+            write_arr, write_bool, write_int, write_len, write_mat, write_real, write_word,
+        };
+        write_len(buf, self.num_regions);
+        write_mat(buf, &self.centers);
+        write_arr(buf, &self.lengths);
+        for &c in &self.succ_counts {
+            write_int(buf, c);
+        }
+        for &c in &self.fail_counts {
+            write_int(buf, c);
+        }
+        for &a in &self.active_mask {
+            write_bool(buf, a);
+        }
+        write_word(buf, self.ledger.next_ticket());
+        for s in self.ledger.slots() {
+            write_word(buf, s.generation);
+            match s.pending_seq {
+                Some(seq) => {
+                    write_bool(buf, true);
+                    write_word(buf, seq);
+                }
+                None => write_bool(buf, false),
+            }
+            write_word(buf, s.trials);
+            write_real(buf, s.mean);
+            write_real(buf, s.m2);
+            write_real(buf, s.best);
+        }
+    }
+
+    pub(crate) fn freeze_multi(&self, pending: Option<&PendingProposal>, buf: &mut Vec<u8>) {
+        use crate::snapshot_io::{
+            write_bool, write_byte, write_len, write_mat, write_real, write_word,
+        };
+        self.write_core(buf);
+        match pending {
+            None => write_bool(buf, false),
+            Some(prop) => {
+                write_bool(buf, true);
+                write_len(buf, prop.ids.len());
+                for id in &prop.ids {
+                    write_word(buf, id.0);
+                }
+                match &prop.arms {
+                    None => write_bool(buf, false),
+                    Some(arms) => {
+                        write_bool(buf, true);
+                        for arm in arms {
+                            write_len(buf, arm.slot);
+                            write_word(buf, arm.generation);
+                            write_word(buf, arm.ticket.sequence());
+                            write_len(buf, arm.ticket.region.slot);
+                            write_word(buf, arm.ticket.region.generation);
+                        }
+                    }
+                }
+                write_mat(buf, &prop.x);
+                for outcome in &prop.outcomes {
+                    match *outcome {
+                        EvaluationStatus::Pending => write_byte(buf, 0),
+                        EvaluationStatus::Observed(v) => {
+                            write_byte(buf, 1);
+                            write_real(buf, v);
+                        }
+                        EvaluationStatus::Cancelled => write_byte(buf, 2),
+                    }
+                }
+                write_bool(buf, prop.ordered_tell_allowed);
+            }
+        }
+    }
+
+    pub(crate) fn hash_multi(&self, pending: Option<&PendingProposal>, buf: &mut Vec<u8>) {
+        use crate::snapshot_io::{
+            write_bool, write_byte, write_len, write_mat, write_real, write_word,
+        };
+        self.write_core(buf);
+        match pending {
+            None => write_bool(buf, false),
+            Some(prop) => {
+                write_bool(buf, true);
+                write_len(buf, prop.ids.len());
+                match &prop.arms {
+                    None => write_bool(buf, false),
+                    Some(arms) => {
+                        write_bool(buf, true);
+                        for arm in arms {
+                            write_len(buf, arm.slot);
+                            write_word(buf, arm.generation);
+                            write_word(buf, arm.ticket.sequence());
+                        }
+                    }
+                }
+                write_mat(buf, &prop.x);
+                for outcome in &prop.outcomes {
+                    match *outcome {
+                        EvaluationStatus::Pending => write_byte(buf, 0),
+                        EvaluationStatus::Observed(v) => {
+                            write_byte(buf, 1);
+                            write_real(buf, v);
+                        }
+                        EvaluationStatus::Cancelled => write_byte(buf, 2),
+                    }
+                }
+                write_bool(buf, prop.ordered_tell_allowed);
+            }
+        }
+    }
+
+    pub(crate) fn thaw_multi(
+        &mut self,
+        reader: &mut crate::snapshot_io::WireReader<'_>,
+    ) -> Result<Option<PendingProposal>, crate::error::ENNError> {
+        use crate::snapshot_io::{MAX_PENDING, MAX_REGIONS, bad_state};
+        use baux::semantics::optimizer::portfolio::RegionSlotState;
+        let nr = reader.read_len(MAX_REGIONS)?;
+        if nr != self.num_regions {
+            return Err(bad_state("frozen multi-region count mismatch"));
+        }
+        let centers = reader.read_mat(nr, self.num_dim, true)?;
+        if centers.shape() != [nr, self.num_dim] {
+            return Err(bad_state("frozen multi-region centers shape mismatch"));
+        }
+        let lengths = reader.read_arr(nr, true)?;
+        if lengths
+            .iter()
+            .any(|&l| l <= 0.0 || l > self.config.length.length_max)
+        {
+            return Err(bad_state("frozen multi-region lengths out of range"));
+        }
+        let mut succ_counts = Vec::new();
+        succ_counts
+            .try_reserve_exact(nr)
+            .map_err(|_| bad_state("allocation failed"))?;
+        for _ in 0..nr {
+            let c = reader.read_int()?;
+            if c < 0 {
+                return Err(bad_state("negative multi-region succ_count"));
+            }
+            succ_counts.push(c);
+        }
+        let mut fail_counts = Vec::new();
+        fail_counts
+            .try_reserve_exact(nr)
+            .map_err(|_| bad_state("allocation failed"))?;
+        for _ in 0..nr {
+            let c = reader.read_int()?;
+            if c < 0 {
+                return Err(bad_state("negative multi-region fail_count"));
+            }
+            fail_counts.push(c);
+        }
+        let mut active_mask = Vec::new();
+        active_mask
+            .try_reserve_exact(nr)
+            .map_err(|_| bad_state("allocation failed"))?;
+        for _ in 0..nr {
+            active_mask.push(reader.read_bool()?);
+        }
+        let next_ticket = reader.read_word()?;
+        let mut slots = Vec::new();
+        slots
+            .try_reserve_exact(nr)
+            .map_err(|_| bad_state("allocation failed"))?;
+        for _ in 0..nr {
+            let generation = reader.read_word()?;
+            let pending_seq = if reader.read_bool()? {
+                Some(reader.read_word()?)
+            } else {
+                None
+            };
+            let trials = reader.read_word()?;
+            let mean = reader.read_finite()?;
+            let m2 = reader.read_finite()?;
+            let best = reader.read_real()?;
+            slots.push(RegionSlotState {
+                generation,
+                pending_seq,
+                trials,
+                mean,
+                m2,
+                best,
+            });
+        }
+        let owner = self
+            .ledger
+            .restore(next_ticket, &slots)
+            .map_err(|e| bad_state(e.to_string()))?;
+
+        let pending = if !reader.read_bool()? {
+            None
+        } else {
+            let rows = reader.read_len(MAX_PENDING)?;
+            if rows == 0 {
+                return Err(bad_state("empty PendingProposal in frozen state"));
+            }
+            let id_bytes = reader.read_bytes(
+                rows.checked_mul(8)
+                    .ok_or_else(|| bad_state("pending ID byte overflow"))?,
+            )?;
+            let mut ids = Vec::new();
+            ids.try_reserve_exact(rows)
+                .map_err(|_| bad_state("allocation failed"))?;
+            let mut seen = std::collections::HashSet::new();
+            seen.try_reserve(rows)
+                .map_err(|_| bad_state("allocation failed"))?;
+            let mut max_id = 0u64;
+            for chunk in id_bytes.chunks_exact(8) {
+                let mut arr = [0u8; 8];
+                arr.copy_from_slice(chunk);
+                let val = u64::from_le_bytes(arr);
+                if !seen.insert(val) {
+                    return Err(bad_state("duplicate EvaluationId in frozen state"));
+                }
+                max_id = max_id.max(val);
+                ids.push(EvaluationId(val));
+            }
+            crate::strategy::bump_ids(max_id.saturating_add(1));
+
+            let arms = if reader.read_bool()? {
+                let mut arm_vec = Vec::new();
+                arm_vec
+                    .try_reserve_exact(rows)
+                    .map_err(|_| bad_state("allocation failed"))?;
+                for _ in 0..rows {
+                    let slot = reader.read_len(nr)?;
+                    if slot >= nr {
+                        return Err(bad_state("frozen arm slot out of range"));
+                    }
+                    let generation = reader.read_word()?;
+                    let seq = reader.read_word()?;
+                    let t_slot = reader.read_len(nr)?;
+                    let t_gen = reader.read_word()?;
+                    if t_slot != slot || t_gen != generation || seq < 1 || seq >= next_ticket {
+                        return Err(bad_state("inconsistent frozen arm provenance"));
+                    }
+                    arm_vec.push(RegionProvenance {
+                        slot,
+                        generation,
+                        ticket: RegionTicket::from_parts(owner, seq, t_slot, t_gen),
+                    });
+                }
+                Some(arm_vec)
+            } else {
+                None
+            };
+
+            let x = reader.read_mat(rows, self.num_dim, true)?;
+            if x.shape() != [rows, self.num_dim] {
+                return Err(bad_state("frozen PendingProposal x shape mismatch"));
+            }
+            let mut outcomes = Vec::new();
+            outcomes
+                .try_reserve_exact(rows)
+                .map_err(|_| bad_state("allocation failed"))?;
+            for _ in 0..rows {
+                let status = match reader.read_byte()? {
+                    0 => EvaluationStatus::Pending,
+                    1 => EvaluationStatus::Observed(reader.read_finite()?),
+                    2 => EvaluationStatus::Cancelled,
+                    _ => return Err(bad_state("invalid EvaluationStatus tag in frozen state")),
+                };
+                outcomes.push(status);
+            }
+            let ordered_tell_allowed = reader.read_bool()?;
+            Some(PendingProposal {
+                ids,
+                arms,
+                x,
+                outcomes,
+                ordered_tell_allowed,
+            })
+        };
+
+        self.centers = centers;
+        self.lengths = lengths;
+        self.succ_counts = succ_counts;
+        self.fail_counts = fail_counts;
+        self.active_mask = active_mask;
+        Ok(pending)
+    }
 }
 
 #[cfg(test)]

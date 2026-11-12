@@ -162,47 +162,36 @@ impl InMemoryEnnBackend {
     }
 
     pub fn ensure_sync(&self, scale_x: bool, x_scale: &Array1<f64>) -> Result<(), ENNError> {
-        if scale_x {
-            let mut stale = self.index_stale.lock().expect("index_stale mutex poisoned");
-            if !*stale {
-                return Ok(());
-            }
-            let train_x_scaled =
-                (&self.train_x_rows.view() / &x_scale.view().insert_axis(Axis(0))).to_owned();
-            self.index.rebuild_scaled(train_x_scaled, x_scale.clone())?;
-            *stale = false;
-            *self
-                .index_synced_obs
-                .lock()
-                .expect("index_synced_obs mutex poisoned") = self.len();
-            return Ok(());
-        }
         let num_obs = self.len();
+        let mut stale = self.index_stale.lock().expect("index_stale mutex poisoned");
         let mut synced = self
             .index_synced_obs
             .lock()
             .expect("index_synced_obs mutex poisoned");
-        if *synced > self.index.len() {
-            *synced = self.index.len();
-        }
-        if num_obs > 0 && (self.index.len() != num_obs || (*synced == 0 && !self.index.is_empty()))
-        {
-            let train_x_scaled = self.train_x_rows.view().to_owned();
-            self.index.rebuild_scaled(train_x_scaled, x_scale.clone())?;
+        let scale_mismatch =
+            self.index.scales_x() != scale_x || (scale_x && self.index.scale_vec() != *x_scale);
+        if !*stale && !scale_mismatch && *synced == self.index.len() && self.index.len() < num_obs {
+            let train_view = self.train_x_rows.view();
+            let pending = train_view.slice(ndarray::s![*synced.., ..]);
+            if pending.nrows() > 0 {
+                self.index
+                    .add(&pending)
+                    .map_err(|e| ENNError::InvalidParameter(e.to_string()))?;
+            }
             *synced = num_obs;
             return Ok(());
         }
-        if *synced >= num_obs && self.index.len() >= num_obs {
-            return Ok(());
+        if *stale || scale_mismatch || self.index.len() != num_obs || *synced != num_obs {
+            let scaled_x = if scale_x {
+                (&self.train_x_rows.view() / &x_scale.view().insert_axis(Axis(0))).to_owned()
+            } else {
+                self.train_x_rows.view().to_owned()
+            };
+            self.index.set_scaling(scale_x);
+            self.index.rebuild_scaled(scaled_x, x_scale.clone())?;
+            *stale = false;
+            *synced = num_obs;
         }
-        let train_view = self.train_x_rows.view();
-        let pending = train_view.slice(ndarray::s![*synced.., ..]);
-        if pending.nrows() > 0 {
-            self.index
-                .add(&pending)
-                .map_err(|e| ENNError::InvalidParameter(e.to_string()))?;
-        }
-        *synced = num_obs;
         Ok(())
     }
 

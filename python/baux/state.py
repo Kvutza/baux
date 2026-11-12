@@ -260,7 +260,12 @@ class OptimizerState:
 
     def digest(self) -> str:
         """Return the 64-character hexadecimal BLAKE3 state digest."""
-        return str(self._readonlyview().digest_hex())
+        view = self._readonlyview()
+        if hasattr(view, "digest_host"):
+            return str(
+                view.digest_host(int(self.seed), int(self.epoch), bool(self.identified))
+            )
+        return str(view.digest_hex())
 
     @property
     def key(self) -> Any:
@@ -335,18 +340,35 @@ def _snapshot(
 
 def digest(state: OptimizerState) -> str:
     """Return the 64-character lowercase hexadecimal BLAKE3 digest of `state`."""
-    return str(state._readonlyview().digest_hex())
+    return state.digest()
 
 
 def freeze(state: OptimizerState) -> bytes:
     """Serialize `state` into a portable binary checkpoint."""
-    return bytes(state._readonlyview().freeze())
+    view = state._readonlyview()
+    pairs = sorted((int(k), int(v)) for k, v in state._cursor.id_map.items())
+    return bytes(
+        view.freeze_host(
+            int(state.seed), int(state.epoch), bool(state.identified), pairs
+        )
+    )
 
 
 def thaw(state: OptimizerState, data: bytes) -> OptimizerState:
     """Restore an `OptimizerState` from a binary checkpoint without mutating `state`."""
+    if not isinstance(data, (bytes, bytearray, memoryview)):
+        raise TypeError("checkpoint data must be a bytes-like object")
     inner = state._readonlyview().fork()
-    inner.thaw(bytes(data))
+    seed, epoch, identified, pairs = inner.thaw_host(
+        bytes(data),
+        int(state.seed),
+        int(state.epoch),
+        bool(state.identified),
+    )
+    if bool(identified) != bool(state.identified):
+        raise ValueError("frozen state regional mode does not match template state")
+    id_map = {int(k): int(v) for k, v in pairs}
+    inv_map = {v: k for k, v in id_map.items()}
     t = inner.telemetry()
     telem = Telemetry(
         dt_fit=t.dt_fit,
@@ -356,17 +378,20 @@ def thaw(state: OptimizerState, data: bytes) -> OptimizerState:
         num_candidates=int(t.num_candidates),
     )
     raw_pending = inner.pending_ids()
-    pending = None if raw_pending is None else tuple(int(i) for i in raw_pending)
-    next_epoch = state.epoch + 1
-    cursor = _Cursor(next_epoch, inner, {})
+    pending = (
+        None
+        if raw_pending is None
+        else tuple(int(inv_map.get(int(i), int(i))) for i in raw_pending)
+    )
+    cursor = _Cursor(int(epoch), inner, id_map)
     return OptimizerState(
         dim=state.dim,
         bounds=state.bounds,
         config=state.config,
-        seed=state.seed,
-        epoch=next_epoch,
+        seed=int(seed),
+        epoch=int(epoch),
         spec=state.spec,
-        identified=state.identified,
+        identified=bool(identified),
         num_observations=int(inner.num_observations()),
         num_regions=int(inner.num_regions()),
         tr_length=float(inner.tr_length()),

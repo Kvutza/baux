@@ -337,6 +337,7 @@ fn test_013() {
         y_neighbors: &empty_y_neighbors.view(),
         params: &params,
         observation_noise: false,
+        adaptive_neighbors: false,
         yvar_neighbors_override: None,
     };
 

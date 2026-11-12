@@ -33,6 +33,19 @@ impl MetricRng {
         }
     }
 
+    pub(crate) fn snapshot(&self) -> (u128, u128, bool, u32) {
+        (self.state, self.inc, self.has_u32, self.u32_buf)
+    }
+
+    pub(crate) fn restore(state: u128, inc: u128, has_buf: bool, buf_val: u32) -> Self {
+        Self {
+            state,
+            inc: inc | 1,
+            has_u32: has_buf,
+            u32_buf: buf_val,
+        }
+    }
+
     pub fn next_u64(&mut self) -> u64 {
         self.state = self.state.wrapping_mul(MULT).wrapping_add(self.inc);
         let high = (self.state >> 64) as u64;

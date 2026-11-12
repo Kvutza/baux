@@ -1,0 +1,54 @@
+# Immutable upstream provenance for CliMA/Oceananigans.jl non-hydrostatic and
+# hydrostatic Boussinesq / shallow-water geophysical fluid dynamics engine.
+#
+# Citations:
+# - Ali Ramadhan et al., "Oceananigans.jl: Fast and friendly geophysical fluid
+#   dynamics on GPUs", Journal of Open Source Software 5(53) (2020) 2018,
+#   https://doi.org/10.21105/joss.02018.
+# - Gregory L. Wagner et al., "Formulation and calibration of CATKE, a
+#   one-equation parameterization for microscale ocean mixing", Journal of
+#   Advances in Modeling Earth Systems 17 (2025) e2024MS004522,
+#   https://doi.org/10.1029/2024MS004522.
+
+[repository]
+url = "https://github.com/CliMA/Oceananigans.jl.git"
+revision = "52ff8e74644c632b2ed18394265b104aa72932d6"
+tree = "10751f2a96272e0caa66b342c2990b9885f4a21b"
+subject = "Update version to 0.117.2 (#6470)"
+committed_at = "2026-11-06T13:45:56+01:00"
+version = "0.117.2"
+license = "MIT"
+
+[papers]
+ramadhan_2020_doi = "10.21105/joss.02018"
+wagner_2025_doi = "10.1029/2024MS004522"
+
+[archive]
+archive_blake3 = "bd9450a1e2bbe9eb74352db5430bc5b72ee5b512f7e346df5603e8bc562e70a5"
+archive_bytes = 9656320
+
+[merkle]
+cache_relpath = ".cache/baux/upstream/oceananigans"
+merkle_root_blake3 = "76c9756df7f121fb877e08e94618406d46f84a76e5421e5c3804536238a5731f"
+file_count = 970
+total_bytes = 8829444
+
+[input_paths]
+project = "Project.toml"
+module = "src/Oceananigans.jl"
+models = "src/Models/Models.jl"
+simulations = "src/Simulations/Simulations.jl"
+single_column = "examples/single_column_parameter_estimation.jl"
+wind_mixing = "examples/ocean_wind_mixing_and_convection.jl"
+bickley_jet = "examples/shallow_water_Bickley_jet.jl"
+kelvin_helmholtz = "examples/kelvin_helmholtz_instability.jl"
+
+[inputs]
+project = "3f0c887ee5dec5b86a8c6a0e9ae735eaff0aa58b39e54a2e0a5f6c8b70151863"
+module = "a9eed14910a65f001b52777256b7352d672e22f038671816b5d140f12b3f54e8"
+models = "6ec78e8e4446d8839dbdf01063de4b6b015f2d4ddcfd25c2a113cfd1dcc8a870"
+simulations = "2e949e121514b0561177a878579cdbdf2366068efa07933da3a61f7a0b112a47"
+single_column = "e6ce1e3fdeb3b7a6b1d58c0e4d53a410fad3383f967c221b53b57858e6d5b4a8"
+wind_mixing = "a76a16c0f4a2d8d0190fe9adb41d795f5728b205d040c9d088c27a5122f10918"
+bickley_jet = "32ec8c5be8ffc2330c7c091e39b6e793db0e33447db46060b66c0d25d71b90aa"
+kelvin_helmholtz = "6dd15c652bb001a905c30db5d6665b4c90c42e8288ce4f3ff4c6e5d7a84ed33d"

@@ -9,6 +9,7 @@ mod check;
 mod cuda_track;
 mod experiment;
 use experiment as cli_exp;
+mod pages;
 mod radar;
 use radar as cli_radar;
 #[path = "research/extract.rs"]
@@ -73,6 +74,11 @@ enum Action {
         #[command(subcommand)]
         command: research::ResearchAction,
     },
+    /// Build, verify, and serve the Python-free static website & Playground.
+    Pages {
+        #[command(subcommand)]
+        command: pages::PagesAction,
+    },
 }
 
 fn main() -> ExitCode {
@@ -96,6 +102,7 @@ fn run() -> Result<(), String> {
         Action::Cuda { command } => cuda_track::run(&root, command),
         Action::Radar { command } => cli_radar::run(&root, command),
         Action::Research { command } => research::run(&root, command, settings.build_system),
+        Action::Pages { command } => pages::run(&root, command),
     }
 }
 

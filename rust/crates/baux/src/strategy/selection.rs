@@ -136,9 +136,13 @@ pub(super) fn select_segment(
         }
         return Ok(chosen);
     }
+    let global = optimizer.surrogate().filter(|surrogate| {
+        optimizer.posterior.obs_count() > 0
+            || surrogate.observation_count().is_some_and(|count| count > 0)
+    });
     select_with(
         optimizer,
-        optimizer.surrogate(),
+        global,
         candidates,
         segments,
         optimizer.config().acquisition,

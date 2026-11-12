@@ -1,22 +1,40 @@
-\title{Tokamak Control Benchmarks}
+\title{Control & Physics Simulation}
+\meta{slug}{simulation}
 
 \p{
-  We evaluate \strong{baux} on two closed-loop tokamak policy-search benchmarks motivated by TCV magnetic control (Degrave et al. [[Deg+22]](https://doi.org/10.1038/s41586-021-04301-9), Tracey et al. [[Tra+24]](https://doi.org/10.1016/j.fusengdes.2024.114161), Pfau et al. [[Pfa+25]](https://arxiv.org/abs/2505.00663)): a sample-scarce \strong{ENN-UCB} surrogate benchmark on the open-source EPFL/MIT \code{toka_gym} rampdown simulator (Wang et al. [[Wan+25]](https://doi.org/10.1038/s41467-025-63917-3), Theiler et al. [[The+26]](https://doi.org/10.1088/1741-4326/ae6d12)), and a 10,000-round regional-sharing ablation in \strong{TORAX 2.0.0} (Citrin et al. [[Cit+24]](https://arxiv.org/abs/2406.06718)); see also the [Overview](index.html) for the local surrogate and multi-region portfolio formulation.
+  The viewer above renders 3D cutaway vessel and coil geometries, equilibrium flux surfaces, stratified fluid fields, and closed-loop policy trajectories exported from \code{FUSE.jl 1.2.1} (Meneghini et al. [[Men+24]](https://arxiv.org/abs/2409.05894)) and \code{Oceananigans.jl 0.117.2} (Ramadhan et al. [[Ram+20]](https://doi.org/10.21105/joss.02018)); see the [Overview](index.html) for the \code{ENN} surrogate and multi-region search formulation.
 }
 
 \subtree{
-  \title{TokaGym Rampdown Control with ENN-UCB}
+  \title{Exported Tokamak & Fluid Geometries}
 
   \p{
-    On the \code{toka_gym} TCV rampdown benchmark ([[Wan+25]](https://doi.org/10.1038/s41467-025-63917-3), [[The+26]](https://doi.org/10.1088/1741-4326/ae6d12)), a four-layer policy #{\pi_\theta : \mathbb{R}^{11} \to [-1, 1]^8} of hidden width #{256} (#{D = 136{,}712} parameters) is searched directly from closed-loop trajectories (#{20} steps #{\times\, 4} substeps). Multi-region \strong{ENN-TuRBO} fits a #{K = 10} Epistemic Nearest Neighbor surrogate by LOO pseudolikelihood with UCB acquisition across #{R = 10} regions (\code{incumbent-ucb1} routing, coordinate-subspace perturbations of expected block size #{d_p = 13{,}671}, #{4} candidates and #{1} evaluated arm per round). Across #{n = 10} paired seeds over #{100} rounds, tracking error falls from \code{65.72} at initialization to \strong{\code{1.79}} (\code{ellipsoid-ball} sharing) and \strong{\code{1.68}} (\code{origin-only}) versus \code{20.59} for on-policy Metal PPO at matching round budget.
+    The 3D cutaway viewport and paired 2D cross-section load device geometries and PDE states exported from two Julia solver suites:
+  }
+
+  \ul{
+    \li{
+      \strong{Tokamak vessels, coils, and equilibria (\code{FUSE.jl 1.2.1})}: For \code{SPARC}, \code{ARC}, \code{ITER}, and \code{DIII-D} (alongside the 25-vertex \code{TCV} vessel and 20 \code{E}/\code{F}/\code{OH} coils), \code{evals/fuse/worker.jl} initializes \code{IMAS.dd()} device models via \code{FUSE.init}, solves Grad–Shafranov equilibria and active coil currents with \code{ActorEquilibrium(:TEQUILA)}, \code{ActorPFdesign}, and \code{ActorPFactive}, and exports vacuum vessel shells, first-wall contours, toroidal-field \code{TF} D-coils, central solenoid \code{CS}/\code{OH} stacks, poloidal-field \code{PF} rings, and last-closed-flux-surface (\code{LCFS}) contours together with #{I_p}, #{B_0}, #{q_{95}}, #{\beta_N}, and #{P_{\mathrm{fus}}}.
+    }
+    \li{
+      \strong{Stratified shear and wind-mixing tanks (\code{Oceananigans.jl 0.117.2})}: The \code{Kelvin–Helmholtz Shear Tank} and \code{Wind-Mixing Basin} views display channel boundaries, actuator vanes, 3D isopycnal surfaces, and velocity streamlines exported by \code{evals/oceananigans/worker.jl} (\code{NonhydrostaticModel} #{Ri = 0.1} shear-billow suppression with 5th-order upwind advection and \code{RungeKutta3}, and rotating \code{FPlane} \code{HydrostaticFreeSurfaceModel} mixed-layer deepening).
+    }
   }
 }
 
 \subtree{
-  \title{TORAX Core-Transport & Shaping Regional Ablation}
+  \title{TCV Rampdown Policy Search (\code{toka_gym})}
 
   \p{
-    Because EPFL's free-boundary Grad–Shafranov coil-circuit simulator \code{FGE} used in [[Deg+22]](https://doi.org/10.1038/s41586-021-04301-9), [[Tra+24]](https://doi.org/10.1016/j.fusengdes.2024.114161), and [[Pfa+25]](https://arxiv.org/abs/2505.00663) is proprietary, we evaluate the #{93 \to 256 \to 256 \to 256 \to 19} ELU+#{\tanh} policy architecture (#{D = 160{,}531} parameters) in open-source \strong{TORAX 2.0.0} [[Cit+24]](https://arxiv.org/abs/2406.06718). Rather than solving free-boundary \code{E}/\code{F}/\code{OH}/\code{FPS} coil circuits from #{38} magnetic probes and #{34} flux loops, this benchmark evolves \code{iterhybrid} CHEASE/\code{MEQ} geometry (#{R_0 = 6.2\text{ m}}, #{B_0 = 5.3\text{ T}}, #{15} warmup steps followed by #{T = 20} controlled steps) coupled to four 1D radial transport PDEs for #{T_e(\hat{\rho})}, #{T_i(\hat{\rho})}, #{n_e(\hat{\rho})}, and #{\psi(\hat{\rho})} over #{\hat{\rho} \in [0, 1]}, mapping #{93} radial profile and shaping residuals to #{19} normalized plasma current, heating, current-drive, pellet/gas fueling, and Miller local-equilibrium shaping (\code{kappa}, \code{delta_u}, \code{delta_l}, #{Z_{\mathrm{axis}}}; Miller et al. [[Mil+98]](https://doi.org/10.1063/1.872666)) actuators:
+    On the open-source EPFL/MIT \code{toka_gym} TCV rampdown benchmark (Wang et al. [[Wan+25]](https://doi.org/10.1038/s41467-025-63917-3), Theiler et al. [[The+26]](https://doi.org/10.1088/1741-4326/ae6d12)), a four-layer policy #{\pi_\theta : \mathbb{R}^{11} \to [-1, 1]^8} of hidden width #{256} (#{D = 136{,}712} parameters) is searched directly from closed-loop trajectories (#{20} steps #{\times\, 4} substeps). Multi-region \code{ENN-TuRBO} fits a #{K = 10} Epistemic Nearest Neighbor surrogate by leave-one-out log-likelihood with UCB acquisition across #{R = 10} regions (\code{incumbent-ucb1} routing, sparse coordinate perturbations of expected block size #{d_p = 13{,}671}, #{4} candidates and #{1} evaluated arm per round). Across #{n = 10} paired seeds over #{100} rounds, tracking error drops from \code{65.72} at initialization to \code{1.79} (\code{ellipsoid_ball}) and \code{1.68} (\code{origin_only}), compared with \code{20.59} for on-policy PPO at the same round budget.
+  }
+}
+
+\subtree{
+  \title{TORAX Transport & Shaping Policy Search}
+
+  \p{
+    To study cross-region incumbent sharing over #{10{,}000} rounds on an open-source transport solver, we evaluate a #{93 \to 256 \to 256 \to 256 \to 19} ELU+#{\tanh} policy (#{D = 160{,}531} parameters; policy architecture following Degrave et al. [[Deg+22]](https://doi.org/10.1038/s41586-021-04301-9), Tracey et al. [[Tra+24]](https://doi.org/10.1016/j.fusengdes.2024.114161), and Pfau et al. [[Pfa+25]](https://arxiv.org/abs/2505.00663)) in \code{TORAX 2.0.0} (Citrin et al. [[Cit+24]](https://arxiv.org/abs/2406.06718)). Each rollout evolves \code{iterhybrid} geometry (#{R_0 = 6.2\text{ m}}, #{B_0 = 5.3\text{ T}}, #{15} warmup steps followed by #{T = 20} controlled steps) coupled to four 1D radial transport PDEs for #{T_e(\hat{\rho})}, #{T_i(\hat{\rho})}, #{n_e(\hat{\rho})}, and #{\psi(\hat{\rho})} over #{\hat{\rho} \in [0, 1]}, mapping #{93} radial profile and shaping residuals to #{19} normalized plasma-current, heating, current-drive, fueling, and Miller local-equilibrium shaping (\code{kappa}, \code{delta_u}, \code{delta_l}, #{Z_{\mathrm{axis}}}; Miller et al. [[Mil+98]](https://doi.org/10.1063/1.872666)) actuators:
   }
 
   ##{
@@ -27,7 +45,7 @@
   }
 
   \p{
-    Adapting the multi-component reward structure of Pfau et al. [[Pfa+25]](https://arxiv.org/abs/2505.00663) (Table 6, Eq. 31), five normalized tracking and actuator-regularization scores—normalized Miller contour error against the 32-point \code{shape_70166} aspect template, plasma current tracking #{I_p}, shaping-effort margin, actuator bounds compliance, and auxiliary balance—are mapped through target/bad-threshold sigmoids #{c_m(v)} (#{\zeta = -\ln 19}) and averaged over #{T = 20} steps on a #{[0, 100]} scale via \code{SmoothMax} (#{\alpha = -3.0}):
+    Following the multi-component reward formulation of Pfau et al. [[Pfa+25]](https://arxiv.org/abs/2505.00663) (Table 6, Eq. 31), five normalized tracking and actuator-regularization scores—Miller contour error against the 32-point \code{shape_70166} template, plasma current tracking #{I_p}, shaping-effort margin, actuator bounds compliance, and auxiliary balance—pass through target/bad-threshold sigmoids #{c_m(v)} (#{\zeta = -\ln 19}) and are combined over #{T = 20} steps on #{[0, 100]} via \code{SmoothMax} (#{\alpha = -3.0}):
   }
 
   ##{
@@ -39,14 +57,14 @@
   }
 
   \p{
-    To isolate cross-region incumbent adoption ([baux.regions](docs.html#baux.regions)) over #{10{,}000} sequential evaluations without surrogate fitting variance, both configurations below run \strong{surrogate-free multi-region TuRBO} (\code{acquisition = "random"}, i.e. \code{TuRBO-zero}, with #{R = 10} regions, \code{incumbent-ucb1} routing, subspace perturbations of expected block size #{d_p = 16{,}053}, #{2} candidates and #{1} arm per round) across #{n = 10} paired random seeds (entries report sample \code{mean ± SEM} with \code{ddof = 1}; unadjusted two-sided paired #{t_9} #{p}-values are shown at rounds 8,000 and 10,000, while Holm–Bonferroni adjustment across the #{6} post-init checkpoints gives #{p_{\mathrm{Holm}} = 0.246}; an on-policy PPO baseline reaches \code{44.25} at round 10,000). The interactive viewer additionally renders cross-device vessel and coil geometries (\code{TCV}, \code{ARC}, \code{ITER}, \code{DIII-D}) extracted from \strong{FUSE.jl} (Meneghini et al. [[Men+24]](https://arxiv.org/abs/2409.05894)) alongside analytical Miller flux contours interpolated from these checkpoints.
+    Both configurations below run surrogate-free multi-region \code{TuRBO-zero} (\code{acquisition = "random"}, #{R = 10} regions, \code{incumbent-ucb1} routing, sparse coordinate perturbations of expected block size #{d_p = 16{,}053}, #{2} candidates and #{1} arm per round; [baux.regions](docs.html#baux.regions)) across #{n = 10} paired seeds so only cross-region incumbent sharing differs. Entries report sample \code{mean ± SEM} (\code{ddof = 1}); unadjusted two-sided paired #{t_9} #{p}-values are listed at rounds 8,000 and 10,000, Holm–Bonferroni adjustment across the #{6} post-initialization checkpoints gives #{p_{\mathrm{Holm}} = 0.246}, and an on-policy PPO run reaches \code{44.25} at round 10,000.
   }
 
   \<table>{
     \<tr>{
       \<th>{Round}
-      \<th>{Shared TuRBO-zero (\code{ellipsoid-ball})}
-      \<th>{Independent TuRBO-zero (\code{origin-only})}
+      \<th>{Shared TuRBO-zero (\code{ellipsoid_ball})}
+      \<th>{Independent TuRBO-zero (\code{origin_only})}
       \<th>{Paired Diff (\code{mean ± SEM})}
     }
     \<tr>{
@@ -86,10 +104,10 @@
       \<td>{\code{+1.92 ± 0.81} (#{p_2 = 0.0421})}
     }
     \<tr>{
-      \<td>{\strong{\code{10,000}}}
-      \<td>{\strong{\code{91.57 ± 0.55}}}
+      \<td>{\code{10,000}}
+      \<td>{\code{91.57 ± 0.55}}
       \<td>{\code{89.41 ± 0.97}}
-      \<td>{\strong{\code{+2.16 ± 0.91}} (#{p_2 = 0.0410})}
+      \<td>{\code{+2.16 ± 0.91} (#{p_2 = 0.0410})}
     }
   }
 }

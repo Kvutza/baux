@@ -67,11 +67,9 @@ def resolve_binary(name: str) -> str:
 def semgrep_targets() -> list[str]:
     """Collect scan targets across admin/ops, tracked Forester theme/JS, and OCaml UI."""
     targets: list[str] = []
-    for rel in ("admin/ops", "forest/theme", "forest/js"):
+    for rel in ("admin/ops", "admin/ui", "forest/theme", "forest/js"):
         if (ROOT / rel).is_dir():
             targets.append(rel)
-    if (ROOT / "admin/ui/baux_ui.ml").is_file():
-        targets.append("admin/ui/baux_ui.ml")
 
     return targets
 
@@ -100,6 +98,7 @@ def run_semgrep(uvx_bin: str) -> GateResult:
 
     env = os.environ.copy()
     env["SEMGREP_SEND_METRICS"] = "off"
+    env["SEMGREP_ENABLE_VERSION_CHECK"] = "0"
 
     cfg_rel = str(SEMGREP_CONFIG.relative_to(ROOT))
     validate_cmd = [
@@ -107,6 +106,7 @@ def run_semgrep(uvx_bin: str) -> GateResult:
         "semgrep",
         "scan",
         "--metrics=off",
+        "--disable-version-check",
         "--validate",
         "--config",
         cfg_rel,
@@ -126,6 +126,7 @@ def run_semgrep(uvx_bin: str) -> GateResult:
         "semgrep",
         "scan",
         "--metrics=off",
+        "--disable-version-check",
         "--no-git-ignore",
         "--error",
         "--config",

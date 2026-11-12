@@ -370,6 +370,7 @@ fn generate_raasp<R: Rng + ?Sized>(
 pub struct SobolEngine {
     dimension: usize,
     sequence: Sobol<f64>,
+    consumed: u64,
     /// Random shift per dimension for scrambling (None = not scrambled).
     /// When set, each sample is transformed: (x_d + shift_d) % 1.0
     shift: Option<Vec<f64>>,
@@ -389,7 +390,53 @@ impl SobolEngine {
         Ok(Self {
             dimension,
             sequence,
+            consumed: 0,
             shift: None,
+        })
+    }
+
+    pub(crate) fn restore(
+        dimension: usize,
+        consumed: u64,
+        shift: Option<Vec<f64>>,
+    ) -> Result<Self, ENNError> {
+        if dimension == 0 || dimension > 21201 {
+            return Err(ENNError::InvalidParameter(format!(
+                "Sobol dimension must be in 1..=21201, got {}",
+                dimension
+            )));
+        }
+        let work = consumed
+            .checked_mul(dimension as u64)
+            .ok_or_else(|| crate::snapshot_io::bad_state("Sobol cursor overflow"))?;
+        if work > crate::snapshot_io::MAX_SOBOL {
+            return Err(crate::snapshot_io::bad_state(
+                "Sobol cursor exceeds safety limit",
+            ));
+        }
+        if let Some(ref s) = shift {
+            if s.len() != dimension
+                || s.iter()
+                    .any(|&v| !v.is_finite() || !(0.0..=1.0).contains(&v))
+            {
+                return Err(crate::snapshot_io::bad_state(
+                    "invalid Sobol scramble shift in frozen state",
+                ));
+            }
+        }
+        let mut sequence = Sobol::<f64>::new(dimension, sobol_params());
+        if consumed > 0 {
+            let skip = usize::try_from(consumed - 1)
+                .map_err(|_| crate::snapshot_io::bad_state("Sobol cursor usize overflow"))?;
+            if sequence.nth(skip).is_none() {
+                return Err(crate::snapshot_io::bad_state("Sobol sequence exhausted"));
+            }
+        }
+        Ok(Self {
+            dimension,
+            sequence,
+            consumed,
+            shift,
         })
     }
 
@@ -401,6 +448,7 @@ impl SobolEngine {
             .sequence
             .next()
             .ok_or_else(|| ENNError::InvalidParameter("Sobol sequence exhausted".to_string()))?;
+        self.consumed = self.consumed.saturating_add(1);
         if sample.len() != self.dimension {
             return Err(ENNError::InvalidParameter(format!(
                 "Sobol sample dimension mismatch: expected {}, got {}",
@@ -416,6 +464,14 @@ impl SobolEngine {
 
     pub fn dimension(&self) -> usize {
         self.dimension
+    }
+
+    pub fn consumed(&self) -> u64 {
+        self.consumed
+    }
+
+    pub fn shift(&self) -> Option<&[f64]> {
+        self.shift.as_deref()
     }
 
     /// Scramble the sequence using random digital shift per dimension.

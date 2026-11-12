@@ -539,6 +539,7 @@ fn score_rows(
                 y_neighbors: &data.y_neighbors.view(),
                 params,
                 observation_noise: true,
+                adaptive_neighbors: false,
                 yvar_neighbors_override: None,
             },
             None,

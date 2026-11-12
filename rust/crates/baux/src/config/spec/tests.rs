@@ -565,3 +565,49 @@ fn perturbation_spec() {
     let invalid = text.replace("num-pert = 12", "num-pert = 0");
     assert!(parse_tune(&invalid).is_err());
 }
+
+#[test]
+fn recipe_fidelity() {
+    use crate::semantics::neighbor::DistanceMetric as GeomMetric;
+    use crate::surrogate::Surrogate;
+    let recipe = SurrogateRecipe {
+        neighbors: 12,
+        neighbor_rule: NeighborRule::RiskPrefix,
+        epistemic_scale: 2.5,
+        aleatoric_scale: 0.05,
+        y_scale: 3.0,
+        metric: DistanceMetric::Hyperbolic,
+        local_neighbors: Some(6),
+        fit: SurrogateFit::Fixed,
+        fit_candidates: None,
+        fit_samples: None,
+    };
+    let SurrogateConfig::ENN(enn) = SurrogateConfig::from_recipe(&recipe).unwrap() else {
+        panic!("expected ENN surrogate config");
+    };
+    assert_eq!(enn.k, 12);
+    assert!(enn.adapt_neighbors);
+    assert!((enn.epistemic_scale - 2.5).abs() < 1.0e-12);
+    assert!((enn.aleatoric_scale - 0.05).abs() < 1.0e-12);
+    assert_eq!(enn.y_scale, Some(3.0));
+    assert_eq!(enn.geometry, GeomMetric::Hyperbolic { local_k: 6 });
+
+    let mut sur = crate::surrogate::ENNSurrogate::new(enn);
+    let x = ndarray::Array2::from_shape_fn((8, 3), |(i, j)| (i as f64 * 0.2) + (j as f64 * 0.1));
+    let y = ndarray::Array2::from_shape_fn((8, 1), |(i, _)| (i as f64).sin());
+    let mut rng = <rand::rngs::StdRng as rand::SeedableRng>::seed_from_u64(7);
+    sur.fit(&x.view(), &y.view(), None, &mut rng).unwrap();
+    let pred = sur.predict(&x.view()).unwrap();
+    assert_eq!(pred.mu.shape(), &[8, 1]);
+    assert!(pred.se.iter().all(|v| v.is_finite() && *v > 0.0));
+    let params = sur.params().expect("seeded params");
+    assert!((params.epistemic_scale - 2.5).abs() < 1.0e-12);
+    assert!((params.aleatoric_scale - 0.05).abs() < 1.0e-12);
+
+    let bad_euclid = SurrogateRecipe {
+        metric: DistanceMetric::Euclidean,
+        local_neighbors: Some(4),
+        ..SurrogateRecipe::default()
+    };
+    assert!(SurrogateConfig::from_recipe(&bad_euclid).is_err());
+}

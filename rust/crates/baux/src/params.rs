@@ -110,6 +110,8 @@ pub struct PosteriorFlags {
     pub observation_noise: bool,
     /// Break distance ties by lower train index (Exact driver neighbor lookup).
     pub tie_neighbors: bool,
+    /// Select query-local neighbor prefix minimizing precision-weighted risk.
+    pub adaptive_neighbors: bool,
 }
 
 impl PosteriorFlags {
@@ -137,6 +139,12 @@ impl PosteriorFlags {
     /// Set tie_neighbors flag.
     pub fn tie_neighbors(mut self, value: bool) -> Self {
         self.tie_neighbors = value;
+        self
+    }
+
+    /// Set adaptive_neighbors flag.
+    pub fn adaptive_neighbors(mut self, value: bool) -> Self {
+        self.adaptive_neighbors = value;
         self
     }
 }

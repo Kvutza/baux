@@ -9,8 +9,8 @@ use baux::neighbor_index::error::BpannError;
 use baux::neighbor_index::mmap_store::MmapColumnStore;
 
 pub const FORMAT_VERSION: u32 = 1;
-pub const MAX_DIM: usize = 262_144;
-pub const MAX_STRIDE: usize = 8 * 1024 * 1024;
+pub const MAX_DIM: usize = 2_097_152;
+pub const MAX_STRIDE: usize = 32 * 1024 * 1024;
 pub const INDEX_BACKEND: &str = "bpann_disk";
 
 const STORE_FILES: &[&str] = &[

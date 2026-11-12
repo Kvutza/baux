@@ -8,13 +8,7 @@ use baux::config::OptimizerSpec;
 use baux::{BayesOptimizer, Prng, prng};
 use deser::{Deserialize, Serialize};
 use ndarray::Array2;
-use std::{
-    fs,
-    io::{Read, Write},
-    path::Path,
-    process::{Child, ChildStdin, ChildStdout, Command, Stdio},
-    time::Instant,
-};
+use std::{fs, path::Path, time::Instant};
 
 #[derive(Clone, Deserialize, Serialize)]
 #[deser(deny_unknown_fields, rename_all = "kebab-case")]
@@ -76,7 +70,7 @@ pub(super) fn execute(root: &Path, path: &Path, rounds: Option<u32>) -> Result<b
     };
     record.protocol = runs::digest(resolved.as_bytes());
 
-    let result = run_opt(&config, Some(root)).and_then(|report| {
+    let result = run_opt(&config).and_then(|report| {
         let bytes = baux::artifact::cbor::to_vec(&report).map_err(|e| e.to_string())?;
         fs::write(output.join("tokamak.cbor"), &bytes).map_err(|e| e.to_string())?;
         println!(
@@ -90,120 +84,10 @@ pub(super) fn execute(root: &Path, path: &Path, rounds: Option<u32>) -> Result<b
     Ok(true)
 }
 
-struct ToraxWorker {
-    child: Child,
-    stdin: ChildStdin,
-    stdout: ChildStdout,
-    obs: usize,
-    act: usize,
-}
-
-impl ToraxWorker {
-    fn spawn(
-        root: &Path,
-        module: &str,
-        lock: &str,
-        obs: usize,
-        act: usize,
-    ) -> Result<Self, String> {
-        baux::artifact::merkle::verify_lock(root, lock, None)
-            .map_err(|e| format!("{lock} lock: {e}"))?;
-        let mut child = Command::new("uv")
-            .args(["run", "python3", "-m", module, "--worker"])
-            .current_dir(root)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::inherit())
-            .spawn()
-            .map_err(|e| format!("spawn {module}: {e}"))?;
-        let stdin = child.stdin.take().ok_or("missing worker stdin")?;
-        let stdout = child.stdout.take().ok_or("missing worker stdout")?;
-        Ok(Self {
-            child,
-            stdin,
-            stdout,
-            obs,
-            act,
-        })
-    }
-
-    fn eval(&mut self, batch_weights: &[f64], count: usize) -> Result<Vec<f64>, String> {
-        self.stdin
-            .write_all(&(count as u32).to_le_bytes())
-            .map_err(|e| e.to_string())?;
-        let mut payload = Vec::with_capacity(batch_weights.len() * 4);
-        for &w in batch_weights {
-            payload.extend_from_slice(&(w as f32).to_le_bytes());
-        }
-        self.stdin.write_all(&payload).map_err(|e| e.to_string())?;
-        self.stdin.flush().map_err(|e| e.to_string())?;
-        let mut resp = vec![0u8; count * 8];
-        self.stdout
-            .read_exact(&mut resp)
-            .map_err(|e| format!("worker read: {e}"))?;
-        Ok(resp
-            .chunks_exact(8)
-            .map(|c| f64::from_le_bytes(c.try_into().unwrap()))
-            .collect())
-    }
-
-    fn eval_traj(
-        &mut self,
-        weights: &[f64],
-        eps: &[f32],
-        steps: usize,
-    ) -> Result<(f64, Vec<f32>, Vec<f32>, Vec<f32>), String> {
-        let cmd = 0x8000_0001u32;
-        self.stdin
-            .write_all(&cmd.to_le_bytes())
-            .map_err(|e| e.to_string())?;
-        let mut payload = Vec::with_capacity((weights.len() + eps.len()) * 4);
-        for &w in weights {
-            payload.extend_from_slice(&(w as f32).to_le_bytes());
-        }
-        for &e in eps {
-            payload.extend_from_slice(&e.to_le_bytes());
-        }
-        self.stdin.write_all(&payload).map_err(|e| e.to_string())?;
-        self.stdin.flush().map_err(|e| e.to_string())?;
-
-        let obs_len = steps * self.obs;
-        let u_len = steps * self.act;
-        let mut resp = vec![0u8; 8 + (obs_len + u_len + steps) * 4];
-        self.stdout
-            .read_exact(&mut resp)
-            .map_err(|e| format!("worker traj read: {e}"))?;
-        let score = f64::from_le_bytes(resp[..8].try_into().unwrap());
-        let floats: Vec<f32> = resp[8..]
-            .chunks_exact(4)
-            .map(|c| f32::from_le_bytes(c.try_into().unwrap()))
-            .collect();
-        let obs = floats[..obs_len].to_vec();
-        let u = floats[obs_len..obs_len + u_len].to_vec();
-        let r = floats[obs_len + u_len..].to_vec();
-        Ok((score, obs, u, r))
-    }
-}
-
-impl Drop for ToraxWorker {
-    fn drop(&mut self) {
-        let _ = self.stdin.write_all(&0u32.to_le_bytes());
-        let _ = self.stdin.flush();
-        let _ = self.child.wait();
-    }
-}
-
-fn eval_batch(
-    worker: &mut Option<ToraxWorker>,
-    batch_weights: &[f64],
-    count: usize,
-) -> Result<Vec<f64>, String> {
-    if let Some(w) = worker.as_mut() {
-        return w.eval(batch_weights, count);
-    }
+fn eval_batch(batch_weights: &[f64], count: usize) -> Vec<f64> {
     let mut out = vec![0.0f64; count];
     baux::tokamak::evaluate_batch(batch_weights, count, &mut out);
-    Ok(out)
+    out
 }
 
 fn is_tokagym(cfg: &Config) -> bool {
@@ -276,7 +160,7 @@ restart-candidates = 8
         .to_vec())
 }
 
-fn run_ppo(config: &Config, rep: u32, worker: &mut Option<ToraxWorker>) -> Result<SeedRun, String> {
+fn run_ppo(config: &Config, rep: u32) -> Result<SeedRun, String> {
     let seed = baux::tune_seed(&config.experiment, "proposal", rep, 0);
     let init_weights = seed_weights(seed, config)?;
     let mut rng = prng(seed ^ 0x5050_4f00);
@@ -293,10 +177,7 @@ fn run_ppo(config: &Config, rep: u32, worker: &mut Option<ToraxWorker>) -> Resul
     for round in 1..=total_rounds {
         let det = round == 1 || round % 8 == 1;
         let eps = agent.sample_noise(steps, det, &mut rng)?;
-        let (score, obs, u, rewards) = match worker.as_mut() {
-            Some(w) => w.eval_traj(&weights, &eps, steps)?,
-            None => baux::tokamak::rollout_traj(&weights, &eps, steps),
-        };
+        let (score, obs, u, rewards) = baux::tokamak::rollout_traj(&weights, &eps, steps);
         if score > best_score {
             best_score = score;
             total_accepts += 1;
@@ -374,11 +255,7 @@ fn mean_sem(values: &[f64]) -> (f64, f64) {
     (mean, (var / (n as f64)).sqrt())
 }
 
-fn run_seed(
-    config: &Config,
-    rep: u32,
-    worker: &mut Option<ToraxWorker>,
-) -> Result<SeedRun, String> {
+fn run_seed(config: &Config, rep: u32) -> Result<SeedRun, String> {
     let seed = baux::tune_seed(&config.experiment, "proposal", rep, 0);
     let mut rng = prng(seed);
     let mut optimizer = make_opt(config, &mut rng)?;
@@ -402,7 +279,7 @@ fn run_seed(
         let slice = points
             .as_slice_memory_order()
             .ok_or("point non-contiguous")?;
-        let scores = eval_batch(worker, slice, arms)?;
+        let scores = eval_batch(slice, arms);
         let score = scores.iter().copied().fold(f64::NEG_INFINITY, f64::max);
         if score > best_score {
             best_score = score;
@@ -471,43 +348,20 @@ fn aggregate_traces(cfg: &Config, runs: &[SeedRun], total_rounds: usize) -> Vec<
         .collect()
 }
 
-fn spawn_worker(config: &Config, root: Option<&Path>) -> Result<Option<ToraxWorker>, String> {
-    let Some(r) = root else {
-        return Ok(None);
-    };
-    let (mod_name, lock, obs, act) = if is_tokagym(config) {
-        (
-            "evals.tokagym.tokagym_rollout",
-            "tokagym",
-            baux::tokamak::TOKAGYM_OBS,
-            baux::tokamak::TOKAGYM_ACT,
-        )
-    } else {
-        (
-            "evals.torax.torax_rollout",
-            "torax",
-            baux::tokamak::OBS_DIM,
-            baux::tokamak::ACTION_DIM,
-        )
-    };
-    ToraxWorker::spawn(r, mod_name, lock, obs, act).map(Some)
-}
-
-fn run_opt(config: &Config, root: Option<&Path>) -> Result<Value, String> {
+fn run_opt(config: &Config) -> Result<Value, String> {
     let reps = config.repetitions.max(1);
     let regions = config
         .optimizer
         .regional_search()
         .map(|r| r.count)
         .unwrap_or(1);
-    let mut worker = spawn_worker(config, root)?;
     let is_ppo = matches!(config.optimizer, OptimizerSpec::Ppo);
     eprintln!(
         "[tune] starting {} closed-loop {} | rounds={} regions={} repetitions={}",
         if is_tokagym(config) {
-            "TokaGym"
+            "TokaGym (Rust/Metal)"
         } else {
-            "TORAX 2.0.0"
+            "Tokamak TCV (Rust/Metal)"
         },
         if is_ppo {
             "Candle PPO (Metal GPU)"
@@ -521,9 +375,9 @@ fn run_opt(config: &Config, root: Option<&Path>) -> Result<Value, String> {
     let runs: Vec<SeedRun> = (0..reps)
         .map(|rep| {
             if is_ppo {
-                run_ppo(config, rep, &mut worker)
+                run_ppo(config, rep)
             } else {
-                run_seed(config, rep, &mut worker)
+                run_seed(config, rep)
             }
         })
         .collect::<Result<_, _>>()?;
@@ -615,7 +469,7 @@ success-tolerance = 3
 failure-tolerance = 5
 "#;
         let config: Config = baux::artifact::toml::from_str(toml_str).expect("parse v4 config");
-        let report = run_opt(&config, None).expect("run tokamak multi-region opt");
+        let report = run_opt(&config).expect("run tokamak multi-region opt");
         let cbor_bytes = baux::artifact::cbor::to_vec(&report).expect("encode tokamak cbor");
         let decoded: Value =
             baux::artifact::cbor::from_slice(&cbor_bytes).expect("decode tokamak cbor");
@@ -632,7 +486,7 @@ rounds = 8
 algorithm = "ppo"
 "#;
         let ppo_cfg: Config = baux::artifact::toml::from_str(ppo_toml).expect("parse ppo config");
-        let ppo_rep = run_opt(&ppo_cfg, None).expect("run tokamak candle ppo");
+        let ppo_rep = run_opt(&ppo_cfg).expect("run tokamak candle ppo");
         assert_eq!(ppo_rep["experiment"], "tokamak-tcv");
         assert_eq!(ppo_rep["rounds"], 8);
     }

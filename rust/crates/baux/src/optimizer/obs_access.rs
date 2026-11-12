@@ -1,20 +1,27 @@
 use std::borrow::Cow;
+use std::path::PathBuf;
+use std::sync::Mutex;
 
 use ndarray::{Array1, Array2, ArrayView2};
 use rand::RngCore;
 
 use super::{BayesOptimizer, ObservationDelta};
 use crate::config::SurrogateConfig;
+use crate::disk_bpann::DiskBpannEnnBackend;
 use crate::error::ENNError;
 use crate::optimizer_dispatch::{VarianceGate, variance_gate};
 use crate::surrogate::{BoxedSurrogate, ENNSurrogate, Surrogate};
 
-/// Closed storage backend: either empirical observation vectors or an indexed
-/// surrogate model.
+/// Closed storage backend: empirical observation vectors (RAM or disk mmap) or
+/// an indexed surrogate model.
 pub enum PosteriorBackend {
     Empirical {
         x_rows: Vec<Array1<f64>>,
         y_rows: Vec<Array1<f64>>,
+    },
+    Disk {
+        work_dir: PathBuf,
+        store: Mutex<DiskBpannEnnBackend>,
     },
     Model(BoxedSurrogate),
 }
@@ -46,6 +53,27 @@ impl PosteriorStore {
         }
     }
 
+    pub fn new_disk(
+        work_dir: PathBuf,
+        num_dim: usize,
+        num_metrics: usize,
+    ) -> Result<Self, ENNError> {
+        let store = DiskBpannEnnBackend::new_thresholds(
+            work_dir.clone(),
+            num_dim,
+            num_metrics,
+            usize::MAX,
+            usize::MAX,
+        )?;
+        Ok(Self {
+            backend: PosteriorBackend::Disk {
+                work_dir,
+                store: Mutex::new(store),
+            },
+            yvar_mode: None,
+        })
+    }
+
     pub fn has_surrogate(&self) -> bool {
         matches!(self.backend, PosteriorBackend::Model(_))
     }
@@ -53,14 +81,14 @@ impl PosteriorStore {
     pub fn surrogate(&self) -> Option<&(dyn Surrogate + Send + Sync)> {
         match &self.backend {
             PosteriorBackend::Model(s) => Some(s.as_ref()),
-            PosteriorBackend::Empirical { .. } => None,
+            PosteriorBackend::Empirical { .. } | PosteriorBackend::Disk { .. } => None,
         }
     }
 
     pub fn surrogate_mut(&mut self) -> Option<&mut (dyn Surrogate + Send + Sync)> {
         match &mut self.backend {
             PosteriorBackend::Model(s) => Some(s.as_mut()),
-            PosteriorBackend::Empirical { .. } => None,
+            PosteriorBackend::Empirical { .. } | PosteriorBackend::Disk { .. } => None,
         }
     }
 
@@ -86,6 +114,7 @@ impl PosteriorStore {
         match &self.backend {
             PosteriorBackend::Model(s) => s.observation_count().unwrap_or(0),
             PosteriorBackend::Empirical { x_rows, .. } => x_rows.len(),
+            PosteriorBackend::Disk { store, .. } => store.lock().map(|g| g.len()).unwrap_or(0),
         }
     }
 
@@ -97,6 +126,10 @@ impl PosteriorStore {
                     ENNError::InvalidParameter(format!("observation index {idx} out of range"))
                 })
             }
+            PosteriorBackend::Disk { store, .. } => store
+                .lock()
+                .map_err(|_| ENNError::InvalidParameter("disk store lock poisoned".into()))?
+                .row_x(idx),
         }
     }
 
@@ -108,6 +141,10 @@ impl PosteriorStore {
                     ENNError::InvalidParameter(format!("observation index {idx} out of range"))
                 })
             }
+            PosteriorBackend::Disk { store, .. } => store
+                .lock()
+                .map_err(|_| ENNError::InvalidParameter("disk store lock poisoned".into()))?
+                .row_y(idx),
         }
     }
 
@@ -124,6 +161,12 @@ impl PosteriorStore {
                     Some(slice) => Cow::Borrowed(slice),
                     None => Cow::Owned(row.to_vec()),
                 })
+            }
+            PosteriorBackend::Disk { store, .. } => {
+                let g = store
+                    .lock()
+                    .map_err(|_| ENNError::InvalidParameter("disk store lock poisoned".into()))?;
+                Ok(Cow::Owned(g.slice_x(idx)?.to_vec()))
             }
         }
     }
@@ -142,6 +185,13 @@ impl PosteriorStore {
                     None => Cow::Owned(row.to_vec()),
                 })
             }
+            PosteriorBackend::Disk { store, .. } => Ok(Cow::Owned(
+                store
+                    .lock()
+                    .map_err(|_| ENNError::InvalidParameter("disk store lock poisoned".into()))?
+                    .row_y(idx)?
+                    .to_vec(),
+            )),
         }
     }
 
@@ -150,6 +200,15 @@ impl PosteriorStore {
             PosteriorBackend::Model(s) => s.observations_x().ok().flatten(),
             PosteriorBackend::Empirical { x_rows, .. } => {
                 (!x_rows.is_empty()).then(|| stack_rows(x_rows))
+            }
+            PosteriorBackend::Disk { store, .. } => {
+                let g = store.lock().ok()?;
+                let n = g.len();
+                if n == 0 {
+                    return None;
+                }
+                let rows: Vec<Array1<f64>> = (0..n).filter_map(|i| g.row_x(i).ok()).collect();
+                (rows.len() == n).then(|| stack_rows(&rows))
             }
         }
     }
@@ -160,6 +219,15 @@ impl PosteriorStore {
             PosteriorBackend::Empirical { y_rows, .. } => {
                 (!y_rows.is_empty()).then(|| stack_rows(y_rows))
             }
+            PosteriorBackend::Disk { store, .. } => {
+                let g = store.lock().ok()?;
+                let n = g.len();
+                if n == 0 {
+                    return None;
+                }
+                let rows: Vec<Array1<f64>> = (0..n).filter_map(|i| g.row_y(i).ok()).collect();
+                (rows.len() == n).then(|| stack_rows(&rows))
+            }
         }
     }
 
@@ -168,6 +236,20 @@ impl PosteriorStore {
             x_rows.push(x_row);
             y_rows.push(y_row);
         }
+    }
+
+    pub fn append_disk(
+        &mut self,
+        x: &ArrayView2<f64>,
+        y: &ArrayView2<f64>,
+    ) -> Result<(), ENNError> {
+        if let PosteriorBackend::Disk { store, .. } = &mut self.backend {
+            let g = store
+                .get_mut()
+                .map_err(|_| ENNError::InvalidParameter("disk store lock poisoned".into()))?;
+            g.append_rows(x, y, None)?;
+        }
+        Ok(())
     }
 
     pub fn fit_delta(
@@ -201,6 +283,24 @@ impl PosteriorStore {
                 y_rows.clear();
                 Ok(())
             }
+            PosteriorBackend::Disk { work_dir, store } => {
+                let (nd, nm) = {
+                    let g = store.get_mut().map_err(|_| {
+                        ENNError::InvalidParameter("disk store lock poisoned".into())
+                    })?;
+                    (g.num_dim(), g.num_metrics())
+                };
+                let _ = std::fs::remove_dir_all(&*work_dir);
+                let fresh = DiskBpannEnnBackend::new_thresholds(
+                    work_dir.clone(),
+                    nd,
+                    nm,
+                    usize::MAX,
+                    usize::MAX,
+                )?;
+                *store = Mutex::new(fresh);
+                Ok(())
+            }
         }
     }
 
@@ -219,8 +319,15 @@ impl PosteriorStore {
     }
 
     pub fn release_pages(&self) -> Result<(), ENNError> {
-        if let PosteriorBackend::Model(s) = &self.backend {
-            s.release_pages()?;
+        match &self.backend {
+            PosteriorBackend::Model(s) => s.release_pages()?,
+            PosteriorBackend::Disk { store, .. } => {
+                store
+                    .lock()
+                    .map_err(|_| ENNError::InvalidParameter("disk store lock poisoned".into()))?
+                    .release_pages()?;
+            }
+            PosteriorBackend::Empirical { .. } => {}
         }
         Ok(())
     }
@@ -231,6 +338,34 @@ impl PosteriorStore {
                 x_rows: x_rows.clone(),
                 y_rows: y_rows.clone(),
             },
+            PosteriorBackend::Disk { work_dir, store } => {
+                let g = store
+                    .lock()
+                    .map_err(|_| ENNError::InvalidParameter("disk store lock poisoned".into()))?;
+                let clone_dir = work_dir.with_extension(format!(
+                    "fork-{}",
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_nanos())
+                        .unwrap_or(0)
+                ));
+                let mut cloned = DiskBpannEnnBackend::new_thresholds(
+                    clone_dir.clone(),
+                    g.num_dim(),
+                    g.num_metrics(),
+                    usize::MAX,
+                    usize::MAX,
+                )?;
+                for i in 0..g.len() {
+                    let xr = g.row_x(i)?.insert_axis(ndarray::Axis(0));
+                    let yr = g.row_y(i)?.insert_axis(ndarray::Axis(0));
+                    cloned.append_rows(&xr.view(), &yr.view(), None)?;
+                }
+                PosteriorBackend::Disk {
+                    work_dir: clone_dir,
+                    store: Mutex::new(cloned),
+                }
+            }
             PosteriorBackend::Model(surrogate) => PosteriorBackend::Model(surrogate.clone_box()?),
         };
         Ok(Self {
@@ -240,17 +375,52 @@ impl PosteriorStore {
     }
 
     pub(crate) fn hash_state(&self, buf: &mut Vec<u8>) {
-        let n = self.obs_count();
-        buf.extend_from_slice(&n.to_le_bytes());
-        for i in 0..n {
-            if let Ok(x_row) = self.x_slice(i) {
-                for &v in x_row.iter() {
-                    buf.extend_from_slice(&v.to_le_bytes());
+        buf.push(match self.yvar_mode {
+            None => 0,
+            Some(false) => 1,
+            Some(true) => 2,
+        });
+        match &self.backend {
+            PosteriorBackend::Model(s) => {
+                buf.push(2);
+                let before = buf.len();
+                s.hash_surrogate(buf);
+                if buf.len() == before {
+                    let n = self.obs_count();
+                    buf.extend_from_slice(&n.to_le_bytes());
+                    for i in 0..n {
+                        if let Ok(x_row) = self.x_slice(i) {
+                            for &v in x_row.iter() {
+                                buf.extend_from_slice(&v.to_bits().to_le_bytes());
+                            }
+                        }
+                        if let Ok(y_row) = self.y_slice(i) {
+                            for &v in y_row.iter() {
+                                buf.extend_from_slice(&v.to_bits().to_le_bytes());
+                            }
+                        }
+                    }
                 }
             }
-            if let Ok(y_row) = self.y_slice(i) {
-                for &v in y_row.iter() {
-                    buf.extend_from_slice(&v.to_le_bytes());
+            PosteriorBackend::Empirical { .. } | PosteriorBackend::Disk { .. } => {
+                buf.push(if matches!(self.backend, PosteriorBackend::Disk { .. }) {
+                    1
+                } else {
+                    0
+                });
+                let n = self.obs_count();
+                buf.extend_from_slice(&n.to_le_bytes());
+                for i in 0..n {
+                    if let Ok(x_row) = self.x_slice(i) {
+                        for &v in x_row.iter() {
+                            buf.extend_from_slice(&v.to_bits().to_le_bytes());
+                        }
+                    }
+                    if let Ok(y_row) = self.y_slice(i) {
+                        for &v in y_row.iter() {
+                            buf.extend_from_slice(&v.to_bits().to_le_bytes());
+                        }
+                    }
                 }
             }
         }

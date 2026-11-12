@@ -1,0 +1,50 @@
+# Immutable upstream provenance for ProjectTorreyPines/FUSE.jl whole-facility
+# tokamak fusion synthesis engine (IMAS ontology + coupled physics/engineering actors).
+#
+# Citations:
+# - Orso Meneghini et al., "FUSE (Fusion Synthesis Engine): A Next Generation
+#   Framework for Integrated Design of Fusion Pilot Plants", arXiv:2409.05894
+#   (2024), https://arxiv.org/abs/2409.05894.
+
+[repository]
+url = "https://github.com/ProjectTorreyPines/FUSE.jl.git"
+registry_url = "https://github.com/ProjectTorreyPines/FuseRegistry.jl.git"
+revision = "3ea78f0f3546e701942a2f5b782690406e267962"
+tree = "fc4d4cdf74e098225b52484f6670820a03fcc6ba"
+subject = "v1.2.1"
+committed_at = "2026-09-17T10:05:38-07:00"
+version = "1.2.1"
+license = "Apache-2.0"
+
+[papers]
+meneghini_2024_arxiv = "2409.05894"
+
+[archive]
+archive_blake3 = "a0178279cd90653c0bfa2493826c99ea92169908b0e055ba6af000c3d257d9d5"
+archive_bytes = 58429440
+
+[merkle]
+cache_relpath = ".cache/baux/upstream/fuse"
+merkle_root_blake3 = "e361501d0048535a1a74f0cc390bdf6be08480750f2d9e49ebfe22c19d4e358b"
+file_count = 336
+total_bytes = 58141939
+
+[input_paths]
+project = "Project.toml"
+module = "src/FUSE.jl"
+arc_case = "src/cases/ARC.jl"
+iter_case = "src/cases/ITER.jl"
+d3d_case = "src/cases/D3D.jl"
+fpp_case = "src/cases/FPP.jl"
+sparc_case = "src/cases/SPARC.jl"
+multi_opt = "src/studies/multi_objective_optimization.jl"
+
+[inputs]
+project = "73c8c66a336e69c4555cf54149521d8a81a47ca67fef04d0552fe72aaf70618e"
+module = "b9fd6359a036d4923e43a8182d13418c5c89893e0e43616fbcf968694cb42e15"
+arc_case = "986e565ea06acfce8ed657d576e8954c2d7ac6734c4f2c690b1afad7994ed653"
+iter_case = "7980e598b3e27e28370a675164de71e0a5ecd4efe4dfaa2ebb537768dd314c65"
+d3d_case = "f3f5725354e659fb45f8e7f00760d6ff570ee8bdacdea1d358022c38f0e551b1"
+fpp_case = "59de950fe5ed1bf7417161b8b238b5ddeb91ecbe155e144ba6dbb51f0f07342a"
+sparc_case = "97023303d11a00f47c07ca377232546177607f9bc6d895b1ee1b8f1f56219b8a"
+multi_opt = "aeb61e7ea485becbf5fffb2d200a5e89280a64ac6ffd9220c76431fa916fd300"

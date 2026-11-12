@@ -440,4 +440,209 @@ mod tests {
             "Actor weights must update after Candle PPO step"
         );
     }
+
+    #[test]
+    fn flat_ppo() {
+        let mut rng = crate::prng(77);
+        let dim = 32;
+        let mut agent = FlatPpo::new(dim, 4).expect("init FlatPpo");
+        #[cfg(all(target_os = "macos", feature = "metal"))]
+        assert!(agent.is_metal(), "FlatPpo must run on Apple Metal GPU");
+        let mut unit = vec![0.0f64; dim];
+        let mut stepped = false;
+        for r in 0..4 {
+            let raw = agent
+                .sample_unit(r == 0, &mut rng, &mut unit)
+                .expect("sample unit");
+            let score: f64 = -unit.iter().map(|&u| (u - 0.8) * (u - 0.8)).sum::<f64>();
+            if agent.observe(&raw, score).expect("observe") {
+                stepped = true;
+            }
+        }
+        assert!(stepped);
+    }
+}
+
+/// Diagonal Gaussian Actor-Critic PPO agent on Apple Silicon Metal GPU
+/// (`Device::new_metal(0)`) for arbitrary-dimension black-box physics domains
+/// ($D \in [1, 2 \times 10^6]$) in `[0, 1]^D`.
+pub struct FlatPpo {
+    device: Device,
+    dim: usize,
+    mean: Var,
+    log_std: Var,
+    val_base: Var,
+    opt: AdamW,
+    batch_u: Vec<f32>,
+    batch_r: Vec<f32>,
+    batch_cap: usize,
+}
+
+impl FlatPpo {
+    pub fn new(dim: usize, batch_cap: usize) -> Result<Self, String> {
+        if dim == 0 {
+            return Err("FlatPpo requires positive dimension".into());
+        }
+        let device = metal_device()?;
+        let mean =
+            Var::from_slice(&vec![0.5f32; dim], (1, dim), &device).map_err(|e| e.to_string())?;
+        let log_std = Var::from_slice(&vec![INIT_LOGSTD; dim], (1, dim), &device)
+            .map_err(|e| e.to_string())?;
+        let val_base = Var::from_slice(&[0.0f32], (1,), &device).map_err(|e| e.to_string())?;
+        let params = ParamsAdamW {
+            lr: 2.0e-2,
+            beta1: 0.9,
+            beta2: 0.999,
+            eps: 1.0e-8,
+            weight_decay: 0.0,
+        };
+        let opt = AdamW::new(
+            vec![mean.clone(), log_std.clone(), val_base.clone()],
+            params,
+        )
+        .map_err(|e| e.to_string())?;
+        let cap = batch_cap.max(2);
+        Ok(Self {
+            device,
+            dim,
+            mean,
+            log_std,
+            val_base,
+            opt,
+            batch_u: Vec::with_capacity(cap * dim),
+            batch_r: Vec::with_capacity(cap),
+            batch_cap: cap,
+        })
+    }
+
+    pub fn is_metal(&self) -> bool {
+        self.device.is_metal()
+    }
+
+    pub fn sample_unit(
+        &self,
+        deterministic: bool,
+        rng: &mut dyn rand::RngCore,
+        out: &mut [f64],
+    ) -> Result<Vec<f32>, String> {
+        if out.len() != self.dim {
+            return Err("FlatPpo::sample_unit output length mismatch".into());
+        }
+        let mu = self
+            .mean
+            .as_tensor()
+            .flatten_all()
+            .and_then(|t| t.to_vec1::<f32>())
+            .map_err(|e| e.to_string())?;
+        if deterministic {
+            let mut raw = Vec::with_capacity(self.dim);
+            for j in 0..self.dim {
+                let c = mu[j].clamp(0.0, 1.0);
+                raw.push(c);
+                out[j] = f64::from(c);
+            }
+            return Ok(raw);
+        }
+        let ls = self
+            .log_std
+            .as_tensor()
+            .flatten_all()
+            .and_then(|t| t.to_vec1::<f32>())
+            .map_err(|e| e.to_string())?;
+        let mut raw = Vec::with_capacity(self.dim);
+        for j in 0..self.dim {
+            let std = ls[j].clamp(-4.5, -0.5).exp();
+            let z: f32 = rng.sample(StandardNormal);
+            let a = mu[j] + z * std;
+            raw.push(a);
+            out[j] = f64::from(a.clamp(0.0, 1.0));
+        }
+        Ok(raw)
+    }
+
+    pub fn observe(&mut self, raw_u: &[f32], reward: f64) -> Result<bool, String> {
+        if raw_u.len() != self.dim {
+            return Err("FlatPpo::observe action dimension mismatch".into());
+        }
+        self.batch_u.extend_from_slice(raw_u);
+        self.batch_r.push(reward as f32);
+        if self.batch_r.len() < self.batch_cap {
+            return Ok(false);
+        }
+        self.step_ppo()?;
+        self.batch_u.clear();
+        self.batch_r.clear();
+        Ok(true)
+    }
+
+    fn log_prob(&self, u_t: &Tensor) -> candle_core::Result<(Tensor, Tensor)> {
+        let mu = self.mean.as_tensor().clamp(0.0f32, 1.0f32)?;
+        let ls = self.log_std.as_tensor().clamp(-4.5f32, -0.5f32)?;
+        let std = ls.exp()?;
+        let diff = u_t.broadcast_sub(&mu)?.broadcast_div(&std)?;
+        let term = diff.sqr()?.broadcast_add(&ls.affine(2.0, 0.0)?)?;
+        let lp = term.mean(1)?.affine(-0.5, 0.0)?;
+        let ent = ls.mean_all()?;
+        Ok((lp, ent))
+    }
+
+    fn step_ppo(&mut self) -> Result<(), String> {
+        let n = self.batch_r.len();
+        let u_t = Tensor::from_slice(&self.batch_u, (n, self.dim), &self.device)
+            .map_err(|e| e.to_string())?;
+        let r_mean = self.batch_r.iter().sum::<f32>() / (n as f32);
+        let r_var = self
+            .batch_r
+            .iter()
+            .map(|&r| (r - r_mean) * (r - r_mean))
+            .sum::<f32>()
+            / (n as f32);
+        let r_std = (r_var + 1.0e-8).sqrt();
+        let norm_r: Vec<f32> = self.batch_r.iter().map(|&r| (r - r_mean) / r_std).collect();
+        let v0 = self
+            .val_base
+            .as_tensor()
+            .to_vec1::<f32>()
+            .map_err(|e| e.to_string())?[0];
+        let adv_vec: Vec<f32> = norm_r.iter().map(|&r| r - v0).collect();
+        let adv_t = Tensor::from_vec(adv_vec, n, &self.device).map_err(|e| e.to_string())?;
+        let ret_t = Tensor::from_vec(norm_r, n, &self.device).map_err(|e| e.to_string())?;
+
+        let (lp_old_t, _) = self.log_prob(&u_t).map_err(|e| e.to_string())?;
+        let lp_old = lp_old_t.detach();
+
+        for _ in 0..PPO_EPOCHS {
+            let (lp_new, ent) = self.log_prob(&u_t).map_err(|e| e.to_string())?;
+            let ratio = lp_new
+                .sub(&lp_old)
+                .and_then(|d| d.clamp(-10.0f32, 10.0f32))
+                .and_then(|d| d.exp())
+                .map_err(|e| e.to_string())?;
+            let s_un = ratio.mul(&adv_t).map_err(|e| e.to_string())?;
+            let s_cl = ratio
+                .clamp((1.0 - CLIP_EPS) as f32, (1.0 + CLIP_EPS) as f32)
+                .and_then(|r| r.mul(&adv_t))
+                .map_err(|e| e.to_string())?;
+            let p_loss = s_un
+                .minimum(&s_cl)
+                .and_then(|m| m.mean_all())
+                .and_then(|m| m.neg())
+                .map_err(|e| e.to_string())?;
+            let v_loss = ret_t
+                .broadcast_sub(self.val_base.as_tensor())
+                .and_then(|d| d.sqr())
+                .and_then(|s| s.mean_all())
+                .and_then(|m| m.affine(VF_COEF, 0.0))
+                .map_err(|e| e.to_string())?;
+            let e_loss = ent.affine(-ENT_COEF, 0.0).map_err(|e| e.to_string())?;
+            let loss = p_loss
+                .add(&v_loss)
+                .and_then(|l| l.add(&e_loss))
+                .map_err(|e| e.to_string())?;
+            self.opt
+                .backward_step(&loss)
+                .map_err(|e| format!("FlatPpo Metal backward_step: {e}"))?;
+        }
+        Ok(())
+    }
 }

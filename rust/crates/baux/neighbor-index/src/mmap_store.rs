@@ -39,7 +39,11 @@ impl MmapColumnStore {
         if need_bytes <= self.mmap.len() {
             return Ok(());
         }
-        let grow_rows = (need_rows - self.nrows).max(GROW_ROWS);
+        let max_grow = (32 * 1024 * 1024usize)
+            .checked_div(self.row_bytes().max(1))
+            .unwrap_or(1)
+            .clamp(4, GROW_ROWS);
+        let grow_rows = (need_rows - self.nrows).max(max_grow);
         let new_len = self.capacity_bytes(self.nrows + grow_rows);
         // No flush before remapping: dirty pages live in the page cache and
         // survive remapping the same file; msync is only needed for durability.

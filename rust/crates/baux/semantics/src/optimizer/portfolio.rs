@@ -28,6 +28,30 @@ pub struct RegionTicket {
     pub region: RegionId,
 }
 
+impl RegionTicket {
+    pub fn sequence(&self) -> u64 {
+        self.sequence
+    }
+
+    pub fn from_parts(owner: u64, sequence: u64, slot: usize, generation: u64) -> Self {
+        Self {
+            owner,
+            sequence,
+            region: RegionId { slot, generation },
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct RegionSlotState {
+    pub generation: u64,
+    pub pending_seq: Option<u64>,
+    pub trials: u64,
+    pub mean: f64,
+    pub m2: f64,
+    pub best: f64,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RegionBatch {
     pub region: usize,
@@ -351,6 +375,74 @@ impl RegionalLedger {
             best: incumbent,
         };
         Ok(abandoned)
+    }
+
+    pub fn owner(&self) -> u64 {
+        self.owner
+    }
+
+    pub fn next_ticket(&self) -> u64 {
+        self.next_ticket
+    }
+
+    pub fn slots(&self) -> Vec<RegionSlotState> {
+        self.regions
+            .iter()
+            .map(|r| RegionSlotState {
+                generation: r.generation,
+                pending_seq: r.pending.map(|t| t.sequence),
+                trials: r.trials,
+                mean: r.mean,
+                m2: r.m2,
+                best: r.best,
+            })
+            .collect()
+    }
+
+    pub fn restore(
+        &mut self,
+        next_ticket: u64,
+        slots: &[RegionSlotState],
+    ) -> Result<u64, RegionalError> {
+        if slots.len() != self.regions.len() {
+            return Err(RegionalError::InvalidRegion);
+        }
+        if next_ticket < 1 {
+            return Err(RegionalError::StaleTicket);
+        }
+        for s in slots {
+            if !s.mean.is_finite()
+                || !s.m2.is_finite()
+                || s.m2 < 0.0
+                || s.best.is_nan()
+                || s.best == f64::INFINITY
+            {
+                return Err(RegionalError::InvalidOutcome);
+            }
+            if let Some(seq) = s.pending_seq {
+                if seq < 1 || seq >= next_ticket {
+                    return Err(RegionalError::StaleTicket);
+                }
+            }
+        }
+        let owner = OWNERS
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
+            .map_err(|_| RegionalError::CounterExhausted)?;
+        self.owner = owner;
+        self.next_ticket = next_ticket;
+        for (idx, (region, s)) in self.regions.iter_mut().zip(slots.iter()).enumerate() {
+            *region = Region {
+                generation: s.generation,
+                pending: s
+                    .pending_seq
+                    .map(|seq| RegionTicket::from_parts(owner, seq, idx, s.generation)),
+                trials: s.trials,
+                mean: s.mean,
+                m2: s.m2,
+                best: s.best,
+            };
+        }
+        Ok(owner)
     }
 
     fn allocate_least(

@@ -365,6 +365,7 @@ impl crate::optimizer_config::OptimizerConfig {
 impl crate::optimizer_config::SurrogateConfig {
     pub fn from_recipe(recipe: &SurrogateRecipe) -> Result<Self, crate::error::ENNError> {
         use crate::error::ENNError;
+        use crate::semantics::neighbor::DistanceMetric as GeomMetric;
         use crate::surrogate::ENNSurrogateConfig;
         if recipe.neighbors < 1 {
             return Err(ENNError::InvalidParameter(format!(
@@ -372,12 +373,50 @@ impl crate::optimizer_config::SurrogateConfig {
                 recipe.neighbors
             )));
         }
+        crate::params::ENNParams::new(
+            recipe.neighbors,
+            recipe.epistemic_scale,
+            recipe.aleatoric_scale,
+        )
+        .map_err(|e| ENNError::InvalidParameter(e.to_string()))?;
+        if !recipe.y_scale.is_finite() || recipe.y_scale <= 0.0 {
+            return Err(ENNError::InvalidParameter(format!(
+                "y_scale must be finite and positive, got {}",
+                recipe.y_scale
+            )));
+        }
+        let local_k = recipe.local_neighbors.unwrap_or(8);
+        if local_k == 0 || local_k > 128 {
+            return Err(ENNError::InvalidParameter(
+                "local-neighbors must be in 1..=128".into(),
+            ));
+        }
+        if recipe.metric == DistanceMetric::Euclidean && recipe.local_neighbors.is_some() {
+            return Err(ENNError::InvalidParameter(
+                "local-neighbors requires metric = 'conformal', 'hyperbolic', or 'wasserstein'"
+                    .into(),
+            ));
+        }
+        let geometry = match recipe.metric {
+            DistanceMetric::Euclidean => GeomMetric::Euclidean,
+            DistanceMetric::Conformal => GeomMetric::Conformal { local_k },
+            DistanceMetric::Hyperbolic => GeomMetric::Hyperbolic { local_k },
+            DistanceMetric::Wasserstein => GeomMetric::Wasserstein { local_k },
+        };
         let (num_candidates, num_samples) =
             recipe.fit_budget().map_err(ENNError::InvalidParameter)?;
+        let y_scale = (recipe.fit == SurrogateFit::Fixed
+            && (recipe.y_scale - default_scale()).abs() > 1.0e-12)
+            .then_some(recipe.y_scale);
         Ok(Self::ENN(ENNSurrogateConfig {
             k: recipe.neighbors,
             num_candidates,
             num_samples,
+            epistemic_scale: recipe.epistemic_scale,
+            aleatoric_scale: recipe.aleatoric_scale,
+            y_scale,
+            adapt_neighbors: recipe.neighbor_rule == NeighborRule::RiskPrefix,
+            geometry,
             ..Default::default()
         }))
     }

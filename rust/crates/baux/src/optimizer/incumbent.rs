@@ -52,8 +52,43 @@ impl ProposalEngine {
         self.sobol_engine.as_mut()
     }
 
+    pub(crate) fn sobol_ref(&self) -> Option<&SobolEngine> {
+        self.sobol_engine.as_ref()
+    }
+
+    pub(crate) fn set_sobol(&mut self, eng: Option<SobolEngine>) {
+        self.sobol_engine = eng;
+    }
+
     pub fn sobol_base(&self) -> u64 {
         self.sobol_base
+    }
+
+    pub(crate) fn hash_state(&self, buf: &mut Vec<u8>) {
+        buf.extend_from_slice(&self.sobol_base.to_le_bytes());
+        match self.ticket_tag {
+            Some(tag) => {
+                buf.push(1);
+                buf.extend_from_slice(&tag);
+            }
+            None => buf.push(0),
+        }
+        match &self.sobol_engine {
+            Some(eng) => {
+                buf.push(1);
+                buf.extend_from_slice(&eng.consumed().to_le_bytes());
+                match eng.shift() {
+                    Some(shift) => {
+                        buf.push(1);
+                        for &v in shift {
+                            buf.extend_from_slice(&v.to_bits().to_le_bytes());
+                        }
+                    }
+                    None => buf.push(0),
+                }
+            }
+            None => buf.push(0),
+        }
     }
 
     pub fn reseed_sobol(
@@ -141,6 +176,30 @@ impl IncumbentLedger {
 
     pub fn observation_count(&self) -> usize {
         self.tracker.observation_count()
+    }
+
+    pub(crate) fn current_point(&self) -> Option<&IncumbentPoint> {
+        self.current.as_ref()
+    }
+
+    pub(crate) fn set_current(&mut self, current: Option<IncumbentPoint>) {
+        self.current = current;
+    }
+
+    pub(crate) fn hash_state(&self, buf: &mut Vec<u8>) {
+        match &self.current {
+            Some(pt) => {
+                buf.push(1);
+                buf.extend_from_slice(&(pt.index as u64).to_le_bytes());
+                for &v in pt.unit_x.iter() {
+                    buf.extend_from_slice(&v.to_bits().to_le_bytes());
+                }
+                for &v in pt.y_scalar.iter() {
+                    buf.extend_from_slice(&v.to_bits().to_le_bytes());
+                }
+            }
+            None => buf.push(0),
+        }
     }
 
     pub fn update(

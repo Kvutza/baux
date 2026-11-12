@@ -122,6 +122,10 @@ impl DiskBpannEnnBackend {
         ))
     }
 
+    pub fn slice_x(&self, i: usize) -> Result<&[f64], ENNError> {
+        self.inner.row_slice(i).map_err(bpann_err)
+    }
+
     pub fn row_y(&self, i: usize) -> Result<Array1<f64>, ENNError> {
         // Do not use train_rows here: that gathers train_x too and faults
         // Θ(N·D) when callers iterate all rows (y_obs / incumbent

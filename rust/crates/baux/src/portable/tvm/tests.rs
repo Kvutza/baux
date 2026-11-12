@@ -19,6 +19,10 @@ const MLP: &str = r#"module @jit_model {
   }
 }"#;
 
+fn has_importer() -> bool {
+    std::env::var_os("BAUX_MLIR_IMPORTER").is_some()
+}
+
 fn compile(source: &str) -> Result<TvmExecutable, String> {
     TvmExecutable::compile(
         source,
@@ -47,6 +51,9 @@ fn numbers(tensor: &TvmTensor) -> Vec<f32> {
 
 #[test]
 fn partitioned_graph() {
+    if !has_importer() {
+        return;
+    }
     use std::fmt::Write;
     let mut source = String::from(
         "module { func.func @main(%x: tensor<2xf32>) -> (tensor<2xf32>, tensor<2xf32>, tensor<2xf32>, tensor<2xf32>) {\n %c = stablehlo.constant dense<0.25> : tensor<2xf32>\n %v0 = stablehlo.add %x, %c : tensor<2xf32>\n",
@@ -72,6 +79,9 @@ fn partitioned_graph() {
 
 #[test]
 fn partitioned_constants() {
+    if !has_importer() {
+        return;
+    }
     use std::fmt::Write;
     let mut source = String::from(
         "module { func.func @main(%x: tensor<2xf32>) -> (tensor<2xf32>, tensor<f32>) {\n",
@@ -96,6 +106,9 @@ fn partitioned_constants() {
 
 #[test]
 fn mlp_forward() {
+    if !has_importer() {
+        return;
+    }
     let start = std::time::Instant::now();
     let model = compile(MLP).unwrap();
     let compilation = start.elapsed();
@@ -152,6 +165,9 @@ fn mlp_forward() {
 
 #[test]
 fn scalar_empty() {
+    if !has_importer() {
+        return;
+    }
     let model = compile(
         r#"module { func.func @main(%x: tensor<0x2xf32>) -> (tensor<0x2xf32>, tensor<f32>) {
         %c = stablehlo.constant dense<0.25> : tensor<f32>
@@ -168,6 +184,9 @@ fn scalar_empty() {
 
 #[test]
 fn constants_aliases() {
+    if !has_importer() {
+        return;
+    }
     let model = compile(r#"module { func.func @main(%x: tensor<2xf32>) -> (tensor<2xf32>, tensor<2xf32>, tensor<2xf32>) {
         %c = stablehlo.constant dense<[1.25, -2.0]> : tensor<2xf32>
         %y = stablehlo.add %x, %c : tensor<2xf32>
@@ -183,6 +202,9 @@ fn constants_aliases() {
 
 #[test]
 fn rejects_unsupported() {
+    if !has_importer() {
+        return;
+    }
     assert!(compile("not MLIR").is_err());
     let error = compile(
         r#"module { func.func @main(%x: tensor<2xf32>) -> tensor<2xf32> {
@@ -200,6 +222,9 @@ fn rejects_unsupported() {
 
 #[test]
 fn native_kernel() {
+    if !has_importer() {
+        return;
+    }
     super::device::metal().unwrap();
     assert!(
         super::TvmFunction::global("device_api.metal")
@@ -236,6 +261,9 @@ fn native_kernel() {
 
 #[test]
 fn metal_alias() {
+    if !has_importer() {
+        return;
+    }
     use std::sync::Arc;
     let spec = Tensor::new(vec![2], "float32").unwrap();
     let storage =

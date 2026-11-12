@@ -1,6 +1,13 @@
+import sys
+
 import numpy as np
 import pytest
 from baux import Device, Portfolio, Region, Span, Var
+
+pytestmark = pytest.mark.skipif(
+    sys.platform != "darwin",
+    reason="Apple Metal resident regions require macOS",
+)
 
 
 def test_residentloop():

@@ -1,15 +1,41 @@
 load(":suite.bzl", "test_suite")
 load("//admin/buck2:python.bzl", "PYTHON_COMPILER_ENVIRONMENT", "PYTHON_ENVIRONMENT")
 
+_COMPILER_RESOURCES = [
+    "//admin/buck2/iree:build[library]",
+    "//admin/buck2/iree:compiler-library",
+    "//admin/buck2/tvm:build[bridge]",
+    "//admin/buck2/tvm:ffi-library",
+    "//admin/buck2/tvm:runtime-library",
+    "//admin/buck2/tvm:compiler-library",
+    "//admin/buck2/tvm:metal-library",
+    "//rust/crates/baux:hlo-import",
+    "//admin/buck2/pjrt:bridge",
+    "//admin/buck2/pjrt:build[library]",
+]
+
+_COMPILER_ENV = {
+    "BAUX_MLIR_IMPORTER": "$(location //rust/crates/baux:hlo-import)",
+    "BAUX_IREE_BRIDGE": "$(location //admin/buck2/iree:build[library])",
+    "BAUX_IREE_COMPILER_LIB": "$(location //admin/buck2/iree:compiler-library)",
+    "BAUX_TVM_BRIDGE": "$(location //admin/buck2/tvm:build[bridge])",
+    "BAUX_TVM_FFI_LIB": "$(location //admin/buck2/tvm:ffi-library)",
+    "BAUX_TVM_RUNTIME_LIB": "$(location //admin/buck2/tvm:runtime-library)",
+    "BAUX_TVM_COMPILER_LIB": "$(location //admin/buck2/tvm:compiler-library)",
+    "BAUX_TVM_METAL_LIB": "$(location //admin/buck2/tvm:metal-library)",
+    "BAUX_PJRT_BRIDGE": "$(location //admin/buck2/pjrt:bridge)",
+    "BAUX_PJRT_LIBRARY": "$(location //admin/buck2/pjrt:build[library])",
+}
+
 sh_test(
     name = "compiler-python",
     test = "compiler.sh",
     args = ["-k", read_config("baux", "compiler_filter", ""), "-o", "faulthandler_timeout=30"],
-    resources = ["//:compiler-source", "//:wheel-macos-arm64"],
+    resources = ["//:compiler-source", "//:wheel-macos-arm64"] + _COMPILER_RESOURCES,
     env = {
         "BAUX_TEST_PYTHON": ".pixi/envs/" + PYTHON_COMPILER_ENVIRONMENT + "/bin/python",
         "BAUX_TEST_WHEEL": "$(location //:wheel-macos-arm64)",
-    },
+    } | _COMPILER_ENV,
     target_compatible_with = ["prelude//os/constraints:macos"],
 )
 
@@ -18,22 +44,22 @@ sh_test(
     test = "compiler.sh",
     args = ["-s", "-k", read_config("baux", "fbt_filter", "")],
     labels = ["research"],
-    resources = ["//:compiler-source", "//:wheel-macos-arm64"],
+    resources = ["//:compiler-source", "//:wheel-macos-arm64"] + _COMPILER_RESOURCES,
     env = {
         "BAUX_TEST_SUITE": "fbt",
         "BAUX_TEST_PYTHON": ".pixi/envs/" + PYTHON_COMPILER_ENVIRONMENT + "/bin/python",
         "BAUX_TEST_WHEEL": "$(location //:wheel-macos-arm64)",
-    },
+    } | _COMPILER_ENV,
     target_compatible_with = ["prelude//os/constraints:macos"],
 )
 
 sh_test(
     name = "native-package",
     test = "native.sh",
-    resources = ["//:wheel-macos-arm64", "//admin/buck2/iree:round-source"],
+    resources = ["//:wheel-compiler-macos-arm64", "//admin/buck2/iree:round-source"],
     env = {
         "BAUX_TEST_PYTHON": ".pixi/envs/" + PYTHON_COMPILER_ENVIRONMENT + "/bin/python",
-        "BAUX_TEST_WHEEL": "$(location //:wheel-macos-arm64)",
+        "BAUX_TEST_WHEEL": "$(location //:wheel-compiler-macos-arm64)",
         "BAUX_STABLEHLO": "$(location //admin/buck2/iree:round-source)",
     },
     target_compatible_with = ["prelude//os/constraints:macos"],

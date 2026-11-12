@@ -5,7 +5,7 @@ import shutil
 import tempfile
 from pathlib import Path
 
-from admin.ops.publish_pages import assemble_bundle, stamp_bundle_sri
+from admin.ops.publish_pages import assemble_bundle, stamp_sri
 from admin.ops.verify_pages import check_security, verify_bundle
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -48,7 +48,7 @@ def test_snippets():
         exec(snippet, ns, ns)
 
 
-def _write_synthetic_bundle(dest: Path) -> None:
+def write_synthetic(dest: Path) -> None:
     (dest / "assets").mkdir(parents=True, exist_ok=True)
     (dest / "style.css").write_text("body { margin: 0; }\n", encoding="utf-8")
     (dest / "katex.min.css").write_text(
@@ -74,10 +74,10 @@ def _write_synthetic_bundle(dest: Path) -> None:
 """,
         encoding="utf-8",
     )
-    stamp_bundle_sri(dest)
+    stamp_sri(dest)
 
 
-def _assert_security_fails(bundle_dir: Path, expected_substr: str) -> None:
+def assert_fails(bundle_dir: Path, expected_substr: str) -> None:
     try:
         check_security(bundle_dir)
     except RuntimeError as exc:
@@ -90,10 +90,10 @@ def _assert_security_fails(bundle_dir: Path, expected_substr: str) -> None:
         )
 
 
-def test_security_gates():
+def test_security():
     with tempfile.TemporaryDirectory() as tmpdir:
         base = Path(tmpdir) / "valid"
-        _write_synthetic_bundle(base)
+        write_synthetic(base)
 
         # Verify SRI + ?v= cache-buster stamping is idempotent across all 4 local assets
         stamped_once = (base / "index.html").read_text(encoding="utf-8")
@@ -107,7 +107,7 @@ def test_security_gates():
             assert asset_name in stamped_once, (
                 f"Expected ?v= cache-buster on {asset_name}"
             )
-        stamp_bundle_sri(base)
+        stamp_sri(base)
         assert (base / "index.html").read_text(encoding="utf-8") == stamped_once
         check_security(base)
 
@@ -123,7 +123,7 @@ def test_security_gates():
             re.sub(r"<meta[^>]*Content-Security-Policy[^>]*>", "", html1),
             encoding="utf-8",
         )
-        _assert_security_fails(c1, "Content-Security-Policy")
+        assert_fails(c1, "Content-Security-Policy")
 
         # (ii) 'unsafe-inline' in script-src (and 'unsafe-eval')
         c2 = fresh_case("unsafe_inline_csp")
@@ -132,14 +132,14 @@ def test_security_gates():
             html2.replace("script-src 'self'", "script-src 'self' 'unsafe-inline'"),
             encoding="utf-8",
         )
-        _assert_security_fails(c2, "unsafe-inline")
+        assert_fails(c2, "unsafe-inline")
 
         c2b = fresh_case("unsafe_eval_csp")
         (c2b / "index.html").write_text(
             html2.replace("script-src 'self'", "script-src 'self' 'unsafe-eval'"),
             encoding="utf-8",
         )
-        _assert_security_fails(c2b, "unsafe-eval")
+        assert_fails(c2b, "unsafe-eval")
 
         # (iii) Inline <script>alert(1)</script>
         c3 = fresh_case("inline_script")
@@ -148,14 +148,14 @@ def test_security_gates():
             html3.replace("</body>", "<script>alert(1)</script></body>"),
             encoding="utf-8",
         )
-        _assert_security_fails(c3, "<script>")
+        assert_fails(c3, "<script>")
 
         # (iv) Tampered JS failing SRI sha384 check
         c4 = fresh_case("tampered_js")
         (c4 / "assets/baux_ui.js").write_text(
             "console.log('tampered!');\n", encoding="utf-8"
         )
-        _assert_security_fails(c4, "sha384")
+        assert_fails(c4, "sha384")
 
         # (v) href="javascript:alert(1)"
         c5 = fresh_case("javascript_href")
@@ -164,7 +164,7 @@ def test_security_gates():
             html5.replace("https://github.com/Kvutza/baux", "javascript:alert(1)"),
             encoding="utf-8",
         )
-        _assert_security_fails(c5, "javascript:")
+        assert_fails(c5, "javascript:")
 
         # (vi) target="_blank" missing noreferrer
         c6 = fresh_case("missing_noreferrer")
@@ -173,36 +173,36 @@ def test_security_gates():
             html6.replace('rel="noopener noreferrer"', 'rel="noopener"'),
             encoding="utf-8",
         )
-        _assert_security_fails(c6, "noreferrer")
+        assert_fails(c6, "noreferrer")
 
         # Secret, build-artifact & filesystem hygiene checks (.map, .env, .xml, .xsl, local path)
         c7 = fresh_case("sourcemap_leak")
         (c7 / "assets/baux_ui.js.map").write_text("{}", encoding="utf-8")
-        _assert_security_fails(c7, "forbidden file type")
+        assert_fails(c7, "forbidden file type")
 
         c7b = fresh_case("xml_build_leak")
         (c7b / "baux-0001.xml").write_text("<tree/>", encoding="utf-8")
-        _assert_security_fails(c7b, "forbidden file type")
+        assert_fails(c7b, "forbidden file type")
 
         c7c = fresh_case("xsl_build_leak")
         (c7c / "tree.xsl").write_text("<xsl:stylesheet/>", encoding="utf-8")
-        _assert_security_fails(c7c, "forbidden file type")
+        assert_fails(c7c, "forbidden file type")
 
         c8 = fresh_case("dotenv_leak")
         (c8 / ".env").write_text("SECRET=1\n", encoding="utf-8")
-        _assert_security_fails(c8, "forbidden file type")
+        assert_fails(c8, "forbidden file type")
 
         c9 = fresh_case("local_path_leak")
         (c9 / "assets/leak.txt").write_text(
             "built from " + "/Users/" + "alice/project\n", encoding="utf-8"
         )
-        _assert_security_fails(c9, "/Users/")
+        assert_fails(c9, "/Users/")
 
         c9b = fresh_case("runner_path_leak")
         (c9b / "assets/leak.txt").write_text(
             "built from " + "/home/runner/" + "work/baux\n", encoding="utf-8"
         )
-        _assert_security_fails(c9b, "/home/runner/")
+        assert_fails(c9b, "/home/runner/")
 
         # (vii) Inline DOM event-handler attribute (onclick=...)
         c10 = fresh_case("inline_onclick")
@@ -211,7 +211,7 @@ def test_security_gates():
             html10.replace("<body>", '<body onclick="alert(1)">'),
             encoding="utf-8",
         )
-        _assert_security_fails(c10, "onclick")
+        assert_fails(c10, "onclick")
 
         # (viii) Cleartext http:// link rejection (while xmlns="http://..." stays valid)
         c11 = fresh_case("cleartext_http_link")
@@ -222,7 +222,7 @@ def test_security_gates():
             ),
             encoding="utf-8",
         )
-        _assert_security_fails(c11, "http://")
+        assert_fails(c11, "http://")
 
         # (ix) data: URI policy: reject data:image/svg+xml, allow raster data:image/png; on <img src>
         c12 = fresh_case("svg_data_uri")
@@ -234,7 +234,7 @@ def test_security_gates():
             ),
             encoding="utf-8",
         )
-        _assert_security_fails(c12, "data:")
+        assert_fails(c12, "data:")
 
         c13 = fresh_case("png_data_uri_allowed")
         (c13 / "index.html").write_text(

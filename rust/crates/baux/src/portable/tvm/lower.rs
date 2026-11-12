@@ -10,11 +10,28 @@ use std::sync::{Arc, Mutex};
 
 fn import(source: &str, entry: &str, importer: &std::path::Path) -> Result<Graph> {
     use std::process::{Command, Stdio};
-    let mut child = Command::new(importer)
-        .arg(entry)
+    let mut cmd = Command::new(importer);
+    cmd.arg(entry)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        .stderr(Stdio::piped());
+    if let Some(compiler_lib) = crate::portable::dl::find_file(
+        "BAUX_IREE_COMPILER_LIB",
+        &["libIREECompiler.dylib", "libIREECompiler.so"],
+        &["iree/compiler/_mlir_libs", "baux/.dylibs"],
+    ) && let Some(dir) = compiler_lib.parent()
+    {
+        for var in ["DYLD_LIBRARY_PATH", "LD_LIBRARY_PATH"] {
+            let mut paths = vec![dir.to_path_buf()];
+            if let Some(existing) = std::env::var_os(var) {
+                paths.extend(std::env::split_paths(&existing));
+            }
+            if let Ok(joined) = std::env::join_paths(paths) {
+                cmd.env(var, joined);
+            }
+        }
+    }
+    let mut child = cmd
         .spawn()
         .map_err(|e| format!("native MLIR importer: {e}"))?;
     let mut input = child.stdin.take().ok_or("missing importer stdin")?;

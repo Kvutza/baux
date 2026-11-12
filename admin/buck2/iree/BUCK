@@ -1,7 +1,3 @@
-# Keep artifact generation on the same interpreter environment as the wheel
-# ABI selected by baux.python_version.
-load("//admin/buck2:python.bzl", "PYTHON_COMPILER_ENVIRONMENT")
-
 # Same compiler pin as uv.lock. Only the native MLIR C API is linked here.
 http_archive(
     name = "compiler-wheel",
@@ -66,7 +62,7 @@ prebuilt_cxx_library(
         name = "round-" + device,
         srcs = ["round.mlir", "compile.sh"],
         out = "round-" + device + ".vmfb",
-        cmd = 'sh "$SRCDIR/compile.sh" "$SRCDIR/round.mlir" "$OUT" ' + backend + ' ".pixi/envs/' + PYTHON_COMPILER_ENVIRONMENT + '/bin/iree-compile"',
+        cmd = 'sh "$SRCDIR/compile.sh" "$SRCDIR/round.mlir" "$OUT" ' + backend + ' "$(location :compiler-wheel)/iree/compiler/_mlir_libs/iree-compile"',
         visibility = ["PUBLIC"],
         target_compatible_with = ["prelude//os/constraints:macos"],
     )

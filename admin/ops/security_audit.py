@@ -64,7 +64,7 @@ def resolve_binary(name: str) -> str:
     )
 
 
-def collect_semgrep_targets() -> list[str]:
+def semgrep_targets() -> list[str]:
     """Collect scan targets across admin/ops, tracked Forester theme/JS, and OCaml UI."""
     targets: list[str] = []
     for rel in ("admin/ops", "forest/theme", "forest/js"):
@@ -120,7 +120,7 @@ def run_semgrep(uvx_bin: str) -> GateResult:
             f"Rule validation failed (exit {val_proc.returncode})",
         )
 
-    targets = collect_semgrep_targets()
+    targets = semgrep_targets()
     scan_cmd = [
         uvx_bin,
         "semgrep",
@@ -155,7 +155,7 @@ def run_semgrep(uvx_bin: str) -> GateResult:
     )
 
 
-def run_pip_audit(
+def pip_audit(
     uv_bin: str,
     uvx_bin: str,
     *,
@@ -249,7 +249,7 @@ def run_pip_audit(
     )
 
 
-def run_bundle_verification(bundle_dir: Path | None) -> GateResult:
+def bundle_audit(bundle_dir: Path | None) -> GateResult:
     print("=== [4/4] Public Pages Bundle Verification (verify_pages.py) ===")
     if bundle_dir is None:
         msg = "No --bundle-dir provided; bundle check skipped"
@@ -337,7 +337,7 @@ def main(argv: list[str] | None = None) -> int:
         results.append(GateResult("pip-audit", "SKIP", "Skipped via --skip-pip-audit"))
     else:
         results.append(
-            run_pip_audit(
+            pip_audit(
                 uv_bin,
                 uvx_bin,
                 strict=args.strict,
@@ -347,7 +347,7 @@ def main(argv: list[str] | None = None) -> int:
             )
         )
 
-    results.append(run_bundle_verification(args.bundle_dir))
+    results.append(bundle_audit(args.bundle_dir))
 
     print("=== Security Audit Summary ===")
     failed = False

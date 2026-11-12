@@ -7,3 +7,8 @@ def test_aliases():
         actual = ":rand_chacha-0.3",
         visibility = ["PUBLIC"],
     )
+    native.alias(
+        name = "miniz_oxide",
+        actual = ":miniz_oxide-0.8",
+        visibility = ["PUBLIC"],
+    )

@@ -14,5 +14,5 @@
 </p>
 
 <p align="center">
-  <a href="https://kvutza.github.io/baux/docs.html"><strong>Documentation &rarr;</strong></a>
+  <a href="https://kvutza.github.io/baux/"><strong>Documentation &rarr;</strong></a>
 </p>

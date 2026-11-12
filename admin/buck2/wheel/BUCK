@@ -2,6 +2,7 @@ rust_binary(
     name = "pack",
     srcs = ["pack.rs"],
     crate_root = "pack.rs",
+    deps = ["//rust:miniz_oxide"],
     edition = "2024",
     visibility = ["PUBLIC"],
 )

@@ -10,14 +10,14 @@ struct External {
     _lease: Arc<dyn Any + Send + Sync>,
 }
 
-unsafe extern "C" {
-    #[link_name = "TVMFFITensorFromDLPackVersioned"]
-    fn import_tensor(
-        source: *mut Managed,
-        alignment: i32,
-        contiguous: i32,
-        output: *mut *mut c_void,
-    ) -> i32;
+fn import_tensor(
+    source: *mut Managed,
+    alignment: i32,
+    contiguous: i32,
+    output: *mut *mut c_void,
+) -> Result<i32> {
+    let f = super::super::ffi()?;
+    Ok(unsafe { (f.import_tensor)(source.cast(), alignment, contiguous, output) })
 }
 
 unsafe extern "C" fn release(tensor: *mut Managed) {
@@ -88,7 +88,7 @@ impl TvmTensor {
         let pointer = &raw mut *owner;
         owner.managed.context = pointer.cast();
         let mut output = std::ptr::null_mut();
-        let code = unsafe { import_tensor(&raw mut owner.managed, 0, 1, &raw mut output) };
+        let code = import_tensor(&raw mut owner.managed, 0, 1, &raw mut output)?;
         super::super::status(code, "import Metal tensor")?;
         // Successful import transfers the managed-tensor deleter to TVM.
         let _ = Box::into_raw(owner);
@@ -107,7 +107,7 @@ impl TvmTensor {
     pub unsafe fn metal(&self) -> Result<(*mut c_void, u64)> {
         let mut pointer = std::ptr::null_mut();
         super::super::status(
-            unsafe { export_tensor(self.value.value.pointer, &raw mut pointer) },
+            export_tensor(unsafe { self.value.value.pointer }, &raw mut pointer)?,
             "borrow Metal tensor",
         )?;
         let lease = Lease(NonNull::new(pointer).ok_or("null DLPack lease")?);

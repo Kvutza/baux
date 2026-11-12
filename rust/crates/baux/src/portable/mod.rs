@@ -3,6 +3,7 @@
 //! IREE, TVM and PJRT own device code and allocations. This module owns session
 //! lifetime, typed buffer contracts and a serial asynchronous invocation queue.
 //! Reference: <https://iree.dev/reference/bindings/c-api/#runtime-api>.
+mod dl;
 mod exports;
 mod interop;
 mod pending;
@@ -139,11 +140,12 @@ impl Executable {
         };
         let driver = CString::new(driver).map_err(|e| e.to_string())?;
         let entry = CString::new(entry).map_err(|e| e.to_string())?;
+        let bridge = raw::iree()?;
         let mut context = std::ptr::null_mut();
         let mut error = [0; 2048];
         // C copies bytecode; no borrowed input pointer survives this call.
         let code = unsafe {
-            raw::bauxiree_load(
+            (bridge.load)(
                 bytecode.as_ptr(),
                 bytecode.len(),
                 driver.as_ptr(),
@@ -154,7 +156,7 @@ impl Executable {
             )
         };
         raw::status(code, &error)?;
-        let owner = Arc::new(Session(Mutex::new(raw::Context(context, &raw::IREE))));
+        let owner = Arc::new(Session(Mutex::new(raw::Context(context, &bridge.api))));
         Ok(Self {
             owner,
             inputs: inputs.into(),

@@ -36,9 +36,6 @@ app_rust_library(
     ] + ["//rust:" + crate for crate in BAUX_PY_CRATES] + select({
         "//:macos-arm64": [
             "//admin/buck2/native:openmp-macos",
-            "//admin/buck2/tvm:ffi",
-            "//admin/buck2/tvm:runtime",
-            "//admin/buck2/tvm:compiler",
             "//rust/crates/fbt:fbt",
             "//rust:metal",
         ],

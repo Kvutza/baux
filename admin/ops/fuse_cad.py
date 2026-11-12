@@ -31,14 +31,18 @@ def extract_arc():
     data = fetch_fuse("ARCv3a_starting_dd.json")
     layers = data["build"]["layer"]
 
-    vv_out = next(l for l in layers if l["name"] == "hfs vacuum vessel outer")[
+    vv_out = next(
+        layer for layer in layers if layer["name"] == "hfs vacuum vessel outer"
+    )["outline"]
+    vv_in = next(
+        layer for layer in layers if layer["name"] == "hfs vacuum vessel inner"
+    )["outline"]
+    fw = next(layer for layer in layers if layer["name"] == "hfs first wall")["outline"]
+    tf = next(layer for layer in layers if layer["name"] == "hfs TF")["outline"]
+    cs = next(layer for layer in layers if layer["name"] == "OH")["outline"]
+    tank = next(layer for layer in layers if layer["name"] == "hfs tank wall")[
         "outline"
     ]
-    vv_in = next(l for l in layers if l["name"] == "hfs vacuum vessel inner")["outline"]
-    fw = next(l for l in layers if l["name"] == "hfs first wall")["outline"]
-    tf = next(l for l in layers if l["name"] == "hfs TF")["outline"]
-    cs = next(l for l in layers if l["name"] == "OH")["outline"]
-    tank = next(l for l in layers if l["name"] == "hfs tank wall")["outline"]
 
     coils_data = data.get("pf_active", {}).get("coil", [])
     pf_coils = []

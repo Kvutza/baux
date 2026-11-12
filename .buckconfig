@@ -45,7 +45,7 @@ default_edition = 2024
 remap_src_paths = yes
 
 [baux]
-release_version = 0.0.5
+release_version = 0.0.6
 
 [baux.daemon]
 auto_parity = true

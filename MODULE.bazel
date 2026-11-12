@@ -1,6 +1,6 @@
 module(
     name = "baux",
-    version = "0.0.5",
+    version = "0.0.6",
 )
 
 bazel_dep(name = "platforms", version = "1.1.0")

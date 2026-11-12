@@ -4,7 +4,9 @@ test_dir=$(mktemp -d "${TMPDIR:-/tmp}/baux-compiler.XXXXXX")
 trap 'test_status=$?; rm -rf "$test_dir"; exit "$test_status"' EXIT HUP INT TERM
 "$BAUX_TEST_PYTHON" -m zipfile -e "$BAUX_TEST_WHEEL" "$test_dir"
 # zipfile's CLI does not restore Unix executable bits, unlike wheel installers.
-chmod +x "$test_dir/baux/.dylibs/hlo_import"
+if [ -f "$test_dir/baux/.dylibs/hlo_import" ]; then
+    chmod +x "$test_dir/baux/.dylibs/hlo_import"
+fi
 export PYTHONPATH="$test_dir"
 export PYTHONFAULTHANDLER=1
 case "${BAUX_TEST_SUITE:-compiler}" in

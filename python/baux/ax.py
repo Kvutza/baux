@@ -5,8 +5,15 @@ from __future__ import annotations
 from typing import override
 
 import numpy as np
-from ax.core.parameter import ParameterType, RangeParameter
-from ax.generation_strategy.external_generation_node import ExternalGenerationNode
+
+try:
+    from ax.core.parameter import ParameterType, RangeParameter
+    from ax.generation_strategy.external_generation_node import ExternalGenerationNode
+except ModuleNotFoundError as exc:
+    raise ModuleNotFoundError(
+        'Ax adapter requires optional extra; install with `pip install "baux[ax]"`',
+        name=exc.name,
+    ) from exc
 
 from ._trials import Loop, Space
 from .turbo.config import OptimizerConfig

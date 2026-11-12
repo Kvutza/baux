@@ -56,13 +56,13 @@ _ASSET_TAG_RE = re.compile(
 )
 
 
-def compute_sri_sha384(data: bytes) -> str:
+def sri_sha384(data: bytes) -> str:
     """Compute a W3C Subresource Integrity sha384-<base64> digest."""
     digest = base64.b64encode(hashlib.sha384(data).digest()).decode("ascii")
     return f"sha384-{digest}"
 
 
-def stamp_html_sri_and_versions(
+def stamp_html(
     html_text: str,
     sri_map: dict[str, str],
     version_map: dict[str, str] | None = None,
@@ -70,7 +70,7 @@ def stamp_html_sri_and_versions(
     """Idempotently stamp ?v=<sha256> cache-busters and integrity="sha384-..." on local tags."""
     versions = version_map or {}
 
-    def _rewrite_tag(match: re.Match[str]) -> str:
+    def rewrite_tag(match: re.Match[str]) -> str:
         tag_str = match.group(0)
         tag_name = match.group(1).lower()
 
@@ -132,10 +132,10 @@ def stamp_html_sri_and_versions(
 
         return f"{core}{close_tok}"
 
-    return _ASSET_TAG_RE.sub(_rewrite_tag, html_text)
+    return _ASSET_TAG_RE.sub(rewrite_tag, html_text)
 
 
-def stamp_bundle_sri(bundle_dir: Path, fallback_dir: Path | None = None) -> None:
+def stamp_sri(bundle_dir: Path, fallback_dir: Path | None = None) -> None:
     """Compute SHA-256 ?v= and SHA-384 SRI digests for local assets and stamp all HTML files."""
     if not bundle_dir.exists():
         return
@@ -154,7 +154,7 @@ def stamp_bundle_sri(bundle_dir: Path, fallback_dir: Path | None = None) -> None
                 payload = candidate.read_bytes()
                 break
         if payload is not None:
-            sri_map[rel_asset] = compute_sri_sha384(payload)
+            sri_map[rel_asset] = sri_sha384(payload)
             if rel_asset in _VERSIONED_ASSETS:
                 version_map[rel_asset] = (
                     hashlib.sha256(payload).hexdigest()[:12] if payload else "1"
@@ -168,7 +168,7 @@ def stamp_bundle_sri(bundle_dir: Path, fallback_dir: Path | None = None) -> None
         if skip_parts.intersection(rel_parts):
             continue
         txt = html_file.read_text(encoding="utf-8", errors="replace")
-        new_txt = stamp_html_sri_and_versions(txt, sri_map, version_map)
+        new_txt = stamp_html(txt, sri_map, version_map)
         if new_txt != txt:
             html_file.write_text(new_txt, encoding="utf-8")
 
@@ -257,7 +257,7 @@ def build_ui() -> None:
     print("✓ Compiled baux_ui.js into forest/output/assets/")
 
 
-def _clean_bundle_dir(dest_dir: Path) -> None:
+def clean_bundle(dest_dir: Path) -> None:
     """Remove all existing files in dest_dir while preserving VCS metadata (.jj / .git)."""
     if not dest_dir.exists():
         dest_dir.mkdir(parents=True, exist_ok=True)
@@ -275,7 +275,7 @@ def assemble_bundle(dest_dir: Path) -> None:
     build_forest()
     build_ui()
 
-    _clean_bundle_dir(dest_dir)
+    clean_bundle(dest_dir)
     dest_assets = dest_dir / "assets"
     dest_assets.mkdir(parents=True, exist_ok=True)
 
@@ -303,7 +303,7 @@ def assemble_bundle(dest_dir: Path) -> None:
     (dest_dir / ".nojekyll").touch()
 
     for html_dir in (FOREST_OUT, dest_dir):
-        stamp_bundle_sri(html_dir, fallback_dir=dest_dir)
+        stamp_sri(html_dir, fallback_dir=dest_dir)
 
 
 def deploy_pages() -> None:

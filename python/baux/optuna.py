@@ -6,10 +6,16 @@ from collections.abc import Mapping
 from copy import deepcopy
 from typing import override
 
-from optuna.distributions import FloatDistribution
-from optuna.samplers import BaseSampler
-from optuna.study import StudyDirection
-from optuna.trial import TrialState
+try:
+    from optuna.distributions import FloatDistribution
+    from optuna.samplers import BaseSampler
+    from optuna.study import StudyDirection
+    from optuna.trial import TrialState
+except ModuleNotFoundError as exc:
+    raise ModuleNotFoundError(
+        'Optuna adapter requires optional extra; install with `pip install "baux[optuna]"`',
+        name=exc.name,
+    ) from exc
 
 from ._trials import Loop, Space
 from .turbo.config import OptimizerConfig

@@ -8,7 +8,9 @@ _PROGRAM_DEPS = select({
     "DEFAULT": [],
 })
 
-BAUX_BUCK_DEPS = ["//rust:" + crate for crate in BAUX_CRATES] + _PROGRAM_DEPS
+# Core library carries zero link-time compiler/runtime dependencies; optional
+# native runtimes (IREE, TVM, PJRT) are resolved lazily via dlopen/dlsym.
+BAUX_BUCK_DEPS = ["//rust:" + crate for crate in BAUX_CRATES]
 
 BAUX_BUCK_TEST_DEPS = ["//rust:" + crate for crate in BAUX_TEST_CRATES] + _PROGRAM_DEPS
 

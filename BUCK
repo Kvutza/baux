@@ -176,7 +176,7 @@ python_wheel(
         "prelude//cpu/constraints:arm64",
         "prelude//os/constraints:linux",
     ],
-    version = read_config("baux", "release_version", "0.0.5"),
+    version = read_config("baux", "release_version", "0.0.6"),
 )
 
 python_wheel(
@@ -197,7 +197,7 @@ python_wheel(
         "prelude//cpu/constraints:x86_64",
         "prelude//os/constraints:linux",
     ],
-    version = read_config("baux", "release_version", "0.0.5"),
+    version = read_config("baux", "release_version", "0.0.6"),
 )
 
 python_wheel(
@@ -209,6 +209,29 @@ python_wheel(
     notice = "NOTICE",
     package = "baux",
     platform_tag = "macosx_11_0_arm64",
+    python_abi = PYTHON_ABI,
+    python_requires = PYTHON_REQUIRES,
+    python_srcs = glob(["python/baux/**/*.py"]),
+    readme = "README.md",
+    runtime_libraries = [
+        "//admin/buck2/native:openmp-build[lib]",
+    ],
+    target_compatible_with = [
+        "prelude//cpu/constraints:arm64",
+        "prelude//os/constraints:macos",
+    ],
+    version = read_config("baux", "release_version", "0.0.6"),
+)
+
+python_wheel(
+    name = "wheel-compiler-macos-arm64",
+    extension = "//rust/crates/baux-py:baux-py[shared]",
+    extension_suffix = python_extension_suffix("macos-arm64"),
+    fixture_srcs = glob(["tests/fixtures/optimizer/*.toml", "tests/fixtures/morbo/*.toml"]),
+    license = "LICENSE",
+    notice = "NOTICE",
+    package = "baux",
+    platform_tag = "macosx_13_0_arm64",
     python_abi = PYTHON_ABI,
     python_requires = PYTHON_REQUIRES,
     python_srcs = glob(["python/baux/**/*.py"]),
@@ -234,7 +257,7 @@ python_wheel(
         "prelude//cpu/constraints:arm64",
         "prelude//os/constraints:macos",
     ],
-    version = read_config("baux", "release_version", "0.0.5"),
+    version = read_config("baux", "release_version", "0.0.6"),
 )
 
 configured_alias(

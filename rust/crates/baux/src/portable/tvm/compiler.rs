@@ -3,6 +3,7 @@ use super::{RawAny as Value, TvmFunction, TvmModule};
 use crate::portable::Result;
 
 pub(super) fn call(name: &str, args: &mut [Value]) -> Result<Value> {
+    super::ensure_compiler()?;
     TvmFunction::global(name)?
         .ok_or_else(|| format!("missing native compiler function {name}"))?
         .call(args)
@@ -556,10 +557,8 @@ pub(super) fn finish(
     call("relax.VMCodeGen", &mut [builder.clone(), module])?;
     let target = call("target.Target", &mut [text("llvm")?])?;
     let library = if let Some(kernel) = kernel {
-        super::status(
-            unsafe { super::ffi_increment(kernel.0.as_ptr()) },
-            "retain kernel",
-        )?;
+        let f = super::ffi()?;
+        super::status(unsafe { (f.increment)(kernel.0.as_ptr()) }, "retain kernel")?;
         Value {
             type_index: 73,
             padding: 0,

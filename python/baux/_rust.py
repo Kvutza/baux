@@ -50,20 +50,31 @@ dense_apply = getattr(_ext.optimizer, "dense_apply", None)
 dense_dist2 = getattr(_ext.optimizer, "dense_dist2", None)
 dense_linear = getattr(_ext.optimizer, "dense_linear", None)
 DenseLinear = getattr(_ext.optimizer, "DenseLinear", None)
-Var = getattr(_ext.optimizer, "Var", None) or getattr(_ext.experimental, "Var", None)
-Span = getattr(_ext.optimizer, "Span", None) or getattr(_ext.experimental, "Span", None)
-Region = getattr(_ext.optimizer, "Region", None) or getattr(
-    _ext.experimental, "Region", None
-)
-Trial = getattr(_ext.optimizer, "Trial", None) or getattr(
-    _ext.experimental, "Trial", None
-)
-Portfolio = getattr(_ext.optimizer, "Portfolio", None) or getattr(
-    _ext.experimental, "Portfolio", None
-)
-RegionTrial = getattr(_ext.optimizer, "RegionTrial", None) or getattr(
-    _ext.experimental, "RegionTrial", None
-)
+
+
+def _stub(name: str) -> type:
+    """Return a placeholder class when Apple Metal resident types are absent."""
+
+    def _init(self: object, *args: object, **kwargs: object) -> None:
+        del self, args, kwargs
+        raise RuntimeError(f"baux.{name} requires Apple Metal on macOS")
+
+    return type(name, (), {"__init__": _init, "__module__": "baux"})
+
+
+def _resident(name: str) -> object:
+    found = getattr(_ext.optimizer, name, None) or getattr(
+        _ext.experimental, name, None
+    )
+    return found if found is not None else _stub(name)
+
+
+Var = _resident("Var")
+Span = _resident("Span")
+Region = _resident("Region")
+Trial = _resident("Trial")
+Portfolio = _resident("Portfolio")
+RegionTrial = _resident("RegionTrial")
 weight_select_ucb = getattr(_ext.optimizer, "weight_select_ucb", None)
 ModelPackage = getattr(_ext.experimental, "ModelPackage", None)
 NativeKdaModel = getattr(_ext.experimental, "NativeKdaModel", None)

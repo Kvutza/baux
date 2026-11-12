@@ -52,9 +52,9 @@ impl Drop for Lease {
     }
 }
 
-unsafe extern "C" {
-    #[link_name = "TVMFFITensorToDLPackVersioned"]
-    fn export_tensor(tensor: *mut c_void, output: *mut *mut Managed) -> i32;
+fn export_tensor(tensor: *mut c_void, output: *mut *mut Managed) -> Result<i32> {
+    let f = super::ffi()?;
+    Ok(unsafe { (f.export_tensor)(tensor, output.cast()) })
 }
 
 fn invoke(name: &str, args: &mut [RawAny]) -> Result<RawAny> {
@@ -85,7 +85,7 @@ impl TvmTensor {
         // value owns a live Tensor; the native API creates an independent
         // lease.
         super::status(
-            unsafe { export_tensor(value.value.pointer, &raw mut output) },
+            export_tensor(unsafe { value.value.pointer }, &raw mut output)?,
             "export tensor",
         )?;
         let lease = Lease(NonNull::new(output).ok_or("TVM returned a null DLPack lease")?);

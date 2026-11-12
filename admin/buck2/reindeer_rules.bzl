@@ -48,6 +48,24 @@ def reindeer_rust_library(
         env["CUTILE_RESOLVED_CUDA_TOOLKIT_PATH"] = "/usr/local/cuda"
         kwargs["srcs"] = srcs
         kwargs["env"] = env
+    elif crate in ("candle_core", "candle_nn"):
+        orig_features = list(kwargs.pop("features", []))
+        non_metal_features = [f for f in orig_features if f != "metal"]
+        kwargs["features"] = select({
+            "root//:macos-arm64": orig_features,
+            "DEFAULT": non_metal_features,
+        })
+        orig_deps = list(kwargs.pop("deps", []))
+        metal_only_deps = (
+            ":candle-metal-kernels-0.9",
+            ":objc2-foundation-0.3",
+            ":objc2-metal-0.3",
+        )
+        non_metal_deps = [d for d in orig_deps if d not in metal_only_deps]
+        kwargs["deps"] = select({
+            "root//:macos-arm64": orig_deps,
+            "DEFAULT": non_metal_deps,
+        })
     elif crate in ("cuda_device", "deser", "rand"):
         rustc_flags = (rustc_flags or []) + [
             "-Zalways-encode-mir",

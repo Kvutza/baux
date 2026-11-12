@@ -10,11 +10,18 @@ from __future__ import annotations
 from typing import override
 
 import numpy as np
-import torch
-from botorch.models.model import Model as BaseModel
-from botorch.posteriors.posterior import Posterior as BasePosterior
-from botorch.sampling.base import MCSampler
-from botorch.sampling.get_sampler import GetSampler
+
+try:
+    import torch
+    from botorch.models.model import Model as BaseModel
+    from botorch.posteriors.posterior import Posterior as BasePosterior
+    from botorch.sampling.base import MCSampler
+    from botorch.sampling.get_sampler import GetSampler
+except ModuleNotFoundError as exc:
+    raise ModuleNotFoundError(
+        'BoTorch adapter requires optional extra; install with `pip install "baux[botorch]"`',
+        name=exc.name,
+    ) from exc
 
 from .enn.enn_class import ENN
 from .enn.enn_params import ENNParams, PosteriorFlags

@@ -1,63 +1,138 @@
 //! Private C ABI; all access is serialized by the owning Session mutex.
+use crate::portable::dl::open_plugin;
 use std::ffi::{CStr, c_char, c_int, c_void};
+use std::sync::OnceLock;
 mod api;
-pub use api::{Api, IREE, PJRT, TVM};
+pub use api::Api;
 
-unsafe extern "C" {
-    pub fn bauxpjrt_compile(
-        source: *const u8,
-        length: usize,
-        device: *const c_char,
-        options: *const u8,
-        options_length: usize,
-        input_count: usize,
-        output: *mut *mut c_void,
-        error: *mut c_char,
-        capacity: usize,
-    ) -> c_int;
-    pub fn bauxiree_open(
-        driver: *const c_char,
-        output: *mut *mut c_void,
-        error: *mut c_char,
-        capacity: usize,
-    ) -> c_int;
-    pub fn bauxiree_import(
-        context: *mut c_void,
-        handle: *mut c_void,
-        offset: usize,
-        length: usize,
-        shape: *const usize,
-        rank: usize,
-        dtype: u32,
-        output: *mut *mut c_void,
-        error: *mut c_char,
-        capacity: usize,
-    ) -> c_int;
-    pub fn bauxiree_metal(
-        context: *mut c_void,
-        view: *mut c_void,
-        handle: *mut *mut c_void,
-        offset: *mut u64,
-        error: *mut c_char,
-        capacity: usize,
-    ) -> c_int;
-    pub fn bauxiree_load(
-        data: *const u8,
-        length: usize,
-        driver: *const c_char,
-        entry: *const c_char,
-        output: *mut *mut c_void,
-        error: *mut c_char,
-        capacity: usize,
-    ) -> c_int;
-    pub fn bauxtvm_load(
-        path: *const c_char,
-        entry: *const c_char,
-        device: *const c_char,
-        output: *mut *mut c_void,
-        error: *mut c_char,
-        capacity: usize,
-    ) -> c_int;
+pub struct IreeBridge {
+    pub api: Api,
+    pub open: unsafe extern "C" fn(*const c_char, *mut *mut c_void, *mut c_char, usize) -> c_int,
+    pub import: unsafe extern "C" fn(
+        *mut c_void,
+        *mut c_void,
+        usize,
+        usize,
+        *const usize,
+        usize,
+        u32,
+        *mut *mut c_void,
+        *mut c_char,
+        usize,
+    ) -> c_int,
+    pub metal: unsafe extern "C" fn(
+        *mut c_void,
+        *mut c_void,
+        *mut *mut c_void,
+        *mut u64,
+        *mut c_char,
+        usize,
+    ) -> c_int,
+    pub load: unsafe extern "C" fn(
+        *const u8,
+        usize,
+        *const c_char,
+        *const c_char,
+        *mut *mut c_void,
+        *mut c_char,
+        usize,
+    ) -> c_int,
+}
+
+pub struct PjrtBridge {
+    pub api: Api,
+    pub compile: unsafe extern "C" fn(
+        *const u8,
+        usize,
+        *const c_char,
+        *const u8,
+        usize,
+        usize,
+        *mut *mut c_void,
+        *mut c_char,
+        usize,
+    ) -> c_int,
+}
+
+pub struct TvmBridge {
+    pub api: Api,
+    pub load: unsafe extern "C" fn(
+        *const c_char,
+        *const c_char,
+        *const c_char,
+        *mut *mut c_void,
+        *mut c_char,
+        usize,
+    ) -> c_int,
+}
+
+pub fn iree() -> Result<&'static IreeBridge, String> {
+    static BRIDGE: OnceLock<Result<IreeBridge, String>> = OnceLock::new();
+    BRIDGE
+        .get_or_init(|| {
+            let lib = open_plugin(
+                "BAUX_IREE_BRIDGE",
+                &["libbaux_iree.dylib", "libbaux_iree.so"],
+                &["baux/.dylibs"],
+                "IREE runtime bridge",
+            )?;
+            Ok(IreeBridge {
+                api: unsafe { Api::resolve(&lib, "bauxiree", true)? },
+                open: unsafe { lib.sym(c"bauxiree_open")? },
+                import: unsafe { lib.sym(c"bauxiree_import")? },
+                metal: unsafe { lib.sym(c"bauxiree_metal")? },
+                load: unsafe { lib.sym(c"bauxiree_load")? },
+            })
+        })
+        .as_ref()
+        .map_err(Clone::clone)
+}
+
+pub fn pjrt() -> Result<&'static PjrtBridge, String> {
+    static BRIDGE: OnceLock<Result<PjrtBridge, String>> = OnceLock::new();
+    BRIDGE
+        .get_or_init(|| {
+            // Load the OpenXLA PJRT CPU plugin into global symbol scope before
+            // initializing the thin C++ bridge.
+            let _plugin = open_plugin(
+                "BAUX_PJRT_LIBRARY",
+                &["libpjrt_cpu.dylib", "pjrt_c_api_cpu_plugin.so"],
+                &["cyxla_pjrt_cpu", "jaxlib", "baux/.dylibs"],
+                "OpenXLA PJRT CPU plugin",
+            )?;
+            let lib = open_plugin(
+                "BAUX_PJRT_BRIDGE",
+                &["libbaux_pjrt.dylib", "libbaux_pjrt.so"],
+                &["baux/.dylibs"],
+                "PJRT runtime bridge",
+            )?;
+            Ok(PjrtBridge {
+                api: unsafe { Api::resolve(&lib, "bauxpjrt", false)? },
+                compile: unsafe { lib.sym(c"bauxpjrt_compile")? },
+            })
+        })
+        .as_ref()
+        .map_err(Clone::clone)
+}
+
+pub fn tvm() -> Result<&'static TvmBridge, String> {
+    static BRIDGE: OnceLock<Result<TvmBridge, String>> = OnceLock::new();
+    BRIDGE
+        .get_or_init(|| {
+            crate::portable::tvm::ensure_runtime()?;
+            let lib = open_plugin(
+                "BAUX_TVM_BRIDGE",
+                &["libbaux_tvm.dylib", "libbaux_tvm.so"],
+                &["baux/.dylibs"],
+                "TVM runtime bridge",
+            )?;
+            Ok(TvmBridge {
+                api: unsafe { Api::resolve(&lib, "bauxtvm", false)? },
+                load: unsafe { lib.sym(c"bauxtvm_load")? },
+            })
+        })
+        .as_ref()
+        .map_err(Clone::clone)
 }
 
 pub fn status(code: c_int, error: &[c_char; 2048]) -> Result<(), String> {

@@ -47,12 +47,13 @@ impl Executable {
         }
         let device = CString::new(device).map_err(|e| e.to_string())?;
         let options = options(&inputs)?;
+        let bridge = raw::pjrt()?;
         let mut pointer = std::ptr::null_mut();
         let mut error = [0; 2048];
         // Native compilation finishes before returning. No borrowed source
         // or device pointer survives this call; failures clean up the session.
         let code = unsafe {
-            raw::bauxpjrt_compile(
+            (bridge.compile)(
                 source.as_ptr(),
                 source.len(),
                 device.as_ptr(),
@@ -66,7 +67,7 @@ impl Executable {
         };
         raw::status(code, &error)?;
         Ok(Self {
-            owner: Arc::new(Session(Mutex::new(raw::Context(pointer, &raw::PJRT)))),
+            owner: Arc::new(Session(Mutex::new(raw::Context(pointer, &bridge.api)))),
             inputs: inputs.into(),
             outputs: outputs.into(),
             queue: pending::Queue::new()?,

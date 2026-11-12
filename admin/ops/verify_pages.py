@@ -158,12 +158,12 @@ _TEXT_FILE_SUFFIXES = {
 _VCS_DIRS = {".jj", ".git"}
 
 
-def _sri_sha384(payload: bytes) -> str:
+def sri_sha384(payload: bytes) -> str:
     digest = base64.b64encode(hashlib.sha384(payload).digest()).decode("ascii")
     return f"sha384-{digest}"
 
 
-def _validate_csp(rel_html: Path, csp_contents: list[str]) -> list[str]:
+def validate_csp(rel_html: Path, csp_contents: list[str]) -> list[str]:
     if not csp_contents:
         return [f'{rel_html}: missing <meta http-equiv="Content-Security-Policy">']
 
@@ -219,7 +219,7 @@ class _SecurityHTMLParser(HTMLParser):
         self._script_chunks: list[str] = []
         self._script_line = 0
 
-    def _verify_sri(
+    def verify_sri(
         self, tag_name: str, raw_ref: str, integrity: str, line: int
     ) -> None:
         tokens = integrity.split()
@@ -262,7 +262,7 @@ class _SecurityHTMLParser(HTMLParser):
             )
             return
 
-        expected = _sri_sha384(asset_path.read_bytes())
+        expected = sri_sha384(asset_path.read_bytes())
         if any(tok != expected for tok in sha384_tokens):
             self.violations.append(
                 f"{self.rel_html}:{line}: SRI sha384 mismatch for {raw_ref!r} (expected {expected}, got {integrity!r})"
@@ -332,7 +332,7 @@ class _SecurityHTMLParser(HTMLParser):
                     f"{self.rel_html}:{line}: <script> tag lacks non-empty src attribute"
                 )
             else:
-                self._verify_sri(
+                self.verify_sri(
                     "script", src, attr_map.get("integrity", "").strip(), line
                 )
 
@@ -345,7 +345,7 @@ class _SecurityHTMLParser(HTMLParser):
                         f'{self.rel_html}:{line}: <link rel="stylesheet"> missing href'
                     )
                 else:
-                    self._verify_sri(
+                    self.verify_sri(
                         "link", href, attr_map.get("integrity", "").strip(), line
                     )
 
@@ -423,7 +423,7 @@ def check_security(target_dir: Path) -> None:
         parser = _SecurityHTMLParser(rel_html, html_path.resolve(), target_root)
         parser.feed(html_text)
         parser.close()
-        violations.extend(_validate_csp(rel_html, parser.csp_contents))
+        violations.extend(validate_csp(rel_html, parser.csp_contents))
         violations.extend(parser.violations)
 
     if violations:

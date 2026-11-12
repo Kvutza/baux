@@ -22,11 +22,12 @@ impl Executable {
             _ => return Err(format!("unsupported native device {device:?}")),
         };
         let driver = CString::new(driver).map_err(|e| e.to_string())?;
+        let bridge = raw::iree()?;
         let mut context = std::ptr::null_mut();
         let mut error = [0; 2048];
         // C owns the returned device context and retains no borrowed strings.
         let code = unsafe {
-            raw::bauxiree_open(
+            (bridge.open)(
                 driver.as_ptr(),
                 &mut context,
                 error.as_mut_ptr(),
@@ -35,7 +36,7 @@ impl Executable {
         };
         raw::status(code, &error)?;
         Ok(Self {
-            owner: Arc::new(Session(Mutex::new(raw::Context(context, &raw::IREE)))),
+            owner: Arc::new(Session(Mutex::new(raw::Context(context, &bridge.api)))),
             inputs: inputs.into(),
             outputs: outputs.into(),
             queue: pending::Queue::new()?,
@@ -64,12 +65,13 @@ impl Executable {
         if !context.1.metal {
             return Err("runtime does not support Metal imports".into());
         }
+        let bridge = raw::iree()?;
         let mut pointer = std::ptr::null_mut();
         let mut error = [0; 2048];
         // Caller supplies a live, synchronized, leased MTLBuffer. C validates
         // device and bounds and returns one owning buffer-view reference.
         let code = unsafe {
-            raw::bauxiree_import(
+            (bridge.import)(
                 context.0,
                 handle,
                 offset,
@@ -150,11 +152,12 @@ impl Buffer {
         if !context.1.metal {
             return Err("runtime does not expose Metal allocations".into());
         }
+        let bridge = raw::iree()?;
         let mut handle = std::ptr::null_mut();
         let mut offset = 0;
         let mut error = [0; 2048];
         let code = unsafe {
-            raw::bauxiree_metal(
+            (bridge.metal)(
                 context.0,
                 self.0.pointer,
                 &mut handle,

@@ -370,6 +370,7 @@ def test_diskregions(tmp_path, sharing):
 
 
 def test_gpregions():
+    pytest.importorskip("gpytorch")
     cfg = turbo_one(
         num_init=2,
         trust_region=RegionalSearchPolicy(count=2),

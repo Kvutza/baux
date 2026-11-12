@@ -3,7 +3,7 @@
 //! ABI: tvm/ffi/c_api.h, TVMFFIFunctionCreate and TVMFFISafeCallType.
 use super::{RawAny, RawBytes, TvmTensor};
 use crate::portable::{Result, Tensor};
-use std::ffi::{CString, c_char, c_void};
+use std::ffi::{CString, c_void};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 type Kernel = dyn Fn(&[TvmTensor]) -> Result<Vec<TvmTensor>> + Send + Sync;
@@ -14,20 +14,6 @@ struct Callback {
 }
 pub(super) struct Registration {
     pub name: String,
-}
-
-unsafe extern "C" {
-    #[link_name = "TVMFFIFunctionCreate"]
-    fn create(
-        context: *mut c_void,
-        call: unsafe extern "C" fn(*mut c_void, *const RawAny, i32, *mut RawAny) -> i32,
-        deleter: unsafe extern "C" fn(*mut c_void),
-        output: *mut *mut c_void,
-    ) -> i32;
-    #[link_name = "TVMFFIFunctionSetGlobal"]
-    fn register(name: *const RawBytes, function: *mut c_void, replace: i32) -> i32;
-    #[link_name = "TVMFFIErrorSetRaisedFromCStr"]
-    fn raise(kind: *const c_char, message: *const c_char);
 }
 
 unsafe extern "C" fn destroy(context: *mut c_void) {
@@ -84,7 +70,9 @@ unsafe extern "C" fn invoke(
                 _ => "native TVM callback panicked".into(),
             };
             let message = CString::new(message.replace('\0', " ")).expect("NUL removed");
-            unsafe { raise(c"RuntimeError".as_ptr(), message.as_ptr()) };
+            if let Ok(f) = super::ffi() {
+                unsafe { (f.raise_error)(c"RuntimeError".as_ptr(), message.as_ptr()) };
+            }
             -1
         }
     }
@@ -96,6 +84,7 @@ impl Registration {
         outputs: Vec<Tensor>,
         kernel: impl Fn(&[TvmTensor]) -> Result<Vec<TvmTensor>> + Send + Sync + 'static,
     ) -> Result<Self> {
+        let f = super::ffi()?;
         static NEXT: AtomicU64 = AtomicU64::new(0);
         let name = format!("baux.native.{}", NEXT.fetch_add(1, Ordering::Relaxed));
         let context = Box::into_raw(Box::new(Callback {
@@ -105,7 +94,7 @@ impl Registration {
         }))
         .cast();
         let mut pointer = std::ptr::null_mut();
-        let code = unsafe { create(context, invoke, destroy, &raw mut pointer) };
+        let code = unsafe { (f.create_function)(context, invoke, destroy, &raw mut pointer) };
         if code != 0 {
             unsafe { destroy(context) };
             super::status(code, "create native callback")?;
@@ -120,7 +109,7 @@ impl Registration {
             size: name.len(),
         };
         super::status(
-            unsafe { register(&bytes, function.value.pointer, 0) },
+            unsafe { (f.register_global)(&bytes, function.value.pointer, 0) },
             "register native callback",
         )?;
         Ok(Self { name })

@@ -40,10 +40,11 @@ impl super::Executable {
         let library = CString::new(library).map_err(|error| error.to_string())?;
         let entry = CString::new(entry).map_err(|error| error.to_string())?;
         let device = CString::new(device).map_err(|error| error.to_string())?;
+        let bridge = super::raw::tvm()?;
         let mut pointer = std::ptr::null_mut();
         let mut error = [0; 2048];
         let code = unsafe {
-            super::raw::bauxtvm_load(
+            (bridge.load)(
                 library.as_ptr(),
                 entry.as_ptr(),
                 device.as_ptr(),
@@ -56,7 +57,7 @@ impl super::Executable {
         Ok(Self {
             owner: std::sync::Arc::new(super::Session(std::sync::Mutex::new(super::raw::Context(
                 pointer,
-                &super::raw::TVM,
+                &bridge.api,
             )))),
             inputs: inputs.into(),
             outputs: outputs.into(),
@@ -148,12 +149,13 @@ impl RawAny {
         }
     }
     fn string(value: &str) -> super::Result<Self> {
+        let f = ffi()?;
         let bytes = RawBytes {
             data: value.as_ptr().cast(),
             size: value.len(),
         };
         let mut result = Self::none();
-        status(unsafe { ffi_string(&bytes, &mut result) }, "create string")?;
+        status(unsafe { (f.string)(&bytes, &mut result) }, "create string")?;
         Ok(result)
     }
     fn integer(value: i64) -> Self {
@@ -184,8 +186,10 @@ impl Drop for RawAny {
             // Owned results carry exactly one reference, including unexpected
             // result types and error paths after a successful native call.
             let pointer = unsafe { self.value.pointer };
-            if !pointer.is_null() {
-                let _ = unsafe { ffi_decrement(pointer) };
+            if !pointer.is_null()
+                && let Ok(f) = ffi()
+            {
+                let _ = unsafe { (f.decrement)(pointer) };
             }
         }
     }
@@ -195,7 +199,8 @@ impl Clone for RawAny {
     fn clone(&self) -> Self {
         if self.type_index >= TYPE_OBJECT {
             // This object is live for the duration of the increment.
-            let code = unsafe { ffi_increment(self.value.pointer) };
+            let f = ffi().expect("TVM FFI already initialized for live RawAny");
+            let code = unsafe { (f.increment)(self.value.pointer) };
             assert_eq!(code, 0, "TVM reference increment failed");
         }
         Self {
@@ -206,36 +211,91 @@ impl Clone for RawAny {
     }
 }
 
-unsafe extern "C" {
-    #[link_name = "TVMFFIStringFromByteArray"]
-    fn ffi_string(bytes: *const RawBytes, output: *mut RawAny) -> i32;
-    #[link_name = "TVMFFIObjectIncRef"]
-    fn ffi_increment(reference: *mut c_void) -> i32;
-    #[link_name = "TVMFFIGetVersion"]
-    fn ffi_version(version: *mut RawVersion);
-    #[link_name = "TVMFFIFunctionGetGlobal"]
-    fn ffi_global(name: *const RawBytes, output: *mut *mut c_void) -> i32;
-    #[link_name = "TVMFFIFunctionCall"]
-    fn ffi_call(
-        function: *mut c_void,
-        arguments: *mut RawAny,
-        count: i32,
-        result: *mut RawAny,
-    ) -> i32;
-    #[link_name = "TVMFFIObjectDecRef"]
-    fn ffi_decrement(reference: *mut c_void) -> i32;
-    #[link_name = "TVMFFIErrorMoveFromRaised"]
-    fn ffi_error(error: *mut *mut c_void);
+pub(super) struct TvmFfi {
+    pub string: unsafe extern "C" fn(*const RawBytes, *mut RawAny) -> i32,
+    pub increment: unsafe extern "C" fn(*mut c_void) -> i32,
+    pub version: unsafe extern "C" fn(*mut RawVersion),
+    pub global: unsafe extern "C" fn(*const RawBytes, *mut *mut c_void) -> i32,
+    pub call: unsafe extern "C" fn(*mut c_void, *mut RawAny, i32, *mut RawAny) -> i32,
+    pub decrement: unsafe extern "C" fn(*mut c_void) -> i32,
+    pub error: unsafe extern "C" fn(*mut *mut c_void),
+    pub export_tensor: unsafe extern "C" fn(*mut c_void, *mut *mut c_void) -> i32,
+    pub import_tensor: unsafe extern "C" fn(*mut c_void, i32, i32, *mut *mut c_void) -> i32,
+    pub create_function: unsafe extern "C" fn(
+        *mut c_void,
+        unsafe extern "C" fn(*mut c_void, *const RawAny, i32, *mut RawAny) -> i32,
+        unsafe extern "C" fn(*mut c_void),
+        *mut *mut c_void,
+    ) -> i32,
+    pub register_global: unsafe extern "C" fn(*const RawBytes, *mut c_void, i32) -> i32,
+    pub raise_error: unsafe extern "C" fn(*const c_char, *const c_char),
+}
+
+pub(super) fn ffi() -> super::Result<&'static TvmFfi> {
+    static FFI: std::sync::OnceLock<super::Result<TvmFfi>> = std::sync::OnceLock::new();
+    FFI.get_or_init(|| {
+        let lib = crate::portable::dl::open_plugin(
+            "BAUX_TVM_FFI_LIB",
+            &["libtvm_ffi.dylib", "libtvm_ffi.so"],
+            &["tvm_ffi/lib", "baux/.dylibs"],
+            "Apache TVM FFI",
+        )?;
+        let _runtime = crate::portable::dl::open_plugin(
+            "BAUX_TVM_RUNTIME_LIB",
+            &["libtvm_runtime.dylib", "libtvm_runtime.so"],
+            &["tvm/lib", "baux/.dylibs"],
+            "Apache TVM runtime",
+        )?;
+        Ok(TvmFfi {
+            string: unsafe { lib.sym(c"TVMFFIStringFromByteArray")? },
+            increment: unsafe { lib.sym(c"TVMFFIObjectIncRef")? },
+            version: unsafe { lib.sym(c"TVMFFIGetVersion")? },
+            global: unsafe { lib.sym(c"TVMFFIFunctionGetGlobal")? },
+            call: unsafe { lib.sym(c"TVMFFIFunctionCall")? },
+            decrement: unsafe { lib.sym(c"TVMFFIObjectDecRef")? },
+            error: unsafe { lib.sym(c"TVMFFIErrorMoveFromRaised")? },
+            export_tensor: unsafe { lib.sym(c"TVMFFITensorToDLPackVersioned")? },
+            import_tensor: unsafe { lib.sym(c"TVMFFITensorFromDLPackVersioned")? },
+            create_function: unsafe { lib.sym(c"TVMFFIFunctionCreate")? },
+            register_global: unsafe { lib.sym(c"TVMFFIFunctionSetGlobal")? },
+            raise_error: unsafe { lib.sym(c"TVMFFIErrorSetRaisedFromCStr")? },
+        })
+    })
+    .as_ref()
+    .map_err(Clone::clone)
+}
+
+pub(crate) fn ensure_runtime() -> super::Result<()> {
+    ffi().map(|_| ())
+}
+
+pub(super) fn ensure_compiler() -> super::Result<()> {
+    ensure_runtime()?;
+    static COMPILER: std::sync::OnceLock<super::Result<crate::portable::dl::Library>> =
+        std::sync::OnceLock::new();
+    COMPILER
+        .get_or_init(|| {
+            crate::portable::dl::open_plugin(
+                "BAUX_TVM_COMPILER_LIB",
+                &["libtvm_compiler.dylib", "libtvm_compiler.so"],
+                &["tvm/lib", "baux/.dylibs"],
+                "Apache TVM compiler",
+            )
+        })
+        .as_ref()
+        .map(|_| ())
+        .map_err(Clone::clone)
 }
 
 fn status(code: i32, operation: &str) -> super::Result<()> {
     if code == 0 {
         Ok(())
     } else {
+        let f = ffi()?;
         let mut pointer = std::ptr::null_mut();
         // A nonzero safe-call status stores one owned Error in thread-local
         // state. Moving it clears that state and transfers the reference here.
-        unsafe { ffi_error(&raw mut pointer) };
+        unsafe { (f.error)(&raw mut pointer) };
         let Some(pointer) = NonNull::new(pointer) else {
             return Err(format!("TVM {operation} failed with status {code}"));
         };
@@ -249,7 +309,7 @@ fn status(code: i32, operation: &str) -> super::Result<()> {
             let bytes = unsafe { std::slice::from_raw_parts(bytes.data.cast(), bytes.size) };
             String::from_utf8_lossy(bytes).into_owned()
         };
-        let _ = unsafe { ffi_decrement(pointer.as_ptr()) };
+        let _ = unsafe { (f.decrement)(pointer.as_ptr()) };
         Err(format!("TVM {operation} failed: {message}"))
     }
 }
@@ -266,20 +326,21 @@ pub struct TvmFfiVersion {
 }
 
 impl TvmFfiVersion {
-    /// Read the version through TVM's stable, infallible C entry point.
-    pub fn linked() -> Self {
+    /// Read the version through TVM's stable C entry point.
+    pub fn linked() -> super::Result<Self> {
+        let f = ffi()?;
         let mut version = RawVersion {
             major: 0,
             minor: 0,
             patch: 0,
         };
         // `version` is valid writable storage for the duration of the call.
-        unsafe { ffi_version(&raw mut version) };
-        Self {
+        unsafe { (f.version)(&raw mut version) };
+        Ok(Self {
             major: version.major,
             minor: version.minor,
             patch: version.patch,
-        }
+        })
     }
 }
 
@@ -292,6 +353,7 @@ pub struct TvmFunction<'module>(
 impl TvmFunction<'_> {
     /// Look up a registered function without importing Python.
     pub fn global(name: &str) -> super::Result<Option<Self>> {
+        let f = ffi()?;
         let name = RawBytes {
             data: name.as_ptr().cast(),
             size: name.len(),
@@ -299,12 +361,13 @@ impl TvmFunction<'_> {
         let mut output = std::ptr::null_mut();
         // TVM borrows `name` only for this call and initializes `output` with
         // one owned reference when the function exists.
-        let code = unsafe { ffi_global(&raw const name, &raw mut output) };
+        let code = unsafe { (f.global)(&raw const name, &raw mut output) };
         status(code, "global function lookup")?;
         Ok(NonNull::new(output).map(|pointer| Self(pointer, std::marker::PhantomData)))
     }
 
     fn call(&self, arguments: &mut [RawAny]) -> super::Result<RawAny> {
+        let f = ffi()?;
         let count = i32::try_from(arguments.len()).map_err(|error| error.to_string())?;
         let mut result = RawAny {
             type_index: TYPE_NONE,
@@ -315,7 +378,7 @@ impl TvmFunction<'_> {
         // `result` as an owned Any because it enters as the required empty
         // value.
         let code = unsafe {
-            ffi_call(
+            (f.call)(
                 self.0.as_ptr(),
                 arguments.as_mut_ptr(),
                 count,
@@ -359,7 +422,9 @@ impl TvmFunction<'_> {
 impl Drop for TvmFunction<'_> {
     fn drop(&mut self) {
         // This handle was returned with one owned TVM reference.
-        let _ = unsafe { ffi_decrement(self.0.as_ptr()) };
+        if let Ok(f) = ffi() {
+            let _ = unsafe { (f.decrement)(self.0.as_ptr()) };
+        }
     }
 }
 
@@ -397,7 +462,8 @@ impl TvmModule {
             },
         };
         // The argument owns its own reference; self keeps the original.
-        status(unsafe { ffi_increment(self.0.as_ptr()) }, "retain module")?;
+        let f = ffi()?;
+        status(unsafe { (f.increment)(self.0.as_ptr()) }, "retain module")?;
         let name = RawAny {
             type_index: RAW_STRING,
             padding: 0,
@@ -429,7 +495,9 @@ impl TvmModule {
 impl Drop for TvmModule {
     fn drop(&mut self) {
         // The result Any transferred one owned module reference into `Self`.
-        let _ = unsafe { ffi_decrement(self.0.as_ptr()) };
+        if let Ok(f) = ffi() {
+            let _ = unsafe { (f.decrement)(self.0.as_ptr()) };
+        }
     }
 }
 
@@ -439,7 +507,16 @@ mod tests {
 
     #[test]
     fn loads_ffi() {
-        let version = TvmFfiVersion::linked();
+        let version = match TvmFfiVersion::linked() {
+            Ok(v) => v,
+            Err(err) => {
+                assert!(
+                    std::env::var_os("BAUX_MLIR_IMPORTER").is_none(),
+                    "TVM FFI must load in compiler-configured test environments: {err}"
+                );
+                return;
+            }
+        };
         assert_eq!(version.major, 0);
         assert_eq!(version.minor, 1);
         assert!(version.patch >= 15);

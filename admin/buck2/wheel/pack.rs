@@ -186,6 +186,17 @@ fn u32_le(out: &mut Vec<u8>, value: u32) {
     out.extend_from_slice(&value.to_le_bytes());
 }
 
+fn raw_deflate(data: &[u8]) -> Option<Vec<u8>> {
+    if data.len() < 32 || data.len() > u32::MAX as usize {
+        return None;
+    }
+    let out = miniz_oxide::deflate::compress_to_vec(data, 6);
+    if out.len() >= data.len() {
+        return None;
+    }
+    Some(out)
+}
+
 fn zip(entries: &BTreeMap<String, Vec<u8>>) -> Vec<u8> {
     let mut out = Vec::new();
     let mut central = Vec::new();
@@ -193,29 +204,34 @@ fn zip(entries: &BTreeMap<String, Vec<u8>>) -> Vec<u8> {
         let name = name.as_bytes();
         let offset = out.len() as u32;
         let crc = crc32(data);
+        let deflated = raw_deflate(data);
+        let (method, payload): (u16, &[u8]) = match deflated.as_deref() {
+            Some(compressed) => (8, compressed),
+            None => (0, data.as_slice()),
+        };
         u32_le(&mut out, 0x0403_4b50);
         u16_le(&mut out, 20);
         u16_le(&mut out, 0);
-        u16_le(&mut out, 0);
+        u16_le(&mut out, method);
         u16_le(&mut out, 0);
         u16_le(&mut out, 0x21);
         u32_le(&mut out, crc);
-        u32_le(&mut out, data.len() as u32);
+        u32_le(&mut out, payload.len() as u32);
         u32_le(&mut out, data.len() as u32);
         u16_le(&mut out, name.len() as u16);
         u16_le(&mut out, 0);
         out.extend_from_slice(name);
-        out.extend_from_slice(data);
+        out.extend_from_slice(payload);
 
         u32_le(&mut central, 0x0201_4b50);
         u16_le(&mut central, 0x0314);
         u16_le(&mut central, 20);
         u16_le(&mut central, 0);
-        u16_le(&mut central, 0);
+        u16_le(&mut central, method);
         u16_le(&mut central, 0);
         u16_le(&mut central, 0x21);
         u32_le(&mut central, crc);
-        u32_le(&mut central, data.len() as u32);
+        u32_le(&mut central, payload.len() as u32);
         u32_le(&mut central, data.len() as u32);
         u16_le(&mut central, name.len() as u16);
         u16_le(&mut central, 0);
@@ -331,11 +347,39 @@ fn main() -> io::Result<()> {
     let args = args();
     let (mut wheel_files, dist_info, tag) = collect_payloads(&args)?;
     let mut metadata = format!(
-        "Metadata-Version: 2.3\nName: {}\nVersion: {}\nSummary: Black-box optimization \
-         library\nRequires-Python: {}\nRequires-Dist: numpy>=2.1\nRequires-Dist: \
-         scipy>=1.11\nRequires-Dist: botorch>=0.18.1,<0.19\nRequires-Dist: \
-         optuna>=5.0,<5.1\nRequires-Dist: ax-platform>=1.3.1,<1.4\nDescription-Content-Type: \
-         text/markdown; charset=UTF-8\n\n",
+        concat!(
+            "Metadata-Version: 2.3\n",
+            "Name: {}\n",
+            "Version: {}\n",
+            "Summary: Black-box optimization library\n",
+            "Requires-Python: {}\n",
+            "Requires-Dist: numpy>=2.1\n",
+            "Provides-Extra: ax\n",
+            "Requires-Dist: ax-platform>=1.3.1,<1.4; extra == \"ax\"\n",
+            "Provides-Extra: botorch\n",
+            "Requires-Dist: botorch>=0.18.1,<0.19; extra == \"botorch\"\n",
+            "Provides-Extra: optuna\n",
+            "Requires-Dist: optuna>=5.0,<5.1; extra == \"optuna\"\n",
+            "Provides-Extra: gp\n",
+            "Requires-Dist: torch>=2.2; extra == \"gp\"\n",
+            "Requires-Dist: gpytorch>=1.11; extra == \"gp\"\n",
+            "Requires-Dist: scipy>=1.11; extra == \"gp\"\n",
+            "Provides-Extra: integrations\n",
+            "Requires-Dist: ax-platform>=1.3.1,<1.4; extra == \"integrations\"\n",
+            "Requires-Dist: botorch>=0.18.1,<0.19; extra == \"integrations\"\n",
+            "Requires-Dist: optuna>=5.0,<5.1; extra == \"integrations\"\n",
+            "Requires-Dist: scipy>=1.11; extra == \"integrations\"\n",
+            "Provides-Extra: compiler\n",
+            "Requires-Dist: optree==0.20.0; extra == \"compiler\"\n",
+            "Requires-Dist: jax==0.12.0.1; extra == \"compiler\"\n",
+            "Requires-Dist: jaxlib==0.12.0.1; extra == \"compiler\"\n",
+            "Requires-Dist: iree-base-compiler==3.13.0; extra == \"compiler\"\n",
+            "Requires-Dist: iree-base-runtime==3.13.1; extra == \"compiler\"\n",
+            "Requires-Dist: apache-tvm==0.27.0.post1; extra == \"compiler\"\n",
+            "Requires-Dist: apache-tvm-ffi==0.1.15.post2; extra == \"compiler\"\n",
+            "Requires-Dist: cyxla-pjrt-cpu==0.12.0.1; sys_platform == \"darwin\" and platform_machine == \"arm64\" and extra == \"compiler\"\n",
+            "Description-Content-Type: text/markdown; charset=UTF-8\n\n",
+        ),
         args.package, args.version, args.python_requires
     )
     .into_bytes();

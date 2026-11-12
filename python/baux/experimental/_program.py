@@ -153,13 +153,24 @@ class Tvm(Native):
     """Native StableHLO importer, TVM compiler and CPU Relax VM."""
 
     def __init__(self, program: Any, device: str) -> None:
+        import os
         from pathlib import Path
 
         from .. import baux_rust
 
         if device != "cpu":
             raise ValueError(f"native TVM currently supports CPU, got {device!r}")
-        importer = Path(baux_rust.__file__).parent / ".dylibs" / "hlo_import"
+        override = os.environ.get("BAUX_MLIR_IMPORTER")
+        importer = (
+            Path(override)
+            if override
+            else Path(baux_rust.__file__).parent / ".dylibs" / "hlo_import"
+        )
+        if not importer.is_file():
+            raise ImportError(
+                "native MLIR importer not found; install optional compiler extras "
+                'with `pip install "baux[compiler]"` or set BAUX_MLIR_IMPORTER'
+            )
         self.session = baux_rust.NativeSession.compile_tvm(
             program.source,
             program.entry,

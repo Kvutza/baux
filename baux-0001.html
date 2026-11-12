@@ -204,8 +204,16 @@ blob = baux.freeze(s_live)
 restored_a = baux.thaw(s0, blob)
 restored_b = baux.thaw(s0, baux.freeze(restored_a))
 assert baux.freeze(restored_a) == blob
-assert baux.digest(restored_a) == baux.digest(restored_b)
+assert baux.digest(s_live) == baux.digest(restored_a) == baux.digest(restored_b)
 
+rollouts_live = baux.pmap(
+    s_live,
+    baux.key(77),
+    branches=4,
+    branch_fn=lambda i, st, k: baux.digest(
+        baux.scan(st, k, steps=4, eval_fn=anisotropic_loss, num_arms=2)[0]
+    ),
+)
 rollouts_a = baux.pmap(
     restored_a,
     baux.key(77),
@@ -222,7 +230,7 @@ rollouts_b = baux.pmap(
         baux.scan(st, k, steps=4, eval_fn=anisotropic_loss, num_arms=2)[0]
     ),
 )
-assert rollouts_a == rollouts_b and len(set(rollouts_a)) == 4</pre>
+assert rollouts_live == rollouts_a == rollouts_b and len(set(rollouts_live)) == 4</pre>
 </div></section>
 </div></section><section lang="en" class="block"><div class="tree-node" id="id12">
 <header><h1>

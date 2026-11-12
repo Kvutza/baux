@@ -7,7 +7,14 @@ floating_point = "IEEE-754 binary64 (roundTiesToEven), hardware fsqrt/fadd/fsub/
 runtime_and_resources = "Deterministic single-seeded StdRng (ChaCha12) and NumpyPcg64 / SplitMix64 streams; bounded heap allocation without OOM; POSIX mmap/pwrite for BpAnnDiskBackend; 16 MiB stack owner thread for libbaux_numerical.so C-ABI checker"
 
 [assumptions.toolchain]
-rustc = "rustc 1.101.0-nightly (c1070d693 2026-09-28)\nbinary: rustc\ncommit-hash: c1070d69382b8d2f2eb65119c738a77d9e324c9e\ncommit-date: 2026-09-28\nhost: aarch64-apple-darwin\nrelease: 1.101.0-nightly\nLLVM version: 23.1.1"
+rustc = """
+rustc 1.101.0-nightly (c1070d693 2026-09-28)
+binary: rustc
+commit-hash: c1070d69382b8d2f2eb65119c738a77d9e324c9e
+commit-date: 2026-09-28
+host: aarch64-apple-darwin
+release: 1.101.0-nightly
+LLVM version: 23.1.1"""
 lean = "Lean (version 4.35.0, arm64-apple-darwin24.6.0, commit eb6cafb7290e8bd5f2937522d8d804f58f02bafc, Release)"
 charon_rev = "de8736f7c995ac54dc490345cef9ea5143c06c62"
 aeneas_rev = "e62dd83d133d9043e7d3628096838b7430f36565"
@@ -23,16 +30,16 @@ charon_callsite_patch_sha256 = "ff6920d7c259f422f493026cb10ca3ce52384cd3de644d33
 aeneas_float_patch_sha256 = "6ff1b653717c1102d68cfd4cf052b42cc5c16ef0f5ec792f3cf11a7d3cf48a1a"
 aeneas_dyn_patch_sha256 = "88e4c868a6a032288a8e6b702b1e2716143676c9c2f591273825ccc7163fd449"
 aeneas_dyn_dispatch_patch_sha256 = "add7a8740470371165464ebc17e439a0374121ad79b51f4f97dc40c93527bdba"
-box_pair_metadata_sha256 = "92ec19143db0b636d8ff64d2a228353211765b23241a5a71f66b5c1e7570cd5e"
-local_baux_src_tree_sha256 = "44302dd30ac41cc19727128c85d59561bc146e689fdbf45d2b137a19a3d27611"
-local_semantics_src_tree_sha256 = "6e97ca04045d5a3a7c41b174c9262bea38e69da515e2f2b7e1c79189998089f9"
-local_neighbor_index_src_tree_sha256 = "519903581438f6fa2c7ee9a63986ad97a600d3c87bfe34f91314f4e397b91807"
+box_pair_metadata_sha256 = "23f2800029339735601dbe3b97eaba9bf65866b6ab2734b914be2ad0b45ced40"
+local_baux_src_tree_sha256 = "eb4338e7e1231d3ff4c0cd466a62bd853cf511c0ac0d8d7a3e5f714c374719cd"
+local_semantics_src_tree_sha256 = "11bde63dcead6a7874cab6ab2a10f23dd2f1b86f022824cc623ea7f66d0163aa"
+local_neighbor_index_src_tree_sha256 = "652fdcf18ab95d86daa702f95d65b08de6736a1366e5af08a4d401d50c81f673"
 
 [source_bindings.upstream]
 pin_sha256 = "7548bd54a9f2d88a91df4bdc873aa6ebf0a3b9f4f087c4176354e3722f6f17e2"
 archive_sha256 = "82d66e50583178e0d41d50e4b9d603fe4e9fc2052ce7b6a597c9c490d257dce7"
 harness_sha256 = "34e4cd207f48b10a6b89afe6bc97e0ed2017a9dc57d247dfea619f2e4fadfaff"
-harness_module_declaration_sha256 = "0af87ea4dc856b9c3601c87aa6bd2275effbf25e9e3263c120d79b215b7deeaf"
+harness_module_declaration_sha256 = "db29c4ff70a0c221050e5d540bd92631c2aec7a647f8f79181a8ca67cddf2c4f"
 source = "git archive of pinned revision; working tree edits excluded; tracked single-call extraction harness injected"
 
 [source_bindings.upstream.repository]
@@ -47,36 +54,36 @@ committed_at = "2026-10-26T19:19:16-04:00"
 format = "ar+mach-o-64"
 isa = "arm64"
 cputype = "0x0100000c"
-bytes = 22541200
-sha256 = "1d48d3e9fa537b9ce0479e28a22a8b01148f27ae0ed2a6b0b03c3446a893625e"
+bytes = 22540432
+sha256 = "410be0c0f2a46f0c5f7f7edab18d9470ce8125aa6eb5fba2e14e3ccbf8cc64dd"
 
 [compiled_artifacts.binaries.upstream_bpann_rlib]
 format = "ar+mach-o-64"
 isa = "arm64"
 cputype = "0x0100000c"
-bytes = 22678320
-sha256 = "430b0e9eda08291c37aa39bac11c7715e83c3eabca83fd5c47a10b956c10d068"
+bytes = 22677240
+sha256 = "1a78f2d1761203985b6e2a61edb6872cb6a582fbd790767cd336b95377f45076"
 
 [compiled_artifacts.binaries.local_baux_rlib]
 format = "ar+mach-o-64"
 isa = "arm64"
 cputype = "0x0100000c"
-bytes = 177202992
-sha256 = "29d33ee544835de4c2039e86e2617b301f653f3a03f1a0cee2c2d4019d94598c"
+bytes = 141048080
+sha256 = "2b0bc2ef80a54728141efec2ad961a5ce6713f933aecb85e56071345964a6eda"
 
 [compiled_artifacts.binaries.local_optimizer_extraction_rlib]
 format = "ar+mach-o-64"
 isa = "arm64"
 cputype = "0x0100000c"
-bytes = 744176
-sha256 = "d1dc87d545f7330f2bc35fed6af6e0770c784e160545edaa62999ea964eea5e9"
+bytes = 784288
+sha256 = "65cd08c7fe5143eaf501b7d906d1687f96508a686bd0b143da41668a06167b4a"
 
 [compiled_artifacts.binaries.lean_cabi_static_archive]
 format = "ar+mach-o-64"
 isa = "arm64"
 cputype = "0x0100000c"
-bytes = 15939520
-sha256 = "3c412bf9010771ad0fd43da550bbd18037dfa587be869c74e8e8801780b5a106"
+bytes = 15307088
+sha256 = "e31a63ba63112b516a6dec7dc348d14dd108a655abdb9501af3a12ebe5d7d05f"
 
 [compiled_artifacts.binaries.lean_numerical_shared_object]
 format = "mach-o-64"
@@ -89,15 +96,15 @@ sha256 = "a8b1ccf22981c7ae0edade2d01041f3207ffc96f0fa5e5a79ae0fb4034ed9a8b"
 format = "mach-o-64"
 isa = "arm64"
 cputype = "0x0100000c"
-bytes = 15276760
-sha256 = "4668ec75aef9840b8c67d8d025ee665e4d5d7b2b47cce4375c40126e5bde5719"
+bytes = 15272504
+sha256 = "7448693a76108548d746000a720ea755748e17fcdb195b7abb90b39a7cedf12a"
 
 [compiled_artifacts.binaries.local_artifact_harness_bin]
 format = "mach-o-64"
 isa = "arm64"
 cputype = "0x0100000c"
-bytes = 6385000
-sha256 = "3edac57f681afd0f58125944292c90ca81e14eb3a165b7500e03dac2d149fc4b"
+bytes = 6011656
+sha256 = "4c534ed121092886f20c08eeb7ec64e5f30d273e30b2885d70b82826129f959e"
 
 [compiled_artifacts.lean_oleans."Registry.olean"]
 bytes = 4610320
@@ -112,8 +119,8 @@ bytes = 203032
 sha256 = "1eff4521716c3715abfd3989c3e35b6bd6c65f1ce24ea7ff0643c81622b1b73e"
 
 [compiled_artifacts.lean_oleans."Bpann.olean"]
-bytes = 1456880
-sha256 = "da49099b858b7af8b392c2c7880eda50e9e1c68570d1aa4ba60b3e1fb03e1bb6"
+bytes = 1457024
+sha256 = "7e9355be03b46c1ea2e56f983b00e5e2214ca0c8f04699b0a54975a68130d00e"
 
 [compiled_artifacts.lean_oleans."Box.olean"]
 bytes = 8000
@@ -121,7 +128,7 @@ sha256 = "a7b3468aa1ceef9b7e1bb0968de52d0c00b7aecf676342c4c5913aa37d95e0a4"
 
 [compiled_artifacts.lean_oleans."Numerical.olean"]
 bytes = 473128
-sha256 = "7e0860d0ba7241041fe9fa3b2c64cf74bbf00be51205032a5ed55ed686c2f514"
+sha256 = "dc1d171b7df026c163dd8f01f987d67fbf5f0e6d204dc9f9d9bc81cb101766b7"
 
 [compiled_artifacts.charon_llbc.bpann]
 path = ".cache/baux/aeneas/probe-full-upstream/bpann.llbc"
@@ -136,26 +143,115 @@ manifest_functions_total = 198
 
 [[compiled_artifacts.charon_llbc.bpann.target_information]]
 key = "aarch64-apple-darwin"
-value = { target_pointer_size = 8, is_little_endian = true, c_enum_smallest_repr_ty = "I32", primitive_alignments = [
-  { key = "Bool", value = 1 },
-  { key = { Integer = { Signed = "I8" } }, value = 1 },
-  { key = { Integer = { Signed = "I16" } }, value = 2 },
-  { key = { Integer = { Signed = "I32" } }, value = 4 },
-  { key = { Integer = { Signed = "I64" } }, value = 8 },
-  { key = { Integer = { Signed = "I128" } }, value = 16 },
-  { key = { Integer = { Signed = "Isize" } }, value = 8 },
-  { key = { Integer = { Unsigned = "U8" } }, value = 1 },
-  { key = { Integer = { Unsigned = "U16" } }, value = 2 },
-  { key = { Integer = { Unsigned = "U32" } }, value = 4 },
-  { key = { Integer = { Unsigned = "U64" } }, value = 8 },
-  { key = { Integer = { Unsigned = "U128" } }, value = 16 },
-  { key = { Integer = { Unsigned = "Usize" } }, value = 8 },
-  { key = { Float = "F16" }, value = 2 },
-  { key = { Float = "F32" }, value = 4 },
-  { key = { Float = "F64" }, value = 8 },
-  { key = { Float = "F128" }, value = 16 },
-  { key = "Char", value = 4 },
-] }
+
+[compiled_artifacts.charon_llbc.bpann.target_information.value]
+target_pointer_size = 8
+is_little_endian = true
+c_enum_smallest_repr_ty = "I32"
+
+[[compiled_artifacts.charon_llbc.bpann.target_information.value.primitive_alignments]]
+key = "Bool"
+value = 1
+
+[[compiled_artifacts.charon_llbc.bpann.target_information.value.primitive_alignments]]
+value = 1
+
+[compiled_artifacts.charon_llbc.bpann.target_information.value.primitive_alignments.key.Integer]
+Signed = "I8"
+
+[[compiled_artifacts.charon_llbc.bpann.target_information.value.primitive_alignments]]
+value = 2
+
+[compiled_artifacts.charon_llbc.bpann.target_information.value.primitive_alignments.key.Integer]
+Signed = "I16"
+
+[[compiled_artifacts.charon_llbc.bpann.target_information.value.primitive_alignments]]
+value = 4
+
+[compiled_artifacts.charon_llbc.bpann.target_information.value.primitive_alignments.key.Integer]
+Signed = "I32"
+
+[[compiled_artifacts.charon_llbc.bpann.target_information.value.primitive_alignments]]
+value = 8
+
+[compiled_artifacts.charon_llbc.bpann.target_information.value.primitive_alignments.key.Integer]
+Signed = "I64"
+
+[[compiled_artifacts.charon_llbc.bpann.target_information.value.primitive_alignments]]
+value = 16
+
+[compiled_artifacts.charon_llbc.bpann.target_information.value.primitive_alignments.key.Integer]
+Signed = "I128"
+
+[[compiled_artifacts.charon_llbc.bpann.target_information.value.primitive_alignments]]
+value = 8
+
+[compiled_artifacts.charon_llbc.bpann.target_information.value.primitive_alignments.key.Integer]
+Signed = "Isize"
+
+[[compiled_artifacts.charon_llbc.bpann.target_information.value.primitive_alignments]]
+value = 1
+
+[compiled_artifacts.charon_llbc.bpann.target_information.value.primitive_alignments.key.Integer]
+Unsigned = "U8"
+
+[[compiled_artifacts.charon_llbc.bpann.target_information.value.primitive_alignments]]
+value = 2
+
+[compiled_artifacts.charon_llbc.bpann.target_information.value.primitive_alignments.key.Integer]
+Unsigned = "U16"
+
+[[compiled_artifacts.charon_llbc.bpann.target_information.value.primitive_alignments]]
+value = 4
+
+[compiled_artifacts.charon_llbc.bpann.target_information.value.primitive_alignments.key.Integer]
+Unsigned = "U32"
+
+[[compiled_artifacts.charon_llbc.bpann.target_information.value.primitive_alignments]]
+value = 8
+
+[compiled_artifacts.charon_llbc.bpann.target_information.value.primitive_alignments.key.Integer]
+Unsigned = "U64"
+
+[[compiled_artifacts.charon_llbc.bpann.target_information.value.primitive_alignments]]
+value = 16
+
+[compiled_artifacts.charon_llbc.bpann.target_information.value.primitive_alignments.key.Integer]
+Unsigned = "U128"
+
+[[compiled_artifacts.charon_llbc.bpann.target_information.value.primitive_alignments]]
+value = 8
+
+[compiled_artifacts.charon_llbc.bpann.target_information.value.primitive_alignments.key.Integer]
+Unsigned = "Usize"
+
+[[compiled_artifacts.charon_llbc.bpann.target_information.value.primitive_alignments]]
+value = 2
+
+[compiled_artifacts.charon_llbc.bpann.target_information.value.primitive_alignments.key]
+Float = "F16"
+
+[[compiled_artifacts.charon_llbc.bpann.target_information.value.primitive_alignments]]
+value = 4
+
+[compiled_artifacts.charon_llbc.bpann.target_information.value.primitive_alignments.key]
+Float = "F32"
+
+[[compiled_artifacts.charon_llbc.bpann.target_information.value.primitive_alignments]]
+value = 8
+
+[compiled_artifacts.charon_llbc.bpann.target_information.value.primitive_alignments.key]
+Float = "F64"
+
+[[compiled_artifacts.charon_llbc.bpann.target_information.value.primitive_alignments]]
+value = 16
+
+[compiled_artifacts.charon_llbc.bpann.target_information.value.primitive_alignments.key]
+Float = "F128"
+
+[[compiled_artifacts.charon_llbc.bpann.target_information.value.primitive_alignments]]
+key = "Char"
+value = 4
 
 [compiled_artifacts.charon_llbc.ennbo]
 path = ".cache/baux/aeneas/probe-full-upstream/ennbo.llbc"
@@ -170,26 +266,115 @@ manifest_functions_total = 546
 
 [[compiled_artifacts.charon_llbc.ennbo.target_information]]
 key = "aarch64-apple-darwin"
-value = { target_pointer_size = 8, is_little_endian = true, c_enum_smallest_repr_ty = "I32", primitive_alignments = [
-  { key = "Bool", value = 1 },
-  { key = { Integer = { Signed = "I8" } }, value = 1 },
-  { key = { Integer = { Signed = "I16" } }, value = 2 },
-  { key = { Integer = { Signed = "I32" } }, value = 4 },
-  { key = { Integer = { Signed = "I64" } }, value = 8 },
-  { key = { Integer = { Signed = "I128" } }, value = 16 },
-  { key = { Integer = { Signed = "Isize" } }, value = 8 },
-  { key = { Integer = { Unsigned = "U8" } }, value = 1 },
-  { key = { Integer = { Unsigned = "U16" } }, value = 2 },
-  { key = { Integer = { Unsigned = "U32" } }, value = 4 },
-  { key = { Integer = { Unsigned = "U64" } }, value = 8 },
-  { key = { Integer = { Unsigned = "U128" } }, value = 16 },
-  { key = { Integer = { Unsigned = "Usize" } }, value = 8 },
-  { key = { Float = "F16" }, value = 2 },
-  { key = { Float = "F32" }, value = 4 },
-  { key = { Float = "F64" }, value = 8 },
-  { key = { Float = "F128" }, value = 16 },
-  { key = "Char", value = 4 },
-] }
+
+[compiled_artifacts.charon_llbc.ennbo.target_information.value]
+target_pointer_size = 8
+is_little_endian = true
+c_enum_smallest_repr_ty = "I32"
+
+[[compiled_artifacts.charon_llbc.ennbo.target_information.value.primitive_alignments]]
+key = "Bool"
+value = 1
+
+[[compiled_artifacts.charon_llbc.ennbo.target_information.value.primitive_alignments]]
+value = 1
+
+[compiled_artifacts.charon_llbc.ennbo.target_information.value.primitive_alignments.key.Integer]
+Signed = "I8"
+
+[[compiled_artifacts.charon_llbc.ennbo.target_information.value.primitive_alignments]]
+value = 2
+
+[compiled_artifacts.charon_llbc.ennbo.target_information.value.primitive_alignments.key.Integer]
+Signed = "I16"
+
+[[compiled_artifacts.charon_llbc.ennbo.target_information.value.primitive_alignments]]
+value = 4
+
+[compiled_artifacts.charon_llbc.ennbo.target_information.value.primitive_alignments.key.Integer]
+Signed = "I32"
+
+[[compiled_artifacts.charon_llbc.ennbo.target_information.value.primitive_alignments]]
+value = 8
+
+[compiled_artifacts.charon_llbc.ennbo.target_information.value.primitive_alignments.key.Integer]
+Signed = "I64"
+
+[[compiled_artifacts.charon_llbc.ennbo.target_information.value.primitive_alignments]]
+value = 16
+
+[compiled_artifacts.charon_llbc.ennbo.target_information.value.primitive_alignments.key.Integer]
+Signed = "I128"
+
+[[compiled_artifacts.charon_llbc.ennbo.target_information.value.primitive_alignments]]
+value = 8
+
+[compiled_artifacts.charon_llbc.ennbo.target_information.value.primitive_alignments.key.Integer]
+Signed = "Isize"
+
+[[compiled_artifacts.charon_llbc.ennbo.target_information.value.primitive_alignments]]
+value = 1
+
+[compiled_artifacts.charon_llbc.ennbo.target_information.value.primitive_alignments.key.Integer]
+Unsigned = "U8"
+
+[[compiled_artifacts.charon_llbc.ennbo.target_information.value.primitive_alignments]]
+value = 2
+
+[compiled_artifacts.charon_llbc.ennbo.target_information.value.primitive_alignments.key.Integer]
+Unsigned = "U16"
+
+[[compiled_artifacts.charon_llbc.ennbo.target_information.value.primitive_alignments]]
+value = 4
+
+[compiled_artifacts.charon_llbc.ennbo.target_information.value.primitive_alignments.key.Integer]
+Unsigned = "U32"
+
+[[compiled_artifacts.charon_llbc.ennbo.target_information.value.primitive_alignments]]
+value = 8
+
+[compiled_artifacts.charon_llbc.ennbo.target_information.value.primitive_alignments.key.Integer]
+Unsigned = "U64"
+
+[[compiled_artifacts.charon_llbc.ennbo.target_information.value.primitive_alignments]]
+value = 16
+
+[compiled_artifacts.charon_llbc.ennbo.target_information.value.primitive_alignments.key.Integer]
+Unsigned = "U128"
+
+[[compiled_artifacts.charon_llbc.ennbo.target_information.value.primitive_alignments]]
+value = 8
+
+[compiled_artifacts.charon_llbc.ennbo.target_information.value.primitive_alignments.key.Integer]
+Unsigned = "Usize"
+
+[[compiled_artifacts.charon_llbc.ennbo.target_information.value.primitive_alignments]]
+value = 2
+
+[compiled_artifacts.charon_llbc.ennbo.target_information.value.primitive_alignments.key]
+Float = "F16"
+
+[[compiled_artifacts.charon_llbc.ennbo.target_information.value.primitive_alignments]]
+value = 4
+
+[compiled_artifacts.charon_llbc.ennbo.target_information.value.primitive_alignments.key]
+Float = "F32"
+
+[[compiled_artifacts.charon_llbc.ennbo.target_information.value.primitive_alignments]]
+value = 8
+
+[compiled_artifacts.charon_llbc.ennbo.target_information.value.primitive_alignments.key]
+Float = "F64"
+
+[[compiled_artifacts.charon_llbc.ennbo.target_information.value.primitive_alignments]]
+value = 16
+
+[compiled_artifacts.charon_llbc.ennbo.target_information.value.primitive_alignments.key]
+Float = "F128"
+
+[[compiled_artifacts.charon_llbc.ennbo.target_information.value.primitive_alignments]]
+key = "Char"
+value = 4
 
 [compiled_artifacts.charon_llbc.enn-py]
 path = ".cache/baux/aeneas/probe-full-upstream/enn-py.llbc"
@@ -204,26 +389,115 @@ manifest_functions_total = 20
 
 [[compiled_artifacts.charon_llbc.enn-py.target_information]]
 key = "aarch64-apple-darwin"
-value = { target_pointer_size = 8, is_little_endian = true, c_enum_smallest_repr_ty = "I32", primitive_alignments = [
-  { key = "Bool", value = 1 },
-  { key = { Integer = { Signed = "I8" } }, value = 1 },
-  { key = { Integer = { Signed = "I16" } }, value = 2 },
-  { key = { Integer = { Signed = "I32" } }, value = 4 },
-  { key = { Integer = { Signed = "I64" } }, value = 8 },
-  { key = { Integer = { Signed = "I128" } }, value = 16 },
-  { key = { Integer = { Signed = "Isize" } }, value = 8 },
-  { key = { Integer = { Unsigned = "U8" } }, value = 1 },
-  { key = { Integer = { Unsigned = "U16" } }, value = 2 },
-  { key = { Integer = { Unsigned = "U32" } }, value = 4 },
-  { key = { Integer = { Unsigned = "U64" } }, value = 8 },
-  { key = { Integer = { Unsigned = "U128" } }, value = 16 },
-  { key = { Integer = { Unsigned = "Usize" } }, value = 8 },
-  { key = { Float = "F16" }, value = 2 },
-  { key = { Float = "F32" }, value = 4 },
-  { key = { Float = "F64" }, value = 8 },
-  { key = { Float = "F128" }, value = 16 },
-  { key = "Char", value = 4 },
-] }
+
+[compiled_artifacts.charon_llbc.enn-py.target_information.value]
+target_pointer_size = 8
+is_little_endian = true
+c_enum_smallest_repr_ty = "I32"
+
+[[compiled_artifacts.charon_llbc.enn-py.target_information.value.primitive_alignments]]
+key = "Bool"
+value = 1
+
+[[compiled_artifacts.charon_llbc.enn-py.target_information.value.primitive_alignments]]
+value = 1
+
+[compiled_artifacts.charon_llbc.enn-py.target_information.value.primitive_alignments.key.Integer]
+Signed = "I8"
+
+[[compiled_artifacts.charon_llbc.enn-py.target_information.value.primitive_alignments]]
+value = 2
+
+[compiled_artifacts.charon_llbc.enn-py.target_information.value.primitive_alignments.key.Integer]
+Signed = "I16"
+
+[[compiled_artifacts.charon_llbc.enn-py.target_information.value.primitive_alignments]]
+value = 4
+
+[compiled_artifacts.charon_llbc.enn-py.target_information.value.primitive_alignments.key.Integer]
+Signed = "I32"
+
+[[compiled_artifacts.charon_llbc.enn-py.target_information.value.primitive_alignments]]
+value = 8
+
+[compiled_artifacts.charon_llbc.enn-py.target_information.value.primitive_alignments.key.Integer]
+Signed = "I64"
+
+[[compiled_artifacts.charon_llbc.enn-py.target_information.value.primitive_alignments]]
+value = 16
+
+[compiled_artifacts.charon_llbc.enn-py.target_information.value.primitive_alignments.key.Integer]
+Signed = "I128"
+
+[[compiled_artifacts.charon_llbc.enn-py.target_information.value.primitive_alignments]]
+value = 8
+
+[compiled_artifacts.charon_llbc.enn-py.target_information.value.primitive_alignments.key.Integer]
+Signed = "Isize"
+
+[[compiled_artifacts.charon_llbc.enn-py.target_information.value.primitive_alignments]]
+value = 1
+
+[compiled_artifacts.charon_llbc.enn-py.target_information.value.primitive_alignments.key.Integer]
+Unsigned = "U8"
+
+[[compiled_artifacts.charon_llbc.enn-py.target_information.value.primitive_alignments]]
+value = 2
+
+[compiled_artifacts.charon_llbc.enn-py.target_information.value.primitive_alignments.key.Integer]
+Unsigned = "U16"
+
+[[compiled_artifacts.charon_llbc.enn-py.target_information.value.primitive_alignments]]
+value = 4
+
+[compiled_artifacts.charon_llbc.enn-py.target_information.value.primitive_alignments.key.Integer]
+Unsigned = "U32"
+
+[[compiled_artifacts.charon_llbc.enn-py.target_information.value.primitive_alignments]]
+value = 8
+
+[compiled_artifacts.charon_llbc.enn-py.target_information.value.primitive_alignments.key.Integer]
+Unsigned = "U64"
+
+[[compiled_artifacts.charon_llbc.enn-py.target_information.value.primitive_alignments]]
+value = 16
+
+[compiled_artifacts.charon_llbc.enn-py.target_information.value.primitive_alignments.key.Integer]
+Unsigned = "U128"
+
+[[compiled_artifacts.charon_llbc.enn-py.target_information.value.primitive_alignments]]
+value = 8
+
+[compiled_artifacts.charon_llbc.enn-py.target_information.value.primitive_alignments.key.Integer]
+Unsigned = "Usize"
+
+[[compiled_artifacts.charon_llbc.enn-py.target_information.value.primitive_alignments]]
+value = 2
+
+[compiled_artifacts.charon_llbc.enn-py.target_information.value.primitive_alignments.key]
+Float = "F16"
+
+[[compiled_artifacts.charon_llbc.enn-py.target_information.value.primitive_alignments]]
+value = 4
+
+[compiled_artifacts.charon_llbc.enn-py.target_information.value.primitive_alignments.key]
+Float = "F32"
+
+[[compiled_artifacts.charon_llbc.enn-py.target_information.value.primitive_alignments]]
+value = 8
+
+[compiled_artifacts.charon_llbc.enn-py.target_information.value.primitive_alignments.key]
+Float = "F64"
+
+[[compiled_artifacts.charon_llbc.enn-py.target_information.value.primitive_alignments]]
+value = 16
+
+[compiled_artifacts.charon_llbc.enn-py.target_information.value.primitive_alignments.key]
+Float = "F128"
+
+[[compiled_artifacts.charon_llbc.enn-py.target_information.value.primitive_alignments]]
+key = "Char"
+value = 4
 
 [axiom_and_trust_audit]
 checked_declarations = [
@@ -321,19 +595,15 @@ sorry_count = 0
 ]
 
 [trajectory_verification]
-trajectory_suite_sha256 = "0c4e711c5bfaf07181fd544736aeba9e8718289c890e2e8441dd5c8199791dd0"
+trajectory_suite_sha256 = "caf9d7c871dca6133a02466461ddd0a4446600e90b914ad3ab4c8b0f28859d01"
 bit_exact_f64_parity = true
 cabi_symbols_verified = [
   "baux_accept",
-  "baux_action",
   "baux_world",
   "baux_anchored",
   "baux_routed",
   "baux_total",
   "baux_window",
-  "baux_cell",
-  "baux_slot",
-  "baux_sign",
   "baux_numerical_init",
   "baux_numerical",
   "baux_numerical_fini",
@@ -344,6 +614,8 @@ documented_local_corrections = [
   "fit.rs (compute_loglik & loo_neighbors): local evaluates -0.5*ln(2*pi) - ln(se) - 0.5*((y - mu)/se)^2 without squaring se (avoiding binary64 se*se underflow below 1e-154) and excludes held-out LOO rows by exact row ID (id != held) rather than distance threshold 1e-15",
   "knn (ExactBackend vs FaissBackend and smnsrch): local in-memory ExactBackend computes exact binary64 squared-L2 distances (matching baux::semantics::neighbor and upstream small_n_search f64 bit-for-bit), while local BpAnnDisk smnsrch uses binary32 resident flat cache (matching upstream FaissBackend f32 bit-for-bit)",
   "acquisition.rs (UCBAcquisition & ParetoAcquisition::nondomin_2d): local uses a deterministic streaming min-heap without advancing RNG in UCB and an O(n log n) 2D sweep in Pareto non-dominated sorting",
+  "candidates.rs (generate_raasp): local clamps num_pert to num_dim and selects perturbed coordinates without replacement via partial Fisher-Yates (Knuth 3.4.2P) rather than sampling num_pert coordinates with replacement",
+  "surrogate.rs (ENNSurrogate::run_fitter): local refreshes finite-sample ARD coordinate weights via model.refresh_finite as soon as n >= 2 under MetricLearning::Auto",
 ]
 
 [trajectory_verification.suite.primitives]
@@ -451,7 +723,72 @@ enn_posterior_draw = [
 enn_conditional_mu = ["3ff4e7e124b93f8c", "3fd146c7d48c53dd"]
 enn_conditional_se = ["3fda33ea5077f813", "3fdfcbf088d9905c"]
 
-[trajectory_verification.suite.shared_exact_trajectories.turbo_zero]
+[trajectory_verification.suite.shared_exact_trajectories.lhd_only]
+ask_bits = [
+  "40231ebc823a28db",
+  "bfaaee019c44b800",
+  "3ff9ce17017ebf74",
+  "4023f8a051871c4e",
+  "c01149ee0dcf6013",
+  "3fffa4d2b40dae69",
+  "3feb91e2d5008eca",
+  "4011042c7a434bf8",
+  "4007bb9c0a4be7b3",
+  "3ffea58ed67a5040",
+  "c00f6a972592cc65",
+  "3ff70325209bac5d",
+  "40171869eecaee51",
+  "3fd32e1908a9fd20",
+  "400083c8d475503d",
+  "4023ae0e72857e93",
+  "c00a6ebc6e140bc8",
+  "3ff5e9f001fee684",
+]
+incumbent_x_bits = [
+  "40231ebc823a28db",
+  "bfaaee019c44b800",
+  "3ff9ce17017ebf74",
+  "3feb91e2d5008eca",
+  "4011042c7a434bf8",
+  "4007bb9c0a4be7b3",
+  "3ffea58ed67a5040",
+  "c00f6a972592cc65",
+  "3ff70325209bac5d",
+  "3ffea58ed67a5040",
+  "c00f6a972592cc65",
+  "3ff70325209bac5d",
+]
+init_progress = [1, 6, 3, 6, 5, 6, 6, 6]
+x_obs_bits = [
+  "40231ebc823a28db",
+  "bfaaee019c44b800",
+  "3ff9ce17017ebf74",
+  "4023f8a051871c4e",
+  "c01149ee0dcf6013",
+  "3fffa4d2b40dae69",
+  "3feb91e2d5008eca",
+  "4011042c7a434bf8",
+  "4007bb9c0a4be7b3",
+  "3ffea58ed67a5040",
+  "c00f6a972592cc65",
+  "3ff70325209bac5d",
+  "40171869eecaee51",
+  "3fd32e1908a9fd20",
+  "400083c8d475503d",
+  "4023ae0e72857e93",
+  "c00a6ebc6e140bc8",
+  "3ff5e9f001fee684",
+]
+y_obs_bits = [
+  "c059cd6cf9768c30",
+  "c06047b74c0c0b00",
+  "c03c9d56dc55bab4",
+  "c035a53ef4848115",
+  "c0453ab3323a29a9",
+  "c05d58b9e5bd4a71",
+]
+
+[trajectory_verification.suite.enn_trajectories.turbo_zero.upstream]
 ask_bits = [
   "3fff6b39d5cf0104",
   "3ffed6fdda7a871f",
@@ -572,69 +909,125 @@ y_obs_bits = [
   "c019a02ea96c328d",
 ]
 
-[trajectory_verification.suite.shared_exact_trajectories.lhd_only]
+[trajectory_verification.suite.enn_trajectories.turbo_zero.corrected_local]
 ask_bits = [
-  "40231ebc823a28db",
-  "bfaaee019c44b800",
-  "3ff9ce17017ebf74",
-  "4023f8a051871c4e",
-  "c01149ee0dcf6013",
-  "3fffa4d2b40dae69",
-  "3feb91e2d5008eca",
-  "4011042c7a434bf8",
-  "4007bb9c0a4be7b3",
-  "3ffea58ed67a5040",
-  "c00f6a972592cc65",
-  "3ff70325209bac5d",
-  "40171869eecaee51",
-  "3fd32e1908a9fd20",
-  "400083c8d475503d",
-  "4023ae0e72857e93",
-  "c00a6ebc6e140bc8",
-  "3ff5e9f001fee684",
+  "3fff6b39d5cf0104",
+  "3ffed6fdda7a871f",
+  "bfc8155f8ef4fd00",
+  "bffee164e77bd39e",
+  "3fe68625a3fff34d",
+  "3fe7d0f02e14d90c",
+  "40056b34f021290e",
+  "3fd03595e0094722",
+  "3fe23f9732e36be4",
+  "bff2300839b29b3a",
+  "3ffb77e312883977",
+  "bfc474ba0d3f5ac8",
+  "bff58d8a2c49f51a",
+  "3fd41f695942d0a3",
+  "3fe95a3958a764f0",
+  "bff76338a8b004be",
+  "3ff4bec5141e1de7",
+  "3fe8d7f887d736a4",
+  "bfd1f71dfbb4e6d0",
+  "3fbc1e2a4e8f107d",
+  "3fe313ee4c303d78",
+  "3fe7dbf9ca9608f0",
+  "3fe7c86cf5aa0286",
+  "3fe191400c74b41c",
+  "bffa2f357467b844",
+  "3fda05e6100d138b",
+  "3fb7ad7610b0bca0",
+  "bff6fe0e85ed093f",
+  "3fdac6edac9ee641",
+  "3fdce768f517dc54",
+  "c0033c8fd7488e6c",
+  "3fe8691401bf4e82",
+  "3fe1ecb6ebbfa2d2",
+  "bfe73d6a322f7738",
+  "3fd3556d78ffeb28",
+  "3fea39bc1d836790",
 ]
 incumbent_x_bits = [
-  "40231ebc823a28db",
-  "bfaaee019c44b800",
-  "3ff9ce17017ebf74",
-  "3feb91e2d5008eca",
-  "4011042c7a434bf8",
-  "4007bb9c0a4be7b3",
-  "3ffea58ed67a5040",
-  "c00f6a972592cc65",
-  "3ff70325209bac5d",
-  "3ffea58ed67a5040",
-  "c00f6a972592cc65",
-  "3ff70325209bac5d",
+  "bffee164e77bd39e",
+  "3fe68625a3fff34d",
+  "3fe7d0f02e14d90c",
+  "bffee164e77bd39e",
+  "3fe68625a3fff34d",
+  "3fe7d0f02e14d90c",
+  "bff58d8a2c49f51a",
+  "3fd41f695942d0a3",
+  "3fe95a3958a764f0",
+  "bfd1f71dfbb4e6d0",
+  "3fbc1e2a4e8f107d",
+  "3fe313ee4c303d78",
+  "bfd1f71dfbb4e6d0",
+  "3fbc1e2a4e8f107d",
+  "3fe313ee4c303d78",
+  "bfd1f71dfbb4e6d0",
+  "3fbc1e2a4e8f107d",
+  "3fe313ee4c303d78",
 ]
-init_progress = [1, 6, 3, 6, 5, 6, 6, 6]
+tr_length_bits = [
+  "3fe999999999999a",
+  "3fe999999999999a",
+  "3fe999999999999a",
+  "3fe999999999999a",
+  "3fe999999999999a",
+  "3fd999999999999a",
+]
+obs_counts = [2, 4, 6, 8, 10, 12]
 x_obs_bits = [
-  "40231ebc823a28db",
-  "bfaaee019c44b800",
-  "3ff9ce17017ebf74",
-  "4023f8a051871c4e",
-  "c01149ee0dcf6013",
-  "3fffa4d2b40dae69",
-  "3feb91e2d5008eca",
-  "4011042c7a434bf8",
-  "4007bb9c0a4be7b3",
-  "3ffea58ed67a5040",
-  "c00f6a972592cc65",
-  "3ff70325209bac5d",
-  "40171869eecaee51",
-  "3fd32e1908a9fd20",
-  "400083c8d475503d",
-  "4023ae0e72857e93",
-  "c00a6ebc6e140bc8",
-  "3ff5e9f001fee684",
+  "3fff6b39d5cf0104",
+  "3ffed6fdda7a871f",
+  "bfc8155f8ef4fd00",
+  "bffee164e77bd39e",
+  "3fe68625a3fff34d",
+  "3fe7d0f02e14d90c",
+  "40056b34f021290e",
+  "3fd03595e0094722",
+  "3fe23f9732e36be4",
+  "bff2300839b29b3a",
+  "3ffb77e312883977",
+  "bfc474ba0d3f5ac8",
+  "bff58d8a2c49f51a",
+  "3fd41f695942d0a3",
+  "3fe95a3958a764f0",
+  "bff76338a8b004be",
+  "3ff4bec5141e1de7",
+  "3fe8d7f887d736a4",
+  "bfd1f71dfbb4e6d0",
+  "3fbc1e2a4e8f107d",
+  "3fe313ee4c303d78",
+  "3fe7dbf9ca9608f0",
+  "3fe7c86cf5aa0286",
+  "3fe191400c74b41c",
+  "bffa2f357467b844",
+  "3fda05e6100d138b",
+  "3fb7ad7610b0bca0",
+  "bff6fe0e85ed093f",
+  "3fdac6edac9ee641",
+  "3fdce768f517dc54",
+  "c0033c8fd7488e6c",
+  "3fe8691401bf4e82",
+  "3fe1ecb6ebbfa2d2",
+  "bfe73d6a322f7738",
+  "3fd3556d78ffeb28",
+  "3fea39bc1d836790",
 ]
 y_obs_bits = [
-  "c059cd6cf9768c30",
-  "c06047b74c0c0b00",
-  "c03c9d56dc55bab4",
-  "c035a53ef4848115",
-  "c0453ab3323a29a9",
-  "c05d58b9e5bd4a71",
+  "c0251299cc2f749d",
+  "c0088ff7a05325f0",
+  "c0248609b9fe9107",
+  "c00fed8d624d1a87",
+  "bff45eee14eb7c0e",
+  "c00a3f78924d6fbb",
+  "bfc8757f1ca567e8",
+  "c001cd334b810eb7",
+  "bffb86dc96eef747",
+  "bff4b4fc617049bf",
+  "c012e0a96d5d051d",
+  "bfe08e4c295960ca",
 ]
 
 [trajectory_verification.suite.enn_trajectories.turbo_enn.upstream]
@@ -771,68 +1164,68 @@ ask_bits = [
   "bffc58bc0b72d974",
   "bff69224afe23e18",
   "3fefbf54a907319f",
-  "c00a4ff7c1d7fea2",
-  "bfd7a79f385ee640",
-  "40065bbed64f1373",
-  "c008842722b06ebd",
-  "bfe37bdee4b09c4c",
-  "40054c848431a13e",
-  "3face31f90304f00",
-  "bffbd7bf2c7623a6",
-  "3fc5de81d0c1d844",
-  "3fcaefcb3f5d2c80",
-  "bff841b94c635ae6",
-  "3fe6486cbc05118c",
-  "3ffa552e6eb8a018",
-  "bfe35c0cbe77524a",
-  "3ffbf9c2f0f80a76",
-  "400168b49ed122b2",
-  "bfea98f462164e8c",
-  "3fe2e8c54b0c5452",
-  "bff9eb4d7177f846",
-  "bfd9783463a95ab8",
-  "3fa4a6006f25d14c",
-  "bfe74f9499c12e68",
-  "bff89120bd3ff68c",
-  "3ffd345df0e91280",
-  "4012a742c522da48",
-  "bff025251d9bc026",
-  "3fe9d0b1c485a24a",
-  "c0129730c34bcaaa",
-  "400bfc4512d4c19a",
-  "4023306de01f2263",
-  "4005fecd5a6a2b76",
-  "400eaa514af84470",
-  "4019ca472f3ae012",
-  "c0115bbc1b135d21",
-  "bff2e95aca8b873a",
-  "40028b1bbf83f189",
-  "c009a580498cd140",
-  "3f8f0fb9c8f45d00",
-  "3fdff5a1b118fea4",
-  "c00acd74abf541ab",
-  "bf815f0c3baa3b00",
-  "3ff140cf4f991eda",
+  "c0077bbccc1ad2d0",
+  "bfe293e878abee12",
+  "40073aeab6f48d0d",
+  "c00a5a6a7fa9eb14",
+  "bfe374ef63d9f450",
+  "3fe97fbe481bcd81",
+  "3fbee3bea0383080",
+  "bfd475e52558906c",
+  "3fb72b90fad3f0f2",
+  "3fc7559d6c3af7e0",
+  "bfffe1bc66f819a6",
+  "3fd6fdb88d61ca6b",
+  "4000addeea861c4e",
+  "3fd64f73120553d0",
+  "3fed8529087fdafa",
+  "3ffb45656b351534",
+  "bfd2bbd37c018e70",
+  "40007d7dd1f69047",
+  "bff7dff3819b2ef8",
+  "3fec14a36a2d7fc0",
+  "3ff7eef160585fef",
+  "bffd540bb423817a",
+  "3fe523afcf66a87c",
+  "3ff054dfb8ae628f",
+  "bff9675a2ae7e90c",
+  "40040c00af95c7a8",
+  "401a27b8ee1dd55e",
+  "3fd937e95de3da60",
+  "3fe7b72118164c40",
+  "3ff4df5793b94c7f",
+  "c01392511edd1ff0",
+  "bfca8b7757f6bf90",
+  "40218369f397400e",
+  "400a6eeaa8d65a14",
+  "4000ecc3379a0fa4",
+  "4000fcdc2a12e48a",
+  "400289c81d515692",
+  "bfdb100eab1bffa4",
+  "3fc2bb8184ff1557",
+  "4002bee7724b68e6",
+  "bfd80d229e871448",
+  "3ffba2fb4eb4762b",
 ]
 posterior_mu_bits = [
-  "c04c1b42b4f534c8",
-  "c04eff4b397e1e56",
-  "c0300be7e992827b",
-  "c048bfaa4b6041dc",
-  "c026761b3e4fedb4",
-  "c048b644327902af",
-  "c026761b3e4fedb4",
-  "c048b644327902af",
-  "c072c519183e84d3",
-  "c062bdf9baf1a587",
-  "c079af93a5e3a0d7",
-  "c0626bba00ef71b9",
-  "c04aa936dbaf21f6",
-  "c054bb3e08cbf6e2",
-  "c03defeb581e4be6",
-  "c0513148c687e317",
-  "c0259ff098fa15b3",
-  "c05080e9bfaa5f4a",
+  "c044e3be5e9752ae",
+  "c04fe7cbef030e64",
+  "c02fe33bc3688c60",
+  "c048b235ce36b66a",
+  "c02294efff37a0a5",
+  "c048b235ce36b66a",
+  "c01c0b1f8e3f760c",
+  "c048b2c2387c24ec",
+  "c072e0782a128808",
+  "c0643b8517552fd9",
+  "c08e33428d61f6b8",
+  "c0643b8b9d62da2b",
+  "c016b83b1fa87d82",
+  "c042e237f74942fc",
+  "c01bb6fdc6301ed8",
+  "c04121d9434b74eb",
+  "c00ef0ca59792c7e",
+  "c04121d9434b74eb",
 ]
 incumbent_x_bits = [
   "bffd83845dffcbc4",
@@ -844,24 +1237,24 @@ incumbent_x_bits = [
   "bffc58bc0b72d974",
   "bff69224afe23e18",
   "3fefbf54a907319f",
-  "3fcaefcb3f5d2c80",
-  "bff841b94c635ae6",
-  "3fe6486cbc05118c",
-  "3fcaefcb3f5d2c80",
-  "bff841b94c635ae6",
-  "3fe6486cbc05118c",
-  "3fcaefcb3f5d2c80",
-  "bff841b94c635ae6",
-  "3fe6486cbc05118c",
-  "4012a742c522da48",
-  "bff025251d9bc026",
-  "3fe9d0b1c485a24a",
-  "c0115bbc1b135d21",
-  "bff2e95aca8b873a",
-  "40028b1bbf83f189",
-  "c009a580498cd140",
-  "3f8f0fb9c8f45d00",
-  "3fdff5a1b118fea4",
+  "3fbee3bea0383080",
+  "bfd475e52558906c",
+  "3fb72b90fad3f0f2",
+  "3fbee3bea0383080",
+  "bfd475e52558906c",
+  "3fb72b90fad3f0f2",
+  "3fbee3bea0383080",
+  "bfd475e52558906c",
+  "3fb72b90fad3f0f2",
+  "3fd937e95de3da60",
+  "3fe7b72118164c40",
+  "3ff4df5793b94c7f",
+  "3fd937e95de3da60",
+  "3fe7b72118164c40",
+  "3ff4df5793b94c7f",
+  "3fd937e95de3da60",
+  "3fe7b72118164c40",
+  "3ff4df5793b94c7f",
 ]
 tr_length_bits = [
   "3fd999999999999a",
@@ -1014,30 +1407,30 @@ ask_bits = [
   "3fe1f93d9765988f",
 ]
 posterior_mu_bits = [
-  "c0186a027c0c7b02",
-  "c015058071265085",
-  "c00cf2ec91780f20",
-  "c00f9572e4162c5a",
-  "c0130b823cbfa801",
-  "c00c5241518e4495",
-  "c006e7091edc9952",
-  "c0125f8e6219f12d",
-  "c013d1649b99ab44",
-  "c00cbfe96f08a53a",
-  "c002c25fd75a3ab5",
-  "c00fcedf007f8f20",
-  "c013c0b7e07cf01b",
-  "c00c9491988c4d7f",
-  "c003aa2031a65c2a",
-  "c00df52b4f97a82d",
-  "c0138c53efa5cf7f",
-  "c00c7422683376ef",
-  "c003a9ba1ad295dc",
-  "c00df486d86ab9ee",
-  "c0138c53efa5cf7f",
-  "c00c7422683376ef",
-  "c003a9ba1ad295dc",
-  "c00df486d86ab9ee",
+  "c02028a282665425",
+  "c0192e02ce8164ca",
+  "c017b0dd1e29efeb",
+  "c014a416fef209d0",
+  "c01317d7ed4907d1",
+  "c00c4bacc8e48bc8",
+  "c006e4ccc24e5329",
+  "c01263600c0560cc",
+  "c013d1c3bc8e35c4",
+  "c00cd49da3d4b3a4",
+  "c002c3859a34d408",
+  "c00fcf633318e11f",
+  "c013c4fdc07c16e1",
+  "c00cb39dc0df8260",
+  "c003a99e45b6e014",
+  "c00df459f7fb43de",
+  "c013906c8f34aabb",
+  "c00c7e05ab4788a2",
+  "c003a99e45b6e014",
+  "c00df459f7fb43de",
+  "c013906c8f34aabb",
+  "c00c7e05ab4788a2",
+  "c003a99e45b6e014",
+  "c00df459f7fb43de",
 ]
 incumbent_x_bits = [
   "bfe8d2a8d418c020",
@@ -1222,36 +1615,36 @@ opt_ask_bits = [
   "3ff5f20f333fd327",
   "3fdbef1373562838",
   "40012fe54eb430ca",
-  "3fe067fcc1391d8d",
-  "bfece5e34e090f82",
-  "3fdc424400e565bc",
-  "3fca5e7060b12a7e",
-  "bfd7d194d717423c",
-  "3fb92cda86b75576",
-  "3fe77bfc4b31ed7d",
-  "bfecaeacd6c867c8",
-  "3ff96a36f067e3da",
-  "3fb014026e0171c4",
-  "3f78373cc8cf9f00",
-  "3ff07d206cd3af60",
-  "3fe14a24c9926158",
-  "3fdad32976b30518",
-  "3ff0a58c2656789e",
-  "3fdbedac51c53a0f",
-  "3fd9f8937e829f80",
-  "3fd81a625d77aafa",
+  "3fed35a3150c803a",
+  "bfeb813ec7030150",
+  "3facd756d8646e33",
+  "3ff178aa35179427",
+  "bfe126872460981b",
+  "3fd8e8d57c72a6d5",
+  "3fbf810d659d276c",
+  "3fd9240f03407490",
+  "3fd04f5c3a3a48d4",
+  "3fbdad2023329326",
+  "3fd727c766941578",
+  "3f9072329edc44af",
+  "3fe71c4bbe2199db",
+  "3fe9a5c454dcdca8",
+  "3fd7a7544ab59061",
+  "3fe6cfcec1f0db34",
+  "3fe96c29c3137c1c",
+  "3fcc6cd53bc2cc3a",
 ]
 opt_mu_bits = [
-  "c0209efb5c0451f8",
-  "c01f3ec2818ba59d",
-  "c005f01c8e0c076d",
-  "c00dd4fcc1896ff1",
-  "bfee7239c5a1c11c",
-  "c0031bfec2945fbe",
-  "bfebdb65f95f58e6",
-  "bfed61a4486bc430",
-  "bfefff0414145d91",
-  "bff537e0102130f6",
+  "c0208a9aa42833da",
+  "c01fb302dba36345",
+  "c0115fda03f6db0c",
+  "c0122cc23b9960ff",
+  "bffda3d25098d502",
+  "c00b1fdbe3d15fdc",
+  "bfe7724293a45fcc",
+  "bfe83814ad377381",
+  "bfe7724293a45fcc",
+  "bffa967e8156854c",
 ]
 opt_incumbent_bits = [
   "3ffcf6e7da781070",
@@ -1260,13 +1653,13 @@ opt_incumbent_bits = [
   "3fe20bc0d4a6b96c",
   "bfc6d6550add4938",
   "3fd646339634edac",
-  "3fca5e7060b12a7e",
-  "bfd7d194d717423c",
-  "3fb92cda86b75576",
-  "3fca5e7060b12a7e",
-  "bfd7d194d717423c",
-  "3fb92cda86b75576",
-  "3fca5e7060b12a7e",
-  "bfd7d194d717423c",
-  "3fb92cda86b75576",
+  "3fe20bc0d4a6b96c",
+  "bfc6d6550add4938",
+  "3fd646339634edac",
+  "3fbf810d659d276c",
+  "3fd9240f03407490",
+  "3fd04f5c3a3a48d4",
+  "3fbf810d659d276c",
+  "3fd9240f03407490",
+  "3fd04f5c3a3a48d4",
 ]

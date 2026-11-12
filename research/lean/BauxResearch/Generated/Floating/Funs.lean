@@ -31,31 +31,31 @@ def F64.Insts.CoreCloneClone : core.clone.Clone
   clone := BauxResearch.Extraction.Native.F64.clone
 }
 
-/-- [baux_semantics::float::single_from]:
-    Source: 'src/float.rs', lines 293:0-295:1
+/-- [baux_semantics::float::bits::single_from]:
+    Source: 'src/float/bits.rs', lines 134:0-136:1
     Visibility: public -/
-def float.single_from
+def float.bits.single_from
   (bits : Std.U32) : Result BauxResearch.Extraction.Native.F32 := do
   BauxResearch.Extraction.Native.F32.fromBits bits
 
-/-- [baux_semantics::float::single_bits]:
-    Source: 'src/float.rs', lines 299:0-301:1
+/-- [baux_semantics::float::bits::single_bits]:
+    Source: 'src/float/bits.rs', lines 140:0-142:1
     Visibility: public -/
-def float.single_bits
+def float.bits.single_bits
   (val : BauxResearch.Extraction.Native.F32) : Result Std.U32 := do
   BauxResearch.Extraction.Native.F32.toBits val
 
-/-- [baux_semantics::float::double_from]:
-    Source: 'src/float.rs', lines 305:0-307:1
+/-- [baux_semantics::float::bits::double_from]:
+    Source: 'src/float/bits.rs', lines 146:0-148:1
     Visibility: public -/
-def float.double_from
+def float.bits.double_from
   (bits : Std.U64) : Result BauxResearch.Extraction.Native.F64 := do
   BauxResearch.Extraction.Native.F64.fromBits bits
 
-/-- [baux_semantics::float::double_bits]:
-    Source: 'src/float.rs', lines 311:0-313:1
+/-- [baux_semantics::float::bits::double_bits]:
+    Source: 'src/float/bits.rs', lines 152:0-154:1
     Visibility: public -/
-def float.double_bits
+def float.bits.double_bits
   (val : BauxResearch.Extraction.Native.F64) : Result Std.U64 := do
   BauxResearch.Extraction.Native.F64.toBits val
 
@@ -140,7 +140,8 @@ def random.from_unit_loop0_loop0
   (iter : core.ops.range.Range Std.Usize)
   (x_unit : Slice BauxResearch.Extraction.Native.F64)
   (bounds : Slice (Array BauxResearch.Extraction.Native.F64 2#usize))
-  (d : Std.Usize) (result : alloc.vec.Vec BauxResearch.Extraction.Native.F64)
+  (d : Std.Usize)
+  (result : alloc.vec.Vec BauxResearch.Extraction.Native.F64)
   (i : Std.Usize) :
   Result (alloc.vec.Vec BauxResearch.Extraction.Native.F64)
   := do
@@ -180,7 +181,8 @@ def random.from_unit_loop0
   (iter : core.ops.range.Range Std.Usize)
   (x_unit : Slice BauxResearch.Extraction.Native.F64)
   (bounds : Slice (Array BauxResearch.Extraction.Native.F64 2#usize))
-  (d : Std.Usize) (result : alloc.vec.Vec BauxResearch.Extraction.Native.F64) :
+  (d : Std.Usize)
+  (result : alloc.vec.Vec BauxResearch.Extraction.Native.F64) :
   Result (alloc.vec.Vec BauxResearch.Extraction.Native.F64)
   := do
   loop
@@ -249,7 +251,8 @@ def random.to_unit_loop0_loop0.body
         alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
           BauxResearch.Extraction.Native.F64) result i2
       let result1 :=
-        index_mut_back (BauxResearch.Extraction.Native.F64.literal false 5 10)
+        index_mut_back
+          (BauxResearch.Extraction.Native.F64.literal false 5 10)
       ok (cont (iter1, result1))
 
 /-- [baux_semantics::random::to_unit]: loop 1:
@@ -260,7 +263,8 @@ def random.to_unit_loop0_loop0
   (iter : core.ops.range.Range Std.Usize)
   (x : Slice BauxResearch.Extraction.Native.F64)
   (bounds : Slice (Array BauxResearch.Extraction.Native.F64 2#usize))
-  (d : Std.Usize) (result : alloc.vec.Vec BauxResearch.Extraction.Native.F64)
+  (d : Std.Usize)
+  (result : alloc.vec.Vec BauxResearch.Extraction.Native.F64)
   (i : Std.Usize) :
   Result (alloc.vec.Vec BauxResearch.Extraction.Native.F64)
   := do
@@ -300,7 +304,8 @@ def random.to_unit_loop0
   (iter : core.ops.range.Range Std.Usize)
   (x : Slice BauxResearch.Extraction.Native.F64)
   (bounds : Slice (Array BauxResearch.Extraction.Native.F64 2#usize))
-  (d : Std.Usize) (result : alloc.vec.Vec BauxResearch.Extraction.Native.F64) :
+  (d : Std.Usize)
+  (result : alloc.vec.Vec BauxResearch.Extraction.Native.F64) :
   Result (alloc.vec.Vec BauxResearch.Extraction.Native.F64)
   := do
   loop

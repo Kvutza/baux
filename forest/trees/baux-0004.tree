@@ -26,7 +26,18 @@
   \title{TCV Rampdown Policy Search (\code{toka_gym})}
 
   \p{
-    On the open-source EPFL/MIT \code{toka_gym} TCV rampdown benchmark (Wang et al. [[Wan+25]](https://doi.org/10.1038/s41467-025-63917-3), Theiler et al. [[The+26]](https://doi.org/10.1088/1741-4326/ae6d12)), a four-layer policy #{\pi_\theta : \mathbb{R}^{11} \to [-1, 1]^8} of hidden width #{256} (#{D = 136{,}712} parameters) is searched directly from closed-loop trajectories (#{20} steps #{\times\, 4} substeps). Multi-region \code{ENN-TuRBO} fits a #{K = 10} Epistemic Nearest Neighbor surrogate by leave-one-out log-likelihood with UCB acquisition across #{R = 10} regions (\code{incumbent-ucb1} routing, sparse coordinate perturbations of expected block size #{d_p = 13{,}671}, #{4} candidates and #{1} evaluated arm per round). Across #{n = 10} paired seeds over #{100} rounds, tracking error drops from \code{65.72} at initialization to \code{1.79} (\code{ellipsoid_ball}) and \code{1.68} (\code{origin_only}), compared with \code{20.59} for on-policy PPO at the same round budget.
+    On the open-source EPFL/MIT \code{toka_gym} TCV plasma rampdown benchmark (Wang et al. [[Wan+25]](https://doi.org/10.1038/s41467-025-63917-3), Theiler et al. [[The+26]](https://doi.org/10.1088/1741-4326/ae6d12)), a four-layer policy #{\pi_\theta : \mathbb{R}^{11} \to [-1, 1]^8} of hidden width #{256} (#{D = 136{,}712} weights) is searched directly on closed-loop trajectories (#{20} steps #{\times\, 4} substeps) over #{10{,}000} sequential rounds across #{n = 10} common-random-number seeds (#{800{,}000} rollouts across #{8} configurations; initial error \code{58.12 ± 31.39}, exact paired initialization drift \code{0.00}). Multi-region surrogate-free \code{TuRBO-zero} (#{R = 10}, sparse coordinate perturbations of expected block size #{d_p = 13{,}671}) produces identical trajectories across all four cross-region sharing topologies (\code{origin-only}, \code{box-contain}, \code{ellipsoid-ball}, \code{nearest-center}), dropping below on-policy PPO (\code{20.59}) by round #{2} (\code{20.33 ± 6.58}) and reaching \code{1.42 ± 0.03} (\code{1.4192 ± 0.0306}) at round #{250}, \code{1.38 ± 0.04} at round #{1{,}000}, \code{1.36 ± 0.03} at round #{3{,}000}, and \code{1.31 ± 0.02} (\code{1.3112 ± 0.0157}) at round #{10{,}000}.
+  }
+
+  \p{
+    Single-region \code{TuRBO-ENN} (#{R = 1}, #{K = 10} Epistemic Nearest Neighbors fitted by leave-one-out log-likelihood with UCB acquisition; [baux.enn](docs.html#baux.enn)) trails #{R = 10} at round #{250} (\code{1.58 ± 0.05} \code{hyperbolic} to \code{1.68 ± 0.08} \code{euclidean}; \code{wasserstein} \code{1.68 ± 0.06}, exact sign-flip #{p_{\mathrm{Holm}} = 0.014}) and steadily closes the gap over #{10{,}000} rounds, reaching \code{1.34 ± 0.03} (\code{1.3409 ± 0.0301}, \code{wasserstein}, paired difference \code{+0.03 ± 0.04}, #{p_{\mathrm{Holm}} = 1.00}; \code{1.35 ± 0.02} \code{euclidean}; \code{1.35 ± 0.03} \code{hyperbolic}; \code{1.37 ± 0.03} \code{conformal}).
+  }
+
+  \scope{
+    \put\transclude/toc{false}
+    \put\transclude/numbered{false}
+    \put\transclude/heading{false}
+    \transclude{baux-0010}
   }
 }
 

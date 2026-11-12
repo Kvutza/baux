@@ -649,7 +649,13 @@ function main()
         return nothing
     end
     if length(ARGS) >= 2 && ARGS[1] == "--daemon"
-        ShmIpc.run_daemon!(ARGS[2], _build_ocean_pool, _eval_ocean_dispatch!; export_env = export_ocean_env)
+        ShmIpc.run_daemon!(
+            ARGS[2],
+            _build_ocean_pool,
+            _eval_ocean_dispatch!;
+            penalty_score = -500.0,
+            export_env = export_ocean_env,
+        )
         return nothing
     end
     length(ARGS) >= 7 || error(

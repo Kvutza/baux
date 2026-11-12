@@ -316,7 +316,7 @@ function eval_fuse!(
     if length(ctx.objective_fns) == 1
         f_min = FUSE.nan2inf(ctx.objective_fns[1](dd))
         if !isfinite(f_min)
-            return -1.0e9, max(viol_l1, 1.0e6)
+            return -500.0, max(viol_l1, 1.0e6)
         end
         return -f_min - ctx.penalty_weight * viol_sq, viol_l1
     end
@@ -332,7 +332,7 @@ function eval_fuse!(
         if isfinite(fm)
             s_out[m] = -fm - ctx.penalty_weight * viol_sq
         else
-            s_out[m] = -1.0e9
+            s_out[m] = -500.0
             any_bad = true
         end
     end
@@ -362,7 +362,11 @@ function _build_fuse_pool(cfg_key::AbstractString)
     cstr_csv = length(parts) >= 5 ? String(parts[5]) : ""
     n = max(Threads.nthreads(), 1)
     ctx1 = build_fuse_ctx(case_name, workflow, obj_name, penalty, cstr_csv)
-    ctx1.warmed = true
+    try
+        eval_fuse!(ctx1, zeros(Float32, length(ctx1.x_buf)), nothing)
+    catch
+        ctx1.warmed = true
+    end
     pool = [i == 1 ? ctx1 : deepcopy(ctx1) for i in 1:n]
     return pool, (ctx1.bnds[1, :], ctx1.bnds[2, :])
 end
@@ -702,7 +706,13 @@ function main()
         return nothing
     end
     if length(ARGS) >= 2 && ARGS[1] == "--daemon"
-        ShmIpc.run_daemon!(ARGS[2], _build_fuse_pool, eval_fuse!; export_env = export_fuse_env)
+        ShmIpc.run_daemon!(
+            ARGS[2],
+            _build_fuse_pool,
+            eval_fuse!;
+            penalty_score = -500.0,
+            export_env = export_fuse_env,
+        )
         return nothing
     end
     length(ARGS) >= 2 || error(

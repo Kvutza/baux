@@ -13,8 +13,8 @@ use harness::{build_rustc, run_binaries, stage_deps, verify_outputs};
 use tpl_local::LOCAL_SOURCE;
 use tpl_up::UPSTREAM_SOURCE;
 
+use baux::artifact::blake3::sha256_hex as digest;
 use baux::artifact::json::{self, Value, json};
-use baux::artifact::runs::digest;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;

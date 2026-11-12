@@ -38,9 +38,9 @@
     },
     {
       "name": "research/extraction/artifact_manifest.toml",
-      "size_bytes": 33848,
+      "size_bytes": 44805,
       "digest": {
-        "blake3": "c3a02938854b852b02adab77820a49c39107a862e8611ce3ce727303b6401ee5"
+        "blake3": "b5ae7888d1a435fed3a55ff5f2ca6b2e4a1caaf619b1b06a83dc0617fe681bad"
       }
     },
     {

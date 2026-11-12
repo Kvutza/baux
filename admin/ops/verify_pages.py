@@ -53,7 +53,7 @@ def check_views(target_dir: Path) -> None:
             "Found obsolete Functions or Module Graph tabs in index.html"
         )
 
-    print("✓ Page layout: Clean baux black box optimization documentation.")
+    print("[ok] Page layout: Clean baux black box optimization documentation.")
 
 
 def check_sensitive(target_dir: Path) -> None:
@@ -78,7 +78,7 @@ def check_sensitive(target_dir: Path) -> None:
             "Sensitive internal text found in public bundle:\n  "
             + "\n  ".join(violations)
         )
-    print("✓ Sensitive content check: Zero internal monograph text present.")
+    print("[ok] Sensitive content check: Zero internal monograph text present.")
 
 
 def check_assets(target_dir: Path) -> None:
@@ -122,7 +122,7 @@ def check_assets(target_dir: Path) -> None:
             raise RuntimeError(f"Obsolete or build-only path present in bundle: {rel}")
 
     print(
-        "✓ Link and asset integrity: All required runtime assets exist and build/legacy bloat excluded."
+        "[ok] Link and asset integrity: All required runtime assets exist and build/legacy bloat excluded."
     )
 
 
@@ -434,7 +434,7 @@ def check_security(target_dir: Path) -> None:
         )
 
     print(
-        "✓ Security gates: CSP, zero inline scripts, SHA-384 SRI, link/scheme hygiene, and secret hygiene verified."
+        "[ok] Security gates: CSP, zero inline scripts, SHA-384 SRI, link/scheme hygiene, and secret hygiene verified."
     )
 
 
@@ -446,14 +446,14 @@ def check_smoke(target_dir: Path) -> None:
     for js in js_files:
         subprocess.check_call(["node", "-c", str(js)])
 
-    print("✓ JavaScript syntax: All assets pass node syntax verification.")
+    print("[ok] JavaScript syntax: All assets pass node syntax verification.")
 
 
 def verify_bundle(target_dir: Path) -> None:
-    print(f"--- Verifying Public Bundle at: {target_dir} ---")
+    print(f"Verifying public bundle: {target_dir}")
     check_views(target_dir)
     check_sensitive(target_dir)
     check_assets(target_dir)
     check_security(target_dir)
     check_smoke(target_dir)
-    print("--- All Public Bundle Checks PASSED ---\n")
+    print("Public bundle verification passed.\n")

@@ -124,9 +124,9 @@ def eval_stein() -> dict[str, float]:
 def eval_affine() -> dict[str, float]:
     """Evaluate WLS `Affine.fit_wls` and `conformal_scale` vs unweighted OLS under heteroscedastic noise."""
     se_cal = np.geomspace(0.02, 5.0, 1000)[:, None]
-    k_cal, k_test = baux.split(baux.key(se_cal), 2)
-    rng_cal = np.random.default_rng(k_cal.seed())
-    rng_test = np.random.default_rng(k_test.seed())
+    keys = baux.split(baux.key(se_cal), 2)
+    rng_cal = np.random.default_rng(keys[0].seed())
+    rng_test = np.random.default_rng(keys[1].seed())
     a_true, b_true, alpha = 0.5, 1.8, 0.1
     mu_cal = rng_cal.uniform(-2.0, 2.0, size=(1000, 1))
     y_cal = a_true + b_true * mu_cal + se_cal * rng_cal.normal(0.0, 1.0, size=(1000, 1))

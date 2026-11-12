@@ -54,7 +54,8 @@ pub(super) fn verify_cabi(root: &Path) -> Result<(), String> {
     fs::write(
         &harness_src,
         format!(
-            r#"#![allow(dead_code)]
+            r#"#![allow(dead_code, incomplete_features, internal_features)]
+#![feature(adt_const_params, contracts, portable_simd)]
 extern crate self as baux;
 pub mod semantics {{
     pub use crate::*;

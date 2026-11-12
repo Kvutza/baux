@@ -217,6 +217,47 @@
     </td>
   </xsl:template>
 
+  <xsl:template match="figure">
+    <figure>
+      <xsl:apply-templates select="@*" />
+      <xsl:apply-templates />
+    </figure>
+  </xsl:template>
+
+  <xsl:template match="figcaption">
+    <figcaption>
+      <xsl:apply-templates select="@*" />
+      <xsl:apply-templates />
+    </figcaption>
+  </xsl:template>
+
+  <xsl:template match="button">
+    <button>
+      <xsl:apply-templates select="@*" />
+      <xsl:apply-templates />
+    </button>
+  </xsl:template>
+
+  <xsl:template match="sup">
+    <sup>
+      <xsl:apply-templates select="@*" />
+      <xsl:apply-templates />
+    </sup>
+  </xsl:template>
+
+  <xsl:template match="sub">
+    <sub>
+      <xsl:apply-templates select="@*" />
+      <xsl:apply-templates />
+    </sub>
+  </xsl:template>
+
+  <xsl:template match="svg | g | path | polyline | polygon | line | rect | circle | text | tspan | defs | clipPath | title">
+    <xsl:element namespace="http://www.w3.org/2000/svg" name="{local-name()}">
+      <xsl:apply-templates select="@* | node()" />
+    </xsl:element>
+  </xsl:template>
+
   <xsl:template match="@id">
     <xsl:attribute name="id"><xsl:value-of select="." /></xsl:attribute>
   </xsl:template>
@@ -243,6 +284,266 @@
 
   <xsl:template match="@aria-label">
     <xsl:attribute name="aria-label"><xsl:value-of select="." /></xsl:attribute>
+  </xsl:template>
+
+  <xsl:template match="@type">
+    <xsl:attribute name="type"><xsl:value-of select="." /></xsl:attribute>
+  </xsl:template>
+
+  <xsl:template match="@hidden">
+    <xsl:attribute name="hidden"><xsl:value-of select="." /></xsl:attribute>
+  </xsl:template>
+
+  <xsl:template match="@role">
+    <xsl:attribute name="role"><xsl:value-of select="." /></xsl:attribute>
+  </xsl:template>
+
+  <xsl:template match="@aria-live">
+    <xsl:attribute name="aria-live"><xsl:value-of select="." /></xsl:attribute>
+  </xsl:template>
+
+  <xsl:template match="@aria-hidden">
+    <xsl:attribute name="aria-hidden"><xsl:value-of select="." /></xsl:attribute>
+  </xsl:template>
+
+  <xsl:template match="@aria-pressed">
+    <xsl:attribute name="aria-pressed"><xsl:value-of select="." /></xsl:attribute>
+  </xsl:template>
+
+  <xsl:template match="@aria-selected">
+    <xsl:attribute name="aria-selected"><xsl:value-of select="." /></xsl:attribute>
+  </xsl:template>
+
+  <xsl:template match="@aria-atomic">
+    <xsl:attribute name="aria-atomic"><xsl:value-of select="." /></xsl:attribute>
+  </xsl:template>
+
+  <xsl:template match="@focusable">
+    <xsl:attribute name="focusable"><xsl:value-of select="." /></xsl:attribute>
+  </xsl:template>
+
+  <xsl:template match="@tabindex">
+    <xsl:attribute name="tabindex"><xsl:value-of select="." /></xsl:attribute>
+  </xsl:template>
+
+  <xsl:template match="@title">
+    <xsl:attribute name="title"><xsl:value-of select="." /></xsl:attribute>
+  </xsl:template>
+
+  <xsl:template match="@data-bench-fig">
+    <xsl:attribute name="data-bench-fig"><xsl:value-of select="." /></xsl:attribute>
+  </xsl:template>
+
+  <xsl:template match="@data-regime">
+    <xsl:attribute name="data-regime"><xsl:value-of select="." /></xsl:attribute>
+  </xsl:template>
+
+  <xsl:template match="@data-view">
+    <xsl:attribute name="data-view"><xsl:value-of select="." /></xsl:attribute>
+  </xsl:template>
+
+  <xsl:template match="@data-scrub">
+    <xsl:attribute name="data-scrub"><xsl:value-of select="." /></xsl:attribute>
+  </xsl:template>
+
+  <xsl:template match="@data-seed">
+    <xsl:attribute name="data-seed"><xsl:value-of select="." /></xsl:attribute>
+  </xsl:template>
+
+  <xsl:template match="@data-arm">
+    <xsl:attribute name="data-arm"><xsl:value-of select="." /></xsl:attribute>
+  </xsl:template>
+
+  <xsl:template match="@data-delta">
+    <xsl:attribute name="data-delta"><xsl:value-of select="." /></xsl:attribute>
+  </xsl:template>
+
+  <xsl:template match="@data-value">
+    <xsl:attribute name="data-value"><xsl:value-of select="." /></xsl:attribute>
+  </xsl:template>
+
+  <xsl:template match="@data-summary">
+    <xsl:attribute name="data-summary"><xsl:value-of select="." /></xsl:attribute>
+  </xsl:template>
+
+  <xsl:template match="@data-x-left">
+    <xsl:attribute name="data-x-left"><xsl:value-of select="." /></xsl:attribute>
+  </xsl:template>
+
+  <xsl:template match="@data-x-right">
+    <xsl:attribute name="data-x-right"><xsl:value-of select="." /></xsl:attribute>
+  </xsl:template>
+
+  <xsl:template match="@data-log-min">
+    <xsl:attribute name="data-log-min"><xsl:value-of select="." /></xsl:attribute>
+  </xsl:template>
+
+  <xsl:template match="@data-log-max">
+    <xsl:attribute name="data-log-max"><xsl:value-of select="." /></xsl:attribute>
+  </xsl:template>
+
+  <xsl:template match="@viewBox">
+    <xsl:attribute name="viewBox"><xsl:value-of select="." /></xsl:attribute>
+  </xsl:template>
+
+  <xsl:template match="@width">
+    <xsl:attribute name="width"><xsl:value-of select="." /></xsl:attribute>
+  </xsl:template>
+
+  <xsl:template match="@height">
+    <xsl:attribute name="height"><xsl:value-of select="." /></xsl:attribute>
+  </xsl:template>
+
+  <xsl:template match="@x">
+    <xsl:attribute name="x"><xsl:value-of select="." /></xsl:attribute>
+  </xsl:template>
+
+  <xsl:template match="@y">
+    <xsl:attribute name="y"><xsl:value-of select="." /></xsl:attribute>
+  </xsl:template>
+
+  <xsl:template match="@dx">
+    <xsl:attribute name="dx"><xsl:value-of select="." /></xsl:attribute>
+  </xsl:template>
+
+  <xsl:template match="@dy">
+    <xsl:attribute name="dy"><xsl:value-of select="." /></xsl:attribute>
+  </xsl:template>
+
+  <xsl:template match="@x1">
+    <xsl:attribute name="x1"><xsl:value-of select="." /></xsl:attribute>
+  </xsl:template>
+
+  <xsl:template match="@y1">
+    <xsl:attribute name="y1"><xsl:value-of select="." /></xsl:attribute>
+  </xsl:template>
+
+  <xsl:template match="@x2">
+    <xsl:attribute name="x2"><xsl:value-of select="." /></xsl:attribute>
+  </xsl:template>
+
+  <xsl:template match="@y2">
+    <xsl:attribute name="y2"><xsl:value-of select="." /></xsl:attribute>
+  </xsl:template>
+
+  <xsl:template match="@cx">
+    <xsl:attribute name="cx"><xsl:value-of select="." /></xsl:attribute>
+  </xsl:template>
+
+  <xsl:template match="@cy">
+    <xsl:attribute name="cy"><xsl:value-of select="." /></xsl:attribute>
+  </xsl:template>
+
+  <xsl:template match="@r">
+    <xsl:attribute name="r"><xsl:value-of select="." /></xsl:attribute>
+  </xsl:template>
+
+  <xsl:template match="@rx">
+    <xsl:attribute name="rx"><xsl:value-of select="." /></xsl:attribute>
+  </xsl:template>
+
+  <xsl:template match="@ry">
+    <xsl:attribute name="ry"><xsl:value-of select="." /></xsl:attribute>
+  </xsl:template>
+
+  <xsl:template match="@d">
+    <xsl:attribute name="d"><xsl:value-of select="." /></xsl:attribute>
+  </xsl:template>
+
+  <xsl:template match="@points">
+    <xsl:attribute name="points"><xsl:value-of select="." /></xsl:attribute>
+  </xsl:template>
+
+  <xsl:template match="@fill">
+    <xsl:attribute name="fill"><xsl:value-of select="." /></xsl:attribute>
+  </xsl:template>
+
+  <xsl:template match="@fill-opacity">
+    <xsl:attribute name="fill-opacity"><xsl:value-of select="." /></xsl:attribute>
+  </xsl:template>
+
+  <xsl:template match="@stroke">
+    <xsl:attribute name="stroke"><xsl:value-of select="." /></xsl:attribute>
+  </xsl:template>
+
+  <xsl:template match="@stroke-width">
+    <xsl:attribute name="stroke-width"><xsl:value-of select="." /></xsl:attribute>
+  </xsl:template>
+
+  <xsl:template match="@stroke-dasharray">
+    <xsl:attribute name="stroke-dasharray"><xsl:value-of select="." /></xsl:attribute>
+  </xsl:template>
+
+  <xsl:template match="@stroke-linecap">
+    <xsl:attribute name="stroke-linecap"><xsl:value-of select="." /></xsl:attribute>
+  </xsl:template>
+
+  <xsl:template match="@stroke-linejoin">
+    <xsl:attribute name="stroke-linejoin"><xsl:value-of select="." /></xsl:attribute>
+  </xsl:template>
+
+  <xsl:template match="@stroke-opacity">
+    <xsl:attribute name="stroke-opacity"><xsl:value-of select="." /></xsl:attribute>
+  </xsl:template>
+
+  <xsl:template match="@opacity">
+    <xsl:attribute name="opacity"><xsl:value-of select="." /></xsl:attribute>
+  </xsl:template>
+
+  <xsl:template match="@text-anchor">
+    <xsl:attribute name="text-anchor"><xsl:value-of select="." /></xsl:attribute>
+  </xsl:template>
+
+  <xsl:template match="@dominant-baseline">
+    <xsl:attribute name="dominant-baseline"><xsl:value-of select="." /></xsl:attribute>
+  </xsl:template>
+
+  <xsl:template match="@font-size">
+    <xsl:attribute name="font-size"><xsl:value-of select="." /></xsl:attribute>
+  </xsl:template>
+
+  <xsl:template match="@font-weight">
+    <xsl:attribute name="font-weight"><xsl:value-of select="." /></xsl:attribute>
+  </xsl:template>
+
+  <xsl:template match="@font-family">
+    <xsl:attribute name="font-family"><xsl:value-of select="." /></xsl:attribute>
+  </xsl:template>
+
+  <xsl:template match="@font-style">
+    <xsl:attribute name="font-style"><xsl:value-of select="." /></xsl:attribute>
+  </xsl:template>
+
+  <xsl:template match="@letter-spacing">
+    <xsl:attribute name="letter-spacing"><xsl:value-of select="." /></xsl:attribute>
+  </xsl:template>
+
+  <xsl:template match="@transform">
+    <xsl:attribute name="transform"><xsl:value-of select="." /></xsl:attribute>
+  </xsl:template>
+
+  <xsl:template match="@clip-path">
+    <xsl:attribute name="clip-path"><xsl:value-of select="." /></xsl:attribute>
+  </xsl:template>
+
+  <xsl:template match="@clipPathUnits">
+    <xsl:attribute name="clipPathUnits"><xsl:value-of select="." /></xsl:attribute>
+  </xsl:template>
+
+  <xsl:template match="@vector-effect">
+    <xsl:attribute name="vector-effect"><xsl:value-of select="." /></xsl:attribute>
+  </xsl:template>
+
+  <xsl:template match="@paint-order">
+    <xsl:attribute name="paint-order"><xsl:value-of select="." /></xsl:attribute>
+  </xsl:template>
+
+  <xsl:template match="@pointer-events">
+    <xsl:attribute name="pointer-events"><xsl:value-of select="." /></xsl:attribute>
+  </xsl:template>
+
+  <xsl:template match="@shape-rendering">
+    <xsl:attribute name="shape-rendering"><xsl:value-of select="." /></xsl:attribute>
   </xsl:template>
 
   <xsl:template match="mml:*">

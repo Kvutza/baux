@@ -6,10 +6,29 @@ const RUNTIME_TARGET: &str = "//rust/crates/runner:baux-runner";
 
 #[derive(clap::Args)]
 pub struct Tune {
-    #[arg(required_unless_present = "history", conflicts_with_all = ["history", "since", "until", "task", "optimizer", "limit", "reindex", "diff", "serve", "json"])]
+    #[arg(
+        required_unless_present_any = ["history", "schema", "import_campaign"],
+        conflicts_with_all = ["history", "since", "until", "task", "optimizer", "limit", "reindex", "diff", "serve", "json"]
+    )]
     pub config: Option<PathBuf>,
     #[arg(long, conflicts_with_all = ["history"])]
     pub rounds: Option<u32>,
+    #[arg(long, conflicts_with_all = ["history"])]
+    pub repetitions: Option<u32>,
+    #[arg(long, conflicts_with_all = ["history"])]
+    pub jobs: Option<usize>,
+    #[arg(short = 's', long = "set", conflicts_with_all = ["history"])]
+    pub set: Vec<String>,
+    #[arg(long, conflicts_with_all = ["history"])]
+    pub prune: Option<String>,
+    #[arg(long, conflicts_with_all = ["history"])]
+    pub plan: bool,
+    #[arg(long, conflicts_with_all = ["history"])]
+    pub plot: bool,
+    #[arg(long, conflicts_with_all = ["history"])]
+    pub import_campaign: Option<PathBuf>,
+    #[arg(long, conflicts_with_all = ["history"])]
+    pub schema: bool,
     #[arg(long, conflicts_with_all = ["history"])]
     pub standalone: bool,
     /// Browse saved runs; never launches training.
@@ -142,17 +161,12 @@ pub(crate) fn tune(root: &Path, args: Tune, engine: BuildSystem) -> Result<(), S
 }
 
 fn execute_tune(root: &Path, args: Tune, engine: BuildSystem) -> Result<(), String> {
-    if !args.standalone {
+    if !args.standalone && !args.schema {
         if let Err(err) = crate::work::check_claim(root) {
             eprintln!("warning: continuing standalone without task lease: {err}");
         }
     }
-    run(
-        root,
-        args.config.as_deref().ok_or("missing experiment config")?,
-        args.rounds,
-        engine,
-    )
+    run(root, &args, engine)
 }
 
 fn gpu_summary(record: &baux::artifact::runs::Record) -> String {
@@ -234,30 +248,78 @@ fn print_diff(entry: &baux::artifact::json::Value, show_patch: bool) {
     }
 }
 
-pub(crate) fn run(
-    root: &Path,
-    path: &Path,
-    rounds: Option<u32>,
-    engine: BuildSystem,
-) -> Result<(), String> {
-    let text = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
-    let value: baux::artifact::json::Value =
-        baux::artifact::toml::from_str(&text).map_err(|e| e.to_string())?;
+fn check_ocaml(root: &Path, args: &Tune, engine: BuildSystem) -> Result<Option<()>, String> {
+    if args.plan || args.import_campaign.is_some() {
+        return Ok(None);
+    }
+    let Some(config) = &args.config else {
+        return Ok(None);
+    };
+    let Ok(text) = std::fs::read_to_string(config) else {
+        return Ok(None);
+    };
+    let Ok(value) = baux::artifact::toml::from_str::<baux::artifact::json::Value>(&text) else {
+        return Ok(None);
+    };
     if value["experiment"].as_str() == Some("oxcaml-catalogue") {
-        return run_ocaml(root, &text, rounds, engine, OcamlExperiment::Catalogue);
+        run_ocaml(root, &text, args.rounds, engine, OcamlExperiment::Catalogue)?;
+        return Ok(Some(()));
     }
     if value["experiment"].as_str() == Some("hardcaml-distance") {
-        return run_ocaml(root, &text, rounds, engine, OcamlExperiment::Hardware);
+        run_ocaml(root, &text, args.rounds, engine, OcamlExperiment::Hardware)?;
+        return Ok(Some(()));
+    }
+    Ok(None)
+}
+
+fn tune_argv(args: &Tune) -> Vec<String> {
+    let mut argv = vec!["tune".to_owned()];
+    if let Some(config) = &args.config {
+        argv.push(config.display().to_string());
+    }
+    if let Some(rounds) = args.rounds {
+        argv.extend(["--rounds".to_owned(), rounds.to_string()]);
+    }
+    if let Some(repetitions) = args.repetitions {
+        argv.extend(["--repetitions".to_owned(), repetitions.to_string()]);
+    }
+    if let Some(jobs) = args.jobs {
+        argv.extend(["--jobs".to_owned(), jobs.to_string()]);
+    }
+    for s in &args.set {
+        argv.extend(["--set".to_owned(), s.clone()]);
+    }
+    if let Some(prune) = &args.prune {
+        argv.extend(["--prune".to_owned(), prune.clone()]);
+    }
+    if args.plan {
+        argv.push("--plan".to_owned());
+    }
+    if args.plot {
+        argv.push("--plot".to_owned());
+    }
+    if let Some(import_campaign) = &args.import_campaign {
+        argv.extend([
+            "--import-campaign".to_owned(),
+            import_campaign.display().to_string(),
+        ]);
+    }
+    argv
+}
+
+pub(crate) fn run(root: &Path, args: &Tune, engine: BuildSystem) -> Result<(), String> {
+    if args.schema {
+        return engine.run(root, RUNTIME_TARGET, &["schema".to_owned()]);
+    }
+    if let Some(()) = check_ocaml(root, args, engine)? {
+        return Ok(());
     }
     baux_tooling::terminal::stderr(
         baux_tooling::terminal::Tag::Orchestration,
         "runtime · load experiment engine",
     );
-    let mut args = vec!["tune".to_owned(), path.display().to_string()];
-    if let Some(rounds) = rounds {
-        args.extend(["--rounds".to_owned(), rounds.to_string()]);
-    }
-    engine.run(root, RUNTIME_TARGET, &args)
+    let argv = tune_argv(args);
+    engine.run(root, RUNTIME_TARGET, &argv)
 }
 
 pub(crate) fn resolve(
@@ -283,6 +345,7 @@ pub(crate) fn resolve(
 #[cfg(test)]
 mod tests {
     use clap::Parser;
+    use std::path::PathBuf;
 
     #[test]
     fn history_arguments() {
@@ -301,6 +364,26 @@ mod tests {
                 "current",
                 "--json",
             ],
+            vec![
+                "baux",
+                "tune",
+                "config.toml",
+                "-s",
+                "rounds=500",
+                "-s",
+                "optimizer.surrogate.metric=euclidean,wasserstein",
+                "--plan",
+                "--plot",
+                "--jobs",
+                "4",
+                "--repetitions",
+                "5",
+                "--prune",
+                "paired-lcb",
+            ],
+            vec!["baux", "tune", "--schema"],
+            vec!["baux", "tune", "--import-campaign", "foo"],
+            vec!["baux", "tune", "config.toml", "--import-campaign", "foo"],
         ] {
             assert!(crate::Cli::try_parse_from(args).is_ok());
         }
@@ -310,12 +393,69 @@ mod tests {
             vec!["baux", "tune", "--history", "--rounds", "10"],
             vec!["baux", "tune", "config.toml", "--since", "today"],
             vec!["baux", "tune", "--history", "--limit", "0"],
+            vec!["baux", "tune", "--history", "--plan"],
+            vec!["baux", "tune", "--history", "-s", "rounds=500"],
+            vec!["baux", "tune", "--history", "--jobs", "4"],
+            vec!["baux", "tune", "--history", "--repetitions", "5"],
+            vec!["baux", "tune", "--history", "--prune", "paired-lcb"],
+            vec!["baux", "tune", "--history", "--plot"],
+            vec!["baux", "tune", "--history", "--import-campaign", "foo"],
+            vec!["baux", "tune", "--history", "--schema"],
         ] {
             assert!(
                 crate::Cli::try_parse_from(args.clone()).is_err(),
                 "accepted conflicting arguments: {args:?}"
             );
         }
+    }
+
+    #[test]
+    fn tune_argv() {
+        let tune = super::Tune {
+            config: Some(PathBuf::from("config.toml")),
+            rounds: Some(10),
+            repetitions: Some(2),
+            jobs: Some(4),
+            set: vec!["rounds=500".into()],
+            prune: Some("paired-lcb".into()),
+            plan: true,
+            plot: true,
+            import_campaign: Some(PathBuf::from("campaign_dir")),
+            schema: false,
+            standalone: false,
+            history: false,
+            since: None,
+            until: None,
+            task: None,
+            optimizer: None,
+            limit: 20,
+            reindex: false,
+            diff: false,
+            serve: None,
+            json: false,
+        };
+        let argv = super::tune_argv(&tune);
+        assert_eq!(
+            argv,
+            vec![
+                "tune",
+                "config.toml",
+                "--rounds",
+                "10",
+                "--repetitions",
+                "2",
+                "--jobs",
+                "4",
+                "--set",
+                "rounds=500",
+                "--prune",
+                "paired-lcb",
+                "--plan",
+                "--plot",
+                "--import-campaign",
+                "campaign_dir",
+            ]
+        );
     }
 }
 

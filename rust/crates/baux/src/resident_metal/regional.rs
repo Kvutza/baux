@@ -14,6 +14,7 @@ use crate::{
 use baux::semantics::optimizer::portfolio::{Allocation, RegionTicket, RegionalLedger};
 
 pub mod objectives;
+pub mod routing;
 mod tell;
 
 struct PendingImport {
@@ -192,7 +193,7 @@ impl RegionalSearch {
         config: RoundConfig,
     ) -> Result<RegionalProposal, String> {
         let adopt = config.acquisition.kind == AcquisitionKind::Random;
-        self.flush_region(slot, adopt)?;
+        routing::flush_region(self, slot, adopt)?;
         let ticket = self.ledger.issue(slot).map_err(|error| error.to_string())?;
         let proposal = match self.states.get_mut(slot) {
             Some(state) => {
@@ -322,7 +323,7 @@ impl RegionalSearch {
         if self.sharing == SharingPolicy::OriginOnly {
             return Err("origin-only sharing needs an explicit import_region target".into());
         }
-        let routes = self.routes(None, row)?;
+        let routes = routing::routes(self, None, row)?;
         for &slot in &routes {
             if self.pending_imports[slot].len() == MAX_HISTORY {
                 return Err("resident sharing queue is full; flush a recipient".into());
@@ -346,52 +347,6 @@ impl RegionalSearch {
         Ok(routes)
     }
 
-    fn routes(&self, source: Option<usize>, incoming: &Buffer) -> Result<Vec<usize>, String> {
-        if self.sharing == SharingPolicy::OriginOnly {
-            return Ok(Vec::new());
-        }
-        let mut distances_and_radii2 = Vec::with_capacity(self.len());
-        for slot in 0..self.len() {
-            let state = self.states.get(slot).ok_or("unknown region")?;
-            let distance = f64::from(state.measure_center(incoming)?);
-            let scale = state
-                .blocks
-                .iter()
-                .map(|block| {
-                    block.len as f64 * f64::from(block.weight) * f64::from(block.scale).powi(2)
-                })
-                .sum::<f64>();
-            let radius2 = state.length.powi(2) * scale;
-            distances_and_radii2.push((distance, radius2));
-        }
-        Ok(self.sharing.route_distances(source, &distances_and_radii2))
-    }
-
-    fn flush_region(&mut self, slot: usize, adopt: bool) -> Result<(), String> {
-        let state = self.states.get_mut(slot).ok_or("unknown region")?;
-        state.check_idle()?;
-        let has_surrogate = state.has_surrogate();
-        while let Some(entry) = self.pending_imports[slot].first() {
-            let row = entry.row.clone();
-            let observation = entry.observation;
-            let from_region = entry.from_region;
-            if has_surrogate {
-                self.states[slot].import_objectives(&row, observation)?;
-            }
-            if (!has_surrogate || adopt)
-                && from_region
-                && self.states[slot].adopt_incumbent(&row, observation)?
-            {
-                self.ledger
-                    .adopt_shared(slot, f64::from(observation.control().mean))
-                    .map_err(|error| error.to_string())?;
-            }
-            self.pending_imports[slot].remove(0);
-            self.delivered_imports += 1;
-        }
-        Ok(())
-    }
-
     pub fn sharing_backlog(&self) -> Vec<usize> {
         self.pending_imports.iter().map(Vec::len).collect()
     }
@@ -401,7 +356,7 @@ impl RegionalSearch {
     }
 
     pub fn flush_sharing(&mut self, slot: usize) -> Result<(), String> {
-        self.flush_region(slot, false)
+        routing::flush_region(self, slot, false)
     }
 
     /// Replace one trajectory. If it has an outstanding proposal, cancel that

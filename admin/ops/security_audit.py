@@ -67,21 +67,29 @@ def resolve_binary(name: str) -> str:
 def semgrep_targets() -> list[str]:
     """Collect scan targets across admin/ops, tracked Forester theme/JS, and OCaml UI."""
     targets: list[str] = []
-    for rel in ("admin/ops", "admin/ui", "forest/theme", "forest/js"):
-        if (ROOT / rel).is_dir():
+    for rel in ("admin/ops", "admin/ui/baux_ui.ml", "forest/theme", "forest/js"):
+        if (ROOT / rel).exists():
             targets.append(rel)
 
     return targets
 
 
 def run_zizmor(uvx_bin: str) -> GateResult:
-    print("=== [1/4] GitHub Actions Workflow Hardening (zizmor --pedantic) ===")
+    print("[1/4] GitHub Actions workflow hardening (zizmor --pedantic)")
     if not WORKFLOWS_DIR.is_dir():
         msg = f"Missing workflows directory: {WORKFLOWS_DIR}"
-        print(f"✗ {msg}\n")
+        print(f"[FAIL] {msg}\n")
         return GateResult("zizmor", "FAIL", msg)
 
-    cmd = [uvx_bin, "zizmor", "--pedantic", str(WORKFLOWS_DIR.relative_to(ROOT))]
+    cmd = [
+        uvx_bin,
+        "zizmor",
+        "--pedantic",
+        "-qq",
+        "--no-progress",
+        "--color=never",
+        str(WORKFLOWS_DIR.relative_to(ROOT)),
+    ]
     proc = subprocess.run(cmd, cwd=str(ROOT), check=False)
     print()
     if proc.returncode == 0:
@@ -90,41 +98,25 @@ def run_zizmor(uvx_bin: str) -> GateResult:
 
 
 def run_semgrep(uvx_bin: str) -> GateResult:
-    print("=== [2/4] Static Security Analysis (Semgrep custom rules) ===")
+    print("[2/4] Static security analysis (semgrep custom rules)")
     if not SEMGREP_CONFIG.is_file():
         msg = f"Missing Semgrep config: {SEMGREP_CONFIG}"
-        print(f"✗ {msg}\n")
+        print(f"[FAIL] {msg}\n")
         return GateResult("semgrep", "FAIL", msg)
 
     env = os.environ.copy()
     env["SEMGREP_SEND_METRICS"] = "off"
     env["SEMGREP_ENABLE_VERSION_CHECK"] = "0"
+    env["NO_COLOR"] = "1"
 
     cfg_rel = str(SEMGREP_CONFIG.relative_to(ROOT))
-    validate_cmd = [
-        uvx_bin,
-        "semgrep",
-        "scan",
-        "--metrics=off",
-        "--disable-version-check",
-        "--validate",
-        "--config",
-        cfg_rel,
-    ]
-    val_proc = subprocess.run(validate_cmd, cwd=str(ROOT), env=env, check=False)
-    if val_proc.returncode != 0:
-        print()
-        return GateResult(
-            "semgrep",
-            "FAIL",
-            f"Rule validation failed (exit {val_proc.returncode})",
-        )
-
     targets = semgrep_targets()
     scan_cmd = [
         uvx_bin,
+        "--offline",
         "semgrep",
         "scan",
+        "--quiet",
         "--metrics=off",
         "--disable-version-check",
         "--no-git-ignore",
@@ -132,18 +124,34 @@ def run_semgrep(uvx_bin: str) -> GateResult:
         "--config",
         cfg_rel,
         "--exclude",
-        "node_modules",
+        "**/node_modules/**",
         "--exclude",
         "forester.js",
         "--exclude",
-        "__pycache__",
+        "**/__pycache__/**",
         "--exclude",
-        "_build",
+        "**/_build/**",
         "--exclude",
-        "fonts",
+        "**/fonts/**",
         *targets,
     ]
-    scan_proc = subprocess.run(scan_cmd, cwd=str(ROOT), env=env, check=False)
+    scan_proc = subprocess.run(
+        scan_cmd, cwd=str(ROOT), env=env, capture_output=True, text=True, check=False
+    )
+    if scan_proc.returncode != 0:
+        scan_cmd_online = [uvx_bin, *scan_cmd[2:]]
+        scan_proc = subprocess.run(
+            scan_cmd_online,
+            cwd=str(ROOT),
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    if scan_proc.returncode != 0:
+        err = (scan_proc.stdout + "\n" + scan_proc.stderr).strip()
+        if err:
+            print(err)
     print()
     if scan_proc.returncode == 0:
         return GateResult(
@@ -165,10 +173,10 @@ def pip_audit(
     graceful_offline: bool,
     ignore_vulns: list[str],
 ) -> GateResult:
-    print("=== [3/4] Dependency Vulnerability Audit (pip-audit) ===")
+    print("[3/4] Dependency vulnerability audit (pip-audit)")
     if offline:
         msg = "Offline mode requested (--offline); skipping OSV network query"
-        print(f"↷ {msg}\n")
+        print(f"[SKIP] {msg}\n")
         return GateResult("pip-audit", "SKIP", msg)
 
     ignore_args: list[str] = []
@@ -240,7 +248,7 @@ def pip_audit(
 
     if graceful_offline and any(m in combined for m in NETWORK_ERROR_MARKERS):
         msg = "Network unreachable during OSV lookup; skipped via --graceful-offline"
-        print(f"↷ {msg}\n")
+        print(f"[SKIP] {msg}\n")
         return GateResult("pip-audit", "SKIP", msg)
 
     return GateResult(
@@ -251,17 +259,17 @@ def pip_audit(
 
 
 def bundle_audit(bundle_dir: Path | None) -> GateResult:
-    print("=== [4/4] Public Pages Bundle Verification (verify_pages.py) ===")
+    print("[4/4] Public Pages bundle verification (verify_pages.py)")
     if bundle_dir is None:
         msg = "No --bundle-dir provided; bundle check skipped"
-        print(f"↷ {msg}\n")
+        print(f"[SKIP] {msg}\n")
         return GateResult("verify_pages", "SKIP", msg)
 
     resolved = bundle_dir.resolve()
     try:
         verify_bundle(resolved)
     except Exception as exc:
-        print(f"✗ Bundle verification failed: {exc}\n")
+        print(f"[FAIL] Bundle verification failed: {exc}\n")
         return GateResult("verify_pages", "FAIL", str(exc))
     return GateResult("verify_pages", "PASS", f"Verified bundle at {resolved}")
 
@@ -350,11 +358,10 @@ def main(argv: list[str] | None = None) -> int:
 
     results.append(bundle_audit(args.bundle_dir))
 
-    print("=== Security Audit Summary ===")
+    print("Security audit summary:")
     failed = False
     for res in results:
-        icon = {"PASS": "✓", "SKIP": "↷", "FAIL": "✗"}.get(res.status, "?")
-        print(f"  {icon} [{res.status:4s}] {res.name:14s} — {res.detail}")
+        print(f"  [{res.status:4s}] {res.name:14s} : {res.detail}")
         if res.status == "FAIL":
             failed = True
 

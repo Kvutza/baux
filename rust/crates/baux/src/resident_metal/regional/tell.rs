@@ -53,9 +53,8 @@ fn prepare(
     let candidate = state
         .propose_buffer(&proposal.proposal)
         .map_err(TellFailure::Retryable)?;
-    let routes = search
-        .routes(Some(source), &candidate)
-        .map_err(TellFailure::Retryable)?;
+    let routes =
+        routing::routes(search, Some(source), &candidate).map_err(TellFailure::Retryable)?;
     if routes
         .iter()
         .any(|&slot| search.pending_imports[slot].len() == MAX_HISTORY)

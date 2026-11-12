@@ -1,5 +1,5 @@
+use baux::artifact::blake3::sha256_hex as digest;
 use baux::artifact::json::{self, Value, json};
-use baux::artifact::runs::digest;
 use baux::artifact::toml;
 use std::collections::BTreeMap;
 use std::fs;

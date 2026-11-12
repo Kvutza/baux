@@ -319,6 +319,23 @@ fn deterministic_choice(indices: &[usize], k: usize, seed: u64) -> Vec<usize> {
     selected
 }
 
+/// Resolve the path to the Julia executable from `JULIA_BIN`,
+/// `~/.juliaup/bin/julia`, or fallback to `"julia"`.
+pub fn julia_bin() -> String {
+    if let Ok(bin) = std::env::var("JULIA_BIN")
+        && !bin.trim().is_empty()
+    {
+        return bin;
+    }
+    if let Ok(home) = std::env::var("HOME") {
+        let up = std::path::PathBuf::from(home).join(".juliaup/bin/julia");
+        if up.exists() {
+            return up.to_string_lossy().into_owned();
+        }
+    }
+    "julia".into()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -38,16 +38,16 @@ theorem extracted (word : U64) :
   rfl
 
 theorem singleRound (word : U32) :
-    (float.single_from word >>= float.single_bits) = Result.ok word := by
+    (float.bits.single_from word >>= float.bits.single_bits) = Result.ok word := by
   change Aeneas.Std.bind (Result.ok (Model.ofBits word.bv : F32))
-    float.single_bits = Result.ok word
+    float.bits.single_bits = Result.ok word
   rw [bind_ok]
   rfl
 
 theorem doubleRound (word : U64) :
-    (float.double_from word >>= float.double_bits) = Result.ok word := by
+    (float.bits.double_from word >>= float.bits.double_bits) = Result.ok word := by
   change Aeneas.Std.bind (Result.ok (Model.ofBits word.bv : F64))
-    float.double_bits = Result.ok word
+    float.bits.double_bits = Result.ok word
   rw [bind_ok]
   rfl
 

@@ -64,8 +64,8 @@ def coordinate_scalar.from_unit
 def coordinate_flat.from_unit_loop.body
   (columns : Std.Usize) (bounds : Slice BauxResearch.Extraction.Native.F64)
   (values : Slice BauxResearch.Extraction.Native.F64) (index : Std.Usize) :
-  Result (ControlFlow ((Slice BauxResearch.Extraction.Native.F64) × Std.Usize)
-    (Slice BauxResearch.Extraction.Native.F64))
+  Result (ControlFlow ((Slice BauxResearch.Extraction.Native.F64) ×
+    Std.Usize) (Slice BauxResearch.Extraction.Native.F64))
   := do
   let i := Slice.len values
   if index < i
@@ -139,8 +139,8 @@ def coordinate_scalar.to_unit
 def coordinate_flat.to_unit_loop.body
   (columns : Std.Usize) (bounds : Slice BauxResearch.Extraction.Native.F64)
   (values : Slice BauxResearch.Extraction.Native.F64) (index : Std.Usize) :
-  Result (ControlFlow ((Slice BauxResearch.Extraction.Native.F64) × Std.Usize)
-    (Slice BauxResearch.Extraction.Native.F64))
+  Result (ControlFlow ((Slice BauxResearch.Extraction.Native.F64) ×
+    Std.Usize) (Slice BauxResearch.Extraction.Native.F64))
   := do
   let i := Slice.len values
   if index < i

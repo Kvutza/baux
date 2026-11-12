@@ -3,8 +3,8 @@ mod exclude;
 mod python;
 mod scip;
 
+use baux::artifact::blake3::sha256_hex as digest;
 use baux::artifact::json::{self, Map, Value};
-use baux::artifact::runs::digest;
 use baux::artifact::toml;
 use baux::artifact::wire_json;
 use std::collections::{BTreeMap, BTreeSet};

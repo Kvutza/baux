@@ -54,6 +54,7 @@ mod state;
 use baux::semantics::gaussian::*;
 use layout::*;
 use leaf::*;
+pub use regional::routing::restarts as regional_restarts;
 pub use regional::{RegionalProposal, RegionalSearch};
 mod regional_trial;
 pub use regional_trial::{RegionalEvidence, RegionalTrial, regional_trial};

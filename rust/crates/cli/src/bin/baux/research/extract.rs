@@ -17,10 +17,10 @@ const FLOAT_ROOTS: [&str; 8] = [
     "crate::random::box_muller",
     "crate::random::from_unit",
     "crate::random::to_unit",
-    "crate::float::single_from",
-    "crate::float::single_bits",
-    "crate::float::double_from",
-    "crate::float::double_bits",
+    "crate::float::bits::single_from",
+    "crate::float::bits::single_bits",
+    "crate::float::bits::double_from",
+    "crate::float::bits::double_bits",
 ];
 const LOCAL_ROOTS: [&str; 5] = [
     "crate::coordinate_flat::from_unit",
@@ -177,7 +177,7 @@ fn run_charon(
         if let Some(path) = probe_root {
             fs::write(
                 path.join("llbc.sha256"),
-                baux::artifact::runs::digest(&bytes),
+                baux::artifact::blake3::sha256_hex(&bytes),
             )
             .map_err(|error| error.to_string())?;
         }

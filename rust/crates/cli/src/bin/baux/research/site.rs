@@ -127,7 +127,7 @@ pub fn verify_fresh(root: &Path) -> Result<(), String> {
     }
 
     println!(
-        "o|research [site]: OK — 189 Lean modules, 835 Registry functions, 4366 Charon LLBC \
+        "o|research [site]: OK -- 189 Lean modules, 835 Registry functions, 4366 Charon LLBC \
          bodies, 108 constructions verified up to date"
     );
     Ok(())
@@ -176,7 +176,7 @@ pub fn build_site(root: &Path) -> Result<(), String> {
         .and_then(|v| v.as_u64())
         .unwrap_or(835);
     println!(
-        "o|research [site]: generated docs/site/assets/site_data.js ({:.1} KB) — {} Lean modules, \
+        "o|research [site]: generated docs/site/assets/site_data.js ({:.1} KB) -- {} Lean modules, \
          {} declarations, {} ENN functions, 4366 Charon LLBC bodies",
         data_js.len() as f64 / 1024.0,
         mod_count,

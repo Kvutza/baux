@@ -7,6 +7,7 @@ use std::process::ExitCode;
 
 mod cuda_tune;
 mod experiment;
+mod incremental;
 mod performance;
 
 #[derive(Parser)]
@@ -21,12 +22,34 @@ struct Cli {
     action: Action,
 }
 
+#[derive(clap::Args, Clone, Debug, Default)]
+pub(crate) struct TuneCliArgs {
+    pub config: Option<PathBuf>,
+    #[arg(long)]
+    pub rounds: Option<u32>,
+    #[arg(long)]
+    pub repetitions: Option<u32>,
+    #[arg(long)]
+    pub jobs: Option<usize>,
+    #[arg(short = 's', long = "set")]
+    pub set: Vec<String>,
+    #[arg(long)]
+    pub prune: Option<String>,
+    #[arg(long)]
+    pub plan: bool,
+    #[arg(long)]
+    pub plot: bool,
+    #[arg(long)]
+    pub import_campaign: Option<PathBuf>,
+}
+
 #[derive(Subcommand)]
 enum Action {
-    Tune {
-        config: PathBuf,
+    Tune(TuneCliArgs),
+    #[command(hide = true)]
+    Schema {
         #[arg(long)]
-        rounds: Option<u32>,
+        out: Option<PathBuf>,
     },
     Radar {
         #[command(subcommand)]
@@ -78,9 +101,8 @@ fn run() -> Result<(), String> {
         .map_or_else(|| env::current_dir().map_err(|error| error.to_string()), Ok)?;
     env::set_current_dir(&root).map_err(|error| error.to_string())?;
     match Cli::parse().action {
-        Action::Tune { config, rounds } => {
-            experiment::run(&root, &config, rounds, BuildSystem::from_env())
-        }
+        Action::Tune(t) => run_tune(&root, t),
+        Action::Schema { out } => run_schema(&root, out),
         Action::Radar {
             command: RadarAction::Performance { command },
         } => performance::run(&root, command),
@@ -116,6 +138,31 @@ fn run() -> Result<(), String> {
             &sampling,
         ),
     }
+}
+
+fn run_tune(root: &std::path::Path, t: TuneCliArgs) -> Result<(), String> {
+    let req = incremental::TuneRequest {
+        config: t.config.clone().unwrap_or_default(),
+        rounds: t.rounds,
+        repetitions: t.repetitions,
+        jobs: t.jobs,
+        cli_sets: t.set.clone(),
+        prune: t.prune.clone(),
+        plan_only: t.plan,
+        plot: t.plot,
+        import_campaign: t.import_campaign.clone(),
+    };
+    if incremental::try_execute(root, &req)? {
+        return Ok(());
+    }
+    let config = t.config.as_deref().ok_or("missing experiment config")?;
+    experiment::run(root, config, t.rounds, BuildSystem::from_env())
+}
+
+fn run_schema(root: &std::path::Path, out: Option<PathBuf>) -> Result<(), String> {
+    let written = incremental::write_schema(root, out.as_deref())?;
+    println!("{}", written.display());
+    Ok(())
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -167,3 +214,54 @@ fn research_contract(
 }
 
 pub(crate) use baux_tooling::execute;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cli_parsing() {
+        let cli = Cli::try_parse_from([
+            "baux-runner",
+            "tune",
+            "study.toml",
+            "--rounds",
+            "10",
+            "--repetitions",
+            "3",
+            "--jobs",
+            "4",
+            "-s",
+            "optimizer.metric=l2",
+            "--prune",
+            "paired-lcb",
+            "--plan",
+            "--plot",
+            "--import-campaign",
+            "old_runs",
+        ])
+        .expect("must parse tune args");
+        if let Action::Tune(t) = cli.action {
+            assert_eq!(
+                t.config.as_deref(),
+                Some(std::path::Path::new("study.toml"))
+            );
+            assert_eq!(t.rounds, Some(10));
+            assert_eq!(t.repetitions, Some(3));
+            assert_eq!(t.jobs, Some(4));
+            assert_eq!(t.set, vec!["optimizer.metric=l2"]);
+            assert_eq!(t.prune.as_deref(), Some("paired-lcb"));
+            assert!(t.plan);
+            assert!(t.plot);
+            assert_eq!(
+                t.import_campaign.as_deref(),
+                Some(std::path::Path::new("old_runs"))
+            );
+        } else {
+            panic!("expected Action::Tune");
+        }
+
+        let cli_schema = Cli::try_parse_from(["baux-runner", "schema"]).expect("must parse schema");
+        assert!(matches!(cli_schema.action, Action::Schema { out: None }));
+    }
+}

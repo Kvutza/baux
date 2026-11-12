@@ -120,6 +120,7 @@ pub mod search;
 pub mod semantics;
 pub use semantics as baux_semantics;
 pub mod sense;
+pub mod shm_slab;
 pub(crate) mod snapshot_io;
 pub mod stats;
 pub mod strategy;
@@ -167,7 +168,8 @@ pub use config::{
     DataRecipe, DistanceMetric, ExperimentKind, ExperimentSpec, ModelArchitecture,
     ObjectiveReference, ResidentEnnConfig, TrustRegionKind,
 };
-pub use coordinate::{CoordPoint, Coords, DomainFrame, DomainSpace, OwnedCoords, UnitSpace};
+pub use coord_space::{CoordPoint, Coords, DomainSpace, OwnedCoords, UnitSpace};
+pub use coordinate::DomainFrame;
 pub use device::{Device, DeviceMemory};
 pub use device_posterior::{Posterior, PosteriorDraw};
 pub use draw::{Candidates, ConditionalDraw, DrawInternals, NeighborData};

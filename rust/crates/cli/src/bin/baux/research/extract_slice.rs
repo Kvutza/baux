@@ -56,6 +56,12 @@ fn collect_files(root: &Path, path: &Path, files: &mut Vec<PathBuf>) -> Result<(
     Ok(())
 }
 
+fn file_sha(path: &Path) -> Result<String, String> {
+    let bytes =
+        fs::read(path).map_err(|error| format!("cannot read {}: {error}", path.display()))?;
+    Ok(baux::artifact::blake3::sha256_hex(&bytes))
+}
+
 pub(super) fn tree_digest(root: &Path) -> Result<String, String> {
     let mut files = Vec::new();
     collect_files(root, root, &mut files)?;
@@ -69,7 +75,7 @@ pub(super) fn tree_digest(root: &Path) -> Result<String, String> {
         framed.extend_from_slice(&(bytes.len() as u64).to_le_bytes());
         framed.extend_from_slice(&bytes);
     }
-    Ok(baux::artifact::runs::digest(&framed))
+    Ok(baux::artifact::blake3::sha256_hex(&framed))
 }
 
 fn copy_slice(source: &Path, destination: &Path) -> Result<String, String> {
@@ -172,25 +178,17 @@ fn probe_ext(root: &Path, opts: &ExtractOpts) -> Result<String, String> {
     let base = if opts.dyn_traits {
         format!(
             "float_patch_sha256={}\ndyn_patch_sha256={}\ndyn_dispatch_patch_sha256={}\ndyn_reborrow_patch_sha256={}\ndyn_builder_sha256={}\n",
-            baux::artifact::runs::file_digest(
-                &root.join("research/extraction/aeneas-float.patch")
-            )?,
-            baux::artifact::runs::file_digest(&root.join("research/extraction/aeneas-dyn.patch"))?,
-            baux::artifact::runs::file_digest(
-                &root.join("research/extraction/aeneas-dyn-dispatch.patch")
-            )?,
-            baux::artifact::runs::file_digest(
-                &root.join("research/extraction/aeneas-dyn-reborrow.patch")
-            )?,
-            baux::artifact::runs::file_digest(&builder)?,
+            file_sha(&root.join("research/extraction/aeneas-float.patch"))?,
+            file_sha(&root.join("research/extraction/aeneas-dyn.patch"))?,
+            file_sha(&root.join("research/extraction/aeneas-dyn-dispatch.patch"))?,
+            file_sha(&root.join("research/extraction/aeneas-dyn-reborrow.patch"))?,
+            file_sha(&builder)?,
         )
     } else if opts.floats {
         format!(
             "float_patch_sha256={}\nfloat_builder_sha256={}\n",
-            baux::artifact::runs::file_digest(
-                &root.join("research/extraction/aeneas-float.patch")
-            )?,
-            baux::artifact::runs::file_digest(&builder)?,
+            file_sha(&root.join("research/extraction/aeneas-float.patch"))?,
+            file_sha(&builder)?,
         )
     } else {
         String::new()
@@ -198,10 +196,8 @@ fn probe_ext(root: &Path, opts: &ExtractOpts) -> Result<String, String> {
     if opts.charon_callsite {
         Ok(format!(
             "{base}charon_callsite_patch_sha256={}\ncharon_callsite_builder_sha256={}\n",
-            baux::artifact::runs::file_digest(
-                &root.join("research/extraction/charon-callsite.patch")
-            )?,
-            baux::artifact::runs::file_digest(&builder)?,
+            file_sha(&root.join("research/extraction/charon-callsite.patch"))?,
+            file_sha(&builder)?,
         ))
     } else {
         Ok(base)
@@ -239,7 +235,7 @@ fn probe_source(
     if opts.upstream {
         return Ok(format!(
             "upstream_harness_sha256={}\n",
-            baux::artifact::runs::file_digest(&root.join("research/extraction/enn_harness.rs"))?,
+            file_sha(&root.join("research/extraction/enn_harness.rs"))?,
         ));
     }
     if opts.production {
@@ -247,8 +243,8 @@ fn probe_source(
             "local_revision={}\nproduction_source_tree_sha256={}\nproduction_manifest_sha256={}\nproduction_extraction_root_sha256={}\n",
             jj_rev(root)?,
             tree_digest(&root.join("rust/crates/baux/src"))?,
-            baux::artifact::runs::file_digest(&root.join("rust/crates/baux/Cargo.toml"))?,
-            baux::artifact::runs::file_digest(&root.join("rust/crates/baux/src/extraction.rs"))?,
+            file_sha(&root.join("rust/crates/baux/Cargo.toml"))?,
+            file_sha(&root.join("rust/crates/baux/src/extraction.rs"))?,
         ));
     }
     if opts.local {
@@ -256,11 +252,9 @@ fn probe_source(
         return Ok(format!(
             "local_revision={}\nlocal_slice_manifest_sha256={}\nlocal_slice_root_sha256={}\nproduction_source_tree_sha256={prod_digest}\nproduction_extraction_root_sha256={}\n",
             jj_rev(root)?,
-            baux::artifact::runs::file_digest(
-                &root.join("research/extraction/local/Cargo.toml.in")
-            )?,
-            baux::artifact::runs::file_digest(&root.join("research/extraction/local/lib.rs"))?,
-            baux::artifact::runs::file_digest(&root.join("rust/crates/baux/src/extraction.rs"))?,
+            file_sha(&root.join("research/extraction/local/Cargo.toml.in"))?,
+            file_sha(&root.join("research/extraction/local/lib.rs"))?,
+            file_sha(&root.join("rust/crates/baux/src/extraction.rs"))?,
         ));
     }
     Ok(String::new())
@@ -303,8 +297,8 @@ pub(super) fn init_probe(
         path.join("toolchain.txt"),
         format!(
             "aeneas_base={AENEAS_REV}\ncharon={CHARON_REV}\naeneas_binary_sha256={}\ncharon_binary_sha256={}\nsource={source_mode}\n{extension}{source_binding}",
-            baux::artifact::runs::file_digest(tools.0)?,
-            baux::artifact::runs::file_digest(tools.1)?,
+            file_sha(tools.0)?,
+            file_sha(tools.1)?,
         ),
     )
     .map_err(|error| error.to_string())?;

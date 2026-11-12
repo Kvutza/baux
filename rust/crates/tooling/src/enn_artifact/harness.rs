@@ -16,6 +16,11 @@ const CORRECTIONS: &[&str] = &[
     "acquisition.rs (UCBAcquisition & ParetoAcquisition::nondomin_2d): local uses a deterministic \
      streaming min-heap without advancing RNG in UCB and an O(n log n) 2D sweep in Pareto \
      non-dominated sorting",
+    "candidates.rs (generate_raasp): local clamps num_pert to num_dim and selects perturbed \
+     coordinates without replacement via partial Fisher-Yates (Knuth 3.4.2P) rather than sampling \
+     num_pert coordinates with replacement",
+    "surrogate.rs (ENNSurrogate::run_fitter): local refreshes finite-sample ARD coordinate weights \
+     via model.refresh_finite as soon as n >= 2 under MetricLearning::Auto",
 ];
 
 pub fn stage_deps(
@@ -182,31 +187,42 @@ pub fn run_binaries(
     Ok((up_json, loc_json))
 }
 
-fn slice_eq(left: &Value, right: &Value, key: &str, count: usize) -> bool {
-    let Some(l_seq) = left[key].as_seq() else {
+fn slice_eq(left: &Value, right: &Value, key: &str, prefix: usize, full: usize) -> bool {
+    let (Some(l_seq), Some(r_seq)) = (left[key].as_seq(), right[key].as_seq()) else {
         return false;
     };
-    let Some(r_seq) = right[key].as_seq() else {
-        return false;
-    };
-    l_seq.len() >= count && r_seq.len() >= count && l_seq[..count] == r_seq[..count]
+    l_seq.len() == full
+        && r_seq.len() == full
+        && l_seq[..prefix] == r_seq[..prefix]
+        && r_seq.iter().all(|v| {
+            v.as_str()
+                .and_then(|s| u64::from_str_radix(s, 16).ok())
+                .is_some_and(|bits| f64::from_bits(bits).is_finite())
+        })
 }
 
 pub fn verify_outputs(up_json: &Value, loc_json: &Value) -> Result<Value, String> {
     if up_json["primitives"] != loc_json["primitives"] {
         return Err("upstream and local primitive outputs differ".into());
     }
-    let up_tr = &up_json["trajectories"];
-    let loc_tr = &loc_json["trajectories"];
-    for exact in ["turbo_zero", "lhd_only"] {
-        if up_tr[exact] != loc_tr[exact] {
-            return Err(format!("bit-exact mismatch in trajectories.{exact}"));
-        }
+    let (up_tr, loc_tr) = (&up_json["trajectories"], &loc_json["trajectories"]);
+    if up_tr["lhd_only"] != loc_tr["lhd_only"] {
+        return Err("bit-exact mismatch in trajectories.lhd_only".into());
+    }
+    let (uz, lz) = (&up_tr["turbo_zero"], &loc_tr["turbo_zero"]);
+    if !slice_eq(uz, lz, "ask_bits", 12, 36)
+        || !slice_eq(uz, lz, "incumbent_x_bits", 6, 18)
+        || !slice_eq(uz, lz, "tr_length_bits", 4, 6)
+        || uz["obs_counts"] != lz["obs_counts"]
+        || !slice_eq(uz, lz, "x_obs_bits", 12, 36)
+        || !slice_eq(uz, lz, "y_obs_bits", 4, 12)
+    {
+        return Err("bit-exact invariant mismatch in trajectories.turbo_zero".into());
     }
     let (ut, lt) = (&up_tr["turbo_enn"], &loc_tr["turbo_enn"]);
-    if !slice_eq(ut, lt, "ask_bits", 18)
-        || !slice_eq(ut, lt, "posterior_mu_bits", 4)
-        || !slice_eq(ut, lt, "incumbent_x_bits", 9)
+    if !slice_eq(ut, lt, "ask_bits", 12, 54)
+        || !slice_eq(ut, lt, "posterior_mu_bits", 0, 18)
+        || !slice_eq(ut, lt, "incumbent_x_bits", 9, 27)
         || ut["tr_length_bits"] != lt["tr_length_bits"]
         || ut["obs_counts"] != lt["obs_counts"]
         || ut["restart_generations"] != lt["restart_generations"]
@@ -216,10 +232,10 @@ pub fn verify_outputs(up_json: &Value, loc_json: &Value) -> Result<Value, String
     let (um, lm) = (&up_tr["morbo_trust_region"], &loc_tr["morbo_trust_region"]);
     if um["sobol_seed_base"] != lm["sobol_seed_base"]
         || um["obs_counts"] != lm["obs_counts"]
-        || !slice_eq(um, lm, "ask_bits", 12)
-        || !slice_eq(um, lm, "posterior_mu_bits", 8)
-        || !slice_eq(um, lm, "incumbent_x_bits", 6)
-        || !slice_eq(um, lm, "tr_length_bits", 2)
+        || !slice_eq(um, lm, "ask_bits", 12, 36)
+        || !slice_eq(um, lm, "posterior_mu_bits", 0, 24)
+        || !slice_eq(um, lm, "incumbent_x_bits", 6, 18)
+        || !slice_eq(um, lm, "tr_length_bits", 2, 6)
     {
         return Err("bit-exact invariant mismatch in trajectories.morbo_trust_region".into());
     }
@@ -230,19 +246,17 @@ pub fn verify_outputs(up_json: &Value, loc_json: &Value) -> Result<Value, String
         || ub["disk_indices"] != lb["mem_indices"]
         || ub["mem_dist_bits"] != lb["disk_dist_bits"]
         || ub["mem_indices"] != lb["disk_indices"]
-        || !slice_eq(ub, lb, "opt_ask_bits", 18)
-        || !slice_eq(ub, lb, "opt_mu_bits", 6)
-        || !slice_eq(ub, lb, "opt_incumbent_bits", 12)
+        || !slice_eq(ub, lb, "opt_ask_bits", 12, 30)
+        || !slice_eq(ub, lb, "opt_mu_bits", 0, 10)
+        || !slice_eq(ub, lb, "opt_incumbent_bits", 6, 15)
     {
         return Err("bit-exact invariant mismatch in trajectories.disk_bpann".into());
     }
     Ok(json!({
         "primitives": up_json["primitives"].clone(),
-        "shared_exact_trajectories": {
-            "turbo_zero": up_tr["turbo_zero"].clone(),
-            "lhd_only": up_tr["lhd_only"].clone(),
-        },
+        "shared_exact_trajectories": {"lhd_only": up_tr["lhd_only"].clone()},
         "enn_trajectories": {
+            "turbo_zero": {"upstream": uz.clone(), "corrected_local": lz.clone()},
             "turbo_enn": {"upstream": ut.clone(), "corrected_local": lt.clone()},
             "morbo_trust_region": {"upstream": um.clone(), "corrected_local": lm.clone()},
             "disk_bpann": {"upstream": ub.clone(), "corrected_local": lb.clone()},

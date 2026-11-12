@@ -1,69 +1,264 @@
 pin_sha256 = "7548bd54a9f2d88a91df4bdc873aa6ebf0a3b9f4f087c4176354e3722f6f17e2"
-adapter_sha256 = "91bc3a60c7434b69744587ec680cac4a856dc75e4bb7650d31b5dbf78f5b5cef"
+adapter_sha256 = "b2c57bdb15a20b83f1992e2b484c72adb54cc610b8e5dedc2de0cf199e0d3a74"
 meaning = "Function equality under shared dependency parameters; no native binding"
 
 [local]
-source_sha256 = "ecea853a35b0905b5ea47a79534bb1393c44363f554c2315abe6b8d9556c46f6"
+source_sha256 = "6329dc02ab8f5cc30c0ab3eef27d96d249ccf74981e163a8beb64e1898330b95"
 generated_sha256 = "5a90d0958362c7750096bce472f91e4ce0f1884aa17f3d9ff54326de5f1aa448"
-tools = "aeneas_base=e62dd83d133d9043e7d3628096838b7430f36565\ncharon=de8736f7c995ac54dc490345cef9ea5143c06c62\naeneas_binary_sha256=9d8fd3f7e22aae6968d82038977ca5e53d2dbc69179fc4faf14d45f3ed59ea5e\ncharon_binary_sha256=fff7d03f6fb9cae45dd92de946869a2ebb74c9db4786b05fe04d8780cc519aba\nsource=semantics\nfloat_patch_sha256=6ff1b653717c1102d68cfd4cf052b42cc5c16ef0f5ec792f3cf11a7d3cf48a1a\nfloat_builder_sha256=a943ed42dbd1e96ee9ccbf20b62b03e709438b450e348c07997688e583c75b0c\n"
+tools = """
+aeneas_base=e62dd83d133d9043e7d3628096838b7430f36565
+charon=de8736f7c995ac54dc490345cef9ea5143c06c62
+aeneas_binary_sha256=ce6587b5a67ce6673e3dcf1926fbdd7ec2ccec6c948fbf6f7194ae7d3e08c5e8
+charon_binary_sha256=8d8b999c7e0f58afa0fd9d0ecd25d6953563a44bda4167b3d84469a51e8977e2
+source=semantics
+float_patch_sha256=6ff1b653717c1102d68cfd4cf052b42cc5c16ef0f5ec792f3cf11a7d3cf48a1a
+float_builder_sha256=8647fe336be68442d78fcf44ac46779a61e6afaead576b1e98a37c5c3186d20c
+"""
+
+[[local.target]]
+key = "aarch64-apple-darwin"
+
+[local.target.value]
+target_pointer_size = 8
+is_little_endian = true
+c_enum_smallest_repr_ty = "I32"
+
+[[local.target.value.primitive_alignments]]
+key = "Bool"
+value = 1
+
+[[local.target.value.primitive_alignments]]
+value = 1
+
+[local.target.value.primitive_alignments.key.Integer]
+Signed = "I8"
+
+[[local.target.value.primitive_alignments]]
+value = 2
+
+[local.target.value.primitive_alignments.key.Integer]
+Signed = "I16"
+
+[[local.target.value.primitive_alignments]]
+value = 4
+
+[local.target.value.primitive_alignments.key.Integer]
+Signed = "I32"
+
+[[local.target.value.primitive_alignments]]
+value = 8
+
+[local.target.value.primitive_alignments.key.Integer]
+Signed = "I64"
+
+[[local.target.value.primitive_alignments]]
+value = 16
+
+[local.target.value.primitive_alignments.key.Integer]
+Signed = "I128"
+
+[[local.target.value.primitive_alignments]]
+value = 8
+
+[local.target.value.primitive_alignments.key.Integer]
+Signed = "Isize"
+
+[[local.target.value.primitive_alignments]]
+value = 1
+
+[local.target.value.primitive_alignments.key.Integer]
+Unsigned = "U8"
+
+[[local.target.value.primitive_alignments]]
+value = 2
+
+[local.target.value.primitive_alignments.key.Integer]
+Unsigned = "U16"
+
+[[local.target.value.primitive_alignments]]
+value = 4
+
+[local.target.value.primitive_alignments.key.Integer]
+Unsigned = "U32"
+
+[[local.target.value.primitive_alignments]]
+value = 8
+
+[local.target.value.primitive_alignments.key.Integer]
+Unsigned = "U64"
+
+[[local.target.value.primitive_alignments]]
+value = 16
+
+[local.target.value.primitive_alignments.key.Integer]
+Unsigned = "U128"
+
+[[local.target.value.primitive_alignments]]
+value = 8
+
+[local.target.value.primitive_alignments.key.Integer]
+Unsigned = "Usize"
+
+[[local.target.value.primitive_alignments]]
+value = 2
+
+[local.target.value.primitive_alignments.key]
+Float = "F16"
+
+[[local.target.value.primitive_alignments]]
+value = 4
+
+[local.target.value.primitive_alignments.key]
+Float = "F32"
+
+[[local.target.value.primitive_alignments]]
+value = 8
+
+[local.target.value.primitive_alignments.key]
+Float = "F64"
+
+[[local.target.value.primitive_alignments]]
+value = 16
+
+[local.target.value.primitive_alignments.key]
+Float = "F128"
+
+[[local.target.value.primitive_alignments]]
+key = "Char"
+value = 4
 
 [local.runtime_checks]
 ub_checks = true
 overflow_checks = true
 contract_checks = false
 
-[[local.target]]
-key = "aarch64-apple-darwin"
-value = { target_pointer_size = 8, is_little_endian = true, c_enum_smallest_repr_ty = "I32", primitive_alignments = [
-  { key = "Bool", value = 1 },
-  { key = { Integer = { Signed = "I8" } }, value = 1 },
-  { key = { Integer = { Signed = "I16" } }, value = 2 },
-  { key = { Integer = { Signed = "I32" } }, value = 4 },
-  { key = { Integer = { Signed = "I64" } }, value = 8 },
-  { key = { Integer = { Signed = "I128" } }, value = 16 },
-  { key = { Integer = { Signed = "Isize" } }, value = 8 },
-  { key = { Integer = { Unsigned = "U8" } }, value = 1 },
-  { key = { Integer = { Unsigned = "U16" } }, value = 2 },
-  { key = { Integer = { Unsigned = "U32" } }, value = 4 },
-  { key = { Integer = { Unsigned = "U64" } }, value = 8 },
-  { key = { Integer = { Unsigned = "U128" } }, value = 16 },
-  { key = { Integer = { Unsigned = "Usize" } }, value = 8 },
-  { key = { Float = "F16" }, value = 2 },
-  { key = { Float = "F32" }, value = 4 },
-  { key = { Float = "F64" }, value = 8 },
-  { key = { Float = "F128" }, value = 16 },
-  { key = "Char", value = 4 },
-] }
-
 [upstream]
 source_sha256 = "4e0450f6d0dc85d2a01c1d3961ea45f448f7baac294acff4c87538bf6e86a78b"
 generated_sha256 = "8efa107bdd29abe8a257cea8452f9f40693b8326c05442f733081273050dfbf0"
-tools = "aeneas_base=e62dd83d133d9043e7d3628096838b7430f36565\ncharon=de8736f7c995ac54dc490345cef9ea5143c06c62\naeneas_binary_sha256=9d8fd3f7e22aae6968d82038977ca5e53d2dbc69179fc4faf14d45f3ed59ea5e\ncharon_binary_sha256=fff7d03f6fb9cae45dd92de946869a2ebb74c9db4786b05fe04d8780cc519aba\nsource=upstream\nfloat_patch_sha256=6ff1b653717c1102d68cfd4cf052b42cc5c16ef0f5ec792f3cf11a7d3cf48a1a\nfloat_builder_sha256=a943ed42dbd1e96ee9ccbf20b62b03e709438b450e348c07997688e583c75b0c\nupstream_harness_sha256=34e4cd207f48b10a6b89afe6bc97e0ed2017a9dc57d247dfea619f2e4fadfaff\n"
+tools = """
+aeneas_base=e62dd83d133d9043e7d3628096838b7430f36565
+charon=de8736f7c995ac54dc490345cef9ea5143c06c62
+aeneas_binary_sha256=ce6587b5a67ce6673e3dcf1926fbdd7ec2ccec6c948fbf6f7194ae7d3e08c5e8
+charon_binary_sha256=8d8b999c7e0f58afa0fd9d0ecd25d6953563a44bda4167b3d84469a51e8977e2
+source=upstream
+float_patch_sha256=6ff1b653717c1102d68cfd4cf052b42cc5c16ef0f5ec792f3cf11a7d3cf48a1a
+float_builder_sha256=8647fe336be68442d78fcf44ac46779a61e6afaead576b1e98a37c5c3186d20c
+upstream_harness_sha256=34e4cd207f48b10a6b89afe6bc97e0ed2017a9dc57d247dfea619f2e4fadfaff
+"""
+
+[[upstream.target]]
+key = "aarch64-apple-darwin"
+
+[upstream.target.value]
+target_pointer_size = 8
+is_little_endian = true
+c_enum_smallest_repr_ty = "I32"
+
+[[upstream.target.value.primitive_alignments]]
+key = "Bool"
+value = 1
+
+[[upstream.target.value.primitive_alignments]]
+value = 1
+
+[upstream.target.value.primitive_alignments.key.Integer]
+Signed = "I8"
+
+[[upstream.target.value.primitive_alignments]]
+value = 2
+
+[upstream.target.value.primitive_alignments.key.Integer]
+Signed = "I16"
+
+[[upstream.target.value.primitive_alignments]]
+value = 4
+
+[upstream.target.value.primitive_alignments.key.Integer]
+Signed = "I32"
+
+[[upstream.target.value.primitive_alignments]]
+value = 8
+
+[upstream.target.value.primitive_alignments.key.Integer]
+Signed = "I64"
+
+[[upstream.target.value.primitive_alignments]]
+value = 16
+
+[upstream.target.value.primitive_alignments.key.Integer]
+Signed = "I128"
+
+[[upstream.target.value.primitive_alignments]]
+value = 8
+
+[upstream.target.value.primitive_alignments.key.Integer]
+Signed = "Isize"
+
+[[upstream.target.value.primitive_alignments]]
+value = 1
+
+[upstream.target.value.primitive_alignments.key.Integer]
+Unsigned = "U8"
+
+[[upstream.target.value.primitive_alignments]]
+value = 2
+
+[upstream.target.value.primitive_alignments.key.Integer]
+Unsigned = "U16"
+
+[[upstream.target.value.primitive_alignments]]
+value = 4
+
+[upstream.target.value.primitive_alignments.key.Integer]
+Unsigned = "U32"
+
+[[upstream.target.value.primitive_alignments]]
+value = 8
+
+[upstream.target.value.primitive_alignments.key.Integer]
+Unsigned = "U64"
+
+[[upstream.target.value.primitive_alignments]]
+value = 16
+
+[upstream.target.value.primitive_alignments.key.Integer]
+Unsigned = "U128"
+
+[[upstream.target.value.primitive_alignments]]
+value = 8
+
+[upstream.target.value.primitive_alignments.key.Integer]
+Unsigned = "Usize"
+
+[[upstream.target.value.primitive_alignments]]
+value = 2
+
+[upstream.target.value.primitive_alignments.key]
+Float = "F16"
+
+[[upstream.target.value.primitive_alignments]]
+value = 4
+
+[upstream.target.value.primitive_alignments.key]
+Float = "F32"
+
+[[upstream.target.value.primitive_alignments]]
+value = 8
+
+[upstream.target.value.primitive_alignments.key]
+Float = "F64"
+
+[[upstream.target.value.primitive_alignments]]
+value = 16
+
+[upstream.target.value.primitive_alignments.key]
+Float = "F128"
+
+[[upstream.target.value.primitive_alignments]]
+key = "Char"
+value = 4
 
 [upstream.runtime_checks]
 ub_checks = true
 overflow_checks = true
 contract_checks = false
-
-[[upstream.target]]
-key = "aarch64-apple-darwin"
-value = { target_pointer_size = 8, is_little_endian = true, c_enum_smallest_repr_ty = "I32", primitive_alignments = [
-  { key = "Bool", value = 1 },
-  { key = { Integer = { Signed = "I8" } }, value = 1 },
-  { key = { Integer = { Signed = "I16" } }, value = 2 },
-  { key = { Integer = { Signed = "I32" } }, value = 4 },
-  { key = { Integer = { Signed = "I64" } }, value = 8 },
-  { key = { Integer = { Signed = "I128" } }, value = 16 },
-  { key = { Integer = { Signed = "Isize" } }, value = 8 },
-  { key = { Integer = { Unsigned = "U8" } }, value = 1 },
-  { key = { Integer = { Unsigned = "U16" } }, value = 2 },
-  { key = { Integer = { Unsigned = "U32" } }, value = 4 },
-  { key = { Integer = { Unsigned = "U64" } }, value = 8 },
-  { key = { Integer = { Unsigned = "U128" } }, value = 16 },
-  { key = { Integer = { Unsigned = "Usize" } }, value = 8 },
-  { key = { Float = "F16" }, value = 2 },
-  { key = { Float = "F32" }, value = 4 },
-  { key = { Float = "F64" }, value = 8 },
-  { key = { Float = "F128" }, value = 16 },
-  { key = "Char", value = 4 },
-] }

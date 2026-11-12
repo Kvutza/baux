@@ -11,6 +11,8 @@ pub mod cbor;
 pub mod forward;
 #[path = "gpu.rs"]
 pub mod gpu;
+#[path = "inc.rs"]
+pub mod inc;
 #[path = "json.rs"]
 pub mod json;
 #[path = "merkle.rs"]
@@ -21,6 +23,8 @@ pub mod numerical;
 pub mod pretrain;
 #[path = "runs.rs"]
 pub mod runs;
+#[path = "study.rs"]
+pub mod study;
 #[path = "terminal.rs"]
 pub mod terminal;
 #[path = "toml.rs"]

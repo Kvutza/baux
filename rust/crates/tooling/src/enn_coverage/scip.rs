@@ -1,4 +1,3 @@
-use crate::radar_scip::scip_graph::body_end;
 use crate::radar_scip::scip_pb::{DEFINITION, Document, Occurrence, load_index};
 use baux::artifact::json::Value;
 use baux::artifact::toml;
@@ -54,6 +53,30 @@ fn find_scip(root: &Path, enn_root: &Path) -> Result<PathBuf, String> {
     ))
 }
 
+fn line_depth(line: &str, mut depth: i32, mut opened: bool) -> (i32, bool) {
+    let code = line.split("//").next().unwrap_or(line);
+    for ch in code.chars() {
+        if ch == '{' {
+            depth += 1;
+            opened = true;
+        } else if ch == '}' {
+            depth -= 1;
+        }
+    }
+    (depth, opened)
+}
+
+fn span_end(lines: &[&str], start: usize) -> usize {
+    let (mut depth, mut opened) = (0, false);
+    for (offset, line) in lines[start..].iter().enumerate() {
+        (depth, opened) = line_depth(line, depth, opened);
+        if opened && depth <= 0 {
+            return start + offset;
+        }
+    }
+    lines.len()
+}
+
 fn doc_spans(raw_defs: &[(i32, String)], src_lines: &[&str]) -> Vec<(i32, i32, String)> {
     raw_defs
         .iter()
@@ -61,7 +84,7 @@ fn doc_spans(raw_defs: &[(i32, String)], src_lines: &[&str]) -> Vec<(i32, i32, S
         .map(|(idx, (st, sym))| {
             let st_u = (*st).max(0) as usize;
             let ed = if st_u < src_lines.len() {
-                body_end(src_lines, st_u) as i32
+                span_end(src_lines, st_u) as i32
             } else {
                 raw_defs.get(idx + 1).map_or(*st + 1000, |(n, _)| n - 1)
             };

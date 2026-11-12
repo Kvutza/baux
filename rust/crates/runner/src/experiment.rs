@@ -9,11 +9,11 @@ use baux_tooling::terminal::{self, Tag};
 use baux_tooling::build::BuildSystem;
 
 mod hardcaml;
-mod julia;
+pub(crate) mod julia;
 mod pretrain;
 mod program;
 mod regional;
-mod tokamak;
+pub(crate) mod tokamak;
 
 pub(crate) fn run(
     root: &Path,

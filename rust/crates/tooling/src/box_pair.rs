@@ -2,8 +2,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use baux::artifact::blake3::sha256_hex as digest;
 use baux::artifact::json::{self, Value, json};
-use baux::artifact::runs::digest;
 
 const F64_NS: &str = "BauxResearch.Extraction.Native.F64";
 const EXTERNALS: [(&str, &str); 4] = [

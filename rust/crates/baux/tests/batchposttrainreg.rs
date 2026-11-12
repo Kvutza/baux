@@ -51,6 +51,7 @@ fn batch_posterior() {
         exclude_nearest: false,
         observation_noise: false,
         tie_neighbors: true,
+        adaptive_neighbors: false,
     };
     let batch = model
         .batch_posterior(&train_x.view(), &[params], &flags)

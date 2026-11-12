@@ -4,8 +4,8 @@ use std::os::unix::fs::symlink;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
+use baux::artifact::blake3::sha256_hex as digest;
 use baux::artifact::json::{self, Value, json};
-use baux::artifact::runs::digest;
 
 const AENEAS_REV: &str = "e62dd83d133d9043e7d3628096838b7430f36565";
 const CHARON_REV: &str = "de8736f7c995ac54dc490345cef9ea5143c06c62";

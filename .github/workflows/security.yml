@@ -37,20 +37,21 @@ jobs:
           enable-cache: false
 
       - name: Audit GitHub Actions workflows with zizmor
-        run: uvx zizmor --pedantic .github/workflows/
+        run: uvx zizmor --pedantic -qq --no-progress --color=never .github/workflows/
 
       - name: Validate and run custom Semgrep rules
         env:
           SEMGREP_SEND_METRICS: "off"
+          NO_COLOR: "1"
         run: |
-          uvx semgrep scan --metrics=off --validate --config .semgrep/security.yml
+          uvx semgrep scan --quiet --metrics=off --validate --config .semgrep/security.yml
           targets=(admin/ops admin/ui/baux_ui.ml)
           for extra_dir in forest/theme forest/js; do
             if [ -d "$extra_dir" ]; then
               targets+=("$extra_dir")
             fi
           done
-          uvx semgrep scan --metrics=off --no-git-ignore --error --config .semgrep/security.yml \
+          uvx semgrep scan --quiet --metrics=off --no-git-ignore --error --config .semgrep/security.yml \
             --exclude node_modules \
             --exclude forester.js \
             --exclude __pycache__ \

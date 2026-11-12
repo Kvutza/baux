@@ -3,7 +3,7 @@
 use ndarray::{Array2, ArrayView2};
 use rand::RngCore;
 
-use crate::coordinate::{Coords, DomainSpace, OwnedCoords};
+use crate::coord_space::{Coords, DomainSpace, OwnedCoords};
 use crate::error::ENNError;
 use crate::optimizer::{BayesOptimizer, EvaluationId, TrustRegionState};
 

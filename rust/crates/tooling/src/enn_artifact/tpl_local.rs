@@ -141,10 +141,27 @@ fn verify_cabi(numerical_so: &Path) {
             assert_eq!(numerical::check(trace).unwrap(), Outcome::Checked);
         }
     }
-    let controller = RadiusController::new(0.125, 0.01, 1.0).unwrap();
-    for improvement in [3.0, -3.0] {
+    let mut controller = RadiusController::new(0.125, 0.01, 1.0).unwrap();
+    let pred = baux::semantics::neighbor::query::Prediction {
+        mean: 3.0,
+        standard_error: 0.0,
+        epistemic_error: 0.0,
+        score: 3.0,
+        neighbors: 0,
+    };
+    let selection = baux::semantics::optimizer::surrogate::PoolSelection {
+        selected: 0,
+        initializing: true,
+        candidate: pred,
+        incumbent: pred,
+        baseline_value: 0.0,
+        baseline_variance: 0.0,
+        baseline_se: 0.0,
+        pool_predictions: vec![],
+    };
+    for improvement in [3.0f32, -3.0f32] {
         let decision = controller
-            .initial_evidence(improvement, 3.0, 0.0)
+            .evaluate_selection(improvement, 0.0, 0.125, &selection)
             .unwrap();
         assert_eq!(decision.numerical, Outcome::Checked);
         assert_eq!(decision.accepted, improvement > 0.0);
@@ -247,7 +264,7 @@ fn run_primitives(pcg_u64_expected: Vec<u64>, pcg_int_expected: Vec<u64>) -> Str
         y_flat.push(2.5 * x0 - 0.75 * x1 + 0.1 * x2);
     }
     let _ = auto_metric.observe(&x_flat, &y_flat, 24).unwrap();
-    let snap = auto_metric.snapshot();
+    let snap = auto_metric.diagonal_metric();
     let auto_weights_bits = bits_vec(snap.weights.iter());
     let auto_gain_bits = snap.heldout_gain.unwrap_or(0.0).to_bits();
 

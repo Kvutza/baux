@@ -2702,6 +2702,483 @@ let init_tokamak_cad () =
   | None -> ()
   | Some _ -> mount_tokamak_cad ()
 
+(* --- Interactive Benchmark Figure Controller ([data-bench-fig]) --- *)
+type bench_seed_dot = {
+  dot_el : element Js.t;
+  dot_seed : string;
+  dot_arm : string;
+  dot_val : string;
+  dot_summary : string;
+}
+
+let clamp_float v lo hi =
+  Float.max lo (Float.min hi v)
+
+let format_int_commas n =
+  let neg = n < 0 in
+  let s = Int.to_string (Int.abs n) in
+  let len = String.length s in
+  if len <= 3 then
+    if neg then "-" ^ s else s
+  else begin
+    let buf = Buffer.create (len + (len - 1) / 3 + 1) in
+    if neg then Buffer.add_char buf '-';
+    for i = 0 to len - 1 do
+      if i > 0 && (len - i) mod 3 = 0 then Buffer.add_char buf ',';
+      Buffer.add_char buf s.[i]
+    done;
+    Buffer.contents buf
+  end
+
+let format_bench_metric v =
+  if not (Float.is_finite v) then "\u{2014}"
+  else
+    let av = Float.abs v in
+    if av = 0.0 then "0.000"
+    else if av < 0.001 then Printf.sprintf "%.2e" v
+    else if av < 1000.0 then Printf.sprintf "%.3f" v
+    else Printf.sprintf "%.1f" v
+
+let parse_finite_float raw =
+  match float_of_string_opt (String.trim raw) with
+  | Some v when Float.is_finite v -> Some v
+  | _ -> None
+
+let parse_viewbox_width raw =
+  let normalized =
+    String.map (function ',' | '\t' | '\n' | '\r' -> ' ' | c -> c) raw
+  in
+  let toks =
+    String.split_on_char ' ' normalized
+    |> List.filter (fun t -> t <> "")
+  in
+  match List.nth_opt toks 2 with
+  | None -> None
+  | Some w_str ->
+      (match parse_finite_float w_str with
+       | Some w when w > 0.0 -> Some w
+       | _ -> None)
+
+let parse_bench_scrub (raw : string) : (string array * (int * (float * float) array) array) option =
+  let raw = String.trim raw in
+  if raw = "" then None
+  else
+    match String.index_opt raw '~' with
+    | None -> None
+    | Some tilde_idx ->
+        let header = String.sub raw 0 tilde_idx in
+        let body = String.sub raw (tilde_idx + 1) (String.length raw - tilde_idx - 1) in
+        let labels =
+          String.split_on_char '|' header
+          |> List.map String.trim
+          |> List.filter (fun s -> s <> "")
+          |> Array.of_list
+        in
+        if Array.length labels = 0 then None
+        else
+          let parse_knot seg =
+            let seg = String.trim seg in
+            if seg = "" then None
+            else
+              match String.index_opt seg ':' with
+              | None -> None
+              | Some colon_idx ->
+                  let r_str = String.trim (String.sub seg 0 colon_idx) in
+                  let vals_str =
+                    String.sub seg (colon_idx + 1) (String.length seg - colon_idx - 1)
+                  in
+                  (match int_of_string_opt r_str with
+                   | Some round when round > 0 ->
+                       let raw_toks =
+                         String.split_on_char ',' vals_str
+                         |> List.map String.trim
+                         |> List.filter (fun t -> t <> "")
+                       in
+                       let rec parse_vals acc = function
+                         | [] -> Some (Array.of_list (List.rev acc))
+                         | tok :: rest ->
+                             (match parse_finite_float tok with
+                              | Some v -> parse_vals (v :: acc) rest
+                              | None -> None)
+                       in
+                       (match parse_vals [] raw_toks with
+                        | Some nums when Array.length nums >= 2 && Array.length nums mod 2 = 0 ->
+                            let n_pairs = Array.length nums / 2 in
+                            let pairs =
+                              Array.init n_pairs (fun i -> (nums.(2 * i), nums.(2 * i + 1)))
+                            in
+                            Some (round, pairs)
+                        | _ -> None)
+                   | _ -> None)
+          in
+          let knots =
+            String.split_on_char ';' body
+            |> List.filter_map parse_knot
+            |> Array.of_list
+          in
+          if Array.length knots = 0 then None
+          else Some (labels, knots)
+
+let format_scrub_readout (labels : string array) (round : int) (pairs : (float * float) array) =
+  let head = "Round t = " ^ format_int_commas round in
+  let n_show = Int.min 3 (Int.min (Array.length labels) (Array.length pairs)) in
+  if n_show <= 0 then head
+  else
+    let parts = ref [] in
+    for i = n_show - 1 downto 0 do
+      let (m, s) = pairs.(i) in
+      let item =
+        Printf.sprintf "%s: %s\u{00B1}%s"
+          labels.(i)
+          (format_bench_metric m)
+          (format_bench_metric s)
+      in
+      parts := item :: !parts
+    done;
+    String.concat "  \u{00B7}  " (head :: !parts)
+
+let is_node_within_el (target_el : element Js.t) (cand : element Js.t) =
+  let cand_node : Dom.node Js.t = (cand :> Dom.node Js.t) in
+  let rec climb cur_opt =
+    match Js.Opt.to_option cur_opt with
+    | None -> false
+    | Some n ->
+        if n == cand_node then true
+        else climb n##.parentNode
+  in
+  climb (Js.some (target_el :> Dom.node Js.t))
+
+let mount_bench_figure (fig_el : element Js.t) =
+  if get_attr fig_el "data-bench-ready" <> "1" then begin
+    fig_el##setAttribute (js "data-bench-ready") (js "1");
+
+    let scrub_bars = query_within fig_el ".baux-scrub-bar" in
+    let default_summary =
+      let s = get_attr fig_el "data-summary" in
+      if s <> "" then s
+      else
+        match scrub_bars with
+        | bar :: _ ->
+            (match Js.Opt.to_option bar##.textContent with
+             | Some t -> Js.to_string t
+             | None -> "")
+        | [] -> ""
+    in
+    let set_scrub_bar txt =
+      List.iter (fun bar ->
+        bar##.textContent := Js.some (js txt)
+      ) scrub_bars
+    in
+
+    let all_scrub_lines = query_within fig_el ".baux-scrub-line" in
+    let hide_scrub_lines lines =
+      List.iter (fun ln ->
+        ln##setAttribute (js "opacity") (js "0")
+      ) lines
+    in
+
+    (* Collect paired seed dots in Pane B *)
+    let seed_dots : bench_seed_dot list =
+      query_within fig_el ".baux-seed-dot[data-seed]"
+      |> List.filter_map (fun dot_el ->
+           let seed = String.trim (get_attr dot_el "data-seed") in
+           if seed = "" then None
+           else
+             let arm = String.trim (get_attr dot_el "data-arm") in
+             let v_raw = String.trim (get_attr dot_el "data-delta") in
+             let v = if v_raw <> "" then v_raw else String.trim (get_attr dot_el "data-value") in
+             let summary = String.trim (get_attr dot_el "data-summary") in
+             Some {
+               dot_el;
+               dot_seed = seed;
+               dot_arm = arm;
+               dot_val = v;
+               dot_summary = summary;
+             })
+    in
+
+    let pinned_seed : (string * string) option ref = ref None in
+
+    let apply_seed_highlight seed_id =
+      List.iter (fun d ->
+        if d.dot_seed = seed_id then begin
+          d.dot_el##.classList##add (js "is-active");
+          d.dot_el##.classList##remove (js "is-dimmed");
+          d.dot_el##setAttribute (js "r") (js "4.3")
+        end else begin
+          d.dot_el##.classList##add (js "is-dimmed");
+          d.dot_el##.classList##remove (js "is-active");
+          d.dot_el##setAttribute (js "r") (js "2.9")
+        end
+      ) seed_dots
+    in
+
+    let clear_seed_classes () =
+      List.iter (fun d ->
+        d.dot_el##.classList##remove (js "is-active");
+        d.dot_el##.classList##remove (js "is-dimmed");
+        d.dot_el##setAttribute (js "r") (js "2.9")
+      ) seed_dots
+    in
+
+    let reset_all_to_default () =
+      pinned_seed := None;
+      clear_seed_classes ();
+      hide_scrub_lines all_scrub_lines;
+      set_scrub_bar default_summary
+    in
+
+    (* 1. Regime Toggle Buttons (.baux-regime-btn[data-regime="full|tail"]) *)
+    let regime_btns = query_within fig_el ".baux-regime-btn[data-regime]" in
+    let traj_svgs =
+      query_within fig_el "svg[data-view]"
+      |> List.filter (fun svg_el ->
+           let v = String.trim (get_attr svg_el "data-view") in
+           v = "full" || v = "tail")
+    in
+    List.iter (fun btn ->
+      add_click btn (fun () ->
+        let target_regime = String.trim (get_attr btn "data-regime") in
+        if target_regime = "full" || target_regime = "tail" then begin
+          List.iter (fun sib ->
+            let is_active = (String.trim (get_attr sib "data-regime") = target_regime) in
+            if is_active then sib##.classList##add (js "active")
+            else sib##.classList##remove (js "active");
+            if Js.Opt.test (sib##getAttribute (js "aria-pressed")) then
+              sib##setAttribute (js "aria-pressed") (js (if is_active then "true" else "false"))
+          ) regime_btns;
+          List.iter (fun svg_el ->
+            let view = String.trim (get_attr svg_el "data-view") in
+            if view = target_regime then
+              svg_el##removeAttribute (js "hidden")
+            else if view = "full" || view = "tail" then
+              svg_el##setAttribute (js "hidden") (js "hidden")
+          ) traj_svgs;
+          reset_all_to_default ()
+        end
+      )
+    ) regime_btns;
+
+    (* 2. Interactive Trajectory Round Scrubber *)
+    (match parse_bench_scrub (get_attr fig_el "data-scrub") with
+     | None -> ()
+     | Some (labels, knots) ->
+         List.iter (fun svg_el ->
+           let x_left_opt = parse_finite_float (get_attr svg_el "data-x-left") in
+           let x_right_opt = parse_finite_float (get_attr svg_el "data-x-right") in
+           let log_min_opt = parse_finite_float (get_attr svg_el "data-log-min") in
+           let log_max_opt = parse_finite_float (get_attr svg_el "data-log-max") in
+           let vb_w_opt = parse_viewbox_width (get_attr svg_el "viewBox") in
+           match (x_left_opt, x_right_opt, log_min_opt, log_max_opt, vb_w_opt) with
+           | (Some x_left, Some x_right, Some log_min, Some log_max, Some vb_width)
+             when x_right > x_left && log_max > log_min ->
+               let svg_lines = query_within svg_el ".baux-scrub-line" in
+               let t_min = (10.0 ** log_min) *. 0.99 in
+               let t_max = (10.0 ** log_max) *. 1.01 in
+               let restore_after_scrub () =
+                 hide_scrub_lines svg_lines;
+                 match !pinned_seed with
+                 | Some (s, sum_txt) ->
+                     apply_seed_highlight s;
+                     set_scrub_bar sum_txt
+                 | None ->
+                     set_scrub_bar default_summary
+               in
+               let scrub_at_client_x client_x =
+                 if Float.is_finite client_x then begin
+                   let rect = svg_el##getBoundingClientRect in
+                   let rect_left = Js.float_of_number rect##.left in
+                   let rect_width = Float.max 1.0 (Js.float_of_number rect##.width) in
+                   let svg_x = (client_x -. rect_left) /. rect_width *. vb_width in
+                   if (not (Float.is_finite svg_x))
+                      || svg_x < x_left -. 6.0
+                      || svg_x > x_right +. 6.0
+                   then
+                     restore_after_scrub ()
+                   else begin
+                     let u = clamp_float ((svg_x -. x_left) /. (x_right -. x_left)) 0.0 1.0 in
+                     let log_t = log_min +. u *. (log_max -. log_min) in
+                     let target_t = 10.0 ** log_t in
+                     let log_target = Float.log10 target_t in
+                     let best = ref None in
+                     let best_dist = ref Float.infinity in
+                     for i = 0 to Array.length knots - 1 do
+                       let (r, pairs) = knots.(i) in
+                       let r_flt = float_of_int r in
+                       if r_flt >= t_min && r_flt <= t_max then begin
+                         let d = Float.abs (Float.log10 r_flt -. log_target) in
+                         if d < !best_dist then begin
+                           best_dist := d;
+                           best := Some (r, pairs)
+                         end
+                       end
+                     done;
+                     match !best with
+                     | None -> restore_after_scrub ()
+                     | Some (knot_round, knot_pairs) ->
+                         let log_r = Float.log10 (float_of_int knot_round) in
+                         let raw_snap_x =
+                           x_left +. ((log_r -. log_min) /. (log_max -. log_min)) *. (x_right -. x_left)
+                         in
+                         let snap_x = clamp_float raw_snap_x x_left x_right in
+                         let x_attr = Printf.sprintf "%.1f" snap_x in
+                         List.iter (fun ln ->
+                           ln##setAttribute (js "x1") (js x_attr);
+                           ln##setAttribute (js "x2") (js x_attr);
+                           ln##setAttribute (js "opacity") (js "0.85")
+                         ) svg_lines;
+                         set_scrub_bar (format_scrub_readout labels knot_round knot_pairs)
+                   end
+                 end
+               in
+               let on_mousemove = handler (fun (ev : mouseEvent Js.t) ->
+                 scrub_at_client_x (Js.float_of_number ev##.clientX);
+                 Js._true
+               ) in
+               let on_mouseleave = handler (fun (_ev : mouseEvent Js.t) ->
+                 restore_after_scrub ();
+                 Js._true
+               ) in
+               let on_touch = handler (fun (ev : touchEvent Js.t) ->
+                 (match Js.Optdef.to_option (ev##.touches##item 0) with
+                  | Some touch -> scrub_at_client_x (Js.float_of_number touch##.clientX)
+                  | None -> ());
+                 Js._true
+               ) in
+               let _ = addEventListener svg_el Event.mousemove on_mousemove Js._false in
+               let _ =
+                 addEventListener svg_el
+                   (Event.make "mouseleave" : mouseEvent Js.t Event.typ)
+                   on_mouseleave Js._false
+               in
+               let _ =
+                 addEventListenerWithOptions svg_el Event.touchstart ~passive:Js._true on_touch
+               in
+               let _ =
+                 addEventListenerWithOptions svg_el Event.touchmove ~passive:Js._true on_touch
+               in
+               ()
+           | _ -> ()
+         ) traj_svgs);
+
+    (* 3. Paired Common-Random-Number Seed Tracing (.baux-seed-dot[data-seed]) *)
+    if seed_dots <> [] then begin
+      let summary_for_dot (d : bench_seed_dot) =
+        if d.dot_summary <> "" then d.dot_summary
+        else
+          let matching = List.filter (fun m -> m.dot_seed = d.dot_seed) seed_dots in
+          let arm_parts =
+            List.filter_map (fun m ->
+              if m.dot_arm <> "" && m.dot_val <> "" then
+                Some (Printf.sprintf "%s: %s" m.dot_arm m.dot_val)
+              else if m.dot_arm <> "" then
+                Some m.dot_arm
+              else if m.dot_summary <> "" then
+                Some m.dot_summary
+              else None
+            ) matching
+          in
+          if arm_parts <> [] then
+            Printf.sprintf "Seed %s  \u{00B7}  %s"
+              d.dot_seed
+              (String.concat "  \u{00B7}  " arm_parts)
+          else default_summary
+      in
+      List.iter (fun d ->
+        let on_enter = handler (fun (_ev : mouseEvent Js.t) ->
+          hide_scrub_lines all_scrub_lines;
+          apply_seed_highlight d.dot_seed;
+          set_scrub_bar (summary_for_dot d);
+          Js._true
+        ) in
+        let on_dot_click = handler (fun (_ev : mouseEvent Js.t) ->
+          hide_scrub_lines all_scrub_lines;
+          (match !pinned_seed with
+           | Some (cur_s, _) when cur_s = d.dot_seed ->
+               pinned_seed := None;
+               clear_seed_classes ();
+               set_scrub_bar default_summary
+           | _ ->
+               let sum_txt = summary_for_dot d in
+               pinned_seed := Some (d.dot_seed, sum_txt);
+               apply_seed_highlight d.dot_seed;
+               set_scrub_bar sum_txt);
+          Js._true
+        ) in
+        let _ =
+          addEventListener d.dot_el
+            (Event.make "mouseenter" : mouseEvent Js.t Event.typ)
+            on_enter Js._false
+        in
+        let _ = addEventListener d.dot_el Event.click on_dot_click Js._false in
+        ()
+      ) seed_dots;
+
+      let paired_svgs =
+        query_within fig_el "svg[data-view=\"paired\"]"
+      in
+      let restore_seed_hover () =
+        match !pinned_seed with
+        | Some (s, sum_txt) ->
+            apply_seed_highlight s;
+            set_scrub_bar sum_txt
+        | None ->
+            clear_seed_classes ();
+            set_scrub_bar default_summary
+      in
+      if paired_svgs <> [] then
+        List.iter (fun p_svg ->
+          let on_leave = handler (fun (_ev : mouseEvent Js.t) ->
+            restore_seed_hover ();
+            Js._true
+          ) in
+          let _ =
+            addEventListener p_svg
+              (Event.make "mouseleave" : mouseEvent Js.t Event.typ)
+              on_leave Js._false
+          in
+          ()
+        ) paired_svgs
+      else
+        List.iter (fun d ->
+          let on_leave = handler (fun (_ev : mouseEvent Js.t) ->
+            restore_seed_hover ();
+            Js._true
+          ) in
+          let _ =
+            addEventListener d.dot_el
+              (Event.make "mouseleave" : mouseEvent Js.t Event.typ)
+              on_leave Js._false
+          in
+          ()
+        ) seed_dots;
+
+      let on_doc_click = handler (fun (ev : mouseEvent Js.t) ->
+        (match !pinned_seed with
+         | None -> ()
+         | Some _ ->
+             let clicked_dot =
+               match Js.Opt.to_option ev##.target with
+               | None -> false
+               | Some target_el ->
+                   List.exists (fun d -> is_node_within_el target_el d.dot_el) seed_dots
+             in
+             if not clicked_dot then begin
+               pinned_seed := None;
+               clear_seed_classes ();
+               set_scrub_bar default_summary
+             end);
+        Js._true
+      ) in
+      let _ = addEventListener document Event.click on_doc_click Js._false in
+      ()
+    end
+  end
+
+let init_bench_figures () =
+  let figs = query_all "[data-bench-fig]" in
+  List.iter mount_bench_figure figs
+
 (* --- Main Entrypoint --- *)
 let () =
   let booted = ref false in
@@ -2711,7 +3188,8 @@ let () =
       init_theme_toggle ();
       init_copy_buttons ();
       init_api_reference ();
-      init_tokamak_cad ()
+      init_tokamak_cad ();
+      init_bench_figures ()
     end
   in
   let on_load = handler (fun _ev ->

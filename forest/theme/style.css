@@ -136,6 +136,16 @@
   --radius: 8px;
   --bg-box: #F6F7F9;
   --border-box: transparent;
+
+  --bench-c-hero: #111111;
+  --bench-c-enn1: #1d4ed8;
+  --bench-c-enn2: #0f766e;
+  --bench-c-enn3: #b45309;
+  --bench-c-enn4: #7e22ce;
+  --bench-c-ppo: #be123c;
+  --bench-grid: #eceff3;
+  --bench-axis: #52525b;
+  --bench-zero: #71717a;
 }
 
 [data-theme="dark"] {
@@ -158,6 +168,16 @@
 
   --bg-box: #161922;
   --border-box: transparent;
+
+  --bench-c-hero: #f0f6fc;
+  --bench-c-enn1: #58a6ff;
+  --bench-c-enn2: #2dd4bf;
+  --bench-c-enn3: #fbbf24;
+  --bench-c-enn4: #c084fc;
+  --bench-c-ppo: #fb7185;
+  --bench-grid: #21262d;
+  --bench-axis: #8b949e;
+  --bench-zero: #6e7681;
 }
 
 *, *::before, *::after {
@@ -1592,4 +1612,79 @@ html[data-theme='dark'] .tcv-fig-caption { background: #161b22; border-color: #3
   .tcv-ctrl-seed { grid-column: 1; }
   #tcv-webgl-wrap { min-height: 225px; height: 225px; }
   #tcv-fig9-wrap { min-height: 235px; height: 235px; }
+}
+
+/* -------------------------------------------------------------------------- */
+/* 2-Pane Inline-SVG Benchmark Cards (.baux-bench-shell)                      */
+/* -------------------------------------------------------------------------- */
+.baux-bench-shell {
+  margin: 1.5rem 0 2.1rem 0;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  overflow: hidden;
+  border: 1px solid var(--hairline, #e5e7eb);
+  border-radius: 8px;
+  background: var(--bg-canvas, #ffffff);
+  font-family: var(--font-serif, 'Latin Modern Roman', Georgia, serif);
+  color: var(--fg-primary, #111111);
+}
+html[data-theme='dark'] .baux-bench-shell,
+[data-theme='dark'] .baux-bench-shell {
+  background: #0d1117;
+  border-color: #30363d;
+  color: #e6edf3;
+  --bench-c-hero: #f0f6fc;
+  --bench-c-enn1: #58a6ff;
+  --bench-c-enn2: #2dd4bf;
+  --bench-c-enn3: #fbbf24;
+  --bench-c-enn4: #c084fc;
+  --bench-c-ppo: #fb7185;
+  --bench-grid: #21262d;
+  --bench-axis: #8b949e;
+  --bench-zero: #6e7681;
+}
+.baux-bench-grid { display: grid; grid-template-columns: 1.14fr 1fr; width: 100%; }
+.baux-bench-pane { position: relative; min-width: 0; min-height: 0; overflow: hidden; border-right: 1px solid var(--hairline, #dddddd); border-bottom: none; display: flex; flex-direction: column; }
+html[data-theme='dark'] .baux-bench-pane { border-color: #30363d; }
+.baux-bench-pane:nth-child(2n),
+.baux-bench-pane:last-child { border-right: none; }
+.baux-bench-hdr { padding: 6px 12px; border-bottom: 1px solid var(--hairline, #dddddd); font-size: 12.5px; font-family: var(--font-serif, 'Latin Modern Roman', Georgia, serif); background: var(--bg-surface, #fafafa); color: var(--fg-primary, #111111); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 6px 8px; }
+html[data-theme='dark'] .baux-bench-hdr { background: #161b22; border-color: #30363d; color: #e6edf3; }
+.baux-regime-pills { display: inline-flex; gap: 4px; align-items: center; }
+.baux-regime-btn { width: auto; padding: 2px 8px; font-size: 11px; font-family: var(--font-mono); border-radius: 3px; line-height: 1.35; border: 1px solid var(--hairline-mid, #bbbbbb); background: var(--bg-canvas, #ffffff); color: var(--fg-secondary, #222222); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 4px; transition: all 0.12s; box-sizing: border-box; }
+.baux-regime-btn:hover { border-color: var(--hairline-strong, #111111); color: var(--fg-primary, #111111); background: var(--bg-surface, #fafafa); }
+.baux-regime-btn.active { background: var(--hairline-strong, #111111); color: #ffffff; border-color: var(--hairline-strong, #111111); font-weight: 700; }
+html[data-theme='dark'] .baux-regime-btn { background: #161b22; border-color: #30363d; color: #c9d1d9; }
+html[data-theme='dark'] .baux-regime-btn.active { background: #f0f6fc; color: #0d1117; border-color: #f0f6fc; }
+.baux-svg-stage { width: 100%; padding: 6px 8px 4px 8px; background: var(--bg-canvas, #ffffff); }
+html[data-theme='dark'] .baux-svg-stage { background: #0d1117; }
+.baux-bench-svg { display: block; width: 100%; height: auto; overflow: visible; user-select: none; -webkit-user-select: none; }
+.baux-bench-svg[hidden] { display: none !important; }
+.baux-seed-dot { cursor: pointer; transition: r 0.12s ease, fill-opacity 0.12s ease, stroke-width 0.12s ease; }
+.baux-seed-dot.is-active { fill-opacity: 1 !important; stroke: var(--fg-primary, #111111) !important; stroke-width: 1.8px !important; }
+html[data-theme='dark'] .baux-seed-dot.is-active { stroke: #ffffff !important; }
+.baux-seed-dot.is-dimmed { fill-opacity: 0.16 !important; stroke-opacity: 0.2 !important; }
+.baux-scrub-bar { padding: 6px 14px; border-top: 1px solid var(--hairline, #e5e7eb); background: var(--bg-canvas, #ffffff); font-family: var(--font-mono); font-size: 10.5px; line-height: 1.45; color: var(--fg-secondary, #27272a); white-space: normal; overflow-x: visible; }
+html[data-theme='dark'] .baux-scrub-bar { background: #0d1117; border-color: #30363d; color: #c9d1d9; }
+.baux-bench-shell > figcaption { padding: 9px 14px; border-top: 1px solid var(--hairline, #e5e7eb); background: var(--bg-surface, #f6f7f9); font-family: var(--font-serif, 'Latin Modern Roman', Georgia, serif); font-size: 12.5px; line-height: 1.48; color: var(--fg-secondary, #27272a); }
+html[data-theme='dark'] .baux-bench-shell > figcaption { background: #161b22; border-color: #30363d; color: #c9d1d9; }
+@media (max-width: 780px) {
+  .baux-bench-grid { grid-template-columns: 1fr; }
+  .baux-bench-pane { border-right: none; border-bottom: 1px solid var(--hairline, #dddddd); }
+  html[data-theme='dark'] .baux-bench-pane { border-bottom-color: #30363d; }
+  .baux-bench-pane:last-child { border-bottom: none; }
+}
+@media (max-width: 640px) {
+  .baux-bench-shell { margin: 1.15rem 0 1.75rem 0; }
+  .baux-bench-hdr { padding: 5px 10px; font-size: 11.5px; }
+  .baux-scrub-bar { white-space: normal; font-size: 10.5px; padding: 6px 10px; }
+  .baux-regime-btn { min-height: 28px; padding: 3px 8px; font-size: 11px; flex-direction: row; }
+  .baux-bench-shell > figcaption { padding: 8px 10px; font-size: 11.5px; }
+}
+@media (max-width: 375px) {
+  .baux-bench-hdr { padding: 5px 8px; gap: 4px 6px; }
+  .baux-svg-stage { padding: 4px 4px 2px 4px; }
+  .baux-regime-btn { min-height: 26px; padding: 2px 6px; font-size: 10.5px; }
+  .baux-scrub-bar { font-size: 10px; padding: 5px 8px; }
 }

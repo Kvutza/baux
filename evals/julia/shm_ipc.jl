@@ -235,7 +235,13 @@ end
     return UInt64(0)
 end
 
-function serve_atomic!(slab::SlabView, ctx_pool::Vector, eval_one!::Function; penalty_score::Float64=-1.0e9)
+function serve_atomic!(
+    slab::SlabView,
+    ctx_pool::Vector,
+    eval_one!::Function;
+    penalty_score::Float64 = -1.0e9,
+    slab_path::AbstractString = "",
+)
     raw = slab.bytes
     GC.@preserve raw begin
         hdr = Ptr{UInt64}(pointer(raw))
@@ -294,6 +300,9 @@ function serve_atomic!(slab::SlabView, ctx_pool::Vector, eval_one!::Function; pe
                 elseif spins < 2048
                     yield()
                 else
+                    if mod(spins, 1024) == 0 && !isempty(slab_path) && !isfile(slab_path)
+                        return SHM_CMD_DETACH
+                    end
                     sleep(0.0005)
                 end
             end
@@ -440,7 +449,13 @@ function run_daemon!(
                             string("OK\t", length(low), "\t", slab.state_len, "\t", slab.num_obj, "\n"),
                         )
                         flush(sock)
-                        cmd = serve_atomic!(slab, ctx_pool, eval_one!; penalty_score=penalty_score)
+                        cmd = serve_atomic!(
+                            slab,
+                            ctx_pool,
+                            eval_one!;
+                            penalty_score = penalty_score,
+                            slab_path = slab_path,
+                        )
                         if cmd == SHM_CMD_SHUTDOWN
                             return nothing
                         end

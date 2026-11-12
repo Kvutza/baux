@@ -1,0 +1,310 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "TuneSpec",
+  "description": "BAUX v4 tune-spec configuration and study schema.",
+  "type": "object",
+  "required": [
+    "version",
+    "experiment"
+  ],
+  "properties": {
+    "version": {
+      "type": "integer",
+      "const": 4,
+      "description": "Configuration format version (must be 4)."
+    },
+    "experiment": {
+      "type": "string",
+      "description": "Target experiment simulator or problem identifier."
+    },
+    "extends": {
+      "description": "Path or paths of base configs to inherit from.",
+      "oneOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "rounds": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Number of optimization rounds."
+    },
+    "repetitions": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Number of independent repetitions / seeds."
+    },
+    "backend": {
+      "type": "string",
+      "description": "Execution backend (e.g. host, resident-metal, resident-cuda)."
+    },
+    "model": {
+      "type": "string",
+      "description": "Model architecture for pretrain experiments."
+    },
+    "recipe": {
+      "type": "string",
+      "description": "Dataset recipe for pretrain experiments."
+    },
+    "objective": {
+      "type": "string",
+      "description": "Optimization objective function."
+    },
+    "window-tokens": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Context window token count."
+    },
+    "round-target-ms": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Target duration per round in milliseconds."
+    },
+    "validation-interval": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Interval of rounds between validation evaluations."
+    },
+    "trace": {
+      "type": "boolean",
+      "description": "Enable detailed execution tracing."
+    },
+    "stage-samples": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Number of samples per pipeline stage."
+    },
+    "ocean": {
+      "type": "object",
+      "description": "Oceananigans PDE simulation parameters.",
+      "properties": {
+        "task": {
+          "type": "string"
+        },
+        "nx": {
+          "type": "integer"
+        },
+        "ny": {
+          "type": "integer"
+        },
+        "nz": {
+          "type": "integer"
+        },
+        "actuators": {
+          "type": "integer"
+        },
+        "steps": {
+          "type": "integer"
+        },
+        "dt": {
+          "type": "number"
+        }
+      }
+    },
+    "fuse": {
+      "type": "object",
+      "description": "FUSE whole-facility tokamak plant parameters.",
+      "properties": {
+        "case": {
+          "type": "string"
+        },
+        "workflow": {
+          "type": "string"
+        },
+        "objective": {
+          "type": "string"
+        },
+        "constraints": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "penalty": {
+          "type": "number"
+        }
+      }
+    },
+    "morbo": {
+      "type": "object",
+      "description": "Multi-objective Bayesian optimization configuration."
+    },
+    "manifold": {
+      "type": "object",
+      "description": "Manifold topology and geometry constraints."
+    },
+    "optimizer": {
+      "type": "object",
+      "description": "Bayesian / black-box optimizer configuration.",
+      "properties": {
+        "algorithm": {
+          "type": "string"
+        },
+        "distribution": {
+          "type": "string"
+        },
+        "candidates": {
+          "type": "integer"
+        },
+        "arms": {
+          "type": "integer"
+        },
+        "acquisition": {
+          "type": "string"
+        },
+        "surrogate": {
+          "type": "object",
+          "properties": {
+            "metric": {
+              "type": "string"
+            },
+            "local-neighbors": {
+              "type": "integer"
+            },
+            "neighbors": {
+              "type": "integer"
+            },
+            "epistemic-scale": {
+              "type": "number"
+            },
+            "aleatoric-scale": {
+              "type": "number"
+            },
+            "y-scale": {
+              "type": "number"
+            },
+            "fit": {
+              "type": "string"
+            },
+            "fit-candidates": {
+              "type": "integer"
+            },
+            "fit-samples": {
+              "type": "integer"
+            }
+          }
+        },
+        "perturbation": {
+          "type": "object",
+          "properties": {
+            "sampler": {
+              "type": "string"
+            },
+            "num-pert": {
+              "type": "integer"
+            },
+            "raasp-fast": {
+              "type": "boolean"
+            }
+          }
+        },
+        "trust-region": {
+          "type": "object",
+          "properties": {
+            "shape": {
+              "type": "string"
+            },
+            "initial": {
+              "type": "number"
+            },
+            "min": {
+              "type": "number"
+            },
+            "max": {
+              "type": "number"
+            }
+          }
+        },
+        "regional-search": {
+          "type": "object",
+          "properties": {
+            "count": {
+              "type": "integer"
+            },
+            "sharing": {
+              "type": "string"
+            },
+            "allocation": {
+              "type": "string"
+            },
+            "controller": {
+              "type": "string"
+            },
+            "success-tolerance": {
+              "type": "integer"
+            },
+            "failure-tolerance": {
+              "type": "integer"
+            },
+            "restart-center": {
+              "type": "string"
+            },
+            "restart-candidates": {
+              "type": "integer"
+            }
+          }
+        }
+      }
+    },
+    "study": {
+      "type": "object",
+      "description": "Study configuration with arms and factor sweeps.",
+      "properties": {
+        "rungs": {
+          "type": "array",
+          "items": {
+            "type": "integer"
+          }
+        },
+        "prune": {
+          "type": "string",
+          "enum": [
+            "none",
+            "paired-lcb"
+          ]
+        },
+        "arm": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/arm"
+          }
+        },
+        "arms": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/arm"
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "arm": {
+      "type": "object",
+      "required": [
+        "name"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "baseline": {
+          "type": "boolean"
+        },
+        "set": {
+          "type": "object"
+        },
+        "sweep": {
+          "type": "object"
+        }
+      }
+    }
+  }
+}

@@ -70,9 +70,6 @@
         </header>
         <div id="grid-wrapper">
           <article>
-            <xsl:if test="$current-addr = 'baux-0007'">
-              <div id="baux-api-explorer"></div>
-            </xsl:if>
             <xsl:apply-templates select="fr:tree" />
           </article>
           <xsl:if test="fr:tree/fr:mainmatter/fr:tree[not(@toc='false')] and not(/fr:tree/fr:frontmatter/fr:meta[@name = 'toc']/.='false')">

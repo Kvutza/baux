@@ -1,6 +1,6 @@
 (* admin/ui/baux_ui.ml
    Compiled via Dune & Js_of_ocaml (opam switch 5.2.0+ox)
-   Baux API Interactive Function Explorer & Subsystem Architecture Graph
+   BAUX Static API Reference Filter & Tokamak 3D WebGL CAD Explorer
 *)
 
 [@@@warning "-32-27"]
@@ -12,6 +12,17 @@ let js = Js.string
 
 let query_all sel =
   let nl = document##querySelectorAll (js sel) in
+  let len = nl##.length in
+  let acc = ref [] in
+  for i = len - 1 downto 0 do
+    match Js.Opt.to_option (nl##item i) with
+    | Some el -> acc := el :: !acc
+    | None -> ()
+  done;
+  !acc
+
+let query_within (parent : element Js.t) sel =
+  let nl = parent##querySelectorAll (js sel) in
   let len = nl##.length in
   let acc = ref [] in
   for i = len - 1 downto 0 do
@@ -47,11 +58,16 @@ let init_copy_buttons () =
                 let c_elem : htmlElement Js.t = Js.Unsafe.coerce c in
                 Js.to_string c_elem##.innerText
             | None ->
-                (match Js.Opt.to_option (p_elem##querySelector (js ".install-cmd-text")) with
-                | Some c ->
-                    let c_elem : htmlElement Js.t = Js.Unsafe.coerce c in
-                    Js.to_string c_elem##.innerText
-                | None -> Js.to_string p_elem##.innerText))
+                (match Js.Opt.to_option (p_elem##querySelector (js "pre")) with
+                | Some pr ->
+                    let pr_elem : htmlElement Js.t = Js.Unsafe.coerce pr in
+                    Js.to_string pr_elem##.innerText
+                | None ->
+                    (match Js.Opt.to_option (p_elem##querySelector (js ".install-cmd-text")) with
+                    | Some c ->
+                        let c_elem : htmlElement Js.t = Js.Unsafe.coerce c in
+                        Js.to_string c_elem##.innerText
+                    | None -> Js.to_string p_elem##.innerText)))
         | None -> ""
       in
       try
@@ -85,318 +101,7 @@ let init_theme_toggle () =
       )
   | _ -> ()
 
-(* --- BAUX API Explorer in OCaml --- *)
-type api_symbol = {
-  name : string;
-  kind : string;
-  sig_str : string;
-  doc : string;
-}
-
-type api_module = {
-  id : string;
-  title : string;
-  desc : string;
-  symbols : api_symbol list;
-}
-
-type graph_node = {
-  g_id : string;
-  g_label : string;
-  g_desc : string;
-  g_deps : string list;
-}
-
-let baux_modules : api_module list = [
-  {
-    id = "core";
-    title = "Functional Transitions";
-    desc = "Pure functional state transitions, execution folds, and parallel execution.";
-    symbols = [
-      { name = "init"; kind = "function";
-        sig_str = "(domain, config=None, *, pipe=None, key=None, seed=None, low=-1.0, high=1.0) -> OptimizerState";
-        doc = "Initialize an immutable OptimizerState from bounds or a parameter PyTree." };
-      { name = "ask"; kind = "function";
-        sig_str = "(state, num_arms=None, *, n=None) -> tuple[OptimizerState, AskBatch]";
-        doc = "Pure proposal transition generating candidate points and updated state." };
-      { name = "tell"; kind = "function";
-        sig_str = "(state, x, y, *, y_var=None) -> tuple[OptimizerState, np.ndarray]";
-        doc = "Pure observation transition incorporating evaluation outcomes and updating posterior buffers." };
-      { name = "step"; kind = "function";
-        sig_str = "(state, objective, *, num_arms=1, use_pytree=False) -> tuple[OptimizerState, np.ndarray]";
-        doc = "Single atomic ask -> evaluate -> tell state transition." };
-      { name = "scan"; kind = "function";
-        sig_str = "(state, key=None, steps=0, eval_fn=None, num_arms=1) -> tuple[OptimizerState, Key, list[dict]]";
-        doc = "Folds optimization rounds deterministically over state and splittable PRNG key." };
-      { name = "pmap"; kind = "function";
-        sig_str = "(state, key, branches, branch_fn) -> list[Any]";
-        doc = "Forks state snapshot and splits PRNG keys across parallel worker threads." };
-      { name = "complete"; kind = "function";
-        sig_str = "(state, ids, y, *, y_var=None) -> OptimizerState";
-        doc = "Asynchronous regional completion by AskId ticket." };
-      { name = "cancel"; kind = "function";
-        sig_str = "(state, ids) -> OptimizerState";
-        doc = "Pure transition discarding pending regional candidate tickets." };
-      { name = "digest"; kind = "function";
-        sig_str = "(state) -> str";
-        doc = "BLAKE3 digest of the optimizer state." };
-      { name = "freeze"; kind = "function";
-        sig_str = "(state) -> bytes";
-        doc = "Serializes state to bytes." };
-      { name = "thaw"; kind = "function";
-        sig_str = "(state, data: bytes) -> OptimizerState";
-        doc = "Reconstructs state from bytes." };
-      { name = "OptimizerState"; kind = "class";
-        sig_str = "Immutable optimization state record";
-        doc = "Exposes .best_x, .best_y, .best_params, .x_obs, .y_obs, .num_observations, .epoch, .tr_length, and .key." };
-      { name = "AskBatch"; kind = "class";
-        sig_str = "(ids, points, spec=None, weights=None)";
-        doc = "Proposal container providing candidate IDs, points, decoded parameters, and coordinate tensors." };
-      { name = "AskId"; kind = "class";
-        sig_str = "(value: int)";
-        doc = "Epoch-guarded ticket for asynchronous regional proposals." };
-    ];
-  };
-  {
-    id = "keys";
-    title = "PRNG Key Algebra";
-    desc = "Deterministic, splittable 128-bit pseudo-random key generation and folding.";
-    symbols = [
-      { name = "key"; kind = "function";
-        sig_str = "(source=None) -> Key";
-        doc = "Constructs splittable 128-bit key from integer seed, byte buffer, array, or state." };
-      { name = "split"; kind = "function";
-        sig_str = "(k, n=2) -> tuple[Key, ...]";
-        doc = "Deterministically splits a parent key into n independent subkeys." };
-      { name = "fold"; kind = "function";
-        sig_str = "(k, tag: int) -> Key";
-        doc = "Deterministically folds an integer domain tag into key without altering parent sequence." };
-      { name = "Key"; kind = "class";
-        sig_str = "128-bit splittable PRNG key";
-        doc = "128-bit (u64, u64) SplitMix64 key algebra seeding deterministic ChaCha12 and optimizer streams." };
-    ];
-  };
-  {
-    id = "transforms";
-    title = "Pipeline Transforms";
-    desc = "Composable optimization pipeline combinators adhering to the Transform protocol.";
-    symbols = [
-      { name = "chain"; kind = "function";
-        sig_str = "(*steps) -> OptimizerConfig";
-        doc = "Composes Transform stages into an OptimizerConfig." };
-      { name = "lhd"; kind = "function";
-        sig_str = "(num_init=10, *, only=False) -> Transform";
-        doc = "Latin Hypercube Design initialization stage." };
-      { name = "sobol"; kind = "function";
-        sig_str = "(num_candidates=None, *, per_arm=None, num_pert=None) -> Transform";
-        doc = "Sobol sequence quasi-random candidate generator." };
-      { name = "raasp"; kind = "function";
-        sig_str = "(num_pert=20, *, num_candidates=None, per_arm=None, driver=RAASPDriver.ORIG) -> Transform";
-        doc = "Random Axis-Aligned Subspace Perturbation proposal sampling." };
-      { name = "uniform_pert"; kind = "function";
-        sig_str = "(num_candidates=None, *, per_arm=None, num_pert=None) -> Transform";
-        doc = "Uniform candidate perturbation sampler." };
-      { name = "enn"; kind = "function";
-        sig_str = "(*, k=10, num_samples=100, scale_x=False, index=NeighborIndex.FLAT, geometry='euclidean', local_k=4) -> Transform";
-        doc = "Attaches Epistemic Nearest Neighbors surrogate to optimization pipeline." };
-      { name = "gp"; kind = "function";
-        sig_str = "() -> Transform";
-        doc = "Gaussian Process surrogate transform." };
-      { name = "zero"; kind = "function";
-        sig_str = "() -> Transform";
-        doc = "Zero baseline surrogate transform." };
-      { name = "ucb"; kind = "function";
-        sig_str = "(beta=2.0) -> Transform";
-        doc = "Upper Confidence Bound acquisition function." };
-      { name = "thompson"; kind = "function";
-        sig_str = "() -> Transform";
-        doc = "Thompson sampling acquisition via coherent posterior function draws." };
-      { name = "pareto"; kind = "function";
-        sig_str = "() -> Transform";
-        doc = "Multi-objective Pareto-front non-dominated arm selector." };
-      { name = "random_acq"; kind = "function";
-        sig_str = "() -> Transform";
-        doc = "Uniform random acquisition selector." };
-      { name = "tr_bounds"; kind = "function";
-        sig_str = "(*, length_init=0.8, length_min=0.5**7, length_max=1.6) -> Transform";
-        doc = "Configures trust-region length bounds and expansion/contraction factors." };
-      { name = "regions"; kind = "function";
-        sig_str = "(count=4, *, sharing='ellipsoid_ball', allocation='incumbent_ucb1') -> Transform";
-        doc = "Configures multi-region TuRBO/MORBO portfolio coordination." };
-      { name = "with_geometry"; kind = "function";
-        sig_str = "(target, geometry: str, local_k=4)";
-        doc = "Equips surrogate target with conformal, hyperbolic, or Wasserstein geometry." };
-      { name = "stein"; kind = "function";
-        sig_str = "(target, frame=None, *, rank=None)";
-        doc = "Attaches polar Stiefel subspace projection with orthogonal complement shrinkage." };
-      { name = "calibrate"; kind = "function";
-        sig_str = "(target, affine=None, *, alpha=None)";
-        doc = "Attaches affine location-scale and split-conformal residual scaling (valid on exchangeable held-out splits)." };
-      { name = "Transform"; kind = "class";
-        sig_str = "Pipeline step protocol exposing __call__(cfg) -> cfg and pipe operator |";
-        doc = "Base protocol for all composable optimization transforms." };
-      { name = "OptimizerConfig"; kind = "class";
-        sig_str = "Full declarative specification of surrogate, sampler, acquisition, and regions";
-        doc = "Immutable configuration object passed to optimizer init." };
-    ];
-  };
-  {
-    id = "charts";
-    title = "Domain Charts, PyTree & Codomain";
-    desc = "Structured parameter charts, PyTree flattening, and multi-output codomain operators.";
-    symbols = [
-      { name = "pytree_bounds"; kind = "function";
-        sig_str = "(tree, low=-1.0, high=1.0) -> PyTreeSpec";
-        doc = "Compiles nested Python dictionaries, lists, and tuples into flat coordinate specifications." };
-      { name = "Log"; kind = "class";
-        sig_str = "(low: float, high: float)";
-        doc = "Scale-isometric logarithmic chart on positive multiplicative reals [a, b] (0 < a < b)." };
-      { name = "Periodic"; kind = "class";
-        sig_str = "(low=0.0, high=2*pi)";
-        doc = "Circular trigonometric embedding on [a, b) into [0, 1]^2 monotone in shortest circular angle." };
-      { name = "Simplex"; kind = "class";
-        sig_str = "(dim: int)";
-        doc = "Square-root spherical coordinates on the probability simplex Delta^{d-1} (1/4 Fisher-Rao pullback)." };
-      { name = "categorical"; kind = "function";
-        sig_str = "(categories: list[Any], *, encoding='auto') -> Categorical";
-        doc = "Constructs exact one-hot (C <= 15) or Rademacher JL codebook (C > 15) for discrete choices." };
-      { name = "Categorical"; kind = "class";
-        sig_str = "Categorical coordinate embedding specification";
-        doc = "Manages discrete category codebook and minimum Euclidean distance retraction." };
-      { name = "Stiefel"; kind = "class";
-        sig_str = "(loadings: np.ndarray)";
-        doc = "Codomain operator: polar orthonormal projection onto St(r, M) for subspace shrinkage (used with baux.stein)." };
-      { name = "Affine"; kind = "class";
-        sig_str = "(scale: np.ndarray, shift: np.ndarray, conformal_q=1.0)";
-        doc = "Codomain operator: affine location-scale and split-conformal multiplier (used with baux.calibrate)." };
-      { name = "ravel"; kind = "function";
-        sig_str = "(tree, spec=None) -> np.ndarray";
-        doc = "Flattens structured parameter container into normalized 1D coordinate array." };
-      { name = "unflatten"; kind = "function";
-        sig_str = "(flat: np.ndarray, spec: PyTreeSpec) -> Any";
-        doc = "Isomorphically reconstructs nested parameter container from coordinate array." };
-      { name = "unflatten_batch"; kind = "function";
-        sig_str = "(batch: np.ndarray, spec: PyTreeSpec) -> list[Any]";
-        doc = "Decodes batch of coordinate vectors into list of parameter PyTrees." };
-      { name = "unflatten_stacked"; kind = "function";
-        sig_str = "(stacked: np.ndarray, spec: PyTreeSpec) -> Any";
-        doc = "Decodes stacked coordinate tensor into PyTree with array leaves." };
-      { name = "PyTreeSpec"; kind = "class";
-        sig_str = "Compiled domain manifold layout";
-        doc = "Stores coordinate dimensions, bound vectors, and leaf chart retractions." };
-    ];
-  };
-  {
-    id = "surrogate";
-    title = "Functional ENN Surrogate";
-    desc = "Epistemic Nearest Neighbor surrogate initialization, likelihood fitting, and posterior sampling.";
-    symbols = [
-      { name = "enn_init"; kind = "function";
-        sig_str = "(train_x, train_y, train_yvar=None, *, scale_x=False, **options) -> ENNState";
-        doc = "Constructs immutable ENN surrogate state from observation matrices." };
-      { name = "enn_append"; kind = "function";
-        sig_str = "(state, x, y, y_var=None) -> ENNState";
-        doc = "Copy-on-write observation addition returning new ENNState." };
-      { name = "enn_fit"; kind = "function";
-        sig_str = "(state, k=10, *, num_candidates=100, num_samples=10, infer_aleatoric=True, key=None, warm=None) -> ENNParams";
-        doc = "Estimates optimal scale parameters by leave-one-out log-pseudolikelihood." };
-      { name = "enn_posterior"; kind = "function";
-        sig_str = "(state, x, params, *, flags=None) -> ENNNormal";
-        doc = "Evaluates posterior mean, total variance, epistemic variance, and aleatoric variance." };
-      { name = "enn_sample"; kind = "function";
-        sig_str = "(state, x, params, *, key=None, num_draws=1, seeds=None, flags=None) -> tuple[np.ndarray, np.ndarray]";
-        doc = "Draws deterministic coherent function samples over a query batch (smooth within order-K Voronoi cells)." };
-      { name = "ENNState"; kind = "class";
-        sig_str = "Immutable surrogate buffer state";
-        doc = "Holds train_x, train_y, pairwise metric providers, and local scale caches." };
-      { name = "ENNParams"; kind = "class";
-        sig_str = "(c_e, s_0, lengthscales=None)";
-        doc = "Surrogate hyperparameters fitted via pseudolikelihood." };
-      { name = "ENN"; kind = "class";
-        sig_str = "Stateful wrapper around functional ENN routines";
-        doc = "Object-oriented interface exposing fit, predict, and sample." };
-    ];
-  };
-  {
-    id = "adapters";
-    title = "Hardware & Adapters";
-    desc = "Device capability enumeration, stateful wrappers, and Optuna integration.";
-    symbols = [
-      { name = "capabilities"; kind = "function";
-        sig_str = "(*, probe=False) -> tuple[BackendCapabilities, ...]";
-        doc = "Reports compiled and active hardware accelerators (Metal, CUDA, CPU SIMD)." };
-      { name = "create_optimizer"; kind = "function";
-        sig_str = "(*, bounds, config, rng) -> Optimizer";
-        doc = "Instantiates stateful object-oriented optimizer wrapper." };
-      { name = "Optimizer"; kind = "class";
-        sig_str = "Stateful optimizer harness";
-        doc = "Exposes ask(num_arms), tell(x, y), posterior_mu(x), and telemetry()." };
-      { name = "turbo_enn"; kind = "function";
-        sig_str = "() -> OptimizerConfig";
-        doc = "Default TuRBO-1 trust-region search configuration backed by ENN surrogate." };
-      { name = "turbo_one"; kind = "function";
-        sig_str = "() -> OptimizerConfig";
-        doc = "Single-region trust-region configuration." };
-      { name = "turbo_zero"; kind = "function";
-        sig_str = "() -> OptimizerConfig";
-        doc = "Trust-region baseline configuration with zero surrogate." };
-      { name = "lhd_only"; kind = "function";
-        sig_str = "() -> OptimizerConfig";
-        doc = "Quasi-random Latin Hypercube sampling configuration." };
-      { name = "BackendCapabilities"; kind = "class";
-        sig_str = "Hardware device capability record";
-        doc = "Provides device availability, compilation flags, and kernel operation support." };
-    ];
-  };
-]
-
-let baux_graph : graph_node list = [
-  { g_id = "domain"; g_label = "Domain Space (PyTree, Manifolds)";
-    g_desc = "Section-retraction charts (Log, Periodic, Simplex, Categorical) compiled to coordinates.";
-    g_deps = [] };
-  { g_id = "state"; g_label = "Optimizer State (S)";
-    g_desc = "Immutable state snapshot: incumbent, observation buffers (.x_obs, .y_obs), epoch, and PRNG key.";
-    g_deps = ["domain"; "keys"] };
-  { g_id = "keys"; g_label = "PRNG Key Algebra";
-    g_desc = "Splittable 128-bit SplitMix64 keys for deterministic execution and parallel branches.";
-    g_deps = [] };
-  { g_id = "pipeline"; g_label = "Transform Pipeline";
-    g_desc = "Composable search operators: initialization, perturbation, surrogate, and acquisition.";
-    g_deps = ["domain"] };
-  { g_id = "surrogate_eng"; g_label = "ENN Surrogate Engine";
-    g_desc = "Epistemic Nearest Neighbors with conformal, Poincare half-space, and transport dissimilarities.";
-    g_deps = ["hardware"] };
-  { g_id = "hardware"; g_label = "Hardware Kernels";
-    g_desc = "Vectorized distance sweeps and posterior draws across CPU SIMD, Metal, and CUDA.";
-    g_deps = [] };
-  { g_id = "ask"; g_label = "Proposal Transition (ask)";
-    g_desc = "Pure function generating candidate arm batches via RAASP / Sobol / Pareto.";
-    g_deps = ["state"; "pipeline"; "surrogate_eng"] };
-  { g_id = "tell"; g_label = "Observation Transition (tell)";
-    g_desc = "Pure function incorporating target observations and updating surrogate posterior.";
-    g_deps = ["state"; "surrogate_eng"] };
-  { g_id = "rollouts"; g_label = "Rollouts (scan / pmap)";
-    g_desc = "Deterministic trajectory folding and multi-threaded parallel mapping.";
-    g_deps = ["ask"; "tell"; "keys"] };
-  { g_id = "adapters"; g_label = "Adapters (Optuna, Harness)";
-    g_desc = "Stateful wrappers and Optuna BaseSampler compatibility.";
-    g_deps = ["state"; "ask"; "tell"] };
-]
-
-let html_escape s =
-  let len = String.length s in
-  let buf = Buffer.create len in
-  for i = 0 to len - 1 do
-    match s.[i] with
-    | '&' -> Buffer.add_string buf "&amp;"
-    | '<' -> Buffer.add_string buf "&lt;"
-    | '>' -> Buffer.add_string buf "&gt;"
-    | '"' -> Buffer.add_string buf "&quot;"
-    | '\'' -> Buffer.add_string buf "&#x27;"
-    | c -> Buffer.add_char buf c
-  done;
-  Buffer.contents buf
-
+(* --- Static Semantic API Reference Filter (Zero innerHTML) --- *)
 let string_contains haystack needle =
   let h_len = String.length haystack in
   let n_len = String.length needle in
@@ -411,232 +116,400 @@ let string_contains haystack needle =
     in
     check 0 0
 
-let render_api_explorer () =
-  match Js.Opt.to_option (document##getElementById (js "baux-api-explorer")) with
+let split_tokens s =
+  let s = String.lowercase_ascii s in
+  let len = String.length s in
+  let acc = ref [] in
+  let buf = Buffer.create 16 in
+  for i = 0 to len - 1 do
+    match s.[i] with
+    | ' ' | '\t' | '\n' | '\r' ->
+        if Buffer.length buf > 0 then begin
+          acc := Buffer.contents buf :: !acc;
+          Buffer.clear buf
+        end
+    | c -> Buffer.add_char buf c
+  done;
+  if Buffer.length buf > 0 then
+    acc := Buffer.contents buf :: !acc;
+  List.rev !acc
+
+let get_attr (el : element Js.t) name =
+  match Js.Opt.to_option (el##getAttribute (js name)) with
+  | Some s -> Js.to_string s
+  | None -> ""
+
+let text_of_element (el : element Js.t) =
+  let raw =
+    match Js.Opt.to_option el##.textContent with
+    | Some s -> Js.to_string s
+    | None ->
+        let h : htmlElement Js.t = Js.Unsafe.coerce el in
+        Js.to_string h##.innerText
+  in
+  String.lowercase_ascii raw
+
+let set_hidden (el : element Js.t) hidden =
+  if hidden then el##.classList##add (js "api-hidden")
+  else el##.classList##remove (js "api-hidden")
+
+type api_entry_rec = {
+  ent_el : element Js.t;
+  ent_id : string;
+  ent_symbol : string;
+  ent_kind : string;
+  ent_haystack : string;
+  mutable ent_visible : bool;
+}
+
+type summary_row_rec = {
+  row_el : element Js.t;
+  row_symbol : string;
+  row_haystack : string;
+}
+
+type summary_table_rec = {
+  tbl_el : element Js.t;
+  tbl_rows : summary_row_rec list;
+}
+
+type module_sec_rec = {
+  sec_el : element Js.t;
+  sec_entries : element Js.t list;
+}
+
+let init_api_reference () =
+  match Js.Opt.to_option (document##getElementById (js "baux-api-filter")) with
   | None -> ()
   | Some root ->
-      let active_mod = ref "core" in
-      let search_query = ref "" in
-      let selected_node_id = ref "" in
+      while Js.Opt.test root##.firstChild do
+        match Js.Opt.to_option root##.firstChild with
+        | Some child -> ignore (root##removeChild child)
+        | None -> ()
+      done;
 
-      let shell_html = Printf.sprintf "
-        <div class=\"api-explorer-header\">
-          <div class=\"api-view-tabs\" role=\"tablist\">
-            <button type=\"button\" class=\"api-tab active\" id=\"tab-btn-fn\" data-view=\"functions\">Function &amp; Class Explorer</button>
-            <button type=\"button\" class=\"api-tab\" id=\"tab-btn-graph\" data-view=\"graph\">Architecture &amp; Pipeline Graph</button>
-          </div>
-          <div class=\"api-search-box\">
-            <input type=\"text\" id=\"api-search-input\" value=\"%s\" placeholder=\"Filter functions, classes, transforms... (e.g. ask, pytree, enn, ucb)\" />
-          </div>
-        </div>
-
-        <div id=\"api-view-functions\" class=\"api-panel active\">
-          <div class=\"api-explorer-layout\">
-            <nav id=\"api-module-nav\" class=\"api-module-nav\"></nav>
-            <main class=\"api-symbol-details\">
-              <div id=\"api-details-header\" class=\"api-details-header\"></div>
-              <div id=\"api-cards-list\" class=\"api-cards-list\"></div>
-            </main>
-          </div>
-        </div>
-
-        <div id=\"api-view-graph\" class=\"api-panel\">
-          <div class=\"api-graph-container\">
-            <div class=\"api-graph-intro\">Interactive Subsystem Graph. Click any component below to view dependency contracts and execution flows:</div>
-            <div id=\"api-graph-grid\" class=\"graph-grid\"></div>
-            <div id=\"api-node-inspector\" class=\"api-node-inspector\"></div>
-          </div>
-        </div>
-      " (html_escape !search_query) in
-      root##.innerHTML := js shell_html;
-
-      let activate_tab view =
-        match (Js.Opt.to_option (document##getElementById (js "tab-btn-fn")),
-               Js.Opt.to_option (document##getElementById (js "tab-btn-graph")),
-               Js.Opt.to_option (document##getElementById (js "api-view-functions")),
-               Js.Opt.to_option (document##getElementById (js "api-view-graph"))) with
-        | (Some b_fn, Some b_gr, Some p_fn, Some p_gr) ->
-            if view = "graph" then begin
-              b_gr##.classList##add (js "active");
-              b_fn##.classList##remove (js "active");
-              p_gr##.classList##add (js "active");
-              p_fn##.classList##remove (js "active")
-            end else begin
-              b_fn##.classList##add (js "active");
-              b_gr##.classList##remove (js "active");
-              p_fn##.classList##add (js "active");
-              p_gr##.classList##remove (js "active")
-            end
-        | _ -> ()
+      (* Collect summary tables & rows first so summary descriptions enrich entry search *)
+      let row_text_by_sym : (string, string) Hashtbl.t = Hashtbl.create 96 in
+      let raw_tables = query_all ".api-summary-table" in
+      let tables : summary_table_rec list =
+        List.map (fun tbl_el ->
+          let trs = query_within tbl_el "tbody tr[data-symbol]" in
+          let rows =
+            List.map (fun row_el ->
+              let sym = String.trim (get_attr row_el "data-symbol") in
+              let row_txt = text_of_element row_el in
+              let hay = (String.lowercase_ascii sym) ^ " " ^ row_txt in
+              if sym <> "" then Hashtbl.replace row_text_by_sym sym row_txt;
+              { row_el; row_symbol = sym; row_haystack = hay }
+            ) trs
+          in
+          { tbl_el; tbl_rows = rows }
+        ) raw_tables
       in
 
-      let rec render_functions () =
-        let q = String.lowercase_ascii !search_query in
-
-        (* Generate Module Nav Buttons *)
-        let nav_buf = Buffer.create 1024 in
-        List.iter (fun m ->
-          let is_act = m.id = !active_mod && !search_query = "" in
-          let cnt = List.length m.symbols in
-          Buffer.add_string nav_buf
-            (Printf.sprintf "<button type=\"button\" class=\"api-mod-btn %s\" data-mod=\"%s\"><span class=\"mod-title\">%s</span><span class=\"mod-badge\">%d</span></button>"
-               (if is_act then "active" else "") (html_escape m.id) (html_escape m.title) cnt)
-        ) baux_modules;
-
-        (* Generate Symbol Cards *)
-        let cards_buf = Buffer.create 4096 in
-        let header_desc = ref "" in
-        let sym_count = ref 0 in
-
-        if !search_query <> "" then begin
-          List.iter (fun m ->
-            List.iter (fun s ->
-              let s_name = String.lowercase_ascii s.name in
-              let s_doc = String.lowercase_ascii s.doc in
-              if string_contains s_name q || string_contains s_doc q then begin
-                incr sym_count;
-                let badge = if s.kind = "class" then "<span class=\"badge class\">class</span>" else "<span class=\"badge fn\">function</span>" in
-                Buffer.add_string cards_buf
-                  (Printf.sprintf "<article class=\"api-card\"><div class=\"api-card-header\"><span class=\"api-symbol-name\">%s</span>%s<span class=\"badge mod\">%s</span></div><div class=\"api-card-signature\"><code>baux.%s%s</code></div><div class=\"api-card-doc\">%s</div></article>"
-                     (html_escape s.name) badge (html_escape m.title) (html_escape s.name) (html_escape s.sig_str) (html_escape s.doc))
-              end
-            ) m.symbols
-          ) baux_modules;
-          header_desc := Printf.sprintf "Found %d symbols matching \"%s\"" !sym_count (html_escape !search_query)
-        end else begin
-          let current_m =
-            match List.find_opt (fun m -> m.id = !active_mod) baux_modules with
-            | Some m -> m
-            | None -> List.hd baux_modules
+      (* Collect all .api-entry specification blocks once at boot *)
+      let raw_entries = query_all ".api-entry" in
+      let entries : api_entry_rec list =
+        List.map (fun ent_el ->
+          let id_attr = String.trim (get_attr ent_el "id") in
+          let sym_attr = String.trim (get_attr ent_el "data-symbol") in
+          let sym = if sym_attr <> "" then sym_attr else id_attr in
+          let kind = String.lowercase_ascii (String.trim (get_attr ent_el "data-kind")) in
+          let extra =
+            match Hashtbl.find_opt row_text_by_sym sym with
+            | Some t -> " " ^ t
+            | None -> ""
           in
-          header_desc := Printf.sprintf "<strong>%s</strong> &mdash; %s"
-            (html_escape current_m.title) (html_escape current_m.desc);
-          List.iter (fun s ->
-            incr sym_count;
-            let badge = if s.kind = "class" then "<span class=\"badge class\">class</span>" else "<span class=\"badge fn\">function</span>" in
-            Buffer.add_string cards_buf
-              (Printf.sprintf "<article class=\"api-card\"><div class=\"api-card-header\"><span class=\"api-symbol-name\">%s</span>%s</div><div class=\"api-card-signature\"><code>baux.%s%s</code></div><div class=\"api-card-doc\">%s</div></article>"
-                 (html_escape s.name) badge (html_escape s.name) (html_escape s.sig_str) (html_escape s.doc))
-          ) current_m.symbols
-        end;
-
-        (match Js.Opt.to_option (document##getElementById (js "api-module-nav")) with
-        | Some el -> el##.innerHTML := js (Buffer.contents nav_buf)
-        | None -> ());
-        (match Js.Opt.to_option (document##getElementById (js "api-details-header")) with
-        | Some el -> el##.innerHTML := js !header_desc
-        | None -> ());
-        (match Js.Opt.to_option (document##getElementById (js "api-cards-list")) with
-        | Some el -> el##.innerHTML := js (Buffer.contents cards_buf)
-        | None -> ());
-
-        (* Bind Module Nav Buttons *)
-        let nav_buttons = query_all "#api-module-nav .api-mod-btn" in
-        List.iter (fun btn ->
-          add_click btn (fun () ->
-            let mid =
-              btn##getAttribute (js "data-mod")
-              |> Js.Opt.to_option
-              |> (function Some s -> Js.to_string s | None -> "core")
-            in
-            active_mod := mid;
-            search_query := "";
-            (match Js.Opt.to_option (document##getElementById (js "api-search-input")) with
-            | Some inp ->
-                let inp_elem : inputElement Js.t = Js.Unsafe.coerce inp in
-                inp_elem##.value := js ""
-            | None -> ());
-            render_functions ()
-          )
-        ) nav_buttons
+          let hay = (String.lowercase_ascii sym) ^ " " ^ (text_of_element ent_el) ^ extra in
+          {
+            ent_el;
+            ent_id = id_attr;
+            ent_symbol = sym;
+            ent_kind = kind;
+            ent_haystack = hay;
+            ent_visible = true;
+          }
+        ) raw_entries
       in
+      let total_count = List.length entries in
 
-      let rec render_graph () =
-        (* Generate Architecture Graph Nodes *)
-        let graph_buf = Buffer.create 2048 in
-        List.iter (fun n ->
-          let is_sel = n.g_id = !selected_node_id in
-          let sel_cls = if is_sel then "selected" else "" in
-          let deps_str =
-            if n.g_deps <> [] then
-              Printf.sprintf "<div class=\"node-deps\">Inputs: %s</div>"
-                (String.concat ", " (List.map html_escape n.g_deps))
-            else ""
-          in
-          Buffer.add_string graph_buf
-            (Printf.sprintf "<div class=\"graph-node-box %s\" data-node=\"%s\"><div class=\"node-title\">%s</div><div class=\"node-preview\">%s</div>%s</div>"
-               sel_cls (html_escape n.g_id) (html_escape n.g_label) (html_escape n.g_desc) deps_str)
-        ) baux_graph;
-
-        (* Inspector card for selected node *)
-        let inspector_html =
-          if !selected_node_id = "" then
-            "<div class=\"node-placeholder\">Click any component box above to inspect its execution contracts and pipeline flow.</div>"
-          else
-            try
-              let n = List.find (fun x -> x.g_id = !selected_node_id) baux_graph in
-              let inputs_li =
-                if n.g_deps = [] then "<li><em>None (Root Leaf Component)</em></li>"
-                else String.concat "" (List.map (fun d -> Printf.sprintf "<li><code>%s</code></li>" (html_escape d)) n.g_deps)
-              in
-              let down_nodes = List.filter (fun x -> List.mem n.g_id x.g_deps) baux_graph in
-              let down_li =
-                if down_nodes = [] then "<li><em>End Terminal Component</em></li>"
-                else String.concat "" (List.map (fun x -> Printf.sprintf "<li><code>%s</code></li>" (html_escape x.g_label)) down_nodes)
-              in
-              Printf.sprintf "<div class=\"node-detail-card\"><div class=\"node-detail-header\"><h3>%s</h3><span class=\"badge comp\">Subsystem</span></div><p class=\"node-detail-desc\">%s</p><div class=\"node-contracts-grid\"><div class=\"contract-col\"><strong>Prerequisite Components (Inputs):</strong><ul>%s</ul></div><div class=\"contract-col\"><strong>Dependent Subsystems (Downstream):</strong><ul>%s</ul></div></div></div>"
-                (html_escape n.g_label) (html_escape n.g_desc) inputs_li down_li
-            with _ -> ""
+      (* Collect module section.block containers (excluding any ancestor containing #baux-api-filter) *)
+      let is_ancestor_of_root (cand : element Js.t) =
+        let cand_node : Dom.node Js.t = (cand :> Dom.node Js.t) in
+        let rec climb cur_opt =
+          match Js.Opt.to_option cur_opt with
+          | None -> false
+          | Some n ->
+              if n == cand_node then true
+              else climb n##.parentNode
         in
-
-        (match Js.Opt.to_option (document##getElementById (js "api-graph-grid")) with
-        | Some el -> el##.innerHTML := js (Buffer.contents graph_buf)
-        | None -> ());
-        (match Js.Opt.to_option (document##getElementById (js "api-node-inspector")) with
-        | Some el -> el##.innerHTML := js inspector_html
-        | None -> ());
-
-        (* Bind Architecture Graph Boxes *)
-        let graph_boxes = query_all "#api-graph-grid .graph-node-box" in
-        List.iter (fun box ->
-          add_click box (fun () ->
-            let nid =
-              box##getAttribute (js "data-node")
-              |> Js.Opt.to_option
-              |> (function Some s -> Js.to_string s | None -> "")
-            in
-            selected_node_id := nid;
-            render_graph ();
-            activate_tab "graph"
-          )
-        ) graph_boxes
+        climb (Js.some (root :> Dom.node Js.t))
+      in
+      let module_sections : module_sec_rec list =
+        query_all "section.block"
+        |> List.filter_map (fun sec_el ->
+             if is_ancestor_of_root sec_el then None
+             else
+               let sec_entries = query_within sec_el ".api-entry" in
+               if sec_entries = [] then None
+               else Some { sec_el; sec_entries }
+           )
       in
 
-      (* Bind View Switcher Tabs *)
-      (match (Js.Opt.to_option (document##getElementById (js "tab-btn-fn")),
-              Js.Opt.to_option (document##getElementById (js "tab-btn-graph"))) with
-      | (Some b_fn, Some b_gr) ->
-          add_click b_fn (fun () -> activate_tab "functions");
-          add_click b_gr (fun () -> activate_tab "graph")
-      | _ -> ());
+      (* Build filter bar strictly with typed DOM constructors — zero innerHTML *)
+      let bar = createDiv document in
+      bar##.className := js "api-filter-bar";
 
-      (* Bind Persistent Search Input *)
-      (match Js.Opt.to_option (document##getElementById (js "api-search-input")) with
-      | Some inp ->
-          let inp_elem : inputElement Js.t = Js.Unsafe.coerce inp in
-          let on_input = handler (fun _ev ->
-            let val_ = Js.to_string inp_elem##.value in
-            search_query := val_;
-            if val_ <> "" then activate_tab "functions";
-            render_functions ();
-            Js._true
-          ) in
-          let _ = addEventListener inp (Event.make "input") on_input Js._false in
-          ()
-      | None -> ());
+      let inp = createInput ~_type:(js "search") document in
+      inp##.id := js "api-filter-input";
+      inp##.className := js "api-filter-input";
+      inp##.placeholder := js "Filter symbols, signatures, or parameters\u{2026} (press / to focus)";
+      inp##setAttribute (js "autocomplete") (js "off");
+      inp##setAttribute (js "spellcheck") (js "false");
+      inp##setAttribute (js "aria-label") (js "Filter API symbols");
 
-      render_functions ();
-      render_graph ()
+      let pills_wrap = createDiv document in
+      pills_wrap##.className := js "api-filter-pills";
+      pills_wrap##setAttribute (js "role") (js "group");
+      pills_wrap##setAttribute (js "aria-label") (js "Filter by symbol kind");
+
+      let make_pill label kind_val is_active =
+        let btn = createButton ~_type:(js "button") document in
+        btn##.className := js (if is_active then "api-filter-pill active" else "api-filter-pill");
+        btn##setAttribute (js "data-kind-filter") (js kind_val);
+        btn##setAttribute (js "aria-pressed") (js (if is_active then "true" else "false"));
+        btn##.textContent := Js.some (js label);
+        Dom.appendChild pills_wrap btn;
+        (kind_val, btn)
+      in
+      let pill_all = make_pill "All" "all" true in
+      let pill_fn = make_pill "Functions" "function" false in
+      let pill_cls = make_pill "Classes" "class" false in
+      let pill_buttons = [pill_all; pill_fn; pill_cls] in
+
+      let meta_wrap = createDiv document in
+      meta_wrap##.className := js "api-filter-meta";
+
+      let clear_btn = createButton ~_type:(js "button") document in
+      clear_btn##.className := js "api-filter-clear api-hidden";
+      clear_btn##.textContent := Js.some (js "Clear");
+
+      let count_el = createSpan document in
+      count_el##.className := js "api-filter-count";
+      count_el##setAttribute (js "aria-live") (js "polite");
+
+      Dom.appendChild meta_wrap clear_btn;
+      Dom.appendChild meta_wrap count_el;
+
+      Dom.appendChild bar inp;
+      Dom.appendChild bar pills_wrap;
+      Dom.appendChild bar meta_wrap;
+
+      let empty_el = createDiv document in
+      empty_el##.className := js "api-empty-state api-hidden";
+
+      Dom.appendChild root bar;
+      Dom.appendChild root empty_el;
+
+      let active_kind = ref "all" in
+
+      let sync_pills () =
+        List.iter (fun (k, (btn : buttonElement Js.t)) ->
+          let act = (k = !active_kind) in
+          if act then btn##.classList##add (js "active")
+          else btn##.classList##remove (js "active");
+          btn##setAttribute (js "aria-pressed") (js (if act then "true" else "false"))
+        ) pill_buttons
+      in
+
+      let sym_vis_tbl : (string, bool) Hashtbl.t = Hashtbl.create 96 in
+
+      let apply_filter () =
+        let raw_q = String.trim (Js.to_string inp##.value) in
+        let tokens = split_tokens raw_q in
+        let is_filtered = (tokens <> []) || (!active_kind <> "all") in
+
+        Hashtbl.clear sym_vis_tbl;
+        let visible_count = ref 0 in
+        List.iter (fun ent ->
+          let kind_ok = (!active_kind = "all") || (ent.ent_kind = !active_kind) in
+          let tok_ok = List.for_all (fun tok -> string_contains ent.ent_haystack tok) tokens in
+          let ok = kind_ok && tok_ok in
+          ent.ent_visible <- ok;
+          if ok then incr visible_count;
+          if ent.ent_symbol <> "" then Hashtbl.replace sym_vis_tbl ent.ent_symbol ok;
+          set_hidden ent.ent_el (not ok)
+        ) entries;
+
+        (* Sync summary tables & rows *)
+        List.iter (fun tbl ->
+          if tbl.tbl_rows <> [] then begin
+            let vis_rows = ref 0 in
+            List.iter (fun row ->
+              let row_ok =
+                match Hashtbl.find_opt sym_vis_tbl row.row_symbol with
+                | Some ok -> ok
+                | None ->
+                    (!active_kind = "all")
+                    && List.for_all (fun tok -> string_contains row.row_haystack tok) tokens
+              in
+              if row_ok then incr vis_rows;
+              set_hidden row.row_el (not row_ok)
+            ) tbl.tbl_rows;
+            set_hidden tbl.tbl_el (!vis_rows = 0 && is_filtered)
+          end
+        ) tables;
+
+        (* Hide module sections whose .api-entry elements all failed the filter *)
+        List.iter (fun ms ->
+          let any_vis =
+            List.exists (fun el ->
+              not (Js.to_bool (el##.classList##contains (js "api-hidden")))
+            ) ms.sec_entries
+          in
+          set_hidden ms.sec_el ((not any_vis) && is_filtered)
+        ) module_sections;
+
+        (* Update live count & Clear button *)
+        let count_label =
+          if is_filtered then
+            Printf.sprintf "%d of %d symbols" !visible_count total_count
+          else
+            Printf.sprintf "%d %s" total_count (if total_count = 1 then "symbol" else "symbols")
+        in
+        count_el##.textContent := Js.some (js count_label);
+        set_hidden (clear_btn :> element Js.t) (raw_q = "" && !active_kind = "all");
+
+        (* Empty state message via textContent only *)
+        if total_count > 0 && !visible_count = 0 && is_filtered then begin
+          let msg =
+            if raw_q <> "" && !active_kind <> "all" then
+              let k_lbl = if !active_kind = "class" then "class" else "function" in
+              Printf.sprintf "No %s symbols match \"%s\"." k_lbl raw_q
+            else if raw_q <> "" then
+              Printf.sprintf "No symbols match \"%s\"." raw_q
+            else
+              "No matching symbols found."
+          in
+          empty_el##.textContent := Js.some (js msg);
+          set_hidden (empty_el :> element Js.t) false
+        end else begin
+          empty_el##.textContent := Js.some (js "");
+          set_hidden (empty_el :> element Js.t) true
+        end
+      in
+
+      let reset_filter () =
+        inp##.value := js "";
+        active_kind := "all";
+        sync_pills ();
+        apply_filter ()
+      in
+
+      (* Bind pill clicks *)
+      List.iter (fun (k, (btn : buttonElement Js.t)) ->
+        add_click (btn :> element Js.t) (fun () ->
+          active_kind := k;
+          sync_pills ();
+          apply_filter ()
+        )
+      ) pill_buttons;
+
+      (* Bind Clear button *)
+      add_click (clear_btn :> element Js.t) (fun () ->
+        reset_filter ();
+        inp##focus
+      );
+
+      (* Bind live input & search events *)
+      let on_input = handler (fun _ev ->
+        apply_filter ();
+        Js._true
+      ) in
+      let _ = addEventListener inp (Event.make "input") on_input Js._false in
+      let _ = addEventListener inp (Event.make "search") on_input Js._false in
+
+      (* Bind Enter / Escape inside #api-filter-input *)
+      let on_inp_keydown = handler (fun (ev : keyboardEvent Js.t) ->
+        let k =
+          match Js.Optdef.to_option ev##.key with
+          | Some s -> Js.to_string s
+          | None -> ""
+        in
+        if k = "Escape" then begin
+          Dom.preventDefault ev;
+          reset_filter ();
+          inp##blur
+        end else if k = "Enter" then begin
+          Dom.preventDefault ev;
+          match List.find_opt (fun ent -> ent.ent_visible) entries with
+          | Some first_ent ->
+              (try
+                 let opts = Js.Unsafe.obj [|
+                   ("behavior", Js.Unsafe.inject (js "smooth"));
+                   ("block", Js.Unsafe.inject (js "start"));
+                 |] in
+                 ignore ((Js.Unsafe.coerce first_ent.ent_el)##scrollIntoView opts)
+               with _ ->
+                 first_ent.ent_el##scrollIntoView Js._true)
+          | None -> ()
+        end;
+        Js._true
+      ) in
+      let _ = addEventListener inp Event.keydown on_inp_keydown Js._false in
+
+      (* Global '/' shortcut to focus #api-filter-input *)
+      let is_editable_focused () =
+        match Js.Opt.to_option document##.activeElement with
+        | None -> false
+        | Some active ->
+            let tag = String.uppercase_ascii (Js.to_string active##.tagName) in
+            let ce =
+              let h : htmlElement Js.t = Js.Unsafe.coerce active in
+              Js.to_bool h##.isContentEditable
+            in
+            tag = "INPUT" || tag = "TEXTAREA" || tag = "SELECT" || ce
+      in
+      let on_doc_keydown = handler (fun (ev : keyboardEvent Js.t) ->
+        let k =
+          match Js.Optdef.to_option ev##.key with
+          | Some s -> Js.to_string s
+          | None -> ""
+        in
+        let no_mods =
+          not (Js.to_bool ev##.ctrlKey)
+          && not (Js.to_bool ev##.metaKey)
+          && not (Js.to_bool ev##.altKey)
+        in
+        if k = "/" && no_mods && not (is_editable_focused ()) then begin
+          Dom.preventDefault ev;
+          inp##focus;
+          inp##select
+        end;
+        Js._true
+      ) in
+      let _ = addEventListener document Event.keydown on_doc_keydown Js._false in
+
+      (* Reveal hidden entry if user navigates to a hash anchor while filtered *)
+      let on_hashchange = handler (fun _ev ->
+        let raw_hash = Js.to_string window##.location##.hash in
+        let target_id =
+          if String.length raw_hash > 1 && raw_hash.[0] = '#' then
+            String.sub raw_hash 1 (String.length raw_hash - 1)
+          else ""
+        in
+        if target_id <> "" then begin
+          match List.find_opt (fun e -> e.ent_id = target_id && not e.ent_visible) entries with
+          | Some hidden_ent ->
+              reset_filter ();
+              hidden_ent.ent_el##scrollIntoView Js._true
+          | None -> ()
+        end;
+        Js._true
+      ) in
+      let _ = addEventListener window (Event.make "hashchange") on_hashchange Js._false in
+
+      apply_filter ()
 
 (* --- Tokamak 3D WebGL CAD & Benchmark Explorer (arXiv:2505.00663 Fig. 8-9 + 10-Seed TORAX 2.0.0) --- *)
 let mount_tokamak_cad () =
@@ -2243,7 +2116,7 @@ let () =
       booted := true;
       init_theme_toggle ();
       init_copy_buttons ();
-      render_api_explorer ();
+      init_api_reference ();
       init_tokamak_cad ()
     end
   in

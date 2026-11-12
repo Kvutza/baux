@@ -1,10 +1,10 @@
-\title{Domain Charts & Codomain Operators}
+\title{Product Manifolds & Subspace Contraction}
 
 \subtree{
-  \title{Section–Retraction Manifold Charts}
+  \title{Section–Retraction Charts on Product Spaces}
 
   \p{
-    Search spaces decompose as products #{\mathcal{M} = \prod_{\ell=1}^L \mathcal{M}_\ell} of coordinate factors: positive intervals #{[a, b] \subset \mathbb{R}_+}, periodic intervals #{\lbrack a, b\rparen \cong S^1}, probability simplices #{\Delta^{d-1}}, and finite categorical sets. Each factor #{\mathcal{M}_\ell} carries an embedding #{\psi_\ell : \mathcal{M}_\ell \to \mathcal{U}_\ell \subseteq \mathbb{R}^{d_\ell}} and retraction #{\rho_\ell : \mathcal{U}_\ell \to \mathcal{M}_\ell} satisfying the left-inverse identity #{\rho_\ell \circ \psi_\ell = \mathrm{id}_{\mathcal{M}_\ell}} (deterministically for \code{Log}, \code{Periodic}, \code{Simplex}, and one-hot \code{Categorical}, and whenever Rademacher codewords are distinct):
+    Structured parameter spaces factor as products #{\mathcal{M} = \prod_{\ell=1}^L \mathcal{M}_\ell} across multiplicative scales, periodic phases, probability simplices, and discrete sets. Each factor #{\mathcal{M}_\ell} is equipped with a section #{\psi_\ell : \mathcal{M}_\ell \to \mathcal{U}_\ell \subseteq \mathbb{R}^{d_\ell}} into flat solver coordinates and a retraction #{\rho_\ell : \mathcal{U}_\ell \to \mathcal{M}_\ell} satisfying #{\rho_\ell \circ \psi_\ell = \mathrm{id}_{\mathcal{M}_\ell}}, so neighbor search and trust-region perturbations operate in #{\mathcal{U} = \prod_\ell \mathcal{U}_\ell} while evaluations retract cleanly onto #{\mathcal{M}}:
   }
 
   ##{
@@ -16,70 +16,40 @@
   }
 
   \p{
-    \strong{Proposition 3.1} (Chart Metric Properties)\strong{.} The factor charts #{(\psi_\ell, \rho_\ell)} satisfy:
+    Euclidean distance on #{\mathcal{U}_\ell} pulls back to intrinsic geometry on each factor:
   }
 
-  \p{
-    1. \strong{Multiplicative positive reals} (Čencov [[Cen82]](https://doi.org/10.1090/mmono/053)): For #{0 < a < b < \infty} on #{[a, b]} equipped with the scale-invariant metric #{ds^2 = (dx / x)^2}, the logarithmic chart
-  }
-
-  ##{
-    \psi(x) \eqdef \frac{\log(x / a)}{\log(b / a)} \in [0, 1], \qquad \rho(u) \eqdef a \left(\frac{b}{a}\right)^{\Pi_{[0,1]}(u)},
-  }
-
-  \p{
-    satisfies #{|\psi(x) - \psi(x')| = \frac{1}{\log(b/a)}|\log(x/x')|}, an exact isometry up to constant factor #{\log(b / a)}.
-  }
-
-  \p{
-    2. \strong{Periodic angular phases}: For period #{P = b - a > 0} on #{\lbrack a, b\rparen \cong S^1} with phase #{\phi(x) \eqdef 2\pi(x - a)/P \in \lbrack 0, 2\pi\rparen}, the circular trigonometric embedding maps #{S^1} onto the circle of radius #{(2\pi)^{-1}} centered at #{(\tfrac{1}{2}, \tfrac{1}{2}) \in [0, 1]^2}:
-  }
-
-  ##{
-    \begin{aligned}
-      \psi(x) &\eqdef \left(\frac{1}{2} + \frac{\cos\phi(x)}{2\pi},\, \frac{1}{2} + \frac{\sin\phi(x)}{2\pi}\right), \\
-      \rho(u_1, u_2) &\eqdef a + \frac{P}{2\pi}\Bigl(\operatorname{atan2}\bigl(u_2 - \tfrac{1}{2},\, u_1 - \tfrac{1}{2}\bigr) \bmod 2\pi\Bigr),
-    \end{aligned}
-  }
-
-  \p{
-    with #{\rho} smooth on #{\mathbb{R}^2 \setminus \{(\tfrac{1}{2}, \tfrac{1}{2})\}}. The embedded curve has unit arc-length circumference, and its Euclidean chord distance #{\Vert\psi(x) - \psi(x')\Vert_2 = \frac{1}{\pi}\bigl|\sin(\Delta\phi / 2)\bigr|} is strictly increasing in shortest circular angle #{\Delta\phi \in [0, \pi]}.
-  }
-
-  \p{
-    3. \strong{Probability simplex} (Bhattacharyya [[Bha43]](https://www.jstor.org/stable/25047882)): On #{\Delta^{d-1} \eqdef \{p \in \mathbb{R}_+^d : \sum_{j=1}^d p_j = 1\}} with Fisher–Rao metric #{g_{\mathrm{FR}} = \sum_{j=1}^d (dp_j)^2 / p_j}, the positive-orthant square-root map and clamped retraction (for #{\max(u, 0) \ne 0})
-  }
-
-  ##{
-    \psi(p) \eqdef \bigl(\sqrt{p_1}, \dots, \sqrt{p_d}\bigr) \in S_+^{d-1}, \qquad \rho(u) \eqdef \frac{\max(u, 0)^{\odot 2}}{\Vert\max(u, 0)\Vert_2^2},
-  }
-
-  \p{
-    satisfy #{\psi^* g_{\mathbb{R}^d} = \frac{1}{4}\, g_{\mathrm{FR}}} on the interior of #{\Delta^{d-1}}, while squared chord distance gives the squared Hellinger distance:
-  }
-
-  ##{
-    \Vert\psi(p) - \psi(q)\Vert_2^2 = \sum_{j=1}^d \bigl(\sqrt{p_j} - \sqrt{q_j}\bigr)^2 = 2 \left(1 - \sum_{j=1}^d \sqrt{p_j q_j}\right).
-  }
-
-  \p{
-    4. \strong{Discrete categorical codebooks}: For #{C} categories, \code{encoding="auto"} embeds small sets (#{C \le 15}) via scaled one-hot vectors in #{\mathbb{R}^C} (pairwise distance #{\sqrt{2}\,s} for #{c \ne c'}, #{s = 10}), and larger sets into #{\mathbb{R}^{d_c}} (#{d_c = \lceil 8 \ln C \rceil}) via Rademacher codewords #{\psi(c) \in \{-s/\sqrt{d_c},\, +s/\sqrt{d_c}\}^{d_c}} (Johnson & Lindenstrauss [[JL84]](https://doi.org/10.1090/conm/026/737400), Achlioptas [[Ach03]](https://doi.org/10.1016/S0022-0000(03)00025-4)), retracting by nearest codeword:
-  }
-
-  ##{
-    \rho(u) \eqdef \arg\min_{c \in \{1, \dots, C\}} \Vert u - \psi(c)\Vert_2.
-  }
-
-  \p{
-    \strong{Proof.} On #{[a, b]}, #{d\psi = dx / (x \log(b/a))}, so #{(d\psi)^2 = (dx / x)^2 / \log^2(b/a)}. On #{\lbrack a, b\rparen}, #{\Vert\psi(x) - \psi(x')\Vert_2^2 = \frac{1}{4\pi^2}\bigl((\cos\phi - \cos\phi')^2 + (\sin\phi - \sin\phi')^2\bigr) = \frac{1}{2\pi^2}(1 - \cos\Delta\phi) = \frac{1}{\pi^2}\sin^2(\Delta\phi / 2)}, which is strictly increasing for #{\Delta\phi \in [0, \pi]}. On #{\mathrm{int}(\Delta^{d-1})}, #{d\psi_j = dp_j / (2\sqrt{p_j})}, whence #{\sum_{j=1}^d (d\psi_j)^2 = \frac{1}{4}\sum_{j=1}^d (dp_j)^2 / p_j}, and expanding #{\sum_{j=1}^d (\sqrt{p_j} - \sqrt{q_j})^2} with #{\sum_j p_j = \sum_j q_j = 1} yields #{2(1 - \sum_j \sqrt{p_j q_j})}. Finally, since every one-hot or Rademacher codeword has constant Euclidean norm (#{\Vert\psi(c)\Vert_2^2 = s^2}), #{\Vert u - \psi(c)\Vert_2^2 = \Vert u\Vert_2^2 + s^2 - 2\langle u, \psi(c)\rangle}, so nearest-neighbor retraction coincides with #{\arg\max_c \langle u, \psi(c)\rangle} (breaking ties deterministically).#{\;\square}
+  \ul{
+    \li{
+      \strong{Multiplicative intervals} ([baux.Log](docs.html#baux.Log)): On #{[a, b] \subset \mathbb{R}_+}, the logarithmic section and exponential retraction
+      ##{
+        \psi(x) = \frac{\log x - \log a}{\log b - \log a} \in [0, 1], \qquad \rho(u) = a\left(\frac{b}{a}\right)^{\Pi_{[0,1]}(u)}
+      }
+      pull back Euclidean distance to the scale-invariant metric #{ds^2 = \tfrac{dx^2}{x^2}} up to #{\bigl(\log b - \log a\bigr)^{-2}}.
+    }
+    \li{
+      \strong{Circular phases} ([baux.Periodic](docs.html#baux.Periodic)): On #{\lbrack a, b\rparen \cong S^1} of period #{P = b - a} with phase #{\phi(x) = \tfrac{2\pi(x - a)}{P}}, the unit-circumference embedding and #{\operatorname{atan2}} retraction
+      ##{
+        \psi(x) = \left(\frac{1}{2} + \frac{\cos\phi(x)}{2\pi},\; \frac{1}{2} + \frac{\sin\phi(x)}{2\pi}\right), \qquad d_{\mathcal{U}}\bigl(\psi(x), \psi(x')\bigr) = \frac{1}{\pi}\left|\sin\left(\frac{\phi(x) - \phi(x')}{2}\right)\right|
+      }
+      induce chordal distance on #{S^1} without boundary-wrap discontinuities.
+    }
+    \li{
+      \strong{Probability simplices} ([baux.Simplex](docs.html#baux.Simplex)): On #{\Delta^{d-1}}, the positive-orthant square-root section and projective retraction
+      ##{
+        \psi(p) = \bigl(\sqrt{p_1}, \dots, \sqrt{p_d}\bigr) \in S_+^{d-1}, \qquad \rho(u) = \frac{\max(u, 0)^{\odot 2}}{\Vert\max(u, 0)\Vert_2^2}
+      }
+      pull back the ambient metric to #{\tfrac{1}{4}\,g_{\mathrm{FR}}} on #{\operatorname{int}(\Delta^{d-1})}, with squared chordal distance matching squared Hellinger distance #{\sum_{j=1}^d \bigl(\sqrt{p_j} - \sqrt{q_j}\bigr)^2}.
+    }
+    \li{\strong{Constant-norm discrete codebooks} ([baux.categorical](docs.html#baux.categorical)): Finite sets #{\{1, \dots, C\}} embed into #{\mathbb{R}^{d_c}} via constant-norm orthogonal or Rademacher codewords #{\psi(c)}, reducing nearest-codeword retraction #{\rho(u) = \arg\min_c \Vert u - \psi(c)\Vert_2} to maximum inner-product decoding #{\arg\max_c \langle u, \psi(c)\rangle}.}
   }
 }
 
 \subtree{
-  \title{Codomain Shrinkage & Calibration}
+  \title{Stiefel Signal-Subspace Contraction}
 
   \p{
-    Given raw loading matrix #{L \in \mathbb{R}^{M \times r}} (#{1 \le r < M}) orthonormalized onto the Stiefel manifold #{V = L(L^\top L)^{-1/2} \in \mathrm{St}(r, M)} via polar decomposition (Higham [[Hig86]](https://doi.org/10.1137/0907079)) with orthogonal complement #{V_\perp \in \mathrm{St}(M-r, M)}, the orthogonal isomorphism #{P \eqdef (V^\top,\, V_\perp^\top)^\top : \mathbb{R}^M \xrightarrow{\cong} \mathbb{R}^r \oplus \mathbb{R}^{M-r}} factors codomain contraction (Stein [[Ste56]](https://projecteuclid.org/ebooks/berkeley-symposium-on-mathematical-statistics-and-probability/Proceedings-of-the-Third-Berkeley-Symposium-on-Mathematical-Statistics-and/chapter/Inadmissibility-of-the-Usual-Estimator-for-the-Mean-of-a/bsmsp/1200501656), James & Stein [[JS61]](https://projecteuclid.org/ebooks/berkeley-symposium-on-mathematical-statistics-and-probability/Proceedings-of-the-Fourth-Berkeley-Symposium-on-Mathematical-Statistics-and/chapter/Estimation-with-Quadratic-Loss/bsmsp/1200512173)):
+    When evaluations return correlated multi-output vectors #{y = \theta + \eta \in \mathbb{R}^M} concentrated near a low-rank signal subspace, a loading matrix #{L \in \mathbb{R}^{M \times r}} (#{1 \le r < M}) orthonormalizes onto the Stiefel manifold #{V = L(L^\top L)^{-\frac{1}{2}} \in \mathrm{St}(r, M)} ([baux.Stiefel](docs.html#baux.Stiefel)) with orthogonal complement #{V_\perp \in \mathrm{St}(M-r, M)}. Under #{P \eqdef (V^\top,\, V_\perp^\top)^\top : \mathbb{R}^M \xrightarrow{\cong} \mathbb{R}^r \oplus \mathbb{R}^{M-r}}, subspace contraction leaves tangent coordinates #{z_\parallel = V^\top y} intact while shrinking normal coordinates #{z_\perp = V_\perp^\top y} (Stein [[Ste56]](https://projecteuclid.org/ebooks/berkeley-symposium-on-mathematical-statistics-and-probability/Proceedings-of-the-Third-Berkeley-Symposium-on-Mathematical-Statistics-and/chapter/Inadmissibility-of-the-Usual-Estimator-for-the-Mean-of-a/bsmsp/1200501656), James & Stein [[JS61]](https://projecteuclid.org/ebooks/berkeley-symposium-on-mathematical-statistics-and-probability/Proceedings-of-the-Fourth-Berkeley-Symposium-on-Mathematical-Statistics-and/chapter/Estimation-with-Quadratic-Loss/bsmsp/1200512173)):
   }
 
   ##{
@@ -91,48 +61,74 @@
   }
 
   \p{
-    \strong{Theorem 3.2} (Oracle Linear-Bayes Subspace Dominance)\strong{.} Let #{y = \theta + \eta \in \mathbb{R}^M} satisfy #{\mathbb{E}[\eta] = 0}, and decompose #{y} along #{V \in \mathrm{St}(r, M)} (#{1 \le r < M}) into #{z_\parallel \eqdef V^\top y \in \mathbb{R}^r} with noise variance #{v_\parallel \eqdef \mathbb{E}\Vert V^\top \eta\Vert_2^2} and normal coordinates #{z_\perp \eqdef V_\perp^\top y \in \mathbb{R}^{M-r}} with noise variance #{v_\perp \eqdef \mathbb{E}\Vert V_\perp^\top \eta\Vert_2^2 > 0} and squared orthogonal signal norm #{b_\perp^2 \eqdef \Vert V_\perp^\top \theta\Vert_2^2 \ge 0}. Over the linear class #{\hat{\theta}_\alpha \eqdef V z_\parallel + \alpha V_\perp z_\perp} (#{\alpha \in \mathbb{R}}), the oracle linear-Bayes weight #{\alpha^* \eqdef b_\perp^2 / (b_\perp^2 + v_\perp)} uniquely minimizes #{\mathcal{R}(\alpha) \eqdef \mathbb{E}\Vert\hat{\theta}_\alpha - \theta\Vert_2^2}, achieving
+    With zero-mean noise variances #{v_\parallel \eqdef \mathbb{E}\Vert V^\top \eta\Vert_2^2} and #{v_\perp \eqdef \mathbb{E}\Vert V_\perp^\top \eta\Vert_2^2 > 0} and off-subspace signal energy #{b_\perp^2 \eqdef \Vert V_\perp^\top \theta\Vert_2^2}, the linear class #{\hat{\theta}_\alpha = V z_\parallel + \alpha V_\perp z_\perp} attains its minimum quadratic risk #{\mathcal{R}(\alpha) = \mathbb{E}\Vert\hat{\theta}_\alpha - \theta\Vert_2^2} at the oracle contraction factor #{\alpha^*}, strictly improving upon unshrunk estimation:
   }
 
   ##{
-    \mathcal{R}(\alpha^*) = v_\parallel + \frac{v_\perp b_\perp^2}{b_\perp^2 + v_\perp} < \mathcal{R}(1) = v_\parallel + v_\perp.
+    \alpha^* = \frac{b_\perp^2}{b_\perp^2 + v_\perp}, \qquad \mathcal{R}(\alpha^*) = v_\parallel + \frac{v_\perp b_\perp^2}{b_\perp^2 + v_\perp} < v_\parallel + v_\perp = \mathcal{R}(1).
   }
 
   \p{
-    \strong{Proof.} By orthogonality of #{V} and #{V_\perp} and #{\mathbb{E}[z_\perp - V_\perp^\top \theta] = 0},
+    Under isotropic Gaussian noise in normal codimension #{M - r \ge 3}, positive-part James–Stein shrinkage uniformly dominates #{\alpha = 1} ([[JS61]](https://projecteuclid.org/ebooks/berkeley-symposium-on-mathematical-statistics-and-probability/Proceedings-of-the-Fourth-Berkeley-Symposium-on-Mathematical-Statistics-and/chapter/Estimation-with-Quadratic-Loss/bsmsp/1200512173), Efron & Morris [[EM73]](https://doi.org/10.1080/01621459.1973.10481350)), whereas [baux.stein](docs.html#baux.stein) applies the empirical moment-ratio plug-in across any #{M - r \ge 1}:
   }
 
   ##{
-    \mathcal{R}(\alpha) = \mathbb{E}\Vert V^\top \eta\Vert_2^2 + \mathbb{E}\Vert\alpha V_\perp^\top \eta - (1 - \alpha) V_\perp^\top \theta\Vert_2^2 = v_\parallel + \alpha^2 v_\perp + (1 - \alpha)^2 b_\perp^2.
+    \hat{\alpha} = \frac{\Vert z_\perp\Vert_2^2}{\Vert z_\perp\Vert_2^2 + \hat{v}_\perp}.
   }
 
   \p{
-    Since #{v_\perp + b_\perp^2 > 0}, #{\mathcal{R}(\alpha)} is strictly convex with unique stationary point #{2\alpha v_\perp - 2(1 - \alpha)b_\perp^2 = 0}, giving #{\alpha^* = b_\perp^2 / (b_\perp^2 + v_\perp) \in \lbrack 0, 1\rparen}. Substituting #{\alpha^*} gives
-  }
-
-  ##{
-    \begin{aligned}
-      \mathcal{R}(\alpha^*) &= v_\parallel + \frac{b_\perp^4 v_\perp + v_\perp^2 b_\perp^2}{(b_\perp^2 + v_\perp)^2} = v_\parallel + \frac{v_\perp b_\perp^2}{b_\perp^2 + v_\perp}, \\[4pt]
-      \mathcal{R}(1) - \mathcal{R}(\alpha^*) &= v_\perp - \frac{v_\perp b_\perp^2}{b_\perp^2 + v_\perp} = \frac{v_\perp^2}{b_\perp^2 + v_\perp} > 0.\;\square
-    \end{aligned}
+    When held-out calibration pairs are available, [baux.calibrate](docs.html#baux.calibrate) rescales predictive dispersion via affine weighted least squares and standardized residual quantiles, yielding finite-sample coverage on exchangeable splits and an empirical dispersion adjustment on adaptive optimization histories where sequential selection breaks exchangeability.
   }
 
   \p{
-    Because #{b_\perp^2} is unknown in practice, finite-sample dominance requires estimating #{\alpha^*}. Under isotropic Gaussian noise #{\eta \sim \mathcal{N}(0, \sigma^2 I_M)} whenever the \em{normal codimension} satisfies #{M - r \ge 3}, the positive-part James–Stein weight #{\hat{\alpha}_{\mathrm{JS}} = \bigl(1 - (M - r - 2)\sigma^2 / \Vert z_\perp\Vert_2^2\bigr)_+} uniformly dominates #{\alpha = 1} in frequentist risk (James & Stein [[JS61]](https://projecteuclid.org/ebooks/berkeley-symposium-on-mathematical-statistics-and-probability/Proceedings-of-the-Fourth-Berkeley-Symposium-on-Mathematical-Statistics-and/chapter/Estimation-with-Quadratic-Loss/bsmsp/1200512173), Efron & Morris [[EM73]](https://doi.org/10.1080/01621459.1973.10481350)); \strong{baux}'s online \code{stein} operator applies the moment-ratio plug-in #{\hat{\alpha} = \Vert z_\perp\Vert_2^2 / (\Vert z_\perp\Vert_2^2 + \hat{v}_\perp)} across arbitrary codimension #{M - r \ge 1}.
+    Below, a PyTree product domain combining logarithmic gain, periodic phase, simplex filter weights, and categorical windowing drives a noisy 6-channel spectral response concentrated near a rank-2 Stiefel frame:
   }
 
-  \p{
-    Residual dispersion can be post-hoc rescaled via affine weighted least squares [[Ait35]](https://doi.org/10.1017/S0370164600014346) and split-conformal prediction (Papadopoulos et al. [[Pap+02]](https://doi.org/10.1007/3-540-36755-1_29), Vovk et al. [[VGS05]](https://doi.org/10.1007/b106715), Lei et al. [[LGR+18]](https://doi.org/10.1080/01621459.2017.1307116)). Given an independent held-out calibration split #{\mathcal{D}_{\mathrm{cal}} = \{(x_i, y_i)\}_{i=1}^{N_c}} and miscoverage level #{\alpha \in \bigl\lbrack\frac{1}{N_c + 1},\, 1\bigr\rparen}, standardized scores #{E_i \eqdef |y_i - \hat{\mu}(x_i)| / \hat{\sigma}(x_i)} define the order-statistic multiplier
-  }
+  \pre{
+import math
+import numpy as np
+import baux
 
-  ##{
-    \begin{aligned}
-      \hat{q}_{1-\alpha} &\eqdef E_{(\lceil(N_c + 1)(1 - \alpha)\rceil)}, \\
-      C_{1-\alpha}(x) &\eqdef \bigl[\hat{\mu}(x) - \hat{q}_{1-\alpha}\,\hat{\sigma}(x),\, \hat{\mu}(x) + \hat{q}_{1-\alpha}\,\hat{\sigma}(x)\bigr].
-    \end{aligned}
-  }
+rng = np.random.default_rng(3)
+space = {
+    "gain": baux.Log(1e-3, 1.0),
+    "phase": baux.Periodic(0.0, 2.0 * math.pi),
+    "weights": baux.Simplex(4),
+    "window": baux.categorical(["hann", "hamming", "blackman", "kaiser"]),
+}
+loadings = np.array([
+    [1.0, 0.0],
+    [0.8, 0.2],
+    [0.2, 0.9],
+    [-0.4, 0.7],
+    [0.5, -0.5],
+    [-0.3, -0.6],
+])
+frame = baux.Stiefel(loadings)
+target_w = np.array([0.45, 0.30, 0.15, 0.10])
+win_loss = {"hann": 0.0, "hamming": 0.04, "blackman": 0.08, "kaiser": 0.01}
 
-  \p{
-    (For #{\alpha < \frac{1}{N_c + 1}}, the implementation clamps the rank to #{N_c}, returning the empirical maximum residual; for \code{alpha=None}, it uses RMS residual scaling.) When #{\mathcal{D}_{\mathrm{cal}} \cup \{(x_{\mathrm{new}}, y_{\mathrm{new}})\}} is exchangeable and disjoint from the surrogate training history, #{\mathbb{P}\bigl(y_{\mathrm{new}} \in C_{1-\alpha}(x_{\mathrm{new}})\bigr) \ge 1 - \alpha}; on adaptive sequential optimization histories where exchangeability fails, #{\hat{q}_{1-\alpha}} serves as an empirical scale heuristic rather than a distribution-free coverage guarantee.
+
+def spectral_channels(p):
+    g_err = math.log10(p["gain"] / 0.05)
+    ph_err = math.sin(0.5 * (p["phase"] - 1.2))
+    w_err = float(np.sum((np.sqrt(p["weights"]) - np.sqrt(target_w)) ** 2))
+    latent = np.array([-(g_err**2 + w_err + win_loss[p["window"]]), -(ph_err**2)])
+    return loadings @ latent + 0.15 * rng.normal(size=6)
+
+
+pipe = (
+    baux.enn(k=8, geometry="conformal")
+    | baux.stein(frame)
+    | baux.ucb(beta=1.5)
+    | baux.regions(count=3)
+)
+state = baux.init(space, pipe, key=baux.key(19))
+for _ in range(10):
+    state, batch = baux.ask(state, num_arms=3)
+    y = np.vstack([spectral_channels(p) for p in batch.params])
+    state, mu_shrunk = baux.tell(state, batch, y)
+
+assert mu_shrunk.shape == (3, 6) and state.y_obs.shape == (30, 6)
   }
 }

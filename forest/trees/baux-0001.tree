@@ -4,10 +4,49 @@
 \meta{external}{https://github.com/Kvutza/baux}
 
 \p{
-  \strong{baux} is a black box optimization library built around Epistemic Nearest Neighbors (Bafna et al. [[BJS25]](https://arxiv.org/abs/2506.12818)) and trust-region search.
+  \strong{baux} is a black box optimization library built around Epistemic Nearest Neighbors (Bafna, Jadhav, & Sweet [[BJS25]](https://arxiv.org/abs/2506.12818); [yubo-research/enn](https://github.com/yubo-research/enn)) and multi-region local search. Rather than maintaining a global stationary covariance over evaluation history, \strong{baux} forms local location–dispersion surrogates directly from precision-weighted #{K}-nearest-neighbor neighborhoods, lifting points into non-stationary local-scale geometries that separate collapsed high-density basins from coarse exploratory regions.
 }
 
-\transclude{baux-0006}
+\p{
+  Search domains decompose through section–retraction charts across product manifolds—multiplicative scales, circular phases, probability simplices, and constant-norm discrete codebooks—paired with Stiefel signal-subspace contraction on multi-output codomains. Observation history, epoch-stamped regional ledgers, and splittable 128-bit PRNG keys form an immutable state advanced by pure transitions (documented in the [API Reference](docs.html#baux.init)), supporting asynchronous out-of-order completions, deterministic parallel rollouts, and closed-loop policy search up to #{D \sim 1.6 \times 10^5} parameters.
+}
+
+\p{
+  The loop below composes a hyperbolic-geometry \code{ENN} surrogate ([baux.enn](docs.html#baux.enn)), upper-confidence acquisition ([baux.ucb](docs.html#baux.ucb)), and four trust regions with circumscribing-ball incumbent sharing ([baux.regions](docs.html#baux.regions)) over a rotated, ill-conditioned 12D Rosenbrock ridge, advancing immutable state snapshots via [baux.init](docs.html#baux.init), [baux.ask](docs.html#baux.ask), and [baux.tell](docs.html#baux.tell):
+}
+
+\<div>[id]{quickstart}{
+\pre{
+import numpy as np
+import baux
+
+dim = 12
+axis = np.linspace(1.0, -1.0, dim)
+rot = np.eye(dim) - 2.0 * np.outer(axis, axis) / float(axis @ axis)
+scales = np.geomspace(1.0, 25.0, dim)
+
+
+def valley_reward(x):
+    z = (x @ rot.T) * (scales / 10.0)
+    ridge = 20.0 * (z[:, 1:] - z[:, :-1] ** 2) ** 2 + (0.5 - z[:, :-1]) ** 2
+    return -np.sum(ridge, axis=1)
+
+
+bounds = np.tile([-2.0, 2.0], (dim, 1))
+pipe = (
+    baux.enn(k=10, geometry="hyperbolic")
+    | baux.ucb(beta=2.0)
+    | baux.regions(count=4, sharing="ellipsoid_ball")
+)
+
+state = baux.init(bounds, pipe, key=baux.key(42))
+for _ in range(16):
+    state, batch = baux.ask(state, num_arms=4)
+    state, _ = baux.tell(state, batch, valley_reward(batch.points))
+
+assert state.best_y > -25.0
+}
+}
 
 \transclude{baux-0003}
 
@@ -15,10 +54,43 @@
 
 \transclude{baux-0009}
 
-\transclude{baux-0005}
+\subtree{
+  \title{Closed-Loop Tokamak Control at #{D \sim 1.5 \times 10^5}}
 
-\transclude{baux-0004}
+  \p{
+    Motivated by closed-loop tokamak magnetic and profile control (Degrave et al. [[Deg+22]](https://doi.org/10.1038/s41586-021-04301-9), Tracey et al. [[Tra+24]](https://doi.org/10.1016/j.fusengdes.2024.114161), Pfau et al. [[Pfa+25]](https://arxiv.org/abs/2505.00663)), we study direct parameter-space policy search across two contrasting evaluation regimes. In the sample-scarce regime on the EPFL/MIT \code{toka_gym} TCV rampdown benchmark (Wang et al. [[Wan+25]](https://doi.org/10.1038/s41467-025-63917-3), Theiler et al. [[The+26]](https://doi.org/10.1088/1741-4326/ae6d12)), a four-layer neural policy (#{D = 136{,}712} weights) is optimized over #{100} sequential rounds (#{n = 10} paired seeds): multi-region \code{ENN-TuRBO} (#{K = 10}, #{R = 10}) reduces tracking error from \code{65.72} at initialization to \strong{\code{1.68}} (\code{origin-only}) and \strong{\code{1.79}} (\code{ellipsoid-ball}), compared to \code{20.59} for on-policy PPO under the same interaction budget.
+  }
 
-\transclude{baux-0007}
+  \p{
+    To isolate cross-region incumbent sharing over long horizons free of surrogate fitting variance, we evaluate a #{93 \to 256 \to 256 \to 256 \to 19} policy (#{D = 160{,}531} weights) over #{10{,}000} rounds in \strong{TORAX 2.0.0} (Citrin et al. [[Cit+24]](https://arxiv.org/abs/2406.06718)), coupling four 1D radial core-transport PDEs with Miller local-equilibrium shaping (Miller et al. [[Mil+98]](https://doi.org/10.1063/1.872666)). Across #{n = 10} paired seeds, circumscribing-ball adoption (\code{ellipsoid-ball}) reaches \strong{\code{91.57 ± 0.55}} versus \code{89.41 ± 0.97} for independent regions (\code{origin-only}; paired difference \code{+2.16 ± 0.91}, unadjusted #{t_9} #{p_2 = 0.0410}, Holm–Bonferroni #{p_{\mathrm{Holm}} = 0.246} across six checkpoints; PPO reaches \code{44.25}). Full transport/reward formulations, checkpoint curves, and interactive 3D \strong{FUSE.jl} vessel and flux-surface reconstructions (Meneghini et al. [[Men+24]](https://arxiv.org/abs/2409.05894)) are available in the [Playground](simulation.html).
+  }
+
+  \<table>{
+    \<tr>{
+      \<th>{Benchmark}
+      \<th>{Policy Dimension}
+      \<th>{Budget}
+      \<th>{Portfolio (\code{ellipsoid-ball})}
+      \<th>{Portfolio (\code{origin-only})}
+      \<th>{On-Policy PPO}
+    }
+    \<tr>{
+      \<td>{\code{toka_gym} TCV Rampdown (error #{\downarrow})}
+      \<td>{#{D = 136{,}712}}
+      \<td>{#{100} rounds}
+      \<td>{\strong{\code{1.79}}}
+      \<td>{\strong{\code{1.68}}}
+      \<td>{\code{20.59}}
+    }
+    \<tr>{
+      \<td>{\code{TORAX 2.0.0} Transport & Shaping (score #{\uparrow})}
+      \<td>{#{D = 160{,}531}}
+      \<td>{#{10{,}000} rounds}
+      \<td>{\strong{\code{91.57 ± 0.55}}}
+      \<td>{\code{89.41 ± 0.97}}
+      \<td>{\code{44.25}}
+    }
+  }
+}
 
 \transclude{baux-0002}

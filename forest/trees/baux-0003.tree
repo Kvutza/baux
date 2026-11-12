@@ -1,73 +1,60 @@
-\title{Theoretical Foundations}
+\title{Local Epistemic Geometry & Coherent Draws}
 
 \subtree{
-  \title{Precision-Weighted Nearest Neighbors}
+  \title{Precision-Weighted Neighborhood Moments & Pseudolikelihood}
 
   \p{
-    Let #{\mathcal{X} \subseteq \mathbb{R}^D} denote the coordinate domain, and let #{\mathcal{D} = \{(x_m, y_m, s_m)\}_{m=1}^N \subset \mathcal{X} \times \mathbb{R} \times \mathbb{R}_+} denote #{N} evaluations with observation noise #{y_m = f(x_m) + s_m \varepsilon_m}, where #{\varepsilon_m \stackrel{\text{i.i.d.}}{\sim} \mathcal{N}(0, 1)}. Rather than inverting an #{N \times N} covariance matrix in #{\mathcal{O}(N^3)} time, Epistemic Nearest Neighbors (Bafna et al. [[BJS25]](https://arxiv.org/abs/2506.12818)) treats each observation as a local working estimate and combines its #{K} nearest neighbors by inverse-variance weighting (Aitken [[Ait35]](https://doi.org/10.1017/S0370164600014346), Cochran [[Coc54]](https://doi.org/10.2307/3001666)). Given a nonnegative pairwise dissimilarity #{\delta : \mathcal{X} \times \mathcal{X} \to \mathbb{R}_+}, empirical target variance scale #{\hat{\sigma}_y^2 > 0}, and dimensionless scale parameters #{\theta = (s_0^2, c_e) \in \mathbb{R}_+ \times \mathbb{R}_+}, observation #{m} is assigned the working moments
+    Let #{\mathcal{X} \subseteq \mathbb{R}^D} denote solver coordinates and #{\mathcal{D} = \{(x_m, y_m, s_m)\}_{m=1}^N \subset \mathcal{X} \times \mathbb{R} \times \mathbb{R}_+} denote #{N} heteroscedastic observations #{y_m = f(x_m) + s_m \varepsilon_m} with #{\varepsilon_m \stackrel{\text{i.i.d.}}{\sim} \mathcal{N}(0, 1)}. Given a nonnegative pairwise dissimilarity #{\delta : \mathcal{X} \times \mathcal{X} \to \mathbb{R}_+}, empirical target variance scale #{\hat{\sigma}_y^2 > 0}, and dimensionless scale parameters #{\theta = (s_0^2, c_e) \in \mathbb{R}_+^2}, Epistemic Nearest Neighbors (Bafna et al. [[BJS25]](https://arxiv.org/abs/2506.12818)) assigns datum #{m} at query #{x} the working moments
   }
 
   ##{
-    \begin{aligned}
-      \mu(x \mid x_m, y_m, s_m) &= y_m, \\
-      \sigma_a^2(x \mid x_m, y_m, s_m) &= \hat{\sigma}_y^2 s_0^2 + s_m^2, \\
-      \sigma_e^2(x \mid x_m, y_m, s_m) &= \hat{\sigma}_y^2 c_e\, \delta(x, x_m).
-    \end{aligned}
+    \mu(x \mid x_m) = y_m, \qquad
+    \sigma_a^2(x \mid x_m) = \hat{\sigma}_y^2 s_0^2 + s_m^2, \qquad
+    \sigma_e^2(x \mid x_m) = \hat{\sigma}_y^2 c_e\, \delta(x, x_m).
   }
 
   \p{
-    Let #{\pi_1(x), \dots, \pi_K(x) \in \{1, \dots, N\}} index the #{K} nearest neighbors of #{x} ordered by nondecreasing #{\delta(x, x_{\pi_i(x)})} (breaking ties by smaller datum index), and write #{N_K(x) \eqdef \{\pi_1(x), \dots, \pi_K(x)\}}. With variance floor #{\varepsilon_{\mathrm{var}} = 10^{-9} \hat{\sigma}_y^2} preventing division by zero when #{x = x_m} and #{s_0 = s_m = 0}, the precision weights #{w_i(x) \eqdef \bigl(\varepsilon_{\mathrm{var}} + \sigma_a^2(x \mid x_{\pi_i(x)}) + \sigma_e^2(x \mid x_{\pi_i(x)})\bigr)^{-1}} define a deterministic local smoothing surrogate evaluated in #{\mathcal{O}(N D + N \log N)} exact flat-scan time per query:
+    Writing #{N_K(x) \eqdef \{\pi_1(x), \dots, \pi_K(x)\}} for the #{K} nearest indices ordered by nondecreasing #{\delta(x, x_{\pi_i(x)})} (ties broken by datum index) and precision weights #{w_i(x) \eqdef \bigl(\sigma_a^2(x \mid x_{\pi_i(x)}) + \sigma_e^2(x \mid x_{\pi_i(x)})\bigr)^{-1}} on non-degenerate neighborhoods, the local predictive moments decompose epistemic and aleatoric dispersion in #{\mathcal{O}(N D + N \log K)} exact scan time per query:
   }
 
   ##{
-    \begin{aligned}
-      \mu(x) &= \frac{\sum_{i=1}^K w_i(x)\, y_{\pi_i(x)}}{\sum_{i=1}^K w_i(x)}, \\[6pt]
-      \sigma_a^2(x) &= \frac{\sum_{i=1}^K w_i(x)\, \sigma_a^2(x \mid x_{\pi_i(x)}, y_{\pi_i(x)}, s_{\pi_i(x)})}{\sum_{i=1}^K w_i(x)}, \\[6pt]
-      \sigma_e^2(x) &= \frac{1}{\sum_{i=1}^K w_i(x)}, \qquad \sigma^2(x) \eqdef \sigma_e^2(x) + \sigma_a^2(x).
-    \end{aligned}
+    \mu(x) = \frac{\sum_{i=1}^K w_i(x)\, y_{\pi_i(x)}}{\sum_{i=1}^K w_i(x)}, \qquad
+    \sigma_a^2(x) = \frac{\sum_{i=1}^K w_i(x)\, \sigma_a^2(x \mid x_{\pi_i(x)})}{\sum_{i=1}^K w_i(x)}, \qquad
+    \sigma_e^2(x) = \frac{1}{\sum_{i=1}^K w_i(x)},
   }
 
   \p{
-    Here #{\sigma_e^2(x)} is a distance-sensitive dispersion proxy rather than a joint Gaussian posterior variance: under independent neighbor errors of variances #{v_i = \sigma_a^2(x \mid x_{\pi_i(x)})}, the noise variance of the linear combination #{\mu(x)} is #{\sum_{i=1}^K w_i^2(x) v_i / (\sum_{i=1}^K w_i(x))^2}. When observations are well-separated relative to observation noise and #{f} satisfies a local envelope #{|f(x_{\pi_i(x)}) - f(x)| \le \hat{\sigma}_y \sqrt{c_e\,\delta(x, x_{\pi_i(x)})}}, including distant neighbors increases worst-case squared bias faster than it reduces noise variance. Motivated by adaptive bandwidth selection (Lepski [[Lep91]](https://doi.org/10.1137/1135065)), the optional \code{RiskPrefix} rule scores each prefix #{r \in \{1, \dots, K\}} by
+    with total predictive variance #{\sigma^2(x) \eqdef \sigma_e^2(x) + \sigma_a^2(x)}. Scale parameters #{\theta = (s_0^2, c_e)} maximize a subsampled leave-one-out Gaussian log-pseudolikelihood over #{S_P \subset \{1, \dots, N\}} of size #{P \le N} [[BJS25]](https://arxiv.org/abs/2506.12818):
   }
 
   ##{
-    \mathcal{R}(r; x) \eqdef \hat{\sigma}_y^2 c_e\, \delta(x, x_{\pi_r(x)}) + \frac{\sum_{i=1}^r w_i^2(x)\, \sigma_a^2(x \mid x_{\pi_i(x)}, y_{\pi_i(x)}, s_{\pi_i(x)})}{\bigl(\sum_{i=1}^r w_i(x)\bigr)^2},
+    \widehat{\log \mathcal{L}}(\theta) \eqdef -\frac{1}{2P} \sum_{n \in S_P} \left[\log\bigl(2\pi \sigma_{-n}^2(x_n; \theta)\bigr) + \frac{\bigl(y_n - \mu_{-n}(x_n; \theta)\bigr)^2}{\sigma_{-n}^2(x_n; \theta)}\right],
   }
 
   \p{
-    and truncates the neighbor prefix at #{r^*(x) \eqdef \arg\min_{1 \le r \le K} \mathcal{R}(r; x)}, whereas the default \code{ENN} configuration retains the full #{K}-neighbor prefix.
+    where #{\mu_{-n}} and #{\sigma_{-n}^2} exclude datum #{n} from its own #{K}-neighbor set.
   }
 }
 
 \subtree{
-  \title{Pseudolikelihood Estimation & Coherent Function Draws}
+  \title{Coherent Function Draws Across Order-#{K} Voronoi Cells}
 
   \p{
-    Hyperparameters #{\theta = (s_0^2, c_e)} are selected by maximizing a subsampled leave-one-out (LOO) Gaussian log-pseudolikelihood over #{S_P \subset \{1, \dots, N\}} of size #{P \le N} (Bafna et al. [[BJS25]](https://arxiv.org/abs/2506.12818)):
+    Posterior sampling over candidate pools requires spatially correlated draws without factoring a #{Q \times Q} joint query covariance. Tying standard normal perturbations to global datum indices induces positive spatial covariance wherever order-#{K} Voronoi neighborhoods overlap:
+  }
+
+  \p{
+    \strong{Proposition 1.1} (Coherent Function Draws)\strong{.} Fix draw index #{s} and output channel #{j}, and attach #{z_{s,m,j} \stackrel{\text{i.i.d.}}{\sim} \mathcal{N}(0, 1)} to each datum #{m \in \{1, \dots, N\}}. Normalize the active precision weights and extend them by zero outside #{N_K(x)} by setting #{\tilde{w}_{m,j}(x) \eqdef \bar{w}_{i,j}(x)} if #{m = \pi_i(x) \in N_K(x)} and #{0} otherwise, where
   }
 
   ##{
-    \begin{aligned}
-      \widehat{\log \mathcal{L}}(\theta) &\eqdef \frac{1}{P} \sum_{n \in S_P} \ell_{-n}(\theta), \\[4pt]
-      \ell_{-n}(\theta) &\eqdef -\frac{1}{2}\left[\log\bigl(2\pi \sigma_{-n}^2(x_n; \theta)\bigr) + \frac{\bigl(y_n - \mu_{-n}(x_n; \theta)\bigr)^2}{\sigma_{-n}^2(x_n; \theta)}\right],
-    \end{aligned}
+    \bar{w}_{i,j}(x) \eqdef \frac{w_{i,j}(x)}{\sum_{r=1}^K w_{r,j}(x)}, \qquad
+    \Vert\bar{w}_j(x)\Vert_2 \eqdef \sqrt{\sum_{i=1}^K \bar{w}_{i,j}^2(x)}, \qquad
+    \tilde{f}_{s,j}(x) \eqdef \mu_j(x) + \frac{\sigma_{e,j}(x)}{\Vert\bar{w}_j(x)\Vert_2} \sum_{i=1}^K \bar{w}_{i,j}(x)\, z_{s,\pi_i(x),j}.
   }
 
   \p{
-    where #{\mu_{-n}(x_n; \theta)} and #{\sigma_{-n}^2(x_n; \theta) \eqdef \sigma_{e,-n}^2(x_n; \theta) + \sigma_{a,-n}^2(x_n; \theta)} exclude datum #{n} from its own #{K}-neighbor set. Candidate pairs are drawn by log-uniform Monte Carlo sampling from #{c_e \bar{\delta} \in [10^{-3}, 10^3]} and #{s_0^2 \in [10^{-6}, 1]} (together with optional warm-start candidates), where #{\bar{\delta}} denotes the mean positive off-diagonal dissimilarity in the optimizer's internal LOO fitter and #{\bar{\delta} = 1} on unit-scaled standalone \code{enn_fit} states.
-  }
-
-  \p{
-    \strong{Proposition 2.1} (Coherent Function Draws)\strong{.} Fix seed #{s} and output metric #{j}, and associate an independent standard normal variable #{z_{s,m,j} \stackrel{\text{i.i.d.}}{\sim} \mathcal{N}(0, 1)} with each global datum index #{m \in \{1, \dots, N\}}. For query #{x \in \mathcal{X}} with ordered neighbor indices #{\pi_1(x), \dots, \pi_K(x)}, let #{\bar{w}_{i,j}(x) \eqdef w_{i,j}(x) / \sum_{r=1}^K w_{r,j}(x)} and write #{\tilde{w}_{m,j}(x) \eqdef \bar{w}_{i,j}(x)} when #{m = \pi_i(x) \in N_K(x)} (and #{0} otherwise). Define the latent function draw
-  }
-
-  ##{
-    \tilde{f}_{s,j}(x) \eqdef \mu_j(x) + \frac{\sigma_{e,j}(x)}{\Vert\bar{w}_j(x)\Vert_2} \sum_{i=1}^K \bar{w}_{i,j}(x)\, z_{s,\pi_i(x),j}, \qquad \Vert\bar{w}_j(x)\Vert_2 \eqdef \Bigl(\sum_{i=1}^K \bar{w}_{i,j}^2(x)\Bigr)^{1/2}.
-  }
-
-  \p{
-    (Replacing #{\sigma_{e,j}(x)} by #{\sigma_j(x)} yields noisy observation draws.) Then for every #{x \in \mathcal{X}}, #{\tilde{f}_{s,j}(x) \sim \mathcal{N}\bigl(\mu_j(x),\, \sigma_{e,j}^2(x)\bigr)}, trajectories are smooth within the interior of each order-#{K} Voronoi cell where #{N_K(x)} is constant (with step transitions across Voronoi boundaries), and any two queries #{x, x' \in \mathcal{X}} sharing neighbors #{S_K(x, x') \eqdef N_K(x) \cap N_K(x') \ne \emptyset} satisfy
+    Then for every #{x \in \mathcal{X}}, #{\tilde{f}_{s,j}(x) \sim \mathcal{N}\bigl(\mu_j(x),\, \sigma_{e,j}^2(x)\bigr)}, sample paths are smooth on the interior of each order-#{K} Voronoi cell where #{N_K(x)} is constant, and any #{x, x' \in \mathcal{X}} with nonempty neighborhood intersection #{S_K(x, x') \eqdef N_K(x) \cap N_K(x') \ne \emptyset} satisfy
   }
 
   ##{
@@ -75,43 +62,27 @@
   }
 
   \p{
-    \strong{Proof.} By linearity of expectation, #{\mathbb{E}[\tilde{f}_{s,j}(x)] = \mu_j(x)}. Because #{\pi_1(x), \dots, \pi_K(x)} are distinct global indices in #{\{1, \dots, N\}}, the variables #{z_{s,\pi_1(x),j}, \dots, z_{s,\pi_K(x),j}} are independent standard Gaussians, so #{\xi_j(x) \eqdef \sum_{i=1}^K \bar{w}_{i,j}(x)\, z_{s,\pi_i(x),j} = \sum_{m=1}^N \tilde{w}_{m,j}(x)\, z_{s,m,j}} is Gaussian with variance #{\sum_{i=1}^K \bar{w}_{i,j}^2(x) = \Vert\bar{w}_j(x)\Vert_2^2 > 0}. Scaling #{\xi_j(x)} by #{\sigma_{e,j}(x) / \Vert\bar{w}_j(x)\Vert_2} yields marginal variance
-  }
-
-  ##{
-    \operatorname{Var}\bigl(\tilde{f}_{s,j}(x)\bigr) = \left(\frac{\sigma_{e,j}(x)}{\Vert\bar{w}_j(x)\Vert_2}\right)^2 \Vert\bar{w}_j(x)\Vert_2^2 = \sigma_{e,j}^2(x).
-  }
-
-  \p{
-    For any pair #{x, x'}, bilinearity and #{\mathbb{E}[z_{s,m,j}\, z_{s,m',j}] = \delta_{m,m'}} over global datum indices give
-  }
-
-  ##{
-    \operatorname{Cov}\bigl(\xi_j(x),\, \xi_j(x')\bigr) = \sum_{m=1}^N \sum_{m'=1}^N \tilde{w}_{m,j}(x)\,\tilde{w}_{m',j}(x')\,\delta_{m,m'} = \sum_{m \in S_K(x, x')} \tilde{w}_{m,j}(x)\,\tilde{w}_{m,j}(x').
-  }
-
-  \p{
-    Since #{\tilde{w}_{m,j}(x) > 0} and #{\tilde{w}_{m,j}(x') > 0} for every #{m \in S_K(x, x')} and #{S_K(x, x') \ne \emptyset}, the sum is strictly positive.#{\;\square}
+    \strong{Proof.} Distinctness of #{\pi_1(x), \dots, \pi_K(x)} implies that #{\xi_j(x) \eqdef \sum_{m=1}^N \tilde{w}_{m,j}(x)\, z_{s,m,j}} is zero-mean Gaussian with variance #{\sum_{i=1}^K \bar{w}_{i,j}^2(x) = \Vert\bar{w}_j(x)\Vert_2^2 > 0}; rescaling by #{\tfrac{\sigma_{e,j}(x)}{\Vert\bar{w}_j(x)\Vert_2}} yields #{\tilde{f}_{s,j}(x) \sim \mathcal{N}(\mu_j(x), \sigma_{e,j}^2(x))}. For any #{x, x'}, #{\mathbb{E}[z_{s,m,j}\, z_{s,m',j}] = \delta_{m,m'}} gives #{\operatorname{Cov}(\xi_j(x), \xi_j(x')) = \sum_{m \in S_K(x, x')} \tilde{w}_{m,j}(x)\,\tilde{w}_{m,j}(x')}, which is strictly positive whenever #{S_K(x, x') \ne \emptyset} since every active precision weight is strictly positive.#{\;\square}
   }
 }
 
 \subtree{
-  \title{Local-Scale Dissimilarities}
+  \title{Non-Stationary Local-Scale Dissimilarities}
 
   \p{
-    Let #{d(x, x') \eqdef \Vert x - x'\Vert_2} denote Euclidean (or coordinate-scaled Euclidean) distance. For local scale order #{k_0 \ge 1} and floor #{\underline{\sigma} = 10^{-6}}, let #{\sigma(x) \eqdef \max\bigl(d(x, x_{(k_0)}),\, \underline{\sigma}\bigr)} denote the #{k_0}-th positive Euclidean neighbor radius at #{x} (excluding zero-distance self-matches). Because #{\sigma(x)} depends on the empirical configuration #{\mathcal{D}}, the resulting transformations are symmetric nonnegative dissimilarities rather than triangle-inequality metrics:
+    Sequential optimization concentrates evaluations exponentially inside active trust-region basins while leaving the global domain sparsely sampled. Let #{d(x, x') \eqdef \Vert x - x'\Vert_2} denote Euclidean (or coordinate-scaled) distance and let #{\sigma(x) > 0} denote the #{k_0}-th positive Euclidean neighbor radius at #{x} relative to #{\mathcal{D}}. Because #{\sigma(x)} depends on the empirical configuration, rescales of #{d} define symmetric nonnegative dissimilarities tailored to multi-scale sampling density:
   }
 
   \p{
-    Under \strong{conformal normalization} (Zelnik-Manor & Perona [[ZP04]](https://proceedings.neurips.cc/paper/2004/hash/40173ea48d9567f1f393b20c855bb40b-Abstract.html)), squared distance is normalized by the product of endpoint radii, yielding a dimensionless ratio:
+    \strong{Conformal normalization} (Zelnik-Manor & Perona [[ZP04]](https://proceedings.neurips.cc/paper/2004/hash/40173ea48d9567f1f393b20c855bb40b-Abstract.html)) rescales squared Euclidean separation by the geometric-mean endpoint scale:
   }
 
   ##{
-    \delta_c(x, x_m) \eqdef \frac{d^2(x, x_m)}{\sigma(x)\, \sigma(x_m)}.
+    \delta_c(x, x_m) \eqdef \frac{d^2(x, x_m)}{\sigma(x)\,\sigma(x_m)}.
   }
 
   \p{
-    Under the \strong{Poincaré half-space dissimilarity} (Cannon et al. [[CFK+97]](https://library.slmath.org/books/Book31/files/cannon.pdf), Nickel & Kiela [[NK17]](https://arxiv.org/abs/1705.08039), Kisfaludi-Bak & van Wordragen [[KvW24]](https://arxiv.org/abs/2305.01356)), points lift into the upper half-space #{\mathbb{H}(\mathcal{X}) \eqdef \mathcal{X} \times \mathbb{R}_+} with metric #{ds^2 = (\Vert dx\Vert_2^2 + d\sigma^2)/\sigma^2} via #{\Lambda(x) \eqdef (x, \sigma(x))}:
+    \strong{Poincaré half-space geometry} (Cannon et al. [[CFK+97]](https://library.slmath.org/books/Book31/files/cannon.pdf), Nickel & Kiela [[NK17]](https://arxiv.org/abs/1705.08039), Kisfaludi-Bak & van Wordragen [[KvW24]](https://arxiv.org/abs/2305.01356)) lifts each point into the upper half-space #{\mathbb{H}(\mathcal{X}) \eqdef \mathcal{X} \times \mathbb{R}_+} equipped with #{ds^2 = \tfrac{\Vert dx\Vert_2^2 + d\sigma^2}{\sigma^2}} via #{\Lambda(x) \eqdef (x, \sigma(x))}:
   }
 
   ##{
@@ -123,7 +94,7 @@
   }
 
   \p{
-    The isometric invariant #{\cosh d_{\mathbb{H}}\bigl(\Lambda(x), \Lambda(x_m)\bigr) - 1} decomposes into conformal horizontal separation and dimensionless vertical scale mismatch:
+    Evaluating the isometric chordal invariant #{\cosh d_{\mathbb{H}}\bigl(\Lambda(x), \Lambda(x_m)\bigr) - 1} adds a dimensionless vertical scale-mismatch barrier to conformal horizontal distance:
   }
 
   ##{
@@ -131,10 +102,52 @@
   }
 
   \p{
-    Under the \strong{hybrid conformal–transport dissimilarity}, motivated by Gaussian optimal transport (Villani [[Vil09]](https://doi.org/10.1007/978-3-540-71050-9), Peyré & Cuturi [[PC19]](https://doi.org/10.1561/2200000073)), geometric-mean scale normalization is paired additively with the 1D squared radius transport penalty #{(\sigma(x) - \sigma(x_m))^2}:
+    When a trust region collapses onto an incumbent basin (#{\sigma(x) \ll \sigma(x_m)}), the vertical term scales as #{\mathcal{O}\Bigl(\tfrac{\sigma(x_m)}{\sigma(x)}\Bigr)}, quarantining local neighborhood estimates from coarse outer observations even at moderate Euclidean proximity, while symmetrically preventing exploratory queries in sparse regions from collapsing onto dense clusters. Replacing hyperbolic normalization with an additive 1D Bures–Wasserstein radius cost motivated by Gaussian optimal transport (Villani [[Vil09]](https://doi.org/10.1007/978-3-540-71050-9), Peyré & Cuturi [[PC19]](https://doi.org/10.1561/2200000073)) yields the \strong{hybrid transport dissimilarity}:
   }
 
   ##{
     \delta_w(x, x_m) \eqdef \frac{d^2(x, x_m)}{\sqrt{\sigma(x)\,\sigma(x_m)}} + \bigl(\sigma(x) - \sigma(x_m)\bigr)^2.
+  }
+
+  \p{
+    The standalone functional interface ([baux.enn_init](docs.html#baux.enn_init), [baux.with_geometry](docs.html#baux.with_geometry), [baux.enn_fit](docs.html#baux.enn_fit), [baux.enn_posterior](docs.html#baux.enn_posterior), and [baux.enn_sample](docs.html#baux.enn_sample)) exposes these geometries directly. On a bimodal 6D design combining a tight low-noise basin with a coarse high-noise shell, Poincaré lifting isolates basin neighbors, separates epistemic (\code{.se_epi}) from heteroscedastic aleatoric (\code{.se_ale}) uncertainty, and produces spatially correlated draws across adjacent basin queries:
+  }
+
+  \pre{
+import numpy as np
+import baux
+
+rng = np.random.default_rng(7)
+basin_x = 0.6 + 0.04 * rng.normal(size=(24, 6))
+shell_x = rng.uniform(-1.5, 1.5, size=(24, 6))
+train_x = np.vstack([basin_x, shell_x])
+
+signal = np.exp(-1.5 * np.sum((train_x - 0.6) ** 2, axis=1, keepdims=True))
+train_yvar = np.vstack([np.full((24, 1), 5e-4), np.full((24, 1), 5e-2)])
+train_y = signal + np.sqrt(train_yvar) * rng.normal(size=(48, 1))
+
+k_fit, k_draw = baux.split(baux.key(11), 2)
+enn_state = baux.with_geometry(
+    baux.enn_init(train_x, train_y, train_yvar, scale_x=True),
+    "hyperbolic",
+    local_k=4,
+)
+params = baux.enn_fit(enn_state, k=8, infer_aleatoric=False, key=k_fit)
+
+queries = np.vstack([
+    np.full((1, 6), 0.600),
+    np.full((1, 6), 0.605),
+    np.full((1, 6), 2.400),
+])
+post = baux.enn_posterior(
+    enn_state, queries, params, flags=baux.enn.PosteriorFlags(observation_noise=True)
+)
+draws, idx = baux.enn_sample(enn_state, queries, params, key=k_draw, num_draws=64)
+
+corr_basin = float(np.corrcoef(draws[0, 0], draws[1, 0])[0, 1])
+assert np.all(idx[0] < 24)
+assert post.se_epi[0, 0] < post.se_epi[2, 0]
+assert np.allclose(post.se**2, post.se_epi**2 + post.se_ale**2)
+assert corr_basin > 0.9
   }
 }

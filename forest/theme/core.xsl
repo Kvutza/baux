@@ -27,6 +27,31 @@
     </xsl:element>
   </xsl:template>
 
+  <xsl:template match="html:a">
+    <xsl:variable name="check-href"
+      select="translate(normalize-space(@href), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ&#9;&#10;&#13; ', 'abcdefghijklmnopqrstuvwxyz')" />
+    <xsl:variable name="unsafe-scheme"
+      select="starts-with($check-href, 'javascript:') or starts-with($check-href, 'vbscript:') or starts-with($check-href, 'data:') or starts-with($check-href, 'blob:') or starts-with($check-href, 'file:') or starts-with($check-href, 'http:') or starts-with($check-href, '//')" />
+    <xsl:element namespace="http://www.w3.org/1999/xhtml" name="a">
+      <xsl:if test="@href">
+        <xsl:attribute name="href">
+          <xsl:choose>
+            <xsl:when test="$unsafe-scheme">#</xsl:when>
+            <xsl:otherwise><xsl:value-of select="normalize-space(@href)" /></xsl:otherwise>
+          </xsl:choose>
+        </xsl:attribute>
+      </xsl:if>
+      <xsl:if test="not($unsafe-scheme) and (starts-with($check-href, 'https://') or @target = '_blank')">
+        <xsl:if test="@target = '_blank'">
+          <xsl:attribute name="target">_blank</xsl:attribute>
+        </xsl:if>
+        <xsl:attribute name="rel">noopener noreferrer</xsl:attribute>
+      </xsl:if>
+      <xsl:apply-templates select="@*[local-name() != 'href' and local-name() != 'target' and local-name() != 'rel']" />
+      <xsl:apply-templates />
+    </xsl:element>
+  </xsl:template>
+
   <xsl:template match="div">
     <div>
       <xsl:apply-templates select="@*" />
@@ -39,6 +64,115 @@
       <xsl:apply-templates select="@*" />
       <xsl:apply-templates />
     </section>
+  </xsl:template>
+
+  <xsl:template match="span">
+    <span>
+      <xsl:apply-templates select="@*" />
+      <xsl:apply-templates />
+    </span>
+  </xsl:template>
+
+  <xsl:template match="dl">
+    <dl>
+      <xsl:apply-templates select="@*" />
+      <xsl:apply-templates />
+    </dl>
+  </xsl:template>
+
+  <xsl:template match="dt">
+    <dt>
+      <xsl:apply-templates select="@*" />
+      <xsl:apply-templates />
+    </dt>
+  </xsl:template>
+
+  <xsl:template match="dd">
+    <dd>
+      <xsl:apply-templates select="@*" />
+      <xsl:apply-templates />
+    </dd>
+  </xsl:template>
+
+  <xsl:template match="p">
+    <p>
+      <xsl:apply-templates select="@*" />
+      <xsl:apply-templates />
+    </p>
+  </xsl:template>
+
+  <xsl:template match="pre">
+    <pre>
+      <xsl:apply-templates select="@*" />
+      <xsl:apply-templates />
+    </pre>
+  </xsl:template>
+
+  <xsl:template match="code">
+    <code>
+      <xsl:apply-templates select="@*" />
+      <xsl:apply-templates />
+    </code>
+  </xsl:template>
+
+  <xsl:template match="ul">
+    <ul>
+      <xsl:apply-templates select="@*" />
+      <xsl:apply-templates />
+    </ul>
+  </xsl:template>
+
+  <xsl:template match="ol">
+    <ol>
+      <xsl:apply-templates select="@*" />
+      <xsl:apply-templates />
+    </ol>
+  </xsl:template>
+
+  <xsl:template match="li">
+    <li>
+      <xsl:apply-templates select="@*" />
+      <xsl:apply-templates />
+    </li>
+  </xsl:template>
+
+  <xsl:template match="strong">
+    <strong>
+      <xsl:apply-templates select="@*" />
+      <xsl:apply-templates />
+    </strong>
+  </xsl:template>
+
+  <xsl:template match="em">
+    <em>
+      <xsl:apply-templates select="@*" />
+      <xsl:apply-templates />
+    </em>
+  </xsl:template>
+
+  <xsl:template match="a">
+    <xsl:variable name="check-href"
+      select="translate(normalize-space(@href), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ&#9;&#10;&#13; ', 'abcdefghijklmnopqrstuvwxyz')" />
+    <xsl:variable name="unsafe-scheme"
+      select="starts-with($check-href, 'javascript:') or starts-with($check-href, 'vbscript:') or starts-with($check-href, 'data:') or starts-with($check-href, 'blob:') or starts-with($check-href, 'file:') or starts-with($check-href, 'http:') or starts-with($check-href, '//')" />
+    <a>
+      <xsl:if test="@href">
+        <xsl:attribute name="href">
+          <xsl:choose>
+            <xsl:when test="$unsafe-scheme">#</xsl:when>
+            <xsl:otherwise><xsl:value-of select="normalize-space(@href)" /></xsl:otherwise>
+          </xsl:choose>
+        </xsl:attribute>
+      </xsl:if>
+      <xsl:if test="not($unsafe-scheme) and (starts-with($check-href, 'https://') or @target = '_blank')">
+        <xsl:if test="@target = '_blank'">
+          <xsl:attribute name="target">_blank</xsl:attribute>
+        </xsl:if>
+        <xsl:attribute name="rel">noopener noreferrer</xsl:attribute>
+      </xsl:if>
+      <xsl:apply-templates select="@*[local-name() != 'href' and local-name() != 'target' and local-name() != 'rel']" />
+      <xsl:apply-templates />
+    </a>
   </xsl:template>
 
   <xsl:template match="table">
@@ -89,6 +223,26 @@
 
   <xsl:template match="@class">
     <xsl:attribute name="class"><xsl:value-of select="." /></xsl:attribute>
+  </xsl:template>
+
+  <xsl:template match="@data-symbol">
+    <xsl:attribute name="data-symbol"><xsl:value-of select="." /></xsl:attribute>
+  </xsl:template>
+
+  <xsl:template match="@data-kind">
+    <xsl:attribute name="data-kind"><xsl:value-of select="." /></xsl:attribute>
+  </xsl:template>
+
+  <xsl:template match="@data-module">
+    <xsl:attribute name="data-module"><xsl:value-of select="." /></xsl:attribute>
+  </xsl:template>
+
+  <xsl:template match="@scope">
+    <xsl:attribute name="scope"><xsl:value-of select="." /></xsl:attribute>
+  </xsl:template>
+
+  <xsl:template match="@aria-label">
+    <xsl:attribute name="aria-label"><xsl:value-of select="." /></xsl:attribute>
   </xsl:template>
 
   <xsl:template match="mml:*">

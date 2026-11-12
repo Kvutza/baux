@@ -1,79 +1,30 @@
-\title{Trust-Region Dynamics & Portfolio State}
+\title{Functional State & Asynchronous Portfolios}
 
 \subtree{
-  \title{Trust-Region Adaptation & Candidate Sampling}
+  \title{Pure State Transitions & Epoch-Stamped Regional Ledgers}
 
   \p{
-    Following TuRBO (Eriksson et al. [[EPG+19]](https://arxiv.org/abs/1910.01739)), let #{T(x_0, \ell) \subset \mathcal{X}} denote an axis-aligned trust region centered at incumbent #{x_0 \in \mathcal{X}} with side length #{\ell \in [\underline{\ell}, \overline{\ell}]}. In solver coordinates #{u \in \mathcal{U} \subseteq \mathbb{R}^D}, component #{j} spans #{[u_{0,j} - \frac{1}{2}\ell_j,\, u_{0,j} + \frac{1}{2}\ell_j]} clipped to domain bounds. Consecutive counters #{c_{\mathrm{succ}}, c_{\mathrm{fail}}} start at zero; after evaluating a batch #{B} with best value #{y^* \eqdef \max_{(x, y) \in B} y} and relative improvement threshold #{\tau_y(x_0) \eqdef y(x_0) + 10^{-3}|y(x_0)|}, the state updates by
+    Optimization state is an immutable tuple in the product space
   }
 
   ##{
-    (\ell', c_{\mathrm{succ}}', c_{\mathrm{fail}}') = \begin{cases}
-      (\min(2\ell, \overline{\ell}),\, 0,\, 0), & \text{if } y^* > \tau_y(x_0) \text{ and } c_{\mathrm{succ}} + 1 \ge \tau_{\mathrm{succ}}, \\[4pt]
-      (\ell,\, c_{\mathrm{succ}} + 1,\, 0), & \text{if } y^* > \tau_y(x_0) \text{ and } c_{\mathrm{succ}} + 1 < \tau_{\mathrm{succ}}, \\[4pt]
-      (\ell / 2,\, 0,\, 0), & \text{if } y^* \le \tau_y(x_0) \text{ and } c_{\mathrm{fail}} + 1 \ge \tau_{\mathrm{fail}}, \\[4pt]
-      (\ell,\, 0,\, c_{\mathrm{fail}} + 1), & \text{if } y^* \le \tau_y(x_0) \text{ and } c_{\mathrm{fail}} + 1 < \tau_{\mathrm{fail}}.
-    \end{cases}
+    S \eqdef \mathcal{K} \times \mathcal{D} \times \prod_{r=1}^R T_r \times \mathrm{Spec}(\mathcal{M}),
   }
 
   \p{
-    Initial space-filling designs draw from Latin Hypercube sampling (McKay, Beckman, & Conover [[MBC79]](https://doi.org/10.1080/00401706.1979.10489755)) or Sobol' sequences [[Sob67]](https://doi.org/10.1016/0041-5553(67)90144-9). Local candidate pools of size #{Q} are generated via Random Axis-Aligned Subspace Perturbation (RAASP [[EPG+19]](https://arxiv.org/abs/1910.01739), [[DEB+22]](https://proceedings.mlr.press/v180/daulton22a.html); cf. Rashidi et al. [[RJG24]](https://proceedings.mlr.press/v238/rashidi24a.html)): the default \code{ORIG} driver perturbs an exact uniform subset of #{k = \min(D, \max(1, d_p))} coordinates (or tied chart blocks) per candidate, while the \code{FAST} driver samples binomial masks with probability #{p = \min(1, d_p / D)} clamped to at least one active coordinate. Two observation regimes are supported:
+    joining a splittable 128-bit PRNG key #{k \in \mathcal{K}} (Claessen & Pałka [[CP13]](https://doi.org/10.1145/2503778.2503784), Steele, Lea, & Flood [[SLF14]](https://doi.org/10.1145/2660193.2660195)), global observation history #{\mathcal{D}}, #{R} concurrent local trust-region ledgers #{\{T_r(x_{0,r}, \ell_r, g_r)\}_{r=1}^R} (Eriksson et al. [[EPG+19]](https://arxiv.org/abs/1910.01739), Daulton et al. [[DEB+22]](https://proceedings.mlr.press/v180/daulton22a.html)), and the compiled domain chart specification #{\mathrm{Spec}(\mathcal{M})}. Multi-objective portfolios (#{M \ge 2}) draw per-region simplex weights to scalarize normalized objectives [[DEB+22]](https://proceedings.mlr.press/v180/daulton22a.html), while arm allocation across regions balances normalized incumbent value against completed plus in-flight evaluations.
   }
 
   \p{
-    In the \strong{noise-free regime}, #{T(x_0, \ell)} centers at #{x_0 \eqdef \arg\max_i y_i} and can select #{q} arms by peeling non-dominated #{(\mu(x_c), \sigma(x_c))} skyline fronts across #{Q} candidates in #{\mathcal{O}\bigl(Q(N D + N \log N) + q Q \log Q\bigr)} time.
-  }
-
-  \p{
-    In the \strong{noisy regime}, #{x_0 \eqdef \arg\max_{i \in I_K} \mu(x_i)} centers at the highest smoothed mean over the #{K} highest raw observations #{I_K}, and arms are selected by Upper Confidence Bound #{\arg\max_{x_c} [\mu(x_c) + \beta \sigma_e(x_c)]} (Srinivas et al. [[SKK+10]](https://arxiv.org/abs/0912.3995)) or Thompson function draws #{\arg\max_{x_c} \tilde{f}_s(x_c)} (Thompson [[Tho33]](https://doi.org/10.1093/biomet/25.3-4.285), Russo et al. [[RVR+18]](https://doi.org/10.1561/2200000070)).
-  }
-
-  \p{
-    Whenever contraction drives #{\ell < \underline{\ell}}, single-region search resets #{\ell \leftarrow \ell_0} and schedules a fresh Latin Hypercube warmup, while multi-region portfolios increment the region epoch and re-center #{x_{0,r}} uniformly or by maximin distance over random candidates.
+    Asynchronous evaluation decouples global surrogate updates from regional side-length adaptation via epoch-stamped tickets #{\mathrm{AskId} = (r, g, a)}, recording originating region #{r}, its generation epoch #{g = g_r} at dispatch, and arm slot #{a}. Out-of-order completions via [baux.complete](docs.html#baux.complete) always append observations to #{\mathcal{D}}, whereas trust-region expansion/contraction on #{T_r} applies if and only if #{g = g_r}—preventing delayed evaluations from a pre-restart epoch from perturbing a freshly re-centered basin—and [baux.cancel](docs.html#baux.cancel) releases in-flight slot reservations without altering #{\mathcal{D}}. Cross-region coordination is governed by incumbent adoption: \code{sharing="origin_only"} restricts #{x_{0,r}} updates to region-#{r} proposals, whereas \code{sharing="ellipsoid_ball"} adopts any superior global observation falling inside the Euclidean ball circumscribing #{T_r}'s solver-coordinate box around #{x_{0,r}}, propagating local gains across overlapping basins while preserving distinct modes.
   }
 }
 
 \subtree{
-  \title{Multi-Region Portfolios & Scalarization}
+  \title{Splittable Rollouts & Canonical Snapshot Commutativity}
 
   \p{
-    Concurrent trust regions #{\{T_r(x_{0,r}, \ell_r)\}_{r=1}^R} (Daulton et al. [[DEB+22]](https://proceedings.mlr.press/v180/daulton22a.html)) coordinate asynchronous batches through an epoch-guarded ledger:
-  }
-
-  \p{
-    Under \strong{UCB1 arm allocation} (Auer, Cesa-Bianchi, & Fischer [[ACF02]](https://doi.org/10.1023/A:1013689704352)), each initialized region's incumbent value is min–max normalized to #{\tilde{u}_r \in [0, 1]} across active regions, and arms route to #{\arg\max_r \bigl[\tilde{u}_r + c\sqrt{\ln(\sum_{r'} \tilde{n}_{r'}) / \tilde{n}_r}\bigr]} where #{\tilde{n}_r = n_r + q_r} counts completed plus in-flight evaluations. Each issued proposal carries a ticket #{\mathrm{AskId} = (r, g, a)} stamped with region #{r}'s current epoch #{g = g_r}; completions always append to the global dataset #{\mathcal{D}}, and update #{T_r}'s side length if and only if #{g = g_r}.
-  }
-
-  \p{
-    Under \strong{regional sharing} (\code{sharing="ellipsoid_ball"}), region #{r} adopts a better global observation as its incumbent whenever it falls inside the Euclidean ball circumscribing #{T_r}'s axis-aligned trust-region box around #{x_{0,r}} (whereas \code{sharing="origin_only"} restricts incumbent updates to proposals originated by region #{r}).
-  }
-
-  \p{
-    For multi-objective problems with #{M \ge 2} outputs (MORBO [[DEB+22]](https://proceedings.mlr.press/v180/daulton22a.html); cf. qEHVI [[DBB20]](https://arxiv.org/abs/2006.05078)), empirical observations are min–max normalized per objective to #{\tilde{y}_j \in [0, 1]}, and each region draws simplex weights #{w \sim \mathrm{Dirichlet}(\mathbf{1}_M)} to maximize the ParEGO augmented Chebyshev scalarization (Knowles [[Kno06]](https://doi.org/10.1109/TEVC.2005.851274), Paria et al. [[PKP20]](https://proceedings.mlr.press/v115/paria20a.html)):
-  }
-
-  ##{
-    s_w(\tilde{y}) \eqdef \min_{1 \le j \le M} \bigl(w_j\, \tilde{y}_j\bigr) + \eta \sum_{j=1}^M w_j\, \tilde{y}_j, \qquad \eta = 0.05.
-  }
-}
-
-\subtree{
-  \title{Functional State & Checkpoint Replay}
-
-  \p{
-    Observation history #{\mathcal{D}}, regional ledgers #{\{T_r\}_{r=1}^R}, splittable 128-bit PRNG state #{k \in \mathcal{K}} (Claessen & Pałka [[CP13]](https://doi.org/10.1145/2503778.2503784), Steele et al. [[SLF14]](https://doi.org/10.1145/2660193.2660195)), and compiled domain specification #{\mathrm{Spec}(\mathcal{M})} form an immutable state space #{S}:
-  }
-
-  ##{
-    \begin{aligned}
-      S &\eqdef \mathcal{K} \times \mathcal{D} \times \prod_{r=1}^R T_r \times \mathrm{Spec}(\mathcal{M}), \\
-      \alpha_{\mathrm{ask}} &: S \times \mathbb{N} \to S \times \operatorname{List}(\mathcal{X}), \\
-      \alpha_{\mathrm{tell}} &: S \times \operatorname{List}(\mathcal{X} \times \mathbb{R}^M) \to S \times \mathbb{R}^{B \times M}.
-    \end{aligned}
-  }
-
-  \p{
-    Note that #{\alpha_{\mathrm{ask}}} and #{\alpha_{\mathrm{tell}}} form a stateful Mealy protocol rather than commuting operations (appending observations changes the surrogate neighborhood and regional incumbents for subsequent proposals). Determinism instead comes from pure functional transitions and lossless binary serialization: for any pure round transition #{\Phi_f : S \to S} induced by an objective #{f} and template state #{s_0 \in S} fixing #{\mathrm{Spec}(\mathcal{M})}, canonical snapshot encoding #{\mathrm{freeze} : S \to \mathcal{B}} and decoding #{\mathrm{thaw}_{s_0} : \mathcal{B} \to S} satisfy #{\mathrm{thaw}_{s_0} \circ \mathrm{freeze} = \mathrm{id}_S}, so serialized step execution #{\widehat{\Phi}_f \eqdef \mathrm{freeze} \circ \Phi_f \circ \mathrm{thaw}_{s_0}} commutes strictly with in-memory rollout:
+    Because appending observations alters neighbor sets and regional incumbents, [baux.ask](docs.html#baux.ask) and [baux.tell](docs.html#baux.tell) form an order-dependent Mealy transition system rather than commuting updates. Reproducibility instead rests on pure functional folding ([baux.scan](docs.html#baux.scan)), pre-split parallel branch keys #{k \mapsto (k_1, \dots, k_B)} ([baux.pmap](docs.html#baux.pmap)) that render parallel rollouts invariant to worker scheduling, and lossless binary checkpointing. For a template state #{s_0 \in S} fixing #{\mathrm{Spec}(\mathcal{M})} and any pure step transition #{\Phi_f : S \to S}, canonical serialization [baux.freeze](docs.html#baux.freeze) #{: S \to \mathcal{B}} and deserialization [baux.thaw](docs.html#baux.thaw) #{: \mathcal{B} \to S} commute with rollout execution #{\widehat{\Phi}_f \eqdef \mathrm{freeze} \circ \Phi_f \circ \mathrm{thaw}_{s_0}}:
   }
 
   ##{
@@ -85,6 +36,59 @@
   }
 
   \p{
-    Likewise, \code{pmap} splits a parent key #{k \mapsto (k_1, \dots, k_B)} before dispatching worker threads, ensuring identical results regardless of thread scheduling.
+    The example below dispatches overlapping regional batches, completes and cancels tickets out of order via \code{batch.ids}, verifies canonical [baux.freeze](docs.html#baux.freeze)/[baux.thaw](docs.html#baux.thaw) idempotence and [baux.digest](docs.html#baux.digest) parity, and confirms bit-identical parallel [baux.pmap](docs.html#baux.pmap) rollout digests across restored snapshots:
+  }
+
+  \pre{
+import numpy as np
+import baux
+
+bounds = np.tile([-3.0, 3.0], (8, 1))
+weights = np.geomspace(1.0, 16.0, 8)
+
+
+def anisotropic_loss(x):
+    return -np.sum(weights * (x - 0.35) ** 2 + 0.1 * np.cos(3.0 * x), axis=1)
+
+
+pipe = (
+    baux.lhd(8)
+    | baux.enn(k=6)
+    | baux.thompson()
+    | baux.regions(count=4, sharing="ellipsoid_ball")
+)
+s0 = baux.init(bounds, pipe, key=baux.key(101))
+s_warm, b_init = baux.ask(s0, num_arms=8)
+s_warm = baux.complete(s_warm, b_init.ids, anisotropic_loss(b_init.points))
+
+s_live, b1 = baux.ask(s_warm, num_arms=2)
+s_live, b2 = baux.ask(s_live, num_arms=2)
+s_live = baux.complete(s_live, [b2.ids[0]], anisotropic_loss(b2.points[:1]))
+s_live = baux.cancel(s_live, [b2.ids[1]])
+s_live = baux.complete(s_live, b1.ids, anisotropic_loss(b1.points))
+
+blob = baux.freeze(s_live)
+restored_a = baux.thaw(s0, blob)
+restored_b = baux.thaw(s0, baux.freeze(restored_a))
+assert baux.freeze(restored_a) == blob
+assert baux.digest(restored_a) == baux.digest(restored_b)
+
+rollouts_a = baux.pmap(
+    restored_a,
+    baux.key(77),
+    branches=4,
+    branch_fn=lambda i, st, k: baux.digest(
+        baux.scan(st, k, steps=4, eval_fn=anisotropic_loss, num_arms=2)[0]
+    ),
+)
+rollouts_b = baux.pmap(
+    restored_b,
+    baux.key(77),
+    branches=4,
+    branch_fn=lambda i, st, k: baux.digest(
+        baux.scan(st, k, steps=4, eval_fn=anisotropic_loss, num_arms=2)[0]
+    ),
+)
+assert rollouts_a == rollouts_b and len(set(rollouts_a)) == 4
   }
 }

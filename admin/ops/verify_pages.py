@@ -82,6 +82,7 @@ def check_assets(target_dir: Path) -> None:
         "index.html",
         "docs.html",
         "simulation.html",
+        "playground.html",
         "style.css",
         "katex.min.css",
         "forester.js",
@@ -89,6 +90,17 @@ def check_assets(target_dir: Path) -> None:
         ".nojekyll",
         "assets/baux_ui.js",
         "assets/baux_env.json",
+        "assets/repl_worker.js",
+        "assets/baux_py.zip",
+        "assets/repl_manifest.json",
+        "assets/pyodide/pyodide.js",
+        "assets/pyodide/pyodide.asm.js",
+        "assets/pyodide/pyodide.asm.wasm",
+        "assets/pyodide/python_stdlib.zip",
+        "assets/pyodide/pyodide-lock.json",
+        "assets/pyodide/numpy-2.0.2-cp312-cp312-pyodide_2024_0_wasm32.whl",
+        "LICENSES/PYODIDE",
+        "LICENSES/NUMPY",
     ]
     for rel in required_files:
         p = target_dir / rel
@@ -188,6 +200,19 @@ def validate_csp(rel_html: Path, csp_contents: list[str]) -> list[str]:
             errors.append(f"{rel_html}: CSP script-src forbids 'unsafe-inline'")
         if "'unsafe-eval'" in script_vals:
             errors.append(f"{rel_html}: CSP script-src forbids 'unsafe-eval'")
+        unexpected_script = [
+            v for v in script_vals if v not in {"'self'", "'wasm-unsafe-eval'"}
+        ]
+        if unexpected_script:
+            errors.append(
+                f"{rel_html}: CSP script-src forbids unexpected sources {unexpected_script!r}"
+            )
+        if "worker-src" in directives:
+            worker_vals = [v.lower() for v in directives.get("worker-src", [])]
+            if worker_vals != ["'self'"]:
+                errors.append(
+                    f"{rel_html}: CSP worker-src must equal ['self'] (got {directives.get('worker-src')!r})"
+                )
 
         base_vals = [v.lower() for v in directives.get("base-uri", [])]
         if not base_vals or not set(base_vals).issubset({"'self'", "'none'"}):

@@ -15,6 +15,7 @@ from __future__ import annotations
 import importlib.util
 import os
 import subprocess
+import sys
 import sysconfig
 from collections.abc import Callable
 from pathlib import Path
@@ -30,6 +31,12 @@ _EXT: ModuleType | None = None
 def _load() -> ModuleType:
     global _EXT
     if _EXT is not None:
+        return _EXT
+
+    if sys.platform == "emscripten":
+        from . import _oxcaml_wasm
+
+        _EXT = _oxcaml_wasm
         return _EXT
 
     root = Path(__file__).resolve().parents[3]

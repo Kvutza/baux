@@ -1,0 +1,18 @@
+\title{Python Playground}
+\meta{toc}{false}
+
+\p{Edit and run real \code{baux} Python code directly in your browser using a WebAssembly CPython 3.12 runtime with compiled NumPy and the pure-Python \code{baux} stack inside an isolated Web Worker. Nothing is uploaded; the runtime downloads lazily only when you click \strong{Run} or open this page.}
+
+\<div>[id]{py-playground-root}[class]{py-playground-shell}{
+  \<div>[class]{py-pg-fallback}{
+    \p{Initializing interactive Python kernel... Enable JavaScript and WebAssembly in your browser to run \code{baux}, \code{baux.benchmarks.oxcaml}, and \code{numpy} locally.}
+  }
+}
+
+\subtree{
+  \title{Capabilities in Browser WebAssembly}
+  \ul{
+    \li{\strong{Supported}: \code{baux.init}, \code{ask}, \code{tell}, \code{complete}, \code{cancel}, \code{step}, \code{scan}, \code{pmap}, \code{freeze}, \code{thaw}, \code{PyTreeSpec} (\code{Log}, \code{Periodic}, \code{Simplex}, \code{Categorical}, \code{Stiefel}), \code{enn_init}, \code{enn_fit}, \code{enn_posterior}, \code{enn_sample}, \code{turbo_enn}, \code{turbo_one} (NumPy Matern-5/2 GP), \code{turbo_zero}, \code{lhd_only}, \code{baux.capabilities}, and all 56 \code{baux.benchmarks.oxcaml} functions.}
+    \li{\strong{Native-only}: CUDA/Metal device evaluators, \code{PyTorch}/\code{GPyTorch} external tensor hooks, and multi-process distributed runners require a native wheel install.}
+  }
+}

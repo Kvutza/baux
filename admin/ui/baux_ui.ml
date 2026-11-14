@@ -3037,7 +3037,8 @@ let () =
       Docs_ui.init ();
       init_tokamak_cad ();
       init_bench_figures ();
-      Bench_viewer.init ()
+      Bench_viewer.init ();
+      Py_repl.init ()
     end
   in
   let on_load = handler (fun _ev ->

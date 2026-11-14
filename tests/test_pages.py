@@ -364,3 +364,25 @@ def test_security():
             encoding="utf-8",
         )
         check_security(c13)
+
+        # (x) 'wasm-unsafe-eval' + worker-src 'self' allowed; worker-src * rejected
+        c14 = fresh_case("wasm_unsafe_eval_allowed")
+        html14 = (c14 / "index.html").read_text(encoding="utf-8")
+        (c14 / "index.html").write_text(
+            html14.replace(
+                "script-src 'self';",
+                "script-src 'self' 'wasm-unsafe-eval'; worker-src 'self';",
+            ),
+            encoding="utf-8",
+        )
+        check_security(c14)
+
+        c15 = fresh_case("worker_wildcard_rejected")
+        (c15 / "index.html").write_text(
+            html14.replace(
+                "script-src 'self';",
+                "script-src 'self' 'wasm-unsafe-eval'; worker-src *;",
+            ),
+            encoding="utf-8",
+        )
+        assert_fails(c15, "worker-src")

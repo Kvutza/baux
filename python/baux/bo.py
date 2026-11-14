@@ -109,6 +109,12 @@ def _plan(cfg: OptimizerConfig) -> _Plan:
     if isinstance(cfg.surrogate, NoSurrogate):
         return _Plan("zero")
     if isinstance(cfg.surrogate, GaussianProcess):
+        import sys
+
+        if sys.platform == "emscripten":
+            from ._rust import _ext
+
+            return _Plan("gp", gp=_ext.optimizer.NumpyGPSurrogate())
         from .turbo.gp import Surrogate
 
         return _Plan("gp", gp=Surrogate())

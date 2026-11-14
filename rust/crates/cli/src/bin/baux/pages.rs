@@ -450,6 +450,28 @@ pub fn build(root: &Path, bundle_dir: &Path) -> Result<(), String> {
     fs::write(bundle_assets.join("baux_env.json"), &cad_env).map_err(|e| e.to_string())?;
     fs::write(bundle_dir.join(".nojekyll"), b"").map_err(|e| e.to_string())?;
 
+    println!("o|pages [3.5/4]: staging Pyodide WASM & baux_py.zip for browser REPL...");
+    let pixi_py = root.join(".pixi/envs/baux/bin/python");
+    let py_bin = if pixi_py.is_file() {
+        pixi_py
+    } else {
+        PathBuf::from("python3")
+    };
+    run_checked(
+        Command::new(&py_bin)
+            .args([
+                root.join("admin/ops/build_repl.py")
+                    .to_string_lossy()
+                    .as_ref(),
+                "--assets-dir",
+                out_assets.to_string_lossy().as_ref(),
+                "--assets-dir",
+                bundle_assets.to_string_lossy().as_ref(),
+            ])
+            .current_dir(root),
+        "build_repl.py",
+    )?;
+
     println!("o|pages [4/4]: stamping SRI hashes and running security check...");
     stamp_sri(bundle_dir)?;
     stamp_assets(&output_dir, bundle_dir)?;
@@ -607,6 +629,7 @@ pub fn check_bundle(bundle_dir: &Path) -> Result<(), String> {
         "index.html",
         "docs.html",
         "simulation.html",
+        "playground.html",
         "style.css",
         "katex.min.css",
         "forester.js",
@@ -614,6 +637,17 @@ pub fn check_bundle(bundle_dir: &Path) -> Result<(), String> {
         ".nojekyll",
         "assets/baux_ui.js",
         "assets/baux_env.json",
+        "assets/repl_worker.js",
+        "assets/baux_py.zip",
+        "assets/repl_manifest.json",
+        "assets/pyodide/pyodide.js",
+        "assets/pyodide/pyodide.asm.js",
+        "assets/pyodide/pyodide.asm.wasm",
+        "assets/pyodide/python_stdlib.zip",
+        "assets/pyodide/pyodide-lock.json",
+        "assets/pyodide/numpy-2.0.2-cp312-cp312-pyodide_2024_0_wasm32.whl",
+        "LICENSES/PYODIDE",
+        "LICENSES/NUMPY",
     ] {
         if !bundle_dir.join(req).is_file() {
             return Err(format!("required bundle asset missing: {req}"));
@@ -694,10 +728,14 @@ fn check_html(bundle_dir: &Path, rel: &str, html: &str) -> Result<(), String> {
     if !lower.contains("content-security-policy")
         || !lower.contains("default-src 'none'")
         || !lower.contains("script-src 'self'")
+        || !lower.contains("worker-src 'self'")
     {
         return Err(format!("{rel}: missing strict CSP meta tag"));
     }
-    if lower.contains("'unsafe-eval'") || lower.contains("script-src 'self' 'unsafe-inline'") {
+    if lower.contains("'unsafe-eval'")
+        || lower.contains("script-src 'self' 'unsafe-inline'")
+        || lower.contains("script-src 'self' 'wasm-unsafe-eval' 'unsafe-inline'")
+    {
         return Err(format!(
             "{rel}: forbidden unsafe script-src directive in CSP"
         ));
@@ -775,7 +813,12 @@ fn serve(root: &Path, bundle_dir: &Path, port: u16) -> Result<(), String> {
     );
     for stream in listener.incoming() {
         if let Ok(mut s) = stream {
-            let _ = handle_http(root, bundle_dir, &mut s);
+            let root_own = root.to_path_buf();
+            let bundle_own = bundle_dir.to_path_buf();
+            std::thread::spawn(move || {
+                let _ = s.set_read_timeout(Some(std::time::Duration::from_secs(5)));
+                let _ = handle_http(&root_own, &bundle_own, &mut s);
+            });
         }
     }
     Ok(())
@@ -818,10 +861,14 @@ fn handle_http(root: &Path, bundle_dir: &Path, stream: &mut TcpStream) -> Result
     let bytes = fs::read(&target).map_err(|e| e.to_string())?;
     let ctype = match target.extension().and_then(|e| e.to_str()).unwrap_or("") {
         "html" => "text/html; charset=utf-8",
-        "js" => "application/javascript; charset=utf-8",
+        "js" | "mjs" => "application/javascript; charset=utf-8",
         "css" => "text/css; charset=utf-8",
         "json" => "application/json; charset=utf-8",
         "svg" => "image/svg+xml",
+        "wasm" => "application/wasm",
+        "zip" => "application/zip",
+        "woff2" => "font/woff2",
+        "png" => "image/png",
         _ => "application/octet-stream",
     };
     write_http(stream, "200 OK", ctype, &bytes)

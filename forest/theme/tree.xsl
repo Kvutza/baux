@@ -10,7 +10,7 @@
   <xsl:template match="/">
     <html xmlns="http://www.w3.org/1999/xhtml" data-base-url="{/fr:tree/@base-url}">
       <head>
-        <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'" />
+        <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'" />
         <meta name="referrer" content="strict-origin-when-cross-origin" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <link rel="stylesheet" href="{/fr:tree/@base-url}style.css" />
@@ -58,6 +58,15 @@
                 </xsl:attribute>
                 <xsl:text>Examples</xsl:text>
               </a>
+              <a href="{/fr:tree/@base-url}playground.html">
+                <xsl:attribute name="class">
+                  <xsl:text>nav-item</xsl:text>
+                  <xsl:if test="$current-addr = 'playground'">
+                    <xsl:text> active</xsl:text>
+                  </xsl:if>
+                </xsl:attribute>
+                <xsl:text>Playground</xsl:text>
+              </a>
               <a href="https://github.com/Kvutza/baux" class="nav-item external" target="_blank" rel="noopener noreferrer">
                 <xsl:text>GitHub</xsl:text>
               </a>
@@ -101,6 +110,7 @@
 <xsl:call-template name="docs-link"><xsl:with-param name="addr" select="'api-runtime'"/><xsl:with-param name="route" select="'api-runtime.html'"/><xsl:with-param name="label" select="'Runtime and integrations'"/></xsl:call-template>
 <li class="nav-label">More</li>
 <xsl:call-template name="docs-link"><xsl:with-param name="addr" select="'baux-0004'"/><xsl:with-param name="route" select="'simulation.html'"/><xsl:with-param name="label" select="'Examples'"/></xsl:call-template>
+<xsl:call-template name="docs-link"><xsl:with-param name="addr" select="'playground'"/><xsl:with-param name="route" select="'playground.html'"/><xsl:with-param name="label" select="'Playground'"/></xsl:call-template>
 <xsl:call-template name="docs-link"><xsl:with-param name="addr" select="'baux-0002'"/><xsl:with-param name="route" select="'baux-0002.html'"/><xsl:with-param name="label" select="'References'"/></xsl:call-template>
             </ul>
           </nav>
@@ -124,6 +134,7 @@
 <xsl:call-template name="docs-index"><xsl:with-param name="addr" select="'api-objects'"/><xsl:with-param name="route" select="'api-objects.html'"/><xsl:with-param name="label" select="'In-place interfaces'"/></xsl:call-template>
 <xsl:call-template name="docs-index"><xsl:with-param name="addr" select="'api-runtime'"/><xsl:with-param name="route" select="'api-runtime.html'"/><xsl:with-param name="label" select="'Runtime and integrations'"/></xsl:call-template>
 <xsl:call-template name="docs-index"><xsl:with-param name="addr" select="'baux-0004'"/><xsl:with-param name="route" select="'simulation.html'"/><xsl:with-param name="label" select="'Examples'"/></xsl:call-template>
+<xsl:call-template name="docs-index"><xsl:with-param name="addr" select="'playground'"/><xsl:with-param name="route" select="'playground.html'"/><xsl:with-param name="label" select="'Playground'"/></xsl:call-template>
 <xsl:call-template name="docs-index"><xsl:with-param name="addr" select="'baux-0002'"/><xsl:with-param name="route" select="'baux-0002.html'"/><xsl:with-param name="label" select="'References'"/></xsl:call-template>
         </div>
       </body>

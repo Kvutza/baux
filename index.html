@@ -1,12 +1,12 @@
 <!DOCTYPE html PUBLIC "" "">
 <html xmlns="http://www.w3.org/1999/xhtml" xmlns:fr="http://www.jonmsterling.com/jms-005P.xml" data-base-url=""><head><meta http-equiv="Content-Type" content="text/html; charset=utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'"></meta><meta name="referrer" content="strict-origin-when-cross-origin"></meta><meta name="viewport" content="width=device-width, initial-scale=1.0"></meta><link rel="stylesheet" href="style.css?v=ec8e0c86ba29" integrity="sha384-prWJLw9d9FlZyttWCY7aOevn0l0thDvuA/maCLVu47Mmeh5P+U9T7XX6b6o+O6ox"></link><link rel="stylesheet" href="katex.min.css?v=18c1c9fb05e7" integrity="sha384-TPqpCe9iqIJJFMUr4nZhfVfnhPwt6zFQ0llYbuKCrML4vxvk3koGtCzSoij1dOEx"></link><script type="module" src="forester.js?v=8f33e155074f" integrity="sha384-xGSQiQu0kX1eP1SDLdMBK8nvtlny/KN8EmWrdGiKFvVJS601GfKKTJCMCk7KddQg"></script><script type="text/javascript" src="assets/baux_ui.js?v=1d8bb711daf5" integrity="sha384-52dIQcWWrQj+KfIwFaR5MFW0i7NVvZcU5ZM0rO/v8to/841Huhd7kZf38G3qXa+W" defer></script><title>Baux</title></head><body data-page="baux-0001"><header class="masthead"><div class="masthead-inner"><div class="masthead-brand"><a href="index.html" class="brand-title">baux</a></div><nav class="masthead-nav"><a href="index.html" class="nav-item active">Overview</a><a href="docs.html" class="nav-item">API Reference</a><a href="simulation.html" class="nav-item">Simulation</a><a href="https://github.com/Kvutza/baux" class="nav-item external" target="_blank" rel="noopener noreferrer">GitHub</a><a href="https://pypi.org/project/baux/" class="nav-item external" target="_blank" rel="noopener noreferrer">PyPI</a><a href="https://crates.io/crates/baux" class="nav-item external" target="_blank" rel="noopener noreferrer">Crates.io</a></nav></div></header><div id="grid-wrapper"><article><section xmlns="" lang="en" class="block"><div class="tree-node" id="id1">
-<header><h1><span class="sec-title">Baux</span></h1></header><p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><strong>baux</strong> searches for parameters using objective evaluations. You supply a domain and a function; the optimizer proposes parameters, receives their measured values, and uses those observations to choose its next proposals. Objectives may return a scalar or a vector, with optional observation variances. The Python API maximizes values, so a loss to minimize enters as its negative.</p>
-<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">A search configuration specifies how to generate candidates, how to rank them, and how to update the search region. These choices can combine a surrogate with an acquisition rule, or select candidates without a surrogate. Multiple regions can explore different centers and share observations. The sections below explain the evaluation loop, the coordinates it searches, and the predictions it uses; the <span class="link external"><a href="docs.html" rel="noopener noreferrer" title="">API reference</a></span> gives the corresponding calls and shapes.</p>
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'"></meta><meta name="referrer" content="strict-origin-when-cross-origin"></meta><meta name="viewport" content="width=device-width, initial-scale=1.0"></meta><link rel="stylesheet" href="style.css?v=ec8e0c86ba29" integrity="sha384-prWJLw9d9FlZyttWCY7aOevn0l0thDvuA/maCLVu47Mmeh5P+U9T7XX6b6o+O6ox"></link><link rel="stylesheet" href="katex.min.css?v=18c1c9fb05e7" integrity="sha384-TPqpCe9iqIJJFMUr4nZhfVfnhPwt6zFQ0llYbuKCrML4vxvk3koGtCzSoij1dOEx"></link><script type="module" src="forester.js?v=8f33e155074f" integrity="sha384-xGSQiQu0kX1eP1SDLdMBK8nvtlny/KN8EmWrdGiKFvVJS601GfKKTJCMCk7KddQg"></script><script type="text/javascript" src="assets/baux_ui.js?v=1d8bb711daf5" integrity="sha384-52dIQcWWrQj+KfIwFaR5MFW0i7NVvZcU5ZM0rO/v8to/841Huhd7kZf38G3qXa+W" defer></script><title>Baux</title></head><body data-page="baux-0001"><header class="masthead"><div class="masthead-inner"><div class="masthead-brand"><a href="index.html" class="brand-title">baux</a></div><nav class="masthead-nav"><a href="index.html" class="nav-item active">Get started</a><a href="docs.html" class="nav-item">API Reference</a><a href="simulation.html" class="nav-item">Examples</a><a href="https://github.com/Kvutza/baux" class="nav-item external" target="_blank" rel="noopener noreferrer">GitHub</a><a href="https://pypi.org/project/baux/" class="nav-item external" target="_blank" rel="noopener noreferrer">PyPI</a><a href="https://crates.io/crates/baux" class="nav-item external" target="_blank" rel="noopener noreferrer">Crates.io</a></nav></div></header><div id="grid-wrapper"><article><section xmlns="" lang="en" class="block"><div class="tree-node" id="id1">
+<header><h1><span class="sec-title">Baux</span></h1></header><p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><strong>baux</strong> is a black-box optimization library with a Rust core and a Python API. Give it a parameter space and a function to evaluate. It uses the returned values to propose the next parameters, without requiring gradients from your function.</p>
+<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">Search over numeric bounds or structured parameters, use a surrogate to guide proposals, and run several local search regions together. You control when and where evaluations run through the <code>ask</code>/<code>tell</code> interface.</p>
 <section lang="en" class="block"><div class="tree-node" id="id2">
 <header><h1>
-<span class="sec-num">1. </span><span class="sec-title">An Evaluation Loop</span>
-</h1></header><p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><span class="link external"><a href="docs.html#baux.init" rel="noopener noreferrer" title="">baux.init</a></span> creates the search state. <span class="link external"><a href="docs.html#baux.ask" rel="noopener noreferrer" title="">baux.ask</a></span> returns a new state and a batch of proposed points; the objective evaluates those points outside the optimizer. <span class="link external"><a href="docs.html#baux.tell" rel="noopener noreferrer" title="">baux.tell</a></span> records the returned values. This example combines Epistemic Nearest Neighbors (<code>ENN</code>) with upper-confidence acquisition (<code>UCB</code>):</p>
+<span class="sec-num">1. </span><span class="sec-title">Start with a Function</span>
+</h1></header><p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">This example searches six bounded parameters. <code>ask</code> proposes points; your function evaluates them; <code>tell</code> records the results. BAUX maximizes values, so return the negative of a loss you want to minimize.</p>
 <div xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="quickstart">
   <pre>import numpy as np
 import baux
@@ -18,289 +18,30 @@ def objective(x):
 
 bounds = np.tile([-2.0, 2.0], (6, 1))
 pipe = baux.enn(k=10) | baux.ucb(beta=2.0)
-
 state = baux.init(bounds, pipe, key=baux.key(0))
+
 for _ in range(15):
     state, batch = baux.ask(state, num_arms=4)
     state, _ = baux.tell(state, batch, objective(batch.points))
 
-assert state.num_observations == 60
-assert state.best_x.shape == (6,)</pre>
+print(state.best_x, state.best_y)</pre>
   </div>
-<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">Here the six coordinates have box bounds and each point produces one value. The same loop can return structured parameters through <code>batch.params</code> and record several output channels per point. The example establishes the calling convention; it is not a comparison of optimization methods.</p>
+<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><code>batch.points</code> has one row per proposed point. Return one value per row, or several columns for a vector objective. The pipeline above uses an ENN surrogate and UCB acquisition; <span class="link external"><a href="docs.html#baux.enn" rel="noopener noreferrer" title="">the configuration reference</a></span> describes their options.</p>
 </div></section><section lang="en" class="block"><div class="tree-node" id="id3">
 <header><h1>
-<span class="sec-num">2. </span><span class="sec-title">Local Trust Regions &amp; Functional State</span>
-</h1></header><section lang="en" class="block"><div class="tree-node" id="id4">
-<header><h1>
-<span class="sec-num">2.1. </span><span class="sec-title">Multi-Region Search &amp; Asynchronous Evaluation</span>
-</h1></header><p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">A region keeps a center, a search length, and a record of recent improvements. Under the TuRBO controller, success and failure counts expand or contract the search length; a sufficiently small region restarts. TuRBO introduced multiple local models with global allocation of evaluations (Eriksson et al. <span class="link external"><a href="https://arxiv.org/abs/1910.01739" rel="noopener noreferrer" title="">[EPG+19]</a></span>). In <strong>baux</strong>, <span class="link external"><a href="docs.html#baux.regions" rel="noopener noreferrer" title="">baux.regions</a></span> configures the regional search, while the pipeline chooses the surrogate and acquisition rule.</p>
-<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">Candidate generation perturbs coordinates around a region's center. Incumbent sharing determines whether a result from another region may replace that center: <code>origin_only</code> restricts updates to the originating region, while <code>ellipsoid_ball</code> also admits better observations inside the region's circumscribing ball. This sharing decision is distinct from the choice of surrogate.</p>
-<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">Asynchronous workers return results through <span class="link external"><a href="docs.html#baux.complete" rel="noopener noreferrer" title="">baux.complete</a></span>. Each <code>AskId</code> identifies a pending evaluation associated with a region and its generation. Restarting a region invalidates its old pending evaluations; foreign, completed, cancelled or invalidated IDs are rejected. <span class="link external"><a href="docs.html#baux.cancel" rel="noopener noreferrer" title="">baux.cancel</a></span> retires unfinished evaluations without adding observations. Historical results can enter separately through <span class="link external"><a href="docs.html#baux.import_observations" rel="noopener noreferrer" title="">baux.import_observations</a></span>.</p>
-</div></section><section lang="en" class="block"><div class="tree-node" id="id5">
-<header><h1>
-<span class="sec-num">2.2. </span><span class="sec-title">Deterministic Rollouts &amp; Checkpointing</span>
-</h1></header><p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">The functional API returns a new <span class="link external"><code><a href="docs.html#baux.OptimizerState" rel="noopener noreferrer" title="">OptimizerState</a></code></span> after each transition. Explicit PRNG keys let <span class="link external"><a href="docs.html#baux.scan" rel="noopener noreferrer" title="">baux.scan</a></span> run a fixed sequence and <span class="link external"><a href="docs.html#baux.pmap" rel="noopener noreferrer" title="">baux.pmap</a></span> assign a derived key to each branch. Splittable generators are described by Claessen and Pałka <span class="link external"><a href="https://doi.org/10.1145/2503778.2503784" rel="noopener noreferrer" title="">[CP13]</a></span> and Steele et al. <span class="link external"><a href="https://doi.org/10.1145/2660193.2660195" rel="noopener noreferrer" title="">[SLF14]</a></span>. Replaying a search also requires the same objective results and transition order; a seed alone does not make arbitrary asynchronous completion orders equivalent.</p>
-<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><span class="link external"><a href="docs.html#baux.freeze" rel="noopener noreferrer" title="">baux.freeze</a></span> serializes optimizer state with a BLAKE3 integrity tag. <span class="link external"><a href="docs.html#baux.thaw" rel="noopener noreferrer" title="">baux.thaw</a></span> restores it against a compatible template. The checkpoint does not capture an external evaluator's random generator or worker state. The following example uses a deterministic objective and checks that the restored optimizer produces the same branch digests:</p>
-<pre xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">import numpy as np
-import baux
-
-bounds = np.tile([-3.0, 3.0], (8, 1))
-weights = np.geomspace(1.0, 16.0, 8)
-
-
-def anisotropic_loss(x):
-    return -np.sum(weights * (x - 0.35) ** 2 + 0.1 * np.cos(3.0 * x), axis=1)
-
-
-pipe = (
-    baux.lhd(8)
-    | baux.enn(k=6)
-    | baux.thompson()
-    | baux.regions(count=4, sharing="ellipsoid_ball")
-)
-s0 = baux.init(bounds, pipe, key=baux.key(101))
-s_warm, b_init = baux.ask(s0, num_arms=8)
-s_warm = baux.complete(s_warm, b_init.ids, anisotropic_loss(b_init.points))
-
-s_live, b1 = baux.ask(s_warm, num_arms=2)
-s_live, b2 = baux.ask(s_live, num_arms=2)
-s_live = baux.complete(s_live, [b2.ids[0]], anisotropic_loss(b2.points[:1]))
-s_live = baux.cancel(s_live, [b2.ids[1]])
-s_live = baux.complete(s_live, b1.ids, anisotropic_loss(b1.points))
-
-blob = baux.freeze(s_live)
-restored_a = baux.thaw(s0, blob)
-restored_b = baux.thaw(s0, baux.freeze(restored_a))
-assert baux.freeze(restored_a) == blob
-assert baux.digest(s_live) == baux.digest(restored_a) == baux.digest(restored_b)
-
-rollouts_live = baux.pmap(
-    s_live,
-    baux.key(77),
-    branches=4,
-    branch_fn=lambda i, st, k: baux.digest(
-        baux.scan(st, k, steps=4, eval_fn=anisotropic_loss, num_arms=2)[0]
-    ),
-)
-rollouts_a = baux.pmap(
-    restored_a,
-    baux.key(77),
-    branches=4,
-    branch_fn=lambda i, st, k: baux.digest(
-        baux.scan(st, k, steps=4, eval_fn=anisotropic_loss, num_arms=2)[0]
-    ),
-)
-rollouts_b = baux.pmap(
-    restored_b,
-    baux.key(77),
-    branches=4,
-    branch_fn=lambda i, st, k: baux.digest(
-        baux.scan(st, k, steps=4, eval_fn=anisotropic_loss, num_arms=2)[0]
-    ),
-)
-assert rollouts_live == rollouts_a == rollouts_b and len(set(rollouts_live)) == 4</pre>
+<span class="sec-num">2. </span><span class="sec-title">Use It for Your Problem</span>
+</h1></header><div xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="guides">
+  <ul>
+<li>
+<span class="link external"><a href="baux-0008.html" rel="noopener noreferrer" title="">Structured parameters</a></span> — Search dictionaries and dataclasses containing log scales, angles, mixtures and discrete choices. Read the proposed values from <code>batch.params</code>.</li>
+    <li>
+<span class="link external"><a href="baux-0009.html" rel="noopener noreferrer" title="">Multiple regions and workers</a></span> — Explore several centers, return evaluations as workers finish, and save or resume a search.</li>
+    <li>
+<span class="link external"><a href="baux-0003.html" rel="noopener noreferrer" title="">Surrogate predictions</a></span> — Fit ENN to existing observations, query predictions and draw samples.</li>
+    <li>
+<span class="link external"><a href="simulation.html" rel="noopener noreferrer" title="">Interactive examples</a></span> — Explore synthetic objectives and the tokamak control example.</li>
+</ul>
+  </div>
+<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">See the <span class="link external"><a href="docs.html" rel="noopener noreferrer" title="">API reference</a></span> for signatures, array shapes and configuration options. The <span class="link external"><a href="https://github.com/Kvutza/baux" rel="noopener noreferrer" title="">source repository</a></span> contains the Rust implementation and Python frontend.</p>
 </div></section>
-</div></section><section lang="en" class="block"><div class="tree-node" id="id6">
-<header><h1>
-<span class="sec-num">3. </span><span class="sec-title">Structured Inputs &amp; Multi-Output Shrinkage</span>
-</h1></header><section lang="en" class="block"><div class="tree-node" id="id7">
-<header><h1>
-<span class="sec-num">3.1. </span><span class="sec-title">Parameter Coordinate Maps</span>
-</h1></header><p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">A structured domain tells the optimizer how to encode parameters as coordinates and decode proposals for evaluation. <span class="link external"><a href="docs.html#baux.init" rel="noopener noreferrer" title="">baux.init</a></span> accepts nested dictionaries, tuples and dataclasses. For such a domain, <code>batch.points</code> contains solver coordinates and <code>batch.params</code> contains decoded parameters. Each leaf specifies its own map; the examples below show how that choice affects distance and valid proposals.</p>
-<ul xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">
-<li>
-<strong>Log-scale intervals</strong> (<span class="link external"><a href="docs.html#baux.Log" rel="noopener noreferrer" title="">baux.Log</a></span>): On \([a, b] \subset  \mathbb {R}_+\),
-      \[         \psi (x) = \frac {\log  x - \log  a}{\log  b - \log  a} \in  [0, 1], \qquad  \rho (u) = a\left (\frac {b}{a}\right )^{\Pi _{[0,1]}(u)},       \]
-      so uniform steps in \(u\) correspond to constant multiplicative ratios in \(x\).</li>
-    <li>
-<strong>Periodic intervals</strong> (<span class="link external"><a href="docs.html#baux.Periodic" rel="noopener noreferrer" title="">baux.Periodic</a></span>): On \(\lbrack  a, b\rparen \) of period \(P = b - a\) with phase \(\phi (x) = \tfrac {2\pi (x - a)}{P}\), circle embedding and \(\operatorname {atan2}\) decoding,
-      \[         \psi (x) = \left (\frac {1}{2} + \frac {\cos \phi (x)}{2\pi },\; \frac {1}{2} + \frac {\sin \phi (x)}{2\pi }\right ), \qquad  d_{\mathcal {U}}\bigl (\psi (x), \psi (x')\bigr ) = \frac {1}{\pi }\left |\sin \left (\frac {\phi (x) - \phi (x')}{2}\right )\right |,       \]
-      avoid artificial jumps across the wrap boundary \(a \equiv  b\).</li>
-    <li>
-<strong>Probability simplices</strong> (<span class="link external"><a href="docs.html#baux.Simplex" rel="noopener noreferrer" title="">baux.Simplex</a></span>): On \(\Delta ^{d-1}\), the square-root map onto the positive unit sphere and radial normalization,
-      \[         \psi (p) = \bigl (\sqrt {p_1}, \dots , \sqrt {p_d}\bigr ) \in  S_+^{d-1}, \qquad  \rho (u) = \frac {\max (u, 0)^{\odot  2}}{\Vert \max (u, 0)\Vert _2^2},       \]
-      give squared coordinate distance \(\sum _j(\sqrt {p_j}-\sqrt {q_j})^2\), equal to twice squared Hellinger distance under the convention \(H^2(p,q)=\tfrac 12\sum _j(\sqrt {p_j}-\sqrt {q_j})^2\). The decoder returns the uniform distribution when all clipped coordinates are zero.</li>
-    <li>
-<strong>Discrete sets</strong> (<span class="link external"><a href="docs.html#baux.categorical" rel="noopener noreferrer" title="">baux.categorical</a></span>): Finite choices \(\{1, \dots , C\}\) map to equal-norm orthogonal or Rademacher codewords \(\psi (c) \in  \mathbb {R}^{d_c}\) (Achlioptas <span class="link external"><a href="https://doi.org/10.1016/S0022-0000(03)00025-4" rel="noopener noreferrer" title="">[Ach03]</a></span>), reducing nearest-codeword decoding to \(\rho (u) = \arg \max _c \langle  u, \psi (c)\rangle \).</li>
-</ul>
-</div></section><section lang="en" class="block"><div class="tree-node" id="id8">
-<header><h1>
-<span class="sec-num">3.2. </span><span class="sec-title">Linear Subspace Shrinkage</span>
-</h1></header><p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">Vector observations may contain a component aligned with a known subspace and a residual outside it. <span class="link external"><a href="docs.html#baux.Stiefel" rel="noopener noreferrer" title="">baux.Stiefel.from_factors</a></span> orthonormalizes a full-rank basis \(L\) to obtain \(V\). With \(P=VV^\top \), a contraction factor \(\alpha  \in  [0,1]\) preserves the projected component and reduces the residual:</p>\[     \hat {\theta }_\alpha  = P y + \alpha  (I_M - P)y.   \]<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">To see the tradeoff, suppose \(y=\theta +\eta  \in  \mathbb {R}^M\) with zero-mean noise, a fixed subspace of rank \(1 \le  r &lt; M\), and a fixed \(\alpha \). Write \(v_\parallel =\mathbb {E}\Vert  P\eta \Vert ^2\), \(v_\perp =\mathbb {E}\Vert (I-P)\eta \Vert ^2&gt;0\), and \(b_\perp ^2=\Vert (I-P)\theta \Vert ^2\). Orthogonality gives mean squared error \(\mathcal {R}(\alpha )=v_\parallel +(1-\alpha )^2 b_\perp ^2+\alpha ^2 v_\perp \). Its minimizer is:</p>\[     \alpha ^* = \frac {b_\perp ^2}{b_\perp ^2 + v_\perp }, \qquad  \mathcal {R}(\alpha ^*) = v_\parallel  + \frac {v_\perp  b_\perp ^2}{b_\perp ^2 + v_\perp } &lt; v_\parallel  + v_\perp  = \mathcal {R}(1).   \]<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">This is an oracle calculation: the off-subspace signal energy is unknown. <span class="link external"><a href="docs.html#baux.stein" rel="noopener noreferrer" title="">baux.stein</a></span> instead computes a contraction from the predicted residual energy and predicted variances. That fitted rule is not the positive-part James–Stein estimator, and the James–Stein risk result <span class="link external"><a href="https://projecteuclid.org/ebooks/berkeley-symposium-on-mathematical-statistics-and-probability/Proceedings-of-the-Fourth-Berkeley-Symposium-on-Mathematical-Statistics-and/chapter/Estimation-with-Quadratic-Loss/bsmsp/1200512173" rel="noopener noreferrer" title="">[JS61]</a></span> does not establish its risk. <span class="link external"><a href="docs.html#baux.calibrate" rel="noopener noreferrer" title="">baux.calibrate</a></span> separately fits corrections from validation pairs; coverage on adaptively collected optimization data requires its own justification.</p>
-<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">Below, a <code>PyTree</code> domain combining logarithmic gain, periodic phase, simplex filter weights, and a categorical window drives a noisy 6-channel response concentrated near a rank-2 frame:</p>
-<pre xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">import math
-import numpy as np
-import baux
-
-rng = np.random.default_rng(3)
-space = {
-    "gain": baux.Log(1e-3, 1.0),
-    "phase": baux.Periodic(0.0, 2.0 * math.pi),
-    "weights": baux.Simplex(4),
-    "window": baux.categorical(["hann", "hamming", "blackman", "kaiser"]),
-}
-loadings = np.array([
-    [1.0, 0.0],
-    [0.8, 0.2],
-    [0.2, 0.9],
-    [-0.4, 0.7],
-    [0.5, -0.5],
-    [-0.3, -0.6],
-])
-frame = baux.Stiefel.from_factors(loadings)
-target_w = np.array([0.45, 0.30, 0.15, 0.10])
-win_loss = {"hann": 0.0, "hamming": 0.04, "blackman": 0.08, "kaiser": 0.01}
-
-
-def spectral_channels(p):
-    g_err = math.log10(p["gain"] / 0.05)
-    ph_err = math.sin(0.5 * (p["phase"] - 1.2))
-    w_err = float(np.sum((np.sqrt(p["weights"]) - np.sqrt(target_w)) ** 2))
-    latent = np.array([-(g_err**2 + w_err + win_loss[p["window"]]), -(ph_err**2)])
-    return loadings @ latent + 0.15 * rng.normal(size=6)
-
-
-pipe = (
-    baux.enn(k=8, geometry="conformal")
-    | baux.stein(frame)
-    | baux.ucb(beta=1.5)
-    | baux.regions(count=3)
-)
-state = baux.init(space, pipe, key=baux.key(19))
-for _ in range(10):
-    state, batch = baux.ask(state, num_arms=3)
-    y = np.vstack([spectral_channels(p) for p in batch.params])
-    state, mu_shrunk = baux.tell(state, batch, y)
-
-assert mu_shrunk.shape == (3, 6) and state.y_obs.shape == (30, 6)</pre>
-</div></section>
-</div></section><section lang="en" class="block"><div class="tree-node" id="id9">
-<header><h1>
-<span class="sec-num">4. </span><span class="sec-title">Neighborhood Surrogates</span>
-</h1></header><section lang="en" class="block"><div class="tree-node" id="id10">
-<header><h1>
-<span class="sec-num">4.1. </span><span class="sec-title">Inverse-Variance Prediction from \(K\) Nearest Neighbors</span>
-</h1></header><p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">A surrogate estimates values at points that have not yet been evaluated. Epistemic Nearest Neighbors (<code>ENN</code>; Bafna et al. <span class="link external"><a href="https://arxiv.org/abs/2506.12818" rel="noopener noreferrer" title="">[BJS25]</a></span>) forms that estimate from nearby observations. For scalar data \(\mathcal {D} = \{(x_m, y_m, s_m)\}_{m=1}^N\), let \(y_m = f(x_m) + s_m\varepsilon _m\), with independent standard normal \(\varepsilon _m\). ENN assigns each neighbor a measurement-noise term and a distance-dependent uncertainty term. Given dissimilarity \(\delta \), target variance \(\hat {\sigma }_y^2 &gt; 0\), and positive scale parameters \(s_0^2,c_e\), these terms are:</p>\[     \mu (x \mid  x_m) = y_m, \qquad      \sigma _a^2(x \mid  x_m) = \hat {\sigma }_y^2 s_0^2 + s_m^2, \qquad      \sigma _e^2(x \mid  x_m) = \hat {\sigma }_y^2 c_e\, \delta (x, x_m).   \]<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">Select the \(K\) nearest observations, with index set \(N_K(x)=\{\pi _1(x),\ldots ,\pi _K(x)\}\), and give each inverse-variance weight \(w_i(x) = (\sigma _a^2(x \mid  x_{\pi _i(x)}) + \sigma _e^2(x \mid  x_{\pi _i(x)}))^{-1}\). ENN combines their values and uncertainty as follows <span class="link external"><a href="https://arxiv.org/abs/2506.12818" rel="noopener noreferrer" title="">[BJS25]</a></span>:</p>\[     \mu (x) = \frac {\sum _{i=1}^K w_i(x)\, y_{\pi _i(x)}}{\sum _{i=1}^K w_i(x)}, \qquad      \sigma _a^2(x) = \frac {\sum _{i=1}^K w_i(x)\, \sigma _a^2(x \mid  x_{\pi _i(x)})}{\sum _{i=1}^K w_i(x)}, \qquad      \sigma _e^2(x) = \frac {1}{\sum _{i=1}^K w_i(x)},   \]<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">The total predictive variance is \(\sigma ^2(x) = \sigma _e^2(x) + \sigma _a^2(x)\). A UCB rule uses the predicted value and uncertainty to rank candidates. ENN fits its scale parameters with a leave-one-out Gaussian pseudolikelihood; the paper also describes a noise-free variant that skips fitting and ranks candidates by non-domination in predicted value and epistemic uncertainty <span class="link external"><a href="https://arxiv.org/abs/2506.12818" rel="noopener noreferrer" title="">[BJS25]</a></span>. For a fitting subsample \(S_P\) of size \(P\), the pseudolikelihood is:</p>\[     \widehat {\log  \mathcal {L}}(\theta ) = -\frac {1}{2P} \sum _{n \in  S_P} \left [\log \bigl (2\pi  \sigma _{-n}^2(x_n; \theta )\bigr ) + \frac {\bigl (y_n - \mu _{-n}(x_n; \theta )\bigr )^2}{\sigma _{-n}^2(x_n; \theta )}\right ],   \]<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">where \(\theta =(s_0^2,c_e)\), and \(\mu _{-n}\) and \(\sigma _{-n}^2\) omit observation \(n\) from its \(K\)-neighbor set.</p>
-</div></section><section lang="en" class="block"><div class="tree-node" id="id11">
-<header><h1>
-<span class="sec-num">4.2. </span><span class="sec-title">Joint Draws Added by BAUX</span>
-</h1></header><p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">The published <code>ENN</code> method does not provide the joint sampling required by Thompson acquisition (Bafna et al. <span class="link external"><a href="https://arxiv.org/abs/2506.12818" rel="noopener noreferrer" title="">[BJS25]</a></span>, §6). <strong>baux</strong> adds a shared-neighbor construction: attaching one independent standard normal variable \(z_{s,m,j} \stackrel {\text {i.i.d.}}{\sim } \mathcal {N}(0, 1)\) to every stored observation \(m \in  \{1, \dots , N\}\) and output channel \(j\) couples candidate draws through overlapping neighborhoods without factoring a \(Q \times  Q\) covariance matrix.</p>
-<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">For a nonempty neighborhood and the default draws without observation noise, let \(\bar {w}_{i,j}(x) = w_{i,j}(x) / \sum _{r=1}^K w_{r,j}(x)\) denote normalized weights. Extend them by zero outside \(N_K(x)\), writing \(\tilde {w}_{m,j}(x)\), and set \(\Vert \bar {w}_j(x)\Vert _2 = \bigl (\sum _{i=1}^K \bar {w}_{i,j}^2(x)\bigr )^{1/2}\). Under the independent-normal model, normalization gives the marginal distribution:</p>\[     \tilde {f}_{s,j}(x) = \mu _j(x) + \frac {\sigma _{e,j}(x)}{\Vert \bar {w}_j(x)\Vert _2} \sum _{i=1}^K \bar {w}_{i,j}(x)\, z_{s,\pi _i(x),j} \sim  \mathcal {N}\bigl (\mu _j(x),\, \sigma _{e,j}^2(x)\bigr ).   \]<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">Under this idealized independent-normal construction, two queries share random variables where their neighbor sets overlap, \(S_K(x,x')=N_K(x)\cap  N_K(x')\). Extending the normalized weights by zero outside the neighbor set gives:</p>\[     \operatorname {Cov}\bigl (\tilde {f}_{s,j}(x),\, \tilde {f}_{s,j}(x')\bigr ) = \frac {\sigma _{e,j}(x)\,\sigma _{e,j}(x')}{\Vert \bar {w}_j(x)\Vert _2\,\Vert \bar {w}_j(x')\Vert _2} \sum _{m \in  S_K(x, x')} \tilde {w}_{m,j}(x)\,\tilde {w}_{m,j}(x') \ge  0.   \]</div></section><section lang="en" class="block"><div class="tree-node" id="id12">
-<header><h1>
-<span class="sec-num">4.3. </span><span class="sec-title">Local-Scale Distances under Uneven Sampling</span>
-</h1></header><p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">Neighbor selection depends on the distance supplied to ENN. Local scaling uses a point's neighbor radius to account for different sample spacings, as in Zelnik-Manor and Perona <span class="link external"><a href="https://proceedings.neurips.cc/paper/2004/hash/40173ea48d9567f1f393b20c855bb40b-Abstract.html" rel="noopener noreferrer" title="">[ZP04]</a></span>. Let \(d(x,x')=\Vert  x-x'\Vert _2\) and let \(\sigma (x)&gt;0\) denote a local neighbor radius. BAUX offers the following dissimilarities; choosing one changes the neighborhoods and the predictions.</p>
-<ul xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">
-<li>
-<strong>Conformal scaling</strong> (Zelnik-Manor &amp; Perona <span class="link external"><a href="https://proceedings.neurips.cc/paper/2004/hash/40173ea48d9567f1f393b20c855bb40b-Abstract.html" rel="noopener noreferrer" title="">[ZP04]</a></span>) divides squared Euclidean distance by the product of endpoint spacings:
-      \[         \delta _c(x, x_m) = \frac {d^2(x, x_m)}{\sigma (x)\,\sigma (x_m)}.       \]</li>
-    <li>
-<strong>Poincaré half-space distance</strong> (Beardon <span class="link external"><a href="https://doi.org/10.1007/978-1-4612-1146-4" rel="noopener noreferrer" title="">[Bea83]</a></span>, Cannon et al. <span class="link external"><a href="https://library.slmath.org/books/Book31/files/cannon.pdf" rel="noopener noreferrer" title="">[CFK+97]</a></span>, Nickel &amp; Kiela <span class="link external"><a href="https://arxiv.org/abs/1705.08039" rel="noopener noreferrer" title="">[NK17]</a></span>) associates each point with \((x, \sigma (x)) \in  \mathcal {X} \times  \mathbb {R}_+\) under \(ds^2 = (\Vert  dx\Vert _2^2 + d\sigma ^2)/\sigma ^2\). Evaluating \(\cosh  d_{\mathbb {H}} - 1\) adds a scale-difference penalty to conformal distance:
-      \[         \delta _h(x, x_m) = \frac {d^2(x, x_m)}{2\,\sigma (x)\,\sigma (x_m)} + \frac {\bigl (\sigma (x) - \sigma (x_m)\bigr )^2}{2\,\sigma (x)\,\sigma (x_m)}.       \]
-      A large ratio between the endpoint scales increases the second term. This penalizes cross-scale matches; it does not guarantee that the selected neighbors belong to a particular basin.</li>
-    <li>
-<strong>Hybrid dissimilarity</strong> (<code>wasserstein</code> in the API) combines a rescaled position difference with a spacing difference:
-      \[         \delta _w(x, x_m) = \frac {d^2(x, x_m)}{\sqrt {\sigma (x)\,\sigma (x_m)}} + \bigl (\sigma (x) - \sigma (x_m)\bigr )^2.       \]</li>
-</ul>
-<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">The <code>wasserstein</code> name denotes this implemented formula, not a claim that it is the Wasserstein distance between probability distributions. The example below checks neighbor membership, the variance decomposition, and sample correlation on one constructed dataset. Those assertions illustrate the API; they do not establish uncertainty calibration or an advantage on other objectives.</p>
-<pre xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">import numpy as np
-import baux
-
-rng = np.random.default_rng(7)
-basin_x = 0.6 + 0.04 * rng.normal(size=(24, 6))
-shell_x = rng.uniform(-1.5, 1.5, size=(24, 6))
-train_x = np.vstack([basin_x, shell_x])
-
-signal = np.exp(-1.5 * np.sum((train_x - 0.6) ** 2, axis=1, keepdims=True))
-train_yvar = np.vstack([np.full((24, 1), 5e-4), np.full((24, 1), 5e-2)])
-train_y = signal + np.sqrt(train_yvar) * rng.normal(size=(48, 1))
-
-k_fit, k_draw = baux.split(baux.key(11), 2)
-enn_state = baux.with_geometry(
-    baux.enn_init(train_x, train_y, train_yvar, scale_x=True),
-    "hyperbolic",
-    local_k=4,
-)
-params = baux.enn_fit(enn_state, k=8, infer_aleatoric=False, key=k_fit)
-
-queries = np.vstack([
-    np.full((1, 6), 0.600),
-    np.full((1, 6), 0.601),
-    np.full((1, 6), 2.400),
-])
-post = baux.enn_posterior(
-    enn_state, queries, params, flags=baux.enn.PosteriorFlags(observation_noise=True)
-)
-draws, idx = baux.enn_sample(enn_state, queries, params, key=k_draw, num_draws=64)
-
-corr_basin = float(np.corrcoef(draws[0, 0], draws[1, 0])[0, 1])
-assert np.all(idx[0] &lt; 24)
-assert post.se_epi[0, 0] &lt; post.se_epi[2, 0]
-assert np.allclose(post.se**2, post.se_epi**2 + post.se_ale**2)
-assert corr_basin &gt; 0.8</pre>
-</div></section>
-</div></section><section lang="en" class="block"><div class="tree-node" id="id13">
-<header><h1>
-<span class="sec-num">5. </span><span class="sec-title">What the Control Studies Test</span>
-</h1></header><p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">The <span class="link external"><a href="simulation.html" rel="noopener noreferrer" title="">control studies</a></span> evaluate neural policies through simulated rollouts. The TCV study compares ten-region search without a surrogate against one-region ENN search. Because both the region count and the surrogate change, this comparison measures the complete configurations; it does not isolate the effect of ENN. The four sharing configurations in the surrogate-free TCV study produced identical recorded optimization trajectories.</p>
-<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">The TCV results support a comparison of those configurations on that simulator and budget. The <span class="link external"><a href="simulation.html" rel="noopener noreferrer" title="">simulation page</a></span> gives the methods, measured differences and uncertainty, then describes the TORAX evaluator and synthetic test functions.</p>
-</div></section><section lang="en" class="block"><div class="tree-node" id="id14">
-<header><h1>
-<span class="sec-num">6. </span><span class="sec-title">References</span>
-</h1></header><ul xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">
-<li>
-<strong>[AB23]</strong> Angelopoulos, A. N., &amp; Bates, S. (2023). <span class="link external"><a href="https://doi.org/10.1561/2200000101" rel="noopener noreferrer" title="">Conformal Prediction: A Gentle Introduction</a></span>. Found. Trends Mach. Learn. 16(4):494–591.</li>
-  <li>
-<strong>[Ach03]</strong> Achlioptas, D. (2003). <span class="link external"><a href="https://doi.org/10.1016/S0022-0000(03)00025-4" rel="noopener noreferrer" title="">Database-friendly random projections: Johnson–Lindenstrauss with binary coins</a></span>. J. Comput. Syst. Sci. 66(4):671–687.</li>
-  <li>
-<strong>[Bea83]</strong> Beardon, A. F. (1983). <span class="link external"><a href="https://doi.org/10.1007/978-1-4612-1146-4" rel="noopener noreferrer" title="">The Geometry of Discrete Groups</a></span>. Graduate Texts in Mathematics 91, Springer.</li>
-  <li>
-<strong>[BJS25]</strong> Bafna, M., Jadhav, S., &amp; Sweet, D. R. (2026). <span class="link external"><a href="https://arxiv.org/abs/2506.12818" rel="noopener noreferrer" title="">Taking the GP Out of the Loop</a></span>. Proc. 43rd Int. Conf. Mach. Learn. (ICML), PMLR 306:5179–5199 (arXiv:2506.12818).</li>
-  <li>
-<strong>[CFK+97]</strong> Cannon, J. W., Floyd, W. J., Kenyon, R., &amp; Parry, W. R. (1997). <span class="link external"><a href="https://library.slmath.org/books/Book31/files/cannon.pdf" rel="noopener noreferrer" title="">Hyperbolic Geometry</a></span>. Flavors of Geometry, MSRI Publications 31:59–115.</li>
-  <li>
-<strong>[Cit+24]</strong> Citrin, J., Goodfellow, I., Raju, A., Chen, J., Degrave, J., et al. (2024). <span class="link external"><a href="https://arxiv.org/abs/2406.06718" rel="noopener noreferrer" title="">TORAX: A Fast and Differentiable Tokamak Transport Simulator in JAX</a></span>. arXiv:2406.06718.</li>
-  <li>
-<strong>[CP13]</strong> Claessen, K., &amp; Pałka, M. H. (2013). <span class="link external"><a href="https://doi.org/10.1145/2503778.2503784" rel="noopener noreferrer" title="">Splittable pseudorandom number generators using cryptographic hashing</a></span>. Proc. ACM SIGPLAN Haskell Symp., pp. 47–58.</li>
-  <li>
-<strong>[EPG+19]</strong> Eriksson, D., Pearce, M., Gardner, J., Turner, R. D., &amp; Poloczek, M. (2019). <span class="link external"><a href="https://arxiv.org/abs/1910.01739" rel="noopener noreferrer" title="">Scalable Global Optimization via Local Bayesian Optimization</a></span>. NeurIPS 32:5496–5507 (arXiv:1910.01739).</li>
-  <li>
-<strong>[JS61]</strong> James, W., &amp; Stein, C. (1961). <span class="link external"><a href="https://projecteuclid.org/ebooks/berkeley-symposium-on-mathematical-statistics-and-probability/Proceedings-of-the-Fourth-Berkeley-Symposium-on-Mathematical-Statistics-and/chapter/Estimation-with-Quadratic-Loss/bsmsp/1200512173" rel="noopener noreferrer" title="">Estimation with quadratic loss</a></span>. Proc. Fourth Berkeley Symp. Math. Statist. Probab. 1:361–379.</li>
-  <li>
-<strong>[Men+24]</strong> Meneghini, O., Slendebroek, T., Lyons, B. C., McClenaghan, J., Neiser, T. F., et al. (2024). <span class="link external"><a href="https://arxiv.org/abs/2409.05894" rel="noopener noreferrer" title="">FUSE (Fusion Synthesis Engine): A Next Generation Framework for Integrated Design of Fusion Pilot Plants</a></span>. arXiv:2409.05894.</li>
-  <li>
-<strong>[NK17]</strong> Nickel, M., &amp; Kiela, D. (2017). <span class="link external"><a href="https://arxiv.org/abs/1705.08039" rel="noopener noreferrer" title="">Poincaré Embeddings for Learning Hierarchical Representations</a></span>. NeurIPS 30:6338–6347 (arXiv:1705.08039).</li>
-  <li>
-<strong>[SLF14]</strong> Steele, G. L., Jr., Lea, D., &amp; Flood, C. H. (2014). <span class="link external"><a href="https://doi.org/10.1145/2660193.2660195" rel="noopener noreferrer" title="">Fast splittable pseudorandom number generators</a></span>. Proc. ACM OOPSLA, pp. 453–472.</li>
-  <li>
-<strong>[The+26]</strong> Theiler, C., et al. (2026). <span class="link external"><a href="https://doi.org/10.1088/1741-4326/ae6d12" rel="noopener noreferrer" title="">Progress and innovations in the TCV tokamak research programme</a></span>. Nucl. Fusion 66:116007.</li>
-  <li>
-<strong>[Wan+25]</strong> Wang, A. M., et al. (2025). <span class="link external"><a href="https://doi.org/10.1038/s41467-025-63917-3" rel="noopener noreferrer" title="">Learning plasma dynamics and robust rampdown trajectories with predict-first experiments at TCV</a></span>. Nature Commun. 16:8877.</li>
-  <li>
-<strong>[ZP04]</strong> Zelnik-Manor, L., &amp; Perona, P. (2004). <span class="link external"><a href="https://proceedings.neurips.cc/paper/2004/hash/40173ea48d9567f1f393b20c855bb40b-Abstract.html" rel="noopener noreferrer" title="">Self-Tuning Spectral Clustering</a></span>. NeurIPS 17:1601–1608.</li>
-</ul>
-</div></section>
-</div></section></article><nav id="toc"><div class="block"><h1>Contents</h1><ul xmlns="" class="block">
-<li><a class="link local" href="#id2" data-target="#id2"><span class="taxon">1. </span>An Evaluation Loop</a></li>
-<li>
-<a class="link local" href="#id3" data-target="#id3"><span class="taxon">2. </span>Local Trust Regions &amp; Functional State</a><ul class="block">
-<li><a class="link local" href="#id4" data-target="#id4"><span class="taxon">2.1. </span>Multi-Region Search &amp; Asynchronous Evaluation</a></li>
-<li><a class="link local" href="#id5" data-target="#id5"><span class="taxon">2.2. </span>Deterministic Rollouts &amp; Checkpointing</a></li>
-</ul>
-</li>
-<li>
-<a class="link local" href="#id6" data-target="#id6"><span class="taxon">3. </span>Structured Inputs &amp; Multi-Output Shrinkage</a><ul class="block">
-<li><a class="link local" href="#id7" data-target="#id7"><span class="taxon">3.1. </span>Parameter Coordinate Maps</a></li>
-<li><a class="link local" href="#id8" data-target="#id8"><span class="taxon">3.2. </span>Linear Subspace Shrinkage</a></li>
-</ul>
-</li>
-<li>
-<a class="link local" href="#id9" data-target="#id9"><span class="taxon">4. </span>Neighborhood Surrogates</a><ul class="block">
-<li><a class="link local" href="#id10" data-target="#id10"><span class="taxon">4.1. </span>Inverse-Variance Prediction from \(K\) Nearest Neighbors</a></li>
-<li><a class="link local" href="#id11" data-target="#id11"><span class="taxon">4.2. </span>Joint Draws Added by BAUX</a></li>
-<li><a class="link local" href="#id12" data-target="#id12"><span class="taxon">4.3. </span>Local-Scale Distances under Uneven Sampling</a></li>
-</ul>
-</li>
-<li><a class="link local" href="#id13" data-target="#id13"><span class="taxon">5. </span>What the Control Studies Test</a></li>
-<li><a class="link local" href="#id14" data-target="#id14"><span class="taxon">6. </span>References</a></li>
-</ul></div></nav></div></body></html>
+</div></section></article></div></body></html>

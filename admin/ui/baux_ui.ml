@@ -890,6 +890,10 @@ let mount_tokamak_cad () =
   var INIT_ERR = 58.121;
   var INIT_COILS = [-0.14, 0.11, -0.22, 0.26, -0.08, 0.17, -0.25, 0.13, -0.21, 0.12, 0.24, -0.18, 0.09, -0.16, 0.19, -0.11, -0.84, 0.46, -0.71, -0.34];
   var TARGET_COILS = [0.64, 0.58, 0.44, 0.21, -0.22, -0.48, -0.72, -0.54, 0.51, 0.66, 0.36, -0.18, -0.42, -0.64, 0.74, 0.56, -0.46, -0.44, 0.22, 0.28];
+  // Dynamic 400 ms rampdown coil schedules: OH swings +I -> -I for inductive dIp/dt < 0; E/F follow descending circularizing plasma
+  var COILS_FLATTOP  = [ 0.64,  0.60,  0.48,  0.44, -0.18, -0.46, -0.68, -0.52,  0.48,  0.68,  0.42, -0.14, -0.38, -0.60,  0.72,  0.54, -0.44, -0.64, -0.36,  0.24];
+  var COILS_TERMINAL = [-0.72, -0.68, -0.56, -0.52, -0.08, -0.26,  0.30,  0.48,  0.46,  0.12, -0.06, -0.04, -0.12, -0.24,  0.28, -0.58, -0.56, -0.14, -0.06, -0.04];
+  var COILS_UNSTABLE = [-0.42,  0.54, -0.62,  0.48,  0.66,  0.78,  0.52, -0.44, -0.74, -0.82, -0.58,  0.36,  0.72,  0.68, -0.54, -0.62,  0.64,  0.76,  0.48, -0.42];
   var BENCH_ORDER = ["turbo0", "enn_w", "enn_e", "enn_h", "enn_c"];
   var BENCH = {
     turbo0: {
@@ -989,7 +993,40 @@ let mount_tokamak_cad () =
     return isDark ? "#475569" : "#64748b";
   }
 
-  function evalState(polKey, round, seedIdx, machId) {
+  // Reference 400 ms (80 x 5 ms substep) TCV 170 kA -> 38 kA rampdown target trajectory (TokaGym 170kA.yaml)
+  function targetRampState(shotU) {
+    var u = Math.max(0.0, Math.min(1.0, (typeof shotU === "number" && Number.isFinite(shotU)) ? shotU : 0.55));
+    var sPos = u * u * (3.0 - 2.0 * u);
+    var axR0 = SHAPE_70166_AXIS[0];
+    var axZ0 = SHAPE_70166_AXIS[1];
+    var R0 = lerp(axR0, 0.7860, sPos);
+    var Z0 = lerp(axZ0, -0.0350, sPos);
+    var scaleR = lerp(1.00, 0.56, Math.pow(u, 0.92));
+    var scaleK = lerp(1.00, 0.58, Math.pow(u, 0.88));
+    var ipKA = lerp(170.0, 38.0, Math.pow(u, 0.86));
+    var wtotKJ = lerp(160.0, 4.5, Math.pow(u, 0.72));
+    var q95 = lerp(3.22, 5.38, Math.pow(u, 0.90));
+    var pts = [];
+    for (var i = 0; i < SHAPE_70166_REFS.length; i++) {
+      var dr = (SHAPE_70166_REFS[i][0] - axR0) * scaleR;
+      var dz = (SHAPE_70166_REFS[i][1] - axZ0) * scaleK;
+      pts.push([R0 + dr, Z0 + dz]);
+    }
+    return {
+      u: u,
+      tauMs: Math.round(u * 400.0),
+      R0: R0,
+      Z0: Z0,
+      scaleR: scaleR,
+      scaleK: scaleK,
+      ipKA: ipKA,
+      wtotKJ: wtotKJ,
+      q95: q95,
+      pts: pts
+    };
+  }
+
+  function evalState(polKey, round, seedIdx, machId, shotU) {
     var pol = Object.prototype.hasOwnProperty.call(BENCH, polKey) ? BENCH[polKey] : BENCH.turbo0;
     if (machId && machId !== "tcv") {
       return {
@@ -998,6 +1035,8 @@ let mount_tokamak_cad () =
         round: 10000,
         seedIdx: -1,
         progress: 1.0,
+        shotU: 0.0,
+        tauMs: 0,
         err: pol.mean[pol.mean.length - 1],
         sem: pol.sem[pol.sem.length - 1],
         dR: 0.0,
@@ -1005,6 +1044,14 @@ let mount_tokamak_cad () =
         dKappa: 0.0,
         dTri: 0.0,
         q95: 3.24,
+        ipKA: 1490.0,
+        wtotKJ: 160.0,
+        emission: 1.0,
+        disrupted: false,
+        quench: 0.0,
+        flare: 0.0,
+        statusKind: "ok",
+        statusText: "Stationary Equilibrium",
         coils: TARGET_COILS,
         lcfsErrMm: 0.0
       };
@@ -1034,20 +1081,125 @@ let mount_tokamak_cad () =
     var uLog = Math.max(0.0, Math.min(1.0, (Math.log(INIT_ERR) - Math.log(Math.max(1.15, err))) / (Math.log(INIT_ERR) - Math.log(1.311))));
     var progress = Math.max(0.0, Math.min(1.0, 0.30 * uLin + 0.70 * uLog));
 
-    var seedNudge = (seedIdx >= 0 && seedIdx < 10) ? ((seedIdx - 4.5) * 0.0006 * (1.0 - 0.5 * progress)) : 0.0;
-    var dR = lerp(-0.085, pol.dR + seedNudge, progress);
-    var dZ = lerp(-0.42, pol.dZ - seedNudge, progress);
-    var dKappa = lerp(-0.42, pol.dKappa, progress);
-    var dTri = lerp(-0.30, pol.dTri, progress);
-    var q95 = lerp(2.12, pol.q95, progress);
-
+    var targ = targetRampState(shotU);
+    var u = targ.u;
+    var curR0 = targ.R0;
+    var curZ0 = targ.Z0;
+    var curScaleR = targ.scaleR;
+    var curScaleK = targ.scaleK;
+    var ipKA = targ.ipKA;
+    var wtotKJ = targ.wtotKJ;
+    var q95 = targ.q95;
+    var emission = 1.0;
+    var disrupted = false;
+    var quench = 0.0;
+    var flare = 0.0;
+    var statusKind = "ok";
+    var statusText = "";
     var coils = [];
-    for (var ci = 0; ci < INIT_COILS.length; ci++) {
-      var targetC = TARGET_COILS[ci] + ((ci % 2 === 0) ? pol.coilBias : -pol.coilBias);
-      coils.push(Math.max(-1.0, Math.min(1.0, lerp(INIT_COILS[ci], targetC, progress))));
+
+    if (err > 9.5) {
+      // Untrained / early unstable regime: vertical growth rate runaway (VDE) -> lower-inboard wall strike & quench
+      var sev = Math.max(0.0, Math.min(1.0, (err - 9.5) / (INIT_ERR - 9.5)));
+      var uCrash = lerp(0.72, 0.42, Math.pow(sev, 0.65));
+      if (u < uCrash) {
+        var g = u / Math.max(0.05, uCrash);
+        var vde = Math.pow(g, 2.15);
+        curScaleR = lerp(targ.scaleR, 0.56, vde);
+        curScaleK = lerp(targ.scaleK, 0.68, vde);
+        var crashR0 = 0.6250 + 0.2547 * 0.56;
+        var crashZ0 = -0.355;
+        curR0 = lerp(targ.R0, crashR0, vde) + 0.010 * Math.sin(u * 28.0) * g;
+        curZ0 = lerp(targ.Z0, crashZ0, vde) + 0.012 * Math.cos(u * 24.0) * g;
+        curR0 = Math.max(0.6245 + 0.2547 * curScaleR, curR0);
+        ipKA = lerp(170.0, targetRampState(uCrash).ipKA * 0.88, g);
+        wtotKJ = lerp(160.0, targetRampState(uCrash).wtotKJ * 0.72, g);
+        q95 = lerp(3.22, 2.08, vde);
+        emission = lerp(1.00, 0.92, g);
+        statusKind = (g > 0.52) ? "warn" : "ok";
+        statusText = (g > 0.52)
+          ? ("⚠ VDE Runaway · " + Math.round(ipKA) + " kA")
+          : ("Flat-Top · " + Math.round(ipKA) + " kA · " + Math.round(wtotKJ) + " kJ");
+      } else {
+        disrupted = true;
+        quench = Math.min(1.0, (u - uCrash) / 0.18);
+        flare = (quench < 0.68) ? Math.sin((quench / 0.68) * Math.PI) : 0.0;
+        curScaleR = 0.56 * (1.0 - 0.60 * quench);
+        curScaleK = 0.68 * (1.0 - 0.44 * quench);
+        curR0 = 0.6250 + 0.2547 * curScaleR;
+        curZ0 = -0.355 - 0.055 * quench;
+        var preCrashT = targetRampState(uCrash);
+        ipKA = Math.max(0.0, (preCrashT.ipKA * 0.88) * Math.pow(1.0 - quench, 1.35));
+        wtotKJ = Math.max(0.0, (preCrashT.wtotKJ * 0.72) * Math.pow(Math.max(0.0, 1.0 - quench * 1.8), 1.5));
+        q95 = lerp(2.08, 1.42, quench);
+        emission = Math.max(0.14, (1.0 - 0.84 * quench) + 0.78 * flare);
+        statusKind = "crash";
+        statusText = (quench < 0.92)
+          ? ("⚡ Wall Strike · " + Math.round(ipKA) + " kA")
+          : ("⚡ Disrupted at " + Math.round(uCrash * 400.0) + " ms");
+      }
+      for (var cu = 0; cu < COILS_FLATTOP.length; cu++) {
+        var osc = 0.22 * Math.sin(u * 18.0 + cu * 0.9) * Math.min(1.0, u * 3.0);
+        var cRaw = lerp(COILS_FLATTOP[cu], COILS_UNSTABLE[cu], Math.min(1.0, u * 2.1)) + osc;
+        if (disrupted) cRaw *= (1.0 - 0.65 * quench);
+        coils.push(Math.max(-1.0, Math.min(1.0, cRaw)));
+      }
+    } else if (err > 2.4) {
+      // Mid-training regime: stabilized against VDE crash, but lags and oscillates off target
+      var imp = (err - 2.4) / 7.1;
+      var lagU = Math.max(0.0, u - 0.24 * imp * Math.sin(u * Math.PI * 0.85));
+      var lagT = targetRampState(lagU);
+      var wobEnv = Math.sin(Math.min(1.0, u * 2.2) * Math.PI * 0.5);
+      var wobZ = (0.022 + 0.062 * imp) * Math.sin(u * 12.5 - 0.7) * wobEnv - 0.042 * imp * u;
+      var wobR = (0.012 + 0.030 * imp) * Math.cos(u * 9.5) * wobEnv;
+      curScaleR = lagT.scaleR * (1.0 + 0.09 * imp * u);
+      curScaleK = lagT.scaleK * (1.0 + 0.12 * imp * u);
+      curR0 = Math.max(0.6250 + 0.2547 * curScaleR, lagT.R0 + wobR);
+      curZ0 = lagT.Z0 + wobZ;
+      ipKA = targ.ipKA + (8.0 + 28.0 * imp) * u;
+      wtotKJ = targ.wtotKJ + (2.5 + 14.0 * imp) * u;
+      q95 = lerp(targ.q95, 2.75, 0.45 * imp * u);
+      emission = lerp(1.00, 0.70, Math.pow(u, 0.85));
+      statusKind = (u > 0.18) ? "warn" : "ok";
+      statusText = (u >= 0.96)
+        ? ("⚠ Drift · " + Math.round(ipKA) + " kA · " + Math.round(wtotKJ) + " kJ")
+        : ((u < 0.04) ? "Flat-Top · 170 kA · 160 kJ" : ("⚠ Lagging · " + Math.round(ipKA) + " kA · " + Math.round(wtotKJ) + " kJ"));
+      for (var cm = 0; cm < COILS_FLATTOP.length; cm++) {
+        var cTargM = lerp(COILS_FLATTOP[cm], COILS_TERMINAL[cm], lagU);
+        var cWob = 0.16 * imp * Math.sin(u * 13.0 + cm * 0.7) * wobEnv;
+        coils.push(Math.max(-1.0, Math.min(1.0, cTargM + cWob)));
+      }
+    } else {
+      // Converged closed-loop policy (t >= 100): smooth 170 kA -> 38 kA rampdown locked onto moving target
+      var res = Math.max(0.0, (err - 1.18) / 1.22);
+      var seedNudge = (seedIdx >= 0 && seedIdx < 10) ? ((seedIdx - 4.5) * 0.0007) : 0.0;
+      var envW = Math.sin(u * Math.PI);
+      curScaleR = targ.scaleR * (1.0 + 0.022 * res * envW);
+      curScaleK = targ.scaleK * (1.0 + pol.dKappa * 0.6 + 0.028 * res * envW);
+      curR0 = Math.max(
+        0.6241 + 0.2547 * curScaleR,
+        targ.R0 + (pol.dR * 1.8 + seedNudge + 0.0035 * res * Math.sin(u * 9.0)) * (0.20 + 0.80 * envW)
+      );
+      curZ0 = targ.Z0 + (pol.dZ * 1.8 - seedNudge + 0.005 * res * Math.cos(u * 11.0)) * (0.20 + 0.80 * envW);
+      ipKA = targ.ipKA + 2.8 * res * u;
+      wtotKJ = targ.wtotKJ + 0.5 * res * u;
+      q95 = targ.q95 + (pol.q95 - 3.24) * 2.0;
+      emission = lerp(1.00, 0.64, Math.pow(u, 0.85));
+      statusKind = (u >= 0.96) ? "done" : "ok";
+      statusText = (u >= 0.96)
+        ? ("✓ Shutdown · " + Math.round(ipKA) + " kA · " + wtotKJ.toFixed(1) + " kJ")
+        : ((u < 0.04) ? "Flat-Top · 170 kA · 160 kJ" : ("✓ Tracking · " + Math.round(ipKA) + " kA · " + Math.round(wtotKJ) + " kJ"));
+      for (var cc = 0; cc < COILS_FLATTOP.length; cc++) {
+        var bias = ((cc % 2 === 0) ? pol.coilBias : -pol.coilBias);
+        var cVal = lerp(COILS_FLATTOP[cc], COILS_TERMINAL[cc] + bias, u);
+        coils.push(Math.max(-1.0, Math.min(1.0, cVal)));
+      }
     }
-    var termMm = 2.1 + Math.max(0.0, (err - 1.311) * 5.2);
-    var lcfsErrMm = lerp(48.2, Math.min(14.0, termMm), progress);
+
+    var geomShiftMm = Math.hypot(curR0 - targ.R0, curZ0 - targ.Z0) * 1000.0;
+    var shapeDiffMm = (Math.abs(curScaleR - targ.scaleR) * 230.0 + Math.abs(curScaleK - targ.scaleK) * 260.0) * 0.45;
+    var baseMm = 2.1 + Math.max(0.0, (err - 1.311) * 3.8);
+    var lcfsErrMm = (u < 0.01) ? baseMm : Math.max(1.8, geomShiftMm + shapeDiffMm + 0.55 * Math.min(8.0, baseMm));
 
     return {
       polKey: polKey,
@@ -1055,12 +1207,27 @@ let mount_tokamak_cad () =
       round: r,
       seedIdx: seedIdx,
       progress: progress,
+      shotU: u,
+      tauMs: targ.tauMs,
+      targ: targ,
+      curR0: curR0,
+      curZ0: curZ0,
+      scaleR: curScaleR,
+      scaleK: curScaleK,
+      ipKA: ipKA,
+      wtotKJ: wtotKJ,
+      emission: emission,
+      disrupted: disrupted,
+      quench: quench,
+      flare: flare,
+      statusKind: statusKind,
+      statusText: statusText,
       err: err,
       sem: semVal,
-      dR: dR,
-      dZ: dZ,
-      dKappa: dKappa,
-      dTri: dTri,
+      dR: curR0 - SHAPE_70166_AXIS[0],
+      dZ: curZ0 - SHAPE_70166_AXIS[1],
+      dKappa: curScaleK - 1.0,
+      dTri: curScaleR - 1.0,
       q95: q95,
       coils: coils,
       lcfsErrMm: lcfsErrMm
@@ -1074,10 +1241,10 @@ let mount_tokamak_cad () =
     if (mach.lcfs && mach.lcfs.length >= 16) {
       var axR0 = (typeof mach.axisR === "number") ? mach.axisR : mach.R0;
       var axZ0 = (typeof mach.axisZ === "number") ? mach.axisZ : (mach.Z0 || 0.0);
-      var curR0 = axR0 + st.dR * 0.45 * scaleA;
-      var curZ0 = axZ0 + st.dZ * 0.45 * scaleA;
-      var kS = (1.0 + st.dKappa * 0.35) * (0.84 + 0.16 * rho);
-      var rS = 1.0 + st.dTri * 0.18;
+      var curR0 = (typeof st.curR0 === "number") ? st.curR0 : (axR0 + st.dR * 0.45 * scaleA);
+      var curZ0 = (typeof st.curZ0 === "number") ? st.curZ0 : (axZ0 + st.dZ * 0.45 * scaleA);
+      var rS = (typeof st.scaleR === "number") ? st.scaleR : (1.0 + st.dTri * 0.18);
+      var kS = ((typeof st.scaleK === "number") ? st.scaleK : (1.0 + st.dKappa * 0.35)) * (0.84 + 0.16 * rho);
       var outPts = [];
       var src = mach.lcfs;
       for (var j = 0; j < src.length; j++) {
@@ -1085,8 +1252,8 @@ let mount_tokamak_cad () =
         var dz = (src[j][1] - axZ0) * rho * kS;
         outPts.push([curR0 + dr, curZ0 + dz]);
       }
-      var rxS = (typeof mach.rx === "number") ? (curR0 + (mach.rx - axR0)) : (curR0 - mach.a * 0.40);
-      var zxS = (typeof mach.zx === "number") ? (curZ0 + (mach.zx - axZ0) * kS) : (curZ0 - mach.a * 1.55);
+      var rxS = (typeof mach.rx === "number") ? (curR0 + (mach.rx - axR0) * rS) : (curR0 - mach.a * 0.40 * rS);
+      var zxS = (typeof mach.zx === "number") ? (curZ0 + (mach.zx - axZ0) * kS) : (curZ0 - mach.a * 1.55 * kS);
       return { pts: outPts, R0: curR0, Z0: curZ0, Rx: rxS, Zx: zxS };
     }
 
@@ -1415,24 +1582,40 @@ let mount_tokamak_cad () =
     var eq = plasmaContour(1.0, st, 72, mach);
     var phiLeftPlasma = phiVessel0 - 34.0 * scaleCut * deg;
     var phiRightPlasma = phiVessel1 + 22.0 * scaleCut * deg;
+    var em = (typeof st.emission === "number") ? st.emission : 1.0;
+    var isDis = !!st.disrupted;
+    var fl = st.flare || 0.0;
+    var qn = st.quench || 0.0;
+    var dimQ = 1.0 - 0.55 * qn;
+
+    var shellCol = isDis
+      ? [lerp(0.42, 0.95, fl) * dimQ, lerp(0.11, 0.22, fl) * dimQ, lerp(0.32, 0.14, fl) * dimQ, 1.0]
+      : [0.44 * (0.55 + 0.45 * em), 0.13 * (0.50 + 0.50 * em), 0.68 * (0.58 + 0.42 * em), 1.0];
 
     addRevolvedSolid(
       eq.pts, phiLeftPlasma, phiVessel0, 26,
-      [0.42, 0.12, 0.66, 1.0], null, null, [eq.R0, eq.Z0]
+      shellCol, null, null, [eq.R0, eq.Z0]
     );
     addRevolvedSolid(
       eq.pts, phiVessel1, phiRightPlasma, 18,
-      [0.42, 0.12, 0.66, 1.0], null, null, [eq.R0, eq.Z0]
+      shellCol, null, null, [eq.R0, eq.Z0]
     );
 
     function buildPlasmaCutaway(phiPlasmaPlane, signN) {
       var dnScale = Math.max(1.0, mach.R0 * 0.55);
-      var fluxBands = [
-        { rho: 1.00, col: [0.44, 0.13, 0.68, 1.0], edge: [0.18, 0.88, 0.99, 0.96] },
-        { rho: 0.80, col: [0.66, 0.17, 0.78, 1.0], edge: null },
-        { rho: 0.60, col: [0.85, 0.26, 0.78, 1.0], edge: null },
-        { rho: 0.40, col: [0.96, 0.55, 0.88, 1.0], edge: null },
-        { rho: 0.20, col: [0.99, 0.92, 0.99, 1.0], edge: null }
+      var coreLift = 0.52 + 0.48 * em;
+      var fluxBands = isDis ? [
+        { rho: 1.00, col: [lerp(0.52, 0.94, fl) * dimQ, lerp(0.12, 0.20, fl) * dimQ, 0.16 * dimQ, 1.0], edge: [0.98, 0.28, 0.24, 0.96] },
+        { rho: 0.80, col: [lerp(0.66, 0.98, fl) * dimQ, lerp(0.15, 0.34, fl) * dimQ, 0.18 * dimQ, 1.0], edge: null },
+        { rho: 0.60, col: [lerp(0.78, 1.00, fl) * dimQ, lerp(0.22, 0.50, fl) * dimQ, 0.22 * dimQ, 1.0], edge: null },
+        { rho: 0.40, col: [lerp(0.86, 1.00, fl) * dimQ, lerp(0.36, 0.70, fl) * dimQ, lerp(0.30, 0.38, fl) * dimQ, 1.0], edge: null },
+        { rho: 0.20, col: [lerp(0.92, 1.00, fl) * dimQ, lerp(0.54, 0.88, fl) * dimQ, lerp(0.46, 0.62, fl) * dimQ, 1.0], edge: null }
+      ] : [
+        { rho: 1.00, col: [0.44 * coreLift, 0.13 * coreLift, 0.68 * (0.65 + 0.35 * em), 1.0], edge: [0.18, 0.88, 0.99, 0.96] },
+        { rho: 0.80, col: [0.66 * coreLift, 0.17 * coreLift, 0.78 * (0.68 + 0.32 * em), 1.0], edge: null },
+        { rho: 0.60, col: [0.85 * coreLift, 0.26 * coreLift, 0.78 * (0.72 + 0.28 * em), 1.0], edge: null },
+        { rho: 0.40, col: [lerp(0.78, 0.96, em), lerp(0.36, 0.55, em), lerp(0.78, 0.88, em), 1.0], edge: null },
+        { rho: 0.20, col: [lerp(0.86, 0.99, em), lerp(0.58, 0.92, em), lerp(0.90, 0.99, em), 1.0], edge: null }
       ];
       for (var b = 0; b < fluxBands.length; b++) {
         var band = fluxBands[b];
@@ -1443,18 +1626,42 @@ let mount_tokamak_cad () =
         );
       }
 
-      var pX = cylToXYZ(eq.Rx, eq.Zx, phiPlasmaPlane, 0.0085 * dnScale * signN);
-      var pLegIn = cylToXYZ(eq.Rx - mach.a * 0.18, eq.Zx - mach.a * 0.28, phiPlasmaPlane, 0.0085 * dnScale * signN);
-      var pLegOut = cylToXYZ(eq.Rx + mach.a * 0.28, eq.Zx - mach.a * 0.26, phiPlasmaPlane, 0.0085 * dnScale * signN);
-      var cyanLine = [0.18, 0.88, 0.99, 1.0];
-      pushLine(pX, pLegIn, cyanLine);
-      pushLine(pX, pLegOut, cyanLine);
+      var legScale = (mach.id === "tcv") ? Math.max(0.18, 1.0 - 0.68 * (st.shotU || 0.0)) : 1.0;
+      if (!isDis || qn < 0.35) {
+        var pX = cylToXYZ(eq.Rx, eq.Zx, phiPlasmaPlane, 0.0085 * dnScale * signN);
+        var pLegIn = cylToXYZ(eq.Rx - mach.a * 0.18 * legScale, eq.Zx - mach.a * 0.28 * legScale, phiPlasmaPlane, 0.0085 * dnScale * signN);
+        var pLegOut = cylToXYZ(eq.Rx + mach.a * 0.28 * legScale, eq.Zx - mach.a * 0.26 * legScale, phiPlasmaPlane, 0.0085 * dnScale * signN);
+        var cyanLine = isDis ? [0.98, 0.34, 0.24, 0.85] : [0.18, 0.88, 0.99, 1.0];
+        pushLine(pX, pLegIn, cyanLine);
+        pushLine(pX, pLegOut, cyanLine);
+      }
     }
 
     buildPlasmaCutaway(phiLeftPlasma,  -1.0);
     buildPlasmaCutaway(phiRightPlasma,  1.0);
 
-    // 4. Smooth Interpolated 3D Helical q95 Magnetic Field Lines across Exposed Front Plasma Arms & Cutaway
+    // 3b. 3D Wall-Strike Thermal-Quench Arc along Inboard Limiter Tiles when Disrupted
+    if (isDis && mach.id === "tcv") {
+      var pArc0 = phiVessel1;
+      var pArc1 = phiVessel0 + 2.0 * Math.PI;
+      var arcSteps = 44;
+      var arcAlpha = Math.max(0.32, 0.96 - 0.52 * qn);
+      for (var ai = -1; ai <= 1; ai++) {
+        var zStrike = eq.Z0 + ai * 0.032;
+        var prevA = null;
+        for (var ak = 0; ak <= arcSteps; ak++) {
+          var phiA = pArc0 + (pArc1 - pArc0) * (ak / arcSteps);
+          var ptA = cylToXYZ(0.627, zStrike, phiA, 0.0);
+          if (prevA) {
+            var spark = 0.5 + 0.5 * Math.sin(ak * 0.9 + (opts.fieldPhase || 0.0) * 6.0 + ai);
+            pushLine(prevA, ptA, [1.0, lerp(0.22, 0.72, spark * fl), 0.16, arcAlpha]);
+          }
+          prevA = ptA;
+        }
+      }
+    }
+
+    // 4. Smooth Interpolated 3D Helical q95 Magnetic Field Lines with Flowing Alfvénic Pulses
     if (opts.showFieldLines && eq.pts.length >= 16) {
       var qEff = Math.max(1.4, (mach.id === "tcv") ? st.q95 : (mach.q95 || 3.2));
       var nLines = 8;
@@ -1464,6 +1671,7 @@ let mount_tokamak_cad () =
       var pGap0 = phiRightPlasma;
       var pGap1 = phiLeftPlasma + 2.0 * Math.PI;
       var pitchRate = 2.0 / qEff;
+      var fPhase = opts.fieldPhase || 0.0;
       for (var l = 0; l < nLines; l++) {
         var th0 = (2.0 * Math.PI * l) / nLines;
         var prevPt = null;
@@ -1482,10 +1690,16 @@ let mount_tokamak_cad () =
           var pt = cylToXYZ(rOutP, zOutP, phi, 0.0);
           if (prevPt) {
             var inGap = (phi > pGap0 && phi < pGap1);
-            if (!inGap) {
-              pushLine(prevPt, pt, [0.18, 0.90, 1.00, 0.98]);
+            var wave = 0.5 + 0.5 * Math.sin((k / steps) * Math.PI * 6.0 - fPhase * 4.0 + l * 0.785);
+            var pulse = Math.pow(wave, 5.0);
+            if (isDis) {
+              if (!inGap || (k % 3 === 0)) {
+                pushLine(prevPt, pt, [lerp(0.86, 1.0, pulse), lerp(0.20, 0.58, pulse), 0.18, Math.max(0.22, (inGap ? 0.40 : 0.90) * (1.0 - 0.55 * qn))]);
+              }
+            } else if (!inGap) {
+              pushLine(prevPt, pt, [lerp(0.14, 0.90, pulse), lerp(0.84, 0.99, pulse), 1.00, 0.98]);
             } else if (k % 2 === 0) {
-              pushLine(prevPt, pt, [0.22, 0.88, 1.00, 0.46]);
+              pushLine(prevPt, pt, [lerp(0.18, 0.88, pulse), lerp(0.86, 0.99, pulse), 1.00, lerp(0.42, 0.86, pulse)]);
             }
           }
           prevPt = pt;
@@ -1710,7 +1924,33 @@ let mount_tokamak_cad () =
     drawCoils(leftX);
     drawMachineProfiles(leftX);
 
-    var refPoly = (mach.id === "tcv") ? SHAPE_70166_REFS : mach.lcfs;
+    // Ghost τ = 0 ms flat-top outline + target descent trajectory guide on TCV
+    if (mach.id === "tcv" && (st.shotU || 0.0) > 0.03) {
+      ctx.save();
+      ctx.strokeStyle = isDark ? "rgba(148,163,184,0.28)" : "rgba(100,116,139,0.28)";
+      ctx.lineWidth = 1.0;
+      ctx.setLineDash([2.5, 2.5]);
+      ctx.beginPath();
+      for (var gIdx = 0; gIdx < SHAPE_70166_REFS.length; gIdx++) {
+        var pg = rzToXY(leftX, SHAPE_70166_REFS[gIdx][0], SHAPE_70166_REFS[gIdx][1]);
+        if (gIdx === 0) ctx.moveTo(pg[0], pg[1]); else ctx.lineTo(pg[0], pg[1]);
+      }
+      ctx.closePath();
+      ctx.stroke();
+
+      var pAx0 = rzToXY(leftX, SHAPE_70166_AXIS[0], SHAPE_70166_AXIS[1]);
+      var pAx1 = rzToXY(leftX, 0.7860, -0.0350);
+      ctx.strokeStyle = isDark ? "rgba(56,189,248,0.38)" : "rgba(2,132,199,0.36)";
+      ctx.lineWidth = 1.1;
+      ctx.setLineDash([2, 2]);
+      ctx.beginPath();
+      ctx.moveTo(pAx0[0], pAx0[1]);
+      ctx.lineTo(pAx1[0], pAx1[1]);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    var refPoly = (mach.id === "tcv") ? ((st && st.targ && st.targ.pts) ? st.targ.pts : SHAPE_70166_REFS) : mach.lcfs;
     if (refPoly && refPoly.length >= 8) {
       ctx.strokeStyle = cyanTarget;
       ctx.lineWidth = 1.25;
@@ -1726,16 +1966,39 @@ let mount_tokamak_cad () =
         for (var dIdx = 0; dIdx < refPoly.length; dIdx++) {
           var pd = rzToXY(leftX, refPoly[dIdx][0], refPoly[dIdx][1]);
           ctx.beginPath();
-          ctx.arc(pd[0], pd[1], 2.0, 0, Math.PI * 2);
+          ctx.arc(pd[0], pd[1], 1.85, 0, Math.PI * 2);
           ctx.fill();
         }
       }
     }
 
     var eqTarget = plasmaContour(1.0, st, 64, mach);
+    if (mach.id === "tcv" && st.disrupted) {
+      var pStrike = rzToXY(leftX, 0.624, eqTarget.Z0);
+      var glowR = Math.max(12, boxW * (0.18 + 0.10 * (st.flare || 0.0)));
+      var grad = ctx.createRadialGradient(pStrike[0], pStrike[1], 1.5, pStrike[0], pStrike[1], glowR);
+      var gAlpha = Math.max(0.28, 0.72 - 0.35 * (st.quench || 0.0));
+      grad.addColorStop(0.0, "rgba(251,146,60," + gAlpha.toFixed(2) + ")");
+      grad.addColorStop(0.45, "rgba(239,68,68," + (gAlpha * 0.65).toFixed(2) + ")");
+      grad.addColorStop(1.0, "rgba(239,68,68,0)");
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(pStrike[0], pStrike[1], glowR, 0, Math.PI * 2);
+      ctx.fill();
+
+      var pWallTop = rzToXY(leftX, 0.624, eqTarget.Z0 + 0.14);
+      var pWallBot = rzToXY(leftX, 0.624, eqTarget.Z0 - 0.14);
+      ctx.strokeStyle = isDark ? "#fb923c" : "#dc2626";
+      ctx.lineWidth = 2.8;
+      ctx.beginPath();
+      ctx.moveTo(pWallTop[0], pWallTop[1]);
+      ctx.lineTo(pWallBot[0], pWallBot[1]);
+      ctx.stroke();
+    }
+
     ctx.save();
-    ctx.strokeStyle = magentaPlasma;
-    ctx.lineWidth = 1.75;
+    ctx.strokeStyle = st.disrupted ? (isDark ? "#f87171" : "#dc2626") : magentaPlasma;
+    ctx.lineWidth = st.disrupted ? 2.0 : 1.75;
     if (mach.id === "tcv") ctx.setLineDash([4, 2]);
     ctx.beginPath();
     for (var ei = 0; ei < eqTarget.pts.length; ei++) {
@@ -1767,7 +2030,21 @@ let mount_tokamak_cad () =
     drawCoils(rightX);
     drawMachineProfiles(rightX);
 
-    var fluxLevels = isDark ? [
+    var fluxLevels = st.disrupted ? (isDark ? [
+      { rho: 1.00, col: "#ef4444", width: 1.45 },
+      { rho: 0.84, col: "#f97316", width: 1.15 },
+      { rho: 0.68, col: "#fb923c", width: 1.05 },
+      { rho: 0.52, col: "#fca5a5", width: 1.00 },
+      { rho: 0.36, col: "#fdba74", width: 0.95 },
+      { rho: 0.18, col: "#fef2f2", width: 0.95 }
+    ] : [
+      { rho: 1.00, col: "#b91c1c", width: 1.45 },
+      { rho: 0.84, col: "#dc2626", width: 1.15 },
+      { rho: 0.68, col: "#ea580c", width: 1.05 },
+      { rho: 0.52, col: "#ef4444", width: 1.00 },
+      { rho: 0.36, col: "#f97316", width: 0.95 },
+      { rho: 0.18, col: "#fb923c", width: 0.95 }
+    ]) : (isDark ? [
       { rho: 1.00, col: "#38bdf8", width: 1.35 },
       { rho: 0.84, col: "#7e22ce", width: 1.15 },
       { rho: 0.68, col: "#a21caf", width: 1.05 },
@@ -1781,7 +2058,11 @@ let mount_tokamak_cad () =
       { rho: 0.52, col: "#c026d3", width: 1.00 },
       { rho: 0.36, col: "#db2777", width: 0.95 },
       { rho: 0.18, col: "#ec4899", width: 0.95 }
-    ];
+    ]);
+    ctx.save();
+    if (st.disrupted) {
+      ctx.globalAlpha = Math.max(0.32, 1.0 - 0.52 * (st.quench || 0.0));
+    }
     for (var f = 0; f < fluxLevels.length; f++) {
       var fl = fluxLevels[f];
       var fData = plasmaContour(fl.rho, st, 60, mach);
@@ -1795,9 +2076,10 @@ let mount_tokamak_cad () =
       ctx.closePath();
       ctx.stroke();
     }
+    ctx.restore();
 
     var pAxis = rzToXY(rightX, eqTarget.R0, eqTarget.Z0);
-    ctx.fillStyle = isDark ? "#fdf4ff" : "#be185d";
+    ctx.fillStyle = st.disrupted ? (isDark ? "#fca5a5" : "#dc2626") : (isDark ? "#fdf4ff" : "#be185d");
     ctx.beginPath();
     ctx.arc(pAxis[0], pAxis[1], 2.8, 0, Math.PI * 2);
     ctx.fill();
@@ -1838,11 +2120,23 @@ let mount_tokamak_cad () =
       '        <button type="button" class="tcv-pol-btn" data-pol="enn_c"><span><span class="tcv-pol-dot" style="background:var(--bench-c-enn4,#7e22ce);"></span>ENN · Conformal</span><span style="font-family:var(--font-mono,monospace);font-size:11px;">1.37</span></button>',
       '      </div>',
       '    </div>',
+      '    <div class="tcv-ctrl-sec tcv-ctrl-shot" id="tcv-sec-shot">',
+      '      <div class="tcv-ctrl-hdr"><span>Rampdown Movie</span><strong id="tcv-shot-lbl" style="font-family:var(--font-mono,monospace);font-size:11.5px;color:var(--fg-primary,#111);">τ = 220 ms</strong></div>',
+      '      <div class="tcv-round-row">',
+      '        <input type="range" id="tcv-shot-slider" min="0" max="400" step="2" value="220" aria-label="Rampdown Time (0 to 400 ms)" />',
+      '        <button type="button" id="tcv-play-btn" class="tcv-pol-btn tcv-play-cta" style="justify-content:center;font-weight:700;">▶ Play 400 ms Shot</button>',
+      '      </div>',
+      '      <div class="tcv-shot-status is-ok" id="tcv-shot-status">✓ Tracking · Ip 92 kA · 56 kJ</div>',
+      '    </div>',
       '    <div class="tcv-ctrl-sec tcv-ctrl-round" id="tcv-sec-round">',
-      '      <div class="tcv-ctrl-hdr"><span>Eval Round</span><strong id="tcv-round-lbl" style="font-family:var(--font-mono,monospace);font-size:11.5px;color:var(--fg-primary,#111);">t = 10,000</strong></div>',
+      '      <div class="tcv-ctrl-hdr"><span>Policy Round</span><strong id="tcv-round-lbl" style="font-family:var(--font-mono,monospace);font-size:11.5px;color:var(--fg-primary,#111);">t = 10,000</strong></div>',
       '      <div class="tcv-round-row">',
       '        <input type="range" id="tcv-round-slider" min="0" max="1000" step="1" value="1000" aria-label="Evaluation Round (log scale)" />',
-      '        <button type="button" id="tcv-play-btn" class="tcv-pol-btn" style="justify-content:center;font-weight:700;">▶ Play</button>',
+      '      </div>',
+      '      <div class="tcv-preset-row" role="group" aria-label="Training Round Presets">',
+      '        <button type="button" class="tcv-preset-btn" data-round-preset="1">t=1 VDE</button>',
+      '        <button type="button" class="tcv-preset-btn" data-round-preset="10">t=10 Drift</button>',
+      '        <button type="button" class="tcv-preset-btn active" data-round-preset="10000">10k Clean</button>',
       '      </div>',
       '    </div>',
       '    <div class="tcv-ctrl-sec tcv-ctrl-seed" id="tcv-sec-seed">',
@@ -1926,11 +2220,16 @@ let mount_tokamak_cad () =
     var fuseDeck = root.querySelector("#tcv-fuse-deck");
     var figCaption = root.querySelector("#tcv-fig-caption");
     var secPolicy = root.querySelector("#tcv-sec-policy");
+    var secShot = root.querySelector("#tcv-sec-shot");
     var secRound = root.querySelector("#tcv-sec-round");
     var secSeed = root.querySelector("#tcv-sec-seed");
     var secCutaway = root.querySelector("#tcv-sec-cutaway");
+    var shotSlider = root.querySelector("#tcv-shot-slider");
+    var shotLbl = root.querySelector("#tcv-shot-lbl");
+    var shotStatus = root.querySelector("#tcv-shot-status");
     var roundSlider = root.querySelector("#tcv-round-slider");
     var roundLbl = root.querySelector("#tcv-round-lbl");
+    var presetBtns = root.querySelectorAll(".tcv-preset-btn[data-round-preset]");
     var cutSlider = root.querySelector("#tcv-cut-slider");
     var cutLbl = root.querySelector("#tcv-cut-lbl");
     var seedSel = root.querySelector("#tcv-seed-sel");
@@ -1963,6 +2262,8 @@ let mount_tokamak_cad () =
       machine: initialMach,
       policyKey: "turbo0",
       round: 10000,
+      shotU: 0.55,
+      fieldPhase: 0.0,
       regime: "full",
       seedIdx: -1,
       showCoils: true,
@@ -1974,6 +2275,7 @@ let mount_tokamak_cad () =
       dist: initObj.dist,
       playing: false
     };
+    var hasManualShotScrub = false;
 
     function formatRoundInt(r) {
       return String(Math.round(r)).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
@@ -2149,7 +2451,7 @@ let mount_tokamak_cad () =
         if (uiState.seedIdx >= 0) segs.push("Seed " + (uiState.seedIdx + 1));
         for (var bi = 0; bi < BENCH_ORDER.length; bi++) {
           var bk = BENCH_ORDER[bi];
-          var bSt = (bk === uiState.policyKey) ? st : evalState(bk, st.round, uiState.seedIdx, "tcv");
+          var bSt = (bk === uiState.policyKey) ? st : evalState(bk, st.round, uiState.seedIdx, "tcv", uiState.shotU);
           if (uiState.seedIdx >= 0) {
             segs.push(BENCH[bk].short + ": " + bSt.err.toFixed(3));
           } else {
@@ -2184,29 +2486,66 @@ let mount_tokamak_cad () =
       gl.depthFunc(gl.LEQUAL);
     }
 
+    function syncRoundPresets(r) {
+      for (var pi = 0; pi < presetBtns.length; pi++) {
+        var pr = parseInt(presetBtns[pi].getAttribute("data-round-preset") || "0", 10);
+        var isMatch = (pr === 1 && r <= 2) || (pr === 10 && r >= 6 && r <= 20) || (pr === 10000 && r >= 5000);
+        if (isMatch) presetBtns[pi].classList.add("active");
+        else presetBtns[pi].classList.remove("active");
+      }
+    }
+
     function renderAll() {
       var isTCV = (uiState.machine === "tcv");
       var mach = Object.prototype.hasOwnProperty.call(MACHINES, uiState.machine) ? MACHINES[uiState.machine] : MACHINES.tcv;
-      var st = evalState(uiState.policyKey, uiState.round, uiState.seedIdx, uiState.machine);
+      var st = evalState(uiState.policyKey, uiState.round, uiState.seedIdx, uiState.machine, uiState.shotU);
 
       if (builderTag) builderTag.textContent = isTCV ? "toka_gym" : "FUSE.jl";
       if (rowTF) rowTF.style.display = "inline-flex";
       if (secPolicy) secPolicy.style.display = isTCV ? "" : "none";
+      if (secShot) secShot.style.display = isTCV ? "" : "none";
       if (secRound) secRound.style.display = isTCV ? "" : "none";
       if (secSeed) secSeed.style.display = isTCV ? "" : "none";
       if (secCutaway) secCutaway.style.display = isTCV ? "none" : "";
+
+      if (isTCV) {
+        if (shotLbl) shotLbl.textContent = "τ = " + st.tauMs + " ms";
+        if (shotSlider && Math.abs(parseFloat(shotSlider.value) - st.tauMs) >= 1.5) {
+          shotSlider.value = String(st.tauMs);
+        }
+        if (shotStatus) {
+          shotStatus.textContent = st.statusText;
+          shotStatus.className = "tcv-shot-status is-" + st.statusKind;
+        }
+        syncRoundPresets(st.round);
+      }
 
       var showDocked = isTCV && !!dockedFig;
       if (benchDock) benchDock.style.display = showDocked ? "" : "none";
       if (fuseDeck) fuseDeck.style.display = showDocked ? "none" : "";
 
-      if (badgeA) badgeA.innerHTML = "<strong>(a)</strong> 3D Cutaway CAD — " + escHtml(mach.shortName);
-      if (badgeB) badgeB.innerHTML = "<strong>(b)</strong> Equilibrium &amp; Poloidal Flux — " + escHtml(mach.shortName);
+      if (badgeA) {
+        if (isTCV) {
+          badgeA.innerHTML = "<strong>(a)</strong> 3D Cutaway · TCV <span class=\"tcv-badge-sub\">τ = " + escHtml(String(st.tauMs)) + " ms</span>";
+        } else {
+          badgeA.innerHTML = "<strong>(a)</strong> 3D Cutaway CAD — " + escHtml(mach.shortName);
+        }
+      }
+      if (badgeB) {
+        if (isTCV) {
+          var bSub = st.disrupted
+            ? ("⚡ Wall Strike · Ip " + Math.round(st.ipKA) + " kA")
+            : ("Ip " + Math.round(st.ipKA) + " kA · Wtot " + (st.wtotKJ < 10 ? st.wtotKJ.toFixed(1) : Math.round(st.wtotKJ)) + " kJ");
+          badgeB.innerHTML = "<strong>(b)</strong> Equilibrium &amp; Flux — <span class=\"tcv-badge-sub" + (st.disrupted ? " is-crash" : "") + "\">" + escHtml(bSub) + "</span>";
+        } else {
+          badgeB.innerHTML = "<strong>(b)</strong> Equilibrium &amp; Poloidal Flux — " + escHtml(mach.shortName);
+        }
+      }
 
       if (legendTele) {
         if (isTCV) {
           var lossStr = st.err.toFixed(3) + (uiState.seedIdx < 0 ? (" ± " + st.sem.toFixed(3)) : (" (S" + (uiState.seedIdx + 1) + ")"));
-          legendTele.textContent = "t = " + formatRoundInt(st.round) + " · Loss " + lossStr + " · ΔLCFS " + st.lcfsErrMm.toFixed(1) + " mm · q95 " + st.q95.toFixed(2);
+          legendTele.textContent = "τ = " + st.tauMs + " ms · t = " + formatRoundInt(st.round) + " · Loss " + lossStr + " · ΔLCFS " + st.lcfsErrMm.toFixed(1) + " mm · q95 " + st.q95.toFixed(2);
         } else {
           var pFusTxt = (mach.pFusMW && mach.pFusMW > 0.5) ? (" · Pfus " + mach.pFusMW.toFixed(0) + " MW") : "";
           legendTele.textContent = "Ip " + mach.ipNominal.toFixed(2) + " MA · B0 " + mach.B0.toFixed(2) + " T · q95 " + (mach.q95 || 3.2).toFixed(2) + pFusTxt;
@@ -2416,14 +2755,35 @@ let mount_tokamak_cad () =
     }
 
     var animTimer = null;
+    var holdTicks = 0;
     function stopPlayback() {
       if (uiState.playing) {
         uiState.playing = false;
-        if (playBtn) playBtn.textContent = "▶ Play";
+        if (playBtn) {
+          playBtn.textContent = "▶ Play 400 ms Shot";
+          playBtn.classList.remove("active");
+        }
       }
       if (animTimer) {
         clearInterval(animTimer);
         animTimer = null;
+      }
+    }
+
+    function setRegimeView(reg) {
+      if (reg !== "full" && reg !== "tail") return;
+      uiState.regime = reg;
+      if (dockedFig) {
+        var rBtns = dockedFig.querySelectorAll(".baux-regime-btn[data-regime]");
+        for (var j = 0; j < rBtns.length; j++) {
+          var act = (rBtns[j].getAttribute("data-regime") || "").trim() === reg;
+          if (act) rBtns[j].classList.add("active");
+          else rBtns[j].classList.remove("active");
+        }
+      }
+      for (var sv = 0; sv < dockedSvgs.length; sv++) {
+        if (dockedSvgs[sv].getAttribute("data-view") === reg) dockedSvgs[sv].removeAttribute("hidden");
+        else dockedSvgs[sv].setAttribute("hidden", "hidden");
       }
     }
 
@@ -2432,6 +2792,9 @@ let mount_tokamak_cad () =
       uiState.round = Math.max(minR, Math.min(10000, Math.round(newRound)));
       if (roundSlider) roundSlider.value = String(roundToSliderVal(uiState.round, uiState.regime));
       if (roundLbl) roundLbl.textContent = "t = " + formatRoundInt(uiState.round);
+      if (!uiState.playing && uiState.shotU < 0.08) {
+        uiState.shotU = 0.55;
+      }
       meshDirty = true;
       renderAll();
     }
@@ -2444,17 +2807,7 @@ let mount_tokamak_cad () =
           btn.addEventListener("click", function() {
             var reg = (btn.getAttribute("data-regime") || "").trim();
             if (reg !== "full" && reg !== "tail") return;
-            stopPlayback();
-            uiState.regime = reg;
-            for (var j = 0; j < regBtns.length; j++) {
-              var act = (regBtns[j].getAttribute("data-regime") || "").trim() === reg;
-              if (act) regBtns[j].classList.add("active");
-              else regBtns[j].classList.remove("active");
-            }
-            for (var sv = 0; sv < dockedSvgs.length; sv++) {
-              if (dockedSvgs[sv].getAttribute("data-view") === reg) dockedSvgs[sv].removeAttribute("hidden");
-              else dockedSvgs[sv].setAttribute("hidden", "hidden");
-            }
+            setRegimeView(reg);
             if (reg === "tail" && uiState.round < 100) {
               uiState.round = 100;
             }
@@ -2478,7 +2831,6 @@ let mount_tokamak_cad () =
             var svgX = ((clientX - rect.left) / rect.width) * vbW;
             var u = Math.max(0.0, Math.min(1.0, (svgX - xLeft) / Math.max(1.0, xRight - xLeft)));
             var targetT = Math.pow(10.0, logMin + u * (logMax - logMin));
-            // Snap gently to nearest empirical knot when close, while keeping full smooth scrub
             var bestR = Math.round(targetT);
             var bestDist = Infinity;
             for (var ki = 0; ki < ROUNDS.length; ki++) {
@@ -2496,12 +2848,10 @@ let mount_tokamak_cad () =
             scrubAtClientX(ev.clientX);
           });
           svgEl.addEventListener("click", function(ev) {
-            stopPlayback();
             scrubAtClientX(ev.clientX);
           });
           svgEl.addEventListener("touchstart", function(ev) {
             if (ev.touches.length > 0) {
-              stopPlayback();
               scrubAtClientX(ev.touches[0].clientX);
             }
           }, { passive: true });
@@ -2558,15 +2908,35 @@ let mount_tokamak_cad () =
       })(polBtns[i]);
     }
 
+    if (shotSlider) {
+      shotSlider.addEventListener("input", function() {
+        stopPlayback();
+        hasManualShotScrub = true;
+        var msVal = parseFloat(shotSlider.value);
+        uiState.shotU = Number.isFinite(msVal) ? Math.max(0.0, Math.min(1.0, msVal / 400.0)) : 0.55;
+        uiState.fieldPhase = uiState.shotU * 8.0;
+        meshDirty = true;
+        renderAll();
+      });
+    }
+
     roundSlider.addEventListener("input", function() {
-      stopPlayback();
       var sVal = parseInt(roundSlider.value, 10);
       var r = sliderValToRound(Number.isFinite(sVal) ? sVal : 1000, uiState.regime);
-      uiState.round = r;
-      roundLbl.textContent = "t = " + formatRoundInt(r);
-      meshDirty = true;
-      renderAll();
+      setRoundAndSync(r);
     });
+
+    for (var pbi = 0; pbi < presetBtns.length; pbi++) {
+      (function(pBtn) {
+        pBtn.addEventListener("click", function() {
+          var pr = parseInt(pBtn.getAttribute("data-round-preset") || "10000", 10);
+          if (pr < 100 && uiState.regime === "tail") {
+            setRegimeView("full");
+          }
+          setRoundAndSync(pr);
+        });
+      })(presetBtns[pbi]);
+    }
 
     if (cutSlider) {
       cutSlider.addEventListener("input", function() {
@@ -2623,17 +2993,29 @@ let mount_tokamak_cad () =
         return;
       }
       uiState.playing = true;
-      playBtn.textContent = "⏸ Pause";
-      var curS = roundToSliderVal(uiState.round, uiState.regime);
-      if (curS >= 995) curS = 0;
-      setRoundAndSync(sliderValToRound(curS, uiState.regime));
+      playBtn.textContent = "⏸ Pause Shot";
+      playBtn.classList.add("active");
+      if (!hasManualShotScrub || uiState.shotU >= 0.98) {
+        uiState.shotU = 0.0;
+      }
+      hasManualShotScrub = true;
+      holdTicks = 0;
+      meshDirty = true;
+      renderAll();
       animTimer = setInterval(function() {
-        curS = Math.min(1000, curS + 8);
-        setRoundAndSync(sliderValToRound(curS, uiState.regime));
-        if (curS >= 1000) {
-          stopPlayback();
+        uiState.fieldPhase += 0.065;
+        if (uiState.shotU < 1.0) {
+          uiState.shotU = Math.min(1.0, uiState.shotU + 0.0086);
+        } else {
+          holdTicks++;
+          if (holdTicks >= 26) {
+            holdTicks = 0;
+            uiState.shotU = 0.0;
+          }
         }
-      }, 45);
+        meshDirty = true;
+        renderAll();
+      }, 33);
     });
 
     var dragging = false, lastX = 0, lastY = 0;

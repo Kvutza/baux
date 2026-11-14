@@ -1720,3 +1720,266 @@ html[data-theme='dark'] .baux-bench-shell.is-docked { border-top-color: #30363d 
   .baux-regime-btn { min-height: 26px; padding: 2px 6px; font-size: 10.5px; }
   .baux-scrub-bar { font-size: 10px; padding: 5px 8px; }
 }
+
+
+/* -------------------------------------------------------------------------- */
+/* 56-Function OxCaml Benchmark Suite Explorer (.oxb-*)                       */
+/* -------------------------------------------------------------------------- */
+.oxb-side-controls {
+  width: 246px;
+}
+.oxb-ctrl-title {
+  padding: 5px 12px;
+  font-size: 11.5px;
+  letter-spacing: 0.04em;
+}
+.oxb-fam-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3.5px;
+  margin-bottom: 2px;
+}
+.oxb-pill-btn {
+  padding: 2.5px 6px;
+  font-family: var(--font-mono, 'IBM Plex Mono', monospace);
+  font-size: 10px;
+  line-height: 1.3;
+  border-radius: 3px;
+  border: 1px solid var(--hairline-mid, #bbbbbb);
+  background: var(--bg-canvas, #ffffff);
+  color: var(--fg-secondary, #334155);
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+.oxb-pill-btn:hover {
+  border-color: var(--hairline-strong, #111111);
+  color: var(--fg-primary, #111111);
+}
+.oxb-pill-btn.active {
+  background: var(--hairline-strong, #111111);
+  color: #ffffff;
+  border-color: var(--hairline-strong, #111111);
+  font-weight: 600;
+}
+html[data-theme='dark'] .oxb-pill-btn {
+  background: #161b22;
+  border-color: #30363d;
+  color: #c9d1d9;
+}
+html[data-theme='dark'] .oxb-pill-btn:hover {
+  border-color: #8b949e;
+  color: #f0f6fc;
+}
+html[data-theme='dark'] .oxb-pill-btn.active {
+  background: #f0f6fc;
+  color: #0d1117;
+  border-color: #f0f6fc;
+}
+.oxb-fn-select {
+  font-size: 11.5px;
+}
+.tcv-preset-btn:disabled,
+.tcv-preset-btn.is-disabled {
+  opacity: 0.38;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+.oxb-arm-lbl {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.oxb-arm-tag {
+  font-family: var(--font-mono, monospace);
+  font-size: 10.5px;
+  opacity: 0.85;
+}
+.oxb-field-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+}
+.oxb-field-btn {
+  padding: 4px 5px;
+  font-size: 10.5px;
+}
+.oxb-status-badge {
+  font-size: 10.5px;
+  padding: 4px 6px;
+}
+.oxb-play-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+}
+.oxb-play-btn {
+  grid-column: 1 / -1;
+  justify-content: center;
+  font-weight: 700;
+  padding: 5px 8px;
+}
+.oxb-step-btn {
+  padding: 4px 5px;
+  font-size: 10.5px;
+}
+.oxb-webgl-canvas {
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  cursor: grab;
+}
+.oxb-webgl-canvas:active {
+  cursor: grabbing;
+}
+.oxb-map-canvas {
+  cursor: crosshair;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.oxb-trace-stage {
+  grid-column: 1 / -1;
+  width: 100%;
+  border-top: 1px solid var(--hairline, #dddddd);
+  background: var(--bg-canvas, #ffffff);
+}
+html[data-theme='dark'] .oxb-trace-stage {
+  background: #0d1117;
+  border-color: #30363d;
+}
+.oxb-trace-hdr {
+  padding: 5px 12px;
+  border-bottom: 1px solid var(--hairline, #e5e7eb);
+  background: var(--bg-surface, #fafafa);
+  font-size: 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+}
+html[data-theme='dark'] .oxb-trace-hdr {
+  background: #161b22;
+  border-color: #30363d;
+  color: #e6edf3;
+}
+.oxb-trace-sub {
+  font-family: var(--font-mono, 'IBM Plex Mono', monospace);
+  font-size: 10.5px;
+  color: var(--fg-muted, #64748b);
+}
+html[data-theme='dark'] .oxb-trace-sub {
+  color: #8b949e;
+}
+.oxb-trace-wrap {
+  position: relative;
+  width: 100%;
+  height: 94px;
+}
+.oxb-trace-canvas {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.oxb-meta-strip {
+  padding: 5px 12px;
+}
+.oxb-meta-chip {
+  font-family: var(--font-mono, 'IBM Plex Mono', monospace);
+  font-size: 10.5px;
+}
+.oxb-src-link {
+  font-family: var(--font-mono, 'IBM Plex Mono', monospace);
+  font-size: 10.5px;
+  color: var(--accent, #2563eb);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.oxb-src-link:hover {
+  text-decoration: underline;
+}
+html[data-theme='dark'] .oxb-src-link {
+  color: #58a6ff;
+}
+.oxb-hover-bar {
+  font-size: 10.5px;
+  padding: 6px 12px;
+}
+@media (max-width: 1260px) {
+  .oxb-side-controls {
+    width: 100%;
+    grid-template-columns: 1.2fr 1fr;
+  }
+  .oxb-ctrl-fn {
+    grid-column: 1 / -1;
+  }
+  .oxb-ctrl-dim {
+    grid-column: 1;
+    border-right: 1px solid var(--hairline, #dddddd);
+  }
+  html[data-theme='dark'] .oxb-ctrl-dim {
+    border-right-color: #30363d;
+  }
+  .oxb-ctrl-field {
+    grid-column: 2;
+  }
+  .oxb-ctrl-arm {
+    grid-column: 1 / -1;
+  }
+  .oxb-ctrl-play {
+    grid-column: 1 / -1;
+    border-bottom: none;
+  }
+  .oxb-play-grid {
+    grid-template-columns: 1.3fr repeat(4, 1fr);
+  }
+  .oxb-play-btn {
+    grid-column: auto;
+  }
+}
+@media (max-width: 820px) {
+  .oxb-webgl-wrap {
+    min-height: 290px;
+    height: 290px;
+    flex: none;
+  }
+  .oxb-map-wrap {
+    min-height: 295px;
+    height: 295px;
+    flex: none;
+  }
+}
+@media (max-width: 640px) {
+  .oxb-side-controls {
+    grid-template-columns: 1fr;
+  }
+  .oxb-ctrl-dim {
+    grid-column: 1;
+    border-right: none;
+  }
+  .oxb-ctrl-field {
+    grid-column: 1;
+  }
+  .oxb-play-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+  .oxb-play-btn {
+    grid-column: 1 / -1;
+  }
+  .oxb-webgl-wrap {
+    min-height: 250px;
+    height: 250px;
+  }
+  .oxb-map-wrap {
+    min-height: 265px;
+    height: 265px;
+  }
+  .oxb-trace-wrap {
+    height: 86px;
+  }
+}

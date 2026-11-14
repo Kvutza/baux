@@ -1500,7 +1500,7 @@ body[data-page="baux-0007"] pre code {
 }
 
 /* -------------------------------------------------------------------------- */
-/* Central 3D WebGL CAD Simulation (FUSE.jl Tokamaks & Oceananigans.jl Tanks) */
+/* Central 3D WebGL CAD Simulation (FUSE.jl Tokamaks) */
 /* -------------------------------------------------------------------------- */
 .tcv-cad-outer { position: relative; margin: 1.75rem 0 2.4rem 0; width: 100%; max-width: 100%; box-sizing: border-box; overflow: visible; }
 .tcv-cad-shell { width: 100%; max-width: 100%; box-sizing: border-box; overflow: hidden; border: 1px solid var(--hairline, #e5e7eb); border-radius: 8px; background: var(--bg-canvas, #ffffff); font-family: var(--font-serif, 'Latin Modern Roman', Georgia, serif); color: var(--fg-primary, #111111); }

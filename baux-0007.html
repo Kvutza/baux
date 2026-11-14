@@ -1,7 +1,7 @@
 <!DOCTYPE html PUBLIC "" "">
 <html xmlns="http://www.w3.org/1999/xhtml" xmlns:fr="http://www.jonmsterling.com/jms-005P.xml" data-base-url=""><head><meta http-equiv="Content-Type" content="text/html; charset=utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'"></meta><meta name="referrer" content="strict-origin-when-cross-origin"></meta><meta name="viewport" content="width=device-width, initial-scale=1.0"></meta><link rel="stylesheet" href="style.css?v=ec8e0c86ba29" integrity="sha384-prWJLw9d9FlZyttWCY7aOevn0l0thDvuA/maCLVu47Mmeh5P+U9T7XX6b6o+O6ox"></link><link rel="stylesheet" href="katex.min.css?v=18c1c9fb05e7" integrity="sha384-TPqpCe9iqIJJFMUr4nZhfVfnhPwt6zFQ0llYbuKCrML4vxvk3koGtCzSoij1dOEx"></link><script type="module" src="forester.js?v=8f33e155074f" integrity="sha384-xGSQiQu0kX1eP1SDLdMBK8nvtlny/KN8EmWrdGiKFvVJS601GfKKTJCMCk7KddQg"></script><script type="text/javascript" src="assets/baux_ui.js?v=cc5ef6aa4811" integrity="sha384-NajnfMg27KIJXHF7KNeOr6ZfVbtMh79tC2Xf7DFcxVVrIuReVR/N1L+ctNTZFWWe" defer></script><title>API Reference</title></head><body data-page="baux-0007"><header class="masthead"><div class="masthead-inner"><div class="masthead-brand"><a href="index.html" class="brand-title">baux</a></div><nav class="masthead-nav"><a href="index.html" class="nav-item">Overview</a><a href="docs.html" class="nav-item active">API Reference</a><a href="simulation.html" class="nav-item">Simulation</a><a href="https://github.com/Kvutza/baux" class="nav-item external" target="_blank" rel="noopener noreferrer">GitHub</a><a href="https://pypi.org/project/baux/" class="nav-item external" target="_blank" rel="noopener noreferrer">PyPI</a><a href="https://crates.io/crates/baux" class="nav-item external" target="_blank" rel="noopener noreferrer">Crates.io</a></nav></div></header><div id="grid-wrapper"><article><section xmlns="" lang="en" class="block"><div class="tree-node" id="id1">
-<header><h1><span class="sec-title">API Reference</span></h1></header><p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><code>import baux</code> lazily loads functional state transitions, pipeline stages, parameter domain specifications, and standalone Epistemic Nearest Neighbor (<code>ENN</code>) surrogates. Across all entrypoints, flat input arrays <code>x</code> have shape <code>(N, D)</code> (<code>float64</code>) inside natural domain bounds <code>[low, high]</code>, and objective arrays <code>y</code> (maximization convention) and optional observation variances <code>y_var</code> have shape <code>(N,)</code> for scalar targets or <code>(N, M)</code> (<code>float64</code>) for multi-output targets. Functional entrypoints (<code>baux.init</code>, <code>baux.ask</code>, <code>baux.tell</code>, <code>baux.enn_init</code>, <code>baux.enn_append</code>) take and return immutable state objects (<span class="link external"><code><a href="#baux.OptimizerState" rel="noopener noreferrer" title="">OptimizerState</a></code></span>, <span class="link external"><code><a href="#baux.ENNState" rel="noopener noreferrer" title="">ENNState</a></code></span>) whose array properties return read-only views (<code>writeable=False</code>), while <span class="link external"><code><a href="#baux.Optimizer" rel="noopener noreferrer" title="">Optimizer</a></code></span> and <span class="link external"><code><a href="#baux.ENN" rel="noopener noreferrer" title="">ENN</a></code></span> wrap the same solver in stateful classes.</p>
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'"></meta><meta name="referrer" content="strict-origin-when-cross-origin"></meta><meta name="viewport" content="width=device-width, initial-scale=1.0"></meta><link rel="stylesheet" href="style.css?v=ec8e0c86ba29" integrity="sha384-prWJLw9d9FlZyttWCY7aOevn0l0thDvuA/maCLVu47Mmeh5P+U9T7XX6b6o+O6ox"></link><link rel="stylesheet" href="katex.min.css?v=18c1c9fb05e7" integrity="sha384-TPqpCe9iqIJJFMUr4nZhfVfnhPwt6zFQ0llYbuKCrML4vxvk3koGtCzSoij1dOEx"></link><script type="module" src="forester.js?v=8f33e155074f" integrity="sha384-xGSQiQu0kX1eP1SDLdMBK8nvtlny/KN8EmWrdGiKFvVJS601GfKKTJCMCk7KddQg"></script><script type="text/javascript" src="assets/baux_ui.js?v=1d8bb711daf5" integrity="sha384-52dIQcWWrQj+KfIwFaR5MFW0i7NVvZcU5ZM0rO/v8to/841Huhd7kZf38G3qXa+W" defer></script><title>API Reference</title></head><body data-page="baux-0007"><header class="masthead"><div class="masthead-inner"><div class="masthead-brand"><a href="index.html" class="brand-title">baux</a></div><nav class="masthead-nav"><a href="index.html" class="nav-item">Overview</a><a href="docs.html" class="nav-item active">API Reference</a><a href="simulation.html" class="nav-item">Simulation</a><a href="https://github.com/Kvutza/baux" class="nav-item external" target="_blank" rel="noopener noreferrer">GitHub</a><a href="https://pypi.org/project/baux/" class="nav-item external" target="_blank" rel="noopener noreferrer">PyPI</a><a href="https://crates.io/crates/baux" class="nav-item external" target="_blank" rel="noopener noreferrer">Crates.io</a></nav></div></header><div id="grid-wrapper"><article><section xmlns="" lang="en" class="block"><div class="tree-node" id="id1">
+<header><h1><span class="sec-title">API Reference</span></h1></header><p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><code>import baux</code> exposes functional state transitions, composable pipeline transforms, parameter-manifold maps, and standalone Epistemic Nearest Neighbor (<code>ENN</code>) surrogates. Input arrays <code>x</code> carry shape <code>(N, D)</code> (<code>float64</code>) inside natural domain bounds <code>[low, high]</code>, while objective arrays <code>y</code> (maximization convention) and optional observation variances <code>y_var</code> carry shape <code>(N,)</code> or <code>(N, M)</code>. Functional entrypoints (<code>baux.init</code>, <code>baux.ask</code>, <code>baux.tell</code>, <code>baux.enn_init</code>, <code>baux.enn_append</code>) return immutable state objects (<span class="link external"><code><a href="#baux.OptimizerState" rel="noopener noreferrer" title="">OptimizerState</a></code></span>, <span class="link external"><code><a href="#baux.ENNState" rel="noopener noreferrer" title="">ENNState</a></code></span>) with read-only array views (<code>writeable=False</code>), whereas <span class="link external"><code><a href="#baux.Optimizer" rel="noopener noreferrer" title="">Optimizer</a></code></span> and <span class="link external"><code><a href="#baux.ENN" rel="noopener noreferrer" title="">ENN</a></code></span> wrap the same kernel in stateful classes.</p>
 <div xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux-api-filter"></div>
 <section lang="en" class="block"><div class="tree-node" id="id2">
 <header><h1>
@@ -400,7 +400,7 @@ assert len(state.pending_ids or ()) == 0</pre>
       <span class="api-kind-badge">class</span>
     </div>
     <pre>class baux.OptimizerState  (frozen dataclass; constructed via baux.init)</pre>
-    <p>Immutable state object encapsulating an optimizer search domain, configuration, observation history, trust-region ledger, and state digest.</p>
+    <p><code>OptimizerState</code> stores an immutable snapshot of the search domain, pipeline configuration, observation history, trust-region ledger, and cryptographic state digest.</p>
     <dl class="api-spec-list">
       <dt>Attributes &amp; Properties</dt>
       <dd>
@@ -452,7 +452,7 @@ assert len(state.pending_ids or ()) == 0</pre>
     spec: PyTreeSpec | None = None,
     weights: np.ndarray | None = None,
 )</pre>
-    <p>Candidate batch returned by <span class="link external"><code><a href="#baux.ask" rel="noopener noreferrer" title="">baux.ask</a></code></span> bundling evaluation IDs, coordinate rows, and structured PyTree decodings.</p>
+    <p><code>AskBatch</code> pairs proposed coordinate rows from <span class="link external"><code><a href="#baux.ask" rel="noopener noreferrer" title="">baux.ask</a></code></span> with typed evaluation tokens and decoded PyTree parameters.</p>
     <dl class="api-spec-list">
       <dt>Attributes &amp; Properties</dt>
       <dd>
@@ -478,7 +478,7 @@ assert len(state.pending_ids or ()) == 0</pre>
       <span class="api-kind-badge">class</span>
     </div>
     <pre>baux.AskId(value: int)</pre>
-    <p>Immutable 64-bit ticket (<code>int(aid)</code>) wrapping an unsigned integer evaluation identity (<code>0 &lt;= value &lt; 2**64</code>). It is hashable, totally ordered, and matched by <span class="link external"><code><a href="#baux.complete" rel="noopener noreferrer" title="">baux.complete</a></code></span> and <span class="link external"><code><a href="#baux.cancel" rel="noopener noreferrer" title="">baux.cancel</a></code></span> to resolve pending multi-region evaluations.</p>
+    <p><code>baux.AskId</code> wraps a 64-bit unsigned integer ticket (<code>0 &lt;= int(aid) &lt; 2**64</code>) identifying a dispatched multi-region arm. Tickets are hashable and totally ordered, and <span class="link external"><code><a href="#baux.complete" rel="noopener noreferrer" title="">baux.complete</a></code></span> and <span class="link external"><code><a href="#baux.cancel" rel="noopener noreferrer" title="">baux.cancel</a></code></span> match them to resolve or retire pending evaluations.</p>
   </div>
 </div></section><section lang="en" class="block"><div class="tree-node" id="id3">
 <header><h1>
@@ -588,7 +588,7 @@ assert len(state.pending_ids or ()) == 0</pre>
     affine: Affine | tuple[Any, Any, Any] | None = None,
     tied_dims: tuple[tuple[int, ...], ...] | None = None,
 ) -&gt; Transform</pre>
-      <p>Configure the Epistemic Nearest Neighbors surrogate stage in an optimization pipeline, combining local precision-weighted aggregation with calibrated predictive moments.</p>
+      <p><code>baux.enn</code> attaches the Epistemic Nearest Neighbors surrogate to the pipeline, using K-nearest precision weighting and leave-one-out scale calibration without global matrix inversion.</p>
       <dl class="api-spec-list">
         <dt>Parameters</dt>
         <dd>
@@ -640,7 +640,7 @@ assert len(y) == 2</pre>
         <span class="api-kind-badge">function</span>
       </div>
       <pre>baux.gp() -&gt; Transform</pre>
-      <p>Configure the exact ARD Gaussian Process surrogate stage for TuRBO-1 optimization. It automatically sets the acquisition rule to posterior function draw sampling.</p>
+      <p><code>baux.gp</code> attaches an exact ARD Gaussian Process surrogate for TuRBO-1 optimization and defaults the acquisition rule to posterior function-draw sampling.</p>
     </div>
 <div xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.zero" class="api-entry api-entry-compact" data-symbol="baux.zero" data-kind="function" data-module="baux.transforms">
       <div class="api-entry-header">
@@ -648,7 +648,7 @@ assert len(y) == 2</pre>
         <span class="api-kind-badge">function</span>
       </div>
       <pre>baux.zero() -&gt; Transform</pre>
-      <p>Configure surrogate-free TuRBO-zero optimization. Trust-region search operates directly on evaluated points without fitting a surrogate model or estimating posterior predictive variances.</p>
+      <p><code>baux.zero</code> selects surrogate-free TuRBO-zero search, evolving the trust region from evaluated observations without fitting a predictive model.</p>
     </div>
 <div xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.with_geometry" class="api-entry api-entry-compact" data-symbol="baux.with_geometry" data-kind="function" data-module="baux.transforms">
       <div class="api-entry-header">
@@ -656,7 +656,7 @@ assert len(y) == 2</pre>
         <span class="api-kind-badge">function</span>
       </div>
       <pre>baux.with_geometry(model: Any, geometry: str, local_k: int = 4) -&gt; Any</pre>
-      <p>Return a copy-on-write state, surrogate, config, or composed pipeline stage equipped with a local-scale dissimilarity geometry (<code>"euclidean"</code>, <code>"conformal"</code>, <code>"hyperbolic"</code>, or <code>"wasserstein"</code>; distance metric selections include <code>"l2"</code>, <code>"l2_squared"</code>, <code>"manhattan"</code>, <code>"chebyshev"</code>, <code>"cosine"</code>, and <code>"angular"</code>). Conformal local scaling follows Zelnik-Manor &amp; Perona <span class="link external"><a href="https://papers.nips.cc/paper_files/paper/2004/hash/40173ea48d9567f1f393b20c855bb40b-Abstract.html" rel="noopener noreferrer" title="">[ZMP04]</a></span>, hyperbolic upper half-space dissimilarity \(2 \sinh ^2(d_H/2) = \cosh (d_H) - 1\) follows Beardon <span class="link external"><a href="https://doi.org/10.1007/978-1-4612-1146-4" rel="noopener noreferrer" title="">[Bea83]</a></span>, and Gaussian-covariance transport dissimilarity follows Gelbrich <span class="link external"><a href="https://doi.org/10.1002/mana.19901470121" rel="noopener noreferrer" title="">[Gel90]</a></span>. Raises <code>ValueError</code> on unsupported metrics or geometries.</p>
+      <p><code>baux.with_geometry</code> attaches a local-scale dissimilarity (<code>"euclidean"</code>, <code>"conformal"</code>, <code>"hyperbolic"</code>, or <code>"wasserstein"</code>) and metric (<code>"l2"</code>, <code>"l2_squared"</code>, <code>"manhattan"</code>, <code>"chebyshev"</code>, <code>"cosine"</code>, or <code>"angular"</code>) to a state, surrogate, config, or pipeline without mutating the input. Conformal scaling follows Zelnik-Manor &amp; Perona <span class="link external"><a href="https://papers.nips.cc/paper_files/paper/2004/hash/40173ea48d9567f1f393b20c855bb40b-Abstract.html" rel="noopener noreferrer" title="">[ZMP04]</a></span>, Poincaré half-space dissimilarity \(2\sinh ^2(d_H/2) = \cosh (d_H) - 1\) follows Beardon <span class="link external"><a href="https://doi.org/10.1007/978-1-4612-1146-4" rel="noopener noreferrer" title="">[Bea83]</a></span>, and Gaussian-covariance transport follows Gelbrich <span class="link external"><a href="https://doi.org/10.1002/mana.19901470121" rel="noopener noreferrer" title="">[Gel90]</a></span>; unsupported geometry or metric names raise <code>ValueError</code>.</p>
     </div>
 </div></section><section lang="en" class="block"><div class="tree-node" id="id5">
 <header><h1>
@@ -667,7 +667,7 @@ assert len(y) == 2</pre>
         <span class="api-kind-badge">function</span>
       </div>
       <pre>baux.ucb(beta: float = 2.0) -&gt; Transform</pre>
-      <p>Configure Upper Confidence Bound acquisition scoring <code>mu + beta * se</code> over candidate points.</p>
+      <p><code>baux.ucb</code> sets acquisition scoring to the Upper Confidence Bound <code>mu + beta * se</code> across candidate batches.</p>
       <dl class="api-spec-list">
         <dt>Parameters</dt>
         <dd>
@@ -688,7 +688,7 @@ assert len(y) == 2</pre>
         <span class="api-kind-badge">function</span>
       </div>
       <pre>baux.thompson() -&gt; Transform</pre>
-      <p>Configure Thompson sampling acquisition by evaluating candidates against spatially coherent posterior function draws.</p>
+      <p><code>baux.thompson</code> selects candidates that maximize spatially coherent posterior function draws rather than marginal scores.</p>
     </div>
 <div xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.pareto" class="api-entry api-entry-compact" data-symbol="baux.pareto" data-kind="function" data-module="baux.transforms">
       <div class="api-entry-header">
@@ -696,7 +696,7 @@ assert len(y) == 2</pre>
         <span class="api-kind-badge">function</span>
       </div>
       <pre>baux.pareto() -&gt; Transform</pre>
-      <p>Configure parameter-free bi-objective Pareto non-dominated sorting acquisition over posterior mean and standard error <code>(mu, se)</code> for multi-output objectives (<code>M &gt;= 2</code>) and parameter-free ENN exploration.</p>
+      <p><code>baux.pareto</code> removes the exploration weight <code>beta</code> by sorting candidates along the non-dominated frontier of posterior mean and standard error <code>(mu, se)</code>.</p>
     </div>
 <div xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.random_acq" class="api-entry api-entry-compact" data-symbol="baux.random_acq" data-kind="function" data-module="baux.transforms">
       <div class="api-entry-header">
@@ -704,7 +704,7 @@ assert len(y) == 2</pre>
         <span class="api-kind-badge">function</span>
       </div>
       <pre>baux.random_acq() -&gt; Transform</pre>
-      <p>Configure uniform random candidate selection within the active trust region, bypassing surrogate-based acquisition scoring.</p>
+      <p><code>baux.random_acq</code> draws candidates uniformly within the active trust region, bypassing surrogate acquisition scoring.</p>
     </div>
 </div></section><section lang="en" class="block"><div class="tree-node" id="id6">
 <header><h1>
@@ -715,7 +715,7 @@ assert len(y) == 2</pre>
         <span class="api-kind-badge">function</span>
       </div>
       <pre>baux.lhd(num_init: int = 10, *, only: bool = False) -&gt; Transform</pre>
-      <p>Configure Latin Hypercube Design warm-up sampling with <code>num_init</code> arms (or pure global space-filling exploration when <code>only=True</code>). Raises <code>ValueError</code> if <code>num_init &lt; 1</code>.</p>
+      <p><code>baux.lhd</code> schedules <code>num_init</code> Latin Hypercube warm-up arms (or disables trust-region search for pure global space filling when <code>only=True</code>). Raises <code>ValueError</code> if <code>num_init &lt; 1</code>.</p>
     </div>
 <div xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.sobol" class="api-entry api-entry-compact" data-symbol="baux.sobol" data-kind="function" data-module="baux.transforms">
       <div class="api-entry-header">
@@ -728,7 +728,7 @@ assert len(y) == 2</pre>
     per_arm: int | None = None,
     num_pert: int | None = None,
 ) -&gt; Transform</pre>
-      <p>Configure scrambled Sobol quasi-Monte Carlo candidate box sampling within trust-region bounds.</p>
+      <p><code>baux.sobol</code> fills the trust-region candidate box with scrambled Sobol quasi-Monte Carlo points.</p>
     </div>
 <div xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.raasp" class="api-entry" data-symbol="baux.raasp" data-kind="function" data-module="baux.transforms">
       <div class="api-entry-header">
@@ -742,7 +742,7 @@ assert len(y) == 2</pre>
     per_arm: int | None = None,
     driver: RAASPDriver = RAASPDriver.ORIG,
 ) -&gt; Transform</pre>
-      <p>Configure RAASP sparse coordinate perturbation candidate sampling with axis-aligned coordinate perturbation probability <code>min(num_pert / D, 1.0)</code>.</p>
+      <p><code>baux.raasp</code> perturbs candidate axes sparsely around the trust-region center with per-coordinate probability <code>min(num_pert / D, 1.0)</code>.</p>
       <dl class="api-spec-list">
         <dt>Parameters</dt>
         <dd>
@@ -773,7 +773,7 @@ assert len(y) == 2</pre>
     per_arm: int | None = None,
     num_pert: int | None = None,
 ) -&gt; Transform</pre>
-      <p>Configure independent uniform coordinate perturbation within the trust region bounding box.</p>
+      <p><code>baux.uniform</code> perturbs every coordinate uniformly inside the trust-region bounding box.</p>
     </div>
 </div></section><section lang="en" class="block"><div class="tree-node" id="id7">
 <header><h1>
@@ -792,7 +792,7 @@ assert len(y) == 2</pre>
     failure_tolerance: int = 5,
     length: TrustRegionBounds | None = None,
 ) -&gt; Transform</pre>
-      <p>Configure multi-region portfolio search maintaining <code>count</code> concurrent local trust regions with observation sharing and bandit arm allocation.</p>
+      <p><code>baux.regions</code> runs <code>count</code> concurrent local trust regions linked by an observation-sharing geometry and a bandit arm allocator.</p>
       <dl class="api-spec-list">
         <dt>Parameters</dt>
         <dd>
@@ -829,7 +829,7 @@ assert len(y) == 2</pre>
     length_min: float = 0.5**7,
     length_max: float = 1.6,
 ) -&gt; Transform</pre>
-      <p>Configure unit-cube trust-region side-length bounds on single-region or multi-region controllers.</p>
+      <p><code>baux.tr_bounds</code> sets initial, restart-minimum, and maximum unit-cube side lengths across single- or multi-region controllers.</p>
       <dl class="api-spec-list">
         <dt>Parameters</dt>
         <dd>
@@ -864,7 +864,7 @@ assert len(y) == 2</pre>
     *,
     rank: int | None = None,
 ) -&gt; Transform | OptimizerState | Any</pre>
-      <p>Configure empirical Bayes James-Stein shrinkage toward a Stiefel subspace for multi-output objectives (<code>M &gt; rank</code>), shrinking noisy off-subspace variations toward the leading response directions.</p>
+      <p><code>baux.stein</code> shrinks noisy off-subspace residuals toward an orthonormal Stiefel basis whenever target dimension <code>M</code> exceeds <code>rank</code>.</p>
       <dl class="api-spec-list">
         <dt>Parameters</dt>
         <dd>
@@ -895,7 +895,7 @@ assert len(y) == 2</pre>
     *,
     alpha: float | None = None,
 ) -&gt; Transform | OptimizerState | Any</pre>
-      <p>Configure affine location-scale calibration and conformal quantile scaling on predictive surrogate distributions.</p>
+      <p><code>baux.calibrate</code> rescales predictive variance via an affine calibration map and inflates intervals by conformal quantile factors to restore empirical coverage.</p>
       <dl class="api-spec-list">
         <dt>Parameters</dt>
         <dd>
@@ -924,7 +924,7 @@ assert len(y) == 2</pre>
         <span class="api-kind-badge">class</span>
       </div>
       <pre>class baux.Transform</pre>
-      <p>Composable pipeline stage wrapping a configuration update function <code>Callable[[OptimizerConfig], OptimizerConfig]</code>. Supports left-to-right composition via <code>pipe1 | pipe2</code> and compiles to a concrete optimizer configuration via <code>pipe(config)</code>.</p>
+      <p><code>Transform</code> wraps a pure configuration update <code>Callable[[OptimizerConfig], OptimizerConfig]</code>, composing left-to-right with <code>pipe1 | pipe2</code> and compiling when called as <code>pipe(config)</code>.</p>
     </div>
 <div xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.chain" class="api-entry api-entry-compact" data-symbol="baux.chain" data-kind="function" data-module="baux.transforms">
       <div class="api-entry-header">
@@ -934,13 +934,13 @@ assert len(y) == 2</pre>
       <pre>baux.chain(
     *steps: Transform | Callable[[OptimizerConfig], OptimizerConfig] | OptimizerConfig,
 ) -&gt; OptimizerConfig</pre>
-      <p>Compose a sequence of pipeline stages left-to-right, applying each transform to accumulate a validated optimizer configuration.</p>
+      <p><code>baux.chain</code> folds a sequence of pipeline transforms left-to-right into one validated <span class="link external"><code><a href="#baux.OptimizerConfig" rel="noopener noreferrer" title="">OptimizerConfig</a></code></span>.</p>
     </div>
 </div></section>
 </div></section><section lang="en" class="block"><div class="tree-node" id="id10">
 <header><h1>
 <span class="sec-num">3. </span><span class="sec-title">Parameter Domains &amp; Subspace Maps</span>
-</h1></header><p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">Nested Python dictionaries, tuples, lists, namedtuples, and dataclasses (<code>PyTree</code>s) define structured parameter spaces that map onto flat solver coordinates and retract back to domain values. This layer provides domain specifications, manifold coordinate charts, and orthonormal subspace projections for continuous, angular, simplex, categorical, and multi-objective optimization.</p>
+</h1></header><p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">Nested Python dictionaries, tuples, lists, namedtuples, and dataclasses (<code>PyTree</code>s) map structured user domains onto flat solver coordinates and retract proposals back to valid domain values. These specifications equip continuous, positive-log, periodic, simplex, categorical, and multi-output spaces with distortion-free coordinate charts and orthonormal subspace projections.</p>
 <table xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" class="api-summary-table">
     <thead>
       <tr>
@@ -1020,7 +1020,7 @@ assert len(y) == 2</pre>
         <span class="api-kind-badge">class</span>
       </div>
       <pre>baux.Space(tree: Any, low: Any = -1.0, high: Any = 1.0) -&gt; PyTreeSpec</pre>
-      <p>Top-level domain specification constructor and alias for <span class="link external"><code><a href="#baux.PyTreeSpec" rel="noopener noreferrer" title="">baux.PyTreeSpec</a></code></span>. Calling <code>baux.Space(tree, low=-1.0, high=1.0)</code> compiles a nested parameter template directly into a <code>PyTreeSpec</code>.</p>
+      <p><code>baux.Space</code> aliases <span class="link external"><code><a href="#baux.PyTreeSpec" rel="noopener noreferrer" title="">baux.PyTreeSpec</a></code></span> as a top-level domain constructor; calling <code>baux.Space(tree, low=-1.0, high=1.0)</code> compiles a nested parameter template directly into flat solver bounds.</p>
       <dl class="api-spec-list">
         <dt>Parameters</dt>
         <dd>
@@ -1101,7 +1101,7 @@ assert np.allclose(params_rec["weights"], params["weights"])</pre>
     low: Any = -1.0,
     high: Any = 1.0,
 ) -&gt; PyTreeSpec</pre>
-      <p>Compiled parameter-space layout defining coordinate dimension, bounds, leaf traversal offsets, and tied coordinate groups.</p>
+      <p><code>baux.PyTreeSpec</code> stores the compiled parameter layout, including total solver dimension, coordinate bounds, leaf traversal offsets, and tied coordinate groups.</p>
       <dl class="api-spec-list">
         <dt>Attributes</dt>
         <dd>
@@ -1139,7 +1139,7 @@ assert np.allclose(params_rec["weights"], params["weights"])</pre>
         <span class="api-kind-badge">class</span>
       </div>
       <pre>baux.Log(low: float, high: float)</pre>
-      <p>Strictly positive interval specification mapping <code>[low, high]</code> (<code>0 &lt; low &lt; high</code>) linearly in <code>log(x)</code> onto <code>[0, 1]</code>.</p>
+      <p><code>Log</code> charts a strictly positive interval <code>[low, high]</code> (<code>0 &lt; low &lt; high</code>) onto <code>[0, 1]</code> linearly in <code>log(x)</code>, giving multiplicative steps equal metric weight.</p>
       <dl class="api-spec-list">
         <dt>Attributes</dt>
         <dd>
@@ -1169,7 +1169,7 @@ assert np.allclose(params_rec["weights"], params["weights"])</pre>
         <span class="api-kind-badge">class</span>
       </div>
       <pre>baux.Periodic(low: float = 0.0, high: float = 2.0 * math.pi)</pre>
-      <p>Periodic interval specification encoding angular phases on <code>[low, high]</code> as 2D <code>(cos, sin)</code> coordinates in <code>[0, 1]^2</code>, eliminating boundary seam discontinuities.</p>
+      <p><code>Periodic</code> embeds angular phases on <code>[low, high]</code> as 2D <code>(cos, sin)</code> coordinates in <code>[0, 1]^2</code> so distance wraps smoothly without boundary seam discontinuities.</p>
       <dl class="api-spec-list">
         <dt>Attributes</dt>
         <dd>
@@ -1199,7 +1199,7 @@ assert np.allclose(params_rec["weights"], params["weights"])</pre>
         <span class="api-kind-badge">class</span>
       </div>
       <pre>baux.Simplex(dim: int)</pre>
-      <p>Probability simplex specification encoding non-negative weights on <code>Delta^{dim - 1}</code> via square-root coordinates <code>psi_i(p) = sqrt(p_i)</code> on the unit sphere, so Euclidean distance matches Hellinger distance and decoded vectors sum to <code>1.0</code>.</p>
+      <p><code>Simplex</code> encodes non-negative mixture weights on <code>Delta^{dim - 1}</code> via square-root coordinates <code>psi_i(p) = sqrt(p_i)</code>, aligning Euclidean search distance with Hellinger geometry and guaranteeing decoded sums of <code>1.0</code>.</p>
       <dl class="api-spec-list">
         <dt>Attributes</dt>
         <dd>
@@ -1237,7 +1237,7 @@ assert np.allclose(params_rec["weights"], params["weights"])</pre>
     separation: float = 10.0,
     dim_cap: int = 48,
 ) -&gt; Categorical</pre>
-      <p>Functional constructor creating an isometric discrete choice specification (<span class="link external"><code><a href="#baux.Categorical" rel="noopener noreferrer" title="">baux.Categorical</a></code></span>) from a sequence of at least two discrete choices.</p>
+      <p><code>baux.categorical</code> constructs an isometric discrete-choice specification (<span class="link external"><code><a href="#baux.Categorical" rel="noopener noreferrer" title="">Categorical</a></code></span>) from at least two arbitrary Python options.</p>
       <dl class="api-spec-list">
         <dt>Parameters</dt>
         <dd>
@@ -1272,7 +1272,7 @@ assert np.allclose(params_rec["weights"], params["weights"])</pre>
     dim_cap: int = 48,
     key: Any = None,
 )</pre>
-      <p>Discrete choice specification embedding categories into one-hot vectors (for cardinality <code>&lt;= 15</code>) or equal-norm Rademacher Johnson-Lindenstrauss codewords, decoded by nearest inner product.</p>
+      <p><code>baux.Categorical</code> embeds discrete alternatives as one-hot vectors when cardinality \(\le  15\) or equal-norm Rademacher Johnson–Lindenstrauss codewords above \(\text {15}\), decoding vectors back by maximum inner product.</p>
     </div>
 <div xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.ravel" class="api-entry api-entry-compact" data-symbol="baux.ravel" data-kind="function" data-module="baux.pytree">
       <div class="api-entry-header">
@@ -1280,7 +1280,7 @@ assert np.allclose(params_rec["weights"], params["weights"])</pre>
         <span class="api-kind-badge">function</span>
       </div>
       <pre>baux.ravel(tree: Any, spec: PyTreeSpec | None = None) -&gt; np.ndarray</pre>
-      <p>Flatten a single parameter PyTree into a 1D coordinate vector of shape <code>(dim,)</code> or a batch into a 2D matrix of shape <code>(N, dim)</code>, encoding manifold and categorical leaves according to <code>spec</code>.</p>
+      <p><code>baux.ravel</code> packs a structured parameter PyTree (or batch) into flat solver vectors of shape <code>(dim,)</code> (or <code>(N, dim)</code>), encoding manifold and categorical leaves through <code>spec</code>.</p>
     </div>
 <div xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.unflatten" class="api-entry api-entry-compact" data-symbol="baux.unflatten" data-kind="function" data-module="baux.pytree">
       <div class="api-entry-header">
@@ -1288,7 +1288,7 @@ assert np.allclose(params_rec["weights"], params["weights"])</pre>
         <span class="api-kind-badge">function</span>
       </div>
       <pre>baux.unflatten(flat: Any, spec: PyTreeSpec, weights: np.ndarray | None = None) -&gt; Any</pre>
-      <p>Decode a 1D flat coordinate vector of length <code>spec.dim</code> into a single structured parameter PyTree, retracting coordinate specs to their natural parameter values.</p>
+      <p><code>baux.unflatten</code> decodes a length-<code>spec.dim</code> solver vector into a structured parameter PyTree and retracts each leaf onto its domain constraint.</p>
     </div>
 <div xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.unflatten_batch" class="api-entry api-entry-compact" data-symbol="baux.unflatten_batch" data-kind="function" data-module="baux.pytree">
       <div class="api-entry-header">
@@ -1300,7 +1300,7 @@ assert np.allclose(params_rec["weights"], params["weights"])</pre>
     spec: PyTreeSpec,
     weights: np.ndarray | None = None,
 ) -&gt; tuple[Any, ...]</pre>
-      <p>Decode a 2D batch coordinate matrix of shape <code>(B, D)</code> into a tuple of <code>B</code> structured parameter PyTrees matching <code>spec.template</code>.</p>
+      <p><code>baux.unflatten_batch</code> decodes a <code>(B, D)</code> solver matrix into a tuple of <code>B</code> structured parameter PyTrees matching <code>spec.template</code>.</p>
     </div>
 <div xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.unflatten_stacked" class="api-entry api-entry-compact" data-symbol="baux.unflatten_stacked" data-kind="function" data-module="baux.pytree">
       <div class="api-entry-header">
@@ -1312,7 +1312,7 @@ assert np.allclose(params_rec["weights"], params["weights"])</pre>
     spec: PyTreeSpec,
     weights: np.ndarray | None = None,
 ) -&gt; Any</pre>
-      <p>Decode a 2D batch coordinate matrix of shape <code>(B, D)</code> into a single PyTree with leading batch axis <code>B</code> on array leaves and lists on categorical leaves for vectorized evaluations.</p>
+      <p><code>baux.unflatten_stacked</code> decodes a <code>(B, D)</code> solver matrix into one batched PyTree with leading axis <code>B</code> on array leaves for vectorized evaluation.</p>
     </div>
 <div xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.pytree_bounds" class="api-entry api-entry-compact" data-symbol="baux.pytree_bounds" data-kind="function" data-module="baux.pytree">
       <div class="api-entry-header">
@@ -1320,7 +1320,7 @@ assert np.allclose(params_rec["weights"], params["weights"])</pre>
         <span class="api-kind-badge">function</span>
       </div>
       <pre>baux.pytree_bounds(tree: Any, low: Any = -1.0, high: Any = 1.0) -&gt; PyTreeSpec</pre>
-      <p>Compile a template PyTree of arrays, shape tuples, or coordinate specs with default lower and upper bounds into an immutable <code>PyTreeSpec</code>.</p>
+      <p><code>baux.pytree_bounds</code> compiles a template PyTree of arrays, shapes, or manifold specs into an immutable <span class="link external"><code><a href="#baux.PyTreeSpec" rel="noopener noreferrer" title="">PyTreeSpec</a></code></span> with shared default bounds.</p>
     </div>
 <div xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.LeafSpec" class="api-entry api-entry-compact" data-symbol="baux.LeafSpec" data-kind="class" data-module="baux.pytree">
       <div class="api-entry-header">
@@ -1337,7 +1337,7 @@ assert np.allclose(params_rec["weights"], params["weights"])</pre>
     categorical: Categorical | None = None,
     embed: Any = None,
 )</pre>
-      <p>Frozen leaf descriptor in <code>PyTreeSpec.leaves</code> storing path, offset, shape, coordinate bounds, and optional coordinate spec for a single leaf.</p>
+      <p><code>LeafSpec</code> records one leaf's tree path, flat slice offset, shape, coordinate bounds, and manifold encoder inside <code>PyTreeSpec.leaves</code>.</p>
     </div>
 </div></section><section lang="en" class="block"><div class="tree-node" id="id12">
 <header><h1>
@@ -1348,7 +1348,7 @@ assert np.allclose(params_rec["weights"], params["weights"])</pre>
         <span class="api-kind-badge">class</span>
       </div>
       <pre>baux.Stiefel(loadings: np.ndarray)</pre>
-      <p>Orthonormal subspace basis <code>V</code> of shape <code>(M, F)</code> on the Stiefel manifold implementing Empirical-Bayes James-Stein orthogonal residual contraction across correlated multi-output metrics.</p>
+      <p><code>baux.Stiefel</code> stores an orthonormal frame <code>V</code> of shape <code>(M, F)</code> on the Stiefel manifold and applies Empirical-Bayes James–Stein contraction to residuals orthogonal to <code>col(V)</code>.</p>
       <dl class="api-spec-list">
         <dt>Attributes</dt>
         <dd>
@@ -1402,13 +1402,13 @@ assert np.isfinite(y).all()</pre>
         <span class="api-kind-badge">class</span>
       </div>
       <pre>baux.Affine(a: np.ndarray, b: np.ndarray, c: np.ndarray)</pre>
-      <p>Affine location-scale posterior map transforming predictive moments to <code>(a + b * mu, c * se)</code> across <code>M</code> output metrics, supporting ordinary least-squares (<code>Affine.fit</code>), weighted least-squares (<code>Affine.fit_wls</code>), and finite-sample conformal quantile calibration (<code>conformal_scale</code>).</p>
+      <p><code>baux.Affine</code> applies per-metric location-scale transformations <code>(a + b * mu, c * se)</code> across <code>M</code> outputs, fitting coefficients by ordinary least squares (<code>Affine.fit</code>), weighted least squares (<code>Affine.fit_wls</code>), or finite-sample conformal residual scaling (<code>conformal_scale</code>).</p>
     </div>
 </div></section>
 </div></section><section lang="en" class="block"><div class="tree-node" id="id13">
 <header><h1>
 <span class="sec-num">4. </span><span class="sec-title">Keys, Rollouts &amp; Checkpoints</span>
-</h1></header><p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">Pure functional optimization requires deterministic pseudo-random key generation, reproducible rollout loops, and authenticated binary checkpointing. This section specifies splittable 128-bit cryptographic PRNG keys, batch execution primitives, and state serialization routines.</p>
+</h1></header><p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">Because functional transitions cannot rely on hidden global RNG state, every stochastic proposal derives from an explicit splittable key and every snapshot carries its own integrity digest. This section specifies 128-bit cryptographic keys, deterministic rollout combinators, and authenticated <code>BAUXFRZ2</code> checkpoint serialization.</p>
 <table xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" class="api-summary-table">
     <thead>
       <tr>
@@ -1461,7 +1461,7 @@ assert np.isfinite(y).all()</pre>
       <span class="api-kind-badge">function</span>
     </div>
     <pre>baux.key(source: Any = None) -&gt; Key</pre>
-    <p>Construct or extract a splittable 128-bit <span class="link external"><code><a href="#baux.Key" rel="noopener noreferrer" title="">baux.Key</a></code></span> from an integer seed, byte buffer, NumPy array, state snapshot, or OS entropy.</p>
+    <p><code>baux.key</code> constructs or extracts a splittable 128-bit <span class="link external"><code><a href="#baux.Key" rel="noopener noreferrer" title="">Key</a></code></span> from an integer seed, byte buffer, array, state snapshot, or OS entropy.</p>
     <dl class="api-spec-list">
       <dt>Parameters</dt>
       <dd>
@@ -1479,7 +1479,7 @@ assert np.isfinite(y).all()</pre>
       <span class="api-kind-badge">class</span>
     </div>
     <pre>baux.Key(source: int | bytes | Key | None = None) -&gt; Key</pre>
-    <p>Splittable 128-bit BLAKE3 cryptographic PRNG key seeding deterministic pseudorandom candidate sampling, LOO hyperparameter fits, and posterior draws.</p>
+    <p><code>Key</code> represents a splittable 128-bit BLAKE3 key that seeds deterministic candidate sampling, LOO hyperparameter fits, and posterior function draws.</p>
     <dl class="api-spec-list">
       <dt>Attributes</dt>
       <dd>
@@ -1517,7 +1517,7 @@ assert np.isfinite(y).all()</pre>
       <span class="api-kind-badge">function</span>
     </div>
     <pre>baux.split(k: Key, n: int = 2) -&gt; tuple[Key, ...]</pre>
-    <p>Deterministically partition parent key <code>k</code> into a tuple of <code>n</code> independent subkeys without mutating <code>k</code>.</p>
+    <p><code>baux.split</code> partitions parent key <code>k</code> deterministically into <code>n</code> independent child keys without mutating <code>k</code>.</p>
   </div>
 <div xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.fold" class="api-entry api-entry-compact" data-symbol="baux.fold" data-kind="function" data-module="baux.state">
     <div class="api-entry-header">
@@ -1525,7 +1525,7 @@ assert np.isfinite(y).all()</pre>
       <span class="api-kind-badge">function</span>
     </div>
     <pre>baux.fold(k: Key, tag: int) -&gt; Key</pre>
-    <p>Mix a 64-bit integer tag into key <code>k</code> (<code>int(tag) &amp; ((1 &lt;&lt; 64) - 1)</code>), returning an independent derived <code>Key</code> without mutating <code>k</code>.</p>
+    <p><code>baux.fold</code> mixes a 64-bit integer tag into key <code>k</code> without mutation to derive an independent child key.</p>
   </div>
 <div xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.scan" class="api-entry" data-symbol="baux.scan" data-kind="function" data-module="baux.state">
     <div class="api-entry-header">
@@ -1539,7 +1539,7 @@ assert np.isfinite(y).all()</pre>
     eval_fn: Callable[..., Any] | None = None,
     num_arms: int = 1,
 ) -&gt; tuple[OptimizerState, Key, list[dict[str, Any]]] | tuple[OptimizerState, np.ndarray]</pre>
-    <p>Fold <code>steps</code> sequential pure optimization rounds over <code>state</code>, advancing the PRNG stream and recording per-step trace dictionaries without shared mutable state.</p>
+    <p><code>baux.scan</code> folds <code>steps</code> sequential ask/tell rounds over <code>state</code> and a splitting key stream without shared mutable state.</p>
     <dl class="api-spec-list">
       <dt>Parameters</dt>
       <dd>
@@ -1605,7 +1605,7 @@ assert [r[0] for r in results] == [0, 1, 2]</pre>
     branches: int,
     branch_fn: Callable[[int, OptimizerState, Key], Any],
 ) -&gt; list[Any]</pre>
-    <p>Fork <code>state</code> and split <code>key</code> across <code>branches</code> worker threads, executing <code>branch_fn(branch_idx, branch_state, subkey)</code> concurrently.</p>
+    <p><code>baux.pmap</code> forks <code>state</code> and splits <code>key</code> across <code>branches</code> worker threads so parallel rollouts never contend on shared state.</p>
     <dl class="api-spec-list">
       <dt>Parameters</dt>
       <dd>
@@ -1633,7 +1633,7 @@ assert [r[0] for r in results] == [0, 1, 2]</pre>
       <span class="api-kind-badge">function</span>
     </div>
     <pre>baux.freeze(state: OptimizerState) -&gt; bytes</pre>
-    <p>Serialize <code>state</code> into a deterministic, authenticated <code>BAUXFRZ2</code> binary snapshot encoding observed parameters, objective values, fitted surrogate state, trust-region side lengths, streak counters, <code>epoch</code>, <code>seed</code>, and <code>pending_ids</code>.</p>
+    <p><code>baux.freeze</code> encodes an <code>OptimizerState</code> into a canonical <code>BAUXFRZ2</code> byte payload authenticated with a trailing BLAKE3 tag.</p>
     <dl class="api-spec-list">
       <dt>Parameters</dt>
       <dd>
@@ -1671,7 +1671,7 @@ assert np.array_equal(baux.ask(state, 2)[1].points, baux.ask(restored, 2)[1].poi
     state: OptimizerState,
     data: bytes | bytearray | memoryview,
 ) -&gt; OptimizerState</pre>
-    <p>Restore an <code>OptimizerState</code> from binary checkpoint <code>data</code> against template <code>state</code> without mutating <code>state</code>. Verifies regional mode parity, <code>BAUXFRZ2</code> header version, bounds compatibility, and BLAKE3 integrity tag, restoring the exact saved search state (<code>epoch</code>, <code>seed</code>, <code>identified</code>, <code>tr_length</code>, regional success and failure counters, observation arrays, fitted surrogate parameters, and <code>pending_ids</code>) so subsequent search proposals match the checkpointed optimizer.</p>
+    <p><code>baux.thaw</code> restores an <code>OptimizerState</code> from binary checkpoint <code>data</code> against template <code>state</code> without mutating <code>state</code>. It verifies the <code>BAUXFRZ2</code> header, regional mode parity, domain bounds, and BLAKE3 integrity tag, then reconstructs exact search state (<code>epoch</code>, <code>seed</code>, <code>identified</code>, <code>tr_length</code>, regional counters, observation arrays, fitted hyperparameters, and <code>pending_ids</code>) so subsequent proposals match the checkpoint.</p>
     <dl class="api-spec-list">
       <dt>Parameters</dt>
       <dd>
@@ -1702,12 +1702,12 @@ assert np.array_equal(baux.ask(state, 2)[1].points, baux.ask(restored, 2)[1].poi
       <span class="api-kind-badge">function</span>
     </div>
     <pre>baux.digest(state: OptimizerState) -&gt; str</pre>
-    <p>Return the canonical 64-character lowercase hexadecimal BLAKE3 cryptographic digest of <code>state</code>, covering domain bounds, configuration, ingested observations, and regional controller state.</p>
+    <p><code>baux.digest</code> computes the canonical 64-character hexadecimal BLAKE3 digest over domain bounds, pipeline config, observations, and controller state.</p>
   </div>
 </div></section><section lang="en" class="block"><div class="tree-node" id="id14">
 <header><h1>
 <span class="sec-num">5. </span><span class="sec-title">Standalone ENN Surrogate</span>
-</h1></header><p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">The Epistemic Nearest Neighbor (ENN) surrogate can be evaluated and updated directly outside the optimization loop via pure functional transitions over <span class="link external"><code><a href="#baux.ENNState" rel="noopener noreferrer" title="">baux.ENNState</a></code></span>. Functions such as <span class="link external"><code><a href="#baux.enn_init" rel="noopener noreferrer" title="">baux.enn_init</a></code></span>, <span class="link external"><code><a href="#baux.enn_fit" rel="noopener noreferrer" title="">baux.enn_fit</a></code></span>, <span class="link external"><code><a href="#baux.enn_posterior" rel="noopener noreferrer" title="">baux.enn_posterior</a></code></span>, <span class="link external"><code><a href="#baux.enn_sample" rel="noopener noreferrer" title="">baux.enn_sample</a></code></span>, and <span class="link external"><code><a href="#baux.enn_append" rel="noopener noreferrer" title="">baux.enn_append</a></code></span> operate on read-only arrays with copy-on-write index state.</p>
+</h1></header><p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">You can fit and query the Epistemic Nearest Neighbor (ENN) surrogate outside an optimization loop through pure transitions over <span class="link external"><code><a href="#baux.ENNState" rel="noopener noreferrer" title="">baux.ENNState</a></code></span>. Functions <span class="link external"><code><a href="#baux.enn_init" rel="noopener noreferrer" title="">baux.enn_init</a></code></span>, <span class="link external"><code><a href="#baux.enn_fit" rel="noopener noreferrer" title="">baux.enn_fit</a></code></span>, <span class="link external"><code><a href="#baux.enn_posterior" rel="noopener noreferrer" title="">baux.enn_posterior</a></code></span>, <span class="link external"><code><a href="#baux.enn_sample" rel="noopener noreferrer" title="">baux.enn_sample</a></code></span>, and <span class="link external"><code><a href="#baux.enn_append" rel="noopener noreferrer" title="">baux.enn_append</a></code></span> keep input arrays read-only and update the neighbor index copy-on-write.</p>
 <table xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" class="api-summary-table">
     <thead>
       <tr>
@@ -1975,7 +1975,7 @@ assert len(state2) == 6</pre>
       <span class="api-kind-badge">class</span>
     </div>
     <pre>class baux.ENNState  (frozen dataclass; constructed via baux.enn_init)</pre>
-    <p>Immutable record coupling read-only observation arrays with a copy-on-write neighbor index.</p>
+    <p><code>ENNState</code> bundles read-only training observations with a copy-on-write neighbor index and content-addressed RNG key.</p>
     <dl class="api-spec-list">
       <dt>Attributes</dt>
       <dd>
@@ -2015,7 +2015,7 @@ assert len(state2) == 6</pre>
     epistemic_scale: float,
     aleatoric_scale: float,
 )</pre>
-    <p>Frozen hyperparameter record governing nearest-neighbor aggregation count and predictive variance multipliers.</p>
+    <p><code>ENNParams</code> holds the neighbor stencil count <code>k_neighbors</code> and fitted variance multipliers (<code>epistemic_scale</code>, <code>aleatoric_scale</code>).</p>
     <dl class="api-spec-list">
       <dt>Attributes</dt>
       <dd>
@@ -2036,7 +2036,7 @@ assert len(state2) == 6</pre>
       <span class="api-kind-badge">class</span>
     </div>
     <pre>class baux.Posterior  (device-resident posterior; paired with host baux.enn.ENNNormal)</pre>
-    <p>Device-resident posterior snapshot returned by accelerator queries, exposing DLPack <code>mean</code>, <code>se</code>, and shared-seed <code>draw(seeds)</code> buffers directly on GPU memory without host round-trips.</p>
+    <p><code>Posterior</code> holds DLPack <code>mean</code>, <code>se</code>, and shared-seed <code>draw(seeds)</code> buffers on accelerator memory so GPU queries avoid host round-trips.</p>
   </div>
 <div xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.NeighborIndex" class="api-entry api-entry-compact" data-symbol="baux.NeighborIndex" data-kind="class" data-module="baux.index">
     <div class="api-entry-header">
@@ -2044,7 +2044,7 @@ assert len(state2) == 6</pre>
       <span class="api-kind-badge">class</span>
     </div>
     <pre>class baux.NeighborIndex(enum.Enum)</pre>
-    <p>Enumeration selecting the nearest-neighbor search driver across CPU and GPU hardware: <code>EXACT</code> (or <code>FLAT</code>), <code>HNSW</code> (or <code>USEARCH</code>), <code>BPANN_DISK</code>, <code>METAL</code>, <code>CUDA</code>, <code>OPENCL</code>, and <code>AUTO</code>.</p>
+    <p><code>NeighborIndex</code> enumerates the native nearest-neighbor index drivers across CPU, disk, and GPU backends (<code>EXACT</code>/<code>FLAT</code>, <code>HNSW</code>/<code>USEARCH</code>, <code>BPANN_DISK</code>, <code>METAL</code>, <code>CUDA</code>, <code>OPENCL</code>, and <code>AUTO</code>).</p>
   </div>
 <div xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.DistanceMetric" class="api-entry api-entry-compact" data-symbol="baux.DistanceMetric" data-kind="class" data-module="baux.index">
     <div class="api-entry-header">
@@ -2052,7 +2052,7 @@ assert len(state2) == 6</pre>
       <span class="api-kind-badge">class</span>
     </div>
     <pre>class baux.DistanceMetric(enum.Enum)</pre>
-    <p>Enumeration of pairwise distance metrics supported by neighbor indices, including <code>SQUARED_L2</code> (required for TuRBO optimization), <code>L2</code>, <code>MANHATTAN</code>, <code>CHEBYSHEV</code>, and <code>COSINE</code>.</p>
+    <p><code>DistanceMetric</code> enumerates pairwise index distances, including <code>SQUARED_L2</code> (required by TuRBO), <code>L2</code>, <code>MANHATTAN</code>, <code>CHEBYSHEV</code>, and <code>COSINE</code>.</p>
   </div>
 </div></section><section lang="en" class="block"><div class="tree-node" id="id15">
 <header><h1>
@@ -2167,7 +2167,7 @@ assert len(state2) == 6</pre>
     config: OptimizerConfig,
     rng: np.random.Generator,
 ) -&gt; Optimizer</pre>
-      <p>Validate domain bounds and configuration, initialize random state from <code>rng</code>, and construct an in-place stateful <span class="link external"><code><a href="#baux.Optimizer" rel="noopener noreferrer" title="">baux.Optimizer</a></code></span>.</p>
+      <p><code>baux.create_optimizer</code> validates domain bounds and pipeline config, seeds PRNG state from <code>rng</code>, and constructs an in-place stateful <span class="link external"><code><a href="#baux.Optimizer" rel="noopener noreferrer" title="">Optimizer</a></code></span>.</p>
       <dl class="api-spec-list">
         <dt>Parameters</dt>
         <dd>
@@ -2209,7 +2209,7 @@ assert isinstance(telem, baux.Telemetry)</pre>
         <span class="api-kind-badge">class</span>
       </div>
       <pre>class baux.Optimizer  (constructed via baux.create_optimizer)</pre>
-      <p>Stateful in-place Bayesian optimization harness wrapping single-region and multi-region native solvers.</p>
+      <p><code>Optimizer</code> wraps the native single- and multi-region Rust solvers behind an imperative <code>ask</code>/<code>tell</code> interface for host loops that cannot thread functional snapshots.</p>
       <dl class="api-spec-list">
         <dt>Attributes</dt>
         <dd>
@@ -2270,7 +2270,7 @@ assert isinstance(telem, baux.Telemetry)</pre>
     y_bounds: np.ndarray | None = None,
     **options: Any,
 )</pre>
-      <p>Stateful Epistemic Nearest Neighbors surrogate supporting incremental updates, conditional queries, and accelerator execution.</p>
+      <p><code>baux.ENN</code> manages a mutable Rust-backed nearest-neighbor surrogate that supports incremental <code>add</code> updates, conditional queries, and DLPack GPU inference.</p>
       <dl class="api-spec-list">
         <dt>Attributes</dt>
         <dd>
@@ -2319,7 +2319,7 @@ assert isinstance(telem, baux.Telemetry)</pre>
     *,
     infer_aleatoric_variance_scale: bool = True,
 )</pre>
-      <p>Incremental stateful hyperparameter fitter maintaining streaming target variance statistics via <code>tell(x, y, yvar)</code>, fitting <code>ask(model, num_candidates=..., num_samples=...) -&gt; ENNParams</code>, and reporting <code>y_std()</code>.</p>
+      <p><code>ENNFitter</code> tracks streaming target variance statistics via <code>tell(x, y, yvar)</code> and returns fitted <code>ENNParams</code> from <code>ask(model, num_candidates=..., num_samples=...)</code>.</p>
     </div>
 <div xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.Telemetry" class="api-entry api-entry-compact" data-symbol="baux.Telemetry" data-kind="class" data-module="baux.turbo.optimizer_types">
       <div class="api-entry-header">
@@ -2333,7 +2333,7 @@ assert isinstance(telem, baux.Telemetry)</pre>
     dt_tell: float = 0.0,
     num_candidates: int = 0,
 )</pre>
-      <p>Frozen slotted dataclass reporting native wall-clock phase durations in seconds (<code>dt_fit</code>, <code>dt_sel</code>, <code>dt_gen</code>, <code>dt_tell</code>) and candidate pool size (<code>num_candidates</code>) from the latest proposal round.</p>
+      <p><code>Telemetry</code> records native phase timings in seconds (<code>dt_fit</code>, <code>dt_sel</code>, <code>dt_gen</code>, <code>dt_tell</code>) and candidate pool count (<code>num_candidates</code>) from the latest proposal round.</p>
     </div>
 <div xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.TellPredictionError" class="api-entry api-entry-compact" data-symbol="baux.TellPredictionError" data-kind="class" data-module="baux.bo">
       <div class="api-entry-header">
@@ -2341,7 +2341,7 @@ assert isinstance(telem, baux.Telemetry)</pre>
         <span class="api-kind-badge">class</span>
       </div>
       <pre>class baux.TellPredictionError(RuntimeError)</pre>
-      <p>Exception raised when observation ingestion succeeds in the native store but the subsequent <code>posterior_mu</code> call fails; invariant <code>observations_accepted = True</code> confirms observations were recorded and must not be resubmitted.</p>
+      <p><code>TellPredictionError</code> signals that observations were committed to the native store before a follow-up <code>posterior_mu</code> query failed; its <code>observations_accepted = True</code> flag warns callers not to resubmit the batch.</p>
     </div>
 </div></section><section lang="en" class="block"><div class="tree-node" id="id17">
 <header><h1>
@@ -2360,7 +2360,7 @@ assert isinstance(telem, baux.Telemetry)</pre>
     acq_optimizer: AcqOptimizerConfig = ...,
     observation_history: ObservationHistoryConfig = ObservationHistoryConfig(),
 )</pre>
-      <p>Composite configuration record defining trust region behavior, candidate sampling, warm-up initialization, surrogate architecture, and acquisition optimization.</p>
+      <p><code>OptimizerConfig</code> specifies the validated trust-region policy, candidate sampler, warm-up budget, surrogate model, and acquisition rule compiled by a pipeline.</p>
       <dl class="api-spec-list">
         <dt>Attributes</dt>
         <dd>
@@ -2400,7 +2400,7 @@ assert isinstance(telem, baux.Telemetry)</pre>
     controller: Literal["turbo", "fixed_radius"] = "turbo",
     acquisitions: tuple[AcquisitionConfig | None, ...] = (),
 )</pre>
-      <p>Multi-region trust region policy managing concurrent region allocations, observation sharing rules, and restart conditions.</p>
+      <p><code>RegionalSearchPolicy</code> governs how concurrent local trust regions share observations, receive bandit arm allocations, expand or shrink, and restart.</p>
       <dl class="api-spec-list">
         <dt>Attributes</dt>
         <dd>
@@ -2433,7 +2433,7 @@ assert isinstance(telem, baux.Telemetry)</pre>
     length_min: float = 0.5**7,
     length_max: float = 1.6,
 )</pre>
-      <p>Frozen dataclass specifying side length limits for trust regions, validating <code>0 &lt; length_min &lt;= length_init &lt;= length_max</code>.</p>
+      <p><code>TrustRegionBounds</code> enforces side-length invariants <code>0 &lt; length_min &lt;= length_init &lt;= length_max</code> on trust-region expansion and restart thresholds.</p>
     </div>
 <div xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.turbo_enn" class="api-entry api-entry-compact" data-symbol="baux.turbo_enn" data-kind="function" data-module="baux.turbo.config">
       <div class="api-entry-header">
@@ -2448,7 +2448,7 @@ assert isinstance(telem, baux.Telemetry)</pre>
     num_init: int | None = None,
     acquisition: AcquisitionKind = AcquisitionKind.PARETO,
 ) -&gt; OptimizerConfig</pre>
-      <p>Preset factory returning an <span class="link external"><code><a href="#baux.OptimizerConfig" rel="noopener noreferrer" title="">baux.OptimizerConfig</a></code></span> backed by an Epistemic Nearest Neighbors surrogate; equivalent to composable pipeline <code>baux.enn(...) | baux.ucb(...)</code> or <code>baux.pareto(...)</code>.</p>
+      <p><code>baux.turbo_enn</code> returns an <span class="link external"><code><a href="#baux.OptimizerConfig" rel="noopener noreferrer" title="">OptimizerConfig</a></code></span> preset backed by the ENN surrogate; the composable pipeline <code>baux.enn(...) | baux.ucb(...)</code> (or <code>baux.pareto(...)</code>) is equivalent.</p>
     </div>
 <div xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.turbo_one" class="api-entry api-entry-compact" data-symbol="baux.turbo_one" data-kind="function" data-module="baux.turbo.config">
       <div class="api-entry-header">
@@ -2463,7 +2463,7 @@ assert isinstance(telem, baux.Telemetry)</pre>
     sampler: CandidateSampler = CandidateSampler.SOBOL,
     acquisition: AcquisitionKind = AcquisitionKind.THOMPSON,
 ) -&gt; OptimizerConfig</pre>
-      <p>Preset factory returning a TuRBO-1 <span class="link external"><code><a href="#baux.OptimizerConfig" rel="noopener noreferrer" title="">baux.OptimizerConfig</a></code></span> backed by an exact Gaussian Process surrogate with Thompson or UCB acquisition.</p>
+      <p><code>baux.turbo_one</code> returns a TuRBO-1 <span class="link external"><code><a href="#baux.OptimizerConfig" rel="noopener noreferrer" title="">OptimizerConfig</a></code></span> preset backed by an exact Gaussian Process surrogate and Thompson or UCB acquisition.</p>
     </div>
 <div xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.turbo_zero" class="api-entry api-entry-compact" data-symbol="baux.turbo_zero" data-kind="function" data-module="baux.turbo.config">
       <div class="api-entry-header">
@@ -2478,7 +2478,7 @@ assert isinstance(telem, baux.Telemetry)</pre>
     trust_region: TrustRegionConfig | None = None,
     sampler: CandidateSampler = CandidateSampler.SOBOL,
 ) -&gt; OptimizerConfig</pre>
-      <p>Preset factory returning a surrogate-free TuRBO-0 <span class="link external"><code><a href="#baux.OptimizerConfig" rel="noopener noreferrer" title="">baux.OptimizerConfig</a></code></span> using local trust region bounds with random candidate acquisition.</p>
+      <p><code>baux.turbo_zero</code> returns a surrogate-free TuRBO-0 <span class="link external"><code><a href="#baux.OptimizerConfig" rel="noopener noreferrer" title="">OptimizerConfig</a></code></span> preset that selects random candidates inside local trust-region bounds.</p>
     </div>
 <div xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.lhd_only" class="api-entry api-entry-compact" data-symbol="baux.lhd_only" data-kind="function" data-module="baux.turbo.config">
       <div class="api-entry-header">
@@ -2492,7 +2492,7 @@ assert isinstance(telem, baux.Telemetry)</pre>
     trust_region: TrustRegionConfig | None = None,
     sampler: CandidateSampler = CandidateSampler.SOBOL,
 ) -&gt; OptimizerConfig</pre>
-      <p>Preset factory returning an <span class="link external"><code><a href="#baux.OptimizerConfig" rel="noopener noreferrer" title="">baux.OptimizerConfig</a></code></span> configured for space-filling Latin Hypercube Design sampling without surrogate modeling or trust regions.</p>
+      <p><code>baux.lhd_only</code> returns an <span class="link external"><code><a href="#baux.OptimizerConfig" rel="noopener noreferrer" title="">OptimizerConfig</a></code></span> preset for space-filling Latin Hypercube Design sampling without a surrogate or trust region.</p>
     </div>
 <div xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.enn_optimizer" class="api-entry api-entry-compact" data-symbol="baux.enn_optimizer" data-kind="function" data-module="baux.bo">
       <div class="api-entry-header">
@@ -2506,7 +2506,7 @@ assert isinstance(telem, baux.Telemetry)</pre>
     seed: int | None = None,
     config: Any = None,
 ) -&gt; BayesOptimizer</pre>
-      <p>Low-level PyO3 constructor returning a native Rust single-region TuRBO-ENN optimizer; prefer <span class="link external"><code><a href="#baux.init" rel="noopener noreferrer" title="">baux.init</a></code></span> or <span class="link external"><code><a href="#baux.create_optimizer" rel="noopener noreferrer" title="">baux.create_optimizer</a></code></span> for validated configurations and PyTree domains.</p>
+      <p><code>baux.enn_optimizer</code> constructs a low-level PyO3 handle to the native single-region TuRBO-ENN solver; prefer <span class="link external"><code><a href="#baux.init" rel="noopener noreferrer" title="">baux.init</a></code></span> or <span class="link external"><code><a href="#baux.create_optimizer" rel="noopener noreferrer" title="">baux.create_optimizer</a></code></span> for validated configs and PyTree domains.</p>
     </div>
 <div xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.create_zero" class="api-entry api-entry-compact" data-symbol="baux.create_zero" data-kind="function" data-module="baux.bo">
       <div class="api-entry-header">
@@ -2519,7 +2519,7 @@ assert isinstance(telem, baux.Telemetry)</pre>
     seed: int | None = None,
     config: Any = None,
 ) -&gt; BayesOptimizer</pre>
-      <p>Low-level PyO3 constructor returning a native Rust surrogate-free TuRBO-0 optimizer handle.</p>
+      <p><code>baux.create_zero</code> constructs a low-level PyO3 handle to the native surrogate-free TuRBO-0 solver.</p>
     </div>
 <div xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.create_lhd" class="api-entry api-entry-compact" data-symbol="baux.create_lhd" data-kind="function" data-module="baux.bo">
       <div class="api-entry-header">
@@ -2532,7 +2532,7 @@ assert isinstance(telem, baux.Telemetry)</pre>
     seed: int | None = None,
     config: Any = None,
 ) -&gt; BayesOptimizer</pre>
-      <p>Low-level PyO3 constructor returning a native Rust Latin Hypercube Design baseline optimizer handle.</p>
+      <p><code>baux.create_lhd</code> constructs a low-level PyO3 handle to the native Latin Hypercube Design baseline solver.</p>
     </div>
 </div></section><section lang="en" class="block"><div class="tree-node" id="id18">
 <header><h1>
@@ -2543,7 +2543,7 @@ assert isinstance(telem, baux.Telemetry)</pre>
         <span class="api-kind-badge">function</span>
       </div>
       <pre>baux.capabilities(*, probe: bool = False) -&gt; tuple[BackendCapabilities, ...]</pre>
-      <p>Inspect the installed native extension capabilities across CPU, CUDA, Metal, and OpenCL backends, optionally exercising device hardware when <code>probe=True</code>.</p>
+      <p><code>baux.capabilities</code> inspects native build support across CPU, CUDA, Metal, and OpenCL backends and probes live hardware when <code>probe=True</code>.</p>
       <dl class="api-spec-list">
         <dt>Parameters</dt>
         <dd>
@@ -2571,7 +2571,7 @@ assert isinstance(telem, baux.Telemetry)</pre>
     host_operations: tuple[str, ...],
     array_frameworks: tuple[str, ...],
 )</pre>
-      <p>Frozen slotted dataclass describing native build support, hardware availability, operation execution tiers, and detected Python array frameworks for one backend.</p>
+      <p><code>BackendCapabilities</code> summarizes compile support, hardware availability, direct-versus-fallback execution tiers, and installed Python array packages for one backend.</p>
       <dl class="api-spec-list">
         <dt>Attributes</dt>
         <dd>
@@ -2604,7 +2604,7 @@ assert isinstance(telem, baux.Telemetry)</pre>
         <span class="api-kind-badge">class</span>
       </div>
       <pre>baux.Device(name: str = "auto") -&gt; Device</pre>
-      <p>Native accelerator context selector resolving <code>"auto"</code>, <code>"cpu"</code>, <code>"metal"</code>, or <code>"cuda"</code>, with constructors <code>Device.auto()</code>, <code>Device.cpu()</code>, <code>Device.metal()</code>, <code>Device.cuda()</code>, and memory telemetry via <code>memory_info()</code>.</p>
+      <p><code>Device</code> resolves accelerator contexts across <code>"auto"</code>, <code>"cpu"</code>, <code>"metal"</code>, and <code>"cuda"</code> and exposes device memory telemetry through <code>memory_info()</code>.</p>
     </div>
 <div xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.optuna.Sampler" class="api-entry" data-symbol="baux.optuna.Sampler" data-kind="class" data-module="baux.optuna">
       <div class="api-entry-header">
@@ -2617,7 +2617,7 @@ assert isinstance(telem, baux.Telemetry)</pre>
     config: OptimizerConfig | None = None,
     seed: int | None = None,
 )</pre>
-      <p>Subclass of <code>optuna.samplers.BaseSampler</code> routing fixed continuous single-objective Optuna studies through BAUX. Imported via <code>import baux.optuna</code> (requires optional <code>optuna</code> package).</p>
+      <p><code>baux.optuna.Sampler</code> subclasses <code>optuna.samplers.BaseSampler</code> to drive fixed continuous single-objective Optuna studies with BAUX (requires optional <code>optuna</code>).</p>
       <dl class="api-spec-list">
         <dt>Parameters</dt>
         <dd>
@@ -2651,7 +2651,7 @@ assert isinstance(telem, baux.Telemetry)</pre>
         <span class="api-kind-badge">module</span>
       </div>
       <pre>baux.experimental.program</pre>
-      <p>Experimental compilation and resident buffer execution interface lowering StableHLO MLIR modules or traced functions to IREE, TVM, or XLA backends, exposing <code>compile</code>, <code>Executable</code>, <code>Buffer</code>, <code>TensorSpec</code>, and <code>register</code>.</p>
+      <p><code>baux.experimental.program</code> lowers StableHLO MLIR modules or traced functions to IREE, TVM, or XLA backends via <code>compile</code>, <code>Executable</code>, <code>Buffer</code>, <code>TensorSpec</code>, and <code>register</code>.</p>
     </div>
 </div></section>
 </div></section>

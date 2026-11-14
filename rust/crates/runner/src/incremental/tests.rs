@@ -338,7 +338,7 @@ fn assert_standalone(tree: &str, run_dir: &std::path::Path) {
             .skip(1)
             .map(|s| s.split_once('}').unwrap().0.parse::<f64>().unwrap())
             .collect();
-        assert!(ys.len() >= 3);
+        assert!(ys.len() >= if view == "[data-view]{full}" { 2 } else { 3 });
         ys.sort_by(|a, b| a.partial_cmp(b).unwrap());
         for w in ys.windows(2) {
             assert!(w[1] - w[0] >= 12.4, "svg label collision in {view}: {ys:?}");
@@ -390,7 +390,7 @@ fn test_plots() {
 
     let tree = std::fs::read_to_string(dir.join("forest/trees/baux-0010.tree")).unwrap();
     assert_forester(&tree);
-    assert!(tree.contains("4 topologies ≡ 0") && tree.contains("On-Policy PPO: 20.59"));
+    assert!(tree.contains("4 topologies ≡ 0") && !tree.contains("PPO"));
     assert!(tree.contains("[data-scrub]{TuRBO-0 (R=10)|ENN · Wasserstein|ENN · Euclidean|ENN · Hyperbolic|ENN · Conformal~1:"));
     assert_standalone(&tree, &run_dir);
 

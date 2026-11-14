@@ -2,7 +2,7 @@
 \meta{slug}{simulation}
 
 \p{
-  The viewer above renders 3D cutaway vessel and coil geometries, equilibrium flux surfaces, and closed-loop policy trajectories exported from \code{FUSE.jl 1.2.1} (Meneghini et al. [[Men+24]](https://arxiv.org/abs/2409.05894)); see the [Overview](index.html) for the \code{ENN} surrogate and multi-region search formulation.
+  The interactive console above couples 3D cutaway magnet and plasma geometry (discrete vertical #{B_\phi} toroidal-field cages, signed #{\pm I} poloidal-field shaping rings, nested #{D_\alpha} flux surfaces, and 3D helical #{q_{95}} field lines), 2D poloidal equilibrium cross-sections, and closed-loop policy search trajectories on \code{TCV}, alongside stationary Grad–Shafranov equilibria exported from \code{FUSE.jl 1.2.1} (Meneghini et al. [[Men+24]](https://arxiv.org/abs/2409.05894)) for \code{SPARC}, \code{ARC}, \code{ITER}, and \code{DIII-D}; see the [Overview](index.html) for the \code{ENN} surrogate and multi-region search formulation.
 }
 
 \subtree{
@@ -17,7 +17,7 @@
   \title{TCV Rampdown Policy Search (\code{toka_gym})}
 
   \p{
-    On the open-source EPFL/MIT \code{toka_gym} TCV plasma rampdown benchmark (Wang et al. [[Wan+25]](https://doi.org/10.1038/s41467-025-63917-3), Theiler et al. [[The+26]](https://doi.org/10.1088/1741-4326/ae6d12)), a four-layer policy #{\pi_\theta : \mathbb{R}^{11} \to [-1, 1]^8} of hidden width #{256} (#{D = 136{,}712} weights) is searched directly on closed-loop trajectories (#{20} steps #{\times\, 4} substeps) over #{10{,}000} sequential rounds across #{n = 10} common-random-number seeds (#{800{,}000} rollouts across #{8} configurations; initial error \code{58.12 ± 31.39}, exact paired initialization drift \code{0.00}). Multi-region surrogate-free \code{TuRBO-zero} (#{R = 10}, sparse coordinate perturbations of expected block size #{d_p = 13{,}671}) produces identical trajectories across all four cross-region sharing topologies (\code{origin-only}, \code{box-contain}, \code{ellipsoid-ball}, \code{nearest-center}), dropping below on-policy PPO (\code{20.59}) by round #{2} (\code{20.33 ± 6.58}) and reaching \code{1.42 ± 0.03} (\code{1.4192 ± 0.0306}) at round #{250}, \code{1.38 ± 0.04} at round #{1{,}000}, \code{1.36 ± 0.03} at round #{3{,}000}, and \code{1.31 ± 0.02} (\code{1.3112 ± 0.0157}) at round #{10{,}000}.
+    On the open-source EPFL/MIT \code{toka_gym} TCV plasma rampdown benchmark (Wang et al. [[Wan+25]](https://doi.org/10.1038/s41467-025-63917-3), Theiler et al. [[The+26]](https://doi.org/10.1088/1741-4326/ae6d12)), a four-layer policy #{\pi_\theta : \mathbb{R}^{11} \to [-1, 1]^8} of hidden width #{256} (#{D = 136{,}712} weights) is searched directly on closed-loop trajectories (#{20} steps #{\times\, 4} substeps) over #{10{,}000} sequential rounds across #{n = 10} common-random-number seeds (#{800{,}000} rollouts across #{8} configurations; initial error \code{58.12 ± 31.39}, exact paired initialization drift \code{0.00}). Multi-region surrogate-free \code{TuRBO-zero} (#{R = 10}, sparse coordinate perturbations of expected block size #{d_p = 13{,}671}) produces identical trajectories across all four cross-region sharing topologies (\code{origin-only}, \code{box-contain}, \code{ellipsoid-ball}, \code{nearest-center}), reaching \code{20.33 ± 6.58} by round #{2}, \code{1.42 ± 0.03} (\code{1.4192 ± 0.0306}) at round #{250}, \code{1.38 ± 0.04} at round #{1{,}000}, \code{1.36 ± 0.03} at round #{3{,}000}, and \code{1.31 ± 0.02} (\code{1.3112 ± 0.0157}) at round #{10{,}000}.
   }
 
   \p{
@@ -59,7 +59,7 @@
   }
 
   \p{
-    Both configurations below run surrogate-free multi-region \code{TuRBO-zero} (\code{acquisition = "random"}, #{R = 10} regions, \code{incumbent-ucb1} routing, sparse coordinate perturbations of expected block size #{d_p = 16{,}053}, #{2} candidates and #{1} arm per round; [baux.regions](docs.html#baux.regions)) across #{n = 10} paired seeds so only cross-region incumbent sharing differs. Entries report sample \code{mean ± SEM} (\code{ddof = 1}); unadjusted two-sided paired #{t_9} #{p}-values are listed at rounds 8,000 and 10,000, Holm–Bonferroni adjustment across the #{6} post-initialization checkpoints gives #{p_{\mathrm{Holm}} = 0.246}, and an on-policy PPO run reaches \code{44.25} at round 10,000.
+    Both configurations below run surrogate-free multi-region \code{TuRBO-zero} (\code{acquisition = "random"}, #{R = 10} regions, \code{incumbent-ucb1} routing, sparse coordinate perturbations of expected block size #{d_p = 16{,}053}, #{2} candidates and #{1} arm per round; [baux.regions](docs.html#baux.regions)) across #{n = 10} paired seeds so only cross-region incumbent sharing differs. Entries report sample \code{mean ± SEM} (\code{ddof = 1}); unadjusted two-sided paired #{t_9} #{p}-values are listed at rounds 8,000 and 10,000, and Holm–Bonferroni adjustment across the #{6} post-initialization checkpoints gives #{p_{\mathrm{Holm}} = 0.246}.
   }
 
   \<table>{

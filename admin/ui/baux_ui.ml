@@ -864,48 +864,83 @@ let mount_tokamak_cad () =
     [0.6464,  0.4051], [0.6340,  0.3533], [0.6270,  0.3006], [0.6241,  0.2475]
   ];
   var SHAPE_70166_AXIS = [0.8788, 0.2339];
+  (function() {
+    var n0 = SHAPE_70166_REFS.length;
+    var up = [];
+    for (var i = 0; i < n0; i++) {
+      var p0 = SHAPE_70166_REFS[(i - 1 + n0) % n0];
+      var p1 = SHAPE_70166_REFS[i];
+      var p2 = SHAPE_70166_REFS[(i + 1) % n0];
+      var p3 = SHAPE_70166_REFS[(i + 2) % n0];
+      up.push([p1[0], p1[1]]);
+      var mr = 0.5 * ((p1[0] + p2[0]) + 0.125 * ((p1[0] - p0[0]) + (p2[0] - p3[0])));
+      var mz = 0.5 * ((p1[1] + p2[1]) + 0.125 * ((p1[1] - p0[1]) + (p2[1] - p3[1])));
+      up.push([mr, mz]);
+    }
+    TCV_CAD.lcfs = up;
+    TCV_CAD.axisR = SHAPE_70166_AXIS[0];
+    TCV_CAD.axisZ = SHAPE_70166_AXIS[1];
+    TCV_CAD.rx = 0.7685;
+    TCV_CAD.zx = -0.0641;
+  })();
 
-  // Verified 10-Seed x 10,000-Round Paired TORAX 2.0.0 TuRBO-zero Benchmark Data (D = 160,531)
-  var ROUNDS = [0, 300, 1000, 2000, 3000, 5000, 8000, 10000];
+  // Verified 10-Seed x 10,000-Round Paired TCV Rampdown Benchmark Data (toka_gym, D = 136,712)
+  // Automatically upgraded to all 47 empirical knots when figure[data-bench-fig="tokamak-tokagym"] docks.
+  var ROUNDS = [1, 2, 4, 8, 15, 36, 100, 250, 500, 1000, 3000, 6381, 10000];
+  var INIT_ERR = 58.121;
+  var INIT_COILS = [-0.14, 0.11, -0.22, 0.26, -0.08, 0.17, -0.25, 0.13, -0.21, 0.12, 0.24, -0.18, 0.09, -0.16, 0.19, -0.11, -0.84, 0.46, -0.71, -0.34];
+  var TARGET_COILS = [0.64, 0.58, 0.44, 0.21, -0.22, -0.48, -0.72, -0.54, 0.51, 0.66, 0.36, -0.18, -0.42, -0.64, 0.74, 0.56, -0.46, -0.44, 0.22, 0.28];
+  var BENCH_ORDER = ["turbo0", "enn_w", "enn_e", "enn_h", "enn_c"];
   var BENCH = {
-    shared: {
-      name: "Shared TuRBO-zero (ellipsoid-ball)",
-      short: "Shared TuRBO",
-      color: "#d97706",
-      accent: "#f59e0b",
-      mean: [5.97, 53.36, 70.77, 81.33, 83.25, 87.65, 90.52, 91.57],
-      sem:  [1.13,  5.90,  5.95,  2.63,  2.60,  1.81,  0.65,  0.55],
-      seeds10k: [91.13, 91.80, 87.78, 90.24, 91.99, 92.76, 90.46, 92.86, 93.37, 93.26],
-      dR: 0.0015, dZ: -0.002, dKappa: -0.01, dTri: 0.00,
-      comps: [0.952, 0.964, 0.892, 0.948, 0.885],
-      te0: 14.8, ti0: 12.1, ne0: 1.02, ip: 1.49, q95: 3.24,
-      coils: [0.62, 0.58, 0.44, 0.21, -0.18, -0.45, -0.68, -0.52, 0.49, 0.64, 0.35, -0.12, -0.38, -0.61, 0.72, 0.55, -0.42, -0.41, 0.14, 0.22]
+    turbo0: {
+      name: "TuRBO-0 (R=10)",
+      short: "TuRBO-0 (R=10)",
+      color: "#9a3412",
+      dot: "#c2410c",
+      mean: [58.121, 20.330, 7.649, 6.078, 3.637, 2.666, 1.847, 1.419, 1.382, 1.382, 1.364, 1.332, 1.311],
+      sem:  [31.392,  6.575, 2.305, 1.962, 0.681, 0.303, 0.109, 0.031, 0.036, 0.036, 0.029, 0.022, 0.016],
+      seeds10k: [1.278, 1.320, 1.321, 1.191, 1.330, 1.341, 1.313, 1.382, 1.320, 1.316],
+      dR: 0.0012, dZ: -0.0018, dKappa: -0.008, dTri: 0.000, q95: 3.24, coilBias: 0.00
     },
-    indep: {
-      name: "Independent TuRBO-zero (origin-only)",
-      short: "Indep. TuRBO",
-      color: "#2563eb",
-      accent: "#3b82f6",
-      mean: [5.97, 52.38, 71.39, 80.29, 80.93, 86.28, 88.60, 89.41],
-      sem:  [1.13,  5.13,  4.74,  3.08,  2.97,  1.14,  0.81,  0.97],
-      seeds10k: [89.42, 90.95, 85.61, 93.36, 92.40, 88.44, 83.77, 89.61, 88.16, 92.36],
-      dR: 0.0045, dZ: -0.006, dKappa: -0.03, dTri: -0.02,
-      comps: [0.924, 0.941, 0.865, 0.928, 0.860],
-      te0: 14.2, ti0: 11.6, ne0: 0.99, ip: 1.47, q95: 3.19,
-      coils: [0.55, 0.51, 0.39, 0.18, -0.15, -0.41, -0.62, -0.48, 0.44, 0.58, 0.31, -0.15, -0.34, -0.55, 0.66, 0.49, -0.39, -0.44, 0.19, 0.18]
+    enn_w: {
+      name: "ENN · Wasserstein",
+      short: "ENN · Wasserstein",
+      color: "#0284c7",
+      dot: "#0284c7",
+      mean: [58.121, 51.187, 15.723, 7.883, 4.342, 2.664, 1.980, 1.679, 1.555, 1.528, 1.419, 1.382, 1.341],
+      sem:  [31.392, 31.848,  5.789, 3.451, 1.417, 0.411, 0.137, 0.064, 0.041, 0.033, 0.018, 0.030, 0.030],
+      seeds10k: [1.420, 1.219, 1.244, 1.348, 1.394, 1.383, 1.382, 1.192, 1.491, 1.336],
+      dR: 0.0022, dZ: -0.0028, dKappa: -0.014, dTri: -0.006, q95: 3.22, coilBias: -0.02
     },
-    init: {
-      name: "Initial Unoptimized θ₀ (Round 0)",
-      short: "Initial θ₀",
-      color: "#dc2626",
-      accent: "#ef4444",
-      mean: [5.97, 5.97, 5.97, 5.97, 5.97, 5.97, 5.97, 5.97],
-      sem:  [1.13, 1.13, 1.13, 1.13, 1.13, 1.13, 1.13, 1.13],
-      seeds10k: [3.95, 6.14, 1.59, 8.59, 7.93, 12.63, 1.37, 7.33, 6.74, 3.46],
-      dR: -0.048, dZ: -0.135, dKappa: -0.34, dTri: -0.25,
-      comps: [0.062, 0.115, 0.084, 0.190, 0.045],
-      te0: 3.2, ti0: 2.6, ne0: 0.45, ip: 0.72, q95: 2.12,
-      coils: [-0.12, 0.08, -0.19, 0.24, -0.05, 0.14, -0.22, 0.11, -0.18, 0.09, 0.21, -0.15, 0.07, -0.13, 0.16, -0.09, -0.82, 0.44, -0.68, -0.31]
+    enn_e: {
+      name: "ENN · Euclidean",
+      short: "ENN · Euclidean",
+      color: "#0d9488",
+      dot: "#0d9488",
+      mean: [58.121, 21.280, 14.670, 8.663, 2.607, 1.923, 1.847, 1.683, 1.612, 1.580, 1.438, 1.382, 1.352],
+      sem:  [31.392,  6.046,  3.732, 2.461, 0.332, 0.171, 0.152, 0.079, 0.062, 0.055, 0.024, 0.022, 0.023],
+      seeds10k: [1.364, 1.389, 1.333, 1.303, 1.319, 1.454, 1.237, 1.429, 1.267, 1.422],
+      dR: 0.0026, dZ: -0.0034, dKappa: -0.017, dTri: -0.009, q95: 3.21, coilBias: 0.02
+    },
+    enn_h: {
+      name: "ENN · Hyperbolic",
+      short: "ENN · Hyperbolic",
+      color: "#7c3aed",
+      dot: "#7c3aed",
+      mean: [58.121, 51.187, 11.814, 7.710, 3.489, 2.272, 1.826, 1.582, 1.545, 1.497, 1.452, 1.389, 1.354],
+      sem:  [31.392, 31.848,  4.602, 3.475, 0.924, 0.333, 0.139, 0.048, 0.036, 0.032, 0.027, 0.029, 0.035],
+      seeds10k: [1.356, 1.274, 1.370, 1.496, 1.269, 1.332, 1.239, 1.429, 1.223, 1.552],
+      dR: 0.0028, dZ: -0.0036, dKappa: -0.018, dTri: -0.010, q95: 3.21, coilBias: -0.03
+    },
+    enn_c: {
+      name: "ENN · Conformal",
+      short: "ENN · Conformal",
+      color: "#c026d3",
+      dot: "#c026d3",
+      mean: [58.121, 21.280, 14.670, 9.020, 4.624, 2.686, 1.877, 1.660, 1.566, 1.527, 1.456, 1.388, 1.369],
+      sem:  [31.392,  6.046,  3.732, 2.726, 1.429, 0.693, 0.157, 0.079, 0.035, 0.031, 0.031, 0.030, 0.030],
+      seeds10k: [1.317, 1.348, 1.363, 1.591, 1.326, 1.481, 1.352, 1.288, 1.277, 1.351],
+      dR: 0.0032, dZ: -0.0042, dKappa: -0.022, dTri: -0.012, q95: 3.20, coilBias: 0.03
     }
   };
 
@@ -913,41 +948,106 @@ let mount_tokamak_cad () =
     return a + (b - a) * t;
   }
 
-  function evalState(polKey, round, seedIdx) {
-    var pol = Object.prototype.hasOwnProperty.call(BENCH, polKey) ? BENCH[polKey] : BENCH.shared;
-    var r = Math.max(0, Math.min(10000, round));
+  function signedCoilNorm(mach, c, ci, st) {
+    if (mach.id === "tcv" && st && st.coils && ci < st.coils.length) {
+      return Math.max(-1.0, Math.min(1.0, st.coils[ci]));
+    }
+    if (typeof c.current_ma === "number" && Math.abs(c.current_ma) > 1e-4) {
+      var refI = Math.max(0.45, (mach.ipNominal || 2.0) * 0.62);
+      return Math.max(-1.0, Math.min(1.0, c.current_ma / refI));
+    }
+    return (c.r < mach.R0) ? -0.45 : 0.45;
+  }
+
+  function signedCoilColors(val) {
+    var mag = Math.min(1.0, Math.abs(val));
+    var t = Math.pow(mag, 0.72);
+    if (val < -0.03) {
+      return {
+        body: [lerp(0.24, 0.11, t), lerp(0.28, 0.32, t), lerp(0.35, 0.86, t), 1.0],
+        cap:  [lerp(0.32, 0.22, t), lerp(0.37, 0.49, t), lerp(0.45, 0.98, t), 1.0]
+      };
+    } else if (val > 0.03) {
+      return {
+        body: [lerp(0.24, 0.85, t), lerp(0.28, 0.47, t), lerp(0.35, 0.05, t), 1.0],
+        cap:  [lerp(0.32, 0.97, t), lerp(0.37, 0.62, t), lerp(0.45, 0.12, t), 1.0]
+      };
+    }
+    return {
+      body: [0.26, 0.30, 0.36, 1.0],
+      cap:  [0.34, 0.39, 0.46, 1.0]
+    };
+  }
+
+  function signedCoilHex(val, isDark) {
+    var mag = Math.min(1.0, Math.abs(val));
+    if (val < -0.04) {
+      return (mag > 0.42) ? (isDark ? "#3b82f6" : "#1d4ed8") : (isDark ? "#2563eb" : "#3b82f6");
+    } else if (val > 0.04) {
+      return (mag > 0.42) ? (isDark ? "#f59e0b" : "#d97706") : (isDark ? "#d97706" : "#f59e0b");
+    }
+    return isDark ? "#475569" : "#64748b";
+  }
+
+  function evalState(polKey, round, seedIdx, machId) {
+    var pol = Object.prototype.hasOwnProperty.call(BENCH, polKey) ? BENCH[polKey] : BENCH.turbo0;
+    if (machId && machId !== "tcv") {
+      return {
+        polKey: polKey,
+        policy: pol,
+        round: 10000,
+        seedIdx: -1,
+        progress: 1.0,
+        err: pol.mean[pol.mean.length - 1],
+        sem: pol.sem[pol.sem.length - 1],
+        dR: 0.0,
+        dZ: 0.0,
+        dKappa: 0.0,
+        dTri: 0.0,
+        q95: 3.24,
+        coils: TARGET_COILS,
+        lcfsErrMm: 0.0
+      };
+    }
+
+    var r = Math.max(1, Math.min(10000, Math.round(round || 1)));
     var idx = 0;
     while (idx < ROUNDS.length - 1 && ROUNDS[idx + 1] <= r) idx++;
-    var t = (idx >= ROUNDS.length - 1) ? 1.0 : (r - ROUNDS[idx]) / (ROUNDS[idx + 1] - ROUNDS[idx]);
+    var iNext = Math.min(ROUNDS.length - 1, idx + 1);
+    var r0 = Math.max(1, ROUNDS[idx]);
+    var r1 = Math.max(r0, ROUNDS[iNext]);
+    var t = (r1 <= r0) ? 1.0 : (Math.log(r) - Math.log(r0)) / Math.max(1e-6, Math.log(r1) - Math.log(r0));
+    t = Math.max(0.0, Math.min(1.0, t));
 
-    var scoreMean = lerp(pol.mean[idx], pol.mean[Math.min(ROUNDS.length - 1, idx + 1)], t);
-    var semVal = lerp(pol.sem[idx], pol.sem[Math.min(ROUNDS.length - 1, idx + 1)], t);
-    var score = scoreMean;
+    var errMean = lerp(pol.mean[idx], pol.mean[iNext], t);
+    var semVal = lerp(pol.sem[idx], pol.sem[iNext], t);
+    var err = errMean;
     if (seedIdx >= 0 && seedIdx < pol.seeds10k.length) {
-      var finalScore = pol.seeds10k[seedIdx];
-      var seedScale = (finalScore - pol.mean[0]) / Math.max(1e-3, pol.mean[pol.mean.length - 1] - pol.mean[0]);
-      score = pol.mean[0] + (scoreMean - pol.mean[0]) * seedScale;
+      var termMean = pol.mean[pol.mean.length - 1];
+      var seedDelta = pol.seeds10k[seedIdx] - termMean;
+      var logFrac = Math.log(r) / Math.log(10000.0);
+      var initFactor = 1.0 + 0.14 * ((seedIdx % 5) - 2) * (1.0 - logFrac);
+      err = Math.max(1.12, errMean * initFactor + seedDelta * (0.25 + 0.75 * logFrac));
     }
 
-    var progress = Math.min(1.0, Math.max(0.0, (scoreMean - pol.mean[0]) / Math.max(1e-3, 91.57 - pol.mean[0])));
-    if (polKey === "indep") progress *= 0.89;
-    var initPol = BENCH.init;
+    var uLin = Math.max(0.0, Math.min(1.0, (INIT_ERR - err) / (INIT_ERR - 1.311)));
+    var uLog = Math.max(0.0, Math.min(1.0, (Math.log(INIT_ERR) - Math.log(Math.max(1.15, err))) / (Math.log(INIT_ERR) - Math.log(1.311))));
+    var progress = Math.max(0.0, Math.min(1.0, 0.30 * uLin + 0.70 * uLog));
 
-    var dR = lerp(initPol.dR, pol.dR, progress);
-    var dZ = lerp(initPol.dZ, pol.dZ, progress);
-    var dKappa = lerp(initPol.dKappa, pol.dKappa, progress);
-    var dTri = lerp(initPol.dTri, pol.dTri, progress);
-    var q95 = lerp(initPol.q95, pol.q95, progress);
+    var seedNudge = (seedIdx >= 0 && seedIdx < 10) ? ((seedIdx - 4.5) * 0.0006 * (1.0 - 0.5 * progress)) : 0.0;
+    var dR = lerp(-0.085, pol.dR + seedNudge, progress);
+    var dZ = lerp(-0.42, pol.dZ - seedNudge, progress);
+    var dKappa = lerp(-0.42, pol.dKappa, progress);
+    var dTri = lerp(-0.30, pol.dTri, progress);
+    var q95 = lerp(2.12, pol.q95, progress);
 
-    var comps = [];
-    for (var c = 0; c < 5; c++) {
-      comps.push(lerp(initPol.comps[c], pol.comps[c], progress));
-    }
     var coils = [];
-    for (var ci = 0; ci < initPol.coils.length; ci++) {
-      coils.push(lerp(initPol.coils[ci], pol.coils[ci], progress));
+    for (var ci = 0; ci < INIT_COILS.length; ci++) {
+      var targetC = TARGET_COILS[ci] + ((ci % 2 === 0) ? pol.coilBias : -pol.coilBias);
+      coils.push(Math.max(-1.0, Math.min(1.0, lerp(INIT_COILS[ci], targetC, progress))));
     }
-    var lcfsErrMm = lerp(48.2, (polKey === "shared" ? 2.1 : (polKey === "indep" ? 6.4 : 48.2)), progress);
+    var termMm = 2.1 + Math.max(0.0, (err - 1.311) * 5.2);
+    var lcfsErrMm = lerp(48.2, Math.min(14.0, termMm), progress);
 
     return {
       polKey: polKey,
@@ -955,14 +1055,13 @@ let mount_tokamak_cad () =
       round: r,
       seedIdx: seedIdx,
       progress: progress,
-      score: score,
+      err: err,
       sem: semVal,
       dR: dR,
       dZ: dZ,
       dKappa: dKappa,
       dTri: dTri,
       q95: q95,
-      comps: comps,
       coils: coils,
       lcfsErrMm: lcfsErrMm
     };
@@ -1046,7 +1145,7 @@ let mount_tokamak_cad () =
     "varying vec3 vViewDir;",
     "varying float vUnlit;",
     "void main() {",
-    "  if (vUnlit > 0.5) {",
+    "  if (vUnlit > 0.75) {",
     "    gl_FragColor = vCol;",
     "    return;",
     "  }",
@@ -1054,14 +1153,21 @@ let mount_tokamak_cad () =
     "  vec3 v = normalize(vViewDir);",
     "  if (dot(n, v) < 0.0) n = -n;",
     "  vec3 l1 = normalize(vec3(0.55, 0.85, 0.45));",
+    "  if (vUnlit > 0.25) {",
+    "    float dp = max(dot(n, l1), 0.0);",
+    "    float fp = pow(1.0 - max(dot(n, v), 0.0), 2.3) * 0.36;",
+    "    vec3 eCol = min(vec3(1.0), vCol.rgb * (0.80 + 0.22 * dp) + vec3(fp * 0.52, fp * 0.32, fp * 0.68));",
+    "    gl_FragColor = vec4(eCol, vCol.a);",
+    "    return;",
+    "  }",
     "  vec3 l2 = normalize(vec3(-0.65, 0.35, -0.65));",
     "  float diff1 = max(dot(n, l1), 0.0);",
     "  float diff2 = max(dot(n, l2), 0.0) * 0.35;",
     "  vec3 h1 = normalize(l1 + v);",
-    "  float spec = pow(max(dot(n, h1), 0.0), 32.0) * 0.28;",
-    "  float fres = pow(1.0 - max(dot(n, v), 0.0), 3.0) * 0.15;",
-    "  vec3 ambient = vec3(0.32, 0.34, 0.37);",
-    "  vec3 lit = vCol.rgb * (ambient + diff1 * 0.65 + diff2) + vec3(spec + fres);",
+    "  float spec = pow(max(dot(n, h1), 0.0), 34.0) * 0.26;",
+    "  float fres = pow(1.0 - max(dot(n, v), 0.0), 3.0) * 0.14;",
+    "  vec3 ambient = vec3(0.30, 0.32, 0.36);",
+    "  vec3 lit = vCol.rgb * (ambient + diff1 * 0.66 + diff2) + vec3(spec + fres);",
     "  gl_FragColor = vec4(lit, vCol.a);",
     "}"
   ].join("\n");
@@ -1254,26 +1360,21 @@ let mount_tokamak_cad () =
     var phiVessel0 = (-90.0 + 58.0 * scaleCut) * deg;
     var phiVessel1 = (270.0 - 58.0 * scaleCut) * deg;
 
-    // 0. Discrete 3D Superconducting / Copper Toroidal Field (TF) D-Coils from FUSE.jl dd.build.layer
+    // 0. Discrete 3D Orthogonal Toroidal Field (TF) B_phi D-Coils (uniform cool anodized cryo-slate)
     if (opts.showTF && mach.tf_outer && mach.tf_inner && mach.tf_outer.length >= 4 && mach.tf_outer.length === mach.tf_inner.length) {
       var nTF = mach.n_tf || 18;
       var halfAng = (Math.PI / nTF) * 0.34;
-      var tfCaseCol = (mach.id === "tcv" || mach.id === "d3d")
-        ? [0.64, 0.39, 0.20, 1.0]
-        : [0.34, 0.43, 0.54, 1.0];
-      var tfSideCol = (mach.id === "tcv" || mach.id === "d3d")
-        ? [0.76, 0.49, 0.26, 1.0]
-        : [0.46, 0.56, 0.68, 1.0];
+      var tfCaseCol = [0.24, 0.31, 0.40, 1.0];
+      var tfSideCol = [0.35, 0.44, 0.55, 1.0];
       for (var ti = 0; ti < nTF; ti++) {
         var phiC = -0.5 * Math.PI + (2.0 * Math.PI * ti) / nTF;
-        // Leave front cutaway sector open so vessel cutaway & protruding 3D plasma torus stay unobstructed
         if (phiC > (phiVessel0 + 8.0 * deg) && phiC < (phiVessel1 - 8.0 * deg)) {
           addHollowShell(mach.tf_outer, mach.tf_inner, phiC - halfAng, phiC + halfAng, 2, tfCaseCol, tfCaseCol, tfSideCol);
         }
       }
     }
 
-    // 1. Poloidal Field & Central Solenoid Coils (colored by solved FUSE.jl ActorPFactive currents / policy state)
+    // 1. Poloidal Field & Central Solenoid Coils (diverging signed current polarity: -I cobalt <-> 0 slate <-> +I copper-amber)
     if (opts.showCoils && mach.coils) {
       for (var ci = 0; ci < mach.coils.length; ci++) {
         var c = mach.coils[ci];
@@ -1282,99 +1383,111 @@ let mount_tokamak_cad () =
         var zBot = c.z - c.h * 0.5;
         var zTop = c.z + c.h * 0.5;
         var isInner = (c.r < mach.R0);
-        var isCS = c.name && (c.name.indexOf("cs") !== -1 || c.name.indexOf("CS") !== -1 || c.name.indexOf("OH") !== -1 || c.name.indexOf("Central") !== -1);
-        var baseCur = (typeof c.current_ma === "number" && Math.abs(c.current_ma) > 1e-4)
-          ? Math.min(1.0, Math.abs(c.current_ma) / Math.max(1.0, mach.ipNominal * 0.65))
-          : 0.42;
-        var act = (mach.id === "tcv" && ci < st.coils.length) ? Math.abs(st.coils[ci]) : lerp(0.18, baseCur, st.progress);
-        var cBody, cCap;
-        if (isCS) {
-          cBody = [0.42 + 0.08 * act, 0.27 + 0.05 * act, 0.48 + 0.09 * act, 1.0];
-          cCap  = [0.56 + 0.09 * act, 0.37 + 0.06 * act, 0.63 + 0.09 * act, 1.0];
-        } else if (isInner) {
-          cBody = [0.24 + 0.08 * act, 0.37 + 0.11 * act, 0.54 + 0.14 * act, 1.0];
-          cCap  = [0.32 + 0.09 * act, 0.47 + 0.12 * act, 0.66 + 0.14 * act, 1.0];
-        } else {
-          cBody = [0.68 + 0.12 * act, 0.47 + 0.10 * act, 0.14 + 0.04 * act, 1.0];
-          cCap  = [0.82 + 0.12 * act, 0.58 + 0.10 * act, 0.20 + 0.04 * act, 1.0];
-        }
-        addToroidalBoxRing(rIn, rOut, zBot, zTop, isInner ? phiInner0 : phiOuter0, isInner ? phiInner1 : phiOuter1, 44, cBody, cCap);
+        var cVal = signedCoilNorm(mach, c, ci, st);
+        var cc = signedCoilColors(cVal);
+        addToroidalBoxRing(rIn, rOut, zBot, zTop, isInner ? phiInner0 : phiOuter0, isInner ? phiInner1 : phiOuter1, 44, cc.body, cc.cap);
       }
     }
 
-    // 2. Hollow 3D Double-Wall Vacuum Vessel Shell
-    var vesselShellCol = [0.60, 0.62, 0.65, 1.0];
-    var vesselInnerCol = [0.15, 0.16, 0.17, 1.0];
-    var whiteRimCol    = [0.97, 0.98, 1.00, 1.0];
-    addHollowShell(mach.vessel_outer, mach.vessel_inner, phiVessel0, phiVessel1, 60, vesselShellCol, vesselInnerCol, whiteRimCol);
+    // 2. Recessed Matte Tungsten / Graphite Double-Wall Vacuum Vessel Stage
+    var vesselShellCol = [0.34, 0.39, 0.46, 1.0];
+    var vesselInnerCol = [0.12, 0.14, 0.18, 1.0];
+    var cutRimCol      = [0.64, 0.70, 0.78, 1.0];
+    addHollowShell(mach.vessel_outer, mach.vessel_inner, phiVessel0, phiVessel1, 60, vesselShellCol, vesselInnerCol, cutRimCol);
 
-    // 3. Cutaway Faces & Protruding Solved TEQUILA / Miller Plasma Torus
-    var eq = plasmaContour(1.0, st, 64, mach);
-
-    function buildCutawayFace(phiVesselPlane, signN, isLeftProtruding) {
-      var phiPlasmaPlane = isLeftProtruding ? (phiVesselPlane - 13.5 * deg) : phiVesselPlane;
+    function buildVesselCutaway(phiVesselPlane, signN) {
       var dnScale = Math.max(1.0, mach.R0 * 0.55);
-
       addCutawayFan(
         mach.vessel_outer, [mach.R0, mach.Z0 || 0.0], phiVesselPlane, signN, 0.001 * dnScale * signN,
-        whiteRimCol, [0.16, 0.17, 0.19, 0.85]
+        cutRimCol, [0.18, 0.21, 0.26, 0.90]
       );
       addCutawayFan(
         mach.first_wall, [mach.R0, mach.Z0 || 0.0], phiVesselPlane, signN, 0.004 * dnScale * signN,
-        [0.15, 0.16, 0.17, 1.0], [0.93, 0.95, 0.97, 0.95]
+        vesselInnerCol, [0.50, 0.57, 0.66, 0.92]
       );
+    }
+    buildVesselCutaway(phiVessel0, -1.0);
+    buildVesselCutaway(phiVessel1,  1.0);
 
-      if (isLeftProtruding) {
-        addRevolvedSolid(
-          eq.pts, phiPlasmaPlane, phiVesselPlane, 18,
-          [0.95, 0.52, 0.09, 1.0], null, null, [eq.R0, eq.Z0]
-        );
-      }
+    var hwTriCount = pos.length / 3;
 
+    // 3. Self-Luminous Volumetric D_alpha Plasma Torus Arms & Nested Poloidal Flux Surfaces
+    var eq = plasmaContour(1.0, st, 72, mach);
+    var phiLeftPlasma = phiVessel0 - 34.0 * scaleCut * deg;
+    var phiRightPlasma = phiVessel1 + 22.0 * scaleCut * deg;
+
+    addRevolvedSolid(
+      eq.pts, phiLeftPlasma, phiVessel0, 26,
+      [0.42, 0.12, 0.66, 1.0], null, null, [eq.R0, eq.Z0]
+    );
+    addRevolvedSolid(
+      eq.pts, phiVessel1, phiRightPlasma, 18,
+      [0.42, 0.12, 0.66, 1.0], null, null, [eq.R0, eq.Z0]
+    );
+
+    function buildPlasmaCutaway(phiPlasmaPlane, signN) {
+      var dnScale = Math.max(1.0, mach.R0 * 0.55);
       var fluxBands = [
-        { rho: 1.00, col: [0.98, 0.56, 0.10, 1.0], edge: isLeftProtruding ? null : [0.30, 0.88, 0.94, 0.95] },
-        { rho: 0.80, col: [1.00, 0.70, 0.22, 1.0], edge: null },
-        { rho: 0.60, col: [1.00, 0.82, 0.42, 1.0], edge: null },
-        { rho: 0.42, col: [1.00, 0.92, 0.68, 1.0], edge: null },
-        { rho: 0.22, col: [1.00, 0.98, 0.92, 1.0], edge: null }
+        { rho: 1.00, col: [0.44, 0.13, 0.68, 1.0], edge: [0.18, 0.88, 0.99, 0.96] },
+        { rho: 0.80, col: [0.66, 0.17, 0.78, 1.0], edge: null },
+        { rho: 0.60, col: [0.85, 0.26, 0.78, 1.0], edge: null },
+        { rho: 0.40, col: [0.96, 0.55, 0.88, 1.0], edge: null },
+        { rho: 0.20, col: [0.99, 0.92, 0.99, 1.0], edge: null }
       ];
       for (var b = 0; b < fluxBands.length; b++) {
         var band = fluxBands[b];
-        var cData = plasmaContour(band.rho, st, 56, mach);
+        var cData = plasmaContour(band.rho, st, 64, mach);
         addCutawayFan(
           cData.pts, [cData.R0, cData.Z0], phiPlasmaPlane, signN, (0.008 + 0.0018 * b) * dnScale * signN,
           band.col, band.edge
         );
       }
 
-      var pX = cylToXYZ(eq.Rx, eq.Zx, phiVesselPlane, 0.0085 * dnScale * signN);
-      var pLegIn = cylToXYZ(eq.Rx - mach.a * 0.18, eq.Zx - mach.a * 0.28, phiVesselPlane, 0.0085 * dnScale * signN);
-      var pLegOut = cylToXYZ(eq.Rx + mach.a * 0.28, eq.Zx - mach.a * 0.26, phiVesselPlane, 0.0085 * dnScale * signN);
-      var cyanLine = [0.30, 0.88, 0.94, 1.0];
+      var pX = cylToXYZ(eq.Rx, eq.Zx, phiPlasmaPlane, 0.0085 * dnScale * signN);
+      var pLegIn = cylToXYZ(eq.Rx - mach.a * 0.18, eq.Zx - mach.a * 0.28, phiPlasmaPlane, 0.0085 * dnScale * signN);
+      var pLegOut = cylToXYZ(eq.Rx + mach.a * 0.28, eq.Zx - mach.a * 0.26, phiPlasmaPlane, 0.0085 * dnScale * signN);
+      var cyanLine = [0.18, 0.88, 0.99, 1.0];
       pushLine(pX, pLegIn, cyanLine);
       pushLine(pX, pLegOut, cyanLine);
     }
 
-    buildCutawayFace(phiVessel0, -1.0, true);
-    buildCutawayFace(phiVessel1,  1.0, false);
+    buildPlasmaCutaway(phiLeftPlasma,  -1.0);
+    buildPlasmaCutaway(phiRightPlasma,  1.0);
 
-    // 4. Helical q95 Magnetic Field Lines on LCFS
-    if (opts.showFieldLines) {
-      var qEff = (mach.q95 || 3.2) * (0.72 + 0.28 * st.progress);
-      var nLines = 3;
+    // 4. Smooth Interpolated 3D Helical q95 Magnetic Field Lines across Exposed Front Plasma Arms & Cutaway
+    if (opts.showFieldLines && eq.pts.length >= 16) {
+      var qEff = Math.max(1.4, (mach.id === "tcv") ? st.q95 : (mach.q95 || 3.2));
+      var nLines = 8;
+      var nPts = eq.pts.length;
+      var pFront0 = phiVessel1 - 2.0 * deg;
+      var pFront1 = phiVessel0 + 2.0 * Math.PI + 2.0 * deg;
+      var pGap0 = phiRightPlasma;
+      var pGap1 = phiLeftPlasma + 2.0 * Math.PI;
+      var pitchRate = 2.0 / qEff;
       for (var l = 0; l < nLines; l++) {
         var th0 = (2.0 * Math.PI * l) / nLines;
         var prevPt = null;
-        var steps = 120;
-        var pStart = phiVessel0;
-        var pEnd = phiVessel1 - 11.0 * deg;
+        var steps = 144;
         for (var k = 0; k <= steps; k++) {
-          var phi = pEnd + (pStart - pEnd) * (k / steps);
-          var th = th0 + qEff * (phi - pEnd);
-          var idx = ((Math.floor((th / (2.0 * Math.PI)) * eq.pts.length) % eq.pts.length) + eq.pts.length) % eq.pts.length;
-          var rz = eq.pts[idx];
-          var pt = cylToXYZ(rz[0] * 1.003, rz[1], phi, 0.0);
-          if (prevPt) pushLine(prevPt, pt, [1.0, 0.92, 0.55, 0.92]);
+          var phi = pFront0 + (pFront1 - pFront0) * (k / steps);
+          var th = th0 + pitchRate * (phi - pFront0);
+          var fIdx = (((th / (2.0 * Math.PI)) * nPts) % nPts + nPts) % nPts;
+          var i0 = Math.floor(fIdx);
+          var i1 = (i0 + 1) % nPts;
+          var frac = fIdx - i0;
+          var rI = lerp(eq.pts[i0][0], eq.pts[i1][0], frac);
+          var zI = lerp(eq.pts[i0][1], eq.pts[i1][1], frac);
+          var rOutP = eq.R0 + (rI - eq.R0) * 1.018;
+          var zOutP = eq.Z0 + (zI - eq.Z0) * 1.018;
+          var pt = cylToXYZ(rOutP, zOutP, phi, 0.0);
+          if (prevPt) {
+            var inGap = (phi > pGap0 && phi < pGap1);
+            if (!inGap) {
+              pushLine(prevPt, pt, [0.18, 0.90, 1.00, 0.98]);
+            } else if (k % 2 === 0) {
+              pushLine(prevPt, pt, [0.22, 0.88, 1.00, 0.46]);
+            }
+          }
           prevPt = pt;
         }
       }
@@ -1390,6 +1503,7 @@ let mount_tokamak_cad () =
       posBuf: makeBuf(pos),
       normBuf: makeBuf(norm),
       colBuf: makeBuf(col),
+      hwTriCount: hwTriCount,
       triCount: pos.length / 3,
       linePosBuf: makeBuf(linePos),
       lineColBuf: makeBuf(lineCol),
@@ -1507,8 +1621,8 @@ let mount_tokamak_cad () =
     function drawCoils(boxX) {
       if (opts && opts.showTF && mach.tf_outer && mach.tf_outer.length >= 4) {
         ctx.save();
-        ctx.strokeStyle = "#94a3b8";
-        ctx.lineWidth = 1.0;
+        ctx.strokeStyle = isDark ? "#475569" : "#94a3b8";
+        ctx.lineWidth = 1.05;
         ctx.beginPath();
         for (var t0 = 0; t0 < mach.tf_outer.length; t0++) {
           var p0 = rzToXY(boxX, mach.tf_outer[t0][0], mach.tf_outer[t0][1]);
@@ -1535,10 +1649,11 @@ let mount_tokamak_cad () =
         var pBR = rzToXY(boxX, c.r + c.w * 0.5, c.z - c.h * 0.5);
         var cW = Math.max(2, pBR[0] - pTL[0]);
         var cH = Math.max(2, pBR[1] - pTL[1]);
-        ctx.fillStyle = (c.r < mach.R0) ? "#4a5568" : "#d97706";
+        var cVal = signedCoilNorm(mach, c, ci, st);
+        ctx.fillStyle = signedCoilHex(cVal, isDark);
         ctx.fillRect(pTL[0], pTL[1], cW, cH);
-        ctx.strokeStyle = "#111111";
-        ctx.lineWidth = 0.8;
+        ctx.strokeStyle = isDark ? "#0d1219" : "#111111";
+        ctx.lineWidth = 0.75;
         ctx.strokeRect(pTL[0], pTL[1], cW, cH);
       }
       ctx.restore();
@@ -1546,7 +1661,7 @@ let mount_tokamak_cad () =
 
     function drawMachineProfiles(boxX) {
       ctx.save();
-      ctx.strokeStyle = "#64748b";
+      ctx.strokeStyle = isDark ? "#64748b" : "#475569";
       ctx.lineWidth = 1.2;
       ctx.beginPath();
       for (var i = 0; i < mach.vessel_outer.length; i++) {
@@ -1556,9 +1671,9 @@ let mount_tokamak_cad () =
       ctx.closePath();
       ctx.stroke();
 
-      ctx.strokeStyle = "#00008b";
-      ctx.lineWidth = 1.5;
-      ctx.setLineDash([6, 2]);
+      ctx.strokeStyle = isDark ? "#94a3b8" : "#334155";
+      ctx.lineWidth = 1.35;
+      ctx.setLineDash([5, 2.5]);
       ctx.beginPath();
       for (var j = 0; j < mach.first_wall.length; j++) {
         var pf = rzToXY(boxX, mach.first_wall[j][0], mach.first_wall[j][1]);
@@ -1570,15 +1685,20 @@ let mount_tokamak_cad () =
       ctx.restore();
     }
 
+    var plotBg = isDark ? "#0d1219" : "#ffffff";
+    var plotBorder = isDark ? "#30363d" : "#111111";
+    var cyanTarget = isDark ? "#38bdf8" : "#0284c7";
+    var magentaPlasma = isDark ? "#e879f9" : "#c026d3";
+
     var leftX = startX;
     ctx.fillStyle = isDark ? "#e6edf3" : "#111111";
     ctx.font = titleFont;
     ctx.textAlign = "center";
-    ctx.fillText(mach.lcfs ? "FUSE CAD & LCFS" : "CAD & Target", leftX + boxW * 0.5, startY - (compact ? 7 : 9));
+    ctx.fillText(mach.id === "tcv" ? "CAD & Target Shape" : "FUSE CAD & LCFS", leftX + boxW * 0.5, startY - (compact ? 7 : 9));
 
-    ctx.fillStyle = "#ffffff";
+    ctx.fillStyle = plotBg;
     ctx.fillRect(leftX, startY, boxW, boxH);
-    ctx.strokeStyle = "#111111";
+    ctx.strokeStyle = plotBorder;
     ctx.lineWidth = 1.1;
     ctx.strokeRect(leftX, startY, boxW, boxH);
     drawBoxTicks(leftX, true);
@@ -1592,8 +1712,8 @@ let mount_tokamak_cad () =
 
     var refPoly = (mach.id === "tcv") ? SHAPE_70166_REFS : mach.lcfs;
     if (refPoly && refPoly.length >= 8) {
-      ctx.strokeStyle = "#0022ff";
-      ctx.lineWidth = 1.15;
+      ctx.strokeStyle = cyanTarget;
+      ctx.lineWidth = 1.25;
       ctx.beginPath();
       for (var rIdx = 0; rIdx < refPoly.length; rIdx++) {
         var pr = rzToXY(leftX, refPoly[rIdx][0], refPoly[rIdx][1]);
@@ -1602,11 +1722,11 @@ let mount_tokamak_cad () =
       ctx.closePath();
       ctx.stroke();
       if (mach.id === "tcv") {
-        ctx.fillStyle = "#0022ff";
+        ctx.fillStyle = cyanTarget;
         for (var dIdx = 0; dIdx < refPoly.length; dIdx++) {
           var pd = rzToXY(leftX, refPoly[dIdx][0], refPoly[dIdx][1]);
           ctx.beginPath();
-          ctx.arc(pd[0], pd[1], 2.2, 0, Math.PI * 2);
+          ctx.arc(pd[0], pd[1], 2.0, 0, Math.PI * 2);
           ctx.fill();
         }
       }
@@ -1614,9 +1734,9 @@ let mount_tokamak_cad () =
 
     var eqTarget = plasmaContour(1.0, st, 64, mach);
     ctx.save();
-    ctx.strokeStyle = st.policy.color;
-    ctx.lineWidth = 1.65;
-    ctx.setLineDash([3, 2]);
+    ctx.strokeStyle = magentaPlasma;
+    ctx.lineWidth = 1.75;
+    if (mach.id === "tcv") ctx.setLineDash([4, 2]);
     ctx.beginPath();
     for (var ei = 0; ei < eqTarget.pts.length; ei++) {
       var pe = rzToXY(leftX, eqTarget.pts[ei][0], eqTarget.pts[ei][1]);
@@ -1633,9 +1753,9 @@ let mount_tokamak_cad () =
     ctx.textAlign = "center";
     ctx.fillText(compact ? "Flux ψ(R, Z)" : "Poloidal Flux ψ(R, Z)", rightX + boxW * 0.5, startY - (compact ? 7 : 9));
 
-    ctx.fillStyle = "#ffffff";
+    ctx.fillStyle = plotBg;
     ctx.fillRect(rightX, startY, boxW, boxH);
-    ctx.strokeStyle = "#111111";
+    ctx.strokeStyle = plotBorder;
     ctx.lineWidth = 1.1;
     ctx.strokeRect(rightX, startY, boxW, boxH);
     drawBoxTicks(rightX, false);
@@ -1647,13 +1767,20 @@ let mount_tokamak_cad () =
     drawCoils(rightX);
     drawMachineProfiles(rightX);
 
-    var fluxLevels = [
-      { rho: 1.00, col: "#00008b", width: 1.4 },
-      { rho: 0.82, col: "#2563eb", width: 1.1 },
-      { rho: 0.65, col: "#0284c7", width: 1.0 },
-      { rho: 0.48, col: "#0d9488", width: 0.95 },
-      { rho: 0.32, col: "#d97706", width: 0.95 },
-      { rho: 0.16, col: "#ea580c", width: 0.95 }
+    var fluxLevels = isDark ? [
+      { rho: 1.00, col: "#38bdf8", width: 1.35 },
+      { rho: 0.84, col: "#7e22ce", width: 1.15 },
+      { rho: 0.68, col: "#a21caf", width: 1.05 },
+      { rho: 0.52, col: "#d946ef", width: 1.00 },
+      { rho: 0.36, col: "#f0abfc", width: 0.95 },
+      { rho: 0.18, col: "#fae8ff", width: 0.95 }
+    ] : [
+      { rho: 1.00, col: "#0284c7", width: 1.35 },
+      { rho: 0.84, col: "#6b21a8", width: 1.15 },
+      { rho: 0.68, col: "#9333ea", width: 1.05 },
+      { rho: 0.52, col: "#c026d3", width: 1.00 },
+      { rho: 0.36, col: "#db2777", width: 0.95 },
+      { rho: 0.18, col: "#ec4899", width: 0.95 }
     ];
     for (var f = 0; f < fluxLevels.length; f++) {
       var fl = fluxLevels[f];
@@ -1670,9 +1797,9 @@ let mount_tokamak_cad () =
     }
 
     var pAxis = rzToXY(rightX, eqTarget.R0, eqTarget.Z0);
-    ctx.fillStyle = "#dc2626";
+    ctx.fillStyle = isDark ? "#fdf4ff" : "#be185d";
     ctx.beginPath();
-    ctx.arc(pAxis[0], pAxis[1], 3.0, 0, Math.PI * 2);
+    ctx.arc(pAxis[0], pAxis[1], 2.8, 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
     ctx.restore();
@@ -1686,12 +1813,14 @@ let mount_tokamak_cad () =
     root.innerHTML = [
       '<div class="tcv-cad-outer">',
       '  <aside class="tcv-side-controls" aria-label="Simulation Controls">',
-      '    <div class="tcv-hud-badge tcv-ctrl-title" style="padding:5px 12px;font-size:12px;"><strong>Simulation Controls</strong></div>',
+      '    <div class="tcv-hud-badge tcv-ctrl-title" style="padding:5px 12px;font-size:12px;"><strong>Simulation Console</strong></div>',
       '    <div class="tcv-ctrl-sec tcv-ctrl-device">',
-      '      <div class="tcv-ctrl-hdr"><span>Environment</span><span id="tcv-builder-tag">FUSE.jl</span></div>',
+      '      <div class="tcv-ctrl-hdr"><span>Environment</span><span id="tcv-builder-tag">toka_gym</span></div>',
       '      <select id="tcv-machine-sel" class="tcv-select">',
-      '        <optgroup label="Tokamaks · FUSE.jl">',
-      '          <option value="tcv" selected>TCV · EPFL</option>',
+      '        <optgroup label="Closed-Loop Policy Search">',
+      '          <option value="tcv" selected>TCV · EPFL (toka_gym)</option>',
+      '        </optgroup>',
+      '        <optgroup label="Stationary Equilibria · FUSE.jl">',
       '          <option value="sparc">SPARC · CFS (FUSE.jl)</option>',
       '          <option value="arc">ARC · MIT/CFS (FUSE.jl)</option>',
       '          <option value="iter">ITER · Cadarache (FUSE.jl)</option>',
@@ -1699,43 +1828,51 @@ let mount_tokamak_cad () =
       '        </optgroup>',
       '      </select>',
       '    </div>',
-      '    <div class="tcv-ctrl-sec tcv-ctrl-seed">',
-      '      <div class="tcv-ctrl-hdr"><span>Seed</span><span><em>n</em> = 10</span></div>',
-      '      <select id="tcv-seed-sel" class="tcv-select mono">',
-      '        <option value="-1">Mean ± SEM</option>',
-      '        <option value="0">Seed 1 (91.1)</option>',
-      '        <option value="1">Seed 2 (91.8)</option>',
-      '        <option value="2">Seed 3 (87.8)</option>',
-      '        <option value="3">Seed 4 (90.2)</option>',
-      '        <option value="4">Seed 5 (92.0)</option>',
-      '        <option value="5">Seed 6 (92.8)</option>',
-      '        <option value="6">Seed 7 (90.5)</option>',
-      '        <option value="7">Seed 8 (92.9)</option>',
-      '        <option value="8">Seed 9 (93.4)</option>',
-      '        <option value="9">Seed 10 (93.3)</option>',
-      '      </select>',
-      '    </div>',
-      '    <div class="tcv-ctrl-sec tcv-ctrl-policy">',
-      '      <div class="tcv-ctrl-hdr"><span>Policy</span><span>Return <em>J</em></span></div>',
+      '    <div class="tcv-ctrl-sec tcv-ctrl-policy" id="tcv-sec-policy">',
+      '      <div class="tcv-ctrl-hdr"><span>Optimizer Arm</span><span>Loss (↓)</span></div>',
       '      <div class="tcv-pol-group">',
-      '        <button type="button" class="tcv-pol-btn active" data-pol="shared"><span>Shared TuRBO</span><span style="font-family:var(--font-mono,monospace);font-size:11px;">91.6</span></button>',
-      '        <button type="button" class="tcv-pol-btn" data-pol="indep"><span>Indep. TuRBO</span><span style="font-family:var(--font-mono,monospace);font-size:11px;">89.4</span></button>',
-      '        <button type="button" class="tcv-pol-btn" data-pol="init"><span>Initial θ₀</span><span style="font-family:var(--font-mono,monospace);font-size:11px;">6.0</span></button>',
+      '        <button type="button" class="tcv-pol-btn active" data-pol="turbo0"><span><span class="tcv-pol-dot" style="background:var(--bench-c-hero,#111);"></span>TuRBO-0 (R=10)</span><span style="font-family:var(--font-mono,monospace);font-size:11px;">1.31</span></button>',
+      '        <button type="button" class="tcv-pol-btn" data-pol="enn_w"><span><span class="tcv-pol-dot" style="background:var(--bench-c-enn1,#1d4ed8);"></span>ENN · Wasserstein</span><span style="font-family:var(--font-mono,monospace);font-size:11px;">1.34</span></button>',
+      '        <button type="button" class="tcv-pol-btn" data-pol="enn_e"><span><span class="tcv-pol-dot" style="background:var(--bench-c-enn2,#0f766e);"></span>ENN · Euclidean</span><span style="font-family:var(--font-mono,monospace);font-size:11px;">1.35</span></button>',
+      '        <button type="button" class="tcv-pol-btn" data-pol="enn_h"><span><span class="tcv-pol-dot" style="background:var(--bench-c-enn3,#b45309);"></span>ENN · Hyperbolic</span><span style="font-family:var(--font-mono,monospace);font-size:11px;">1.35</span></button>',
+      '        <button type="button" class="tcv-pol-btn" data-pol="enn_c"><span><span class="tcv-pol-dot" style="background:var(--bench-c-enn4,#7e22ce);"></span>ENN · Conformal</span><span style="font-family:var(--font-mono,monospace);font-size:11px;">1.37</span></button>',
       '      </div>',
       '    </div>',
-      '    <div class="tcv-ctrl-sec tcv-ctrl-round">',
-      '      <div class="tcv-ctrl-hdr"><span>Rollout Round</span><strong id="tcv-round-lbl" style="font-family:var(--font-mono,monospace);font-size:11.5px;color:var(--fg-primary,#111);">10000</strong></div>',
+      '    <div class="tcv-ctrl-sec tcv-ctrl-round" id="tcv-sec-round">',
+      '      <div class="tcv-ctrl-hdr"><span>Eval Round</span><strong id="tcv-round-lbl" style="font-family:var(--font-mono,monospace);font-size:11.5px;color:var(--fg-primary,#111);">t = 10,000</strong></div>',
       '      <div class="tcv-round-row">',
-      '        <input type="range" id="tcv-round-slider" min="0" max="10000" step="50" value="10000" aria-label="Rollout Round" />',
+      '        <input type="range" id="tcv-round-slider" min="0" max="1000" step="1" value="1000" aria-label="Evaluation Round (log scale)" />',
       '        <button type="button" id="tcv-play-btn" class="tcv-pol-btn" style="justify-content:center;font-weight:700;">▶ Play</button>',
       '      </div>',
       '    </div>',
+      '    <div class="tcv-ctrl-sec tcv-ctrl-seed" id="tcv-sec-seed">',
+      '      <div class="tcv-ctrl-hdr"><span>Paired Seed</span><span><em>n</em> = 10</span></div>',
+      '      <select id="tcv-seed-sel" class="tcv-select mono">',
+      '        <option value="-1">Mean ± SEM (n = 10)</option>',
+      '        <option value="0">Seed 1 (R=10: 1.28)</option>',
+      '        <option value="1">Seed 2 (R=10: 1.32)</option>',
+      '        <option value="2">Seed 3 (R=10: 1.32)</option>',
+      '        <option value="3">Seed 4 (R=10: 1.19)</option>',
+      '        <option value="4">Seed 5 (R=10: 1.33)</option>',
+      '        <option value="5">Seed 6 (R=10: 1.34)</option>',
+      '        <option value="6">Seed 7 (R=10: 1.31)</option>',
+      '        <option value="7">Seed 8 (R=10: 1.38)</option>',
+      '        <option value="8">Seed 9 (R=10: 1.32)</option>',
+      '        <option value="9">Seed 10 (R=10: 1.32)</option>',
+      '      </select>',
+      '    </div>',
+      '    <div class="tcv-ctrl-sec tcv-ctrl-cutaway" id="tcv-sec-cutaway" style="display:none;">',
+      '      <div class="tcv-ctrl-hdr"><span>Cutaway Sector</span><strong id="tcv-cut-lbl" style="font-family:var(--font-mono,monospace);font-size:11.5px;color:var(--fg-primary,#111);">56°</strong></div>',
+      '      <div class="tcv-round-row">',
+      '        <input type="range" id="tcv-cut-slider" min="28" max="84" step="1" value="56" aria-label="3D Cutaway Sector Angle" />',
+      '      </div>',
+      '    </div>',
       '    <div class="tcv-ctrl-sec tcv-ctrl-layers">',
-      '      <div class="tcv-ctrl-hdr"><span>CAD Layers</span></div>',
+      '      <div class="tcv-ctrl-hdr"><span>3D / 2D Layers</span></div>',
       '      <div class="tcv-layers-row">',
-      '        <label class="tcv-chk-row"><input type="checkbox" id="tcv-chk-coils" checked /> <span id="tcv-lbl-coils">PF/CS Coils</span></label>',
-      '        <label class="tcv-chk-row" id="tcv-row-tf"><input type="checkbox" id="tcv-chk-tf" checked /> <span>TF Magnets</span></label>',
-      '        <label class="tcv-chk-row"><input type="checkbox" id="tcv-chk-field" checked /> <span id="tcv-lbl-field">B-Field / Flow</span></label>',
+      '        <label class="tcv-chk-row"><input type="checkbox" id="tcv-chk-coils" checked /> <span id="tcv-lbl-coils">PF/CS Coils (±I)</span></label>',
+      '        <label class="tcv-chk-row" id="tcv-row-tf"><input type="checkbox" id="tcv-chk-tf" checked /> <span>TF Bφ Cage</span></label>',
+      '        <label class="tcv-chk-row"><input type="checkbox" id="tcv-chk-field" checked /> <span id="tcv-lbl-field">Helical q95 Lines</span></label>',
       '        <button type="button" id="tcv-reset-cam" class="tcv-pol-btn" style="justify-content:center;margin-top:3px;">Reset View</button>',
       '      </div>',
       '    </div>',
@@ -1749,22 +1886,32 @@ let mount_tokamak_cad () =
       '        </div>',
       '      </div>',
       '      <div class="tcv-pane">',
-      '        <div class="tcv-hud-badge"><span id="tcv-badge-b"><strong>(b)</strong> Equilibrium Cross-Section</span></div>',
+      '        <div class="tcv-hud-badge"><span id="tcv-badge-b"><strong>(b)</strong> Equilibrium & Poloidal Flux</span></div>',
       '        <div class="tcv-canvas-wrap" id="tcv-fig9-wrap">',
       '          <canvas id="tcv-fig9-canvas"></canvas>',
       '        </div>',
       '      </div>',
+      '    </div>',
+      '    <div class="tcv-legend-strip" aria-label="Physical Palette and Telemetry">',
+      '      <span class="tcv-leg-chip"><span class="tcv-leg-swatch" style="background:linear-gradient(90deg,#6b21a8 0%,#d946ef 55%,#fdf4ff 100%);"></span>Dα Flux ψ(ρ̂)</span>',
+      '      <span class="tcv-leg-chip"><span class="tcv-leg-line" style="background:#22d3ee;"></span>Helical q95 B-lines &amp; Target</span>',
+      '      <span class="tcv-leg-chip"><span class="tcv-leg-swatch" style="background:linear-gradient(90deg,#1d4ed8 0%,#64748b 50%,#d97706 100%);"></span>PF/CS −I / +I Polarity</span>',
+      '      <span class="tcv-leg-chip"><span class="tcv-leg-swatch" style="background:#475569;"></span>TF Bφ Cage &amp; Vessel</span>',
+      '      <span class="tcv-legend-tele" id="tcv-legend-tele"></span>',
+      '    </div>',
+      '    <div class="tcv-bench-dock" id="tcv-bench-dock"></div>',
+      '    <div class="tcv-fuse-deck" id="tcv-fuse-deck" style="display:none;">',
       '      <div class="tcv-subtable-cell">',
-      '        <div class="tcv-subtable-hdr"><span id="tcv-subtable-title">FUSE.jl 1.2.1 Environment</span><span id="tcv-subtable-device">TCV · EPFL</span></div>',
+      '        <div class="tcv-subtable-hdr"><span id="tcv-subtable-title">FUSE.jl 1.2.1 Equilibrium</span><span id="tcv-subtable-device">SPARC · CFS</span></div>',
       '        <div class="tcv-kv-list" id="tcv-kv-list"></div>',
       '      </div>',
       '      <div class="tcv-subtable-cell">',
-      '        <div class="tcv-subtable-hdr"><span id="tcv-obj-hdr">Multi-Component Objective (TuRBO-0)</span><span>Score</span></div>',
-      '        <div class="tcv-wpo-stack" id="tcv-wpo-strip"></div>',
+      '        <div class="tcv-subtable-hdr"><span id="tcv-obj-hdr">Active Magnetics &amp; Shaping</span><span>Solved</span></div>',
+      '        <div class="tcv-kv-list" id="tcv-fuse-coils"></div>',
       '      </div>',
       '    </div>',
       '    <div class="tcv-fig-caption" id="tcv-fig-caption">',
-      '      <strong>Figure 1.</strong> 3D cutaway geometries, 2D equilibrium and field cross-sections, and closed-loop rollout trajectories across tokamak models exported from <code>FUSE.jl</code> (TCV, SPARC, ARC, ITER, DIII-D; Meneghini et al., 2024).',
+      '      <strong>Figure 1.</strong> Coupled 3D cutaway magnetics (cryo-slate <em>B</em><sub>φ</sub> toroidal cage, diverging signed ±<em>I</em> poloidal shaping rings, volumetric <em>D</em><sub>α</sub> flux surfaces, and 3D helical <em>q</em><sub>95</sub> field lines), 2D equilibrium cross-sections, and 10,000-round closed-loop policy search trajectories across <em>n</em> = 10 paired seeds on <code>toka_gym</code> TCV rampdown (<em>D</em> = 136,712), alongside stationary equilibria exported from <code>FUSE.jl 1.2.1</code> (SPARC, ARC, ITER, DIII-D; Meneghini et al., 2024).',
       '    </div>',
       '  </div>',
       '</div>'
@@ -1773,9 +1920,19 @@ let mount_tokamak_cad () =
     var glCanvas = root.querySelector("#tcv-webgl-canvas");
     var fig9Canvas = root.querySelector("#tcv-fig9-canvas");
     var kvList = root.querySelector("#tcv-kv-list");
-    var wpoStrip = root.querySelector("#tcv-wpo-strip");
+    var fuseCoilsList = root.querySelector("#tcv-fuse-coils");
+    var legendTele = root.querySelector("#tcv-legend-tele");
+    var benchDock = root.querySelector("#tcv-bench-dock");
+    var fuseDeck = root.querySelector("#tcv-fuse-deck");
+    var figCaption = root.querySelector("#tcv-fig-caption");
+    var secPolicy = root.querySelector("#tcv-sec-policy");
+    var secRound = root.querySelector("#tcv-sec-round");
+    var secSeed = root.querySelector("#tcv-sec-seed");
+    var secCutaway = root.querySelector("#tcv-sec-cutaway");
     var roundSlider = root.querySelector("#tcv-round-slider");
     var roundLbl = root.querySelector("#tcv-round-lbl");
+    var cutSlider = root.querySelector("#tcv-cut-slider");
+    var cutLbl = root.querySelector("#tcv-cut-lbl");
     var seedSel = root.querySelector("#tcv-seed-sel");
     var machineSel = root.querySelector("#tcv-machine-sel");
     var playBtn = root.querySelector("#tcv-play-btn");
@@ -1783,8 +1940,6 @@ let mount_tokamak_cad () =
     var chkTF = root.querySelector("#tcv-chk-tf");
     var chkField = root.querySelector("#tcv-chk-field");
     var rowTF = root.querySelector("#tcv-row-tf");
-    var lblCoils = root.querySelector("#tcv-lbl-coils");
-    var lblField = root.querySelector("#tcv-lbl-field");
     var resetCamBtn = root.querySelector("#tcv-reset-cam");
     var badgeA = root.querySelector("#tcv-badge-a");
     var badgeB = root.querySelector("#tcv-badge-b");
@@ -1806,8 +1961,9 @@ let mount_tokamak_cad () =
     var initObj = Object.prototype.hasOwnProperty.call(MACHINES, initialMach) ? MACHINES[initialMach] : MACHINES.tcv;
     var uiState = {
       machine: initialMach,
-      policyKey: "shared",
+      policyKey: "turbo0",
       round: 10000,
+      regime: "full",
       seedIdx: -1,
       showCoils: true,
       showTF: true,
@@ -1818,6 +1974,194 @@ let mount_tokamak_cad () =
       dist: initObj.dist,
       playing: false
     };
+
+    function formatRoundInt(r) {
+      return String(Math.round(r)).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+    }
+
+    function roundToSliderVal(r, regime) {
+      var logMin = (regime === "tail") ? 2.0 : 0.0;
+      var logSpan = 4.0 - logMin;
+      var lr = Math.log(Math.max(1.0, r)) / Math.LN10;
+      var u = (lr - logMin) / logSpan;
+      return Math.round(Math.max(0.0, Math.min(1.0, u)) * 1000.0);
+    }
+
+    function sliderValToRound(sVal, regime) {
+      var logMin = (regime === "tail") ? 2.0 : 0.0;
+      var logSpan = 4.0 - logMin;
+      var u = Math.max(0.0, Math.min(1.0, sVal / 1000.0));
+      var minR = (regime === "tail") ? 100 : 1;
+      return Math.max(minR, Math.min(10000, Math.round(Math.pow(10.0, logMin + u * logSpan))));
+    }
+
+    // Dock figure[data-bench-fig="tokamak-tokagym"] into #tcv-bench-dock and wire two-way live coupling
+    var dockedFig = document.querySelector('figure[data-bench-fig="tokamak-tokagym"]');
+    var dockedSvgs = [];
+    var dockedScrubBars = [];
+    var dockedSeedDots = [];
+    var armNameToKey = {
+      "TuRBO-0 (R=10)": "turbo0",
+      "ENN · Wasserstein": "enn_w",
+      "ENN · Euclidean": "enn_e",
+      "ENN · Hyperbolic": "enn_h",
+      "ENN · Conformal": "enn_c"
+    };
+
+    if (dockedFig && benchDock) {
+      dockedFig.setAttribute("data-bench-ready", "1");
+      var origParent = dockedFig.parentElement;
+      benchDock.appendChild(dockedFig);
+      dockedFig.classList.add("is-docked");
+      if (origParent && origParent.tagName === "SECTION" && origParent.textContent.replace(/\s+/g, "") === "") {
+        origParent.style.display = "none";
+      }
+      var innerCap = dockedFig.querySelector("figcaption");
+      if (innerCap) innerCap.style.display = "none";
+
+      var benchHdrs = dockedFig.querySelectorAll(".baux-bench-hdr > span:first-child");
+      if (benchHdrs.length >= 1) {
+        benchHdrs[0].innerHTML = "<strong>(c)</strong> Anytime Tracking Error (↓)";
+      }
+      if (benchHdrs.length >= 2) {
+        benchHdrs[1].innerHTML = "<strong>(d)</strong> Paired Differences vs. R=10 (<em>n</em> = 10)";
+      }
+
+      // Upgrade ROUNDS & BENCH from all 47 empirical knots in data-scrub
+      var rawScrub = dockedFig.getAttribute("data-scrub") || "";
+      var tildeIdx = rawScrub.indexOf("~");
+      if (tildeIdx > 0) {
+        var knotParts = rawScrub.slice(tildeIdx + 1).split(";");
+        var parsedR = [];
+        var parsedM = [[], [], [], [], []];
+        var parsedS = [[], [], [], [], []];
+        for (var kp = 0; kp < knotParts.length; kp++) {
+          var kv = knotParts[kp].split(":");
+          if (kv.length !== 2) continue;
+          var kr = parseInt(kv[0], 10);
+          var nums = kv[1].split(",");
+          if (!Number.isFinite(kr) || nums.length < 10) continue;
+          var okRow = true;
+          for (var ni = 0; ni < 10; ni++) {
+            if (!Number.isFinite(parseFloat(nums[ni]))) { okRow = false; break; }
+          }
+          if (!okRow) continue;
+          parsedR.push(kr);
+          for (var ai = 0; ai < 5; ai++) {
+            parsedM[ai].push(parseFloat(nums[ai * 2]));
+            parsedS[ai].push(parseFloat(nums[ai * 2 + 1]));
+          }
+        }
+        if (parsedR.length >= 10) {
+          ROUNDS = parsedR;
+          for (var ak = 0; ak < BENCH_ORDER.length; ak++) {
+            var bKey = BENCH_ORDER[ak];
+            BENCH[bKey].mean = parsedM[ak];
+            BENCH[bKey].sem = parsedS[ak];
+          }
+        }
+      }
+
+      var sBarNodes = dockedFig.querySelectorAll(".baux-scrub-bar");
+      for (var sbi = 0; sbi < sBarNodes.length; sbi++) dockedScrubBars.push(sBarNodes[sbi]);
+
+      var svgNodes = dockedFig.querySelectorAll("svg[data-view]");
+      for (var svi = 0; svi < svgNodes.length; svi++) {
+        var svView = (svgNodes[svi].getAttribute("data-view") || "").trim();
+        if (svView === "full" || svView === "tail") dockedSvgs.push(svgNodes[svi]);
+      }
+
+      var dotNodes = dockedFig.querySelectorAll(".baux-seed-dot[data-seed]");
+      for (var di = 0; di < dotNodes.length; di++) {
+        dockedSeedDots.push({
+          el: dotNodes[di],
+          seed: parseInt(dotNodes[di].getAttribute("data-seed") || "-1", 10),
+          arm: (dotNodes[di].getAttribute("data-arm") || "").trim(),
+          summary: (dotNodes[di].getAttribute("data-summary") || "").trim()
+        });
+      }
+    }
+
+    function setActivePolBtn(polKey) {
+      var btns = root.querySelectorAll(".tcv-pol-btn[data-pol]");
+      for (var bi = 0; bi < btns.length; bi++) {
+        if (btns[bi].getAttribute("data-pol") === polKey) btns[bi].classList.add("active");
+        else btns[bi].classList.remove("active");
+      }
+    }
+
+    function syncDockedBench(st) {
+      if (!dockedFig) return;
+      // 1. Position scrub cursor on active SVG
+      for (var si = 0; si < dockedSvgs.length; si++) {
+        var svgEl = dockedSvgs[si];
+        var vName = svgEl.getAttribute("data-view");
+        var lines = svgEl.querySelectorAll(".baux-scrub-line");
+        if (vName !== uiState.regime) {
+          for (var li0 = 0; li0 < lines.length; li0++) lines[li0].setAttribute("opacity", "0");
+          continue;
+        }
+        var xLeft = parseFloat(svgEl.getAttribute("data-x-left") || "48");
+        var xRight = parseFloat(svgEl.getAttribute("data-x-right") || "326");
+        var logMin = parseFloat(svgEl.getAttribute("data-log-min") || "0");
+        var logMax = parseFloat(svgEl.getAttribute("data-log-max") || "4");
+        var lr = Math.log(Math.max(1.0, st.round)) / Math.LN10;
+        if (lr < logMin - 0.01 || lr > logMax + 0.01) {
+          for (var li1 = 0; li1 < lines.length; li1++) lines[li1].setAttribute("opacity", "0");
+        } else {
+          var u = Math.max(0.0, Math.min(1.0, (lr - logMin) / Math.max(1e-6, logMax - logMin)));
+          var xPos = (xLeft + u * (xRight - xLeft)).toFixed(2);
+          for (var li2 = 0; li2 < lines.length; li2++) {
+            lines[li2].setAttribute("x1", xPos);
+            lines[li2].setAttribute("x2", xPos);
+            lines[li2].setAttribute("opacity", "1");
+          }
+        }
+      }
+
+      // 2. Highlight selected paired seed dots in (d)
+      var matchedSeedSummary = "";
+      for (var di = 0; di < dockedSeedDots.length; di++) {
+        var d = dockedSeedDots[di];
+        if (uiState.seedIdx < 0) {
+          d.el.classList.remove("is-active");
+          d.el.classList.remove("is-dimmed");
+          d.el.setAttribute("r", "2.9");
+        } else if (d.seed === uiState.seedIdx) {
+          d.el.classList.add("is-active");
+          d.el.classList.remove("is-dimmed");
+          var dPol = Object.prototype.hasOwnProperty.call(armNameToKey, d.arm) ? armNameToKey[d.arm] : "";
+          d.el.setAttribute("r", (dPol === uiState.policyKey) ? "4.8" : "4.1");
+          if (dPol === uiState.policyKey && d.summary) matchedSeedSummary = d.summary;
+        } else {
+          d.el.classList.add("is-dimmed");
+          d.el.classList.remove("is-active");
+          d.el.setAttribute("r", "2.9");
+        }
+      }
+
+      // 3. Format synchronized scrub readout bar across all 5 optimizer arms
+      var barTxt = "";
+      if (uiState.seedIdx >= 0 && st.round === 10000 && matchedSeedSummary) {
+        barTxt = "Round t = 10,000  ·  " + matchedSeedSummary + "  ·  ΔLCFS: " + st.lcfsErrMm.toFixed(1) + " mm";
+      } else {
+        var segs = ["Round t = " + formatRoundInt(st.round)];
+        if (uiState.seedIdx >= 0) segs.push("Seed " + (uiState.seedIdx + 1));
+        for (var bi = 0; bi < BENCH_ORDER.length; bi++) {
+          var bk = BENCH_ORDER[bi];
+          var bSt = (bk === uiState.policyKey) ? st : evalState(bk, st.round, uiState.seedIdx, "tcv");
+          if (uiState.seedIdx >= 0) {
+            segs.push(BENCH[bk].short + ": " + bSt.err.toFixed(3));
+          } else {
+            segs.push(BENCH[bk].short + ": " + bSt.err.toFixed(3) + " ± " + bSt.sem.toFixed(3));
+          }
+        }
+        barTxt = segs.join("  ·  ");
+      }
+      for (var sbi = 0; sbi < dockedScrubBars.length; sbi++) {
+        dockedScrubBars[sbi].textContent = barTxt;
+      }
+    }
 
     var gl = glCanvas.getContext("webgl", { antialias: true, alpha: false, preserveDrawingBuffer: true });
     var prog = null;
@@ -1841,52 +2185,85 @@ let mount_tokamak_cad () =
     }
 
     function renderAll() {
+      var isTCV = (uiState.machine === "tcv");
       var mach = Object.prototype.hasOwnProperty.call(MACHINES, uiState.machine) ? MACHINES[uiState.machine] : MACHINES.tcv;
-      var st = evalState(uiState.policyKey, uiState.round, uiState.seedIdx);
+      var st = evalState(uiState.policyKey, uiState.round, uiState.seedIdx, uiState.machine);
 
-      if (builderTag) builderTag.textContent = "FUSE.jl";
-      if (lblCoils) lblCoils.textContent = "PF/CS Coils";
-      if (lblField) lblField.textContent = "B-Field Lines";
+      if (builderTag) builderTag.textContent = isTCV ? "toka_gym" : "FUSE.jl";
       if (rowTF) rowTF.style.display = "inline-flex";
+      if (secPolicy) secPolicy.style.display = isTCV ? "" : "none";
+      if (secRound) secRound.style.display = isTCV ? "" : "none";
+      if (secSeed) secSeed.style.display = isTCV ? "" : "none";
+      if (secCutaway) secCutaway.style.display = isTCV ? "none" : "";
+
+      var showDocked = isTCV && !!dockedFig;
+      if (benchDock) benchDock.style.display = showDocked ? "" : "none";
+      if (fuseDeck) fuseDeck.style.display = showDocked ? "none" : "";
 
       if (badgeA) badgeA.innerHTML = "<strong>(a)</strong> 3D Cutaway CAD — " + escHtml(mach.shortName);
-      if (badgeB) badgeB.innerHTML = "<strong>(b)</strong> Equilibrium & Flux — " + escHtml(mach.shortName);
-      if (subtableTitle) subtableTitle.textContent = "FUSE.jl 1.2.1 Geometry";
-      if (subtableDevice) subtableDevice.textContent = mach.shortName;
-      if (objHdr) objHdr.textContent = "TORAX / FUSE SmoothMax (α = −3)";
+      if (badgeB) badgeB.innerHTML = "<strong>(b)</strong> Equilibrium &amp; Poloidal Flux — " + escHtml(mach.shortName);
 
-      if (kvList) {
-        var jStr = st.score.toFixed(2) + (uiState.seedIdx < 0 ? (" ± " + st.sem.toFixed(2)) : (" (S" + (uiState.seedIdx + 1) + ")"));
-        var qVal = ((mach.q95 || 3.2) * (0.72 + 0.28 * st.progress)).toFixed(2);
-        var nCoils = (mach.coils ? mach.coils.length : 0) + " PF + " + (mach.n_tf || 18) + " TF";
-        var extraLbl = (mach.pFusMW && mach.pFusMW > 1.0) ? "Fusion Power <em>P</em><sub>fus</sub>" : "LCFS Contour Δ";
-        var extraVal = (mach.pFusMW && mach.pFusMW > 1.0)
-          ? ((mach.pFusMW * (0.25 + 0.75 * st.progress)).toFixed(1) + " MW")
-          : (st.lcfsErrMm.toFixed(2) + " mm");
+      if (legendTele) {
+        if (isTCV) {
+          var lossStr = st.err.toFixed(3) + (uiState.seedIdx < 0 ? (" ± " + st.sem.toFixed(3)) : (" (S" + (uiState.seedIdx + 1) + ")"));
+          legendTele.textContent = "t = " + formatRoundInt(st.round) + " · Loss " + lossStr + " · ΔLCFS " + st.lcfsErrMm.toFixed(1) + " mm · q95 " + st.q95.toFixed(2);
+        } else {
+          var pFusTxt = (mach.pFusMW && mach.pFusMW > 0.5) ? (" · Pfus " + mach.pFusMW.toFixed(0) + " MW") : "";
+          legendTele.textContent = "Ip " + mach.ipNominal.toFixed(2) + " MA · B0 " + mach.B0.toFixed(2) + " T · q95 " + (mach.q95 || 3.2).toFixed(2) + pFusTxt;
+        }
+      }
+
+      if (figCaption) {
+        if (isTCV) {
+          figCaption.innerHTML = '<strong>Figure 1.</strong> Coupled 3D cutaway magnetics (cryo-slate <em>B</em><sub>φ</sub> toroidal cage, diverging signed ±<em>I</em> poloidal shaping rings, volumetric <em>D</em><sub>α</sub> flux surfaces, and 3D helical <em>q</em><sub>95</sub> field lines), 2D equilibrium cross-sections, and 10,000-round closed-loop policy search trajectories across <em>n</em> = 10 paired seeds on <code>toka_gym</code> TCV rampdown (<em>D</em> = 136,712; Wang et al., 2025; Theiler et al., 2026).';
+        } else {
+          figCaption.innerHTML = '<strong>Figure 1.</strong> Stationary 3D cutaway CAD magnetics (discrete <em>B</em><sub>φ</sub> toroidal-field D-coils, signed ±<em>I</em> central-solenoid and poloidal-field shaping rings, double-wall vacuum vessel, and 3D helical <em>q</em><sub>95</sub> field lines) and solved 2D Grad–Shafranov equilibrium exported from <code>' + escHtml(mach.solver || "FUSE.jl 1.2.1") + '</code> for <strong>' + escHtml(mach.name || mach.shortName) + '</strong> (Meneghini et al., 2024).';
+        }
+      }
+
+      if (!showDocked && kvList && fuseCoilsList) {
+        if (subtableTitle) subtableTitle.textContent = isTCV ? "TCV Rampdown State" : "FUSE.jl 1.2.1 Equilibrium";
+        if (subtableDevice) subtableDevice.textContent = mach.shortName;
+        if (objHdr) objHdr.textContent = isTCV ? "Closed-Loop Tracking Telemetry" : "Active Magnetics & Shaping";
+
+        var qDisp = isTCV ? st.q95.toFixed(2) : (mach.q95 || 3.2).toFixed(2);
+        var nCoilsTxt = (mach.coils ? mach.coils.length : 0) + " PF/CS + " + (mach.n_tf || 18) + " TF";
+        var sixthLbl = isTCV ? "LCFS Contour Residual" : ((mach.pFusMW && mach.pFusMW > 0.5) ? "Fusion Power <em>P</em><sub>fus</sub>" : "Solver Backend");
+        var sixthVal = isTCV ? (st.lcfsErrMm.toFixed(2) + " mm") : ((mach.pFusMW && mach.pFusMW > 0.5) ? (mach.pFusMW.toFixed(1) + " MW") : "EFIT / FUSE.jl");
+
         kvList.innerHTML = [
-          '<div class="tcv-kv-row"><span class="tcv-kv-lbl">Return <em>J</em>(θ)</span><span class="tcv-kv-val" style="color:' + escHtml(st.policy.color) + ';">' + escHtml(jStr) + '</span></div>',
+          '<div class="tcv-kv-row"><span class="tcv-kv-lbl">' + (isTCV ? 'Tracking Error (↓)' : 'Device / Regime') + '</span><span class="tcv-kv-val">' + escHtml(isTCV ? (st.err.toFixed(3) + ' ± ' + st.sem.toFixed(3)) : mach.shortName) + '</span></div>',
           '<div class="tcv-kv-row"><span class="tcv-kv-lbl">Plasma Current / <em>B</em><sub>0</sub></span><span class="tcv-kv-val">' + escHtml(mach.ipNominal.toFixed(2)) + ' MA · ' + escHtml(mach.B0.toFixed(2)) + ' T</span></div>',
-          '<div class="tcv-kv-row"><span class="tcv-kv-lbl">Safety Factor <em>q</em><sub>95</sub> / β<sub><em>N</em></sub></span><span class="tcv-kv-val">' + escHtml(qVal) + ' · ' + escHtml((mach.betaN || 1.8).toFixed(2)) + '</span></div>',
+          '<div class="tcv-kv-row"><span class="tcv-kv-lbl">Safety Factor <em>q</em><sub>95</sub> / β<sub><em>N</em></sub></span><span class="tcv-kv-val">' + escHtml(qDisp) + ' · ' + escHtml((mach.betaN || 1.8).toFixed(2)) + '</span></div>',
           '<div class="tcv-kv-row"><span class="tcv-kv-lbl">Radii <em>R</em><sub>0</sub>, <em>a</em></span><span class="tcv-kv-val">' + escHtml(mach.R0.toFixed(2)) + ' m, ' + escHtml(mach.a.toFixed(2)) + ' m</span></div>',
-          '<div class="tcv-kv-row"><span class="tcv-kv-lbl">Magnet CAD Coils</span><span class="tcv-kv-val">' + escHtml(nCoils) + '</span></div>',
-          '<div class="tcv-kv-row"><span class="tcv-kv-lbl">' + extraLbl + '</span><span class="tcv-kv-val">' + escHtml(extraVal) + '</span></div>'
+          '<div class="tcv-kv-row"><span class="tcv-kv-lbl">Magnet CAD Coils</span><span class="tcv-kv-val">' + escHtml(nCoilsTxt) + '</span></div>',
+          '<div class="tcv-kv-row"><span class="tcv-kv-lbl">' + sixthLbl + '</span><span class="tcv-kv-val">' + escHtml(sixthVal) + '</span></div>'
+        ].join("");
+
+        var negCnt = 0, posCnt = 0, peakMA = 0.0;
+        if (mach.coils) {
+          for (var mci = 0; mci < mach.coils.length; mci++) {
+            var cv = signedCoilNorm(mach, mach.coils[mci], mci, st);
+            if (cv < -0.04) negCnt++;
+            else if (cv > 0.04) posCnt++;
+            var cma = Math.abs(mach.coils[mci].current_ma || 0.0);
+            if (cma > peakMA) peakMA = cma;
+          }
+        }
+        var aspectRat = (mach.R0 / Math.max(0.1, mach.a)).toFixed(2);
+        var solverShort = (mach.solver || "FUSE.jl 1.2.1").replace(/^FUSE\.jl\s*[0-9.]*\s*·\s*/, "").replace(/\s+Equilibrium$/i, "");
+        fuseCoilsList.innerHTML = [
+          '<div class="tcv-kv-row"><span class="tcv-kv-lbl">Solver Pipeline</span><span class="tcv-kv-val">' + escHtml(solverShort) + '</span></div>',
+          '<div class="tcv-kv-row"><span class="tcv-kv-lbl">Aspect Ratio <em>R</em><sub>0</sub> / <em>a</em></span><span class="tcv-kv-val">' + escHtml(aspectRat) + '</span></div>',
+          '<div class="tcv-kv-row"><span class="tcv-kv-lbl">Pull (−<em>I</em>) / Push (+<em>I</em>) Coils</span><span class="tcv-kv-val">' + escHtml(negCnt + " cobalt · " + posCnt + " amber") + '</span></div>',
+          '<div class="tcv-kv-row"><span class="tcv-kv-lbl">Peak Winding Current |<em>I</em><sub>coil</sub>|</span><span class="tcv-kv-val">' + escHtml(peakMA > 0.01 ? (peakMA.toFixed(2) + " MA") : "Normalized [−1, 1]") + '</span></div>',
+          '<div class="tcv-kv-row"><span class="tcv-kv-lbl">LCFS Boundary Vertices</span><span class="tcv-kv-val">' + escHtml(String(mach.lcfs ? mach.lcfs.length : 64)) + ' pts</span></div>',
+          '<div class="tcv-kv-row"><span class="tcv-kv-lbl">3D Toroidal Cutaway Sector</span><span class="tcv-kv-val">' + escHtml(Math.round(uiState.cutawayDeg) + "° open") + '</span></div>'
         ].join("");
       }
 
-      if (wpoStrip) {
-        var cLabels = ["LCFS / TEQUILA Shape", "Plasma Current <em>I<sub>p</sub></em>", "PF Coil Margin", "Actuators ∈ [−1, 1]", "Safety Factor <em>q</em><sub>95</sub>"];
-        var stripHtml = [];
-        for (var ci = 0; ci < 5; ci++) {
-          var pct = (st.comps[ci] * 100.0).toFixed(1) + "%";
-          stripHtml.push(
-            '<div class="tcv-wpo-item">' +
-              '<span class="tcv-wpo-lbl">' + cLabels[ci] + '</span>' +
-              '<div class="tcv-wpo-track"><div class="tcv-wpo-fill" style="width:' + escHtml(pct) + ';background:' + escHtml(st.policy.color) + ';"></div></div>' +
-              '<span class="tcv-wpo-val">' + escHtml(pct) + '</span>' +
-            '</div>'
-          );
-        }
-        wpoStrip.innerHTML = stripHtml.join("");
+      if (showDocked) {
+        syncDockedBench(st);
       }
 
       if (gl && prog) {
@@ -1900,8 +2277,8 @@ let mount_tokamak_cad () =
         }
         gl.viewport(0, 0, glCanvas.width, glCanvas.height);
         var isDark = document.documentElement.getAttribute("data-theme") === "dark";
-        if (isDark) gl.clearColor(0.06, 0.08, 0.11, 1.0);
-        else gl.clearColor(0.985, 0.988, 0.992, 1.0);
+        if (isDark) gl.clearColor(0.051, 0.071, 0.098, 1.0);
+        else gl.clearColor(0.976, 0.980, 0.988, 1.0);
         gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
         if (meshDirty || !cachedBuffers) {
@@ -1939,8 +2316,8 @@ let mount_tokamak_cad () =
         var aPos = gl.getAttribLocation(prog, "aPos");
         var aNorm = gl.getAttribLocation(prog, "aNorm");
         var aCol = gl.getAttribLocation(prog, "aCol");
+        var uUnlitLoc = gl.getUniformLocation(prog, "uUnlit");
 
-        gl.uniform1f(gl.getUniformLocation(prog, "uUnlit"), 0.0);
         gl.bindBuffer(gl.ARRAY_BUFFER, cachedBuffers.posBuf);
         gl.enableVertexAttribArray(aPos);
         gl.vertexAttribPointer(aPos, 3, gl.FLOAT, false, 0, 0);
@@ -1953,10 +2330,17 @@ let mount_tokamak_cad () =
         gl.enableVertexAttribArray(aCol);
         gl.vertexAttribPointer(aCol, 4, gl.FLOAT, false, 0, 0);
 
-        gl.drawArrays(gl.TRIANGLES, 0, cachedBuffers.triCount);
+        var hwCount = cachedBuffers.hwTriCount || cachedBuffers.triCount;
+        gl.uniform1f(uUnlitLoc, 0.0);
+        gl.drawArrays(gl.TRIANGLES, 0, hwCount);
+
+        if (cachedBuffers.triCount > hwCount) {
+          gl.uniform1f(uUnlitLoc, 0.5);
+          gl.drawArrays(gl.TRIANGLES, hwCount, cachedBuffers.triCount - hwCount);
+        }
 
         if (cachedBuffers.lineCount > 0) {
-          gl.uniform1f(gl.getUniformLocation(prog, "uUnlit"), 1.0);
+          gl.uniform1f(uUnlitLoc, 1.0);
           gl.bindBuffer(gl.ARRAY_BUFFER, cachedBuffers.linePosBuf);
           gl.vertexAttribPointer(aPos, 3, gl.FLOAT, false, 0, 0);
           gl.disableVertexAttribArray(aNorm);
@@ -1969,7 +2353,7 @@ let mount_tokamak_cad () =
       renderFigure9Canvas(fig9Canvas, st, mach, uiState);
     }
 
-    // Hydrate real FUSE.jl 3D CAD environments from assets/baux_env.json
+    // Hydrate real FUSE.jl 3D CAD environments from assets/baux_env.json (preserving signed coil fallback currents)
     if (typeof window.fetch === "function") {
       window.fetch("assets/baux_env.json")
         .then(function(r) { return r.ok ? r.json() : null; })
@@ -1981,7 +2365,35 @@ let mount_tokamak_cad () =
             for (var fk = 0; fk < fKeys.length; fk++) {
               var k = fKeys[fk];
               if (Object.prototype.hasOwnProperty.call(fm, k) && fm[k] && fm[k].vessel_outer && fm[k].vessel_outer.length >= 6) {
-                MACHINES[k] = fm[k];
+                var prevM = MACHINES[k];
+                var nextM = fm[k];
+                if (prevM && prevM.coils && nextM.coils && nextM.coils.length > 0) {
+                  var hasNonZero = false;
+                  for (var ci0 = 0; ci0 < nextM.coils.length; ci0++) {
+                    if (typeof nextM.coils[ci0].current_ma === "number" && Math.abs(nextM.coils[ci0].current_ma) > 1e-4) {
+                      hasNonZero = true;
+                      break;
+                    }
+                  }
+                  if (!hasNonZero) {
+                    for (var ci1 = 0; ci1 < nextM.coils.length; ci1++) {
+                      var nc = nextM.coils[ci1];
+                      var matchedCur = null;
+                      for (var pi = 0; pi < prevM.coils.length; pi++) {
+                        if (prevM.coils[pi].name && nc.name && prevM.coils[pi].name.toLowerCase() === nc.name.toLowerCase()) {
+                          matchedCur = prevM.coils[pi].current_ma;
+                          break;
+                        }
+                      }
+                      if (matchedCur === null) {
+                        var ipRef = nextM.ipNominal || prevM.ipNominal || 2.0;
+                        matchedCur = (nc.r < (nextM.R0 || prevM.R0)) ? (-0.52 * ipRef) : ((Math.abs(nc.z) > (nextM.a || 1.0) * 1.15) ? (0.36 * ipRef) : (-0.32 * ipRef));
+                      }
+                      nc.current_ma = matchedCur;
+                    }
+                  }
+                }
+                MACHINES[k] = nextM;
               }
             }
           }
@@ -2003,7 +2415,126 @@ let mount_tokamak_cad () =
         .catch(function() {});
     }
 
+    var animTimer = null;
+    function stopPlayback() {
+      if (uiState.playing) {
+        uiState.playing = false;
+        if (playBtn) playBtn.textContent = "▶ Play";
+      }
+      if (animTimer) {
+        clearInterval(animTimer);
+        animTimer = null;
+      }
+    }
+
+    function setRoundAndSync(newRound) {
+      var minR = (uiState.regime === "tail") ? 100 : 1;
+      uiState.round = Math.max(minR, Math.min(10000, Math.round(newRound)));
+      if (roundSlider) roundSlider.value = String(roundToSliderVal(uiState.round, uiState.regime));
+      if (roundLbl) roundLbl.textContent = "t = " + formatRoundInt(uiState.round);
+      meshDirty = true;
+      renderAll();
+    }
+
+    // Wire docked figure regime pills, SVG scrubbers, and paired seed dots
+    if (dockedFig) {
+      var regBtns = dockedFig.querySelectorAll(".baux-regime-btn[data-regime]");
+      for (var rbi = 0; rbi < regBtns.length; rbi++) {
+        (function(btn) {
+          btn.addEventListener("click", function() {
+            var reg = (btn.getAttribute("data-regime") || "").trim();
+            if (reg !== "full" && reg !== "tail") return;
+            stopPlayback();
+            uiState.regime = reg;
+            for (var j = 0; j < regBtns.length; j++) {
+              var act = (regBtns[j].getAttribute("data-regime") || "").trim() === reg;
+              if (act) regBtns[j].classList.add("active");
+              else regBtns[j].classList.remove("active");
+            }
+            for (var sv = 0; sv < dockedSvgs.length; sv++) {
+              if (dockedSvgs[sv].getAttribute("data-view") === reg) dockedSvgs[sv].removeAttribute("hidden");
+              else dockedSvgs[sv].setAttribute("hidden", "hidden");
+            }
+            if (reg === "tail" && uiState.round < 100) {
+              uiState.round = 100;
+            }
+            setRoundAndSync(uiState.round);
+          });
+        })(regBtns[rbi]);
+      }
+
+      for (var svi2 = 0; svi2 < dockedSvgs.length; svi2++) {
+        (function(svgEl) {
+          var xLeft = parseFloat(svgEl.getAttribute("data-x-left") || "48");
+          var xRight = parseFloat(svgEl.getAttribute("data-x-right") || "326");
+          var logMin = parseFloat(svgEl.getAttribute("data-log-min") || "0");
+          var logMax = parseFloat(svgEl.getAttribute("data-log-max") || "4");
+          var vbParts = (svgEl.getAttribute("viewBox") || "0 0 432 272").trim().split(/\s+/);
+          var vbW = parseFloat(vbParts[2] || "432");
+
+          function scrubAtClientX(clientX) {
+            var rect = svgEl.getBoundingClientRect();
+            if (rect.width <= 1.0) return;
+            var svgX = ((clientX - rect.left) / rect.width) * vbW;
+            var u = Math.max(0.0, Math.min(1.0, (svgX - xLeft) / Math.max(1.0, xRight - xLeft)));
+            var targetT = Math.pow(10.0, logMin + u * (logMax - logMin));
+            // Snap gently to nearest empirical knot when close, while keeping full smooth scrub
+            var bestR = Math.round(targetT);
+            var bestDist = Infinity;
+            for (var ki = 0; ki < ROUNDS.length; ki++) {
+              var dLog = Math.abs(Math.log(ROUNDS[ki]) - Math.log(Math.max(1.0, targetT)));
+              if (dLog < bestDist) {
+                bestDist = dLog;
+                bestR = ROUNDS[ki];
+              }
+            }
+            setRoundAndSync(bestR);
+          }
+
+          svgEl.addEventListener("mousemove", function(ev) {
+            if (uiState.playing) return;
+            scrubAtClientX(ev.clientX);
+          });
+          svgEl.addEventListener("click", function(ev) {
+            stopPlayback();
+            scrubAtClientX(ev.clientX);
+          });
+          svgEl.addEventListener("touchstart", function(ev) {
+            if (ev.touches.length > 0) {
+              stopPlayback();
+              scrubAtClientX(ev.touches[0].clientX);
+            }
+          }, { passive: true });
+          svgEl.addEventListener("touchmove", function(ev) {
+            if (ev.touches.length > 0) {
+              scrubAtClientX(ev.touches[0].clientX);
+            }
+          }, { passive: true });
+        })(dockedSvgs[svi2]);
+      }
+
+      for (var doti = 0; doti < dockedSeedDots.length; doti++) {
+        (function(dObj) {
+          dObj.el.addEventListener("click", function(ev) {
+            ev.stopPropagation();
+            var armKey = Object.prototype.hasOwnProperty.call(armNameToKey, dObj.arm) ? armNameToKey[dObj.arm] : uiState.policyKey;
+            if (uiState.seedIdx === dObj.seed && uiState.policyKey === armKey) {
+              uiState.seedIdx = -1;
+            } else {
+              uiState.seedIdx = (dObj.seed >= 0 && dObj.seed < 10) ? dObj.seed : -1;
+              uiState.policyKey = armKey;
+              setActivePolBtn(armKey);
+            }
+            if (seedSel) seedSel.value = String(uiState.seedIdx);
+            meshDirty = true;
+            renderAll();
+          });
+        })(dockedSeedDots[doti]);
+      }
+    }
+
     machineSel.addEventListener("change", function() {
+      stopPlayback();
       var val = machineSel.value;
       uiState.machine = Object.prototype.hasOwnProperty.call(MACHINES, val) ? val : "tcv";
       var m = Object.prototype.hasOwnProperty.call(MACHINES, uiState.machine) ? MACHINES[uiState.machine] : MACHINES.tcv;
@@ -2018,10 +2549,9 @@ let mount_tokamak_cad () =
     for (var i = 0; i < polBtns.length; i++) {
       (function(btn) {
         btn.addEventListener("click", function() {
-          for (var j = 0; j < polBtns.length; j++) polBtns[j].classList.remove("active");
-          btn.classList.add("active");
           var pk = btn.getAttribute("data-pol");
-          uiState.policyKey = (pk && Object.prototype.hasOwnProperty.call(BENCH, pk)) ? pk : "shared";
+          uiState.policyKey = (pk && Object.prototype.hasOwnProperty.call(BENCH, pk)) ? pk : "turbo0";
+          setActivePolBtn(uiState.policyKey);
           meshDirty = true;
           renderAll();
         });
@@ -2029,12 +2559,24 @@ let mount_tokamak_cad () =
     }
 
     roundSlider.addEventListener("input", function() {
-      var r = parseInt(roundSlider.value, 10);
-      uiState.round = Number.isFinite(r) ? Math.max(0, Math.min(10000, r)) : 0;
-      roundLbl.textContent = String(uiState.round);
+      stopPlayback();
+      var sVal = parseInt(roundSlider.value, 10);
+      var r = sliderValToRound(Number.isFinite(sVal) ? sVal : 1000, uiState.regime);
+      uiState.round = r;
+      roundLbl.textContent = "t = " + formatRoundInt(r);
       meshDirty = true;
       renderAll();
     });
+
+    if (cutSlider) {
+      cutSlider.addEventListener("input", function() {
+        var cv = parseFloat(cutSlider.value);
+        uiState.cutawayDeg = Number.isFinite(cv) ? Math.max(25.0, Math.min(86.0, cv)) : 56.0;
+        if (cutLbl) cutLbl.textContent = Math.round(uiState.cutawayDeg) + "°";
+        meshDirty = true;
+        renderAll();
+      });
+    }
 
     seedSel.addEventListener("change", function() {
       var si = parseInt(seedSel.value, 10);
@@ -2068,31 +2610,30 @@ let mount_tokamak_cad () =
       uiState.yaw = -Math.PI * 0.5;
       uiState.pitch = 0.46;
       uiState.dist = m.dist;
+      uiState.cutawayDeg = 56.0;
+      if (cutSlider) cutSlider.value = "56";
+      if (cutLbl) cutLbl.textContent = "56°";
+      meshDirty = true;
       renderAll();
     });
 
-    var animTimer = null;
     playBtn.addEventListener("click", function() {
-      uiState.playing = !uiState.playing;
       if (uiState.playing) {
-        playBtn.textContent = "⏸ Pause";
-        if (uiState.round >= 10000) uiState.round = 0;
-        animTimer = setInterval(function() {
-          uiState.round = Math.min(10000, uiState.round + 100);
-          roundSlider.value = String(uiState.round);
-          roundLbl.textContent = String(uiState.round);
-          meshDirty = true;
-          renderAll();
-          if (uiState.round >= 10000) {
-            uiState.playing = false;
-            playBtn.textContent = "▶ Play";
-            clearInterval(animTimer);
-          }
-        }, 65);
-      } else {
-        playBtn.textContent = "▶ Play";
-        if (animTimer) clearInterval(animTimer);
+        stopPlayback();
+        return;
       }
+      uiState.playing = true;
+      playBtn.textContent = "⏸ Pause";
+      var curS = roundToSliderVal(uiState.round, uiState.regime);
+      if (curS >= 995) curS = 0;
+      setRoundAndSync(sliderValToRound(curS, uiState.regime));
+      animTimer = setInterval(function() {
+        curS = Math.min(1000, curS + 8);
+        setRoundAndSync(sliderValToRound(curS, uiState.regime));
+        if (curS >= 1000) {
+          stopPlayback();
+        }
+      }, 45);
     });
 
     var dragging = false, lastX = 0, lastY = 0;
@@ -2182,6 +2723,11 @@ let mount_tokamak_cad () =
       }
     }, { passive: true });
     glCanvas.addEventListener("touchcancel", function() { touchMode = 0; }, { passive: true });
+
+    if (typeof MutationObserver !== "undefined" && document.documentElement) {
+      var themeObs = new MutationObserver(function() { renderAll(); });
+      themeObs.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+    }
 
     var cadShell = root.querySelector(".tcv-cad-shell");
     if (typeof ResizeObserver !== "undefined" && cadShell) {

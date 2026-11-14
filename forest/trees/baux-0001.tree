@@ -47,11 +47,11 @@ assert state.best_x.shape == (6,) and state.best_y > -0.25
   \title{Closed-Loop Control Experiments}
 
   \p{
-    Closed-loop tokamak magnetic and profile control problems (Degrave et al. [[Deg+22]](https://doi.org/10.1038/s41586-021-04301-9), Tracey et al. [[Tra+24]](https://doi.org/10.1016/j.fusengdes.2024.114161), Pfau et al. [[Pfa+25]](https://arxiv.org/abs/2505.00663)) test direct parameter-space policy search when neural network weights (#{D \sim 1.5 \times 10^5}) are evaluated on full trajectory rollouts. On the \code{toka_gym} TCV plasma rampdown benchmark (Wang et al. [[Wan+25]](https://doi.org/10.1038/s41467-025-63917-3), Theiler et al. [[The+26]](https://doi.org/10.1088/1741-4326/ae6d12)), a four-layer policy (#{D = 136{,}712} weights) is searched over #{10{,}000} sequential rounds across #{n = 10} common-random-number seeds (#{800{,}000} rollouts across #{8} configurations; initial error \code{58.12 ± 31.39}, exact paired initialization drift \code{0.00}). Multi-region surrogate-free \code{TuRBO-zero} (#{R = 10}, sparse coordinate perturbations) produces identical trajectories across all four cross-region sharing topologies (\code{origin-only}, \code{box-contain}, \code{ellipsoid-ball}, \code{nearest-center}), dropping below on-policy PPO (\code{20.59}) by round #{2} (\code{20.33 ± 6.58}) and reaching \code{1.42 ± 0.03} at round #{250}, \code{1.38 ± 0.04} at round #{1{,}000}, \code{1.36 ± 0.03} at round #{3{,}000}, and \code{1.31 ± 0.02} (\code{1.3112 ± 0.0157}) at round #{10{,}000}. Single-region \code{TuRBO-ENN} (#{R = 1}, #{K = 10} Epistemic Nearest Neighbors fitted by leave-one-out log-likelihood with UCB acquisition) trails #{R = 10} at round #{250} (\code{1.58 ± 0.05} \code{hyperbolic} to \code{1.68 ± 0.08} \code{euclidean}; \code{wasserstein} \code{1.68 ± 0.06}, exact sign-flip #{p_{\mathrm{Holm}} = 0.014}) and steadily closes the gap over #{10{,}000} rounds, reaching \code{1.34 ± 0.03} (\code{1.3409 ± 0.0301}, \code{wasserstein}, paired difference \code{+0.03 ± 0.04}, #{p_{\mathrm{Holm}} = 1.00}; \code{1.35 ± 0.02} \code{euclidean}; \code{1.35 ± 0.03} \code{hyperbolic}; \code{1.37 ± 0.03} \code{conformal}).
+    Closed-loop tokamak magnetic and profile control problems (Degrave et al. [[Deg+22]](https://doi.org/10.1038/s41586-021-04301-9), Tracey et al. [[Tra+24]](https://doi.org/10.1016/j.fusengdes.2024.114161), Pfau et al. [[Pfa+25]](https://arxiv.org/abs/2505.00663)) test direct parameter-space policy search when neural network weights (#{D \sim 1.5 \times 10^5}) are evaluated on full trajectory rollouts. On the \code{toka_gym} TCV plasma rampdown benchmark (Wang et al. [[Wan+25]](https://doi.org/10.1038/s41467-025-63917-3), Theiler et al. [[The+26]](https://doi.org/10.1088/1741-4326/ae6d12)), a four-layer policy (#{D = 136{,}712} weights) is searched over #{10{,}000} sequential rounds across #{n = 10} common-random-number seeds (#{800{,}000} rollouts across #{8} configurations; initial error \code{58.12 ± 31.39}, exact paired initialization drift \code{0.00}). Multi-region surrogate-free \code{TuRBO-zero} (#{R = 10}, sparse coordinate perturbations) produces identical trajectories across all four cross-region sharing topologies (\code{origin-only}, \code{box-contain}, \code{ellipsoid-ball}, \code{nearest-center}), reaching \code{20.33 ± 6.58} by round #{2}, \code{1.42 ± 0.03} at round #{250}, \code{1.38 ± 0.04} at round #{1{,}000}, \code{1.36 ± 0.03} at round #{3{,}000}, and \code{1.31 ± 0.02} (\code{1.3112 ± 0.0157}) at round #{10{,}000}. Single-region \code{TuRBO-ENN} (#{R = 1}, #{K = 10} Epistemic Nearest Neighbors fitted by leave-one-out log-likelihood with UCB acquisition) trails #{R = 10} at round #{250} (\code{1.58 ± 0.05} \code{hyperbolic} to \code{1.68 ± 0.08} \code{euclidean}; \code{wasserstein} \code{1.68 ± 0.06}, exact sign-flip #{p_{\mathrm{Holm}} = 0.014}) and steadily closes the gap over #{10{,}000} rounds, reaching \code{1.34 ± 0.03} (\code{1.3409 ± 0.0301}, \code{wasserstein}, paired difference \code{+0.03 ± 0.04}, #{p_{\mathrm{Holm}} = 1.00}; \code{1.35 ± 0.02} \code{euclidean}; \code{1.35 ± 0.03} \code{hyperbolic}; \code{1.37 ± 0.03} \code{conformal}).
   }
 
   \p{
-    Over a #{10{,}000}-round horizon in \code{TORAX 2.0.0} (Citrin et al. [[Cit+24]](https://arxiv.org/abs/2406.06718)), a #{93 \to 256 \to 256 \to 256 \to 19} policy (#{D = 160{,}531} weights) couples four 1D radial transport PDEs with Miller local-equilibrium shaping (Miller et al. [[Mil+98]](https://doi.org/10.1063/1.872666)). Running surrogate-free \code{TuRBO-zero} (#{R = 10}, #{n = 10} paired seeds) to compare cross-region incumbent sharing rules directly, circumscribing-ball adoption (\code{ellipsoid_ball}) reaches \code{91.57 ± 0.55} and independent regions (\code{origin_only}) reach \code{89.41 ± 0.97} (paired difference \code{+2.16 ± 0.91}; two-sided paired #{t_9} #{p = 0.0410} unadjusted, #{p_{\mathrm{Holm}} = 0.246} across six checkpoints; PPO reaches \code{44.25}). Exported 3D tokamak equilibria from \code{FUSE.jl} (Meneghini et al. [[Men+24]](https://arxiv.org/abs/2409.05894)) and closed-loop rollout trajectories can be inspected in [Simulation](simulation.html).
+    Over a #{10{,}000}-round horizon in \code{TORAX 2.0.0} (Citrin et al. [[Cit+24]](https://arxiv.org/abs/2406.06718)), a #{93 \to 256 \to 256 \to 256 \to 19} policy (#{D = 160{,}531} weights) couples four 1D radial transport PDEs with Miller local-equilibrium shaping (Miller et al. [[Mil+98]](https://doi.org/10.1063/1.872666)). Running surrogate-free \code{TuRBO-zero} (#{R = 10}, #{n = 10} paired seeds) to compare cross-region incumbent sharing rules directly, circumscribing-ball adoption (\code{ellipsoid_ball}) reaches \code{91.57 ± 0.55} and independent regions (\code{origin_only}) reach \code{89.41 ± 0.97} (paired difference \code{+2.16 ± 0.91}; two-sided paired #{t_9} #{p = 0.0410} unadjusted, #{p_{\mathrm{Holm}} = 0.246} across six checkpoints). Exported 3D tokamak equilibria from \code{FUSE.jl} (Meneghini et al. [[Men+24]](https://arxiv.org/abs/2409.05894)) and closed-loop rollout trajectories can be inspected in [Simulation](simulation.html).
   }
 
   \<table>{
@@ -61,7 +61,6 @@ assert state.best_x.shape == (6,) and state.best_y > -0.25
       \<th>{Budget}
       \<th>{TuRBO-zero (\code{ellipsoid_ball})}
       \<th>{TuRBO-zero (\code{origin_only})}
-      \<th>{On-Policy PPO}
     }
     \<tr>{
       \<td>{\code{toka_gym} TCV Rampdown (error #{\downarrow})}
@@ -69,7 +68,6 @@ assert state.best_x.shape == (6,) and state.best_y > -0.25
       \<td>{#{10{,}000} rounds}
       \<td>{\code{1.31 ± 0.02}}
       \<td>{\code{1.31 ± 0.02}}
-      \<td>{\code{20.59}}
     }
     \<tr>{
       \<td>{\code{TORAX 2.0.0} Transport & Shaping (score #{\uparrow})}
@@ -77,7 +75,6 @@ assert state.best_x.shape == (6,) and state.best_y > -0.25
       \<td>{#{10{,}000} rounds}
       \<td>{\code{91.57 ± 0.55}}
       \<td>{\code{89.41 ± 0.97}}
-      \<td>{\code{44.25}}
     }
   }
 

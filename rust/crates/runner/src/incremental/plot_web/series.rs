@@ -436,7 +436,7 @@ pub fn plot_model(
         collapsed_base_count: collapsed_count,
         collapse_note,
         non_baseline,
-        ppo_ref: (exp == "tokamak-tokagym").then_some(20.59),
+        ppo_ref: None,
     })
 }
 

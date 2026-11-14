@@ -40,6 +40,7 @@ assert params_rec["opt"] == params["opt"]
 assert np.isclose(params_rec["lr"], params["lr"])
 assert np.isclose(params_rec["theta"], params["theta"])
 assert np.allclose(params_rec["weights"], params["weights"])
+print("PyTree roundtrip verified:", params_rec)
 }
   }
   \<p>[class]{api-source}{[Source in \code{python/baux/pytree.py}](https://github.com/Kvutza/baux/blob/main/python/baux/pytree.py#L180)}
@@ -239,6 +240,7 @@ state, y = baux.step(
 assert state.num_observations == 1
 assert state.epoch == 2
 assert np.isfinite(y).all()
+print(f"Transform state verified: epoch={state.epoch} best_y={state.best_y:.5f}")
 }
   }
   \<p>[class]{api-source}{[Source in \code{python/baux/_embeddings.py}](https://github.com/Kvutza/baux/blob/main/python/baux/_embeddings.py#L246)}

@@ -8,14 +8,15 @@
 import numpy as np
 import baux
 
-x = np.linspace(-1.0, 1.0, 20).reshape(-1, 1)
-y = -(x - 0.25) ** 2
+x = np.concatenate([np.linspace(-1.4, 0.2, 16), np.linspace(1.1, 1.8, 8)]).reshape(-1, 1)
+y = np.exp(-0.35 * x ** 2) * np.cos(2.8 * x) + 0.15 * x
 data = baux.enn_init(x, y)
 params = baux.enn_fit(data, k=8, key=baux.key(0))
-prediction = baux.enn_posterior(data, np.array([[0.0], [0.5]]), params)
+prediction = baux.enn_posterior(data, np.array([[0.0], [0.65]]), params)
 
 assert prediction.mu.shape == (2, 1)
-print(prediction.mu)
+print("dense x=0.0  mu=", round(float(prediction.mu[0, 0]), 4), "se=", round(float(prediction.se[0, 0]), 4))
+print("gap   x=0.65 mu=", round(float(prediction.mu[1, 0]), 4), "se=", round(float(prediction.se[1, 0]), 4))
 }
 
 \p{
@@ -151,5 +152,6 @@ assert np.all(idx[0] < 24)
 assert post.se_epi[0, 0] < post.se_epi[2, 0]
 assert np.allclose(post.se**2, post.se_epi**2 + post.se_ale**2)
 assert corr_basin > 0.8
+print(f"basin se_epi={post.se_epi[0, 0]:.4f} < far se_epi={post.se_epi[2, 0]:.4f} | draw_corr={corr_basin:.4f}")
   }
 }

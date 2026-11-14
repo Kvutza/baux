@@ -28,6 +28,7 @@ telem = opt.telemetry()
 assert x.shape == (3, 2)
 assert pred.shape == (3, 1)
 assert isinstance(telem, baux.Telemetry)
+print("BayesOptimizer pred:", np.round(pred[:, 0], 4), "dt_fit:", round(telem.dt_fit, 4))
 }
   }
   \<p>[class]{api-source}{[Source in \code{python/baux/bo.py}](https://github.com/Kvutza/baux/blob/main/python/baux/bo.py#L356)}

@@ -112,5 +112,6 @@ for _ in range(10):
     state, mu_shrunk = baux.tell(state, batch, y)
 
 assert mu_shrunk.shape == (3, 6) and state.y_obs.shape == (30, 6)
+print(f"Structured Stein: best_y={state.best_y:.4f} best_params={state.best_params}")
   }
 }

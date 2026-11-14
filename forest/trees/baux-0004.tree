@@ -79,6 +79,7 @@ for _ in range(12):
 grid = np.zeros((4096, 16), dtype=np.float64)
 vals = oxcaml.eval_batch("ackley", grid, backend="simd", workers=4)
 assert vals.shape == (4096,) and np.allclose(vals, 0.0, atol=1e-12)
+print(f"4096 evals verified; TuRBO-ENN best_y={state.best_y:.5f}")
   }
 
   \p{

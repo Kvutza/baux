@@ -49,6 +49,7 @@ state2 = baux.enn_append(state, x_new, np.sin(x_new))
 assert post.mu.shape == (3, 1)
 assert draws.shape == (3, 1, 4)
 assert len(state2) == 6
+print("posterior mu:", np.round(post.mu[:, 0], 4), "se_epi:", np.round(post.se_epi[:, 0], 4))
 }
   }
   \<p>[class]{api-source}{[Source in \code{python/baux/enn/enn_state.py}](https://github.com/Kvutza/baux/blob/main/python/baux/enn/enn_state.py#L332)}

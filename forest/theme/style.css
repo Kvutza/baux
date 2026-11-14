@@ -1011,15 +1011,85 @@ html[data-theme="dark"] .py-out-stderr { color: #f87171; }
 }
 .py-best-code { font-family: var(--font-mono); font-size: 0.74rem; color: var(--fg-primary); background: none; padding: 0; }
 .py-chart-card {
-  border: 1px solid var(--hairline); border-radius: 6px; padding: 0.5rem 0.6rem;
+  border: 1px solid var(--hairline); border-radius: 6px; padding: 0.55rem 0.65rem;
   background: var(--bg-surface);
 }
+.py-fig-card { margin-top: 0.45rem; }
+.py-fig-title {
+  font-size: 0.82rem; font-weight: 600; color: var(--fg-primary); line-height: 1.25;
+}
+.py-fig-subtitle {
+  font-size: 0.72rem; color: var(--fg-muted); margin-top: 0.12rem; line-height: 1.3;
+}
+.py-fig-legend {
+  display: flex; flex-wrap: wrap; gap: 0.35rem 0.75rem; margin-top: 0.35rem; margin-bottom: 0.15rem;
+  font-size: 0.71rem; font-family: var(--font-mono); color: var(--fg-secondary);
+}
+.py-fig-legend-item { display: inline-flex; align-items: center; gap: 0.3rem; }
+.py-fig-swatch { display: inline-block; width: 14px; height: 3px; border-radius: 2px; }
+.py-swatch-0, .py-swatch-enn { background: var(--bench-c-enn1); }
+.py-swatch-1, .py-swatch-target { background: var(--bench-c-enn2); }
+.py-swatch-2, .py-swatch-init { background: var(--bench-c-enn3); }
+.py-swatch-3 { background: var(--bench-c-enn4); }
+.py-swatch-4 { background: var(--fg-muted); }
+.py-fig-swatch.is-dashed {
+  background: transparent; border-top: 2px dashed var(--fg-secondary); height: 0;
+}
+.py-swatch-1.is-dashed, .py-swatch-target.is-dashed { border-top-color: var(--bench-c-enn2); }
+.py-swatch-2.is-dashed, .py-swatch-init.is-dashed { border-top-color: var(--bench-c-enn3); }
+.py-swatch-3.is-dashed { border-top-color: var(--bench-c-enn4); }
+.py-swatch-4.is-dashed { border-top-color: var(--fg-muted); }
+.py-swatch-coil-pos { height: 9px; width: 9px; background: var(--bench-c-enn3); border-radius: 2px; }
+.py-swatch-coil-neg { height: 9px; width: 9px; background: var(--bench-c-enn1); border-radius: 2px; }
+.py-swatch-band { height: 9px; width: 12px; background: var(--bench-c-enn1); opacity: 0.28; border-radius: 2px; }
 .py-traj-svg { width: 100%; height: auto; display: block; margin-top: 0.25rem; }
 .py-svg-grid { stroke: var(--bench-grid); stroke-width: 1; }
 .py-svg-axis { stroke: var(--bench-axis); stroke-width: 1; }
-.py-svg-tick { fill: var(--bench-axis); font-family: var(--font-mono); font-size: 10px; }
+.py-svg-frame { fill: none; stroke: var(--hairline-mid); stroke-width: 1; }
+.py-svg-tick { fill: var(--bench-axis); font-family: var(--font-mono); font-size: 9.5px; }
+.py-svg-axis-lbl { fill: var(--fg-secondary); font-family: var(--font-mono); font-size: 10px; font-weight: 500; }
 .py-svg-obs-dot { fill: var(--fg-muted); opacity: 0.55; }
+.py-svg-obs-dot-strong { fill: var(--fg-primary); stroke: var(--bg-canvas); stroke-width: 0.8; }
+.py-svg-series { stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.py-svg-series.is-dashed { stroke-dasharray: 5 3.5; stroke-width: 1.7; }
+.py-svg-series-0 { stroke: var(--bench-c-enn1); }
+.py-svg-series-1 { stroke: var(--bench-c-enn2); }
+.py-svg-series-2 { stroke: var(--bench-c-enn3); }
+.py-svg-series-3 { stroke: var(--bench-c-enn4); }
+.py-svg-series-4 { stroke: var(--fg-muted); }
+.py-svg-series-dot-0 { fill: var(--bench-c-enn1); }
+.py-svg-series-dot-1 { fill: var(--bench-c-enn2); }
+.py-svg-series-dot-2 { fill: var(--bench-c-enn3); }
+.py-svg-series-dot-3 { fill: var(--bench-c-enn4); }
+.py-svg-series-dot-4 { fill: var(--fg-muted); }
 .py-svg-best-line { stroke: var(--bench-c-enn1); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .py-svg-best-dot { fill: var(--bench-c-enn1); }
+.py-svg-first-wall { fill: none; stroke: var(--fg-muted); stroke-width: 1.4; opacity: 0.7; }
+.py-svg-lcfs-target { fill: none; stroke: var(--bench-c-enn2); stroke-width: 1.8; stroke-dasharray: 5 3; }
+.py-svg-sep-init { fill: none; stroke: var(--bench-c-enn3); stroke-width: 1.4; stroke-dasharray: 3 3; opacity: 0.85; }
+.py-svg-sep-opt { fill: none; stroke: var(--bench-c-enn1); stroke-width: 2.3; stroke-linejoin: round; }
+.py-svg-flux-minor { fill: none; stroke: var(--bench-c-enn1); stroke-width: 0.7; opacity: 0.25; }
+.py-svg-coil-pos { fill: var(--bench-c-enn3); stroke: var(--fg-primary); stroke-width: 0.7; }
+.py-svg-coil-neg { fill: var(--bench-c-enn1); stroke: var(--fg-primary); stroke-width: 0.7; }
+.py-svg-xpt { stroke: var(--fg-primary); stroke-width: 1.8; stroke-linecap: round; }
+.py-svg-band-fill { fill: var(--bench-c-enn1); fill-opacity: 0.22; stroke: none; }
+.py-svg-band-true { stroke: var(--bench-c-enn2); stroke-width: 1.6; stroke-dasharray: 4 3; }
+.py-svg-mw-line { stroke: var(--bench-c-enn3); stroke-width: 1.25; stroke-dasharray: 2.5 2.5; opacity: 0.85; }
+.py-heat-0  { fill: #1d4ed8; }
+.py-heat-1  { fill: #2563eb; }
+.py-heat-2  { fill: #3b82f6; }
+.py-heat-3  { fill: #60a5fa; }
+.py-heat-4  { fill: #93c5fd; }
+.py-heat-5  { fill: #bfdbfe; }
+.py-heat-6  { fill: #dbeafe; }
+.py-heat-7  { fill: #eff6ff; }
+.py-heat-8  { fill: #fef2f2; }
+.py-heat-9  { fill: #fee2e2; }
+.py-heat-10 { fill: #fecaca; }
+.py-heat-11 { fill: #fca5a5; }
+.py-heat-12 { fill: #f87171; }
+.py-heat-13 { fill: #ef4444; }
+.py-heat-14 { fill: #dc2626; }
+.py-heat-15 { fill: #b91c1c; }
 .py-recent-table { width: 100%; border-collapse: collapse; font-family: var(--font-mono); font-size: 0.72rem; margin: 0; }
 .py-recent-table th, .py-recent-table td { padding: 0.3rem 0.45rem; border: 1px solid var(--hairline); }

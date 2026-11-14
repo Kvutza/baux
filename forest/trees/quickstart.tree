@@ -17,23 +17,32 @@ import baux
 
 
 def objective(x):
-    return -np.sum((x - 0.4) ** 2, axis=1)
+    # Coupled 6D bimodal Gaussian-ridge landscape (peak near x = 0.65)
+    r1 = np.exp(-0.4 * np.sum((x - 0.65) ** 2, axis=1))
+    r2 = 0.65 * np.exp(-0.5 * np.sum((x + 0.55) ** 2, axis=1))
+    couple = -0.15 * np.sum((x[:, 1:] - 0.5 * x[:, :-1]) ** 2, axis=1)
+    return r1 + r2 + couple
 
 
-bounds = np.tile([-2.0, 2.0], (6, 1))
-pipe = baux.enn(k=10) | baux.ucb(beta=2.0)
+bounds = np.tile([-1.5, 1.5], (6, 1))
+pipe = baux.enn(k=8) | baux.ucb(beta=1.5)
 state = baux.init(bounds, pipe, key=baux.key(0))
+zero_state = baux.init(bounds, baux.turbo_zero(num_init=12), key=baux.key(0))
 
-for _ in range(15):
+for _ in range(18):
     state, batch = baux.ask(state, num_arms=4)
     state, _ = baux.tell(state, batch, objective(batch.points))
+    zero_state, zb = baux.ask(zero_state, num_arms=4)
+    zero_state, _ = baux.tell(zero_state, zb, objective(zb.points))
 
-print(state.best_x, state.best_y)
+print("6D Bimodal Ridge @ 72 evals:")
+print("  TuRBO-ENN :", round(float(state.best_y), 4), np.round(state.best_x, 3))
+print("  TuRBO-Zero:", round(float(zero_state.best_y), 4))
   }
   }
 
   \p{
-    \code{batch.points} has one row per proposed point. Return one value per row, or several columns for a vector objective. The pipeline above uses an ENN surrogate and UCB acquisition; [the configuration reference](api-pipelines.html#baux.enn) describes their options.
+    \code{batch.points} has one row per proposed point. Return one value per row, or several columns for a vector objective. The pipeline above compares an ENN surrogate + UCB acquisition against model-free \code{turbo_zero} across the same evaluation budget; [the configuration reference](api-pipelines.html#baux.enn) describes their options.
   }
 }
 

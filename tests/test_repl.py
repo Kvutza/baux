@@ -233,3 +233,67 @@ print(json.dumps({
     assert len(wasm_out["normals"]) == len(native_out["normals"])
     for row_w, row_n in zip(wasm_out["normals"], native_out["normals"], strict=True):
         assert len(row_w) == len(row_n)
+
+
+def _extract_presets_from_ml() -> dict[str, str]:
+    import re
+
+    root = Path(__file__).resolve().parents[1]
+    text = (root / "admin/ui/py_repl.ml").read_text(encoding="utf-8")
+    m = re.search(r"let presets\s*:\s*preset list\s*=\s*\[(.*?)\n  \]", text, flags=re.DOTALL)
+    assert m, "presets block not found in admin/ui/py_repl.ml"
+    body = m.group(1)
+    presets: dict[str, str] = {}
+    for block in re.finditer(
+        r'\{\s*id\s*=\s*"([^"]+)";\s*label\s*=.*?code\s*=\s*(.*?)\s*;\s*\}',
+        body,
+        flags=re.DOTALL,
+    ):
+        pid, raw_expr = block.group(1), block.group(2)
+        parts = re.findall(r'"((?:\\.|[^"\\])*)"', raw_expr)
+        code = "".join(bytes(p, "utf-8").decode("unicode_escape") for p in parts)
+        presets[pid] = code
+    assert len(presets) == 7, f"expected 7 presets, found {list(presets)}"
+    return presets
+
+
+def test_presets_execute_and_emit_valid_figs(tmp_path: Path) -> None:
+    """Every Playground preset must execute cleanly in WASM mode and emit valid fig specs."""
+    import re
+    import shutil
+
+    root = Path(__file__).resolve().parents[1]
+    presets = _extract_presets_from_ml()
+    worker_js = (root / "forest/theme/repl_worker.js").read_text(encoding="utf-8")
+    boot_m = re.search(r"const BOOTSTRAP_PY = `(.*?)`;\n", worker_js, flags=re.DOTALL)
+    assert boot_m, "BOOTSTRAP_PY not found in repl_worker.js"
+    bootstrap_py = boot_m.group(1)
+    work = tmp_path / "presets"
+    work.mkdir(parents=True, exist_ok=True)
+    env_src = root / "forest/output/assets/baux_env.json"
+    if env_src.is_file():
+        shutil.copy(env_src, work / "baux_env.json")
+
+    script = f"""
+import json, os, sys
+if hasattr(sys, "setcwd"):
+    pass
+os.chdir({str(work)!r})
+globs = {{}}
+exec({bootstrap_py!r}, globs, globs)
+globs["_reset_namespace"]()
+out = {{}}
+for pid, src in {presets!r}.items():
+    res = json.loads(globs["_baux_exec_script"](src, reset_ns=True))
+    assert res["ok"], f"{{pid}} failed: {{res.get('error')}}"
+    assert res["stdout"].strip(), f"{{pid}} produced empty stdout"
+    state = res.get("state")
+    assert state is not None and state.get("fig") is not None, f"{{pid}} missing fig: {{state}}"
+    fig = state["fig"]
+    assert fig["kind"] in {{"curves", "tokamak", "field2d", "band1d"}}, fig["kind"]
+    out[pid] = fig["kind"]
+print("OK:" + json.dumps(out))
+"""
+    proc = _runzip(work, script)
+    assert proc.returncode == 0, f"stderr:\n{proc.stderr}\nstdout:\n{proc.stdout}"
+    assert "OK:" in proc.stdout

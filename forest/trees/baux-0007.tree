@@ -44,6 +44,7 @@ for _ in range(6):
     state, _ = baux.tell(state, batch, y)
 
 assert state.num_observations == 12
+print(f"baux.init/ask/tell: n={state.num_observations} best_y={state.best_y:.5f}")
 }
   }
   \<p>[class]{api-source}{[Source in \code{python/baux/functional.py}](https://github.com/Kvutza/baux/blob/main/python/baux/functional.py#L98)}
@@ -166,6 +167,7 @@ assert len(state.pending_ids) == 4
 state = baux.complete(state, batch.ids[:2], np.array([0.5, 0.8]))
 state = baux.cancel(state, batch.ids[2:])
 assert len(state.pending_ids or ()) == 0
+print(f"Async complete/cancel verified: obs={state.num_observations} best_y={state.best_y:.5f}")
 }
   }
   \<p>[class]{api-source}{[Source in \code{python/baux/functional.py}](https://github.com/Kvutza/baux/blob/main/python/baux/functional.py#L276)}

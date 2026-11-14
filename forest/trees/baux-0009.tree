@@ -90,5 +90,6 @@ rollouts_b = baux.pmap(
     ),
 )
 assert rollouts_live == rollouts_a == rollouts_b and len(set(rollouts_live)) == 4
+print(f"Verified BLAKE3 digest={baux.digest(s_live)[:16]}... parity across 4 forked rollouts")
   }
 }

@@ -19,18 +19,21 @@ python -m pip install baux
 import baux
 import numpy as np
 
-bounds = np.array([[-2.0, 2.0], [-2.0, 2.0]])
+bounds = np.array([[-2.0, 2.0], [-1.0, 3.0]])
 state = baux.init(bounds, pipe=baux.enn(), seed=0)
+
+def rosenbrock(x):
+    return -(1.0 - x[:, 0]) ** 2 - 20.0 * (x[:, 1] - x[:, 0] ** 2) ** 2
 
 for _ in range(10):
     state, batch = baux.ask(state, n=4)
-    values = -np.sum(batch.points**2, axis=1)
+    values = rosenbrock(batch.points)
     state, _ = baux.tell(state, batch, values)
 
-print(state.best_x, state.best_y)
+print("Rosenbrock max(-f):", round(float(state.best_y), 5), "at", np.round(state.best_x, 4))
   }
   }
-  \p{baux maximizes values. This example returns a negative squared distance to minimize the distance from the origin. Keep the state returned by \code{ask} and \code{tell} for the next call.}
+  \p{baux maximizes values. This example negates the coupled 2D Rosenbrock valley so the optimizer ascends along the curved ridge toward (1, 1). Keep the state returned by \code{ask} and \code{tell} for the next call.}
   \p{The [quickstart](quickstart.html) explains the loop. The [optimizer reference](docs.html) documents its inputs and outputs.}
 }
 

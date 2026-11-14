@@ -37,6 +37,7 @@ state = baux.init(domain, pipe, seed=42)
 state, y = baux.step(state, lambda x: -np.sum(x**2, axis=-1), num_arms=2)
 assert state.num_observations == 2
 assert len(y) == 2
+print(f"Pipeline obs={state.num_observations} best_y={state.best_y:.5f}")
 }
   }
   \<p>[class]{api-source}{[Source in \code{python/baux/transforms.py}](https://github.com/Kvutza/baux/blob/main/python/baux/transforms.py)}

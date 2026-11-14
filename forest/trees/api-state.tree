@@ -16,10 +16,11 @@ baux.freeze(state: OptimizerState) -> bytes
 import numpy as np
 import baux
 
-domain = np.array([[-2.0, 2.0], [-2.0, 2.0]])
+domain = np.array([[-2.0, 2.0], [-1.0, 3.0]])
 blank = baux.init(domain, baux.turbo_zero(), seed=123)
 state, batch = baux.ask(blank, 2)
-y = -np.sum(batch.points**2, axis=-1, keepdims=True)
+x = batch.points
+y = (-(1.0 - x[:, 0]) ** 2 - 5.0 * (x[:, 1] - x[:, 0] ** 2) ** 2)[:, None]
 state, _ = baux.tell(state, batch, y)
 raw = baux.freeze(state)
 restored = baux.thaw(blank, raw)
@@ -27,6 +28,7 @@ assert restored.epoch == state.epoch
 assert restored.seed == state.seed
 assert restored.num_observations == state.num_observations
 assert np.array_equal(baux.ask(state, 2)[1].points, baux.ask(restored, 2)[1].points)
+print(f"Checkpoint freeze/thaw verified: bytes={len(raw)} epoch={restored.epoch} digest={baux.digest(restored)[:16]}...")
 }
   }
   \<p>[class]{api-source}{[Source in \code{python/baux/state.py}](https://github.com/Kvutza/baux/blob/main/python/baux/state.py#L346)}
@@ -140,6 +142,7 @@ def branch_fn(idx, branch_state, k):
 results = baux.pmap(state, root_key, 3, branch_fn)
 assert len(results) == 3
 assert [r[0] for r in results] == [0, 1, 2]
+print(f"step/scan/pmap verified: scan_obs={final_state.num_observations} best_y={final_state.best_y:.4f} pmap_batches={len(results)}")
 }
   }
   \<p>[class]{api-source}{[Source in \code{python/baux/functional.py}](https://github.com/Kvutza/baux/blob/main/python/baux/functional.py#L394)}

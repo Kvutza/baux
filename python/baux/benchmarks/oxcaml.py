@@ -157,13 +157,22 @@ def problem(
     """
     meta = describe(name, 0 if dim is None else int(dim))
     bounds = np.asarray(meta["bounds"], dtype=np.float64)
+    target_dim = int(bounds.shape[0])
 
     def objective(x: ArrayLike) -> float | np.ndarray:
         arr = np.asarray(x, dtype=np.float64)
         if arr.ndim == 1:
+            if arr.shape[0] != target_dim:
+                raise ValueError(
+                    f"Expected 1D point of length {target_dim}, got shape {arr.shape}"
+                )
             val = eval_one(name, arr)
             return -val if negate else val
         if arr.ndim == 2:
+            if arr.shape[1] != target_dim:
+                raise ValueError(
+                    f"Expected 2D batch with D={target_dim}, got shape {arr.shape}"
+                )
             vals = eval_batch(name, arr, backend=backend, workers=workers)
             return -vals if negate else vals
         raise ValueError(f"Expected 1D point or 2D batch, got shape {arr.shape}")

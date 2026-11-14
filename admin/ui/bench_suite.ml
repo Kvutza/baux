@@ -749,18 +749,28 @@ let u_to_x (bounds : (float * float) array) (u : float array) =
 let safe_eval (spec : spec) (bounds : (float * float) array) (u : float array) =
   let x = u_to_x bounds u in
   let raw = spec.eval x in
-  if Float.is_nan raw then 1.0e30
-  else if raw > 1.0e30 then 1.0e30
-  else if raw < -1.0e30 then -1.0e30
+  if Float.is_nan raw then 1.0e290
+  else if raw > 1.0e290 then 1.0e290
+  else if raw < -1.0e290 then -1.0e290
   else raw
+
+(* Asymptotic log formula for |z| > 1e8 avoids intermediate z*z overflow in float64. *)
+let safe_asinh z =
+  let az = Float.abs z in
+  if az > 1.0e8 then Float.copy_sign (Float.log (2.0 *. az)) z
+  else Float.asinh z
 
 (* Rank-preserving asinh compression keeps extreme polynomials (Perm, Rosenbrock,
    Goldstein-Price) numerically well-conditioned during ENN distance weighting. *)
 let compress_y y center scale =
   let z = (y -. center) /. scale in
-  Float.asinh z
+  safe_asinh z
 
-let decompress_y z center scale = center +. (scale *. Float.sinh z)
+let decompress_y z center scale =
+  let zc = clamp (-700.0) 700.0 z in
+  let raw = center +. (scale *. Float.sinh zc) in
+  if Float.is_nan raw then 1.0e290
+  else clamp (-1.0e290) 1.0e290 raw
 
 let sq_dist (a : float array) (b : float array) =
   let s = ref 0.0 in
@@ -1024,10 +1034,7 @@ let create_session ?(seed = 1) ?(warm_steps = 24) ~(spec : spec) ~(dim : int)
       cached_model = None;
     }
   in
-  for _ = 1 to warm_steps do
-    (* Forward declaration via helper below *)
-    ignore sess
-  done;
+  ignore warm_steps;
   sess
 
 let raasp_candidate ?(full = false) (rng : Rng.t) (center : float array)

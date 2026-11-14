@@ -87,13 +87,39 @@ let option_label_of_spec (sp : Bench_suite.spec) =
     if string_contains sp.label tag_check then sp.label
     else Printf.sprintf "%s (%dD)" sp.label d0
 
+let sup_int n =
+  let digs =
+    [|
+      "\u{2070}";
+      "\u{00B9}";
+      "\u{00B2}";
+      "\u{00B3}";
+      "\u{2074}";
+      "\u{2075}";
+      "\u{2076}";
+      "\u{2077}";
+      "\u{2078}";
+      "\u{2079}";
+    |]
+  in
+  let s = string_of_int n in
+  let buf = Buffer.create (String.length s * 3) in
+  String.iter
+    (fun c ->
+      if c = '-' then Buffer.add_string buf "\u{207B}"
+      else if c >= '0' && c <= '9' then
+        Buffer.add_string buf digs.(Char.code c - Char.code '0')
+      else Buffer.add_char buf c)
+    s;
+  Buffer.contents buf
+
 let rule_summary (sp : Bench_suite.spec) active_dim =
   match sp.rule with
   | Bench_suite.Fixed d -> Printf.sprintf "Fixed %dD" d
   | Bench_suite.At_least k ->
-      Printf.sprintf "At_least %dD (active D=%d)" k active_dim
+      Printf.sprintf "%dD+ (active D=%d)" k active_dim
   | Bench_suite.Multiple_of k ->
-      Printf.sprintf "Multiple_of %dD (active D=%d)" k active_dim
+      Printf.sprintf "Multiple of %dD (active D=%d)" k active_dim
 
 let domain_summary (bounds : (float * float) array) =
   let d = Array.length bounds in
@@ -108,7 +134,7 @@ let domain_summary (bounds : (float * float) array) =
     done;
     if !all_same then
       if d = 1 then Printf.sprintf "[%s, %s]" (fmt_axis lo0) (fmt_axis hi0)
-      else Printf.sprintf "[%s, %s]^%d" (fmt_axis lo0) (fmt_axis hi0) d
+      else Printf.sprintf "[%s, %s]%s" (fmt_axis lo0) (fmt_axis hi0) (sup_int d)
     else if d = 2 then
       let lo1, hi1 = bounds.(1) in
       Printf.sprintf "[%s, %s] \u{00D7} [%s, %s]"
@@ -135,6 +161,19 @@ let clear_children (el : #Dom.node Js.t) =
     | Some child -> ignore (el##removeChild child)
     | None -> ()
   done
+
+let append_sub_parts (el : #Dom.node Js.t) (parts : (bool * string) list) =
+  clear_children el;
+  List.iter
+    (fun (is_sub, s) ->
+      if is_sub then begin
+        let sub = document##createElement (js "sub") in
+        sub##.textContent := Js.some (js s);
+        Dom.appendChild el sub
+      end
+      else
+        Dom.appendChild el (document##createTextNode (js s)))
+    parts
 
 let toggle_class (el : #element Js.t) cls active =
   if active then el##.classList##add (js cls)
@@ -298,23 +337,31 @@ let build_norm_scale (vals : float array) : norm_scale =
     let use_asinh = lin_span > 7.5 *. core_span && lin_span > 1.0e-6 in
     let anchor = q10 in
     let scale = Float.max 1.0e-9 (0.35 *. core_span) in
-    let xf v =
-      if use_asinh then Float.asinh ((v -. anchor) /. scale) else v
+    let safe_asinh z =
+      let az = Float.abs z in
+      if az > 1.0e8 then Float.copy_sign (Float.log (2.0 *. az)) z
+      else Float.asinh z
     in
+    let xf v = if use_asinh then safe_asinh ((v -. anchor) /. scale) else v in
     let z0 = xf raw_min in
     let z1 = xf raw_max in
     let z_max = if z1 -. z0 < 1.0e-12 then z0 +. 1.0 else z1 in
     { use_asinh; anchor; scale; z_min = z0; z_max; raw_min; raw_max }
 
 let eval_norm (ns : norm_scale) v =
+  let safe_asinh z =
+    let az = Float.abs z in
+    if az > 1.0e8 then Float.copy_sign (Float.log (2.0 *. az)) z
+    else Float.asinh z
+  in
   let z =
-    if ns.use_asinh then Float.asinh ((v -. ns.anchor) /. ns.scale) else v
+    if ns.use_asinh then safe_asinh ((v -. ns.anchor) /. ns.scale) else v
   in
   clamp01 ((z -. ns.z_min) /. Float.max 1.0e-12 (ns.z_max -. ns.z_min))
 
-(* --- 44 x 44 3D Surface Cache --- *)
+(* --- 56 x 56 3D Surface Cache --- *)
 
-let grid_3d = 44
+let grid_3d = 56
 let y_base = -0.62
 
 type surface_cache = {
@@ -326,18 +373,17 @@ type surface_cache = {
   s_scale : norm_scale;
 }
 
+let best_u_key (u : float array) (dim : int) =
+  let buf = Buffer.create 64 in
+  for c = 2 to dim - 1 do
+    Buffer.add_string buf (Printf.sprintf "%.4f," u.(c))
+  done;
+  Buffer.contents buf
+
 let slice_signature (s : Bench_suite.session) =
   let best_u = s.xs_u.(s.best_idx) in
-  if s.dim <= 2 then Printf.sprintf "%s:%d" s.spec.id s.dim
-  else
-    let buf = Buffer.create 64 in
-    Buffer.add_string buf (Printf.sprintf "%s:%d:" s.spec.id s.dim);
-    for c = 2 to Int.min (s.dim - 1) 12 do
-      Buffer.add_string buf (Printf.sprintf "%.3f," best_u.(c))
-    done;
-    if s.dim > 13 then
-      Buffer.add_string buf (Printf.sprintf "#%d" s.best_idx);
-    Buffer.contents buf
+  if s.dim <= 2 then Printf.sprintf "%s:%d:%d" s.spec.id s.dim s.seed
+  else Printf.sprintf "%s:%d:%d:%s" s.spec.id s.dim s.seed (best_u_key best_u s.dim)
 
 let world_xz_of_u dim u1 u2 =
   let xw = (u1 -. 0.5) *. 2.0 in
@@ -629,11 +675,11 @@ let fs_source =
      vec3 l1 = normalize(vec3(0.52, 0.86, 0.44));\n\
      vec3 l2 = normalize(vec3(-0.62, 0.38, -0.58));\n\
      float d1 = max(dot(n, l1), 0.0);\n\
-     float d2 = max(dot(n, l2), 0.0) * 0.32;\n\
+     float d2 = max(abs(dot(n, l2)), 0.0) * 0.28;\n\
      vec3 h = normalize(l1 + v);\n\
-     float spec = pow(max(dot(n, h), 0.0), 28.0) * 0.20;\n\
-     float hemi = 0.35 + 0.10 * n.y;\n\
-     vec3 rgb = vCol.rgb * (hemi + 0.63 * d1 + d2) + vec3(spec);\n\
+     float spec = pow(max(dot(n, h), 0.0), 28.0) * 0.16;\n\
+     float hemi = 0.48 + 0.14 * abs(n.y);\n\
+     vec3 rgb = vCol.rgb * (hemi + 0.50 * d1 + d2) + vec3(spec);\n\
      gl_FragColor = vec4(min(vec3(1.0), rgb), vCol.a);\n\
    }"
 
@@ -1029,16 +1075,17 @@ let mount_viewer (root : element Js.t) =
     let field_row = mk_div ~cls:"oxb-field-row" () in
     let field_specs =
       [|
-        ("Epistemic \u{03C3}_e", Field_sigma);
-        ("Posterior \u{03BC}", Field_mean);
-        ("LCB \u{03B1}(x)", Field_lcb);
-        ("True f(x)", Field_true);
+        ([(false, "Epistemic \u{03C3}"); (true, "e")], Field_sigma);
+        ([(false, "Posterior \u{03BC}")], Field_mean);
+        ([(false, "LCB \u{03B1}(x)")], Field_lcb);
+        ([(false, "True f(x)")], Field_true);
       |]
     in
     let field_btns =
       Array.map
-        (fun (lbl, fm) ->
-          let b = mk_btn ~cls:"tcv-preset-btn oxb-field-btn" lbl in
+        (fun (parts, fm) ->
+          let b = mk_btn ~cls:"tcv-preset-btn oxb-field-btn" "" in
+          append_sub_parts b parts;
           Dom.appendChild field_row b;
           (b, fm))
         field_specs
@@ -1077,13 +1124,13 @@ let mount_viewer (root : element Js.t) =
 
     (* Pane (a): 3D Objective Surface *)
     let pane_a = mk_div ~cls:"tcv-pane oxb-pane-a" () in
-    let badge_a = mk_div ~cls:"tcv-hud-badge" () in
-    let badge_a_left = mk_span () in
+    let badge_a = mk_div ~cls:"tcv-hud-badge oxb-pane-hdr" () in
+    let badge_a_left = mk_span ~cls:"oxb-pane-hdr-left" () in
     Dom.appendChild badge_a_left (mk_strong "(a) ");
-    let badge_a_title = mk_span ~txt:"3D Objective Surface f(x\u{2081}, x\u{2082})" () in
+    let badge_a_title = mk_span ~cls:"oxb-pane-a-title" ~txt:"3D Surface f(x\u{2081}, x\u{2082})" () in
     Dom.appendChild badge_a_left badge_a_title;
     let badge_a_hint =
-      mk_span ~cls:"tcv-touch-hint" ~txt:"Drag to orbit \u{00B7} Scroll to zoom" ()
+      mk_span ~cls:"oxb-pane-a-hint" ~txt:"Drag orbit \u{00B7} Scroll zoom" ()
     in
     Dom.appendChild badge_a badge_a_left;
     Dom.appendChild badge_a badge_a_hint;
@@ -1097,12 +1144,13 @@ let mount_viewer (root : element Js.t) =
 
     (* Pane (b): Live ENN Surrogate & Trust Regions *)
     let pane_b = mk_div ~cls:"tcv-pane oxb-pane-b" () in
-    let badge_b = mk_div ~cls:"tcv-hud-badge" () in
-    let badge_b_left = mk_span () in
+    let badge_b = mk_div ~cls:"tcv-hud-badge oxb-pane-hdr" () in
+    let badge_b_left = mk_span ~cls:"oxb-pane-hdr-left" () in
     Dom.appendChild badge_b_left (mk_strong "(b) ");
-    let badge_b_title = mk_span ~txt:"Live ENN Surrogate & Trust Regions" () in
+    let badge_b_title = mk_span ~cls:"oxb-pane-b-title" ~txt:"ENN Surrogate & Trust Regions" () in
     Dom.appendChild badge_b_left badge_b_title;
-    let badge_b_sub = mk_span ~cls:"tcv-touch-hint oxb-pane-b-sub" ~txt:"\u{03C3}_e(x)" () in
+    let badge_b_sub = mk_span ~cls:"oxb-pane-b-sub" () in
+    append_sub_parts badge_b_sub [(false, "Epistemic \u{03C3}"); (true, "e"); (false, "(x)")];
     Dom.appendChild badge_b badge_b_left;
     Dom.appendChild badge_b badge_b_sub;
 
@@ -1122,8 +1170,16 @@ let mount_viewer (root : element Js.t) =
     let trace_hdr = mk_div ~cls:"oxb-trace-hdr" () in
     let trace_hdr_left = mk_span () in
     Dom.appendChild trace_hdr_left (mk_strong "(c) ");
-    Dom.appendChild trace_hdr_left
-      (mk_span ~txt:"Anytime Best-So-Far Objective min_{t \u{2264} n} f(x_t)" ());
+    let trace_title_span = mk_span () in
+    append_sub_parts trace_title_span
+      [
+        (false, "Anytime Best-So-Far Objective min");
+        (true, "t \u{2264} n");
+        (false, " f(x");
+        (true, "t");
+        (false, ")");
+      ];
+    Dom.appendChild trace_hdr_left trace_title_span;
     let trace_hdr_right = mk_span ~cls:"oxb-trace-sub" () in
     Dom.appendChild trace_hdr trace_hdr_left;
     Dom.appendChild trace_hdr trace_hdr_right;
@@ -2278,12 +2334,12 @@ let mount_viewer (root : element Js.t) =
             if s.dim = 1 then Printf.sprintf "x\u{2081} = %.4f" x_cur.(0)
             else Printf.sprintf "x = (%.3f, %.3f)" x_cur.(0) x_cur.(1)
           in
-          set_text hover_bar
-            (Printf.sprintf
-               "Cursor %s  \u{00B7}  True f(x) = %s  \u{00B7}  ENN \u{03BC}(x) = %s  \u{00B7}  \u{03C3}_e(x) = %s  \u{00B7}  LCB \u{03B1}(x) = %s  \u{00B7}  Stencil K = %d neighbors"
-               coord_str (fmt_num f_val) (fmt_num post.mean) (fmt_num post.sigma)
-               (fmt_num post.lcb)
-               (Array.length post.neighbors))
+          append_sub_parts hover_bar
+            [
+              (false, Printf.sprintf "Cursor %s  \u{00B7}  True f(x) = %s  \u{00B7}  ENN \u{03BC}(x) = %s  \u{00B7}  \u{03C3}" coord_str (fmt_num f_val) (fmt_num post.mean));
+              (true, "e");
+              (false, Printf.sprintf "(x) = %s  \u{00B7}  LCB \u{03B1}(x) = %s  \u{00B7}  Stencil K = %d neighbors" (fmt_num post.sigma) (fmt_num post.lcb) (Array.length post.neighbors));
+            ]
     in
 
     let sync_ui_chrome () =
@@ -2328,34 +2384,36 @@ let mount_viewer (root : element Js.t) =
 
       (* HUD Badges *)
       if s.dim = 1 then begin
-        set_text badge_a_title "3D Objective Ribbon f(x\u{2081})";
-        set_text badge_a_hint "1D Curve Extrusion \u{00B7} Drag to orbit";
-        set_text badge_b_sub "1D \u{03BC}(x\u{2081}) \u{00B1} 2\u{03C3}_e"
+        set_text badge_a_title "3D Ribbon f(x\u{2081})";
+        set_text badge_a_hint "1D extrusion \u{00B7} Drag orbit";
+        append_sub_parts badge_b_sub
+          [(false, "1D \u{03BC}(x\u{2081}) \u{00B1} 2\u{03C3}"); (true, "e")]
       end
       else if s.dim = 2 then begin
-        set_text badge_a_title "3D Objective Surface f(x\u{2081}, x\u{2082})";
-        set_text badge_a_hint "Drag to orbit \u{00B7} Scroll to zoom";
-        let f_lbl =
+        set_text badge_a_title "3D Surface f(x\u{2081}, x\u{2082})";
+        set_text badge_a_hint "Drag orbit \u{00B7} Scroll zoom";
+        let f_parts =
           match !cur_field with
-          | Field_sigma -> "Epistemic \u{03C3}_e(x)"
-          | Field_mean -> "Posterior \u{03BC}(x)"
-          | Field_lcb -> "LCB \u{03B1}(x)"
-          | Field_true -> "True f(x)"
+          | Field_sigma -> [(false, "Epistemic \u{03C3}"); (true, "e"); (false, "(x)")]
+          | Field_mean -> [(false, "Posterior \u{03BC}(x)")]
+          | Field_lcb -> [(false, "LCB \u{03B1}(x)")]
+          | Field_true -> [(false, "True f(x)")]
         in
-        set_text badge_b_sub f_lbl
+        append_sub_parts badge_b_sub f_parts
       end
       else begin
-        set_text badge_a_title "3D Objective Surface f(x\u{2081}, x\u{2082})";
+        set_text badge_a_title "3D Surface f(x\u{2081}, x\u{2082})";
         set_text badge_a_hint
-          (Printf.sprintf "(x\u{2081}, x\u{2082}) slice @ x* (D=%d)" s.dim);
-        let f_lbl =
+          (Printf.sprintf "Slice @ x* (D=%d)" s.dim);
+        let f_parts =
           match !cur_field with
-          | Field_sigma -> Printf.sprintf "\u{03C3}_e slice (D=%d)" s.dim
-          | Field_mean -> Printf.sprintf "\u{03BC} slice (D=%d)" s.dim
-          | Field_lcb -> Printf.sprintf "LCB slice (D=%d)" s.dim
-          | Field_true -> Printf.sprintf "f(x) slice (D=%d)" s.dim
+          | Field_sigma ->
+              [(false, "\u{03C3}"); (true, "e"); (false, Printf.sprintf " slice (D=%d)" s.dim)]
+          | Field_mean -> [(false, Printf.sprintf "\u{03BC} slice (D=%d)" s.dim)]
+          | Field_lcb -> [(false, Printf.sprintf "LCB slice (D=%d)" s.dim)]
+          | Field_true -> [(false, Printf.sprintf "f(x) slice (D=%d)" s.dim)]
         in
-        set_text badge_b_sub f_lbl
+        append_sub_parts badge_b_sub f_parts
       end;
 
       (* Trace header & Metadata chips *)

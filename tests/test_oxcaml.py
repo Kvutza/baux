@@ -111,3 +111,19 @@ def test_loop() -> None:
 
     assert state.best_x.shape == (16,)
     assert state.best_y > init_best
+
+
+def test_edges() -> None:
+    import pytest
+
+    _, obj = oxcaml.problem("sphere", dim=4)
+    with pytest.raises(ValueError):
+        obj(np.zeros(2, dtype=np.float64))
+    with pytest.raises(ValueError):
+        obj(np.zeros((3, 2), dtype=np.float64))
+
+    empty = oxcaml.eval_batch(
+        "sphere", np.zeros((0, 4), dtype=np.float64), backend="simd"
+    )
+    assert empty.shape == (0,)
+    assert np.isfinite(obj(np.ones(4, dtype=np.float64)))

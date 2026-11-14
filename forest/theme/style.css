@@ -127,6 +127,14 @@
   --code-keyword: #8250a5;
   --code-string: #176547;
   --code-number: #a14521;
+  --bench-c-hero: #111111;
+  --bench-c-enn1: #1d4ed8;
+  --bench-c-enn2: #0f766e;
+  --bench-c-enn3: #b45309;
+  --bench-c-enn4: #7e22ce;
+  --bench-grid: #eceff3;
+  --bench-axis: #52525b;
+  --bench-zero: #71717a;
 }
 html[data-theme="dark"] {
   color-scheme: dark;
@@ -144,6 +152,14 @@ html[data-theme="dark"] {
   --code-keyword: #cba6ed;
   --code-string: #a6d6a0;
   --code-number: #f3ac8e;
+  --bench-c-hero: #f0f6fc;
+  --bench-c-enn1: #58a6ff;
+  --bench-c-enn2: #2dd4bf;
+  --bench-c-enn3: #fbbf24;
+  --bench-c-enn4: #c084fc;
+  --bench-grid: #21262d;
+  --bench-axis: #8b949e;
+  --bench-zero: #6e7681;
 }
 *, *::before, *::after { box-sizing: border-box; }
 [hidden] { display: none !important; }

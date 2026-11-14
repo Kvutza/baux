@@ -22,7 +22,7 @@ impl SearchState {
                 length,
                 false,
                 false,
-                ProposalKernel::Gaussian,
+                ProposalDistribution::Gaussian,
             )
         })
     }
@@ -44,7 +44,7 @@ impl SearchState {
                 length,
                 false,
                 false,
-                ProposalKernel::Gaussian,
+                ProposalDistribution::Gaussian,
             )
         })
     }
@@ -55,7 +55,7 @@ impl SearchState {
         blocks: Vec<ParamBlock>,
         capacity: usize,
         length: TRLengthConfig,
-        perturbation: ProposalKernel,
+        perturbation: ProposalDistribution,
     ) -> Result<Self, String> {
         autoreleasepool(|| {
             Self::new_inner(
@@ -77,7 +77,7 @@ impl SearchState {
         blocks: Vec<ParamBlock>,
         resident_capacity: usize,
         length: TRLengthConfig,
-        perturbation: ProposalKernel,
+        perturbation: ProposalDistribution,
     ) -> Result<Self, String> {
         autoreleasepool(|| {
             Self::new_inner(
@@ -100,7 +100,7 @@ impl SearchState {
         blocks: Vec<ParamBlock>,
         resident_capacity: usize,
         length: TRLengthConfig,
-        perturbation: ProposalKernel,
+        perturbation: ProposalDistribution,
     ) -> Result<Self, String> {
         autoreleasepool(|| {
             Self::new_inner(
@@ -127,7 +127,7 @@ impl SearchState {
         length: TRLengthConfig,
         independent_fp16: bool,
         implicit_history: bool,
-        perturbation: ProposalKernel,
+        perturbation: ProposalDistribution,
     ) -> Result<Self, String> {
         let single_pool = matches!(base_input, Err(_));
         if implicit_history && capacity == 0 {
@@ -328,17 +328,17 @@ fn allocation_sizes(
     ))
 }
 
-pub fn search_source(independent_fp16: bool, perturbation: ProposalKernel) -> String {
+pub fn search_source(independent_fp16: bool, perturbation: ProposalDistribution) -> String {
     let mut defines = format!("#define BAUX_HISTORY {MAX_HISTORY}\n");
     if independent_fp16 {
         defines.push_str("#define FP16_INDEPENDENT\n");
     }
-    if perturbation == ProposalKernel::Rademacher {
+    if perturbation == ProposalDistribution::Rademacher {
         defines.push_str("#define RADEMACHER_ONLY\n");
     }
     #[cfg(test)]
     defines.push_str("#define POOL_GEOMETRY_DIAGNOSTICS\n");
-    let tables = if perturbation == ProposalKernel::Gaussian {
+    let tables = if perturbation == ProposalDistribution::Gaussian {
         metal_tables()
     } else {
         String::new()
@@ -352,7 +352,7 @@ pub fn search_source(independent_fp16: bool, perturbation: ProposalKernel) -> St
 fn compile_pipelines(
     runtime: &Runtime,
     independent_fp16: bool,
-    perturbation: ProposalKernel,
+    perturbation: ProposalDistribution,
     single_pool: bool,
 ) -> Result<[ComputePipelineState; 8], String> {
     let base_source = search_source(independent_fp16, perturbation);

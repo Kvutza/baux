@@ -217,8 +217,8 @@ class ResidentModel:
     def __init__(
         self,
         *,
-        model: str = "fbt-pisa1-mhc4-v1",
-        initialization: str = "fbt-pisa1-mhc4",
+        model: str = "pisa-mhc4-v1",
+        initialization: str = "pisa-mhc4",
         seed: int = 42,
         backend: Literal["native", "tvm"] = "native",
     ) -> None:

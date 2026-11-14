@@ -12,7 +12,7 @@ use clap::Subcommand;
 
 #[derive(Subcommand)]
 pub enum PagesAction {
-    /// Build OCaml 3D CAD UI, export FUSE.jl & Oceananigans.jl environments,
+    /// Build OCaml 3D CAD UI, export FUSE.jl environments,
     /// run Forester, stamp SRI, and verify.
     Build {
         #[arg(long, default_value = ".cache/pages-bundle")]
@@ -97,10 +97,9 @@ fn julia_bin() -> String {
     "julia".into()
 }
 
-fn daemon_sock(root: &Path, ocean: bool) -> PathBuf {
+fn daemon_sock(root: &Path) -> PathBuf {
     let tag = &hash_hex(root.as_os_str().as_encoded_bytes())[..10];
-    let kind = if ocean { "ocean" } else { "fuse" };
-    std::env::temp_dir().join(format!("baux_jl_{tag}_{kind}.sock"))
+    std::env::temp_dir().join(format!("baux_jl_{tag}_fuse.sock"))
 }
 
 #[cfg(unix)]
@@ -123,20 +122,12 @@ fn daemon_req(_sock: &Path, _msg: &str) -> Result<String, String> {
     Err("unix socket required".into())
 }
 
-fn spawn_daemon(root: &Path, ocean: bool) -> Result<PathBuf, String> {
-    let sock = daemon_sock(root, ocean);
-    let proj = if ocean {
-        root.join("evals/oceananigans")
-    } else {
-        root.join("evals/fuse")
-    };
+fn spawn_daemon(root: &Path) -> Result<PathBuf, String> {
+    let sock = daemon_sock(root);
+    let proj = root.join("evals/fuse");
     let log_dir = root.join(".cache/baux/shm");
     fs::create_dir_all(&log_dir).map_err(|e| e.to_string())?;
-    let log_path = log_dir.join(if ocean {
-        "julia_ocean_daemon.log"
-    } else {
-        "julia_fuse_daemon.log"
-    });
+    let log_path = log_dir.join("julia_fuse_daemon.log");
     let log_file = fs::OpenOptions::new()
         .create(true)
         .append(true)
@@ -144,10 +135,7 @@ fn spawn_daemon(root: &Path, ocean: bool) -> Result<PathBuf, String> {
         .map_err(|e| format!("open daemon log {}: {e}", log_path.display()))?;
 
     let mut cmd = Command::new(julia_bin());
-    cmd.args(["--startup-file=no", "--threads=auto"]);
-    if !ocean {
-        cmd.arg("-O1");
-    }
+    cmd.args(["--startup-file=no", "--threads=auto", "-O1"]);
     cmd.arg(format!("--project={}", proj.display()))
         .arg(proj.join("worker.jl"))
         .arg("--daemon")
@@ -204,32 +192,20 @@ fn is_fresh(target: &Path, deps: &[PathBuf]) -> bool {
     true
 }
 
-fn export_env(root: &Path, ocean: bool) -> Result<String, String> {
+fn export_env(root: &Path) -> Result<String, String> {
     let cache_dir = root.join(".cache/baux");
     fs::create_dir_all(&cache_dir).map_err(|e| e.to_string())?;
-    let out_path = cache_dir.join(if ocean {
-        "ocean_env.json"
-    } else {
-        "fuse_env.json"
-    });
-    let proj = if ocean {
-        root.join("evals/oceananigans")
-    } else {
-        root.join("evals/fuse")
-    };
+    let out_path = cache_dir.join("fuse_env.json");
+    let proj = root.join("evals/fuse");
     let deps = [proj.join("worker.jl"), root.join("evals/julia/shm_ipc.jl")];
     if is_fresh(&out_path, &deps) {
         return fs::read_to_string(&out_path).map_err(|e| e.to_string());
     }
 
-    let label = if ocean {
-        "Oceananigans.jl 0.117.2"
-    } else {
-        "FUSE.jl 1.2.1"
-    };
+    let label = "FUSE.jl 1.2.1";
     println!("o|pages: exporting 3D CAD & PDE environment via {label} daemon...");
 
-    let sock = daemon_sock(root, ocean);
+    let sock = daemon_sock(root);
     let mut exported = false;
     if let Ok(pong) = daemon_req(&sock, "PING\n")
         && pong.trim() == "PONG"
@@ -246,7 +222,7 @@ fn export_env(root: &Path, ocean: bool) -> Result<String, String> {
     }
 
     if !exported {
-        let live_sock = spawn_daemon(root, ocean)?;
+        let live_sock = spawn_daemon(root)?;
         let req = format!("ENV\t{}\n", out_path.display());
         let rep = daemon_req(&live_sock, &req)?;
         if rep.trim() != "OK" {
@@ -262,13 +238,12 @@ fn export_env(root: &Path, ocean: bool) -> Result<String, String> {
 }
 
 fn env_json(root: &Path) -> Result<String, String> {
-    let ocean = export_env(root, true)?;
-    let fuse = export_env(root, false)?;
+    let fuse = export_env(root)?;
 
     let records = runs::history(
         root,
         &runs::Query {
-            limit: 32,
+            limit: 128,
             ..Default::default()
         },
     )
@@ -276,8 +251,16 @@ fn env_json(root: &Path) -> Result<String, String> {
 
     let mut run_items = Vec::new();
     for r in records {
+        if r.task.to_ascii_lowercase().contains("ocean")
+            || r.model.to_ascii_lowercase().contains("ocean")
+        {
+            continue;
+        }
         let meas_json =
             baux::artifact::json::to_string(&r.measurements).unwrap_or_else(|_| "{}".to_string());
+        if meas_json.to_ascii_lowercase().contains("ocean") {
+            continue;
+        }
         let meas_clean = if meas_json.contains("/Users/") || meas_json.contains("/home/runner/") {
             "{}".to_string()
         } else {
@@ -293,12 +276,14 @@ fn env_json(root: &Path) -> Result<String, String> {
             json_str(&format!("{:?}", r.status)),
             meas_clean
         ));
+        if run_items.len() >= 32 {
+            break;
+        }
     }
 
     Ok(format!(
-        "{{\"fuse\":{},\"ocean\":{},\"runs\":[{}]}}",
+        "{{\"fuse\":{},\"runs\":[{}]}}",
         fuse.trim(),
-        ocean.trim(),
         run_items.join(",")
     ))
 }
@@ -348,7 +333,7 @@ pub fn build(root: &Path, bundle_dir: &Path) -> Result<(), String> {
         ));
     }
 
-    println!("o|pages [2/4]: assembling FUSE.jl & Oceananigans.jl 3D CAD environments...");
+    println!("o|pages [2/4]: assembling FUSE.jl 3D CAD environments...");
     let cad_env = env_json(root)?;
 
     println!("o|pages [3/4]: building Forester site...");

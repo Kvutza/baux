@@ -326,7 +326,7 @@ theorem coordinateSmooth (shape : Program.Shape) (index : Index shape) :
 theorem Current.cardinality : Fintype.card (Index Program.current) = 265656600 :=
   (Parameters.cardinality Program.current).trans Program.Current.slots
 
-/-- The 17 architectural parameter families of `fbt-pisa1-mhc4-v1` (Section 6.2
+/-- The 17 architectural parameter families of `pisa-mhc4-v1` (Section 6.2
 of `TYPED_TENSOR_INFERENCE_AND_OPTIMIZER_ARCHITECTURE.txt`). -/
 inductive ParamFamily
   | tokenEmbed

@@ -132,7 +132,7 @@ fn policy(radius: f32, seed: u64) -> Result<crate::config::ResidentEnnConfig, St
         num_samples: 1,
         fit_params: false,
         adapt_neighbors: false,
-        distance_metric: crate::config::DistanceMetric::Euclidean,
+        distance_metric: crate::config::Dissimilarity::Euclidean,
         local_scale_neighbors: 8,
     })
 }
@@ -258,7 +258,7 @@ pub fn run(path: &Path, output: &Path) -> Result<(), String> {
         config.initialization,
         config.seed,
         length,
-        crate::ProposalKernel::Gaussian,
+        crate::ProposalDistribution::Gaussian,
         config.backend,
     )?;
     let policy = policy(config.radius as f32, config.seed)?;

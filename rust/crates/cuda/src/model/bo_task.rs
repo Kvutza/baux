@@ -542,7 +542,7 @@ impl BoConfig {
         let bo_rounds = parse_arg(args, 9, 128_usize)?;
         let acquisition = args.get(10).map(String::as_str).unwrap_or("ucb").to_owned();
         if !matches!(acquisition.as_str(), "ucb" | "thompson") {
-            return Err("CUDA mHC-4 operator-BO requires UCB or Thompson acquisition".into());
+            return Err("CUDA mHC-4 single-state-bo requires UCB or Thompson acquisition".into());
         }
         let evaluation_seed = parse_arg(args, 12, proposal_seed)?;
         let semantic = matches!(args.len(), 19 | 20 | 22 | 23);

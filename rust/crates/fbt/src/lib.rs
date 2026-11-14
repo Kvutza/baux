@@ -1,5 +1,26 @@
-//! Forward-backward transformer (FBT), grouped-MoE, PISA-1 attention, and
-//! subsecond generation/pretraining execution on Apple Silicon Metal.
+//! Subsecond sequence modeling, generation, and pretraining execution on Apple
+//! Silicon Metal.
+//!
+//! # Architecture & External Prior Art
+//! This crate integrates several distinct model architectures and testbeds.
+//! Note that the following core sequence-modeling and routing designs represent
+//! external prior art:
+//! - **Forward-Backward Transformer (FBT)**: Legacy two-pass bidirectional
+//!   recurrence.
+//! - **PISA**: Log-linear pyramid block-sparse attention (Bohao Tang, Zhen Qin,
+//!   Yuqi Pan, Zheng Li, and Pengfei Liu, *"Block Sparse Attention with
+//!   Log-Linear Complexity"*, arXiv:2609.31093, 2026).
+//! - **mHC-4**: Manifold-constrained hyper-connections with doubly-stochastic
+//!   Sinkhorn-Knopp residual transport (Xie et al., DeepSeek-AI, *"mHC:
+//!   Manifold-Constrained Hyper-Connections"*, arXiv:2512.24880, 2025; Zhu et
+//!   al., *"Hyper-Connections"*, ICLR 2025, arXiv:2409.19606).
+//! - **H-Net**: Dynamic chunking for hierarchical multi-stage sequence modeling
+//!   (Sukjun Hwang, Brandon Wang, and Albert Gu, *"Dynamic Chunking for
+//!   End-to-End Hierarchical Sequence Modeling"*, arXiv:2507.07955, 2025).
+//! - **DeepSeekMoE**: Shared and routed expert specialization with fine-grained
+//!   isolation (Damai Dai et al., *"DeepSeekMoE: Towards Ultimate Expert
+//!   Specialization in Mixture-of-Experts Language Models"*, ACL 2024,
+//!   arXiv:2401.06066).
 
 #![allow(clippy::pedantic, clippy::nursery, clippy::cargo)]
 
@@ -7,8 +28,9 @@
 pub(crate) use baux::TRLengthConfig;
 pub use baux::semantics::context;
 pub(crate) use baux::{
-    BasePolicyManifest, ProposalKernel, config, forward_program, hash, muon, objective_observation,
-    pretrain_data, response_observation, search, tensor_store, text, traits, trust_region, weights,
+    BasePolicyManifest, ProposalDistribution, config, forward_program, hash, muon,
+    objective_observation, pretrain_data, response_observation, search, tensor_store, text, traits,
+    trust_region, weights,
 };
 #[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "metal"))]
 pub(crate) use baux::{apple_gpu, hnet_metal, mps as fbt_mps, reconstruction, resident_metal};
@@ -34,9 +56,11 @@ pub use moe as fbt_moe;
 pub mod nn;
 #[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "metal"))]
 #[allow(dead_code)]
-pub mod pisa1;
+pub mod pisa;
 #[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "metal"))]
-pub use pisa1 as fbt_pisa1;
+pub use pisa as fbt_pisa;
+#[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "metal"))]
+pub use pisa as fbt_pisa1;
 #[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "metal"))]
 #[allow(dead_code)]
 pub mod tensor;
@@ -55,7 +79,7 @@ pub use moe::{ActualBoResult, GroupedMoeProbe};
 /// Default embedded Metal shader sources for full-loop kernel experiments.
 pub fn kernel_source(operator: &str) -> Result<&'static str, String> {
     match operator {
-        "pisa" => Ok(include_str!("pisa1.metal")),
+        "pisa" => Ok(include_str!("pisa.metal")),
         "moe" => Ok(include_str!("routing_tensorops.metal")),
         "decode" => Ok(include_str!("decode.metal")),
         "readout" => Ok(include_str!("moe.metal")),
@@ -78,7 +102,7 @@ mod shader_archive_tests {
             return;
         };
         let directory = tempfile::tempdir().unwrap();
-        let pisa_source = include_str!("pisa1.metal");
+        let pisa_source = include_str!("pisa.metal");
         runtime
             .compile_at(
                 pisa_source,

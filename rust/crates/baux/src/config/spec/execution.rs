@@ -24,6 +24,10 @@ pub fn default_target() -> u32 {
 pub enum ObjectiveFunction {
     #[default]
     CrossEntropy,
+    /// Bounded log-likelihood token loss $\log(2 - \exp(-z))$.
+    /// External prior-art token loss: Feng Zhao, Hong Zhang, Yu Yang, Ruilin
+    /// Zhao, and Guandong Xu, "Don't Force the Fit: Bounded Log-Likelihood Loss
+    /// for Enhanced Reasoning in Large Language Models", ICML 2026.
     BoundedLogLikelihood,
 }
 

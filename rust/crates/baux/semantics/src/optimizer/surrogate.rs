@@ -2,7 +2,7 @@
 
 mod loo_fit;
 
-pub use baux::semantics::neighbor::{DistanceMetric, MAX_HISTORY, UncertaintyLaw};
+pub use baux::semantics::neighbor::{Dissimilarity, DistanceMetric, MAX_HISTORY, UncertaintyLaw};
 use deser::{Deserialize, Serialize};
 
 pub const INITIAL_OBSERVATIONS: usize = 32;
@@ -404,13 +404,37 @@ impl NeighborValueEstimator {
         })
     }
 
+    /// Acquisition-free single-candidate (`K = 1`) surrogate evaluation.
+    /// Computes candidate and incumbent predictions directly without pool
+    /// acquisition rules (`UCB`, `Thompson`, `Pareto`) or acquisition RNG
+    /// draws.
+    pub fn evaluate_singleton(&self, distances: &[f64]) -> Result<PoolSelection, String> {
+        let initializing = self.is_initializing();
+        let incumbent = self.incumbent_baseline()?;
+        let baseline_value = self.base_value();
+        let baseline_variance = self.base_variance().max(0.0);
+        let baseline_se = baseline_variance.sqrt();
+        let candidate = self.acquire(distances, 0.0, None)?;
+        Ok(PoolSelection {
+            selected: 0,
+            initializing,
+            candidate,
+            incumbent,
+            baseline_value,
+            baseline_variance,
+            baseline_se,
+            pool_predictions: vec![(candidate.mean, candidate.standard_error, candidate.mean)],
+        })
+    }
+
     pub fn predict(&self, distances: &[f64]) -> Result<ValuePrediction, String> {
         self.predict_law(distances, self.uncertainty_law)
     }
 
-    /// Predict using upper-half-space hyperbolic ENN (`arXiv:2305.01356`),
-    /// setting each observation's vertical coordinate `z_i` to its local
-    /// k-NN Euclidean scale `sqrt(D_{i,(k)})`.
+    /// Predict using upper-half-space hyperbolic ENN (Poincaré 1882; Beardon
+    /// 1983; Cannon et al. 1997), setting each observation's vertical
+    /// coordinate `z_i` to its local k-NN Euclidean scale
+    /// `sqrt(D_{i,(k)})`.
     pub fn predict_hyperbolic(
         &self,
         distances: &[f64],
@@ -507,5 +531,27 @@ impl NeighborValueEstimator {
             loo_fit::fit(self)?;
         }
         Ok(next)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn singleton_eval() {
+        let estimator = NeighborValueEstimator::new(1.25, 0.04, 73).unwrap();
+        let selection = estimator.evaluate_singleton(&[0.0_f64]).unwrap();
+        assert_eq!(selection.selected, 0);
+        assert!(selection.initializing);
+        let pred = estimator.predict(&[0.0_f64]).unwrap();
+        assert_eq!(selection.candidate.mean, pred.mean);
+        assert_eq!(selection.candidate.standard_error, pred.standard_error);
+        assert_eq!(selection.candidate.score, pred.mean);
+        assert_eq!(selection.pool_predictions.len(), 1);
+        assert_eq!(
+            selection.pool_predictions[0],
+            (pred.mean, pred.standard_error, pred.mean)
+        );
     }
 }

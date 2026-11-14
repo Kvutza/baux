@@ -1,6 +1,6 @@
 use super::*;
 
-pub(super) fn validate(runtime: &Runtime, pisa: &Pisa1, qkv: &BufferRef) -> Result<f64, String> {
+pub(super) fn validate(runtime: &Runtime, pisa: &Pisa, qkv: &BufferRef) -> Result<f64, String> {
     let qkv_values = half_values(qkv, (ROWS * QKV_WIDTH) as usize);
     let rows = [0, 63, 64, 511, 2048, 4095, 4096, 8191];
     let mut maximum = 0.0f64;

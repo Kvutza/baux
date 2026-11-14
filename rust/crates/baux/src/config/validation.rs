@@ -98,7 +98,7 @@ impl RunConfig {
             self.optimizer(),
             TrainingOptimizer::MuonV1 | TrainingOptimizer::AdamwV1
         ) && (tokens != crate::pretrain_data::CONTEXT
-            || self.model != Some(ModelArchitecture::FbtPisa1Mhc4V1)
+            || self.model != Some(ModelArchitecture::PisaMhc4V1)
             || self.objective_function() != ObjectiveFunction::CrossEntropy)
         {
             return Err("gradient-based matrix training requires MHC4, cross-entropy and window-tokens=4096".into());
@@ -111,7 +111,7 @@ impl RunConfig {
         if tokens > crate::pretrain_data::CONTEXT
             && !matches!(
                 self.model,
-                Some(ModelArchitecture::FbtPisa1Mhc4V1 | ModelArchitecture::FbtPisa1HnetMhc4V1)
+                Some(ModelArchitecture::PisaMhc4V1 | ModelArchitecture::PisaHnetMhc4V1)
             )
         {
             return Err("pretraining sequences above 4096 positions require MHC4".into());
@@ -119,11 +119,11 @@ impl RunConfig {
         if tokens > crate::pretrain_data::CONTEXT
             && !matches!(
                 self.optimizer(),
-                TrainingOptimizer::ResidentEnnV1 | TrainingOptimizer::OperatorBo
+                TrainingOptimizer::ResidentEnnV1 | TrainingOptimizer::SingleStateBo
             )
         {
             return Err(
-                "long fixed-corpus likelihood requires Bayesian search or operator BO".into(),
+                "long fixed-corpus likelihood requires Bayesian search or single-state BO".into(),
             );
         }
         if self.generation.is_some() {
@@ -139,7 +139,7 @@ impl RunConfig {
     }
 
     fn validate_hnet(&self, tokens: u32) -> Result<(), String> {
-        if self.model == Some(ModelArchitecture::FbtPisa1HnetMhc4V1)
+        if self.model == Some(ModelArchitecture::PisaHnetMhc4V1)
             && (tokens > crate::context::MAX_TOKENS
                 || self.objective_function() != ObjectiveFunction::CrossEntropy)
         {
@@ -153,21 +153,24 @@ impl RunConfig {
             .generation
             .as_ref()
             .is_some_and(|generation| generation.draft.is_some());
-        let diffusion_model = self.model == Some(ModelArchitecture::FbtPisa1DiffusionMhc4V1);
+        let diffusion_model = self.model == Some(ModelArchitecture::PisaDiffusionMhc4V1);
         if diffusion != diffusion_model {
             return Err(
-                "fbt-pisa1-diffusion-mhc4-v1 requires generation.draft; causal models cannot run \
+                "pisa-diffusion-mhc4-v1 requires generation.draft; causal models cannot run \
                  diffusion"
                     .into(),
             );
         }
-        if self.generation.as_ref().is_some_and(|generation| {
-            generation.initialization == ModelInitialization::FbtPisa1Mhc4
-        }) && !matches!(
-            self.model,
-            Some(ModelArchitecture::FbtPisa1Mhc4V1 | ModelArchitecture::FbtPisa1HnetMhc4V1)
-        ) {
-            return Err("initialization fbt-pisa1-mhc4 requires model fbt-pisa1-mhc4-v1".into());
+        if self
+            .generation
+            .as_ref()
+            .is_some_and(|generation| generation.initialization == ModelInitialization::PisaMhc4)
+            && !matches!(
+                self.model,
+                Some(ModelArchitecture::PisaMhc4V1 | ModelArchitecture::PisaHnetMhc4V1)
+            )
+        {
+            return Err("initialization pisa-mhc4 requires model pisa-mhc4-v1".into());
         }
         if self.kernel_trial.is_some() && !pretrain {
             return Err("kernel trials require a pretrain experiment".into());
@@ -325,7 +328,7 @@ mod program_tests {
         let mut config: RunConfig =
             baux::artifact::toml::from_str("perturbation='gaussian'").unwrap();
         assert!(config.validate_program(true).is_ok());
-        config.perturbation = Some(crate::ProposalKernel::Rademacher);
+        config.perturbation = Some(crate::ProposalDistribution::Rademacher);
         assert!(config.validate_program(true).is_ok());
     }
 }

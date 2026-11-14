@@ -117,13 +117,13 @@ impl ExperimentSpec {
 fn matrix_generation(model: Option<ModelArchitecture>) -> Result<GenerationConfig, String> {
     if !matches!(
         model,
-        Some(ModelArchitecture::FbtPisa1Mhc4V1 | ModelArchitecture::FbtPisa1HnetMhc4V1)
+        Some(ModelArchitecture::PisaMhc4V1 | ModelArchitecture::PisaHnetMhc4V1)
     ) {
-        return Err("natural Muon and AdamW pretraining require fbt-pisa1-mhc4-v1".into());
+        return Err("natural Muon and AdamW pretraining require pisa-mhc4-v1".into());
     }
     Ok(GenerationConfig {
         purpose: GenerationPurpose::Pretrain,
-        initialization: ModelInitialization::FbtPisa1Mhc4,
+        initialization: ModelInitialization::PisaMhc4,
         feedback_transition: FeedbackTransition::default(),
         max_tokens: crate::context::MAX_TOKENS,
         temperature: 1.0,
@@ -165,11 +165,11 @@ impl OptimizerSpec {
         let candidate_generation = CandidateGenerationSpec::from_config(config)?;
         let surrogate = SurrogateRecipe::from_config(config)?;
         let trust_region = TrustRegionBounds::from_config(config);
-        if config.optimizer() == TrainingOptimizer::OperatorBo {
+        if config.optimizer() == TrainingOptimizer::SingleStateBo {
             if candidate_generation.candidates != 1 || candidate_generation.arms != 1 {
-                return Err("operator-bo requires 1 candidate and 1 arm".into());
+                return Err("single-state-bo requires 1 candidate and 1 arm".into());
             }
-            return Ok(Self::OperatorBo {
+            return Ok(Self::SingleStateBo {
                 distribution: candidate_generation.distribution.unwrap_or_default(),
                 perturbation: candidate_generation.perturbation,
                 surrogate,
@@ -192,7 +192,7 @@ impl OptimizerSpec {
 
     const fn training_optimizer(&self) -> TrainingOptimizer {
         match self {
-            Self::OperatorBo { .. } => TrainingOptimizer::OperatorBo,
+            Self::SingleStateBo { .. } => TrainingOptimizer::SingleStateBo,
             Self::BayesianSearch { .. } => TrainingOptimizer::ResidentEnnV1,
             Self::Muon => TrainingOptimizer::MuonV1,
             Self::Adamw | Self::Ppo => TrainingOptimizer::AdamwV1,
@@ -202,7 +202,7 @@ impl OptimizerSpec {
     fn apply(&self, config: &mut RunConfig) -> Result<(), String> {
         match self {
             Self::Muon | Self::Adamw | Self::Ppo => Ok(()),
-            Self::OperatorBo {
+            Self::SingleStateBo {
                 distribution,
                 perturbation,
                 surrogate,

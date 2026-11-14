@@ -15,11 +15,11 @@ pub(super) fn check_metal(spec: &OptimizerSpec) -> Result<(), String> {
         return Err("resident-metal backend requires macOS Apple Silicon".into());
     }
     match spec {
-        OptimizerSpec::OperatorBo {
+        OptimizerSpec::SingleStateBo {
             perturbation: Some(_),
             ..
         } => Err("resident-metal does not accept host [optimizer.perturbation] overrides".into()),
-        OptimizerSpec::OperatorBo { .. } => Ok(()),
+        OptimizerSpec::SingleStateBo { .. } => Ok(()),
         OptimizerSpec::BayesianSearch {
             candidates,
             arms,
@@ -36,7 +36,7 @@ pub(super) fn check_metal(spec: &OptimizerSpec) -> Result<(), String> {
             }
             Ok(())
         }
-        _ => Err("resident-metal backend requires operator-bo or bayesian-search".into()),
+        _ => Err("resident-metal backend requires single-state-bo or bayesian-search".into()),
     }
 }
 

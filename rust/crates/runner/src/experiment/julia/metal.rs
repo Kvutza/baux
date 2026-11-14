@@ -6,7 +6,7 @@ use std::path::Path;
 use std::time::Instant;
 
 use baux::config::{ObjectivePolicy, OptimizerSpec, RegionalSearchSpec, ResidentEnnConfig};
-use baux::proposal_kernel::ProposalKernel;
+use baux::proposal_distribution::ProposalDistribution;
 use baux::resident_metal::{ParamBlock, RegionalProposal, RegionalSearch, SearchState};
 
 use crate::experiment::julia::config::Config;
@@ -71,7 +71,7 @@ pub(crate) fn make_enn(
             num_samples: 1,
             fit_params: false,
             adapt_neighbors: false,
-            distance_metric: baux::config::DistanceMetric::Euclidean,
+            distance_metric: baux::config::Dissimilarity::Euclidean,
             local_scale_neighbors: 1,
         });
     };
@@ -81,16 +81,16 @@ pub(crate) fn make_enn(
     ask.surrogate.output_scale = enn.y_scale.unwrap_or(1.0) as f32;
     let (distance_metric, local_scale_neighbors) = match enn.geometry {
         baux::semantics::neighbor::DistanceMetric::Euclidean => {
-            (baux::config::DistanceMetric::Euclidean, 10)
+            (baux::config::Dissimilarity::Euclidean, 10)
         }
         baux::semantics::neighbor::DistanceMetric::Conformal { local_k } => {
-            (baux::config::DistanceMetric::Conformal, local_k)
+            (baux::config::Dissimilarity::Conformal, local_k)
         }
         baux::semantics::neighbor::DistanceMetric::Hyperbolic { local_k } => {
-            (baux::config::DistanceMetric::Hyperbolic, local_k)
+            (baux::config::Dissimilarity::Hyperbolic, local_k)
         }
         baux::semantics::neighbor::DistanceMetric::Wasserstein { local_k } => {
-            (baux::config::DistanceMetric::Wasserstein, local_k)
+            (baux::config::Dissimilarity::Wasserstein, local_k)
         }
     };
     Ok(ResidentEnnConfig {
@@ -186,14 +186,14 @@ pub(crate) fn regional_spec(spec: &OptimizerSpec) -> RegionalSearchSpec {
 }
 
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-pub(crate) fn resolve_kernel(spec: &OptimizerSpec) -> ProposalKernel {
+pub(crate) fn resolve_kernel(spec: &OptimizerSpec) -> ProposalDistribution {
     match spec {
-        OptimizerSpec::OperatorBo { distribution, .. }
+        OptimizerSpec::SingleStateBo { distribution, .. }
         | OptimizerSpec::BayesianSearch {
             distribution: Some(distribution),
             ..
         } => *distribution,
-        _ => ProposalKernel::Gaussian,
+        _ => ProposalDistribution::Gaussian,
     }
 }
 
@@ -206,7 +206,7 @@ pub(crate) struct MetalJob<'a> {
     pub rounds: usize,
     pub has_surrogate: bool,
     pub tr_cfg: baux::trust_region::TRLengthConfig,
-    pub kernel: ProposalKernel,
+    pub kernel: ProposalDistribution,
     pub reg_spec: RegionalSearchSpec,
     pub enn_res: ResidentEnnConfig,
     pub policy: Option<ObjectivePolicy>,

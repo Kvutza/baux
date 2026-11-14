@@ -36,11 +36,11 @@ fn check_morbo(cfg: &Config) -> Result<(), String> {
 
 fn check_optimizer(cfg: &Config) -> Result<(), String> {
     match &cfg.optimizer {
-        OptimizerSpec::OperatorBo {
+        OptimizerSpec::SingleStateBo {
             perturbation: Some(_),
             ..
         } => Err("resident-metal does not accept host [optimizer.perturbation] overrides".into()),
-        OptimizerSpec::OperatorBo { .. } => Ok(()),
+        OptimizerSpec::SingleStateBo { .. } => Ok(()),
         OptimizerSpec::BayesianSearch {
             candidates,
             arms,
@@ -63,7 +63,7 @@ fn check_optimizer(cfg: &Config) -> Result<(), String> {
             }
             Ok(())
         }
-        _ => Err("resident-metal ENN backend requires operator-bo or bayesian-search".into()),
+        _ => Err("resident-metal ENN backend requires single-state-bo or bayesian-search".into()),
     }
 }
 
@@ -113,7 +113,7 @@ pub fn resolve_mode(cfg: &Config) -> Result<ExecMode, String> {
         Backend::Auto => {
             let prefer = matches!(
                 &cfg.optimizer,
-                OptimizerSpec::OperatorBo {
+                OptimizerSpec::SingleStateBo {
                     perturbation: None,
                     ..
                 } | OptimizerSpec::BayesianSearch {

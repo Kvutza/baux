@@ -8,7 +8,7 @@ fn state() -> SearchState {
         vec![ParamBlock::new(1, 0, 4, 0.25, 1.0).unwrap()],
         2,
         TRLengthConfig::new(0.1, 0.001, 0.4),
-        ProposalKernel::Gaussian,
+        ProposalDistribution::Gaussian,
     )
     .unwrap();
     state.observe_initial(-1.0, 0.0).unwrap();

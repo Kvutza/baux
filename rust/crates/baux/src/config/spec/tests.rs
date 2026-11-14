@@ -196,7 +196,35 @@ fn guards() {
 #[test]
 fn distinct_roles() {
     assert!(parse_tune(&GAUSSIAN.replace("operator-bo", "bayesian-search")).is_err());
+    assert!(parse_tune(&OPERATOR_BO.replace("bayesian-search", "single-state-bo")).is_err());
     assert!(parse_tune(&OPERATOR_BO.replace("bayesian-search", "operator-bo")).is_err());
+}
+
+#[test]
+fn single_bo() {
+    let spec_single =
+        ExperimentSpec::parse(&GAUSSIAN.replace("operator-bo", "single-state-bo")).unwrap();
+    let spec_legacy = ExperimentSpec::parse(GAUSSIAN).unwrap();
+    assert!(matches!(
+        spec_single.optimizer,
+        OptimizerSpec::SingleStateBo { .. }
+    ));
+    assert!(matches!(
+        spec_legacy.optimizer,
+        OptimizerSpec::SingleStateBo { .. }
+    ));
+
+    let toml_single = spec_single.to_toml().unwrap();
+    assert!(
+        toml_single.contains("algorithm = \"single-state-bo\"")
+            || toml_single.contains("algorithm='single-state-bo'")
+    );
+
+    let toml_legacy = spec_legacy.to_toml().unwrap();
+    assert!(
+        toml_legacy.contains("algorithm = \"single-state-bo\"")
+            || toml_legacy.contains("algorithm='single-state-bo'")
+    );
 }
 
 #[test]
@@ -335,14 +363,14 @@ fn models() {
     assert_eq!(
         ModelArchitecture::ALL.map(ModelArchitecture::id),
         [
-            "fbt-pisa1-legacy-v1",
-            "fbt-pisa1-residual1-v1",
-            "fbt-pisa1-projected-boundary-v1",
-            "fbt-pisa1-hc4-v1",
-            "fbt-pisa1-mhc4-v1",
-            "fbt-pisa1-looped-mhc4-v1",
-            "fbt-pisa1-diffusion-mhc4-v1",
-            "fbt-pisa1-hnet-mhc4-v1",
+            "fbt-pisa-legacy-v1",
+            "pisa-residual1-v1",
+            "fbt-pisa-projected-boundary-v1",
+            "pisa-hc4-v1",
+            "pisa-mhc4-v1",
+            "pisa-looped-mhc4-v1",
+            "pisa-diffusion-mhc4-v1",
+            "pisa-hnet-mhc4-v1",
         ]
     );
 }

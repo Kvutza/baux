@@ -19,7 +19,7 @@ impl RoundLog {
         }
     }
 }
-type PairedScorer = Option<(metal::CommandQueue, Buffers, Pisa1)>;
+type PairedScorer = Option<(metal::CommandQueue, Buffers, Pisa)>;
 pub(super) struct RoundContext<'a, 'b> {
     pub weights: &'a CandidateWeights,
     pub paired_scorer: &'a PairedScorer,
@@ -267,7 +267,7 @@ fn prepare_round(
     runtime: &Runtime,
     pipelines: &Pipelines,
     tensorops: &TensorOpsPipelines,
-    pisa1: &Pisa1,
+    pisa1: &Pisa,
     buffers: &Buffers,
     weights: &CandidateWeights,
     search: &mut SearchState,

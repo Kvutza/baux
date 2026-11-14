@@ -109,7 +109,8 @@ pub mod predictor;
 pub mod prelude;
 pub mod pretrain_data;
 pub mod procedural_pool;
-pub mod proposal_kernel;
+pub mod proposal_distribution;
+pub use proposal_distribution as proposal_kernel;
 pub mod quantization;
 #[cfg(any(test, all(target_os = "macos", feature = "metal")))]
 pub mod reconstruction;
@@ -165,7 +166,7 @@ pub use coding_outcome::{
     CODING_SCHEMA, CandidateEfficiency, CandidateEligibility, CodingOutcome, ExecutableChecks,
 };
 pub use config::{
-    DataRecipe, DistanceMetric, ExperimentKind, ExperimentSpec, ModelArchitecture,
+    DataRecipe, Dissimilarity, DistanceMetric, ExperimentKind, ExperimentSpec, ModelArchitecture,
     ObjectiveReference, ResidentEnnConfig, TrustRegionKind,
 };
 pub use coord_space::{CoordPoint, Coords, DomainSpace, OwnedCoords, UnitSpace};
@@ -210,7 +211,7 @@ pub use pipeline::{
 };
 pub use posterior::{Pool, TopK, WeightedPosteriorData, compute_internals, conditional_internals};
 pub use pretrain_data::load_tokens as pretrain_tokens;
-pub use proposal_kernel::{CoordSystem, ProposalKernel};
+pub use proposal_distribution::{CoordSystem, ProposalDistribution, ProposalKernel};
 pub use scratch::{
     AlignedBuffer, CacheLine, CandidateSoa, PageBlock, ScratchArena, ScratchScope, UnifiedBuffer,
     UnifiedRead, UnifiedWrite,

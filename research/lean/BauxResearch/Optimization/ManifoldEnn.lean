@@ -23,8 +23,9 @@ Epistemic Nearest Neighbors (ENN) architecture in `baux::semantics`:
      NeurIPS 17, 1601–1608.
    - M. Nickel and D. Kiela (2017), *Poincaré Embeddings for Learning
      Hierarchical Representations*, NeurIPS 30 (arXiv:1705.08039).
-   - Conformal local-scale half-space dissimilarity and branch-and-bound pruning
-     (arXiv:2305.01356).
+   - A. F. Beardon (1983), *The Geometry of Discrete Groups*, GTM 91, §7.2
+     (half-space isometric invariant); hyperbolic quadtree ANN pruning motivated
+     by S. Kisfaludi-Bak and G. van Wordragen (2024, arXiv:2305.01356).
 
 2. **Orthogonal-Subspace James–Stein Contraction on the Stiefel Manifold (`stiefel.rs`):**
    Decomposes the local surrogate or trajectory displacement into a low-rank

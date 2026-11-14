@@ -5,7 +5,7 @@ use rand::Rng;
 use rand::distributions::Bernoulli;
 
 use crate::error::ENNError;
-use crate::proposal_kernel::CoordSystem;
+use crate::proposal_distribution::CoordSystem;
 
 fn binomial<R: Rng + ?Sized>(rng: &mut R, n: usize, probability: f64) -> usize {
     (0..n).filter(|_| rng.r#gen::<f64>() < probability).count()

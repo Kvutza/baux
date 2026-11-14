@@ -87,7 +87,16 @@ impl ResidualArchitecture {
     ];
 
     pub(super) const fn from_model(model: crate::config::ModelArchitecture) -> Self {
-        Self::BY_MODEL[model as usize]
+        match model {
+            crate::config::ModelArchitecture::FbtPisaLegacyV1 => Self::Legacy,
+            crate::config::ModelArchitecture::PisaResidual1V1 => Self::Residual1,
+            crate::config::ModelArchitecture::FbtPisaProjectedBoundaryV1 => Self::ProjectedBoundary,
+            crate::config::ModelArchitecture::PisaHc4V1 => Self::Hc4,
+            crate::config::ModelArchitecture::PisaMhc4V1 => Self::Mhc4,
+            crate::config::ModelArchitecture::PisaLoopedMhc4V1 => Self::LoopedMhc4,
+            crate::config::ModelArchitecture::PisaDiffusionMhc4V1 => Self::DiffusionMhc4,
+            crate::config::ModelArchitecture::PisaHnetMhc4V1 => Self::HnetMhc4,
+        }
     }
 
     pub(super) const fn is_multistream(self) -> bool {

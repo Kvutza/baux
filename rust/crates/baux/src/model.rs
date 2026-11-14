@@ -1,4 +1,8 @@
-//! Epistemic Nearest Neighbors model implementation.
+//! Epistemic Nearest Neighbors (ENN) model implementation.
+//!
+//! Reference:
+//! - Mehul Bafna, Siddhant Anand Jadhav, and David Sweet, "Taking the GP Out of
+//!   the Loop", ICML 2026 (PMLR 306:5179-5199, arXiv:2506.12818).
 
 use ndarray::{Array1, Array2, ArrayView2};
 use std::path::PathBuf;

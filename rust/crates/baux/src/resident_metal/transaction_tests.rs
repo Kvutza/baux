@@ -10,7 +10,7 @@ fn state() -> (SearchState, RoundConfig) {
         vec![ParamBlock::new(73, 0, base.len(), 0.25, 1.0).unwrap()],
         1,
         TRLengthConfig::new(0.1, 0.001, 0.4),
-        ProposalKernel::Gaussian,
+        ProposalDistribution::Gaussian,
     )
     .unwrap();
     search

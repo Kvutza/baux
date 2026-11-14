@@ -106,7 +106,7 @@ fn corpus_replay() -> Result<(), String> {
         let initial = CandidateWeights::initialized(
             &runtime,
             17,
-            crate::config::ModelInitialization::FbtPisa1Mhc4,
+            crate::config::ModelInitialization::PisaMhc4,
             architecture,
         )?;
         let trainer = Trainer::new(&runtime, &initial, CONTEXT)?;

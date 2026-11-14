@@ -401,7 +401,7 @@ fn integrated() -> Result<(), String> {
         let initial = CandidateWeights::initialized(
             &runtime,
             17,
-            crate::config::ModelInitialization::FbtPisa1Mhc4,
+            crate::config::ModelInitialization::PisaMhc4,
             architecture,
         )?;
         assert_eq!(initial.readout.length(), u64::from(WIDTH * 256 * 2));
@@ -510,7 +510,7 @@ fn checkpoint(trainer: &Trainer) -> Result<(), String> {
     let checkpoint = crate::tensor_store::SafeTensors::open(&path)?;
     assert_eq!(
         checkpoint.metadata().get("format").map(String::as_str),
-        Some("baux.fbt-pisa1-hnet-bytes-rope.v2")
+        Some("baux.pisa-hnet-bytes-rope.v2")
     );
     for (name, offset, count) in [
         ("hnet", trainer.row.hnet, 3 * WIDTH * WIDTH + WIDTH),

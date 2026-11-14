@@ -75,14 +75,14 @@ impl ContextKernels {
             } else {
                 ""
             },
-            include_str!("pisa1.metal")
+            include_str!("pisa.metal")
         );
         let reuse_source = format!(
             "#define PISA_CONTEXT {}\n#define PISA_ROWS {}\n#define PISA_CACHE\n#define \
              PISA_SKIP_IDENTITY_RESCALE\n#define PISA_REUSE\n{}",
             layout.tokens,
             layout.tokens,
-            include_str!("pisa1.metal")
+            include_str!("pisa.metal")
         );
         let tree = include_str!("context_tree.metal");
         Ok(Self {
@@ -329,7 +329,7 @@ impl ContextCache {
              PISA_SKIP_IDENTITY_RESCALE\n{}",
             layout.tokens,
             layout.tokens,
-            include_str!("pisa1.metal")
+            include_str!("pisa.metal")
         );
         let attention = runtime.pipeline(
             &source,

@@ -1,4 +1,11 @@
-//! Fixed-shape PISA-1 attention for the proposed 4K subsecond scorer.
+//! Fixed-shape PISA attention for the proposed 4K subsecond scorer.
+//!
+//! # Primary Citation
+//! - Bohao Tang, Zhen Qin, Yuqi Pan, Zheng Li, and Pengfei Liu, *"Block Sparse
+//!   Attention with Log-Linear Complexity"*, `arXiv:2609.31093` (2026).
+//!
+//! Note: PISA is an external prior-art attention architecture used as a
+//! sequence-modeling testbed, not a novel BAUX paper contribution.
 
 use crate::apple_gpu::{Runtime, gpu_seconds, thread_group};
 use crate::context::probe::half as decode_half;
@@ -29,7 +36,7 @@ pub(super) const NODES: u32 = 2 * LEAVES - 1;
 pub(super) const SELECTED: u32 = 8;
 
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct Pisa1Probe {
+pub(crate) struct PisaProbe {
     pub pyramid_gpu_seconds: f64,
     pub selection_gpu_seconds: f64,
     pub attention_gpu_seconds: f64,
@@ -37,6 +44,8 @@ pub(crate) struct Pisa1Probe {
     pub layer_wall_seconds: f64,
     pub max_abs_error: f64,
 }
+
+pub(crate) type Pisa1Probe = PisaProbe;
 
 pub(crate) struct Pipelines {
     pub(super) leaf_means: ComputePipelineState,
@@ -67,7 +76,7 @@ pub(crate) struct ProbeOutputs {
     pub(crate) exact_output: Buffer,
 }
 
-pub(crate) struct Pisa1 {
+pub(crate) struct Pisa {
     pub(crate) context: u32,
     pub(super) query_rows: u32,
     pub(crate) pipelines: Pipelines,
@@ -87,7 +96,9 @@ pub(crate) struct Pisa1 {
     pub(super) indexed: std::cell::OnceCell<Result<crate::context_metal::ContextKernels, String>>,
 }
 
-impl std::ops::Deref for Pisa1 {
+pub(crate) type Pisa1 = Pisa;
+
+impl std::ops::Deref for Pisa {
     type Target = ProbeOutputs;
 
     fn deref(&self) -> &Self::Target {
@@ -148,8 +159,8 @@ impl Pipelines {
     fn new(runtime: &Runtime, context: u32, rows: u32) -> Result<Self, String> {
         let source_text = format!(
             "#define PISA_CONTEXT {context}\n#define PISA_ROWS {rows}\n{}\n{}",
-            include_str!("pisa1.metal"),
-            include_str!("pisa1/full.metal")
+            include_str!("pisa.metal"),
+            include_str!("pisa/full.metal")
         );
         let source = source_text.as_str();
         let compile = |name| runtime.pipeline(source, "PISA-1 attention", name);
@@ -209,7 +220,7 @@ impl Pipelines {
     }
 }
 
-impl Pisa1 {
+impl Pisa {
     pub(crate) fn for_trial(
         runtime: &Runtime,
         trial: Option<&crate::config::KernelTrial>,

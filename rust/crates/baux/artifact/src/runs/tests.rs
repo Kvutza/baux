@@ -465,7 +465,7 @@ fn curation() {
 fn pretrain_comparison() {
     let root = root();
     let mut row1 = record(root.path(), "bo1", 200, "task");
-    row1.optimizer = "operator-bo".into();
+    row1.optimizer = "single-state-bo".into();
     row1.recipe = "stack@4096".into();
     fs::write(
         Path::new(&row1.output).join("optimization.jsonl"),

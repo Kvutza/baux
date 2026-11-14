@@ -165,14 +165,14 @@ theorem chainMatch (isFixed : Bool) (fromStep toStep : Aeneas.Std.U64) :
       Aeneas.Std.Result.ok (isFixed || decide (fromStep = toStep)) := by
   cases isFixed <;> simp [BauxResearch.Generated.Optimizer.optimizer.provenance.exact_anchored]
 
-/-- Aeneas-extracted `param_tree::routed_count` matches the 5-layer `fbt-pisa1-mhc4-v1`
+/-- Aeneas-extracted `param_tree::routed_count` matches the 5-layer `pisa-mhc4-v1`
 routed MoE parameter count `125_829_120` (P4/P5). -/
 theorem routedMatch :
     BauxResearch.Generated.Optimizer.optimizer.param_tree.routed_count =
       Aeneas.Std.Result.ok 125829120#u64 := by
   rfl
 
-/-- Aeneas-extracted `param_tree::total_count` matches the native `fbt-pisa1-mhc4-v1`
+/-- Aeneas-extracted `param_tree::total_count` matches the native `pisa-mhc4-v1`
 total parameter count `265_623_320` at `patch_size = 1` (P4/P5). -/
 theorem totalMatch :
     BauxResearch.Generated.Optimizer.optimizer.param_tree.total_count =

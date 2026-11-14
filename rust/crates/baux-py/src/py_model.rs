@@ -503,7 +503,9 @@ fn parse_dist(
         "euclidean" | "l2" | "squared_l2" => Ok(DistanceMetric::Euclidean),
         "conformal" => Ok(DistanceMetric::Conformal { local_k: k }),
         "hyperbolic" | "poincare" | "halfspace" => Ok(DistanceMetric::Hyperbolic { local_k: k }),
-        "wasserstein" | "ot" => Ok(DistanceMetric::Wasserstein { local_k: k }),
+        "wasserstein" | "ot" | "scale-transport" | "scale_transport" => {
+            Ok(DistanceMetric::Wasserstein { local_k: k })
+        }
         _ => Err(PyValueError::new_err(format!(
             "Unknown distance metric: {metric}"
         ))),

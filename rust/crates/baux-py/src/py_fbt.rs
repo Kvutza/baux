@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 
 fn architecture(value: &str) -> PyResult<baux::config::ModelArchitecture> {
     match value {
-        "fbt-pisa1-mhc4-v1" => Ok(baux::config::ModelArchitecture::FbtPisa1Mhc4V1),
+        "pisa-mhc4-v1" | "fbt-pisa1-mhc4-v1" => Ok(baux::config::ModelArchitecture::PisaMhc4V1),
         _ => Err(PyValueError::new_err(format!(
             "unsupported resident model {value:?}"
         ))),
@@ -16,7 +16,7 @@ fn architecture(value: &str) -> PyResult<baux::config::ModelArchitecture> {
 
 fn initialization_kind(value: &str) -> PyResult<baux::config::ModelInitialization> {
     match value {
-        "fbt-pisa1-mhc4" => Ok(baux::config::ModelInitialization::FbtPisa1Mhc4),
+        "pisa-mhc4" | "fbt-pisa1-mhc4" => Ok(baux::config::ModelInitialization::PisaMhc4),
         _ => Err(PyValueError::new_err(format!(
             "unsupported model initialization {value:?}"
         ))),
@@ -86,7 +86,7 @@ impl PyResidentModel {
     }
 
     #[new]
-    #[pyo3(signature = (*, model="fbt-pisa1-mhc4-v1", initialization="fbt-pisa1-mhc4", seed=42, backend="native"))]
+    #[pyo3(signature = (*, model="pisa-mhc4-v1", initialization="pisa-mhc4", seed=42, backend="native"))]
     fn new(
         py: Python<'_>,
         model: &str,
@@ -112,7 +112,7 @@ impl PyResidentModel {
                     initialization,
                     seed,
                     baux::trust_region::TRLengthConfig::default(),
-                    baux::ProposalKernel::Gaussian,
+                    baux::ProposalDistribution::Gaussian,
                     backend,
                 )
             })

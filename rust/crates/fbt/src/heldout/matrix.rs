@@ -40,7 +40,7 @@ impl<'a> Session<'a> {
         let initial = CandidateWeights::initialized(
             &runtime,
             run.model_seed(),
-            ModelInitialization::FbtPisa1Mhc4,
+            ModelInitialization::PisaMhc4,
             architecture,
         )?;
         let trainer = train::Trainer::new(&runtime, &initial, CONTEXT)?;

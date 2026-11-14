@@ -35,7 +35,7 @@ pub(super) fn sustained_model(
     command: &CommandBufferRef,
     pipelines: &Pipelines,
     tensorops: &TensorOpsPipelines,
-    pisa1: &Pisa1,
+    pisa1: &Pisa,
     buffers: &Buffers,
 ) -> Result<(), String> {
     sustained_materialize(command, tensorops, buffers);
@@ -402,7 +402,7 @@ pub(super) fn complete_envelope(
     command: &CommandBufferRef,
     pipelines: &Pipelines,
     tensorops: &TensorOpsPipelines,
-    pisa1: &Pisa1,
+    pisa1: &Pisa,
     buffers: &Buffers,
 ) -> Result<(), String> {
     sustained_materialize(command, tensorops, buffers);
@@ -462,7 +462,7 @@ pub(super) fn benchmark_envelope(
     runtime: &Runtime,
     pipelines: &Pipelines,
     tensorops: &TensorOpsPipelines,
-    pisa1: &Pisa1,
+    pisa1: &Pisa,
     buffers: &Buffers,
     rounds: u32,
 ) -> Result<(f64, f64, f64, f64), String> {

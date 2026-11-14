@@ -197,7 +197,7 @@ pub(super) fn objective_unfused(
     command: &CommandBufferRef,
     pipelines: &Pipelines,
     tensorops: &TensorOpsPipelines,
-    pisa1: &Pisa1,
+    pisa1: &Pisa,
     buffers: &Buffers,
     weights: CandidateRow<'_>,
 ) -> Result<(), String> {

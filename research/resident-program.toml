@@ -1,7 +1,7 @@
 version = 1
 experiment = "resident-program"
-model = "fbt-pisa1-mhc4-v1"
-initialization = "fbt-pisa1-mhc4"
+model = "pisa-mhc4-v1"
+initialization = "pisa-mhc4"
 seed = 42
 rounds = 3
 radius = 0.01

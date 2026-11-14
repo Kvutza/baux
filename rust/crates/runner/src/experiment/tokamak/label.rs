@@ -1,6 +1,6 @@
 //! Optimizer provenance labels and deterministic per-round PRNG helpers.
 
-use baux::config::{AcquisitionSpec, DistanceMetric, ObservationSharing, OptimizerSpec};
+use baux::config::{AcquisitionSpec, Dissimilarity, ObservationSharing, OptimizerSpec};
 use baux::{Prng, prng};
 
 fn sharing_tag(sharing: ObservationSharing) -> &'static str {
@@ -12,12 +12,12 @@ fn sharing_tag(sharing: ObservationSharing) -> &'static str {
     }
 }
 
-fn metric_tag(metric: DistanceMetric) -> &'static str {
+fn metric_tag(metric: Dissimilarity) -> &'static str {
     match metric {
-        DistanceMetric::Euclidean => "euclidean",
-        DistanceMetric::Conformal => "conformal",
-        DistanceMetric::Hyperbolic => "hyperbolic",
-        DistanceMetric::Wasserstein => "wasserstein",
+        Dissimilarity::Euclidean => "euclidean",
+        Dissimilarity::Conformal => "conformal",
+        Dissimilarity::Hyperbolic => "hyperbolic",
+        Dissimilarity::Wasserstein => "wasserstein",
     }
 }
 
@@ -26,13 +26,13 @@ pub fn opt_label(spec: &OptimizerSpec) -> String {
         OptimizerSpec::Ppo => "candle-ppo-metal".into(),
         OptimizerSpec::Muon => "muon".into(),
         OptimizerSpec::Adamw => "adamw".into(),
-        OptimizerSpec::OperatorBo {
+        OptimizerSpec::SingleStateBo {
             surrogate,
             regional_search,
             ..
         } => {
             let count = regional_search.as_ref().map_or(1, |r| r.count);
-            format!("operator-bo-r{count}-{}", metric_tag(surrogate.metric))
+            format!("single-state-bo-r{count}-{}", metric_tag(surrogate.metric))
         }
         OptimizerSpec::BayesianSearch {
             acquisition,

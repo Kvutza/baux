@@ -11,9 +11,9 @@ pub use crate::candidates::{
     CandidateSampler, from_unit, generate_candidates, generate_lhd, to_unit,
 };
 pub use crate::config::{
-    AcquisitionConfig, CandidateConfig, DataRecipe, DistanceMetric, ExperimentKind, ExperimentSpec,
-    InitStrategy, ModelArchitecture, ObjectiveReference, OptimizerConfig, SurrogateConfig,
-    TrustRegionKind, lhd_only, turbo_enn, turbo_zero,
+    AcquisitionConfig, CandidateConfig, DataRecipe, Dissimilarity, DistanceMetric, ExperimentKind,
+    ExperimentSpec, InitStrategy, ModelArchitecture, ObjectiveReference, OptimizerConfig,
+    SurrogateConfig, TrustRegionKind, lhd_only, turbo_enn, turbo_zero,
 };
 pub use crate::device::{Device, DeviceMemory};
 pub use crate::device_posterior::{Posterior, PosteriorDraw};

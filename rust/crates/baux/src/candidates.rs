@@ -10,7 +10,7 @@ use std::sync::OnceLock;
 
 pub use crate::coordinate::{from_unit, to_unit};
 use crate::error::ENNError;
-pub use crate::proposal_kernel::CoordSystem;
+pub use crate::proposal_distribution::CoordSystem;
 
 fn sobol_params() -> &'static JoeKuoD6 {
     static PARAMS: OnceLock<JoeKuoD6> = OnceLock::new();
@@ -26,7 +26,9 @@ pub enum CandidateSampler {
     /// Uniform random sampling.
     #[default]
     Uniform,
-    /// RAASP (Random Axis-Aligned Subspace ProposalKernel).
+    /// RAASP (Random Axis-Aligned Subspace Perturbation; Rashidi,
+    /// Johnstonbaugh, and Gao, AISTATS 2024, PMLR 238:3502-3510; Regis and
+    /// Shoemaker, Eng. Optim. 45(5):529-555, 2013).
     #[deser(rename = "raasp")]
     RAASP,
 }
@@ -304,7 +306,14 @@ fn raasp_cdf(cdf: &Array1<f64>, r: f64, num_dim: usize) -> usize {
 
 /// Generate RAASP candidates.
 ///
-/// Reference:
+/// References:
+/// - Bahador Rashidi, Kerrick Johnstonbaugh, and Chao Gao, "Cylindrical
+///   Thompson Sampling for High-Dimensional Bayesian Optimization", AISTATS
+///   2024 (PMLR 238:3502-3510).
+/// - Rommel G. Regis and Christine A. Shoemaker, "Combining Radial Basis
+///   Function Surrogates and Dynamic Coordinate Search in High-Dimensional
+///   Expensive Black-Box Optimization", Engineering Optimization 45(5):529-555
+///   (2013).
 /// - Eriksson et al. (2019), "Scalable Global Optimization via Local Bayesian
 ///   Optimization" (TuRBO), NeurIPS 2019.
 /// - Knuth (1998), "The Art of Computer Programming, Vol 2", Algorithm 3.4.2P

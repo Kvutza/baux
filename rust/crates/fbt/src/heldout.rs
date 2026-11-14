@@ -8,7 +8,7 @@ pub(super) struct Scorer<'a> {
     pub runtime: &'a Runtime,
     pub pipelines: &'a Pipelines,
     pub tensorops: &'a TensorOpsPipelines,
-    pub pisa1: &'a Pisa1,
+    pub pisa1: &'a Pisa,
     pub buffers: &'a Buffers,
 }
 

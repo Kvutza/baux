@@ -129,7 +129,7 @@ fn response_json(
         .ok_or("Generation response lost token accounting")?;
     let reference =
         baux::artifact::json::to_value(response.reference).map_err(|error| error.to_string())?;
-    let distribution = context.run.proposal_kernel().name();
+    let distribution = context.run.proposal_distribution().name();
     Ok(baux::artifact::json::json!({
         "schema": RESPONSE_SCHEMA,
         "reference": reference,

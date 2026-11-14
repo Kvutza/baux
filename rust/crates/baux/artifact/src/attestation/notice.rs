@@ -24,8 +24,10 @@ software, academic research artifacts, and visual media:
   Copyright (c) 2025 yubo research
   License: MIT
   Citation:
-    David Sweet, \"Tsallis Entropy Guided By Epistemic Nearest Neighbors\",
-    arXiv:2502.10390 (2025). https://arxiv.org/abs/2502.10390
+    Mehul Bafna, Siddhant Anand Jadhav, and David Sweet, \"Taking the GP Out
+    of the Loop\", Proceedings of the 43rd International Conference on
+    Machine Learning (ICML 2026), PMLR 306:5179-5199, arXiv:2506.12818.
+    https://arxiv.org/abs/2506.12818
 
 * TuRBO (Trust Region Bayesian Optimization — Clean-Room Specification)
   Citation:
@@ -44,6 +46,33 @@ software, academic research artifacts, and visual media:
     \"Multi-Objective Bayesian Optimization over High-Dimensional Search
     Spaces\", Uncertainty in Artificial Intelligence (UAI 2022),
     arXiv:2109.10964. https://arxiv.org/abs/2109.10964
+
+* RAASP & Cylindrical Thompson Sampling (External Baseline Specification)
+  Notes:
+    External prior-art baselines and coordinate-allocation specifications;
+    not claimed as novel BAUX algorithmic contributions.
+  Citations:
+    Bahador Rashidi, Kerrick Johnstonbaugh, and Chao Gao, \"Cylindrical
+    Thompson Sampling for High-Dimensional Bayesian Optimization\",
+    International Conference on Artificial Intelligence and Statistics
+    (AISTATS 2024), PMLR 238:3502-3510.
+    Rommel G. Regis and Christine A. Shoemaker, \"Combining Radial Basis
+    Function Surrogates and Dynamic Coordinate Search in High-Dimensional
+    Expensive Black-Box Optimization\", Engineering Optimization
+    45(5):529-555 (2013).
+
+* MTRBO & APOSMM (External Baseline Specification)
+  Notes:
+    External prior-art multi-trust-region and multi-start optimization
+    specifications; not claimed as novel BAUX algorithmic contributions.
+  Citations:
+    Sourav Das, Debjani Chakraborty, and Pabitra Mitra, \"MTRBO: Multiple
+    Trust-Region Based Bayesian Optimization\", arXiv:2605.06618 (2026).
+    https://arxiv.org/abs/2605.06618
+    Jeffrey Larson and Stefan M. Wild, \"Asynchronously Parallel
+    Optimization Solver for Finding Multiple Minima\", Mathematical
+    Programming Computation 10(1):99-132 (2018).
+    https://doi.org/10.1007/s12532-017-0131-4
 
 ========================================================================
 2. Pretraining, Dynamic Chunking & Optimizer Kernels
@@ -94,6 +123,56 @@ software, academic research artifacts, and visual media:
     Zhenda Xie, Yixuan Wei, Huanqi Cao, et al. (DeepSeek-AI),
     \"mHC: Manifold-Constrained Hyper-Connections\", arXiv:2512.24880 (2025).
     https://arxiv.org/abs/2512.24880
+
+* PISA (Pyramid Block Sparse Attention — External Architecture Specification)
+  Notes:
+    External prior-art block sparse attention architecture; not claimed
+    as a novel BAUX algorithmic contribution.
+  Citation:
+    Bohao Tang, Zhen Qin, Yuqi Pan, Zheng Li, and Pengfei Liu, \"Block
+    Sparse Attention with Log-Linear Complexity\", arXiv:2609.31093 (2026).
+    https://arxiv.org/abs/2609.31093
+
+* DeepSeekMoE & Hyper-Connections (External Architecture Specification)
+  Notes:
+    External prior-art mixture-of-experts and manifold residual connection
+    specifications; not claimed as novel BAUX algorithmic contributions.
+  Citations:
+    Damai Dai et al., \"DeepSeekMoE: Towards Ultimate Expert Specialization
+    in Mixture-of-Experts Language Models\", Association for Computational
+    Linguistics (ACL 2024), arXiv:2401.06066.
+    https://arxiv.org/abs/2401.06066
+    Defa Zhu, Hongzhi Huang, Zihao Huang, Yutao Zeng, Yunyao Mao, Banggu Wu,
+    Qiyang Min, and Xun Zhou, \"Hyper-Connections\", International Conference
+    on Learning Representations (ICLR 2025), arXiv:2409.19606.
+    https://arxiv.org/abs/2409.19606
+    Richard Sinkhorn, \"A Relationship Between Arbitrary Positive Matrices
+    and Doubly Stochastic Matrices\", Annals of Mathematical Statistics
+    35(2):876-879 (1964).
+    Richard Sinkhorn and Paul Knopp, \"Concerning Nonnegative Matrices and
+    Doubly Stochastic Matrices\", Pacific Journal of Mathematics
+    21(2):343-348 (1967).
+
+* Block Diffusion (BD3-LMs — External Architecture Specification)
+  Notes:
+    External prior-art block diffusion language model specification;
+    not claimed as a novel BAUX algorithmic contribution.
+  Citation:
+    Marianne Arriola, Aaron Gokaslan, Justin T. Chiu, Zhihan Yang, Zhixuan
+    Qi, Jiaqi Han, Subham Sekhar Sahoo, and Volodymyr Kuleshov, \"Block
+    Diffusion: Interpolating Between Autoregressive and Diffusion Language
+    Models\", International Conference on Learning Representations (ICLR 2025),
+    arXiv:2503.09573. https://arxiv.org/abs/2503.09573
+
+* Bounded Log-Likelihood Loss (BLL-Loss — External Loss Specification)
+  Notes:
+    External prior-art reasoning loss specification; not claimed as a
+    novel BAUX algorithmic contribution.
+  Citation:
+    Feng Zhao, Hong Zhang, Yu Yang, Ruilin Zhao, and Guandong Xu, \"Don't
+    Force the Fit: Bounded Log-Likelihood Loss for Enhanced Reasoning in
+    Large Language Models\", International Conference on Machine Learning
+    (ICML 2026).
 
 ========================================================================
 3. Plasma Control, Physics Benchmarks & Reference Suites

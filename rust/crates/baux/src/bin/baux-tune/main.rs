@@ -252,7 +252,7 @@ fn plan_record(run: &baux::config::RunConfig) -> Result<Option<String>, String> 
     let model = run.model.ok_or("generation model is required")?;
     let optimizer = match run.optimizer.unwrap_or_default() {
         baux::config::TrainingOptimizer::ResidentEnnV1 => "resident-enn-v1",
-        baux::config::TrainingOptimizer::OperatorBo => "operator-bo",
+        baux::config::TrainingOptimizer::SingleStateBo => "single-state-bo",
         baux::config::TrainingOptimizer::MuonV1 => "muon-v1",
         baux::config::TrainingOptimizer::AdamwV1 => "adamw-v1",
     };

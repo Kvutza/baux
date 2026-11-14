@@ -5,7 +5,9 @@ use deser::{Deserialize, Serialize};
 pub enum TrainingOptimizer {
     #[default]
     ResidentEnnV1,
-    OperatorBo,
+    /// Acquisition-free single-candidate (`K = 1`) ENN Bayesian optimization.
+    #[deser(alias = "operator-bo")]
+    SingleStateBo,
     MuonV1,
     AdamwV1,
 }
@@ -20,7 +22,7 @@ pub enum PretrainSelection {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[deser(rename_all = "kebab-case")]
-pub enum DistanceMetric {
+pub enum Dissimilarity {
     #[default]
     #[deser(rename = "euclidean")]
     Euclidean,
@@ -28,11 +30,15 @@ pub enum DistanceMetric {
     Conformal,
     #[deser(rename = "hyperbolic")]
     Hyperbolic,
-    #[deser(rename = "wasserstein")]
+    #[deser(rename = "wasserstein", alias = "scale-transport")]
     Wasserstein,
 }
 
-impl DistanceMetric {
+/// Compatibility alias; non-Euclidean variants are symmetric dissimilarities
+/// and do not satisfy the triangle inequality.
+pub type DistanceMetric = Dissimilarity;
+
+impl Dissimilarity {
     pub const fn name(self) -> &'static str {
         match self {
             Self::Euclidean => "euclidean",

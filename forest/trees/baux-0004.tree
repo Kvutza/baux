@@ -1,24 +1,15 @@
-\title{Control & Physics Simulation}
+\title{Tokamak Control & Simulation}
 \meta{slug}{simulation}
 
 \p{
-  The viewer above renders 3D cutaway vessel and coil geometries, equilibrium flux surfaces, stratified fluid fields, and closed-loop policy trajectories exported from \code{FUSE.jl 1.2.1} (Meneghini et al. [[Men+24]](https://arxiv.org/abs/2409.05894)) and \code{Oceananigans.jl 0.117.2} (Ramadhan et al. [[Ram+20]](https://doi.org/10.21105/joss.02018)); see the [Overview](index.html) for the \code{ENN} surrogate and multi-region search formulation.
+  The viewer above renders 3D cutaway vessel and coil geometries, equilibrium flux surfaces, and closed-loop policy trajectories exported from \code{FUSE.jl 1.2.1} (Meneghini et al. [[Men+24]](https://arxiv.org/abs/2409.05894)); see the [Overview](index.html) for the \code{ENN} surrogate and multi-region search formulation.
 }
 
 \subtree{
-  \title{Exported Tokamak & Fluid Geometries}
+  \title{Exported Tokamak Geometries (\code{FUSE.jl})}
 
   \p{
-    The 3D cutaway viewport and paired 2D cross-section load device geometries and PDE states exported from two Julia solver suites:
-  }
-
-  \ul{
-    \li{
-      \strong{Tokamak vessels, coils, and equilibria (\code{FUSE.jl 1.2.1})}: For \code{SPARC}, \code{ARC}, \code{ITER}, and \code{DIII-D} (alongside the 25-vertex \code{TCV} vessel and 20 \code{E}/\code{F}/\code{OH} coils), \code{evals/fuse/worker.jl} initializes \code{IMAS.dd()} device models via \code{FUSE.init}, solves Grad–Shafranov equilibria and active coil currents with \code{ActorEquilibrium(:TEQUILA)}, \code{ActorPFdesign}, and \code{ActorPFactive}, and exports vacuum vessel shells, first-wall contours, toroidal-field \code{TF} D-coils, central solenoid \code{CS}/\code{OH} stacks, poloidal-field \code{PF} rings, and last-closed-flux-surface (\code{LCFS}) contours together with #{I_p}, #{B_0}, #{q_{95}}, #{\beta_N}, and #{P_{\mathrm{fus}}}.
-    }
-    \li{
-      \strong{Stratified shear and wind-mixing tanks (\code{Oceananigans.jl 0.117.2})}: The \code{Kelvin–Helmholtz Shear Tank} and \code{Wind-Mixing Basin} views display channel boundaries, actuator vanes, 3D isopycnal surfaces, and velocity streamlines exported by \code{evals/oceananigans/worker.jl} (\code{NonhydrostaticModel} #{Ri = 0.1} shear-billow suppression with 5th-order upwind advection and \code{RungeKutta3}, and rotating \code{FPlane} \code{HydrostaticFreeSurfaceModel} mixed-layer deepening).
-    }
+    For \code{SPARC}, \code{ARC}, \code{ITER}, and \code{DIII-D} (alongside the 25-vertex \code{TCV} vessel and 20 \code{E}/\code{F}/\code{OH} coils), \code{evals/fuse/worker.jl} initializes \code{IMAS.dd()} device models via \code{FUSE.init}, solves Grad–Shafranov equilibria and active coil currents with \code{ActorEquilibrium(:TEQUILA)}, \code{ActorPFdesign}, and \code{ActorPFactive}, and exports vacuum vessel shells, first-wall contours, toroidal-field \code{TF} D-coils, central solenoid \code{CS}/\code{OH} stacks, poloidal-field \code{PF} rings, and last-closed-flux-surface (\code{LCFS}) contours together with #{I_p}, #{B_0}, #{q_{95}}, #{\beta_N}, and #{P_{\mathrm{fus}}}.
   }
 }
 

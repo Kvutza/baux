@@ -7,7 +7,7 @@ use metal::{Buffer, BufferRef, MTLCommandBufferStatus};
 use crate::apple_gpu::{Runtime, gpu_seconds, thread_group};
 use crate::config::KernelTrial;
 use crate::fbt_moe::decode::Decoder;
-use crate::fbt_pisa1::Pisa1;
+use crate::fbt_pisa::Pisa;
 
 const WARMUP_ROUNDS: usize = 30;
 
@@ -109,7 +109,7 @@ fn time_gemv(
 
 fn time_pisa(
     runtime: &Runtime,
-    pisa: &Pisa1,
+    pisa: &Pisa,
     qkv: &BufferRef,
     iterations: usize,
 ) -> Result<f64, String> {
@@ -209,8 +209,8 @@ fn probe_pisa(
     let bytes_trans = qkv_count * 2;
     let qkv = filled_buffer(runtime, qkv_count, 0x3c00);
 
-    let base_pisa = Pisa1::new(runtime)?;
-    let cand_pisa = Pisa1::for_trial(runtime, trial)?;
+    let base_pisa = Pisa::new(runtime)?;
+    let cand_pisa = Pisa::for_trial(runtime, trial)?;
 
     let base_med = time_pisa(runtime, &base_pisa, &qkv, iterations)?;
     let cand_med = time_pisa(runtime, &cand_pisa, &qkv, iterations)?;

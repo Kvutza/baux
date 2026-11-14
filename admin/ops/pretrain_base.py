@@ -20,14 +20,31 @@ SOURCE_REVISION = "1f61b735bc0a5698345ce2196730f24bfa467f33"
 CORPUS_PRESET = "stack_v3_python_pilot_v1"
 CORPUS_800K = "stack_v3_python_800k_v1"
 CORPUS_GEMMA4 = "stack_v3_python_gemma4_v1"
-MODEL_PRESET = "fbt_pisa1_legacy_v1"
+MODEL_PRESET = "fbt_pisa_legacy_v1"
 MODEL_ALIASES = {
+    "fbt-pisa-legacy-v1": MODEL_PRESET,
+    "pisa-residual1-v1": "pisa_residual1_v1",
+    "fbt-pisa-projected-boundary-v1": "fbt_pisa_projected_boundary_v1",
+    "pisa-hc4-v1": "pisa_hc4_v1",
+    "pisa-mhc4-v1": "pisa_mhc4_v1",
+    "pisa-looped-mhc4-v1": "pisa_looped_mhc4_v1",
+    "pisa-diffusion-mhc4-v1": "pisa_diffusion_mhc4_v1",
+    "pisa-hnet-mhc4-v1": "pisa_hnet_mhc4_v1",
     "fbt-pisa1-legacy-v1": MODEL_PRESET,
-    "fbt-pisa1-residual1-v1": "fbt_pisa1_residual1_v1",
-    "fbt-pisa1-projected-boundary-v1": "fbt_pisa1_projected_boundary_v1",
-    "fbt-pisa1-hc4-v1": "fbt_pisa1_hc4_v1",
-    "fbt-pisa1-mhc4-v1": "fbt_pisa1_mhc4_v1",
+    "fbt-pisa1-residual1-v1": "pisa_residual1_v1",
+    "fbt-pisa1-projected-boundary-v1": "fbt_pisa_projected_boundary_v1",
+    "fbt-pisa1-hc4-v1": "pisa_hc4_v1",
+    "fbt-pisa1-mhc4-v1": "pisa_mhc4_v1",
+    "fbt-pisa1-looped-mhc4-v1": "pisa_looped_mhc4_v1",
+    "fbt-pisa1-diffusion-mhc4-v1": "pisa_diffusion_mhc4_v1",
+    "fbt-pisa1-hnet-mhc4-v1": "pisa_hnet_mhc4_v1",
+    "fbt_pisa1_legacy_v1": MODEL_PRESET,
+    "fbt_pisa1_residual1_v1": "pisa_residual1_v1",
+    "fbt_pisa1_projected_boundary_v1": "fbt_pisa_projected_boundary_v1",
+    "fbt_pisa1_hc4_v1": "pisa_hc4_v1",
+    "fbt_pisa1_mhc4_v1": "pisa_mhc4_v1",
     "fbt_pisa1_moe_v1": MODEL_PRESET,
+    "fbt_pisa_moe_v1": MODEL_PRESET,
 }
 CORPUS_ALIASES = {
     "stack-v3-python-pilot-v1": CORPUS_PRESET,
@@ -37,6 +54,14 @@ CORPUS_ALIASES = {
 }
 MODEL_PRESETS = (
     MODEL_PRESET,
+    "pisa_residual1_v1",
+    "fbt_pisa_projected_boundary_v1",
+    "pisa_hc4_v1",
+    "pisa_mhc4_v1",
+    "pisa_looped_mhc4_v1",
+    "pisa_diffusion_mhc4_v1",
+    "pisa_hnet_mhc4_v1",
+    "fbt_pisa1_legacy_v1",
     "fbt_pisa1_residual1_v1",
     "fbt_pisa1_projected_boundary_v1",
     "fbt_pisa1_hc4_v1",

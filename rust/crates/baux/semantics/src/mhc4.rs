@@ -4,6 +4,16 @@
 //! and prefix remain F32; queries round to F16 before projection; logits and
 //! full-vocabulary log-sum-exp remain F32. Each block has 64 causal
 //! dependencies.
+//!
+//! mHC-4 is an external testbed architecture, not a BAUX contribution.
+//! References:
+//! - Zhenda Xie et al. (DeepSeek-AI), "mHC: Manifold-Constrained
+//!   Hyper-Connections", arXiv:2512.24880 (2025).
+//! - Defa Zhu et al., "Hyper-Connections", ICLR 2025 (arXiv:2409.19606).
+//! - Richard Sinkhorn, "A Relationship Between Arbitrary Positive Matrices and
+//!   Doubly Stochastic Matrices", Ann. Math. Statist. 35(2):876-879 (1964).
+//! - Richard Sinkhorn and Paul Knopp, "Concerning nonnegative matrices and
+//!   doubly stochastic matrices", Pacific J. Math. 21(2):343-348 (1967).
 
 use baux::semantics::abi::{metal_field, metal_kind, record};
 #[path = "mhc4/objective.rs"]

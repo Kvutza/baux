@@ -1,6 +1,6 @@
 use super::*;
 
-impl Pisa1 {
+impl Pisa {
     pub(crate) fn index_counts(&self) -> [usize; 2] {
         self.indexed
             .get()

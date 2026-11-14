@@ -1,6 +1,9 @@
 """Full PISA binary refinement as ordinary StableHLO tensor operations.
 
-Reference implementation: fbt/src/pisa1/parity.rs and pisa1.metal. Intermediate
+Citation: Bohao Tang, Zhen Qin, Yuqi Pan, Zheng Li, and Pengfei Liu,
+"Block Sparse Attention with Log-Linear Complexity", arXiv:2609.31093 (2026).
+
+Reference implementation: fbt/src/pisa/parity.rs and pisa.metal. Intermediate
 scores are grouped-head log-sum-exp over child summaries, leaf scores over all
 64 keys. First, previous and current blocks are forced, with lower-ID ties.
 """

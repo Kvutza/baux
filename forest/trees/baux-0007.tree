@@ -483,7 +483,7 @@ baux.AskId(value: int)
       }
       \<tr>[data-symbol]{baux.with_geometry}[data-kind]{function}[data-module]{baux.transforms}{
         \<td>{[\code{baux.with_geometry}](#baux.with_geometry)}
-        \<td>{Attach a local-scale Riemannian dissimilarity geometry to a surrogate, config, or pipeline.}
+        \<td>{Attach a local-scale dissimilarity geometry to a surrogate, config, or pipeline.}
       }
       \<tr>[data-symbol]{baux.ucb}[data-kind]{function}[data-module]{baux.transforms}{
         \<td>{[\code{baux.ucb}](#baux.ucb)}
@@ -635,7 +635,7 @@ baux.zero() -> Transform
       \pre{
 baux.with_geometry(model: Any, geometry: str, local_k: int = 4) -> Any
       }
-      \p{Return a copy-on-write state, surrogate, config, or composed pipeline stage equipped with a local-scale Riemannian dissimilarity geometry (\code{"euclidean"}, \code{"conformal"}, \code{"hyperbolic"}, or \code{"wasserstein"}; distance metric selections include \code{"l2"}, \code{"l2_squared"}, \code{"manhattan"}, \code{"chebyshev"}, \code{"cosine"}, and \code{"angular"}). Raises \code{ValueError} on unsupported metrics or geometries.}
+      \p{Return a copy-on-write state, surrogate, config, or composed pipeline stage equipped with a local-scale dissimilarity geometry (\code{"euclidean"}, \code{"conformal"}, \code{"hyperbolic"}, or \code{"wasserstein"}; distance metric selections include \code{"l2"}, \code{"l2_squared"}, \code{"manhattan"}, \code{"chebyshev"}, \code{"cosine"}, and \code{"angular"}). Conformal local scaling follows Zelnik-Manor & Perona [[ZMP04]](https://papers.nips.cc/paper_files/paper/2004/hash/40173ea48d9567f1f393b20c855bb40b-Abstract.html), hyperbolic upper half-space dissimilarity #{2 \sinh^2(d_H/2) = \cosh(d_H) - 1} follows Beardon [[Bea83]](https://doi.org/10.1007/978-1-4612-1146-4), and Gaussian-covariance transport dissimilarity follows Gelbrich [[Gel90]](https://doi.org/10.1002/mana.19901470121). Raises \code{ValueError} on unsupported metrics or geometries.}
     }
   }
 

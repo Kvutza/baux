@@ -2,7 +2,7 @@
 
 use baux::artifact::inc::{EvalOutcome, StepRecord};
 use baux::config::{ObjectivePolicy, RegionalSearchSpec, ResidentEnnConfig};
-use baux::proposal_kernel::ProposalKernel;
+use baux::proposal_distribution::ProposalDistribution;
 
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 use super::metal::{
@@ -20,7 +20,7 @@ pub struct MetalJobSpec {
     pub rounds: usize,
     pub has_surrogate: bool,
     pub tr_cfg: baux::trust_region::TRLengthConfig,
-    pub kernel: ProposalKernel,
+    pub kernel: ProposalDistribution,
     pub reg_spec: RegionalSearchSpec,
     pub enn_res: ResidentEnnConfig,
     pub policy: Option<ObjectivePolicy>,

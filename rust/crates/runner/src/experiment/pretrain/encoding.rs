@@ -10,7 +10,7 @@ pub(super) fn is_bytes(recipe: &Value) -> bool {
 }
 
 pub(super) fn check_model(spec: &ExperimentSpec, recipe: &Value) -> Result<(), String> {
-    let hnet = spec.model == Some(ModelArchitecture::FbtPisa1HnetMhc4V1);
+    let hnet = spec.model == Some(ModelArchitecture::PisaHnetMhc4V1);
     if hnet != is_bytes(recipe) {
         return Err("H-Net requires a UTF-8 byte corpus; BPE corpora require a BPE model".into());
     }

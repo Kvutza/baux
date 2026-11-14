@@ -191,7 +191,7 @@ fn hnet2_oracle() -> Result<(), String> {
         let model = CandidateWeights::initialized(
             &runtime,
             17,
-            crate::config::ModelInitialization::FbtPisa1Mhc4,
+            crate::config::ModelInitialization::PisaMhc4,
             arch,
         )?;
         let d = WIDTH as usize;
@@ -314,7 +314,7 @@ fn hnet2_causality() -> Result<(), String> {
         let model = CandidateWeights::initialized(
             &runtime,
             17,
-            crate::config::ModelInitialization::FbtPisa1Mhc4,
+            crate::config::ModelInitialization::PisaMhc4,
             arch,
         )?;
         let flat = model.flatten(&runtime)?;
@@ -362,7 +362,7 @@ fn hnet2_interior() -> Result<(), String> {
         let model = CandidateWeights::initialized(
             &runtime,
             17,
-            crate::config::ModelInitialization::FbtPisa1Mhc4,
+            crate::config::ModelInitialization::PisaMhc4,
             arch,
         )?;
         let d = WIDTH as usize;
@@ -449,7 +449,7 @@ fn hnet2_bo() -> Result<(), String> {
         let model = CandidateWeights::initialized(
             &runtime,
             17,
-            crate::config::ModelInitialization::FbtPisa1Mhc4,
+            crate::config::ModelInitialization::PisaMhc4,
             arch,
         )?;
         let d = WIDTH as usize;
@@ -522,10 +522,10 @@ fn bo_step(
         scorer.score_batch(runtime, decoder, model.row(&flat)?, batch)?
     };
     let run = crate::config::parse_tune(
-        "version = 4\nexperiment = \"pretrain\"\nmodel = \"fbt-pisa1-hnet-mhc4-v1\"\n\
+        "version = 4\nexperiment = \"pretrain\"\nmodel = \"pisa-hnet-mhc4-v1\"\n\
          recipe = \"fineweb-bytes-100m-v1\"\nobjective = \"cross-entropy\"\n\
          window-tokens = 1048576\nrounds = 4\nround-target-ms = 680\n\
-         [optimizer]\nalgorithm = \"operator-bo\"\n\
+         [optimizer]\nalgorithm = \"single-state-bo\"\n\
          distribution = \"gaussian\"\n\
          [optimizer.surrogate]\nneighbors = 8\nepistemic-scale = 0.1\n\
          aleatoric-scale = 0.05\ny-scale = 0.005\n\
@@ -534,7 +534,7 @@ fn bo_step(
     )?;
     let layout = Mhc4Layout::from_weights(&model, 0);
     let (mut search, _) = model.search_shaped(
-        run.proposal_kernel(),
+        run.proposal_distribution(),
         run.length(),
         crate::config::TrustRegionShape::TensorFamilyStatic,
     )?;
@@ -578,7 +578,7 @@ fn hnet2_1m() -> Result<(), String> {
         let model = CandidateWeights::initialized(
             &runtime,
             17,
-            crate::config::ModelInitialization::FbtPisa1Mhc4,
+            crate::config::ModelInitialization::PisaMhc4,
             arch,
         )?;
         let decoder = decode::Decoder::with_visits(&runtime, CONTEXT, false, 1)?;
@@ -600,10 +600,10 @@ fn bench_1m(
     batch: &crate::pretrain_data::CausalBatch,
 ) -> Result<(), String> {
     let run = crate::config::parse_tune(
-        "version = 4\nexperiment = \"pretrain\"\nmodel = \"fbt-pisa1-hnet-mhc4-v1\"\n\
+        "version = 4\nexperiment = \"pretrain\"\nmodel = \"pisa-hnet-mhc4-v1\"\n\
          recipe = \"fineweb-bytes-100m-v1\"\nobjective = \"cross-entropy\"\n\
          window-tokens = 1048576\nrounds = 5\nround-target-ms = 680\n\
-         [optimizer]\nalgorithm = \"operator-bo\"\n\
+         [optimizer]\nalgorithm = \"single-state-bo\"\n\
          distribution = \"gaussian\"\n\
          [optimizer.surrogate]\nneighbors = 8\nepistemic-scale = 0.1\n\
          aleatoric-scale = 0.05\ny-scale = 0.005\n\
@@ -612,7 +612,7 @@ fn bench_1m(
     )?;
     let layout = Mhc4Layout::from_weights(&model, 0);
     let (mut search, _) = model.search_shaped(
-        run.proposal_kernel(),
+        run.proposal_distribution(),
         run.length(),
         crate::config::TrustRegionShape::TensorFamilyStatic,
     )?;

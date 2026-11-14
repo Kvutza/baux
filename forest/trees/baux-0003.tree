@@ -75,14 +75,14 @@
       }
     }
     \li{
-      \strong{Poincaré half-space distance} (Cannon et al. [[CFK+97]](https://library.slmath.org/books/Book31/files/cannon.pdf), Nickel & Kiela [[NK17]](https://arxiv.org/abs/1705.08039), Kisfaludi-Bak & van Wordragen [[KvW24]](https://arxiv.org/abs/2305.01356)) associates each point with #{(x, \sigma(x)) \in \mathcal{X} \times \mathbb{R}_+} under #{ds^2 = (\Vert dx\Vert_2^2 + d\sigma^2)/\sigma^2}. Evaluating #{\cosh d_{\mathbb{H}} - 1} adds a scale-difference penalty to conformal distance:
+      \strong{Poincaré half-space distance} (Beardon [[Bea83]](https://doi.org/10.1007/978-1-4612-1146-4), Cannon et al. [[CFK+97]](https://library.slmath.org/books/Book31/files/cannon.pdf), Nickel & Kiela [[NK17]](https://arxiv.org/abs/1705.08039)) associates each point with #{(x, \sigma(x)) \in \mathcal{X} \times \mathbb{R}_+} under #{ds^2 = (\Vert dx\Vert_2^2 + d\sigma^2)/\sigma^2}. Evaluating #{\cosh d_{\mathbb{H}} - 1} adds a scale-difference penalty to conformal distance:
       ##{
         \delta_h(x, x_m) = \frac{d^2(x, x_m)}{2\,\sigma(x)\,\sigma(x_m)} + \frac{\bigl(\sigma(x) - \sigma(x_m)\bigr)^2}{2\,\sigma(x)\,\sigma(x_m)}.
       }
       When #{\sigma(x) \ll \sigma(x_m)}, the second term grows as #{\mathcal{O}(\sigma(x_m)/\sigma(x))}, keeping fine-scale basin neighborhoods separate from coarse outer points and preventing sparse queries from collapsing onto dense clusters.
     }
     \li{
-      \strong{Hybrid transport dissimilarity}, motivated by Gaussian Bures–Wasserstein coupling (Villani [[Vil09]](https://doi.org/10.1007/978-3-540-71050-9), Peyré & Cuturi [[PC19]](https://doi.org/10.1561/2200000073)), combines root-geometric scaling with an additive spacing term:
+      \strong{Hybrid transport dissimilarity}, motivated by Gaussian Bures–Wasserstein coupling (Gelbrich [[Gel90]](https://doi.org/10.1002/mana.19901470121), Villani [[Vil09]](https://doi.org/10.1007/978-3-540-71050-9), Peyré & Cuturi [[PC19]](https://doi.org/10.1561/2200000073)), combines root-geometric scaling with an additive spacing term:
       ##{
         \delta_w(x, x_m) = \frac{d^2(x, x_m)}{\sqrt{\sigma(x)\,\sigma(x_m)}} + \bigl(\sigma(x) - \sigma(x_m)\bigr)^2.
       }

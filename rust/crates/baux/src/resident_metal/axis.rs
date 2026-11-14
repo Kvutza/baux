@@ -66,8 +66,8 @@ impl SearchState {
             root ^ (pair as u64).wrapping_mul(0x9e37_79b9_7f4a_7c15) ^ 0x7465_6d70_2d61_7869,
         );
         let magnitude = match self.perturbation {
-            ProposalKernel::Rademacher => 1.0,
-            ProposalKernel::Gaussian => {
+            ProposalDistribution::Rademacher => 1.0,
+            ProposalDistribution::Gaussian => {
                 crate::hash::normal_metric(seed, pair as i64, 0).abs() as f32
             }
         };
@@ -146,7 +146,7 @@ mod tests {
                 vec![ParamBlock::new(7, 0, base.len(), 0.25, 1.0)?],
                 2,
                 length,
-                ProposalKernel::Rademacher,
+                ProposalDistribution::Rademacher,
             )?;
             search.configure_axis(0.6457, [0.0001, 0.9997], 0.2)?;
             let axis = search.axis.as_ref().unwrap();

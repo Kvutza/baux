@@ -267,9 +267,7 @@ fn decode_pipelines(
         .map(std::fs::read_to_string)
         .transpose()
         .map_err(|error| format!("read candidate pisa for decode: {error}"))?;
-    let base_pisa = custom_pisa
-        .as_deref()
-        .unwrap_or(include_str!("pisa1.metal"));
+    let base_pisa = custom_pisa.as_deref().unwrap_or(include_str!("pisa.metal"));
     let attention_source = format!(
         "#define PISA_CONTEXT {context}\n#define PISA_DECODE\n#define PISA_QUERY_TILE 1\n#define \
          PISA_SKIP_IDENTITY_RESCALE\n{base_pisa}"

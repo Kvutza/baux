@@ -17,16 +17,16 @@
     },
     {
       "name": "NOTICE",
-      "size_bytes": 9245,
+      "size_bytes": 13183,
       "digest": {
-        "blake3": "95b914da38cdf71ea4f7c10997ea9ee1e55a5a98e4b77cf8165f6864dbe9d910"
+        "blake3": "99b7eb45b2f4be68e710f4a5528f8d7e9b7886ceb546c7205925e1e904fc4300"
       }
     },
     {
       "name": "rust/crates/baux/NOTICE",
-      "size_bytes": 9245,
+      "size_bytes": 13183,
       "digest": {
-        "blake3": "95b914da38cdf71ea4f7c10997ea9ee1e55a5a98e4b77cf8165f6864dbe9d910"
+        "blake3": "99b7eb45b2f4be68e710f4a5528f8d7e9b7886ceb546c7205925e1e904fc4300"
       }
     },
     {
@@ -40,7 +40,7 @@
       "name": "research/extraction/artifact_manifest.toml",
       "size_bytes": 44805,
       "digest": {
-        "blake3": "b5ae7888d1a435fed3a55ff5f2ca6b2e4a1caaf619b1b06a83dc0617fe681bad"
+        "blake3": "da32cf591f173af9e4757c932a4c40b0edb3a946e2d7a71690699f41c262c531"
       }
     },
     {
@@ -147,7 +147,7 @@
           "license": "MIT",
           "copyright": "Copyright (c) 2025 yubo research",
           "scope": "foundational-port",
-          "citation": "arXiv:2502.10390"
+          "citation": "PMLR 306:5179-5199 (arXiv:2506.12818)"
         },
         {
           "name": "TuRBO-specification",
@@ -166,6 +166,15 @@
           "copyright": "Daulton, Eriksson, Balandat, Bakshy (2022)",
           "scope": "clean-room-mathematical-specification",
           "citation": "arXiv:2109.10964"
+        },
+        {
+          "name": "RAASP-CTS-specification",
+          "uri": "https://proceedings.mlr.press/v238/rashidi24a.html",
+          "version": "AISTATS-2024",
+          "license": "clean-room-specification",
+          "copyright": "Rashidi, Johnstonbaugh, Gao (2024); Regis, Shoemaker (2013)",
+          "scope": "clean-room-external-specification",
+          "citation": "PMLR 238:3502-3510"
         },
         {
           "name": "hnet",
@@ -211,6 +220,33 @@
           "copyright": "Copyright (c) 2025 tokenbender; Xie et al. (DeepSeek-AI)",
           "scope": "sinkhorn-knopp-manifold-reference",
           "citation": "arXiv:2512.24880"
+        },
+        {
+          "name": "PISA-specification",
+          "uri": "https://arxiv.org/abs/2609.31093",
+          "version": "2026",
+          "license": "clean-room-specification",
+          "copyright": "Tang, Qin, Pan, Li, Liu (2026)",
+          "scope": "clean-room-external-specification",
+          "citation": "arXiv:2609.31093"
+        },
+        {
+          "name": "BD3-LM-specification",
+          "uri": "https://arxiv.org/abs/2503.09573",
+          "version": "ICLR-2025",
+          "license": "clean-room-specification",
+          "copyright": "Arriola et al. (2025)",
+          "scope": "clean-room-external-specification",
+          "citation": "arXiv:2503.09573"
+        },
+        {
+          "name": "BLL-Loss-specification",
+          "uri": "https://icml.cc/Conferences/2026",
+          "version": "ICML-2026",
+          "license": "clean-room-specification",
+          "copyright": "Zhao, Zhang, Yang, Zhao, Xu (2026)",
+          "scope": "clean-room-external-specification",
+          "citation": "ICML-2026"
         },
         {
           "name": "torax",

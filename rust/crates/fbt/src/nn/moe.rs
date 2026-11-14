@@ -1,5 +1,11 @@
 //! Sparse Mixture-of-Experts (MoE) FFN sublayer.
 //!
+//! # External Architecture Attribution
+//! Note: DeepSeekMoE shared+routed expert architecture is an external prior-art
+//! architecture used as a testbed, not a BAUX paper contribution:
+//! - Damai Dai et al., *"DeepSeekMoE: Towards Ultimate Expert Specialization in
+//!   Mixture-of-Experts Language Models"*, ACL 2024 (`arXiv:2401.06066`).
+//!
 //! Unifies the routed + shared expert FFN across:
 //! - Single-token autoregressive decode (`StepMoe`: top-3 routing + 4-expert
 //!   GEMV + SwiGLU + combine)

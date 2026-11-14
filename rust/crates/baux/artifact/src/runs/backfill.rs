@@ -160,7 +160,7 @@ fn backfill_dir(
         field(&config_val, "model"),
         field(&manifest_json, "model"),
         field(&result_json, "execution_architecture"),
-        "fbt-pisa1-hnet-mhc4-v1",
+        "pisa-hnet-mhc4-v1",
     ]);
     let optimizer = first_nonempty(&[
         field(&config_val["optimizer"], "algorithm"),
@@ -274,7 +274,7 @@ fn backfill_summaries(
                     &state_path,
                     &commit,
                     &change,
-                    "fbt-pisa1-hnet-mhc4-v1",
+                    "pisa-hnet-mhc4-v1",
                     opt_name,
                     "stack-v3-rust-go-v1@4096",
                     json!(series),
@@ -350,7 +350,7 @@ fn backfill_summaries(
             &path,
             &commit,
             &change,
-            "fbt-pisa1-hnet-mhc4-v1",
+            "pisa-hnet-mhc4-v1",
             "turbo-enn",
             &format!("stack-v3-rust-go-v1@{ctx}"),
             json!(series),

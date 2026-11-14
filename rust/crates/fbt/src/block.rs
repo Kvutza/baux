@@ -32,7 +32,7 @@ pub(super) struct BlockDecoder {
     pub(super) context: u32,
     pub(super) pipelines: Pipelines,
     pub(super) tensorops: TensorOpsPipelines,
-    pub(super) pisa: Pisa1,
+    pub(super) pisa: Pisa,
     pub(super) buffers: Buffers,
     pub(super) proposals: Buffer,
     pub(super) seeds: Buffer,
@@ -240,11 +240,11 @@ impl BlockDecoder {
         architecture: ResidualArchitecture,
     ) -> Result<Self, String> {
         let pisa = if architecture.is_hnet() && context > ROWS {
-            Pisa1::with_context(runtime, ROWS)?
+            Pisa::with_context(runtime, ROWS)?
         } else if architecture.is_mhc4() && context > ROWS {
-            Pisa1::with_rows(runtime, context, ROWS)?
+            Pisa::with_rows(runtime, context, ROWS)?
         } else {
-            Pisa1::with_context(runtime, context)?
+            Pisa::with_context(runtime, context)?
         };
         let expanded_count = context as usize;
         let coarse_count = if architecture.is_mhc4() && context > ROWS {

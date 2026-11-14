@@ -22,7 +22,7 @@ fn rounded_proposal() {
             vec![ParamBlock::new(1, 0, base.len(), 0.25, 1.0).unwrap()],
             1,
             TRLengthConfig::new(1e-20, 1e-21, 0.4),
-            ProposalKernel::Gaussian,
+            ProposalDistribution::Gaussian,
         )
         .unwrap();
         state
@@ -65,10 +65,10 @@ fn posterior_parity() {
             vec![ParamBlock::new(71, 0, base.len(), 0.25, 1.0).unwrap()],
             1,
             TRLengthConfig::new(0.1, 0.001, 0.4),
-            ProposalKernel::Gaussian,
+            ProposalDistribution::Gaussian,
         )
         .unwrap();
-        let source = initialization::search_source(true, ProposalKernel::Gaussian);
+        let source = initialization::search_source(true, ProposalDistribution::Gaussian);
         let pipeline = state
             .runtime
             .precise(&source, "Posterior parity", "dense_posterior_probe")
@@ -374,7 +374,7 @@ fn warmup_trace() {
             vec![ParamBlock::new(73, 0, base.len(), 0.25, 1.0).unwrap()],
             1,
             bounds,
-            ProposalKernel::Gaussian,
+            ProposalDistribution::Gaussian,
         )
         .unwrap();
         state

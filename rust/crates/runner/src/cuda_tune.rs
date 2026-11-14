@@ -210,8 +210,8 @@ fn load_config(root: &Path, config_path: &Path) -> Result<baux::config::RunConfi
     };
     let (run, _) = baux::config::load_tune(execution_path)?;
     run.validate_experiment()?;
-    if run.model != Some(baux::ModelArchitecture::FbtPisa1Mhc4V1) {
-        return Err("CUDA TOML execution currently requires model=fbt-pisa1-mhc4-v1".into());
+    if run.model != Some(baux::ModelArchitecture::PisaMhc4V1) {
+        return Err("CUDA TOML execution currently requires model=pisa-mhc4-v1".into());
     }
     Ok(run)
 }
@@ -337,7 +337,7 @@ fn check_spec(
             .name(),
     )?;
     policy.surrogate_spec()?;
-    if run.proposal_kernel() != baux::ProposalKernel::Gaussian {
+    if run.proposal_distribution() != baux::ProposalDistribution::Gaussian {
         return Err(
             "CUDA mHC-4 does not implement every resolved optimizer field; refusing a partial \
              TOML projection"
@@ -365,7 +365,7 @@ mod tests {
             r#"
 version = 4
 experiment = "pretrain"
-model = "fbt-pisa1-mhc4-v1"
+model = "pisa-mhc4-v1"
 recipe = "stack-v3-rust-go-v1"
 objective = "cross-entropy"
 window-tokens = 1048576

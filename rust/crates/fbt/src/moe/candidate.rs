@@ -261,7 +261,7 @@ fn build_search(
     expected: usize,
     blocks: Vec<ParamBlock>,
     length: crate::trust_region::TRLengthConfig,
-    perturbation: crate::ProposalKernel,
+    perturbation: crate::ProposalDistribution,
 ) -> Result<SearchState, String> {
     let mapped = mapped_base.or_else(|| use_cache.then(|| save_base(key, &base)).flatten());
     let mut search = if let Some(base_buf) = mapped {
@@ -358,7 +358,7 @@ impl CandidateWeights {
 
     pub(super) fn search(
         &self,
-        perturbation: crate::ProposalKernel,
+        perturbation: crate::ProposalDistribution,
         length: crate::trust_region::TRLengthConfig,
     ) -> Result<(SearchState, UpdateLog), String> {
         self.search_shaped(
@@ -370,7 +370,7 @@ impl CandidateWeights {
 
     pub(super) fn search_shaped(
         &self,
-        perturbation: crate::ProposalKernel,
+        perturbation: crate::ProposalDistribution,
         length: crate::trust_region::TRLengthConfig,
         shape: crate::config::TrustRegionShape,
     ) -> Result<(SearchState, UpdateLog), String> {
@@ -392,7 +392,7 @@ impl CandidateWeights {
         let mut offset = 0usize;
         let mut blocks = Vec::new();
         let mut updates = UpdateLog::default();
-        let mhc4_policy = (self.initialization == crate::config::ModelInitialization::FbtPisa1Mhc4)
+        let mhc4_policy = (self.initialization == crate::config::ModelInitialization::PisaMhc4)
             .then(|| Mhc4Initialization::new(self.architecture))
             .transpose()?;
         for (family_code, (family, buffer, block_len)) in self.tensors().into_iter().enumerate() {

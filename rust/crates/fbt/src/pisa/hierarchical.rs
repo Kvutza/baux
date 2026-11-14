@@ -1,6 +1,14 @@
 //! Mass-preserving dual-resolution attention: selected blocks at fine
 //! resolution, every other causal leaf as one mean K/V token carrying
 //! `ln(BLOCK)` extra log-mass, all under a single softmax.
+//!
+//! # Architecture & BAUX Variant Specification
+//! Note: `encode_hierarchical` (coarse-leaf `ln(BLOCK)` mass-preserving
+//! dual-resolution softmax) is a local BAUX variant distinct from Tang et al.'s
+//! (`arXiv:2609.31093`) top-$k$ block-sparse selection. PISA in its standard
+//! form performs hard top-$k$ block-sparse attention; this module provides
+//! an experimental continuous dual-resolution formulation with coarse summary
+//! leaves.
 
 use super::*;
 
@@ -8,7 +16,7 @@ const COARSEWIDTH: u32 = 2 * HEAD_DIM;
 const LEAFMASS: f32 = 4.158_883;
 const SAMPLES: [u32; 8] = [0, 63, 64, 511, 2048, 4095, 4096, 8191];
 
-impl Pisa1 {
+impl Pisa {
     /// Builds the K/V pyramid and runs the O(log N) hierarchical kernel into
     /// `output`. Selection (`self.blocks`) must already be populated.
     fn encode_hierarchical(
@@ -139,7 +147,7 @@ fn reference_head(
 
 /// Runs the hierarchical kernel on `qkv` and compares sampled rows against a
 /// CPU implementation of the same unified-softmax formula.
-pub(super) fn validate(runtime: &Runtime, pisa: &Pisa1, qkv: &BufferRef) -> Result<f64, String> {
+pub(super) fn validate(runtime: &Runtime, pisa: &Pisa, qkv: &BufferRef) -> Result<f64, String> {
     let coarse = runtime.buffer::<u16>((BATCH * NODES * COARSEWIDTH) as usize);
     let output = runtime.buffer_with(&vec![0x7e00u16; (ROWS * QUERY_WIDTH) as usize]);
     let command = runtime.queue.new_command_buffer();

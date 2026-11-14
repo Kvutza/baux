@@ -1,25 +1,31 @@
-//! Full-coordinate proposal kernels used by resident accelerator search.
+//! Full-coordinate proposal distributions used by resident accelerator search.
 //!
-//! The interface is intentionally small: a law names the distribution generated
-//! inside the Metal kernel. Controller, radius, tensor scaling, and candidate
-//! pairing remain separate decisions.
+//! The interface is intentionally small: a distribution names the perturbation
+//! generated inside the Metal kernel. Controller, radius, tensor scaling, and
+//! candidate pairing remain separate decisions.
 
 use deser::{Deserialize, Serialize};
 
-/// Kernel used to construct a full-coordinate proposal.
+/// Full-coordinate proposal distribution sampled on device.
 #[repr(u32)]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[deser(rename_all = "kebab-case")]
-pub enum ProposalKernel {
+pub enum ProposalDistribution {
     /// Independent standard normal coordinates generated with a 256-strip
-    /// Ziggurat.
+    /// Ziggurat (George Marsaglia and Wai Wan Tsang, "The Ziggurat Method
+    /// for Generating Random Variables", *J. Stat. Softw.* 5(8):1-7, 2000).
     #[default]
     Gaussian = 0,
-    /// Independent coordinates drawn uniformly from {-1, +1}.
+    /// Independent coordinates drawn uniformly from {-1, +1} (Hans Rademacher,
+    /// "Einige Sätze über Reihen von allgemeinen Orthogonalfunktionen",
+    /// *Math. Ann.* 87:112-148, 1922).
     Rademacher = 1,
 }
 
-impl ProposalKernel {
+/// Compatibility alias for [`ProposalDistribution`].
+pub type ProposalKernel = ProposalDistribution;
+
+impl ProposalDistribution {
     /// Stable value consumed by the Metal ABI.
     pub const fn shader(self) -> u32 {
         self as u32
@@ -75,19 +81,26 @@ mod tests {
     fn contract() {
         #[derive(Deserialize)]
         struct Setting {
-            perturbation: ProposalKernel,
+            perturbation: ProposalDistribution,
         }
 
-        assert_eq!(ProposalKernel::default(), ProposalKernel::Gaussian);
-        assert_eq!(ProposalKernel::Gaussian.shader(), 0);
         assert_eq!(
-            ProposalKernel::Gaussian.name(),
+            ProposalDistribution::default(),
+            ProposalDistribution::Gaussian
+        );
+        assert_eq!(ProposalDistribution::Gaussian.shader(), 0);
+        assert_eq!(
+            ProposalDistribution::Gaussian.name(),
             "independent_gaussian_ziggurat256_v1"
         );
-        assert_eq!(ProposalKernel::Rademacher.shader(), 1);
-        assert_eq!(ProposalKernel::Rademacher.moments(), (0.0, 1.0));
+        assert_eq!(ProposalDistribution::Rademacher.shader(), 1);
+        assert_eq!(ProposalDistribution::Rademacher.moments(), (0.0, 1.0));
         let setting: Setting = baux::artifact::toml::from_str("perturbation='rademacher'").unwrap();
-        assert_eq!(setting.perturbation, ProposalKernel::Rademacher);
+        assert_eq!(setting.perturbation, ProposalDistribution::Rademacher);
+
+        // Verify compatibility alias
+        let alias_setting: ProposalKernel = ProposalDistribution::Rademacher;
+        assert_eq!(alias_setting, ProposalKernel::Rademacher);
 
         assert_eq!(CoordSystem::default(), CoordSystem::Cartesian);
         assert_eq!(CoordSystem::Cartesian.name(), "cartesian");

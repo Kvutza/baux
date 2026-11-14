@@ -203,7 +203,7 @@ fn research_contract(
             == baux::experimental::MHC4_COEFFS
                 * 2
                 * (u64::from(context_tokens) / baux::experimental::MHC4_PATCH)
-        && spec.model == Some(ModelArchitecture::FbtPisa1Mhc4V1)
+        && spec.model == Some(ModelArchitecture::PisaMhc4V1)
         && spec.objective == Some(ObjectiveFunction::CrossEntropy)
         && objective == "BauxResearch.ObjectiveMode.causalNll"
         && sampling == "BauxResearch.SamplingMode.natural";

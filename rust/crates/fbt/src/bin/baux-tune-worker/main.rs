@@ -106,7 +106,7 @@ fn write_pretrain(
              {goal_met}\n",
             rep + 1,
             run.reps(),
-            run.proposal_kernel().name(),
+            run.proposal_distribution().name(),
             "independent",
             objective_reference.name(),
             shape.name(),

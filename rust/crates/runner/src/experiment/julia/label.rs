@@ -12,8 +12,8 @@ pub fn opt_label(cfg: &Config, mode: ExecMode) -> String {
                 "resident-metal-morbo".into()
             } else if n_obj >= 2 {
                 "resident-metal-pareto".into()
-            } else if matches!(cfg.optimizer, OptimizerSpec::OperatorBo { .. }) {
-                "resident-metal-operator-bo".into()
+            } else if matches!(cfg.optimizer, OptimizerSpec::SingleStateBo { .. }) {
+                "resident-metal-single-state-bo".into()
             } else {
                 format!(
                     "metal-{}",

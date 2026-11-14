@@ -16,7 +16,7 @@ use metal::{
 };
 
 use crate::{
-    ProposalKernel,
+    ProposalDistribution,
     apple_gpu::Runtime,
     fitter::ENNFitter,
     trials::RoundConfig,
@@ -366,7 +366,7 @@ pub struct NoisyDecision {
 
 pub struct SearchState {
     independent_fp16: bool,
-    perturbation: ProposalKernel,
+    perturbation: ProposalDistribution,
     runtime: Arc<Runtime>,
     blocks: Vec<ParamBlock>,
     tiles: Vec<Tile>,
@@ -471,7 +471,7 @@ mod tests {
             blocks.clone(),
             2,
             TRLengthConfig::new(0.1, 0.001, 0.4),
-            ProposalKernel::Gaussian,
+            ProposalDistribution::Gaussian,
         )
         .unwrap();
         search.observe_initial(-3.0, 0.0).unwrap();
@@ -542,7 +542,7 @@ mod tests {
                 vec![ParamBlock::new(0, 0, 1, 1.0, 1.0).unwrap()],
                 2,
                 TRLengthConfig::new(0.1, 0.001, 0.4),
-                ProposalKernel::Gaussian,
+                ProposalDistribution::Gaussian,
             )
             .is_err()
         );
@@ -558,7 +558,7 @@ mod tests {
             blocks.clone(),
             2,
             TRLengthConfig::new(0.1, 0.001, 0.4),
-            ProposalKernel::Rademacher,
+            ProposalDistribution::Rademacher,
         )
         .unwrap();
         search.observe_initial(-3.0, 0.0).unwrap();
@@ -605,7 +605,7 @@ mod tests {
             blocks.clone(),
             1,
             TRLengthConfig::new(0.1, 0.001, 0.4),
-            ProposalKernel::Rademacher,
+            ProposalDistribution::Rademacher,
         )
         .unwrap();
         search
@@ -648,12 +648,15 @@ mod tests {
 
     #[test]
     fn latent_history() {
-        for perturbation in [ProposalKernel::Rademacher, ProposalKernel::Gaussian] {
+        for perturbation in [
+            ProposalDistribution::Rademacher,
+            ProposalDistribution::Gaussian,
+        ] {
             check_latent(perturbation);
         }
     }
 
-    fn check_latent(perturbation: ProposalKernel) {
+    fn check_latent(perturbation: ProposalDistribution) {
         let base = vec![0x3400; 4096];
         let blocks =
             vec![ParamBlock::new(71, 0, base.len(), 0.25, 16.0 / base.len() as f32).unwrap()];
@@ -763,7 +766,7 @@ mod tests {
             blocks,
             1,
             TRLengthConfig::new(0.1, 0.001, 0.4),
-            ProposalKernel::Rademacher,
+            ProposalDistribution::Rademacher,
         )
         .unwrap();
         search
@@ -803,7 +806,7 @@ mod tests {
             blocks.clone(),
             1,
             TRLengthConfig::new(0.1, 0.001, 0.4),
-            ProposalKernel::Gaussian,
+            ProposalDistribution::Gaussian,
         )
         .unwrap();
         search

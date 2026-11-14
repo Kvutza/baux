@@ -116,7 +116,7 @@ fn leaf_score(qkv: &[u16], row: u32, sequence: u32, leaf: u32) -> f32 {
     grouped_score
 }
 
-fn validate_selection(pisa: &Pisa1, qkv: &BufferRef) -> Result<(), String> {
+fn validate_selection(pisa: &Pisa, qkv: &BufferRef) -> Result<(), String> {
     let qkv = half_values(qkv, (ROWS * QKV_WIDTH) as usize);
     let pyramid = half_values(&pisa.pyramid, (BATCH * NODES * HEAD_DIM) as usize);
     let actual = unsafe {
@@ -197,7 +197,7 @@ fn causal_selection(valid: &[u32], current: u32, expected_count: usize) -> bool 
         && (current == 0 || valid.contains(&(current - 1)))
 }
 
-fn validate_attention(pisa: &Pisa1, qkv: &BufferRef) -> Result<f64, String> {
+fn validate_attention(pisa: &Pisa, qkv: &BufferRef) -> Result<f64, String> {
     let qkv = half_values(qkv, (ROWS * QKV_WIDTH) as usize);
     let blocks = unsafe {
         std::slice::from_raw_parts(
@@ -276,7 +276,7 @@ fn validate_attention(pisa: &Pisa1, qkv: &BufferRef) -> Result<f64, String> {
     Ok(maximum)
 }
 
-fn validate_q4(pisa: &Pisa1) -> Result<f64, String> {
+fn validate_q4(pisa: &Pisa) -> Result<f64, String> {
     let elements = (ROWS * QUERY_WIDTH) as usize;
     let q4 = half_values(&pisa.output, elements);
     let q1 = half_values(&pisa.oracle_output, elements);
@@ -306,7 +306,7 @@ fn validate_q4(pisa: &Pisa1) -> Result<f64, String> {
 
 fn stage_median(
     runtime: &Runtime,
-    pisa: &Pisa1,
+    pisa: &Pisa,
     qkv: &BufferRef,
     stage: Stage,
 ) -> Result<f64, String> {
@@ -320,7 +320,7 @@ fn stage_median(
     Ok(samples[1])
 }
 
-fn check_parity(runtime: &Runtime, pisa: &Pisa1, qkv: &BufferRef) -> Result<f64, String> {
+fn check_parity(runtime: &Runtime, pisa: &Pisa, qkv: &BufferRef) -> Result<f64, String> {
     let command = runtime.queue.new_command_buffer();
     pisa.encode(command, qkv, None);
     complete(command)?;
@@ -354,7 +354,7 @@ fn gap_budget() -> Result<(), String> {
     metal::objc::rc::autoreleasepool(|| {
         use crate::apple_gpu::buffer_slice;
         let runtime = Runtime::shared()?;
-        let pisa = Pisa1::new(&runtime)?;
+        let pisa = Pisa::new(&runtime)?;
         let mut values = vec![0u16; (ROWS * QKV_WIDTH) as usize];
         for row in 0..ROWS {
             let base = (row * QKV_WIDTH) as usize;
@@ -394,7 +394,7 @@ fn gap_budget() -> Result<(), String> {
 fn lse_routing() -> Result<(), String> {
     metal::objc::rc::autoreleasepool(|| {
         let runtime = Runtime::shared()?;
-        let pisa = Pisa1::new(&runtime)?;
+        let pisa = Pisa::new(&runtime)?;
 
         // A zero-mean leaf with two large, opposite raw keys is invisible to
         // PISA-1's mean score but wins full PISA's exact raw-key LSE.
@@ -484,7 +484,7 @@ fn lse_routing() -> Result<(), String> {
 fn pisa_latency() -> Result<(), String> {
     metal::objc::rc::autoreleasepool(|| {
         let runtime = Runtime::shared()?;
-        let pisa = Pisa1::new(&runtime)?;
+        let pisa = Pisa::new(&runtime)?;
         let qkv = runtime.buffer_with(&vec![0u16; (ROWS * QKV_WIDTH) as usize]);
         let command = runtime.queue.new_command_buffer();
         pisa.encode(command, &qkv, Some(Stage::Pyramid));
@@ -533,11 +533,11 @@ pub(crate) fn pisa_probe(
     runtime: &Runtime,
     qkv: &BufferRef,
     rounds: u32,
-) -> Result<Pisa1Probe, String> {
+) -> Result<PisaProbe, String> {
     if rounds == 0 {
         return Err("PISA-1 probe requires positive rounds".into());
     }
-    let pisa = Pisa1::new(runtime)?;
+    let pisa = Pisa::new(runtime)?;
     let tied = runtime.buffer_with(&vec![0u16; (ROWS * QKV_WIDTH) as usize]);
     check_parity(runtime, &pisa, &tied)?;
     let max_abs_error = check_parity(runtime, &pisa, qkv)?;
@@ -560,7 +560,7 @@ pub(crate) fn pisa_probe(
     }
     gpu.sort_by(f64::total_cmp);
     wall.sort_by(f64::total_cmp);
-    Ok(Pisa1Probe {
+    Ok(PisaProbe {
         pyramid_gpu_seconds,
         selection_gpu_seconds,
         attention_gpu_seconds,

@@ -297,7 +297,7 @@ impl Trainer {
         &self,
         command: &CommandBufferRef,
         pipelines: &Pipelines,
-        pisa: &Pisa1,
+        pisa: &Pisa,
         buffers: &Buffers,
         step: architecture::LayerStep,
         rows: u32,

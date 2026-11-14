@@ -1,4 +1,10 @@
-// Fixed-shape two-stage full-PISA prefill. pisa1.metal is concatenated before
+// PISA Attention Architecture Primary Citation:
+// Bohao Tang, Zhen Qin, Yuqi Pan, Zheng Li, and Pengfei Liu,
+// "Block Sparse Attention with Log-Linear Complexity", arXiv:2609.31093 (2026).
+// Note: PISA is an external prior-art attention architecture used as a sequence-modeling
+// testbed, not a novel BAUX paper contribution.
+//
+// Fixed-shape two-stage full-PISA prefill. pisa.metal is concatenated before
 // this source and provides the hierarchy constants and scoring primitives.
 
 constant uint kPisaCandidates = 16;

@@ -31,8 +31,8 @@ aeneas_float_patch_sha256 = "6ff1b653717c1102d68cfd4cf052b42cc5c16ef0f5ec792f3cf
 aeneas_dyn_patch_sha256 = "88e4c868a6a032288a8e6b702b1e2716143676c9c2f591273825ccc7163fd449"
 aeneas_dyn_dispatch_patch_sha256 = "add7a8740470371165464ebc17e439a0374121ad79b51f4f97dc40c93527bdba"
 box_pair_metadata_sha256 = "23f2800029339735601dbe3b97eaba9bf65866b6ab2734b914be2ad0b45ced40"
-local_baux_src_tree_sha256 = "eb4338e7e1231d3ff4c0cd466a62bd853cf511c0ac0d8d7a3e5f714c374719cd"
-local_semantics_src_tree_sha256 = "11bde63dcead6a7874cab6ab2a10f23dd2f1b86f022824cc623ea7f66d0163aa"
+local_baux_src_tree_sha256 = "513c804fe37b155b0a6fb1c6b96ecfa68ca7df620ac50a9ec5a3ab582ace02f6"
+local_semantics_src_tree_sha256 = "5e91c421cc98a67ee8dc2e54a65c282a95b09793d5b2342baca84c88e03b9046"
 local_neighbor_index_src_tree_sha256 = "652fdcf18ab95d86daa702f95d65b08de6736a1366e5af08a4d401d50c81f673"
 
 [source_bindings.upstream]
@@ -68,8 +68,8 @@ sha256 = "1a78f2d1761203985b6e2a61edb6872cb6a582fbd790767cd336b95377f45076"
 format = "ar+mach-o-64"
 isa = "arm64"
 cputype = "0x0100000c"
-bytes = 141048080
-sha256 = "2b0bc2ef80a54728141efec2ad961a5ce6713f933aecb85e56071345964a6eda"
+bytes = 141058504
+sha256 = "82b605effff39d49678c9954777db03d2cb98de53e7e7cdab54722d4a7001bf1"
 
 [compiled_artifacts.binaries.local_optimizer_extraction_rlib]
 format = "ar+mach-o-64"
@@ -103,8 +103,8 @@ sha256 = "7448693a76108548d746000a720ea755748e17fcdb195b7abb90b39a7cedf12a"
 format = "mach-o-64"
 isa = "arm64"
 cputype = "0x0100000c"
-bytes = 6011656
-sha256 = "4c534ed121092886f20c08eeb7ec64e5f30d273e30b2885d70b82826129f959e"
+bytes = 6011352
+sha256 = "51f6974d642aefd087ee2cef832a0c5405a89b839d5a97460b92b94b576e3030"
 
 [compiled_artifacts.lean_oleans."Registry.olean"]
 bytes = 4610320

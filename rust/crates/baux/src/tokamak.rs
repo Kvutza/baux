@@ -387,7 +387,7 @@ mod tests {
         let small = crate::optimizer::DomainFrame::kaiming_mlp(&[(4, 2)]).unwrap();
         let spec: crate::config::OptimizerSpec = crate::artifact::toml::from_str(
             r#"
-algorithm = "operator-bo"
+algorithm = "single-state-bo"
 distribution = "gaussian"
 [regional-search]
 count = 2

@@ -629,7 +629,7 @@ let init_api_reference () =
 
       apply_filter ()
 
-(* --- Central 3D WebGL CAD Simulation (FUSE.jl Tokamaks & Oceananigans.jl 3D Fluid Tanks) --- *)
+(* --- Central 3D WebGL CAD Simulation (FUSE.jl Tokamaks) --- *)
 let mount_tokamak_cad () =
   let boot_fn = Js.Unsafe.js_expr {|
 (function() {
@@ -840,107 +840,16 @@ let mount_tokamak_cad () =
     ]
   };
 
-  // Baseline Oceananigans.jl 3D Fluid Tank environments (hydrated asynchronously with exact PDE grids from assets/baux_env.json)
-  function synthKH(nx, nz, billowAmp) {
-    var b = [], u = [], w = [];
-    for (var k = 0; k < nz; k++) {
-      var z = -5.0 + 10.0 * (k + 0.5) / nz;
-      for (var i = 0; i < nx; i++) {
-        var x = -5.0 + 10.0 * (i + 0.5) / nx;
-        var kx = (4.0 * Math.PI * x) / 10.0;
-        var env = Math.exp(-0.5 * (z / 0.85) * (z / 0.85));
-        var disp = billowAmp * env * Math.sin(kx - 0.55 * z);
-        var zb = z - 1.35 * disp;
-        b.push(0.025 * Math.tanh(zb / 0.32));
-        u.push(Math.tanh(zb) - 0.45 * billowAmp * env * Math.cos(kx));
-        w.push(0.55 * billowAmp * env * Math.cos(kx));
-      }
-    }
-    return { b: b, u: u, w: w };
-  }
-  var kh0 = synthKH(32, 32, 0.85);
-  var kh1 = synthKH(32, 32, 0.16);
-
-  var OCEAN_KH = {
-    id: "ocean_kh",
-    kind: "ocean",
-    solver: "Oceananigans.jl 0.117.2 · NonhydrostaticModel (RK3, Upwind-5)",
-    name: "Stratified Kelvin–Helmholtz 3D Shear Channel",
-    shortName: "KH Shear Tank (Oceananigans.jl)",
-    nx: 32, ny: 4, nz: 32, dim: 8192,
-    xMin: -5.0, xMax: 5.0, yMin: -2.5, yMax: 2.5, zMin: -5.0, zMax: 5.0,
-    dist: 15.6, ri: 0.10, re: 5000.0,
-    score_init: -1.00, score_opt: -0.34,
-    actuators: [
-      {name: "S-Act-1", x: -4.2, y: 0.0, z: -0.85, wx: 0.72, wy: 4.6, wz: 0.24},
-      {name: "S-Act-2", x: -3.0, y: 0.0, z:  0.85, wx: 0.72, wy: 4.6, wz: 0.24},
-      {name: "S-Act-3", x: -1.8, y: 0.0, z: -0.85, wx: 0.72, wy: 4.6, wz: 0.24},
-      {name: "S-Act-4", x: -0.6, y: 0.0, z:  0.85, wx: 0.72, wy: 4.6, wz: 0.24},
-      {name: "S-Act-5", x:  0.6, y: 0.0, z: -0.85, wx: 0.72, wy: 4.6, wz: 0.24},
-      {name: "S-Act-6", x:  1.8, y: 0.0, z:  0.85, wx: 0.72, wy: 4.6, wz: 0.24},
-      {name: "S-Act-7", x:  3.0, y: 0.0, z: -0.85, wx: 0.72, wy: 4.6, wz: 0.24},
-      {name: "S-Act-8", x:  4.2, y: 0.0, z:  0.85, wx: 0.72, wy: 4.6, wz: 0.24}
-    ],
-    b_init: kh0.b, u_init: kh0.u, w_init: kh0.w,
-    b_opt: kh1.b, u_opt: kh1.u, w_opt: kh1.w
-  };
-
-  function synthWM(nx, nz, matched) {
-    var b = [], u = [], w = [];
-    for (var k = 0; k < nz; k++) {
-      var z = -128.0 + 128.0 * (k + 0.5) / nz;
-      for (var i = 0; i < nx; i++) {
-        var x = 1000.0 * (i + 0.5) / nx;
-        var kx = (2.0 * Math.PI * x) / 1000.0;
-        var mld = matched ? (-32.0 - 10.0 * Math.cos(kx)) : (-14.0 - 3.0 * Math.sin(kx));
-        var strat = 0.01 * z;
-        var mixed = (z > mld) ? (0.01 * mld + 0.02 * (z - mld) / 32.0) : strat;
-        b.push(mixed);
-        u.push((z > mld ? -0.18 : -0.02) * (1.0 + 0.45 * Math.cos(kx)) * (matched ? 1.0 : 0.25));
-        w.push(0.0);
-      }
-    }
-    return { b: b, u: u, w: w };
-  }
-  var wm0 = synthWM(24, 24, false);
-  var wm1 = synthWM(24, 24, true);
-
-  var OCEAN_WIND = {
-    id: "ocean_wind",
-    kind: "ocean",
-    solver: "Oceananigans.jl 0.117.2 · HydrostaticFreeSurfaceModel (FPlane)",
-    name: "3D Ocean Wind-Stress & Cooling Mixed-Layer Basin",
-    shortName: "Wind-Mixing Basin (Oceananigans.jl)",
-    nx: 24, ny: 4, nz: 24, dim: 192,
-    xMin: 0.0, xMax: 1000.0, yMin: 0.0, yMax: 500.0, zMin: -128.0, zMax: 0.0,
-    dist: 15.8, ri: 0.25, re: 12800.0,
-    score_init: -0.92, score_opt: -0.04,
-    actuators: [
-      {name: "Flux-Plate-1", x: 80.0,  y: 250.0, z: -2.5, wx: 95.0, wy: 440.0, wz: 4.5},
-      {name: "Flux-Plate-2", x: 220.0, y: 250.0, z: -2.5, wx: 95.0, wy: 440.0, wz: 4.5},
-      {name: "Flux-Plate-3", x: 360.0, y: 250.0, z: -2.5, wx: 95.0, wy: 440.0, wz: 4.5},
-      {name: "Flux-Plate-4", x: 500.0, y: 250.0, z: -2.5, wx: 95.0, wy: 440.0, wz: 4.5},
-      {name: "Flux-Plate-5", x: 640.0, y: 250.0, z: -2.5, wx: 95.0, wy: 440.0, wz: 4.5},
-      {name: "Flux-Plate-6", x: 780.0, y: 250.0, z: -2.5, wx: 95.0, wy: 440.0, wz: 4.5},
-      {name: "Flux-Plate-7", x: 920.0, y: 250.0, z: -2.5, wx: 95.0, wy: 440.0, wz: 4.5}
-    ],
-    b_init: wm0.b, u_init: wm0.u, w_init: wm0.w,
-    b_opt: wm1.b, u_opt: wm1.u, w_opt: wm1.w
-  };
-
   var MACHINES = {
     tcv: TCV_CAD,
     sparc: SPARC_CAD,
     arc: ARC_CAD,
     iter: ITER_CAD,
-    d3d: D3D_CAD,
-    ocean_kh: OCEAN_KH,
-    ocean_wind: OCEAN_WIND
+    d3d: D3D_CAD
   };
 
   var LIVE_RUNS = {
-    fuseWorkerS: 5.83,
-    oceanWorkerS: 0.24
+    fuseWorkerS: 5.83
   };
 
   // Exact 32 shape_70166 reference LCFS control points extracted from arXiv:2505.00663 Fig. 9
@@ -1215,254 +1124,10 @@ let mount_tokamak_cad () =
     return [R * c - off * s, Z, R * s + off * c];
   }
 
-  // Thermal/haline scientific colormap t in [0, 1] -> [r, g, b, 1]
-  function oceanPalette(t) {
-    var u = Math.max(0.0, Math.min(1.0, t));
-    if (u < 0.25) {
-      var s = u / 0.25;
-      return [lerp(0.07, 0.08, s), lerp(0.16, 0.42, s), lerp(0.38, 0.68, s), 1.0];
-    } else if (u < 0.50) {
-      var s2 = (u - 0.25) / 0.25;
-      return [lerp(0.08, 0.18, s2), lerp(0.42, 0.72, s2), lerp(0.68, 0.72, s2), 1.0];
-    } else if (u < 0.75) {
-      var s3 = (u - 0.50) / 0.25;
-      return [lerp(0.18, 0.92, s3), lerp(0.72, 0.74, s3), lerp(0.72, 0.24, s3), 1.0];
-    } else {
-      var s4 = (u - 0.75) / 0.25;
-      return [lerp(0.92, 0.96, s4), lerp(0.74, 0.36, s4), lerp(0.24, 0.14, s4), 1.0];
-    }
-  }
-
-  // Build 3D CAD mesh buffers for Oceananigans.jl 3D Stratified Shear Tank / Wind-Mixing Basin
-  function buildOceanCADBuffers(gl, mach, st, opts) {
-    var pos = [], norm = [], col = [], linePos = [], lineCol = [];
-    function pushVert(p, n, c) {
-      pos.push(p[0], p[1], p[2]);
-      norm.push(n[0], n[1], n[2]);
-      col.push(c[0], c[1], c[2], c[3]);
-    }
-    function pushTri(p1, p2, p3, n1, n2, n3, c1, c2, c3) {
-      pushVert(p1, n1, c1);
-      pushVert(p2, n2, c2 || c1);
-      pushVert(p3, n3, c3 || c1);
-    }
-    function pushLine(p1, p2, c) {
-      linePos.push(p1[0], p1[1], p1[2], p2[0], p2[1], p2[2]);
-      lineCol.push(c[0], c[1], c[2], c[3], c[0], c[1], c[2], c[3]);
-    }
-    function addBox3D(x0, x1, y0, y1, z0, z1, sideCol, topCol, edgeCol) {
-      // WebGL coords: X = x, Y = z (vertical), Z = y (spanwise depth)
-      var p000 = [x0, y0, z0], p100 = [x1, y0, z0], p110 = [x1, y1, z0], p010 = [x0, y1, z0];
-      var p001 = [x0, y0, z1], p101 = [x1, y0, z1], p111 = [x1, y1, z1], p011 = [x0, y1, z1];
-      var tc = topCol || sideCol;
-      // Front (+Z), Back (-Z), Left (-X), Right (+X), Top (+Y), Bottom (-Y)
-      pushTri(p001, p101, p111, [0,0,1], [0,0,1], [0,0,1], sideCol);
-      pushTri(p001, p111, p011, [0,0,1], [0,0,1], [0,0,1], sideCol);
-      pushTri(p100, p000, p010, [0,0,-1], [0,0,-1], [0,0,-1], sideCol);
-      pushTri(p100, p010, p110, [0,0,-1], [0,0,-1], [0,0,-1], sideCol);
-      pushTri(p000, p001, p011, [-1,0,0], [-1,0,0], [-1,0,0], sideCol);
-      pushTri(p000, p011, p010, [-1,0,0], [-1,0,0], [-1,0,0], sideCol);
-      pushTri(p101, p100, p110, [1,0,0], [1,0,0], [1,0,0], sideCol);
-      pushTri(p101, p110, p111, [1,0,0], [1,0,0], [1,0,0], sideCol);
-      pushTri(p011, p111, p110, [0,1,0], [0,1,0], [0,1,0], tc);
-      pushTri(p011, p110, p010, [0,1,0], [0,1,0], [0,1,0], tc);
-      pushTri(p000, p100, p101, [0,-1,0], [0,-1,0], [0,-1,0], sideCol);
-      pushTri(p000, p101, p001, [0,-1,0], [0,-1,0], [0,-1,0], sideCol);
-      if (edgeCol) {
-        pushLine(p011, p111, edgeCol); pushLine(p111, p110, edgeCol);
-        pushLine(p110, p010, edgeCol); pushLine(p010, p011, edgeCol);
-      }
-    }
-
-    // Map physical tank box to canonical 3D CAD engineering envelope: X in [-4.6, 4.6], Y_vert in [-2.35, 2.35], Z_depth in [-2.3, 2.3]
-    var XW = 4.6, YH = 2.35, ZD = 2.25, wt = 0.16;
-    function mapX(xp) { return -XW + 2.0 * XW * ((xp - mach.xMin) / Math.max(1e-6, mach.xMax - mach.xMin)); }
-    function mapY(zp) { return -YH + 2.0 * YH * ((zp - mach.zMin) / Math.max(1e-6, mach.zMax - mach.zMin)); }
-    function mapZ(yp) { return -ZD + 2.0 * ZD * ((yp - mach.yMin) / Math.max(1e-6, mach.yMax - mach.yMin)); }
-
-    var steelOuter = [0.55, 0.58, 0.63, 1.0];
-    var rimWhite   = [0.96, 0.97, 0.99, 1.0];
-    var rimEdge    = [0.16, 0.18, 0.22, 0.85];
-
-    // 1. Cutaway Structural Tank Shell (Baseplate, Rear Wall, Left Wall, Half-Cut Right Flange)
-    addBox3D(-XW - wt, XW + wt, -YH - wt, -YH, -ZD - wt, ZD + wt, steelOuter, [0.22, 0.25, 0.30, 1.0], rimEdge);
-    addBox3D(-XW - wt, XW + wt, -YH, YH + 0.08, ZD, ZD + wt, steelOuter, rimWhite, rimEdge);
-    addBox3D(-XW - wt, -XW, -YH, YH + 0.08, -ZD, ZD + wt, steelOuter, rimWhite, rimEdge);
-    addBox3D(XW, XW + wt, -YH, -0.35 * YH, -ZD, ZD + wt, steelOuter, rimWhite, rimEdge);
-
-    // Front transparent acrylic/glass CAD frame edges (facing viewer at Z = -ZD)
-    var frameCol = [0.42, 0.52, 0.64, 0.85];
-    pushLine([-XW, -YH, -ZD], [XW, -YH, -ZD], frameCol);
-    pushLine([-XW, YH, -ZD], [XW, YH, -ZD], frameCol);
-    pushLine([-XW, -YH, -ZD], [-XW, YH, -ZD], frameCol);
-    pushLine([XW, -YH, -ZD], [XW, YH, -ZD], frameCol);
-    pushLine([XW, -YH, ZD], [XW, YH, ZD], frameCol);
-    pushLine([XW, YH, -ZD], [XW, YH, ZD], frameCol);
-
-    // 2. Interpolate solved Oceananigans.jl PDE buoyancy & velocity fields across Rollout Round
-    var nx = mach.nx || 32, nz = mach.nz || 32;
-    var prog = st.progress;
-    var bField = new Float32Array(nx * nz);
-    var uField = new Float32Array(nx * nz);
-    var wField = new Float32Array(nx * nz);
-    var bMin = 1e9, bMax = -1e9;
-    for (var idx = 0; idx < nx * nz; idx++) {
-      var bv = lerp(mach.b_init[idx] || 0.0, mach.b_opt[idx] || 0.0, prog);
-      var uv = lerp(mach.u_init[idx] || 0.0, mach.u_opt[idx] || 0.0, prog);
-      var wv = lerp((mach.w_init && mach.w_init[idx]) || 0.0, (mach.w_opt && mach.w_opt[idx]) || 0.0, prog);
-      bField[idx] = bv;
-      uField[idx] = uv;
-      wField[idx] = wv;
-      if (bv < bMin) bMin = bv;
-      if (bv > bMax) bMax = bv;
-    }
-    var bSpan = Math.max(1e-6, bMax - bMin);
-    function bAt(i, k) {
-      var ii = Math.max(0, Math.min(nx - 1, i));
-      var kk = Math.max(0, Math.min(nz - 1, k));
-      return bField[kk * nx + ii];
-    }
-
-    // 3. Rear Interior Fluid Cutaway Cross-Section + Right Cutaway Face
-    var zBack = ZD - 0.02;
-    for (var k = 0; k < nz - 1; k++) {
-      var y0 = -YH + 2.0 * YH * (k / (nz - 1));
-      var y1 = -YH + 2.0 * YH * ((k + 1) / (nz - 1));
-      for (var i = 0; i < nx - 1; i++) {
-        var x0 = -XW + 2.0 * XW * (i / (nx - 1));
-        var x1 = -XW + 2.0 * XW * ((i + 1) / (nx - 1));
-        var c00 = oceanPalette((bAt(i, k) - bMin) / bSpan);
-        var c10 = oceanPalette((bAt(i + 1, k) - bMin) / bSpan);
-        var c11 = oceanPalette((bAt(i + 1, k + 1) - bMin) / bSpan);
-        var c01 = oceanPalette((bAt(i, k + 1) - bMin) / bSpan);
-        var nFront = [0, 0, -1];
-        pushTri([x0, y0, zBack], [x1, y1, zBack], [x1, y0, zBack], nFront, nFront, nFront, c00, c11, c10);
-        pushTri([x0, y0, zBack], [x0, y1, zBack], [x1, y1, zBack], nFront, nFront, nFront, c00, c01, c11);
-      }
-    }
-
-    // 4. Three 3D Phong-Lit Volumetric Isopycnal Material Surfaces across the 3D Tank
-    var isoLevels = [0.28, 0.50, 0.72];
-    var nSpanSeg = 14;
-    for (var il = 0; il < isoLevels.length; il++) {
-      var targetT = isoLevels[il];
-      var targetB = bMin + targetT * bSpan;
-      var isoCol = oceanPalette(targetT);
-      // Extract height profile hIso[i] across x where b(i, k) crosses targetB
-      var hIso = new Float32Array(nx);
-      for (var i2 = 0; i2 < nx; i2++) {
-        var bestK = (nz - 1) * targetT;
-        var bestDiff = 1e9;
-        for (var k2 = 0; k2 < nz - 1; k2++) {
-          var v0 = bAt(i2, k2) - targetB;
-          var v1 = bAt(i2, k2 + 1) - targetB;
-          if ((v0 <= 0.0 && v1 >= 0.0) || (v0 >= 0.0 && v1 <= 0.0)) {
-            var frac = Math.abs(v0) / Math.max(1e-9, Math.abs(v0 - v1));
-            bestK = k2 + frac;
-            bestDiff = 0.0;
-          } else if (Math.abs(v0) < bestDiff) {
-            bestDiff = Math.abs(v0);
-            bestK = k2;
-          }
-        }
-        hIso[i2] = -YH + 2.0 * YH * (bestK / Math.max(1, nz - 1));
-      }
-
-      for (var s = 0; s < nSpanSeg; s++) {
-        var zA = -ZD * 0.92 + (1.84 * ZD) * (s / nSpanSeg);
-        var zB = -ZD * 0.92 + (1.84 * ZD) * ((s + 1) / nSpanSeg);
-        var spanModA = (1.0 - prog * 0.75) * 0.14 * Math.sin((2.0 * Math.PI * s) / nSpanSeg + il);
-        var spanModB = (1.0 - prog * 0.75) * 0.14 * Math.sin((2.0 * Math.PI * (s + 1)) / nSpanSeg + il);
-        for (var i3 = 0; i3 < nx - 1; i3++) {
-          var xa = -XW + 2.0 * XW * (i3 / (nx - 1));
-          var xb = -XW + 2.0 * XW * ((i3 + 1) / (nx - 1));
-          var ya0 = Math.max(-YH + 0.05, Math.min(YH - 0.05, hIso[i3] + spanModA));
-          var yb0 = Math.max(-YH + 0.05, Math.min(YH - 0.05, hIso[i3 + 1] + spanModA));
-          var yb1 = Math.max(-YH + 0.05, Math.min(YH - 0.05, hIso[i3 + 1] + spanModB));
-          var ya1 = Math.max(-YH + 0.05, Math.min(YH - 0.05, hIso[i3] + spanModB));
-          var dyx = yb0 - ya0;
-          var dx = xb - xa;
-          var nrm = Math.hypot(dx, dyx) || 1.0;
-          var nSurf = [-dyx / nrm, dx / nrm, 0.08];
-          pushTri([xa, ya0, zA], [xb, yb0, zA], [xb, yb1, zB], nSurf, nSurf, nSurf, isoCol);
-          pushTri([xa, ya0, zA], [xb, yb1, zB], [xa, ya1, zB], nSurf, nSurf, nSurf, isoCol);
-          if (s === 0) {
-            pushLine([xa, ya0, zA - 0.01], [xb, yb0, zA - 0.01], [0.96, 0.98, 1.0, 0.92]);
-          }
-        }
-      }
-    }
-
-    // 5. 3D Actuator Manifolds / Surface Wind-Stress & Cooling Flux Vanes
-    if (opts.showCoils && mach.actuators) {
-      var actGain = 0.25 + 0.75 * prog;
-      for (var ai = 0; ai < mach.actuators.length; ai++) {
-        var ac = mach.actuators[ai];
-        var ax0 = mapX(ac.x - 0.5 * ac.wx), ax1 = mapX(ac.x + 0.5 * ac.wx);
-        var ay0 = mapY(ac.z - 0.5 * ac.wz), ay1 = mapY(ac.z + 0.5 * ac.wz);
-        var az0 = Math.max(-ZD * 0.88, mapZ(ac.y - 0.5 * ac.wy));
-        var az1 = Math.min( ZD * 0.88, mapZ(ac.y + 0.5 * ac.wy));
-        var cAct = (ai % 2 === 0)
-          ? [0.72 + 0.16 * actGain, 0.48 + 0.10 * actGain, 0.14, 1.0]
-          : [0.24 + 0.08 * actGain, 0.42 + 0.14 * actGain, 0.64 + 0.12 * actGain, 1.0];
-        var cTop = [Math.min(1.0, cAct[0] + 0.12), Math.min(1.0, cAct[1] + 0.12), Math.min(1.0, cAct[2] + 0.10), 1.0];
-        addBox3D(ax0, ax1, ay0, ay1, az0, az1, cAct, cTop, rimEdge);
-      }
-    }
-
-    // 6. 3D Velocity Streamlines Advected through Oceananigans.jl (u, w) Field
-    if (opts.showFieldLines) {
-      var zPlanes = [-ZD * 0.65, 0.0, ZD * 0.65];
-      for (var zp = 0; zp < zPlanes.length; zp++) {
-        for (var seedRow = 0; seedRow < 5; seedRow++) {
-          var sx = -XW * 0.90;
-          var sy = -YH * 0.72 + (1.44 * YH) * (seedRow / 4.0);
-          var dir = (sy >= 0.0 || mach.id === "ocean_wind") ? 1.0 : -1.0;
-          if (dir < 0.0) sx = XW * 0.90;
-          var prev = [sx, sy, zPlanes[zp]];
-          for (var step = 0; step < 36; step++) {
-            var gi = Math.max(0, Math.min(nx - 1, Math.round(((sx + XW) / (2.0 * XW)) * (nx - 1))));
-            var gk = Math.max(0, Math.min(nz - 1, Math.round(((sy + YH) / (2.0 * YH)) * (nz - 1))));
-            var uu = uField[gk * nx + gi];
-            var ww = wField[gk * nx + gi];
-            var uScale = (mach.id === "ocean_wind") ? -2.2 : 0.28;
-            var nxPt = sx + (Math.abs(uu) > 1e-4 ? uu * uScale : dir * 0.24);
-            var nyPt = Math.max(-YH * 0.92, Math.min(YH * 0.92, sy + ww * 0.36));
-            if (nxPt < -XW * 0.95 || nxPt > XW * 0.95) break;
-            var cur = [nxPt, nyPt, zPlanes[zp]];
-            pushLine(prev, cur, [1.0, 0.90, 0.45, 0.92]);
-            prev = cur;
-            sx = nxPt;
-            sy = nyPt;
-          }
-        }
-      }
-    }
-
-    function makeBuf(arr) {
-      var b = gl.createBuffer();
-      gl.bindBuffer(gl.ARRAY_BUFFER, b);
-      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(arr), gl.STATIC_DRAW);
-      return b;
-    }
-    return {
-      posBuf: makeBuf(pos),
-      normBuf: makeBuf(norm),
-      colBuf: makeBuf(col),
-      triCount: pos.length / 3,
-      linePosBuf: makeBuf(linePos),
-      lineColBuf: makeBuf(lineCol),
-      lineCount: linePos.length / 3
-    };
-  }
-
   // Build the complete 3D CAD mesh buffers for active FUSE.jl / TCV tokamak geometry
   function buildTokamakCADBuffers(gl, st, opts) {
     var mKey = opts.machine || "tcv";
     var mach = Object.prototype.hasOwnProperty.call(MACHINES, mKey) ? MACHINES[mKey] : MACHINES.tcv;
-    if (mach.kind === "ocean") {
-      return buildOceanCADBuffers(gl, mach, st, opts);
-    }
     var pos = [], norm = [], col = [], linePos = [], lineCol = [];
 
     function pushVert(p, n, c) {
@@ -1732,122 +1397,7 @@ let mount_tokamak_cad () =
     };
   }
 
-  // Render 2D Scientific Cross-Section for Oceananigans.jl 3D Fluid Environments
-  function renderOcean2DCanvas(ctx, w, h, st, mach, isDark) {
-    var compact = w < 420;
-    var padTop = compact ? 24 : 30;
-    var padBot = compact ? 30 : 38;
-    var padLeft = compact ? 36 : 44;
-    var padRight = compact ? 10 : 14;
-    var gap = compact ? 12 : 18;
-    var boxW = Math.max(60, Math.floor((w - padLeft - padRight - gap) * 0.5));
-    var boxH = Math.min(Math.max(80, h - padTop - padBot), Math.round(boxW * 1.08));
-    var startY = padTop + Math.floor((h - padTop - padBot - boxH) * 0.5);
-    var leftX = padLeft;
-    var rightX = leftX + boxW + gap;
-
-    var nx = mach.nx || 32, nz = mach.nz || 32;
-    var prog = st.progress;
-    var bGrid = new Float32Array(nx * nz);
-    var uGrid = new Float32Array(nx * nz);
-    var bMin = 1e9, bMax = -1e9, uMax = 1e-6;
-    for (var m = 0; m < nx * nz; m++) {
-      var bv = lerp(mach.b_init[m] || 0.0, mach.b_opt[m] || 0.0, prog);
-      var uv = lerp(mach.u_init[m] || 0.0, mach.u_opt[m] || 0.0, prog);
-      bGrid[m] = bv;
-      uGrid[m] = uv;
-      if (bv < bMin) bMin = bv;
-      if (bv > bMax) bMax = bv;
-      if (Math.abs(uv) > uMax) uMax = Math.abs(uv);
-    }
-    var bSpan = Math.max(1e-6, bMax - bMin);
-
-    var titleFont = compact ? "700 11px 'Latin Modern Roman', Georgia, serif" : "700 12.5px 'Latin Modern Roman', Georgia, serif";
-    var tickFont = "400 9px 'Latin Modern Mono', monospace";
-    var axisFont = "italic 10.5px 'Latin Modern Roman', Georgia, serif";
-
-    function drawFieldBox(bx, titleStr, isVel, showZ) {
-      ctx.fillStyle = isDark ? "#e6edf3" : "#111111";
-      ctx.font = titleFont;
-      ctx.textAlign = "center";
-      ctx.fillText(titleStr, bx + boxW * 0.5, startY - 8);
-
-      var cw = boxW / nx, ch = boxH / nz;
-      for (var k = 0; k < nz; k++) {
-        var py = startY + boxH - (k + 1) * ch;
-        for (var i = 0; i < nx; i++) {
-          var px = bx + i * cw;
-          var idx = k * nx + i;
-          if (!isVel) {
-            var c = oceanPalette((bGrid[idx] - bMin) / bSpan);
-            ctx.fillStyle = "rgb(" + Math.round(c[0]*255) + "," + Math.round(c[1]*255) + "," + Math.round(c[2]*255) + ")";
-          } else {
-            var un = Math.max(-1.0, Math.min(1.0, uGrid[idx] / uMax));
-            var rC = un >= 0 ? 255 : Math.round(255 * (1 + un * 0.82));
-            var gC = Math.round(255 * (1 - 0.65 * Math.abs(un)));
-            var bC = un <= 0 ? 255 : Math.round(255 * (1 - un * 0.82));
-            ctx.fillStyle = "rgb(" + rC + "," + gC + "," + bC + ")";
-          }
-          ctx.fillRect(px, py, Math.ceil(cw + 0.6), Math.ceil(ch + 0.6));
-        }
-      }
-
-      // Overlay CAD actuators on left panel
-      if (!isVel && mach.actuators) {
-        ctx.fillStyle = "rgba(217, 119, 6, 0.88)";
-        ctx.strokeStyle = "#111111";
-        ctx.lineWidth = 0.8;
-        for (var a = 0; a < mach.actuators.length; a++) {
-          var ac = mach.actuators[a];
-          var rx0 = bx + ((ac.x - 0.5 * ac.wx - mach.xMin) / (mach.xMax - mach.xMin)) * boxW;
-          var rw  = Math.max(3, (ac.wx / (mach.xMax - mach.xMin)) * boxW);
-          var ry0 = startY + ((mach.zMax - (ac.z + 0.5 * ac.wz)) / (mach.zMax - mach.zMin)) * boxH;
-          var rh  = Math.max(3, (ac.wz / (mach.zMax - mach.zMin)) * boxH);
-          ctx.fillRect(rx0, ry0, rw, rh);
-          ctx.strokeRect(rx0, ry0, rw, rh);
-        }
-      }
-
-      ctx.strokeStyle = isDark ? "#8b949e" : "#111111";
-      ctx.lineWidth = 1.1;
-      ctx.strokeRect(bx, startY, boxW, boxH);
-
-      ctx.fillStyle = isDark ? "#8b949e" : "#222222";
-      ctx.font = tickFont;
-      ctx.textAlign = "center";
-      var xm = 0.5 * (mach.xMin + mach.xMax);
-      var xTicks = [mach.xMin, xm, mach.xMax];
-      for (var ti = 0; ti < 3; ti++) {
-        var tx = bx + (ti * 0.5) * boxW;
-        ctx.fillText(xTicks[ti].toFixed(0), tx, startY + boxH + 12);
-      }
-      ctx.font = axisFont;
-      ctx.fillText(mach.id === "ocean_wind" ? "x [m]" : "x / h", bx + boxW * 0.5, startY + boxH + 26);
-
-      if (showZ) {
-        ctx.font = tickFont;
-        ctx.textAlign = "right";
-        var zm = 0.5 * (mach.zMin + mach.zMax);
-        var zTicks = [mach.zMin, zm, mach.zMax];
-        for (var zj = 0; zj < 3; zj++) {
-          var ty = startY + boxH - (zj * 0.5) * boxH;
-          ctx.fillText(zTicks[zj].toFixed(0), bx - 4, ty + 3);
-        }
-        ctx.save();
-        ctx.translate(bx - (compact ? 26 : 31), startY + boxH * 0.5);
-        ctx.rotate(-Math.PI * 0.5);
-        ctx.font = axisFont;
-        ctx.textAlign = "center";
-        ctx.fillText(mach.id === "ocean_wind" ? "z [m]" : "z / h", 0, 0);
-        ctx.restore();
-      }
-    }
-
-    drawFieldBox(leftX, compact ? "Buoyancy b(x,z)" : "CAD & Buoyancy b(x, z)", false, true);
-    drawFieldBox(rightX, compact ? "Velocity u(x,z)" : "Velocity Shear u(x, z)", true, false);
-  }
-
-  // Right Panel: 2D Physical Cross-Section (FUSE.jl Tokamak Equilibrium OR Oceananigans.jl PDE Slice)
+  // Right Panel: 2D Physical Cross-Section (FUSE.jl Tokamak Equilibrium)
   function renderFigure9Canvas(canvas, st, mach, opts) {
     mach = mach || MACHINES.tcv;
     var dpr = window.devicePixelRatio || 1;
@@ -1865,12 +1415,6 @@ let mount_tokamak_cad () =
     var isDark = document.documentElement.getAttribute("data-theme") === "dark";
     ctx.fillStyle = isDark ? "#0d1117" : "#ffffff";
     ctx.fillRect(0, 0, w, h);
-
-    if (mach.kind === "ocean") {
-      renderOcean2DCanvas(ctx, w, h, st, mach, isDark);
-      ctx.restore();
-      return;
-    }
 
     var compact = w < 420;
     var ultraCompact = w < 330;
@@ -2153,10 +1697,6 @@ let mount_tokamak_cad () =
       '          <option value="iter">ITER · Cadarache (FUSE.jl)</option>',
       '          <option value="d3d">DIII-D · GA (FUSE.jl)</option>',
       '        </optgroup>',
-      '        <optgroup label="Stratified Fluids · Oceananigans.jl">',
-      '          <option value="ocean_kh">KH Shear Tank · 3D</option>',
-      '          <option value="ocean_wind">Wind-Mixing Basin · 3D</option>',
-      '        </optgroup>',
       '      </select>',
       '    </div>',
       '    <div class="tcv-ctrl-sec tcv-ctrl-seed">',
@@ -2224,7 +1764,7 @@ let mount_tokamak_cad () =
       '      </div>',
       '    </div>',
       '    <div class="tcv-fig-caption" id="tcv-fig-caption">',
-      '      <strong>Figure 1.</strong> 3D cutaway geometries, 2D equilibrium and field cross-sections, and closed-loop rollout trajectories across tokamak models exported from <code>FUSE.jl</code> (TCV, SPARC, ARC, ITER, DIII-D; Meneghini et al., 2024) and stratified fluid models from <code>Oceananigans.jl</code> (Ramadhan et al., 2020).',
+      '      <strong>Figure 1.</strong> 3D cutaway geometries, 2D equilibrium and field cross-sections, and closed-loop rollout trajectories across tokamak models exported from <code>FUSE.jl</code> (TCV, SPARC, ARC, ITER, DIII-D; Meneghini et al., 2024).',
       '    </div>',
       '  </div>',
       '</div>'
@@ -2273,8 +1813,8 @@ let mount_tokamak_cad () =
       showTF: true,
       showFieldLines: true,
       cutawayDeg: 56.0,
-      yaw: initObj.kind === "ocean" ? -1.18 : -Math.PI * 0.5,
-      pitch: initObj.kind === "ocean" ? 0.36 : 0.46,
+      yaw: -Math.PI * 0.5,
+      pitch: 0.46,
       dist: initObj.dist,
       playing: false
     };
@@ -2302,64 +1842,39 @@ let mount_tokamak_cad () =
 
     function renderAll() {
       var mach = Object.prototype.hasOwnProperty.call(MACHINES, uiState.machine) ? MACHINES[uiState.machine] : MACHINES.tcv;
-      var isOcean = (mach.kind === "ocean");
       var st = evalState(uiState.policyKey, uiState.round, uiState.seedIdx);
 
-      if (builderTag) builderTag.textContent = isOcean ? "Oceananigans.jl" : "FUSE.jl";
-      if (lblCoils) lblCoils.textContent = isOcean ? "3D Actuators" : "PF/CS Coils";
-      if (lblField) lblField.textContent = isOcean ? "Streamlines" : "B-Field Lines";
-      if (rowTF) rowTF.style.display = isOcean ? "none" : "inline-flex";
+      if (builderTag) builderTag.textContent = "FUSE.jl";
+      if (lblCoils) lblCoils.textContent = "PF/CS Coils";
+      if (lblField) lblField.textContent = "B-Field Lines";
+      if (rowTF) rowTF.style.display = "inline-flex";
 
       if (badgeA) badgeA.innerHTML = "<strong>(a)</strong> 3D Cutaway CAD — " + escHtml(mach.shortName);
-      if (badgeB) {
-        badgeB.innerHTML = isOcean
-          ? ("<strong>(b)</strong> PDE Cross-Section — " + escHtml(mach.shortName))
-          : ("<strong>(b)</strong> Equilibrium & Flux — " + escHtml(mach.shortName));
-      }
-      if (subtableTitle) subtableTitle.textContent = isOcean ? "Oceananigans.jl 0.117.2" : "FUSE.jl 1.2.1 Geometry";
+      if (badgeB) badgeB.innerHTML = "<strong>(b)</strong> Equilibrium & Flux — " + escHtml(mach.shortName);
+      if (subtableTitle) subtableTitle.textContent = "FUSE.jl 1.2.1 Geometry";
       if (subtableDevice) subtableDevice.textContent = mach.shortName;
-      if (objHdr) {
-        objHdr.textContent = isOcean
-          ? "BAUX Regional Control Decomposition"
-          : "TORAX / FUSE SmoothMax (α = −3)";
-      }
+      if (objHdr) objHdr.textContent = "TORAX / FUSE SmoothMax (α = −3)";
 
       if (kvList) {
-        if (isOcean) {
-          var scCur = lerp(mach.score_init, mach.score_opt, st.progress);
-          var suppPct = (100.0 * (1.0 - Math.abs(scCur) / Math.max(1e-6, Math.abs(mach.score_init)))).toFixed(1) + "%";
-          var gridStr = mach.nx + "×" + mach.ny + "×" + mach.nz + " (D=" + mach.dim + ")";
-          kvList.innerHTML = [
-            '<div class="tcv-kv-row"><span class="tcv-kv-lbl">Normalized PDE Objective</span><span class="tcv-kv-val" style="color:' + escHtml(st.policy.color) + ';">' + escHtml(scCur.toFixed(3)) + '</span></div>',
-            '<div class="tcv-kv-row"><span class="tcv-kv-lbl">Perturbation Suppression</span><span class="tcv-kv-val">' + escHtml(suppPct) + '</span></div>',
-            '<div class="tcv-kv-row"><span class="tcv-kv-lbl">3D Grid & Control Dim</span><span class="tcv-kv-val">' + escHtml(gridStr) + '</span></div>',
-            '<div class="tcv-kv-row"><span class="tcv-kv-lbl">Richardson / Reynolds</span><span class="tcv-kv-val">Ri=' + escHtml(mach.ri.toFixed(2)) + ', Re=' + escHtml(mach.re.toFixed(0)) + '</span></div>',
-            '<div class="tcv-kv-row"><span class="tcv-kv-lbl">Domain Span</span><span class="tcv-kv-val">[' + escHtml(mach.xMin.toFixed(0)) + ',' + escHtml(mach.xMax.toFixed(0)) + ']×[' + escHtml(mach.zMin.toFixed(0)) + ',' + escHtml(mach.zMax.toFixed(0)) + ']</span></div>',
-            '<div class="tcv-kv-row"><span class="tcv-kv-lbl">Solver Step Time</span><span class="tcv-kv-val">' + escHtml(LIVE_RUNS.oceanWorkerS.toFixed(2)) + ' s</span></div>'
-          ].join("");
-        } else {
-          var jStr = st.score.toFixed(2) + (uiState.seedIdx < 0 ? (" ± " + st.sem.toFixed(2)) : (" (S" + (uiState.seedIdx + 1) + ")"));
-          var qVal = ((mach.q95 || 3.2) * (0.72 + 0.28 * st.progress)).toFixed(2);
-          var nCoils = (mach.coils ? mach.coils.length : 0) + " PF + " + (mach.n_tf || 18) + " TF";
-          var extraLbl = (mach.pFusMW && mach.pFusMW > 1.0) ? "Fusion Power <em>P</em><sub>fus</sub>" : "LCFS Contour Δ";
-          var extraVal = (mach.pFusMW && mach.pFusMW > 1.0)
-            ? ((mach.pFusMW * (0.25 + 0.75 * st.progress)).toFixed(1) + " MW")
-            : (st.lcfsErrMm.toFixed(2) + " mm");
-          kvList.innerHTML = [
-            '<div class="tcv-kv-row"><span class="tcv-kv-lbl">Return <em>J</em>(θ)</span><span class="tcv-kv-val" style="color:' + escHtml(st.policy.color) + ';">' + escHtml(jStr) + '</span></div>',
-            '<div class="tcv-kv-row"><span class="tcv-kv-lbl">Plasma Current / <em>B</em><sub>0</sub></span><span class="tcv-kv-val">' + escHtml(mach.ipNominal.toFixed(2)) + ' MA · ' + escHtml(mach.B0.toFixed(2)) + ' T</span></div>',
-            '<div class="tcv-kv-row"><span class="tcv-kv-lbl">Safety Factor <em>q</em><sub>95</sub> / β<sub><em>N</em></sub></span><span class="tcv-kv-val">' + escHtml(qVal) + ' · ' + escHtml((mach.betaN || 1.8).toFixed(2)) + '</span></div>',
-            '<div class="tcv-kv-row"><span class="tcv-kv-lbl">Radii <em>R</em><sub>0</sub>, <em>a</em></span><span class="tcv-kv-val">' + escHtml(mach.R0.toFixed(2)) + ' m, ' + escHtml(mach.a.toFixed(2)) + ' m</span></div>',
-            '<div class="tcv-kv-row"><span class="tcv-kv-lbl">Magnet CAD Coils</span><span class="tcv-kv-val">' + escHtml(nCoils) + '</span></div>',
-            '<div class="tcv-kv-row"><span class="tcv-kv-lbl">' + extraLbl + '</span><span class="tcv-kv-val">' + escHtml(extraVal) + '</span></div>'
-          ].join("");
-        }
+        var jStr = st.score.toFixed(2) + (uiState.seedIdx < 0 ? (" ± " + st.sem.toFixed(2)) : (" (S" + (uiState.seedIdx + 1) + ")"));
+        var qVal = ((mach.q95 || 3.2) * (0.72 + 0.28 * st.progress)).toFixed(2);
+        var nCoils = (mach.coils ? mach.coils.length : 0) + " PF + " + (mach.n_tf || 18) + " TF";
+        var extraLbl = (mach.pFusMW && mach.pFusMW > 1.0) ? "Fusion Power <em>P</em><sub>fus</sub>" : "LCFS Contour Δ";
+        var extraVal = (mach.pFusMW && mach.pFusMW > 1.0)
+          ? ((mach.pFusMW * (0.25 + 0.75 * st.progress)).toFixed(1) + " MW")
+          : (st.lcfsErrMm.toFixed(2) + " mm");
+        kvList.innerHTML = [
+          '<div class="tcv-kv-row"><span class="tcv-kv-lbl">Return <em>J</em>(θ)</span><span class="tcv-kv-val" style="color:' + escHtml(st.policy.color) + ';">' + escHtml(jStr) + '</span></div>',
+          '<div class="tcv-kv-row"><span class="tcv-kv-lbl">Plasma Current / <em>B</em><sub>0</sub></span><span class="tcv-kv-val">' + escHtml(mach.ipNominal.toFixed(2)) + ' MA · ' + escHtml(mach.B0.toFixed(2)) + ' T</span></div>',
+          '<div class="tcv-kv-row"><span class="tcv-kv-lbl">Safety Factor <em>q</em><sub>95</sub> / β<sub><em>N</em></sub></span><span class="tcv-kv-val">' + escHtml(qVal) + ' · ' + escHtml((mach.betaN || 1.8).toFixed(2)) + '</span></div>',
+          '<div class="tcv-kv-row"><span class="tcv-kv-lbl">Radii <em>R</em><sub>0</sub>, <em>a</em></span><span class="tcv-kv-val">' + escHtml(mach.R0.toFixed(2)) + ' m, ' + escHtml(mach.a.toFixed(2)) + ' m</span></div>',
+          '<div class="tcv-kv-row"><span class="tcv-kv-lbl">Magnet CAD Coils</span><span class="tcv-kv-val">' + escHtml(nCoils) + '</span></div>',
+          '<div class="tcv-kv-row"><span class="tcv-kv-lbl">' + extraLbl + '</span><span class="tcv-kv-val">' + escHtml(extraVal) + '</span></div>'
+        ].join("");
       }
 
       if (wpoStrip) {
-        var cLabels = isOcean
-          ? ["Billow / Misfit Energy", "Shear Stabilization", "Isopycnal Smoothness", "Control Effort L₂", "CFL Stability Margin"]
-          : ["LCFS / TEQUILA Shape", "Plasma Current <em>I<sub>p</sub></em>", "PF Coil Margin", "Actuators ∈ [−1, 1]", "Safety Factor <em>q</em><sub>95</sub>"];
+        var cLabels = ["LCFS / TEQUILA Shape", "Plasma Current <em>I<sub>p</sub></em>", "PF Coil Margin", "Actuators ∈ [−1, 1]", "Safety Factor <em>q</em><sub>95</sub>"];
         var stripHtml = [];
         for (var ci = 0; ci < 5; ci++) {
           var pct = (st.comps[ci] * 100.0).toFixed(1) + "%";
@@ -2412,7 +1927,7 @@ let mount_tokamak_cad () =
         ];
         var farPlane = Math.max(80.0, effDist * 3.8);
         var projMat = mat4Perspective(32.0 * Math.PI / 180.0, aspect, 0.2, farPlane);
-        var viewMat = mat4LookAt(eye, [0.0, isOcean ? -0.10 : (mach.Z0 || -0.04) * 0.2, 0.0], [0.0, 1.0, 0.0]);
+        var viewMat = mat4LookAt(eye, [0.0, (mach.Z0 || -0.04) * 0.2, 0.0], [0.0, 1.0, 0.0]);
         var mvp = mat4Mul(projMat, viewMat);
         var model = mat4Identity();
 
@@ -2454,7 +1969,7 @@ let mount_tokamak_cad () =
       renderFigure9Canvas(fig9Canvas, st, mach, uiState);
     }
 
-    // Hydrate real FUSE.jl & Oceananigans.jl 3D CAD environments from assets/baux_env.json
+    // Hydrate real FUSE.jl 3D CAD environments from assets/baux_env.json
     if (typeof window.fetch === "function") {
       window.fetch("assets/baux_env.json")
         .then(function(r) { return r.ok ? r.json() : null; })
@@ -2470,23 +1985,11 @@ let mount_tokamak_cad () =
               }
             }
           }
-          if (data.ocean && data.ocean.environments) {
-            var oe = data.ocean.environments;
-            var oKeys = ["ocean_kh", "ocean_wind"];
-            for (var ok = 0; ok < oKeys.length; ok++) {
-              var okName = oKeys[ok];
-              if (Object.prototype.hasOwnProperty.call(oe, okName) && oe[okName] && oe[okName].b_init) {
-                MACHINES[okName] = oe[okName];
-              }
-            }
-          }
           if (Array.isArray(data.runs)) {
             for (var ri = 0; ri < data.runs.length; ri++) {
               var rec = data.runs[ri];
               if (rec && rec.metrics && typeof rec.metrics.worker_s === "number") {
-                if (rec.task === "oceananigans" && rec.metrics.worker_s > 0.01) {
-                  LIVE_RUNS.oceanWorkerS = rec.metrics.worker_s;
-                } else if (rec.task === "fuse" && rec.metrics.worker_s > 0.01) {
+                if (rec.task === "fuse" && rec.metrics.worker_s > 0.01) {
                   LIVE_RUNS.fuseWorkerS = rec.metrics.worker_s;
                 }
               }
@@ -2505,8 +2008,8 @@ let mount_tokamak_cad () =
       uiState.machine = Object.prototype.hasOwnProperty.call(MACHINES, val) ? val : "tcv";
       var m = Object.prototype.hasOwnProperty.call(MACHINES, uiState.machine) ? MACHINES[uiState.machine] : MACHINES.tcv;
       uiState.dist = m.dist;
-      uiState.yaw = (m.kind === "ocean") ? -1.18 : -Math.PI * 0.5;
-      uiState.pitch = (m.kind === "ocean") ? 0.36 : 0.46;
+      uiState.yaw = -Math.PI * 0.5;
+      uiState.pitch = 0.46;
       meshDirty = true;
       renderAll();
     });
@@ -2562,8 +2065,8 @@ let mount_tokamak_cad () =
 
     resetCamBtn.addEventListener("click", function() {
       var m = Object.prototype.hasOwnProperty.call(MACHINES, uiState.machine) ? MACHINES[uiState.machine] : MACHINES.tcv;
-      uiState.yaw = (m.kind === "ocean") ? -1.18 : -Math.PI * 0.5;
-      uiState.pitch = (m.kind === "ocean") ? 0.36 : 0.46;
+      uiState.yaw = -Math.PI * 0.5;
+      uiState.pitch = 0.46;
       uiState.dist = m.dist;
       renderAll();
     });
@@ -2661,8 +2164,8 @@ let mount_tokamak_cad () =
         if (moved < 10) {
           if (now - lastTapMs < 300) {
             var m = Object.prototype.hasOwnProperty.call(MACHINES, uiState.machine) ? MACHINES[uiState.machine] : MACHINES.tcv;
-            uiState.yaw = (m.kind === "ocean") ? -1.18 : -Math.PI * 0.5;
-            uiState.pitch = (m.kind === "ocean") ? 0.36 : 0.46;
+            uiState.yaw = -Math.PI * 0.5;
+            uiState.pitch = 0.46;
             uiState.dist = m.dist;
             renderAll();
             lastTapMs = 0;

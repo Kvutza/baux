@@ -3,16 +3,23 @@
 //! constant. No covariance matrix or gradient estimate is constructed.
 //!
 //! Non-Euclidean local-scale dissimilarities and certified ANN bounds draw on:
-//! - Poincare (1882); Cannon, Floyd, Kenyon, and Parry (1997), *Hyperbolic
-//!   Geometry*, MSRI Publ. 31; Nickel and Kiela (2017), *Poincare Embeddings
-//!   for Learning Hierarchical Representations*, NeurIPS (`arXiv:1705.08039`);
-//!   local-scale half-space dissimilarity (`arXiv:2305.01356`).
+//! - Classical Poincare upper half-space isometric invariant (Poincare, *Acta
+//!   Math.* 1:1-62, 1882; Beardon, *The Geometry of Discrete Groups*, Springer
+//!   GTM 91, 1983, sec. 7.2, Theorem 7.2.1; Cannon, Floyd, Kenyon, and Parry,
+//!   *Hyperbolic Geometry*, MSRI Publ. 31, 1997; Nickel and Kiela, *Poincare
+//!   Embeddings for Learning Hierarchical Representations*, NeurIPS 2017,
+//!   `arXiv:1705.08039`).
 //! - Zelnik-Manor and Perona (2004), *Self-Tuning Spectral Clustering*, NeurIPS
-//!   17 (conformal local-scale normalization).
-//! - Kantorovich (1942); Villani (2009), *Optimal Transport: Old and New*,
-//!   Springer; Peyre and Cuturi (2019), *Computational Optimal Transport*
-//!   (`arXiv:1803.00567`) (Gaussian/entropic Wasserstein-2 local scale
-//!   transport).
+//!   17, pp. 1601-1608 (conformal local-scale normalization where `scale_a,
+//!   scale_b` are Euclidean `k`-NN radii `sigma_i = sqrt(d_k^2)` so `sq_dist /
+//!   (scale_a * scale_b)` is dimensionless).
+//! - Local-scale transport dissimilarity combining geometric-mean scale-damped
+//!   squared distance `sq_dist / sqrt(scale_a * scale_b)` with 1D radial scale
+//!   transport `(scale_a - scale_b)^2`, motivated by isotropic Gaussian `W_2^2`
+//!   radial transport in Givens and Shortt (*Michigan Math. J.* 31(2):231-240,
+//!   1984) and Gelbrich (*Math. Nachr.* 147:185-203, 1990); dividing `sq_dist`
+//!   by `sqrt(scale_a * scale_b)` makes it a non-metric dissimilarity rather
+//!   than exact `W_2^2` or entropic optimal transport.
 
 /// Resident observation capacity, shared by host state and device scratch.
 pub const MAX_HISTORY: usize = 128;
@@ -48,7 +55,7 @@ pub enum UncertaintyLaw {
         rename_all_fields = "kebab-case"
     )
 )]
-pub enum DistanceMetric {
+pub enum Dissimilarity {
     #[default]
     Euclidean,
     Conformal {
@@ -57,13 +64,15 @@ pub enum DistanceMetric {
     Hyperbolic {
         local_k: usize,
     },
+    #[cfg_attr(not(cabi_parity), deser(alias = "scale-transport"))]
     Wasserstein {
         local_k: usize,
     },
 }
 
-/// Pairwise local-scale dissimilarity geometry alias for [`DistanceMetric`].
-pub type Dissimilarity = DistanceMetric;
+/// Compatibility alias; non-Euclidean variants are symmetric dissimilarities
+/// and do not satisfy the triangle inequality.
+pub type DistanceMetric = Dissimilarity;
 
 /// Append until full, then replace the oldest observation other than the
 /// incumbent. Slots retain their order: Thompson draws follow identities,
@@ -86,6 +95,11 @@ pub fn retention(identities: &[i64], incumbent: i64) -> Result<usize, &'static s
 
 /// Conformal local-scale distance normalization (`sq_dist / (scale_a *
 /// scale_b)`).
+///
+/// Follows Zelnik-Manor and Perona (2004), *Self-Tuning Spectral Clustering*,
+/// NeurIPS 17, pp. 1601-1608, where `scale_a, scale_b` are Euclidean `k`-NN
+/// radii `sigma_i = sqrt(d_k^2)` so `sq_dist / (scale_a * scale_b)` is
+/// dimensionless.
 #[inline(always)]
 pub fn conformal_delta(sq_dist: f64, scale_a: f64, scale_b: f64) -> f64 {
     let a = scale_a.max(1.0e-12);
@@ -103,17 +117,27 @@ pub fn scale_penalty(scale_a: f64, scale_b: f64) -> f64 {
     (diff * diff) / (2.0 * a * b)
 }
 
-/// Upper half-space Poincare dissimilarity (`arXiv:2305.01356`):
-/// `0.5 * conformal_delta(sq_dist, scale_a, scale_b) + scale_penalty(scale_a,
-/// scale_b)`.
+/// Classical Poincare upper half-space isometric invariant:
+/// `(sq_dist + (scale_a - scale_b)^2) / (2 * scale_a * scale_b) = cosh(d_H((x,
+/// scale_a), (y, scale_b))) - 1` (Poincare, *Acta Math.* 1:1-62, 1882; Beardon,
+/// *The Geometry of Discrete Groups*, Springer GTM 91, 1983, sec. 7.2, Theorem
+/// 7.2.1; Cannon, Floyd, Kenyon, and Parry, *Hyperbolic Geometry*, MSRI Publ.
+/// 31, 1997). Computed as `0.5 * conformal_delta(sq_dist, scale_a, scale_b) +
+/// scale_penalty(scale_a, scale_b)`.
 #[inline(always)]
 pub fn halfspace_delta(sq_dist: f64, scale_a: f64, scale_b: f64) -> f64 {
     0.5 * conformal_delta(sq_dist, scale_a, scale_b) + scale_penalty(scale_a, scale_b)
 }
 
-/// Entropic Wasserstein metric on local observation scales.
-/// Combines scale-normalized distance with 1D Wasserstein-2 transport cost
-/// `|scale_a - scale_b|`.
+/// Local-scale transport dissimilarity.
+///
+/// Combines geometric-mean scale-damped squared distance `sq_dist /
+/// sqrt(scale_a * scale_b)` with 1D radial scale transport `(scale_a -
+/// scale_b)^2`. Motivated by isotropic Gaussian `W_2^2` radial transport in
+/// Givens and Shortt (*Michigan Math. J.* 31(2):231-240, 1984) and Gelbrich
+/// (*Math. Nachr.* 147:185-203, 1990). Dividing `sq_dist` by `sqrt(scale_a *
+/// scale_b)` makes it a non-metric dissimilarity rather than exact `W_2^2` or
+/// entropic optimal transport.
 #[inline(always)]
 pub fn wasserstein_delta(sq_dist: f64, scale_a: f64, scale_b: f64) -> f64 {
     let diff = (scale_a - scale_b).abs();

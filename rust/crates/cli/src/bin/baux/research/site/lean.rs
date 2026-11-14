@@ -8,7 +8,7 @@ fn opt_layer(short: &str) -> (&'static str, &'static str) {
         short,
         "VariableMetric" | "SelfInteracting" | "TensorEm" | "KernelBandit"
     ) {
-        ("operator_bo", "Neural Operator BO & Matrix Manifolds")
+        ("operator_bo", "Operator-Perturbed BO & Matrix Manifolds")
     } else if matches!(short, "SpatialSuboptimality" | "Reliability") {
         ("stochastic_tail", "Stochastic Objectives & Tail Bounds")
     } else {
@@ -36,7 +36,7 @@ fn classify_layer(module_name: &str) -> (&'static str, &'static str) {
         };
     }
     if module_name.starts_with("BauxResearch.Forward.") {
-        return ("operator_bo", "Neural Operator BO & Matrix Manifolds");
+        return ("operator_bo", "Operator-Perturbed BO & Matrix Manifolds");
     }
     if module_name.starts_with("BauxResearch.Objective.") {
         return ("stochastic_tail", "Stochastic Objectives & Tail Bounds");

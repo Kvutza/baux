@@ -80,22 +80,34 @@ pub(super) fn load_checkpoint(weights: &CandidateWeights, path: &Path) -> Result
     drop(file);
     let checkpoint = crate::tensor_store::SafeTensors::open(path)?;
     let metadata = checkpoint.metadata();
-    let format = match weights.architecture {
+    let (legacy_format, canonical_format) = match weights.architecture {
         ResidualArchitecture::Legacy
         | ResidualArchitecture::Residual1
-        | ResidualArchitecture::ProjectedBoundary => "baux.fbt-pisa1-rope.v2",
-        ResidualArchitecture::Hc4 => "baux.fbt-pisa1-hc4-rope.v1",
-        ResidualArchitecture::Mhc4 => "baux.fbt-pisa1-mhc4-rope.v1",
-        ResidualArchitecture::HnetMhc4 => "baux.fbt-pisa1-hnet-bytes-rope.v2",
-        ResidualArchitecture::LoopedMhc4 => "baux.fbt-pisa1-looped-mhc4-rope.v1",
-        ResidualArchitecture::DiffusionMhc4 => "baux.fbt-pisa1-diffusion-mhc4-rope.v1",
+        | ResidualArchitecture::ProjectedBoundary => {
+            ("baux.fbt-pisa1-rope.v2", "baux.pisa-rope.v2")
+        }
+        ResidualArchitecture::Hc4 => ("baux.fbt-pisa1-hc4-rope.v1", "baux.pisa-hc4-rope.v1"),
+        ResidualArchitecture::Mhc4 => ("baux.fbt-pisa1-mhc4-rope.v1", "baux.pisa-mhc4-rope.v1"),
+        ResidualArchitecture::HnetMhc4 => (
+            "baux.fbt-pisa1-hnet-bytes-rope.v2",
+            "baux.pisa-hnet-bytes-rope.v2",
+        ),
+        ResidualArchitecture::LoopedMhc4 => (
+            "baux.fbt-pisa1-looped-mhc4-rope.v1",
+            "baux.pisa-looped-mhc4-rope.v1",
+        ),
+        ResidualArchitecture::DiffusionMhc4 => (
+            "baux.fbt-pisa1-diffusion-mhc4-rope.v1",
+            "baux.pisa-diffusion-mhc4-rope.v1",
+        ),
     };
-    if metadata.get("format").map(String::as_str) != Some(format)
+    let meta_format = metadata.get("format").map(String::as_str);
+    if (meta_format != Some(legacy_format) && meta_format != Some(canonical_format))
         || metadata.get("position_encoding").map(String::as_str) != Some("rope")
         || metadata.get("rope_base").map(String::as_str) != Some("10000")
         || metadata.get("rope_dimensions").map(String::as_str) != Some("64")
     {
-        return Err("checkpoint architecture is not BAUX PISA-1 RoPE v2".into());
+        return Err("checkpoint architecture is not BAUX PISA RoPE".into());
     }
     let layout = checkpoint_layout(weights.architecture);
     for (((name, buffer, _), (expected_name, expected_shape)), index) in
@@ -163,12 +175,12 @@ pub(super) fn save_checkpoint(
     let format = match architecture {
         ResidualArchitecture::Legacy
         | ResidualArchitecture::Residual1
-        | ResidualArchitecture::ProjectedBoundary => "baux.fbt-pisa1-rope.v2",
-        ResidualArchitecture::Hc4 => "baux.fbt-pisa1-hc4-rope.v1",
-        ResidualArchitecture::Mhc4 => "baux.fbt-pisa1-mhc4-rope.v1",
-        ResidualArchitecture::HnetMhc4 => "baux.fbt-pisa1-hnet-bytes-rope.v2",
-        ResidualArchitecture::LoopedMhc4 => "baux.fbt-pisa1-looped-mhc4-rope.v1",
-        ResidualArchitecture::DiffusionMhc4 => "baux.fbt-pisa1-diffusion-mhc4-rope.v1",
+        | ResidualArchitecture::ProjectedBoundary => "baux.pisa-rope.v2",
+        ResidualArchitecture::Hc4 => "baux.pisa-hc4-rope.v1",
+        ResidualArchitecture::Mhc4 => "baux.pisa-mhc4-rope.v1",
+        ResidualArchitecture::HnetMhc4 => "baux.pisa-hnet-bytes-rope.v2",
+        ResidualArchitecture::LoopedMhc4 => "baux.pisa-looped-mhc4-rope.v1",
+        ResidualArchitecture::DiffusionMhc4 => "baux.pisa-diffusion-mhc4-rope.v1",
     };
     crate::tensor_store::write_safetensors(
         path,

@@ -1,6 +1,6 @@
 use super::*;
 
-fn state(pool: ProceduralPool, perturbation: ProposalKernel) -> SearchState {
+fn state(pool: ProceduralPool, perturbation: ProposalDistribution) -> SearchState {
     let base = vec![0x3400; TILE_ELEMENTS + 17];
     let block = ParamBlock::new(71, 0, base.len(), 0.25, 1.0).unwrap();
     let mut state = SearchState::new_implicit(
@@ -31,7 +31,7 @@ fn state(pool: ProceduralPool, perturbation: ProposalKernel) -> SearchState {
     state
 }
 
-fn check_layout(pool: ProceduralPool, perturbation: ProposalKernel) {
+fn check_layout(pool: ProceduralPool, perturbation: ProposalDistribution) {
     let mut search = state(pool, perturbation);
     let mut elapsed = Vec::new();
     for round in 0..8 {
@@ -80,7 +80,10 @@ fn resident_layouts() {
             }
             .resolve_resident()
             .unwrap();
-            for perturbation in [ProposalKernel::Rademacher, ProposalKernel::Gaussian] {
+            for perturbation in [
+                ProposalDistribution::Rademacher,
+                ProposalDistribution::Gaussian,
+            ] {
                 check_layout(pool, perturbation);
             }
         }
@@ -96,7 +99,7 @@ fn single_pass() {
         }
         .resolve_resident()
         .unwrap();
-        let mut search = state(pool, ProposalKernel::Gaussian);
+        let mut search = state(pool, ProposalDistribution::Gaussian);
         search.set_profiling(true);
         let root = crate::hash::splitmix64(99);
         let expected = search.test_candidate(root, 0).unwrap();

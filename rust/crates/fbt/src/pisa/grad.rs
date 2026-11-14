@@ -1,8 +1,8 @@
 use crate::apple_gpu::thread_group;
-use crate::fbt_pisa1::{BATCH, HEAD_DIM, Pisa1, QUERY_HEADS, QUERY_WIDTH};
+use crate::fbt_pisa::{BATCH, HEAD_DIM, Pisa, QUERY_HEADS, QUERY_WIDTH};
 use metal::{BufferRef, ComputeCommandEncoderRef};
 
-impl Pisa1 {
+impl Pisa {
     /// Differentiate selected attention entries in a packed [Q, K, V] prefix.
     /// Both the half primal and float adjoint use 640 elements per row; this
     /// method owns their different byte offsets into the shared storage.
@@ -65,7 +65,7 @@ fn packed_adjoint() -> Result<(), String> {
     metal::objc::rc::autoreleasepool(|| {
         use crate::apple_gpu::{Runtime, buffer_slice, slice_mut};
         let runtime = Runtime::shared()?;
-        let pisa = Pisa1::with_context(&runtime, 4096)?;
+        let pisa = Pisa::with_context(&runtime, 4096)?;
         let blocks = slice_mut::<u32>(&pisa.blocks, 16)?;
         blocks.fill(u32::MAX);
         blocks[0] = 0;

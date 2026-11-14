@@ -6,7 +6,7 @@ pub(super) fn profile_scorer(
     runtime: &Runtime,
     pipelines: &Pipelines,
     tensorops: &TensorOpsPipelines,
-    pisa1: &Pisa1,
+    pisa1: &Pisa,
     buffers: &Buffers,
     weights: CandidateRow<'_>,
     samples: u32,
@@ -84,7 +84,7 @@ pub(super) fn benchmark_model(
     runtime: &Runtime,
     pipelines: &Pipelines,
     tensorops: &TensorOpsPipelines,
-    pisa1: &Pisa1,
+    pisa1: &Pisa,
     buffers: &Buffers,
     rounds: u32,
 ) -> Result<(f64, f64, f64, f64), String> {
@@ -230,7 +230,7 @@ pub(super) fn benchmark_stages(
     runtime: &Runtime,
     pipelines: &Pipelines,
     tensorops: &TensorOpsPipelines,
-    pisa1: &Pisa1,
+    pisa1: &Pisa,
     buffers: &Buffers,
 ) -> Result<[f64; 4], String> {
     let mut samples = [

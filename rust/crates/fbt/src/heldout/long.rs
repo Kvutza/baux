@@ -4,7 +4,10 @@
 //! single-candidate proposal pipeline. In each round:
 //! 1. A candidate row is proposed by the optimizer search state
 //!    (`search.propose`).
-//! 2. A corpus batch window is selected from the pretraining dataset.
+//! 2. Candidate states are evaluated on the fixed initial corpus window
+//!    (`training_schedule = "repeated-initial-window"`, matching
+//!    `heldout/matrix.rs`), while held-out generalization is measured
+//!    separately on `validation` (`"mixture-weighted-causal-likelihood"`).
 //! 3. The candidate model is evaluated on this window (`score_batch`),
 //!    obtaining the negative NLL (in nats/token), variance, codelength (in
 //!    bits), and bits_per_token.
@@ -215,23 +218,23 @@ fn init_surrogate(
         ctrl_info.failure_tolerance.max(1) as usize,
     )?;
     let distance_metric = match policy.distance_metric {
-        crate::config::DistanceMetric::Conformal => {
-            baux::semantics::neighbor::DistanceMetric::Conformal {
+        crate::config::Dissimilarity::Conformal => {
+            baux::semantics::neighbor::Dissimilarity::Conformal {
                 local_k: policy.local_scale_neighbors.max(1),
             }
         }
-        crate::config::DistanceMetric::Hyperbolic => {
-            baux::semantics::neighbor::DistanceMetric::Hyperbolic {
+        crate::config::Dissimilarity::Hyperbolic => {
+            baux::semantics::neighbor::Dissimilarity::Hyperbolic {
                 local_k: policy.local_scale_neighbors.max(1),
             }
         }
-        crate::config::DistanceMetric::Wasserstein => {
-            baux::semantics::neighbor::DistanceMetric::Wasserstein {
+        crate::config::Dissimilarity::Wasserstein => {
+            baux::semantics::neighbor::Dissimilarity::Wasserstein {
                 local_k: policy.local_scale_neighbors.max(1),
             }
         }
-        crate::config::DistanceMetric::Euclidean => {
-            baux::semantics::neighbor::DistanceMetric::Euclidean
+        crate::config::Dissimilarity::Euclidean => {
+            baux::semantics::neighbor::Dissimilarity::Euclidean
         }
     };
     let surrogate = baux::semantics::optimizer::Surrogate::with_spec(
@@ -252,7 +255,7 @@ fn build_search(
         .trust_region_shape
         .unwrap_or(crate::config::TrustRegionShape::TensorFamilyStatic);
     let (mut search, updates) =
-        weights.search_shaped(run.proposal_kernel(), run.length(), shape)?;
+        weights.search_shaped(run.proposal_distribution(), run.length(), shape)?;
     let policy = run.resident_enn(run.acquisition_seed())?;
     search.configure_enn(policy)?;
     search.set_profiling(run.trace());
@@ -307,7 +310,7 @@ fn setup_state(
     let weights = CandidateWeights::initialized(
         &runtime,
         run.model_seed(),
-        crate::config::ModelInitialization::FbtPisa1Mhc4,
+        crate::config::ModelInitialization::PisaMhc4,
         architecture,
     )?;
     let (mut search, updates, policy) = build_search(run, &weights)?;
@@ -392,32 +395,36 @@ impl LongState {
             .checked_add(u64::from(step))
             .ok_or("proposal seed overflow")?;
         let ask_start = Instant::now();
-        let acq_seed = run.acquisition_seed().wrapping_add(u64::from(step));
-        let rule = match run.acquisition.unwrap_or_default() {
-            crate::config::AcquisitionConfig::Thompson => {
-                baux::semantics::optimizer::AcquisitionRule::Thompson { seed: acq_seed }
-            }
-            crate::config::AcquisitionConfig::UCB { beta } => {
-                baux::semantics::optimizer::AcquisitionRule::Ucb { beta: beta as f32 }
-            }
-            crate::config::AcquisitionConfig::Pareto => {
-                baux::semantics::optimizer::AcquisitionRule::Pareto { seed: acq_seed }
-            }
-            crate::config::AcquisitionConfig::Random => {
-                baux::semantics::optimizer::AcquisitionRule::Ucb { beta: 0.0 }
-            }
-        };
         let geometry = self.search.sample_distances(prop_seed)?;
-        let random_sel = run.selection == Some(crate::config::PretrainSelection::Random)
-            || matches!(
-                run.acquisition,
-                Some(crate::config::AcquisitionConfig::Random)
-            );
-        let forced_slot = random_sel
-            .then(|| (baux::semantics::random::splitmix64(prop_seed) as usize) % geometry.len());
-        let selection = self
-            .surrogate
-            .select_pool(&geometry, step, rule, forced_slot)?;
+        let selection = if geometry.len() == 1 {
+            self.surrogate.evaluate_singleton(&geometry[0])?
+        } else {
+            let acq_seed = run.acquisition_seed().wrapping_add(u64::from(step));
+            let rule = match run.acquisition.unwrap_or_default() {
+                crate::config::AcquisitionConfig::Thompson => {
+                    baux::semantics::optimizer::AcquisitionRule::Thompson { seed: acq_seed }
+                }
+                crate::config::AcquisitionConfig::UCB { beta } => {
+                    baux::semantics::optimizer::AcquisitionRule::Ucb { beta: beta as f32 }
+                }
+                crate::config::AcquisitionConfig::Pareto => {
+                    baux::semantics::optimizer::AcquisitionRule::Pareto { seed: acq_seed }
+                }
+                crate::config::AcquisitionConfig::Random => {
+                    baux::semantics::optimizer::AcquisitionRule::Ucb { beta: 0.0 }
+                }
+            };
+            let random_sel = run.selection == Some(crate::config::PretrainSelection::Random)
+                || matches!(
+                    run.acquisition,
+                    Some(crate::config::AcquisitionConfig::Random)
+                );
+            let forced_slot = random_sel.then(|| {
+                (baux::semantics::random::splitmix64(prop_seed) as usize) % geometry.len()
+            });
+            self.surrogate
+                .select_pool(&geometry, step, rule, forced_slot)?
+        };
         let (row, proposal) = self.search.materialize_selection(prop_seed, &selection)?;
         Ok(RoundProposal {
             geometry,
@@ -572,6 +579,7 @@ impl LongState {
             "corpus_offset": batch.batch.offset,
             "window_tokens": self.window_tokens,
             "objective": "fixed-corpus-causal-likelihood",
+            "training_schedule": "repeated-initial-window",
             "candidate_gpu_ms": candidate.gpu_seconds * 1000.0,
             "base_gpu_ms": 0.0,
             "round_gpu_ms": candidate.gpu_seconds * 1000.0,

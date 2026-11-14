@@ -7,7 +7,7 @@ pub(crate) fn replay_site(
     command: &CommandBufferRef,
     pipelines: &Pipelines,
     tensorops: &TensorOpsPipelines,
-    pisa: &Pisa1,
+    pisa: &Pisa,
     buffers: &Buffers,
     weights: CandidateRow<'_>,
     rows: u32,

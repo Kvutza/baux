@@ -11,7 +11,7 @@ use super::*;
 fn validate_decision(
     decision: &Decision,
     pool_count: u32,
-    perturbation: ProposalKernel,
+    perturbation: ProposalDistribution,
 ) -> Result<(), String> {
     if decision.valid == 0
         || decision.index >= pool_count

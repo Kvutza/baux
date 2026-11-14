@@ -92,8 +92,8 @@ fn certificate(
     let model = config
         .model
         .ok_or("performance certificate requires a model")?;
-    if model.id() != "fbt-pisa1-mhc4-v1" {
-        return Err("performance certificate currently covers fbt-pisa1-mhc4-v1".into());
+    if model.id() != "pisa-mhc4-v1" && model.id() != "fbt-pisa1-mhc4-v1" {
+        return Err("performance certificate currently covers pisa-mhc4-v1".into());
     }
     let (mode, prompt, generated, retained, input_positions) = workload_spec(&config)?;
     let core_positions = input_positions.div_ceil(MHC4_PATCH);

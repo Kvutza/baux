@@ -34,7 +34,7 @@ impl ModelProgram {
         let qkv = vec![Extent::Symbol("tokens"), Extent::Fixed(640)];
         let routed = vec![Extent::Symbol("routed_rows"), Extent::Fixed(256)];
         Self {
-            name: "fbt-pisa1",
+            name: "fbt-pisa",
             version: Self::VERSION,
             tensors: vec![
                 tensor(
@@ -501,7 +501,7 @@ impl ModelProgram {
         }
     }
 
-    /// Executed `MHC4_PATCH = 1` mHC-4 program (`fbt-pisa1-mhc4-v1`).
+    /// Executed `MHC4_PATCH = 1` mHC-4 program (`pisa-mhc4-v1`).
     ///
     /// Tokens are embedded directly (`rows = tokens` without 64-token patch
     /// compression) via `fbt_moe_embed` + `fbt_mhc_replicate`, processed by the
@@ -515,7 +515,7 @@ impl ModelProgram {
         use SemanticOp as Op;
 
         let mut program = Self::fbt_pisa();
-        program.name = "fbt-pisa1-mhc4-v1";
+        program.name = "pisa-mhc4-v1";
         let sequence = vec![Extent::Symbol("tokens")];
         let hidden = vec![
             Extent::Symbol("tokens"),

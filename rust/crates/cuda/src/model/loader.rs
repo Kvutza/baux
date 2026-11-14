@@ -46,9 +46,12 @@ impl Checkpoint {
         )
         .map_err(cuda_error)?;
         let format = match metadata.get("format").map(String::as_str) {
-            Some("baux.fbt-pisa1-looped-mhc4-rope.v1") => "looped-mhc4",
-            Some("baux.fbt-pisa1-diffusion-mhc4-rope.v1") => "diffusion-mhc4",
-            Some("baux.fbt-pisa1-mhc4-rope.v1") => "mhc4",
+            Some("baux.pisa-looped-mhc4-rope.v1") | Some("baux.fbt-pisa1-looped-mhc4-rope.v1") => {
+                "looped-mhc4"
+            }
+            Some("baux.pisa-diffusion-mhc4-rope.v1")
+            | Some("baux.fbt-pisa1-diffusion-mhc4-rope.v1") => "diffusion-mhc4",
+            Some("baux.pisa-mhc4-rope.v1") | Some("baux.fbt-pisa1-mhc4-rope.v1") => "mhc4",
             _ => {
                 return Err("checkpoint must be a looped, diffusion, or mHC-4 RoPE model".into());
             }

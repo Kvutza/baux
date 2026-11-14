@@ -1,4 +1,10 @@
 //! Scratch buffers and two-stage compression telemetry for 2-stage 512-d H-Net.
+//!
+//! # External Architecture Attribution
+//! Note: H-Net dynamic chunking is an external prior-art architecture used as a
+//! sequence-modeling testbed, not a BAUX paper contribution:
+//! - Sukjun Hwang, Brandon Wang, and Albert Gu, *"Dynamic Chunking for
+//!   End-to-End Hierarchical Sequence Modeling"*, `arXiv:2507.07955` (2025).
 
 use super::*;
 use crate::apple_gpu::{buffer_slice, slice_mut};

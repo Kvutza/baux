@@ -2,14 +2,17 @@
 //! doubly stochastic Sinkhorn-Knopp residual transport onto the Birkhoff
 //! polytope.
 //!
-//! # Academic & Open-Source Attribution
-//! - **mHC Paper**: DeepSeek-AI, *"mHC: Manifold-Constrained
+//! # External Prior-Art Attribution
+//! Note: Manifold-Constrained Hyper-Connections (mHC-4) is an external
+//! prior-art architecture used as a sequence-modeling testbed, not a novel BAUX
+//! paper contribution:
+//! - **mHC Paper**: Xie et al. (DeepSeek-AI), *"mHC: Manifold-Constrained
 //!   Hyper-Connections"*, arXiv:2512.24880 (2025).
-//! - **Hyper-Connections Paper**: Defazio / Dongsheng Zhu et al.,
-//!   *"Hyper-Connections"*, ICLR 2025, arXiv:2409.19606.
-//! - **Sinkhorn-Knopp Theorem**: Richard Sinkhorn and Paul Knopp, *"Concerning
-//!   nonnegative matrices and doubly stochastic matrices"*, Pacific Journal of
-//!   Mathematics 21(2), 343–348 (1967).
+//! - **Hyper-Connections Paper**: Defa Zhu et al., *"Hyper-Connections"*, ICLR
+//!   2025, arXiv:2409.19606.
+//! - **Sinkhorn-Knopp Theorem**: Richard Sinkhorn (1964; Richard Sinkhorn and
+//!   Paul Knopp, *"Concerning nonnegative matrices and doubly stochastic
+//!   matrices"*, Pacific Journal of Mathematics 21(2), 343–348, 1967).
 //! - **Upstream Open-Source Implementations**:
 //!   - <https://github.com/tokenbender/mHC-manifold-constrained-hyper-connections>
 //!     (`hyper_connections/hyper_connections_mhc.py`, commit

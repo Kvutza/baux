@@ -1,3 +1,16 @@
+//! Manifold-Constrained Hyper-Connections (`mHC-4`) decoding sublayer.
+//!
+//! # External Prior-Art Attribution
+//! The manifold-constrained hyper-connection architecture and doubly-stochastic
+//! residual stream transport represent external prior art used as a
+//! sequence-modeling testbed, not a BAUX paper contribution:
+//! - Xie et al. (DeepSeek-AI), *"mHC: Manifold-Constrained Hyper-Connections"*,
+//!   `arXiv:2512.24880` (2025).
+//! - Defa Zhu et al., *"Hyper-Connections"*, ICLR 2025, `arXiv:2409.19606`.
+//! - Richard Sinkhorn, *"A relationship between arbitrary positive matrices and
+//!   doubly stochastic matrices"*, Ann. Math. Statist. 35(2), 876–879 (1964);
+//!   Richard Sinkhorn and Paul Knopp, Pacific J. Math. 21(2), 343–348 (1967).
+
 use super::*;
 use crate::nn::Rows;
 use crate::nn::hyper::{Hyper, Kernels, Prepared, Site, State};

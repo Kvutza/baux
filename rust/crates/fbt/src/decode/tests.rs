@@ -778,7 +778,7 @@ fn check_pisa(context: u32) -> Result<(), String> {
         let source = format!(
             "#define PISA_CONTEXT {context}\n#define PISA_QUERY_TILE 1\n#define \
              PISA_SKIP_IDENTITY_RESCALE\n{}",
-            include_str!("../pisa1.metal")
+            include_str!("../pisa.metal")
         );
         let pipeline = |name| runtime.metal4_pipeline(&source, "prefix oracle", name, &[]);
         let leaf = pipeline("fbt_pisa1_leaf_means")?;

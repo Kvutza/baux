@@ -41,8 +41,8 @@ pub use portfolio::{
 pub use provenance::{ChainedObservation, PairedImprovement, WorldId, WorldMismatchError};
 #[cfg(not(feature = "cuda-device"))]
 pub use surrogate::{
-    AcquisitionRule, DistanceMetric, FitState, NeighborValueEstimator, PoolSelection, Surrogate,
-    SurrogateSpec, UncertaintyLaw, ValuePrediction,
+    AcquisitionRule, Dissimilarity, DistanceMetric, FitState, NeighborValueEstimator,
+    PoolSelection, Surrogate, SurrogateSpec, UncertaintyLaw, ValuePrediction,
 };
 #[cfg(not(feature = "cuda-device"))]
 pub use transaction::{AskPlan, EvalReceipt, Evaluated, RoundId, TellDecision};

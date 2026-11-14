@@ -1,15 +1,17 @@
 //! Independent policy choices for regional search.
 //!
 //! Eriksson et al., "Scalable Global Optimization via Local Bayesian
-//! Optimization," NeurIPS 2019, motivate multiple local models with global
-//! sample allocation: https://proceedings.neurips.cc/paper_files/paper/2019/hash/6c990b7aca7bc7058f5e98ea909e924b-Abstract.html.
+//! Optimization", NeurIPS 2019 (`arXiv:1910.01739`), motivate multiple local
+//! models with global sample allocation.
 //! MTRBO's region roles motivate making numerical method and acquisition
-//! choices explicit (Das et al., 2026, https://arxiv.org/abs/2605.06618).
+//! choices explicit (Sourav Das, Debjani Chakraborty, and Pabitra Mitra, 2026,
+//! `arXiv:2605.06618`).
 //! The concrete variants below are BAUX rules; they are not claimed to be the
 //! cited papers' algorithms.
-//! APOSMM's start separation is a related software reference:
-//! https://github.com/Libensemble/libensemble/blob/2f79ba6943083ff71875272d6f3f9b5222acd273/libensemble/gen_funcs/persistent_aposmm.py.
-//! Candidate maximin below is not APOSMM's full start-eligibility rule.
+//! APOSMM's start separation is a related algorithmic reference:
+//! Jeffrey Larson and Stefan M. Wild, "Asynchronously parallel optimization
+//! solver for finding multiple minima", Math. Program. Comput. 10(1):99-132
+//! (2018). Candidate maximin below is not APOSMM's full start-eligibility rule.
 
 pub use baux::semantics::optimizer::portfolio::{
     AllocationPolicy, RegionController, RestartCenterPolicy, RestartCenterSelection,

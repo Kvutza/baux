@@ -208,7 +208,7 @@ mod tests {
 
     const BASE: &str = "version=4\n\
         experiment='pretrain'\n\
-        model='fbt-pisa1-mhc4-v1'\n\
+        model='pisa-mhc4-v1'\n\
         recipe='stack-v3-rust-go-v1'\n\
         objective='cross-entropy'\n\
         [optimizer]\n\

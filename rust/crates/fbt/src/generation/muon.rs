@@ -1,3 +1,15 @@
+//! Matrix-valued optimizer (Muon) training runner and Newton-Schulz
+//! orthogonalization.
+//!
+//! # External Prior-Art Attribution
+//! The Muon optimizer and polar decomposition spectral updates represent
+//! external prior art:
+//! - Keller Jordan et al., *"Muon: An optimizer for hidden layers in neural
+//!   networks"*, `KellerJordan/Muon` (2024).
+//! - Noah Amsel, Alice Persson, Cameron Musco, and Robert M. Gower, *"The Polar
+//!   Express: Efficient Matrix Sign Iterations with Applications to Muon"*,
+//!   `arXiv:2505.16932` (2025).
+
 use super::generation::*;
 
 #[allow(clippy::too_many_arguments)]
@@ -72,7 +84,7 @@ impl<'a> Session<'a> {
         verify_policy(config)?;
         let architecture = model_arch(run)?;
         if architecture != ResidualArchitecture::Mhc4 {
-            return Err("Matrix optimizer training currently requires fbt-pisa1-mhc4-v1".into());
+            return Err("Matrix optimizer training currently requires pisa-mhc4-v1".into());
         }
         let resources = prepare_resources(
             config,

@@ -59,7 +59,7 @@ impl BasePolicyManifest {
 
     pub fn validate(&self) -> Result<(), String> {
         if self.schema != POLICY_SCHEMA
-            || self.model != "fbt-pisa1-legacy-v1"
+            || (self.model != "fbt-pisa-legacy-v1" && self.model != "fbt-pisa1-legacy-v1")
             || self.objective != "causal_next_token"
         {
             return Err("base-policy schema, model, or training objective is unsupported".into());
@@ -128,7 +128,7 @@ mod tests {
     fn manifest(checkpoint: &[u8]) -> BasePolicyManifest {
         BasePolicyManifest {
             schema: POLICY_SCHEMA.into(),
-            model: "fbt-pisa1-legacy-v1".into(),
+            model: "fbt-pisa-legacy-v1".into(),
             checkpoint_sha256: format!("{:x}", Sha256::digest(checkpoint)),
             checkpoint_bytes: checkpoint.len() as u64,
             tokenizer_sha256: "1".repeat(64),
@@ -148,6 +148,17 @@ mod tests {
                 test_split_used_for_selection: false,
             },
         }
+    }
+
+    #[test]
+    fn model_compatibility() {
+        let mut record = manifest(b"checkpoint");
+        assert_eq!(record.model, "fbt-pisa-legacy-v1");
+        assert!(record.validate().is_ok());
+        record.model = "fbt-pisa1-legacy-v1".into();
+        assert!(record.validate().is_ok());
+        record.model = "unknown-model".into();
+        assert!(record.validate().is_err());
     }
 
     #[test]

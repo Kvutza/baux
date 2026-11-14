@@ -1,6 +1,6 @@
 use super::*;
 
-impl Pisa1 {
+impl Pisa {
     pub(crate) fn pyramid_range(
         &self,
         encoder: &ComputeCommandEncoderRef,

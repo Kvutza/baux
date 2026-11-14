@@ -101,8 +101,9 @@ def parameterSlots (shape : Shape) : ℕ :=
 theorem Current.slots : parameterSlots current = 265656600 := by
   decide
 
-/-- Native `fbt-pisa1-mhc4-v1` token-level parameter slot count after removing
-the legacy `(patch + 1) * width` patch-position and mask embedding rows. -/
+/-- Native `pisa-mhc4-v1` token-level parameter slot count after removing
+the legacy `(patch + 1) * width` patch-position and mask embedding rows
+(Xie et al., arXiv:2512.24880; Tang et al., arXiv:2609.31093). -/
 def nativeSlots (shape : Shape) : ℕ :=
   let mix := (shape.streams * shape.width) * (shape.streams^2 + 2 * shape.streams) +
     shape.streams^2 + 2 * shape.streams + 4 + shape.width

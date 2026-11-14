@@ -4,7 +4,7 @@
 \meta{external}{https://github.com/Kvutza/baux}
 
 \p{
-  \strong{baux} is a black box optimization library for expensive or noisy functions #{f(x)} evaluated over small sample budgets, from low-dimensional design parameters up to #{10^5}-weight control policies. At each query #{x}, Epistemic Nearest Neighbors (Bafna, Jadhav, & Sweet [[BJS25]](https://arxiv.org/abs/2506.12818); [yubo-research/enn](https://github.com/yubo-research/enn)) predicts value and uncertainty from the #{K} closest evaluated points weighted by inverse variance, avoiding global #{N \times N} covariance matrix inversion as observations accumulate.
+  \strong{baux} is a black box optimization library for expensive or noisy functions #{f(x)} evaluated over small sample budgets, from low-dimensional design parameters up to #{10^5}-weight control policies. At each query #{x}, Epistemic Nearest Neighbors (Bafna, Jadhav, & Sweet [[BJS26]](https://proceedings.mlr.press/v306/bafna26a.html), ICML 2026; [yubo-research/enn](https://github.com/yubo-research/enn)) predicts value and uncertainty from the #{K} closest evaluated points weighted by inverse variance, avoiding global #{N \times N} covariance matrix inversion as observations accumulate.
 }
 
 \p{
@@ -51,7 +51,7 @@ assert state.best_x.shape == (6,) and state.best_y > -0.25
   }
 
   \p{
-    Over a #{10{,}000}-round horizon in \code{TORAX 2.0.0} (Citrin et al. [[Cit+24]](https://arxiv.org/abs/2406.06718)), a #{93 \to 256 \to 256 \to 256 \to 19} policy (#{D = 160{,}531} weights) couples four 1D radial transport PDEs with Miller local-equilibrium shaping (Miller et al. [[Mil+98]](https://doi.org/10.1063/1.872666)). Running surrogate-free \code{TuRBO-zero} (#{R = 10}, #{n = 10} paired seeds) to compare cross-region incumbent sharing rules directly, circumscribing-ball adoption (\code{ellipsoid_ball}) reaches \code{91.57 ± 0.55} and independent regions (\code{origin_only}) reach \code{89.41 ± 0.97} (paired difference \code{+2.16 ± 0.91}; two-sided paired #{t_9} #{p = 0.0410} unadjusted, #{p_{\mathrm{Holm}} = 0.246} across six checkpoints; PPO reaches \code{44.25}). Exported 3D tokamak equilibria from \code{FUSE.jl} (Meneghini et al. [[Men+24]](https://arxiv.org/abs/2409.05894)), 3D stratified fluid fields from \code{Oceananigans.jl} (Ramadhan et al. [[Ram+20]](https://doi.org/10.21105/joss.02018)), and rollout trajectories can be inspected in [Simulation](simulation.html).
+    Over a #{10{,}000}-round horizon in \code{TORAX 2.0.0} (Citrin et al. [[Cit+24]](https://arxiv.org/abs/2406.06718)), a #{93 \to 256 \to 256 \to 256 \to 19} policy (#{D = 160{,}531} weights) couples four 1D radial transport PDEs with Miller local-equilibrium shaping (Miller et al. [[Mil+98]](https://doi.org/10.1063/1.872666)). Running surrogate-free \code{TuRBO-zero} (#{R = 10}, #{n = 10} paired seeds) to compare cross-region incumbent sharing rules directly, circumscribing-ball adoption (\code{ellipsoid_ball}) reaches \code{91.57 ± 0.55} and independent regions (\code{origin_only}) reach \code{89.41 ± 0.97} (paired difference \code{+2.16 ± 0.91}; two-sided paired #{t_9} #{p = 0.0410} unadjusted, #{p_{\mathrm{Holm}} = 0.246} across six checkpoints; PPO reaches \code{44.25}). Exported 3D tokamak equilibria from \code{FUSE.jl} (Meneghini et al. [[Men+24]](https://arxiv.org/abs/2409.05894)) and closed-loop rollout trajectories can be inspected in [Simulation](simulation.html).
   }
 
   \<table>{

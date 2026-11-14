@@ -3,7 +3,7 @@
 use deser::{Deserialize, Serialize};
 
 use crate::candidates::CandidateSampler;
-use crate::proposal_kernel::CoordSystem;
+use crate::proposal_distribution::CoordSystem;
 use crate::surrogate::ENNSurrogateConfig;
 use crate::trust_region::TrustRegionConfig;
 

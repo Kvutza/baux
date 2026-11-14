@@ -38,7 +38,7 @@ pub fn run_backend(
         let weights = CandidateWeights::initialized(
             &runtime,
             case::SEED,
-            crate::config::ModelInitialization::FbtPisa1Mhc4,
+            crate::config::ModelInitialization::PisaMhc4,
             architecture,
         )?;
         let packed = runtime.buffer::<u16>(MHC_FULLPARAMS);
@@ -169,7 +169,7 @@ fn initialized_forward() -> Result<(), String> {
         let weights = CandidateWeights::initialized(
             &runtime,
             case::SEED,
-            crate::config::ModelInitialization::FbtPisa1Mhc4,
+            crate::config::ModelInitialization::PisaMhc4,
             architecture,
         )?;
         let mut hashes = Vec::new();

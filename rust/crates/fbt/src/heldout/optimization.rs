@@ -5,7 +5,7 @@ pub(super) fn benchmark_bo(
     runtime: &Runtime,
     pipelines: &Pipelines,
     tensorops: &TensorOpsPipelines,
-    pisa1: &Pisa1,
+    pisa1: &Pisa,
     buffers: &Buffers,
     weights: &CandidateWeights,
     rounds: u32,
@@ -28,7 +28,7 @@ pub(super) fn benchmark_bo(
         Some((
             runtime.device.new_command_queue(),
             Buffers::new(runtime),
-            Pisa1::for_trial(runtime, control.kernel_trial)?,
+            Pisa::for_trial(runtime, control.kernel_trial)?,
         ))
     } else {
         None
@@ -181,7 +181,7 @@ fn initial_objective(
     runtime: &Runtime,
     pipelines: &Pipelines,
     tensorops: &TensorOpsPipelines,
-    pisa1: &Pisa1,
+    pisa1: &Pisa,
     buffers: &Buffers,
     initial_weights: CandidateRow<'_>,
     search: &mut SearchState,

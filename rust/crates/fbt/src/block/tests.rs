@@ -545,7 +545,7 @@ fn hnet_parity() -> Result<(), String> {
         let model = CandidateWeights::initialized(
             &runtime,
             17,
-            crate::config::ModelInitialization::FbtPisa1Mhc4,
+            crate::config::ModelInitialization::PisaMhc4,
             arch,
         )?;
         let d = WIDTH as usize;
@@ -619,7 +619,7 @@ fn hnet_continuity() -> Result<(), String> {
         let model = CandidateWeights::initialized(
             &runtime,
             17,
-            crate::config::ModelInitialization::FbtPisa1Mhc4,
+            crate::config::ModelInitialization::PisaMhc4,
             arch,
         )?;
         let flat = model.flatten(&runtime)?;
@@ -762,7 +762,7 @@ fn hnet_causality() -> Result<(), String> {
         let model = CandidateWeights::initialized(
             &runtime,
             17,
-            crate::config::ModelInitialization::FbtPisa1Mhc4,
+            crate::config::ModelInitialization::PisaMhc4,
             arch,
         )?;
         let flat = model.flatten(&runtime)?;
@@ -811,7 +811,7 @@ fn hnet_interior() -> Result<(), String> {
         let model = CandidateWeights::initialized(
             &runtime,
             17,
-            crate::config::ModelInitialization::FbtPisa1Mhc4,
+            crate::config::ModelInitialization::PisaMhc4,
             arch,
         )?;
         let d = WIDTH as usize;
@@ -873,7 +873,7 @@ fn hnet_objective() -> Result<(), String> {
         let model = CandidateWeights::initialized(
             &runtime,
             17,
-            crate::config::ModelInitialization::FbtPisa1Mhc4,
+            crate::config::ModelInitialization::PisaMhc4,
             arch,
         )?;
         let decoder =
@@ -952,13 +952,13 @@ fn hnet_objective() -> Result<(), String> {
         );
         assert!((score_open.observation.control().mean + score_open.quality.mean_nll).abs() < 1e-5);
 
-        // 2. Complete operator-BO round (ask -> materialize -> score -> tell ->
-        //    commit -> sync)
+        // 2. Complete single-state-BO round (ask -> materialize -> score ->
+        //    tell -> commit -> sync)
         let run = crate::config::parse_tune(
-            "version = 4\nexperiment = \"pretrain\"\nmodel = \"fbt-pisa1-hnet-mhc4-v1\"\n\
+            "version = 4\nexperiment = \"pretrain\"\nmodel = \"pisa-hnet-mhc4-v1\"\n\
              recipe = \"fineweb-bytes-100m-v1\"\nobjective = \"cross-entropy\"\n\
              window-tokens = 4096\nrounds = 4\nround-target-ms = 250\n\
-             [optimizer]\nalgorithm = \"operator-bo\"\n\
+             [optimizer]\nalgorithm = \"single-state-bo\"\n\
              distribution = \"gaussian\"\n\
              [optimizer.surrogate]\nneighbors = 8\nepistemic-scale = 0.1\n\
              aleatoric-scale = 0.05\ny-scale = 0.005\n\
@@ -967,7 +967,7 @@ fn hnet_objective() -> Result<(), String> {
         )?;
         let layout = Mhc4Layout::from_weights(&model, 0);
         let (mut search, _updates) = model.search_shaped(
-            run.proposal_kernel(),
+            run.proposal_distribution(),
             run.length(),
             crate::config::TrustRegionShape::TensorFamilyStatic,
         )?;

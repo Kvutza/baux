@@ -18,7 +18,7 @@ impl std::ops::Deref for Mhc4Initialization {
 impl Mhc4Initialization {
     pub(super) fn new(architecture: ResidualArchitecture) -> Result<Self, String> {
         if !architecture.is_mhc4() {
-            return Err("fbt-pisa1-mhc4 initialization requires model fbt-pisa1-mhc4-v1".into());
+            return Err("pisa-mhc4 initialization requires model pisa-mhc4-v1".into());
         }
 
         Ok(Self {
@@ -307,7 +307,7 @@ impl CandidateWeights {
 
         Ok(Self {
             architecture,
-            initialization: crate::config::ModelInitialization::FbtPisa1Mhc4,
+            initialization: crate::config::ModelInitialization::PisaMhc4,
             router,
             qkv,
             output,

@@ -58,10 +58,12 @@ fn apply_fields(
     config.unscaled_dims = opt_val(dict, "unscaled_dims")?;
     if let Some(s) = opt_val::<String>(dict, "geometry")? {
         config.distance_metric = Some(match s.to_lowercase().as_str() {
-            "euclidean" => baux::config::DistanceMetric::Euclidean,
-            "conformal" => baux::config::DistanceMetric::Conformal,
-            "hyperbolic" => baux::config::DistanceMetric::Hyperbolic,
-            "wasserstein" => baux::config::DistanceMetric::Wasserstein,
+            "euclidean" => baux::config::Dissimilarity::Euclidean,
+            "conformal" => baux::config::Dissimilarity::Conformal,
+            "hyperbolic" => baux::config::Dissimilarity::Hyperbolic,
+            "wasserstein" | "scale-transport" | "scale_transport" => {
+                baux::config::Dissimilarity::Wasserstein
+            }
             _ => return Err(PyValueError::new_err(format!("Unknown geometry: {s}"))),
         });
     }

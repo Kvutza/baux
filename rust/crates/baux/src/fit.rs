@@ -48,10 +48,12 @@ fn metric_distances(
 }
 
 /// Conformally normalize a square matrix of squared distances by per-row local
-/// radii.
+/// radii (Zelnik-Manor and Perona, 2004, *Self-Tuning Spectral Clustering*,
+/// NeurIPS 17, pp. 1601-1608).
 ///
-/// Each radius is the `k`th positive off-diagonal distance. The geometric mean
-/// keeps the result dimensionless while preserving symmetry.
+/// Each radius is the `k`th positive off-diagonal Euclidean `k`-NN radius
+/// `sigma_i = sqrt(d_k^2)`. The geometric mean keeps `sq_dist / (scale_a *
+/// scale_b)` dimensionless while preserving symmetry.
 pub fn conformal_distances(distances: &ArrayView2<f64>, k: usize) -> Result<Array2<f64>, ENNError> {
     metric_distances(
         distances,
@@ -62,7 +64,13 @@ pub fn conformal_distances(distances: &ArrayView2<f64>, k: usize) -> Result<Arra
 }
 
 /// Upper half-space Poincaré hyperbolic dissimilarity matrix
-/// (arXiv:2305.01356).
+/// (Poincaré, *Acta Math.* 1:1-62, 1882; Beardon, *The Geometry of Discrete
+/// Groups*, Springer GTM 91, 1983, sec. 7.2, Theorem 7.2.1; Cannon, Floyd,
+/// Kenyon, and Parry, *Hyperbolic Geometry*, MSRI Publ. 31, 1997).
+///
+/// Computes `(sq_dist + (scale_a - scale_b)^2) / (2 * scale_a * scale_b)
+/// = cosh(d_H((x, scale_a), (y, scale_b))) - 1`, which is the classical
+/// Poincaré upper half-space isometric invariant.
 pub fn hyperbolic_distances(
     distances: &ArrayView2<f64>,
     k: usize,
@@ -75,7 +83,15 @@ pub fn hyperbolic_distances(
     )
 }
 
-/// Entropic Wasserstein local-scale dissimilarity matrix.
+/// Local-scale transport dissimilarity matrix.
+///
+/// Combines geometric-mean scale-damped squared distance `sq_dist /
+/// sqrt(scale_a * scale_b)` with 1D radial scale transport `(scale_a -
+/// scale_b)^2`. Motivated by isotropic Gaussian `W_2^2` radial transport in
+/// Givens and Shortt (*Michigan Math. J.* 31(2):231-240, 1984) and Gelbrich
+/// (*Math. Nachr.* 147:185-203, 1990). Dividing `sq_dist` by `sqrt(scale_a *
+/// scale_b)` makes it a non-metric dissimilarity rather than exact `W_2^2` or
+/// entropic optimal transport.
 pub fn wasserstein_distances(
     distances: &ArrayView2<f64>,
     k: usize,

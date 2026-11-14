@@ -202,20 +202,23 @@ impl BoLoop {
             })
             .collect::<Vec<_>>();
         let incumbent_pred = self.history.incumbent_prediction()?;
-        let round_acquire = cfg
-            .acquisition_seed
-            .checked_add(round as u64)
-            .ok_or("CUDA mHC-4 acquisition seed overflow")?;
-        let rule = if cfg.acquisition == "thompson" {
-            AcquisitionRule::Thompson {
-                seed: round_acquire,
-            }
+        let selection = if geometry_f64.len() == 1 {
+            self.history.evaluate_singleton(&geometry_f64[0])?
         } else {
-            AcquisitionRule::Ucb { beta: cfg.beta }
+            let round_acquire = cfg
+                .acquisition_seed
+                .checked_add(round as u64)
+                .ok_or("CUDA mHC-4 acquisition seed overflow")?;
+            let rule = if cfg.acquisition == "thompson" {
+                AcquisitionRule::Thompson {
+                    seed: round_acquire,
+                }
+            } else {
+                AcquisitionRule::Ucb { beta: cfg.beta }
+            };
+            self.history
+                .select_pool(&geometry_f64, round as u32, rule, None)?
         };
-        let selection = self
-            .history
-            .select_pool(&geometry_f64, round as u32, rule, None)?;
         let selected = selection.selected;
         let initializing = selection.initializing;
         let cand_pred = selection.candidate;
@@ -462,7 +465,7 @@ impl BoLoop {
                 "source": task.corpus.as_ref().map(|c| c.source.as_str()),
                 "causal": cfg.window_tokens.is_some()
             },
-            "phase": if prop.initializing { "initialization" } else { "operator_bo" },
+            "phase": if prop.initializing { "initialization" } else { "single_state_bo" },
             "radius": prop.round_radius,
             "next_radius": decision.next_radius,
             "proposal_root": prop.root,

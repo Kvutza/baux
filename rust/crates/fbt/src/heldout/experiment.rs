@@ -1,5 +1,5 @@
 use super::*;
-use crate::fbt_pisa1::parity::pisa_probe;
+use crate::fbt_pisa::parity::pisa_probe;
 
 pub fn run_pretrain(
     run: &crate::config::RunConfig,
@@ -17,8 +17,8 @@ pub fn run_pretrain(
     if matches!(
         run.model,
         Some(
-            crate::config::ModelArchitecture::FbtPisa1Mhc4V1
-                | crate::config::ModelArchitecture::FbtPisa1HnetMhc4V1
+            crate::config::ModelArchitecture::PisaMhc4V1
+                | crate::config::ModelArchitecture::PisaHnetMhc4V1
         )
     ) || run
         .window_tokens
@@ -41,7 +41,7 @@ pub fn run_pretrain(
         enn: run.resident_enn(run.acquisition_seed())?,
         proposal_seed: run.proposal_seed(),
         acquisition_seed: run.acquisition_seed(),
-        perturbation: run.proposal_kernel(),
+        perturbation: run.proposal_distribution(),
         shape: run
             .trust_region_shape
             .unwrap_or(crate::config::TrustRegionShape::TensorFamilyStatic),
@@ -64,7 +64,7 @@ pub fn run_pretrain(
         let pipelines = Pipelines::for_trial(&runtime, run.kernel_trial.as_ref())?;
         let tensorops = TensorOpsPipelines::new(&runtime)?;
         let buffers = Buffers::new(&runtime);
-        let pisa1 = Pisa1::for_trial(&runtime, run.kernel_trial.as_ref())?;
+        let pisa1 = Pisa::for_trial(&runtime, run.kernel_trial.as_ref())?;
         if run.kernel_trial.is_some() {
             eprintln!("kernel.stage phase=execute");
         }
@@ -143,7 +143,7 @@ pub fn moe_dataset(
         progress("projection checks complete; PISA parity and timing");
         let pisa1 = pisa_probe(&runtime, &buffers.qkv, rounds)?;
         progress("PISA checks complete; FFN component timing");
-        let sustained_pisa1 = Pisa1::new(&runtime)?;
+        let sustained_pisa1 = Pisa::new(&runtime)?;
         let parity = parity(
             &buffers,
             mps_reference_gpu_seconds,
@@ -181,7 +181,7 @@ pub fn moe_dataset(
             true,
             false,
             None,
-            BoControl::diagnostic(crate::ProposalKernel::Gaussian)?,
+            BoControl::diagnostic(crate::ProposalDistribution::Gaussian)?,
         )?;
         let optimizer_summary = optimizer_summary(actual_bo.optimizer_seconds);
         progress("BO rounds complete; writing results");
@@ -406,7 +406,7 @@ fn sustained(
     runtime: &Runtime,
     pipelines: &Pipelines,
     tensorops: &TensorOpsPipelines,
-    sustained_pisa1: &Pisa1,
+    sustained_pisa1: &Pisa,
     buffers: &Buffers,
     rounds: u32,
     progress: &impl Fn(&str),
@@ -491,7 +491,7 @@ fn estimate(
     materialize_gate_up_gpu_seconds: f64,
     materialize_down_gpu_seconds: f64,
     projections_wall_seconds: f64,
-    pisa1: &crate::fbt_pisa1::Pisa1Probe,
+    pisa1: &crate::fbt_pisa::PisaProbe,
 ) -> Result<WorkEstimate, String> {
     let dense = 2u64 * u64::from(ROWS) * u64::from(WIDTH) * u64::from(GATE_UP)
         + 2u64 * u64::from(ROWS) * u64::from(EXPERT_WIDTH) * u64::from(WIDTH);

@@ -1,5 +1,14 @@
 //! Device-resident Muon/AdamW primitives. These consume analytic gradients;
 //! they do not implement a model backward pass or replace the BO optimizer.
+//! Gradient optimizers serve as external baselines rather than BAUX
+//! contributions. References:
+//! - Keller Jordan et al., "Muon: An optimizer for hidden layers in neural networks"
+//!   (2024, https://github.com/KellerJordan/Muon).
+//! - Noah Amsel, David Persson, Christopher Musco, and Robert M. Gower, "The
+//!   Polar Express: Optimal Matrix Sign Methods and Their Application to the
+//!   Muon Algorithm", arXiv:2505.16932 (2025).
+//! - Ilya Loshchilov and Frank Hutter, "Decoupled Weight Decay Regularization",
+//!   ICLR 2019 (arXiv:1711.05101).
 pub use baux::semantics::muon::{POLAR, Polynomial, Shape, Step, reference};
 
 #[cfg(all(target_os = "macos", feature = "metal"))]

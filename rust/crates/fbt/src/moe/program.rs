@@ -38,7 +38,7 @@ struct State {
     runtime: Arc<Runtime>,
     pipelines: Pipelines,
     tensorops: TensorOpsPipelines,
-    pisa: Pisa1,
+    pisa: Pisa,
     buffers: Buffers,
     layout: Mhc4Layout,
     gpu_seconds: f64,
@@ -140,7 +140,7 @@ impl Resident {
         initialization: crate::config::ModelInitialization,
         seed: u64,
         length: crate::trust_region::TRLengthConfig,
-        perturbation: crate::ProposalKernel,
+        perturbation: crate::ProposalDistribution,
     ) -> Result<Self, String> {
         Self::with_backend(
             model,
@@ -157,7 +157,7 @@ impl Resident {
         initialization: crate::config::ModelInitialization,
         seed: u64,
         length: crate::trust_region::TRLengthConfig,
-        perturbation: crate::ProposalKernel,
+        perturbation: crate::ProposalDistribution,
         backend: Backend,
     ) -> Result<Self, String> {
         metal::objc::rc::autoreleasepool(|| {
@@ -171,7 +171,7 @@ impl Resident {
             let state = Arc::new(Mutex::new(State {
                 pipelines: Pipelines::new(&runtime)?,
                 tensorops: TensorOpsPipelines::new(&runtime)?,
-                pisa: Pisa1::new(&runtime)?,
+                pisa: Pisa::new(&runtime)?,
                 buffers: Buffers::new(&runtime),
                 runtime,
                 layout,

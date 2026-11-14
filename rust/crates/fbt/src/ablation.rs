@@ -29,7 +29,7 @@ fn score(
     runtime: &Runtime,
     pipelines: &Pipelines,
     tensorops: &TensorOpsPipelines,
-    pisa1: &Pisa1,
+    pisa1: &Pisa,
     buffers: &Buffers,
     weights: &CandidateWeights,
     row: &Buffer,
@@ -52,16 +52,16 @@ fn scaling_search(
     runtime: &Runtime,
     pipelines: &Pipelines,
     tensorops: &TensorOpsPipelines,
-    pisa1: &Pisa1,
+    pisa1: &Pisa,
     buffers: &Buffers,
     weights: &CandidateWeights,
     run: &crate::config::RunConfig,
     train: &crate::pretrain_data::PretrainDataset,
     rep: u32,
-    metric: crate::config::DistanceMetric,
+    metric: crate::config::Dissimilarity,
 ) -> Result<(SearchState, crate::config::ResidentEnnConfig), String> {
     let (mut search, _) = weights.search_shaped(
-        run.proposal_kernel(),
+        run.proposal_distribution(),
         run.length(),
         run.trust_region_shape
             .unwrap_or(crate::config::TrustRegionShape::TensorFamilyStatic),
@@ -137,7 +137,7 @@ fn selection_ablation() -> Result<(), String> {
         let pipelines = Pipelines::new(&runtime)?;
         let tensorops = TensorOpsPipelines::new(&runtime)?;
         let buffers = Buffers::new(&runtime);
-        let pisa1 = Pisa1::new(&runtime)?;
+        let pisa1 = Pisa::new(&runtime)?;
         let weights = CandidateWeights::new(&runtime);
         for (rep, seed) in seeds.into_iter().enumerate() {
             // Alternate run order to reduce systematic timing/order bias.
@@ -149,7 +149,7 @@ fn selection_ablation() -> Result<(), String> {
             for policy in policies {
                 autoreleasepool(|| -> Result<(), String> {
                     let (mut search, _) = weights.search_shaped(
-                        run.proposal_kernel(),
+                        run.proposal_distribution(),
                         run.length(),
                         run.trust_region_shape
                             .unwrap_or(crate::config::TrustRegionShape::TensorFamilyStatic),
@@ -285,13 +285,13 @@ fn pool_ablation() -> Result<(), String> {
         let pipelines = Pipelines::new(&runtime)?;
         let tensorops = TensorOpsPipelines::new(&runtime)?;
         let buffers = Buffers::new(&runtime);
-        let pisa1 = Pisa1::new(&runtime)?;
+        let pisa1 = Pisa::new(&runtime)?;
         let weights = CandidateWeights::new(&runtime);
         for rep in 0..3u32 {
             autoreleasepool(|| -> Result<(), String> {
                 let seed = run.derived_seed(rep, "pool-run", 0);
                 let (mut search, _) = weights.search_shaped(
-                    run.proposal_kernel(),
+                    run.proposal_distribution(),
                     run.length(),
                     run.trust_region_shape
                         .unwrap_or(crate::config::TrustRegionShape::TensorFamilyStatic),
@@ -417,7 +417,7 @@ fn scaling_ablation() -> Result<(), String> {
         let pipelines = Pipelines::new(&runtime)?;
         let tensorops = TensorOpsPipelines::new(&runtime)?;
         let buffers = Buffers::new(&runtime);
-        let pisa1 = Pisa1::new(&runtime)?;
+        let pisa1 = Pisa::new(&runtime)?;
         let weights = CandidateWeights::new(&runtime);
         for rep in 0..3u32 {
             autoreleasepool(|| -> Result<(), String> {
@@ -432,7 +432,7 @@ fn scaling_ablation() -> Result<(), String> {
                     &run,
                     &train,
                     rep,
-                    crate::config::DistanceMetric::Euclidean,
+                    crate::config::Dissimilarity::Euclidean,
                 )?;
                 let (mut local, local_enn) = scaling_search(
                     &runtime,
@@ -444,7 +444,7 @@ fn scaling_ablation() -> Result<(), String> {
                     &run,
                     &train,
                     rep,
-                    crate::config::DistanceMetric::Conformal,
+                    crate::config::Dissimilarity::Conformal,
                 )?;
                 if global.history_len()? != local.history_len()? {
                     return Err("paired scaling histories have different lengths".into());

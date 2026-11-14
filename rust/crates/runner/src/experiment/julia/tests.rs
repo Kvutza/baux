@@ -267,7 +267,7 @@ preferences = [0.6, 0.4]
 rescalarize = "on-restart"
 
 [optimizer]
-algorithm = "operator-bo"
+algorithm = "single-state-bo"
 distribution = "rademacher"
 
 [optimizer.surrogate]
@@ -293,10 +293,7 @@ fit = "fixed"
         assert!(res.adapt_neighbors);
         assert!(!res.fit_params);
         assert_eq!(res.local_scale_neighbors, 6);
-        assert_eq!(
-            res.distance_metric,
-            baux::config::DistanceMetric::Hyperbolic
-        );
+        assert_eq!(res.distance_metric, baux::config::Dissimilarity::Hyperbolic);
     }
 
     let muon_toml = r#"
@@ -382,8 +379,8 @@ fn live_modes() {
     let _ = fs::remove_dir_all(&tmp);
     fs::create_dir_all(&tmp).expect("mkdir tmp");
 
-    // 1. Live ResidentMetal OperatorBo (Hyperbolic + RiskPrefix + Rademacher +
-    //    Morbo)
+    // 1. Live ResidentMetal SingleStateBo (Hyperbolic + RiskPrefix + Rademacher
+    //    + Morbo)
     #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
     {
         let rm_toml = r#"
@@ -409,7 +406,7 @@ preferences = [0.6, 0.4]
 rescalarize = "on-restart"
 
 [optimizer]
-algorithm = "operator-bo"
+algorithm = "single-state-bo"
 distribution = "rademacher"
 
 [optimizer.surrogate]

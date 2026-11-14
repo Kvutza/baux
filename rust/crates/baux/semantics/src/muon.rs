@@ -1,6 +1,15 @@
 //! Shared host/device ABI for native Muon and AdamW updates.
 //!
 //! Imported as a crate dependency by both host and device implementations.
+//! Gradient optimizers serve as external baselines rather than BAUX
+//! contributions. References:
+//! - Keller Jordan et al., "Muon: An optimizer for hidden layers in neural networks"
+//!   (2024, https://github.com/KellerJordan/Muon).
+//! - Noah Amsel, David Persson, Christopher Musco, and Robert M. Gower, "The
+//!   Polar Express: Optimal Matrix Sign Methods and Their Application to the
+//!   Muon Algorithm", arXiv:2505.16932 (2025).
+//! - Ilya Loshchilov and Frank Hutter, "Decoupled Weight Decay Regularization",
+//!   ICLR 2019 (arXiv:1711.05101).
 
 #[path = "muon/reference.rs"]
 pub mod reference;

@@ -436,7 +436,7 @@ impl CandidateWeights {
             ModelInitialization::Gpt2 => Self::normal(runtime, seed, false, architecture),
             ModelInitialization::Megatron => Self::normal(runtime, seed, true, architecture),
             ModelInitialization::XavierUniform => Self::xavier(runtime, seed, architecture),
-            ModelInitialization::FbtPisa1Mhc4 => Self::mhc4_weights(runtime, seed, architecture)?,
+            ModelInitialization::PisaMhc4 => Self::mhc4_weights(runtime, seed, architecture)?,
         })
     }
 

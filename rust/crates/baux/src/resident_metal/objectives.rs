@@ -23,7 +23,7 @@ impl SearchState {
                 length,
                 false,
                 false,
-                ProposalKernel::Gaussian,
+                ProposalDistribution::Gaussian,
             )?;
             state.observe_objectives(observation)?;
             Ok(state)

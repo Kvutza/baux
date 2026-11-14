@@ -1,7 +1,13 @@
 //! Exact-shape grouped-MoE feasibility gate for the proposed subsecond scorer.
+//!
+//! # External Architecture Attribution
+//! Note: DeepSeekMoE shared+routed expert architecture is an external prior-art
+//! architecture used as a testbed, not a BAUX paper contribution:
+//! - Damai Dai et al., *"DeepSeekMoE: Towards Ultimate Expert Specialization in
+//!   Mixture-of-Experts Language Models"*, ACL 2024 (`arXiv:2401.06066`).
 
 use crate::apple_gpu::Runtime;
-use crate::fbt_pisa1::Pisa1;
+use crate::fbt_pisa::Pisa;
 pub(super) use metal::{
     Buffer, BufferRef, CommandBufferRef, ComputeCommandEncoderRef, ComputePipelineState,
     MTLCommandBufferStatus,
@@ -394,7 +400,7 @@ struct BoControl<'a> {
     enn: crate::config::ResidentEnnConfig,
     proposal_seed: u64,
     acquisition_seed: u64,
-    perturbation: crate::ProposalKernel,
+    perturbation: crate::ProposalDistribution,
     shape: crate::config::TrustRegionShape,
     paired_objective: bool,
     objective_reference: crate::config::ObjectiveReference,
@@ -405,7 +411,7 @@ struct BoControl<'a> {
 }
 
 impl BoControl<'_> {
-    fn diagnostic(perturbation: crate::ProposalKernel) -> Result<Self, String> {
+    fn diagnostic(perturbation: crate::ProposalDistribution) -> Result<Self, String> {
         let acquisition_seed = 0xbb67_ae85_84ca_a73b;
         Ok(Self {
             length: crate::trust_region::TRLengthConfig::new(0.01, 0.0001, 0.1),

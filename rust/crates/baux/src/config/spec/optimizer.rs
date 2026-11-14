@@ -24,10 +24,13 @@ pub use regional::*;
     deny_unknown_fields
 )]
 pub enum OptimizerSpec {
-    #[deser(rename = "operator-bo")]
-    OperatorBo {
+    /// Acquisition-free single-candidate (`K = 1`) Bayesian optimization backed
+    /// by the ENN surrogate (Bafna, Jadhav, and Sweet, "Taking the GP Out of
+    /// the Loop", ICML 2026, PMLR 306:5179-5199, arXiv:2506.12818).
+    #[deser(alias = "operator-bo")]
+    SingleStateBo {
         #[deser(default)]
-        distribution: crate::ProposalKernel,
+        distribution: crate::ProposalDistribution,
         #[deser(default)]
         perturbation: Option<PerturbationSpec>,
         #[deser(default)]
@@ -42,7 +45,7 @@ pub enum OptimizerSpec {
         candidates: u32,
         #[deser(default = default_arms())]
         arms: u32,
-        distribution: Option<crate::ProposalKernel>,
+        distribution: Option<crate::ProposalDistribution>,
         #[deser(default)]
         perturbation: Option<PerturbationSpec>,
         #[deser(flatten)]
@@ -64,7 +67,7 @@ pub enum OptimizerSpec {
 impl OptimizerSpec {
     pub fn candidate_generation(&self) -> Option<CandidateGenerationSpec> {
         match self {
-            Self::OperatorBo {
+            Self::SingleStateBo {
                 distribution,
                 perturbation,
                 ..
@@ -92,7 +95,7 @@ impl OptimizerSpec {
 
     pub fn regional_search(&self) -> Option<&RegionalSearchSpec> {
         match self {
-            Self::OperatorBo {
+            Self::SingleStateBo {
                 regional_search, ..
             }
             | Self::BayesianSearch {
@@ -118,9 +121,8 @@ impl OptimizerSpec {
             });
         };
         let bounds = match self {
-            Self::OperatorBo { trust_region, .. } | Self::BayesianSearch { trust_region, .. } => {
-                trust_region
-            }
+            Self::SingleStateBo { trust_region, .. }
+            | Self::BayesianSearch { trust_region, .. } => trust_region,
             Self::Muon | Self::Adamw | Self::Ppo => unreachable!("matrix optimizer handled above"),
         };
         let config = regions
@@ -154,7 +156,7 @@ pub struct CandidateGenerationSpec {
     pub arms: u32,
     /// Underlying sampler selection; program transformations can change the
     /// distribution of the resulting parameter displacement.
-    pub distribution: Option<crate::ProposalKernel>,
+    pub distribution: Option<crate::ProposalDistribution>,
     #[deser(default)]
     pub perturbation: Option<PerturbationSpec>,
 }
@@ -316,7 +318,7 @@ impl crate::optimizer_config::OptimizerConfig {
                         .to_string(),
                 ))
             }
-            OptimizerSpec::OperatorBo {
+            OptimizerSpec::SingleStateBo {
                 surrogate,
                 trust_region,
                 ..

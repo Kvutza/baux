@@ -17,7 +17,7 @@ pub(super) struct CausalEvidence {
 pub(super) struct CausalScorer {
     pipelines: Pipelines,
     tensorops: TensorOpsPipelines,
-    pisa1: Pisa1,
+    pisa1: Pisa,
     buffers: Buffers,
     dataset: crate::pretrain_data::PretrainDataset,
     validation: crate::pretrain_data::PretrainDataset,
@@ -29,7 +29,7 @@ impl CausalScorer {
         Ok(Self {
             pipelines: Pipelines::new(runtime)?,
             tensorops: TensorOpsPipelines::new(runtime)?,
-            pisa1: Pisa1::new(runtime)?,
+            pisa1: Pisa::new(runtime)?,
             buffers: Buffers::new(runtime),
             dataset: crate::pretrain_data::PretrainDataset::load(path)?,
             validation: crate::pretrain_data::PretrainDataset::load(&validation_path)?,

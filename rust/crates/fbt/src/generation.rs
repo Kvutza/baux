@@ -347,7 +347,7 @@ fn initialize_search(
         );
     }
     let (mut search, updates) = weights.search_shaped(
-        run.proposal_kernel(),
+        run.proposal_distribution(),
         run.length(),
         run.trust_region_shape
             .unwrap_or(crate::config::TrustRegionShape::TensorFamilyStatic),
@@ -756,7 +756,7 @@ mod tests {
                 vec![block],
                 3,
                 crate::TRLengthConfig::new(0.1, 0.001, 0.4),
-                crate::ProposalKernel::Gaussian,
+                crate::ProposalDistribution::Gaussian,
             )
             .unwrap();
             let mut policy = RunConfig::default().resident_enn(19).unwrap();

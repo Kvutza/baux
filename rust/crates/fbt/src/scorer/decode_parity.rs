@@ -26,7 +26,7 @@ fn mhc_scorer() -> Result<(), String> {
         let buffers = Buffers::new(&runtime);
         let pipelines = Pipelines::new(&runtime)?;
         let tensorops = TensorOpsPipelines::new(&runtime)?;
-        let pisa = Pisa1::new(&runtime)?;
+        let pisa = Pisa::new(&runtime)?;
         let command = runtime.queue.new_command_buffer();
         objective_fused(command, &pipelines, &tensorops, &pisa, &buffers, weights)?;
         complete(command)?;
@@ -64,7 +64,7 @@ fn decode_prefix() -> Result<(), String> {
         let buffers = Buffers::new(&runtime);
         let pipelines = Pipelines::new(&runtime)?;
         let tensorops = TensorOpsPipelines::new(&runtime)?;
-        let pisa = Pisa1::new(&runtime)?;
+        let pisa = Pisa::new(&runtime)?;
         let inputs = unsafe {
             std::slice::from_raw_parts(buffers.tokens.contents().cast::<u32>(), ROWS as usize)
         };
@@ -202,7 +202,7 @@ fn hyper_golden() -> Result<(), String> {
         let buffers = Buffers::new(&runtime);
         let pipelines = Pipelines::new(&runtime)?;
         let tensorops = TensorOpsPipelines::new(&runtime)?;
-        let pisa = Pisa1::new(&runtime)?;
+        let pisa = Pisa::new(&runtime)?;
         let mut observed = Vec::new();
         for (architecture, seed) in [
             (ResidualArchitecture::Hc4, 3),

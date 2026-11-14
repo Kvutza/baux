@@ -1,4 +1,4 @@
-//! 17-family PyTree parameter algebra for the native `fbt-pisa1-mhc4-v1`
+//! 17-family PyTree parameter algebra for the native `pisa-mhc4-v1`
 //! architecture.
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -132,13 +132,13 @@ const MHC4_COUNTS: [usize; 17] = [
         * mhc4_shape::MHC4_WIDTH) as usize,
 ];
 
-/// Aeneas-extracted 5-layer `fbt-pisa1-mhc4-v1` routed MoE parameter count
+/// Aeneas-extracted 5-layer `pisa-mhc4-v1` routed MoE parameter count
 /// (`ActiveEnergy.lean` P4).
 pub const fn routed_count() -> u64 {
     125_829_120
 }
 
-/// Aeneas-extracted native `fbt-pisa1-mhc4-v1` total parameter count at
+/// Aeneas-extracted native `pisa-mhc4-v1` total parameter count at
 /// `patch_size = 1` (`ActiveEnergy.lean` P5).
 pub const fn total_count() -> u64 {
     265_623_320

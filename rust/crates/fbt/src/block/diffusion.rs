@@ -1,4 +1,15 @@
 //! Learned block proposals followed by causal target verification.
+//!
+//! # External Prior-Art Attribution
+//! The block diffusion formulation interpolating autoregressive decoding and
+//! non-autoregressive diffusion proposals is based on:
+//! - Marianne Arriola et al., *"Block Diffusion: Interpolating Between
+//!   Autoregressive and Diffusion Language Models"*, ICLR 2025
+//!   (`arXiv:2503.09573`).
+//!
+//! Note: Our specific learned block proposals + causal target verification
+//! formulation serves as an experimental generation testbed in BAUX.
+
 use super::*;
 use crate::config::{DiffusionConfig, GenerationConfig, GenerationTask};
 use crate::forward_program::diffusion::{DiffusionMetrics, MASK};

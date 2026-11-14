@@ -229,7 +229,7 @@ body[data-nav-open="true"] .docs-sidebar {
   max-height: none; z-index: 195; background: var(--bg-canvas); padding: 1.5rem;
   font-size: 0.9rem; box-shadow: 3px 0 12px #0002;
 }
-#docs-shade { position: fixed; inset: 0; z-index: 190; background: #0006; border: 0; width: 100%; }
+#docs-shade { position: fixed; inset: 0; z-index: 190; background: #0008; backdrop-filter: blur(2px); border: 0; width: 100%; }
 .docs-nav-title { display: block; color: var(--fg-muted); margin: 0 0 1rem; }
 .docs-navigation, .docs-page-contents { list-style: none; padding: 0; margin: 0; }
 .docs-navigation a { display: block; padding: 0.3rem 0; color: var(--fg-secondary); line-height: 1.45; }
@@ -270,6 +270,9 @@ pre code { padding: 0; background: none; font-size: inherit; overflow-wrap: norm
   padding: 0.25rem 0.4rem; color: var(--fg-muted); background: var(--bg-code); font-size: 0.75rem;
 }
 .code-copy:hover { color: var(--fg-primary); }
+@media (max-width: 640px) {
+  .code-wrap pre { padding-top: 2.15rem; padding-right: 1.15rem; }
+}
 .code-keyword { color: var(--code-keyword); }
 .code-string { color: var(--code-string); }
 .code-number { color: var(--code-number); }

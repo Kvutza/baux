@@ -56,7 +56,7 @@
       </tr>
       <tr data-symbol="baux.AskBatch" data-kind="class" data-module="baux.bo">
         <td><span class="link external"><code><a href="#baux.AskBatch" rel="noopener noreferrer" title="">baux.AskBatch</a></code></span></td>
-        <td>Evaluated candidate batch bundling evaluation IDs, coordinate rows, and structured PyTree parameters.</td>
+        <td>Proposed candidate batch bundling evaluation IDs, coordinate rows, and structured PyTree parameters.</td>
       </tr>
       <tr data-symbol="baux.AskId" data-kind="class" data-module="baux.bo">
         <td><span class="link external"><code><a href="#baux.AskId" rel="noopener noreferrer" title="">baux.AskId</a></code></span></td>
@@ -550,7 +550,7 @@ assert len(state.pending_ids or ()) == 0</pre>
       </tr>
       <tr data-symbol="baux.stein" data-kind="function" data-module="baux.transforms">
         <td><span class="link external"><code><a href="#baux.stein" rel="noopener noreferrer" title="">baux.stein</a></code></span></td>
-        <td>Configure empirical Bayes James-Stein shrinkage toward a Stiefel subspace for multi-output objectives.</td>
+        <td>Configure adaptive residual shrinkage toward a Stiefel subspace for multi-output objectives.</td>
       </tr>
       <tr data-symbol="baux.calibrate" data-kind="function" data-module="baux.transforms">
         <td><span class="link external"><code><a href="#baux.calibrate" rel="noopener noreferrer" title="">baux.calibrate</a></code></span></td>
@@ -656,7 +656,7 @@ assert len(y) == 2</pre>
         <span class="api-kind-badge">function</span>
       </div>
       <pre>baux.with_geometry(model: Any, geometry: str, local_k: int = 4) -&gt; Any</pre>
-      <p><code>baux.with_geometry</code> attaches a local-scale dissimilarity (<code>"euclidean"</code>, <code>"conformal"</code>, <code>"hyperbolic"</code>, or <code>"wasserstein"</code>) and metric (<code>"l2"</code>, <code>"l2_squared"</code>, <code>"manhattan"</code>, <code>"chebyshev"</code>, <code>"cosine"</code>, or <code>"angular"</code>) to a state, surrogate, config, or pipeline without mutating the input. Conformal scaling follows Zelnik-Manor &amp; Perona <span class="link external"><a href="https://papers.nips.cc/paper_files/paper/2004/hash/40173ea48d9567f1f393b20c855bb40b-Abstract.html" rel="noopener noreferrer" title="">[ZMP04]</a></span>, Poincaré half-space dissimilarity \(2\sinh ^2(d_H/2) = \cosh (d_H) - 1\) follows Beardon <span class="link external"><a href="https://doi.org/10.1007/978-1-4612-1146-4" rel="noopener noreferrer" title="">[Bea83]</a></span>, and Gaussian-covariance transport follows Gelbrich <span class="link external"><a href="https://doi.org/10.1002/mana.19901470121" rel="noopener noreferrer" title="">[Gel90]</a></span>; unsupported geometry or metric names raise <code>ValueError</code>.</p>
+      <p><code>baux.with_geometry</code> selects <code>"euclidean"</code>, <code>"conformal"</code>, <code>"hyperbolic"</code> or <code>"wasserstein"</code> geometry with a positive local neighbor count. These names select dissimilarity formulas described in <span class="link external"><a href="baux-0003.html" rel="noopener noreferrer" title="">Neighborhood Surrogates</a></span>; <code>"wasserstein"</code> is the API name for a hybrid dissimilarity. Unsupported names raise <code>ValueError</code>.</p>
     </div>
 </div></section><section lang="en" class="block"><div class="tree-node" id="id5">
 <header><h1>
@@ -881,7 +881,7 @@ assert len(y) == 2</pre>
         <dd>
 <span class="link external"><code><a href="#baux.Transform" rel="noopener noreferrer" title="">Transform</a></code></span> when called without a target, or an updated copy of <code>target</code>.</dd>
         <dt>Notes</dt>
-        <dd>Applies positive-part empirical Bayes shrinkage toward the orthonormal basis columns of the Stiefel subspace. When <code>M &gt; rank</code>, noisy off-subspace response components are shrunk toward the subspace projections, improving surrogate generalization in high-dimensional multi-task settings.</dd>
+        <dd>Preserves the projection onto an orthonormal frame and contracts the residual using its predicted energy and variance. This is an adaptive contraction rule; the classical James–Stein risk guarantee does not apply to it automatically.</dd>
       </dl>
     </div>
 <div xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.calibrate" class="api-entry" data-symbol="baux.calibrate" data-kind="function" data-module="baux.transforms">
@@ -895,7 +895,7 @@ assert len(y) == 2</pre>
     *,
     alpha: float | None = None,
 ) -&gt; Transform | OptimizerState | Any</pre>
-      <p><code>baux.calibrate</code> rescales predictive variance via an affine calibration map and inflates intervals by conformal quantile factors to restore empirical coverage.</p>
+      <p><code>baux.calibrate</code> applies a fitted affine location-scale map and an optional residual-quantile multiplier to predictions.</p>
       <dl class="api-spec-list">
         <dt>Parameters</dt>
         <dd>
@@ -912,7 +912,7 @@ assert len(y) == 2</pre>
         <dd>
 <span class="link external"><code><a href="#baux.Transform" rel="noopener noreferrer" title="">Transform</a></code></span> when called as a pipeline constructor, or an updated copy of <code>target</code>.</dd>
         <dt>Notes</dt>
-        <dd>Applies held-out variance rescaling and conformal quantile inflation factors to guarantee empirical uncertainty coverage on downstream predictive queries.</dd>
+        <dd>Coverage requires a valid calibration procedure and assumptions about calibration and test observations; see Angelopoulos and Bates <span class="link external"><a href="https://doi.org/10.1561/2200000101" rel="noopener noreferrer" title="">[AB23]</a></span>. Adaptively selected optimization observations do not automatically satisfy those assumptions.</dd>
       </dl>
     </div>
 </div></section><section lang="en" class="block"><div class="tree-node" id="id9">
@@ -940,7 +940,7 @@ assert len(y) == 2</pre>
 </div></section><section lang="en" class="block"><div class="tree-node" id="id10">
 <header><h1>
 <span class="sec-num">3. </span><span class="sec-title">Parameter Domains &amp; Subspace Maps</span>
-</h1></header><p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">Nested Python dictionaries, tuples, lists, namedtuples, and dataclasses (<code>PyTree</code>s) map structured user domains onto flat solver coordinates and retract proposals back to valid domain values. These specifications equip continuous, positive-log, periodic, simplex, categorical, and multi-output spaces with distortion-free coordinate charts and orthonormal subspace projections.</p>
+</h1></header><p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">Nested Python dictionaries, tuples, lists, namedtuples, and dataclasses (<code>PyTree</code>s) map structured user domains onto flat solver coordinates and retract proposals back to valid domain values. The available maps cover continuous, positive-log, periodic, simplex, categorical, and multi-output domains; each API entry below states its coordinate representation explicitly.</p>
 <table xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" class="api-summary-table">
     <thead>
       <tr>
@@ -975,7 +975,7 @@ assert len(y) == 2</pre>
       </tr>
       <tr data-symbol="baux.Categorical" data-kind="class" data-module="baux.pytree">
         <td><span class="link external"><code><a href="#baux.Categorical" rel="noopener noreferrer" title="">baux.Categorical</a></code></span></td>
-        <td>Discrete choice specification embedding categories into one-hot or Rademacher Johnson-Lindenstrauss codewords.</td>
+        <td>Discrete choice specification embedding categories into one-hot or Rademacher Johnson–Lindenstrauss codewords (Achlioptas <span class="link external"><a href="https://doi.org/10.1016/S0022-0000(03)00025-4" rel="noopener noreferrer" title="">[Ach03]</a></span>).</td>
       </tr>
       <tr data-symbol="baux.ravel" data-kind="function" data-module="baux.pytree">
         <td><span class="link external"><code><a href="#baux.ravel" rel="noopener noreferrer" title="">baux.ravel</a></code></span></td>
@@ -1003,7 +1003,7 @@ assert len(y) == 2</pre>
       </tr>
       <tr data-symbol="baux.Stiefel" data-kind="class" data-module="baux._embeddings">
         <td><span class="link external"><code><a href="#baux.Stiefel" rel="noopener noreferrer" title="">baux.Stiefel</a></code></span></td>
-        <td>Orthonormal subspace basis on the Stiefel manifold implementing Empirical-Bayes James-Stein contraction.</td>
+        <td>Orthonormal subspace basis on the Stiefel manifold implementing adaptive residual contraction.</td>
       </tr>
       <tr data-symbol="baux.Affine" data-kind="class" data-module="baux._embeddings">
         <td><span class="link external"><code><a href="#baux.Affine" rel="noopener noreferrer" title="">baux.Affine</a></code></span></td>
@@ -1199,13 +1199,13 @@ assert np.allclose(params_rec["weights"], params["weights"])</pre>
         <span class="api-kind-badge">class</span>
       </div>
       <pre>baux.Simplex(dim: int)</pre>
-      <p><code>Simplex</code> encodes non-negative mixture weights on <code>Delta^{dim - 1}</code> via square-root coordinates <code>psi_i(p) = sqrt(p_i)</code>, aligning Euclidean search distance with Hellinger geometry and guaranteeing decoded sums of <code>1.0</code>.</p>
+      <p><code>Simplex</code> encodes probability vectors by square roots. Decoding clips negative coordinates, squares and normalizes them; an all-zero vector decodes to the uniform distribution.</p>
       <dl class="api-spec-list">
         <dt>Attributes</dt>
         <dd>
           <ul>
 <li>
-<code>dim</code> (<em>int</em>) — Number of simplex components (<code>dim &gt;= 2</code>).</li>
+<code>dim</code> (<em>int</em>) — Number of simplex components (<code>dim &gt;= 1</code>).</li>
             <li>
 <code>width</code> (<em>int</em>) — Embedded dimension (<code>dim</code>).</li>
             <li>
@@ -1237,7 +1237,7 @@ assert np.allclose(params_rec["weights"], params["weights"])</pre>
     separation: float = 10.0,
     dim_cap: int = 48,
 ) -&gt; Categorical</pre>
-      <p><code>baux.categorical</code> constructs an isometric discrete-choice specification (<span class="link external"><code><a href="#baux.Categorical" rel="noopener noreferrer" title="">Categorical</a></code></span>) from at least two arbitrary Python options.</p>
+      <p><code>baux.categorical</code> constructs a discrete-choice specification (<span class="link external"><code><a href="#baux.Categorical" rel="noopener noreferrer" title="">Categorical</a></code></span>) from at least two arbitrary Python options.</p>
       <dl class="api-spec-list">
         <dt>Parameters</dt>
         <dd>
@@ -1272,7 +1272,7 @@ assert np.allclose(params_rec["weights"], params["weights"])</pre>
     dim_cap: int = 48,
     key: Any = None,
 )</pre>
-      <p><code>baux.Categorical</code> embeds discrete alternatives as one-hot vectors when cardinality \(\le  15\) or equal-norm Rademacher Johnson–Lindenstrauss codewords above \(\text {15}\), decoding vectors back by maximum inner product.</p>
+      <p><code>baux.Categorical</code> embeds discrete alternatives as one-hot vectors when cardinality \(\le  15\) or equal-norm Rademacher Johnson–Lindenstrauss codewords above \(\text {15}\) (Achlioptas <span class="link external"><a href="https://doi.org/10.1016/S0022-0000(03)00025-4" rel="noopener noreferrer" title="">[Ach03]</a></span>), decoding vectors back by maximum inner product.</p>
     </div>
 <div xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.ravel" class="api-entry api-entry-compact" data-symbol="baux.ravel" data-kind="function" data-module="baux.pytree">
       <div class="api-entry-header">
@@ -1348,7 +1348,7 @@ assert np.allclose(params_rec["weights"], params["weights"])</pre>
         <span class="api-kind-badge">class</span>
       </div>
       <pre>baux.Stiefel(loadings: np.ndarray)</pre>
-      <p><code>baux.Stiefel</code> stores an orthonormal frame <code>V</code> of shape <code>(M, F)</code> on the Stiefel manifold and applies Empirical-Bayes James–Stein contraction to residuals orthogonal to <code>col(V)</code>.</p>
+      <p><code>baux.Stiefel</code> stores a supplied basis. Use <code>Stiefel.from_factors(loadings)</code> to orthonormalize a full-column-rank matrix, or <code>Stiefel.from_cov(y, rank)</code> to estimate a frame from observations. The direct constructor does not orthonormalize its input.</p>
       <dl class="api-spec-list">
         <dt>Attributes</dt>
         <dd>
@@ -1408,7 +1408,7 @@ assert np.isfinite(y).all()</pre>
 </div></section><section lang="en" class="block"><div class="tree-node" id="id13">
 <header><h1>
 <span class="sec-num">4. </span><span class="sec-title">Keys, Rollouts &amp; Checkpoints</span>
-</h1></header><p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">Because functional transitions cannot rely on hidden global RNG state, every stochastic proposal derives from an explicit splittable key and every snapshot carries its own integrity digest. This section specifies 128-bit cryptographic keys, deterministic rollout combinators, and authenticated <code>BAUXFRZ2</code> checkpoint serialization.</p>
+</h1></header><p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">Because functional transitions cannot rely on hidden global RNG state, every stochastic proposal derives from an explicit splittable key and every snapshot carries its own integrity digest. This section specifies 128-bit PRNG keys, deterministic rollout combinators, and integrity-tagged <code>BAUXFRZ2</code> checkpoint serialization.</p>
 <table xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" class="api-summary-table">
     <thead>
       <tr>
@@ -1427,11 +1427,11 @@ assert np.isfinite(y).all()</pre>
       </tr>
       <tr data-symbol="baux.split" data-kind="function" data-module="baux.state">
         <td><span class="link external"><code><a href="#baux.split" rel="noopener noreferrer" title="">baux.split</a></code></span></td>
-        <td>Deterministically partition a <code>Key</code> into independent child subkeys without mutating the parent key.</td>
+        <td>Deterministically partition a <code>Key</code> into derived child subkeys without mutating the parent key.</td>
       </tr>
       <tr data-symbol="baux.fold" data-kind="function" data-module="baux.state">
         <td><span class="link external"><code><a href="#baux.fold" rel="noopener noreferrer" title="">baux.fold</a></code></span></td>
-        <td>Deterministically fold an integer tag into a <code>Key</code> to derive an independent child key.</td>
+        <td>Deterministically fold an integer tag into a <code>Key</code> to derive a child key.</td>
       </tr>
       <tr data-symbol="baux.scan" data-kind="function" data-module="baux.state">
         <td><span class="link external"><code><a href="#baux.scan" rel="noopener noreferrer" title="">baux.scan</a></code></span></td>
@@ -1443,7 +1443,7 @@ assert np.isfinite(y).all()</pre>
       </tr>
       <tr data-symbol="baux.freeze" data-kind="function" data-module="baux.state">
         <td><span class="link external"><code><a href="#baux.freeze" rel="noopener noreferrer" title="">baux.freeze</a></code></span></td>
-        <td>Serialize an <code>OptimizerState</code> into an authenticated <code>BAUXFRZ2</code> binary checkpoint.</td>
+        <td>Serialize an <code>OptimizerState</code> into an integrity-tagged <code>BAUXFRZ2</code> binary checkpoint.</td>
       </tr>
       <tr data-symbol="baux.thaw" data-kind="function" data-module="baux.state">
         <td><span class="link external"><code><a href="#baux.thaw" rel="noopener noreferrer" title="">baux.thaw</a></code></span></td>
@@ -1502,9 +1502,9 @@ assert np.isfinite(y).all()</pre>
           <li>
 <code>seed() -&gt; int</code> — Derive a deterministic unsigned 64-bit integer seed.</li>
           <li>
-<code>split() -&gt; tuple[Key, Key]</code> — Deterministically derive two independent child keys.</li>
+<code>split() -&gt; tuple[Key, Key]</code> — Deterministically derive two child keys.</li>
           <li>
-<code>split_n(n: int) -&gt; list[Key]</code> — Deterministically derive <code>n</code> independent child keys.</li>
+<code>split_n(n: int) -&gt; list[Key]</code> — Deterministically derive <code>n</code> child keys.</li>
           <li>
 <code>fold(tag: int) -&gt; Key</code> — Mix an unsigned 64-bit integer tag into a derived child key.</li>
 </ul>
@@ -1517,7 +1517,7 @@ assert np.isfinite(y).all()</pre>
       <span class="api-kind-badge">function</span>
     </div>
     <pre>baux.split(k: Key, n: int = 2) -&gt; tuple[Key, ...]</pre>
-    <p><code>baux.split</code> partitions parent key <code>k</code> deterministically into <code>n</code> independent child keys without mutating <code>k</code>.</p>
+    <p><code>baux.split</code> partitions parent key <code>k</code> deterministically into <code>n</code> derived child keys without mutating <code>k</code>.</p>
   </div>
 <div xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.fold" class="api-entry api-entry-compact" data-symbol="baux.fold" data-kind="function" data-module="baux.state">
     <div class="api-entry-header">
@@ -1525,7 +1525,7 @@ assert np.isfinite(y).all()</pre>
       <span class="api-kind-badge">function</span>
     </div>
     <pre>baux.fold(k: Key, tag: int) -&gt; Key</pre>
-    <p><code>baux.fold</code> mixes a 64-bit integer tag into key <code>k</code> without mutation to derive an independent child key.</p>
+    <p><code>baux.fold</code> mixes a 64-bit integer tag into key <code>k</code> without mutation to derive a child key.</p>
   </div>
 <div xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.scan" class="api-entry" data-symbol="baux.scan" data-kind="function" data-module="baux.state">
     <div class="api-entry-header">
@@ -1633,7 +1633,7 @@ assert [r[0] for r in results] == [0, 1, 2]</pre>
       <span class="api-kind-badge">function</span>
     </div>
     <pre>baux.freeze(state: OptimizerState) -&gt; bytes</pre>
-    <p><code>baux.freeze</code> encodes an <code>OptimizerState</code> into a canonical <code>BAUXFRZ2</code> byte payload authenticated with a trailing BLAKE3 tag.</p>
+    <p><code>baux.freeze</code> encodes an <code>OptimizerState</code> into a canonical <code>BAUXFRZ2</code> byte payload protected by a trailing BLAKE3 tag.</p>
     <dl class="api-spec-list">
       <dt>Parameters</dt>
       <dd>
@@ -1642,7 +1642,7 @@ assert [r[0] for r in results] == [0, 1, 2]</pre>
       </dd>
       <dt>Returns</dt>
       <dd>
-<code>bytes</code> — Authenticated binary wire payload with <code>BAUXFRZ2</code> magic header and trailing BLAKE3 integrity tag.</dd>
+<code>bytes</code> — Binary wire payload with <code>BAUXFRZ2</code> magic header and trailing BLAKE3 integrity tag.</dd>
       <dt>Example</dt>
       <dd>
         <pre>import numpy as np
@@ -1787,7 +1787,7 @@ assert np.array_equal(baux.ask(state, 2)[1].points, baux.ask(restored, 2)[1].poi
           <li>
 <code>scale_x</code> (<em>bool</em>, keyword-only, default <code>False</code>) — Standardize input features by empirical column standard deviation.</li>
           <li>
-<code>stiefel</code> (<em>Stiefel | np.ndarray | None</em>, keyword-only, default <code>None</code>) — Optional <span class="link external"><code><a href="#baux.Stiefel" rel="noopener noreferrer" title="">baux.Stiefel</a></code></span> subspace frame for James–Stein shrinkage.</li>
+<code>stiefel</code> (<em>Stiefel | np.ndarray | None</em>, keyword-only, default <code>None</code>) — Optional <span class="link external"><code><a href="#baux.Stiefel" rel="noopener noreferrer" title="">baux.Stiefel</a></code></span> subspace frame for residual contraction.</li>
           <li>
 <code>affine</code> (<em>Affine | tuple | None</em>, keyword-only, default <code>None</code>) — Optional <span class="link external"><code><a href="#baux.Affine" rel="noopener noreferrer" title="">baux.Affine</a></code></span> posterior location-scale calibration map.</li>
           <li>

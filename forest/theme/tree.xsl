@@ -23,6 +23,8 @@
       </head>
       <xsl:variable name="current-addr" select="/fr:tree/fr:frontmatter/fr:addr" />
       <body data-page="{$current-addr}">
+        <xsl:attribute name="data-docs"><xsl:choose><xsl:when test="$current-addr = 'baux-0007' or starts-with($current-addr, 'api-')">api</xsl:when><xsl:otherwise>guide</xsl:otherwise></xsl:choose></xsl:attribute>
+        <a class="skip-link" href="#main-content">Skip to content</a>
         <header class="masthead">
           <div class="masthead-inner">
             <div class="masthead-brand">
@@ -36,12 +38,12 @@
                     <xsl:text> active</xsl:text>
                   </xsl:if>
                 </xsl:attribute>
-                <xsl:text>Overview</xsl:text>
+                <xsl:text>Get started</xsl:text>
               </a>
               <a href="{/fr:tree/@base-url}docs.html">
                 <xsl:attribute name="class">
                   <xsl:text>nav-item</xsl:text>
-                  <xsl:if test="$current-addr = 'baux-0007'">
+                  <xsl:if test="$current-addr = 'baux-0007' or starts-with($current-addr, 'api-')">
                     <xsl:text> active</xsl:text>
                   </xsl:if>
                 </xsl:attribute>
@@ -54,7 +56,7 @@
                     <xsl:text> active</xsl:text>
                   </xsl:if>
                 </xsl:attribute>
-                <xsl:text>Simulation</xsl:text>
+                <xsl:text>Examples</xsl:text>
               </a>
               <a href="https://github.com/Kvutza/baux" class="nav-item external" target="_blank" rel="noopener noreferrer">
                 <xsl:text>GitHub</xsl:text>
@@ -68,21 +70,104 @@
             </nav>
           </div>
         </header>
+        <div class="docs-toolbar">
+          <button id="docs-menu" type="button" aria-label="Open navigation" aria-expanded="false" aria-controls="docs-nav">Contents</button>
+          <div class="docs-search">
+            <input id="docs-search" type="search" placeholder="Search documentation" aria-label="Search documentation" aria-controls="docs-results" aria-expanded="false" autocomplete="off" spellcheck="false"/>
+            <div id="docs-results" hidden="hidden"><p id="docs-search-status" role="status"></p><div id="docs-search-matches"></div></div>
+          </div>
+          <button id="docs-theme" type="button" aria-label="Switch color theme">◐</button>
+        </div>
+        <button id="docs-shade" type="button" aria-label="Close navigation" hidden="hidden"></button>
         <div id="grid-wrapper">
-          <article>
-            <xsl:apply-templates select="fr:tree" />
-          </article>
-          <xsl:if test="fr:tree/fr:mainmatter/fr:tree[not(@toc='false')] and not(/fr:tree/fr:frontmatter/fr:meta[@name = 'toc']/.='false')">
-            <nav id="toc">
-              <div class="block">
-                <h1>Contents</h1>
-                <xsl:apply-templates select="fr:tree/fr:mainmatter" mode="toc" />
-              </div>
-            </nav>
-          </xsl:if>
+          <nav id="docs-nav" class="docs-sidebar" aria-label="Documentation">
+            <button id="docs-close" type="button">Close contents</button>
+            <a class="docs-nav-title" href="{/fr:tree/@base-url}index.html">Documentation</a>
+            <ul class="docs-navigation">
+              <xsl:call-template name="docs-link"><xsl:with-param name="addr" select="'baux-0001'"/><xsl:with-param name="route" select="'index.html'"/><xsl:with-param name="label" select="'Home'"/></xsl:call-template>
+<xsl:call-template name="docs-link"><xsl:with-param name="addr" select="'quickstart'"/><xsl:with-param name="route" select="'quickstart.html'"/><xsl:with-param name="label" select="'Quickstart'"/></xsl:call-template>
+<li class="nav-label">Guides</li>
+<xsl:call-template name="docs-link"><xsl:with-param name="addr" select="'baux-0008'"/><xsl:with-param name="route" select="'baux-0008.html'"/><xsl:with-param name="label" select="'Structured parameters'"/></xsl:call-template>
+<xsl:call-template name="docs-link"><xsl:with-param name="addr" select="'baux-0009'"/><xsl:with-param name="route" select="'baux-0009.html'"/><xsl:with-param name="label" select="'Regions and workers'"/></xsl:call-template>
+<xsl:call-template name="docs-link"><xsl:with-param name="addr" select="'baux-0003'"/><xsl:with-param name="route" select="'baux-0003.html'"/><xsl:with-param name="label" select="'ENN predictions'"/></xsl:call-template>
+<li class="nav-label">API Reference</li>
+<xsl:call-template name="docs-link"><xsl:with-param name="addr" select="'baux-0007'"/><xsl:with-param name="route" select="'docs.html'"/><xsl:with-param name="label" select="'Optimizer'"/></xsl:call-template>
+<xsl:call-template name="docs-link"><xsl:with-param name="addr" select="'api-pipelines'"/><xsl:with-param name="route" select="'api-pipelines.html'"/><xsl:with-param name="label" select="'Pipelines'"/></xsl:call-template>
+<xsl:call-template name="docs-link"><xsl:with-param name="addr" select="'api-domains'"/><xsl:with-param name="route" select="'api-domains.html'"/><xsl:with-param name="label" select="'Parameter domains'"/></xsl:call-template>
+<xsl:call-template name="docs-link"><xsl:with-param name="addr" select="'api-enn'"/><xsl:with-param name="route" select="'api-enn.html'"/><xsl:with-param name="label" select="'ENN predictions'"/></xsl:call-template>
+<xsl:call-template name="docs-link"><xsl:with-param name="addr" select="'api-state'"/><xsl:with-param name="route" select="'api-state.html'"/><xsl:with-param name="label" select="'Checkpoints and keys'"/></xsl:call-template>
+<xsl:call-template name="docs-link"><xsl:with-param name="addr" select="'api-configuration'"/><xsl:with-param name="route" select="'api-configuration.html'"/><xsl:with-param name="label" select="'Configuration'"/></xsl:call-template>
+<xsl:call-template name="docs-link"><xsl:with-param name="addr" select="'api-objects'"/><xsl:with-param name="route" select="'api-objects.html'"/><xsl:with-param name="label" select="'In-place interfaces'"/></xsl:call-template>
+<xsl:call-template name="docs-link"><xsl:with-param name="addr" select="'api-runtime'"/><xsl:with-param name="route" select="'api-runtime.html'"/><xsl:with-param name="label" select="'Runtime and integrations'"/></xsl:call-template>
+<li class="nav-label">More</li>
+<xsl:call-template name="docs-link"><xsl:with-param name="addr" select="'baux-0004'"/><xsl:with-param name="route" select="'simulation.html'"/><xsl:with-param name="label" select="'Examples'"/></xsl:call-template>
+<xsl:call-template name="docs-link"><xsl:with-param name="addr" select="'baux-0002'"/><xsl:with-param name="route" select="'baux-0002.html'"/><xsl:with-param name="label" select="'References'"/></xsl:call-template>
+            </ul>
+          </nav>
+          <main id="main-content" tabindex="-1">
+            <article><xsl:apply-templates select="fr:tree"/></article>
+            <footer class="docs-footer"><a href="{/fr:tree/@base-url}index.html">baux</a><a href="https://pypi.org/project/baux/" rel="noopener noreferrer">PyPI</a><a href="https://crates.io/crates/baux" rel="noopener noreferrer">Crates.io</a><a href="#main-content">Back to top ↑</a></footer>
+          </main>
+        </div>
+        <div id="docs-index" hidden="hidden">
+          <xsl:call-template name="docs-index"><xsl:with-param name="addr" select="'baux-0001'"/><xsl:with-param name="route" select="'index.html'"/><xsl:with-param name="label" select="'Home'"/></xsl:call-template>
+<xsl:call-template name="docs-index"><xsl:with-param name="addr" select="'quickstart'"/><xsl:with-param name="route" select="'quickstart.html'"/><xsl:with-param name="label" select="'Quickstart'"/></xsl:call-template>
+<xsl:call-template name="docs-index"><xsl:with-param name="addr" select="'baux-0008'"/><xsl:with-param name="route" select="'baux-0008.html'"/><xsl:with-param name="label" select="'Structured parameters'"/></xsl:call-template>
+<xsl:call-template name="docs-index"><xsl:with-param name="addr" select="'baux-0009'"/><xsl:with-param name="route" select="'baux-0009.html'"/><xsl:with-param name="label" select="'Regions and workers'"/></xsl:call-template>
+<xsl:call-template name="docs-index"><xsl:with-param name="addr" select="'baux-0003'"/><xsl:with-param name="route" select="'baux-0003.html'"/><xsl:with-param name="label" select="'ENN predictions'"/></xsl:call-template>
+<xsl:call-template name="docs-index"><xsl:with-param name="addr" select="'baux-0007'"/><xsl:with-param name="route" select="'docs.html'"/><xsl:with-param name="label" select="'Optimizer'"/></xsl:call-template>
+<xsl:call-template name="docs-index"><xsl:with-param name="addr" select="'api-pipelines'"/><xsl:with-param name="route" select="'api-pipelines.html'"/><xsl:with-param name="label" select="'Pipelines'"/></xsl:call-template>
+<xsl:call-template name="docs-index"><xsl:with-param name="addr" select="'api-domains'"/><xsl:with-param name="route" select="'api-domains.html'"/><xsl:with-param name="label" select="'Parameter domains'"/></xsl:call-template>
+<xsl:call-template name="docs-index"><xsl:with-param name="addr" select="'api-enn'"/><xsl:with-param name="route" select="'api-enn.html'"/><xsl:with-param name="label" select="'ENN predictions'"/></xsl:call-template>
+<xsl:call-template name="docs-index"><xsl:with-param name="addr" select="'api-state'"/><xsl:with-param name="route" select="'api-state.html'"/><xsl:with-param name="label" select="'Checkpoints and keys'"/></xsl:call-template>
+<xsl:call-template name="docs-index"><xsl:with-param name="addr" select="'api-configuration'"/><xsl:with-param name="route" select="'api-configuration.html'"/><xsl:with-param name="label" select="'Configuration'"/></xsl:call-template>
+<xsl:call-template name="docs-index"><xsl:with-param name="addr" select="'api-objects'"/><xsl:with-param name="route" select="'api-objects.html'"/><xsl:with-param name="label" select="'In-place interfaces'"/></xsl:call-template>
+<xsl:call-template name="docs-index"><xsl:with-param name="addr" select="'api-runtime'"/><xsl:with-param name="route" select="'api-runtime.html'"/><xsl:with-param name="label" select="'Runtime and integrations'"/></xsl:call-template>
+<xsl:call-template name="docs-index"><xsl:with-param name="addr" select="'baux-0004'"/><xsl:with-param name="route" select="'simulation.html'"/><xsl:with-param name="label" select="'Examples'"/></xsl:call-template>
+<xsl:call-template name="docs-index"><xsl:with-param name="addr" select="'baux-0002'"/><xsl:with-param name="route" select="'baux-0002.html'"/><xsl:with-param name="label" select="'References'"/></xsl:call-template>
         </div>
       </body>
     </html>
+  </xsl:template>
+
+
+  <xsl:template name="docs-link">
+    <xsl:param name="addr"/><xsl:param name="route"/><xsl:param name="label"/>
+    <xsl:variable name="active" select="/fr:tree/fr:frontmatter/fr:addr = $addr"/>
+    <li>
+      <a href="{/fr:tree/@base-url}{$route}">
+        <xsl:if test="$active"><xsl:attribute name="aria-current">page</xsl:attribute></xsl:if>
+        <xsl:value-of select="$label"/>
+      </a>
+      <xsl:if test="$active">
+        <ul class="docs-page-contents">
+          <xsl:for-each select="/fr:tree/fr:mainmatter//section[@data-symbol]">
+            <li><a href="#{@id}"><code><xsl:value-of select="substring-after(@data-symbol, 'baux.')"/></code></a></li>
+          </xsl:for-each>
+          <xsl:for-each select="/fr:tree/fr:mainmatter/fr:tree">
+            <li><a href="#{generate-id(.)}"><xsl:value-of select="fr:frontmatter/fr:title"/></a></li>
+          </xsl:for-each>
+        </ul>
+      </xsl:if>
+    </li>
+  </xsl:template>
+
+  <!-- Index public documentation at build time; search needs no remote service. -->
+  <xsl:template name="docs-index">
+    <xsl:param name="addr"/><xsl:param name="route"/><xsl:param name="label"/>
+    <xsl:variable name="page" select="document(concat($addr, '.xml'))/fr:tree"/>
+    <a href="{$route}" data-summary="{normalize-space($page/fr:mainmatter/fr:p[1])}">
+      <xsl:attribute name="data-search"><xsl:choose>
+        <xsl:when test="$page/fr:mainmatter//section[@data-symbol]"><xsl:value-of select="normalize-space($page/fr:mainmatter/fr:p)"/></xsl:when>
+        <xsl:otherwise><xsl:value-of select="normalize-space($page/fr:mainmatter)"/></xsl:otherwise>
+      </xsl:choose></xsl:attribute>
+      <xsl:value-of select="$label"/>
+    </a>
+    <xsl:for-each select="$page/fr:mainmatter//section[@data-symbol]">
+      <a href="{$route}#{@id}" data-summary="{normalize-space(fr:p[1])}" data-search="{normalize-space(.)}">
+        <xsl:value-of select="@data-symbol"/>
+      </a>
+    </xsl:for-each>
   </xsl:template>
 
   <xsl:template match="fr:tree" mode="tree-taxon-with-number">
@@ -204,21 +289,8 @@
 
   <xsl:template match="fr:frontmatter">
     <header>
-      <h1>
-        <xsl:variable name="sec-num">
-          <xsl:apply-templates select=".." mode="contextual-number">
-            <xsl:with-param name="suffix">.&#160;</xsl:with-param>
-          </xsl:apply-templates>
-        </xsl:variable>
-        <xsl:if test="string-length($sec-num) &gt; 0">
-          <span class="sec-num">
-            <xsl:value-of select="$sec-num" />
-          </span>
-        </xsl:if>
-        <span class="sec-title">
-          <xsl:apply-templates select="fr:title" />
-        </span>
-      </h1>
+      <xsl:variable name="level"><xsl:choose><xsl:when test="count(ancestor::fr:tree) &gt; 6">6</xsl:when><xsl:otherwise><xsl:value-of select="count(ancestor::fr:tree)"/></xsl:otherwise></xsl:choose></xsl:variable>
+      <xsl:element name="h{$level}"><xsl:apply-templates select="fr:title"/></xsl:element>
     </header>
   </xsl:template>
 

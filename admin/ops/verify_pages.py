@@ -40,10 +40,6 @@ def check_views(target_dir: Path) -> None:
     content_lower = content.lower()
     if "<title>baux" not in content_lower and "baux" not in content_lower:
         raise RuntimeError("index.html missing title 'baux'")
-    if "a black box optimization library" not in content_lower:
-        raise RuntimeError("index.html missing black box optimization lead")
-    if "yubo-research/enn" not in content:
-        raise RuntimeError("index.html missing baseline reference to yubo-research/enn")
     if 'id="quickstart"' not in content:
         raise RuntimeError("index.html missing quickstart section")
 

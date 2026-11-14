@@ -1,27 +1,29 @@
-\title{Tokamak Control & Simulation}
+\title{Interactive Examples}
 \meta{slug}{simulation}
 
 \p{
-  The interactive console above couples 3D magnet and vessel geometry with 2D poloidal flux contours and closed-loop \code{toka_gym} policy rollouts, alongside stationary Grad–Shafranov equilibria exported from \code{FUSE.jl 1.2.1} (Meneghini et al. [[Men+24]](https://arxiv.org/abs/2409.05894)) for \code{SPARC}, \code{ARC}, \code{ITER}, and \code{DIII-D}. Below, the \code{TORAX} study isolates cross-region incumbent sharing over coupled radial transport PDEs, and § 4 opens the interactive 56-function \code{OxCaml} suite backed by our modal CPython bridge; see [Overview](index.html) for the \code{ENN} surrogate and trust-region formulation.
+  Choose a device in the console, select an optimizer configuration, and use the sliders to explore the rampdown timeline and optimization progress. The animated shapes and coil schedules are schematic; the TCV error chart below contains saved optimization results. Further down, try the synthetic function explorer or call its objectives from Python.
 }
 
+\<details>{
+\<summary>{TCV results and experiment setup}
 \subtree{
-  \title{Stationary Tokamak Equilibria (\code{FUSE.jl})}
+  \title{TCV Rampdown: Comparing Search Configurations}
 
   \p{
-    To anchor 3D magnetics and flux visualizations in consistent engineering limits, \code{evals/fuse/worker.jl} constructs \code{IMAS.dd()} device models in \code{FUSE.jl 1.2.1} for \code{SPARC}, \code{ARC}, \code{ITER}, and \code{DIII-D}, alongside a 25-vertex \code{TCV} vessel and 20 \code{E}/\code{F}/\code{OH} coils. Solving free-boundary equilibria and active coil currents via \code{ActorEquilibrium(:TEQUILA)}, \code{ActorPFdesign}, and \code{ActorPFactive}, the exporter records the vacuum vessel, first wall, toroidal D-coils, central solenoid, poloidal shaping rings, and last closed flux surface (\code{LCFS}) together with #{I_p}, #{B_0}, #{q_{95}}, #{\beta_N}, and #{P_{\mathrm{fus}}}.
-  }
-}
-
-\subtree{
-  \title{TCV Rampdown Policy Search (\code{toka_gym})}
-
-  \p{
-    On the EPFL/MIT \code{toka_gym} TCV plasma rampdown benchmark (Wang et al. [[Wan+25]](https://doi.org/10.1038/s41467-025-63917-3), Theiler et al. [[The+26]](https://doi.org/10.1088/1741-4326/ae6d12)), we optimize a four-layer neural policy #{\pi_\theta : \mathbb{R}^{11} \to [-1, 1]^8} of hidden width #{256} (#{D = 136{,}712} weights) over #{10{,}000} rounds across #{n = 10} common-random-number seeds. Each rollout advances #{20 \times 4} closed-loop steps from common initialization (\code{58.12 ± 31.39}; paired seed drift \code{0.00}), totaling #{800{,}000} trajectories across #{8} optimizer configurations.
+    The \code{toka_gym} rampdown environment supplies the objective for this study. The plasma-rampdown problem and its simulation setting are described by Wang et al. [[Wan+25]](https://doi.org/10.1038/s41467-025-63917-3) and Theiler et al. [[The+26]](https://doi.org/10.1088/1741-4326/ae6d12). Here, baux searches the weights of an #{11 \to 256 \to 256 \to 256 \to 8} feedback policy. Its #{136{,}712} parameters enter a rollout, and the resulting error becomes the objective value.
   }
 
   \p{
-    Without a surrogate, multi-region \code{TuRBO-zero} (#{R = 10}, sparse perturbations of expected block size #{d_p = 13{,}671}) yields identical trajectories across all four sharing topologies (\code{origin-only}, \code{box-contain}, \code{ellipsoid-ball}, \code{nearest-center}), dropping error to \code{1.42 ± 0.03} by round #{250} and \code{1.31 ± 0.02} (\code{1.3112 ± 0.0157}) at round #{10{,}000}. Single-region \code{TuRBO-ENN} (#{R = 1}, #{K = 10}, [baux.enn](docs.html#baux.enn)) initially trails \code{R = 10} at round #{250} (\code{1.58 ± 0.05} \code{hyperbolic} to \code{1.68 ± 0.08} \code{euclidean}; \code{wasserstein} \code{1.68 ± 0.06}, exact sign-flip #{p_{\mathrm{Holm}} = 0.014}) while fitting its distance scale, then closes the margin over #{10{,}000} rounds to match \code{R = 10} within paired sampling variation (\code{1.3409 ± 0.0301} \code{wasserstein}, difference \code{+0.03 ± 0.04}, #{p_{\mathrm{Holm}} = 1.00}; \code{1.35 ± 0.02} \code{euclidean}; \code{1.35 ± 0.03} \code{hyperbolic}; \code{1.37 ± 0.03} \code{conformal}).
+    We compare eight configurations over 10,000 rounds with ten paired seeds: four sharing policies for ten-region search without a surrogate, and four distance choices for one-region ENN search. The recorded labels are \code{TuRBO-zero} and \code{TuRBO-ENN}; the former uses the TuRBO region controller without the original algorithm's GP surrogate. Each round evaluates one proposed policy. The budget therefore covers 800,000 proposed-policy evaluations across the configurations and seeds.
+  }
+
+  \p{
+    All four surrogate-free sharing configurations have the same recorded trajectory and finish at mean error \code{1.3112 ± 0.0157}. The ENN configurations finish between \code{1.3409 ± 0.0301} (\code{wasserstein}) and \code{1.3693 ± 0.0303} (\code{conformal}). Here and in the figure, ± denotes the standard error of the mean across ten seeds; lower error is better.
+  }
+
+  \p{
+    At the final round, the two-sided paired sign-flip comparisons against \code{origin_only}, with Holm adjustment across the seven non-baseline configurations, do not reject equal performance (all adjusted #{p \ge 0.738}). This does not establish equivalence. Because the ENN comparison changes both the surrogate and the number of regions, it also does not identify the separate effect of either choice. Identical sharing trajectories show that the tested policies did not separate in this run; they do not show that sharing is irrelevant on other objectives.
   }
 
   \scope{
@@ -31,100 +33,36 @@
     \transclude{baux-0010}
   }
 }
+}
 
 \subtree{
-  \title{TORAX Transport & Shaping Policy Search}
+  \title{TORAX: A Transport Objective}
 
   \p{
-    To study cross-region incumbent sharing over #{10{,}000} rounds on an open-source transport solver, we evaluate a #{93 \to 256 \to 256 \to 256 \to 19} ELU+#{\tanh} policy (#{D = 160{,}531} parameters; policy architecture following Degrave et al. [[Deg+22]](https://doi.org/10.1038/s41586-021-04301-9), Tracey et al. [[Tra+24]](https://doi.org/10.1016/j.fusengdes.2024.114161), and Pfau et al. [[Pfa+25]](https://arxiv.org/abs/2505.00663)) in \code{TORAX 2.0.0} (Citrin et al. [[Cit+24]](https://arxiv.org/abs/2406.06718)). Each rollout evolves \code{iterhybrid} geometry (#{R_0 = 6.2\text{ m}}, #{B_0 = 5.3\text{ T}}, #{15} warmup steps followed by #{T = 20} controlled steps) coupled to four 1D radial transport PDEs for #{T_e(\hat{\rho})}, #{T_i(\hat{\rho})}, #{n_e(\hat{\rho})}, and #{\psi(\hat{\rho})} over #{\hat{\rho} \in [0, 1]}, mapping #{93} radial profile and shaping residuals to #{19} normalized plasma-current, heating, current-drive, fueling, and Miller local-equilibrium shaping (\code{kappa}, \code{delta_u}, \code{delta_l}, #{Z_{\mathrm{axis}}}; Miller et al. [[Mil+98]](https://doi.org/10.1063/1.872666)) actuators:
+    TORAX evolves radial plasma transport profiles (Citrin et al. [[Cit+24]](https://arxiv.org/abs/2406.06718)). baux includes an evaluator that varies heating power and deposition location, runs the solver, and returns a negative loss based on central electron temperature, ion temperature and heating power. This gives the optimizer a concrete simulation objective with two bounded inputs.
   }
 
-  ##{
-    \begin{aligned}
-      R(\hat{\rho}, \vartheta) &= R_{\mathrm{geo}}(\hat{\rho}) + \hat{\rho}\,a_{\min}\cos\bigl(\vartheta + \arcsin(\delta(\hat{\rho},\vartheta))\sin\vartheta\bigr), \\[4pt]
-      Z(\hat{\rho}, \vartheta) &= Z_{\mathrm{axis}} + \kappa(\hat{\rho})\,\hat{\rho}\,a_{\min}\sin\vartheta.
-    \end{aligned}
-  }
+}
+
+\subtree{
+  \title{Device Geometry and Equilibria}
 
   \p{
-    Following the multi-component reward formulation of Pfau et al. [[Pfa+25]](https://arxiv.org/abs/2505.00663) (Table 6, Eq. 31), five normalized tracking and actuator-regularization scores—Miller contour error against the 32-point \code{shape_70166} template, plasma current tracking #{I_p}, shaping-effort margin, actuator bounds compliance, and auxiliary balance—pass through target/bad-threshold sigmoids #{c_m(v)} (#{\zeta = -\ln 19}) and are combined over #{T = 20} steps on #{[0, 100]} via \code{SmoothMax} (#{\alpha = -3.0}):
-  }
-
-  ##{
-    \begin{aligned}
-      c_m(v) &= \operatorname{clip}\left(2\,\sigma\left(\zeta\,\frac{v - g_m}{b_m - g_m}\right),\, 0,\, 1\right), \\[4pt]
-      \mathcal{J}(\theta) &= \frac{100}{T}\sum_{t=1}^{T} \operatorname{SmoothMax}_{\alpha = -3}\bigl(c_{\mathrm{LCFS},t},\, c_{I_p,t},\, c_{\mathrm{PF},t},\, c_{\mathrm{volt},t},\, c_{\mathrm{OH},t}\bigr), \\[4pt]
-      \operatorname{SmoothMax}_{\alpha}(x_1,\dots,x_5) &= \frac{\sum_{m=1}^{5} x_m e^{\alpha x_m}}{\sum_{m=1}^{5} e^{\alpha x_m}}.
-    \end{aligned}
-  }
-
-  \p{
-    To isolate cross-region incumbent sharing under identical search budgets, both arms run surrogate-free \code{TuRBO-zero} (\code{acquisition = "random"}, #{R = 10} regions, \code{incumbent-ucb1} routing, expected perturbation size #{d_p = 16{,}053}, #{2} candidates and #{1} arm per round; [baux.regions](docs.html#baux.regions)) across #{n = 10} paired seeds. Table entries report sample \code{mean ± SEM} (\code{ddof = 1}); while circumscribing-ball sharing (\code{ellipsoid_ball}) leads at unadjusted two-sided #{t_9} levels late in search (#{p_2 = 0.0410} at round 10,000), the separation does not survive Holm–Bonferroni correction across the #{6} post-initialization checkpoints (#{p_{\mathrm{Holm}} = 0.246}).
-  }
-
-  \<table>{
-    \<tr>{
-      \<th>{Round}
-      \<th>{Shared TuRBO-zero (\code{ellipsoid_ball})}
-      \<th>{Independent TuRBO-zero (\code{origin_only})}
-      \<th>{Paired Diff (\code{mean ± SEM})}
-    }
-    \<tr>{
-      \<td>{\code{0} (Init)}
-      \<td>{\code{5.97 ± 1.13}}
-      \<td>{\code{5.97 ± 1.13}}
-      \<td>{\code{+0.00 ± 0.00}}
-    }
-    \<tr>{
-      \<td>{\code{300}}
-      \<td>{\code{53.36 ± 5.90}}
-      \<td>{\code{52.38 ± 5.13}}
-      \<td>{\code{+0.98 ± 4.02}}
-    }
-    \<tr>{
-      \<td>{\code{1,000}}
-      \<td>{\code{70.77 ± 5.95}}
-      \<td>{\code{71.39 ± 4.74}}
-      \<td>{\code{−0.62 ± 3.98}}
-    }
-    \<tr>{
-      \<td>{\code{3,000}}
-      \<td>{\code{83.25 ± 2.60}}
-      \<td>{\code{80.93 ± 2.97}}
-      \<td>{\code{+2.32 ± 1.64}}
-    }
-    \<tr>{
-      \<td>{\code{5,000}}
-      \<td>{\code{87.65 ± 1.81}}
-      \<td>{\code{86.28 ± 1.14}}
-      \<td>{\code{+1.38 ± 1.59}}
-    }
-    \<tr>{
-      \<td>{\code{8,000}}
-      \<td>{\code{90.52 ± 0.65}}
-      \<td>{\code{88.60 ± 0.81}}
-      \<td>{\code{+1.92 ± 0.81} (#{p_2 = 0.0421})}
-    }
-    \<tr>{
-      \<td>{\code{10,000}}
-      \<td>{\code{91.57 ± 0.55}}
-      \<td>{\code{89.41 ± 0.97}}
-      \<td>{\code{+2.16 ± 0.91} (#{p_2 = 0.0410})}
-    }
+    The console displays vessel and magnet geometry for TCV, SPARC, ARC, ITER and DIII-D. The non-TCV views include exported equilibrium and engineering data from FUSE (Meneghini et al. [[Men+24]](https://arxiv.org/abs/2409.05894)).
   }
 }
 
 \subtree{
-  \title{OxCaml 56-Function Suite & Modal Python Bridge}
+  \title{Synthetic Objectives}
 
   \p{
-    Alongside the plasma control benchmarks, \strong{baux} ships a 56-function synthetic optimization catalogue (\code{ocaml/lib/problem.ml}, \code{ocaml/lib/formulas.ml}) covering 16 multimodal, 10 bowl, 5 plate, 5 valley, 3 ridge, and 17 standard test surfaces across fixed #{1\text{D--}6\text{D}} domains and 18 scalable families evaluated at canonical #{d}, #{D = 16}, and #{D = 64}. Compiled under \code{OxCaml 5.2.0+ox}, these kernels evaluate over unboxed \code{float#} scalars and pair-interleaved \code{float64x2#} ARM64 NEON + \code{SLEEF 3.9.0} lanes scheduled across work-stealing domains via \code{Parallel_scheduler} and capsule-isolated \code{Batch.workspace} buffers.
+    Choose from 56 test functions in the explorer below to inspect their domains and surfaces. To use the same catalogue in your own search, load a function through \code{baux.benchmarks.oxcaml}.
   }
 
   \<div>[id]{ocaml-bench-simulation}{}
 
   \p{
-    To call those kernels from Python without per-object reference counting or aliasing hazards, \code{ocaml/pybridge/py_obj.mli} and \code{baux.benchmarks.oxcaml} implement a modal CPython C-API bridge following Trangez [[Tra26]](https://blog.janestreet.com/oxcaml-typesafe-reference-counting-python/). Borrowed NumPy views acquired via \code{PyObject_GetBuffer} in \code{Py_obj.F64_buffer.with_matrix} enter OCaml as stack-scoped \code{Py_obj.t @ local} handles with zero \code{Py_INCREF}/\code{Py_DECREF} traffic, so OxCaml's locality mode rejects heap storage or closure capture at compile time (\code{ocaml/tests/unsafe_py_escape.ml}). Newly allocated return values—including #{N \times 8}-byte \code{bytearray} buffers exposed zero-copy through \code{np.frombuffer}—carry affine \code{Py_obj.t @ unique} ownership (\code{ob_refcnt = 1}), populate container slots via \code{borrow_} and stealing inserts (\code{Py_obj.List.set_steal}), and forbid use-after-\code{decref} statically (\code{ocaml/tests/unsafe_py_decref.ml}) while \code{Modes.Portable.t} preserves resident worker pools across calls:
+    From Python, \code{baux.benchmarks.oxcaml} returns bounds and an objective callable. The following example evaluates Ackley in 16 dimensions, then checks the evaluator at the origin:
   }
 
   \pre{
@@ -143,90 +81,7 @@ vals = oxcaml.eval_batch("ackley", grid, backend="simd", workers=4)
 assert vals.shape == (4096,) and np.allclose(vals, 0.0, atol=1e-12)
   }
 
-  \scope{
-    \put\transclude/toc{false}
-    \put\transclude/numbered{false}
-    \put\transclude/heading{false}
-    \transclude{baux-0011}
-  }
-
-  \<table>{
-    \<tr>{
-      \<th>{Regime & Function}
-      \<th>{Native \code{float#} (\code{M/s})}
-      \<th>{Native Selected (\code{M/s} & Speedup)}
-      \<th>{Pipeline Speedup}
-      \<th>{Modal \code{oxcaml.eval_batch} (\code{M/s} & vs. Python)}
-    }
-    \<tr>{
-      \<td>{Canonical \code{de-jong5} (#{2\text{D}})}
-      \<td>{\code{4.31}}
-      \<td>{\code{11.22} (\code{2.60×}, \code{simd w=10})}
-      \<td>{\code{2.46×}}
-      \<td>{\code{7.18} (\code{w=1}; \code{6.0×} vs. \code{eval_one})}
-    }
-    \<tr>{
-      \<td>{Canonical \code{eggholder} (#{2\text{D}})}
-      \<td>{\code{43.09}}
-      \<td>{\code{44.79} (\code{1.04×}, \code{simd w=10})}
-      \<td>{\code{1.50×}}
-      \<td>{\code{21.10} (\code{w=1}; \code{13.9×} vs. \code{eval_one})}
-    }
-    \<tr>{
-      \<td>{Canonical \code{griewank} (#{2\text{D}})}
-      \<td>{\code{36.49}}
-      \<td>{\code{43.75} (\code{1.20×}, \code{simd w=10})}
-      \<td>{\code{1.79×}}
-      \<td>{\code{22.95} (\code{w=1}; \code{22.1×} vs. Python)}
-    }
-    \<tr>{
-      \<td>{Scalable \code{ackley} (#{D = 16})}
-      \<td>{\code{6.04}}
-      \<td>{\code{8.37} (\code{1.39×}, \code{scalar w=8})}
-      \<td>{\code{1.20×}}
-      \<td>{\code{4.29} (\code{w=10}; \code{20.0×} vs. Python)}
-    }
-    \<tr>{
-      \<td>{Scalable \code{levy} (#{D = 16})}
-      \<td>{\code{6.05}}
-      \<td>{\code{12.88} (\code{2.13×}, \code{simd w=4})}
-      \<td>{\code{1.23×}}
-      \<td>{\code{4.34} (\code{w=10}; \code{4.3×} vs. \code{eval_one})}
-    }
-    \<tr>{
-      \<td>{Scalable \code{perm-zero} (#{D = 16})}
-      \<td>{\code{0.38}}
-      \<td>{\code{2.54} (\code{6.70×}, \code{simd w=8})}
-      \<td>{\code{5.19×}}
-      \<td>{\code{2.12} (\code{w=10}; \code{128×} vs. Python)}
-    }
-    \<tr>{
-      \<td>{Scalable \code{sphere} (#{D = 64})}
-      \<td>{\code{11.31}}
-      \<td>{\code{21.20} (\code{1.87×}, \code{simd w=8})}
-      \<td>{\code{0.84×}}
-      \<td>{\code{2.06} (\code{w=1}; \code{2.1×} vs. \code{eval_one})}
-    }
-    \<tr>{
-      \<td>{Scalable \code{michalewicz} (#{D = 64})}
-      \<td>{\code{0.57}}
-      \<td>{\code{2.94} (\code{5.12×}, \code{simd w=10})}
-      \<td>{\code{2.49×}}
-      \<td>{\code{1.30} (\code{w=10}; \code{21.0×} vs. Python)}
-    }
-    \<tr>{
-      \<td>{Scalable \code{griewank} (#{D = 64})}
-      \<td>{\code{0.91}}
-      \<td>{\code{3.71} (\code{4.07×}, \code{simd w=4})}
-      \<td>{\code{1.80×}}
-      \<td>{\code{1.39} (\code{w=10}; \code{18.1×} vs. Python)}
-    }
-    \<tr>{
-      \<td>{Scalable \code{perm-zero} (#{D = 64})}
-      \<td>{\code{0.018}}
-      \<td>{\code{0.18} (\code{10.05×}, \code{simd w=10})}
-      \<td>{\code{10.15×}}
-      \<td>{\code{0.23} (\code{w=10}; \code{210×} vs. Python)}
-    }
+  \p{
+    The native implementation offers scalar and SIMD evaluation with configurable workers. A throughput comparison must state the processor, batch size, dimension, worker count and whether data preparation is timed. Kernel throughput alone does not determine the cost of an optimizer round, which also generates and selects candidates.
   }
 }

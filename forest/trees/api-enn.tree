@@ -1,0 +1,193 @@
+\title{ENN predictions}
+\meta{toc}{false}
+
+\p{The functional sequence is \code{enn_init → enn_fit → enn_posterior}. Fitting returns parameters separately from the dataset. For an end-to-end example, see [ENN predictions](baux-0003.html).}
+
+\<section>[id]{baux.enn_init}[class]{api-entry}[data-symbol]{baux.enn_init}[data-kind]{function}[data-module]{baux.enn}{
+  \<div>[class]{api-entry-header}{\<h2>[class]{api-entry-title}{[\code{baux.enn_init}](api-enn.html#baux.enn_init)}}
+  \pre{
+baux.enn_init(
+    train_x: Any,
+    train_y: Any,
+    train_yvar: Any = None,
+    *,
+    scale_x: bool = False,
+    stiefel: Stiefel | np.ndarray | None = None,
+    affine: Affine | tuple[Any, Any, Any] | None = None,
+    **options: Any,
+) -> ENNState
+  }
+  \p{Create an ENN dataset and neighbor index.}
+  \<dl>[class]{api-contract}{
+    \<dt>{Parameters}
+    \<dd>{\ul{
+      \li{\code{train_x}: Training coordinates, shape \code{(N, D)}.}
+      \li{\code{train_y}: Training responses, shape \code{(N,)} or \code{(N, M)}. A one-dimensional response is reshaped to one column.}
+      \li{\code{train_yvar}: Optional observation variances matching the responses.}
+      \li{\code{scale_x}: Whether to scale input coordinates.}
+      \li{\code{stiefel / affine}: Optional input projection and output calibration.}
+      \li{\code{options}: Additional keyword options forwarded to the ENN model.}
+    }}
+    \<dt>{Returns}
+    \<dd>{An \code{ENNState}. Use [\code{enn_fit}](api-enn.html#baux.enn_fit) to fit prediction parameters.}
+  }
+  \<div>[class]{api-example}{\<p>[class]{example-label}{Example}
+\pre{
+import numpy as np
+import baux
+
+x = np.array([[0.0], [1.0], [2.0], [3.0], [4.0]])
+y = np.sin(x)
+state = baux.enn_init(x, y)
+params = baux.enn_fit(state, k=3, num_samples=5, seed=0)
+q = np.array([[0.5], [1.5], [2.5]])
+post = baux.enn_posterior(state, q, params)
+draws, idx = baux.enn_sample(state, q, params, num_draws=4)
+x_new = np.full((1, 1), 5.0)
+state2 = baux.enn_append(state, x_new, np.sin(x_new))
+
+assert post.mu.shape == (3, 1)
+assert draws.shape == (3, 1, 4)
+assert len(state2) == 6
+}
+  }
+  \<p>[class]{api-source}{[Source in \code{python/baux/enn/enn_state.py}](https://github.com/Kvutza/baux/blob/main/python/baux/enn/enn_state.py#L332)}
+}
+
+\<section>[id]{baux.enn_append}[class]{api-entry}[data-symbol]{baux.enn_append}[data-kind]{function}[data-module]{baux.enn}{
+  \<div>[class]{api-entry-header}{\<h2>[class]{api-entry-title}{[\code{baux.enn_append}](api-enn.html#baux.enn_append)}}
+  \pre{
+baux.enn_append(state: ENNState, x: Any, y: Any, y_var: Any = None) -> ENNState
+  }
+  \p{Append observations to an ENN state.}
+  \<dl>[class]{api-contract}{
+    \<dt>{Parameters}
+    \<dd>{\ul{
+      \li{\code{state}: Existing \code{ENNState}.}
+      \li{\code{x / y}: Additional coordinates and responses with the same feature and output dimensions.}
+      \li{\code{y_var}: Variances for the new rows. Their presence must match the existing state's variance data.}
+    }}
+    \<dt>{Returns}
+    \<dd>{A new \code{ENNState} containing the old and new rows. Also exported as \code{baux.append}.}
+  }
+  \<p>[class]{api-source}{[Source in \code{python/baux/enn/enn_state.py}](https://github.com/Kvutza/baux/blob/main/python/baux/enn/enn_state.py#L366)}
+}
+
+\<section>[id]{baux.enn_fit}[class]{api-entry}[data-symbol]{baux.enn_fit}[data-kind]{function}[data-module]{baux.enn}{
+  \<div>[class]{api-entry-header}{\<h2>[class]{api-entry-title}{[\code{baux.enn_fit}](api-enn.html#baux.enn_fit)}}
+  \pre{
+baux.enn_fit(
+    state: ENNState,
+    k: int = 10,
+    *,
+    num_candidates: int = 100,
+    num_samples: int = 10,
+    infer_aleatoric: bool = True,
+    key: Any = None,
+    seed: int | Generator | None = None,
+    warm: ENNParams | None = None,
+) -> ENNParams
+  }
+  \p{Fit ENN variance scales for a neighbor count.}
+  \p{Returns \code{ENNParams}; the dataset is unchanged. \code{k}: number of neighbors. \code{num_candidates}: parameter-search budget. \code{num_samples}: leave-one-out sample budget.}
+  \p{\code{infer_aleatoric} controls fitting the aleatoric scale. \code{warm} supplies previous parameters. \code{key} takes precedence over \code{seed}. Alias: \code{baux.fit}.}
+  \<p>[class]{api-source}{[Source in \code{python/baux/enn/enn_state.py}](https://github.com/Kvutza/baux/blob/main/python/baux/enn/enn_state.py#L434)}
+}
+
+\<section>[id]{baux.enn_posterior}[class]{api-entry}[data-symbol]{baux.enn_posterior}[data-kind]{function}[data-module]{baux.enn}{
+  \<div>[class]{api-entry-header}{\<h2>[class]{api-entry-title}{[\code{baux.enn_posterior}](api-enn.html#baux.enn_posterior)}}
+  \pre{
+baux.enn_posterior(
+    state: ENNState,
+    x: Any,
+    params: ENNParams,
+    *,
+    flags: PosteriorFlags | None = None,
+) -> ENNNormal
+  }
+  \p{Predict means and uncertainty at query points.}
+  \<dl>[class]{api-contract}{
+    \<dt>{Parameters}
+    \<dd>{\ul{
+      \li{\code{state}: ENN training state.}
+      \li{\code{x}: Query coordinates, shape \code{(Q, D)}.}
+      \li{\code{params}: \code{ENNParams}, usually returned by \code{enn_fit}.}
+      \li{\code{flags}: Optional \code{baux.enn.PosteriorFlags}: \code{exclude_nearest=False}, \code{observation_noise=False}, \code{tie_neighbors=True}.}
+    }}
+    \<dt>{Returns}
+    \<dd>{An \code{ENNNormal} with \code{mu}, \code{se}, \code{se_epi} and \code{se_ale} arrays of shape \code{(Q, M)}. Also exported as \code{baux.posterior}.}
+  }
+  \<p>[class]{api-source}{[Source in \code{python/baux/enn/enn_state.py}](https://github.com/Kvutza/baux/blob/main/python/baux/enn/enn_state.py#L400)}
+}
+
+\<section>[id]{baux.enn_sample}[class]{api-entry}[data-symbol]{baux.enn_sample}[data-kind]{function}[data-module]{baux.enn}{
+  \<div>[class]{api-entry-header}{\<h2>[class]{api-entry-title}{[\code{baux.enn_sample}](api-enn.html#baux.enn_sample)}}
+  \pre{
+baux.enn_sample(
+    state: ENNState,
+    x: Any,
+    params: ENNParams,
+    *,
+    key: Any = None,
+    num_draws: int = 1,
+    seeds: np.ndarray | list[int] | tuple[int, ...] | None = None,
+    flags: PosteriorFlags | None = None,
+) -> tuple[np.ndarray, np.ndarray]
+  }
+  \p{Draw functions from the ENN prediction model.}
+  \p{\code{x}: \code{(Q, D)} queries. Returns \code{(draws, neighbor_ids)}; \code{draws} has shape \code{(Q, M, S)}.}
+  \p{\code{num_draws} sets \code{S} when seeds are generated from \code{key}. Explicit \code{seeds} overrides that generation and determines the draw count. Reusing function seeds couples queries through shared observation-level randomness.}
+  \p{\code{flags} has the same meaning as in \code{enn_posterior}; observation noise is excluded by default. Alias: \code{baux.sample}.}
+  \<p>[class]{api-source}{[Source in \code{python/baux/enn/enn_state.py}](https://github.com/Kvutza/baux/blob/main/python/baux/enn/enn_state.py#L407)}
+}
+
+\<section>[id]{baux.ENNState}[class]{api-entry}[data-symbol]{baux.ENNState}[data-kind]{class}[data-module]{baux.enn}{
+  \<div>[class]{api-entry-header}{\<h2>[class]{api-entry-title}{[\code{baux.ENNState}](api-enn.html#baux.ENNState)}}
+  \pre{
+class baux.ENNState  (frozen dataclass; constructed via baux.enn_init)
+  }
+  \p{A dataset and index for functional ENN queries.}
+  \p{Construct it with \code{enn_init}, then use \code{enn_append} to add data. \code{x}, \code{y} and optional \code{y_var} are read-only arrays; \code{len(state)}, \code{num_dim} and \code{num_outputs} describe their dimensions.}
+  \p{\code{key} is derived from the stored data and options. Fitted parameters are returned separately by \code{enn_fit}.}
+  \<p>[class]{api-source}{[Source in \code{python/baux/enn/enn_state.py}](https://github.com/Kvutza/baux/blob/main/python/baux/enn/enn_state.py#L23)}
+}
+
+\<section>[id]{baux.ENNParams}[class]{api-entry}[data-symbol]{baux.ENNParams}[data-kind]{class}[data-module]{baux.enn}{
+  \<div>[class]{api-entry-header}{\<h2>[class]{api-entry-title}{[\code{baux.ENNParams}](api-enn.html#baux.ENNParams)}}
+  \pre{
+baux.ENNParams(k_neighbors: int, epistemic_scale: float, aleatoric_scale: float)
+  }
+  \p{Parameters required for an ENN prediction.}
+  \p{\code{k_neighbors}: neighbor count. \code{epistemic_scale} and \code{aleatoric_scale}: variance multipliers. Usually returned by \code{enn_fit} or \code{ENNFitter.ask}.}
+  \<p>[class]{api-source}{[Source in \code{python/baux/enn/enn_params.py}](https://github.com/Kvutza/baux/blob/main/python/baux/enn/enn_params.py#L10)}
+}
+
+\<section>[id]{baux.Posterior}[class]{api-entry}[data-symbol]{baux.Posterior}[data-kind]{class}[data-module]{baux.enn}{
+  \<div>[class]{api-entry-header}{\<h2>[class]{api-entry-title}{[\code{baux.Posterior}](api-enn.html#baux.Posterior)}}
+  \pre{
+class baux.Posterior  (device-resident posterior; paired with host baux.enn.ENNNormal)
+  }
+  \p{A native posterior result for device queries.}
+  \p{Exposes \code{mean}, \code{se} and \code{draw(seeds)} through native buffers. This differs from the NumPy \code{ENNNormal} returned by \code{enn_posterior}. Check backend operation support with [\code{capabilities}](api-runtime.html#baux.capabilities).}
+  \<p>[class]{api-source}{[Source in \code{rust/crates/baux-py/src/py_posterior.rs}](https://github.com/Kvutza/baux/blob/main/rust/crates/baux-py/src/py_posterior.rs)}
+}
+
+\<section>[id]{baux.NeighborIndex}[class]{api-entry}[data-symbol]{baux.NeighborIndex}[data-kind]{class}[data-module]{baux.index}{
+  \<div>[class]{api-entry-header}{\<h2>[class]{api-entry-title}{[\code{baux.NeighborIndex}](api-enn.html#baux.NeighborIndex)}}
+  \pre{
+class baux.NeighborIndex(enum.Enum)
+  }
+  \p{Select a nearest-neighbor backend.}
+  \p{Members: \code{FLAT}, \code{AUTO}, \code{USEARCH}, \code{BPANN_DISK}, \code{METAL}, \code{OPENCL}, \code{CUDA}. Supply a member as \code{index_driver} to \code{ENN}. Availability depends on the native build and hardware.}
+  \<p>[class]{api-source}{[Source in \code{python/baux/index.py}](https://github.com/Kvutza/baux/blob/main/python/baux/index.py#L16)}
+}
+
+\<section>[id]{baux.DistanceMetric}[class]{api-entry}[data-symbol]{baux.DistanceMetric}[data-kind]{class}[data-module]{baux.index}{
+  \<div>[class]{api-entry-header}{\<h2>[class]{api-entry-title}{[\code{baux.DistanceMetric}](api-enn.html#baux.DistanceMetric)}}
+  \pre{
+class baux.DistanceMetric(enum.Enum)
+  }
+  \p{Select the index distance.}
+  \p{Members: \code{SQUARED_L2} and \code{COSINE}. The native optimizer's ENN configuration requires \code{SQUARED_L2}. This enum is separate from the geometry names accepted by \code{with_geometry}.}
+  \<p>[class]{api-source}{[Source in \code{python/baux/index.py}](https://github.com/Kvutza/baux/blob/main/python/baux/index.py#L9)}
+}

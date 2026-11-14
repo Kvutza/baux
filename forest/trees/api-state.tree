@@ -1,0 +1,162 @@
+\title{Checkpoints and keys}
+\meta{toc}{false}
+
+\p{A checkpoint saves optimizer state. A key controls randomness. Neither saves the external evaluator or running worker jobs. Continue a restored run with the same observations and submission order when reproducibility matters.}
+
+\<section>[id]{baux.freeze}[class]{api-entry}[data-symbol]{baux.freeze}[data-kind]{function}[data-module]{baux.state}{
+  \<div>[class]{api-entry-header}{\<h2>[class]{api-entry-title}{[\code{baux.freeze}](api-state.html#baux.freeze)}}
+  \pre{
+baux.freeze(state: OptimizerState) -> bytes
+  }
+  \p{Serialize an optimizer checkpoint.}
+  \p{Returns \code{bytes}. Save them and restore with [\code{thaw}](api-state.html#baux.thaw), supplying a compatible initial state. The checkpoint contains optimizer state, including pending evaluations; it does not save external worker jobs or evaluator state.}
+  \p{The BLAKE3 tag detects corruption. It is not an authentication signature.}
+  \<div>[class]{api-example}{\<p>[class]{example-label}{Example}
+\pre{
+import numpy as np
+import baux
+
+domain = np.array([[-2.0, 2.0], [-2.0, 2.0]])
+blank = baux.init(domain, baux.turbo_zero(), seed=123)
+state, batch = baux.ask(blank, 2)
+y = -np.sum(batch.points**2, axis=-1, keepdims=True)
+state, _ = baux.tell(state, batch, y)
+raw = baux.freeze(state)
+restored = baux.thaw(blank, raw)
+assert restored.epoch == state.epoch
+assert restored.seed == state.seed
+assert restored.num_observations == state.num_observations
+assert np.array_equal(baux.ask(state, 2)[1].points, baux.ask(restored, 2)[1].points)
+}
+  }
+  \<p>[class]{api-source}{[Source in \code{python/baux/state.py}](https://github.com/Kvutza/baux/blob/main/python/baux/state.py#L346)}
+}
+
+\<section>[id]{baux.thaw}[class]{api-entry}[data-symbol]{baux.thaw}[data-kind]{function}[data-module]{baux.state}{
+  \<div>[class]{api-entry-header}{\<h2>[class]{api-entry-title}{[\code{baux.thaw}](api-state.html#baux.thaw)}}
+  \pre{
+baux.thaw(state: OptimizerState, data: bytes) -> OptimizerState
+  }
+  \p{Restore a checkpoint against a compatible state template.}
+  \p{\code{state}: a state initialized with the expected domain and configuration. \code{data}: bytes from \code{freeze}. Returns the restored \code{OptimizerState}.}
+  \p{Checks the format, integrity and compatibility; malformed or incompatible payloads are rejected. To reproduce subsequent proposals, preserve the evaluator results and their submission order too.}
+  \<p>[class]{api-source}{[Source in \code{python/baux/state.py}](https://github.com/Kvutza/baux/blob/main/python/baux/state.py#L357)}
+}
+
+\<section>[id]{baux.digest}[class]{api-entry}[data-symbol]{baux.digest}[data-kind]{function}[data-module]{baux.state}{
+  \<div>[class]{api-entry-header}{\<h2>[class]{api-entry-title}{[\code{baux.digest}](api-state.html#baux.digest)}}
+  \pre{
+baux.digest(state: OptimizerState) -> str
+  }
+  \p{Get the optimizer state's content digest.}
+  \p{Returns a 64-character hexadecimal string. Use it to compare saved optimizer states. It does not identify the external evaluator, data source or running workers.}
+  \<p>[class]{api-source}{[Source in \code{python/baux/state.py}](https://github.com/Kvutza/baux/blob/main/python/baux/state.py#L341)}
+}
+
+\<section>[id]{baux.key}[class]{api-entry}[data-symbol]{baux.key}[data-kind]{function}[data-module]{baux.state}{
+  \<div>[class]{api-entry-header}{\<h2>[class]{api-entry-title}{[\code{baux.key}](api-state.html#baux.key)}}
+  \pre{
+baux.key(source: Any = None) -> Any
+  }
+  \p{Create a random key or retrieve one from a state.}
+  \p{\code{source} may be an integer seed, bytes, an array or an object exposing \code{key}. With \code{None}, draws fresh operating-system entropy. Returns a \code{Key}.}
+  \<p>[class]{api-source}{[Source in \code{python/baux/functional.py}](https://github.com/Kvutza/baux/blob/main/python/baux/functional.py#L55)}
+}
+
+\<section>[id]{baux.Key}[class]{api-entry}[data-symbol]{baux.Key}[data-kind]{class}[data-module]{baux.state}{
+  \<div>[class]{api-entry-header}{\<h2>[class]{api-entry-title}{[\code{baux.Key}](api-state.html#baux.Key)}}
+  \pre{
+baux.Key(source = None)
+  }
+  \p{A splittable random key.}
+  \p{Use [\code{key}](api-state.html#baux.key), [\code{split}](api-state.html#baux.split) and [\code{fold}](api-state.html#baux.fold) to create and derive keys. Reusing a key reproduces its deterministic stream. Reproducing a search also requires the same observations and transition order.}
+  \<p>[class]{api-source}{[Source in \code{rust/crates/baux-py/src/py_hash.rs}](https://github.com/Kvutza/baux/blob/main/rust/crates/baux-py/src/py_hash.rs)}
+}
+
+\<section>[id]{baux.split}[class]{api-entry}[data-symbol]{baux.split}[data-kind]{function}[data-module]{baux.state}{
+  \<div>[class]{api-entry-header}{\<h2>[class]{api-entry-title}{[\code{baux.split}](api-state.html#baux.split)}}
+  \pre{
+baux.split(k: Any, n: int = 2) -> tuple[Any, ...]
+  }
+  \p{Derive child keys from a parent key.}
+  \p{Returns a tuple of \code{n} keys without changing \code{k}. Default \code{n=2}. Use a different child for each search branch or draw stream.}
+  \<p>[class]{api-source}{[Source in \code{python/baux/functional.py}](https://github.com/Kvutza/baux/blob/main/python/baux/functional.py#L64)}
+}
+
+\<section>[id]{baux.fold}[class]{api-entry}[data-symbol]{baux.fold}[data-kind]{function}[data-module]{baux.state}{
+  \<div>[class]{api-entry-header}{\<h2>[class]{api-entry-title}{[\code{baux.fold}](api-state.html#baux.fold)}}
+  \pre{
+baux.fold(k: Any, tag: int) -> Any
+  }
+  \p{Derive a key using an integer tag.}
+  \p{Returns a new key. The tag is reduced modulo \code{2**64}; the parent is unchanged. Useful for giving a step or branch a repeatable key.}
+  \<p>[class]{api-source}{[Source in \code{python/baux/functional.py}](https://github.com/Kvutza/baux/blob/main/python/baux/functional.py#L73)}
+}
+
+\<section>[id]{baux.scan}[class]{api-entry}[data-symbol]{baux.scan}[data-kind]{function}[data-module]{baux.state}{
+  \<div>[class]{api-entry-header}{\<h2>[class]{api-entry-title}{[\code{baux.scan}](api-state.html#baux.scan)}}
+  \pre{
+baux.scan(
+    state: OptimizerState,
+    key: Any = None,
+    steps: int = 0,
+    eval_fn: Callable[..., Any] | None = None,
+    num_arms: int = 1,
+) -> Any
+  }
+  \p{Run several sequential optimization rounds.}
+  \p{Keyed form: \code{scan(state, key, steps, eval_fn, num_arms=1)} returns \code{(final_state, next_key, records)}. The evaluator receives the coordinate batch; records contain \code{step}, \code{best_y} and a lazily computed \code{digest}.}
+  \p{Convenience form: \code{scan(state, objective, steps=N)} returns \code{(final_state, values)} and uses decoded parameters for a structured domain. The two forms have different return values. \code{steps} must be non-negative.}
+  \<div>[class]{api-example}{\<p>[class]{example-label}{Example}
+\pre{
+import numpy as np
+import baux
+
+domain = np.array([[-2.0, 2.0], [-2.0, 2.0]])
+state = baux.init(domain, baux.turbo_zero(), seed=0)
+
+def objective(x):
+    return -np.sum(x**2, axis=-1, keepdims=True)
+
+final_state, key_out, traces = baux.scan(
+    state,
+    key=baux.key(42),
+    steps=4,
+    eval_fn=objective,
+    num_arms=1,
+)
+assert final_state.num_observations == 4
+assert len(traces) == 4
+assert traces[-1]["step"] == 3
+
+root_key = baux.key(0)
+subkeys = baux.split(root_key, 3)
+assert len(subkeys) == 3
+
+def branch_fn(idx, branch_state, k):
+    s_end, _, _ = baux.scan(branch_state, key=k, steps=2, eval_fn=objective)
+    return idx, s_end.best_y
+
+results = baux.pmap(state, root_key, 3, branch_fn)
+assert len(results) == 3
+assert [r[0] for r in results] == [0, 1, 2]
+}
+  }
+  \<p>[class]{api-source}{[Source in \code{python/baux/functional.py}](https://github.com/Kvutza/baux/blob/main/python/baux/functional.py#L394)}
+}
+
+\<section>[id]{baux.pmap}[class]{api-entry}[data-symbol]{baux.pmap}[data-kind]{function}[data-module]{baux.state}{
+  \<div>[class]{api-entry-header}{\<h2>[class]{api-entry-title}{[\code{baux.pmap}](api-state.html#baux.pmap)}}
+  \pre{
+baux.pmap(
+    state: OptimizerState,
+    key: Any,
+    branches: int,
+    branch_fn: Callable[[int, OptimizerState, Any], Any],
+) -> list[Any]
+  }
+  \p{Run independent search branches in worker threads.}
+  \p{Calls \code{branch_fn(index, branch_state, branch_key)} once per branch and returns results in branch-index order. Each branch starts from \code{state.fork(child_key)}.}
+  \p{\code{branches} must be non-negative; zero returns an empty list. This is a local thread pool, not a device mapping or distributed scheduler. Evaluator thread safety remains the caller's responsibility.}
+  \<p>[class]{api-source}{[Source in \code{python/baux/functional.py}](https://github.com/Kvutza/baux/blob/main/python/baux/functional.py#L436)}
+}

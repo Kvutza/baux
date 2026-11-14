@@ -17,6 +17,16 @@ _VALID_CSP = (
 )
 
 
+def test_citations():
+    trees = ROOT / "forest" / "trees"
+    references = (trees / "baux-0002.tree").read_text(encoding="utf-8")
+    defined = set(re.findall(r"\\strong\{\[([^]]+)\]\}", references))
+    used = set()
+    for tree in trees.glob("*.tree"):
+        used.update(re.findall(r"\[\[([^]]+)\]\]", tree.read_text(encoding="utf-8")))
+    assert used <= defined, f"Undefined citations: {sorted(used - defined)}"
+
+
 def test_bundle():
     with tempfile.TemporaryDirectory() as tmpdir:
         dest = Path(tmpdir)
@@ -27,6 +37,12 @@ def test_bundle():
         assert not (dest / "forest").exists()
         assert not list(dest.rglob("*.xml"))
         assert not list(dest.rglob("*.xsl"))
+        for page in dest.glob("*.html"):
+            assert "background-color:red" not in page.read_text(encoding="utf-8"), page
+            content = page.read_text(encoding="utf-8")
+            assert 'id="docs-nav"' in content, page
+            assert 'id="docs-search"' in content, page
+            assert 'id="main-content"' in content, page
 
 
 def test_snippets():
@@ -36,40 +52,119 @@ def test_snippets():
     if not index_path.is_file():
         with tempfile.TemporaryDirectory() as tmpdir:
             assemble_bundle(Path(tmpdir))
-    index_html = index_path.read_text(encoding="utf-8")
-    snippets = [
-        html.unescape(s)
-        for s in re.findall(r"<pre[^>]*>(.*?)</pre>", index_html, flags=re.DOTALL)
-    ]
-    python_snippets = [s for s in snippets if "import baux" in s]
-    assert len(python_snippets) >= 4
-    for snippet in python_snippets:
-        ns: dict = {}
-        exec(snippet, ns, ns)
+    for page in (
+        "index.html",
+        "quickstart.html",
+        "baux-0003.html",
+        "baux-0008.html",
+        "baux-0009.html",
+    ):
+        content = (index_path.parent / page).read_text(encoding="utf-8")
+        snippets = [
+            html.unescape(s)
+            for s in re.findall(r"<pre[^>]*>(.*?)</pre>", content, flags=re.DOTALL)
+            if "import baux" in s
+        ]
+        assert snippets, f"No runnable example in {page}"
+        for snippet in snippets:
+            ns: dict = {}
+            exec(snippet, ns, ns)
 
-    docs_path = ROOT / "forest/output/baux-0007.html"
-    if not docs_path.is_file():
-        docs_path = ROOT / ".cache/pages-bundle/docs.html"
-    if not docs_path.is_file():
-        with tempfile.TemporaryDirectory() as tmpdir:
-            bundle_dir = Path(tmpdir)
-            assemble_bundle(bundle_dir)
-            cand = bundle_dir / "docs.html"
-            if not cand.is_file():
-                cand = bundle_dir / "baux-0007.html"
-            docs_html = cand.read_text(encoding="utf-8")
-    else:
-        docs_html = docs_path.read_text(encoding="utf-8")
-
-    docs_snippets = [
-        html.unescape(s)
-        for s in re.findall(r"<pre[^>]*>(.*?)</pre>", docs_html, flags=re.DOTALL)
-        if "import baux" in s
+    reference_pages = [
+        index_path.parent / "baux-0007.html",
+        *sorted(index_path.parent.glob("api-*.html")),
     ]
-    assert len(docs_snippets) >= 6
-    for snippet in docs_snippets:
-        ns: dict = {}
-        exec(snippet, ns, ns)
+    count = 0
+    for page in reference_pages:
+        content = page.read_text(encoding="utf-8")
+        for snippet in re.findall(r"<pre[^>]*>(.*?)</pre>", content, flags=re.DOTALL):
+            if "import baux" in snippet:
+                ns: dict = {}
+                exec(html.unescape(snippet), ns, ns)
+                count += 1
+    assert count >= 9
+
+
+def test_reference():
+    import ast
+    import inspect
+
+    import baux
+    from baux import transforms
+
+    trees = ROOT / "forest" / "trees"
+    pages = [trees / "baux-0007.tree", *sorted(trees.glob("api-*.tree"))]
+    content = "\n".join(page.read_text(encoding="utf-8") for page in pages)
+    symbols = re.findall(r"\[data-symbol\]\{(baux\.[^}]+)\}", content)
+    assert len(symbols) == len(set(symbols)) == 85
+    for symbol in symbols:
+        assert f"[id]{{{symbol}}}" in content, symbol
+        assert f".html#{symbol})" in content, symbol
+
+    checked = 0
+    for page in pages:
+        content = page.read_text(encoding="utf-8")
+        signatures = re.findall(
+            r"\[data-symbol\]\{baux\.(\w+)\}\[data-kind\]\{function\}"
+            r".*?\\pre\{(.*?)\n\s*\}",
+            content,
+            flags=re.DOTALL,
+        )
+        for name, signature in signatures:
+            declaration = signature.strip().replace(f"baux.{name}", "def documented", 1)
+            args = ast.parse(f"{declaration}:\n    pass").body[0].args
+            documented = [a.arg for a in args.posonlyargs + args.args]
+            if args.vararg:
+                documented.append(args.vararg.arg)
+            documented.extend(a.arg for a in args.kwonlyargs)
+            if args.kwarg:
+                documented.append(args.kwarg.arg)
+            fn = transforms.enn if name == "enn" else getattr(baux, name)
+            actual = inspect.signature(fn)
+            parameters = actual.parameters
+            assert documented == list(parameters), (name, documented, list(parameters))
+            declared = args.posonlyargs + args.args + args.kwonlyargs
+            for param in declared:
+                annotation = parameters[param.arg].annotation
+                if isinstance(annotation, str):
+                    assert param.annotation is not None, (name, param.arg)
+                    assert ast.unparse(param.annotation) == ast.unparse(
+                        ast.parse(annotation, mode="eval").body
+                    ), (name, param.arg)
+            returned = ast.parse(f"{declaration}:\n    pass").body[0].returns
+            if isinstance(actual.return_annotation, str):
+                assert returned is not None, name
+                assert ast.unparse(returned) == ast.unparse(
+                    ast.parse(actual.return_annotation, mode="eval").body
+                ), name
+            keyword_only = [a.arg for a in args.kwonlyargs]
+            assert keyword_only == [
+                p.name for p in parameters.values() if p.kind == p.KEYWORD_ONLY
+            ], name
+            defaults = (
+                dict(
+                    zip(
+                        [a.arg for a in args.args][-len(args.defaults) :],
+                        args.defaults,
+                        strict=True,
+                    )
+                )
+                if args.defaults
+                else {}
+            )
+            defaults.update(zip(keyword_only, args.kw_defaults, strict=True))
+            for param in parameters.values():
+                if param.kind in (param.VAR_POSITIONAL, param.VAR_KEYWORD):
+                    continue
+                node = defaults.get(param.name)
+                assert (node is None) == (param.default is param.empty), (
+                    name,
+                    param.name,
+                )
+                if isinstance(node, (ast.Constant, ast.UnaryOp)):
+                    assert ast.literal_eval(node) == param.default, (name, param.name)
+            checked += 1
+    assert checked >= 45
 
 
 def write_synthetic(dest: Path) -> None:

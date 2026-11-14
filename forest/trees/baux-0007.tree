@@ -1,111 +1,38 @@
-\title{API Reference}
+\title{Optimizer}
+\meta{toc}{false}
 
-\p{
-  \code{import baux} exposes functional state transitions, composable pipeline transforms, parameter-manifold maps, and standalone Epistemic Nearest Neighbor (\code{ENN}) surrogates. Input arrays \code{x} carry shape \code{(N, D)} (\code{float64}) inside natural domain bounds \code{[low, high]}, while objective arrays \code{y} (maximization convention) and optional observation variances \code{y_var} carry shape \code{(N,)} or \code{(N, M)}. Functional entrypoints (\code{baux.init}, \code{baux.ask}, \code{baux.tell}, \code{baux.enn_init}, \code{baux.enn_append}) return immutable state objects ([\code{OptimizerState}](#baux.OptimizerState), [\code{ENNState}](#baux.ENNState)) with read-only array views (\code{writeable=False}), whereas [\code{Optimizer}](#baux.Optimizer) and [\code{ENN}](#baux.ENN) wrap the same kernel in stateful classes.
-}
+\p{All functional transitions return new state. Keep the returned state for the next call. baux maximizes objective values; negate a loss when minimizing. Coordinate batches use \code{(N, D)} arrays. Standard single-objective search uses \code{(N,)} rewards; multi-output search requires a compatible configuration. \code{complete} currently accepts scalar rewards only.}
 
-\<div>[id]{baux-api-filter}{}
-
-\subtree{
-  \title{Optimization Loop & Async State}
-
-  \<table>[class]{api-summary-table}{
-    \<thead>{
-      \<tr>{
-        \<th>{Symbol}
-        \<th>{Summary}
-      }
-    }
-    \<tbody>{
-      \<tr>[data-symbol]{baux.init}[data-kind]{function}[data-module]{baux.functional}{
-        \<td>{[\code{baux.init}](#baux.init)}
-        \<td>{Construct an immutable state object over coordinate bounds or a PyTree domain.}
-      }
-      \<tr>[data-symbol]{baux.ask}[data-kind]{function}[data-module]{baux.functional}{
-        \<td>{[\code{baux.ask}](#baux.ask)}
-        \<td>{Propose candidate parameter arms, returning an updated state and batch without in-place mutation.}
-      }
-      \<tr>[data-symbol]{baux.tell}[data-kind]{function}[data-module]{baux.functional}{
-        \<td>{[\code{baux.tell}](#baux.tell)}
-        \<td>{Ingest evaluated coordinates and objective values, returning an updated state and fitted surrogate means.}
-      }
-      \<tr>[data-symbol]{baux.step}[data-kind]{function}[data-module]{baux.functional}{
-        \<td>{[\code{baux.step}](#baux.step)}
-        \<td>{Execute one synchronous proposal, evaluation, and ingestion cycle.}
-      }
-      \<tr>[data-symbol]{baux.complete}[data-kind]{function}[data-module]{baux.functional}{
-        \<td>{[\code{baux.complete}](#baux.complete)}
-        \<td>{Resolve a subset of pending multi-region evaluation IDs out of order.}
-      }
-      \<tr>[data-symbol]{baux.cancel}[data-kind]{function}[data-module]{baux.functional}{
-        \<td>{[\code{baux.cancel}](#baux.cancel)}
-        \<td>{Retire unevaluated pending evaluation IDs without recording observations or modifying trust regions.}
-      }
-      \<tr>[data-symbol]{baux.restart_region}[data-kind]{function}[data-module]{baux.functional}{
-        \<td>{[\code{baux.restart_region}](#baux.restart_region)}
-        \<td>{Restart a multi-region slot at a specified center and return invalidated evaluation IDs.}
-      }
-      \<tr>[data-symbol]{baux.import_observations}[data-kind]{function}[data-module]{baux.functional}{
-        \<td>{[\code{baux.import_observations}](#baux.import_observations)}
-        \<td>{Ingest external or historical observations without resolving active pending batches.}
-      }
-      \<tr>[data-symbol]{baux.posterior_mu}[data-kind]{function}[data-module]{baux.functional}{
-        \<td>{[\code{baux.posterior_mu}](#baux.posterior_mu)}
-        \<td>{Evaluate surrogate posterior predictive means at query coordinates in natural target units.}
-      }
-      \<tr>[data-symbol]{baux.OptimizerState}[data-kind]{class}[data-module]{baux.functional}{
-        \<td>{[\code{baux.OptimizerState}](#baux.OptimizerState)}
-        \<td>{Immutable state object holding domain bounds, evaluation history, trust regions, and state digest.}
-      }
-      \<tr>[data-symbol]{baux.AskBatch}[data-kind]{class}[data-module]{baux.bo}{
-        \<td>{[\code{baux.AskBatch}](#baux.AskBatch)}
-        \<td>{Evaluated candidate batch bundling evaluation IDs, coordinate rows, and structured PyTree parameters.}
-      }
-      \<tr>[data-symbol]{baux.AskId}[data-kind]{class}[data-module]{baux.bo}{
-        \<td>{[\code{baux.AskId}](#baux.AskId)}
-        \<td>{Immutable 64-bit integer evaluation token tracked by multi-region trust-region controllers.}
-      }
-    }
-  }
-
-  \<div>[id]{baux.init}[class]{api-entry}[data-symbol]{baux.init}[data-kind]{function}[data-module]{baux.functional}{
-    \<div>[class]{api-entry-header}{
-      \<span>[class]{api-entry-title}{[\code{baux.init}](#baux.init)}
-      \<span>[class]{api-kind-badge}{function}
-    }
-    \pre{
+\<section>[id]{baux.init}[class]{api-entry}[data-symbol]{baux.init}[data-kind]{function}[data-module]{baux.functional}{
+  \<div>[class]{api-entry-header}{\<h2>[class]{api-entry-title}{[\code{baux.init}](docs.html#baux.init)}}
+  \pre{
 baux.init(
     domain: np.ndarray | PyTreeSpec | Any,
     config: OptimizerConfig | Transform | None = None,
     *,
     pipe: OptimizerConfig | Transform | None = None,
-    key: Key | None = None,
-    seed: int | np.random.Generator | None = None,
+    key: Any = None,
+    seed: int | Generator | None = None,
     low: Any = -1.0,
     high: Any = 1.0,
 ) -> OptimizerState
-    }
-    \p{Construct an immutable state object at transition counter \code{epoch=0} from coordinate bounds, a compiled domain specification, or a template parameter PyTree.}
-    \<dl>[class]{api-spec-list}{
-      \<dt>{Parameters}
-      \<dd>{
-        \ul{
-          \li{\code{domain} (\em{np.ndarray of shape (D, 2) | PyTreeSpec | Any}) — Continuous coordinate bounds \code{[low, high]} per dimension, a compiled \code{PyTreeSpec}, or a structured PyTree template.}
-          \li{\code{config} (\em{OptimizerConfig | Transform | None}, default \code{None}) — Base optimizer configuration or pipeline [\code{Transform}](#baux.Transform). Defaults to standard TuRBO when \code{None}.}
-          \li{\code{pipe} (\em{OptimizerConfig | Transform | None}, keyword-only, default \code{None}) — Mutually exclusive keyword alias for \code{config}.}
-          \li{\code{key} (\em{Key | None}, keyword-only, default \code{None}) — Deterministic 128-bit PRNG key (takes precedence over \code{seed}).}
-          \li{\code{seed} (\em{int | np.random.Generator | None}, keyword-only, default \code{None}) — Integer seed or NumPy random generator used to initialize pseudo-random sequences.}
-          \li{\code{low} (\em{float | Any}, keyword-only, default \code{-1.0}) — Default lower bound applied to continuous leaf dimensions when compiling PyTree domains.}
-          \li{\code{high} (\em{float | Any}, keyword-only, default \code{1.0}) — Default upper bound applied to continuous leaf dimensions when compiling PyTree domains.}
-        }
-      }
-      \<dt>{Returns}
-      \<dd>{[\code{OptimizerState}](#baux.OptimizerState) — Initialized state object ready for synchronous or asynchronous optimization transitions.}
-      \<dt>{Raises}
-      \<dd>{\code{ValueError} — If both \code{config} and \code{pipe} are passed, if bounds do not have shape \code{(D, 2)} with \code{low <= high}, or if the configuration is invalid.}
-      \<dt>{Example}
-      \<dd>{
-        \pre{
+  }
+  \p{Create an optimizer and its initial state.}
+  \<dl>[class]{api-contract}{
+    \<dt>{Parameters}
+    \<dd>{\ul{
+      \li{\code{domain}: Coordinate bounds of shape \code{(D, 2)}, a \code{Space}, or a parameter template.}
+      \li{\code{config / pipe}: Supply at most one. Without either, uses a TuRBO region, no surrogate and random acquisition.}
+      \li{\code{key / seed}: Control the random sequence. \code{key} takes precedence over \code{seed}.}
+      \li{\code{low / high}: Bounds for continuous leaves when compiling a parameter template.}
+    }}
+    \<dt>{Returns}
+    \<dd>{An \code{OptimizerState} ready for [\code{ask}](docs.html#baux.ask).}
+    \<dt>{Notes}
+    \<dd>{Malformed bounds or unsupported configurations raise \code{ValueError}. Use \code{pipe=baux.enn()} to enable an ENN surrogate.}
+  }
+  \<div>[class]{api-example}{\<p>[class]{example-label}{Example}
+\pre{
 import numpy as np
 import baux
 
@@ -117,81 +44,67 @@ for _ in range(6):
     state, _ = baux.tell(state, batch, y)
 
 assert state.num_observations == 12
-        }
-      }
-    }
+}
   }
+  \<p>[class]{api-source}{[Source in \code{python/baux/functional.py}](https://github.com/Kvutza/baux/blob/main/python/baux/functional.py#L98)}
+}
 
-  \<div>[id]{baux.ask}[class]{api-entry}[data-symbol]{baux.ask}[data-kind]{function}[data-module]{baux.functional}{
-    \<div>[class]{api-entry-header}{
-      \<span>[class]{api-entry-title}{[\code{baux.ask}](#baux.ask)}
-      \<span>[class]{api-kind-badge}{function}
-    }
-    \pre{
+\<section>[id]{baux.ask}[class]{api-entry}[data-symbol]{baux.ask}[data-kind]{function}[data-module]{baux.functional}{
+  \<div>[class]{api-entry-header}{\<h2>[class]{api-entry-title}{[\code{baux.ask}](docs.html#baux.ask)}}
+  \pre{
 baux.ask(
     state: OptimizerState,
     num_arms: int | None = None,
     *,
     n: int | None = None,
 ) -> tuple[OptimizerState, AskBatch]
-    }
-    \p{Propose candidate parameter arms inside \code{state.bounds}, returning an updated state object and a candidate batch without modifying \code{state}.}
-    \<dl>[class]{api-spec-list}{
-      \<dt>{Parameters}
-      \<dd>{
-        \ul{
-          \li{\code{state} (\em{OptimizerState}) — Input state object.}
-          \li{\code{num_arms} (\em{int | None}, default \code{None}) — Number of candidate arms to propose (\code{num_arms >= 1}). Defaults to \code{1} when both \code{num_arms} and \code{n} are \code{None}.}
-          \li{\code{n} (\em{int | None}, keyword-only, default \code{None}) — Mutually exclusive keyword alias for \code{num_arms}.}
-        }
-      }
-      \<dt>{Returns}
-      \<dd>{\code{tuple[OptimizerState, AskBatch]} — Pair of \code{(next_state, batch)}. The updated state advances its transition counter (\code{next_state.epoch == state.epoch + 1}) with deterministic key advancement, and \code{batch} is an [\code{AskBatch}](#baux.AskBatch) containing \code{num_arms} candidate points and evaluation tickets.}
-      \<dt>{Raises}
-      \<dd>{\code{ValueError} — If both \code{num_arms} and \code{n} are supplied, or if the requested arm count is less than \code{1}.}
-      \<dt>{Notes}
-      \<dd>{Each proposal folds \code{epoch + 1} into the PRNG sequence. When multi-region search is enabled (\code{state.identified == True}), the generated \code{batch.ids} are registered in \code{next_state.pending_ids} for tracking.}
-    }
   }
+  \p{Propose points to evaluate.}
+  \<dl>[class]{api-contract}{
+    \<dt>{Parameters}
+    \<dd>{\ul{
+      \li{\code{state}: Current state, including all previous proposals and observations.}
+      \li{\code{num_arms / n}: Number of points to propose; defaults to one. Supply at most one name. The count must be positive.}
+    }}
+    \<dt>{Returns}
+    \<dd>{\code{(next_state, batch)}. \code{batch.points} is a read-only \code{(N, D)} array; \code{batch.ids} contains one \code{AskId} per row.}
+    \<dt>{Notes}
+    \<dd>{Keep \code{next_state} for subsequent calls. Regional proposals become pending in that state. This function does not call the objective. Supplying both count arguments or a nonpositive count raises \code{ValueError}.}
+  }
+  \<p>[class]{api-source}{[Source in \code{python/baux/functional.py}](https://github.com/Kvutza/baux/blob/main/python/baux/functional.py#L162)}
+}
 
-  \<div>[id]{baux.tell}[class]{api-entry}[data-symbol]{baux.tell}[data-kind]{function}[data-module]{baux.functional}{
-    \<div>[class]{api-entry-header}{
-      \<span>[class]{api-entry-title}{[\code{baux.tell}](#baux.tell)}
-      \<span>[class]{api-kind-badge}{function}
-    }
-    \pre{
+\<section>[id]{baux.tell}[class]{api-entry}[data-symbol]{baux.tell}[data-kind]{function}[data-module]{baux.functional}{
+  \<div>[class]{api-entry-header}{\<h2>[class]{api-entry-title}{[\code{baux.tell}](docs.html#baux.tell)}}
+  \pre{
 baux.tell(
     state: OptimizerState,
-    x: AskBatch | np.ndarray | Any,
-    y: np.ndarray | Sequence[float],
+    x: Any,
+    y: Any,
     *,
-    y_var: np.ndarray | Sequence[float] | None = None,
+    y_var: Any = None,
 ) -> tuple[OptimizerState, np.ndarray]
-    }
-    \p{Ingest evaluated points \code{(x, y)} into the observation store and update surrogate models and trust-region state via copy-on-write state update.}
-    \<dl>[class]{api-spec-list}{
-      \<dt>{Parameters}
-      \<dd>{
-        \ul{
-          \li{\code{state} (\em{OptimizerState}) — Base state object.}
-          \li{\code{x} (\em{AskBatch | np.ndarray of shape (N, D) or (D,) | PyTree}) — Evaluated candidate batch, coordinate array, or structured PyTree parameters matching \code{state.spec}.}
-          \li{\code{y} (\em{np.ndarray of shape (N,) or (N, M) | Sequence[float]}) — Finite maximization objective values. Scalar objectives use shape \code{(N,)}, while multi-output targets use shape \code{(N, M)}.}
-          \li{\code{y_var} (\em{np.ndarray | Sequence[float] | None}, keyword-only, default \code{None}) — Optional finite non-negative observation noise variances matching \code{y}.}
-        }
-      }
-      \<dt>{Returns}
-      \<dd>{\code{tuple[OptimizerState, np.ndarray]} — Pair of \code{(next_state, fitted_mu)}, where \code{fitted_mu} is a read-only NumPy array (\code{writeable=False}) of posterior predictive means at \code{x} (or raw objective values when no surrogate is configured).}
-      \<dt>{Raises}
-      \<dd>{\code{ValueError} — On dimension or shape mismatches, non-finite values, negative noise variances, or out-of-order submission against an active multi-region batch. In multi-region mode (\code{state.identified == True}), passing an [\code{AskBatch}](#baux.AskBatch) validates that the batch's evaluation IDs are registered and active.}
-    }
   }
+  \p{Record an evaluated batch and update the search.}
+  \<dl>[class]{api-contract}{
+    \<dt>{Parameters}
+    \<dd>{\ul{
+      \li{\code{state}: State returned by the corresponding \code{ask}.}
+      \li{\code{x}: An \code{AskBatch}, \code{(N, D)} coordinate array, one \code{(D,)} point, or parameters matching the state's \code{Space}.}
+      \li{\code{y}: Objective values with one row per point. Larger is better. Multiple output columns require a compatible configuration.}
+      \li{\code{y_var}: Optional nonnegative, finite observation variances with the same shape as \code{y}.}
+    }}
+    \<dt>{Returns}
+    \<dd>{\code{(next_state, fitted_mu)}. Without a surrogate, \code{fitted_mu} contains the submitted values.}
+    \<dt>{Notes}
+    \<dd>{For regional search, this is the ordered, whole-batch path. An \code{AskBatch} supplies coordinates here; its ticket IDs are not validated. Use [\code{complete}](docs.html#baux.complete) for ticket-based or out-of-order completion.}
+  }
+  \<p>[class]{api-source}{[Source in \code{python/baux/functional.py}](https://github.com/Kvutza/baux/blob/main/python/baux/functional.py#L254)}
+}
 
-  \<div>[id]{baux.step}[class]{api-entry}[data-symbol]{baux.step}[data-kind]{function}[data-module]{baux.functional}{
-    \<div>[class]{api-entry-header}{
-      \<span>[class]{api-entry-title}{[\code{baux.step}](#baux.step)}
-      \<span>[class]{api-kind-badge}{function}
-    }
-    \pre{
+\<section>[id]{baux.step}[class]{api-entry}[data-symbol]{baux.step}[data-kind]{function}[data-module]{baux.functional}{
+  \<div>[class]{api-entry-header}{\<h2>[class]{api-entry-title}{[\code{baux.step}](docs.html#baux.step)}}
+  \pre{
 baux.step(
     state: OptimizerState,
     objective: Callable[[Any], Any],
@@ -199,55 +112,49 @@ baux.step(
     num_arms: int = 1,
     use_pytree: bool = False,
 ) -> tuple[OptimizerState, np.ndarray]
-    }
-    \p{Execute one synchronous proposal, evaluation, and ingestion cycle (\code{ask -> objective -> tell}) without in-place mutation.}
-    \<dl>[class]{api-spec-list}{
-      \<dt>{Parameters}
-      \<dd>{
-        \ul{
-          \li{\code{state} (\em{OptimizerState}) — Current state object.}
-          \li{\code{objective} (\em{Callable[[Any], Any]}) — Maximization objective function returning an array-like of shape \code{(num_arms,)} or \code{(num_arms, M)}.}
-          \li{\code{num_arms} (\em{int}, keyword-only, default \code{1}) — Number of candidate arms proposed and evaluated in this step.}
-          \li{\code{use_pytree} (\em{bool}, keyword-only, default \code{False}) — When \code{True} and \code{state.spec} is set, passes decoded PyTree parameters to \code{objective}; otherwise passes flat coordinate rows.}
-        }
-      }
-      \<dt>{Returns}
-      \<dd>{\code{tuple[OptimizerState, np.ndarray]} — Pair of \code{(next_state, y)} with the post-ingestion state object and the evaluated objective array.}
-    }
   }
+  \p{Propose, evaluate and record one batch.}
+  \<dl>[class]{api-contract}{
+    \<dt>{Parameters}
+    \<dd>{\ul{
+      \li{\code{state}: Current optimizer state.}
+      \li{\code{objective}: Called once with a coordinate batch of shape \code{(num_arms, D)}. Return one objective row per arm.}
+      \li{\code{num_arms}: Number of points to evaluate.}
+      \li{\code{use_pytree}: With a structured domain, pass one decoded tree for one arm, or a tree with stacked leaves for multiple arms.}
+    }}
+    \<dt>{Returns}
+    \<dd>{\code{(next_state, y)} after proposing, evaluating and recording the batch.}
+  }
+  \<p>[class]{api-source}{[Source in \code{python/baux/functional.py}](https://github.com/Kvutza/baux/blob/main/python/baux/functional.py#L359)}
+}
 
-  \<div>[id]{baux.complete}[class]{api-entry}[data-symbol]{baux.complete}[data-kind]{function}[data-module]{baux.functional}{
-    \<div>[class]{api-entry-header}{
-      \<span>[class]{api-entry-title}{[\code{baux.complete}](#baux.complete)}
-      \<span>[class]{api-kind-badge}{function}
-    }
-    \pre{
+\<section>[id]{baux.complete}[class]{api-entry}[data-symbol]{baux.complete}[data-kind]{function}[data-module]{baux.functional}{
+  \<div>[class]{api-entry-header}{\<h2>[class]{api-entry-title}{[\code{baux.complete}](docs.html#baux.complete)}}
+  \pre{
 baux.complete(
     state: OptimizerState,
     ids: AskBatch | tuple[AskId, ...] | list[AskId],
-    y: np.ndarray | Sequence[float],
+    y: Any,
     *,
-    y_var: np.ndarray | Sequence[float] | None = None,
+    y_var: Any = None,
 ) -> OptimizerState
-    }
-    \p{Resolve an arbitrary subset of pending evaluation IDs out of order in a multi-region optimization workflow.}
-    \<dl>[class]{api-spec-list}{
-      \<dt>{Parameters}
-      \<dd>{
-        \ul{
-          \li{\code{state} (\em{OptimizerState}) — Multi-region state object with active pending evaluations (\code{state.identified == True}).}
-          \li{\code{ids} (\em{AskBatch | tuple[AskId, ...] | list[AskId]}) — Candidate batch or sequence of [\code{AskId}](#baux.AskId) tokens to complete.}
-          \li{\code{y} (\em{np.ndarray of shape (K,) or (K, 1) | Sequence[float]}) — Finite scalar objective values matching \code{ids}.}
-          \li{\code{y_var} (\em{np.ndarray | Sequence[float] | None}, keyword-only, default \code{None}) — Optional finite non-negative observation noise variances.}
-        }
-      }
-      \<dt>{Returns}
-      \<dd>{[\code{OptimizerState}](#baux.OptimizerState) — Updated state object with observations recorded and completed IDs removed from \code{pending_ids}.}
-      \<dt>{Raises}
-      \<dd>{\code{TypeError} — If any item in \code{ids} is not an [\code{AskId}](#baux.AskId) token. \code{ValueError} — If \code{y} shape does not match \code{ids}, or if any ID is unknown, previously resolved, or belongs to an invalidated regional generation.}
-      \<dt>{Example}
-      \<dd>{
-        \pre{
+  }
+  \p{Record results for pending regional tickets.}
+  \<dl>[class]{api-contract}{
+    \<dt>{Parameters}
+    \<dd>{\ul{
+      \li{\code{state}: Regional optimizer state containing the pending tickets.}
+      \li{\code{ids}: An \code{AskBatch}, tuple or list of \code{AskId} values.}
+      \li{\code{y}: Scalar rewards in ticket order, shape \code{(K,)} or \code{(K, 1)}. Multiple output columns are not supported.}
+      \li{\code{y_var}: Optional observation variances with the same shape as \code{y}.}
+    }}
+    \<dt>{Returns}
+    \<dd>{The updated \code{OptimizerState}.}
+    \<dt>{Notes}
+    \<dd>{A subset may finish before the rest of its batch; batches may finish out of order. Wrong token types raise \code{TypeError}. Unknown, duplicated, resolved or invalidated tickets are rejected. A region restart invalidates that region's old tickets.}
+  }
+  \<div>[class]{api-example}{\<p>[class]{example-label}{Example}
+\pre{
 import numpy as np
 import baux
 
@@ -259,2414 +166,212 @@ assert len(state.pending_ids) == 4
 state = baux.complete(state, batch.ids[:2], np.array([0.5, 0.8]))
 state = baux.cancel(state, batch.ids[2:])
 assert len(state.pending_ids or ()) == 0
-        }
-      }
-    }
+}
   }
+  \<p>[class]{api-source}{[Source in \code{python/baux/functional.py}](https://github.com/Kvutza/baux/blob/main/python/baux/functional.py#L276)}
+}
 
-  \<div>[id]{baux.cancel}[class]{api-entry}[data-symbol]{baux.cancel}[data-kind]{function}[data-module]{baux.functional}{
-    \<div>[class]{api-entry-header}{
-      \<span>[class]{api-entry-title}{[\code{baux.cancel}](#baux.cancel)}
-      \<span>[class]{api-kind-badge}{function}
-    }
-    \pre{
+\<section>[id]{baux.cancel}[class]{api-entry}[data-symbol]{baux.cancel}[data-kind]{function}[data-module]{baux.functional}{
+  \<div>[class]{api-entry-header}{\<h2>[class]{api-entry-title}{[\code{baux.cancel}](docs.html#baux.cancel)}}
+  \pre{
 baux.cancel(
     state: OptimizerState,
     ids: AskBatch | tuple[AskId, ...] | list[AskId],
 ) -> OptimizerState
-    }
-    \p{Retire unevaluated pending evaluation IDs without recording observations or updating trust-region success and failure counters.}
-    \<dl>[class]{api-spec-list}{
-      \<dt>{Parameters}
-      \<dd>{
-        \ul{
-          \li{\code{state} (\em{OptimizerState}) — Multi-region state object with active pending evaluations.}
-          \li{\code{ids} (\em{AskBatch | tuple[AskId, ...] | list[AskId]}) — Batch or sequence of [\code{AskId}](#baux.AskId) tokens to retire.}
-        }
-      }
-      \<dt>{Returns}
-      \<dd>{[\code{OptimizerState}](#baux.OptimizerState) — Updated state object with retired IDs removed from \code{pending_ids}.}
-      \<dt>{Raises}
-      \<dd>{\code{TypeError} — If any element is not an [\code{AskId}](#baux.AskId) token.}
-    }
   }
+  \p{Retire pending regional tickets without an observation.}
+  \<dl>[class]{api-contract}{
+    \<dt>{Parameters}
+    \<dd>{\ul{
+      \li{\code{state}: Regional optimizer state containing the pending tickets.}
+      \li{\code{ids}: An \code{AskBatch}, tuple or list of \code{AskId} values to retire.}
+    }}
+    \<dt>{Returns}
+    \<dd>{The updated \code{OptimizerState}, without adding observations or counting a trust-region failure.}
+    \<dt>{Notes}
+    \<dd>{Cancellation changes optimizer bookkeeping. The caller must stop any external job.}
+  }
+  \<p>[class]{api-source}{[Source in \code{python/baux/functional.py}](https://github.com/Kvutza/baux/blob/main/python/baux/functional.py#L309)}
+}
 
-  \<div>[id]{baux.restart_region}[class]{api-entry}[data-symbol]{baux.restart_region}[data-kind]{function}[data-module]{baux.functional}{
-    \<div>[class]{api-entry-header}{
-      \<span>[class]{api-entry-title}{[\code{baux.restart_region}](#baux.restart_region)}
-      \<span>[class]{api-kind-badge}{function}
-    }
-    \pre{
+\<section>[id]{baux.restart_region}[class]{api-entry}[data-symbol]{baux.restart_region}[data-kind]{function}[data-module]{baux.functional}{
+  \<div>[class]{api-entry-header}{\<h2>[class]{api-entry-title}{[\code{baux.restart_region}](docs.html#baux.restart_region)}}
+  \pre{
 baux.restart_region(
     state: OptimizerState,
     slot: int,
-    center: np.ndarray | Any,
+    center: Any,
 ) -> tuple[OptimizerState, tuple[AskId, ...]]
-    }
-    \p{Restart a multi-region trust-region slot at a specified center coordinate, advancing its generation and invalidating in-flight evaluations owned by that slot.}
-    \<dl>[class]{api-spec-list}{
-      \<dt>{Parameters}
-      \<dd>{
-        \ul{
-          \li{\code{state} (\em{OptimizerState}) — Multi-region state object (\code{state.identified == True}).}
-          \li{\code{slot} (\em{int}) — Trust-region slot index in \code{0 .. state.num_regions - 1}.}
-          \li{\code{center} (\em{np.ndarray of shape (D,) | PyTree}) — New center coordinate vector within domain bounds.}
-        }
-      }
-      \<dt>{Returns}
-      \<dd>{\code{tuple[OptimizerState, tuple[AskId, ...]]} — Pair of \code{(next_state, abandoned_ids)} listing the invalidated evaluation IDs.}
-      \<dt>{Raises}
-      \<dd>{\code{RuntimeError} — If called on a single-region optimizer. \code{ValueError} — If \code{slot} is out of range or \code{center} violates domain bounds.}
-    }
   }
+  \p{Start a regional slot again at a supplied center.}
+  \<dl>[class]{api-contract}{
+    \<dt>{Parameters}
+    \<dd>{\ul{
+      \li{\code{state}: A regional optimizer state; other configurations raise \code{RuntimeError}.}
+      \li{\code{slot}: Index of the region to restart.}
+      \li{\code{center}: One \code{(D,)} coordinate point or a structured parameter value.}
+    }}
+    \<dt>{Returns}
+    \<dd>{\code{(next_state, abandoned_ids)}. Pending evaluations in that region are invalidated.}
+    \<dt>{Notes}
+    \<dd>{The caller owns external jobs and decides whether to cancel them.}
+  }
+  \<p>[class]{api-source}{[Source in \code{python/baux/functional.py}](https://github.com/Kvutza/baux/blob/main/python/baux/functional.py#L326)}
+}
 
-  \<div>[id]{baux.import_observations}[class]{api-entry}[data-symbol]{baux.import_observations}[data-kind]{function}[data-module]{baux.functional}{
-    \<div>[class]{api-entry-header}{
-      \<span>[class]{api-entry-title}{[\code{baux.import_observations}](#baux.import_observations)}
-      \<span>[class]{api-kind-badge}{function}
-    }
-    \pre{
+\<section>[id]{baux.import_observations}[class]{api-entry}[data-symbol]{baux.import_observations}[data-kind]{function}[data-module]{baux.functional}{
+  \<div>[class]{api-entry-header}{\<h2>[class]{api-entry-title}{[\code{baux.import_observations}](docs.html#baux.import_observations)}}
+  \pre{
 baux.import_observations(
     state: OptimizerState,
-    x: AskBatch | np.ndarray | Any,
-    y: np.ndarray | Sequence[float],
+    x: Any,
+    y: Any,
     *,
-    y_var: np.ndarray | Sequence[float] | None = None,
+    y_var: Any = None,
 ) -> tuple[OptimizerState, np.ndarray]
-    }
-    \p{Append external, historical, or late-arriving observations to a multi-region optimizer without resolving active pending evaluation batches.}
-    \<dl>[class]{api-spec-list}{
-      \<dt>{Parameters}
-      \<dd>{
-        \ul{
-          \li{\code{state} (\em{OptimizerState}) — Multi-region state object.}
-          \li{\code{x} (\em{AskBatch | np.ndarray of shape (N, D) or (D,) | PyTree}) — Coordinate rows or structured PyTree parameters.}
-          \li{\code{y} (\em{np.ndarray of shape (N,) or (N, M) | Sequence[float]}) — Maximization objective values.}
-          \li{\code{y_var} (\em{np.ndarray | Sequence[float] | None}, keyword-only, default \code{None}) — Optional observation noise variances.}
-        }
-      }
-      \<dt>{Returns}
-      \<dd>{\code{tuple[OptimizerState, np.ndarray]} — Pair of \code{(next_state, fitted_mu)} with observations added to the surrogate store.}
-      \<dt>{Raises}
-      \<dd>{\code{ValueError} — On dimension mismatches or when called on a single-region state object.}
-    }
   }
-
-  \<div>[id]{baux.posterior_mu}[class]{api-entry}[data-symbol]{baux.posterior_mu}[data-kind]{function}[data-module]{baux.functional}{
-    \<div>[class]{api-entry-header}{
-      \<span>[class]{api-entry-title}{[\code{baux.posterior_mu}](#baux.posterior_mu)}
-      \<span>[class]{api-kind-badge}{function}
-    }
-    \pre{
-baux.posterior_mu(
-    state: OptimizerState,
-    x: AskBatch | np.ndarray | Any,
-) -> np.ndarray
-    }
-    \p{Query fitted surrogate posterior predictive means at coordinates \code{x} in natural target units without advancing the transition counter.}
-    \<dl>[class]{api-spec-list}{
-      \<dt>{Parameters}
-      \<dd>{
-        \ul{
-          \li{\code{state} (\em{OptimizerState}) — State object configured with an active surrogate model.}
-          \li{\code{x} (\em{AskBatch | np.ndarray of shape (Q, D) or (D,) | PyTree}) — Query coordinates or structured PyTree parameters.}
-        }
-      }
-      \<dt>{Returns}
-      \<dd>{\code{np.ndarray} — Read-only NumPy array (\code{writeable=False}) of posterior means of shape \code{(Q, M)}.}
-      \<dt>{Raises}
-      \<dd>{\code{ValueError} — If coordinate dimensions do not match \code{state.dim}.}
-    }
+  \p{Add measurements collected outside the current pending batch.}
+  \<dl>[class]{api-contract}{
+    \<dt>{Parameters}
+    \<dd>{\ul{
+      \li{\code{state}: Current optimizer state.}
+      \li{\code{x / y / y_var}: Coordinates, measurements and optional variances, using the same shapes as [\code{tell}](docs.html#baux.tell).}
+    }}
+    \<dt>{Returns}
+    \<dd>{\code{(next_state, fitted_mu)} after adding the observations.}
+    \<dt>{Notes}
+    \<dd>{Does not complete pending tickets. Use for historical data or an explicitly chosen import of a late result.}
   }
+  \<p>[class]{api-source}{[Source in \code{python/baux/functional.py}](https://github.com/Kvutza/baux/blob/main/python/baux/functional.py#L265)}
+}
 
-  \<div>[id]{baux.OptimizerState}[class]{api-entry}[data-symbol]{baux.OptimizerState}[data-kind]{class}[data-module]{baux.functional}{
-    \<div>[class]{api-entry-header}{
-      \<span>[class]{api-entry-title}{[\code{baux.OptimizerState}](#baux.OptimizerState)}
-      \<span>[class]{api-kind-badge}{class}
-    }
-    \pre{
+\<section>[id]{baux.posterior_mu}[class]{api-entry}[data-symbol]{baux.posterior_mu}[data-kind]{function}[data-module]{baux.functional}{
+  \<div>[class]{api-entry-header}{\<h2>[class]{api-entry-title}{[\code{baux.posterior_mu}](docs.html#baux.posterior_mu)}}
+  \pre{
+baux.posterior_mu(state: OptimizerState, x: Any) -> np.ndarray
+  }
+  \p{Predict the fitted surrogate mean at query points.}
+  \<dl>[class]{api-contract}{
+    \<dt>{Parameters}
+    \<dd>{\ul{
+      \li{\code{state}: Optimizer state with a fitted surrogate.}
+      \li{\code{x}: Query coordinates of shape \code{(N, D)}, or parameters matching the state's domain.}
+    }}
+    \<dt>{Returns}
+    \<dd>{A read-only NumPy array of predicted means in the objective's units. Does not advance the optimizer.}
+  }
+  \<p>[class]{api-source}{[Source in \code{python/baux/functional.py}](https://github.com/Kvutza/baux/blob/main/python/baux/functional.py#L350)}
+}
+
+\<section>[id]{baux.OptimizerState}[class]{api-entry}[data-symbol]{baux.OptimizerState}[data-kind]{class}[data-module]{baux.functional}{
+  \<div>[class]{api-entry-header}{\<h2>[class]{api-entry-title}{[\code{baux.OptimizerState}](docs.html#baux.OptimizerState)}}
+  \pre{
 class baux.OptimizerState  (frozen dataclass; constructed via baux.init)
-    }
-    \p{\code{OptimizerState} stores an immutable snapshot of the search domain, pipeline configuration, observation history, trust-region ledger, and cryptographic state digest.}
-    \<dl>[class]{api-spec-list}{
-      \<dt>{Attributes & Properties}
-      \<dd>{
-        \ul{
-          \li{\code{x} (\em{np.ndarray}) — Read-only NumPy array (\code{writeable=False}) of observed parameter rows of shape \code{(N, D)} (alias for \code{x_obs}).}
-          \li{\code{y} (\em{np.ndarray}) — Read-only NumPy array (\code{writeable=False}) of observed objective values of shape \code{(N, M)} (alias for \code{y_obs}).}
-          \li{\code{y_var} (\em{np.ndarray | None}) — Read-only observation noise variances matching \code{y}, or \code{None} if unobserved.}
-          \li{\code{bounds} (\em{np.ndarray}) — Read-only \code{(D, 2)} \code{float64} coordinate bounds \code{[low, high]}.}
-          \li{\code{num_observations} (\em{int}) — Total count of recorded observation rows \code{N}.}
-          \li{\code{best_x} (\em{np.ndarray | None}) — Read-only \code{(D,)} coordinate vector of the incumbent best observation, or \code{None} when empty.}
-          \li{\code{best_y} (\em{float | None}) — Maximum observed primary objective scalar, or \code{None} when empty.}
-          \li{\code{best_params} (\em{Any}) — Incumbent parameter set decoded through \code{spec}, or \code{best_x} when unspec'd.}
-          \li{\code{tr_length} (\em{float}) — Current side length of the active trust region in unit-cube coordinates.}
-          \li{\code{pending_ids} (\em{tuple[int, ...] | None}) — Outstanding evaluation IDs in multi-region mode, or \code{None} when none are pending.}
-          \li{\code{epoch} (\em{int}) — Monotonic transition counter incremented by \code{1} per functional transition.}
-          \li{\code{identified} (\em{bool}) — Boolean flag indicating whether multi-region evaluation identity tracking is active.}
-          \li{\code{spec} (\em{PyTreeSpec | None}) — Compiled domain specification when initialized from a PyTree domain, else \code{None}.}
-          \li{\code{key} (\em{Key}) — Deterministic 128-bit PRNG key derived from the state digest.}
-          \li{\code{digest} (\em{Callable[[], str]}) — Method returning the 64-character hexadecimal BLAKE3 state digest.}
-          \li{\code{config} (\em{OptimizerConfig}) — Validated composite configuration governing pipeline behavior.}
-        }
-      }
-    }
   }
+  \p{The state returned by the functional optimizer.}
+  \p{Create it with [\code{init}](docs.html#baux.init). Each transition returns a new state; retain the old one only if you need a branch or checkpoint.}
+  \p{\code{x_obs}, \code{y_obs}: observation arrays. \code{num_observations}, \code{num_regions}, \code{tr_length}: current search information. \code{best_x}, \code{best_params}, \code{best_y}: incumbent coordinates, decoded parameters and value, or \code{None} before observations.}
+  \p{\code{pending_ids}: raw integer IDs for inspection; pass the typed \code{batch.ids} to \code{complete} or \code{cancel}. \code{fork(key=None, *, seed=None)} creates another search branch. [Checkpoints and keys](api-state.html) covers persistence and branching.}
+  \<p>[class]{api-source}{[Source in \code{python/baux/state.py}](https://github.com/Kvutza/baux/blob/main/python/baux/state.py#L143)}
+}
 
-  \<div>[id]{baux.AskBatch}[class]{api-entry}[data-symbol]{baux.AskBatch}[data-kind]{class}[data-module]{baux.bo}{
-    \<div>[class]{api-entry-header}{
-      \<span>[class]{api-entry-title}{[\code{baux.AskBatch}](#baux.AskBatch)}
-      \<span>[class]{api-kind-badge}{class}
-    }
-    \pre{
+\<section>[id]{baux.AskBatch}[class]{api-entry}[data-symbol]{baux.AskBatch}[data-kind]{class}[data-module]{baux.bo}{
+  \<div>[class]{api-entry-header}{\<h2>[class]{api-entry-title}{[\code{baux.AskBatch}](docs.html#baux.AskBatch)}}
+  \pre{
 baux.AskBatch(
     ids: tuple[AskId, ...],
     points: np.ndarray,
-    spec: PyTreeSpec | None = None,
+    spec: Any = None,
     weights: np.ndarray | None = None,
 )
-    }
-    \p{\code{AskBatch} pairs proposed coordinate rows from [\code{baux.ask}](#baux.ask) with typed evaluation tokens and decoded PyTree parameters.}
-    \<dl>[class]{api-spec-list}{
-      \<dt>{Attributes & Properties}
-      \<dd>{
-        \ul{
-          \li{\code{ids} (\em{tuple[AskId, ...]}) — Tuple of \code{K} typed [\code{AskId}](#baux.AskId) evaluation tokens.}
-          \li{\code{points} (\em{np.ndarray}) — Read-only \code{(K, D)} NumPy array of candidate coordinates within natural domain bounds.}
-          \li{\code{params} (\em{tuple[Any, ...]}) — Decoded parameter PyTrees (length \code{K}) when \code{spec} is set, else tuple of coordinate rows.}
-          \li{\code{stacked} (\em{Any}) — Single PyTree whose leaves carry leading batch dimension \code{(K, *shape)} when \code{spec} is set, else \code{points}.}
-        }
-      }
-      \<dt>{Behavior}
-      \<dd>{\code{len(batch)} returns arm count \code{K}. \code{batch[i]} indexes candidate rows, and \code{np.asarray(batch)} returns \code{points}.}
-    }
   }
+  \p{Points and evaluation identities returned by a proposal.}
+  \p{\code{points}: read-only \code{(N, D)} coordinates. \code{ids}: one \code{AskId} per row. \code{len(batch)} is \code{N}.}
+  \p{\code{params}: tuple of decoded parameter trees, one per row. \code{stacked}: one tree with a leading batch axis on its leaves. For an unstructured domain, these expose the coordinate rows and matrix.}
+  \p{Keep the batch paired with the state returned by \code{ask}. Tickets support asynchronous completion only when regional search is enabled.}
+  \<p>[class]{api-source}{[Source in \code{python/baux/bo.py}](https://github.com/Kvutza/baux/blob/main/python/baux/bo.py#L42)}
+}
 
-  \<div>[id]{baux.AskId}[class]{api-entry api-entry-compact}[data-symbol]{baux.AskId}[data-kind]{class}[data-module]{baux.bo}{
-    \<div>[class]{api-entry-header}{
-      \<span>[class]{api-entry-title}{[\code{baux.AskId}](#baux.AskId)}
-      \<span>[class]{api-kind-badge}{class}
-    }
-    \pre{
+\<section>[id]{baux.AskId}[class]{api-entry}[data-symbol]{baux.AskId}[data-kind]{class}[data-module]{baux.bo}{
+  \<div>[class]{api-entry-header}{\<h2>[class]{api-entry-title}{[\code{baux.AskId}](docs.html#baux.AskId)}}
+  \pre{
 baux.AskId(value: int)
-    }
-    \p{\code{baux.AskId} wraps a 64-bit unsigned integer ticket (\code{0 <= int(aid) < 2**64}) identifying a dispatched multi-region arm. Tickets are hashable and totally ordered, and [\code{baux.complete}](#baux.complete) and [\code{baux.cancel}](#baux.cancel) match them to resolve or retire pending evaluations.}
   }
+  \p{An opaque evaluation ticket.}
+  \p{Keep tokens returned in \code{batch.ids} and pass them back unchanged. \code{aid.value} exposes the unsigned 64-bit integer for inspection. Tickets are immutable, hashable and ordered.}
+  \<p>[class]{api-source}{[Source in \code{python/baux/bo.py}](https://github.com/Kvutza/baux/blob/main/python/baux/bo.py#L25)}
 }
 
-\subtree{
-  \title{Pipeline Stages}
-
-  \p{
-    Pipeline stages compose left-to-right with the pipe operator \code{|} (for example, \code{baux.enn(k=15) | baux.ucb(beta=1.5) | baux.regions(4)}) into an immutable [\code{Transform}](#baux.Transform) compiled by [\code{baux.init}](#baux.init) or [\code{baux.chain}](#baux.chain). Later stages override earlier settings for the same component slot.
-  }
-
-  \<table>[class]{api-summary-table}{
-    \<thead>{
-      \<tr>{
-        \<th>{Symbol}
-        \<th>{Summary}
-      }
-    }
-    \<tbody>{
-      \<tr>[data-symbol]{baux.enn}[data-kind]{function}[data-module]{baux.transforms}{
-        \<td>{[\code{baux.enn}](#baux.enn)}
-        \<td>{Configure the Epistemic Nearest Neighbors surrogate stage with local precision weighting.}
-      }
-      \<tr>[data-symbol]{baux.gp}[data-kind]{function}[data-module]{baux.transforms}{
-        \<td>{[\code{baux.gp}](#baux.gp)}
-        \<td>{Configure the exact ARD Gaussian Process surrogate stage for TuRBO-1 optimization.}
-      }
-      \<tr>[data-symbol]{baux.zero}[data-kind]{function}[data-module]{baux.transforms}{
-        \<td>{[\code{baux.zero}](#baux.zero)}
-        \<td>{Configure surrogate-free TuRBO-zero trust-region search.}
-      }
-      \<tr>[data-symbol]{baux.with_geometry}[data-kind]{function}[data-module]{baux.transforms}{
-        \<td>{[\code{baux.with_geometry}](#baux.with_geometry)}
-        \<td>{Attach a local-scale dissimilarity geometry to a surrogate, config, or pipeline.}
-      }
-      \<tr>[data-symbol]{baux.ucb}[data-kind]{function}[data-module]{baux.transforms}{
-        \<td>{[\code{baux.ucb}](#baux.ucb)}
-        \<td>{Configure Upper Confidence Bound acquisition scoring with exploration trade-off parameter beta.}
-      }
-      \<tr>[data-symbol]{baux.thompson}[data-kind]{function}[data-module]{baux.transforms}{
-        \<td>{[\code{baux.thompson}](#baux.thompson)}
-        \<td>{Configure Thompson sampling acquisition from spatially coherent posterior function draws.}
-      }
-      \<tr>[data-symbol]{baux.pareto}[data-kind]{function}[data-module]{baux.transforms}{
-        \<td>{[\code{baux.pareto}](#baux.pareto)}
-        \<td>{Configure parameter-free bi-objective Pareto non-dominated sorting acquisition.}
-      }
-      \<tr>[data-symbol]{baux.random_acq}[data-kind]{function}[data-module]{baux.transforms}{
-        \<td>{[\code{baux.random_acq}](#baux.random_acq)}
-        \<td>{Configure uniform random candidate selection within the active trust region.}
-      }
-      \<tr>[data-symbol]{baux.lhd}[data-kind]{function}[data-module]{baux.transforms}{
-        \<td>{[\code{baux.lhd}](#baux.lhd)}
-        \<td>{Configure Latin Hypercube Design warm-up sampling or space-filling exploration.}
-      }
-      \<tr>[data-symbol]{baux.sobol}[data-kind]{function}[data-module]{baux.transforms}{
-        \<td>{[\code{baux.sobol}](#baux.sobol)}
-        \<td>{Configure scrambled Sobol quasi-Monte Carlo candidate box sampling.}
-      }
-      \<tr>[data-symbol]{baux.raasp}[data-kind]{function}[data-module]{baux.transforms}{
-        \<td>{[\code{baux.raasp}](#baux.raasp)}
-        \<td>{Configure RAASP sparse coordinate perturbation candidate sampling.}
-      }
-      \<tr>[data-symbol]{baux.uniform_pert}[data-kind]{function}[data-module]{baux.transforms}{
-        \<td>{[\code{baux.uniform_pert}](#baux.uniform_pert)}
-        \<td>{Configure uniform random coordinate perturbation within trust-region bounds.}
-      }
-      \<tr>[data-symbol]{baux.regions}[data-kind]{function}[data-module]{baux.transforms}{
-        \<td>{[\code{baux.regions}](#baux.regions)}
-        \<td>{Configure multi-region portfolio search with asynchronous evaluation tracking.}
-      }
-      \<tr>[data-symbol]{baux.tr_bounds}[data-kind]{function}[data-module]{baux.transforms}{
-        \<td>{[\code{baux.tr_bounds}](#baux.tr_bounds)}
-        \<td>{Configure trust-region initial, minimum, and maximum side-length limits.}
-      }
-      \<tr>[data-symbol]{baux.stein}[data-kind]{function}[data-module]{baux.transforms}{
-        \<td>{[\code{baux.stein}](#baux.stein)}
-        \<td>{Configure empirical Bayes James-Stein shrinkage toward a Stiefel subspace for multi-output objectives.}
-      }
-      \<tr>[data-symbol]{baux.calibrate}[data-kind]{function}[data-module]{baux.transforms}{
-        \<td>{[\code{baux.calibrate}](#baux.calibrate)}
-        \<td>{Configure affine location-scale calibration and conformal quantile scaling.}
-      }
-      \<tr>[data-symbol]{baux.Transform}[data-kind]{class}[data-module]{baux.transforms}{
-        \<td>{[\code{baux.Transform}](#baux.Transform)}
-        \<td>{Composable pipeline stage wrapping a configuration update function.}
-      }
-      \<tr>[data-symbol]{baux.chain}[data-kind]{function}[data-module]{baux.transforms}{
-        \<td>{[\code{baux.chain}](#baux.chain)}
-        \<td>{Compose pipeline stages left-to-right into a validated configuration.}
-      }
-    }
-  }
-
-  \subtree{
-    \title{Surrogates & Distance Geometry}
-
-    \<div>[id]{baux.enn}[class]{api-entry}[data-symbol]{baux.enn}[data-kind]{function}[data-module]{baux.transforms}{
-      \<div>[class]{api-entry-header}{
-        \<span>[class]{api-entry-title}{[\code{baux.enn}](#baux.enn)}
-        \<span>[class]{api-kind-badge}{function}
-      }
-      \pre{
-baux.enn(
-    *,
-    k: int | None = 10,
-    num_samples: int | None = 100,
-    scale_x: bool = False,
-    index: NeighborIndex | str = "flat",
-    storage: str | None = None,
-    metric_learning: str = "none",
-    geometry: str = "euclidean",
-    local_k: int = 4,
-    stiefel: Stiefel | np.ndarray | None = None,
-    affine: Affine | tuple[Any, Any, Any] | None = None,
-    tied_dims: tuple[tuple[int, ...], ...] | None = None,
-) -> Transform
-      }
-      \p{\code{baux.enn} attaches the Epistemic Nearest Neighbors surrogate to the pipeline, using K-nearest precision weighting and leave-one-out scale calibration without global matrix inversion.}
-      \<dl>[class]{api-spec-list}{
-        \<dt>{Parameters}
-        \<dd>{
-          \ul{
-            \li{\code{k} (\em{int | None}, keyword-only, default \code{10}) — Nearest-neighbor count used for precision-weighted predictive aggregation.}
-            \li{\code{num_samples} (\em{int | None}, keyword-only, default \code{100}) — Subsampled cross-validation sample count used when fitting scale parameters. Setting \code{None} enables parameter-free Pareto selection.}
-            \li{\code{scale_x} (\em{bool}, keyword-only, default \code{False}) — Standardize continuous coordinate columns by empirical standard deviation.}
-            \li{\code{index} (\em{NeighborIndex | str}, keyword-only, default \code{"flat"}) — Nearest-neighbor search index backend (\code{"exact"}, \code{"flat"}, \code{"hnsw"}, \code{"usearch"}, \code{"tree"}, \code{"bpann"}, \code{"metal"}, \code{"cuda"}, or \code{"auto"}).}
-            \li{\code{storage} (\em{str | None}, keyword-only, default \code{None}) — In-memory or on-disk neighbor storage backend.}
-            \li{\code{metric_learning} (\em{str}, keyword-only, default \code{"none"}) — Diagonal metric weight optimization (\code{"none"} or \code{"auto"}).}
-            \li{\code{geometry} (\em{str}, keyword-only, default \code{"euclidean"}) — Dissimilarity geometry (\code{"euclidean"}, \code{"conformal"}, \code{"hyperbolic"}, or \code{"wasserstein"}).}
-            \li{\code{local_k} (\em{int}, keyword-only, default \code{4}) — Neighbor rank for local-scale estimation in non-Euclidean geometries.}
-            \li{\code{stiefel} (\em{Stiefel | np.ndarray | None}, keyword-only, default \code{None}) — Optional Stiefel subspace projection for multi-output objectives.}
-            \li{\code{affine} (\em{Affine | tuple | None}, keyword-only, default \code{None}) — Optional affine location-scale calibration map.}
-            \li{\code{tied_dims} (\em{tuple[tuple[int, ...], ...] | None}, keyword-only, default \code{None}) — Coordinate groups sharing tied metric weights.}
-          }
-        }
-        \<dt>{Returns}
-        \<dd>{[\code{Transform}](#baux.Transform) — Pipeline stage attaching the ENN surrogate and promoting default acquisition to UCB or Pareto selection.}
-        \<dt>{Example}
-        \<dd>{
-          \pre{
-import numpy as np
-import baux
-
-domain = np.array([[-2.0, 2.0], [-2.0, 2.0]])
-pipe = baux.enn(k=8) | baux.ucb(beta=1.5) | baux.lhd(num_init=6) | baux.regions(2)
-state = baux.init(domain, pipe, seed=42)
-state, y = baux.step(state, lambda x: -np.sum(x**2, axis=-1), num_arms=2)
-assert state.num_observations == 2
-assert len(y) == 2
-          }
-        }
-      }
-    }
-
-    \<div>[id]{baux.gp}[class]{api-entry api-entry-compact}[data-symbol]{baux.gp}[data-kind]{function}[data-module]{baux.transforms}{
-      \<div>[class]{api-entry-header}{
-        \<span>[class]{api-entry-title}{[\code{baux.gp}](#baux.gp)}
-        \<span>[class]{api-kind-badge}{function}
-      }
-      \pre{
-baux.gp() -> Transform
-      }
-      \p{\code{baux.gp} attaches an exact ARD Gaussian Process surrogate for TuRBO-1 optimization and defaults the acquisition rule to posterior function-draw sampling.}
-    }
-
-    \<div>[id]{baux.zero}[class]{api-entry api-entry-compact}[data-symbol]{baux.zero}[data-kind]{function}[data-module]{baux.transforms}{
-      \<div>[class]{api-entry-header}{
-        \<span>[class]{api-entry-title}{[\code{baux.zero}](#baux.zero)}
-        \<span>[class]{api-kind-badge}{function}
-      }
-      \pre{
-baux.zero() -> Transform
-      }
-      \p{\code{baux.zero} selects surrogate-free TuRBO-zero search, evolving the trust region from evaluated observations without fitting a predictive model.}
-    }
-
-    \<div>[id]{baux.with_geometry}[class]{api-entry api-entry-compact}[data-symbol]{baux.with_geometry}[data-kind]{function}[data-module]{baux.transforms}{
-      \<div>[class]{api-entry-header}{
-        \<span>[class]{api-entry-title}{[\code{baux.with_geometry}](#baux.with_geometry)}
-        \<span>[class]{api-kind-badge}{function}
-      }
-      \pre{
-baux.with_geometry(model: Any, geometry: str, local_k: int = 4) -> Any
-      }
-      \p{\code{baux.with_geometry} attaches a local-scale dissimilarity (\code{"euclidean"}, \code{"conformal"}, \code{"hyperbolic"}, or \code{"wasserstein"}) and metric (\code{"l2"}, \code{"l2_squared"}, \code{"manhattan"}, \code{"chebyshev"}, \code{"cosine"}, or \code{"angular"}) to a state, surrogate, config, or pipeline without mutating the input. Conformal scaling follows Zelnik-Manor & Perona [[ZMP04]](https://papers.nips.cc/paper_files/paper/2004/hash/40173ea48d9567f1f393b20c855bb40b-Abstract.html), Poincaré half-space dissimilarity #{2\sinh^2(d_H/2) = \cosh(d_H) - 1} follows Beardon [[Bea83]](https://doi.org/10.1007/978-1-4612-1146-4), and Gaussian-covariance transport follows Gelbrich [[Gel90]](https://doi.org/10.1002/mana.19901470121); unsupported geometry or metric names raise \code{ValueError}.}
-    }
-  }
-
-  \subtree{
-    \title{Acquisition Rules}
-
-    \<div>[id]{baux.ucb}[class]{api-entry}[data-symbol]{baux.ucb}[data-kind]{function}[data-module]{baux.transforms}{
-      \<div>[class]{api-entry-header}{
-        \<span>[class]{api-entry-title}{[\code{baux.ucb}](#baux.ucb)}
-        \<span>[class]{api-kind-badge}{function}
-      }
-      \pre{
-baux.ucb(beta: float = 2.0) -> Transform
-      }
-      \p{\code{baux.ucb} sets acquisition scoring to the Upper Confidence Bound \code{mu + beta * se} across candidate batches.}
-      \<dl>[class]{api-spec-list}{
-        \<dt>{Parameters}
-        \<dd>{
-          \ul{
-            \li{\code{beta} (\em{float}, default \code{2.0}) — Exploration trade-off weight (\code{beta >= 0.0}).}
-          }
-        }
-        \<dt>{Returns}
-        \<dd>{[\code{Transform}](#baux.Transform) — Pipeline stage setting UCB acquisition.}
-        \<dt>{Raises}
-        \<dd>{\code{ValueError} — If \code{beta < 0.0}.}
-      }
-    }
-
-    \<div>[id]{baux.thompson}[class]{api-entry api-entry-compact}[data-symbol]{baux.thompson}[data-kind]{function}[data-module]{baux.transforms}{
-      \<div>[class]{api-entry-header}{
-        \<span>[class]{api-entry-title}{[\code{baux.thompson}](#baux.thompson)}
-        \<span>[class]{api-kind-badge}{function}
-      }
-      \pre{
-baux.thompson() -> Transform
-      }
-      \p{\code{baux.thompson} selects candidates that maximize spatially coherent posterior function draws rather than marginal scores.}
-    }
-
-    \<div>[id]{baux.pareto}[class]{api-entry api-entry-compact}[data-symbol]{baux.pareto}[data-kind]{function}[data-module]{baux.transforms}{
-      \<div>[class]{api-entry-header}{
-        \<span>[class]{api-entry-title}{[\code{baux.pareto}](#baux.pareto)}
-        \<span>[class]{api-kind-badge}{function}
-      }
-      \pre{
-baux.pareto() -> Transform
-      }
-      \p{\code{baux.pareto} removes the exploration weight \code{beta} by sorting candidates along the non-dominated frontier of posterior mean and standard error \code{(mu, se)}.}
-    }
-
-    \<div>[id]{baux.random_acq}[class]{api-entry api-entry-compact}[data-symbol]{baux.random_acq}[data-kind]{function}[data-module]{baux.transforms}{
-      \<div>[class]{api-entry-header}{
-        \<span>[class]{api-entry-title}{[\code{baux.random_acq}](#baux.random_acq)}
-        \<span>[class]{api-kind-badge}{function}
-      }
-      \pre{
-baux.random_acq() -> Transform
-      }
-      \p{\code{baux.random_acq} draws candidates uniformly within the active trust region, bypassing surrogate acquisition scoring.}
-    }
-  }
-
-  \subtree{
-    \title{Warm-Up & Candidate Perturbation}
-
-    \<div>[id]{baux.lhd}[class]{api-entry api-entry-compact}[data-symbol]{baux.lhd}[data-kind]{function}[data-module]{baux.transforms}{
-      \<div>[class]{api-entry-header}{
-        \<span>[class]{api-entry-title}{[\code{baux.lhd}](#baux.lhd)}
-        \<span>[class]{api-kind-badge}{function}
-      }
-      \pre{
-baux.lhd(num_init: int = 10, *, only: bool = False) -> Transform
-      }
-      \p{\code{baux.lhd} schedules \code{num_init} Latin Hypercube warm-up arms (or disables trust-region search for pure global space filling when \code{only=True}). Raises \code{ValueError} if \code{num_init < 1}.}
-    }
-
-    \<div>[id]{baux.sobol}[class]{api-entry api-entry-compact}[data-symbol]{baux.sobol}[data-kind]{function}[data-module]{baux.transforms}{
-      \<div>[class]{api-entry-header}{
-        \<span>[class]{api-entry-title}{[\code{baux.sobol}](#baux.sobol)}
-        \<span>[class]{api-kind-badge}{function}
-      }
-      \pre{
-baux.sobol(
-    num_candidates: int | None = None,
-    *,
-    per_arm: int | None = None,
-    num_pert: int | None = None,
-) -> Transform
-      }
-      \p{\code{baux.sobol} fills the trust-region candidate box with scrambled Sobol quasi-Monte Carlo points.}
-    }
-
-    \<div>[id]{baux.raasp}[class]{api-entry}[data-symbol]{baux.raasp}[data-kind]{function}[data-module]{baux.transforms}{
-      \<div>[class]{api-entry-header}{
-        \<span>[class]{api-entry-title}{[\code{baux.raasp}](#baux.raasp)}
-        \<span>[class]{api-kind-badge}{function}
-      }
-      \pre{
-baux.raasp(
-    num_pert: int | None = 20,
-    *,
-    num_candidates: int | None = None,
-    per_arm: int | None = None,
-    driver: RAASPDriver = RAASPDriver.ORIG,
-) -> Transform
-      }
-      \p{\code{baux.raasp} perturbs candidate axes sparsely around the trust-region center with per-coordinate probability \code{min(num_pert / D, 1.0)}.}
-      \<dl>[class]{api-spec-list}{
-        \<dt>{Parameters}
-        \<dd>{
-          \ul{
-            \li{\code{num_pert} (\em{int | None}, default \code{20}) — Target number of coordinates to perturb per candidate arm.}
-            \li{\code{num_candidates} (\em{int | None}, keyword-only, default \code{None}) — Total candidate pool size generated across all arms.}
-            \li{\code{per_arm} (\em{int | None}, keyword-only, default \code{None}) — Candidate pool size generated per requested arm.}
-            \li{\code{driver} (\em{RAASPDriver}, keyword-only, default \code{RAASPDriver.ORIG}) — Coordinate perturbation engine backend.}
-          }
-        }
-        \<dt>{Returns}
-        \<dd>{[\code{Transform}](#baux.Transform) — Pipeline stage setting RAASP candidate generation.}
-      }
-    }
-
-    \<div>[id]{baux.uniform_pert}[class]{api-entry api-entry-compact}[data-symbol]{baux.uniform_pert}[data-kind]{function}[data-module]{baux.transforms}{
-      \<div>[class]{api-entry-header}{
-        \<span>[class]{api-entry-title}{[\code{baux.uniform_pert}](#baux.uniform_pert)}
-        \<span>[class]{api-kind-badge}{function}
-      }
-      \pre{
-baux.uniform_pert(
-    num_candidates: int | None = None,
-    *,
-    per_arm: int | None = None,
-    num_pert: int | None = None,
-) -> Transform
-      }
-      \p{\code{baux.uniform} perturbs every coordinate uniformly inside the trust-region bounding box.}
-    }
-  }
-
-  \subtree{
-    \title{Parallel Trust Regions}
-
-    \<div>[id]{baux.regions}[class]{api-entry}[data-symbol]{baux.regions}[data-kind]{function}[data-module]{baux.transforms}{
-      \<div>[class]{api-entry-header}{
-        \<span>[class]{api-entry-title}{[\code{baux.regions}](#baux.regions)}
-        \<span>[class]{api-kind-badge}{function}
-      }
-      \pre{
-baux.regions(
-    count: int = 4,
-    *,
-    sharing: str = "ellipsoid_ball",
-    allocation: str = "incumbent_ucb1",
-    success_tolerance: int = 3,
-    failure_tolerance: int = 5,
-    length: TrustRegionBounds | None = None,
-) -> Transform
-      }
-      \p{\code{baux.regions} runs \code{count} concurrent local trust regions linked by an observation-sharing geometry and a bandit arm allocator.}
-      \<dl>[class]{api-spec-list}{
-        \<dt>{Parameters}
-        \<dd>{
-          \ul{
-            \li{\code{count} (\em{int}, default \code{4}) — Number of concurrent trust-region slots (\code{count >= 1}).}
-            \li{\code{sharing} (\em{str}, keyword-only, default \code{"ellipsoid_ball"}) — Cross-region observation adoption policy: \code{"ellipsoid_ball"} (shares observations within overlapping ellipsoidal bounds), \code{"origin_only"} (restricts observations strictly to the generating region), or \code{"global"} (broadcasts all observations across all regional controllers).}
-            \li{\code{allocation} (\em{str}, keyword-only, default \code{"incumbent_ucb1"}) — Arm budget routing policy (\code{"incumbent_ucb1"}, \code{"least_trials"}, or \code{"joint_acquisition"}).}
-            \li{\code{success_tolerance} (\em{int}, keyword-only, default \code{3}) — Consecutive improving completions required before expanding a region's side length.}
-            \li{\code{failure_tolerance} (\em{int}, keyword-only, default \code{5}) — Consecutive non-improving completions tolerated before shrinking a region's side length.}
-            \li{\code{length} (\em{TrustRegionBounds | None}, keyword-only, default \code{None}) — Optional explicit side-length bounds.}
-          }
-        }
-        \<dt>{Returns}
-        \<dd>{[\code{Transform}](#baux.Transform) — Pipeline stage setting multi-region trust-region policy.}
-        \<dt>{Notes}
-        \<dd>{Enabling multi-region search sets \code{state.identified = True}, activating asynchronous evaluation tracking and allowing candidate batches to be resolved out of order via [\code{baux.complete}](#baux.complete) or retired via [\code{baux.cancel}](#baux.cancel).}
-      }
-    }
-
-    \<div>[id]{baux.tr_bounds}[class]{api-entry}[data-symbol]{baux.tr_bounds}[data-kind]{function}[data-module]{baux.transforms}{
-      \<div>[class]{api-entry-header}{
-        \<span>[class]{api-entry-title}{[\code{baux.tr_bounds}](#baux.tr_bounds)}
-        \<span>[class]{api-kind-badge}{function}
-      }
-      \pre{
-baux.tr_bounds(
-    *,
-    length_init: float = 0.8,
-    length_min: float = 0.5**7,
-    length_max: float = 1.6,
-) -> Transform
-      }
-      \p{\code{baux.tr_bounds} sets initial, restart-minimum, and maximum unit-cube side lengths across single- or multi-region controllers.}
-      \<dl>[class]{api-spec-list}{
-        \<dt>{Parameters}
-        \<dd>{
-          \ul{
-            \li{\code{length_init} (\em{float}, keyword-only, default \code{0.8}) — Initial trust region side length (\code{length_min <= length_init <= length_max}).}
-            \li{\code{length_min} (\em{float}, keyword-only, default \code{0.0078125}) — Minimum side length triggering a regional restart (\code{0 < length_min < length_max}).}
-            \li{\code{length_max} (\em{float}, keyword-only, default \code{1.6}) — Upper bound on side-length expansion.}
-          }
-        }
-        \<dt>{Returns}
-        \<dd>{[\code{Transform}](#baux.Transform) — Pipeline stage updating side-length bounds.}
-        \<dt>{Raises}
-        \<dd>{\code{ValueError} — If side-length bounds violate ordering constraints.}
-      }
-    }
-  }
-
-  \subtree{
-    \title{Multi-Output Shrinkage & Calibration}
-
-    \<div>[id]{baux.stein}[class]{api-entry}[data-symbol]{baux.stein}[data-kind]{function}[data-module]{baux.transforms}{
-      \<div>[class]{api-entry-header}{
-        \<span>[class]{api-entry-title}{[\code{baux.stein}](#baux.stein)}
-        \<span>[class]{api-kind-badge}{function}
-      }
-      \pre{
-baux.stein(
-    target: Any = None,
-    frame: Stiefel | np.ndarray | int | None = None,
-    *,
-    rank: int | None = None,
-) -> Transform | OptimizerState | Any
-      }
-      \p{\code{baux.stein} shrinks noisy off-subspace residuals toward an orthonormal Stiefel basis whenever target dimension \code{M} exceeds \code{rank}.}
-      \<dl>[class]{api-spec-list}{
-        \<dt>{Parameters}
-        \<dd>{
-          \ul{
-            \li{\code{target} (\em{Any}, default \code{None}) — Target state, config, or pipeline stage to configure, or a Stiefel frame / integer rank when creating a standalone pipeline stage.}
-            \li{\code{frame} (\em{Stiefel | np.ndarray | int | None}, default \code{None}) — Orthonormal Stiefel matrix or integer rank when \code{target} is a state or config.}
-            \li{\code{rank} (\em{int | None}, keyword-only, default \code{None}) — Principal subspace dimension \code{1 <= rank <= M} estimated from observed responses.}
-          }
-        }
-        \<dt>{Returns}
-        \<dd>{[\code{Transform}](#baux.Transform) when called without a target, or an updated copy of \code{target}.}
-        \<dt>{Notes}
-        \<dd>{Applies positive-part empirical Bayes shrinkage toward the orthonormal basis columns of the Stiefel subspace. When \code{M > rank}, noisy off-subspace response components are shrunk toward the subspace projections, improving surrogate generalization in high-dimensional multi-task settings.}
-      }
-    }
-
-    \<div>[id]{baux.calibrate}[class]{api-entry}[data-symbol]{baux.calibrate}[data-kind]{function}[data-module]{baux.transforms}{
-      \<div>[class]{api-entry-header}{
-        \<span>[class]{api-entry-title}{[\code{baux.calibrate}](#baux.calibrate)}
-        \<span>[class]{api-kind-badge}{function}
-      }
-      \pre{
-baux.calibrate(
-    target: Any = None,
-    affine: Affine | float | None = None,
-    *,
-    alpha: float | None = None,
-) -> Transform | OptimizerState | Any
-      }
-      \p{\code{baux.calibrate} rescales predictive variance via an affine calibration map and inflates intervals by conformal quantile factors to restore empirical coverage.}
-      \<dl>[class]{api-spec-list}{
-        \<dt>{Parameters}
-        \<dd>{
-          \ul{
-            \li{\code{target} (\em{Any}, default \code{None}) — Target state, config, or pipeline stage to configure, or an affine map / miscoverage rate \code{alpha}.}
-            \li{\code{affine} (\em{Affine | float | None}, default \code{None}) — Pre-fitted affine location-scale map or miscoverage rate.}
-            \li{\code{alpha} (\em{float | None}, keyword-only, default \code{None}) — Miscoverage rate in \code{(0, 1)} for conformal residual quantile scaling.}
-          }
-        }
-        \<dt>{Returns}
-        \<dd>{[\code{Transform}](#baux.Transform) when called as a pipeline constructor, or an updated copy of \code{target}.}
-        \<dt>{Notes}
-        \<dd>{Applies held-out variance rescaling and conformal quantile inflation factors to guarantee empirical uncertainty coverage on downstream predictive queries.}
-      }
-    }
-  }
-
-  \subtree{
-    \title{Pipeline Composition}
-
-    \<div>[id]{baux.Transform}[class]{api-entry api-entry-compact}[data-symbol]{baux.Transform}[data-kind]{class}[data-module]{baux.transforms}{
-      \<div>[class]{api-entry-header}{
-        \<span>[class]{api-entry-title}{[\code{baux.Transform}](#baux.Transform)}
-        \<span>[class]{api-kind-badge}{class}
-      }
-      \pre{
-class baux.Transform
-      }
-      \p{\code{Transform} wraps a pure configuration update \code{Callable[[OptimizerConfig], OptimizerConfig]}, composing left-to-right with \code{pipe1 | pipe2} and compiling when called as \code{pipe(config)}.}
-    }
-
-    \<div>[id]{baux.chain}[class]{api-entry api-entry-compact}[data-symbol]{baux.chain}[data-kind]{function}[data-module]{baux.transforms}{
-      \<div>[class]{api-entry-header}{
-        \<span>[class]{api-entry-title}{[\code{baux.chain}](#baux.chain)}
-        \<span>[class]{api-kind-badge}{function}
-      }
-      \pre{
-baux.chain(
-    *steps: Transform | Callable[[OptimizerConfig], OptimizerConfig] | OptimizerConfig,
-) -> OptimizerConfig
-      }
-      \p{\code{baux.chain} folds a sequence of pipeline transforms left-to-right into one validated [\code{OptimizerConfig}](#baux.OptimizerConfig).}
-    }
-  }
-}
-
-\subtree{
-  \title{Parameter Domains & Subspace Maps}
-
-  \p{Nested Python dictionaries, tuples, lists, namedtuples, and dataclasses (\code{PyTree}s) map structured user domains onto flat solver coordinates and retract proposals back to valid domain values. These specifications equip continuous, positive-log, periodic, simplex, categorical, and multi-output spaces with distortion-free coordinate charts and orthonormal subspace projections.}
-
-  \<table>[class]{api-summary-table}{
-    \<thead>{
-      \<tr>{
-        \<th>{Symbol}
-        \<th>{Summary}
-      }
-    }
-    \<tbody>{
-      \<tr>[data-symbol]{baux.Space}[data-kind]{class}[data-module]{baux.pytree}{
-        \<td>{[\code{baux.Space}](#baux.Space)}
-        \<td>{Domain specification and top-level alias for \code{PyTreeSpec} compiling nested parameter trees into bounded solver coordinates.}
-      }
-      \<tr>[data-symbol]{baux.PyTreeSpec}[data-kind]{class}[data-module]{baux.pytree}{
-        \<td>{[\code{baux.PyTreeSpec}](#baux.PyTreeSpec)}
-        \<td>{Compiled parameter-space specification with total dimension, coordinate bounds, leaf descriptors, and tied manifold groups.}
-      }
-      \<tr>[data-symbol]{baux.Log}[data-kind]{class}[data-module]{baux.pytree}{
-        \<td>{[\code{baux.Log}](#baux.Log)}
-        \<td>{Strictly positive interval specification mapping \code{[low, high]} linearly in \code{log(x)} onto \code{[0, 1]}.}
-      }
-      \<tr>[data-symbol]{baux.Periodic}[data-kind]{class}[data-module]{baux.pytree}{
-        \<td>{[\code{baux.Periodic}](#baux.Periodic)}
-        \<td>{Periodic interval specification encoding angular phases as 2D \code{(cos, sin)} coordinates in \code{[0, 1]^2} without boundary seam discontinuities.}
-      }
-      \<tr>[data-symbol]{baux.Simplex}[data-kind]{class}[data-module]{baux.pytree}{
-        \<td>{[\code{baux.Simplex}](#baux.Simplex)}
-        \<td>{Probability simplex specification encoding non-negative weights via square-root coordinates on the unit sphere.}
-      }
-      \<tr>[data-symbol]{baux.categorical}[data-kind]{function}[data-module]{baux.pytree}{
-        \<td>{[\code{baux.categorical}](#baux.categorical)}
-        \<td>{Functional constructor building a discrete choice specification from any non-empty sequence of choices.}
-      }
-      \<tr>[data-symbol]{baux.Categorical}[data-kind]{class}[data-module]{baux.pytree}{
-        \<td>{[\code{baux.Categorical}](#baux.Categorical)}
-        \<td>{Discrete choice specification embedding categories into one-hot or Rademacher Johnson-Lindenstrauss codewords.}
-      }
-      \<tr>[data-symbol]{baux.ravel}[data-kind]{function}[data-module]{baux.pytree}{
-        \<td>{[\code{baux.ravel}](#baux.ravel)}
-        \<td>{Flatten a single parameter PyTree or batch of PyTrees into continuous solver coordinates.}
-      }
-      \<tr>[data-symbol]{baux.unflatten}[data-kind]{function}[data-module]{baux.pytree}{
-        \<td>{[\code{baux.unflatten}](#baux.unflatten)}
-        \<td>{Decode a 1D coordinate vector into a single structured parameter PyTree.}
-      }
-      \<tr>[data-symbol]{baux.unflatten_batch}[data-kind]{function}[data-module]{baux.pytree}{
-        \<td>{[\code{baux.unflatten_batch}](#baux.unflatten_batch)}
-        \<td>{Decode a 2D batch coordinate matrix into a tuple of structured parameter PyTrees.}
-      }
-      \<tr>[data-symbol]{baux.unflatten_stacked}[data-kind]{function}[data-module]{baux.pytree}{
-        \<td>{[\code{baux.unflatten_stacked}](#baux.unflatten_stacked)}
-        \<td>{Decode a 2D batch coordinate matrix into a single PyTree with leading batch axes on leaf arrays.}
-      }
-      \<tr>[data-symbol]{baux.pytree_bounds}[data-kind]{function}[data-module]{baux.pytree}{
-        \<td>{[\code{baux.pytree_bounds}](#baux.pytree_bounds)}
-        \<td>{Compile a template PyTree of arrays, shape tuples, or coordinate charts into a \code{PyTreeSpec}.}
-      }
-      \<tr>[data-symbol]{baux.LeafSpec}[data-kind]{class}[data-module]{baux.pytree}{
-        \<td>{[\code{baux.LeafSpec}](#baux.LeafSpec)}
-        \<td>{Metadata descriptor recording path, offset, size, and coordinate bounds for a single PyTree leaf.}
-      }
-      \<tr>[data-symbol]{baux.Stiefel}[data-kind]{class}[data-module]{baux._embeddings}{
-        \<td>{[\code{baux.Stiefel}](#baux.Stiefel)}
-        \<td>{Orthonormal subspace basis on the Stiefel manifold implementing Empirical-Bayes James-Stein contraction.}
-      }
-      \<tr>[data-symbol]{baux.Affine}[data-kind]{class}[data-module]{baux._embeddings}{
-        \<td>{[\code{baux.Affine}](#baux.Affine)}
-        \<td>{Per-metric posterior location-scale map \code{(a + b * mu, c * se)} with least-squares fitting and conformal residual scaling.}
-      }
-    }
-  }
-
-  \subtree{
-    \title{Input Domains & Coordinate Specs}
-
-    \<div>[id]{baux.Space}[class]{api-entry}[data-symbol]{baux.Space}[data-kind]{class}[data-module]{baux.pytree}{
-      \<div>[class]{api-entry-header}{
-        \<span>[class]{api-entry-title}{[\code{baux.Space}](#baux.Space)}
-        \<span>[class]{api-kind-badge}{class}
-      }
-      \pre{
-baux.Space(tree: Any, low: Any = -1.0, high: Any = 1.0) -> PyTreeSpec
-      }
-      \p{\code{baux.Space} aliases [\code{baux.PyTreeSpec}](#baux.PyTreeSpec) as a top-level domain constructor; calling \code{baux.Space(tree, low=-1.0, high=1.0)} compiles a nested parameter template directly into flat solver bounds.}
-      \<dl>[class]{api-spec-list}{
-        \<dt>{Parameters}
-        \<dd>{
-          \ul{
-            \li{\code{tree} (\em{Any}) — Nested dictionary, tuple, list, namedtuple, or dataclass containing arrays, shape tuples (e.g., \code{(64, 16)}), or coordinate specs (returns \code{tree} unchanged if already a \code{PyTreeSpec}).}
-            \li{\code{low} (\em{float | np.ndarray | Any}, default \code{-1.0}) — Broadcastable lower bound for continuous Euclidean leaves.}
-            \li{\code{high} (\em{float | np.ndarray | Any}, default \code{1.0}) — Broadcastable upper bound for continuous Euclidean leaves.}
-          }
-        }
-        \<dt>{Attributes}
-        \<dd>{
-          \ul{
-            \li{\code{dim} (\em{int}) — Total flat solver coordinate dimension \code{D}.}
-            \li{\code{bounds} (\em{np.ndarray}) — Read-only \code{(D, 2)} float64 matrix of coordinate bounds.}
-            \li{\code{leaves} (\em{tuple[LeafSpec, ...]}) — Ordered [\code{LeafSpec}](#baux.LeafSpec) descriptors in depth-first traversal order.}
-            \li{\code{template} (\em{Any}) — Original container structure.}
-            \li{\code{tied_dims} (\em{tuple[tuple[int, ...], ...]}) — Column-index groups for multi-column coordinate specs (\code{Periodic}, \code{Simplex}, \code{Categorical}).}
-            \li{\code{key} (\em{Key}) — Deterministic 128-bit [\code{Key}](#baux.Key) derived from \code{bounds} and \code{leaves}.}
-          }
-        }
-        \<dt>{Methods}
-        \<dd>{
-          \ul{
-            \li{\code{ravel(tree: Any) -> np.ndarray} (alias \code{flatten}) — Flatten a single PyTree to \code{(dim,)} or a batch to \code{(N, dim)}.}
-            \li{\code{unflatten(flat: Any, weights: np.ndarray | None = None) -> Any} — Decode flat coordinates of shape \code{(dim,)} into a structured PyTree.}
-            \li{\code{unflatten_batch(flat_batch: Any, weights: np.ndarray | None = None) -> tuple[Any, ...]} — Decode a 2D \code{(N, dim)} matrix into a tuple of \code{N} PyTrees.}
-            \li{\code{unflatten_stacked(flat_batch: Any, weights: np.ndarray | None = None) -> Any} — Decode a 2D \code{(N, dim)} matrix into a single PyTree with leading batch axes.}
-          }
-        }
-        \<dt>{Example}
-        \<dd>{
-          \pre{
-import numpy as np
-import baux
-
-domain = {
-    "lr": baux.Log(1e-4, 1.0),
-    "theta": baux.Periodic(),
-    "weights": baux.Simplex(3),
-    "opt": baux.categorical(["adam", "sgd", "rmsprop"]),
-}
-sp = baux.Space(domain)
-rng = np.random.default_rng(0)
-coords = rng.uniform(sp.bounds[:, 0], sp.bounds[:, 1])
-params = sp.unflatten(coords)
-coords_rec = sp.ravel(params)
-params_rec = sp.unflatten(coords_rec)
-assert params_rec["opt"] == params["opt"]
-assert np.isclose(params_rec["lr"], params["lr"])
-assert np.isclose(params_rec["theta"], params["theta"])
-assert np.allclose(params_rec["weights"], params["weights"])
-          }
-        }
-      }
-    }
-
-    \<div>[id]{baux.PyTreeSpec}[class]{api-entry}[data-symbol]{baux.PyTreeSpec}[data-kind]{class}[data-module]{baux.pytree}{
-      \<div>[class]{api-entry-header}{
-        \<span>[class]{api-entry-title}{[\code{baux.PyTreeSpec}](#baux.PyTreeSpec)}
-        \<span>[class]{api-kind-badge}{class}
-      }
-      \pre{
-baux.PyTreeSpec(
-    dim: Any,
-    bounds: Any = None,
-    leaves: tuple[LeafSpec, ...] | None = None,
-    template: Any = None,
-    *,
-    low: Any = -1.0,
-    high: Any = 1.0,
-) -> PyTreeSpec
-      }
-      \p{\code{baux.PyTreeSpec} stores the compiled parameter layout, including total solver dimension, coordinate bounds, leaf traversal offsets, and tied coordinate groups.}
-      \<dl>[class]{api-spec-list}{
-        \<dt>{Attributes}
-        \<dd>{
-          \ul{
-            \li{\code{dim} (\em{int}) — Total flat coordinate dimension.}
-            \li{\code{bounds} (\em{np.ndarray}) — Read-only \code{(dim, 2)} float64 matrix of lower and upper bounds.}
-            \li{\code{leaves} (\em{tuple[LeafSpec, ...]}) — Sequence of leaf specifications in traversal order.}
-            \li{\code{tied_dims} (\em{tuple[tuple[int, ...], ...]}) — Multi-column tied dimension indices for candidate mutation and surrogate kernels.}
-            \li{\code{key} (\em{Key}) — Deterministic 128-bit BLAKE3 key derived from the space layout and bounds.}
-          }
-        }
-        \<dt>{Methods}
-        \<dd>{
-          \ul{
-            \li{\code{ravel(tree: Any) -> np.ndarray} — Flatten parameters into 1D coordinate vector or 2D batch matrix.}
-            \li{\code{unflatten(flat: Any, weights: np.ndarray | None = None) -> Any} — Decode 1D coordinate vector into structured parameters.}
-            \li{\code{unflatten_batch(flat_batch: Any, weights: np.ndarray | None = None) -> tuple[Any, ...]} — Decode 2D matrix into a tuple of parameter PyTrees.}
-            \li{\code{unflatten_stacked(flat_batch: Any, weights: np.ndarray | None = None) -> Any} — Decode 2D matrix into a single PyTree with stacked leaf arrays.}
-          }
-        }
-      }
-    }
-
-    \<div>[id]{baux.Log}[class]{api-entry}[data-symbol]{baux.Log}[data-kind]{class}[data-module]{baux.pytree}{
-      \<div>[class]{api-entry-header}{
-        \<span>[class]{api-entry-title}{[\code{baux.Log}](#baux.Log)}
-        \<span>[class]{api-kind-badge}{class}
-      }
-      \pre{
-baux.Log(low: float, high: float)
-      }
-      \p{\code{Log} charts a strictly positive interval \code{[low, high]} (\code{0 < low < high}) onto \code{[0, 1]} linearly in \code{log(x)}, giving multiplicative steps equal metric weight.}
-      \<dl>[class]{api-spec-list}{
-        \<dt>{Attributes}
-        \<dd>{
-          \ul{
-            \li{\code{low} / \code{high} (\em{float}) — Finite strictly positive interval endpoints (\code{0 < low < high}).}
-            \li{\code{width} (\em{int}) — Embedded dimension (\code{1}).}
-            \li{\code{bounds} (\em{tuple[float, float]}) — Coordinate bounds \code{(0.0, 1.0)}.}
-          }
-        }
-        \<dt>{Methods}
-        \<dd>{
-          \ul{
-            \li{\code{encode(x: Any) -> np.ndarray} (alias \code{flatten}) — Map positive scalar or array \code{x} to unit coordinates via \code{log(x / low) / log(high / low)}.}
-            \li{\code{decode(u: Any) -> float | np.ndarray} (aliases \code{unflatten}, \code{snap}) — Map unit coordinates back to \code{low * (high / low) ** u}.}
-          }
-        }
-      }
-    }
-
-    \<div>[id]{baux.Periodic}[class]{api-entry}[data-symbol]{baux.Periodic}[data-kind]{class}[data-module]{baux.pytree}{
-      \<div>[class]{api-entry-header}{
-        \<span>[class]{api-entry-title}{[\code{baux.Periodic}](#baux.Periodic)}
-        \<span>[class]{api-kind-badge}{class}
-      }
-      \pre{
-baux.Periodic(low: float = 0.0, high: float = 2.0 * math.pi)
-      }
-      \p{\code{Periodic} embeds angular phases on \code{[low, high]} as 2D \code{(cos, sin)} coordinates in \code{[0, 1]^2} so distance wraps smoothly without boundary seam discontinuities.}
-      \<dl>[class]{api-spec-list}{
-        \<dt>{Attributes}
-        \<dd>{
-          \ul{
-            \li{\code{low} / \code{high} (\em{float}) — Finite phase period endpoints (\code{low < high}).}
-            \li{\code{width} (\em{int}) — Embedded coordinate dimension (\code{2}, registered as tied columns in \code{PyTreeSpec.tied_dims}).}
-            \li{\code{bounds} (\em{tuple[float, float]}) — Coordinate bounds \code{(0.0, 1.0)}.}
-          }
-        }
-        \<dt>{Methods}
-        \<dd>{
-          \ul{
-            \li{\code{encode(theta: Any) -> np.ndarray} (alias \code{flatten}) — Map scalar or array angle to 2D coordinates \code{(0.5 + cos(phi) / (2*pi), 0.5 + sin(phi) / (2*pi))}.}
-            \li{\code{decode(u: Any) -> float | np.ndarray} (aliases \code{unflatten}, \code{snap}) — Recover angular phase (\code{low <= theta < high}) via \code{atan2} modulo \code{high - low}.}
-          }
-        }
-      }
-    }
-
-    \<div>[id]{baux.Simplex}[class]{api-entry}[data-symbol]{baux.Simplex}[data-kind]{class}[data-module]{baux.pytree}{
-      \<div>[class]{api-entry-header}{
-        \<span>[class]{api-entry-title}{[\code{baux.Simplex}](#baux.Simplex)}
-        \<span>[class]{api-kind-badge}{class}
-      }
-      \pre{
-baux.Simplex(dim: int)
-      }
-      \p{\code{Simplex} encodes non-negative mixture weights on \code{Delta^{dim - 1}} via square-root coordinates \code{psi_i(p) = sqrt(p_i)}, aligning Euclidean search distance with Hellinger geometry and guaranteeing decoded sums of \code{1.0}.}
-      \<dl>[class]{api-spec-list}{
-        \<dt>{Attributes}
-        \<dd>{
-          \ul{
-            \li{\code{dim} (\em{int}) — Number of simplex components (\code{dim >= 2}).}
-            \li{\code{width} (\em{int}) — Embedded dimension (\code{dim}).}
-            \li{\code{bounds} (\em{tuple[float, float]}) — Coordinate bounds \code{(0.0, 1.0)}.}
-          }
-        }
-        \<dt>{Methods}
-        \<dd>{
-          \ul{
-            \li{\code{encode(p: Any) -> np.ndarray} (alias \code{flatten}) — Map non-negative probability vectors of trailing dimension \code{dim} to \code{sqrt(max(p, 0))}.}
-            \li{\code{decode(u: Any) -> np.ndarray} (aliases \code{unflatten}, \code{snap}) — Normalize squared coordinates \code{max(u, 0)**2 / sum(max(u, 0)**2)} to sum to \code{1.0} (falling back to \code{1.0 / dim} if zero).}
-          }
-        }
-      }
-    }
-
-    \<div>[id]{baux.categorical}[class]{api-entry}[data-symbol]{baux.categorical}[data-kind]{function}[data-module]{baux.pytree}{
-      \<div>[class]{api-entry-header}{
-        \<span>[class]{api-entry-title}{[\code{baux.categorical}](#baux.categorical)}
-        \<span>[class]{api-kind-badge}{function}
-      }
-      \pre{
-baux.categorical(
-    categories: Sequence[Any],
-    *,
-    encoding: str = "auto",
-    key: Any = None,
-    seed: Any = None,
-    separation: float = 10.0,
-    dim_cap: int = 48,
-) -> Categorical
-      }
-      \p{\code{baux.categorical} constructs an isometric discrete-choice specification ([\code{Categorical}](#baux.Categorical)) from at least two arbitrary Python options.}
-      \<dl>[class]{api-spec-list}{
-        \<dt>{Parameters}
-        \<dd>{
-          \ul{
-            \li{\code{categories} (\em{Sequence[Any]}) — Non-empty sequence of discrete category values (\code{len(categories) >= 2}).}
-            \li{\code{encoding} (\em{str}, default \code{"auto"}) — Codeword scheme (\code{"auto"}, \code{"onehot"}, or \code{"rademacher"}).}
-            \li{\code{key} / \code{seed} (\em{Any}, default \code{None}) — Deterministic seed for pseudo-random Rademacher codebook generation.}
-            \li{\code{separation} (\em{float}, default \code{10.0}) — Codeword norm scaling factor.}
-            \li{\code{dim_cap} (\em{int}, default \code{48}) — Upper bound on continuous embedding width.}
-          }
-        }
-        \<dt>{Returns}
-        \<dd>{\code{Categorical} — Frozen categorical coordinate specification.}
-      }
-    }
-
-    \<div>[id]{baux.Categorical}[class]{api-entry api-entry-compact}[data-symbol]{baux.Categorical}[data-kind]{class}[data-module]{baux.pytree}{
-      \<div>[class]{api-entry-header}{
-        \<span>[class]{api-entry-title}{[\code{baux.Categorical}](#baux.Categorical)}
-        \<span>[class]{api-kind-badge}{class}
-      }
-      \pre{
-baux.Categorical(
-    categories: tuple[Any, ...],
-    encoding: str = "auto",
-    seed: Any = None,
-    separation: float = 10.0,
-    dim_cap: int = 48,
-    key: Any = None,
-)
-      }
-      \p{\code{baux.Categorical} embeds discrete alternatives as one-hot vectors when cardinality #{\le 15} or equal-norm Rademacher Johnson–Lindenstrauss codewords above #{\text{15}}, decoding vectors back by maximum inner product.}
-    }
-
-    \<div>[id]{baux.ravel}[class]{api-entry api-entry-compact}[data-symbol]{baux.ravel}[data-kind]{function}[data-module]{baux.pytree}{
-      \<div>[class]{api-entry-header}{
-        \<span>[class]{api-entry-title}{[\code{baux.ravel}](#baux.ravel)}
-        \<span>[class]{api-kind-badge}{function}
-      }
-      \pre{
-baux.ravel(tree: Any, spec: PyTreeSpec | None = None) -> np.ndarray
-      }
-      \p{\code{baux.ravel} packs a structured parameter PyTree (or batch) into flat solver vectors of shape \code{(dim,)} (or \code{(N, dim)}), encoding manifold and categorical leaves through \code{spec}.}
-    }
-
-    \<div>[id]{baux.unflatten}[class]{api-entry api-entry-compact}[data-symbol]{baux.unflatten}[data-kind]{function}[data-module]{baux.pytree}{
-      \<div>[class]{api-entry-header}{
-        \<span>[class]{api-entry-title}{[\code{baux.unflatten}](#baux.unflatten)}
-        \<span>[class]{api-kind-badge}{function}
-      }
-      \pre{
-baux.unflatten(flat: Any, spec: PyTreeSpec, weights: np.ndarray | None = None) -> Any
-      }
-      \p{\code{baux.unflatten} decodes a length-\code{spec.dim} solver vector into a structured parameter PyTree and retracts each leaf onto its domain constraint.}
-    }
-
-    \<div>[id]{baux.unflatten_batch}[class]{api-entry api-entry-compact}[data-symbol]{baux.unflatten_batch}[data-kind]{function}[data-module]{baux.pytree}{
-      \<div>[class]{api-entry-header}{
-        \<span>[class]{api-entry-title}{[\code{baux.unflatten_batch}](#baux.unflatten_batch)}
-        \<span>[class]{api-kind-badge}{function}
-      }
-      \pre{
-baux.unflatten_batch(
-    flat_batch: Any,
-    spec: PyTreeSpec,
-    weights: np.ndarray | None = None,
-) -> tuple[Any, ...]
-      }
-      \p{\code{baux.unflatten_batch} decodes a \code{(B, D)} solver matrix into a tuple of \code{B} structured parameter PyTrees matching \code{spec.template}.}
-    }
-
-    \<div>[id]{baux.unflatten_stacked}[class]{api-entry api-entry-compact}[data-symbol]{baux.unflatten_stacked}[data-kind]{function}[data-module]{baux.pytree}{
-      \<div>[class]{api-entry-header}{
-        \<span>[class]{api-entry-title}{[\code{baux.unflatten_stacked}](#baux.unflatten_stacked)}
-        \<span>[class]{api-kind-badge}{function}
-      }
-      \pre{
-baux.unflatten_stacked(
-    flat_batch: Any,
-    spec: PyTreeSpec,
-    weights: np.ndarray | None = None,
-) -> Any
-      }
-      \p{\code{baux.unflatten_stacked} decodes a \code{(B, D)} solver matrix into one batched PyTree with leading axis \code{B} on array leaves for vectorized evaluation.}
-    }
-
-    \<div>[id]{baux.pytree_bounds}[class]{api-entry api-entry-compact}[data-symbol]{baux.pytree_bounds}[data-kind]{function}[data-module]{baux.pytree}{
-      \<div>[class]{api-entry-header}{
-        \<span>[class]{api-entry-title}{[\code{baux.pytree_bounds}](#baux.pytree_bounds)}
-        \<span>[class]{api-kind-badge}{function}
-      }
-      \pre{
-baux.pytree_bounds(tree: Any, low: Any = -1.0, high: Any = 1.0) -> PyTreeSpec
-      }
-      \p{\code{baux.pytree_bounds} compiles a template PyTree of arrays, shapes, or manifold specs into an immutable [\code{PyTreeSpec}](#baux.PyTreeSpec) with shared default bounds.}
-    }
-
-    \<div>[id]{baux.LeafSpec}[class]{api-entry api-entry-compact}[data-symbol]{baux.LeafSpec}[data-kind]{class}[data-module]{baux.pytree}{
-      \<div>[class]{api-entry-header}{
-        \<span>[class]{api-entry-title}{[\code{baux.LeafSpec}](#baux.LeafSpec)}
-        \<span>[class]{api-kind-badge}{class}
-      }
-      \pre{
-baux.LeafSpec(
-    path: tuple[Any, ...],
-    shape: tuple[int, ...],
-    offset: int,
-    size: int,
-    low: np.ndarray,
-    high: np.ndarray,
-    categorical: Categorical | None = None,
-    embed: Any = None,
-)
-      }
-      \p{\code{LeafSpec} records one leaf's tree path, flat slice offset, shape, coordinate bounds, and manifold encoder inside \code{PyTreeSpec.leaves}.}
-    }
-  }
-
-  \subtree{
-    \title{Output Subspace Maps}
-
-    \<div>[id]{baux.Stiefel}[class]{api-entry}[data-symbol]{baux.Stiefel}[data-kind]{class}[data-module]{baux._embeddings}{
-      \<div>[class]{api-entry-header}{
-        \<span>[class]{api-entry-title}{[\code{baux.Stiefel}](#baux.Stiefel)}
-        \<span>[class]{api-kind-badge}{class}
-      }
-      \pre{
-baux.Stiefel(loadings: np.ndarray)
-      }
-      \p{\code{baux.Stiefel} stores an orthonormal frame \code{V} of shape \code{(M, F)} on the Stiefel manifold and applies Empirical-Bayes James–Stein contraction to residuals orthogonal to \code{col(V)}.}
-      \<dl>[class]{api-spec-list}{
-        \<dt>{Attributes}
-        \<dd>{
-          \ul{
-            \li{\code{loadings} (\em{np.ndarray}) — Read-only \code{(M, F)} float64 orthonormal basis matrix.}
-          }
-        }
-        \<dt>{Methods}
-        \<dd>{
-          \ul{
-            \li{\code{Stiefel.from_factors(factors: np.ndarray) -> Stiefel} — Project a finite full-column-rank \code{(M, F)} factor matrix (\code{M >= F >= 1}) onto the Stiefel manifold via polar SVD \code{U @ Vh}.}
-            \li{\code{Stiefel.from_cov(y: np.ndarray, rank: int = 1) -> Stiefel} — Extract the top \code{rank} principal right singular vectors of centered \code{(N, M)} observations.}
-            \li{\code{transform_stein(mu: np.ndarray, se: np.ndarray) -> tuple[np.ndarray, np.ndarray]} (alias \code{stein}) — Contract predictive moments \code{(mu, se)} toward the subspace spanned by \code{loadings}.}
-          }
-        }
-        \<dt>{Example}
-        \<dd>{
-          \pre{
-import numpy as np
-import baux
-
-loadings = np.array([[1.0, 0.0], [0.0, 1.0], [0.0, 0.0]])
-st = baux.Stiefel.from_factors(loadings)
-mu = np.array([1.0, 2.0, 0.5])
-se = np.array([0.1, 0.2, 0.3])
-mu_out, se_out = st.stein(mu, se)
-assert mu_out.shape == (3,)
-assert se_out.shape == (3,)
-
-pipe = baux.chain(
-    baux.lhd(4),
-    baux.enn(k=2, num_samples=None),
-    baux.stein(st),
-    baux.pareto(),
-)
-state = baux.init(np.array([[-1.0, 1.0], [-1.0, 1.0]]), pipe)
-state, y = baux.step(
-    state,
-    lambda x: np.column_stack([-np.sum(x**2, axis=1), np.sum(x, axis=1), x[:, 0] * x[:, 1]]),
-)
-assert state.num_observations == 1
-assert state.epoch == 2
-assert np.isfinite(y).all()
-          }
-        }
-      }
-    }
-
-    \<div>[id]{baux.Affine}[class]{api-entry api-entry-compact}[data-symbol]{baux.Affine}[data-kind]{class}[data-module]{baux._embeddings}{
-      \<div>[class]{api-entry-header}{
-        \<span>[class]{api-entry-title}{[\code{baux.Affine}](#baux.Affine)}
-        \<span>[class]{api-kind-badge}{class}
-      }
-      \pre{
-baux.Affine(a: np.ndarray, b: np.ndarray, c: np.ndarray)
-      }
-      \p{\code{baux.Affine} applies per-metric location-scale transformations \code{(a + b * mu, c * se)} across \code{M} outputs, fitting coefficients by ordinary least squares (\code{Affine.fit}), weighted least squares (\code{Affine.fit_wls}), or finite-sample conformal residual scaling (\code{conformal_scale}).}
-    }
-  }
-}
-
-\subtree{
-  \title{Keys, Rollouts & Checkpoints}
-
-  \p{Because functional transitions cannot rely on hidden global RNG state, every stochastic proposal derives from an explicit splittable key and every snapshot carries its own integrity digest. This section specifies 128-bit cryptographic keys, deterministic rollout combinators, and authenticated \code{BAUXFRZ2} checkpoint serialization.}
-
-  \<table>[class]{api-summary-table}{
-    \<thead>{
-      \<tr>{
-        \<th>{Symbol}
-        \<th>{Summary}
-      }
-    }
-    \<tbody>{
-      \<tr>[data-symbol]{baux.key}[data-kind]{function}[data-module]{baux.state}{
-        \<td>{[\code{baux.key}](#baux.key)}
-        \<td>{Construct or extract a deterministic 128-bit PRNG \code{Key} from an integer seed, array, state, or OS entropy.}
-      }
-      \<tr>[data-symbol]{baux.Key}[data-kind]{class}[data-module]{baux.state}{
-        \<td>{[\code{baux.Key}](#baux.Key)}
-        \<td>{Splittable 128-bit BLAKE3 PRNG key seeding deterministic ChaCha12 streams, hyperparameter fits, and posterior draws.}
-      }
-      \<tr>[data-symbol]{baux.split}[data-kind]{function}[data-module]{baux.state}{
-        \<td>{[\code{baux.split}](#baux.split)}
-        \<td>{Deterministically partition a \code{Key} into independent child subkeys without mutating the parent key.}
-      }
-      \<tr>[data-symbol]{baux.fold}[data-kind]{function}[data-module]{baux.state}{
-        \<td>{[\code{baux.fold}](#baux.fold)}
-        \<td>{Deterministically fold an integer tag into a \code{Key} to derive an independent child key.}
-      }
-      \<tr>[data-symbol]{baux.scan}[data-kind]{function}[data-module]{baux.state}{
-        \<td>{[\code{baux.scan}](#baux.scan)}
-        \<td>{Fold pure optimization rounds over an \code{OptimizerState} and PRNG stream, recording per-step traces.}
-      }
-      \<tr>[data-symbol]{baux.pmap}[data-kind]{function}[data-module]{baux.state}{
-        \<td>{[\code{baux.pmap}](#baux.pmap)}
-        \<td>{Fork an \code{OptimizerState} and split a \code{Key} across worker threads for parallel evaluation.}
-      }
-      \<tr>[data-symbol]{baux.freeze}[data-kind]{function}[data-module]{baux.state}{
-        \<td>{[\code{baux.freeze}](#baux.freeze)}
-        \<td>{Serialize an \code{OptimizerState} into an authenticated \code{BAUXFRZ2} binary checkpoint.}
-      }
-      \<tr>[data-symbol]{baux.thaw}[data-kind]{function}[data-module]{baux.state}{
-        \<td>{[\code{baux.thaw}](#baux.thaw)}
-        \<td>{Restore an exact saved \code{OptimizerState} snapshot from a binary checkpoint without mutating the template state.}
-      }
-      \<tr>[data-symbol]{baux.digest}[data-kind]{function}[data-module]{baux.state}{
-        \<td>{[\code{baux.digest}](#baux.digest)}
-        \<td>{Compute the 64-character lowercase hexadecimal BLAKE3 cryptographic digest of an \code{OptimizerState}.}
-      }
-    }
-  }
-
-  \<div>[id]{baux.key}[class]{api-entry}[data-symbol]{baux.key}[data-kind]{function}[data-module]{baux.state}{
-    \<div>[class]{api-entry-header}{
-      \<span>[class]{api-entry-title}{[\code{baux.key}](#baux.key)}
-      \<span>[class]{api-kind-badge}{function}
-    }
-    \pre{
-baux.key(source: Any = None) -> Key
-    }
-    \p{\code{baux.key} constructs or extracts a splittable 128-bit [\code{Key}](#baux.Key) from an integer seed, byte buffer, array, state snapshot, or OS entropy.}
-    \<dl>[class]{api-spec-list}{
-      \<dt>{Parameters}
-      \<dd>{
-        \ul{
-          \li{\code{source} (\em{int | bytes | np.ndarray | OptimizerState | ENNState | PyTreeSpec | Key | None}, default \code{None}) — Seed source. Extracts \code{source.key} if present, hashes byte arrays via BLAKE3, converts integer seeds deterministically, or draws OS entropy when \code{None}.}
-        }
-      }
-      \<dt>{Returns}
-      \<dd>{\code{Key} — Immutable 128-bit splittable PRNG key.}
-    }
-  }
-
-  \<div>[id]{baux.Key}[class]{api-entry}[data-symbol]{baux.Key}[data-kind]{class}[data-module]{baux.state}{
-    \<div>[class]{api-entry-header}{
-      \<span>[class]{api-entry-title}{[\code{baux.Key}](#baux.Key)}
-      \<span>[class]{api-kind-badge}{class}
-    }
-    \pre{
-baux.Key(source: int | bytes | Key | None = None) -> Key
-    }
-    \p{\code{Key} represents a splittable 128-bit BLAKE3 key that seeds deterministic candidate sampling, LOO hyperparameter fits, and posterior function draws.}
-    \<dl>[class]{api-spec-list}{
-      \<dt>{Attributes}
-      \<dd>{
-        \ul{
-          \li{\code{hi} (\em{int}) — Upper unsigned 64-bit word (\code{0 <= hi < 2**64}).}
-          \li{\code{lo} (\em{int}) — Lower unsigned 64-bit word (\code{0 <= lo < 2**64}).}
-        }
-      }
-      \<dt>{Methods}
-      \<dd>{
-        \ul{
-          \li{\code{Key.entropy() -> Key} — Sample fresh 128-bit OS entropy.}
-          \li{\code{Key.from_bytes(data: bytes) -> Key} — Hash byte payload via BLAKE3 into a deterministic key.}
-          \li{\code{Key.from_pair(hi: int, lo: int) -> Key} — Construct key directly from two unsigned 64-bit words.}
-          \li{\code{seed() -> int} — Derive a deterministic unsigned 64-bit integer seed.}
-          \li{\code{split() -> tuple[Key, Key]} — Deterministically derive two independent child keys.}
-          \li{\code{split_n(n: int) -> list[Key]} — Deterministically derive \code{n} independent child keys.}
-          \li{\code{fold(tag: int) -> Key} — Mix an unsigned 64-bit integer tag into a derived child key.}
-        }
-      }
-    }
-  }
-
-  \<div>[id]{baux.split}[class]{api-entry api-entry-compact}[data-symbol]{baux.split}[data-kind]{function}[data-module]{baux.state}{
-    \<div>[class]{api-entry-header}{
-      \<span>[class]{api-entry-title}{[\code{baux.split}](#baux.split)}
-      \<span>[class]{api-kind-badge}{function}
-    }
-    \pre{
-baux.split(k: Key, n: int = 2) -> tuple[Key, ...]
-    }
-    \p{\code{baux.split} partitions parent key \code{k} deterministically into \code{n} independent child keys without mutating \code{k}.}
-  }
-
-  \<div>[id]{baux.fold}[class]{api-entry api-entry-compact}[data-symbol]{baux.fold}[data-kind]{function}[data-module]{baux.state}{
-    \<div>[class]{api-entry-header}{
-      \<span>[class]{api-entry-title}{[\code{baux.fold}](#baux.fold)}
-      \<span>[class]{api-kind-badge}{function}
-    }
-    \pre{
-baux.fold(k: Key, tag: int) -> Key
-    }
-    \p{\code{baux.fold} mixes a 64-bit integer tag into key \code{k} without mutation to derive an independent child key.}
-  }
-
-  \<div>[id]{baux.scan}[class]{api-entry}[data-symbol]{baux.scan}[data-kind]{function}[data-module]{baux.state}{
-    \<div>[class]{api-entry-header}{
-      \<span>[class]{api-entry-title}{[\code{baux.scan}](#baux.scan)}
-      \<span>[class]{api-kind-badge}{function}
-    }
-    \pre{
-baux.scan(
-    state: OptimizerState,
-    key: Key | int | Callable[..., Any] | None = None,
-    steps: int = 0,
-    eval_fn: Callable[..., Any] | None = None,
-    num_arms: int = 1,
-) -> tuple[OptimizerState, Key, list[dict[str, Any]]] | tuple[OptimizerState, np.ndarray]
-    }
-    \p{\code{baux.scan} folds \code{steps} sequential ask/tell rounds over \code{state} and a splitting key stream without shared mutable state.}
-    \<dl>[class]{api-spec-list}{
-      \<dt>{Parameters}
-      \<dd>{
-        \ul{
-          \li{\code{state} (\em{OptimizerState}) — Initial optimizer snapshot.}
-          \li{\code{key} (\em{Key | int | Callable | None}, default \code{None}) — Root PRNG key, or objective callable when \code{eval_fn} is omitted.}
-          \li{\code{steps} (\em{int}, default \code{0}) — Non-negative number of optimization rounds (\code{steps >= 0}).}
-          \li{\code{eval_fn} (\em{Callable | None}, default \code{None}) — Objective function accepting \code{batch.points} of shape \code{(num_arms, D)} (or \code{(step_idx, batch.points)}).}
-          \li{\code{num_arms} (\em{int}, default \code{1}) — Number of arms proposed per round.}
-        }
-      }
-      \<dt>{Returns}
-      \<dd>{When \code{eval_fn} is provided: \code{(final_state, next_key, traces)}, where each element of \code{traces} is a \code{dict} exposing \code{"step"} (\code{int}), \code{"best_y"} (\code{float | None}), and lazy \code{"digest"} (\code{str}). When \code{eval_fn is None} and \code{key} is callable: \code{(final_state, history)} where \code{history} is a read-only \code{(steps, num_arms)} float64 reward matrix.}
-      \<dt>{Example}
-      \<dd>{
-        \pre{
-import numpy as np
-import baux
-
-domain = np.array([[-2.0, 2.0], [-2.0, 2.0]])
-state = baux.init(domain, baux.turbo_zero(), seed=0)
-
-def objective(x):
-    return -np.sum(x**2, axis=-1, keepdims=True)
-
-final_state, key_out, traces = baux.scan(
-    state,
-    key=baux.key(42),
-    steps=4,
-    eval_fn=objective,
-    num_arms=1,
-)
-assert final_state.num_observations == 4
-assert len(traces) == 4
-assert traces[-1]["step"] == 3
-
-root_key = baux.key(0)
-subkeys = baux.split(root_key, 3)
-assert len(subkeys) == 3
-
-def branch_fn(idx, branch_state, k):
-    s_end, _, _ = baux.scan(branch_state, key=k, steps=2, eval_fn=objective)
-    return idx, s_end.best_y
-
-results = baux.pmap(state, root_key, 3, branch_fn)
-assert len(results) == 3
-assert [r[0] for r in results] == [0, 1, 2]
-        }
-      }
-    }
-  }
-
-  \<div>[id]{baux.pmap}[class]{api-entry}[data-symbol]{baux.pmap}[data-kind]{function}[data-module]{baux.state}{
-    \<div>[class]{api-entry-header}{
-      \<span>[class]{api-entry-title}{[\code{baux.pmap}](#baux.pmap)}
-      \<span>[class]{api-kind-badge}{function}
-    }
-    \pre{
-baux.pmap(
-    state: OptimizerState,
-    key: Key | int | None,
-    branches: int,
-    branch_fn: Callable[[int, OptimizerState, Key], Any],
-) -> list[Any]
-    }
-    \p{\code{baux.pmap} forks \code{state} and splits \code{key} across \code{branches} worker threads so parallel rollouts never contend on shared state.}
-    \<dl>[class]{api-spec-list}{
-      \<dt>{Parameters}
-      \<dd>{
-        \ul{
-          \li{\code{state} (\em{OptimizerState}) — Base optimizer snapshot forked independently per worker thread.}
-          \li{\code{key} (\em{Key | int | None}) — Root key split across branches (defaults to \code{state.key} when \code{None}).}
-          \li{\code{branches} (\em{int}) — Non-negative branch count (\code{0} returns \code{[]}).}
-          \li{\code{branch_fn} (\em{Callable}) — Worker function with signature \code{(branch_idx: int, branch_state: OptimizerState, subkey: Key) -> Any}.}
-        }
-      }
-      \<dt>{Returns}
-      \<dd>{\code{list[Any]} — Collected worker return values ordered by branch index \code{0 .. branches - 1}.}
-      \<dt>{Notes}
-      \<dd>{Worker threads run independently without shared mutable buffers, executing in parallel inside \code{ThreadPoolExecutor}.}
-    }
-  }
-
-  \<div>[id]{baux.freeze}[class]{api-entry}[data-symbol]{baux.freeze}[data-kind]{function}[data-module]{baux.state}{
-    \<div>[class]{api-entry-header}{
-      \<span>[class]{api-entry-title}{[\code{baux.freeze}](#baux.freeze)}
-      \<span>[class]{api-kind-badge}{function}
-    }
-    \pre{
-baux.freeze(state: OptimizerState) -> bytes
-    }
-    \p{\code{baux.freeze} encodes an \code{OptimizerState} into a canonical \code{BAUXFRZ2} byte payload authenticated with a trailing BLAKE3 tag.}
-    \<dl>[class]{api-spec-list}{
-      \<dt>{Parameters}
-      \<dd>{
-        \ul{
-          \li{\code{state} (\em{OptimizerState}) — Optimizer state snapshot to serialize.}
-        }
-      }
-      \<dt>{Returns}
-      \<dd>{\code{bytes} — Authenticated binary wire payload with \code{BAUXFRZ2} magic header and trailing BLAKE3 integrity tag.}
-      \<dt>{Example}
-      \<dd>{
-        \pre{
-import numpy as np
-import baux
-
-domain = np.array([[-2.0, 2.0], [-2.0, 2.0]])
-blank = baux.init(domain, baux.turbo_zero(), seed=123)
-state, batch = baux.ask(blank, 2)
-y = -np.sum(batch.points**2, axis=-1, keepdims=True)
-state, _ = baux.tell(state, batch, y)
-raw = baux.freeze(state)
-restored = baux.thaw(blank, raw)
-assert restored.epoch == state.epoch
-assert restored.seed == state.seed
-assert restored.num_observations == state.num_observations
-assert np.array_equal(baux.ask(state, 2)[1].points, baux.ask(restored, 2)[1].points)
-        }
-      }
-    }
-  }
-
-  \<div>[id]{baux.thaw}[class]{api-entry}[data-symbol]{baux.thaw}[data-kind]{function}[data-module]{baux.state}{
-    \<div>[class]{api-entry-header}{
-      \<span>[class]{api-entry-title}{[\code{baux.thaw}](#baux.thaw)}
-      \<span>[class]{api-kind-badge}{function}
-    }
-    \pre{
-baux.thaw(
-    state: OptimizerState,
-    data: bytes | bytearray | memoryview,
-) -> OptimizerState
-    }
-    \p{\code{baux.thaw} restores an \code{OptimizerState} from binary checkpoint \code{data} against template \code{state} without mutating \code{state}. It verifies the \code{BAUXFRZ2} header, regional mode parity, domain bounds, and BLAKE3 integrity tag, then reconstructs exact search state (\code{epoch}, \code{seed}, \code{identified}, \code{tr_length}, regional counters, observation arrays, fitted hyperparameters, and \code{pending_ids}) so subsequent proposals match the checkpoint.}
-    \<dl>[class]{api-spec-list}{
-      \<dt>{Parameters}
-      \<dd>{
-        \ul{
-          \li{\code{state} (\em{OptimizerState}) — Template snapshot defining expected search domain, dimension, and configuration.}
-          \li{\code{data} (\em{bytes | bytearray | memoryview}) — Binary checkpoint payload produced by [\code{baux.freeze}](#baux.freeze).}
-        }
-      }
-      \<dt>{Returns}
-      \<dd>{\code{OptimizerState} — Restored immutable snapshot at the exact saved \code{epoch} and \code{seed}.}
-      \<dt>{Raises}
-      \<dd>{
-        \ul{
-          \li{\code{TypeError} — If \code{data} is not a bytes-like object (\code{bytes}, \code{bytearray}, or \code{memoryview}).}
-          \li{\code{ValueError} — If \code{data} has an invalid magic header, unsupported wire version, regional mode mismatch, bounds incompatibility, or invalid BLAKE3 integrity tag.}
-        }
-      }
-    }
-  }
-
-  \<div>[id]{baux.digest}[class]{api-entry api-entry-compact}[data-symbol]{baux.digest}[data-kind]{function}[data-module]{baux.state}{
-    \<div>[class]{api-entry-header}{
-      \<span>[class]{api-entry-title}{[\code{baux.digest}](#baux.digest)}
-      \<span>[class]{api-kind-badge}{function}
-    }
-    \pre{
-baux.digest(state: OptimizerState) -> str
-    }
-    \p{\code{baux.digest} computes the canonical 64-character hexadecimal BLAKE3 digest over domain bounds, pipeline config, observations, and controller state.}
-  }
-}
-
-\subtree{
-  \title{Standalone ENN Surrogate}
-
-  \p{You can fit and query the Epistemic Nearest Neighbor (ENN) surrogate outside an optimization loop through pure transitions over [\code{baux.ENNState}](#baux.ENNState). Functions [\code{baux.enn_init}](#baux.enn_init), [\code{baux.enn_fit}](#baux.enn_fit), [\code{baux.enn_posterior}](#baux.enn_posterior), [\code{baux.enn_sample}](#baux.enn_sample), and [\code{baux.enn_append}](#baux.enn_append) keep input arrays read-only and update the neighbor index copy-on-write.}
-
-  \<table>[class]{api-summary-table}{
-    \<thead>{
-      \<tr>{
-        \<th>{Symbol}
-        \<th>{Summary}
-      }
-    }
-    \<tbody>{
-      \<tr>[data-symbol]{baux.enn_init}[data-kind]{function}[data-module]{baux.enn}{
-        \<td>{[\code{baux.enn_init}](#baux.enn_init)}
-        \<td>{Construct an immutable \code{ENNState} surrogate over training coordinates and targets.}
-      }
-      \<tr>[data-symbol]{baux.enn_append}[data-kind]{function}[data-module]{baux.enn}{
-        \<td>{[\code{baux.enn_append}](#baux.enn_append)}
-        \<td>{Append observations to an \code{ENNState} via copy-on-write (aliased as \code{baux.append}).}
-      }
-      \<tr>[data-symbol]{baux.enn_fit}[data-kind]{function}[data-module]{baux.enn}{
-        \<td>{[\code{baux.enn_fit}](#baux.enn_fit)}
-        \<td>{Fit \code{ENNParams} by leave-one-out log-pseudolikelihood (aliased as \code{baux.fit}).}
-      }
-      \<tr>[data-symbol]{baux.enn_posterior}[data-kind]{function}[data-module]{baux.enn}{
-        \<td>{[\code{baux.enn_posterior}](#baux.enn_posterior)}
-        \<td>{Evaluate posterior predictive mean and standard errors (aliased as \code{baux.posterior}).}
-      }
-      \<tr>[data-symbol]{baux.enn_sample}[data-kind]{function}[data-module]{baux.enn}{
-        \<td>{[\code{baux.enn_sample}](#baux.enn_sample)}
-        \<td>{Draw coherent joint posterior function evaluations (aliased as \code{baux.sample}).}
-      }
-      \<tr>[data-symbol]{baux.ENNState}[data-kind]{class}[data-module]{baux.enn}{
-        \<td>{[\code{baux.ENNState}](#baux.ENNState)}
-        \<td>{Immutable dataset and neighbor index snapshot for functional ENN workflows.}
-      }
-      \<tr>[data-symbol]{baux.ENNParams}[data-kind]{class}[data-module]{baux.enn}{
-        \<td>{[\code{baux.ENNParams}](#baux.ENNParams)}
-        \<td>{Hyperparameter record \code{(k_neighbors, epistemic_scale, aleatoric_scale)}.}
-      }
-      \<tr>[data-symbol]{baux.Posterior}[data-kind]{class}[data-module]{baux.enn}{
-        \<td>{[\code{baux.Posterior}](#baux.Posterior)}
-        \<td>{Device-resident DLPack posterior snapshot exposing mean, SE, and joint draws on accelerator memory.}
-      }
-      \<tr>[data-symbol]{baux.NeighborIndex}[data-kind]{class}[data-module]{baux.index}{
-        \<td>{[\code{baux.NeighborIndex}](#baux.NeighborIndex)}
-        \<td>{Enumeration of nearest-neighbor search drivers (\code{FLAT}, \code{USEARCH}, \code{BPANN_DISK}, \code{METAL}, \code{CUDA}, \code{OPENCL}, \code{AUTO}).}
-      }
-      \<tr>[data-symbol]{baux.DistanceMetric}[data-kind]{class}[data-module]{baux.index}{
-        \<td>{[\code{baux.DistanceMetric}](#baux.DistanceMetric)}
-        \<td>{Enumeration of neighbor index distance metrics (\code{SQUARED_L2}, \code{COSINE}).}
-      }
-    }
-  }
-
-  \<div>[id]{baux.enn_init}[class]{api-entry}[data-symbol]{baux.enn_init}[data-kind]{function}[data-module]{baux.enn}{
-    \<div>[class]{api-entry-header}{
-      \<span>[class]{api-entry-title}{[\code{baux.enn_init}](#baux.enn_init)}
-      \<span>[class]{api-kind-badge}{function}
-    }
-    \pre{
-baux.enn_init(
-    train_x: np.ndarray,
-    train_y: np.ndarray,
-    train_yvar: np.ndarray | None = None,
-    *,
-    scale_x: bool = False,
-    stiefel: Stiefel | np.ndarray | None = None,
-    affine: Affine | tuple[Any, Any, Any] | None = None,
-    **options: Any,
-) -> ENNState
-    }
-    \p{Construct an immutable [\code{baux.ENNState}](#baux.ENNState) dataset and neighbor index over training observations without mutating caller arrays. Also exported in \code{baux.enn} as \code{baux.enn.init}.}
-    \<dl>[class]{api-spec-list}{
-      \<dt>{Parameters}
-      \<dd>{
-        \ul{
-          \li{\code{train_x} (\em{array-like of shape (N, D)}) — Training feature coordinates.}
-          \li{\code{train_y} (\em{array-like of shape (N,) or (N, M)}) — Training target values (reshaped internally to \code{(N, 1)} when 1D).}
-          \li{\code{train_yvar} (\em{array-like of shape (N,) or (N, M) | None}, default \code{None}) — Optional known observation noise variances.}
-          \li{\code{scale_x} (\em{bool}, keyword-only, default \code{False}) — Standardize input features by empirical column standard deviation.}
-          \li{\code{stiefel} (\em{Stiefel | np.ndarray | None}, keyword-only, default \code{None}) — Optional [\code{baux.Stiefel}](#baux.Stiefel) subspace frame for James–Stein shrinkage.}
-          \li{\code{affine} (\em{Affine | tuple | None}, keyword-only, default \code{None}) — Optional [\code{baux.Affine}](#baux.Affine) posterior location-scale calibration map.}
-          \li{\code{**options} (\em{Any}) — Optional backend settings forwarded to [\code{baux.ENN}](#baux.ENN), including \code{index_driver}, \code{metric_learning}, \code{work_dir}, and \code{enn_storage}.}
-        }
-      }
-      \<dt>{Returns}
-      \<dd>{\code{ENNState} — Immutable surrogate state holding read-only arrays and neighbor index.}
-      \<dt>{Example}
-      \<dd>{
-        \pre{
-import numpy as np
-import baux
-
-x = np.array([[0.0], [1.0], [2.0], [3.0], [4.0]])
-y = np.sin(x)
-state = baux.enn_init(x, y)
-params = baux.enn_fit(state, k=3, num_samples=5, seed=0)
-q = np.array([[0.5], [1.5], [2.5]])
-post = baux.enn_posterior(state, q, params)
-draws, idx = baux.enn_sample(state, q, params, num_draws=4)
-x_new = np.full((1, 1), 5.0)
-state2 = baux.enn_append(state, x_new, np.sin(x_new))
-
-assert post.mu.shape == (3, 1)
-assert draws.shape == (3, 1, 4)
-assert len(state2) == 6
-        }
-      }
-    }
-  }
-
-  \<div>[id]{baux.enn_append}[class]{api-entry}[data-symbol]{baux.enn_append}[data-kind]{function}[data-module]{baux.enn}{
-    \<div>[class]{api-entry-header}{
-      \<span>[class]{api-entry-title}{[\code{baux.enn_append}](#baux.enn_append)}
-      \<span>[class]{api-kind-badge}{function}
-    }
-    \pre{
-baux.enn_append(
-    state: ENNState,
-    x: np.ndarray,
-    y: np.ndarray,
-    y_var: np.ndarray | None = None,
-) -> ENNState
-    }
-    \p{Return a new [\code{baux.ENNState}](#baux.ENNState) with \code{(x, y)} appended via copy-on-write, leaving \code{state} untouched. Aliased at top level as \code{baux.append} and in \code{baux.enn} as \code{baux.enn.append}.}
-    \<dl>[class]{api-spec-list}{
-      \<dt>{Parameters}
-      \<dd>{
-        \ul{
-          \li{\code{state} (\em{ENNState}) — Existing surrogate state.}
-          \li{\code{x} (\em{array-like of shape (K, D) or (D,)}) — New input coordinates.}
-          \li{\code{y} (\em{array-like of shape (K, M) or (K,)}) — New target values.}
-          \li{\code{y_var} (\em{array-like of shape (K, M) or (K,) | None}, default \code{None}) — Optional noise variances matching \code{state.y_var} configuration.}
-        }
-      }
-      \<dt>{Returns}
-      \<dd>{\code{ENNState} — New state containing \code{len(state) + K} observations.}
-      \<dt>{Raises}
-      \<dd>{\code{ValueError} — If noise variance presence or column dimensions disagree.}
-    }
-  }
-
-  \<div>[id]{baux.enn_fit}[class]{api-entry}[data-symbol]{baux.enn_fit}[data-kind]{function}[data-module]{baux.enn}{
-    \<div>[class]{api-entry-header}{
-      \<span>[class]{api-entry-title}{[\code{baux.enn_fit}](#baux.enn_fit)}
-      \<span>[class]{api-kind-badge}{function}
-    }
-    \pre{
-baux.enn_fit(
-    state: ENNState,
-    k: int = 10,
-    *,
-    num_candidates: int = 100,
-    num_samples: int = 10,
-    infer_aleatoric: bool = True,
-    key: Any = None,
-    seed: int | np.random.Generator | None = None,
-    warm: ENNParams | None = None,
-) -> ENNParams
-    }
-    \p{Pure hyperparameter optimization maximizing subsampled leave-one-out log-pseudolikelihood over variance scales for [\code{baux.ENNState}](#baux.ENNState). Aliased at top level as \code{baux.fit} and in \code{baux.enn} as \code{baux.enn.fit}.}
-    \<dl>[class]{api-spec-list}{
-      \<dt>{Parameters}
-      \<dd>{
-        \ul{
-          \li{\code{state} (\em{ENNState}) — Immutable surrogate state to fit.}
-          \li{\code{k} (\em{int}, default \code{10}) — Number of nearest neighbors \code{k > 0}.}
-          \li{\code{num_candidates} (\em{int}, keyword-only, default \code{100}) — Number of candidate scale configurations evaluated.}
-          \li{\code{num_samples} (\em{int}, keyword-only, default \code{10}) — Subsampled training rows scored per candidate.}
-          \li{\code{infer_aleatoric} (\em{bool}, keyword-only, default \code{True}) — Whether to optimize aleatoric noise scale jointly.}
-          \li{\code{key} (\em{Any}, keyword-only, default \code{None}) — Deterministic PRNG key (defaults to folding \code{state.key} with \code{k} and \code{num_samples}).}
-          \li{\code{seed} (\em{int | np.random.Generator | None}, keyword-only, default \code{None}) — Optional integer or NumPy generator seed.}
-          \li{\code{warm} (\em{ENNParams | None}, keyword-only, default \code{None}) — Optional warm-start hyperparameter baseline.}
-        }
-      }
-      \<dt>{Returns}
-      \<dd>{\code{ENNParams} — Fitted hyperparameter record.}
-    }
-  }
-
-  \<div>[id]{baux.enn_posterior}[class]{api-entry}[data-symbol]{baux.enn_posterior}[data-kind]{function}[data-module]{baux.enn}{
-    \<div>[class]{api-entry-header}{
-      \<span>[class]{api-entry-title}{[\code{baux.enn_posterior}](#baux.enn_posterior)}
-      \<span>[class]{api-kind-badge}{function}
-    }
-    \pre{
-baux.enn_posterior(
-    state: ENNState,
-    x: np.ndarray,
-    params: ENNParams,
-    *,
-    flags: PosteriorFlags | None = None,
-) -> ENNNormal
-    }
-    \p{Pure posterior query evaluating precision-weighted normal moments at \code{x}. Aliased at top level as \code{baux.posterior} and in \code{baux.enn} as \code{baux.enn.posterior}.}
-    \<dl>[class]{api-spec-list}{
-      \<dt>{Parameters}
-      \<dd>{
-        \ul{
-          \li{\code{state} (\em{ENNState}) — Immutable surrogate state.}
-          \li{\code{x} (\em{array-like of shape (Q, D)}) — Query coordinates.}
-          \li{\code{params} (\em{ENNParams}) — Hyperparameter record governing neighbor count and variance scales.}
-          \li{\code{flags} (\em{PosteriorFlags | None}, keyword-only, default \code{None}) — Optional query flags for neighbor exclusion or observation noise.}
-        }
-      }
-      \<dt>{Returns}
-      \<dd>{\code{ENNNormal} — Distribution moments exposing \code{mu}, \code{se}, \code{se_epi}, \code{se_ale}, and \code{idx}.}
-    }
-  }
-
-  \<div>[id]{baux.enn_sample}[class]{api-entry}[data-symbol]{baux.enn_sample}[data-kind]{function}[data-module]{baux.enn}{
-    \<div>[class]{api-entry-header}{
-      \<span>[class]{api-entry-title}{[\code{baux.enn_sample}](#baux.enn_sample)}
-      \<span>[class]{api-kind-badge}{function}
-    }
-    \pre{
-baux.enn_sample(
-    state: ENNState,
-    x: np.ndarray,
-    params: ENNParams,
-    *,
-    key: Any = None,
-    num_draws: int = 1,
-    seeds: np.ndarray | list[int] | tuple[int, ...] | None = None,
-    flags: PosteriorFlags | None = None,
-) -> tuple[np.ndarray, np.ndarray]
-    }
-    \p{Draw spatially coherent posterior function samples at query coordinates \code{x}. Aliased at top level as \code{baux.sample} and in \code{baux.enn} as \code{baux.enn.sample}.}
-    \<dl>[class]{api-spec-list}{
-      \<dt>{Parameters}
-      \<dd>{
-        \ul{
-          \li{\code{state} (\em{ENNState}) — Immutable surrogate state.}
-          \li{\code{x} (\em{array-like of shape (Q, D)}) — Query coordinates.}
-          \li{\code{params} (\em{ENNParams}) — Fitted or manual hyperparameter record.}
-          \li{\code{key} (\em{Any}, keyword-only, default \code{None}) — PRNG key split into function seeds (defaults to folding \code{state.key} with hashed \code{x}).}
-          \li{\code{num_draws} (\em{int}, keyword-only, default \code{1}) — Number of sample realizations to draw.}
-          \li{\code{seeds} (\em{Sequence[int] | None}, keyword-only, default \code{None}) — Explicit function seeds overriding \code{key} and \code{num_draws}.}
-          \li{\code{flags} (\em{PosteriorFlags | None}, keyword-only, default \code{None}) — Optional neighbor exclusion or tie-breaking flags.}
-        }
-      }
-      \<dt>{Returns}
-      \<dd>{\code{tuple[np.ndarray, np.ndarray]} — Pair \code{(draws, idx)} where \code{draws} has shape \code{(Q, M, num_draws)} and \code{idx} has shape \code{(Q, k_eff)}.}
-    }
-  }
-
-  \<div>[id]{baux.ENNState}[class]{api-entry}[data-symbol]{baux.ENNState}[data-kind]{class}[data-module]{baux.enn}{
-    \<div>[class]{api-entry-header}{
-      \<span>[class]{api-entry-title}{[\code{baux.ENNState}](#baux.ENNState)}
-      \<span>[class]{api-kind-badge}{class}
-    }
-    \pre{
-class baux.ENNState  (frozen dataclass; constructed via baux.enn_init)
-    }
-    \p{\code{ENNState} bundles read-only training observations with a copy-on-write neighbor index and content-addressed RNG key.}
-    \<dl>[class]{api-spec-list}{
-      \<dt>{Attributes}
-      \<dd>{
-        \ul{
-          \li{\code{x} (\em{np.ndarray}) — Read-only \code{(N, D)} feature coordinates.}
-          \li{\code{y} (\em{np.ndarray}) — Read-only \code{(N, M)} target values.}
-          \li{\code{y_var} (\em{np.ndarray | None}) — Read-only \code{(N, M)} noise variances, or \code{None}.}
-          \li{\code{scale_x} (\em{bool}) — Whether feature standardization is enabled.}
-          \li{\code{options} (\em{tuple[tuple[str, Any], ...]}) — Immutable configuration options.}
-          \li{\code{num_dim} (\em{int}) — Feature dimension \code{D}.}
-          \li{\code{num_outputs} (\em{int}) — Target metric dimension \code{M}.}
-          \li{\code{key} (\em{Key}) — Content-addressed deterministic PRNG key derived from observations and configuration.}
-        }
-      }
-      \<dt>{Methods}
-      \<dd>{
-        \ul{
-          \li{\code{__len__() -> int} — Number of recorded observations \code{N}.}
-        }
-      }
-    }
-  }
-
-  \<div>[id]{baux.ENNParams}[class]{api-entry}[data-symbol]{baux.ENNParams}[data-kind]{class}[data-module]{baux.enn}{
-    \<div>[class]{api-entry-header}{
-      \<span>[class]{api-entry-title}{[\code{baux.ENNParams}](#baux.ENNParams)}
-      \<span>[class]{api-kind-badge}{class}
-    }
-    \pre{
-baux.ENNParams(
-    k_neighbors: int,
-    epistemic_scale: float,
-    aleatoric_scale: float,
-)
-    }
-    \p{\code{ENNParams} holds the neighbor stencil count \code{k_neighbors} and fitted variance multipliers (\code{epistemic_scale}, \code{aleatoric_scale}).}
-    \<dl>[class]{api-spec-list}{
-      \<dt>{Attributes}
-      \<dd>{
-        \ul{
-          \li{\code{k_neighbors} (\em{int}) — Number of nearest neighbors to aggregate per query (\code{k_neighbors > 0}).}
-          \li{\code{epistemic_scale} (\em{float}) — Nonnegative distance-proportional epistemic dispersion scale.}
-          \li{\code{aleatoric_scale} (\em{float}) — Nonnegative homoscedastic observation noise variance scale.}
-        }
-      }
-    }
-  }
-
-  \<div>[id]{baux.Posterior}[class]{api-entry api-entry-compact}[data-symbol]{baux.Posterior}[data-kind]{class}[data-module]{baux.enn}{
-    \<div>[class]{api-entry-header}{
-      \<span>[class]{api-entry-title}{[\code{baux.Posterior}](#baux.Posterior)}
-      \<span>[class]{api-kind-badge}{class}
-    }
-    \pre{
-class baux.Posterior  (device-resident posterior; paired with host baux.enn.ENNNormal)
-    }
-    \p{\code{Posterior} holds DLPack \code{mean}, \code{se}, and shared-seed \code{draw(seeds)} buffers on accelerator memory so GPU queries avoid host round-trips.}
-  }
-
-  \<div>[id]{baux.NeighborIndex}[class]{api-entry api-entry-compact}[data-symbol]{baux.NeighborIndex}[data-kind]{class}[data-module]{baux.index}{
-    \<div>[class]{api-entry-header}{
-      \<span>[class]{api-entry-title}{[\code{baux.NeighborIndex}](#baux.NeighborIndex)}
-      \<span>[class]{api-kind-badge}{class}
-    }
-    \pre{
-class baux.NeighborIndex(enum.Enum)
-    }
-    \p{\code{NeighborIndex} enumerates the native nearest-neighbor index drivers across CPU, disk, and GPU backends (\code{EXACT}/\code{FLAT}, \code{HNSW}/\code{USEARCH}, \code{BPANN_DISK}, \code{METAL}, \code{CUDA}, \code{OPENCL}, and \code{AUTO}).}
-  }
-
-  \<div>[id]{baux.DistanceMetric}[class]{api-entry api-entry-compact}[data-symbol]{baux.DistanceMetric}[data-kind]{class}[data-module]{baux.index}{
-    \<div>[class]{api-entry-header}{
-      \<span>[class]{api-entry-title}{[\code{baux.DistanceMetric}](#baux.DistanceMetric)}
-      \<span>[class]{api-kind-badge}{class}
-    }
-    \pre{
-class baux.DistanceMetric(enum.Enum)
-    }
-    \p{\code{DistanceMetric} enumerates pairwise index distances, including \code{SQUARED_L2} (required by TuRBO), \code{L2}, \code{MANHATTAN}, \code{CHEBYSHEV}, and \code{COSINE}.}
-  }
-}
-
-\subtree{
-  \title{Stateful Classes, Configs & Runtime}
-
-  \p{Stateful wrappers such as [\code{baux.Optimizer}](#baux.Optimizer) and [\code{baux.ENN}](#baux.ENN), declarative [\code{baux.OptimizerConfig}](#baux.OptimizerConfig) records, and runtime capability helpers expose the same native solver for imperative loops and third-party experiment runners. These interfaces manage in-place observation storage, asynchronous worker batches, and hardware acceleration across CPU, Metal, and CUDA backends.}
-
-  \<table>[class]{api-summary-table}{
-    \<thead>{
-      \<tr>{
-        \<th>{Symbol}
-        \<th>{Summary}
-      }
-    }
-    \<tbody>{
-      \<tr>[data-symbol]{baux.create_optimizer}[data-kind]{function}[data-module]{baux.bo}{
-        \<td>{[\code{baux.create_optimizer}](#baux.create_optimizer)}
-        \<td>{Construct a stateful \code{Optimizer} harness from bounds, configuration, and random generator.}
-      }
-      \<tr>[data-symbol]{baux.Optimizer}[data-kind]{class}[data-module]{baux.bo}{
-        \<td>{[\code{baux.Optimizer}](#baux.Optimizer)}
-        \<td>{Stateful in-place Bayesian optimization harness wrapping single- and multi-region native solvers.}
-      }
-      \<tr>[data-symbol]{baux.ENN}[data-kind]{class}[data-module]{baux.enn}{
-        \<td>{[\code{baux.ENN}](#baux.ENN)}
-        \<td>{Stateful object-oriented Epistemic Nearest Neighbors surrogate supporting incremental updates.}
-      }
-      \<tr>[data-symbol]{baux.ENNFitter}[data-kind]{class}[data-module]{baux.enn}{
-        \<td>{[\code{baux.ENNFitter}](#baux.ENNFitter)}
-        \<td>{Incremental stateful hyperparameter fitter tracking streaming target variance statistics.}
-      }
-      \<tr>[data-symbol]{baux.Telemetry}[data-kind]{class}[data-module]{baux.turbo.optimizer_types}{
-        \<td>{[\code{baux.Telemetry}](#baux.Telemetry)}
-        \<td>{Slotted dataclass recording phase durations and candidate pool size for the latest round.}
-      }
-      \<tr>[data-symbol]{baux.TellPredictionError}[data-kind]{class}[data-module]{baux.bo}{
-        \<td>{[\code{baux.TellPredictionError}](#baux.TellPredictionError)}
-        \<td>{\code{RuntimeError} subclass raised when observation ingestion succeeds but post-tell mean evaluation fails.}
-      }
-      \<tr>[data-symbol]{baux.OptimizerConfig}[data-kind]{class}[data-module]{baux.turbo.config}{
-        \<td>{[\code{baux.OptimizerConfig}](#baux.OptimizerConfig)}
-        \<td>{Frozen composite configuration defining trust region, candidate generation, surrogate, and acquisition.}
-      }
-      \<tr>[data-symbol]{baux.RegionalSearchPolicy}[data-kind]{class}[data-module]{baux.region}{
-        \<td>{[\code{baux.RegionalSearchPolicy}](#baux.RegionalSearchPolicy)}
-        \<td>{Multi-region search policy configuring region count, observation sharing, and restart rules.}
-      }
-      \<tr>[data-symbol]{baux.TrustRegionBounds}[data-kind]{class}[data-module]{baux.turbo.config}{
-        \<td>{[\code{baux.TrustRegionBounds}](#baux.TrustRegionBounds)}
-        \<td>{Bounds record specifying initial, minimum, and maximum trust region side lengths.}
-      }
-      \<tr>[data-symbol]{baux.turbo_enn}[data-kind]{function}[data-module]{baux.turbo.config}{
-        \<td>{[\code{baux.turbo_enn}](#baux.turbo_enn)}
-        \<td>{Preset factory constructing an \code{OptimizerConfig} with an ENN surrogate.}
-      }
-      \<tr>[data-symbol]{baux.turbo_one}[data-kind]{function}[data-module]{baux.turbo.config}{
-        \<td>{[\code{baux.turbo_one}](#baux.turbo_one)}
-        \<td>{Preset factory constructing a TuRBO-1 configuration with a Gaussian Process surrogate.}
-      }
-      \<tr>[data-symbol]{baux.turbo_zero}[data-kind]{function}[data-module]{baux.turbo.config}{
-        \<td>{[\code{baux.turbo_zero}](#baux.turbo_zero)}
-        \<td>{Preset factory constructing a surrogate-free TuRBO-0 trust region configuration.}
-      }
-      \<tr>[data-symbol]{baux.lhd_only}[data-kind]{function}[data-module]{baux.turbo.config}{
-        \<td>{[\code{baux.lhd_only}](#baux.lhd_only)}
-        \<td>{Preset factory constructing a space-filling Latin Hypercube Design sampling configuration.}
-      }
-      \<tr>[data-symbol]{baux.enn_optimizer}[data-kind]{function}[data-module]{baux.bo}{
-        \<td>{[\code{baux.enn_optimizer}](#baux.enn_optimizer)}
-        \<td>{Low-level PyO3 constructor returning a native Rust single-region TuRBO-ENN optimizer.}
-      }
-      \<tr>[data-symbol]{baux.create_zero}[data-kind]{function}[data-module]{baux.bo}{
-        \<td>{[\code{baux.create_zero}](#baux.create_zero)}
-        \<td>{Low-level PyO3 constructor returning a native Rust surrogate-free TuRBO-0 optimizer.}
-      }
-      \<tr>[data-symbol]{baux.create_lhd}[data-kind]{function}[data-module]{baux.bo}{
-        \<td>{[\code{baux.create_lhd}](#baux.create_lhd)}
-        \<td>{Low-level PyO3 constructor returning a native Rust Latin Hypercube Design baseline.}
-      }
-      \<tr>[data-symbol]{baux.capabilities}[data-kind]{function}[data-module]{baux.runtime}{
-        \<td>{[\code{baux.capabilities}](#baux.capabilities)}
-        \<td>{Inspect compiled and probed runtime capabilities across CPU, CUDA, Metal, and OpenCL.}
-      }
-      \<tr>[data-symbol]{baux.BackendCapabilities}[data-kind]{class}[data-module]{baux.runtime}{
-        \<td>{[\code{baux.BackendCapabilities}](#baux.BackendCapabilities)}
-        \<td>{Capability record detailing direct, fallback, missing, and host operations per backend.}
-      }
-      \<tr>[data-symbol]{baux.Device}[data-kind]{class}[data-module]{baux.runtime}{
-        \<td>{[\code{baux.Device}](#baux.Device)}
-        \<td>{Native Rust accelerator handle resolving CPU, Metal, and CUDA execution contexts.}
-      }
-      \<tr>[data-symbol]{baux.optuna.Sampler}[data-kind]{class}[data-module]{baux.optuna}{
-        \<td>{[\code{baux.optuna.Sampler}](#baux.optuna.Sampler)}
-        \<td>{Optuna \code{BaseSampler} adapter routing continuous single-objective studies through BAUX.}
-      }
-      \<tr>[data-symbol]{baux.experimental.program}[data-kind]{module}[data-module]{baux.experimental.program}{
-        \<td>{[\code{baux.experimental.program}](#baux.experimental.program)}
-        \<td>{Compiler and resident buffer execution interface lowering StableHLO programs to IREE, TVM, or XLA.}
-      }
-    }
-  }
-
-  \subtree{
-    \title{Stateful Wrappers}
-
-    \<div>[id]{baux.create_optimizer}[class]{api-entry}[data-symbol]{baux.create_optimizer}[data-kind]{function}[data-module]{baux.bo}{
-      \<div>[class]{api-entry-header}{
-        \<span>[class]{api-entry-title}{[\code{baux.create_optimizer}](#baux.create_optimizer)}
-        \<span>[class]{api-kind-badge}{function}
-      }
-      \pre{
-baux.create_optimizer(
-    *,
-    bounds: np.ndarray,
-    config: OptimizerConfig,
-    rng: np.random.Generator,
-) -> Optimizer
-      }
-      \p{\code{baux.create_optimizer} validates domain bounds and pipeline config, seeds PRNG state from \code{rng}, and constructs an in-place stateful [\code{Optimizer}](#baux.Optimizer).}
-      \<dl>[class]{api-spec-list}{
-        \<dt>{Parameters}
-        \<dd>{
-          \ul{
-            \li{\code{bounds} (\em{ndarray of shape (D, 2)}, keyword-only) — Continuous coordinate bounds \code{[low, high]} for each feature dimension.}
-            \li{\code{config} (\em{OptimizerConfig}, keyword-only) — Configuration record specifying surrogate, trust region, and acquisition rules.}
-            \li{\code{rng} (\em{np.random.Generator}, keyword-only) — NumPy random generator providing the initial 63-bit seed.}
-          }
-        }
-        \<dt>{Returns}
-        \<dd>{\code{Optimizer} — Stateful optimization harness.}
-        \<dt>{Example}
-        \<dd>{
-          \pre{
-import numpy as np
-import baux
-
-bounds = np.array([[-1.0, 1.0], [-2.0, 2.0]])
-cfg = (baux.enn(k=5) | baux.ucb(beta=1.5))()
-rng = np.random.default_rng(0)
-opt = baux.create_optimizer(bounds=bounds, config=cfg, rng=rng)
-x = opt.ask(num_arms=3)
-y = np.sum(x**2, axis=-1, keepdims=True)
-pred = opt.tell(x, y)
-telem = opt.telemetry()
-
-assert x.shape == (3, 2)
-assert pred.shape == (3, 1)
-assert isinstance(telem, baux.Telemetry)
-          }
-        }
-      }
-    }
-
-    \<div>[id]{baux.Optimizer}[class]{api-entry}[data-symbol]{baux.Optimizer}[data-kind]{class}[data-module]{baux.bo}{
-      \<div>[class]{api-entry-header}{
-        \<span>[class]{api-entry-title}{[\code{baux.Optimizer}](#baux.Optimizer)}
-        \<span>[class]{api-kind-badge}{class}
-      }
-      \pre{
-class baux.Optimizer  (constructed via baux.create_optimizer)
-      }
-      \p{\code{Optimizer} wraps the native single- and multi-region Rust solvers behind an imperative \code{ask}/\code{tell} interface for host loops that cannot thread functional snapshots.}
-      \<dl>[class]{api-spec-list}{
-        \<dt>{Attributes}
-        \<dd>{
-          \ul{
-            \li{\code{num_observations} (\em{int}) — Total observations committed to the optimizer.}
-            \li{\code{num_regions} (\em{int}) — Configured trust region slots.}
-            \li{\code{tr_length} (\em{float}) — Current side length of the primary trust region in unit coordinates.}
-            \li{\code{init_progress} (\em{tuple[int, int] | None}) — \code{(completed, total)} warm-up evaluation counts, or \code{None}.}
-            \li{\code{pending_ids} (\em{tuple[int, ...] | None}) — Outstanding proposal identities in original \code{ask} order.}
-            \li{\code{ingestion_failure} (\em{str | None}) — Terminal background flush error message, or \code{None}.}
-          }
-        }
-        \<dt>{Methods}
-        \<dd>{
-          \ul{
-            \li{\code{ask(num_arms: int) -> np.ndarray} — Propose \code{num_arms >= 1} candidate coordinates inside \code{bounds}.}
-            \li{\code{ask_batch(num_arms: int) -> AskBatch} — Multi-region proposal returning an \code{AskBatch} with typed \code{AskId} tokens.}
-            \li{\code{tell(x: np.ndarray, y: np.ndarray, y_var: np.ndarray | None = None) -> np.ndarray} — Record observations and return fitted posterior means at \code{x}.}
-            \li{\code{complete(ids: AskBatch | tuple[AskId, ...], y: np.ndarray, y_var: np.ndarray | None = None) -> None} — Complete a subset of pending proposals by \code{AskId}.}
-            \li{\code{cancel(ids: AskBatch | tuple[AskId, ...]) -> None} — Cancel unevaluated pending proposals without recording rewards.}
-            \li{\code{restart_region(slot: int, center: np.ndarray) -> tuple[AskId, ...]} — Restart a regional slot at \code{center}, returning abandoned \code{AskId} tokens.}
-            \li{\code{import_observations(x: np.ndarray, y: np.ndarray, y_var: np.ndarray | None = None) -> np.ndarray} — Ingest external observations without crediting regional controllers.}
-            \li{\code{posterior_mu(x: np.ndarray) -> np.ndarray} — Evaluate fitted surrogate means at \code{x} without recording observations.}
-            \li{\code{telemetry() -> Telemetry} — Return timing and candidate metrics from the latest proposal round.}
-          }
-        }
-      }
-    }
-
-    \<div>[id]{baux.ENN}[class]{api-entry}[data-symbol]{baux.ENN}[data-kind]{class}[data-module]{baux.enn}{
-      \<div>[class]{api-entry-header}{
-        \<span>[class]{api-entry-title}{[\code{baux.ENN}](#baux.ENN)}
-        \<span>[class]{api-kind-badge}{class}
-      }
-      \pre{
-baux.ENN(
-    train_x: np.ndarray,
-    train_y: np.ndarray,
-    train_yvar: np.ndarray | None = None,
-    *,
-    scale_x: bool = False,
-    index_driver: NeighborIndex = NeighborIndex.FLAT,
-    work_dir: str | os.PathLike[str] | None = None,
-    enn_storage: str | None = None,
-    y_bounds: np.ndarray | None = None,
-    **options: Any,
-)
-      }
-      \p{\code{baux.ENN} manages a mutable Rust-backed nearest-neighbor surrogate that supports incremental \code{add} updates, conditional queries, and DLPack GPU inference.}
-      \<dl>[class]{api-spec-list}{
-        \<dt>{Attributes}
-        \<dd>{
-          \ul{
-            \li{\code{device} (\em{str}) — Execution backend identifier (\code{"cpu"}, \code{"metal"}, \code{"cuda"}, or \code{"opencl"}).}
-            \li{\code{index_kind} (\em{str}) — Resolved index topology (\code{"exact"}, \code{"hnsw"}, \code{"tree"}, or \code{"auto"}).}
-            \li{\code{num_outputs} (\em{int}) — Target metric dimension \code{M}.}
-            \li{\code{y_bounds} (\em{np.ndarray}) — \code{(M, 2)} output boundary constraints.}
-            \li{\code{metric} (\em{DiagonalMetric | None}) — Learned diagonal metric diagnostics when enabled, else \code{None}.}
-            \li{\code{rust_backend} (\em{Any}) — Underlying native Rust surrogate handle.}
-          }
-        }
-        \<dt>{Methods}
-        \<dd>{
-          \ul{
-            \li{\code{add(x: np.ndarray, y: np.ndarray, yvar: np.ndarray | None = None) -> None} — Append new observations in place.}
-            \li{\code{posterior(x: Any, params: ENNParams, *, flags: PosteriorFlags | None = None) -> ENNNormal | Posterior} — Evaluate moments for host NumPy or DLPack device queries.}
-            \li{\code{neighbors(x: np.ndarray, k: int, *, exclude_nearest: bool = False) -> np.ndarray} — Return neighbor row indices for a single query coordinate.}
-            \li{\code{posterior_draw(x: np.ndarray, params: ENNParams, *, function_seeds: Sequence[int], flags: PosteriorFlags | None = None) -> tuple[np.ndarray, np.ndarray]} — Draw coherent function samples at query points.}
-            \li{\code{conditional_posterior(x_whatif: np.ndarray, y_whatif: np.ndarray, x: np.ndarray, *, params: ENNParams, flags: PosteriorFlags | None = None) -> ENNNormal} — Evaluate moments conditioned on hypothetical data without mutating state.}
-            \li{\code{device_posterior(x: Any, params: ENNParams, *, flags: PosteriorFlags | None = None) -> Posterior} — Synchronous zero-copy FP32 GPU posterior evaluation for DLPack arrays.}
-          }
-        }
-      }
-    }
-
-    \<div>[id]{baux.ENNFitter}[class]{api-entry api-entry-compact}[data-symbol]{baux.ENNFitter}[data-kind]{class}[data-module]{baux.enn}{
-      \<div>[class]{api-entry-header}{
-        \<span>[class]{api-entry-title}{[\code{baux.ENNFitter}](#baux.ENNFitter)}
-        \<span>[class]{api-kind-badge}{class}
-      }
-      \pre{
-baux.ENNFitter(
-    k: int,
-    rng: np.random.Generator,
-    *,
-    infer_aleatoric_variance_scale: bool = True,
-)
-      }
-      \p{\code{ENNFitter} tracks streaming target variance statistics via \code{tell(x, y, yvar)} and returns fitted \code{ENNParams} from \code{ask(model, num_candidates=..., num_samples=...)}.}
-    }
-
-    \<div>[id]{baux.Telemetry}[class]{api-entry api-entry-compact}[data-symbol]{baux.Telemetry}[data-kind]{class}[data-module]{baux.turbo.optimizer_types}{
-      \<div>[class]{api-entry-header}{
-        \<span>[class]{api-entry-title}{[\code{baux.Telemetry}](#baux.Telemetry)}
-        \<span>[class]{api-kind-badge}{class}
-      }
-      \pre{
-baux.Telemetry(
-    dt_fit: float,
-    dt_sel: float,
-    dt_gen: float = 0.0,
-    dt_tell: float = 0.0,
-    num_candidates: int = 0,
-)
-      }
-      \p{\code{Telemetry} records native phase timings in seconds (\code{dt_fit}, \code{dt_sel}, \code{dt_gen}, \code{dt_tell}) and candidate pool count (\code{num_candidates}) from the latest proposal round.}
-    }
-
-    \<div>[id]{baux.TellPredictionError}[class]{api-entry api-entry-compact}[data-symbol]{baux.TellPredictionError}[data-kind]{class}[data-module]{baux.bo}{
-      \<div>[class]{api-entry-header}{
-        \<span>[class]{api-entry-title}{[\code{baux.TellPredictionError}](#baux.TellPredictionError)}
-        \<span>[class]{api-kind-badge}{class}
-      }
-      \pre{
-class baux.TellPredictionError(RuntimeError)
-      }
-      \p{\code{TellPredictionError} signals that observations were committed to the native store before a follow-up \code{posterior_mu} query failed; its \code{observations_accepted = True} flag warns callers not to resubmit the batch.}
-    }
-  }
-
-  \subtree{
-    \title{Configuration Records & Presets}
-
-    \<div>[id]{baux.OptimizerConfig}[class]{api-entry}[data-symbol]{baux.OptimizerConfig}[data-kind]{class}[data-module]{baux.turbo.config}{
-      \<div>[class]{api-entry-header}{
-        \<span>[class]{api-entry-title}{[\code{baux.OptimizerConfig}](#baux.OptimizerConfig)}
-        \<span>[class]{api-kind-badge}{class}
-      }
-      \pre{
-baux.OptimizerConfig(
-    trust_region: TrustRegionConfig = TurboTrustRegion(),
-    candidates: CandidateConfig = CandidateConfig(),
-    init: InitConfig = InitConfig(),
-    surrogate: Surrogate = NoSurrogate(),
-    acquisition: AcquisitionConfig = RandomAcquisitionConfig(),
-    acq_optimizer: AcqOptimizerConfig = ...,
-    observation_history: ObservationHistoryConfig = ObservationHistoryConfig(),
-)
-      }
-      \p{\code{OptimizerConfig} specifies the validated trust-region policy, candidate sampler, warm-up budget, surrogate model, and acquisition rule compiled by a pipeline.}
-      \<dl>[class]{api-spec-list}{
-        \<dt>{Attributes}
-        \<dd>{
-          \ul{
-            \li{\code{trust_region} (\em{TrustRegionConfig}) — Trust region policy (\code{TurboTrustRegion}, \code{MorboTrustRegion}, \code{RegionalSearchPolicy}, or \code{NoTrustRegion}).}
-            \li{\code{candidates} (\em{CandidateConfig}) — Candidate sampling rules and budget.}
-            \li{\code{init} (\em{InitConfig}) — Warm-up evaluation strategy and initial sample size.}
-            \li{\code{surrogate} (\em{Surrogate}) — Fitted surrogate model (\code{ENNSurrogate}, \code{GaussianProcess}, \code{ExternalSurrogate}, or \code{NoSurrogate}).}
-            \li{\code{acquisition} (\em{AcquisitionConfig}) — Acquisition function specification (\code{UCB}, \code{Thompson}, \code{Pareto}, or \code{Random}).}
-            \li{\code{acq_optimizer} (\em{AcqOptimizerConfig}) — Acquisition optimizer strategy.}
-            \li{\code{num_metrics} (\em{int | None}) — Target objective metric count for multi-objective trust regions.}
-          }
-        }
-      }
-    }
-
-    \<div>[id]{baux.RegionalSearchPolicy}[class]{api-entry}[data-symbol]{baux.RegionalSearchPolicy}[data-kind]{class}[data-module]{baux.region}{
-      \<div>[class]{api-entry-header}{
-        \<span>[class]{api-entry-title}{[\code{baux.RegionalSearchPolicy}](#baux.RegionalSearchPolicy)}
-        \<span>[class]{api-kind-badge}{class}
-      }
-      \pre{
-baux.RegionalSearchPolicy(
-    count: int = 4,
-    length: TrustRegionBounds = TrustRegionBounds(),
-    success_tolerance: int = 3,
-    failure_tolerance: int = 5,
-    sharing: Literal["box_contain", "ellipsoid_ball", "nearest_center", "origin_only"] = "box_contain",
-    allocation: Literal["incumbent_ucb1", "least_trials", "joint_acquisition"] = "incumbent_ucb1",
-    restart_memory: Literal["fresh", "retain_relevant"] = "fresh",
-    restart_center: RestartCenterPolicy = RestartCenterPolicy(),
-    controller: Literal["turbo", "fixed_radius"] = "turbo",
-    acquisitions: tuple[AcquisitionConfig | None, ...] = (),
-)
-      }
-      \p{\code{RegionalSearchPolicy} governs how concurrent local trust regions share observations, receive bandit arm allocations, expand or shrink, and restart.}
-      \<dl>[class]{api-spec-list}{
-        \<dt>{Attributes}
-        \<dd>{
-          \ul{
-            \li{\code{count} (\em{int}, default \code{4}) — Number of active regional trust region slots.}
-            \li{\code{length} (\em{TrustRegionBounds}) — Side length bounds governing contraction and expansion.}
-            \li{\code{success_tolerance} (\em{int}, default \code{3}) — Consecutive improvements required before expanding side length.}
-            \li{\code{failure_tolerance} (\em{int}, default \code{5}) — Consecutive non-improving steps before contracting side length.}
-            \li{\code{sharing} (\em{str}, default \code{"box_contain"}) — Observation sharing policy across regions (\code{"box_contain"}, \code{"ellipsoid_ball"}, \code{"nearest_center"}, or \code{"origin_only"}).}
-            \li{\code{allocation} (\em{str}, default \code{"incumbent_ucb1"}) — Multi-armed bandit arm allocation policy across regions.}
-            \li{\code{controller} (\em{str}, default \code{"turbo"}) — Local search controller (\code{"turbo"} or \code{"fixed_radius"}).}
-          }
-        }
-      }
-    }
-
-    \<div>[id]{baux.TrustRegionBounds}[class]{api-entry api-entry-compact}[data-symbol]{baux.TrustRegionBounds}[data-kind]{class}[data-module]{baux.turbo.config}{
-      \<div>[class]{api-entry-header}{
-        \<span>[class]{api-entry-title}{[\code{baux.TrustRegionBounds}](#baux.TrustRegionBounds)}
-        \<span>[class]{api-kind-badge}{class}
-      }
-      \pre{
-baux.TrustRegionBounds(
-    length_init: float = 0.8,
-    length_min: float = 0.5**7,
-    length_max: float = 1.6,
-)
-      }
-      \p{\code{TrustRegionBounds} enforces side-length invariants \code{0 < length_min <= length_init <= length_max} on trust-region expansion and restart thresholds.}
-    }
-
-    \<div>[id]{baux.turbo_enn}[class]{api-entry api-entry-compact}[data-symbol]{baux.turbo_enn}[data-kind]{function}[data-module]{baux.turbo.config}{
-      \<div>[class]{api-entry-header}{
-        \<span>[class]{api-entry-title}{[\code{baux.turbo_enn}](#baux.turbo_enn)}
-        \<span>[class]{api-kind-badge}{function}
-      }
-      \pre{
-baux.turbo_enn(
-    *,
-    enn: ENNSurrogate | None = None,
-    trust_region: TrustRegionConfig | None = None,
-    candidates: CandidateConfig | None = None,
-    num_init: int | None = None,
-    acquisition: AcquisitionKind = AcquisitionKind.PARETO,
-) -> OptimizerConfig
-      }
-      \p{\code{baux.turbo_enn} returns an [\code{OptimizerConfig}](#baux.OptimizerConfig) preset backed by the ENN surrogate; the composable pipeline \code{baux.enn(...) | baux.ucb(...)} (or \code{baux.pareto(...)}) is equivalent.}
-    }
-
-    \<div>[id]{baux.turbo_one}[class]{api-entry api-entry-compact}[data-symbol]{baux.turbo_one}[data-kind]{function}[data-module]{baux.turbo.config}{
-      \<div>[class]{api-entry-header}{
-        \<span>[class]{api-entry-title}{[\code{baux.turbo_one}](#baux.turbo_one)}
-        \<span>[class]{api-kind-badge}{function}
-      }
-      \pre{
-baux.turbo_one(
-    *,
-    num_candidates: int | None = None,
-    num_init: int | None = None,
-    trust_region: TrustRegionConfig | None = None,
-    sampler: CandidateSampler = CandidateSampler.SOBOL,
-    acquisition: AcquisitionKind = AcquisitionKind.THOMPSON,
-) -> OptimizerConfig
-      }
-      \p{\code{baux.turbo_one} returns a TuRBO-1 [\code{OptimizerConfig}](#baux.OptimizerConfig) preset backed by an exact Gaussian Process surrogate and Thompson or UCB acquisition.}
-    }
-
-    \<div>[id]{baux.turbo_zero}[class]{api-entry api-entry-compact}[data-symbol]{baux.turbo_zero}[data-kind]{function}[data-module]{baux.turbo.config}{
-      \<div>[class]{api-entry-header}{
-        \<span>[class]{api-entry-title}{[\code{baux.turbo_zero}](#baux.turbo_zero)}
-        \<span>[class]{api-kind-badge}{function}
-      }
-      \pre{
-baux.turbo_zero(
-    *,
-    num_candidates: int | None = None,
-    num_candidates_per_arm: int | None = None,
-    num_init: int | None = None,
-    trust_region: TrustRegionConfig | None = None,
-    sampler: CandidateSampler = CandidateSampler.SOBOL,
-) -> OptimizerConfig
-      }
-      \p{\code{baux.turbo_zero} returns a surrogate-free TuRBO-0 [\code{OptimizerConfig}](#baux.OptimizerConfig) preset that selects random candidates inside local trust-region bounds.}
-    }
-
-    \<div>[id]{baux.lhd_only}[class]{api-entry api-entry-compact}[data-symbol]{baux.lhd_only}[data-kind]{function}[data-module]{baux.turbo.config}{
-      \<div>[class]{api-entry-header}{
-        \<span>[class]{api-entry-title}{[\code{baux.lhd_only}](#baux.lhd_only)}
-        \<span>[class]{api-kind-badge}{function}
-      }
-      \pre{
-baux.lhd_only(
-    *,
-    num_candidates: int | None = None,
-    num_init: int | None = None,
-    trust_region: TrustRegionConfig | None = None,
-    sampler: CandidateSampler = CandidateSampler.SOBOL,
-) -> OptimizerConfig
-      }
-      \p{\code{baux.lhd_only} returns an [\code{OptimizerConfig}](#baux.OptimizerConfig) preset for space-filling Latin Hypercube Design sampling without a surrogate or trust region.}
-    }
-
-    \<div>[id]{baux.enn_optimizer}[class]{api-entry api-entry-compact}[data-symbol]{baux.enn_optimizer}[data-kind]{function}[data-module]{baux.bo}{
-      \<div>[class]{api-entry-header}{
-        \<span>[class]{api-entry-title}{[\code{baux.enn_optimizer}](#baux.enn_optimizer)}
-        \<span>[class]{api-kind-badge}{function}
-      }
-      \pre{
-baux.enn_optimizer(
-    bounds: np.ndarray,
-    k: int = 10,
-    num_init: int = 10,
-    seed: int | None = None,
-    config: Any = None,
-) -> BayesOptimizer
-      }
-      \p{\code{baux.enn_optimizer} constructs a low-level PyO3 handle to the native single-region TuRBO-ENN solver; prefer [\code{baux.init}](#baux.init) or [\code{baux.create_optimizer}](#baux.create_optimizer) for validated configs and PyTree domains.}
-    }
-
-    \<div>[id]{baux.create_zero}[class]{api-entry api-entry-compact}[data-symbol]{baux.create_zero}[data-kind]{function}[data-module]{baux.bo}{
-      \<div>[class]{api-entry-header}{
-        \<span>[class]{api-entry-title}{[\code{baux.create_zero}](#baux.create_zero)}
-        \<span>[class]{api-kind-badge}{function}
-      }
-      \pre{
-baux.create_zero(
-    bounds: np.ndarray,
-    num_init: int = 10,
-    seed: int | None = None,
-    config: Any = None,
-) -> BayesOptimizer
-      }
-      \p{\code{baux.create_zero} constructs a low-level PyO3 handle to the native surrogate-free TuRBO-0 solver.}
-    }
-
-    \<div>[id]{baux.create_lhd}[class]{api-entry api-entry-compact}[data-symbol]{baux.create_lhd}[data-kind]{function}[data-module]{baux.bo}{
-      \<div>[class]{api-entry-header}{
-        \<span>[class]{api-entry-title}{[\code{baux.create_lhd}](#baux.create_lhd)}
-        \<span>[class]{api-kind-badge}{function}
-      }
-      \pre{
-baux.create_lhd(
-    bounds: np.ndarray,
-    num_init: int = 10,
-    seed: int | None = None,
-    config: Any = None,
-) -> BayesOptimizer
-      }
-      \p{\code{baux.create_lhd} constructs a low-level PyO3 handle to the native Latin Hypercube Design baseline solver.}
-    }
-  }
-
-  \subtree{
-    \title{Runtime & Optional Integrations}
-
-    \<div>[id]{baux.capabilities}[class]{api-entry}[data-symbol]{baux.capabilities}[data-kind]{function}[data-module]{baux.runtime}{
-      \<div>[class]{api-entry-header}{
-        \<span>[class]{api-entry-title}{[\code{baux.capabilities}](#baux.capabilities)}
-        \<span>[class]{api-kind-badge}{function}
-      }
-      \pre{
-baux.capabilities(*, probe: bool = False) -> tuple[BackendCapabilities, ...]
-      }
-      \p{\code{baux.capabilities} inspects native build support across CPU, CUDA, Metal, and OpenCL backends and probes live hardware when \code{probe=True}.}
-      \<dl>[class]{api-spec-list}{
-        \<dt>{Parameters}
-        \<dd>{
-          \ul{
-            \li{\code{probe} (\em{bool}, keyword-only, default \code{False}) — When \code{False}, inspects compile-time inclusion without hardware queries; when \code{True}, runs active hardware checks.}
-          }
-        }
-        \<dt>{Returns}
-        \<dd>{\code{tuple[BackendCapabilities, ...]} — Capability records ordered \code{("cpu", "cuda", "metal", "opencl")}.}
-      }
-    }
-
-    \<div>[id]{baux.BackendCapabilities}[class]{api-entry}[data-symbol]{baux.BackendCapabilities}[data-kind]{class}[data-module]{baux.runtime}{
-      \<div>[class]{api-entry-header}{
-        \<span>[class]{api-entry-title}{[\code{baux.BackendCapabilities}](#baux.BackendCapabilities)}
-        \<span>[class]{api-kind-badge}{class}
-      }
-      \pre{
-baux.BackendCapabilities(
-    name: Literal["cpu", "cuda", "metal", "opencl"],
-    compiled: bool,
-    available: bool | None,
-    reason: str | None,
-    direct_operations: tuple[str, ...],
-    fallback_operations: tuple[str, ...],
-    missing_operations: tuple[str, ...],
-    host_operations: tuple[str, ...],
-    array_frameworks: tuple[str, ...],
-)
-      }
-      \p{\code{BackendCapabilities} summarizes compile support, hardware availability, direct-versus-fallback execution tiers, and installed Python array packages for one backend.}
-      \<dl>[class]{api-spec-list}{
-        \<dt>{Attributes}
-        \<dd>{
-          \ul{
-            \li{\code{name} (\em{Literal["cpu", "cuda", "metal", "opencl"]}) — Canonical backend identifier.}
-            \li{\code{compiled} (\em{bool}) — Whether the active binary was compiled with support for this backend.}
-            \li{\code{available} (\em{bool | None}) — Hardware availability outcome (\code{True} or \code{False} when probed or uncompiled; \code{None} for unprobed compiled backends).}
-            \li{\code{reason} (\em{str | None}) — Diagnostic message when \code{compiled=False} or \code{available=False}, else \code{None}.}
-            \li{\code{direct_operations} (\em{tuple[str, ...]}) — Operations executing directly on the target device.}
-            \li{\code{fallback_operations} (\em{tuple[str, ...]}) — Operations routed to host CPU fallbacks.}
-            \li{\code{missing_operations} (\em{tuple[str, ...]}) — Operations unsupported on this backend.}
-            \li{\code{host_operations} (\em{tuple[str, ...]}) — Operations executed in float64 precision on the host CPU.}
-            \li{\code{array_frameworks} (\em{tuple[str, ...]}) — Installed optional Python array packages detected via \code{importlib.util.find_spec} among \code{("torch", "jax")}.}
-          }
-        }
-      }
-    }
-
-    \<div>[id]{baux.Device}[class]{api-entry api-entry-compact}[data-symbol]{baux.Device}[data-kind]{class}[data-module]{baux.runtime}{
-      \<div>[class]{api-entry-header}{
-        \<span>[class]{api-entry-title}{[\code{baux.Device}](#baux.Device)}
-        \<span>[class]{api-kind-badge}{class}
-      }
-      \pre{
-baux.Device(name: str = "auto") -> Device
-      }
-      \p{\code{Device} resolves accelerator contexts across \code{"auto"}, \code{"cpu"}, \code{"metal"}, and \code{"cuda"} and exposes device memory telemetry through \code{memory_info()}.}
-    }
-
-    \<div>[id]{baux.optuna.Sampler}[class]{api-entry}[data-symbol]{baux.optuna.Sampler}[data-kind]{class}[data-module]{baux.optuna}{
-      \<div>[class]{api-entry-header}{
-        \<span>[class]{api-entry-title}{[\code{baux.optuna.Sampler}](#baux.optuna.Sampler)}
-        \<span>[class]{api-kind-badge}{class}
-      }
-      \pre{
-baux.optuna.Sampler(
-    space: Mapping[str, FloatDistribution],
-    *,
-    config: OptimizerConfig | None = None,
-    seed: int | None = None,
-)
-      }
-      \p{\code{baux.optuna.Sampler} subclasses \code{optuna.samplers.BaseSampler} to drive fixed continuous single-objective Optuna studies with BAUX (requires optional \code{optuna}).}
-      \<dl>[class]{api-spec-list}{
-        \<dt>{Parameters}
-        \<dd>{
-          \ul{
-            \li{\code{space} (\em{Mapping[str, FloatDistribution]}) — Continuous search space mapping parameter names to \code{FloatDistribution} instances.}
-            \li{\code{config} (\em{OptimizerConfig | None}, keyword-only, default \code{None}) — Optional optimizer configuration (defaults to \code{OptimizerConfig()}).}
-            \li{\code{seed} (\em{int | None}, keyword-only, default \code{None}) — Optional integer seed for reproducible evaluation orders.}
-          }
-        }
-        \<dt>{Methods}
-        \<dd>{
-          \ul{
-            \li{\code{infer_relative_search_space(study, trial) -> dict} — Return the declared fixed parameter space.}
-            \li{\code{sample_relative(study, trial, search_space) -> dict} — Ingest completed trial history and suggest the next candidate point.}
-            \li{\code{sample_independent(study, trial, param_name, param_distribution) -> Any} — Raises \code{ValueError} to reject undeclared or dynamic parameters.}
-            \li{\code{reseed_rng() -> None} — Raises \code{RuntimeError} to enforce single-worker (\code{n_jobs=1}) usage.}
-          }
-        }
-      }
-    }
-
-    \<div>[id]{baux.experimental.program}[class]{api-entry api-entry-compact}[data-symbol]{baux.experimental.program}[data-kind]{module}[data-module]{baux.experimental.program}{
-      \<div>[class]{api-entry-header}{
-        \<span>[class]{api-entry-title}{[\code{baux.experimental.program}](#baux.experimental.program)}
-        \<span>[class]{api-kind-badge}{module}
-      }
-      \pre{
-baux.experimental.program
-      }
-      \p{\code{baux.experimental.program} lowers StableHLO MLIR modules or traced functions to IREE, TVM, or XLA backends via \code{compile}, \code{Executable}, \code{Buffer}, \code{TensorSpec}, and \code{register}.}
-    }
-  }
-}
+\<p>[id]{baux.enn}[class]{reference-alias}{[\code{baux.enn} reference](api-pipelines.html#baux.enn)}
+\<p>[id]{baux.gp}[class]{reference-alias}{[\code{baux.gp} reference](api-pipelines.html#baux.gp)}
+\<p>[id]{baux.zero}[class]{reference-alias}{[\code{baux.zero} reference](api-pipelines.html#baux.zero)}
+\<p>[id]{baux.ucb}[class]{reference-alias}{[\code{baux.ucb} reference](api-pipelines.html#baux.ucb)}
+\<p>[id]{baux.thompson}[class]{reference-alias}{[\code{baux.thompson} reference](api-pipelines.html#baux.thompson)}
+\<p>[id]{baux.pareto}[class]{reference-alias}{[\code{baux.pareto} reference](api-pipelines.html#baux.pareto)}
+\<p>[id]{baux.random_acq}[class]{reference-alias}{[\code{baux.random_acq} reference](api-pipelines.html#baux.random_acq)}
+\<p>[id]{baux.lhd}[class]{reference-alias}{[\code{baux.lhd} reference](api-pipelines.html#baux.lhd)}
+\<p>[id]{baux.sobol}[class]{reference-alias}{[\code{baux.sobol} reference](api-pipelines.html#baux.sobol)}
+\<p>[id]{baux.raasp}[class]{reference-alias}{[\code{baux.raasp} reference](api-pipelines.html#baux.raasp)}
+\<p>[id]{baux.uniform_pert}[class]{reference-alias}{[\code{baux.uniform_pert} reference](api-pipelines.html#baux.uniform_pert)}
+\<p>[id]{baux.regions}[class]{reference-alias}{[\code{baux.regions} reference](api-pipelines.html#baux.regions)}
+\<p>[id]{baux.tr_bounds}[class]{reference-alias}{[\code{baux.tr_bounds} reference](api-pipelines.html#baux.tr_bounds)}
+\<p>[id]{baux.with_geometry}[class]{reference-alias}{[\code{baux.with_geometry} reference](api-pipelines.html#baux.with_geometry)}
+\<p>[id]{baux.stein}[class]{reference-alias}{[\code{baux.stein} reference](api-pipelines.html#baux.stein)}
+\<p>[id]{baux.calibrate}[class]{reference-alias}{[\code{baux.calibrate} reference](api-pipelines.html#baux.calibrate)}
+\<p>[id]{baux.Transform}[class]{reference-alias}{[\code{baux.Transform} reference](api-pipelines.html#baux.Transform)}
+\<p>[id]{baux.chain}[class]{reference-alias}{[\code{baux.chain} reference](api-pipelines.html#baux.chain)}
+\<p>[id]{baux.Space}[class]{reference-alias}{[\code{baux.Space} reference](api-domains.html#baux.Space)}
+\<p>[id]{baux.PyTreeSpec}[class]{reference-alias}{[\code{baux.PyTreeSpec} reference](api-domains.html#baux.PyTreeSpec)}
+\<p>[id]{baux.Log}[class]{reference-alias}{[\code{baux.Log} reference](api-domains.html#baux.Log)}
+\<p>[id]{baux.Periodic}[class]{reference-alias}{[\code{baux.Periodic} reference](api-domains.html#baux.Periodic)}
+\<p>[id]{baux.Simplex}[class]{reference-alias}{[\code{baux.Simplex} reference](api-domains.html#baux.Simplex)}
+\<p>[id]{baux.categorical}[class]{reference-alias}{[\code{baux.categorical} reference](api-domains.html#baux.categorical)}
+\<p>[id]{baux.Categorical}[class]{reference-alias}{[\code{baux.Categorical} reference](api-domains.html#baux.Categorical)}
+\<p>[id]{baux.ravel}[class]{reference-alias}{[\code{baux.ravel} reference](api-domains.html#baux.ravel)}
+\<p>[id]{baux.unflatten}[class]{reference-alias}{[\code{baux.unflatten} reference](api-domains.html#baux.unflatten)}
+\<p>[id]{baux.unflatten_batch}[class]{reference-alias}{[\code{baux.unflatten_batch} reference](api-domains.html#baux.unflatten_batch)}
+\<p>[id]{baux.unflatten_stacked}[class]{reference-alias}{[\code{baux.unflatten_stacked} reference](api-domains.html#baux.unflatten_stacked)}
+\<p>[id]{baux.pytree_bounds}[class]{reference-alias}{[\code{baux.pytree_bounds} reference](api-domains.html#baux.pytree_bounds)}
+\<p>[id]{baux.LeafSpec}[class]{reference-alias}{[\code{baux.LeafSpec} reference](api-domains.html#baux.LeafSpec)}
+\<p>[id]{baux.Stiefel}[class]{reference-alias}{[\code{baux.Stiefel} reference](api-domains.html#baux.Stiefel)}
+\<p>[id]{baux.Affine}[class]{reference-alias}{[\code{baux.Affine} reference](api-domains.html#baux.Affine)}
+\<p>[id]{baux.enn_init}[class]{reference-alias}{[\code{baux.enn_init} reference](api-enn.html#baux.enn_init)}
+\<p>[id]{baux.enn_append}[class]{reference-alias}{[\code{baux.enn_append} reference](api-enn.html#baux.enn_append)}
+\<p>[id]{baux.enn_fit}[class]{reference-alias}{[\code{baux.enn_fit} reference](api-enn.html#baux.enn_fit)}
+\<p>[id]{baux.enn_posterior}[class]{reference-alias}{[\code{baux.enn_posterior} reference](api-enn.html#baux.enn_posterior)}
+\<p>[id]{baux.enn_sample}[class]{reference-alias}{[\code{baux.enn_sample} reference](api-enn.html#baux.enn_sample)}
+\<p>[id]{baux.ENNState}[class]{reference-alias}{[\code{baux.ENNState} reference](api-enn.html#baux.ENNState)}
+\<p>[id]{baux.ENNParams}[class]{reference-alias}{[\code{baux.ENNParams} reference](api-enn.html#baux.ENNParams)}
+\<p>[id]{baux.Posterior}[class]{reference-alias}{[\code{baux.Posterior} reference](api-enn.html#baux.Posterior)}
+\<p>[id]{baux.NeighborIndex}[class]{reference-alias}{[\code{baux.NeighborIndex} reference](api-enn.html#baux.NeighborIndex)}
+\<p>[id]{baux.DistanceMetric}[class]{reference-alias}{[\code{baux.DistanceMetric} reference](api-enn.html#baux.DistanceMetric)}
+\<p>[id]{baux.freeze}[class]{reference-alias}{[\code{baux.freeze} reference](api-state.html#baux.freeze)}
+\<p>[id]{baux.thaw}[class]{reference-alias}{[\code{baux.thaw} reference](api-state.html#baux.thaw)}
+\<p>[id]{baux.digest}[class]{reference-alias}{[\code{baux.digest} reference](api-state.html#baux.digest)}
+\<p>[id]{baux.key}[class]{reference-alias}{[\code{baux.key} reference](api-state.html#baux.key)}
+\<p>[id]{baux.Key}[class]{reference-alias}{[\code{baux.Key} reference](api-state.html#baux.Key)}
+\<p>[id]{baux.split}[class]{reference-alias}{[\code{baux.split} reference](api-state.html#baux.split)}
+\<p>[id]{baux.fold}[class]{reference-alias}{[\code{baux.fold} reference](api-state.html#baux.fold)}
+\<p>[id]{baux.scan}[class]{reference-alias}{[\code{baux.scan} reference](api-state.html#baux.scan)}
+\<p>[id]{baux.pmap}[class]{reference-alias}{[\code{baux.pmap} reference](api-state.html#baux.pmap)}
+\<p>[id]{baux.OptimizerConfig}[class]{reference-alias}{[\code{baux.OptimizerConfig} reference](api-configuration.html#baux.OptimizerConfig)}
+\<p>[id]{baux.RegionalSearchPolicy}[class]{reference-alias}{[\code{baux.RegionalSearchPolicy} reference](api-configuration.html#baux.RegionalSearchPolicy)}
+\<p>[id]{baux.TrustRegionBounds}[class]{reference-alias}{[\code{baux.TrustRegionBounds} reference](api-configuration.html#baux.TrustRegionBounds)}
+\<p>[id]{baux.turbo_enn}[class]{reference-alias}{[\code{baux.turbo_enn} reference](api-configuration.html#baux.turbo_enn)}
+\<p>[id]{baux.turbo_one}[class]{reference-alias}{[\code{baux.turbo_one} reference](api-configuration.html#baux.turbo_one)}
+\<p>[id]{baux.turbo_zero}[class]{reference-alias}{[\code{baux.turbo_zero} reference](api-configuration.html#baux.turbo_zero)}
+\<p>[id]{baux.lhd_only}[class]{reference-alias}{[\code{baux.lhd_only} reference](api-configuration.html#baux.lhd_only)}
+\<p>[id]{baux.create_optimizer}[class]{reference-alias}{[\code{baux.create_optimizer} reference](api-objects.html#baux.create_optimizer)}
+\<p>[id]{baux.Optimizer}[class]{reference-alias}{[\code{baux.Optimizer} reference](api-objects.html#baux.Optimizer)}
+\<p>[id]{baux.ENN}[class]{reference-alias}{[\code{baux.ENN} reference](api-objects.html#baux.ENN)}
+\<p>[id]{baux.ENNFitter}[class]{reference-alias}{[\code{baux.ENNFitter} reference](api-objects.html#baux.ENNFitter)}
+\<p>[id]{baux.Telemetry}[class]{reference-alias}{[\code{baux.Telemetry} reference](api-objects.html#baux.Telemetry)}
+\<p>[id]{baux.TellPredictionError}[class]{reference-alias}{[\code{baux.TellPredictionError} reference](api-objects.html#baux.TellPredictionError)}
+\<p>[id]{baux.enn_optimizer}[class]{reference-alias}{[\code{baux.enn_optimizer} reference](api-objects.html#baux.enn_optimizer)}
+\<p>[id]{baux.create_zero}[class]{reference-alias}{[\code{baux.create_zero} reference](api-objects.html#baux.create_zero)}
+\<p>[id]{baux.create_lhd}[class]{reference-alias}{[\code{baux.create_lhd} reference](api-objects.html#baux.create_lhd)}
+\<p>[id]{baux.capabilities}[class]{reference-alias}{[\code{baux.capabilities} reference](api-runtime.html#baux.capabilities)}
+\<p>[id]{baux.BackendCapabilities}[class]{reference-alias}{[\code{baux.BackendCapabilities} reference](api-runtime.html#baux.BackendCapabilities)}
+\<p>[id]{baux.Device}[class]{reference-alias}{[\code{baux.Device} reference](api-runtime.html#baux.Device)}
+\<p>[id]{baux.optuna.Sampler}[class]{reference-alias}{[\code{baux.optuna.Sampler} reference](api-runtime.html#baux.optuna.Sampler)}
+\<p>[id]{baux.experimental.program}[class]{reference-alias}{[\code{baux.experimental.program} reference](api-runtime.html#baux.experimental.program)}

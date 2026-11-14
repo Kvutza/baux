@@ -1,14 +1,22 @@
-\title{Local Trust Regions & Functional State}
+\title{Run Multiple Regions and Workers}
+
+\p{
+  Add \code{baux.regions(count=4)} to a search pipeline to maintain four local regions. Use \code{baux.complete(state, ids, y)} to return whichever evaluations have finished, and \code{baux.cancel(state, ids)} for work you will not complete. Each call returns the next state. The example below also shows how to save and restore it.
+}
 
 \subtree{
   \title{Multi-Region Search & Asynchronous Evaluation}
 
   \p{
-    Over high-dimensional boxes, probability mass and epistemic uncertainty concentrate near boundaries, pulling global acquisition away from interior optima. [baux.regions](docs.html#baux.regions) counters that boundary bias by running #{R} local axis-aligned trust regions #{\{T_r(x_{0,r}, \ell_r, g_r)\}_{r=1}^R} centered at regional incumbents #{x_{0,r}} with side lengths #{\ell_r} and restart generations #{g_r} (Eriksson et al. [[EPG+19]](https://arxiv.org/abs/1910.01739), Daulton et al. [[DEB+22]](https://proceedings.mlr.press/v180/daulton22a.html)). Consecutive successes double #{\ell_r} and stalls halve #{\ell_r} until restart, while candidate pools perturb sparse coordinate subsets around #{x_{0,r}}; for vector targets (#{M \ge 2}), each region scalarizes normalized outputs with simplex weights [[DEB+22]](https://proceedings.mlr.press/v180/daulton22a.html).
+    A region keeps a center, a search length, and a record of recent improvements. Under the TuRBO controller, success and failure counts expand or contract the search length; a sufficiently small region restarts. TuRBO introduced multiple local models with global allocation of evaluations (Eriksson et al. [[EPG+19]](https://arxiv.org/abs/1910.01739)). In \strong{baux}, [baux.regions](api-pipelines.html#baux.regions) configures the regional search, while the pipeline chooses the surrogate and acquisition rule.
   }
 
   \p{
-    Incumbent sharing between those regions selects either regional isolation (\code{sharing="origin_only"}) or adoption of any superior observation inside the Euclidean ball circumscribing #{T_r} (\code{sharing="ellipsoid_ball"}). When workers return evaluations asynchronously, each proposed arm carries an \code{AskId} ticket #{(r, g, a)} tying it to region #{r}, generation #{g = g_r}, and slot #{a}. Out-of-order completions via [baux.complete](docs.html#baux.complete) always record observations in #{\mathcal{D}}, but apply trust-region updates to #{T_r} only when #{g = g_r} so stale pre-restart workers cannot shrink or re-center a restarted region, while [baux.cancel](docs.html#baux.cancel) drops abandoned slots without altering #{\mathcal{D}}.
+    Candidate generation perturbs coordinates around a region's center. Incumbent sharing determines whether a result from another region may replace that center: \code{origin_only} restricts updates to the originating region, while \code{ellipsoid_ball} also admits better observations inside the region's circumscribing ball. This sharing decision is distinct from the choice of surrogate.
+  }
+
+  \p{
+    Asynchronous workers return results through [baux.complete](docs.html#baux.complete). Each \code{AskId} identifies a pending evaluation associated with a region and its generation. Restarting a region invalidates its old pending evaluations; foreign, completed, cancelled or invalidated IDs are rejected. [baux.cancel](docs.html#baux.cancel) retires unfinished evaluations without adding observations. Historical results can enter separately through [baux.import_observations](docs.html#baux.import_observations).
   }
 }
 
@@ -16,11 +24,11 @@
   \title{Deterministic Rollouts & Checkpointing}
 
   \p{
-    Every [\code{OptimizerState}](docs.html#baux.OptimizerState) threads a splittable 128-bit PRNG key alongside observation history and regional trust-region records (Claessen & Pałka [[CP13]](https://doi.org/10.1145/2503778.2503784), Steele, Lea, & Flood [[SLF14]](https://doi.org/10.1145/2660193.2660195)). Sequential rollouts via [baux.scan](docs.html#baux.scan) and pre-split parallel branches #{k \mapsto (k_1, \dots, k_B)} via [baux.pmap](docs.html#baux.pmap) therefore produce deterministic trajectories independent of thread scheduling.
+    The functional API returns a new [\code{OptimizerState}](docs.html#baux.OptimizerState) after each transition. Explicit PRNG keys let [baux.scan](api-state.html#baux.scan) run a fixed sequence and [baux.pmap](api-state.html#baux.pmap) assign a derived key to each branch. Splittable generators are described by Claessen and Pałka [[CP13]](https://doi.org/10.1145/2503778.2503784) and Steele et al. [[SLF14]](https://doi.org/10.1145/2660193.2660195). Replaying a search also requires the same objective results and transition order; a seed alone does not make arbitrary asynchronous completion orders equivalent.
   }
 
   \p{
-    To resume interrupted studies identically, [baux.freeze](docs.html#baux.freeze) and [baux.thaw](docs.html#baux.thaw) serialize that complete solver snapshot into an authenticated binary record indexed by [baux.digest](docs.html#baux.digest). Restoring against any domain-compatible template #{s_0} satisfies #{\mathrm{thaw}(s_0, \mathrm{freeze}(s)) = s}, guaranteeing identical subsequent proposals and parallel rollouts:
+    [baux.freeze](api-state.html#baux.freeze) serializes optimizer state with a BLAKE3 integrity tag. [baux.thaw](api-state.html#baux.thaw) restores it against a compatible template. The checkpoint does not capture an external evaluator's random generator or worker state. The following example uses a deterministic objective and checks that the restored optimizer produces the same branch digests:
   }
 
   \pre{

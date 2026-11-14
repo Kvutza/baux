@@ -1,89 +1,45 @@
-\title{baux}
-\author{Kvutza}
-\date{2026-11-12}
-\meta{external}{https://github.com/Kvutza/baux}
+\title{baux documentation}
+\meta{toc}{false}
 
-\p{
-  \strong{baux} is a black box optimization library for functions #{f : \mathcal{X} \to \mathbb{R}} evaluated under tight sequential or noisy budgets, from low-dimensional design parameters through #{10^5}-weight control policies. Because exact Gaussian processes factor an #{N \times N} covariance matrix before every step, \strong{baux} replaces global covariance inversion with Epistemic Nearest Neighbors (\code{ENN}; Bafna, Jadhav, & Sweet [[BJS26]](https://proceedings.mlr.press/v306/bafna26a.html), ICML 2026; [yubo-research/enn](https://github.com/yubo-research/enn)), treating the #{K} nearest observations as independent local estimators combined by inverse-variance weighting.
-}
-
-\p{
-  In high dimensions or multi-modal landscapes, global acquisition drifts toward volume-heavy domain corners. \strong{baux} counters that drift by pairing \code{ENN} with parallel local trust regions (Eriksson et al. [[EPG+19]](https://arxiv.org/abs/1910.01739)) that perturb sparse coordinate subsets around regional incumbents. All observations, regional side lengths and stall counters, pending asynchronous tickets, and a splittable 128-bit PRNG key live inside an explicit immutable state advanced by pure transitions ([API Reference](docs.html#baux.init)).
-}
-
-\p{
-  A basic loop pairs an \code{ENN} surrogate ([baux.enn](docs.html#baux.enn)) with upper-confidence acquisition ([baux.ucb](docs.html#baux.ucb)) and updates state via [baux.init](docs.html#baux.init), [baux.ask](docs.html#baux.ask), and [baux.tell](docs.html#baux.tell):
-}
-
-\<div>[id]{quickstart}{
-\pre{
-import numpy as np
-import baux
-
-
-def objective(x):
-    return -np.sum((x - 0.4) ** 2, axis=1)
-
-
-bounds = np.tile([-2.0, 2.0], (6, 1))
-pipe = baux.enn(k=10) | baux.ucb(beta=2.0)
-
-state = baux.init(bounds, pipe, key=baux.key(0))
-for _ in range(15):
-    state, batch = baux.ask(state, num_arms=4)
-    state, _ = baux.tell(state, batch, objective(batch.points))
-
-assert state.best_x.shape == (6,) and state.best_y > -0.25
-}
-}
-
-\transclude{baux-0003}
-
-\transclude{baux-0009}
-
-\transclude{baux-0008}
+\p{baux is a black-box optimization library with a Rust core and a Python API. Define a parameter space, evaluate the points it proposes, and return the results. Your function does not need to provide gradients.}
 
 \subtree{
-  \title{Closed-Loop Control Experiments}
-
-  \p{
-    Closed-loop tokamak control optimizes #{10^5}-weight neural feedback policies solely from trajectory rollouts, without policy gradients, value networks, or replay buffers (Degrave et al. [[Deg+22]](https://doi.org/10.1038/s41586-021-04301-9), Tracey et al. [[Tra+24]](https://doi.org/10.1016/j.fusengdes.2024.114161), Pfau et al. [[Pfa+25]](https://arxiv.org/abs/2505.00663)). On the \code{toka_gym} TCV rampdown benchmark (Wang et al. [[Wan+25]](https://doi.org/10.1038/s41467-025-63917-3), Theiler et al. [[The+26]](https://doi.org/10.1088/1741-4326/ae6d12)), we evolve a four-layer policy (#{D = 136{,}712} weights) over #{10{,}000} rounds across #{n = 10} common-random-number seeds (#{800{,}000} total rollouts from initial error \code{58.12 ± 31.39}). Surrogate-free \code{TuRBO-zero} (#{R = 10}) descends identically across all four incumbent-sharing topologies, reaching \code{1.42 ± 0.03} by round #{250} and \code{1.31 ± 0.02} at round #{10{,}000}. Single-region \code{TuRBO-ENN} (#{R = 1}, #{K = 10} neighbors, \code{UCB} acquisition) initially trails \code{R = 10} at round #{250} (\code{1.58 ± 0.05} \code{hyperbolic} to \code{1.68 ± 0.08} \code{euclidean}; exact sign-flip #{p_{\mathrm{Holm}} = 0.014}) while fitting its distance scale, then closes the margin over #{10{,}000} rounds to match \code{R = 10} within paired sampling variation (\code{1.34 ± 0.03} \code{wasserstein}; difference \code{+0.03 ± 0.04}, #{p_{\mathrm{Holm}} = 1.00}).
+  \title{Installation}
+  \p{Install the Python package:}
+  \pre{
+python -m pip install baux
   }
-
-  \p{
-    To test cross-region incumbent sharing under coupled transport physics, we evaluate a #{D = 160{,}531} policy (#{93 \to 256 \to 256 \to 256 \to 19}) over #{10{,}000} rounds in \code{TORAX 2.0.0} (Citrin et al. [[Cit+24]](https://arxiv.org/abs/2406.06718)), coupling four 1D radial transport equations to Miller local-equilibrium shaping (Miller et al. [[Mil+98]](https://doi.org/10.1063/1.872666)). With the optimizer fixed at surrogate-free \code{TuRBO-zero} (#{R = 10}, #{n = 10} paired seeds), allowing regions to adopt superior incumbents inside their circumscribing Euclidean ball (\code{ellipsoid_ball}) reaches \code{91.57 ± 0.55}, compared with \code{89.41 ± 0.97} for isolated regions (\code{origin_only}). That \code{+2.16 ± 0.91} late separation yields unadjusted paired #{t_9} #{p = 0.0410} at round #{10{,}000}, though it does not survive Holm–Bonferroni correction across six post-initialization checkpoints (#{p_{\mathrm{Holm}} = 0.246}); see [Simulation](simulation.html) for interactive TCV trajectories and \code{FUSE.jl} equilibria (Meneghini et al. [[Men+24]](https://arxiv.org/abs/2409.05894)).
-  }
-
-  \<table>{
-    \<tr>{
-      \<th>{Benchmark}
-      \<th>{Policy Weights}
-      \<th>{Budget}
-      \<th>{TuRBO-zero (\code{ellipsoid_ball})}
-      \<th>{TuRBO-zero (\code{origin_only})}
-    }
-    \<tr>{
-      \<td>{\code{toka_gym} TCV Rampdown (error #{\downarrow})}
-      \<td>{#{D = 136{,}712}}
-      \<td>{#{10{,}000} rounds}
-      \<td>{\code{1.31 ± 0.02}}
-      \<td>{\code{1.31 ± 0.02}}
-    }
-    \<tr>{
-      \<td>{\code{TORAX 2.0.0} Transport & Shaping (score #{\uparrow})}
-      \<td>{#{D = 160{,}531}}
-      \<td>{#{10{,}000} rounds}
-      \<td>{\code{91.57 ± 0.55}}
-      \<td>{\code{89.41 ± 0.97}}
-    }
-  }
-
-  \scope{
-    \put\transclude/toc{false}
-    \put\transclude/numbered{false}
-    \put\transclude/heading{false}
-    \transclude{baux-0010}
-  }
+  \p{The [published wheels](https://pypi.org/project/baux/#files) support Python 3.12–3.15 on Linux x86-64 and macOS Apple Silicon.}
 }
 
-\transclude{baux-0002}
+\subtree{
+  \title{Usage}
+  \<div>[id]{quickstart}{
+  \pre{
+import baux
+import numpy as np
+
+bounds = np.array([[-2.0, 2.0], [-2.0, 2.0]])
+state = baux.init(bounds, pipe=baux.enn(), seed=0)
+
+for _ in range(10):
+    state, batch = baux.ask(state, n=4)
+    values = -np.sum(batch.points**2, axis=1)
+    state, _ = baux.tell(state, batch, values)
+
+print(state.best_x, state.best_y)
+  }
+  }
+  \p{baux maximizes values. This example returns a negative squared distance to minimize the distance from the origin. Keep the state returned by \code{ask} and \code{tell} for the next call.}
+  \p{The [quickstart](quickstart.html) explains the loop. The [optimizer reference](docs.html) documents its inputs and outputs.}
+}
+
+\subtree{
+  \title{Guides}
+  \ul{
+    \li{[Structured parameters](baux-0008.html): work with dictionaries, dataclasses, discrete choices and constrained values.}
+    \li{[Multiple regions and workers](baux-0009.html): run local searches together and submit evaluations as they finish.}
+    \li{[ENN predictions](baux-0003.html): fit a surrogate to observations and query its predictions.}
+    \li{[Examples](simulation.html): explore synthetic objectives and the tokamak control example.}
+  }
+}

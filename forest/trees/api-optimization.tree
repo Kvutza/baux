@@ -1,0 +1,15 @@
+\title{Optimizer}
+\meta{toc}{false}
+\p{See the [optimizer reference](docs.html).}
+\<p>[id]{baux.init}[class]{reference-alias}{[\code{baux.init} reference](docs.html#baux.init)}
+\<p>[id]{baux.ask}[class]{reference-alias}{[\code{baux.ask} reference](docs.html#baux.ask)}
+\<p>[id]{baux.tell}[class]{reference-alias}{[\code{baux.tell} reference](docs.html#baux.tell)}
+\<p>[id]{baux.step}[class]{reference-alias}{[\code{baux.step} reference](docs.html#baux.step)}
+\<p>[id]{baux.complete}[class]{reference-alias}{[\code{baux.complete} reference](docs.html#baux.complete)}
+\<p>[id]{baux.cancel}[class]{reference-alias}{[\code{baux.cancel} reference](docs.html#baux.cancel)}
+\<p>[id]{baux.restart_region}[class]{reference-alias}{[\code{baux.restart_region} reference](docs.html#baux.restart_region)}
+\<p>[id]{baux.import_observations}[class]{reference-alias}{[\code{baux.import_observations} reference](docs.html#baux.import_observations)}
+\<p>[id]{baux.posterior_mu}[class]{reference-alias}{[\code{baux.posterior_mu} reference](docs.html#baux.posterior_mu)}
+\<p>[id]{baux.OptimizerState}[class]{reference-alias}{[\code{baux.OptimizerState} reference](docs.html#baux.OptimizerState)}
+\<p>[id]{baux.AskBatch}[class]{reference-alias}{[\code{baux.AskBatch} reference](docs.html#baux.AskBatch)}
+\<p>[id]{baux.AskId}[class]{reference-alias}{[\code{baux.AskId} reference](docs.html#baux.AskId)}

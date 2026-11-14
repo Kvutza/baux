@@ -1,0 +1,55 @@
+\title{Quickstart}
+\meta{toc}{false}
+
+\p{Define a function, give baux its parameter bounds, and alternate between proposing points and returning their values.}
+
+\subtree{
+  \title{Start with a Function}
+
+  \p{
+    This example searches six bounded parameters. \code{ask} proposes points; your function evaluates them; \code{tell} records the results. baux maximizes values, so return the negative of a loss you want to minimize.
+  }
+
+  \<div>[id]{quickstart}{
+  \pre{
+import numpy as np
+import baux
+
+
+def objective(x):
+    return -np.sum((x - 0.4) ** 2, axis=1)
+
+
+bounds = np.tile([-2.0, 2.0], (6, 1))
+pipe = baux.enn(k=10) | baux.ucb(beta=2.0)
+state = baux.init(bounds, pipe, key=baux.key(0))
+
+for _ in range(15):
+    state, batch = baux.ask(state, num_arms=4)
+    state, _ = baux.tell(state, batch, objective(batch.points))
+
+print(state.best_x, state.best_y)
+  }
+  }
+
+  \p{
+    \code{batch.points} has one row per proposed point. Return one value per row, or several columns for a vector objective. The pipeline above uses an ENN surrogate and UCB acquisition; [the configuration reference](api-pipelines.html#baux.enn) describes their options.
+  }
+}
+
+\subtree{
+  \title{Use It for Your Problem}
+
+  \<div>[id]{guides}{
+  \ul{
+    \li{[Structured parameters](baux-0008.html) — Search dictionaries and dataclasses containing log scales, angles, mixtures and discrete choices. Read the proposed values from \code{batch.params}.}
+    \li{[Multiple regions and workers](baux-0009.html) — Explore several centers, return evaluations as workers finish, and save or resume a search.}
+    \li{[Surrogate predictions](baux-0003.html) — Fit ENN to existing observations, query predictions and draw samples.}
+    \li{[Interactive examples](simulation.html) — Explore synthetic objectives and the tokamak control example.}
+  }
+  }
+
+  \p{
+    See the [API reference](docs.html) for signatures, array shapes and configuration options. The [source repository](https://github.com/Kvutza/baux) contains the Rust implementation and Python frontend.
+  }
+}

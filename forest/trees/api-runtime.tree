@@ -1,0 +1,73 @@
+\title{Runtime and integrations}
+\meta{toc}{false}
+
+\p{Backend availability and operation support are separate. Check both before choosing a device. Optional integrations require explicit imports and their own dependencies.}
+
+\<section>[id]{baux.capabilities}[class]{api-entry}[data-symbol]{baux.capabilities}[data-kind]{function}[data-module]{baux.runtime}{
+  \<div>[class]{api-entry-header}{\<h2>[class]{api-entry-title}{[\code{baux.capabilities}](api-runtime.html#baux.capabilities)}}
+  \pre{
+baux.capabilities(*, probe: bool = False) -> tuple[BackendCapabilities, ...]
+  }
+  \p{Inspect build support and optional hardware availability.}
+  \p{Returns a tuple of \code{BackendCapabilities}. With \code{probe=False}, reads build support without active hardware checks. With \code{probe=True}, probes hardware too.}
+  \p{Read the operation lists as well as \code{available}: a backend may be available while a particular operation is missing or uses a host fallback.}
+  \<p>[class]{api-source}{[Source in \code{python/baux/runtime.py}](https://github.com/Kvutza/baux/blob/main/python/baux/runtime.py#L38)}
+}
+
+\<section>[id]{baux.BackendCapabilities}[class]{api-entry}[data-symbol]{baux.BackendCapabilities}[data-kind]{class}[data-module]{baux.runtime}{
+  \<div>[class]{api-entry-header}{\<h2>[class]{api-entry-title}{[\code{baux.BackendCapabilities}](api-runtime.html#baux.BackendCapabilities)}}
+  \pre{
+baux.BackendCapabilities(
+    name: BackendName,
+    compiled: bool,
+    available: bool | None,
+    reason: str | None,
+    direct_operations: tuple[str, ...],
+    fallback_operations: tuple[str, ...],
+    missing_operations: tuple[str, ...],
+    host_operations: tuple[str, ...],
+    array_frameworks: tuple[str, ...],
+)
+  }
+  \p{Support information for one backend.}
+  \p{\code{name}: backend name. \code{compiled}: included in this native build. \code{available}: hardware result, or \code{None} when not probed. \code{reason}: diagnostic text when relevant.}
+  \p{\code{direct_operations}, \code{fallback_operations}, \code{missing_operations} and \code{host_operations} distinguish operation support. \code{array_frameworks} lists detected optional array packages. Returned by \code{capabilities}.}
+  \<p>[class]{api-source}{[Source in \code{python/baux/runtime.py}](https://github.com/Kvutza/baux/blob/main/python/baux/runtime.py#L16)}
+}
+
+\<section>[id]{baux.Device}[class]{api-entry}[data-symbol]{baux.Device}[data-kind]{class}[data-module]{baux.runtime}{
+  \<div>[class]{api-entry-header}{\<h2>[class]{api-entry-title}{[\code{baux.Device}](api-runtime.html#baux.Device)}}
+  \pre{
+baux.Device(name = 'auto')
+  }
+  \p{Select a native compute device.}
+  \p{\code{name} selects a device, with \code{"auto"} as the default. \code{memory_info()} returns device memory information. Use \code{capabilities(probe=True)} to check installed backend support before choosing a device.}
+  \<p>[class]{api-source}{[Source in \code{rust/crates/baux-py/src/py_device.rs}](https://github.com/Kvutza/baux/blob/main/rust/crates/baux-py/src/py_device.rs)}
+}
+
+\<section>[id]{baux.optuna.Sampler}[class]{api-entry}[data-symbol]{baux.optuna.Sampler}[data-kind]{class}[data-module]{baux.optuna}{
+  \<div>[class]{api-entry-header}{\<h2>[class]{api-entry-title}{[\code{baux.optuna.Sampler}](api-runtime.html#baux.optuna.Sampler)}}
+  \pre{
+baux.optuna.Sampler(
+    space: Mapping[str, FloatDistribution],
+    *,
+    config: OptimizerConfig | None = None,
+    seed: int | None = None,
+)
+  }
+  \p{Use baux to generate trials in an Optuna study.}
+  \p{Import explicitly with \code{from baux.optuna import Sampler}; requires the \code{optuna} extra. \code{space}: a fixed mapping of names to Optuna \code{FloatDistribution} objects. Logarithmic floats are supported.}
+  \p{Use one sampler per study, \code{n_jobs=1} and one generating process. Integers, stepped or conditional spaces, and multi-objective studies are rejected. A new sampler can use completed trials but does not restore the original search trajectory.}
+  \<p>[class]{api-source}{[Source in \code{python/baux/optuna.py}](https://github.com/Kvutza/baux/blob/main/python/baux/optuna.py)}
+}
+
+\<section>[id]{baux.experimental.program}[class]{api-entry}[data-symbol]{baux.experimental.program}[data-kind]{module}[data-module]{baux.experimental.program}{
+  \<div>[class]{api-entry-header}{\<h2>[class]{api-entry-title}{[\code{baux.experimental.program}](api-runtime.html#baux.experimental.program)}}
+  \pre{
+baux.experimental.program
+  }
+  \p{Compile and execute experimental array programs.}
+  \p{Import with \code{from baux.experimental import program}. This module exposes \code{compile}, \code{TensorSpec}, \code{Buffer}, \code{Executable} and \code{register}, with backend-specific runtime requirements.}
+  \p{See the [module source](https://github.com/Kvutza/baux/blob/main/python/baux/experimental/program.py) for the experimental interface and supported input forms. It is separate from the optimizer's ask/tell API.}
+  \<p>[class]{api-source}{[Source in \code{python/baux/experimental/program.py}](https://github.com/Kvutza/baux/blob/main/python/baux/experimental/program.py)}
+}

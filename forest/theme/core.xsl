@@ -66,6 +66,12 @@
     </section>
   </xsl:template>
 
+  <xsl:template match="nav|h2|h3|h4|details|summary">
+    <xsl:element name="{local-name()}">
+      <xsl:apply-templates select="@* | node()" />
+    </xsl:element>
+  </xsl:template>
+
   <xsl:template match="span">
     <span>
       <xsl:apply-templates select="@*" />

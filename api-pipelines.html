@@ -1,0 +1,188 @@
+<!DOCTYPE html PUBLIC "" "">
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:fr="http://www.jonmsterling.com/jms-005P.xml" data-base-url=""><head><meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'"></meta><meta name="referrer" content="strict-origin-when-cross-origin"></meta><meta name="viewport" content="width=device-width, initial-scale=1.0"></meta><link rel="stylesheet" href="style.css?v=c322043d5574" integrity="sha384-9SpXFJMIJhZWkQp2/vgW2cmVoZBGmug6fddtzCP8G3VW058mc9vI1D/O18CIp/No"></link><link rel="stylesheet" href="katex.min.css?v=18c1c9fb05e7" integrity="sha384-TPqpCe9iqIJJFMUr4nZhfVfnhPwt6zFQ0llYbuKCrML4vxvk3koGtCzSoij1dOEx"></link><script type="module" src="forester.js?v=8f33e155074f" integrity="sha384-xGSQiQu0kX1eP1SDLdMBK8nvtlny/KN8EmWrdGiKFvVJS601GfKKTJCMCk7KddQg"></script><script type="text/javascript" src="assets/baux_ui.js?v=a749abe5453c" integrity="sha384-EhncjzmOP9knMuDteqfRMfHLHpehnZL7YYSGMZC/Zlk8yESJDoWVKv+uHsuIPe/D" defer></script><title>Pipelines</title></head><body data-page="api-pipelines"><header class="masthead"><div class="masthead-inner"><div class="masthead-brand"><a href="index.html" class="brand-title">baux</a></div><nav class="masthead-nav"><a href="index.html" class="nav-item">Get started</a><a href="docs.html" class="nav-item active">API Reference</a><a href="simulation.html" class="nav-item">Examples</a><a href="https://github.com/Kvutza/baux" class="nav-item external" target="_blank" rel="noopener noreferrer">GitHub</a><a href="https://pypi.org/project/baux/" class="nav-item external" target="_blank" rel="noopener noreferrer">PyPI</a><a href="https://crates.io/crates/baux" class="nav-item external" target="_blank" rel="noopener noreferrer">Crates.io</a></nav></div></header><div id="grid-wrapper"><article><section xmlns="" lang="en" class="block"><div class="tree-node" id="id1">
+<header><h1><span class="sec-title">Pipelines</span></h1></header><nav class="api-page-nav" aria-label="API reference sections">
+<span class="link external"><a href="docs.html" rel="noopener noreferrer" title="">All symbols</a></span>
+<span class="link external"><a href="api-optimization.html" rel="noopener noreferrer" title="">Optimization loop</a></span>
+<span xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" aria-current="page">Pipelines</span>
+<span class="link external"><a href="api-domains.html" rel="noopener noreferrer" title="">Parameter domains</a></span>
+<span class="link external"><a href="api-enn.html" rel="noopener noreferrer" title="">ENN predictions</a></span>
+<span class="link external"><a href="api-state.html" rel="noopener noreferrer" title="">Checkpoints and keys</a></span>
+<span class="link external"><a href="api-configuration.html" rel="noopener noreferrer" title="">Configuration</a></span>
+<span class="link external"><a href="api-objects.html" rel="noopener noreferrer" title="">In-place interfaces</a></span>
+<span class="link external"><a href="api-runtime.html" rel="noopener noreferrer" title="">Runtime and integrations</a></span>
+</nav><p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">Compose transforms with <code>|</code>, then pass the pipeline to <code>init</code>. Stages run left to right and may change several configuration fields. Call <code>pipe()</code> to inspect the resulting <code>OptimizerConfig</code>.</p>
+<div xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux-api-filter"></div>
+<nav class="api-symbol-nav" aria-label="On this page"><span class="link external"><code xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><a href="#baux.enn" rel="noopener noreferrer" title="">enn</a></code></span> · <span class="link external"><code xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><a href="#baux.gp" rel="noopener noreferrer" title="">gp</a></code></span> · <span class="link external"><code xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><a href="#baux.zero" rel="noopener noreferrer" title="">zero</a></code></span> · <span class="link external"><code xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><a href="#baux.ucb" rel="noopener noreferrer" title="">ucb</a></code></span> · <span class="link external"><code xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><a href="#baux.thompson" rel="noopener noreferrer" title="">thompson</a></code></span> · <span class="link external"><code xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><a href="#baux.pareto" rel="noopener noreferrer" title="">pareto</a></code></span> · <span class="link external"><code xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><a href="#baux.random_acq" rel="noopener noreferrer" title="">random_acq</a></code></span> · <span class="link external"><code xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><a href="#baux.lhd" rel="noopener noreferrer" title="">lhd</a></code></span> · <span class="link external"><code xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><a href="#baux.sobol" rel="noopener noreferrer" title="">sobol</a></code></span> · <span class="link external"><code xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><a href="#baux.raasp" rel="noopener noreferrer" title="">raasp</a></code></span> · <span class="link external"><code xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><a href="#baux.uniform_pert" rel="noopener noreferrer" title="">uniform_pert</a></code></span> · <span class="link external"><code xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><a href="#baux.regions" rel="noopener noreferrer" title="">regions</a></code></span> · <span class="link external"><code xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><a href="#baux.tr_bounds" rel="noopener noreferrer" title="">tr_bounds</a></code></span> · <span class="link external"><code xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><a href="#baux.with_geometry" rel="noopener noreferrer" title="">with_geometry</a></code></span> · <span class="link external"><code xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><a href="#baux.stein" rel="noopener noreferrer" title="">stein</a></code></span> · <span class="link external"><code xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><a href="#baux.calibrate" rel="noopener noreferrer" title="">calibrate</a></code></span> · <span class="link external"><code xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><a href="#baux.Transform" rel="noopener noreferrer" title="">Transform</a></code></span> · <span class="link external"><code xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><a href="#baux.chain" rel="noopener noreferrer" title="">chain</a></code></span></nav><section xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.enn" class="api-entry" data-symbol="baux.enn" data-kind="function" data-module="baux.transforms">
+  <div class="api-entry-header">
+<h2 class="api-entry-title"><span class="link external"><code><a href="#baux.enn" rel="noopener noreferrer" title="">baux.enn</a></code></span></h2> <span class="link external"><a href="https://github.com/Kvutza/baux/blob/main/python/baux/transforms.py" rel="noopener noreferrer" title="">Source</a></span>
+</div>
+  <p>Configure an ENN surrogate.</p>
+  <pre>baux.enn(
+    *,
+    k=10,
+    num_samples=100,
+    scale_x=False,
+    index=NeighborIndex.FLAT,
+    storage=None,
+    metric_learning='none',
+    geometry='euclidean',
+    local_k=4,
+    stiefel=None,
+    affine=None,
+    tied_dims=None,
+)</pre>
+  <p>Returns a <code>Transform</code>. <code>k</code>: neighbor count. <code>num_samples</code>: leave-one-out fitting sample budget; <code>None</code> disables that fitting setting. <code>scale_x</code>: input scaling.</p>
+  <p><code>index</code>: a <code>NeighborIndex</code> or accepted driver name such as <code>"flat"</code>, <code>"usearch"</code>, <code>"metal"</code> or <code>"cuda"</code>. Hardware support depends on the build. <code>storage</code>: optional storage selection.</p>
+  <p><code>metric_learning</code>, <code>geometry</code>, <code>local_k</code>, <code>tied_dims</code>: input metric and grouping settings. <code>stiefel</code> and <code>affine</code>: optional output maps.</p>
+  <p>When the incoming acquisition is random, this transform selects UCB, or Pareto selection if <code>num_samples=None</code>. An already selected non-random acquisition is preserved.</p>
+  <details class="api-example"><summary>Example</summary>
+<pre>import numpy as np
+import baux
+
+domain = np.array([[-2.0, 2.0], [-2.0, 2.0]])
+pipe = baux.enn(k=8) | baux.ucb(beta=1.5) | baux.lhd(num_init=6) | baux.regions(2)
+state = baux.init(domain, pipe, seed=42)
+state, y = baux.step(state, lambda x: -np.sum(x**2, axis=-1), num_arms=2)
+assert state.num_observations == 2
+assert len(y) == 2</pre>
+  </details>
+</section><section xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.gp" class="api-entry" data-symbol="baux.gp" data-kind="function" data-module="baux.transforms">
+  <div class="api-entry-header">
+<h2 class="api-entry-title"><span class="link external"><code><a href="#baux.gp" rel="noopener noreferrer" title="">baux.gp</a></code></span></h2> <span class="link external"><a href="https://github.com/Kvutza/baux/blob/main/python/baux/transforms.py#L231" rel="noopener noreferrer" title="">Source</a></span>
+</div>
+  <p>Configure the Gaussian-process surrogate.</p>
+  <pre>baux.gp()</pre>
+  <p>Returns a <code>Transform</code>. If the incoming acquisition is random, selects Thompson sampling. An existing non-random acquisition is preserved.</p>
+</section><section xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.zero" class="api-entry" data-symbol="baux.zero" data-kind="function" data-module="baux.transforms">
+  <div class="api-entry-header">
+<h2 class="api-entry-title"><span class="link external"><code><a href="#baux.zero" rel="noopener noreferrer" title="">baux.zero</a></code></span></h2> <span class="link external"><a href="https://github.com/Kvutza/baux/blob/main/python/baux/transforms.py#L247" rel="noopener noreferrer" title="">Source</a></span>
+</div>
+  <p>Configure search without a surrogate.</p>
+  <pre>baux.zero()</pre>
+  <p>Returns a <code>Transform</code> that selects <code>NoSurrogate</code>, random acquisition and a TuRBO region if regions were disabled. Existing active trust-region settings are preserved.</p>
+</section><section xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.ucb" class="api-entry" data-symbol="baux.ucb" data-kind="function" data-module="baux.transforms">
+  <div class="api-entry-header">
+<h2 class="api-entry-title"><span class="link external"><code><a href="#baux.ucb" rel="noopener noreferrer" title="">baux.ucb</a></code></span></h2> <span class="link external"><a href="https://github.com/Kvutza/baux/blob/main/python/baux/transforms.py#L273" rel="noopener noreferrer" title="">Source</a></span>
+</div>
+  <p>Select candidates by mean plus uncertainty.</p>
+  <pre>baux.ucb(beta=2.0)</pre>
+  <p>Returns a <code>Transform</code> using <code>mu + beta * se</code>. <code>beta</code> must be finite and positive. Adds an ENN surrogate if none is configured, and enables ENN fitting when it was disabled.</p>
+</section><section xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.thompson" class="api-entry" data-symbol="baux.thompson" data-kind="function" data-module="baux.transforms">
+  <div class="api-entry-header">
+<h2 class="api-entry-title"><span class="link external"><code><a href="#baux.thompson" rel="noopener noreferrer" title="">baux.thompson</a></code></span></h2> <span class="link external"><a href="https://github.com/Kvutza/baux/blob/main/python/baux/transforms.py#L287" rel="noopener noreferrer" title="">Source</a></span>
+</div>
+  <p>Select candidates using posterior function draws.</p>
+  <pre>baux.thompson()</pre>
+  <p>Returns a <code>Transform</code>. Adds an ENN surrogate if none is configured, and enables ENN fitting when it was disabled. Use <span class="link external"><code><a href="api-enn.html#baux.enn_sample" rel="noopener noreferrer" title="">enn_sample</a></code></span> to query function draws directly.</p>
+</section><section xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.pareto" class="api-entry" data-symbol="baux.pareto" data-kind="function" data-module="baux.transforms">
+  <div class="api-entry-header">
+<h2 class="api-entry-title"><span class="link external"><code><a href="#baux.pareto" rel="noopener noreferrer" title="">baux.pareto</a></code></span></h2> <span class="link external"><a href="https://github.com/Kvutza/baux/blob/main/python/baux/transforms.py#L301" rel="noopener noreferrer" title="">Source</a></span>
+</div>
+  <p>Select from the mean–uncertainty frontier.</p>
+  <pre>baux.pareto()</pre>
+  <p>Returns a <code>Transform</code> using non-dominated sorting over predicted mean and uncertainty. Adds an ENN surrogate if none is configured. This is an acquisition rule; it does not by itself configure multi-objective optimization.</p>
+</section><section xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.random_acq" class="api-entry" data-symbol="baux.random_acq" data-kind="function" data-module="baux.transforms">
+  <div class="api-entry-header">
+<h2 class="api-entry-title"><span class="link external"><code><a href="#baux.random_acq" rel="noopener noreferrer" title="">baux.random_acq</a></code></span></h2> <span class="link external"><a href="https://github.com/Kvutza/baux/blob/main/python/baux/transforms.py#L318" rel="noopener noreferrer" title="">Source</a></span>
+</div>
+  <p>Select candidates without surrogate scores.</p>
+  <pre>baux.random_acq()</pre>
+  <p>Returns a <code>Transform</code> choosing random acquisition. It leaves the candidate sampler and surrogate configuration in place; use <span class="link external"><code><a href="#baux.zero" rel="noopener noreferrer" title="">zero</a></code></span> to remove the surrogate.</p>
+</section><section xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.lhd" class="api-entry" data-symbol="baux.lhd" data-kind="function" data-module="baux.transforms">
+  <div class="api-entry-header">
+<h2 class="api-entry-title"><span class="link external"><code><a href="#baux.lhd" rel="noopener noreferrer" title="">baux.lhd</a></code></span></h2> <span class="link external"><a href="https://github.com/Kvutza/baux/blob/main/python/baux/transforms.py#L70" rel="noopener noreferrer" title="">Source</a></span>
+</div>
+  <p>Set Latin-hypercube initialization.</p>
+  <pre>baux.lhd(num_init=10, *, only=False)</pre>
+  <p><code>num_init</code>: initial evaluation budget. Returns a <code>Transform</code>. With <code>only=True</code>, also disables the surrogate and trust region for LHD-only exploration.</p>
+</section><section xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.sobol" class="api-entry" data-symbol="baux.sobol" data-kind="function" data-module="baux.transforms">
+  <div class="api-entry-header">
+<h2 class="api-entry-title"><span class="link external"><code><a href="#baux.sobol" rel="noopener noreferrer" title="">baux.sobol</a></code></span></h2> <span class="link external"><a href="https://github.com/Kvutza/baux/blob/main/python/baux/transforms.py#L115" rel="noopener noreferrer" title="">Source</a></span>
+</div>
+  <p>Use a scrambled Sobol candidate sampler.</p>
+  <pre>baux.sobol(num_candidates=None, *, per_arm=None, num_pert=None)</pre>
+  <p>Returns a <code>Transform</code>. <code>num_candidates</code>: total candidate budget; <code>per_arm</code>: budget per requested arm. Omitted values preserve the current configuration. <code>num_pert</code> sets the perturbation count when supplied.</p>
+</section><section xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.raasp" class="api-entry" data-symbol="baux.raasp" data-kind="function" data-module="baux.transforms">
+  <div class="api-entry-header">
+<h2 class="api-entry-title"><span class="link external"><code><a href="#baux.raasp" rel="noopener noreferrer" title="">baux.raasp</a></code></span></h2> <span class="link external"><a href="https://github.com/Kvutza/baux/blob/main/python/baux/transforms.py#L89" rel="noopener noreferrer" title="">Source</a></span>
+</div>
+  <p>Use sparse coordinate perturbations for candidates.</p>
+  <pre>baux.raasp(num_pert=20, *, num_candidates=None, per_arm=None, driver=RAASPDriver.ORIG)</pre>
+  <p>Returns a <code>Transform</code>. <code>num_pert</code>: expected perturbation count, capped by dimension; <code>num_candidates</code> and <code>per_arm</code> set candidate budgets. Omitted budgets preserve the current configuration.</p>
+  <p><code>driver</code> uses <code>RAASPDriver</code> from <code>baux.turbo.config.candidates</code>. The default is <code>RAASPDriver.ORIG</code>.</p>
+</section><section xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.uniform_pert" class="api-entry" data-symbol="baux.uniform_pert" data-kind="function" data-module="baux.transforms">
+  <div class="api-entry-header">
+<h2 class="api-entry-title"><span class="link external"><code><a href="#baux.uniform_pert" rel="noopener noreferrer" title="">baux.uniform_pert</a></code></span></h2> <span class="link external"><a href="https://github.com/Kvutza/baux/blob/main/python/baux/transforms.py#L140" rel="noopener noreferrer" title="">Source</a></span>
+</div>
+  <p>Use uniform random candidate perturbations.</p>
+  <pre>baux.uniform_pert(num_candidates=None, *, per_arm=None, num_pert=None)</pre>
+  <p>Returns a <code>Transform</code>. <code>num_candidates</code>, <code>per_arm</code> and <code>num_pert</code> override the respective candidate settings when supplied. This configures candidate generation; acquisition chooses which candidates to evaluate.</p>
+</section><section xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.regions" class="api-entry" data-symbol="baux.regions" data-kind="function" data-module="baux.transforms">
+  <div class="api-entry-header">
+<h2 class="api-entry-title"><span class="link external"><code><a href="#baux.regions" rel="noopener noreferrer" title="">baux.regions</a></code></span></h2> <span class="link external"><a href="https://github.com/Kvutza/baux/blob/main/python/baux/transforms.py#L356" rel="noopener noreferrer" title="">Source</a></span>
+</div>
+  <p>Enable multiple local search regions.</p>
+  <pre>baux.regions(
+    count=4,
+    *,
+    sharing='ellipsoid_ball',
+    allocation='incumbent_ucb1',
+    success_tolerance=3,
+    failure_tolerance=5,
+    length=None,
+)</pre>
+  <p>Returns a <code>Transform</code>. <code>count</code> is the positive number of regions. Sharing choices are <code>"box_contain"</code>, <code>"ellipsoid_ball"</code>, <code>"nearest_center"</code> and <code>"origin_only"</code>. The transform defaults to <code>"ellipsoid_ball"</code>.</p>
+  <p>Allocation choices are <code>"incumbent_ucb1"</code>, <code>"least_trials"</code> and <code>"joint_acquisition"</code>. Positive success and failure tolerances control region resizing; <code>length</code> supplies explicit bounds.</p>
+  <p>For restart policy, fixed-radius control or per-region acquisitions, use <span class="link external"><code><a href="api-configuration.html#baux.RegionalSearchPolicy" rel="noopener noreferrer" title="">RegionalSearchPolicy</a></code></span>. See <span class="link external"><a href="baux-0009.html" rel="noopener noreferrer" title="">multiple regions and workers</a></span> for a complete loop.</p>
+</section><section xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.tr_bounds" class="api-entry" data-symbol="baux.tr_bounds" data-kind="function" data-module="baux.transforms">
+  <div class="api-entry-header">
+<h2 class="api-entry-title"><span class="link external"><code><a href="#baux.tr_bounds" rel="noopener noreferrer" title="">baux.tr_bounds</a></code></span></h2> <span class="link external"><a href="https://github.com/Kvutza/baux/blob/main/python/baux/transforms.py#L331" rel="noopener noreferrer" title="">Source</a></span>
+</div>
+  <p>Set trust-region length limits.</p>
+  <pre>baux.tr_bounds(*, length_init=0.8, length_min=0.0078125, length_max=1.6)</pre>
+  <p>Returns a <code>Transform</code>. Requires <code>0 &lt; length_min &lt;= length_init &lt;= length_max</code>. Lengths are in normalized coordinates.</p>
+  <p>Updates length bounds on a regional policy. For other policies, installs a <code>TurboTrustRegion</code> with these bounds.</p>
+</section><section xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.with_geometry" class="api-entry" data-symbol="baux.with_geometry" data-kind="function" data-module="baux.transforms">
+  <div class="api-entry-header">
+<h2 class="api-entry-title"><span class="link external"><code><a href="#baux.with_geometry" rel="noopener noreferrer" title="">baux.with_geometry</a></code></span></h2> <span class="link external"><a href="https://github.com/Kvutza/baux/blob/main/python/baux/enn/enn_state.py#L77" rel="noopener noreferrer" title="">Source</a></span>
+</div>
+  <p>Change the ENN dissimilarity geometry.</p>
+  <pre>baux.with_geometry(model, geometry, local_k=4)</pre>
+  <p><code>geometry</code>: <code>"euclidean"</code>, <code>"conformal"</code>, <code>"hyperbolic"</code> or <code>"wasserstein"</code>. <code>local_k</code> must be positive. See <span class="link external"><a href="baux-0003.html" rel="noopener noreferrer" title="">ENN predictions</a></span> for the formulas behind these names.</p>
+  <p>With an <code>ENNState</code> or <code>ENN</code>, returns a model retaining the observations. With a configuration or <code>Transform</code>, returns its updated configuration.</p>
+  <p>With an <code>OptimizerState</code>, this function initializes a new optimizer and does not retain the optimization history. Configure geometry before starting a search.</p>
+</section><section xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.stein" class="api-entry" data-symbol="baux.stein" data-kind="function" data-module="baux.transforms">
+  <div class="api-entry-header">
+<h2 class="api-entry-title"><span class="link external"><code><a href="#baux.stein" rel="noopener noreferrer" title="">baux.stein</a></code></span></h2> <span class="link external"><a href="https://github.com/Kvutza/baux/blob/main/python/baux/enn/enn_state.py#L270" rel="noopener noreferrer" title="">Source</a></span>
+</div>
+  <p>Configure prediction shrinkage toward a subspace.</p>
+  <pre>baux.stein(target=None, frame=None, *, rank=None)</pre>
+  <p>Use <code>stein(rank=F)</code> to build a pipeline transform, or <code>stein(enn_state, frame)</code> to apply a supplied <code>Stiefel</code> frame. A rank requests a frame estimated from observed outputs.</p>
+  <p>The basis has shape <code>(M, F)</code>. Use <code>Stiefel.from_factors</code> to orthonormalize supplied factors. This API does not provide a James–Stein risk guarantee.</p>
+  <p>Applying the transform to an <code>OptimizerState</code> initializes a new optimizer; configure it before collecting observations.</p>
+</section><section xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.calibrate" class="api-entry" data-symbol="baux.calibrate" data-kind="function" data-module="baux.transforms">
+  <div class="api-entry-header">
+<h2 class="api-entry-title"><span class="link external"><code><a href="#baux.calibrate" rel="noopener noreferrer" title="">baux.calibrate</a></code></span></h2> <span class="link external"><a href="https://github.com/Kvutza/baux/blob/main/python/baux/enn/enn_state.py#L299" rel="noopener noreferrer" title="">Source</a></span>
+</div>
+  <p>Configure an affine correction to predictions.</p>
+  <pre>baux.calibrate(target=None, affine=None, *, alpha=None)</pre>
+  <p>Use <code>calibrate(affine=map)</code> for a supplied <code>Affine</code>, or <code>calibrate(alpha=0.1)</code> to request a fitted correction and residual-quantile scale. Applying it to an <code>ENNState</code> returns a new state.</p>
+  <p><code>alpha</code> is a miscoverage setting in <code>(0, 1)</code>. Adaptive optimization observations do not automatically satisfy exchangeability or a coverage guarantee.</p>
+  <p>Applying it to an <code>OptimizerState</code> initializes a new optimizer; configure it before collecting observations.</p>
+</section><section xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.Transform" class="api-entry" data-symbol="baux.Transform" data-kind="class" data-module="baux.transforms">
+  <div class="api-entry-header">
+<h2 class="api-entry-title"><span class="link external"><code><a href="#baux.Transform" rel="noopener noreferrer" title="">baux.Transform</a></code></span></h2> <span class="link external"><a href="https://github.com/Kvutza/baux/blob/main/python/baux/transforms.py#L35" rel="noopener noreferrer" title="">Source</a></span>
+</div>
+  <p>A composable optimizer configuration update.</p>
+  <pre>baux.Transform(name, fn)</pre>
+  <p><code>Transform(name, fn)</code> wraps <code>fn(config) -&gt; OptimizerConfig</code>. Combine stages with <code>a | b</code>; the left stage runs first. Call <code>pipe()</code> to apply it to the default configuration, or <code>pipe(config)</code> to modify an existing one.</p>
+</section><section xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.chain" class="api-entry" data-symbol="baux.chain" data-kind="function" data-module="baux.transforms">
+  <div class="api-entry-header">
+<h2 class="api-entry-title"><span class="link external"><code><a href="#baux.chain" rel="noopener noreferrer" title="">baux.chain</a></code></span></h2> <span class="link external"><a href="https://github.com/Kvutza/baux/blob/main/python/baux/transforms.py#L57" rel="noopener noreferrer" title="">Source</a></span>
+</div>
+  <p>Apply configuration stages from left to right.</p>
+  <pre>baux.chain(*steps)</pre>
+  <p>Returns an <code>OptimizerConfig</code>. A configuration passed among the stages replaces the accumulated configuration; subsequent transforms modify it. Pass the result to <code>init</code> or <code>create_optimizer</code>.</p>
+</section>
+</div></section></article></div></body></html>

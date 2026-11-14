@@ -1,0 +1,143 @@
+<!DOCTYPE html PUBLIC "" "">
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:fr="http://www.jonmsterling.com/jms-005P.xml" data-base-url=""><head><meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'"></meta><meta name="referrer" content="strict-origin-when-cross-origin"></meta><meta name="viewport" content="width=device-width, initial-scale=1.0"></meta><link rel="stylesheet" href="style.css?v=c322043d5574" integrity="sha384-9SpXFJMIJhZWkQp2/vgW2cmVoZBGmug6fddtzCP8G3VW058mc9vI1D/O18CIp/No"></link><link rel="stylesheet" href="katex.min.css?v=18c1c9fb05e7" integrity="sha384-TPqpCe9iqIJJFMUr4nZhfVfnhPwt6zFQ0llYbuKCrML4vxvk3koGtCzSoij1dOEx"></link><script type="module" src="forester.js?v=8f33e155074f" integrity="sha384-xGSQiQu0kX1eP1SDLdMBK8nvtlny/KN8EmWrdGiKFvVJS601GfKKTJCMCk7KddQg"></script><script type="text/javascript" src="assets/baux_ui.js?v=a749abe5453c" integrity="sha384-EhncjzmOP9knMuDteqfRMfHLHpehnZL7YYSGMZC/Zlk8yESJDoWVKv+uHsuIPe/D" defer></script><title>Optimization loop</title></head><body data-page="api-optimization"><header class="masthead"><div class="masthead-inner"><div class="masthead-brand"><a href="index.html" class="brand-title">baux</a></div><nav class="masthead-nav"><a href="index.html" class="nav-item">Get started</a><a href="docs.html" class="nav-item active">API Reference</a><a href="simulation.html" class="nav-item">Examples</a><a href="https://github.com/Kvutza/baux" class="nav-item external" target="_blank" rel="noopener noreferrer">GitHub</a><a href="https://pypi.org/project/baux/" class="nav-item external" target="_blank" rel="noopener noreferrer">PyPI</a><a href="https://crates.io/crates/baux" class="nav-item external" target="_blank" rel="noopener noreferrer">Crates.io</a></nav></div></header><div id="grid-wrapper"><article><section xmlns="" lang="en" class="block"><div class="tree-node" id="id1">
+<header><h1><span class="sec-title">Optimization loop</span></h1></header><nav class="api-page-nav" aria-label="API reference sections">
+<span class="link external"><a href="docs.html" rel="noopener noreferrer" title="">All symbols</a></span>
+<span xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" aria-current="page">Optimization loop</span>
+<span class="link external"><a href="api-pipelines.html" rel="noopener noreferrer" title="">Pipelines</a></span>
+<span class="link external"><a href="api-domains.html" rel="noopener noreferrer" title="">Parameter domains</a></span>
+<span class="link external"><a href="api-enn.html" rel="noopener noreferrer" title="">ENN predictions</a></span>
+<span class="link external"><a href="api-state.html" rel="noopener noreferrer" title="">Checkpoints and keys</a></span>
+<span class="link external"><a href="api-configuration.html" rel="noopener noreferrer" title="">Configuration</a></span>
+<span class="link external"><a href="api-objects.html" rel="noopener noreferrer" title="">In-place interfaces</a></span>
+<span class="link external"><a href="api-runtime.html" rel="noopener noreferrer" title="">Runtime and integrations</a></span>
+</nav><p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">All functional transitions return new state. Keep the returned state for the next call. BAUX maximizes objective values; negate a loss when minimizing. Coordinate batches use <code>(N, D)</code> arrays. Standard single-objective search uses <code>(N,)</code> rewards; multi-output search requires a compatible configuration. <code>complete</code> currently accepts scalar rewards only.</p>
+<div xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux-api-filter"></div>
+<nav class="api-symbol-nav" aria-label="On this page"><span class="link external"><code xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><a href="#baux.init" rel="noopener noreferrer" title="">init</a></code></span> · <span class="link external"><code xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><a href="#baux.ask" rel="noopener noreferrer" title="">ask</a></code></span> · <span class="link external"><code xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><a href="#baux.tell" rel="noopener noreferrer" title="">tell</a></code></span> · <span class="link external"><code xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><a href="#baux.step" rel="noopener noreferrer" title="">step</a></code></span> · <span class="link external"><code xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><a href="#baux.complete" rel="noopener noreferrer" title="">complete</a></code></span> · <span class="link external"><code xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><a href="#baux.cancel" rel="noopener noreferrer" title="">cancel</a></code></span> · <span class="link external"><code xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><a href="#baux.restart_region" rel="noopener noreferrer" title="">restart_region</a></code></span> · <span class="link external"><code xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><a href="#baux.import_observations" rel="noopener noreferrer" title="">import_observations</a></code></span> · <span class="link external"><code xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><a href="#baux.posterior_mu" rel="noopener noreferrer" title="">posterior_mu</a></code></span> · <span class="link external"><code xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><a href="#baux.OptimizerState" rel="noopener noreferrer" title="">OptimizerState</a></code></span> · <span class="link external"><code xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><a href="#baux.AskBatch" rel="noopener noreferrer" title="">AskBatch</a></code></span> · <span class="link external"><code xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><a href="#baux.AskId" rel="noopener noreferrer" title="">AskId</a></code></span></nav><section xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.init" class="api-entry" data-symbol="baux.init" data-kind="function" data-module="baux.functional">
+  <div class="api-entry-header">
+<h2 class="api-entry-title"><span class="link external"><code><a href="#baux.init" rel="noopener noreferrer" title="">baux.init</a></code></span></h2> <span class="link external"><a href="https://github.com/Kvutza/baux/blob/main/python/baux/functional.py#L98" rel="noopener noreferrer" title="">Source</a></span>
+</div>
+  <p>Create an optimizer and its initial state.</p>
+  <pre>baux.init(domain, config=None, *, pipe=None, key=None, seed=None, low=-1.0, high=1.0)</pre>
+  <p><code>domain</code>: a <code>(D, 2)</code> array of lower and upper bounds, a <code>Space</code>, or a parameter template. <code>low</code> and <code>high</code> apply when compiling a template.</p>
+  <p>Pass either <code>config</code> or <code>pipe</code>. With neither, the default uses a TuRBO region, no surrogate and random acquisition. Use <code>baux.enn()</code> to enable an ENN surrogate.</p>
+  <p>Returns <code>OptimizerState</code>. <code>key</code> takes precedence over <code>seed</code>. Unsupported configurations or malformed bounds raise <code>ValueError</code>.</p>
+  <details class="api-example"><summary>Example</summary>
+<pre>import numpy as np
+import baux
+
+domain = np.array([[-2.0, 2.0], [-2.0, 2.0]])
+state = baux.init(domain, seed=42)
+for _ in range(6):
+    state, batch = baux.ask(state, num_arms=2)
+    y = -np.sum(batch.points**2, axis=-1)
+    state, _ = baux.tell(state, batch, y)
+
+assert state.num_observations == 12</pre>
+  </details>
+</section><section xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.ask" class="api-entry" data-symbol="baux.ask" data-kind="function" data-module="baux.functional">
+  <div class="api-entry-header">
+<h2 class="api-entry-title"><span class="link external"><code><a href="#baux.ask" rel="noopener noreferrer" title="">baux.ask</a></code></span></h2> <span class="link external"><a href="https://github.com/Kvutza/baux/blob/main/python/baux/functional.py#L162" rel="noopener noreferrer" title="">Source</a></span>
+</div>
+  <p>Propose points to evaluate.</p>
+  <pre>baux.ask(state, num_arms=None, *, n=None)</pre>
+  <p>Returns <code>(next_state, batch)</code>. Keep <code>next_state</code> for the subsequent submission; <code>batch.points</code> has shape <code>(N, D)</code>.</p>
+  <p><code>num_arms</code> defaults to one. <code>n</code> is an alias; supplying both raises <code>ValueError</code>. The count must be positive.</p>
+  <p>For regional search, proposals become pending in the returned state. Use <code>batch.ids</code> to report results through <span class="link external"><code><a href="#baux.complete" rel="noopener noreferrer" title="">complete</a></code></span>. The objective is not called here.</p>
+</section><section xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.tell" class="api-entry" data-symbol="baux.tell" data-kind="function" data-module="baux.functional">
+  <div class="api-entry-header">
+<h2 class="api-entry-title"><span class="link external"><code><a href="#baux.tell" rel="noopener noreferrer" title="">baux.tell</a></code></span></h2> <span class="link external"><a href="https://github.com/Kvutza/baux/blob/main/python/baux/functional.py#L254" rel="noopener noreferrer" title="">Source</a></span>
+</div>
+  <p>Record an evaluated batch and update the search.</p>
+  <pre>baux.tell(state, x, y, *, y_var=None)</pre>
+  <p><code>x</code>: an <code>AskBatch</code>, a <code>(N, D)</code> coordinate array, a single <code>(D,)</code> point, or parameters matching the state's <code>Space</code>. <code>y</code>: objective values with one row per point. Larger values are better.</p>
+  <p><code>y_var</code>: optional observation variances, with the same shape as <code>y</code>. Returns <code>(next_state, fitted_mu)</code>; without a surrogate, the second result is the submitted values.</p>
+  <p>In regional search, <code>tell</code> is the ordered, whole-batch path. It submits coordinates even when given an <code>AskBatch</code>; it does not validate that object's ticket IDs. Use <span class="link external"><code><a href="#baux.complete" rel="noopener noreferrer" title="">complete</a></code></span> for ticket-based or out-of-order completion.</p>
+</section><section xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.step" class="api-entry" data-symbol="baux.step" data-kind="function" data-module="baux.functional">
+  <div class="api-entry-header">
+<h2 class="api-entry-title"><span class="link external"><code><a href="#baux.step" rel="noopener noreferrer" title="">baux.step</a></code></span></h2> <span class="link external"><a href="https://github.com/Kvutza/baux/blob/main/python/baux/functional.py#L359" rel="noopener noreferrer" title="">Source</a></span>
+</div>
+  <p>Propose, evaluate and record one batch.</p>
+  <pre>baux.step(state, objective, *, num_arms=1, use_pytree=False)</pre>
+  <p>Calls <code>objective(batch.points)</code> with shape <code>(num_arms, D)</code>, then submits the returned values. Returns <code>(next_state, y)</code>.</p>
+  <p>With <code>use_pytree=True</code> and a structured domain, the objective receives one decoded parameter tree for a single arm, or a tree with stacked leaves for multiple arms. Return one objective row per arm.</p>
+</section><section xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.complete" class="api-entry" data-symbol="baux.complete" data-kind="function" data-module="baux.functional">
+  <div class="api-entry-header">
+<h2 class="api-entry-title"><span class="link external"><code><a href="#baux.complete" rel="noopener noreferrer" title="">baux.complete</a></code></span></h2> <span class="link external"><a href="https://github.com/Kvutza/baux/blob/main/python/baux/functional.py#L276" rel="noopener noreferrer" title="">Source</a></span>
+</div>
+  <p>Record results for pending regional tickets.</p>
+  <pre>baux.complete(state, ids, y, *, y_var=None)</pre>
+  <p><code>ids</code>: an <code>AskBatch</code> or a sequence of <code>AskId</code> values. <code>y</code>: scalar rewards in the same order, shape <code>(K,)</code> or <code>(K, 1)</code>. Optional <code>y_var</code> must match. Multi-output completion is not supported by this function.</p>
+  <p>Returns the updated <code>OptimizerState</code>. A subset may finish before the rest of its batch, and batches may finish out of order.</p>
+  <p>Requires regional search. Wrong token types raise <code>TypeError</code>; unknown, duplicated, resolved or invalidated tickets are rejected. After a region restarts, its old tickets cannot be completed.</p>
+  <details class="api-example"><summary>Example</summary>
+<pre>import numpy as np
+import baux
+
+domain = np.array([[-1.0, 1.0], [-1.0, 1.0]])
+pipe = baux.enn(k=5) | baux.regions(2)
+state = baux.init(domain, pipe, seed=42)
+state, batch = baux.ask(state, num_arms=4)
+assert len(state.pending_ids) == 4
+state = baux.complete(state, batch.ids[:2], np.array([0.5, 0.8]))
+state = baux.cancel(state, batch.ids[2:])
+assert len(state.pending_ids or ()) == 0</pre>
+  </details>
+</section><section xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.cancel" class="api-entry" data-symbol="baux.cancel" data-kind="function" data-module="baux.functional">
+  <div class="api-entry-header">
+<h2 class="api-entry-title"><span class="link external"><code><a href="#baux.cancel" rel="noopener noreferrer" title="">baux.cancel</a></code></span></h2> <span class="link external"><a href="https://github.com/Kvutza/baux/blob/main/python/baux/functional.py#L309" rel="noopener noreferrer" title="">Source</a></span>
+</div>
+  <p>Retire pending regional tickets without an observation.</p>
+  <pre>baux.cancel(state, ids)</pre>
+  <p>Accepts an <code>AskBatch</code> or sequence of <code>AskId</code> values and returns the updated state. Does not record a reward or count a failed evaluation as a trust-region failure.</p>
+  <p>Cancellation only updates optimizer bookkeeping. The caller must stop any external worker if that is desired.</p>
+</section><section xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.restart_region" class="api-entry" data-symbol="baux.restart_region" data-kind="function" data-module="baux.functional">
+  <div class="api-entry-header">
+<h2 class="api-entry-title"><span class="link external"><code><a href="#baux.restart_region" rel="noopener noreferrer" title="">baux.restart_region</a></code></span></h2> <span class="link external"><a href="https://github.com/Kvutza/baux/blob/main/python/baux/functional.py#L326" rel="noopener noreferrer" title="">Source</a></span>
+</div>
+  <p>Start a regional slot again at a supplied center.</p>
+  <pre>baux.restart_region(state, slot, center)</pre>
+  <p><code>slot</code>: region index. <code>center</code>: one <code>(D,)</code> point or a structured parameter value. Returns <code>(next_state, abandoned_ids)</code>.</p>
+  <p>Pending evaluations in that slot are invalidated. The caller owns external jobs and decides whether to cancel them. Requires regional search; otherwise raises <code>RuntimeError</code>.</p>
+</section><section xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.import_observations" class="api-entry" data-symbol="baux.import_observations" data-kind="function" data-module="baux.functional">
+  <div class="api-entry-header">
+<h2 class="api-entry-title"><span class="link external"><code><a href="#baux.import_observations" rel="noopener noreferrer" title="">baux.import_observations</a></code></span></h2> <span class="link external"><a href="https://github.com/Kvutza/baux/blob/main/python/baux/functional.py#L265" rel="noopener noreferrer" title="">Source</a></span>
+</div>
+  <p>Add measurements collected outside the current pending batch.</p>
+  <pre>baux.import_observations(state, x, y, *, y_var=None)</pre>
+  <p>Uses the same <code>x</code>, <code>y</code> and <code>y_var</code> shapes as <span class="link external"><code><a href="#baux.tell" rel="noopener noreferrer" title="">tell</a></code></span>. Returns <code>(next_state, fitted_mu)</code>.</p>
+  <p>Does not complete pending tickets. Use this for historical data or an explicitly chosen import of a late result, not as a substitute for completing a live evaluation.</p>
+</section><section xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.posterior_mu" class="api-entry" data-symbol="baux.posterior_mu" data-kind="function" data-module="baux.functional">
+  <div class="api-entry-header">
+<h2 class="api-entry-title"><span class="link external"><code><a href="#baux.posterior_mu" rel="noopener noreferrer" title="">baux.posterior_mu</a></code></span></h2> <span class="link external"><a href="https://github.com/Kvutza/baux/blob/main/python/baux/functional.py#L350" rel="noopener noreferrer" title="">Source</a></span>
+</div>
+  <p>Predict the fitted surrogate mean at query points.</p>
+  <pre>baux.posterior_mu(state, x)</pre>
+  <p><code>x</code>: <code>(N, D)</code> coordinates or parameters matching the state's domain. Returns a read-only NumPy array in the objective's units. Does not advance the optimizer. Requires a fitted surrogate.</p>
+</section><section xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.OptimizerState" class="api-entry" data-symbol="baux.OptimizerState" data-kind="class" data-module="baux.functional">
+  <div class="api-entry-header">
+<h2 class="api-entry-title"><span class="link external"><code><a href="#baux.OptimizerState" rel="noopener noreferrer" title="">baux.OptimizerState</a></code></span></h2> <span class="link external"><a href="https://github.com/Kvutza/baux/blob/main/python/baux/state.py#L143" rel="noopener noreferrer" title="">Source</a></span>
+</div>
+  <p>The state returned by the functional optimizer.</p>
+  <pre>class baux.OptimizerState  (frozen dataclass; constructed via baux.init)</pre>
+  <p>Create it with <span class="link external"><code><a href="#baux.init" rel="noopener noreferrer" title="">init</a></code></span>. Each transition returns a new state; retain the old one only if you need a branch or checkpoint.</p>
+  <p><code>x_obs</code>, <code>y_obs</code>: observation arrays. <code>num_observations</code>, <code>num_regions</code>, <code>tr_length</code>: current search information. <code>best_x</code>, <code>best_params</code>, <code>best_y</code>: incumbent coordinates, decoded parameters and value, or <code>None</code> before observations.</p>
+  <p><code>pending_ids</code>: raw integer IDs for inspection; pass the typed <code>batch.ids</code> to <code>complete</code> or <code>cancel</code>. <code>fork(key=None, *, seed=None)</code> creates another search branch. <span class="link external"><a href="api-state.html" rel="noopener noreferrer" title="">Checkpoints and keys</a></span> covers persistence and branching.</p>
+</section><section xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.AskBatch" class="api-entry" data-symbol="baux.AskBatch" data-kind="class" data-module="baux.bo">
+  <div class="api-entry-header">
+<h2 class="api-entry-title"><span class="link external"><code><a href="#baux.AskBatch" rel="noopener noreferrer" title="">baux.AskBatch</a></code></span></h2> <span class="link external"><a href="https://github.com/Kvutza/baux/blob/main/python/baux/bo.py#L42" rel="noopener noreferrer" title="">Source</a></span>
+</div>
+  <p>Points and evaluation identities returned by a proposal.</p>
+  <pre>baux.AskBatch(ids, points, spec=None, weights=None)</pre>
+  <p><code>points</code>: read-only <code>(N, D)</code> coordinates. <code>ids</code>: one <code>AskId</code> per row. <code>len(batch)</code> is <code>N</code>.</p>
+  <p><code>params</code>: tuple of decoded parameter trees, one per row. <code>stacked</code>: one tree with a leading batch axis on its leaves. For an unstructured domain, these expose the coordinate rows and matrix.</p>
+  <p>Keep the batch paired with the state returned by <code>ask</code>. Tickets support asynchronous completion only when regional search is enabled.</p>
+</section><section xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.AskId" class="api-entry" data-symbol="baux.AskId" data-kind="class" data-module="baux.bo">
+  <div class="api-entry-header">
+<h2 class="api-entry-title"><span class="link external"><code><a href="#baux.AskId" rel="noopener noreferrer" title="">baux.AskId</a></code></span></h2> <span class="link external"><a href="https://github.com/Kvutza/baux/blob/main/python/baux/bo.py#L25" rel="noopener noreferrer" title="">Source</a></span>
+</div>
+  <p>An opaque evaluation ticket.</p>
+  <pre>baux.AskId(value)</pre>
+  <p>Keep tokens returned in <code>batch.ids</code> and pass them back unchanged. <code>aid.value</code> exposes the unsigned 64-bit integer for inspection. Tickets are immutable, hashable and ordered.</p>
+</section>
+</div></section></article></div></body></html>

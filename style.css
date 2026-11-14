@@ -1839,6 +1839,30 @@ html[data-theme='dark'] .oxb-pill-btn.active {
   -webkit-user-select: none;
   user-select: none;
 }
+.oxb-pane-hdr {
+  padding: 5px 10px;
+  font-size: 11.5px;
+  gap: 6px;
+}
+.oxb-pane-hdr-left {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.oxb-pane-a-hint,
+.oxb-pane-b-sub {
+  font-family: var(--font-mono, 'IBM Plex Mono', monospace);
+  font-size: 10px;
+  letter-spacing: 0.01em;
+  color: var(--fg-muted, #64748b);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+html[data-theme='dark'] .oxb-pane-a-hint,
+html[data-theme='dark'] .oxb-pane-b-sub {
+  color: #8b949e;
+}
 .oxb-trace-stage {
   grid-column: 1 / -1;
   width: 100%;

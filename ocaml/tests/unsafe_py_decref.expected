@@ -1,0 +1,8 @@
+File "unsafe_py_decref.ml", line 6, characters 2-7:
+6 |   fresh
+      ^^^^^
+Error: This value is used here, but it has already been used as unique at:
+File "unsafe_py_decref.ml", line 5, characters 16-21:
+5 |   Py_obj.decref fresh;
+                    ^^^^^
+  

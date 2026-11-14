@@ -35,6 +35,32 @@
       -I ../lib/.baux_benchmarks.objs/byte -c unsafe_workspace.ml)))
    (diff unsafe_workspace.expected unsafe_workspace.actual))))
 
+(rule
+ (alias runtest)
+ (deps unsafe_py_escape.ml unsafe_py_escape.expected
+   ../pybridge/.baux_pybridge.objs/byte/baux_pybridge.cmi
+   ../pybridge/.baux_pybridge.objs/byte/baux_pybridge__Py_obj.cmi)
+ (action
+  (progn
+   (with-stderr-to unsafe_py_escape.actual
+    (with-accepted-exit-codes 2
+     (run %{ocamlc} -extension-universe beta
+      -I ../pybridge/.baux_pybridge.objs/byte -c unsafe_py_escape.ml)))
+   (diff unsafe_py_escape.expected unsafe_py_escape.actual))))
+
+(rule
+ (alias runtest)
+ (deps unsafe_py_decref.ml unsafe_py_decref.expected
+   ../pybridge/.baux_pybridge.objs/byte/baux_pybridge.cmi
+   ../pybridge/.baux_pybridge.objs/byte/baux_pybridge__Py_obj.cmi)
+ (action
+  (progn
+   (with-stderr-to unsafe_py_decref.actual
+    (with-accepted-exit-codes 2
+     (run %{ocamlc} -extension-universe beta
+      -I ../pybridge/.baux_pybridge.objs/byte -c unsafe_py_decref.ml)))
+   (diff unsafe_py_decref.expected unsafe_py_decref.actual))))
+
 (test
  (name test_properties)
  (modules test_properties)

@@ -2,7 +2,7 @@
 \meta{slug}{simulation}
 
 \p{
-  The interactive console above couples 3D cutaway magnet and plasma geometry (discrete vertical #{B_\phi} toroidal-field cages, signed #{\pm I} poloidal-field shaping rings, nested #{D_\alpha} flux surfaces, and 3D helical #{q_{95}} field lines), 2D poloidal equilibrium cross-sections, and closed-loop policy search trajectories on \code{TCV}, alongside stationary Grad–Shafranov equilibria exported from \code{FUSE.jl 1.2.1} (Meneghini et al. [[Men+24]](https://arxiv.org/abs/2409.05894)) for \code{SPARC}, \code{ARC}, \code{ITER}, and \code{DIII-D}; see the [Overview](index.html) for the \code{ENN} surrogate and multi-region search formulation.
+  The interactive console above couples 3D cutaway magnet and plasma geometry (discrete vertical #{B_\phi} toroidal-field cages, signed #{\pm I} poloidal-field shaping rings, nested #{D_\alpha} flux surfaces, and 3D helical #{q_{95}} field lines), 2D poloidal equilibrium cross-sections, and closed-loop policy search trajectories on \code{TCV}, alongside stationary Grad–Shafranov equilibria exported from \code{FUSE.jl 1.2.1} (Meneghini et al. [[Men+24]](https://arxiv.org/abs/2409.05894)) for \code{SPARC}, \code{ARC}, \code{ITER}, and \code{DIII-D}; § 4 below provides the interactive 56-function \code{OxCaml} synthetic benchmark suite and modal Python C-API bridge, and [Overview](index.html) details the \code{ENN} surrogate and multi-region search formulation.
 }
 
 \subtree{
@@ -110,6 +110,123 @@
       \<td>{\code{91.57 ± 0.55}}
       \<td>{\code{89.41 ± 0.97}}
       \<td>{\code{+2.16 ± 0.91} (#{p_2 = 0.0410})}
+    }
+  }
+}
+
+\subtree{
+  \title{OxCaml 56-Function Suite & Modal Python Bridge}
+
+  \p{
+    Alongside the tokamak control tasks above, \strong{baux} ships a 56-function synthetic black-box optimization catalogue (\code{ocaml/lib/problem.ml}, \code{ocaml/lib/formulas.ml}) spanning 16 multimodal, 10 bowl, 5 plate, 5 valley, 3 ridge, and 17 standard Bayesian optimization test surfaces across fixed #{1\text{D--}6\text{D}} domains and 18 scalable #{D}-dimensional families evaluated at canonical #{d}, #{D = 16}, and #{D = 64}. Compiled with \code{OxCaml 5.2.0+ox}, every objective evaluates over unboxed \code{float#} scalars and pair-interleaved \code{float64x2#} ARM64 NEON + \code{SLEEF 3.9.0} vector lanes scheduled across work-stealing domains via \code{Parallel_scheduler} and capsule-isolated \code{Batch.workspace} blocks.
+  }
+
+  \<div>[id]{ocaml-bench-simulation}{}
+
+  \p{
+    To expose these kernels to Python without per-call reference-counting overhead or memory-safety hazards, \code{ocaml/pybridge/py_obj.mli} and \code{baux.benchmarks.oxcaml} implement a modal CPython C-API bridge following Trangez [[Tra26]](https://blog.janestreet.com/oxcaml-typesafe-reference-counting-python/). Borrowed Python inputs (\code{str} identifiers, coordinate vectors, and 2D C-contiguous \code{float64} \code{numpy.ndarray} views acquired via \code{PyObject_GetBuffer} in \code{Py_obj.F64_buffer.with_matrix}) enter OCaml as \code{Py_obj.t @ local} with \strong{zero} \code{Py_INCREF}/\code{Py_DECREF} traffic; OxCaml's stack-locality mode statically rejects stashing borrowed handles into heap references or escaping closures (\code{ocaml/tests/unsafe_py_escape.ml}). Newly allocated Python return values—including the #{N \times 8}-byte \code{bytearray} output buffer viewed zero-copy via \code{np.frombuffer}—carry \code{Py_obj.t @ unique} (\code{ob_refcnt = 1}), use \code{borrow_} to preserve uniqueness while populating list, dictionary, or buffer slots (\code{PyList_SetItem} steals \code{@ unique} items directly via \code{Py_obj.List.set_steal}), and transfer ownership to CPython on return with zero extra increments (\code{ocaml/tests/unsafe_py_decref.ml} statically rejects use-after-\code{decref}), while \code{Modes.Portable.t} caches resident \code{Parallel_scheduler} worker pools across calls.
+  }
+
+  \pre{
+import numpy as np
+import baux
+from baux.benchmarks import oxcaml
+
+bounds, objective = oxcaml.problem("ackley", dim=16, workers=4)
+state = baux.init(bounds, baux.enn(k=10) | baux.ucb(beta=2.0), key=baux.key(0))
+for _ in range(12):
+    state, batch = baux.ask(state, num_arms=8)
+    state, _ = baux.tell(state, batch, objective(batch.points))
+
+grid = np.zeros((4096, 16), dtype=np.float64)
+vals = oxcaml.eval_batch("ackley", grid, backend="simd", workers=4)
+assert vals.shape == (4096,) and np.allclose(vals, 0.0, atol=1e-12)
+  }
+
+  \scope{
+    \put\transclude/toc{false}
+    \put\transclude/numbered{false}
+    \put\transclude/heading{false}
+    \transclude{baux-0011}
+  }
+
+  \<table>{
+    \<tr>{
+      \<th>{Regime & Function}
+      \<th>{Native \code{float#} (\code{M/s})}
+      \<th>{Native Selected (\code{M/s} & Speedup)}
+      \<th>{Pipeline Speedup}
+      \<th>{Modal \code{oxcaml.eval_batch} (\code{M/s} & vs. Python)}
+    }
+    \<tr>{
+      \<td>{Canonical \code{de-jong5} (#{2\text{D}})}
+      \<td>{\code{4.31}}
+      \<td>{\code{11.22} (\code{2.60×}, \code{simd w=10})}
+      \<td>{\code{2.46×}}
+      \<td>{\code{7.18} (\code{w=1}; \code{6.0×} vs. \code{eval_one})}
+    }
+    \<tr>{
+      \<td>{Canonical \code{eggholder} (#{2\text{D}})}
+      \<td>{\code{43.09}}
+      \<td>{\code{44.79} (\code{1.04×}, \code{simd w=10})}
+      \<td>{\code{1.50×}}
+      \<td>{\code{21.10} (\code{w=1}; \code{13.9×} vs. \code{eval_one})}
+    }
+    \<tr>{
+      \<td>{Canonical \code{griewank} (#{2\text{D}})}
+      \<td>{\code{36.49}}
+      \<td>{\code{43.75} (\code{1.20×}, \code{simd w=10})}
+      \<td>{\code{1.79×}}
+      \<td>{\code{22.95} (\code{w=1}; \code{22.1×} vs. Python)}
+    }
+    \<tr>{
+      \<td>{Scalable \code{ackley} (#{D = 16})}
+      \<td>{\code{6.04}}
+      \<td>{\code{8.37} (\code{1.39×}, \code{scalar w=8})}
+      \<td>{\code{1.20×}}
+      \<td>{\code{4.29} (\code{w=10}; \code{20.0×} vs. Python)}
+    }
+    \<tr>{
+      \<td>{Scalable \code{levy} (#{D = 16})}
+      \<td>{\code{6.05}}
+      \<td>{\code{12.88} (\code{2.13×}, \code{simd w=4})}
+      \<td>{\code{1.23×}}
+      \<td>{\code{4.34} (\code{w=10}; \code{4.3×} vs. \code{eval_one})}
+    }
+    \<tr>{
+      \<td>{Scalable \code{perm-zero} (#{D = 16})}
+      \<td>{\code{0.38}}
+      \<td>{\code{2.54} (\code{6.70×}, \code{simd w=8})}
+      \<td>{\code{5.19×}}
+      \<td>{\code{2.12} (\code{w=10}; \code{128×} vs. Python)}
+    }
+    \<tr>{
+      \<td>{Scalable \code{sphere} (#{D = 64})}
+      \<td>{\code{11.31}}
+      \<td>{\code{21.20} (\code{1.87×}, \code{simd w=8})}
+      \<td>{\code{0.84×}}
+      \<td>{\code{2.06} (\code{w=1}; \code{2.1×} vs. \code{eval_one})}
+    }
+    \<tr>{
+      \<td>{Scalable \code{michalewicz} (#{D = 64})}
+      \<td>{\code{0.57}}
+      \<td>{\code{2.94} (\code{5.12×}, \code{simd w=10})}
+      \<td>{\code{2.49×}}
+      \<td>{\code{1.30} (\code{w=10}; \code{21.0×} vs. Python)}
+    }
+    \<tr>{
+      \<td>{Scalable \code{griewank} (#{D = 64})}
+      \<td>{\code{0.91}}
+      \<td>{\code{3.71} (\code{4.07×}, \code{simd w=4})}
+      \<td>{\code{1.80×}}
+      \<td>{\code{1.39} (\code{w=10}; \code{18.1×} vs. Python)}
+    }
+    \<tr>{
+      \<td>{Scalable \code{perm-zero} (#{D = 64})}
+      \<td>{\code{0.018}}
+      \<td>{\code{0.18} (\code{10.05×}, \code{simd w=10})}
+      \<td>{\code{10.15×}}
+      \<td>{\code{0.23} (\code{w=10}; \code{210×} vs. Python)}
     }
   }
 }

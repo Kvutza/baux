@@ -1,0 +1,20 @@
+(library
+ (name baux_pybridge)
+ (modules py_obj py_bridge)
+ (libraries baux_benchmarks stdlib_stable stdlib_upstream_compatible parallel
+   parallel.scheduler))
+
+(executable
+ (name py_ext)
+ (enabled_if
+  (= %{env:BAUX_BUILD_PYEXT=0} 1))
+ (modules py_ext)
+ (foreign_stubs
+  (language c)
+  (names py_stubs)
+  (flags :standard -O3 -std=c11 -I%{env:BAUX_PYTHON_INCLUDE=.}))
+ (modes
+  (native shared_object))
+ (link_flags -ccopt -undefined -ccopt dynamic_lookup)
+ (libraries baux_pybridge baux_benchmarks stdlib_stable
+   stdlib_upstream_compatible parallel parallel.scheduler))

@@ -30,7 +30,20 @@ case "${1:-test}" in
         exec opam exec --switch="$switch" -- dune runtest --profile release --root "$root/ocaml" --build-dir "$build"
         ;;
     fmt)
-        exec opam exec --switch="$switch" -- ocamlformat --enable-outside-detected-project --inplace "$root"/ocaml/lib/*.ml "$root"/ocaml/lib/*.mli "$root"/ocaml/hardware/*.ml "$root"/ocaml/bin/*.ml "$root"/ocaml/tests/test_*.ml
+        exec opam exec --switch="$switch" -- ocamlformat --enable-outside-detected-project --inplace "$root"/ocaml/lib/*.ml "$root"/ocaml/lib/*.mli "$root"/ocaml/hardware/*.ml "$root"/ocaml/bin/*.ml "$root"/ocaml/pybridge/*.ml "$root"/ocaml/pybridge/*.mli "$root"/ocaml/tests/test_*.ml
+        ;;
+    pyext)
+        "$root/ocaml/prepare_sleef.sh" "$root/.cache/baux/sleef-3.9.0"
+        py_inc=${BAUX_PYTHON_INCLUDE:-$(pixi run -e baux python -c "import sysconfig; print(sysconfig.get_path('include'))")}
+        ext_sfx=${BAUX_PYTHON_EXT_SUFFIX:-$(pixi run -e baux python -c "import sysconfig; print(sysconfig.get_config_var('EXT_SUFFIX'))")}
+        out_dir="${2:-$root/.cache/baux/ocaml-pyext}"
+        mkdir -p "$out_dir"
+        BAUX_BUILD_PYEXT=1 BAUX_PYTHON_INCLUDE="$py_inc" \
+            opam exec --switch="$switch" -- dune build --profile release --root "$root/ocaml" --build-dir "$build" pybridge/py_ext.so
+        rm -f "$out_dir/_baux_oxcaml$ext_sfx"
+        cp "$build/default/pybridge/py_ext.so" "$out_dir/_baux_oxcaml$ext_sfx"
+        chmod 755 "$out_dir/_baux_oxcaml$ext_sfx"
+        printf '%s\n' "$out_dir/_baux_oxcaml$ext_sfx"
         ;;
     program-fmt)
         exec opam exec --switch="$switch" -- ocamlformat --enable-outside-detected-project --inplace "$root"/ocaml/program/*.ml "$root"/ocaml/program/*.mli
@@ -49,5 +62,5 @@ case "${1:-test}" in
     extraction-build)
         exec opam exec --switch="$switch" -- dune build --profile release --root "$root/ocaml/extraction/src" main.exe
         ;;
-    *) echo 'Usage: buck2w run //ocaml:tool -- deps|build|hardware-build|test|test-flow|fmt|list|eval|batch|resolve|experiment|hardware|extraction|extraction-build' >&2; exit 2 ;;
+    *) echo 'Usage: buck2w run //ocaml:tool -- deps|build|hardware-build|test|test-flow|fmt|pyext|list|eval|batch|resolve|experiment|hardware|extraction|extraction-build' >&2; exit 2 ;;
 esac

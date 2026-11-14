@@ -1,4 +1,4 @@
-(dirs lib hardware bin tests program)
+(dirs lib hardware bin tests program pybridge)
 
 (env
  (_

@@ -3620,7 +3620,8 @@ let () =
       init_copy_buttons ();
       init_api_reference ();
       init_tokamak_cad ();
-      init_bench_figures ()
+      init_bench_figures ();
+      Bench_viewer.init ()
     end
   in
   let on_load = handler (fun _ev ->

@@ -67,7 +67,7 @@ def resolve_binary(name: str) -> str:
 def semgrep_targets() -> list[str]:
     """Collect scan targets across admin/ops, tracked Forester theme/JS, and OCaml UI."""
     targets: list[str] = []
-    for rel in ("admin/ops", "admin/ui/baux_ui.ml", "forest/theme", "forest/js"):
+    for rel in ("admin/ops", "admin/ui", "forest/theme", "forest/js"):
         if (ROOT / rel).exists():
             targets.append(rel)
 

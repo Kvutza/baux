@@ -1,0 +1,7 @@
+File "unsafe_py_escape.ml", line 4, characters 65-68:
+4 | let unsafe () = Py_obj.Def.register1 (fun arg -> stashed := Some arg; Py_obj.of_int 0) 0
+                                                                     ^^^
+Error: This value is "local" to the parent region
+       but is expected to be "global"
+         because it is contained (via constructor "Some") in the value at file "unsafe_py_escape.ml", line 4, characters 60-68
+         which is expected to be "global".

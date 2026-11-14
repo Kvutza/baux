@@ -1,71 +1,10 @@
 <!DOCTYPE html PUBLIC "" "">
 <html xmlns="http://www.w3.org/1999/xhtml" xmlns:fr="http://www.jonmsterling.com/jms-005P.xml" data-base-url=""><head><meta http-equiv="Content-Type" content="text/html; charset=utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'"></meta><meta name="referrer" content="strict-origin-when-cross-origin"></meta><meta name="viewport" content="width=device-width, initial-scale=1.0"></meta><link rel="stylesheet" href="style.css?v=c322043d5574" integrity="sha384-9SpXFJMIJhZWkQp2/vgW2cmVoZBGmug6fddtzCP8G3VW058mc9vI1D/O18CIp/No"></link><link rel="stylesheet" href="katex.min.css?v=18c1c9fb05e7" integrity="sha384-TPqpCe9iqIJJFMUr4nZhfVfnhPwt6zFQ0llYbuKCrML4vxvk3koGtCzSoij1dOEx"></link><script type="module" src="forester.js?v=8f33e155074f" integrity="sha384-xGSQiQu0kX1eP1SDLdMBK8nvtlny/KN8EmWrdGiKFvVJS601GfKKTJCMCk7KddQg"></script><script type="text/javascript" src="assets/baux_ui.js?v=a749abe5453c" integrity="sha384-EhncjzmOP9knMuDteqfRMfHLHpehnZL7YYSGMZC/Zlk8yESJDoWVKv+uHsuIPe/D" defer></script><title>Runtime and integrations</title></head><body data-page="api-runtime"><header class="masthead"><div class="masthead-inner"><div class="masthead-brand"><a href="index.html" class="brand-title">baux</a></div><nav class="masthead-nav"><a href="index.html" class="nav-item">Get started</a><a href="docs.html" class="nav-item active">API Reference</a><a href="simulation.html" class="nav-item">Examples</a><a href="https://github.com/Kvutza/baux" class="nav-item external" target="_blank" rel="noopener noreferrer">GitHub</a><a href="https://pypi.org/project/baux/" class="nav-item external" target="_blank" rel="noopener noreferrer">PyPI</a><a href="https://crates.io/crates/baux" class="nav-item external" target="_blank" rel="noopener noreferrer">Crates.io</a></nav></div></header><div id="grid-wrapper"><article><section xmlns="" lang="en" class="block"><div class="tree-node" id="id1">
-<header><h1><span class="sec-title">Runtime and integrations</span></h1></header><nav class="api-page-nav" aria-label="API reference sections">
-<span class="link external"><a href="docs.html" rel="noopener noreferrer" title="">All symbols</a></span>
-<span class="link external"><a href="api-optimization.html" rel="noopener noreferrer" title="">Optimization loop</a></span>
-<span class="link external"><a href="api-pipelines.html" rel="noopener noreferrer" title="">Pipelines</a></span>
-<span class="link external"><a href="api-domains.html" rel="noopener noreferrer" title="">Parameter domains</a></span>
-<span class="link external"><a href="api-enn.html" rel="noopener noreferrer" title="">ENN predictions</a></span>
-<span class="link external"><a href="api-state.html" rel="noopener noreferrer" title="">Checkpoints and keys</a></span>
-<span class="link external"><a href="api-configuration.html" rel="noopener noreferrer" title="">Configuration</a></span>
-<span class="link external"><a href="api-objects.html" rel="noopener noreferrer" title="">In-place interfaces</a></span>
-<span xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" aria-current="page">Runtime and integrations</span>
-</nav><p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">Backend availability and operation support are separate. Check both before choosing a device. Optional integrations require explicit imports and their own dependencies.</p>
-<div xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux-api-filter"></div>
-<nav class="api-symbol-nav" aria-label="On this page"><span class="link external"><code xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><a href="#baux.capabilities" rel="noopener noreferrer" title="">capabilities</a></code></span> · <span class="link external"><code xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><a href="#baux.BackendCapabilities" rel="noopener noreferrer" title="">BackendCapabilities</a></code></span> · <span class="link external"><code xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><a href="#baux.Device" rel="noopener noreferrer" title="">Device</a></code></span> · <span class="link external"><code xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><a href="#baux.optuna.Sampler" rel="noopener noreferrer" title="">optuna.Sampler</a></code></span> · <span class="link external"><code xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><a href="#baux.experimental.program" rel="noopener noreferrer" title="">experimental.program</a></code></span></nav><section xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.capabilities" class="api-entry" data-symbol="baux.capabilities" data-kind="function" data-module="baux.runtime">
-  <div class="api-entry-header">
-<h2 class="api-entry-title"><span class="link external"><code><a href="#baux.capabilities" rel="noopener noreferrer" title="">baux.capabilities</a></code></span></h2> <span class="link external"><a href="https://github.com/Kvutza/baux/blob/main/python/baux/runtime.py#L38" rel="noopener noreferrer" title="">Source</a></span>
-</div>
-  <p>Inspect build support and optional hardware availability.</p>
-  <pre>baux.capabilities(*, probe=False)</pre>
-  <p>Returns a tuple of <code>BackendCapabilities</code>. With <code>probe=False</code>, reads build support without active hardware checks. With <code>probe=True</code>, probes hardware too.</p>
-  <p>Read the operation lists as well as <code>available</code>: a backend may be available while a particular operation is missing or uses a host fallback.</p>
-</section><section xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.BackendCapabilities" class="api-entry" data-symbol="baux.BackendCapabilities" data-kind="class" data-module="baux.runtime">
-  <div class="api-entry-header">
-<h2 class="api-entry-title"><span class="link external"><code><a href="#baux.BackendCapabilities" rel="noopener noreferrer" title="">baux.BackendCapabilities</a></code></span></h2> <span class="link external"><a href="https://github.com/Kvutza/baux/blob/main/python/baux/runtime.py#L16" rel="noopener noreferrer" title="">Source</a></span>
-</div>
-  <p>Support information for one backend.</p>
-  <pre>baux.BackendCapabilities(
-    name: Literal["cpu", "cuda", "metal", "opencl"],
-    compiled: bool,
-    available: bool | None,
-    reason: str | None,
-    direct_operations: tuple[str, ...],
-    fallback_operations: tuple[str, ...],
-    missing_operations: tuple[str, ...],
-    host_operations: tuple[str, ...],
-    array_frameworks: tuple[str, ...],
-)</pre>
-  <p><code>name</code>: backend name. <code>compiled</code>: included in this native build. <code>available</code>: hardware result, or <code>None</code> when not probed. <code>reason</code>: diagnostic text when relevant.</p>
-  <p><code>direct_operations</code>, <code>fallback_operations</code>, <code>missing_operations</code> and <code>host_operations</code> distinguish operation support. <code>array_frameworks</code> lists detected optional array packages. Returned by <code>capabilities</code>.</p>
-</section><section xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.Device" class="api-entry" data-symbol="baux.Device" data-kind="class" data-module="baux.runtime">
-  <div class="api-entry-header">
-<h2 class="api-entry-title"><span class="link external"><code><a href="#baux.Device" rel="noopener noreferrer" title="">baux.Device</a></code></span></h2> <span class="link external"><a href="https://github.com/Kvutza/baux/blob/main/rust/crates/baux-py/src/py_device.rs" rel="noopener noreferrer" title="">Source</a></span>
-</div>
-  <p>Select a native compute device.</p>
-  <pre>baux.Device(name='auto')</pre>
-  <p><code>name</code> selects a device, with <code>"auto"</code> as the default. <code>memory_info()</code> returns device memory information. Use <code>capabilities(probe=True)</code> to check installed backend support before choosing a device.</p>
-</section><section xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.optuna.Sampler" class="api-entry" data-symbol="baux.optuna.Sampler" data-kind="class" data-module="baux.optuna">
-  <div class="api-entry-header">
-<h2 class="api-entry-title"><span class="link external"><code><a href="#baux.optuna.Sampler" rel="noopener noreferrer" title="">baux.optuna.Sampler</a></code></span></h2> <span class="link external"><a href="https://github.com/Kvutza/baux/blob/main/python/baux/optuna.py" rel="noopener noreferrer" title="">Source</a></span>
-</div>
-  <p>Use BAUX to generate trials in an Optuna study.</p>
-  <pre>baux.optuna.Sampler(
-    space: Mapping[str, FloatDistribution],
-    *,
-    config: OptimizerConfig | None = None,
-    seed: int | None = None,
-)</pre>
-  <p>Import explicitly with <code>from baux.optuna import Sampler</code>; requires the <code>optuna</code> extra. <code>space</code>: a fixed mapping of names to Optuna <code>FloatDistribution</code> objects. Logarithmic floats are supported.</p>
-  <p>Use one sampler per study, <code>n_jobs=1</code> and one generating process. Integers, stepped or conditional spaces, and multi-objective studies are rejected. A new sampler can use completed trials but does not restore the original search trajectory.</p>
-</section><section xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.experimental.program" class="api-entry" data-symbol="baux.experimental.program" data-kind="module" data-module="baux.experimental.program">
-  <div class="api-entry-header">
-<h2 class="api-entry-title"><span class="link external"><code><a href="#baux.experimental.program" rel="noopener noreferrer" title="">baux.experimental.program</a></code></span></h2> <span class="link external"><a href="https://github.com/Kvutza/baux/blob/main/python/baux/experimental/program.py" rel="noopener noreferrer" title="">Source</a></span>
-</div>
-  <p>Compile and execute experimental array programs.</p>
-  <pre>baux.experimental.program</pre>
-  <p>Import with <code>from baux.experimental import program</code>. This module exposes <code>compile</code>, <code>TensorSpec</code>, <code>Buffer</code>, <code>Executable</code> and <code>register</code>, with backend-specific runtime requirements.</p>
-  <p>See the <span class="link external"><a href="https://github.com/Kvutza/baux/blob/main/python/baux/experimental/program.py" rel="noopener noreferrer" title="">module source</a></span> for the experimental interface and supported input forms. It is separate from the optimizer's ask/tell API.</p>
-</section>
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'"></meta><meta name="referrer" content="strict-origin-when-cross-origin"></meta><meta name="viewport" content="width=device-width, initial-scale=1.0"></meta><link rel="stylesheet" href="style.css?v=c6920ffa9900" integrity="sha384-eCE0lf8tYM0kulHdKQDXb4F9umECW8rqlopm9XeJLMrpLvuebC09f+q7Lgl1cKcn"></link><link rel="stylesheet" href="katex.min.css?v=18c1c9fb05e7" integrity="sha384-TPqpCe9iqIJJFMUr4nZhfVfnhPwt6zFQ0llYbuKCrML4vxvk3koGtCzSoij1dOEx"></link><script type="module" src="forester.js?v=8f33e155074f" integrity="sha384-xGSQiQu0kX1eP1SDLdMBK8nvtlny/KN8EmWrdGiKFvVJS601GfKKTJCMCk7KddQg"></script><script type="text/javascript" src="assets/baux_ui.js?v=fa034c75536b" integrity="sha384-okndtktYmb1OM7+QOrjYcxeBpmvumizRBrtSHjyYo6kuT2dOtj3iIxA05++CMKMn" defer></script><title>Runtime and integrations</title></head><body data-page="api-runtime"><header class="masthead"><div class="masthead-inner"><div class="masthead-brand"><a href="index.html" class="brand-title">baux</a></div><nav class="masthead-nav"><a href="index.html" class="nav-item">Get started</a><a href="docs.html" class="nav-item active">API Reference</a><a href="simulation.html" class="nav-item">Examples</a><a href="https://github.com/Kvutza/baux" class="nav-item external" target="_blank" rel="noopener noreferrer">GitHub</a><a href="https://pypi.org/project/baux/" class="nav-item external" target="_blank" rel="noopener noreferrer">PyPI</a><a href="https://crates.io/crates/baux" class="nav-item external" target="_blank" rel="noopener noreferrer">Crates.io</a></nav></div></header><div id="grid-wrapper"><article><section xmlns="" lang="en" class="block"><div class="tree-node" id="id1">
+<header><h1><span class="sec-title">Runtime and integrations</span></h1></header><p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">The reference is now on <span class="link external"><a href="docs.html#api-runtime" rel="noopener noreferrer" title="">one searchable page</a></span>.</p>
+<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.capabilities"><span class="link external"><code><a href="docs.html#baux.capabilities" rel="noopener noreferrer" title="">baux.capabilities</a></code></span></p>
+<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.BackendCapabilities"><span class="link external"><code><a href="docs.html#baux.BackendCapabilities" rel="noopener noreferrer" title="">baux.BackendCapabilities</a></code></span></p>
+<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.Device"><span class="link external"><code><a href="docs.html#baux.Device" rel="noopener noreferrer" title="">baux.Device</a></code></span></p>
+<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.optuna.Sampler"><span class="link external"><code><a href="docs.html#baux.optuna.Sampler" rel="noopener noreferrer" title="">baux.optuna.Sampler</a></code></span></p>
+<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.experimental.program"><span class="link external"><code><a href="docs.html#baux.experimental.program" rel="noopener noreferrer" title="">baux.experimental.program</a></code></span></p>
 </div></section></article></div></body></html>

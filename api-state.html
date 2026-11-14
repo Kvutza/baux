@@ -1,133 +1,14 @@
 <!DOCTYPE html PUBLIC "" "">
 <html xmlns="http://www.w3.org/1999/xhtml" xmlns:fr="http://www.jonmsterling.com/jms-005P.xml" data-base-url=""><head><meta http-equiv="Content-Type" content="text/html; charset=utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'"></meta><meta name="referrer" content="strict-origin-when-cross-origin"></meta><meta name="viewport" content="width=device-width, initial-scale=1.0"></meta><link rel="stylesheet" href="style.css?v=c322043d5574" integrity="sha384-9SpXFJMIJhZWkQp2/vgW2cmVoZBGmug6fddtzCP8G3VW058mc9vI1D/O18CIp/No"></link><link rel="stylesheet" href="katex.min.css?v=18c1c9fb05e7" integrity="sha384-TPqpCe9iqIJJFMUr4nZhfVfnhPwt6zFQ0llYbuKCrML4vxvk3koGtCzSoij1dOEx"></link><script type="module" src="forester.js?v=8f33e155074f" integrity="sha384-xGSQiQu0kX1eP1SDLdMBK8nvtlny/KN8EmWrdGiKFvVJS601GfKKTJCMCk7KddQg"></script><script type="text/javascript" src="assets/baux_ui.js?v=a749abe5453c" integrity="sha384-EhncjzmOP9knMuDteqfRMfHLHpehnZL7YYSGMZC/Zlk8yESJDoWVKv+uHsuIPe/D" defer></script><title>Checkpoints and keys</title></head><body data-page="api-state"><header class="masthead"><div class="masthead-inner"><div class="masthead-brand"><a href="index.html" class="brand-title">baux</a></div><nav class="masthead-nav"><a href="index.html" class="nav-item">Get started</a><a href="docs.html" class="nav-item active">API Reference</a><a href="simulation.html" class="nav-item">Examples</a><a href="https://github.com/Kvutza/baux" class="nav-item external" target="_blank" rel="noopener noreferrer">GitHub</a><a href="https://pypi.org/project/baux/" class="nav-item external" target="_blank" rel="noopener noreferrer">PyPI</a><a href="https://crates.io/crates/baux" class="nav-item external" target="_blank" rel="noopener noreferrer">Crates.io</a></nav></div></header><div id="grid-wrapper"><article><section xmlns="" lang="en" class="block"><div class="tree-node" id="id1">
-<header><h1><span class="sec-title">Checkpoints and keys</span></h1></header><nav class="api-page-nav" aria-label="API reference sections">
-<span class="link external"><a href="docs.html" rel="noopener noreferrer" title="">All symbols</a></span>
-<span class="link external"><a href="api-optimization.html" rel="noopener noreferrer" title="">Optimization loop</a></span>
-<span class="link external"><a href="api-pipelines.html" rel="noopener noreferrer" title="">Pipelines</a></span>
-<span class="link external"><a href="api-domains.html" rel="noopener noreferrer" title="">Parameter domains</a></span>
-<span class="link external"><a href="api-enn.html" rel="noopener noreferrer" title="">ENN predictions</a></span>
-<span xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" aria-current="page">Checkpoints and keys</span>
-<span class="link external"><a href="api-configuration.html" rel="noopener noreferrer" title="">Configuration</a></span>
-<span class="link external"><a href="api-objects.html" rel="noopener noreferrer" title="">In-place interfaces</a></span>
-<span class="link external"><a href="api-runtime.html" rel="noopener noreferrer" title="">Runtime and integrations</a></span>
-</nav><p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">A checkpoint saves optimizer state. A key controls randomness. Neither saves the external evaluator or running worker jobs. Continue a restored run with the same observations and submission order when reproducibility matters.</p>
-<div xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux-api-filter"></div>
-<nav class="api-symbol-nav" aria-label="On this page"><span class="link external"><code xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><a href="#baux.freeze" rel="noopener noreferrer" title="">freeze</a></code></span> · <span class="link external"><code xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><a href="#baux.thaw" rel="noopener noreferrer" title="">thaw</a></code></span> · <span class="link external"><code xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><a href="#baux.digest" rel="noopener noreferrer" title="">digest</a></code></span> · <span class="link external"><code xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><a href="#baux.key" rel="noopener noreferrer" title="">key</a></code></span> · <span class="link external"><code xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><a href="#baux.Key" rel="noopener noreferrer" title="">Key</a></code></span> · <span class="link external"><code xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><a href="#baux.split" rel="noopener noreferrer" title="">split</a></code></span> · <span class="link external"><code xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><a href="#baux.fold" rel="noopener noreferrer" title="">fold</a></code></span> · <span class="link external"><code xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><a href="#baux.scan" rel="noopener noreferrer" title="">scan</a></code></span> · <span class="link external"><code xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><a href="#baux.pmap" rel="noopener noreferrer" title="">pmap</a></code></span></nav><section xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.freeze" class="api-entry" data-symbol="baux.freeze" data-kind="function" data-module="baux.state">
-  <div class="api-entry-header">
-<h2 class="api-entry-title"><span class="link external"><code><a href="#baux.freeze" rel="noopener noreferrer" title="">baux.freeze</a></code></span></h2> <span class="link external"><a href="https://github.com/Kvutza/baux/blob/main/python/baux/state.py#L346" rel="noopener noreferrer" title="">Source</a></span>
-</div>
-  <p>Serialize an optimizer checkpoint.</p>
-  <pre>baux.freeze(state)</pre>
-  <p>Returns <code>bytes</code>. Save them and restore with <span class="link external"><code><a href="#baux.thaw" rel="noopener noreferrer" title="">thaw</a></code></span>, supplying a compatible initial state. The checkpoint contains optimizer state, including pending evaluations; it does not save external worker jobs or evaluator state.</p>
-  <p>The BLAKE3 tag detects corruption. It is not an authentication signature.</p>
-  <details class="api-example"><summary>Example</summary>
-<pre>import numpy as np
-import baux
-
-domain = np.array([[-2.0, 2.0], [-2.0, 2.0]])
-blank = baux.init(domain, baux.turbo_zero(), seed=123)
-state, batch = baux.ask(blank, 2)
-y = -np.sum(batch.points**2, axis=-1, keepdims=True)
-state, _ = baux.tell(state, batch, y)
-raw = baux.freeze(state)
-restored = baux.thaw(blank, raw)
-assert restored.epoch == state.epoch
-assert restored.seed == state.seed
-assert restored.num_observations == state.num_observations
-assert np.array_equal(baux.ask(state, 2)[1].points, baux.ask(restored, 2)[1].points)</pre>
-  </details>
-</section><section xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.thaw" class="api-entry" data-symbol="baux.thaw" data-kind="function" data-module="baux.state">
-  <div class="api-entry-header">
-<h2 class="api-entry-title"><span class="link external"><code><a href="#baux.thaw" rel="noopener noreferrer" title="">baux.thaw</a></code></span></h2> <span class="link external"><a href="https://github.com/Kvutza/baux/blob/main/python/baux/state.py#L357" rel="noopener noreferrer" title="">Source</a></span>
-</div>
-  <p>Restore a checkpoint against a compatible state template.</p>
-  <pre>baux.thaw(state, data)</pre>
-  <p><code>state</code>: a state initialized with the expected domain and configuration. <code>data</code>: bytes from <code>freeze</code>. Returns the restored <code>OptimizerState</code>.</p>
-  <p>Checks the format, integrity and compatibility; malformed or incompatible payloads are rejected. To reproduce subsequent proposals, preserve the evaluator results and their submission order too.</p>
-</section><section xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.digest" class="api-entry" data-symbol="baux.digest" data-kind="function" data-module="baux.state">
-  <div class="api-entry-header">
-<h2 class="api-entry-title"><span class="link external"><code><a href="#baux.digest" rel="noopener noreferrer" title="">baux.digest</a></code></span></h2> <span class="link external"><a href="https://github.com/Kvutza/baux/blob/main/python/baux/state.py#L341" rel="noopener noreferrer" title="">Source</a></span>
-</div>
-  <p>Get the optimizer state's content digest.</p>
-  <pre>baux.digest(state)</pre>
-  <p>Returns a 64-character hexadecimal string. Use it to compare saved optimizer states. It does not identify the external evaluator, data source or running workers.</p>
-</section><section xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.key" class="api-entry" data-symbol="baux.key" data-kind="function" data-module="baux.state">
-  <div class="api-entry-header">
-<h2 class="api-entry-title"><span class="link external"><code><a href="#baux.key" rel="noopener noreferrer" title="">baux.key</a></code></span></h2> <span class="link external"><a href="https://github.com/Kvutza/baux/blob/main/python/baux/functional.py#L55" rel="noopener noreferrer" title="">Source</a></span>
-</div>
-  <p>Create a random key or retrieve one from a state.</p>
-  <pre>baux.key(source=None)</pre>
-  <p><code>source</code> may be an integer seed, bytes, an array or an object exposing <code>key</code>. With <code>None</code>, draws fresh operating-system entropy. Returns a <code>Key</code>.</p>
-</section><section xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.Key" class="api-entry" data-symbol="baux.Key" data-kind="class" data-module="baux.state">
-  <div class="api-entry-header">
-<h2 class="api-entry-title"><span class="link external"><code><a href="#baux.Key" rel="noopener noreferrer" title="">baux.Key</a></code></span></h2> <span class="link external"><a href="https://github.com/Kvutza/baux/blob/main/rust/crates/baux-py/src/py_hash.rs" rel="noopener noreferrer" title="">Source</a></span>
-</div>
-  <p>A splittable random key.</p>
-  <pre>baux.Key(source=None)</pre>
-  <p>Use <span class="link external"><code><a href="#baux.key" rel="noopener noreferrer" title="">key</a></code></span>, <span class="link external"><code><a href="#baux.split" rel="noopener noreferrer" title="">split</a></code></span> and <span class="link external"><code><a href="#baux.fold" rel="noopener noreferrer" title="">fold</a></code></span> to create and derive keys. Reusing a key reproduces its deterministic stream. Reproducing a search also requires the same observations and transition order.</p>
-</section><section xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.split" class="api-entry" data-symbol="baux.split" data-kind="function" data-module="baux.state">
-  <div class="api-entry-header">
-<h2 class="api-entry-title"><span class="link external"><code><a href="#baux.split" rel="noopener noreferrer" title="">baux.split</a></code></span></h2> <span class="link external"><a href="https://github.com/Kvutza/baux/blob/main/python/baux/functional.py#L64" rel="noopener noreferrer" title="">Source</a></span>
-</div>
-  <p>Derive child keys from a parent key.</p>
-  <pre>baux.split(k, n=2)</pre>
-  <p>Returns a tuple of <code>n</code> keys without changing <code>k</code>. Default <code>n=2</code>. Use a different child for each search branch or draw stream.</p>
-</section><section xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.fold" class="api-entry" data-symbol="baux.fold" data-kind="function" data-module="baux.state">
-  <div class="api-entry-header">
-<h2 class="api-entry-title"><span class="link external"><code><a href="#baux.fold" rel="noopener noreferrer" title="">baux.fold</a></code></span></h2> <span class="link external"><a href="https://github.com/Kvutza/baux/blob/main/python/baux/functional.py#L73" rel="noopener noreferrer" title="">Source</a></span>
-</div>
-  <p>Derive a key using an integer tag.</p>
-  <pre>baux.fold(k, tag)</pre>
-  <p>Returns a new key. The tag is reduced modulo <code>2**64</code>; the parent is unchanged. Useful for giving a step or branch a repeatable key.</p>
-</section><section xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.scan" class="api-entry" data-symbol="baux.scan" data-kind="function" data-module="baux.state">
-  <div class="api-entry-header">
-<h2 class="api-entry-title"><span class="link external"><code><a href="#baux.scan" rel="noopener noreferrer" title="">baux.scan</a></code></span></h2> <span class="link external"><a href="https://github.com/Kvutza/baux/blob/main/python/baux/functional.py#L394" rel="noopener noreferrer" title="">Source</a></span>
-</div>
-  <p>Run several sequential optimization rounds.</p>
-  <pre>baux.scan(state, key=None, steps=0, eval_fn=None, num_arms=1)</pre>
-  <p>Keyed form: <code>scan(state, key, steps, eval_fn, num_arms=1)</code> returns <code>(final_state, next_key, records)</code>. The evaluator receives the coordinate batch; records contain <code>step</code>, <code>best_y</code> and a lazily computed <code>digest</code>.</p>
-  <p>Convenience form: <code>scan(state, objective, steps=N)</code> returns <code>(final_state, values)</code> and uses decoded parameters for a structured domain. The two forms have different return values. <code>steps</code> must be non-negative.</p>
-  <details class="api-example"><summary>Example</summary>
-<pre>import numpy as np
-import baux
-
-domain = np.array([[-2.0, 2.0], [-2.0, 2.0]])
-state = baux.init(domain, baux.turbo_zero(), seed=0)
-
-def objective(x):
-    return -np.sum(x**2, axis=-1, keepdims=True)
-
-final_state, key_out, traces = baux.scan(
-    state,
-    key=baux.key(42),
-    steps=4,
-    eval_fn=objective,
-    num_arms=1,
-)
-assert final_state.num_observations == 4
-assert len(traces) == 4
-assert traces[-1]["step"] == 3
-
-root_key = baux.key(0)
-subkeys = baux.split(root_key, 3)
-assert len(subkeys) == 3
-
-def branch_fn(idx, branch_state, k):
-    s_end, _, _ = baux.scan(branch_state, key=k, steps=2, eval_fn=objective)
-    return idx, s_end.best_y
-
-results = baux.pmap(state, root_key, 3, branch_fn)
-assert len(results) == 3
-assert [r[0] for r in results] == [0, 1, 2]</pre>
-  </details>
-</section><section xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.pmap" class="api-entry" data-symbol="baux.pmap" data-kind="function" data-module="baux.state">
-  <div class="api-entry-header">
-<h2 class="api-entry-title"><span class="link external"><code><a href="#baux.pmap" rel="noopener noreferrer" title="">baux.pmap</a></code></span></h2> <span class="link external"><a href="https://github.com/Kvutza/baux/blob/main/python/baux/functional.py#L436" rel="noopener noreferrer" title="">Source</a></span>
-</div>
-  <p>Run independent search branches in worker threads.</p>
-  <pre>baux.pmap(state, key, branches, branch_fn)</pre>
-  <p>Calls <code>branch_fn(index, branch_state, branch_key)</code> once per branch and returns results in branch-index order. Each branch starts from <code>state.fork(child_key)</code>.</p>
-  <p><code>branches</code> must be non-negative; zero returns an empty list. This is a local thread pool, not a device mapping or distributed scheduler. Evaluator thread safety remains the caller's responsibility.</p>
-</section>
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'"></meta><meta name="referrer" content="strict-origin-when-cross-origin"></meta><meta name="viewport" content="width=device-width, initial-scale=1.0"></meta><link rel="stylesheet" href="style.css?v=c6920ffa9900" integrity="sha384-eCE0lf8tYM0kulHdKQDXb4F9umECW8rqlopm9XeJLMrpLvuebC09f+q7Lgl1cKcn"></link><link rel="stylesheet" href="katex.min.css?v=18c1c9fb05e7" integrity="sha384-TPqpCe9iqIJJFMUr4nZhfVfnhPwt6zFQ0llYbuKCrML4vxvk3koGtCzSoij1dOEx"></link><script type="module" src="forester.js?v=8f33e155074f" integrity="sha384-xGSQiQu0kX1eP1SDLdMBK8nvtlny/KN8EmWrdGiKFvVJS601GfKKTJCMCk7KddQg"></script><script type="text/javascript" src="assets/baux_ui.js?v=fa034c75536b" integrity="sha384-okndtktYmb1OM7+QOrjYcxeBpmvumizRBrtSHjyYo6kuT2dOtj3iIxA05++CMKMn" defer></script><title>Checkpoints and keys</title></head><body data-page="api-state"><header class="masthead"><div class="masthead-inner"><div class="masthead-brand"><a href="index.html" class="brand-title">baux</a></div><nav class="masthead-nav"><a href="index.html" class="nav-item">Get started</a><a href="docs.html" class="nav-item active">API Reference</a><a href="simulation.html" class="nav-item">Examples</a><a href="https://github.com/Kvutza/baux" class="nav-item external" target="_blank" rel="noopener noreferrer">GitHub</a><a href="https://pypi.org/project/baux/" class="nav-item external" target="_blank" rel="noopener noreferrer">PyPI</a><a href="https://crates.io/crates/baux" class="nav-item external" target="_blank" rel="noopener noreferrer">Crates.io</a></nav></div></header><div id="grid-wrapper"><article><section xmlns="" lang="en" class="block"><div class="tree-node" id="id1">
+<header><h1><span class="sec-title">Checkpoints and keys</span></h1></header><p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">The reference is now on <span class="link external"><a href="docs.html#api-state" rel="noopener noreferrer" title="">one searchable page</a></span>.</p>
+<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.freeze"><span class="link external"><code><a href="docs.html#baux.freeze" rel="noopener noreferrer" title="">baux.freeze</a></code></span></p>
+<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.thaw"><span class="link external"><code><a href="docs.html#baux.thaw" rel="noopener noreferrer" title="">baux.thaw</a></code></span></p>
+<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.digest"><span class="link external"><code><a href="docs.html#baux.digest" rel="noopener noreferrer" title="">baux.digest</a></code></span></p>
+<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.key"><span class="link external"><code><a href="docs.html#baux.key" rel="noopener noreferrer" title="">baux.key</a></code></span></p>
+<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.Key"><span class="link external"><code><a href="docs.html#baux.Key" rel="noopener noreferrer" title="">baux.Key</a></code></span></p>
+<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.split"><span class="link external"><code><a href="docs.html#baux.split" rel="noopener noreferrer" title="">baux.split</a></code></span></p>
+<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.fold"><span class="link external"><code><a href="docs.html#baux.fold" rel="noopener noreferrer" title="">baux.fold</a></code></span></p>
+<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.scan"><span class="link external"><code><a href="docs.html#baux.scan" rel="noopener noreferrer" title="">baux.scan</a></code></span></p>
+<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.pmap"><span class="link external"><code><a href="docs.html#baux.pmap" rel="noopener noreferrer" title="">baux.pmap</a></code></span></p>
 </div></section></article></div></body></html>

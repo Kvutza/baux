@@ -1,119 +1,12 @@
 <!DOCTYPE html PUBLIC "" "">
 <html xmlns="http://www.w3.org/1999/xhtml" xmlns:fr="http://www.jonmsterling.com/jms-005P.xml" data-base-url=""><head><meta http-equiv="Content-Type" content="text/html; charset=utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'"></meta><meta name="referrer" content="strict-origin-when-cross-origin"></meta><meta name="viewport" content="width=device-width, initial-scale=1.0"></meta><link rel="stylesheet" href="style.css?v=c322043d5574" integrity="sha384-9SpXFJMIJhZWkQp2/vgW2cmVoZBGmug6fddtzCP8G3VW058mc9vI1D/O18CIp/No"></link><link rel="stylesheet" href="katex.min.css?v=18c1c9fb05e7" integrity="sha384-TPqpCe9iqIJJFMUr4nZhfVfnhPwt6zFQ0llYbuKCrML4vxvk3koGtCzSoij1dOEx"></link><script type="module" src="forester.js?v=8f33e155074f" integrity="sha384-xGSQiQu0kX1eP1SDLdMBK8nvtlny/KN8EmWrdGiKFvVJS601GfKKTJCMCk7KddQg"></script><script type="text/javascript" src="assets/baux_ui.js?v=a749abe5453c" integrity="sha384-EhncjzmOP9knMuDteqfRMfHLHpehnZL7YYSGMZC/Zlk8yESJDoWVKv+uHsuIPe/D" defer></script><title>Configuration</title></head><body data-page="api-configuration"><header class="masthead"><div class="masthead-inner"><div class="masthead-brand"><a href="index.html" class="brand-title">baux</a></div><nav class="masthead-nav"><a href="index.html" class="nav-item">Get started</a><a href="docs.html" class="nav-item active">API Reference</a><a href="simulation.html" class="nav-item">Examples</a><a href="https://github.com/Kvutza/baux" class="nav-item external" target="_blank" rel="noopener noreferrer">GitHub</a><a href="https://pypi.org/project/baux/" class="nav-item external" target="_blank" rel="noopener noreferrer">PyPI</a><a href="https://crates.io/crates/baux" class="nav-item external" target="_blank" rel="noopener noreferrer">Crates.io</a></nav></div></header><div id="grid-wrapper"><article><section xmlns="" lang="en" class="block"><div class="tree-node" id="id1">
-<header><h1><span class="sec-title">Configuration</span></h1></header><nav class="api-page-nav" aria-label="API reference sections">
-<span class="link external"><a href="docs.html" rel="noopener noreferrer" title="">All symbols</a></span>
-<span class="link external"><a href="api-optimization.html" rel="noopener noreferrer" title="">Optimization loop</a></span>
-<span class="link external"><a href="api-pipelines.html" rel="noopener noreferrer" title="">Pipelines</a></span>
-<span class="link external"><a href="api-domains.html" rel="noopener noreferrer" title="">Parameter domains</a></span>
-<span class="link external"><a href="api-enn.html" rel="noopener noreferrer" title="">ENN predictions</a></span>
-<span class="link external"><a href="api-state.html" rel="noopener noreferrer" title="">Checkpoints and keys</a></span>
-<span xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" aria-current="page">Configuration</span>
-<span class="link external"><a href="api-objects.html" rel="noopener noreferrer" title="">In-place interfaces</a></span>
-<span class="link external"><a href="api-runtime.html" rel="noopener noreferrer" title="">Runtime and integrations</a></span>
-</nav><p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">Configuration records are frozen dataclasses. Build them through <span class="link external"><a href="api-pipelines.html" rel="noopener noreferrer" title="">pipeline helpers</a></span>, or use <code>dataclasses.replace</code> to change individual fields. The <code>turbo_*</code> functions return configuration records, not running optimizers.</p>
-<div xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux-api-filter"></div>
-<nav class="api-symbol-nav" aria-label="On this page"><span class="link external"><code xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><a href="#baux.OptimizerConfig" rel="noopener noreferrer" title="">OptimizerConfig</a></code></span> · <span class="link external"><code xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><a href="#baux.RegionalSearchPolicy" rel="noopener noreferrer" title="">RegionalSearchPolicy</a></code></span> · <span class="link external"><code xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><a href="#baux.TrustRegionBounds" rel="noopener noreferrer" title="">TrustRegionBounds</a></code></span> · <span class="link external"><code xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><a href="#baux.turbo_enn" rel="noopener noreferrer" title="">turbo_enn</a></code></span> · <span class="link external"><code xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><a href="#baux.turbo_one" rel="noopener noreferrer" title="">turbo_one</a></code></span> · <span class="link external"><code xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><a href="#baux.turbo_zero" rel="noopener noreferrer" title="">turbo_zero</a></code></span> · <span class="link external"><code xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><a href="#baux.lhd_only" rel="noopener noreferrer" title="">lhd_only</a></code></span></nav><section xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.OptimizerConfig" class="api-entry" data-symbol="baux.OptimizerConfig" data-kind="class" data-module="baux.turbo.config">
-  <div class="api-entry-header">
-<h2 class="api-entry-title"><span class="link external"><code><a href="#baux.OptimizerConfig" rel="noopener noreferrer" title="">baux.OptimizerConfig</a></code></span></h2> <span class="link external"><a href="https://github.com/Kvutza/baux/blob/main/python/baux/turbo/config/optimizer.py#L51" rel="noopener noreferrer" title="">Source</a></span>
-</div>
-  <p>The complete optimizer configuration.</p>
-  <pre>baux.OptimizerConfig(
-    trust_region: TrustRegionConfig = TurboTrustRegion(),
-    candidates: CandidateConfig = CandidateConfig(),
-    init: InitConfig = InitConfig(),
-    surrogate: Surrogate = NoSurrogate(),
-    acquisition: AcquisitionConfig = RandomAcquisitionConfig(),
-    acq_optimizer: AcqOptimizerConfig = ...,
-    observation_history: ObservationHistoryConfig = ObservationHistoryConfig(),
-)</pre>
-  <p>Frozen dataclass. Fields: <code>trust_region</code>, <code>candidates</code>, <code>init</code>, <code>surrogate</code>, <code>acquisition</code>, <code>acq_optimizer</code> and <code>observation_history</code>. Use <code>dataclasses.replace</code> to change fields.</p>
-  <p>The default is a single TuRBO region, no surrogate and random acquisition. The <span class="link external"><a href="api-pipelines.html" rel="noopener noreferrer" title="">pipeline helpers</a></span> construct compatible combinations.</p>
-  <p>Surrogate choices include <code>ENNSurrogate</code>, <code>GaussianProcess</code>, <code>ExternalSurrogate</code> and <code>NoSurrogate</code>. Region choices include <code>TurboTrustRegion</code>, <code>MorboTrustRegion</code>, <code>RegionalSearchPolicy</code> and <code>NoTrustRegion</code>. Configuration records are in <code>baux.turbo.config</code>; commonly used types are also exported by <code>baux</code>.</p>
-</section><section xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.RegionalSearchPolicy" class="api-entry" data-symbol="baux.RegionalSearchPolicy" data-kind="class" data-module="baux.region">
-  <div class="api-entry-header">
-<h2 class="api-entry-title"><span class="link external"><code><a href="#baux.RegionalSearchPolicy" rel="noopener noreferrer" title="">baux.RegionalSearchPolicy</a></code></span></h2> <span class="link external"><a href="https://github.com/Kvutza/baux/blob/main/python/baux/turbo/config/trust_region.py#L128" rel="noopener noreferrer" title="">Source</a></span>
-</div>
-  <p>Configure region sharing, allocation and restart behavior.</p>
-  <pre>baux.RegionalSearchPolicy(
-    count: int = 4,
-    length: TrustRegionBounds = TrustRegionBounds(),
-    success_tolerance: int = 3,
-    failure_tolerance: int = 5,
-    sharing: Literal["box_contain", "ellipsoid_ball", "nearest_center", "origin_only"] = "box_contain",
-    allocation: Literal["incumbent_ucb1", "least_trials", "joint_acquisition"] = "incumbent_ucb1",
-    restart_memory: Literal["fresh", "retain_relevant"] = "fresh",
-    restart_center: RestartCenterPolicy = RestartCenterPolicy(),
-    controller: Literal["turbo", "fixed_radius"] = "turbo",
-    acquisitions: tuple[AcquisitionConfig | None, ...] = (),
-)</pre>
-  <p><code>count</code>, <code>success_tolerance</code> and <code>failure_tolerance</code> must be positive. <code>length</code> supplies normalized trust-region bounds.</p>
-  <p><code>sharing</code>: <code>"box_contain"</code>, <code>"ellipsoid_ball"</code>, <code>"nearest_center"</code> or <code>"origin_only"</code>. This constructor defaults to <code>"box_contain"</code>; the <code>regions()</code> helper defaults to <code>"ellipsoid_ball"</code>.</p>
-  <p><code>allocation</code>: <code>"incumbent_ucb1"</code>, <code>"least_trials"</code> or <code>"joint_acquisition"</code>. <code>controller</code>: <code>"turbo"</code> or <code>"fixed_radius"</code>.</p>
-  <p><code>restart_memory</code>: <code>"fresh"</code> or <code>"retain_relevant"</code>. <code>restart_center</code>: a <code>RestartCenterPolicy</code> from <code>baux.turbo.config.candidates</code>.</p>
-  <p><code>acquisitions</code>: empty to inherit the optimizer's rule, or a tuple with one acquisition configuration (or <code>None</code> to inherit) per region. Supported records are <code>UCBAcquisitionConfig</code>, <code>DrawAcquisitionConfig</code>, <code>ParetoAcquisitionConfig</code> and <code>RandomAcquisitionConfig</code> from <code>baux.turbo.config.acquisition</code>.</p>
-</section><section xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.TrustRegionBounds" class="api-entry" data-symbol="baux.TrustRegionBounds" data-kind="class" data-module="baux.turbo.config">
-  <div class="api-entry-header">
-<h2 class="api-entry-title"><span class="link external"><code><a href="#baux.TrustRegionBounds" rel="noopener noreferrer" title="">baux.TrustRegionBounds</a></code></span></h2> <span class="link external"><a href="https://github.com/Kvutza/baux/blob/main/python/baux/turbo/config/morbo_region.py#L16" rel="noopener noreferrer" title="">Source</a></span>
-</div>
-  <p>Initial, minimum and maximum region lengths.</p>
-  <pre>baux.TrustRegionBounds(length_init=0.8, length_min=0.0078125, length_max=1.6)</pre>
-  <p>Requires <code>0 &lt; length_min &lt;= length_init &lt;= length_max</code>. Lengths are measured in normalized coordinates. Pass to a region policy or use <code>tr_bounds</code> in a pipeline.</p>
-</section><section xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.turbo_enn" class="api-entry" data-symbol="baux.turbo_enn" data-kind="function" data-module="baux.turbo.config">
-  <div class="api-entry-header">
-<h2 class="api-entry-title"><span class="link external"><code><a href="#baux.turbo_enn" rel="noopener noreferrer" title="">baux.turbo_enn</a></code></span></h2> <span class="link external"><a href="https://github.com/Kvutza/baux/blob/main/python/baux/turbo/config/factory.py#L93" rel="noopener noreferrer" title="">Source</a></span>
-</div>
-  <p>Create an ENN optimizer configuration preset.</p>
-  <pre>baux.turbo_enn(
-    *,
-    enn=None,
-    trust_region=None,
-    candidates=None,
-    num_init=None,
-    acquisition=AcquisitionKind.PARETO,
-)</pre>
-  <p>Returns <code>OptimizerConfig</code>. Defaults to Pareto acquisition. Accepts explicit ENN, region and candidate configurations and an initialization budget.</p>
-  <p>The default acquisition differs from <code>baux.enn()</code>, which normally selects UCB. Use an explicit acquisition when comparing configurations.</p>
-</section><section xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.turbo_one" class="api-entry" data-symbol="baux.turbo_one" data-kind="function" data-module="baux.turbo.config">
-  <div class="api-entry-header">
-<h2 class="api-entry-title"><span class="link external"><code><a href="#baux.turbo_one" rel="noopener noreferrer" title="">baux.turbo_one</a></code></span></h2> <span class="link external"><a href="https://github.com/Kvutza/baux/blob/main/python/baux/turbo/config/factory.py#L50" rel="noopener noreferrer" title="">Source</a></span>
-</div>
-  <p>Create a Gaussian-process TuRBO configuration.</p>
-  <pre>baux.turbo_one(
-    *,
-    num_candidates=None,
-    num_init=None,
-    trust_region=None,
-    sampler=CandidateSampler.SOBOL,
-    acquisition=AcquisitionKind.THOMPSON,
-)</pre>
-  <p>Returns <code>OptimizerConfig</code>. Defaults to Sobol candidates and Thompson acquisition. Optional arguments override candidate count, initialization budget, region policy, sampler and acquisition.</p>
-</section><section xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.turbo_zero" class="api-entry" data-symbol="baux.turbo_zero" data-kind="function" data-module="baux.turbo.config">
-  <div class="api-entry-header">
-<h2 class="api-entry-title"><span class="link external"><code><a href="#baux.turbo_zero" rel="noopener noreferrer" title="">baux.turbo_zero</a></code></span></h2> <span class="link external"><a href="https://github.com/Kvutza/baux/blob/main/python/baux/turbo/config/factory.py#L70" rel="noopener noreferrer" title="">Source</a></span>
-</div>
-  <p>Create a surrogate-free trust-region configuration.</p>
-  <pre>baux.turbo_zero(
-    *,
-    num_candidates=None,
-    num_candidates_per_arm=None,
-    num_init=None,
-    trust_region=None,
-    sampler=CandidateSampler.SOBOL,
-)</pre>
-  <p>Returns <code>OptimizerConfig</code> with random selection. Defaults to Sobol candidates. Candidate budgets, initialization budget and region policy can be supplied explicitly.</p>
-</section><section xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.lhd_only" class="api-entry" data-symbol="baux.lhd_only" data-kind="function" data-module="baux.turbo.config">
-  <div class="api-entry-header">
-<h2 class="api-entry-title"><span class="link external"><code><a href="#baux.lhd_only" rel="noopener noreferrer" title="">baux.lhd_only</a></code></span></h2> <span class="link external"><a href="https://github.com/Kvutza/baux/blob/main/python/baux/turbo/config/factory.py#L118" rel="noopener noreferrer" title="">Source</a></span>
-</div>
-  <p>Create a Latin-hypercube exploration configuration.</p>
-  <pre>baux.lhd_only(
-    *,
-    num_candidates=None,
-    num_init=None,
-    trust_region=None,
-    sampler=CandidateSampler.SOBOL,
-)</pre>
-  <p>Returns <code>OptimizerConfig</code> without a surrogate. Sets LHD-only initialization. Accepts candidate and initialization budgets plus sampler and region arguments for the preset constructor.</p>
-</section>
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'"></meta><meta name="referrer" content="strict-origin-when-cross-origin"></meta><meta name="viewport" content="width=device-width, initial-scale=1.0"></meta><link rel="stylesheet" href="style.css?v=c6920ffa9900" integrity="sha384-eCE0lf8tYM0kulHdKQDXb4F9umECW8rqlopm9XeJLMrpLvuebC09f+q7Lgl1cKcn"></link><link rel="stylesheet" href="katex.min.css?v=18c1c9fb05e7" integrity="sha384-TPqpCe9iqIJJFMUr4nZhfVfnhPwt6zFQ0llYbuKCrML4vxvk3koGtCzSoij1dOEx"></link><script type="module" src="forester.js?v=8f33e155074f" integrity="sha384-xGSQiQu0kX1eP1SDLdMBK8nvtlny/KN8EmWrdGiKFvVJS601GfKKTJCMCk7KddQg"></script><script type="text/javascript" src="assets/baux_ui.js?v=fa034c75536b" integrity="sha384-okndtktYmb1OM7+QOrjYcxeBpmvumizRBrtSHjyYo6kuT2dOtj3iIxA05++CMKMn" defer></script><title>Configuration</title></head><body data-page="api-configuration"><header class="masthead"><div class="masthead-inner"><div class="masthead-brand"><a href="index.html" class="brand-title">baux</a></div><nav class="masthead-nav"><a href="index.html" class="nav-item">Get started</a><a href="docs.html" class="nav-item active">API Reference</a><a href="simulation.html" class="nav-item">Examples</a><a href="https://github.com/Kvutza/baux" class="nav-item external" target="_blank" rel="noopener noreferrer">GitHub</a><a href="https://pypi.org/project/baux/" class="nav-item external" target="_blank" rel="noopener noreferrer">PyPI</a><a href="https://crates.io/crates/baux" class="nav-item external" target="_blank" rel="noopener noreferrer">Crates.io</a></nav></div></header><div id="grid-wrapper"><article><section xmlns="" lang="en" class="block"><div class="tree-node" id="id1">
+<header><h1><span class="sec-title">Configuration</span></h1></header><p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">The reference is now on <span class="link external"><a href="docs.html#api-configuration" rel="noopener noreferrer" title="">one searchable page</a></span>.</p>
+<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.OptimizerConfig"><span class="link external"><code><a href="docs.html#baux.OptimizerConfig" rel="noopener noreferrer" title="">baux.OptimizerConfig</a></code></span></p>
+<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.RegionalSearchPolicy"><span class="link external"><code><a href="docs.html#baux.RegionalSearchPolicy" rel="noopener noreferrer" title="">baux.RegionalSearchPolicy</a></code></span></p>
+<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.TrustRegionBounds"><span class="link external"><code><a href="docs.html#baux.TrustRegionBounds" rel="noopener noreferrer" title="">baux.TrustRegionBounds</a></code></span></p>
+<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.turbo_enn"><span class="link external"><code><a href="docs.html#baux.turbo_enn" rel="noopener noreferrer" title="">baux.turbo_enn</a></code></span></p>
+<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.turbo_one"><span class="link external"><code><a href="docs.html#baux.turbo_one" rel="noopener noreferrer" title="">baux.turbo_one</a></code></span></p>
+<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.turbo_zero"><span class="link external"><code><a href="docs.html#baux.turbo_zero" rel="noopener noreferrer" title="">baux.turbo_zero</a></code></span></p>
+<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.lhd_only"><span class="link external"><code><a href="docs.html#baux.lhd_only" rel="noopener noreferrer" title="">baux.lhd_only</a></code></span></p>
 </div></section></article></div></body></html>

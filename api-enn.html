@@ -1,132 +1,15 @@
 <!DOCTYPE html PUBLIC "" "">
 <html xmlns="http://www.w3.org/1999/xhtml" xmlns:fr="http://www.jonmsterling.com/jms-005P.xml" data-base-url=""><head><meta http-equiv="Content-Type" content="text/html; charset=utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'"></meta><meta name="referrer" content="strict-origin-when-cross-origin"></meta><meta name="viewport" content="width=device-width, initial-scale=1.0"></meta><link rel="stylesheet" href="style.css?v=c322043d5574" integrity="sha384-9SpXFJMIJhZWkQp2/vgW2cmVoZBGmug6fddtzCP8G3VW058mc9vI1D/O18CIp/No"></link><link rel="stylesheet" href="katex.min.css?v=18c1c9fb05e7" integrity="sha384-TPqpCe9iqIJJFMUr4nZhfVfnhPwt6zFQ0llYbuKCrML4vxvk3koGtCzSoij1dOEx"></link><script type="module" src="forester.js?v=8f33e155074f" integrity="sha384-xGSQiQu0kX1eP1SDLdMBK8nvtlny/KN8EmWrdGiKFvVJS601GfKKTJCMCk7KddQg"></script><script type="text/javascript" src="assets/baux_ui.js?v=a749abe5453c" integrity="sha384-EhncjzmOP9knMuDteqfRMfHLHpehnZL7YYSGMZC/Zlk8yESJDoWVKv+uHsuIPe/D" defer></script><title>ENN predictions</title></head><body data-page="api-enn"><header class="masthead"><div class="masthead-inner"><div class="masthead-brand"><a href="index.html" class="brand-title">baux</a></div><nav class="masthead-nav"><a href="index.html" class="nav-item">Get started</a><a href="docs.html" class="nav-item active">API Reference</a><a href="simulation.html" class="nav-item">Examples</a><a href="https://github.com/Kvutza/baux" class="nav-item external" target="_blank" rel="noopener noreferrer">GitHub</a><a href="https://pypi.org/project/baux/" class="nav-item external" target="_blank" rel="noopener noreferrer">PyPI</a><a href="https://crates.io/crates/baux" class="nav-item external" target="_blank" rel="noopener noreferrer">Crates.io</a></nav></div></header><div id="grid-wrapper"><article><section xmlns="" lang="en" class="block"><div class="tree-node" id="id1">
-<header><h1><span class="sec-title">ENN predictions</span></h1></header><nav class="api-page-nav" aria-label="API reference sections">
-<span class="link external"><a href="docs.html" rel="noopener noreferrer" title="">All symbols</a></span>
-<span class="link external"><a href="api-optimization.html" rel="noopener noreferrer" title="">Optimization loop</a></span>
-<span class="link external"><a href="api-pipelines.html" rel="noopener noreferrer" title="">Pipelines</a></span>
-<span class="link external"><a href="api-domains.html" rel="noopener noreferrer" title="">Parameter domains</a></span>
-<span xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" aria-current="page">ENN predictions</span>
-<span class="link external"><a href="api-state.html" rel="noopener noreferrer" title="">Checkpoints and keys</a></span>
-<span class="link external"><a href="api-configuration.html" rel="noopener noreferrer" title="">Configuration</a></span>
-<span class="link external"><a href="api-objects.html" rel="noopener noreferrer" title="">In-place interfaces</a></span>
-<span class="link external"><a href="api-runtime.html" rel="noopener noreferrer" title="">Runtime and integrations</a></span>
-</nav><p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">The functional sequence is <code>enn_init → enn_fit → enn_posterior</code>. Fitting returns parameters separately from the dataset. For an end-to-end example, see <span class="link external"><a href="baux-0003.html" rel="noopener noreferrer" title="">ENN predictions</a></span>.</p>
-<div xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux-api-filter"></div>
-<nav class="api-symbol-nav" aria-label="On this page"><span class="link external"><code xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><a href="#baux.enn_init" rel="noopener noreferrer" title="">enn_init</a></code></span> · <span class="link external"><code xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><a href="#baux.enn_append" rel="noopener noreferrer" title="">enn_append</a></code></span> · <span class="link external"><code xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><a href="#baux.enn_fit" rel="noopener noreferrer" title="">enn_fit</a></code></span> · <span class="link external"><code xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><a href="#baux.enn_posterior" rel="noopener noreferrer" title="">enn_posterior</a></code></span> · <span class="link external"><code xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><a href="#baux.enn_sample" rel="noopener noreferrer" title="">enn_sample</a></code></span> · <span class="link external"><code xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><a href="#baux.ENNState" rel="noopener noreferrer" title="">ENNState</a></code></span> · <span class="link external"><code xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><a href="#baux.ENNParams" rel="noopener noreferrer" title="">ENNParams</a></code></span> · <span class="link external"><code xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><a href="#baux.Posterior" rel="noopener noreferrer" title="">Posterior</a></code></span> · <span class="link external"><code xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><a href="#baux.NeighborIndex" rel="noopener noreferrer" title="">NeighborIndex</a></code></span> · <span class="link external"><code xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><a href="#baux.DistanceMetric" rel="noopener noreferrer" title="">DistanceMetric</a></code></span></nav><section xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.enn_init" class="api-entry" data-symbol="baux.enn_init" data-kind="function" data-module="baux.enn">
-  <div class="api-entry-header">
-<h2 class="api-entry-title"><span class="link external"><code><a href="#baux.enn_init" rel="noopener noreferrer" title="">baux.enn_init</a></code></span></h2> <span class="link external"><a href="https://github.com/Kvutza/baux/blob/main/python/baux/enn/enn_state.py#L332" rel="noopener noreferrer" title="">Source</a></span>
-</div>
-  <p>Create an ENN dataset and neighbor index.</p>
-  <pre>baux.enn_init(
-    train_x,
-    train_y,
-    train_yvar=None,
-    *,
-    scale_x=False,
-    stiefel=None,
-    affine=None,
-    **options,
-)</pre>
-  <p><code>train_x</code>: <code>(N, D)</code> inputs. <code>train_y</code>: <code>(N,)</code> or <code>(N, M)</code> outputs. <code>train_yvar</code>: optional matching observation variances. Returns <code>ENNState</code>.</p>
-  <p><code>scale_x</code> enables input scaling; <code>stiefel</code> and <code>affine</code> supply output maps. Additional options are forwarded to <span class="link external"><code><a href="api-objects.html#baux.ENN" rel="noopener noreferrer" title="">ENN</a></code></span>, including <code>index_driver</code>, <code>device</code>, <code>index</code>, <code>storage</code>, <code>work_dir</code> and <code>y_bounds</code>.</p>
-  <p>This creates the dataset; <span class="link external"><code><a href="#baux.enn_fit" rel="noopener noreferrer" title="">enn_fit</a></code></span> returns parameters used to query it.</p>
-  <details class="api-example"><summary>Example</summary>
-<pre>import numpy as np
-import baux
-
-x = np.array([[0.0], [1.0], [2.0], [3.0], [4.0]])
-y = np.sin(x)
-state = baux.enn_init(x, y)
-params = baux.enn_fit(state, k=3, num_samples=5, seed=0)
-q = np.array([[0.5], [1.5], [2.5]])
-post = baux.enn_posterior(state, q, params)
-draws, idx = baux.enn_sample(state, q, params, num_draws=4)
-x_new = np.full((1, 1), 5.0)
-state2 = baux.enn_append(state, x_new, np.sin(x_new))
-
-assert post.mu.shape == (3, 1)
-assert draws.shape == (3, 1, 4)
-assert len(state2) == 6</pre>
-  </details>
-</section><section xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.enn_append" class="api-entry" data-symbol="baux.enn_append" data-kind="function" data-module="baux.enn">
-  <div class="api-entry-header">
-<h2 class="api-entry-title"><span class="link external"><code><a href="#baux.enn_append" rel="noopener noreferrer" title="">baux.enn_append</a></code></span></h2> <span class="link external"><a href="https://github.com/Kvutza/baux/blob/main/python/baux/enn/enn_state.py#L366" rel="noopener noreferrer" title="">Source</a></span>
-</div>
-  <p>Append observations to an ENN state.</p>
-  <pre>baux.enn_append(state, x, y, y_var=None)</pre>
-  <p><code>x</code>: <code>(N, D)</code> inputs. <code>y</code>: <code>(N,)</code> or <code>(N, M)</code> outputs. Returns a new <code>ENNState</code>, leaving the input state unchanged.</p>
-  <p>The presence of <code>y_var</code> must match the existing dataset: either both old and new observations have variances, or neither does. Alias: <code>baux.append</code>.</p>
-</section><section xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.enn_fit" class="api-entry" data-symbol="baux.enn_fit" data-kind="function" data-module="baux.enn">
-  <div class="api-entry-header">
-<h2 class="api-entry-title"><span class="link external"><code><a href="#baux.enn_fit" rel="noopener noreferrer" title="">baux.enn_fit</a></code></span></h2> <span class="link external"><a href="https://github.com/Kvutza/baux/blob/main/python/baux/enn/enn_state.py#L434" rel="noopener noreferrer" title="">Source</a></span>
-</div>
-  <p>Fit ENN variance scales for a neighbor count.</p>
-  <pre>baux.enn_fit(
-    state,
-    k=10,
-    *,
-    num_candidates=100,
-    num_samples=10,
-    infer_aleatoric=True,
-    key=None,
-    seed=None,
-    warm=None,
-)</pre>
-  <p>Returns <code>ENNParams</code>; the dataset is unchanged. <code>k</code>: number of neighbors. <code>num_candidates</code>: parameter-search budget. <code>num_samples</code>: leave-one-out sample budget.</p>
-  <p><code>infer_aleatoric</code> controls fitting the aleatoric scale. <code>warm</code> supplies previous parameters. <code>key</code> takes precedence over <code>seed</code>. Alias: <code>baux.fit</code>.</p>
-</section><section xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.enn_posterior" class="api-entry" data-symbol="baux.enn_posterior" data-kind="function" data-module="baux.enn">
-  <div class="api-entry-header">
-<h2 class="api-entry-title"><span class="link external"><code><a href="#baux.enn_posterior" rel="noopener noreferrer" title="">baux.enn_posterior</a></code></span></h2> <span class="link external"><a href="https://github.com/Kvutza/baux/blob/main/python/baux/enn/enn_state.py#L400" rel="noopener noreferrer" title="">Source</a></span>
-</div>
-  <p>Predict means and uncertainty at query points.</p>
-  <pre>baux.enn_posterior(state, x, params, *, flags=None)</pre>
-  <p><code>x</code>: <code>(Q, D)</code> query array. <code>params</code>: fitted <code>ENNParams</code>. Returns <code>ENNNormal</code> with <code>mu</code>, <code>se</code>, <code>se_epi</code> and <code>se_ale</code> arrays of shape <code>(Q, M)</code>.</p>
-  <p><code>flags</code> is a <code>PosteriorFlags</code> from <code>baux.enn.posterior_flags</code>. Its defaults are <code>exclude_nearest=False</code>, <code>observation_noise=False</code>, <code>tie_neighbors=True</code>. Set <code>observation_noise=True</code> to include observation noise in reported uncertainty. Alias: <code>baux.posterior</code>.</p>
-</section><section xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.enn_sample" class="api-entry" data-symbol="baux.enn_sample" data-kind="function" data-module="baux.enn">
-  <div class="api-entry-header">
-<h2 class="api-entry-title"><span class="link external"><code><a href="#baux.enn_sample" rel="noopener noreferrer" title="">baux.enn_sample</a></code></span></h2> <span class="link external"><a href="https://github.com/Kvutza/baux/blob/main/python/baux/enn/enn_state.py#L407" rel="noopener noreferrer" title="">Source</a></span>
-</div>
-  <p>Draw functions from the ENN prediction model.</p>
-  <pre>baux.enn_sample(state, x, params, *, key=None, num_draws=1, seeds=None, flags=None)</pre>
-  <p><code>x</code>: <code>(Q, D)</code> queries. Returns <code>(draws, neighbor_ids)</code>; <code>draws</code> has shape <code>(Q, M, S)</code>.</p>
-  <p><code>num_draws</code> sets <code>S</code> when seeds are generated from <code>key</code>. Explicit <code>seeds</code> overrides that generation and determines the draw count. Reusing function seeds couples queries through shared observation-level randomness.</p>
-  <p><code>flags</code> has the same meaning as in <code>enn_posterior</code>; observation noise is excluded by default. Alias: <code>baux.sample</code>.</p>
-</section><section xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.ENNState" class="api-entry" data-symbol="baux.ENNState" data-kind="class" data-module="baux.enn">
-  <div class="api-entry-header">
-<h2 class="api-entry-title"><span class="link external"><code><a href="#baux.ENNState" rel="noopener noreferrer" title="">baux.ENNState</a></code></span></h2> <span class="link external"><a href="https://github.com/Kvutza/baux/blob/main/python/baux/enn/enn_state.py#L23" rel="noopener noreferrer" title="">Source</a></span>
-</div>
-  <p>A dataset and index for functional ENN queries.</p>
-  <pre>class baux.ENNState  (frozen dataclass; constructed via baux.enn_init)</pre>
-  <p>Construct it with <code>enn_init</code>, then use <code>enn_append</code> to add data. <code>x</code>, <code>y</code> and optional <code>y_var</code> are read-only arrays; <code>len(state)</code>, <code>num_dim</code> and <code>num_outputs</code> describe their dimensions.</p>
-  <p><code>key</code> is derived from the stored data and options. Fitted parameters are returned separately by <code>enn_fit</code>.</p>
-</section><section xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.ENNParams" class="api-entry" data-symbol="baux.ENNParams" data-kind="class" data-module="baux.enn">
-  <div class="api-entry-header">
-<h2 class="api-entry-title"><span class="link external"><code><a href="#baux.ENNParams" rel="noopener noreferrer" title="">baux.ENNParams</a></code></span></h2> <span class="link external"><a href="https://github.com/Kvutza/baux/blob/main/python/baux/enn/enn_params.py#L10" rel="noopener noreferrer" title="">Source</a></span>
-</div>
-  <p>Parameters required for an ENN prediction.</p>
-  <pre>baux.ENNParams(k_neighbors, epistemic_scale, aleatoric_scale)</pre>
-  <p><code>k_neighbors</code>: neighbor count. <code>epistemic_scale</code> and <code>aleatoric_scale</code>: variance multipliers. Usually returned by <code>enn_fit</code> or <code>ENNFitter.ask</code>.</p>
-</section><section xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.Posterior" class="api-entry" data-symbol="baux.Posterior" data-kind="class" data-module="baux.enn">
-  <div class="api-entry-header">
-<h2 class="api-entry-title"><span class="link external"><code><a href="#baux.Posterior" rel="noopener noreferrer" title="">baux.Posterior</a></code></span></h2> <span class="link external"><a href="https://github.com/Kvutza/baux/blob/main/rust/crates/baux-py/src/py_posterior.rs" rel="noopener noreferrer" title="">Source</a></span>
-</div>
-  <p>A native posterior result for device queries.</p>
-  <pre>class baux.Posterior  (device-resident posterior; paired with host baux.enn.ENNNormal)</pre>
-  <p>Exposes <code>mean</code>, <code>se</code> and <code>draw(seeds)</code> through native buffers. This differs from the NumPy <code>ENNNormal</code> returned by <code>enn_posterior</code>. Check backend operation support with <span class="link external"><code><a href="api-runtime.html#baux.capabilities" rel="noopener noreferrer" title="">capabilities</a></code></span>.</p>
-</section><section xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.NeighborIndex" class="api-entry" data-symbol="baux.NeighborIndex" data-kind="class" data-module="baux.index">
-  <div class="api-entry-header">
-<h2 class="api-entry-title"><span class="link external"><code><a href="#baux.NeighborIndex" rel="noopener noreferrer" title="">baux.NeighborIndex</a></code></span></h2> <span class="link external"><a href="https://github.com/Kvutza/baux/blob/main/python/baux/index.py#L16" rel="noopener noreferrer" title="">Source</a></span>
-</div>
-  <p>Select a nearest-neighbor backend.</p>
-  <pre>class baux.NeighborIndex(enum.Enum)</pre>
-  <p>Members: <code>FLAT</code>, <code>AUTO</code>, <code>USEARCH</code>, <code>BPANN_DISK</code>, <code>METAL</code>, <code>OPENCL</code>, <code>CUDA</code>. Supply a member as <code>index_driver</code> to <code>ENN</code>. Availability depends on the native build and hardware.</p>
-</section><section xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.DistanceMetric" class="api-entry" data-symbol="baux.DistanceMetric" data-kind="class" data-module="baux.index">
-  <div class="api-entry-header">
-<h2 class="api-entry-title"><span class="link external"><code><a href="#baux.DistanceMetric" rel="noopener noreferrer" title="">baux.DistanceMetric</a></code></span></h2> <span class="link external"><a href="https://github.com/Kvutza/baux/blob/main/python/baux/index.py#L9" rel="noopener noreferrer" title="">Source</a></span>
-</div>
-  <p>Select the index distance.</p>
-  <pre>class baux.DistanceMetric(enum.Enum)</pre>
-  <p>Members: <code>SQUARED_L2</code> and <code>COSINE</code>. The native optimizer's ENN configuration requires <code>SQUARED_L2</code>. This enum is separate from the geometry names accepted by <code>with_geometry</code>.</p>
-</section>
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'"></meta><meta name="referrer" content="strict-origin-when-cross-origin"></meta><meta name="viewport" content="width=device-width, initial-scale=1.0"></meta><link rel="stylesheet" href="style.css?v=c6920ffa9900" integrity="sha384-eCE0lf8tYM0kulHdKQDXb4F9umECW8rqlopm9XeJLMrpLvuebC09f+q7Lgl1cKcn"></link><link rel="stylesheet" href="katex.min.css?v=18c1c9fb05e7" integrity="sha384-TPqpCe9iqIJJFMUr4nZhfVfnhPwt6zFQ0llYbuKCrML4vxvk3koGtCzSoij1dOEx"></link><script type="module" src="forester.js?v=8f33e155074f" integrity="sha384-xGSQiQu0kX1eP1SDLdMBK8nvtlny/KN8EmWrdGiKFvVJS601GfKKTJCMCk7KddQg"></script><script type="text/javascript" src="assets/baux_ui.js?v=fa034c75536b" integrity="sha384-okndtktYmb1OM7+QOrjYcxeBpmvumizRBrtSHjyYo6kuT2dOtj3iIxA05++CMKMn" defer></script><title>ENN predictions</title></head><body data-page="api-enn"><header class="masthead"><div class="masthead-inner"><div class="masthead-brand"><a href="index.html" class="brand-title">baux</a></div><nav class="masthead-nav"><a href="index.html" class="nav-item">Get started</a><a href="docs.html" class="nav-item active">API Reference</a><a href="simulation.html" class="nav-item">Examples</a><a href="https://github.com/Kvutza/baux" class="nav-item external" target="_blank" rel="noopener noreferrer">GitHub</a><a href="https://pypi.org/project/baux/" class="nav-item external" target="_blank" rel="noopener noreferrer">PyPI</a><a href="https://crates.io/crates/baux" class="nav-item external" target="_blank" rel="noopener noreferrer">Crates.io</a></nav></div></header><div id="grid-wrapper"><article><section xmlns="" lang="en" class="block"><div class="tree-node" id="id1">
+<header><h1><span class="sec-title">ENN predictions</span></h1></header><p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">The reference is now on <span class="link external"><a href="docs.html#api-enn" rel="noopener noreferrer" title="">one searchable page</a></span>.</p>
+<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.enn_init"><span class="link external"><code><a href="docs.html#baux.enn_init" rel="noopener noreferrer" title="">baux.enn_init</a></code></span></p>
+<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.enn_append"><span class="link external"><code><a href="docs.html#baux.enn_append" rel="noopener noreferrer" title="">baux.enn_append</a></code></span></p>
+<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.enn_fit"><span class="link external"><code><a href="docs.html#baux.enn_fit" rel="noopener noreferrer" title="">baux.enn_fit</a></code></span></p>
+<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.enn_posterior"><span class="link external"><code><a href="docs.html#baux.enn_posterior" rel="noopener noreferrer" title="">baux.enn_posterior</a></code></span></p>
+<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.enn_sample"><span class="link external"><code><a href="docs.html#baux.enn_sample" rel="noopener noreferrer" title="">baux.enn_sample</a></code></span></p>
+<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.ENNState"><span class="link external"><code><a href="docs.html#baux.ENNState" rel="noopener noreferrer" title="">baux.ENNState</a></code></span></p>
+<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.ENNParams"><span class="link external"><code><a href="docs.html#baux.ENNParams" rel="noopener noreferrer" title="">baux.ENNParams</a></code></span></p>
+<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.Posterior"><span class="link external"><code><a href="docs.html#baux.Posterior" rel="noopener noreferrer" title="">baux.Posterior</a></code></span></p>
+<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.NeighborIndex"><span class="link external"><code><a href="docs.html#baux.NeighborIndex" rel="noopener noreferrer" title="">baux.NeighborIndex</a></code></span></p>
+<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.DistanceMetric"><span class="link external"><code><a href="docs.html#baux.DistanceMetric" rel="noopener noreferrer" title="">baux.DistanceMetric</a></code></span></p>
 </div></section></article></div></body></html>

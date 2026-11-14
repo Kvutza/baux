@@ -1,116 +1,14 @@
 <!DOCTYPE html PUBLIC "" "">
 <html xmlns="http://www.w3.org/1999/xhtml" xmlns:fr="http://www.jonmsterling.com/jms-005P.xml" data-base-url=""><head><meta http-equiv="Content-Type" content="text/html; charset=utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'"></meta><meta name="referrer" content="strict-origin-when-cross-origin"></meta><meta name="viewport" content="width=device-width, initial-scale=1.0"></meta><link rel="stylesheet" href="style.css?v=c322043d5574" integrity="sha384-9SpXFJMIJhZWkQp2/vgW2cmVoZBGmug6fddtzCP8G3VW058mc9vI1D/O18CIp/No"></link><link rel="stylesheet" href="katex.min.css?v=18c1c9fb05e7" integrity="sha384-TPqpCe9iqIJJFMUr4nZhfVfnhPwt6zFQ0llYbuKCrML4vxvk3koGtCzSoij1dOEx"></link><script type="module" src="forester.js?v=8f33e155074f" integrity="sha384-xGSQiQu0kX1eP1SDLdMBK8nvtlny/KN8EmWrdGiKFvVJS601GfKKTJCMCk7KddQg"></script><script type="text/javascript" src="assets/baux_ui.js?v=a749abe5453c" integrity="sha384-EhncjzmOP9knMuDteqfRMfHLHpehnZL7YYSGMZC/Zlk8yESJDoWVKv+uHsuIPe/D" defer></script><title>In-place interfaces</title></head><body data-page="api-objects"><header class="masthead"><div class="masthead-inner"><div class="masthead-brand"><a href="index.html" class="brand-title">baux</a></div><nav class="masthead-nav"><a href="index.html" class="nav-item">Get started</a><a href="docs.html" class="nav-item active">API Reference</a><a href="simulation.html" class="nav-item">Examples</a><a href="https://github.com/Kvutza/baux" class="nav-item external" target="_blank" rel="noopener noreferrer">GitHub</a><a href="https://pypi.org/project/baux/" class="nav-item external" target="_blank" rel="noopener noreferrer">PyPI</a><a href="https://crates.io/crates/baux" class="nav-item external" target="_blank" rel="noopener noreferrer">Crates.io</a></nav></div></header><div id="grid-wrapper"><article><section xmlns="" lang="en" class="block"><div class="tree-node" id="id1">
-<header><h1><span class="sec-title">In-place interfaces</span></h1></header><nav class="api-page-nav" aria-label="API reference sections">
-<span class="link external"><a href="docs.html" rel="noopener noreferrer" title="">All symbols</a></span>
-<span class="link external"><a href="api-optimization.html" rel="noopener noreferrer" title="">Optimization loop</a></span>
-<span class="link external"><a href="api-pipelines.html" rel="noopener noreferrer" title="">Pipelines</a></span>
-<span class="link external"><a href="api-domains.html" rel="noopener noreferrer" title="">Parameter domains</a></span>
-<span class="link external"><a href="api-enn.html" rel="noopener noreferrer" title="">ENN predictions</a></span>
-<span class="link external"><a href="api-state.html" rel="noopener noreferrer" title="">Checkpoints and keys</a></span>
-<span class="link external"><a href="api-configuration.html" rel="noopener noreferrer" title="">Configuration</a></span>
-<span xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" aria-current="page">In-place interfaces</span>
-<span class="link external"><a href="api-runtime.html" rel="noopener noreferrer" title="">Runtime and integrations</a></span>
-</nav><p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">These objects update in place. In particular, <code>optimizer.ask(N)</code> returns points directly and <code>optimizer.tell(x, y)</code> returns fitted means. The <span class="link external"><a href="api-optimization.html" rel="noopener noreferrer" title="">functional interface</a></span> returns a new state alongside its result.</p>
-<div xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux-api-filter"></div>
-<nav class="api-symbol-nav" aria-label="On this page"><span class="link external"><code xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><a href="#baux.create_optimizer" rel="noopener noreferrer" title="">create_optimizer</a></code></span> · <span class="link external"><code xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><a href="#baux.Optimizer" rel="noopener noreferrer" title="">Optimizer</a></code></span> · <span class="link external"><code xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><a href="#baux.ENN" rel="noopener noreferrer" title="">ENN</a></code></span> · <span class="link external"><code xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><a href="#baux.ENNFitter" rel="noopener noreferrer" title="">ENNFitter</a></code></span> · <span class="link external"><code xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><a href="#baux.Telemetry" rel="noopener noreferrer" title="">Telemetry</a></code></span> · <span class="link external"><code xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><a href="#baux.TellPredictionError" rel="noopener noreferrer" title="">TellPredictionError</a></code></span> · <span class="link external"><code xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><a href="#baux.enn_optimizer" rel="noopener noreferrer" title="">enn_optimizer</a></code></span> · <span class="link external"><code xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><a href="#baux.create_zero" rel="noopener noreferrer" title="">create_zero</a></code></span> · <span class="link external"><code xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml"><a href="#baux.create_lhd" rel="noopener noreferrer" title="">create_lhd</a></code></span></nav><section xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.create_optimizer" class="api-entry" data-symbol="baux.create_optimizer" data-kind="function" data-module="baux.bo">
-  <div class="api-entry-header">
-<h2 class="api-entry-title"><span class="link external"><code><a href="#baux.create_optimizer" rel="noopener noreferrer" title="">baux.create_optimizer</a></code></span></h2> <span class="link external"><a href="https://github.com/Kvutza/baux/blob/main/python/baux/bo.py#L356" rel="noopener noreferrer" title="">Source</a></span>
-</div>
-  <p>Create an optimizer that updates in place.</p>
-  <pre>baux.create_optimizer(*, bounds, config, rng)</pre>
-  <p>All arguments are keyword-only. <code>bounds</code>: <code>(D, 2)</code> array. <code>config</code>: an <code>OptimizerConfig</code>. <code>rng</code>: a NumPy random generator. Returns <code>Optimizer</code>.</p>
-  <p>Use <code>baux.chain(...)</code> to compile transforms before passing them as <code>config</code>. For structured parameters and explicit state transitions, use <code>baux.init</code>.</p>
-  <details class="api-example"><summary>Example</summary>
-<pre>import numpy as np
-import baux
-
-bounds = np.array([[-1.0, 1.0], [-2.0, 2.0]])
-cfg = (baux.enn(k=5) | baux.ucb(beta=1.5))()
-rng = np.random.default_rng(0)
-opt = baux.create_optimizer(bounds=bounds, config=cfg, rng=rng)
-x = opt.ask(num_arms=3)
-y = np.sum(x**2, axis=-1, keepdims=True)
-pred = opt.tell(x, y)
-telem = opt.telemetry()
-
-assert x.shape == (3, 2)
-assert pred.shape == (3, 1)
-assert isinstance(telem, baux.Telemetry)</pre>
-  </details>
-</section><section xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.Optimizer" class="api-entry" data-symbol="baux.Optimizer" data-kind="class" data-module="baux.bo">
-  <div class="api-entry-header">
-<h2 class="api-entry-title"><span class="link external"><code><a href="#baux.Optimizer" rel="noopener noreferrer" title="">baux.Optimizer</a></code></span></h2> <span class="link external"><a href="https://github.com/Kvutza/baux/blob/main/python/baux/bo.py#L157" rel="noopener noreferrer" title="">Source</a></span>
-</div>
-  <p>An in-place ask/tell optimizer.</p>
-  <pre>class baux.Optimizer  (constructed via baux.create_optimizer)</pre>
-  <p>Construct with <code>create_optimizer</code>. <code>ask(N)</code> returns a coordinate matrix; <code>ask_batch(N)</code> returns an <code>AskBatch</code> with typed regional tickets.</p>
-  <p><code>tell(x, y, y_var=None)</code> records a batch and returns fitted means. <code>complete(ids, y, y_var=None)</code> and <code>cancel(ids)</code> update regional tickets in place and return <code>None</code>. <code>restart_region(slot, center)</code> returns abandoned tickets.</p>
-  <p><code>import_observations(x, y, y_var=None)</code> adds external data. <code>posterior_mu(x)</code> predicts without ingestion. Properties include <code>num_observations</code>, <code>num_regions</code>, <code>tr_length</code>, <code>init_progress</code> and <code>pending_ids</code>. <code>telemetry()</code> returns phase timings.</p>
-</section><section xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.ENN" class="api-entry" data-symbol="baux.ENN" data-kind="class" data-module="baux.enn">
-  <div class="api-entry-header">
-<h2 class="api-entry-title"><span class="link external"><code><a href="#baux.ENN" rel="noopener noreferrer" title="">baux.ENN</a></code></span></h2> <span class="link external"><a href="https://github.com/Kvutza/baux/blob/main/python/baux/enn/enn_class.py#L186" rel="noopener noreferrer" title="">Source</a></span>
-</div>
-  <p>A mutable ENN dataset and prediction model.</p>
-  <pre>baux.ENN(
-    train_x,
-    train_y,
-    train_yvar=None,
-    *,
-    scale_x=False,
-    index_driver=NeighborIndex.FLAT,
-    work_dir=None,
-    enn_storage=None,
-    y_bounds=None,
-    **options,
-)</pre>
-  <p><code>train_x</code>: <code>(N, D)</code>. <code>train_y</code> and optional <code>train_yvar</code>: <code>(N, M)</code>. Unlike <code>enn_init</code>, this constructor requires two-dimensional output arrays.</p>
-  <p><code>index_driver</code> selects the backend. Extra options include <code>device</code>, <code>index</code>, <code>storage</code>, <code>metric_learning</code>, <code>geometry</code> and <code>local_k</code>. <code>y_bounds</code> supplies <code>(M, 2)</code> output bounds.</p>
-  <p><code>add(x, y, yvar=None)</code> appends in place. <code>posterior(x, params, flags=...)</code> returns moments; <code>posterior_draw(x, params, function_seeds=..., flags=...)</code> returns draws and neighbor IDs.</p>
-  <p>NumPy queries return <code>ENNNormal</code>. Supported device queries return a native <code>Posterior</code>. The presence of a device argument does not imply every operation runs there; inspect <code>capabilities</code>.</p>
-</section><section xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.ENNFitter" class="api-entry" data-symbol="baux.ENNFitter" data-kind="class" data-module="baux.enn">
-  <div class="api-entry-header">
-<h2 class="api-entry-title"><span class="link external"><code><a href="#baux.ENNFitter" rel="noopener noreferrer" title="">baux.ENNFitter</a></code></span></h2> <span class="link external"><a href="https://github.com/Kvutza/baux/blob/main/python/baux/enn/enn_fitter.py#L19" rel="noopener noreferrer" title="">Source</a></span>
-</div>
-  <p>Track fitting statistics for a mutable ENN model.</p>
-  <pre>baux.ENNFitter(k, rng, *, infer_aleatoric_variance_scale=True)</pre>
-  <p><code>k</code>: neighbor count. <code>rng</code>: NumPy generator. <code>infer_aleatoric_variance_scale</code>: whether to fit the aleatoric scale.</p>
-  <p>Call <code>tell(x, y, yvar)</code> to update statistics, then <code>ask(model, num_candidates=..., num_samples=...)</code> to get <code>ENNParams</code>. For the functional equivalent, use <code>enn_fit</code>.</p>
-</section><section xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.Telemetry" class="api-entry" data-symbol="baux.Telemetry" data-kind="class" data-module="baux.turbo.optimizer_types">
-  <div class="api-entry-header">
-<h2 class="api-entry-title"><span class="link external"><code><a href="#baux.Telemetry" rel="noopener noreferrer" title="">baux.Telemetry</a></code></span></h2> <span class="link external"><a href="https://github.com/Kvutza/baux/blob/main/python/baux/turbo/optimizer_types.py#L26" rel="noopener noreferrer" title="">Source</a></span>
-</div>
-  <p>Timings and candidate count from optimizer work.</p>
-  <pre>baux.Telemetry(dt_fit, dt_sel, dt_gen=0.0, dt_tell=0.0, num_candidates=0)</pre>
-  <p><code>dt_fit</code>, <code>dt_sel</code>, <code>dt_gen</code> and <code>dt_tell</code> are durations in seconds. <code>num_candidates</code> is the candidate count. Available as <code>state.telemetry</code> or <code>optimizer.telemetry()</code>.</p>
-</section><section xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.TellPredictionError" class="api-entry" data-symbol="baux.TellPredictionError" data-kind="class" data-module="baux.bo">
-  <div class="api-entry-header">
-<h2 class="api-entry-title"><span class="link external"><code><a href="#baux.TellPredictionError" rel="noopener noreferrer" title="">baux.TellPredictionError</a></code></span></h2> <span class="link external"><a href="https://github.com/Kvutza/baux/blob/main/python/baux/bo.py#L94" rel="noopener noreferrer" title="">Source</a></span>
-</div>
-  <p>Ingestion succeeded but retrieving predictions failed.</p>
-  <pre>class baux.TellPredictionError(RuntimeError)</pre>
-  <p>A <code>RuntimeError</code> subclass with <code>observations_accepted=True</code>. In the in-place optimizer, retry <code>optimizer.posterior_mu(x)</code> rather than submitting the same observations again. This exception does not classify errors from ingestion itself.</p>
-</section><section xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.enn_optimizer" class="api-entry" data-symbol="baux.enn_optimizer" data-kind="function" data-module="baux.bo">
-  <div class="api-entry-header">
-<h2 class="api-entry-title"><span class="link external"><code><a href="#baux.enn_optimizer" rel="noopener noreferrer" title="">baux.enn_optimizer</a></code></span></h2> <span class="link external"><a href="https://github.com/Kvutza/baux/blob/main/rust/crates/baux-py/src/py_optimizer/build.rs" rel="noopener noreferrer" title="">Source</a></span>
-</div>
-  <p>Construct the native ENN optimizer handle.</p>
-  <pre>baux.enn_optimizer(bounds, k=10, num_init=10, seed=None, config=None)</pre>
-  <p><code>bounds</code>: <code>(D, 2)</code> array; <code>k</code>: neighbor count; <code>num_init</code>: initialization budget. Returns a native optimizer handle. <code>config</code> uses the native configuration representation.</p>
-  <p>For Python configuration records and functional state, use <code>init</code>; for the in-place Python wrapper, use <code>create_optimizer</code>.</p>
-</section><section xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.create_zero" class="api-entry" data-symbol="baux.create_zero" data-kind="function" data-module="baux.bo">
-  <div class="api-entry-header">
-<h2 class="api-entry-title"><span class="link external"><code><a href="#baux.create_zero" rel="noopener noreferrer" title="">baux.create_zero</a></code></span></h2> <span class="link external"><a href="https://github.com/Kvutza/baux/blob/main/rust/crates/baux-py/src/py_optimizer/build.rs" rel="noopener noreferrer" title="">Source</a></span>
-</div>
-  <p>Construct the native surrogate-free optimizer handle.</p>
-  <pre>baux.create_zero(bounds, num_init=10, seed=None, config=None)</pre>
-  <p><code>bounds</code>: <code>(D, 2)</code> array; <code>num_init</code>: initialization budget. Returns a native handle. <code>config</code> uses the native representation. The Python configuration preset is <code>turbo_zero</code>.</p>
-</section><section xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.create_lhd" class="api-entry" data-symbol="baux.create_lhd" data-kind="function" data-module="baux.bo">
-  <div class="api-entry-header">
-<h2 class="api-entry-title"><span class="link external"><code><a href="#baux.create_lhd" rel="noopener noreferrer" title="">baux.create_lhd</a></code></span></h2> <span class="link external"><a href="https://github.com/Kvutza/baux/blob/main/rust/crates/baux-py/src/py_optimizer/build.rs" rel="noopener noreferrer" title="">Source</a></span>
-</div>
-  <p>Construct the native LHD optimizer handle.</p>
-  <pre>baux.create_lhd(bounds, num_init=10, seed=None, config=None)</pre>
-  <p><code>bounds</code>: <code>(D, 2)</code> array; <code>num_init</code>: initialization budget. Returns a native handle. <code>config</code> uses the native representation. The Python configuration preset is <code>lhd_only</code>.</p>
-</section>
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'"></meta><meta name="referrer" content="strict-origin-when-cross-origin"></meta><meta name="viewport" content="width=device-width, initial-scale=1.0"></meta><link rel="stylesheet" href="style.css?v=c6920ffa9900" integrity="sha384-eCE0lf8tYM0kulHdKQDXb4F9umECW8rqlopm9XeJLMrpLvuebC09f+q7Lgl1cKcn"></link><link rel="stylesheet" href="katex.min.css?v=18c1c9fb05e7" integrity="sha384-TPqpCe9iqIJJFMUr4nZhfVfnhPwt6zFQ0llYbuKCrML4vxvk3koGtCzSoij1dOEx"></link><script type="module" src="forester.js?v=8f33e155074f" integrity="sha384-xGSQiQu0kX1eP1SDLdMBK8nvtlny/KN8EmWrdGiKFvVJS601GfKKTJCMCk7KddQg"></script><script type="text/javascript" src="assets/baux_ui.js?v=fa034c75536b" integrity="sha384-okndtktYmb1OM7+QOrjYcxeBpmvumizRBrtSHjyYo6kuT2dOtj3iIxA05++CMKMn" defer></script><title>In-place interfaces</title></head><body data-page="api-objects"><header class="masthead"><div class="masthead-inner"><div class="masthead-brand"><a href="index.html" class="brand-title">baux</a></div><nav class="masthead-nav"><a href="index.html" class="nav-item">Get started</a><a href="docs.html" class="nav-item active">API Reference</a><a href="simulation.html" class="nav-item">Examples</a><a href="https://github.com/Kvutza/baux" class="nav-item external" target="_blank" rel="noopener noreferrer">GitHub</a><a href="https://pypi.org/project/baux/" class="nav-item external" target="_blank" rel="noopener noreferrer">PyPI</a><a href="https://crates.io/crates/baux" class="nav-item external" target="_blank" rel="noopener noreferrer">Crates.io</a></nav></div></header><div id="grid-wrapper"><article><section xmlns="" lang="en" class="block"><div class="tree-node" id="id1">
+<header><h1><span class="sec-title">In-place interfaces</span></h1></header><p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml">The reference is now on <span class="link external"><a href="docs.html#api-objects" rel="noopener noreferrer" title="">one searchable page</a></span>.</p>
+<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.create_optimizer"><span class="link external"><code><a href="docs.html#baux.create_optimizer" rel="noopener noreferrer" title="">baux.create_optimizer</a></code></span></p>
+<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.Optimizer"><span class="link external"><code><a href="docs.html#baux.Optimizer" rel="noopener noreferrer" title="">baux.Optimizer</a></code></span></p>
+<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.ENN"><span class="link external"><code><a href="docs.html#baux.ENN" rel="noopener noreferrer" title="">baux.ENN</a></code></span></p>
+<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.ENNFitter"><span class="link external"><code><a href="docs.html#baux.ENNFitter" rel="noopener noreferrer" title="">baux.ENNFitter</a></code></span></p>
+<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.Telemetry"><span class="link external"><code><a href="docs.html#baux.Telemetry" rel="noopener noreferrer" title="">baux.Telemetry</a></code></span></p>
+<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.TellPredictionError"><span class="link external"><code><a href="docs.html#baux.TellPredictionError" rel="noopener noreferrer" title="">baux.TellPredictionError</a></code></span></p>
+<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.enn_optimizer"><span class="link external"><code><a href="docs.html#baux.enn_optimizer" rel="noopener noreferrer" title="">baux.enn_optimizer</a></code></span></p>
+<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.create_zero"><span class="link external"><code><a href="docs.html#baux.create_zero" rel="noopener noreferrer" title="">baux.create_zero</a></code></span></p>
+<p xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:html="http://www.w3.org/1999/xhtml" id="baux.create_lhd"><span class="link external"><code><a href="docs.html#baux.create_lhd" rel="noopener noreferrer" title="">baux.create_lhd</a></code></span></p>
 </div></section></article></div></body></html>

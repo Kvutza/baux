@@ -717,7 +717,7 @@ type enn_model = {
 type posterior = {
   mean : float;
   sigma : float;
-  lcb : float;
+  ucb : float;
   neighbors : int array;
 }
 
@@ -849,7 +849,7 @@ let metric_distance (m : enn_model) (d2 : float) (ell_u : float) (ell_j : float)
       let arg = 1.0 +. ((d2 +. (dl *. dl)) /. (2.0 *. ell_u *. ell_j)) in
       Float.acosh (Float.max 1.0 arg)
 
-let predict_enn ?(beta = 1.65) (m : enn_model) (u : float array) : posterior =
+let predict_enn ?(beta = 2.0) (m : enn_model) (u : float array) : posterior =
   let n = m.n in
   let raw_d2 = Array.make n 0.0 in
   let raw_d = Array.make n 0.0 in
@@ -911,12 +911,12 @@ let predict_enn ?(beta = 1.65) (m : enn_model) (u : float array) : posterior =
   let hi = decompress_y (mu_z +. sig_z) m.y_center m.y_scale in
   let lo = decompress_y (mu_z -. sig_z) m.y_center m.y_scale in
   let sigma = Float.max 1.0e-9 (0.5 *. Float.abs (hi -. lo)) in
-  let lcb = decompress_y (mu_z -. (beta *. sig_z)) m.y_center m.y_scale in
+  let ucb = -.decompress_y (mu_z -. (beta *. sig_z)) m.y_center m.y_scale in
   let valid_neighbors =
     best_idx |> Array.to_list |> List.filter (fun idx -> idx >= 0)
     |> Array.of_list
   in
-  { mean; sigma; lcb; neighbors = valid_neighbors }
+  { mean; sigma; ucb; neighbors = valid_neighbors }
 
 let ensure_model (s : session) : enn_model =
   match s.cached_model with
@@ -1131,7 +1131,7 @@ let step_once (s : session) =
         let m = ensure_model s in
         let n_pool = if s.dim >= 16 then 56 else 40 in
         let best_c = ref (raasp_candidate s.rng reg.center_u reg.length) in
-        let best_lcb = ref Float.infinity in
+        let best_ucb = ref Float.neg_infinity in
         for p = 0 to n_pool - 1 do
           let c =
             if p = 0 then !best_c
@@ -1140,9 +1140,9 @@ let step_once (s : session) =
             else
               raasp_candidate ~full:(p mod 3 = 1) s.rng reg.center_u reg.length
           in
-          let post = predict_enn ~beta:1.75 m c in
-          if post.lcb < !best_lcb then begin
-            best_lcb := post.lcb;
+          let post = predict_enn ~beta:2.0 m c in
+          if post.ucb > !best_ucb then begin
+            best_ucb := post.ucb;
             best_c := c
           end
         done;

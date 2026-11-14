@@ -26,7 +26,7 @@ end
 type field_mode =
   | Field_sigma
   | Field_mean
-  | Field_lcb
+  | Field_ucb
   | Field_true
 
 type dim_regime =
@@ -742,7 +742,7 @@ let init_webgl (canvas : canvasElement Js.t) : gl_bundle option =
 (* --- 48 x 48 2D Field Offscreen Heatmap Cache --- *)
 
 let grid_2d = 48
-let tex_2d = 144
+let tex_2d = 104
 
 type map2d_cache = {
   m_key : string;
@@ -772,7 +772,7 @@ let build_map2d_cache (s : Bench_suite.session) (field : field_mode)
         | Field_true -> Bench_suite.safe_eval s.spec s.bounds probe
         | Field_sigma -> (Bench_suite.predict_enn m probe).sigma
         | Field_mean -> (Bench_suite.predict_enn m probe).mean
-        | Field_lcb -> (Bench_suite.predict_enn m probe).lcb
+        | Field_ucb -> (Bench_suite.predict_enn m probe).ucb
       in
       raw.(i).(j) <- v;
       flat.(!k) <- v;
@@ -810,7 +810,7 @@ let build_map2d_cache (s : Bench_suite.session) (field : field_mode)
       let rgb =
         match field with
         | Field_sigma -> sigma_rgb t
-        | Field_mean | Field_lcb | Field_true -> surface_rgb t
+        | Field_mean | Field_ucb | Field_true -> surface_rgb t
       in
       let r8, g8, b8 = rgb_bytes rgb in
       let base = (py * tex_2d + px) * 4 in
@@ -828,7 +828,7 @@ let build_map2d_cache (s : Bench_suite.session) (field : field_mode)
       (match field with
       | Field_sigma -> 0
       | Field_mean -> 1
-      | Field_lcb -> 2
+      | Field_ucb -> 2
       | Field_true -> 3)
   in
   { m_key = key; m_field = field; m_tnorm = tnorm; m_scale = sc; m_canvas = off_canvas }
@@ -918,7 +918,6 @@ let mount_viewer (root : element Js.t) =
     in
 
     (* Mutable UI State *)
-    let cur_family : Bench_suite.family option ref = ref None in
     let cur_spec = ref default_spec in
     let cur_regime = ref Reg_canonical in
     let cur_arm = ref (Bench_suite.Enn_multi Bench_suite.Hyperbolic) in
@@ -955,55 +954,24 @@ let mount_viewer (root : element Js.t) =
     let outer = mk_div ~cls:"tcv-cad-outer oxb-cad-outer" () in
     let sidebar = document##createElement (js "aside") in
     sidebar##.className := js "tcv-side-controls oxb-side-controls";
-    sidebar##setAttribute (js "aria-label") (js "Benchmark Suite Controls");
+    sidebar##setAttribute (js "aria-label") (js "Benchmark Simulation Console");
 
-    let title_bar = mk_div ~cls:"tcv-hud-badge tcv-ctrl-title oxb-ctrl-title" () in
-    Dom.appendChild title_bar (mk_strong "BENCHMARK SUITE (56)");
+    let title_bar = mk_div ~cls:"tcv-hud-badge tcv-ctrl-title" () in
+    Dom.appendChild title_bar (mk_strong "Simulation Console");
     Dom.appendChild sidebar title_bar;
 
-    (* 1. Family Filter Pills + Function Select *)
+    (* 1. Function Selector (<optgroup> by family) + Compact Dimension Regime *)
     let sec_fn = mk_div ~cls:"tcv-ctrl-sec oxb-ctrl-fn" () in
     let hdr_fn = mk_div ~cls:"tcv-ctrl-hdr" () in
-    let fn_count_span = mk_span ~txt:"56 functions" () in
-    Dom.appendChild hdr_fn (mk_span ~txt:"Function Family" ());
-    Dom.appendChild hdr_fn fn_count_span;
+    let dim_active_lbl = mk_strong "D = 2" in
+    Dom.appendChild hdr_fn (mk_span ~txt:"Function" ());
+    Dom.appendChild hdr_fn dim_active_lbl;
     Dom.appendChild sec_fn hdr_fn;
-
-    let fam_pills_wrap = mk_div ~cls:"oxb-fam-pills" () in
-    let families : (string * Bench_suite.family option) array =
-      [|
-        ("All (56)", None);
-        ("Multimodal", Some Bench_suite.Multimodal);
-        ("Bowl", Some Bench_suite.Bowl);
-        ("Plate", Some Bench_suite.Plate);
-        ("Valley", Some Bench_suite.Valley);
-        ("Ridge", Some Bench_suite.Ridge);
-        ("Standard BO", Some Bench_suite.Other);
-      |]
-    in
-    let fam_btns =
-      Array.map
-        (fun (lbl, fam_opt) ->
-          let b = mk_btn ~cls:"oxb-pill-btn" lbl in
-          Dom.appendChild fam_pills_wrap b;
-          (b, fam_opt))
-        families
-    in
-    Dom.appendChild sec_fn fam_pills_wrap;
 
     let fn_select = createSelect document in
     fn_select##.className := js "tcv-select oxb-fn-select";
     fn_select##setAttribute (js "aria-label") (js "Benchmark Function");
     Dom.appendChild sec_fn fn_select;
-    Dom.appendChild sidebar sec_fn;
-
-    (* 2. Dimension Regime Selector *)
-    let sec_dim = mk_div ~cls:"tcv-ctrl-sec oxb-ctrl-dim" () in
-    let hdr_dim = mk_div ~cls:"tcv-ctrl-hdr" () in
-    let dim_active_lbl = mk_strong "D = 2" in
-    Dom.appendChild hdr_dim (mk_span ~txt:"Dimension Regime" ());
-    Dom.appendChild hdr_dim dim_active_lbl;
-    Dom.appendChild sec_dim hdr_dim;
 
     let dim_row = mk_div ~cls:"tcv-preset-row oxb-dim-row" () in
     let btn_dim_can = mk_btn ~cls:"tcv-preset-btn active" "Canonical" in
@@ -1012,14 +980,14 @@ let mount_viewer (root : element Js.t) =
     Dom.appendChild dim_row btn_dim_can;
     Dom.appendChild dim_row btn_dim_16;
     Dom.appendChild dim_row btn_dim_64;
-    Dom.appendChild sec_dim dim_row;
-    Dom.appendChild sidebar sec_dim;
+    Dom.appendChild sec_fn dim_row;
+    Dom.appendChild sidebar sec_fn;
 
-    (* 3. Optimizer / Geometry Arm Selector *)
+    (* 2. Optimizer Arm Selector *)
     let sec_arm = mk_div ~cls:"tcv-ctrl-sec oxb-ctrl-arm" () in
     let hdr_arm = mk_div ~cls:"tcv-ctrl-hdr" () in
-    Dom.appendChild hdr_arm (mk_span ~txt:"Optimizer / Geometry" ());
-    Dom.appendChild hdr_arm (mk_span ~txt:"Regions" ());
+    Dom.appendChild hdr_arm (mk_span ~txt:"Optimizer Arm" ());
+    Dom.appendChild hdr_arm (mk_span ~txt:"Best f*" ());
     Dom.appendChild sec_arm hdr_arm;
 
     let arm_group = mk_div ~cls:"tcv-pol-group oxb-arm-group" () in
@@ -1059,64 +1027,90 @@ let mount_viewer (root : element Js.t) =
           Dom.appendChild b left_sp;
           Dom.appendChild b right_sp;
           Dom.appendChild arm_group b;
-          (b, arm_val))
+          (b, right_sp, tag_r, arm_val))
         arm_specs
     in
     Dom.appendChild sec_arm arm_group;
     Dom.appendChild sidebar sec_arm;
 
-    (* 4. 2D Surrogate Field Selector Pills *)
-    let sec_field = mk_div ~cls:"tcv-ctrl-sec oxb-ctrl-field" () in
-    let hdr_field = mk_div ~cls:"tcv-ctrl-hdr" () in
-    Dom.appendChild hdr_field (mk_span ~txt:"2D Surrogate Field" ());
-    Dom.appendChild hdr_field (mk_span ~txt:"Pane (b)" ());
-    Dom.appendChild sec_field hdr_field;
-
-    let field_row = mk_div ~cls:"oxb-field-row" () in
-    let field_specs =
-      [|
-        ([(false, "Epistemic \u{03C3}"); (true, "e")], Field_sigma);
-        ([(false, "Posterior \u{03BC}")], Field_mean);
-        ([(false, "LCB \u{03B1}(x)")], Field_lcb);
-        ([(false, "True f(x)")], Field_true);
-      |]
-    in
-    let field_btns =
-      Array.map
-        (fun (parts, fm) ->
-          let b = mk_btn ~cls:"tcv-preset-btn oxb-field-btn" "" in
-          append_sub_parts b parts;
-          Dom.appendChild field_row b;
-          (b, fm))
-        field_specs
-    in
-    Dom.appendChild sec_field field_row;
-    Dom.appendChild sidebar sec_field;
-
-    (* 5. Live Step & Playback Controls *)
+    (* 3. Eval Round Scrubber + Play Controls *)
     let sec_play = mk_div ~cls:"tcv-ctrl-sec oxb-ctrl-play" () in
     let hdr_play = mk_div ~cls:"tcv-ctrl-hdr" () in
-    let budget_lbl = mk_span ~txt:"Budget 240" () in
-    Dom.appendChild hdr_play (mk_span ~txt:"Live Trajectory" ());
-    Dom.appendChild hdr_play budget_lbl;
+    let round_lbl = mk_strong "n = 32 / 240" in
+    Dom.appendChild hdr_play (mk_span ~txt:"Eval Round" ());
+    Dom.appendChild hdr_play round_lbl;
     Dom.appendChild sec_play hdr_play;
 
-    let status_badge = mk_div ~cls:"tcv-shot-status is-done oxb-status-badge" () in
-    Dom.appendChild sec_play status_badge;
-
-    let play_grid = mk_div ~cls:"oxb-play-grid" () in
+    let round_row = mk_div ~cls:"tcv-round-row" () in
+    let round_slider = createInput ~_type:(js "range") document in
+    round_slider##.className := js "oxb-round-slider";
+    round_slider##.min := js "8";
+    round_slider##.max := js (string_of_int max_auto_evals);
+    round_slider##.step := js "1";
+    round_slider##setAttribute (js "aria-label") (js "Evaluation Round");
+    let play_bar = mk_div ~cls:"oxb-play-bar" () in
     let btn_play = mk_btn ~cls:"tcv-pol-btn oxb-play-btn" "\u{25B6} Play" in
-    let btn_step1 = mk_btn ~cls:"tcv-preset-btn oxb-step-btn" "+1 Step" in
-    let btn_step10 = mk_btn ~cls:"tcv-preset-btn oxb-step-btn" "+10 Steps" in
-    let btn_reset = mk_btn ~cls:"tcv-preset-btn oxb-step-btn" "\u{21BA} Reset" in
-    let btn_seed = mk_btn ~cls:"tcv-preset-btn oxb-step-btn" "Seed 1" in
-    Dom.appendChild play_grid btn_play;
-    Dom.appendChild play_grid btn_step1;
-    Dom.appendChild play_grid btn_step10;
-    Dom.appendChild play_grid btn_reset;
-    Dom.appendChild play_grid btn_seed;
-    Dom.appendChild sec_play play_grid;
+    let btn_step10 = mk_btn ~cls:"tcv-preset-btn oxb-mini-btn" "+10" in
+    let btn_reset = mk_btn ~cls:"tcv-preset-btn oxb-mini-btn" "\u{21BA}" in
+    btn_step10##setAttribute (js "title") (js "Advance 10 BO steps");
+    btn_reset##setAttribute (js "title") (js "Reset trajectory to initial LHS design");
+    Dom.appendChild play_bar btn_play;
+    Dom.appendChild play_bar btn_step10;
+    Dom.appendChild play_bar btn_reset;
+    Dom.appendChild round_row round_slider;
+    Dom.appendChild round_row play_bar;
+    Dom.appendChild sec_play round_row;
     Dom.appendChild sidebar sec_play;
+
+    (* 4. Compact View & Seed Controls *)
+    let sec_view = mk_div ~cls:"tcv-ctrl-sec oxb-ctrl-view" () in
+    let view_grid = mk_div ~cls:"oxb-view-grid" () in
+
+    let field_wrap = mk_div ~cls:"oxb-view-cell" () in
+    let hdr_field = mk_div ~cls:"tcv-ctrl-hdr" () in
+    Dom.appendChild hdr_field (mk_span ~txt:"Pane (b)" ());
+    let field_select = createSelect document in
+    field_select##.className := js "tcv-select oxb-field-select";
+    field_select##setAttribute (js "aria-label") (js "Pane B Surrogate Field");
+    let field_options =
+      [|
+        ("sigma", "Epistemic \u{03C3}\u{2091}(x)", Field_sigma);
+        ("mean", "Posterior \u{03BC}(x)", Field_mean);
+        ("ucb", "UCB(\u{2212}f) Score", Field_ucb);
+        ("true", "True Surface f(x)", Field_true);
+      |]
+    in
+    Array.iter
+      (fun (v, lbl, _) ->
+        let opt = createOption document in
+        opt##.value := js v;
+        set_text opt lbl;
+        Dom.appendChild field_select opt)
+      field_options;
+    Dom.appendChild field_wrap hdr_field;
+    Dom.appendChild field_wrap field_select;
+
+    let seed_wrap = mk_div ~cls:"oxb-view-cell" () in
+    let hdr_seed = mk_div ~cls:"tcv-ctrl-hdr" () in
+    Dom.appendChild hdr_seed (mk_span ~txt:"Seed" ());
+    let seed_select = createSelect document in
+    seed_select##.className := js "tcv-select mono oxb-seed-select";
+    seed_select##setAttribute (js "aria-label") (js "Random Seed");
+    for sd = 1 to 8 do
+      let opt = createOption document in
+      opt##.value := js (string_of_int sd);
+      set_text opt (Printf.sprintf "Seed %d" sd);
+      Dom.appendChild seed_select opt
+    done;
+    Dom.appendChild seed_wrap hdr_seed;
+    Dom.appendChild seed_wrap seed_select;
+
+    Dom.appendChild view_grid field_wrap;
+    Dom.appendChild view_grid seed_wrap;
+    Dom.appendChild sec_view view_grid;
+    let btn_reset_cam = mk_btn ~cls:"tcv-preset-btn oxb-reset-cam-btn" "Reset View" in
+    Dom.appendChild sec_view btn_reset_cam;
+    Dom.appendChild sidebar sec_view;
 
     (* --- Main Dual-Pane Shell --- *)
     let shell = mk_div ~cls:"tcv-cad-shell oxb-cad-shell" () in
@@ -1718,7 +1712,7 @@ let mount_viewer (root : element Js.t) =
         let mu_arr = Array.make n_pts 0.0 in
         let lo_arr = Array.make n_pts 0.0 in
         let hi_arr = Array.make n_pts 0.0 in
-        let lcb_arr = Array.make n_pts 0.0 in
+        let ucb_env_arr = Array.make n_pts 0.0 in
         let y_min = ref Float.infinity in
         let y_max = ref Float.neg_infinity in
         let note v =
@@ -1736,7 +1730,7 @@ let mount_viewer (root : element Js.t) =
           mu_arr.(i) <- post.mean;
           lo_arr.(i) <- post.mean -. (2.0 *. post.sigma);
           hi_arr.(i) <- post.mean +. (2.0 *. post.sigma);
-          lcb_arr.(i) <- post.lcb;
+          ucb_env_arr.(i) <- -.post.ucb;
           note fv;
           note lo_arr.(i);
           note hi_arr.(i)
@@ -1798,15 +1792,15 @@ let mount_viewer (root : element Js.t) =
         done;
         ctx##stroke;
 
-        (* Optional LCB curve *)
-        if !cur_field = Field_lcb then begin
+        (* Optional UCB(-f) optimism envelope *)
+        if !cur_field = Field_ucb then begin
           set_line_dash ctx [| 2.0; 2.5 |];
           ctx##.strokeStyle := js (if is_dark then "#fbbf24" else "#d97706");
           ctx##.lineWidth := jf 1.4;
           ctx##beginPath;
           for i = 0 to n_pts - 1 do
             let u1 = float_of_int i /. float_of_int (n_pts - 1) in
-            let px = x_of_u u1 and py = y_of_v lcb_arr.(i) in
+            let px = x_of_u u1 and py = y_of_v ucb_env_arr.(i) in
             if i = 0 then ctx##moveTo (jf px) (jf py)
             else ctx##lineTo (jf px) (jf py)
           done;
@@ -1941,7 +1935,7 @@ let mount_viewer (root : element Js.t) =
             (match !cur_field with
             | Field_sigma -> 0
             | Field_mean -> 1
-            | Field_lcb -> 2
+            | Field_ucb -> 2
             | Field_true -> 3)
         in
         let mc =
@@ -2156,7 +2150,7 @@ let mount_viewer (root : element Js.t) =
           let rgb =
             match !cur_field with
             | Field_sigma -> sigma_rgb u
-            | Field_mean | Field_lcb | Field_true -> surface_rgb u
+            | Field_mean | Field_ucb | Field_true -> surface_rgb u
           in
           let r8, g8, b8 = rgb_bytes rgb in
           grad##addColorStop (jf u) (js (Printf.sprintf "rgb(%d,%d,%d)" r8 g8 b8))
@@ -2338,7 +2332,7 @@ let mount_viewer (root : element Js.t) =
             [
               (false, Printf.sprintf "Cursor %s  \u{00B7}  True f(x) = %s  \u{00B7}  ENN \u{03BC}(x) = %s  \u{00B7}  \u{03C3}" coord_str (fmt_num f_val) (fmt_num post.mean));
               (true, "e");
-              (false, Printf.sprintf "(x) = %s  \u{00B7}  LCB \u{03B1}(x) = %s  \u{00B7}  Stencil K = %d neighbors" (fmt_num post.sigma) (fmt_num post.lcb) (Array.length post.neighbors));
+              (false, Printf.sprintf "(x) = %s  \u{00B7}  UCB(\u{2212}f) = %s  \u{00B7}  Stencil K = %d neighbors" (fmt_num post.sigma) (fmt_num post.ucb) (Array.length post.neighbors));
             ]
     in
 
@@ -2347,12 +2341,7 @@ let mount_viewer (root : element Js.t) =
       let sp = s.spec in
       let scalable = Bench_suite.is_scalable sp.rule in
 
-      (* Family pills *)
-      Array.iter
-        (fun (btn, fam_opt) -> toggle_class btn "active" (fam_opt = !cur_family))
-        fam_btns;
-
-      (* Dimension regime buttons *)
+      (* Dimension regime segmented strip *)
       set_text dim_active_lbl (Printf.sprintf "D = %d" s.dim);
       let ok16 = scalable && Bench_suite.valid_dim sp.rule 16 in
       let ok64 = scalable && Bench_suite.valid_dim sp.rule 64 in
@@ -2364,23 +2353,31 @@ let mount_viewer (root : element Js.t) =
       toggle_class btn_dim_16 "active" (ok16 && !cur_regime = Reg_d16);
       toggle_class btn_dim_64 "active" (ok64 && !cur_regime = Reg_d64);
 
-      (* Arm buttons *)
-      Array.iter
-        (fun (btn, arm_v) -> toggle_class btn "active" (arm_v = !cur_arm))
-        arm_btns;
-
-      (* Field buttons *)
-      Array.iter
-        (fun (btn, fm) -> toggle_class btn "active" (fm = !cur_field))
-        field_btns;
-
-      (* Status & seed *)
+      (* Active Best f* & Arm rows *)
       let n_obs = Array.length s.ys in
       let best_y = s.ys.(s.best_idx) in
-      set_text status_badge
-        (Printf.sprintf "Evals: %d  \u{00B7}  Best f(x*): %s" n_obs
-           (fmt_num best_y));
-      set_text btn_seed (Printf.sprintf "Seed %d" !cur_seed);
+      Array.iter
+        (fun (btn, tag_sp, tag_default, arm_v) ->
+          let is_cur = arm_v = !cur_arm in
+          toggle_class btn "active" is_cur;
+          set_text tag_sp (if is_cur then fmt_num best_y else tag_default))
+        arm_btns;
+
+      (* Field & Seed selects *)
+      let field_val =
+        match !cur_field with
+        | Field_sigma -> "sigma"
+        | Field_mean -> "mean"
+        | Field_ucb -> "ucb"
+        | Field_true -> "true"
+      in
+      field_select##.value := js field_val;
+      seed_select##.value := js (string_of_int !cur_seed);
+
+      (* Eval scrubber *)
+      round_slider##.min := js (string_of_int s.n_init);
+      round_slider##.value := js (string_of_int n_obs);
+      set_text round_lbl (Printf.sprintf "n = %d / %d" n_obs max_auto_evals);
 
       (* HUD Badges *)
       if s.dim = 1 then begin
@@ -2396,7 +2393,7 @@ let mount_viewer (root : element Js.t) =
           match !cur_field with
           | Field_sigma -> [(false, "Epistemic \u{03C3}"); (true, "e"); (false, "(x)")]
           | Field_mean -> [(false, "Posterior \u{03BC}(x)")]
-          | Field_lcb -> [(false, "LCB \u{03B1}(x)")]
+          | Field_ucb -> [(false, "UCB(\u{2212}f)")]
           | Field_true -> [(false, "True f(x)")]
         in
         append_sub_parts badge_b_sub f_parts
@@ -2410,7 +2407,7 @@ let mount_viewer (root : element Js.t) =
           | Field_sigma ->
               [(false, "\u{03C3}"); (true, "e"); (false, Printf.sprintf " slice (D=%d)" s.dim)]
           | Field_mean -> [(false, Printf.sprintf "\u{03BC} slice (D=%d)" s.dim)]
-          | Field_lcb -> [(false, Printf.sprintf "LCB slice (D=%d)" s.dim)]
+          | Field_ucb -> [(false, Printf.sprintf "UCB(\u{2212}f) slice (D=%d)" s.dim)]
           | Field_true -> [(false, Printf.sprintf "f(x) slice (D=%d)" s.dim)]
         in
         append_sub_parts badge_b_sub f_parts
@@ -2460,49 +2457,43 @@ let mount_viewer (root : element Js.t) =
       render_all ()
     in
 
-    (* --- Populate Function <select> Matching Family --- *)
-    let rebuild_fn_options () =
-      let matching =
-        Array.to_list Bench_suite.catalogue
-        |> List.filter (fun (sp : Bench_suite.spec) ->
-               match !cur_family with
-               | None -> true
-               | Some fam -> sp.family = fam)
-      in
-      set_text fn_count_span
-        (Printf.sprintf "%d %s" (List.length matching)
-           (if List.length matching = 1 then "fn" else "fns"));
+    (* --- Populate Function <select> Grouped by Family (<optgroup>) --- *)
+    let populate_fn_options () =
       clear_children fn_select;
-      let has_cur =
-        List.exists (fun (sp : Bench_suite.spec) -> sp.id = (!cur_spec).id) matching
+      let fam_groups =
+        [|
+          (Bench_suite.Multimodal, "Multimodal");
+          (Bench_suite.Bowl, "Bowl");
+          (Bench_suite.Plate, "Plate");
+          (Bench_suite.Valley, "Valley");
+          (Bench_suite.Ridge, "Ridge");
+          (Bench_suite.Other, "Standard BO");
+        |]
       in
-      if not has_cur then (
-        match matching with sp0 :: _ -> cur_spec := sp0 | [] -> ());
-      List.iter
-        (fun (sp : Bench_suite.spec) ->
-          let opt = createOption document in
-          opt##.value := js sp.id;
-          set_text opt (option_label_of_spec sp);
-          if sp.id = (!cur_spec).id then opt##.selected := Js._true;
-          Dom.appendChild fn_select opt)
-        matching;
-      fn_select##.value := js (!cur_spec).id;
-      has_cur
+      let all = Array.to_list Bench_suite.catalogue in
+      Array.iter
+        (fun (fam, label) ->
+          let items =
+            List.filter (fun (sp : Bench_suite.spec) -> sp.family = fam) all
+          in
+          let grp = document##createElement (js "optgroup") in
+          grp##setAttribute (js "label")
+            (js (Printf.sprintf "%s (%d)" label (List.length items)));
+          List.iter
+            (fun (sp : Bench_suite.spec) ->
+              let opt = createOption document in
+              opt##.value := js sp.id;
+              set_text opt (option_label_of_spec sp);
+              if sp.id = (!cur_spec).id then opt##.selected := Js._true;
+              Dom.appendChild grp opt)
+            items;
+          Dom.appendChild fn_select grp)
+        fam_groups;
+      fn_select##.value := js (!cur_spec).id
     in
-    ignore (rebuild_fn_options ());
+    populate_fn_options ();
 
     (* --- Wire Sidebar Controls --- *)
-    Array.iter
-      (fun (btn, fam_opt) ->
-        add_click btn (fun () ->
-            if !cur_family <> fam_opt then begin
-              stop_playback ();
-              cur_family := fam_opt;
-              let kept = rebuild_fn_options () in
-              if kept then sync_ui_chrome () else reset_session ~warm_steps:24 ()
-            end))
-      fam_btns;
-
     let on_fn_change =
       handler (fun _ev ->
           let id = Js.to_string fn_select##.value in
@@ -2529,7 +2520,7 @@ let mount_viewer (root : element Js.t) =
     bind_regime btn_dim_64 Reg_d64;
 
     Array.iter
-      (fun (btn, arm_v) ->
+      (fun (btn, _, _, arm_v) ->
         add_click btn (fun () ->
             if !cur_arm <> arm_v then begin
               stop_playback ();
@@ -2538,17 +2529,65 @@ let mount_viewer (root : element Js.t) =
             end))
       arm_btns;
 
-    Array.iter
-      (fun (btn, fm) ->
-        add_click btn (fun () ->
-            if !cur_field <> fm then begin
-              cur_field := fm;
-              sync_ui_chrome ();
-              render_pane_b ()
-            end))
-      field_btns;
+    let on_field_change =
+      handler (fun _ev ->
+          let v = Js.to_string field_select##.value in
+          let fm =
+            match v with
+            | "mean" -> Field_mean
+            | "ucb" -> Field_ucb
+            | "true" -> Field_true
+            | _ -> Field_sigma
+          in
+          if !cur_field <> fm then begin
+            cur_field := fm;
+            sync_ui_chrome ();
+            render_pane_b ()
+          end;
+          Js._true)
+    in
+    ignore
+      (addEventListener field_select Event.change on_field_change Js._false);
 
-    (* Playback & Step Buttons *)
+    let on_seed_change =
+      handler (fun _ev ->
+          let sd =
+            match int_of_string_opt (Js.to_string seed_select##.value) with
+            | Some n -> Int.max 1 (Int.min 8 n)
+            | None -> 1
+          in
+          if !cur_seed <> sd then begin
+            stop_playback ();
+            cur_seed := sd;
+            reset_session ~warm_steps:24 ()
+          end;
+          Js._true)
+    in
+    ignore (addEventListener seed_select Event.change on_seed_change Js._false);
+
+    (* Playback, Scrubber & Step Buttons *)
+    let jump_to_round target =
+      let s = !cur_session in
+      let n_now = Array.length s.ys in
+      let clamped = Int.max s.n_init (Int.min max_auto_evals target) in
+      if clamped > n_now then begin
+        Bench_suite.step_many s (clamped - n_now);
+        render_all ()
+      end
+      else if clamped < n_now then
+        reset_session ~warm_steps:(clamped - s.n_init) ()
+    in
+    let on_scrub =
+      handler (fun _ev ->
+          stop_playback ();
+          let target =
+            int_of_float (Js.float_of_number (Js.parseFloat round_slider##.value))
+          in
+          jump_to_round target;
+          Js._true)
+    in
+    ignore (addEventListener round_slider Event.input on_scrub Js._false);
+
     let start_playback () =
       stop_playback ();
       if Array.length (!cur_session).ys >= max_auto_evals then
@@ -2573,11 +2612,6 @@ let mount_viewer (root : element Js.t) =
         | Some _ -> stop_playback ()
         | None -> start_playback ());
 
-    add_click btn_step1 (fun () ->
-        stop_playback ();
-        Bench_suite.step_once !cur_session;
-        render_all ());
-
     add_click btn_step10 (fun () ->
         stop_playback ();
         Bench_suite.step_many !cur_session 10;
@@ -2587,10 +2621,14 @@ let mount_viewer (root : element Js.t) =
         stop_playback ();
         reset_session ~warm_steps:0 ());
 
-    add_click btn_seed (fun () ->
-        stop_playback ();
-        cur_seed := (!cur_seed mod 5) + 1;
-        reset_session ~warm_steps:24 ());
+    add_click btn_reset_cam (fun () ->
+        cam_yaw := -0.68;
+        cam_pitch := 0.56;
+        cam_dist := 3.10;
+        hover_u := None;
+        update_hover_readout ();
+        render_pane_a ();
+        render_pane_b ());
 
     (* --- 3D Orbit Mouse & Touch Handlers on Pane (a) --- *)
     let dragging = ref false in

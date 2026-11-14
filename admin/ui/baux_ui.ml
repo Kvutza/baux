@@ -2121,7 +2121,7 @@ let mount_tokamak_cad () =
       '      </div>',
       '    </div>',
       '    <div class="tcv-ctrl-sec tcv-ctrl-shot" id="tcv-sec-shot">',
-      '      <div class="tcv-ctrl-hdr"><span>Rampdown Movie</span><strong id="tcv-shot-lbl" style="font-family:var(--font-mono,monospace);font-size:11.5px;color:var(--fg-primary,#111);">τ = 220 ms</strong></div>',
+      '      <div class="tcv-ctrl-hdr"><span>Rampdown Timeline</span><strong id="tcv-shot-lbl" style="font-family:var(--font-mono,monospace);font-size:11.5px;color:var(--fg-primary,#111);">τ = 220 ms</strong></div>',
       '      <div class="tcv-round-row">',
       '        <input type="range" id="tcv-shot-slider" min="0" max="400" step="2" value="220" aria-label="Rampdown Time (0 to 400 ms)" />',
       '        <button type="button" id="tcv-play-btn" class="tcv-pol-btn tcv-play-cta" style="justify-content:center;font-weight:700;">▶ Play 400 ms Shot</button>',
@@ -2174,13 +2174,13 @@ let mount_tokamak_cad () =
       '  <div class="tcv-cad-shell">',
       '    <div class="tcv-grid">',
       '      <div class="tcv-pane">',
-      '        <div class="tcv-hud-badge"><span id="tcv-badge-a"><strong>(a)</strong> 3D Cutaway CAD</span><span class="tcv-touch-hint">Drag · Pinch</span></div>',
+      '        <div class="tcv-hud-badge"><span id="tcv-badge-a"><strong>(a)</strong> 3D Vessel &amp; Magnetics</span><span class="tcv-touch-hint">Drag · Pinch</span></div>',
       '        <div class="tcv-canvas-wrap" id="tcv-webgl-wrap">',
       '          <canvas id="tcv-webgl-canvas"></canvas>',
       '        </div>',
       '      </div>',
       '      <div class="tcv-pane">',
-      '        <div class="tcv-hud-badge"><span id="tcv-badge-b"><strong>(b)</strong> Equilibrium & Poloidal Flux</span></div>',
+      '        <div class="tcv-hud-badge"><span id="tcv-badge-b"><strong>(b)</strong> Poloidal Equilibrium</span></div>',
       '        <div class="tcv-canvas-wrap" id="tcv-fig9-wrap">',
       '          <canvas id="tcv-fig9-canvas"></canvas>',
       '        </div>',
@@ -2205,7 +2205,7 @@ let mount_tokamak_cad () =
       '      </div>',
       '    </div>',
       '    <div class="tcv-fig-caption" id="tcv-fig-caption">',
-      '      <strong>Figure 1.</strong> Coupled 3D cutaway magnetics (cryo-slate <em>B</em><sub>φ</sub> toroidal cage, diverging signed ±<em>I</em> poloidal shaping rings, volumetric <em>D</em><sub>α</sub> flux surfaces, and 3D helical <em>q</em><sub>95</sub> field lines), 2D equilibrium cross-sections, and 10,000-round closed-loop policy search trajectories across <em>n</em> = 10 paired seeds on <code>toka_gym</code> TCV rampdown (<em>D</em> = 136,712), alongside stationary equilibria exported from <code>FUSE.jl 1.2.1</code> (SPARC, ARC, ITER, DIII-D; Meneghini et al., 2024).',
+      '      <strong>Figure 1.</strong> Time-resolved 3D vessel magnetics (toroidal <em>B</em><sub>φ</sub> coils, signed ±<em>I</em> poloidal rings, <em>D</em><sub>α</sub> flux surfaces, helical <em>q</em><sub>95</sub> lines) and 2D poloidal equilibria trace 10,000-round closed-loop policy search on <code>toka_gym</code> TCV rampdown (<em>D</em> = 136,712, <em>n</em> = 10 paired seeds), alongside stationary <code>FUSE.jl 1.2.1</code> equilibria for SPARC, ARC, ITER, and DIII-D (Meneghini et al., 2024).',
       '    </div>',
       '  </div>',
       '</div>'
@@ -2526,9 +2526,9 @@ let mount_tokamak_cad () =
 
       if (badgeA) {
         if (isTCV) {
-          badgeA.innerHTML = "<strong>(a)</strong> 3D Cutaway · TCV <span class=\"tcv-badge-sub\">τ = " + escHtml(String(st.tauMs)) + " ms</span>";
+          badgeA.innerHTML = "<strong>(a)</strong> 3D Vessel · TCV <span class=\"tcv-badge-sub\">τ = " + escHtml(String(st.tauMs)) + " ms</span>";
         } else {
-          badgeA.innerHTML = "<strong>(a)</strong> 3D Cutaway CAD — " + escHtml(mach.shortName);
+          badgeA.innerHTML = "<strong>(a)</strong> 3D Vessel — " + escHtml(mach.shortName);
         }
       }
       if (badgeB) {
@@ -2536,9 +2536,9 @@ let mount_tokamak_cad () =
           var bSub = st.disrupted
             ? ("⚡ Wall Strike · Ip " + Math.round(st.ipKA) + " kA")
             : ("Ip " + Math.round(st.ipKA) + " kA · Wtot " + (st.wtotKJ < 10 ? st.wtotKJ.toFixed(1) : Math.round(st.wtotKJ)) + " kJ");
-          badgeB.innerHTML = "<strong>(b)</strong> Equilibrium &amp; Flux — <span class=\"tcv-badge-sub" + (st.disrupted ? " is-crash" : "") + "\">" + escHtml(bSub) + "</span>";
+          badgeB.innerHTML = "<strong>(b)</strong> Poloidal Equilibrium — <span class=\"tcv-badge-sub" + (st.disrupted ? " is-crash" : "") + "\">" + escHtml(bSub) + "</span>";
         } else {
-          badgeB.innerHTML = "<strong>(b)</strong> Equilibrium &amp; Poloidal Flux — " + escHtml(mach.shortName);
+          badgeB.innerHTML = "<strong>(b)</strong> Poloidal Equilibrium — " + escHtml(mach.shortName);
         }
       }
 
@@ -2554,9 +2554,9 @@ let mount_tokamak_cad () =
 
       if (figCaption) {
         if (isTCV) {
-          figCaption.innerHTML = '<strong>Figure 1.</strong> Coupled 3D cutaway magnetics (cryo-slate <em>B</em><sub>φ</sub> toroidal cage, diverging signed ±<em>I</em> poloidal shaping rings, volumetric <em>D</em><sub>α</sub> flux surfaces, and 3D helical <em>q</em><sub>95</sub> field lines), 2D equilibrium cross-sections, and 10,000-round closed-loop policy search trajectories across <em>n</em> = 10 paired seeds on <code>toka_gym</code> TCV rampdown (<em>D</em> = 136,712; Wang et al., 2025; Theiler et al., 2026).';
+          figCaption.innerHTML = '<strong>Figure 1.</strong> Time-resolved 3D vessel magnetics (toroidal <em>B</em><sub>φ</sub> coils, signed ±<em>I</em> poloidal rings, <em>D</em><sub>α</sub> flux surfaces, helical <em>q</em><sub>95</sub> lines) and 2D poloidal equilibria trace 10,000-round closed-loop policy search on <code>toka_gym</code> TCV rampdown (<em>D</em> = 136,712, <em>n</em> = 10 paired seeds; Wang et al., 2025; Theiler et al., 2026).';
         } else {
-          figCaption.innerHTML = '<strong>Figure 1.</strong> Stationary 3D cutaway CAD magnetics (discrete <em>B</em><sub>φ</sub> toroidal-field D-coils, signed ±<em>I</em> central-solenoid and poloidal-field shaping rings, double-wall vacuum vessel, and 3D helical <em>q</em><sub>95</sub> field lines) and solved 2D Grad–Shafranov equilibrium exported from <code>' + escHtml(mach.solver || "FUSE.jl 1.2.1") + '</code> for <strong>' + escHtml(mach.name || mach.shortName) + '</strong> (Meneghini et al., 2024).';
+          figCaption.innerHTML = '<strong>Figure 1.</strong> Stationary free-boundary magnetics and 2D Grad–Shafranov flux surfaces solved in <code>' + escHtml(mach.solver || "FUSE.jl 1.2.1") + '</code> define the equilibrium operating geometry for <strong>' + escHtml(mach.name || mach.shortName) + '</strong> (Meneghini et al., 2024).';
         }
       }
 

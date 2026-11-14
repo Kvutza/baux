@@ -1121,7 +1121,7 @@ let mount_viewer (root : element Js.t) =
     let badge_a = mk_div ~cls:"tcv-hud-badge oxb-pane-hdr" () in
     let badge_a_left = mk_span ~cls:"oxb-pane-hdr-left" () in
     Dom.appendChild badge_a_left (mk_strong "(a) ");
-    let badge_a_title = mk_span ~cls:"oxb-pane-a-title" ~txt:"3D Surface f(x\u{2081}, x\u{2082})" () in
+    let badge_a_title = mk_span ~cls:"oxb-pane-a-title" ~txt:"Objective Surface f(x\u{2081}, x\u{2082})" () in
     Dom.appendChild badge_a_left badge_a_title;
     let badge_a_hint =
       mk_span ~cls:"oxb-pane-a-hint" ~txt:"Drag orbit \u{00B7} Scroll zoom" ()
@@ -1167,7 +1167,7 @@ let mount_viewer (root : element Js.t) =
     let trace_title_span = mk_span () in
     append_sub_parts trace_title_span
       [
-        (false, "Anytime Best-So-Far Objective min");
+        (false, "Best-So-Far Objective min");
         (true, "t \u{2264} n");
         (false, " f(x");
         (true, "t");
@@ -1196,7 +1196,7 @@ let mount_viewer (root : element Js.t) =
     src_link##.className := js "oxb-src-link";
     src_link##.target := js "_blank";
     src_link##.rel := js "noopener noreferrer";
-    set_text src_link "SFU Ref \u{2197}";
+    set_text src_link "Problem Ref \u{2197}";
     Dom.appendChild meta_chips chip_domain;
     Dom.appendChild meta_chips chip_rule;
     Dom.appendChild meta_chips chip_family;
@@ -2313,7 +2313,7 @@ let mount_viewer (root : element Js.t) =
       | None ->
           set_text hover_bar
             (Printf.sprintf
-               "%s  \u{00B7}  Incumbent %s  \u{00B7}  f(x*) = %s  \u{00B7}  Hover pane (b) to inspect local ENN posterior & active K-NN stencil"
+               "%s  \u{00B7}  Incumbent %s  \u{00B7}  f(x*) = %s  \u{00B7}  Hover pane (b) to inspect local ENN posterior and active K-NN stencil"
                (Bench_suite.label_of_arm s.arm)
                x_star_str (fmt_num best_y))
       | Some (hu1, hu2) ->
@@ -2330,7 +2330,7 @@ let mount_viewer (root : element Js.t) =
           in
           append_sub_parts hover_bar
             [
-              (false, Printf.sprintf "Cursor %s  \u{00B7}  True f(x) = %s  \u{00B7}  ENN \u{03BC}(x) = %s  \u{00B7}  \u{03C3}" coord_str (fmt_num f_val) (fmt_num post.mean));
+              (false, Printf.sprintf "Cursor %s  \u{00B7}  Objective f(x) = %s  \u{00B7}  ENN \u{03BC}(x) = %s  \u{00B7}  \u{03C3}" coord_str (fmt_num f_val) (fmt_num post.mean));
               (true, "e");
               (false, Printf.sprintf "(x) = %s  \u{00B7}  UCB(\u{2212}f) = %s  \u{00B7}  Stencil K = %d neighbors" (fmt_num post.sigma) (fmt_num post.ucb) (Array.length post.neighbors));
             ]
@@ -2381,25 +2381,25 @@ let mount_viewer (root : element Js.t) =
 
       (* HUD Badges *)
       if s.dim = 1 then begin
-        set_text badge_a_title "3D Ribbon f(x\u{2081})";
+        set_text badge_a_title "Objective Curve f(x\u{2081})";
         set_text badge_a_hint "1D extrusion \u{00B7} Drag orbit";
         append_sub_parts badge_b_sub
           [(false, "1D \u{03BC}(x\u{2081}) \u{00B1} 2\u{03C3}"); (true, "e")]
       end
       else if s.dim = 2 then begin
-        set_text badge_a_title "3D Surface f(x\u{2081}, x\u{2082})";
+        set_text badge_a_title "Objective Surface f(x\u{2081}, x\u{2082})";
         set_text badge_a_hint "Drag orbit \u{00B7} Scroll zoom";
         let f_parts =
           match !cur_field with
           | Field_sigma -> [(false, "Epistemic \u{03C3}"); (true, "e"); (false, "(x)")]
           | Field_mean -> [(false, "Posterior \u{03BC}(x)")]
           | Field_ucb -> [(false, "UCB(\u{2212}f)")]
-          | Field_true -> [(false, "True f(x)")]
+          | Field_true -> [(false, "Objective f(x)")]
         in
         append_sub_parts badge_b_sub f_parts
       end
       else begin
-        set_text badge_a_title "3D Surface f(x\u{2081}, x\u{2082})";
+        set_text badge_a_title "Objective Surface f(x\u{2081}, x\u{2082})";
         set_text badge_a_hint
           (Printf.sprintf "Slice @ x* (D=%d)" s.dim);
         let f_parts =

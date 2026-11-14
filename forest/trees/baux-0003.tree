@@ -4,7 +4,7 @@
   \title{Inverse-Variance Prediction from #{K} Nearest Neighbors}
 
   \p{
-    Gaussian process surrogates factor an #{N \times N} kernel covariance matrix in #{\mathcal{O}(N^3)} time. Given #{N} noisy observations #{\mathcal{D} = \{(x_m, y_m, s_m)\}_{m=1}^N \subset \mathcal{X} \times \mathbb{R} \times \mathbb{R}_+} modeled as #{y_m = f(x_m) + s_m \varepsilon_m} with #{\varepsilon_m \stackrel{\text{i.i.d.}}{\sim} \mathcal{N}(0, 1)}, Epistemic Nearest Neighbors (Bafna et al. [[BJS25]](https://arxiv.org/abs/2506.12818)) forms local predictions at #{x \in \mathcal{X}} from a pairwise dissimilarity #{\delta : \mathcal{X} \times \mathcal{X} \to \mathbb{R}_+}, empirical target variance #{\hat{\sigma}_y^2 > 0}, and scale parameters #{\theta = (s_0^2, c_e) \in \mathbb{R}_+^2}. Each observation #{m} contributes an observation-noise variance and a distance-proportional epistemic variance:
+    Gaussian process surrogates factor an #{N \times N} covariance matrix in #{\mathcal{O}(N^3)} time before every optimization iteration. Rather than fitting a global covariance model, Epistemic Nearest Neighbors (\code{ENN}; Bafna et al. [[BJS25]](https://arxiv.org/abs/2506.12818)) treats each point in #{\mathcal{D} = \{(x_m, y_m, s_m)\}_{m=1}^N \subset \mathcal{X} \times \mathbb{R} \times \mathbb{R}_+} (under #{y_m = f(x_m) + s_m \varepsilon_m}, #{\varepsilon_m \stackrel{\text{i.i.d.}}{\sim} \mathcal{N}(0, 1)}) as an independent noisy estimator of #{f(x)}. Given a pairwise dissimilarity #{\delta : \mathcal{X} \times \mathcal{X} \to \mathbb{R}_+}, empirical target variance #{\hat{\sigma}_y^2 > 0}, and scale parameters #{\theta = (s_0^2, c_e) \in \mathbb{R}_+^2}, each datum contributes its observed value together with two separate variance components—aleatoric measurement noise and distance-scaled epistemic uncertainty:
   }
 
   ##{
@@ -14,7 +14,7 @@
   }
 
   \p{
-    Let #{N_K(x) = \{\pi_1(x), \dots, \pi_K(x)\}} list the #{K} nearest indices ordered by nondecreasing #{\delta(x, x_{\pi_i(x)})} (breaking ties by datum index), with inverse-variance weights #{w_i(x) = \bigl(\sigma_a^2(x \mid x_{\pi_i(x)}) + \sigma_e^2(x \mid x_{\pi_i(x)})\bigr)^{-1}}. An #{\mathcal{O}(N D + N \log K)} scan per query yields the local mean, aleatoric variance, and epistemic variance:
+    Combining the #{K} nearest indices #{N_K(x) = \{\pi_1(x), \dots, \pi_K(x)\}} (ordered by nondecreasing #{\delta(x, x_{\pi_i(x)})} with datum-index tie-breaking) via inverse-variance weights #{w_i(x) = \bigl(\sigma_a^2(x \mid x_{\pi_i(x)}) + \sigma_e^2(x \mid x_{\pi_i(x)})\bigr)^{-1}} gives #{\mathcal{O}(N D + N \log K)} per-query inference, making \code{ENN} a local inverse-variance estimator rather than an exact interpolator at coincident noisy points:
   }
 
   ##{
@@ -24,7 +24,7 @@
   }
 
   \p{
-    with total predictive variance #{\sigma^2(x) = \sigma_e^2(x) + \sigma_a^2(x)}. The scale parameters #{\theta = (s_0^2, c_e)} maximize a leave-one-out Gaussian log-likelihood over a subsample #{S_P \subset \{1, \dots, N\}} of size #{P \le N} [[BJS25]](https://arxiv.org/abs/2506.12818):
+    so predictive uncertainty satisfies #{\sigma^2(x) = \sigma_e^2(x) + \sigma_a^2(x)}. Under observation noise, \strong{baux} estimates #{\theta = (s_0^2, c_e)} by maximizing a leave-one-out Gaussian pseudolikelihood over a fixed subsample #{S_P \subset \{1, \dots, N\}} of size #{P \le N} (whereas noise-free non-dominated sorting over #{(\mu, \sigma_e)} omits #{\theta} fitting altogether [[BJS25]](https://arxiv.org/abs/2506.12818)):
   }
 
   ##{
@@ -40,7 +40,7 @@
   \title{Correlated Posterior Draws}
 
   \p{
-    Thompson sampling over #{Q} candidate points requires function draws that covary across nearby queries without factoring a #{Q \times Q} joint covariance matrix. For draw #{s} and output channel #{j}, attaching one independent normal variable #{z_{s,m,j} \stackrel{\text{i.i.d.}}{\sim} \mathcal{N}(0, 1)} to each stored observation #{m \in \{1, \dots, N\}} couples queries through their shared neighbors.
+    Thompson sampling across #{Q} candidate points requires spatially coherent posterior draws without factoring a #{Q \times Q} joint covariance matrix. By attaching one independent standard normal variable #{z_{s,m,j} \stackrel{\text{i.i.d.}}{\sim} \mathcal{N}(0, 1)} to each stored observation #{m \in \{1, \dots, N\}} and output channel #{j}, \strong{baux} couples candidate draws strictly through shared nearest neighbors.
   }
 
   \p{
@@ -64,7 +64,7 @@
   \title{Local-Scale Distances under Uneven Sampling}
 
   \p{
-    Iterative search concentrates evaluations tightly inside active trust-region basins while leaving the rest of the domain sparsely sampled. Under plain Euclidean distance #{d(x, x') = \Vert x - x'\Vert_2}, a dense cluster can absorb coarse outer points into its #{K}-neighbor set or pull in distant exploratory queries. Letting #{\sigma(x) > 0} denote the distance from #{x} to its #{k_0}-th nearest observation in #{\mathcal{D}}, three rescaled dissimilarities adjust neighbor selection to local point spacing:
+    Trust-region search packs samples densely around incumbents while leaving outer regions sparsely explored. Under unscaled Euclidean distance #{d(x, x') = \Vert x - x'\Vert_2}, dense basin clusters absorb coarse outer points or distort sparse exploratory neighborhoods. Letting #{\sigma(x) > 0} be the distance from #{x} to its #{k_0}-th nearest observation in #{\mathcal{D}}, three rescaled dissimilarities normalize neighbor selection to local sampling density:
   }
 
   \ul{
@@ -90,7 +90,7 @@
   }
 
   \p{
-    The standalone functional interface ([baux.enn_init](docs.html#baux.enn_init), [baux.with_geometry](docs.html#baux.with_geometry), [baux.enn_fit](docs.html#baux.enn_fit), [baux.enn_posterior](docs.html#baux.enn_posterior), and [baux.enn_sample](docs.html#baux.enn_sample)) fits and queries these geometries directly. On a 6D design combining a dense low-noise basin with a sparse high-noise outer shell, hyperbolic distance selects in-basin neighbors, separates epistemic (\code{.se_epi}) from aleatoric (\code{.se_ale}) standard error, and produces correlated draws across adjacent basin queries:
+    In a 6D landscape mixing a dense low-noise basin with a sparse high-noise outer shell, hyperbolic geometry restricts inner queries to in-basin neighbors, separates epistemic (\code{.se_epi}) from aleatoric (\code{.se_ale}) uncertainty, and correlates draws across nearby queries ([baux.enn_init](docs.html#baux.enn_init), [baux.with_geometry](docs.html#baux.with_geometry), [baux.enn_fit](docs.html#baux.enn_fit), [baux.enn_posterior](docs.html#baux.enn_posterior), [baux.enn_sample](docs.html#baux.enn_sample)):
   }
 
   \pre{

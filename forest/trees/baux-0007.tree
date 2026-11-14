@@ -1,7 +1,7 @@
 \title{API Reference}
 
 \p{
-  \code{import baux} lazily loads functional state transitions, pipeline stages, parameter domain specifications, and standalone Epistemic Nearest Neighbor (\code{ENN}) surrogates. Across all entrypoints, flat input arrays \code{x} have shape \code{(N, D)} (\code{float64}) inside natural domain bounds \code{[low, high]}, and objective arrays \code{y} (maximization convention) and optional observation variances \code{y_var} have shape \code{(N,)} for scalar targets or \code{(N, M)} (\code{float64}) for multi-output targets. Functional entrypoints (\code{baux.init}, \code{baux.ask}, \code{baux.tell}, \code{baux.enn_init}, \code{baux.enn_append}) take and return immutable state objects ([\code{OptimizerState}](#baux.OptimizerState), [\code{ENNState}](#baux.ENNState)) whose array properties return read-only views (\code{writeable=False}), while [\code{Optimizer}](#baux.Optimizer) and [\code{ENN}](#baux.ENN) wrap the same solver in stateful classes.
+  \code{import baux} exposes functional state transitions, composable pipeline transforms, parameter-manifold maps, and standalone Epistemic Nearest Neighbor (\code{ENN}) surrogates. Input arrays \code{x} carry shape \code{(N, D)} (\code{float64}) inside natural domain bounds \code{[low, high]}, while objective arrays \code{y} (maximization convention) and optional observation variances \code{y_var} carry shape \code{(N,)} or \code{(N, M)}. Functional entrypoints (\code{baux.init}, \code{baux.ask}, \code{baux.tell}, \code{baux.enn_init}, \code{baux.enn_append}) return immutable state objects ([\code{OptimizerState}](#baux.OptimizerState), [\code{ENNState}](#baux.ENNState)) with read-only array views (\code{writeable=False}), whereas [\code{Optimizer}](#baux.Optimizer) and [\code{ENN}](#baux.ENN) wrap the same kernel in stateful classes.
 }
 
 \<div>[id]{baux-api-filter}{}
@@ -387,7 +387,7 @@ baux.posterior_mu(
     \pre{
 class baux.OptimizerState  (frozen dataclass; constructed via baux.init)
     }
-    \p{Immutable state object encapsulating an optimizer search domain, configuration, observation history, trust-region ledger, and state digest.}
+    \p{\code{OptimizerState} stores an immutable snapshot of the search domain, pipeline configuration, observation history, trust-region ledger, and cryptographic state digest.}
     \<dl>[class]{api-spec-list}{
       \<dt>{Attributes & Properties}
       \<dd>{
@@ -426,7 +426,7 @@ baux.AskBatch(
     weights: np.ndarray | None = None,
 )
     }
-    \p{Candidate batch returned by [\code{baux.ask}](#baux.ask) bundling evaluation IDs, coordinate rows, and structured PyTree decodings.}
+    \p{\code{AskBatch} pairs proposed coordinate rows from [\code{baux.ask}](#baux.ask) with typed evaluation tokens and decoded PyTree parameters.}
     \<dl>[class]{api-spec-list}{
       \<dt>{Attributes & Properties}
       \<dd>{
@@ -450,7 +450,7 @@ baux.AskBatch(
     \pre{
 baux.AskId(value: int)
     }
-    \p{Immutable 64-bit ticket (\code{int(aid)}) wrapping an unsigned integer evaluation identity (\code{0 <= value < 2**64}). It is hashable, totally ordered, and matched by [\code{baux.complete}](#baux.complete) and [\code{baux.cancel}](#baux.cancel) to resolve pending multi-region evaluations.}
+    \p{\code{baux.AskId} wraps a 64-bit unsigned integer ticket (\code{0 <= int(aid) < 2**64}) identifying a dispatched multi-region arm. Tickets are hashable and totally ordered, and [\code{baux.complete}](#baux.complete) and [\code{baux.cancel}](#baux.cancel) match them to resolve or retire pending evaluations.}
   }
 }
 
@@ -568,7 +568,7 @@ baux.enn(
     tied_dims: tuple[tuple[int, ...], ...] | None = None,
 ) -> Transform
       }
-      \p{Configure the Epistemic Nearest Neighbors surrogate stage in an optimization pipeline, combining local precision-weighted aggregation with calibrated predictive moments.}
+      \p{\code{baux.enn} attaches the Epistemic Nearest Neighbors surrogate to the pipeline, using K-nearest precision weighting and leave-one-out scale calibration without global matrix inversion.}
       \<dl>[class]{api-spec-list}{
         \<dt>{Parameters}
         \<dd>{
@@ -613,7 +613,7 @@ assert len(y) == 2
       \pre{
 baux.gp() -> Transform
       }
-      \p{Configure the exact ARD Gaussian Process surrogate stage for TuRBO-1 optimization. It automatically sets the acquisition rule to posterior function draw sampling.}
+      \p{\code{baux.gp} attaches an exact ARD Gaussian Process surrogate for TuRBO-1 optimization and defaults the acquisition rule to posterior function-draw sampling.}
     }
 
     \<div>[id]{baux.zero}[class]{api-entry api-entry-compact}[data-symbol]{baux.zero}[data-kind]{function}[data-module]{baux.transforms}{
@@ -624,7 +624,7 @@ baux.gp() -> Transform
       \pre{
 baux.zero() -> Transform
       }
-      \p{Configure surrogate-free TuRBO-zero optimization. Trust-region search operates directly on evaluated points without fitting a surrogate model or estimating posterior predictive variances.}
+      \p{\code{baux.zero} selects surrogate-free TuRBO-zero search, evolving the trust region from evaluated observations without fitting a predictive model.}
     }
 
     \<div>[id]{baux.with_geometry}[class]{api-entry api-entry-compact}[data-symbol]{baux.with_geometry}[data-kind]{function}[data-module]{baux.transforms}{
@@ -635,7 +635,7 @@ baux.zero() -> Transform
       \pre{
 baux.with_geometry(model: Any, geometry: str, local_k: int = 4) -> Any
       }
-      \p{Return a copy-on-write state, surrogate, config, or composed pipeline stage equipped with a local-scale dissimilarity geometry (\code{"euclidean"}, \code{"conformal"}, \code{"hyperbolic"}, or \code{"wasserstein"}; distance metric selections include \code{"l2"}, \code{"l2_squared"}, \code{"manhattan"}, \code{"chebyshev"}, \code{"cosine"}, and \code{"angular"}). Conformal local scaling follows Zelnik-Manor & Perona [[ZMP04]](https://papers.nips.cc/paper_files/paper/2004/hash/40173ea48d9567f1f393b20c855bb40b-Abstract.html), hyperbolic upper half-space dissimilarity #{2 \sinh^2(d_H/2) = \cosh(d_H) - 1} follows Beardon [[Bea83]](https://doi.org/10.1007/978-1-4612-1146-4), and Gaussian-covariance transport dissimilarity follows Gelbrich [[Gel90]](https://doi.org/10.1002/mana.19901470121). Raises \code{ValueError} on unsupported metrics or geometries.}
+      \p{\code{baux.with_geometry} attaches a local-scale dissimilarity (\code{"euclidean"}, \code{"conformal"}, \code{"hyperbolic"}, or \code{"wasserstein"}) and metric (\code{"l2"}, \code{"l2_squared"}, \code{"manhattan"}, \code{"chebyshev"}, \code{"cosine"}, or \code{"angular"}) to a state, surrogate, config, or pipeline without mutating the input. Conformal scaling follows Zelnik-Manor & Perona [[ZMP04]](https://papers.nips.cc/paper_files/paper/2004/hash/40173ea48d9567f1f393b20c855bb40b-Abstract.html), Poincaré half-space dissimilarity #{2\sinh^2(d_H/2) = \cosh(d_H) - 1} follows Beardon [[Bea83]](https://doi.org/10.1007/978-1-4612-1146-4), and Gaussian-covariance transport follows Gelbrich [[Gel90]](https://doi.org/10.1002/mana.19901470121); unsupported geometry or metric names raise \code{ValueError}.}
     }
   }
 
@@ -650,7 +650,7 @@ baux.with_geometry(model: Any, geometry: str, local_k: int = 4) -> Any
       \pre{
 baux.ucb(beta: float = 2.0) -> Transform
       }
-      \p{Configure Upper Confidence Bound acquisition scoring \code{mu + beta * se} over candidate points.}
+      \p{\code{baux.ucb} sets acquisition scoring to the Upper Confidence Bound \code{mu + beta * se} across candidate batches.}
       \<dl>[class]{api-spec-list}{
         \<dt>{Parameters}
         \<dd>{
@@ -673,7 +673,7 @@ baux.ucb(beta: float = 2.0) -> Transform
       \pre{
 baux.thompson() -> Transform
       }
-      \p{Configure Thompson sampling acquisition by evaluating candidates against spatially coherent posterior function draws.}
+      \p{\code{baux.thompson} selects candidates that maximize spatially coherent posterior function draws rather than marginal scores.}
     }
 
     \<div>[id]{baux.pareto}[class]{api-entry api-entry-compact}[data-symbol]{baux.pareto}[data-kind]{function}[data-module]{baux.transforms}{
@@ -684,7 +684,7 @@ baux.thompson() -> Transform
       \pre{
 baux.pareto() -> Transform
       }
-      \p{Configure parameter-free bi-objective Pareto non-dominated sorting acquisition over posterior mean and standard error \code{(mu, se)} for multi-output objectives (\code{M >= 2}) and parameter-free ENN exploration.}
+      \p{\code{baux.pareto} removes the exploration weight \code{beta} by sorting candidates along the non-dominated frontier of posterior mean and standard error \code{(mu, se)}.}
     }
 
     \<div>[id]{baux.random_acq}[class]{api-entry api-entry-compact}[data-symbol]{baux.random_acq}[data-kind]{function}[data-module]{baux.transforms}{
@@ -695,7 +695,7 @@ baux.pareto() -> Transform
       \pre{
 baux.random_acq() -> Transform
       }
-      \p{Configure uniform random candidate selection within the active trust region, bypassing surrogate-based acquisition scoring.}
+      \p{\code{baux.random_acq} draws candidates uniformly within the active trust region, bypassing surrogate acquisition scoring.}
     }
   }
 
@@ -710,7 +710,7 @@ baux.random_acq() -> Transform
       \pre{
 baux.lhd(num_init: int = 10, *, only: bool = False) -> Transform
       }
-      \p{Configure Latin Hypercube Design warm-up sampling with \code{num_init} arms (or pure global space-filling exploration when \code{only=True}). Raises \code{ValueError} if \code{num_init < 1}.}
+      \p{\code{baux.lhd} schedules \code{num_init} Latin Hypercube warm-up arms (or disables trust-region search for pure global space filling when \code{only=True}). Raises \code{ValueError} if \code{num_init < 1}.}
     }
 
     \<div>[id]{baux.sobol}[class]{api-entry api-entry-compact}[data-symbol]{baux.sobol}[data-kind]{function}[data-module]{baux.transforms}{
@@ -726,7 +726,7 @@ baux.sobol(
     num_pert: int | None = None,
 ) -> Transform
       }
-      \p{Configure scrambled Sobol quasi-Monte Carlo candidate box sampling within trust-region bounds.}
+      \p{\code{baux.sobol} fills the trust-region candidate box with scrambled Sobol quasi-Monte Carlo points.}
     }
 
     \<div>[id]{baux.raasp}[class]{api-entry}[data-symbol]{baux.raasp}[data-kind]{function}[data-module]{baux.transforms}{
@@ -743,7 +743,7 @@ baux.raasp(
     driver: RAASPDriver = RAASPDriver.ORIG,
 ) -> Transform
       }
-      \p{Configure RAASP sparse coordinate perturbation candidate sampling with axis-aligned coordinate perturbation probability \code{min(num_pert / D, 1.0)}.}
+      \p{\code{baux.raasp} perturbs candidate axes sparsely around the trust-region center with per-coordinate probability \code{min(num_pert / D, 1.0)}.}
       \<dl>[class]{api-spec-list}{
         \<dt>{Parameters}
         \<dd>{
@@ -772,7 +772,7 @@ baux.uniform_pert(
     num_pert: int | None = None,
 ) -> Transform
       }
-      \p{Configure independent uniform coordinate perturbation within the trust region bounding box.}
+      \p{\code{baux.uniform} perturbs every coordinate uniformly inside the trust-region bounding box.}
     }
   }
 
@@ -795,7 +795,7 @@ baux.regions(
     length: TrustRegionBounds | None = None,
 ) -> Transform
       }
-      \p{Configure multi-region portfolio search maintaining \code{count} concurrent local trust regions with observation sharing and bandit arm allocation.}
+      \p{\code{baux.regions} runs \code{count} concurrent local trust regions linked by an observation-sharing geometry and a bandit arm allocator.}
       \<dl>[class]{api-spec-list}{
         \<dt>{Parameters}
         \<dd>{
@@ -828,7 +828,7 @@ baux.tr_bounds(
     length_max: float = 1.6,
 ) -> Transform
       }
-      \p{Configure unit-cube trust-region side-length bounds on single-region or multi-region controllers.}
+      \p{\code{baux.tr_bounds} sets initial, restart-minimum, and maximum unit-cube side lengths across single- or multi-region controllers.}
       \<dl>[class]{api-spec-list}{
         \<dt>{Parameters}
         \<dd>{
@@ -862,7 +862,7 @@ baux.stein(
     rank: int | None = None,
 ) -> Transform | OptimizerState | Any
       }
-      \p{Configure empirical Bayes James-Stein shrinkage toward a Stiefel subspace for multi-output objectives (\code{M > rank}), shrinking noisy off-subspace variations toward the leading response directions.}
+      \p{\code{baux.stein} shrinks noisy off-subspace residuals toward an orthonormal Stiefel basis whenever target dimension \code{M} exceeds \code{rank}.}
       \<dl>[class]{api-spec-list}{
         \<dt>{Parameters}
         \<dd>{
@@ -892,7 +892,7 @@ baux.calibrate(
     alpha: float | None = None,
 ) -> Transform | OptimizerState | Any
       }
-      \p{Configure affine location-scale calibration and conformal quantile scaling on predictive surrogate distributions.}
+      \p{\code{baux.calibrate} rescales predictive variance via an affine calibration map and inflates intervals by conformal quantile factors to restore empirical coverage.}
       \<dl>[class]{api-spec-list}{
         \<dt>{Parameters}
         \<dd>{
@@ -921,7 +921,7 @@ baux.calibrate(
       \pre{
 class baux.Transform
       }
-      \p{Composable pipeline stage wrapping a configuration update function \code{Callable[[OptimizerConfig], OptimizerConfig]}. Supports left-to-right composition via \code{pipe1 | pipe2} and compiles to a concrete optimizer configuration via \code{pipe(config)}.}
+      \p{\code{Transform} wraps a pure configuration update \code{Callable[[OptimizerConfig], OptimizerConfig]}, composing left-to-right with \code{pipe1 | pipe2} and compiling when called as \code{pipe(config)}.}
     }
 
     \<div>[id]{baux.chain}[class]{api-entry api-entry-compact}[data-symbol]{baux.chain}[data-kind]{function}[data-module]{baux.transforms}{
@@ -934,7 +934,7 @@ baux.chain(
     *steps: Transform | Callable[[OptimizerConfig], OptimizerConfig] | OptimizerConfig,
 ) -> OptimizerConfig
       }
-      \p{Compose a sequence of pipeline stages left-to-right, applying each transform to accumulate a validated optimizer configuration.}
+      \p{\code{baux.chain} folds a sequence of pipeline transforms left-to-right into one validated [\code{OptimizerConfig}](#baux.OptimizerConfig).}
     }
   }
 }
@@ -942,7 +942,7 @@ baux.chain(
 \subtree{
   \title{Parameter Domains & Subspace Maps}
 
-  \p{Nested Python dictionaries, tuples, lists, namedtuples, and dataclasses (\code{PyTree}s) define structured parameter spaces that map onto flat solver coordinates and retract back to domain values. This layer provides domain specifications, manifold coordinate charts, and orthonormal subspace projections for continuous, angular, simplex, categorical, and multi-objective optimization.}
+  \p{Nested Python dictionaries, tuples, lists, namedtuples, and dataclasses (\code{PyTree}s) map structured user domains onto flat solver coordinates and retract proposals back to valid domain values. These specifications equip continuous, positive-log, periodic, simplex, categorical, and multi-output spaces with distortion-free coordinate charts and orthonormal subspace projections.}
 
   \<table>[class]{api-summary-table}{
     \<thead>{
@@ -1026,7 +1026,7 @@ baux.chain(
       \pre{
 baux.Space(tree: Any, low: Any = -1.0, high: Any = 1.0) -> PyTreeSpec
       }
-      \p{Top-level domain specification constructor and alias for [\code{baux.PyTreeSpec}](#baux.PyTreeSpec). Calling \code{baux.Space(tree, low=-1.0, high=1.0)} compiles a nested parameter template directly into a \code{PyTreeSpec}.}
+      \p{\code{baux.Space} aliases [\code{baux.PyTreeSpec}](#baux.PyTreeSpec) as a top-level domain constructor; calling \code{baux.Space(tree, low=-1.0, high=1.0)} compiles a nested parameter template directly into flat solver bounds.}
       \<dl>[class]{api-spec-list}{
         \<dt>{Parameters}
         \<dd>{
@@ -1099,7 +1099,7 @@ baux.PyTreeSpec(
     high: Any = 1.0,
 ) -> PyTreeSpec
       }
-      \p{Compiled parameter-space layout defining coordinate dimension, bounds, leaf traversal offsets, and tied coordinate groups.}
+      \p{\code{baux.PyTreeSpec} stores the compiled parameter layout, including total solver dimension, coordinate bounds, leaf traversal offsets, and tied coordinate groups.}
       \<dl>[class]{api-spec-list}{
         \<dt>{Attributes}
         \<dd>{
@@ -1131,7 +1131,7 @@ baux.PyTreeSpec(
       \pre{
 baux.Log(low: float, high: float)
       }
-      \p{Strictly positive interval specification mapping \code{[low, high]} (\code{0 < low < high}) linearly in \code{log(x)} onto \code{[0, 1]}.}
+      \p{\code{Log} charts a strictly positive interval \code{[low, high]} (\code{0 < low < high}) onto \code{[0, 1]} linearly in \code{log(x)}, giving multiplicative steps equal metric weight.}
       \<dl>[class]{api-spec-list}{
         \<dt>{Attributes}
         \<dd>{
@@ -1159,7 +1159,7 @@ baux.Log(low: float, high: float)
       \pre{
 baux.Periodic(low: float = 0.0, high: float = 2.0 * math.pi)
       }
-      \p{Periodic interval specification encoding angular phases on \code{[low, high]} as 2D \code{(cos, sin)} coordinates in \code{[0, 1]^2}, eliminating boundary seam discontinuities.}
+      \p{\code{Periodic} embeds angular phases on \code{[low, high]} as 2D \code{(cos, sin)} coordinates in \code{[0, 1]^2} so distance wraps smoothly without boundary seam discontinuities.}
       \<dl>[class]{api-spec-list}{
         \<dt>{Attributes}
         \<dd>{
@@ -1187,7 +1187,7 @@ baux.Periodic(low: float = 0.0, high: float = 2.0 * math.pi)
       \pre{
 baux.Simplex(dim: int)
       }
-      \p{Probability simplex specification encoding non-negative weights on \code{Delta^{dim - 1}} via square-root coordinates \code{psi_i(p) = sqrt(p_i)} on the unit sphere, so Euclidean distance matches Hellinger distance and decoded vectors sum to \code{1.0}.}
+      \p{\code{Simplex} encodes non-negative mixture weights on \code{Delta^{dim - 1}} via square-root coordinates \code{psi_i(p) = sqrt(p_i)}, aligning Euclidean search distance with Hellinger geometry and guaranteeing decoded sums of \code{1.0}.}
       \<dl>[class]{api-spec-list}{
         \<dt>{Attributes}
         \<dd>{
@@ -1223,7 +1223,7 @@ baux.categorical(
     dim_cap: int = 48,
 ) -> Categorical
       }
-      \p{Functional constructor creating an isometric discrete choice specification ([\code{baux.Categorical}](#baux.Categorical)) from a sequence of at least two discrete choices.}
+      \p{\code{baux.categorical} constructs an isometric discrete-choice specification ([\code{Categorical}](#baux.Categorical)) from at least two arbitrary Python options.}
       \<dl>[class]{api-spec-list}{
         \<dt>{Parameters}
         \<dd>{
@@ -1255,7 +1255,7 @@ baux.Categorical(
     key: Any = None,
 )
       }
-      \p{Discrete choice specification embedding categories into one-hot vectors (for cardinality \code{<= 15}) or equal-norm Rademacher Johnson-Lindenstrauss codewords, decoded by nearest inner product.}
+      \p{\code{baux.Categorical} embeds discrete alternatives as one-hot vectors when cardinality #{\le 15} or equal-norm Rademacher Johnson–Lindenstrauss codewords above #{\text{15}}, decoding vectors back by maximum inner product.}
     }
 
     \<div>[id]{baux.ravel}[class]{api-entry api-entry-compact}[data-symbol]{baux.ravel}[data-kind]{function}[data-module]{baux.pytree}{
@@ -1266,7 +1266,7 @@ baux.Categorical(
       \pre{
 baux.ravel(tree: Any, spec: PyTreeSpec | None = None) -> np.ndarray
       }
-      \p{Flatten a single parameter PyTree into a 1D coordinate vector of shape \code{(dim,)} or a batch into a 2D matrix of shape \code{(N, dim)}, encoding manifold and categorical leaves according to \code{spec}.}
+      \p{\code{baux.ravel} packs a structured parameter PyTree (or batch) into flat solver vectors of shape \code{(dim,)} (or \code{(N, dim)}), encoding manifold and categorical leaves through \code{spec}.}
     }
 
     \<div>[id]{baux.unflatten}[class]{api-entry api-entry-compact}[data-symbol]{baux.unflatten}[data-kind]{function}[data-module]{baux.pytree}{
@@ -1277,7 +1277,7 @@ baux.ravel(tree: Any, spec: PyTreeSpec | None = None) -> np.ndarray
       \pre{
 baux.unflatten(flat: Any, spec: PyTreeSpec, weights: np.ndarray | None = None) -> Any
       }
-      \p{Decode a 1D flat coordinate vector of length \code{spec.dim} into a single structured parameter PyTree, retracting coordinate specs to their natural parameter values.}
+      \p{\code{baux.unflatten} decodes a length-\code{spec.dim} solver vector into a structured parameter PyTree and retracts each leaf onto its domain constraint.}
     }
 
     \<div>[id]{baux.unflatten_batch}[class]{api-entry api-entry-compact}[data-symbol]{baux.unflatten_batch}[data-kind]{function}[data-module]{baux.pytree}{
@@ -1292,7 +1292,7 @@ baux.unflatten_batch(
     weights: np.ndarray | None = None,
 ) -> tuple[Any, ...]
       }
-      \p{Decode a 2D batch coordinate matrix of shape \code{(B, D)} into a tuple of \code{B} structured parameter PyTrees matching \code{spec.template}.}
+      \p{\code{baux.unflatten_batch} decodes a \code{(B, D)} solver matrix into a tuple of \code{B} structured parameter PyTrees matching \code{spec.template}.}
     }
 
     \<div>[id]{baux.unflatten_stacked}[class]{api-entry api-entry-compact}[data-symbol]{baux.unflatten_stacked}[data-kind]{function}[data-module]{baux.pytree}{
@@ -1307,7 +1307,7 @@ baux.unflatten_stacked(
     weights: np.ndarray | None = None,
 ) -> Any
       }
-      \p{Decode a 2D batch coordinate matrix of shape \code{(B, D)} into a single PyTree with leading batch axis \code{B} on array leaves and lists on categorical leaves for vectorized evaluations.}
+      \p{\code{baux.unflatten_stacked} decodes a \code{(B, D)} solver matrix into one batched PyTree with leading axis \code{B} on array leaves for vectorized evaluation.}
     }
 
     \<div>[id]{baux.pytree_bounds}[class]{api-entry api-entry-compact}[data-symbol]{baux.pytree_bounds}[data-kind]{function}[data-module]{baux.pytree}{
@@ -1318,7 +1318,7 @@ baux.unflatten_stacked(
       \pre{
 baux.pytree_bounds(tree: Any, low: Any = -1.0, high: Any = 1.0) -> PyTreeSpec
       }
-      \p{Compile a template PyTree of arrays, shape tuples, or coordinate specs with default lower and upper bounds into an immutable \code{PyTreeSpec}.}
+      \p{\code{baux.pytree_bounds} compiles a template PyTree of arrays, shapes, or manifold specs into an immutable [\code{PyTreeSpec}](#baux.PyTreeSpec) with shared default bounds.}
     }
 
     \<div>[id]{baux.LeafSpec}[class]{api-entry api-entry-compact}[data-symbol]{baux.LeafSpec}[data-kind]{class}[data-module]{baux.pytree}{
@@ -1338,7 +1338,7 @@ baux.LeafSpec(
     embed: Any = None,
 )
       }
-      \p{Frozen leaf descriptor in \code{PyTreeSpec.leaves} storing path, offset, shape, coordinate bounds, and optional coordinate spec for a single leaf.}
+      \p{\code{LeafSpec} records one leaf's tree path, flat slice offset, shape, coordinate bounds, and manifold encoder inside \code{PyTreeSpec.leaves}.}
     }
   }
 
@@ -1353,7 +1353,7 @@ baux.LeafSpec(
       \pre{
 baux.Stiefel(loadings: np.ndarray)
       }
-      \p{Orthonormal subspace basis \code{V} of shape \code{(M, F)} on the Stiefel manifold implementing Empirical-Bayes James-Stein orthogonal residual contraction across correlated multi-output metrics.}
+      \p{\code{baux.Stiefel} stores an orthonormal frame \code{V} of shape \code{(M, F)} on the Stiefel manifold and applies Empirical-Bayes James–Stein contraction to residuals orthogonal to \code{col(V)}.}
       \<dl>[class]{api-spec-list}{
         \<dt>{Attributes}
         \<dd>{
@@ -1410,7 +1410,7 @@ assert np.isfinite(y).all()
       \pre{
 baux.Affine(a: np.ndarray, b: np.ndarray, c: np.ndarray)
       }
-      \p{Affine location-scale posterior map transforming predictive moments to \code{(a + b * mu, c * se)} across \code{M} output metrics, supporting ordinary least-squares (\code{Affine.fit}), weighted least-squares (\code{Affine.fit_wls}), and finite-sample conformal quantile calibration (\code{conformal_scale}).}
+      \p{\code{baux.Affine} applies per-metric location-scale transformations \code{(a + b * mu, c * se)} across \code{M} outputs, fitting coefficients by ordinary least squares (\code{Affine.fit}), weighted least squares (\code{Affine.fit_wls}), or finite-sample conformal residual scaling (\code{conformal_scale}).}
     }
   }
 }
@@ -1418,7 +1418,7 @@ baux.Affine(a: np.ndarray, b: np.ndarray, c: np.ndarray)
 \subtree{
   \title{Keys, Rollouts & Checkpoints}
 
-  \p{Pure functional optimization requires deterministic pseudo-random key generation, reproducible rollout loops, and authenticated binary checkpointing. This section specifies splittable 128-bit cryptographic PRNG keys, batch execution primitives, and state serialization routines.}
+  \p{Because functional transitions cannot rely on hidden global RNG state, every stochastic proposal derives from an explicit splittable key and every snapshot carries its own integrity digest. This section specifies 128-bit cryptographic keys, deterministic rollout combinators, and authenticated \code{BAUXFRZ2} checkpoint serialization.}
 
   \<table>[class]{api-summary-table}{
     \<thead>{
@@ -1475,7 +1475,7 @@ baux.Affine(a: np.ndarray, b: np.ndarray, c: np.ndarray)
     \pre{
 baux.key(source: Any = None) -> Key
     }
-    \p{Construct or extract a splittable 128-bit [\code{baux.Key}](#baux.Key) from an integer seed, byte buffer, NumPy array, state snapshot, or OS entropy.}
+    \p{\code{baux.key} constructs or extracts a splittable 128-bit [\code{Key}](#baux.Key) from an integer seed, byte buffer, array, state snapshot, or OS entropy.}
     \<dl>[class]{api-spec-list}{
       \<dt>{Parameters}
       \<dd>{
@@ -1496,7 +1496,7 @@ baux.key(source: Any = None) -> Key
     \pre{
 baux.Key(source: int | bytes | Key | None = None) -> Key
     }
-    \p{Splittable 128-bit BLAKE3 cryptographic PRNG key seeding deterministic pseudorandom candidate sampling, LOO hyperparameter fits, and posterior draws.}
+    \p{\code{Key} represents a splittable 128-bit BLAKE3 key that seeds deterministic candidate sampling, LOO hyperparameter fits, and posterior function draws.}
     \<dl>[class]{api-spec-list}{
       \<dt>{Attributes}
       \<dd>{
@@ -1528,7 +1528,7 @@ baux.Key(source: int | bytes | Key | None = None) -> Key
     \pre{
 baux.split(k: Key, n: int = 2) -> tuple[Key, ...]
     }
-    \p{Deterministically partition parent key \code{k} into a tuple of \code{n} independent subkeys without mutating \code{k}.}
+    \p{\code{baux.split} partitions parent key \code{k} deterministically into \code{n} independent child keys without mutating \code{k}.}
   }
 
   \<div>[id]{baux.fold}[class]{api-entry api-entry-compact}[data-symbol]{baux.fold}[data-kind]{function}[data-module]{baux.state}{
@@ -1539,7 +1539,7 @@ baux.split(k: Key, n: int = 2) -> tuple[Key, ...]
     \pre{
 baux.fold(k: Key, tag: int) -> Key
     }
-    \p{Mix a 64-bit integer tag into key \code{k} (\code{int(tag) & ((1 << 64) - 1)}), returning an independent derived \code{Key} without mutating \code{k}.}
+    \p{\code{baux.fold} mixes a 64-bit integer tag into key \code{k} without mutation to derive an independent child key.}
   }
 
   \<div>[id]{baux.scan}[class]{api-entry}[data-symbol]{baux.scan}[data-kind]{function}[data-module]{baux.state}{
@@ -1556,7 +1556,7 @@ baux.scan(
     num_arms: int = 1,
 ) -> tuple[OptimizerState, Key, list[dict[str, Any]]] | tuple[OptimizerState, np.ndarray]
     }
-    \p{Fold \code{steps} sequential pure optimization rounds over \code{state}, advancing the PRNG stream and recording per-step trace dictionaries without shared mutable state.}
+    \p{\code{baux.scan} folds \code{steps} sequential ask/tell rounds over \code{state} and a splitting key stream without shared mutable state.}
     \<dl>[class]{api-spec-list}{
       \<dt>{Parameters}
       \<dd>{
@@ -1622,7 +1622,7 @@ baux.pmap(
     branch_fn: Callable[[int, OptimizerState, Key], Any],
 ) -> list[Any]
     }
-    \p{Fork \code{state} and split \code{key} across \code{branches} worker threads, executing \code{branch_fn(branch_idx, branch_state, subkey)} concurrently.}
+    \p{\code{baux.pmap} forks \code{state} and splits \code{key} across \code{branches} worker threads so parallel rollouts never contend on shared state.}
     \<dl>[class]{api-spec-list}{
       \<dt>{Parameters}
       \<dd>{
@@ -1648,7 +1648,7 @@ baux.pmap(
     \pre{
 baux.freeze(state: OptimizerState) -> bytes
     }
-    \p{Serialize \code{state} into a deterministic, authenticated \code{BAUXFRZ2} binary snapshot encoding observed parameters, objective values, fitted surrogate state, trust-region side lengths, streak counters, \code{epoch}, \code{seed}, and \code{pending_ids}.}
+    \p{\code{baux.freeze} encodes an \code{OptimizerState} into a canonical \code{BAUXFRZ2} byte payload authenticated with a trailing BLAKE3 tag.}
     \<dl>[class]{api-spec-list}{
       \<dt>{Parameters}
       \<dd>{
@@ -1691,7 +1691,7 @@ baux.thaw(
     data: bytes | bytearray | memoryview,
 ) -> OptimizerState
     }
-    \p{Restore an \code{OptimizerState} from binary checkpoint \code{data} against template \code{state} without mutating \code{state}. Verifies regional mode parity, \code{BAUXFRZ2} header version, bounds compatibility, and BLAKE3 integrity tag, restoring the exact saved search state (\code{epoch}, \code{seed}, \code{identified}, \code{tr_length}, regional success and failure counters, observation arrays, fitted surrogate parameters, and \code{pending_ids}) so subsequent search proposals match the checkpointed optimizer.}
+    \p{\code{baux.thaw} restores an \code{OptimizerState} from binary checkpoint \code{data} against template \code{state} without mutating \code{state}. It verifies the \code{BAUXFRZ2} header, regional mode parity, domain bounds, and BLAKE3 integrity tag, then reconstructs exact search state (\code{epoch}, \code{seed}, \code{identified}, \code{tr_length}, regional counters, observation arrays, fitted hyperparameters, and \code{pending_ids}) so subsequent proposals match the checkpoint.}
     \<dl>[class]{api-spec-list}{
       \<dt>{Parameters}
       \<dd>{
@@ -1720,14 +1720,14 @@ baux.thaw(
     \pre{
 baux.digest(state: OptimizerState) -> str
     }
-    \p{Return the canonical 64-character lowercase hexadecimal BLAKE3 cryptographic digest of \code{state}, covering domain bounds, configuration, ingested observations, and regional controller state.}
+    \p{\code{baux.digest} computes the canonical 64-character hexadecimal BLAKE3 digest over domain bounds, pipeline config, observations, and controller state.}
   }
 }
 
 \subtree{
   \title{Standalone ENN Surrogate}
 
-  \p{The Epistemic Nearest Neighbor (ENN) surrogate can be evaluated and updated directly outside the optimization loop via pure functional transitions over [\code{baux.ENNState}](#baux.ENNState). Functions such as [\code{baux.enn_init}](#baux.enn_init), [\code{baux.enn_fit}](#baux.enn_fit), [\code{baux.enn_posterior}](#baux.enn_posterior), [\code{baux.enn_sample}](#baux.enn_sample), and [\code{baux.enn_append}](#baux.enn_append) operate on read-only arrays with copy-on-write index state.}
+  \p{You can fit and query the Epistemic Nearest Neighbor (ENN) surrogate outside an optimization loop through pure transitions over [\code{baux.ENNState}](#baux.ENNState). Functions [\code{baux.enn_init}](#baux.enn_init), [\code{baux.enn_fit}](#baux.enn_fit), [\code{baux.enn_posterior}](#baux.enn_posterior), [\code{baux.enn_sample}](#baux.enn_sample), and [\code{baux.enn_append}](#baux.enn_append) keep input arrays read-only and update the neighbor index copy-on-write.}
 
   \<table>[class]{api-summary-table}{
     \<thead>{
@@ -1980,7 +1980,7 @@ baux.enn_sample(
     \pre{
 class baux.ENNState  (frozen dataclass; constructed via baux.enn_init)
     }
-    \p{Immutable record coupling read-only observation arrays with a copy-on-write neighbor index.}
+    \p{\code{ENNState} bundles read-only training observations with a copy-on-write neighbor index and content-addressed RNG key.}
     \<dl>[class]{api-spec-list}{
       \<dt>{Attributes}
       \<dd>{
@@ -2016,7 +2016,7 @@ baux.ENNParams(
     aleatoric_scale: float,
 )
     }
-    \p{Frozen hyperparameter record governing nearest-neighbor aggregation count and predictive variance multipliers.}
+    \p{\code{ENNParams} holds the neighbor stencil count \code{k_neighbors} and fitted variance multipliers (\code{epistemic_scale}, \code{aleatoric_scale}).}
     \<dl>[class]{api-spec-list}{
       \<dt>{Attributes}
       \<dd>{
@@ -2037,7 +2037,7 @@ baux.ENNParams(
     \pre{
 class baux.Posterior  (device-resident posterior; paired with host baux.enn.ENNNormal)
     }
-    \p{Device-resident posterior snapshot returned by accelerator queries, exposing DLPack \code{mean}, \code{se}, and shared-seed \code{draw(seeds)} buffers directly on GPU memory without host round-trips.}
+    \p{\code{Posterior} holds DLPack \code{mean}, \code{se}, and shared-seed \code{draw(seeds)} buffers on accelerator memory so GPU queries avoid host round-trips.}
   }
 
   \<div>[id]{baux.NeighborIndex}[class]{api-entry api-entry-compact}[data-symbol]{baux.NeighborIndex}[data-kind]{class}[data-module]{baux.index}{
@@ -2048,7 +2048,7 @@ class baux.Posterior  (device-resident posterior; paired with host baux.enn.ENNN
     \pre{
 class baux.NeighborIndex(enum.Enum)
     }
-    \p{Enumeration selecting the nearest-neighbor search driver across CPU and GPU hardware: \code{EXACT} (or \code{FLAT}), \code{HNSW} (or \code{USEARCH}), \code{BPANN_DISK}, \code{METAL}, \code{CUDA}, \code{OPENCL}, and \code{AUTO}.}
+    \p{\code{NeighborIndex} enumerates the native nearest-neighbor index drivers across CPU, disk, and GPU backends (\code{EXACT}/\code{FLAT}, \code{HNSW}/\code{USEARCH}, \code{BPANN_DISK}, \code{METAL}, \code{CUDA}, \code{OPENCL}, and \code{AUTO}).}
   }
 
   \<div>[id]{baux.DistanceMetric}[class]{api-entry api-entry-compact}[data-symbol]{baux.DistanceMetric}[data-kind]{class}[data-module]{baux.index}{
@@ -2059,7 +2059,7 @@ class baux.NeighborIndex(enum.Enum)
     \pre{
 class baux.DistanceMetric(enum.Enum)
     }
-    \p{Enumeration of pairwise distance metrics supported by neighbor indices, including \code{SQUARED_L2} (required for TuRBO optimization), \code{L2}, \code{MANHATTAN}, \code{CHEBYSHEV}, and \code{COSINE}.}
+    \p{\code{DistanceMetric} enumerates pairwise index distances, including \code{SQUARED_L2} (required by TuRBO), \code{L2}, \code{MANHATTAN}, \code{CHEBYSHEV}, and \code{COSINE}.}
   }
 }
 
@@ -2179,7 +2179,7 @@ baux.create_optimizer(
     rng: np.random.Generator,
 ) -> Optimizer
       }
-      \p{Validate domain bounds and configuration, initialize random state from \code{rng}, and construct an in-place stateful [\code{baux.Optimizer}](#baux.Optimizer).}
+      \p{\code{baux.create_optimizer} validates domain bounds and pipeline config, seeds PRNG state from \code{rng}, and constructs an in-place stateful [\code{Optimizer}](#baux.Optimizer).}
       \<dl>[class]{api-spec-list}{
         \<dt>{Parameters}
         \<dd>{
@@ -2222,7 +2222,7 @@ assert isinstance(telem, baux.Telemetry)
       \pre{
 class baux.Optimizer  (constructed via baux.create_optimizer)
       }
-      \p{Stateful in-place Bayesian optimization harness wrapping single-region and multi-region native solvers.}
+      \p{\code{Optimizer} wraps the native single- and multi-region Rust solvers behind an imperative \code{ask}/\code{tell} interface for host loops that cannot thread functional snapshots.}
       \<dl>[class]{api-spec-list}{
         \<dt>{Attributes}
         \<dd>{
@@ -2271,7 +2271,7 @@ baux.ENN(
     **options: Any,
 )
       }
-      \p{Stateful Epistemic Nearest Neighbors surrogate supporting incremental updates, conditional queries, and accelerator execution.}
+      \p{\code{baux.ENN} manages a mutable Rust-backed nearest-neighbor surrogate that supports incremental \code{add} updates, conditional queries, and DLPack GPU inference.}
       \<dl>[class]{api-spec-list}{
         \<dt>{Attributes}
         \<dd>{
@@ -2311,7 +2311,7 @@ baux.ENNFitter(
     infer_aleatoric_variance_scale: bool = True,
 )
       }
-      \p{Incremental stateful hyperparameter fitter maintaining streaming target variance statistics via \code{tell(x, y, yvar)}, fitting \code{ask(model, num_candidates=..., num_samples=...) -> ENNParams}, and reporting \code{y_std()}.}
+      \p{\code{ENNFitter} tracks streaming target variance statistics via \code{tell(x, y, yvar)} and returns fitted \code{ENNParams} from \code{ask(model, num_candidates=..., num_samples=...)}.}
     }
 
     \<div>[id]{baux.Telemetry}[class]{api-entry api-entry-compact}[data-symbol]{baux.Telemetry}[data-kind]{class}[data-module]{baux.turbo.optimizer_types}{
@@ -2328,7 +2328,7 @@ baux.Telemetry(
     num_candidates: int = 0,
 )
       }
-      \p{Frozen slotted dataclass reporting native wall-clock phase durations in seconds (\code{dt_fit}, \code{dt_sel}, \code{dt_gen}, \code{dt_tell}) and candidate pool size (\code{num_candidates}) from the latest proposal round.}
+      \p{\code{Telemetry} records native phase timings in seconds (\code{dt_fit}, \code{dt_sel}, \code{dt_gen}, \code{dt_tell}) and candidate pool count (\code{num_candidates}) from the latest proposal round.}
     }
 
     \<div>[id]{baux.TellPredictionError}[class]{api-entry api-entry-compact}[data-symbol]{baux.TellPredictionError}[data-kind]{class}[data-module]{baux.bo}{
@@ -2339,7 +2339,7 @@ baux.Telemetry(
       \pre{
 class baux.TellPredictionError(RuntimeError)
       }
-      \p{Exception raised when observation ingestion succeeds in the native store but the subsequent \code{posterior_mu} call fails; invariant \code{observations_accepted = True} confirms observations were recorded and must not be resubmitted.}
+      \p{\code{TellPredictionError} signals that observations were committed to the native store before a follow-up \code{posterior_mu} query failed; its \code{observations_accepted = True} flag warns callers not to resubmit the batch.}
     }
   }
 
@@ -2362,7 +2362,7 @@ baux.OptimizerConfig(
     observation_history: ObservationHistoryConfig = ObservationHistoryConfig(),
 )
       }
-      \p{Composite configuration record defining trust region behavior, candidate sampling, warm-up initialization, surrogate architecture, and acquisition optimization.}
+      \p{\code{OptimizerConfig} specifies the validated trust-region policy, candidate sampler, warm-up budget, surrogate model, and acquisition rule compiled by a pipeline.}
       \<dl>[class]{api-spec-list}{
         \<dt>{Attributes}
         \<dd>{
@@ -2398,7 +2398,7 @@ baux.RegionalSearchPolicy(
     acquisitions: tuple[AcquisitionConfig | None, ...] = (),
 )
       }
-      \p{Multi-region trust region policy managing concurrent region allocations, observation sharing rules, and restart conditions.}
+      \p{\code{RegionalSearchPolicy} governs how concurrent local trust regions share observations, receive bandit arm allocations, expand or shrink, and restart.}
       \<dl>[class]{api-spec-list}{
         \<dt>{Attributes}
         \<dd>{
@@ -2427,7 +2427,7 @@ baux.TrustRegionBounds(
     length_max: float = 1.6,
 )
       }
-      \p{Frozen dataclass specifying side length limits for trust regions, validating \code{0 < length_min <= length_init <= length_max}.}
+      \p{\code{TrustRegionBounds} enforces side-length invariants \code{0 < length_min <= length_init <= length_max} on trust-region expansion and restart thresholds.}
     }
 
     \<div>[id]{baux.turbo_enn}[class]{api-entry api-entry-compact}[data-symbol]{baux.turbo_enn}[data-kind]{function}[data-module]{baux.turbo.config}{
@@ -2445,7 +2445,7 @@ baux.turbo_enn(
     acquisition: AcquisitionKind = AcquisitionKind.PARETO,
 ) -> OptimizerConfig
       }
-      \p{Preset factory returning an [\code{baux.OptimizerConfig}](#baux.OptimizerConfig) backed by an Epistemic Nearest Neighbors surrogate; equivalent to composable pipeline \code{baux.enn(...) | baux.ucb(...)} or \code{baux.pareto(...)}.}
+      \p{\code{baux.turbo_enn} returns an [\code{OptimizerConfig}](#baux.OptimizerConfig) preset backed by the ENN surrogate; the composable pipeline \code{baux.enn(...) | baux.ucb(...)} (or \code{baux.pareto(...)}) is equivalent.}
     }
 
     \<div>[id]{baux.turbo_one}[class]{api-entry api-entry-compact}[data-symbol]{baux.turbo_one}[data-kind]{function}[data-module]{baux.turbo.config}{
@@ -2463,7 +2463,7 @@ baux.turbo_one(
     acquisition: AcquisitionKind = AcquisitionKind.THOMPSON,
 ) -> OptimizerConfig
       }
-      \p{Preset factory returning a TuRBO-1 [\code{baux.OptimizerConfig}](#baux.OptimizerConfig) backed by an exact Gaussian Process surrogate with Thompson or UCB acquisition.}
+      \p{\code{baux.turbo_one} returns a TuRBO-1 [\code{OptimizerConfig}](#baux.OptimizerConfig) preset backed by an exact Gaussian Process surrogate and Thompson or UCB acquisition.}
     }
 
     \<div>[id]{baux.turbo_zero}[class]{api-entry api-entry-compact}[data-symbol]{baux.turbo_zero}[data-kind]{function}[data-module]{baux.turbo.config}{
@@ -2481,7 +2481,7 @@ baux.turbo_zero(
     sampler: CandidateSampler = CandidateSampler.SOBOL,
 ) -> OptimizerConfig
       }
-      \p{Preset factory returning a surrogate-free TuRBO-0 [\code{baux.OptimizerConfig}](#baux.OptimizerConfig) using local trust region bounds with random candidate acquisition.}
+      \p{\code{baux.turbo_zero} returns a surrogate-free TuRBO-0 [\code{OptimizerConfig}](#baux.OptimizerConfig) preset that selects random candidates inside local trust-region bounds.}
     }
 
     \<div>[id]{baux.lhd_only}[class]{api-entry api-entry-compact}[data-symbol]{baux.lhd_only}[data-kind]{function}[data-module]{baux.turbo.config}{
@@ -2498,7 +2498,7 @@ baux.lhd_only(
     sampler: CandidateSampler = CandidateSampler.SOBOL,
 ) -> OptimizerConfig
       }
-      \p{Preset factory returning an [\code{baux.OptimizerConfig}](#baux.OptimizerConfig) configured for space-filling Latin Hypercube Design sampling without surrogate modeling or trust regions.}
+      \p{\code{baux.lhd_only} returns an [\code{OptimizerConfig}](#baux.OptimizerConfig) preset for space-filling Latin Hypercube Design sampling without a surrogate or trust region.}
     }
 
     \<div>[id]{baux.enn_optimizer}[class]{api-entry api-entry-compact}[data-symbol]{baux.enn_optimizer}[data-kind]{function}[data-module]{baux.bo}{
@@ -2515,7 +2515,7 @@ baux.enn_optimizer(
     config: Any = None,
 ) -> BayesOptimizer
       }
-      \p{Low-level PyO3 constructor returning a native Rust single-region TuRBO-ENN optimizer; prefer [\code{baux.init}](#baux.init) or [\code{baux.create_optimizer}](#baux.create_optimizer) for validated configurations and PyTree domains.}
+      \p{\code{baux.enn_optimizer} constructs a low-level PyO3 handle to the native single-region TuRBO-ENN solver; prefer [\code{baux.init}](#baux.init) or [\code{baux.create_optimizer}](#baux.create_optimizer) for validated configs and PyTree domains.}
     }
 
     \<div>[id]{baux.create_zero}[class]{api-entry api-entry-compact}[data-symbol]{baux.create_zero}[data-kind]{function}[data-module]{baux.bo}{
@@ -2531,7 +2531,7 @@ baux.create_zero(
     config: Any = None,
 ) -> BayesOptimizer
       }
-      \p{Low-level PyO3 constructor returning a native Rust surrogate-free TuRBO-0 optimizer handle.}
+      \p{\code{baux.create_zero} constructs a low-level PyO3 handle to the native surrogate-free TuRBO-0 solver.}
     }
 
     \<div>[id]{baux.create_lhd}[class]{api-entry api-entry-compact}[data-symbol]{baux.create_lhd}[data-kind]{function}[data-module]{baux.bo}{
@@ -2547,7 +2547,7 @@ baux.create_lhd(
     config: Any = None,
 ) -> BayesOptimizer
       }
-      \p{Low-level PyO3 constructor returning a native Rust Latin Hypercube Design baseline optimizer handle.}
+      \p{\code{baux.create_lhd} constructs a low-level PyO3 handle to the native Latin Hypercube Design baseline solver.}
     }
   }
 
@@ -2562,7 +2562,7 @@ baux.create_lhd(
       \pre{
 baux.capabilities(*, probe: bool = False) -> tuple[BackendCapabilities, ...]
       }
-      \p{Inspect the installed native extension capabilities across CPU, CUDA, Metal, and OpenCL backends, optionally exercising device hardware when \code{probe=True}.}
+      \p{\code{baux.capabilities} inspects native build support across CPU, CUDA, Metal, and OpenCL backends and probes live hardware when \code{probe=True}.}
       \<dl>[class]{api-spec-list}{
         \<dt>{Parameters}
         \<dd>{
@@ -2593,7 +2593,7 @@ baux.BackendCapabilities(
     array_frameworks: tuple[str, ...],
 )
       }
-      \p{Frozen slotted dataclass describing native build support, hardware availability, operation execution tiers, and detected Python array frameworks for one backend.}
+      \p{\code{BackendCapabilities} summarizes compile support, hardware availability, direct-versus-fallback execution tiers, and installed Python array packages for one backend.}
       \<dl>[class]{api-spec-list}{
         \<dt>{Attributes}
         \<dd>{
@@ -2620,7 +2620,7 @@ baux.BackendCapabilities(
       \pre{
 baux.Device(name: str = "auto") -> Device
       }
-      \p{Native accelerator context selector resolving \code{"auto"}, \code{"cpu"}, \code{"metal"}, or \code{"cuda"}, with constructors \code{Device.auto()}, \code{Device.cpu()}, \code{Device.metal()}, \code{Device.cuda()}, and memory telemetry via \code{memory_info()}.}
+      \p{\code{Device} resolves accelerator contexts across \code{"auto"}, \code{"cpu"}, \code{"metal"}, and \code{"cuda"} and exposes device memory telemetry through \code{memory_info()}.}
     }
 
     \<div>[id]{baux.optuna.Sampler}[class]{api-entry}[data-symbol]{baux.optuna.Sampler}[data-kind]{class}[data-module]{baux.optuna}{
@@ -2636,7 +2636,7 @@ baux.optuna.Sampler(
     seed: int | None = None,
 )
       }
-      \p{Subclass of \code{optuna.samplers.BaseSampler} routing fixed continuous single-objective Optuna studies through BAUX. Imported via \code{import baux.optuna} (requires optional \code{optuna} package).}
+      \p{\code{baux.optuna.Sampler} subclasses \code{optuna.samplers.BaseSampler} to drive fixed continuous single-objective Optuna studies with BAUX (requires optional \code{optuna}).}
       \<dl>[class]{api-spec-list}{
         \<dt>{Parameters}
         \<dd>{
@@ -2666,7 +2666,7 @@ baux.optuna.Sampler(
       \pre{
 baux.experimental.program
       }
-      \p{Experimental compilation and resident buffer execution interface lowering StableHLO MLIR modules or traced functions to IREE, TVM, or XLA backends, exposing \code{compile}, \code{Executable}, \code{Buffer}, \code{TensorSpec}, and \code{register}.}
+      \p{\code{baux.experimental.program} lowers StableHLO MLIR modules or traced functions to IREE, TVM, or XLA backends via \code{compile}, \code{Executable}, \code{Buffer}, \code{TensorSpec}, and \code{register}.}
     }
   }
 }

@@ -66,7 +66,7 @@ baux.ENN(
   \p{\code{train_x}: \code{(N, D)}. \code{train_y} and optional \code{train_yvar}: \code{(N, M)}. Unlike \code{enn_init}, this constructor requires two-dimensional output arrays.}
   \p{\code{index_driver} selects the backend. Extra options include \code{device}, \code{index}, \code{storage}, \code{metric_learning}, \code{geometry} and \code{local_k}. \code{y_bounds} supplies \code{(M, 2)} output bounds.}
   \p{\code{add(x, y, yvar=None)} appends in place. \code{posterior(x, params, flags=...)} returns moments; \code{posterior_draw(x, params, function_seeds=..., flags=...)} returns draws and neighbor IDs.}
-  \p{NumPy queries return \code{ENNNormal}. Supported device queries return a native \code{Posterior}. The presence of a device argument does not imply every operation runs there; inspect \code{capabilities}.}
+  \p{NumPy queries return \code{ENNNormal}, and device queries return a native \code{Posterior}. Check \code{capabilities()} for per-backend operation support.}
   \<p>[class]{api-source}{[Source in \code{python/baux/enn/enn_class.py}](https://github.com/Kvutza/baux/blob/main/python/baux/enn/enn_class.py#L186)}
 }
 
@@ -103,7 +103,7 @@ baux.Telemetry(
 class baux.TellPredictionError(RuntimeError)
   }
   \p{Ingestion succeeded but retrieving predictions failed.}
-  \p{A \code{RuntimeError} subclass with \code{observations_accepted=True}. In the in-place optimizer, retry \code{optimizer.posterior_mu(x)} rather than submitting the same observations again. This exception does not classify errors from ingestion itself.}
+  \p{A \code{RuntimeError} subclass raised when ingestion succeeded (\code{observations_accepted=True}) before prediction failed; call \code{optimizer.posterior_mu(x)} rather than resubmitting the same batch.}
   \<p>[class]{api-source}{[Source in \code{python/baux/bo.py}](https://github.com/Kvutza/baux/blob/main/python/baux/bo.py#L94)}
 }
 

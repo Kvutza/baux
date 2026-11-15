@@ -1,7 +1,7 @@
 \title{Checkpoints and keys}
 \meta{toc}{false}
 
-\p{A checkpoint saves optimizer state. A key controls randomness. Neither saves the external evaluator or running worker jobs. Continue a restored run with the same observations and submission order when reproducibility matters.}
+\p{A checkpoint serializes optimizer state, and keys derive deterministic RNG streams. Pass matching observations and submission order when replaying an exact run.}
 
 \<section>[id]{baux.freeze}[class]{api-entry}[data-symbol]{baux.freeze}[data-kind]{function}[data-module]{baux.state}{
   \<div>[class]{api-entry-header}{\<h2>[class]{api-entry-title}{[\code{baux.freeze}](api-state.html#baux.freeze)}}
@@ -9,8 +9,7 @@
 baux.freeze(state: OptimizerState) -> bytes
   }
   \p{Serialize an optimizer checkpoint.}
-  \p{Returns \code{bytes}. Save them and restore with [\code{thaw}](api-state.html#baux.thaw), supplying a compatible initial state. The checkpoint contains optimizer state, including pending evaluations; it does not save external worker jobs or evaluator state.}
-  \p{The BLAKE3 tag detects corruption. It is not an authentication signature.}
+  \p{Returns \code{bytes} containing the serialized optimizer state and pending evaluations, protected by a BLAKE3 integrity tag. Restore with [\code{thaw}](api-state.html#baux.thaw) against a compatible initial state.}
   \<div>[class]{api-example}{\<p>[class]{example-label}{Example}
 \pre{
 import numpy as np
@@ -51,7 +50,7 @@ baux.thaw(state: OptimizerState, data: bytes) -> OptimizerState
 baux.digest(state: OptimizerState) -> str
   }
   \p{Get the optimizer state's content digest.}
-  \p{Returns a 64-character hexadecimal string. Use it to compare saved optimizer states. It does not identify the external evaluator, data source or running workers.}
+  \p{Returns a 64-character hexadecimal string identifying the optimizer state.}
   \<p>[class]{api-source}{[Source in \code{python/baux/state.py}](https://github.com/Kvutza/baux/blob/main/python/baux/state.py#L341)}
 }
 
@@ -71,7 +70,7 @@ baux.key(source: Any = None) -> Any
 baux.Key(source = None)
   }
   \p{A splittable random key.}
-  \p{Use [\code{key}](api-state.html#baux.key), [\code{split}](api-state.html#baux.split) and [\code{fold}](api-state.html#baux.fold) to create and derive keys. Reusing a key reproduces its deterministic stream. Reproducing a search also requires the same observations and transition order.}
+  \p{Use [\code{key}](api-state.html#baux.key), [\code{split}](api-state.html#baux.split) and [\code{fold}](api-state.html#baux.fold) to create and derive deterministic PRNG streams.}
   \<p>[class]{api-source}{[Source in \code{rust/crates/baux-py/src/py_hash.rs}](https://github.com/Kvutza/baux/blob/main/rust/crates/baux-py/src/py_hash.rs)}
 }
 

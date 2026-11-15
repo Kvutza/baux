@@ -102,7 +102,7 @@ print("gap   x=0.65 mu=", round(float(prediction.mu[1, 0]), 4), "se=", round(flo
       ##{
         \delta_h(x, x_m) = \frac{d^2(x, x_m)}{2\,\sigma(x)\,\sigma(x_m)} + \frac{\bigl(\sigma(x) - \sigma(x_m)\bigr)^2}{2\,\sigma(x)\,\sigma(x_m)}.
       }
-      A large ratio between the endpoint scales increases the second term. This penalizes cross-scale matches; it does not guarantee that the selected neighbors belong to a particular basin.
+      A large ratio between endpoint scales increases the second term, penalizing cross-scale matches.
     }
     \li{
       \strong{Hybrid dissimilarity} (\code{wasserstein} in the API) combines a rescaled position difference with a spacing difference:
@@ -113,7 +113,7 @@ print("gap   x=0.65 mu=", round(float(prediction.mu[1, 0]), 4), "se=", round(flo
   }
 
   \p{
-    The \code{wasserstein} name denotes this implemented formula, not a claim that it is the Wasserstein distance between probability distributions. The example below checks neighbor membership, the variance decomposition, and sample correlation on one constructed dataset. Those assertions illustrate the API; they do not establish uncertainty calibration or an advantage on other objectives.
+    The example below places a dense basin inside a coarse outer shell, fits a \code{hyperbolic} ENN, and inspects neighbor selection, posterior variance decomposition, and joint draw correlation:
   }
 
   \pre{

@@ -1,7 +1,7 @@
 \title{baux documentation}
 \meta{toc}{false}
 
-\p{baux is a black-box optimization library with a Rust core and a Python API. Define a parameter space, evaluate the points it proposes, and return the results. Your function does not need to provide gradients.}
+\p{baux is a derivative-free optimization library with a Rust core and a Python API. Define a parameter space, evaluate proposed points, and return objective values.}
 
 \subtree{
   \title{Installation}
@@ -34,7 +34,7 @@ print("Rosenbrock max(-f):", round(float(state.best_y), 5), "at", np.round(state
   }
   }
   \p{baux maximizes values. This example negates the coupled 2D Rosenbrock valley so the optimizer ascends along the curved ridge toward (1, 1). Keep the state returned by \code{ask} and \code{tell} for the next call.}
-  \p{The [quickstart](quickstart.html) explains the loop. The [optimizer reference](docs.html) documents its inputs and outputs.}
+  \p{The [quickstart](quickstart.html) explains the loop, and the [Playground](playground.html) runs examples directly in your browser. See the [optimizer reference](docs.html) for inputs and outputs.}
 }
 
 \subtree{

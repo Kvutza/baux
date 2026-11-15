@@ -89,7 +89,7 @@ baux.thompson() -> Transform
 baux.pareto() -> Transform
   }
   \p{Select from the mean–uncertainty frontier.}
-  \p{Returns a \code{Transform} using non-dominated sorting over predicted mean and uncertainty. Adds an ENN surrogate if none is configured. This is an acquisition rule; it does not by itself configure multi-objective optimization.}
+  \p{Returns a \code{Transform} using non-dominated sorting over predicted mean and uncertainty, adding an ENN surrogate if none is configured.}
   \<p>[class]{api-source}{[Source in \code{python/baux/transforms.py}](https://github.com/Kvutza/baux/blob/main/python/baux/transforms.py#L301)}
 }
 
@@ -215,7 +215,7 @@ baux.stein(target: Any = None, frame: Any = None, *, rank: int | None = None) ->
   }
   \p{Configure prediction shrinkage toward a subspace.}
   \p{Use \code{stein(rank=F)} to build a pipeline transform, or \code{stein(enn_state, frame)} to apply a supplied \code{Stiefel} frame. A rank requests a frame estimated from observed outputs.}
-  \p{The basis has shape \code{(M, F)}. Use \code{Stiefel.from_factors} to orthonormalize supplied factors. This API does not provide a James–Stein risk guarantee.}
+  \p{The basis has shape \code{(M, F)}. Use \code{Stiefel.from_factors} to orthonormalize supplied factors.}
   \p{Applying the transform to an \code{OptimizerState} initializes a new optimizer; configure it before collecting observations.}
   \<p>[class]{api-source}{[Source in \code{python/baux/enn/enn_state.py}](https://github.com/Kvutza/baux/blob/main/python/baux/enn/enn_state.py#L270)}
 }
@@ -227,7 +227,7 @@ baux.calibrate(target: Any = None, affine: Any = None, *, alpha: float | None = 
   }
   \p{Configure an affine correction to predictions.}
   \p{Use \code{calibrate(affine=map)} for a supplied \code{Affine}, or \code{calibrate(alpha=0.1)} to request a fitted correction and residual-quantile scale. Applying it to an \code{ENNState} returns a new state.}
-  \p{\code{alpha} is a miscoverage setting in \code{(0, 1)}. Adaptive optimization observations do not automatically satisfy exchangeability or a coverage guarantee.}
+  \p{\code{alpha} sets the target miscoverage level in \code{(0, 1)}.}
   \p{Applying it to an \code{OptimizerState} initializes a new optimizer; configure it before collecting observations.}
   \<p>[class]{api-source}{[Source in \code{python/baux/enn/enn_state.py}](https://github.com/Kvutza/baux/blob/main/python/baux/enn/enn_state.py#L299)}
 }

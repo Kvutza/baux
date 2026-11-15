@@ -1412,7 +1412,7 @@ async function ensureRuntime() {
     self.postMessage({
       type: "status",
       stage: "downloading_manifest",
-      detail: "Fetching Python runtime manifest...",
+      detail: "Loading Python...",
     });
     const manifest = await fetchJsonStrict("./repl_manifest.json");
     const zipSpec = manifest.baux_py_zip;
@@ -1437,7 +1437,7 @@ async function ensureRuntime() {
     self.postMessage({
       type: "status",
       stage: "downloading_wasm",
-      detail: "Loading CPython 3.12 WebAssembly kernel...",
+      detail: "Loading Python...",
     });
     const [pyodide, zipBuf] = await Promise.all([
       loadPyodide({ indexURL: "./pyodide/" }),
@@ -1453,14 +1453,14 @@ async function ensureRuntime() {
     self.postMessage({
       type: "status",
       stage: "loading_numpy",
-      detail: "Loading NumPy WebAssembly package...",
+      detail: "Loading packages...",
     });
     await pyodide.loadPackage(["numpy"]);
 
     self.postMessage({
       type: "status",
       stage: "mounting_baux",
-      detail: "Verifying & mounting baux WASM runtime + /workspace...",
+      detail: "Initializing runtime...",
     });
     await mountWorkspaceFs(pyodide, wantOpfsMount);
 
@@ -1505,7 +1505,7 @@ async function ensureRuntime() {
     self.postMessage({
       type: "status",
       stage: "ready",
-      detail: "Python 3.12 + NumPy + baux ready",
+      detail: "Ready",
       caps: buildCaps(),
       opfs_mounted: opfsMounted,
     });
@@ -1536,7 +1536,7 @@ self.onmessage = async (event) => {
       self.postMessage({
         type: "status",
         stage: "interrupting",
-        detail: "Sending SIGINT via SharedArrayBuffer...",
+        detail: "Stopping...",
         caps: buildCaps(),
       });
       if (id !== null) {

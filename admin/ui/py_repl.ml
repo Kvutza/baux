@@ -28,7 +28,7 @@ let presets : preset list =
       label = "SPARC Tokamak: 8-PF Equilibrium";
       short_label = "SPARC 8-PF";
       description =
-        "Optimize 8 SPARC shaping PF coil currents via AGM Biot-Savart flux + X-point null (ENN vs Zero vs LHD).";
+        "Optimize 8 SPARC PF coil currents for flux-surface and X-point match.";
       code =
         "import json, os\n"
         ^ "import numpy as np\n"
@@ -130,7 +130,7 @@ let presets : preset list =
       label = "2D Kelvin-Helmholtz Shear PDE";
       short_label = "KH Shear PDE";
       description =
-        "Pseudo-spectral 2D Navier-Stokes double shear layer control suppressing vortex rollup enstrophy (ENN vs Zero).";
+        "Control a 2D spectral shear layer to suppress vortex enstrophy.";
       code =
         "import time\n"
         ^ "import numpy as np\n"
@@ -200,10 +200,10 @@ let presets : preset list =
     };
     {
       id = "oxcaml_24d";
-      label = "OxCaml 24D Levy: ENN vs Conformal vs Zero";
+      label = "24D Levy: ENN vs Conformal vs Zero";
       short_label = "OxCaml 24D";
       description =
-        "Head-to-head 24D multimodal scaling comparison on equal 360-candidate budget: TuRBO-ENN vs Conformal ENN vs Zero (plus ExactGP on Local Native).";
+        "Compare ENN, Conformal ENN, and TuRBO-Zero on 24D Levy.";
       code =
         "import sys, time\n"
         ^ "import numpy as np\n"
@@ -255,7 +255,7 @@ let presets : preset list =
       label = "Non-Euclidean ENN & McShane-Whitney";
       short_label = "Metric ENN";
       description =
-        "Compare euclidean, conformal, and hyperbolic ENN uncertainty calibration against exact McShane-Whitney Lipschitz bounds.";
+        "Compare Euclidean, conformal, and hyperbolic ENN uncertainty on a 1D gap.";
       code =
         "import numpy as np\n"
         ^ "import baux\n\n"
@@ -316,7 +316,7 @@ let presets : preset list =
       label = "FP16 Quantization Deadzone on SO(4)";
       short_label = "FP16 SO(4)";
       description =
-        "Observe IEEE float16 rounding deadzones stalling SO(4) Cayley Procrustes descent near bias=32.0 vs float32.";
+        "Compare float16 vs float32 precision on SO(4) Procrustes descent.";
       code =
         "import numpy as np\n"
         ^ "import baux\n\n"
@@ -364,7 +364,7 @@ let presets : preset list =
       label = "Mixed Manifold + Stein Shrinkage";
       short_label = "Stiefel FIR";
       description =
-        "Synthesize Simplex + Periodic + Log + Categorical FIR filter under observation noise comparing Stein shrinkage vs unshrunk ENN.";
+        "Optimize a mixed-type FIR filter under observation noise.";
       code =
         "import math\n"
         ^ "import numpy as np\n"
@@ -411,10 +411,10 @@ let presets : preset list =
     };
     {
       id = "async_hartmann6";
-      label = "Async Hartmann-6D + Freeze/Digest";
+      label = "Async Hartmann-6D";
       short_label = "Async H6";
       description =
-        "Heterogeneous worker queue cancelling slow stragglers, out-of-order complete(), and mid-run BLAKE3 freeze/thaw.";
+        "Asynchronous worker loop with straggler cancellation and checkpointing.";
       code =
         "import numpy as np\n"
         ^ "import baux\n\n"
@@ -872,7 +872,7 @@ let interrupt_kernel ?(force = false) () =
   match !runtime_mode_ref with
   | LocalNative ->
       if (not force) && !kernel_state_ref = Running then (
-        notify_status (Interrupting "Sending SIGINT (preserving Python RAM)...");
+        notify_status (Interrupting "Interrupting...");
         let body = Js.Unsafe.obj [| ("force", Js.Unsafe.inject Js._false) |] in
         fetch_json ~meth:"POST"
           ~url:(get_base_url () ^ "api/kernel/interrupt")
@@ -883,9 +883,8 @@ let interrupt_kernel ?(force = false) () =
         fetch_json ~meth:"POST"
           ~url:(get_base_url () ^ "api/kernel/interrupt")
           ~body (fun _ -> ());
-        resolve_pending_error
-          "Local Python kernel force-stopped by user. Click Reset or Run to respawn.";
-        notify_status (Interrupted "Local kernel force-stopped"))
+        resolve_pending_error "Stopped.";
+        notify_status (Interrupted "Stopped"))
   | Wasm ->
       let can_soft =
         (not force)
@@ -898,18 +897,16 @@ let interrupt_kernel ?(force = false) () =
           set_sab_signal 2;
           let msg = Js.Unsafe.obj [| ("type", Js.Unsafe.inject (js "interrupt")) |] in
           ignore (Js.Unsafe.meth_call w "postMessage" [| Js.Unsafe.inject msg |]);
-          notify_status
-            (Interrupting "Sending SIGINT via SharedArrayBuffer (click Force Stop to terminate)")
+          notify_status (Interrupting "Interrupting...")
       | Some w, false ->
           ignore (Js.Unsafe.meth_call w "terminate" [||]);
           worker_ref := None;
           set_sab_signal 0;
-          resolve_pending_error
-            "Kernel worker terminated by user. Click Run to start a fresh kernel.";
-          notify_status (Interrupted "Kernel terminated")
+          resolve_pending_error "Stopped.";
+          notify_status (Interrupted "Stopped")
       | None, _ ->
-          resolve_pending_error "Kernel interrupted";
-          notify_status (Interrupted "Kernel interrupted"))
+          resolve_pending_error "Stopped.";
+          notify_status (Interrupted "Stopped"))
 
 let ensure_worker () =
   match !worker_ref with
@@ -919,7 +916,7 @@ let ensure_worker () =
       let worker_ctor = Js.Unsafe.get Dom_html.window (js "Worker") in
       let url = get_base_url () ^ "assets/repl_worker.js" in
       let w = Js.Unsafe.new_obj worker_ctor [| Js.Unsafe.inject (js url) |] in
-      notify_status (Booting "Starting Web Worker...");
+      notify_status (Booting "Loading...");
       let onmsg =
         Dom.handler (fun ev ->
             let data = Js.Unsafe.get ev (js "data") in
@@ -1081,7 +1078,7 @@ let reset_kernel () =
   | LocalNative ->
       let restart = match !kernel_state_ref with Interrupted _ -> true | _ -> false in
       let body = Js.Unsafe.obj [| ("restart", Js.Unsafe.inject (Js.bool restart)) |] in
-      notify_status (Booting "Resetting Local Native namespace...");
+      notify_status (Booting "Resetting...");
       fetch_json ~meth:"POST"
         ~url:(get_base_url () ^ "api/kernel/reset")
         ~body (fun _ -> notify_status Ready)
@@ -1094,19 +1091,15 @@ let reset_kernel () =
           warm_kernel ())
 
 let status_text = function
-  | Idle ->
-      if !runtime_mode_ref = LocalNative then "Local Native idle"
-      else "Idle (loads ~16 MB WASM on first Run)"
+  | Idle -> "Idle"
   | Booting d -> d
   | Ready ->
       if !runtime_mode_ref = LocalNative then
-        Printf.sprintf "Local Native (%s) ready" cap_ref.native_python
-      else if cap_ref.coop_coep then
-        "Python 3.12 WASM ready (COOP/COEP SharedArrayBuffer interrupts enabled)"
-      else "Python 3.12 WASM ready"
-  | Running ->
-      if !runtime_mode_ref = LocalNative then "Executing Python in Local Native subprocess..."
-      else "Executing Python in Web Worker..."
+        Printf.sprintf "Local (%s)" cap_ref.native_python
+      else if cap_ref.webgpu_active && cap_ref.webgpu_adapter <> "" then
+        "Ready · WebGPU (" ^ cap_ref.webgpu_adapter ^ ")"
+      else "Ready"
+  | Running -> "Running..."
   | Interrupting r -> r
   | Interrupted r -> r
 
@@ -1892,68 +1885,6 @@ let render_band1d_card (fig : Js.Unsafe.any) =
     Dom.appendChild stage svg;
     card
 
-let active_backend_label (caps : cap_info) =
-  match !runtime_mode_ref with
-  | LocalNative ->
-      if caps.native_metal then "Local Native · Metal"
-      else if caps.native_cuda then "Local Native · CUDA"
-      else if caps.native_baux then "Local Native · baux"
-      else "Local Native · Python"
-  | Wasm ->
-      if caps.webgpu_active then "WASM + WebGPU"
-      else if caps.wasm_simd_known && caps.wasm_simd then "WASM SIMD"
-      else if caps.webgpu_available then "WASM (WebGPU avail)"
-      else "CPU WASM"
-
-let render_cap_badges (container : element Js.t) (caps : cap_info) =
-  clear_children (container :> Dom.node Js.t);
-  let add_badge lbl value =
-    let item = mk ~cls:"py-telemetry-item" "span" in
-    Dom.appendChild item (mk ~cls:"py-telemetry-lbl" ~txt:lbl "span");
-    Dom.appendChild item (mk ~cls:"py-telemetry-val" ~txt:value "strong");
-    Dom.appendChild container item
-  in
-  add_badge "runtime" (active_backend_label caps);
-  (match !runtime_mode_ref with
-  | LocalNative ->
-      add_badge "python" caps.native_python;
-      add_badge "baux" (if caps.native_baux then "Native Rust" else "Pure Python");
-      if caps.native_metal then add_badge "gpu" "Metal Active"
-      else if caps.native_cuda then add_badge "gpu" "CUDA Active"
-      else add_badge "gpu" "CPU";
-      let fw =
-        (if caps.native_torch then [ "Torch" ] else [])
-        @ (if caps.native_jax then [ "JAX" ] else [])
-        @ (if caps.native_flame then [ "Flame" ] else [])
-        @ (if caps.native_tune then [ "baux tune" ] else [])
-      in
-      if fw <> [] then add_badge "stack" (String.concat " · " fw);
-      add_badge "interrupt" "SIGINT / SIGKILL";
-      add_badge "workspace" "Repo FS"
-  | Wasm ->
-      let cpu_v =
-        if caps.wasm_simd_known then (if caps.wasm_simd then "WASM SIMD" else "WASM Scalar")
-        else "Py 3.12 WASM"
-      in
-      add_badge "cpu" cpu_v;
-      let gpu_v =
-        if caps.webgpu_active then
-          if caps.webgpu_adapter <> "" then "Active (" ^ caps.webgpu_adapter ^ ")"
-          else "Active"
-        else if caps.webgpu_available then "Available"
-        else "Unavailable"
-      in
-      add_badge "webgpu" gpu_v;
-      add_badge "interrupt"
-        (if caps.coop_coep then "COOP/COEP SAB" else "Worker Terminate");
-      let ws_v =
-        if caps.opfs_mounted then "OPFS /workspace mounted"
-        else if caps.opfs_ready then "OPFS /workspace ready"
-        else "In-Memory MEMFS"
-      in
-      add_badge "workspace" ws_v);
-  ()
-
 let append_telemetry_band (panel : element Js.t) (state_raw : Js.Unsafe.any) =
   let band = mk ~cls:"py-telemetry-band" "div" in
   let stats = mk ~cls:"py-telemetry-stats" "div" in
@@ -1965,7 +1896,6 @@ let append_telemetry_band (panel : element Js.t) (state_raw : Js.Unsafe.any) =
     Dom.appendChild item (mk ~cls:"py-telemetry-val" ~txt:value "strong");
     Dom.appendChild stats item
   in
-  add_stat "backend" (active_backend_label cap_ref);
   add_stat "obs" (string_of_int (Option.value (opt_int state_raw "num_observations") ~default:0));
   add_stat "epoch" (string_of_int (Option.value (opt_int state_raw "epoch") ~default:0));
   add_stat "regions" (string_of_int (Option.value (opt_int state_raw "num_regions") ~default:1));
@@ -2053,10 +1983,7 @@ let render_state_panel ?empty_node (panel : element Js.t) (state_raw : Js.Unsafe
     | Some node -> Dom.appendChild panel node
     | None ->
         let hint =
-          mk ~cls:"py-inspector-empty"
-            ~txt:
-              "Run a script that creates OptimizerState variable(s) or a `fig` diagnostic dict to inspect live convergence trajectories, tokamak equilibrium fluxes, PDE fields, and ENN uncertainty bands."
-            "p"
+          mk ~cls:"py-inspector-empty" ~txt:"No figures or state yet." "p"
         in
         Dom.appendChild panel hint)
   else
@@ -2298,13 +2225,15 @@ let mount_playground (root : element Js.t) =
   let controls = mk ~cls:"py-pg-controls" "div" in
   let mode_sel = createSelect document in
   mode_sel##.className := js "py-btn";
-  mode_sel##setAttribute (js "aria-label") (js "Python execution backend");
+  mode_sel##setAttribute (js "aria-label") (js "Python runtime");
+  mode_sel##setAttribute (js "hidden") (js "hidden");
+  mode_sel##.style##.display := js "none";
   let wasm_opt = createOption document in
   wasm_opt##.value := js "wasm";
-  set_text wasm_opt "WASM + WebGPU";
+  set_text wasm_opt "Browser";
   let native_opt = createOption document in
   native_opt##.value := js "local_native";
-  set_text native_opt "Local Native (probing...)";
+  set_text native_opt "Local";
   Js.Unsafe.set native_opt (js "disabled") Js._true;
   native_opt##setAttribute (js "disabled") (js "disabled");
   Dom.appendChild mode_sel wasm_opt;
@@ -2318,12 +2247,12 @@ let mount_playground (root : element Js.t) =
   Dom.appendChild status_pill status_lbl;
   Dom.appendChild status_pill timing_lbl;
 
-  let run_btn = mk ~cls:"py-btn py-btn-primary" ~txt:"▶ Run" "button" in
+  let run_btn = mk ~cls:"py-btn py-btn-primary" ~txt:"Run" "button" in
   run_btn##setAttribute (js "type") (js "button");
   run_btn##setAttribute (js "title") (js "Run script (Ctrl/Cmd + Enter)");
   let reset_btn = mk ~cls:"py-btn" ~txt:"Reset" "button" in
   reset_btn##setAttribute (js "type") (js "button");
-  reset_btn##setAttribute (js "title") (js "Reset Python namespace / interrupt execution");
+  reset_btn##setAttribute (js "title") (js "Reset namespace");
   Dom.appendChild controls mode_sel;
   Dom.appendChild controls status_pill;
   Dom.appendChild controls run_btn;
@@ -2331,20 +2260,12 @@ let mount_playground (root : element Js.t) =
   Dom.appendChild topbar preset_rail;
   Dom.appendChild topbar controls;
 
-  (* Band 2: Editorial Caption Bar + Live Capabilities Telemetry Strip *)
+  (* Band 2: Concise Preset Caption *)
   let cap_bar = mk ~cls:"py-pg-caption" "div" in
   let cap_title = mk ~cls:"py-cap-title" ~txt:(List.hd presets).label "span" in
   let cap_desc = mk ~cls:"py-cap-desc" ~txt:(List.hd presets).description "span" in
   Dom.appendChild cap_bar cap_title;
   Dom.appendChild cap_bar cap_desc;
-
-  let caps_strip_band = mk ~cls:"py-telemetry-band" "div" in
-  caps_strip_band##setAttribute
-    (js "style")
-    (js
-       "border-top:0;border-bottom:1px solid var(--hairline);padding:0.32rem 0.85rem;background:var(--bg-surface);");
-  let caps_strip = mk ~cls:"py-telemetry-stats" "div" in
-  Dom.appendChild caps_strip_band caps_strip;
 
   (* Band 2b: Mobile (<900px) Segmented Switcher *)
   let mob_tabs = mk ~cls:"py-mob-tabs" "div" in
@@ -2447,7 +2368,6 @@ let mount_playground (root : element Js.t) =
   let con_hdr = mk ~cls:"py-subbar" "div" in
   let con_hdr_l = mk ~cls:"py-subbar-left" "div" in
   Dom.appendChild con_hdr_l (mk ~cls:"py-subbar-title" ~txt:"Console" "span");
-  Dom.appendChild con_hdr_l (mk ~cls:"py-subbar-meta" ~txt:"stdout · python 3.12" "span");
   let con_hdr_r = mk ~cls:"py-subbar-right" "div" in
   let clear_btn = mk ~cls:"py-ghost-btn" ~txt:"Clear" "button" in
   clear_btn##setAttribute (js "type") (js "button");
@@ -2456,19 +2376,18 @@ let mount_playground (root : element Js.t) =
   Dom.appendChild con_hdr con_hdr_r;
 
   let console_pre = mk ~cls:"py-pg-console" "pre" in
-  append_console_chunk console_pre "py-out-muted"
-    "Warming CPython 3.12 WebAssembly kernel...\n";
+  append_console_chunk console_pre "py-out-muted" "Loading Python...\n";
 
   let prompt_row = createForm document in
   prompt_row##.className := js "py-repl-prompt-row";
   let prompt_glyph = mk ~cls:"py-repl-glyph" ~txt:">>>" "span" in
   let repl_input = createInput ~_type:(js "text") document in
   repl_input##.className := js "py-repl-input";
-  repl_input##setAttribute (js "placeholder") (js "Inspect state (e.g. state.best_y, dir(baux))");
+  repl_input##setAttribute (js "placeholder") (js "Python expression...");
   repl_input##setAttribute (js "spellcheck") (js "false");
   repl_input##setAttribute (js "autocomplete") (js "off");
   repl_input##setAttribute (js "aria-label") (js "Interactive Python prompt");
-  let repl_send = mk ~cls:"py-ghost-btn py-repl-send" ~txt:"Eval ↵" "button" in
+  let repl_send = mk ~cls:"py-ghost-btn py-repl-send" ~txt:"Eval" "button" in
   repl_send##setAttribute (js "type") (js "submit");
   Dom.appendChild prompt_row prompt_glyph;
   Dom.appendChild prompt_row repl_input;
@@ -2485,7 +2404,7 @@ let mount_playground (root : element Js.t) =
   let insp_hdr = mk ~cls:"py-subbar" "div" in
   let insp_hdr_l = mk ~cls:"py-subbar-left" "div" in
   Dom.appendChild insp_hdr_l (mk ~cls:"py-subbar-title" ~txt:"Figures & State" "span");
-  let insp_chip = mk ~cls:"py-subbar-meta py-state-chip" ~txt:"awaiting run" "span" in
+  let insp_chip = mk ~cls:"py-subbar-meta py-state-chip" ~txt:"" "span" in
   let insp_hdr_r = mk ~cls:"py-subbar-right" "div" in
   Dom.appendChild insp_hdr_r insp_chip;
   Dom.appendChild insp_hdr insp_hdr_l;
@@ -2500,7 +2419,6 @@ let mount_playground (root : element Js.t) =
 
   Dom.appendChild shell topbar;
   Dom.appendChild shell cap_bar;
-  Dom.appendChild shell caps_strip_band;
   Dom.appendChild shell mob_tabs;
   Dom.appendChild shell grid;
   Dom.appendChild root shell;
@@ -2512,19 +2430,9 @@ let mount_playground (root : element Js.t) =
 
   let make_empty_stage () =
     let box = mk ~cls:"py-empty-stage" "div" in
-    let ttl =
-      match !active_preset_ref with
-      | Some p -> p.label
-      | None -> "Documentation Snippet"
-    in
-    let dsc =
-      match !active_preset_ref with
-      | Some p -> p.description
-      | None -> "Execute the loaded documentation example to visualize trajectories and state."
-    in
-    Dom.appendChild box (mk ~cls:"py-empty-title" ~txt:ttl "div");
-    Dom.appendChild box (mk ~cls:"py-empty-desc" ~txt:dsc "p");
-    let run_cta = mk ~cls:"py-btn py-btn-primary" ~txt:"▶ Execute now" "button" in
+    Dom.appendChild box
+      (mk ~cls:"py-empty-desc" ~txt:"Output and figures appear after running." "p");
+    let run_cta = mk ~cls:"py-btn py-btn-primary" ~txt:"Run" "button" in
     run_cta##setAttribute (js "type") (js "button");
     run_cta##.onclick :=
       Dom.handler (fun _ ->
@@ -2535,16 +2443,16 @@ let mount_playground (root : element Js.t) =
   in
 
   let sync_state_chip st_raw =
-    if not (is_defined st_raw) then set_text insp_chip "awaiting run"
+    if not (is_defined st_raw) then set_text insp_chip ""
     else
       let has_opt = is_defined (Js.Unsafe.get st_raw (js "dim")) in
       let has_fig = is_defined (Js.Unsafe.get st_raw (js "fig")) in
       if has_opt then
         let vn = Option.value (opt_str st_raw "var") ~default:"state" in
         let dm = Option.value (opt_int st_raw "dim") ~default:0 in
-        set_text insp_chip (Printf.sprintf "var %s · %dD" vn dm)
-      else if has_fig then set_text insp_chip "diagnostic figure"
-      else set_text insp_chip "ready"
+        set_text insp_chip (Printf.sprintf "%s · %dD" vn dm)
+      else if has_fig then set_text insp_chip "figure"
+      else set_text insp_chip ""
   in
 
   let (init_preset_id, init_code) = initial_playground_code () in
@@ -2556,8 +2464,8 @@ let mount_playground (root : element Js.t) =
       set_text cap_title p.label;
       set_text cap_desc p.description
   | None ->
-      set_text cap_title "Custom documentation snippet";
-      set_text cap_desc "Loaded directly from docs—edit or run in WebAssembly Python.");
+      set_text cap_title "Custom snippet";
+      set_text cap_desc "");
   sync_editor_view ();
   render_state_panel ~empty_node:(make_empty_stage ()) insp_body (Js.Unsafe.inject Js.undefined);
 
@@ -2598,7 +2506,7 @@ let mount_playground (root : element Js.t) =
     manual_abort_ref := false;
     let src = to_s editor##.value in
     clear_children (console_pre :> Dom.node Js.t);
-    append_console_chunk console_pre "py-out-muted" ">>> Executing script...\n";
+    append_console_chunk console_pre "py-out-muted" "Running...\n";
     set_text timing_lbl "";
     send_worker "exec"
       [
@@ -2618,7 +2526,7 @@ let mount_playground (root : element Js.t) =
         if out_s <> "" then append_console_chunk console_pre "py-out-stdout" out_s;
         if err_s <> "" then append_console_chunk console_pre "py-out-stderr" err_s;
         if out_s = "" && err_s = "" && ok then
-          append_console_chunk console_pre "py-out-muted" "(completed with no printed output)\n";
+          append_console_chunk console_pre "py-out-muted" "Done.\n";
         set_text prompt_glyph ">>>";
         let st_raw = Js.Unsafe.get res (js "state") in
         sync_state_chip st_raw;
@@ -2628,24 +2536,24 @@ let mount_playground (root : element Js.t) =
   run_script_ref := run_script;
 
   add_cap_listener (fun caps ->
-      render_cap_badges caps_strip caps;
       if caps.native_checked then (
         if caps.native_available then (
+          mode_sel##removeAttribute (js "hidden");
+          mode_sel##.style##.display := js "";
           Js.Unsafe.set native_opt (js "disabled") Js._false;
           native_opt##removeAttribute (js "disabled");
           let accel =
-            if caps.native_metal then " · Metal"
-            else if caps.native_cuda then " · CUDA"
-            else if caps.native_baux then " · Rust"
+            if caps.native_metal then " (Metal)"
+            else if caps.native_cuda then " (CUDA)"
             else ""
           in
-          set_text native_opt ("Local Native" ^ accel);
-          mode_sel##setAttribute (js "title") (js caps.native_reason))
+          set_text native_opt ("Local" ^ accel);
+          mode_sel##setAttribute (js "title") (js "Switch between browser WASM and local Python"))
         else (
+          mode_sel##setAttribute (js "hidden") (js "hidden");
+          mode_sel##.style##.display := js "none";
           Js.Unsafe.set native_opt (js "disabled") Js._true;
           native_opt##setAttribute (js "disabled") (js "disabled");
-          set_text native_opt "Local Native (unavailable)";
-          mode_sel##setAttribute (js "title") (js caps.native_reason);
           if !runtime_mode_ref = LocalNative then (
             runtime_mode_ref := Wasm;
             mode_sel##.value := js "wasm";
@@ -2675,11 +2583,10 @@ let mount_playground (root : element Js.t) =
         match st with
         | Idle -> "Idle"
         | Booting _ ->
-            if !runtime_mode_ref = LocalNative then "Connecting..." else "Booting WASM..."
-        | Ready ->
-            if !runtime_mode_ref = LocalNative then "Native · Ready" else "Py 3.12 · Ready"
+            if !runtime_mode_ref = LocalNative then "Connecting..." else "Loading..."
+        | Ready -> "Ready"
         | Running -> "Running..."
-        | Interrupting _ -> "Interrupting..."
+        | Interrupting _ -> "Stopping..."
         | Interrupted _ -> "Stopped"
       in
       set_text status_lbl short_s;
@@ -2700,13 +2607,10 @@ let mount_playground (root : element Js.t) =
       in
       let reset_tip =
         match st with
-        | Running ->
-            if !runtime_mode_ref = LocalNative || is_cross_origin_isolated () then
-              "Stage 1: send SIGINT (preserves variables); click again to force terminate"
-            else "Terminate Python worker"
-        | Interrupting _ -> "Stage 2: force-terminate worker / kill subprocess immediately"
-        | Booting _ -> "Abort kernel initialization"
-        | Idle | Ready | Interrupted _ -> "Reset Python namespace"
+        | Running -> "Interrupt execution"
+        | Interrupting _ -> "Force stop"
+        | Booting _ -> "Cancel loading"
+        | Idle | Ready | Interrupted _ -> "Reset namespace"
       in
       set_text reset_btn reset_lbl;
       reset_btn##setAttribute (js "title") (js reset_tip);
@@ -2784,7 +2688,6 @@ let mount_playground (root : element Js.t) =
   clear_btn##.onclick :=
     Dom.handler (fun _ ->
         clear_children (console_pre :> Dom.node Js.t);
-        append_console_chunk console_pre "py-out-muted" "Console cleared.\n";
         Js._true);
 
   copy_btn##.onclick :=
@@ -3034,8 +2937,7 @@ let enhance_inline_blocks () =
                                 if out_s <> "" then append_console_chunk out "py-out-stdout" out_s;
                                 if err_s <> "" then append_console_chunk out "py-out-stderr" err_s;
                                 if out_s = "" && err_s = "" && ok then
-                                  append_console_chunk out "py-out-muted"
-                                    "Assertions passed (no stdout). Try Edit -> print(...) to inspect values.\n";
+                                  append_console_chunk out "py-out-muted" "Done.\n";
                                 render_state_panel ch (Js.Unsafe.get res (js "state")));
                             Js._true);
                       d
@@ -3048,7 +2950,7 @@ let enhance_inline_blocks () =
                       let src = to_s ed##.value in
                       set_text meta (status_text !kernel_state_ref);
                       clear_children (out :> Dom.node Js.t);
-                      append_console_chunk out "py-out-muted" "Running in WebAssembly Python worker...\n";
+                      append_console_chunk out "py-out-muted" "Running...\n";
                       let unsub_ref = ref false in
                       add_status_listener (fun st ->
                           if (not !unsub_ref) && !kernel_state_ref <> Ready then
@@ -3076,8 +2978,7 @@ let enhance_inline_blocks () =
                           if out_s <> "" then append_console_chunk out "py-out-stdout" out_s;
                           if err_s <> "" then append_console_chunk out "py-out-stderr" err_s;
                           if out_s = "" && err_s = "" && ok then
-                            append_console_chunk out "py-out-muted"
-                              "Assertions passed (no stdout). Click Edit -> print(...) to inspect values.\n";
+                            append_console_chunk out "py-out-muted" "Done.\n";
                           render_state_panel ch (Js.Unsafe.get res (js "state")))
                   | _ -> ()
                 in

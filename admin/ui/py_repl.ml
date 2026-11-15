@@ -16,6 +16,7 @@ let svg_ns = "http://www.w3.org/2000/svg"
 type preset = {
   id : string;
   label : string;
+  short_label : string;
   description : string;
   code : string;
 }
@@ -25,21 +26,16 @@ let presets : preset list =
     {
       id = "sparc_pf";
       label = "SPARC Tokamak: 8-PF Equilibrium";
+      short_label = "SPARC 8-PF";
       description =
         "Optimize 8 SPARC shaping PF coil currents via AGM Biot-Savart flux + X-point null (ENN vs Zero vs LHD).";
       code =
-        "import json\n"
-        ^ "import os\n"
+        "import json, os\n"
         ^ "import numpy as np\n"
         ^ "import baux\n"
         ^ "from baux.config import CandidateConfig\n\n"
-        ^ "for path in ['/home/pyodide/baux_env.json', './baux_env.json', 'assets/baux_env.json', 'forest/output/assets/baux_env.json']:\n"
-        ^ "    if os.path.exists(path):\n"
-        ^ "        with open(path) as f:\n"
-        ^ "            sparc = json.load(f)['fuse']['machines']['sparc']\n"
-        ^ "        break\n"
-        ^ "else:\n"
-        ^ "    raise FileNotFoundError('baux_env.json not found in VFS or local assets/')\n\n"
+        ^ "env = next(p for p in ['/home/pyodide/baux_env.json', 'baux_env.json', 'assets/baux_env.json', 'forest/output/assets/baux_env.json'] if os.path.exists(p))\n"
+        ^ "sparc = json.load(open(env))['fuse']['machines']['sparc']\n\n"
         ^ "coils = sparc['coils']\n"
         ^ "nom_I = np.array([c['current_ma'] for c in coils[14:22]], dtype=float)\n"
         ^ "lcfs = np.array(sparc['lcfs'], dtype=float)\n"
@@ -132,6 +128,7 @@ let presets : preset list =
     {
       id = "kh_pde";
       label = "2D Kelvin-Helmholtz Shear PDE";
+      short_label = "KH Shear PDE";
       description =
         "Pseudo-spectral 2D Navier-Stokes double shear layer control suppressing vortex rollup enstrophy (ENN vs Zero).";
       code =
@@ -204,6 +201,7 @@ let presets : preset list =
     {
       id = "oxcaml_24d";
       label = "OxCaml 24D Levy: ENN vs GP vs Zero";
+      short_label = "OxCaml 24D";
       description =
         "Head-to-head 24D multimodal scaling comparison on equal 360-candidate budget: TuRBO-ENN vs Exact GP vs Zero.";
       code =
@@ -245,6 +243,7 @@ let presets : preset list =
     {
       id = "metric_cal";
       label = "Non-Euclidean ENN & McShane-Whitney";
+      short_label = "Metric ENN";
       description =
         "Compare euclidean, conformal, and hyperbolic ENN uncertainty calibration against exact McShane-Whitney Lipschitz bounds.";
       code =
@@ -305,6 +304,7 @@ let presets : preset list =
     {
       id = "quant_deadzone";
       label = "FP16 Quantization Deadzone on SO(4)";
+      short_label = "FP16 SO(4)";
       description =
         "Observe IEEE float16 rounding deadzones stalling SO(4) Cayley Procrustes descent near bias=32.0 vs float32.";
       code =
@@ -352,6 +352,7 @@ let presets : preset list =
     {
       id = "stiefel_fir";
       label = "Mixed Manifold + Stein Shrinkage";
+      short_label = "Stiefel FIR";
       description =
         "Synthesize Simplex + Periodic + Log + Categorical FIR filter under observation noise comparing Stein shrinkage vs unshrunk ENN.";
       code =
@@ -401,6 +402,7 @@ let presets : preset list =
     {
       id = "async_hartmann6";
       label = "Async Hartmann-6D + Freeze/Digest";
+      short_label = "Async H6";
       description =
         "Heterogeneous worker queue cancelling slow stragglers, out-of-order complete(), and mid-run BLAKE3 freeze/thaw.";
       code =
@@ -681,10 +683,16 @@ let opt_bool obj field =
   let v = Js.Unsafe.get obj (js field) in
   if is_defined v then Js.to_bool (Obj.magic v : bool Js.t) else false
 
-let append_fig_header card title subtitle =
-  Dom.appendChild card (mk ~cls:"py-fig-title" ~txt:title "div");
+let make_fig_pane title subtitle =
+  let card = mk ~cls:"py-fig-pane" "div" in
+  let hdr = mk ~cls:"py-fig-hdr" "div" in
+  Dom.appendChild hdr (mk ~cls:"py-fig-title" ~txt:title "div");
   if trim_s subtitle <> "" then
-    Dom.appendChild card (mk ~cls:"py-fig-subtitle" ~txt:subtitle "div")
+    Dom.appendChild hdr (mk ~cls:"py-fig-subtitle" ~txt:subtitle "div");
+  let stage = mk ~cls:"py-fig-stage" "div" in
+  Dom.appendChild card hdr;
+  Dom.appendChild card stage;
+  (card, stage)
 
 let append_legend_badge legend swatch_cls label =
   let item = mk ~cls:"py-fig-legend-item" "span" in
@@ -700,8 +708,7 @@ type curve_series = {
 }
 
 let render_curves_card ~title ~subtitle ~x_label ~y_label ~log_y (series : curve_series list) =
-  let card = mk ~cls:"py-chart-card py-fig-card" "div" in
-  append_fig_header card title subtitle;
+  let card, stage = make_fig_pane title subtitle in
   let non_empty = List.filter (fun s -> s.c_ys <> [] && s.c_xs <> []) series in
   if non_empty = [] then card
   else
@@ -734,8 +741,8 @@ let render_curves_card ~title ~subtitle ~x_label ~y_label ~log_y (series : curve
         in
         append_legend_badge legend sw_cls lbl_txt)
       non_empty;
-    Dom.appendChild card legend;
-    let w = 460.0 and h = 192.0 in
+    Dom.appendChild stage legend;
+    let w = 460.0 and h = 176.0 in
     let pl = 56.0 and pr = 16.0 and pt = 18.0 and pb = 32.0 in
     let pw = w -. pl -. pr in
     let ph = h -. pt -. pb in
@@ -862,7 +869,7 @@ let render_curves_card ~title ~subtitle ~x_label ~y_label ~log_y (series : curve
     in
     set_text xlbl x_label;
     Dom.appendChild svg xlbl;
-    Dom.appendChild card svg;
+    Dom.appendChild stage svg;
     card
 
 let curves_from_js (raw : Js.Unsafe.any) : element Js.t option =
@@ -956,23 +963,34 @@ let marching_squares_path ~nr ~nz ~r0 ~r1 ~z0 ~z1 ~x_px ~y_px (vals : float arra
     Buffer.contents buf
 
 let render_tokamak_card (fig : Js.Unsafe.any) =
-  let card = mk ~cls:"py-chart-card py-fig-card" "div" in
   let title = Option.value (opt_str fig "title") ~default:"Tokamak Equilibrium" in
   let subtitle = Option.value (opt_str fig "subtitle") ~default:"" in
-  append_fig_header card title subtitle;
-  let legend = mk ~cls:"py-fig-legend" "div" in
+  let card, stage = make_fig_pane title subtitle in
+  let split = mk ~cls:"py-tokamak-split" "div" in
+  let aside = mk ~cls:"py-tokamak-aside" "div" in
+  let legend = mk ~cls:"py-fig-legend py-fig-legend-col" "div" in
   append_legend_badge legend "py-swatch-target" "Target LCFS";
   append_legend_badge legend "py-swatch-init" "Initial guess";
   append_legend_badge legend "py-swatch-enn" "ENN separatrix";
   append_legend_badge legend "py-swatch-coil-pos" "PF coil (+)";
   append_legend_badge legend "py-swatch-coil-neg" "PF coil (-)";
-  Dom.appendChild card legend;
+  Dom.appendChild aside legend;
   let r_rng = json_num_list (Js.Unsafe.get fig (js "r_range")) in
   let z_rng = json_num_list (Js.Unsafe.get fig (js "z_range")) in
   let r0, r1 = match r_rng with a :: b :: _ when b > a -> (a, b) | _ -> (0.4, 3.0) in
   let z0, z1 = match z_rng with a :: b :: _ when b > a -> (a, b) | _ -> (-1.6, 1.6) in
-  let w = 460.0 and h = 300.0 in
-  let pl = 42.0 and pr = 16.0 and pt = 14.0 and pb = 28.0 in
+  let coils_n = List.length (json_obj_list (Js.Unsafe.get fig (js "coils"))) in
+  let meta_list = mk ~cls:"py-tokamak-meta" "div" in
+  Dom.appendChild meta_list (mk ~cls:"py-tokamak-meta-row" ~txt:(Printf.sprintf "R [%.2f, %.2f] m" r0 r1) "div");
+  Dom.appendChild meta_list (mk ~cls:"py-tokamak-meta-row" ~txt:(Printf.sprintf "Z [%.2f, %.2f] m" z0 z1) "div");
+  if coils_n > 0 then (
+    Dom.appendChild meta_list
+      (mk ~cls:"py-tokamak-meta-row" ~txt:(Printf.sprintf "%d PF/CS coils" coils_n) "div");
+    Dom.appendChild meta_list
+      (mk ~cls:"py-tokamak-meta-row" ~txt:"× X-point null" "div"));
+  Dom.appendChild aside meta_list;
+  let w = 276.0 and h = 260.0 in
+  let pl = 44.0 and pr = 12.0 and pt = 10.0 and pb = 28.0 in
   let pw = w -. pl -. pr and ph = h -. pt -. pb in
   let scale = min (pw /. (r1 -. r0)) (ph /. (z1 -. z0)) in
   let rw = scale *. (r1 -. r0) and zh = scale *. (z1 -. z0) in
@@ -1027,7 +1045,7 @@ let render_tokamak_card (fig : Js.Unsafe.any) =
       svg_el "text"
         [
           ("x", Printf.sprintf "%.1f" rx);
-          ("y", Printf.sprintf "%.1f" (oy +. zh +. 12.0));
+          ("y", Printf.sprintf "%.1f" (oy +. zh +. 13.5));
           ("text-anchor", "middle");
           ("class", "py-svg-tick");
         ]
@@ -1037,8 +1055,8 @@ let render_tokamak_card (fig : Js.Unsafe.any) =
     let ty =
       svg_el "text"
         [
-          ("x", Printf.sprintf "%.1f" (ox -. 5.0));
-          ("y", Printf.sprintf "%.1f" (zy +. 3.5));
+          ("x", Printf.sprintf "%.1f" (ox -. 6.0));
+          ("y", Printf.sprintf "%.1f" (zy +. 2.5));
           ("text-anchor", "end");
           ("class", "py-svg-tick");
         ]
@@ -1145,19 +1163,20 @@ let render_tokamak_card (fig : Js.Unsafe.any) =
   in
   set_text axlbl "Major Radius R [m] vs Vertical Z [m]";
   Dom.appendChild svg axlbl;
-  Dom.appendChild card svg;
+  Dom.appendChild split svg;
+  Dom.appendChild split aside;
+  Dom.appendChild stage split;
   card
 
 let render_field2d_card (fig : Js.Unsafe.any) =
-  let card = mk ~cls:"py-chart-card py-fig-card" "div" in
   let title = Option.value (opt_str fig "title") ~default:"2D Field" in
   let subtitle = Option.value (opt_str fig "subtitle") ~default:"" in
-  append_fig_header card title subtitle;
+  let card, stage = make_fig_pane title subtitle in
   let panels = json_obj_list (Js.Unsafe.get fig (js "panels")) in
   if panels = [] then card
   else
     let n_p = min 2 (List.length panels) in
-    let w = 460.0 and h = 216.0 in
+    let w = 460.0 and h = 212.0 in
     let gap = 18.0 and pl = 10.0 and pr = 10.0 and pt = 22.0 and pb = 26.0 in
     let avail_w = w -. pl -. pr -. float_of_int (n_p - 1) *. gap in
     let box_s = min (avail_w /. float_of_int n_p) (h -. pt -. pb) in
@@ -1270,14 +1289,13 @@ let render_field2d_card (fig : Js.Unsafe.any) =
     in
     set_text t_hi (Printf.sprintf "%.2g" cmax);
     Dom.appendChild svg t_hi;
-    Dom.appendChild card svg;
+    Dom.appendChild stage svg;
     card
 
 let render_band1d_card (fig : Js.Unsafe.any) =
-  let card = mk ~cls:"py-chart-card py-fig-card" "div" in
   let title = Option.value (opt_str fig "title") ~default:"1D Posterior & Uncertainty" in
   let subtitle = Option.value (opt_str fig "subtitle") ~default:"" in
-  append_fig_header card title subtitle;
+  let card, stage = make_fig_pane title subtitle in
   let xg = json_num_list (Js.Unsafe.get fig (js "x_grid")) in
   let mu = json_num_list (Js.Unsafe.get fig (js "mu")) in
   if xg = [] || List.length xg <> List.length mu then card
@@ -1294,7 +1312,7 @@ let render_band1d_card (fig : Js.Unsafe.any) =
     if y_true <> [] then append_legend_badge legend "py-swatch-1 is-dashed" "True f(x)";
     if lo_2se <> [] && hi_2se <> [] then append_legend_badge legend "py-swatch-band" "mu +/- 2*se";
     if mw_lo <> [] && mw_hi <> [] then append_legend_badge legend "py-swatch-2 is-dashed" "McShane-Whitney";
-    Dom.appendChild card legend;
+    Dom.appendChild stage legend;
     let all_y = mu @ y_true @ lo_2se @ hi_2se @ mw_lo @ mw_hi @ tr_y in
     let x_lo = List.fold_left min (List.hd xg) xg in
     let x_hi = List.fold_left max (List.hd xg) xg in
@@ -1404,104 +1422,147 @@ let render_band1d_card (fig : Js.Unsafe.any) =
            ("y2", Printf.sprintf "%.1f" (h -. pb));
            ("class", "py-svg-axis");
          ]);
-    Dom.appendChild card svg;
+    Dom.appendChild stage svg;
     card
 
-let render_fig_cards (panel : element Js.t) (fig : Js.Unsafe.any) =
+let append_telemetry_band (panel : element Js.t) (state_raw : Js.Unsafe.any) =
+  let band = mk ~cls:"py-telemetry-band" "div" in
+  let stats = mk ~cls:"py-telemetry-stats" "div" in
+  let vname = Option.value (opt_str state_raw "var") ~default:"state" in
+  Dom.appendChild stats (mk ~cls:"py-telemetry-var" ~txt:vname "span");
+  let add_stat label value =
+    let item = mk ~cls:"py-telemetry-item" "span" in
+    Dom.appendChild item (mk ~cls:"py-telemetry-lbl" ~txt:label "span");
+    Dom.appendChild item (mk ~cls:"py-telemetry-val" ~txt:value "strong");
+    Dom.appendChild stats item
+  in
+  add_stat "obs" (string_of_int (Option.value (opt_int state_raw "num_observations") ~default:0));
+  add_stat "epoch" (string_of_int (Option.value (opt_int state_raw "epoch") ~default:0));
+  add_stat "regions" (string_of_int (Option.value (opt_int state_raw "num_regions") ~default:1));
+  add_stat "tr" (match opt_float state_raw "tr_length" with Some f -> Printf.sprintf "%.4g" f | None -> "-");
+  add_stat "best" (match opt_float state_raw "best_y" with Some f -> Printf.sprintf "%.5f" f | None -> "-");
+  let pend = Option.value (opt_int state_raw "pending_count") ~default:0 in
+  if pend > 0 then add_stat "pending" (string_of_int pend);
+  Dom.appendChild band stats;
+  let best_vec_opt =
+    match opt_str state_raw "best_params" with
+    | Some bp -> Some ("best_params", bp)
+    | None -> (
+        let bx = json_num_list (Js.Unsafe.get state_raw (js "best_x")) in
+        if bx <> [] then
+          Some ("best_x", "[" ^ String.concat ", " (List.map (Printf.sprintf "%.4f") bx) ^ "]")
+        else None)
+  in
+  (match best_vec_opt with
+  | Some (lbl, txt) ->
+      let row = mk ~cls:"py-best-row" "div" in
+      Dom.appendChild row (mk ~cls:"py-telemetry-lbl" ~txt:lbl "span");
+      let code_el = mk ~cls:"py-best-inline" ~txt "code" in
+      let exp_btn = mk ~cls:"py-best-toggle" ~txt:"Expand" "button" in
+      exp_btn##setAttribute (js "type") (js "button");
+      exp_btn##.onclick :=
+        Dom.handler (fun _ ->
+            let cur = to_s code_el##.className in
+            if contains_sub cur "is-expanded" then (
+              code_el##.className := js "py-best-inline";
+              set_text exp_btn "Expand")
+            else (
+              code_el##.className := js "py-best-inline is-expanded";
+              set_text exp_btn "Collapse");
+            Js._true);
+      let cpy_btn = mk ~cls:"py-best-toggle" ~txt:"Copy" "button" in
+      cpy_btn##setAttribute (js "type") (js "button");
+      cpy_btn##.onclick :=
+        Dom.handler (fun _ ->
+            let clip = Js.Unsafe.get Dom_html.window##.navigator (js "clipboard") in
+            if is_defined clip then (
+              ignore (Js.Unsafe.meth_call clip "writeText" [| Js.Unsafe.inject (js txt) |]);
+              set_text cpy_btn "Copied";
+              ignore
+                (Dom_html.window##setTimeout
+                   (Js.wrap_callback (fun () -> set_text cpy_btn "Copy"))
+                   (Js.float 1100.0)));
+            Js._true);
+      Dom.appendChild row code_el;
+      Dom.appendChild row exp_btn;
+      Dom.appendChild row cpy_btn;
+      Dom.appendChild band row
+  | None -> ());
+  Dom.appendChild panel band
+
+let render_fig_split (panel : element Js.t) (state_raw : Js.Unsafe.any) (fig : Js.Unsafe.any) =
+  let has_opt = is_defined (Js.Unsafe.get state_raw (js "dim")) in
   let kind = Option.value (opt_str fig "kind") ~default:"" in
-  (match kind with
-  | "curves" -> (match curves_from_js fig with Some c -> Dom.appendChild panel c | None -> ())
+  let append_subcurves () =
+    match curves_from_js (Js.Unsafe.get fig (js "curves")) with
+    | Some c -> Dom.appendChild panel c
+    | None -> ()
+  in
+  match kind with
+  | "curves" ->
+      (match curves_from_js fig with Some c -> Dom.appendChild panel c | None -> ());
+      if has_opt then append_telemetry_band panel state_raw
   | "tokamak" ->
       Dom.appendChild panel (render_tokamak_card fig);
-      (match curves_from_js (Js.Unsafe.get fig (js "curves")) with
-      | Some c -> Dom.appendChild panel c
-      | None -> ())
+      if has_opt then append_telemetry_band panel state_raw;
+      append_subcurves ()
   | "field2d" ->
       Dom.appendChild panel (render_field2d_card fig);
-      (match curves_from_js (Js.Unsafe.get fig (js "curves")) with
-      | Some c -> Dom.appendChild panel c
-      | None -> ())
+      if has_opt then append_telemetry_band panel state_raw;
+      append_subcurves ()
   | "band1d" ->
       Dom.appendChild panel (render_band1d_card fig);
-      (match curves_from_js (Js.Unsafe.get fig (js "curves")) with
-      | Some c -> Dom.appendChild panel c
-      | None -> ())
-  | _ -> ())
+      if has_opt then append_telemetry_band panel state_raw;
+      append_subcurves ()
+  | _ -> if has_opt then append_telemetry_band panel state_raw
 
-let render_state_panel (panel : element Js.t) (state_raw : Js.Unsafe.any) =
+let render_state_panel ?empty_node (panel : element Js.t) (state_raw : Js.Unsafe.any) =
   clear_children (panel :> Dom.node Js.t);
   if not (is_defined state_raw) then (
-    let hint =
-      mk ~cls:"py-inspector-empty"
-        ~txt:
-          "Run a script that creates OptimizerState variable(s) or a `fig` diagnostic dict to inspect live convergence trajectories, tokamak equilibrium fluxes, PDE fields, and ENN uncertainty bands."
-        "p"
-    in
-    Dom.appendChild panel hint)
+    match empty_node with
+    | Some node -> Dom.appendChild panel node
+    | None ->
+        let hint =
+          mk ~cls:"py-inspector-empty"
+            ~txt:
+              "Run a script that creates OptimizerState variable(s) or a `fig` diagnostic dict to inspect live convergence trajectories, tokamak equilibrium fluxes, PDE fields, and ENN uncertainty bands."
+            "p"
+        in
+        Dom.appendChild panel hint)
   else
     let fig_raw = Js.Unsafe.get state_raw (js "fig") in
     let has_opt = is_defined (Js.Unsafe.get state_raw (js "dim")) in
-    if has_opt then (
-      let hdr = mk ~cls:"py-inspector-subhdr" "div" in
-      let vname = Option.value (opt_str state_raw "var") ~default:"state" in
-      Dom.appendChild hdr (mk ~cls:"py-inspector-var" ~txt:("Live variable: " ^ vname) "span");
-      Dom.appendChild panel hdr;
-
-      let metrics = mk ~cls:"py-metrics-grid" "div" in
-      let add_metric label value =
-        let card = mk ~cls:"py-metric-card" "div" in
-        Dom.appendChild card (mk ~cls:"py-metric-label" ~txt:label "span");
-        Dom.appendChild card (mk ~cls:"py-metric-val" ~txt:value "strong");
-        Dom.appendChild metrics card
-      in
-      add_metric "Observations"
-        (string_of_int (Option.value (opt_int state_raw "num_observations") ~default:0));
-      add_metric "Epoch" (string_of_int (Option.value (opt_int state_raw "epoch") ~default:0));
-      add_metric "Regions" (string_of_int (Option.value (opt_int state_raw "num_regions") ~default:1));
-      add_metric "TR length"
-        (match opt_float state_raw "tr_length" with Some f -> Printf.sprintf "%.4g" f | None -> "-");
-      add_metric "Best y"
-        (match opt_float state_raw "best_y" with Some f -> Printf.sprintf "%.5f" f | None -> "-");
-      add_metric "Pending" (string_of_int (Option.value (opt_int state_raw "pending_count") ~default:0));
-      Dom.appendChild panel metrics;
-
-      (match opt_str state_raw "best_params" with
-      | Some bp ->
-          let bwrap = mk ~cls:"py-best-params" "div" in
-          Dom.appendChild bwrap (mk ~cls:"py-metric-label" ~txt:"best_params" "div");
-          Dom.appendChild bwrap (mk ~cls:"py-best-code" ~txt:bp "code");
-          Dom.appendChild panel bwrap
-      | None -> (
-          let bx = json_num_list (Js.Unsafe.get state_raw (js "best_x")) in
-          if bx <> [] then (
-            let bwrap = mk ~cls:"py-best-params" "div" in
-            Dom.appendChild bwrap (mk ~cls:"py-metric-label" ~txt:"best_x" "div");
-            let fmt = "[" ^ String.concat ", " (List.map (Printf.sprintf "%.4f") bx) ^ "]" in
-            Dom.appendChild bwrap (mk ~cls:"py-best-code" ~txt:fmt "code");
-            Dom.appendChild panel bwrap))));
-
-    if is_defined fig_raw then render_fig_cards panel fig_raw
-    else if has_opt then (
-      let y_hist = json_num_list (Js.Unsafe.get state_raw (js "y_history")) in
-      let best_hist = json_num_list (Js.Unsafe.get state_raw (js "best_history")) in
-      if best_hist <> [] then
-        let xs = List.mapi (fun i _ -> float_of_int (i + 1)) best_hist in
-        let series =
-          [ { c_label = "Best y"; c_xs = xs; c_ys = best_hist; c_dashed = false } ]
-          @
-          if List.length y_hist = List.length xs then
-            [ { c_label = "Raw eval y"; c_xs = xs; c_ys = y_hist; c_dashed = true } ]
-          else []
-        in
-        Dom.appendChild panel
-          (render_curves_card ~title:"Cumulative Best Objective"
-             ~subtitle:"Best-so-far vs raw observations" ~x_label:"Evaluations"
-             ~y_label:"Objective" ~log_y:false series));
+    (if is_defined fig_raw then render_fig_split panel state_raw fig_raw
+     else if has_opt then (
+       let y_hist = json_num_list (Js.Unsafe.get state_raw (js "y_history")) in
+       let best_hist = json_num_list (Js.Unsafe.get state_raw (js "best_history")) in
+       if best_hist <> [] then
+         let xs = List.mapi (fun i _ -> float_of_int (i + 1)) best_hist in
+         let series =
+           [ { c_label = "Best y"; c_xs = xs; c_ys = best_hist; c_dashed = false } ]
+           @
+           if List.length y_hist = List.length xs then
+             [ { c_label = "Raw eval y"; c_xs = xs; c_ys = y_hist; c_dashed = true } ]
+           else []
+         in
+         Dom.appendChild panel
+           (render_curves_card ~title:"Cumulative Best Objective"
+              ~subtitle:"Best-so-far vs raw observations" ~x_label:"Evaluations"
+              ~y_label:"Objective" ~log_y:false series);
+       append_telemetry_band panel state_raw));
 
     let recent_raw = Js.Unsafe.get state_raw (js "recent") in
     if Js.Optdef.test recent_raw then (
       let rows : Js.Unsafe.any Js.js_array Js.t = Obj.magic recent_raw in
       if rows##.length > 0 then (
+        let det = mk ~cls:"py-recent-details" "details" in
+        let sum =
+          mk ~cls:"py-recent-summary"
+            ~txt:(Printf.sprintf "Recent evaluations (last %d)" rows##.length)
+            "summary"
+        in
+        Dom.appendChild det sum;
+        let tbl_wrap = mk ~cls:"py-recent-wrap" "div" in
         let tbl = mk ~cls:"py-recent-table" "table" in
         let thead = mk "thead" in
         let hr = mk "tr" in
@@ -1527,7 +1588,144 @@ let render_state_panel (panel : element Js.t) (state_raw : Js.Unsafe.any) =
               Dom.appendChild tbody tr
         done;
         Dom.appendChild tbl tbody;
-        Dom.appendChild panel tbl))
+        Dom.appendChild tbl_wrap tbl;
+        Dom.appendChild det tbl_wrap;
+        Dom.appendChild panel det))
+
+(* ---------------------------------------------------------------------------
+   Pure-OCaml Python Syntax Tokenizer & Synchronized Line-Number Gutter
+   --------------------------------------------------------------------------- *)
+
+let is_ident_start c =
+  (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c = '_'
+
+let is_ident_char c =
+  is_ident_start c || (c >= '0' && c <= '9')
+
+let is_digit c = c >= '0' && c <= '9'
+
+let is_py_keyword = function
+  | "and" | "as" | "assert" | "async" | "await" | "break" | "class"
+  | "continue" | "def" | "del" | "elif" | "else" | "except" | "False"
+  | "finally" | "for" | "from" | "global" | "if" | "import" | "in"
+  | "is" | "lambda" | "None" | "nonlocal" | "not" | "or" | "pass"
+  | "raise" | "return" | "True" | "try" | "while" | "with" | "yield" ->
+      true
+  | _ -> false
+
+let render_py_highlight (code_el : element Js.t) (src : string) =
+  clear_children (code_el :> Dom.node Js.t);
+  let len = String.length src in
+  let plain_buf = Buffer.create 128 in
+  let flush_plain () =
+    if Buffer.length plain_buf > 0 then (
+      let tn = document##createTextNode (js (Buffer.contents plain_buf)) in
+      Dom.appendChild code_el tn;
+      Buffer.clear plain_buf)
+  in
+  let emit_span cls txt =
+    flush_plain ();
+    Dom.appendChild code_el (mk ~cls ~txt "span")
+  in
+  let rec scan i =
+    if i >= len then ()
+    else
+      let c = src.[i] in
+      if c = '#' then (
+        let j = ref (i + 1) in
+        while !j < len && src.[!j] <> '\n' do
+          incr j
+        done;
+        emit_span "code-comment" (String.sub src i (!j - i));
+        scan !j)
+      else if c = '\'' || c = '"' then
+        let q = c in
+        let is_triple = i + 2 < len && src.[i + 1] = q && src.[i + 2] = q in
+        let j = ref (i + if is_triple then 3 else 1) in
+        let done_s = ref false in
+        while !j < len && not !done_s do
+          if src.[!j] = '\\' then j := min len (!j + 2)
+          else if is_triple then
+            if !j + 2 < len && src.[!j] = q && src.[!j + 1] = q && src.[!j + 2] = q then (
+              j := !j + 3;
+              done_s := true)
+            else incr j
+          else if src.[!j] = q || src.[!j] = '\n' then (
+            if src.[!j] = q then incr j;
+            done_s := true)
+          else incr j
+        done;
+        emit_span "code-string" (String.sub src i (!j - i));
+        scan !j
+      else if
+        (c = 'f' || c = 'r' || c = 'b' || c = 'u' || c = 'F' || c = 'R' || c = 'B' || c = 'U')
+        && i + 1 < len
+        && (src.[i + 1] = '\'' || src.[i + 1] = '"')
+      then (
+        Buffer.add_char plain_buf c;
+        scan (i + 1))
+      else if is_digit c || (c = '.' && i + 1 < len && is_digit src.[i + 1]) then (
+        let j = ref i in
+        if
+          c = '0'
+          && i + 1 < len
+          && (src.[i + 1] = 'x' || src.[i + 1] = 'X' || src.[i + 1] = 'b' || src.[i + 1] = 'o')
+        then (
+          j := i + 2;
+          while !j < len && is_ident_char src.[!j] do
+            incr j
+          done)
+        else (
+          while !j < len && (is_digit src.[!j] || src.[!j] = '_') do
+            incr j
+          done;
+          if !j < len && src.[!j] = '.' then (
+            incr j;
+            while !j < len && (is_digit src.[!j] || src.[!j] = '_') do
+              incr j
+            done);
+          if !j < len && (src.[!j] = 'e' || src.[!j] = 'E') then (
+            let e_pos = !j in
+            incr j;
+            if !j < len && (src.[!j] = '+' || src.[!j] = '-') then incr j;
+            if !j < len && is_digit src.[!j] then
+              while !j < len && (is_digit src.[!j] || src.[!j] = '_') do
+                incr j
+              done
+            else j := e_pos));
+        emit_span "code-number" (String.sub src i (!j - i));
+        scan !j)
+      else if is_ident_start c then (
+        let j = ref (i + 1) in
+        while !j < len && is_ident_char src.[!j] do
+          incr j
+        done;
+        let word = String.sub src i (!j - i) in
+        if is_py_keyword word then emit_span "code-keyword" word else Buffer.add_string plain_buf word;
+        scan !j)
+      else (
+        Buffer.add_char plain_buf c;
+        scan (i + 1))
+  in
+  scan 0;
+  flush_plain ();
+  Dom.appendChild code_el (document##createTextNode (js "\n"))
+
+let count_lines s =
+  let n = ref 1 in
+  String.iter (fun ch -> if ch = '\n' then incr n) s;
+  !n
+
+let render_line_numbers (gutter : element Js.t) prev_ref n =
+  if n <> !prev_ref then (
+    prev_ref := n;
+    let buf = Buffer.create (n * 4) in
+    for k = 1 to n do
+      if k > 1 then Buffer.add_char buf '\n';
+      Buffer.add_string buf (string_of_int k)
+    done;
+    Buffer.add_char buf '\n';
+    set_text gutter (Buffer.contents buf))
 
 (* ---------------------------------------------------------------------------
    Full Playground Workbench UI (#py-playground-root)
@@ -1559,129 +1757,295 @@ let initial_playground_code () =
 let mount_playground (root : element Js.t) =
   clear_children (root :> Dom.node Js.t);
   let shell = mk ~cls:"py-pg-app" "div" in
+  shell##setAttribute (js "data-mob-tab") (js "script");
 
-  (* Top Toolbar *)
-  let toolbar = mk ~cls:"py-pg-toolbar" "div" in
-  let select_wrap = mk ~cls:"py-pg-select-wrap" "div" in
-  let lbl = mk ~cls:"py-pg-label" ~txt:"Preset" "label" in
-  let sel = createSelect document in
-  sel##.className := js "py-pg-select";
-  sel##setAttribute (js "aria-label") (js "Example preset");
-  List.iter
-    (fun p ->
-      let opt = createOption document in
-      opt##.value := js p.id;
-      opt##.textContent := Js.some (js p.label);
-      Dom.appendChild sel opt)
-    presets;
-  Dom.appendChild select_wrap lbl;
-  Dom.appendChild select_wrap sel;
+  (* Band 1: Unified Top Bar (Preset Tabs + Kernel Status + Primary Controls) *)
+  let topbar = mk ~cls:"py-pg-topbar" "div" in
+  let preset_rail = mk ~cls:"py-preset-rail" "div" in
+  preset_rail##setAttribute (js "role") (js "tablist");
+  preset_rail##setAttribute (js "aria-label") (js "Playground presets");
 
-  let btns = mk ~cls:"py-pg-actions" "div" in
-  let run_btn = mk ~cls:"py-btn py-btn-primary" ~txt:"Run Script" "button" in
-  run_btn##setAttribute (js "type") (js "button");
-  let reset_btn = mk ~cls:"py-btn" ~txt:"Reset / Interrupt" "button" in
-  reset_btn##setAttribute (js "type") (js "button");
-  let clear_btn = mk ~cls:"py-btn" ~txt:"Clear Console" "button" in
-  clear_btn##setAttribute (js "type") (js "button");
-  let copy_btn = mk ~cls:"py-btn" ~txt:"Copy" "button" in
-  copy_btn##setAttribute (js "type") (js "button");
-  List.iter (fun b -> Dom.appendChild btns b) [ run_btn; reset_btn; clear_btn; copy_btn ];
-
-  let status_bar = mk ~cls:"py-pg-status-row" "div" in
+  let controls = mk ~cls:"py-pg-controls" "div" in
+  let status_pill = mk ~cls:"py-kernel-pill" "div" in
   let status_dot = mk ~cls:"py-status-dot" "span" in
   let status_lbl = mk ~cls:"py-status-text" ~txt:"Idle" "span" in
   let timing_lbl = mk ~cls:"py-timing-badge" ~txt:"" "span" in
-  Dom.appendChild status_bar status_dot;
-  Dom.appendChild status_bar status_lbl;
-  Dom.appendChild status_bar timing_lbl;
+  Dom.appendChild status_pill status_dot;
+  Dom.appendChild status_pill status_lbl;
+  Dom.appendChild status_pill timing_lbl;
 
-  Dom.appendChild toolbar select_wrap;
-  Dom.appendChild toolbar btns;
+  let run_btn = mk ~cls:"py-btn py-btn-primary" ~txt:"▶ Run" "button" in
+  run_btn##setAttribute (js "type") (js "button");
+  run_btn##setAttribute (js "title") (js "Run script (Ctrl/Cmd + Enter)");
+  let reset_btn = mk ~cls:"py-btn" ~txt:"Reset" "button" in
+  reset_btn##setAttribute (js "type") (js "button");
+  reset_btn##setAttribute (js "title") (js "Reset Python namespace / interrupt execution");
+  Dom.appendChild controls status_pill;
+  Dom.appendChild controls run_btn;
+  Dom.appendChild controls reset_btn;
+  Dom.appendChild topbar preset_rail;
+  Dom.appendChild topbar controls;
 
-  let desc_bar = mk ~cls:"py-pg-desc" ~txt:(List.hd presets).description "p" in
+  (* Band 2: Editorial Caption Bar *)
+  let cap_bar = mk ~cls:"py-pg-caption" "div" in
+  let cap_title = mk ~cls:"py-cap-title" ~txt:(List.hd presets).label "span" in
+  let cap_desc = mk ~cls:"py-cap-desc" ~txt:(List.hd presets).description "span" in
+  Dom.appendChild cap_bar cap_title;
+  Dom.appendChild cap_bar cap_desc;
 
-  (* Main Split Grid *)
+  (* Band 2b: Mobile (<900px) Segmented Switcher *)
+  let mob_tabs = mk ~cls:"py-mob-tabs" "div" in
+  let mk_mob_tab tab_id label_txt =
+    let b = mk ~cls:"py-mob-tab" ~txt:label_txt "button" in
+    b##setAttribute (js "type") (js "button");
+    b##setAttribute (js "data-tab") (js tab_id);
+    (tab_id, b)
+  in
+  let mob_pairs =
+    [
+      mk_mob_tab "script" "Script";
+      mk_mob_tab "plots" "Plots & State";
+      mk_mob_tab "console" "Console";
+    ]
+  in
+  List.iter (fun (_, b) -> Dom.appendChild mob_tabs b) mob_pairs;
+
+  let set_mob_tab target =
+    shell##setAttribute (js "data-mob-tab") (js target);
+    List.iter
+      (fun (tid, b) ->
+        let base = "py-mob-tab" in
+        b##.className := js (if tid = target then base ^ " active" else base))
+      mob_pairs
+  in
+  set_mob_tab "script";
+  List.iter
+    (fun (tid, b) ->
+      b##.onclick :=
+        Dom.handler (fun _ ->
+            set_mob_tab tid;
+            Js._true))
+    mob_pairs;
+
+  (* Band 3: Asymmetric Editorial Grid *)
   let grid = mk ~cls:"py-pg-grid" "div" in
   let left_col = mk ~cls:"py-pg-left" "div" in
   let right_col = mk ~cls:"py-pg-right" "div" in
 
-  (* Editor Box *)
-  let ed_hdr = mk ~cls:"py-pane-hdr" "div" in
-  Dom.appendChild ed_hdr (mk ~txt:"Script Editor (Ctrl/Cmd + Enter to Run)" "span");
+  (* Editor Sub-pane *)
+  let ed_pane = mk ~cls:"py-ed-pane" "div" in
+  let ed_hdr = mk ~cls:"py-subbar" "div" in
+  let ed_hdr_l = mk ~cls:"py-subbar-left" "div" in
+  Dom.appendChild ed_hdr_l (mk ~cls:"py-subbar-title" ~txt:"Script" "span");
+  let ed_meta = mk ~cls:"py-subbar-meta" ~txt:"sparc_pf.py" "span" in
+  Dom.appendChild ed_hdr_l ed_meta;
+  let ed_hdr_r = mk ~cls:"py-subbar-right" "div" in
+  Dom.appendChild ed_hdr_r (mk ~cls:"py-key-hint" ~txt:"⌘↵ run" "span");
+  let copy_btn = mk ~cls:"py-ghost-btn" ~txt:"Copy" "button" in
+  copy_btn##setAttribute (js "type") (js "button");
+  Dom.appendChild ed_hdr_r copy_btn;
+  Dom.appendChild ed_hdr ed_hdr_l;
+  Dom.appendChild ed_hdr ed_hdr_r;
+
+  let ed_shell = mk ~cls:"py-ed-shell" "div" in
+  let ed_gutter = mk ~cls:"py-ed-gutter" "div" in
+  ed_gutter##setAttribute (js "aria-hidden") (js "true");
+  let ed_stage = mk ~cls:"py-ed-stage" "div" in
+  let highlight_pre = mk ~cls:"py-ed-highlight" "pre" in
+  highlight_pre##setAttribute (js "aria-hidden") (js "true");
+  let highlight_code = mk "code" in
+  Dom.appendChild highlight_pre highlight_code;
   let editor = createTextarea document in
-  editor##.className := js "py-pg-editor";
+  editor##.className := js "py-ed-textarea";
+  editor##setAttribute (js "wrap") (js "off");
   editor##setAttribute (js "spellcheck") (js "false");
+  editor##setAttribute (js "autocomplete") (js "off");
+  editor##setAttribute (js "autocorrect") (js "off");
+  editor##setAttribute (js "autocapitalize") (js "off");
   editor##setAttribute (js "aria-label") (js "Python script editor");
-  editor##.rows := 14;
+  Dom.appendChild ed_stage highlight_pre;
+  Dom.appendChild ed_stage editor;
+  Dom.appendChild ed_shell ed_gutter;
+  Dom.appendChild ed_shell ed_stage;
+  Dom.appendChild ed_pane ed_hdr;
+  Dom.appendChild ed_pane ed_shell;
 
-  let (init_preset_id, init_code) = initial_playground_code () in
-  editor##.value := js init_code;
-  (match init_preset_id with
-  | Some pid -> sel##.value := js pid
-  | None -> desc_bar##.textContent := Js.some (js "Loaded snippet from documentation page."));
+  let active_preset_ref : preset option ref = ref None in
+  let prev_lines_ref = ref 0 in
+  let user_dirty_ref = ref false in
+  let sync_editor_view () =
+    let src = to_s editor##.value in
+    render_py_highlight highlight_code src;
+    let n = count_lines src in
+    render_line_numbers ed_gutter prev_lines_ref n;
+    let stem =
+      match !active_preset_ref with
+      | Some p -> p.id ^ ".py" ^ if !user_dirty_ref then " *" else ""
+      | None -> "snippet.py"
+    in
+    set_text ed_meta (Printf.sprintf "%s · %d lines" stem n);
+    highlight_pre##.scrollTop := editor##.scrollTop;
+    highlight_pre##.scrollLeft := editor##.scrollLeft;
+    ed_gutter##.scrollTop := editor##.scrollTop
+  in
 
-  (* Output + Interactive >>> Console *)
-  let con_hdr = mk ~cls:"py-pane-hdr" "div" in
-  Dom.appendChild con_hdr (mk ~txt:"Interactive Python 3.12 REPL & Output" "span");
+  (* Console + Unified REPL Pane *)
+  let con_pane = mk ~cls:"py-con-pane" "div" in
+  let con_hdr = mk ~cls:"py-subbar" "div" in
+  let con_hdr_l = mk ~cls:"py-subbar-left" "div" in
+  Dom.appendChild con_hdr_l (mk ~cls:"py-subbar-title" ~txt:"Console" "span");
+  Dom.appendChild con_hdr_l (mk ~cls:"py-subbar-meta" ~txt:"stdout · python 3.12" "span");
+  let con_hdr_r = mk ~cls:"py-subbar-right" "div" in
+  let clear_btn = mk ~cls:"py-ghost-btn" ~txt:"Clear" "button" in
+  clear_btn##setAttribute (js "type") (js "button");
+  Dom.appendChild con_hdr_r clear_btn;
+  Dom.appendChild con_hdr con_hdr_l;
+  Dom.appendChild con_hdr con_hdr_r;
+
   let console_pre = mk ~cls:"py-pg-console" "pre" in
   append_console_chunk console_pre "py-out-muted"
-    "Click 'Run Script' or type Python expressions below (Up/Down for history).\n";
+    "Warming CPython 3.12 WebAssembly kernel...\n";
 
   let prompt_row = createForm document in
   prompt_row##.className := js "py-repl-prompt-row";
   let prompt_glyph = mk ~cls:"py-repl-glyph" ~txt:">>>" "span" in
   let repl_input = createInput ~_type:(js "text") document in
   repl_input##.className := js "py-repl-input";
-  repl_input##setAttribute (js "placeholder") (js "Type Python expression (e.g. state.best_y, dir(baux))...");
+  repl_input##setAttribute (js "placeholder") (js "Inspect state (e.g. state.best_y, dir(baux))");
   repl_input##setAttribute (js "spellcheck") (js "false");
   repl_input##setAttribute (js "autocomplete") (js "off");
   repl_input##setAttribute (js "aria-label") (js "Interactive Python prompt");
-  let repl_send = mk ~cls:"py-btn py-btn-sm" ~txt:"Eval" "button" in
+  let repl_send = mk ~cls:"py-ghost-btn py-repl-send" ~txt:"Eval ↵" "button" in
   repl_send##setAttribute (js "type") (js "submit");
   Dom.appendChild prompt_row prompt_glyph;
   Dom.appendChild prompt_row repl_input;
   Dom.appendChild prompt_row repl_send;
 
-  Dom.appendChild left_col ed_hdr;
-  Dom.appendChild left_col editor;
-  Dom.appendChild left_col con_hdr;
-  Dom.appendChild left_col console_pre;
-  Dom.appendChild left_col prompt_row;
+  Dom.appendChild con_pane con_hdr;
+  Dom.appendChild con_pane console_pre;
+  Dom.appendChild con_pane prompt_row;
 
-  (* Inspector Pane *)
-  let insp_hdr = mk ~cls:"py-pane-hdr" "div" in
-  Dom.appendChild insp_hdr (mk ~txt:"Live baux OptimizerState Inspector" "span");
+  Dom.appendChild left_col ed_pane;
+  Dom.appendChild left_col con_pane;
+
+  (* Right Output & Figures Stage *)
+  let insp_hdr = mk ~cls:"py-subbar" "div" in
+  let insp_hdr_l = mk ~cls:"py-subbar-left" "div" in
+  Dom.appendChild insp_hdr_l (mk ~cls:"py-subbar-title" ~txt:"Figures & State" "span");
+  let insp_chip = mk ~cls:"py-subbar-meta py-state-chip" ~txt:"awaiting run" "span" in
+  let insp_hdr_r = mk ~cls:"py-subbar-right" "div" in
+  Dom.appendChild insp_hdr_r insp_chip;
+  Dom.appendChild insp_hdr insp_hdr_l;
+  Dom.appendChild insp_hdr insp_hdr_r;
+
   let insp_body = mk ~cls:"py-inspector-body" "div" in
-  render_state_panel insp_body (Js.Unsafe.inject Js.undefined);
   Dom.appendChild right_col insp_hdr;
   Dom.appendChild right_col insp_body;
 
   Dom.appendChild grid left_col;
   Dom.appendChild grid right_col;
 
-  Dom.appendChild shell toolbar;
-  Dom.appendChild shell status_bar;
-  Dom.appendChild shell desc_bar;
+  Dom.appendChild shell topbar;
+  Dom.appendChild shell cap_bar;
+  Dom.appendChild shell mob_tabs;
   Dom.appendChild shell grid;
   Dom.appendChild root shell;
 
-  add_status_listener (fun st ->
-      status_lbl##.textContent := Js.some (js (status_text st));
-      let cls =
-        match st with
-        | Ready -> "py-status-dot is-ready"
-        | Booting _ | Running -> "py-status-dot is-busy"
-        | Interrupted _ -> "py-status-dot is-err"
-        | Idle -> "py-status-dot"
-      in
-      status_dot##.className := js cls);
+  (* Build Empty Stage helper *)
+  let initial_ran_ref = ref false in
+  let manual_abort_ref = ref false in
+  let run_script_ref : (unit -> unit) ref = ref (fun () -> ()) in
+
+  let make_empty_stage () =
+    let box = mk ~cls:"py-empty-stage" "div" in
+    let ttl =
+      match !active_preset_ref with
+      | Some p -> p.label
+      | None -> "Documentation Snippet"
+    in
+    let dsc =
+      match !active_preset_ref with
+      | Some p -> p.description
+      | None -> "Execute the loaded documentation example to visualize trajectories and state."
+    in
+    Dom.appendChild box (mk ~cls:"py-empty-title" ~txt:ttl "div");
+    Dom.appendChild box (mk ~cls:"py-empty-desc" ~txt:dsc "p");
+    let run_cta = mk ~cls:"py-btn py-btn-primary" ~txt:"▶ Execute now" "button" in
+    run_cta##setAttribute (js "type") (js "button");
+    run_cta##.onclick :=
+      Dom.handler (fun _ ->
+          !run_script_ref ();
+          Js._true);
+    Dom.appendChild box run_cta;
+    box
+  in
+
+  let sync_state_chip st_raw =
+    if not (is_defined st_raw) then set_text insp_chip "awaiting run"
+    else
+      let has_opt = is_defined (Js.Unsafe.get st_raw (js "dim")) in
+      let has_fig = is_defined (Js.Unsafe.get st_raw (js "fig")) in
+      if has_opt then
+        let vn = Option.value (opt_str st_raw "var") ~default:"state" in
+        let dm = Option.value (opt_int st_raw "dim") ~default:0 in
+        set_text insp_chip (Printf.sprintf "var %s · %dD" vn dm)
+      else if has_fig then set_text insp_chip "diagnostic figure"
+      else set_text insp_chip "ready"
+  in
+
+  let (init_preset_id, init_code) = initial_playground_code () in
+  active_preset_ref :=
+    (match init_preset_id with Some pid -> find_preset pid | None -> None);
+  editor##.value := js init_code;
+  (match !active_preset_ref with
+  | Some p ->
+      set_text cap_title p.label;
+      set_text cap_desc p.description
+  | None ->
+      set_text cap_title "Custom documentation snippet";
+      set_text cap_desc "Loaded directly from docs—edit or run in WebAssembly Python.");
+  sync_editor_view ();
+  render_state_panel ~empty_node:(make_empty_stage ()) insp_body (Js.Unsafe.inject Js.undefined);
+
+  let preset_btns : (string * element Js.t) list =
+    List.map
+      (fun p ->
+        let btn = mk ~cls:"py-preset-tab" ~txt:p.short_label "button" in
+        btn##setAttribute (js "type") (js "button");
+        btn##setAttribute (js "role") (js "tab");
+        btn##setAttribute (js "title") (js p.label);
+        Dom.appendChild preset_rail btn;
+        (p.id, btn))
+      presets
+  in
+
+  let sync_preset_active () =
+    let active_id = match !active_preset_ref with Some p -> p.id | None -> "" in
+    List.iter
+      (fun (pid, b) ->
+        let sel_flag = pid = active_id in
+        b##.className := js (if sel_flag then "py-preset-tab active" else "py-preset-tab");
+        b##setAttribute (js "aria-selected") (js (if sel_flag then "true" else "false")))
+      preset_btns
+  in
+  sync_preset_active ();
+
+  let mark_mob_updates () =
+    List.iter
+      (fun (tid, b) ->
+        if tid = "plots" then (
+          let cur = to_s b##.className in
+          if not (contains_sub cur "has-update") then b##.className := js (cur ^ " has-update")))
+      mob_pairs
+  in
 
   let run_script () =
+    initial_ran_ref := true;
+    manual_abort_ref := false;
     let src = to_s editor##.value in
     clear_children (console_pre :> Dom.node Js.t);
-    append_console_chunk console_pre "py-out-muted" ">>> Running script...\n";
-    timing_lbl##.textContent := Js.some (js "");
+    append_console_chunk console_pre "py-out-muted" ">>> Executing script...\n";
+    set_text timing_lbl "";
     send_worker "exec"
       [
         ("code", Js.Unsafe.inject (js src));
@@ -1695,15 +2059,65 @@ let mount_playground (root : element Js.t) =
         let dt_s =
           if Js.Optdef.test dt_raw then Printf.sprintf "%.1f ms" (Js.float_of_number dt_raw) else ""
         in
-        timing_lbl##.textContent := Js.some (js dt_s);
+        set_text timing_lbl (if dt_s <> "" then "· " ^ dt_s else "");
         clear_children (console_pre :> Dom.node Js.t);
         if out_s <> "" then append_console_chunk console_pre "py-out-stdout" out_s;
         if err_s <> "" then append_console_chunk console_pre "py-out-stderr" err_s;
         if out_s = "" && err_s = "" && ok then
           append_console_chunk console_pre "py-out-muted" "(completed with no printed output)\n";
         set_text prompt_glyph ">>>";
-        render_state_panel insp_body (Js.Unsafe.get res (js "state")))
+        let st_raw = Js.Unsafe.get res (js "state") in
+        sync_state_chip st_raw;
+        render_state_panel ~empty_node:(make_empty_stage ()) insp_body st_raw;
+        mark_mob_updates ())
   in
+  run_script_ref := run_script;
+
+  add_status_listener (fun st ->
+      let short_s =
+        match st with
+        | Idle -> "Idle"
+        | Booting _ -> "Booting WASM..."
+        | Ready -> "Py 3.12 · Ready"
+        | Running -> "Running..."
+        | Interrupted _ -> "Stopped"
+      in
+      set_text status_lbl short_s;
+      status_pill##setAttribute (js "title") (js (status_text st));
+      let cls =
+        match st with
+        | Ready -> "py-status-dot is-ready"
+        | Booting _ | Running -> "py-status-dot is-busy"
+        | Interrupted _ -> "py-status-dot is-err"
+        | Idle -> "py-status-dot"
+      in
+      status_dot##.className := js cls;
+      set_text reset_btn (match st with Running | Booting _ -> "Interrupt" | _ -> "Reset");
+      if st = Ready && (not !initial_ran_ref) && (not !user_dirty_ref) && (not !manual_abort_ref) then
+        run_script ());
+
+  List.iter
+    (fun (pid, btn) ->
+      btn##.onclick :=
+        Dom.handler (fun _ ->
+            (match find_preset pid with
+            | Some p ->
+                active_preset_ref := Some p;
+                user_dirty_ref := false;
+                editor##.value := js p.code;
+                editor##.scrollTop := Js.float 0.0;
+                editor##.scrollLeft := Js.float 0.0;
+                set_text cap_title p.label;
+                set_text cap_desc p.description;
+                sync_preset_active ();
+                sync_editor_view ();
+                render_state_panel ~empty_node:(make_empty_stage ()) insp_body
+                  (Js.Unsafe.inject Js.undefined);
+                sync_state_chip (Js.Unsafe.inject Js.undefined);
+                if !kernel_state_ref = Ready then run_script ()
+            | None -> ());
+            Js._true))
+    preset_btns;
 
   let repl_history : string list ref = ref [] in
   let hist_idx : int ref = ref (-1) in
@@ -1720,32 +2134,27 @@ let mount_playground (root : element Js.t) =
         let inc = Js.to_bool (Js.Unsafe.get res (js "incomplete")) in
         let dt_raw = Js.Unsafe.get res (js "elapsed_ms") in
         if Js.Optdef.test dt_raw then
-          timing_lbl##.textContent := Js.some (js (Printf.sprintf "%.1f ms" (Js.float_of_number dt_raw)));
+          set_text timing_lbl (Printf.sprintf "· %.1f ms" (Js.float_of_number dt_raw));
         if out_s <> "" then append_console_chunk console_pre "py-out-stdout" out_s;
         if err_s <> "" then append_console_chunk console_pre "py-out-stderr" err_s;
         set_text prompt_glyph (if inc then "..." else ">>>");
-        render_state_panel insp_body (Js.Unsafe.get res (js "state")))
+        let st_raw = Js.Unsafe.get res (js "state") in
+        sync_state_chip st_raw;
+        render_state_panel ~empty_node:(make_empty_stage ()) insp_body st_raw)
   in
-
-  sel##.onchange :=
-    Dom.handler (fun _ ->
-        (match find_preset (to_s sel##.value) with
-        | Some p ->
-            editor##.value := js p.code;
-            desc_bar##.textContent := Js.some (js p.description)
-        | None -> ());
-        Js._true);
 
   run_btn##.onclick :=
     Dom.handler (fun _ ->
         run_script ();
+        (if Dom_html.window##.innerWidth <= 900 then set_mob_tab "plots");
         Js._true);
 
   reset_btn##.onclick :=
     Dom.handler (fun _ ->
+        manual_abort_ref := true;
         interrupt_kernel ();
         set_text prompt_glyph ">>>";
-        timing_lbl##.textContent := Js.some (js "");
+        set_text timing_lbl "";
         warm_kernel ();
         Js._true);
 
@@ -1760,11 +2169,24 @@ let mount_playground (root : element Js.t) =
         let clip = Js.Unsafe.get Dom_html.window##.navigator (js "clipboard") in
         if is_defined clip then (
           ignore (Js.Unsafe.meth_call clip "writeText" [| Js.Unsafe.inject editor##.value |]);
-          copy_btn##.textContent := Js.some (js "Copied");
+          set_text copy_btn "Copied";
           ignore
             (Dom_html.window##setTimeout
-               (Js.wrap_callback (fun () -> copy_btn##.textContent := Js.some (js "Copy")))
+               (Js.wrap_callback (fun () -> set_text copy_btn "Copy"))
                (Js.float 1200.0)));
+        Js._true);
+
+  editor##.oninput :=
+    Dom.handler (fun _ ->
+        user_dirty_ref := true;
+        sync_editor_view ();
+        Js._true);
+
+  editor##.onscroll :=
+    Dom.handler (fun _ ->
+        highlight_pre##.scrollTop := editor##.scrollTop;
+        highlight_pre##.scrollLeft := editor##.scrollLeft;
+        ed_gutter##.scrollTop := editor##.scrollTop;
         Js._true);
 
   editor##.onkeydown :=
@@ -1774,6 +2196,7 @@ let mount_playground (root : element Js.t) =
         if ctrl_or_meta && key = "Enter" then (
           Dom.preventDefault ev;
           run_script ();
+          (if Dom_html.window##.innerWidth <= 900 then set_mob_tab "plots");
           Js._false)
         else if key = "Tab" then (
           Dom.preventDefault ev;
@@ -1785,6 +2208,8 @@ let mount_playground (root : element Js.t) =
           editor##.value := js (left ^ "    " ^ right);
           editor##.selectionStart := st + 4;
           editor##.selectionEnd := st + 4;
+          user_dirty_ref := true;
+          sync_editor_view ();
           Js._false)
         else Js._true);
 

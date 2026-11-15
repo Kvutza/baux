@@ -114,7 +114,7 @@ import BauxResearch.Forward.Work
 /-!
 # Mathematical reading convention
 
-This comment applies to the imported BAUX formalization; it declares no Lean
+This comment applies to the imported baux formalization; it declares no Lean
 notation.  Let `p` be the learned-parameter count, `Θₚ` the ideal real
 parameter space, `θ ∈ Θₚ` a state, and `u ∈ Θₚ` a proposed update.  A descriptor
 `d` belongs to its own space and is not an element of `Θₚ`.  Let `z` denote a

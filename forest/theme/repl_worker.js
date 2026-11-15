@@ -510,7 +510,7 @@ async function ensureRuntime() {
     }
     await pyodide.runPythonAsync(BOOTSTRAP_PY);
 
-    self.postMessage({ type: "status", stage: "ready", detail: "Python 3.12 + NumPy + BAUX ready" });
+    self.postMessage({ type: "status", stage: "ready", detail: "Python 3.12 + NumPy + baux ready" });
     return pyodide;
   })().catch((err) => {
     runtimePromise = null;

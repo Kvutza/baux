@@ -1,5 +1,5 @@
 opam-version: "2.0"
-synopsis: "SFU numerical optimization benchmarks for BAUX on OxCaml"
+synopsis: "SFU numerical optimization benchmarks for baux on OxCaml"
 maintainer: "Kvutza"
 authors: "Kvutza"
 license: "MIT"

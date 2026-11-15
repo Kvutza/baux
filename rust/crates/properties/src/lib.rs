@@ -763,7 +763,7 @@ fn find_outlier(values: &[f64], eps: f64) -> Option<usize> {
 }
 
 /// Topological differential testing via $\epsilon$-filtered Dowker consensus
-/// cliques across real BAUX precision tiers ($\epsilon_{\text{f64}} <
+/// cliques across real baux precision tiers ($\epsilon_{\text{f64}} <
 /// \epsilon_{\text{f32}} < \epsilon_{\text{f16}}$) and automatic outlier
 /// attribution under fault injection.
 ///

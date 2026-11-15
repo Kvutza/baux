@@ -2,7 +2,7 @@ import Mathlib.Analysis.InnerProductSpace.PiL2
 import Mathlib.LinearAlgebra.Dimension.Finite
 
 /-!
-# BAUX optimizer research foundation
+# baux optimizer research foundation
 
 This module fixes the objects that the optimizer research is about before it
 introduces a proposal distribution, surrogate, or acquisition rule.

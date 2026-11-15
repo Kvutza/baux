@@ -501,7 +501,7 @@ fn run(config: &Config, binary: &Path, output: &Path) -> Result<(), String> {
         "budget": "cycle-budget per candidate includes all training and validation queries; inner-evaluations caps training queries; prequential test queries are separately reported; reset, weight programming, input programming and output drain included for matrix circuits",
         "protocol": "evaluate deployed weights before adaptation; fresh optimizer histories each window; carry selected weights and design; candidate branches share initial weights and seed",
         "switching": "host construction cost measured; no modeled FPGA deployment cost or physical speedup",
-        "baseline": "fixed receives the same initial BAUX hardware calibration as baux, then freezes its design and adapts weights only; random and baux continue hardware search each window; actual costs reported",
+        "baseline": "fixed receives the same initial baux hardware calibration as baux, then freezes its design and adapts weights only; random and baux continue hardware search each window; actual costs reported",
         "allocation": "OCaml GC allocation counters and heap capacity per phase; excludes native allocations and is not process peak RSS",
         "cache": "bounded per-trial LRU of arithmetic backends; integer FlowLOB mode elaborates RTL only for export; no cached objective values"});
     fs::write(

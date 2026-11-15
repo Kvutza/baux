@@ -1,6 +1,6 @@
 //! Observe actual TuRBO retirement and configured replacement at tell time.
 //! TuRBO-m specification: Eriksson et al. (NeurIPS 2019, arXiv:1910.01739,
-//! Section 2). The controller thresholds in this BAUX diagnostic are configured
+//! Section 2). The controller thresholds in this baux diagnostic are configured
 //! separately.
 
 use super::{ArmResult, Config, make_optimizer, score};

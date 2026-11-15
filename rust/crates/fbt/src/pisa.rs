@@ -5,7 +5,7 @@
 //!   Attention with Log-Linear Complexity"*, `arXiv:2609.31093` (2026).
 //!
 //! Note: PISA is an external prior-art attention architecture used as a
-//! sequence-modeling testbed, not a novel BAUX paper contribution.
+//! sequence-modeling testbed, not a novel baux paper contribution.
 
 use crate::apple_gpu::{Runtime, gpu_seconds, thread_group};
 use crate::context::probe::half as decode_half;

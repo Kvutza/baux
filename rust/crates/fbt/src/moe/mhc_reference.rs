@@ -4,7 +4,7 @@
 //!
 //! # External Prior-Art Attribution
 //! Note: Manifold-Constrained Hyper-Connections (mHC-4) is an external
-//! prior-art architecture used as a sequence-modeling testbed, not a novel BAUX
+//! prior-art architecture used as a sequence-modeling testbed, not a novel baux
 //! paper contribution:
 //! - **mHC Paper**: Xie et al. (DeepSeek-AI), *"mHC: Manifold-Constrained
 //!   Hyper-Connections"*, arXiv:2512.24880 (2025).

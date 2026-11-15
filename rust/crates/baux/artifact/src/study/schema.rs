@@ -1,11 +1,11 @@
-//! JSON Schema generator for BAUX v4 tune specifications and studies.
+//! JSON Schema generator for baux v4 tune specifications and studies.
 
 /// Generate the JSON Schema for v4 tune-spec configurations.
 pub fn tune_schema() -> String {
     let schema = r##"{
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "TuneSpec",
-  "description": "BAUX v4 tune-spec configuration and study schema.",
+  "description": "baux v4 tune-spec configuration and study schema.",
   "type": "object",
   "required": [
     "version",

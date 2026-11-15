@@ -126,7 +126,7 @@ class Fbt:
         -----
         This synchronous operation traces only; it does not execute the model,
         initialize parameters or upload buffers. Requires JAX and the native
-        BAUX extension for model metadata.
+        baux extension for model metadata.
         """
         from ._trace import lower
 

@@ -1,4 +1,4 @@
-"""Buck2 renderer for BAUX's shared logical program catalogue."""
+"""Buck2 renderer for baux's shared logical program catalogue."""
 
 load("//admin/buck2:reindeer_rules.bzl", "app_rust_binary")
 

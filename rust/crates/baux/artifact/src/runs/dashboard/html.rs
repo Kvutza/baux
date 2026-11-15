@@ -17,7 +17,7 @@ pub(super) struct RunView {
 
 pub(super) fn append_sidebar(html: &mut String, views: &[RunView]) {
     html.push_str("<div class=\"wb-shell\">\n<aside class=\"wb-sidebar\">\n");
-    html.push_str("<div class=\"wb-brand\"><h1>BAUX Runs</h1></div>\n");
+    html.push_str("<div class=\"wb-brand\"><h1>baux Runs</h1></div>\n");
     html.push_str("<div class=\"wb-controls\">\n");
 
     html.push_str("<div class=\"wb-ctrl-row\">\n");
@@ -430,7 +430,7 @@ pub(super) const HEADER: &str = r#"<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>BAUX — Publication &amp; W&amp;B Run Explorer</title>
+<title>baux — Publication &amp; W&amp;B Run Explorer</title>
 <style>
   * { box-sizing: border-box; }
   body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif; background: #f8fafc; color: #0f172a; margin: 0; }

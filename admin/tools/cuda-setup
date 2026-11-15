@@ -45,7 +45,7 @@ fi
     --component rust-src --component rustc-dev --component llvm-tools
 
 if [ ! -f "$workspace/.baux-revision" ] || [ "$(cat "$workspace/.baux-revision" 2>/dev/null || true)" != "$revision" ]; then
-    [ ! -e "$workspace" ] || fail "$workspace exists without the requested BAUX revision marker"
+    [ ! -e "$workspace" ] || fail "$workspace exists without the requested baux revision marker"
     mkdir -p "$workspace"
     curl -fsSL "https://github.com/NVlabs/cuda-oxide/archive/$revision.tar.gz" -o /tmp/cuda-oxide.tar.gz
     tar -xzf /tmp/cuda-oxide.tar.gz --strip-components=1 -C "$workspace"

@@ -1,4 +1,4 @@
-//! Optional per-metric output bounds for BAUX.
+//! Optional per-metric output bounds for baux.
 
 use std::path::Path;
 

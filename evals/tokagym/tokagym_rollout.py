@@ -4,7 +4,7 @@ Uses the unmodified upstream EPFL/MIT ``toka_gym`` simulation environment
 (``build_gym``, ``TCVGym``, ``TCVEnv``) and evaluation harness (``RewardModel``,
 ``ESFitnessModel``) verified against ``research/upstream/tokagym.lock.toml``,
 while defining the neural network policy (``11 -> 256 -> 256 -> 256 -> 8``) on
-the BAUX side.
+the baux side.
 
 Academic & Open-Source Attribution:
 - Christian Theiler et al., "Progress and innovations in the TCV tokamak

@@ -1,4 +1,4 @@
-# BAUX Toolchain Verification Tests
+# baux Toolchain Verification Tests
 
 This test suite verifies the hermetic DotSlash and host toolchains using Meta Scrut.
 

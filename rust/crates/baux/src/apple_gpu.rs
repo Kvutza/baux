@@ -1,4 +1,4 @@
-//! Shared Apple GPU runtime used by BAUX Metal backends.
+//! Shared Apple GPU runtime used by baux Metal backends.
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};

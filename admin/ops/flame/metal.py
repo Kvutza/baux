@@ -17,7 +17,7 @@ def device_info():
 
     binding = getattr(experimental, "Var", None)
     if binding is None:
-        raise RuntimeError("Rebuild the BAUX extension with --features metal")
+        raise RuntimeError("Rebuild the baux extension with --features metal")
     return binding.device_info()
 
 

@@ -262,7 +262,7 @@ fn measure(config: &Config) -> Result<Value, String> {
         "experiment":"host-regions", "dimensions":config.dimensions,
         "objectives":config.objectives(),
         "objective_domain":"x=3*u-1.5 for unit-coordinate u",
-        "interpretation":if config.controller == "turbo" { "matched fixed-budget host comparison with actual automatic TuRBO retirement and configured candidate-ranked replacement; diagnostic failure tolerance and length bounds make retirement observable; outcomes do not establish policy superiority" } else { "matched fixed-budget host comparison with a forced restart after half the budget; split-beta and maximin are BAUX diagnostics, not MTRBO or APOSMM; outcomes are policy-associated, with no general superiority claim" },
+        "interpretation":if config.controller == "turbo" { "matched fixed-budget host comparison with actual automatic TuRBO retirement and configured candidate-ranked replacement; diagnostic failure tolerance and length bounds make retirement observable; outcomes do not establish policy superiority" } else { "matched fixed-budget host comparison with a forced restart after half the budget; split-beta and maximin are baux diagnostics, not MTRBO or APOSMM; outcomes are policy-associated, with no general superiority claim" },
         "results":pairs
     }))
 }
@@ -522,7 +522,7 @@ fn make_optimizer(
         },
     };
     if roles == "split_beta" {
-        // BAUX diagnostic motivated by separate exploitation and uncertainty
+        // baux diagnostic motivated by separate exploitation and uncertainty
         // regions in Das et al. (2026), https://arxiv.org/abs/2605.06618.
         // This beta assignment is not the paper's MTRBO algorithm.
         config_tr.region_acquisitions[0] = Some(baux::config::AcquisitionConfig::UCB { beta: 0.0 });

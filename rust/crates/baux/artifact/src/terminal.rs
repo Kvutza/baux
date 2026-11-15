@@ -1,4 +1,4 @@
-//! Shared terminal rendering for BAUX developer and experiment commands.
+//! Shared terminal rendering for baux developer and experiment commands.
 
 use std::io::{self, IsTerminal, Write};
 use std::process::ExitCode;

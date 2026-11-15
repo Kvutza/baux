@@ -3,7 +3,7 @@
 //! # External Prior-Art Attribution
 //! The manifold-constrained hyper-connection architecture and doubly-stochastic
 //! residual stream transport represent external prior art used as a
-//! sequence-modeling testbed, not a BAUX paper contribution:
+//! sequence-modeling testbed, not a baux paper contribution:
 //! - Xie et al. (DeepSeek-AI), *"mHC: Manifold-Constrained Hyper-Connections"*,
 //!   `arXiv:2512.24880` (2025).
 //! - Defa Zhu et al., *"Hyper-Connections"*, ICLR 2025, `arXiv:2409.19606`.

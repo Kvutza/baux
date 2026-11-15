@@ -4,7 +4,7 @@ use std::fs::File;
 use std::path::Path;
 use tokenizers::Tokenizer;
 
-/// One marker registry shared by every BAUX pretraining corpus.  A blend may
+/// One marker registry shared by every baux pretraining corpus.  A blend may
 /// only combine corpora derived from the same tokenizer artifact, so individual
 /// serializers must not assign the reserved Gemma IDs independently.
 pub(super) const MARKERS: [&str; 15] = [

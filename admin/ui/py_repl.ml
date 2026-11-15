@@ -610,7 +610,7 @@ let warm_kernel () =
 let status_text = function
   | Idle -> "Idle (loads ~16 MB WASM on first Run)"
   | Booting d -> d
-  | Ready -> "Python 3.12 + NumPy + BAUX Ready"
+  | Ready -> "Python 3.12 + NumPy + baux ready"
   | Running -> "Executing Python in Web Worker..."
   | Interrupted r -> r
 
@@ -1651,7 +1651,7 @@ let mount_playground (root : element Js.t) =
 
   (* Inspector Pane *)
   let insp_hdr = mk ~cls:"py-pane-hdr" "div" in
-  Dom.appendChild insp_hdr (mk ~txt:"Live BAUX OptimizerState Inspector" "span");
+  Dom.appendChild insp_hdr (mk ~txt:"Live baux OptimizerState Inspector" "span");
   let insp_body = mk ~cls:"py-inspector-body" "div" in
   render_state_panel insp_body (Js.Unsafe.inject Js.undefined);
   Dom.appendChild right_col insp_hdr;

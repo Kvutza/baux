@@ -77,7 +77,7 @@ class Loop:
         failure = self.optimizer.ingestion_failure
         if failure is not None:
             raise RuntimeError(
-                "BAUX ingestion failed after mutation may have begun; this adapter "
+                "baux ingestion failed after mutation may have begun; this adapter "
                 "cannot safely retry or accept more observations. Create a new "
                 f"adapter from completed trial history. Cause: {failure}"
             )
@@ -149,5 +149,5 @@ class Loop:
             if identity is not None:
                 self.optimizer.cancel([identity])
         raise RuntimeError(
-            "BAUX could not propose a point distinct from pending trials"
+            "baux could not propose a point distinct from pending trials"
         )

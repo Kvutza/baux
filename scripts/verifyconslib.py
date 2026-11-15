@@ -1,4 +1,4 @@
-"""End-to-end consumer verification script for BAUX library.
+"""End-to-end consumer verification script for baux library.
 
 Exercises stateful ask/tell, functional state transitions (init, step, scan),
 PyTree parameter bounds, composable transform pipelines, and the ENN surrogate.

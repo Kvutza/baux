@@ -1,7 +1,7 @@
 //! Fixed executable training tasks, not a similarity surrogate for correctness.
 //! MBPP: https://arxiv.org/abs/2108.07732
 //! Stronger tests: https://arxiv.org/abs/2305.01210 (EvalPlus).
-//! Our added cases are BAUX contract checks, not an official EvalPlus
+//! Our added cases are baux contract checks, not an official EvalPlus
 //! benchmark.
 use super::decode::Rollout;
 use super::mean_variance;

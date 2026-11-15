@@ -183,7 +183,7 @@ PY
 )
 
 if [ "$(uname -s)" = Linux ]; then
-    # Conda NumPy needs its own C++ runtime, even when BAUX is imported first.
+    # Conda NumPy needs its own C++ runtime, even when baux is imported first.
     LD_LIBRARY_PATH=$("$python_bin" -c 'import sys; print(sys.prefix + "/lib")')
     export LD_LIBRARY_PATH
 fi

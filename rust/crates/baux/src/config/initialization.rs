@@ -9,7 +9,7 @@ pub enum ModelInitialization {
     /// GPT-2 Conv1D weights and token embeddings use a zero-mean normal with
     /// standard deviation 0.02; its learned position embeddings use 0.01
     /// (Radford et al., 2019, "Language Models are Unsupervised Multitask
-    /// Learners"). BAUX uses RoPE (Su et al., 2021, "RoFormer: Enhanced
+    /// Learners"). baux uses RoPE (Su et al., 2021, "RoFormer: Enhanced
     /// Transformer with Rotary Position Embedding", arXiv:2104.09864)
     /// rather than a learned position-embedding matrix.
     /// https://github.com/openai/gpt-2/blob/master/src/model.py
@@ -17,7 +17,7 @@ pub enum ModelInitialization {
     /// Megatron: 0.02 normal weights; attention and MLP output projections use
     /// 0.02 / sqrt(2 * num_layers) (Shoeybi et al., 2019, "Megatron-LM:
     /// Training Multi-Billion Parameter Language Models Using Model
-    /// Parallelism", arXiv:1909.08053). BAUX feedback matrices, which have
+    /// Parallelism", arXiv:1909.08053). baux feedback matrices, which have
     /// no Megatron analogue, retain the base 0.02 distribution.
     /// https://github.com/NVIDIA/Megatron-LM/blob/main/megatron/core/transformer/transformer_config.py
     Megatron,

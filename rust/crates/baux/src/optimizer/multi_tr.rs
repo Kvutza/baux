@@ -467,7 +467,7 @@ impl MultiTrustRegionState {
     }
 
     fn update_controller(&mut self, region: usize, improved: bool) {
-        // BAUX's fixed-length baseline keeps observation relevance and origin
+        // baux's fixed-length baseline keeps observation relevance and origin
         // credit but deliberately disables TuRBO length adaptation.
         if self.config.controller == RegionController::FixedRadius {
             return;

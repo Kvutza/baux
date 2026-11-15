@@ -5,7 +5,7 @@
 //! full-vocabulary log-sum-exp remain F32. Each block has 64 causal
 //! dependencies.
 //!
-//! mHC-4 is an external testbed architecture, not a BAUX contribution.
+//! mHC-4 is an external testbed architecture, not a baux contribution.
 //! References:
 //! - Zhenda Xie et al. (DeepSeek-AI), "mHC: Manifold-Constrained
 //!   Hyper-Connections", arXiv:2512.24880 (2025).

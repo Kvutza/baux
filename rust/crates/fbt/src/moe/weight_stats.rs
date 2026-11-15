@@ -107,7 +107,7 @@ pub(super) fn load_checkpoint(weights: &CandidateWeights, path: &Path) -> Result
         || metadata.get("rope_base").map(String::as_str) != Some("10000")
         || metadata.get("rope_dimensions").map(String::as_str) != Some("64")
     {
-        return Err("checkpoint architecture is not BAUX PISA RoPE".into());
+        return Err("checkpoint architecture is not baux PISA RoPE".into());
     }
     let layout = checkpoint_layout(weights.architecture);
     for (((name, buffer, _), (expected_name, expected_shape)), index) in

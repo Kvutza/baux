@@ -1,4 +1,4 @@
-# Optional dense Qwen control environment. The main BAUX wheel does not need it.
+# Optional dense Qwen control environment. The main baux wheel does not need it.
 click>=8.1,<9
 numpy>=1.26,<3
 torch>=2.7,<2.12

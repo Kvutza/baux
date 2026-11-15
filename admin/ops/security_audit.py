@@ -276,7 +276,7 @@ def bundle_audit(bundle_dir: Path | None) -> GateResult:
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Run BAUX Trail of Bits security audits (zizmor, semgrep, pip-audit)."
+        description="Run baux Trail of Bits security audits (zizmor, semgrep, pip-audit)."
     )
     parser.add_argument(
         "--bundle-dir",

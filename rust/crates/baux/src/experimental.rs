@@ -1,4 +1,4 @@
-//! Experimental BAUX APIs.
+//! Experimental baux APIs.
 //!
 //! This module is the staging area for unstable lower-level surface area.
 //! Keep stable user-facing Rust entry points in [`crate::prelude`].

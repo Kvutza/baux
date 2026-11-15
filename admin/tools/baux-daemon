@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Autonomous background developer daemon for BAUX.
+"""Autonomous background developer daemon for baux.
 
 Configured via `[baux.daemon]` in `.buckconfig`. Watches workspace files and
 autonomously runs:

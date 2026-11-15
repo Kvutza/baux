@@ -1,5 +1,5 @@
 version = 1
-# Exploratory circuit-design experiment; does not implement the BAUX optimizer.
+# Exploratory circuit-design experiment; does not implement the baux optimizer.
 # The reward and constraints below are provisional, not an FPGA performance model.
 experiment = "hardcaml-distance"
 dimension = 64

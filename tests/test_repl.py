@@ -240,7 +240,9 @@ def _extract_presets_from_ml() -> dict[str, str]:
 
     root = Path(__file__).resolve().parents[1]
     text = (root / "admin/ui/py_repl.ml").read_text(encoding="utf-8")
-    m = re.search(r"let presets\s*:\s*preset list\s*=\s*\[(.*?)\n  \]", text, flags=re.DOTALL)
+    m = re.search(
+        r"let presets\s*:\s*preset list\s*=\s*\[(.*?)\n  \]", text, flags=re.DOTALL
+    )
     assert m, "presets block not found in admin/ui/py_repl.ml"
     body = m.group(1)
     presets: dict[str, str] = {}

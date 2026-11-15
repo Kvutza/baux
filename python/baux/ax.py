@@ -1,4 +1,4 @@
-"""BAUX candidate generation for Ax experiments."""
+"""baux candidate generation for Ax experiments."""
 
 from __future__ import annotations
 
@@ -22,14 +22,14 @@ from .turbo.config import OptimizerConfig
 def _space(experiment):
     search = experiment.search_space
     if search.parameter_constraints:
-        raise ValueError("parameter constraints are not supported by the BAUX adapter")
+        raise ValueError("parameter constraints are not supported by the baux adapter")
     bounds, logs = {}, []
     for name, parameter in search.parameters.items():
         if (
             not isinstance(parameter, RangeParameter)
             or parameter.parameter_type != ParameterType.FLOAT
         ):
-            raise ValueError("BAUX requires continuous floating-point range parameters")
+            raise ValueError("baux requires continuous floating-point range parameters")
         if (
             parameter.is_fidelity
             or parameter.logit_scale
@@ -47,11 +47,11 @@ def _space(experiment):
 def _objective(experiment):
     config = experiment.optimization_config
     if config is None or not config.objective.is_single_objective:
-        raise ValueError("BAUX's Ax adapter requires one unscalarized objective")
+        raise ValueError("baux's Ax adapter requires one unscalarized objective")
     if config.outcome_constraints:
-        raise ValueError("outcome constraints are not supported by the BAUX adapter")
+        raise ValueError("outcome constraints are not supported by the baux adapter")
     if config.pruning_target_parameterization is not None:
-        raise ValueError("parameter pruning is not supported by the BAUX adapter")
+        raise ValueError("parameter pruning is not supported by the baux adapter")
     metric, weight = config.objective.metric_weights[0]
     if not np.isfinite(weight) or weight == 0:
         raise ValueError("the objective coefficient must be finite and nonzero")
@@ -59,9 +59,9 @@ def _objective(experiment):
 
 
 class GenerationNode(ExternalGenerationNode):
-    """Keep Ax orchestration and use BAUX to generate continuous candidates.
+    """Keep Ax orchestration and use baux to generate continuous candidates.
 
-    Known SEMs are squared before passing observation variance to BAUX. Failed,
+    Known SEMs are squared before passing observation variance to baux. Failed,
     abandoned, and running trials are not treated as completed observations.
     Reattaching a fresh node warm-starts from data, not from an optimizer checkpoint.
     Use one generating process; pending points are excluded without fantasizing.
@@ -72,7 +72,7 @@ class GenerationNode(ExternalGenerationNode):
         *,
         config: OptimizerConfig | None = None,
         seed: int | None = None,
-        name: str = "BAUX",
+        name: str = "baux",
     ) -> None:
         super().__init__(name=name)
         self._config = config
@@ -94,7 +94,7 @@ class GenerationNode(ExternalGenerationNode):
         )
         if self._bound is not None and self._bound != signature:
             raise ValueError(
-                "use a new BAUX node when the experiment or its contract changes"
+                "use a new baux node when the experiment or its contract changes"
             )
         if self._loop is None:
             self._loop = Loop(domain, self._config, self._seed)
@@ -132,7 +132,7 @@ class GenerationNode(ExternalGenerationNode):
     def get_next_candidate(self, pending_parameters):
         if self._loop is None:
             raise RuntimeError(
-                "update the BAUX node with the experiment before generating"
+                "update the baux node with the experiment before generating"
             )
         return self._loop.suggest(pending_parameters)
 

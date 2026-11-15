@@ -267,7 +267,7 @@ class ENN:
         Torch CUDA and Torch MPS arrays are supported. JAX CUDA arrays are
         supported through DLPack. JAX Metal arrays are intentionally rejected:
         current Metal PJRT runtimes do not expose their buffers through DLPack,
-        and BAUX never silently copies them through host memory.
+        and baux never silently copies them through host memory.
         """
         if type(x).__module__.startswith(("jax.", "jaxlib.")):
             try:

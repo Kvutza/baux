@@ -305,7 +305,7 @@ let create capacity =
                     );
                     ( "provenance",
                       `String
-                        "paper-based architecture; BAUX coordinate adaptation"
+                        "paper-based architecture; baux coordinate adaptation"
                     );
                   ] );
             ])

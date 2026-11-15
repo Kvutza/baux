@@ -224,7 +224,7 @@ def _evalproposal(
     del batch
     gc.collect()
     if not math.isfinite(value):
-        raise RuntimeError("Nonfinite FLAME loss; refusing to update BAUX")
+        raise RuntimeError("Nonfinite FLAME loss; refusing to update baux")
     state.evaluations += 1
     state.objective_evaluations += 1
     return value, seconds
@@ -419,7 +419,7 @@ def _finalsummary(search, settings, state: _LoopState):
 
 
 def optimize(search, layout, evaluate, settings, base_reward, emit, *, baseline=None):
-    """Sequential objective evaluations; candidates are ranked by native BAUX."""
+    """Sequential objective evaluations; candidates are ranked by native baux."""
     state = _initstate(search, evaluate, settings, base_reward, baseline)
     _emitbaseline(emit, search, settings, base_reward, baseline)
     for step in range(settings.evaluations - 1):

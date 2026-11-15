@@ -170,7 +170,7 @@ pub fn candidate_seed(root: u64, candidate: usize) -> u64 {
     crate::procedural_pool::legacy_seed(root, candidate as u32)
 }
 
-/// The same FP32 BAUX weighting and shared-per-observation Thompson draw as
+/// The same FP32 baux weighting and shared-per-observation Thompson draw as
 /// CUDA.
 #[cfg(test)]
 pub fn acquisition(

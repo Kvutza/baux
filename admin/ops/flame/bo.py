@@ -1,4 +1,4 @@
-"""Run full-weight FLAME BO with resident BAUX search engines."""
+"""Run full-weight FLAME BO with resident baux search engines."""
 
 from __future__ import annotations
 

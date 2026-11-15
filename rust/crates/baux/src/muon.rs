@@ -1,6 +1,6 @@
 //! Device-resident Muon/AdamW primitives. These consume analytic gradients;
 //! they do not implement a model backward pass or replace the BO optimizer.
-//! Gradient optimizers serve as external baselines rather than BAUX
+//! Gradient optimizers serve as external baselines rather than baux
 //! contributions. References:
 //! - Keller Jordan et al., "Muon: An optimizer for hidden layers in neural networks"
 //!   (2024, https://github.com/KellerJordan/Muon).

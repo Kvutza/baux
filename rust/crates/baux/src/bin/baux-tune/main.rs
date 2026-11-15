@@ -191,9 +191,9 @@ fn run(terminal: &mut Terminal) -> Result<(), String> {
     } else if generated_pretrain {
         "Pretraining"
     } else if run.experiment == Some(baux::ExperimentKind::Pretrain) {
-        "BAUX pretrain"
+        "baux pretrain"
     } else {
-        "BAUX diagnostics"
+        "baux diagnostics"
     };
     terminal.send(format!("{title}\n").as_bytes());
     if let Some(plan) = plan_record(&run)? {

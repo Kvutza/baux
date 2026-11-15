@@ -300,13 +300,13 @@ def _checkrelative(search_cls):
         for name in ("incumbent", "enable_relative", "tell_relative")
     ):
         raise RuntimeError(
-            "Rebuild the BAUX extension with paired-relative minibatch support"
+            "Rebuild the baux extension with paired-relative minibatch support"
         )
     try:
         parameters = inspect.signature(search_cls.tell_relative).parameters
     except (TypeError, ValueError) as error:
         raise RuntimeError(
-            "Rebuild the BAUX extension with inspectable paired-relative "
+            "Rebuild the baux extension with inspectable paired-relative "
             "reject_is_failure keyword support"
         ) from error
     rejection_flag = parameters.get("reject_is_failure")
@@ -319,7 +319,7 @@ def _checkrelative(search_cls):
         for parameter in parameters.values()
     ):
         raise RuntimeError(
-            "Rebuild the BAUX extension with paired-relative "
+            "Rebuild the baux extension with paired-relative "
             "reject_is_failure keyword support"
         )
 
@@ -331,7 +331,7 @@ def check_extension(settings: Settings):
     region_cls = Region
     span_cls = Span
     if region_cls is None or not hasattr(region_cls, "read_best"):
-        raise RuntimeError("Rebuild the BAUX extension for the selected backend")
+        raise RuntimeError("Rebuild the baux extension for the selected backend")
     if settings.minibatch_size is not None:
         _checkrelative(region_cls)
     return extension, span_cls, region_cls

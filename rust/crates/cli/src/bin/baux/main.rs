@@ -33,7 +33,7 @@ mod work;
     name = "baux",
     bin_name = "./baux",
     version = env!("CARGO_PKG_VERSION"),
-    about = "Build and run BAUX experiments",
+    about = "Build and run baux experiments",
     arg_required_else_help = true
 )]
 struct Cli {
@@ -47,7 +47,7 @@ enum Action {
     Context(work::Context),
     /// Show task progress or record a checkpoint against the current revision.
     Feedback(work::Feedback),
-    /// Build native BAUX targets and Python distribution wheels.
+    /// Build native baux targets and Python distribution wheels.
     Build,
     /// Run the repository verification test suite.
     Test(smart_test::TestArgs),
@@ -109,7 +109,7 @@ fn run() -> Result<(), String> {
 pub(crate) use baux_tooling::execute;
 
 fn build(root: &Path, engine: cli_cfg::BuildSystem) -> Result<(), String> {
-    println!("o|build [1/2]: building native BAUX targets...");
+    println!("o|build [1/2]: building native baux targets...");
     engine.build_native(root)?;
     #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
     {

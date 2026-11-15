@@ -1,4 +1,4 @@
-"""Pure-NumPy WebAssembly implementation of BAUX's 56-function OxCaml benchmark suite.
+"""Pure-NumPy WebAssembly implementation of baux's 56-function OxCaml benchmark suite.
 
 Matches the domain definitions, rules, default dimensions, and surface formulas of
 `admin/ui/bench_suite.ml` / `ocaml/lib/formulas.ml` for in-browser Pyodide execution.

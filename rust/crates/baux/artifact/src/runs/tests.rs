@@ -513,7 +513,7 @@ fn pretrain_comparison() {
     let html_path = write_html(root.path(), &[row1, row2], &cmp, &diffs).unwrap();
     assert!(html_path.exists());
     let html = fs::read_to_string(&html_path).unwrap();
-    assert!(html.contains("BAUX Runs"));
+    assert!(html.contains("baux Runs"));
     assert!(html.contains("WB_RAW_CHARTS"));
     assert!(html.contains("echarts.min.js"));
     assert!(

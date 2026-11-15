@@ -2,9 +2,9 @@
 //! resolution, every other causal leaf as one mean K/V token carrying
 //! `ln(BLOCK)` extra log-mass, all under a single softmax.
 //!
-//! # Architecture & BAUX Variant Specification
+//! # Architecture & baux Variant Specification
 //! Note: `encode_hierarchical` (coarse-leaf `ln(BLOCK)` mass-preserving
-//! dual-resolution softmax) is a local BAUX variant distinct from Tang et al.'s
+//! dual-resolution softmax) is a local baux variant distinct from Tang et al.'s
 //! (`arXiv:2609.31093`) top-$k$ block-sparse selection. PISA in its standard
 //! form performs hard top-$k$ block-sparse attention; this module provides
 //! an experimental continuous dual-resolution formulation with coarse summary

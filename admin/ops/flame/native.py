@@ -92,12 +92,12 @@ def upload_weights(flat):
 def release_inputcache():
     import torch
 
-    # The input's allocation must be reusable by BAUX's CUDA allocator at ask.
+    # The input's allocation must be reusable by baux's CUDA allocator at ask.
     torch.cuda.empty_cache()
 
 
 class NativeEvaluator:
-    """Borrow BAUX/Torch DLPack weights directly for per-problem mean losses.
+    """Borrow baux/Torch DLPack weights directly for per-problem mean losses.
 
     FlameEvaluator consumes and releases each DLPack borrow synchronously.
     Python never wraps resident weights in another tensor library.
@@ -114,7 +114,7 @@ class NativeEvaluator:
         engine_type = getattr(experimental, self.binding_name, None)
         if engine_type is None:
             raise RuntimeError(
-                f"Rebuild the BAUX extension with --features {self.build_feature} for {self.binding_name} support"
+                f"Rebuild the baux extension with --features {self.build_feature} for {self.binding_name} support"
             )
         lengths = objective.metadata["sequence_lengths"]
         self.tokens = [

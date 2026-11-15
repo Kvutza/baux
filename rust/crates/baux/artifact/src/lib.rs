@@ -1,4 +1,4 @@
-//! BAUX's native Deser formats and dynamic values; no Serde compatibility
+//! baux's native Deser formats and dynamic values; no Serde compatibility
 //! layer.
 
 #[path = "attestation.rs"]

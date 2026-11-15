@@ -1,4 +1,4 @@
-//! Backend-neutral optimizer semantics for BAUX.
+//! Backend-neutral optimizer semantics for baux.
 //!
 //! Provides modular optimizer components:
 //! - `surrogate`: local precision-weighted neighbor value estimation

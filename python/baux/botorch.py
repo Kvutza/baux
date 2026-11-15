@@ -1,4 +1,4 @@
-"""BoTorch integration using BAUX's native, correlated function draws.
+"""BoTorch integration using baux's native, correlated function draws.
 
 GPU queries use the matching native CUDA/Metal posterior and DLPack arrays.
 CPU queries use the original host-array interface. Explicit compatibility mode
@@ -64,12 +64,12 @@ class Model(BaseModel):
             torch.float64,
         ):
             raise ValueError(
-                "BAUX's BoTorch boundary requires CPU, CUDA, or MPS "
+                "baux's BoTorch boundary requires CPU, CUDA, or MPS "
                 "float32/float64 tensors"
             )
         if X.requires_grad:
             raise NotImplementedError(
-                "BAUX does not provide input gradients to BoTorch"
+                "baux does not provide input gradients to BoTorch"
             )
         if X.ndim < 2 or X.shape[-1] != self.enn._numdim or X.numel() == 0:
             raise ValueError("queries must have nonempty shape (..., q, dimensions)")
@@ -159,7 +159,7 @@ class Posterior(BasePosterior):
 
     def _check(self):
         if len(self._enn) != self._rows:
-            raise RuntimeError("BAUX changed; request a fresh posterior")
+            raise RuntimeError("baux changed; request a fresh posterior")
 
     def _tensor(self, values):
         return torch.as_tensor(
@@ -204,14 +204,14 @@ class Posterior(BasePosterior):
     def rsample_from_base_samples(self, sample_shape, base_samples):
         self._check()
         if base_samples.dtype != torch.int64:
-            raise ValueError("BAUX base samples must be int64 function seeds")
+            raise ValueError("baux base samples must be int64 function seeds")
         if base_samples.device.type != "cpu" and not self._allow_host_transfer:
             raise NotImplementedError(
                 "function seeds require host arrays; pass "
                 "allow_host_transfer=True to permit device-to-host exchange"
             )
         if base_samples.shape != sample_shape:
-            raise ValueError("BAUX requires exactly one function seed per MC sample")
+            raise ValueError("baux requires exactly one function seed per MC sample")
         if sample_shape.numel() == 0:
             return torch.empty(
                 self._extended_shape(sample_shape),

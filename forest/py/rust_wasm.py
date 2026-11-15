@@ -1258,7 +1258,7 @@ def _ucbscore(mu: np.ndarray, se: np.ndarray, beta: float) -> np.ndarray:
 
 
 class BayesOptimizer:
-    """In-browser WASM/NumPy implementation of BAUX's BayesOptimizer state machine."""
+    """In-browser WASM/NumPy implementation of baux's BayesOptimizer state machine."""
 
     def __init__(
         self,

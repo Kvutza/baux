@@ -1,4 +1,4 @@
-"""Zero-copy page-aligned mmap worker IPC for BAUX Python workers.
+"""Zero-copy page-aligned mmap worker IPC for baux Python workers.
 
 Mirrors evals/julia/shm_ipc.jl to interface with baux::unified_mem::ShmSlab.
 """

@@ -956,7 +956,7 @@ html[data-theme="dark"] .py-btn-primary { color: #0b1120; font-weight: 600; }
 .py-pane-hdr {
   padding: 0.42rem 0.85rem; border-bottom: 1px solid var(--hairline);
   background: var(--bg-surface); font-size: 0.74rem; font-weight: 600;
-  letter-spacing: 0.03em; text-transform: uppercase; color: var(--fg-muted);
+  letter-spacing: 0.02em; color: var(--fg-muted);
 }
 .py-pg-editor {
   width: 100%; min-height: 255px; border: 0; border-bottom: 1px solid var(--hairline);

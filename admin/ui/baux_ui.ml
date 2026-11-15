@@ -1,6 +1,6 @@
 (* admin/ui/baux_ui.ml
    Compiled via Dune & Js_of_ocaml (opam switch 5.2.0+ox)
-   BAUX Static API Reference Filter & Tokamak 3D WebGL CAD Explorer
+   baux Static API Reference Filter & Tokamak 3D WebGL CAD Explorer
 *)
 
 [@@@warning "-32-27"]

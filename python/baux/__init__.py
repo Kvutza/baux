@@ -1,4 +1,4 @@
-"""BAUX Bayesian optimization, Epistemic Nearest Neighbors, and functional search API."""
+"""baux Bayesian optimization, Epistemic Nearest Neighbors, and functional search API."""
 
 from __future__ import annotations
 

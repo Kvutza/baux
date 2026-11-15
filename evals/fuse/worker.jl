@@ -289,7 +289,7 @@ function eval_fuse!(
     end
 
     # IMAS ObjectiveFunction always returns a minimization quantity `f_min`;
-    # BAUX maximizes `score_m = -f_min_m - penalty * sum(g_i^2)`.
+    # baux maximizes `score_m = -f_min_m - penalty * sum(g_i^2)`.
     viol_l1 = 0.0
     viol_sq = 0.0
     for cfn in ctx.constraints

@@ -142,7 +142,7 @@ def _applyop(inner: Any, op: _Op, id_map: dict[int, int]) -> None:
 
 @dataclass(frozen=True)
 class OptimizerState:
-    """Immutable, forkable value token representing the full state of a BAUX optimizer."""
+    """Immutable, forkable value token representing the full state of a baux optimizer."""
 
     dim: int
     bounds: np.ndarray

@@ -351,7 +351,7 @@ fn require_revision(path: &Path, name: &str, expected: &str) -> Result<(), Strin
         Ok(())
     } else {
         Err(format!(
-            "cached {name} is {actual}, but BAUX requires {expected}"
+            "cached {name} is {actual}, but baux requires {expected}"
         ))
     }
 }

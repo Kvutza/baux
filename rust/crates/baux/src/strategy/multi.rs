@@ -108,7 +108,7 @@ pub(super) fn tell_common(
 }
 
 /// Validate before changing the variance mode, observation store, or regions.
-/// BAUX's legacy ordered-batch guard is not a paper-prescribed attribution
+/// baux's legacy ordered-batch guard is not a paper-prescribed attribution
 /// rule.
 pub(super) fn validate_multi(
     optimizer: &BayesOptimizer,

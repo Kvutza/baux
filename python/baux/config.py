@@ -1,4 +1,4 @@
-"""Public configuration re-exports for BAUX optimizers, surrogates, and trust regions."""
+"""Public configuration re-exports for baux optimizers, surrogates, and trust regions."""
 
 from baux import region as _region
 from baux.index import (

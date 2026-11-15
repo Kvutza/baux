@@ -52,7 +52,7 @@ pub enum ResearchAction {
         alias = "inspect",
         long_about = "Show a construction or Lean declaration.\n\nA construction topic is read \
                       immediately from the research catalogue. A fully qualified Lean declaration \
-                      is elaborated in the pinned BAUX environment and reports its type, axioms, \
+                      is elaborated in the pinned baux environment and reports its type, axioms, \
                       home module, and minimal import."
     )]
     Show {
@@ -61,7 +61,7 @@ pub enum ResearchAction {
         /// Print the complete proof or definition body.
         #[arg(short, long)]
         body: bool,
-        /// Load all of Mathlib instead of the BAUX import closure.
+        /// Load all of Mathlib instead of the baux import closure.
         #[arg(long, visible_alias = "all-mathlib")]
         mathlib: bool,
     },
@@ -76,7 +76,7 @@ pub enum ResearchAction {
     Prove {
         /// Closed proposition, or '-' to read it from standard input.
         proposition: String,
-        /// Load all of Mathlib instead of the BAUX import closure.
+        /// Load all of Mathlib instead of the baux import closure.
         #[arg(long, visible_alias = "all-mathlib")]
         mathlib: bool,
     },

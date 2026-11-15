@@ -6,7 +6,7 @@
 //! MTRBO's region roles motivate making numerical method and acquisition
 //! choices explicit (Sourav Das, Debjani Chakraborty, and Pabitra Mitra, 2026,
 //! `arXiv:2605.06618`).
-//! The concrete variants below are BAUX rules; they are not claimed to be the
+//! The concrete variants below are baux rules; they are not claimed to be the
 //! cited papers' algorithms.
 //! APOSMM's start separation is a related algorithmic reference:
 //! Jeffrey Larson and Stefan M. Wild, "Asynchronously parallel optimization

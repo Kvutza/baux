@@ -2,7 +2,7 @@
 //!
 //! # External Architecture Attribution
 //! Note: DeepSeekMoE shared+routed expert architecture is an external prior-art
-//! architecture used as a testbed, not a BAUX paper contribution:
+//! architecture used as a testbed, not a baux paper contribution:
 //! - Damai Dai et al., *"DeepSeekMoE: Towards Ultimate Expert Specialization in
 //!   Mixture-of-Experts Language Models"*, ACL 2024 (`arXiv:2401.06066`).
 

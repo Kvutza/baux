@@ -7,7 +7,7 @@
    allocate OCaml values, and retain no pointers into the OCaml heap. */
 CAMLprim value baux_simd_bytecode(value unused) {
   (void)unused;
-  caml_failwith("BAUX NEON execution requires native code");
+  caml_failwith("baux NEON execution requires native code");
 }
 float64x2_t baux_neon_abs(float64x2_t x) { return vabsq_f64(x); }
 float64x2_t baux_neon_neg(float64x2_t x) { return vnegq_f64(x); }

@@ -1,7 +1,7 @@
 //! Shared host/device ABI for native Muon and AdamW updates.
 //!
 //! Imported as a crate dependency by both host and device implementations.
-//! Gradient optimizers serve as external baselines rather than BAUX
+//! Gradient optimizers serve as external baselines rather than baux
 //! contributions. References:
 //! - Keller Jordan et al., "Muon: An optimizer for hidden layers in neural networks"
 //!   (2024, https://github.com/KellerJordan/Muon).

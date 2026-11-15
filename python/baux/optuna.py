@@ -1,4 +1,4 @@
-"""BAUX candidate generation for Optuna studies."""
+"""baux candidate generation for Optuna studies."""
 
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ from .turbo.config import OptimizerConfig
 
 
 class Sampler(BaseSampler):
-    """Use BAUX for a fixed continuous, single-objective Optuna study.
+    """Use baux for a fixed continuous, single-objective Optuna study.
 
     Declare the complete search space up front. Log-uniform floats are supported;
     integers, steps, conditional spaces, and multi-objective studies are not.
@@ -41,7 +41,7 @@ class Sampler(BaseSampler):
         self._space = deepcopy(dict(space))
         for distribution in self._space.values():
             if not isinstance(distribution, FloatDistribution):
-                raise ValueError("BAUX supports only continuous FloatDistribution")
+                raise ValueError("baux supports only continuous FloatDistribution")
             if distribution.step is not None:
                 raise ValueError("stepped parameters are not supported")
         domain = Space(
@@ -54,9 +54,9 @@ class Sampler(BaseSampler):
 
     def _bind(self, study):
         if len(study.directions) != 1:
-            raise ValueError("BAUX's Optuna adapter supports one objective")
+            raise ValueError("baux's Optuna adapter supports one objective")
         if self._study is not None and self._study is not study:
-            raise ValueError("use a separate BAUX sampler for each Study instance")
+            raise ValueError("use a separate baux sampler for each Study instance")
         if self._direction is not None and self._direction != study.direction:
             raise ValueError("the objective direction changed")
         self._study = study
@@ -102,7 +102,7 @@ class Sampler(BaseSampler):
     def sample_independent(self, study, trial, param_name, param_distribution):
         raise ValueError(
             f"{param_name!r} is outside the declared continuous search space; "
-            "BAUX does not silently fall back to another sampler"
+            "baux does not silently fall back to another sampler"
         )
 
     @override
@@ -112,7 +112,7 @@ class Sampler(BaseSampler):
 
     @override
     def reseed_rng(self):
-        raise RuntimeError("use n_jobs=1 and one generating process with BAUX")
+        raise RuntimeError("use n_jobs=1 and one generating process with baux")
 
 
 __all__ = ["Sampler"]

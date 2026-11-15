@@ -1,4 +1,4 @@
-//! Unified Candle-style execution device selector for BAUX Python bindings.
+//! Unified Candle-style execution device selector for baux Python bindings.
 
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;

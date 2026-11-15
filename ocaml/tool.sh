@@ -2,7 +2,7 @@
 set -eu
 root=$(pwd)
 if [ ! -f "$root/ocaml/dune-project" ]; then
-    echo 'Run this target from the BAUX repository root.' >&2
+    echo 'Run this target from the baux repository root.' >&2
     exit 2
 fi
 if [ "${1:-}" = --program-libs ]; then

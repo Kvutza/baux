@@ -1,6 +1,6 @@
 """OxCaml 5.2.0+ox 56-function benchmark suite via modal CPython C-API bridge.
 
-Bridges BAUX's unboxed ``float#`` and ``float64x2#`` NEON/SLEEF SIMD benchmark
+Bridges baux's unboxed ``float#`` and ``float64x2#`` NEON/SLEEF SIMD benchmark
 kernels into Python using OxCaml's ``local`` and ``unique`` modes for
 compile-time reference-count safety (Trangez, Jane Street Tech Blog, 2026):
 

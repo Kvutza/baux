@@ -40,7 +40,7 @@ software, academic research artifacts, and visual media:
 * RAASP & Cylindrical Thompson Sampling (External Baseline Specification)
   Notes:
     External prior-art baselines and coordinate-allocation specifications;
-    not claimed as novel BAUX algorithmic contributions.
+    not claimed as novel baux algorithmic contributions.
   Citations:
     Bahador Rashidi, Kerrick Johnstonbaugh, and Chao Gao, "Cylindrical
     Thompson Sampling for High-Dimensional Bayesian Optimization",
@@ -54,7 +54,7 @@ software, academic research artifacts, and visual media:
 * MTRBO & APOSMM (External Baseline Specification)
   Notes:
     External prior-art multi-trust-region and multi-start optimization
-    specifications; not claimed as novel BAUX algorithmic contributions.
+    specifications; not claimed as novel baux algorithmic contributions.
   Citations:
     Sourav Das, Debjani Chakraborty, and Pabitra Mitra, "MTRBO: Multiple
     Trust-Region Based Bayesian Optimization", arXiv:2605.06618 (2026).
@@ -117,7 +117,7 @@ software, academic research artifacts, and visual media:
 * PISA (Pyramid Block Sparse Attention — External Architecture Specification)
   Notes:
     External prior-art block sparse attention architecture; not claimed
-    as a novel BAUX algorithmic contribution.
+    as a novel baux algorithmic contribution.
   Citation:
     Bohao Tang, Zhen Qin, Yuqi Pan, Zheng Li, and Pengfei Liu, "Block
     Sparse Attention with Log-Linear Complexity", arXiv:2609.31093 (2026).
@@ -126,7 +126,7 @@ software, academic research artifacts, and visual media:
 * DeepSeekMoE & Hyper-Connections (External Architecture Specification)
   Notes:
     External prior-art mixture-of-experts and manifold residual connection
-    specifications; not claimed as novel BAUX algorithmic contributions.
+    specifications; not claimed as novel baux algorithmic contributions.
   Citations:
     Damai Dai et al., "DeepSeekMoE: Towards Ultimate Expert Specialization
     in Mixture-of-Experts Language Models", Association for Computational
@@ -146,7 +146,7 @@ software, academic research artifacts, and visual media:
 * Block Diffusion (BD3-LMs — External Architecture Specification)
   Notes:
     External prior-art block diffusion language model specification;
-    not claimed as a novel BAUX algorithmic contribution.
+    not claimed as a novel baux algorithmic contribution.
   Citation:
     Marianne Arriola, Aaron Gokaslan, Justin T. Chiu, Zhihan Yang, Zhixuan
     Qi, Jiaqi Han, Subham Sekhar Sahoo, and Volodymyr Kuleshov, "Block
@@ -157,7 +157,7 @@ software, academic research artifacts, and visual media:
 * Bounded Log-Likelihood Loss (BLL-Loss — External Loss Specification)
   Notes:
     External prior-art reasoning loss specification; not claimed as a
-    novel BAUX algorithmic contribution.
+    novel baux algorithmic contribution.
   Citation:
     Feng Zhao, Hong Zhang, Yu Yang, Ruilin Zhao, and Guandong Xu, "Don't
     Force the Fit: Bounded Log-Likelihood Loss for Enhanced Reasoning in

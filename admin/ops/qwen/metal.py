@@ -144,7 +144,7 @@ class Evaluator:
 
         if MetalQwenEvaluator is None:
             raise RuntimeError(
-                "Rebuild the BAUX wheel with the Metal Qwen evaluator enabled"
+                "Rebuild the baux wheel with the Metal Qwen evaluator enabled"
             )
         checkpoint = Path(checkpoint)
         config = Config.from_file(checkpoint / "config.json")

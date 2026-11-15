@@ -8,7 +8,7 @@
 //!   (`arXiv:2503.09573`).
 //!
 //! Note: Our specific learned block proposals + causal target verification
-//! formulation serves as an experimental generation testbed in BAUX.
+//! formulation serves as an experimental generation testbed in baux.
 
 use super::*;
 use crate::config::{DiffusionConfig, GenerationConfig, GenerationTask};

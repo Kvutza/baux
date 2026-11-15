@@ -1,4 +1,4 @@
-"""Pure functional state transitions (`init`, `ask`, `tell`, `step`, `scan`, `pmap`) for BAUX."""
+"""Pure functional state transitions (`init`, `ask`, `tell`, `step`, `scan`, `pmap`) for baux."""
 
 from __future__ import annotations
 

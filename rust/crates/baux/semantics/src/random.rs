@@ -3,7 +3,7 @@
 // Central deterministic PRNG trait and generator.
 use rand::SeedableRng;
 use rand::distributions::{Bernoulli, Uniform};
-// Re-exported as `Prng` for deterministic streams across BAUX.
+// Re-exported as `Prng` for deterministic streams across baux.
 use rand::rngs::StdRng;
 use rand::{Rng, RngCore};
 
@@ -315,7 +315,7 @@ pub fn gen_raasp<R: Rng + ?Sized>(
     candidates
 }
 
-/// Canonical deterministic PRNG type used across BAUX.
+/// Canonical deterministic PRNG type used across baux.
 pub type Prng = StdRng;
 
 /// Generate a fresh 64-bit seed from OS entropy when no explicit seed is

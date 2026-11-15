@@ -1,6 +1,6 @@
 # Workflow Drills Verification Suite
 
-This test suite executes and validates the mechanical commands of the BAUX Workflow Drills using Meta Scrut.
+This test suite executes and validates the mechanical commands of the baux Workflow Drills using Meta Scrut.
 
 ## Drill 01: Inner-Loop Target Determination (btd)
 

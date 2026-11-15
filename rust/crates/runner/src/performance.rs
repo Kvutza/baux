@@ -649,7 +649,7 @@ fn summary(value: &Value) -> Result<(), String> {
             blockers.push("measured p95 misses the transaction target".to_owned());
         }
     }
-    blockers.push("no matched BAUX-versus-Muon outcome is represented".to_owned());
+    blockers.push("no matched baux-versus-Muon outcome is represented".to_owned());
     println!("blockers:");
     for blocker in blockers {
         println!("- {blocker}");

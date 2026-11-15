@@ -1,6 +1,6 @@
 # Website purpose
 
-This is a library website. Help readers understand what BAUX does, run a first
+This is a library website. Help readers understand what baux does, run a first
 example, and find the feature they need. The homepage contains the introduction,
 one working example and links organized by task. Technical explanations belong
 on linked guides; experiment details belong with the examples they explain.
@@ -29,7 +29,7 @@ scholarly citations.
   needs from_factors. Its adaptive contraction is not the positive-part
   James–Stein estimator.
 - Snapshot hashing provides integrity, not sender authentication.
-- ENN joint draws are a BAUX construction; the paper explicitly says it lacks
+- ENN joint draws are a baux construction; the paper explicitly says it lacks
   joint sampling. Matching marginal variance does not establish calibration.
 - The saved TCV report supports the final means, SEMs and paired tests. The
   comparison changes both surrogate and region count.

@@ -1,5 +1,5 @@
 (* admin/ui/bench_suite.ml
-   Pure OCaml implementation of all 56 BAUX synthetic optimization benchmark
+   Pure OCaml implementation of all 56 baux synthetic optimization benchmark
    functions (matching ocaml/lib/problem.ml and ocaml/lib/formulas.ml) plus a
    deterministic in-browser multi-region TuRBO + Epistemic Nearest-Neighbor
    (ENN) optimizer supporting Euclidean, Conformal, Hyperbolic, and Wasserstein

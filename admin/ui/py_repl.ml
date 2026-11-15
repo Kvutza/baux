@@ -16,7 +16,7 @@ let svg_ns = "http://www.w3.org/2000/svg"
 type preset = {
   id : string;
   label : string;
-  short_label : string;
+  tag : string;
   description : string;
   code : string;
 }
@@ -26,7 +26,7 @@ let presets : preset list =
     {
       id = "sparc_pf";
       label = "SPARC Tokamak: 8-PF Equilibrium";
-      short_label = "SPARC 8-PF";
+      tag = "8D · Tokamak";
       description =
         "Optimize 8 SPARC PF coil currents for flux-surface and X-point match.";
       code =
@@ -128,7 +128,7 @@ let presets : preset list =
     {
       id = "kh_pde";
       label = "2D Kelvin-Helmholtz Shear PDE";
-      short_label = "KH Shear PDE";
+      tag = "10D · FFT PDE";
       description =
         "Control a 2D spectral shear layer to suppress vortex enstrophy.";
       code =
@@ -201,7 +201,7 @@ let presets : preset list =
     {
       id = "oxcaml_24d";
       label = "24D Levy: ENN vs Conformal vs Zero";
-      short_label = "OxCaml 24D";
+      tag = "24D · OxCaml";
       description =
         "Compare ENN, Conformal ENN, and TuRBO-Zero on 24D Levy.";
       code =
@@ -253,7 +253,7 @@ let presets : preset list =
     {
       id = "metric_cal";
       label = "Non-Euclidean ENN & McShane-Whitney";
-      short_label = "Metric ENN";
+      tag = "1D · Metric gap";
       description =
         "Compare Euclidean, conformal, and hyperbolic ENN uncertainty on a 1D gap.";
       code =
@@ -314,7 +314,7 @@ let presets : preset list =
     {
       id = "quant_deadzone";
       label = "FP16 Quantization Deadzone on SO(4)";
-      short_label = "FP16 SO(4)";
+      tag = "6D · SO(4)";
       description =
         "Compare float16 vs float32 precision on SO(4) Procrustes descent.";
       code =
@@ -362,7 +362,7 @@ let presets : preset list =
     {
       id = "stiefel_fir";
       label = "Mixed Manifold + Stein Shrinkage";
-      short_label = "Stiefel FIR";
+      tag = "Mixed · Stein";
       description =
         "Optimize a mixed-type FIR filter under observation noise.";
       code =
@@ -412,7 +412,7 @@ let presets : preset list =
     {
       id = "async_hartmann6";
       label = "Async Hartmann-6D";
-      short_label = "Async H6";
+      tag = "6D · Async";
       description =
         "Asynchronous worker loop with straggler cancellation and checkpointing.";
       code =
@@ -2211,16 +2211,72 @@ let initial_playground_code () =
       let first = List.hd presets in
       (Some first.id, first.code)
 
+let make_chevron_svg cls points =
+  let svg =
+    svg_el "svg"
+      [
+        ("class", cls);
+        ("viewBox", "0 0 10 10");
+        ("width", "10");
+        ("height", "10");
+        ("fill", "none");
+        ("stroke", "currentColor");
+        ("stroke-width", "1.5");
+        ("stroke-linecap", "round");
+        ("stroke-linejoin", "round");
+        ("aria-hidden", "true");
+      ]
+  in
+  Dom.appendChild svg (svg_el "polyline" [ ("points", points) ]);
+  svg
+
 let mount_playground (root : element Js.t) =
   clear_children (root :> Dom.node Js.t);
   let shell = mk ~cls:"py-pg-app" "div" in
   shell##setAttribute (js "data-mob-tab") (js "script");
 
-  (* Band 1: Unified Top Bar (Preset Tabs + Kernel Status + Primary Controls) *)
+  (* Band 1: Unified Top Bar (Editorial Example Switcher + Kernel Status + Controls) *)
   let topbar = mk ~cls:"py-pg-topbar" "div" in
-  let preset_rail = mk ~cls:"py-preset-rail" "div" in
-  preset_rail##setAttribute (js "role") (js "tablist");
-  preset_rail##setAttribute (js "aria-label") (js "Playground presets");
+  let ex_control = mk ~cls:"py-ex-control" "div" in
+  let ex_trigger = mk ~cls:"py-ex-trigger" "button" in
+  ex_trigger##setAttribute (js "type") (js "button");
+  ex_trigger##setAttribute (js "aria-haspopup") (js "listbox");
+  ex_trigger##setAttribute (js "aria-expanded") (js "false");
+  ex_trigger##setAttribute (js "aria-controls") (js "py-ex-menu");
+  let ex_count_el = mk ~cls:"py-ex-count" ~txt:"01/07" "span" in
+  let ex_title_el = mk ~cls:"py-ex-title" ~txt:(List.hd presets).label "span" in
+  let ex_caret_el = make_chevron_svg "py-ex-caret" "2,3.5 5,6.5 8,3.5" in
+  Dom.appendChild ex_trigger ex_count_el;
+  Dom.appendChild ex_trigger ex_title_el;
+  Dom.appendChild ex_trigger ex_caret_el;
+
+  let prev_btn = mk ~cls:"py-ex-step py-ex-prev" "button" in
+  prev_btn##setAttribute (js "type") (js "button");
+  prev_btn##setAttribute (js "aria-label") (js "Previous example");
+  prev_btn##setAttribute (js "title") (js "Previous example");
+  Dom.appendChild prev_btn (make_chevron_svg "py-ex-step-ico" "6.5,2 3.5,5 6.5,8");
+
+  let next_btn = mk ~cls:"py-ex-step py-ex-next" "button" in
+  next_btn##setAttribute (js "type") (js "button");
+  next_btn##setAttribute (js "aria-label") (js "Next example");
+  next_btn##setAttribute (js "title") (js "Next example");
+  Dom.appendChild next_btn (make_chevron_svg "py-ex-step-ico" "3.5,2 6.5,5 3.5,8");
+
+  Dom.appendChild ex_control ex_trigger;
+  Dom.appendChild ex_control prev_btn;
+  Dom.appendChild ex_control next_btn;
+
+  let ex_menu = mk ~cls:"py-ex-menu" "div" in
+  ex_menu##setAttribute (js "id") (js "py-ex-menu");
+  ex_menu##setAttribute (js "role") (js "listbox");
+  ex_menu##setAttribute (js "aria-label") (js "Playground examples");
+  ex_menu##setAttribute (js "hidden") (js "hidden");
+  let ex_menu_hdr = mk ~cls:"py-ex-menu-hdr" "div" in
+  Dom.appendChild ex_menu_hdr (mk ~cls:"py-ex-menu-hdr-title" ~txt:"Examples" "span");
+  Dom.appendChild ex_menu_hdr (mk ~cls:"py-ex-menu-hdr-hint" ~txt:"↑↓ · Enter · Esc" "span");
+  let ex_menu_list = mk ~cls:"py-ex-menu-list" "div" in
+  Dom.appendChild ex_menu ex_menu_hdr;
+  Dom.appendChild ex_menu ex_menu_list;
 
   let controls = mk ~cls:"py-pg-controls" "div" in
   let mode_sel = createSelect document in
@@ -2257,15 +2313,9 @@ let mount_playground (root : element Js.t) =
   Dom.appendChild controls status_pill;
   Dom.appendChild controls run_btn;
   Dom.appendChild controls reset_btn;
-  Dom.appendChild topbar preset_rail;
+  Dom.appendChild topbar ex_control;
   Dom.appendChild topbar controls;
-
-  (* Band 2: Concise Preset Caption *)
-  let cap_bar = mk ~cls:"py-pg-caption" "div" in
-  let cap_title = mk ~cls:"py-cap-title" ~txt:(List.hd presets).label "span" in
-  let cap_desc = mk ~cls:"py-cap-desc" ~txt:(List.hd presets).description "span" in
-  Dom.appendChild cap_bar cap_title;
-  Dom.appendChild cap_bar cap_desc;
+  Dom.appendChild topbar ex_menu;
 
   (* Band 2b: Mobile (<900px) Segmented Switcher *)
   let mob_tabs = mk ~cls:"py-mob-tabs" "div" in
@@ -2347,6 +2397,7 @@ let mount_playground (root : element Js.t) =
   let active_preset_ref : preset option ref = ref None in
   let prev_lines_ref = ref 0 in
   let user_dirty_ref = ref false in
+  let sync_switcher_ref : (unit -> unit) ref = ref (fun () -> ()) in
   let sync_editor_view () =
     let src = to_s editor##.value in
     render_py_highlight highlight_code src;
@@ -2360,7 +2411,8 @@ let mount_playground (root : element Js.t) =
     set_text ed_meta (Printf.sprintf "%s · %d lines" stem n);
     highlight_pre##.scrollTop := editor##.scrollTop;
     highlight_pre##.scrollLeft := editor##.scrollLeft;
-    ed_gutter##.scrollTop := editor##.scrollTop
+    ed_gutter##.scrollTop := editor##.scrollTop;
+    !sync_switcher_ref ()
   in
 
   (* Console + Unified REPL Pane *)
@@ -2418,7 +2470,6 @@ let mount_playground (root : element Js.t) =
   Dom.appendChild grid right_col;
 
   Dom.appendChild shell topbar;
-  Dom.appendChild shell cap_bar;
   Dom.appendChild shell mob_tabs;
   Dom.appendChild shell grid;
   Dom.appendChild root shell;
@@ -2459,37 +2510,61 @@ let mount_playground (root : element Js.t) =
   active_preset_ref :=
     (match init_preset_id with Some pid -> find_preset pid | None -> None);
   editor##.value := js init_code;
-  (match !active_preset_ref with
-  | Some p ->
-      set_text cap_title p.label;
-      set_text cap_desc p.description
-  | None ->
-      set_text cap_title "Custom snippet";
-      set_text cap_desc "");
-  sync_editor_view ();
-  render_state_panel ~empty_node:(make_empty_stage ()) insp_body (Js.Unsafe.inject Js.undefined);
 
-  let preset_btns : (string * element Js.t) list =
-    List.map
-      (fun p ->
-        let btn = mk ~cls:"py-preset-tab" ~txt:p.short_label "button" in
+  let total_presets = List.length presets in
+  let preset_opts : (int * preset * element Js.t) list =
+    List.mapi
+      (fun idx p ->
+        let btn = mk ~cls:"py-ex-opt" "button" in
         btn##setAttribute (js "type") (js "button");
-        btn##setAttribute (js "role") (js "tab");
-        btn##setAttribute (js "title") (js p.label);
-        Dom.appendChild preset_rail btn;
-        (p.id, btn))
+        btn##setAttribute (js "role") (js "option");
+        let num = mk ~cls:"py-ex-opt-num" ~txt:(Printf.sprintf "%02d" (idx + 1)) "span" in
+        let body = mk ~cls:"py-ex-opt-body" "div" in
+        let top = mk ~cls:"py-ex-opt-top" "div" in
+        let name = mk ~cls:"py-ex-opt-name" ~txt:p.label "span" in
+        let tag = mk ~cls:"py-ex-opt-tag" ~txt:p.tag "span" in
+        let desc = mk ~cls:"py-ex-opt-desc" ~txt:p.description "span" in
+        Dom.appendChild top name;
+        Dom.appendChild top tag;
+        Dom.appendChild body top;
+        Dom.appendChild body desc;
+        Dom.appendChild btn num;
+        Dom.appendChild btn body;
+        Dom.appendChild ex_menu_list btn;
+        (idx, p, btn))
       presets
   in
 
   let sync_preset_active () =
+    let active_pair =
+      match !active_preset_ref with
+      | Some p ->
+          List.find_opt (fun (_, cand, _) -> cand.id = p.id) preset_opts
+      | None -> None
+    in
+    let dirty = !user_dirty_ref in
+    (match active_pair with
+    | Some (idx, p, _) ->
+        set_text ex_count_el (Printf.sprintf "%02d/%02d" (idx + 1) total_presets);
+        set_text ex_title_el (p.label ^ if dirty then " · edited" else "");
+        ex_trigger##setAttribute (js "title") (js p.description)
+    | None ->
+        set_text ex_count_el "Custom";
+        set_text ex_title_el "Custom snippet";
+        ex_trigger##setAttribute (js "title") (js "Choose a built-in example"));
+    ex_trigger##.className :=
+      js (if dirty then "py-ex-trigger is-dirty" else "py-ex-trigger");
     let active_id = match !active_preset_ref with Some p -> p.id | None -> "" in
     List.iter
-      (fun (pid, b) ->
-        let sel_flag = pid = active_id in
-        b##.className := js (if sel_flag then "py-preset-tab active" else "py-preset-tab");
+      (fun (_, p, b) ->
+        let sel_flag = p.id = active_id in
+        b##.className := js (if sel_flag then "py-ex-opt active" else "py-ex-opt");
         b##setAttribute (js "aria-selected") (js (if sel_flag then "true" else "false")))
-      preset_btns
+      preset_opts
   in
+  sync_switcher_ref := sync_preset_active;
+  sync_editor_view ();
+  render_state_panel ~empty_node:(make_empty_stage ()) insp_body (Js.Unsafe.inject Js.undefined);
   sync_preset_active ();
 
   let mark_mob_updates () =
@@ -2617,28 +2692,151 @@ let mount_playground (root : element Js.t) =
       if st = Ready && (not !initial_ran_ref) && (not !user_dirty_ref) && (not !manual_abort_ref) then
         run_script ());
 
+  let menu_open_ref = ref false in
+  let set_menu_open open_flag =
+    menu_open_ref := open_flag;
+    if open_flag then ex_menu##removeAttribute (js "hidden")
+    else ex_menu##setAttribute (js "hidden") (js "hidden");
+    ex_trigger##setAttribute (js "aria-expanded") (js (if open_flag then "true" else "false"));
+    ex_control##.className := js (if open_flag then "py-ex-control is-open" else "py-ex-control")
+  in
+
+  let focus_opt_at idx =
+    let wrapped = ((idx mod total_presets) + total_presets) mod total_presets in
+    match List.find_opt (fun (i, _, _) -> i = wrapped) preset_opts with
+    | Some (_, _, btn) -> btn##focus
+    | None -> ()
+  in
+
+  let active_preset_idx () =
+    match !active_preset_ref with
+    | Some p -> (
+        match List.find_opt (fun (_, cand, _) -> cand.id = p.id) preset_opts with
+        | Some (i, _, _) -> Some i
+        | None -> None)
+    | None -> None
+  in
+
+  let select_preset p =
+    set_menu_open false;
+    active_preset_ref := Some p;
+    user_dirty_ref := false;
+    editor##.value := js p.code;
+    editor##.scrollTop := Js.float 0.0;
+    editor##.scrollLeft := Js.float 0.0;
+    sync_editor_view ();
+    render_state_panel ~empty_node:(make_empty_stage ()) insp_body
+      (Js.Unsafe.inject Js.undefined);
+    sync_state_chip (Js.Unsafe.inject Js.undefined);
+    if !kernel_state_ref = Ready then run_script ()
+  in
+
+  let step_preset delta =
+    if total_presets > 0 then
+      let next_i =
+        match active_preset_idx () with
+        | Some i -> ((i + delta) mod total_presets + total_presets) mod total_presets
+        | None -> if delta >= 0 then 0 else total_presets - 1
+      in
+      let _, p, _ = List.nth preset_opts next_i in
+      select_preset p
+  in
+
+  ex_trigger##.onclick :=
+    Dom.handler (fun _ ->
+        let next = not !menu_open_ref in
+        set_menu_open next;
+        Js._true);
+
+  prev_btn##.onclick :=
+    Dom.handler (fun _ ->
+        step_preset (-1);
+        Js._true);
+
+  next_btn##.onclick :=
+    Dom.handler (fun _ ->
+        step_preset 1;
+        Js._true);
+
+  ex_trigger##.onkeydown :=
+    Dom.handler (fun ev ->
+        let key = to_s (Js.Optdef.get ev##.key (fun () -> js "")) in
+        if key = "ArrowDown" || key = "ArrowUp" then (
+          Dom.preventDefault ev;
+          set_menu_open true;
+          let target_i =
+            match active_preset_idx () with
+            | Some i -> i
+            | None -> if key = "ArrowDown" then 0 else total_presets - 1
+          in
+          focus_opt_at target_i;
+          Js._false)
+        else Js._true);
+
   List.iter
-    (fun (pid, btn) ->
+    (fun (idx, p, btn) ->
       btn##.onclick :=
         Dom.handler (fun _ ->
-            (match find_preset pid with
-            | Some p ->
-                active_preset_ref := Some p;
-                user_dirty_ref := false;
-                editor##.value := js p.code;
-                editor##.scrollTop := Js.float 0.0;
-                editor##.scrollLeft := Js.float 0.0;
-                set_text cap_title p.label;
-                set_text cap_desc p.description;
-                sync_preset_active ();
-                sync_editor_view ();
-                render_state_panel ~empty_node:(make_empty_stage ()) insp_body
-                  (Js.Unsafe.inject Js.undefined);
-                sync_state_chip (Js.Unsafe.inject Js.undefined);
-                if !kernel_state_ref = Ready then run_script ()
-            | None -> ());
+            select_preset p;
+            Js._true);
+      btn##.onkeydown :=
+        Dom.handler (fun ev ->
+            let key = to_s (Js.Optdef.get ev##.key (fun () -> js "")) in
+            match key with
+            | "ArrowDown" ->
+                Dom.preventDefault ev;
+                focus_opt_at (idx + 1);
+                Js._false
+            | "ArrowUp" ->
+                Dom.preventDefault ev;
+                focus_opt_at (idx - 1);
+                Js._false
+            | "Home" ->
+                Dom.preventDefault ev;
+                focus_opt_at 0;
+                Js._false
+            | "End" ->
+                Dom.preventDefault ev;
+                focus_opt_at (total_presets - 1);
+                Js._false
+            | "Escape" ->
+                Dom.preventDefault ev;
+                set_menu_open false;
+                ex_trigger##focus;
+                Js._false
+            | _ -> Js._true))
+    preset_opts;
+
+  ignore
+    (Dom_html.addEventListener document Dom_html.Event.click
+       (Dom_html.handler (fun ev ->
+            if !menu_open_ref then
+              (match Js.Opt.to_option ev##.target with
+              | Some tgt ->
+                  let in_ctrl =
+                    Js.to_bool
+                      (Js.Unsafe.meth_call (ex_control :> Dom.node Js.t) "contains"
+                         [| Js.Unsafe.inject tgt |])
+                  in
+                  let in_menu =
+                    Js.to_bool
+                      (Js.Unsafe.meth_call (ex_menu :> Dom.node Js.t) "contains"
+                         [| Js.Unsafe.inject tgt |])
+                  in
+                  if not (in_ctrl || in_menu) then set_menu_open false
+              | None -> set_menu_open false);
             Js._true))
-    preset_btns;
+       Js._false);
+
+  ignore
+    (Dom_html.addEventListener document Dom_html.Event.keydown
+       (Dom_html.handler (fun ev ->
+            let key = to_s (Js.Optdef.get ev##.key (fun () -> js "")) in
+            if !menu_open_ref && key = "Escape" then (
+              set_menu_open false;
+              ex_trigger##focus);
+            Js._true))
+       Js._false);
 
   let repl_history : string list ref = ref [] in
   let hist_idx : int ref = ref (-1) in

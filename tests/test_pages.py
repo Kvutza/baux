@@ -2,13 +2,41 @@
 
 import re
 import shutil
+import subprocess
 import tempfile
 from pathlib import Path
 
-from admin.ops.publish_pages import assemble_bundle, stamp_sri
-from admin.ops.verify_pages import check_security, verify_bundle
-
 ROOT = Path(__file__).resolve().parent.parent
+
+
+def _run_baux(*args: str) -> None:
+    proc = subprocess.run(
+        [str(ROOT / "baux"), *args],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if proc.returncode != 0:
+        msg = (proc.stderr or proc.stdout or f"baux {' '.join(args)} failed").strip()
+        raise RuntimeError(msg)
+
+
+def assemble_bundle(dest: Path) -> None:
+    _run_baux("pages", "build", "--bundle-dir", str(dest))
+
+
+def stamp_sri(dest: Path) -> None:
+    _run_baux("pages", "stamp-sri", "--bundle-dir", str(dest))
+
+
+def verify_bundle(dest: Path) -> None:
+    _run_baux("pages", "check", "--bundle-dir", str(dest))
+
+
+def check_security(dest: Path) -> None:
+    _run_baux("pages", "check", "--bundle-dir", str(dest), "--security-only")
+
 
 _VALID_CSP = (
     "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
@@ -386,3 +414,22 @@ def test_security():
             encoding="utf-8",
         )
         assert_fails(c15, "worker-src")
+
+
+def test_public_tree_hygiene():
+    for retired in (
+        "docs/site-argument.md",
+        "admin/ops/publish_pages.py",
+        "admin/ops/verify_pages.py",
+        "admin/ops/build_repl.py",
+        "admin/ops/security_audit.py",
+        "admin/ops/pyodide_manifest.json",
+    ):
+        assert not (ROOT / retired).exists(), f"Retired file still present: {retired}"
+    _run_baux(
+        "pages",
+        "audit",
+        "--skip-zizmor",
+        "--skip-semgrep",
+        "--skip-pip-audit",
+    )

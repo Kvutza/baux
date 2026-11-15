@@ -10,6 +10,8 @@ mod cuda_track;
 mod experiment;
 use experiment as cli_exp;
 mod pages;
+mod pages_repl;
+mod pages_verify;
 mod radar;
 use radar as cli_radar;
 #[path = "research/extract.rs"]

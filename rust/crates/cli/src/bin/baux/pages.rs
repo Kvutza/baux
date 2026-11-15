@@ -1,4 +1,3 @@
-use std::collections::BTreeMap;
 use std::fs;
 use std::io::{BufRead, BufReader, BufWriter, Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -8,10 +7,12 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::Instant;
 
-use baux::artifact::blake3::{hash_hex, sha256_hex, sha384_sri};
+use baux::artifact::blake3::hash_hex;
 use baux::artifact::json::{self, Map, Value, json};
 use baux::artifact::runs;
 use clap::Subcommand;
+
+use crate::{pages_repl, pages_verify};
 
 #[derive(Subcommand)]
 pub enum PagesAction {
@@ -25,6 +26,52 @@ pub enum PagesAction {
     Check {
         #[arg(long, default_value = ".cache/pages-bundle")]
         bundle_dir: PathBuf,
+        /// Check only HTML/CSP/SRI/leak/suffix security rules (skip full bundle
+        /// inventory).
+        #[arg(long)]
+        security_only: bool,
+    },
+    /// Stamp content-hash cache busters (?v=...) and SHA-384 SRI attributes
+    /// onto local assets.
+    StampSri {
+        #[arg(long, default_value = ".cache/pages-bundle")]
+        bundle_dir: PathBuf,
+    },
+    /// Stage verified Pyodide assets, baux_py.zip, companion scripts, and
+    /// repl_manifest.json.
+    ReplAssets {
+        #[arg(long)]
+        wasm_so: Option<PathBuf>,
+        #[arg(long = "assets-dir", required = true)]
+        assets_dirs: Vec<PathBuf>,
+        #[arg(long)]
+        cache_dir: Option<PathBuf>,
+        #[arg(long)]
+        offline: bool,
+        #[arg(long)]
+        zip_only: bool,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Audit public-tree hygiene, GitHub Actions, Semgrep rules, Python deps,
+    /// and Pages bundle.
+    Audit {
+        #[arg(long)]
+        bundle_dir: Option<PathBuf>,
+        #[arg(long)]
+        no_strict: bool,
+        #[arg(long)]
+        offline: bool,
+        #[arg(long)]
+        graceful_offline: bool,
+        #[arg(long = "ignore-vuln")]
+        ignore_vulns: Vec<String>,
+        #[arg(long)]
+        skip_zizmor: bool,
+        #[arg(long)]
+        skip_semgrep: bool,
+        #[arg(long)]
+        skip_pip_audit: bool,
     },
     /// Serve the static bundle with same-origin /api/env and /api/runs
     /// endpoints.
@@ -42,7 +89,76 @@ pub enum PagesAction {
 pub fn run(root: &Path, command: PagesAction) -> Result<(), String> {
     match command {
         PagesAction::Build { bundle_dir } => build(root, &resolve_bundle(root, &bundle_dir)),
-        PagesAction::Check { bundle_dir } => check_bundle(&resolve_bundle(root, &bundle_dir)),
+        PagesAction::Check {
+            bundle_dir,
+            security_only,
+        } => {
+            let dir = resolve_bundle(root, &bundle_dir);
+            if security_only {
+                pages_verify::check_security(&dir)
+            } else {
+                pages_verify::verify_bundle(&dir)
+            }
+        }
+        PagesAction::StampSri { bundle_dir } => {
+            pages_verify::stamp_sri(&resolve_bundle(root, &bundle_dir))
+        }
+        PagesAction::ReplAssets {
+            wasm_so,
+            assets_dirs,
+            cache_dir,
+            offline,
+            zip_only,
+            json: emit_json,
+        } => {
+            let resolved_dirs: Vec<PathBuf> = assets_dirs
+                .iter()
+                .map(|dir| resolve_bundle(root, dir))
+                .collect();
+            let resolved_cache = cache_dir.as_deref().map(|p| resolve_bundle(root, p));
+            let manifest = pages_repl::stage_repl_assets(
+                root,
+                &pages_repl::ReplStageConfig {
+                    wasm_so: wasm_so.as_deref(),
+                    assets_dirs: &resolved_dirs,
+                    cache_dir: resolved_cache.as_deref(),
+                    offline,
+                    zip_only,
+                },
+            )?;
+            if emit_json {
+                println!(
+                    "{}",
+                    json::pretty_string(&manifest).map_err(|e| e.to_string())?
+                );
+            }
+            Ok(())
+        }
+        PagesAction::Audit {
+            bundle_dir,
+            no_strict,
+            offline,
+            graceful_offline,
+            ignore_vulns,
+            skip_zizmor,
+            skip_semgrep,
+            skip_pip_audit,
+        } => {
+            let resolved_bundle = bundle_dir.as_deref().map(|p| resolve_bundle(root, p));
+            pages_repl::run_security_audit(
+                root,
+                &pages_repl::AuditConfig {
+                    bundle_dir: resolved_bundle,
+                    strict: !no_strict,
+                    offline,
+                    graceful_offline,
+                    ignore_vulns,
+                    skip_zizmor,
+                    skip_semgrep,
+                    skip_pip_audit,
+                },
+            )
+        }
         PagesAction::Serve { bundle_dir, port } => {
             serve(root, &resolve_bundle(root, &bundle_dir), port)
         }
@@ -291,13 +407,6 @@ fn env_json(root: &Path) -> Result<String, String> {
     ))
 }
 
-const SRI_ASSETS: [&str; 4] = [
-    "style.css",
-    "katex.min.css",
-    "forester.js",
-    "assets/baux_ui.js",
-];
-
 const ROOT_FILES: [&str; 11] = [
     "style.css",
     "katex.min.css",
@@ -527,33 +636,22 @@ pub fn build(root: &Path, bundle_dir: &Path) -> Result<(), String> {
         ));
     }
 
-    let pixi_py = root.join(".pixi/envs/baux/bin/python");
-    let py_bin = if pixi_py.is_file() {
-        pixi_py
-    } else {
-        PathBuf::from("python3")
-    };
-    run_checked(
-        Command::new(&py_bin)
-            .args([
-                root.join("admin/ops/build_repl.py")
-                    .to_string_lossy()
-                    .as_ref(),
-                "--assets-dir",
-                out_assets.to_string_lossy().as_ref(),
-                "--assets-dir",
-                bundle_assets.to_string_lossy().as_ref(),
-                "--wasm-so",
-                wasm_so.to_string_lossy().as_ref(),
-            ])
-            .current_dir(root),
-        "build_repl.py",
+    let stage_dirs = [out_assets.clone(), bundle_assets.clone()];
+    pages_repl::stage_repl_assets(
+        root,
+        &pages_repl::ReplStageConfig {
+            wasm_so: Some(&wasm_so),
+            assets_dirs: &stage_dirs,
+            cache_dir: None,
+            offline: false,
+            zip_only: false,
+        },
     )?;
 
     println!("o|pages [4/4]: stamping SRI hashes and running security check...");
-    stamp_sri(bundle_dir)?;
-    stamp_assets(&output_dir, bundle_dir)?;
-    check_bundle(bundle_dir)?;
+    pages_verify::stamp_sri(bundle_dir)?;
+    pages_verify::stamp_assets(&output_dir, bundle_dir)?;
+    pages_verify::verify_bundle(bundle_dir)?;
     println!("o|pages: built & verified {}", bundle_dir.display());
     Ok(())
 }
@@ -640,250 +738,6 @@ fn json_str(s: &str) -> String {
     }
     out.push('"');
     out
-}
-
-fn stamp_sri(bundle_dir: &Path) -> Result<(), String> {
-    stamp_assets(bundle_dir, bundle_dir)
-}
-
-fn stamp_assets(html_dir: &Path, asset_root: &Path) -> Result<(), String> {
-    let mut hashes: BTreeMap<String, (String, String)> = BTreeMap::new();
-    for rel in SRI_ASSETS {
-        let p = asset_root.join(rel);
-        if p.is_file() {
-            let bytes = fs::read(&p).map_err(|e| e.to_string())?;
-            let ver = sha256_hex(&bytes)[..12].to_string();
-            let sri = format!("sha384-{}", sha384_sri(&bytes));
-            hashes.insert(rel.to_string(), (ver, sri));
-        }
-    }
-
-    let mut html_files = Vec::new();
-    collect_ext(html_dir, "html", &mut html_files)?;
-    for html_path in html_files {
-        let mut content = fs::read_to_string(&html_path).map_err(|e| e.to_string())?;
-        for (rel, (ver, sri)) in &hashes {
-            for prefix in ["", "./"] {
-                let raw_ref = format!("{prefix}{rel}");
-                let needle_plain = format!("\"{raw_ref}\"");
-                let stamped = format!("\"{raw_ref}?v={ver}\" integrity=\"{sri}\"");
-                if content.contains(&needle_plain)
-                    && !content.contains(&format!("\"{raw_ref}?v={ver}\""))
-                {
-                    content = content.replace(&needle_plain, &stamped);
-                }
-            }
-        }
-        fs::write(&html_path, content).map_err(|e| e.to_string())?;
-    }
-    Ok(())
-}
-
-fn collect_ext(dir: &Path, ext: &str, out: &mut Vec<PathBuf>) -> Result<(), String> {
-    for entry in fs::read_dir(dir).map_err(|e| e.to_string())? {
-        let entry = entry.map_err(|e| e.to_string())?;
-        let name = entry.file_name();
-        if name == ".jj" || name == ".git" || name == "node_modules" {
-            continue;
-        }
-        let p = entry.path();
-        if p.is_dir() {
-            collect_ext(&p, ext, out)?;
-        } else if p.extension().and_then(|e| e.to_str()) == Some(ext) {
-            out.push(p);
-        }
-    }
-    Ok(())
-}
-
-pub fn check_bundle(bundle_dir: &Path) -> Result<(), String> {
-    if !bundle_dir.is_dir() {
-        return Err(format!(
-            "bundle directory missing: {}",
-            bundle_dir.display()
-        ));
-    }
-    for req in [
-        "index.html",
-        "docs.html",
-        "simulation.html",
-        "playground.html",
-        "style.css",
-        "katex.min.css",
-        "forester.js",
-        "coi-serviceworker.js",
-        "forest.json",
-        ".nojekyll",
-        "assets/baux_ui.js",
-        "assets/oxcaml_eval.js",
-        "assets/webgpu_bridge.js",
-        "assets/webgpu_worker.js",
-        "assets/baux_env.json",
-        "assets/repl_worker.js",
-        "assets/baux_py.zip",
-        "assets/repl_manifest.json",
-        "assets/pyodide/pyodide.js",
-        "assets/pyodide/pyodide.asm.js",
-        "assets/pyodide/pyodide.asm.wasm",
-        "assets/pyodide/python_stdlib.zip",
-        "assets/pyodide/pyodide-lock.json",
-        "assets/pyodide/numpy-2.0.2-cp312-cp312-pyodide_2024_0_wasm32.whl",
-        "LICENSES/PYODIDE",
-        "LICENSES/NUMPY",
-    ] {
-        if !bundle_dir.join(req).is_file() {
-            return Err(format!("required bundle asset missing: {req}"));
-        }
-    }
-    for forbidden in ["forest", "node_modules", "assets/site_data.js"] {
-        if bundle_dir.join(forbidden).exists() {
-            return Err(format!("forbidden bundle path present: {forbidden}"));
-        }
-    }
-
-    let mut all_files = Vec::new();
-    walk_all(bundle_dir, &mut all_files)?;
-    for path in &all_files {
-        let rel = path
-            .strip_prefix(bundle_dir)
-            .unwrap_or(path)
-            .to_string_lossy()
-            .to_string();
-        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-        if matches!(
-            ext,
-            "map" | "env" | "xml" | "xsl" | "sh" | "ml" | "mli" | "toml"
-        ) {
-            return Err(format!("forbidden file suffix in bundle: {rel}"));
-        }
-        if matches!(ext, "html" | "js" | "css" | "json") {
-            let text = fs::read_to_string(path).map_err(|e| e.to_string())?;
-            if text.contains("/Users/") || text.contains("/home/runner/") {
-                return Err(format!("machine path leak in {rel}"));
-            }
-            if ext == "html" {
-                check_html(bundle_dir, &rel, &text)?;
-            }
-            if ext == "js" {
-                run_checked(
-                    Command::new("node").arg("-c").arg(path),
-                    &format!("node -c {rel}"),
-                )?;
-            }
-        }
-    }
-    Ok(())
-}
-
-fn extract_attr<'a>(tag: &'a str, attr: &str) -> Option<&'a str> {
-    let pat = format!("{attr}=\"");
-    let start = tag.find(&pat)? + pat.len();
-    let rest = &tag[start..];
-    let end = rest.find('"')?;
-    Some(&rest[..end])
-}
-
-fn verify_sri(bundle_dir: &Path, rel: &str, tag_head: &str, url_attr: &str) -> Result<(), String> {
-    let raw_ref = extract_attr(tag_head, url_attr)
-        .ok_or_else(|| format!("{rel}: missing {url_attr} on asset tag"))?;
-    let sri = extract_attr(tag_head, "integrity")
-        .ok_or_else(|| format!("{rel}: missing SRI integrity on {raw_ref}"))?;
-    let asset_rel = raw_ref
-        .split('?')
-        .next()
-        .unwrap_or(raw_ref)
-        .trim_start_matches("./")
-        .trim_start_matches('/');
-    let asset_bytes = fs::read(bundle_dir.join(asset_rel))
-        .map_err(|e| format!("{rel}: missing asset {asset_rel}: {e}"))?;
-    let expected = format!("sha384-{}", sha384_sri(&asset_bytes));
-    if sri != expected {
-        return Err(format!(
-            "{rel}: SRI sha384 mismatch for {asset_rel} (got {sri}, expected {expected})"
-        ));
-    }
-    Ok(())
-}
-
-fn check_html(bundle_dir: &Path, rel: &str, html: &str) -> Result<(), String> {
-    let lower = html.to_ascii_lowercase();
-    if !lower.contains("content-security-policy")
-        || !lower.contains("default-src 'none'")
-        || !lower.contains("script-src 'self'")
-        || !lower.contains("worker-src 'self'")
-    {
-        return Err(format!("{rel}: missing strict CSP meta tag"));
-    }
-    if lower.contains("'unsafe-eval'")
-        || lower.contains("script-src 'self' 'unsafe-inline'")
-        || lower.contains("script-src 'self' 'wasm-unsafe-eval' 'unsafe-inline'")
-    {
-        return Err(format!(
-            "{rel}: forbidden unsafe script-src directive in CSP"
-        ));
-    }
-    if lower.contains("javascript:") {
-        return Err(format!("{rel}: forbidden javascript: URI"));
-    }
-    if lower.contains("href=\"http://") || lower.contains("src=\"http://") {
-        return Err(format!("{rel}: forbidden cleartext http:// reference"));
-    }
-    let mut rest = html;
-    while let Some(pos) = rest.find("<script") {
-        let after = &rest[pos..];
-        let end_tag = after
-            .find('>')
-            .ok_or_else(|| format!("{rel}: unclosed <script"))?;
-        let tag_head = &after[..end_tag];
-        verify_sri(bundle_dir, rel, tag_head, "src")?;
-        rest = &after[end_tag + 1..];
-    }
-    let mut l_rest = html;
-    while let Some(pos) = l_rest.find("<link") {
-        let after = &l_rest[pos..];
-        let end_tag = after
-            .find('>')
-            .ok_or_else(|| format!("{rel}: unclosed <link"))?;
-        let tag_head = &after[..end_tag];
-        if let Some(rel_val) = extract_attr(tag_head, "rel")
-            && rel_val.eq_ignore_ascii_case("stylesheet")
-        {
-            verify_sri(bundle_dir, rel, tag_head, "href")?;
-        }
-        l_rest = &after[end_tag + 1..];
-    }
-    let mut a_rest = lower.as_str();
-    while let Some(pos) = a_rest.find("<a ") {
-        let after = &a_rest[pos..];
-        let Some(end_tag) = after.find('>') else {
-            break;
-        };
-        let tag_head = &after[..end_tag];
-        if tag_head.contains("target=\"_blank\"")
-            && (!tag_head.contains("noopener") || !tag_head.contains("noreferrer"))
-        {
-            return Err(format!("{rel}: target=_blank missing noopener noreferrer"));
-        }
-        a_rest = &after[end_tag + 1..];
-    }
-    Ok(())
-}
-
-fn walk_all(dir: &Path, out: &mut Vec<PathBuf>) -> Result<(), String> {
-    for entry in fs::read_dir(dir).map_err(|e| e.to_string())? {
-        let entry = entry.map_err(|e| e.to_string())?;
-        let name = entry.file_name();
-        if name == ".jj" || name == ".git" {
-            continue;
-        }
-        let p = entry.path();
-        if p.is_dir() {
-            walk_all(&p, out)?;
-        } else {
-            out.push(p);
-        }
-    }
-    Ok(())
 }
 
 const MAX_HTTP_HEADER_BYTES: usize = 64 * 1024;

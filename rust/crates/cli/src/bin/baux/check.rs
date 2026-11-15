@@ -175,6 +175,7 @@ pub(super) fn run(root: &Path) -> Result<(), String> {
         Ok(())
     })?;
     baux_tooling::names::cli(root, &[], false)?;
+    crate::pages_verify::verify_public_tree(root)?;
     write_stamp(root, &files);
     Ok(())
 }

@@ -39,13 +39,19 @@ jobs:
       - name: Audit GitHub Actions workflows with zizmor
         run: uvx zizmor --pedantic -qq --no-progress --color=never .github/workflows/
 
+      - name: Enforce public-tree allowlist with standalone Rust verifier
+        run: |
+          rustc --edition 2021 -O -D warnings --cfg pages_verify_cli \
+            rust/crates/cli/src/bin/baux/pages_verify.rs -o /tmp/verify-pages
+          /tmp/verify-pages --tree .
+
       - name: Validate and run custom Semgrep rules
         env:
           SEMGREP_SEND_METRICS: "off"
           NO_COLOR: "1"
         run: |
           uvx semgrep scan --quiet --metrics=off --validate --config .semgrep/security.yml
-          targets=(admin/ops admin/ui/baux_ui.ml)
+          targets=(admin/ops admin/ui)
           for extra_dir in forest/theme forest/js; do
             if [ -d "$extra_dir" ]; then
               targets+=("$extra_dir")
@@ -88,10 +94,11 @@ jobs:
           path: bundle
           persist-credentials: false
 
-      - name: Verify gh-pages bundle and archive subject
+      - name: Verify gh-pages bundle with standalone Rust verifier and archive subject
         run: |
-          # Note: verify_pages.py exposes verify_bundle(target_dir) as its library entrypoint.
-          python3 -c "from pathlib import Path; import sys; sys.path.insert(0, 'verifier/admin/ops'); from verify_pages import verify_bundle; verify_bundle(Path('bundle'))"
+          rustc --edition 2021 -O -D warnings --cfg pages_verify_cli \
+            verifier/rust/crates/cli/src/bin/baux/pages_verify.rs -o /tmp/verify-pages
+          /tmp/verify-pages --bundle bundle
           tar --exclude='./.git' -C bundle -czf /tmp/pages-bundle.tar.gz .
 
       - name: Attest SLSA build provenance for gh-pages bundle

@@ -9,5 +9,6 @@ default-run = "baux"
 
 [dependencies]
 clap.workspace = true
+miniz_oxide.workspace = true
 baux.workspace = true
 baux-tooling.workspace = true

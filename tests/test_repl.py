@@ -2,21 +2,19 @@
 
 from __future__ import annotations
 
-import inspect
 import io
 import json
 import os
 import re
 import shutil
 import subprocess
+import tempfile
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import pytest
-
-from admin.ops import build_repl
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 TREES_DIR = REPO_ROOT / "forest" / "trees"
@@ -196,10 +194,75 @@ main().catch((err) => {
 
 
 def _find_wasm_so() -> Path | None:
-    try:
-        return build_repl.resolve_wasm_so(REPO_ROOT)
-    except FileNotFoundError:
-        return None
+    env_val = os.environ.get("BAUX_WASM_SO", "").strip()
+    if env_val:
+        cand = Path(env_val) if Path(env_val).is_absolute() else REPO_ROOT / env_val
+        return cand if cand.is_file() else None
+
+    for cand in (
+        REPO_ROOT / ".cache" / "baux" / "wasm" / WASM_SO_NAME,
+        REPO_ROOT
+        / "rust"
+        / "target"
+        / "wasm32-unknown-emscripten"
+        / "release"
+        / WASM_SO_NAME,
+        REPO_ROOT
+        / "rust"
+        / "target"
+        / "wasm32-unknown-emscripten"
+        / "release"
+        / "libbaux_rust.so",
+    ):
+        if cand.is_file():
+            return cand
+
+    buck_out = REPO_ROOT / "buck-out"
+    if buck_out.is_dir():
+        exact = sorted(
+            (p for p in buck_out.rglob(WASM_SO_NAME) if p.is_file()),
+            key=lambda p: p.as_posix(),
+        )
+        if exact:
+            return exact[0]
+        tagged = sorted(
+            (
+                p
+                for p in buck_out.rglob("*.so")
+                if p.is_file() and "baux-py-wasm" in p.as_posix()
+            ),
+            key=lambda p: p.as_posix(),
+        )
+        if tagged:
+            return tagged[0]
+    return None
+
+
+def _run_repl_assets(
+    *,
+    assets_dirs: list[Path],
+    wasm_so: Path | None,
+    zip_only: bool = True,
+) -> dict[str, Any]:
+    cmd = [str(REPO_ROOT / "baux"), "pages", "repl-assets", "--json"]
+    for assets_dir in assets_dirs:
+        cmd.extend(["--assets-dir", str(assets_dir)])
+    if wasm_so is not None:
+        cmd.extend(["--wasm-so", str(wasm_so)])
+    if zip_only:
+        cmd.append("--zip-only")
+    proc = subprocess.run(
+        cmd,
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(
+            (proc.stderr or proc.stdout or "baux pages repl-assets failed").strip()
+        )
+    return json.loads(proc.stdout)
 
 
 def _find_pyodide_dir() -> Path | None:
@@ -225,14 +288,10 @@ def _find_oxcaml_js() -> Path | None:
 
 
 def _build_pyzip_bytes(wasm_so: Path | None) -> bytes:
-    sig = inspect.signature(build_repl.build_pyzip)
-    if "wasm_so" in sig.parameters:
-        return build_repl.build_pyzip(REPO_ROOT, wasm_so=wasm_so)  # type: ignore[call-arg]
-    if len(sig.parameters) >= 2:
-        second = list(sig.parameters.values())[1]
-        if second.kind != inspect.Parameter.KEYWORD_ONLY:
-            return build_repl.build_pyzip(REPO_ROOT, wasm_so)  # type: ignore[call-arg]
-    return build_repl.build_pyzip(REPO_ROOT)
+    with tempfile.TemporaryDirectory() as tmpdir:
+        stage = Path(tmpdir) / "assets"
+        _run_repl_assets(assets_dirs=[stage], wasm_so=wasm_so, zip_only=True)
+        return (stage / "baux_py.zip").read_bytes()
 
 
 def _stage_assets_with_wasm(
@@ -241,17 +300,11 @@ def _stage_assets_with_wasm(
     wasm_so: Path | None,
     zip_only: bool = True,
 ) -> dict[str, Any]:
-    sig = inspect.signature(build_repl.stage_assets)
-    kwargs: dict[str, Any] = {
-        "repo_root": REPO_ROOT,
-        "manifest_path": build_repl.DEFAULT_MANIFEST,
-        "cache_dir": build_repl.DEFAULT_CACHE_DIR,
-        "assets_dirs": assets_dirs,
-        "zip_only": zip_only,
-    }
-    if "wasm_so" in sig.parameters and wasm_so is not None:
-        kwargs["wasm_so"] = wasm_so
-    return build_repl.stage_assets(**kwargs)
+    return _run_repl_assets(
+        assets_dirs=assets_dirs,
+        wasm_so=wasm_so,
+        zip_only=zip_only,
+    )
 
 
 def _zip_has_wasm_so(zip_path: Path) -> bool:
@@ -365,9 +418,7 @@ def pyodide_session(tmp_path_factory: pytest.TempPathFactory):
     work = tmp_path_factory.mktemp("pyodide_runner")
     zip_path = work / "baux_py.zip"
     wasm_so = _find_wasm_so()
-    sig = inspect.signature(build_repl.build_pyzip)
-
-    if wasm_so is not None and "wasm_so" in sig.parameters:
+    if wasm_so is not None:
         zip_path.write_bytes(_build_pyzip_bytes(wasm_so))
     else:
         staged_zip = REPO_ROOT / "forest" / "output" / "assets" / "baux_py.zip"
@@ -439,14 +490,8 @@ def _snippets() -> list[tuple[str, int, str]]:
 
 
 def test_ziphygiene(tmp_path: Path) -> None:
-    sig = inspect.signature(build_repl.build_pyzip)
-    if "wasm_so" not in sig.parameters:
-        pytest.skip(
-            "admin/ops/build_repl.py build_pyzip has not migrated to --wasm-so yet"
-        )
-
-    with pytest.raises((FileNotFoundError, RuntimeError, ValueError)):
-        build_repl.build_pyzip(REPO_ROOT, wasm_so=tmp_path / "missing_baux_rust.so")  # type: ignore[call-arg]
+    with pytest.raises(RuntimeError):
+        _build_pyzip_bytes(tmp_path / "missing_baux_rust.so")
 
     wasm_so = _find_wasm_so()
     if wasm_so is None:

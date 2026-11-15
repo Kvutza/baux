@@ -1,8 +1,8 @@
 """Generated from Cargo metadata by admin/tools/build-parity --sync. Do not edit."""
 
-BAUX_CRATES = ["anstream", "anstyle", "candle-core", "candle-nn", "charming", "deser", "deser-cbor", "deser-json", "deser-toml", "deser-value", "jiff", "kuva", "memmap2", "ndarray", "rand", "rand_distr", "rayon", "redb", "sha2", "sobol", "thiserror", "tokenizers"]
+BAUX_CRATES = ["anstream", "anstyle", "deser", "deser-cbor", "deser-json", "deser-toml", "deser-value", "jiff", "ndarray", "rand", "rand_distr", "rayon", "sha2", "sobol", "thiserror"]
 
-BAUX_TEST_CRATES = ["anstream", "anstyle", "candle-core", "candle-nn", "charming", "deser", "deser-cbor", "deser-json", "deser-toml", "deser-value", "jiff", "kuva", "memmap2", "ndarray", "numpy", "rand", "rand_chacha", "rand_distr", "rayon", "redb", "sha2", "sobol", "tempfile", "thiserror", "tokenizers"]
+BAUX_TEST_CRATES = ["anstream", "anstyle", "deser", "deser-cbor", "deser-json", "deser-toml", "deser-value", "jiff", "ndarray", "numpy", "rand", "rand_chacha", "rand_distr", "rayon", "sha2", "sobol", "tempfile", "thiserror"]
 
 BAUX_PROGRAMS = [
     {
@@ -10,7 +10,7 @@ BAUX_PROGRAMS = [
         "name": "baux-tune",
         "crate": "baux_tune",
         "root": "src/bin/baux-tune/main.rs",
-        "crate_deps": ["anstream", "anstyle", "candle-core", "candle-nn", "charming", "deser", "deser-cbor", "deser-json", "deser-toml", "deser-value", "jiff", "kuva", "memmap2", "ndarray", "rand", "rand_distr", "rayon", "redb", "sha2", "sobol", "thiserror", "tokenizers"],
+        "crate_deps": ["anstream", "anstyle", "deser", "deser-cbor", "deser-json", "deser-toml", "deser-value", "jiff", "ndarray", "rand", "rand_distr", "rayon", "sha2", "sobol", "thiserror"],
         "local_deps": ["baux"],
         "required_features": [],
     },
@@ -19,7 +19,7 @@ BAUX_PROGRAMS = [
         "name": "enn_posterior",
         "crate": "enn_posterior",
         "root": "examples/enn_posterior.rs",
-        "crate_deps": ["anstream", "anstyle", "candle-core", "candle-nn", "charming", "deser", "deser-cbor", "deser-json", "deser-toml", "deser-value", "jiff", "kuva", "memmap2", "ndarray", "numpy", "rand", "rand_chacha", "rand_distr", "rayon", "redb", "sha2", "sobol", "tempfile", "thiserror", "tokenizers"],
+        "crate_deps": ["anstream", "anstyle", "deser", "deser-cbor", "deser-json", "deser-toml", "deser-value", "jiff", "ndarray", "numpy", "rand", "rand_chacha", "rand_distr", "rayon", "sha2", "sobol", "tempfile", "thiserror"],
         "local_deps": ["baux"],
         "required_features": [],
     },
@@ -28,7 +28,7 @@ BAUX_PROGRAMS = [
         "name": "knn_bench",
         "crate": "knn_bench",
         "root": "examples/knn_bench.rs",
-        "crate_deps": ["anstream", "anstyle", "candle-core", "candle-nn", "charming", "deser", "deser-cbor", "deser-json", "deser-toml", "deser-value", "jiff", "kuva", "memmap2", "ndarray", "numpy", "rand", "rand_chacha", "rand_distr", "rayon", "redb", "sha2", "sobol", "tempfile", "thiserror", "tokenizers"],
+        "crate_deps": ["anstream", "anstyle", "deser", "deser-cbor", "deser-json", "deser-toml", "deser-value", "jiff", "ndarray", "numpy", "rand", "rand_chacha", "rand_distr", "rayon", "sha2", "sobol", "tempfile", "thiserror"],
         "local_deps": ["baux"],
         "required_features": ["metal"],
     },
@@ -37,15 +37,15 @@ BAUX_PROGRAMS = [
         "name": "posterior_bench",
         "crate": "posterior_bench",
         "root": "examples/posterior_bench.rs",
-        "crate_deps": ["anstream", "anstyle", "candle-core", "candle-nn", "charming", "deser", "deser-cbor", "deser-json", "deser-toml", "deser-value", "jiff", "kuva", "memmap2", "ndarray", "numpy", "rand", "rand_chacha", "rand_distr", "rayon", "redb", "sha2", "sobol", "tempfile", "thiserror", "tokenizers"],
+        "crate_deps": ["anstream", "anstyle", "deser", "deser-cbor", "deser-json", "deser-toml", "deser-value", "jiff", "ndarray", "numpy", "rand", "rand_chacha", "rand_distr", "rayon", "sha2", "sobol", "tempfile", "thiserror"],
         "local_deps": ["baux"],
         "required_features": [],
     },
 ]
 
-CLI_CRATES = ["clap"]
+CLI_CRATES = ["clap", "miniz_oxide"]
 
-CLI_TEST_CRATES = ["clap"]
+CLI_TEST_CRATES = ["clap", "miniz_oxide"]
 
 CLI_PROGRAMS = [
     {
@@ -53,7 +53,7 @@ CLI_PROGRAMS = [
         "name": "baux",
         "crate": "baux",
         "root": "src/bin/baux/main.rs",
-        "crate_deps": ["clap"],
+        "crate_deps": ["clap", "miniz_oxide"],
         "local_deps": ["baux", "tooling"],
         "required_features": [],
     },

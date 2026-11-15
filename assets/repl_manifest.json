@@ -1,8 +1,30 @@
 {
   "baux_py_zip": {
     "path": "baux_py.zip",
-    "sha256": "9882b17bb7ee62087353b69a251167a2ac37ad7a727a086ae629c9c7c1d9db02",
-    "size": 137439
+    "sha256": "c8dae9c019a878c2105711e8e53e776d452f43376a5e22cf7d0ced08e41a5874",
+    "size": 1642866
+  },
+  "companion_files": {
+    "oxcaml_eval_js": {
+      "path": "oxcaml_eval.js",
+      "sha256": "66756c79526999604f30ed0064534e45a488fbe1b6174b5f0e85f530fb7f77b6",
+      "size": 2943703
+    },
+    "repl_worker_js": {
+      "path": "repl_worker.js",
+      "sha256": "43b73ccb6a44ea806346fa61df2a1b429a0620d67b282d7675fddda3e39aab99",
+      "size": 52427
+    },
+    "webgpu_bridge_js": {
+      "path": "webgpu_bridge.js",
+      "sha256": "289e9c1644a58bc7311e8d62d4141e0c280702adee5d1a7d372a6614c3f4550b",
+      "size": 57191
+    },
+    "webgpu_worker_js": {
+      "path": "webgpu_worker.js",
+      "sha256": "cfc8a0344a62f8477b67e083d0e8f99456e78aec0e79972b5bd84460bc26b11b",
+      "size": 13173
+    }
   },
   "pyodide_files": {
     "numpy-2.0.2-cp312-cp312-pyodide_2024_0_wasm32.whl": {
@@ -31,5 +53,10 @@
     }
   },
   "pyodide_version": "0.27.5",
-  "schema_version": 1
+  "schema_version": 1,
+  "wasm_extension": {
+    "path": "baux/baux_rust.cpython-312-wasm32-emscripten.so",
+    "sha256": "40c5517f76aa075a9f85de5bad6ad9868ff1a62be7c38d540d598b85ad6f466d",
+    "size": 3532507
+  }
 }

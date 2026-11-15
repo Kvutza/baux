@@ -1,8 +1,8 @@
 {
   "baux_py_zip": {
     "path": "baux_py.zip",
-    "sha256": "6b9e49e1b3b71c36ff10545ded3962c5a1d0876f7d0e20995b0f06b78766366f",
-    "size": 137471
+    "sha256": "9882b17bb7ee62087353b69a251167a2ac37ad7a727a086ae629c9c7c1d9db02",
+    "size": 137439
   },
   "pyodide_files": {
     "numpy-2.0.2-cp312-cp312-pyodide_2024_0_wasm32.whl": {

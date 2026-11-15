@@ -1,8 +1,14 @@
+#[cfg(not(target_arch = "wasm32"))]
 pub fn use_rayon() -> bool {
     rayon::current_num_threads() > 1
 }
 
-#[cfg(test)]
+#[cfg(target_arch = "wasm32")]
+pub fn use_rayon() -> bool {
+    false
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use super::use_rayon;
 

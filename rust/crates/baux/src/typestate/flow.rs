@@ -4,6 +4,7 @@
 use core::marker::PhantomData;
 
 use ndarray::{Array2, ArrayView2};
+#[cfg(not(target_arch = "wasm32"))]
 use rayon::prelude::*;
 
 use crate::error::ENNError;
@@ -146,10 +147,20 @@ where
     for (idx, branch_key) in keys.into_iter().enumerate() {
         items.push((idx, opt.fork()?, branch_key));
     }
-    items
-        .into_par_iter()
-        .map(|(idx, branch_opt, branch_key)| branch_fn(idx, branch_opt, branch_key))
-        .collect()
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        items
+            .into_par_iter()
+            .map(|(idx, branch_opt, branch_key)| branch_fn(idx, branch_opt, branch_key))
+            .collect()
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        items
+            .into_iter()
+            .map(|(idx, branch_opt, branch_key)| branch_fn(idx, branch_opt, branch_key))
+            .collect()
+    }
 }
 
 #[cfg(test)]

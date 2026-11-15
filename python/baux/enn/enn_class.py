@@ -120,6 +120,7 @@ _DEVICE_DRIVERS = {
     "metal": NeighborIndex.METAL,
     "cuda": NeighborIndex.CUDA,
     "opencl": NeighborIndex.OPENCL,
+    "webgpu": NeighborIndex.WEBGPU,
 }
 _INDEX_ALIASES = {
     "exact": NeighborIndex.FLAT,

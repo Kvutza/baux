@@ -37,6 +37,7 @@ pub enum ComputeDevice {
     Metal,
     OpenCl,
     Cuda,
+    WebGpu,
 }
 
 impl ComputeDevice {
@@ -46,8 +47,10 @@ impl ComputeDevice {
             "cpu" => Ok(Self::Cpu),
             "metal" => Ok(Self::Metal),
             "cuda" => Ok(Self::Cuda),
+            "opencl" | "ocl" => Ok(Self::OpenCl),
+            "webgpu" | "wgpu" => Ok(Self::WebGpu),
             other => Err(format!(
-                "unknown compute device {other:?}; expected 'auto', 'cpu', 'metal', or 'cuda'"
+                "unknown compute device {other:?}; expected 'auto', 'cpu', 'metal', 'cuda', 'opencl', or 'webgpu'"
             )),
         }
     }

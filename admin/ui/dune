@@ -1,8 +1,14 @@
+(library
+ (name bench_formulas)
+ (modules bench_formulas)
+ (flags (:standard -w -3)))
+
 (executable
  (name baux_ui)
+ (modules baux_ui bench_suite bench_viewer docs_ui py_repl)
  (modes js)
  (flags (:standard -w -3))
- (libraries js_of_ocaml)
+ (libraries js_of_ocaml bench_formulas)
  (preprocess (pps js_of_ocaml-ppx))
  (js_of_ocaml
   (flags (:standard --opt 3))))
@@ -11,3 +17,18 @@
  (targets baux_ui.js)
  (deps baux_ui.bc.js)
  (action (copy baux_ui.bc.js baux_ui.js)))
+
+(executable
+ (name oxcaml_eval)
+ (modules oxcaml_eval)
+ (modes js)
+ (flags (:standard -w -3))
+ (libraries js_of_ocaml bench_formulas)
+ (preprocess (pps js_of_ocaml-ppx))
+ (js_of_ocaml
+  (flags (:standard --opt 3))))
+
+(rule
+ (targets oxcaml_eval.js)
+ (deps oxcaml_eval.bc.js)
+ (action (copy oxcaml_eval.bc.js oxcaml_eval.js)))

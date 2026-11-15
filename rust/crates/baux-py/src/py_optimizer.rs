@@ -8,8 +8,10 @@ use pyo3::prelude::*;
 
 mod build;
 mod config;
+mod dense;
 mod regional;
 pub use build::{bind_lhd, bind_regions, bind_zero, create_py, enn_py};
+pub use dense::{PyDenseLinear, dense_apply, dense_dist2};
 
 /// Python wrapper for BayesOptimizer
 #[pyclass(name = "BayesOptimizer")]

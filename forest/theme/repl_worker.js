@@ -1,9 +1,935 @@
-/* Web Worker hosting self-hosted stripped Pyodide + verified baux_py.zip */
+/* Web Worker hosting self-hosted Pyodide + baux_rust WASM + OxCaml + sync WebGPU RPC */
 "use strict";
 
 importScripts("./pyodide/pyodide.js");
 
 let runtimePromise = null;
+let pendingInterruptBuffer = null;
+let interruptView = null;
+let wantOpfsMount = true;
+let opfsMounted = false;
+let opfsHandle = null;
+
+let webgpuWorker = null;
+let webgpuReady = false;
+let webgpuAdapterLabel = "";
+let webgpuMaxBufferBytes = 0;
+let webgpuMaxStorageBytes = 0;
+let rpcSab = null;
+let rpcCtrlI32 = null;
+let rpcCtrlU32 = null;
+let rpcCtrlF32 = null;
+let rpcSeq = 0;
+
+function buildCaps() {
+  return {
+    cpu_wasm_simd: true,
+    webgpu: Boolean(webgpuReady),
+    webgpu_adapter: webgpuAdapterLabel || "",
+    opfs_mounted: Boolean(opfsMounted),
+    coop_coep: Boolean(self.crossOriginIsolated),
+  };
+}
+
+function applyInterruptBuffer(pyodide) {
+  if (
+    pendingInterruptBuffer &&
+    typeof SharedArrayBuffer === "function" &&
+    pendingInterruptBuffer instanceof SharedArrayBuffer &&
+    pyodide &&
+    typeof pyodide.setInterruptBuffer === "function"
+  ) {
+    interruptView = new Int32Array(pendingInterruptBuffer);
+    pyodide.setInterruptBuffer(interruptView);
+  }
+}
+
+function clearStaleInterruptSignal() {
+  if (interruptView && typeof Atomics === "object") {
+    Atomics.store(interruptView, 0, 0);
+  }
+}
+
+async function flushOpfs() {
+  if (opfsHandle && typeof opfsHandle.syncfs === "function") {
+    try {
+      await opfsHandle.syncfs();
+    } catch (_) {
+      // OPFS quota or transient flush failure should not mask REPL execution output.
+    }
+  }
+}
+
+async function loadVerifiedScript(url, spec) {
+  if (
+    spec &&
+    typeof spec.size === "number" &&
+    typeof spec.sha256 === "string" &&
+    spec.sha256.length === 64
+  ) {
+    await fetchVerifiedBytes(url, spec.size, spec.sha256);
+  }
+  importScripts(url);
+}
+
+function checkedPosInt(val) {
+  const n = Number(val);
+  if (!Number.isSafeInteger(n) || n <= 0 || n > 0x7fffffff) {
+    return 0;
+  }
+  return n >>> 0;
+}
+
+function checkedNonNegInt(val) {
+  const n = Number(val);
+  if (!Number.isSafeInteger(n) || n < 0 || n > 0x7fffffff) {
+    return -1;
+  }
+  return n >>> 0;
+}
+
+function checkedMulInt(a, b) {
+  const prod = a * b;
+  if (!Number.isSafeInteger(prod) || prod <= 0 || prod > 0x0fffffff) {
+    return 0;
+  }
+  return prod;
+}
+
+function align16Bytes(n) {
+  return Math.ceil(n / 16) * 16;
+}
+
+function bindRpcSab(nextSab) {
+  const rpc = BauxWebGpu.SAB_RPC;
+  rpcSab = nextSab;
+  rpcCtrlI32 = new Int32Array(nextSab, 0, rpc.HEADER_I32_LEN);
+  rpcCtrlU32 = new Uint32Array(nextSab, 0, rpc.HEADER_I32_LEN);
+  rpcCtrlF32 = new Float32Array(nextSab, 0, rpc.HEADER_I32_LEN);
+}
+
+function ensureSabCapacity(neededDataBytes) {
+  const rpc = BauxWebGpu.SAB_RPC;
+  const alignedNeeded = align16Bytes(neededDataBytes);
+  const currentStaging = rpcSab ? rpcSab.byteLength - rpc.HEADER_BYTES : 0;
+  if (rpcSab && alignedNeeded <= currentStaging) {
+    return { ok: true, swappedSab: null };
+  }
+  const hardLimit =
+    webgpuMaxBufferBytes > 0
+      ? Math.min(rpc.MAX_STAGING_BYTES, webgpuMaxBufferBytes)
+      : rpc.MAX_STAGING_BYTES;
+  if (alignedNeeded > hardLimit) {
+    return { ok: false, swappedSab: null };
+  }
+  const targetStaging = Math.min(
+    hardLimit,
+    Math.max(rpc.DEFAULT_STAGING_BYTES, alignedNeeded, currentStaging * 2)
+  );
+  try {
+    const nextSab = new SharedArrayBuffer(rpc.HEADER_BYTES + targetStaging);
+    bindRpcSab(nextSab);
+    return { ok: true, swappedSab: nextSab };
+  } catch (_) {
+    return { ok: false, swappedSab: null };
+  }
+}
+
+function validatePtrAndSlice(mod, ptr, elemCount, isFloat) {
+  const bytePtr = ptr >>> 0;
+  if (bytePtr === 0 || (bytePtr & 3) !== 0 || elemCount <= 0) {
+    return null;
+  }
+  const byteLen = elemCount * 4;
+  const heapU8 = mod.HEAPU8;
+  if (!heapU8 || bytePtr + byteLen > heapU8.byteLength) {
+    return null;
+  }
+  const wordOff = bytePtr >>> 2;
+  const view = isFloat ? mod.HEAPF32 : mod.HEAPU32;
+  if (!view || wordOff + elemCount > view.length) {
+    return null;
+  }
+  return view.subarray(wordOff, wordOff + elemCount);
+}
+
+function syncWebGpuRpc(op, neededDataBytes, prepareFn, readbackFn) {
+  const rpc = BauxWebGpu.SAB_RPC;
+  if (!webgpuReady || !webgpuWorker || !rpcSab || !rpcCtrlI32) {
+    return { rc: rpc.ERR_UNAVAILABLE, handle: 0 };
+  }
+  const cap = ensureSabCapacity(neededDataBytes);
+  if (!cap.ok) {
+    return { rc: rpc.ERR_STAGING_OVERFLOW, handle: 0 };
+  }
+
+  rpcSeq = (rpcSeq + 1) >>> 0;
+  if (rpcSeq === 0) {
+    rpcSeq = 1;
+  }
+
+  rpcCtrlI32[rpc.IDX_OP] = op | 0;
+  rpcCtrlI32[rpc.IDX_RESULT_I32] = 0;
+  rpcCtrlU32[rpc.IDX_RESULT_U32] = 0;
+  if (!prepareFn(rpcSab, rpcCtrlI32, rpcCtrlU32, rpcCtrlF32)) {
+    return { rc: rpc.ERR_INVALID_ARGS, handle: 0 };
+  }
+
+  Atomics.store(rpcCtrlU32, rpc.IDX_SEQ, rpcSeq);
+  Atomics.store(rpcCtrlI32, rpc.IDX_STATE, rpc.STATE_PENDING);
+
+  if (cap.swappedSab) {
+    webgpuWorker.postMessage({ type: "dispatch", seq: rpcSeq, sab: cap.swappedSab });
+  } else {
+    webgpuWorker.postMessage({ type: "dispatch", seq: rpcSeq });
+  }
+
+  const deadline = Date.now() + 120000;
+  while (true) {
+    const curState = Atomics.load(rpcCtrlI32, rpc.IDX_STATE);
+    if (curState === rpc.STATE_DONE || curState === rpc.STATE_ERROR) {
+      break;
+    }
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) {
+      webgpuReady = false;
+      webgpuAdapterLabel = "";
+      return { rc: rpc.ERR_TIMEOUT, handle: 0 };
+    }
+    const waitStatus = Atomics.wait(
+      rpcCtrlI32,
+      rpc.IDX_STATE,
+      rpc.STATE_PENDING,
+      Math.min(remaining, 10000)
+    );
+    if (!webgpuReady) {
+      return { rc: rpc.ERR_UNAVAILABLE, handle: 0 };
+    }
+    if (waitStatus === "timed-out" && Date.now() >= deadline) {
+      webgpuReady = false;
+      webgpuAdapterLabel = "";
+      return { rc: rpc.ERR_TIMEOUT, handle: 0 };
+    }
+  }
+
+  const rc = Atomics.load(rpcCtrlI32, rpc.IDX_RESULT_I32) | 0;
+  const handle = Atomics.load(rpcCtrlU32, rpc.IDX_RESULT_U32) >>> 0;
+  Atomics.store(rpcCtrlI32, rpc.IDX_STATE, rpc.STATE_IDLE);
+  if (rc !== rpc.ERR_OK) {
+    return { rc, handle: 0 };
+  }
+  if (readbackFn && !readbackFn(rpcSab, rpcCtrlU32)) {
+    return { rc: rpc.ERR_INVALID_ARGS, handle: 0 };
+  }
+  return { rc: rpc.ERR_OK, handle };
+}
+
+function registerWebGpuSymbols(pyodide) {
+  const mod = pyodide._module;
+  if (!mod) {
+    throw new Error("Pyodide Emscripten _module unavailable");
+  }
+  const rpc = BauxWebGpu.SAB_RPC;
+
+  function baux_webgpu_available() {
+    return webgpuReady ? 1 : 0;
+  }
+  baux_webgpu_available.sig = "i";
+
+  function baux_webgpu_buffer_alloc(bytes) {
+    if (!webgpuReady) {
+      return 0;
+    }
+    const byteSize = checkedPosInt(bytes);
+    if (byteSize === 0) {
+      return 0;
+    }
+    const res = syncWebGpuRpc(
+      rpc.OP_BUFFER_ALLOC,
+      16,
+      (_sab, _i32, u32) => {
+        u32[rpc.IDX_P0] = byteSize;
+        return true;
+      },
+      null
+    );
+    return res.rc === rpc.ERR_OK ? res.handle >>> 0 : 0;
+  }
+  baux_webgpu_buffer_alloc.sig = "ii";
+
+  function baux_webgpu_buffer_free(handle) {
+    const h = handle >>> 0;
+    if (h === 0) {
+      return rpc.ERR_INVALID_ARGS;
+    }
+    const res = syncWebGpuRpc(
+      rpc.OP_BUFFER_FREE,
+      16,
+      (_sab, _i32, u32) => {
+        u32[rpc.IDX_P0] = h;
+        return true;
+      },
+      null
+    );
+    return res.rc | 0;
+  }
+  baux_webgpu_buffer_free.sig = "ii";
+
+  function baux_webgpu_buffer_read_f32(handle, outPtr, len) {
+    const h = handle >>> 0;
+    const elemCount = checkedPosInt(len);
+    if (h === 0 || elemCount === 0) {
+      return rpc.ERR_INVALID_ARGS;
+    }
+    if (!validatePtrAndSlice(mod, outPtr, elemCount, true)) {
+      return rpc.ERR_INVALID_ARGS;
+    }
+    const outOff = rpc.HEADER_BYTES;
+    const needed = align16Bytes(elemCount * 4);
+    const res = syncWebGpuRpc(
+      rpc.OP_BUFFER_READ_F32,
+      needed,
+      (_sab, _i32, u32) => {
+        u32[rpc.IDX_P0] = h;
+        u32[rpc.IDX_OFF0] = outOff;
+        u32[rpc.IDX_LEN0] = elemCount;
+        return true;
+      },
+      (sab) => {
+        const dst = validatePtrAndSlice(mod, outPtr, elemCount, true);
+        if (!dst) {
+          return false;
+        }
+        dst.set(new Float32Array(sab, outOff, elemCount));
+        return true;
+      }
+    );
+    return res.rc | 0;
+  }
+  baux_webgpu_buffer_read_f32.sig = "iiii";
+
+  function baux_webgpu_exact_dist(qRaw, nRaw, dRaw, queriesPtr, rowsPtr, invScale2Ptr, outDist2Ptr) {
+    const q = checkedPosInt(qRaw);
+    const n = checkedPosInt(nRaw);
+    const d = checkedPosInt(dRaw);
+    const qd = checkedMulInt(q, d);
+    const nd = checkedMulInt(n, d);
+    const qn = checkedMulInt(q, n);
+    if (q === 0 || n === 0 || d === 0 || qd === 0 || nd === 0 || qn === 0) {
+      return rpc.ERR_INVALID_ARGS;
+    }
+    const qIn = validatePtrAndSlice(mod, queriesPtr, qd, true);
+    const rIn = validatePtrAndSlice(mod, rowsPtr, nd, true);
+    const hasScale = (invScale2Ptr >>> 0) !== 0;
+    const sIn = hasScale ? validatePtrAndSlice(mod, invScale2Ptr, d, true) : null;
+    const oCheck = validatePtrAndSlice(mod, outDist2Ptr, qn, true);
+    if (!qIn || !rIn || (hasScale && !sIn) || !oCheck) {
+      return rpc.ERR_INVALID_ARGS;
+    }
+
+    const off0 = rpc.HEADER_BYTES;
+    const off1 = off0 + align16Bytes(qd * 4);
+    const off2 = off1 + align16Bytes(nd * 4);
+    const off3 = off2 + (hasScale ? align16Bytes(d * 4) : 0);
+    const needed = off3 + align16Bytes(qn * 4) - rpc.HEADER_BYTES;
+
+    const res = syncWebGpuRpc(
+      rpc.OP_EXACT_DIST,
+      needed,
+      (sab, _i32, u32) => {
+        u32[rpc.IDX_P0] = q;
+        u32[rpc.IDX_P1] = n;
+        u32[rpc.IDX_P2] = d;
+        u32[rpc.IDX_P3] = hasScale ? 1 : 0;
+        u32[rpc.IDX_OFF0] = off0;
+        u32[rpc.IDX_LEN0] = qd;
+        u32[rpc.IDX_OFF1] = off1;
+        u32[rpc.IDX_LEN1] = nd;
+        u32[rpc.IDX_OFF2] = off2;
+        u32[rpc.IDX_LEN2] = hasScale ? d : 0;
+        u32[rpc.IDX_OFF3] = off3;
+        u32[rpc.IDX_LEN3] = qn;
+        new Float32Array(sab, off0, qd).set(qIn);
+        new Float32Array(sab, off1, nd).set(rIn);
+        if (hasScale) {
+          new Float32Array(sab, off2, d).set(sIn);
+        }
+        return true;
+      },
+      (sab) => {
+        const dst = validatePtrAndSlice(mod, outDist2Ptr, qn, true);
+        if (!dst) {
+          return false;
+        }
+        dst.set(new Float32Array(sab, off3, qn));
+        return true;
+      }
+    );
+    return res.rc | 0;
+  }
+  baux_webgpu_exact_dist.sig = "iiiiiiii";
+
+  function baux_webgpu_dense_dist2(qRaw, nRaw, dRaw, aPtr, bPtr, outDist2Ptr) {
+    const q = checkedPosInt(qRaw);
+    const n = checkedPosInt(nRaw);
+    const d = checkedPosInt(dRaw);
+    const qd = checkedMulInt(q, d);
+    const nd = checkedMulInt(n, d);
+    const qn = checkedMulInt(q, n);
+    if (q === 0 || n === 0 || d === 0 || qd === 0 || nd === 0 || qn === 0) {
+      return rpc.ERR_INVALID_ARGS;
+    }
+    const aIn = validatePtrAndSlice(mod, aPtr, qd, true);
+    const bIn = validatePtrAndSlice(mod, bPtr, nd, true);
+    const oCheck = validatePtrAndSlice(mod, outDist2Ptr, qn, true);
+    if (!aIn || !bIn || !oCheck) {
+      return rpc.ERR_INVALID_ARGS;
+    }
+
+    const off0 = rpc.HEADER_BYTES;
+    const off1 = off0 + align16Bytes(qd * 4);
+    const off2 = off1 + align16Bytes(nd * 4);
+    const needed = off2 + align16Bytes(qn * 4) - rpc.HEADER_BYTES;
+
+    const res = syncWebGpuRpc(
+      rpc.OP_DENSE_DIST2,
+      needed,
+      (sab, _i32, u32) => {
+        u32[rpc.IDX_P0] = q;
+        u32[rpc.IDX_P1] = n;
+        u32[rpc.IDX_P2] = d;
+        u32[rpc.IDX_OFF0] = off0;
+        u32[rpc.IDX_LEN0] = qd;
+        u32[rpc.IDX_OFF1] = off1;
+        u32[rpc.IDX_LEN1] = nd;
+        u32[rpc.IDX_OFF2] = off2;
+        u32[rpc.IDX_LEN2] = qn;
+        new Float32Array(sab, off0, qd).set(aIn);
+        new Float32Array(sab, off1, nd).set(bIn);
+        return true;
+      },
+      (sab) => {
+        const dst = validatePtrAndSlice(mod, outDist2Ptr, qn, true);
+        if (!dst) {
+          return false;
+        }
+        dst.set(new Float32Array(sab, off2, qn));
+        return true;
+      }
+    );
+    return res.rc | 0;
+  }
+  baux_webgpu_dense_dist2.sig = "iiiiiii";
+
+  function baux_webgpu_knn_topk(qRaw, nRaw, kRaw, skipRaw, dist2Ptr, outDistPtr, outIdxPtr) {
+    const q = checkedPosInt(qRaw);
+    const n = checkedPosInt(nRaw);
+    const k = checkedPosInt(kRaw);
+    const skip = checkedNonNegInt(skipRaw);
+    const qn = checkedMulInt(q, n);
+    const qk = checkedMulInt(q, k);
+    if (q === 0 || n === 0 || k === 0 || skip < 0 || k > n || skip > n || qn === 0 || qk === 0) {
+      return rpc.ERR_INVALID_ARGS;
+    }
+    const dIn = validatePtrAndSlice(mod, dist2Ptr, qn, true);
+    const odCheck = validatePtrAndSlice(mod, outDistPtr, qk, true);
+    const oiCheck = validatePtrAndSlice(mod, outIdxPtr, qk, false);
+    if (!dIn || !odCheck || !oiCheck) {
+      return rpc.ERR_INVALID_ARGS;
+    }
+
+    const off0 = rpc.HEADER_BYTES;
+    const off1 = off0 + align16Bytes(qn * 4);
+    const off2 = off1 + align16Bytes(qk * 4);
+    const needed = off2 + align16Bytes(qk * 4) - rpc.HEADER_BYTES;
+
+    const res = syncWebGpuRpc(
+      rpc.OP_KNN_TOPK,
+      needed,
+      (sab, _i32, u32) => {
+        u32[rpc.IDX_P0] = q;
+        u32[rpc.IDX_P1] = n;
+        u32[rpc.IDX_P2] = k;
+        u32[rpc.IDX_P3] = skip >>> 0;
+        u32[rpc.IDX_OFF0] = off0;
+        u32[rpc.IDX_LEN0] = qn;
+        u32[rpc.IDX_OFF1] = off1;
+        u32[rpc.IDX_LEN1] = qk;
+        u32[rpc.IDX_OFF2] = off2;
+        u32[rpc.IDX_LEN2] = qk;
+        new Float32Array(sab, off0, qn).set(dIn);
+        return true;
+      },
+      (sab) => {
+        const dstDist = validatePtrAndSlice(mod, outDistPtr, qk, true);
+        const dstIdx = validatePtrAndSlice(mod, outIdxPtr, qk, false);
+        if (!dstDist || !dstIdx) {
+          return false;
+        }
+        dstDist.set(new Float32Array(sab, off1, qk));
+        dstIdx.set(new Uint32Array(sab, off2, qk));
+        return true;
+      }
+    );
+    return res.rc | 0;
+  }
+  baux_webgpu_knn_topk.sig = "iiiiiiii";
+
+  function baux_webgpu_device_posterior(
+    queriesRaw,
+    nRaw,
+    metricsRaw,
+    inputKRaw,
+    kRaw,
+    skipRaw,
+    epistemicScale,
+    aleatoricScale,
+    epsilon,
+    observationNoiseRaw,
+    distancesPtr,
+    idsPtr,
+    outcomesPtr,
+    variancesPtr,
+    scalesPtr,
+    outSummaryPtr,
+    outSelectedPtr,
+    outWeightsPtr
+  ) {
+    const queries = checkedPosInt(queriesRaw);
+    const n = checkedPosInt(nRaw);
+    const metrics = checkedPosInt(metricsRaw);
+    const inputK = checkedPosInt(inputKRaw);
+    const k = checkedPosInt(kRaw);
+    const skip = checkedNonNegInt(skipRaw);
+    const qkIn = checkedMulInt(queries, inputK);
+    const nm = checkedMulInt(n, metrics);
+    const qm = checkedMulInt(queries, metrics);
+    const sumLen = checkedMulInt(qm, 4);
+    const qk = checkedMulInt(queries, k);
+    const qkm = checkedMulInt(qk, metrics);
+    if (
+      queries === 0 ||
+      n === 0 ||
+      metrics === 0 ||
+      inputK === 0 ||
+      k === 0 ||
+      skip < 0 ||
+      skip + k > inputK ||
+      qkIn === 0 ||
+      nm === 0 ||
+      sumLen === 0 ||
+      qk === 0 ||
+      qkm === 0
+    ) {
+      return rpc.ERR_INVALID_ARGS;
+    }
+
+    const distIn = validatePtrAndSlice(mod, distancesPtr, qkIn, true);
+    const idsIn = validatePtrAndSlice(mod, idsPtr, qkIn, false);
+    const outcIn = validatePtrAndSlice(mod, outcomesPtr, nm, true);
+    const scaleIn = validatePtrAndSlice(mod, scalesPtr, metrics, true);
+    const hasVar = (variancesPtr >>> 0) !== 0;
+    const varIn = hasVar ? validatePtrAndSlice(mod, variancesPtr, nm, true) : null;
+    const sumCheck = validatePtrAndSlice(mod, outSummaryPtr, sumLen, true);
+    const selCheck = validatePtrAndSlice(mod, outSelectedPtr, qk, false);
+    const wCheck = validatePtrAndSlice(mod, outWeightsPtr, qkm, true);
+    if (
+      !distIn ||
+      !idsIn ||
+      !outcIn ||
+      !scaleIn ||
+      (hasVar && !varIn) ||
+      !sumCheck ||
+      !selCheck ||
+      !wCheck
+    ) {
+      return rpc.ERR_INVALID_ARGS;
+    }
+
+    const off0 = rpc.HEADER_BYTES;
+    const off1 = off0 + align16Bytes(qkIn * 4);
+    const off2 = off1 + align16Bytes(qkIn * 4);
+    const off3 = off2 + align16Bytes(nm * 4);
+    const off4 = off3 + align16Bytes(metrics * 4);
+    const off5 = off4 + (hasVar ? align16Bytes(nm * 4) : 0);
+    const off6 = off5 + align16Bytes(sumLen * 4);
+    const off7 = off6 + align16Bytes(qk * 4);
+    const needed = off7 + align16Bytes(qkm * 4) - rpc.HEADER_BYTES;
+
+    const res = syncWebGpuRpc(
+      rpc.OP_DEVICE_POSTERIOR,
+      needed,
+      (sab, _i32, u32, f32) => {
+        u32[rpc.IDX_P0] = queries;
+        u32[rpc.IDX_P1] = n;
+        u32[rpc.IDX_P2] = metrics;
+        u32[rpc.IDX_P3] = inputK;
+        u32[rpc.IDX_P4] = k;
+        u32[rpc.IDX_P5] = skip >>> 0;
+        u32[rpc.IDX_P6] = observationNoiseRaw ? 1 : 0;
+        u32[rpc.IDX_P7] = hasVar ? 1 : 0;
+        f32[rpc.IDX_F0] = Number(epistemicScale);
+        f32[rpc.IDX_F1] = Number(aleatoricScale);
+        f32[rpc.IDX_F2] = Number(epsilon);
+        u32[rpc.IDX_OFF0] = off0;
+        u32[rpc.IDX_LEN0] = qkIn;
+        u32[rpc.IDX_OFF1] = off1;
+        u32[rpc.IDX_LEN1] = qkIn;
+        u32[rpc.IDX_OFF2] = off2;
+        u32[rpc.IDX_LEN2] = nm;
+        u32[rpc.IDX_OFF3] = off3;
+        u32[rpc.IDX_LEN3] = metrics;
+        u32[rpc.IDX_OFF4] = off4;
+        u32[rpc.IDX_LEN4] = hasVar ? nm : 0;
+        u32[rpc.IDX_OFF5] = off5;
+        u32[rpc.IDX_LEN5] = sumLen;
+        u32[rpc.IDX_OFF6] = off6;
+        u32[rpc.IDX_LEN6] = qk;
+        u32[rpc.IDX_OFF7] = off7;
+        u32[rpc.IDX_LEN7] = qkm;
+        new Float32Array(sab, off0, qkIn).set(distIn);
+        new Uint32Array(sab, off1, qkIn).set(idsIn);
+        new Float32Array(sab, off2, nm).set(outcIn);
+        new Float32Array(sab, off3, metrics).set(scaleIn);
+        if (hasVar) {
+          new Float32Array(sab, off4, nm).set(varIn);
+        }
+        return true;
+      },
+      (sab) => {
+        const dstSum = validatePtrAndSlice(mod, outSummaryPtr, sumLen, true);
+        const dstSel = validatePtrAndSlice(mod, outSelectedPtr, qk, false);
+        const dstW = validatePtrAndSlice(mod, outWeightsPtr, qkm, true);
+        if (!dstSum || !dstSel || !dstW) {
+          return false;
+        }
+        dstSum.set(new Float32Array(sab, off5, sumLen));
+        dstSel.set(new Uint32Array(sab, off6, qk));
+        dstW.set(new Float32Array(sab, off7, qkm));
+        return true;
+      }
+    );
+    return res.rc | 0;
+  }
+  baux_webgpu_device_posterior.sig = "iiiiiiifffiiiiiiiii";
+
+  function baux_webgpu_dense_apply(mRaw, nRaw, kRaw, xPtr, wPtr, biasPtr, yPtr) {
+    const m = checkedPosInt(mRaw);
+    const n = checkedPosInt(nRaw);
+    const k = checkedPosInt(kRaw);
+    const mk = checkedMulInt(m, k);
+    const nk = checkedMulInt(n, k);
+    const mn = checkedMulInt(m, n);
+    if (m === 0 || n === 0 || k === 0 || mk === 0 || nk === 0 || mn === 0) {
+      return rpc.ERR_INVALID_ARGS;
+    }
+    const xIn = validatePtrAndSlice(mod, xPtr, mk, true);
+    const wIn = validatePtrAndSlice(mod, wPtr, nk, true);
+    const hasBias = (biasPtr >>> 0) !== 0;
+    const bIn = hasBias ? validatePtrAndSlice(mod, biasPtr, n, true) : null;
+    const yCheck = validatePtrAndSlice(mod, yPtr, mn, true);
+    if (!xIn || !wIn || (hasBias && !bIn) || !yCheck) {
+      return rpc.ERR_INVALID_ARGS;
+    }
+
+    const off0 = rpc.HEADER_BYTES;
+    const off1 = off0 + align16Bytes(mk * 4);
+    const off2 = off1 + align16Bytes(nk * 4);
+    const off3 = off2 + (hasBias ? align16Bytes(n * 4) : 0);
+    const needed = off3 + align16Bytes(mn * 4) - rpc.HEADER_BYTES;
+
+    const res = syncWebGpuRpc(
+      rpc.OP_DENSE_APPLY,
+      needed,
+      (sab, _i32, u32) => {
+        u32[rpc.IDX_P0] = m;
+        u32[rpc.IDX_P1] = n;
+        u32[rpc.IDX_P2] = k;
+        u32[rpc.IDX_P3] = hasBias ? 1 : 0;
+        u32[rpc.IDX_OFF0] = off0;
+        u32[rpc.IDX_LEN0] = mk;
+        u32[rpc.IDX_OFF1] = off1;
+        u32[rpc.IDX_LEN1] = nk;
+        u32[rpc.IDX_OFF2] = off2;
+        u32[rpc.IDX_LEN2] = hasBias ? n : 0;
+        u32[rpc.IDX_OFF3] = off3;
+        u32[rpc.IDX_LEN3] = mn;
+        new Float32Array(sab, off0, mk).set(xIn);
+        new Float32Array(sab, off1, nk).set(wIn);
+        if (hasBias) {
+          new Float32Array(sab, off2, n).set(bIn);
+        }
+        return true;
+      },
+      (sab) => {
+        const dst = validatePtrAndSlice(mod, yPtr, mn, true);
+        if (!dst) {
+          return false;
+        }
+        dst.set(new Float32Array(sab, off3, mn));
+        return true;
+      }
+    );
+    return res.rc | 0;
+  }
+  baux_webgpu_dense_apply.sig = "iiiiiiii";
+
+  function baux_webgpu_weight_select(
+    batchRaw,
+    candidatesRaw,
+    modeRaw,
+    emitSoftmaxRaw,
+    beta,
+    temperature,
+    minProb,
+    muPtr,
+    sePtr,
+    zPtr,
+    outScoresPtr,
+    outProbsPtr,
+    outBestIdxPtr,
+    outBestScorePtr
+  ) {
+    const batch = checkedPosInt(batchRaw);
+    const candidates = checkedPosInt(candidatesRaw);
+    const mode = modeRaw >>> 0;
+    const bc = checkedMulInt(batch, candidates);
+    if (batch === 0 || candidates === 0 || mode > 2 || bc === 0) {
+      return rpc.ERR_INVALID_ARGS;
+    }
+    const muIn = validatePtrAndSlice(mod, muPtr, bc, true);
+    const seIn = validatePtrAndSlice(mod, sePtr, bc, true);
+    const hasZ = mode === 1 && (zPtr >>> 0) !== 0;
+    const zIn = hasZ ? validatePtrAndSlice(mod, zPtr, bc, true) : null;
+    if (mode === 1 && !zIn) {
+      return rpc.ERR_INVALID_ARGS;
+    }
+    const scoresCheck = validatePtrAndSlice(mod, outScoresPtr, bc, true);
+    const probsCheck = validatePtrAndSlice(mod, outProbsPtr, bc, true);
+    const idxCheck = validatePtrAndSlice(mod, outBestIdxPtr, batch, false);
+    const bestCheck = validatePtrAndSlice(mod, outBestScorePtr, batch, true);
+    if (!muIn || !seIn || !scoresCheck || !probsCheck || !idxCheck || !bestCheck) {
+      return rpc.ERR_INVALID_ARGS;
+    }
+
+    const off0 = rpc.HEADER_BYTES;
+    const off1 = off0 + align16Bytes(bc * 4);
+    const off2 = off1 + align16Bytes(bc * 4);
+    const off3 = off2 + (hasZ ? align16Bytes(bc * 4) : 0);
+    const off4 = off3 + align16Bytes(bc * 4);
+    const off5 = off4 + align16Bytes(bc * 4);
+    const off6 = off5 + align16Bytes(batch * 4);
+    const needed = off6 + align16Bytes(batch * 4) - rpc.HEADER_BYTES;
+
+    const res = syncWebGpuRpc(
+      rpc.OP_WEIGHT_SELECT,
+      needed,
+      (sab, _i32, u32, f32) => {
+        u32[rpc.IDX_P0] = batch;
+        u32[rpc.IDX_P1] = candidates;
+        u32[rpc.IDX_P2] = mode;
+        u32[rpc.IDX_P3] = emitSoftmaxRaw ? 1 : 0;
+        u32[rpc.IDX_P4] = hasZ ? 1 : 0;
+        f32[rpc.IDX_F0] = Number(beta);
+        f32[rpc.IDX_F1] = Number(temperature);
+        f32[rpc.IDX_F2] = Number(minProb);
+        u32[rpc.IDX_OFF0] = off0;
+        u32[rpc.IDX_LEN0] = bc;
+        u32[rpc.IDX_OFF1] = off1;
+        u32[rpc.IDX_LEN1] = bc;
+        u32[rpc.IDX_OFF2] = off2;
+        u32[rpc.IDX_LEN2] = hasZ ? bc : 0;
+        u32[rpc.IDX_OFF3] = off3;
+        u32[rpc.IDX_LEN3] = bc;
+        u32[rpc.IDX_OFF4] = off4;
+        u32[rpc.IDX_LEN4] = bc;
+        u32[rpc.IDX_OFF5] = off5;
+        u32[rpc.IDX_LEN5] = batch;
+        u32[rpc.IDX_OFF6] = off6;
+        u32[rpc.IDX_LEN6] = batch;
+        new Float32Array(sab, off0, bc).set(muIn);
+        new Float32Array(sab, off1, bc).set(seIn);
+        if (hasZ) {
+          new Float32Array(sab, off2, bc).set(zIn);
+        }
+        return true;
+      },
+      (sab) => {
+        const dstScores = validatePtrAndSlice(mod, outScoresPtr, bc, true);
+        const dstProbs = validatePtrAndSlice(mod, outProbsPtr, bc, true);
+        const dstIdx = validatePtrAndSlice(mod, outBestIdxPtr, batch, false);
+        const dstBest = validatePtrAndSlice(mod, outBestScorePtr, batch, true);
+        if (!dstScores || !dstProbs || !dstIdx || !dstBest) {
+          return false;
+        }
+        dstScores.set(new Float32Array(sab, off3, bc));
+        dstProbs.set(new Float32Array(sab, off4, bc));
+        dstIdx.set(new Uint32Array(sab, off5, batch));
+        dstBest.set(new Float32Array(sab, off6, batch));
+        return true;
+      }
+    );
+    return res.rc | 0;
+  }
+  baux_webgpu_weight_select.sig = "iiiiifffiiiiiii";
+
+  const symbols = {
+    baux_webgpu_available,
+    baux_webgpu_buffer_alloc,
+    baux_webgpu_buffer_free,
+    baux_webgpu_buffer_read_f32,
+    baux_webgpu_exact_dist,
+    baux_webgpu_knn_topk,
+    baux_webgpu_device_posterior,
+    baux_webgpu_dense_apply,
+    baux_webgpu_dense_dist2,
+    baux_webgpu_weight_select,
+  };
+
+  if (typeof mod.mergeLibSymbols === "function") {
+    mod.mergeLibSymbols(symbols, "baux_webgpu");
+  }
+  mod.baux_webgpu_available = baux_webgpu_available;
+  mod.baux_webgpu_buffer_alloc = baux_webgpu_buffer_alloc;
+  mod.baux_webgpu_buffer_free = baux_webgpu_buffer_free;
+  mod.baux_webgpu_buffer_read_f32 = baux_webgpu_buffer_read_f32;
+  mod.baux_webgpu_exact_dist = baux_webgpu_exact_dist;
+  mod.baux_webgpu_knn_topk = baux_webgpu_knn_topk;
+  mod.baux_webgpu_device_posterior = baux_webgpu_device_posterior;
+  mod.baux_webgpu_dense_apply = baux_webgpu_dense_apply;
+  mod.baux_webgpu_dense_dist2 = baux_webgpu_dense_dist2;
+  mod.baux_webgpu_weight_select = baux_webgpu_weight_select;
+}
+
+async function initWebGpuChannel(workerSpec) {
+  const rpc = BauxWebGpu.SAB_RPC;
+  webgpuReady = false;
+  webgpuAdapterLabel = "";
+  webgpuMaxBufferBytes = 0;
+  webgpuMaxStorageBytes = 0;
+
+  const canUseSubWorker =
+    Boolean(self.crossOriginIsolated) &&
+    typeof SharedArrayBuffer === "function" &&
+    typeof Atomics === "object" &&
+    typeof Atomics.wait === "function" &&
+    typeof Worker === "function" &&
+    typeof navigator !== "undefined" &&
+    Boolean(navigator.gpu);
+
+  if (!canUseSubWorker) {
+    return;
+  }
+
+  try {
+    if (
+      workerSpec &&
+      typeof workerSpec.size === "number" &&
+      typeof workerSpec.sha256 === "string" &&
+      workerSpec.sha256.length === 64
+    ) {
+      await fetchVerifiedBytes("./" + workerSpec.path, workerSpec.size, workerSpec.sha256);
+    }
+
+    const initialSab = new SharedArrayBuffer(rpc.HEADER_BYTES + rpc.DEFAULT_STAGING_BYTES);
+    bindRpcSab(initialSab);
+
+    await new Promise((resolve) => {
+      let settled = false;
+      const done = () => {
+        if (!settled) {
+          settled = true;
+          clearTimeout(timer);
+          resolve();
+        }
+      };
+
+      const worker = new Worker("./webgpu_worker.js");
+      const timer = setTimeout(() => {
+        webgpuReady = false;
+        webgpuAdapterLabel = "";
+        try {
+          worker.terminate();
+        } catch (_) {
+          // Ignore worker terminate errors after init timeout.
+        }
+        webgpuWorker = null;
+        done();
+      }, 15000);
+
+      worker.onmessage = (event) => {
+        const msg = event.data || {};
+        if (msg.type === "ready") {
+          if (msg.available) {
+            webgpuWorker = worker;
+            webgpuReady = true;
+            webgpuAdapterLabel = String(msg.adapterLabel || BauxWebGpu.formatAdapterLabel(msg.adapterInfo) || "");
+            if (msg.limits && typeof msg.limits.maxBufferSize === "number") {
+              webgpuMaxBufferBytes = msg.limits.maxBufferSize;
+            }
+            if (msg.limits && typeof msg.limits.maxStorageBufferBindingSize === "number") {
+              webgpuMaxStorageBytes = msg.limits.maxStorageBufferBindingSize;
+            }
+          } else {
+            webgpuReady = false;
+            webgpuAdapterLabel = "";
+            try {
+              worker.terminate();
+            } catch (_) {
+              // Ignore teardown of inactive WebGPU sub-worker.
+            }
+            webgpuWorker = null;
+          }
+          done();
+          return;
+        }
+        if (msg.type === "lost") {
+          webgpuReady = false;
+          webgpuAdapterLabel = "";
+        }
+      };
+
+      worker.onerror = () => {
+        webgpuReady = false;
+        webgpuAdapterLabel = "";
+        webgpuWorker = null;
+        done();
+      };
+
+      worker.postMessage({ type: "init", sab: initialSab, eagerCompile: true });
+    });
+  } catch (_) {
+    webgpuReady = false;
+    webgpuAdapterLabel = "";
+    webgpuWorker = null;
+  }
+}
+
+async function mountWorkspaceFs(pyodide, allowOpfs) {
+  opfsMounted = false;
+  opfsHandle = null;
+  pyodide.FS.mkdirTree("/workspace");
+  if (
+    !allowOpfs ||
+    typeof navigator === "undefined" ||
+    !navigator.storage ||
+    typeof navigator.storage.getDirectory !== "function" ||
+    typeof pyodide.mountNativeFS !== "function"
+  ) {
+    return;
+  }
+  try {
+    const rootDir = await navigator.storage.getDirectory();
+    const workspaceDir = await rootDir.getDirectoryHandle("workspace", { create: true });
+    opfsHandle = await pyodide.mountNativeFS("/workspace", workspaceDir);
+    opfsMounted = true;
+  } catch (_) {
+    // Graceful fallback to Emscripten MEMFS /workspace on restricted origins/browsers.
+    pyodide.FS.mkdirTree("/workspace");
+    opfsHandle = null;
+    opfsMounted = false;
+  }
+}
 
 function bytesToHex(buffer) {
   const bytes = new Uint8Array(buffer);
@@ -483,22 +1409,87 @@ async function ensureRuntime() {
     return runtimePromise;
   }
   runtimePromise = (async () => {
-    self.postMessage({ type: "status", stage: "downloading_manifest", detail: "Fetching Python runtime manifest..." });
+    self.postMessage({
+      type: "status",
+      stage: "downloading_manifest",
+      detail: "Fetching Python runtime manifest...",
+    });
     const manifest = await fetchJsonStrict("./repl_manifest.json");
     const zipSpec = manifest.baux_py_zip;
+    const companion =
+      manifest && typeof manifest.companion_files === "object" && manifest.companion_files !== null
+        ? manifest.companion_files
+        : {};
 
-    self.postMessage({ type: "status", stage: "downloading_wasm", detail: "Loading CPython 3.12 WebAssembly kernel..." });
+    await Promise.all([
+      loadVerifiedScript("./webgpu_bridge.js", companion.webgpu_bridge_js || null),
+      loadVerifiedScript("./oxcaml_eval.js", companion.oxcaml_eval_js || null),
+    ]);
+
+    if (typeof BauxWebGpu === "undefined" || !BauxWebGpu.SAB_RPC) {
+      throw new Error("webgpu_bridge.js did not expose BauxWebGpu.SAB_RPC");
+    }
+    if (!globalThis.BauxOxcaml || typeof globalThis.BauxOxcaml.evalOne !== "function") {
+      throw new Error("oxcaml_eval.js did not expose globalThis.BauxOxcaml");
+    }
+    globalThis._baux_oxcaml = globalThis.BauxOxcaml;
+
+    self.postMessage({
+      type: "status",
+      stage: "downloading_wasm",
+      detail: "Loading CPython 3.12 WebAssembly kernel...",
+    });
     const [pyodide, zipBuf] = await Promise.all([
       loadPyodide({ indexURL: "./pyodide/" }),
       fetchVerifiedBytes("./" + zipSpec.path, zipSpec.size, zipSpec.sha256),
+      initWebGpuChannel(companion.webgpu_worker_js || null),
     ]);
 
-    self.postMessage({ type: "status", stage: "loading_numpy", detail: "Loading NumPy WebAssembly package..." });
+    applyInterruptBuffer(pyodide);
+    // Register all baux_webgpu_* C symbols on Emscripten wasmImports BEFORE
+    // instantiating baux_rust.cpython-312-wasm32-emscripten.so.
+    registerWebGpuSymbols(pyodide);
+
+    self.postMessage({
+      type: "status",
+      stage: "loading_numpy",
+      detail: "Loading NumPy WebAssembly package...",
+    });
     await pyodide.loadPackage(["numpy"]);
 
-    self.postMessage({ type: "status", stage: "mounting_baux", detail: "Verifying & mounting baux Python package..." });
+    self.postMessage({
+      type: "status",
+      stage: "mounting_baux",
+      detail: "Verifying & mounting baux WASM runtime + /workspace...",
+    });
+    await mountWorkspaceFs(pyodide, wantOpfsMount);
+
     pyodide.FS.mkdirTree("/home/pyodide/baux_pkg");
     pyodide.unpackArchive(zipBuf, "zip", { extractDir: "/home/pyodide/baux_pkg" });
+
+    const soPath = "/home/pyodide/baux_pkg/baux/baux_rust.cpython-312-wasm32-emscripten.so";
+    if (!pyodide.FS.analyzePath(soPath).exists) {
+      throw new Error("Missing compiled baux_rust.cpython-312-wasm32-emscripten.so in baux_py.zip");
+    }
+    if (pyodide._api && typeof pyodide._api.loadDynlib === "function") {
+      await pyodide._api.loadDynlib(soPath, false);
+    } else if (typeof pyodide.loadDynamicLibrary === "function") {
+      await pyodide.loadDynamicLibrary(soPath, {
+        loadAsync: true,
+        nodelete: true,
+        global: false,
+        fs: pyodide.FS,
+      });
+    } else if (pyodide._module && typeof pyodide._module.loadDynamicLibrary === "function") {
+      await pyodide._module.loadDynamicLibrary(soPath, {
+        loadAsync: true,
+        nodelete: true,
+        allowUndefined: true,
+        global: false,
+        fs: pyodide.FS,
+      });
+    }
+
     try {
       const envResp = await fetch("./baux_env.json", { credentials: "same-origin" });
       if (envResp.ok) {
@@ -508,9 +1499,16 @@ async function ensureRuntime() {
     } catch (_) {
       // Optional bundled physics metadata; offline or minimal bundles may omit it.
     }
+
     await pyodide.runPythonAsync(BOOTSTRAP_PY);
 
-    self.postMessage({ type: "status", stage: "ready", detail: "Python 3.12 + NumPy + baux ready" });
+    self.postMessage({
+      type: "status",
+      stage: "ready",
+      detail: "Python 3.12 + NumPy + baux ready",
+      caps: buildCaps(),
+      opfs_mounted: opfsMounted,
+    });
     return pyodide;
   })().catch((err) => {
     runtimePromise = null;
@@ -521,11 +1519,65 @@ async function ensureRuntime() {
 
 self.onmessage = async (event) => {
   const msg = event.data || {};
-  const id = msg.id || null;
+  const id = msg.id !== undefined ? msg.id : null;
   try {
+    if (msg.type === "interrupt") {
+      if (
+        msg.interruptBuffer &&
+        typeof SharedArrayBuffer === "function" &&
+        msg.interruptBuffer instanceof SharedArrayBuffer
+      ) {
+        pendingInterruptBuffer = msg.interruptBuffer;
+        interruptView = new Int32Array(pendingInterruptBuffer);
+      }
+      if (interruptView && typeof Atomics === "object") {
+        Atomics.store(interruptView, 0, 2);
+      }
+      self.postMessage({
+        type: "status",
+        stage: "interrupting",
+        detail: "Sending SIGINT via SharedArrayBuffer...",
+        caps: buildCaps(),
+      });
+      if (id !== null) {
+        self.postMessage({
+          type: "result",
+          id,
+          ok: true,
+          stdout: "",
+          stderr: "",
+          incomplete: false,
+          caps: buildCaps(),
+          opfs_mounted: opfsMounted,
+        });
+      }
+      return;
+    }
+
     if (msg.type === "init") {
-      await ensureRuntime();
-      self.postMessage({ type: "result", id, ok: true, stdout: "", stderr: "", incomplete: false });
+      if (msg.mountOpfs !== undefined) {
+        wantOpfsMount = Boolean(msg.mountOpfs);
+      }
+      if (
+        msg.interruptBuffer &&
+        typeof SharedArrayBuffer === "function" &&
+        msg.interruptBuffer instanceof SharedArrayBuffer
+      ) {
+        pendingInterruptBuffer = msg.interruptBuffer;
+        interruptView = new Int32Array(pendingInterruptBuffer);
+      }
+      const pyodide = await ensureRuntime();
+      applyInterruptBuffer(pyodide);
+      self.postMessage({
+        type: "result",
+        id,
+        ok: true,
+        stdout: "",
+        stderr: "",
+        incomplete: false,
+        caps: buildCaps(),
+        opfs_mounted: opfsMounted,
+      });
       return;
     }
 
@@ -533,23 +1585,58 @@ self.onmessage = async (event) => {
 
     if (msg.type === "reset_ns") {
       pyodide.globals.get("_reset_namespace")();
-      self.postMessage({ type: "result", id, ok: true, stdout: "", stderr: "", incomplete: false, state: null });
+      await flushOpfs();
+      self.postMessage({
+        type: "result",
+        id,
+        ok: true,
+        stdout: "",
+        stderr: "",
+        incomplete: false,
+        state: null,
+        caps: buildCaps(),
+        opfs_mounted: opfsMounted,
+      });
       return;
     }
 
     if (msg.type === "exec") {
-      const fn = pyodide.globals.get("_baux_exec_script");
-      const raw = fn(String(msg.code || ""), Boolean(msg.resetNamespace));
+      clearStaleInterruptSignal();
+      let raw;
+      try {
+        const fn = pyodide.globals.get("_baux_exec_script");
+        raw = fn(String(msg.code || ""), Boolean(msg.resetNamespace));
+      } finally {
+        clearStaleInterruptSignal();
+      }
+      await flushOpfs();
       const payload = JSON.parse(raw);
-      self.postMessage(Object.assign({ type: "result", id }, payload));
+      self.postMessage(
+        Object.assign(
+          { type: "result", id, caps: buildCaps(), opfs_mounted: opfsMounted },
+          payload
+        )
+      );
       return;
     }
 
     if (msg.type === "repl") {
-      const fn = pyodide.globals.get("_baux_repl_push");
-      const raw = fn(String(msg.line || ""));
+      clearStaleInterruptSignal();
+      let raw;
+      try {
+        const fn = pyodide.globals.get("_baux_repl_push");
+        raw = fn(String(msg.line || ""));
+      } finally {
+        clearStaleInterruptSignal();
+      }
+      await flushOpfs();
       const payload = JSON.parse(raw);
-      self.postMessage(Object.assign({ type: "result", id }, payload));
+      self.postMessage(
+        Object.assign(
+          { type: "result", id, caps: buildCaps(), opfs_mounted: opfsMounted },
+          payload
+        )
+      );
       return;
     }
 
@@ -560,7 +1647,16 @@ self.onmessage = async (event) => {
       return;
     }
 
-    self.postMessage({ type: "result", id, ok: false, stdout: "", stderr: "Unknown worker command", incomplete: false });
+    self.postMessage({
+      type: "result",
+      id,
+      ok: false,
+      stdout: "",
+      stderr: "Unknown worker command",
+      incomplete: false,
+      caps: buildCaps(),
+      opfs_mounted: opfsMounted,
+    });
   } catch (err) {
     self.postMessage({
       type: "result",
@@ -569,6 +1665,8 @@ self.onmessage = async (event) => {
       stdout: "",
       stderr: err && err.stack ? String(err.stack) : String(err),
       incomplete: false,
+      caps: buildCaps(),
+      opfs_mounted: opfsMounted,
     });
   }
 };

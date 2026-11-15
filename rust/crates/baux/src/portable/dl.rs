@@ -6,7 +6,9 @@
 //! RTLD_GLOBAL` on first use and retained for the lifetime of the process.
 
 use super::Result;
-use std::ffi::{CStr, CString, c_char, c_void};
+use std::ffi::{CStr, c_void};
+#[cfg(unix)]
+use std::ffi::{CString, c_char};
 use std::path::{Path, PathBuf};
 
 #[cfg(unix)]
@@ -184,7 +186,15 @@ pub(super) fn open_plugin(
     python_rel_dirs: &[&str],
     label: &str,
 ) -> Result<Library> {
-    #[cfg(not(unix))]
+    #[cfg(target_arch = "wasm32")]
+    {
+        let _ = (env_var, sonames, python_rel_dirs);
+        return Err(format!(
+            "{label} native runtime relies on dlopen, which is unavailable in wasm32"
+        ));
+    }
+
+    #[cfg(all(not(unix), not(target_arch = "wasm32")))]
     {
         let _ = (env_var, sonames, python_rel_dirs);
         return Err(format!("{label} native runtime requires a Unix platform"));

@@ -6,7 +6,9 @@
 pub use crate::acquisition::{
     AcquisitionError, ParetoAcquisition, RandomAcquisition, ThompsonAcquisition, UCBAcquisition,
 };
-pub use crate::backend::{DiskStore, EnnStorage, MemoryStore, Storage, Store};
+#[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
+pub use crate::backend::DiskStore;
+pub use crate::backend::{EnnStorage, MemoryStore, Storage, Store};
 pub use crate::candidates::{
     CandidateSampler, from_unit, generate_candidates, generate_lhd, to_unit,
 };

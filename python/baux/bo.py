@@ -112,9 +112,11 @@ def _plan(cfg: OptimizerConfig) -> _Plan:
         import sys
 
         if sys.platform == "emscripten":
-            from ._rust import _ext
-
-            return _Plan("gp", gp=_ext.optimizer.NumpyGPSurrogate())
+            raise RuntimeError(
+                "GaussianProcess / turbo_one requires PyTorch + GPyTorch and is not enabled "
+                "in browser WASM; use baux.turbo_enn(), baux.enn(), or baux.turbo_zero(), "
+                "or switch Runtime to Local Native."
+            )
         from .turbo.gp import Surrogate
 
         return _Plan("gp", gp=Surrogate())

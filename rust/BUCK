@@ -5971,6 +5971,9 @@ reindeer_rust_library(
         "macos-x86_64": dict(
             deps = [":libc-0.2"],
         ),
+        "wasm32": dict(
+            deps = [":libc-0.2"],
+        ),
     },
     visibility = [],
     deps = [":cfg-if-1"],
@@ -6020,6 +6023,9 @@ reindeer_rust_library(
             deps = [":libc-0.2"],
         ),
         "macos-x86_64": dict(
+            deps = [":libc-0.2"],
+        ),
+        "wasm32": dict(
             deps = [":libc-0.2"],
         ),
     },
@@ -6118,6 +6124,9 @@ reindeer_rust_library(
             deps = [":libc-0.2"],
         ),
         "macos-x86_64": dict(
+            deps = [":libc-0.2"],
+        ),
+        "wasm32": dict(
             deps = [":libc-0.2"],
         ),
     },
@@ -7983,6 +7992,9 @@ reindeer_rust_library(
         "jcore": ":jiff-core-0.1",
     },
     platform = {
+        "wasm32": dict(
+            deps = [":jiff-tzdb-platform-0.1"],
+        ),
         "windows-gnu": dict(
             deps = [
                 ":jiff-tzdb-platform-0.1",
@@ -8438,6 +8450,9 @@ reindeer_rust_library(
         "macos-x86_64": dict(
             features = ["extra_traits"],
         ),
+        "wasm32": dict(
+            features = ["extra_traits"],
+        ),
     },
     rustc_flags = ["@$(location :libc-0.2-build-script-run[rustc_flags])"],
     visibility = [],
@@ -8483,6 +8498,9 @@ reindeer_rust_binary(
         "macos-x86_64": dict(
             features = ["extra_traits"],
         ),
+        "wasm32": dict(
+            features = ["extra_traits"],
+        ),
     },
     visibility = [],
 )
@@ -8518,6 +8536,9 @@ buildscript_run(
             features = ["extra_traits"],
         ),
         "macos-x86_64": dict(
+            features = ["extra_traits"],
+        ),
+        "wasm32": dict(
             features = ["extra_traits"],
         ),
     },
@@ -13359,6 +13380,9 @@ reindeer_rust_library(
         "macos-x86_64": dict(
             deps = [":libc-0.2"],
         ),
+        "wasm32": dict(
+            deps = [":libc-0.2"],
+        ),
     },
     visibility = [],
     deps = [
@@ -15892,10 +15916,23 @@ reindeer_rust_library(
         "default",
         "std",
     ],
+    platform = {
+        "linux-arm64": dict(
+            deps = [":cpufeatures-0.2"],
+        ),
+        "linux-x86_64": dict(
+            deps = [":cpufeatures-0.2"],
+        ),
+        "macos-arm64": dict(
+            deps = [":cpufeatures-0.2"],
+        ),
+        "macos-x86_64": dict(
+            deps = [":cpufeatures-0.2"],
+        ),
+    },
     visibility = [],
     deps = [
         ":cfg-if-1",
-        ":cpufeatures-0.2",
         ":digest-0.10",
     ],
 )

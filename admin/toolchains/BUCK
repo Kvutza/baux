@@ -4,14 +4,46 @@ load("@prelude//toolchains:python.bzl", "remote_python_toolchain")
 load("@prelude//tests:test_toolchain.bzl", "noop_test_toolchain")
 load("@prelude//toolchains:remote_test_execution.bzl", "remote_test_execution_toolchain")
 load(":rust.bzl", "pinned_rust_toolchain")
+load(":wasm.bzl", "toolchain_alias", "wasm_archives", "wasm_toolchains")
 
 config_setting(
     name = "build-tool",
     constraint_values = ["prelude//cfg/exec_platform/marker:is_exec_platform[true]"],
 )
 
-pinned_rust_toolchain(name = "rust")
-baux_cxx_toolchain(name = "cxx")
+constraint_setting(
+    name = "abi",
+    visibility = ["PUBLIC"],
+)
+
+constraint_value(
+    name = "wasm32-emscripten",
+    constraint_setting = ":abi",
+    visibility = ["PUBLIC"],
+)
+
+wasm_archives()
+
+pinned_rust_toolchain(name = "rust-host")
+baux_cxx_toolchain(name = "cxx-host")
+wasm_toolchains(host_sysroot = ":rust-host-sysroot")
+
+toolchain_alias(
+    name = "rust",
+    actual = select({
+        ":wasm32-emscripten": ":rust-wasm",
+        "DEFAULT": ":rust-host",
+    }),
+    visibility = ["PUBLIC"],
+)
+toolchain_alias(
+    name = "cxx",
+    actual = select({
+        ":wasm32-emscripten": ":cxx-wasm",
+        "DEFAULT": ":cxx-host",
+    }),
+    visibility = ["PUBLIC"],
+)
 alias(name = "cxx_no_default_deps", actual = ":cxx", visibility = ["PUBLIC"])
 system_genrule_toolchain(name = "genrule", visibility = ["PUBLIC"])
 remote_python_toolchain(name = "python", visibility = ["PUBLIC"])

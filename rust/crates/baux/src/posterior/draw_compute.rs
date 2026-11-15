@@ -1,13 +1,79 @@
 //! Posterior draw computation helpers.
 
 use ndarray::Array3;
+#[cfg(not(target_arch = "wasm32"))]
 use rayon::prelude::*;
 
 use crate::draw::DrawInternals;
 use crate::error::ENNError;
 use crate::hash::{normal_metric, unique_inverse};
 use crate::model::ENN;
+#[cfg(not(target_arch = "wasm32"))]
 use baux::neighbor_index::parallel::use_rayon;
+
+struct DrawMultiView<'a> {
+    unique_indices: &'a [i64],
+    inverse: &'a [usize],
+    scale: &'a [f64],
+    w_flat: &'a [f64],
+    mu_flat: &'a [f64],
+    n: usize,
+    k: usize,
+    m: usize,
+}
+
+fn fill_draw_seed(
+    view: &DrawMultiView<'_>,
+    seed: i64,
+    unique_cache: &mut [f64],
+    out_seed: &mut [f64],
+) {
+    let seed_u64 = seed as u64;
+    let m = view.m;
+    let k = view.k;
+    for (ui, &unique_idx) in view.unique_indices.iter().enumerate() {
+        for j in 0..m {
+            unique_cache[ui * m + j] = normal_metric(seed_u64, unique_idx, j);
+        }
+    }
+    for i in 0..view.n {
+        for j in 0..m {
+            let mut weighted_u = 0.0;
+            for ki in 0..k {
+                let inv = view.inverse[i * k + ki];
+                let w = view.w_flat[(i * k + ki) * m + j];
+                weighted_u += w * unique_cache[inv * m + j];
+            }
+            out_seed[i * m + j] = view.mu_flat[i * m + j] + view.scale[i * m + j] * weighted_u;
+        }
+    }
+}
+
+fn fill_draw_scalar_seed(
+    unique_indices: &[i64],
+    inverse: &[usize],
+    scale: &[f64],
+    w_flat: &[f64],
+    mu_flat: &[f64],
+    n: usize,
+    k: usize,
+    seed: i64,
+    unique_cache: &mut [f64],
+    out_seed: &mut [f64],
+) {
+    let seed_u64 = seed as u64;
+    for (ui, &unique_idx) in unique_indices.iter().enumerate() {
+        unique_cache[ui] = normal_metric(seed_u64, unique_idx, 0);
+    }
+    for i in 0..n {
+        let mut weighted_u = 0.0;
+        let base = i * k;
+        for ki in 0..k {
+            weighted_u += w_flat[base + ki] * unique_cache[inverse[base + ki]];
+        }
+        out_seed[i] = mu_flat[i] + scale[i] * weighted_u;
+    }
+}
 
 pub(crate) fn draw_internals(
     model: &ENN,
@@ -48,53 +114,44 @@ pub(crate) fn draw_internals(
         .as_slice_memory_order_mut()
         .ok_or_else(|| ENNError::InvalidParameter("draws must be contiguous".into()))?;
 
-    if use_rayon() {
+    let view = DrawMultiView {
+        unique_indices: &unique_indices,
+        inverse: &inverse,
+        scale: &scale,
+        w_flat: &w_flat,
+        mu_flat: &mu_flat,
+        n,
+        k,
+        m,
+    };
+
+    #[cfg(not(target_arch = "wasm32"))]
+    let ran_parallel = if use_rayon() {
         draws_flat
             .par_chunks_mut(out_stride)
             .zip(function_seeds.par_iter())
             .for_each_init(
                 || vec![0.0f64; n_unique * m],
                 |unique_cache, (out_seed, &seed)| {
-                    let seed_u64 = seed as u64;
-                    for (ui, &unique_idx) in unique_indices.iter().enumerate() {
-                        for j in 0..m {
-                            unique_cache[ui * m + j] = normal_metric(seed_u64, unique_idx, j);
-                        }
-                    }
-                    for i in 0..n {
-                        for j in 0..m {
-                            let mut weighted_u = 0.0;
-                            for ki in 0..k {
-                                let inv = inverse[i * k + ki];
-                                let w = w_flat[(i * k + ki) * m + j];
-                                weighted_u += w * unique_cache[inv * m + j];
-                            }
-                            out_seed[i * m + j] =
-                                mu_flat[i * m + j] + scale[i * m + j] * weighted_u;
-                        }
-                    }
+                    fill_draw_seed(&view, seed, unique_cache, out_seed);
                 },
             );
+        true
     } else {
+        false
+    };
+    #[cfg(target_arch = "wasm32")]
+    let ran_parallel = false;
+
+    if !ran_parallel {
+        let mut unique_cache = vec![0.0f64; n_unique * m];
         for (seed_offset, out_seed) in draws_flat.chunks_mut(out_stride).enumerate() {
-            let seed_u64 = function_seeds[seed_offset] as u64;
-            let mut unique_cache = vec![0.0f64; n_unique * m];
-            for (ui, &unique_idx) in unique_indices.iter().enumerate() {
-                for j in 0..m {
-                    unique_cache[ui * m + j] = normal_metric(seed_u64, unique_idx, j);
-                }
-            }
-            for i in 0..n {
-                for j in 0..m {
-                    let mut weighted_u = 0.0;
-                    for ki in 0..k {
-                        let inv = inverse[i * k + ki];
-                        let w = w_flat[(i * k + ki) * m + j];
-                        weighted_u += w * unique_cache[inv * m + j];
-                    }
-                    out_seed[i * m + j] = mu_flat[i * m + j] + scale[i * m + j] * weighted_u;
-                }
-            }
+            fill_draw_seed(
+                &view,
+                function_seeds[seed_offset],
+                &mut unique_cache,
+                out_seed,
+            );
         }
     }
 
@@ -129,42 +186,50 @@ fn draw_scalar(
         .as_slice_memory_order_mut()
         .ok_or_else(|| ENNError::InvalidParameter("draws must be contiguous".into()))?;
 
-    if use_rayon() {
+    #[cfg(not(target_arch = "wasm32"))]
+    let ran_parallel = if use_rayon() {
         draws_flat
             .par_chunks_mut(n)
             .zip(function_seeds.par_iter())
             .for_each_init(
                 || vec![0.0f64; n_unique],
                 |unique_cache, (out_seed, &seed)| {
-                    let seed_u64 = seed as u64;
-                    for (ui, &unique_idx) in unique_indices.iter().enumerate() {
-                        unique_cache[ui] = normal_metric(seed_u64, unique_idx, 0);
-                    }
-                    for i in 0..n {
-                        let mut weighted_u = 0.0;
-                        let base = i * k;
-                        for ki in 0..k {
-                            weighted_u += w_flat[base + ki] * unique_cache[inverse[base + ki]];
-                        }
-                        out_seed[i] = mu_flat[i] + scale[i] * weighted_u;
-                    }
+                    fill_draw_scalar_seed(
+                        unique_indices,
+                        inverse,
+                        &scale,
+                        &w_flat,
+                        &mu_flat,
+                        n,
+                        k,
+                        seed,
+                        unique_cache,
+                        out_seed,
+                    );
                 },
             );
+        true
     } else {
+        false
+    };
+    #[cfg(target_arch = "wasm32")]
+    let ran_parallel = false;
+
+    if !ran_parallel {
+        let mut unique_cache = vec![0.0f64; n_unique];
         for (seed_offset, out_seed) in draws_flat.chunks_mut(n).enumerate() {
-            let seed_u64 = function_seeds[seed_offset] as u64;
-            let mut unique_cache = vec![0.0f64; n_unique];
-            for (ui, &unique_idx) in unique_indices.iter().enumerate() {
-                unique_cache[ui] = normal_metric(seed_u64, unique_idx, 0);
-            }
-            for i in 0..n {
-                let mut weighted_u = 0.0;
-                let base = i * k;
-                for ki in 0..k {
-                    weighted_u += w_flat[base + ki] * unique_cache[inverse[base + ki]];
-                }
-                out_seed[i] = mu_flat[i] + scale[i] * weighted_u;
-            }
+            fill_draw_scalar_seed(
+                unique_indices,
+                inverse,
+                &scale,
+                &w_flat,
+                &mu_flat,
+                n,
+                k,
+                function_seeds[seed_offset],
+                &mut unique_cache,
+                out_seed,
+            );
         }
     }
 

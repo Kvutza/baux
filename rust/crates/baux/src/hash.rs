@@ -4,10 +4,12 @@
 //! and Box-Muller transform for generating standard normal variates.
 
 use ndarray::{Array, ArrayD, IxDyn};
+#[cfg(not(target_arch = "wasm32"))]
 use rayon::prelude::*;
 use std::collections::HashMap;
 use thiserror::Error;
 
+#[cfg(not(target_arch = "wasm32"))]
 use baux::neighbor_index::parallel::use_rayon;
 
 /// Errors that can occur during hash-based RNG.
@@ -73,6 +75,27 @@ pub fn unique_inverse(data_indices: &[i64]) -> (Vec<i64>, Vec<usize>) {
 /// # Errors
 ///
 /// Returns `HashError::InvalidNumMetrics` if num_metrics <= 0.
+fn fill_seed_hash(
+    seed: i64,
+    unique_indices: &[i64],
+    inverse: &[usize],
+    num_metrics: usize,
+    unique_cache: &mut [f64],
+    seed_out: &mut [f64],
+) {
+    let seed_u64 = seed as u64;
+    for (ui, &unique_idx) in unique_indices.iter().enumerate() {
+        for metric in 0..num_metrics {
+            unique_cache[ui * num_metrics + metric] = normal_metric(seed_u64, unique_idx, metric);
+        }
+    }
+    for (di, &inv) in inverse.iter().enumerate() {
+        let src = inv * num_metrics;
+        let dst = di * num_metrics;
+        seed_out[dst..dst + num_metrics].copy_from_slice(&unique_cache[src..src + num_metrics]);
+    }
+}
+
 pub fn normal_hash(
     function_seeds: &[i64],
     data_indices: &[i64],
@@ -91,7 +114,8 @@ pub fn normal_hash(
 
     let mut flat = vec![0.0f64; num_seeds * row_len];
 
-    if use_rayon() {
+    #[cfg(not(target_arch = "wasm32"))]
+    let ran_parallel = if use_rayon() {
         // Flat buffer (num_seeds, num_indices, num_metrics) in C order; fill by
         // seed in parallel.
         flat.par_chunks_mut(row_len)
@@ -99,38 +123,35 @@ pub fn normal_hash(
             .for_each_init(
                 || vec![0.0f64; unique_indices.len() * num_metrics],
                 |unique_cache, (seed_out, &seed)| {
-                    let seed_u64 = seed as u64;
-                    for (ui, &unique_idx) in unique_indices.iter().enumerate() {
-                        for metric in 0..num_metrics {
-                            unique_cache[ui * num_metrics + metric] =
-                                normal_metric(seed_u64, unique_idx, metric);
-                        }
-                    }
-                    for (di, &inv) in inverse.iter().enumerate() {
-                        let src = inv * num_metrics;
-                        let dst = di * num_metrics;
-                        seed_out[dst..dst + num_metrics]
-                            .copy_from_slice(&unique_cache[src..src + num_metrics]);
-                    }
+                    fill_seed_hash(
+                        seed,
+                        &unique_indices,
+                        &inverse,
+                        num_metrics,
+                        unique_cache,
+                        seed_out,
+                    );
                 },
             );
+        true
     } else {
+        false
+    };
+    #[cfg(target_arch = "wasm32")]
+    let ran_parallel = false;
+
+    if !ran_parallel {
         let mut row_cache = vec![0.0f64; unique_indices.len() * num_metrics];
         for (seed_offset, &seed) in function_seeds.iter().enumerate() {
-            let seed_u64 = seed as u64;
-            for (ui, &unique_idx) in unique_indices.iter().enumerate() {
-                for metric in 0..num_metrics {
-                    row_cache[ui * num_metrics + metric] =
-                        normal_metric(seed_u64, unique_idx, metric);
-                }
-            }
             let seed_out = &mut flat[seed_offset * row_len..(seed_offset + 1) * row_len];
-            for (di, &inv) in inverse.iter().enumerate() {
-                let src = inv * num_metrics;
-                let dst = di * num_metrics;
-                seed_out[dst..dst + num_metrics]
-                    .copy_from_slice(&row_cache[src..src + num_metrics]);
-            }
+            fill_seed_hash(
+                seed,
+                &unique_indices,
+                &inverse,
+                num_metrics,
+                &mut row_cache,
+                seed_out,
+            );
         }
     }
 

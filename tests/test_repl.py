@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+import inspect
 import io
 import json
 import os
+import re
+import shutil
 import subprocess
-import sys
 import zipfile
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -17,6 +21,387 @@ from admin.ops import build_repl
 REPO_ROOT = Path(__file__).resolve().parents[1]
 TREES_DIR = REPO_ROOT / "forest" / "trees"
 NATIVE_INSPECT_DIR = Path("/tmp/baux_native_inspect")
+WASM_SO_NAME = "baux_rust.cpython-312-wasm32-emscripten.so"
+WASM_SO_ARCNAME = f"baux/{WASM_SO_NAME}"
+FORBIDDEN_WASM_SHIMS = (
+    "rust_wasm.py",
+    "oxcaml_wasm.py",
+    "_oxcaml_wasm.py",
+    "baux_rust.py",
+)
+REQUIRED_PYODIDE_FILES = (
+    "pyodide.js",
+    "pyodide.asm.js",
+    "pyodide.asm.wasm",
+    "python_stdlib.zip",
+    "pyodide-lock.json",
+    "numpy-2.0.2-cp312-cp312-pyodide_2024_0_wasm32.whl",
+)
+
+_NODE_PYODIDE_HARNESS = r"""
+const fs = require("node:fs");
+const path = require("node:path");
+const readline = require("node:readline");
+
+const oxcamlPath = process.env.BAUX_OXCAML_JS;
+const loadedOxcaml = require(oxcamlPath);
+if (!globalThis.BauxOxcaml && loadedOxcaml) {
+  globalThis.BauxOxcaml = loadedOxcaml.BauxOxcaml || loadedOxcaml;
+}
+globalThis._baux_oxcaml = globalThis.BauxOxcaml;
+
+const pyodideDir = process.env.BAUX_PYODIDE_DIR;
+const { loadPyodide } = require(path.join(pyodideDir, "pyodide.js"));
+
+function registerWebGpuTestStubs(pyodide) {
+  const mod = pyodide._module;
+  if (!mod) {
+    return;
+  }
+  const makeStub = (sig, rc) => {
+    const fn = () => rc;
+    fn.sig = sig;
+    return fn;
+  };
+  const symbols = {
+    baux_webgpu_available: makeStub("i", 0),
+    baux_webgpu_buffer_alloc: makeStub("ii", 0),
+    baux_webgpu_buffer_free: makeStub("ii", 2),
+    baux_webgpu_buffer_read_f32: makeStub("iiii", 2),
+    baux_webgpu_exact_dist: makeStub("iiiiiiii", 2),
+    baux_webgpu_knn_topk: makeStub("iiiiiiii", 2),
+    baux_webgpu_device_posterior: makeStub("iiiiiiifffiiiiiiiii", 2),
+    baux_webgpu_dense_apply: makeStub("iiiiiiii", 2),
+    baux_webgpu_dense_dist2: makeStub("iiiiiii", 2),
+    baux_webgpu_weight_select: makeStub("iiiiifffiiiiiii", 2),
+  };
+  if (typeof mod.mergeLibSymbols === "function") {
+    mod.mergeLibSymbols(symbols, "baux_webgpu");
+  }
+  for (const [k, v] of Object.entries(symbols)) {
+    mod[k] = v;
+  }
+}
+
+const DRIVER_PY = `
+import io
+import json
+import os
+import sys
+import traceback
+
+if "/home/pyodide/baux_pkg" not in sys.path:
+    sys.path.insert(0, "/home/pyodide/baux_pkg")
+
+
+def _baux_test_exec(src):
+    out_buf = io.StringIO()
+    err_buf = io.StringIO()
+    old_out, old_err = sys.stdout, sys.stderr
+    old_cwd = os.getcwd()
+    sys.stdout = out_buf
+    sys.stderr = err_buf
+    ok = True
+    try:
+        os.chdir("/home/pyodide")
+        ns = {"__name__": "__main__"}
+        exec(compile(src, "<pyodide-test>", "exec"), ns, ns)
+    except BaseException:
+        ok = False
+        traceback.print_exc(file=err_buf)
+    finally:
+        sys.stdout = old_out
+        sys.stderr = old_err
+        try:
+            os.chdir(old_cwd)
+        except Exception:
+            pass
+    return json.dumps({
+        "ok": ok,
+        "stdout": out_buf.getvalue(),
+        "stderr": err_buf.getvalue(),
+    })
+`;
+
+async function main() {
+  const indexURL = pyodideDir.endsWith(path.sep)
+    ? pyodideDir
+    : pyodideDir + path.sep;
+  const pyodide = await loadPyodide({ indexURL });
+  registerWebGpuTestStubs(pyodide);
+  await pyodide.loadPackage(["numpy"]);
+
+  const zipRaw = fs.readFileSync(process.env.BAUX_PY_ZIP);
+  const zipBuf = new Uint8Array(zipRaw.buffer, zipRaw.byteOffset, zipRaw.byteLength);
+  pyodide.FS.mkdirTree("/home/pyodide/baux_pkg");
+  pyodide.unpackArchive(zipBuf, "zip", { extractDir: "/home/pyodide/baux_pkg" });
+
+  const soPath = "/home/pyodide/baux_pkg/baux/baux_rust.cpython-312-wasm32-emscripten.so";
+  if (pyodide.FS.analyzePath(soPath).exists) {
+    if (pyodide._api && typeof pyodide._api.loadDynlib === "function") {
+      await pyodide._api.loadDynlib(soPath, false);
+    } else if (typeof pyodide.loadDynamicLibrary === "function") {
+      await pyodide.loadDynamicLibrary(soPath, {
+        loadAsync: true,
+        nodelete: true,
+        global: false,
+        fs: pyodide.FS,
+      });
+    } else if (pyodide._module && typeof pyodide._module.loadDynamicLibrary === "function") {
+      await pyodide._module.loadDynamicLibrary(soPath, {
+        loadAsync: true,
+        nodelete: true,
+        allowUndefined: true,
+        global: false,
+        fs: pyodide.FS,
+      });
+    }
+  }
+
+  const envPath = process.env.BAUX_ENV_JSON;
+  if (envPath && fs.existsSync(envPath)) {
+    const envRaw = fs.readFileSync(envPath);
+    pyodide.FS.writeFile(
+      "/home/pyodide/baux_env.json",
+      new Uint8Array(envRaw.buffer, envRaw.byteOffset, envRaw.byteLength)
+    );
+  }
+
+  await pyodide.runPythonAsync(DRIVER_PY);
+  const execFn = pyodide.globals.get("_baux_test_exec");
+
+  const rl = readline.createInterface({
+    input: process.stdin,
+    crlfDelay: Infinity,
+  });
+
+  process.stdout.write("__BAUX_PYODIDE_READY__\n");
+
+  for await (const line of rl) {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      continue;
+    }
+    const req = JSON.parse(trimmed);
+    const raw = execFn(req.code);
+    process.stdout.write("__BAUX_PYODIDE_RESULT__:" + raw + "\n");
+  }
+}
+
+main().catch((err) => {
+  process.stderr.write(String(err && err.stack ? err.stack : err) + "\n");
+  process.exit(1);
+});
+""".lstrip()
+
+
+def _find_wasm_so() -> Path | None:
+    try:
+        return build_repl.resolve_wasm_so(REPO_ROOT)
+    except FileNotFoundError:
+        return None
+
+
+def _find_pyodide_dir() -> Path | None:
+    for cand in (
+        REPO_ROOT / "forest" / "output" / "assets" / "pyodide",
+        REPO_ROOT / ".cache" / "baux" / "pyodide" / "v0.27.5",
+    ):
+        if cand.is_dir() and all(
+            (cand / name).is_file() for name in REQUIRED_PYODIDE_FILES
+        ):
+            return cand
+    return None
+
+
+def _find_oxcaml_js() -> Path | None:
+    for cand in (
+        REPO_ROOT / "forest" / "output" / "assets" / "oxcaml_eval.js",
+        REPO_ROOT / "admin" / "ui" / "_build" / "default" / "oxcaml_eval.js",
+    ):
+        if cand.is_file():
+            return cand
+    return None
+
+
+def _build_pyzip_bytes(wasm_so: Path | None) -> bytes:
+    sig = inspect.signature(build_repl.build_pyzip)
+    if "wasm_so" in sig.parameters:
+        return build_repl.build_pyzip(REPO_ROOT, wasm_so=wasm_so)  # type: ignore[call-arg]
+    if len(sig.parameters) >= 2:
+        second = list(sig.parameters.values())[1]
+        if second.kind != inspect.Parameter.KEYWORD_ONLY:
+            return build_repl.build_pyzip(REPO_ROOT, wasm_so)  # type: ignore[call-arg]
+    return build_repl.build_pyzip(REPO_ROOT)
+
+
+def _stage_assets_with_wasm(
+    *,
+    assets_dirs: list[Path],
+    wasm_so: Path | None,
+    zip_only: bool = True,
+) -> dict[str, Any]:
+    sig = inspect.signature(build_repl.stage_assets)
+    kwargs: dict[str, Any] = {
+        "repo_root": REPO_ROOT,
+        "manifest_path": build_repl.DEFAULT_MANIFEST,
+        "cache_dir": build_repl.DEFAULT_CACHE_DIR,
+        "assets_dirs": assets_dirs,
+        "zip_only": zip_only,
+    }
+    if "wasm_so" in sig.parameters and wasm_so is not None:
+        kwargs["wasm_so"] = wasm_so
+    return build_repl.stage_assets(**kwargs)
+
+
+def _zip_has_wasm_so(zip_path: Path) -> bool:
+    if not zip_path.is_file():
+        return False
+    with zipfile.ZipFile(zip_path) as zf:
+        return WASM_SO_ARCNAME in zf.namelist()
+
+
+@dataclass
+class _PyodideRunResult:
+    returncode: int
+    stdout: str
+    stderr: str
+
+
+class _PyodideSession:
+    """Persistent Node v26 + Pyodide v0.27.5 runner backed by compiled baux assets."""
+
+    def __init__(
+        self,
+        *,
+        pyodide_dir: Path,
+        oxcaml_js: Path,
+        py_zip_path: Path,
+        driver_js: Path,
+        env_json: Path | None,
+    ) -> None:
+        driver_js.write_text(_NODE_PYODIDE_HARNESS, encoding="utf-8")
+        env = os.environ.copy()
+        env["BAUX_PYODIDE_DIR"] = str(pyodide_dir)
+        env["BAUX_OXCAML_JS"] = str(oxcaml_js)
+        env["BAUX_PY_ZIP"] = str(py_zip_path)
+        if env_json is not None and env_json.is_file():
+            env["BAUX_ENV_JSON"] = str(env_json)
+
+        self._proc = subprocess.Popen(
+            ["node", str(driver_js)],
+            cwd=REPO_ROOT,
+            env=env,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,
+        )
+        assert self._proc.stdout is not None
+        assert self._proc.stdin is not None
+        while True:
+            line = self._proc.stdout.readline()
+            if not line:
+                err = self._proc.stderr.read() if self._proc.stderr else ""
+                rc = self._proc.wait()
+                raise RuntimeError(
+                    f"Pyodide Node worker exited during startup (rc={rc}):\n{err}"
+                )
+            if line.strip() == "__BAUX_PYODIDE_READY__":
+                break
+
+    def run_python(self, code: str) -> _PyodideRunResult:
+        assert self._proc.stdin is not None
+        assert self._proc.stdout is not None
+        self._proc.stdin.write(json.dumps({"code": code}) + "\n")
+        self._proc.stdin.flush()
+
+        prefix = "__BAUX_PYODIDE_RESULT__:"
+        while True:
+            line = self._proc.stdout.readline()
+            if not line:
+                err = self._proc.stderr.read() if self._proc.stderr else ""
+                rc = self._proc.wait()
+                return _PyodideRunResult(
+                    returncode=rc or 1,
+                    stdout="",
+                    stderr=f"Pyodide Node worker terminated unexpectedly:\n{err}",
+                )
+            if line.startswith(prefix):
+                payload = json.loads(line[len(prefix) :])
+                return _PyodideRunResult(
+                    returncode=0 if payload["ok"] else 1,
+                    stdout=str(payload["stdout"]),
+                    stderr=str(payload["stderr"]),
+                )
+
+    def close(self) -> None:
+        if self._proc.poll() is not None:
+            return
+        try:
+            if self._proc.stdin:
+                self._proc.stdin.close()
+            self._proc.wait(timeout=10)
+        except Exception:
+            self._proc.kill()
+            self._proc.wait(timeout=5)
+
+
+@pytest.fixture(scope="module")
+def pyodide_session(tmp_path_factory: pytest.TempPathFactory):
+    if shutil.which("node") is None:
+        pytest.skip("node executable unavailable for Pyodide runtime verification")
+    pyodide_dir = _find_pyodide_dir()
+    if pyodide_dir is None:
+        pytest.skip(
+            "Offline Pyodide v0.27.5 cache not staged yet "
+            "(.cache/baux/pyodide/v0.27.5 or forest/output/assets/pyodide)"
+        )
+    oxcaml_js = _find_oxcaml_js()
+    if oxcaml_js is None:
+        pytest.skip("Compiled oxcaml_eval.js not staged yet; build admin/ui first")
+
+    work = tmp_path_factory.mktemp("pyodide_runner")
+    zip_path = work / "baux_py.zip"
+    wasm_so = _find_wasm_so()
+    sig = inspect.signature(build_repl.build_pyzip)
+
+    if wasm_so is not None and "wasm_so" in sig.parameters:
+        zip_path.write_bytes(_build_pyzip_bytes(wasm_so))
+    else:
+        staged_zip = REPO_ROOT / "forest" / "output" / "assets" / "baux_py.zip"
+        if _zip_has_wasm_so(staged_zip):
+            shutil.copy2(staged_zip, zip_path)
+        else:
+            pytest.skip(
+                f"Compiled {WASM_SO_ARCNAME} not yet built/staged; "
+                "build //:baux-py-wasm or stage baux_py.zip first"
+            )
+
+    env_json = next(
+        (
+            cand
+            for cand in (
+                REPO_ROOT / "forest" / "output" / "assets" / "baux_env.json",
+                REPO_ROOT / ".cache" / "pages-bundle" / "assets" / "baux_env.json",
+            )
+            if cand.is_file()
+        ),
+        None,
+    )
+
+    session = _PyodideSession(
+        pyodide_dir=pyodide_dir,
+        oxcaml_js=oxcaml_js,
+        py_zip_path=zip_path,
+        driver_js=work / "driver.js",
+        env_json=env_json,
+    )
+    try:
+        yield session
+    finally:
+        session.close()
 
 
 def _snippets() -> list[tuple[str, int, str]]:
@@ -53,67 +438,76 @@ def _snippets() -> list[tuple[str, int, str]]:
     return snippets
 
 
-def _runzip(tmp_path: Path, script: str) -> subprocess.CompletedProcess[str]:
-    unpack = tmp_path / "wasm_pkg"
-    unpack.mkdir(parents=True, exist_ok=True)
-    zip_bytes = build_repl.build_pyzip(REPO_ROOT)
-    with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
-        zf.extractall(unpack)
-
-    preamble = "import sys\nsys.platform = 'emscripten'\n"
-    env = {
-        "PATH": os.environ.get("PATH", ""),
-        "PYTHONPATH": str(unpack),
-        "HOME": str(tmp_path),
-    }
-    return subprocess.run(
-        [sys.executable, "-c", preamble + script],
-        cwd=tmp_path,
-        env=env,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-
-
 def test_ziphygiene(tmp_path: Path) -> None:
-    zip_a = build_repl.build_pyzip(REPO_ROOT)
-    zip_b = build_repl.build_pyzip(REPO_ROOT)
+    sig = inspect.signature(build_repl.build_pyzip)
+    if "wasm_so" not in sig.parameters:
+        pytest.skip(
+            "admin/ops/build_repl.py build_pyzip has not migrated to --wasm-so yet"
+        )
+
+    with pytest.raises((FileNotFoundError, RuntimeError, ValueError)):
+        build_repl.build_pyzip(REPO_ROOT, wasm_so=tmp_path / "missing_baux_rust.so")  # type: ignore[call-arg]
+
+    wasm_so = _find_wasm_so()
+    if wasm_so is None:
+        pytest.skip(f"Compiled {WASM_SO_NAME} not found in buck-out or BAUX_WASM_SO")
+
+    zip_a = _build_pyzip_bytes(wasm_so)
+    zip_b = _build_pyzip_bytes(wasm_so)
     assert zip_a == zip_b
     assert len(zip_a) > 50_000
 
+    with zipfile.ZipFile(io.BytesIO(zip_a)) as zf:
+        names = zf.namelist()
+        assert WASM_SO_ARCNAME in names
+        assert not any(name.endswith(FORBIDDEN_WASM_SHIMS) for name in names), (
+            f"Found forbidden legacy WASM Python shim(s): "
+            f"{[n for n in names if n.endswith(FORBIDDEN_WASM_SHIMS)]}"
+        )
+        for name in names:
+            payload = zf.read(name)
+            assert b"/Users/" not in payload, f"Machine path /Users/ leaked into {name}"
+            assert b"/home/runner/" not in payload, (
+                f"Runner path /home/runner/ leaked into {name}"
+            )
+
     stage = tmp_path / "assets"
-    summary = build_repl.stage_assets(
-        repo_root=REPO_ROOT,
-        manifest_path=build_repl.DEFAULT_MANIFEST,
-        cache_dir=build_repl.DEFAULT_CACHE_DIR,
-        assets_dirs=[stage],
-        zip_only=True,
+    summary = _stage_assets_with_wasm(
+        assets_dirs=[stage], wasm_so=wasm_so, zip_only=True
     )
     assert (stage / "baux_py.zip").is_file()
     manifest = json.loads((stage / "repl_manifest.json").read_text(encoding="utf-8"))
     assert manifest["baux_py_zip"]["sha256"] == summary["baux_py_zip"]["sha256"]
 
 
-def test_docsnippets(tmp_path: Path) -> None:
+def test_docsnippets(pyodide_session: _PyodideSession) -> None:
     snippets = _snippets()
     assert len(snippets) >= 6
     failures: list[str] = []
     for tree_name, idx, code in snippets:
-        proc = _runzip(tmp_path / f"s_{tree_name}_{idx}", code)
+        proc = pyodide_session.run_python(code)
         if proc.returncode != 0:
             failures.append(f"{tree_name}#{idx}:\n{proc.stderr}\n{proc.stdout}")
     assert not failures, "\n---\n".join(failures)
 
 
-def test_wasmapi(tmp_path: Path) -> None:
+def test_wasmapi(pyodide_session: _PyodideSession) -> None:
     script = """
+import sys
 import numpy as np
 import baux
+from baux import baux_rust
 from baux.benchmarks import oxcaml
 
+assert sys.platform == "emscripten"
+assert not str(getattr(baux_rust, "__file__", "")).endswith(".py")
+
 caps = baux.capabilities()
-assert len(caps) == 4 and caps[0].name == "cpu" and caps[0].available is True
+assert [row.name for row in caps] == ["cpu", "cuda", "metal", "opencl", "webgpu"]
+assert caps[0].name == "cpu" and caps[0].available is True
+webgpu_row = next(row for row in caps if row.name == "webgpu")
+assert webgpu_row.compiled is True
+assert "device_posterior" in webgpu_row.direct_operations
 
 # Core BayesOptimizer workflow: ask / tell / complete / cancel / freeze / thaw
 spec = baux.pytree_bounds(
@@ -158,7 +552,7 @@ manifold_spec = baux.pytree_bounds({
     "weights": baux.Simplex(4),
     "phase": baux.Periodic(0.0, 2 * np.pi),
 })
-st = baux.init(manifold_spec, baux.turbo_one(num_init=3), seed=11)
+st = baux.init(manifold_spec, baux.turbo_enn(num_init=3), seed=11)
 st, st_batch = baux.ask(st, 2)
 for item in st_batch.params:
     w = np.asarray(item["weights"])
@@ -167,6 +561,13 @@ for item in st_batch.params:
 st_ys = np.array([[-float(np.sum(np.asarray(item["weights"]) ** 2))] for item in st_batch.params])
 st, _ = baux.tell(st, st_batch, st_ys)
 assert st.num_observations == 2
+
+try:
+    baux.init(manifold_spec, baux.turbo_one(num_init=3), seed=11)
+except RuntimeError as gp_exc:
+    assert "Local Native" in str(gp_exc)
+else:
+    raise AssertionError("Expected GaussianProcess/turbo_one to be disabled in WASM")
 
 # Functional ENN pipeline + fit + posterior + sample
 rng = np.random.default_rng(42)
@@ -180,7 +581,7 @@ assert post.mu.shape == (3, 1) and post.se.shape == (3, 1)
 draws, neigh = baux.enn_sample(enn, np.zeros((2, 3)), params, key=k_draw, num_draws=4)
 assert draws.shape == (2, 1, 4) and len(neigh) == 2
 
-# OxCaml 56-surface catalogue
+# OxCaml 56-surface catalogue via compiled oxcaml_eval.js bridge
 cat = oxcaml.catalogue()
 assert len(cat) == 56
 desc = oxcaml.describe("ackley", 16)
@@ -192,7 +593,7 @@ assert vb.shape == (3,)
 assert np.allclose(vb, v1)
 print("OK")
 """
-    proc = _runzip(tmp_path / "api", script)
+    proc = pyodide_session.run_python(script)
     assert proc.returncode == 0, f"stderr:\n{proc.stderr}\nstdout:\n{proc.stdout}"
     assert proc.stdout.strip().endswith("OK")
 
@@ -201,7 +602,7 @@ print("OK")
     not NATIVE_INSPECT_DIR.is_dir(),
     reason="Extracted native wheel /tmp/baux_native_inspect not present",
 )
-def test_parity(tmp_path: Path) -> None:
+def test_parity(pyodide_session: _PyodideSession) -> None:
     native_code = """
 import json
 from baux._rust import Key, normal_hash
@@ -215,6 +616,8 @@ print(json.dumps({
     "normals": arr.tolist(),
 }))
 """
+    import sys
+
     native_proc = subprocess.run(
         [sys.executable, "-c", native_code],
         env={"PATH": os.environ.get("PATH", ""), "PYTHONPATH": str(NATIVE_INSPECT_DIR)},
@@ -222,10 +625,7 @@ print(json.dumps({
         capture_output=True,
         check=True,
     )
-    wasm_proc = _runzip(
-        tmp_path / "parity",
-        native_code.replace("from baux._rust", "from baux.baux_rust"),
-    )
+    wasm_proc = pyodide_session.run_python(native_code)
     assert wasm_proc.returncode == 0, wasm_proc.stderr
     native_out = json.loads(native_proc.stdout)
     wasm_out = json.loads(wasm_proc.stdout)
@@ -236,10 +636,7 @@ print(json.dumps({
 
 
 def _extract_presets_from_ml() -> dict[str, str]:
-    import re
-
-    root = Path(__file__).resolve().parents[1]
-    text = (root / "admin/ui/py_repl.ml").read_text(encoding="utf-8")
+    text = (REPO_ROOT / "admin/ui/py_repl.ml").read_text(encoding="utf-8")
     m = re.search(
         r"let presets\s*:\s*preset list\s*=\s*\[(.*?)\n  \]", text, flags=re.DOTALL
     )
@@ -259,35 +656,32 @@ def _extract_presets_from_ml() -> dict[str, str]:
     return presets
 
 
-def test_presets_execute_and_emit_valid_figs(tmp_path: Path) -> None:
-    """Every Playground preset must execute cleanly in WASM mode and emit valid fig specs."""
-    import re
-    import shutil
+def test_presets_execute_and_emit_valid_figs(pyodide_session: _PyodideSession) -> None:
+    """Every Playground preset must execute cleanly in real Pyodide + WASM and emit valid fig specs."""
+    if not (
+        (REPO_ROOT / "forest" / "output" / "assets" / "baux_env.json").is_file()
+        or (
+            REPO_ROOT / ".cache" / "pages-bundle" / "assets" / "baux_env.json"
+        ).is_file()
+    ):
+        pytest.skip("baux_env.json not staged yet; run baux pages build first")
 
-    root = Path(__file__).resolve().parents[1]
     presets = _extract_presets_from_ml()
-    worker_js = (root / "forest/theme/repl_worker.js").read_text(encoding="utf-8")
-    boot_m = re.search(r"const BOOTSTRAP_PY = `(.*?)`;\n", worker_js, flags=re.DOTALL)
+    worker_js = (REPO_ROOT / "forest/theme/repl_worker.js").read_text(encoding="utf-8")
+    boot_m = re.search(r"const BOOTSTRAP_PY\s*=\s*`(.*?)`;", worker_js, flags=re.DOTALL)
     assert boot_m, "BOOTSTRAP_PY not found in repl_worker.js"
     bootstrap_py = boot_m.group(1)
-    work = tmp_path / "presets"
-    work.mkdir(parents=True, exist_ok=True)
-    env_src = root / "forest/output/assets/baux_env.json"
-    if env_src.is_file():
-        shutil.copy(env_src, work / "baux_env.json")
 
     script = f"""
-import json, os, sys
-if hasattr(sys, "setcwd"):
-    pass
-os.chdir({str(work)!r})
+import json, os
+os.chdir("/home/pyodide")
 globs = {{}}
 exec({bootstrap_py!r}, globs, globs)
 globs["_reset_namespace"]()
 out = {{}}
 for pid, src in {presets!r}.items():
     res = json.loads(globs["_baux_exec_script"](src, reset_ns=True))
-    assert res["ok"], f"{{pid}} failed: {{res.get('error')}}"
+    assert res["ok"], f"{{pid}} failed: {{res.get('error')}} stderr={{res.get('stderr')}}"
     assert res["stdout"].strip(), f"{{pid}} produced empty stdout"
     state = res.get("state")
     assert state is not None and state.get("fig") is not None, f"{{pid}} missing fig: {{state}}"
@@ -296,6 +690,6 @@ for pid, src in {presets!r}.items():
     out[pid] = fig["kind"]
 print("OK:" + json.dumps(out))
 """
-    proc = _runzip(work, script)
+    proc = pyodide_session.run_python(script)
     assert proc.returncode == 0, f"stderr:\n{proc.stderr}\nstdout:\n{proc.stdout}"
     assert "OK:" in proc.stdout

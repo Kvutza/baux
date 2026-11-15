@@ -130,6 +130,7 @@ impl ParamBlock {
         })
     }
 
+    #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
     pub fn new_logical(
         tensor_id: u64,
         logical_start: u64,
@@ -270,6 +271,7 @@ impl SearchState {
         self.tell_noisy(proposals, value, variance)
     }
 
+    #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
     pub fn tensor_version(
         &self,
         parent: u64,

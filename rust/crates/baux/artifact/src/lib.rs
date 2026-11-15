@@ -11,6 +11,7 @@ pub mod cbor;
 pub mod forward;
 #[path = "gpu.rs"]
 pub mod gpu;
+#[cfg(all(feature = "host-db", not(target_arch = "wasm32")))]
 #[path = "inc.rs"]
 pub mod inc;
 #[path = "json.rs"]

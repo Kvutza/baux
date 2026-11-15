@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from importlib.util import find_spec
 from typing import Literal
 
-BackendName = Literal["cpu", "cuda", "metal", "opencl"]
+BackendName = Literal["cpu", "cuda", "metal", "opencl", "webgpu"]
 
 
 @dataclass(frozen=True, slots=True)

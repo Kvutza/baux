@@ -21,6 +21,7 @@ impl PyDevice {
             "metal" => Ok(Self { kind: "metal" }),
             "cuda" => Ok(Self { kind: "cuda" }),
             "opencl" => Ok(Self { kind: "opencl" }),
+            "webgpu" | "web_gpu" | "wgpu" => Ok(Self { kind: "webgpu" }),
             _ => Err(PyValueError::new_err(format!("Unknown device: {name}"))),
         }
     }
@@ -51,11 +52,23 @@ impl PyDevice {
     }
 
     #[staticmethod]
+    fn webgpu() -> PyResult<Self> {
+        if !baux::Backend::WebGpu.compiled() {
+            return Err(PyValueError::new_err(
+                "WebGPU backend was not compiled into this library",
+            ));
+        }
+        Ok(Self { kind: "webgpu" })
+    }
+
+    #[staticmethod]
     fn auto() -> Self {
         let kind = if baux::Backend::Metal.compiled() {
             "metal"
         } else if baux::Backend::Cuda.compiled() {
             "cuda"
+        } else if baux::Backend::WebGpu.compiled() {
+            "webgpu"
         } else {
             "cpu"
         };
@@ -80,6 +93,11 @@ impl PyDevice {
     #[getter]
     fn is_cuda(&self) -> bool {
         self.kind == "cuda"
+    }
+
+    #[getter]
+    fn is_webgpu(&self) -> bool {
+        self.kind == "webgpu"
     }
 
     fn memory_info<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
@@ -136,6 +154,9 @@ pub(crate) fn parse_driver(index_driver: &str) -> PyResult<baux::IndexDriver> {
         }
         "METAL" | "metal" => Ok(baux::IndexDriver::Metal),
         "OPENCL" | "OpenCL" | "opencl" | "ocl" => Ok(baux::IndexDriver::OpenCl),
+        "WEBGPU" | "WebGpu" | "WebGPU" | "webgpu" | "web_gpu" | "wgpu" => {
+            Ok(baux::IndexDriver::WebGpu)
+        }
         "CUDA" | "Cuda" | "cuda" => Ok(baux::IndexDriver::Cuda),
         "CUVS" | "CuVS" | "cuvs" | "cuvs_brute_force" => Ok(baux::IndexDriver::Cuvs),
         "CUVS_CAGRA" | "cuvs_cagra" | "CAGRA" | "cagra" => Ok(baux::IndexDriver::CuvsCagra),

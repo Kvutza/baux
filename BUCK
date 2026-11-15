@@ -6,6 +6,7 @@ load(
 )
 load("//admin/buck2/cuda:defs.bzl", "cuda_oxide")
 load("//admin/buck2/wheel:wheel.bzl", "python_wheel")
+load("@toolchains//:wasm.bzl", "baux_py_wasm")
 
 http_file(
     name = "click-wheel",
@@ -89,6 +90,26 @@ platform(
     name = "release-macos-arm64-platform",
     deps = [":macos-arm64-platform"],
     constraint_values = [":release-mode"],
+)
+
+config_setting(
+    name = "wasm32-emscripten",
+    constraint_values = [
+        "prelude//cpu/constraints:cpu[wasm32]",
+        "prelude//os/constraints:os[none]",
+        "toolchains//:wasm32-emscripten",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+platform(
+    name = "wasm32-emscripten-platform",
+    constraint_values = [
+        "prelude//cpu/constraints:cpu[wasm32]",
+        "prelude//os/constraints:os[none]",
+        "toolchains//:wasm32-emscripten",
+    ],
+    visibility = ["PUBLIC"],
 )
 
 filegroup(
@@ -285,5 +306,12 @@ alias(
         ":linux-x86_64": ":wheel-linux-x86_64-release",
         ":macos-arm64": ":wheel-macos-arm64-release",
     }),
+    visibility = ["PUBLIC"],
+)
+
+baux_py_wasm(
+    name = "baux-py-wasm",
+    src = "//rust/crates/baux-py:baux-py[shared]",
+    out = "baux_rust.cpython-312-wasm32-emscripten.so",
     visibility = ["PUBLIC"],
 )

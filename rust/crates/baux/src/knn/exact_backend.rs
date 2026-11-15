@@ -49,6 +49,7 @@ impl IndexKind {
                 crate::Device::Metal => IndexDriver::Metal,
                 crate::Device::Cuda => IndexDriver::Cuda,
                 crate::Device::OpenCl => IndexDriver::OpenCl,
+                crate::Device::WebGpu => IndexDriver::WebGpu,
                 crate::Device::Cpu => IndexDriver::Exact,
             },
         }
@@ -73,6 +74,9 @@ pub enum IndexDriver {
     /// OpenCL backend for native quantized-weight paths.
     #[deser(rename = "opencl")]
     OpenCl,
+    /// Browser WebGPU (`wasm32`) exact `f32` backend.
+    #[deser(rename = "webgpu")]
+    WebGpu,
     /// NVIDIA CUDA exact index implemented with CUDA-Oxide.
     #[deser(rename = "cuda")]
     Cuda,
@@ -91,7 +95,9 @@ impl IndexDriver {
 
     pub const fn kind(self) -> IndexKind {
         match self {
-            Self::Exact | Self::Metal | Self::OpenCl | Self::Cuda | Self::Cuvs => IndexKind::Exact,
+            Self::Exact | Self::Metal | Self::OpenCl | Self::WebGpu | Self::Cuda | Self::Cuvs => {
+                IndexKind::Exact
+            }
             Self::Auto => IndexKind::Auto,
             Self::USearch => IndexKind::Hnsw,
             Self::BpAnnDisk => IndexKind::Tree,
@@ -104,6 +110,7 @@ impl IndexDriver {
             Self::Metal => crate::Device::Metal,
             Self::Cuda | Self::Cuvs | Self::CuvsCagra => crate::Device::Cuda,
             Self::OpenCl => crate::Device::OpenCl,
+            Self::WebGpu => crate::Device::WebGpu,
             _ => crate::Device::Cpu,
         }
     }

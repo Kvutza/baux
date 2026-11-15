@@ -1,19 +1,14 @@
 {
   "baux_py_zip": {
     "path": "baux_py.zip",
-    "sha256": "c8dae9c019a878c2105711e8e53e776d452f43376a5e22cf7d0ced08e41a5874",
-    "size": 1642866
+    "sha256": "e6e09b78907f4537f64533f1b2611722056b4a8f960418e9306e74a3673e691f",
+    "size": 1643488
   },
   "companion_files": {
-    "oxcaml_eval_js": {
-      "path": "oxcaml_eval.js",
-      "sha256": "66756c79526999604f30ed0064534e45a488fbe1b6174b5f0e85f530fb7f77b6",
-      "size": 2943703
-    },
     "repl_worker_js": {
       "path": "repl_worker.js",
-      "sha256": "43b73ccb6a44ea806346fa61df2a1b429a0620d67b282d7675fddda3e39aab99",
-      "size": 52427
+      "sha256": "be725869ccdd99dd37120f996e978135647b3bb7ff140372551c724df139c568",
+      "size": 52281
     },
     "webgpu_bridge_js": {
       "path": "webgpu_bridge.js",
@@ -24,16 +19,17 @@
       "path": "webgpu_worker.js",
       "sha256": "cfc8a0344a62f8477b67e083d0e8f99456e78aec0e79972b5bd84460bc26b11b",
       "size": 13173
+    },
+    "oxcaml_eval_js": {
+      "path": "oxcaml_eval.js",
+      "sha256": "66756c79526999604f30ed0064534e45a488fbe1b6174b5f0e85f530fb7f77b6",
+      "size": 2943703
     }
   },
   "pyodide_files": {
-    "numpy-2.0.2-cp312-cp312-pyodide_2024_0_wasm32.whl": {
-      "sha256": "d9cc75a959bbfb14efe05e26ca04cb2c85acbdad8b0a07a1c0140c4b820b4eec",
-      "size": 3106119
-    },
-    "pyodide-lock.json": {
-      "sha256": "0ba525284f6b1969015e7871de95701b93d0e333d1b80ac32b210a509bdf1393",
-      "size": 416
+    "pyodide.js": {
+      "sha256": "7fdbe66e53f68f6a4e93c295a667371759be093d2bd402bb44545514584039b6",
+      "size": 14928
     },
     "pyodide.asm.js": {
       "sha256": "3a889f073e628c2196c705b42fa0e955ba2e25c034b1e3dd589c35be675bc01b",
@@ -43,13 +39,17 @@
       "sha256": "f7fefe563134714a17abd65516d94960e8dbd96fe6778a7a842947fc9686b3a1",
       "size": 10103326
     },
-    "pyodide.js": {
-      "sha256": "7fdbe66e53f68f6a4e93c295a667371759be093d2bd402bb44545514584039b6",
-      "size": 14928
-    },
     "python_stdlib.zip": {
       "sha256": "6030964967e447c887abc46c5f0967c55688644d759496de82a3ef09f49f5cba",
       "size": 2358894
+    },
+    "pyodide-lock.json": {
+      "sha256": "0ba525284f6b1969015e7871de95701b93d0e333d1b80ac32b210a509bdf1393",
+      "size": 416
+    },
+    "numpy-2.0.2-cp312-cp312-pyodide_2024_0_wasm32.whl": {
+      "sha256": "d9cc75a959bbfb14efe05e26ca04cb2c85acbdad8b0a07a1c0140c4b820b4eec",
+      "size": 3106119
     }
   },
   "pyodide_version": "0.27.5",

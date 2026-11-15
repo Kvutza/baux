@@ -8,7 +8,7 @@ pub fn restarts(search: &RegionalSearch, slot: usize) -> Result<usize, String> {
 
 fn decode_word(bits: u16, fp16: bool) -> f32 {
     if fp16 {
-        crate::shm_slab::decode_half(bits)
+        crate::unified_mem::decode_half(bits)
     } else {
         f32::from_bits(u32::from(bits) << 16)
     }

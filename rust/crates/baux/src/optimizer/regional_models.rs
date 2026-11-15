@@ -87,6 +87,10 @@ impl RegionalModels {
         };
         let config: ENNSurrogateConfig = enn.clone();
         let owned_disk = config.storage == EnnStorage::Disk;
+        #[cfg(not(all(feature = "disk-bpann", not(target_arch = "wasm32"))))]
+        if owned_disk {
+            return Err(crate::backend::disk_unavailable_error());
+        }
         let root = if owned_disk {
             Some(
                 config
@@ -313,6 +317,11 @@ impl RegionalModels {
             };
             seeds.push(seed);
         }
+        #[cfg(target_arch = "wasm32")]
+        for (model, seed) in self.models.iter_mut().zip(seeds) {
+            fit_slot(model.as_mut(), x, y, yvar, seed)?;
+        }
+        #[cfg(not(target_arch = "wasm32"))]
         std::thread::scope(|scope| -> Result<(), ENNError> {
             let mut handles = Vec::with_capacity(self.models.len());
             for (model, seed) in self.models.iter_mut().zip(seeds) {
@@ -379,6 +388,14 @@ impl RegionalModels {
             };
             tasks.push((model, history, rows, seed));
         }
+        #[cfg(target_arch = "wasm32")]
+        {
+            for (model, history, rows, seed) in tasks {
+                route_slot(model.as_mut(), history, x, y, yvar, &rows, seed, retain)?;
+            }
+            Ok(())
+        }
+        #[cfg(not(target_arch = "wasm32"))]
         std::thread::scope(|scope| -> Result<(), ENNError> {
             let mut handles = Vec::with_capacity(tasks.len());
             for (model, history, rows, seed) in tasks {
@@ -545,6 +562,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
     fn disk_regions() {
         let directory = tempfile::TempDir::new().unwrap();
         let root = directory.path();

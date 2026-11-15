@@ -6,7 +6,7 @@ import argparse
 import hashlib
 import io
 import json
-import shutil
+import os
 import sys
 import urllib.request
 import zipfile
@@ -20,6 +20,13 @@ FORBIDDEN_PATH_MARKERS = (b"/Users/", b"/home/runner/")
 FIXED_ZIP_TIME = (1980, 1, 1, 0, 0, 0)
 SKIP_DIR_NAMES = {"__pycache__", ".ruff_cache", ".pytest_cache", ".mypy_cache"}
 SKIP_SUFFIXES = {".pyc", ".pyo", ".so", ".pyd", ".dylib"}
+WASM_EXT_FILENAME = "baux_rust.cpython-312-wasm32-emscripten.so"
+WASM_EXT_ARCNAME = f"baux/{WASM_EXT_FILENAME}"
+COMPANION_THEME_SCRIPTS = (
+    ("repl_worker_js", "repl_worker.js"),
+    ("webgpu_bridge_js", "webgpu_bridge.js"),
+    ("webgpu_worker_js", "webgpu_worker.js"),
+)
 
 
 def sha256_bytes(data: bytes) -> str:
@@ -118,13 +125,86 @@ def _checkbytes(label: str, payload: bytes) -> None:
             raise RuntimeError(f"Host path marker {marker!r} leaked into {label}")
 
 
-def build_pyzip(repo_root: Path) -> bytes:
+def _resolve_existing_so(repo_root: Path, candidate: Path, origin: str) -> Path:
+    if candidate.is_file():
+        return candidate
+    if not candidate.is_absolute():
+        rel = repo_root / candidate
+        if rel.is_file():
+            return rel
+    raise FileNotFoundError(
+        f"WASM extension specified via {origin} not found: {candidate}"
+    )
+
+
+def resolve_wasm_so(repo_root: Path, wasm_so: Path | None = None) -> Path:
+    """Locate compiled Emscripten C-API extension `.so`, failing loudly if absent."""
+    if wasm_so is not None:
+        return _resolve_existing_so(repo_root, wasm_so, "--wasm-so")
+
+    env_val = os.environ.get("BAUX_WASM_SO", "").strip()
+    if env_val:
+        return _resolve_existing_so(repo_root, Path(env_val), "BAUX_WASM_SO")
+
+    direct_candidates = (
+        repo_root / ".cache" / "baux" / "wasm" / WASM_EXT_FILENAME,
+        repo_root
+        / "rust"
+        / "target"
+        / "wasm32-unknown-emscripten"
+        / "release"
+        / WASM_EXT_FILENAME,
+        repo_root
+        / "rust"
+        / "target"
+        / "wasm32-unknown-emscripten"
+        / "release"
+        / "libbaux_rust.so",
+    )
+    for cand in direct_candidates:
+        if cand.is_file():
+            return cand
+
+    buck_out = repo_root / "buck-out"
+    if buck_out.is_dir():
+        exact_matches = sorted(
+            (p for p in buck_out.rglob(WASM_EXT_FILENAME) if p.is_file()),
+            key=lambda p: p.as_posix(),
+        )
+        if exact_matches:
+            return exact_matches[0]
+        target_matches = sorted(
+            (
+                p
+                for p in buck_out.rglob("*.so")
+                if p.is_file() and "baux-py-wasm" in p.as_posix()
+            ),
+            key=lambda p: p.as_posix(),
+        )
+        if target_matches:
+            return target_matches[0]
+
+    raise FileNotFoundError(
+        f"Missing compiled {WASM_EXT_FILENAME}. Pass --wasm-so PATH, set BAUX_WASM_SO, "
+        "or build //:baux-py-wasm into buck-out or .cache/baux/wasm/."
+    )
+
+
+def _load_verified_wasm_so(
+    repo_root: Path, wasm_so: Path | None = None
+) -> tuple[Path, bytes]:
+    so_path = resolve_wasm_so(repo_root, wasm_so)
+    payload = so_path.read_bytes()
+    if not payload:
+        raise RuntimeError(f"WASM extension file is empty: {so_path}")
+    _checkbytes(WASM_EXT_ARCNAME, payload)
+    return so_path, payload
+
+
+def _build_pyzip_with_so(repo_root: Path, so_payload: bytes) -> bytes:
     py_root = repo_root / "python" / "baux"
-    wasm_rust = repo_root / "forest" / "py" / "rust_wasm.py"
-    wasm_oxcaml = repo_root / "forest" / "py" / "oxcaml_wasm.py"
-    for req in (py_root, wasm_rust, wasm_oxcaml):
-        if not req.exists():
-            raise FileNotFoundError(f"Required browser REPL source not found: {req}")
+    if not py_root.exists():
+        raise FileNotFoundError(f"Required browser REPL source not found: {py_root}")
 
     entries: dict[str, bytes] = {}
     for src in sorted(py_root.rglob("*")):
@@ -140,13 +220,8 @@ def build_pyzip(repo_root: Path) -> bytes:
         _checkbytes(arcname, payload)
         entries[arcname] = payload
 
-    rust_payload = wasm_rust.read_bytes()
-    _checkbytes("baux/baux_rust.py", rust_payload)
-    entries["baux/baux_rust.py"] = rust_payload
-
-    oxcaml_payload = wasm_oxcaml.read_bytes()
-    _checkbytes("baux/benchmarks/_oxcaml_wasm.py", oxcaml_payload)
-    entries["baux/benchmarks/_oxcaml_wasm.py"] = oxcaml_payload
+    _checkbytes(WASM_EXT_ARCNAME, so_payload)
+    entries[WASM_EXT_ARCNAME] = so_payload
 
     buf = io.BytesIO()
     with zipfile.ZipFile(
@@ -160,6 +235,58 @@ def build_pyzip(repo_root: Path) -> bytes:
     return buf.getvalue()
 
 
+def build_pyzip(repo_root: Path, wasm_so: Path | None = None) -> bytes:
+    _, so_payload = _load_verified_wasm_so(repo_root, wasm_so)
+    return _build_pyzip_with_so(repo_root, so_payload)
+
+
+def _stage_companion_scripts(
+    repo_root: Path, assets_dirs: list[Path]
+) -> dict[str, dict[str, Any]]:
+    companion_entries: dict[str, dict[str, Any]] = {}
+    theme_dir = repo_root / "forest" / "theme"
+
+    for manifest_key, filename in COMPANION_THEME_SCRIPTS:
+        src = theme_dir / filename
+        if not src.is_file():
+            continue
+        blob = src.read_bytes()
+        _checkbytes(filename, blob)
+        for assets_dir in assets_dirs:
+            (assets_dir / filename).write_bytes(blob)
+        companion_entries[manifest_key] = {
+            "path": filename,
+            "size": len(blob),
+            "sha256": sha256_bytes(blob),
+        }
+
+    oxcaml_candidates = (
+        repo_root / "admin" / "ui" / "_build" / "default" / "oxcaml_eval.js",
+        theme_dir / "oxcaml_eval.js",
+    )
+    oxcaml_src = next((p for p in oxcaml_candidates if p.is_file()), None)
+    if oxcaml_src is not None:
+        oxcaml_blob = oxcaml_src.read_bytes()
+        _checkbytes("oxcaml_eval.js", oxcaml_blob)
+        for assets_dir in assets_dirs:
+            (assets_dir / "oxcaml_eval.js").write_bytes(oxcaml_blob)
+        companion_entries["oxcaml_eval_js"] = {
+            "path": "oxcaml_eval.js",
+            "size": len(oxcaml_blob),
+            "sha256": sha256_bytes(oxcaml_blob),
+        }
+    elif assets_dirs and all((d / "oxcaml_eval.js").is_file() for d in assets_dirs):
+        oxcaml_blob = (assets_dirs[0] / "oxcaml_eval.js").read_bytes()
+        _checkbytes("oxcaml_eval.js", oxcaml_blob)
+        companion_entries["oxcaml_eval_js"] = {
+            "path": "oxcaml_eval.js",
+            "size": len(oxcaml_blob),
+            "sha256": sha256_bytes(oxcaml_blob),
+        }
+
+    return companion_entries
+
+
 def stage_assets(
     *,
     repo_root: Path,
@@ -168,9 +295,11 @@ def stage_assets(
     assets_dirs: list[Path],
     offline: bool = False,
     zip_only: bool = False,
+    wasm_so: Path | None = None,
 ) -> dict[str, Any]:
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    zip_bytes = build_pyzip(repo_root)
+    _, so_payload = _load_verified_wasm_so(repo_root, wasm_so)
+    zip_bytes = _build_pyzip_with_so(repo_root, so_payload)
     zip_sha = sha256_bytes(zip_bytes)
 
     pyodide_entries: dict[str, dict[str, Any]] = {}
@@ -191,6 +320,17 @@ def stage_assets(
                 "sha256": sha256_bytes(blob),
             }
 
+    for assets_dir in assets_dirs:
+        assets_dir.mkdir(parents=True, exist_ok=True)
+        (assets_dir / "baux_py.zip").write_bytes(zip_bytes)
+        if not zip_only:
+            pyo_dir = assets_dir / "pyodide"
+            pyo_dir.mkdir(parents=True, exist_ok=True)
+            for name, blob in staged_pyodide_blobs.items():
+                (pyo_dir / name).write_bytes(blob)
+
+    companion_entries = _stage_companion_scripts(repo_root, assets_dirs)
+
     repl_manifest = {
         "schema_version": 1,
         "pyodide_version": manifest["pyodide_version"],
@@ -199,24 +339,20 @@ def stage_assets(
             "size": len(zip_bytes),
             "sha256": zip_sha,
         },
+        "wasm_extension": {
+            "path": WASM_EXT_ARCNAME,
+            "size": len(so_payload),
+            "sha256": sha256_bytes(so_payload),
+        },
+        "companion_files": companion_entries,
         "pyodide_files": pyodide_entries,
     }
     repl_manifest_bytes = (
         json.dumps(repl_manifest, indent=2, sort_keys=True) + "\n"
     ).encode("utf-8")
 
-    worker_src = repo_root / "forest" / "theme" / "repl_worker.js"
     for assets_dir in assets_dirs:
-        assets_dir.mkdir(parents=True, exist_ok=True)
-        (assets_dir / "baux_py.zip").write_bytes(zip_bytes)
         (assets_dir / "repl_manifest.json").write_bytes(repl_manifest_bytes)
-        if worker_src.is_file():
-            shutil.copy2(worker_src, assets_dir / "repl_worker.js")
-        if not zip_only:
-            pyo_dir = assets_dir / "pyodide"
-            pyo_dir.mkdir(parents=True, exist_ok=True)
-            for name, blob in staged_pyodide_blobs.items():
-                (pyo_dir / name).write_bytes(blob)
 
     return repl_manifest
 
@@ -226,6 +362,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--repo-root", type=Path, default=REPO_ROOT)
     parser.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
     parser.add_argument("--cache-dir", type=Path, default=DEFAULT_CACHE_DIR)
+    parser.add_argument(
+        "--wasm-so",
+        type=Path,
+        default=None,
+        help="Path to compiled baux_rust.cpython-312-wasm32-emscripten.so",
+    )
     parser.add_argument(
         "--assets-dir",
         type=Path,
@@ -245,6 +387,7 @@ def main(argv: list[str] | None = None) -> int:
         assets_dirs=[p.resolve() for p in args.assets_dirs],
         offline=args.offline,
         zip_only=args.zip_only,
+        wasm_so=args.wasm_so,
     )
     print(json.dumps(summary, indent=2, sort_keys=True))
     return 0

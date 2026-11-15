@@ -13,6 +13,8 @@ pub enum Device {
     Metal,
     Cuda,
     OpenCl,
+    #[deser(rename = "webgpu")]
+    WebGpu,
 }
 
 /// Device memory capacity and allocation snapshot.
@@ -46,11 +48,21 @@ impl Device {
         }
     }
 
+    pub fn webgpu() -> Result<Self, String> {
+        if Backend::WebGpu.compiled() {
+            Ok(Self::WebGpu)
+        } else {
+            Err("webgpu backend was not compiled into this library".into())
+        }
+    }
+
     pub const fn auto() -> Self {
         if Backend::Metal.compiled() {
             Self::Metal
         } else if Backend::Cuda.compiled() {
             Self::Cuda
+        } else if Backend::WebGpu.compiled() {
+            Self::WebGpu
         } else {
             Self::Cpu
         }
@@ -63,8 +75,9 @@ impl Device {
             "metal" => Ok(Self::Metal),
             "cuda" | "cuvs" | "cuvs_cagra" => Ok(Self::Cuda),
             "opencl" | "ocl" => Ok(Self::OpenCl),
+            "webgpu" | "wgpu" => Ok(Self::WebGpu),
             other => Err(format!(
-                "unknown device {other:?}; expected 'auto', 'cpu', 'metal', 'cuda', or 'opencl'"
+                "unknown device {other:?}; expected 'auto', 'cpu', 'metal', 'cuda', 'opencl', or 'webgpu'"
             )),
         }
     }
@@ -75,6 +88,7 @@ impl Device {
             Self::Metal => "metal",
             Self::Cuda => "cuda",
             Self::OpenCl => "opencl",
+            Self::WebGpu => "webgpu",
         }
     }
 
@@ -90,6 +104,10 @@ impl Device {
         matches!(self, Self::Cuda)
     }
 
+    pub const fn is_webgpu(self) -> bool {
+        matches!(self, Self::WebGpu)
+    }
+
     pub const fn compiled(self) -> bool {
         self.backend().compiled()
     }
@@ -100,6 +118,7 @@ impl Device {
             Self::Metal => Backend::Metal,
             Self::Cuda => Backend::Cuda,
             Self::OpenCl => Backend::OpenCl,
+            Self::WebGpu => Backend::WebGpu,
         }
     }
 
@@ -109,6 +128,7 @@ impl Device {
             Self::Metal => IndexDriver::Metal,
             Self::Cuda => IndexDriver::Cuda,
             Self::OpenCl => IndexDriver::OpenCl,
+            Self::WebGpu => IndexDriver::WebGpu,
         }
     }
 
@@ -147,6 +167,7 @@ impl From<Backend> for Device {
             Backend::Metal => Self::Metal,
             Backend::Cuda => Self::Cuda,
             Backend::OpenCl => Self::OpenCl,
+            Backend::WebGpu => Self::WebGpu,
         }
     }
 }
@@ -171,6 +192,7 @@ impl From<ComputeDevice> for Device {
             ComputeDevice::Metal => Self::Metal,
             ComputeDevice::Cuda => Self::Cuda,
             ComputeDevice::OpenCl => Self::OpenCl,
+            ComputeDevice::WebGpu => Self::WebGpu,
         }
     }
 }
@@ -186,6 +208,8 @@ mod tests {
         assert_eq!(Device::parse("metal").unwrap(), Device::Metal);
         assert_eq!(Device::parse("cuvs_cagra").unwrap(), Device::Cuda);
         assert_eq!(Device::parse("ocl").unwrap(), Device::OpenCl);
+        assert_eq!(Device::parse("webgpu").unwrap(), Device::WebGpu);
+        assert_eq!(Device::parse("wgpu").unwrap(), Device::WebGpu);
         assert_eq!(Device::parse("auto").unwrap(), Device::auto());
         assert!(Device::parse("unknown").is_err());
     }
@@ -196,9 +220,15 @@ mod tests {
         assert!(Device::cpu().is_cpu());
         assert!(Device::Metal.is_metal());
         assert!(Device::Cuda.is_cuda());
+        assert!(Device::WebGpu.is_webgpu());
+        assert_eq!(Device::WebGpu.name(), "webgpu");
+        assert_eq!(Backend::from(Device::WebGpu), Backend::WebGpu);
+        assert_eq!(Device::from(Backend::WebGpu), Device::WebGpu);
+        assert_eq!(IndexDriver::from(Device::WebGpu), IndexDriver::WebGpu);
         assert_eq!(Backend::from(Device::Metal), Backend::Metal);
         assert_eq!(Device::from(Backend::Cuda), Device::Cuda);
         assert_eq!(IndexDriver::from(Device::Cpu), IndexDriver::Exact);
         assert_eq!(Device::from(ComputeDevice::Auto), Device::auto());
+        assert_eq!(Device::from(ComputeDevice::WebGpu), Device::WebGpu);
     }
 }

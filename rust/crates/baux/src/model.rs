@@ -23,7 +23,7 @@ type InitStats = (
 mod access;
 mod inspection;
 mod metric;
-#[cfg(test)]
+#[cfg(all(test, feature = "disk-bpann", not(target_arch = "wasm32")))]
 mod metric_tests;
 pub use access::{EnnIndexAccess, EnnRowAccess};
 pub use inspection::{ENN, ModelOptions};
@@ -922,6 +922,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
     fn disk_reopen() {
         let dir = TempDir::new().unwrap();
         let bounds = array![[0.0, 1.0]];

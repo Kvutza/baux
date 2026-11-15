@@ -2,8 +2,12 @@
 
 use baux::artifact::json::{self, Value};
 use deser::{Deserialize, Serialize};
+#[cfg(all(feature = "host-db", not(target_arch = "wasm32")))]
 use std::collections::BTreeMap;
-use std::fs::{self, File};
+use std::fs;
+#[cfg(all(feature = "host-db", not(target_arch = "wasm32")))]
+use std::fs::File;
+#[cfg(all(feature = "host-db", not(target_arch = "wasm32")))]
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
@@ -67,6 +71,7 @@ pub fn directory(root: &Path) -> Result<PathBuf, String> {
     Ok(owner.join(".cache/baux/evidence"))
 }
 
+#[cfg(all(feature = "host-db", not(target_arch = "wasm32")))]
 pub(super) fn validate(record: &Record) -> Result<(), String> {
     if record.schema != 1
         || record.id.is_empty()
@@ -80,6 +85,7 @@ pub(super) fn validate(record: &Record) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(all(feature = "host-db", not(target_arch = "wasm32")))]
 pub(crate) fn atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
     fs::create_dir_all(path.parent().ok_or("missing parent directory")?)
         .map_err(|e| e.to_string())?;
@@ -104,11 +110,13 @@ pub fn jj(root: &Path, args: &[&str]) -> Result<String, String> {
     String::from_utf8(output.stdout).map_err(|e| e.to_string())
 }
 
+#[cfg(all(feature = "host-db", not(target_arch = "wasm32")))]
 pub(super) fn encode(record: &Record) -> Result<Vec<u8>, String> {
     validate(record)?;
     baux::artifact::cbor::to_vec(record).map_err(|e| e.to_string())
 }
 
+#[cfg(all(feature = "host-db", not(target_arch = "wasm32")))]
 pub(super) fn decode(bytes: &[u8]) -> Result<Record, String> {
     // A run is an object/map in both formats. JSON object starts cannot collide
     // with CBOR map headers. Never retry corrupt CBOR as another format.
@@ -125,6 +133,7 @@ pub(super) fn decode(bytes: &[u8]) -> Result<Record, String> {
 /// Prefer the CBOR revision of a run when both formats exist. Do not use file
 /// timestamps or enumeration order, and do not fall back to stale JSON on
 /// error.
+#[cfg(all(feature = "host-db", not(target_arch = "wasm32")))]
 pub(super) fn manifests(directory: &Path) -> Result<Vec<Record>, String> {
     if !directory.exists() {
         return Ok(Vec::new());
@@ -162,6 +171,7 @@ pub(super) fn manifests(directory: &Path) -> Result<Vec<Record>, String> {
 }
 
 /// Calendar dates are local; RFC3339 inputs specify their own offset.
+#[cfg(all(feature = "host-db", not(target_arch = "wasm32")))]
 pub fn since(input: &str) -> Result<i64, String> {
     let now = jiff::Zoned::now();
     let date = match input {
@@ -186,6 +196,7 @@ pub fn since(input: &str) -> Result<i64, String> {
     Ok(timestamp.as_millisecond())
 }
 
+#[cfg(all(feature = "host-db", not(target_arch = "wasm32")))]
 pub fn local_time(millis: i64) -> Result<String, String> {
     Ok(jiff::Timestamp::from_millisecond(millis)
         .map_err(|e| e.to_string())?

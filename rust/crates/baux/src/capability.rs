@@ -26,6 +26,8 @@ pub enum Backend {
     Cuda,
     Metal,
     OpenCl,
+    #[deser(rename = "webgpu")]
+    WebGpu,
 }
 
 impl Backend {
@@ -35,6 +37,7 @@ impl Backend {
             Self::Cuda => "cuda",
             Self::Metal => "metal",
             Self::OpenCl => "opencl",
+            Self::WebGpu => "webgpu",
         }
     }
 
@@ -49,6 +52,7 @@ impl Backend {
             )),
             Self::Metal => cfg!(all(target_os = "macos", feature = "metal")),
             Self::OpenCl => cfg!(feature = "opencl"),
+            Self::WebGpu => cfg!(target_arch = "wasm32"),
         }
     }
 
@@ -69,6 +73,7 @@ impl Backend {
             Self::Cuda => IndexDriver::Cuda,
             Self::Metal => IndexDriver::Metal,
             Self::OpenCl => IndexDriver::OpenCl,
+            Self::WebGpu => IndexDriver::WebGpu,
         };
         let rows = ndarray::array![[0.0]];
         let index = KnnIndex::new(&rows.view(), driver).map_err(|error| error.to_string())?;
@@ -171,7 +176,13 @@ pub struct Capability {
     pub support: Support,
 }
 
-const BACKENDS: [Backend; 4] = [Backend::Cpu, Backend::Cuda, Backend::Metal, Backend::OpenCl];
+const BACKENDS: [Backend; 5] = [
+    Backend::Cpu,
+    Backend::Cuda,
+    Backend::Metal,
+    Backend::OpenCl,
+    Backend::WebGpu,
+];
 
 const OPS: [Operation; 11] = [
     Operation::ExactDist,
@@ -203,7 +214,9 @@ pub fn support(backend: Backend, operation: Operation) -> Support {
         return Support::Missing;
     }
     match (backend, operation) {
-        (Backend::Cuda | Backend::Metal, Operation::DevicePosterior) => Support::Direct,
+        (Backend::Cuda | Backend::Metal | Backend::WebGpu, Operation::DevicePosterior) => {
+            Support::Direct
+        }
         (_, Operation::DevicePosterior) => Support::Missing,
         (_, Operation::ResidentLoop) => Support::Fallback,
         (Backend::Cpu, _) => Support::Direct,
@@ -217,7 +230,7 @@ pub fn support(backend: Backend, operation: Operation) -> Support {
             | Operation::PosteriorDraw,
         ) => Support::Direct,
         (
-            Backend::Metal,
+            Backend::Metal | Backend::WebGpu,
             Operation::NeighborSearch | Operation::TrialSearch | Operation::WeightSelect,
         ) => Support::Direct,
         (
@@ -258,10 +271,14 @@ mod tests {
     #[test]
     fn compiled_support() {
         Backend::Cpu.probe().unwrap();
+        assert_eq!(Backend::WebGpu.name(), "webgpu");
+        assert_eq!(Backend::WebGpu.compiled(), cfg!(target_arch = "wasm32"));
         for &backend in backends() {
             assert_eq!(
                 support(backend, Operation::DevicePosterior),
-                if backend.compiled() && matches!(backend, Backend::Cuda | Backend::Metal) {
+                if backend.compiled()
+                    && matches!(backend, Backend::Cuda | Backend::Metal | Backend::WebGpu)
+                {
                     Support::Direct
                 } else {
                     Support::Missing

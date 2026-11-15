@@ -23,6 +23,7 @@ class NeighborIndex(Enum):
     METAL = auto()
     OPENCL = auto()
     CUDA = auto()
+    WEBGPU = auto()
 
 
 class Storage(Enum):
@@ -47,6 +48,7 @@ INDEX_NAMES: dict[NeighborIndex, str] = {
     NeighborIndex.METAL: "metal",
     NeighborIndex.OPENCL: "opencl",
     NeighborIndex.CUDA: "cuda",
+    NeighborIndex.WEBGPU: "webgpu",
 }
 
 __all__ = [

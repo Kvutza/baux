@@ -32,26 +32,26 @@ unexpected_cfgs = { level = "warn", check-cfg = [
 [dependencies]
 anstream = "1.0"
 anstyle = "1.0"
-candle-core = { workspace = true }
-candle-nn = { workspace = true }
-charming = { version = "=0.6.0", default-features = false }
+candle-core = { workspace = true, optional = true }
+candle-nn = { workspace = true, optional = true }
+charming = { version = "=0.6.0", default-features = false, optional = true }
 deser.workspace = true
 deser-cbor = "=0.9.1"
 deser-json = { version = "=0.9.1", features = ["speedups"] }
 deser-toml = "=0.9.1"
 deser-value = "=0.9.1"
 jiff = "=0.2.38"
-kuva = { version = "=0.6.0", default-features = false }
-memmap2 = "0.9"
+kuva = { version = "=0.6.0", default-features = false, optional = true }
+memmap2 = { version = "0.9", optional = true }
 ndarray = { workspace = true }
 rand = "0.8"
 rand_distr = { workspace = true }
 rayon = "1.10"
-redb = "=2.6.4"
+redb = { version = "=2.6.4", optional = true }
 sha2 = "0.10"
 sobol = "1.0.2"
 thiserror = { workspace = true }
-tokenizers = { version = "0.23.1", default-features = false, features = [
+tokenizers = { version = "0.23.1", default-features = false, optional = true, features = [
   "fancy-regex",
 ] }
 usearch = { version = "2.26", optional = true, default-features = false }
@@ -63,12 +63,15 @@ metal = { version = "0.33.0", optional = true, features = ["mps"] }
 cuda-core = { workspace = true, optional = true }
 
 [features]
-default = []
+default = ["host-db", "disk-bpann", "host-ml"]
+host-db = ["dep:redb", "dep:charming", "dep:kuva"]
+disk-bpann = ["dep:memmap2"]
+host-ml = ["dep:candle-core", "dep:candle-nn", "dep:tokenizers"]
 buck2-test-data = []
 cuda = ["dep:cuda-core"]
 extraction = []
 native-flame = ["cuda"]
-metal = ["dep:metal", "candle-core/metal", "candle-nn/metal"]
+metal = ["dep:metal", "candle-core?/metal", "candle-nn?/metal"]
 usearch = ["dep:usearch"]
 usearch-native = []
 usearch-numkong = ["dep:usearch", "usearch/numkong"]

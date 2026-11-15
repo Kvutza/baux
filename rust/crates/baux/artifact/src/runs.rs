@@ -6,24 +6,37 @@
 use baux::artifact::json::{self, Value, json};
 use deser::{Deserialize, Serialize};
 use std::fs::{self, File};
-use std::io::{Read, Write};
-use std::path::{Path, PathBuf};
+use std::io::Read;
+#[cfg(all(feature = "host-db", not(target_arch = "wasm32")))]
+use std::io::Write;
+use std::path::Path;
+#[cfg(all(feature = "host-db", not(target_arch = "wasm32")))]
+use std::path::PathBuf;
 
+#[cfg(all(feature = "host-db", not(target_arch = "wasm32")))]
 #[path = "runs/backfill.rs"]
 mod backfill;
+#[cfg(all(feature = "host-db", not(target_arch = "wasm32")))]
 #[path = "runs/catalog.rs"]
 mod catalog;
 #[path = "runs/codec.rs"]
 mod codec;
+#[cfg(all(feature = "host-db", not(target_arch = "wasm32")))]
 #[path = "runs/dashboard.rs"]
 pub mod dashboard;
+#[cfg(all(feature = "host-db", not(target_arch = "wasm32")))]
 #[path = "runs/plot.rs"]
 mod plot;
+#[cfg(all(feature = "host-db", not(target_arch = "wasm32")))]
 pub use catalog::{Query, history, local_time, reindex, since};
+#[cfg(all(feature = "host-db", not(target_arch = "wasm32")))]
 pub(crate) use codec::atomic;
+#[cfg(all(feature = "host-db", not(target_arch = "wasm32")))]
 use codec::validate;
 pub use codec::{Record, digest, directory, field, jj};
+#[cfg(all(feature = "host-db", not(target_arch = "wasm32")))]
 pub use dashboard::{serve, write_html};
+#[cfg(all(feature = "host-db", not(target_arch = "wasm32")))]
 pub use plot::compare;
 
 pub fn file_digest(path: &Path) -> Result<String, String> {
@@ -52,6 +65,7 @@ pub fn file_digest(path: &Path) -> Result<String, String> {
 
 /// Construct provenance before launching a worker. No work is attributed by
 /// guess.
+#[cfg(all(feature = "host-db", not(target_arch = "wasm32")))]
 pub fn start(root: &Path, output: &Path, config: &str, commit: &str) -> Result<Record, String> {
     let worker = std::env::var_os("BAUX_WORKER_EXECUTABLE").ok_or("missing worker executable")?;
     start_worker(root, output, config, commit, Path::new(&worker))
@@ -59,6 +73,7 @@ pub fn start(root: &Path, output: &Path, config: &str, commit: &str) -> Result<R
 
 /// Record an in-process or explicitly selected worker without mutating the
 /// process environment. The executable is hashed in the usual manifest.
+#[cfg(all(feature = "host-db", not(target_arch = "wasm32")))]
 pub fn start_worker(
     root: &Path,
     output: &Path,
@@ -117,6 +132,7 @@ pub fn start_worker(
     Ok(record)
 }
 
+#[cfg(all(feature = "host-db", not(target_arch = "wasm32")))]
 fn data_digest(config: &Value) -> Result<String, String> {
     let mut hashes = Vec::new();
     for name in ["train", "validation", "tokenizer"] {
@@ -135,6 +151,7 @@ fn data_digest(config: &Value) -> Result<String, String> {
     ))
 }
 
+#[cfg(all(feature = "host-db", not(target_arch = "wasm32")))]
 fn protocol(config: &Value) -> Result<String, String> {
     // Conservative equivalence: include resolved paths, all seeds and workload
     // settings. Do not infer matching data merely from a human-readable name.
@@ -149,6 +166,7 @@ fn protocol(config: &Value) -> Result<String, String> {
 }
 
 /// Training outcome and report outcome are independent. Plot errors are saved.
+#[cfg(all(feature = "host-db", not(target_arch = "wasm32")))]
 pub fn finish(root: &Path, record: &mut Record, result: &Result<(), String>) -> Result<(), String> {
     record.status = if result.is_ok() {
         "completed"
@@ -209,6 +227,7 @@ struct GpuSeal {
 }
 
 const SEAL_LIMIT: u64 = 8 * 1024 * 1024;
+#[cfg(all(feature = "host-db", not(target_arch = "wasm32")))]
 static SEAL_NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 fn read_seal(record: &Record) -> Result<Option<GpuSet>, String> {
@@ -275,6 +294,7 @@ pub fn gpu_records(record: &Record) -> Result<GpuEvidence, String> {
     })
 }
 
+#[cfg(all(feature = "host-db", not(target_arch = "wasm32")))]
 fn seal_gpu(record: &Record) -> Result<(), String> {
     if !matches!(record.status.as_str(), "completed" | "failed") {
         return Err("GPU capture can only be sealed after the run finishes".into());
@@ -407,6 +427,7 @@ pub fn graph(records: &[Record]) -> Value {
     json!({"nodes": nodes, "edges": edges})
 }
 
+#[cfg(all(feature = "host-db", not(target_arch = "wasm32")))]
 pub fn publish(root: &Path, record: &Record) -> Result<(), String> {
     validate(record)?;
     let directory = directory(root)?;
@@ -428,6 +449,7 @@ pub fn publish(root: &Path, record: &Record) -> Result<(), String> {
 
 /// Bounded task evidence, with source differences rather than inferred
 /// causality.
+#[cfg(all(feature = "host-db", not(target_arch = "wasm32")))]
 pub fn brief(root: &Path, task: &str, current: &str) -> Result<Value, String> {
     let candidates = history(
         root,
@@ -474,6 +496,7 @@ pub fn brief(root: &Path, task: &str, current: &str) -> Result<Value, String> {
     )
 }
 
+#[cfg(all(feature = "host-db", not(target_arch = "wasm32")))]
 fn select(candidates: Vec<Record>) -> Vec<Record> {
     let mut chosen: Vec<Record> = candidates.iter().take(4).cloned().collect();
     for status in ["failed", "completed"] {
@@ -486,6 +509,7 @@ fn select(candidates: Vec<Record>) -> Vec<Record> {
     chosen
 }
 
+#[cfg(all(feature = "host-db", not(target_arch = "wasm32")))]
 fn baseline(root: &Path, anchor: Option<&Record>) -> Result<Value, String> {
     let Some(anchor) = anchor else {
         return Ok(Value::null());
@@ -596,6 +620,6 @@ pub fn source_diffs(root: &Path, records: &[Record], include_patch: bool) -> Val
     json!(out)
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "host-db", not(target_arch = "wasm32")))]
 #[path = "runs/tests.rs"]
 mod tests;

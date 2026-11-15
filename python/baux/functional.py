@@ -447,6 +447,8 @@ def pmap(
         return []
     root_key = state.key if key is None else (key if isinstance(key, Key) else Key(key))
     subkeys = split(root_key, n_branches)
+    if _sys.platform == "emscripten" or n_branches == 1:
+        return [branch_fn(i, state.fork(bk), bk) for i, bk in enumerate(subkeys)]
     with ThreadPoolExecutor(max_workers=n_branches) as pool:
         return [
             f.result()

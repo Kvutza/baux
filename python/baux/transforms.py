@@ -176,6 +176,7 @@ def _driver(index: Any) -> NeighborIndex:
         "bpann_disk": NeighborIndex.BPANN_DISK,
         "metal": NeighborIndex.METAL,
         "cuda": NeighborIndex.CUDA,
+        "webgpu": NeighborIndex.WEBGPU,
         "auto": NeighborIndex.AUTO,
     }
     if val not in mapping:

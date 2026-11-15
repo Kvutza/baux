@@ -761,6 +761,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
     fn fit_search() {
         use crate::backend::EnnStorage;
         use crate::index::IndexDriver;
@@ -811,6 +812,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
     fn disk_restart() {
         use crate::backend::EnnStorage;
         use crate::index::IndexDriver;
@@ -850,6 +852,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
     fn fit_exist() {
         use crate::backend::EnnStorage;
         use crate::index::IndexDriver;
@@ -930,6 +933,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
     fn auto_lengthscales() {
         use tempfile::TempDir;
         let dir = TempDir::new().unwrap();

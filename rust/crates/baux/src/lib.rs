@@ -56,6 +56,7 @@ mod coordinate_scalar;
 pub mod device;
 pub mod device_posterior;
 pub use baux::semantics::context;
+#[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
 pub mod disk_bpann;
 pub mod draw;
 pub mod error;
@@ -121,15 +122,19 @@ pub mod search;
 pub mod semantics;
 pub use semantics as baux_semantics;
 pub mod sense;
+#[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
 pub mod shm_slab;
 pub(crate) mod snapshot_io;
 pub mod stats;
 pub mod strategy;
 pub mod surrogate;
 pub mod surrogate_api;
+#[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
 pub mod tensor_store;
+#[cfg(all(feature = "host-ml", not(target_arch = "wasm32")))]
 pub mod text;
 pub mod ticket;
+#[cfg(all(feature = "host-ml", not(target_arch = "wasm32")))]
 pub mod tokamak;
 pub mod traits;
 pub mod trials;
@@ -137,6 +142,7 @@ pub mod trust_region;
 pub mod typestate;
 pub mod unified_mem;
 pub mod util;
+pub mod webgpu;
 pub mod weights;
 pub mod y_bounds;
 
@@ -150,10 +156,11 @@ pub use agent_contract::{
     AGENT_SCHEMA, AgentMessage, AgentTranscript, AssistantSegment, DataSplit, EpisodeTermination,
     TaskProvenance,
 };
+#[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
 pub use backend::DiskBpannEnnBackend;
-pub use backend::{
-    DiskStore, EnnBackend, EnnStorage, InMemoryEnnBackend, MemoryStore, Storage, Store,
-};
+#[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
+pub use backend::DiskStore;
+pub use backend::{EnnBackend, EnnStorage, InMemoryEnnBackend, MemoryStore, Storage, Store};
 pub use base_policy::{BasePolicyManifest, POLICY_SCHEMA, PolicyQualification};
 pub use candidates::{
     CandidateRV, CandidateSampler, draw_turbo, from_unit, generate_candidates, generate_lhd,

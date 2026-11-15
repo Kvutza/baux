@@ -6,11 +6,11 @@ import pytest
 
 def test_capabilities():
     rows = baux.capabilities()
-    assert [row.name for row in rows] == ["cpu", "cuda", "metal", "opencl"]
+    assert [row.name for row in rows] == ["cpu", "cuda", "metal", "opencl", "webgpu"]
     assert rows[0].available
     assert "posterior" in rows[0].direct_operations
     for row in rows:
-        if row.compiled and row.name in ("metal", "cuda"):
+        if row.compiled and row.name in ("metal", "cuda", "webgpu"):
             assert "device_posterior" in row.direct_operations
             assert "device_posterior" not in row.host_operations
         else:
@@ -23,7 +23,7 @@ def test_capabilities():
             assert row.reason
         elif row.name != "cpu":
             assert row.available is None
-        if row.name == "metal" and row.compiled:
+        if row.name in ("metal", "webgpu") and row.compiled:
             assert "posterior_draw" in row.fallback_operations
         if row.name == "cuda" and row.compiled:
             assert "posterior_draw" in row.direct_operations

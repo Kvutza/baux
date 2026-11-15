@@ -200,12 +200,12 @@ let presets : preset list =
     };
     {
       id = "oxcaml_24d";
-      label = "OxCaml 24D Levy: ENN vs GP vs Zero";
+      label = "OxCaml 24D Levy: ENN vs Conformal vs Zero";
       short_label = "OxCaml 24D";
       description =
-        "Head-to-head 24D multimodal scaling comparison on equal 360-candidate budget: TuRBO-ENN vs Exact GP vs Zero.";
+        "Head-to-head 24D multimodal scaling comparison on equal 360-candidate budget: TuRBO-ENN vs Conformal ENN vs Zero (plus ExactGP on Local Native).";
       code =
-        "import time\n"
+        "import sys, time\n"
         ^ "import numpy as np\n"
         ^ "import baux\n"
         ^ "from baux.config import CandidateConfig, AcquisitionKind, ENNSurrogate, SurrogateFit\n"
@@ -221,23 +221,33 @@ let presets : preset list =
         ^ "    return st, (time.perf_counter() - t0) * 1e3\n\n"
         ^ "state, ms_enn = bench(baux.turbo_enn(num_init=16, enn=ENNSurrogate(fit=SurrogateFit(num_samples=150)),\n"
         ^ "                                     acquisition=AcquisitionKind.UCB, candidates=CandidateConfig(num_candidates=360)))\n"
-        ^ "st_gp, ms_gp = bench(baux.turbo_one(num_init=16, num_candidates=360))\n"
+        ^ "st_conf, ms_conf = bench(baux.turbo_enn(num_init=16,\n"
+        ^ "                                        enn=ENNSurrogate(k=5, geometry='conformal', fit=SurrogateFit(num_samples=150)),\n"
+        ^ "                                        acquisition=AcquisitionKind.UCB, candidates=CandidateConfig(num_candidates=360)))\n"
         ^ "st_zero, ms_zero = bench(baux.turbo_zero(num_init=16, num_candidates=360))\n\n"
         ^ "print(f'OxCaml catalogue size: {len(oxcaml.catalogue())} functions')\n"
         ^ "print(f'24D Levy @ 128 evals (max -f, opt=0.0):')\n"
-        ^ "print(f'  TuRBO-ENN (UCB) : best={state.best_y:8.2f}  wall={ms_enn:5.0f} ms')\n"
-        ^ "print(f'  TuRBO-1 ExactGP : best={st_gp.best_y:8.2f}  wall={ms_gp:5.0f} ms')\n"
-        ^ "print(f'  TuRBO-Zero      : best={st_zero.best_y:8.2f}  wall={ms_zero:5.0f} ms')\n\n"
+        ^ "print(f'  TuRBO-ENN (UCB)      : best={state.best_y:8.2f}  wall={ms_enn:5.0f} ms')\n"
+        ^ "print(f'  TuRBO-ENN (Conformal): best={st_conf.best_y:8.2f}  wall={ms_conf:5.0f} ms')\n"
+        ^ "print(f'  TuRBO-Zero           : best={st_zero.best_y:8.2f}  wall={ms_zero:5.0f} ms')\n"
+        ^ "series = [\n"
+        ^ "    {'label': 'TuRBO-ENN', 'y': np.maximum.accumulate(state.y_obs[:, 0]).tolist()},\n"
+        ^ "    {'label': 'Conformal ENN', 'y': np.maximum.accumulate(st_conf.y_obs[:, 0]).tolist()},\n"
+        ^ "    {'label': 'TuRBO-Zero', 'y': np.maximum.accumulate(st_zero.y_obs[:, 0]).tolist(), 'dashed': True},\n"
+        ^ "]\n"
+        ^ "if sys.platform != 'emscripten':\n"
+        ^ "    try:\n"
+        ^ "        st_gp, ms_gp = bench(baux.turbo_one(num_init=16, num_candidates=360))\n"
+        ^ "        print(f'  TuRBO-1 ExactGP      : best={st_gp.best_y:8.2f}  wall={ms_gp:5.0f} ms')\n"
+        ^ "        series.append({'label': 'TuRBO-1 GP', 'y': np.maximum.accumulate(st_gp.y_obs[:, 0]).tolist()})\n"
+        ^ "    except Exception as exc:\n"
+        ^ "        print(f'  TuRBO-1 ExactGP      : unavailable ({exc})')\n\n"
         ^ "fig = {\n"
         ^ "    'kind': 'curves',\n"
         ^ "    'title': '24D Levy Scaling (Equal 360-Candidate Budget)',\n"
         ^ "    'subtitle': 'Higher is better (-Levy loss; 0.0 is global optimum)',\n"
         ^ "    'x_label': 'Evaluations', 'y_label': 'Best Objective',\n"
-        ^ "    'series': [\n"
-        ^ "        {'label': 'TuRBO-ENN', 'y': np.maximum.accumulate(state.y_obs[:, 0]).tolist()},\n"
-        ^ "        {'label': 'TuRBO-1 GP', 'y': np.maximum.accumulate(st_gp.y_obs[:, 0]).tolist()},\n"
-        ^ "        {'label': 'TuRBO-Zero', 'y': np.maximum.accumulate(st_zero.y_obs[:, 0]).tolist(), 'dashed': True},\n"
-        ^ "    ],\n"
+        ^ "    'series': series,\n"
         ^ "}\n";
     };
     {
@@ -418,19 +428,17 @@ let presets : preset list =
         ^ "cfg = baux.lhd(12) | baux.enn(num_samples=150) | baux.ucb() | baux.raasp(240) | baux.regions(2)\n"
         ^ "blank = baux.init(bounds, cfg, seed=31)\n"
         ^ "st = blank\n"
-        ^ "st, b_fast = baux.ask(st, 3)\n"
-        ^ "st, b_slow = baux.ask(st, 3)\n"
-        ^ "st = baux.cancel(st, b_slow.ids)\n"
-        ^ "st = baux.complete(st, b_fast.ids, hart6(b_fast.points))\n\n"
+        ^ "st, bw = baux.ask(st, 12)\n"
+        ^ "st = baux.complete(st, bw.ids[6:], hart6(bw.points[6:]))\n"
+        ^ "st = baux.complete(st, bw.ids[:6], hart6(bw.points[:6]))\n\n"
         ^ "blob = baux.freeze(st)\n"
         ^ "d_pre = baux.digest(st)\n"
         ^ "state = baux.thaw(blank, blob)\n"
         ^ "assert baux.digest(state) == d_pre\n\n"
         ^ "while state.num_observations < 84:\n"
-        ^ "    state, bf = baux.ask(state, 4)\n"
-        ^ "    state, bs = baux.ask(state, 2)\n"
-        ^ "    state = baux.cancel(state, bs.ids)\n"
-        ^ "    state = baux.complete(state, bf.ids, hart6(bf.points))\n\n"
+        ^ "    state, bat = baux.ask(state, 6)\n"
+        ^ "    state = baux.cancel(state, bat.ids[4:])\n"
+        ^ "    state = baux.complete(state, bat.ids[:4], hart6(bat.points[:4]))\n\n"
         ^ "st_zero = baux.init(bounds, baux.turbo_zero(num_init=12, num_candidates=240), seed=31)\n"
         ^ "while st_zero.num_observations < 84:\n"
         ^ "    st_zero, bz = baux.ask(st_zero, 4)\n"
@@ -500,17 +508,115 @@ let clear_children (parent : #Dom.node Js.t) =
   in
   loop ()
 
+let is_defined (v : Js.Unsafe.any) : bool =
+  Js.Optdef.test (Obj.magic v : _ Js.optdef) && Js.Opt.test (Obj.magic v : _ Js.opt)
+
+let is_finite (v : float) : bool =
+  match classify_float v with
+  | FP_nan | FP_infinite -> false
+  | _ -> true
+
+let opt_str obj field =
+  let v = Js.Unsafe.get obj (js field) in
+  if is_defined v then Some (to_s (Obj.magic v)) else None
+
+let opt_int obj field =
+  let v = Js.Unsafe.get obj (js field) in
+  if is_defined v then Some (int_of_float (Js.float_of_number (Obj.magic v))) else None
+
+let opt_float obj field =
+  let v = Js.Unsafe.get obj (js field) in
+  if is_defined v then
+    let fv = Js.float_of_number (Obj.magic v) in
+    if is_finite fv then Some fv else None
+  else None
+
+let opt_bool obj field =
+  let v = Js.Unsafe.get obj (js field) in
+  if is_defined v then Js.to_bool (Obj.magic v : bool Js.t) else false
+
+let json_stringify (v : Js.Unsafe.any) : string =
+  let json_obj = Js.Unsafe.get Dom_html.window (js "JSON") in
+  to_s (Js.Unsafe.meth_call json_obj "stringify" [| v |])
+
+let json_parse (s : string) : Js.Unsafe.any option =
+  try
+    let json_obj = Js.Unsafe.get Dom_html.window (js "JSON") in
+    Some (Js.Unsafe.meth_call json_obj "parse" [| Js.Unsafe.inject (js s) |])
+  with _ -> None
+
 (* ---------------------------------------------------------------------------
-   Singleton lazy Web Worker kernel controller
+   Unified Runtime Controller (WASM + WebGPU Worker  <->  Local Native HTTP)
    --------------------------------------------------------------------------- *)
 
-type kernel_state = Idle | Booting of string | Ready | Running | Interrupted of string
+type runtime_mode = Wasm | LocalNative
 
+type kernel_state =
+  | Idle
+  | Booting of string
+  | Ready
+  | Running
+  | Interrupting of string
+  | Interrupted of string
+
+type cap_info = {
+  mutable wasm_simd : bool;
+  mutable wasm_simd_known : bool;
+  mutable webgpu_available : bool;
+  mutable webgpu_active : bool;
+  mutable webgpu_adapter : string;
+  mutable opfs_ready : bool;
+  mutable opfs_mounted : bool;
+  mutable coop_coep : bool;
+  mutable native_checked : bool;
+  mutable native_available : bool;
+  mutable native_baux : bool;
+  mutable native_cpu : bool;
+  mutable native_metal : bool;
+  mutable native_cuda : bool;
+  mutable native_torch : bool;
+  mutable native_jax : bool;
+  mutable native_flame : bool;
+  mutable native_tune : bool;
+  mutable native_python : string;
+  mutable native_reason : string;
+}
+
+let cap_ref : cap_info =
+  {
+    wasm_simd = false;
+    wasm_simd_known = false;
+    webgpu_available = false;
+    webgpu_active = false;
+    webgpu_adapter = "";
+    opfs_ready = false;
+    opfs_mounted = false;
+    coop_coep = false;
+    native_checked = false;
+    native_available = false;
+    native_baux = false;
+    native_cpu = false;
+    native_metal = false;
+    native_cuda = false;
+    native_torch = false;
+    native_jax = false;
+    native_flame = false;
+    native_tune = false;
+    native_python = "python3";
+    native_reason = "Probing local kernel server...";
+  }
+
+let runtime_mode_ref : runtime_mode ref = ref Wasm
 let worker_ref : Js.Unsafe.any option ref = ref None
 let kernel_state_ref : kernel_state ref = ref Idle
 let status_listeners : (kernel_state -> unit) list ref = ref []
+let cap_listeners : (cap_info -> unit) list ref = ref []
 let pending_reqs : (int, Js.Unsafe.any -> unit) Hashtbl.t = Hashtbl.create 16
 let next_req_id = ref 1
+let sab_ref : Js.Unsafe.any option ref = ref None
+let sab_int32_ref : Js.Unsafe.any option ref = ref None
+let local_gen = ref 0
+let pending_local_cbs : (int * (Js.Unsafe.any -> unit)) list ref = ref []
 
 let notify_status st =
   kernel_state_ref := st;
@@ -520,33 +626,296 @@ let add_status_listener fn =
   status_listeners := fn :: !status_listeners;
   fn !kernel_state_ref
 
-let interrupt_kernel () =
-  (match !worker_ref with
-  | Some w ->
-      ignore (Js.Unsafe.meth_call w "terminate" [||]);
-      worker_ref := None
-  | None -> ());
+let notify_caps () =
+  List.iter (fun fn -> fn cap_ref) !cap_listeners
+
+let add_cap_listener fn =
+  cap_listeners := fn :: !cap_listeners;
+  fn cap_ref
+
+let is_cross_origin_isolated () : bool =
+  let v = Js.Unsafe.get Dom_html.window (js "crossOriginIsolated") in
+  is_defined v && Js.to_bool (Obj.magic v)
+
+let ensure_interrupt_buffer () =
+  let coi = is_cross_origin_isolated () in
+  cap_ref.coop_coep <- coi;
+  if not coi then None
+  else
+    match !sab_int32_ref with
+    | Some _ as existing -> existing
+    | None ->
+        let sab_ctor = Js.Unsafe.get Dom_html.window (js "SharedArrayBuffer") in
+        let i32_ctor = Js.Unsafe.get Dom_html.window (js "Int32Array") in
+        let atomics = Js.Unsafe.get Dom_html.window (js "Atomics") in
+        if is_defined sab_ctor && is_defined i32_ctor && is_defined atomics then
+          try
+            let sab = Js.Unsafe.new_obj sab_ctor [| Js.Unsafe.inject 4 |] in
+            let view = Js.Unsafe.new_obj i32_ctor [| Js.Unsafe.inject sab |] in
+            ignore
+              (Js.Unsafe.meth_call atomics "store"
+                 [| Js.Unsafe.inject view; Js.Unsafe.inject 0; Js.Unsafe.inject 0 |]);
+            sab_ref := Some sab;
+            sab_int32_ref := Some view;
+            Some view
+          with _ -> None
+        else None
+
+let set_sab_signal (sig_num : int) =
+  match !sab_int32_ref with
+  | Some view ->
+      let atomics = Js.Unsafe.get Dom_html.window (js "Atomics") in
+      if is_defined atomics then
+        ignore
+          (Js.Unsafe.meth_call atomics "store"
+             [| Js.Unsafe.inject view; Js.Unsafe.inject 0; Js.Unsafe.inject sig_num |])
+  | None -> ()
+
+let fetch_json ~(meth : string) ~(url : string) ?body:(body : Js.Unsafe.any option)
+    (cb : (int * string, string) result -> unit) =
+  let fetch_fn = Js.Unsafe.get Dom_html.window (js "fetch") in
+  if not (is_defined fetch_fn) then cb (Error "fetch API unavailable")
+  else
+    let base =
+      [
+        ("method", Js.Unsafe.inject (js meth));
+        ("credentials", Js.Unsafe.inject (js "same-origin"));
+      ]
+    in
+    let fields =
+      match body with
+      | Some b ->
+          let hdrs = Js.Unsafe.obj [| ("Content-Type", Js.Unsafe.inject (js "application/json")) |] in
+          base
+          @ [
+              ("headers", Js.Unsafe.inject hdrs);
+              ("body", Js.Unsafe.inject (js (json_stringify b)));
+            ]
+      | None -> base
+    in
+    let init_obj = Js.Unsafe.obj (Array.of_list fields) in
+    let promise =
+      Js.Unsafe.meth_call Dom_html.window "fetch"
+        [| Js.Unsafe.inject (js url); Js.Unsafe.inject init_obj |]
+    in
+    let on_resp =
+      Js.wrap_callback (fun (resp : Js.Unsafe.any) ->
+          let status =
+            let raw_st = Js.Unsafe.get resp (js "status") in
+            if is_defined raw_st then int_of_float (Js.float_of_number (Obj.magic raw_st)) else 0
+          in
+          let txt_p = Js.Unsafe.meth_call resp "text" [||] in
+          let on_txt =
+            Js.wrap_callback (fun (txt_js : Js.Unsafe.any) ->
+                cb (Ok (status, to_s (Obj.magic txt_js))))
+          in
+          let on_txt_err =
+            Js.wrap_callback (fun (err : Js.Unsafe.any) ->
+                let msg = Option.value (opt_str err "message") ~default:"response read failed" in
+                cb (Error msg))
+          in
+          ignore
+            (Js.Unsafe.meth_call txt_p "then"
+               [| Js.Unsafe.inject on_txt; Js.Unsafe.inject on_txt_err |]))
+    in
+    let on_err =
+      Js.wrap_callback (fun (err : Js.Unsafe.any) ->
+          let msg = Option.value (opt_str err "message") ~default:"network request failed" in
+          cb (Error msg))
+    in
+    ignore (Js.Unsafe.meth_call promise "then" [| Js.Unsafe.inject on_resp; Js.Unsafe.inject on_err |])
+
+let update_caps_from_worker (data : Js.Unsafe.any) =
+  let changed = ref false in
+  let set_b cur next =
+    if next && not !cur then (
+      cur := true;
+      changed := true)
+  in
+  ignore set_b;
+  let caps = Js.Unsafe.get data (js "caps") in
+  if is_defined caps then (
+    let simd = opt_bool caps "cpu_wasm_simd" || opt_bool caps "wasm_simd" in
+    if (not cap_ref.wasm_simd_known) || simd <> cap_ref.wasm_simd then (
+      cap_ref.wasm_simd <- simd;
+      cap_ref.wasm_simd_known <- true;
+      changed := true);
+    let wg = opt_bool caps "webgpu" in
+    if wg <> cap_ref.webgpu_active then (
+      cap_ref.webgpu_active <- wg;
+      if wg then cap_ref.webgpu_available <- true;
+      changed := true);
+    (match opt_str caps "webgpu_adapter" with
+    | Some a when a <> "" && a <> cap_ref.webgpu_adapter ->
+        cap_ref.webgpu_adapter <- a;
+        changed := true
+    | _ -> ());
+    if opt_bool caps "opfs" || opt_bool caps "opfs_mounted" then (
+      if not cap_ref.opfs_mounted then (
+        cap_ref.opfs_mounted <- true;
+        cap_ref.opfs_ready <- true;
+        changed := true));
+    let coi = opt_bool caps "coop_coep" || is_cross_origin_isolated () in
+    if coi <> cap_ref.coop_coep then (
+      cap_ref.coop_coep <- coi;
+      changed := true));
+  if opt_bool data "opfs_mounted" && not cap_ref.opfs_mounted then (
+    cap_ref.opfs_mounted <- true;
+    cap_ref.opfs_ready <- true;
+    changed := true);
+  if !changed then notify_caps ()
+
+let probe_browser_caps () =
+  cap_ref.coop_coep <- is_cross_origin_isolated ();
+  let nav = Dom_html.window##.navigator in
+  let gpu = Js.Unsafe.get nav (js "gpu") in
+  cap_ref.webgpu_available <- is_defined gpu;
+  let storage = Js.Unsafe.get nav (js "storage") in
+  if is_defined storage && is_defined (Js.Unsafe.get storage (js "getDirectory")) then (
+    try
+      let p = Js.Unsafe.meth_call storage "getDirectory" [||] in
+      let on_opfs_err =
+        Js.wrap_callback (fun (_err : Js.Unsafe.any) ->
+            cap_ref.opfs_ready <- false;
+            notify_caps ())
+      in
+      let on_root =
+        Js.wrap_callback (fun (root_dir : Js.Unsafe.any) ->
+            if is_defined root_dir && is_defined (Js.Unsafe.get root_dir (js "getDirectoryHandle")) then
+              let opts = Js.Unsafe.obj [| ("create", Js.Unsafe.inject Js._true) |] in
+              let dp =
+                Js.Unsafe.meth_call root_dir "getDirectoryHandle"
+                  [| Js.Unsafe.inject (js "workspace"); Js.Unsafe.inject opts |]
+              in
+              let on_ws =
+                Js.wrap_callback (fun (_ws : Js.Unsafe.any) ->
+                    cap_ref.opfs_ready <- true;
+                    notify_caps ())
+              in
+              ignore
+                (Js.Unsafe.meth_call dp "then"
+                   [| Js.Unsafe.inject on_ws; Js.Unsafe.inject on_opfs_err |]))
+      in
+      ignore
+        (Js.Unsafe.meth_call p "then"
+           [| Js.Unsafe.inject on_root; Js.Unsafe.inject on_opfs_err |])
+    with _ -> ());
+  notify_caps ()
+
+let probe_local_native ?on_done:(on_done : (bool -> unit) option) () =
+  let url = get_base_url () ^ "api/kernel/status" in
+  fetch_json ~meth:"GET" ~url (fun res ->
+      cap_ref.native_checked <- true;
+      (match res with
+      | Ok (status, txt) when status >= 200 && status < 300 -> (
+          match json_parse txt with
+          | Some obj when opt_bool obj "ok" && opt_bool obj "available" ->
+              cap_ref.native_available <- true;
+              cap_ref.native_python <-
+                Option.value (opt_str obj "python") ~default:"python3";
+              cap_ref.native_reason <- "Local Native Python kernel ready via baux pages serve";
+              let caps = Js.Unsafe.get obj (js "capabilities") in
+              if is_defined caps then (
+                cap_ref.native_baux <- opt_bool caps "native_baux";
+                cap_ref.native_cpu <- opt_bool caps "cpu";
+                cap_ref.native_metal <- opt_bool caps "metal";
+                cap_ref.native_cuda <- opt_bool caps "cuda";
+                cap_ref.native_torch <- opt_bool caps "torch";
+                cap_ref.native_jax <- opt_bool caps "jax";
+                cap_ref.native_flame <- opt_bool caps "flame";
+                cap_ref.native_tune <- opt_bool caps "baux_tune");
+              notify_caps ();
+              (match on_done with Some fn -> fn true | None -> ())
+          | Some obj ->
+              cap_ref.native_available <- false;
+              cap_ref.native_reason <-
+                Option.value (opt_str obj "error")
+                  ~default:"Local kernel bridge unavailable";
+              notify_caps ();
+              (match on_done with Some fn -> fn false | None -> ())
+          | None ->
+              cap_ref.native_available <- false;
+              cap_ref.native_reason <- "Static host (non-JSON /api/kernel/status)";
+              notify_caps ();
+              (match on_done with Some fn -> fn false | None -> ()))
+      | Ok (status, _) ->
+          cap_ref.native_available <- false;
+          cap_ref.native_reason <-
+            Printf.sprintf
+              "Unavailable on static host (HTTP %d) — run './baux pages serve' locally" status;
+          notify_caps ();
+          (match on_done with Some fn -> fn false | None -> ())
+      | Error msg ->
+          cap_ref.native_available <- false;
+          cap_ref.native_reason <- msg;
+          notify_caps ();
+          (match on_done with Some fn -> fn false | None -> ())))
+
+let resolve_pending_error msg =
   let callbacks = Hashtbl.fold (fun _ v acc -> v :: acc) pending_reqs [] in
   Hashtbl.clear pending_reqs;
-  List.iter
-    (fun cb ->
-      let err_obj =
-        Js.Unsafe.obj
-          [|
-            ("ok", Js.Unsafe.inject Js._false);
-            ("stdout", Js.Unsafe.inject (js ""));
-            ("stderr", Js.Unsafe.inject (js "Kernel interrupted by user. Click Run to start a fresh kernel."));
-            ("incomplete", Js.Unsafe.inject Js._false);
-          |]
+  let local_cbs = !pending_local_cbs in
+  pending_local_cbs := [];
+  let mk_err () =
+    Js.Unsafe.obj
+      [|
+        ("ok", Js.Unsafe.inject Js._false);
+        ("stdout", Js.Unsafe.inject (js ""));
+        ("stderr", Js.Unsafe.inject (js msg));
+        ("incomplete", Js.Unsafe.inject Js._false);
+      |]
+  in
+  List.iter (fun cb -> cb (mk_err ())) callbacks;
+  List.iter (fun (_, cb) -> cb (mk_err ())) local_cbs
+
+let interrupt_kernel ?(force = false) () =
+  match !runtime_mode_ref with
+  | LocalNative ->
+      if (not force) && !kernel_state_ref = Running then (
+        notify_status (Interrupting "Sending SIGINT (preserving Python RAM)...");
+        let body = Js.Unsafe.obj [| ("force", Js.Unsafe.inject Js._false) |] in
+        fetch_json ~meth:"POST"
+          ~url:(get_base_url () ^ "api/kernel/interrupt")
+          ~body (fun _ -> ()))
+      else (
+        local_gen := !local_gen + 1;
+        let body = Js.Unsafe.obj [| ("force", Js.Unsafe.inject Js._true) |] in
+        fetch_json ~meth:"POST"
+          ~url:(get_base_url () ^ "api/kernel/interrupt")
+          ~body (fun _ -> ());
+        resolve_pending_error
+          "Local Python kernel force-stopped by user. Click Reset or Run to respawn.";
+        notify_status (Interrupted "Local kernel force-stopped"))
+  | Wasm ->
+      let can_soft =
+        (not force)
+        && !kernel_state_ref = Running
+        && is_cross_origin_isolated ()
+        && !sab_int32_ref <> None
       in
-      cb err_obj)
-    callbacks;
-  notify_status (Interrupted "Kernel interrupted")
+      (match (!worker_ref, can_soft) with
+      | Some w, true ->
+          set_sab_signal 2;
+          let msg = Js.Unsafe.obj [| ("type", Js.Unsafe.inject (js "interrupt")) |] in
+          ignore (Js.Unsafe.meth_call w "postMessage" [| Js.Unsafe.inject msg |]);
+          notify_status
+            (Interrupting "Sending SIGINT via SharedArrayBuffer (click Force Stop to terminate)")
+      | Some w, false ->
+          ignore (Js.Unsafe.meth_call w "terminate" [||]);
+          worker_ref := None;
+          set_sab_signal 0;
+          resolve_pending_error
+            "Kernel worker terminated by user. Click Run to start a fresh kernel.";
+          notify_status (Interrupted "Kernel terminated")
+      | None, _ ->
+          resolve_pending_error "Kernel interrupted";
+          notify_status (Interrupted "Kernel interrupted"))
 
 let ensure_worker () =
   match !worker_ref with
   | Some w -> w
   | None ->
+      ignore (ensure_interrupt_buffer ());
       let worker_ctor = Js.Unsafe.get Dom_html.window (js "Worker") in
       let url = get_base_url () ^ "assets/repl_worker.js" in
       let w = Js.Unsafe.new_obj worker_ctor [| Js.Unsafe.inject (js url) |] in
@@ -554,16 +923,19 @@ let ensure_worker () =
       let onmsg =
         Dom.handler (fun ev ->
             let data = Js.Unsafe.get ev (js "data") in
+            update_caps_from_worker data;
             let typ =
               if Js.Optdef.test (Js.Unsafe.get data (js "type")) then
                 to_s (Js.Unsafe.get data (js "type"))
               else ""
             in
             if typ = "status" then (
-              let detail = to_s (Js.Unsafe.get data (js "detail")) in
-              let stage = to_s (Js.Unsafe.get data (js "stage")) in
-              if stage = "ready" then notify_status Ready
-              else notify_status (Booting detail))
+              if !runtime_mode_ref = Wasm then (
+                let detail = to_s (Js.Unsafe.get data (js "detail")) in
+                let stage = to_s (Js.Unsafe.get data (js "stage")) in
+                if stage = "ready" then notify_status Ready
+                else if stage = "interrupting" then notify_status (Interrupting detail)
+                else notify_status (Booting detail)))
             else (
               let id_any = Js.Unsafe.get data (js "id") in
               if Js.Opt.test id_any then (
@@ -571,7 +943,9 @@ let ensure_worker () =
                 match Hashtbl.find_opt pending_reqs id_int with
                 | Some cb ->
                     Hashtbl.remove pending_reqs id_int;
-                    if !kernel_state_ref = Running then notify_status Ready;
+                    (match !kernel_state_ref with
+                    | Running | Interrupting _ when !runtime_mode_ref = Wasm -> notify_status Ready
+                    | _ -> ());
                     cb data
                 | None -> ()));
             Js._true)
@@ -583,7 +957,8 @@ let ensure_worker () =
                 to_s (Js.Unsafe.get ev (js "message"))
               else "Worker error"
             in
-            notify_status (Interrupted ("Worker failed: " ^ msg));
+            if !runtime_mode_ref = Wasm then
+              notify_status (Interrupted ("Worker failed: " ^ msg));
             Js._true)
       in
       Js.Unsafe.set w (js "onmessage") onmsg;
@@ -591,42 +966,153 @@ let ensure_worker () =
       worker_ref := Some w;
       w
 
-let send_worker typ fields cb =
-  let w = ensure_worker () in
-  let req_id = !next_req_id in
-  next_req_id := req_id + 1;
-  Hashtbl.add pending_reqs req_id cb;
-  if !kernel_state_ref = Ready then notify_status Running;
-  let payload =
-    Js.Unsafe.obj
-      (Array.of_list
-         (("type", Js.Unsafe.inject (js typ))
-         :: ("id", Js.Unsafe.inject req_id)
-         :: fields))
+let send_local_native typ fields cb =
+  let url_and_body =
+    let obj = Js.Unsafe.obj (Array.of_list fields) in
+    match typ with
+    | "exec" -> Some (get_base_url () ^ "api/kernel/exec", Some obj, true)
+    | "repl" -> Some (get_base_url () ^ "api/kernel/repl", Some obj, true)
+    | "complete" -> Some (get_base_url () ^ "api/kernel/complete", Some obj, false)
+    | "reset_ns" -> Some (get_base_url () ^ "api/kernel/reset", Some (Js.Unsafe.obj [||]), false)
+    | _ -> None
   in
-  ignore (Js.Unsafe.meth_call w "postMessage" [| Js.Unsafe.inject payload |])
+  match url_and_body with
+  | None ->
+      probe_local_native
+        ~on_done:(fun ok ->
+          if ok then notify_status Ready
+          else notify_status (Interrupted cap_ref.native_reason);
+          cb (Js.Unsafe.obj [| ("ok", Js.Unsafe.inject (Js.bool ok)) |]))
+        ()
+  | Some (url, body_opt, is_exec) ->
+      let gen = !local_gen in
+      let req_token = !next_req_id in
+      next_req_id := req_token + 1;
+      if is_exec then (
+        pending_local_cbs := (req_token, cb) :: !pending_local_cbs;
+        notify_status Running);
+      fetch_json ~meth:"POST" ~url ?body:body_opt (fun res ->
+          pending_local_cbs :=
+            List.filter (fun (id, _) -> id <> req_token) !pending_local_cbs;
+          if gen = !local_gen then (
+            if is_exec && !runtime_mode_ref = LocalNative then (
+              match !kernel_state_ref with
+              | Running | Interrupting _ | Booting _ -> notify_status Ready
+              | _ -> ());
+            match res with
+            | Ok (status, txt) when status >= 200 && status < 300 -> (
+                match json_parse txt with
+                | Some parsed ->
+                    if typ = "complete" then (
+                      let matches = Js.Unsafe.get parsed (js "matches") in
+                      let compat =
+                        Js.Unsafe.obj
+                          [|
+                            ("type", Js.Unsafe.inject (js "complete"));
+                            ("items", matches);
+                          |]
+                      in
+                      cb compat)
+                    else cb parsed
+                | None ->
+                    cb
+                      (Js.Unsafe.obj
+                         [|
+                           ("ok", Js.Unsafe.inject Js._false);
+                           ("stdout", Js.Unsafe.inject (js ""));
+                           ("stderr", Js.Unsafe.inject (js "Invalid JSON from /api/kernel"));
+                           ("incomplete", Js.Unsafe.inject Js._false);
+                         |]))
+            | Ok (status, txt) ->
+                cb
+                  (Js.Unsafe.obj
+                     [|
+                       ("ok", Js.Unsafe.inject Js._false);
+                       ("stdout", Js.Unsafe.inject (js ""));
+                       ( "stderr",
+                         Js.Unsafe.inject
+                           (js (Printf.sprintf "Local kernel HTTP %d: %s" status txt)) );
+                       ("incomplete", Js.Unsafe.inject Js._false);
+                     |])
+            | Error msg ->
+                cb
+                  (Js.Unsafe.obj
+                     [|
+                       ("ok", Js.Unsafe.inject Js._false);
+                       ("stdout", Js.Unsafe.inject (js ""));
+                       ("stderr", Js.Unsafe.inject (js msg));
+                       ("incomplete", Js.Unsafe.inject Js._false);
+                     |])))
+
+let send_worker typ fields cb =
+  match !runtime_mode_ref with
+  | LocalNative -> send_local_native typ fields cb
+  | Wasm ->
+      let w = ensure_worker () in
+      let req_id = !next_req_id in
+      next_req_id := req_id + 1;
+      Hashtbl.add pending_reqs req_id cb;
+      if typ = "exec" || typ = "repl" then set_sab_signal 0;
+      if !kernel_state_ref = Ready && (typ = "exec" || typ = "repl") then notify_status Running;
+      let extra =
+        if typ = "init" then
+          let base_init = [ ("mountOpfs", Js.Unsafe.inject Js._true) ] in
+          match !sab_ref with
+          | Some sab -> ("interruptBuffer", sab) :: base_init
+          | None -> base_init
+        else []
+      in
+      let payload =
+        Js.Unsafe.obj
+          (Array.of_list
+             (("type", Js.Unsafe.inject (js typ))
+             :: ("id", Js.Unsafe.inject req_id)
+             :: (fields @ extra)))
+      in
+      ignore (Js.Unsafe.meth_call w "postMessage" [| Js.Unsafe.inject payload |])
 
 let warm_kernel () =
-  send_worker "init" [] (fun _ -> ())
+  match !runtime_mode_ref with
+  | LocalNative -> probe_local_native ()
+  | Wasm -> send_worker "init" [] (fun _ -> ())
+
+let reset_kernel () =
+  match !runtime_mode_ref with
+  | LocalNative ->
+      let restart = match !kernel_state_ref with Interrupted _ -> true | _ -> false in
+      let body = Js.Unsafe.obj [| ("restart", Js.Unsafe.inject (Js.bool restart)) |] in
+      notify_status (Booting "Resetting Local Native namespace...");
+      fetch_json ~meth:"POST"
+        ~url:(get_base_url () ^ "api/kernel/reset")
+        ~body (fun _ -> notify_status Ready)
+  | Wasm -> (
+      match (!worker_ref, !kernel_state_ref) with
+      | Some _, Ready ->
+          send_worker "reset_ns" [] (fun _ -> notify_status Ready)
+      | _ ->
+          interrupt_kernel ~force:true ();
+          warm_kernel ())
 
 let status_text = function
-  | Idle -> "Idle (loads ~16 MB WASM on first Run)"
+  | Idle ->
+      if !runtime_mode_ref = LocalNative then "Local Native idle"
+      else "Idle (loads ~16 MB WASM on first Run)"
   | Booting d -> d
-  | Ready -> "Python 3.12 + NumPy + baux ready"
-  | Running -> "Executing Python in Web Worker..."
+  | Ready ->
+      if !runtime_mode_ref = LocalNative then
+        Printf.sprintf "Local Native (%s) ready" cap_ref.native_python
+      else if cap_ref.coop_coep then
+        "Python 3.12 WASM ready (COOP/COEP SharedArrayBuffer interrupts enabled)"
+      else "Python 3.12 WASM ready"
+  | Running ->
+      if !runtime_mode_ref = LocalNative then "Executing Python in Local Native subprocess..."
+      else "Executing Python in Web Worker..."
+  | Interrupting r -> r
   | Interrupted r -> r
 
 (* ---------------------------------------------------------------------------
    Live OptimizerState Summary & Multi-View Scientific SVG Renderers
    --------------------------------------------------------------------------- *)
-
-let is_defined (v : Js.Unsafe.any) : bool =
-  Js.Optdef.test (Obj.magic v : _ Js.optdef) && Js.Opt.test (Obj.magic v : _ Js.opt)
-
-let is_finite (v : float) : bool =
-  match classify_float v with
-  | FP_nan | FP_infinite -> false
-  | _ -> true
 
 let json_num_list (raw : Js.Unsafe.any) =
   if not (is_defined raw) then []
@@ -663,25 +1149,6 @@ let json_pair_list (raw : Js.Unsafe.any) : (float * float) list =
       let xs = json_num_list row in
       match xs with a :: b :: _ -> Some (a, b) | _ -> None)
     (json_obj_list raw)
-
-let opt_str obj field =
-  let v = Js.Unsafe.get obj (js field) in
-  if is_defined v then Some (to_s (Obj.magic v)) else None
-
-let opt_int obj field =
-  let v = Js.Unsafe.get obj (js field) in
-  if is_defined v then Some (int_of_float (Js.float_of_number (Obj.magic v))) else None
-
-let opt_float obj field =
-  let v = Js.Unsafe.get obj (js field) in
-  if is_defined v then
-    let fv = Js.float_of_number (Obj.magic v) in
-    if is_finite fv then Some fv else None
-  else None
-
-let opt_bool obj field =
-  let v = Js.Unsafe.get obj (js field) in
-  if is_defined v then Js.to_bool (Obj.magic v : bool Js.t) else false
 
 let make_fig_pane title subtitle =
   let card = mk ~cls:"py-fig-pane" "div" in
@@ -1425,6 +1892,68 @@ let render_band1d_card (fig : Js.Unsafe.any) =
     Dom.appendChild stage svg;
     card
 
+let active_backend_label (caps : cap_info) =
+  match !runtime_mode_ref with
+  | LocalNative ->
+      if caps.native_metal then "Local Native · Metal"
+      else if caps.native_cuda then "Local Native · CUDA"
+      else if caps.native_baux then "Local Native · baux"
+      else "Local Native · Python"
+  | Wasm ->
+      if caps.webgpu_active then "WASM + WebGPU"
+      else if caps.wasm_simd_known && caps.wasm_simd then "WASM SIMD"
+      else if caps.webgpu_available then "WASM (WebGPU avail)"
+      else "CPU WASM"
+
+let render_cap_badges (container : element Js.t) (caps : cap_info) =
+  clear_children (container :> Dom.node Js.t);
+  let add_badge lbl value =
+    let item = mk ~cls:"py-telemetry-item" "span" in
+    Dom.appendChild item (mk ~cls:"py-telemetry-lbl" ~txt:lbl "span");
+    Dom.appendChild item (mk ~cls:"py-telemetry-val" ~txt:value "strong");
+    Dom.appendChild container item
+  in
+  add_badge "runtime" (active_backend_label caps);
+  (match !runtime_mode_ref with
+  | LocalNative ->
+      add_badge "python" caps.native_python;
+      add_badge "baux" (if caps.native_baux then "Native Rust" else "Pure Python");
+      if caps.native_metal then add_badge "gpu" "Metal Active"
+      else if caps.native_cuda then add_badge "gpu" "CUDA Active"
+      else add_badge "gpu" "CPU";
+      let fw =
+        (if caps.native_torch then [ "Torch" ] else [])
+        @ (if caps.native_jax then [ "JAX" ] else [])
+        @ (if caps.native_flame then [ "Flame" ] else [])
+        @ (if caps.native_tune then [ "baux tune" ] else [])
+      in
+      if fw <> [] then add_badge "stack" (String.concat " · " fw);
+      add_badge "interrupt" "SIGINT / SIGKILL";
+      add_badge "workspace" "Repo FS"
+  | Wasm ->
+      let cpu_v =
+        if caps.wasm_simd_known then (if caps.wasm_simd then "WASM SIMD" else "WASM Scalar")
+        else "Py 3.12 WASM"
+      in
+      add_badge "cpu" cpu_v;
+      let gpu_v =
+        if caps.webgpu_active then
+          if caps.webgpu_adapter <> "" then "Active (" ^ caps.webgpu_adapter ^ ")"
+          else "Active"
+        else if caps.webgpu_available then "Available"
+        else "Unavailable"
+      in
+      add_badge "webgpu" gpu_v;
+      add_badge "interrupt"
+        (if caps.coop_coep then "COOP/COEP SAB" else "Worker Terminate");
+      let ws_v =
+        if caps.opfs_mounted then "OPFS /workspace mounted"
+        else if caps.opfs_ready then "OPFS /workspace ready"
+        else "In-Memory MEMFS"
+      in
+      add_badge "workspace" ws_v);
+  ()
+
 let append_telemetry_band (panel : element Js.t) (state_raw : Js.Unsafe.any) =
   let band = mk ~cls:"py-telemetry-band" "div" in
   let stats = mk ~cls:"py-telemetry-stats" "div" in
@@ -1436,6 +1965,7 @@ let append_telemetry_band (panel : element Js.t) (state_raw : Js.Unsafe.any) =
     Dom.appendChild item (mk ~cls:"py-telemetry-val" ~txt:value "strong");
     Dom.appendChild stats item
   in
+  add_stat "backend" (active_backend_label cap_ref);
   add_stat "obs" (string_of_int (Option.value (opt_int state_raw "num_observations") ~default:0));
   add_stat "epoch" (string_of_int (Option.value (opt_int state_raw "epoch") ~default:0));
   add_stat "regions" (string_of_int (Option.value (opt_int state_raw "num_regions") ~default:1));
@@ -1766,6 +2296,20 @@ let mount_playground (root : element Js.t) =
   preset_rail##setAttribute (js "aria-label") (js "Playground presets");
 
   let controls = mk ~cls:"py-pg-controls" "div" in
+  let mode_sel = createSelect document in
+  mode_sel##.className := js "py-btn";
+  mode_sel##setAttribute (js "aria-label") (js "Python execution backend");
+  let wasm_opt = createOption document in
+  wasm_opt##.value := js "wasm";
+  set_text wasm_opt "WASM + WebGPU";
+  let native_opt = createOption document in
+  native_opt##.value := js "local_native";
+  set_text native_opt "Local Native (probing...)";
+  Js.Unsafe.set native_opt (js "disabled") Js._true;
+  native_opt##setAttribute (js "disabled") (js "disabled");
+  Dom.appendChild mode_sel wasm_opt;
+  Dom.appendChild mode_sel native_opt;
+
   let status_pill = mk ~cls:"py-kernel-pill" "div" in
   let status_dot = mk ~cls:"py-status-dot" "span" in
   let status_lbl = mk ~cls:"py-status-text" ~txt:"Idle" "span" in
@@ -1780,18 +2324,27 @@ let mount_playground (root : element Js.t) =
   let reset_btn = mk ~cls:"py-btn" ~txt:"Reset" "button" in
   reset_btn##setAttribute (js "type") (js "button");
   reset_btn##setAttribute (js "title") (js "Reset Python namespace / interrupt execution");
+  Dom.appendChild controls mode_sel;
   Dom.appendChild controls status_pill;
   Dom.appendChild controls run_btn;
   Dom.appendChild controls reset_btn;
   Dom.appendChild topbar preset_rail;
   Dom.appendChild topbar controls;
 
-  (* Band 2: Editorial Caption Bar *)
+  (* Band 2: Editorial Caption Bar + Live Capabilities Telemetry Strip *)
   let cap_bar = mk ~cls:"py-pg-caption" "div" in
   let cap_title = mk ~cls:"py-cap-title" ~txt:(List.hd presets).label "span" in
   let cap_desc = mk ~cls:"py-cap-desc" ~txt:(List.hd presets).description "span" in
   Dom.appendChild cap_bar cap_title;
   Dom.appendChild cap_bar cap_desc;
+
+  let caps_strip_band = mk ~cls:"py-telemetry-band" "div" in
+  caps_strip_band##setAttribute
+    (js "style")
+    (js
+       "border-top:0;border-bottom:1px solid var(--hairline);padding:0.32rem 0.85rem;background:var(--bg-surface);");
+  let caps_strip = mk ~cls:"py-telemetry-stats" "div" in
+  Dom.appendChild caps_strip_band caps_strip;
 
   (* Band 2b: Mobile (<900px) Segmented Switcher *)
   let mob_tabs = mk ~cls:"py-mob-tabs" "div" in
@@ -1947,6 +2500,7 @@ let mount_playground (root : element Js.t) =
 
   Dom.appendChild shell topbar;
   Dom.appendChild shell cap_bar;
+  Dom.appendChild shell caps_strip_band;
   Dom.appendChild shell mob_tabs;
   Dom.appendChild shell grid;
   Dom.appendChild root shell;
@@ -2073,13 +2627,59 @@ let mount_playground (root : element Js.t) =
   in
   run_script_ref := run_script;
 
+  add_cap_listener (fun caps ->
+      render_cap_badges caps_strip caps;
+      if caps.native_checked then (
+        if caps.native_available then (
+          Js.Unsafe.set native_opt (js "disabled") Js._false;
+          native_opt##removeAttribute (js "disabled");
+          let accel =
+            if caps.native_metal then " · Metal"
+            else if caps.native_cuda then " · CUDA"
+            else if caps.native_baux then " · Rust"
+            else ""
+          in
+          set_text native_opt ("Local Native" ^ accel);
+          mode_sel##setAttribute (js "title") (js caps.native_reason))
+        else (
+          Js.Unsafe.set native_opt (js "disabled") Js._true;
+          native_opt##setAttribute (js "disabled") (js "disabled");
+          set_text native_opt "Local Native (unavailable)";
+          mode_sel##setAttribute (js "title") (js caps.native_reason);
+          if !runtime_mode_ref = LocalNative then (
+            runtime_mode_ref := Wasm;
+            mode_sel##.value := js "wasm";
+            notify_status Idle))));
+
+  mode_sel##.onchange :=
+    Dom.handler (fun _ ->
+        let chosen = to_s mode_sel##.value in
+        if chosen = "local_native" && cap_ref.native_available then (
+          runtime_mode_ref := LocalNative;
+          notify_caps ();
+          notify_status Ready)
+        else (
+          runtime_mode_ref := Wasm;
+          mode_sel##.value := js "wasm";
+          notify_caps ();
+          (match !worker_ref with
+          | Some _ when Hashtbl.length pending_reqs = 0 -> notify_status Ready
+          | Some _ -> notify_status Running
+          | None ->
+              notify_status Idle;
+              warm_kernel ()));
+        Js._true);
+
   add_status_listener (fun st ->
       let short_s =
         match st with
         | Idle -> "Idle"
-        | Booting _ -> "Booting WASM..."
-        | Ready -> "Py 3.12 · Ready"
+        | Booting _ ->
+            if !runtime_mode_ref = LocalNative then "Connecting..." else "Booting WASM..."
+        | Ready ->
+            if !runtime_mode_ref = LocalNative then "Native · Ready" else "Py 3.12 · Ready"
         | Running -> "Running..."
+        | Interrupting _ -> "Interrupting..."
         | Interrupted _ -> "Stopped"
       in
       set_text status_lbl short_s;
@@ -2087,12 +2687,29 @@ let mount_playground (root : element Js.t) =
       let cls =
         match st with
         | Ready -> "py-status-dot is-ready"
-        | Booting _ | Running -> "py-status-dot is-busy"
+        | Booting _ | Running | Interrupting _ -> "py-status-dot is-busy"
         | Interrupted _ -> "py-status-dot is-err"
         | Idle -> "py-status-dot"
       in
       status_dot##.className := js cls;
-      set_text reset_btn (match st with Running | Booting _ -> "Interrupt" | _ -> "Reset");
+      let reset_lbl =
+        match st with
+        | Running | Booting _ -> "Interrupt"
+        | Interrupting _ -> "Force Stop"
+        | Idle | Ready | Interrupted _ -> "Reset"
+      in
+      let reset_tip =
+        match st with
+        | Running ->
+            if !runtime_mode_ref = LocalNative || is_cross_origin_isolated () then
+              "Stage 1: send SIGINT (preserves variables); click again to force terminate"
+            else "Terminate Python worker"
+        | Interrupting _ -> "Stage 2: force-terminate worker / kill subprocess immediately"
+        | Booting _ -> "Abort kernel initialization"
+        | Idle | Ready | Interrupted _ -> "Reset Python namespace"
+      in
+      set_text reset_btn reset_lbl;
+      reset_btn##setAttribute (js "title") (js reset_tip);
       if st = Ready && (not !initial_ran_ref) && (not !user_dirty_ref) && (not !manual_abort_ref) then
         run_script ());
 
@@ -2152,10 +2769,16 @@ let mount_playground (root : element Js.t) =
   reset_btn##.onclick :=
     Dom.handler (fun _ ->
         manual_abort_ref := true;
-        interrupt_kernel ();
-        set_text prompt_glyph ">>>";
-        set_text timing_lbl "";
-        warm_kernel ();
+        (match !kernel_state_ref with
+        | Running | Booting _ -> interrupt_kernel ~force:false ()
+        | Interrupting _ ->
+            interrupt_kernel ~force:true ();
+            set_text prompt_glyph ">>>";
+            set_text timing_lbl ""
+        | Idle | Ready | Interrupted _ ->
+            reset_kernel ();
+            set_text prompt_glyph ">>>";
+            set_text timing_lbl "");
         Js._true);
 
   clear_btn##.onclick :=
@@ -2241,9 +2864,47 @@ let mount_playground (root : element Js.t) =
             hist_idx := next_i;
             repl_input##.value := js (List.nth !repl_history next_i));
           Js._false)
+        else if key = "Tab" then (
+          let cur = to_s repl_input##.value in
+          let rec scan i =
+            if i <= 0 then 0
+            else
+              let c = cur.[i - 1] in
+              if (c >= 'a' && c <= 'z')
+                 || (c >= 'A' && c <= 'Z')
+                 || (c >= '0' && c <= '9')
+                 || c = '_' || c = '.'
+              then scan (i - 1)
+              else i
+          in
+          let len = String.length cur in
+          let start = scan len in
+          let prefix = String.sub cur start (len - start) in
+          if prefix <> "" then (
+            Dom.preventDefault ev;
+            send_worker "complete"
+              [ ("prefix", Js.Unsafe.inject (js prefix)) ]
+              (fun res ->
+                let raw_items = Js.Unsafe.get res (js "items") in
+                let items =
+                  List.filter_map
+                    (fun v -> if is_defined v then Some (to_s (Obj.magic v)) else None)
+                    (json_obj_list raw_items)
+                in
+                match items with
+                | [ single ] ->
+                    repl_input##.value := js (String.sub cur 0 start ^ single)
+                | many when List.length many > 1 ->
+                    append_console_chunk console_pre "py-out-muted"
+                      (String.concat "  " many ^ "\n")
+                | _ -> ());
+            Js._false)
+          else Js._true)
         else Js._true);
 
-  (* Automatically warm runtime on the dedicated Playground page *)
+  (* Probe browser & local native capabilities, then warm WASM runtime on Playground *)
+  probe_browser_caps ();
+  probe_local_native ();
   warm_kernel ()
 
 (* ---------------------------------------------------------------------------

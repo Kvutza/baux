@@ -12,6 +12,18 @@ _PROGRAM_DEPS = select({
 # native runtimes (IREE, TVM, PJRT) are resolved lazily via dlopen/dlsym.
 BAUX_BUCK_DEPS = ["//rust:" + crate for crate in BAUX_CRATES]
 
+_BAUX_WASM_SKIP_CRATES = [
+    "//rust:candle-core",
+    "//rust:candle-nn",
+    "//rust:charming",
+    "//rust:kuva",
+    "//rust:memmap2",
+    "//rust:redb",
+    "//rust:tokenizers",
+]
+
+_BAUX_WASM_DEPS = [dep for dep in BAUX_BUCK_DEPS if dep not in _BAUX_WASM_SKIP_CRATES]
+
 BAUX_BUCK_TEST_DEPS = ["//rust:" + crate for crate in BAUX_TEST_CRATES] + _PROGRAM_DEPS
 
 write_file(
@@ -172,6 +184,7 @@ app_rust_library(
     crate = "baux",
     crate_root = "cli_lib.rs",
     edition = RUST_EDITION,
+    features = ["host-db"],
     visibility = ["PUBLIC"],
     deps = [
         "//rust:anstream",
@@ -196,17 +209,17 @@ app_rust_library(
     crate_root = "src/lib.rs",
     edition = RUST_EDITION,
     features = select({
-        "//:linux-arm64": ["usearch-native"],
-        "//:linux-x86_64": ["usearch-native"],
-        "//:macos-arm64": ["metal", "usearch-native"],
+        "//:linux-arm64": ["host-db", "disk-bpann", "host-ml", "usearch-native"],
+        "//:linux-x86_64": ["host-db", "disk-bpann", "host-ml", "usearch-native"],
+        "//:macos-arm64": ["host-db", "disk-bpann", "host-ml", "metal", "usearch-native"],
+        "//:wasm32-emscripten": [],
     }),
     visibility = ["PUBLIC"],
-    deps = BAUX_BUCK_DEPS + [
-        ":usearch-bridge",
-    ] + select({
-        "//:linux-arm64": [],
-        "//:linux-x86_64": [],
-        "//:macos-arm64": ["//rust:metal"],
+    deps = select({
+        "//:linux-arm64": BAUX_BUCK_DEPS + [":usearch-bridge"],
+        "//:linux-x86_64": BAUX_BUCK_DEPS + [":usearch-bridge"],
+        "//:macos-arm64": BAUX_BUCK_DEPS + [":usearch-bridge", "//rust:metal"],
+        "//:wasm32-emscripten": _BAUX_WASM_DEPS,
     }),
 )
 
@@ -220,7 +233,7 @@ rust_test(
         "root//:release-mode": [],
         "DEFAULT": ["-Zthreads=8", "-Ccodegen-units=16"],
     }),
-    features = ["buck2-test-data", "metal", "usearch-native"],
+    features = ["host-db", "disk-bpann", "host-ml", "buck2-test-data", "metal", "usearch-native"],
     visibility = ["PUBLIC"],
     deps = BAUX_BUCK_TEST_DEPS + [
         ":usearch-bridge",
@@ -244,7 +257,7 @@ rust_test(
         "root//:release-mode": [],
         "DEFAULT": ["-Zthreads=8", "-Ccodegen-units=16"],
     }),
-    features = ["buck2-test-data", "usearch-native"],
+    features = ["host-db", "disk-bpann", "host-ml", "buck2-test-data", "usearch-native"],
     visibility = ["//admin/buck2/tests:all"],
     deps = BAUX_BUCK_TEST_DEPS + [
         ":usearch-bridge",
@@ -274,6 +287,9 @@ app_rust_library(
     crate_root = "src/lib.rs",
     edition = RUST_EDITION,
     features = [
+        "host-db",
+        "disk-bpann",
+        "host-ml",
         "metal",
         "usearch-native",
     ],
@@ -301,8 +317,8 @@ app_rust_library(
         crate_root = source,
         edition = RUST_EDITION,
         features = select({
-            "//:macos-arm64": ["metal", "usearch-native"],
-            "DEFAULT": ["usearch-native"],
+            "//:macos-arm64": ["host-db", "disk-bpann", "host-ml", "metal", "usearch-native"],
+            "DEFAULT": ["host-db", "disk-bpann", "host-ml", "usearch-native"],
         }),
         deps = [
             ":baux",

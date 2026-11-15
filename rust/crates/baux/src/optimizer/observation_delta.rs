@@ -262,6 +262,7 @@ pub(crate) fn freeze_full(
                 }
             }
         }
+        #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
         PosteriorBackend::Disk { .. } => {
             write_byte(&mut buf, 1);
             let n = opt.posterior.obs_count();
@@ -491,6 +492,7 @@ pub(crate) fn thaw_full(
             *x_rows = new_x;
             *y_rows = new_y;
         }
+        #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
         (1, PosteriorBackend::Disk { .. }) => {
             let n = reader.read_len(MAX_OBS)?;
             let m = reader.read_len(MAX_METRICS)?;

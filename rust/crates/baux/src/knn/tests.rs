@@ -241,4 +241,10 @@ fn cuvs_driver() {
     assert_eq!(cagra_json, "\"cuvs_cagra\"");
     let decoded_cagra: IndexDriver = deser_json::from_str(&cagra_json).unwrap();
     assert_eq!(decoded_cagra, IndexDriver::CuvsCagra);
+
+    let wgpu_json = deser_json::to_string(&IndexDriver::WebGpu).unwrap();
+    assert_eq!(wgpu_json, "\"webgpu\"");
+    let decoded_wgpu: IndexDriver = deser_json::from_str(&wgpu_json).unwrap();
+    assert_eq!(decoded_wgpu, IndexDriver::WebGpu);
+    assert_eq!(IndexDriver::WebGpu.device(), crate::Device::WebGpu);
 }

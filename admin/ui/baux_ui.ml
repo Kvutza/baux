@@ -3028,12 +3028,99 @@ let init_bench_figures () =
   let figs = query_all "[data-bench-fig]" in
   List.iter mount_bench_figure figs
 
+let init_coi_service_worker () =
+  let register =
+    Js.Unsafe.js_expr
+      {|
+(function () {
+  if (typeof window === "undefined" || typeof document === "undefined" || typeof navigator === "undefined") {
+    return;
+  }
+  if (window.__bauxCoiRegistered) {
+    return;
+  }
+  const body = document.body;
+  const page = body ? (body.getAttribute("data-page") || "") : "";
+  const isPlayground = page === "playground" || Boolean(document.getElementById("py-playground-root"));
+  if (!isPlayground) {
+    return;
+  }
+  const RELOAD_KEY = "baux_coi_reloaded";
+  if (window.crossOriginIsolated) {
+    try {
+      window.sessionStorage.removeItem(RELOAD_KEY);
+    } catch (_) {}
+    return;
+  }
+  const proto = window.location ? window.location.protocol : "";
+  if (proto !== "http:" && proto !== "https:") {
+    return;
+  }
+  if (!("serviceWorker" in navigator) || !navigator.serviceWorker || typeof navigator.serviceWorker.register !== "function") {
+    return;
+  }
+  let alreadyReloaded = false;
+  try {
+    alreadyReloaded = window.sessionStorage.getItem(RELOAD_KEY) === "1";
+  } catch (_) {
+    alreadyReloaded = true;
+  }
+  if (alreadyReloaded) {
+    return;
+  }
+  window.__bauxCoiRegistered = true;
+
+  const baseAttr = (document.documentElement && document.documentElement.getAttribute("data-base-url")) || "./";
+  const baseUrl = baseAttr.endsWith("/") ? baseAttr : baseAttr + "/";
+  const swUrl = baseUrl + "coi-serviceworker.js";
+
+  const triggerReloadOnce = () => {
+    if (window.crossOriginIsolated) {
+      return;
+    }
+    try {
+      if (window.sessionStorage.getItem(RELOAD_KEY) === "1") {
+        return;
+      }
+      window.sessionStorage.setItem(RELOAD_KEY, "1");
+    } catch (_) {
+      return;
+    }
+    window.location.reload();
+  };
+
+  navigator.serviceWorker.addEventListener("controllerchange", triggerReloadOnce, { once: true });
+
+  navigator.serviceWorker
+    .register(swUrl)
+    .then((reg) => {
+      if (window.crossOriginIsolated) {
+        return;
+      }
+      if (reg && reg.installing) {
+        const installing = reg.installing;
+        installing.addEventListener("statechange", () => {
+          if (installing.state === "activated") {
+            triggerReloadOnce();
+          }
+        });
+      } else if (reg && reg.active && navigator.serviceWorker.controller) {
+        triggerReloadOnce();
+      }
+    })
+    .catch(() => {});
+})
+|}
+  in
+  ignore (Js.Unsafe.fun_call register [||])
+
 (* --- Main Entrypoint --- *)
 let () =
   let booted = ref false in
   let boot () =
     if not !booted then begin
       booted := true;
+      init_coi_service_worker ();
       Docs_ui.init ();
       init_tokamak_cad ();
       init_bench_figures ();

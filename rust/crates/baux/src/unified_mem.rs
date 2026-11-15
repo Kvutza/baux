@@ -3,7 +3,32 @@
 
 use ndarray::{ArrayView2, ArrayViewMut2};
 
+#[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
 pub use crate::shm_slab::*;
+
+/// Decode an IEEE 754 binary16 value to `f32`.
+#[inline]
+pub fn decode_half(bits: u16) -> f32 {
+    let sign = (u32::from(bits & 0x8000)) << 16;
+    let exp = u32::from((bits >> 10) & 0x1f);
+    let mant = u32::from(bits & 0x03ff);
+    if exp == 0 {
+        if mant == 0 {
+            f32::from_bits(sign)
+        } else {
+            let val = (mant as f32) * (1.0 / 16_777_216.0);
+            if sign != 0 { -val } else { val }
+        }
+    } else if exp == 0x1f {
+        if mant == 0 {
+            f32::from_bits(sign | 0x7f80_0000)
+        } else {
+            f32::NAN
+        }
+    } else {
+        f32::from_bits(sign | ((exp + 112) << 23) | (mant << 13))
+    }
+}
 
 /// 16 KB page-aligned block matching Apple Silicon unified memory page size.
 #[repr(C, align(16384))]

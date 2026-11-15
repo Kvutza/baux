@@ -14,10 +14,11 @@ app_rust_library(
     crate_root = "src/lib.rs",
     dlopen_enable = True,
     edition = RUST_EDITION,
-    features = ["default", "usearch-native"] + select({
-        "//:linux-arm64": [],
-        "//:linux-x86_64": [],
-        "//:macos-arm64": ["metal"],
+    features = select({
+        "//:linux-arm64": ["default", "host-db", "disk-bpann", "host-ml", "usearch-native"],
+        "//:linux-x86_64": ["default", "host-db", "disk-bpann", "host-ml", "usearch-native"],
+        "//:macos-arm64": ["default", "host-db", "disk-bpann", "host-ml", "usearch-native", "metal"],
+        "//:wasm32-emscripten": [],
     }),
     rustc_flags = select({
         "//:linux-arm64": ["-Clink-arg=-Wl,-rpath,$ORIGIN/.dylibs"],
@@ -31,14 +32,17 @@ app_rust_library(
     }),
     visibility = ["PUBLIC"],
     deps = [
-        "//rust/crates/baux:usearch-bridge",
         "//rust/crates/baux:baux",
     ] + ["//rust:" + crate for crate in BAUX_PY_CRATES] + select({
         "//:macos-arm64": [
+            "//rust/crates/baux:usearch-bridge",
             "//admin/buck2/native:openmp-macos",
             "//rust/crates/fbt:fbt",
             "//rust:metal",
         ],
-        "DEFAULT": [],
+        "//:wasm32-emscripten": [],
+        "DEFAULT": [
+            "//rust/crates/baux:usearch-bridge",
+        ],
     }),
 )

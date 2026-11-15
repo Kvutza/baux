@@ -400,6 +400,7 @@ fn validate_base(
         check_scores(&[value], &[variance])?;
     }
     let exponent_mask = if independent_fp16 { 0x7c00 } else { 0x7f80 };
+    #[cfg(not(target_arch = "wasm32"))]
     let has_nonfinite = if base.len() >= 65_536 {
         use rayon::prelude::*;
         base.par_chunks(65_536).any(|chunk| {
@@ -411,6 +412,10 @@ fn validate_base(
         base.iter()
             .any(|bits| bits & exponent_mask == exponent_mask)
     };
+    #[cfg(target_arch = "wasm32")]
+    let has_nonfinite = base
+        .iter()
+        .any(|bits| bits & exponent_mask == exponent_mask);
     if has_nonfinite {
         return Err("Base weights must be finite".into());
     }

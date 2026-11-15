@@ -125,6 +125,7 @@ impl PyENN {
                 "cuda"
             }
             baux::IndexDriver::OpenCl => "opencl",
+            baux::IndexDriver::WebGpu => "webgpu",
             _ => "cpu",
         }
     }

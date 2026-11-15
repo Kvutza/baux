@@ -24,14 +24,7 @@ use crate::error::IndexError;
 
 #[cfg(all(target_os = "macos", feature = "metal"))]
 pub(crate) use auto::AutoIndex;
-#[cfg(any(
-    all(target_os = "macos", feature = "metal"),
-    all(target_os = "linux", target_arch = "x86_64", feature = "cuda")
-))]
-pub(crate) use exact_backend::check_rows;
-#[cfg(any(feature = "usearch", feature = "usearch-native"))]
-pub(crate) use exact_backend::unpack_search;
-pub(crate) use exact_backend::{ExactBackend, flatten_f32, pad_k};
+pub(crate) use exact_backend::{ExactBackend, check_rows, flatten_f32, pad_k, unpack_search};
 pub use exact_backend::{IndexDriver, IndexKind, disk_driver};
 
 pub type IndexPlan = KnnPlan;
@@ -149,6 +142,8 @@ impl KnnIndex {
 #[cfg(any(feature = "usearch", feature = "usearch-native"))]
 use usearch_backend::USearchBackend;
 
+#[cfg(target_arch = "wasm32")]
+use crate::webgpu::WebGpuIndex;
 #[cfg(all(target_os = "linux", target_arch = "x86_64", feature = "cuda"))]
 use cuda_index::CudaIndex;
 #[cfg(all(target_os = "macos", feature = "metal"))]
@@ -165,6 +160,8 @@ pub(crate) enum KnnBackend {
     Metal(Mutex<MetalIndex>),
     #[cfg(all(target_os = "linux", target_arch = "x86_64", feature = "cuda"))]
     Cuda(Mutex<CudaIndex>),
+    #[cfg(target_arch = "wasm32")]
+    WebGpu(Mutex<WebGpuIndex>),
 }
 
 impl KnnBackend {
@@ -245,6 +242,22 @@ impl KnnBackend {
             IndexDriver::OpenCl => Err(IndexError::InvalidParameter(
                 "OpenCL index is unsupported".to_string(),
             )),
+            IndexDriver::WebGpu => {
+                #[cfg(target_arch = "wasm32")]
+                {
+                    return Ok(Self::WebGpu(Mutex::new(WebGpuIndex::new(
+                        num_dim,
+                        train_scaled,
+                    )?)));
+                }
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    Err(IndexError::InvalidParameter(
+                        "WebGPU index is unavailable; target wasm32 with active webgpu bridge"
+                            .to_string(),
+                    ))
+                }
+            }
             IndexDriver::Cuda | IndexDriver::Cuvs | IndexDriver::CuvsCagra => {
                 #[cfg(all(target_os = "linux", target_arch = "x86_64", feature = "cuda"))]
                 {
@@ -289,6 +302,8 @@ impl KnnBackend {
             Self::Metal(inner) => inner.lock().expect("knn mutex poisoned").len(),
             #[cfg(all(target_os = "linux", target_arch = "x86_64", feature = "cuda"))]
             Self::Cuda(inner) => inner.lock().expect("knn mutex poisoned").len(),
+            #[cfg(target_arch = "wasm32")]
+            Self::WebGpu(inner) => inner.lock().expect("knn mutex poisoned").len(),
         }
     }
 
@@ -307,6 +322,8 @@ impl KnnBackend {
                 .expect("knn mutex poisoned")
                 .profile()
                 .map_or("cuda", |profile| profile.plan),
+            #[cfg(target_arch = "wasm32")]
+            Self::WebGpu(_) => "webgpu",
         }
     }
 
@@ -341,6 +358,8 @@ impl KnnBackend {
             Self::Metal(inner) => inner.lock().expect("knn mutex poisoned").memory_bytes(),
             #[cfg(all(target_os = "linux", target_arch = "x86_64", feature = "cuda"))]
             Self::Cuda(inner) => inner.lock().expect("knn mutex poisoned").memory_bytes(),
+            #[cfg(target_arch = "wasm32")]
+            Self::WebGpu(inner) => inner.lock().expect("knn mutex poisoned").memory_bytes(),
         }
     }
 
@@ -370,6 +389,11 @@ impl KnnBackend {
                 .rebuild(train_scaled),
             #[cfg(all(target_os = "linux", target_arch = "x86_64", feature = "cuda"))]
             Self::Cuda(inner) => inner
+                .lock()
+                .expect("knn mutex poisoned")
+                .rebuild(train_scaled),
+            #[cfg(target_arch = "wasm32")]
+            Self::WebGpu(inner) => inner
                 .lock()
                 .expect("knn mutex poisoned")
                 .rebuild(train_scaled),
@@ -413,6 +437,11 @@ impl KnnBackend {
                 .lock()
                 .expect("knn mutex poisoned")
                 .add(rows_scaled, start_key),
+            #[cfg(target_arch = "wasm32")]
+            Self::WebGpu(inner) => inner
+                .lock()
+                .expect("knn mutex poisoned")
+                .add(rows_scaled, start_key),
         }
     }
 
@@ -452,6 +481,13 @@ impl KnnBackend {
             }
             #[cfg(all(target_os = "linux", target_arch = "x86_64", feature = "cuda"))]
             Self::Cuda(inner) => {
+                inner
+                    .lock()
+                    .expect("knn mutex poisoned")
+                    .search(queries_scaled, k_eff, search_k)
+            }
+            #[cfg(target_arch = "wasm32")]
+            Self::WebGpu(inner) => {
                 inner
                     .lock()
                     .expect("knn mutex poisoned")

@@ -10,6 +10,7 @@ use pyo3::types::PyDict;
 type PyObject = Py<PyAny>;
 
 const CUDA: i32 = 2;
+const WEBGPU: i32 = baux::webgpu::WEBGPU_DLPACK_DEVICE;
 const FLOAT: u8 = 2;
 const BF16: u8 = 4;
 const READ_ONLY: u64 = 1;
@@ -67,9 +68,18 @@ struct ManagedV1 {
     tensor: Tensor,
 }
 
+#[cfg(target_pointer_width = "64")]
 const _: [(); 48] = [(); std::mem::size_of::<Tensor>()];
+#[cfg(target_pointer_width = "64")]
 const _: [(); 64] = [(); std::mem::size_of::<Managed>()];
+#[cfg(target_pointer_width = "64")]
 const _: [(); 80] = [(); std::mem::size_of::<ManagedV1>()];
+#[cfg(target_pointer_width = "32")]
+const _: [(); 40] = [(); std::mem::size_of::<Tensor>()];
+#[cfg(target_pointer_width = "32")]
+const _: [(); 48] = [(); std::mem::size_of::<Managed>()];
+#[cfg(target_pointer_width = "32")]
+const _: [(); 64] = [(); std::mem::size_of::<ManagedV1>()];
 
 pub(crate) struct Input {
     capsule: PyObject,
@@ -121,7 +131,7 @@ impl Input {
         kind_expected: i32,
     ) -> PyResult<Self> {
         let device: (i32, i32) = source.call_method0("__dlpack_device__")?.extract()?;
-        if device != (kind_expected, 0) || ![CUDA, 8].contains(&kind_expected) {
+        if device != (kind_expected, 0) || ![CUDA, 8, WEBGPU].contains(&kind_expected) {
             return Err(PyValueError::new_err(format!(
                 "{name} input requires DLPack device ({kind_expected}, 0)"
             )));
@@ -550,8 +560,14 @@ where
 
 fn validate_tensor(tensor: &Tensor, code: u8, bits: u8, name: &str, device: i32) -> PyResult<()> {
     if tensor.device.kind != device || tensor.device.index != 0 {
+        let label = match device {
+            CUDA => "CUDA",
+            8 => "Metal",
+            WEBGPU => "WebGPU",
+            _ => "matching",
+        };
         return Err(PyBufferError::new_err(format!(
-            "{name} input requires a CUDA device-0 DLPack tensor"
+            "{name} input requires a {label} device-0 DLPack tensor"
         )));
     }
     if tensor.dtype.code != code || tensor.dtype.bits != bits || tensor.dtype.lanes != 1 {

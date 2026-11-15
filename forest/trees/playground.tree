@@ -1,18 +1,20 @@
 \title{Python Playground}
 \meta{toc}{false}
 
-\p{Interactive CPython 3.12 + NumPy + \code{baux} WebAssembly workbench—runs locally inside an isolated browser Web Worker.}
+\p{Interactive CPython 3.12 + compiled Rust \code{baux.baux_rust} (\code{wasm32} with \code{simd128}) + WebGPU + \code{numpy} workbench—runs locally inside an isolated browser Web Worker.}
 
 \<div>[id]{py-playground-root}[class]{py-playground-shell}{
   \<div>[class]{py-pg-fallback}{
-    \p{Initializing interactive Python kernel... Enable JavaScript and WebAssembly in your browser to run \code{baux}, \code{baux.benchmarks.oxcaml}, and \code{numpy} locally.}
+    \p{Initializing interactive Python kernel... Enable JavaScript and WebAssembly in your browser to run compiled \code{baux}, canonical \code{baux.benchmarks.oxcaml}, WebGPU kernels, and \code{numpy} locally.}
   }
 }
 
 \subtree{
-  \title{Capabilities in Browser WebAssembly}
+  \title{Browser WebAssembly and Local Native Architecture}
   \ul{
-    \li{\strong{Supported}: \code{baux.init}, \code{ask}, \code{tell}, \code{complete}, \code{cancel}, \code{step}, \code{scan}, \code{pmap}, \code{freeze}, \code{thaw}, \code{PyTreeSpec} (\code{Log}, \code{Periodic}, \code{Simplex}, \code{Categorical}, \code{Stiefel}), \code{enn_init}, \code{enn_fit}, \code{enn_posterior}, \code{enn_sample}, \code{turbo_enn}, \code{turbo_one} (NumPy Matern-5/2 GP), \code{turbo_zero}, \code{lhd_only}, \code{baux.capabilities}, and all 56 \code{baux.benchmarks.oxcaml} functions.}
-    \li{\strong{Native-only}: CUDA/Metal device evaluators, \code{PyTorch}/\code{GPyTorch} external tensor hooks, and multi-process distributed runners require a native wheel install.}
+    \li{\strong{Compiled Rust and OxCaml Engine}: Executes the compiled \code{baux.baux_rust} WebAssembly extension (\code{wasm32-emscripten} + \code{simd128}) together with the canonical 56-surface OxCaml \code{js_of_ocaml} evaluator (\code{oxcaml_eval.js}), supporting \code{baux.init}, \code{ask}, \code{tell}, \code{complete}, \code{cancel}, \code{step}, \code{scan}, \code{pmap}, \code{freeze}, \code{thaw}, \code{PyTreeSpec} (\code{Log}, \code{Periodic}, \code{Simplex}, \code{Categorical}, \code{Stiefel}), \code{enn_init}, \code{enn_fit}, \code{enn_posterior}, \code{enn_sample}, \code{turbo_enn}, \code{turbo_one}, \code{turbo_zero}, \code{lhd_only}, \code{baux.capabilities}, and \code{baux.benchmarks.oxcaml}.}
+    \li{\strong{Browser WebGPU Compute}: When adapter and shader support are present, \code{baux.Device("webgpu")} dispatches \code{f32} compute shaders through the browser WebGPU bridge (\code{webgpu_bridge.js} and \code{webgpu_worker.js}) directly from WASM workers.}
+    \li{\strong{OPFS Persistence and Non-Destructive Interrupts}: Under cross-origin isolation (served natively by \code{./baux pages serve} or via \code{coi-serviceworker.js} on static hosts), \code{/workspace} persists across reloads in the Origin Private File System (OPFS) and Stage-1 \code{SIGINT} raises a clean \code{KeyboardInterrupt} in-place via shared memory without losing REPL state.}
+    \li{\strong{Local Native Kernel Mode}: Running \code{./baux pages serve} enables switching the Playground to a loopback Local Native Python kernel with host \code{Metal}/\code{CUDA} acceleration, \code{DiskBpann} vector storage, and \code{./baux tune} experiment execution. External frameworks such as \code{PyTorch}/\code{GPyTorch} and multi-process distributed runners require a native wheel install.}
   }
 }

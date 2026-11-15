@@ -9,8 +9,11 @@ _PYO3_CONFIG = {
     "3.15": "696d706c656d656e746174696f6e3d43507974686f6e0a76657273696f6e3d332e31350a7368617265643d747275650a706f696e7465725f77696474683d36340a6275696c645f666c6167733d0a73757070726573735f6275696c645f7363726970745f6c696e6b5f6c696e65733d66616c73650a",
 }
 
+_PYO3_CONFIG_WASM32 = "696d706c656d656e746174696f6e3d43507974686f6e0a76657273696f6e3d332e31320a7368617265643d747275650a706f696e7465725f77696474683d33320a6275696c645f666c6167733d0a73757070726573735f6275696c645f7363726970745f6c696e6b5f6c696e65733d747275650a"
+
 _FAST_DEV_FLAGS = select({
     "root//:release-mode": [],
+    "root//:wasm32-emscripten": [],
     "DEFAULT": ["-Zthreads=8", "-Ccodegen-units=16"],
 })
 
@@ -89,12 +92,35 @@ def reindeer_rust_binary(name, rustc_flags = None, **kwargs):
     )
 
 def buildscript_run(package_name, env = None, **kwargs):
-    resolved_env = dict(env or {})
+    base_env = dict(env or {})
     if package_name == "pyo3-ffi":
-        resolved_env["PYO3_CROSS"] = "1"
-        resolved_env["PYO3_CROSS_PYTHON_VERSION"] = PYTHON_VERSION
-    if package_name in ["numpy", "pyo3"]:
-        resolved_env["DEP_PYTHON_PYO3_CONFIG"] = _PYO3_CONFIG[PYTHON_VERSION]
+        host_env = dict(base_env)
+        host_env["PYO3_CROSS"] = "1"
+        host_env["PYO3_CROSS_PYTHON_VERSION"] = PYTHON_VERSION
+
+        wasm_env = dict(base_env)
+        wasm_env["PYO3_CROSS"] = "1"
+        wasm_env["PYO3_CROSS_PYTHON_VERSION"] = "3.12"
+        wasm_env["PYO3_CROSS_INCLUDE_DIR"] = "$(location toolchains//:pyodide-python-include)"
+        wasm_env["PYO3_NO_PYTHON"] = "1"
+
+        resolved_env = select({
+            "root//:wasm32-emscripten": wasm_env,
+            "DEFAULT": host_env,
+        })
+    elif package_name in ["numpy", "pyo3"]:
+        host_env = dict(base_env)
+        host_env["DEP_PYTHON_PYO3_CONFIG"] = _PYO3_CONFIG[PYTHON_VERSION]
+
+        wasm_env = dict(base_env)
+        wasm_env["DEP_PYTHON_PYO3_CONFIG"] = _PYO3_CONFIG_WASM32
+
+        resolved_env = select({
+            "root//:wasm32-emscripten": wasm_env,
+            "DEFAULT": host_env,
+        })
+    else:
+        resolved_env = base_env
     _buildscript_run(
         package_name = package_name,
         env = resolved_env,

@@ -2,7 +2,8 @@
 //! device.
 #[cfg(any(
     all(target_os = "macos", feature = "metal"),
-    all(target_os = "linux", target_arch = "x86_64", feature = "cuda")
+    all(target_os = "linux", target_arch = "x86_64", feature = "cuda"),
+    target_arch = "wasm32"
 ))]
 use crate::knn::KnnBackend;
 use crate::{ENN, ENNParams, PosteriorFlags};
@@ -12,6 +13,8 @@ enum Storage {
     Metal(crate::knn::metal_index::MetalPosterior),
     #[cfg(all(target_os = "linux", target_arch = "x86_64", feature = "cuda"))]
     Cuda(baux_cuda::DevicePosterior),
+    #[cfg(target_arch = "wasm32")]
+    WebGpu(crate::webgpu::WebGpuPosterior),
     #[allow(dead_code)]
     Unavailable,
 }
@@ -27,6 +30,8 @@ pub enum PosteriorDraw {
     Metal(metal::Buffer),
     #[cfg(all(target_os = "linux", target_arch = "x86_64", feature = "cuda"))]
     Cuda(baux_cuda::DeviceDraw),
+    #[cfg(target_arch = "wasm32")]
+    WebGpu(Vec<f32>),
     #[allow(dead_code)]
     Unavailable,
 }
@@ -40,8 +45,9 @@ impl ENN {
     /// on-device.
     ///
     /// # Safety
-    /// pointer is a retained CUDA allocation (device 2) or MTLBuffer (device 8)
-    /// covering rows*num_dim FP32 values at byte_offset, ready for reading.
+    /// pointer is a retained CUDA allocation (device 2), MTLBuffer (device 8),
+    /// or WebGPU handle / linear-memory pointer (device 15) covering
+    /// rows*num_dim FP32 values at byte_offset, ready for reading.
     pub unsafe fn device_posterior(
         &self,
         pointer: u64,
@@ -53,15 +59,17 @@ impl ENN {
     ) -> Result<DevicePosterior, String> {
         #[cfg(not(any(
             all(target_os = "macos", feature = "metal"),
-            all(target_os = "linux", target_arch = "x86_64", feature = "cuda")
+            all(target_os = "linux", target_arch = "x86_64", feature = "cuda"),
+            target_arch = "wasm32"
         )))]
         {
             let _ = (pointer, byte_offset, device, rows, params, flags);
-            Err("device posterior requires a compiled CUDA or Metal backend".into())
+            Err("device posterior requires a compiled CUDA, Metal, or WebGPU backend".into())
         }
         #[cfg(any(
             all(target_os = "macos", feature = "metal"),
-            all(target_os = "linux", target_arch = "x86_64", feature = "cuda")
+            all(target_os = "linux", target_arch = "x86_64", feature = "cuda"),
+            target_arch = "wasm32"
         ))]
         {
             if self.scale_x || self.bounded_outputs() {
@@ -143,9 +151,82 @@ impl ENN {
                             )?
                     })
                 }
+                #[cfg(target_arch = "wasm32")]
+                (KnnBackend::WebGpu(inner), crate::webgpu::WEBGPU_DLPACK_DEVICE) => {
+                    let query_elems = rows
+                        .checked_mul(self.num_dim())
+                        .ok_or("WebGPU query size overflow")?;
+                    let query_bytes = query_elems
+                        .checked_mul(std::mem::size_of::<f32>())
+                        .ok_or("WebGPU query byte size overflow")?;
+                    if pointer == 0
+                        || (byte_offset as u64)
+                            .checked_add(query_bytes as u64)
+                            .is_none()
+                    {
+                        return Err("invalid WebGPU query pointer".into());
+                    }
+                    let queries_f32 = {
+                        let mut buf = vec![0.0f32; query_elems];
+                        let read_handle_ok = if byte_offset == 0 {
+                            u32::try_from(pointer)
+                                .ok()
+                                .filter(|&h| h != 0)
+                                .is_some_and(|h| {
+                                    crate::webgpu::read_buffer_f32_into(h, &mut buf).is_ok()
+                                })
+                        } else {
+                            false
+                        };
+                        if !read_handle_ok {
+                            if !crate::webgpu::is_available() {
+                                return Err("WebGPU runtime bridge is unavailable".into());
+                            }
+                            let addr = pointer
+                                .checked_add(byte_offset as u64)
+                                .ok_or("WebGPU query offset overflow")?;
+                            if addr <= 0x1000 || (addr % std::mem::align_of::<f32>() as u64) != 0 {
+                                return Err(
+                                    "invalid WebGPU buffer handle or unaligned query pointer"
+                                        .into(),
+                                );
+                            }
+                            let ptr = usize::try_from(addr)
+                                .map_err(|_| "WebGPU pointer out of range")?
+                                as *const f32;
+                            let src = unsafe { std::slice::from_raw_parts(ptr, query_elems) };
+                            buf.copy_from_slice(src);
+                        }
+                        buf
+                    };
+                    let guard = inner.lock().map_err(|_| "WebGPU index lock poisoned")?;
+                    let (distances, ids) = guard.raw_topk_f32(&queries_f32, rows, k + skip)?;
+                    let spec = crate::webgpu::PosteriorKernelSpec {
+                        queries: rows,
+                        n: guard.len(),
+                        metrics: self.num_metrics(),
+                        input_k: k + skip,
+                        k,
+                        skip,
+                        epistemic_scale: params.epistemic_scale as f32,
+                        aleatoric_scale: params.aleatoric_scale as f32,
+                        epsilon: crate::error::EPS_VAR as f32,
+                        observation_noise: flags.observation_noise,
+                    };
+                    Storage::WebGpu(crate::webgpu::device_posterior_eval(
+                        spec,
+                        &distances,
+                        &ids,
+                        &y,
+                        var.as_deref(),
+                        &scales,
+                        crate::Device::WebGpu,
+                    )?)
+                }
                 _ => {
                     return Err(
-                        "device queries must match an explicit CUDA or Metal ENN index".into(),
+                        "device queries must match an explicit CUDA, Metal, or WebGPU ENN index"
+                            .into(),
                     );
                 }
             };
@@ -165,6 +246,8 @@ impl Posterior {
             Storage::Metal(_) => 8,
             #[cfg(all(target_os = "linux", target_arch = "x86_64", feature = "cuda"))]
             Storage::Cuda(_) => 2,
+            #[cfg(target_arch = "wasm32")]
+            Storage::WebGpu(_) => crate::webgpu::WEBGPU_DLPACK_DEVICE,
             _ => 0,
         }
     }
@@ -181,6 +264,14 @@ impl Posterior {
             }
             #[cfg(all(target_os = "linux", target_arch = "x86_64", feature = "cuda"))]
             Storage::Cuda(value) => value.pointer(_error),
+            #[cfg(target_arch = "wasm32")]
+            Storage::WebGpu(value) => {
+                if _error {
+                    value.errors.as_ptr() as u64
+                } else {
+                    value.means.as_ptr() as u64
+                }
+            }
             _ => 0,
         }
     }
@@ -190,6 +281,8 @@ impl Posterior {
             Storage::Metal(value) => value.draw(_seeds).map(PosteriorDraw::Metal),
             #[cfg(all(target_os = "linux", target_arch = "x86_64", feature = "cuda"))]
             Storage::Cuda(value) => value.draw(_seeds).map(PosteriorDraw::Cuda),
+            #[cfg(target_arch = "wasm32")]
+            Storage::WebGpu(value) => value.draw(_seeds).map(PosteriorDraw::WebGpu),
             _ => Err("no device posterior implementation".into()),
         }
     }
@@ -205,6 +298,8 @@ impl PosteriorDraw {
             }
             #[cfg(all(target_os = "linux", target_arch = "x86_64", feature = "cuda"))]
             Self::Cuda(value) => value.pointer(),
+            #[cfg(target_arch = "wasm32")]
+            Self::WebGpu(value) => value.as_ptr() as u64,
             _ => 0,
         }
     }

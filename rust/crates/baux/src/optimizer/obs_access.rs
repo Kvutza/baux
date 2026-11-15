@@ -1,5 +1,6 @@
 use std::borrow::Cow;
 use std::path::PathBuf;
+#[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
 use std::sync::Mutex;
 
 use ndarray::{Array1, Array2, ArrayView2};
@@ -7,6 +8,7 @@ use rand::RngCore;
 
 use super::{BayesOptimizer, ObservationDelta};
 use crate::config::SurrogateConfig;
+#[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
 use crate::disk_bpann::DiskBpannEnnBackend;
 use crate::error::ENNError;
 use crate::optimizer_dispatch::{VarianceGate, variance_gate};
@@ -19,6 +21,7 @@ pub enum PosteriorBackend {
         x_rows: Vec<Array1<f64>>,
         y_rows: Vec<Array1<f64>>,
     },
+    #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
     Disk {
         work_dir: PathBuf,
         store: Mutex<DiskBpannEnnBackend>,
@@ -58,20 +61,39 @@ impl PosteriorStore {
         num_dim: usize,
         num_metrics: usize,
     ) -> Result<Self, ENNError> {
-        let store = DiskBpannEnnBackend::new_thresholds(
-            work_dir.clone(),
-            num_dim,
-            num_metrics,
-            usize::MAX,
-            usize::MAX,
-        )?;
-        Ok(Self {
-            backend: PosteriorBackend::Disk {
-                work_dir,
-                store: Mutex::new(store),
-            },
-            yvar_mode: None,
-        })
+        #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
+        {
+            let store = DiskBpannEnnBackend::new_thresholds(
+                work_dir.clone(),
+                num_dim,
+                num_metrics,
+                usize::MAX,
+                usize::MAX,
+            )?;
+            Ok(Self {
+                backend: PosteriorBackend::Disk {
+                    work_dir,
+                    store: Mutex::new(store),
+                },
+                yvar_mode: None,
+            })
+        }
+        #[cfg(not(all(feature = "disk-bpann", not(target_arch = "wasm32"))))]
+        {
+            let _ = (work_dir, num_dim, num_metrics);
+            Err(crate::backend::disk_unavailable_error())
+        }
+    }
+
+    pub(crate) fn is_disk(&self) -> bool {
+        #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
+        {
+            matches!(self.backend, PosteriorBackend::Disk { .. })
+        }
+        #[cfg(not(all(feature = "disk-bpann", not(target_arch = "wasm32"))))]
+        {
+            false
+        }
     }
 
     pub fn has_surrogate(&self) -> bool {
@@ -81,14 +103,18 @@ impl PosteriorStore {
     pub fn surrogate(&self) -> Option<&(dyn Surrogate + Send + Sync)> {
         match &self.backend {
             PosteriorBackend::Model(s) => Some(s.as_ref()),
-            PosteriorBackend::Empirical { .. } | PosteriorBackend::Disk { .. } => None,
+            PosteriorBackend::Empirical { .. } => None,
+            #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
+            PosteriorBackend::Disk { .. } => None,
         }
     }
 
     pub fn surrogate_mut(&mut self) -> Option<&mut (dyn Surrogate + Send + Sync)> {
         match &mut self.backend {
             PosteriorBackend::Model(s) => Some(s.as_mut()),
-            PosteriorBackend::Empirical { .. } | PosteriorBackend::Disk { .. } => None,
+            PosteriorBackend::Empirical { .. } => None,
+            #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
+            PosteriorBackend::Disk { .. } => None,
         }
     }
 
@@ -114,6 +140,7 @@ impl PosteriorStore {
         match &self.backend {
             PosteriorBackend::Model(s) => s.observation_count().unwrap_or(0),
             PosteriorBackend::Empirical { x_rows, .. } => x_rows.len(),
+            #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
             PosteriorBackend::Disk { store, .. } => store.lock().map(|g| g.len()).unwrap_or(0),
         }
     }
@@ -126,6 +153,7 @@ impl PosteriorStore {
                     ENNError::InvalidParameter(format!("observation index {idx} out of range"))
                 })
             }
+            #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
             PosteriorBackend::Disk { store, .. } => store
                 .lock()
                 .map_err(|_| ENNError::InvalidParameter("disk store lock poisoned".into()))?
@@ -141,6 +169,7 @@ impl PosteriorStore {
                     ENNError::InvalidParameter(format!("observation index {idx} out of range"))
                 })
             }
+            #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
             PosteriorBackend::Disk { store, .. } => store
                 .lock()
                 .map_err(|_| ENNError::InvalidParameter("disk store lock poisoned".into()))?
@@ -162,6 +191,7 @@ impl PosteriorStore {
                     None => Cow::Owned(row.to_vec()),
                 })
             }
+            #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
             PosteriorBackend::Disk { store, .. } => {
                 let g = store
                     .lock()
@@ -185,6 +215,7 @@ impl PosteriorStore {
                     None => Cow::Owned(row.to_vec()),
                 })
             }
+            #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
             PosteriorBackend::Disk { store, .. } => Ok(Cow::Owned(
                 store
                     .lock()
@@ -201,6 +232,7 @@ impl PosteriorStore {
             PosteriorBackend::Empirical { x_rows, .. } => {
                 (!x_rows.is_empty()).then(|| stack_rows(x_rows))
             }
+            #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
             PosteriorBackend::Disk { store, .. } => {
                 let g = store.lock().ok()?;
                 let n = g.len();
@@ -219,6 +251,7 @@ impl PosteriorStore {
             PosteriorBackend::Empirical { y_rows, .. } => {
                 (!y_rows.is_empty()).then(|| stack_rows(y_rows))
             }
+            #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
             PosteriorBackend::Disk { store, .. } => {
                 let g = store.lock().ok()?;
                 let n = g.len();
@@ -243,12 +276,15 @@ impl PosteriorStore {
         x: &ArrayView2<f64>,
         y: &ArrayView2<f64>,
     ) -> Result<(), ENNError> {
+        #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
         if let PosteriorBackend::Disk { store, .. } = &mut self.backend {
             let g = store
                 .get_mut()
                 .map_err(|_| ENNError::InvalidParameter("disk store lock poisoned".into()))?;
             g.append_rows(x, y, None)?;
         }
+        #[cfg(not(all(feature = "disk-bpann", not(target_arch = "wasm32"))))]
+        let _ = (x, y);
         Ok(())
     }
 
@@ -283,6 +319,7 @@ impl PosteriorStore {
                 y_rows.clear();
                 Ok(())
             }
+            #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
             PosteriorBackend::Disk { work_dir, store } => {
                 let (nd, nm) = {
                     let g = store.get_mut().map_err(|_| {
@@ -321,6 +358,7 @@ impl PosteriorStore {
     pub fn release_pages(&self) -> Result<(), ENNError> {
         match &self.backend {
             PosteriorBackend::Model(s) => s.release_pages()?,
+            #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
             PosteriorBackend::Disk { store, .. } => {
                 store
                     .lock()
@@ -338,6 +376,7 @@ impl PosteriorStore {
                 x_rows: x_rows.clone(),
                 y_rows: y_rows.clone(),
             },
+            #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
             PosteriorBackend::Disk { work_dir, store } => {
                 let g = store
                     .lock()
@@ -375,6 +414,22 @@ impl PosteriorStore {
     }
 
     pub(crate) fn hash_state(&self, buf: &mut Vec<u8>) {
+        let hash_rows = |buf: &mut Vec<u8>| {
+            let n = self.obs_count();
+            buf.extend_from_slice(&n.to_le_bytes());
+            for i in 0..n {
+                if let Ok(x_row) = self.x_slice(i) {
+                    for &v in x_row.iter() {
+                        buf.extend_from_slice(&v.to_bits().to_le_bytes());
+                    }
+                }
+                if let Ok(y_row) = self.y_slice(i) {
+                    for &v in y_row.iter() {
+                        buf.extend_from_slice(&v.to_bits().to_le_bytes());
+                    }
+                }
+            }
+        };
         buf.push(match self.yvar_mode {
             None => 0,
             Some(false) => 1,
@@ -386,42 +441,17 @@ impl PosteriorStore {
                 let before = buf.len();
                 s.hash_surrogate(buf);
                 if buf.len() == before {
-                    let n = self.obs_count();
-                    buf.extend_from_slice(&n.to_le_bytes());
-                    for i in 0..n {
-                        if let Ok(x_row) = self.x_slice(i) {
-                            for &v in x_row.iter() {
-                                buf.extend_from_slice(&v.to_bits().to_le_bytes());
-                            }
-                        }
-                        if let Ok(y_row) = self.y_slice(i) {
-                            for &v in y_row.iter() {
-                                buf.extend_from_slice(&v.to_bits().to_le_bytes());
-                            }
-                        }
-                    }
+                    hash_rows(buf);
                 }
             }
-            PosteriorBackend::Empirical { .. } | PosteriorBackend::Disk { .. } => {
-                buf.push(if matches!(self.backend, PosteriorBackend::Disk { .. }) {
-                    1
-                } else {
-                    0
-                });
-                let n = self.obs_count();
-                buf.extend_from_slice(&n.to_le_bytes());
-                for i in 0..n {
-                    if let Ok(x_row) = self.x_slice(i) {
-                        for &v in x_row.iter() {
-                            buf.extend_from_slice(&v.to_bits().to_le_bytes());
-                        }
-                    }
-                    if let Ok(y_row) = self.y_slice(i) {
-                        for &v in y_row.iter() {
-                            buf.extend_from_slice(&v.to_bits().to_le_bytes());
-                        }
-                    }
-                }
+            PosteriorBackend::Empirical { .. } => {
+                buf.push(0);
+                hash_rows(buf);
+            }
+            #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
+            PosteriorBackend::Disk { .. } => {
+                buf.push(1);
+                hash_rows(buf);
             }
         }
     }

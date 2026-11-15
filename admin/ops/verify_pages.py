@@ -86,9 +86,13 @@ def check_assets(target_dir: Path) -> None:
         "style.css",
         "katex.min.css",
         "forester.js",
+        "coi-serviceworker.js",
         "forest.json",
         ".nojekyll",
         "assets/baux_ui.js",
+        "assets/oxcaml_eval.js",
+        "assets/webgpu_bridge.js",
+        "assets/webgpu_worker.js",
         "assets/baux_env.json",
         "assets/repl_worker.js",
         "assets/baux_py.zip",
@@ -212,6 +216,13 @@ def validate_csp(rel_html: Path, csp_contents: list[str]) -> list[str]:
             if worker_vals != ["'self'"]:
                 errors.append(
                     f"{rel_html}: CSP worker-src must equal ['self'] (got {directives.get('worker-src')!r})"
+                )
+
+        if "connect-src" in directives:
+            connect_vals = [v.lower() for v in directives.get("connect-src", [])]
+            if not connect_vals or not set(connect_vals).issubset({"'self'", "'none'"}):
+                errors.append(
+                    f"{rel_html}: CSP connect-src forbids external destinations (got {directives.get('connect-src')!r})"
                 )
 
         base_vals = [v.lower() for v in directives.get("base-uri", [])]
@@ -461,9 +472,11 @@ def check_security(target_dir: Path) -> None:
 
 def check_smoke(target_dir: Path) -> None:
     # 1. Syntax check with node -c
-    js_files = list((target_dir / "assets").glob("*.js"))
-    if (target_dir / "forester.js").is_file():
-        js_files.append(target_dir / "forester.js")
+    js_files = sorted((target_dir / "assets").glob("*.js"))
+    for root_js in ("forester.js", "coi-serviceworker.js"):
+        p = target_dir / root_js
+        if p.is_file():
+            js_files.append(p)
     for js in js_files:
         subprocess.check_call(["node", "-c", str(js)])
 

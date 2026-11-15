@@ -26,23 +26,211 @@ import numpy as np
 from numpy.typing import ArrayLike
 
 _EXT: ModuleType | None = None
+_JS_BRIDGE_CACHE: tuple[Any, _JsOxcamlBridge] | None = None
 
 
-def _load() -> ModuleType:
+def _pyodide_ffi() -> tuple[Any, Any, Any]:
+    try:
+        from pyodide.ffi import JsException, create_proxy, to_js  # type: ignore[import-not-found]
+
+        return create_proxy, to_js, JsException
+    except ImportError:
+        return None, None, None
+
+
+def _to_py(val: Any) -> Any:
+    return val.to_py() if hasattr(val, "to_py") else val
+
+
+def _normalize_meta(raw: Any) -> dict[str, Any]:
+    meta = dict(_to_py(raw))
+    for key in ("id", "label", "family", "rule", "source"):
+        if key in meta and meta[key] is not None:
+            meta[key] = str(meta[key])
+    for key in ("dim", "dimension", "default_dim", "min_dim", "dim_step"):
+        if key in meta and meta[key] is not None:
+            meta[key] = int(meta[key])
+    if "scalable" in meta:
+        meta["scalable"] = bool(meta["scalable"])
+    for key in ("bounds", "domain"):
+        if key in meta and meta[key] is not None:
+            meta[key] = [(float(pair[0]), float(pair[1])) for pair in _to_py(meta[key])]
+    return meta
+
+
+class _JsOxcamlBridge:
+    """Zero-copy Pyodide / Web Worker adapter around ``globalThis.BauxOxcaml``."""
+
+    def __init__(self, bridge: Any) -> None:
+        self._bridge = bridge
+
+    def _fn(self, primary: str, fallback: str | None = None) -> Any:
+        fn = getattr(self._bridge, primary, None)
+        if fn is None and fallback is not None:
+            fn = getattr(self._bridge, fallback, None)
+        if fn is None:
+            raise RuntimeError(f"OxCaml JS bridge is missing method {primary!r}")
+        return fn
+
+    def _call(self, fn: Any, *args: Any) -> Any:
+        _, _, js_exc = _pyodide_ffi()
+        try:
+            return fn(*args)
+        except Exception as exc:
+            msg = str(exc)
+            if "Unknown OxCaml benchmark" in msg:
+                raise KeyError(msg) from exc
+            if (js_exc is not None and isinstance(exc, js_exc)) or isinstance(
+                exc, (KeyError, ValueError)
+            ):
+                if isinstance(exc, KeyError):
+                    raise
+                raise ValueError(msg) from exc
+            raise
+
+    def catalogue(self) -> list[dict[str, Any]]:
+        raw = self._call(self._fn("catalogue"))
+        return [_normalize_meta(item) for item in _to_py(raw)]
+
+    def describe(self, name: str, dim: int = 0) -> dict[str, Any]:
+        raw = self._call(self._fn("describe"), str(name), int(dim))
+        return _normalize_meta(raw)
+
+    def eval_one(self, name: str, point: np.ndarray) -> float:
+        d = int(point.shape[0])
+        fn = self._fn("evalOne", "eval_one")
+        create_proxy, to_js, _ = _pyodide_ffi()
+        if create_proxy is not None:
+            mv = memoryview(point)
+            proxy = create_proxy(mv)
+            buf = None
+            try:
+                buf = proxy.getBuffer("f64")
+                return float(self._call(fn, str(name), d, buf.data))
+            finally:
+                if buf is not None:
+                    buf.release()
+                proxy.destroy()
+                mv.release()
+        arg = to_js(point) if to_js is not None else point
+        return float(self._call(fn, str(name), d, arg))
+
+    def eval_batch_array(
+        self,
+        name: str,
+        mat: np.ndarray,
+        *,
+        backend: str = "simd",
+        workers: int = 1,
+        block_pairs: int = 128,
+    ) -> np.ndarray:
+        del backend, workers, block_pairs
+        n, d = int(mat.shape[0]), int(mat.shape[1])
+        out = np.empty(n, dtype=np.float64)
+        flat = mat.reshape(-1)
+        fn = self._fn("evalBatch", "eval_batch")
+        create_proxy, _, _ = _pyodide_ffi()
+        if create_proxy is not None:
+            in_mv = memoryview(flat)
+            out_mv = memoryview(out)
+            in_proxy = create_proxy(in_mv)
+            out_proxy = create_proxy(out_mv)
+            in_buf = None
+            out_buf = None
+            try:
+                in_buf = in_proxy.getBuffer("f64")
+                out_buf = out_proxy.getBuffer("f64")
+                self._call(fn, str(name), d, n, in_buf.data, out_buf.data)
+            finally:
+                if out_buf is not None:
+                    out_buf.release()
+                if in_buf is not None:
+                    in_buf.release()
+                out_proxy.destroy()
+                in_proxy.destroy()
+                out_mv.release()
+                in_mv.release()
+            return out
+        res = self._call(fn, str(name), d, n, flat, out)
+        if res is not None and res is not out:
+            arr = np.asarray(_to_py(res), dtype=np.float64)
+            if arr.shape != (n,):
+                raise ValueError(
+                    f"evalBatch returned shape {arr.shape}, expected ({n},)"
+                )
+            out[:] = arr
+        return out
+
+    def eval_batch(
+        self,
+        name: str,
+        points: np.ndarray,
+        backend: str = "simd",
+        workers: int = 1,
+        block_pairs: int = 128,
+    ) -> bytearray:
+        out = self.eval_batch_array(
+            name,
+            points,
+            backend=backend,
+            workers=workers,
+            block_pairs=block_pairs,
+        )
+        return bytearray(out.tobytes())
+
+    def refcount_probe(self, _obj: object) -> dict[str, int]:
+        return {"local_borrow_delta": 0, "unique_steal": 1}
+
+
+def _resolve_js_bridge() -> _JsOxcamlBridge | None:
+    global _JS_BRIDGE_CACHE
+    try:
+        import js  # type: ignore[import-not-found]
+    except ImportError:
+        return None
+    gt = getattr(js, "globalThis", None)
+    raw = None
+    for host in (js, gt):
+        if host is None:
+            continue
+        for attr in ("_baux_oxcaml", "BauxOxcaml"):
+            cand = getattr(host, attr, None)
+            if cand is not None:
+                raw = cand
+                break
+        if raw is not None:
+            break
+    if raw is None:
+        return None
+    if _JS_BRIDGE_CACHE is not None and _JS_BRIDGE_CACHE[0] is raw:
+        return _JS_BRIDGE_CACHE[1]
+    adapter = _JsOxcamlBridge(raw)
+    _JS_BRIDGE_CACHE = (raw, adapter)
+    return adapter
+
+
+def _load() -> Any:
     global _EXT
-    if _EXT is not None:
-        return _EXT
 
     if sys.platform == "emscripten":
-        from . import _oxcaml_wasm
+        js_bridge = _resolve_js_bridge()
+        if js_bridge is not None:
+            return js_bridge
+        if "_pyodide_core" in sys.modules or "pyodide" in sys.modules:
+            raise RuntimeError(
+                "OxCaml JS bridge (globalThis.BauxOxcaml / _baux_oxcaml) is not loaded"
+            )
 
-        _EXT = _oxcaml_wasm
+    if _EXT is not None:
         return _EXT
 
     root = Path(__file__).resolve().parents[3]
     override = os.environ.get("BAUX_OXCAML_DIR")
     ext_dir = Path(override) if override else (root / ".cache" / "baux" / "ocaml-pyext")
-    ext_sfx = sysconfig.get_config_var("EXT_SUFFIX") or ".so"
+    try:
+        ext_sfx = sysconfig.get_config_var("EXT_SUFFIX") or ".so"
+    except Exception:
+        ext_sfx = ".so"
     so_path = ext_dir / f"_baux_oxcaml{ext_sfx}"
 
     if not so_path.is_file():
@@ -57,7 +245,10 @@ def _load() -> ModuleType:
                 f"Missing compiled OxCaml extension at {so_path} and build script {tool}"
             )
         env = os.environ.copy()
-        py_inc = sysconfig.get_path("include")
+        try:
+            py_inc = sysconfig.get_path("include")
+        except Exception:
+            py_inc = None
         if py_inc:
             env.setdefault("BAUX_PYTHON_INCLUDE", py_inc)
         env.setdefault("BAUX_PYTHON_EXT_SUFFIX", ext_sfx)
@@ -103,15 +294,7 @@ def eval_one(name: str, point: ArrayLike) -> float:
     return float(_load().eval_one(name, arr))
 
 
-def raw_batch(
-    name: str,
-    points: ArrayLike,
-    *,
-    backend: str = "simd",
-    workers: int = 1,
-    block_pairs: int = 128,
-) -> bytearray:
-    """Evaluate a 2D ``(N, D)`` batch and return the stolen ``@ unique`` bytearray."""
+def _ensure_batch_matrix(points: ArrayLike) -> np.ndarray:
     mat = (
         points
         if isinstance(points, np.ndarray)
@@ -122,6 +305,19 @@ def raw_batch(
     )
     if mat.ndim != 2:
         raise ValueError(f"eval_batch expects a 2D (N, D) array, got shape {mat.shape}")
+    return mat
+
+
+def raw_batch(
+    name: str,
+    points: ArrayLike,
+    *,
+    backend: str = "simd",
+    workers: int = 1,
+    block_pairs: int = 128,
+) -> bytearray:
+    """Evaluate a 2D ``(N, D)`` batch and return the stolen ``@ unique`` bytearray."""
+    mat = _ensure_batch_matrix(points)
     return _load().eval_batch(name, mat, backend, int(workers), int(block_pairs))
 
 
@@ -134,13 +330,17 @@ def eval_batch(
     block_pairs: int = 128,
 ) -> np.ndarray:
     """Evaluate minimization objective ``f(X)`` on ``(N, D)`` batch with zero output copy."""
-    raw = raw_batch(
-        name,
-        points,
-        backend=backend,
-        workers=workers,
-        block_pairs=block_pairs,
-    )
+    mat = _ensure_batch_matrix(points)
+    ext = _load()
+    if hasattr(ext, "eval_batch_array"):
+        return ext.eval_batch_array(
+            name,
+            mat,
+            backend=backend,
+            workers=int(workers),
+            block_pairs=int(block_pairs),
+        )
+    raw = ext.eval_batch(name, mat, backend, int(workers), int(block_pairs))
     return np.frombuffer(raw, dtype=np.float64)
 
 

@@ -89,6 +89,7 @@ pub fn pymodule_experimental(m: &Bound<'_, PyModule>) -> PyResult<()> {
 pub fn pymodule_optimizer(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<crate::py_device::PyDevice>()?;
     m.add_class::<crate::py_optimizer::PyBayesOptimizer>()?;
+    m.add_class::<crate::py_optimizer::PyDenseLinear>()?;
     m.add_class::<crate::py_regions::PyMultiTrustRegion>()?;
     m.add_class::<crate::py_optimizer::PyTelemetry>()?;
     #[cfg(all(target_os = "macos", feature = "metal"))]
@@ -105,5 +106,7 @@ pub fn pymodule_optimizer(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(crate::py_optimizer::bind_regions, m)?)?;
     m.add_function(wrap_pyfunction!(crate::py_optimizer::bind_zero, m)?)?;
     m.add_function(wrap_pyfunction!(crate::py_optimizer::bind_lhd, m)?)?;
+    m.add_function(wrap_pyfunction!(crate::py_optimizer::dense_apply, m)?)?;
+    m.add_function(wrap_pyfunction!(crate::py_optimizer::dense_dist2, m)?)?;
     Ok(())
 }

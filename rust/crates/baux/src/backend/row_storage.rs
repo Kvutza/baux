@@ -4,6 +4,9 @@ use ndarray::{Array1, Array2, ArrayView2, Axis};
 
 use crate::error::ENNError;
 
+/// Gathered training rows: `x`, `y`, optional `yvar`.
+pub(crate) type TrainRows = (Array2<f64>, Array2<f64>, Option<Array2<f64>>);
+
 #[derive(Debug, Clone)]
 pub(crate) struct RowStorage {
     buf: Vec<f64>,

@@ -3,7 +3,6 @@
 use ndarray::{Array1, ArrayView2};
 
 use super::inspection::ENN;
-use crate::backend::EnnBackend;
 use crate::error::ENNError;
 use crate::index::disk_driver;
 use crate::metric_auto::{AutoMetric, DiagonalMetric, ScaleUpdate};
@@ -23,7 +22,7 @@ impl ENN {
     /// LOO gate and geometric refit schedule. The caller supplies the seed.
     /// This does not select the resident optimizer's tied-family metric policy.
     pub fn learn_metric(&mut self, tied: Vec<Vec<usize>>, seed: u64) -> Result<(), ENNError> {
-        if !matches!(self.backend, EnnBackend::Disk(_)) {
+        if !self.backend.is_disk() {
             return Err(ENNError::InvalidParameter(
                 "Enable AUTO once on disk BPANN".into(),
             ));
@@ -55,7 +54,7 @@ impl ENN {
         }
         let weights = metric.weights();
         let scale = Array1::from_iter(weights.iter().map(|v| 1.0 / v.sqrt()));
-        if matches!(self.backend, EnnBackend::Disk(_)) {
+        if self.backend.is_disk() {
             self.backend.set_metric(&scale, true)?;
         } else {
             self.backend.mark_stale();
@@ -223,7 +222,7 @@ impl ENN {
 
     fn apply_metric(&mut self, update: ScaleUpdate) -> Result<(), ENNError> {
         let scale = Array1::from(update.x_scale);
-        if matches!(self.backend, EnnBackend::Disk(_)) {
+        if self.backend.is_disk() {
             self.backend.set_metric(&scale, update.rebuild)?;
         } else {
             self.backend.mark_stale();

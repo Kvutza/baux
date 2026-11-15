@@ -131,6 +131,8 @@ pub fn parse_dict(dict: &Bound<'_, pyo3::types::PyDict>) -> PyResult<baux::confi
             ("metal", IndexDriver::Metal),
             ("opencl", IndexDriver::OpenCl),
             ("ocl", IndexDriver::OpenCl),
+            ("webgpu", IndexDriver::WebGpu),
+            ("wgpu", IndexDriver::WebGpu),
             ("cuda", IndexDriver::Cuda),
             ("cuvs", IndexDriver::Cuvs),
             ("cuvs_brute_force", IndexDriver::Cuvs),

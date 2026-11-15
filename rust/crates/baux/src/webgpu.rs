@@ -1,7 +1,7 @@
 //! Browser WebGPU (`wasm32`) C-ABI bridge and exact `f32` compute kernels.
 //!
 //! When compiled for `wasm32`, this module links against host-provided
-//! JS/WebGPU bridge symbols (`baux_webgpu_*`, see
+//! JS/WebGPU bridge symbols (`bauxgpu_*`, see
 //! `forest/theme/webgpu_bridge.js`). On CPU and host builds, exact `f32`
 //! reference implementations back `dense_apply`, `dense_dist2`, `DenseLinear`,
 //! and unit tests.
@@ -14,10 +14,10 @@ use crate::hash::normal_metric;
 use crate::knn::{check_rows, flatten_f32, pad_k, unpack_search};
 
 /// DLPack device type code for WebGPU (`kDLWebGPU = 15`).
-pub const WEBGPU_DLPACK_DEVICE: i32 = 15;
+pub const WEBGPU_DEVICE: i32 = 15;
 
 /// Sentinel neighbor index emitted when fewer than `k` valid entries exist.
-pub const WEBGPU_SENTINEL_IDX: u32 = u32::MAX;
+pub const WEBGPU_SENTINEL: u32 = u32::MAX;
 
 /// Default variance floor matching `posterior.metal` and `webgpu_bridge.js`.
 pub const DEFAULT_EPSILON: f32 = 1e-9;
@@ -26,22 +26,22 @@ pub const DEFAULT_EPSILON: f32 = 1e-9;
 unsafe extern "C" {
     /// Returns nonzero (`1`) if WebGPU bridge is active and initialized, `0`
     /// otherwise.
-    pub fn baux_webgpu_available() -> i32;
+    pub fn bauxgpu_available() -> i32;
 
     /// Allocates a WebGPU storage buffer of at least `bytes` bytes; returns
     /// non-zero handle or `0` on failure.
-    pub fn baux_webgpu_buffer_alloc(bytes: usize) -> u32;
+    pub fn bauxgpu_alloc(bytes: usize) -> u32;
 
     /// Frees a WebGPU buffer handle; returns `0` on success, nonzero on error.
-    pub fn baux_webgpu_buffer_free(handle: u32) -> i32;
+    pub fn bauxgpu_free(handle: u32) -> i32;
 
     /// Copies `len` `f32` values from buffer `handle` into `out_ptr`; returns
     /// `0` on success.
-    pub fn baux_webgpu_buffer_read_f32(handle: u32, out_ptr: *mut f32, len: usize) -> i32;
+    pub fn bauxgpu_readf32(handle: u32, out_ptr: *mut f32, len: usize) -> i32;
 
     /// Computes `[q, n]` squared Euclidean distances (optionally scaled by
     /// `inv_scale2[d]`); returns `0` on success.
-    pub fn baux_webgpu_exact_dist(
+    pub fn bauxgpu_exactdist(
         q: usize,
         n: usize,
         d: usize,
@@ -53,7 +53,7 @@ unsafe extern "C" {
 
     /// Reduces `[q, n]` squared distances to ascending top-`k` distances and
     /// indices after skipping `skip`; returns `0` on success.
-    pub fn baux_webgpu_knn_topk(
+    pub fn bauxgpu_knntopk(
         q: usize,
         n: usize,
         k: usize,
@@ -66,7 +66,7 @@ unsafe extern "C" {
     /// Evaluates weighted ENN posterior summary `[queries * metrics * 4]`,
     /// selected IDs `[queries, k]`, and weights `[queries, k, metrics]`;
     /// returns `0` on success.
-    pub fn baux_webgpu_device_posterior(
+    pub fn bauxgpu_posterior(
         queries: usize,
         n: usize,
         metrics: usize,
@@ -89,7 +89,7 @@ unsafe extern "C" {
 
     /// Evaluates tiled `f32` linear projection `Y[m, n] = X[m, k] @ W[n, k]^T +
     /// bias[n]`; returns `0` on success.
-    pub fn baux_webgpu_dense_apply(
+    pub fn bauxgpu_denseapply(
         m: usize,
         n: usize,
         k: usize,
@@ -101,7 +101,7 @@ unsafe extern "C" {
 
     /// Evaluates pairwise `f32` squared Euclidean distance `||A[q, d] - B[n,
     /// d]||^2`; returns `0` on success.
-    pub fn baux_webgpu_dense_dist2(
+    pub fn bauxgpu_densedist2(
         q: usize,
         n: usize,
         d: usize,
@@ -113,7 +113,7 @@ unsafe extern "C" {
     /// Scores candidates (`mode`: 0=UCB, 1=Thompson, 2=mean), selects per-batch
     /// argmax, and computes optional softmax probabilities; returns `0` on
     /// success.
-    pub fn baux_webgpu_weight_select(
+    pub fn bauxgpu_weightselect(
         batch: usize,
         candidates: usize,
         mode: u32,
@@ -137,7 +137,7 @@ pub fn is_available() -> bool {
     #[cfg(target_arch = "wasm32")]
     {
         // SAFETY: side-effect-free capability check imported from host bridge.
-        unsafe { baux_webgpu_available() != 0 }
+        unsafe { bauxgpu_available() != 0 }
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
@@ -166,7 +166,7 @@ impl WebGpuBuffer {
     /// Reads `len` `f32` elements from this buffer into host/WASM memory.
     pub fn read_f32(&self, len: usize) -> Result<Vec<f32>, String> {
         let mut out = vec![0.0f32; len];
-        read_buffer_f32_into(self.handle, &mut out)?;
+        read_buffer(self.handle, &mut out)?;
         Ok(out)
     }
 }
@@ -174,7 +174,7 @@ impl WebGpuBuffer {
 impl Drop for WebGpuBuffer {
     fn drop(&mut self) {
         if self.handle != 0 {
-            let _ = buffer_free_handle(self.handle);
+            let _ = buffer_free(self.handle);
             self.handle = 0;
         }
     }
@@ -187,10 +187,10 @@ pub fn buffer_alloc(bytes: usize) -> Result<WebGpuBuffer, String> {
     }
     #[cfg(target_arch = "wasm32")]
     {
-        ensure_bridge_active()?;
+        ensure_bridge()?;
         // SAFETY: validated positive byte count; host returns non-zero handle
         // or 0.
-        let handle = unsafe { baux_webgpu_buffer_alloc(bytes) };
+        let handle = unsafe { bauxgpu_alloc(bytes) };
         if handle == 0 {
             return Err(format!("WebGPU buffer_alloc failed for {bytes} bytes"));
         }
@@ -203,19 +203,17 @@ pub fn buffer_alloc(bytes: usize) -> Result<WebGpuBuffer, String> {
     }
 }
 
-/// Frees a raw WebGPU buffer handle allocated by `baux_webgpu_buffer_alloc`.
-pub fn buffer_free_handle(handle: u32) -> Result<(), String> {
+/// Frees a raw WebGPU buffer handle allocated by `bauxgpu_alloc`.
+pub fn buffer_free(handle: u32) -> Result<(), String> {
     if handle == 0 {
         return Err("cannot free null WebGPU buffer handle (0)".into());
     }
     #[cfg(target_arch = "wasm32")]
     {
         // SAFETY: zero return indicates handle freed.
-        let rc = unsafe { baux_webgpu_buffer_free(handle) };
+        let rc = unsafe { bauxgpu_free(handle) };
         if rc != 0 {
-            return Err(format!(
-                "baux_webgpu_buffer_free({handle}) returned error {rc}"
-            ));
+            return Err(format!("bauxgpu_free({handle}) returned error {rc}"));
         }
         Ok(())
     }
@@ -227,7 +225,7 @@ pub fn buffer_free_handle(handle: u32) -> Result<(), String> {
 }
 
 /// Reads `out.len()` `f32` values from raw WebGPU buffer handle into `out`.
-pub fn read_buffer_f32_into(handle: u32, out: &mut [f32]) -> Result<(), String> {
+pub fn read_buffer(handle: u32, out: &mut [f32]) -> Result<(), String> {
     if handle == 0 {
         return Err("invalid null WebGPU buffer handle (0)".into());
     }
@@ -236,13 +234,13 @@ pub fn read_buffer_f32_into(handle: u32, out: &mut [f32]) -> Result<(), String> 
     }
     #[cfg(target_arch = "wasm32")]
     {
-        ensure_bridge_active()?;
+        ensure_bridge()?;
         // SAFETY: `out` is a valid non-empty mutable slice of `out.len()` f32
         // values.
-        let rc = unsafe { baux_webgpu_buffer_read_f32(handle, out.as_mut_ptr(), out.len()) };
+        let rc = unsafe { bauxgpu_readf32(handle, out.as_mut_ptr(), out.len()) };
         if rc != 0 {
             return Err(format!(
-                "baux_webgpu_buffer_read_f32({handle}, len={}) returned error {rc}",
+                "bauxgpu_readf32({handle}, len={}) returned error {rc}",
                 out.len()
             ));
         }
@@ -256,7 +254,7 @@ pub fn read_buffer_f32_into(handle: u32, out: &mut [f32]) -> Result<(), String> 
 }
 
 #[cfg(target_arch = "wasm32")]
-fn ensure_bridge_active() -> Result<(), String> {
+fn ensure_bridge() -> Result<(), String> {
     if is_available() {
         Ok(())
     } else {
@@ -283,7 +281,7 @@ fn checked_mul3(a: usize, b: usize, c: usize, label: &str) -> Result<usize, Stri
         .ok_or_else(|| format!("webgpu: dimension overflow in {label}"))
 }
 
-fn check_slice_len<T>(slice: &[T], expected: usize, name: &str) -> Result<(), String> {
+fn check_len<T>(slice: &[T], expected: usize, name: &str) -> Result<(), String> {
     if slice.len() != expected {
         return Err(format!(
             "webgpu: {name} expected length {expected}, got {}",
@@ -293,13 +291,13 @@ fn check_slice_len<T>(slice: &[T], expected: usize, name: &str) -> Result<(), St
     Ok(())
 }
 
-fn resolve_compute_device(device: Device) -> Result<bool, String> {
+fn resolve_device(device: Device) -> Result<bool, String> {
     match device {
         Device::Cpu => Ok(false),
         Device::WebGpu => {
             #[cfg(target_arch = "wasm32")]
             {
-                ensure_bridge_active()?;
+                ensure_bridge()?;
                 Ok(true)
             }
             #[cfg(not(target_arch = "wasm32"))]
@@ -314,7 +312,7 @@ fn resolve_compute_device(device: Device) -> Result<bool, String> {
     }
 }
 
-fn validate_exact_dist(
+fn check_exactdist(
     q: usize,
     n: usize,
     d: usize,
@@ -330,16 +328,16 @@ fn validate_exact_dist(
     let qd = checked_mul2(q, d, "exact_dist.queries")?;
     let nd = checked_mul2(n, d, "exact_dist.rows")?;
     let qn = checked_mul2(q, n, "exact_dist.out")?;
-    check_slice_len(queries, qd, q_label)?;
-    check_slice_len(rows, nd, r_label)?;
+    check_len(queries, qd, q_label)?;
+    check_len(rows, nd, r_label)?;
     if let Some(scale) = inv_scale2 {
-        check_slice_len(scale, d, "inv_scale2")?;
+        check_len(scale, d, "inv_scale2")?;
     }
     Ok(qn)
 }
 
 /// Exact `f32` CPU squared Euclidean distance matching `WGSL_EXACT_DIST`.
-pub fn exact_dist_cpu(
+pub fn cpu_exactdist(
     q: usize,
     n: usize,
     d: usize,
@@ -347,7 +345,7 @@ pub fn exact_dist_cpu(
     rows: &[f32],
     inv_scale2: Option<&[f32]>,
 ) -> Result<Vec<f32>, String> {
-    let qn = validate_exact_dist(q, n, d, queries, rows, inv_scale2, "queries", "rows")?;
+    let qn = check_exactdist(q, n, d, queries, rows, inv_scale2, "queries", "rows")?;
     let mut out = vec![0.0f32; qn];
     for qi in 0..q {
         let q_row = &queries[qi * d..(qi + 1) * d];
@@ -384,17 +382,17 @@ pub fn exact_dist(
     inv_scale2: Option<&[f32]>,
     device: Device,
 ) -> Result<Vec<f32>, String> {
-    if !resolve_compute_device(device)? {
-        return exact_dist_cpu(q, n, d, queries, rows, inv_scale2);
+    if !resolve_device(device)? {
+        return cpu_exactdist(q, n, d, queries, rows, inv_scale2);
     }
-    let qn = validate_exact_dist(q, n, d, queries, rows, inv_scale2, "queries", "rows")?;
+    let qn = check_exactdist(q, n, d, queries, rows, inv_scale2, "queries", "rows")?;
     #[cfg(target_arch = "wasm32")]
     {
         let mut out = vec![0.0f32; qn];
         let scale_ptr = inv_scale2.map_or(std::ptr::null(), |s| s.as_ptr());
         // SAFETY: validated non-empty slices of exact required lengths.
         let rc = unsafe {
-            baux_webgpu_exact_dist(
+            bauxgpu_exactdist(
                 q,
                 n,
                 d,
@@ -405,18 +403,18 @@ pub fn exact_dist(
             )
         };
         if rc != 0 {
-            return Err(format!("baux_webgpu_exact_dist returned error {rc}"));
+            return Err(format!("bauxgpu_exactdist returned error {rc}"));
         }
         Ok(out)
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
         let _ = qn;
-        unreachable!("resolve_compute_device forbids WebGpu outside wasm32")
+        unreachable!("resolve_device forbids WebGpu outside wasm32")
     }
 }
 
-fn validate_knn_topk(
+fn check_knntopk(
     q: usize,
     n: usize,
     k: usize,
@@ -433,21 +431,21 @@ fn validate_knn_topk(
     }
     let qn = checked_mul2(q, n, "knn_topk.dist2")?;
     let qk = checked_mul2(q, k, "knn_topk.out")?;
-    check_slice_len(dist2, qn, "dist2")?;
+    check_len(dist2, qn, "dist2")?;
     Ok(qk)
 }
 
 /// Exact `f32` CPU top-k reduction matching `WGSL_KNN_TOPK` tie-breaking.
-pub fn knn_topk_cpu(
+pub fn cpu_knntopk(
     q: usize,
     n: usize,
     k: usize,
     skip: usize,
     dist2: &[f32],
 ) -> Result<(Vec<f32>, Vec<u32>), String> {
-    let qk = validate_knn_topk(q, n, k, skip, dist2)?;
+    let qk = check_knntopk(q, n, k, skip, dist2)?;
     let mut out_dist = vec![0.0f32; qk];
-    let mut out_idx = vec![WEBGPU_SENTINEL_IDX; qk];
+    let mut out_idx = vec![WEBGPU_SENTINEL; qk];
     let mut pairs = Vec::with_capacity(n);
 
     for qi in 0..q {
@@ -479,18 +477,18 @@ pub fn knn_topk(
     dist2: &[f32],
     device: Device,
 ) -> Result<(Vec<f32>, Vec<u32>), String> {
-    if !resolve_compute_device(device)? {
-        return knn_topk_cpu(q, n, k, skip, dist2);
+    if !resolve_device(device)? {
+        return cpu_knntopk(q, n, k, skip, dist2);
     }
-    let qk = validate_knn_topk(q, n, k, skip, dist2)?;
+    let qk = check_knntopk(q, n, k, skip, dist2)?;
 
     #[cfg(target_arch = "wasm32")]
     {
         let mut out_dist = vec![0.0f32; qk];
-        let mut out_idx = vec![WEBGPU_SENTINEL_IDX; qk];
+        let mut out_idx = vec![WEBGPU_SENTINEL; qk];
         // SAFETY: validated input and preallocated output buffers.
         let rc = unsafe {
-            baux_webgpu_knn_topk(
+            bauxgpu_knntopk(
                 q,
                 n,
                 k,
@@ -501,18 +499,18 @@ pub fn knn_topk(
             )
         };
         if rc != 0 {
-            return Err(format!("baux_webgpu_knn_topk returned error {rc}"));
+            return Err(format!("bauxgpu_knntopk returned error {rc}"));
         }
         Ok((out_dist, out_idx))
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
         let _ = qk;
-        unreachable!("resolve_compute_device forbids WebGpu outside wasm32")
+        unreachable!("resolve_device forbids WebGpu outside wasm32")
     }
 }
 
-fn validate_dense_apply(
+fn check_denseapply(
     m: usize,
     n: usize,
     k: usize,
@@ -526,16 +524,16 @@ fn validate_dense_apply(
     let mk = checked_mul2(m, k, "dense_apply.x")?;
     let nk = checked_mul2(n, k, "dense_apply.w")?;
     let mn = checked_mul2(m, n, "dense_apply.y")?;
-    check_slice_len(x, mk, "x")?;
-    check_slice_len(w, nk, "w")?;
+    check_len(x, mk, "x")?;
+    check_len(w, nk, "w")?;
     if let Some(b) = bias {
-        check_slice_len(b, n, "bias")?;
+        check_len(b, n, "bias")?;
     }
     Ok(mn)
 }
 
 /// Exact `f32` CPU linear layer `Y[m, n] = X[m, k] @ W[n, k]^T + bias[n]`.
-pub fn dense_apply_cpu(
+pub fn cpu_denseapply(
     m: usize,
     n: usize,
     k: usize,
@@ -543,7 +541,7 @@ pub fn dense_apply_cpu(
     w: &[f32],
     bias: Option<&[f32]>,
 ) -> Result<Vec<f32>, String> {
-    let mn = validate_dense_apply(m, n, k, x, w, bias)?;
+    let mn = check_denseapply(m, n, k, x, w, bias)?;
     let mut y = vec![0.0f32; mn];
     for row in 0..m {
         let x_row = &x[row * k..(row + 1) * k];
@@ -572,28 +570,27 @@ pub fn dense_apply(
     bias: Option<&[f32]>,
     device: Device,
 ) -> Result<Vec<f32>, String> {
-    if !resolve_compute_device(device)? {
-        return dense_apply_cpu(m, n, k, x, w, bias);
+    if !resolve_device(device)? {
+        return cpu_denseapply(m, n, k, x, w, bias);
     }
-    let mn = validate_dense_apply(m, n, k, x, w, bias)?;
+    let mn = check_denseapply(m, n, k, x, w, bias)?;
 
     #[cfg(target_arch = "wasm32")]
     {
         let mut y = vec![0.0f32; mn];
         let b_ptr = bias.map_or(std::ptr::null(), |b| b.as_ptr());
         // SAFETY: validated non-empty matrices and optional bias vector.
-        let rc = unsafe {
-            baux_webgpu_dense_apply(m, n, k, x.as_ptr(), w.as_ptr(), b_ptr, y.as_mut_ptr())
-        };
+        let rc =
+            unsafe { bauxgpu_denseapply(m, n, k, x.as_ptr(), w.as_ptr(), b_ptr, y.as_mut_ptr()) };
         if rc != 0 {
-            return Err(format!("baux_webgpu_dense_apply returned error {rc}"));
+            return Err(format!("bauxgpu_denseapply returned error {rc}"));
         }
         Ok(y)
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
         let _ = mn;
-        unreachable!("resolve_compute_device forbids WebGpu outside wasm32")
+        unreachable!("resolve_device forbids WebGpu outside wasm32")
     }
 }
 
@@ -607,26 +604,25 @@ pub fn dense_dist2(
     b: &[f32],
     device: Device,
 ) -> Result<Vec<f32>, String> {
-    if !resolve_compute_device(device)? {
-        return exact_dist_cpu(q, n, d, a, b, None);
+    if !resolve_device(device)? {
+        return cpu_exactdist(q, n, d, a, b, None);
     }
-    let qn = validate_exact_dist(q, n, d, a, b, None, "a", "b")?;
+    let qn = check_exactdist(q, n, d, a, b, None, "a", "b")?;
 
     #[cfg(target_arch = "wasm32")]
     {
         let mut out = vec![0.0f32; qn];
         // SAFETY: validated non-empty matrices of exact lengths.
-        let rc =
-            unsafe { baux_webgpu_dense_dist2(q, n, d, a.as_ptr(), b.as_ptr(), out.as_mut_ptr()) };
+        let rc = unsafe { bauxgpu_densedist2(q, n, d, a.as_ptr(), b.as_ptr(), out.as_mut_ptr()) };
         if rc != 0 {
-            return Err(format!("baux_webgpu_dense_dist2 returned error {rc}"));
+            return Err(format!("bauxgpu_densedist2 returned error {rc}"));
         }
         Ok(out)
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
         let _ = qn;
-        unreachable!("resolve_compute_device forbids WebGpu outside wasm32")
+        unreachable!("resolve_device forbids WebGpu outside wasm32")
     }
 }
 
@@ -661,7 +657,7 @@ pub struct WeightSelectOutput {
     pub best_score: Vec<f32>,
 }
 
-fn validate_weight_select(
+fn check_weightselect(
     batch: usize,
     candidates: usize,
     params: WeightSelectParams,
@@ -684,19 +680,19 @@ fn validate_weight_select(
         return Err("webgpu: beta and min_prob must be finite".into());
     }
     let bc = checked_mul2(batch, candidates, "weight_select.bc")?;
-    check_slice_len(mu, bc, "mu")?;
-    check_slice_len(se, bc, "se")?;
+    check_len(mu, bc, "mu")?;
+    check_len(se, bc, "se")?;
     if params.mode == 1 {
         let z_slice =
             z.ok_or_else(|| "webgpu: z noise array required for Thompson mode".to_string())?;
-        check_slice_len(z_slice, bc, "z")?;
+        check_len(z_slice, bc, "z")?;
     }
     Ok(bc)
 }
 
 /// Exact `f32` CPU acquisition scoring, argmax selection, and softmax matching
 /// `WGSL_WEIGHT_SELECT`.
-pub fn weight_select_cpu(
+pub fn cpu_weightselect(
     batch: usize,
     candidates: usize,
     params: WeightSelectParams,
@@ -704,17 +700,17 @@ pub fn weight_select_cpu(
     se: &[f32],
     z: Option<&[f32]>,
 ) -> Result<WeightSelectOutput, String> {
-    let bc = validate_weight_select(batch, candidates, params, mu, se, z)?;
+    let bc = check_weightselect(batch, candidates, params, mu, se, z)?;
 
     let mut scores = vec![0.0f32; bc];
     let mut probs = vec![0.0f32; bc];
-    let mut best_idx = vec![WEBGPU_SENTINEL_IDX; batch];
+    let mut best_idx = vec![WEBGPU_SENTINEL; batch];
     let mut best_score = vec![f32::MIN; batch];
     let inv_temp = 1.0f32 / params.temperature.max(1e-6);
 
     for b in 0..batch {
         let base = b * candidates;
-        let mut b_best_i = WEBGPU_SENTINEL_IDX;
+        let mut b_best_i = WEBGPU_SENTINEL;
         let mut b_best_s = -f32::MAX;
         for c in 0..candidates {
             let idx = base + c;
@@ -725,7 +721,7 @@ pub fn weight_select_cpu(
             };
             scores[idx] = score;
             if !score.is_nan()
-                && (b_best_i == WEBGPU_SENTINEL_IDX
+                && (b_best_i == WEBGPU_SENTINEL
                     || score > b_best_s
                     || (score == b_best_s && (c as u32) < b_best_i))
             {
@@ -735,7 +731,7 @@ pub fn weight_select_cpu(
         }
         best_idx[b] = b_best_i;
         best_score[b] = b_best_s;
-        let max_score = if b_best_i == WEBGPU_SENTINEL_IDX {
+        let max_score = if b_best_i == WEBGPU_SENTINEL {
             0.0
         } else {
             b_best_s
@@ -779,22 +775,22 @@ pub fn weight_select(
     z: Option<&[f32]>,
     device: Device,
 ) -> Result<WeightSelectOutput, String> {
-    if !resolve_compute_device(device)? {
-        return weight_select_cpu(batch, candidates, params, mu, se, z);
+    if !resolve_device(device)? {
+        return cpu_weightselect(batch, candidates, params, mu, se, z);
     }
-    let bc = validate_weight_select(batch, candidates, params, mu, se, z)?;
+    let bc = check_weightselect(batch, candidates, params, mu, se, z)?;
 
     #[cfg(target_arch = "wasm32")]
     {
         let mut scores = vec![0.0f32; bc];
         let mut probs = vec![0.0f32; bc];
-        let mut best_idx = vec![WEBGPU_SENTINEL_IDX; batch];
+        let mut best_idx = vec![WEBGPU_SENTINEL; batch];
         let mut best_score = vec![0.0f32; batch];
         let z_ptr = z.map_or(std::ptr::null(), |v| v.as_ptr());
         // SAFETY: validated batch, candidates, input slices, and output
         // allocations.
         let rc = unsafe {
-            baux_webgpu_weight_select(
+            bauxgpu_weightselect(
                 batch,
                 candidates,
                 params.mode,
@@ -812,7 +808,7 @@ pub fn weight_select(
             )
         };
         if rc != 0 {
-            return Err(format!("baux_webgpu_weight_select returned error {rc}"));
+            return Err(format!("bauxgpu_weightselect returned error {rc}"));
         }
         Ok(WeightSelectOutput {
             scores,
@@ -824,7 +820,7 @@ pub fn weight_select(
     #[cfg(not(target_arch = "wasm32"))]
     {
         let _ = bc;
-        unreachable!("resolve_compute_device forbids WebGpu outside wasm32")
+        unreachable!("resolve_device forbids WebGpu outside wasm32")
     }
 }
 
@@ -852,11 +848,11 @@ impl DenseLinear {
         checked_pos("out_features", out_features)?;
         checked_pos("in_features", in_features)?;
         let expected_w = checked_mul2(out_features, in_features, "DenseLinear.weight")?;
-        check_slice_len(&weight, expected_w, "weight")?;
+        check_len(&weight, expected_w, "weight")?;
         if let Some(ref b) = bias {
-            check_slice_len(b, out_features, "bias")?;
+            check_len(b, out_features, "bias")?;
         }
-        resolve_compute_device(device)?;
+        resolve_device(device)?;
         Ok(Self {
             out_features,
             in_features,
@@ -945,9 +941,9 @@ impl WebGpuPosterior {
         let summary_len = checked_mul2(count, 4, "WebGpuPosterior.summary")?;
         let qk = checked_mul2(queries, k, "WebGpuPosterior.selected")?;
         let w_len = checked_mul2(qk, metrics, "WebGpuPosterior.weights")?;
-        check_slice_len(summary, summary_len, "summary")?;
-        check_slice_len(&selected, qk, "selected")?;
-        check_slice_len(&weights, w_len, "weights")?;
+        check_len(summary, summary_len, "summary")?;
+        check_len(&selected, qk, "selected")?;
+        check_len(&weights, w_len, "weights")?;
 
         let mut means = Vec::with_capacity(count);
         let mut errors = Vec::with_capacity(count);
@@ -986,7 +982,7 @@ impl WebGpuPosterior {
                 let mut sum = 0.0f32;
                 for j in 0..self.k {
                     let row_id = self.indices[q * self.k + j];
-                    if row_id == WEBGPU_SENTINEL_IDX {
+                    if row_id == WEBGPU_SENTINEL {
                         continue;
                     }
                     let w = self.weights[(q * self.k + j) * self.metrics + m];
@@ -1003,7 +999,7 @@ impl WebGpuPosterior {
 
 /// CPU `f32` weighted posterior matching `WGSL_DEVICE_POSTERIOR` and
 /// `posterior.metal`.
-pub fn device_posterior_cpu(
+pub fn cpu_posterior(
     spec: PosteriorKernelSpec,
     distances: &[f32],
     ids: &[u32],
@@ -1011,10 +1007,10 @@ pub fn device_posterior_cpu(
     variances: Option<&[f32]>,
     scales: &[f32],
 ) -> Result<WebGpuPosterior, String> {
-    validate_posterior_inputs(&spec, distances, ids, outcomes, variances, scales)?;
+    check_posterior(&spec, distances, ids, outcomes, variances, scales)?;
     let count = spec.queries * spec.metrics;
     let mut summary = vec![0.0f32; count * 4];
-    let mut selected = vec![WEBGPU_SENTINEL_IDX; spec.queries * spec.k];
+    let mut selected = vec![WEBGPU_SENTINEL; spec.queries * spec.k];
     let mut weights = vec![0.0f32; spec.queries * spec.k * spec.metrics];
 
     for q in 0..spec.queries {
@@ -1029,7 +1025,7 @@ pub fn device_posterior_cpu(
                 if m == 0 {
                     selected[q * spec.k + j] = row;
                 }
-                if row == WEBGPU_SENTINEL_IDX {
+                if row == WEBGPU_SENTINEL {
                     weights[w_offset] = 0.0;
                 } else {
                     let r_idx = row as usize;
@@ -1057,7 +1053,7 @@ pub fn device_posterior_cpu(
                 let at = q * spec.input_k + spec.skip + j;
                 let row = ids[at];
                 let w_offset = (q * spec.k + j) * spec.metrics + m;
-                if row == WEBGPU_SENTINEL_IDX || sum_w <= 0.0 {
+                if row == WEBGPU_SENTINEL || sum_w <= 0.0 {
                     weights[w_offset] = 0.0;
                 } else {
                     let r_idx = row as usize;
@@ -1096,7 +1092,7 @@ pub fn device_posterior_cpu(
     )
 }
 
-fn validate_posterior_inputs(
+fn check_posterior(
     spec: &PosteriorKernelSpec,
     distances: &[f32],
     ids: &[u32],
@@ -1126,15 +1122,15 @@ fn validate_posterior_inputs(
     let summary_len = checked_mul2(qm, 4, "posterior.summary")?;
     let qk = checked_mul2(spec.queries, spec.k, "posterior.selected")?;
     let qkm = checked_mul3(spec.queries, spec.k, spec.metrics, "posterior.weights")?;
-    check_slice_len(distances, qi, "distances")?;
-    check_slice_len(ids, qi, "ids")?;
-    check_slice_len(outcomes, nm, "outcomes")?;
+    check_len(distances, qi, "distances")?;
+    check_len(ids, qi, "ids")?;
+    check_len(outcomes, nm, "outcomes")?;
     if let Some(var) = variances {
-        check_slice_len(var, nm, "variances")?;
+        check_len(var, nm, "variances")?;
     }
-    check_slice_len(scales, spec.metrics, "scales")?;
+    check_len(scales, spec.metrics, "scales")?;
     for &id in ids {
-        if id != WEBGPU_SENTINEL_IDX && (id as usize) >= spec.n {
+        if id != WEBGPU_SENTINEL && (id as usize) >= spec.n {
             return Err(format!(
                 "webgpu: neighbor id {id} out of range (n={})",
                 spec.n
@@ -1145,7 +1141,7 @@ fn validate_posterior_inputs(
 }
 
 /// Dispatches weighted ENN posterior evaluation to WebGPU (`wasm32`) or CPU.
-pub fn device_posterior_eval(
+pub fn eval_posterior(
     spec: PosteriorKernelSpec,
     distances: &[f32],
     ids: &[u32],
@@ -1154,21 +1150,21 @@ pub fn device_posterior_eval(
     scales: &[f32],
     device: Device,
 ) -> Result<WebGpuPosterior, String> {
-    if !resolve_compute_device(device)? {
-        return device_posterior_cpu(spec, distances, ids, outcomes, variances, scales);
+    if !resolve_device(device)? {
+        return cpu_posterior(spec, distances, ids, outcomes, variances, scales);
     }
     let (summary_len, qk, qkm) =
-        validate_posterior_inputs(&spec, distances, ids, outcomes, variances, scales)?;
+        check_posterior(&spec, distances, ids, outcomes, variances, scales)?;
 
     #[cfg(target_arch = "wasm32")]
     {
         let mut summary = vec![0.0f32; summary_len];
-        let mut selected = vec![WEBGPU_SENTINEL_IDX; qk];
+        let mut selected = vec![WEBGPU_SENTINEL; qk];
         let mut weights = vec![0.0f32; qkm];
         let var_ptr = variances.map_or(std::ptr::null(), |v| v.as_ptr());
         // SAFETY: validated shapes and bounds for all input/output buffers.
         let rc = unsafe {
-            baux_webgpu_device_posterior(
+            bauxgpu_posterior(
                 spec.queries,
                 spec.n,
                 spec.metrics,
@@ -1190,7 +1186,7 @@ pub fn device_posterior_eval(
             )
         };
         if rc != 0 {
-            return Err(format!("baux_webgpu_device_posterior returned error {rc}"));
+            return Err(format!("bauxgpu_posterior returned error {rc}"));
         }
         WebGpuPosterior::from_packed(
             spec.queries,
@@ -1204,7 +1200,7 @@ pub fn device_posterior_eval(
     #[cfg(not(target_arch = "wasm32"))]
     {
         let _ = (summary_len, qk, qkm);
-        unreachable!("resolve_compute_device forbids WebGpu outside wasm32")
+        unreachable!("resolve_device forbids WebGpu outside wasm32")
     }
 }
 
@@ -1321,7 +1317,7 @@ impl WebGpuIndex {
 
     /// Computes raw `(distances, ids)` top-`(skip + k)` search needed by
     /// `device_posterior`.
-    pub(crate) fn raw_topk_f32(
+    pub(crate) fn raw_topk(
         &self,
         queries_f32: &[f32],
         n_query: usize,
@@ -1346,22 +1342,22 @@ mod tests {
     use ndarray::array;
 
     #[test]
-    fn host_reports_unavailable_and_rejects_alloc() {
+    fn host_rejects() {
         #[cfg(not(target_arch = "wasm32"))]
         {
             assert!(!is_available());
             assert!(buffer_alloc(16).is_err());
-            assert!(buffer_free_handle(1).is_err());
+            assert!(buffer_free(1).is_err());
             let mut out = [0.0f32; 4];
-            assert!(read_buffer_f32_into(1, &mut out).is_err());
+            assert!(read_buffer(1, &mut out).is_err());
             assert!(dense_apply(1, 1, 1, &[1.0], &[1.0], None, Device::WebGpu).is_err());
         }
         assert!(buffer_alloc(0).is_err());
-        assert!(buffer_free_handle(0).is_err());
+        assert!(buffer_free(0).is_err());
     }
 
     #[test]
-    fn exact_dist_and_topk_match_ties_and_skip() {
+    fn exactdist_ties() {
         let queries = vec![0.0f32, 0.0, 2.0, 0.0];
         let rows = vec![1.0f32, 0.0, -1.0, 0.0, 3.0, 0.0];
         let dist2 = exact_dist(2, 3, 2, &queries, &rows, None, Device::Cpu).unwrap();
@@ -1373,7 +1369,7 @@ mod tests {
     }
 
     #[test]
-    fn dense_linear_and_dist2_f32() {
+    fn test_densedist2() {
         let weight = vec![1.0f32, 2.0, 3.0, -1.0, 0.0, 1.0];
         let bias = Some(vec![0.5f32, -0.5]);
         let layer = DenseLinear::new(2, 3, weight.clone(), bias.clone(), Device::Cpu).unwrap();
@@ -1398,7 +1394,7 @@ mod tests {
     }
 
     #[test]
-    fn device_posterior_and_weight_select_cpu() {
+    fn posterior_select() {
         let distances = vec![0.25f32, 1.0, 4.0];
         let ids = vec![0u32, 1, 2];
         let outcomes = vec![2.0f32, 4.0, 8.0];
@@ -1415,7 +1411,7 @@ mod tests {
             epsilon: DEFAULT_EPSILON,
             observation_noise: true,
         };
-        let post = device_posterior_eval(
+        let post = eval_posterior(
             spec,
             &distances,
             &ids,
@@ -1454,7 +1450,7 @@ mod tests {
     }
 
     #[test]
-    fn webgpu_index_cpu_parity() {
+    fn index_parity() {
         let train = array![[0.0, 0.0], [1.0, 0.0], [0.0, 2.0]];
         let mut idx = WebGpuIndex::with_device(2, &train.view(), Device::Cpu).unwrap();
         idx.add(&array![[3.0, 0.0]].view(), 10).unwrap();

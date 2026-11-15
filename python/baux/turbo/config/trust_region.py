@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from math import isfinite
 from typing import Literal
 
@@ -66,7 +66,7 @@ class NoTrustRegion:
 class TurboTrustRegion:
     """Single-objective TuRBO trust-region configuration."""
 
-    length: TrustRegionBounds = TrustRegionBounds()
+    length: TrustRegionBounds = field(default_factory=TrustRegionBounds)
     noise_aware: bool = False
 
     @property
@@ -90,8 +90,8 @@ class MorboTrustRegion:
     """Multi-objective MORBO trust-region configuration."""
 
     multi_objective: MultiObjectiveConfig
-    length: TrustRegionBounds = TrustRegionBounds()
-    rescale_policy: RescalePolicy = RescalePolicy()
+    length: TrustRegionBounds = field(default_factory=TrustRegionBounds)
+    rescale_policy: RescalePolicy = field(default_factory=RescalePolicy)
     noise_aware: bool = False
 
     @property
@@ -130,7 +130,7 @@ class RegionalSearchPolicy:
     """Multi-region search policy with region sharing and allocation rules."""
 
     count: int = 4
-    length: TrustRegionBounds = TrustRegionBounds()
+    length: TrustRegionBounds = field(default_factory=TrustRegionBounds)
     success_tolerance: int = 3
     failure_tolerance: int = 5
     sharing: Literal[
@@ -138,7 +138,7 @@ class RegionalSearchPolicy:
     ] = "box_contain"
     allocation: AllocationPolicy = "incumbent_ucb1"
     restart_memory: RestartMemoryPolicy = "fresh"
-    restart_center: RestartCenterPolicy = RestartCenterPolicy()
+    restart_center: RestartCenterPolicy = field(default_factory=RestartCenterPolicy)
     controller: RegionController = "turbo"
     acquisitions: tuple[AcquisitionConfig | None, ...] = ()
 
@@ -185,11 +185,11 @@ __all__ = [
     "AllocationPolicy",
     "MorboTrustRegion",
     "MultiObjectiveConfig",
-    "RegionalSearchPolicy",
     "NoTrustRegion",
+    "RegionController",
+    "RegionalSearchPolicy",
     "Rescalarize",
     "RescalePolicy",
-    "RegionController",
     "RestartCenterPolicy",
     "RestartCenterSelection",
     "RestartMemoryPolicy",

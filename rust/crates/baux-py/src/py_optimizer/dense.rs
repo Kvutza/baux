@@ -8,7 +8,7 @@ use pyo3::prelude::*;
 
 use crate::py_device::PyDevice;
 
-fn extract_f32_2d(obj: &Bound<'_, PyAny>, name: &str) -> PyResult<(usize, usize, Vec<f32>)> {
+fn extract_2d(obj: &Bound<'_, PyAny>, name: &str) -> PyResult<(usize, usize, Vec<f32>)> {
     if let Ok(arr) = obj.extract::<PyReadonlyArray2<f32>>() {
         let view = arr.as_array();
         return Ok((view.nrows(), view.ncols(), view.iter().copied().collect()));
@@ -26,7 +26,7 @@ fn extract_f32_2d(obj: &Bound<'_, PyAny>, name: &str) -> PyResult<(usize, usize,
     )))
 }
 
-fn extract_f32_1d(obj: &Bound<'_, PyAny>, name: &str) -> PyResult<Vec<f32>> {
+fn extract_1d(obj: &Bound<'_, PyAny>, name: &str) -> PyResult<Vec<f32>> {
     if let Ok(arr) = obj.extract::<PyReadonlyArray1<f32>>() {
         return Ok(arr.as_array().iter().copied().collect());
     }
@@ -38,7 +38,7 @@ fn extract_f32_1d(obj: &Bound<'_, PyAny>, name: &str) -> PyResult<Vec<f32>> {
     )))
 }
 
-fn resolve_dense_device(device: Option<&Bound<'_, PyAny>>) -> PyResult<baux::Device> {
+fn dense_device(device: Option<&Bound<'_, PyAny>>) -> PyResult<baux::Device> {
     let raw = match device {
         None => "auto".to_string(),
         Some(obj) => {
@@ -77,9 +77,9 @@ impl PyDenseLinear {
         bias: Option<&Bound<'_, PyAny>>,
         device: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<Self> {
-        let (out_features, in_features, w_vec) = extract_f32_2d(weight, "weight")?;
-        let b_vec = bias.map(|b| extract_f32_1d(b, "bias")).transpose()?;
-        let dev = resolve_dense_device(device)?;
+        let (out_features, in_features, w_vec) = extract_2d(weight, "weight")?;
+        let b_vec = bias.map(|b| extract_1d(b, "bias")).transpose()?;
+        let dev = dense_device(device)?;
         let inner = baux::webgpu::DenseLinear::new(out_features, in_features, w_vec, b_vec, dev)
             .map_err(PyValueError::new_err)?;
         Ok(Self { inner })
@@ -123,7 +123,7 @@ impl PyDenseLinear {
         py: Python<'py>,
         x: &Bound<'_, PyAny>,
     ) -> PyResult<Bound<'py, PyArray2<f32>>> {
-        let (m, k, x_vec) = extract_f32_2d(x, "x")?;
+        let (m, k, x_vec) = extract_2d(x, "x")?;
         if k != self.inner.in_features() {
             return Err(PyValueError::new_err(format!(
                 "x has {k} columns, expected in_features={}",
@@ -168,15 +168,15 @@ pub fn dense_apply<'py>(
     bias: Option<&Bound<'_, PyAny>>,
     device: Option<&Bound<'_, PyAny>>,
 ) -> PyResult<Bound<'py, PyArray2<f32>>> {
-    let (m, k, x_vec) = extract_f32_2d(x, "x")?;
-    let (n, wk, w_vec) = extract_f32_2d(weight, "weight")?;
+    let (m, k, x_vec) = extract_2d(x, "x")?;
+    let (n, wk, w_vec) = extract_2d(weight, "weight")?;
     if k != wk {
         return Err(PyValueError::new_err(format!(
             "x has {k} features but weight has {wk}"
         )));
     }
-    let b_vec = bias.map(|b| extract_f32_1d(b, "bias")).transpose()?;
-    let dev = resolve_dense_device(device)?;
+    let b_vec = bias.map(|b| extract_1d(b, "bias")).transpose()?;
+    let dev = dense_device(device)?;
     let out = py
         .detach(|| baux::webgpu::dense_apply(m, n, k, &x_vec, &w_vec, b_vec.as_deref(), dev))
         .map_err(PyValueError::new_err)?;
@@ -195,14 +195,14 @@ pub fn dense_dist2<'py>(
     b: &Bound<'_, PyAny>,
     device: Option<&Bound<'_, PyAny>>,
 ) -> PyResult<Bound<'py, PyArray2<f32>>> {
-    let (q, d, a_vec) = extract_f32_2d(a, "a")?;
-    let (n, bd, b_vec) = extract_f32_2d(b, "b")?;
+    let (q, d, a_vec) = extract_2d(a, "a")?;
+    let (n, bd, b_vec) = extract_2d(b, "b")?;
     if d != bd {
         return Err(PyValueError::new_err(format!(
             "a has {d} dimensions but b has {bd}"
         )));
     }
-    let dev = resolve_dense_device(device)?;
+    let dev = dense_device(device)?;
     let out = py
         .detach(|| baux::webgpu::dense_dist2(q, n, d, &a_vec, &b_vec, dev))
         .map_err(PyValueError::new_err)?;

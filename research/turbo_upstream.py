@@ -65,7 +65,7 @@ class PaperTurboM:
         self.n_trust_regions = n_trust_regions
         self.batch_size = batch_size
         self.succtol = 3
-        self.failtol = max(5, int(math.ceil(dim / batch_size)))
+        self.failtol = max(5, math.ceil(dim / batch_size))
         self.length_init = 0.8
         self.length_min = 0.5**7
         self.length_max = 1.6

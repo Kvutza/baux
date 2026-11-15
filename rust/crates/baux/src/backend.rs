@@ -24,7 +24,7 @@ use crate::error::ENNError;
 use crate::index::{ENNIndex, IndexDriver};
 
 #[inline]
-pub(crate) fn disk_unavailable_error() -> ENNError {
+pub(crate) fn disk_unavailable() -> ENNError {
     #[cfg(target_arch = "wasm32")]
     {
         ENNError::InvalidParameter(
@@ -151,7 +151,7 @@ impl EnnBackend {
             let _ = (
                 work_dir, train_x, train_y, train_yvar, scale_x, x_scale, driver,
             );
-            Err(disk_unavailable_error())
+            Err(disk_unavailable())
         }
     }
 
@@ -196,7 +196,7 @@ impl EnnBackend {
                 #[cfg(not(all(feature = "disk-bpann", not(target_arch = "wasm32"))))]
                 {
                     let _ = (work_dir, soft_threshold, num_dim, num_metrics, driver);
-                    Err(disk_unavailable_error())
+                    Err(disk_unavailable())
                 }
             }
         }

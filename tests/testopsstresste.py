@@ -424,7 +424,7 @@ def test_020():
 
     gap = 1_000
     small_chunk = 100
-    assert TURBO_ENN_SEED_CHUNK_FLAT > gap, "flat default chunk must cover the test gap"
+    assert gap < TURBO_ENN_SEED_CHUNK_FLAT, "flat default chunk must cover the test gap"
 
     small = _enncount(gap, small_chunk)
     large = _enncount(gap, TURBO_ENN_SEED_CHUNK_FLAT)

@@ -11,7 +11,7 @@ def test_001():
     model, train_x, train_y, _, _ = enn_model()
     indices = model.neighbors(np.zeros(3, dtype=float), k=5, exclude_nearest=False)
     assert indices.shape == (5,)
-    assert np.all((0 <= indices) & (indices < len(train_x)))
+    assert np.all((indices >= 0) & (indices < len(train_x)))
     distances = [np.linalg.norm(train_x[i]) for i in indices]
     assert all(
         distances[i] <= distances[i + 1] + 1e-6 for i in range(len(distances) - 1)
@@ -28,7 +28,7 @@ def test_002():
     x_query = rng.standard_normal(d)
     neighbors = model.neighbors(x_query, k=6, exclude_nearest=False)
     assert neighbors.shape == (6,)
-    assert np.all((0 <= neighbors) & (neighbors < n))
+    assert np.all((neighbors >= 0) & (neighbors < n))
 
 
 def test_003():
@@ -82,7 +82,7 @@ def test_006():
     x_query = np.zeros(d, dtype=float)
     neighbors = model.neighbors(x_query, k=5, exclude_nearest=False)
     assert neighbors.shape == (5,)
-    assert np.all((0 <= neighbors) & (neighbors < n))
+    assert np.all((neighbors >= 0) & (neighbors < n))
 
 
 def test_007():

@@ -100,7 +100,7 @@ def test_005():
 def test_006():
     train_x = np.array([[0.0, 0.0], [1.0, 1.0]], dtype=float)
     train_y = np.zeros((2, 1), dtype=float)
-    with pytest.raises(ValueError, match="work_dir|BAUX_WORK_DIR"):
+    with pytest.raises(ValueError, match=r"work_dir|BAUX_WORK_DIR"):
         ENN(
             train_x,
             train_y,

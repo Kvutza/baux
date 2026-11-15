@@ -236,8 +236,7 @@ def _unpackargs(positional: tuple, kwargs: dict[str, Any]) -> dict[str, Any]:
         "initial_generated",
     )
     cfg = {"timing": None, "initial_generated": None, **kwargs}
-    for name, value in zip(names, positional):
-        cfg[name] = value
+    cfg.update(zip(names, positional))
     if cfg["batch_size"] < 1:
         raise ValueError("batch_size must be positive")
     return cfg

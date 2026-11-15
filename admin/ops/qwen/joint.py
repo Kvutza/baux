@@ -485,8 +485,8 @@ for _decorator in (
 
 
 __all__ = [
-    "DecoderPolicy",
     "FIM_BOUNDARIES",
+    "DecoderPolicy",
     "ScoreTiming",
     "_completiontext",
     "_decoderpolicy",

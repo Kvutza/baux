@@ -1,5 +1,4 @@
 """Native orchestration coverage with CPU checkpoints and fake CUDA bindings."""
-# ruff: noqa: F811
 
 import os
 import subprocess
@@ -9,7 +8,7 @@ from pathlib import Path
 
 import pytest
 from click.testing import CliRunner
-from native_fixtures import Source, binding, checkpoint, config, document  # noqa: F401
+from native_fixtures import Source, binding, checkpoint, config, document
 from ops.flame import bo, native
 from ops.flame.objective import SolutionObjective
 
@@ -17,7 +16,7 @@ from ops.flame.objective import SolutionObjective
 @pytest.mark.parametrize("method", ["enable_relative", "tell_relative"])
 def test_api(checkpoint, document, binding, tmp_path, monkeypatch, method):
     monkeypatch.delattr(sys.modules["baux.experimental"].Region, method)
-    with pytest.raises(RuntimeError, match="[Pp]aired"):
+    with pytest.raises(RuntimeError, match=r"[Pp]aired"):
         bo.run(
             checkpoint[0],
             document,
@@ -76,7 +75,7 @@ def test_signature(
     monkeypatch.setattr(module, "load_checkpoint", no_checkpoint)
     output = tmp_path / "run"
     with pytest.raises(
-        RuntimeError, match="Rebuild.*reject_is_failure keyword support"
+        RuntimeError, match=r"Rebuild.*reject_is_failure keyword support"
     ):
         bo.run(
             checkpoint[0],

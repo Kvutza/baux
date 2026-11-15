@@ -11,9 +11,9 @@ from baux.index import (
 from baux.turbo.config.surrogate import GaussianProcess, NoSurrogate
 
 __all__ = [
+    "INDEX_NAMES",
     "DistanceMetric",
     "GaussianProcess",
-    "INDEX_NAMES",
     "NeighborIndex",
     "NoSurrogate",
     "Storage",

@@ -55,7 +55,7 @@ class _ProbeOpt:
 
 
 class _ZeroObjective:
-    bounds = [-1.0, 1.0]
+    bounds = (-1.0, 1.0)
 
     def __call__(self, x):
         x = np.asarray(x)

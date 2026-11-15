@@ -69,18 +69,12 @@ def default_grid() -> list[dict[str, int]]:
     rows_per_frag = (5000, 10000, 20000)
     frag_max = (16, 32)
     search_budget = (2, 3, 4)
-    out: list[dict[str, int]] = []
-    for rows in rows_per_frag:
-        for mx in frag_max:
-            for budget in search_budget:
-                out.append(
-                    {
-                        "index_fragment": rows,
-                        "index_max": mx,
-                        "search_limit": budget,
-                    }
-                )
-    return out
+    return [
+        {"index_fragment": rows, "index_max": mx, "search_limit": budget}
+        for rows in rows_per_frag
+        for mx in frag_max
+        for budget in search_budget
+    ]
 
 
 def main(num_obs: int, baseline_query_s: float, baseline_segment_s: float) -> None:

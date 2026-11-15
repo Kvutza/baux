@@ -3,13 +3,14 @@
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 
 
-def _run_baux(*args: str) -> None:
+def _baux(*args: str) -> None:
     proc = subprocess.run(
         [str(ROOT / "baux"), *args],
         cwd=ROOT,
@@ -23,19 +24,19 @@ def _run_baux(*args: str) -> None:
 
 
 def assemble_bundle(dest: Path) -> None:
-    _run_baux("pages", "build", "--bundle-dir", str(dest))
+    _baux("pages", "build", "--bundle-dir", str(dest))
 
 
 def stamp_sri(dest: Path) -> None:
-    _run_baux("pages", "stamp-sri", "--bundle-dir", str(dest))
+    _baux("pages", "stamp-sri", "--bundle-dir", str(dest))
 
 
 def verify_bundle(dest: Path) -> None:
-    _run_baux("pages", "check", "--bundle-dir", str(dest))
+    _baux("pages", "check", "--bundle-dir", str(dest))
 
 
 def check_security(dest: Path) -> None:
-    _run_baux("pages", "check", "--bundle-dir", str(dest), "--security-only")
+    _baux("pages", "check", "--bundle-dir", str(dest), "--security-only")
 
 
 _VALID_CSP = (
@@ -96,7 +97,7 @@ def test_snippets():
         assert snippets, f"No runnable example in {page}"
         for snippet in snippets:
             ns: dict = {}
-            exec(snippet, ns, ns)
+            exec(snippet, ns, ns)  # noqa: S102
 
     reference_pages = [
         index_path.parent / "baux-0007.html",
@@ -108,7 +109,7 @@ def test_snippets():
         for snippet in re.findall(r"<pre[^>]*>(.*?)</pre>", content, flags=re.DOTALL):
             if "import baux" in snippet:
                 ns: dict = {}
-                exec(html.unescape(snippet), ns, ns)
+                exec(html.unescape(snippet), ns, ns)  # noqa: S102
                 count += 1
     assert count >= 9
 
@@ -416,7 +417,7 @@ def test_security():
         assert_fails(c15, "worker-src")
 
 
-def test_public_tree_hygiene():
+def test_publictree():
     for retired in (
         "docs/site-argument.md",
         "admin/ops/publish_pages.py",
@@ -426,10 +427,21 @@ def test_public_tree_hygiene():
         "admin/ops/pyodide_manifest.json",
     ):
         assert not (ROOT / retired).exists(), f"Retired file still present: {retired}"
-    _run_baux(
+    _baux(
         "pages",
         "audit",
         "--skip-zizmor",
         "--skip-semgrep",
         "--skip-pip-audit",
     )
+
+
+def test_docs():
+    proc = subprocess.run(
+        [sys.executable, str(ROOT / "admin/tools/verify_docs.py")],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert proc.returncode == 0, proc.stderr or proc.stdout

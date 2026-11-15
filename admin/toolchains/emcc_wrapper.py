@@ -31,13 +31,13 @@ _LLVM_BINUTILS_MODES = frozenset(
 )
 
 
-def _resolve_install_dir(sdk_dir: str) -> str:
+def _installdir(sdk_dir: str) -> str:
     sdk_abs = os.path.abspath(sdk_dir)
     install_dir = os.path.join(sdk_abs, "install")
     return install_dir if os.path.isdir(install_dir) else sdk_abs
 
 
-def _find_node() -> str | None:
+def _nodebin() -> str | None:
     candidates = [
         shutil.which("node"),
         shutil.which("nodejs"),
@@ -52,19 +52,19 @@ def _find_node() -> str | None:
     return None
 
 
-def _expand_rsp_args(args: list[str]) -> list[str]:
+def _expandrsp(args: list[str]) -> list[str]:
     expanded: list[str] = []
     for arg in args:
         if arg.startswith("@") and len(arg) > 1 and os.path.isfile(arg[1:]):
             with open(arg[1:], encoding="utf-8") as fh:
                 tokens = shlex.split(fh.read(), posix=True)
-            expanded.extend(_expand_rsp_args(tokens))
+            expanded.extend(_expandrsp(tokens))
         else:
             expanded.append(arg)
     return expanded
 
 
-def _run_strip(args: list[str]) -> int:
+def _strip(args: list[str]) -> int:
     dst: str | None = None
     srcs: list[str] = []
     i = 0
@@ -93,12 +93,12 @@ def _run_strip(args: list[str]) -> int:
             os.makedirs(dst_dir, exist_ok=True)
         shutil.copyfile(src, dst)
         if os.access(src, os.X_OK):
-            os.chmod(dst, 0o755)
+            shutil.copymode(src, dst)
     return 0
 
 
-def _filter_ld_args(raw_args: list[str]) -> list[str]:
-    args = _expand_rsp_args(raw_args)
+def _filterld(raw_args: list[str]) -> list[str]:
+    args = _expandrsp(raw_args)
     filtered: list[str] = []
     i = 0
     while i < len(args):
@@ -149,21 +149,18 @@ def _filter_ld_args(raw_args: list[str]) -> list[str]:
     ]
 
 
-def _quote_rsp_arg(arg: str) -> str:
+def _quote(arg: str) -> str:
     escaped = arg.replace("\\", "\\\\").replace('"', '\\"')
     return f'"{escaped}"'
 
 
-def _run_emcc(install_dir: str, mode: str, args: list[str]) -> int:
+def _emcc(install_dir: str, mode: str, args: list[str]) -> int:
     emcc_py = os.path.join(
         install_dir,
         "emscripten",
         "em++.py" if mode == "cxx" else "emcc.py",
     )
-    if mode == "ld":
-        final_args = _filter_ld_args(args)
-    else:
-        final_args = _expand_rsp_args(args)
+    final_args = _filterld(args) if mode == "ld" else _expandrsp(args)
 
     with tempfile.TemporaryDirectory(prefix="baux_em_") as tmpdir:
         cache_dir = os.path.join(tmpdir, "cache")
@@ -176,7 +173,7 @@ def _run_emcc(install_dir: str, mode: str, args: list[str]) -> int:
         if os.path.isfile(src_stamp):
             shutil.copyfile(src_stamp, os.path.join(cache_dir, "sysroot_install.stamp"))
 
-        node_js = _find_node()
+        node_js = _nodebin()
         em_config = os.path.join(tmpdir, "em_config")
         with open(em_config, "w", encoding="utf-8") as fh:
             fh.write(f"EMSCRIPTEN_ROOT = {os.path.join(install_dir, 'emscripten')!r}\n")
@@ -204,7 +201,7 @@ def _run_emcc(install_dir: str, mode: str, args: list[str]) -> int:
             rsp_path = os.path.join(tmpdir, "args.rsp")
             with open(rsp_path, "w", encoding="utf-8") as fh:
                 for arg in final_args:
-                    fh.write(_quote_rsp_arg(arg) + "\n")
+                    fh.write(_quote(arg) + "\n")
             cmd.append(f"@{rsp_path}")
         else:
             cmd.extend(final_args)
@@ -222,15 +219,15 @@ def main(argv: list[str]) -> int:
     rest = argv[3:]
 
     if mode == "strip":
-        return _run_strip(rest)
+        return _strip(rest)
 
-    install_dir = _resolve_install_dir(sdk_dir)
+    install_dir = _installdir(sdk_dir)
     if mode in _LLVM_BINUTILS_MODES:
         tool = os.path.join(install_dir, "bin", f"llvm-{mode}")
-        os.execv(tool, [tool, *rest])
+        os.execv(tool, [tool, *rest])  # noqa: S606
 
     if mode in {"cc", "cxx", "ld"}:
-        return _run_emcc(install_dir, mode, rest)
+        return _emcc(install_dir, mode, rest)
 
     sys.stderr.write(f"emcc_wrapper.py: unsupported mode {mode!r}\n")
     return 2

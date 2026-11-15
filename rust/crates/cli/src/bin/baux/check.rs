@@ -1,11 +1,30 @@
+use clap::Args;
 use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
 use std::fs;
+use std::io::ErrorKind;
 use std::path::{Component, Path, PathBuf};
 use std::process::Command;
 use std::time::UNIX_EPOCH;
 
 use crate::execute;
+
+#[derive(Args, Default)]
+pub(super) struct CheckArgs {
+    /// Bypass the incremental stamp cache and verify every tracked file.
+    #[arg(long)]
+    pub(super) all: bool,
+    /// Verify formatting and checks without modifying tracked files.
+    #[arg(long)]
+    pub(super) check: bool,
+    /// Run compiled analyzers (Buck2 Clippy, build parity, Dune UI, coverage,
+    /// workflows).
+    #[arg(long)]
+    pub(super) deep: bool,
+    /// Fail on stale extraction source-tree SHA-256 bindings.
+    #[arg(long)]
+    pub(super) strict_extraction: bool,
+}
 
 fn tracked_files(root: &Path) -> Result<Vec<PathBuf>, String> {
     let output = Command::new("jj")
@@ -131,14 +150,140 @@ fn run_all(root: &Path, program: &str, arguments: &[&str]) -> Result<(), String>
     execute(command)
 }
 
-pub(super) fn run(root: &Path) -> Result<(), String> {
+fn shell_files(root: &Path, files: &[PathBuf]) -> Vec<OsString> {
+    files
+        .iter()
+        .filter(|path| {
+            let ext = path.extension().and_then(|e| e.to_str());
+            if matches!(ext, Some("sh" | "bash")) {
+                return true;
+            }
+            if ext.is_some() {
+                return false;
+            }
+            let in_tools = path.starts_with("admin/tools/") || path.as_path() == Path::new("baux");
+            if !in_tools {
+                return false;
+            }
+            let Ok(head) = fs::read(root.join(path)) else {
+                return false;
+            };
+            let first_line = head.split(|b| *b == b'\n').next().unwrap_or(&[]);
+            let first = std::str::from_utf8(first_line).unwrap_or("");
+            first.starts_with("#!/bin/sh")
+                || first.starts_with("#!/bin/bash")
+                || first.starts_with("#!/usr/bin/env sh")
+                || first.starts_with("#!/usr/bin/env bash")
+        })
+        .map(|path| path.as_os_str().to_owned())
+        .collect()
+}
+
+fn js_files(files: &[PathBuf]) -> Vec<PathBuf> {
+    files
+        .iter()
+        .filter(|path| {
+            matches!(
+                path.extension().and_then(|e| e.to_str()),
+                Some("js" | "mjs")
+            )
+        })
+        .filter(|path| {
+            !matches!(
+                path.components().next(),
+                Some(Component::Normal(c)) if c == "docs" || c == "assets"
+            )
+        })
+        .cloned()
+        .collect()
+}
+
+fn docs_dirty(files: &[PathBuf]) -> bool {
+    files.iter().any(|path| {
+        path.starts_with("forest/trees/")
+            || path.starts_with("python/baux/")
+            || path.starts_with("rust/crates/baux-py/")
+            || path.as_path() == Path::new("admin/tools/verify_docs.py")
+    })
+}
+
+fn try_files(
+    root: &Path,
+    program: &str,
+    arguments: &[&str],
+    files: &[OsString],
+) -> Result<(), String> {
+    if files.is_empty() {
+        return Ok(());
+    }
+    println!("o|check: {program} files={}", files.len());
+    match Command::new(program)
+        .current_dir(root)
+        .args(arguments)
+        .args(files)
+        .status()
+    {
+        Ok(status) => status
+            .success()
+            .then_some(())
+            .ok_or_else(|| format!("{program} exited with {status}")),
+        Err(error) if error.kind() == ErrorKind::NotFound => {
+            println!("[warn] skipping {program}: binary not found on PATH");
+            Ok(())
+        }
+        Err(error) => Err(format!("start {program}: {error}")),
+    }
+}
+
+fn check_js(root: &Path, files: &[PathBuf]) -> Result<(), String> {
+    if files.is_empty() {
+        return Ok(());
+    }
+    println!("o|check: node --check files={}", files.len());
+    for file in files {
+        match Command::new("node")
+            .current_dir(root)
+            .arg("--check")
+            .arg(file)
+            .status()
+        {
+            Ok(status) if status.success() => {}
+            Ok(status) => {
+                return Err(format!(
+                    "node --check {} exited with {status}",
+                    file.display()
+                ));
+            }
+            Err(error) if error.kind() == ErrorKind::NotFound => {
+                println!("[warn] skipping node --check: node not found on PATH");
+                return Ok(());
+            }
+            Err(error) => return Err(format!("start node --check: {error}")),
+        }
+    }
+    Ok(())
+}
+
+pub(super) fn run(root: &Path, args: CheckArgs) -> Result<(), String> {
     let files = tracked_files(root)?;
-    let changed = changed_files(root, &files);
-    let rust = rust_files(&changed);
-    let python = typed_files(&changed, "py");
-    let toml = typed_files(&changed, "toml");
-    let uv_dirty = !python.is_empty()
-        || changed.iter().any(|path| {
+    let scope_files = if args.all {
+        files.clone()
+    } else {
+        changed_files(root, &files)
+    };
+    let rust = rust_files(&scope_files);
+    let python = typed_files(&scope_files, "py");
+    let toml = typed_files(&scope_files, "toml");
+    let shell = shell_files(root, &scope_files);
+    let js = js_files(&scope_files);
+    let workflows_dirty = args.all
+        || scope_files
+            .iter()
+            .any(|path| path.starts_with(".github/workflows/"));
+    let docs_dirty = args.all || docs_dirty(&scope_files);
+    let uv_dirty = args.all
+        || !python.is_empty()
+        || scope_files.iter().any(|path| {
             matches!(
                 path.file_name().and_then(|n| n.to_str()),
                 Some("pyproject.toml" | "uv.lock")
@@ -148,9 +293,19 @@ pub(super) fn run(root: &Path) -> Result<(), String> {
     std::thread::scope(|scope| -> Result<(), String> {
         // Rustfmt recursively follows modules. Separate shards can write the
         // same child file concurrently, even when their input lists differ.
-        let rust_job = scope.spawn(|| run_files(root, "rustfmt", &["--edition", "2024"], &rust));
+        let rust_job = scope.spawn(|| {
+            if args.check {
+                run_files(root, "rustfmt", &["--edition", "2024", "--check"], &rust)
+            } else {
+                run_files(root, "rustfmt", &["--edition", "2024"], &rust)
+            }
+        });
         let py_job = scope.spawn(|| -> Result<(), String> {
-            run_files(root, "uvx", &["ruff", "format"], &python)?;
+            if args.check {
+                run_files(root, "uvx", &["ruff", "format", "--check"], &python)?;
+            } else {
+                run_files(root, "uvx", &["ruff", "format"], &python)?;
+            }
             run_files(root, "uvx", &["ruff", "check"], &python)?;
             if uv_dirty {
                 run_all(
@@ -158,12 +313,39 @@ pub(super) fn run(root: &Path) -> Result<(), String> {
                     "uv",
                     &["check", "--preview-features", "check-command"],
                 )?;
+                run_all(root, "uvx", &["ty", "check"])?;
             }
             Ok(())
         });
         let toml_job = scope.spawn(|| -> Result<(), String> {
-            run_files(root, "uvx", &["taplo", "fmt"], &toml)?;
+            if args.check {
+                run_files(root, "uvx", &["taplo", "fmt", "--check"], &toml)?;
+            } else {
+                run_files(root, "uvx", &["taplo", "fmt"], &toml)?;
+            }
             run_files(root, "uvx", &["taplo", "check"], &toml)
+        });
+        let static_job = scope.spawn(|| -> Result<(), String> {
+            try_files(root, "shellcheck", &[], &shell)?;
+            check_js(root, &js)?;
+            if docs_dirty {
+                run_all(root, "python3", &["admin/tools/verify_docs.py"])?;
+            }
+            if workflows_dirty && root.join(".github/workflows").is_dir() {
+                run_all(
+                    root,
+                    "uvx",
+                    &[
+                        "zizmor",
+                        "--pedantic",
+                        "-qq",
+                        "--no-progress",
+                        "--color=never",
+                        ".github/workflows/",
+                    ],
+                )?;
+            }
+            Ok(())
         });
         rust_job.join().map_err(|_| "rustfmt thread panicked")??;
         py_job
@@ -172,10 +354,95 @@ pub(super) fn run(root: &Path) -> Result<(), String> {
         toml_job
             .join()
             .map_err(|_| "toml check thread panicked")??;
+        static_job
+            .join()
+            .map_err(|_| "static check thread panicked")??;
         Ok(())
     })?;
+
+    crate::invariants::verify_all(
+        root,
+        crate::invariants::Options {
+            strict_extraction: args.strict_extraction,
+        },
+    )?;
+    crate::pages_verify::verify_publictree(root)?;
+
+    if args.deep {
+        let clippy_out = Command::new("./admin/tools/buck2w")
+            .current_dir(root)
+            .args([
+                "build",
+                "--console",
+                "simple",
+                "--show-output",
+                "//rust/crates/baux:baux[clippy.txt]",
+                "//rust/crates/baux:baux-cli[clippy.txt]",
+                "//rust/crates/baux-py:baux-py[clippy.txt]",
+                "//rust/crates/cli:baux[clippy.txt]",
+                "//rust/crates/tooling:tooling[clippy.txt]",
+                "//rust/crates/tooling:build-graph[clippy.txt]",
+            ])
+            .output()
+            .map_err(|e| format!("run buck2w clippy: {e}"))?;
+        if !clippy_out.status.success() {
+            return Err(format!(
+                "buck2w clippy exited with {}:\n{}",
+                clippy_out.status,
+                String::from_utf8_lossy(&clippy_out.stderr)
+            ));
+        }
+        let mut clippy_diags = String::new();
+        for line in String::from_utf8_lossy(&clippy_out.stdout).lines() {
+            if let Some((label, rel)) = line.split_once(' ') {
+                let diag_path = root.join(rel.trim());
+                if diag_path.is_file() {
+                    let body = fs::read_to_string(&diag_path)
+                        .map_err(|e| format!("read {label} {}: {e}", rel.trim()))?;
+                    if !body.trim().is_empty() {
+                        clippy_diags.push_str(&format!("== {label} ==\n{body}\n"));
+                    }
+                }
+            }
+        }
+        if !clippy_diags.is_empty() {
+            return Err(format!("Clippy diagnostics found:\n{clippy_diags}"));
+        }
+        run_all(root, "./admin/tools/build-parity", &["--check"])?;
+        let exe = std::env::current_exe().map_err(|e| format!("current_exe: {e}"))?;
+        let status = Command::new(exe)
+            .current_dir(root)
+            .args(["research", "coverage", "--check"])
+            .status()
+            .map_err(|e| format!("run research coverage --check: {e}"))?;
+        if !status.success() {
+            return Err(format!("research coverage --check exited with {status}"));
+        }
+        match Command::new("opam")
+            .current_dir(root)
+            .args([
+                "exec",
+                "--switch=5.2.0+ox",
+                "--",
+                "dune",
+                "build",
+                "--root=admin/ui",
+                "@all",
+            ])
+            .status()
+        {
+            Ok(status) if status.success() => {}
+            Ok(status) => return Err(format!("dune build --root=admin/ui exited with {status}")),
+            Err(error) if error.kind() == ErrorKind::NotFound => {
+                println!("[warn] skipping Dune UI build: opam not found on PATH");
+            }
+            Err(error) => return Err(format!("start opam dune build: {error}")),
+        }
+    }
     baux_tooling::names::cli(root, &[], false)?;
-    crate::pages_verify::verify_public_tree(root)?;
-    write_stamp(root, &files);
+
+    if !args.check {
+        write_stamp(root, &files);
+    }
     Ok(())
 }

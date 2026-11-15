@@ -5,6 +5,7 @@ Mirrors evals/julia/shm_ipc.jl to interface with baux::unified_mem::ShmSlab.
 
 from __future__ import annotations
 
+import contextlib
 import mmap
 import os
 import socket
@@ -37,10 +38,8 @@ _U64_STRUCT = struct.Struct("<Q")
 
 def isolate_stdio() -> None:
     """Redirect stdout (fd 1) to stderr (fd 2) to protect IPC streams."""
-    try:
+    with contextlib.suppress(OSError):
         os.dup2(2, 1)
-    except OSError:
-        pass
 
 
 class SlabView:

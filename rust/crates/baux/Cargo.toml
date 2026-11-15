@@ -22,12 +22,8 @@ include = [
   "NOTICE",
 ]
 
-[lints.rust]
-unexpected_cfgs = { level = "warn", check-cfg = [
-  'cfg(kani)',
-  'cfg(cabi_parity)',
-  'cfg(feature, values("cuda-host", "cuda-device", "opencl"))',
-] }
+[lints]
+workspace = true
 
 [dependencies]
 anstream = "1.0"

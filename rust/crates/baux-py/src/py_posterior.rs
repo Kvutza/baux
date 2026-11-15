@@ -87,7 +87,7 @@ impl PyDeviceArray {
             "metal"
         } else if self.device == 2 {
             "cuda"
-        } else if self.device == baux::webgpu::WEBGPU_DLPACK_DEVICE {
+        } else if self.device == baux::webgpu::WEBGPU_DEVICE {
             "webgpu"
         } else {
             "cpu"
@@ -126,7 +126,7 @@ impl PyDeviceArray {
                 "Metal DLPack stream must be None or -1",
             ));
         }
-        if slf.device == baux::webgpu::WEBGPU_DLPACK_DEVICE && stream.is_some_and(|v| v != -1) {
+        if slf.device == baux::webgpu::WEBGPU_DEVICE && stream.is_some_and(|v| v != -1) {
             return Err(PyValueError::new_err(
                 "WebGPU DLPack stream must be None or -1",
             ));

@@ -7,7 +7,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "python"))
 sys.path.insert(0, str(ROOT))
 
-from baux.turbo.optimizer_fixtures import (  # noqa: E402
+from baux.turbo.optimizer_fixtures import (
     FIXTURE_GENERATOR_ENTRIES,
     build_fixture,
     output_path,
@@ -26,17 +26,11 @@ def serializetoml(payload: dict) -> str:
         "",
     ]
     for step in payload["steps"]:
-        lines.append("[[steps]]")
-        lines.append("ask = [")
-        for pt in step["ask"]:
-            lines.append(f"  {pt!r},")
-        lines.append("]")
-        lines.append("tell_y = [")
-        for val in step["tell_y"]:
-            lines.append(f"  {val!r},")
-        lines.append("]")
-        lines.append(f"tr_length = {step['tr_length']}")
-        lines.append("")
+        lines.extend(["[[steps]]", "ask = ["])
+        lines.extend(f"  {pt!r}," for pt in step["ask"])
+        lines.extend(["]", "tell_y = ["])
+        lines.extend(f"  {val!r}," for val in step["tell_y"])
+        lines.extend(["]", f"tr_length = {step['tr_length']}", ""])
     return "\n".join(lines)
 
 

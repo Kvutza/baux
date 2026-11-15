@@ -81,7 +81,7 @@ impl PosteriorStore {
         #[cfg(not(all(feature = "disk-bpann", not(target_arch = "wasm32"))))]
         {
             let _ = (work_dir, num_dim, num_metrics);
-            Err(crate::backend::disk_unavailable_error())
+            Err(crate::backend::disk_unavailable())
         }
     }
 

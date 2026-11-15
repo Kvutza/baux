@@ -12,6 +12,9 @@ categories.workspace = true
 description = "Black-box optimization library"
 readme = false
 
+[lints]
+workspace = true
+
 [lib]
 name = "baux_rust"
 crate-type = ["cdylib", "rlib"]

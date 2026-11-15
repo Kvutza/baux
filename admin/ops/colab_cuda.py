@@ -9,6 +9,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -93,20 +94,21 @@ def _installllvm() -> None:
     if not codename:
         raise RuntimeError("Could not determine the Ubuntu release codename")
 
-    key_download = Path("/tmp/llvm-snapshot.gpg.key")
-    keyring = Path("/usr/share/keyrings/apt.llvm.org.gpg")
-    source = Path(f"/etc/apt/sources.list.d/llvm-toolchain-{LLVM_MAJOR}.list")
-    run(["curl", "-fsSL", LLVM_KEY_URL, "-o", str(key_download)])
-    run(
-        [
-            "gpg",
-            "--dearmor",
-            "--yes",
-            "--output",
-            str(keyring),
-            str(key_download),
-        ]
-    )
+    with tempfile.TemporaryDirectory(prefix="baux_llvm_key_") as tmp_dir:
+        key_download = Path(tmp_dir) / "llvm-snapshot.gpg.key"
+        keyring = Path("/usr/share/keyrings/apt.llvm.org.gpg")
+        source = Path(f"/etc/apt/sources.list.d/llvm-toolchain-{LLVM_MAJOR}.list")
+        run(["curl", "-fsSL", LLVM_KEY_URL, "-o", str(key_download)])
+        run(
+            [
+                "gpg",
+                "--dearmor",
+                "--yes",
+                "--output",
+                str(keyring),
+                str(key_download),
+            ]
+        )
     source.write_text(
         f"deb [signed-by={keyring}] https://apt.llvm.org/{codename}/ "
         f"llvm-toolchain-{codename}-{LLVM_MAJOR} main\n"

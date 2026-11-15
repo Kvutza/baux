@@ -18,7 +18,7 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 TREES_DIR = REPO_ROOT / "forest" / "trees"
-NATIVE_INSPECT_DIR = Path("/tmp/baux_native_inspect")
+NATIVE_INSPECT_DIR = Path(tempfile.gettempdir()) / "baux_native_inspect"
 WASM_SO_NAME = "baux_rust.cpython-312-wasm32-emscripten.so"
 WASM_SO_ARCNAME = f"baux/{WASM_SO_NAME}"
 FORBIDDEN_WASM_SHIMS = (
@@ -62,19 +62,19 @@ function registerWebGpuTestStubs(pyodide) {
     return fn;
   };
   const symbols = {
-    baux_webgpu_available: makeStub("i", 0),
-    baux_webgpu_buffer_alloc: makeStub("ii", 0),
-    baux_webgpu_buffer_free: makeStub("ii", 2),
-    baux_webgpu_buffer_read_f32: makeStub("iiii", 2),
-    baux_webgpu_exact_dist: makeStub("iiiiiiii", 2),
-    baux_webgpu_knn_topk: makeStub("iiiiiiii", 2),
-    baux_webgpu_device_posterior: makeStub("iiiiiiifffiiiiiiiii", 2),
-    baux_webgpu_dense_apply: makeStub("iiiiiiii", 2),
-    baux_webgpu_dense_dist2: makeStub("iiiiiii", 2),
-    baux_webgpu_weight_select: makeStub("iiiiifffiiiiiii", 2),
+    bauxgpu_available: makeStub("i", 0),
+    bauxgpu_alloc: makeStub("ii", 0),
+    bauxgpu_free: makeStub("ii", 2),
+    bauxgpu_readf32: makeStub("iiii", 2),
+    bauxgpu_exactdist: makeStub("iiiiiiii", 2),
+    bauxgpu_knntopk: makeStub("iiiiiiii", 2),
+    bauxgpu_posterior: makeStub("iiiiiiifffiiiiiiiii", 2),
+    bauxgpu_denseapply: makeStub("iiiiiiii", 2),
+    bauxgpu_densedist2: makeStub("iiiiiii", 2),
+    bauxgpu_weightselect: makeStub("iiiiifffiiiiiii", 2),
   };
   if (typeof mod.mergeLibSymbols === "function") {
-    mod.mergeLibSymbols(symbols, "baux_webgpu");
+    mod.mergeLibSymbols(symbols, "bauxgpu");
   }
   for (const [k, v] of Object.entries(symbols)) {
     mod[k] = v;
@@ -193,7 +193,7 @@ main().catch((err) => {
 """.lstrip()
 
 
-def _find_wasm_so() -> Path | None:
+def _wasmso() -> Path | None:
     env_val = os.environ.get("BAUX_WASM_SO", "").strip()
     if env_val:
         cand = Path(env_val) if Path(env_val).is_absolute() else REPO_ROOT / env_val
@@ -238,7 +238,7 @@ def _find_wasm_so() -> Path | None:
     return None
 
 
-def _run_repl_assets(
+def _replassets(
     *,
     assets_dirs: list[Path],
     wasm_so: Path | None,
@@ -265,7 +265,7 @@ def _run_repl_assets(
     return json.loads(proc.stdout)
 
 
-def _find_pyodide_dir() -> Path | None:
+def _pyodidedir() -> Path | None:
     for cand in (
         REPO_ROOT / "forest" / "output" / "assets" / "pyodide",
         REPO_ROOT / ".cache" / "baux" / "pyodide" / "v0.27.5",
@@ -277,7 +277,7 @@ def _find_pyodide_dir() -> Path | None:
     return None
 
 
-def _find_oxcaml_js() -> Path | None:
+def _oxcamljsp() -> Path | None:
     for cand in (
         REPO_ROOT / "forest" / "output" / "assets" / "oxcaml_eval.js",
         REPO_ROOT / "admin" / "ui" / "_build" / "default" / "oxcaml_eval.js",
@@ -287,27 +287,27 @@ def _find_oxcaml_js() -> Path | None:
     return None
 
 
-def _build_pyzip_bytes(wasm_so: Path | None) -> bytes:
+def _pyzipbytes(wasm_so: Path | None) -> bytes:
     with tempfile.TemporaryDirectory() as tmpdir:
         stage = Path(tmpdir) / "assets"
-        _run_repl_assets(assets_dirs=[stage], wasm_so=wasm_so, zip_only=True)
+        _replassets(assets_dirs=[stage], wasm_so=wasm_so, zip_only=True)
         return (stage / "baux_py.zip").read_bytes()
 
 
-def _stage_assets_with_wasm(
+def _stageassets(
     *,
     assets_dirs: list[Path],
     wasm_so: Path | None,
     zip_only: bool = True,
 ) -> dict[str, Any]:
-    return _run_repl_assets(
+    return _replassets(
         assets_dirs=assets_dirs,
         wasm_so=wasm_so,
         zip_only=zip_only,
     )
 
 
-def _zip_has_wasm_so(zip_path: Path) -> bool:
+def _ziphaswasm(zip_path: Path) -> bool:
     if not zip_path.is_file():
         return False
     with zipfile.ZipFile(zip_path) as zf:
@@ -405,24 +405,24 @@ class _PyodideSession:
 def pyodide_session(tmp_path_factory: pytest.TempPathFactory):
     if shutil.which("node") is None:
         pytest.skip("node executable unavailable for Pyodide runtime verification")
-    pyodide_dir = _find_pyodide_dir()
+    pyodide_dir = _pyodidedir()
     if pyodide_dir is None:
         pytest.skip(
             "Offline Pyodide v0.27.5 cache not staged yet "
             "(.cache/baux/pyodide/v0.27.5 or forest/output/assets/pyodide)"
         )
-    oxcaml_js = _find_oxcaml_js()
+    oxcaml_js = _oxcamljsp()
     if oxcaml_js is None:
         pytest.skip("Compiled oxcaml_eval.js not staged yet; build admin/ui first")
 
     work = tmp_path_factory.mktemp("pyodide_runner")
     zip_path = work / "baux_py.zip"
-    wasm_so = _find_wasm_so()
+    wasm_so = _wasmso()
     if wasm_so is not None:
-        zip_path.write_bytes(_build_pyzip_bytes(wasm_so))
+        zip_path.write_bytes(_pyzipbytes(wasm_so))
     else:
         staged_zip = REPO_ROOT / "forest" / "output" / "assets" / "baux_py.zip"
-        if _zip_has_wasm_so(staged_zip):
+        if _ziphaswasm(staged_zip):
             shutil.copy2(staged_zip, zip_path)
         else:
             pytest.skip(
@@ -491,14 +491,14 @@ def _snippets() -> list[tuple[str, int, str]]:
 
 def test_ziphygiene(tmp_path: Path) -> None:
     with pytest.raises(RuntimeError):
-        _build_pyzip_bytes(tmp_path / "missing_baux_rust.so")
+        _pyzipbytes(tmp_path / "missing_baux_rust.so")
 
-    wasm_so = _find_wasm_so()
+    wasm_so = _wasmso()
     if wasm_so is None:
         pytest.skip(f"Compiled {WASM_SO_NAME} not found in buck-out or BAUX_WASM_SO")
 
-    zip_a = _build_pyzip_bytes(wasm_so)
-    zip_b = _build_pyzip_bytes(wasm_so)
+    zip_a = _pyzipbytes(wasm_so)
+    zip_b = _pyzipbytes(wasm_so)
     assert zip_a == zip_b
     assert len(zip_a) > 50_000
 
@@ -517,9 +517,7 @@ def test_ziphygiene(tmp_path: Path) -> None:
             )
 
     stage = tmp_path / "assets"
-    summary = _stage_assets_with_wasm(
-        assets_dirs=[stage], wasm_so=wasm_so, zip_only=True
-    )
+    summary = _stageassets(assets_dirs=[stage], wasm_so=wasm_so, zip_only=True)
     assert (stage / "baux_py.zip").is_file()
     manifest = json.loads((stage / "repl_manifest.json").read_text(encoding="utf-8"))
     assert manifest["baux_py_zip"]["sha256"] == summary["baux_py_zip"]["sha256"]
@@ -680,7 +678,7 @@ print(json.dumps({
         assert len(row_w) == len(row_n)
 
 
-def _extract_presets_from_ml() -> dict[str, str]:
+def _mlpresets() -> dict[str, str]:
     text = (REPO_ROOT / "admin/ui/py_repl.ml").read_text(encoding="utf-8")
     m = re.search(
         r"let presets\s*:\s*preset list\s*=\s*\[(.*?)\n  \]", text, flags=re.DOTALL
@@ -701,7 +699,7 @@ def _extract_presets_from_ml() -> dict[str, str]:
     return presets
 
 
-def test_presets_execute_and_emit_valid_figs(pyodide_session: _PyodideSession) -> None:
+def test_presets(pyodide_session: _PyodideSession) -> None:
     """Every Playground preset must execute cleanly in real Pyodide + WASM and emit valid fig specs."""
     if not (
         (REPO_ROOT / "forest" / "output" / "assets" / "baux_env.json").is_file()
@@ -711,7 +709,7 @@ def test_presets_execute_and_emit_valid_figs(pyodide_session: _PyodideSession) -
     ):
         pytest.skip("baux_env.json not staged yet; run baux pages build first")
 
-    presets = _extract_presets_from_ml()
+    presets = _mlpresets()
     worker_js = (REPO_ROOT / "forest/theme/repl_worker.js").read_text(encoding="utf-8")
     boot_m = re.search(r"const BOOTSTRAP_PY\s*=\s*`(.*?)`;", worker_js, flags=re.DOTALL)
     assert boot_m, "BOOTSTRAP_PY not found in repl_worker.js"

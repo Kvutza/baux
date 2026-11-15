@@ -89,7 +89,7 @@ impl RegionalModels {
         let owned_disk = config.storage == EnnStorage::Disk;
         #[cfg(not(all(feature = "disk-bpann", not(target_arch = "wasm32"))))]
         if owned_disk {
-            return Err(crate::backend::disk_unavailable_error());
+            return Err(crate::backend::disk_unavailable());
         }
         let root = if owned_disk {
             Some(

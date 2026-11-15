@@ -9,15 +9,15 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "python"))
 sys.path.insert(0, str(ROOT))
 
-from baux import create_optimizer  # noqa: E402
-from baux.turbo.config import (  # noqa: E402
+from baux import create_optimizer
+from baux.turbo.config import (
     AcquisitionKind,
     ENNSurrogate,
     SurrogateFit,
     turbo_enn,
 )
 
-from scripts.optqualcore import y_best  # noqa: E402
+from scripts.optqualcore import y_best
 
 CI_DIMS = (2, 8)
 CI_SEEDS = tuple(range(5))
@@ -34,26 +34,26 @@ def _buildcells(dims: tuple[int, ...], seeds: tuple[int, ...]) -> list[dict]:
             enn=ENNSurrogate(k=10, fit=SurrogateFit(num_samples=10)),
             num_init=min(10, 2 * dim),
         )
-        for seed in seeds:
-            cells.append(
-                {
-                    "objective": "sphere_centered_0.5",
-                    "dim": dim,
-                    "budget": 64,
-                    "seed": seed,
-                    "acquisition": "ucb",
-                    "python_best_y": float(
-                        y_best(
-                            bounds,
-                            config,
-                            seed,
-                            budget=64,
-                            num_arms=2,
-                            create_optimizer=create_optimizer,
-                        )
-                    ),
-                }
-            )
+        cells.extend(
+            {
+                "objective": "sphere_centered_0.5",
+                "dim": dim,
+                "budget": 64,
+                "seed": seed,
+                "acquisition": "ucb",
+                "python_best_y": float(
+                    y_best(
+                        bounds,
+                        config,
+                        seed,
+                        budget=64,
+                        num_arms=2,
+                        create_optimizer=create_optimizer,
+                    )
+                ),
+            }
+            for seed in seeds
+        )
     return cells
 
 

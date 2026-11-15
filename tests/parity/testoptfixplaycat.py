@@ -18,7 +18,7 @@ from baux.turbo.optimizer_fixtures.replay import FIXTURES_ROOT, _config
 
 
 def test_catalogfixturenames():
-    assert EXPECTED_OPTIMIZER_FIXTURE_NAMES == catalog_names()
+    assert catalog_names() == EXPECTED_OPTIMIZER_FIXTURE_NAMES
     assert len(EXPECTED_OPTIMIZER_FIXTURE_NAMES) == 21
 
 

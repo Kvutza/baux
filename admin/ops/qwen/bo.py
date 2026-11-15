@@ -128,10 +128,8 @@ def _refreshincumbent(
     search,
     report: dict,
 ) -> tuple[float, object]:
-    refresh = (
-        cfg["minibatch_refresh"] == 1
-        or step > 0
-        and step % cfg["minibatch_refresh"] == 0
+    refresh = cfg["minibatch_refresh"] == 1 or (
+        step > 0 and step % cfg["minibatch_refresh"] == 0
     )
     if not refresh:
         return 0.0, None

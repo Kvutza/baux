@@ -37,8 +37,6 @@ class Storage(Enum):
 class NoSurrogate:
     """Marker configuration disabling surrogate modeling."""
 
-    pass
-
 
 INDEX_NAMES: dict[NeighborIndex, str] = {
     NeighborIndex.FLAT: "exact",
@@ -52,8 +50,8 @@ INDEX_NAMES: dict[NeighborIndex, str] = {
 }
 
 __all__ = [
-    "DistanceMetric",
     "INDEX_NAMES",
+    "DistanceMetric",
     "NeighborIndex",
     "NoSurrogate",
     "Storage",

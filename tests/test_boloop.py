@@ -113,7 +113,7 @@ def test_geometry(layout, flat, sampler, geometry):
     proposal = FakeProposals(flat, [(1, 1.0), (0, 0.0)])
     proposal.selected_geometry = geometry
     search = FakeSearchState(flat, [proposal], sampler=sampler)
-    with pytest.raises(RuntimeError, match="geometry|diagnostics"):
+    with pytest.raises(RuntimeError, match=r"geometry|diagnostics"):
         bo.optimize(
             search,
             layout,

@@ -124,8 +124,7 @@ class RegionalSearchLoop:
             if isinstance(produced, CandidateProposal):
                 proposals.append(produced)
                 continue
-            for candidate in produced:
-                proposals.append(_coerceproposal(candidate))
+            proposals.extend(map(_coerceproposal, produced))
         return batches, proposals
 
     def score(
@@ -202,10 +201,10 @@ multi_region = sys.modules[__name__]
 
 __all__ = [
     "CandidateProposal",
-    "RegionalSearchLoop",
     "RegionBatch",
     "RegionCandidate",
     "RegionRound",
+    "RegionalSearchLoop",
     "SharingPolicy",
     "allocate_batches",
     "make_region",

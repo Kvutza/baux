@@ -55,7 +55,7 @@ def test_roundtime(monkeypatch, tmp_path, refresh, expected_evaluations):
 
     class Evaluator:
         weights_len = 10
-        blocks = [(3, 0, 4, 0.5, 0.1), (7, 4, 6, 0.25, 0.2)]
+        blocks = ((3, 0, 4, 0.5, 0.1), (7, 4, 6, 0.25, 0.2))
         loss_profile = None
 
         def __init__(self, *args, **kwargs):

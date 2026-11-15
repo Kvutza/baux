@@ -64,6 +64,7 @@ default_candidates = _turbo_config.default_candidates
 fixed_candidates = _turbo_config.fixed_candidates
 
 __all__ = [
+    "INDEX_NAMES",
     "AcqOptimizerConfig",
     "AcquisitionConfig",
     "AcquisitionKind",
@@ -76,7 +77,6 @@ __all__ = [
     "ExternalSurrogate",
     "GaussianProcess",
     "HybridInit",
-    "INDEX_NAMES",
     "InitConfig",
     "InitStrategy",
     "LHDOnlyInit",

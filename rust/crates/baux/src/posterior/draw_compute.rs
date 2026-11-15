@@ -22,12 +22,7 @@ struct DrawMultiView<'a> {
     m: usize,
 }
 
-fn fill_draw_seed(
-    view: &DrawMultiView<'_>,
-    seed: i64,
-    unique_cache: &mut [f64],
-    out_seed: &mut [f64],
-) {
+fn draw_seed(view: &DrawMultiView<'_>, seed: i64, unique_cache: &mut [f64], out_seed: &mut [f64]) {
     let seed_u64 = seed as u64;
     let m = view.m;
     let k = view.k;
@@ -49,7 +44,7 @@ fn fill_draw_seed(
     }
 }
 
-fn fill_draw_scalar_seed(
+fn seed_scalar(
     unique_indices: &[i64],
     inverse: &[usize],
     scale: &[f64],
@@ -133,7 +128,7 @@ pub(crate) fn draw_internals(
             .for_each_init(
                 || vec![0.0f64; n_unique * m],
                 |unique_cache, (out_seed, &seed)| {
-                    fill_draw_seed(&view, seed, unique_cache, out_seed);
+                    draw_seed(&view, seed, unique_cache, out_seed);
                 },
             );
         true
@@ -146,7 +141,7 @@ pub(crate) fn draw_internals(
     if !ran_parallel {
         let mut unique_cache = vec![0.0f64; n_unique * m];
         for (seed_offset, out_seed) in draws_flat.chunks_mut(out_stride).enumerate() {
-            fill_draw_seed(
+            draw_seed(
                 &view,
                 function_seeds[seed_offset],
                 &mut unique_cache,
@@ -194,7 +189,7 @@ fn draw_scalar(
             .for_each_init(
                 || vec![0.0f64; n_unique],
                 |unique_cache, (out_seed, &seed)| {
-                    fill_draw_scalar_seed(
+                    seed_scalar(
                         unique_indices,
                         inverse,
                         &scale,
@@ -218,7 +213,7 @@ fn draw_scalar(
     if !ran_parallel {
         let mut unique_cache = vec![0.0f64; n_unique];
         for (seed_offset, out_seed) in draws_flat.chunks_mut(n).enumerate() {
-            fill_draw_scalar_seed(
+            seed_scalar(
                 unique_indices,
                 inverse,
                 &scale,

@@ -117,8 +117,7 @@ def _applyop(inner: Any, op: _Op, id_map: dict[int, int]) -> None:
         inner.ask(num_arms, seed=op.seed)
         after = inner.pending_ids() or ()
         new_ids = [i for i in after if i not in before]
-        for orig, cur in zip(orig_ids, new_ids, strict=True):
-            id_map[orig] = cur
+        id_map.update(zip(orig_ids, new_ids, strict=True))
     elif op.kind == "tell":
         x, y, yvar = op.args
         inner.tell(x, y, seed=op.seed, y_var=yvar)
@@ -136,8 +135,7 @@ def _applyop(inner: Any, op: _Op, id_map: dict[int, int]) -> None:
     elif op.kind == "restart":
         slot, center, orig_abandoned = op.args
         abandoned = inner.restart_region(slot, center, seed=op.seed)
-        for orig, cur in zip(orig_abandoned, abandoned, strict=True):
-            id_map[orig] = cur
+        id_map.update(zip(orig_abandoned, abandoned, strict=True))
 
 
 @dataclass(frozen=True)

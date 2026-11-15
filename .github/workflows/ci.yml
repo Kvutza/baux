@@ -1,0 +1,116 @@
+name: CI Fast Gate
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+# Strict least-privilege default: all jobs start with zero token permissions.
+permissions: {}
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  fast-invariants:
+    name: Cross-Boundary Invariants, Docs, Shell & JS
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Compile and run standalone Rust cross-boundary & public-tree verifiers
+        run: |
+          rustc --edition 2024 -O -D warnings --cfg invariants_cli \
+            rust/crates/cli/src/bin/baux/invariants.rs -o /tmp/verify-invariants
+          /tmp/verify-invariants --root .
+          rustc --edition 2024 -D warnings --test \
+            rust/crates/cli/src/bin/baux/invariants.rs -o /tmp/test-invariants
+          /tmp/test-invariants
+          rustc --edition 2021 -O -D warnings --cfg pages_verify_cli \
+            rust/crates/cli/src/bin/baux/pages_verify.rs -o /tmp/verify-pages
+          /tmp/verify-pages --tree .
+
+      - name: Verify Forester API docs, anchors, and AST/PyO3 signatures
+        run: python3 admin/tools/verify_docs.py
+
+      - name: Lint tracked shell scripts and check JS syntax
+        run: |
+          mapfile -t shell_scripts < <(
+            {
+              git ls-files '*.sh' '*.bash'
+              grep -lE '^#!(/(usr/)?bin/(ba)?sh|/usr/bin/env (ba)?sh)' baux admin/tools/* 2>/dev/null || true
+            } | sort -u
+          )
+          if [ "${#shell_scripts[@]}" -gt 0 ]; then
+            shellcheck "${shell_scripts[@]}"
+          fi
+          while IFS= read -r js_file; do
+            node --check "$js_file"
+          done < <(git ls-files '*.js' '*.mjs' | grep -vE '^(docs|assets)/' || true)
+
+  python-lint-and-types:
+    name: Python Lint, Format & Type Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Run Ruff lint & format check
+        run: |
+          uvx ruff check --no-cache
+          uvx ruff format --check
+
+      - name: Run ty static type check
+        run: |
+          ty_venv="$RUNNER_TEMP/ty-venv"
+          uv venv "$ty_venv" --python 3.14 -q
+          uv pip install --python "$ty_venv/bin/python" -q numpy click pytest
+          uvx ty check --ignore import-not-found --python "$ty_venv/bin/python"
+
+  supply-chain:
+    name: Workflow Audit, Lockfile & TOML Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Audit workflows, uv.lock, and TOML files
+        run: |
+          uvx zizmor --pedantic -qq --no-progress --color=never .github/workflows/
+          uv lock --check
+          mapfile -t toml_files < <(git ls-files '*.toml')
+          uvx taplo fmt --check "${toml_files[@]}"
+          uvx taplo check "${toml_files[@]}"

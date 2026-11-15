@@ -104,7 +104,7 @@ def test_purebranching():
     assert s0.num_observations == 0 and not hasattr(s0, "region_count")
 
     s1, b1 = baux.ask(s0, 4)
-    s1_dup, b1_dup = baux.ask(s0, 4)
+    _s1_dup, b1_dup = baux.ask(s0, 4)
     np.testing.assert_array_equal(b1.points, b1_dup.points)
     assert len(b1.params) == 4
     assert b1.stacked[0]["weight"].shape == (4, 4, 2)
@@ -530,12 +530,12 @@ def test_bogeometry():
     y_warm = -np.sum(b_e.points**2, axis=1)
     s2_e, mu_e = baux.tell(s1_e, b_e, y_warm)
     s1_h, _ = baux.ask(s_hyp, 4)
-    s2_h, mu_h = baux.tell(s1_h, b_e.points, y_warm)
+    _s2_h, mu_h = baux.tell(s1_h, b_e.points, y_warm)
     assert not np.allclose(mu_e, mu_h)
     assert s2_e.lengthscales is not None and s2_e.metric_weights is not None
     assert len(s2_e._log) == 0
 
-    s3_e, b3_e = baux.ask(s2_e, 2)
+    _s3_e, b3_e = baux.ask(s2_e, 2)
     assert b3_e.weights is not None
     assert b3_e.params[0]["opt"] in ("adam", "muon", "sgd")
     assert s2_e.incumbent_params["opt"] in ("adam", "muon", "sgd")

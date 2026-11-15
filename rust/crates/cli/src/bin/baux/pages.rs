@@ -116,7 +116,7 @@ pub fn run(root: &Path, command: PagesAction) -> Result<(), String> {
                 .map(|dir| resolve_bundle(root, dir))
                 .collect();
             let resolved_cache = cache_dir.as_deref().map(|p| resolve_bundle(root, p));
-            let manifest = pages_repl::stage_repl_assets(
+            let manifest = pages_repl::stage_repl(
                 root,
                 &pages_repl::ReplStageConfig {
                     wasm_so: wasm_so.as_deref(),
@@ -145,7 +145,7 @@ pub fn run(root: &Path, command: PagesAction) -> Result<(), String> {
             skip_pip_audit,
         } => {
             let resolved_bundle = bundle_dir.as_deref().map(|p| resolve_bundle(root, p));
-            pages_repl::run_security_audit(
+            pages_repl::security_audit(
                 root,
                 &pages_repl::AuditConfig {
                     bundle_dir: resolved_bundle,
@@ -637,7 +637,7 @@ pub fn build(root: &Path, bundle_dir: &Path) -> Result<(), String> {
     }
 
     let stage_dirs = [out_assets.clone(), bundle_assets.clone()];
-    pages_repl::stage_repl_assets(
+    pages_repl::stage_repl(
         root,
         &pages_repl::ReplStageConfig {
             wasm_so: Some(&wasm_so),
@@ -740,8 +740,8 @@ fn json_str(s: &str) -> String {
     out
 }
 
-const MAX_HTTP_HEADER_BYTES: usize = 64 * 1024;
-const MAX_HTTP_BODY_BYTES: usize = 2 * 1024 * 1024;
+const MAX_HDRBYTES: usize = 64 * 1024;
+const MAX_BODYBYTES: usize = 2 * 1024 * 1024;
 
 #[cfg(unix)]
 const SIGINT_NUM: i32 = 2;
@@ -787,7 +787,7 @@ fn kernel_hub() -> &'static NativeKernelHub {
     })
 }
 
-const KERNEL_WORKER_PY: &str = r####"
+const KERNEL_WORKER: &str = r####"
 import ast
 import code
 import importlib.util
@@ -1343,7 +1343,7 @@ while True:
         })
 "####;
 
-fn resolve_native_python(root: &Path) -> (PathBuf, String, Vec<PathBuf>) {
+fn native_python(root: &Path) -> (PathBuf, String, Vec<PathBuf>) {
     let candidates = [
         (
             root.join(".pixi/envs/baux/bin/python"),
@@ -1373,10 +1373,10 @@ fn resolve_native_python(root: &Path) -> (PathBuf, String, Vec<PathBuf>) {
     (exe, label, py_paths)
 }
 
-fn spawn_native_kernel(root: &Path) -> Result<NativeKernelProc, String> {
-    let (exe, python_label, py_paths) = resolve_native_python(root);
+fn spawn_kernel(root: &Path) -> Result<NativeKernelProc, String> {
+    let (exe, python_label, py_paths) = native_python(root);
     let mut cmd = Command::new(&exe);
-    cmd.args(["-u", "-c", KERNEL_WORKER_PY])
+    cmd.args(["-u", "-c", KERNEL_WORKER])
         .current_dir(root)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -1433,7 +1433,7 @@ fn kernel_roundtrip(root: &Path, req: &Value) -> Result<(String, Value), String>
     }
 
     if guard.is_none() {
-        let spawned = spawn_native_kernel(root)?;
+        let spawned = spawn_kernel(root)?;
         hub.active_pid.store(spawned.child.id(), Ordering::Release);
         *guard = Some(spawned);
     }
@@ -1480,7 +1480,7 @@ fn kernel_roundtrip(root: &Path, req: &Value) -> Result<(String, Value), String>
     Ok((py_label, parsed))
 }
 
-fn kernel_status_json(root: &Path) -> String {
+fn kernel_status(root: &Path) -> String {
     let hub = kernel_hub();
     // Do not block status polling behind a long-running exec/repl invocation.
     match hub.io.try_lock() {
@@ -1543,7 +1543,7 @@ fn kernel_status_json(root: &Path) -> String {
     }
 }
 
-fn kernel_interrupt_json(force: bool) -> String {
+fn kernel_interrupt(force: bool) -> String {
     let hub = kernel_hub();
     let pid = hub.active_pid.load(Ordering::Acquire);
     let sig = if force {
@@ -1583,7 +1583,7 @@ fn kernel_interrupt_json(force: bool) -> String {
     .unwrap_or_else(|_| "{\"ok\":true}".to_string())
 }
 
-fn kernel_reset_json(root: &Path, restart: bool) -> String {
+fn kernel_reset(root: &Path, restart: bool) -> String {
     if restart {
         let hub = kernel_hub();
         let pid = hub.active_pid.load(Ordering::Acquire);
@@ -1653,7 +1653,7 @@ enum ReadHttpResult {
     Reject(&'static str, &'static str),
 }
 
-fn find_header_end(buf: &[u8]) -> Option<(usize, usize)> {
+fn header_end(buf: &[u8]) -> Option<(usize, usize)> {
     for i in 0..buf.len() {
         if i + 4 <= buf.len() && &buf[i..i + 4] == b"\r\n\r\n" {
             return Some((i, 4));
@@ -1665,14 +1665,14 @@ fn find_header_end(buf: &[u8]) -> Option<(usize, usize)> {
     None
 }
 
-fn read_http_request(stream: &mut TcpStream) -> Result<ReadHttpResult, String> {
+fn read_http(stream: &mut TcpStream) -> Result<ReadHttpResult, String> {
     let mut raw = Vec::with_capacity(4096);
     let mut chunk = [0u8; 4096];
     let (hdr_end, sep_len) = loop {
-        if let Some(found) = find_header_end(&raw) {
+        if let Some(found) = header_end(&raw) {
             break found;
         }
-        if raw.len() >= MAX_HTTP_HEADER_BYTES {
+        if raw.len() >= MAX_HDRBYTES {
             return Ok(ReadHttpResult::Reject(
                 "431 Request Header Fields Too Large",
                 "headers too large",
@@ -1723,7 +1723,7 @@ fn read_http_request(stream: &mut TcpStream) -> Result<ReadHttpResult, String> {
         }
     }
 
-    if content_length > MAX_HTTP_BODY_BYTES {
+    if content_length > MAX_BODYBYTES {
         return Ok(ReadHttpResult::Reject(
             "413 Payload Too Large",
             "request body exceeds 2 MiB limit",
@@ -1758,7 +1758,7 @@ fn read_http_request(stream: &mut TcpStream) -> Result<ReadHttpResult, String> {
     }))
 }
 
-fn is_allowed_local_origin(origin: &str) -> bool {
+fn allowed_origin(origin: &str) -> bool {
     let trimmed = origin.trim();
     let Some(host_port) = trimmed
         .strip_prefix("http://")
@@ -1772,15 +1772,11 @@ fn is_allowed_local_origin(origin: &str) -> bool {
         || host_port.starts_with("localhost:")
 }
 
-fn handle_kernel_api(
-    root: &Path,
-    stream: &mut TcpStream,
-    req: &ParsedHttpRequest,
-) -> Result<(), String> {
+fn kernel_api(root: &Path, stream: &mut TcpStream, req: &ParsedHttpRequest) -> Result<(), String> {
     if let Some(orig) = req.origin.as_deref()
-        && !is_allowed_local_origin(orig)
+        && !allowed_origin(orig)
     {
-        return write_http_api(
+        return write_api(
             stream,
             "403 Forbidden",
             r#"{"ok":false,"error":"cross-origin access forbidden"}"#.as_bytes(),
@@ -1798,8 +1794,8 @@ fn handle_kernel_api(
 
     match (req.method.as_str(), req.path_only.as_str()) {
         ("GET", "/api/kernel/status") => {
-            let body = kernel_status_json(root);
-            write_http_api(stream, "200 OK", body.as_bytes())
+            let body = kernel_status(root);
+            write_api(stream, "200 OK", body.as_bytes())
         }
         ("POST", "/api/kernel/exec") => {
             let payload = match parse_json_body() {
@@ -1807,7 +1803,7 @@ fn handle_kernel_api(
                 Err(msg) => {
                     let err = json::to_string(&json!({ "ok": false, "stderr": msg }))
                         .unwrap_or_else(|_| "{\"ok\":false}".to_string());
-                    return write_http_api(stream, "400 Bad Request", err.as_bytes());
+                    return write_api(stream, "400 Bad Request", err.as_bytes());
                 }
             };
             let code = payload
@@ -1842,7 +1838,7 @@ fn handle_kernel_api(
                 }))
                 .unwrap_or_else(|_| "{\"ok\":false}".to_string()),
             };
-            write_http_api(stream, "200 OK", resp.as_bytes())
+            write_api(stream, "200 OK", resp.as_bytes())
         }
         ("POST", "/api/kernel/repl") => {
             let payload = match parse_json_body() {
@@ -1850,7 +1846,7 @@ fn handle_kernel_api(
                 Err(msg) => {
                     let err = json::to_string(&json!({ "ok": false, "stderr": msg }))
                         .unwrap_or_else(|_| "{\"ok\":false}".to_string());
-                    return write_http_api(stream, "400 Bad Request", err.as_bytes());
+                    return write_api(stream, "400 Bad Request", err.as_bytes());
                 }
             };
             let code = payload
@@ -1880,7 +1876,7 @@ fn handle_kernel_api(
                 }))
                 .unwrap_or_else(|_| "{\"ok\":false}".to_string()),
             };
-            write_http_api(stream, "200 OK", resp.as_bytes())
+            write_api(stream, "200 OK", resp.as_bytes())
         }
         ("POST", "/api/kernel/complete") => {
             let payload = match parse_json_body() {
@@ -1888,7 +1884,7 @@ fn handle_kernel_api(
                 Err(msg) => {
                     let err = json::to_string(&json!({ "ok": false, "matches": [], "error": msg }))
                         .unwrap_or_else(|_| "{\"ok\":false,\"matches\":[]}".to_string());
-                    return write_http_api(stream, "400 Bad Request", err.as_bytes());
+                    return write_api(stream, "400 Bad Request", err.as_bytes());
                 }
             };
             let prefix = payload
@@ -1907,23 +1903,23 @@ fn handle_kernel_api(
                     .unwrap_or_else(|_| "{\"ok\":true,\"matches\":[]}".to_string()),
                 Err(_) => "{\"ok\":false,\"matches\":[]}".to_string(),
             };
-            write_http_api(stream, "200 OK", resp.as_bytes())
+            write_api(stream, "200 OK", resp.as_bytes())
         }
         ("POST", "/api/kernel/interrupt") => {
             let force = parse_json_body()
                 .ok()
                 .and_then(|v| v.get("force").and_then(|f| f.as_bool()))
                 .unwrap_or(false);
-            let resp = kernel_interrupt_json(force);
-            write_http_api(stream, "200 OK", resp.as_bytes())
+            let resp = kernel_interrupt(force);
+            write_api(stream, "200 OK", resp.as_bytes())
         }
         ("POST", "/api/kernel/reset") => {
             let restart = parse_json_body()
                 .ok()
                 .and_then(|v| v.get("restart").and_then(|f| f.as_bool()))
                 .unwrap_or(false);
-            let resp = kernel_reset_json(root, restart);
-            write_http_api(stream, "200 OK", resp.as_bytes())
+            let resp = kernel_reset(root, restart);
+            write_api(stream, "200 OK", resp.as_bytes())
         }
         (
             _,
@@ -1933,12 +1929,12 @@ fn handle_kernel_api(
             | "/api/kernel/complete"
             | "/api/kernel/interrupt"
             | "/api/kernel/reset",
-        ) => write_http_api(
+        ) => write_api(
             stream,
             "405 Method Not Allowed",
             r#"{"ok":false,"error":"method not allowed"}"#.as_bytes(),
         ),
-        _ => write_http_api(
+        _ => write_api(
             stream,
             "404 Not Found",
             r#"{"ok":false,"error":"unknown kernel endpoint"}"#.as_bytes(),
@@ -1947,7 +1943,7 @@ fn handle_kernel_api(
 }
 
 fn handle_http(root: &Path, bundle_dir: &Path, stream: &mut TcpStream) -> Result<(), String> {
-    let req = match read_http_request(stream)? {
+    let req = match read_http(stream)? {
         ReadHttpResult::Eof => return Ok(()),
         ReadHttpResult::Reject(status, msg) => {
             return write_http(stream, status, "text/plain; charset=utf-8", msg.as_bytes());
@@ -1957,11 +1953,11 @@ fn handle_http(root: &Path, bundle_dir: &Path, stream: &mut TcpStream) -> Result
 
     if req.method == "GET" && (req.path_only == "/api/env" || req.path_only == "/api/runs") {
         let body = env_json(root)?;
-        return write_http_api(stream, "200 OK", body.as_bytes());
+        return write_api(stream, "200 OK", body.as_bytes());
     }
 
     if req.path_only.starts_with("/api/kernel/") {
-        return handle_kernel_api(root, stream, &req);
+        return kernel_api(root, stream, &req);
     }
 
     let rel = if req.path_only == "/" {
@@ -1996,7 +1992,7 @@ fn handle_http(root: &Path, bundle_dir: &Path, stream: &mut TcpStream) -> Result
     write_http(stream, "200 OK", ctype, &bytes)
 }
 
-fn write_http_headers(
+fn write_headers(
     stream: &mut TcpStream,
     status: &str,
     ctype: &str,
@@ -2026,8 +2022,8 @@ fn write_http_headers(
     stream.write_all(body).map_err(|e| e.to_string())
 }
 
-fn write_http_api(stream: &mut TcpStream, status: &str, body: &[u8]) -> Result<(), String> {
-    write_http_headers(
+fn write_api(stream: &mut TcpStream, status: &str, body: &[u8]) -> Result<(), String> {
+    write_headers(
         stream,
         status,
         "application/json; charset=utf-8",
@@ -2042,7 +2038,7 @@ fn write_http(
     ctype: &str,
     body: &[u8],
 ) -> Result<(), String> {
-    write_http_headers(stream, status, ctype, body, false)
+    write_headers(stream, status, ctype, body, false)
 }
 
 struct DeployGuard<'a> {

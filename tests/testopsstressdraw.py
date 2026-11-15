@@ -36,7 +36,7 @@ def test_001():
     expected = float(np.sqrt(0.08 / 3.0))
     assert argmin_rms(x_test, draws) == pytest.approx(expected)
     # sanity: center constant matches DRAW_F_CENTER
-    assert DRAW_F_CENTER == pytest.approx(0.3)
+    assert pytest.approx(0.3) == DRAW_F_CENTER
 
 
 def test_002():

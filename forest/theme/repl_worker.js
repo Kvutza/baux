@@ -231,12 +231,12 @@ function registerWebGpuSymbols(pyodide) {
   }
   const rpc = BauxWebGpu.SAB_RPC;
 
-  function baux_webgpu_available() {
+  function bauxgpu_available() {
     return webgpuReady ? 1 : 0;
   }
-  baux_webgpu_available.sig = "i";
+  bauxgpu_available.sig = "i";
 
-  function baux_webgpu_buffer_alloc(bytes) {
+  function bauxgpu_alloc(bytes) {
     if (!webgpuReady) {
       return 0;
     }
@@ -255,9 +255,9 @@ function registerWebGpuSymbols(pyodide) {
     );
     return res.rc === rpc.ERR_OK ? res.handle >>> 0 : 0;
   }
-  baux_webgpu_buffer_alloc.sig = "ii";
+  bauxgpu_alloc.sig = "ii";
 
-  function baux_webgpu_buffer_free(handle) {
+  function bauxgpu_free(handle) {
     const h = handle >>> 0;
     if (h === 0) {
       return rpc.ERR_INVALID_ARGS;
@@ -273,9 +273,9 @@ function registerWebGpuSymbols(pyodide) {
     );
     return res.rc | 0;
   }
-  baux_webgpu_buffer_free.sig = "ii";
+  bauxgpu_free.sig = "ii";
 
-  function baux_webgpu_buffer_read_f32(handle, outPtr, len) {
+  function bauxgpu_readf32(handle, outPtr, len) {
     const h = handle >>> 0;
     const elemCount = checkedPosInt(len);
     if (h === 0 || elemCount === 0) {
@@ -306,9 +306,9 @@ function registerWebGpuSymbols(pyodide) {
     );
     return res.rc | 0;
   }
-  baux_webgpu_buffer_read_f32.sig = "iiii";
+  bauxgpu_readf32.sig = "iiii";
 
-  function baux_webgpu_exact_dist(qRaw, nRaw, dRaw, queriesPtr, rowsPtr, invScale2Ptr, outDist2Ptr) {
+  function bauxgpu_exactdist(qRaw, nRaw, dRaw, queriesPtr, rowsPtr, invScale2Ptr, outDist2Ptr) {
     const q = checkedPosInt(qRaw);
     const n = checkedPosInt(nRaw);
     const d = checkedPosInt(dRaw);
@@ -367,9 +367,9 @@ function registerWebGpuSymbols(pyodide) {
     );
     return res.rc | 0;
   }
-  baux_webgpu_exact_dist.sig = "iiiiiiii";
+  bauxgpu_exactdist.sig = "iiiiiiii";
 
-  function baux_webgpu_dense_dist2(qRaw, nRaw, dRaw, aPtr, bPtr, outDist2Ptr) {
+  function bauxgpu_densedist2(qRaw, nRaw, dRaw, aPtr, bPtr, outDist2Ptr) {
     const q = checkedPosInt(qRaw);
     const n = checkedPosInt(nRaw);
     const d = checkedPosInt(dRaw);
@@ -419,9 +419,9 @@ function registerWebGpuSymbols(pyodide) {
     );
     return res.rc | 0;
   }
-  baux_webgpu_dense_dist2.sig = "iiiiiii";
+  bauxgpu_densedist2.sig = "iiiiiii";
 
-  function baux_webgpu_knn_topk(qRaw, nRaw, kRaw, skipRaw, dist2Ptr, outDistPtr, outIdxPtr) {
+  function bauxgpu_knntopk(qRaw, nRaw, kRaw, skipRaw, dist2Ptr, outDistPtr, outIdxPtr) {
     const q = checkedPosInt(qRaw);
     const n = checkedPosInt(nRaw);
     const k = checkedPosInt(kRaw);
@@ -473,9 +473,9 @@ function registerWebGpuSymbols(pyodide) {
     );
     return res.rc | 0;
   }
-  baux_webgpu_knn_topk.sig = "iiiiiiii";
+  bauxgpu_knntopk.sig = "iiiiiiii";
 
-  function baux_webgpu_device_posterior(
+  function bauxgpu_posterior(
     queriesRaw,
     nRaw,
     metricsRaw,
@@ -611,9 +611,9 @@ function registerWebGpuSymbols(pyodide) {
     );
     return res.rc | 0;
   }
-  baux_webgpu_device_posterior.sig = "iiiiiiifffiiiiiiiii";
+  bauxgpu_posterior.sig = "iiiiiiifffiiiiiiiii";
 
-  function baux_webgpu_dense_apply(mRaw, nRaw, kRaw, xPtr, wPtr, biasPtr, yPtr) {
+  function bauxgpu_denseapply(mRaw, nRaw, kRaw, xPtr, wPtr, biasPtr, yPtr) {
     const m = checkedPosInt(mRaw);
     const n = checkedPosInt(nRaw);
     const k = checkedPosInt(kRaw);
@@ -672,9 +672,9 @@ function registerWebGpuSymbols(pyodide) {
     );
     return res.rc | 0;
   }
-  baux_webgpu_dense_apply.sig = "iiiiiiii";
+  bauxgpu_denseapply.sig = "iiiiiiii";
 
-  function baux_webgpu_weight_select(
+  function bauxgpu_weightselect(
     batchRaw,
     candidatesRaw,
     modeRaw,
@@ -771,34 +771,34 @@ function registerWebGpuSymbols(pyodide) {
     );
     return res.rc | 0;
   }
-  baux_webgpu_weight_select.sig = "iiiiifffiiiiiii";
+  bauxgpu_weightselect.sig = "iiiiifffiiiiiii";
 
   const symbols = {
-    baux_webgpu_available,
-    baux_webgpu_buffer_alloc,
-    baux_webgpu_buffer_free,
-    baux_webgpu_buffer_read_f32,
-    baux_webgpu_exact_dist,
-    baux_webgpu_knn_topk,
-    baux_webgpu_device_posterior,
-    baux_webgpu_dense_apply,
-    baux_webgpu_dense_dist2,
-    baux_webgpu_weight_select,
+    bauxgpu_available,
+    bauxgpu_alloc,
+    bauxgpu_free,
+    bauxgpu_readf32,
+    bauxgpu_exactdist,
+    bauxgpu_knntopk,
+    bauxgpu_posterior,
+    bauxgpu_denseapply,
+    bauxgpu_densedist2,
+    bauxgpu_weightselect,
   };
 
   if (typeof mod.mergeLibSymbols === "function") {
-    mod.mergeLibSymbols(symbols, "baux_webgpu");
+    mod.mergeLibSymbols(symbols, "bauxgpu");
   }
-  mod.baux_webgpu_available = baux_webgpu_available;
-  mod.baux_webgpu_buffer_alloc = baux_webgpu_buffer_alloc;
-  mod.baux_webgpu_buffer_free = baux_webgpu_buffer_free;
-  mod.baux_webgpu_buffer_read_f32 = baux_webgpu_buffer_read_f32;
-  mod.baux_webgpu_exact_dist = baux_webgpu_exact_dist;
-  mod.baux_webgpu_knn_topk = baux_webgpu_knn_topk;
-  mod.baux_webgpu_device_posterior = baux_webgpu_device_posterior;
-  mod.baux_webgpu_dense_apply = baux_webgpu_dense_apply;
-  mod.baux_webgpu_dense_dist2 = baux_webgpu_dense_dist2;
-  mod.baux_webgpu_weight_select = baux_webgpu_weight_select;
+  mod.bauxgpu_available = bauxgpu_available;
+  mod.bauxgpu_alloc = bauxgpu_alloc;
+  mod.bauxgpu_free = bauxgpu_free;
+  mod.bauxgpu_readf32 = bauxgpu_readf32;
+  mod.bauxgpu_exactdist = bauxgpu_exactdist;
+  mod.bauxgpu_knntopk = bauxgpu_knntopk;
+  mod.bauxgpu_posterior = bauxgpu_posterior;
+  mod.bauxgpu_denseapply = bauxgpu_denseapply;
+  mod.bauxgpu_densedist2 = bauxgpu_densedist2;
+  mod.bauxgpu_weightselect = bauxgpu_weightselect;
 }
 
 async function initWebGpuChannel(workerSpec) {
@@ -1446,7 +1446,7 @@ async function ensureRuntime() {
     ]);
 
     applyInterruptBuffer(pyodide);
-    // Register all baux_webgpu_* C symbols on Emscripten wasmImports BEFORE
+    // Register all bauxgpu_* C symbols on Emscripten wasmImports BEFORE
     // instantiating baux_rust.cpython-312-wasm32-emscripten.so.
     registerWebGpuSymbols(pyodide);
 

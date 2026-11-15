@@ -53,9 +53,9 @@ sys.modules[__name__].__class__ = _EnnModule
 enn: Any = sys.modules[__name__]
 
 __all__ = [
+    "ENN",
     "Affine",
     "DiagonalMetric",
-    "ENN",
     "ENNFitter",
     "ENNNormal",
     "ENNParams",

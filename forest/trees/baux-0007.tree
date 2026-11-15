@@ -274,7 +274,7 @@ class baux.OptimizerState  (frozen dataclass; constructed via baux.init)
   \p{Create it with [\code{init}](docs.html#baux.init). Each transition returns a new state; retain the old one only if you need a branch or checkpoint.}
   \p{\code{x_obs}, \code{y_obs}: observation arrays. \code{num_observations}, \code{num_regions}, \code{tr_length}: current search information. \code{best_x}, \code{best_params}, \code{best_y}: incumbent coordinates, decoded parameters and value, or \code{None} before observations.}
   \p{\code{pending_ids}: raw integer IDs for inspection; pass the typed \code{batch.ids} to \code{complete} or \code{cancel}. \code{fork(key=None, *, seed=None)} creates another search branch. [Checkpoints and keys](api-state.html) covers persistence and branching.}
-  \<p>[class]{api-source}{[Source in \code{python/baux/state.py}](https://github.com/Kvutza/baux/blob/main/python/baux/state.py#L143)}
+  \<p>[class]{api-source}{[Source in \code{python/baux/state.py}](https://github.com/Kvutza/baux/blob/main/python/baux/state.py#L142)}
 }
 
 \<section>[id]{baux.AskBatch}[class]{api-entry}[data-symbol]{baux.AskBatch}[data-kind]{class}[data-module]{baux.bo}{

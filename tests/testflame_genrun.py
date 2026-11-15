@@ -1,12 +1,11 @@
 """Exercise generation orchestration without native bindings or code execution."""
-# ruff: noqa: F811
 
 import json
 
 import numpy as np
 import pytest
 from click.testing import CliRunner
-from gen_fixtures import harness  # noqa: F401
+from gen_fixtures import harness
 from ops.flame import coding, generate
 
 

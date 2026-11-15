@@ -152,7 +152,7 @@ def loss(logits, tokens, mask=None):
 def greedy_generate(params: Mapping, prompt, max_new_tokens: int, config=None):
     """Append greedy tokens without sampling or hidden post-processing."""
     torch, _ = _requiretorch()
-    if type(max_new_tokens) is not int or not 1 <= max_new_tokens:
+    if type(max_new_tokens) is not int or not max_new_tokens >= 1:
         raise ValueError("max_new_tokens must be a positive integer")
     config = Config() if config is None else config
     tokens = prompt.clone()

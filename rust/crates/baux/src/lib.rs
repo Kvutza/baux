@@ -3,13 +3,7 @@
 //! This crate owns the optimizer semantics shared by the Python API and the
 //! accelerator backends.
 
-#![allow(
-    clippy::pedantic,
-    clippy::nursery,
-    clippy::cargo,
-    incomplete_features,
-    internal_features
-)]
+#![allow(incomplete_features, internal_features)]
 #![feature(
     adt_const_params,
     contracts,

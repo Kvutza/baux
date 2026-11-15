@@ -82,7 +82,7 @@ def active_configuration(tmp_path):
 def test_003(tmp_path, active_configuration, text):
     invalid = tmp_path / "invalid.toml"
     invalid.write_text(text)
-    with pytest.raises(ValueError, match="invalid.toml"):
+    with pytest.raises(ValueError, match=r"invalid\.toml"):
         set_path(str(invalid))
     assert Path(ensure_config_file()) == active_configuration
     assert invalid.read_text() == text

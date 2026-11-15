@@ -91,7 +91,9 @@ STUB_MODULES = (
 
 
 def _stubmods() -> None:
-    os.environ["ML_DATA_DUMP"] = "/tmp"
+    import tempfile
+
+    os.environ["ML_DATA_DUMP"] = tempfile.gettempdir()
     import functools
 
     import equinox as eqx
@@ -274,7 +276,7 @@ class TokaGymClosedLoopEnv:
         (final_so, _), (obs_seq, u_seq, sub_hist) = jax.lax.scan(
             lambda c, e: _outerstep(ctx, c, e), (stateobs0, alive0), eps
         )
-        flat = jax.tree.map(lambda x: x.reshape((-1,) + x.shape[2:]), sub_hist)
+        flat = jax.tree.map(lambda x: x.reshape((-1, *x.shape[2:])), sub_hist)
         rt = self._rollout_cls(
             final_state=final_so,
             final_obs=final_so.obs,

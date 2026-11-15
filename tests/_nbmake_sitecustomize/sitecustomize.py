@@ -1,4 +1,6 @@
-try:
+import contextlib
+
+with contextlib.suppress(ImportError, AttributeError):
     import jupyter_client.localinterfaces as _li
 
     def _disableaddrs() -> None:
@@ -7,5 +9,3 @@ try:
         )
 
     _li._load_ips_psutil = _disableaddrs
-except Exception:
-    pass

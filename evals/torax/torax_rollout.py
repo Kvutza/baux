@@ -148,7 +148,8 @@ def _mapacts(jnp, tx, geo0, a):
     )
     d_f = 0.5 * (du_f + dl_f)
     z_ax = geo0._z_magnetic_axis + 0.06 * a[12]
-    return su + [
+    return [
+        *su,
         geo0.elongation * k_sc,
         geo0.elongation_face * k_sc,
         du_f,

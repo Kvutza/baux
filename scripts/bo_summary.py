@@ -27,11 +27,10 @@ def parse_args(argv: list[str]) -> Config:
             "--selection",
             "--same-pool",
             "--distance-scaling",
-        ):
-            if idx + 1 < len(argv):
-                opts[arg.lstrip("-").replace("-", "_")] = argv[idx + 1]
-                idx += 2
-                continue
+        ) and idx + 1 < len(argv):
+            opts[arg.lstrip("-").replace("-", "_")] = argv[idx + 1]
+            idx += 2
+            continue
         idx += 1
     return Config(
         geometry=opts.get("geometry"),

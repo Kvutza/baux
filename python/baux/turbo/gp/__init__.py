@@ -162,10 +162,7 @@ class Surrogate:
             vals = self._model.posterior(xt).sample(torch.Size([n]))
         vals = vals.detach().cpu().numpy()
         m = np.asarray(self._mean).size
-        if vals.ndim == 2:
-            vals = vals[:, :, None]
-        else:
-            vals = np.transpose(vals, (0, 2, 1))
+        vals = vals[:, :, None] if vals.ndim == 2 else np.transpose(vals, (0, 2, 1))
         shape = (n, len(x), m)
         if vals.shape != shape:
             raise ValueError(f"GP samples have shape {vals.shape}, expected {shape}")

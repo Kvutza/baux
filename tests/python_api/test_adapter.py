@@ -73,7 +73,7 @@ def test_gpcallsarebatched():
     assert np.all((bounds[:, 0] <= x) & (x <= bounds[:, 1]))
     assert len(gp.fits) == 1
     fit_x, fit_y, fit_var = gp.fits[0]
-    assert np.all((0.0 <= fit_x) & (fit_x <= 1.0))
+    assert np.all((fit_x >= 0.0) & (fit_x <= 1.0))
     np.testing.assert_array_equal(fit_y, y)
     np.testing.assert_array_equal(fit_var, yvar)
 

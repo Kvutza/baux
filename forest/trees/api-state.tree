@@ -41,7 +41,7 @@ baux.thaw(state: OptimizerState, data: bytes) -> OptimizerState
   \p{Restore a checkpoint against a compatible state template.}
   \p{\code{state}: a state initialized with the expected domain and configuration. \code{data}: bytes from \code{freeze}. Returns the restored \code{OptimizerState}.}
   \p{Checks the format, integrity and compatibility; malformed or incompatible payloads are rejected. To reproduce subsequent proposals, preserve the evaluator results and their submission order too.}
-  \<p>[class]{api-source}{[Source in \code{python/baux/state.py}](https://github.com/Kvutza/baux/blob/main/python/baux/state.py#L357)}
+  \<p>[class]{api-source}{[Source in \code{python/baux/state.py}](https://github.com/Kvutza/baux/blob/main/python/baux/state.py#L355)}
 }
 
 \<section>[id]{baux.digest}[class]{api-entry}[data-symbol]{baux.digest}[data-kind]{function}[data-module]{baux.state}{
@@ -51,7 +51,7 @@ baux.digest(state: OptimizerState) -> str
   }
   \p{Get the optimizer state's content digest.}
   \p{Returns a 64-character hexadecimal string identifying the optimizer state.}
-  \<p>[class]{api-source}{[Source in \code{python/baux/state.py}](https://github.com/Kvutza/baux/blob/main/python/baux/state.py#L341)}
+  \<p>[class]{api-source}{[Source in \code{python/baux/state.py}](https://github.com/Kvutza/baux/blob/main/python/baux/state.py#L339)}
 }
 
 \<section>[id]{baux.key}[class]{api-entry}[data-symbol]{baux.key}[data-kind]{function}[data-module]{baux.state}{

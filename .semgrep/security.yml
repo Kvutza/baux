@@ -247,3 +247,63 @@ rules:
     pattern-either:
       - pattern-regex: id=\\"api-search-input\\"[^>]*value=\\"%s\\"[\s\S]{0,1500}?"\s*!search_query\s+in\s+root##\.innerHTML\s*:=\s*js\b
       - pattern-regex: \.get\(["']machine["']\)\s*;\s*if\s*\((?![^\n)]*(?:hasOwnProperty|hasOwn))[^\n)]*\bMACHINES\[
+
+  - id: baux-python-unsafe-deserialization
+    message: >-
+      Unsafe deserialization sink (`pickle`, `marshal`, `yaml.unsafe_load`,
+      `allow_pickle=True`, or `torch.load(..., weights_only=False)`) executes
+      arbitrary code on untrusted artifacts; use safetensors, deser/JSON, or
+      `weights_only=True`.
+    severity: ERROR
+    languages:
+      - python
+    paths:
+      include:
+        - "/python/**"
+        - "/admin/**"
+    metadata:
+      category: security
+      cwe:
+        - "CWE-502: Deserialization of Untrusted Data"
+      confidence: HIGH
+      likelihood: MEDIUM
+      impact: HIGH
+      references:
+        - https://cwe.mitre.org/data/definitions/502.html
+    pattern-either:
+      - pattern: pickle.load(...)
+      - pattern: pickle.loads(...)
+      - pattern: marshal.load(...)
+      - pattern: marshal.loads(...)
+      - pattern: yaml.unsafe_load(...)
+      - pattern: numpy.load(..., allow_pickle=True, ...)
+      - pattern: np.load(..., allow_pickle=True, ...)
+      - pattern: torch.load(..., weights_only=False, ...)
+
+  - id: baux-python-tarfile-unfiltered
+    message: >-
+      Extracting tar archives without `filter="data"` or `filter="tar"` risks
+      TarSlip path traversal; always pass an explicit extraction filter.
+    severity: ERROR
+    languages:
+      - python
+    paths:
+      include:
+        - "/python/**"
+        - "/admin/**"
+    metadata:
+      category: security
+      cwe:
+        - "CWE-22: Improper Limitation of a Pathname to a Restricted Directory ('Path Traversal')"
+      confidence: HIGH
+      likelihood: MEDIUM
+      impact: HIGH
+      references:
+        - https://docs.python.org/3/library/tarfile.html#tarfile-extraction-filter
+    patterns:
+      - pattern: tarfile.open(...)
+      - pattern-either:
+          - pattern: |
+              $ARCH.extractall($DEST)
+          - pattern: |
+              $ARCH.extract($MEM, $DEST)

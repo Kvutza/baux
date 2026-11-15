@@ -25,7 +25,6 @@ pareto2d_max = _ext.util.pareto2d_max
 sobol_indices = _ext.util.sobol_indices
 sobol_sequence = _ext.util.sobol_sequence
 pareto_arms = _ext.util.pareto_arms
-set_path = _ext.util.set_path
 ensure_config_file = _ext.util.ensure_config_file
 verify_upstream_lock = getattr(_ext, "verify_upstream_lock", None)
 ENN = _ext.model.ENN
@@ -124,7 +123,6 @@ __all__ = [
     "pareto2d_max",
     "pareto_arms",
     "row_loglik",
-    "set_path",
     "sobol_indices",
     "sobol_sequence",
     "standardize_y",

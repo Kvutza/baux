@@ -1,15 +1,11 @@
 //! ENN storage and indexing backends.
 
-#[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
-mod flush_controller;
 mod in_memory;
 mod inspection;
 pub(crate) mod row_storage;
 
 #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
 pub use crate::disk_bpann::DiskBpannEnnBackend;
-#[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
-pub(crate) use flush_controller::DiskBackendHandle;
 pub use in_memory::InMemoryEnnBackend;
 pub(crate) use row_storage::TrainRows;
 
@@ -17,11 +13,9 @@ use deser::{Deserialize, Serialize};
 use ndarray::{Array1, Array2, ArrayView2};
 use std::path::PathBuf;
 use std::sync::Arc;
-#[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
-use std::sync::RwLock;
 
 use crate::error::ENNError;
-use crate::index::{ENNIndex, IndexDriver};
+use crate::index::IndexDriver;
 
 #[inline]
 pub(crate) fn disk_unavailable() -> ENNError {
@@ -49,25 +43,13 @@ pub enum EnnStorage {
 impl EnnStorage {
     #[allow(non_upper_case_globals)]
     pub const Memory: Self = Self::InMemory;
-
-    pub fn from_env() -> Self {
-        if std::env::var("BAUX_WORK_DIR").is_ok() {
-            Self::Disk
-        } else {
-            Self::InMemory
-        }
-    }
-
-    pub fn work_env() -> Option<PathBuf> {
-        std::env::var("BAUX_WORK_DIR").ok().map(PathBuf::from)
-    }
 }
 
 #[derive(Clone)]
 pub enum EnnBackend {
     InMemory(Arc<InMemoryEnnBackend>),
     #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
-    Disk(DiskBackendHandle),
+    Disk(Arc<DiskBpannEnnBackend>),
 }
 
 pub type Storage = EnnStorage;
@@ -76,27 +58,15 @@ pub type MemoryStore = InMemoryEnnBackend;
 #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
 pub type DiskStore = DiskBpannEnnBackend;
 
-#[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
-fn disk_read<'a>(
-    b: &'a Arc<RwLock<DiskBpannEnnBackend>>,
-) -> Result<std::sync::RwLockReadGuard<'a, DiskBpannEnnBackend>, ENNError> {
-    b.read()
-        .map_err(|_| ENNError::InvalidParameter("disk backend lock poisoned".to_string()))
-}
-
-#[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
-fn disk_write<'a>(
-    b: &'a Arc<RwLock<DiskBpannEnnBackend>>,
-) -> Result<std::sync::RwLockWriteGuard<'a, DiskBpannEnnBackend>, ENNError> {
-    b.write()
-        .map_err(|_| ENNError::InvalidParameter("disk backend lock poisoned".to_string()))
-}
-
-pub(crate) fn enn_index(backend: &EnnBackend) -> Result<(), ENNError> {
+pub(crate) fn enn_pages(backend: &EnnBackend) -> Result<(), ENNError> {
     match backend {
         EnnBackend::InMemory(_) => Ok(()),
         #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
-        EnnBackend::Disk(handle) => handle.persist_index(),
+        EnnBackend::Disk(b) => {
+            let inner = Arc::try_unwrap(Arc::clone(b)).unwrap_or_else(|arc| (*arc).clone());
+            let _ = inner.release_pages()?;
+            Ok(())
+        }
     }
 }
 
@@ -144,7 +114,7 @@ impl EnnBackend {
             let inner = DiskBpannEnnBackend::new(
                 work_dir, train_x, train_y, train_yvar, scale_x, x_scale, driver,
             )?;
-            Ok(Self::Disk(DiskBackendHandle::new(inner)))
+            Ok(Self::Disk(Arc::new(inner)))
         }
         #[cfg(not(all(feature = "disk-bpann", not(target_arch = "wasm32"))))]
         {
@@ -172,10 +142,8 @@ impl EnnBackend {
             EnnStorage::Disk => {
                 #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
                 {
-                    let dir = work_dir.or_else(EnnStorage::work_env).ok_or_else(|| {
-                        ENNError::InvalidParameter(
-                            "Disk storage requires work_dir or BAUX_WORK_DIR".to_string(),
-                        )
+                    let dir = work_dir.ok_or_else(|| {
+                        ENNError::InvalidParameter("Disk storage requires work_dir".to_string())
                     })?;
                     if driver != IndexDriver::BpAnnDisk {
                         return Err(ENNError::InvalidParameter(
@@ -191,7 +159,7 @@ impl EnnBackend {
                         )?,
                         None => DiskBpannEnnBackend::new_empty(dir, num_dim, num_metrics)?,
                     };
-                    Ok(Self::Disk(DiskBackendHandle::new(inner)))
+                    Ok(Self::Disk(Arc::new(inner)))
                 }
                 #[cfg(not(all(feature = "disk-bpann", not(target_arch = "wasm32"))))]
                 {
@@ -202,30 +170,40 @@ impl EnnBackend {
         }
     }
 
-    pub fn wait_flush(&self) -> Result<(), ENNError> {
+    pub fn wait_flush(self) -> Result<Self, ENNError> {
         match self {
-            Self::InMemory(_) => Ok(()),
+            Self::InMemory(_) => Ok(self),
             #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
-            Self::Disk(handle) => handle.wait_flush(),
+            Self::Disk(b) => {
+                let inner = Arc::try_unwrap(b).unwrap_or_else(|arc| (*arc).clone());
+                let updated = inner.wait_flush()?;
+                Ok(Self::Disk(Arc::new(updated)))
+            }
         }
     }
 
-    pub fn schedule_flush(&self) -> Result<(), ENNError> {
+    pub fn schedule_flush(self) -> Result<Self, ENNError> {
         match self {
-            Self::InMemory(_) => Ok(()),
+            Self::InMemory(_) => Ok(self),
             #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
-            Self::Disk(handle) => handle.schedule_flush(),
+            Self::Disk(b) => {
+                let inner = Arc::try_unwrap(b).unwrap_or_else(|arc| (*arc).clone());
+                let updated = inner.schedule_flush()?;
+                Ok(Self::Disk(Arc::new(updated)))
+            }
         }
     }
 
-    pub fn mark_stale(&self) {
+    pub fn mark_stale(self) -> Self {
         match self {
-            Self::InMemory(b) => b.mark_stale(),
+            Self::InMemory(b) => {
+                let inner = Arc::try_unwrap(b).unwrap_or_else(|arc| (*arc).clone());
+                Self::InMemory(Arc::new(inner.mark_stale()))
+            }
             #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
-            Self::Disk(h) => {
-                if let Ok(mut g) = disk_write(h.data()) {
-                    g.mark_stale();
-                }
+            Self::Disk(b) => {
+                let inner = Arc::try_unwrap(b).unwrap_or_else(|arc| (*arc).clone());
+                Self::Disk(Arc::new(inner.mark_stale()))
             }
         }
     }
@@ -234,22 +212,28 @@ impl EnnBackend {
         match self {
             Self::InMemory(b) => b.index_stale(),
             #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
-            Self::Disk(h) => disk_read(h.data())
-                .map(|g| g.index_stale())
-                .unwrap_or(false),
+            Self::Disk(b) => b.index_stale(),
         }
     }
 
     pub fn append_rows(
-        &mut self,
+        self,
         x: &ArrayView2<f64>,
         y: &ArrayView2<f64>,
         yvar: Option<&ArrayView2<f64>>,
-    ) -> Result<(), ENNError> {
+    ) -> Result<Self, ENNError> {
         match self {
-            Self::InMemory(b) => Arc::make_mut(b).append_rows(x, y, yvar),
+            Self::InMemory(b) => {
+                let inner = Arc::try_unwrap(b).unwrap_or_else(|arc| (*arc).clone());
+                let updated = inner.append_rows(x, y, yvar)?;
+                Ok(Self::InMemory(Arc::new(updated)))
+            }
             #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
-            Self::Disk(h) => disk_write(h.data())?.append_rows(x, y, yvar),
+            Self::Disk(b) => {
+                let inner = Arc::try_unwrap(b).unwrap_or_else(|arc| (*arc).clone());
+                let updated = inner.append_rows(x, y, yvar)?;
+                Ok(Self::Disk(Arc::new(updated)))
+            }
         }
     }
 
@@ -257,26 +241,36 @@ impl EnnBackend {
         match self {
             Self::InMemory(_) => false,
             #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
-            Self::Disk(h) => disk_read(h.data())
-                .map(|g| g.defers_search())
-                .unwrap_or(false),
+            Self::Disk(b) => b.defers_search(),
         }
     }
 
-    pub fn ensure_sync(&self, scale_x: bool, x_scale: &Array1<f64>) -> Result<(), ENNError> {
-        self.wait_flush()?;
-        match self {
-            Self::InMemory(b) => b.ensure_sync(scale_x, x_scale),
+    pub fn ensure_sync(self, scale_x: bool, x_scale: &Array1<f64>) -> Result<Self, ENNError> {
+        let backend = self.wait_flush()?;
+        match backend {
+            Self::InMemory(b) => {
+                let inner = Arc::try_unwrap(b).unwrap_or_else(|arc| (*arc).clone());
+                let updated = inner.ensure_sync(scale_x, x_scale)?;
+                Ok(Self::InMemory(Arc::new(updated)))
+            }
             #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
-            Self::Disk(h) => disk_write(h.data())?.ensure_sync(scale_x, x_scale),
+            Self::Disk(b) => {
+                let inner = Arc::try_unwrap(b).unwrap_or_else(|arc| (*arc).clone());
+                let updated = inner.ensure_sync(scale_x, x_scale)?;
+                Ok(Self::Disk(Arc::new(updated)))
+            }
         }
     }
 
-    pub(crate) fn set_metric(&self, scale: &Array1<f64>, rebuild: bool) -> Result<(), ENNError> {
-        self.wait_flush()?;
-        match self {
+    pub fn with_metric(self, scale: &Array1<f64>, rebuild: bool) -> Result<Self, ENNError> {
+        let backend = self.wait_flush()?;
+        match backend {
             #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
-            Self::Disk(h) => disk_write(h.data())?.set_metric(scale, rebuild),
+            Self::Disk(b) => {
+                let inner = Arc::try_unwrap(b).unwrap_or_else(|arc| (*arc).clone());
+                let updated = inner.with_metric(scale, rebuild)?;
+                Ok(Self::Disk(Arc::new(updated)))
+            }
             Self::InMemory(_) => {
                 let _ = (scale, rebuild);
                 Err(ENNError::InvalidParameter(
@@ -286,11 +280,50 @@ impl EnnBackend {
         }
     }
 
+    pub fn with_thresholds(self, soft: usize, hard: usize) -> Result<Self, ENNError> {
+        match self {
+            Self::InMemory(_) => {
+                let _ = (soft, hard);
+                Ok(self)
+            }
+            #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
+            Self::Disk(b) => {
+                let inner = Arc::try_unwrap(b).unwrap_or_else(|arc| (*arc).clone());
+                let updated = inner.with_thresholds(soft, hard)?;
+                Ok(Self::Disk(Arc::new(updated)))
+            }
+        }
+    }
+
+    pub fn persist_index(self) -> Result<Self, ENNError> {
+        match self {
+            Self::InMemory(_) => Ok(self),
+            #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
+            Self::Disk(b) => {
+                let inner = Arc::try_unwrap(b).unwrap_or_else(|arc| (*arc).clone());
+                let updated = inner.persist_index()?;
+                Ok(Self::Disk(Arc::new(updated)))
+            }
+        }
+    }
+
+    pub fn release_pages(self) -> Result<Self, ENNError> {
+        match self {
+            Self::InMemory(_) => Ok(self),
+            #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
+            Self::Disk(b) => {
+                let inner = Arc::try_unwrap(b).unwrap_or_else(|arc| (*arc).clone());
+                let updated = inner.release_pages()?;
+                Ok(Self::Disk(Arc::new(updated)))
+            }
+        }
+    }
+
     pub fn train_rows(&self, indices: &[usize]) -> Result<TrainRows, ENNError> {
         match self {
             Self::InMemory(b) => b.train_rows(indices),
             #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
-            Self::Disk(h) => disk_read(h.data())?.train_rows(indices),
+            Self::Disk(b) => b.train_rows(indices),
         }
     }
 
@@ -298,7 +331,7 @@ impl EnnBackend {
         match self {
             Self::InMemory(b) => b.row_x(i),
             #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
-            Self::Disk(h) => disk_read(h.data())?.row_x(i),
+            Self::Disk(b) => b.row_x(i),
         }
     }
 
@@ -306,7 +339,7 @@ impl EnnBackend {
         match self {
             Self::InMemory(b) => b.row_y(i),
             #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
-            Self::Disk(h) => disk_read(h.data())?.row_y(i),
+            Self::Disk(b) => b.row_y(i),
         }
     }
 
@@ -314,7 +347,7 @@ impl EnnBackend {
         match self {
             Self::InMemory(b) => b.row_yvar(i),
             #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
-            Self::Disk(h) => disk_read(h.data())?.row_yvar(i),
+            Self::Disk(b) => b.row_yvar(i),
         }
     }
 
@@ -327,30 +360,7 @@ impl EnnBackend {
         match self {
             Self::InMemory(b) => b.search(x, search_k, exclude_nearest),
             #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
-            Self::Disk(h) => disk_read(h.data())?.search(x, search_k, exclude_nearest),
-        }
-    }
-}
-
-/// Drop faulted observation mmap pages from process RSS (disk backend only).
-pub(crate) fn enn_pages(backend: &EnnBackend) -> Result<(), ENNError> {
-    match backend {
-        EnnBackend::InMemory(_) => Ok(()),
-        #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
-        EnnBackend::Disk(h) => disk_write(h.data())?.release_pages(),
-    }
-}
-
-impl Drop for EnnBackend {
-    fn drop(&mut self) {
-        #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
-        if let Self::Disk(h) = self {
-            if Arc::strong_count(h.data()) > 1 {
-                return;
-            }
-        }
-        if let Err(e) = enn_index(self) {
-            eprintln!("baux: persist_index on drop failed: {e}");
+            Self::Disk(b) => b.search(x, search_k, exclude_nearest),
         }
     }
 }

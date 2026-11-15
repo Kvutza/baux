@@ -164,7 +164,7 @@ pub(crate) fn index_search(
     tie_neighbors: bool,
 ) -> Result<(Array2<f64>, Array2<i64>), ENNError> {
     if !model.backend.defers_search() {
-        model.ensure_sync()?;
+        model.index_access().ensure_sync()?;
     }
     if model.backend_driver() == IndexDriver::Exact && model.geometry() == DistanceMetric::Euclidean
     {
@@ -843,7 +843,7 @@ mod tests {
             DistanceMetric::Hyperbolic { local_k: 1 },
             DistanceMetric::Wasserstein { local_k: 1 },
         ] {
-            let model = base.with_geometry(m);
+            let model = base.clone().with_geometry(m);
             assert_eq!(model.geometry(), m);
             let pool = Pool::search(&model, &query.view(), 2, false).unwrap();
             let top = pool.certify(&model, &query.view(), true).unwrap();

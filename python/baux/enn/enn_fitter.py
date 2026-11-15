@@ -52,7 +52,7 @@ class ENNFitter:
             if yvar_array.ndim == 1:
                 yvar_array = yvar_array.reshape(-1, 1)
             yvar_array.flags.writeable = False
-        self._rust.tell(x_array, y_array, yvar_array)
+        self._rust = self._rust.tell(x_array, y_array, yvar_array)
 
     def y_std(self) -> np.ndarray:
         """Return empirical standard deviation of observed targets per output."""
@@ -81,7 +81,7 @@ class ENNFitter:
                 params_warm_start.aleatoric_scale,
             )
 
-        rust_result = self._rust.ask(
+        rust_result, self._rust = self._rust.ask(
             model.rust_backend,
             num_candidates,
             num_samples,
@@ -93,3 +93,9 @@ class ENNFitter:
             epistemic_scale=rust_result.epistemic_scale,
             aleatoric_scale=rust_result.aleatoric_scale,
         )
+
+    def fork(self) -> ENNFitter:
+        """Fork the fitter with an independent copy of its internal state."""
+        clone = object.__new__(self.__class__)
+        clone._rust = self._rust.fork() if hasattr(self._rust, "fork") else self._rust
+        return clone

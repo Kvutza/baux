@@ -1,5 +1,5 @@
+use std::cell::Cell;
 use std::path::Path;
-use std::sync::atomic::{AtomicU64, Ordering};
 
 use metal::foreign_types::ForeignType;
 use metal::objc::{
@@ -9,7 +9,9 @@ use metal::objc::{
 };
 use metal::{ComputePipelineState, Device, FunctionRef};
 
-static NEXT_ARCHIVE: AtomicU64 = AtomicU64::new(0);
+thread_local! {
+    static ARCHIVE_COUNTER: Cell<u64> = const { Cell::new(0) };
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ArchiveMetrics {
@@ -27,10 +29,15 @@ pub fn archive_key(device_name: &str, source_digest: &str, specs: &[&str]) -> St
 }
 
 fn temp_path(directory: &Path, prefix: &str) -> std::path::PathBuf {
+    let count = ARCHIVE_COUNTER.with(|c| {
+        let v = c.get();
+        c.set(v + 1);
+        v
+    });
     directory.join(format!(
-        ".{prefix}-{}-{}.tmp",
+        ".{prefix}-{:?}-{}-{count}.tmp",
+        std::thread::current().id(),
         std::process::id(),
-        NEXT_ARCHIVE.fetch_add(1, Ordering::Relaxed)
     ))
 }
 

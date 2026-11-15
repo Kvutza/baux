@@ -6,30 +6,18 @@ use crate::knn::KnnBackend;
 use crate::knn::{CudaParam, KnnBatch, KnnPosterior};
 pub use crate::knn::{IndexDriver, IndexKind, disk_driver};
 
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
+#[derive(Clone)]
 pub struct Index {
     pub(crate) inner: Arc<KnnBackend>,
     num_dim: usize,
-    x_scale: Mutex<Array1<f64>>,
-    scale_x: AtomicBool,
+    x_scale: Arc<Array1<f64>>,
+    scale_x: bool,
     driver: IndexDriver,
 }
 
 pub type ENNIndex = Index;
-
-impl Clone for Index {
-    fn clone(&self) -> Self {
-        Self {
-            inner: Arc::clone(&self.inner),
-            num_dim: self.num_dim,
-            x_scale: Mutex::new(self.scale_vec()),
-            scale_x: AtomicBool::new(self.scales_x()),
-            driver: self.driver,
-        }
-    }
-}
 
 impl Index {
     pub fn new(
@@ -43,22 +31,27 @@ impl Index {
         Ok(Self {
             inner,
             num_dim,
-            x_scale: Mutex::new(x_scale),
-            scale_x: AtomicBool::new(scale_x),
+            x_scale: Arc::new(x_scale),
+            scale_x,
             driver,
         })
     }
 
     pub(crate) fn scale_vec(&self) -> Array1<f64> {
-        self.x_scale.lock().expect("x_scale mutex poisoned").clone()
+        (*self.x_scale).clone()
+    }
+
+    pub(crate) fn x_scale(&self) -> &Array1<f64> {
+        &self.x_scale
     }
 
     pub(crate) fn scales_x(&self) -> bool {
-        self.scale_x.load(Ordering::Acquire)
+        self.scale_x
     }
 
-    pub(crate) fn set_scaling(&self, scale_x: bool) {
-        self.scale_x.store(scale_x, Ordering::Release);
+    pub(crate) fn with_scaling(mut self, scale_x: bool) -> Self {
+        self.scale_x = scale_x;
+        self
     }
 
     pub fn driver(&self) -> IndexDriver {
@@ -73,31 +66,56 @@ impl Index {
         self.driver.device()
     }
 
-    pub fn rebuild_scaled(
-        &self,
-        train_x_scaled: Array2<f64>,
-        x_scale: Array1<f64>,
-    ) -> Result<(), IndexError> {
-        self.inner.rebuild(&train_x_scaled.view())?;
-        *self.x_scale.lock().expect("x_scale mutex poisoned") = x_scale;
-        Ok(())
+    pub fn num_dim(&self) -> usize {
+        self.num_dim
     }
 
-    pub fn add(&self, x: &ArrayView2<f64>) -> Result<(), IndexError> {
+    pub fn rebuild_scaled(
+        self,
+        train_x_scaled: Array2<f64>,
+        x_scale: Array1<f64>,
+    ) -> Result<Self, IndexError> {
+        let inner = match Arc::try_unwrap(self.inner) {
+            Ok(backend) => Arc::new(backend.rebuild(&train_x_scaled.view())?),
+            Err(_) => Arc::new(KnnBackend::new(
+                self.num_dim,
+                self.driver,
+                &train_x_scaled.view(),
+            )?),
+        };
+        Ok(Self {
+            inner,
+            num_dim: self.num_dim,
+            x_scale: Arc::new(x_scale),
+            scale_x: self.scale_x,
+            driver: self.driver,
+        })
+    }
+
+    pub fn add(self, x: &ArrayView2<f64>) -> Result<Self, IndexError> {
         if x.ncols() != self.num_dim {
             return Err(IndexError::InvalidShape {
                 expected: self.num_dim,
                 got: x.ncols(),
             });
         }
-        let x_scale = self.x_scale.lock().expect("x_scale mutex poisoned").clone();
         let start_key = self.len() as u64;
-        if self.scales_x() {
-            let x_scaled = x / &x_scale.view().insert_axis(Axis(0));
-            self.inner.add(&x_scaled.view(), start_key)
+        let x_scaled_holder;
+        let x_view = if self.scale_x {
+            x_scaled_holder = x / &self.x_scale.view().insert_axis(Axis(0));
+            x_scaled_holder.view()
         } else {
-            self.inner.add(x, start_key)
-        }
+            *x
+        };
+        let backend = Arc::try_unwrap(self.inner).unwrap_or_else(|arc| (*arc).clone());
+        let new_backend = backend.add(&x_view, start_key)?;
+        Ok(Self {
+            inner: Arc::new(new_backend),
+            num_dim: self.num_dim,
+            x_scale: self.x_scale,
+            scale_x: self.scale_x,
+            driver: self.driver,
+        })
     }
 
     pub fn search(
@@ -122,7 +140,6 @@ impl Index {
         let n_query = x.nrows();
         let search_k = search_k as usize;
 
-        let x_scale = self.x_scale.lock().expect("x_scale mutex poisoned").clone();
         let (mut dist2s, mut indices) = if n_train == 0 {
             (
                 Array2::from_elem((n_query, search_k), f64::INFINITY),
@@ -130,8 +147,8 @@ impl Index {
             )
         } else {
             let k_eff = search_k.min(n_train);
-            if self.scales_x() {
-                let x_scaled = x / &x_scale.view().insert_axis(Axis(0));
+            if self.scale_x {
+                let x_scaled = x / &self.x_scale.view().insert_axis(Axis(0));
                 self.inner.search(&x_scaled.view(), k_eff, search_k)?
             } else {
                 self.inner.search(x, k_eff, search_k)?
@@ -175,9 +192,8 @@ impl Index {
                 got: x.ncols(),
             });
         }
-        let x_scale = self.x_scale.lock().expect("x_scale mutex poisoned").clone();
-        if self.scales_x() {
-            let x_scaled = x / &x_scale.view().insert_axis(Axis(0));
+        if self.scale_x {
+            let x_scaled = x / &self.x_scale.view().insert_axis(Axis(0));
             self.inner.cuda_posterior(
                 &x_scaled.view(),
                 outcomes,
@@ -223,9 +239,8 @@ impl Index {
                 got: x.ncols(),
             });
         }
-        let x_scale = self.x_scale.lock().expect("x_scale mutex poisoned").clone();
-        if self.scales_x() {
-            let x_scaled = x / &x_scale.view().insert_axis(Axis(0));
+        if self.scale_x {
+            let x_scaled = x / &self.x_scale.view().insert_axis(Axis(0));
             self.inner.cuda_weighted(
                 &x_scaled.view(),
                 outcomes,
@@ -273,9 +288,8 @@ impl Index {
                 got: x.ncols(),
             });
         }
-        let x_scale = self.x_scale.lock().expect("x_scale mutex poisoned").clone();
-        if self.scales_x() {
-            let x_scaled = x / &x_scale.view().insert_axis(Axis(0));
+        if self.scale_x {
+            let x_scaled = x / &self.x_scale.view().insert_axis(Axis(0));
             self.inner.cuda_batch(
                 &x_scaled.view(),
                 outcomes,
@@ -322,9 +336,8 @@ impl Index {
                 got: x.ncols(),
             });
         }
-        let x_scale = self.x_scale.lock().expect("x_scale mutex poisoned").clone();
-        if self.scales_x() {
-            let x_scaled = x / &x_scale.view().insert_axis(Axis(0));
+        if self.scale_x {
+            let x_scaled = x / &self.x_scale.view().insert_axis(Axis(0));
             self.inner.cuda_draws(
                 &x_scaled.view(),
                 outcomes,
@@ -377,11 +390,10 @@ impl Index {
                 got: x.ncols().max(x_whatif.ncols()),
             });
         }
-        let x_scale = self.x_scale.lock().expect("x_scale mutex poisoned").clone();
-        if self.scales_x() {
+        if self.scale_x {
             let (x_scaled, whatif_scaled): (Array2<f64>, Array2<f64>) = (
-                x / &x_scale.view().insert_axis(Axis(0)),
-                x_whatif / &x_scale.view().insert_axis(Axis(0)),
+                x / &self.x_scale.view().insert_axis(Axis(0)),
+                x_whatif / &self.x_scale.view().insert_axis(Axis(0)),
             );
             self.inner.cuda_conditional(
                 &x_scaled.view(),
@@ -436,11 +448,10 @@ impl Index {
                 got: x.ncols().max(x_whatif.ncols()),
             });
         }
-        let x_scale = self.x_scale.lock().expect("x_scale mutex poisoned").clone();
-        if self.scales_x() {
+        if self.scale_x {
             let (x_scaled, whatif_scaled): (Array2<f64>, Array2<f64>) = (
-                x / &x_scale.view().insert_axis(Axis(0)),
-                x_whatif / &x_scale.view().insert_axis(Axis(0)),
+                x / &self.x_scale.view().insert_axis(Axis(0)),
+                x_whatif / &self.x_scale.view().insert_axis(Axis(0)),
             );
             self.inner.condition_draws(
                 &x_scaled.view(),
@@ -551,7 +562,7 @@ mod tests {
     #[test]
     fn test_indexadd() {
         let index = index_unit(array![[0.0, 0.0]], IndexDriver::Exact);
-        index.add(&array![[1.0, 1.0]].view()).unwrap();
+        let index = index.add(&array![[1.0, 1.0]].view()).unwrap();
         assert_eq!(index.len(), 2);
     }
 
@@ -587,7 +598,7 @@ mod tests {
             array![[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]],
             IndexDriver::USearch,
         );
-        index.add(&array![[0.1, 0.1]].view()).unwrap();
+        let index = index.add(&array![[0.1, 0.1]].view()).unwrap();
         let (distances, indices) = index
             .search(&array![[0.09, 0.09]].view(), 2, false)
             .unwrap();
@@ -630,7 +641,7 @@ mod tests {
         let train_x = array![[0.0, 0.0], [1.0, 1.0]];
         let index = ENNIndex::new(train_x, 2, array![1.0, 1.0], false, IndexDriver::Exact).unwrap();
         assert_eq!(index.driver(), IndexDriver::Exact);
-        index
+        let index = index
             .rebuild_scaled(array![[0.0, 0.0], [1.0, 1.0]], array![1.0, 1.0])
             .unwrap();
         assert!(index.memory_bytes() > 0);

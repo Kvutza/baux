@@ -2,7 +2,7 @@ use super::BayesOptimizer;
 use crate::config::turbo_zero;
 use crate::error::ENNError;
 use crate::optimizer::Strategy;
-use crate::surrogate::{Surrogate, SurrogatePrediction};
+use crate::surrogate::{BoxedSurrogate, Surrogate, SurrogatePrediction};
 use ndarray::{Array1, Array2, Array3, ArrayView2, array};
 use rand::RngCore;
 use rand::SeedableRng;
@@ -11,14 +11,18 @@ use rand::rngs::StdRng;
 struct CoordinateSurrogate;
 
 impl Surrogate for CoordinateSurrogate {
-    fn fit(
-        &mut self,
+    fn with_fit(
+        self: Box<Self>,
         _x: &ArrayView2<f64>,
         _y: &ArrayView2<f64>,
         _yvar: Option<&ArrayView2<f64>>,
         _rng: &mut dyn RngCore,
-    ) -> Result<(), ENNError> {
-        Ok(())
+    ) -> Result<BoxedSurrogate, ENNError> {
+        Ok(self)
+    }
+
+    fn clone_box(&self) -> Result<BoxedSurrogate, ENNError> {
+        Ok(Box::new(CoordinateSurrogate))
     }
 
     fn predict(&self, x: &ArrayView2<f64>) -> Result<SurrogatePrediction, ENNError> {
@@ -97,9 +101,10 @@ fn fork_transparency() {
     let bounds = array![[-2.0, 2.0], [-2.0, 2.0]];
     let mut rng = StdRng::seed_from_u64(42);
     let mut branch_a = BayesOptimizer::new(bounds, turbo_zero(), &mut rng).unwrap();
-    let x0 = branch_a.ask_natural(4, &mut rng).unwrap();
+    let (x0, next_a) = branch_a.ask_natural(4, &mut rng).unwrap();
+    branch_a = next_a;
     let y0 = array![[1.0], [2.0], [1.5], [0.5]];
-    branch_a
+    branch_a = branch_a
         .tell_natural(&x0.view(), &y0.view(), None, &mut rng)
         .unwrap();
 
@@ -110,8 +115,10 @@ fn fork_transparency() {
     let key = crate::hash::Key::new(777);
     let mut rng_a = key.prng();
     let mut rng_b = key.prng();
-    let prop_a = branch_a.ask_ticket(2, &mut rng_a).unwrap();
-    let prop_b = branch_b.ask_ticket(2, &mut rng_b).unwrap();
+    let (prop_a, next_a) = branch_a.ask_ticket(2, &mut rng_a).unwrap();
+    branch_a = next_a;
+    let (prop_b, next_b) = branch_b.ask_ticket(2, &mut rng_b).unwrap();
+    branch_b = next_b;
     assert_eq!(prop_a.as_array(), prop_b.as_array());
     assert_eq!(branch_a.digest(), branch_b.digest());
     assert_eq!(prop_a.origin_digest(), Some(branch_a.digest()));
@@ -124,27 +131,32 @@ fn ticket_rejection() {
     let bounds = array![[0.0, 1.0], [0.0, 1.0]];
     let mut rng = StdRng::seed_from_u64(99);
     let mut branch_a = BayesOptimizer::new(bounds, turbo_zero(), &mut rng).unwrap();
-    let mut branch_b = branch_a.fork().unwrap();
+    let branch_b = branch_a.fork().unwrap();
 
-    let stale = branch_a
+    let (stale, next_a) = branch_a
         .ask_ticket(2, &mut crate::hash::Key::new(1).prng())
         .unwrap();
-    let fresh = branch_a
+    branch_a = next_a;
+    let (fresh, next_a) = branch_a
         .ask_ticket(2, &mut crate::hash::Key::new(2).prng())
         .unwrap();
+    branch_a = next_a;
     let y = array![[1.0], [2.0]];
-    branch_a
+    branch_a = branch_a
         .tell_ticket(fresh, &y.view(), None, &mut rng)
         .unwrap();
 
     let err_stale = branch_a
+        .fork()
+        .unwrap()
         .tell_ticket(stale, &y.view(), None, &mut rng)
         .expect_err("stale ticket must be rejected");
     assert!(err_stale.to_string().contains("digest mismatch"));
 
-    let ticket_b = branch_b
+    let (ticket_b, next_b) = branch_b
         .ask_ticket(2, &mut crate::hash::Key::new(3).prng())
         .unwrap();
+    let _ = next_b;
     let err_cross = branch_a
         .tell_ticket(ticket_b, &y.view(), None, &mut rng)
         .expect_err("cross-branch ticket must be rejected");
@@ -156,9 +168,11 @@ fn freeze_checkpoint() {
     let bounds = array![[-1.0, 1.0], [0.0, 2.0]];
     let mut rng = StdRng::seed_from_u64(17);
     let mut opt = BayesOptimizer::new(bounds, turbo_zero(), &mut rng).unwrap();
-    let x = opt.ask_natural(3, &mut rng).unwrap();
+    let (x, next) = opt.ask_natural(3, &mut rng).unwrap();
+    opt = next;
     let y = array![[0.2], [0.8], [0.5]];
-    opt.tell_natural(&x.view(), &y.view(), None, &mut rng)
+    opt = opt
+        .tell_natural(&x.view(), &y.view(), None, &mut rng)
         .unwrap();
 
     let mut frozen = opt.freeze().unwrap();
@@ -219,7 +233,8 @@ fn freeze_turbo() {
     // strictly deteriorate so TuRBO contracts tr_length once (0.8 -> 0.4).
     for step in 0..10u64 {
         let mut step_rng = StdRng::seed_from_u64(1000 + step);
-        let x = live.ask_natural(8, &mut step_rng).unwrap();
+        let (x, next_live) = live.ask_natural(8, &mut step_rng).unwrap();
+        live = next_live;
         let mut y = Array2::zeros((8, 1));
         let mut yvar = Array2::zeros((8, 1));
         for r in 0..8 {
@@ -231,7 +246,8 @@ fn freeze_turbo() {
             };
             yvar[[r, 0]] = 0.01 + 0.005 * (r as f64);
         }
-        live.tell_natural(&x.view(), &y.view(), Some(&yvar.view()), &mut step_rng)
+        live = live
+            .tell_natural(&x.view(), &y.view(), Some(&yvar.view()), &mut step_rng)
             .unwrap();
     }
 
@@ -255,8 +271,10 @@ fn freeze_turbo() {
     for step in 20..24u64 {
         let mut rng_a = StdRng::seed_from_u64(step);
         let mut rng_b = StdRng::seed_from_u64(step);
-        let xa = live.ask_natural(8, &mut rng_a).unwrap();
-        let xb = restored.ask_natural(8, &mut rng_b).unwrap();
+        let (xa, next_live) = live.ask_natural(8, &mut rng_a).unwrap();
+        live = next_live;
+        let (xb, next_rest) = restored.ask_natural(8, &mut rng_b).unwrap();
+        restored = next_rest;
         assert!(bits_equal(&xa, &xb));
 
         let mut y = Array2::zeros((8, 1));
@@ -265,9 +283,10 @@ fn freeze_turbo() {
             y[[r, 0]] = -500.0 - xa.row(r).iter().map(|v| (v - 0.3).powi(2)).sum::<f64>();
             yv[[r, 0]] += 0.001 * (r as f64);
         }
-        live.tell_natural(&xa.view(), &y.view(), Some(&yv.view()), &mut rng_a)
+        live = live
+            .tell_natural(&xa.view(), &y.view(), Some(&yv.view()), &mut rng_a)
             .unwrap();
-        restored
+        restored = restored
             .tell_natural(&xb.view(), &y.view(), Some(&yv.view()), &mut rng_b)
             .unwrap();
         if step == 21 {
@@ -306,13 +325,15 @@ fn freeze_morbo() {
 
     for step in 0..4u64 {
         let mut step_rng = StdRng::seed_from_u64(500 + step);
-        let x = live.ask_natural(3, &mut step_rng).unwrap();
+        let (x, next_live) = live.ask_natural(3, &mut step_rng).unwrap();
+        live = next_live;
         let mut y = Array2::zeros((3, 2));
         for r in 0..3 {
             y[[r, 0]] = -x.row(r).iter().map(|v| (v - 0.5).powi(2)).sum::<f64>();
             y[[r, 1]] = -x.row(r).iter().map(|v| (v + 0.5).powi(2)).sum::<f64>();
         }
-        live.tell_natural(&x.view(), &y.view(), None, &mut step_rng)
+        live = live
+            .tell_natural(&x.view(), &y.view(), None, &mut step_rng)
             .unwrap();
     }
 
@@ -324,17 +345,20 @@ fn freeze_morbo() {
     for step in 10..14u64 {
         let mut rng_a = StdRng::seed_from_u64(step);
         let mut rng_b = StdRng::seed_from_u64(step);
-        let xa = live.ask_natural(3, &mut rng_a).unwrap();
-        let xb = restored.ask_natural(3, &mut rng_b).unwrap();
+        let (xa, next_live) = live.ask_natural(3, &mut rng_a).unwrap();
+        live = next_live;
+        let (xb, next_rest) = restored.ask_natural(3, &mut rng_b).unwrap();
+        restored = next_rest;
         assert!(bits_equal(&xa, &xb));
         let mut y = Array2::zeros((3, 2));
         for r in 0..3 {
             y[[r, 0]] = -xa.row(r).iter().map(|v| v * v).sum::<f64>();
             y[[r, 1]] = -xa.row(r).iter().map(|v| (v - 1.0).powi(2)).sum::<f64>();
         }
-        live.tell_natural(&xa.view(), &y.view(), None, &mut rng_a)
+        live = live
+            .tell_natural(&xa.view(), &y.view(), None, &mut rng_a)
             .unwrap();
-        restored
+        restored = restored
             .tell_natural(&xb.view(), &y.view(), None, &mut rng_b)
             .unwrap();
         assert_eq!(restored.digest(), live.digest());
@@ -372,42 +396,48 @@ fn freeze_portfolio() {
             .unwrap();
 
     // Warm-up
-    let x_warm = live
+    let (x_warm, next_live) = live
         .ask_natural(6, &mut StdRng::seed_from_u64(100))
         .unwrap();
+    live = next_live;
     let warm_ids = live.pending_ids().unwrap();
     let mut y_warm = Array2::zeros((6, 1));
     for r in 0..6 {
         y_warm[[r, 0]] = -x_warm.row(r).iter().map(|v| v * v).sum::<f64>();
     }
-    live.complete_ids(
-        &warm_ids,
-        &y_warm.view(),
-        None,
-        &mut StdRng::seed_from_u64(101),
-    )
-    .unwrap();
+    live = live
+        .complete_ids(
+            &warm_ids,
+            &y_warm.view(),
+            None,
+            &mut StdRng::seed_from_u64(101),
+        )
+        .unwrap();
 
     // Overlapping regional asks with partial completion and cancellation
-    let x_first = live
+    let (x_first, next_live) = live
         .ask_natural(2, &mut StdRng::seed_from_u64(102))
         .unwrap();
+    live = next_live;
     let ids_first = live.pending_ids().unwrap();
-    let x_second = live
+    let (x_second, next_live) = live
         .ask_natural(2, &mut StdRng::seed_from_u64(103))
         .unwrap();
+    live = next_live;
     let all_ids = live.pending_ids().unwrap();
     let ids_second = all_ids[2..].to_vec();
 
     let y_one = array![[-x_second.row(0).iter().map(|v| v * v).sum::<f64>()]];
-    live.complete_ids(
-        &[ids_second[0]],
-        &y_one.view(),
-        None,
-        &mut StdRng::seed_from_u64(104),
-    )
-    .unwrap();
-    live.cancel_ids(&[ids_second[1]], &mut StdRng::seed_from_u64(105))
+    live = live
+        .complete_ids(
+            &[ids_second[0]],
+            &y_one.view(),
+            None,
+            &mut StdRng::seed_from_u64(104),
+        )
+        .unwrap();
+    live = live
+        .cancel_ids(&[ids_second[1]], &mut StdRng::seed_from_u64(105))
         .unwrap();
 
     // Freeze while `ids_first` are STILL pending!
@@ -429,14 +459,15 @@ fn freeze_portfolio() {
             .map(|v| (v - 0.25).powi(2))
             .sum::<f64>();
     }
-    live.complete_ids(
-        &ids_first,
-        &y_rem.view(),
-        None,
-        &mut StdRng::seed_from_u64(106),
-    )
-    .unwrap();
-    restored
+    live = live
+        .complete_ids(
+            &ids_first,
+            &y_rem.view(),
+            None,
+            &mut StdRng::seed_from_u64(106),
+        )
+        .unwrap();
+    restored = restored
         .complete_ids(
             &ids_first,
             &y_rem.view(),
@@ -450,8 +481,10 @@ fn freeze_portfolio() {
     for step in 200..203u64 {
         let mut rng_a = StdRng::seed_from_u64(step);
         let mut rng_b = StdRng::seed_from_u64(step);
-        let xa = live.ask_natural(2, &mut rng_a).unwrap();
-        let xb = restored.ask_natural(2, &mut rng_b).unwrap();
+        let (xa, next_live) = live.ask_natural(2, &mut rng_a).unwrap();
+        live = next_live;
+        let (xb, next_rest) = restored.ask_natural(2, &mut rng_b).unwrap();
+        restored = next_rest;
         assert!(bits_equal(&xa, &xb));
         assert_eq!(restored.digest(), live.digest());
 
@@ -461,9 +494,10 @@ fn freeze_portfolio() {
         for r in 0..2 {
             y[[r, 0]] = -xa.row(r).iter().map(|v| v * v).sum::<f64>();
         }
-        live.complete_ids(&ids_a, &y.view(), None, &mut rng_a)
+        live = live
+            .complete_ids(&ids_a, &y.view(), None, &mut rng_a)
             .unwrap();
-        restored
+        restored = restored
             .complete_ids(&ids_b, &y.view(), None, &mut rng_b)
             .unwrap();
         assert_eq!(restored.digest(), live.digest());
@@ -475,8 +509,10 @@ fn thaw_adversarial() {
     let bounds = array![[-1.0, 1.0], [0.0, 2.0]];
     let mut rng = StdRng::seed_from_u64(19);
     let mut opt = BayesOptimizer::new(bounds, turbo_zero(), &mut rng).unwrap();
-    let x = opt.ask_natural(2, &mut rng).unwrap();
-    opt.tell_natural(&x.view(), &array![[1.0], [2.0]].view(), None, &mut rng)
+    let (x, next) = opt.ask_natural(2, &mut rng).unwrap();
+    opt = next;
+    opt = opt
+        .tell_natural(&x.view(), &array![[1.0], [2.0]].view(), None, &mut rng)
         .unwrap();
     let valid = opt.freeze().unwrap();
 
@@ -535,4 +571,62 @@ fn thaw_adversarial() {
     let mut trailing = valid[..valid.len() - 32].to_vec();
     trailing.push(0xAA);
     assert!(opt.thaw(&seal_test(trailing)).is_err());
+}
+
+#[test]
+fn fork_isolation() {
+    use crate::config::turbo_enn;
+    use crate::optimizer::{MultiTrustRegionConfig, StrategyState};
+    use crate::trust_region::TRLengthConfig;
+
+    let bounds = array![[-2.0, 2.0], [-2.0, 2.0]];
+    let cfg = turbo_enn();
+    let mcfg = MultiTrustRegionConfig::new(2, TRLengthConfig::default());
+    let mut rng = StdRng::seed_from_u64(42);
+
+    let state = StrategyState::configured(2, mcfg, 4, &mut rng).unwrap();
+    let opt =
+        BayesOptimizer::new_strategy(bounds, cfg, Strategy::Experimental(state), &mut rng).unwrap();
+
+    // Fork root before any asks
+    let fork_a = opt.fork().unwrap();
+    let fork_b = opt.fork().unwrap();
+
+    // Both forks should have identical digests initially
+    assert_eq!(fork_a.digest(), fork_b.digest());
+
+    // Propose from fork_a with a deterministic RNG
+    let mut rng_a = StdRng::seed_from_u64(100);
+    let (prop_a1, fork_a) = fork_a.ask_ticket(2, &mut rng_a).unwrap();
+
+    // Propose from fork_b with the exact same deterministic RNG
+    let mut rng_b = StdRng::seed_from_u64(100);
+    let (prop_b1, fork_b) = fork_b.ask_ticket(2, &mut rng_b).unwrap();
+
+    // Both should produce identical proposal coordinates and deterministic
+    // evaluation IDs
+    assert_eq!(prop_a1.as_array(), prop_b1.as_array());
+    assert_eq!(prop_a1.ids(), prop_b1.ids());
+
+    // Tell divergent evaluations to fork_a vs fork_b
+    let y_a = array![[10.0], [20.0]];
+    let y_b = array![[-10.0], [-20.0]];
+    let fork_a = fork_a
+        .tell_ticket(prop_a1, &y_a.view(), None, &mut rng_a)
+        .unwrap();
+    let fork_b = fork_b
+        .tell_ticket(prop_b1, &y_b.view(), None, &mut rng_b)
+        .unwrap();
+
+    // Divergent branches must not interfere: digests must differ!
+    assert_ne!(fork_a.digest(), fork_b.digest());
+    assert_eq!(fork_a.obs_count(), 2);
+    assert_eq!(fork_b.obs_count(), 2);
+
+    // Root optimizer was never mutated (remains 0 observations)
+    assert_eq!(opt.obs_count(), 0);
+
+    // Sub-forking from fork_a produces another isolated branch
+    let fork_a_sub = fork_a.fork().unwrap();
+    assert_eq!(fork_a.digest(), fork_a_sub.digest());
 }

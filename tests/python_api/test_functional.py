@@ -227,7 +227,12 @@ def test_functionalenn():
 def test_noquantization():
     import baux.experimental as exp
 
-    for name in ("quantize_int4", "quantize_e2m1", "weight_int4_select_ucb"):
+    for name in (
+        "quantize_int4",
+        "quantize_e2m1",
+        "weight_int4_select_ucb",
+        "set_path",
+    ):
         assert not hasattr(baux, name)
         assert not hasattr(exp, name)
         with pytest.raises(AttributeError):

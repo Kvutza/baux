@@ -69,12 +69,12 @@ fn nondominated(report: &ObjectiveSelectionReport, candidate: usize) -> bool {
 #[test]
 fn pareto_control() {
     autoreleasepool(|| {
-        let mut search = state();
-        search
+        let search = state();
+        let search = search
             .configure_objectives(Some(config(ObjectiveAcquisition::Pareto)))
             .unwrap();
         assert!(search.objective_report().unwrap().is_none());
-        let proposal = search.ask_round(1, 4, 29, RoundConfig::default()).unwrap();
+        let (search, proposal) = search.ask_round(1, 4, 29, RoundConfig::default()).unwrap();
         let report = search.objective_report().unwrap().unwrap();
         assert_eq!(report.width, 2);
         assert_eq!(proposal.index, report.selected as usize);
@@ -99,8 +99,8 @@ fn pareto_control() {
 #[test]
 fn morbo_chebyshev() {
     autoreleasepool(|| {
-        let mut search = state();
-        search
+        let search = state();
+        let search = search
             .configure_objectives(Some(config(ObjectiveAcquisition::Morbo {
                 weights: vec![1.0, 2.0],
                 regions: 4,
@@ -110,7 +110,7 @@ fn morbo_chebyshev() {
                 clip: true,
             })))
             .unwrap();
-        let proposal = search.ask_round(1, 4, 29, RoundConfig::default()).unwrap();
+        let (search, proposal) = search.ask_round(1, 4, 29, RoundConfig::default()).unwrap();
         assert_eq!(search.morbo_region(), Some(0));
         assert_eq!(search.morbo_regions(), 4);
         let report = search.objective_report().unwrap().unwrap();
@@ -134,8 +134,8 @@ fn morbo_chebyshev() {
 #[test]
 fn morbo_state() {
     autoreleasepool(|| {
-        let mut search = state();
-        search
+        let search = state();
+        let search = search
             .configure_objectives(Some(config(ObjectiveAcquisition::Morbo {
                 weights: vec![1.0, 1.0],
                 regions: 4,
@@ -149,28 +149,31 @@ fn morbo_state() {
             mean,
             variance: 0.0,
         };
-        let proposal = search.ask_round(1, 4, 29, RoundConfig::default()).unwrap();
+        let (search, proposal) = search.ask_round(1, 4, 29, RoundConfig::default()).unwrap();
         let dominates =
             ObjectiveObservation::new(&[estimate(2.0), estimate(0.0)], estimate(-1_000.0)).unwrap();
-        let decision = search.noisy_objectives(&proposal, dominates).unwrap();
+        let (search, decision) = search.noisy_objectives(&proposal, dominates).unwrap();
         assert!(
             decision.accepted,
             "MORBO vector must override scalar control"
         );
         assert_eq!(decision.threshold, 0.0);
-        assert_eq!(search.sync().unwrap(), [true]);
+        let (search, sync1) = search.sync().unwrap();
+        assert_eq!(sync1, [true]);
         assert_eq!(search.best().unwrap(), -1_000.0);
 
-        let proposal = search.ask_round(1, 4, 37, RoundConfig::default()).unwrap();
+        let (search, proposal) = search.ask_round(1, 4, 37, RoundConfig::default()).unwrap();
         assert_eq!(search.morbo_region(), Some(1));
         let dominated =
             ObjectiveObservation::new(&[estimate(0.0), estimate(-2.0)], estimate(1_000.0)).unwrap();
-        let decision = search.noisy_objectives(&proposal, dominated).unwrap();
+        let (search, decision) = search.noisy_objectives(&proposal, dominated).unwrap();
         assert!(!decision.accepted, "scalar control must not override MORBO");
-        assert_eq!(search.sync().unwrap(), [false]);
+        let (search, sync2) = search.sync().unwrap();
+        assert_eq!(sync2, [false]);
         assert_eq!(search.best().unwrap(), 0.0);
         assert!(search.controller_info().unwrap().failure_counter > 0);
-        assert_eq!(search.finalize_morbo().unwrap(), Some(0));
+        let (search, region) = search.finalize_morbo().unwrap();
+        assert_eq!(region, Some(0));
         assert_eq!(search.best().unwrap(), -1_000.0);
     });
 }
@@ -178,8 +181,8 @@ fn morbo_state() {
 #[test]
 fn morbo_noise() {
     autoreleasepool(|| {
-        let mut search = state();
-        search
+        let search = state();
+        let search = search
             .configure_objectives(Some(config(ObjectiveAcquisition::Morbo {
                 weights: vec![1.0, 1.0],
                 regions: 2,
@@ -189,32 +192,34 @@ fn morbo_noise() {
                 clip: true,
             })))
             .unwrap();
-        let proposal = search.ask_round(1, 4, 29, RoundConfig::default()).unwrap();
+        let (search, proposal) = search.ask_round(1, 4, 29, RoundConfig::default()).unwrap();
         let noisy = |mean| ObjectiveEstimate {
             mean,
             variance: 100.0,
         };
         let observation = ObjectiveObservation::new(&[noisy(2.0), noisy(0.0)], noisy(1.0)).unwrap();
-        let decision = search.noisy_objectives(&proposal, observation).unwrap();
+        let (search, decision) = search.noisy_objectives(&proposal, observation).unwrap();
         assert!(!decision.accepted);
-        assert_eq!(search.sync().unwrap(), [false]);
+        let (_search, synced) = search.sync().unwrap();
+        assert_eq!(synced, [false]);
     });
 }
 
 #[test]
 fn morbo_resample() {
     autoreleasepool(|| {
-        let mut search = state();
-        let error = search
-            .configure_objectives(Some(config(ObjectiveAcquisition::Morbo {
-                weights: vec![1.0, 1.0],
-                regions: 4,
-                alpha: 0.1,
-                seed: 31,
-                rescalarize: Rescalarize::OnPropose,
-                clip: true,
-            })))
-            .unwrap_err();
+        let search = state();
+        let error = match search.configure_objectives(Some(config(ObjectiveAcquisition::Morbo {
+            weights: vec![1.0, 1.0],
+            regions: 4,
+            alpha: 0.1,
+            seed: 31,
+            rescalarize: Rescalarize::OnPropose,
+            clip: true,
+        }))) {
+            Err(e) => e,
+            Ok(_) => panic!("expected configure_objectives to fail"),
+        };
         assert!(error.contains("rematerializing"));
     });
 }
@@ -222,16 +227,16 @@ fn morbo_resample() {
 #[test]
 fn scalar_optout() {
     autoreleasepool(|| {
-        let mut baseline = state();
-        let mut toggled = state();
-        toggled
+        let baseline = state();
+        let toggled = state();
+        let toggled = toggled
             .configure_objectives(Some(config(ObjectiveAcquisition::Pareto)))
             .unwrap();
-        toggled.configure_objectives(None).unwrap();
-        let first = baseline
+        let toggled = toggled.configure_objectives(None).unwrap();
+        let (baseline, first) = baseline
             .ask_round(1, 4, 29, RoundConfig::default())
             .unwrap();
-        let second = toggled.ask_round(1, 4, 29, RoundConfig::default()).unwrap();
+        let (toggled, second) = toggled.ask_round(1, 4, 29, RoundConfig::default()).unwrap();
         assert_eq!(first.index, second.index);
         assert_eq!(first.seed, second.seed);
         assert_eq!(first.score.to_bits(), second.score.to_bits());
@@ -244,8 +249,8 @@ fn scalar_optout() {
             second.predicted_standard_error.to_bits()
         );
         assert_eq!(
-            read::<u16>(&baseline.proposal, 17),
-            read::<u16>(&toggled.proposal, 17)
+            read::<u16>(&*baseline.proposal, 17),
+            read::<u16>(&*toggled.proposal, 17)
         );
     });
 }
@@ -253,17 +258,15 @@ fn scalar_optout() {
 #[test]
 fn shared_geometry() {
     autoreleasepool(|| {
-        let mut scalar = state();
-        let mut vector = state();
-        prime_geometry(&mut scalar);
-        prime_geometry(&mut vector);
-        vector
+        let scalar = prime_geometry(state()).unwrap();
+        let vector = prime_geometry(state()).unwrap();
+        let vector = vector
             .configure_objectives(Some(config(ObjectiveAcquisition::Pareto)))
             .unwrap();
-        scalar.begin_forced(29, RoundConfig::default(), 2).unwrap();
-        vector.begin_forced(29, RoundConfig::default(), 2).unwrap();
-        let first = scalar.finish_ask().unwrap();
-        let second = vector.finish_ask().unwrap();
+        let (scalar, _buf1) = scalar.begin_forced(29, RoundConfig::default(), 2).unwrap();
+        let (vector, _buf2) = vector.begin_forced(29, RoundConfig::default(), 2).unwrap();
+        let (_scalar, first) = scalar.finish_ask().unwrap();
+        let (_vector, second) = vector.finish_ask().unwrap();
         assert_eq!(
             first.predicted_mean.to_bits(),
             second.predicted_mean.to_bits()
@@ -283,20 +286,20 @@ fn shared_geometry() {
     });
 }
 
-fn prime_geometry(search: &mut SearchState) {
+fn prime_geometry(mut search: SearchState) -> Result<SearchState, String> {
     for root in [31, 37] {
-        let proposal = search
-            .ask_round(1, 4, root, RoundConfig::default())
-            .unwrap();
+        let (s, proposal) = search.ask_round(1, 4, root, RoundConfig::default())?;
         let estimate = |mean| ObjectiveEstimate {
             mean,
             variance: 0.01,
         };
         let observation =
-            ObjectiveObservation::new(&[estimate(2.0), estimate(-2.0)], estimate(-1.0)).unwrap();
-        search.noisy_objectives(&proposal, observation).unwrap();
-        search.sync().unwrap();
+            ObjectiveObservation::new(&[estimate(2.0), estimate(-2.0)], estimate(-1.0))?;
+        let (s, _decision) = s.noisy_objectives(&proposal, observation)?;
+        let (s, _synced) = s.sync()?;
+        search = s;
     }
     search.distance_metric = crate::config::DistanceMetric::Conformal;
     search.local_scale_neighbors = 2;
+    Ok(search)
 }

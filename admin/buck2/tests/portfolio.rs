@@ -52,23 +52,26 @@ fn resident_completion() {
         )
         .unwrap()
     };
-    let mut search =
+    let search =
         RegionalSearch::new(vec![state(0.0), state(1.0)], Allocation::LeastTrials).unwrap();
     let mut config = RoundConfig::default();
     config.surrogate.neighbors = 1;
-    let first = search.ask(12, config).unwrap();
-    let second = search.ask(13, config).unwrap();
+    let (search, first) = search.ask(12, config).unwrap();
+    let (search, second) = search.ask(13, config).unwrap();
     assert_ne!(first.ticket().region.slot, second.ticket().region.slot);
-    assert!(search.tell(&first, f32::NAN, 0.0).is_err());
+    assert!(search.clone().tell(&first, f32::NAN, 0.0).is_err());
     assert!(search.buffer(&first).is_ok());
-    assert!(search.tell(&second, 3.0, 0.0).unwrap().accepted);
-    assert!(search.tell(&first, 2.0, 0.0).unwrap().accepted);
-    assert!(search.tell(&first, 2.0, 0.0).is_err());
+    let (search, dec) = search.tell(&second, 3.0, 0.0).unwrap();
+    assert!(dec.accepted);
+    let (search, dec) = search.tell(&first, 2.0, 0.0).unwrap();
+    assert!(dec.accepted);
+    assert!(search.clone().tell(&first, 2.0, 0.0).is_err());
     assert_eq!(search.best(), (1, 3.0));
     assert_eq!(search.trials(), vec![1, 1]);
-    search.restart(0, state(4.0)).unwrap();
-    let fresh = search.ask_region(0, 14, config).unwrap();
+    let search = search.restart(0, state(4.0)).unwrap();
+    let (search, fresh) = search.ask_region(0, 14, config).unwrap();
     assert_eq!(fresh.ticket().region.generation, 1);
     assert!(search.buffer(&first).is_err());
-    assert!(search.tell(&fresh, 5.0, 0.0).unwrap().accepted);
+    let (_search, dec) = search.tell(&fresh, 5.0, 0.0).unwrap();
+    assert!(dec.accepted);
 }

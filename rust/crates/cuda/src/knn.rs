@@ -146,7 +146,7 @@ pub(super) struct SearchStage {
     pub(super) merge_end: CudaEvent,
 }
 
-pub(super) struct KnnScratch {
+pub(crate) struct KnnScratch {
     pub(super) query_capacity: usize,
     pub(super) partial_capacity: usize,
     pub(super) queries: DeviceBuffer<f32>,
@@ -189,17 +189,51 @@ impl KnnScratch {
     }
 }
 
+pub struct CudaScratch {
+    pub(super) knn: KnnScratch,
+    pub(super) posterior: PosteriorScratch,
+    pub(super) cuvs: Option<cuvs::CuvsState>,
+    pub(super) profile: Option<KnnProfile>,
+}
+
+impl CudaScratch {
+    pub fn new(runtime: &Arc<Runtime>) -> CudaResult<Self> {
+        let knn = KnnScratch::new(&runtime.stream)?;
+        let posterior = PosteriorScratch::new(&runtime.stream)?;
+        let cuvs = if cuvs::is_available() {
+            cuvs::CuvsState::new(&runtime.stream).ok()
+        } else {
+            None
+        };
+        Ok(Self {
+            knn,
+            posterior,
+            cuvs,
+            profile: None,
+        })
+    }
+
+    pub fn profile(&self) -> Option<KnnProfile> {
+        self.profile
+    }
+
+    pub(super) fn ensure_cuvs(&mut self, stream: &CudaStream) -> CudaResult<()> {
+        if self.cuvs.is_none() {
+            self.cuvs = Some(cuvs::CuvsState::new(stream)?);
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone)]
 pub struct CudaIndex {
     pub(super) runtime: Arc<Runtime>,
-    pub(super) rows: DeviceBuffer<f32>,
+    pub(super) rows: Arc<DeviceBuffer<f32>>,
     pub(super) row_capacity: usize,
     pub(super) row_count: usize,
     pub(super) dims: usize,
     pub(super) mode: CudaKnnMode,
-    pub(super) cuvs: Option<cuvs::CuvsState>,
-    pub(super) scratch: KnnScratch,
-    pub(super) posterior: PosteriorScratch,
-    pub(super) profile: Option<KnnProfile>,
+    pub(super) cuvs_index: Option<Arc<cuvs::CuvsIndex>>,
 }
 
 impl CudaIndex {
@@ -220,29 +254,34 @@ impl CudaIndex {
             return Err("CUDA index rows must be finite".to_string());
         }
         let runtime = Arc::new(Runtime::new()?);
-        let cuvs = if mode != CudaKnnMode::Kernel {
-            Some(cuvs::CuvsState::new(&runtime.stream)?)
-        } else {
-            None
-        };
-        let scratch = KnnScratch::new(&runtime.stream)?;
-        let posterior = PosteriorScratch::new(&runtime.stream)?;
         let row_capacity = next_capacity(rows.len())?;
         let row_buffer = DeviceBuffer::zeroed(&runtime.stream, row_capacity).map_err(cuda_error)?;
         copy_prefix(&row_buffer, rows, &runtime.stream)?;
         runtime.stream.synchronize().map_err(cuda_error)?;
+        let row_count = rows.len() / dims;
+        let rows = Arc::new(row_buffer);
+        let cuvs_index = if mode != CudaKnnMode::Kernel && row_count > 0 {
+            cuvs::build_index(mode, &runtime.stream, &rows, row_count, dims, None)?.map(Arc::new)
+        } else {
+            None
+        };
         Ok(Self {
             runtime,
-            rows: row_buffer,
+            rows,
             row_capacity,
-            row_count: rows.len() / dims,
+            row_count,
             dims,
             mode,
-            cuvs,
-            scratch,
-            posterior,
-            profile: None,
+            cuvs_index,
         })
+    }
+
+    pub fn new_scratch(&self) -> CudaResult<CudaScratch> {
+        let mut scratch = CudaScratch::new(&self.runtime)?;
+        if self.mode != CudaKnnMode::Kernel && scratch.cuvs.is_none() {
+            scratch.cuvs = Some(cuvs::CuvsState::new(&self.runtime.stream)?);
+        }
+        Ok(scratch)
     }
 
     pub fn len(&self) -> usize {
@@ -259,28 +298,54 @@ impl CudaIndex {
             .saturating_mul(std::mem::size_of::<f32>())
     }
 
-    pub fn profile(&self) -> Option<KnnProfile> {
-        self.profile
+    pub fn row_capacity(&self) -> usize {
+        self.row_capacity
     }
 
-    pub fn rebuild(&mut self, rows: &[f32]) -> CudaResult<()> {
+    pub fn profile(&self) -> Option<KnnProfile> {
+        None
+    }
+
+    pub fn rebuild(self, scratch: &mut CudaScratch, rows: &[f32]) -> CudaResult<Self> {
         self.check_rows(rows)?;
         let capacity = next_capacity(rows.len())?;
-        if capacity != self.row_capacity {
-            self.rows = DeviceBuffer::zeroed(&self.runtime.stream, capacity).map_err(cuda_error)?;
-            self.row_capacity = capacity;
-        }
-        copy_prefix(&self.rows, rows, &self.runtime.stream)?;
+        let row_buffer = match Arc::try_unwrap(self.rows) {
+            Ok(buffer) if capacity == self.row_capacity => buffer,
+            _ => DeviceBuffer::zeroed(&self.runtime.stream, capacity).map_err(cuda_error)?,
+        };
+        copy_prefix(&row_buffer, rows, &self.runtime.stream)?;
         self.runtime.stream.synchronize().map_err(cuda_error)?;
-        self.row_count = rows.len() / self.dims;
-        self.invalidate_cuvs();
-        Ok(())
+        let row_count = rows.len() / self.dims;
+        let rows = Arc::new(row_buffer);
+        let cuvs_index = if self.mode != CudaKnnMode::Kernel && row_count > 0 {
+            let _ = scratch.ensure_cuvs(&self.runtime.stream);
+            cuvs::build_index(
+                self.mode,
+                &self.runtime.stream,
+                &rows,
+                row_count,
+                self.dims,
+                scratch.cuvs.as_ref(),
+            )?
+            .map(Arc::new)
+        } else {
+            None
+        };
+        Ok(Self {
+            runtime: self.runtime,
+            rows,
+            row_capacity: capacity,
+            row_count,
+            dims: self.dims,
+            mode: self.mode,
+            cuvs_index,
+        })
     }
 
-    pub fn add(&mut self, rows: &[f32]) -> CudaResult<()> {
+    pub fn add(self, scratch: &mut CudaScratch, rows: &[f32]) -> CudaResult<Self> {
         self.check_rows(rows)?;
         if rows.is_empty() {
-            return Ok(());
+            return Ok(self);
         }
         let used = self
             .row_count
@@ -289,60 +354,93 @@ impl CudaIndex {
         let required = used
             .checked_add(rows.len())
             .ok_or("CUDA index row size overflow")?;
-        if required > self.row_capacity {
-            let capacity = next_capacity(required)?;
-            let next = DeviceBuffer::zeroed(&self.runtime.stream, capacity).map_err(cuda_error)?;
-            if used > 0 {
-                let used_bytes = used
-                    .checked_mul(std::mem::size_of::<f32>())
-                    .ok_or("CUDA index copy size overflow")?;
-                unsafe {
-                    cuda_core::simt::memory::memcpy_dtod_async(
-                        next.cu_deviceptr(),
-                        self.rows.cu_deviceptr(),
-                        used_bytes,
-                        self.runtime.stream.cu_stream(),
-                    )
-                    .map_err(cuda_error)?;
+        let (row_buffer, row_capacity) = match Arc::try_unwrap(self.rows) {
+            Ok(buffer) if required <= self.row_capacity => (buffer, self.row_capacity),
+            other => {
+                let capacity = next_capacity(required)?;
+                let next =
+                    DeviceBuffer::zeroed(&self.runtime.stream, capacity).map_err(cuda_error)?;
+                if used > 0 {
+                    let old_ptr = match &other {
+                        Ok(b) => b.cu_deviceptr(),
+                        Err(arc) => arc.cu_deviceptr(),
+                    };
+                    let used_bytes = used
+                        .checked_mul(std::mem::size_of::<f32>())
+                        .ok_or("CUDA index copy size overflow")?;
+                    unsafe {
+                        cuda_core::simt::memory::memcpy_dtod_async(
+                            next.cu_deviceptr(),
+                            old_ptr,
+                            used_bytes,
+                            self.runtime.stream.cu_stream(),
+                        )
+                        .map_err(cuda_error)?;
+                    }
                 }
+                (next, capacity)
             }
-            self.rows = next;
-            self.row_capacity = capacity;
-        }
-        copy_at(&self.rows, used, rows, &self.runtime.stream)?;
+        };
+        copy_at(&row_buffer, used, rows, &self.runtime.stream)?;
         self.runtime.stream.synchronize().map_err(cuda_error)?;
-        self.row_count = self
+        let row_count = self
             .row_count
             .checked_add(rows.len() / self.dims)
             .ok_or("CUDA index row count overflow")?;
-        self.invalidate_cuvs();
-        Ok(())
+        let rows = Arc::new(row_buffer);
+        let cuvs_index = if self.mode != CudaKnnMode::Kernel && row_count > 0 {
+            let _ = scratch.ensure_cuvs(&self.runtime.stream);
+            cuvs::build_index(
+                self.mode,
+                &self.runtime.stream,
+                &rows,
+                row_count,
+                self.dims,
+                scratch.cuvs.as_ref(),
+            )?
+            .map(Arc::new)
+        } else {
+            None
+        };
+        Ok(Self {
+            runtime: self.runtime,
+            rows,
+            row_capacity,
+            row_count,
+            dims: self.dims,
+            mode: self.mode,
+            cuvs_index,
+        })
     }
 
     pub fn search(
-        &mut self,
+        &self,
+        scratch: &mut CudaScratch,
         queries: &[f32],
         query_count: usize,
         neighbors: usize,
-    ) -> CudaResult<(Vec<f32>, Vec<u32>)> {
-        let stage = self.stage_search(queries, query_count, neighbors)?;
-        let output = self.read_neighbors(&stage)?;
-        self.set_profile(&stage, &stage.merge_end)?;
-        Ok(output)
+    ) -> CudaResult<(Vec<f32>, Vec<u32>, KnnProfile)> {
+        let stage = self.stage_search(scratch, queries, query_count, neighbors)?;
+        let (distances, indices) = self.read_neighbors(scratch, &stage)?;
+        let profile = self.make_profile(&stage, &stage.merge_end)?;
+        scratch.profile = Some(profile);
+        Ok((distances, indices, profile))
     }
 
     pub(super) fn stage_search(
-        &mut self,
+        &self,
+        scratch: &mut CudaScratch,
         queries: &[f32],
         query_count: usize,
         neighbors: usize,
     ) -> CudaResult<SearchStage> {
         let problem = self.check_search(queries, query_count, neighbors)?;
-        self.stage_input(problem, Some(queries), 0)
+        self.stage_input(scratch, problem, Some(queries), 0)
     }
 
     pub(super) fn stage_input(
-        &mut self,
+        &self,
+        scratch: &mut CudaScratch,
         problem: ScanProblem,
         host: Option<&[f32]>,
         pointer: u64,
@@ -356,14 +454,15 @@ impl CudaIndex {
             let partials = query_count
                 .checked_mul(neighbors)
                 .ok_or("CUDA index scratch size overflow")?;
-            self.scratch
+            scratch
+                .knn
                 .ensure(&self.runtime.stream, query_len, partials)?;
             if let Some(values) = host {
-                copy_prefix(&self.scratch.queries, values, &self.runtime.stream)?;
+                copy_prefix(&scratch.knn.queries, values, &self.runtime.stream)?;
             } else {
                 unsafe {
                     cuda_core::simt::memory::memcpy_dtod_async(
-                        self.scratch.queries.cu_deviceptr(),
+                        scratch.knn.queries.cu_deviceptr(),
                         pointer,
                         query_len
                             .checked_mul(std::mem::size_of::<f32>())
@@ -374,21 +473,21 @@ impl CudaIndex {
                 }
             }
             let start = timing_event(&self.runtime.stream)?;
-            let cuvs = self
+            scratch.ensure_cuvs(&self.runtime.stream)?;
+            let cuvs_state = scratch
                 .cuvs
                 .as_mut()
                 .ok_or("cuVS backend was not initialized")?;
-            let plan_name = cuvs.search_into(
-                self.mode,
+            let cuvs_index = self.cuvs_index.as_ref().ok_or("cuVS index was not built")?;
+            let plan_name = cuvs_state.search_into(
+                cuvs_index,
                 &self.runtime.stream,
-                &self.rows,
-                self.row_count,
-                self.dims,
-                &self.scratch.queries,
+                &scratch.knn.queries,
                 query_count,
+                self.dims,
                 neighbors,
-                &mut self.scratch.distances_a,
-                &mut self.scratch.indices_a,
+                &mut scratch.knn.distances_a,
+                &mut scratch.knn.indices_a,
             )?;
             let scan_end = timing_event(&self.runtime.stream)?;
             let merge_end = timing_event(&self.runtime.stream)?;
@@ -422,16 +521,17 @@ impl CudaIndex {
             .checked_mul(lists)
             .and_then(|value| value.checked_mul(neighbors))
             .ok_or("CUDA index scratch size overflow")?;
-        self.scratch
+        scratch
+            .knn
             .ensure(&self.runtime.stream, query_len, partials)?;
         if let Some(values) = host {
-            copy_prefix(&self.scratch.queries, values, &self.runtime.stream)?;
+            copy_prefix(&scratch.knn.queries, values, &self.runtime.stream)?;
         } else {
             // SAFETY: device_posterior validates length and retains the DLPack
             // input until this stream has completed its device-to-device copy.
             unsafe {
                 cuda_core::simt::memory::memcpy_dtod_async(
-                    self.scratch.queries.cu_deviceptr(),
+                    scratch.knn.queries.cu_deviceptr(),
                     pointer,
                     query_len
                         .checked_mul(size_of::<f32>())
@@ -457,9 +557,9 @@ impl CudaIndex {
             .checked_mul(params.lists)
             .ok_or("CUDA index grid size overflow")?;
         let start = timing_event(&self.runtime.stream)?;
-        self.launch_scan(kind, total_lists, params)?;
+        self.launch_scan(scratch, kind, total_lists, params)?;
         let scan_end = timing_event(&self.runtime.stream)?;
-        let input_a = self.launch_merge(query_count, lists, neighbors)?;
+        let input_a = self.launch_merge(scratch, query_count, lists, neighbors)?;
         let merge_end = timing_event(&self.runtime.stream)?;
         self.runtime.context.check_err().map_err(cuda_error)?;
         Ok(SearchStage {
@@ -476,34 +576,34 @@ impl CudaIndex {
         })
     }
 
-    fn read_neighbors(&self, stage: &SearchStage) -> CudaResult<(Vec<f32>, Vec<u32>)> {
+    fn read_neighbors(
+        &self,
+        scratch: &CudaScratch,
+        stage: &SearchStage,
+    ) -> CudaResult<(Vec<f32>, Vec<u32>)> {
         let output_count = stage
             .queries
             .checked_mul(stage.neighbors)
             .ok_or("CUDA index output size overflow")?;
         if stage.input_a {
             Ok((
-                read_prefix(
-                    &self.scratch.distances_a,
-                    &self.runtime.stream,
-                    output_count,
-                )?,
-                read_prefix(&self.scratch.indices_a, &self.runtime.stream, output_count)?,
+                read_prefix(&scratch.knn.distances_a, &self.runtime.stream, output_count)?,
+                read_prefix(&scratch.knn.indices_a, &self.runtime.stream, output_count)?,
             ))
         } else {
             Ok((
-                read_prefix(
-                    &self.scratch.distances_b,
-                    &self.runtime.stream,
-                    output_count,
-                )?,
-                read_prefix(&self.scratch.indices_b, &self.runtime.stream, output_count)?,
+                read_prefix(&scratch.knn.distances_b, &self.runtime.stream, output_count)?,
+                read_prefix(&scratch.knn.indices_b, &self.runtime.stream, output_count)?,
             ))
         }
     }
 
-    pub(super) fn set_profile(&mut self, stage: &SearchStage, end: &CudaEvent) -> CudaResult<()> {
-        self.profile = Some(KnnProfile {
+    pub(super) fn make_profile(
+        &self,
+        stage: &SearchStage,
+        end: &CudaEvent,
+    ) -> CudaResult<KnnProfile> {
+        Ok(KnnProfile {
             rows: self.row_count,
             queries: stage.queries,
             dims: self.dims,
@@ -519,11 +619,16 @@ impl CudaIndex {
             posterior_ms: stage.merge_end.elapsed_ms(end).map_err(cuda_error)?,
             total_ms: stage.start.elapsed_ms(end).map_err(cuda_error)?,
             kind: stage.plan_name,
-        });
-        Ok(())
+        })
     }
 
-    fn launch_scan(&mut self, kind: ScanKind, lists: u32, params: KnnParams) -> CudaResult<()> {
+    fn launch_scan(
+        &self,
+        scratch: &mut CudaScratch,
+        kind: ScanKind,
+        lists: u32,
+        params: KnnParams,
+    ) -> CudaResult<()> {
         match kind {
             ScanKind::Rows => {
                 let launch = self
@@ -537,9 +642,9 @@ impl CudaIndex {
                         &self.runtime.stream,
                         &launch,
                         &self.rows,
-                        &self.scratch.queries,
-                        &mut self.scratch.distances_a,
-                        &mut self.scratch.indices_a,
+                        &scratch.knn.queries,
+                        &mut scratch.knn.distances_a,
+                        &mut scratch.knn.indices_a,
                         params,
                     )
                     .map_err(cuda_error)
@@ -556,9 +661,9 @@ impl CudaIndex {
                         &self.runtime.stream,
                         &launch,
                         &self.rows,
-                        &self.scratch.queries,
-                        &mut self.scratch.distances_a,
-                        &mut self.scratch.indices_a,
+                        &scratch.knn.queries,
+                        &mut scratch.knn.distances_a,
+                        &mut scratch.knn.indices_a,
                         params,
                     )
                     .map_err(cuda_error)
@@ -567,7 +672,8 @@ impl CudaIndex {
     }
 
     fn launch_merge(
-        &mut self,
+        &self,
+        scratch: &mut CudaScratch,
         queries: usize,
         mut input_lists: usize,
         neighbors: usize,
@@ -596,10 +702,10 @@ impl CudaIndex {
                     .merge_topk(
                         &self.runtime.stream,
                         &launch,
-                        &self.scratch.distances_a,
-                        &self.scratch.indices_a,
-                        &mut self.scratch.distances_b,
-                        &mut self.scratch.indices_b,
+                        &scratch.knn.distances_a,
+                        &scratch.knn.indices_a,
+                        &mut scratch.knn.distances_b,
+                        &mut scratch.knn.indices_b,
                         params,
                     )
                     .map_err(cuda_error)?;
@@ -609,10 +715,10 @@ impl CudaIndex {
                     .merge_topk(
                         &self.runtime.stream,
                         &launch,
-                        &self.scratch.distances_b,
-                        &self.scratch.indices_b,
-                        &mut self.scratch.distances_a,
-                        &mut self.scratch.indices_a,
+                        &scratch.knn.distances_b,
+                        &scratch.knn.indices_b,
+                        &mut scratch.knn.distances_a,
+                        &mut scratch.knn.indices_a,
                         params,
                     )
                     .map_err(cuda_error)?;

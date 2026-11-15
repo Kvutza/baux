@@ -1,9 +1,10 @@
 use super::*;
 
 impl SearchState {
-    pub fn sync(&mut self) -> Result<Vec<bool>, String> {
+    pub fn sync(mut self) -> Result<(Self, Vec<bool>), String> {
         self.check_healthy()?;
-        Ok(self.queued.take().into_iter().collect())
+        let queued = self.queued.take().into_iter().collect();
+        Ok((self, queued))
     }
 
     pub fn describe(&self, round: &Proposals) -> Result<Vec<ProposalDescription>, String> {
@@ -42,23 +43,21 @@ impl SearchState {
         Ok((round.pool_radii, round.pool_cosines))
     }
 
-    /// Current accepted BF16 weights, one contiguous row. Read-only lease
-    /// required.
+    /// Current accepted BF16 weights, one contiguous row.
     pub fn base_buffer(&self) -> Buffer {
-        self.base.clone()
+        (*self.base).clone()
     }
     pub fn best_buffer(&self) -> Buffer {
         self.base_buffer()
     }
 
-    /// Selected BF16 row. A binding must keep its lease alive until GPU
-    /// consumers finish.
+    /// Selected BF16 row.
     pub fn proposal_buffer(&self) -> Result<Buffer, String> {
         self.check_healthy()?;
         if self.pending.is_none() {
             return Err("No pending Metal BF16 proposal".into());
         }
-        Ok(self.proposal.clone())
+        Ok((*self.proposal).clone())
     }
 
     pub fn propose_buffer(&self, round: &Proposals) -> Result<Buffer, String> {
@@ -67,7 +66,7 @@ impl SearchState {
     }
 
     #[cfg(test)]
-    pub fn test_candidate(&mut self, root: u64, index: usize) -> Result<Buffer, String> {
+    pub fn test_candidate(&self, root: u64, index: usize) -> Result<Buffer, String> {
         self.check_idle()?;
         if index >= self.pool_layout.count() as usize {
             return Err("Metal BF16 candidate index out of pool bounds".into());
@@ -75,11 +74,11 @@ impl SearchState {
         let command = self.runtime.queue.new_command_buffer();
         self.encode_proposal(command, self.params(root, index));
         finish(command)?;
-        Ok(self.proposal.clone())
+        Ok((*self.proposal).clone())
     }
 
     #[cfg(test)]
-    pub fn test_profile(&mut self, root: u64, config: RoundConfig) -> Result<[f32; 3], String> {
+    pub fn test_profile(&self, root: u64, config: RoundConfig) -> Result<[f32; 3], String> {
         self.check_idle()?;
         check_ask(config)?;
 
@@ -106,28 +105,23 @@ impl SearchState {
     /// Validates a proposal handle before the binding exports its row.
     pub fn check_round(&self, round: &Proposals) -> Result<(), String> {
         self.check_healthy()?;
-        if !self
-            .pending
-            .as_ref()
-            .is_some_and(|p| p.owner == round.owner && p.id == round.id)
-        {
+        if !self.pending.as_ref().is_some_and(|p| p.id == round.id) {
             return Err("Stale or foreign Metal BF16 proposal".into());
         }
         Ok(())
     }
 
     /// Optional writable-consumer isolation using existing pending storage, no
-    /// sixth row. The binding must invalidate this snapshot before ask and
-    /// lease it while exported.
+    /// sixth row. The binding must invalidate this snapshot before ask.
     pub fn snapshot(&self) -> Result<Buffer, String> {
         self.check_idle()?;
-        self.copy(&self.base, &self.proposal)?;
-        Ok(self.proposal.clone())
+        self.copy(&*self.base, &*self.proposal)?;
+        Ok((*self.proposal).clone())
     }
 
     pub fn read_best(&self) -> Result<Vec<u16>, String> {
         self.check_healthy()?;
-        Ok(read(&self.base, self.dimensions))
+        Ok(read(&*self.base, self.dimensions))
     }
 
     pub fn len(&self) -> usize {

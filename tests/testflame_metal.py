@@ -202,7 +202,7 @@ def test_searchguards(gpu):
             [gpu.Span(1, 0, 257, 1.0)],
             2,
         )
-        state.enable_relative()
+        _, state = state.enable_relative()
         return state
 
     def ask(state):
@@ -215,7 +215,8 @@ def test_searchguards(gpu):
     assert memory["device_allocated_bytes"] > 0
     assert memory["recommended_working_set_bytes"] > 0
     assert memory["max_buffer_bytes"] >= memory["row_bytes"]
-    proposal, foreign = ask(state), ask(other)
+    proposal, state = ask(state)
+    foreign, other = ask(other)
     with pytest.raises(ValueError, match="foreign"):
         state.tell_relative(foreign, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, True)
     for index, invalid in (
@@ -233,8 +234,9 @@ def test_searchguards(gpu):
     with pytest.raises(BufferError):
         state.tell_relative(proposal, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, True)
     del view
-    state.tell_relative(proposal, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, True)
-    assert state.sync() == [True]
+    _, state = state.tell_relative(proposal, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, True)
+    synced, state = state.sync()
+    assert synced == [True]
     with pytest.raises(ValueError, match="Stale"):
         proposal.read()
 
@@ -248,15 +250,16 @@ def test_fifo(gpu):
     )
     initial = state.length
     for step in range(8):
-        proposal = state.ask(1, 4, 5, step)
+        proposal, state = state.ask(1, 4, 5, step)
         if step == 0:
             assert_variances(state, proposal)
             view = state.incumbent()
             with pytest.raises(BufferError):
                 state.tell_paired(proposal, 1.0, 0.0, 0.0, 0.0, True)
             del view
-        state.tell_paired(proposal, 1.0, 0.1, 0.0, 0.2, step == 0)
-        assert state.sync() == [step == 0]
+        _, state = state.tell_paired(proposal, 1.0, 0.1, 0.0, 0.2, step == 0)
+        synced, state = state.sync()
+        assert synced == [step == 0]
         assert state.history_len == min(step + 2, 5)
         assert state.length == initial
     with pytest.raises(ValueError):
@@ -276,11 +279,11 @@ def test_inconclusive(gpu):
         [gpu.Span(1, 0, 257, 1.0)],
         2,
     )
-    state.enable_relative()
+    _, state = state.enable_relative()
     initial_radius = state.length
     for step in range(8):
-        proposal = state.ask(1, 4, 2, step)
-        state.tell_relative(
+        proposal, state = state.ask(1, 4, 2, step)
+        _, state = state.tell_relative(
             proposal,
             0.01,
             0.1,
@@ -291,12 +294,13 @@ def test_inconclusive(gpu):
             False,
             reject_is_failure=False,
         )
-        assert state.sync() == [False]
+        synced, state = state.sync()
+        assert synced == [False]
         assert state.history_len == 2
         assert state.length == initial_radius
     for step in range(4):
-        proposal = state.ask(1, 4, 2, 100 + step)
-        state.tell_relative(
+        proposal, state = state.ask(1, 4, 2, 100 + step)
+        _, state = state.tell_relative(
             proposal,
             -1.0,
             0.1,
@@ -307,7 +311,8 @@ def test_inconclusive(gpu):
             False,
             reject_is_failure=True,
         )
-        assert state.sync() == [False]
+        synced, state = state.sync()
+        assert synced == [False]
         assert state.length == (initial_radius if step < 3 else initial_radius * 0.5)
 
 

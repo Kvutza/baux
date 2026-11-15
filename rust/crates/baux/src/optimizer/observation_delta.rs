@@ -1,8 +1,9 @@
 use ndarray::{Array1, Array2, ArrayView2};
+use rand::RngCore;
 
 use super::BayesOptimizer;
 use super::incumbent::IncumbentPoint;
-use super::obs_access::PosteriorBackend;
+use super::obs_access::{PosteriorBackend, PosteriorStore};
 use crate::candidates::SobolEngine;
 use crate::config::InitStrategy;
 use crate::error::ENNError;
@@ -11,6 +12,7 @@ use crate::snapshot_io::{
     write_arr, write_bool, write_byte, write_header, write_len, write_mat, write_real, write_slice,
     write_str, write_word,
 };
+use crate::surrogate::BoxedSurrogate;
 
 /// Host-language pure state cursor metadata embedded in portable checkpoints.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -153,6 +155,47 @@ impl ObservationDelta {
 
     pub fn y_view(&self) -> ArrayView2<'_, f64> {
         self.y_new.view()
+    }
+
+    /// Replay this observation delta by appending to a boxed surrogate.
+    pub fn replay_append(
+        &self,
+        surrogate: BoxedSurrogate,
+        yvar: Option<&ArrayView2<f64>>,
+        rng: &mut dyn RngCore,
+    ) -> Result<BoxedSurrogate, ENNError> {
+        surrogate.with_append(&self.x_view(), &self.y_view(), yvar, rng)
+    }
+
+    /// Replay this observation delta by fitting from scratch onto a cleared
+    /// boxed surrogate.
+    pub fn replay_fit(
+        &self,
+        surrogate: BoxedSurrogate,
+        yvar: Option<&ArrayView2<f64>>,
+        rng: &mut dyn RngCore,
+    ) -> Result<BoxedSurrogate, ENNError> {
+        let cleared = surrogate.cleared()?;
+        cleared.with_fit(&self.x_view(), &self.y_view(), yvar, rng)
+    }
+
+    /// Replay this observation delta onto a posterior store.
+    pub fn replay_posterior(
+        &self,
+        posterior: PosteriorStore,
+        yvar: Option<&ArrayView2<f64>>,
+        rng: &mut dyn RngCore,
+    ) -> Result<(PosteriorStore, Option<f64>), ENNError> {
+        posterior.fit_delta(self, yvar, rng)
+    }
+
+    /// Restore a boxed surrogate from a checkpoint buffer.
+    pub fn replay_thawed(
+        surrogate: BoxedSurrogate,
+        bytes: &[u8],
+        pos: &mut usize,
+    ) -> Result<BoxedSurrogate, ENNError> {
+        surrogate.with_thawed(bytes, pos)
     }
 }
 
@@ -352,23 +395,37 @@ pub(crate) fn thaw_full(
     opt: &BayesOptimizer,
     bytes: &[u8],
 ) -> Result<(BayesOptimizer, Option<HostCursor>), ENNError> {
+    thaw_inner(opt.fork()?, bytes)
+}
+
+pub(crate) fn thaw_consumed(
+    opt: BayesOptimizer,
+    bytes: &[u8],
+) -> Result<(BayesOptimizer, Option<HostCursor>), ENNError> {
+    thaw_inner(opt, bytes)
+}
+
+fn thaw_inner(
+    mut next: BayesOptimizer,
+    bytes: &[u8],
+) -> Result<(BayesOptimizer, Option<HostCursor>), ENNError> {
     let mut reader = WireReader::open_frame(bytes)?;
     let payload = &bytes[..bytes.len() - 32];
 
     // 1. DomainFrame compatibility
     let num_dim = reader.read_len(MAX_DIM)?;
-    if num_dim != opt.domain.num_dim() {
+    if num_dim != next.domain.num_dim() {
         return Err(bad_state("frozen state dimension mismatch"));
     }
     let clamped = reader.read_bool()?;
-    if clamped != opt.domain.clamped() {
+    if clamped != next.domain.clamped() {
         return Err(bad_state("frozen state domain clamp mismatch"));
     }
     let bounds = reader.read_mat(num_dim, 2, true)?;
     if bounds.shape() != [num_dim, 2]
         || !bounds
             .iter()
-            .zip(opt.domain.bounds().iter())
+            .zip(next.domain.bounds().iter())
             .all(|(a, b)| a.to_bits() == b.to_bits())
     {
         return Err(bad_state("frozen state domain bounds mismatch"));
@@ -380,7 +437,7 @@ pub(crate) fn thaw_full(
         1 => InitStrategy::Random,
         _ => return Err(bad_state("invalid frozen InitStrategy tag")),
     };
-    if kind != opt.warmup.kind {
+    if kind != next.warmup.kind {
         return Err(bad_state("frozen state warmup strategy mismatch"));
     }
     let budget = reader.read_len(MAX_OBS)?;
@@ -403,7 +460,7 @@ pub(crate) fn thaw_full(
         None
     };
     let has_sobol = reader.read_bool()?;
-    if has_sobol != opt.proposals.sobol_ref().is_some() {
+    if has_sobol != next.proposals.sobol_ref().is_some() {
         return Err(bad_state("frozen state candidate sampler mismatch"));
     }
     let sobol_eng = if has_sobol {
@@ -418,8 +475,6 @@ pub(crate) fn thaw_full(
         None
     };
 
-    let mut next = opt.fork()?;
-
     // 4. PosteriorStore
     let yvar_mode = match reader.read_byte()? {
         0 => None,
@@ -428,133 +483,155 @@ pub(crate) fn thaw_full(
         _ => return Err(bad_state("invalid frozen yvar_mode tag")),
     };
     let backend_tag = reader.read_byte()?;
-    match (backend_tag, &mut next.posterior.backend) {
-        (0, PosteriorBackend::Empirical { x_rows, y_rows }) => {
-            let n = reader.read_len(MAX_OBS)?;
-            let m = reader.read_len(MAX_METRICS)?;
-            if (n == 0 && m != 0) || (n > 0 && m == 0) {
-                return Err(bad_state("invalid frozen empirical observation shape"));
-            }
-            let x_total = n
-                .checked_mul(num_dim)
-                .ok_or_else(|| bad_state("empirical x overflow"))?;
-            let y_total = n
-                .checked_mul(m)
-                .ok_or_else(|| bad_state("empirical y overflow"))?;
-            let x_bytes = x_total
-                .checked_mul(8)
-                .ok_or_else(|| bad_state("empirical x byte overflow"))?;
-            let y_bytes = y_total
-                .checked_mul(8)
-                .ok_or_else(|| bad_state("empirical y byte overflow"))?;
-            let raw_x = reader.read_bytes(x_bytes)?;
-            let raw_y = reader.read_bytes(y_bytes)?;
-            let mut new_x = Vec::new();
-            new_x
-                .try_reserve_exact(n)
-                .map_err(|_| bad_state("allocation failed"))?;
-            let mut new_y = Vec::new();
-            new_y
-                .try_reserve_exact(n)
-                .map_err(|_| bad_state("allocation failed"))?;
-            for row_bytes in raw_x.chunks_exact(num_dim * 8) {
-                let mut row = Vec::new();
-                row.try_reserve_exact(num_dim)
-                    .map_err(|_| bad_state("allocation failed"))?;
-                for chunk in row_bytes.chunks_exact(8) {
-                    let mut arr = [0u8; 8];
-                    arr.copy_from_slice(chunk);
-                    let v = f64::from_bits(u64::from_le_bytes(arr));
-                    if !v.is_finite() {
-                        return Err(bad_state("non-finite empirical x in frozen state"));
-                    }
-                    row.push(v);
+    match backend_tag {
+        0 => {
+            if let PosteriorBackend::Empirical { .. } = next.posterior.backend {
+                let n = reader.read_len(MAX_OBS)?;
+                let m = reader.read_len(MAX_METRICS)?;
+                if (n == 0 && m != 0) || (n > 0 && m == 0) {
+                    return Err(bad_state("invalid frozen empirical observation shape"));
                 }
-                new_x.push(Array1::from_vec(row));
-            }
-            if n > 0 {
-                for row_bytes in raw_y.chunks_exact(m * 8) {
+                let x_total = n
+                    .checked_mul(num_dim)
+                    .ok_or_else(|| bad_state("empirical x overflow"))?;
+                let y_total = n
+                    .checked_mul(m)
+                    .ok_or_else(|| bad_state("empirical y overflow"))?;
+                let x_bytes = x_total
+                    .checked_mul(8)
+                    .ok_or_else(|| bad_state("empirical x byte overflow"))?;
+                let y_bytes = y_total
+                    .checked_mul(8)
+                    .ok_or_else(|| bad_state("empirical y byte overflow"))?;
+                let raw_x = reader.read_bytes(x_bytes)?;
+                let raw_y = reader.read_bytes(y_bytes)?;
+                let mut new_x = Vec::new();
+                new_x
+                    .try_reserve_exact(n)
+                    .map_err(|_| bad_state("allocation failed"))?;
+                let mut new_y = Vec::new();
+                new_y
+                    .try_reserve_exact(n)
+                    .map_err(|_| bad_state("allocation failed"))?;
+                for row_bytes in raw_x.chunks_exact(num_dim * 8) {
                     let mut row = Vec::new();
-                    row.try_reserve_exact(m)
+                    row.try_reserve_exact(num_dim)
                         .map_err(|_| bad_state("allocation failed"))?;
                     for chunk in row_bytes.chunks_exact(8) {
                         let mut arr = [0u8; 8];
                         arr.copy_from_slice(chunk);
                         let v = f64::from_bits(u64::from_le_bytes(arr));
                         if !v.is_finite() {
-                            return Err(bad_state("non-finite empirical y in frozen state"));
+                            return Err(bad_state("non-finite empirical x in frozen state"));
                         }
                         row.push(v);
                     }
-                    new_y.push(Array1::from_vec(row));
+                    new_x.push(Array1::from_vec(row));
                 }
+                if n > 0 {
+                    for row_bytes in raw_y.chunks_exact(m * 8) {
+                        let mut row = Vec::new();
+                        row.try_reserve_exact(m)
+                            .map_err(|_| bad_state("allocation failed"))?;
+                        for chunk in row_bytes.chunks_exact(8) {
+                            let mut arr = [0u8; 8];
+                            arr.copy_from_slice(chunk);
+                            let v = f64::from_bits(u64::from_le_bytes(arr));
+                            if !v.is_finite() {
+                                return Err(bad_state("non-finite empirical y in frozen state"));
+                            }
+                            row.push(v);
+                        }
+                        new_y.push(Array1::from_vec(row));
+                    }
+                }
+                next.posterior.backend = PosteriorBackend::Empirical {
+                    x_rows: new_x,
+                    y_rows: new_y,
+                };
+            } else {
+                return Err(bad_state(
+                    "frozen posterior backend does not match template optimizer",
+                ));
             }
-            *x_rows = new_x;
-            *y_rows = new_y;
         }
         #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
-        (1, PosteriorBackend::Disk { .. }) => {
-            let n = reader.read_len(MAX_OBS)?;
-            let m = reader.read_len(MAX_METRICS)?;
-            if (n == 0 && m != 0) || (n > 0 && m == 0) {
-                return Err(bad_state("invalid frozen disk observation shape"));
-            }
-            next.posterior.clear()?;
-            if n > 0 {
-                let x_total = n
-                    .checked_mul(num_dim)
-                    .ok_or_else(|| bad_state("disk x overflow"))?;
-                let y_total = n
-                    .checked_mul(m)
-                    .ok_or_else(|| bad_state("disk y overflow"))?;
-                let raw_x = reader.read_bytes(
-                    x_total
-                        .checked_mul(8)
-                        .ok_or_else(|| bad_state("disk x byte overflow"))?,
-                )?;
-                let raw_y = reader.read_bytes(
-                    y_total
-                        .checked_mul(8)
-                        .ok_or_else(|| bad_state("disk y byte overflow"))?,
-                )?;
-                let mut x_vals = Vec::new();
-                x_vals
-                    .try_reserve_exact(x_total)
-                    .map_err(|_| bad_state("allocation failed"))?;
-                for chunk in raw_x.chunks_exact(8) {
-                    let mut arr = [0u8; 8];
-                    arr.copy_from_slice(chunk);
-                    let v = f64::from_bits(u64::from_le_bytes(arr));
-                    if !v.is_finite() {
-                        return Err(bad_state("non-finite disk x in frozen state"));
-                    }
-                    x_vals.push(v);
+        1 => {
+            if let PosteriorBackend::Disk { .. } = next.posterior.backend {
+                let n = reader.read_len(MAX_OBS)?;
+                let m = reader.read_len(MAX_METRICS)?;
+                if (n == 0 && m != 0) || (n > 0 && m == 0) {
+                    return Err(bad_state("invalid frozen disk observation shape"));
                 }
-                let mut y_vals = Vec::new();
-                y_vals
-                    .try_reserve_exact(y_total)
-                    .map_err(|_| bad_state("allocation failed"))?;
-                for chunk in raw_y.chunks_exact(8) {
-                    let mut arr = [0u8; 8];
-                    arr.copy_from_slice(chunk);
-                    let v = f64::from_bits(u64::from_le_bytes(arr));
-                    if !v.is_finite() {
-                        return Err(bad_state("non-finite disk y in frozen state"));
+                next.posterior = next.posterior.clear()?;
+                if n > 0 {
+                    let x_total = n
+                        .checked_mul(num_dim)
+                        .ok_or_else(|| bad_state("disk x overflow"))?;
+                    let y_total = n
+                        .checked_mul(m)
+                        .ok_or_else(|| bad_state("disk y overflow"))?;
+                    let raw_x = reader.read_bytes(
+                        x_total
+                            .checked_mul(8)
+                            .ok_or_else(|| bad_state("disk x byte overflow"))?,
+                    )?;
+                    let raw_y = reader.read_bytes(
+                        y_total
+                            .checked_mul(8)
+                            .ok_or_else(|| bad_state("disk y byte overflow"))?,
+                    )?;
+                    let mut x_vals = Vec::new();
+                    x_vals
+                        .try_reserve_exact(x_total)
+                        .map_err(|_| bad_state("allocation failed"))?;
+                    for chunk in raw_x.chunks_exact(8) {
+                        let mut arr = [0u8; 8];
+                        arr.copy_from_slice(chunk);
+                        let v = f64::from_bits(u64::from_le_bytes(arr));
+                        if !v.is_finite() {
+                            return Err(bad_state("non-finite disk x in frozen state"));
+                        }
+                        x_vals.push(v);
                     }
-                    y_vals.push(v);
+                    let mut y_vals = Vec::new();
+                    y_vals
+                        .try_reserve_exact(y_total)
+                        .map_err(|_| bad_state("allocation failed"))?;
+                    for chunk in raw_y.chunks_exact(8) {
+                        let mut arr = [0u8; 8];
+                        arr.copy_from_slice(chunk);
+                        let v = f64::from_bits(u64::from_le_bytes(arr));
+                        if !v.is_finite() {
+                            return Err(bad_state("non-finite disk y in frozen state"));
+                        }
+                        y_vals.push(v);
+                    }
+                    let x_mat = Array2::from_shape_vec((n, num_dim), x_vals)
+                        .map_err(|e| bad_state(e.to_string()))?;
+                    let y_mat = Array2::from_shape_vec((n, m), y_vals)
+                        .map_err(|e| bad_state(e.to_string()))?;
+                    next.posterior.append_disk(&x_mat.view(), &y_mat.view())?;
                 }
-                let x_mat = Array2::from_shape_vec((n, num_dim), x_vals)
-                    .map_err(|e| bad_state(e.to_string()))?;
-                let y_mat =
-                    Array2::from_shape_vec((n, m), y_vals).map_err(|e| bad_state(e.to_string()))?;
-                next.posterior.append_disk(&x_mat.view(), &y_mat.view())?;
+            } else {
+                return Err(bad_state(
+                    "frozen posterior backend does not match template optimizer",
+                ));
             }
         }
-        (2, PosteriorBackend::Model(surrogate)) => {
-            let mut pos = reader.position();
-            surrogate.thaw_surrogate(payload, &mut pos)?;
-            reader = WireReader::from_slice(payload, pos);
-        }
+        2 => match next.posterior.backend {
+            PosteriorBackend::Model(surrogate) => {
+                let mut pos = reader.position();
+                let thawed = surrogate.with_thawed(payload, &mut pos)?;
+                reader = WireReader::from_slice(payload, pos);
+                next.posterior.backend = PosteriorBackend::Model(thawed);
+            }
+            _ => {
+                return Err(bad_state(
+                    "frozen posterior backend does not match template optimizer",
+                ));
+            }
+        },
         _ => {
             return Err(bad_state(
                 "frozen posterior backend does not match template optimizer",
@@ -564,9 +641,9 @@ pub(crate) fn thaw_full(
     next.posterior.yvar_mode = yvar_mode;
 
     // 5. IncumbentLedger
-    next.incumbent.reset();
+    next.incumbent = next.incumbent.reset();
     if let Some(y_obs) = next.posterior.y_obs() {
-        next.incumbent.tracker.rebuild(&y_obs.view());
+        next.incumbent = next.incumbent.rebuild(&y_obs.view());
     }
     let obs_count = next.posterior.obs_count();
     let current = if reader.read_bool()? {
@@ -587,20 +664,23 @@ pub(crate) fn thaw_full(
     } else {
         None
     };
-    next.incumbent.set_current(current);
+    next.incumbent = next.incumbent.set_current(current);
 
     // 6. TrustRegionState
-    next.regions.thaw_regions(&mut reader)?;
+    next.regions = next.regions.thaw_regions(&mut reader)?;
 
     // 7. RegionalModels
     let has_local = reader.read_bool()?;
-    match (has_local, next.local_models.as_mut()) {
+    match (has_local, next.local_models.take()) {
         (true, Some(models)) => {
             let mut pos = reader.position();
-            models.thaw_models(num_dim, payload, &mut pos)?;
+            let thawed_models = models.thaw_models(num_dim, payload, &mut pos)?;
             reader = WireReader::from_slice(payload, pos);
+            next.local_models = Some(thawed_models);
         }
-        (false, None) => {}
+        (false, None) => {
+            next.local_models = None;
+        }
         _ => {
             return Err(bad_state(
                 "frozen regional-model configuration does not match template optimizer",

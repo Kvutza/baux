@@ -1,5 +1,6 @@
 use super::*;
 
+#[derive(Clone, Debug, PartialEq)]
 pub struct SearchAxis {
     pub lower: f32,
     pub span: f32,
@@ -20,11 +21,11 @@ impl SearchState {
     /// matches the complete normalized weight block, rather than vanishing as
     /// one coordinate among billions.
     pub fn configure_axis(
-        &mut self,
+        mut self,
         initial: f32,
         bounds: [f32; 2],
         step: f32,
-    ) -> Result<(), String> {
+    ) -> Result<Self, String> {
         self.check_idle()?;
         let [lower, upper] = bounds;
         if self.started
@@ -56,7 +57,7 @@ impl SearchState {
                 * (self.length_config.length_init as f32 / normalized_step).powi(2),
             step: normalized_step,
         });
-        Ok(())
+        Ok(self)
     }
 
     pub fn axis_candidate(&self, root: u64, candidate: usize) -> Option<f32> {
@@ -113,6 +114,11 @@ impl SearchState {
         }
     }
 
+    pub fn recorded_axis(mut self, round: &Proposals, slot: usize, accept: bool) -> Self {
+        self.record_axis(round, slot, accept);
+        self
+    }
+
     pub fn store_axis(&mut self, round: &Proposals, slot: usize, accept: bool) {
         let Some(axis) = &mut self.axis else {
             return;
@@ -124,11 +130,21 @@ impl SearchState {
         }
     }
 
+    pub fn stored_axis(mut self, round: &Proposals, slot: usize, accept: bool) -> Self {
+        self.store_axis(round, slot, accept);
+        self
+    }
+
     pub fn retain_axis(&mut self) {
         if let Some(axis) = &mut self.axis {
             axis.history.fill(0.0);
             axis.history[0] = axis.base;
         }
+    }
+
+    pub fn retained_axis(mut self) -> Self {
+        self.retain_axis();
+        self
     }
 }
 
@@ -141,22 +157,22 @@ mod tests {
         autoreleasepool(|| {
             let base = vec![0x3400; 257];
             let length = TRLengthConfig::new(0.001, 0.0001, 0.1);
-            let mut search = SearchState::new_fp16(
+            let search = SearchState::new_fp16(
                 &base,
                 vec![ParamBlock::new(7, 0, base.len(), 0.25, 1.0)?],
                 2,
                 length,
                 ProposalDistribution::Rademacher,
             )?;
-            search.configure_axis(0.6457, [0.0001, 0.9997], 0.2)?;
+            let search = search.configure_axis(0.6457, [0.0001, 0.9997], 0.2)?;
             let axis = search.axis.as_ref().unwrap();
             let expected = search.blocks.len() as f32 * length.length_init.powi(2) as f32;
             let actual = axis.weight * axis.step.powi(2);
             assert!((actual - expected).abs() < 1.0e-10);
-            search.observe_initial(0.0, 0.0)?;
-            let proposal = search.ask_round(1, 4, 17, RoundConfig::default())?;
+            let mut search = search.observe_initial(0.0, 0.0)?;
+            let (_state, round) = search.ask_round(1, 4, 17, RoundConfig::default())?;
             assert!(
-                proposal
+                round
                     .axis_value()
                     .is_some_and(|value| { (0.0001..=0.9997).contains(&value) && value != 0.6457 })
             );

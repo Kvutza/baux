@@ -973,8 +973,8 @@ fn hnet_objective() -> Result<(), String> {
         )?;
         drop(model);
         let policy = run.resident_enn(run.acquisition_seed())?;
-        search.configure_enn(policy)?;
-        search.observe_objectives(score_bal.observation)?;
+        search = search.configure_enn(policy)?;
+        search = search.observe_objectives(score_bal.observation)?;
         let mut surrogate = baux::semantics::optimizer::Surrogate::with_spec(
             -score_bal.quality.mean_nll,
             score_bal.quality.mean_nll_variance,
@@ -984,14 +984,14 @@ fn hnet_objective() -> Result<(), String> {
         let base_before =
             crate::apple_gpu::buffer_slice::<u16>(&search.base_buffer(), 1024)?.to_vec();
         let ask_t0 = Instant::now();
-        let geom = search.sample_distances(101)?;
+        let (search, geom) = search.sample_distances(101)?;
         let sel = surrogate.select_pool(
             &geom,
             0,
             baux::semantics::optimizer::AcquisitionRule::Ucb { beta: 0.0 },
             None,
         )?;
-        let (cand_buf, proposal) = search.materialize_selection(101, &sel)?;
+        let (search, (cand_buf, proposal)) = search.materialize_selection(101, &sel)?;
         let ask_ms = ask_t0.elapsed().as_secs_f64() * 1000.0;
         let cand_score = scorer.score_batch(&runtime, &decoder, layout.view(&cand_buf), &batch)?;
         let st = scorer.buffers.hnet()?.last_stats.get();
@@ -1002,8 +1002,9 @@ fn hnet_objective() -> Result<(), String> {
             cand_score.quality.mean_nll_variance,
             true,
         )?;
-        search.commit_host(&proposal, slot, cand_score.observation, true, 0.004)?;
-        assert_eq!(search.sync()?, vec![true]);
+        let search = search.commit_host(&proposal, slot, cand_score.observation, true, 0.004)?;
+        let (search, accepted) = search.sync()?;
+        assert_eq!(accepted, vec![true]);
         let tell_ms = tell_t0.elapsed().as_secs_f64() * 1000.0;
         let base_after =
             crate::apple_gpu::buffer_slice::<u16>(&search.base_buffer(), 1024)?.to_vec();

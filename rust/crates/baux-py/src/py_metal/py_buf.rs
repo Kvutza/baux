@@ -6,27 +6,17 @@ use numpy::{IntoPyArray, PyArray1, PyReadonlyArray1};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
-use std::cell::Cell;
-use std::rc::Rc;
 
 pub(super) fn err(message: String) -> PyErr {
     let _ = py_util::format_profile::<baux::experimental::MetalProfileInfo>;
     PyValueError::new_err(message)
 }
 
-#[pyclass(name = "Var", module = "baux", unsendable)]
+#[pyclass(name = "Var", module = "baux", frozen)]
+#[derive(Clone)]
 pub struct PyMetalWeights {
     pub(crate) buffer: Buffer,
     pub(crate) len: usize,
-    pub(crate) lease: Option<Rc<Cell<usize>>>,
-}
-
-impl Drop for PyMetalWeights {
-    fn drop(&mut self) {
-        if let Some(lease) = &self.lease {
-            lease.set(lease.get() - 1);
-        }
-    }
 }
 
 #[pymethods]
@@ -37,7 +27,6 @@ impl PyMetalWeights {
         Ok(Self {
             buffer: baux::experimental::metal_upload(values).map_err(err)?,
             len: values.len(),
-            lease: None,
         })
     }
 
@@ -76,8 +65,6 @@ impl PyMetalWeights {
     }
 
     fn read<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<u16>> {
-        // All producers synchronize before publishing a view, and leases
-        // prevent mutation.
         let values =
             unsafe { std::slice::from_raw_parts(self.buffer.contents().cast::<u16>(), self.len) };
         values.to_vec().into_pyarray(py)
@@ -85,6 +72,7 @@ impl PyMetalWeights {
 }
 
 #[pyclass(name = "Span", module = "baux", frozen)]
+#[derive(Clone)]
 pub struct PyMetalParamBlock {
     pub(crate) inner: MetalParamBlock,
 }
@@ -100,7 +88,7 @@ impl PyMetalParamBlock {
     }
 }
 
-#[pyclass(name = "Trial", module = "baux", unsendable)]
+#[pyclass(name = "Trial", module = "baux", frozen)]
 pub struct PyMetalProposals {
     pub(super) owner: Py<PyMetalSearchState>,
     pub(super) inner: MetalProposals,
@@ -112,12 +100,7 @@ impl PyMetalProposals {
         let owner = self.owner.bind(py).try_borrow()?;
         let buffer = owner.inner.propose_buffer(&self.inner).map_err(err)?;
         let len = owner.inner.len();
-        owner.leases.set(owner.leases.get() + 1);
-        Ok(PyMetalWeights {
-            buffer,
-            len,
-            lease: Some(owner.leases.clone()),
-        })
+        Ok(PyMetalWeights { buffer, len })
     }
 
     fn var(&self, py: Python<'_>) -> PyResult<PyMetalWeights> {

@@ -18,10 +18,11 @@ mod scratch;
 pub(crate) use self::scratch::MetalPosterior;
 use self::scratch::*;
 
+#[derive(Clone)]
 pub(crate) struct MetalIndex {
     runtime: Arc<Runtime>,
     distance: Vec<ComputePipelineState>,
-    distance_choice: Option<usize>,
+    distance_choice: usize,
     topk16: ComputePipelineState,
     fused16: ComputePipelineState,
     tree16: ComputePipelineState,
@@ -34,21 +35,24 @@ pub(crate) struct MetalIndex {
     local_topk: ComputePipelineState,
     merge: ComputePipelineState,
     init_results: ComputePipelineState,
-    rows: metal::Buffer,
-    row_norms: metal::Buffer,
-    host_rows: Vec<f32>,
-    host_norms: Vec<f32>,
+    rows: Arc<metal::Buffer>,
+    row_norms: Arc<metal::Buffer>,
+    host_rows: Arc<Vec<f32>>,
+    host_norms: Arc<Vec<f32>>,
     row_capacity: usize,
-    scratch: Scratch,
     num_dim: usize,
     plan: Plan,
     request: KnnPlan,
-    profile: Option<KnnProfile>,
 }
 
 impl MetalIndex {
     pub(super) fn supports_neighbors(k: usize) -> bool {
         (1..=MAX_K).contains(&k)
+    }
+
+    #[inline]
+    pub fn lock(&self) -> Result<&Self, std::convert::Infallible> {
+        Ok(self)
     }
 
     pub(crate) fn new(num_dim: usize, train: &ArrayView2<f64>) -> Result<Self, IndexError> {
@@ -60,6 +64,7 @@ impl MetalIndex {
         train: &ArrayView2<f64>,
         request: KnnPlan,
     ) -> Result<Self, IndexError> {
+        check_rows(train, num_dim)?;
         let runtime = Runtime::shared().map_err(IndexError::InvalidParameter)?;
         let pipeline = |name: &str| -> Result<ComputePipelineState, IndexError> {
             let result = runtime.pipeline(SOURCE, "index", name);
@@ -87,13 +92,26 @@ impl MetalIndex {
         let local_topk = pipeline("local_topk")?;
         let merge = pipeline("merge_topk")?;
         let init_results = pipeline("init_results")?;
-        let scratch = Scratch::new(&runtime);
-        let mut index = Self {
-            rows: runtime.buffer::<u32>(1),
-            row_norms: runtime.buffer::<u32>(1),
+
+        let host_rows = flatten_f32(train);
+        let host_norms = norms(&host_rows, num_dim);
+        let row_count = train.nrows();
+        let row_capacity = next_capacity(row_count);
+        let rows = runtime.buffer::<f32>(row_capacity * num_dim);
+        let row_norms = runtime.buffer::<f32>(row_capacity);
+        write_buffer(&rows, 0, &host_rows);
+        write_buffer(&row_norms, 0, &host_norms);
+
+        let plan = if let Some(plan) = direct_plan(request, 16)? {
+            plan
+        } else {
+            Plan::Tree
+        };
+
+        Ok(Self {
             runtime,
             distance,
-            distance_choice: None,
+            distance_choice: 0,
             topk16,
             fused16,
             tree16,
@@ -106,21 +124,23 @@ impl MetalIndex {
             local_topk,
             merge,
             init_results,
-            host_rows: Vec::new(),
-            host_norms: Vec::new(),
-            row_capacity: 0,
-            scratch,
+            rows: Arc::new(rows),
+            row_norms: Arc::new(row_norms),
+            host_rows: Arc::new(host_rows),
+            host_norms: Arc::new(host_norms),
+            row_capacity,
             num_dim,
-            plan: Plan::Split,
+            plan,
             request,
-            profile: None,
-        };
-        index.rebuild(train)?;
-        Ok(index)
+        })
     }
 
     pub(crate) fn len(&self) -> usize {
         self.host_rows.len() / self.num_dim
+    }
+
+    pub(crate) fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 
     pub(crate) fn memory_bytes(&self) -> usize {
@@ -129,40 +149,111 @@ impl MetalIndex {
             .saturating_mul(std::mem::size_of::<f32>())
     }
 
-    pub(crate) fn rebuild(&mut self, train: &ArrayView2<f64>) -> Result<(), IndexError> {
-        check_rows(train, self.num_dim)?;
-        self.host_rows = flatten_f32(train);
-        self.host_norms = norms(&self.host_rows, self.num_dim);
-        self.upload_rows();
-        Ok(())
+    pub fn rebuild(self, train: &ArrayView2<f64>) -> Result<Self, IndexError> {
+        Self::new_plan(self.num_dim, train, self.request)
     }
 
-    pub(crate) fn add(
-        &mut self,
-        rows: &ArrayView2<f64>,
-        _start_key: u64,
-    ) -> Result<(), IndexError> {
+    pub fn add(mut self, rows: &ArrayView2<f64>, _start_key: u64) -> Result<Self, IndexError> {
         check_rows(rows, self.num_dim)?;
-        let start = self.len();
-        let values = flatten_f32(rows);
-        let norms = norms(&values, self.num_dim);
-        self.host_rows.extend_from_slice(&values);
-        self.host_norms.extend_from_slice(&norms);
-        if self.len() > self.row_capacity {
-            self.upload_rows();
-        } else {
-            write_buffer(&self.rows, start * self.num_dim, &values);
-            write_buffer(&self.row_norms, start, &norms);
+        if rows.nrows() == 0 {
+            return Ok(self);
         }
-        Ok(())
+        let old_len = self.len();
+        let values = flatten_f32(rows);
+        let row_norms = norms(&values, self.num_dim);
+
+        Arc::make_mut(&mut self.host_rows).extend_from_slice(&values);
+        Arc::make_mut(&mut self.host_norms).extend_from_slice(&row_norms);
+
+        let new_len = old_len + rows.nrows();
+        if new_len > self.row_capacity {
+            let new_capacity = next_capacity(new_len);
+            let new_rows = self.runtime.buffer::<f32>(new_capacity * self.num_dim);
+            let new_norms_buf = self.runtime.buffer::<f32>(new_capacity);
+
+            if old_len > 0 {
+                let command_buffer = self.runtime.queue.new_command_buffer();
+                let blit = command_buffer.new_blit_command_encoder();
+                blit.copy_from_buffer(
+                    &self.rows,
+                    0,
+                    &new_rows,
+                    0,
+                    (old_len * self.num_dim * std::mem::size_of::<f32>()) as u64,
+                );
+                blit.copy_from_buffer(
+                    &self.row_norms,
+                    0,
+                    &new_norms_buf,
+                    0,
+                    (old_len * std::mem::size_of::<f32>()) as u64,
+                );
+                blit.end_encoding();
+                command_buffer.commit();
+                command_buffer.wait_until_completed();
+            }
+
+            write_buffer(&new_rows, old_len * self.num_dim, &values);
+            write_buffer(&new_norms_buf, old_len, &row_norms);
+
+            self.rows = Arc::new(new_rows);
+            self.row_norms = Arc::new(new_norms_buf);
+            self.row_capacity = new_capacity;
+        } else if Arc::strong_count(&self.rows) == 1 && Arc::strong_count(&self.row_norms) == 1 {
+            write_buffer(&self.rows, old_len * self.num_dim, &values);
+            write_buffer(&self.row_norms, old_len, &row_norms);
+        } else {
+            let new_rows = self.runtime.buffer::<f32>(self.row_capacity * self.num_dim);
+            let new_norms_buf = self.runtime.buffer::<f32>(self.row_capacity);
+
+            if old_len > 0 {
+                let command_buffer = self.runtime.queue.new_command_buffer();
+                let blit = command_buffer.new_blit_command_encoder();
+                blit.copy_from_buffer(
+                    &self.rows,
+                    0,
+                    &new_rows,
+                    0,
+                    (old_len * self.num_dim * std::mem::size_of::<f32>()) as u64,
+                );
+                blit.copy_from_buffer(
+                    &self.row_norms,
+                    0,
+                    &new_norms_buf,
+                    0,
+                    (old_len * std::mem::size_of::<f32>()) as u64,
+                );
+                blit.end_encoding();
+                command_buffer.commit();
+                command_buffer.wait_until_completed();
+            }
+
+            write_buffer(&new_rows, old_len * self.num_dim, &values);
+            write_buffer(&new_norms_buf, old_len, &row_norms);
+
+            self.rows = Arc::new(new_rows);
+            self.row_norms = Arc::new(new_norms_buf);
+        }
+
+        Ok(self)
     }
 
-    pub(crate) fn search(
-        &mut self,
+    pub fn search(
+        &self,
         queries: &ArrayView2<f64>,
         k_eff: usize,
         search_k: usize,
     ) -> Result<(Array2<f64>, Array2<i64>), IndexError> {
+        let (output, _profile) = self.search_profile(queries, k_eff, search_k)?;
+        Ok(output)
+    }
+
+    pub fn search_profile(
+        &self,
+        queries: &ArrayView2<f64>,
+        k_eff: usize,
+        search_k: usize,
+    ) -> Result<((Array2<f64>, Array2<i64>), Option<KnnProfile>), IndexError> {
         check_rows(queries, self.num_dim)?;
         if !Self::supports_neighbors(k_eff) {
             return Err(IndexError::InvalidParameter(format!(
@@ -170,27 +261,29 @@ impl MetalIndex {
             )));
         }
         if queries.nrows() == 0 || self.len() == 0 {
-            return Ok(pad_k(
-                Array2::from_elem((queries.nrows(), 0), f64::INFINITY),
-                Array2::zeros((queries.nrows(), 0)),
-                search_k,
+            return Ok((
+                pad_k(
+                    Array2::from_elem((queries.nrows(), 0), f64::INFINITY),
+                    Array2::zeros((queries.nrows(), 0)),
+                    search_k,
+                ),
+                None,
             ));
         }
 
+        let mut scratch = Scratch::new(&self.runtime);
         let query_values = flatten_f32(queries);
-        self.scratch
-            .ensure(&self.runtime, self.num_dim, queries.nrows(), k_eff);
-        write_buffer(&self.scratch.query, 0, &query_values);
-        write_buffer(
-            &self.scratch.query_norms,
-            0,
-            &norms(&query_values, self.num_dim),
-        );
-        let plan = {
-            self.calibrate_distance(queries.nrows())?;
-            self.tile_plan(queries.nrows(), k_eff)?
+        scratch.ensure(&self.runtime, self.num_dim, queries.nrows(), k_eff);
+        write_buffer(&scratch.query, 0, &query_values);
+        write_buffer(&scratch.query_norms, 0, &norms(&query_values, self.num_dim));
+
+        let plan = if let Some(plan) = direct_plan(self.request, k_eff)? {
+            plan
+        } else if k_eff <= 16 {
+            Plan::Tree
+        } else {
+            Plan::Wide
         };
-        self.plan = plan;
 
         let command_buffer = self.runtime.queue.new_command_buffer();
         let start = Instant::now();
@@ -198,15 +291,27 @@ impl MetalIndex {
             plan,
             Plan::Tree | Plan::Tiled | Plan::Simd | Plan::Gram | Plan::Wide
         ) {
-            self.encode_tree(plan, command_buffer, queries.nrows(), k_eff)
+            scratch.ensure_tree(
+                &self.runtime,
+                queries.nrows(),
+                k_eff,
+                plan_lists(plan, self.len()),
+                if plan == Plan::Wide {
+                    2
+                } else {
+                    plan_fan(k_eff)
+                },
+            );
+            self.encode_tree(&scratch, plan, command_buffer, queries.nrows(), k_eff)
                 .map_err(IndexError::InvalidParameter)?;
         } else {
-            self.encode_serial(command_buffer, plan, queries.nrows(), k_eff)
+            self.encode_serial(&scratch, command_buffer, plan, queries.nrows(), k_eff)
                 .map_err(IndexError::InvalidParameter)?;
         }
         command_buffer.commit();
         command_buffer.wait_until_completed();
-        self.profile = Some(KnnProfile {
+
+        let profile = KnnProfile {
             rows: self.len(),
             queries: queries.nrows(),
             dims: self.num_dim,
@@ -216,24 +321,23 @@ impl MetalIndex {
             scan: Duration::ZERO,
             select: Duration::ZERO,
             reduce: Duration::ZERO,
-        });
+        };
 
-        Ok(unpack_results(
-            &self.scratch,
-            queries.nrows(),
-            k_eff,
-            search_k,
+        Ok((
+            unpack_results(&scratch, queries.nrows(), k_eff, search_k),
+            Some(profile),
         ))
     }
 
     fn encode_serial(
         &self,
+        scratch: &Scratch,
         command: &metal::CommandBufferRef,
         plan: Plan,
         queries: usize,
         k: usize,
     ) -> Result<(), String> {
-        self.scratch.encode_init(
+        scratch.encode_init(
             command,
             &self.init_results,
             self.len(),
@@ -255,13 +359,14 @@ impl MetalIndex {
                 lists: 0,
                 groups: 0,
             };
-            self.encode_step(command, plan, &params, queries, k);
+            self.encode_step(scratch, command, plan, &params, queries, k);
         }
         Ok(())
     }
 
     fn encode_step(
         &self,
+        scratch: &Scratch,
         command: &metal::CommandBufferRef,
         plan: Plan,
         params: &Params,
@@ -271,12 +376,10 @@ impl MetalIndex {
         match plan {
             Plan::Split => {
                 let encoder = command.new_compute_command_encoder();
-                encoder.set_compute_pipeline_state(
-                    &self.distance[self.distance_choice.expect("distance schedule calibrated")],
-                );
+                encoder.set_compute_pipeline_state(&self.distance[self.distance_choice]);
                 encoder.set_buffer(0, Some(&self.rows), 0);
-                encoder.set_buffer(1, Some(&self.scratch.query), 0);
-                encoder.set_buffer(2, Some(&self.scratch.tile_distances), 0);
+                encoder.set_buffer(1, Some(&scratch.query), 0);
+                encoder.set_buffer(2, Some(&scratch.tile_distances), 0);
                 set_params(&encoder, 3, params);
                 self.default_distance(&encoder, queries);
                 encoder.end_encoding();
@@ -288,9 +391,9 @@ impl MetalIndex {
                     &self.local_topk
                 };
                 encoder.set_compute_pipeline_state(topk);
-                encoder.set_buffer(0, Some(&self.scratch.tile_distances), 0);
-                encoder.set_buffer(1, Some(&self.scratch.local_distances), 0);
-                encoder.set_buffer(2, Some(&self.scratch.local_indices), 0);
+                encoder.set_buffer(0, Some(&scratch.tile_distances), 0);
+                encoder.set_buffer(1, Some(&scratch.local_distances), 0);
+                encoder.set_buffer(2, Some(&scratch.local_indices), 0);
                 set_params(&encoder, 3, params);
                 encoder.dispatch_thread_groups(
                     MTLSize {
@@ -310,9 +413,9 @@ impl MetalIndex {
                 let encoder = command.new_compute_command_encoder();
                 encoder.set_compute_pipeline_state(&self.fused16);
                 encoder.set_buffer(0, Some(&self.rows), 0);
-                encoder.set_buffer(1, Some(&self.scratch.query), 0);
-                encoder.set_buffer(2, Some(&self.scratch.local_distances), 0);
-                encoder.set_buffer(3, Some(&self.scratch.local_indices), 0);
+                encoder.set_buffer(1, Some(&scratch.query), 0);
+                encoder.set_buffer(2, Some(&scratch.local_distances), 0);
+                encoder.set_buffer(3, Some(&scratch.local_indices), 0);
                 set_params(&encoder, 4, params);
                 encoder.dispatch_thread_groups(
                     MTLSize {
@@ -335,10 +438,10 @@ impl MetalIndex {
 
         let encoder = command.new_compute_command_encoder();
         encoder.set_compute_pipeline_state(&self.merge);
-        encoder.set_buffer(0, Some(&self.scratch.result_distances), 0);
-        encoder.set_buffer(1, Some(&self.scratch.result_indices), 0);
-        encoder.set_buffer(2, Some(&self.scratch.local_distances), 0);
-        encoder.set_buffer(3, Some(&self.scratch.local_indices), 0);
+        encoder.set_buffer(0, Some(&scratch.result_distances), 0);
+        encoder.set_buffer(1, Some(&scratch.result_indices), 0);
+        encoder.set_buffer(2, Some(&scratch.local_distances), 0);
+        encoder.set_buffer(3, Some(&scratch.local_indices), 0);
         set_params(&encoder, 4, params);
         encoder.dispatch_thread_groups(
             MTLSize {
@@ -360,11 +463,12 @@ impl MetalIndex {
     }
 
     pub(crate) fn profile(&self) -> Option<KnnProfile> {
-        self.profile.clone()
+        None
     }
 
     fn encode_tree(
         &self,
+        scratch: &Scratch,
         plan: Plan,
         command: &metal::CommandBufferRef,
         queries: usize,
@@ -388,9 +492,9 @@ impl MetalIndex {
             groups: 0,
         };
         let (scan_distances, scan_indices) = if scan_lists == 1 {
-            (&self.scratch.result_distances, &self.scratch.result_indices)
+            (&scratch.result_distances, &scratch.result_indices)
         } else {
-            (&self.scratch.tree_distances, &self.scratch.tree_indices)
+            (&scratch.tree_distances, &scratch.tree_indices)
         };
         let encoder = command.new_compute_command_encoder();
         encoder.set_compute_pipeline_state(match plan {
@@ -402,12 +506,12 @@ impl MetalIndex {
             Plan::Split | Plan::Fused => unreachable!("serial plan cannot encode a tree"),
         });
         encoder.set_buffer(0, Some(&self.rows), 0);
-        encoder.set_buffer(1, Some(&self.scratch.query), 0);
+        encoder.set_buffer(1, Some(&scratch.query), 0);
         encoder.set_buffer(2, Some(scan_distances), 0);
         encoder.set_buffer(3, Some(scan_indices), 0);
         if plan == Plan::Gram {
             encoder.set_buffer(4, Some(&self.row_norms), 0);
-            encoder.set_buffer(5, Some(&self.scratch.query_norms), 0);
+            encoder.set_buffer(5, Some(&scratch.query_norms), 0);
             set_params(&encoder, 6, &params);
         } else {
             set_params(&encoder, 4, &params);
@@ -440,164 +544,22 @@ impl MetalIndex {
             } else {
                 &self.reduce16
             };
-            self.scratch
-                .reduce_pass(command, reduce, &params, queries, lists, groups, tree_input)?;
+            scratch.reduce_pass(command, reduce, &params, queries, lists, groups, tree_input)?;
             lists = groups;
             tree_input = !tree_input;
         }
         Ok(())
     }
 
-    fn calibrate_distance(&mut self, queries: usize) -> Result<(), IndexError> {
-        if self.distance_choice.is_some() {
-            return Ok(());
-        }
-        let query_count = queries;
-        let params = Params {
-            rows: to_u32(self.len(), "row count")?,
-            dim: to_u32(self.num_dim, "dimension")?,
-            queries: to_u32(query_count, "query count")?,
-            tile_start: 0,
-            tile_rows: to_u32(self.len().min(TILE_ROWS), "tile rows")?,
-            k: 1,
-            lanes: 1,
-            tiles: 0,
-            lists: 0,
-            groups: 0,
-        };
-        self.run_distance(0, &params);
-        let reference = self.scratch.distance_values(query_count);
-        let runtime = Arc::clone(&self.runtime);
-        let choice = runtime
-            .race(
-                "knn.distance.v2",
-                &[self.num_dim, query_count],
-                self.distance.len(),
-                5,
-                |schedule| {
-                    let start = Instant::now();
-                    self.run_distance(schedule, &params);
-                    let elapsed = start.elapsed();
-                    if !same_distances(&reference, &self.scratch.distance_values(query_count)) {
-                        return Ok(None);
-                    }
-                    Ok(Some(elapsed))
-                },
-            )
-            .map_err(IndexError::InvalidParameter)?;
-        self.distance_choice = Some(choice);
-        Ok(())
-    }
-
-    fn tile_plan(&mut self, queries: usize, k: usize) -> Result<Plan, IndexError> {
-        if let Some(plan) = direct_plan(self.request, k)? {
-            if matches!(
-                plan,
-                Plan::Tree | Plan::Tiled | Plan::Simd | Plan::Gram | Plan::Wide
-            ) {
-                self.scratch.ensure_tree(
-                    &self.runtime,
-                    queries,
-                    k,
-                    plan_lists(plan, self.len()),
-                    if plan == Plan::Wide { 2 } else { plan_fan(k) },
-                );
-            }
-            return Ok(plan);
-        }
-        let gram = k <= 16 && queries >= GRAM_QUERIES;
-        let tree_lists = if gram {
-            self.len().div_ceil(GRAM_ROWS)
-        } else {
-            self.len().div_ceil(TILE_ROWS)
-        };
-        self.scratch.ensure_tree(
-            &self.runtime,
-            queries,
-            k,
-            tree_lists,
-            if k <= 16 { plan_fan(k) } else { 2 },
-        );
-        let candidates = plan_options(gram, k);
-        let query_count = queries;
-        let mut reference = None;
-        let runtime = Arc::clone(&self.runtime);
-        let choice = runtime
-            .race(
-                "knn.plan.metal.v5",
-                &[self.num_dim, self.len(), query_count, k],
-                candidates.len(),
-                5,
-                |candidate| {
-                    let plan = candidates[candidate];
-                    if !plan.graph().valid() {
-                        return Ok(None);
-                    }
-                    let elapsed = self.run_plan(plan, query_count, k)?;
-                    let values = self.scratch.result_values(query_count, k);
-                    if let Some(reference) = &reference {
-                        if !same_topk(reference, &values, query_count, k, self.len()) {
-                            return Ok(None);
-                        }
-                    } else {
-                        reference = Some(values);
-                    }
-                    Ok(Some(elapsed))
-                },
-            )
-            .map_err(IndexError::InvalidParameter)?;
-        Ok(candidates[choice])
-    }
-
-    fn run_plan(&self, plan: Plan, queries: usize, k: usize) -> Result<Duration, String> {
-        let start = Instant::now();
-        let command_buffer = self.runtime.queue.new_command_buffer();
-
-        if matches!(
-            plan,
-            Plan::Tree | Plan::Tiled | Plan::Simd | Plan::Gram | Plan::Wide
-        ) {
-            self.encode_tree(plan, command_buffer, queries, k)?;
-        } else {
-            self.encode_serial(command_buffer, plan, queries, k)?;
-        }
-        command_buffer.commit();
-        command_buffer.wait_until_completed();
-        Ok(start.elapsed())
-    }
-
-    fn run_distance(&self, schedule: usize, params: &Params) {
-        let command_buffer = self.runtime.queue.new_command_buffer();
-        let encoder = command_buffer.new_compute_command_encoder();
-        encoder.set_compute_pipeline_state(&self.distance[schedule]);
-        encoder.set_buffer(0, Some(&self.rows), 0);
-        encoder.set_buffer(1, Some(&self.scratch.query), 0);
-        encoder.set_buffer(2, Some(&self.scratch.tile_distances), 0);
-        set_params(encoder, 3, params);
-        dispatch_distance(
-            encoder,
-            schedule + 1 == self.distance.len(),
-            params.queries as usize,
-        );
-        encoder.end_encoding();
-        command_buffer.commit();
-        command_buffer.wait_until_completed();
-    }
-
     fn distance_lanes(&self) -> u32 {
-        [1, 2, 4, 4][self.distance_choice.expect("distance schedule calibrated")]
+        [1, 2, 4, 4][self.distance_choice]
     }
 
     fn default_distance(&self, encoder: &metal::ComputeCommandEncoderRef, queries: usize) {
-        let choice = self.distance_choice.expect("distance schedule calibrated");
-        dispatch_distance(encoder, choice + 1 == self.distance.len(), queries);
-    }
-
-    fn upload_rows(&mut self) {
-        self.row_capacity = next_capacity(self.len());
-        self.rows = self.runtime.buffer::<f32>(self.row_capacity * self.num_dim);
-        self.row_norms = self.runtime.buffer::<f32>(self.row_capacity);
-        write_buffer(&self.rows, 0, &self.host_rows);
-        write_buffer(&self.row_norms, 0, &self.host_norms);
+        dispatch_distance(
+            encoder,
+            self.distance_choice + 1 == self.distance.len(),
+            queries,
+        );
     }
 }

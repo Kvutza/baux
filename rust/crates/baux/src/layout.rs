@@ -82,9 +82,8 @@ fn memory_layout(
 }
 
 fn disk_dir(work_dir: Option<PathBuf>) -> Result<PathBuf, ENNError> {
-    work_dir.or_else(EnnStorage::work_env).ok_or_else(|| {
-        ENNError::InvalidParameter("Disk storage requires work_dir or BAUX_WORK_DIR".into())
-    })
+    work_dir
+        .ok_or_else(|| ENNError::InvalidParameter("Disk storage requires explicit work_dir".into()))
 }
 
 fn disk_layout(

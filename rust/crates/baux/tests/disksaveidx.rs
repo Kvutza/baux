@@ -9,8 +9,9 @@ use baux::index::IndexDriver;
 use ndarray::{Array2, ArrayView2};
 use tempfile::TempDir;
 
-fn append_rows(model: &mut ENN, x: &ArrayView2<f64>, y: &ArrayView2<f64>) {
-    model.add(x, y, None).expect("add");
+fn append_rows(mut model: ENN, x: &ArrayView2<f64>, y: &ArrayView2<f64>) -> ENN {
+    model = model.add(x, y, None).expect("add");
+    model
 }
 
 fn build_model(work_dir: &std::path::Path, dim: usize) -> ENN {
@@ -27,8 +28,7 @@ fn build_model(work_dir: &std::path::Path, dim: usize) -> ENN {
         Some(work_dir.to_path_buf()),
     )
     .expect("reference new");
-    model.index_access().ensure_sync().expect("reference sync");
-    model
+    model.ensure_sync().expect("reference sync")
 }
 fn build_model2(work_dir: &std::path::Path, dim: usize) -> ENN {
     let mut model = ENN::new_empty(
@@ -43,10 +43,10 @@ fn build_model2(work_dir: &std::path::Path, dim: usize) -> ENN {
     for (start, count) in [(0, 1000usize), (1000, 1000usize), (2000, 500usize)] {
         let x = Array2::from_shape_fn((count, dim), |(i, j)| (start + i + j) as f64);
         let y = Array2::from_shape_fn((count, 1), |(i, _)| (start + i) as f64);
-        append_rows(&mut model, &x.view(), &y.view());
-        model.schedule_flush().expect("flush");
+        model = append_rows(model, &x.view(), &y.view());
+        model = model.schedule_flush().expect("flush");
     }
-    model.index_access().ensure_sync().expect("sync");
+    model = model.ensure_sync().expect("sync");
     model
 }
 
@@ -67,11 +67,11 @@ fn disk_correct() {
     let query = Array2::from_shape_fn((1, dim), |(_, j)| j as f64 * 0.01);
 
     let pre_idx = {
-        let model = build_model2(&work_dir, dim);
+        let mut model = build_model2(&work_dir, dim);
         let pre_idx = model
             .neighbors(&query.view(), 5, false)
             .expect("neighbors pre-persist");
-        model.persist_index().expect("persist");
+        model = model.persist_index().expect("persist");
         let post_persist_idx = model
             .neighbors(&query.view(), 5, false)
             .expect("neighbors post-persist");
@@ -92,7 +92,7 @@ fn disk_correct() {
         .expect("reference neighbors");
 
     let t0 = Instant::now();
-    let reopened = ENN::new_storage(
+    let mut reopened = ENN::new_storage(
         Array2::zeros((0, dim)),
         Array2::zeros((0, 1)),
         None,
@@ -107,10 +107,7 @@ fn disk_correct() {
         reopen_s < 1.0,
         "reopen took {reopen_s:.3}s; expected fast mmap open after persist"
     );
-    reopened
-        .index_access()
-        .ensure_sync()
-        .expect("post-reopen sync");
+    reopened = reopened.ensure_sync().expect("post-reopen sync");
     let post_idx = reopened
         .neighbors(&query.view(), 5, false)
         .expect("neighbors");
@@ -128,12 +125,12 @@ fn disk_index2() {
     let dim = 32usize;
     let query = Array2::from_shape_fn((1, dim), |(_, j)| j as f64 * 0.01);
 
-    let model = build_model2(&work_dir, dim);
-    model.persist_index().expect("persist");
+    let mut model = build_model2(&work_dir, dim);
+    model = model.persist_index().expect("persist");
     let checksum_after_persist = pages_checksum(&work_dir);
     let neighbors_after_persist = model.neighbors(&query.view(), 5, false).expect("neighbors");
 
-    model.index_access().ensure_sync().expect("tell sync");
+    model = model.ensure_sync().expect("tell sync");
 
     assert_eq!(
         checksum_after_persist,
@@ -164,11 +161,11 @@ fn schedule_persist() {
     for start in [0usize, 50, 100] {
         let x = Array2::from_shape_fn((60, dim), |(i, j)| (start + i + j) as f64);
         let y = Array2::from_shape_fn((60, 1), |(i, _)| (start + i) as f64);
-        append_rows(&mut model, &x.view(), &y.view());
-        model.schedule_flush().expect("schedule");
-        model.index_access().ensure_sync().expect("wait");
+        model = append_rows(model, &x.view(), &y.view());
+        model = model.schedule_flush().expect("schedule");
+        model = model.ensure_sync().expect("wait");
     }
-    model.index_access().ensure_sync().expect("soft drain");
+    model = model.ensure_sync().expect("soft drain");
     assert!(
         !pages.exists(),
         "schedule/wait soft sync must not write pages.bin"
@@ -181,6 +178,6 @@ fn schedule_persist() {
     assert_eq!(idx.ncols(), 3);
     assert!(idx[[0, 0]] < 180);
 
-    model.persist_index().expect("hard persist");
+    model = model.persist_index().expect("hard persist");
     assert!(pages.exists());
 }

@@ -149,7 +149,8 @@ failure-tolerance = 3
     st.elapsed_seconds = 0.1;
     for round in 1..=2 {
         let mut sr = round_rng(seed, round);
-        let u = opt.ask(1, &mut sr).expect("ask");
+        let (u, new_opt) = opt.ask(1, &mut sr).expect("ask");
+        opt = new_opt;
         let pts = dom.from_unit(&u.view());
         let sl = pts.as_slice_memory_order().expect("slice");
         let sc = eval_batch(&mut None, sl, 1).expect("eval")[0];
@@ -161,7 +162,7 @@ failure-tolerance = 3
             st.initial_error = tracking_error(&half_cfg, sc);
         }
         let y = Array2::from_elem((1, 1), sc);
-        opt.tell(&u.view(), &y.view(), &mut sr).expect("tell");
+        opt = opt.tell(&u.view(), &y.view(), None, &mut sr).expect("tell");
         st.best_scores.push(st.best_score);
         st.eval_scores.push(vec![sc]);
         st.completed_round = round;

@@ -1,5 +1,4 @@
 use super::*;
-use std::sync::atomic::Ordering;
 
 impl SearchState {
     #[allow(clippy::too_many_arguments)]
@@ -176,19 +175,20 @@ impl SearchState {
         ] = compile_pipelines(&runtime, independent_fp16, perturbation, single_pool)?;
         let (base_buf, history_rows) = match base_input {
             Ok(slice) => {
-                let base_buf = runtime.buffer_with(slice);
+                let base_buf = Arc::new(runtime.buffer_with(slice));
                 let history_rows = (0..capacity)
-                    .map(|_| runtime.buffer::<u16>(dimensions))
+                    .map(|_| Arc::new(runtime.buffer::<u16>(dimensions)))
                     .collect();
                 (base_buf, history_rows)
             }
             Err((buf, _)) => {
                 let mut history_rows = Vec::with_capacity(capacity);
-                history_rows.push(buf.clone());
+                let base_buf = Arc::new(buf);
+                history_rows.push(Arc::clone(&base_buf));
                 for _ in 1..capacity {
-                    history_rows.push(runtime.buffer::<u16>(dimensions));
+                    history_rows.push(Arc::new(runtime.buffer::<u16>(dimensions)));
                 }
-                (buf, history_rows)
+                (base_buf, history_rows)
             }
         };
         let mut trust = TurboTrustRegion::new(dimensions, length);
@@ -201,12 +201,12 @@ impl SearchState {
             offsets_gpu: runtime.buffer_with(&offsets),
             history_rows,
             base: base_buf,
-            proposal: runtime.buffer::<u16>(dimensions),
-            partials: runtime.buffer::<Partial>(partial_count),
-            pool_aggregates: runtime.buffer::<Partial>(aggregate_count),
-            decision: runtime.buffer::<Decision>(1),
-            pool_distances: runtime.buffer::<f32>(5 * MAX_HISTORY),
-            pool_geometry: runtime.buffer::<f32>(geometry_count),
+            proposal: Arc::new(runtime.buffer::<u16>(dimensions)),
+            partials: Arc::new(runtime.buffer::<Partial>(partial_count)),
+            pool_aggregates: Arc::new(runtime.buffer::<Partial>(aggregate_count)),
+            decision: Arc::new(runtime.buffer::<Decision>(1)),
+            pool_distances: Arc::new(runtime.buffer::<f32>(5 * MAX_HISTORY)),
+            pool_geometry: Arc::new(runtime.buffer::<f32>(geometry_count)),
             runtime,
             blocks,
             tiles,
@@ -258,8 +258,6 @@ impl SearchState {
             fit_seed: 0,
             fitter: None,
             fitted_enn: None,
-            owner: NEXT_OWNER.fetch_add(1, Ordering::Relaxed),
-            leases: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             next_id: 0,
             pending: None,
             evaluation: None,
@@ -274,10 +272,10 @@ impl SearchState {
             axis: None,
         };
         if !single_pool && !state.history_rows.is_empty() {
-            state.copy(&state.base, &state.history_rows[0])?;
+            state.copy(&*state.base, &*state.history_rows[0])?;
         }
         if let Some((value, variance)) = initial {
-            state.observe_initial(value, variance)?;
+            state = state.observe_initial(value, variance)?;
         }
         Ok(state)
     }

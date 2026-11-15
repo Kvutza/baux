@@ -443,18 +443,20 @@ fn run_arm(
                 return Err("restart distance needs multi-region state".into());
             };
             separation = Some(restart_distance(&center, state));
-            let (before, after, next_generation) = do_restart(&mut optimizer, &center, &mut rng)?;
+            let (before, after, next_generation, opt) = do_restart(optimizer, &center, &mut rng)?;
+            optimizer = opt;
             restart_center = Some(center);
             before_restart = Some(before);
             after_restart = Some(after);
             generation = Some(next_generation);
         }
         let count = config.regions.min(config.evaluations - start);
-        let points = optimizer.ask(count, &mut rng).map_err(|e| e.to_string())?;
+        let (points, opt) = optimizer.ask(count, &mut rng).map_err(|e| e.to_string())?;
+        optimizer = opt;
         let previous = region_trials(&optimizer)?;
         let rewards = score(&points, config.dimensions, objective);
         values.extend(rewards.column(0).iter().copied());
-        optimizer
+        optimizer = optimizer
             .tell_variance(&points.view(), &rewards.view(), None, &mut rng)
             .map_err(|e| e.to_string())?;
         add_trials(&mut region_counts, &previous, &region_trials(&optimizer)?)?;
@@ -543,10 +545,10 @@ fn make_optimizer(
 }
 
 fn do_restart(
-    optimizer: &mut baux::BayesOptimizer,
+    optimizer: baux::BayesOptimizer,
     center: &[f64],
     rng: &mut baux::Prng,
-) -> Result<(Vec<usize>, Vec<usize>, u64), String> {
+) -> Result<(Vec<usize>, Vec<usize>, u64, baux::BayesOptimizer), String> {
     use baux::optimizer::TrustRegionState;
 
     let before = optimizer.model_counts().ok_or("missing local models")?;
@@ -554,11 +556,12 @@ fn do_restart(
         TrustRegionState::Multi { state, .. } => state.generation(0).ok_or("missing slot")?,
         _ => return Err("not a host multi-region optimizer".into()),
     };
-    optimizer
-        .restart_region(0, &ndarray::Array1::from_vec(center.to_vec()).view(), rng)
+    let center_view = ndarray::Array1::from_vec(center.to_vec());
+    let (_abandoned, optimizer) = optimizer
+        .restart_natural(0, &center_view.view(), rng)
         .map_err(|e| e.to_string())?;
     let after = optimizer.model_counts().ok_or("missing local models")?;
-    Ok((before, after, generation + 1))
+    Ok((before, after, generation + 1, optimizer))
 }
 
 fn choose_center(

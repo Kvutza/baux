@@ -28,7 +28,7 @@ fn contains_resident(state: &SearchState, incoming: &Buffer) -> Result<bool, Str
     let inc =
         unsafe { std::slice::from_raw_parts(incoming.contents().cast::<u16>(), state.dimensions) };
     let base = unsafe {
-        std::slice::from_raw_parts(state.base.contents().cast::<u16>(), state.dimensions)
+        std::slice::from_raw_parts((&*state.base).contents().cast::<u16>(), state.dimensions)
     };
     let len = state.length as f32;
     let fp16 = state.independent_fp16;
@@ -85,31 +85,42 @@ pub(super) fn routes(
 }
 
 pub(super) fn flush_region(
-    search: &mut RegionalSearch,
+    mut search: RegionalSearch,
     slot: usize,
     adopt: bool,
-) -> Result<(), String> {
-    let state = search.states.get_mut(slot).ok_or("unknown region")?;
-    state.check_idle()?;
-    let has_surrogate = state.has_surrogate();
-    while let Some(entry) = search.pending_imports[slot].first() {
-        let row = entry.row.clone();
+) -> Result<RegionalSearch, String> {
+    search
+        .states
+        .get(slot)
+        .ok_or("unknown region")?
+        .check_idle()?;
+    let has_surrogate = search.states[slot].has_surrogate();
+    while !search.pending_imports[slot].is_empty() {
+        let entry = search.pending_imports[slot].remove(0);
+        let row = entry.row;
         let observation = entry.observation;
         let from_region = entry.from_region;
+        let fallback = search.states[slot].clone();
+        let mut state = std::mem::replace(&mut search.states[slot], fallback);
         if has_surrogate {
-            search.states[slot].import_objectives(&row, observation)?;
-        }
-        if (!has_surrogate || adopt)
-            && from_region
-            && search.states[slot].adopt_incumbent(&row, observation)?
-        {
-            search
-                .ledger
-                .adopt_shared(slot, f64::from(observation.control().mean))
+            state = state
+                .import_objectives(&row, observation)
                 .map_err(|error| error.to_string())?;
         }
-        search.pending_imports[slot].remove(0);
+        if (!has_surrogate || adopt) && from_region {
+            let (next_state, adopted) = state
+                .adopt_incumbent(&row, observation)
+                .map_err(|error| error.to_string())?;
+            state = next_state;
+            if adopted {
+                search
+                    .ledger
+                    .adopt_shared(slot, f64::from(observation.control().mean))
+                    .map_err(|error| error.to_string())?;
+            }
+        }
+        search.states[slot] = state;
         search.delivered_imports += 1;
     }
-    Ok(())
+    Ok(search)
 }

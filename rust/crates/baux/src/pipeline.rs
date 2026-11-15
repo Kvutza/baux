@@ -185,21 +185,21 @@ mod tests {
             | ModelStage::Enn(3)
             | AcqStage::ucb_sense(1.5, Minimize);
 
-        let mut warmup_opt = pipe.build(bounds, &mut rng).unwrap();
-        let x_init = warmup_opt.warmup_design(4, &mut rng).unwrap();
+        let warmup_opt = pipe.build(bounds, &mut rng).unwrap();
+        let (x_init, warmup_opt) = warmup_opt.warmup_design(4, &mut rng).unwrap();
         let y_init = x_init.map_axis(ndarray::Axis(1), |row| row[0].powi(2) + row[1].powi(2));
         let y_init = y_init.insert_axis(ndarray::Axis(1));
 
-        let mut active_opt = warmup_opt
+        let active_opt = warmup_opt
             .activate(&x_init.view(), &y_init.view(), &mut rng)
             .unwrap();
-        let ticket = active_opt.ask_ticket(2, &mut rng).unwrap();
+        let (ticket, active_opt) = active_opt.ask_ticket(2, &mut rng).unwrap();
         assert_eq!(ticket.num_arms(), 2);
         let y_step = ticket
             .as_array()
             .map_axis(ndarray::Axis(1), |row| row[0].powi(2) + row[1].powi(2))
             .insert_axis(ndarray::Axis(1));
-        active_opt
+        let active_opt = active_opt
             .tell_ticket(ticket, &y_step.view(), &mut rng)
             .unwrap();
         assert!(active_opt.best_y().unwrap() >= 0.0);
@@ -231,8 +231,8 @@ mod tests {
             | PerturbStage::Raasp(32)
             | ModelStage::Enn(3)
             | AcqStage::ucb_sense(1.5, Minimize);
-        let mut warmup = pipe.build(bounds, &mut rng).unwrap();
-        let x0 = warmup.warmup_design(4, &mut rng).unwrap();
+        let warmup = pipe.build(bounds, &mut rng).unwrap();
+        let (x0, warmup) = warmup.warmup_design(4, &mut rng).unwrap();
         let y0 = array![[1.0], [2.0], [0.5], [3.0]];
         let branch_a = warmup.activate(&x0.view(), &y0.view(), &mut rng).unwrap();
         let branch_b = branch_a.fork().unwrap();

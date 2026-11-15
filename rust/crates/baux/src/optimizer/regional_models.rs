@@ -36,11 +36,11 @@ struct ModelHistory {
 impl ModelHistory {
     fn replay(
         chunks: &[Self],
-        model: &mut dyn Surrogate,
+        model: BoxedSurrogate,
         rng: &mut dyn RngCore,
-    ) -> Result<(), ENNError> {
+    ) -> Result<BoxedSurrogate, ENNError> {
         if chunks.is_empty() {
-            return Ok(());
+            return Ok(model);
         }
         let x = ndarray::concatenate(
             Axis(0),
@@ -73,7 +73,7 @@ impl ModelHistory {
             None
         };
         let variance_view = variances.as_ref().map(|values| values.view());
-        model.fit(&x.view(), &y.view(), variance_view.as_ref(), rng)
+        model.with_fit(&x.view(), &y.view(), variance_view.as_ref(), rng)
     }
 }
 
@@ -92,17 +92,9 @@ impl RegionalModels {
             return Err(crate::backend::disk_unavailable());
         }
         let root = if owned_disk {
-            Some(
-                config
-                    .work_dir
-                    .clone()
-                    .or_else(EnnStorage::work_env)
-                    .ok_or_else(|| {
-                        ENNError::InvalidParameter(
-                            "regional disk ENN requires work_dir or BAUX_WORK_DIR".into(),
-                        )
-                    })?,
-            )
+            Some(config.work_dir.clone().ok_or_else(|| {
+                ENNError::InvalidParameter("regional disk ENN requires explicit work_dir".into())
+            })?)
         } else {
             None
         };
@@ -169,30 +161,34 @@ impl RegionalModels {
         })
     }
 
+    pub fn fork(&self) -> Result<Self, ENNError> {
+        self.try_clone()
+    }
+
     /// A restarted region starts a new local trajectory. The global model can
     /// score candidates until new observations fit its local model.
     pub fn sync(
-        &mut self,
+        mut self,
         state: &MultiTrustRegionState,
         rng: &mut dyn RngCore,
-    ) -> Result<(), ENNError> {
+    ) -> Result<Self, ENNError> {
         for slot in 0..self.models.len() {
             let generation = state.generation(slot).unwrap();
             if generation != self.generations[slot] {
-                let replacement = (self.factory)(slot, generation)?;
-                if self.owned_disk {
-                    self.models[slot].clear_observations()?;
-                }
-                self.models[slot] = replacement;
-                self.generations[slot] = generation;
+                let mut replacement = (self.factory)(slot, generation)?;
                 if self.restart_memory == RestartMemoryPolicy::RetainRelevant {
-                    ModelHistory::replay(&self.history[slot], self.models[slot].as_mut(), rng)?;
+                    replacement = ModelHistory::replay(&self.history[slot], replacement, rng)?;
                 } else {
                     self.history[slot].clear();
                 }
+                let old_model = std::mem::replace(&mut self.models[slot], replacement);
+                if self.owned_disk {
+                    let _ = old_model.cleared()?;
+                }
+                self.generations[slot] = generation;
             }
         }
-        Ok(())
+        Ok(self)
     }
 
     pub fn counts(&self) -> Vec<usize> {
@@ -225,11 +221,11 @@ impl RegionalModels {
     }
 
     pub(crate) fn thaw_models(
-        &mut self,
+        mut self,
         num_dim: usize,
         bytes: &[u8],
         pos: &mut usize,
-    ) -> Result<(), ENNError> {
+    ) -> Result<Self, ENNError> {
         use crate::snapshot_io::{MAX_METRICS, MAX_OBS, MAX_REGIONS, WireReader, bad_state};
         let mut reader = WireReader::from_slice(bytes, *pos);
         let slot_count = reader.read_len(MAX_REGIONS)?;
@@ -251,9 +247,9 @@ impl RegionalModels {
 
         for slot in 0..slot_count {
             let generation = reader.read_word()?;
-            let mut slot_model = (self.factory)(slot, generation)?;
+            let slot_model = (self.factory)(slot, generation)?;
             let mut cur_pos = reader.position();
-            slot_model.thaw_surrogate(bytes, &mut cur_pos)?;
+            let thawed_model = slot_model.with_thawed(bytes, &mut cur_pos)?;
             reader = WireReader::from_slice(bytes, cur_pos);
 
             let chunk_count = reader.read_len(MAX_OBS)?;
@@ -278,21 +274,22 @@ impl RegionalModels {
                 };
                 chunks.push(ModelHistory { x, y, yvar });
             }
-            new_models.push(slot_model);
+            new_models.push(thawed_model);
             new_gens.push(generation);
             new_hist.push(chunks);
         }
 
         if self.owned_disk {
-            for model in &mut self.models {
-                let _ = model.clear_observations();
+            let old_models = std::mem::take(&mut self.models);
+            for model in old_models {
+                let _ = model.cleared();
             }
         }
         self.models = new_models;
         self.generations = new_gens;
         self.history = new_hist;
         *pos = reader.position();
-        Ok(())
+        Ok(self)
     }
 
     pub(crate) fn hash_models(&self, buf: &mut Vec<u8>) {
@@ -302,12 +299,12 @@ impl RegionalModels {
     /// Warm-up data has no generating region and seeds every local model in
     /// parallel via [`std::thread::scope`] and counter-folded per-slot PRNGs.
     pub fn warmup(
-        &mut self,
+        mut self,
         x: &ArrayView2<f64>,
         y: &ArrayView2<f64>,
         yvar: Option<&ArrayView2<f64>>,
         rng: &mut dyn RngCore,
-    ) -> Result<(), ENNError> {
+    ) -> Result<Self, ENNError> {
         let mut seeds = Vec::with_capacity(self.models.len());
         for slot in 0..self.models.len() {
             let seed = if self.owned_disk {
@@ -318,22 +315,33 @@ impl RegionalModels {
             seeds.push(seed);
         }
         #[cfg(target_arch = "wasm32")]
-        for (model, seed) in self.models.iter_mut().zip(seeds) {
-            fit_slot(model.as_mut(), x, y, yvar, seed)?;
+        {
+            let models = std::mem::take(&mut self.models);
+            let mut updated_models = Vec::with_capacity(models.len());
+            for (model, seed) in models.into_iter().zip(seeds) {
+                updated_models.push(fit_slot(model, x, y, yvar, seed)?);
+            }
+            self.models = updated_models;
         }
         #[cfg(not(target_arch = "wasm32"))]
-        std::thread::scope(|scope| -> Result<(), ENNError> {
-            let mut handles = Vec::with_capacity(self.models.len());
-            for (model, seed) in self.models.iter_mut().zip(seeds) {
-                handles.push(scope.spawn(move || fit_slot(model.as_mut(), x, y, yvar, seed)));
-            }
-            for handle in handles {
-                handle.join().map_err(|_| {
-                    ENNError::InvalidParameter("regional warmup thread panicked".into())
-                })??;
-            }
-            Ok(())
-        })?;
+        {
+            let models = std::mem::take(&mut self.models);
+            let updated_models =
+                std::thread::scope(|scope| -> Result<Vec<BoxedSurrogate>, ENNError> {
+                    let mut handles = Vec::with_capacity(models.len());
+                    for (model, seed) in models.into_iter().zip(seeds) {
+                        handles.push(scope.spawn(move || fit_slot(model, x, y, yvar, seed)));
+                    }
+                    let mut results = Vec::with_capacity(handles.len());
+                    for handle in handles {
+                        results.push(handle.join().map_err(|_| {
+                            ENNError::InvalidParameter("regional warmup thread panicked".into())
+                        })??);
+                    }
+                    Ok(results)
+                })?;
+            self.models = updated_models;
+        }
         if self.restart_memory == RestartMemoryPolicy::RetainRelevant {
             for history in &mut self.history {
                 history.push(ModelHistory {
@@ -343,13 +351,13 @@ impl RegionalModels {
                 });
             }
         }
-        Ok(())
+        Ok(self)
     }
 
     /// Fit each regional model on the subset selected by the sharing policy in
     /// parallel across disjoint region slots via [`std::thread::scope`].
     pub fn route(
-        &mut self,
+        mut self,
         state: &MultiTrustRegionState,
         x: &ArrayView2<f64>,
         y: &ArrayView2<f64>,
@@ -357,18 +365,13 @@ impl RegionalModels {
         origins: Option<&[usize]>,
         lengthscales: Option<&ArrayView1<f64>>,
         rng: &mut dyn RngCore,
-    ) -> Result<(), ENNError> {
-        self.sync(state, rng)?;
+    ) -> Result<Self, ENNError> {
+        self = self.sync(state, rng)?;
         let retain = self.restart_memory == RestartMemoryPolicy::RetainRelevant;
-        let mut tasks: Vec<(&mut BoxedSurrogate, &mut Vec<ModelHistory>, Vec<usize>, u64)> =
-            Vec::new();
-        for (slot, (model, history)) in self
-            .models
-            .iter_mut()
-            .zip(self.history.iter_mut())
-            .enumerate()
-        {
+        let mut slot_plans: Vec<Option<(Vec<usize>, u64)>> = Vec::with_capacity(self.models.len());
+        for slot in 0..self.models.len() {
             if !state.active_mask[slot] {
+                slot_plans.push(None);
                 continue;
             }
             let (lower, upper) = state.compute_bounds(slot, lengthscales);
@@ -379,6 +382,7 @@ impl RegionalModels {
                 }
             }
             if rows.is_empty() {
+                slot_plans.push(None);
                 continue;
             }
             let seed = if self.owned_disk {
@@ -386,38 +390,90 @@ impl RegionalModels {
             } else {
                 crate::hash::stream_seed(self.generations[slot], slot as u64)
             };
-            tasks.push((model, history, rows, seed));
+            slot_plans.push(Some((rows, seed)));
         }
+
+        let models = std::mem::take(&mut self.models);
+
         #[cfg(target_arch = "wasm32")]
         {
-            for (model, history, rows, seed) in tasks {
-                route_slot(model.as_mut(), history, x, y, yvar, &rows, seed, retain)?;
+            let mut updated_models = Vec::with_capacity(models.len());
+            for (slot, (model, plan)) in models.into_iter().zip(slot_plans).enumerate() {
+                if let Some((rows, seed)) = plan {
+                    let (updated, hist) = route_slot(model, x, y, yvar, &rows, seed)?;
+                    updated_models.push(updated);
+                    if retain {
+                        if let Some(h) = hist {
+                            self.history[slot].push(h);
+                        }
+                    }
+                } else {
+                    updated_models.push(model);
+                }
             }
-            Ok(())
+            self.models = updated_models;
         }
+
         #[cfg(not(target_arch = "wasm32"))]
-        std::thread::scope(|scope| -> Result<(), ENNError> {
-            let mut handles = Vec::with_capacity(tasks.len());
-            for (model, history, rows, seed) in tasks {
-                handles.push(scope.spawn(move || {
-                    route_slot(model.as_mut(), history, x, y, yvar, &rows, seed, retain)
-                }));
+        {
+            let results = std::thread::scope(
+                |scope| -> Result<Vec<(BoxedSurrogate, Option<ModelHistory>)>, ENNError> {
+                    let mut handles = Vec::with_capacity(models.len());
+                    for (model, plan) in models.into_iter().zip(slot_plans) {
+                        if let Some((rows, seed)) = plan {
+                            handles.push(
+                                scope.spawn(move || route_slot(model, x, y, yvar, &rows, seed)),
+                            );
+                        } else {
+                            handles.push(scope.spawn(move || Ok((model, None))));
+                        }
+                    }
+                    let mut res = Vec::with_capacity(handles.len());
+                    for handle in handles {
+                        res.push(handle.join().map_err(|_| {
+                            ENNError::InvalidParameter("regional route thread panicked".into())
+                        })??);
+                    }
+                    Ok(res)
+                },
+            )?;
+            let mut updated_models = Vec::with_capacity(results.len());
+            for (slot, (model, hist)) in results.into_iter().enumerate() {
+                updated_models.push(model);
+                if retain {
+                    if let Some(h) = hist {
+                        self.history[slot].push(h);
+                    }
+                }
             }
-            for handle in handles {
-                handle.join().map_err(|_| {
-                    ENNError::InvalidParameter("regional route thread panicked".into())
-                })??;
-            }
-            Ok(())
-        })
+            self.models = updated_models;
+        }
+
+        Ok(self)
+    }
+
+    pub fn with_flushed(mut self) -> Result<Self, ENNError> {
+        for model in &self.models {
+            model.schedule_flush()?;
+            model.wait_flush()?;
+        }
+        Ok(self)
+    }
+
+    pub fn with_released(mut self) -> Result<Self, ENNError> {
+        for model in &self.models {
+            model.release_pages()?;
+        }
+        Ok(self)
     }
 }
 
 impl Drop for RegionalModels {
     fn drop(&mut self) {
         if self.owned_disk {
-            for model in &mut self.models {
-                if let Err(error) = model.clear_observations() {
+            let models = std::mem::take(&mut self.models);
+            for model in models {
+                if let Err(error) = model.cleared() {
                     eprintln!("baux: regional disk ENN cleanup failed: {error}");
                 }
             }
@@ -425,49 +481,57 @@ impl Drop for RegionalModels {
     }
 }
 
+impl Clone for RegionalModels {
+    fn clone(&self) -> Self {
+        self.try_clone().expect("RegionalModels clone failed")
+    }
+}
+
+const _: () = {
+    fn assert_sync<T: Send + Sync>() {}
+    fn check() {
+        assert_sync::<RegionalModels>();
+    }
+};
+
 fn fit_slot(
-    model: &mut dyn Surrogate,
+    model: BoxedSurrogate,
     x: &ArrayView2<f64>,
     y: &ArrayView2<f64>,
     yvar: Option<&ArrayView2<f64>>,
     seed: u64,
-) -> Result<(), ENNError> {
+) -> Result<BoxedSurrogate, ENNError> {
     use rand::SeedableRng;
     let mut slot_rng = rand::rngs::StdRng::seed_from_u64(seed);
-    model.fit_append(x, y, yvar, &mut slot_rng)
+    model.with_append(x, y, yvar, &mut slot_rng)
 }
 
-#[allow(clippy::too_many_arguments)]
 fn route_slot(
-    model: &mut dyn Surrogate,
-    history: &mut Vec<ModelHistory>,
+    model: BoxedSurrogate,
     x: &ArrayView2<f64>,
     y: &ArrayView2<f64>,
     yvar: Option<&ArrayView2<f64>>,
     rows: &[usize],
     seed: u64,
-    retain: bool,
-) -> Result<(), ENNError> {
+) -> Result<(BoxedSurrogate, Option<ModelHistory>), ENNError> {
     use rand::SeedableRng;
     let local_x: Array2<f64> = x.select(Axis(0), rows);
     let local_y: Array2<f64> = y.select(Axis(0), rows);
     let local_var = yvar.map(|values| values.select(Axis(0), rows));
     let variance_view = local_var.as_ref().map(|values| values.view());
     let mut slot_rng = rand::rngs::StdRng::seed_from_u64(seed);
-    model.fit_append(
+    let updated = model.with_append(
         &local_x.view(),
         &local_y.view(),
         variance_view.as_ref(),
         &mut slot_rng,
     )?;
-    if retain {
-        history.push(ModelHistory {
-            x: local_x,
-            y: local_y,
-            yvar: local_var,
-        });
-    }
-    Ok(())
+    let history = ModelHistory {
+        x: local_x,
+        y: local_y,
+        yvar: local_var,
+    };
+    Ok((updated, Some(history)))
 }
 
 #[cfg(test)]
@@ -501,7 +565,7 @@ mod tests {
             let mut models = RegionalModels::built_in(&SurrogateConfig::default(), &state)
                 .unwrap()
                 .unwrap();
-            models
+            models = models
                 .route(
                     &state,
                     &x.view(),
@@ -514,7 +578,7 @@ mod tests {
                 .unwrap();
             assert_eq!(models.counts(), expected, "{policy:?}");
             state.restart_region(0, &array![0.3].view()).unwrap();
-            models.sync(&state, &mut rng).unwrap();
+            models = models.sync(&state, &mut rng).unwrap();
             assert_eq!(models.counts(), [0, expected[1]], "{policy:?}");
             assert!(models.model(0).is_none());
         }
@@ -542,7 +606,7 @@ mod tests {
         let mut models = RegionalModels::from_factory(&state, factory).unwrap();
         let x = array![[0.2], [0.8]];
         let y = array![[1.0], [2.0]];
-        models
+        models = models
             .route(
                 &state,
                 &x.view(),
@@ -556,7 +620,7 @@ mod tests {
         assert_eq!(models.counts(), [1, 1]);
 
         state.restart_region(0, &array![0.3].view()).unwrap();
-        models.sync(&state, &mut rng).unwrap();
+        models = models.sync(&state, &mut rng).unwrap();
         assert_eq!(models.counts(), [1, 1]);
         assert!(models.model(0).is_some());
     }
@@ -592,11 +656,11 @@ mod tests {
                 .unwrap();
             let x = array![[0.1], [0.45], [0.9]];
             let y = array![[0.1], [0.5], [0.9]];
-            models.warmup(&x.view(), &y.view(), None, &mut rng).unwrap();
+            models = models.warmup(&x.view(), &y.view(), None, &mut rng).unwrap();
             assert!(older.exists());
             assert!(other.exists());
             state.restart_region(0, &array![0.3].view()).unwrap();
-            models.sync(&state, &mut rng).unwrap();
+            models = models.sync(&state, &mut rng).unwrap();
             assert!(!older.exists());
             assert!(other.exists());
         }

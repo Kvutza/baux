@@ -14,7 +14,7 @@ impl SearchState {
     ) -> Result<Self, String> {
         autoreleasepool(|| {
             observation.validate()?;
-            let mut state = Self::new_inner(
+            let state = Self::new_inner(
                 Ok(base),
                 None,
                 blocks,
@@ -25,14 +25,13 @@ impl SearchState {
                 false,
                 ProposalDistribution::Gaussian,
             )?;
-            state.observe_objectives(observation)?;
-            Ok(state)
+            state.observe_objectives(observation)
         })
     }
     pub fn observe_objectives(
-        &mut self,
+        mut self,
         observation: crate::objective_observation::ObjectiveObservation,
-    ) -> Result<(), String> {
+    ) -> Result<Self, String> {
         let crate::objective_observation::ObjectiveEstimate {
             mean: value,
             variance,
@@ -57,7 +56,7 @@ impl SearchState {
         self.resident_identities[0] = self.base_id;
         self.objective_history
             .record(self.base_id, observation, true);
-        Ok(())
+        Ok(self)
     }
 
     /// Borrow raw, independently measured objectives in retained observation

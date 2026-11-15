@@ -169,7 +169,7 @@ def _resolvestorage(
 ) -> str | None:
     if storage is not None:
         enn_storage = getattr(storage, "value", str(storage))
-    has_dir = work_dir is not None or "BAUX_WORK_DIR" in os.environ
+    has_dir = work_dir is not None
     if index_driver == NeighborIndex.BPANN_DISK and enn_storage is None and has_dir:
         return "disk"
     return enn_storage
@@ -212,9 +212,11 @@ class ENN:
             "tied_dims",
             "unscaled_dims",
             "metric_seed",
+            "config_path",
         }
         if unknown:
             raise TypeError(f"Unexpected keyword argument: {sorted(unknown)[0]!r}")
+        config_path = options.get("config_path")
         train_x, train_y, train_yvar = self._inputs(train_x, train_y, train_yvar)
         index_driver, raw_index = _resolveindex(
             index_driver, options.get("index"), options.get("device")
@@ -241,6 +243,8 @@ class ENN:
             rust_kwargs["y_bounds"] = np.asarray(y_bounds, dtype=float)
         if metric_spec is not None:
             rust_kwargs["metric"] = metric_spec
+        if config_path is not None:
+            rust_kwargs["config_path"] = os.fspath(config_path)
         self._rust_model = _RustENN(**rust_kwargs)
         self.device: str = getattr(self._rust_model, "device", "cpu")
         self.index_kind: str = _INDEX_KINDS.get(index_driver, "exact")
@@ -248,11 +252,11 @@ class ENN:
     def add(self, x: np.ndarray, y: np.ndarray, yvar: np.ndarray | None = None) -> None:
         """Append observations to the training set."""
         x, y, yvar = self._inputs(x, y, yvar)
-        self._rust_model.add(x, y, yvar)
+        self._rust_model = self._rust_model.add(x, y, yvar)
 
     def ensure_sync(self) -> None:
         """Synchronize pending observations with the neighbor index."""
-        self._rust_model.ensure_sync()
+        self._rust_model = self._rust_model.ensure_sync()
 
     def device_posterior(
         self, x, params: ENNParams, *, flags: PosteriorFlags | None = None
@@ -293,11 +297,11 @@ class ENN:
 
     def schedule_flush(self) -> None:
         """Schedule an asynchronous flush of buffered observations."""
-        self._rust_model.schedule_flush()
+        self._rust_model = self._rust_model.schedule_flush()
 
     def persist_index(self) -> None:
         """Persist the neighbor index to storage."""
-        self._rust_model.persist_index()
+        self._rust_model = self._rust_model.persist_index()
 
     def train_rows(
         self, indices: list[int] | np.ndarray

@@ -5,10 +5,18 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
 /// Python wrapper for MultiTrustRegion state machine
-#[pyclass(name = "MultiTrustRegion")]
+#[pyclass(name = "MultiTrustRegion", frozen)]
+#[derive(Clone)]
 pub struct PyMultiTrustRegion {
-    inner: baux::experimental::MultiTrustRegionState,
+    pub(crate) inner: baux::experimental::MultiTrustRegionState,
 }
+
+const _: () = {
+    fn assert_sync<T: Send + Sync>() {}
+    fn check() {
+        assert_sync::<PyMultiTrustRegion>();
+    }
+};
 
 #[pymethods]
 impl PyMultiTrustRegion {
@@ -68,16 +76,21 @@ impl PyMultiTrustRegion {
         self.inner.incumbents().into_dyn().into_pyarray(py)
     }
 
+    #[pyo3(signature = (x_batch, y_batch, y_var=None))]
     pub fn tell(
-        &mut self,
+        &self,
         x_batch: PyReadonlyArray2<'_, f64>,
         y_batch: PyReadonlyArray1<'_, f64>,
-    ) -> PyResult<()> {
+        y_var: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<Self> {
+        let _ = y_var;
+        let mut inner = self.inner.clone();
         let x_view = x_batch.as_array();
         let y_view = y_batch.as_array();
-        self.inner
+        inner
             .tell_update(&x_view, &y_view)
-            .map_err(|e| PyValueError::new_err(e.to_string()))
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        Ok(Self { inner })
     }
 
     /// Allocate a candidate budget across regions with the default region
@@ -151,12 +164,19 @@ impl PyMultiTrustRegion {
 
     /// Restart a region with a new center in unit coordinates.
     pub fn restart_region<'py>(
-        &mut self,
+        &self,
         region: usize,
         new_center: PyReadonlyArray1<'py, f64>,
-    ) -> PyResult<()> {
-        self.inner
+    ) -> PyResult<Self> {
+        let mut inner = self.inner.clone();
+        inner
             .restart_region(region, &new_center.as_array())
-            .map_err(|e| PyValueError::new_err(e.to_string()))
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        Ok(Self { inner })
+    }
+
+    /// Fork an isolated clone sharing immutable state.
+    pub fn fork(&self) -> PyResult<Self> {
+        Ok(self.clone())
     }
 }

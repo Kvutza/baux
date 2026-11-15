@@ -5,7 +5,6 @@ use std::io::{BufRead, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use baux::artifact::blake3::hash_hex;
@@ -13,8 +12,6 @@ use baux::unified_mem::ShmSlab;
 
 #[path = "worker_batch.rs"]
 pub mod batch;
-
-static WORKER_SEQ: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Clone)]
 pub struct WorkerSpec {
@@ -225,9 +222,15 @@ impl LiveSession {
         spec: &WorkerSpec,
         slot_override: Option<usize>,
     ) -> Result<Self, String> {
-        let seq = WORKER_SEQ.fetch_add(1, Ordering::Relaxed);
         let pid = std::process::id();
-        let tag = &hash_hex(root.as_os_str().as_encoded_bytes())[..10];
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_nanos());
+        let worker_tag = match slot_override {
+            Some(idx) => format!("{idx}_{pid}_{nanos:x}"),
+            None => format!("{pid}_{nanos:x}"),
+        };
+        let tag = &hash_hex(root.as_os_str().as_encoded_bytes())[..8];
         let slot = slot_override.map(|s| s.to_string()).or_else(active_slot);
         let slot_mode = slot.is_some();
         let sock_path = match slot {
@@ -235,12 +238,12 @@ impl LiveSession {
                 std::env::temp_dir().join(format!("baux_py_{tag}_{}_slot{s}.sock", spec.kind))
             }
             None => {
-                std::env::temp_dir().join(format!("baux_py_{tag}_{}_{pid}_{seq}.sock", spec.kind))
+                std::env::temp_dir().join(format!("baux_py_{tag}_{}_{worker_tag}.sock", spec.kind))
             }
         };
         let mut child = ensure_daemon(root, spec.kind, &sock_path, slot_mode)?;
         let shm_dir = root.join(".cache/baux/shm");
-        let shm_path = shm_dir.join(format!("tokamak_{}_{pid}_{seq}.mmap", spec.kind));
+        let shm_path = shm_dir.join(format!("tokamak_{}_{worker_tag}.mmap", spec.kind));
         let slab = match ShmSlab::create_multi(shm_path.clone(), spec.arms, spec.num_dim, 1, 4096) {
             Ok(s) => s,
             Err(e) => {

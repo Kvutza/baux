@@ -68,7 +68,7 @@ pub struct DrawOutput {
     pub indices: Vec<u32>,
 }
 
-pub(super) struct PosteriorScratch {
+pub(crate) struct PosteriorScratch {
     outcome_capacity: usize,
     variance_capacity: usize,
     scale_capacity: usize,
@@ -228,7 +228,8 @@ impl PosteriorScratch {
 
 impl CudaIndex {
     pub fn posterior(
-        &mut self,
+        &self,
+        scratch: &mut CudaScratch,
         queries: &[f32],
         query_count: usize,
         outcomes: &[f32],
@@ -242,7 +243,7 @@ impl CudaIndex {
         let index_count = query_count
             .checked_mul(spec.used_k)
             .ok_or("CUDA posterior index size overflow")?;
-        self.posterior.ensure(
+        scratch.posterior.ensure(
             &self.runtime.stream,
             outcomes.len(),
             1,
@@ -251,23 +252,30 @@ impl CudaIndex {
             1,
             index_count,
         )?;
-        self.posterior
+        scratch
+            .posterior
             .sync(&self.runtime.stream, outcomes, scales)?;
-        let stage = self.stage_search(queries, query_count, spec.input_k)?;
-        self.launch_posterior(&stage, spec)?;
+        let stage = self.stage_search(scratch, queries, query_count, spec.input_k)?;
+        self.launch_posterior(scratch, &stage, spec)?;
         let end = timing_event(&self.runtime.stream)?;
         self.runtime.context.check_err().map_err(cuda_error)?;
         let output = PosteriorOutput {
-            means: read_prefix(&self.posterior.means, &self.runtime.stream, value_count)?,
-            errors: read_prefix(&self.posterior.errors, &self.runtime.stream, value_count)?,
-            indices: read_prefix(&self.posterior.indices, &self.runtime.stream, index_count)?,
+            means: read_prefix(&scratch.posterior.means, &self.runtime.stream, value_count)?,
+            errors: read_prefix(&scratch.posterior.errors, &self.runtime.stream, value_count)?,
+            indices: read_prefix(
+                &scratch.posterior.indices,
+                &self.runtime.stream,
+                index_count,
+            )?,
         };
-        self.set_profile(&stage, &end)?;
+        let profile = self.make_profile(&stage, &end)?;
+        scratch.profile = Some(profile);
         Ok(output)
     }
 
     pub fn weighted(
-        &mut self,
+        &self,
+        scratch: &mut CudaScratch,
         queries: &[f32],
         query_count: usize,
         outcomes: &[f32],
@@ -285,7 +293,7 @@ impl CudaIndex {
         let index_count = query_count
             .checked_mul(spec.used_k)
             .ok_or("CUDA weighted index size overflow")?;
-        self.posterior.ensure(
+        scratch.posterior.ensure(
             &self.runtime.stream,
             outcomes.len(),
             variances.map_or(1, <[f32]>::len),
@@ -294,29 +302,49 @@ impl CudaIndex {
             weight_count,
             index_count,
         )?;
-        self.posterior
+        scratch
+            .posterior
             .sync(&self.runtime.stream, outcomes, scales)?;
-        self.posterior
+        scratch
+            .posterior
             .sync_variances(&self.runtime.stream, variances)?;
-        let stage = self.stage_search(queries, query_count, spec.input_k)?;
-        self.launch_weighted(&stage, spec, variances.is_some())?;
+        let stage = self.stage_search(scratch, queries, query_count, spec.input_k)?;
+        self.launch_weighted(scratch, &stage, spec, variances.is_some())?;
         let end = timing_event(&self.runtime.stream)?;
         self.runtime.context.check_err().map_err(cuda_error)?;
         let output = WeightedOutput {
-            weights: read_prefix(&self.posterior.weights, &self.runtime.stream, weight_count)?,
-            l2: read_prefix(&self.posterior.l2, &self.runtime.stream, value_count)?,
-            means: read_prefix(&self.posterior.means, &self.runtime.stream, value_count)?,
-            errors: read_prefix(&self.posterior.errors, &self.runtime.stream, value_count)?,
-            epistemic: read_prefix(&self.posterior.epistemic, &self.runtime.stream, value_count)?,
-            aleatoric: read_prefix(&self.posterior.aleatoric, &self.runtime.stream, value_count)?,
-            indices: read_prefix(&self.posterior.indices, &self.runtime.stream, index_count)?,
+            weights: read_prefix(
+                &scratch.posterior.weights,
+                &self.runtime.stream,
+                weight_count,
+            )?,
+            l2: read_prefix(&scratch.posterior.l2, &self.runtime.stream, value_count)?,
+            means: read_prefix(&scratch.posterior.means, &self.runtime.stream, value_count)?,
+            errors: read_prefix(&scratch.posterior.errors, &self.runtime.stream, value_count)?,
+            epistemic: read_prefix(
+                &scratch.posterior.epistemic,
+                &self.runtime.stream,
+                value_count,
+            )?,
+            aleatoric: read_prefix(
+                &scratch.posterior.aleatoric,
+                &self.runtime.stream,
+                value_count,
+            )?,
+            indices: read_prefix(
+                &scratch.posterior.indices,
+                &self.runtime.stream,
+                index_count,
+            )?,
         };
-        self.set_profile(&stage, &end)?;
+        let profile = self.make_profile(&stage, &end)?;
+        scratch.profile = Some(profile);
         Ok(output)
     }
 
     pub fn batch(
-        &mut self,
+        &self,
+        scratch: &mut CudaScratch,
         queries: &[f32],
         query_count: usize,
         outcomes: &[f32],
@@ -331,7 +359,7 @@ impl CudaIndex {
             .checked_mul(query_count)
             .and_then(|count| count.checked_mul(spec.metrics))
             .ok_or("CUDA batch output size overflow")?;
-        self.posterior.ensure(
+        scratch.posterior.ensure(
             &self.runtime.stream,
             outcomes.len(),
             variances.map_or(1, <[f32]>::len),
@@ -340,38 +368,49 @@ impl CudaIndex {
             1,
             1,
         )?;
-        self.posterior
+        scratch
+            .posterior
             .ensure_params(&self.runtime.stream, values.len())?;
-        self.posterior
+        scratch
+            .posterior
             .sync(&self.runtime.stream, outcomes, scales)?;
-        self.posterior
+        scratch
+            .posterior
             .sync_variances(&self.runtime.stream, variances)?;
-        self.posterior.sync_params(&self.runtime.stream, values)?;
-        let stage = self.stage_search(queries, query_count, spec.input_k)?;
-        self.launch_batch(&stage, spec, values.len(), variances.is_some())?;
+        scratch
+            .posterior
+            .sync_params(&self.runtime.stream, values)?;
+        let stage = self.stage_search(scratch, queries, query_count, spec.input_k)?;
+        self.launch_batch(scratch, &stage, spec, values.len(), variances.is_some())?;
         let end = timing_event(&self.runtime.stream)?;
         self.runtime.context.check_err().map_err(cuda_error)?;
         let output = BatchOutput {
-            means: read_prefix(&self.posterior.means, &self.runtime.stream, output_count)?,
-            errors: read_prefix(&self.posterior.errors, &self.runtime.stream, output_count)?,
+            means: read_prefix(&scratch.posterior.means, &self.runtime.stream, output_count)?,
+            errors: read_prefix(
+                &scratch.posterior.errors,
+                &self.runtime.stream,
+                output_count,
+            )?,
             epistemic: read_prefix(
-                &self.posterior.epistemic,
+                &scratch.posterior.epistemic,
                 &self.runtime.stream,
                 output_count,
             )?,
             aleatoric: read_prefix(
-                &self.posterior.aleatoric,
+                &scratch.posterior.aleatoric,
                 &self.runtime.stream,
                 output_count,
             )?,
         };
-        self.set_profile(&stage, &end)?;
+        let profile = self.make_profile(&stage, &end)?;
+        scratch.profile = Some(profile);
         Ok(output)
     }
 
     #[allow(clippy::too_many_arguments)]
     pub fn draws(
-        &mut self,
+        &self,
+        scratch: &mut CudaScratch,
         queries: &[f32],
         query_count: usize,
         outcomes: &[f32],
@@ -397,7 +436,7 @@ impl CudaIndex {
             .len()
             .checked_mul(value_count)
             .ok_or("CUDA draw output size overflow")?;
-        self.posterior.ensure(
+        scratch.posterior.ensure(
             &self.runtime.stream,
             outcomes.len(),
             variances.map_or(1, <[f32]>::len),
@@ -406,29 +445,38 @@ impl CudaIndex {
             weight_count,
             index_count,
         )?;
-        self.posterior
+        scratch
+            .posterior
             .ensure_draws(&self.runtime.stream, seeds.len(), draw_count)?;
-        self.posterior
+        scratch
+            .posterior
             .sync(&self.runtime.stream, outcomes, scales)?;
-        self.posterior
+        scratch
+            .posterior
             .sync_variances(&self.runtime.stream, variances)?;
-        self.posterior.sync_seeds(&self.runtime.stream, seeds)?;
-        let stage = self.stage_search(queries, query_count, spec.input_k)?;
-        self.launch_weighted(&stage, spec, variances.is_some())?;
-        self.launch_draw(&stage, spec, seeds.len())?;
+        scratch.posterior.sync_seeds(&self.runtime.stream, seeds)?;
+        let stage = self.stage_search(scratch, queries, query_count, spec.input_k)?;
+        self.launch_weighted(scratch, &stage, spec, variances.is_some())?;
+        self.launch_draw(scratch, &stage, spec, seeds.len())?;
         let end = timing_event(&self.runtime.stream)?;
         self.runtime.context.check_err().map_err(cuda_error)?;
         let output = DrawOutput {
-            draws: read_prefix(&self.posterior.draws, &self.runtime.stream, draw_count)?,
-            indices: read_prefix(&self.posterior.indices, &self.runtime.stream, index_count)?,
+            draws: read_prefix(&scratch.posterior.draws, &self.runtime.stream, draw_count)?,
+            indices: read_prefix(
+                &scratch.posterior.indices,
+                &self.runtime.stream,
+                index_count,
+            )?,
         };
-        self.set_profile(&stage, &end)?;
+        let profile = self.make_profile(&stage, &end)?;
+        scratch.profile = Some(profile);
         Ok(output)
     }
 
     #[allow(clippy::too_many_arguments)]
     pub fn conditional(
-        &mut self,
+        &self,
+        scratch: &mut CudaScratch,
         queries: &[f32],
         query_count: usize,
         extra_rows: &[f32],
@@ -437,16 +485,22 @@ impl CudaIndex {
         scales: &[f32],
         spec: WeightedSpec,
     ) -> CudaResult<WeightedOutput> {
-        let base_rows = self.row_count;
-        self.add(extra_rows)?;
-        let result = self.weighted(queries, query_count, outcomes, variances, scales, spec);
-        self.row_count = base_rows;
-        result
+        let extended = self.clone().add(scratch, extra_rows)?;
+        extended.weighted(
+            scratch,
+            queries,
+            query_count,
+            outcomes,
+            variances,
+            scales,
+            spec,
+        )
     }
 
     #[allow(clippy::too_many_arguments)]
     pub fn conditional_draws(
-        &mut self,
+        &self,
+        scratch: &mut CudaScratch,
         queries: &[f32],
         query_count: usize,
         extra_rows: &[f32],
@@ -456,9 +510,9 @@ impl CudaIndex {
         seeds: &[u64],
         spec: WeightedSpec,
     ) -> CudaResult<DrawOutput> {
-        let base_rows = self.row_count;
-        self.add(extra_rows)?;
-        let result = self.draws(
+        let extended = self.clone().add(scratch, extra_rows)?;
+        extended.draws(
+            scratch,
             queries,
             query_count,
             outcomes,
@@ -466,12 +520,15 @@ impl CudaIndex {
             scales,
             seeds,
             spec,
-        );
-        self.row_count = base_rows;
-        result
+        )
     }
 
-    fn launch_posterior(&mut self, stage: &SearchStage, spec: PosteriorSpec) -> CudaResult<()> {
+    fn launch_posterior(
+        &self,
+        scratch: &mut CudaScratch,
+        stage: &SearchStage,
+        spec: PosteriorSpec,
+    ) -> CudaResult<()> {
         let params = PosteriorParams {
             queries: to_u32(stage.queries, "posterior query count")?,
             input_k: to_u32(spec.input_k, "posterior input neighbors")?,
@@ -493,13 +550,13 @@ impl CudaIndex {
                 .posterior_light(
                     &self.runtime.stream,
                     &launch,
-                    &self.scratch.distances_a,
-                    &self.scratch.indices_a,
-                    &self.posterior.outcomes,
-                    &self.posterior.scales,
-                    &mut self.posterior.means,
-                    &mut self.posterior.errors,
-                    &mut self.posterior.indices,
+                    &scratch.knn.distances_a,
+                    &scratch.knn.indices_a,
+                    &scratch.posterior.outcomes,
+                    &scratch.posterior.scales,
+                    &mut scratch.posterior.means,
+                    &mut scratch.posterior.errors,
+                    &mut scratch.posterior.indices,
                     params,
                 )
                 .map_err(cuda_error)
@@ -509,13 +566,13 @@ impl CudaIndex {
                 .posterior_light(
                     &self.runtime.stream,
                     &launch,
-                    &self.scratch.distances_b,
-                    &self.scratch.indices_b,
-                    &self.posterior.outcomes,
-                    &self.posterior.scales,
-                    &mut self.posterior.means,
-                    &mut self.posterior.errors,
-                    &mut self.posterior.indices,
+                    &scratch.knn.distances_b,
+                    &scratch.knn.indices_b,
+                    &scratch.posterior.outcomes,
+                    &scratch.posterior.scales,
+                    &mut scratch.posterior.means,
+                    &mut scratch.posterior.errors,
+                    &mut scratch.posterior.indices,
                     params,
                 )
                 .map_err(cuda_error)
@@ -523,7 +580,8 @@ impl CudaIndex {
     }
 
     pub(super) fn launch_weighted(
-        &mut self,
+        &self,
+        scratch: &mut CudaScratch,
         stage: &SearchStage,
         spec: WeightedSpec,
         has_yvar: bool,
@@ -555,36 +613,36 @@ impl CudaIndex {
             self.runtime.module.posterior_full(
                 &self.runtime.stream,
                 &launch,
-                &self.scratch.distances_a,
-                &self.scratch.indices_a,
-                &self.posterior.outcomes,
-                &self.posterior.variances,
-                &self.posterior.scales,
-                &mut self.posterior.weights,
-                &mut self.posterior.l2,
-                &mut self.posterior.means,
-                &mut self.posterior.errors,
-                &mut self.posterior.epistemic,
-                &mut self.posterior.aleatoric,
-                &mut self.posterior.indices,
+                &scratch.knn.distances_a,
+                &scratch.knn.indices_a,
+                &scratch.posterior.outcomes,
+                &scratch.posterior.variances,
+                &scratch.posterior.scales,
+                &mut scratch.posterior.weights,
+                &mut scratch.posterior.l2,
+                &mut scratch.posterior.means,
+                &mut scratch.posterior.errors,
+                &mut scratch.posterior.epistemic,
+                &mut scratch.posterior.aleatoric,
+                &mut scratch.posterior.indices,
                 params,
             )
         } else {
             self.runtime.module.posterior_full(
                 &self.runtime.stream,
                 &launch,
-                &self.scratch.distances_b,
-                &self.scratch.indices_b,
-                &self.posterior.outcomes,
-                &self.posterior.variances,
-                &self.posterior.scales,
-                &mut self.posterior.weights,
-                &mut self.posterior.l2,
-                &mut self.posterior.means,
-                &mut self.posterior.errors,
-                &mut self.posterior.epistemic,
-                &mut self.posterior.aleatoric,
-                &mut self.posterior.indices,
+                &scratch.knn.distances_b,
+                &scratch.knn.indices_b,
+                &scratch.posterior.outcomes,
+                &scratch.posterior.variances,
+                &scratch.posterior.scales,
+                &mut scratch.posterior.weights,
+                &mut scratch.posterior.l2,
+                &mut scratch.posterior.means,
+                &mut scratch.posterior.errors,
+                &mut scratch.posterior.epistemic,
+                &mut scratch.posterior.aleatoric,
+                &mut scratch.posterior.indices,
                 params,
             )
         }
@@ -592,7 +650,8 @@ impl CudaIndex {
     }
 
     fn launch_batch(
-        &mut self,
+        &self,
+        scratch: &mut CudaScratch,
         stage: &SearchStage,
         spec: BatchSpec,
         param_count: usize,
@@ -626,32 +685,32 @@ impl CudaIndex {
             self.runtime.module.posterior_batch(
                 &self.runtime.stream,
                 &launch,
-                &self.scratch.distances_a,
-                &self.scratch.indices_a,
-                &self.posterior.outcomes,
-                &self.posterior.variances,
-                &self.posterior.scales,
-                &self.posterior.params,
-                &mut self.posterior.means,
-                &mut self.posterior.errors,
-                &mut self.posterior.epistemic,
-                &mut self.posterior.aleatoric,
+                &scratch.knn.distances_a,
+                &scratch.knn.indices_a,
+                &scratch.posterior.outcomes,
+                &scratch.posterior.variances,
+                &scratch.posterior.scales,
+                &scratch.posterior.params,
+                &mut scratch.posterior.means,
+                &mut scratch.posterior.errors,
+                &mut scratch.posterior.epistemic,
+                &mut scratch.posterior.aleatoric,
                 params,
             )
         } else {
             self.runtime.module.posterior_batch(
                 &self.runtime.stream,
                 &launch,
-                &self.scratch.distances_b,
-                &self.scratch.indices_b,
-                &self.posterior.outcomes,
-                &self.posterior.variances,
-                &self.posterior.scales,
-                &self.posterior.params,
-                &mut self.posterior.means,
-                &mut self.posterior.errors,
-                &mut self.posterior.epistemic,
-                &mut self.posterior.aleatoric,
+                &scratch.knn.distances_b,
+                &scratch.knn.indices_b,
+                &scratch.posterior.outcomes,
+                &scratch.posterior.variances,
+                &scratch.posterior.scales,
+                &scratch.posterior.params,
+                &mut scratch.posterior.means,
+                &mut scratch.posterior.errors,
+                &mut scratch.posterior.epistemic,
+                &mut scratch.posterior.aleatoric,
                 params,
             )
         }
@@ -659,7 +718,8 @@ impl CudaIndex {
     }
 
     fn launch_draw(
-        &mut self,
+        &self,
+        scratch: &mut CudaScratch,
         stage: &SearchStage,
         spec: WeightedSpec,
         seed_count: usize,
@@ -686,13 +746,13 @@ impl CudaIndex {
             .posterior_draw(
                 &self.runtime.stream,
                 &launch,
-                &self.posterior.weights,
-                &self.posterior.l2,
-                &self.posterior.means,
-                &self.posterior.errors,
-                &self.posterior.indices,
-                &self.posterior.seeds,
-                &mut self.posterior.draws,
+                &scratch.posterior.weights,
+                &scratch.posterior.l2,
+                &scratch.posterior.means,
+                &scratch.posterior.errors,
+                &scratch.posterior.indices,
+                &scratch.posterior.seeds,
+                &mut scratch.posterior.draws,
                 params,
             )
             .map_err(cuda_error)

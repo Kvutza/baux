@@ -178,8 +178,14 @@ pub use draw::{Candidates, ConditionalDraw, DrawInternals, NeighborData};
 pub use error::{ENNError, EPS_VAR};
 pub use file_config::{
     BpannConfig, Config, ConfigFile, IndexConfig, TreeConfig, bpann_config, config_path,
-    index_config, set_path,
+    index_config,
 };
+pub use neighbor_index::BpannTuning;
+
+/// Load the configuration from the active path (`~/.baux/config.toml`).
+pub fn load_config() -> Result<ConfigFile, String> {
+    Config::new().load()
+}
 pub use fit::{row_loglik, subsample_loglik, subsample_model};
 pub use fitter::{ENNFitter, fit_model};
 pub use hash::{

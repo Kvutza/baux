@@ -346,16 +346,16 @@ fn initialize_search(
             run.model.ok_or("generation model is required")?.id()
         );
     }
-    let (mut search, updates) = weights.search_shaped(
+    let (search, updates) = weights.search_shaped(
         run.proposal_distribution(),
         run.length(),
         run.trust_region_shape
             .unwrap_or(crate::config::TrustRegionShape::TensorFamilyStatic),
     )?;
-    configure_temperature(&mut search, config)?;
+    let search = configure_temperature(search, config)?;
     let policy = run.resident_enn(seeds.acquisition)?;
-    search.configure_enn(policy)?;
-    search.set_profiling(run.trace());
+    let search = search.configure_enn(policy)?;
+    let search = search.set_profiling(run.trace());
     Ok((weights, search, updates, policy))
 }
 
@@ -415,8 +415,8 @@ fn build_state(
     ),
     String,
 > {
-    search.observe_objectives(initial.observation.observation)?;
-    search.configure_objectives(run.resident_objectives(0)?)?;
+    search = search.observe_objectives(initial.observation.observation)?;
+    search = search.configure_objectives(run.resident_objectives(0)?)?;
     let region_count = search.morbo_regions().max(1);
     let state = LoopState {
         updates,
@@ -637,12 +637,12 @@ pub(super) fn model_arch(run: &RunConfig) -> Result<ResidualArchitecture, String
 }
 
 fn configure_temperature(
-    search: &mut SearchState,
+    search: SearchState,
     config: &GenerationConfig,
-) -> Result<(), String> {
+) -> Result<SearchState, String> {
     match (config.temperature_bounds, config.temperature_step) {
         (Some(bounds), Some(step)) => search.configure_axis(config.temperature, bounds, step),
-        (None, None) => Ok(()),
+        (None, None) => Ok(search),
         _ => Err("temperature search configuration was not validated".into()),
     }
 }
@@ -761,21 +761,22 @@ mod tests {
             .unwrap();
             let mut policy = RunConfig::default().resident_enn(19).unwrap();
             policy.ask.surrogate.neighbors = 2;
-            search.configure_enn(policy).unwrap();
-            search
+            search = search.configure_enn(policy).unwrap();
+            search = search
                 .observe_objectives(evaluated(0.0, 0.0).observation)
                 .unwrap();
-            search
+            search = search
                 .configure_objectives(Some(crate::resident_metal::ObjectivePolicy {
                     acquisition: crate::resident_metal::ObjectiveAcquisition::Pareto,
                     scales: vec![1.0, 1.0],
                 }))
                 .unwrap();
-            let (row, proposal, initializing) = search.propose(29, policy.ask, 0, None).unwrap();
+            let (search, (row, proposal, initializing)) =
+                search.propose(29, policy.ask, 0, None).unwrap();
             assert!(initializing);
             let candidate = crate::search::DeviceView::metal(row.clone(), 0, row.length() as usize);
             let mut accepted = TestOracle(evaluated(-1.0, 1000.0));
-            let (decision, (), _) = search
+            let (search, (decision, (), _)) = search
                 .evaluate(&proposal, candidate, true, &mut accepted)
                 .unwrap();
             assert!(decision.accepted);
@@ -783,12 +784,12 @@ mod tests {
             assert_eq!(row.observation, accepted.0.observation);
             let mut ask = policy.ask;
             ask.surrogate.neighbors = 2;
-            let (row, proposal, initializing) = search.propose(31, ask, 0, None).unwrap();
+            let (search, (row, proposal, initializing)) = search.propose(31, ask, 0, None).unwrap();
             assert!(!initializing);
             let control = proposal.incumbent_mean + 4.0 * proposal.incumbent_standard_error + 1.0;
             let candidate = crate::search::DeviceView::metal(row.clone(), 0, row.length() as usize);
             let mut rejected = TestOracle(evaluated(control, -1000.0));
-            let (decision, (), _) = search
+            let (search, (decision, (), _)) = search
                 .evaluate(&proposal, candidate, false, &mut rejected)
                 .unwrap();
             assert!(!decision.accepted);

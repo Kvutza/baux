@@ -3,7 +3,7 @@ use super::*;
 fn state(pool: ProceduralPool, perturbation: ProposalDistribution) -> SearchState {
     let base = vec![0x3400; TILE_ELEMENTS + 17];
     let block = ParamBlock::new(71, 0, base.len(), 0.25, 1.0).unwrap();
-    let mut state = SearchState::new_implicit(
+    let state = SearchState::new_implicit(
         &base,
         vec![block],
         1,
@@ -11,7 +11,7 @@ fn state(pool: ProceduralPool, perturbation: ProposalDistribution) -> SearchStat
         perturbation,
     )
     .unwrap();
-    state
+    let state = state
         .configure_enn(crate::config::ResidentEnnConfig {
             pool,
             ask: {
@@ -27,8 +27,7 @@ fn state(pool: ProceduralPool, perturbation: ProposalDistribution) -> SearchStat
             local_scale_neighbors: 1,
         })
         .unwrap();
-    state.observe_initial(0.0, 0.0).unwrap();
-    state
+    state.observe_initial(0.0, 0.0).unwrap()
 }
 
 fn check_layout(pool: ProceduralPool, perturbation: ProposalDistribution) {
@@ -41,22 +40,23 @@ fn check_layout(pool: ProceduralPool, perturbation: ProposalDistribution) {
         let bits = read::<u16>(&expected, search.dimensions).to_vec();
         let radius = search.radius(candidate);
         let start = std::time::Instant::now();
-        search
+        let (s, _row) = search
             .begin_forced(root, RoundConfig::default(), candidate)
             .unwrap();
-        let proposal = search.finish_ask().unwrap();
+        let (s, proposal) = s.finish_ask().unwrap();
         elapsed.push(start.elapsed().as_secs_f64() * 1000.0);
         assert_eq!(proposal.seed, pool.seed(root, proposal.identity()).unwrap());
         assert_eq!(proposal.length.to_bits(), radius.to_bits());
         assert_eq!(proposal.arms(), pool.arms() as usize);
-        assert_eq!(read::<u16>(&search.proposal, search.dimensions), bits);
+        assert_eq!(read::<u16>(&*s.proposal, s.dimensions), bits);
         assert_eq!(proposal.pool_predictions.len(), pool.count() as usize);
         assert_eq!(
             proposal.procedural_candidates().count(),
             pool.count() as usize
         );
-        search.tell_noisy(&proposal, -1.0, 0.0).unwrap();
-        search.sync().unwrap();
+        let (s, _decision) = s.tell_noisy(&proposal, -1.0, 0.0).unwrap();
+        let (s, _synced) = s.sync().unwrap();
+        search = s;
     }
     elapsed.sort_by(f64::total_cmp);
     eprintln!(
@@ -99,27 +99,27 @@ fn single_pass() {
         }
         .resolve_resident()
         .unwrap();
-        let mut search = state(pool, ProposalDistribution::Gaussian);
-        search.set_profiling(true);
+        let search = state(pool, ProposalDistribution::Gaussian);
+        let search = search.set_profiling(true);
         let root = crate::hash::splitmix64(99);
         let expected = search.test_candidate(root, 0).unwrap();
         let bits = read::<u16>(&expected, search.dimensions).to_vec();
 
-        search
+        let (search, _row) = search
             .begin_ask(1, 1, root, RoundConfig::default())
             .unwrap();
-        let proposal = search.finish_ask().unwrap();
+        let (search, proposal) = search.finish_ask().unwrap();
         let profile = search.last_profile().unwrap();
         assert_eq!(profile.materialize_ms, 0.0);
         assert_eq!(proposal.pool_predictions.len(), 1);
-        assert_eq!(read::<u16>(&search.proposal, search.dimensions), bits);
-        search.tell_noisy(&proposal, -0.5, 0.0).unwrap();
-        search.sync().unwrap();
+        assert_eq!(read::<u16>(&*search.proposal, search.dimensions), bits);
+        let (search, _dec) = search.tell_noisy(&proposal, -0.5, 0.0).unwrap();
+        let (search, _synced) = search.sync().unwrap();
 
         let root2 = crate::hash::splitmix64(100);
         let expected2 = search.test_candidate(root2, 0).unwrap();
         let bits2 = read::<u16>(&expected2, search.dimensions).to_vec();
-        let distances = search.sample_distances(root2).unwrap();
+        let (search, distances) = search.sample_distances(root2).unwrap();
         assert_eq!(distances.len(), 1);
 
         let mut surrogate =
@@ -136,9 +136,9 @@ fn single_pass() {
             )
             .unwrap();
         assert_eq!(selection.pool_predictions.len(), 1);
-        let (_buf, proposal2) = search.materialize_selection(root2, &selection).unwrap();
+        let (search, (_buf, proposal2)) = search.materialize_selection(root2, &selection).unwrap();
         assert_eq!(proposal2.pool_predictions.len(), 1);
-        assert_eq!(read::<u16>(&search.proposal, search.dimensions), bits2);
+        assert_eq!(read::<u16>(&*search.proposal, search.dimensions), bits2);
 
         let eight_way: Vec<Vec<f64>> = (0..8).map(|i| vec![1.0e-4 * (i + 1) as f64; 2]).collect();
         let sel8 = surrogate

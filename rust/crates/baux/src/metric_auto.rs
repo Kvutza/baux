@@ -74,14 +74,14 @@ pub fn auto_weights(
     Ok((w, gain))
 }
 
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct MetricCounters {
     pub num_refits: usize,
     pub num_rescales: usize,
     pub num_rebuilds: usize,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct DiagonalMetric {
     pub num_seen: usize,
     pub counters: MetricCounters,
@@ -91,6 +91,7 @@ pub struct DiagonalMetric {
     pub built: Vec<f64>,
 }
 
+#[derive(Clone, Debug, PartialEq)]
 pub struct ScaleUpdate {
     pub x_scale: Vec<f64>,
     pub rebuild: bool,
@@ -114,6 +115,49 @@ pub struct AutoMetric {
     pub heldout_gain: Option<f64>,
     counters: MetricCounters,
 }
+
+impl Clone for AutoMetric {
+    fn clone(&self) -> Self {
+        Self {
+            rows: self.rows.clone(),
+            tied: self.tied.clone(),
+            unscaled: self.unscaled.clone(),
+            weights: self.weights.clone(),
+            built: self.built.clone(),
+            rebuild_drift: self.rebuild_drift,
+            refit_growth: self.refit_growth,
+            next_refit: self.next_refit,
+            heldout_gain: self.heldout_gain,
+            counters: self.counters,
+        }
+    }
+}
+
+impl std::fmt::Debug for AutoMetric {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AutoMetric")
+            .field("num_dim", &self.rows.num_dim())
+            .field("num_outputs", &self.rows.num_outputs())
+            .field("weights", &self.weights)
+            .field("built", &self.built)
+            .field("rebuild_drift", &self.rebuild_drift)
+            .field("refit_growth", &self.refit_growth)
+            .field("next_refit", &self.next_refit)
+            .field("heldout_gain", &self.heldout_gain)
+            .field("counters", &self.counters)
+            .finish()
+    }
+}
+
+const _: () = {
+    fn assert_sync<T: Send + Sync>() {}
+    fn check() {
+        assert_sync::<AutoMetric>();
+        assert_sync::<DiagonalMetric>();
+        assert_sync::<ScaleUpdate>();
+        assert_sync::<MetricCounters>();
+    }
+};
 
 impl MetricLearner for AutoMetric {
     fn weights(&self) -> &[f64] {
@@ -328,6 +372,59 @@ impl AutoMetric {
         }
     }
 
+    /// Pure consumed-self state transition for streaming observations.
+    pub fn observed(
+        mut self,
+        x: &[f64],
+        y: &[f64],
+        n: usize,
+    ) -> Result<(Self, Option<ScaleUpdate>), ENNError> {
+        let update = self.observe(x, y, n)?;
+        Ok((self, update))
+    }
+
+    /// Pure consumed-self state transition to set unscaled dimensions.
+    pub fn with_unscaled(mut self, unscaled: Vec<usize>) -> Result<Self, ENNError> {
+        self.set_unscaled(unscaled)?;
+        Ok(self)
+    }
+
+    /// Pure consumed-self state transition to update hyperparameters.
+    pub fn configured(
+        mut self,
+        refit_growth: Option<f64>,
+        rebuild_drift: Option<f64>,
+        seed: Option<u64>,
+        capacity: Option<usize>,
+    ) -> Result<Self, ENNError> {
+        self.configure(refit_growth, rebuild_drift, seed, capacity)?;
+        Ok(self)
+    }
+
+    /// Pure consumed-self state transition to set metric weights.
+    pub fn with_weights(mut self, weights: &[f64]) -> Result<(Self, ScaleUpdate), ENNError> {
+        let update = self.set_weights(weights)?;
+        Ok((self, update))
+    }
+
+    /// Pure consumed-self state transition to trigger refitting.
+    pub fn refitted(mut self) -> Result<(Self, Option<ScaleUpdate>), ENNError> {
+        let update = self.refit()?;
+        Ok((self, update))
+    }
+
+    /// Pure consumed-self state transition to propose candidate weights.
+    pub fn proposed(mut self) -> Result<(Self, Option<Vec<f64>>), ENNError> {
+        let weights = self.propose()?;
+        Ok((self, weights))
+    }
+
+    /// Pure consumed-self state transition to ingest rows into reservoir.
+    pub fn ingested(mut self, x: &[f64], y: &[f64], n: usize) -> Result<(Self, bool), ENNError> {
+        let ready = self.ingest(x, y, n)?;
+        Ok((self, ready))
+    }
+
     pub(crate) fn ingest(&mut self, x: &[f64], y: &[f64], n: usize) -> Result<bool, ENNError> {
         if x.len() != n.checked_mul(self.rows.num_dim()).unwrap_or(usize::MAX)
             || y.len() != n.checked_mul(self.rows.num_outputs()).unwrap_or(usize::MAX)
@@ -491,5 +588,29 @@ mod tests {
         let (w1, g1) = auto_weights(&x, n, d, &y, 1, 1, &[]).unwrap();
         assert_eq!(w10, w1);
         assert_ne!(g10, g1);
+    }
+
+    #[test]
+    fn consumed_self() {
+        let metric = AutoMetric::new(2, 1, vec![], 0)
+            .unwrap()
+            .configured(Some(3.0), Some(0.25), Some(7), Some(4))
+            .unwrap();
+        assert_eq!(metric.refit_growth, 3.0);
+        assert_eq!(metric.rebuild_drift, 0.25);
+        assert_eq!(metric.seed(), 7);
+        assert_eq!(metric.capacity(), 4);
+
+        let (metric, update) = metric
+            .observed(&[0.0, 1.0, 0.2, 0.3], &[0.0, 1.0], 2)
+            .unwrap();
+        assert!(update.is_none());
+        assert_eq!(metric.num_seen(), 2);
+
+        // Verify clone isolation
+        let metric_fork = metric.clone();
+        let (metric, _) = metric.with_weights(&[2.0, 0.5]).unwrap();
+        assert_eq!(metric.weights(), &[2.0, 0.5]);
+        assert_eq!(metric_fork.weights(), &[1.0, 1.0]);
     }
 }

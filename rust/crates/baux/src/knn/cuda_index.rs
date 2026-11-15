@@ -6,6 +6,7 @@ use super::{CudaParam, KnnBatch, KnnPosterior, KnnProfile, flatten_f32, pad_k};
 use crate::draw::DrawInternals;
 use crate::error::IndexError;
 
+#[derive(Clone)]
 pub(crate) struct CudaIndex {
     pub(crate) inner: baux_cuda::CudaIndex,
     dims: usize,
@@ -41,12 +42,21 @@ impl CudaIndex {
         self.inner.memory_bytes()
     }
 
-    pub(crate) fn rebuild(&mut self, train: &ArrayView2<f64>) -> Result<(), IndexError> {
+    pub(crate) fn rebuild(mut self, train: &ArrayView2<f64>) -> Result<Self, IndexError> {
         check_shape(self.dims, train)?;
-        self.inner.rebuild(&flatten_f32(train)).map_err(index_error)
+        let mut scratch = self.inner.new_scratch().map_err(index_error)?;
+        self.inner = self
+            .inner
+            .rebuild(&mut scratch, &flatten_f32(train))
+            .map_err(index_error)?;
+        Ok(self)
     }
 
-    pub(crate) fn add(&mut self, rows: &ArrayView2<f64>, start_key: u64) -> Result<(), IndexError> {
+    pub(crate) fn add(
+        mut self,
+        rows: &ArrayView2<f64>,
+        start_key: u64,
+    ) -> Result<Self, IndexError> {
         check_shape(self.dims, rows)?;
         if start_key != self.len() as u64 {
             return Err(IndexError::InvalidParameter(format!(
@@ -54,11 +64,16 @@ impl CudaIndex {
                 self.len()
             )));
         }
-        self.inner.add(&flatten_f32(rows)).map_err(index_error)
+        let mut scratch = self.inner.new_scratch().map_err(index_error)?;
+        self.inner = self
+            .inner
+            .add(&mut scratch, &flatten_f32(rows))
+            .map_err(index_error)?;
+        Ok(self)
     }
 
     pub(crate) fn search(
-        &mut self,
+        &self,
         queries: &ArrayView2<f64>,
         k_eff: usize,
         search_k: usize,
@@ -84,9 +99,10 @@ impl CudaIndex {
             )));
         }
 
-        let (distances, indices) = self
+        let mut scratch = self.inner.new_scratch().map_err(index_error)?;
+        let (distances, indices, _profile) = self
             .inner
-            .search(&flatten_f32(queries), queries.nrows(), k_eff)
+            .search(&mut scratch, &flatten_f32(queries), queries.nrows(), k_eff)
             .map_err(index_error)?;
         let distances = Array2::from_shape_vec(
             (queries.nrows(), k_eff),
@@ -103,7 +119,7 @@ impl CudaIndex {
 
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn posterior(
-        &mut self,
+        &self,
         queries: &ArrayView2<f64>,
         outcomes: &ArrayView2<f64>,
         scales: &ArrayView1<f64>,
@@ -119,9 +135,11 @@ impl CudaIndex {
                 "CUDA posterior outcomes and scales have incompatible shapes".to_string(),
             ));
         }
+        let mut scratch = self.inner.new_scratch().map_err(index_error)?;
         let output = self
             .inner
             .posterior(
+                &mut scratch,
                 &flatten_f32(queries),
                 queries.nrows(),
                 &flatten_f32(outcomes),
@@ -152,7 +170,7 @@ impl CudaIndex {
 
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn weighted(
-        &mut self,
+        &self,
         queries: &ArrayView2<f64>,
         outcomes: &ArrayView2<f64>,
         variances: Option<&ArrayView2<f64>>,
@@ -178,9 +196,11 @@ impl CudaIndex {
         let outcomes_f32 = flatten_f32(outcomes);
         let variances_f32 = variances.map(flatten_f32);
         let scales_f32: Vec<f32> = scales.iter().map(|&value| value as f32).collect();
+        let mut scratch = self.inner.new_scratch().map_err(index_error)?;
         let output = self
             .inner
             .weighted(
+                &mut scratch,
                 &flatten_f32(queries),
                 queries.nrows(),
                 &outcomes_f32,
@@ -203,7 +223,7 @@ impl CudaIndex {
 
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn batch(
-        &mut self,
+        &self,
         queries: &ArrayView2<f64>,
         outcomes: &ArrayView2<f64>,
         variances: Option<&ArrayView2<f64>>,
@@ -236,9 +256,11 @@ impl CudaIndex {
                 aleatoric_scale: value.aleatoric_scale as f32,
             })
             .collect();
+        let mut scratch = self.inner.new_scratch().map_err(index_error)?;
         let output = self
             .inner
             .batch(
+                &mut scratch,
                 &flatten_f32(queries),
                 queries.nrows(),
                 &outcomes_f32,
@@ -268,7 +290,7 @@ impl CudaIndex {
 
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn draws(
-        &mut self,
+        &self,
         queries: &ArrayView2<f64>,
         outcomes: &ArrayView2<f64>,
         variances: Option<&ArrayView2<f64>>,
@@ -296,9 +318,11 @@ impl CudaIndex {
         let variances_f32 = variances.map(flatten_f32);
         let scales_f32: Vec<f32> = scales.iter().map(|&value| value as f32).collect();
         let seeds_u64: Vec<u64> = seeds.iter().map(|&seed| seed as u64).collect();
+        let mut scratch = self.inner.new_scratch().map_err(index_error)?;
         let output = self
             .inner
             .draws(
+                &mut scratch,
                 &flatten_f32(queries),
                 queries.nrows(),
                 &outcomes_f32,
@@ -328,7 +352,7 @@ impl CudaIndex {
 
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn conditional(
-        &mut self,
+        &self,
         queries: &ArrayView2<f64>,
         extra_rows: &ArrayView2<f64>,
         outcomes: &ArrayView2<f64>,
@@ -360,9 +384,11 @@ impl CudaIndex {
         let outcomes_f32 = flatten_f32(outcomes);
         let variances_f32 = variances.map(flatten_f32);
         let scales_f32: Vec<f32> = scales.iter().map(|&value| value as f32).collect();
+        let mut scratch = self.inner.new_scratch().map_err(index_error)?;
         let output = self
             .inner
             .conditional(
+                &mut scratch,
                 &flatten_f32(queries),
                 queries.nrows(),
                 &flatten_f32(extra_rows),
@@ -386,7 +412,7 @@ impl CudaIndex {
 
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn conditional_draws(
-        &mut self,
+        &self,
         queries: &ArrayView2<f64>,
         extra_rows: &ArrayView2<f64>,
         outcomes: &ArrayView2<f64>,
@@ -420,9 +446,11 @@ impl CudaIndex {
         let variances_f32 = variances.map(flatten_f32);
         let scales_f32: Vec<f32> = scales.iter().map(|&value| value as f32).collect();
         let seeds_u64: Vec<u64> = seeds.iter().map(|&seed| seed as u64).collect();
+        let mut scratch = self.inner.new_scratch().map_err(index_error)?;
         let output = self
             .inner
             .conditional_draws(
+                &mut scratch,
                 &flatten_f32(queries),
                 queries.nrows(),
                 &flatten_f32(extra_rows),
@@ -449,6 +477,11 @@ impl CudaIndex {
             outcomes.ncols(),
             used_k,
         )
+    }
+
+    #[inline]
+    pub fn lock(&self) -> Result<&Self, std::convert::Infallible> {
+        Ok(self)
     }
 
     pub(crate) fn profile(&self) -> Option<KnnProfile> {

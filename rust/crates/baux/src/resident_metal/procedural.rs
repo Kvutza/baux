@@ -18,7 +18,7 @@ impl SearchState {
     /// recompiles even for the default layout. Compilation may fail;
     /// callers must not treat configuration as an ask or an observation,
     /// and this method does not evaluate or accept a candidate.
-    pub fn configure_pool(&mut self, pool: ProceduralPool) -> Result<(), String> {
+    pub fn configure_pool(mut self, pool: ProceduralPool) -> Result<Self, String> {
         self.check_idle()?;
         ProceduralPoolConfig {
             arms: pool.arms(),
@@ -32,7 +32,7 @@ impl SearchState {
             );
         }
         if pool == self.pool_layout {
-            return Ok(());
+            return Ok(self);
         }
         let source = self.procedural_source(pool);
         let propose = self
@@ -60,7 +60,7 @@ impl SearchState {
         self.selection_pipeline = select;
         self.materialize_pipeline = materialize;
         self.pool_layout = pool;
-        Ok(())
+        Ok(self)
     }
 
     /// Derive pool metadata's candidate seed. The index must be inside the

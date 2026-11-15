@@ -1,5 +1,5 @@
 //! Python orchestration of resident regional transactions. Parameter views
-//! lease their allocations; completion requires releasing all exported views.
+//! retain immutable snapshots; state transitions return functional copies.
 #![allow(clippy::too_many_arguments)]
 use crate::py_metal::{PyMetalParamBlock, PyMetalWeights};
 use baux::semantics::optimizer::portfolio::Allocation;
@@ -11,34 +11,19 @@ use baux::{
     optimizer::multi_tr::SharingPolicy,
 };
 use numpy::{PyReadonlyArray1, PyReadonlyArray2};
-use pyo3::{
-    exceptions::{PyBufferError, PyValueError},
-    prelude::*,
-};
-use std::{cell::Cell, rc::Rc};
+use pyo3::{exceptions::PyValueError, prelude::*};
 
 fn error(message: String) -> PyErr {
     PyValueError::new_err(message)
 }
 
-#[pyclass(name = "Portfolio", module = "baux", unsendable)]
+#[pyclass(name = "Portfolio", module = "baux", frozen)]
+#[derive(Clone)]
 pub struct PyRegionalSearch {
     inner: RegionalSearch,
     blocks: Vec<MetalParamBlock>,
     capacity: usize,
     length: TRLengthConfig,
-    leases: Rc<Cell<usize>>,
-}
-
-impl PyRegionalSearch {
-    fn unleased(&self) -> PyResult<()> {
-        if self.leases.get() > 0 {
-            return Err(PyBufferError::new_err(
-                "release regional weight views after evaluation before mutating the optimizer",
-            ));
-        }
-        Ok(())
-    }
 }
 
 #[pymethods]
@@ -109,19 +94,18 @@ impl PyRegionalSearch {
             blocks,
             capacity,
             length,
-            leases: Rc::new(Cell::new(0)),
         })
     }
 
     #[pyo3(signature=(seed=None,neighbors=1,region=None,acquisition="thompson"))]
     fn ask(
-        mut slf: PyRefMut<Self>,
+        &self,
+        py: Python<'_>,
         seed: Option<u64>,
         neighbors: usize,
         region: Option<usize>,
         acquisition: &str,
-    ) -> PyResult<PyRegionalProposal> {
-        slf.unleased()?;
+    ) -> PyResult<(PyRegionalProposal, Py<Self>)> {
         let seed = baux::resolve_seed(seed);
         let mut config = RoundConfig::default();
         config.surrogate.neighbors = neighbors;
@@ -136,65 +120,107 @@ impl PyRegionalSearch {
                 ));
             }
         };
-        let inner = match region {
-            Some(slot) => slf.inner.ask_region(slot, seed, config),
-            None => slf.inner.ask(seed, config),
+        let (next_inner, inner) = match region {
+            Some(slot) => self.inner.clone().ask_region(slot, seed, config),
+            None => self.inner.clone().ask(seed, config),
         }
         .map_err(error)?;
-        Ok(PyRegionalProposal {
-            owner: slf.into(),
-            inner,
-        })
+        let next_py = Py::new(
+            py,
+            Self {
+                inner: next_inner,
+                blocks: self.blocks.clone(),
+                capacity: self.capacity,
+                length: self.length,
+            },
+        )?;
+        Ok((
+            PyRegionalProposal {
+                owner: next_py.clone_ref(py),
+                inner,
+            },
+            next_py,
+        ))
     }
 
     #[pyo3(signature=(proposal,value,variance=0.0))]
     fn tell(
-        &mut self,
+        &self,
         proposal: PyRef<PyRegionalProposal>,
         value: f32,
         variance: f32,
-    ) -> PyResult<bool> {
-        self.unleased()?;
-        self.inner
+    ) -> PyResult<(bool, Self)> {
+        let (next_inner, decision) = self
+            .inner
+            .clone()
             .tell(&proposal.inner, value, variance)
-            .map(|decision| decision.accepted)
-            .map_err(error)
+            .map_err(error)?;
+        Ok((
+            decision.accepted,
+            Self {
+                inner: next_inner,
+                blocks: self.blocks.clone(),
+                capacity: self.capacity,
+                length: self.length,
+            },
+        ))
     }
 
-    fn cancel(&mut self, proposal: PyRef<PyRegionalProposal>) -> PyResult<()> {
-        self.unleased()?;
-        self.inner.cancel(&proposal.inner).map_err(error)
+    fn cancel(&self, proposal: PyRef<PyRegionalProposal>) -> PyResult<Self> {
+        let next_inner = self.inner.clone().cancel(&proposal.inner).map_err(error)?;
+        Ok(Self {
+            inner: next_inner,
+            blocks: self.blocks.clone(),
+            capacity: self.capacity,
+            length: self.length,
+        })
     }
 
     #[pyo3(signature=(region,weights,value,variance=0.0))]
     fn import_region(
-        &mut self,
+        &self,
         region: usize,
         weights: PyRef<PyMetalWeights>,
         value: f32,
         variance: f32,
-    ) -> PyResult<()> {
-        self.unleased()?;
-        self.inner
+    ) -> PyResult<Self> {
+        let next_inner = self
+            .inner
+            .clone()
             .import_region(region, &weights.buffer, value, variance)
-            .map_err(error)
+            .map_err(error)?;
+        Ok(Self {
+            inner: next_inner,
+            blocks: self.blocks.clone(),
+            capacity: self.capacity,
+            length: self.length,
+        })
     }
 
     #[pyo3(signature=(weights,value,variance=0.0))]
     fn import_observations(
-        &mut self,
+        &self,
         weights: PyRef<PyMetalWeights>,
         value: f32,
         variance: f32,
-    ) -> PyResult<Vec<usize>> {
-        self.unleased()?;
-        self.inner
+    ) -> PyResult<(Vec<usize>, Self)> {
+        let (next_inner, slots) = self
+            .inner
+            .clone()
             .import_external(&weights.buffer, value, variance)
-            .map_err(error)
+            .map_err(error)?;
+        Ok((
+            slots,
+            Self {
+                inner: next_inner,
+                blocks: self.blocks.clone(),
+                capacity: self.capacity,
+                length: self.length,
+            },
+        ))
     }
 
-    fn restart(&mut self, region: usize, base: PyRef<PyMetalWeights>, value: f32) -> PyResult<()> {
-        self.unleased()?;
+    fn restart(&self, region: usize, base: PyRef<PyMetalWeights>, value: f32) -> PyResult<Self> {
         let values =
             unsafe { std::slice::from_raw_parts(base.buffer.contents().cast::<u16>(), base.len) };
         let state = MetalSearchState::new(
@@ -207,23 +233,33 @@ impl PyRegionalSearch {
             self.length,
         )
         .map_err(error)?;
-        self.inner.restart(region, state).map_err(error)
+        let next_inner = self.inner.clone().restart(region, state).map_err(error)?;
+        Ok(Self {
+            inner: next_inner,
+            blocks: self.blocks.clone(),
+            capacity: self.capacity,
+            length: self.length,
+        })
     }
 
     fn incumbent(&self, region: usize) -> PyResult<PyMetalWeights> {
         let buffer = self.inner.incumbent(region).map_err(error)?;
         let len = self.inner.dimensions(region).map_err(error)?;
-        self.leases.set(self.leases.get() + 1);
-        Ok(PyMetalWeights {
-            buffer,
-            len,
-            lease: Some(self.leases.clone()),
+        Ok(PyMetalWeights { buffer, len })
+    }
+
+    fn flush_sharing(&self, region: usize) -> PyResult<Self> {
+        let next_inner = self.inner.clone().flush_sharing(region).map_err(error)?;
+        Ok(Self {
+            inner: next_inner,
+            blocks: self.blocks.clone(),
+            capacity: self.capacity,
+            length: self.length,
         })
     }
 
-    fn flush_sharing(&mut self, region: usize) -> PyResult<()> {
-        self.unleased()?;
-        self.inner.flush_sharing(region).map_err(error)
+    fn fork(&self) -> Self {
+        self.clone()
     }
 
     #[getter]
@@ -250,7 +286,7 @@ impl PyRegionalSearch {
     }
 }
 
-#[pyclass(name = "RegionTrial", module = "baux", unsendable)]
+#[pyclass(name = "RegionTrial", module = "baux", frozen)]
 pub struct PyRegionalProposal {
     owner: Py<PyRegionalSearch>,
     inner: RegionalProposal,
@@ -270,12 +306,7 @@ impl PyRegionalProposal {
         let owner = self.owner.bind(py).try_borrow()?;
         let buffer = owner.inner.buffer(&self.inner).map_err(error)?;
         let len = owner.inner.dimensions(self.region()).map_err(error)?;
-        owner.leases.set(owner.leases.get() + 1);
-        Ok(PyMetalWeights {
-            buffer,
-            len,
-            lease: Some(owner.leases.clone()),
-        })
+        Ok(PyMetalWeights { buffer, len })
     }
     fn var(&self, py: Python<'_>) -> PyResult<PyMetalWeights> {
         self.weights(py)

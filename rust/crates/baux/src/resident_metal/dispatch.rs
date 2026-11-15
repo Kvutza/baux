@@ -11,20 +11,20 @@ impl SearchState {
         };
         encoder.set_compute_pipeline_state(pipeline);
         let (first_row, second_row) = if self.history_rows.is_empty() {
-            (&self.base, &self.base)
+            (&*self.base, &*self.base)
         } else {
             let second = self.resident_history.min(2).saturating_sub(1);
-            (&self.history_rows[0], &self.history_rows[second])
+            (&*self.history_rows[0], &*self.history_rows[second])
         };
         for (index, buffer) in [
-            &self.base,
+            &*self.base,
             first_row,
             second_row,
             &self.leaves_gpu,
             &self.tiles_gpu,
-            &self.proposal,
-            &self.partials,
-            &self.pool_geometry,
+            &*self.proposal,
+            &*self.partials,
+            &*self.pool_geometry,
         ]
         .iter()
         .enumerate()
@@ -49,11 +49,12 @@ impl SearchState {
         let encoder =
             command.compute_command_encoder_with_dispatch_type(metal::MTLDispatchType::Concurrent);
         self.dispatch_pool(encoder, self.pool_params(seed));
-        let pool_resources: [&metal::ResourceRef; 2] = [&self.partials, &self.pool_geometry];
+        let pool_resources: [&metal::ResourceRef; 2] = [&*self.partials, &*self.pool_geometry];
         encoder.memory_barrier_with_resources(&pool_resources);
         self.dispatch_select(encoder, seed, config, forced_candidate);
         if self.pool_layout.count() > 1 {
-            let select_resources: [&metal::ResourceRef; 2] = [&self.decision, &self.pool_distances];
+            let select_resources: [&metal::ResourceRef; 2] =
+                [&*self.decision, &*self.pool_distances];
             encoder.memory_barrier_with_resources(&select_resources);
             self.dispatch_row(encoder);
         }
@@ -73,7 +74,7 @@ impl SearchState {
                 base_slot: 0,
                 ..params
             };
-            self.encode_buffers(encoder, pair_params, &self.base, &self.base);
+            self.encode_buffers(encoder, pair_params, &*self.base, &*self.base);
             return;
         }
         let pairs = self.resident_history.div_ceil(2);
@@ -104,8 +105,8 @@ impl SearchState {
         self.encode_buffers(
             encoder,
             params,
-            &self.history_rows[first],
-            &self.history_rows[second],
+            &*self.history_rows[first],
+            &*self.history_rows[second],
         );
     }
     fn encode_buffers(
@@ -117,14 +118,14 @@ impl SearchState {
     ) {
         encoder.set_compute_pipeline_state(&self.pool_pipeline);
         for (index, buffer) in [
-            &self.base,
+            &*self.base,
             first_row,
             second_row,
             &self.leaves_gpu,
             &self.tiles_gpu,
-            &self.proposal,
-            &self.partials,
-            &self.pool_geometry,
+            &*self.proposal,
+            &*self.partials,
+            &*self.pool_geometry,
         ]
         .iter()
         .enumerate()
@@ -159,9 +160,13 @@ impl SearchState {
     ) {
         let params = self.select_params(root, config, forced_candidate);
         encoder.set_compute_pipeline_state(&self.reduction_pipeline);
-        for (index, buffer) in [&self.partials, &self.pool_geometry, &self.pool_aggregates]
-            .iter()
-            .enumerate()
+        for (index, buffer) in [
+            &*self.partials,
+            &*self.pool_geometry,
+            &*self.pool_aggregates,
+        ]
+        .iter()
+        .enumerate()
         {
             encoder.set_buffer(index as u64, Some(buffer), 0);
         }
@@ -174,7 +179,7 @@ impl SearchState {
             thread_group(self.resident_history.div_ceil(2).max(1) as u64),
             thread_group(256),
         );
-        let resources: [&metal::ResourceRef; 2] = [&self.pool_aggregates, &self.pool_geometry];
+        let resources: [&metal::ResourceRef; 2] = [&*self.pool_aggregates, &*self.pool_geometry];
         encoder.memory_barrier_with_resources(&resources);
 
         if let Some(selector) = &self.objective_selector {
@@ -185,9 +190,13 @@ impl SearchState {
         } else {
             encoder.set_compute_pipeline_state(&self.selection_pipeline);
         }
-        for (index, buffer) in [&self.pool_aggregates, &self.decision, &self.pool_distances]
-            .iter()
-            .enumerate()
+        for (index, buffer) in [
+            &*self.pool_aggregates,
+            &*self.decision,
+            &*self.pool_distances,
+        ]
+        .iter()
+        .enumerate()
         {
             encoder.set_buffer(index as u64, Some(buffer), 0);
         }
@@ -207,11 +216,11 @@ impl SearchState {
     pub fn dispatch_row(&self, encoder: &metal::ComputeCommandEncoderRef) {
         encoder.set_compute_pipeline_state(&self.materialize_pipeline);
         for (index, buffer) in [
-            &self.base,
+            &*self.base,
             &self.leaves_gpu,
             &self.tiles_gpu,
-            &self.proposal,
-            &self.decision,
+            &*self.proposal,
+            &*self.decision,
         ]
         .iter()
         .enumerate()
@@ -220,7 +229,7 @@ impl SearchState {
         }
         let account = 0u32;
         encoder.set_bytes(5, size_of::<u32>() as u64, (&account as *const u32).cast());
-        encoder.set_buffer(6, Some(&self.partials), 0);
+        encoder.set_buffer(6, Some(&*self.partials), 0);
         let params = Params {
             tiles: self.tiles.len() as u32,
             ..self.pool_params(0)

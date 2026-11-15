@@ -108,27 +108,28 @@ impl MetalFiber {
             self.pending = Some(PendingProposal::RestartSlot(slot, st, row.clone()));
             return Ok(row);
         }
-        let s = self.eng.search.as_mut().ok_or("no search")?;
+        let s = self.eng.search.take().ok_or("no search")?;
         let r_seed = self.spec.seed.wrapping_add((self.round + 1) as u64);
-        let prop = ask_retry(s, r_seed, self.spec.enn_res.ask)?;
+        let (s, prop) = ask_retry(s, r_seed, self.spec.enn_res.ask)?;
         let buf = s.buffer(&prop)?;
         let ptr = buf.contents().cast::<u16>();
         let row = unsafe { std::slice::from_raw_parts(ptr, self.spec.num_dim) }.to_vec();
         drop(buf);
+        self.eng.search = Some(s);
         self.pending = Some(PendingProposal::AskProp(prop, row.clone()));
         Ok(row)
     }
 
     fn commit_init(
         &mut self,
-        mut st: SearchState,
+        st: SearchState,
         row: Vec<u16>,
         sc: f64,
         outcome: &EvalOutcome,
     ) -> Result<(Vec<u16>, f64), String> {
         let job = self.spec.as_job();
         copy_best(row.as_ptr(), sc, self.best_score, &mut self.eng.best_row);
-        observe_init(&job, &mut st, &outcome.scores)?;
+        let st = observe_init(&job, st, &outcome.scores)?;
         self.eng.init_states.push(st);
         if self.eng.init_states.len() == self.spec.reg_spec.count.max(1) {
             let states = std::mem::take(&mut self.eng.init_states);
@@ -140,19 +141,17 @@ impl MetalFiber {
     fn commit_restart(
         &mut self,
         slot: usize,
-        mut st: SearchState,
+        st: SearchState,
         row: Vec<u16>,
         sc: f64,
         outcome: &EvalOutcome,
     ) -> Result<(Vec<u16>, f64), String> {
         let job = self.spec.as_job();
         copy_best(row.as_ptr(), sc, self.best_score, &mut self.eng.best_row);
-        observe_init(&job, &mut st, &outcome.scores)?;
-        self.eng
-            .search
-            .as_mut()
-            .ok_or("no search")?
-            .restart(slot, st)?;
+        let st = observe_init(&job, st, &outcome.scores)?;
+        let s = self.eng.search.take().ok_or("no search")?;
+        let s = s.restart(slot, st)?;
+        self.eng.search = Some(s);
         Ok((row, sc))
     }
 
@@ -163,20 +162,21 @@ impl MetalFiber {
         sc: f64,
         outcome: &EvalOutcome,
     ) -> Result<(Vec<u16>, f64), String> {
-        let s = self.eng.search.as_mut().ok_or("no search")?;
+        let s = self.eng.search.take().ok_or("no search")?;
         copy_best(row.as_ptr(), sc, self.best_score, &mut self.eng.best_row);
-        if self.spec.n_obj >= 2 {
-            let _ = s.tell_objectives(&prop, obj_obs(&outcome.scores, self.spec.n_obj)?)?;
+        let (s, _dec) = if self.spec.n_obj >= 2 {
+            s.tell_objectives(&prop, obj_obs(&outcome.scores, self.spec.n_obj)?)?
         } else {
-            let _ = s.tell(&prop, outcome.scores[0] as f32, 0.0)?;
-        }
+            s.tell(&prop, outcome.scores[0] as f32, 0.0)?
+        };
         let slot = prop.ticket().region.slot;
-        if baux::resident_metal::regional_restarts(s, slot)? > 0 {
+        if baux::resident_metal::regional_restarts(&s, slot)? > 0 {
             self.eng.slot_gen[slot] += 1;
             self.eng
                 .pending_restarts
                 .push_back((slot, self.eng.slot_gen[slot]));
         }
+        self.eng.search = Some(s);
         Ok((row, sc))
     }
 

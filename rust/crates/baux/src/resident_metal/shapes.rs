@@ -1,7 +1,7 @@
 use super::*;
 
 #[repr(C)]
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Tile {
     pub leaf: u32,
     pub start: u32,
@@ -10,7 +10,7 @@ pub struct Tile {
 }
 
 #[repr(C)]
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, Debug, PartialEq, Default)]
 pub struct Params {
     pub seed: u64,
     pub stream_seed: u64,
@@ -25,7 +25,7 @@ pub struct Params {
 }
 
 #[repr(C)]
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SelectionParams {
     pub root_seed: u64,
     pub outcomes: [f32; MAX_HISTORY],
@@ -61,7 +61,7 @@ pub struct SelectionParams {
 }
 
 #[repr(C)]
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, Debug, PartialEq, Default)]
 pub struct Decision {
     pub index: u32,
     pub valid: u32,
@@ -83,7 +83,7 @@ pub struct Decision {
 }
 
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug, PartialEq, Default)]
 pub struct Partial {
     pub anchor: f32,
     pub rejected: f32,

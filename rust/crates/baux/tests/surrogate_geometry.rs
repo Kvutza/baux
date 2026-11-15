@@ -108,7 +108,7 @@ fn draw_conditioning() {
     }
     // The previous draw law makes f(a)=f(b) almost surely. Conditioning on an
     // exact observation f(a)=0 would also fix f(b)=0 under that same law.
-    model
+    model = model
         .add(&array![[1.0, 0.0]].view(), &array![[0.0]].view(), None)
         .unwrap();
     let after = model.posterior(&queries.view(), &params, &flags()).unwrap();
@@ -167,8 +167,8 @@ fn invalid_fit() {
     assert_eq!(scores[1], f64::NEG_INFINITY);
     assert!(scores[1] < scores[0]);
     let mut fitter = ENNFitter::new(1, false);
-    fitter.tell(&x.view(), &y.view(), None).unwrap();
-    let selected = fitter
+    fitter = fitter.tell(&x.view(), &y.view(), None).unwrap();
+    let (fitter, selected) = fitter
         .ask(
             &model,
             8,
@@ -181,6 +181,7 @@ fn invalid_fit() {
     let previous = *fitter.params().unwrap();
     assert!(
         fitter
+            .clone()
             .ask(
                 &model,
                 0,
@@ -377,7 +378,7 @@ fn ucb_trap() {
         let x = candidates[[selected, 0]];
         assert!(x > 0.5);
         assert!(objective(x) <= 1.0);
-        model
+        model = model
             .add(&array![[x]].view(), &array![[objective(x)]].view(), None)
             .unwrap();
     }

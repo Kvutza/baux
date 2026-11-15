@@ -81,7 +81,7 @@ mod tests {
     fn merge_returns() {
         let dir = TempDir::new().unwrap();
         let mut store = MmapColumnStore::open_mmap(dir.path().join("x.bin"), 2, None).unwrap();
-        store
+        store = store
             .mmap_append(&array![[0.0, 0.0], [1.0, 0.0]].view())
             .unwrap();
         let merged = baux::neighbor_index::merge::merge_candidates(

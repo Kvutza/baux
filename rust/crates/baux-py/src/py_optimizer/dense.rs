@@ -63,7 +63,7 @@ fn dense_device(device: Option<&Bound<'_, PyAny>>) -> PyResult<baux::Device> {
 }
 
 /// Exact `f32` dense linear layer (`Y = X @ weight^T + bias`) on CPU or WebGPU.
-#[pyclass(name = "DenseLinear")]
+#[pyclass(name = "DenseLinear", frozen)]
 pub struct PyDenseLinear {
     inner: baux::webgpu::DenseLinear,
 }

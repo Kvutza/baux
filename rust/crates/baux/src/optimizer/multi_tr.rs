@@ -125,6 +125,26 @@ pub struct PendingProposal {
     pub(crate) ordered_tell_allowed: bool,
 }
 
+impl PendingProposal {
+    /// Zero-copy borrowed slice of evaluation identities.
+    #[inline]
+    pub fn ids(&self) -> &[EvaluationId] {
+        &self.ids
+    }
+
+    /// Floor for next evaluation ID generation avoiding collisions with pending
+    /// proposals.
+    pub(crate) fn id_floor(&self) -> u64 {
+        self.ids
+            .iter()
+            .map(|id| id.0.saturating_add(1))
+            .max()
+            .unwrap_or(1)
+    }
+}
+
+pub type MultiTrustRegion = MultiTrustRegionState;
+
 /// Multi-Trust Region engine storing $M$ regions in contiguous flat memory.
 #[derive(Debug, Clone)]
 pub struct MultiTrustRegionState {
@@ -148,6 +168,12 @@ pub struct MultiTrustRegionState {
 }
 
 impl MultiTrustRegionState {
+    /// Default floor for evaluation ID generation when no pending proposal is
+    /// active.
+    pub(crate) fn id_floor(&self) -> u64 {
+        1
+    }
+
     /// Initialize a new MultiTrustRegionState.
     pub fn new(
         num_dim: usize,
@@ -741,7 +767,6 @@ impl MultiTrustRegionState {
             let mut seen = std::collections::HashSet::new();
             seen.try_reserve(rows)
                 .map_err(|_| bad_state("allocation failed"))?;
-            let mut max_id = 0u64;
             for chunk in id_bytes.chunks_exact(8) {
                 let mut arr = [0u8; 8];
                 arr.copy_from_slice(chunk);
@@ -749,10 +774,8 @@ impl MultiTrustRegionState {
                 if !seen.insert(val) {
                     return Err(bad_state("duplicate EvaluationId in frozen state"));
                 }
-                max_id = max_id.max(val);
                 ids.push(EvaluationId(val));
             }
-            crate::strategy::bump_ids(max_id.saturating_add(1));
 
             let arms = if reader.read_bool()? {
                 let mut arm_vec = Vec::new();

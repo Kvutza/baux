@@ -1,8 +1,8 @@
 use std::fs::{self, OpenOptions};
-use std::path::Path;
-use std::sync::Mutex;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 
-use memmap2::MmapMut;
 use ndarray::{Array2, ArrayView2};
 
 use baux::neighbor_index::error::BpannError;
@@ -108,39 +108,48 @@ pub fn write_obs(work_dir: &Path, num_obs: usize) -> Result<(), BpannError> {
         .map_err(|e| BpannError::InvalidParameter(e.to_string()))
 }
 
+#[derive(Clone, Debug)]
 pub struct NumObsCounter {
-    mmap: MmapMut,
+    path: PathBuf,
+    count: Arc<AtomicUsize>,
 }
 
 impl NumObsCounter {
     pub fn open(work_dir: &Path) -> Result<Self, BpannError> {
         let path = work_dir.join("num_obs.bin");
-        if !path.exists() {
+        let initial = if path.exists() {
+            if let Ok(data) = fs::read(&path) {
+                if data.len() == 8 {
+                    u64::from_le_bytes(data.try_into().unwrap_or([0; 8])) as usize
+                } else {
+                    0
+                }
+            } else {
+                0
+            }
+        } else {
             fs::write(&path, 0u64.to_le_bytes())
                 .map_err(|e| BpannError::InvalidParameter(e.to_string()))?;
-        }
-        let file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .open(&path)
-            .map_err(|e| BpannError::InvalidParameter(e.to_string()))?;
-        if file
-            .metadata()
-            .map_err(|e| BpannError::InvalidParameter(e.to_string()))?
-            .len()
-            < 8
-        {
-            file.set_len(8)
-                .map_err(|e| BpannError::InvalidParameter(e.to_string()))?;
-        }
-        let mmap = unsafe {
-            MmapMut::map_mut(&file).map_err(|e| BpannError::InvalidParameter(e.to_string()))?
+            0
         };
-        Ok(Self { mmap })
+        Ok(Self {
+            path,
+            count: Arc::new(AtomicUsize::new(initial)),
+        })
     }
 
-    pub fn set(&mut self, num_obs: usize) {
-        self.mmap[0..8].copy_from_slice(&(num_obs as u64).to_le_bytes());
+    pub fn set(&self, num_obs: usize) {
+        self.count.store(num_obs, Ordering::Relaxed);
+        let _ = fs::write(&self.path, (num_obs as u64).to_le_bytes());
+    }
+
+    pub fn get(&self) -> usize {
+        self.count.load(Ordering::Relaxed)
+    }
+
+    pub fn with_count(self, num_obs: usize) -> Self {
+        self.set(num_obs);
+        self
     }
 }
 
@@ -194,8 +203,8 @@ pub fn open_yvar(
         let yv_path = work_dir.join("train_yvar.bin");
         let known_nrows = bpann_obs(work_dir);
         let mut store = MmapColumnStore::open_mmap(yv_path, num_metrics, known_nrows)?;
-        if store.nrows == 0 {
-            store.mmap_append(&yv.view())?;
+        if store.nrows == 0 && yv.nrows() > 0 {
+            store = store.append(&yv.view())?;
         }
         Ok(Some(store))
     } else {
@@ -209,16 +218,19 @@ pub fn append_yvar(
     train_yvar: &mut Option<MmapColumnStore>,
     yvar: Option<&ArrayView2<f64>>,
 ) -> Result<(), BpannError> {
-    match (train_yvar.as_mut(), yvar) {
-        (Some(store), Some(yv)) => store.mmap_append(yv)?,
+    match (train_yvar.take(), yvar) {
+        (Some(store), Some(yv)) => {
+            *train_yvar = Some(store.append(yv)?);
+        }
         (None, Some(yv)) => {
             let yv_path = work_dir.join("train_yvar.bin");
             let known_nrows = bpann_obs(work_dir);
-            let mut store = MmapColumnStore::open_mmap(yv_path, num_metrics, known_nrows)?;
-            store.mmap_append(yv)?;
-            *train_yvar = Some(store);
+            let store = MmapColumnStore::open_mmap(yv_path, num_metrics, known_nrows)?;
+            *train_yvar = Some(store.append(yv)?);
         }
-        _ => {}
+        (other, _) => {
+            *train_yvar = other;
+        }
     }
     Ok(())
 }
@@ -263,6 +275,171 @@ pub fn parse_string(text: &str, field: &str) -> Option<String> {
         .and_then(|(_, tail)| tail.split_once('"').map(|(value, _)| value.to_string()))
 }
 
+#[derive(Clone)]
+pub struct ObservationStore {
+    pub work_dir: PathBuf,
+    pub train_x: MmapColumnStore,
+    pub train_y: MmapColumnStore,
+    pub train_yvar: Option<MmapColumnStore>,
+    pub num_dim: usize,
+    pub num_metrics: usize,
+}
+
+pub type ObservationLog = ObservationStore;
+
+const _: () = {
+    fn assert_sync<T: Send + Sync + Clone>() {}
+    fn check() {
+        assert_sync::<ObservationStore>();
+        assert_sync::<NumObsCounter>();
+    }
+};
+
+impl ObservationStore {
+    pub fn new(
+        work_dir: PathBuf,
+        train_x: Array2<f64>,
+        train_y: Array2<f64>,
+        train_yvar: Option<Array2<f64>>,
+    ) -> Result<Self, BpannError> {
+        check_dims(train_x.ncols())?;
+        fs::create_dir_all(&work_dir).map_err(|e| BpannError::InvalidParameter(e.to_string()))?;
+        check_backend(&work_dir, INDEX_BACKEND)?;
+
+        let num_dim = train_x.ncols();
+        let num_metrics = train_y.ncols();
+        let known_nrows = bpann_obs(&work_dir);
+
+        let mut train_x_store =
+            MmapColumnStore::open_mmap(work_dir.join("train_x.bin"), num_dim, known_nrows)?;
+        let mut train_y_store =
+            MmapColumnStore::open_mmap(work_dir.join("train_y.bin"), num_metrics, known_nrows)?;
+
+        if train_x_store.nrows == 0 && train_x.nrows() > 0 {
+            train_x_store = train_x_store.append(&train_x.view())?;
+            train_y_store = train_y_store.append(&train_y.view())?;
+        }
+
+        let train_yvar_store = open_yvar(&work_dir, num_metrics, train_yvar.as_ref())?;
+
+        Ok(Self {
+            work_dir,
+            train_x: train_x_store,
+            train_y: train_y_store,
+            train_yvar: train_yvar_store,
+            num_dim,
+            num_metrics,
+        })
+    }
+
+    pub fn open(work_dir: PathBuf, num_dim: usize, num_metrics: usize) -> Result<Self, BpannError> {
+        check_dims(num_dim)?;
+        fs::create_dir_all(&work_dir).map_err(|e| BpannError::InvalidParameter(e.to_string()))?;
+        let known_nrows = bpann_obs(&work_dir);
+        let train_x_store =
+            MmapColumnStore::open_mmap(work_dir.join("train_x.bin"), num_dim, known_nrows)?;
+        let train_y_store =
+            MmapColumnStore::open_mmap(work_dir.join("train_y.bin"), num_metrics, known_nrows)?;
+        let yvar_path = work_dir.join("train_yvar.bin");
+        let train_yvar_store = if yvar_path.exists() {
+            Some(MmapColumnStore::open_mmap(
+                yvar_path,
+                num_metrics,
+                known_nrows,
+            )?)
+        } else {
+            None
+        };
+        Ok(Self {
+            work_dir,
+            train_x: train_x_store,
+            train_y: train_y_store,
+            train_yvar: train_yvar_store,
+            num_dim,
+            num_metrics,
+        })
+    }
+
+    pub fn len(&self) -> usize {
+        self.train_x.nrows
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    pub fn num_dim(&self) -> usize {
+        self.num_dim
+    }
+
+    pub fn num_metrics(&self) -> usize {
+        self.num_metrics
+    }
+
+    pub fn row_x(&self, i: usize) -> Result<&[f64], BpannError> {
+        self.train_x.row_slice(i)
+    }
+
+    pub fn row_y(&self, i: usize) -> Result<&[f64], BpannError> {
+        self.train_y.row_slice(i)
+    }
+
+    pub fn row_yvar(&self, i: usize) -> Result<Option<&[f64]>, BpannError> {
+        self.train_yvar.as_ref().map(|s| s.row_slice(i)).transpose()
+    }
+
+    pub fn train_rows(&self, indices: &[usize]) -> Result<TrainRows, BpannError> {
+        train_rows(
+            self.len(),
+            &self.train_x,
+            &self.train_y,
+            self.train_yvar.as_ref(),
+            indices,
+        )
+    }
+
+    pub fn append(
+        mut self,
+        x: &ArrayView2<f64>,
+        y: &ArrayView2<f64>,
+        yvar: Option<&ArrayView2<f64>>,
+    ) -> Result<Self, BpannError> {
+        if x.nrows() == 0 {
+            return Ok(self);
+        }
+        if x.ncols() != self.num_dim || y.ncols() != self.num_metrics || x.nrows() != y.nrows() {
+            return Err(BpannError::InvalidShape {
+                expected: vec![x.nrows(), self.num_dim],
+                got: vec![x.nrows(), x.ncols()],
+            });
+        }
+        check_rows(self.len() + x.nrows())?;
+        self.train_x = self.train_x.append(x)?;
+        self.train_y = self.train_y.append(y)?;
+        append_yvar(&self.work_dir, self.num_metrics, &mut self.train_yvar, yvar)?;
+        Ok(self)
+    }
+
+    pub fn persist(mut self) -> Result<Self, BpannError> {
+        self.train_x = self.train_x.persist()?;
+        self.train_y = self.train_y.persist()?;
+        if let Some(store) = self.train_yvar {
+            self.train_yvar = Some(store.persist()?);
+        }
+        write_obs(&self.work_dir, self.len())?;
+        Ok(self)
+    }
+
+    pub fn release_pages(mut self) -> Result<Self, BpannError> {
+        self.train_x = self.train_x.release_pages()?;
+        self.train_y = self.train_y.release_pages()?;
+        if let Some(store) = self.train_yvar {
+            self.train_yvar = Some(store.release_pages()?);
+        }
+        Ok(self)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -273,69 +450,123 @@ mod tests {
 
     #[test]
     fn bpann_above() {
-        baux::neighbor_index::observation::check_dims(MAX_DIM).unwrap();
-        let err = baux::neighbor_index::observation::check_dims(MAX_DIM + 1).unwrap_err();
+        check_dims(MAX_DIM).unwrap();
+        let err = check_dims(MAX_DIM + 1).unwrap_err();
         assert!(err.to_string().contains(&MAX_DIM.to_string()));
     }
 
     #[test]
     fn observation_called2() {
         let dir = TempDir::new().unwrap();
-        baux::neighbor_index::observation::check_dims(4).unwrap();
-        assert!(
-            baux::neighbor_index::observation::check_dims(
-                baux::neighbor_index::observation::MAX_DIM + 1
-            )
-            .is_err()
-        );
-        baux::neighbor_index::observation::check_rows(10).unwrap();
-        baux::neighbor_index::observation::write_metadata(dir.path(), 0, 4, 1, false, 0).unwrap();
-        baux::neighbor_index::observation::write_obs(dir.path(), 0).unwrap();
-        baux::neighbor_index::observation::write_rows(dir.path(), 0).unwrap();
-        let mut counter =
-            baux::neighbor_index::observation::NumObsCounter::open(dir.path()).unwrap();
+        check_dims(4).unwrap();
+        assert!(check_dims(MAX_DIM + 1).is_err());
+        check_rows(10).unwrap();
+        write_metadata(dir.path(), 0, 4, 1, false, 0).unwrap();
+        write_obs(dir.path(), 0).unwrap();
+        write_rows(dir.path(), 0).unwrap();
+        let counter = NumObsCounter::open(dir.path()).unwrap();
         counter.set(0);
-        assert_eq!(
-            baux::neighbor_index::observation::bpann_obs(dir.path()),
-            Some(0)
-        );
-        assert_eq!(
-            baux::neighbor_index::observation::load_rows(dir.path()),
-            Some(0)
-        );
-        assert_eq!(
-            baux::neighbor_index::observation::load_backend(dir.path()).as_deref(),
-            Some(INDEX_BACKEND)
-        );
-        baux::neighbor_index::observation::check_backend(dir.path(), INDEX_BACKEND).unwrap();
-        let mut yvar =
-            baux::neighbor_index::observation::open_yvar(dir.path(), 1, Some(&array![[0.1]]))
-                .unwrap();
-        baux::neighbor_index::observation::append_yvar(
-            dir.path(),
-            1,
-            &mut yvar,
-            Some(&array![[0.2]].view()),
-        )
-        .unwrap();
-        let mut x = MmapColumnStore::open_mmap(dir.path().join("x.bin"), 2, None).unwrap();
-        let mut y = MmapColumnStore::open_mmap(dir.path().join("y.bin"), 1, None).unwrap();
-        x.mmap_append(&array![[0.0, 0.0]].view()).unwrap();
-        y.mmap_append(&array![[0.0]].view()).unwrap();
-        baux::neighbor_index::observation::train_rows(1, &x, &y, None, &[0]).unwrap();
+        assert_eq!(bpann_obs(dir.path()), Some(0));
+        assert_eq!(load_rows(dir.path()), Some(0));
+        assert_eq!(load_backend(dir.path()).as_deref(), Some(INDEX_BACKEND));
+        check_backend(dir.path(), INDEX_BACKEND).unwrap();
+
+        let mut yvar = open_yvar(dir.path(), 1, Some(&array![[0.1]])).unwrap();
+        append_yvar(dir.path(), 1, &mut yvar, Some(&array![[0.2]].view())).unwrap();
+
+        let x = MmapColumnStore::open_mmap(dir.path().join("x.bin"), 2, None).unwrap();
+        let y = MmapColumnStore::open_mmap(dir.path().join("y.bin"), 1, None).unwrap();
+        let x = x.append(&array![[0.0, 0.0]].view()).unwrap();
+        let y = y.append(&array![[0.0]].view()).unwrap();
+        train_rows(1, &x, &y, None, &[0]).unwrap();
         let dirty = Mutex::new(false);
-        baux::neighbor_index::observation::mark_dirty(&dirty);
+        mark_dirty(&dirty);
         assert_eq!(
-            baux::neighbor_index::observation::parse_string(
-                r#"{"index_backend":"bpann_disk"}"#,
-                "index_backend"
-            )
-            .as_deref(),
+            parse_string(r#"{"index_backend":"bpann_disk"}"#, "index_backend").as_deref(),
             Some("bpann_disk")
         );
-        assert_eq!(
-            baux::neighbor_index::observation::parse_number(r#"{"num_obs":42}"#, "num_obs"),
-            Some(42)
-        );
+        assert_eq!(parse_number(r#"{"num_obs":42}"#, "num_obs"), Some(42));
+    }
+
+    #[test]
+    fn fork_isolation() {
+        let dir = TempDir::new().unwrap();
+        let store = ObservationStore::new(
+            dir.path().to_path_buf(),
+            array![[1.0, 2.0], [3.0, 4.0]],
+            array![[10.0], [20.0]],
+            Some(array![[0.1], [0.2]]),
+        )
+        .unwrap()
+        .persist()
+        .unwrap();
+
+        assert_eq!(store.len(), 2);
+        assert_eq!(store.row_x(0).unwrap(), &[1.0, 2.0]);
+        assert_eq!(store.row_y(0).unwrap(), &[10.0]);
+        assert_eq!(store.row_yvar(0).unwrap().unwrap(), &[0.1]);
+
+        // Fork two branches
+        let branch_a = store.clone();
+        let branch_b = store.clone();
+
+        // Mutate branch A
+        let branch_a = branch_a
+            .append(
+                &array![[5.0, 6.0]].view(),
+                &array![[30.0]].view(),
+                Some(&array![[0.3]].view()),
+            )
+            .unwrap();
+
+        // Mutate branch B with different data
+        let branch_b = branch_b
+            .append(
+                &array![[7.0, 8.0], [9.0, 10.0]].view(),
+                &array![[40.0], [50.0]].view(),
+                Some(&array![[0.4], [0.5]].view()),
+            )
+            .unwrap();
+
+        // Check fork isolation in-memory
+        assert_eq!(store.len(), 2);
+        assert_eq!(branch_a.len(), 3);
+        assert_eq!(branch_b.len(), 4);
+
+        assert_eq!(branch_a.row_x(2).unwrap(), &[5.0, 6.0]);
+        assert_eq!(branch_a.row_y(2).unwrap(), &[30.0]);
+        assert_eq!(branch_a.row_yvar(2).unwrap().unwrap(), &[0.3]);
+
+        assert_eq!(branch_b.row_x(2).unwrap(), &[7.0, 8.0]);
+        assert_eq!(branch_b.row_y(2).unwrap(), &[40.0]);
+        assert_eq!(branch_b.row_yvar(2).unwrap().unwrap(), &[0.4]);
+
+        assert_eq!(branch_b.row_x(3).unwrap(), &[9.0, 10.0]);
+        assert_eq!(branch_b.row_y(3).unwrap(), &[50.0]);
+        assert_eq!(branch_b.row_yvar(3).unwrap().unwrap(), &[0.5]);
+
+        // Train rows check
+        let (xa, ya, yvara) = branch_a.train_rows(&[2]).unwrap();
+        assert_eq!(xa.shape(), &[1, 2]);
+        assert_eq!(xa, array![[5.0, 6.0]]);
+        assert_eq!(ya, array![[30.0]]);
+        assert_eq!(yvara.unwrap(), array![[0.3]]);
+
+        let (xb, yb, yvarb) = branch_b.train_rows(&[2, 3]).unwrap();
+        assert_eq!(xb.shape(), &[2, 2]);
+        assert_eq!(xb, array![[7.0, 8.0], [9.0, 10.0]]);
+        assert_eq!(yb, array![[40.0], [50.0]]);
+        assert_eq!(yvarb.unwrap(), array![[0.4], [0.5]]);
+
+        // Persist branch A
+        let branch_a = branch_a.persist().unwrap();
+        assert_eq!(branch_a.row_x(2).unwrap(), &[5.0, 6.0]);
+        assert_eq!(branch_b.row_x(2).unwrap(), &[7.0, 8.0]);
+
+        // Persist branch B
+        let branch_b = branch_b.persist().unwrap();
+        assert_eq!(branch_b.row_x(2).unwrap(), &[7.0, 8.0]);
+        assert_eq!(branch_b.row_x(3).unwrap(), &[9.0, 10.0]);
+        assert_eq!(branch_a.row_x(2).unwrap(), &[5.0, 6.0]);
     }
 }

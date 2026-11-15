@@ -52,7 +52,7 @@ assert len(state2) == 6
 print("posterior mu:", np.round(post.mu[:, 0], 4), "se_epi:", np.round(post.se_epi[:, 0], 4))
 }
   }
-  \<p>[class]{api-source}{[Source in \code{python/baux/enn/enn_state.py}](https://github.com/Kvutza/baux/blob/main/python/baux/enn/enn_state.py#L332)}
+  \<p>[class]{api-source}{[Source in \code{python/baux/enn/enn_state.py}](https://github.com/Kvutza/baux/blob/main/python/baux/enn/enn_state.py#L340)}
 }
 
 \<section>[id]{baux.enn_append}[class]{api-entry}[data-symbol]{baux.enn_append}[data-kind]{function}[data-module]{baux.enn}{
@@ -71,7 +71,7 @@ baux.enn_append(state: ENNState, x: Any, y: Any, y_var: Any = None) -> ENNState
     \<dt>{Returns}
     \<dd>{A new \code{ENNState} containing the old and new rows. Also exported as \code{baux.append}.}
   }
-  \<p>[class]{api-source}{[Source in \code{python/baux/enn/enn_state.py}](https://github.com/Kvutza/baux/blob/main/python/baux/enn/enn_state.py#L366)}
+  \<p>[class]{api-source}{[Source in \code{python/baux/enn/enn_state.py}](https://github.com/Kvutza/baux/blob/main/python/baux/enn/enn_state.py#L374)}
 }
 
 \<section>[id]{baux.enn_fit}[class]{api-entry}[data-symbol]{baux.enn_fit}[data-kind]{function}[data-module]{baux.enn}{
@@ -92,7 +92,7 @@ baux.enn_fit(
   \p{Fit ENN variance scales for a neighbor count.}
   \p{Returns \code{ENNParams}; the dataset is unchanged. \code{k}: number of neighbors. \code{num_candidates}: parameter-search budget. \code{num_samples}: leave-one-out sample budget.}
   \p{\code{infer_aleatoric} controls fitting the aleatoric scale. \code{warm} supplies previous parameters. \code{key} takes precedence over \code{seed}. Alias: \code{baux.fit}.}
-  \<p>[class]{api-source}{[Source in \code{python/baux/enn/enn_state.py}](https://github.com/Kvutza/baux/blob/main/python/baux/enn/enn_state.py#L434)}
+  \<p>[class]{api-source}{[Source in \code{python/baux/enn/enn_state.py}](https://github.com/Kvutza/baux/blob/main/python/baux/enn/enn_state.py#L442)}
 }
 
 \<section>[id]{baux.enn_posterior}[class]{api-entry}[data-symbol]{baux.enn_posterior}[data-kind]{function}[data-module]{baux.enn}{
@@ -118,7 +118,7 @@ baux.enn_posterior(
     \<dt>{Returns}
     \<dd>{An \code{ENNNormal} with \code{mu}, \code{se}, \code{se_epi} and \code{se_ale} arrays of shape \code{(Q, M)}. Also exported as \code{baux.posterior}.}
   }
-  \<p>[class]{api-source}{[Source in \code{python/baux/enn/enn_state.py}](https://github.com/Kvutza/baux/blob/main/python/baux/enn/enn_state.py#L400)}
+  \<p>[class]{api-source}{[Source in \code{python/baux/enn/enn_state.py}](https://github.com/Kvutza/baux/blob/main/python/baux/enn/enn_state.py#L408)}
 }
 
 \<section>[id]{baux.enn_sample}[class]{api-entry}[data-symbol]{baux.enn_sample}[data-kind]{function}[data-module]{baux.enn}{
@@ -139,7 +139,7 @@ baux.enn_sample(
   \p{\code{x}: \code{(Q, D)} queries. Returns \code{(draws, neighbor_ids)}; \code{draws} has shape \code{(Q, M, S)}.}
   \p{\code{num_draws} sets \code{S} when seeds are generated from \code{key}. Explicit \code{seeds} overrides that generation and determines the draw count. Reusing function seeds couples queries through shared observation-level randomness.}
   \p{\code{flags} has the same meaning as in \code{enn_posterior}; observation noise is excluded by default. Alias: \code{baux.sample}.}
-  \<p>[class]{api-source}{[Source in \code{python/baux/enn/enn_state.py}](https://github.com/Kvutza/baux/blob/main/python/baux/enn/enn_state.py#L407)}
+  \<p>[class]{api-source}{[Source in \code{python/baux/enn/enn_state.py}](https://github.com/Kvutza/baux/blob/main/python/baux/enn/enn_state.py#L415)}
 }
 
 \<section>[id]{baux.ENNState}[class]{api-entry}[data-symbol]{baux.ENNState}[data-kind]{class}[data-module]{baux.enn}{

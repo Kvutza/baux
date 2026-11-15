@@ -19,10 +19,8 @@ from .enn import enn_state as _enn
 from .pytree import PyTreeSpec, pytree_bounds, ravel
 from .state import (
     OptimizerState,
-    _Cursor,
     _foldseed,
     _makeinner,
-    _Op,
     _readonly,
     _resolveseed,
     _snapshot,
@@ -149,13 +147,13 @@ def init(
         num_regions=int(inner.num_regions()),
         tr_length=float(inner.tr_length()),
         init_progress=inner.init_progress(),
-        pending_ids=None if raw_pending is None else tuple(int(i) for i in raw_pending),
+        pending_ids=None if not raw_pending else tuple(int(i) for i in raw_pending),
         ingestion_failure=getattr(inner, "ingestion_failure", None),
         telemetry=Telemetry(
             t.dt_fit, t.dt_gen, t.dt_sel, t.dt_tell, int(t.num_candidates)
         ),
+        _opt=inner,
         _log=(),
-        _cursor=_Cursor(0, inner),
     )
 
 
@@ -172,22 +170,18 @@ def ask(
     arms = 1 if raw_arms is None else int(raw_arms)
     if arms <= 0:
         raise ValueError(f"num_arms must be > 0, got {arms}")
-    inner, id_map, in_place = state._checkout()
     step_seed = _foldseed(state.seed, state.epoch + 1)
-    before = set(inner.pending_ids() or ())
-    points = _readonly(inner.ask(arms, seed=step_seed))
-    after = inner.pending_ids() or ()
+    before = set(state._opt.pending_ids() or ())
+    points, next_opt = state._opt.ask(arms, seed=step_seed)
+    points = _readonly(points)
+    after = next_opt.pending_ids() or ()
     new_raw = tuple(int(i) for i in after if i not in before)
-    inv_map = {v: k for k, v in id_map.items()}
     if len(new_raw) == arms:
-        logical_ids = tuple(int(inv_map.get(i, i)) for i in new_raw)
-        for lid, rid in zip(logical_ids, new_raw, strict=True):
-            id_map[lid] = rid
+        logical_ids = tuple(int(i) for i in new_raw)
     else:
         base_id = (state.epoch + 1) << 32
         logical_ids = tuple(base_id + i for i in range(arms))
-    op = _Op("ask", (arms, logical_ids), step_seed)
-    next_state = _snapshot(state, inner, id_map, in_place, op)
+    next_state = _snapshot(state, next_opt)
     batch = AskBatch(
         ids=tuple(AskId(i) for i in logical_ids),
         points=points,
@@ -228,19 +222,18 @@ def _submitpure(
     obs_x = _readonly(obs.x)
     obs_y = _readonly(obs.y)
     obs_yvar = None if obs.yvar is None else _readonly(obs.yvar)
-    inner, id_map, in_place = state._checkout()
     step_seed = _foldseed(state.seed, state.epoch + 1)
-    kind = "import" if imported else "tell"
     if imported:
-        inner.import_observations(obs_x, obs_y, seed=step_seed, y_var=obs_yvar)
+        next_opt = state._opt.import_observations(
+            obs_x, obs_y, seed=step_seed, y_var=obs_yvar
+        )
     else:
-        inner.tell(obs_x, obs_y, seed=step_seed, y_var=obs_yvar)
-    op = _Op(kind, (obs_x, obs_y, obs_yvar), step_seed)
-    next_state = _snapshot(state, inner, id_map, in_place, op)
-    if not inner.has_surrogate():
+        next_opt = state._opt.tell(obs_x, obs_y, seed=step_seed, y_var=obs_yvar)
+    next_state = _snapshot(state, next_opt)
+    if not next_opt.has_surrogate():
         return next_state, _readonly(y_in)
     try:
-        mu = np.asarray(inner.posterior_mu(obs_x), dtype=float)
+        mu = np.asarray(next_opt.posterior_mu(obs_x), dtype=float)
     except Exception as error:
         raise TellPredictionError(
             "observations accepted, but prediction retrieval failed; "
@@ -284,7 +277,7 @@ def complete(
     identities = ids.ids if isinstance(ids, AskBatch) else tuple(ids)
     if any(not isinstance(i, AskId) for i in identities):
         raise TypeError("complete expects AskId values")
-    raw_ids = tuple(index(i.value) for i in identities)
+    raw_ids = [index(i.value) for i in identities]
     y_arr = _readonly(y)
     if y_arr.ndim == 1:
         y_arr = _readonly(y_arr.reshape(-1, 1))
@@ -298,12 +291,9 @@ def complete(
             raise ValueError(
                 f"y_var must have shape {y_arr.shape}, got {yvar_arr.shape}"
             )
-    inner, id_map, in_place = state._checkout()
     step_seed = _foldseed(state.seed, state.epoch + 1)
-    mapped = [id_map.get(i, i) for i in raw_ids]
-    inner.complete_ids(mapped, y_arr, seed=step_seed, y_var=yvar_arr)
-    op = _Op("complete", (raw_ids, y_arr, yvar_arr), step_seed)
-    return _snapshot(state, inner, id_map, in_place, op)
+    next_opt = state._opt.complete_ids(raw_ids, y_arr, seed=step_seed, y_var=yvar_arr)
+    return _snapshot(state, next_opt)
 
 
 def cancel(
@@ -314,13 +304,10 @@ def cancel(
     identities = ids.ids if isinstance(ids, AskBatch) else tuple(ids)
     if any(not isinstance(i, AskId) for i in identities):
         raise TypeError("cancel expects AskId values")
-    raw_ids = tuple(index(i.value) for i in identities)
-    inner, id_map, in_place = state._checkout()
+    raw_ids = [index(i.value) for i in identities]
     step_seed = _foldseed(state.seed, state.epoch + 1)
-    mapped = [id_map.get(i, i) for i in raw_ids]
-    inner.cancel_ids(mapped, seed=step_seed)
-    op = _Op("cancel", (raw_ids,), step_seed)
-    return _snapshot(state, inner, id_map, in_place, op)
+    next_opt = state._opt.cancel_ids(raw_ids, seed=step_seed)
+    return _snapshot(state, next_opt)
 
 
 def restart_region(
@@ -337,13 +324,12 @@ def restart_region(
             f"center must have shape ({state.dim},), got {center_arr.shape}"
         )
     center_ro = _readonly(center_arr)
-    inner, id_map, in_place = state._checkout()
     step_seed = _foldseed(state.seed, state.epoch + 1)
-    inv_map = {v: k for k, v in id_map.items()}
-    abandoned_raw = inner.restart_region(index(slot), center_ro, seed=step_seed)
-    logical_abandoned = tuple(int(inv_map.get(int(i), int(i))) for i in abandoned_raw)
-    op = _Op("restart", (index(slot), center_ro, logical_abandoned), step_seed)
-    next_state = _snapshot(state, inner, id_map, in_place, op)
+    abandoned_raw, next_opt = state._opt.restart_region(
+        index(slot), center_ro, seed=step_seed
+    )
+    logical_abandoned = tuple(int(i) for i in abandoned_raw)
+    next_state = _snapshot(state, next_opt)
     return next_state, tuple(AskId(i) for i in logical_abandoned)
 
 
@@ -352,8 +338,7 @@ def posterior_mu(state: OptimizerState, x: Any) -> np.ndarray:
     x_arr = _coercedpoints(state, x)
     if x_arr.ndim != 2 or x_arr.shape[1] != state.dim:
         raise ValueError(f"x must have shape (n, {state.dim}), got {x_arr.shape}")
-    inner = state._readonlyview()
-    return _readonly(inner.posterior_mu(x_arr))
+    return _readonly(state._opt.posterior_mu(x_arr))
 
 
 def step(

@@ -80,22 +80,58 @@ fn prepare(
 }
 
 pub(super) fn complete(
-    search: &mut RegionalSearch,
+    mut search: RegionalSearch,
     proposal: &RegionalProposal,
     observation: crate::objective_observation::ObjectiveObservation,
-) -> Result<NoisyDecision, TellFailure> {
+) -> Result<(RegionalSearch, NoisyDecision), TellFailure> {
     let TellPlan {
         source,
         routes,
         staged,
-    } = prepare(search, proposal, observation)?;
-    let state = search
-        .states
-        .get_mut(source)
-        .ok_or_else(|| TellFailure::Retryable("unknown region".into()))?;
-    let decision = match state.noisy_objectives(&proposal.proposal, observation) {
-        Ok(decision) => decision,
-        Err(error) if state.poisoned => {
+    } = prepare(&search, proposal, observation)?;
+    if source >= search.states.len() {
+        return Err(TellFailure::Retryable("unknown region".into()));
+    }
+    let state = search.states.remove(source);
+    let backup = state.clone();
+    let outcome = if state.implicit_history && state.history < state.initial_observations {
+        state.initial_objectives(&proposal.proposal, observation)
+    } else if state.implicit_history {
+        state.modeled_objectives(&proposal.proposal, observation)
+    } else {
+        state.noisy_objectives(&proposal.proposal, observation)
+    };
+    let (state, decision) = match outcome {
+        Ok((state, decision)) => (state, decision),
+        Err(error) if backup.poisoned => {
+            let mut doomed = backup;
+            doomed.poisoned = true;
+            search.states.insert(source, doomed);
+            search
+                .ledger
+                .retire(proposal.ticket)
+                .map_err(|retire_err| TellFailure::Retired(retire_err.to_string()))?;
+            search.pending_proposals[source] = None;
+            search.pending_tickets[source] = None;
+            return Err(TellFailure::Retired(format!(
+                "{error}; regional state was partially updated and its ticket was retired"
+            )));
+        }
+        Err(error) => {
+            search.states.insert(source, backup);
+            return Err(TellFailure::Retryable(error));
+        }
+    };
+    let backup = state.clone();
+    let state = match state.sync() {
+        Ok((synced, _queued)) => {
+            drop(backup);
+            synced
+        }
+        Err(error) => {
+            let mut doomed = backup;
+            doomed.poisoned = true;
+            search.states.insert(source, doomed);
             search
                 .ledger
                 .retire(proposal.ticket)
@@ -103,34 +139,27 @@ pub(super) fn complete(
             search.pending_proposals[source] = None;
             search.pending_tickets[source] = None;
             return Err(TellFailure::Retired(format!(
-                "{error}; regional state was partially updated and its ticket was retired"
+                "{error}; resident tell was dispatched and must not be retried"
             )));
         }
-        Err(error) => return Err(TellFailure::Retryable(error)),
     };
-    if let Err(error) = state.sync() {
-        state.poisoned = true;
-        search
-            .ledger
-            .retire(proposal.ticket)
-            .map_err(|error| TellFailure::Retired(error.to_string()))?;
-        search.pending_proposals[source] = None;
-        search.pending_tickets[source] = None;
-        return Err(TellFailure::Retired(format!(
-            "{error}; resident tell was dispatched and must not be retried"
-        )));
-    }
     let vector = observation.is_vector();
     let incumbent = if vector {
         search.ledger.best(source).unwrap_or(0.0) + decision.improvement.max(0.0)
     } else {
-        f64::from(state.best().map_err(|error| {
-            state.poisoned = true;
-            TellFailure::Retired(format!(
-                "{error}; resident tell completed but ticket must be retired"
-            ))
-        })?)
+        match state.best() {
+            Ok(best) => f64::from(best),
+            Err(error) => {
+                let mut doomed = state;
+                doomed.poisoned = true;
+                search.states.insert(source, doomed);
+                return Err(TellFailure::Retired(format!(
+                    "{error}; resident tell completed but ticket must be retired"
+                )));
+            }
+        }
     };
+    search.states.insert(source, state);
     let utility = if vector {
         decision.improvement
     } else {
@@ -161,5 +190,5 @@ pub(super) fn complete(
             });
         }
     }
-    Ok(decision)
+    Ok((search, decision))
 }

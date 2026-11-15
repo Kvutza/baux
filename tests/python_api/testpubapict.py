@@ -162,10 +162,11 @@ class Test_001:
 
         assert "quantize_int4" not in baux.__all__
         assert "quantize_e2m1" not in baux.__all__
+        assert "set_path" not in baux.__all__
 
     def test_009(self):
         import baux
 
-        for name in ("quantize_int4", "quantize_e2m1"):
+        for name in ("quantize_int4", "quantize_e2m1", "set_path"):
             with pytest.raises(AttributeError):
                 getattr(baux, name)

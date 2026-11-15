@@ -45,6 +45,7 @@ pub fn search_pending(
         k_eff
     };
     let train_x = &backend.train_x;
+    let tuning = backend.tuning;
     let score_query = |query_buf: &Vec<f64>| -> Result<(Vec<f64>, Vec<i64>), BpannError> {
         let mut query_f32 = Vec::with_capacity(num_dim);
         bpann_f32(query_buf, scale_x, x_scale_vec, &mut query_f32);
@@ -57,7 +58,7 @@ pub fn search_pending(
         let leg_a = if indexed > 0 && !backend.index.indices.is_empty() {
             backend
                 .index
-                .search_candidates(&query_f32, index_k.max(1), Some(&store))?
+                .search_candidates(&query_f32, index_k.max(1), Some(&store), &tuning)?
         } else {
             Vec::new()
         };
@@ -129,8 +130,8 @@ mod tests {
     #[test]
     fn propagates_error() {
         let dir = TempDir::new().unwrap();
-        let mut backend = BpannBackend::new_empty(dir.path().to_path_buf(), 2, 1).unwrap();
-        backend
+        let backend = BpannBackend::new_empty(dir.path().to_path_buf(), 2, 1).unwrap();
+        let backend = backend
             .append_rows(&array![[1.0, 2.0]].view(), &array![[0.0]].view(), None)
             .unwrap();
         let queries = vec![vec![1.0, 2.0]];

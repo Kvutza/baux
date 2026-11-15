@@ -3,16 +3,16 @@ use super::*;
 use crate::objective_observation::{ObjectiveEstimate, ObjectiveObservation};
 
 fn state() -> SearchState {
-    let mut state = SearchState::new_fp16(
+    SearchState::new_fp16(
         &[0x3400; 4],
         vec![ParamBlock::new(1, 0, 4, 0.25, 1.0).unwrap()],
         2,
         TRLengthConfig::new(0.1, 0.001, 0.4),
         ProposalDistribution::Gaussian,
     )
-    .unwrap();
-    state.observe_initial(-1.0, 0.0).unwrap();
-    state
+    .unwrap()
+    .observe_initial(-1.0, 0.0)
+    .unwrap()
 }
 
 fn vector(mean: f32, first: f32, second: f32) -> ObjectiveObservation {
@@ -103,10 +103,11 @@ fn regional_pareto() {
                 2
             ],
         };
-        let mut search =
+        let search =
             RegionalSearch::from_spec(vec![vector_state(), vector_state()], &spec).unwrap();
-        let proposal = search.ask_region(0, 7, RoundConfig::default()).unwrap();
-        let decision = objectives::tell(&mut search, &proposal, vector(1.0, 1.0, 1.0)).unwrap();
+        let (search, proposal) = search.ask_region(0, 7, RoundConfig::default()).unwrap();
+        let (search, decision) =
+            objectives::tell(search, &proposal, vector(1.0, 1.0, 1.0)).unwrap();
         assert!(decision.accepted);
         assert_eq!(search.trials(), [1, 0]);
         assert!(search.best().1 > 0.0);
@@ -125,7 +126,7 @@ fn ellipsoid_zero() {
         let second = SearchState::new(&[0x3f80; 4], 0.0, 0.0, blocks, 0, 1, length).unwrap();
         assert!(!first.has_surrogate());
         assert!(!second.has_surrogate());
-        let mut search = RegionalSearch::with_sharing(
+        let search = RegionalSearch::with_sharing(
             vec![first, second],
             Allocation::LeastTrials,
             SharingPolicy::EllipsoidBall,
@@ -134,20 +135,124 @@ fn ellipsoid_zero() {
         let mut ask = RoundConfig::default();
         ask.acquisition.kind = AcquisitionKind::Random;
         ask.surrogate.neighbors = 1;
-        let round0 = search.ask_region(0, 11, ask).unwrap();
+        let (search, round0) = search.ask_region(0, 11, ask).unwrap();
         let accepted = search.buffer(&round0).unwrap();
         let bytes = read::<u16>(&accepted, 4);
-        let decision = search.tell(&round0, 5.0, 0.0).unwrap();
+        let (search, decision) = search.tell(&round0, 5.0, 0.0).unwrap();
         assert!(decision.accepted);
         assert_eq!(search.sharing_backlog(), [0, 1]);
-        search.flush_sharing(1).unwrap();
+        let search = search.flush_sharing(1).unwrap();
         assert_eq!(search.sharing_backlog(), [0, 0]);
         assert_eq!(search.delivered_imports(), 1);
         let adopted = read::<u16>(&search.incumbent(1).unwrap(), 4);
         assert_eq!(adopted, bytes);
-        let round1 = search.ask_region(1, 19, ask).unwrap();
-        let decision1 = search.tell(&round1, 6.0, 0.0).unwrap();
+        let (search, round1) = search.ask_region(1, 19, ask).unwrap();
+        let (search, decision1) = search.tell(&round1, 6.0, 0.0).unwrap();
         assert!(decision1.accepted);
         assert_eq!(search.best(), (1, 6.0));
+    });
+}
+
+#[test]
+fn fork_isolation() {
+    autoreleasepool(|| {
+        let blocks = vec![ParamBlock::new(1, 0, 4, 0.25, 1.0).unwrap()];
+        let length = TRLengthConfig::new(0.2, 0.01, 0.8);
+        let first = SearchState::new(&[0x3f80; 4], 0.0, 0.0, blocks.clone(), 0, 1, length).unwrap();
+        let second = SearchState::new(&[0x3f80; 4], 0.0, 0.0, blocks, 0, 1, length).unwrap();
+        let search = RegionalSearch::with_sharing(
+            vec![first, second],
+            Allocation::LeastTrials,
+            SharingPolicy::OriginOnly,
+        )
+        .unwrap();
+
+        // Fork the search state (O(1) COW)
+        let forked = search.fork().unwrap();
+        assert_eq!(search.trials(), forked.trials());
+        assert_eq!(search.best(), forked.best());
+
+        // Evolve primary search
+        let mut ask = RoundConfig::default();
+        ask.acquisition.kind = AcquisitionKind::Random;
+        ask.surrogate.neighbors = 1;
+
+        let (search, prop_a) = search.ask_region(0, 101, ask).unwrap();
+        let (search, dec_a) = search.tell(&prop_a, 10.0, 0.0).unwrap();
+        assert!(dec_a.accepted);
+
+        // Verify primary changed and fork remained untouched
+        assert_eq!(search.trials(), [1, 0]);
+        assert_eq!(search.best(), (0, 10.0));
+        assert_eq!(forked.trials(), [0, 0]);
+        assert_eq!(forked.best(), (0, 0.0));
+
+        // Evolve fork independently
+        let (forked, prop_b) = forked.ask_region(1, 202, ask).unwrap();
+        let (forked, dec_b) = forked.tell(&prop_b, 25.0, 0.0).unwrap();
+        assert!(dec_b.accepted);
+
+        // Verify fork has its own independent state
+        assert_eq!(forked.trials(), [0, 1]);
+        assert_eq!(forked.best(), (1, 25.0));
+        // Verify primary is still unaffected by fork's progress
+        assert_eq!(search.trials(), [1, 0]);
+        assert_eq!(search.best(), (0, 10.0));
+    });
+}
+
+#[test]
+fn cancel_restart() {
+    autoreleasepool(|| {
+        let spec = RegionalSearchSpec {
+            count: 2,
+            sharing: ObservationSharing::OriginOnly,
+            allocation: RegionAllocation::LeastTrials,
+            controller: RegionController::Turbo,
+            success_tolerance: 3,
+            failure_tolerance: 5,
+            restart_memory: RegionMemory::Fresh,
+            restart_candidates: 1,
+            restart_center: RestartCenter::First,
+            acquisitions: Vec::new(),
+        };
+        let search = RegionalSearch::from_spec(vec![state(), state()], &spec).unwrap();
+        let (search, prop) = search.ask_region(0, 5, RoundConfig::default()).unwrap();
+        let search = search.cancel(&prop).unwrap();
+        assert_eq!(search.trials(), [0, 0]);
+
+        // Restart slot 0 with a fresh state
+        let fresh = state();
+        let search = search.restart(0, fresh).unwrap();
+        assert_eq!(search.trials(), [0, 0]);
+    });
+}
+
+#[test]
+fn tell_batch() {
+    autoreleasepool(|| {
+        let blocks = vec![ParamBlock::new(1, 0, 4, 0.25, 1.0).unwrap()];
+        let length = TRLengthConfig::new(0.2, 0.01, 0.8);
+        let first = SearchState::new(&[0x3f80; 4], 0.0, 0.0, blocks.clone(), 0, 1, length).unwrap();
+        let second = SearchState::new(&[0x3f80; 4], 0.0, 0.0, blocks, 0, 1, length).unwrap();
+        let search = RegionalSearch::with_sharing(
+            vec![first, second],
+            Allocation::LeastTrials,
+            SharingPolicy::OriginOnly,
+        )
+        .unwrap();
+
+        let mut ask = RoundConfig::default();
+        ask.acquisition.kind = AcquisitionKind::Random;
+        ask.surrogate.neighbors = 1;
+
+        let (search, prop0) = search.ask_region(0, 11, ask).unwrap();
+        let (search, prop1) = search.ask_region(1, 22, ask).unwrap();
+
+        let batch = vec![(prop0, 3.0, 0.0), (prop1, 7.0, 0.0)];
+        let (search, decisions) = search.tell_batch(&batch).unwrap();
+        assert_eq!(decisions.len(), 2);
+        assert_eq!(search.trials(), [1, 1]);
+        assert_eq!(search.best(), (1, 7.0));
     });
 }

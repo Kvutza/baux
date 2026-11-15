@@ -7,54 +7,32 @@ use baux::neighbor_index::error::BpannError;
 use baux::neighbor_index::index::build::IndexHeader;
 use baux::neighbor_index::index::page::{Page, write_index};
 
-#[cfg(test)]
-thread_local! {
-    static PERSIST_RENAME: std::cell::Cell<bool> =
-        const { std::cell::Cell::new(false) };
-}
-
-/// Hold while injecting a mid-persist failure (thread-local; safe under
-/// parallel tests).
-#[cfg(test)]
-pub(crate) struct TestPersistFailGuard;
-
-#[cfg(test)]
-impl TestPersistFailGuard {
-    pub(crate) fn after_rename() -> Self {
-        PERSIST_RENAME.with(|c| c.set(true));
-        Self
-    }
-}
-
-#[cfg(test)]
-impl Drop for TestPersistFailGuard {
-    fn drop(&mut self) {
-        PERSIST_RENAME.with(|c| c.set(false));
-    }
-}
-
-pub(crate) fn skip_bytes(edges: &HashMap<u32, Vec<u32>>) -> Vec<u8> {
-    let mut buf = Vec::new();
-    buf.extend_from_slice(&(edges.len() as u32).to_le_bytes());
-    for (&from, tos) in edges {
-        buf.extend_from_slice(&from.to_le_bytes());
-        buf.extend_from_slice(&(tos.len() as u32).to_le_bytes());
-        for &to in tos {
-            buf.extend_from_slice(&to.to_le_bytes());
-        }
-    }
-    buf
-}
-
-pub(crate) fn write_file(path: &Path, edges: &HashMap<u32, Vec<u32>>) -> Result<(), BpannError> {
-    fs::write(path, skip_bytes(edges)).map_err(|e| BpannError::InvalidParameter(e.to_string()))
-}
-
 pub(crate) fn persist_files(
     index_dir: &Path,
     header: &IndexHeader,
     pages: &[Page],
     skip_edges: &HashMap<u32, Vec<u32>>,
+) -> Result<(), BpannError> {
+    persist_inner(index_dir, header, pages, skip_edges, false)
+}
+
+#[cfg(test)]
+pub(crate) fn persist_test(
+    index_dir: &Path,
+    header: &IndexHeader,
+    pages: &[Page],
+    skip_edges: &HashMap<u32, Vec<u32>>,
+    fail_after_rename: bool,
+) -> Result<(), BpannError> {
+    persist_inner(index_dir, header, pages, skip_edges, fail_after_rename)
+}
+
+fn persist_inner(
+    index_dir: &Path,
+    header: &IndexHeader,
+    pages: &[Page],
+    skip_edges: &HashMap<u32, Vec<u32>>,
+    fail_after_rename: bool,
 ) -> Result<(), BpannError> {
     fs::create_dir_all(index_dir).map_err(|e| BpannError::InvalidParameter(e.to_string()))?;
     let pages_path = index_dir.join("pages.bin");
@@ -79,8 +57,7 @@ pub(crate) fn persist_files(
             .map_err(|e| BpannError::InvalidParameter(e.to_string()))?;
         fs::rename(&skip_tmp, &skip_path)
             .map_err(|e| BpannError::InvalidParameter(e.to_string()))?;
-        #[cfg(test)]
-        if PERSIST_RENAME.with(|c| c.get()) {
+        if fail_after_rename {
             return Err(BpannError::InvalidParameter(
                 "test-injected persist failure after pages rename".to_string(),
             ));
@@ -109,6 +86,29 @@ fn read_existing(path: &Path) -> Result<Option<Vec<u8>>, BpannError> {
         .then(|| fs::read(path))
         .transpose()
         .map_err(|error| BpannError::InvalidParameter(error.to_string()))
+}
+
+pub(crate) fn skip_bytes(skip_edges: &HashMap<u32, Vec<u32>>) -> Vec<u8> {
+    let mut entries: Vec<(&u32, &Vec<u32>)> = skip_edges.iter().collect();
+    entries.sort_by_key(|&(&from, _)| from);
+    let mut bytes = Vec::new();
+    bytes.extend_from_slice(&(entries.len() as u32).to_le_bytes());
+    for (&from, tos) in entries {
+        bytes.extend_from_slice(&from.to_le_bytes());
+        bytes.extend_from_slice(&(tos.len() as u32).to_le_bytes());
+        for &to in tos {
+            bytes.extend_from_slice(&to.to_le_bytes());
+        }
+    }
+    bytes
+}
+
+pub(crate) fn write_file(
+    path: &Path,
+    skip_edges: &HashMap<u32, Vec<u32>>,
+) -> Result<(), BpannError> {
+    let bytes = skip_bytes(skip_edges);
+    fs::write(path, bytes).map_err(|e| BpannError::InvalidParameter(e.to_string()))
 }
 
 #[cfg(test)]
@@ -143,12 +143,16 @@ mod tests {
         .unwrap();
         persist_files(&index_dir, &index.header, &index.pages, &index.skip_edges).unwrap();
         let pages_before = fs::read(index_dir.join("pages.bin")).unwrap();
-        {
-            let _fail = TestPersistFailGuard::after_rename();
-            assert!(
-                persist_files(&index_dir, &index.header, &index.pages, &index.skip_edges,).is_err()
-            );
-        }
+        assert!(
+            persist_test(
+                &index_dir,
+                &index.header,
+                &index.pages,
+                &index.skip_edges,
+                true,
+            )
+            .is_err()
+        );
         assert_eq!(pages_before, fs::read(index_dir.join("pages.bin")).unwrap());
         BpannIndex::open(index_dir).expect("index must open after rollback");
         let _ = LEAF_CAPACITY;
@@ -160,7 +164,7 @@ mod tests {
         let index_dir = dir.path().join("index");
         let index = BpannIndex::build_persist(
             &[0u32, 1, 2],
-            &[vec![0.0f32, 0.0], vec![1.0, 0.0], vec![0.5, 1.0]],
+            &[vec![0.0f32, 0.0], vec![1.0, 0.0], vec![0.0f32, 1.0]],
             2,
             index_dir.clone(),
             false,
@@ -170,12 +174,16 @@ mod tests {
         let opened = BpannIndex::open(index_dir.clone()).expect("initial open");
         assert_eq!(opened.header.indexed_rows, 3);
 
-        {
-            let _fail = TestPersistFailGuard::after_rename();
-            assert!(
-                persist_files(&index_dir, &index.header, &index.pages, &index.skip_edges,).is_err()
-            );
-        }
+        assert!(
+            persist_test(
+                &index_dir,
+                &index.header,
+                &index.pages,
+                &index.skip_edges,
+                true,
+            )
+            .is_err()
+        );
 
         let reopened = BpannIndex::open(index_dir).expect("index must open after partial write");
         assert_eq!(reopened.header.indexed_rows, 3);

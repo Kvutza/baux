@@ -116,7 +116,7 @@ fn seed_weights(seed: u64, config: &Config) -> Result<Vec<f64>, String> {
     let mut opt = BayesOptimizer::from_domain(domain.clone(), &spec, 0, &mut init_rng)
         .map_err(|e| e.to_string())?;
     let mut step_rng = round_rng(seed, 1);
-    let unit = opt.ask(1, &mut step_rng).map_err(|e| e.to_string())?;
+    let (unit, _opt) = opt.ask(1, &mut step_rng).map_err(|e| e.to_string())?;
     let points = domain.from_unit(&unit.view());
     Ok(points
         .as_slice_memory_order()
@@ -184,7 +184,9 @@ fn run_ppo(
         if round == 1 {
             st.initial_error = tracking_error(config, score);
         }
-        if agent.record_step(obs, u, rewards)? {
+        let (next_agent, ready) = agent.record_step(obs, u, rewards)?;
+        agent = next_agent;
+        if ready {
             weights = agent.actor_weights()?;
         }
         st.best_scores.push(st.best_score);
@@ -241,9 +243,10 @@ fn run_seed(
     let mut chunk_start = Instant::now();
     for round in start_round..=config.rounds {
         let mut step_rng = round_rng(seed, round);
-        let unit = optimizer
+        let (unit, new_opt) = optimizer
             .ask(arms, &mut step_rng)
             .map_err(|e| e.to_string())?;
+        optimizer = new_opt;
         let points = domain.from_unit(&unit.view());
         let slice = points
             .as_slice_memory_order()
@@ -258,8 +261,8 @@ fn run_seed(
             st.initial_error = tracking_error(config, score);
         }
         let y = Array2::from_shape_fn((arms, 1), |(i, _)| scores[i]);
-        optimizer
-            .tell(&unit.view(), &y.view(), &mut step_rng)
+        optimizer = optimizer
+            .tell(&unit.view(), &y.view(), None, &mut step_rng)
             .map_err(|e| e.to_string())?;
         st.best_scores.push(st.best_score);
         st.eval_scores.push(scores);

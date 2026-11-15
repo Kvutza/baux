@@ -31,7 +31,7 @@ assert isinstance(telem, baux.Telemetry)
 print("BayesOptimizer pred:", np.round(pred[:, 0], 4), "dt_fit:", round(telem.dt_fit, 4))
 }
   }
-  \<p>[class]{api-source}{[Source in \code{python/baux/bo.py}](https://github.com/Kvutza/baux/blob/main/python/baux/bo.py#L356)}
+  \<p>[class]{api-source}{[Source in \code{python/baux/bo.py}](https://github.com/Kvutza/baux/blob/main/python/baux/bo.py#L376)}
 }
 
 \<section>[id]{baux.Optimizer}[class]{api-entry}[data-symbol]{baux.Optimizer}[data-kind]{class}[data-module]{baux.bo}{
@@ -43,7 +43,7 @@ baux.Optimizer(d: int, rng: Generator, inner: Any, *, identified_asks: bool = Fa
   \p{Construct with \code{create_optimizer}. \code{ask(N)} returns a coordinate matrix; \code{ask_batch(N)} returns an \code{AskBatch} with typed regional tickets.}
   \p{\code{tell(x, y, y_var=None)} records a batch and returns fitted means. \code{complete(ids, y, y_var=None)} and \code{cancel(ids)} update regional tickets in place and return \code{None}. \code{restart_region(slot, center)} returns abandoned tickets.}
   \p{\code{import_observations(x, y, y_var=None)} adds external data. \code{posterior_mu(x)} predicts without ingestion. Properties include \code{num_observations}, \code{num_regions}, \code{tr_length}, \code{init_progress} and \code{pending_ids}. \code{telemetry()} returns phase timings.}
-  \<p>[class]{api-source}{[Source in \code{python/baux/bo.py}](https://github.com/Kvutza/baux/blob/main/python/baux/bo.py#L165)}
+  \<p>[class]{api-source}{[Source in \code{python/baux/bo.py}](https://github.com/Kvutza/baux/blob/main/python/baux/bo.py#L166)}
 }
 
 \<section>[id]{baux.ENN}[class]{api-entry}[data-symbol]{baux.ENN}[data-kind]{class}[data-module]{baux.enn}{
@@ -104,7 +104,7 @@ class baux.TellPredictionError(RuntimeError)
   }
   \p{Ingestion succeeded but retrieving predictions failed.}
   \p{A \code{RuntimeError} subclass raised when ingestion succeeded (\code{observations_accepted=True}) before prediction failed; call \code{optimizer.posterior_mu(x)} rather than resubmitting the same batch.}
-  \<p>[class]{api-source}{[Source in \code{python/baux/bo.py}](https://github.com/Kvutza/baux/blob/main/python/baux/bo.py#L94)}
+  \<p>[class]{api-source}{[Source in \code{python/baux/bo.py}](https://github.com/Kvutza/baux/blob/main/python/baux/bo.py#L95)}
 }
 
 \<section>[id]{baux.enn_optimizer}[class]{api-entry}[data-symbol]{baux.enn_optimizer}[data-kind]{function}[data-module]{baux.bo}{

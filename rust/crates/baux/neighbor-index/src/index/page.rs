@@ -40,8 +40,9 @@ fn serialize_internal(
     buf.push(0);
     buf.extend_from_slice(&page_id.to_le_bytes());
     buf.extend_from_slice(&(num_dim as u32).to_le_bytes());
-    buf.extend_from_slice(&(centroids.len() as u32).to_le_bytes());
-    for (&child_id, centroid) in child_page_ids.iter().zip(centroids) {
+    let count = centroids.len().min(child_page_ids.len());
+    buf.extend_from_slice(&(count as u32).to_le_bytes());
+    for (&child_id, centroid) in child_page_ids.iter().zip(centroids).take(count) {
         buf.extend_from_slice(&child_id.to_le_bytes());
         write_vector(buf, centroid, num_dim);
     }
@@ -68,7 +69,12 @@ fn serialize_leaf(
     buf.push(if vectors.is_empty() { 2 } else { 1 });
     buf.extend_from_slice(&page_id.to_le_bytes());
     buf.extend_from_slice(&(num_dim as u32).to_le_bytes());
-    buf.extend_from_slice(&(row_ids.len() as u32).to_le_bytes());
+    let count = if vectors.is_empty() {
+        row_ids.len()
+    } else {
+        row_ids.len().min(vectors.len())
+    };
+    buf.extend_from_slice(&(count as u32).to_le_bytes());
     if vectors.is_empty() {
         for row_id in row_ids {
             buf.extend_from_slice(&row_id.to_le_bytes());
@@ -76,7 +82,7 @@ fn serialize_leaf(
         write_vector(buf, stored_centroid.unwrap_or(&[]), num_dim);
         return;
     }
-    for (&row_id, vector) in row_ids.iter().zip(vectors) {
+    for (&row_id, vector) in row_ids.iter().zip(vectors).take(count) {
         buf.extend_from_slice(&row_id.to_le_bytes());
         write_vector(buf, vector, num_dim);
     }

@@ -17,24 +17,24 @@ pub struct SurrogatePrediction {
 }
 
 pub trait Surrogate: Send + Sync {
-    fn fit(
-        &mut self,
+    fn with_fit(
+        self: Box<Self>,
         x: &ArrayView2<f64>,
         y: &ArrayView2<f64>,
         yvar: Option<&ArrayView2<f64>>,
         rng: &mut dyn RngCore,
-    ) -> Result<(), ENNError>;
+    ) -> Result<BoxedSurrogate, ENNError>;
 
-    fn fit_append(
-        &mut self,
+    fn with_append(
+        self: Box<Self>,
         x_new: &ArrayView2<f64>,
         y_new: &ArrayView2<f64>,
         yvar_new: Option<&ArrayView2<f64>>,
         rng: &mut dyn RngCore,
-    ) -> Result<(), ENNError> {
+    ) -> Result<BoxedSurrogate, ENNError> {
         let _ = (x_new, y_new, yvar_new, rng);
         Err(ENNError::InvalidParameter(
-            "fit_append not supported for this surrogate".to_string(),
+            "with_append not supported for this surrogate".to_string(),
         ))
     }
 
@@ -103,9 +103,9 @@ pub trait Surrogate: Send + Sync {
         Ok(())
     }
 
-    fn clear_observations(&mut self) -> Result<(), ENNError> {
+    fn cleared(self: Box<Self>) -> Result<BoxedSurrogate, ENNError> {
         Err(ENNError::InvalidParameter(
-            "clear_observations not supported for this surrogate".to_string(),
+            "cleared not supported for this surrogate".to_string(),
         ))
     }
 
@@ -134,15 +134,32 @@ pub trait Surrogate: Send + Sync {
         ))
     }
 
-    fn thaw_surrogate(&mut self, bytes: &[u8], pos: &mut usize) -> Result<(), ENNError> {
+    fn with_thawed(
+        self: Box<Self>,
+        bytes: &[u8],
+        pos: &mut usize,
+    ) -> Result<BoxedSurrogate, ENNError> {
         let _ = (bytes, pos);
         Err(ENNError::InvalidParameter(
-            "surrogate does not support binary checkpointing".to_string(),
+            "with_thawed not supported for this surrogate".to_string(),
         ))
     }
 
     fn hash_surrogate(&self, buf: &mut Vec<u8>) {
         let _ = buf;
+    }
+}
+
+impl dyn Surrogate {
+    pub fn with_flushed(self: Box<Self>) -> Result<Box<Self>, ENNError> {
+        self.schedule_flush()?;
+        self.wait_flush()?;
+        Ok(self)
+    }
+
+    pub fn with_released(self: Box<Self>) -> Result<Box<Self>, ENNError> {
+        self.release_pages()?;
+        Ok(self)
     }
 }
 

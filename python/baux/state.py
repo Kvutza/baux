@@ -1,15 +1,15 @@
-"""Immutable, forkable `OptimizerState` value token and COW cursor management."""
+"""Immutable, forkable `OptimizerState` value token backed by persistent Rust optimizer."""
 
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 import numpy as np
 from numpy.random import Generator
 
-from .bo import Optimizer, Telemetry, _plan
+from .bo import Telemetry, _plan
 from .pytree import PyTreeSpec
 from .turbo.config import OptimizerConfig
 from .turbo.config.encode import encode
@@ -60,16 +60,16 @@ def _readonly(arr: Any, dtype: Any = float) -> np.ndarray:
 
 @dataclass(frozen=True)
 class _Op:
-    kind: str
-    args: tuple[Any, ...]
-    seed: int
+    kind: str = ""
+    args: tuple[Any, ...] = ()
+    seed: int = 0
 
 
 class _Cursor:
     def __init__(
         self,
-        epoch: int,
-        inner: Any,
+        epoch: int = 0,
+        inner: Any = None,
         id_map: dict[int, int] | None = None,
     ) -> None:
         self.epoch = epoch
@@ -110,34 +110,6 @@ def _makeinner(bounds: np.ndarray, config: OptimizerConfig, seed: int) -> Any:
     )
 
 
-def _applyop(inner: Any, op: _Op, id_map: dict[int, int]) -> None:
-    if op.kind == "ask":
-        num_arms, orig_ids = op.args
-        before = set(inner.pending_ids() or ())
-        inner.ask(num_arms, seed=op.seed)
-        after = inner.pending_ids() or ()
-        new_ids = [i for i in after if i not in before]
-        id_map.update(zip(orig_ids, new_ids, strict=True))
-    elif op.kind == "tell":
-        x, y, yvar = op.args
-        inner.tell(x, y, seed=op.seed, y_var=yvar)
-    elif op.kind == "import":
-        x, y, yvar = op.args
-        inner.import_observations(x, y, seed=op.seed, y_var=yvar)
-    elif op.kind == "complete":
-        ids, y, yvar = op.args
-        mapped = [id_map.get(i, i) for i in ids]
-        inner.complete_ids(mapped, y, seed=op.seed, y_var=yvar)
-    elif op.kind == "cancel":
-        (ids,) = op.args
-        mapped = [id_map.get(i, i) for i in ids]
-        inner.cancel_ids(mapped, seed=op.seed)
-    elif op.kind == "restart":
-        slot, center, orig_abandoned = op.args
-        abandoned = inner.restart_region(slot, center, seed=op.seed)
-        id_map.update(zip(orig_abandoned, abandoned, strict=True))
-
-
 @dataclass(frozen=True)
 class OptimizerState:
     """Immutable, forkable value token representing the full state of a baux optimizer."""
@@ -156,69 +128,43 @@ class OptimizerState:
     pending_ids: tuple[int, ...] | None
     ingestion_failure: str | None
     telemetry: Telemetry
-    _log: tuple[_Op, ...]
-    _cursor: _Cursor
+    _opt: Any
+    _log: tuple[object, ...] = ()
 
     @property
-    def _opt(self) -> Optimizer:
-        return Optimizer(
-            self.dim,
-            np.random.default_rng(self.seed),
-            self._readonlyview(),
-            identified_asks=self.identified,
-        )
-
-    def _checkout(self) -> tuple[Any, dict[int, int], bool]:
-        is_gp = isinstance(self.config.surrogate, (GaussianProcess, ExternalSurrogate))
-        if (
-            self._cursor.epoch == self.epoch
-            and not is_gp
-            and hasattr(self._cursor.inner, "fork")
-        ):
-            try:
-                return self._cursor.inner.fork(), dict(self._cursor.id_map), False
-            except (AttributeError, RuntimeError, TypeError, ValueError):
-                pass
-        if self._cursor.epoch == self.epoch:
-            return self._cursor.inner, self._cursor.id_map, True
-        inner = _makeinner(self.bounds, self.config, self.seed)
-        id_map: dict[int, int] = {}
-        for op in self._log:
-            _applyop(inner, op, id_map)
-        return inner, id_map, False
+    def _cursor(self) -> _Cursor:
+        return _Cursor(self.epoch, self._opt)
 
     def _readonlyview(self) -> Any:
-        if self._cursor.epoch == self.epoch:
-            return self._cursor.inner
-        inner, id_map, _ = self._checkout()
-        object.__setattr__(self, "_cursor", _Cursor(self.epoch, inner, id_map))
-        return inner
+        return self._opt
+
+    def _checkout(self) -> tuple[Any, dict[int, int], bool]:
+        return self._opt, {}, False
 
     @property
     def x_obs(self) -> np.ndarray:
         """Read-only `(n, dim)` matrix of observed parameter vectors."""
-        x = self._readonlyview().x_obs()
+        x = self._opt.x_obs()
         return _readonly(np.empty((0, self.dim)) if x is None else x)
 
     @property
     def y_obs(self) -> np.ndarray:
         """Read-only `(n, m)` matrix of observed objective values."""
-        y = self._readonlyview().y_obs()
+        y = self._opt.y_obs()
         return _readonly(np.empty((0, 1)) if y is None else y)
 
     @property
     def incumbent_x(self) -> np.ndarray | None:
         """Read-only incumbent parameter vector, or `None` if no observations exist."""
-        inc = self._readonlyview().incumbent_x()
+        inc = self._opt.incumbent_x()
         return None if inc is None else _readonly(inc)
 
     @property
     def lengthscales(self) -> np.ndarray | None:
         """Read-only per-dimension surrogate lengthscales, if supported."""
-        view = self._readonlyview()
-        if not hasattr(view, "lengthscales"):
+        if not hasattr(self._opt, "lengthscales"):
             return None
-        ls = view.lengthscales()
+        ls = self._opt.lengthscales()
         return None if ls is None else _readonly(ls).reshape(-1)
 
     @property
@@ -258,12 +204,13 @@ class OptimizerState:
 
     def digest(self) -> str:
         """Return the 64-character hexadecimal BLAKE3 state digest."""
-        view = self._readonlyview()
-        if hasattr(view, "digest_host"):
+        if hasattr(self._opt, "digest_host"):
             return str(
-                view.digest_host(int(self.seed), int(self.epoch), bool(self.identified))
+                self._opt.digest_host(
+                    int(self.seed), int(self.epoch), bool(self.identified)
+                )
             )
-        return str(view.digest_hex())
+        return str(self._opt.digest_hex())
 
     @property
     def key(self) -> Any:
@@ -274,25 +221,31 @@ class OptimizerState:
 
     def fork(self, key: Any = None, *, seed: Any = None) -> OptimizerState:
         """Return an independent copy of this state with an optional new `key` or `seed`."""
-        from dataclasses import replace
-
-        inner, id_map, in_place = self._checkout()
-        if in_place and hasattr(inner, "fork"):
-            inner = inner.fork()
         src = key if key is not None else seed
+        new_seed = self.seed if src is None else _resolveseed(src)
+        new_opt = self._opt.fork() if hasattr(self._opt, "fork") else self._opt
         return replace(
             self,
-            seed=self.seed if src is None else _resolveseed(src),
-            _cursor=_Cursor(self.epoch, inner, id_map),
+            seed=new_seed,
+            _opt=new_opt,
+            _log=(),
         )
+
+    def freeze(self) -> bytes:
+        """Serialize this state into a portable binary checkpoint."""
+        return freeze(self)
+
+    def thaw(self, data: bytes) -> OptimizerState:
+        """Restore an `OptimizerState` from a binary checkpoint using this state as a template."""
+        return thaw(self, data)
 
 
 def _snapshot(
     prev: OptimizerState,
     inner: Any,
-    id_map: dict[int, int],
-    in_place: bool,
-    op: _Op,
+    id_map: Any = None,
+    in_place: bool = False,
+    op: Any = None,
 ) -> OptimizerState:
     t = inner.telemetry()
     telem = Telemetry(
@@ -302,26 +255,14 @@ def _snapshot(
         dt_tell=t.dt_tell,
         num_candidates=int(t.num_candidates),
     )
-    inv_map = {v: k for k, v in id_map.items()}
     raw_pending = inner.pending_ids()
-    pending = (
-        None
-        if raw_pending is None
-        else tuple(int(inv_map.get(int(i), int(i))) for i in raw_pending)
-    )
-    next_epoch = prev.epoch + 1
-    if in_place:
-        prev._cursor.epoch = next_epoch
-        prev._cursor.id_map = id_map
-        cursor = prev._cursor
-    else:
-        cursor = _Cursor(next_epoch, inner, id_map)
+    pending = None if not raw_pending else tuple(int(i) for i in raw_pending)
     return OptimizerState(
         dim=prev.dim,
         bounds=prev.bounds,
         config=prev.config,
         seed=prev.seed,
-        epoch=next_epoch,
+        epoch=prev.epoch + 1,
         spec=prev.spec,
         identified=prev.identified,
         num_observations=int(inner.num_observations()),
@@ -331,8 +272,8 @@ def _snapshot(
         pending_ids=pending,
         ingestion_failure=getattr(inner, "ingestion_failure", None),
         telemetry=telem,
-        _log=(*prev._log, op) if in_place else (),
-        _cursor=cursor,
+        _opt=inner,
+        _log=(),
     )
 
 
@@ -343,31 +284,59 @@ def digest(state: OptimizerState) -> str:
 
 def freeze(state: OptimizerState) -> bytes:
     """Serialize `state` into a portable binary checkpoint."""
-    view = state._readonlyview()
-    pairs = sorted((int(k), int(v)) for k, v in state._cursor.id_map.items())
-    return bytes(
-        view.freeze_host(
-            int(state.seed), int(state.epoch), bool(state.identified), pairs
-        )
-    )
+    view = state._opt
+    if hasattr(view, "freeze_host"):
+        pairs: list[tuple[int, int]] = []
+        try:
+            return bytes(
+                view.freeze_host(
+                    int(state.seed), int(state.epoch), bool(state.identified), pairs
+                )
+            )
+        except TypeError:
+            return bytes(
+                view.freeze_host(
+                    int(state.seed), int(state.epoch), bool(state.identified)
+                )
+            )
+    return bytes(view.freeze())
 
 
 def thaw(state: OptimizerState, data: bytes) -> OptimizerState:
     """Restore an `OptimizerState` from a binary checkpoint without mutating `state`."""
     if not isinstance(data, (bytes, bytearray, memoryview)):
         raise TypeError("checkpoint data must be a bytes-like object")
-    inner = state._readonlyview().fork()
-    seed, epoch, identified, pairs = inner.thaw_host(
-        bytes(data),
-        int(state.seed),
-        int(state.epoch),
-        bool(state.identified),
-    )
+    raw = bytes(data)
+    if len(raw) == 0:
+        raise ValueError("checkpoint data is empty")
+    inner = state._opt
+    if hasattr(inner, "thaw_host"):
+        try:
+            res = inner.thaw_host(raw)
+        except TypeError:
+            res = inner.thaw_host(
+                raw,
+                int(state.seed),
+                int(state.epoch),
+                bool(state.identified),
+            )
+        if isinstance(res, tuple) and len(res) == 2 and isinstance(res[0], tuple):
+            (seed, epoch, identified, _pairs), next_opt = res
+        elif isinstance(res, tuple) and len(res) == 4:
+            seed, epoch, identified, _pairs = res
+            next_opt = inner
+        else:
+            raise ValueError("unexpected thaw_host result format")
+    elif hasattr(inner, "thaw"):
+        next_opt = inner.thaw(raw)
+        seed, epoch, identified = state.seed, state.epoch, state.identified
+    else:
+        raise ValueError("optimizer does not support checkpoint restoration")
+
     if bool(identified) != bool(state.identified):
         raise ValueError("frozen state regional mode does not match template state")
-    id_map = {int(k): int(v) for k, v in pairs}
-    inv_map = {v: k for k, v in id_map.items()}
-    t = inner.telemetry()
+
+    t = next_opt.telemetry()
     telem = Telemetry(
         dt_fit=t.dt_fit,
         dt_gen=t.dt_gen,
@@ -375,13 +344,8 @@ def thaw(state: OptimizerState, data: bytes) -> OptimizerState:
         dt_tell=t.dt_tell,
         num_candidates=int(t.num_candidates),
     )
-    raw_pending = inner.pending_ids()
-    pending = (
-        None
-        if raw_pending is None
-        else tuple(int(inv_map.get(int(i), int(i))) for i in raw_pending)
-    )
-    cursor = _Cursor(int(epoch), inner, id_map)
+    raw_pending = next_opt.pending_ids()
+    pending = None if not raw_pending else tuple(int(i) for i in raw_pending)
     return OptimizerState(
         dim=state.dim,
         bounds=state.bounds,
@@ -390,15 +354,15 @@ def thaw(state: OptimizerState, data: bytes) -> OptimizerState:
         epoch=int(epoch),
         spec=state.spec,
         identified=bool(identified),
-        num_observations=int(inner.num_observations()),
-        num_regions=int(inner.num_regions()),
-        tr_length=float(inner.tr_length()),
-        init_progress=inner.init_progress(),
+        num_observations=int(next_opt.num_observations()),
+        num_regions=int(next_opt.num_regions()),
+        tr_length=float(next_opt.tr_length()),
+        init_progress=next_opt.init_progress(),
         pending_ids=pending,
-        ingestion_failure=getattr(inner, "ingestion_failure", None),
+        ingestion_failure=getattr(next_opt, "ingestion_failure", None),
         telemetry=telem,
+        _opt=next_opt,
         _log=(),
-        _cursor=cursor,
     )
 
 

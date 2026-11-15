@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, overload
 
 import numpy as np
 from numpy.random import Generator
@@ -61,12 +61,20 @@ class ENNState:
         )
         return _Key.from_bytes(buf)
 
+    def ensure_sync(self) -> ENNState:
+        """Synchronize pending observations with the neighbor index."""
+        return sync_enn(self)
+
+    def persist_index(self) -> ENNState:
+        """Persist the neighbor index to storage."""
+        return persist_enn(self)
+
 
 def _wrapenn(base: ENN, rust_model: Any, metric: tuple[str, int] | None = None) -> ENN:
     out = object.__new__(ENN)
     out._index_driver = base._index_driver
     out._rust_model = rust_model
-    out.device = base.device
+    out.device = getattr(rust_model, "device", base.device)
     out.index_kind = base.index_kind
     out._metric = (
         getattr(base, "_metric", ("euclidean", 4)) if metric is None else metric
@@ -472,10 +480,56 @@ def enn_fit(
     )
 
 
+@overload
+def sync_enn(state: ENNState) -> ENNState: ...
+@overload
+def sync_enn(state: ENN) -> ENN: ...
+def sync_enn(state: ENNState | ENN) -> ENNState | ENN:
+    """Synchronize pending observations with the neighbor index, returning an updated state/model."""
+    if isinstance(state, ENNState):
+        rust_model = state._model._rust_model.ensure_sync()
+        return ENNState(
+            x=state.x,
+            y=state.y,
+            y_var=state.y_var,
+            scale_x=state.scale_x,
+            options=state.options,
+            _model=_wrapenn(state._model, rust_model),
+        )
+    if isinstance(state, ENN):
+        state.ensure_sync()
+        return state
+    raise TypeError(f"Expected ENNState or ENN, got {type(state)}")
+
+
+@overload
+def persist_enn(state: ENNState) -> ENNState: ...
+@overload
+def persist_enn(state: ENN) -> ENN: ...
+def persist_enn(state: ENNState | ENN) -> ENNState | ENN:
+    """Persist the neighbor index to storage, returning an updated state/model."""
+    if isinstance(state, ENNState):
+        rust_model = state._model._rust_model.persist_index()
+        return ENNState(
+            x=state.x,
+            y=state.y,
+            y_var=state.y_var,
+            scale_x=state.scale_x,
+            options=state.options,
+            _model=_wrapenn(state._model, rust_model),
+        )
+    if isinstance(state, ENN):
+        state.persist_index()
+        return state
+    raise TypeError(f"Expected ENNState or ENN, got {type(state)}")
+
+
 append = enn_append
 fit = enn_fit
 posterior = enn_posterior
 sample = enn_sample
+ensure_sync = sync_enn
+persist_index = persist_enn
 
 
 __all__ = [
@@ -493,9 +547,13 @@ __all__ = [
     "enn_init",
     "enn_posterior",
     "enn_sample",
+    "ensure_sync",
     "fit",
+    "persist_enn",
+    "persist_index",
     "posterior",
     "sample",
     "stein",
+    "sync_enn",
     "with_geometry",
 ]

@@ -1,13 +1,14 @@
 //! Backend shape and storage inspection.
 
 use super::*;
+use crate::index::ENNIndex;
 
 impl EnnBackend {
     pub fn len(&self) -> usize {
         match self {
             Self::InMemory(b) => b.len(),
             #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
-            Self::Disk(h) => disk_read(h.data()).map(|g| g.len()).unwrap_or(0),
+            Self::Disk(b) => b.len(),
         }
     }
 
@@ -19,7 +20,7 @@ impl EnnBackend {
         match self {
             Self::InMemory(b) => b.num_dim(),
             #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
-            Self::Disk(h) => disk_read(h.data()).map(|g| g.num_dim()).unwrap_or(0),
+            Self::Disk(b) => b.num_dim(),
         }
     }
 
@@ -27,7 +28,7 @@ impl EnnBackend {
         match self {
             Self::InMemory(b) => b.num_metrics(),
             #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
-            Self::Disk(h) => disk_read(h.data()).map(|g| g.num_metrics()).unwrap_or(0),
+            Self::Disk(b) => b.num_metrics(),
         }
     }
 
@@ -35,9 +36,7 @@ impl EnnBackend {
         match self {
             Self::InMemory(b) => b.driver(),
             #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
-            Self::Disk(h) => disk_read(h.data())
-                .map(|g| g.driver())
-                .unwrap_or(IndexDriver::BpAnnDisk),
+            Self::Disk(b) => b.driver(),
         }
     }
 
@@ -45,7 +44,7 @@ impl EnnBackend {
         match self {
             Self::InMemory(b) => b.index_bytes(),
             #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
-            Self::Disk(h) => disk_read(h.data())?.index_bytes(),
+            Self::Disk(b) => b.index_bytes(),
         }
     }
 
@@ -53,7 +52,7 @@ impl EnnBackend {
         match self {
             Self::InMemory(b) => b.index_len(),
             #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
-            Self::Disk(h) => disk_read(h.data()).map(|g| g.len()).unwrap_or(0),
+            Self::Disk(b) => b.len(),
         }
     }
 
@@ -67,7 +66,7 @@ impl EnnBackend {
 
     pub fn x_view(&self) -> Option<ndarray::ArrayView2<'_, f64>> {
         match self {
-            Self::InMemory(b) => Some(b.x_view()),
+            Self::InMemory(b) => b.x_view(),
             #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
             Self::Disk(_) => None,
         }
@@ -75,7 +74,7 @@ impl EnnBackend {
 
     pub fn y_view(&self) -> Option<ndarray::ArrayView2<'_, f64>> {
         match self {
-            Self::InMemory(b) => Some(b.y_view()),
+            Self::InMemory(b) => b.y_view(),
             #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
             Self::Disk(_) => None,
         }
@@ -84,6 +83,22 @@ impl EnnBackend {
     pub fn memory_yvar(&self) -> Option<ndarray::ArrayView2<'_, f64>> {
         match self {
             Self::InMemory(b) => b.yvar_view(),
+            #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
+            Self::Disk(_) => None,
+        }
+    }
+
+    pub fn memory_x(&self) -> Option<ndarray::Array2<f64>> {
+        match self {
+            Self::InMemory(b) => Some(b.memory_x()),
+            #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
+            Self::Disk(_) => None,
+        }
+    }
+
+    pub fn memory_y(&self) -> Option<ndarray::Array2<f64>> {
+        match self {
+            Self::InMemory(b) => Some(b.memory_y()),
             #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
             Self::Disk(_) => None,
         }

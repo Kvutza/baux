@@ -7,6 +7,7 @@
 //! buffers are still owned and reused by the search state.
 
 use super::*;
+use baux::semantics::optimizer::{AskPlan, RoundId, WorldId};
 
 fn validate_decision(
     decision: &Decision,
@@ -110,7 +111,7 @@ impl SearchState {
     /// Publish after completion using a timing origin at publication itself.
     /// Staged GPU profiling, when present, supplies ask timings separately;
     /// this wrapper's fallback timer is not end-to-end proposal latency.
-    pub fn publish_ask(&mut self) -> Result<Proposals, String> {
+    pub fn publish_ask(self) -> Result<(Self, Proposals), String> {
         self.publish_start(Instant::now())
     }
 
@@ -123,14 +124,14 @@ impl SearchState {
     /// Expected/procedural norms remain estimates even when reported
     /// alongside realized changes; finite metadata is not evidence of a
     /// useful proposal.
-    pub fn publish_start(&mut self, start: Instant) -> Result<Proposals, String> {
+    pub fn publish_start(mut self, start: Instant) -> Result<(Self, Proposals), String> {
         let total_ms = start.elapsed().as_secs_f32() * 1000.0;
-        let decision = read::<Decision>(&self.decision, 1)[0];
+        let decision = read::<Decision>(&*self.decision, 1)[0];
         let pool_count = self.pool_layout.count();
         validate_decision(&decision, pool_count, self.perturbation)?;
         let index = decision.index as usize;
-        let distances = read::<f32>(&self.pool_distances, pool_count as usize * self.history);
-        let pool = pool_descriptions(self, &distances, &decision, pool_count as usize)?;
+        let distances = read::<f32>(&*self.pool_distances, pool_count as usize * self.history);
+        let pool = pool_descriptions(&self, &distances, &decision, pool_count as usize)?;
         let partials = unsafe {
             std::slice::from_raw_parts(
                 self.partials.contents().cast::<Partial>(),
@@ -145,10 +146,10 @@ impl SearchState {
             .as_ref()
             .zip(axis_coordinate)
             .map(|(axis, coordinate)| axis.value(coordinate));
-        let changes = block_changes(self, &partials, index)?;
+        let changes = block_changes(&self, &partials, index)?;
         let round = Proposals {
             pool_layout: self.pool_layout,
-            owner: self.owner,
+            owner: 0,
             id: self.next_id,
             base_id: self.base_id,
             index,
@@ -191,12 +192,37 @@ impl SearchState {
                 total_ms,
             });
         }
-        Ok(round)
+        Ok((self, round))
+    }
+
+    /// Bind the pending materialized candidate to its evaluation condition.
+    /// Reissuing a plan is allowed only for the same world (e.g. after a scorer
+    /// error); a completed or foreign proposal cannot obtain one.
+    pub fn plan_evaluation(
+        mut self,
+        round: &Proposals,
+        world: WorldId,
+    ) -> Result<(Self, AskPlan), String> {
+        self.check_round(round)?;
+        if self.base_id != round.base_id || self.evaluation.is_some_and(|planned| planned != world)
+        {
+            return Err("evaluation plan changed incumbent or world".into());
+        }
+        self.evaluation = Some(world);
+        let plan = AskPlan::new(
+            RoundId {
+                owner: round.owner,
+                proposal: round.id,
+                incumbent: round.base_id,
+            },
+            world,
+        );
+        Ok((self, plan))
     }
 
     /// Read pool radii and optional cosine diagnostics in the chosen geometry.
     fn read_geometry(&self) -> Result<([f32; 4], [Option<f32>; 6]), String> {
-        let geometry = read::<f32>(&self.pool_geometry, POOL_METRICS * self.tiles.len());
+        let geometry = read::<f32>(&*self.pool_geometry, POOL_METRICS * self.tiles.len());
         if geometry.iter().any(|value| !value.is_finite()) {
             return Err("Metal BF16 candidate-pool geometry is nonfinite".into());
         }

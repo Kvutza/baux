@@ -4,7 +4,7 @@ use pyo3::exceptions::{PyBufferError, PyValueError};
 use pyo3::prelude::*;
 use std::sync::Arc;
 
-#[pyclass(name = "Posterior", unsendable)]
+#[pyclass(name = "Posterior", frozen, unsendable)]
 pub struct PyDevicePosterior {
     inner: Arc<DevicePosterior>,
 }
@@ -64,7 +64,7 @@ enum ArrayOwner {
     Draw(DeviceDraw),
 }
 
-#[pyclass(name = "Tensor", unsendable)]
+#[pyclass(name = "Tensor", frozen, unsendable)]
 pub struct PyDeviceArray {
     _owner: ArrayOwner,
     pointer: u64,

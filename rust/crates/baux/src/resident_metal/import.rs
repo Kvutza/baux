@@ -1,8 +1,10 @@
 //! GPU geometry for foreign evaluated weights entering a local model.
 //! The full row stays resident; only bounded distance scalars reach the host.
 
+use super::history::cow_buffer;
 use super::*;
 use crate::apple_gpu::thread_group;
+use std::sync::Arc;
 
 pub(super) struct ImportGeometry {
     pub(super) distances: Vec<(usize, f32)>,
@@ -38,15 +40,15 @@ impl SearchState {
         };
         let buffers = [
             incoming,
-            &self.base,
-            &self.base,
-            &self.base,
+            &*self.base,
+            &*self.base,
+            &*self.base,
             &self.leaves_gpu,
             &self.tiles_gpu,
-            &self.partials,
+            &*self.partials,
         ];
         for (slot, buffer) in buffers.iter().enumerate() {
-            encoder.set_buffer(slot as u64, Some(buffer), 0);
+            encoder.set_buffer(slot as u64, Some(*buffer), 0);
         }
         encoder.set_bytes(
             7,
@@ -58,14 +60,14 @@ impl SearchState {
 
         let reducer = command.new_compute_command_encoder();
         reducer.set_compute_pipeline_state(&self.import_reduction);
-        reducer.set_buffer(0, Some(&self.partials), 0);
-        reducer.set_buffer(1, Some(&self.pool_distances), 0);
+        reducer.set_buffer(0, Some(&*self.partials), 0);
+        reducer.set_buffer(1, Some(&*self.pool_distances), 0);
         reducer.set_bytes(2, size_of::<u32>() as u64, (&tiles as *const u32).cast());
         reducer.dispatch_thread_groups(thread_group(1), thread_group(256));
         reducer.end_encoding();
         finish(command)?;
 
-        let values = read::<f32>(&self.pool_distances, 2 * MAX_HISTORY + 1);
+        let values = read::<f32>(&*self.pool_distances, 2 * MAX_HISTORY + 1);
         let center = values[2 * MAX_HISTORY];
         if !center.is_finite() || center < 0.0 {
             return Err("Resident import produced an invalid incumbent distance".into());
@@ -105,15 +107,15 @@ impl SearchState {
             };
             let buffers = [
                 incoming,
-                &self.history_rows[first],
-                &self.history_rows[(first + 1).min(self.resident_history - 1)],
-                &self.base,
+                &*self.history_rows[first],
+                &*self.history_rows[(first + 1).min(self.resident_history - 1)],
+                &*self.base,
                 &self.leaves_gpu,
                 &self.tiles_gpu,
-                &self.partials,
+                &*self.partials,
             ];
             for (slot, buffer) in buffers.iter().enumerate() {
-                encoder.set_buffer(slot as u64, Some(buffer), 0);
+                encoder.set_buffer(slot as u64, Some(*buffer), 0);
             }
             encoder.set_bytes(
                 7,
@@ -127,14 +129,14 @@ impl SearchState {
 
         let reducer = command.new_compute_command_encoder();
         reducer.set_compute_pipeline_state(&self.import_reduction);
-        reducer.set_buffer(0, Some(&self.partials), 0);
-        reducer.set_buffer(1, Some(&self.pool_distances), 0);
+        reducer.set_buffer(0, Some(&*self.partials), 0);
+        reducer.set_buffer(1, Some(&*self.pool_distances), 0);
         reducer.set_bytes(2, size_of::<u32>() as u64, (&tiles as *const u32).cast());
         reducer.dispatch_thread_groups(thread_group(pairs as u64), thread_group(256));
         reducer.end_encoding();
         finish(command)?;
 
-        let values = read::<f32>(&self.pool_distances, 2 * MAX_HISTORY + 1);
+        let values = read::<f32>(&*self.pool_distances, 2 * MAX_HISTORY + 1);
         self.map_import(&values)
     }
 
@@ -182,11 +184,11 @@ impl SearchState {
     /// geometry enter history, while the local incumbent, proposal ledger, and
     /// trust-region success/failure counters remain owned by this region.
     pub(super) fn import_observation(
-        &mut self,
+        mut self,
         incoming: &Buffer,
         value: f32,
         variance: f32,
-    ) -> Result<(), String> {
+    ) -> Result<Self, String> {
         self.check_idle()?;
         check_scores(&[value], &[variance])?;
         let observation =
@@ -195,10 +197,10 @@ impl SearchState {
     }
 
     pub(super) fn import_objectives(
-        &mut self,
+        mut self,
         incoming: &Buffer,
         observation: crate::objective_observation::ObjectiveObservation,
-    ) -> Result<(), String> {
+    ) -> Result<Self, String> {
         let crate::objective_observation::ObjectiveEstimate {
             mean: value,
             variance,
@@ -208,7 +210,7 @@ impl SearchState {
             .observation
             .checked_add(1)
             .ok_or("Observation ID overflow")?;
-        let target = history::choose_slot(self)?;
+        let target = history::choose_slot(&self)?;
         let geometry = self.measure_import(incoming)?;
         let prior_history = self.history;
         let slot = if self.resident_history == self.history_rows.len() {
@@ -216,47 +218,40 @@ impl SearchState {
         } else {
             self.resident_history
         };
-        let mut mutated = false;
-        let result = (|| {
-            // A retained history row may alias the incumbent. Replace that
-            // allocation before writing the foreign weights into the archive.
-            if std::ptr::eq::<metal::BufferRef>(&*self.history_rows[slot], &*self.base) {
-                self.history_rows[slot] = self.runtime.buffer::<u16>(self.dimensions);
-            }
-            mutated = true;
-            self.copy(incoming, &self.history_rows[slot])?;
-            self.observation = identity;
-            self.resident_identities[slot] = identity;
-            if self.resident_history == self.history_rows.len() {
-                self.history_rows.rotate_left(1);
-                self.resident_identities.rotate_left(1);
-            } else {
-                self.resident_history += 1;
-            }
-            self.record_observation(
-                identity,
-                target,
-                (value, variance),
-                observation,
-                Some(geometry.distances),
-                false,
-            )?;
-            if self.implicit_history
-                && prior_history < self.initial_observations
-                && self.history == self.initial_observations
-                && !self.has_morbo()
-            {
-                self.trust.restart();
-                self.trust_observations = self.history;
-                self.trust.seed_baseline(f64::from(self.best), self.history);
-                self.length = self.trust.length();
-            }
-            Ok(())
-        })();
-        if mutated && result.is_err() {
-            self.poisoned = true;
+        // A retained history row may alias the incumbent. Replace that
+        // allocation before writing the foreign weights into the archive.
+        if std::ptr::eq::<metal::BufferRef>(&**self.history_rows[slot], &**self.base) {
+            self.history_rows[slot] = Arc::new(self.runtime.buffer::<u16>(self.dimensions));
         }
-        result
+        cow_buffer(&self.runtime, &mut self.history_rows[slot])?;
+        self.copy(incoming, &*self.history_rows[slot])?;
+        self.observation = identity;
+        self.resident_identities[slot] = identity;
+        if self.resident_history == self.history_rows.len() {
+            self.history_rows.rotate_left(1);
+            self.resident_identities.rotate_left(1);
+        } else {
+            self.resident_history += 1;
+        }
+        self = self.record_observation(
+            identity,
+            target,
+            (value, variance),
+            observation,
+            Some(geometry.distances),
+            false,
+        )?;
+        if self.implicit_history
+            && prior_history < self.initial_observations
+            && self.history == self.initial_observations
+            && !self.has_morbo()
+        {
+            self.trust.restart();
+            self.trust_observations = self.history;
+            self.trust.seed_baseline(f64::from(self.best), self.history);
+            self.length = self.trust.length();
+        }
+        Ok(self)
     }
 
     /// In surrogate-free (`TuRBO-zero`, `AcquisitionKind::Random`) multi-region
@@ -266,28 +261,29 @@ impl SearchState {
     /// `self.trust.set_best`) while keeping local trust-region length and
     /// success/failure counters owned by this region.
     pub(super) fn adopt_incumbent(
-        &mut self,
+        mut self,
         incoming: &Buffer,
         observation: crate::objective_observation::ObjectiveObservation,
-    ) -> Result<bool, String> {
+    ) -> Result<(Self, bool), String> {
         if observation.is_vector() || self.has_morbo() {
-            return Ok(false);
+            return Ok((self, false));
         }
         let crate::objective_observation::ObjectiveEstimate {
             mean: value,
             variance,
         } = observation.control();
         if !value.is_finite() || value <= self.best {
-            return Ok(false);
+            return Ok((self, false));
         }
         if self
             .history_rows
             .iter()
-            .any(|row| std::ptr::eq::<metal::BufferRef>(&**row, &*self.base))
+            .any(|row| std::ptr::eq::<metal::BufferRef>(&***row, &**self.base))
         {
-            self.base = self.runtime.buffer::<u16>(self.dimensions);
+            self.base = Arc::new(self.runtime.buffer::<u16>(self.dimensions));
         }
-        self.copy(incoming, &self.base)?;
+        cow_buffer(&self.runtime, &mut self.base)?;
+        self.copy(incoming, &*self.base)?;
         self.base_id = self.observation;
         self.best = value;
         self.best_variance = variance;
@@ -299,7 +295,7 @@ impl SearchState {
         }
         self.trust.set_best(f64::from(value));
         self.objective_history.adopt(self.observation, observation);
-        Ok(true)
+        Ok((self, true))
     }
 }
 
@@ -329,12 +325,12 @@ mod tests {
     fn foreign_history() {
         let base = [0x3f80_u16; 4];
         let blocks = vec![ParamBlock::new(1, 0, 4, 0.25, 1.0).unwrap()];
-        let mut state =
+        let state =
             SearchState::new(&base, 1.0, 0.0, blocks, 2, 1, TRLengthConfig::default()).unwrap();
         let incoming = Runtime::shared().unwrap().buffer_with(&[0x4000_u16; 4]);
         let controller = state.controller_info().unwrap();
         let incumbent = state.read_best().unwrap();
-        state.import_observation(&incoming, 5.0, 0.0).unwrap();
+        let state = state.import_observation(&incoming, 5.0, 0.0).unwrap();
         assert_eq!(state.history, 2);
         assert_eq!(state.outcomes[1], 5.0);
         assert_eq!(state.best().unwrap(), 1.0);
@@ -347,7 +343,7 @@ mod tests {
             state.controller_info().unwrap().failure_counter,
             controller.failure_counter
         );
-        state.import_observation(&incoming, 6.0, 0.0).unwrap();
+        let state = state.import_observation(&incoming, 6.0, 0.0).unwrap();
         assert_eq!(state.history, 2);
         assert_eq!(state.outcomes[..2], [5.0, 6.0]);
         assert_eq!(state.read_best().unwrap(), incumbent);

@@ -47,7 +47,7 @@ assert state.num_observations == 12
 print(f"baux.init/ask/tell: n={state.num_observations} best_y={state.best_y:.5f}")
 }
   }
-  \<p>[class]{api-source}{[Source in \code{python/baux/functional.py}](https://github.com/Kvutza/baux/blob/main/python/baux/functional.py#L98)}
+  \<p>[class]{api-source}{[Source in \code{python/baux/functional.py}](https://github.com/Kvutza/baux/blob/main/python/baux/functional.py#L96)}
 }
 
 \<section>[id]{baux.ask}[class]{api-entry}[data-symbol]{baux.ask}[data-kind]{function}[data-module]{baux.functional}{
@@ -72,7 +72,7 @@ baux.ask(
     \<dt>{Notes}
     \<dd>{Keep \code{next_state} for subsequent calls. Regional proposals become pending in that state. This function does not call the objective. Supplying both count arguments or a nonpositive count raises \code{ValueError}.}
   }
-  \<p>[class]{api-source}{[Source in \code{python/baux/functional.py}](https://github.com/Kvutza/baux/blob/main/python/baux/functional.py#L162)}
+  \<p>[class]{api-source}{[Source in \code{python/baux/functional.py}](https://github.com/Kvutza/baux/blob/main/python/baux/functional.py#L160)}
 }
 
 \<section>[id]{baux.tell}[class]{api-entry}[data-symbol]{baux.tell}[data-kind]{function}[data-module]{baux.functional}{
@@ -100,7 +100,7 @@ baux.tell(
     \<dt>{Notes}
     \<dd>{For regional search, this is the ordered, whole-batch path. An \code{AskBatch} supplies coordinates here; its ticket IDs are not validated. Use [\code{complete}](docs.html#baux.complete) for ticket-based or out-of-order completion.}
   }
-  \<p>[class]{api-source}{[Source in \code{python/baux/functional.py}](https://github.com/Kvutza/baux/blob/main/python/baux/functional.py#L254)}
+  \<p>[class]{api-source}{[Source in \code{python/baux/functional.py}](https://github.com/Kvutza/baux/blob/main/python/baux/functional.py#L247)}
 }
 
 \<section>[id]{baux.step}[class]{api-entry}[data-symbol]{baux.step}[data-kind]{function}[data-module]{baux.functional}{
@@ -126,7 +126,7 @@ baux.step(
     \<dt>{Returns}
     \<dd>{\code{(next_state, y)} after proposing, evaluating and recording the batch.}
   }
-  \<p>[class]{api-source}{[Source in \code{python/baux/functional.py}](https://github.com/Kvutza/baux/blob/main/python/baux/functional.py#L359)}
+  \<p>[class]{api-source}{[Source in \code{python/baux/functional.py}](https://github.com/Kvutza/baux/blob/main/python/baux/functional.py#L344)}
 }
 
 \<section>[id]{baux.complete}[class]{api-entry}[data-symbol]{baux.complete}[data-kind]{function}[data-module]{baux.functional}{
@@ -170,7 +170,7 @@ assert len(state.pending_ids or ()) == 0
 print(f"Async complete/cancel verified: obs={state.num_observations} best_y={state.best_y:.5f}")
 }
   }
-  \<p>[class]{api-source}{[Source in \code{python/baux/functional.py}](https://github.com/Kvutza/baux/blob/main/python/baux/functional.py#L276)}
+  \<p>[class]{api-source}{[Source in \code{python/baux/functional.py}](https://github.com/Kvutza/baux/blob/main/python/baux/functional.py#L269)}
 }
 
 \<section>[id]{baux.cancel}[class]{api-entry}[data-symbol]{baux.cancel}[data-kind]{function}[data-module]{baux.functional}{
@@ -193,7 +193,7 @@ baux.cancel(
     \<dt>{Notes}
     \<dd>{Cancellation changes optimizer bookkeeping. The caller must stop any external job.}
   }
-  \<p>[class]{api-source}{[Source in \code{python/baux/functional.py}](https://github.com/Kvutza/baux/blob/main/python/baux/functional.py#L309)}
+  \<p>[class]{api-source}{[Source in \code{python/baux/functional.py}](https://github.com/Kvutza/baux/blob/main/python/baux/functional.py#L299)}
 }
 
 \<section>[id]{baux.restart_region}[class]{api-entry}[data-symbol]{baux.restart_region}[data-kind]{function}[data-module]{baux.functional}{
@@ -218,7 +218,7 @@ baux.restart_region(
     \<dt>{Notes}
     \<dd>{The caller owns external jobs and decides whether to cancel them.}
   }
-  \<p>[class]{api-source}{[Source in \code{python/baux/functional.py}](https://github.com/Kvutza/baux/blob/main/python/baux/functional.py#L326)}
+  \<p>[class]{api-source}{[Source in \code{python/baux/functional.py}](https://github.com/Kvutza/baux/blob/main/python/baux/functional.py#L313)}
 }
 
 \<section>[id]{baux.import_observations}[class]{api-entry}[data-symbol]{baux.import_observations}[data-kind]{function}[data-module]{baux.functional}{
@@ -244,7 +244,7 @@ baux.import_observations(
     \<dt>{Notes}
     \<dd>{Does not complete pending tickets. Use for historical data or an explicitly chosen import of a late result.}
   }
-  \<p>[class]{api-source}{[Source in \code{python/baux/functional.py}](https://github.com/Kvutza/baux/blob/main/python/baux/functional.py#L265)}
+  \<p>[class]{api-source}{[Source in \code{python/baux/functional.py}](https://github.com/Kvutza/baux/blob/main/python/baux/functional.py#L258)}
 }
 
 \<section>[id]{baux.posterior_mu}[class]{api-entry}[data-symbol]{baux.posterior_mu}[data-kind]{function}[data-module]{baux.functional}{
@@ -262,7 +262,7 @@ baux.posterior_mu(state: OptimizerState, x: Any) -> np.ndarray
     \<dt>{Returns}
     \<dd>{A read-only NumPy array of predicted means in the objective's units. Does not advance the optimizer.}
   }
-  \<p>[class]{api-source}{[Source in \code{python/baux/functional.py}](https://github.com/Kvutza/baux/blob/main/python/baux/functional.py#L350)}
+  \<p>[class]{api-source}{[Source in \code{python/baux/functional.py}](https://github.com/Kvutza/baux/blob/main/python/baux/functional.py#L336)}
 }
 
 \<section>[id]{baux.OptimizerState}[class]{api-entry}[data-symbol]{baux.OptimizerState}[data-kind]{class}[data-module]{baux.functional}{
@@ -274,7 +274,7 @@ class baux.OptimizerState  (frozen dataclass; constructed via baux.init)
   \p{Create it with [\code{init}](docs.html#baux.init). Each transition returns a new state; retain the old one only if you need a branch or checkpoint.}
   \p{\code{x_obs}, \code{y_obs}: observation arrays. \code{num_observations}, \code{num_regions}, \code{tr_length}: current search information. \code{best_x}, \code{best_params}, \code{best_y}: incumbent coordinates, decoded parameters and value, or \code{None} before observations.}
   \p{\code{pending_ids}: raw integer IDs for inspection; pass the typed \code{batch.ids} to \code{complete} or \code{cancel}. \code{fork(key=None, *, seed=None)} creates another search branch. [Checkpoints and keys](api-state.html) covers persistence and branching.}
-  \<p>[class]{api-source}{[Source in \code{python/baux/state.py}](https://github.com/Kvutza/baux/blob/main/python/baux/state.py#L142)}
+  \<p>[class]{api-source}{[Source in \code{python/baux/state.py}](https://github.com/Kvutza/baux/blob/main/python/baux/state.py#L114)}
 }
 
 \<section>[id]{baux.AskBatch}[class]{api-entry}[data-symbol]{baux.AskBatch}[data-kind]{class}[data-module]{baux.bo}{
@@ -291,7 +291,7 @@ baux.AskBatch(
   \p{\code{points}: read-only \code{(N, D)} coordinates. \code{ids}: one \code{AskId} per row. \code{len(batch)} is \code{N}.}
   \p{\code{params}: tuple of decoded parameter trees, one per row. \code{stacked}: one tree with a leading batch axis on its leaves. For an unstructured domain, these expose the coordinate rows and matrix.}
   \p{Keep the batch paired with the state returned by \code{ask}. Tickets support asynchronous completion only when regional search is enabled.}
-  \<p>[class]{api-source}{[Source in \code{python/baux/bo.py}](https://github.com/Kvutza/baux/blob/main/python/baux/bo.py#L42)}
+  \<p>[class]{api-source}{[Source in \code{python/baux/bo.py}](https://github.com/Kvutza/baux/blob/main/python/baux/bo.py#L44)}
 }
 
 \<section>[id]{baux.AskId}[class]{api-entry}[data-symbol]{baux.AskId}[data-kind]{class}[data-module]{baux.bo}{
@@ -301,7 +301,7 @@ baux.AskId(value: int)
   }
   \p{An opaque evaluation ticket.}
   \p{Keep tokens returned in \code{batch.ids} and pass them back unchanged. \code{aid.value} exposes the unsigned 64-bit integer for inspection. Tickets are immutable, hashable and ordered.}
-  \<p>[class]{api-source}{[Source in \code{python/baux/bo.py}](https://github.com/Kvutza/baux/blob/main/python/baux/bo.py#L25)}
+  \<p>[class]{api-source}{[Source in \code{python/baux/bo.py}](https://github.com/Kvutza/baux/blob/main/python/baux/bo.py#L27)}
 }
 
 \<p>[id]{baux.enn}[class]{reference-alias}{[\code{baux.enn} reference](api-pipelines.html#baux.enn)}

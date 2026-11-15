@@ -36,8 +36,8 @@ pub(super) fn benchmark_bo(
     if let (Some(dataset), Some((_, paired_buffers, _))) = (dataset, &paired_scorer) {
         pretrain_batch(paired_buffers, dataset, 0)?;
     }
-    search.configure_enn(control.enn)?;
-    search.set_profiling(trace);
+    search = search.configure_enn(control.enn)?;
+    search = search.set_profiling(trace);
     let info = search.controller_info()?;
     let blocks = weights
         .tensors()
@@ -244,7 +244,7 @@ fn initial_objective(
         }
         eprintln!("scorer.fusion_parity fused_unfused_max_abs_error={fusion_error:.9}");
     }
-    search.observe_initial(
+    *search = search.clone().observe_initial(
         if control.paired_objective
             || control.objective_reference == crate::config::ObjectiveReference::FrozenInitial
         {

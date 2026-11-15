@@ -201,7 +201,7 @@ pub fn characteristic_distance(n: usize, dist_at: impl Fn(usize, usize) -> f64) 
 /// Draw `(epistemic, aleatoric)` variance scale candidates from the canonical
 /// log-uniform hyperparameter prior (`10^[-3, 3] / d_scale` and `10^[-6, 0]`).
 #[cfg(not(cabi_parity))]
-pub fn draw_scales<R: rand::Rng>(
+pub fn draw_scales<R: rand::Rng + ?Sized>(
     num_candidates: usize,
     d_scale: f64,
     infer_aleatoric: bool,
@@ -231,7 +231,7 @@ pub fn draw_scales<R: rand::Rng>(
 /// Sample `count` distinct row indices from `0..n` without replacement (or all
 /// `0..n` in order when `count >= n`).
 #[cfg(not(cabi_parity))]
-pub fn sampled_rows<R: rand::Rng>(n: usize, count: usize, rng: &mut R) -> Vec<usize> {
+pub fn sampled_rows<R: rand::Rng + ?Sized>(n: usize, count: usize, rng: &mut R) -> Vec<usize> {
     if count >= n {
         (0..n).collect()
     } else {

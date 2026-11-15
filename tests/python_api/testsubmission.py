@@ -16,6 +16,7 @@ class _Submission:
         if self.fail_ingestion:
             raise ValueError("ingestion failed")
         self.accepted += len(x)
+        return self
 
     def has_surrogate(self):
         return self.model

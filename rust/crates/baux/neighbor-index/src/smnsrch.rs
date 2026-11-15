@@ -124,12 +124,9 @@ pub fn resident_cache(
     n: usize,
 ) -> Result<std::sync::Arc<[f32]>, baux::neighbor_index::error::BpannError> {
     assert!(n <= N_LIMIT);
-    {
-        let guard = backend.small_n_x_cache.lock().expect("small_n_x_cache");
-        if let Some((cached_n, ref data)) = *guard {
-            if cached_n == n && data.len() == n * backend.num_dim {
-                return Ok(std::sync::Arc::clone(data));
-            }
+    if let Some((cached_n, data)) = &backend.small_n_x_cache {
+        if *cached_n == n && data.len() == n * backend.num_dim {
+            return Ok(std::sync::Arc::clone(data));
         }
     }
     let mut flat = Vec::with_capacity(n * backend.num_dim);
@@ -140,10 +137,7 @@ pub fn resident_cache(
         bpann_f32(row, backend.scale_x, x_scale, &mut buf);
         flat.extend_from_slice(&buf);
     }
-    let arc: std::sync::Arc<[f32]> = std::sync::Arc::from(flat.into_boxed_slice());
-    *backend.small_n_x_cache.lock().expect("small_n_x_cache") =
-        Some((n, std::sync::Arc::clone(&arc)));
-    Ok(arc)
+    Ok(std::sync::Arc::from(flat.into_boxed_slice()))
 }
 
 #[cfg(test)]
@@ -200,14 +194,16 @@ mod tests {
     #[test]
     fn test_005() {
         let dir = TempDir::new().unwrap();
-        let mut b =
+        let b =
             baux::neighbor_index::backend::BpannBackend::new_empty(dir.path().to_path_buf(), 1, 1)
                 .unwrap();
-        b.append_rows(&array![[0.0]].view(), &array![[0.0]].view(), None)
+        let b = b
+            .append_rows(&array![[0.0]].view(), &array![[0.0]].view(), None)
             .unwrap();
         let c1 = resident_cache(&b, 1).unwrap();
         assert_eq!(c1.len(), 1);
-        b.append_rows(&array![[5.0]].view(), &array![[1.0]].view(), None)
+        let b = b
+            .append_rows(&array![[5.0]].view(), &array![[1.0]].view(), None)
             .unwrap();
         let c2 = resident_cache(&b, 2).unwrap();
         assert_eq!(c2.len(), 2);

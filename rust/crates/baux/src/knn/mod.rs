@@ -17,7 +17,6 @@ mod metal_plan;
 use ndarray::{Array2, ArrayView2};
 #[cfg(all(target_os = "linux", target_arch = "x86_64", feature = "cuda"))]
 use ndarray::{Array3, ArrayView1};
-use std::sync::Mutex;
 use std::time::Duration;
 
 use crate::error::IndexError;
@@ -150,18 +149,19 @@ use cuda_index::CudaIndex;
 use metal_index::MetalIndex;
 
 /// In-memory exact and accelerator-backed index implementations.
+#[derive(Clone)]
 pub(crate) enum KnnBackend {
-    Exact(Mutex<ExactBackend>),
+    Exact(ExactBackend),
     #[cfg(all(target_os = "macos", feature = "metal"))]
-    Auto(Mutex<AutoIndex>),
+    Auto(AutoIndex),
     #[cfg(any(feature = "usearch", feature = "usearch-native"))]
-    USearch(Mutex<USearchBackend>),
+    USearch(USearchBackend),
     #[cfg(all(target_os = "macos", feature = "metal"))]
-    Metal(Mutex<MetalIndex>),
+    Metal(MetalIndex),
     #[cfg(all(target_os = "linux", target_arch = "x86_64", feature = "cuda"))]
-    Cuda(Mutex<CudaIndex>),
+    Cuda(CudaIndex),
     #[cfg(target_arch = "wasm32")]
-    WebGpu(Mutex<WebGpuIndex>),
+    WebGpu(WebGpuIndex),
 }
 
 impl KnnBackend {
@@ -185,33 +185,21 @@ impl KnnBackend {
             ));
         }
         match driver {
-            IndexDriver::Exact => Ok(Self::Exact(Mutex::new(ExactBackend::new(
-                num_dim,
-                train_scaled,
-            )?))),
+            IndexDriver::Exact => Ok(Self::Exact(ExactBackend::new(num_dim, train_scaled)?)),
             IndexDriver::Auto => {
                 #[cfg(all(target_os = "macos", feature = "metal"))]
                 {
-                    Ok(Self::Auto(Mutex::new(AutoIndex::new(
-                        num_dim,
-                        train_scaled,
-                    )?)))
+                    Ok(Self::Auto(AutoIndex::new(num_dim, train_scaled)?))
                 }
                 #[cfg(not(all(target_os = "macos", feature = "metal")))]
                 {
-                    Ok(Self::Exact(Mutex::new(ExactBackend::new(
-                        num_dim,
-                        train_scaled,
-                    )?)))
+                    Ok(Self::Exact(ExactBackend::new(num_dim, train_scaled)?))
                 }
             }
             IndexDriver::USearch => {
                 #[cfg(any(feature = "usearch", feature = "usearch-native"))]
                 {
-                    return Ok(Self::USearch(Mutex::new(USearchBackend::new(
-                        num_dim,
-                        train_scaled,
-                    )?)));
+                    return Ok(Self::USearch(USearchBackend::new(num_dim, train_scaled)?));
                 }
                 #[cfg(not(any(feature = "usearch", feature = "usearch-native")))]
                 {
@@ -225,11 +213,11 @@ impl KnnBackend {
             IndexDriver::Metal => {
                 #[cfg(all(target_os = "macos", feature = "metal"))]
                 {
-                    return Ok(Self::Metal(Mutex::new(MetalIndex::new_plan(
+                    return Ok(Self::Metal(MetalIndex::new_plan(
                         num_dim,
                         train_scaled,
                         plan,
-                    )?)));
+                    )?));
                 }
                 #[cfg(not(all(target_os = "macos", feature = "metal")))]
                 {
@@ -245,10 +233,7 @@ impl KnnBackend {
             IndexDriver::WebGpu => {
                 #[cfg(target_arch = "wasm32")]
                 {
-                    return Ok(Self::WebGpu(Mutex::new(WebGpuIndex::new(
-                        num_dim,
-                        train_scaled,
-                    )?)));
+                    return Ok(Self::WebGpu(WebGpuIndex::new(num_dim, train_scaled)?));
                 }
                 #[cfg(not(target_arch = "wasm32"))]
                 {
@@ -275,7 +260,7 @@ impl KnnBackend {
                         )?,
                         _ => unreachable!(),
                     };
-                    return Ok(Self::Cuda(Mutex::new(index)));
+                    return Ok(Self::Cuda(index));
                 }
                 #[cfg(not(all(target_os = "linux", target_arch = "x86_64", feature = "cuda")))]
                 {
@@ -293,17 +278,17 @@ impl KnnBackend {
 
     pub(crate) fn len(&self) -> usize {
         match self {
-            Self::Exact(inner) => inner.lock().expect("knn mutex poisoned").len(),
+            Self::Exact(inner) => inner.len(),
             #[cfg(all(target_os = "macos", feature = "metal"))]
-            Self::Auto(inner) => inner.lock().expect("knn mutex poisoned").cpu.len(),
+            Self::Auto(inner) => inner.len(),
             #[cfg(any(feature = "usearch", feature = "usearch-native"))]
-            Self::USearch(inner) => inner.lock().expect("knn mutex poisoned").len(),
+            Self::USearch(inner) => inner.len(),
             #[cfg(all(target_os = "macos", feature = "metal"))]
-            Self::Metal(inner) => inner.lock().expect("knn mutex poisoned").len(),
+            Self::Metal(inner) => inner.len(),
             #[cfg(all(target_os = "linux", target_arch = "x86_64", feature = "cuda"))]
-            Self::Cuda(inner) => inner.lock().expect("knn mutex poisoned").len(),
+            Self::Cuda(inner) => inner.len(),
             #[cfg(target_arch = "wasm32")]
-            Self::WebGpu(inner) => inner.lock().expect("knn mutex poisoned").len(),
+            Self::WebGpu(inner) => inner.len(),
         }
     }
 
@@ -315,133 +300,85 @@ impl KnnBackend {
             #[cfg(any(feature = "usearch", feature = "usearch-native"))]
             Self::USearch(_) => "usearch",
             #[cfg(all(target_os = "macos", feature = "metal"))]
-            Self::Metal(inner) => inner.lock().expect("knn mutex poisoned").plan(),
+            Self::Metal(inner) => inner.plan(),
             #[cfg(all(target_os = "linux", target_arch = "x86_64", feature = "cuda"))]
-            Self::Cuda(inner) => inner
-                .lock()
-                .expect("knn mutex poisoned")
-                .profile()
-                .map_or("cuda", |profile| profile.plan),
+            Self::Cuda(inner) => inner.profile().map_or("cuda", |profile| profile.plan),
             #[cfg(target_arch = "wasm32")]
             Self::WebGpu(_) => "webgpu",
         }
     }
 
-    fn profile(&self) -> Option<KnnProfile> {
+    pub(crate) fn profile(&self) -> Option<KnnProfile> {
         match self {
             #[cfg(all(target_os = "macos", feature = "metal"))]
             Self::Auto(inner) => inner
-                .lock()
-                .expect("knn mutex poisoned")
                 .gpu
-                .as_ref()
-                .and_then(MetalIndex::profile),
+                .read()
+                .ok()
+                .and_then(|g| g.as_ref().and_then(MetalIndex::profile)),
             #[cfg(all(target_os = "macos", feature = "metal"))]
-            Self::Metal(inner) => inner.lock().expect("knn mutex poisoned").profile(),
+            Self::Metal(inner) => inner.profile(),
             #[cfg(all(target_os = "linux", target_arch = "x86_64", feature = "cuda"))]
-            Self::Cuda(inner) => inner.lock().expect("knn mutex poisoned").profile(),
+            Self::Cuda(inner) => inner.profile(),
             _ => None,
         }
     }
 
     pub(crate) fn memory_bytes(&self) -> usize {
         match self {
-            Self::Exact(inner) => inner.lock().expect("knn mutex poisoned").memory_bytes(),
+            Self::Exact(inner) => inner.memory_bytes(),
             #[cfg(all(target_os = "macos", feature = "metal"))]
-            Self::Auto(inner) => {
-                let inner = inner.lock().expect("knn mutex poisoned");
-                inner.cpu.memory_bytes() + inner.gpu.as_ref().map_or(0, MetalIndex::memory_bytes)
-            }
+            Self::Auto(inner) => inner.memory_bytes(),
             #[cfg(any(feature = "usearch", feature = "usearch-native"))]
-            Self::USearch(inner) => inner.lock().expect("knn mutex poisoned").memory_bytes(),
+            Self::USearch(inner) => inner.memory_bytes(),
             #[cfg(all(target_os = "macos", feature = "metal"))]
-            Self::Metal(inner) => inner.lock().expect("knn mutex poisoned").memory_bytes(),
+            Self::Metal(inner) => inner.memory_bytes(),
             #[cfg(all(target_os = "linux", target_arch = "x86_64", feature = "cuda"))]
-            Self::Cuda(inner) => inner.lock().expect("knn mutex poisoned").memory_bytes(),
+            Self::Cuda(inner) => inner.memory_bytes(),
             #[cfg(target_arch = "wasm32")]
-            Self::WebGpu(inner) => inner.lock().expect("knn mutex poisoned").memory_bytes(),
+            Self::WebGpu(inner) => inner.memory_bytes(),
         }
     }
 
-    pub(crate) fn rebuild(&self, train_scaled: &ArrayView2<f64>) -> Result<(), IndexError> {
+    pub(crate) fn rebuild(self, train_scaled: &ArrayView2<f64>) -> Result<Self, IndexError> {
         match self {
-            Self::Exact(inner) => inner
-                .lock()
-                .expect("knn mutex poisoned")
-                .rebuild(train_scaled),
+            Self::Exact(inner) => Ok(Self::Exact(inner.rebuild(train_scaled)?)),
             #[cfg(all(target_os = "macos", feature = "metal"))]
-            Self::Auto(inner) => {
-                let mut inner = inner.lock().expect("knn mutex poisoned");
-                inner.cpu.rebuild(train_scaled)?;
-                inner.gpu = MetalIndex::new(inner.num_dim, train_scaled).ok();
-                inner.decisions.clear();
-                Ok(())
-            }
+            Self::Auto(inner) => Ok(Self::Auto(inner.rebuild(train_scaled)?)),
             #[cfg(any(feature = "usearch", feature = "usearch-native"))]
-            Self::USearch(inner) => inner
-                .lock()
-                .expect("knn mutex poisoned")
-                .rebuild(train_scaled),
+            Self::USearch(inner) => Ok(Self::USearch(inner.rebuild(train_scaled)?)),
             #[cfg(all(target_os = "macos", feature = "metal"))]
-            Self::Metal(inner) => inner
-                .lock()
-                .expect("knn mutex poisoned")
-                .rebuild(train_scaled),
+            Self::Metal(inner) => Ok(Self::Metal(inner.rebuild(train_scaled)?)),
             #[cfg(all(target_os = "linux", target_arch = "x86_64", feature = "cuda"))]
-            Self::Cuda(inner) => inner
-                .lock()
-                .expect("knn mutex poisoned")
-                .rebuild(train_scaled),
+            Self::Cuda(inner) => Ok(Self::Cuda(inner.rebuild(train_scaled)?)),
             #[cfg(target_arch = "wasm32")]
-            Self::WebGpu(inner) => inner
-                .lock()
-                .expect("knn mutex poisoned")
-                .rebuild(train_scaled),
+            Self::WebGpu(mut inner) => {
+                inner.rebuild(train_scaled)?;
+                Ok(Self::WebGpu(inner))
+            }
         }
     }
 
     pub(crate) fn add(
-        &self,
+        self,
         rows_scaled: &ArrayView2<f64>,
         start_key: u64,
-    ) -> Result<(), IndexError> {
+    ) -> Result<Self, IndexError> {
         match self {
-            Self::Exact(inner) => inner
-                .lock()
-                .expect("knn mutex poisoned")
-                .add(rows_scaled, start_key),
+            Self::Exact(inner) => Ok(Self::Exact(inner.add(rows_scaled, start_key)?)),
             #[cfg(all(target_os = "macos", feature = "metal"))]
-            Self::Auto(inner) => {
-                let mut inner = inner.lock().expect("knn mutex poisoned");
-                inner.cpu.add(rows_scaled, start_key)?;
-                if let Some(gpu) = inner.gpu.as_mut() {
-                    if gpu.add(rows_scaled, start_key).is_err() {
-                        inner.gpu = None;
-                    }
-                }
-                inner.decisions.clear();
-                Ok(())
-            }
+            Self::Auto(inner) => Ok(Self::Auto(inner.add(rows_scaled, start_key)?)),
             #[cfg(any(feature = "usearch", feature = "usearch-native"))]
-            Self::USearch(inner) => inner
-                .lock()
-                .expect("knn mutex poisoned")
-                .add(rows_scaled, start_key),
+            Self::USearch(inner) => Ok(Self::USearch(inner.add(rows_scaled, start_key)?)),
             #[cfg(all(target_os = "macos", feature = "metal"))]
-            Self::Metal(inner) => inner
-                .lock()
-                .expect("knn mutex poisoned")
-                .add(rows_scaled, start_key),
+            Self::Metal(inner) => Ok(Self::Metal(inner.add(rows_scaled, start_key)?)),
             #[cfg(all(target_os = "linux", target_arch = "x86_64", feature = "cuda"))]
-            Self::Cuda(inner) => inner
-                .lock()
-                .expect("knn mutex poisoned")
-                .add(rows_scaled, start_key),
+            Self::Cuda(inner) => Ok(Self::Cuda(inner.add(rows_scaled, start_key)?)),
             #[cfg(target_arch = "wasm32")]
-            Self::WebGpu(inner) => inner
-                .lock()
-                .expect("knn mutex poisoned")
-                .add(rows_scaled, start_key),
+            Self::WebGpu(mut inner) => {
+                inner.add(rows_scaled, start_key)?;
+                Ok(Self::WebGpu(inner))
+            }
         }
     }
 
@@ -452,47 +389,17 @@ impl KnnBackend {
         search_k: usize,
     ) -> Result<(Array2<f64>, Array2<i64>), IndexError> {
         match self {
-            Self::Exact(inner) => {
-                inner
-                    .lock()
-                    .expect("knn mutex poisoned")
-                    .search(queries_scaled, k_eff, search_k)
-            }
+            Self::Exact(inner) => inner.search(queries_scaled, k_eff, search_k),
             #[cfg(all(target_os = "macos", feature = "metal"))]
-            Self::Auto(inner) => {
-                inner
-                    .lock()
-                    .expect("knn mutex poisoned")
-                    .search(queries_scaled, k_eff, search_k)
-            }
+            Self::Auto(inner) => inner.search(queries_scaled, k_eff, search_k),
             #[cfg(any(feature = "usearch", feature = "usearch-native"))]
-            Self::USearch(inner) => {
-                inner
-                    .lock()
-                    .expect("knn mutex poisoned")
-                    .search(queries_scaled, k_eff, search_k)
-            }
+            Self::USearch(inner) => inner.search(queries_scaled, k_eff, search_k),
             #[cfg(all(target_os = "macos", feature = "metal"))]
-            Self::Metal(inner) => {
-                inner
-                    .lock()
-                    .expect("knn mutex poisoned")
-                    .search(queries_scaled, k_eff, search_k)
-            }
+            Self::Metal(inner) => inner.search(queries_scaled, k_eff, search_k),
             #[cfg(all(target_os = "linux", target_arch = "x86_64", feature = "cuda"))]
-            Self::Cuda(inner) => {
-                inner
-                    .lock()
-                    .expect("knn mutex poisoned")
-                    .search(queries_scaled, k_eff, search_k)
-            }
+            Self::Cuda(inner) => inner.search(queries_scaled, k_eff, search_k),
             #[cfg(target_arch = "wasm32")]
-            Self::WebGpu(inner) => {
-                inner
-                    .lock()
-                    .expect("knn mutex poisoned")
-                    .search(queries_scaled, k_eff, search_k)
-            }
+            Self::WebGpu(inner) => inner.search(queries_scaled, k_eff, search_k),
         }
     }
 
@@ -514,7 +421,7 @@ impl KnnBackend {
                 "CUDA posterior requires IndexDriver::Cuda".to_string(),
             ));
         };
-        inner.lock().expect("knn mutex poisoned").posterior(
+        inner.posterior(
             queries,
             outcomes,
             scales,
@@ -546,7 +453,7 @@ impl KnnBackend {
                 "CUDA weighted posterior requires IndexDriver::Cuda".to_string(),
             ));
         };
-        inner.lock().expect("knn mutex poisoned").weighted(
+        inner.weighted(
             queries,
             outcomes,
             variances,
@@ -578,7 +485,7 @@ impl KnnBackend {
                 "CUDA batch posterior requires IndexDriver::Cuda".to_string(),
             ));
         };
-        inner.lock().expect("knn mutex poisoned").batch(
+        inner.batch(
             queries,
             outcomes,
             variances,
@@ -611,7 +518,7 @@ impl KnnBackend {
                 "CUDA draws require IndexDriver::Cuda".to_string(),
             ));
         };
-        inner.lock().expect("knn mutex poisoned").draws(
+        inner.draws(
             queries,
             outcomes,
             variances,
@@ -647,7 +554,7 @@ impl KnnBackend {
                 "CUDA conditional posterior requires IndexDriver::Cuda".to_string(),
             ));
         };
-        inner.lock().expect("knn mutex poisoned").conditional(
+        inner.conditional(
             queries,
             extra_rows,
             outcomes,
@@ -684,7 +591,7 @@ impl KnnBackend {
                 "CUDA conditional draws require IndexDriver::Cuda".to_string(),
             ));
         };
-        inner.lock().expect("knn mutex poisoned").conditional_draws(
+        inner.conditional_draws(
             queries,
             extra_rows,
             outcomes,

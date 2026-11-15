@@ -21,7 +21,7 @@ impl ENN {
     /// Enable the pinned upstream dependence estimator, Algorithm R reservoir,
     /// LOO gate and geometric refit schedule. The caller supplies the seed.
     /// This does not select the resident optimizer's tied-family metric policy.
-    pub fn learn_metric(&mut self, tied: Vec<Vec<usize>>, seed: u64) -> Result<(), ENNError> {
+    pub fn learn_metric(self, tied: Vec<Vec<usize>>, seed: u64) -> Result<Self, ENNError> {
         if !self.backend.is_disk() {
             return Err(ENNError::InvalidParameter(
                 "Enable AUTO once on disk BPANN".into(),
@@ -30,11 +30,15 @@ impl ENN {
         self.enable_metric(tied, seed)
     }
 
+    pub fn with_metric(self, tied: Vec<Vec<usize>>, seed: u64) -> Result<Self, ENNError> {
+        self.learn_metric(tied, seed)
+    }
+
     pub(crate) fn enable_metric(
-        &mut self,
+        mut self,
         tied: Vec<Vec<usize>>,
         seed: u64,
-    ) -> Result<(), ENNError> {
+    ) -> Result<Self, ENNError> {
         if self.metric_fixed || self.metric.is_some() {
             return Err(ENNError::InvalidParameter(
                 "Enable AUTO metric once per model".into(),
@@ -43,7 +47,7 @@ impl ENN {
         let mut uniq: Vec<usize> = tied.iter().flatten().copied().collect();
         uniq.sort_unstable();
         uniq.dedup();
-        self.set_unscaled(uniq)?;
+        self = self.with_unscaled(uniq)?;
         self.tied_groups.clone_from(&tied);
         let mut metric = AutoMetric::new(self.num_dim, self.num_metrics, tied, seed)?;
         // Observe in bounded chunks; never gather the whole persisted dataset.
@@ -55,16 +59,17 @@ impl ENN {
         let weights = metric.weights();
         let scale = Array1::from_iter(weights.iter().map(|v| 1.0 / v.sqrt()));
         if self.backend.is_disk() {
-            self.backend.set_metric(&scale, true)?;
+            self.backend = self.backend.with_metric(&scale, true)?;
         } else {
-            self.backend.mark_stale();
+            self.backend = self.backend.mark_stale();
         }
         self.built_scale = scale.clone();
         self.x_scale = scale;
         self.scale_x = true;
         self.metric_fixed = true;
         self.metric = Some(metric);
-        Ok(())
+        self = self.refresh_scales();
+        Ok(self)
     }
 
     pub fn diagonal_metric(&self) -> Option<DiagonalMetric> {
@@ -80,7 +85,7 @@ impl ENN {
             .map(crate::metric_weights::trust_sides)
     }
 
-    pub fn set_unscaled(&mut self, dims: Vec<usize>) -> Result<(), ENNError> {
+    pub fn with_unscaled(mut self, dims: Vec<usize>) -> Result<Self, ENNError> {
         if dims.iter().any(|&j| j >= self.num_dim) {
             return Err(ENNError::InvalidParameter(
                 "unscaled dimension out of range".into(),
@@ -91,15 +96,24 @@ impl ENN {
         }
         self.unscaled_dims = dims;
         if self.scale_x && !self.metric_fixed {
-            self.refresh_scale(self.num_obs)?;
+            let n = self.num_obs;
+            self = self.refresh_scale(n)?;
         }
-        Ok(())
+        Ok(self)
     }
 
-    pub fn set_tied(&mut self, groups: Vec<Vec<usize>>) -> Result<(), ENNError> {
+    pub fn set_unscaled(self, dims: Vec<usize>) -> Result<Self, ENNError> {
+        self.with_unscaled(dims)
+    }
+
+    pub fn with_tied(mut self, groups: Vec<Vec<usize>>) -> Result<Self, ENNError> {
         crate::metric_weights::validate_tied(&groups, self.num_dim)?;
         self.tied_groups = groups;
-        Ok(())
+        Ok(self)
+    }
+
+    pub fn set_tied(self, groups: Vec<Vec<usize>>) -> Result<Self, ENNError> {
+        self.with_tied(groups)
     }
 
     pub fn tied_groups(&self) -> &[Vec<usize>] {
@@ -110,7 +124,11 @@ impl ENN {
         }
     }
 
-    pub fn set_metric(&mut self, weights: &[f64]) -> Result<(), ENNError> {
+    pub fn with_weights(self, weights: &[f64]) -> Result<Self, ENNError> {
+        self.set_metric(weights)
+    }
+
+    pub fn set_metric(mut self, weights: &[f64]) -> Result<Self, ENNError> {
         if self.metric.is_some() {
             return self.metric_weights(weights);
         }
@@ -132,8 +150,9 @@ impl ENN {
             self.incremental_scale(scale)
         } else {
             self.x_scale = scale;
-            self.backend.mark_stale();
-            Ok(())
+            self.backend = self.backend.mark_stale();
+            self = self.refresh_scales();
+            Ok(self)
         }
     }
 
@@ -145,61 +164,64 @@ impl ENN {
         x_scale
     }
 
-    pub(super) fn refresh_scale(&mut self, n: usize) -> Result<(), ENNError> {
+    pub(super) fn refresh_scale(mut self, n: usize) -> Result<Self, ENNError> {
         let x_scale = self.data_scale(n);
         if disk_driver(self.backend.driver()) {
             self.incremental_scale(x_scale)
         } else {
             self.x_scale = x_scale;
-            self.backend.mark_stale();
-            Ok(())
+            self.backend = self.backend.mark_stale();
+            self = self.refresh_scales();
+            Ok(self)
         }
     }
 
-    fn incremental_scale(&mut self, x_scale: Array1<f64>) -> Result<(), ENNError> {
+    fn incremental_scale(mut self, x_scale: Array1<f64>) -> Result<Self, ENNError> {
         if log_ratio(&x_scale, &self.x_scale) <= SCALE_TOL {
-            return Ok(());
+            return Ok(self);
         }
         let rebuild = log_ratio(&x_scale, &self.built_scale) > SCALE_DRIFT;
-        self.backend.set_metric(&x_scale, rebuild)?;
+        self.backend = self.backend.with_metric(&x_scale, rebuild)?;
         if rebuild {
             self.built_scale = x_scale.clone();
         }
         self.x_scale = x_scale;
-        Ok(())
+        self = self.refresh_scales();
+        Ok(self)
     }
 
     pub fn metric_config(
-        &mut self,
+        mut self,
         growth: Option<f64>,
         drift: Option<f64>,
         seed: Option<u64>,
         capacity: Option<usize>,
-    ) -> Result<(), ENNError> {
+    ) -> Result<Self, ENNError> {
         self.metric
             .as_mut()
             .ok_or_else(|| ENNError::InvalidParameter("AUTO metric is not enabled".into()))?
-            .configure(growth, drift, seed, capacity)
+            .configure(growth, drift, seed, capacity)?;
+        Ok(self)
     }
 
-    pub fn metric_weights(&mut self, weights: &[f64]) -> Result<(), ENNError> {
+    pub fn metric_weights(mut self, weights: &[f64]) -> Result<Self, ENNError> {
         let update = self
             .metric
             .as_ref()
             .ok_or_else(|| ENNError::InvalidParameter("AUTO metric is not enabled".into()))?
             .preview(weights)?;
-        self.apply_metric(update)?;
+        self = self.apply_metric(update)?;
         self.metric.as_mut().unwrap().set_weights(weights)?;
-        Ok(())
+        Ok(self)
     }
 
     pub(super) fn observe_metric(
-        &mut self,
+        mut self,
         x: &ArrayView2<f64>,
         y: &ArrayView2<f64>,
-    ) -> Result<(), ENNError> {
+    ) -> Result<Self, ENNError> {
         if self.metric.is_none() {
-            return Ok(());
+            return Ok(self);
         }
         let x = x.to_owned();
         let y = if self.bounded_outputs {
@@ -214,33 +236,34 @@ impl ENN {
         )?;
         if ready {
             if let Some(weights) = self.metric.as_mut().unwrap().propose()? {
-                self.metric_weights(&weights)?;
+                self = self.metric_weights(&weights)?;
             }
         }
-        Ok(())
+        Ok(self)
     }
 
-    fn apply_metric(&mut self, update: ScaleUpdate) -> Result<(), ENNError> {
+    fn apply_metric(mut self, update: ScaleUpdate) -> Result<Self, ENNError> {
         let scale = Array1::from(update.x_scale);
         if self.backend.is_disk() {
-            self.backend.set_metric(&scale, update.rebuild)?;
+            self.backend = self.backend.with_metric(&scale, update.rebuild)?;
         } else {
-            self.backend.mark_stale();
+            self.backend = self.backend.mark_stale();
         }
         if update.rebuild {
             self.built_scale = scale.clone();
         }
         self.x_scale = scale;
-        Ok(())
+        self = self.refresh_scales();
+        Ok(self)
     }
 
-    pub(crate) fn refresh_finite(&mut self, k: usize, unscaled: &[usize]) -> Result<(), ENNError> {
+    pub(crate) fn refresh_finite(mut self, k: usize, unscaled: &[usize]) -> Result<Self, ENNError> {
         let n = self.num_obs;
         let d = self.num_dim;
         let m = self.num_metrics;
         if self.metric.is_none() || !(9..crate::metric_sobol::DEPENDENCE_ROWS).contains(&n) || d < 2
         {
-            return Ok(());
+            return Ok(self);
         }
         let ids: Vec<usize> = (0..n).collect();
         let (x, y, _) = self.backend.train_rows(&ids)?;
@@ -260,7 +283,7 @@ impl ENN {
         }
         let s_max = s.iter().copied().fold(0.0_f64, f64::max);
         if s_max <= 1.0e-12 {
-            return Ok(());
+            return Ok(self);
         }
         let mut w: Vec<f64> = s.into_iter().map(|v| v.max(0.05 * s_max)).collect();
         let mean = w.iter().sum::<f64>() / d as f64;
@@ -279,17 +302,17 @@ impl ENN {
         if crate::metric_loo::loo_loglik(xs, n, d, ys, m, &w, k_use)
             > crate::metric_loo::loo_loglik(xs, n, d, ys, m, &ones, k_use)
         {
-            self.metric_weights(&w)?;
+            self = self.metric_weights(&w)?;
         }
-        Ok(())
+        Ok(self)
     }
 
     pub(crate) fn refresh_codomain(
-        &mut self,
+        mut self,
         params: &crate::params::ENNParams,
         stiefel_rank: Option<usize>,
         calibrate_alpha: Option<f64>,
-    ) -> Result<(), ENNError> {
+    ) -> Result<Self, ENNError> {
         let n = self.num_obs;
         let m = self.num_metrics;
         if let Some(rank) = stiefel_rank {
@@ -314,7 +337,7 @@ impl ENN {
                 self.affine = None;
                 let flags = crate::params::PosteriorFlags::new().exclude_nearest(true);
                 let loo = <Self as crate::traits::PosteriorComputation>::posterior(
-                    self,
+                    &self,
                     &x.view(),
                     params,
                     &flags,
@@ -344,6 +367,6 @@ impl ENN {
                 }
             }
         }
-        Ok(())
+        Ok(self)
     }
 }

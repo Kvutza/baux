@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from typing import Any
 
 import numpy as np
 
@@ -65,7 +66,7 @@ class Loop:
         self.space = space
         resolved_config = turbo_enn() if config is None else config
         self._regional = isinstance(resolved_config.trust_region, RegionalSearchPolicy)
-        self.optimizer = create_optimizer(
+        self.optimizer: Any = create_optimizer(
             bounds=space.bounds,
             config=resolved_config,
             rng=np.random.default_rng(seed),
@@ -107,12 +108,20 @@ class Loop:
         y = np.array([[score]])
         if identity is None:
             if self._regional:
-                self.optimizer.import_observations(point[None, :], y, noise)
+                res = self.optimizer.import_observations(point[None, :], y, noise)
             else:
-                self.optimizer.tell(point[None, :], y, noise)
+                res = self.optimizer.tell(point[None, :], y, noise)
         else:
-            self.optimizer.complete([identity], y, noise)
+            res = self.optimizer.complete([identity], y, noise)
             self._issued.pop(point_key)
+        if (
+            isinstance(res, tuple)
+            and len(res) == 2
+            and not isinstance(res[0], np.ndarray)
+        ):
+            _, self.optimizer = res
+        elif res is not None and hasattr(res, "ask"):
+            self.optimizer = res
         self.check_health()
 
     def _record(self, parameters, score, variance):
@@ -137,9 +146,24 @@ class Loop:
             identity = None
             if self._regional:
                 batch = self.optimizer.ask_batch(1)
+                if (
+                    isinstance(batch, tuple)
+                    and len(batch) == 2
+                    and hasattr(batch[0], "points")
+                ):
+                    batch, self.optimizer = batch
                 point, identity = batch.points[0], batch.ids[0]
             else:
-                point = self.optimizer.ask(1)[0]
+                ask_res = self.optimizer.ask(1)
+                if isinstance(ask_res, tuple) and len(ask_res) == 2:
+                    pts, self.optimizer = ask_res
+                    point = (
+                        pts[0]
+                        if (isinstance(pts, np.ndarray) and pts.ndim == 2)
+                        else pts
+                    )
+                else:
+                    point = ask_res[0]
             proposal = self.space.decode(point)
             point = self.space.encode(proposal)
             if not any(np.array_equal(point, other) for other in occupied):
@@ -147,7 +171,35 @@ class Loop:
                     self._issued[tuple(point.tolist())] = identity
                 return proposal
             if identity is not None:
-                self.optimizer.cancel([identity])
+                res = self.optimizer.cancel([identity])
+                if res is not None and hasattr(res, "ask"):
+                    self.optimizer = res
         raise RuntimeError(
             "baux could not propose a point distinct from pending trials"
         )
+
+    def sync(self):
+        """Synchronize observations if supported by the optimizer/region."""
+        if hasattr(self.optimizer, "sync"):
+            res = self.optimizer.sync()
+            if isinstance(res, tuple) and len(res) == 2:
+                accepted, self.optimizer = res
+                return accepted
+            return res
+        return None
+
+    def fork(self) -> Loop:
+        """Fork the trial loop with an independent copy of the optimizer state."""
+        import copy
+
+        clone = object.__new__(self.__class__)
+        clone.space = self.space
+        clone._regional = self._regional
+        clone.optimizer = (
+            self.optimizer.fork()
+            if hasattr(self.optimizer, "fork")
+            else copy.deepcopy(self.optimizer)
+        )
+        clone._seen = self._seen.copy()
+        clone._issued = self._issued.copy()
+        return clone

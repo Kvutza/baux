@@ -10,7 +10,18 @@ use super::*;
 use crate::hash::prng;
 
 impl SearchState {
-    pub fn fit_enn(&mut self) -> Result<(), String> {
+    fn cow_slot(&mut self, slot: usize) -> Result<(), String> {
+        if std::ptr::eq::<metal::BufferRef>(&**self.history_rows[slot], &**self.base)
+            || self.history_rows.iter().enumerate().any(|(i, row)| {
+                i != slot && std::ptr::eq::<metal::BufferRef>(&***row, &**self.history_rows[slot])
+            })
+        {
+            self.history_rows[slot] = Arc::new(self.runtime.buffer::<u16>(self.dimensions));
+        }
+        Self::cow_buffer(&self.runtime, &mut self.history_rows[slot])
+    }
+
+    pub fn fit_enn(mut self) -> Result<Self, String> {
         let n = self.history;
         let raw_distances = ndarray::Array2::from_shape_fn((n, n), |(row, column)| {
             f64::from(self.total_distance(row, column))
@@ -37,9 +48,9 @@ impl SearchState {
         let mut rng = prng(self.fit_seed.wrapping_add(n as u64));
         let fitter = self
             .fitter
-            .as_mut()
+            .take()
             .ok_or("Metal implicit ENN is not configured")?;
-        let params = if self.adapt_neighbors {
+        let (fitter, params) = if self.adapt_neighbors {
             fitter.ask_adaptive(
                 &distances.view(),
                 &outcomes.view(),
@@ -70,7 +81,8 @@ impl SearchState {
             params.aleatoric_scale as f32,
             y_scale as f32,
         ));
-        Ok(())
+        self.fitter = Some(fitter);
+        Ok(self)
     }
 
     /// Update ordinary TuRBO from a reward used as its own batch baseline.
@@ -78,7 +90,7 @@ impl SearchState {
     /// row, resets trust counters, and collapses only non-implicit logical
     /// history. Copies controller length back without evaluating or
     /// randomizing a model.
-    pub fn update_region(&mut self, value: f32) -> Result<(), String> {
+    pub fn update_region(mut self, value: f32) -> Result<Self, String> {
         let value = f64::from(value);
         self.trust_observations += 1;
         self.trust
@@ -92,7 +104,8 @@ impl SearchState {
             self.trust.restart();
             self.restart_count += 1;
             if !self.history_rows.is_empty() {
-                self.copy(&self.base, &self.history_rows[0])?;
+                self.cow_slot(0)?;
+                self.copy(&*self.base, &*self.history_rows[0])?;
                 self.resident_history = 1;
             }
             self.resident_identities[0] = self.base_id;
@@ -110,13 +123,13 @@ impl SearchState {
             self.trust.seed_baseline(f64::from(self.best), 1);
         }
         self.length = self.trust.length();
-        Ok(())
+        Ok(self)
     }
 
     /// Update ordinary TuRBO against a caller-supplied incumbent reward.
     /// Follows the same incumbent-preserving restart
     /// bookkeeping as `update_region`; no estimate variance is consumed here.
-    pub fn update_noisy(&mut self, value: f32, incumbent: f32) -> Result<(), String> {
+    pub fn update_noisy(mut self, value: f32, incumbent: f32) -> Result<Self, String> {
         let value = f64::from(value);
         self.trust_observations += 1;
         self.trust
@@ -130,7 +143,8 @@ impl SearchState {
             self.trust.restart();
             self.restart_count += 1;
             if !self.history_rows.is_empty() {
-                self.copy(&self.base, &self.history_rows[0])?;
+                self.cow_slot(0)?;
+                self.copy(&*self.base, &*self.history_rows[0])?;
                 self.resident_history = 1;
             }
             self.resident_identities[0] = self.base_id;
@@ -148,7 +162,7 @@ impl SearchState {
             self.trust.seed_baseline(f64::from(self.best), 1);
         }
         self.length = self.trust.length();
-        Ok(())
+        Ok(self)
     }
 
     /// Update ordinary TuRBO using an explicitly classified trust outcome.
@@ -157,11 +171,11 @@ impl SearchState {
     /// implicit history, and reseeds the controller with an inconclusive
     /// baseline.
     pub fn update_outcome(
-        &mut self,
+        mut self,
         value: f32,
         incumbent: f32,
         outcome: TrustRegionOutcome,
-    ) -> Result<(), String> {
+    ) -> Result<Self, String> {
         self.trust_observations += 1;
         let y_new = [f64::from(value)];
         self.trust
@@ -176,7 +190,8 @@ impl SearchState {
             self.trust.restart();
             self.restart_count += 1;
             if !self.history_rows.is_empty() {
-                self.copy(&self.base, &self.history_rows[0])?;
+                self.cow_slot(0)?;
+                self.copy(&*self.base, &*self.history_rows[0])?;
                 self.resident_history = 1;
             }
             self.resident_identities[0] = self.base_id;
@@ -194,6 +209,6 @@ impl SearchState {
             self.trust.seed_baseline(f64::from(self.best), 1);
         }
         self.length = self.trust.length();
-        Ok(())
+        Ok(self)
     }
 }

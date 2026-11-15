@@ -18,7 +18,7 @@ impl SearchState {
     /// Higher reward is better; pretraining passes negative mean NLL. Delegates
     /// initial-history/controller bookkeeping to `observe_objectives`; this
     /// method neither evaluates weights nor generates a proposal.
-    pub fn observe_initial(&mut self, value: f32, variance: f32) -> Result<(), String> {
+    pub fn observe_initial(self, value: f32, variance: f32) -> Result<Self, String> {
         self.observe_objectives(
             crate::objective_observation::ObjectiveObservation::scalar_adapter(value, variance),
         )
@@ -27,7 +27,7 @@ impl SearchState {
     /// Set failure tolerance while idle and before any published ask.
     /// Updates the ordinary trust-region controller and any configured MORBO
     /// controller; it does not set reliability evidence thresholds or a radius.
-    pub fn set_tolerance(&mut self, failures: usize) -> Result<(), String> {
+    pub fn set_tolerance(mut self, failures: usize) -> Result<Self, String> {
         self.check_idle()?;
         if self.started {
             return Err("Set Metal BF16 failure tolerance before any asks".into());
@@ -42,7 +42,7 @@ impl SearchState {
         {
             morbo.set_tolerance(failures)?;
         }
-        Ok(())
+        Ok(self)
     }
 
     /// Install proposal, history, fitting, and query-neighbor policies.
@@ -56,12 +56,12 @@ impl SearchState {
     /// allocate/compile and is not rollback-atomic on failure; do not reuse
     /// a partially configured state after an error.
     pub fn configure_enn(
-        &mut self,
+        mut self,
         config: crate::config::ResidentEnnConfig,
-    ) -> Result<(), String> {
+    ) -> Result<Self, String> {
         self.check_idle()?;
         check_ask(config.ask)?;
-        self.configure_pool(config.pool)?;
+        self = self.configure_pool(config.pool)?;
         if !self.implicit_history || self.history != 0 {
             return Err("Configure implicit ENN before its first observation".into());
         }
@@ -91,7 +91,7 @@ impl SearchState {
         self.distance_metric = config.distance_metric;
         self.local_scale_neighbors = config.local_scale_neighbors;
         self.fitter = Some(fitter);
-        Ok(())
+        Ok(self)
     }
 
     /// Last fitted `(k, epistemic_scale, aleatoric_scale, y_scale)`, if

@@ -11,11 +11,11 @@ fn exact_backend() {
     let train = array![[0.0, 0.0], [1.0, 1.0]];
     let backend = KnnBackend::new(2, IndexDriver::Exact, &train.view()).unwrap();
     assert_eq!(backend.len(), 2);
-    backend.add(&array![[2.0, 2.0]].view(), 2).unwrap();
+    let backend = backend.add(&array![[2.0, 2.0]].view(), 2).unwrap();
     assert_eq!(backend.len(), 3);
     let (_d, i) = backend.search(&array![[0.0, 0.0]].view(), 2, 2).unwrap();
     assert_eq!(i[[0, 0]], 0);
-    backend.rebuild(&train.view()).unwrap();
+    let _backend = backend.rebuild(&train.view()).unwrap();
 }
 
 #[test]
@@ -23,7 +23,7 @@ fn knn_auto() {
     let train = array![[0.0, 0.0], [1.0, 1.0], [2.0, 2.0]];
     #[cfg(all(target_os = "macos", feature = "metal"))]
     {
-        let mut auto = match AutoIndex::new(2, &train.view()) {
+        let auto = match AutoIndex::new(2, &train.view()) {
             Ok(auto) => auto,
             Err(error) if metal_unavailable(&error.to_string()) => return,
             Err(error) => panic!("{error}"),
@@ -36,7 +36,7 @@ fn knn_auto() {
     assert_eq!(flatten_f32(&train.view()).len(), 6);
     let (_distances, indices) = backend.search(&array![[0.1, 0.1]].view(), 2, 2).unwrap();
     assert_eq!(indices.row(0).to_vec(), vec![0, 1]);
-    backend.add(&array![[0.05, 0.05]].view(), 3).unwrap();
+    let backend = backend.add(&array![[0.05, 0.05]].view(), 3).unwrap();
     let (_distances, indices) = backend.search(&array![[0.1, 0.1]].view(), 2, 2).unwrap();
     assert_eq!(indices[[0, 0]], 3);
 }
@@ -45,13 +45,13 @@ fn knn_auto() {
 #[test]
 fn cpu_search() {
     let train = array![[0.0], [1.0], [2.0]];
-    let mut auto = match AutoIndex::new(1, &train.view()) {
+    let auto = match AutoIndex::new(1, &train.view()) {
         Ok(auto) => auto,
         Err(error) if metal_unavailable(&error.to_string()) => return,
         Err(error) => panic!("{error}"),
     };
     // A mismatched accelerator mirror forces a real dimension-check error.
-    auto.gpu = Some(match MetalIndex::new(2, &array![[0.0, 0.0]].view()) {
+    *auto.gpu.write().unwrap() = Some(match MetalIndex::new(2, &array![[0.0, 0.0]].view()) {
         Ok(index) => index,
         Err(error) if metal_unavailable(&error.to_string()) => return,
         Err(error) => panic!("{error}"),
@@ -60,7 +60,7 @@ fn cpu_search() {
     let expected = auto.cpu.search(&query.view(), 2, 2).unwrap();
     let actual = auto.search(&query.view(), 2, 2).unwrap();
     assert_eq!(actual, expected);
-    assert!(auto.gpu.is_none());
+    assert!(auto.gpu.read().unwrap().is_none());
     assert_eq!(auto.search(&query.view(), 2, 2).unwrap(), expected);
 }
 
@@ -68,24 +68,27 @@ fn cpu_search() {
 #[test]
 fn cached_search() {
     let train = array![[0.0], [1.0], [2.0]];
-    let mut auto = match AutoIndex::new(1, &train.view()) {
+    let auto = match AutoIndex::new(1, &train.view()) {
         Ok(auto) => auto,
         Err(error) if metal_unavailable(&error.to_string()) => return,
         Err(error) => panic!("{error}"),
     };
-    auto.gpu = Some(match MetalIndex::new(2, &array![[0.0, 0.0]].view()) {
+    *auto.gpu.write().unwrap() = Some(match MetalIndex::new(2, &array![[0.0, 0.0]].view()) {
         Ok(index) => index,
         Err(error) if metal_unavailable(&error.to_string()) => return,
         Err(error) => panic!("{error}"),
     });
-    auto.decisions.insert((auto.bucket(1), 2, 2), true);
+    auto.decisions
+        .write()
+        .unwrap()
+        .insert((auto.bucket(1), 2, 2), true);
     let query = array![[0.1]];
     assert_eq!(
         auto.search(&query.view(), 2, 2).unwrap(),
         auto.cpu.search(&query.view(), 2, 2).unwrap()
     );
-    assert!(auto.gpu.is_none());
-    assert!(auto.decisions.is_empty());
+    assert!(auto.gpu.read().unwrap().is_none());
+    assert!(auto.decisions.read().unwrap().is_empty());
 }
 
 #[cfg(all(target_os = "macos", feature = "metal"))]
@@ -197,16 +200,16 @@ fn check_backend(device: KnnBackend) {
     let large_query = array![[2.345, 0.7], [7.891, 1.1]];
     let large_exact = KnnBackend::new(2, IndexDriver::Exact, &large_train.view()).unwrap();
     let large_expected = large_exact.search(&large_query.view(), 10, 10).unwrap();
-    device.rebuild(&large_train.view()).unwrap();
+    let device = device.rebuild(&large_train.view()).unwrap();
     let large_actual = device.search(&large_query.view(), 10, 10).unwrap();
     assert_eq!(large_actual.1, large_expected.1);
     for (actual, expected) in large_actual.0.iter().zip(large_expected.0.iter()) {
         assert!((actual - expected).abs() < 1.0e-4, "{actual} != {expected}");
     }
 
-    device.add(&array![[0.2, 0.2]].view(), 4).unwrap();
+    let device = device.add(&array![[0.2, 0.2]].view(), 4).unwrap();
     assert_eq!(device.len(), 1051);
-    device.rebuild(&train.view()).unwrap();
+    let device = device.rebuild(&train.view()).unwrap();
     assert_eq!(device.len(), 4);
 }
 
@@ -247,4 +250,38 @@ fn cuvs_driver() {
     let decoded_wgpu: IndexDriver = deser_json::from_str(&wgpu_json).unwrap();
     assert_eq!(decoded_wgpu, IndexDriver::WebGpu);
     assert_eq!(IndexDriver::WebGpu.device(), crate::Device::WebGpu);
+}
+
+#[test]
+fn cow_isolation() {
+    let train = array![[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]];
+    let base = KnnBackend::new(2, IndexDriver::Exact, &train.view()).unwrap();
+    assert_eq!(base.len(), 3);
+
+    // Branch 1 and Branch 2 via Clone (O(1) Arc COW)
+    let branch1 = base.clone();
+    let branch2 = base.clone();
+
+    // Adding to branch1 must not mutate base or branch2
+    let branch1 = branch1.add(&array![[2.0, 2.0]].view(), 3).unwrap();
+    assert_eq!(branch1.len(), 4);
+    assert_eq!(base.len(), 3);
+    assert_eq!(branch2.len(), 3);
+
+    // Adding to branch2 must not mutate base or branch1
+    let branch2 = branch2
+        .add(&array![[3.0, 3.0], [4.0, 4.0]].view(), 3)
+        .unwrap();
+    assert_eq!(branch2.len(), 5);
+    assert_eq!(base.len(), 3);
+    assert_eq!(branch1.len(), 4);
+
+    // Search query on branch1 finds the new point
+    let query = array![[2.0, 2.0]];
+    let (_, i1) = branch1.search(&query.view(), 1, 1).unwrap();
+    assert_eq!(i1[[0, 0]], 3);
+
+    // Search query on base does NOT find key 3 (it only has keys 0, 1, 2)
+    let (_, i_base) = base.search(&query.view(), 1, 1).unwrap();
+    assert_ne!(i_base[[0, 0]], 3);
 }

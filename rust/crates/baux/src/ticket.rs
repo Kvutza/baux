@@ -58,11 +58,12 @@ impl ProposalTicket {
 impl BayesOptimizer {
     /// Issue an affine [`ProposalTicket`] in natural domain coordinates.
     pub fn ask_ticket(
-        &mut self,
+        mut self,
         num_arms: usize,
         rng: &mut dyn RngCore,
-    ) -> Result<ProposalTicket, ENNError> {
-        let natural = self.ask_natural(num_arms, rng)?;
+    ) -> Result<(ProposalTicket, Self), ENNError> {
+        let (natural, next) = self.ask_natural(num_arms, rng)?;
+        self = next;
         let ids = match &self.regions {
             TrustRegionState::Multi {
                 pending: Some(prop),
@@ -80,11 +81,14 @@ impl BayesOptimizer {
         }
         self.proposals.ticket_tag = Some(crate::artifact::blake3::hash(&raw));
         let origin_digest = Some(self.digest());
-        Ok(ProposalTicket {
-            x: OwnedCoords::new(natural),
-            ids,
-            origin_digest,
-        })
+        Ok((
+            ProposalTicket {
+                x: OwnedCoords::new(natural),
+                ids,
+                origin_digest,
+            },
+            self,
+        ))
     }
 
     fn verify_ticket(&mut self, origin_digest: Option<[u8; 32]>) -> Result<(), ENNError> {
@@ -103,12 +107,12 @@ impl BayesOptimizer {
     /// Consume an affine [`ProposalTicket`] by value and record its measured
     /// outcomes.
     pub fn tell_ticket(
-        &mut self,
+        mut self,
         ticket: ProposalTicket,
         y: &ArrayView2<f64>,
         yvar: Option<&ArrayView2<f64>>,
         rng: &mut dyn RngCore,
-    ) -> Result<(), ENNError> {
+    ) -> Result<Self, ENNError> {
         let ProposalTicket {
             x,
             ids,
@@ -126,10 +130,10 @@ impl BayesOptimizer {
     /// Consume an affine [`ProposalTicket`] by value and retire its pending
     /// evaluations without controller penalty.
     pub fn cancel_ticket(
-        &mut self,
+        mut self,
         ticket: ProposalTicket,
         rng: &mut dyn RngCore,
-    ) -> Result<(), ENNError> {
+    ) -> Result<Self, ENNError> {
         let ProposalTicket {
             ids, origin_digest, ..
         } = ticket;
@@ -139,6 +143,6 @@ impl BayesOptimizer {
                 return self.cancel_ids(&eval_ids, rng);
             }
         }
-        Ok(())
+        Ok(self)
     }
 }

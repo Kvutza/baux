@@ -17,9 +17,12 @@ impl<'a> EnnIndexAccess<'a> {
     }
 
     pub fn ensure_sync(&self) -> Result<(), ENNError> {
-        self.model
+        let _ = self
+            .model
             .backend
-            .ensure_sync(self.model.scale_x, &self.model.x_scale)
+            .clone()
+            .ensure_sync(self.model.scale_x, &self.model.x_scale)?;
+        Ok(())
     }
 
     pub fn memory_bytes(&self) -> Result<usize, ENNError> {
@@ -94,7 +97,13 @@ impl ENN {
         EnnRowAccess::new(self)
     }
 
-    pub(crate) fn ensure_sync(&self) -> Result<(), ENNError> {
-        self.index_access().ensure_sync()
+    pub fn ensure_sync(mut self) -> Result<Self, ENNError> {
+        self.backend = self.backend.ensure_sync(self.scale_x, &self.x_scale)?;
+        Ok(self)
+    }
+
+    pub fn release_pages(mut self) -> Result<Self, ENNError> {
+        self.backend = self.backend.release_pages()?;
+        Ok(self)
     }
 }

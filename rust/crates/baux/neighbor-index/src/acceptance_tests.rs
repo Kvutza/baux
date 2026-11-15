@@ -48,7 +48,7 @@ fn stride_limit() {
 #[test]
 fn shape_mismatch() {
     let dir = TempDir::new().unwrap();
-    let mut b = BpannBackend::new_empty(dir.path().to_path_buf(), 2, 1).unwrap();
+    let b = BpannBackend::new_empty(dir.path().to_path_buf(), 2, 1).unwrap();
     let err = b
         .append_rows(&array![[0.0, 0.0, 0.0]].view(), &array![[0.0]].view(), None)
         .unwrap_err();
@@ -60,20 +60,21 @@ fn mmap_store() {
     use baux::neighbor_index::mmap_store::MmapColumnStore;
     let dir = TempDir::new().unwrap();
     let mut store = MmapColumnStore::open_mmap(dir.path().join("x.bin"), 2, None).unwrap();
-    store.mmap_append(&array![[1.0, 0.0]].view()).unwrap();
+    store = store.mmap_append(&array![[1.0, 0.0]].view()).unwrap();
     assert_eq!(store.nrows, 1);
 }
 
 #[test]
 fn test_mmaprowroundtripf64() {
     let dir = TempDir::new().unwrap();
-    let mut b = BpannBackend::new_empty(dir.path().to_path_buf(), 2, 1).unwrap();
-    b.append_rows(
-        &array![[1.23456789, 9.87654321]].view(),
-        &array![[0.5]].view(),
-        None,
-    )
-    .unwrap();
+    let b = BpannBackend::new_empty(dir.path().to_path_buf(), 2, 1).unwrap();
+    let b = b
+        .append_rows(
+            &array![[1.23456789, 9.87654321]].view(),
+            &array![[0.5]].view(),
+            None,
+        )
+        .unwrap();
     let row = b.row_slice(0).unwrap();
     assert_eq!(row[0].to_bits(), 1.23456789f64.to_bits());
     assert_eq!(row[1].to_bits(), 9.87654321f64.to_bits());
@@ -93,7 +94,7 @@ fn test_007() {
     let dir = TempDir::new().unwrap();
     let (x, y) = synthetic_train(64, 4, 7);
     let y_sentinel = Array2::from_elem((64, 1), 12345.6789);
-    let mut b = BpannBackend::new(
+    let b = BpannBackend::new(
         dir.path().to_path_buf(),
         x,
         y_sentinel,
@@ -102,7 +103,7 @@ fn test_007() {
         Array1::ones(4),
     )
     .unwrap();
-    b.ensure_sync().unwrap();
+    let b = b.ensure_sync().unwrap();
     let page_bytes = b.page_bytes();
     let sentinel_bytes = 12345.6789f64.to_le_bytes();
     assert!(
@@ -114,13 +115,14 @@ fn test_007() {
 #[test]
 fn test_008() {
     let dir = TempDir::new().unwrap();
-    let mut b = BpannBackend::new_empty(dir.path().to_path_buf(), 2, 1).unwrap();
-    b.append_rows(
-        &array![[0.0, 0.0], [1.0, 0.0]].view(),
-        &array![[0.0], [1.0]].view(),
-        Some(&array![[0.1], [0.2]].view()),
-    )
-    .unwrap();
+    let b = BpannBackend::new_empty(dir.path().to_path_buf(), 2, 1).unwrap();
+    let b = b
+        .append_rows(
+            &array![[0.0, 0.0], [1.0, 0.0]].view(),
+            &array![[0.0], [1.0]].view(),
+            Some(&array![[0.1], [0.2]].view()),
+        )
+        .unwrap();
     let (tx, ty, yv) = b.train_rows(&[1]).unwrap();
     assert_eq!(tx[[0, 0]], 1.0);
     assert_eq!(ty[[0, 0]], 1.0);
@@ -131,9 +133,9 @@ fn test_008() {
 fn test_009() {
     let dir = TempDir::new().unwrap();
     let (x, y) = synthetic_train(32, 8, 1);
-    let mut b =
+    let b =
         BpannBackend::new(dir.path().to_path_buf(), x, y, None, false, Array1::ones(8)).unwrap();
-    b.ensure_sync().unwrap();
+    let b = b.ensure_sync().unwrap();
     let queries = Array2::zeros((3, 8));
     let (d, i) = b.search(&queries.view(), 5, false).unwrap();
     assert_eq!(d.shape(), &[3, 5]);
@@ -161,7 +163,7 @@ fn brute_oracle(b: &BpannBackend, query: &[f64], k: usize) -> Vec<i64> {
 fn test_010() {
     let dir = TempDir::new().unwrap();
     let (x, y) = synthetic_train(64, 8, 3);
-    let mut b = BpannBackend::new(
+    let b = BpannBackend::new(
         dir.path().to_path_buf(),
         x.clone(),
         y,
@@ -170,7 +172,7 @@ fn test_010() {
         Array1::ones(8),
     )
     .unwrap();
-    b.ensure_sync().unwrap();
+    let b = b.ensure_sync().unwrap();
     let q = x.row(0).to_owned();
     let (d, idx) = b
         .search(&q.view().insert_axis(ndarray::Axis(0)), 10, false)
@@ -192,14 +194,15 @@ fn test_010() {
 #[test]
 fn test_011() {
     let dir = TempDir::new().unwrap();
-    let mut b = BpannBackend::new_empty(dir.path().to_path_buf(), 2, 1).unwrap();
-    b.append_rows(
-        &array![[0.0, 0.0], [1.0, 0.0]].view(),
-        &array![[0.0], [1.0]].view(),
-        None,
-    )
-    .unwrap();
-    b.ensure_sync().unwrap();
+    let b = BpannBackend::new_empty(dir.path().to_path_buf(), 2, 1).unwrap();
+    let b = b
+        .append_rows(
+            &array![[0.0, 0.0], [1.0, 0.0]].view(),
+            &array![[0.0], [1.0]].view(),
+            None,
+        )
+        .unwrap();
+    let b = b.ensure_sync().unwrap();
     let (_, idx) = b.search(&array![[0.0, 0.0]].view(), 1, true).unwrap();
     assert_eq!(idx[[0, 0]], 1);
 }
@@ -211,23 +214,25 @@ fn test_011() {
 #[test]
 fn test_012() {
     let dir = TempDir::new().unwrap();
-    let mut b = BpannBackend::new_empty(dir.path().to_path_buf(), 1, 1).unwrap();
+    let b = BpannBackend::new_empty(dir.path().to_path_buf(), 1, 1).unwrap();
     // Far indexed decoys.
-    b.append_rows(
-        &array![[1000.0], [1001.0], [1002.0]].view(),
-        &array![[0.0], [0.0], [0.0]].view(),
-        None,
-    )
-    .unwrap();
-    b.ensure_sync().unwrap();
+    let b = b
+        .append_rows(
+            &array![[1000.0], [1001.0], [1002.0]].view(),
+            &array![[0.0], [0.0], [0.0]].view(),
+            None,
+        )
+        .unwrap();
+    let b = b.ensure_sync().unwrap();
     assert_eq!(b.indexed_rows(), 3);
     // Pending: nearest (row 3) and second-nearest (row 4) to query at 0.
-    b.append_rows(
-        &array![[1.0], [2.0]].view(),
-        &array![[0.0], [0.0]].view(),
-        None,
-    )
-    .unwrap();
+    let b = b
+        .append_rows(
+            &array![[1.0], [2.0]].view(),
+            &array![[0.0], [0.0]].view(),
+            None,
+        )
+        .unwrap();
     assert_eq!(b.pending_rows(), 2);
     let (_, idx) = b.search(&array![[0.0]].view(), 1, true).unwrap();
     assert_eq!(
@@ -243,22 +248,24 @@ fn test_012() {
 #[test]
 fn test_013() {
     let dir = TempDir::new().unwrap();
-    let mut b = BpannBackend::new_empty(dir.path().to_path_buf(), 1, 1).unwrap();
-    b.append_rows(
-        &array![[1000.0], [1001.0], [1002.0]].view(),
-        &array![[0.0], [0.0], [0.0]].view(),
-        None,
-    )
-    .unwrap();
-    b.ensure_sync().unwrap();
+    let b = BpannBackend::new_empty(dir.path().to_path_buf(), 1, 1).unwrap();
+    let b = b
+        .append_rows(
+            &array![[1000.0], [1001.0], [1002.0]].view(),
+            &array![[0.0], [0.0], [0.0]].view(),
+            None,
+        )
+        .unwrap();
+    let b = b.ensure_sync().unwrap();
     // Pending ladder at 1,2,3,4,5 (nearest..5th); query at 0 needs ranks 2..5
     // after exclude.
-    b.append_rows(
-        &array![[1.0], [2.0], [3.0], [4.0], [5.0]].view(),
-        &array![[0.0], [0.0], [0.0], [0.0], [0.0]].view(),
-        None,
-    )
-    .unwrap();
+    let b = b
+        .append_rows(
+            &array![[1.0], [2.0], [3.0], [4.0], [5.0]].view(),
+            &array![[0.0], [0.0], [0.0], [0.0], [0.0]].view(),
+            None,
+        )
+        .unwrap();
     assert_eq!(b.pending_rows(), 5);
     let (_, idx) = b.search(&array![[0.0]].view(), 4, true).unwrap();
     let got: Vec<i64> = idx.row(0).iter().copied().collect();
@@ -273,7 +280,7 @@ fn test_013() {
 fn test_014() {
     let dir = TempDir::new().unwrap();
     let (x, y) = synthetic_train(48, 6, 11);
-    let mut b = BpannBackend::new(
+    let b = BpannBackend::new(
         dir.path().to_path_buf(),
         x.clone(),
         y,
@@ -282,7 +289,7 @@ fn test_014() {
         Array1::ones(6),
     )
     .unwrap();
-    b.ensure_sync().unwrap();
+    let b = b.ensure_sync().unwrap();
     let batch = x.slice(ndarray::s![0..3, ..]).to_owned();
     let (bd, bi) = b.search(&batch.view(), 5, false).unwrap();
     for r in 0..3 {
@@ -318,7 +325,7 @@ fn test_016() {
     let dir = TempDir::new().unwrap();
     let (x, y) = synthetic_train(16, 4, 5);
     let scale = array![2.0, 1.0, 4.0, 2.0];
-    let mut b = BpannBackend::new(
+    let b = BpannBackend::new(
         dir.path().to_path_buf(),
         x.clone(),
         y,
@@ -327,7 +334,7 @@ fn test_016() {
         scale.clone(),
     )
     .unwrap();
-    b.ensure_sync().unwrap();
+    let b = b.ensure_sync().unwrap();
     let q = x.row(0);
     let (d, idx) = b
         .search(&q.view().insert_axis(ndarray::Axis(0)), 3, false)
@@ -340,21 +347,22 @@ fn test_016() {
 #[test]
 fn test_017() {
     let dir = TempDir::new().unwrap();
-    let mut b = BpannBackend::new_empty(dir.path().to_path_buf(), 2, 1).unwrap();
-    b.append_row(&array![0.0, 0.0], &array![0.0], None).unwrap();
+    let b = BpannBackend::new_empty(dir.path().to_path_buf(), 2, 1).unwrap();
+    let b = b.append_row(&array![0.0, 0.0], &array![0.0], None).unwrap();
     assert_eq!(b.len(), 1);
 }
 
 #[test]
 fn test_018() {
     let dir = TempDir::new().unwrap();
-    let mut b = BpannBackend::new_empty(dir.path().to_path_buf(), 2, 1).unwrap();
-    b.append_rows(
-        &array![[0.0, 0.0], [1.0, 0.0]].view(),
-        &array![[0.0], [1.0]].view(),
-        None,
-    )
-    .unwrap();
+    let b = BpannBackend::new_empty(dir.path().to_path_buf(), 2, 1).unwrap();
+    let b = b
+        .append_rows(
+            &array![[0.0, 0.0], [1.0, 0.0]].view(),
+            &array![[0.0], [1.0]].view(),
+            None,
+        )
+        .unwrap();
     assert_eq!(b.len(), 2);
 }
 
@@ -362,7 +370,7 @@ fn test_018() {
 fn test_019() {
     let dir = TempDir::new().unwrap();
     let scale = array![2.0, 2.0];
-    let mut b = BpannBackend::new(
+    let b = BpannBackend::new(
         dir.path().to_path_buf(),
         array![[0.0, 0.0], [10.0, 10.0]],
         array![[0.0], [1.0]],
@@ -371,16 +379,17 @@ fn test_019() {
         scale.clone(),
     )
     .unwrap();
-    b.ensure_sync().unwrap();
+    let b = b.ensure_sync().unwrap();
     // Pending row 2 is the true nearest for query [0, 4]; row 3 ranks higher
     // only when bpann_mmap double-applies x_scale, so k=1 leg_b drops row
     // 2.
-    b.append_rows(
-        &array![[2.0, 4.0], [4.0, 8.0]].view(),
-        &array![[2.0], [3.0]].view(),
-        None,
-    )
-    .unwrap();
+    let b = b
+        .append_rows(
+            &array![[2.0, 4.0], [4.0, 8.0]].view(),
+            &array![[2.0], [3.0]].view(),
+            None,
+        )
+        .unwrap();
     let query = array![[0.0, 4.0]];
     let (_, idx) = b.search(&query.view(), 1, false).unwrap();
     assert_eq!(idx[[0, 0]], 2);
@@ -389,7 +398,7 @@ fn test_019() {
 #[test]
 fn test_020() {
     let dir = TempDir::new().unwrap();
-    let mut b = BpannBackend::new(
+    let b = BpannBackend::new(
         dir.path().to_path_buf(),
         array![[0.0, 0.0], [1.0, 0.0]],
         array![[0.0], [1.0]],
@@ -398,8 +407,9 @@ fn test_020() {
         Array1::ones(2),
     )
     .unwrap();
-    b.ensure_sync().unwrap();
-    b.append_rows(&array![[100.0, 100.0]].view(), &array![[2.0]].view(), None)
+    let b = b.ensure_sync().unwrap();
+    let b = b
+        .append_rows(&array![[100.0, 100.0]].view(), &array![[2.0]].view(), None)
         .unwrap();
     let (_, idx) = b.search(&array![[100.0, 100.0]].view(), 1, false).unwrap();
     assert_eq!(idx[[0, 0]], 2);
@@ -409,7 +419,7 @@ fn test_020() {
 #[test]
 fn test_021() {
     let dir = TempDir::new().unwrap();
-    let mut b = BpannBackend::new(
+    let b = BpannBackend::new(
         dir.path().to_path_buf(),
         array![[0.0, 0.0], [1.0, 0.0]],
         array![[0.0], [1.0]],
@@ -418,8 +428,9 @@ fn test_021() {
         Array1::ones(2),
     )
     .unwrap();
-    b.ensure_sync().unwrap();
-    b.append_rows(&array![[2.0, 2.0]].view(), &array![[2.0]].view(), None)
+    let b = b.ensure_sync().unwrap();
+    let b = b
+        .append_rows(&array![[2.0, 2.0]].view(), &array![[2.0]].view(), None)
         .unwrap();
     let pages_path = dir.path().join("index/pages.bin");
     let size_before = fs::metadata(&pages_path).map(|m| m.len()).unwrap_or(0);
@@ -433,7 +444,7 @@ fn test_021() {
 #[test]
 fn test_022() {
     let dir = TempDir::new().unwrap();
-    let mut b = BpannBackend::new(
+    let b = BpannBackend::new(
         dir.path().to_path_buf(),
         array![[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]],
         array![[0.0], [1.0], [2.0]],
@@ -442,13 +453,14 @@ fn test_022() {
         Array1::ones(2),
     )
     .unwrap();
-    b.ensure_sync().unwrap();
-    b.append_rows(
-        &array![[2.0, 2.0], [3.0, 0.0]].view(),
-        &array![[3.0], [4.0]].view(),
-        None,
-    )
-    .unwrap();
+    let b = b.ensure_sync().unwrap();
+    let b = b
+        .append_rows(
+            &array![[2.0, 2.0], [3.0, 0.0]].view(),
+            &array![[3.0], [4.0]].view(),
+            None,
+        )
+        .unwrap();
     let query = [0.9, 0.9];
     let (_, idx) = b.search(&array![query].view(), 2, false).unwrap();
     let mut scored: Vec<(i64, f64)> = (0..b.len())
@@ -476,7 +488,8 @@ fn test_023() {
         .with_soft(3)
         .defer_indexing(false);
     for i in 0..3 {
-        b.append_row(&array![i as f64, 0.0, 0.0, 0.0], &array![i as f64], None)
+        b = b
+            .append_row(&array![i as f64, 0.0, 0.0, 0.0], &array![i as f64], None)
             .unwrap();
     }
     assert_eq!(b.indexed_rows(), 3);
@@ -516,14 +529,14 @@ fn test_026() {
 #[test]
 fn test_027() {
     let dir = TempDir::new().unwrap();
-    let mut b = BpannBackend::new_empty(dir.path().to_path_buf(), 2, 1)
+    let b = BpannBackend::new_empty(dir.path().to_path_buf(), 2, 1)
         .unwrap()
         .with_soft(2)
         .with_hard(5)
         .defer_indexing(true);
     let x = array![[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [1.0, 1.0]];
     let y = array![[0.0], [1.0], [2.0], [3.0]];
-    b.append_rows(&x.view(), &y.view(), None).unwrap();
+    let b = b.append_rows(&x.view(), &y.view(), None).unwrap();
     assert_eq!(b.pending_rows(), 4);
     assert_eq!(b.indexed_rows(), 0);
 }
@@ -531,14 +544,14 @@ fn test_027() {
 #[test]
 fn test_028() {
     let dir = TempDir::new().unwrap();
-    let mut b = BpannBackend::new_empty(dir.path().to_path_buf(), 2, 1)
+    let b = BpannBackend::new_empty(dir.path().to_path_buf(), 2, 1)
         .unwrap()
         .with_soft(2)
         .with_hard(5)
         .defer_indexing(true);
     let x = Array2::from_shape_fn((5, 2), |(i, j)| (i + j) as f64);
     let y = Array2::from_shape_fn((5, 1), |(i, _)| i as f64);
-    b.append_rows(&x.view(), &y.view(), None).unwrap();
+    let b = b.append_rows(&x.view(), &y.view(), None).unwrap();
     assert_eq!(b.pending_rows(), 0);
     assert_eq!(b.indexed_rows(), 5);
     // Soft sync does not write pages.bin.
@@ -549,21 +562,21 @@ fn test_028() {
 fn ensure_idempotent() {
     // Caller soft-sync mutates the live index (no publish swap required).
     let dir = TempDir::new().unwrap();
-    let mut b = BpannBackend::new_empty(dir.path().to_path_buf(), 2, 1)
+    let b = BpannBackend::new_empty(dir.path().to_path_buf(), 2, 1)
         .unwrap()
         .with_soft(100)
         .with_hard(100)
         .defer_indexing(true);
     let x = Array2::from_shape_fn((6, 2), |(i, j)| (i + j) as f64);
     let y = Array2::from_shape_fn((6, 1), |(i, _)| i as f64);
-    b.append_rows(&x.view(), &y.view(), None).unwrap();
+    let b = b.append_rows(&x.view(), &y.view(), None).unwrap();
     assert_eq!(b.pending_rows(), 6);
     assert_eq!(b.indexed_rows(), 0);
-    b.ensure_sync().unwrap();
+    let b = b.ensure_sync().unwrap();
     assert_eq!(b.pending_rows(), 0);
     assert_eq!(b.indexed_rows(), 6);
     let indexed = b.indexed_rows();
-    b.ensure_sync().unwrap();
+    let b = b.ensure_sync().unwrap();
     assert_eq!(b.indexed_rows(), indexed);
     assert_eq!(b.pending_rows(), 0);
 }
@@ -571,18 +584,18 @@ fn ensure_idempotent() {
 #[test]
 fn test_030() {
     let dir = TempDir::new().unwrap();
-    let mut b = BpannBackend::new_empty(dir.path().to_path_buf(), 2, 1)
+    let b = BpannBackend::new_empty(dir.path().to_path_buf(), 2, 1)
         .unwrap()
         .with_soft(2)
         .with_hard(5)
         .defer_indexing(true);
     let x4 = Array2::from_shape_fn((4, 2), |(i, j)| (i + j) as f64);
     let y4 = Array2::from_shape_fn((4, 1), |(i, _)| i as f64);
-    b.append_rows(&x4.view(), &y4.view(), None).unwrap();
+    let b = b.append_rows(&x4.view(), &y4.view(), None).unwrap();
     assert_eq!(b.pending_rows(), 4);
     let x1 = array![[4.0, 0.0]];
     let y1 = array![[4.0]];
-    b.append_rows(&x1.view(), &y1.view(), None).unwrap();
+    let b = b.append_rows(&x1.view(), &y1.view(), None).unwrap();
     assert_eq!(b.pending_rows(), 0);
     assert_eq!(b.indexed_rows(), 5);
 }
@@ -591,7 +604,7 @@ fn test_030() {
 fn metamorphic_trim() {
     // Soft sync on hard hit must drain pending to 0, not leave hard-1.
     let dir = TempDir::new().unwrap();
-    let mut b = BpannBackend::new_empty(dir.path().to_path_buf(), 3, 1)
+    let b = BpannBackend::new_empty(dir.path().to_path_buf(), 3, 1)
         .unwrap()
         .with_soft(3)
         .with_hard(7)
@@ -599,7 +612,7 @@ fn metamorphic_trim() {
     let n = 20usize;
     let x = Array2::from_shape_fn((n, 3), |(i, j)| (i * 3 + j) as f64);
     let y = Array2::from_shape_fn((n, 1), |(i, _)| i as f64);
-    b.append_rows(&x.view(), &y.view(), None).unwrap();
+    let b = b.append_rows(&x.view(), &y.view(), None).unwrap();
     assert_eq!(b.pending_rows(), 0);
     assert_eq!(b.indexed_rows(), n);
 }
@@ -616,14 +629,14 @@ fn fuzz_seeds() {
         let hard = rng.gen_range(soft..=soft + 6);
         let batch = rng.gen_range(1usize..=hard + 3);
         let dir = TempDir::new().unwrap();
-        let mut b = BpannBackend::new_empty(dir.path().to_path_buf(), 2, 1)
+        let b = BpannBackend::new_empty(dir.path().to_path_buf(), 2, 1)
             .unwrap()
             .with_soft(soft)
             .with_hard(hard)
             .defer_indexing(true);
         let x = Array2::from_shape_fn((batch, 2), |(i, j)| ((trial + i) + j) as f64);
         let y = Array2::from_shape_fn((batch, 1), |(i, _)| i as f64);
-        b.append_rows(&x.view(), &y.view(), None).unwrap();
+        let b = b.append_rows(&x.view(), &y.view(), None).unwrap();
         if batch >= hard {
             assert_eq!(
                 b.pending_rows(),
@@ -646,7 +659,8 @@ fn test_033() {
     let mut b = BpannBackend::new_empty(dir.path().to_path_buf(), 8, 1).unwrap();
     let mem0 = b.index_bytes();
     for i in 0..100 {
-        b.append_row(&Array1::from_elem(8, i as f64), &array![i as f64], None)
+        b = b
+            .append_row(&Array1::from_elem(8, i as f64), &array![i as f64], None)
             .unwrap();
     }
     let mem1 = b.index_bytes();
@@ -659,14 +673,14 @@ fn test_034() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().to_path_buf();
     {
-        let mut b = BpannBackend::new_empty(path.clone(), 2, 1).unwrap();
-        b.append_rows(
-            &array![[0.0, 0.0], [1.0, 0.0]].view(),
-            &array![[0.0], [1.0]].view(),
-            None,
-        )
-        .unwrap();
-        assert_eq!(b.len(), 2);
+        let b = BpannBackend::new_empty(path.clone(), 2, 1).unwrap();
+        let _b = b
+            .append_rows(
+                &array![[0.0, 0.0], [1.0, 0.0]].view(),
+                &array![[0.0], [1.0]].view(),
+                None,
+            )
+            .unwrap();
     }
     let b2 = BpannBackend::reopen(path).unwrap();
     assert_eq!(b2.len(), 2);
@@ -677,10 +691,10 @@ fn test_035() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().to_path_buf();
     let (pre_d, pre_i) = {
-        let mut b = BpannBackend::new_empty(path.clone(), 4, 1).unwrap();
+        let b = BpannBackend::new_empty(path.clone(), 4, 1).unwrap();
         let (x, y) = synthetic_train(32, 4, 9);
-        b.append_rows(&x.view(), &y.view(), None).unwrap();
-        b.ensure_sync().unwrap();
+        let b = b.append_rows(&x.view(), &y.view(), None).unwrap();
+        let b = b.ensure_sync().unwrap();
         b.search(&x.slice(ndarray::s![0..2, ..]), 5, false).unwrap()
     };
     let b2 = BpannBackend::reopen(path).unwrap();
@@ -701,11 +715,11 @@ fn test_036() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().to_path_buf();
     let checksum_before = {
-        let mut b = BpannBackend::new_empty(path.clone(), 4, 1).unwrap();
+        let b = BpannBackend::new_empty(path.clone(), 4, 1).unwrap();
         let (x, y) = synthetic_train(24, 4, 2);
-        b.append_rows(&x.view(), &y.view(), None).unwrap();
-        b.ensure_sync().unwrap();
-        b.persist_index().unwrap();
+        let b = b.append_rows(&x.view(), &y.view(), None).unwrap();
+        let b = b.ensure_sync().unwrap();
+        let _b = b.persist_index().unwrap();
         fs::read(path.join("index/pages.bin")).unwrap()
     };
     let b2 = BpannBackend::reopen(path.clone()).unwrap();
@@ -720,7 +734,7 @@ fn test_scalecheckpointsci() {
     let d = 32usize;
     let dir = TempDir::new().unwrap();
     let (x, y) = synthetic_train(n, d, 42);
-    let mut b = BpannBackend::new(
+    let b = BpannBackend::new(
         dir.path().to_path_buf(),
         x.clone(),
         y,
@@ -729,7 +743,7 @@ fn test_scalecheckpointsci() {
         Array1::ones(d),
     )
     .unwrap();
-    b.ensure_sync().unwrap();
+    let b = b.ensure_sync().unwrap();
     let (d_out, i_out) = b
         .search(&x.slice(ndarray::s![0..1, ..]), 10.min(n), false)
         .unwrap();
@@ -745,13 +759,83 @@ fn test_scalecheckpointsci() {
 }
 
 #[test]
+fn test_tuning() {
+    let dir = TempDir::new().unwrap();
+    let tuning = BpannTuning {
+        soft_threshold: 123,
+        hard_threshold: 456,
+        ..Default::default()
+    };
+    let b = BpannBackend::new_empty(dir.path().to_path_buf(), 2, 1)
+        .unwrap()
+        .with_tuning(tuning);
+    assert_eq!(b.soft_threshold(), 123);
+    assert_eq!(b.hard_threshold(), 456);
+    assert_eq!(b.tuning().soft_threshold, 123);
+}
+
+#[test]
+fn test_flushes() {
+    let dir = TempDir::new().unwrap();
+    let b = BpannBackend::new_empty(dir.path().to_path_buf(), 2, 1)
+        .unwrap()
+        .with_soft(2)
+        .with_hard(5)
+        .defer_indexing(true);
+    let b = b
+        .append_rows(&array![[0.0, 0.0]].view(), &array![[0.0]].view(), None)
+        .unwrap();
+    assert_eq!(b.pending_rows(), 1);
+    let b = b.schedule_flush().unwrap();
+    assert_eq!(b.pending_rows(), 1);
+    let b = b.wait_flush().unwrap();
+    assert_eq!(b.pending_rows(), 0);
+    assert_eq!(b.indexed_rows(), 1);
+}
+
+#[test]
+fn test_metrics() {
+    let dir = TempDir::new().unwrap();
+    let b = BpannBackend::new_empty(dir.path().to_path_buf(), 2, 1).unwrap();
+    let b = b
+        .append_rows(
+            &array![[1.0, 2.0], [3.0, 4.0]].view(),
+            &array![[0.0], [1.0]].view(),
+            None,
+        )
+        .unwrap();
+    let b = b.with_metric(&array![2.0, 2.0], false).unwrap();
+    let b = b.rebuild_scaled(&array![1.0, 1.0]).unwrap();
+    assert_eq!(b.len(), 2);
+}
+
+#[test]
+fn test_release() {
+    let dir = TempDir::new().unwrap();
+    let b = BpannBackend::new_empty(dir.path().to_path_buf(), 2, 1).unwrap();
+    let b = b
+        .append_rows(
+            &array![[1.0, 2.0], [3.0, 4.0]].view(),
+            &array![[0.0], [1.0]].view(),
+            None,
+        )
+        .unwrap();
+    let b = b.ensure_sync().unwrap();
+    assert_eq!(b.indexed_rows(), 2);
+    let b = b.mark_stale();
+    assert_eq!(b.pending_rows(), 2);
+    let b = b.release_pages().unwrap();
+    assert_eq!(b.len(), 2);
+}
+
+#[test]
 #[ignore = "Run manually: cargo test -p bpann test_scalerecallignored -- --ignored --nocapture"]
 fn test_scalerecallignored() {
     let n = 1000usize;
     let d = 32usize;
     let dir = TempDir::new().unwrap();
     let (x, y) = synthetic_train(n, d, 42);
-    let mut b = BpannBackend::new(
+    let b = BpannBackend::new(
         dir.path().to_path_buf(),
         x.clone(),
         y,
@@ -760,7 +844,7 @@ fn test_scalerecallignored() {
         Array1::ones(d),
     )
     .unwrap();
-    b.ensure_sync().unwrap();
+    let b = b.ensure_sync().unwrap();
     let vectors: Vec<Vec<f32>> = (0..b.len())
         .map(|i| b.row_slice(i).unwrap().iter().map(|&v| v as f32).collect())
         .collect();
@@ -785,9 +869,9 @@ fn test_scale10mignored() {
         let rows = end - start;
         let x = Array2::from_shape_fn((rows, d), |(i, j)| (start + i + j) as f64);
         let y = Array2::from_shape_fn((rows, 1), |(i, _)| (start + i) as f64);
-        b.append_rows(&x.view(), &y.view(), None).unwrap();
+        b = b.append_rows(&x.view(), &y.view(), None).unwrap();
         if start % 100_000 == 0 {
-            b.ensure_sync().unwrap();
+            b = b.ensure_sync().unwrap();
             let _ = b.search(&x.slice(ndarray::s![0..1, ..]), 10, false);
         }
     }

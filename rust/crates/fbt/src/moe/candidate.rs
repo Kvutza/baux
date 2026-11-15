@@ -277,7 +277,7 @@ fn build_search(
     } else {
         SearchState::new_implicit(&base, blocks, HISTORY_CAPACITY, length, perturbation)?
     };
-    search.set_tolerance(4)?;
+    let search = search.set_tolerance(4)?;
     Ok(search)
 }
 

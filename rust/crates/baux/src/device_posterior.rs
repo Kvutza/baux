@@ -40,9 +40,29 @@ pub type DevicePosterior = Posterior;
 pub type DeviceDraw = PosteriorDraw;
 
 impl ENN {
-    /// Evaluate contiguous FP32 device queries. Training observations are
-    /// synced from the ENN; query tensors, posterior arrays, and draws stay
-    /// on-device.
+    /// Ensure in-memory index is synced and evaluate contiguous FP32 device
+    /// queries.
+    ///
+    /// # Safety
+    /// pointer is a retained CUDA allocation (device 2), MTLBuffer (device 8),
+    /// or WebGPU handle / linear-memory pointer (device 15) covering
+    /// rows*num_dim FP32 values at byte_offset, ready for reading.
+    pub unsafe fn posterior_synced(
+        &self,
+        pointer: u64,
+        byte_offset: usize,
+        device: i32,
+        rows: usize,
+        params: &ENNParams,
+        flags: &PosteriorFlags,
+    ) -> Result<DevicePosterior, String> {
+        let synced = self.clone().ensure_sync().map_err(|e| e.to_string())?;
+        unsafe { synced.device_posterior(pointer, byte_offset, device, rows, params, flags) }
+    }
+
+    /// Evaluate contiguous FP32 device queries. Training observations must
+    /// already be synced on the ENN; query tensors, posterior arrays, and draws
+    /// stay on-device.
     ///
     /// # Safety
     /// pointer is a retained CUDA allocation (device 2), MTLBuffer (device 8),
@@ -86,7 +106,11 @@ impl ENN {
             if k == 0 {
                 return Err("no neighbors remain after exclusion".into());
             }
-            self.ensure_sync().map_err(|e| e.to_string())?;
+            if self.backend.index_stale() {
+                return Err(
+                    "device posterior requires synced index; call ensure_sync() first".into(),
+                );
+            }
             let index = self
                 .backend
                 .memory_index()

@@ -65,10 +65,10 @@ def _make(gp: StubGP):
 def test_gpcallsarebatched():
     gp = StubGP()
     bounds, opt = _make(gp)
-    x = opt.ask(1, 101)
+    x, opt = opt.ask(1, seed=101)
     y = np.array([[1.25]])
     yvar = np.array([[0.05]])
-    opt.tell(x, y, 102, yvar)
+    opt = opt.tell(x, y, seed=102, y_var=yvar)
 
     assert np.all((bounds[:, 0] <= x) & (x <= bounds[:, 1]))
     assert len(gp.fits) == 1
@@ -77,7 +77,8 @@ def test_gpcallsarebatched():
     np.testing.assert_array_equal(fit_y, y)
     np.testing.assert_array_equal(fit_var, yvar)
 
-    assert opt.ask(2, 103).shape == (2, 2)
+    x2, opt = opt.ask(2, seed=103)
+    assert x2.shape == (2, 2)
     assert len(gp.preds) == 1
     assert gp.preds[0].shape == (8, 2)
 
@@ -85,11 +86,11 @@ def test_gpcallsarebatched():
 def test_yvarerrorisatomic():
     gp = StubGP()
     _, opt = _make(gp)
-    x = opt.ask(1, 201)
-    opt.tell(x, np.array([[1.0]]), 202, np.array([[0.1]]))
+    x, opt = opt.ask(1, seed=201)
+    opt = opt.tell(x, np.array([[1.0]]), seed=202, y_var=np.array([[0.1]]))
 
     with pytest.raises(ValueError, match="y_var must be provided"):
-        opt.tell(x, np.array([[2.0]]), 203)
+        opt.tell(x, np.array([[2.0]]), seed=203)
 
     assert opt.num_observations() == 1
     assert len(gp.fits) == 1
@@ -107,17 +108,49 @@ def test_fiterrorisatomic():
 
     gp = FailOnce()
     _, opt = _make(gp)
-    x = opt.ask(1, 301)
+    x, opt = opt.ask(1, seed=301)
 
+    assert opt.init_progress() == (0, 1)
     with pytest.raises(ValueError, match="fit failed"):
-        opt.tell(x, np.array([[1.0]]), 302)
+        opt.tell(x, np.array([[1.0]]), seed=302)
 
     assert opt.num_observations() == 0
-    # ENN 0.4.1 advances initialization before attempting the fallible tell.
-    assert opt.init_progress() == (1, 1)
-    opt.tell(x, np.array([[1.0]]), 303)
+    # Pure immutability on error: opt is completely unchanged on failure
+    assert opt.init_progress() == (0, 1)
+    opt = opt.tell(x, np.array([[1.0]]), seed=303)
     assert opt.num_observations() == 1
     assert opt.init_progress() is None
+
+
+def test_forkisolation():
+    gp = StubGP()
+    _bounds, opt = _make(gp)
+    x, opt = opt.ask(1, seed=501)
+    opt = opt.tell(x, np.array([[1.0]]), seed=502)
+    assert opt.num_observations() == 1
+
+    opt_fork = opt.fork()
+    assert opt_fork.digest_hex() == opt.digest_hex()
+    assert opt_fork.num_observations() == 1
+
+    # Branch A advances independently
+    xa, opt_a = opt.ask(1, seed=503)
+    opt_a = opt_a.tell(xa, np.array([[2.0]]), seed=504)
+
+    # Branch B advances independently from fork snapshot
+    xb, opt_b = opt_fork.ask(1, seed=503)
+    opt_b = opt_b.tell(xb, np.array([[5.0]]), seed=504)
+
+    # Deterministic generation with same seed
+    np.testing.assert_allclose(xa, xb)
+
+    # Pure fork isolation: branches diverge and original snapshots remain immutable
+    assert opt.num_observations() == 1
+    assert opt_fork.num_observations() == 1
+    assert opt_a.num_observations() == 2
+    assert opt_b.num_observations() == 2
+    assert opt_a.digest_hex() != opt_b.digest_hex()
+    assert opt.digest_hex() == opt_fork.digest_hex()
 
 
 def test_001():
@@ -127,11 +160,11 @@ def test_001():
 
     gp = BadPredict()
     _, opt = _make(gp)
-    x = opt.ask(1, 401)
-    opt.tell(x, np.array([[1.0]]), 402)
+    x, opt = opt.ask(1, seed=401)
+    opt = opt.tell(x, np.array([[1.0]]), seed=402)
 
     with pytest.raises(ValueError, match="predict must return"):
-        opt.ask(2, 403)
+        opt.ask(2, seed=403)
 
 
 @pytest.mark.parametrize(
@@ -165,8 +198,8 @@ def test_regionalprovider(sharing):
     )
     assert opt.num_regions() == 3
     for _ in range(3):
-        x = opt.ask(3)
-        opt.tell(x, -np.sum(x**2, axis=1, keepdims=True))
+        x, opt = opt.ask(3)
+        opt = opt.tell(x, -np.sum(x**2, axis=1, keepdims=True))
     assert len(gp.fits) == 3
     assert not gp.preds
     assert len(local_models) == 3
@@ -250,17 +283,15 @@ def test_failedingestion():
         fit_steps=7,
         cfg={"region_sharing": "origin_only", "min_candidates": 8, "max_candidates": 8},
     )
-    warmup = opt.ask(1)
-    opt.tell(warmup, np.array([[1.0]]))
-    proposal = opt.ask(2)
+    warmup, opt = opt.ask(1)
+    opt = opt.tell(warmup, np.array([[1.0]]))
+    proposal, opt = opt.ask(2)
     outcomes = np.ones((2, 1))
     with pytest.raises(ValueError, match="regional global fit failed"):
         opt.tell(proposal, outcomes)
-    assert "regional global fit failed" in opt.ingestion_failure
-    with pytest.raises(ValueError, match="do not retry"):
-        opt.tell(proposal, outcomes)
-    with pytest.raises(ValueError, match="do not retry"):
-        opt.ask(1)
+    # Under pure functional contract, failed tell leaves opt completely unchanged
+    assert opt.num_observations() == 1
+    assert opt.ingestion_failure is None
     assert len(global_model.fits) == 1
 
 
@@ -291,10 +322,10 @@ def test_regionmodels():
         },
     )
     assert len(local_models) == 3
-    x = opt.ask(1)
-    opt.tell(x, np.array([[0.1]]))
-    x = opt.ask(3)
-    opt.tell(x, np.array([[0.2], [0.3], [0.4]]))
+    x, opt = opt.ask(1)
+    opt = opt.tell(x, np.array([[0.1]]))
+    x, opt = opt.ask(3)
+    opt = opt.tell(x, np.array([[0.2], [0.3], [0.4]]))
 
     assert global_model.fits[-1][0].shape == (4, 2)
     assert [model.fits[-1][0].shape[0] for model in local_models] == [2, 2, 2]

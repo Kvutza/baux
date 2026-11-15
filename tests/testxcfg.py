@@ -5,11 +5,11 @@ from pathlib import Path
 import numpy as np
 import pytest
 from baux._rust import ENN as RustENN
-from baux._rust import ensure_config_file, set_path
+from baux._rust import ensure_config_file
 
 
 def _assertwritten(cfg: Path) -> None:
-    path = ensure_config_file()
+    path = ensure_config_file(str(cfg))
     assert Path(path) == cfg
     assert cfg.is_file()
     text = cfg.read_text(encoding="utf-8")
@@ -35,11 +35,7 @@ def _assertwritten(cfg: Path) -> None:
 def test_001(tmp_path: Path) -> None:
     cfg = tmp_path / "config.toml"
     assert not cfg.exists()
-    set_path(str(cfg))
-    try:
-        _assertwritten(cfg)
-    finally:
-        set_path(None)
+    _assertwritten(cfg)
 
 
 def test_002(tmp_path: Path) -> None:
@@ -49,11 +45,7 @@ def test_002(tmp_path: Path) -> None:
         "[bpann]\nsoft_threshold = 2000\nsearch_width = 1\n",
         encoding="utf-8",
     )
-    set_path(str(cfg))
-    try:
-        path = ensure_config_file()
-    finally:
-        set_path(None)
+    path = ensure_config_file(str(cfg))
     assert Path(path) == cfg
     text = cfg.read_text(encoding="utf-8")
     assert "soft_threshold = 2000" in text
@@ -62,12 +54,7 @@ def test_002(tmp_path: Path) -> None:
 
 @pytest.fixture
 def active_configuration(tmp_path):
-    path = tmp_path / "active.toml"
-    set_path(str(path))
-    try:
-        yield path
-    finally:
-        set_path(None)
+    return tmp_path / "active.toml"
 
 
 @pytest.mark.parametrize(
@@ -79,29 +66,29 @@ def active_configuration(tmp_path):
         "[bpann]\nsoft_threshold = 5000\nhard_threshold = 1\n",
     ],
 )
-def test_003(tmp_path, active_configuration, text):
+def test_003(tmp_path, text):
     invalid = tmp_path / "invalid.toml"
     invalid.write_text(text)
     with pytest.raises(ValueError, match=r"invalid\.toml"):
-        set_path(str(invalid))
-    assert Path(ensure_config_file()) == active_configuration
+        ensure_config_file(str(invalid))
     assert invalid.read_text() == text
 
 
 def test_004(tmp_path):
     with pytest.raises(ValueError, match="read config"):
-        set_path(str(tmp_path))
+        ensure_config_file(str(tmp_path))
 
 
 def test_005(tmp_path, active_configuration):
     active_configuration.write_text("[bpann")
     with pytest.raises(ValueError, match="parse config"):
-        ensure_config_file()
+        ensure_config_file(str(active_configuration))
     with pytest.raises(ValueError, match="parse config"):
         RustENN(
             np.zeros((1, 1)),
             np.zeros((1, 1)),
             index_driver="bpann_disk",
             work_dir=str(tmp_path / "observations"),
+            config_path=str(active_configuration),
         )
     assert not (tmp_path / "observations").exists()

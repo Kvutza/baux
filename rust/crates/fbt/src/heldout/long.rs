@@ -209,7 +209,7 @@ fn init_surrogate(
     ),
     String,
 > {
-    search.observe_objectives(initial.observation)?;
+    *search = search.clone().observe_objectives(initial.observation)?;
     let ctrl_info = search.controller_info()?;
     let trust_region = baux::semantics::optimizer::TrustRegionController::policy_f64(
         ctrl_info.length,
@@ -257,8 +257,8 @@ fn build_search(
     let (mut search, updates) =
         weights.search_shaped(run.proposal_distribution(), run.length(), shape)?;
     let policy = run.resident_enn(run.acquisition_seed())?;
-    search.configure_enn(policy)?;
-    search.set_profiling(run.trace());
+    search = search.configure_enn(policy)?;
+    search = search.set_profiling(run.trace());
     Ok((search, updates, policy))
 }
 
@@ -395,7 +395,8 @@ impl LongState {
             .checked_add(u64::from(step))
             .ok_or("proposal seed overflow")?;
         let ask_start = Instant::now();
-        let geometry = self.search.sample_distances(prop_seed)?;
+        let (search, geometry) = self.search.clone().sample_distances(prop_seed)?;
+        self.search = search;
         let selection = if geometry.len() == 1 {
             self.surrogate.evaluate_singleton(&geometry[0])?
         } else {
@@ -425,7 +426,11 @@ impl LongState {
             self.surrogate
                 .select_pool(&geometry, step, rule, forced_slot)?
         };
-        let (row, proposal) = self.search.materialize_selection(prop_seed, &selection)?;
+        let (search, (row, proposal)) = self
+            .search
+            .clone()
+            .materialize_selection(prop_seed, &selection)?;
+        self.search = search;
         Ok(RoundProposal {
             geometry,
             selection,
@@ -456,14 +461,16 @@ impl LongState {
             decision.accepted,
         )?;
         let next_radius = self.trust_region.radius_f64();
-        self.search.commit_host(
+        self.search = self.search.clone().commit_host(
             &proposed.proposal,
             target_slot,
             candidate.observation,
             decision.accepted,
             next_radius,
         )?;
-        if self.search.sync()? != vec![decision.accepted] {
+        let (search, synced) = self.search.clone().sync()?;
+        self.search = search;
+        if synced != vec![decision.accepted] {
             return Err("long pretraining acceptance synchronization failed".into());
         }
         let tell_seconds = tell_start.elapsed().as_secs_f64();

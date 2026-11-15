@@ -168,9 +168,11 @@ fn adapt(
         let unit = if best.evaluations == 0 {
             row(initial.iter().map(|x| (x + 1.0) * 0.5).collect())?
         } else {
-            timed(&mut trace.inner.ask_seconds, || {
+            let (u, next_opt) = timed(&mut trace.inner.ask_seconds, || {
                 opt.ask(1, &mut rng).map_err(|e| e.to_string())
-            })?
+            })?;
+            opt = next_opt;
+            u
         };
         let weights: Vec<_> = unit.iter().map(|x| 2.0 * x - 1.0).collect();
         let before = trace.cycles;
@@ -196,8 +198,8 @@ fn adapt(
         best.evaluations += 1;
         best.cycles += measured;
         let loss = number(&observation, "loss")?;
-        timed(&mut trace.inner.tell_seconds, || {
-            opt.tell(&unit.view(), &row(vec![-loss])?.view(), &mut rng)
+        opt = timed(&mut trace.inner.tell_seconds, || {
+            opt.tell(&unit.view(), &row(vec![-loss])?.view(), None, &mut rng)
                 .map_err(|e| e.to_string())
         })?;
         if loss < best.loss {
@@ -286,13 +288,12 @@ fn search(
                 .map(|_| rng.gen_range(0.0..1.0))
                 .collect())?
         } else {
-            timed(&mut trace.outer.ask_seconds, || {
-                outer
-                    .as_mut()
-                    .ok_or("missing outer optimizer")?
-                    .ask(1, &mut rng)
-                    .map_err(|e| e.to_string())
-            })?
+            let o = outer.take().ok_or("missing outer optimizer")?;
+            let (u, next_o) = timed(&mut trace.outer.ask_seconds, || {
+                o.ask(1, &mut rng).map_err(|e| e.to_string())
+            })?;
+            outer = Some(next_o);
+            u
         };
         let values: Vec<_> = unit.iter().copied().collect();
         let proposed = config.decode(&values);
@@ -311,12 +312,17 @@ fn search(
         )?;
         candidates.push(json!({"design": proposed, "loss": adapted.loss,
                 "reference_loss": adapted.reference, "selection_loss": adapted.score, "evaluations": adapted.evaluations, "cycles": adapted.cycles}));
-        if let Some(outer) = &mut outer {
-            timed(&mut trace.outer.tell_seconds, || {
-                outer
-                    .tell(&unit.view(), &row(vec![-adapted.score])?.view(), &mut rng)
-                    .map_err(|e| e.to_string())
+        if let Some(o) = outer.take() {
+            let next_o = timed(&mut trace.outer.tell_seconds, || {
+                o.tell(
+                    &unit.view(),
+                    &row(vec![-adapted.score])?.view(),
+                    None,
+                    &mut rng,
+                )
+                .map_err(|e| e.to_string())
             })?;
+            outer = Some(next_o);
         }
         if selected
             .as_ref()

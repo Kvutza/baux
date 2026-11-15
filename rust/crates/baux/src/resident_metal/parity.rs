@@ -17,7 +17,7 @@ fn rounded_proposal() {
             config.surrogate.neighbors = 1;
             config
         };
-        let mut state = SearchState::new_implicit(
+        let state = SearchState::new_implicit(
             &base,
             vec![ParamBlock::new(1, 0, base.len(), 0.25, 1.0).unwrap()],
             1,
@@ -25,7 +25,7 @@ fn rounded_proposal() {
             ProposalDistribution::Gaussian,
         )
         .unwrap();
-        state
+        let state = state
             .configure_enn(crate::config::ResidentEnnConfig {
                 pool: ProceduralPoolConfig {
                     arms: 1,
@@ -42,13 +42,16 @@ fn rounded_proposal() {
                 local_scale_neighbors: 8,
             })
             .unwrap();
-        state.observe_initial(0.0, 0.0).unwrap();
-        let error = match state.propose(17, ask, 0, None) {
+        let state = state.observe_initial(0.0, 0.0).unwrap();
+        let error = match state.clone().propose(17, ask, 0, None) {
             Ok(_) => panic!("rounded-away Metal proposal was published"),
             Err(error) => error,
         };
         assert_eq!(error, "selected proposal did not change");
-        assert_eq!(read::<u16>(&state.proposal, base.len()), base);
+        assert_eq!(
+            read::<u16>(&*state.proposal, base.len()),
+            vec![0u16; base.len()]
+        );
         assert_eq!(state.read_best().unwrap(), base);
         assert_eq!(state.history_len().unwrap(), 1);
     });
@@ -221,7 +224,7 @@ fn fit_parity() {
     let mut metal = ENNFitter::new(INITIAL_OBSERVATIONS as i32, true);
     metal.set_params(ENNParams::new(INITIAL_OBSERVATIONS as i32, 0.05, 0.05).unwrap());
     let mut rng = StdRng::seed_from_u64(fit_seed.wrapping_add(INITIAL_OBSERVATIONS as u64));
-    let expected = metal
+    let (metal, expected) = metal
         .ask_distances(
             &distances.view(),
             &outcomes.view(),
@@ -309,7 +312,7 @@ fn fitting_trace() {
             let outcomes = Array2::from_shape_fn((n, 1), |(r, _)| f64::from(values[r]));
             let variances = Array2::from_shape_fn((n, 1), |(r, _)| f64::from(errors[r]));
             let mut random = StdRng::seed_from_u64(seed.wrapping_add(n as u64));
-            let expected = if adaptive {
+            let (next_metal, expected) = if adaptive {
                 metal
                     .ask_adaptive(
                         &distances.view(),
@@ -335,6 +338,7 @@ fn fitting_trace() {
                     )
                     .unwrap()
             };
+            metal = next_metal;
             let actual = host.fit_state();
             assert_eq!(actual.neighbors, expected.k_neighbors as usize);
             assert_eq!(
@@ -369,7 +373,7 @@ fn warmup_trace() {
             config
         };
         let base = vec![0x3c00; 17];
-        let mut state = SearchState::new_implicit(
+        let state = SearchState::new_implicit(
             &base,
             vec![ParamBlock::new(73, 0, base.len(), 0.25, 1.0).unwrap()],
             1,
@@ -377,7 +381,7 @@ fn warmup_trace() {
             ProposalDistribution::Gaussian,
         )
         .unwrap();
-        state
+        let state = state
             .configure_enn(crate::config::ResidentEnnConfig {
                 pool: ProceduralPoolConfig {
                     arms: 1,
@@ -394,21 +398,22 @@ fn warmup_trace() {
                 local_scale_neighbors: 8,
             })
             .unwrap();
-        state.observe_initial(1_048_576.0, 0.0).unwrap();
+        let mut state = state.observe_initial(1_048_576.0, 0.0).unwrap();
         let host = RadiusController::new(0.125, 0.03125, 2.0).unwrap();
         for (step, gain) in [0.01, 0.125, -0.5, 0.01, 0.25, -0.125, 0.01, 0.125, -0.25]
             .into_iter()
             .enumerate()
         {
-            let (_, round, initializing) = state.propose(73 + step as u64, ask, 0, None).unwrap();
+            let (s, (_, round, initializing)) =
+                state.propose(73 + step as u64, ask, 0, None).unwrap();
             assert!(initializing);
-            let incumbent = state.best().unwrap();
+            let incumbent = s.best().unwrap();
             let value = incumbent + gain;
             let expected = host
                 .initial_evidence(f64::from(value) - f64::from(incumbent), 0.0, 0.0)
                 .unwrap();
-            let actual = state.tell_initial(&round, value, 0.0).unwrap();
-            state.sync().unwrap();
+            let (s, actual) = s.tell_initial(&round, value, 0.0).unwrap();
+            let (s, _) = s.sync().unwrap();
             assert_eq!(actual.accepted, expected.accepted);
             if gain == 0.01 {
                 assert!(
@@ -416,6 +421,7 @@ fn warmup_trace() {
                     "a gain rounded away in stored FP32 is not accepted during warm-up"
                 );
             }
+            state = s;
         }
     });
 }

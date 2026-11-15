@@ -61,8 +61,9 @@ mod knn;
 mod model;
 mod prefill;
 pub use knn::{
-    BatchOutput, BatchSpec, CUVS_MAX_K, CudaIndex, CudaKnnMode, DeviceDraw, DevicePosterior,
-    DrawOutput, KnnProfile, PosteriorOutput, PosteriorSpec, WeightedOutput, WeightedSpec,
+    BatchOutput, BatchSpec, CUVS_MAX_K, CudaIndex, CudaKnnMode, CudaScratch, DeviceDraw,
+    DevicePosterior, DrawOutput, KnnProfile, PosteriorOutput, PosteriorSpec, WeightedOutput,
+    WeightedSpec,
 };
 pub use model::diffusion_run::{check as diffusion_check, run as model_diffusion};
 pub use model::run::initialized_check;

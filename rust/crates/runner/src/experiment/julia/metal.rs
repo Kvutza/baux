@@ -237,11 +237,11 @@ pub(crate) fn unscored_state(
     let block = ParamBlock::new(r_seed, 0, job.num_dim, 0.5, weight)?;
     if job.has_surrogate {
         let mut st = SearchState::new_implicit(&base, vec![block], 128, job.tr_cfg, job.kernel)?;
-        st.configure_enn(job.enn_res.clone())?;
+        st = st.configure_enn(job.enn_res.clone())?;
         Ok(st)
     } else {
         let mut st = SearchState::new_fp16(&base, vec![block], 0, job.tr_cfg, job.kernel)?;
-        st.configure_pool(job.enn_res.pool)?;
+        st = st.configure_pool(job.enn_res.pool)?;
         Ok(st)
     }
 }
@@ -249,32 +249,33 @@ pub(crate) fn unscored_state(
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 pub(crate) fn observe_init(
     job: &MetalJob<'_>,
-    st: &mut SearchState,
+    mut st: SearchState,
     scores: &[f64],
-) -> Result<(), String> {
-    if job.n_obj >= 2 {
-        st.observe_objectives(obj_obs(scores, job.n_obj)?)?;
+) -> Result<SearchState, String> {
+    st = if job.n_obj >= 2 {
+        st.observe_objectives(obj_obs(scores, job.n_obj)?)?
     } else {
-        st.observe_initial(scores[0] as f32, 0.0)?;
-    }
+        st.observe_initial(scores[0] as f32, 0.0)?
+    };
     if let Some(ref p) = job.policy {
-        st.configure_objectives(Some(p.clone()))?;
+        st = st.configure_objectives(Some(p.clone()))?;
     }
-    Ok(())
+    Ok(st)
 }
 
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 pub(crate) fn ask_retry(
-    search: &mut RegionalSearch,
+    search: RegionalSearch,
     r_seed: u64,
     mut r_ask: baux::trials::RoundConfig,
-) -> Result<RegionalProposal, String> {
+) -> Result<(RegionalSearch, RegionalProposal), String> {
     let mut last_err = String::new();
+    let current = search;
     for attempt in 0..4u64 {
         let s = r_seed.wrapping_add(attempt.wrapping_mul(0x9e37_79b9_7f4a_7c15));
         r_ask.acquisition.seed = s;
-        match search.ask(s, r_ask) {
-            Ok(p) => return Ok(p),
+        match current.clone().ask(s, r_ask) {
+            Ok((next_s, p)) => return Ok((next_s, p)),
             Err(e) => last_err = e,
         }
     }
@@ -312,14 +313,14 @@ impl MetalEngine {
         F: FnMut(*const u16) -> Result<(Vec<f64>, f64, u64), String>,
     {
         let slot = self.init_states.len();
-        let mut st = unscored_state(job, slot, 0)?;
+        let st = unscored_state(job, slot, 0)?;
         let buf = st.base_buffer();
         let ptr = buf.contents().cast::<u16>();
         let (scores, vl, dt_us) = eval(ptr)?;
         let sc = crate::experiment::julia::driver::scalar_score(&scores, 0, job.n_obj);
         copy_best(ptr, sc, best_score, &mut self.best_row);
         drop(buf);
-        observe_init(job, &mut st, &scores)?;
+        let st = observe_init(job, st, &scores)?;
         self.init_states.push(st);
         if self.init_states.len() == job.reg_spec.count.max(1) {
             let states = std::mem::take(&mut self.init_states);
@@ -339,15 +340,16 @@ impl MetalEngine {
     where
         F: FnMut(*const u16) -> Result<(Vec<f64>, f64, u64), String>,
     {
-        let mut st = unscored_state(job, slot, gen_seq)?;
+        let st = unscored_state(job, slot, gen_seq)?;
         let buf = st.base_buffer();
         let ptr = buf.contents().cast::<u16>();
         let (scores, vl, dt_us) = eval(ptr)?;
         let sc = crate::experiment::julia::driver::scalar_score(&scores, 0, job.n_obj);
         copy_best(ptr, sc, best_score, &mut self.best_row);
         drop(buf);
-        observe_init(job, &mut st, &scores)?;
-        self.search.as_mut().ok_or("no search")?.restart(slot, st)?;
+        let st = observe_init(job, st, &scores)?;
+        let s = self.search.take().ok_or("no search")?;
+        self.search = Some(s.restart(slot, st)?);
         Ok((scores, vl, dt_us))
     }
 
@@ -361,9 +363,9 @@ impl MetalEngine {
     where
         F: FnMut(*const u16) -> Result<(Vec<f64>, f64, u64), String>,
     {
-        let s = self.search.as_mut().ok_or("no search")?;
+        let s = self.search.take().ok_or("no search")?;
         let r_seed = job.seed.wrapping_add(round as u64);
-        let prop = ask_retry(s, r_seed, job.enn_res.ask)?;
+        let (s, prop) = ask_retry(s, r_seed, job.enn_res.ask)?;
         let slot = prop.ticket().region.slot;
         let buf = s.buffer(&prop)?;
         let ptr = buf.contents().cast::<u16>();
@@ -371,15 +373,16 @@ impl MetalEngine {
         let sc = crate::experiment::julia::driver::scalar_score(&scores, 0, job.n_obj);
         copy_best(ptr, sc, best_score, &mut self.best_row);
         drop(buf);
-        if job.n_obj >= 2 {
-            let _ = s.tell_objectives(&prop, obj_obs(&scores, job.n_obj)?)?;
+        let (s, _dec) = if job.n_obj >= 2 {
+            s.tell_objectives(&prop, obj_obs(&scores, job.n_obj)?)?
         } else {
-            let _ = s.tell(&prop, scores[0] as f32, 0.0)?;
-        }
-        if baux::resident_metal::regional_restarts(s, slot)? > 0 {
+            s.tell(&prop, scores[0] as f32, 0.0)?
+        };
+        if baux::resident_metal::regional_restarts(&s, slot)? > 0 {
             self.slot_gen[slot] += 1;
             self.pending_restarts.push_back((slot, self.slot_gen[slot]));
         }
+        self.search = Some(s);
         Ok((scores, vl, dt_us))
     }
 }

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 from collections.abc import Callable
 from dataclasses import dataclass
 from operator import index
@@ -147,7 +148,7 @@ def _submit(
     if y_var_arr is not None:
         y_var_arr.flags.writeable = False
     submit = opt._inner.import_observations if imported else opt._inner.tell
-    submit(obs.x, obs.y, y_var=obs.yvar)
+    opt._inner = submit(obs.x, obs.y, y_var=obs.yvar)
     if not opt._inner.has_surrogate():
         return y_arr
     try:
@@ -235,7 +236,8 @@ class Optimizer:
         n = int(num_arms)
         if n <= 0:
             raise ValueError(f"num_arms must be > 0, got {n}")
-        return np.asarray(self._inner.ask(n), dtype=float)
+        x, self._inner = self._inner.ask(n)
+        return np.asarray(x, dtype=float)
 
     def ask_batch(self, num_arms: int) -> AskBatch:
         """Ask for points with IDs checked against proposal generation.
@@ -291,7 +293,7 @@ class Optimizer:
                 f"center must have shape ({self._d},), got {center_arr.shape}"
             )
         center_arr.flags.writeable = False
-        abandoned = self._inner.restart_region(index(slot), center_arr)
+        abandoned, self._inner = self._inner.restart_region(index(slot), center_arr)
         return tuple(AskId(int(identity)) for identity in abandoned)
 
     @property
@@ -329,11 +331,11 @@ class Optimizer:
                 )
             yvar_arr.flags.writeable = False
         y_arr.flags.writeable = False
-        self._inner.complete_ids(identities, y_arr, y_var=yvar_arr)
+        self._inner = self._inner.complete_ids(identities, y_arr, y_var=yvar_arr)
 
     def cancel_ids(self, ids: list[int] | tuple[int, ...]) -> None:
         """Retire unevaluated IDs without recording a reward or progress credit."""
-        self._inner.cancel_ids(tuple(index(identity) for identity in ids))
+        self._inner = self._inner.cancel_ids(tuple(index(identity) for identity in ids))
 
     def tell(
         self, x: np.ndarray, y: np.ndarray, y_var: np.ndarray | None = None
@@ -359,6 +361,16 @@ class Optimizer:
         if x_arr.ndim != 2 or x_arr.shape[1] != self._d:
             raise ValueError(f"x must have shape (n, {self._d}), got {x_arr.shape}")
         return np.asarray(self._inner.posterior_mu(x_arr), dtype=float)
+
+    def fork(self) -> Optimizer:
+        """Fork the optimizer, returning an independent copy with forked inner state."""
+        inner = self._inner.fork() if hasattr(self._inner, "fork") else self._inner
+        return Optimizer(
+            self._d,
+            copy.deepcopy(self._rng),
+            inner,
+            identified_asks=self._identified_asks,
+        )
 
 
 def create_optimizer(

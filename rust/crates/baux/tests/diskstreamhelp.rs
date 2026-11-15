@@ -44,11 +44,11 @@ pub fn run_threshold(driver: IndexDriver) {
     while row < STREAMING_ROWS {
         let end = (row + STREAMING_BATCH).min(STREAMING_ROWS);
         let (x, y) = random_batch(&mut rng, end - row, STREAMING_D);
-        model.add(&x.view(), &y.view(), None).expect("add");
+        model = model.add(&x.view(), &y.view(), None).expect("add");
         row = end;
     }
     assert_eq!(model.len(), STREAMING_ROWS);
-    model.index_access().ensure_sync().expect("sync");
+    model = model.ensure_sync().expect("sync");
     assert_eq!(model.len(), STREAMING_ROWS);
 }
 
@@ -69,11 +69,11 @@ pub fn run_search(driver: IndexDriver) {
     while row < STREAMING_N {
         let end = (row + STREAMING_BATCH).min(STREAMING_N);
         let (x, y) = random_batch(&mut rng, end - row, STREAMING_D);
-        model.add(&x.view(), &y.view(), None).expect("add");
+        model = model.add(&x.view(), &y.view(), None).expect("add");
         row = end;
     }
     assert_eq!(model.len(), STREAMING_N);
-    model.index_access().ensure_sync().expect("sync");
+    model = model.ensure_sync().expect("sync");
 
     let query = Array2::from_shape_fn((3, STREAMING_D), |(_, _)| rng.r#gen::<f64>());
     let idx = model.neighbors(&query.view(), 5, false).expect("neighbors");
@@ -86,7 +86,7 @@ pub fn run_search(driver: IndexDriver) {
     }
     // This counter reports persisted index files, not the in-memory soft-sync
     // pages.
-    model.persist_index().expect("persist");
+    model = model.persist_index().expect("persist");
     assert_eq!(model.neighbors(&query.view(), 5, false).unwrap(), idx);
     let mem = model
         .index_access()

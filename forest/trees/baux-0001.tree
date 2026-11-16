@@ -35,7 +35,7 @@ print("Rosenbrock max(-f):", round(float(state.best_y), 5), "at", np.round(state
   }
   }
   \p{baux maximizes values. This example negates the coupled 2D Rosenbrock valley so the optimizer ascends along the curved ridge toward (1, 1). Keep the state returned by \code{ask} and \code{tell} for the next call.}
-  \p{The [quickstart](quickstart.html) explains the loop, and the [Explorer](explorer.html) runs examples directly in your browser. See the [optimizer reference](docs.html) for inputs and outputs.}
+  \p{The [quickstart](quickstart.html) explains the loop, and the [REPL](repl.html) runs examples directly in your browser. See the [optimizer reference](docs.html) for inputs and outputs.}
 }
 
 \subtree{
@@ -44,6 +44,6 @@ print("Rosenbrock max(-f):", round(float(state.best_y), 5), "at", np.round(state
     \li{[Structured parameters](baux-0008.html): work with dictionaries, dataclasses, discrete choices and constrained values.}
     \li{[Multiple regions and workers](baux-0009.html): run local searches together and submit evaluations as they finish.}
     \li{[ENN predictions](baux-0003.html): fit a surrogate to observations and query its predictions.}
-    \li{[Explorer](explorer.html): run live Python examples, synthetic objectives and the tokamak control console.}
+    \li{[Examples](simulation.html): run live Python examples, synthetic objectives and the tokamak control console.}
   }
 }

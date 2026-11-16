@@ -1,14 +1,14 @@
 {
   "baux_py_zip": {
     "path": "baux_py.zip",
-    "sha256": "e6e09b78907f4537f64533f1b2611722056b4a8f960418e9306e74a3673e691f",
-    "size": 1643488
+    "sha256": "455ad21c5b7f848a3dbfe316e5e6a934820310b4530579901e393eafd3a22229",
+    "size": 1663663
   },
   "companion_files": {
     "repl_worker_js": {
       "path": "repl_worker.js",
-      "sha256": "be725869ccdd99dd37120f996e978135647b3bb7ff140372551c724df139c568",
-      "size": 52281
+      "sha256": "503390313d9860d35f8f5a63735d0bca451df54911cccc0a50c9b803ff15fc13",
+      "size": 51903
     },
     "webgpu_bridge_js": {
       "path": "webgpu_bridge.js",
@@ -56,7 +56,7 @@
   "schema_version": 1,
   "wasm_extension": {
     "path": "baux/baux_rust.cpython-312-wasm32-emscripten.so",
-    "sha256": "40c5517f76aa075a9f85de5bad6ad9868ff1a62be7c38d540d598b85ad6f466d",
-    "size": 3532507
+    "sha256": "3f9d2435651aa5eb12eaf44dae6138ac550ec3a7d74d548e625f0f9c5f56e020",
+    "size": 3607145
   }
 }

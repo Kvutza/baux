@@ -1,8 +1,8 @@
 {
   "baux_py_zip": {
     "path": "baux_py.zip",
-    "sha256": "455ad21c5b7f848a3dbfe316e5e6a934820310b4530579901e393eafd3a22229",
-    "size": 1663663
+    "sha256": "2b0452024b11071086cfa3658bc89d1fa39f863a459e1f8ee88e234bcd2c4c76",
+    "size": 1663670
   },
   "companion_files": {
     "repl_worker_js": {

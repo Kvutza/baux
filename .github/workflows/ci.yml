@@ -29,6 +29,16 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Enforce kvutza PR title and squash-merge subject convention
+        if: github.event_name == 'pull_request'
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          if ! printf '%s' "$PR_TITLE" | grep -Eq '^kvutza/[a-z0-9]+$'; then
+            echo "::error::PR title '$PR_TITLE' must match kvutza/<singleword> (and squash-merge with 'kvutza/<word> (#PR)')."
+            exit 1
+          fi
+
       - name: Compile and run standalone Rust cross-boundary & public-tree verifiers
         run: |
           rustc --edition 2024 -O -D warnings --cfg invariants_cli \

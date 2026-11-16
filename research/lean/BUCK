@@ -17,7 +17,7 @@ genrule(
     out = "lean-check.txt",
     cacheable = False,
     cmd = "sh $SRCDIR/check.sh $SRCDIR/project $OUT",
-    labels = ["uses_undeclared_inputs"],
+    labels = ["lean", "uses_undeclared_inputs"],
     visibility = ["PUBLIC"],
 )
 

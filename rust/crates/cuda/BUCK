@@ -1,6 +1,9 @@
 load("//admin:targets.bzl", "RUST_EDITION")
 load("//admin/buck2:reindeer_rules.bzl", "app_rust_binary", "app_rust_library")
 
+codegen_backend = read_config("baux", "cuda_codegen_backend", "")
+ptx_dir = read_config("baux", "cuda_ptx_dir", "")
+
 filegroup(
     name = "source",
     srcs = glob(["**/*.rs", "native/*"]) + [
@@ -11,6 +14,18 @@ filegroup(
     visibility = ["PUBLIC"],
 )
 
+device_env = {k: v for k, v in ([("CARGO_CRATE_NAME", "baux_cuda_device"), ("CARGO_PKG_NAME", "baux-cuda-device"), ("CARGO_PKG_VERSION", "0.0.6"), ("CUDA_OXIDE_DEVICE_CODEGEN_CRATE", "baux_cuda_device"), ("CUDA_OXIDE_LLC", select({"prelude//os:macos": "/opt/homebrew/opt/llvm/bin/llc", "DEFAULT": "/usr/bin/llc-21"})), ("CUDA_OXIDE_TARGET", "sm_80")] + ([("CUDA_OXIDE_PTX_DIR", ptx_dir)] if ptx_dir != "" else []))}
+
+device_rustc_flags = [
+    "--cfg=buck_build",
+    "-Zmir-enable-passes=-JumpThreading",
+    "-Zalways-encode-mir",
+    "-Csymbol-mangling-version=v0",
+    "-Copt-level=3",
+    "-Cdebug-assertions=off",
+    "-Ccodegen-units=1",
+] + (["-Zcodegen-backend=" + codegen_backend] if codegen_backend != "" else [])
+
 rust_library(
     name = "baux-cuda-device",
     srcs = glob(["device/src/**/*.rs"]) + ["//rust/crates/baux:baux-source"],
@@ -18,28 +33,9 @@ rust_library(
     crate_root = "device/src/lib.rs",
     edition = RUST_EDITION,
     features = ["cuda", "cuda-device", "default"],
-    env = {
-        "CARGO_CRATE_NAME": "baux_cuda_device",
-        "CARGO_PKG_NAME": "baux-cuda-device",
-        "CARGO_PKG_VERSION": "0.0.6",
-        "CUDA_OXIDE_DEVICE_CODEGEN_CRATE": "baux_cuda_device",
-        "CUDA_OXIDE_LLC": select({
-            "prelude//os:macos": "/opt/homebrew/opt/llvm/bin/llc",
-            "DEFAULT": "/usr/bin/llc-21",
-        }),
-        "CUDA_OXIDE_PTX_DIR": "/tmp",
-        "CUDA_OXIDE_TARGET": "sm_80",
-    },
-    rustc_flags = [
-        "--cfg=buck_build",
-        "-Zcodegen-backend=/Users/mehulbafna/.cargo/git/checkouts/cuda-oxide-6d394bb007f5e114/6abfaa0/crates/rustc-codegen-cuda/target/debug/librustc_codegen_cuda.dylib",
-        "-Zmir-enable-passes=-JumpThreading",
-        "-Zalways-encode-mir",
-        "-Csymbol-mangling-version=v0",
-        "-Copt-level=3",
-        "-Cdebug-assertions=off",
-        "-Ccodegen-units=1",
-    ],
+    env = device_env,
+    rustc_flags = device_rustc_flags,
+    target_compatible_with = ["prelude//os/constraints:linux"],
     visibility = ["PUBLIC"],
     deps = [
         "//rust:cuda-core",
@@ -70,6 +66,7 @@ app_rust_library(
         "CARGO_PKG_VERSION": "0.0.6",
     },
     rustc_flags = ["--cfg=buck_build"],
+    target_compatible_with = ["prelude//os/constraints:linux"],
     visibility = ["PUBLIC"],
     deps = [
         ":baux-cuda-device",
@@ -111,6 +108,7 @@ app_rust_binary(
         "CARGO_PKG_VERSION": "0.0.6",
     },
     rustc_flags = [],
+    target_compatible_with = ["prelude//os/constraints:linux"],
     visibility = ["PUBLIC"],
     deps = [
         ":baux-cuda",

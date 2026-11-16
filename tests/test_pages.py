@@ -1,5 +1,6 @@
 """Unit test for two-view GitHub Pages bundle verification and generation."""
 
+import os
 import re
 import shutil
 import subprocess
@@ -11,8 +12,17 @@ ROOT = Path(__file__).resolve().parent.parent
 
 
 def _baux(*args: str) -> None:
+    raw_bin = os.environ.get("BAUX_BIN", "").strip() or str(ROOT / "baux")
+    bin_path = Path(raw_bin)
+    if not bin_path.is_absolute():
+        if (ROOT / bin_path).exists():
+            bin_path = (ROOT / bin_path).resolve()
+        elif (Path.cwd() / bin_path).exists():
+            bin_path = (Path.cwd() / bin_path).resolve()
+        else:
+            bin_path = (ROOT / bin_path).resolve()
     proc = subprocess.run(
-        [str(ROOT / "baux"), *args],
+        [str(bin_path), *args],
         cwd=ROOT,
         capture_output=True,
         text=True,

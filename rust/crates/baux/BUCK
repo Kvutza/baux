@@ -224,6 +224,7 @@ rust_test(
     crate = "baux",
     crate_root = "src/lib.rs",
     edition = RUST_EDITION,
+    labels = ["gpu"],
     rustc_flags = select({
         "root//:release-mode": [],
         "DEFAULT": ["-Zthreads=8", "-Ccodegen-units=16"],
@@ -310,6 +311,7 @@ app_rust_library(
         srcs = [source],
         crate_root = source,
         edition = RUST_EDITION,
+        labels = ["gpu"] if source == "tests/knn_metal.rs" else [],
         features = select({
             "//:macos-arm64": ["host-db", "disk-bpann", "metal", "usearch-native"],
             "DEFAULT": ["host-db", "disk-bpann", "usearch-native"],

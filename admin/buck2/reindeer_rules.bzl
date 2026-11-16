@@ -91,13 +91,20 @@ def reindeer_rust_binary(name, rustc_flags = None, **kwargs):
         **kwargs
     )
 
+def _pyo3_ffi_env(base_env, version):
+    env = dict(base_env)
+    env["PYO3_CROSS"] = "1"
+    env["PYO3_CROSS_PYTHON_VERSION"] = version
+    return env
+
+def _pyo3_config_env(base_env, config):
+    env = dict(base_env)
+    env["DEP_PYTHON_PYO3_CONFIG"] = config
+    return env
+
 def buildscript_run(package_name, env = None, **kwargs):
     base_env = dict(env or {})
     if package_name == "pyo3-ffi":
-        host_env = dict(base_env)
-        host_env["PYO3_CROSS"] = "1"
-        host_env["PYO3_CROSS_PYTHON_VERSION"] = PYTHON_VERSION
-
         wasm_env = dict(base_env)
         wasm_env["PYO3_CROSS"] = "1"
         wasm_env["PYO3_CROSS_PYTHON_VERSION"] = "3.12"
@@ -106,18 +113,23 @@ def buildscript_run(package_name, env = None, **kwargs):
 
         resolved_env = select({
             "root//:wasm32-emscripten": wasm_env,
-            "DEFAULT": host_env,
+            "root//:py312": _pyo3_ffi_env(base_env, "3.12"),
+            "root//:py313": _pyo3_ffi_env(base_env, "3.13"),
+            "root//:py314": _pyo3_ffi_env(base_env, "3.14"),
+            "root//:py315": _pyo3_ffi_env(base_env, "3.15"),
+            "DEFAULT": _pyo3_ffi_env(base_env, PYTHON_VERSION),
         })
     elif package_name in ["numpy", "pyo3"]:
-        host_env = dict(base_env)
-        host_env["DEP_PYTHON_PYO3_CONFIG"] = _PYO3_CONFIG[PYTHON_VERSION]
-
         wasm_env = dict(base_env)
         wasm_env["DEP_PYTHON_PYO3_CONFIG"] = _PYO3_CONFIG_WASM32
 
         resolved_env = select({
             "root//:wasm32-emscripten": wasm_env,
-            "DEFAULT": host_env,
+            "root//:py312": _pyo3_config_env(base_env, _PYO3_CONFIG["3.12"]),
+            "root//:py313": _pyo3_config_env(base_env, _PYO3_CONFIG["3.13"]),
+            "root//:py314": _pyo3_config_env(base_env, _PYO3_CONFIG["3.14"]),
+            "root//:py315": _pyo3_config_env(base_env, _PYO3_CONFIG["3.15"]),
+            "DEFAULT": _pyo3_config_env(base_env, _PYO3_CONFIG[PYTHON_VERSION]),
         })
     else:
         resolved_env = base_env

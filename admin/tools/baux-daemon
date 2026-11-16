@@ -59,25 +59,6 @@ IGNORE_DIRS = {
     "target",
     "vendor",
 }
-CHECK_TARGETS = (
-    "//rust/crates/baux:baux[check]",
-    "//rust/crates/baux:baux-cli[check]",
-    "//rust/crates/fbt:fbt[check]",
-    "//rust/crates/tooling:tooling[check]",
-    "//rust/crates/cli:baux[check]",
-    "//rust/crates/runner:baux-runner[check]",
-    "//rust/crates/baux-py:baux-py[check]",
-)
-TEST_TABLE = (
-    ("rust/crates/baux/src/bin/baux-tune/", "root//rust/crates/baux:baux-tune-test"),
-    ("rust/crates/baux/", "root//rust/crates/baux:baux-unit"),
-    ("rust/crates/fbt/", "root//rust/crates/fbt:fbt-unit"),
-    ("rust/crates/cli/", "root//rust/crates/cli:baux-test"),
-    ("rust/crates/tooling/", "root//rust/crates/tooling:tooling-unit"),
-    ("rust/crates/runner/", "root//rust/crates/runner:baux-runner-test"),
-    ("rust/crates/corpus/", "root//rust/crates/corpus:corpus-test"),
-    ("rust/crates/properties/", "root//rust/crates/properties:properties-unit"),
-)
 
 
 def load_config(root: Path) -> dict[str, int | bool]:
@@ -173,10 +154,29 @@ def changed_test_targets(root: Path) -> list[str]:
         if res.returncode == 0
         else []
     )
-    targets = {
-        target for f in files for prefix, target in TEST_TABLE if f.startswith(prefix)
-    }
-    return sorted(targets)
+    if not files:
+        return []
+    bxl = subprocess.run(
+        [
+            "./admin/tools/buck2w",
+            "bxl",
+            "--console",
+            "simple",
+            "//admin/buck2:baux.bxl:impacted_tests",
+            "--",
+            "--files",
+            *files,
+        ],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return [
+        line.strip()
+        for line in bxl.stdout.splitlines()
+        if line.strip().startswith("root//")
+    ]
 
 
 def refresh_cli_binary(root: Path, stamp: Path) -> None:
@@ -238,13 +238,10 @@ def run_check_stage(root: Path, daemon_dir: Path, stamp: Path) -> tuple[int, str
     bcheck = subprocess.run(
         [
             "./admin/tools/buck2w",
-            "build",
-            *CHECK_TARGETS,
-            "--local-only",
+            "bxl",
             "--console",
             "simple",
-            "-v",
-            "2",
+            "//admin/buck2:baux.bxl:check_all",
         ],
         cwd=root,
         capture_output=True,

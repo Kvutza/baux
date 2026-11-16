@@ -326,7 +326,54 @@ def _baux_py_wasm_impl(ctx: AnalysisContext):
     sub = src.sub_targets.get("shared")
     artifact = sub[DefaultInfo].default_outputs[0] if sub else src.default_outputs[0]
     out = ctx.actions.copy_file(ctx.attrs.out, artifact)
-    return [DefaultInfo(default_output = out)]
+    report = ctx.actions.declare_output("wasm_hygiene_report.json")
+    check_script = ctx.actions.write(
+        "check_wasm.py",
+        """import json
+import sys
+
+so_path = sys.argv[1]
+report_path = sys.argv[2]
+
+with open(so_path, "rb") as f:
+    data = f.read()
+
+size = len(data)
+failures = []
+if not data.startswith(b"\\x00asm"):
+    failures.append("{} does not begin with wasm magic".format(so_path))
+if size <= 50_000:
+    failures.append("{} size {} is not > 50000 bytes".format(so_path, size))
+if b"/Users/" in data:
+    failures.append("{} contains host path /Users/".format(so_path))
+if b"/home/runner/" in data:
+    failures.append("{} contains host path /home/runner/".format(so_path))
+
+if failures:
+    report = {"version": 1, "data": {"status": "failure", "message": "; ".join(failures)}}
+else:
+    report = {"version": 1, "data": {"status": "success", "message": "wasm hygiene ok ({} bytes)".format(size)}}
+
+with open(report_path, "w", encoding="utf-8") as f:
+    json.dump(report, f, indent=2)
+""",
+        is_executable = True,
+    )
+    ctx.actions.run(
+        ["/usr/bin/env", "python3", check_script, out, report.as_output()],
+        category = "wasm_hygiene",
+    )
+    return [
+        DefaultInfo(default_output = out),
+        ValidationInfo(
+            validations = [
+                ValidationSpec(
+                    name = "wasm_hygiene",
+                    validation_result = report,
+                ),
+            ],
+        ),
+    ]
 
 baux_py_wasm = rule(
     impl = _baux_py_wasm_impl,

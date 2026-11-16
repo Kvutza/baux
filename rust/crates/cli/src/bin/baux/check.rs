@@ -372,16 +372,10 @@ pub(super) fn run(root: &Path, args: CheckArgs) -> Result<(), String> {
         let clippy_out = Command::new("./admin/tools/buck2w")
             .current_dir(root)
             .args([
-                "build",
+                "bxl",
                 "--console",
                 "simple",
-                "--show-output",
-                "//rust/crates/baux:baux[clippy.txt]",
-                "//rust/crates/baux:baux-cli[clippy.txt]",
-                "//rust/crates/baux-py:baux-py[clippy.txt]",
-                "//rust/crates/cli:baux[clippy.txt]",
-                "//rust/crates/tooling:tooling[clippy.txt]",
-                "//rust/crates/tooling:build-graph[clippy.txt]",
+                "//admin/buck2:baux.bxl:clippy_all",
             ])
             .output()
             .map_err(|e| format!("run buck2w clippy: {e}"))?;

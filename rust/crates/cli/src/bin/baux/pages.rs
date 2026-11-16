@@ -596,45 +596,60 @@ pub fn build(root: &Path, bundle_dir: &Path) -> Result<(), String> {
     fs::write(bundle_dir.join(".nojekyll"), b"").map_err(|e| e.to_string())?;
 
     println!("o|pages [3.5/4]: building WASM extension & staging Pyodide assets...");
-    let buck2_out = Command::new(root.join("admin/tools/buck2w"))
-        .args(["build", "//:baux-py-wasm", "--show-output"])
-        .env("PATH", augmented_path())
-        .current_dir(root)
-        .stderr(Stdio::inherit())
-        .output()
-        .map_err(|e| format!("buck2w build //:baux-py-wasm: {e}"))?;
-    if !buck2_out.status.success() {
-        return Err(format!(
-            "buck2w build //:baux-py-wasm exited with {}",
-            buck2_out.status
-        ));
-    }
-    let buck2_stdout = String::from_utf8(buck2_out.stdout)
-        .map_err(|e| format!("buck2w output was not UTF-8: {e}"))?;
-    let wasm_rel = buck2_stdout
-        .lines()
-        .find_map(|line| {
-            let trimmed = line.trim();
-            trimmed
-                .strip_prefix("root//:baux-py-wasm ")
-                .or_else(|| trimmed.strip_prefix("//:baux-py-wasm "))
-        })
-        .map(str::trim)
-        .map(PathBuf::from)
-        .ok_or_else(|| {
-            format!("buck2w did not report //:baux-py-wasm output path: {buck2_stdout}")
-        })?;
-    let wasm_so = if wasm_rel.is_absolute() {
-        wasm_rel
+    let env_wasm = std::env::var("BAUX_WASM_SO").ok().and_then(|val| {
+        let trimmed = val.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            let p = PathBuf::from(trimmed);
+            let p = if p.is_absolute() { p } else { root.join(p) };
+            if p.is_file() { Some(p) } else { None }
+        }
+    });
+    let wasm_so = if let Some(p) = env_wasm {
+        p
     } else {
-        root.join(wasm_rel)
+        let buck2_out = Command::new(root.join("admin/tools/buck2w"))
+            .args(["build", "//:baux-py-wasm", "--show-output"])
+            .env("PATH", augmented_path())
+            .current_dir(root)
+            .stderr(Stdio::inherit())
+            .output()
+            .map_err(|e| format!("buck2w build //:baux-py-wasm: {e}"))?;
+        if !buck2_out.status.success() {
+            return Err(format!(
+                "buck2w build //:baux-py-wasm exited with {}",
+                buck2_out.status
+            ));
+        }
+        let buck2_stdout = String::from_utf8(buck2_out.stdout)
+            .map_err(|e| format!("buck2w output was not UTF-8: {e}"))?;
+        let wasm_rel = buck2_stdout
+            .lines()
+            .find_map(|line| {
+                let trimmed = line.trim();
+                trimmed
+                    .strip_prefix("root//:baux-py-wasm ")
+                    .or_else(|| trimmed.strip_prefix("//:baux-py-wasm "))
+            })
+            .map(str::trim)
+            .map(PathBuf::from)
+            .ok_or_else(|| {
+                format!("buck2w did not report //:baux-py-wasm output path: {buck2_stdout}")
+            })?;
+        let wasm_so = if wasm_rel.is_absolute() {
+            wasm_rel
+        } else {
+            root.join(wasm_rel)
+        };
+        if !wasm_so.is_file() {
+            return Err(format!(
+                "missing compiled wasm extension: {}",
+                wasm_so.display()
+            ));
+        }
+        wasm_so
     };
-    if !wasm_so.is_file() {
-        return Err(format!(
-            "missing compiled wasm extension: {}",
-            wasm_so.display()
-        ));
-    }
 
     let stage_dirs = [out_assets.clone(), bundle_assets.clone()];
     pages_repl::stage_repl(

@@ -50,7 +50,6 @@ WHEEL_INPUTS = (
     Path("admin/buck2/python.bzl"),
     Path("admin/targets.bzl"),
     Path("admin/toolchains"),
-    Path("data/recipes"),
     Path("admin/ops/cuda_wheel.py"),
     Path("admin/ops/modal_build.py"),
     Path("rust/crates/baux"),
@@ -324,6 +323,51 @@ def verify(artifact: str) -> str:
 
 def digest() -> str:
     result = hashlib.sha256()
+    buck2_inputs: set[Path] = set()
+    try:
+        output = subprocess.check_output(
+            ["./admin/tools/buck2w", "uquery", "inputs(deps(//:cuda-wheel))"],
+            cwd=ROOT,
+            text=True,
+            stderr=subprocess.DEVNULL,
+        )
+        for raw_line in output.splitlines():
+            line = raw_line.strip().strip('"').strip("'")
+            if not line:
+                continue
+            if "//" in line:
+                cell, rest = line.split("//", 1)
+                if cell and cell != "root":
+                    continue
+                line = rest
+            line = line.lstrip(":")
+            if line.startswith("/"):
+                try:
+                    rel = Path(line).relative_to(ROOT)
+                except ValueError:
+                    continue
+            else:
+                rel = Path(line)
+            buck2_inputs.add(rel)
+    except Exception:
+        buck2_inputs = set()
+
+    if buck2_inputs:
+        augmented = buck2_inputs | {
+            Path("BUCK"),
+            Path(".buckconfig"),
+            Path("admin/ops/modal_build.py"),
+        }
+        for relative in sorted(augmented, key=lambda p: p.as_posix()):
+            if any(part in IGNORED for part in relative.parts):
+                continue
+            path = ROOT / relative
+            if not path.is_file():
+                continue
+            result.update(relative.as_posix().encode())
+            result.update(path.read_bytes())
+        return result.hexdigest()
+
     try:
         files = subprocess.check_output(
             ["jj", "file", "list"],

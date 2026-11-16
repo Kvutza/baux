@@ -73,17 +73,17 @@ def test_bundle():
             assert 'id="docs-search"' in content, page
             assert 'id="main-content"' in content, page
 
-        assert (dest / "explorer.html").is_file()
+        assert (dest / "repl.html").is_file()
+        assert (dest / "simulation.html").is_file()
+        assert not (dest / "explorer.html").exists()
         assert not (dest / "playground.html").exists()
-        assert not (dest / "simulation.html").exists()
 
-        explorer_text = (dest / "explorer.html").read_text(encoding="utf-8")
-        assert 'id="py-playground-root"' in explorer_text
-        assert 'id="tokamak-cad-simulation"' in explorer_text
-        assert 'id="ocaml-bench-simulation"' in explorer_text
-        assert explorer_text.index('id="py-playground-root"') < explorer_text.index(
-            'id="tokamak-cad-simulation"'
-        )
+        repl_text = (dest / "repl.html").read_text(encoding="utf-8")
+        assert 'id="py-playground-root"' in repl_text
+
+        simulation_text = (dest / "simulation.html").read_text(encoding="utf-8")
+        assert 'id="tokamak-cad-simulation"' in simulation_text
+        assert 'id="ocaml-bench-simulation"' in simulation_text
 
         index_text = (dest / "index.html").read_text(encoding="utf-8")
         masthead_match = re.search(
@@ -93,8 +93,10 @@ def test_bundle():
         )
         assert masthead_match is not None
         masthead = masthead_match.group(1)
-        assert "explorer.html" in masthead
-        assert "Explorer" in masthead
+        assert "simulation.html" in masthead
+        assert "Examples" in masthead
+        assert "repl.html" in masthead
+        assert "REPL" in masthead
         assert "pypi.org" not in masthead
         assert "crates.io" not in masthead
 

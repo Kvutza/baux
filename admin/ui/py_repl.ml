@@ -2262,7 +2262,7 @@ let mount_playground (root : element Js.t) =
   let ex_menu = mk ~cls:"py-ex-menu" "div" in
   ex_menu##setAttribute (js "id") (js "py-ex-menu");
   ex_menu##setAttribute (js "role") (js "listbox");
-  ex_menu##setAttribute (js "aria-label") (js "Explorer examples");
+  ex_menu##setAttribute (js "aria-label") (js "REPL examples");
   ex_menu##setAttribute (js "hidden") (js "hidden");
   let ex_menu_hdr = mk ~cls:"py-ex-menu-hdr" "div" in
   Dom.appendChild ex_menu_hdr (mk ~cls:"py-ex-menu-hdr-title" ~txt:"Examples" "span");
@@ -3035,9 +3035,9 @@ let enhance_inline_blocks () =
                 let run_btn = mk ~cls:"code-run" ~txt:"Run" "button" in
                 run_btn##setAttribute (js "type") (js "button");
                 run_btn##setAttribute (js "title") (js "Run live in browser Python REPL");
-                let pg_btn = mk ~cls:"code-pg" ~txt:"Explorer" "button" in
+                let pg_btn = mk ~cls:"code-pg" ~txt:"REPL" "button" in
                 pg_btn##setAttribute (js "type") (js "button");
-                pg_btn##setAttribute (js "title") (js "Open in Explorer");
+                pg_btn##setAttribute (js "title") (js "Open in REPL");
                 Dom.appendChild actions run_btn;
                 Dom.appendChild actions pg_btn;
                 (match Js.Opt.to_option (wrap##querySelector (js ".code-copy")) with
@@ -3195,7 +3195,7 @@ let enhance_inline_blocks () =
                                 Js.Unsafe.inject (js (src ^ "\n"));
                               |])
                        with _ -> ());
-                      Dom_html.window##.location##.href := js (get_base_url () ^ "explorer.html");
+                      Dom_html.window##.location##.href := js (get_base_url () ^ "repl.html");
                       Js._true))
   done
 

@@ -562,7 +562,7 @@ spec = baux.pytree_bounds(
     low={"x0": -5.0},
     high={"x0": 5.0},
 )
-cfg = baux.turbo_enn(num_init=4, trust_region=baux.RegionalSearchPolicy(count=2))
+cfg = baux.lhd(4) | baux.enn() | baux.regions(count=2)
 blank = baux.init(spec, cfg, seed=7)
 state = blank
 

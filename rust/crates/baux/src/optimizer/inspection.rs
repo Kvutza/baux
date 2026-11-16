@@ -130,12 +130,20 @@ impl BayesOptimizer {
     }
 
     pub fn update_incumbent(&mut self, rng: &mut dyn RngCore) -> Result<(), ENNError> {
-        self.incumbent.update(
+        let incumbent = self.incumbent.clone();
+        self.incumbent = incumbent.update(
             &self.posterior,
             &self.regions,
             self.domain.num_dim(),
             self.config.noise_aware,
             rng,
-        )
+        )?;
+        Ok(())
+    }
+
+    /// Consume `self` to update incumbent and return `Self`.
+    pub fn updated_incumbent(mut self, rng: &mut dyn RngCore) -> Result<Self, ENNError> {
+        self.update_incumbent(rng)?;
+        Ok(self)
     }
 }

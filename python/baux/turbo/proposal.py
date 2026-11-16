@@ -7,8 +7,8 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 if TYPE_CHECKING:
-    from baux.enn.enn_class import ENN
     from baux.enn.enn_params import ENNParams
+    from baux.enn.enn_state import ENNState
     from numpy.random import Generator
 
     from .config.surrogate import NeighborIndex, SurrogateFit
@@ -25,10 +25,11 @@ def mk_enn(
     index_driver: NeighborIndex | None = None,
     rng: Generator | None = None,
     params_warm_start: ENNParams | None = None,
-) -> tuple[ENN | None, ENNParams | None]:
+) -> tuple[ENNState | None, ENNParams | None]:
     """Construct an ENN surrogate from observations and optionally fit its parameters."""
-    from baux.enn.enn_class import ENN
     from baux.enn.enn_params import ENNParams
+    from baux.enn.enn_state import enn_init
+    from baux.enn.enn_state import fit as fit_enn
 
     from .config.surrogate import NeighborIndex
 
@@ -47,32 +48,25 @@ def mk_enn(
         yvar_array = np.asarray(yvar_obs, dtype=float)
         if yvar_array.size > 0:
             yvar = yvar_array.reshape(-1, 1) if yvar_array.ndim == 1 else yvar_array
-    enn_model = ENN(
+    enn_state = enn_init(
         x_obs_array,
         y,
         yvar,
         scale_x=scale_x,
         index_driver=index_driver,
     )
-    if len(enn_model) == 0:
+    if len(enn_state) == 0:
         return None, None
-    fitted_params: ENNParams | None = None
     if fit is not None and fit.num_samples is not None and rng is not None:
-        from baux.enn.enn_fitter import ENNFitter
-
-        fitter = ENNFitter(
+        num_candidates = fit.num_candidates if fit.num_candidates is not None else 30
+        fitted_params = fit_enn(
+            enn_state,
             k=k,
-            rng=rng,
-            infer_aleatoric_variance_scale=fit.infer_aleatoric_variance_scale,
-        )
-        fitter.tell(x_obs_array, y, yvar)
-        fitted_params = fitter.ask(
-            enn_model,
-            num_candidates=(
-                fit.num_candidates if fit.num_candidates is not None else 30
-            ),
+            num_candidates=num_candidates,
             num_samples=fit.num_samples,
-            params_warm_start=params_warm_start,
+            infer_aleatoric=fit.infer_aleatoric_variance_scale,
+            seed=rng,
+            warm=params_warm_start,
         )
     else:
         fitted_params = ENNParams(
@@ -80,4 +74,4 @@ def mk_enn(
             epistemic_scale=1.0,
             aleatoric_scale=0.0,
         )
-    return enn_model, fitted_params
+    return enn_state, fitted_params

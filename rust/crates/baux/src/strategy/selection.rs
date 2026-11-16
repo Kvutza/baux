@@ -233,12 +233,12 @@ fn score_with(
     let n = local.nrows();
     let Some(surrogate) = surrogate else {
         return Ok((0..n)
-            .map(|_| rand::Rng::gen_range(rng, 0.0..1.0))
+            .map(|_| rand::Rng::gen_range(&mut *rng, 0.0..1.0))
             .collect());
     };
     match acquisition {
         AcquisitionConfig::Random => Ok((0..n)
-            .map(|_| rand::Rng::gen_range(rng, 0.0..1.0))
+            .map(|_| rand::Rng::gen_range(&mut *rng, 0.0..1.0))
             .collect()),
         AcquisitionConfig::Thompson => {
             let samples = surrogate.sample(local, 1, rng)?;
@@ -466,7 +466,7 @@ mod tests {
     use crate::error::ENNError;
     use crate::optimizer::{RegionalModelFactory, RegionalModels, Strategy, StrategyState};
     use crate::optimizer_config::{OptimizerConfig, SurrogateConfig};
-    use crate::surrogate::{Surrogate, SurrogatePrediction};
+    use crate::surrogate::{BoxedSurrogate, Surrogate, SurrogatePrediction};
     use ndarray::{Array1, Axis, array};
     use rand::SeedableRng;
     use rand::rngs::StdRng;
@@ -479,14 +479,24 @@ mod tests {
     }
 
     impl Surrogate for CallModel {
-        fn fit(
-            &mut self,
+        fn with_fit(
+            self: Box<Self>,
             _: &ArrayView2<f64>,
             _: &ArrayView2<f64>,
             _: Option<&ArrayView2<f64>>,
             _: &mut dyn RngCore,
-        ) -> Result<(), ENNError> {
-            Ok(())
+        ) -> Result<BoxedSurrogate, ENNError> {
+            Ok(self)
+        }
+
+        fn with_append(
+            self: Box<Self>,
+            _: &ArrayView2<f64>,
+            _: &ArrayView2<f64>,
+            _: Option<&ArrayView2<f64>>,
+            _: &mut dyn RngCore,
+        ) -> Result<BoxedSurrogate, ENNError> {
+            Ok(self)
         }
 
         fn predict(&self, x: &ArrayView2<f64>) -> Result<SurrogatePrediction, ENNError> {
@@ -519,6 +529,18 @@ mod tests {
 
         fn observation_count(&self) -> Option<usize> {
             Some(self.observations)
+        }
+
+        fn cleared(self: Box<Self>) -> Result<BoxedSurrogate, ENNError> {
+            Ok(self)
+        }
+
+        fn with_thawed(
+            self: Box<Self>,
+            _: &[u8],
+            _: &mut usize,
+        ) -> Result<BoxedSurrogate, ENNError> {
+            Ok(self)
         }
     }
 

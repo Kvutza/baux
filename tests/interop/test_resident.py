@@ -7,7 +7,8 @@ import pytest
 
 torch = pytest.importorskip("torch")
 
-from baux import ENN, capabilities
+from baux import capabilities
+from baux._rust import ENN
 from baux.enn.enn_params import ENNParams, PosteriorFlags
 from baux.turbo.config.surrogate import NeighborIndex
 
@@ -219,7 +220,7 @@ def test_torax():
     import json
     from pathlib import Path
 
-    from baux import verify_upstream_lock
+    from baux._rust import verify_upstream_lock
 
     from evals.torax.tcv_coupling import ToraxTcvBridge, eval_wpo_table6
 
@@ -270,7 +271,7 @@ def test_tokagym():
     if not upstream.is_dir():
         pytest.skip(f"upstream directory missing: {upstream}")
 
-    from baux import verify_upstream_lock
+    from baux._rust import verify_upstream_lock
 
     from evals.tokagym.tokagym_rollout import (
         ACTION_DIM,

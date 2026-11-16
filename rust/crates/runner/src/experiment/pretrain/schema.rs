@@ -4,6 +4,9 @@ use sha2::{Digest, Sha256};
 use std::fs;
 use std::path::Path;
 
+#[cfg(test)]
+mod tests;
+
 pub(crate) fn recipe(root: &Path, name: &str) -> Result<Value, String> {
     if !baux::config::valid_recipe(name) {
         return Err("pretraining recipe name must be lowercase kebab-case".into());
@@ -373,7 +376,7 @@ pub(crate) fn verify(path: &Path, expected: Option<&str>) -> Result<(), String> 
 }
 
 pub(crate) fn file_hash(path: &Path) -> Result<String, String> {
-    baux::artifact::runs::file_digest(path)
+    baux::artifact::pretrain::sha_digest(path)
 }
 
 pub(crate) fn string<'a>(value: &'a Value, key: &str) -> Result<&'a str, String> {

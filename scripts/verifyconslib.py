@@ -76,7 +76,7 @@ def check_enn() -> None:
     params = baux.enn.fit(st, k=3, num_samples=16, seed=42)
     post = baux.enn.posterior(st, x[:4], params)
     assert post.mu.shape[0] == 4, f"Expected 4 predictions, got {post.mu.shape}"
-    draws, idx = baux.enn.sample(st, x[:4], params, seeds=[0, 1, 2])
+    draws, _idx = baux.enn.sample(st, x[:4], params, seeds=[0, 1, 2])
     assert draws.shape == (4, 1, 3), f"Expected shape (4, 1, 3), got {draws.shape}"
     print(
         f"[✓] ENN surrogate fit, posterior (mean range: [{post.mu.min():.3f}, {post.mu.max():.3f}]), and sample verified."

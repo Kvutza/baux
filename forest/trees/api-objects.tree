@@ -1,85 +1,7 @@
-\title{In-place interfaces}
+\title{Resident objects}
 \meta{toc}{false}
 
-\p{These objects update in place. In particular, \code{optimizer.ask(N)} returns points directly and \code{optimizer.tell(x, y)} returns fitted means. The [functional interface](docs.html) returns a new state alongside its result.}
-
-\<section>[id]{baux.create_optimizer}[class]{api-entry}[data-symbol]{baux.create_optimizer}[data-kind]{function}[data-module]{baux.bo}{
-  \<div>[class]{api-entry-header}{\<h2>[class]{api-entry-title}{[\code{baux.create_optimizer}](api-objects.html#baux.create_optimizer)}}
-  \pre{
-baux.create_optimizer(*, bounds: np.ndarray, config: OptimizerConfig, rng: Generator) -> Optimizer
-  }
-  \p{Create an optimizer that updates in place.}
-  \p{All arguments are keyword-only. \code{bounds}: \code{(D, 2)} array. \code{config}: an \code{OptimizerConfig}. \code{rng}: a NumPy random generator. Returns \code{Optimizer}.}
-  \p{Use \code{baux.chain(...)} to compile transforms before passing them as \code{config}. For structured parameters and explicit state transitions, use \code{baux.init}.}
-  \<div>[class]{api-example}{\<p>[class]{example-label}{Example}
-\pre{
-import numpy as np
-import baux
-
-bounds = np.array([[-1.0, 1.0], [-2.0, 2.0]])
-cfg = (baux.enn(k=5) | baux.ucb(beta=1.5))()
-rng = np.random.default_rng(0)
-opt = baux.create_optimizer(bounds=bounds, config=cfg, rng=rng)
-x = opt.ask(num_arms=3)
-y = np.sum(x**2, axis=-1, keepdims=True)
-pred = opt.tell(x, y)
-telem = opt.telemetry()
-
-assert x.shape == (3, 2)
-assert pred.shape == (3, 1)
-assert isinstance(telem, baux.Telemetry)
-print("BayesOptimizer pred:", np.round(pred[:, 0], 4), "dt_fit:", round(telem.dt_fit, 4))
-}
-  }
-  \<p>[class]{api-source}{[Source in \code{python/baux/bo.py}](https://github.com/Kvutza/baux/blob/main/python/baux/bo.py#L356)}
-}
-
-\<section>[id]{baux.Optimizer}[class]{api-entry}[data-symbol]{baux.Optimizer}[data-kind]{class}[data-module]{baux.bo}{
-  \<div>[class]{api-entry-header}{\<h2>[class]{api-entry-title}{[\code{baux.Optimizer}](api-objects.html#baux.Optimizer)}}
-  \pre{
-baux.Optimizer(d: int, rng: Generator, inner: Any, *, identified_asks: bool = False)
-  }
-  \p{An in-place ask/tell optimizer.}
-  \p{Construct with \code{create_optimizer}. \code{ask(N)} returns a coordinate matrix; \code{ask_batch(N)} returns an \code{AskBatch} with typed regional tickets.}
-  \p{\code{tell(x, y, y_var=None)} records a batch and returns fitted means. \code{complete(ids, y, y_var=None)} and \code{cancel(ids)} update regional tickets in place and return \code{None}. \code{restart_region(slot, center)} returns abandoned tickets.}
-  \p{\code{import_observations(x, y, y_var=None)} adds external data. \code{posterior_mu(x)} predicts without ingestion. Properties include \code{num_observations}, \code{num_regions}, \code{tr_length}, \code{init_progress} and \code{pending_ids}. \code{telemetry()} returns phase timings.}
-  \<p>[class]{api-source}{[Source in \code{python/baux/bo.py}](https://github.com/Kvutza/baux/blob/main/python/baux/bo.py#L157)}
-}
-
-\<section>[id]{baux.ENN}[class]{api-entry}[data-symbol]{baux.ENN}[data-kind]{class}[data-module]{baux.enn}{
-  \<div>[class]{api-entry-header}{\<h2>[class]{api-entry-title}{[\code{baux.ENN}](api-objects.html#baux.ENN)}}
-  \pre{
-baux.ENN(
-    train_x: np.ndarray,
-    train_y: np.ndarray,
-    train_yvar: np.ndarray | None = None,
-    *,
-    scale_x: bool = False,
-    index_driver: NeighborIndex = NeighborIndex.FLAT,
-    work_dir: str | os.PathLike[str] | None = None,
-    enn_storage: str | None = None,
-    y_bounds: np.ndarray | None = None,
-    **options: Any,
-)
-  }
-  \p{A mutable ENN dataset and prediction model.}
-  \p{\code{train_x}: \code{(N, D)}. \code{train_y} and optional \code{train_yvar}: \code{(N, M)}. Unlike \code{enn_init}, this constructor requires two-dimensional output arrays.}
-  \p{\code{index_driver} selects the backend. Extra options include \code{device}, \code{index}, \code{storage}, \code{metric_learning}, \code{geometry} and \code{local_k}. \code{y_bounds} supplies \code{(M, 2)} output bounds.}
-  \p{\code{add(x, y, yvar=None)} appends in place. \code{posterior(x, params, flags=...)} returns moments; \code{posterior_draw(x, params, function_seeds=..., flags=...)} returns draws and neighbor IDs.}
-  \p{NumPy queries return \code{ENNNormal}. Supported device queries return a native \code{Posterior}. The presence of a device argument does not imply every operation runs there; inspect \code{capabilities}.}
-  \<p>[class]{api-source}{[Source in \code{python/baux/enn/enn_class.py}](https://github.com/Kvutza/baux/blob/main/python/baux/enn/enn_class.py#L186)}
-}
-
-\<section>[id]{baux.ENNFitter}[class]{api-entry}[data-symbol]{baux.ENNFitter}[data-kind]{class}[data-module]{baux.enn}{
-  \<div>[class]{api-entry-header}{\<h2>[class]{api-entry-title}{[\code{baux.ENNFitter}](api-objects.html#baux.ENNFitter)}}
-  \pre{
-baux.ENNFitter(k: int, rng: Generator, *, infer_aleatoric_variance_scale: bool = True)
-  }
-  \p{Track fitting statistics for a mutable ENN model.}
-  \p{\code{k}: neighbor count. \code{rng}: NumPy generator. \code{infer_aleatoric_variance_scale}: whether to fit the aleatoric scale.}
-  \p{Call \code{tell(x, y, yvar)} to update statistics, then \code{ask(model, num_candidates=..., num_samples=...)} to get \code{ENNParams}. For the functional equivalent, use \code{enn_fit}.}
-  \<p>[class]{api-source}{[Source in \code{python/baux/enn/enn_fitter.py}](https://github.com/Kvutza/baux/blob/main/python/baux/enn/enn_fitter.py#L19)}
-}
+\p{Resident objects encapsulate acceleration buffers, Metal search state, and multi-region portfolios. The functional interface (such as \code{baux.init}, \code{baux.ask}, and \code{baux.tell}) manipulates immutable \code{OptimizerState} values; these resident objects provide direct handle semantics for high-throughput GPU workflows and native buffers.}
 
 \<section>[id]{baux.Telemetry}[class]{api-entry}[data-symbol]{baux.Telemetry}[data-kind]{class}[data-module]{baux.turbo.optimizer_types}{
   \<div>[class]{api-entry-header}{\<h2>[class]{api-entry-title}{[\code{baux.Telemetry}](api-objects.html#baux.Telemetry)}}
@@ -93,47 +15,82 @@ baux.Telemetry(
 )
   }
   \p{Timings and candidate count from optimizer work.}
-  \p{\code{dt_fit}, \code{dt_sel}, \code{dt_gen} and \code{dt_tell} are durations in seconds. \code{num_candidates} is the candidate count. Available as \code{state.telemetry} or \code{optimizer.telemetry()}.}
+  \p{\code{dt_fit}, \code{dt_sel}, \code{dt_gen} and \code{dt_tell} are durations in seconds. \code{num_candidates} is the candidate count. Available on optimizer state as \code{state.telemetry}.}
+  \<div>[class]{api-example}{\<p>[class]{example-label}{Example}
+\pre{
+import numpy as np
+import baux
+
+bounds = np.array([[-1.0, 1.0], [-2.0, 2.0]])
+st = baux.init(bounds, seed=0)
+st, batch = baux.ask(st, 2)
+st, _ = baux.tell(st, batch, np.sum(batch.points**2, axis=-1, keepdims=True))
+telem = st.telemetry
+
+assert isinstance(telem, baux.Telemetry)
+assert telem.num_candidates >= 0
+print("telemetry:", telem.dt_fit, telem.dt_sel, telem.num_candidates)
+}
+  }
   \<p>[class]{api-source}{[Source in \code{python/baux/turbo/optimizer_types.py}](https://github.com/Kvutza/baux/blob/main/python/baux/turbo/optimizer_types.py#L26)}
 }
 
-\<section>[id]{baux.TellPredictionError}[class]{api-entry}[data-symbol]{baux.TellPredictionError}[data-kind]{class}[data-module]{baux.bo}{
-  \<div>[class]{api-entry-header}{\<h2>[class]{api-entry-title}{[\code{baux.TellPredictionError}](api-objects.html#baux.TellPredictionError)}}
+\<section>[id]{baux.Region}[class]{api-entry}[data-symbol]{baux.Region}[data-kind]{class}{
+  \<div>[class]{api-entry-header}{\<h2>[class]{api-entry-title}{[\code{baux.Region}](api-objects.html#baux.Region)}}
   \pre{
-class baux.TellPredictionError(RuntimeError)
+class baux.Region
   }
-  \p{Ingestion succeeded but retrieving predictions failed.}
-  \p{A \code{RuntimeError} subclass with \code{observations_accepted=True}. In the in-place optimizer, retry \code{optimizer.posterior_mu(x)} rather than submitting the same observations again. This exception does not classify errors from ingestion itself.}
-  \<p>[class]{api-source}{[Source in \code{python/baux/bo.py}](https://github.com/Kvutza/baux/blob/main/python/baux/bo.py#L94)}
+  \p{Apple Metal resident trust region search state.}
+  \p{Maintains trust region centers, local step sizing, success/failure counters, and on-device proposal generation for Apple Silicon acceleration. Call \code{region.ask(...)} to obtain \code{(next_region, trial)}, and \code{region.tell(trial, y)} to record objective values and return \code{(next_region, y_best)}.}
+  \<p>[class]{api-source}{[Source in \code{rust/crates/baux-py/src/py_metal.rs}](https://github.com/Kvutza/baux/blob/main/rust/crates/baux-py/src/py_metal.rs#L23)}
 }
 
-\<section>[id]{baux.enn_optimizer}[class]{api-entry}[data-symbol]{baux.enn_optimizer}[data-kind]{function}[data-module]{baux.bo}{
-  \<div>[class]{api-entry-header}{\<h2>[class]{api-entry-title}{[\code{baux.enn_optimizer}](api-objects.html#baux.enn_optimizer)}}
+\<section>[id]{baux.Trial}[class]{api-entry}[data-symbol]{baux.Trial}[data-kind]{class}{
+  \<div>[class]{api-entry-header}{\<h2>[class]{api-entry-title}{[\code{baux.Trial}](api-objects.html#baux.Trial)}}
   \pre{
-baux.enn_optimizer(bounds, k = 10, num_init = 10, seed = None, config = None)
+class baux.Trial
   }
-  \p{Construct the native ENN optimizer handle.}
-  \p{\code{bounds}: \code{(D, 2)} array; \code{k}: neighbor count; \code{num_init}: initialization budget. Returns a native optimizer handle. \code{config} uses the native configuration representation.}
-  \p{For Python configuration records and functional state, use \code{init}; for the in-place Python wrapper, use \code{create_optimizer}.}
-  \<p>[class]{api-source}{[Source in \code{rust/crates/baux-py/src/py_optimizer/build.rs}](https://github.com/Kvutza/baux/blob/main/rust/crates/baux-py/src/py_optimizer/build.rs)}
+  \p{Apple Metal resident proposal ticket.}
+  \p{Encapsulates candidate weights and coordinate evaluation tickets generated by a resident \code{Region}. Provides \code{trial.weights()} or \code{trial.var()} to access resident parameter buffers without host transfers.}
+  \<p>[class]{api-source}{[Source in \code{rust/crates/baux-py/src/py_metal/py_buf.rs}](https://github.com/Kvutza/baux/blob/main/rust/crates/baux-py/src/py_metal/py_buf.rs#L92)}
 }
 
-\<section>[id]{baux.create_zero}[class]{api-entry}[data-symbol]{baux.create_zero}[data-kind]{function}[data-module]{baux.bo}{
-  \<div>[class]{api-entry-header}{\<h2>[class]{api-entry-title}{[\code{baux.create_zero}](api-objects.html#baux.create_zero)}}
+\<section>[id]{baux.Portfolio}[class]{api-entry}[data-symbol]{baux.Portfolio}[data-kind]{class}{
+  \<div>[class]{api-entry-header}{\<h2>[class]{api-entry-title}{[\code{baux.Portfolio}](api-objects.html#baux.Portfolio)}}
   \pre{
-baux.create_zero(bounds, num_init = 10, seed = None, config = None)
+class baux.Portfolio
   }
-  \p{Construct the native surrogate-free optimizer handle.}
-  \p{\code{bounds}: \code{(D, 2)} array; \code{num_init}: initialization budget. Returns a native handle. \code{config} uses the native representation. The Python configuration preset is \code{turbo_zero}.}
-  \<p>[class]{api-source}{[Source in \code{rust/crates/baux-py/src/py_optimizer/build.rs}](https://github.com/Kvutza/baux/blob/main/rust/crates/baux-py/src/py_optimizer/build.rs)}
+  \p{Apple Metal multi-region portfolio search coordinator.}
+  \p{Coordinates multiple trust regions across diverse search spaces with resident allocation strategies and cross-region sharing. Call \code{portfolio.ask(...)} to obtain \code{(next_portfolio, trials)} as \code{RegionTrial} tickets, and \code{portfolio.tell(trials, y)} to return \code{(next_portfolio, imported)}.}
+  \<p>[class]{api-source}{[Source in \code{rust/crates/baux-py/src/py_portfolio.rs}](https://github.com/Kvutza/baux/blob/main/rust/crates/baux-py/src/py_portfolio.rs#L22)}
 }
 
-\<section>[id]{baux.create_lhd}[class]{api-entry}[data-symbol]{baux.create_lhd}[data-kind]{function}[data-module]{baux.bo}{
-  \<div>[class]{api-entry-header}{\<h2>[class]{api-entry-title}{[\code{baux.create_lhd}](api-objects.html#baux.create_lhd)}}
+\<section>[id]{baux.RegionTrial}[class]{api-entry}[data-symbol]{baux.RegionTrial}[data-kind]{class}{
+  \<div>[class]{api-entry-header}{\<h2>[class]{api-entry-title}{[\code{baux.RegionTrial}](api-objects.html#baux.RegionTrial)}}
   \pre{
-baux.create_lhd(bounds, num_init = 10, seed = None, config = None)
+class baux.RegionTrial
   }
-  \p{Construct the native LHD optimizer handle.}
-  \p{\code{bounds}: \code{(D, 2)} array; \code{num_init}: initialization budget. Returns a native handle. \code{config} uses the native representation. The Python configuration preset is \code{lhd_only}.}
-  \<p>[class]{api-source}{[Source in \code{rust/crates/baux-py/src/py_optimizer/build.rs}](https://github.com/Kvutza/baux/blob/main/rust/crates/baux-py/src/py_optimizer/build.rs)}
+  \p{Apple Metal multi-region proposal ticket.}
+  \p{Encapsulates candidate evaluation proposals returned from a \code{Portfolio}. Exposes \code{ticket.region}, \code{ticket.generation}, and \code{ticket.weights()} for evaluating points across regions.}
+  \<p>[class]{api-source}{[Source in \code{rust/crates/baux-py/src/py_portfolio.rs}](https://github.com/Kvutza/baux/blob/main/rust/crates/baux-py/src/py_portfolio.rs#L290)}
+}
+
+\<section>[id]{baux.Tensor}[class]{api-entry}[data-symbol]{baux.Tensor}[data-kind]{class}{
+  \<div>[class]{api-entry-header}{\<h2>[class]{api-entry-title}{[\code{baux.Tensor}](api-objects.html#baux.Tensor)}}
+  \pre{
+class baux.Tensor
+  }
+  \p{Device-resident multi-backend buffer with DLPack export.}
+  \p{Represents contiguous multi-dimensional arrays resident on accelerator backends (CPU, Metal, CUDA). Supports zero-copy DLPack protocol export via \code{__dlpack__()} and \code{__dlpack_device__()} to PyTorch, JAX, or NumPy.}
+  \<p>[class]{api-source}{[Source in \code{rust/crates/baux-py/src/py_posterior.rs}](https://github.com/Kvutza/baux/blob/main/rust/crates/baux-py/src/py_posterior.rs#L68)}
+}
+
+\<section>[id]{baux.Var}[class]{api-entry}[data-symbol]{baux.Var}[data-kind]{class}{
+  \<div>[class]{api-entry-header}{\<h2>[class]{api-entry-title}{[\code{baux.Var}](api-objects.html#baux.Var)}}
+  \pre{
+class baux.Var
+  }
+  \p{Apple Metal resident parameter weights buffer.}
+  \p{Encapsulates 16-bit float weight representations stored in Metal device memory, enabling parameter evaluation and kernel operations without CPU memory round-trips.}
+  \<p>[class]{api-source}{[Source in \code{rust/crates/baux-py/src/py_metal/py_buf.rs}](https://github.com/Kvutza/baux/blob/main/rust/crates/baux-py/src/py_metal/py_buf.rs#L17)}
 }

@@ -9,6 +9,7 @@ mod check;
 mod cuda_track;
 mod experiment;
 use experiment as cli_exp;
+mod invariants;
 mod pages;
 mod pages_repl;
 mod pages_verify;
@@ -55,7 +56,7 @@ enum Action {
     Test(smart_test::TestArgs),
     /// Format and verify JJ-tracked repository files.
     #[command(visible_alias = "gate", alias = "fmt")]
-    Check,
+    Check(check::CheckArgs),
     #[command(hide = true)]
     Names,
     /// Run a pretraining experiment or inspect saved experiment evidence.
@@ -98,7 +99,7 @@ fn run() -> Result<(), String> {
         Action::Feedback(args) => work::feedback(&root, args),
         Action::Build => build(&root, settings.build_system),
         Action::Test(args) => smart_test::run(&root, args, settings.build_system),
-        Action::Check => check::run(&root),
+        Action::Check(args) => check::run(&root, args),
         Action::Names => baux_tooling::names::cli(&root, &[], false),
         Action::Tune(args) => cli_exp::tune(&root, args, settings.build_system),
         Action::Cuda { command } => cuda_track::run(&root, command),

@@ -187,7 +187,8 @@ mod tests {
         for round in 0..16 {
             let arms = 1 + (round + seed as usize) % 4;
             let generation = optimizer.restart_generation();
-            let x = optimizer.ask(arms, &mut rng).unwrap();
+            let (next_opt, x) = optimizer.ask(arms, &mut rng).unwrap();
+            optimizer = next_opt;
             if optimizer.restart_generation() != generation {
                 expected_observations = 0;
             }
@@ -202,7 +203,9 @@ mod tests {
             let y = Array2::from_shape_fn((arms, 1), |(row, _)| {
                 objective(x.row(row).as_slice().unwrap(), round)
             });
-            optimizer.tell(&x.view(), &y.view(), &mut rng).unwrap();
+            optimizer = optimizer
+                .tell(&x.view(), &y.view(), None, &mut rng)
+                .unwrap();
             expected_observations += arms;
 
             assert_eq!(optimizer.obs_count(), expected_observations);
@@ -264,7 +267,9 @@ mod tests {
         for round in 0..64 {
             let x = array![[0.1 + 0.01 * round as f64, 0.2]];
             let y = array![[-(round as f64)]];
-            optimizer.tell(&x.view(), &y.view(), &mut rng).unwrap();
+            optimizer = optimizer
+                .tell(&x.view(), &y.view(), None, &mut rng)
+                .unwrap();
             assert_eq!(
                 optimizer.incumbent.observation_count(),
                 optimizer.obs_count(),
@@ -272,7 +277,8 @@ mod tests {
             );
         }
         assert_eq!(optimizer.restart_generation(), 0);
-        let restart_sample = optimizer.ask(1, &mut rng).unwrap();
+        let (next_opt, restart_sample) = optimizer.ask(1, &mut rng).unwrap();
+        optimizer = next_opt;
         assert_eq!(restart_sample.nrows(), 1);
         assert_eq!(optimizer.restart_generation(), 1);
         assert_eq!(optimizer.obs_count(), 0);
@@ -305,11 +311,15 @@ mod tests {
         };
         let mut rng = StdRng::seed_from_u64(99);
         let mut opt = spec_optimizer(bounds, &spec, 2, &mut rng).unwrap();
-        let x0 = opt.ask_natural(2, &mut rng).unwrap();
+        let (next_opt, x0) = opt.ask_natural(2, &mut rng).unwrap();
+        opt = next_opt;
         assert_eq!(x0.shape(), &[2, 2]);
-        opt.tell_natural(&x0.view(), &array![[1.0], [2.0]].view(), None, &mut rng)
+        opt = opt
+            .tell_natural(&x0.view(), &array![[1.0], [2.0]].view(), None, &mut rng)
             .unwrap();
-        let x1 = opt.ask_natural(2, &mut rng).unwrap();
+        let (next_opt, x1) = opt.ask_natural(2, &mut rng).unwrap();
+        opt = next_opt;
+        let _ = opt;
         assert_eq!(x1.shape(), &[2, 2]);
         assert!(spec_optimizer(array![[0.0, 1.0]], &OptimizerSpec::Muon, 2, &mut rng).is_err());
     }

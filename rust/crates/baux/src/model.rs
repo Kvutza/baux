@@ -130,7 +130,7 @@ impl ENN {
             y_bounds,
         } = options;
         Self::validate_shapes(&train_x, &train_y, train_yvar.as_ref())?;
-        let disk_work_dir = work_dir.clone().or_else(EnnStorage::work_env);
+        let disk_work_dir = work_dir.clone();
         let persisted_bounds = disk_work_dir.as_ref().and_then(|dir| {
             crate::y_bounds::load_metadata(dir, train_y.ncols())
                 .ok()
@@ -176,9 +176,9 @@ impl ENN {
                         "Disk storage requires IndexDriver::BpAnnDisk".to_string(),
                     ));
                 }
-                let dir = work_dir.or_else(EnnStorage::work_env).ok_or_else(|| {
+                let dir = work_dir.ok_or_else(|| {
                     ENNError::InvalidParameter(
-                        "Disk storage requires work_dir or BAUX_WORK_DIR".to_string(),
+                        "Disk storage requires an explicit work_dir".to_string(),
                     )
                 })?;
                 EnnBackend::new_disk(
@@ -193,6 +193,7 @@ impl ENN {
             }
         };
 
+        let initial_scale_info = std::sync::Arc::new((std::sync::Arc::from([]), 0, 1.0, 1.0));
         let mut model = Self {
             metric: None,
             metric_fixed: false,
@@ -216,13 +217,15 @@ impl ENN {
             x_sumsq,
             work_dir: disk_work_dir,
             dist_metric: baux::semantics::neighbor::DistanceMetric::Euclidean,
-            scale_cache: std::sync::Arc::new(std::sync::OnceLock::new()),
+            scale_info: initial_scale_info.clone(),
+            scale_cache: inspection::PureScaleCache(initial_scale_info),
         };
         if disk_reopen || model.num_obs != model.backend.len() {
-            sync_backend(&mut model)?;
+            model = sync_backend(model)?;
         }
         model.stiefel = model.stiefel.as_ref().map(|s| s.with_count(model.num_obs));
         model.y_metadata()?;
+        model = model.refresh_scales();
         Ok(model)
     }
 
@@ -234,7 +237,12 @@ impl ENN {
         work_dir: Option<PathBuf>,
         soft_threshold: Option<usize>,
     ) -> Result<Self, ENNError> {
-        let stored_work_dir = work_dir.clone().or_else(EnnStorage::work_env);
+        if storage == EnnStorage::Disk && work_dir.is_none() {
+            return Err(ENNError::InvalidParameter(
+                "Disk storage requires an explicit work_dir".to_string(),
+            ));
+        }
+        let stored_work_dir = work_dir.clone();
         let backend = EnnBackend::new_empty(
             num_dim,
             num_metrics,
@@ -249,6 +257,7 @@ impl ENN {
             .transpose()?
             .flatten()
             .unwrap_or_else(|| crate::y_bounds::unbounded_bounds(num_metrics));
+        let initial_scale_info = std::sync::Arc::new((std::sync::Arc::from([]), 0, 1.0, 1.0));
         let mut model = Self {
             metric: None,
             metric_fixed: false,
@@ -272,11 +281,13 @@ impl ENN {
             x_sumsq: Array1::zeros(num_dim),
             work_dir: stored_work_dir,
             dist_metric: baux::semantics::neighbor::DistanceMetric::Euclidean,
-            scale_cache: std::sync::Arc::new(std::sync::OnceLock::new()),
+            scale_info: initial_scale_info.clone(),
+            scale_cache: inspection::PureScaleCache(initial_scale_info),
         };
         if model.backend.len() != 0 {
-            sync_backend(&mut model)?;
+            model = sync_backend(model)?;
         }
+        model = model.refresh_scales();
         Ok(model)
     }
 
@@ -315,11 +326,11 @@ impl ENN {
     }
 
     pub fn add(
-        &mut self,
+        mut self,
         x: &ArrayView2<f64>,
         y: &ArrayView2<f64>,
         yvar: Option<&ArrayView2<f64>>,
-    ) -> Result<(), ENNError> {
+    ) -> Result<Self, ENNError> {
         if let Some(err) = self.validate_add(x, y, yvar) {
             return Err(err);
         }
@@ -329,18 +340,19 @@ impl ENN {
             ));
         }
         if x.nrows() > 0 {
-            self.backend.wait_flush()?;
+            self.backend = self.backend.wait_flush()?;
             if self.bounded_outputs {
                 let warped_y = crate::y_bounds::warp_y(*y, &self.y_bounds)?;
                 let warped_yvar = yvar
                     .map(|yv| crate::y_bounds::warp_yvar(*y, *yv, &self.y_bounds))
                     .transpose()?;
                 let warped_yvar_view = warped_yvar.as_ref().map(|v| v.view());
-                self.backend
-                    .append_rows(x, &warped_y.view(), warped_yvar_view.as_ref())?;
+                self.backend =
+                    self.backend
+                        .append_rows(x, &warped_y.view(), warped_yvar_view.as_ref())?;
                 accumulate_columns(&mut self.y_sum, &mut self.y_sumsq, warped_y.view());
             } else {
-                self.backend.append_rows(x, y, yvar)?;
+                self.backend = self.backend.append_rows(x, y, yvar)?;
                 accumulate_columns(&mut self.y_sum, &mut self.y_sumsq, y.view());
             }
             let n = self.backend.len();
@@ -348,15 +360,15 @@ impl ENN {
 
             if self.scale_x && !self.metric_fixed {
                 accumulate_columns(&mut self.x_sum, &mut self.x_sumsq, x.view());
-                self.refresh_scale(n)?;
+                self = self.refresh_scale(n)?;
             }
 
             self.num_obs = n;
-            self.scale_cache = std::sync::Arc::new(std::sync::OnceLock::new());
             self.stiefel = self.stiefel.as_ref().map(|s| s.with_count(self.num_obs));
-            self.observe_metric(x, y)?;
+            self = self.observe_metric(x, y)?;
+            self = self.refresh_scales();
         }
-        Ok(())
+        Ok(self)
     }
 
     pub fn append_cow(
@@ -365,23 +377,22 @@ impl ENN {
         y: &ArrayView2<f64>,
         yvar: Option<&ArrayView2<f64>>,
     ) -> Result<Self, ENNError> {
-        let mut next = self.clone();
-        next.scale_cache = std::sync::Arc::new(std::sync::OnceLock::new());
-        next.add(x, y, yvar)?;
-        Ok(next)
+        self.clone().add(x, y, yvar)
     }
 
     /// Schedule a background index flush when pending rows exceed the disk
     /// threshold.
-    pub fn schedule_flush(&self) -> Result<(), ENNError> {
-        self.backend.schedule_flush()
+    pub fn schedule_flush(mut self) -> Result<Self, ENNError> {
+        self.backend = self.backend.schedule_flush()?;
+        Ok(self)
     }
 
     /// Merge in-memory index fragments and persist a single on-disk BPANN
     /// index.
-    pub fn persist_index(&self) -> Result<(), ENNError> {
-        crate::backend::enn_index(&self.backend)?;
-        self.y_metadata()
+    pub fn persist_index(mut self) -> Result<Self, ENNError> {
+        self.backend = self.backend.persist_index()?;
+        self.y_metadata()?;
+        Ok(self)
     }
 
     pub fn natural_rows(
@@ -455,7 +466,7 @@ impl ENN {
             return Ok(Array2::zeros((x.nrows(), 0)));
         }
         if !self.backend.defers_search() {
-            self.ensure_sync()?;
+            self.index_access().ensure_sync()?;
         }
         let (_, idx_full) = self.backend.search(x, search_k as i32, exclude_nearest)?;
         let k_out = (k as usize).min(idx_full.ncols());
@@ -487,14 +498,14 @@ impl ENN {
         exclude_nearest: bool,
     ) -> Result<(Array2<f64>, Array2<i64>), ENNError> {
         if !self.backend.defers_search() {
-            self.ensure_sync()?;
+            self.index_access().ensure_sync()?;
         }
         self.backend.search(x, search_k, exclude_nearest)
     }
 
     pub(crate) fn freeze_model(&self, buf: &mut Vec<u8>) -> Result<(), ENNError> {
         use crate::snapshot_io::{write_arr, write_bool, write_len, write_mat};
-        self.backend.wait_flush()?;
+        let _ = self.backend.clone().wait_flush()?;
         let n = self.num_obs;
         let indices: Vec<usize> = (0..n).collect();
         let (x, y_stored, yvar_stored) = if n > 0 {
@@ -614,7 +625,7 @@ impl ENN {
             y_bounds,
             ..
         } = options;
-        let disk_work_dir = work_dir.clone().or_else(EnnStorage::work_env);
+        let disk_work_dir = work_dir.clone();
         let y_bounds = match y_bounds {
             Some(requested) => requested,
             None => crate::y_bounds::unbounded_bounds(num_metrics),
@@ -635,8 +646,7 @@ impl ENN {
                     return Err(bad_state("Disk storage requires IndexDriver::BpAnnDisk"));
                 }
                 let dir = work_dir
-                    .or_else(EnnStorage::work_env)
-                    .ok_or_else(|| bad_state("Disk storage requires work_dir or BAUX_WORK_DIR"))?;
+                    .ok_or_else(|| bad_state("Disk storage requires an explicit work_dir"))?;
                 EnnBackend::new_disk(
                     dir,
                     train_x,
@@ -658,6 +668,7 @@ impl ENN {
             model_unscaled.sort_unstable();
             model_unscaled.dedup();
         }
+        let initial_scale_info = std::sync::Arc::new((std::sync::Arc::from([]), 0, 1.0, 1.0));
         let mut model = Self {
             metric,
             metric_fixed,
@@ -681,7 +692,8 @@ impl ENN {
             x_sumsq,
             work_dir: disk_work_dir,
             dist_metric: geometry,
-            scale_cache: std::sync::Arc::new(std::sync::OnceLock::new()),
+            scale_info: initial_scale_info.clone(),
+            scale_cache: inspection::PureScaleCache(initial_scale_info),
         };
         if let Some(st) = stiefel {
             model = model.with_stiefel(st)?;
@@ -690,6 +702,7 @@ impl ENN {
             model = model.with_affine(aff)?;
         }
         model.y_metadata()?;
+        model = model.refresh_scales();
         Ok(model)
     }
 
@@ -725,13 +738,13 @@ const STATS_CHUNK: usize = 1 << 16;
 
 /// Rebuild observation count and scale moments from persisted backend rows
 /// (disk reopen).
-fn sync_backend(model: &mut ENN) -> Result<(), ENNError> {
+fn sync_backend(mut model: ENN) -> Result<ENN, ENNError> {
     model.num_dim = model.backend.num_dim();
     model.num_metrics = model.backend.num_metrics();
     let n = model.backend.len();
     model.num_obs = n;
     if n == 0 {
-        return Ok(());
+        return Ok(model);
     }
     let mut y_sum = Array1::zeros(model.num_metrics);
     let mut y_sumsq = Array1::zeros(model.num_metrics);
@@ -757,8 +770,9 @@ fn sync_backend(model: &mut ENN) -> Result<(), ENNError> {
         model.x_scale = model.data_scale(n);
         model.built_scale = model.x_scale.clone();
     }
-    model.backend.ensure_sync(model.scale_x, &model.x_scale)?;
-    Ok(())
+    model.backend = model.backend.ensure_sync(model.scale_x, &model.x_scale)?;
+    model = model.refresh_scales();
+    Ok(model)
 }
 
 fn column_sumsq(a: ArrayView2<f64>) -> (Array1<f64>, Array1<f64>) {
@@ -829,8 +843,8 @@ mod tests {
     fn test_ennadd() {
         let train_x = array![[0.0, 0.0], [1.0, 0.0]];
         let train_y = array![[0.0], [1.0]];
-        let mut model = ENN::new(train_x, train_y, None, false, IndexDriver::Exact).unwrap();
-        model
+        let model = ENN::new(train_x, train_y, None, false, IndexDriver::Exact).unwrap();
+        let model = model
             .add(&array![[0.0, 1.0]].view(), &array![[1.0]].view(), None)
             .unwrap();
         assert_eq!(model.len(), 3);
@@ -841,7 +855,7 @@ mod tests {
         let rows = array![[1.0, 2.0], [3.0, 4.0]];
         let mut storage = RowStorage::from_array(rows.clone());
         assert_eq!(storage.nrows(), 2);
-        storage.push_rows(&array![[5.0, 6.0]].view()).unwrap();
+        storage = storage.push_rows(&array![[5.0, 6.0]].view()).unwrap();
         assert_eq!(storage.nrows(), 3);
         let (sum, sumsq) = column_sumsq(rows.view());
         let mut sum2 = sum.clone();
@@ -853,9 +867,9 @@ mod tests {
 
     #[test]
     fn test_004() {
-        let mut model =
+        let model =
             ENN::new_empty(2, 1, IndexDriver::Exact, EnnStorage::InMemory, None, None).unwrap();
-        model
+        let model = model
             .add(&array![[1.0, 2.0]].view(), &array![[3.0]].view(), None)
             .unwrap();
         let x = model.rows().row_x(0).unwrap();
@@ -876,7 +890,7 @@ mod tests {
 
     #[test]
     fn accessors_report() {
-        let mut model = ENN::new(
+        let model = ENN::new(
             array![[0.0, 0.0], [1.0, 0.0]],
             array![[0.0], [1.0]],
             None,
@@ -887,15 +901,16 @@ mod tests {
         assert!(!model.scales_x());
         assert_eq!(model.backend_driver(), IndexDriver::Exact);
         let _ = model.x_scale();
-        model
+        let model = model
             .add(&array![[0.5, 0.5]].view(), &array![[0.5]].view(), None)
             .unwrap();
+        assert_eq!(model.len(), 3);
     }
 
     #[test]
     fn bounded_trip() {
         let bounds = array![[0.0, 1.0]];
-        let mut model = ENN::new_options(
+        let model = ENN::new_options(
             array![[0.0], [1.0]],
             array![[0.2], [0.8]],
             None,
@@ -910,12 +925,13 @@ mod tests {
         assert!((model.rows().row_y(0).unwrap()[0] - 0.2).abs() > 1e-6);
         assert!((model.natural_y(0).unwrap()[0] - 0.2).abs() < 1e-12);
 
-        model
+        let model = model
             .add(&array![[2.0]].view(), &array![[0.6]].view(), None)
             .unwrap();
         assert!((model.natural_y(2).unwrap()[0] - 0.6).abs() < 1e-12);
         assert!(
             model
+                .clone()
                 .add(&array![[3.0]].view(), &array![[1.0]].view(), None)
                 .is_err()
         );
@@ -939,7 +955,8 @@ mod tests {
             },
         )
         .unwrap();
-        model.persist_index().unwrap();
+        let model = model.persist_index().unwrap();
+        drop(model);
 
         let reopened = ENN::new_options(
             Array2::zeros((0, 1)),

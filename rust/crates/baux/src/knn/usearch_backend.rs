@@ -1,6 +1,8 @@
 #[cfg(all(feature = "usearch", feature = "usearch-native"))]
 compile_error!("features \"usearch\" and \"usearch-native\" are mutually exclusive");
 
+use std::sync::Arc;
+
 use ndarray::{Array2, ArrayView1, ArrayView2};
 
 use super::pad_k;
@@ -266,45 +268,38 @@ use binding::BackendIndex;
 #[cfg(feature = "usearch-native")]
 use binding::BackendIndex;
 
-pub(crate) struct USearchBackend {
-    index: BackendIndex,
+struct USearchInner {
+    index: std::sync::Mutex<BackendIndex>,
     rows: Vec<f64>,
     num_dim: usize,
 }
 
-impl USearchBackend {
-    pub(crate) fn new(num_dim: usize, train_scaled: &ArrayView2<f64>) -> Result<Self, IndexError> {
-        if num_dim == 0 {
-            return Err(IndexError::InvalidParameter(
-                "USearch requires at least one dimension".to_string(),
-            ));
-        }
+impl USearchInner {
+    fn new(num_dim: usize) -> Result<Self, IndexError> {
         let index = BackendIndex::new(num_dim)?;
-        let mut backend = Self {
-            index,
+        Ok(Self {
+            index: std::sync::Mutex::new(index),
             rows: Vec::new(),
             num_dim,
-        };
-        backend.add(train_scaled, 0)?;
-        Ok(backend)
+        })
     }
 
-    pub(crate) fn len(&self) -> usize {
-        self.rows.len() / self.num_dim
+    fn from_existing(rows: &[f64], num_dim: usize) -> Result<Self, IndexError> {
+        let mut index = BackendIndex::new(num_dim)?;
+        let row_count = rows.len() / num_dim;
+        index.reserve(row_count).map_err(usearch_error)?;
+        for (i, chunk) in rows.chunks_exact(num_dim).enumerate() {
+            let vector: Vec<f32> = chunk.iter().map(|v| *v as f32).collect();
+            index.add(i as u64, &vector).map_err(usearch_error)?;
+        }
+        Ok(Self {
+            index: std::sync::Mutex::new(index),
+            rows: rows.to_vec(),
+            num_dim,
+        })
     }
 
-    pub(crate) fn memory_bytes(&self) -> usize {
-        self.index
-            .memory_bytes()
-            .saturating_add(self.rows.len().saturating_mul(std::mem::size_of::<f64>()))
-    }
-
-    pub(crate) fn rebuild(&mut self, train_scaled: &ArrayView2<f64>) -> Result<(), IndexError> {
-        *self = Self::new(self.num_dim, train_scaled)?;
-        Ok(())
-    }
-
-    pub(crate) fn add(
+    fn add_slice(
         &mut self,
         rows_scaled: &ArrayView2<f64>,
         start_key: u64,
@@ -315,50 +310,126 @@ impl USearchBackend {
                 got: rows_scaled.ncols(),
             });
         }
-        if start_key != self.len() as u64 {
+        if start_key != (self.rows.len() / self.num_dim) as u64 {
             return Err(IndexError::InvalidParameter(format!(
                 "USearch keys must be contiguous: expected {}, got {start_key}",
-                self.len()
+                self.rows.len() / self.num_dim
             )));
         }
         if rows_scaled.is_empty() {
             return Ok(());
         }
 
-        self.index
-            .reserve(self.len() + rows_scaled.nrows())
+        let index = self
+            .index
+            .get_mut()
+            .map_err(|e| IndexError::InvalidParameter(e.to_string()))?;
+        index
+            .reserve((self.rows.len() / self.num_dim) + rows_scaled.nrows())
             .map_err(usearch_error)?;
         for (offset, row) in rows_scaled.rows().into_iter().enumerate() {
             let vector: Vec<f32> = row.iter().map(|value| *value as f32).collect();
-            self.index
+            index
                 .add(start_key + offset as u64, &vector)
                 .map_err(usearch_error)?;
             self.rows.extend(row);
         }
         Ok(())
     }
+}
 
-    pub(crate) fn search(
+#[derive(Clone)]
+pub(crate) struct USearchBackend {
+    inner: Arc<USearchInner>,
+}
+
+impl std::fmt::Debug for USearchBackend {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("USearchBackend")
+            .field("num_dim", &self.inner.num_dim)
+            .field("len", &self.len())
+            .finish()
+    }
+}
+
+impl USearchBackend {
+    pub(crate) fn new(num_dim: usize, train_scaled: &ArrayView2<f64>) -> Result<Self, IndexError> {
+        if num_dim == 0 {
+            return Err(IndexError::InvalidParameter(
+                "USearch requires at least one dimension".to_string(),
+            ));
+        }
+        let mut inner = USearchInner::new(num_dim)?;
+        inner.add_slice(train_scaled, 0)?;
+        Ok(Self {
+            inner: Arc::new(inner),
+        })
+    }
+
+    pub(crate) fn len(&self) -> usize {
+        self.inner.rows.len() / self.inner.num_dim
+    }
+
+    pub(crate) fn memory_bytes(&self) -> usize {
+        let index_bytes = self.inner.index.lock().map_or(0, |idx| idx.memory_bytes());
+        index_bytes.saturating_add(
+            self.inner
+                .rows
+                .len()
+                .saturating_mul(std::mem::size_of::<f64>()),
+        )
+    }
+
+    pub fn rebuild(self, train_scaled: &ArrayView2<f64>) -> Result<Self, IndexError> {
+        Self::new(self.inner.num_dim, train_scaled)
+    }
+
+    pub fn add(self, rows_scaled: &ArrayView2<f64>, start_key: u64) -> Result<Self, IndexError> {
+        let mut inner = match Arc::try_unwrap(self.inner) {
+            Ok(inner) => inner,
+            Err(shared) => USearchInner::from_existing(&shared.rows, shared.num_dim)?,
+        };
+        inner.add_slice(rows_scaled, start_key)?;
+        Ok(Self {
+            inner: Arc::new(inner),
+        })
+    }
+
+    pub fn search(
         &self,
         queries_scaled: &ArrayView2<f64>,
         k_eff: usize,
         search_k: usize,
     ) -> Result<(Array2<f64>, Array2<i64>), IndexError> {
-        if queries_scaled.ncols() != self.num_dim {
+        if queries_scaled.ncols() != self.inner.num_dim {
             return Err(IndexError::InvalidShape {
-                expected: self.num_dim,
+                expected: self.inner.num_dim,
                 got: queries_scaled.ncols(),
             });
         }
 
         let mut distances = Array2::from_elem((queries_scaled.nrows(), k_eff), f64::INFINITY);
         let mut indices = Array2::zeros((queries_scaled.nrows(), k_eff));
-        let shortlist_len = k_eff.max(self.index.expansion_search()).min(self.len());
+        let shortlist_len = {
+            let index = self
+                .inner
+                .index
+                .lock()
+                .map_err(|e| IndexError::InvalidParameter(e.to_string()))?;
+            k_eff.max(index.expansion_search()).min(self.len())
+        };
         let exact = shortlist_len == self.len();
         for (query_index, query) in queries_scaled.rows().into_iter().enumerate() {
             let query_f32: Vec<f32> = query.iter().map(|value| *value as f32).collect();
-            let keys = self.index.search(&query_f32, shortlist_len, exact)?;
-            let neighbors = rerank(query, &keys, &self.rows, self.num_dim, k_eff)?;
+            let keys = {
+                let index = self
+                    .inner
+                    .index
+                    .lock()
+                    .map_err(|e| IndexError::InvalidParameter(e.to_string()))?;
+                index.search(&query_f32, shortlist_len, exact)?
+            };
+            let neighbors = rerank(query, &keys, &self.inner.rows, self.inner.num_dim, k_eff)?;
             if neighbors.len() != k_eff {
                 return Err(IndexError::InvalidParameter(format!(
                     "USearch returned {} candidates for requested k={k_eff}",
@@ -371,6 +442,21 @@ impl USearchBackend {
             }
         }
         Ok(pad_k(distances, indices, search_k))
+    }
+
+    pub fn search_profile(
+        &self,
+        queries_scaled: &ArrayView2<f64>,
+        k_eff: usize,
+        search_k: usize,
+    ) -> Result<((Array2<f64>, Array2<i64>), Option<crate::knn::KnnProfile>), IndexError> {
+        let output = self.search(queries_scaled, k_eff, search_k)?;
+        Ok((output, None))
+    }
+
+    #[inline]
+    pub fn lock(&self) -> Result<&Self, std::convert::Infallible> {
+        Ok(self)
     }
 }
 
@@ -393,18 +479,18 @@ mod tests {
     fn add_keys() {
         let train = array![[0.0, 0.0], [1.0, 0.0]];
         let mut backend = USearchBackend::new(2, &train.view()).unwrap();
-        backend.add(&array![[0.0, 1.0]].view(), 2).unwrap();
+        backend = backend.add(&array![[0.0, 1.0]].view(), 2).unwrap();
         assert_eq!(backend.len(), 3);
         let (_, indices) = backend.search(&array![[0.0, 0.9]].view(), 2, 2).unwrap();
         assert_eq!(indices[[0, 0]], 2);
 
-        backend.rebuild(&train.view()).unwrap();
+        backend = backend.rebuild(&train.view()).unwrap();
         assert_eq!(backend.len(), 2);
     }
 
     #[test]
     fn rejects_keys() {
-        let mut backend = USearchBackend::new(2, &array![[0.0, 0.0]].view()).unwrap();
+        let backend = USearchBackend::new(2, &array![[0.0, 0.0]].view()).unwrap();
         let error = backend.add(&array![[1.0, 1.0]].view(), 3).unwrap_err();
         assert!(error.to_string().contains("contiguous"));
     }

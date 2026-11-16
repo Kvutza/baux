@@ -60,10 +60,7 @@ def chain(
     """Compose left-to-right pipeline transforms into a validated `OptimizerConfig`."""
     cfg = OptimizerConfig()
     for step in steps:
-        if isinstance(step, OptimizerConfig):
-            cfg = step
-        else:
-            cfg = step(cfg)
+        cfg = step if isinstance(step, OptimizerConfig) else step(cfg)
     return cfg
 
 
@@ -399,7 +396,7 @@ __all__ = [
     "sobol",
     "thompson",
     "tr_bounds",
-    "uniform_pert",
     "ucb",
+    "uniform_pert",
     "zero",
 ]

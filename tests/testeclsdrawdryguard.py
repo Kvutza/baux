@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
+import baux
 import numpy as np
-from baux.enn.enn_class import ENN
 from baux.enn.enn_params import ENNParams, PosteriorFlags
 
 
 def _tinymodel():
     train_x = np.array([[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]], dtype=float)
     train_y = np.array([[0.1], [0.2], [0.3]], dtype=float)
-    return ENN(train_x, train_y)
+    return baux.enn_init(train_x, train_y)
 
 
 def test_001():
@@ -75,7 +75,7 @@ def test_005():
     """Byte-level guard on one deterministic draw (update only if ENN math intentionally changes)."""
     train_x = np.array([[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [1.0, 1.0]], dtype=float)
     train_y = np.array([[0.0], [1.0], [1.0], [2.0]], dtype=float)
-    model = ENN(train_x, train_y)
+    model = baux.enn_init(train_x, train_y)
     x = np.array([[0.25, 0.25]], dtype=float)
     params = ENNParams(2, 1.0, 0.1)
     seeds = np.array([42, 43], dtype=np.int64)

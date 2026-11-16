@@ -208,11 +208,7 @@ pub(crate) fn parse_storage(
         Some("memory" | "in_memory" | "InMemory" | "MEMORY" | "ram" | "RAM") => {
             Ok(baux::EnnStorage::InMemory)
         }
-        None if work_dir.is_some()
-            || driver == baux::IndexDriver::BpAnnDisk && baux::EnnStorage::work_env().is_some() =>
-        {
-            Ok(baux::EnnStorage::Disk)
-        }
+        None if work_dir.is_some() => Ok(baux::EnnStorage::Disk),
         None => Ok(baux::EnnStorage::InMemory),
         Some(other) => Err(PyValueError::new_err(format!(
             "Unknown enn_storage: {other}"
@@ -254,12 +250,12 @@ fn parse_metric(spec: &Bound<'_, PyAny>) -> PyResult<MetricSpec> {
 }
 
 pub(crate) fn apply_metric(
-    model: &mut baux::ENN,
+    mut model: baux::ENN,
     metric: Option<&Bound<'_, PyAny>>,
     scale_x: bool,
-) -> PyResult<()> {
+) -> PyResult<baux::ENN> {
     let Some(spec) = metric else {
-        return Ok(());
+        return Ok(model);
     };
     let (ml_str, tied, unscaled, seed) = parse_metric(spec)?;
     let ml = match ml_str.as_deref() {
@@ -273,28 +269,28 @@ pub(crate) fn apply_metric(
                 "metric_learning='auto' requires scale_x=False",
             ));
         }
-        model
+        model = model
             .learn_metric(tied.unwrap_or_default(), baux::resolve_seed(seed))
             .map_err(|e| PyValueError::new_err(e.to_string()))?;
     } else if let Some(groups) = tied {
-        model
+        model = model
             .set_tied(groups.clone())
             .map_err(|e| PyValueError::new_err(e.to_string()))?;
         if scale_x && unscaled.is_none() {
             let mut uniq: Vec<usize> = groups.into_iter().flatten().collect();
             uniq.sort_unstable();
             uniq.dedup();
-            model
+            model = model
                 .set_unscaled(uniq)
                 .map_err(|e| PyValueError::new_err(e.to_string()))?;
         }
     }
     if let Some(dims) = unscaled {
-        model
+        model = model
             .set_unscaled(dims)
             .map_err(|e| PyValueError::new_err(e.to_string()))?;
     }
-    Ok(())
+    Ok(model)
 }
 
 pub(crate) fn metric_dict<'py>(

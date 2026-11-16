@@ -1,7 +1,7 @@
 //! Stateful ENN hyperparameter fitting with incremental statistics.
 
 use ndarray::{Array1, Array2, ArrayView2, Axis};
-use rand::Rng;
+use rand::{Rng, RngCore};
 
 use crate::error::ENNError;
 use crate::model::ENN;
@@ -22,7 +22,9 @@ pub fn fit_model(
     if model.bounded_outputs() {
         fitter = fitter.with_bounds(Some(model.y_bounds().clone()));
     }
-    fitter.ask(model, num_candidates, num_samples, warm.as_ref(), &mut rng)
+    let (_fitter, params) =
+        fitter.ask(model, num_candidates, num_samples, warm.as_ref(), &mut rng)?;
+    Ok(params)
 }
 
 /// Stateful ENN fitter: running `y` moments and warm-start params.
@@ -59,6 +61,11 @@ impl ENNFitter {
 
     pub fn set_bounds(&mut self, bounds: Option<Array2<f64>>) {
         self.y_bounds = bounds;
+    }
+
+    pub fn with_params(mut self, params: ENNParams) -> Self {
+        self.params = Some(params);
+        self
     }
 
     pub fn params(&self) -> Option<&ENNParams> {
@@ -153,12 +160,17 @@ impl ENNFitter {
         }
     }
 
+    pub fn observe_y(mut self, y_new: &ArrayView2<f64>) -> Self {
+        self.update_y(y_new);
+        self
+    }
+
     pub fn tell(
-        &mut self,
+        mut self,
         x: &ArrayView2<f64>,
         y: &ArrayView2<f64>,
         yvar: Option<&ArrayView2<f64>>,
-    ) -> Result<(), ENNError> {
+    ) -> Result<Self, ENNError> {
         if x.iter().any(|v| !v.is_finite()) {
             return Err(ENNError::InvalidParameter(
                 "x must contain only finite values".to_string(),
@@ -201,11 +213,11 @@ impl ENNFitter {
             if !crate::y_bounds::identity_bounds(bounds) {
                 let y_z = crate::y_bounds::warp_y(*y, bounds)?;
                 self.update_y(&y_z.view());
-                return Ok(());
+                return Ok(self);
             }
         }
         self.update_y(y);
-        Ok(())
+        Ok(self)
     }
 
     pub fn y_std(&self) -> Array1<f64> {
@@ -223,19 +235,19 @@ impl ENNFitter {
     }
 
     #[cfg(test)]
-    pub(crate) fn build_candidates<R: Rng>(
+    pub(crate) fn build_candidates(
         &self,
         num_random: usize,
-        rng: &mut R,
+        rng: &mut dyn RngCore,
     ) -> Result<Vec<ENNParams>, ENNError> {
         self.scaled_candidates(num_random, 1.0, rng)
     }
 
-    fn scaled_candidates<R: Rng>(
+    fn scaled_candidates(
         &self,
         num_random: usize,
         d_scale: f64,
-        rng: &mut R,
+        rng: &mut dyn RngCore,
     ) -> Result<Vec<ENNParams>, ENNError> {
         if num_random == 0 {
             return Ok(vec![]);
@@ -264,12 +276,12 @@ impl ENNFitter {
         Ok(paramss)
     }
 
-    fn candidates<R: Rng>(
+    fn candidates(
         &self,
         num_candidates: usize,
         d_scale: f64,
         params_warm_start: Option<&ENNParams>,
-        rng: &mut R,
+        rng: &mut dyn RngCore,
     ) -> Result<Vec<ENNParams>, ENNError> {
         let mut paramss = self.scaled_candidates(num_candidates, d_scale, rng)?;
         let warm = params_warm_start.or(self.params.as_ref());
@@ -292,20 +304,20 @@ impl ENNFitter {
         Ok(paramss)
     }
 
-    pub fn ask<R: Rng>(
-        &mut self,
+    pub fn ask(
+        mut self,
         model: &ENN,
         num_candidates: usize,
         num_samples: usize,
-        params_warm_start: Option<&ENNParams>,
-        rng: &mut R,
-    ) -> Result<ENNParams, ENNError> {
+        prior: Option<&ENNParams>,
+        rng: &mut dyn RngCore,
+    ) -> Result<(Self, ENNParams), ENNError> {
         if model.num_obs() < 2 {
             let best = ENNParams::new(self.k, 1.0, 0.0).map_err(|e| {
                 ENNError::InvalidParameter(format!("Failed to create default params: {e}"))
             })?;
             self.params = Some(best);
-            return Ok(best);
+            return Ok((self, best));
         }
         if self.y_count != model.num_obs() || self.num_metrics != model.num_metrics() {
             self.y_count = model.num_obs();
@@ -313,7 +325,7 @@ impl ENNFitter {
             self.y_sum = model.y_sum.clone();
             self.y_sumsq = model.y_sumsq.clone();
         }
-        let paramss = self.candidates(num_candidates, 1.0, params_warm_start, rng)?;
+        let paramss = self.candidates(num_candidates, 1.0, prior, rng)?;
         let indices = baux::semantics::neighbor::sampled_rows(model.len(), num_samples, rng);
         let y_std = self.y_std();
         let logliks = crate::fit::row_loglik(
@@ -333,26 +345,26 @@ impl ENNFitter {
             .ok_or_else(|| ENNError::InvalidParameter("no valid likelihood candidates".into()))?;
         let best = paramss[best_idx];
         self.params = Some(best);
-        Ok(best)
+        Ok((self, best))
     }
 
     /// Fit ENN scales from outcomes and their exact pairwise squared distances.
-    pub fn ask_distances<R: Rng>(
-        &mut self,
+    pub fn ask_distances(
+        mut self,
         distances: &ArrayView2<f64>,
         y: &ArrayView2<f64>,
         yvar: Option<&ArrayView2<f64>>,
         num_candidates: usize,
         num_samples: usize,
         params_warm_start: Option<&ENNParams>,
-        rng: &mut R,
-    ) -> Result<ENNParams, ENNError> {
+        rng: &mut dyn RngCore,
+    ) -> Result<(Self, ENNParams), ENNError> {
         if y.nrows() < 2 {
             let best = ENNParams::new(self.k, 1.0, 0.0).map_err(|error| {
                 ENNError::InvalidParameter(format!("Failed to create default params: {error}"))
             })?;
             self.params = Some(best);
-            return Ok(best);
+            return Ok((self, best));
         }
         self.y_stats(y);
         let d_scale = characteristic_distance(distances);
@@ -376,14 +388,14 @@ impl ENNFitter {
             .ok_or_else(|| ENNError::InvalidParameter("no valid likelihood candidates".into()))?;
         let best = paramss[best_idx];
         self.params = Some(best);
-        Ok(best)
+        Ok((self, best))
     }
 
     /// Fit variance scales and then select `k` by the same leave-one-out
     /// predictive likelihood. The configured value is an upper bound; every
     /// feasible integer count participates rather than a hand-written grid.
-    pub fn ask_adaptive<R: Rng>(
-        &mut self,
+    pub fn ask_adaptive(
+        mut self,
         distances: &ArrayView2<f64>,
         y: &ArrayView2<f64>,
         yvar: Option<&ArrayView2<f64>>,
@@ -391,8 +403,8 @@ impl ENNFitter {
         num_candidates: usize,
         num_samples: usize,
         params_warm_start: Option<&ENNParams>,
-        rng: &mut R,
-    ) -> Result<ENNParams, ENNError> {
+        rng: &mut dyn RngCore,
+    ) -> Result<(Self, ENNParams), ENNError> {
         if max_k <= 0 {
             return Err(ENNError::InvalidParameter(
                 "adaptive neighbor fitting requires max_k > 0".into(),
@@ -400,7 +412,7 @@ impl ENNFitter {
         }
         let prev_k = self.k;
         self.k = max_k;
-        let scale_fit = self.ask_distances(
+        let (mut this, mut scale_fit) = self.ask_distances(
             distances,
             y,
             yvar,
@@ -408,15 +420,14 @@ impl ENNFitter {
             num_samples,
             params_warm_start,
             rng,
-        );
-        self.k = prev_k;
-        let mut scale_fit = scale_fit?;
+        )?;
+        this.k = prev_k;
         if y.nrows() <= 2 {
             scale_fit.k_neighbors = scale_fit
                 .k_neighbors
                 .min((y.nrows().saturating_sub(1)).max(1) as i32);
-            self.params = Some(scale_fit);
-            return Ok(scale_fit);
+            this.params = Some(scale_fit);
+            return Ok((this, scale_fit));
         }
         let largest = usize::try_from(max_k)
             .unwrap_or(usize::MAX)
@@ -431,7 +442,7 @@ impl ENNFitter {
                 .map_err(|error| ENNError::InvalidParameter(error.to_string()))
             })
             .collect::<Result<Vec<_>, _>>()?;
-        let y_std = self.y_std();
+        let y_std = this.y_std();
         let scores = crate::fit::distance_loglik(
             distances,
             y,
@@ -452,8 +463,8 @@ impl ENNFitter {
             })
             .map(|(params, _)| params)
             .ok_or_else(|| ENNError::InvalidParameter("no valid neighbor count".into()))?;
-        self.params = Some(best);
-        Ok(best)
+        this.params = Some(best);
+        Ok((this, best))
     }
 }
 
@@ -476,12 +487,12 @@ mod tests {
     fn test_ennfitteraskbasic() {
         let model = create_test_model();
         let mut rng = StdRng::seed_from_u64(42);
-        let mut fitter = ENNFitter::new(2, true);
+        let fitter = ENNFitter::new(2, true);
         let all: Vec<usize> = (0..model.len()).collect();
         let (_, ty, _) = model.rows().train_rows(&all).unwrap();
-        fitter.y_stats(&ty.view());
+        let fitter = fitter.observe_y(&ty.view());
 
-        let result = fitter.ask(&model, 5, 3, None, &mut rng).unwrap();
+        let (_fitter, result) = fitter.ask(&model, 5, 3, None, &mut rng).unwrap();
 
         assert_eq!(result.k_neighbors, 2);
         assert!(result.epistemic_scale > 0.0);
@@ -492,14 +503,14 @@ mod tests {
     fn test_005() {
         let model = create_test_model();
         let mut rng = StdRng::seed_from_u64(42);
-        let mut fitter = ENNFitter::new(2, true);
+        let fitter = ENNFitter::new(2, true);
         let all: Vec<usize> = (0..model.len()).collect();
         let (_, ty, _) = model.rows().train_rows(&all).unwrap();
-        fitter.y_stats(&ty.view());
+        let fitter = fitter.observe_y(&ty.view());
 
         let warm_start = ENNParams::new(2, 1.5, 0.2).unwrap();
 
-        let result = fitter
+        let (_fitter, result) = fitter
             .ask(&model, 5, 3, Some(&warm_start), &mut rng)
             .unwrap();
 
@@ -511,12 +522,12 @@ mod tests {
     fn test_006() {
         let model = create_test_model();
         let mut rng = StdRng::seed_from_u64(42);
-        let mut fitter = ENNFitter::new(2, false);
+        let fitter = ENNFitter::new(2, false);
         let all: Vec<usize> = (0..model.len()).collect();
         let (_, ty, _) = model.rows().train_rows(&all).unwrap();
-        fitter.y_stats(&ty.view());
+        let fitter = fitter.observe_y(&ty.view());
 
-        let result = fitter.ask(&model, 5, 3, None, &mut rng).unwrap();
+        let (_fitter, result) = fitter.ask(&model, 5, 3, None, &mut rng).unwrap();
 
         assert_eq!(result.k_neighbors, 2);
         assert!(result.epistemic_scale > 0.0);
@@ -530,12 +541,12 @@ mod tests {
         let model = ENN::new(train_x, train_y, None, false, IndexDriver::Exact).unwrap();
 
         let mut rng = StdRng::seed_from_u64(42);
-        let mut fitter = ENNFitter::new(2, true);
+        let fitter = ENNFitter::new(2, true);
         let all: Vec<usize> = (0..model.len()).collect();
         let (_, ty, _) = model.rows().train_rows(&all).unwrap();
-        fitter.y_stats(&ty.view());
+        let fitter = fitter.observe_y(&ty.view());
 
-        let result = fitter.ask(&model, 5, 3, None, &mut rng).unwrap();
+        let (_fitter, result) = fitter.ask(&model, 5, 3, None, &mut rng).unwrap();
 
         assert_eq!(result.k_neighbors, 2);
         assert!(result.epistemic_scale > 0.0);
@@ -543,7 +554,7 @@ mod tests {
 
     #[test]
     fn y_finite() {
-        let mut fitter = ENNFitter::new(2, true);
+        let fitter = ENNFitter::new(2, true);
         let x = array![[0.0, 0.0]];
         let y = array![[f64::NAN]];
         assert!(fitter.tell(&x.view(), &y.view(), None).is_err());
@@ -551,7 +562,7 @@ mod tests {
 
     #[test]
     fn x_finite() {
-        let mut fitter = ENNFitter::new(2, true);
+        let fitter = ENNFitter::new(2, true);
         let x = array![[f64::NAN, 0.0]];
         let y = array![[0.0]];
         assert!(fitter.tell(&x.view(), &y.view(), None).is_err());
@@ -559,13 +570,14 @@ mod tests {
 
     #[test]
     fn tell_yvar() {
-        let mut fitter = ENNFitter::new(2, true);
+        let fitter = ENNFitter::new(2, true);
         let x = array![[0.0, 0.0], [1.0, 0.0]];
         let y = array![[0.0]];
-        assert!(fitter.tell(&x.view(), &y.view(), None).is_err());
+        assert!(fitter.clone().tell(&x.view(), &y.view(), None).is_err());
         let yvar = array![[0.1, 0.2]];
         assert!(
             fitter
+                .clone()
                 .tell(&x.view(), &y.view(), Some(&yvar.view()))
                 .is_err()
         );
@@ -589,11 +601,12 @@ mod tests {
             IndexDriver::Exact,
         )
         .unwrap();
-        let mut fitter = ENNFitter::new(2, true);
-        fitter.tell(&train_x.view(), &train_y.view(), None).unwrap();
+        let fitter = ENNFitter::new(2, true)
+            .tell(&train_x.view(), &train_y.view(), None)
+            .unwrap();
         let warm = ENNParams::new(2, 2.5, 0.3).unwrap();
         let mut rng = StdRng::seed_from_u64(7);
-        let p = fitter.ask(&model, 0, 2, Some(&warm), &mut rng).unwrap();
+        let (_fitter, p) = fitter.ask(&model, 0, 2, Some(&warm), &mut rng).unwrap();
         assert_eq!(p.k_neighbors, 2);
         assert!((p.epistemic_scale - 2.5).abs() < 1e-12);
     }
@@ -603,13 +616,13 @@ mod tests {
         let train_x = array![[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [1.0, 1.0]];
         let train_y = array![[0.0], [1.0], [1.0], [2.0]];
         let model = ENN::new(train_x, train_y, None, false, IndexDriver::Exact).unwrap();
-        let mut fitter = ENNFitter::new(2, false);
+        let fitter = ENNFitter::new(2, false);
         let all: Vec<usize> = (0..model.len()).collect();
         let (_, ty, _) = model.rows().train_rows(&all).unwrap();
-        fitter.y_stats(&ty.view());
+        let fitter = fitter.observe_y(&ty.view());
         let warm = ENNParams::new(2, 2.5, 9.9).unwrap();
         let mut rng = StdRng::seed_from_u64(8);
-        let p = fitter.ask(&model, 2, 2, Some(&warm), &mut rng).unwrap();
+        let (_fitter, p) = fitter.ask(&model, 2, 2, Some(&warm), &mut rng).unwrap();
         assert_eq!(p.aleatoric_scale, 0.0);
     }
 
@@ -618,9 +631,9 @@ mod tests {
         let train_x = array![[0.0, 0.0]];
         let train_y = array![[0.0]];
         let model = ENN::new(train_x, train_y, None, false, IndexDriver::Exact).unwrap();
-        let mut fitter = ENNFitter::new(3, true);
+        let fitter = ENNFitter::new(3, true);
         let mut rng = StdRng::seed_from_u64(1);
-        let p = fitter.ask(&model, 5, 3, None, &mut rng).unwrap();
+        let (_fitter, p) = fitter.ask(&model, 5, 3, None, &mut rng).unwrap();
         assert_eq!(p.k_neighbors, 3);
         assert!((p.epistemic_scale - 1.0).abs() < 1e-12);
         assert!((p.aleatoric_scale - 0.0).abs() < 1e-12);
@@ -642,7 +655,7 @@ mod tests {
         for (i, row) in train_y.axis_iter(Axis(0)).enumerate() {
             let y_row = row.insert_axis(Axis(0));
             let x_row = train_x.slice(s![i..i + 1, ..]);
-            fitter.tell(&x_row, &y_row, None).unwrap();
+            fitter = fitter.tell(&x_row, &y_row, None).unwrap();
         }
         let batch_std = train_y.std_axis(Axis(0), 0.0);
         let inc_std = fitter.y_std();
@@ -663,9 +676,9 @@ mod tests {
 
     #[test]
     fn fitter_updates() {
-        let mut fitter = ENNFitter::new(2, true);
+        let fitter = ENNFitter::new(2, true);
         let y = array![[1.0], [2.0]];
-        fitter.update_y(&y.view());
+        let fitter = fitter.observe_y(&y.view());
         let mut rng = StdRng::seed_from_u64(0);
         let cands = fitter.build_candidates(3, &mut rng).unwrap();
         assert_eq!(cands.len(), 3);
@@ -677,9 +690,9 @@ mod tests {
         let distances = Array2::from_shape_fn((x.len(), x.len()), |(i, j)| (x[i] - x[j]).powi(2));
         let y = Array2::from_shape_fn((x.len(), 1), |(i, _)| x[i]);
         let variance = Array2::from_elem((x.len(), 1), 1.0e-4);
-        let mut fitter = ENNFitter::new(3, true);
+        let fitter = ENNFitter::new(3, true);
         let mut rng = StdRng::seed_from_u64(29);
-        let fitted = fitter
+        let (fitter, fitted) = fitter
             .ask_adaptive(
                 &distances.view(),
                 &y.view(),
@@ -704,9 +717,9 @@ mod tests {
         assert_eq!(p1, p2);
         assert_eq!(p1.k_neighbors, 2);
 
-        let mut fitter = ENNFitter::new(2, true);
+        let fitter = ENNFitter::new(2, true);
         let mut rng = key.prng();
-        let p3 = fitter.ask(&model, 5, 3, None, &mut rng).unwrap();
+        let (_fitter, p3) = fitter.ask(&model, 5, 3, None, &mut rng).unwrap();
         assert_eq!(p1, p3);
     }
 }

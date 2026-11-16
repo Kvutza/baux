@@ -1,4 +1,3 @@
-# ruff: noqa: F401
 """Composable optimizer configuration."""
 
 from .acquisition import (
@@ -59,10 +58,10 @@ from .trust_region import (
 )
 
 __all__ = [
-    "AllocationPolicy",
     "AcqOptimizerConfig",
     "AcquisitionConfig",
     "AcquisitionKind",
+    "AllocationPolicy",
     "CandidateConfig",
     "CandidateSampler",
     "DistanceMetric",
@@ -76,7 +75,6 @@ __all__ = [
     "LHDOnlyInit",
     "MorboTrustRegion",
     "MultiObjectiveConfig",
-    "RegionalSearchPolicy",
     "NDSOptimizerConfig",
     "NeighborIndex",
     "NoSurrogate",
@@ -87,9 +85,10 @@ __all__ = [
     "RAASPDriver",
     "RAASPOptimizerConfig",
     "RandomAcquisitionConfig",
-    "RescalePolicy",
-    "Rescalarize",
     "RegionController",
+    "RegionalSearchPolicy",
+    "Rescalarize",
+    "RescalePolicy",
     "RestartCenterPolicy",
     "RestartCenterSelection",
     "RestartMemoryPolicy",

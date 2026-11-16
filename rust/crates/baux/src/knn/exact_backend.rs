@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use deser::{Deserialize, Serialize};
 use ndarray::{Array2, ArrayView2};
 
@@ -185,10 +187,11 @@ pub(crate) fn unpack_search(
     (dist2s, indices)
 }
 
+#[derive(Clone, Debug)]
 pub(crate) struct ExactBackend {
-    rows: Array2<f64>,
-    keys: Vec<u64>,
-    num_dim: usize,
+    pub(crate) rows: Arc<Vec<f64>>,
+    pub(crate) keys: Arc<Vec<u64>>,
+    pub(crate) num_dim: usize,
 }
 
 impl ExactBackend {
@@ -199,15 +202,23 @@ impl ExactBackend {
                 got: train_scaled.ncols(),
             });
         }
+        let rows = train_scaled.iter().copied().collect::<Vec<_>>();
+        let keys = (0..train_scaled.nrows())
+            .map(|i| i as u64)
+            .collect::<Vec<_>>();
         Ok(Self {
-            rows: train_scaled.to_owned(),
-            keys: (0..train_scaled.nrows()).map(|i| i as u64).collect(),
+            rows: Arc::new(rows),
+            keys: Arc::new(keys),
             num_dim,
         })
     }
 
     pub(crate) fn len(&self) -> usize {
-        self.rows.nrows()
+        self.keys.len()
+    }
+
+    pub(crate) fn is_empty(&self) -> bool {
+        self.keys.is_empty()
     }
 
     pub(crate) fn memory_bytes(&self) -> usize {
@@ -215,23 +226,27 @@ impl ExactBackend {
             + self.keys.len().saturating_mul(std::mem::size_of::<u64>())
     }
 
-    pub(crate) fn rebuild(&mut self, train_scaled: &ArrayView2<f64>) -> Result<(), IndexError> {
+    pub fn rebuild(mut self, train_scaled: &ArrayView2<f64>) -> Result<Self, IndexError> {
         if train_scaled.ncols() != self.num_dim {
             return Err(IndexError::InvalidShape {
                 expected: self.num_dim,
                 got: train_scaled.ncols(),
             });
         }
-        self.rows = train_scaled.to_owned();
-        self.keys = (0..train_scaled.nrows()).map(|i| i as u64).collect();
-        Ok(())
+        let rows = Arc::make_mut(&mut self.rows);
+        rows.clear();
+        rows.extend(train_scaled.iter().copied());
+        let keys = Arc::make_mut(&mut self.keys);
+        keys.clear();
+        keys.extend((0..train_scaled.nrows()).map(|i| i as u64));
+        Ok(self)
     }
 
-    pub(crate) fn add(
-        &mut self,
+    pub fn add(
+        mut self,
         rows_scaled: &ArrayView2<f64>,
         start_key: u64,
-    ) -> Result<(), IndexError> {
+    ) -> Result<Self, IndexError> {
         if rows_scaled.ncols() != self.num_dim {
             return Err(IndexError::InvalidShape {
                 expected: self.num_dim,
@@ -239,16 +254,16 @@ impl ExactBackend {
             });
         }
         if rows_scaled.nrows() == 0 {
-            return Ok(());
+            return Ok(self);
         }
-        self.rows = ndarray::concatenate![ndarray::Axis(0), self.rows.view(), rows_scaled.view()];
-        self.keys
+        Arc::make_mut(&mut self.rows).extend(rows_scaled.iter().copied());
+        Arc::make_mut(&mut self.keys)
             .extend((0..rows_scaled.nrows()).map(|i| start_key + i as u64));
-        Ok(())
+        Ok(self)
     }
 
-    pub(crate) fn search(
-        &mut self,
+    pub fn search(
+        &self,
         queries_scaled: &ArrayView2<f64>,
         k_eff: usize,
         search_k: usize,
@@ -264,7 +279,7 @@ impl ExactBackend {
         for (qi, query) in queries_scaled.outer_iter().enumerate() {
             let mut pairs = self
                 .rows
-                .outer_iter()
+                .chunks_exact(self.num_dim)
                 .zip(self.keys.iter().copied())
                 .map(|(row, key)| {
                     let dist2 = row
@@ -289,5 +304,15 @@ impl ExactBackend {
             }
         }
         Ok(pad_k(dist2s, indices, search_k))
+    }
+
+    pub fn search_profile(
+        &self,
+        queries_scaled: &ArrayView2<f64>,
+        k_eff: usize,
+        search_k: usize,
+    ) -> Result<((Array2<f64>, Array2<i64>), Option<crate::knn::KnnProfile>), IndexError> {
+        let output = self.search(queries_scaled, k_eff, search_k)?;
+        Ok((output, None))
     }
 }

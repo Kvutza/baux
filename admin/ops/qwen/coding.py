@@ -61,7 +61,7 @@ def solution_tokens(
         or encoded.offsets[-1][1] != len(text)
     ):
         raise BoundaryError("Tokenization does not preserve the exact text boundary")
-    tokens = list(encoded.ids) + [Config().eos_token_id]
+    tokens = [*list(encoded.ids), Config().eos_token_id]
     mask.append(True)
     mask[0] = False
     return tokens, mask

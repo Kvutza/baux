@@ -183,11 +183,11 @@ impl CandlePpo {
     /// Records a completed episode trajectory and runs a multi-epoch PPO update
     /// on the Metal GPU once `BATCH_EPISODES` episodes have been collected.
     pub fn record_step(
-        &mut self,
+        mut self,
         obs: Vec<f32>,
         u: Vec<f32>,
         rewards: Vec<f32>,
-    ) -> Result<bool, String> {
+    ) -> Result<(Self, bool), String> {
         let steps = rewards.len();
         assert_eq!(obs.len(), steps * self.obs_dim);
         assert_eq!(u.len(), steps * self.action_dim);
@@ -198,11 +198,11 @@ impl CandlePpo {
             steps,
         });
         if self.buffer.len() < BATCH_EPISODES {
-            return Ok(false);
+            return Ok((self, false));
         }
         self.ppo_update()?;
         self.buffer.clear();
-        Ok(true)
+        Ok((self, true))
     }
 
     fn actor_forward(&self, obs: &Tensor) -> candle_core::Result<Tensor> {
@@ -409,11 +409,11 @@ fn compute_gae(buffer: &[EpisodeStepBatch], values: &[f32]) -> (Vec<f32>, Vec<f3
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tokamak::rollout_traj;
+    use crate::rollout_traj;
 
     #[test]
     fn candle_metal() {
-        let mut rng = crate::prng(42);
+        let mut rng = baux::prng(42);
         let init_weights = vec![0.0f64; TOTAL_PARAMS];
         let mut agent = CandlePpo::new(&init_weights, &mut rng).expect("init CandlePpo");
         #[cfg(all(target_os = "macos", feature = "metal"))]
@@ -428,7 +428,9 @@ mod tests {
                 .expect("sample noise");
             let (score, obs, u, rewards) = rollout_traj(&weights, &eps, steps);
             assert!(score.is_finite());
-            if agent.record_step(obs, u, rewards).expect("ppo step") {
+            let (next_agent, did_update) = agent.record_step(obs, u, rewards).expect("ppo step");
+            agent = next_agent;
+            if did_update {
                 updated = true;
             }
         }
@@ -443,7 +445,7 @@ mod tests {
 
     #[test]
     fn flat_ppo() {
-        let mut rng = crate::prng(77);
+        let mut rng = baux::prng(77);
         let dim = 32;
         let mut agent = FlatPpo::new(dim, 4).expect("init FlatPpo");
         #[cfg(all(target_os = "macos", feature = "metal"))]
@@ -455,7 +457,9 @@ mod tests {
                 .sample_unit(r == 0, &mut rng, &mut unit)
                 .expect("sample unit");
             let score: f64 = -unit.iter().map(|&u| (u - 0.8) * (u - 0.8)).sum::<f64>();
-            if agent.observe(&raw, score).expect("observe") {
+            let (next_agent, did_step) = agent.observe(&raw, score).expect("observe");
+            agent = next_agent;
+            if did_step {
                 stepped = true;
             }
         }
@@ -560,19 +564,19 @@ impl FlatPpo {
         Ok(raw)
     }
 
-    pub fn observe(&mut self, raw_u: &[f32], reward: f64) -> Result<bool, String> {
+    pub fn observe(mut self, raw_u: &[f32], reward: f64) -> Result<(Self, bool), String> {
         if raw_u.len() != self.dim {
             return Err("FlatPpo::observe action dimension mismatch".into());
         }
         self.batch_u.extend_from_slice(raw_u);
         self.batch_r.push(reward as f32);
         if self.batch_r.len() < self.batch_cap {
-            return Ok(false);
+            return Ok((self, false));
         }
         self.step_ppo()?;
         self.batch_u.clear();
         self.batch_r.clear();
-        Ok(true)
+        Ok((self, true))
     }
 
     fn log_prob(&self, u_t: &Tensor) -> candle_core::Result<(Tensor, Tensor)> {

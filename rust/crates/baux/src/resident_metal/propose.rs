@@ -12,6 +12,30 @@
 
 use super::*;
 use crate::apple_gpu::gpu_interval;
+use metal::MTLResourceOptions;
+use std::sync::Arc;
+
+fn unique_buffer(runtime: &Runtime, buf: &mut Arc<Buffer>) -> Result<(), String> {
+    if Arc::strong_count(buf) > 1 {
+        let fresh = runtime.device.new_buffer(
+            buf.length(),
+            MTLResourceOptions::StorageModeShared | MTLResourceOptions::HazardTrackingModeTracked,
+        );
+        let command = runtime.queue.new_command_buffer();
+        let blit = command.new_blit_command_encoder();
+        blit.copy_from_buffer(&**buf, 0, &fresh, 0, buf.length());
+        blit.end_encoding();
+        finish(command)?;
+        *buf = Arc::new(fresh);
+    }
+    Ok(())
+}
+
+#[inline]
+#[allow(dead_code)]
+fn cow_buffer(runtime: &Runtime, buf: &mut Arc<Buffer>) -> Result<(), String> {
+    unique_buffer(runtime, buf)
+}
 
 impl SearchState {
     /// Produce one pending, fully materialized trial from the configured pool.
@@ -24,32 +48,29 @@ impl SearchState {
     /// the corresponding tell policy. Does not evaluate a forward pass,
     /// record a loss, or accept an update.
     pub fn propose(
-        &mut self,
+        mut self,
         seed: u64,
         mut config: RoundConfig,
         initial_slot: usize,
         forced: Option<usize>,
-    ) -> Result<(Buffer, Proposals, bool), String> {
+    ) -> Result<(Self, (Buffer, Proposals, bool)), String> {
         let history = self.history_len()?;
         let initializing = history < config.surrogate.neighbors;
         let pool_count = self.pool_layout.count() as usize;
+        let arms = self.pool_layout.arms() as usize;
+        let slots = self.pool_layout.slots() as usize;
         let initial_slot = initial_slot % pool_count;
-        let row = if initializing {
+        let (state, row) = if initializing {
             self.begin_initial(seed, initial_slot)?
         } else {
             config.surrogate.neighbors = config.surrogate.neighbors.min(history);
             match forced {
                 Some(slot) => self.begin_forced(seed, config, slot % pool_count)?,
-                None => self.begin_ask(
-                    self.pool_layout.arms() as usize,
-                    self.pool_layout.slots() as usize,
-                    seed,
-                    config,
-                )?,
+                None => self.begin_ask(arms, slots, seed, config)?,
             }
         };
-        let proposal = self.finish_ask()?;
-        Ok((row, proposal, initializing))
+        let (state, proposal) = state.finish_ask()?;
+        Ok((state, (row, proposal, initializing)))
     }
 
     /// Synchronously surrogate-score the pool and publish one trial handle.
@@ -57,12 +78,12 @@ impl SearchState {
     /// configured layout or its accepted flat 1xN view. The trial uses the
     /// state's precision/program; this API is not limited to correlated BF16.
     pub fn ask_round(
-        &mut self,
+        mut self,
         arms: usize,
         candidates: usize,
         seed: u64,
         config: RoundConfig,
-    ) -> Result<Proposals, String> {
+    ) -> Result<(Self, Proposals), String> {
         autoreleasepool(|| self.ask_inner(arms, candidates, seed, config))
     }
 
@@ -73,12 +94,12 @@ impl SearchState {
     /// contents are not CPU-ready on return. No candidate objective is
     /// evaluated by this method.
     pub fn begin_ask(
-        &mut self,
+        mut self,
         arms: usize,
         candidates: usize,
         seed: u64,
         config: RoundConfig,
-    ) -> Result<Buffer, String> {
+    ) -> Result<(Self, Buffer), String> {
         self.begin_mode(arms, candidates, seed, config, None)
     }
 
@@ -86,21 +107,17 @@ impl SearchState {
     /// Rejects out-of-range indices and otherwise follows `begin_ask`'s queue
     /// lifecycle. This changes selection only, not generation or tell policy.
     pub fn begin_forced(
-        &mut self,
+        mut self,
         seed: u64,
         config: RoundConfig,
         candidate: usize,
-    ) -> Result<Buffer, String> {
+    ) -> Result<(Self, Buffer), String> {
         if candidate >= self.pool_layout.count() as usize {
             return Err("Diagnostic candidate must be within pool".into());
         }
-        self.begin_mode(
-            self.pool_layout.arms() as usize,
-            self.pool_layout.slots() as usize,
-            seed,
-            config,
-            Some(candidate),
-        )
+        let arms = self.pool_layout.arms() as usize;
+        let slots = self.pool_layout.slots() as usize;
+        self.begin_mode(arms, slots, seed, config, Some(candidate))
     }
 
     /// Materialize a counterfactual from an already-scored pool. Diagnostics
@@ -114,9 +131,8 @@ impl SearchState {
         config: RoundConfig,
         candidate: usize,
     ) -> Result<Buffer, String> {
-        self.check_unleased()?;
         self.check_round(round)?;
-        let decision = read::<Decision>(&self.decision, 1)[0];
+        let decision = read::<Decision>(&*self.decision, 1)[0];
         if candidate >= self.pool_layout.count() as usize || root != decision.root_seed {
             return Err("Diagnostic pool candidate or root mismatch".into());
         }
@@ -124,14 +140,14 @@ impl SearchState {
         self.encode_select(command, root, config, Some(candidate));
         self.encode_row(command);
         finish(command)?;
-        Ok(self.proposal.clone())
+        Ok((*self.proposal).clone())
     }
 
     /// Submit a specified slot while implicit history is still warming up.
     /// Rejects a completed/unconfigured warm-up or invalid slot. Profiling uses
     /// the ordinary staged path with forced selection; otherwise `initial_row`
     /// avoids full pool ranking. The caller must finish and measure the row.
-    pub fn begin_initial(&mut self, seed: u64, candidate: usize) -> Result<Buffer, String> {
+    pub fn begin_initial(mut self, seed: u64, candidate: usize) -> Result<(Self, Buffer), String> {
         if !self.implicit_history
             || self.initial_observations == 0
             || self.history >= self.initial_observations
@@ -147,22 +163,24 @@ impl SearchState {
         {
             return self.initial_row(seed, candidate);
         }
-        self.begin_mode(
-            self.pool_layout.arms() as usize,
-            self.pool_layout.slots() as usize,
-            seed,
-            RoundConfig::default(),
-            Some(candidate),
-        )
+        let arms = self.pool_layout.arms() as usize;
+        let slots = self.pool_layout.slots() as usize;
+        self.begin_mode(arms, slots, seed, RoundConfig::default(), Some(candidate))
     }
 
     /// Submit one warm-up row and its forced-selection descriptor.
     /// The caller has validated initialization and slot bounds. Activates the
     /// region, clears geometry scratch, and stores the outstanding command; it
     /// does not add a history observation.
-    pub fn initial_row(&mut self, root: u64, candidate: usize) -> Result<Buffer, String> {
+    pub fn initial_row(mut self, root: u64, candidate: usize) -> Result<(Self, Buffer), String> {
         self.check_idle()?;
-        self.activate_morbo()?;
+        self = self.activate_morbo()?;
+        unique_buffer(&self.runtime, &mut self.proposal)?;
+        unique_buffer(&self.runtime, &mut self.partials)?;
+        unique_buffer(&self.runtime, &mut self.pool_geometry)?;
+        unique_buffer(&self.runtime, &mut self.pool_aggregates)?;
+        unique_buffer(&self.runtime, &mut self.decision)?;
+        unique_buffer(&self.runtime, &mut self.pool_distances)?;
         unsafe {
             std::ptr::write_bytes(
                 self.partials.contents().cast::<u8>(),
@@ -187,8 +205,9 @@ impl SearchState {
         self.encode_proposal(command, params);
         self.encode_select(command, root, RoundConfig::default(), Some(candidate));
         command.commit();
-        self.async_command = Some(command.to_owned());
-        Ok(self.proposal.clone())
+        self.async_command = Some(Arc::new(command.to_owned()));
+        let row = (*self.proposal).clone();
+        Ok((self, row))
     }
 
     /// Shared asynchronous ask implementation for normal and forced selection.
@@ -198,15 +217,15 @@ impl SearchState {
     /// commands. Mutates queue/scratch state but leaves the incumbent
     /// unchanged.
     pub fn begin_mode(
-        &mut self,
+        mut self,
         arms: usize,
         candidates: usize,
         seed: u64,
         config: RoundConfig,
         forced_candidate: Option<usize>,
-    ) -> Result<Buffer, String> {
+    ) -> Result<(Self, Buffer), String> {
         self.check_idle()?;
-        self.activate_morbo()?;
+        self = self.activate_morbo()?;
         if self.history == 0 {
             return Err("Measure the initial Metal BF16 incumbent before asking".into());
         }
@@ -222,34 +241,44 @@ impl SearchState {
         check_ask(config)?;
         self.validate_selector()?;
         self.last_profile = None;
+
+        unique_buffer(&self.runtime, &mut self.proposal)?;
+        unique_buffer(&self.runtime, &mut self.partials)?;
+        unique_buffer(&self.runtime, &mut self.pool_geometry)?;
+        unique_buffer(&self.runtime, &mut self.pool_aggregates)?;
+        unique_buffer(&self.runtime, &mut self.decision)?;
+        unique_buffer(&self.runtime, &mut self.pool_distances)?;
+
         if self.profiling {
             self.profile_commands.clear();
             let command = self.runtime.queue.new_command_buffer().to_owned();
             self.encode_pool(&command, self.pool_params(seed));
             command.set_label("BF16 proposal pool");
             command.commit();
-            self.profile_commands.push(command);
+            self.profile_commands.push(Arc::new(command));
             let command = self.runtime.queue.new_command_buffer().to_owned();
             self.encode_select(&command, seed, config, forced_candidate);
             command.set_label("BF16 proposal selection");
             command.commit();
-            self.profile_commands.push(command);
+            self.profile_commands.push(Arc::new(command));
             if self.pool_layout.count() > 1 {
                 let command = self.runtime.queue.new_command_buffer().to_owned();
                 self.encode_row(&command);
                 command.set_label("BF16 proposal materialization");
                 command.commit();
-                self.profile_commands.push(command);
+                self.profile_commands.push(Arc::new(command));
             }
             self.async_command = self.profile_commands.last().cloned();
-            return Ok(self.proposal.clone());
+            let row = (*self.proposal).clone();
+            return Ok((self, row));
         }
         let command = self.runtime.queue.new_command_buffer();
         self.encode_ask(command, seed, config, forced_candidate);
         command.set_label("BF16 resident proposal");
         command.commit();
-        self.async_command = Some(command.to_owned());
-        Ok(self.proposal.clone())
+        self.async_command = Some(Arc::new(command.to_owned()));
+        let row = (*self.proposal).clone();
+        Ok((self, row))
     }
 
     /// Wait for the pending command, validate profiling, and publish its
@@ -257,7 +286,7 @@ impl SearchState {
     /// search state. The handle identifies this transaction, but its
     /// backing row remains reusable scratch. Publication neither evaluates
     /// nor accepts the row.
-    pub fn finish_ask(&mut self) -> Result<Proposals, String> {
+    pub fn finish_ask(mut self) -> Result<(Self, Proposals), String> {
         let command = self
             .async_command
             .take()
@@ -277,31 +306,32 @@ impl SearchState {
     /// Drain any outstanding ask and permanently poison this search state.
     /// Used after evaluator failure; it does not roll back or enable retry on
     /// the same state. Poisoning also occurs when no command is outstanding.
-    pub fn abort_ask(&mut self) {
+    pub fn abort_ask(mut self) -> Self {
         if let Some(command) = self.async_command.take() {
             command.wait_until_completed();
         }
         self.poisoned = true;
+        self
     }
 
     /// Start the host timer, submit an ask, and publish after GPU completion.
     /// Internal synchronous wrapper; objective evaluation is outside its timer.
     pub fn ask_inner(
-        &mut self,
+        mut self,
         arms: usize,
         candidates: usize,
         seed: u64,
         config: RoundConfig,
-    ) -> Result<Proposals, String> {
+    ) -> Result<(Self, Proposals), String> {
         let start = Instant::now();
-        self.begin_ask(arms, candidates, seed, config)?;
-        self.finish_askat(start)
+        let (state, _row) = self.begin_ask(arms, candidates, seed, config)?;
+        state.finish_askat(start)
     }
 
     /// Finish an outstanding ask with the caller's host timing origin.
     /// Like `finish_ask`, consumes the command and poisons on GPU failure;
     /// `publish_start` uses `start` only for fallback profiling metadata.
-    pub fn finish_askat(&mut self, start: Instant) -> Result<Proposals, String> {
+    pub fn finish_askat(mut self, start: Instant) -> Result<(Self, Proposals), String> {
         let command = self
             .async_command
             .take()
@@ -370,7 +400,7 @@ impl SearchState {
     /// Primitive 1 (GPU Engine Seam): Sample candidate-pool coordinates and
     /// compute the C x N block-weighted squared distance matrix in unified
     /// memory without invoking the Metal selection shader.
-    pub fn sample_distances(&mut self, root_seed: u64) -> Result<Vec<Vec<f64>>, String> {
+    pub fn sample_distances(mut self, root_seed: u64) -> Result<(Self, Vec<Vec<f64>>), String> {
         autoreleasepool(|| {
             self.check_idle()?;
             if self.history == 0 {
@@ -378,6 +408,11 @@ impl SearchState {
                     "Measure the initial Metal BF16 incumbent before sampling distances".into(),
                 );
             }
+            unique_buffer(&self.runtime, &mut self.decision)?;
+            unique_buffer(&self.runtime, &mut self.partials)?;
+            unique_buffer(&self.runtime, &mut self.pool_geometry)?;
+            unique_buffer(&self.runtime, &mut self.pool_aggregates)?;
+            unique_buffer(&self.runtime, &mut self.pool_distances)?;
             unsafe {
                 self.decision.contents().cast::<Decision>().write(Decision {
                     root_seed,
@@ -395,9 +430,13 @@ impl SearchState {
             let select_params = self.select_params(root_seed, RoundConfig::default(), None);
             let reducer = command.new_compute_command_encoder();
             reducer.set_compute_pipeline_state(&self.reduction_pipeline);
-            for (index, buffer) in [&self.partials, &self.pool_geometry, &self.pool_aggregates]
-                .iter()
-                .enumerate()
+            for (index, buffer) in [
+                &*self.partials,
+                &*self.pool_geometry,
+                &*self.pool_aggregates,
+            ]
+            .iter()
+            .enumerate()
             {
                 reducer.set_buffer(index as u64, Some(buffer), 0);
             }
@@ -414,8 +453,9 @@ impl SearchState {
             finish(command)?;
 
             let pairs = self.resident_history.div_ceil(2).max(1);
-            let aggregates = read::<Partial>(&self.pool_aggregates, pairs * 4);
-            Ok(self.distance_matrix(&select_params, &aggregates, base_index, pool_count))
+            let aggregates = read::<Partial>(&*self.pool_aggregates, pairs * 4);
+            let matrix = self.distance_matrix(&select_params, &aggregates, base_index, pool_count);
+            Ok((self, matrix))
         })
     }
 
@@ -481,7 +521,7 @@ impl SearchState {
     /// parameter vector into `self.proposal`.
     #[allow(clippy::too_many_arguments)]
     pub fn materialize_selected(
-        &mut self,
+        mut self,
         root_seed: u64,
         selected: usize,
         score: f32,
@@ -492,14 +532,14 @@ impl SearchState {
         neighbors: u32,
         incumbent_neighbors: u32,
         pool_predictions: &[(f32, f32, f32)],
-    ) -> Result<(Buffer, Proposals), String> {
+    ) -> Result<(Self, (Buffer, Proposals)), String> {
         autoreleasepool(|| {
             self.check_idle()?;
             let pool_count = self.pool_layout.count() as usize;
             if selected >= pool_count {
                 return Err("Selected candidate index exceeds pool count".into());
             }
-            let prev = read::<Decision>(&self.decision, 1)[0];
+            let prev = read::<Decision>(&*self.decision, 1)[0];
             let already_materialized =
                 pool_count == 1 && selected == 0 && prev.valid == 0 && prev.root_seed == root_seed;
             let mut candidate_means = [f32::NAN; 4];
@@ -529,27 +569,30 @@ impl SearchState {
                 candidate_standard_errors,
                 candidate_scores,
             };
+            unique_buffer(&self.runtime, &mut self.decision)?;
             unsafe {
                 self.decision.contents().cast::<Decision>().write(decision);
             }
             let start = Instant::now();
             if !already_materialized {
+                unique_buffer(&self.runtime, &mut self.proposal)?;
                 let command = self.runtime.queue.new_command_buffer();
                 self.encode_row(command);
                 finish(command)?;
             }
-            let proposal = self.publish_start(start)?;
-            Ok((self.proposal.clone(), proposal))
+            let (state, proposal) = self.publish_start(start)?;
+            let row = (*state.proposal).clone();
+            Ok((state, (row, proposal)))
         })
     }
 
     /// Materialize the winning candidate directly from a surrogate
     /// `PoolSelection`.
     pub fn materialize_selection(
-        &mut self,
+        self,
         root_seed: u64,
         selection: &baux::semantics::optimizer::PoolSelection,
-    ) -> Result<(Buffer, Proposals), String> {
+    ) -> Result<(Self, (Buffer, Proposals)), String> {
         self.materialize_selected(
             root_seed,
             selection.selected,

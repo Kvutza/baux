@@ -24,11 +24,11 @@
   \title{Deterministic Rollouts & Checkpointing}
 
   \p{
-    The functional API returns a new [\code{OptimizerState}](docs.html#baux.OptimizerState) after each transition. Explicit PRNG keys let [baux.scan](api-state.html#baux.scan) run a fixed sequence and [baux.pmap](api-state.html#baux.pmap) assign a derived key to each branch. Splittable generators are described by Claessen and Pałka [[CP13]](https://doi.org/10.1145/2503778.2503784) and Steele et al. [[SLF14]](https://doi.org/10.1145/2660193.2660195). Replaying a search also requires the same objective results and transition order; a seed alone does not make arbitrary asynchronous completion orders equivalent.
+    The functional API returns a new [\code{OptimizerState}](docs.html#baux.OptimizerState) after each transition. Explicit PRNG keys let [baux.scan](api-state.html#baux.scan) run a fixed sequence and [baux.pmap](api-state.html#baux.pmap) assign a derived key to each branch (following splittable generators in Claessen & Pałka [[CP13]](https://doi.org/10.1145/2503778.2503784) and Steele et al. [[SLF14]](https://doi.org/10.1145/2660193.2660195)). Use the same key, objective values, and completion order to replay an exact trace.
   }
 
   \p{
-    [baux.freeze](api-state.html#baux.freeze) serializes optimizer state with a BLAKE3 integrity tag. [baux.thaw](api-state.html#baux.thaw) restores it against a compatible template. The checkpoint does not capture an external evaluator's random generator or worker state. The following example uses a deterministic objective and checks that the restored optimizer produces the same branch digests:
+    [baux.freeze](api-state.html#baux.freeze) serializes optimizer state with a BLAKE3 integrity tag, and [baux.thaw](api-state.html#baux.thaw) restores it against a compatible template. The example below verifies that a restored checkpoint matches across four forked rollouts:
   }
 
   \pre{

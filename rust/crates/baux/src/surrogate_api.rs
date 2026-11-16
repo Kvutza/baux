@@ -6,9 +6,6 @@ use ndarray::{Array1, Array2, Array3, ArrayView2};
 use rand::RngCore;
 
 use crate::error::ENNError;
-pub use crate::metric_provider::LengthscaleProvider;
-pub use crate::obs_view::ObservationView;
-pub use crate::predictor::Predictor;
 
 #[derive(Debug, Clone)]
 pub struct SurrogatePrediction {
@@ -17,24 +14,24 @@ pub struct SurrogatePrediction {
 }
 
 pub trait Surrogate: Send + Sync {
-    fn fit(
-        &mut self,
+    fn with_fit(
+        self: Box<Self>,
         x: &ArrayView2<f64>,
         y: &ArrayView2<f64>,
         yvar: Option<&ArrayView2<f64>>,
         rng: &mut dyn RngCore,
-    ) -> Result<(), ENNError>;
+    ) -> Result<BoxedSurrogate, ENNError>;
 
-    fn fit_append(
-        &mut self,
+    fn with_append(
+        self: Box<Self>,
         x_new: &ArrayView2<f64>,
         y_new: &ArrayView2<f64>,
         yvar_new: Option<&ArrayView2<f64>>,
         rng: &mut dyn RngCore,
-    ) -> Result<(), ENNError> {
+    ) -> Result<BoxedSurrogate, ENNError> {
         let _ = (x_new, y_new, yvar_new, rng);
         Err(ENNError::InvalidParameter(
-            "fit_append not supported for this surrogate".to_string(),
+            "with_append not supported for this surrogate".to_string(),
         ))
     }
 
@@ -103,9 +100,9 @@ pub trait Surrogate: Send + Sync {
         Ok(())
     }
 
-    fn clear_observations(&mut self) -> Result<(), ENNError> {
+    fn cleared(self: Box<Self>) -> Result<BoxedSurrogate, ENNError> {
         Err(ENNError::InvalidParameter(
-            "clear_observations not supported for this surrogate".to_string(),
+            "cleared not supported for this surrogate".to_string(),
         ))
     }
 
@@ -134,10 +131,14 @@ pub trait Surrogate: Send + Sync {
         ))
     }
 
-    fn thaw_surrogate(&mut self, bytes: &[u8], pos: &mut usize) -> Result<(), ENNError> {
+    fn with_thawed(
+        self: Box<Self>,
+        bytes: &[u8],
+        pos: &mut usize,
+    ) -> Result<BoxedSurrogate, ENNError> {
         let _ = (bytes, pos);
         Err(ENNError::InvalidParameter(
-            "surrogate does not support binary checkpointing".to_string(),
+            "with_thawed not supported for this surrogate".to_string(),
         ))
     }
 
@@ -146,4 +147,77 @@ pub trait Surrogate: Send + Sync {
     }
 }
 
+impl dyn Surrogate {
+    pub fn with_flushed(self: Box<Self>) -> Result<Box<Self>, ENNError> {
+        self.schedule_flush()?;
+        self.wait_flush()?;
+        Ok(self)
+    }
+
+    pub fn with_released(self: Box<Self>) -> Result<Box<Self>, ENNError> {
+        self.release_pages()?;
+        Ok(self)
+    }
+}
+
 pub type BoxedSurrogate = Box<dyn Surrogate + Send + Sync>;
+
+/// Split capability trait: posterior mean and standard error prediction.
+pub trait Predictor: Send + Sync {
+    fn predict_batch(&self, x: &ArrayView2<f64>) -> Result<SurrogatePrediction, ENNError>;
+}
+
+impl<T: Surrogate + ?Sized> Predictor for T {
+    #[inline]
+    fn predict_batch(&self, x: &ArrayView2<f64>) -> Result<SurrogatePrediction, ENNError> {
+        self.predict(x)
+    }
+}
+
+/// Split capability trait with Generic Associated Type (`Row<'a>`) for
+/// zero-copy borrowed observation access when rows reside in RAM, or owned
+/// buffers when faulted from disk.
+pub trait ObservationView: Send + Sync {
+    type Row<'a>: core::ops::Deref<Target = [f64]>
+    where
+        Self: 'a;
+
+    fn obs_len(&self) -> usize;
+    fn view_x<'a>(&'a self, idx: usize) -> Result<Self::Row<'a>, ENNError>;
+    fn view_y<'a>(&'a self, idx: usize) -> Result<Self::Row<'a>, ENNError>;
+}
+
+impl<T: Surrogate + ?Sized> ObservationView for T {
+    type Row<'a>
+        = Cow<'a, [f64]>
+    where
+        Self: 'a;
+
+    #[inline]
+    fn obs_len(&self) -> usize {
+        self.observation_count().unwrap_or(0)
+    }
+
+    #[inline]
+    fn view_x<'a>(&'a self, idx: usize) -> Result<Self::Row<'a>, ENNError> {
+        self.x_slice(idx)
+    }
+
+    #[inline]
+    fn view_y<'a>(&'a self, idx: usize) -> Result<Self::Row<'a>, ENNError> {
+        self.y_slice(idx)
+    }
+}
+
+/// Split capability trait: anisotropic trust-region metric lengthscales.
+pub trait LengthscaleProvider: Send + Sync {
+    fn metric_scales(&self) -> Option<Cow<'_, [f64]>>;
+}
+
+impl<T: Surrogate + ?Sized> LengthscaleProvider for T {
+    #[inline]
+    fn metric_scales(&self) -> Option<Cow<'_, [f64]>> {
+        self.lengthscales()
+            .map(|ls| Cow::Owned(ls.into_raw_vec_and_offset().0))
+    }
+}

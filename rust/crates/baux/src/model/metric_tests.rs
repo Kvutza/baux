@@ -7,7 +7,7 @@ fn disk_metric() {
     let dir = TempDir::new().unwrap();
     let x = array![[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [2.0, 1.0]];
     let y = array![[0.0], [1.0], [2.0], [3.0]];
-    let mut model = ENN::new_storage(
+    let model = ENN::new_storage(
         x.clone(),
         y,
         None,
@@ -20,10 +20,10 @@ fn disk_metric() {
     model
         .neighbors(&array![[0.2, 0.7]].view(), 4, false)
         .unwrap(); // Warm the unscaled flat cache.
-    model.learn_metric(vec![], 719).unwrap();
-    model.metric_weights(&[1.2, 0.8]).unwrap();
-    model.metric_weights(&[9.0, 0.25]).unwrap();
-    model.metric_weights(&[4.0, 0.25]).unwrap();
+    let model = model.learn_metric(vec![], 719).unwrap();
+    let model = model.metric_weights(&[1.2, 0.8]).unwrap();
+    let model = model.metric_weights(&[9.0, 0.25]).unwrap();
+    let model = model.metric_weights(&[4.0, 0.25]).unwrap();
     let query = array![[0.2, 0.7]];
     let (distances, ids) = model
         .index_access()
@@ -35,14 +35,14 @@ fn disk_metric() {
             + 0.25 * (query[[0, 1]] - x[[id, 1]]).powi(2);
         assert!((distances[[0, j]] - expected).abs() < 1e-5);
     }
-    model
+    let model = model
         .add(&array![[3.0, 2.0]].view(), &array![[4.0]].view(), None)
         .unwrap();
     assert_eq!(model.x_scale(), array![[0.5, 2.0]]); // Appending cannot overwrite the learned metric with input std.
     let snapshot = model.diagonal_metric().unwrap();
     assert_eq!(snapshot.num_seen, 5);
     assert!(snapshot.counters.num_rescales > 0 && snapshot.counters.num_rebuilds > 0);
-    model.persist_index().unwrap();
+    let model = model.persist_index().unwrap();
     drop(model);
     // Reopening without AUTO must rebuild unit geometry, not reuse scaled
     // pages.
@@ -71,11 +71,10 @@ fn disk_metric() {
 
 #[test]
 fn metric_rejection() {
-    let mut model =
-        ENN::new_empty(2, 1, IndexDriver::Exact, EnnStorage::InMemory, None, None).unwrap();
-    assert!(model.learn_metric(vec![], 719).is_err());
+    let model = ENN::new_empty(2, 1, IndexDriver::Exact, EnnStorage::InMemory, None, None).unwrap();
+    assert!(model.clone().learn_metric(vec![], 719).is_err());
     let dir = TempDir::new().unwrap();
-    let mut model = ENN::new_empty(
+    let model = ENN::new_empty(
         2,
         1,
         IndexDriver::BpAnnDisk,
@@ -84,11 +83,12 @@ fn metric_rejection() {
         None,
     )
     .unwrap();
-    assert!(model.learn_metric(vec![vec![2]], 719).is_err());
-    model.learn_metric(vec![], 719).unwrap();
-    assert!(model.metric_weights(&[1.0, 0.0]).is_err());
+    assert!(model.clone().learn_metric(vec![vec![2]], 719).is_err());
+    let model = model.learn_metric(vec![], 719).unwrap();
+    assert!(model.clone().metric_weights(&[1.0, 0.0]).is_err());
     assert!(
         model
+            .clone()
             .add(&array![[f64::NAN, 0.0]].view(), &array![[1.0]].view(), None)
             .is_err()
     );
@@ -101,7 +101,7 @@ fn disk_moments() {
     let dir = TempDir::new().unwrap();
     let x = array![[0.0, 0.0], [2.0, 20.0]];
     let y = array![[0.0], [1.0]];
-    let mut model = ENN::new_storage(
+    let model = ENN::new_storage(
         x,
         y,
         None,
@@ -113,7 +113,7 @@ fn disk_moments() {
     .unwrap();
     assert!((model.x_scale()[[0, 0]] - 1.0).abs() < 1e-9);
     assert!((model.x_scale()[[0, 1]] - 10.0).abs() < 1e-9);
-    model
+    let model = model
         .add(
             &array![[0.0, 0.0], [2.0, 200.0]].view(),
             &array![[2.0], [3.0]].view(),
@@ -128,7 +128,7 @@ fn unscaled_adds() {
     let dir = TempDir::new().unwrap();
     let x = array![[0.0, 0.0], [2.0, 20.0]];
     let y = array![[0.0], [1.0]];
-    let mut model = ENN::new_storage(
+    let model = ENN::new_storage(
         x,
         y,
         None,
@@ -138,9 +138,9 @@ fn unscaled_adds() {
         Some(dir.path().to_path_buf()),
     )
     .unwrap();
-    model.set_unscaled(vec![1]).unwrap();
+    let model = model.set_unscaled(vec![1]).unwrap();
     assert!((model.x_scale()[[0, 1]] - 1.0).abs() < 1e-9);
-    model
+    let model = model
         .add(&array![[4.0, 400.0]].view(), &array![[2.0]].view(), None)
         .unwrap();
     assert!((model.x_scale()[[0, 1]] - 1.0).abs() < 1e-9);

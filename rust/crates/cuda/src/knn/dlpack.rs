@@ -124,14 +124,14 @@ impl DlMatrix2D {
         })
     }
 
-    pub fn managed(&mut self) -> DLManagedTensor {
+    pub fn managed(&self) -> DLManagedTensor {
         DLManagedTensor {
             dl_tensor: DLTensor {
                 data: self.data,
                 device: self.device,
                 ndim: 2,
                 dtype: self.dtype,
-                shape: self.shape.as_mut_ptr(),
+                shape: self.shape.as_ptr() as *mut i64,
                 strides: ptr::null_mut(),
                 byte_offset: 0,
             },

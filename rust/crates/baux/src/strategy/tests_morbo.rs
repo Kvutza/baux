@@ -4,9 +4,9 @@ use super::{select_thompson, select_ucb};
 use crate::config::{AcquisitionConfig, InitStrategy, OptimizerConfig, SurrogateConfig, turbo_enn};
 use crate::error::ENNError;
 use crate::morbo::{MorboTRSettings, Rescalarize};
-use crate::optimizer::BayesOptimizer;
+use crate::optimizer::{BayesOptimizer, PosteriorBackend};
 use crate::strategy::Strategy;
-use crate::surrogate::{ENNSurrogateConfig, Surrogate, SurrogatePrediction};
+use crate::surrogate::{BoxedSurrogate, ENNSurrogateConfig, Surrogate, SurrogatePrediction};
 use crate::trust_region::{TRLengthConfig, TrustRegionConfig};
 use crate::util::argmax_tie;
 use ndarray::{Array1, Array2, Array3, ArrayView2, array};
@@ -23,14 +23,14 @@ struct TieSurrogate {
 struct ArmDraws;
 
 impl Surrogate for ArmDraws {
-    fn fit(
-        &mut self,
+    fn with_fit(
+        self: Box<Self>,
         _x: &ArrayView2<f64>,
         _y: &ArrayView2<f64>,
         _yvar: Option<&ArrayView2<f64>>,
         _rng: &mut dyn RngCore,
-    ) -> Result<(), ENNError> {
-        Ok(())
+    ) -> Result<BoxedSurrogate, ENNError> {
+        Ok(self)
     }
 
     fn predict(&self, x: &ArrayView2<f64>) -> Result<SurrogatePrediction, ENNError> {
@@ -60,14 +60,14 @@ impl Surrogate for ArmDraws {
 }
 
 impl Surrogate for TieSurrogate {
-    fn fit(
-        &mut self,
+    fn with_fit(
+        self: Box<Self>,
         _x: &ArrayView2<f64>,
         _y: &ArrayView2<f64>,
         _yvar: Option<&ArrayView2<f64>>,
         _rng: &mut dyn RngCore,
-    ) -> Result<(), ENNError> {
-        Ok(())
+    ) -> Result<BoxedSurrogate, ENNError> {
+        Ok(self)
     }
 
     fn predict(&self, x: &ArrayView2<f64>) -> Result<SurrogatePrediction, ENNError> {
@@ -109,9 +109,11 @@ fn morbo_ready(seed: u64) -> BayesOptimizer {
     let mut opt = BayesOptimizer::new_strategy(bounds, cfg, Strategy::turbo(), &mut rng).unwrap();
     let y_fit = array![[1.0, 2.0], [2.0, 1.0], [1.5, 1.5]];
     let y_inc = array![2.0, 1.0];
-    let morbo = opt.trust_mut().morbo_mut().expect("morbo tr");
-    morbo.set_arms(2);
-    morbo.update(&y_fit.view(), &y_inc.view()).unwrap();
+    let morbo_slot = opt.trust_mut().morbo_mut().expect("morbo tr");
+    let mut morbo = morbo_slot.clone();
+    morbo = morbo.set_arms(2);
+    morbo = morbo.update(&y_fit.view(), &y_inc.view()).unwrap();
+    *morbo_slot = morbo;
     opt
 }
 
@@ -211,11 +213,11 @@ fn morbo_tell() {
         [0.5, 0.6],
     ];
     for i in 0..4 {
-        let x = opt.ask(2, &mut rng).unwrap();
+        let (next_opt, x) = opt.ask(2, &mut rng).unwrap();
         let y = y_fit.slice(ndarray::s![i * 2..i * 2 + 2, ..]);
-        opt.tell(&x.view(), &y, &mut rng).unwrap();
+        opt = next_opt.tell(&x.view(), &y, None, &mut rng).unwrap();
     }
-    let x_arms = opt.ask(2, &mut rng).unwrap();
+    let (opt, x_arms) = opt.ask(2, &mut rng).unwrap();
     assert_eq!(x_arms.nrows(), 2);
     assert!(opt.trust_region().is_morbo());
 }
@@ -252,9 +254,9 @@ fn morbo_turbo() {
         [0.5, 0.6],
     ];
     for i in 0..4 {
-        let x = opt.ask(2, &mut rng).unwrap();
+        let (next_opt, x) = opt.ask(2, &mut rng).unwrap();
         let y = y_fit.slice(ndarray::s![i * 2..i * 2 + 2, ..]);
-        opt.tell(&x.view(), &y, &mut rng).unwrap();
+        opt = next_opt.tell(&x.view(), &y, None, &mut rng).unwrap();
     }
     let w0 = opt
         .trust_region()
@@ -262,7 +264,7 @@ fn morbo_turbo() {
         .expect("morbo tr")
         .weights()
         .to_owned();
-    let _ = opt.ask(2, &mut rng).unwrap();
+    let (mut opt, _) = opt.ask(2, &mut rng).unwrap();
     let w1 = opt
         .trust_region()
         .morbo()
@@ -270,7 +272,10 @@ fn morbo_turbo() {
         .weights()
         .to_owned();
     assert_eq!(w0, w1);
-    opt.trust_mut().restart(Some(&mut rng));
+    let morbo_slot = opt.trust_mut().morbo_mut().expect("morbo tr");
+    let mut morbo = morbo_slot.clone();
+    morbo = morbo.restart(Some(&mut rng));
+    *morbo_slot = morbo;
     let w2 = opt
         .trust_region()
         .morbo()
@@ -312,9 +317,9 @@ fn morbo_turbo2() {
         [0.5, 0.6],
     ];
     for i in 0..4 {
-        let x = opt.ask(2, &mut rng).unwrap();
+        let (next_opt, x) = opt.ask(2, &mut rng).unwrap();
         let y = y_fit.slice(ndarray::s![i * 2..i * 2 + 2, ..]);
-        opt.tell(&x.view(), &y, &mut rng).unwrap();
+        opt = next_opt.tell(&x.view(), &y, None, &mut rng).unwrap();
     }
     let w0 = opt
         .trust_region()
@@ -322,7 +327,7 @@ fn morbo_turbo2() {
         .expect("morbo tr")
         .weights()
         .to_owned();
-    let _ = opt.ask(2, &mut rng).unwrap();
+    let (opt, _) = opt.ask(2, &mut rng).unwrap();
     let w1 = opt
         .trust_region()
         .morbo()
@@ -358,16 +363,26 @@ fn morbo_obs(seed: u64) -> BayesOptimizer {
     let mut opt = BayesOptimizer::new_strategy(bounds, cfg, Strategy::turbo(), &mut rng).unwrap();
     let y_fit = array![[1.0, 2.0], [2.0, 1.0], [1.5, 1.5]];
     let y_inc = array![1.0, 2.0];
-    let morbo = opt.trust_mut().morbo_mut().expect("morbo tr");
-    morbo.set_arms(2);
-    morbo.update(&y_fit.view(), &y_inc.view()).unwrap();
+    let morbo_slot = opt.trust_mut().morbo_mut().expect("morbo tr");
+    let mut morbo = morbo_slot.clone();
+    morbo = morbo.set_arms(2);
+    morbo = morbo.update(&y_fit.view(), &y_inc.view()).unwrap();
+    *morbo_slot = morbo;
     let x = array![[0.2, 0.3], [0.4, 0.5], [0.6, 0.7]];
     let y = array![[1.0, 2.0], [1.0, 2.0], [1.0, 2.0]];
     let delta = opt.add_observations(&x.view(), &y.view()).unwrap();
-    let surrogate = opt.surrogate_mut().expect("enn surrogate");
-    surrogate
-        .fit_append(&delta.x_view(), &delta.y_view(), None, &mut rng)
-        .unwrap();
+    if let PosteriorBackend::Model(surrogate) = std::mem::replace(
+        &mut opt.posterior.backend,
+        PosteriorBackend::Empirical {
+            x_rows: Vec::new(),
+            y_rows: Vec::new(),
+        },
+    ) {
+        let surrogate = surrogate
+            .with_append(&delta.x_view(), &delta.y_view(), None, &mut rng)
+            .unwrap();
+        opt.posterior.backend = PosteriorBackend::Model(surrogate);
+    }
     opt
 }
 
@@ -417,11 +432,11 @@ fn morbo_selection() {
     };
     cfg.noise_aware = true;
 
-    let mut opt = BayesOptimizer::new_strategy(bounds, cfg, Strategy::turbo(), &mut rng).unwrap();
+    let opt = BayesOptimizer::new_strategy(bounds, cfg, Strategy::turbo(), &mut rng).unwrap();
 
     let x = array![[0.02, 0.02], [0.98, 0.02], [0.02, 0.98], [0.60, 0.60],];
     let y = array![[2.0, 2.0], [50.0, 1.0], [1.0, 50.0], [3.0, 3.0],];
-    opt.tell(&x.view(), &y.view(), &mut rng).unwrap();
+    let opt = opt.tell(&x.view(), &y.view(), None, &mut rng).unwrap();
 
     let sur = opt.surrogate().expect("enn surrogate");
     let y_all = opt.y_obs().expect("y observations");
@@ -472,4 +487,44 @@ fn morbo_selection() {
         raw_y_at_mu_winner.as_slice().unwrap(),
         expected_mu.as_slice().unwrap()
     );
+}
+
+#[test]
+fn fork_isolation() {
+    let bounds = array![[0.0, 1.0], [0.0, 1.0]];
+    let mut rng = StdRng::seed_from_u64(55);
+    let mut cfg = turbo_enn();
+    cfg.trust_region = TrustRegionConfig::Morbo(MorboTRSettings {
+        num_metrics: 2,
+        alpha: 0.05,
+        length: TRLengthConfig::default(),
+        rescalarize: Rescalarize::OnRestart,
+        noise_aware: false,
+    });
+    let opt = BayesOptimizer::new_strategy(
+        bounds,
+        cfg,
+        Strategy::hybrid(InitStrategy::LHD, 4),
+        &mut rng,
+    )
+    .unwrap();
+
+    let fork_a = opt.fork().unwrap();
+    let fork_b = opt.fork().unwrap();
+
+    let (fork_a, x_a) = fork_a.ask(2, &mut rng).unwrap();
+    let y_a = array![[1.0, 0.5], [0.8, 0.9]];
+    let fork_a = fork_a
+        .tell(&x_a.view(), &y_a.view(), None, &mut rng)
+        .unwrap();
+
+    let (fork_b, x_b) = fork_b.ask(2, &mut rng).unwrap();
+    let y_b = array![[0.2, 0.3], [0.4, 0.7]];
+    let fork_b = fork_b
+        .tell(&x_b.view(), &y_b.view(), None, &mut rng)
+        .unwrap();
+
+    assert_eq!(fork_a.obs_count(), 2);
+    assert_eq!(fork_b.obs_count(), 2);
+    assert_eq!(opt.obs_count(), 0);
 }

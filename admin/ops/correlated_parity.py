@@ -10,7 +10,7 @@ import numpy as np
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from ops.correlated_cpu import (  # noqa: E402
+from ops.correlated_cpu import (
     EPS,
     MASK64,
     NOISE_DOMAIN,

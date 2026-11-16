@@ -480,10 +480,13 @@ def _checkbuf(base, base_bits, leaves) -> None:
     del cand
     gc.collect()
     buf.materialize([(97, 1.0)])
-    bf = lambda x, s: Var(  # noqa: E731
-        jax.device_put(jnp.array([x], jnp.uint16)).view(jnp.bfloat16),
-        [Span(29, 0, 1, s)],
-    )
+
+    def bf(x, s):
+        return Var(
+            jax.device_put(jnp.array([x], jnp.uint16)).view(jnp.bfloat16),
+            [Span(29, 0, 1, s)],
+        )
+
     _fails(partial(bf, 0x7F80, 1.0), "finite")
     _fails(partial(bf(0x7F7F, MAX_F32).materialize, [(101, MAX_F32)]), "overflowed")
 

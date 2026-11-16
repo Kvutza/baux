@@ -50,7 +50,7 @@ def predict(streams, predictor, bias, control):
 
 
 def mix(streams, read, norm):
-    value = jnp.zeros(streams.shape[:-2] + (streams.shape[-1],), jnp.float32)
+    value = jnp.zeros((*streams.shape[:-2], streams.shape[-1]), jnp.float32)
     for index in range(4):
         value = value + read[..., index, None] * streams[..., index, :].astype(
             jnp.float32
@@ -68,7 +68,7 @@ def update(streams, branch, transport, write):
 
 
 def finalize(streams, norm):
-    value = jnp.zeros(streams.shape[:-2] + (streams.shape[-1],), jnp.float32)
+    value = jnp.zeros((*streams.shape[:-2], streams.shape[-1]), jnp.float32)
     for index in range(4):
         value = value + jnp.float32(0.25) * streams[..., index, :].astype(jnp.float32)
     return rms(value, norm)

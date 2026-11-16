@@ -12,6 +12,7 @@
 //! not blindly replay the tell against partially advanced state.
 
 use super::*;
+use std::sync::Arc;
 
 impl SearchState {
     #[allow(clippy::too_many_arguments)]
@@ -20,7 +21,7 @@ impl SearchState {
     /// radius adaptation. `adapt_region` controls controller work, not
     /// whether weights may commit.
     pub fn tell_absolute(
-        &mut self,
+        mut self,
         round: &Proposals,
         value: f32,
         variance: f32,
@@ -30,7 +31,7 @@ impl SearchState {
         trust_incumbent: Option<f32>,
         trust_outcome: Option<TrustRegionOutcome>,
         adapt_region: bool,
-    ) -> Result<(), String> {
+    ) -> Result<Self, String> {
         self.absolute_objectives(
             round,
             crate::objective_observation::ObjectiveObservation::scalar_adapter(value, variance),
@@ -51,7 +52,7 @@ impl SearchState {
     /// `pending` and queues the acceptance flag for `sync`. Later failures can
     /// follow an earlier weight commit; this method does not promise rollback.
     pub fn absolute_objectives(
-        &mut self,
+        mut self,
         round: &Proposals,
         observation: crate::objective_observation::ObjectiveObservation,
         incumbent_value: f32,
@@ -60,33 +61,30 @@ impl SearchState {
         trust_incumbent: Option<f32>,
         trust_outcome: Option<TrustRegionOutcome>,
         adapt_region: bool,
-    ) -> Result<(), String> {
-        let mut mutated = false;
-        let result = (|| {
+    ) -> Result<Self, String> {
+        metal::objc::rc::autoreleasepool(|| {
             let crate::objective_observation::ObjectiveEstimate {
                 mean: value,
                 variance,
             } = observation.control();
             self.tell_profile = None;
-            self.check_unleased()?;
             self.check_round(round)?;
             check_scores(&[value, incumbent_value], &[variance, incumbent_variance])?;
             self.objective_history.validate(observation)?;
-            let (identity, commit) = validate_commit(self, round, accept)?;
-            let target_slot = choose_slot(self)?;
+            let (identity, commit) = validate_commit(&self, round, accept)?;
+            let target_slot = choose_slot(&self)?;
             let implicit_distances = self.observation_distances(round)?;
-            mutated = true;
             let slot = if self.resident_history == self.history_rows.len() {
                 0
             } else {
                 self.resident_history
             };
             let command = self.runtime.queue.new_command_buffer().to_owned();
-            let zero_copy = self.commit_weights(round, accept, &command)?;
-            self.archive_proposal(slot, zero_copy);
-            record_resident(self, &command, accept, slot, identity, commit.retained())?;
+            let (next_self, zero_copy) = self.commit_weights(round, accept, &command)?;
+            self = next_self.archive_proposal(slot, zero_copy)?;
+            self = record_resident(self, &command, accept, slot, identity, commit.retained())?;
             self.record_axis(round, target_slot, accept);
-            self.record_observation(
+            self = self.record_observation(
                 identity,
                 target_slot,
                 (value, variance),
@@ -98,26 +96,18 @@ impl SearchState {
                 self.best = if accept { value } else { incumbent_value };
                 self.best_variance = if accept { variance } else { incumbent_variance };
             }
-            let update = self.adapt_observation(
+            self = self.adapt_observation(
                 observation,
                 value,
                 trust_incumbent,
                 trust_outcome,
                 adapt_region,
-            );
-            if let Err(error) = update {
-                self.poisoned = true;
-                return Err(error);
-            }
+            )?;
             self.pending = None;
             self.evaluation = None;
             self.queued = Some(accept);
-            Ok(())
-        })();
-        if mutated && result.is_err() {
-            self.poisoned = true;
-        }
-        result
+            Ok(self)
+        })
     }
 
     /// If accepted, promote the materialized trial.
@@ -125,24 +115,25 @@ impl SearchState {
     /// zero-copy swap occurred, so archiving does not recycle a live incumbent.
     /// Rejection leaves weights unchanged.
     fn commit_weights(
-        &mut self,
+        mut self,
         _round: &Proposals,
         accept: bool,
         _command: &CommandBufferRef,
-    ) -> Result<bool, String> {
+    ) -> Result<(Self, bool), String> {
         if accept {
+            cow_buffer(&self.runtime, &mut self.base)?;
             std::mem::swap(&mut self.base, &mut self.proposal);
         }
-        Ok(accept)
+        Ok((self, accept))
     }
 
     /// Rotate resident allocations without reusing the incumbent as scratch.
     /// Latent mode retains only an incumbent alias; other modes archive the
     /// trial row and recycle the displaced allocation. May allocate replacement
     /// scratch when an alias would otherwise corrupt retained/current weights.
-    fn archive_proposal(&mut self, slot: usize, zero_copy: bool) {
+    fn archive_proposal(mut self, slot: usize, zero_copy: bool) -> Result<Self, String> {
         if self.history_rows.is_empty() {
-            return;
+            return Ok(self);
         }
         if zero_copy {
             // `base` now owns the accepted candidate. Archive that allocation
@@ -150,18 +141,21 @@ impl SearchState {
             // scratch. The previous incumbent may still be referenced by an
             // older history row, so writing through `proposal` would corrupt
             // replay history after the next ask.
+            cow_buffer(&self.runtime, &mut self.history_rows[slot])?;
             self.proposal = std::mem::replace(&mut self.history_rows[slot], self.base.clone());
-            if std::ptr::eq::<metal::BufferRef>(&*self.proposal, &*self.base) {
-                self.proposal = self.runtime.buffer::<u16>(self.dimensions);
+            if std::ptr::eq::<metal::BufferRef>(&**self.proposal, &**self.base) {
+                self.proposal = Arc::new(self.runtime.buffer::<u16>(self.dimensions));
             }
-            return;
+            return Ok(self);
         }
+        cow_buffer(&self.runtime, &mut self.history_rows[slot])?;
         std::mem::swap(&mut self.proposal, &mut self.history_rows[slot]);
-        if std::ptr::eq::<metal::BufferRef>(&*self.proposal, &*self.base) {
+        if std::ptr::eq::<metal::BufferRef>(&**self.proposal, &**self.base) {
             // The overwritten FIFO slot was the current incumbent's shared
             // history view. Do not reuse that allocation as proposal scratch.
-            self.proposal = self.runtime.buffer::<u16>(self.dimensions);
+            self.proposal = Arc::new(self.runtime.buffer::<u16>(self.dimensions));
         }
+        Ok(self)
     }
 
     /// Map ask-time history identities to current logical slots.
@@ -205,14 +199,14 @@ impl SearchState {
     /// enabled. Explicit storage advances its FIFO. Assumes slot/distance
     /// invariants established by proposal publication and the tell caller.
     pub(super) fn record_observation(
-        &mut self,
+        mut self,
         identity: i64,
         slot: usize,
         (value, variance): (f32, f32),
         observation: crate::objective_observation::ObjectiveObservation,
         distances: Option<Vec<(usize, f32)>>,
         accept: bool,
-    ) -> Result<(), String> {
+    ) -> Result<Self, String> {
         if self.history_rows.is_empty() && !self.implicit_history {
             if accept || !self.best.is_finite() {
                 self.outcomes[0] = value;
@@ -221,7 +215,7 @@ impl SearchState {
             }
             self.history = 1;
             self.objective_history.record(identity, observation, accept);
-            return Ok(());
+            return Ok(self);
         }
         if self.implicit_history {
             let next = slot;
@@ -239,7 +233,7 @@ impl SearchState {
             self.objective_history
                 .record_slot(next, identity, observation, accept);
             if self.fit_params && self.history >= self.initial_observations {
-                self.fit_enn()?;
+                self = self.fit_enn()?;
             }
         } else {
             self.outcomes[slot] = value;
@@ -274,7 +268,7 @@ impl SearchState {
                 self.history += 1;
             }
         }
-        Ok(())
+        Ok(self)
     }
     /// Dispatch controller work after observation/weight bookkeeping.
     /// Priority is multi-region (MORBO) control, then ordinary TuRBO
@@ -282,14 +276,14 @@ impl SearchState {
     /// With adaptation disabled, only the non-MORBO observation counter
     /// advances.
     fn adapt_observation(
-        &mut self,
+        mut self,
         observation: crate::objective_observation::ObjectiveObservation,
         value: f32,
         trust_incumbent: Option<f32>,
         trust_outcome: Option<TrustRegionOutcome>,
         adapt_region: bool,
-    ) -> Result<(), String> {
-        let update = if self.has_morbo() {
+    ) -> Result<Self, String> {
+        if self.has_morbo() {
             self.update_morbo(observation)
         } else if adapt_region {
             match (trust_incumbent, trust_outcome) {
@@ -300,9 +294,8 @@ impl SearchState {
             }
         } else {
             self.trust_observations += 1;
-            Ok(())
-        };
-        update
+            Ok(self)
+        }
     }
 
     /// Primitive 3 (GPU Engine Seam): Archive the selected candidate's sampled
@@ -311,40 +304,37 @@ impl SearchState {
     /// policy.
     #[allow(clippy::too_many_arguments)]
     pub fn commit_host(
-        &mut self,
+        mut self,
         round: &Proposals,
         target_slot: usize,
         observation: crate::objective_observation::ObjectiveObservation,
         accept: bool,
         next_length: f64,
-    ) -> Result<(), String> {
-        let mut mutated = false;
-        let result = metal::objc::rc::autoreleasepool(|| {
+    ) -> Result<Self, String> {
+        metal::objc::rc::autoreleasepool(|| {
             let crate::objective_observation::ObjectiveEstimate {
                 mean: value,
                 variance,
             } = observation.control();
             self.tell_profile = None;
-            self.check_unleased()?;
             self.check_round(round)?;
             check_scores(&[value], &[variance])?;
             self.objective_history.validate(observation)?;
             if target_slot >= MAX_HISTORY || target_slot > self.history {
                 return Err("Host target slot is out of bounds".into());
             }
-            let (identity, commit) = validate_commit(self, round, accept)?;
+            let (identity, commit) = validate_commit(&self, round, accept)?;
             let implicit_distances = self.observation_distances(round)?;
-            mutated = true;
             let slot = if self.resident_history == self.history_rows.len() {
                 0
             } else {
                 self.resident_history
             };
             let command = self.runtime.queue.new_command_buffer().to_owned();
-            let zero_copy = self.commit_weights(round, accept, &command)?;
-            self.archive_proposal(slot, zero_copy);
-            record_resident(self, &command, accept, slot, identity, commit.retained())?;
-            store_host(
+            let (next_self, zero_copy) = self.commit_weights(round, accept, &command)?;
+            self = next_self.archive_proposal(slot, zero_copy)?;
+            self = record_resident(self, &command, accept, slot, identity, commit.retained())?;
+            self = store_host(
                 self,
                 round,
                 target_slot,
@@ -363,12 +353,8 @@ impl SearchState {
             self.pending = None;
             self.evaluation = None;
             self.queued = Some(accept);
-            Ok(())
-        });
-        if mutated && result.is_err() {
-            self.poisoned = true;
-        }
-        result
+            Ok(self)
+        })
     }
 
     pub fn pairwise_distance(&self, row: usize, column: usize) -> f64 {
@@ -376,9 +362,22 @@ impl SearchState {
     }
 }
 
+pub(super) fn cow_buffer(runtime: &Runtime, buf: &mut Arc<Buffer>) -> Result<(), String> {
+    if Arc::strong_count(buf) > 1 {
+        let fresh = runtime.buffer::<u8>(buf.length() as usize);
+        let command = runtime.queue.new_command_buffer();
+        let blit = command.new_blit_command_encoder();
+        blit.copy_from_buffer(&**buf, 0, &fresh, 0, buf.length());
+        blit.end_encoding();
+        finish(command)?;
+        *buf = Arc::new(fresh);
+    }
+    Ok(())
+}
+
 #[allow(clippy::too_many_arguments)]
 fn store_host(
-    state: &mut SearchState,
+    mut state: SearchState,
     round: &Proposals,
     target_slot: usize,
     identity: i64,
@@ -386,7 +385,7 @@ fn store_host(
     observation: crate::objective_observation::ObjectiveObservation,
     accept: bool,
     implicit_distances: &Option<Vec<(usize, f32)>>,
-) -> Result<(), String> {
+) -> Result<SearchState, String> {
     state.store_axis(round, target_slot, accept);
     state.outcomes[target_slot] = value;
     state.variances[target_slot] = variance;
@@ -404,7 +403,7 @@ fn store_host(
     state
         .objective_history
         .record_slot(target_slot, identity, observation, accept);
-    Ok(())
+    Ok(state)
 }
 
 fn validate_commit(
@@ -418,7 +417,7 @@ fn validate_commit(
         .ok_or("Observation ID overflow")?;
     let commit = baux::semantics::optimizer::TellDecision::new(
         baux::semantics::optimizer::RoundId {
-            owner: state.owner,
+            owner: 0,
             proposal: state.pending.as_ref().ok_or("No pending proposal")?.id,
             incumbent: state.base_id,
         },
@@ -446,13 +445,13 @@ pub(super) fn choose_slot(state: &SearchState) -> Result<usize, String> {
 }
 
 fn record_resident(
-    state: &mut SearchState,
+    mut state: SearchState,
     _command: &CommandBufferRef,
     _accept: bool,
     slot: usize,
     identity: i64,
     retained: i64,
-) -> Result<(), String> {
+) -> Result<SearchState, String> {
     if state.profiling {
         state.tell_profile = Some(TellProfile {
             reference_ms: 0.0,
@@ -464,7 +463,7 @@ fn record_resident(
     state.base_id = retained;
     if state.history_rows.is_empty() {
         state.resident_identities[0] = retained;
-        return Ok(());
+        return Ok(state);
     }
     state.resident_identities[slot] = identity;
     if state.resident_history == state.history_rows.len() {
@@ -473,5 +472,5 @@ fn record_resident(
     } else {
         state.resident_history += 1;
     }
-    Ok(())
+    Ok(state)
 }

@@ -198,20 +198,29 @@ pub fn arms_py<'py>(
     Ok(out.into_pyarray(py))
 }
 
-/// Override baux config path (`None` restores `~/.baux/config.toml`).
-#[pyfunction(name = "set_path")]
-#[pyo3(signature = (path=None))]
-pub fn set_py(path: Option<&str>) -> PyResult<()> {
-    baux::set_path(path.map(std::path::PathBuf::from)).map_err(PyValueError::new_err)?;
-    Ok(())
-}
-
-/// Ensure `~/.baux/config.toml` (or override) exists and return its path.
+/// Ensure config file exists and return its path.
 #[pyfunction(name = "ensure_config_file")]
-pub fn ensure_py() -> PyResult<String> {
-    baux::bpann_config().map_err(PyValueError::new_err)?;
-    let cfg = baux::Config::new();
-    Ok(cfg.path().display().to_string())
+#[pyo3(signature = (path=None))]
+pub fn ensure_py(path: Option<&str>) -> PyResult<String> {
+    match path {
+        Some(p) => {
+            let p_path = std::path::Path::new(p);
+            if p_path.is_dir() || p.ends_with('/') || p.ends_with('\\') {
+                return Err(PyValueError::new_err(format!(
+                    "read config {}: is a directory",
+                    p_path.display()
+                )));
+            }
+            let cfg = baux::Config::with_path(p_path);
+            cfg.load().map_err(PyValueError::new_err)?;
+            Ok(cfg.path().display().to_string())
+        }
+        None => {
+            let cfg = baux::Config::new();
+            cfg.load().map_err(PyValueError::new_err)?;
+            Ok(cfg.path().display().to_string())
+        }
+    }
 }
 
 /// Format an optional search profile into a 4-tuple of milliseconds:

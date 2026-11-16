@@ -3,9 +3,10 @@ from __future__ import annotations
 import sys
 import tomllib
 from pathlib import Path
+from typing import Any
 
+import baux
 import numpy as np
-from baux import create_optimizer
 from baux.turbo.config import (
     AcquisitionKind,
     ENNSurrogate,
@@ -17,9 +18,18 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from scripts.optqualcore import y_best  # noqa: E402
+from scripts.optqualcore import y_best
+
+from .optimizer_checks import OptimizerAdapter
 
 FIXTURES_DIR = Path(__file__).resolve().parent.parent / "fixtures"
+
+
+def _makeopt(
+    bounds: np.ndarray, config: Any, rng: np.random.Generator
+) -> OptimizerAdapter:
+    state = baux.init(bounds, config, seed=int(rng.integers(2**63 - 1)))
+    return OptimizerAdapter(state)
 
 
 def assert_ci() -> None:
@@ -45,7 +55,7 @@ def assert_ci() -> None:
             seed,
             budget=budget,
             num_arms=2,
-            create_optimizer=create_optimizer,
+            create_optimizer=_makeopt,
         )
         if rust_best < py_best - tol:
             failures.append((dim, seed, py_best, rust_best))

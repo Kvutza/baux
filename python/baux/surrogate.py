@@ -17,12 +17,12 @@ from baux.turbo.config.surrogate import (
 )
 
 __all__ = [
+    "INDEX_NAMES",
     "DiagonalMetric",
     "DistanceMetric",
     "ENNSurrogate",
     "ExternalSurrogate",
     "GaussianProcess",
-    "INDEX_NAMES",
     "MetricLearning",
     "NeighborIndex",
     "NoSurrogate",

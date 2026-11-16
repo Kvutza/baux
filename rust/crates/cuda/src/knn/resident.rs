@@ -43,7 +43,8 @@ impl CudaIndex {
     /// pointer addresses query_count*dims contiguous FP32 values on device 0.
     /// The producer must have synchronized to the legacy default CUDA stream.
     pub unsafe fn device_posterior(
-        &mut self,
+        &self,
+        scratch: &mut CudaScratch,
         pointer: u64,
         query_count: usize,
         outcomes: &[f32],
@@ -70,7 +71,7 @@ impl CudaIndex {
         let weights = indices
             .checked_mul(spec.metrics)
             .ok_or("weight size overflow")?;
-        self.posterior.ensure(
+        scratch.posterior.ensure(
             &self.runtime.stream,
             outcomes.len(),
             variances.map_or(1, <[f32]>::len),
@@ -79,19 +80,21 @@ impl CudaIndex {
             weights,
             indices,
         )?;
-        self.posterior
+        scratch
+            .posterior
             .sync(&self.runtime.stream, outcomes, scales)?;
-        self.posterior
+        scratch
+            .posterior
             .sync_variances(&self.runtime.stream, variances)?;
-        let stage = self.stage_input(problem, None, pointer)?;
-        self.launch_weighted(&stage, spec, variances.is_some())?;
+        let stage = self.stage_input(scratch, problem, None, pointer)?;
+        self.launch_weighted(scratch, &stage, spec, variances.is_some())?;
         let output = DevicePosterior {
             runtime: Arc::clone(&self.runtime),
-            weights: snapshot(&self.posterior.weights, weights, &self.runtime.stream)?,
-            l2: snapshot(&self.posterior.l2, values, &self.runtime.stream)?,
-            means: snapshot(&self.posterior.means, values, &self.runtime.stream)?,
-            errors: snapshot(&self.posterior.errors, values, &self.runtime.stream)?,
-            indices: snapshot(&self.posterior.indices, indices, &self.runtime.stream)?,
+            weights: snapshot(&scratch.posterior.weights, weights, &self.runtime.stream)?,
+            l2: snapshot(&scratch.posterior.l2, values, &self.runtime.stream)?,
+            means: snapshot(&scratch.posterior.means, values, &self.runtime.stream)?,
+            errors: snapshot(&scratch.posterior.errors, values, &self.runtime.stream)?,
+            indices: snapshot(&scratch.posterior.indices, indices, &self.runtime.stream)?,
             queries: query_count,
             spec,
         };

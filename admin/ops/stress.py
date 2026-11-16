@@ -3,14 +3,32 @@
 
 from __future__ import annotations
 
+import os
+import sys
+import tempfile
 import time
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
+_repo_root = Path(__file__).resolve().parents[2]
+_ext_dir = str(_repo_root / "tests" / "parity" / "_ext")
+if Path(_ext_dir).is_dir() and _ext_dir not in sys.path:
+    sys.path.insert(0, _ext_dir)
+
+try:
+    (Path.home() / ".baux" / "config.toml").stat()
+except PermissionError:
+    _baux_home = Path(tempfile.gettempdir()) / "baux_test_home"
+    _baux_home.mkdir(parents=True, exist_ok=True)
+    os.environ["HOME"] = str(_baux_home)
+except OSError:
+    pass
+
+import baux
 import click
 import numpy as np
-from baux.enn.enn_class import ENN
+from baux import ENNState
 from baux.turbo.config.surrogate import NeighborIndex
 from ops import (
     stress_disk as _disk,
@@ -76,7 +94,7 @@ def _logprogress(n: int, cfg: EnnAddStressConfig, last_hb: float) -> float:
 
 
 def _emitcp(
-    model: ENN,
+    model: ENNState,
     index_driver: NeighborIndex,
     x_query: np.ndarray,
     checkpoint_list: list[int],
@@ -87,7 +105,7 @@ def _emitcp(
         cp = checkpoint_list[state[0]]
         if index_driver not in DISK_DEFER_SYNC_DRIVERS:
             t_sync = time.perf_counter()
-            model.ensure_sync()
+            model = baux.ensure_sync(model)
             state[1] += time.perf_counter() - t_sync
         seg_s, state[1] = state[1], 0.0
         yield (cp, _times(model, x_query), seg_s)
@@ -95,23 +113,36 @@ def _emitcp(
 
 
 def _streamadds(
-    model: ENN,
+    model: ENNState | list[ENNState],
     index_driver: NeighborIndex,
     num_obs: int,
     cfg: EnnAddStressConfig,
     checkpoint_list: list[int],
     x_query: np.ndarray,
+    *,
+    existing: int = 0,
 ) -> Iterator[tuple[int, float, float]]:
-    n, last_hb, state = 0, time.perf_counter(), [0, 0.0]
-    for x_chunk, y_chunk in _chunkiter(num_obs, cfg, checkpoint_list):
+    model_ref = model if isinstance(model, list) else [model]
+    n, last_hb, state = existing, time.perf_counter(), [0, 0.0]
+    while state[0] < len(checkpoint_list) and checkpoint_list[state[0]] <= existing:
+        state[0] += 1
+    to_add = max(0, num_obs - existing)
+    if to_add == 0:
+        return
+    stops = [s - existing for s in checkpoint_list if s > existing]
+    for x_chunk, y_chunk in _chunkiter(to_add, cfg, stops):
         t_add = time.perf_counter()
-        model.add(x_chunk, y_chunk)
-        if index_driver in DISK_DEFER_SYNC_DRIVERS:
-            model.schedule_flush()
+        model_ref[0] = baux.append(model_ref[0], x_chunk, y_chunk)
+        if index_driver in DISK_DEFER_SYNC_DRIVERS and hasattr(
+            model_ref[0], "schedule_flush"
+        ):
+            model_ref[0].schedule_flush()
         state[1] += time.perf_counter() - t_add
         n += int(x_chunk.shape[0])
         last_hb = _logprogress(n, cfg, last_hb)
-        yield from _emitcp(model, index_driver, x_query, checkpoint_list, n, state)
+        yield from _emitcp(
+            model_ref[0], index_driver, x_query, checkpoint_list, n, state
+        )
 
 
 def enn_stress(
@@ -138,15 +169,22 @@ def enn_stress(
     if cfg.work_dir is not None:
         model_kwargs["work_dir"] = cfg.work_dir
         model_kwargs["enn_storage"] = "disk"
-    model = ENN(**model_kwargs)
-    model.add(empty_x, empty_y)
+    model = baux.enn_init(**model_kwargs)
+    existing = load_existing(cfg.work_dir) if cfg.work_dir is not None else 0
+    model_ref = [model]
     try:
         yield from _streamadds(
-            model, index_driver, num_obs, cfg, checkpoint_list, x_query
+            model_ref,
+            index_driver,
+            num_obs,
+            cfg,
+            checkpoint_list,
+            x_query,
+            existing=existing,
         )
     finally:
         if index_driver in DISK_DEFER_SYNC_DRIVERS:
-            model.persist_index()
+            model_ref[0] = baux.persist_index(model_ref[0])
 
 
 def _checkworkdir(index_type: str, work_dir: str | None) -> NeighborIndex:
@@ -217,9 +255,12 @@ _NUMDIM = click.Option(
 def enn(index_type: str, num_obs: int, **options: Any) -> None:
     """Time 1000-point ENN queries at sparse checkpoints while streaming adds."""
     if options["baux_config"] is not None:
-        from baux._rust import set_path
+        from baux import _rust
 
-        set_path(options["baux_config"])
+        if hasattr(_rust, "set_path"):
+            _rust.set_path(options["baux_config"])
+        elif hasattr(_rust, "ensure_config_file"):
+            _rust.ensure_config_file(options["baux_config"])
     num_dim = int(options["num_dim"])
     if num_obs < 1 or num_dim < 1:
         raise click.ClickException(

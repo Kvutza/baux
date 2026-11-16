@@ -28,6 +28,71 @@ impl Default for ModelOptions {
     }
 }
 
+#[derive(Clone, Debug)]
+pub(crate) struct PureScaleCache(
+    pub(crate) std::sync::Arc<crate::posterior::neighbor_dist::ScaleInfo>,
+);
+
+impl Default for PureScaleCache {
+    fn default() -> Self {
+        Self(std::sync::Arc::new((std::sync::Arc::from([]), 0, 1.0, 1.0)))
+    }
+}
+
+impl PureScaleCache {
+    pub(crate) fn get(&self) -> Option<crate::posterior::neighbor_dist::ScaleInfo> {
+        if self.0.0.is_empty() {
+            None
+        } else {
+            Some((*self.0).clone())
+        }
+    }
+
+    pub(crate) fn set(
+        &self,
+        _info: crate::posterior::neighbor_dist::ScaleInfo,
+    ) -> Result<(), crate::posterior::neighbor_dist::ScaleInfo> {
+        Ok(())
+    }
+}
+
+pub(crate) fn compute_scales(
+    num_obs: usize,
+    dist_metric: baux::semantics::neighbor::DistanceMetric,
+    backend: &EnnBackend,
+    scale_x: bool,
+    x_scale: &Array1<f64>,
+) -> Result<std::sync::Arc<crate::posterior::neighbor_dist::ScaleInfo>, ENNError> {
+    use crate::posterior::neighbor_dist::distance_matrix;
+    use baux::semantics::neighbor::{DistanceMetric, local_scales};
+    use std::sync::Arc;
+
+    let local_k = match dist_metric {
+        DistanceMetric::Euclidean => return Ok(Arc::new((Arc::from([]), 0, 1.0, 1.0))),
+        DistanceMetric::Conformal { local_k }
+        | DistanceMetric::Hyperbolic { local_k }
+        | DistanceMetric::Wasserstein { local_k } => local_k.max(1),
+    };
+    if num_obs == 0 {
+        return Ok(Arc::new((Arc::from([]), local_k, 1.0, 1.0)));
+    }
+    let d2 = if let Some(tx) = backend.x_view() {
+        distance_matrix(&tx, &tx, scale_x, &x_scale.view())
+    } else {
+        let ids: Vec<usize> = (0..num_obs).collect();
+        let (tx, _, _) = backend.train_rows(&ids)?;
+        distance_matrix(&tx.view(), &tx.view(), scale_x, &x_scale.view())
+    };
+    let sc: Arc<[f64]> = local_scales(num_obs, local_k, |r, c| d2[[r, c]])
+        .into_iter()
+        .map(|s2| s2.max(1.0e-12).sqrt())
+        .collect::<Vec<_>>()
+        .into();
+    let s_min = sc.iter().copied().fold(f64::INFINITY, f64::min).max(1.0e-6);
+    let s_max = sc.iter().copied().fold(1.0e-6_f64, f64::max).max(s_min);
+    Ok(Arc::new((sc, local_k, s_min, s_max)))
+}
+
 /// Epistemic Nearest Neighbors model.
 pub struct ENN {
     pub(crate) backend: EnnBackend,
@@ -52,8 +117,8 @@ pub struct ENN {
     pub(super) unscaled_dims: Vec<usize>,
     pub(super) tied_groups: Vec<Vec<usize>>,
     pub(crate) dist_metric: baux::semantics::neighbor::DistanceMetric,
-    pub(crate) scale_cache:
-        std::sync::Arc<std::sync::OnceLock<crate::posterior::neighbor_dist::ScaleInfo>>,
+    pub(crate) scale_info: std::sync::Arc<crate::posterior::neighbor_dist::ScaleInfo>,
+    pub(crate) scale_cache: PureScaleCache,
 }
 
 impl Clone for ENN {
@@ -93,6 +158,7 @@ impl Clone for ENN {
             unscaled_dims: self.unscaled_dims.clone(),
             tied_groups: self.tied_groups.clone(),
             dist_metric: self.dist_metric,
+            scale_info: self.scale_info.clone(),
             scale_cache: self.scale_cache.clone(),
         }
     }
@@ -101,11 +167,38 @@ impl Clone for ENN {
 impl ENN {
     /// Return a new `ENN` model configured with a local-scale pairwise
     /// [`baux::semantics::neighbor::Dissimilarity`] geometry.
-    pub fn with_geometry(&self, geometry: baux::semantics::neighbor::DistanceMetric) -> Self {
-        let mut next = self.clone();
-        next.dist_metric = geometry;
-        next.scale_cache = std::sync::Arc::new(std::sync::OnceLock::new());
-        next
+    pub fn with_geometry(mut self, geometry: baux::semantics::neighbor::DistanceMetric) -> Self {
+        self.dist_metric = geometry;
+        self = self.refresh_scales();
+        self
+    }
+
+    pub(crate) fn refresh_scales(mut self) -> Self {
+        if let Ok(info) = compute_scales(
+            self.num_obs,
+            self.dist_metric,
+            &self.backend,
+            self.scale_x,
+            &self.x_scale,
+        ) {
+            self.scale_info = info.clone();
+            self.scale_cache = PureScaleCache(info);
+        }
+        self
+    }
+
+    pub fn scale_info(&self) -> &std::sync::Arc<crate::posterior::neighbor_dist::ScaleInfo> {
+        &self.scale_info
+    }
+
+    pub fn with_thresholds(mut self, soft: usize, hard: usize) -> Result<Self, ENNError> {
+        if soft == 0 || hard == 0 || hard < soft {
+            return Err(ENNError::InvalidParameter(
+                "thresholds require 1 <= soft <= hard".to_string(),
+            ));
+        }
+        self.backend = self.backend.with_thresholds(soft, hard)?;
+        Ok(self)
     }
 
     /// Return the configured pairwise

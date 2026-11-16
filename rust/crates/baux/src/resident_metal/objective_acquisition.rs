@@ -5,6 +5,7 @@ use crate::hash::domain_prng;
 use crate::morbo::{MorboTRSettings, MorboTrustRegion};
 use crate::objective_observation::MAX_OBJECTIVES;
 use rand::Rng;
+use std::sync::Arc;
 
 mod parameters;
 use parameters::ObjectiveParams;
@@ -13,15 +14,17 @@ use hypervolume::{exclusive_volume, improvement, max_exclusive, measured, values
 
 pub use crate::config::{ObjectiveAcquisition, ObjectivePolicy};
 
+#[derive(Clone)]
 struct MorboRegion {
     trust: MorboTrustRegion,
-    center: Option<Buffer>,
+    center: Option<Arc<Buffer>>,
     record: crate::objective_observation::ObjectiveRecord,
     trials: u64,
 }
 
+#[derive(Clone)]
 pub struct ResidentMorbo {
-    regions: Vec<MorboRegion>,
+    regions: Arc<Vec<MorboRegion>>,
     active: usize,
     preferences: Vec<f32>,
     scales: Vec<f32>,
@@ -58,27 +61,10 @@ impl ResidentMorbo {
             .objective_history
             .incumbent()
             .ok_or("Configure MORBO after the initial vector observation")?;
-        let mut resident = Self {
-            regions: Vec::with_capacity(*regions),
-            active: 0,
-            preferences: weights.clone(),
-            scales: Vec::new(),
-            reference: Vec::new(),
-            seed: *seed,
-            clip: *clip,
-            observations: 0,
-        };
-        // Objective scales are installed by ObjectiveSelector immediately after
-        // construction. Initialize a valid fixed reference until then.
-        resident.reference = incumbent
-            .observation
-            .estimates()
-            .iter()
-            .map(|estimate| f64::from(estimate.mean) - 1.0)
-            .collect();
+        let mut region_vec = Vec::with_capacity(*regions);
         for region in 0..*regions {
             let mut rng = domain_prng(*seed, region as u64);
-            let mut trust = MorboTrustRegion::new(
+            let trust = MorboTrustRegion::new(
                 state.dimensions,
                 MorboTRSettings {
                     num_metrics: weights.len(),
@@ -90,23 +76,40 @@ impl ResidentMorbo {
                 &mut rng,
             )
             .map_err(|error| error.to_string())?;
-            trust.set_arms(1);
-            trust
+            let trust = trust.set_arms(1);
+            let trust = trust
                 .set_tolerance(state.trust.failure_tolerance() as usize)
                 .map_err(|error| error.to_string())?;
             let center = if region == 0 {
                 None
             } else {
                 let center = state.runtime.buffer::<u16>(state.dimensions);
-                state.copy(&state.base, &center)?;
-                Some(center)
+                state.copy(&*state.base, &center)?;
+                Some(Arc::new(center))
             };
-            resident.regions.push(MorboRegion {
+            region_vec.push(MorboRegion {
                 trust,
                 center,
                 record: incumbent,
                 trials: 0,
             });
+        }
+        let mut resident = Self {
+            regions: Arc::new(region_vec),
+            active: 0,
+            preferences: weights.clone(),
+            scales: Vec::new(),
+            reference: incumbent
+                .observation
+                .estimates()
+                .iter()
+                .map(|estimate| f64::from(estimate.mean) - 1.0)
+                .collect(),
+            seed: *seed,
+            clip: *clip,
+            observations: 0,
+        };
+        for region in 0..*regions {
             resident.sample_weights(region, 0)?;
             resident.seed(region, incumbent.observation)?;
         }
@@ -124,6 +127,21 @@ impl ResidentMorbo {
             .collect();
     }
 
+    pub fn regions_mut(&mut self, state: &SearchState) -> Result<(), String> {
+        if Arc::strong_count(&self.regions) > 1 {
+            let mut cloned = (*self.regions).clone();
+            for region in &mut cloned {
+                if let Some(center) = &mut region.center {
+                    let new_center = state.runtime.buffer::<u16>(state.dimensions);
+                    state.copy(&**center, &new_center)?;
+                    *center = Arc::new(new_center);
+                }
+            }
+            self.regions = Arc::new(cloned);
+        }
+        Ok(())
+    }
+
     fn sample_weights(&mut self, region: usize, epoch: usize) -> Result<(), String> {
         let stream = ((region as u64) << 32) ^ epoch as u64;
         let mut rng = domain_prng(self.seed, stream);
@@ -134,10 +152,13 @@ impl ResidentMorbo {
                 -rng.r#gen::<f64>().clamp(f64::MIN_POSITIVE, 1.0).ln() * f64::from(*preference)
             })
             .collect::<Vec<_>>();
-        self.regions[region]
+        let regions = Arc::make_mut(&mut self.regions);
+        regions[region].trust = regions[region]
             .trust
+            .clone()
             .set_weights(&samples)
-            .map_err(|error| error.to_string())
+            .map_err(|error| error.to_string())?;
+        Ok(())
     }
 
     fn seed(
@@ -147,15 +168,18 @@ impl ResidentMorbo {
     ) -> Result<(), String> {
         let values = values(observation);
         let row = values.view().insert_axis(ndarray::Axis(0));
-        self.regions[region].trust.update_incremental(&row);
+        let regions = Arc::make_mut(&mut self.regions);
+        regions[region].trust = regions[region].trust.clone().update_incremental(&row);
         // The trust region deliberately preserves its global observation
         // watermark across a local restart. Seed the first region at one, but
         // never move that watermark backwards when recentering later regions.
         self.observations = self.observations.max(1);
-        self.regions[region]
+        regions[region].trust = regions[region]
             .trust
+            .clone()
             .update_only(&values.view(), self.observations)
-            .map_err(|error| error.to_string())
+            .map_err(|error| error.to_string())?;
+        Ok(())
     }
 
     pub fn candidate_improves(
@@ -182,22 +206,26 @@ impl ResidentMorbo {
         let region = self.active;
         let observation = candidate;
         let candidate = values(observation);
-        self.regions[region]
+        let regions = Arc::make_mut(&mut self.regions);
+        regions[region].trust = regions[region]
             .trust
+            .clone()
             .update_incremental(&candidate.view().insert_axis(ndarray::Axis(0)));
         self.observations += 1;
-        self.regions[region].trials += 1;
+        regions[region].trials += 1;
         if accepted {
-            self.regions[region].record = crate::objective_observation::ObjectiveRecord {
+            regions[region].record = crate::objective_observation::ObjectiveRecord {
                 identity,
                 observation,
             };
         }
-        let incumbent = values(self.regions[region].record.observation);
-        self.regions[region]
+        let incumbent = values(regions[region].record.observation);
+        regions[region].trust = regions[region]
             .trust
+            .clone()
             .update_only(&incumbent.view(), self.observations)
-            .map_err(|error| error.to_string())
+            .map_err(|error| error.to_string())?;
+        Ok(())
     }
 
     pub fn restart(
@@ -206,7 +234,10 @@ impl ResidentMorbo {
         epoch: usize,
         incumbent: crate::objective_observation::ObjectiveObservation,
     ) -> Result<(), String> {
-        self.regions[region].trust.restart(None);
+        {
+            let regions = Arc::make_mut(&mut self.regions);
+            regions[region].trust = regions[region].trust.clone().restart(None);
+        }
         self.sample_weights(region, epoch)?;
         self.seed(region, incumbent)
     }
@@ -220,13 +251,20 @@ impl ResidentMorbo {
     }
 
     pub fn set_tolerance(&mut self, failures: usize) -> Result<(), String> {
-        for region in &mut self.regions {
-            region
+        let regions = Arc::make_mut(&mut self.regions);
+        for region in regions.iter_mut() {
+            region.trust = region
                 .trust
+                .clone()
                 .set_tolerance(failures)
                 .map_err(|error| error.to_string())?;
         }
         Ok(())
+    }
+
+    pub fn with_tolerance(mut self, failures: usize) -> Result<Self, String> {
+        self.set_tolerance(failures)?;
+        Ok(self)
     }
 
     fn select_region(&self) -> usize {
@@ -292,6 +330,7 @@ pub struct ObjectiveSelectionReport {
     pad: u32,
 }
 
+#[derive(Clone)]
 pub struct ObjectiveSelector {
     config: ObjectivePolicy,
     reference: Vec<f64>,
@@ -372,10 +411,10 @@ impl ObjectiveSelector {
 impl SearchState {
     /// Opt in without changing the scalar UCB/Thompson kernel or its ABI.
     /// Passing None restores scalar acquisition without changing observations.
-    pub fn configure_objectives(&mut self, config: Option<ObjectivePolicy>) -> Result<(), String> {
+    pub fn configure_objectives(mut self, config: Option<ObjectivePolicy>) -> Result<Self, String> {
         self.check_idle()?;
         self.objective_selector = config
-            .map(|config| ObjectiveSelector::new(self, config))
+            .map(|config| ObjectiveSelector::new(&self, config))
             .transpose()?;
         if let Some(morbo) = self
             .objective_selector
@@ -384,7 +423,7 @@ impl SearchState {
         {
             self.length = morbo.trust().length();
         }
-        Ok(())
+        Ok(self)
     }
 
     pub fn validate_selector(&self) -> Result<(), String> {
@@ -422,41 +461,80 @@ impl SearchState {
     }
 
     pub fn update_morbo(
-        &mut self,
+        mut self,
         candidate: crate::objective_observation::ObjectiveObservation,
-    ) -> Result<(), String> {
+    ) -> Result<Self, String> {
         let Some(mut selector) = self.objective_selector.take() else {
-            return Ok(());
+            return Ok(self);
         };
         let Some(mut morbo) = selector.morbo.take() else {
             self.objective_selector = Some(selector);
-            return Ok(());
+            return Ok(self);
         };
-        let result = (|| {
-            let region = morbo.active;
-            let accepted = self.base_id == self.observation;
-            morbo.observe(candidate, accepted, self.observation)?;
-            if morbo.trust().needs_restart() {
-                self.restart_count += 1;
-                let source = morbo.max_region(Some(region))?;
-                let source_center = morbo.regions[source]
-                    .center
-                    .clone()
-                    .ok_or("MORBO inactive region lost its resident center")?;
-                let source_record = morbo.regions[source].record;
-                morbo.regions[region].record = source_record;
-                morbo.restart(region, self.restart_count, source_record.observation)?;
-                self.copy(&source_center, &self.base)?;
-                self.base_id = source_record.identity;
-                self.best = source_record.observation.control().mean;
-                self.best_variance = source_record.observation.control().variance;
+        let region = morbo.active;
+        let accepted = self.base_id == self.observation;
+        if let Err(e) = morbo.observe(candidate, accepted, self.observation) {
+            selector.morbo = Some(morbo);
+            self.objective_selector = Some(selector);
+            return Err(e);
+        }
+        if morbo.trust().needs_restart() {
+            self.restart_count += 1;
+            let source = match morbo.max_region(Some(region)) {
+                Ok(s) => s,
+                Err(e) => {
+                    selector.morbo = Some(morbo);
+                    self.objective_selector = Some(selector);
+                    return Err(e);
+                }
+            };
+            if let Err(e) = morbo.regions_mut(&self) {
+                selector.morbo = Some(morbo);
+                self.objective_selector = Some(selector);
+                return Err(e);
             }
-            self.length = morbo.trust().length();
-            Ok(())
-        })();
+            let source_center = match morbo.regions[source].center.clone() {
+                Some(c) => c,
+                None => {
+                    selector.morbo = Some(morbo);
+                    self.objective_selector = Some(selector);
+                    return Err("MORBO inactive region lost its resident center".into());
+                }
+            };
+            let source_record = morbo.regions[source].record;
+            let regions = Arc::make_mut(&mut morbo.regions);
+            regions[region].record = source_record;
+            if let Err(e) = morbo.restart(region, self.restart_count, source_record.observation) {
+                selector.morbo = Some(morbo);
+                self.objective_selector = Some(selector);
+                return Err(e);
+            }
+            if std::ptr::eq::<metal::BufferRef>(&**self.base, &**source_center)
+                || self
+                    .history_rows
+                    .iter()
+                    .any(|row| std::ptr::eq::<metal::BufferRef>(&***row, &**self.base))
+            {
+                self.base = Arc::new(self.runtime.buffer::<u16>(self.dimensions));
+            }
+            if let Err(e) = self.cow_base() {
+                selector.morbo = Some(morbo);
+                self.objective_selector = Some(selector);
+                return Err(e);
+            }
+            if let Err(e) = self.copy(&*source_center, &*self.base) {
+                selector.morbo = Some(morbo);
+                self.objective_selector = Some(selector);
+                return Err(e);
+            }
+            self.base_id = source_record.identity;
+            self.best = source_record.observation.control().mean;
+            self.best_variance = source_record.observation.control().variance;
+        }
+        self.length = morbo.trust().length();
         selector.morbo = Some(morbo);
         self.objective_selector = Some(selector);
-        result
+        Ok(self)
     }
 
     pub fn has_morbo(&self) -> bool {
@@ -465,24 +543,28 @@ impl SearchState {
             .is_some_and(|selector| selector.morbo.is_some())
     }
 
-    pub fn activate_morbo(&mut self) -> Result<(), String> {
+    pub fn activate_morbo(mut self) -> Result<Self, String> {
         let Some(mut selector) = self.objective_selector.take() else {
-            return Ok(());
+            return Ok(self);
         };
-        let Some(morbo) = selector.morbo.as_mut() else {
+        let Some(mut morbo) = selector.morbo.take() else {
             self.objective_selector = Some(selector);
-            return Ok(());
+            return Ok(self);
         };
         let region = morbo.select_region();
-        let result = self.switch_region(morbo, region).map(|()| {
-            let state = &morbo.regions[region];
-            self.base_id = state.record.identity;
-            self.best = state.record.observation.control().mean;
-            self.best_variance = state.record.observation.control().variance;
-            self.length = state.trust.length();
-        });
+        if let Err(e) = self.switch_region(&mut morbo, region) {
+            selector.morbo = Some(morbo);
+            self.objective_selector = Some(selector);
+            return Err(e);
+        }
+        let state = &morbo.regions[region];
+        self.base_id = state.record.identity;
+        self.best = state.record.observation.control().mean;
+        self.best_variance = state.record.observation.control().variance;
+        self.length = state.trust.length();
+        selector.morbo = Some(morbo);
         self.objective_selector = Some(selector);
-        result
+        Ok(self)
     }
 
     pub fn morbo_region(&self) -> Option<usize> {
@@ -503,42 +585,63 @@ impl SearchState {
         if region == morbo.active {
             return Ok(());
         }
-        if morbo.regions[morbo.active].center.is_some() {
+        morbo.regions_mut(self)?;
+        let regions = Arc::make_mut(&mut morbo.regions);
+        if regions[morbo.active].center.is_some() {
             return Err("MORBO active region unexpectedly owned a stored center".into());
         }
-        let center = morbo.regions[region]
+        let center = regions[region]
             .center
             .take()
             .ok_or("MORBO inactive region lost its resident center")?;
         let previous = std::mem::replace(&mut self.base, center);
-        morbo.regions[morbo.active].center = Some(previous);
+        regions[morbo.active].center = Some(previous);
         morbo.active = region;
+        if self
+            .history_rows
+            .iter()
+            .any(|row| std::ptr::eq::<metal::BufferRef>(&***row, &**self.base))
+        {
+            let isolated = self.runtime.buffer::<u16>(self.dimensions);
+            self.copy(&*self.base, &isolated)?;
+            self.base = Arc::new(isolated);
+        }
+        self.cow_base()?;
         Ok(())
     }
 
     /// Restore the resident Pareto member with the largest exclusive exact
     /// hypervolume contribution for validation and checkpoint export.
-    pub fn finalize_morbo(&mut self) -> Result<Option<usize>, String> {
+    pub fn finalize_morbo(mut self) -> Result<(Self, Option<usize>), String> {
         let Some(mut selector) = self.objective_selector.take() else {
-            return Ok(None);
+            return Ok((self, None));
         };
-        let Some(morbo) = selector.morbo.as_mut() else {
+        let Some(mut morbo) = selector.morbo.take() else {
             self.objective_selector = Some(selector);
-            return Ok(None);
+            return Ok((self, None));
         };
-        let result = (|| {
-            let region = morbo.max_region(None)?;
-            self.switch_region(morbo, region)?;
-            let record = morbo.regions[region].record;
-            let length = morbo.regions[region].trust.length();
-            self.base_id = record.identity;
-            self.best = record.observation.control().mean;
-            self.best_variance = record.observation.control().variance;
-            self.length = length;
-            Ok(Some(region))
-        })();
+        let region = match morbo.max_region(None) {
+            Ok(r) => r,
+            Err(e) => {
+                selector.morbo = Some(morbo);
+                self.objective_selector = Some(selector);
+                return Err(e);
+            }
+        };
+        if let Err(e) = self.switch_region(&mut morbo, region) {
+            selector.morbo = Some(morbo);
+            self.objective_selector = Some(selector);
+            return Err(e);
+        }
+        let record = morbo.regions[region].record;
+        let length = morbo.regions[region].trust.length();
+        self.base_id = record.identity;
+        self.best = record.observation.control().mean;
+        self.best_variance = record.observation.control().variance;
+        self.length = length;
+        selector.morbo = Some(morbo);
         self.objective_selector = Some(selector);
-        result
+        Ok((self, Some(region)))
     }
 
     /// Read back only bounded candidate acquisition vectors, never model

@@ -1,13 +1,5 @@
 \title{Measuring Batch Evaluation Cost}
 
 \p{
-  The OxCaml evaluator supports scalar and SIMD kernels with configurable worker counts. To compare them, use the same function, dimension, input batch and numerical checks. Report the processor and software versions, then time both prepared-array evaluation and the complete preparation-and-evaluation path.
-}
-
-\p{
-  These timings answer different questions. Prepared-array throughput measures repeated evaluations after packing the inputs. End-to-end cost includes packing and transfer from the caller. An optimizer also spends time generating candidates, fitting its surrogate and selecting points; faster objective evaluation alone does not establish a faster optimization run.
-}
-
-\p{
-  The [simulation page](simulation.html) provides a callable example. A performance claim needs a reproducible comparison with the configuration and timing boundaries stated alongside its result.
+  The OxCaml evaluator provides scalar and SIMD kernels with configurable worker counts. When benchmarking, separate prepared-array throughput (steady-state evaluation on packed inputs) from end-to-end latency (which includes array packing and FFI transfer) at matching dimensions and batch sizes; see the [simulation page](simulation.html) for a runnable example.
 }

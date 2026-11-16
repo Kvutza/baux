@@ -108,7 +108,7 @@ fn mean_empty() {
 fn sq_l22() {
     let dir = TempDir::new().unwrap();
     let mut store = MmapColumnStore::open_mmap(dir.path().join("x.bin"), 2, None).unwrap();
-    store
+    store = store
         .mmap_append(
             &ndarray::Array2::from_shape_fn((2, 2), |(i, j)| match (i, j) {
                 (0, 0) => 4.0,
@@ -148,7 +148,7 @@ fn brute_paths() {
     assert_eq!(top[0].0, 1);
     let dir = TempDir::new().unwrap();
     let mut store = MmapColumnStore::open_mmap(dir.path().join("x.bin"), 3, None).unwrap();
-    store
+    store = store
         .mmap_append(&ndarray::Array2::from_shape_fn((4, 3), |(i, j)| vectors[i][j] as f64).view())
         .unwrap();
     let scaled = baux::neighbor_index::index::search::bpann_mmap(

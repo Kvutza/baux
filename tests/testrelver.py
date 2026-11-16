@@ -7,9 +7,13 @@ ROOT = Path(__file__).resolve().parent.parent
 
 def read_version(path: Path, key: tuple[str, ...]) -> str:
     with path.open("rb") as file:
-        data = tomllib.load(file)
+        data: object = tomllib.load(file)
     for part in key:
+        if not isinstance(data, dict):
+            raise TypeError(f"expected mapping at {part!r} in {path}")
         data = data[part]
+    if not isinstance(data, str):
+        raise TypeError(f"expected string at {key!r} in {path}")
     return data
 
 

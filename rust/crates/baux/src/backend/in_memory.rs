@@ -1,13 +1,13 @@
 //! In-memory ENN backend (dev / small N).
 
 use ndarray::{Array1, Array2, ArrayView2, Axis};
-use std::sync::Mutex;
 
 use crate::error::ENNError;
 use crate::index::{ENNIndex, IndexDriver};
 
 use super::row_storage::RowStorage;
 
+#[derive(Clone)]
 pub struct InMemoryEnnBackend {
     train_x_rows: RowStorage,
     train_y_rows: RowStorage,
@@ -15,28 +15,8 @@ pub struct InMemoryEnnBackend {
     num_dim: usize,
     num_metrics: usize,
     index: ENNIndex,
-    index_stale: Mutex<bool>,
-    index_synced_obs: Mutex<usize>,
-}
-
-impl Clone for InMemoryEnnBackend {
-    fn clone(&self) -> Self {
-        let empty_x = Array2::<f64>::zeros((0, self.num_dim));
-        let scale_x = self.index.scales_x();
-        let x_scale = self.index.scale_vec();
-        let index = ENNIndex::new(empty_x, self.num_dim, x_scale, scale_x, self.driver())
-            .expect("clone empty ENNIndex");
-        Self {
-            train_x_rows: self.train_x_rows.clone(),
-            train_y_rows: self.train_y_rows.clone(),
-            train_yvar_rows: self.train_yvar_rows.clone(),
-            num_dim: self.num_dim,
-            num_metrics: self.num_metrics,
-            index,
-            index_stale: Mutex::new(scale_x),
-            index_synced_obs: Mutex::new(0),
-        }
-    }
+    index_stale: bool,
+    index_synced_obs: usize,
 }
 
 impl InMemoryEnnBackend {
@@ -69,8 +49,8 @@ impl InMemoryEnnBackend {
             num_dim,
             num_metrics,
             index,
-            index_stale: Mutex::new(false),
-            index_synced_obs: Mutex::new(index_synced_obs),
+            index_stale: false,
+            index_synced_obs,
         })
     }
 
@@ -108,16 +88,28 @@ impl InMemoryEnnBackend {
         self.index.len()
     }
 
-    pub fn x_view(&self) -> ndarray::ArrayView2<'_, f64> {
+    pub fn x_view(&self) -> Option<ndarray::ArrayView2<'_, f64>> {
         self.train_x_rows.view()
     }
 
-    pub fn y_view(&self) -> ndarray::ArrayView2<'_, f64> {
+    pub fn y_view(&self) -> Option<ndarray::ArrayView2<'_, f64>> {
         self.train_y_rows.view()
     }
 
     pub fn yvar_view(&self) -> Option<ndarray::ArrayView2<'_, f64>> {
-        self.train_yvar_rows.as_ref().map(RowStorage::view)
+        self.train_yvar_rows.as_ref().and_then(RowStorage::view)
+    }
+
+    pub fn memory_x(&self) -> Array2<f64> {
+        self.train_x_rows.to_array()
+    }
+
+    pub fn memory_y(&self) -> Array2<f64> {
+        self.train_y_rows.to_array()
+    }
+
+    pub fn memory_yvar(&self) -> Option<Array2<f64>> {
+        self.train_yvar_rows.as_ref().map(|r| r.to_array())
     }
 
     pub fn index(&self) -> &ENNIndex {
@@ -125,74 +117,89 @@ impl InMemoryEnnBackend {
     }
 
     pub fn append_rows(
-        &mut self,
+        mut self,
         x: &ArrayView2<f64>,
         y: &ArrayView2<f64>,
         yvar: Option<&ArrayView2<f64>>,
-    ) -> Result<(), ENNError> {
+    ) -> Result<Self, ENNError> {
         if x.nrows() == 0 {
-            return Ok(());
+            return Ok(self);
         }
         let prev_rows = self.train_x_rows.nrows();
-        self.train_x_rows.push_rows(x)?;
-        self.train_y_rows.push_rows(y)?;
-        match (&mut self.train_yvar_rows, yvar) {
-            (Some(yvar_rows), Some(yv)) => yvar_rows.push_rows(yv)?,
+        self.train_x_rows = self.train_x_rows.push_rows(x)?;
+        self.train_y_rows = self.train_y_rows.push_rows(y)?;
+        self.train_yvar_rows = match (self.train_yvar_rows, yvar) {
+            (Some(yvar_rows), Some(yv)) => Some(yvar_rows.push_rows(yv)?),
             (None, Some(yv)) => {
-                let mut storage =
-                    RowStorage::from_array(Array2::zeros((prev_rows, self.num_metrics)));
-                storage.push_rows(yv)?;
-                self.train_yvar_rows = Some(storage);
+                let storage = RowStorage::from_array(Array2::zeros((prev_rows, self.num_metrics)));
+                Some(storage.push_rows(yv)?)
             }
             (Some(yvar_rows), None) => {
                 let zeros = Array2::zeros((x.nrows(), self.num_metrics));
-                yvar_rows.push_rows(&zeros.view())?;
+                Some(yvar_rows.push_rows(&zeros.view())?)
             }
-            (None, None) => {}
+            (None, None) => None,
+        };
+
+        if !self.index_stale && !self.index.scales_x() && self.index_synced_obs == prev_rows {
+            self.index = self
+                .index
+                .add(x)
+                .map_err(|e| ENNError::InvalidParameter(e.to_string()))?;
+            self.index_synced_obs = self.train_x_rows.nrows();
         }
-        Ok(())
+
+        Ok(self)
     }
 
-    pub fn mark_stale(&self) {
-        *self.index_stale.lock().expect("index_stale mutex poisoned") = true;
+    pub fn mark_stale(mut self) -> Self {
+        self.index_stale = true;
+        self
     }
 
     pub fn index_stale(&self) -> bool {
-        *self.index_stale.lock().expect("index_stale mutex poisoned")
+        self.index_stale
     }
 
-    pub fn ensure_sync(&self, scale_x: bool, x_scale: &Array1<f64>) -> Result<(), ENNError> {
+    pub fn ensure_sync(mut self, scale_x: bool, x_scale: &Array1<f64>) -> Result<Self, ENNError> {
         let num_obs = self.len();
-        let mut stale = self.index_stale.lock().expect("index_stale mutex poisoned");
-        let mut synced = self
-            .index_synced_obs
-            .lock()
-            .expect("index_synced_obs mutex poisoned");
         let scale_mismatch =
             self.index.scales_x() != scale_x || (scale_x && self.index.scale_vec() != *x_scale);
-        if !*stale && !scale_mismatch && *synced == self.index.len() && self.index.len() < num_obs {
-            let train_view = self.train_x_rows.view();
-            let pending = train_view.slice(ndarray::s![*synced.., ..]);
+
+        if !self.index_stale
+            && !scale_mismatch
+            && self.index_synced_obs == self.index.len()
+            && self.index.len() < num_obs
+        {
+            let pending_indices: Vec<usize> = (self.index_synced_obs..num_obs).collect();
+            let pending = self.train_x_rows.gather_rows(&pending_indices);
             if pending.nrows() > 0 {
-                self.index
-                    .add(&pending)
+                self.index = self
+                    .index
+                    .add(&pending.view())
                     .map_err(|e| ENNError::InvalidParameter(e.to_string()))?;
             }
-            *synced = num_obs;
-            return Ok(());
+            self.index_synced_obs = num_obs;
+            return Ok(self);
         }
-        if *stale || scale_mismatch || self.index.len() != num_obs || *synced != num_obs {
+
+        if self.index_stale
+            || scale_mismatch
+            || self.index.len() != num_obs
+            || self.index_synced_obs != num_obs
+        {
+            let x_array = self.train_x_rows.to_array();
             let scaled_x = if scale_x {
-                (&self.train_x_rows.view() / &x_scale.view().insert_axis(Axis(0))).to_owned()
+                (&x_array / &x_scale.view().insert_axis(Axis(0))).to_owned()
             } else {
-                self.train_x_rows.view().to_owned()
+                x_array
             };
-            self.index.set_scaling(scale_x);
-            self.index.rebuild_scaled(scaled_x, x_scale.clone())?;
-            *stale = false;
-            *synced = num_obs;
+            self.index = self.index.with_scaling(scale_x);
+            self.index = self.index.rebuild_scaled(scaled_x, x_scale.clone())?;
+            self.index_stale = false;
+            self.index_synced_obs = num_obs;
         }
-        Ok(())
+        Ok(self)
     }
 
     pub fn train_rows(&self, indices: &[usize]) -> Result<super::TrainRows, ENNError> {

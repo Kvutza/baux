@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+import baux
 import numpy as np
 import pytest
-from baux import ENN
 from baux.enn.enn_params import ENNParams, PosteriorFlags
 
 try:
@@ -28,8 +28,8 @@ def test_001():
     train_y = np.array([[0.0], [1.0], [1.0], [2.0]], dtype=float)
     query = np.array([[0.5, 0.5]], dtype=float)
     flags = PosteriorFlags(observation_noise=False)
-    model = ENN(train_x, train_y, scale_x=False)
-    post = model.posterior(query, params=_params(), flags=flags)
+    model = baux.enn_init(train_x, train_y, scale_x=False)
+    post = baux.posterior(model, query, params=_params(), flags=flags)
 
     np.testing.assert_allclose(post.se_epi, post.se, rtol=1e-12, atol=1e-12)
     np.testing.assert_allclose(post.se_ale, 0.0, rtol=0, atol=1e-15)
@@ -40,8 +40,8 @@ def test_002():
     train_y = np.array([[0.0], [1.0], [1.0], [2.0]], dtype=float)
     query = np.array([[0.5, 0.5]], dtype=float)
     flags = PosteriorFlags(observation_noise=True)
-    model = ENN(train_x, train_y, scale_x=False)
-    post = model.posterior(query, params=_params(aleatoric=0.1), flags=flags)
+    model = baux.enn_init(train_x, train_y, scale_x=False)
+    post = baux.posterior(model, query, params=_params(aleatoric=0.1), flags=flags)
 
     recomposed = np.hypot(post.se_epi, post.se_ale)
     np.testing.assert_allclose(recomposed, post.se, rtol=1e-10, atol=1e-10)
@@ -56,11 +56,11 @@ def test_003():
     flags = PosteriorFlags(observation_noise=False)
     params = _params()
 
-    model_yvar = ENN(train_x, train_y, train_yvar=train_yvar, scale_x=False)
-    model_plain = ENN(train_x, train_y, scale_x=False)
+    model_yvar = baux.enn_init(train_x, train_y, train_yvar=train_yvar, scale_x=False)
+    model_plain = baux.enn_init(train_x, train_y, scale_x=False)
 
-    post_yvar = model_yvar.posterior(query, params=params, flags=flags)
-    post_plain = model_plain.posterior(query, params=params, flags=flags)
+    post_yvar = baux.posterior(model_yvar, query, params=params, flags=flags)
+    post_plain = baux.posterior(model_plain, query, params=params, flags=flags)
 
     np.testing.assert_allclose(post_yvar.se_ale, 0.0, rtol=0, atol=1e-15)
     np.testing.assert_allclose(post_yvar.se_epi, post_yvar.se, rtol=1e-12, atol=1e-12)
@@ -73,10 +73,10 @@ def test_004():
     query = np.array([[0.5, 0.5], [0.2, 0.8]], dtype=float)
     flags = PosteriorFlags(observation_noise=True)
     params = _params(aleatoric=0.1)
-    model = ENN(train_x, train_y, scale_x=False)
+    model = baux.enn_init(train_x, train_y, scale_x=False)
 
     batch = model.batch_posterior(query, paramss=[params], flags=flags)
-    single = model.posterior(query, params=params, flags=flags)
+    single = baux.posterior(model, query, params=params, flags=flags)
 
     np.testing.assert_allclose(batch.mu[0], single.mu, rtol=1e-12, atol=1e-12)
     np.testing.assert_allclose(batch.se[0], single.se, rtol=1e-12, atol=1e-12)
@@ -90,9 +90,9 @@ def test_005():
     query = np.array([[0.5, 0.5]], dtype=float)
     flags = PosteriorFlags(observation_noise=True)
     params = _params(aleatoric=0.1)
-    model = ENN(train_x, train_y, scale_x=False)
+    model = baux.enn_init(train_x, train_y, scale_x=False)
 
-    post = model.posterior(query, params=params, flags=flags)
+    post = baux.posterior(model, query, params=params, flags=flags)
     cond = model.conditional_posterior(
         np.zeros((0, 2), dtype=float),
         np.zeros((0, 1), dtype=float),
@@ -106,13 +106,13 @@ def test_005():
 
 
 def test_006():
-    model = ENN(
+    model = baux.enn_init(
         np.zeros((0, 2), dtype=float),
         np.zeros((0, 1), dtype=float),
         scale_x=False,
     )
     query = np.array([[0.5, 0.5]], dtype=float)
-    post = model.posterior(query, params=_params())
+    post = baux.posterior(model, query, params=_params())
 
     np.testing.assert_allclose(post.se_epi, post.se)
     np.testing.assert_allclose(post.se_ale, 0.0)

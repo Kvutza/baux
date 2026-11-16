@@ -337,9 +337,8 @@ def test_phases(caplog):
     caplog.set_level("INFO", logger="baux.pretrain")
     with pretrain.phase("test success"):
         pass
-    with pytest.raises(ValueError, match="failure"):
-        with pretrain.phase("test failure"):
-            raise ValueError("failure")
+    with pytest.raises(ValueError, match="failure"), pretrain.phase("test failure"):
+        raise ValueError("failure")
     assert "test success | start" in caplog.text
     assert "test success | complete | elapsed" in caplog.text
     assert "test failure | failed | elapsed" in caplog.text

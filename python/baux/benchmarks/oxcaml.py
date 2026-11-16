@@ -29,21 +29,20 @@ _EXT: ModuleType | None = None
 _JS_BRIDGE_CACHE: tuple[Any, _JsOxcamlBridge] | None = None
 
 
-def _pyodide_ffi() -> tuple[Any, Any, Any]:
+def _ffi() -> tuple[Any, Any, Any]:
     try:
-        from pyodide.ffi import JsException, create_proxy, to_js  # type: ignore[import-not-found]
-
-        return create_proxy, to_js, JsException
+        mod = importlib.import_module("pyodide.ffi")
+        return mod.create_proxy, mod.to_js, mod.JsException
     except ImportError:
         return None, None, None
 
 
-def _to_py(val: Any) -> Any:
+def _py(val: Any) -> Any:
     return val.to_py() if hasattr(val, "to_py") else val
 
 
-def _normalize_meta(raw: Any) -> dict[str, Any]:
-    meta = dict(_to_py(raw))
+def _meta(raw: Any) -> dict[str, Any]:
+    meta = dict(_py(raw))
     for key in ("id", "label", "family", "rule", "source"):
         if key in meta and meta[key] is not None:
             meta[key] = str(meta[key])
@@ -54,7 +53,7 @@ def _normalize_meta(raw: Any) -> dict[str, Any]:
         meta["scalable"] = bool(meta["scalable"])
     for key in ("bounds", "domain"):
         if key in meta and meta[key] is not None:
-            meta[key] = [(float(pair[0]), float(pair[1])) for pair in _to_py(meta[key])]
+            meta[key] = [(float(pair[0]), float(pair[1])) for pair in _py(meta[key])]
     return meta
 
 
@@ -73,7 +72,7 @@ class _JsOxcamlBridge:
         return fn
 
     def _call(self, fn: Any, *args: Any) -> Any:
-        _, _, js_exc = _pyodide_ffi()
+        _, _, js_exc = _ffi()
         try:
             return fn(*args)
         except Exception as exc:
@@ -90,16 +89,16 @@ class _JsOxcamlBridge:
 
     def catalogue(self) -> list[dict[str, Any]]:
         raw = self._call(self._fn("catalogue"))
-        return [_normalize_meta(item) for item in _to_py(raw)]
+        return [_meta(item) for item in _py(raw)]
 
     def describe(self, name: str, dim: int = 0) -> dict[str, Any]:
         raw = self._call(self._fn("describe"), str(name), int(dim))
-        return _normalize_meta(raw)
+        return _meta(raw)
 
     def eval_one(self, name: str, point: np.ndarray) -> float:
         d = int(point.shape[0])
         fn = self._fn("evalOne", "eval_one")
-        create_proxy, to_js, _ = _pyodide_ffi()
+        create_proxy, to_js, _ = _ffi()
         if create_proxy is not None:
             mv = memoryview(point)
             proxy = create_proxy(mv)
@@ -115,7 +114,7 @@ class _JsOxcamlBridge:
         arg = to_js(point) if to_js is not None else point
         return float(self._call(fn, str(name), d, arg))
 
-    def eval_batch_array(
+    def eval_array(
         self,
         name: str,
         mat: np.ndarray,
@@ -129,7 +128,7 @@ class _JsOxcamlBridge:
         out = np.empty(n, dtype=np.float64)
         flat = mat.reshape(-1)
         fn = self._fn("evalBatch", "eval_batch")
-        create_proxy, _, _ = _pyodide_ffi()
+        create_proxy, _, _ = _ffi()
         if create_proxy is not None:
             in_mv = memoryview(flat)
             out_mv = memoryview(out)
@@ -153,7 +152,7 @@ class _JsOxcamlBridge:
             return out
         res = self._call(fn, str(name), d, n, flat, out)
         if res is not None and res is not out:
-            arr = np.asarray(_to_py(res), dtype=np.float64)
+            arr = np.asarray(_py(res), dtype=np.float64)
             if arr.shape != (n,):
                 raise ValueError(
                     f"evalBatch returned shape {arr.shape}, expected ({n},)"
@@ -169,7 +168,7 @@ class _JsOxcamlBridge:
         workers: int = 1,
         block_pairs: int = 128,
     ) -> bytearray:
-        out = self.eval_batch_array(
+        out = self.eval_array(
             name,
             points,
             backend=backend,
@@ -182,10 +181,10 @@ class _JsOxcamlBridge:
         return {"local_borrow_delta": 0, "unique_steal": 1}
 
 
-def _resolve_js_bridge() -> _JsOxcamlBridge | None:
+def _jsbridge() -> _JsOxcamlBridge | None:
     global _JS_BRIDGE_CACHE
     try:
-        import js  # type: ignore[import-not-found]
+        js: Any = importlib.import_module("js")
     except ImportError:
         return None
     gt = getattr(js, "globalThis", None)
@@ -213,7 +212,7 @@ def _load() -> Any:
     global _EXT
 
     if sys.platform == "emscripten":
-        js_bridge = _resolve_js_bridge()
+        js_bridge = _jsbridge()
         if js_bridge is not None:
             return js_bridge
         if "_pyodide_core" in sys.modules or "pyodide" in sys.modules:
@@ -229,7 +228,7 @@ def _load() -> Any:
     ext_dir = Path(override) if override else (root / ".cache" / "baux" / "ocaml-pyext")
     try:
         ext_sfx = sysconfig.get_config_var("EXT_SUFFIX") or ".so"
-    except Exception:
+    except (AttributeError, TypeError, ValueError):
         ext_sfx = ".so"
     so_path = ext_dir / f"_baux_oxcaml{ext_sfx}"
 
@@ -247,7 +246,7 @@ def _load() -> Any:
         env = os.environ.copy()
         try:
             py_inc = sysconfig.get_path("include")
-        except Exception:
+        except (AttributeError, TypeError, ValueError):
             py_inc = None
         if py_inc:
             env.setdefault("BAUX_PYTHON_INCLUDE", py_inc)
@@ -294,7 +293,7 @@ def eval_one(name: str, point: ArrayLike) -> float:
     return float(_load().eval_one(name, arr))
 
 
-def _ensure_batch_matrix(points: ArrayLike) -> np.ndarray:
+def _batch(points: ArrayLike) -> np.ndarray:
     mat = (
         points
         if isinstance(points, np.ndarray)
@@ -317,7 +316,7 @@ def raw_batch(
     block_pairs: int = 128,
 ) -> bytearray:
     """Evaluate a 2D ``(N, D)`` batch and return the stolen ``@ unique`` bytearray."""
-    mat = _ensure_batch_matrix(points)
+    mat = _batch(points)
     return _load().eval_batch(name, mat, backend, int(workers), int(block_pairs))
 
 
@@ -330,10 +329,10 @@ def eval_batch(
     block_pairs: int = 128,
 ) -> np.ndarray:
     """Evaluate minimization objective ``f(X)`` on ``(N, D)`` batch with zero output copy."""
-    mat = _ensure_batch_matrix(points)
+    mat = _batch(points)
     ext = _load()
-    if hasattr(ext, "eval_batch_array"):
-        return ext.eval_batch_array(
+    if hasattr(ext, "eval_array"):
+        return ext.eval_array(
             name,
             mat,
             backend=backend,

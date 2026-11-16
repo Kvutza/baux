@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+import baux
 import numpy as np
 import pytest
-from baux.enn.enn_class import ENN
 from baux.enn.enn_params import ENNParams
 from enn_helpers import enn_rows
 
@@ -11,17 +11,21 @@ from enn_helpers import enn_rows
 def test_001(scale_x):
     train_x = np.array([[0.0, 0.0], [10.0, 0.0]], dtype=float)
     train_y = np.array([[0.0], [10.0]], dtype=float)
-    enn = ENN(train_x, train_y, scale_x=scale_x)
+    enn = baux.enn_init(train_x, train_y, scale_x=scale_x)
 
     with pytest.raises(ValueError):
-        enn.add(np.array([[20.0, 0.0]], dtype=float), np.array([[20.0, 200.0]]))
+        enn = baux.append(
+            enn, np.array([[20.0, 0.0]], dtype=float), np.array([[20.0, 200.0]])
+        )
 
     assert len(enn) == 2
     x_at, y_at, _ = enn_rows(enn)
     np.testing.assert_allclose(x_at, train_x)
     np.testing.assert_allclose(y_at, train_y)
 
-    enn.add(np.array([[30.0, 0.0]], dtype=float), np.array([[30.0]], dtype=float))
+    enn = baux.append(
+        enn, np.array([[30.0, 0.0]], dtype=float), np.array([[30.0]], dtype=float)
+    )
     assert len(enn) == 3
     x_at, y_at, _ = enn_rows(enn)
     assert x_at.shape[0] == y_at.shape[0]
@@ -43,9 +47,9 @@ def test_002(scale_x):
     y = np.array([[10.0], [20.0]], dtype=float)
     yvar = np.array([[0.1], [0.2]], dtype=float)
 
-    incremental = ENN(empty_x, empty_y, scale_x=scale_x)
-    incremental.add(x, y, yvar)
-    fresh = ENN(x, y, yvar, scale_x=scale_x)
+    incremental = baux.enn_init(empty_x, empty_y, scale_x=scale_x)
+    incremental = baux.append(incremental, x, y, yvar)
+    fresh = baux.enn_init(x, y, yvar, scale_x=scale_x)
 
     assert len(incremental) == len(fresh) == 2
     inc_x, inc_y, inc_yvar = enn_rows(incremental)
@@ -63,15 +67,15 @@ def test_003(scale_x):
     x = np.array([[1.0, 2.0]], dtype=float)
     y = np.array([[10.0]], dtype=float)
 
-    incremental = ENN(empty_x, empty_y, scale_x=scale_x)
-    incremental.add(empty_x, empty_y, empty_yvar)
+    incremental = baux.enn_init(empty_x, empty_y, scale_x=scale_x)
+    incremental = baux.append(incremental, empty_x, empty_y, empty_yvar)
 
     assert len(incremental) == 0
     _, _, yvar = enn_rows(incremental)
     assert yvar is None
 
-    incremental.add(x, y)
-    fresh = ENN(x, y, scale_x=scale_x)
+    incremental = baux.append(incremental, x, y)
+    fresh = baux.enn_init(x, y, scale_x=scale_x)
 
     assert len(incremental) == len(fresh) == 1
     inc_x, inc_y, inc_yvar = enn_rows(incremental)

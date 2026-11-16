@@ -69,27 +69,27 @@ fn eval_synthetic(misses: &[(String, Vec<u16>)]) -> Result<Vec<(String, EvalOutc
 fn tokamak_spec(is_tokagym: bool) -> (WorkerSpec, Vec<f64>, Vec<f64>) {
     let (domain, spec) = if is_tokagym {
         (
-            baux::tokamak::tokagym_domain(),
+            baux_tokamak::tokagym_domain(),
             WorkerSpec {
                 kind: "tokagym",
                 lock: "tokagym",
                 arms: 16,
-                num_dim: baux::tokamak::TOKAGYM_PARAMS,
-                obs: baux::tokamak::TOKAGYM_OBS,
-                act: baux::tokamak::TOKAGYM_ACT,
+                num_dim: baux_tokamak::TOKAGYM_PARAMS,
+                obs: baux_tokamak::TOKAGYM_OBS,
+                act: baux_tokamak::TOKAGYM_ACT,
                 steps: 50,
             },
         )
     } else {
         (
-            baux::tokamak::domain_frame(),
+            baux_tokamak::domain_frame(),
             WorkerSpec {
                 kind: "torax",
                 lock: "torax",
                 arms: 16,
-                num_dim: baux::tokamak::TOTAL_PARAMS,
-                obs: baux::tokamak::OBS_DIM,
-                act: baux::tokamak::ACTION_DIM,
+                num_dim: baux_tokamak::TOTAL_PARAMS,
+                obs: baux_tokamak::OBS_DIM,
+                act: baux_tokamak::ACTION_DIM,
                 steps: 20,
             },
         )

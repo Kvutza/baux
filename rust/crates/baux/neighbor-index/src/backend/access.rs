@@ -49,29 +49,39 @@ impl BpannBackend {
     }
 
     pub fn with_soft(mut self, threshold: usize) -> Self {
-        self.soft_threshold = threshold;
-        if self.hard_threshold < threshold {
-            self.hard_threshold = threshold;
+        self.tuning.soft_threshold = threshold;
+        if self.tuning.hard_threshold < threshold {
+            self.tuning.hard_threshold = threshold;
         }
         self
     }
 
     pub fn with_hard(mut self, threshold: usize) -> Self {
-        self.hard_threshold = threshold.max(self.soft_threshold);
+        self.tuning.hard_threshold = threshold.max(self.tuning.soft_threshold);
+        self
+    }
+
+    pub fn with_tuning(mut self, tuning: BpannTuning) -> Self {
+        self.tuning = tuning;
+        self
+    }
+
+    pub fn with_thresholds(mut self, soft: usize, hard: usize) -> Self {
+        let soft = soft.max(1);
+        self.tuning.soft_threshold = soft;
+        self.tuning.hard_threshold = hard.max(soft);
         self
     }
 
     pub fn soft_threshold(&self) -> usize {
-        self.soft_threshold
+        self.tuning.soft_threshold
     }
 
     pub fn hard_threshold(&self) -> usize {
-        self.hard_threshold
+        self.tuning.hard_threshold
     }
 
-    pub fn set_thresholds(&mut self, soft: usize, hard: usize) {
-        let soft = soft.max(1);
-        self.soft_threshold = soft;
-        self.hard_threshold = hard.max(soft);
+    pub fn tuning(&self) -> &BpannTuning {
+        &self.tuning
     }
 }

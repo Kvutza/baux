@@ -74,13 +74,17 @@ def select_candidates(
         else RegionCandidate(*candidate)
         for candidate in candidates
     ]
-    selected = state.select(
+    res = state.select(
         [
             (candidate.index, candidate.region, candidate.seed, candidate.score)
             for candidate in raw_candidates
         ],
         num_arms,
     )
+    if isinstance(res, tuple) and len(res) == 2:
+        selected, _ = res
+    else:
+        selected = res
     return [RegionCandidate(*candidate) for candidate in selected]
 
 
@@ -97,13 +101,22 @@ class RegionalSearchLoop:
     """End-to-end experimental loop around a multi-trust-region state."""
 
     def __init__(self, state) -> None:
-        self.state = state
+        self._inner = state
+
+    @property
+    def state(self):
+        """Return the underlying immutable Rust MultiTrustRegion state."""
+        return self._inner
+
+    @state.setter
+    def state(self, value):
+        self._inner = value
 
     def allocate(
         self, budget: int, utility: Sequence[float] | np.ndarray | None = None
     ) -> list[RegionBatch]:
         """Allocate candidate generation batches across regions for `budget`."""
-        return allocate_batches(self.state, budget, utility)
+        return allocate_batches(self._inner, budget, utility)
 
     def propose(
         self,
@@ -124,8 +137,7 @@ class RegionalSearchLoop:
             if isinstance(produced, CandidateProposal):
                 proposals.append(produced)
                 continue
-            for candidate in produced:
-                proposals.append(_coerceproposal(candidate))
+            proposals.extend(map(_coerceproposal, produced))
         return batches, proposals
 
     def score(
@@ -150,7 +162,24 @@ class RegionalSearchLoop:
         self, candidates: Sequence[RegionCandidate | Sequence[Any]], num_arms: int
     ) -> list[RegionCandidate]:
         """Select `num_arms` candidates from `candidates` using the underlying state."""
-        return select_candidates(self.state, candidates, num_arms)
+        raw_candidates = [
+            candidate
+            if isinstance(candidate, RegionCandidate)
+            else RegionCandidate(*candidate)
+            for candidate in candidates
+        ]
+        res = self._inner.select(
+            [
+                (candidate.index, candidate.region, candidate.seed, candidate.score)
+                for candidate in raw_candidates
+            ],
+            num_arms,
+        )
+        if isinstance(res, tuple) and len(res) == 2:
+            selected, self._inner = res
+        else:
+            selected = res
+        return [RegionCandidate(*candidate) for candidate in selected]
 
     def run_round(
         self,
@@ -184,17 +213,26 @@ class RegionalSearchLoop:
         if y_var is not None:
             y_var = np.asarray(y_var, dtype=float)
             y_var.flags.writeable = False
-        if y_var is None:
-            return self.state.tell(x, y)
-        return self.state.tell(x, y, y_var)
+        res = self._inner.tell(x, y) if y_var is None else self._inner.tell(x, y, y_var)
+        if res is not None:
+            self._inner = res
+        return self._inner
 
     def restart_region(self, region: int, new_center: np.ndarray):
         """Restart `region` centered at `new_center`."""
-        return self.state.restart_region(region, new_center)
+        res = self._inner.restart_region(region, new_center)
+        if res is not None:
+            self._inner = res
+        return self._inner
 
     def variance(self, region: int):
         """Return the current posterior variance estimate for `region`."""
-        return self.state.variance(region)
+        return self._inner.variance(region)
+
+    def fork(self) -> RegionalSearchLoop:
+        """Fork the search loop with an independent copy of the underlying state."""
+        inner = self._inner.fork() if hasattr(self._inner, "fork") else self._inner
+        return RegionalSearchLoop(inner)
 
 
 multi_region = sys.modules[__name__]
@@ -202,10 +240,10 @@ multi_region = sys.modules[__name__]
 
 __all__ = [
     "CandidateProposal",
-    "RegionalSearchLoop",
     "RegionBatch",
     "RegionCandidate",
     "RegionRound",
+    "RegionalSearchLoop",
     "SharingPolicy",
     "allocate_batches",
     "make_region",

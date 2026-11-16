@@ -110,11 +110,11 @@ class ExternalSurrogate:
 Surrogate = NoSurrogate | GaussianProcess | ENNSurrogate | ExternalSurrogate
 
 __all__ = [
+    "INDEX_NAMES",
     "DistanceMetric",
     "ENNSurrogate",
     "ExternalSurrogate",
     "GaussianProcess",
-    "INDEX_NAMES",
     "NeighborIndex",
     "NoSurrogate",
     "Storage",

@@ -131,4 +131,48 @@ mod tests {
         part[..k].sort_by(order);
         assert_eq!(&full[..k], &part[..k]);
     }
+
+    #[test]
+    fn loo_validation() {
+        let x = [0.0, 1.0, 2.0, 3.0];
+        let y = [0.0, 1.0];
+        let a = [1.0, 1.0];
+        // n = 1 (< 2)
+        assert_eq!(super::loo_loglik(&x, 1, 2, &y, 1, &a, 1), f64::NEG_INFINITY);
+        // k = 0
+        assert_eq!(super::loo_loglik(&x, 2, 2, &y, 1, &a, 0), f64::NEG_INFINITY);
+        // a length mismatch
+        assert_eq!(
+            super::loo_loglik(&x, 2, 2, &y, 1, &[1.0], 1),
+            f64::NEG_INFINITY
+        );
+        // non-finite a
+        assert_eq!(
+            super::loo_loglik(&x, 2, 2, &y, 1, &[f64::NAN, 1.0], 1),
+            f64::NEG_INFINITY
+        );
+    }
+
+    #[test]
+    fn loo_ranking() {
+        let n = 20;
+        let d = 2;
+        let m = 1;
+        let mut x = vec![0.0; n * d];
+        let mut y = vec![0.0; n * m];
+        for i in 0..n {
+            x[i * d] = i as f64 * 0.1;
+            x[i * d + 1] = ((i * 7 % 11) as f64) * 0.2;
+            y[i] = 3.0 * x[i * d]; // output only depends on dimension 0
+        }
+        let weights_informative = [10.0, 0.1];
+        let weights_uniform = [1.0, 1.0];
+        let weights_bad = [0.1, 10.0];
+        let loglik_good = super::loo_loglik(&x, n, d, &y, m, &weights_informative, 5);
+        let loglik_uniform = super::loo_loglik(&x, n, d, &y, m, &weights_uniform, 5);
+        let loglik_bad = super::loo_loglik(&x, n, d, &y, m, &weights_bad, 5);
+        assert!(loglik_good.is_finite());
+        assert!(loglik_good > loglik_bad);
+        assert!(loglik_uniform.is_finite());
+    }
 }

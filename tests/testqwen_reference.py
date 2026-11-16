@@ -6,7 +6,7 @@ def test_refcap(monkeypatch, tmp_path):
     from ops.qwen import bench
 
     class FakeEncoding:
-        ids = [1]
+        ids = (1,)
 
     class FakeTokenizer:
         def encode(self, prompt, add_special_tokens):

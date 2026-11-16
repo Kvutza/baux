@@ -2,14 +2,18 @@
 use super::*;
 
 impl BpannBackend {
-    pub fn set_metric(&mut self, scale: &Array1<f64>, rebuild: bool) -> Result<(), BpannError> {
+    pub fn rebuild_scaled(self, scale: &Array1<f64>) -> Result<Self, BpannError> {
+        self.with_metric(scale, true)
+    }
+
+    pub fn with_metric(mut self, scale: &Array1<f64>, rebuild: bool) -> Result<Self, BpannError> {
         if scale.len() != self.num_dim || scale.iter().any(|v| !v.is_finite() || *v <= 0.0) {
             return Err(BpannError::InvalidParameter(
                 "metric scales must be positive, finite and dimension-matched".into(),
             ));
         }
         if self.scale_x && self.x_scale == *scale {
-            return Ok(());
+            return Ok(self);
         }
         let factors = (0..self.num_dim)
             .map(|i| {
@@ -21,16 +25,18 @@ impl BpannBackend {
             self.index.check_rescale(&factors)?;
         }
         metric_pending(&self.work_dir)?;
-        if rebuild {
-            self.reset_index();
+        let mut this = if rebuild {
+            self.reset_index()
         } else {
-            self.index.rescale(&factors);
-        }
-        self.scale_x = true;
-        self.x_scale = scale.clone();
-        *self.small_n_x_cache.lock().expect("small_n_x_cache") = None;
-        *self.index_dirty.lock().expect("index_dirty") = true;
-        Ok(())
+            let mut this = self;
+            this.index = this.index.rescale(&factors);
+            this
+        };
+        this.scale_x = true;
+        this.x_scale = scale.clone();
+        this.small_n_x_cache = None;
+        this.index_dirty = true;
+        Ok(this)
     }
 }
 

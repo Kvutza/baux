@@ -63,7 +63,7 @@ impl MetalIndex {
     /// pointer is a live MTLBuffer with queries*dims contiguous FP32 values at
     /// byte_offset, synchronized by the producer before calling this method.
     pub(crate) unsafe fn device_posterior(
-        &mut self,
+        &self,
         pointer: u64,
         byte_offset: usize,
         queries: usize,
@@ -99,9 +99,9 @@ impl MetalIndex {
         {
             return Err("Metal query extent or device mismatch".into());
         }
-        self.scratch
-            .ensure(&self.runtime, self.num_dim, queries, input_k);
-        self.scratch.ensure_tree(
+        let mut scratch = Scratch::new(&self.runtime);
+        scratch.ensure(&self.runtime, self.num_dim, queries, input_k);
+        scratch.ensure_tree(
             &self.runtime,
             queries,
             input_k,
@@ -137,20 +137,14 @@ impl MetalIndex {
             .precise(POSTERIOR, "ENN posterior", "enn_moments")?;
         let command = self.runtime.queue.new_command_buffer();
         let blit = command.new_blit_command_encoder();
-        blit.copy_from_buffer(
-            source,
-            byte_offset as u64,
-            &self.scratch.query,
-            0,
-            bytes as u64,
-        );
+        blit.copy_from_buffer(source, byte_offset as u64, &scratch.query, 0, bytes as u64);
         blit.end_encoding();
-        self.encode_tree(Plan::Wide, command, queries, input_k)?;
+        self.encode_tree(&scratch, Plan::Wide, command, queries, input_k)?;
         let encoder = command.new_compute_command_encoder();
         encoder.set_compute_pipeline_state(&kernel);
         for (slot, buffer) in [
-            &self.scratch.result_distances,
-            &self.scratch.result_indices,
+            &scratch.result_distances,
+            &scratch.result_indices,
             &y,
             &var,
             &scale,

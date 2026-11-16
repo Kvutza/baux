@@ -40,7 +40,7 @@ impl MorboTrustRegion {
             )));
         }
         let inner = TurboTrustRegion::new(num_dim, settings.length);
-        let mut morbo = Self {
+        let morbo = Self {
             inner,
             num_metrics: settings.num_metrics,
             alpha: settings.alpha,
@@ -54,7 +54,7 @@ impl MorboTrustRegion {
             score_max: None,
             score_count: 0,
         };
-        morbo.resample_weights(rng);
+        let morbo = morbo.resample_weights(rng);
         Ok(morbo)
     }
 
@@ -70,7 +70,7 @@ impl MorboTrustRegion {
         &self.weights
     }
 
-    pub fn set_weights(&mut self, weights: &[f64]) -> Result<(), TrustRegionError> {
+    pub fn set_weights(mut self, weights: &[f64]) -> Result<Self, TrustRegionError> {
         if weights.len() != self.num_metrics
             || weights
                 .iter()
@@ -82,7 +82,11 @@ impl MorboTrustRegion {
         }
         let sum = weights.iter().sum::<f64>();
         self.weights = Array1::from_iter(weights.iter().map(|weight| weight / sum));
-        Ok(())
+        Ok(self)
+    }
+
+    pub fn with_weights(self, weights: &[f64]) -> Result<Self, TrustRegionError> {
+        self.set_weights(weights)
     }
 
     pub fn y_min(&self) -> Option<&Array1<f64>> {
@@ -97,7 +101,7 @@ impl MorboTrustRegion {
         self.rescalarize
     }
 
-    pub fn resample_weights(&mut self, rng: &mut dyn RngCore) {
+    pub fn resample_weights(mut self, rng: &mut dyn RngCore) -> Self {
         let mut samples = Vec::with_capacity(self.num_metrics);
         let mut sum = 0.0;
         for _ in 0..self.num_metrics {
@@ -107,14 +111,25 @@ impl MorboTrustRegion {
             sum += g;
         }
         self.weights = Array1::from_vec(samples.iter().map(|&v| v / sum).collect());
+        self
     }
 
-    pub fn set_arms(&mut self, num_arms: usize) {
+    pub fn set_arms(mut self, num_arms: usize) -> Self {
         self.inner.set_arms(num_arms);
+        self
     }
 
-    pub fn set_tolerance(&mut self, failures: usize) -> Result<(), TrustRegionError> {
-        self.inner.set_tolerance(failures)
+    pub fn with_arms(self, num_arms: usize) -> Self {
+        self.set_arms(num_arms)
+    }
+
+    pub fn set_tolerance(mut self, failures: usize) -> Result<Self, TrustRegionError> {
+        self.inner.set_tolerance(failures)?;
+        Ok(self)
+    }
+
+    pub fn with_tolerance(self, failures: usize) -> Result<Self, TrustRegionError> {
+        self.set_tolerance(failures)
     }
 
     pub fn success_tolerance(&self) -> i32 {
@@ -137,7 +152,7 @@ impl MorboTrustRegion {
         self.inner.needs_restart()
     }
 
-    pub fn restart(&mut self, rng: Option<&mut dyn RngCore>) {
+    pub fn restart(mut self, rng: Option<&mut dyn RngCore>) -> Self {
         self.y_min = None;
         self.y_max = None;
         self.incumbent_y_raw = None;
@@ -147,9 +162,14 @@ impl MorboTrustRegion {
         self.inner.restart_local();
         if let Some(rng) = rng {
             if self.rescalarize == Rescalarize::OnRestart {
-                self.resample_weights(rng);
+                self = self.resample_weights(rng);
             }
         }
+        self
+    }
+
+    pub fn with_restart(self, rng: Option<&mut dyn RngCore>) -> Self {
+        self.restart(rng)
     }
 
     pub(crate) fn freeze_morbo(&self, buf: &mut Vec<u8>) {
@@ -196,9 +216,9 @@ impl MorboTrustRegion {
     }
 
     pub(crate) fn thaw_morbo(
-        &mut self,
+        mut self,
         reader: &mut crate::snapshot_io::WireReader<'_>,
-    ) -> Result<(), crate::error::ENNError> {
+    ) -> Result<Self, crate::error::ENNError> {
         use crate::snapshot_io::{MAX_METRICS, MAX_OBS, bad_state};
         self.inner.thaw_turbo(reader)?;
         let nm = reader.read_len(MAX_METRICS)?;
@@ -245,7 +265,7 @@ impl MorboTrustRegion {
         self.score_min = score_min;
         self.score_max = score_max;
         self.score_count = score_count;
-        Ok(())
+        Ok(self)
     }
 
     pub(crate) fn hash_morbo(&self, buf: &mut Vec<u8>) {
@@ -314,9 +334,9 @@ impl MorboTrustRegion {
         )
     }
 
-    pub fn update_incremental(&mut self, y_new: &ArrayView2<f64>) {
+    pub fn update_incremental(mut self, y_new: &ArrayView2<f64>) -> Self {
         if y_new.nrows() == 0 {
-            return;
+            return self;
         }
         if self.y_min.is_none() || self.y_max.is_none() {
             let mut y_min = Array1::from_elem(self.num_metrics, f64::INFINITY);
@@ -336,7 +356,7 @@ impl MorboTrustRegion {
             }
             self.y_min = Some(y_min);
             self.y_max = Some(y_max);
-            return;
+            return self;
         }
         let y_min = self.y_min.as_mut().expect("y_min");
         let y_max = self.y_max.as_mut().expect("y_max");
@@ -353,13 +373,18 @@ impl MorboTrustRegion {
                 }
             }
         }
+        self
+    }
+
+    pub fn with_incremental(self, y_new: &ArrayView2<f64>) -> Self {
+        self.update_incremental(y_new)
     }
 
     pub fn update_only(
-        &mut self,
+        mut self,
         y_incumbent: &ArrayView1<f64>,
         num_obs: usize,
-    ) -> Result<(), TrustRegionError> {
+    ) -> Result<Self, TrustRegionError> {
         if y_incumbent.len() != self.num_metrics {
             return Err(TrustRegionError::InvalidParameter(format!(
                 "y_incumbent len {} != num_metrics {}",
@@ -372,7 +397,7 @@ impl MorboTrustRegion {
             self.y_max = None;
             self.incumbent_y_raw = None;
             self.inner.restart();
-            return Ok(());
+            return Ok(self);
         }
         let (y_min, y_max) = self
             .y_min
@@ -392,9 +417,9 @@ impl MorboTrustRegion {
                 self.num_metrics,
                 true,
             )?[0];
-            push_score(self, num_obs, score)
+            self = push_score(self, num_obs, score)
                 .map_err(|e| TrustRegionError::InvalidState(e.to_string()))?;
-            return Ok(());
+            return Ok(self);
         }
         let incumbent = self.incumbent_y_raw.as_ref().expect("incumbent");
         let stacked = ndarray::stack(ndarray::Axis(0), &[incumbent.view(), y_incumbent.view()])
@@ -411,28 +436,28 @@ impl MorboTrustRegion {
         let old_score = scores[0];
         let new_score = scores[1];
         self.inner.set_best(old_score);
-        push_score(self, num_obs, new_score)?;
+        self = push_score(self, num_obs, new_score)?;
         if new_score > old_score {
             self.incumbent_y_raw = Some(y_incumbent.to_owned());
         }
-        Ok(())
+        Ok(self)
     }
 
     pub fn rescalarize_weights(
-        &mut self,
+        mut self,
         num_obs: usize,
         incumbent: Option<Array1<f64>>,
-    ) -> Result<(), TrustRegionError> {
+    ) -> Result<Self, TrustRegionError> {
         if let Some(y_inc) = incumbent {
             if y_inc.len() == self.num_metrics && y_inc.iter().all(|v| v.is_finite()) {
                 self.incumbent_y_raw = Some(y_inc);
             }
         }
         let Some(ref y_inc) = self.incumbent_y_raw else {
-            return Ok(());
+            return Ok(self);
         };
         let (Some(y_min), Some(y_max)) = (self.y_min.as_ref(), self.y_max.as_ref()) else {
-            return Ok(());
+            return Ok(self);
         };
         let score = scalarize_ranges(
             &y_inc.view().insert_axis(ndarray::Axis(0)),
@@ -445,16 +470,16 @@ impl MorboTrustRegion {
         )?[0];
         self.inner.set_best(score);
         if num_obs > self.inner.prev_obs() {
-            push_score(self, num_obs, score)?;
+            self = push_score(self, num_obs, score)?;
         }
-        Ok(())
+        Ok(self)
     }
 
     pub fn update(
-        &mut self,
+        mut self,
         y_obs: &ArrayView2<f64>,
         y_incumbent: &ArrayView1<f64>,
-    ) -> Result<(), TrustRegionError> {
+    ) -> Result<Self, TrustRegionError> {
         let n = y_obs.nrows();
         if y_obs.ncols() != self.num_metrics {
             return Err(TrustRegionError::InvalidParameter(format!(
@@ -475,7 +500,7 @@ impl MorboTrustRegion {
             self.y_max = None;
             self.incumbent_y_raw = None;
             self.inner.restart();
-            return Ok(());
+            return Ok(self);
         }
         let prev_n = self.inner.prev_obs();
         if n < prev_n {
@@ -514,9 +539,9 @@ impl MorboTrustRegion {
                 self.num_metrics,
                 true,
             )?[0];
-            push_score(self, n, score)
+            self = push_score(self, n, score)
                 .map_err(|e| TrustRegionError::InvalidState(e.to_string()))?;
-            return Ok(());
+            return Ok(self);
         }
 
         let incumbent = self.incumbent_y_raw.as_ref().unwrap();
@@ -534,19 +559,35 @@ impl MorboTrustRegion {
         let old_score = scores[0];
         let new_score = scores[1];
         self.inner.set_best(old_score);
-        push_score(self, n, new_score)?;
+        self = push_score(self, n, new_score)?;
         if new_score > old_score {
             self.incumbent_y_raw = Some(y_incumbent.to_owned());
         }
-        Ok(())
+        Ok(self)
+    }
+
+    pub fn with_update(
+        self,
+        y_obs: &ArrayView2<f64>,
+        y_incumbent: &ArrayView1<f64>,
+    ) -> Result<Self, TrustRegionError> {
+        self.update(y_obs, y_incumbent)
+    }
+
+    pub fn update_batch(
+        self,
+        y_obs: &ArrayView2<f64>,
+        y_incumbent: &ArrayView1<f64>,
+    ) -> Result<Self, TrustRegionError> {
+        self.update(y_obs, y_incumbent)
     }
 }
 
 fn push_score(
-    morbo: &mut MorboTrustRegion,
+    mut morbo: MorboTrustRegion,
     num_obs: usize,
     score: f64,
-) -> Result<(), TrustRegionError> {
+) -> Result<MorboTrustRegion, TrustRegionError> {
     let scale = if morbo.score_count >= 2 {
         match (morbo.score_min, morbo.score_max) {
             (Some(low), Some(high)) => (high - low).max(1e-6),
@@ -569,7 +610,7 @@ fn push_score(
             .unwrap_or(score),
     );
     morbo.score_count += 1;
-    Ok(())
+    Ok(morbo)
 }
 
 pub fn scalarize_ranges(
@@ -662,8 +703,8 @@ mod tests {
         };
         let mut rng = StdRng::seed_from_u64(7);
         let mut tr = MorboTrustRegion::new(2, settings, &mut rng).unwrap();
-        tr.set_weights(&[0.5, 0.5]).unwrap();
-        tr.update_incremental(&array![[0.0, 0.0], [100.0, 10.0]].view());
+        tr = tr.set_weights(&[0.5, 0.5]).unwrap();
+        tr = tr.update_incremental(&array![[0.0, 0.0], [100.0, 10.0]].view());
 
         let candidates = array![[10.0, 9.0], [9.0, 10.0]];
         let local = tr.scalarize_local(&candidates.view()).unwrap();
@@ -732,17 +773,35 @@ mod tests {
         };
         let mut rng = StdRng::seed_from_u64(1);
         let mut tr = MorboTrustRegion::new(2, settings, &mut rng).unwrap();
-        tr.set_arms(2);
+        tr = tr.set_arms(2);
         let y = array![[1.0, 2.0], [2.0, 3.0]];
         let inc = array![2.0, 3.0];
-        tr.update(&y.view(), &inc.view()).unwrap();
+        tr = tr.update(&y.view(), &inc.view()).unwrap();
         assert!(tr.incumbent_y_raw.is_some());
         assert_eq!(tr.score_count, 1);
         assert_eq!(tr.score_min, tr.score_max);
 
-        tr.restart(None);
+        tr = tr.restart(None);
         assert_eq!(tr.score_count, 0);
         assert_eq!(tr.score_min, None);
         assert_eq!(tr.score_max, None);
+    }
+
+    #[test]
+    fn batch_update() {
+        let settings = MorboTRSettings {
+            num_metrics: 2,
+            alpha: 0.1,
+            length: TRLengthConfig::default(),
+            rescalarize: Rescalarize::OnRestart,
+            noise_aware: false,
+        };
+        let mut rng = StdRng::seed_from_u64(42);
+        let mut tr = MorboTrustRegion::new(2, settings, &mut rng).unwrap();
+        let y = array![[1.0, 2.0], [2.0, 3.0]];
+        let inc = array![2.0, 3.0];
+        tr = tr.update_batch(&y.view(), &inc.view()).unwrap();
+        assert!(tr.incumbent_y_raw.is_some());
+        assert_eq!(tr.score_count, 1);
     }
 }

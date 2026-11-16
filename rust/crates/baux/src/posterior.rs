@@ -180,7 +180,7 @@ impl PosteriorComputation for ENN {
             && !function_seeds.is_empty()
         {
             let (input_k, used_k, skip) = cuda_shape(self, params, flags.exclude_nearest)?;
-            self.ensure_sync()?;
+            self.index_access().ensure_sync()?;
             if let (Some(index), Some(train_y)) = (self.backend.memory_index(), self.y_opt()) {
                 let train_yvar = self.backend.memory_yvar();
                 let (mut draws, indices) = index
@@ -283,7 +283,7 @@ impl PosteriorComputation for ENN {
         if self.backend_driver().is_cuda() && !x.is_empty() && !function_seeds.is_empty() {
             let (input_k, used_k, skip) =
                 condition_shape(self, x_whatif.nrows(), params, flags.exclude_nearest)?;
-            self.ensure_sync()?;
+            self.index_access().ensure_sync()?;
             if let Some(index) = self.backend.memory_index() {
                 let (outcomes, variances, scales) = cuda_rows(self, &y_whatif.view())?;
                 let variance_view = variances.as_ref().map(|values| values.view());
@@ -357,7 +357,7 @@ pub fn compute_internals(
     if model.backend_driver().is_cuda() && !x.is_empty() {
         let (input_k, used_k, skip) = cuda_shape(model, params, flags.exclude_nearest)?;
         if used_k > 0 {
-            model.ensure_sync()?;
+            model.index_access().ensure_sync()?;
             if let (Some(index), Some(train_y)) = (model.backend.memory_index(), model.y_opt()) {
                 let train_yvar = model.backend.memory_yvar();
                 return index
@@ -452,7 +452,7 @@ pub fn conditional_internals(
     if model.backend_driver().is_cuda() && !x.is_empty() {
         let (input_k, used_k, skip) =
             condition_shape(model, x_whatif.nrows(), params, flags.exclude_nearest)?;
-        model.ensure_sync()?;
+        model.index_access().ensure_sync()?;
         if let Some(index) = model.backend.memory_index() {
             let (outcomes, variances, scales) = cuda_rows(model, y_whatif)?;
             let variance_view = variances.as_ref().map(|values| values.view());
@@ -622,7 +622,7 @@ fn cuda_posterior(
                 aleatoric_scale: params.aleatoric_scale,
             })
             .collect();
-        model.ensure_sync()?;
+        model.index_access().ensure_sync()?;
         if let (Some(index), Some(train_y)) = (model.backend.memory_index(), model.y_opt()) {
             let train_yvar = model.backend.memory_yvar();
             let (mut mu, mut se, mut se_epi, mut se_ale) = index

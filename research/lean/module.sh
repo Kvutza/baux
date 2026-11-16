@@ -8,7 +8,7 @@ fi
 cd "$1/research/lean"
 module=$2
 case "$module" in
-    BauxResearch.*) ;;
+    BauxResearch|BauxResearch.*) ;;
     *) echo "expected a BauxResearch module" >&2; exit 2 ;;
 esac
 case "$module" in
@@ -22,9 +22,14 @@ imports=$(awk '
     $1 == "public" && $2 == "import" && $3 ~ /^Mathlib\./ { print $3 }
 ' "$source")
 if [ -n "$imports" ]; then
-    # Module names deliberately expand to individual arguments, without globbing.
-    set -f
-    lake exe cache get "$imports"
+    # Preserve each import as one argument without shell splitting or globbing.
+    set --
+    while IFS= read -r dependency; do
+        set -- "$@" "$dependency"
+    done <<EOF
+$imports
+EOF
+    lake exe cache get "$@"
 fi
 lake build "$module"
 # Replay the source, including its explicit axiom reports, even on a cache hit.

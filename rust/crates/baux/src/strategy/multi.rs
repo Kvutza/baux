@@ -2,73 +2,51 @@
 
 use ndarray::{Array1, Array2, ArrayView1, ArrayView2, Axis};
 use rand::RngCore;
-use std::sync::atomic::{AtomicU64, Ordering};
-
-static NEXT_ID: AtomicU64 = AtomicU64::new(1);
-
-pub(crate) fn bump_ids(min_next: u64) {
-    let _ = NEXT_ID.fetch_max(min_next, Ordering::Relaxed);
-}
-
-fn issue_ids(count: usize) -> Result<Vec<crate::optimizer::EvaluationId>, ENNError> {
-    let count = u64::try_from(count)
-        .map_err(|_| ENNError::InvalidParameter("arm count exceeds identity space".into()))?;
-    let start = NEXT_ID
-        .try_update(Ordering::Relaxed, Ordering::Relaxed, |id| {
-            id.checked_add(count)
-        })
-        .map_err(|_| ENNError::InvalidParameter("arm identity space exhausted".into()))?;
-    Ok((start..start + count)
-        .map(crate::optimizer::EvaluationId)
-        .collect())
-}
 
 mod ask;
 pub(super) use ask::ask_multi;
 use ask::restart_inactive;
 
 use super::Submission;
-use super::selection::{CandidateSegment, select_indices, select_segment};
-use crate::candidates::{generate_lhd, generate_uniform, perturb_candidates};
+use crate::candidates::{generate_lhd, generate_uniform};
 use crate::config::InitStrategy;
 use crate::error::ENNError;
 use crate::optimizer::multi_tr::EvaluationStatus;
-use crate::optimizer::{
-    BayesOptimizer, InitStrategyState, MultiTrustRegionState, PendingProposal, TrustRegionState,
-};
+use crate::optimizer::{BayesOptimizer, InitStrategyState, PendingProposal, TrustRegionState};
 
 /// Generate initialization candidates in the unit cube.
 pub(super) fn ask_init(
     state: &InitStrategyState,
-    optimizer: &mut BayesOptimizer,
+    optimizer: BayesOptimizer,
     num_arms: usize,
     rng: &mut dyn RngCore,
-) -> Result<Array2<f64>, ENNError> {
+) -> Result<(BayesOptimizer, Array2<f64>), ENNError> {
     let num_dim = optimizer.num_dim();
     let lower = Array1::zeros(num_dim);
     let upper = Array1::ones(num_dim);
 
-    match state.strategy_type {
+    let x = match state.strategy_type {
         InitStrategy::LHD => {
             let mut unit_bounds = Array2::zeros((num_dim, 2));
             for j in 0..num_dim {
                 unit_bounds[[j, 1]] = 1.0;
             }
-            Ok(generate_lhd(num_arms, num_dim, &unit_bounds.view(), rng))
+            generate_lhd(num_arms, num_dim, &unit_bounds.view(), rng)
         }
-        InitStrategy::Random => generate_uniform(&lower, &upper, num_arms, rng),
-    }
+        InitStrategy::Random => generate_uniform(&lower, &upper, num_arms, rng)?,
+    };
+    Ok((optimizer, x))
 }
 
 /// Common tell logic: add observations, fit surrogate, update incumbent.
 pub(super) fn tell_common(
-    optimizer: &mut BayesOptimizer,
+    mut optimizer: BayesOptimizer,
     x: &ArrayView2<f64>,
     y: &ArrayView2<f64>,
     yvar: Option<&ArrayView2<f64>>,
-    telemetry: Option<&mut crate::optimizer::Telemetry>,
+    mut telemetry: Option<&mut crate::optimizer::Telemetry>,
     rng: &mut dyn RngCore,
-) -> Result<(), ENNError> {
+) -> Result<BayesOptimizer, ENNError> {
     if optimizer.regions.is_morbo() {
         let metrics = optimizer.regions.num_metrics();
         if y.ncols() != metrics {
@@ -80,14 +58,16 @@ pub(super) fn tell_common(
     }
 
     let delta = optimizer.add_observations(x, y)?;
-    if let Some(dt_fit) = optimizer.posterior.fit_delta(&delta, yvar, rng)? {
-        if let Some(tel) = telemetry {
+    let (posterior, dt_fit) = optimizer.posterior.fit_delta(&delta, yvar, rng)?;
+    optimizer.posterior = posterior;
+    if let Some(dt_fit) = dt_fit {
+        if let Some(tel) = telemetry.as_deref_mut() {
             tel.dt_fit = dt_fit;
         }
     }
 
     if optimizer.regions.is_morbo() && delta.new_n > delta.old_n {
-        optimizer.regions.morbo_only(&delta.y_view())?;
+        optimizer.regions = optimizer.regions.morbo_only(&delta.y_view())?;
     }
 
     optimizer.update_incumbent(rng)?;
@@ -97,14 +77,14 @@ pub(super) fn tell_common(
             .y_scalar()
             .ok_or_else(|| ENNError::InvalidParameter("Missing incumbent y".to_string()))?
             .to_owned();
-        optimizer.regions.update_morbo(&y_inc.view(), delta.new_n)?;
+        optimizer.regions = optimizer.regions.update_morbo(&y_inc.view(), delta.new_n)?;
     }
 
     if x.nrows() >= 64 {
         optimizer.posterior.release_pages()?;
     }
 
-    Ok(())
+    Ok(optimizer)
 }
 
 /// Validate before changing the variance mode, observation store, or regions.
@@ -243,7 +223,7 @@ fn record_pending(
         .all(|outcome| !matches!(outcome, EvaluationStatus::Pending)))
 }
 
-fn finish_warmup(optimizer: &mut BayesOptimizer) -> Result<(), ENNError> {
+fn finish_warmup(mut optimizer: BayesOptimizer) -> Result<BayesOptimizer, ENNError> {
     let count = if let TrustRegionState::Multi { pending, .. } = &mut optimizer.regions {
         let proposal = pending.as_ref().ok_or_else(|| {
             ENNError::InvalidParameter("warm-up completion lost its pending batch".into())
@@ -253,7 +233,7 @@ fn finish_warmup(optimizer: &mut BayesOptimizer) -> Result<(), ENNError> {
             .iter()
             .any(|outcome| matches!(outcome, EvaluationStatus::Pending))
         {
-            return Ok(());
+            return Ok(optimizer);
         }
         let count = proposal
             .outcomes
@@ -267,14 +247,14 @@ fn finish_warmup(optimizer: &mut BayesOptimizer) -> Result<(), ENNError> {
     };
     optimizer.warmup.advance_init(count);
     optimizer.warmup.check_transition();
-    Ok(())
+    Ok(optimizer)
 }
 
 fn finish_multi(
-    optimizer: &mut BayesOptimizer,
+    mut optimizer: BayesOptimizer,
     ls_ref: Option<&ArrayView1<f64>>,
     rng: &mut dyn RngCore,
-) -> Result<(), ENNError> {
+) -> Result<BayesOptimizer, ENNError> {
     let TrustRegionState::Multi { state, pending } = &mut optimizer.regions else {
         unreachable!("regional completion requires a multi-region optimizer");
     };
@@ -339,23 +319,24 @@ fn finish_multi(
         .iter()
         .any(|outcome| matches!(outcome, EvaluationStatus::Pending))
     {
-        return Ok(());
+        return Ok(optimizer);
     }
     *pending = None;
     restart_inactive(state, rng)?;
-    if let (Some(models), TrustRegionState::Multi { state, .. }) =
-        (optimizer.local_models.as_mut(), &optimizer.regions)
-    {
-        models.sync(state, rng)?;
+    if let Some(models) = optimizer.local_models.take() {
+        let TrustRegionState::Multi { state, .. } = &optimizer.regions else {
+            unreachable!("regional completion requires a multi-region optimizer");
+        };
+        optimizer.local_models = Some(models.sync(state, rng)?);
     }
-    Ok(())
+    Ok(optimizer)
 }
 
 pub(super) fn cancel_pending(
-    optimizer: &mut BayesOptimizer,
+    mut optimizer: BayesOptimizer,
     ids: &[crate::optimizer::EvaluationId],
     rng: &mut dyn RngCore,
-) -> Result<(), ENNError> {
+) -> Result<BayesOptimizer, ENNError> {
     let TrustRegionState::Multi {
         pending: Some(proposal),
         ..
@@ -381,19 +362,19 @@ pub(super) fn cancel_pending(
 }
 
 pub(super) fn tell_warmup(
-    optimizer: &mut BayesOptimizer,
+    mut optimizer: BayesOptimizer,
     x: &ArrayView2<f64>,
     y: &ArrayView2<f64>,
     yvar: Option<&ArrayView2<f64>>,
     rng: &mut dyn RngCore,
     submission: Submission<'_>,
-) -> Result<(), ENNError> {
-    tell_common(optimizer, x, y, yvar, None, rng)?;
-    if let Some(models) = optimizer.local_models.as_mut() {
-        models.warmup(x, y, yvar, rng)?;
+) -> Result<BayesOptimizer, ENNError> {
+    optimizer = tell_common(optimizer, x, y, yvar, None, rng)?;
+    if let Some(models) = optimizer.local_models.take() {
+        optimizer.local_models = Some(models.warmup(x, y, yvar, rng)?);
     }
     if matches!(submission, Submission::Imported) {
-        return Ok(());
+        return Ok(optimizer);
     }
     if let TrustRegionState::Multi { pending, .. } = &mut optimizer.regions {
         let proposal = pending.as_mut().ok_or_else(|| {
@@ -409,17 +390,16 @@ pub(super) fn tell_warmup(
 }
 
 pub(super) fn tell_multi(
-    optimizer: &mut BayesOptimizer,
+    mut optimizer: BayesOptimizer,
     x: &ArrayView2<f64>,
     y: &ArrayView2<f64>,
     yvar: Option<&ArrayView2<f64>>,
     rng: &mut dyn RngCore,
     submission: Submission<'_>,
-) -> Result<(), ENNError> {
+) -> Result<BayesOptimizer, ENNError> {
     let mut telemetry = std::mem::take(&mut optimizer.telemetry);
-    let res = tell_common(optimizer, x, y, yvar, Some(&mut telemetry), rng);
+    let mut optimizer = tell_common(optimizer, x, y, yvar, Some(&mut telemetry), rng)?;
     optimizer.telemetry = telemetry;
-    res?;
 
     let pending_regions = match (&optimizer.regions, submission) {
         (_, Submission::Identified { origins, .. }) => origins.map(<[usize]>::to_vec),
@@ -437,10 +417,11 @@ pub(super) fn tell_multi(
     };
     let lengthscales = optimizer.surrogate().and_then(|s| s.lengthscales());
     let ls_ref: Option<ArrayView1<f64>> = lengthscales.as_ref().map(|ls| ls.view());
-    if let (Some(models), TrustRegionState::Multi { state, .. }) =
-        (optimizer.local_models.as_mut(), &optimizer.regions)
-    {
-        models.route(
+    if let Some(models) = optimizer.local_models.take() {
+        let TrustRegionState::Multi { state, .. } = &optimizer.regions else {
+            unreachable!("tell_multi requires TrustRegionState::Multi");
+        };
+        let updated = models.route(
             state,
             x,
             y,
@@ -449,6 +430,7 @@ pub(super) fn tell_multi(
             ls_ref.as_ref(),
             rng,
         )?;
+        optimizer.local_models = Some(updated);
     }
 
     // Imports have no generating region to credit, but shared and
@@ -461,7 +443,7 @@ pub(super) fn tell_multi(
                     .map_err(|e| ENNError::InvalidParameter(e.to_string()))?;
             }
         }
-        return Ok(());
+        return Ok(optimizer);
     };
 
     if let TrustRegionState::Multi { pending, .. } = &mut optimizer.regions {

@@ -10,7 +10,7 @@ def test_benchbatch(monkeypatch, tmp_path):
     batch_calls = 0
 
     class FakeEncoding:
-        ids = [5, 6]
+        ids = (5, 6)
 
     class FakeTokenizer:
         def encode(self, prompt, add_special_tokens):
@@ -27,7 +27,7 @@ def test_benchbatch(monkeypatch, tmp_path):
             nonlocal batch_calls
             batch_calls += 1
             assert len(prompts) == 3
-            return [prompt + [99, 100] for prompt in prompts]
+            return [[*prompt, 99, 100] for prompt in prompts]
 
     monkeypatch.setattr(bench, "load", lambda directory: FakeTokenizer())
     monkeypatch.setattr(bench, "Evaluator", FakeEvaluator)

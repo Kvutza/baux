@@ -19,6 +19,43 @@ pub struct RowReservoir {
     num_seen: usize,
 }
 
+impl Clone for RowReservoir {
+    fn clone(&self) -> Self {
+        let (state, inc, has_buf, buf_val) = self.rng.snapshot();
+        Self {
+            num_dim: self.num_dim,
+            num_outputs: self.num_outputs,
+            capacity: self.capacity,
+            seed: self.seed,
+            rng: MetricRng::restore(state, inc, has_buf, buf_val),
+            xs: self.xs.clone(),
+            ys: self.ys.clone(),
+            len: self.len,
+            num_seen: self.num_seen,
+        }
+    }
+}
+
+impl std::fmt::Debug for RowReservoir {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RowReservoir")
+            .field("num_dim", &self.num_dim)
+            .field("num_outputs", &self.num_outputs)
+            .field("capacity", &self.capacity)
+            .field("seed", &self.seed)
+            .field("len", &self.len)
+            .field("num_seen", &self.num_seen)
+            .finish()
+    }
+}
+
+const _: () = {
+    fn assert_sync<T: Send + Sync>() {}
+    fn check() {
+        assert_sync::<RowReservoir>();
+    }
+};
+
 impl RowReservoir {
     pub fn new(
         capacity: usize,
@@ -249,5 +286,58 @@ impl RowReservoir {
             }
         }
         self.num_seen += 1;
+    }
+
+    /// Pure consumed-self state transition to configure seed and capacity.
+    pub fn with_config(mut self, seed: u64, capacity: usize) -> Result<Self, ENNError> {
+        self.configure(seed, capacity)?;
+        Ok(self)
+    }
+
+    /// Pure consumed-self state transition to append matrix rows.
+    pub fn pushed_rows(
+        mut self,
+        x: &ArrayView2<f64>,
+        y: &ArrayView2<f64>,
+    ) -> Result<Self, ENNError> {
+        self.push_rows(x, y)?;
+        Ok(self)
+    }
+
+    /// Pure consumed-self state transition to append a single row.
+    pub fn pushed_row(mut self, x: &[f64], y: &[f64]) -> Self {
+        self.push_row(x, y);
+        self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ndarray::Array2;
+
+    #[test]
+    fn reservoir_cow() {
+        let reservoir = RowReservoir::new(4, 2, 1, 42).unwrap();
+        let x = [1.0, 2.0];
+        let y = [3.0];
+        let res1 = reservoir.pushed_row(&x, &y);
+        assert_eq!(res1.len(), 1);
+        assert_eq!(res1.num_seen(), 1);
+
+        // Verify clone produces independent state
+        let res2 = res1.clone();
+        let res1 = res1.pushed_row(&[2.0, 3.0], &[5.0]);
+        assert_eq!(res1.len(), 2);
+        assert_eq!(res2.len(), 1);
+
+        let x_mat = Array2::from_shape_vec((2, 2), vec![10.0, 20.0, 30.0, 40.0]).unwrap();
+        let y_mat = Array2::from_shape_vec((2, 1), vec![50.0, 60.0]).unwrap();
+        let res2 = res2.pushed_rows(&x_mat.view(), &y_mat.view()).unwrap();
+        assert_eq!(res2.len(), 3);
+        assert_eq!(res2.num_seen(), 3);
+
+        let res2 = res2.with_config(42, 8).unwrap();
+        assert_eq!(res2.capacity(), 8);
     }
 }

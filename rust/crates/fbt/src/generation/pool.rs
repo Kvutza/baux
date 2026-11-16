@@ -403,11 +403,17 @@ fn report(
 }
 
 pub(super) fn tell_paired(
-    search: &mut crate::resident_metal::SearchState,
+    search: crate::resident_metal::SearchState,
     proposal: &crate::resident_metal::Proposals,
     evaluation: &Evaluation,
     initial: bool,
-) -> Result<crate::resident_metal::NoisyDecision, String> {
+) -> Result<
+    (
+        crate::resident_metal::SearchState,
+        crate::resident_metal::NoisyDecision,
+    ),
+    String,
+> {
     let paired = evaluation
         .paired
         .ok_or("paired generation lost its response")?;

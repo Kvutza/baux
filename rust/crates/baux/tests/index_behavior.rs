@@ -48,9 +48,9 @@ fn observation_called2() {
     );
     let mut x = MmapColumnStore::open_mmap(dir.path().join("x.bin"), 2, None).unwrap();
     let mut y = MmapColumnStore::open_mmap(dir.path().join("y.bin"), 1, None).unwrap();
-    x.mmap_append(&array![[0.0, 0.0]].view()).unwrap();
-    y.mmap_append(&array![[0.0]].view()).unwrap();
-    baux::neighbor_index::observation::train_rows(1, &x, &y, None, &[0]).unwrap();
+    x = x.mmap_append(&array![[0.0, 0.0]].view()).unwrap();
+    y = y.mmap_append(&array![[0.0]].view()).unwrap();
+    baux::neighbor_index::observation::train_rows(1, &x.clone(), &y.clone(), None, &[0]).unwrap();
     open_stride(4).unwrap();
 }
 
@@ -73,7 +73,7 @@ fn search_called() {
 fn merge_called() {
     let dir = TempDir::new().unwrap();
     let mut store = MmapColumnStore::open_mmap(dir.path().join("x.bin"), 2, None).unwrap();
-    store
+    store = store
         .mmap_append(&array![[0.0, 0.0], [1.0, 0.0]].view())
         .unwrap();
     let mut buf = Vec::new();
@@ -121,12 +121,13 @@ fn kmeans_called() {
     assert_eq!(child, 0);
     let dir = TempDir::new().unwrap();
     let mut b = BpannBackend::new_empty(dir.path().to_path_buf(), 2, 1).unwrap();
-    b.append_rows(
-        &array![[0.0, 0.0], [1.0, 0.0]].view(),
-        &array![[0.0], [1.0]].view(),
-        None,
-    )
-    .unwrap();
+    b = b
+        .append_rows(
+            &array![[0.0, 0.0], [1.0, 0.0]].view(),
+            &array![[0.0], [1.0]].view(),
+            None,
+        )
+        .unwrap();
     let _ = b.train_rows(&[1]).unwrap();
 }
 
@@ -135,12 +136,13 @@ fn backend_accessors() {
     let dir = TempDir::new().unwrap();
     let mut b = BpannBackend::new_empty(dir.path().to_path_buf(), 2, 1).unwrap();
     assert!(b.index_deferred());
-    b.append_rows(
-        &array![[0.0, 0.0], [1.0, 0.0]].view(),
-        &array![[0.0], [1.0]].view(),
-        None,
-    )
-    .unwrap();
+    b = b
+        .append_rows(
+            &array![[0.0, 0.0], [1.0, 0.0]].view(),
+            &array![[0.0], [1.0]].view(),
+            None,
+        )
+        .unwrap();
     let (x, y, yvar) = b.train_rows(&[0, 1]).unwrap();
     assert!((x[[0, 0]] - 0.0).abs() < 1e-12);
     assert!((y[[1, 0]] - 1.0).abs() < 1e-12);
@@ -176,13 +178,14 @@ fn backend_accessors() {
     assert_eq!(scored.len(), 1);
     assert_eq!(scored[0].1[0], 0);
     // Append must invalidate the small-N cache (next search still correct).
-    b.append_rows(&array![[2.0, 0.0]].view(), &array![[2.0]].view(), None)
+    b = b
+        .append_rows(&array![[2.0, 0.0]].view(), &array![[2.0]].view(), None)
         .unwrap();
     let (_, idx3) = b.search(&array![[2.0, 0.0]].view(), 1, false).unwrap();
     assert_eq!(idx3[[0, 0]], 2);
-    b.mark_stale();
-    b.ensure_scale(true, &array![1.0, 1.0]).unwrap();
-    b.ensure_scale(false, &array![1.0, 1.0]).unwrap();
+    b = b.mark_stale();
+    b = b.ensure_scale(true, &array![1.0, 1.0]).unwrap();
+    b = b.ensure_scale(false, &array![1.0, 1.0]).unwrap();
     let (_, idx) = b.search(&array![[0.1, 0.1]].view(), 1, false).unwrap();
     assert_eq!(idx[[0, 0]], 0);
 }
@@ -200,8 +203,8 @@ fn n_nearest() {
         xs[[i, 0]] = i as f64;
         ys[[i, 0]] = i as f64;
     }
-    b.append_rows(&xs.view(), &ys.view(), None).unwrap();
-    b.ensure_sync().unwrap();
+    b = b.append_rows(&xs.view(), &ys.view(), None).unwrap();
+    b = b.ensure_sync().unwrap();
     let mut dist2s = Array2::zeros((1, 1));
     let mut indices = Array2::zeros((1, 1));
     let x_scale = [1.0f64, 1.0];
@@ -232,7 +235,8 @@ fn incremental_merge() {
         .with_soft(2)
         .defer_indexing(false);
     for i in 0..20 {
-        b.append_row(&array![i as f64, 0.0, 0.0, 0.0], &array![i as f64], None)
+        b = b
+            .append_row(&array![i as f64, 0.0, 0.0, 0.0], &array![i as f64], None)
             .unwrap();
     }
     assert_eq!(b.indexed_rows(), 20);
@@ -263,11 +267,11 @@ fn multi_count() {
         for (start, count) in [(0, 1000usize), (1000, 1000usize), (2000, 500usize)] {
             let x = ndarray::Array2::from_shape_fn((count, dim), |(i, j)| (start + i + j) as f64);
             let y = ndarray::Array2::from_shape_fn((count, 1), |(i, _)| (start + i) as f64);
-            b.append_rows(&x.view(), &y.view(), None).unwrap();
-            b.ensure_sync().unwrap();
+            b = b.append_rows(&x.view(), &y.view(), None).unwrap();
+            b = b.ensure_sync().unwrap();
         }
         assert_eq!(b.indexed_rows(), rows);
-        b.persist_index().unwrap();
+        b = b.persist_index().unwrap();
     }
     let header_text = fs::read_to_string(path.join("index/header.json")).expect("header.json");
     assert!(
@@ -287,18 +291,19 @@ fn multi_count() {
 fn ensure_persist() {
     let dir = TempDir::new().unwrap();
     let mut b = BpannBackend::new_empty(dir.path().to_path_buf(), 2, 1).unwrap();
-    b.ensure_sync().unwrap();
-    b.append_rows(
-        &array![[0.0, 0.0], [1.0, 0.0], [2.0, 0.0]].view(),
-        &array![[0.0], [1.0], [2.0]].view(),
-        None,
-    )
-    .unwrap();
-    b.ensure_sync().unwrap();
+    b = b.ensure_sync().unwrap();
+    b = b
+        .append_rows(
+            &array![[0.0, 0.0], [1.0, 0.0], [2.0, 0.0]].view(),
+            &array![[0.0], [1.0], [2.0]].view(),
+            None,
+        )
+        .unwrap();
+    b = b.ensure_sync().unwrap();
     assert_eq!(b.indexed_rows(), 3);
     assert!(!dir.path().join("index/header.json").exists());
     assert!(!dir.path().join("index/pages.bin").exists());
-    b.persist_index().unwrap();
+    b = b.persist_index().unwrap();
     assert!(dir.path().join("index/header.json").exists());
 }
 
@@ -311,10 +316,10 @@ fn multi_threshold() {
         .defer_indexing(false);
     let x0 = ndarray::Array2::from_shape_fn((700, 4), |(i, j)| (i + j) as f64);
     let y0 = ndarray::Array2::from_shape_fn((700, 1), |(i, _)| i as f64);
-    b.append_rows(&x0.view(), &y0.view(), None).unwrap();
+    b = b.append_rows(&x0.view(), &y0.view(), None).unwrap();
     let x1 = ndarray::Array2::from_shape_fn((400, 4), |(i, j)| (700 + i + j) as f64);
     let y1 = ndarray::Array2::from_shape_fn((400, 1), |(i, _)| (700 + i) as f64);
-    b.append_rows(&x1.view(), &y1.view(), None).unwrap();
+    b = b.append_rows(&x1.view(), &y1.view(), None).unwrap();
     assert_eq!(b.indexed_rows(), 1100);
     assert!(b.indexed_rows() > 1000);
     let (_, idx) = b
@@ -330,8 +335,8 @@ fn search_index() {
     let rows = 2501usize;
     let x = ndarray::Array2::from_shape_fn((rows, 2), |(i, j)| (i + j) as f64);
     let y = ndarray::Array2::from_shape_fn((rows, 1), |(i, _)| i as f64);
-    b.append_rows(&x.view(), &y.view(), None).unwrap();
-    b.ensure_sync().unwrap();
+    b = b.append_rows(&x.view(), &y.view(), None).unwrap();
+    b = b.ensure_sync().unwrap();
     let (_, idx) = b.search(&x.slice(ndarray::s![0..1, ..]), 5, false).unwrap();
     assert!(idx[[0, 0]] >= 0 && (idx[[0, 0]] as usize) < rows);
 }

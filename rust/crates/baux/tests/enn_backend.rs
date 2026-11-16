@@ -29,7 +29,7 @@ fn memory_accessors() {
 fn new_add() {
     let mut model =
         ENN::new_empty(2, 1, IndexDriver::Exact, EnnStorage::InMemory, None, None).unwrap();
-    model
+    model = model
         .add(&array![[1.0, 2.0]].view(), &array![[3.0]].view(), None)
         .unwrap();
     assert_eq!(model.len(), 1);

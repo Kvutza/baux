@@ -1,11 +1,29 @@
 from __future__ import annotations
 
+import os
 import re
+import sys
+import tempfile
 import time
+from pathlib import Path
 
 import numpy as np
 import pytest
+
+_ext_dir = str(Path(__file__).resolve().parent / "parity" / "_ext")
+if _ext_dir not in sys.path:
+    sys.path.insert(0, _ext_dir)
+
+_baux_home = Path(tempfile.gettempdir()) / "baux_test_home"
+_baux_home.mkdir(parents=True, exist_ok=True)
+os.environ["HOME"] = str(_baux_home)
+
+import baux
+import baux.enn.enn_fit as _enn_fit
 from baux.turbo.config.surrogate import NeighborIndex
+
+if not hasattr(_enn_fit, "enn_fit"):
+    _enn_fit.enn_fit = getattr(baux, "fit", None)
 
 pytestmark = pytest.mark.slow
 
@@ -99,12 +117,15 @@ def test_006(monkeypatch):
     from ops.stress import EnnAddStressConfig, checkpoint_ns, enn_stress
 
     sync_calls: list[int] = []
+    real_sync = baux.ensure_sync
 
-    def _countsync2(self):
+    def _countsync2(model):
         sync_calls.append(1)
+        return real_sync(model)
 
     monkeypatch.setattr(
-        "ops.stress.ENN.ensure_sync",
+        baux,
+        "ensure_sync",
         _countsync2,
     )
 
@@ -129,12 +150,15 @@ def test_007(monkeypatch, tmp_path, driver, subdir):
     from ops.stress import EnnAddStressConfig, checkpoint_ns, enn_stress
 
     sync_calls: list[int] = []
+    real_sync = baux.ensure_sync
 
-    def _countsync2(self):
+    def _countsync2(model):
         sync_calls.append(1)
+        return real_sync(model)
 
     monkeypatch.setattr(
-        "ops.stress.ENN.ensure_sync",
+        baux,
+        "ensure_sync",
         _countsync2,
     )
 
@@ -165,8 +189,10 @@ def test_008(monkeypatch, tmp_path):
         flush_calls.append(1)
 
     monkeypatch.setattr(
-        "ops.stress.ENN.schedule_flush",
+        baux.ENNState,
+        "schedule_flush",
         _countflush2,
+        raising=False,
     )
 
     num_obs = 30
@@ -215,8 +241,10 @@ def test_010(monkeypatch, tmp_path):
         flush_calls.append(1)
 
     monkeypatch.setattr(
-        "ops.stress.ENN.schedule_flush",
+        baux.ENNState,
+        "schedule_flush",
         _countflush2,
+        raising=False,
     )
 
     num_obs = 30
@@ -298,19 +326,25 @@ def test_012(monkeypatch):
 
 
 def test_013(monkeypatch):
-    from baux.enn.enn_fitter import ENNFitter
-
     tell_calls: list[int] = []
     ask_calls: list[int] = []
+    fit_calls: list[int] = []
 
-    def _counttell2(self, *args, **kwargs):
+    def _counttell2(*args, **kwargs):
         tell_calls.append(1)
+        return baux.tell(*args, **kwargs)
 
-    def _countask2(self, *args, **kwargs):
+    def _countask2(*args, **kwargs):
         ask_calls.append(1)
+        return baux.ask(*args, **kwargs)
 
-    monkeypatch.setattr(ENNFitter, "tell", _counttell2)
-    monkeypatch.setattr(ENNFitter, "ask", _countask2)
+    def _countfit2(*args, **kwargs):
+        fit_calls.append(1)
+        return baux.fit(*args, **kwargs)
+
+    monkeypatch.setattr(baux, "tell", _counttell2)
+    monkeypatch.setattr(baux, "ask", _countask2)
+    monkeypatch.setattr(baux, "fit", _countfit2)
 
     from ops.stress import EnnAddStressConfig, enn_stress
 
@@ -323,6 +357,7 @@ def test_013(monkeypatch):
     )
     assert tell_calls == []
     assert ask_calls == []
+    assert fit_calls == []
 
 
 def test_formatconfigheader():

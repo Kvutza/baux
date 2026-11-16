@@ -18,7 +18,7 @@ baux.Space(
   }
   \p{Compile structured parameters into optimizer coordinates.}
   \p{\code{Space} is an alias of \code{PyTreeSpec}. For the usual template form, pass the template as the first positional argument: \code{Space(template, low=-1.0, high=1.0)}. It may contain arrays, shapes, categorical choices or domain objects inside dictionaries, lists, tuples and supported dataclasses.}
-  \p{Pass the resulting space to \code{init}. Read \code{dim}, \code{bounds}, \code{leaves} and \code{tied_dims} to inspect its layout. Use \code{ravel}, \code{unflatten}, \code{unflatten_batch} or \code{unflatten_stacked} as methods or top-level functions. See [structured parameters](baux-0008.html).}
+  \p{Pass the resulting space to \code{init}. Read \code{dim}, \code{bounds}, \code{leaves} and \code{tied_dims} to inspect its layout. Use \code{ravel} or \code{unflatten} as methods or top-level functions. See [structured parameters](baux-0008.html).}
   \<div>[class]{api-example}{\<p>[class]{example-label}{Example}
 \pre{
 import numpy as np
@@ -28,7 +28,7 @@ domain = {
     "lr": baux.Log(1e-4, 1.0),
     "theta": baux.Periodic(),
     "weights": baux.Simplex(3),
-    "opt": baux.categorical(["adam", "sgd", "rmsprop"]),
+    "opt": baux.Categorical(["adam", "sgd", "rmsprop"]),
 }
 sp = baux.Space(domain)
 rng = np.random.default_rng(0)
@@ -95,25 +95,6 @@ baux.Simplex(dim: int)
   \<p>[class]{api-source}{[Source in \code{python/baux/_embeddings.py}](https://github.com/Kvutza/baux/blob/main/python/baux/_embeddings.py#L162)}
 }
 
-\<section>[id]{baux.categorical}[class]{api-entry}[data-symbol]{baux.categorical}[data-kind]{function}[data-module]{baux.pytree}{
-  \<div>[class]{api-entry-header}{\<h2>[class]{api-entry-title}{[\code{baux.categorical}](api-domains.html#baux.categorical)}}
-  \pre{
-baux.categorical(
-    categories: Sequence[Any],
-    *,
-    encoding: str = 'auto',
-    key: Any = None,
-    seed: Any = None,
-    separation: float = 10.0,
-    dim_cap: int = 48,
-) -> Categorical
-  }
-  \p{Define a parameter that chooses from discrete options.}
-  \p{\code{categories}: at least two choices. Returns \code{Categorical}. \code{encoding} is \code{"auto"}, \code{"onehot"} or \code{"rademacher"}; automatic encoding uses one-hot vectors for up to 15 choices.}
-  \p{\code{key} or \code{seed} controls the generated codebook. \code{separation} scales the codewords and \code{dim_cap} limits embedding width. Put this object in a \code{Space} template.}
-  \<p>[class]{api-source}{[Source in \code{python/baux/pytree.py}](https://github.com/Kvutza/baux/blob/main/python/baux/pytree.py#L146)}
-}
-
 \<section>[id]{baux.Categorical}[class]{api-entry}[data-symbol]{baux.Categorical}[data-kind]{class}[data-module]{baux.pytree}{
   \<div>[class]{api-entry-header}{\<h2>[class]{api-entry-title}{[\code{baux.Categorical}](api-domains.html#baux.Categorical)}}
   \pre{
@@ -127,7 +108,7 @@ baux.Categorical(
 )
   }
   \p{A discrete domain and its coordinate encoding.}
-  \p{Usually created with [\code{categorical}](api-domains.html#baux.categorical). Stores the options and codebook; decodes solver coordinates to one of the original choices. Larger codebooks use a finite-dimensional encoding, which need not preserve all category distances exactly.}
+  \p{Stores the options and codebook; decodes solver coordinates to one of the original choices. Larger codebooks use a finite-dimensional encoding, which need not preserve all category distances exactly.}
   \<p>[class]{api-source}{[Source in \code{python/baux/pytree.py}](https://github.com/Kvutza/baux/blob/main/python/baux/pytree.py#L37)}
 }
 
@@ -151,30 +132,6 @@ baux.unflatten(flat: Any, spec: PyTreeSpec, weights: np.ndarray | None = None) -
   \<p>[class]{api-source}{[Source in \code{python/baux/pytree.py}](https://github.com/Kvutza/baux/blob/main/python/baux/pytree.py#L345)}
 }
 
-\<section>[id]{baux.unflatten_batch}[class]{api-entry}[data-symbol]{baux.unflatten_batch}[data-kind]{function}[data-module]{baux.pytree}{
-  \<div>[class]{api-entry-header}{\<h2>[class]{api-entry-title}{[\code{baux.unflatten_batch}](api-domains.html#baux.unflatten_batch)}}
-  \pre{
-baux.unflatten_batch(
-    flat_batch: Any,
-    spec: PyTreeSpec,
-    weights: np.ndarray | None = None,
-) -> tuple[Any, ...]
-  }
-  \p{Decode a coordinate batch into individual parameter trees.}
-  \p{\code{flat_batch}: \code{(N, spec.dim)} array. Returns a tuple of \code{N} decoded trees. \code{weights} optionally supplies metric weights.}
-  \<p>[class]{api-source}{[Source in \code{python/baux/pytree.py}](https://github.com/Kvutza/baux/blob/main/python/baux/pytree.py#L393)}
-}
-
-\<section>[id]{baux.unflatten_stacked}[class]{api-entry}[data-symbol]{baux.unflatten_stacked}[data-kind]{function}[data-module]{baux.pytree}{
-  \<div>[class]{api-entry-header}{\<h2>[class]{api-entry-title}{[\code{baux.unflatten_stacked}](api-domains.html#baux.unflatten_stacked)}}
-  \pre{
-baux.unflatten_stacked(flat_batch: Any, spec: PyTreeSpec, weights: np.ndarray | None = None) -> Any
-  }
-  \p{Decode a batch into one tree with batched leaves.}
-  \p{\code{flat_batch}: \code{(N, spec.dim)} array. Returns the template structure with a leading batch dimension on array leaves. Use this when the evaluator accepts a vectorized batch.}
-  \<p>[class]{api-source}{[Source in \code{python/baux/pytree.py}](https://github.com/Kvutza/baux/blob/main/python/baux/pytree.py#L363)}
-}
-
 \<section>[id]{baux.pytree_bounds}[class]{api-entry}[data-symbol]{baux.pytree_bounds}[data-kind]{function}[data-module]{baux.pytree}{
   \<div>[class]{api-entry-header}{\<h2>[class]{api-entry-title}{[\code{baux.pytree_bounds}](api-domains.html#baux.pytree_bounds)}}
   \pre{
@@ -183,25 +140,6 @@ baux.pytree_bounds(tree: Any, low: Any = -1.0, high: Any = 1.0) -> PyTreeSpec
   \p{Build a domain specification from a parameter template.}
   \p{Returns a \code{PyTreeSpec}. \code{low} and \code{high} set default bounds for continuous leaves; explicit domain objects carry their own bounds. An existing \code{PyTreeSpec} is returned unchanged.}
   \<p>[class]{api-source}{[Source in \code{python/baux/pytree.py}](https://github.com/Kvutza/baux/blob/main/python/baux/pytree.py#L298)}
-}
-
-\<section>[id]{baux.LeafSpec}[class]{api-entry}[data-symbol]{baux.LeafSpec}[data-kind]{class}[data-module]{baux.pytree}{
-  \<div>[class]{api-entry-header}{\<h2>[class]{api-entry-title}{[\code{baux.LeafSpec}](api-domains.html#baux.LeafSpec)}}
-  \pre{
-baux.LeafSpec(
-    path: tuple[Any, ...],
-    shape: tuple[int, ...],
-    offset: int,
-    size: int,
-    low: np.ndarray,
-    high: np.ndarray,
-    categorical: Categorical | None = None,
-    embed: Any = None,
-)
-  }
-  \p{The path and coordinate slice for one parameter leaf.}
-  \p{Read these records through \code{space.leaves}. Fields are \code{path}, \code{shape}, \code{offset}, \code{size}, \code{low}, \code{high}, \code{categorical} and \code{embed}. The leaf occupies \code{[offset:offset + size]} in a flat vector.}
-  \<p>[class]{api-source}{[Source in \code{python/baux/pytree.py}](https://github.com/Kvutza/baux/blob/main/python/baux/pytree.py#L166)}
 }
 
 \<section>[id]{baux.Stiefel}[class]{api-entry}[data-symbol]{baux.Stiefel}[data-kind]{class}[data-module]{baux._embeddings}{

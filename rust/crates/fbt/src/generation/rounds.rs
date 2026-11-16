@@ -128,7 +128,11 @@ impl LoopState {
         output: &Path,
         weights: &CandidateWeights,
     ) -> Result<metal::Buffer, String> {
-        if let Some(region) = self.search.finalize_morbo()? {
+        let fallback = self.search.clone();
+        let search = std::mem::replace(&mut self.search, fallback);
+        let (search, region) = search.finalize_morbo()?;
+        self.search = search;
+        if let Some(region) = region {
             self.incumbent_version = self.regions.versions[region];
             self.incumbent_rollouts = self.regions.rollouts[region].clone();
             self.temperature = self.regions.temperatures[region];
@@ -452,24 +456,24 @@ impl LoopContext<'_> {
         };
         let observation = evaluation.observation;
         let tell_start = Instant::now();
-        let decision = if evaluation.paired.is_some() {
-            super::gen_pool::tell_paired(&mut state.search, proposal, &evaluation, initial)?
+        let fallback = state.search.clone();
+        let search = std::mem::replace(&mut state.search, fallback);
+        let (search, decision) = if evaluation.paired.is_some() {
+            super::gen_pool::tell_paired(search, proposal, &evaluation, initial)?
         } else if initial {
             if let Some(causal) = evaluation.causal {
-                state
-                    .search
-                    .tell_initial(proposal, causal.optimizer_value, causal.variance)?
+                search.tell_initial(proposal, causal.optimizer_value, causal.variance)?
             } else {
-                state.search.initial_objectives(proposal, observation)?
+                search.initial_objectives(proposal, observation)?
             }
         } else if let Some(causal) = evaluation.causal {
-            state
-                .search
-                .tell_modeled(proposal, causal.optimizer_value, causal.variance)?
+            search.tell_modeled(proposal, causal.optimizer_value, causal.variance)?
         } else {
-            state.search.modeled_objectives(proposal, observation)?
+            search.modeled_objectives(proposal, observation)?
         };
-        if state.search.sync()? != vec![decision.accepted] {
+        let (search, accepted) = search.sync()?;
+        state.search = search;
+        if accepted != vec![decision.accepted] {
             return Err("resident search acceptance mismatch".into());
         }
         if decision.accepted && evaluation.paired.is_some() {
@@ -496,12 +500,16 @@ impl LoopContext<'_> {
         let pool_count = state.search.pool_layout().count() as usize;
         let forced = (self.run.selection == Some(crate::config::PretrainSelection::Random))
             .then(|| (crate::hash::splitmix64(ask.acquisition.seed) as usize) % pool_count);
-        state.search.propose(
+        let fallback = state.search.clone();
+        let search = std::mem::replace(&mut state.search, fallback);
+        let (search, (row, proposal, initializing)) = search.propose(
             self.proposal_seed + u64::from(step),
             ask,
             step as usize % pool_count,
             forced,
-        )
+        )?;
+        state.search = search;
+        Ok((row, proposal, initializing))
     }
 
     fn validate_checkpoint(&mut self, state: &mut LoopState, round: u32) -> Result<(), String> {

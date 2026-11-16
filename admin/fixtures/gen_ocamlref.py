@@ -67,19 +67,25 @@ def load_reference(directory):
     sys.modules["reference"] = package
     # ASV's optional-import helper is infrastructure, not numerical code.
     common = types.ModuleType("reference.common")
-    common.safe_import = contextlib.nullcontext
+    common.__dict__["safe_import"] = contextlib.nullcontext
     sys.modules[common.__name__] = common
     for name in ["__init__.py", "go_benchmark.py"] + [
         f"go_funcs_{letter}.py" for letter in "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
     ]:
         destination = directory / name
         if not destination.exists():
-            destination.write_bytes(urllib.request.urlopen(BASE + name).read())
+            url = BASE + name
+            if not url.startswith("https://"):
+                raise ValueError(f"Expected HTTPS URL, got {url!r}")
+            with urllib.request.urlopen(url) as resp:  # noqa: S310
+                destination.write_bytes(resp.read())
     spec = importlib.util.spec_from_file_location(
         "reference.functions",
         directory / "__init__.py",
         submodule_search_locations=[str(directory)],
     )
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"Cannot load reference functions from {directory}")
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)

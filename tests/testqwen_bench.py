@@ -8,7 +8,7 @@ def test_benchopts(monkeypatch, tmp_path):
     from ops.qwen import bench
 
     class FakeEncoding:
-        ids = [11, 12]
+        ids = (11, 12)
 
     class FakeTokenizer:
         def encode(self, prompt, add_special_tokens):

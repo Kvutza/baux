@@ -22,11 +22,11 @@ impl SearchState {
     /// The pending trial must come from the same search state; variance is the
     /// estimate variance. This records the observation and may accept weights.
     pub fn tell_initial(
-        &mut self,
+        mut self,
         round: &Proposals,
         value: f32,
         variance: f32,
-    ) -> Result<NoisyDecision, String> {
+    ) -> Result<(Self, NoisyDecision), String> {
         self.initial_objectives(
             round,
             crate::objective_observation::ObjectiveObservation::scalar_adapter(value, variance),
@@ -38,11 +38,10 @@ impl SearchState {
     /// initialization is not an unconditional commit and does not use
     /// normal acquisition gain.
     pub fn initial_objectives(
-        &mut self,
+        mut self,
         round: &Proposals,
         observation: crate::objective_observation::ObjectiveObservation,
-    ) -> Result<NoisyDecision, String> {
-        self.check_unleased()?;
+    ) -> Result<(Self, NoisyDecision), String> {
         self.initial_observation(round, observation)
     }
 
@@ -51,10 +50,10 @@ impl SearchState {
     /// matching upstream `enn`). Records history without normal radius
     /// adaptation, and initializes controller state when warm-up completes.
     fn initial_observation(
-        &mut self,
+        mut self,
         round: &Proposals,
         observation: crate::objective_observation::ObjectiveObservation,
-    ) -> Result<NoisyDecision, String> {
+    ) -> Result<(Self, NoisyDecision), String> {
         let crate::objective_observation::ObjectiveEstimate {
             mean: value,
             variance,
@@ -92,7 +91,7 @@ impl SearchState {
                     accepted,
                 ))?
             };
-            self.absolute_objectives(
+            self = self.absolute_objectives(
                 round,
                 observation,
                 incumbent_value,
@@ -108,32 +107,35 @@ impl SearchState {
                 self.trust.seed_baseline(f64::from(self.best), self.history);
                 self.length = self.trust.length();
             }
-            Ok(NoisyDecision {
-                numerical,
-                accepted,
-                incumbent_value,
-                incumbent_variance,
-                improvement,
-                threshold: control_threshold,
-                predicted_improvement: None,
-                agreement_ratio: None,
-                trust_outcome: if accepted {
-                    TrustRegionOutcome::Success
-                } else {
-                    TrustRegionOutcome::Failure
+            Ok((
+                self,
+                NoisyDecision {
+                    numerical,
+                    accepted,
+                    incumbent_value,
+                    incumbent_variance,
+                    improvement,
+                    threshold: control_threshold,
+                    predicted_improvement: None,
+                    agreement_ratio: None,
+                    trust_outcome: if accepted {
+                        TrustRegionOutcome::Success
+                    } else {
+                        TrustRegionOutcome::Failure
+                    },
                 },
-            })
+            ))
         })
     }
 
     /// Scalar adapter for stored-incumbent acceptance (`threshold = 0.0`,
     /// matching upstream `enn`).
     pub fn tell_noisy(
-        &mut self,
+        mut self,
         round: &Proposals,
         value: f32,
         variance: f32,
-    ) -> Result<NoisyDecision, String> {
+    ) -> Result<(Self, NoisyDecision), String> {
         self.noisy_objectives(
             round,
             crate::objective_observation::ObjectiveObservation::scalar_adapter(value, variance),
@@ -145,16 +147,15 @@ impl SearchState {
     /// matching upstream `enn`); vector control may override it. Records the
     /// trial and adapts the region.
     pub fn noisy_objectives(
-        &mut self,
+        mut self,
         round: &Proposals,
         observation: crate::objective_observation::ObjectiveObservation,
-    ) -> Result<NoisyDecision, String> {
+    ) -> Result<(Self, NoisyDecision), String> {
         let crate::objective_observation::ObjectiveEstimate {
             mean: value,
             variance,
         } = observation.control();
         autoreleasepool(|| {
-            self.check_unleased()?;
             self.check_round(round)?;
             let incumbent_value = self.best;
             let incumbent_variance = self.best_variance;
@@ -192,7 +193,7 @@ impl SearchState {
                 TrustRegionOutcome::Failure
             };
             let next_incumbent = if accepted { value } else { incumbent_value };
-            self.absolute_objectives(
+            self = self.absolute_objectives(
                 round,
                 observation,
                 incumbent_value,
@@ -202,17 +203,20 @@ impl SearchState {
                 Some(trust_outcome),
                 true,
             )?;
-            Ok(NoisyDecision {
-                numerical,
-                accepted,
-                incumbent_value,
-                incumbent_variance,
-                improvement,
-                threshold,
-                predicted_improvement: None,
-                agreement_ratio: None,
-                trust_outcome,
-            })
+            Ok((
+                self,
+                NoisyDecision {
+                    numerical,
+                    accepted,
+                    incumbent_value,
+                    incumbent_variance,
+                    improvement,
+                    threshold,
+                    predicted_improvement: None,
+                    agreement_ratio: None,
+                    trust_outcome,
+                },
+            ))
         })
     }
 
@@ -260,50 +264,25 @@ impl SearchState {
     /// See [`modeled_objectives`](Self::modeled_objectives) for detailed trust
     /// region updates and side effects.
     pub fn tell_modeled(
-        &mut self,
+        mut self,
         round: &Proposals,
         value: f32,
         variance: f32,
-    ) -> Result<NoisyDecision, String> {
+    ) -> Result<(Self, NoisyDecision), String> {
         self.modeled_objectives(
             round,
             crate::objective_observation::ObjectiveObservation::scalar_adapter(value, variance),
         )
     }
 
-    /// Bind the pending materialized candidate to its evaluation condition.
-    /// Reissuing a plan is allowed only for the same world (e.g. after a scorer
-    /// error); a completed or foreign proposal cannot obtain one.
-    pub fn plan_evaluation(
-        &mut self,
-        round: &Proposals,
-        world: baux::semantics::optimizer::WorldId,
-    ) -> Result<baux::semantics::optimizer::AskPlan, String> {
-        self.check_unleased()?;
-        self.check_round(round)?;
-        if self.base_id != round.base_id || self.evaluation.is_some_and(|planned| planned != world)
-        {
-            return Err("evaluation plan changed incumbent or world".into());
-        }
-        self.evaluation = Some(world);
-        Ok(baux::semantics::optimizer::AskPlan::new(
-            baux::semantics::optimizer::RoundId {
-                owner: round.owner,
-                proposal: round.id,
-                incumbent: round.base_id,
-            },
-            world,
-        ))
-    }
-
     /// Consume one candidate-bound scalar evaluation. Warm-up and modeled
     /// acceptance keep their existing arithmetic; neither certifies
     /// calibration.
     pub fn tell_evaluated(
-        &mut self,
+        mut self,
         round: &Proposals,
         evaluation: baux::semantics::optimizer::Evaluated,
-    ) -> Result<NoisyDecision, String> {
+    ) -> Result<(Self, NoisyDecision), String> {
         let receipt = evaluation.receipt();
         let value = -receipt.candidate_loss as f32;
         let variance = receipt.candidate_variance as f32;
@@ -318,19 +297,18 @@ impl SearchState {
     /// Consume one candidate-bound evaluation with a direct-sum vector
     /// observation.
     pub fn evaluated_objectives(
-        &mut self,
+        mut self,
         round: &Proposals,
         evaluation: baux::semantics::optimizer::Evaluated,
         observation: crate::objective_observation::ObjectiveObservation,
-    ) -> Result<NoisyDecision, String> {
+    ) -> Result<(Self, NoisyDecision), String> {
         use baux::semantics::optimizer::{RoundId, TellDecision};
-        self.check_unleased()?;
         self.check_round(round)?;
         // Public proposal metadata is inspectable/mutable by callers. Only the
         // saved publication describes the materialized row and its prediction.
         let published = self.pending.as_ref().ok_or("No pending proposal")?.clone();
         let active = RoundId {
-            owner: self.owner,
+            owner: 0,
             proposal: round.id,
             incumbent: self.base_id,
         };
@@ -410,16 +388,15 @@ impl SearchState {
     /// * Values or variances are NaN, infinite, or variances are negative.
     /// * The proposal round does not match the active session.
     pub fn modeled_objectives(
-        &mut self,
+        mut self,
         round: &Proposals,
         observation: crate::objective_observation::ObjectiveObservation,
-    ) -> Result<NoisyDecision, String> {
+    ) -> Result<(Self, NoisyDecision), String> {
         let crate::objective_observation::ObjectiveEstimate {
             mean: value,
             variance,
         } = observation.control();
         autoreleasepool(|| {
-            self.check_unleased()?;
             self.check_round(round)?;
             check_scores(
                 &[value, round.predicted_mean, round.incumbent_mean],
@@ -469,7 +446,7 @@ impl SearchState {
                 TrustRegionOutcome::Failure
             };
             let next_incumbent = if accepted { value } else { incumbent_value };
-            self.absolute_objectives(
+            self = self.absolute_objectives(
                 round,
                 observation,
                 incumbent_value,
@@ -479,17 +456,20 @@ impl SearchState {
                 Some(trust_outcome),
                 true,
             )?;
-            Ok(NoisyDecision {
-                numerical,
-                accepted,
-                incumbent_value,
-                incumbent_variance,
-                improvement,
-                threshold,
-                predicted_improvement,
-                agreement_ratio,
-                trust_outcome,
-            })
+            Ok((
+                self,
+                NoisyDecision {
+                    numerical,
+                    accepted,
+                    incumbent_value,
+                    incumbent_variance,
+                    improvement,
+                    threshold,
+                    predicted_improvement,
+                    agreement_ratio,
+                    trust_outcome,
+                },
+            ))
         })
     }
 }

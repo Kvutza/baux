@@ -1,4 +1,5 @@
 use baux::neighbor_index::error::BpannError;
+use baux::neighbor_index::index::build::BpannIndex;
 use baux::neighbor_index::index::page::Page;
 use baux::neighbor_index::index::sync::IncrementalIndex;
 #[cfg(test)]
@@ -26,13 +27,42 @@ fn scale_vector(vector: &mut [f32], factors: &[f64]) {
     }
 }
 
+impl BpannIndex {
+    pub fn rescale(mut self, factors: &[f64]) -> Self {
+        let mut new_pages: Vec<Page> = self.pages.to_vec();
+        for page in &mut new_pages {
+            match page {
+                Page::Internal { centroids, .. } => {
+                    for vector in centroids {
+                        scale_vector(vector, factors);
+                    }
+                }
+                Page::Leaf {
+                    vectors,
+                    stored_centroid,
+                    ..
+                } => {
+                    for vector in vectors {
+                        scale_vector(vector, factors);
+                    }
+                    if let Some(vector) = stored_centroid {
+                        scale_vector(vector, factors);
+                    }
+                }
+            }
+        }
+        self.pages = new_pages.into();
+        self
+    }
+}
+
 impl IncrementalIndex {
-    pub(crate) fn check_rescale(&self, factors: &[f64]) -> Result<(), BpannError> {
+    pub fn check_rescale(&self, factors: &[f64]) -> Result<(), BpannError> {
         let valid = factors.iter().all(|v| v.is_finite() && *v > 0.0)
             && self
                 .indices
                 .iter()
-                .flat_map(|index| &index.pages)
+                .flat_map(|index| index.pages.iter())
                 .flat_map(page_vectors)
                 .all(|row| {
                     row.len() == factors.len()
@@ -49,30 +79,18 @@ impl IncrementalIndex {
         Ok(())
     }
 
-    pub(crate) fn rescale(&mut self, factors: &[f64]) {
+    pub fn rescale(mut self, factors: &[f64]) -> Self {
         self.rescale_pending(factors);
-        for index in &mut self.indices {
-            for page in &mut index.pages {
-                match page {
-                    Page::Internal { centroids, .. } => {
-                        for vector in centroids {
-                            scale_vector(vector, factors);
-                        }
-                    }
-                    Page::Leaf {
-                        vectors,
-                        stored_centroid,
-                        ..
-                    } => {
-                        for vector in vectors {
-                            scale_vector(vector, factors);
-                        }
-                        if let Some(vector) = stored_centroid {
-                            scale_vector(vector, factors);
-                        }
-                    }
-                }
-            }
-        }
+        self.indices = self
+            .indices
+            .into_iter()
+            .map(|index| index.rescale(factors))
+            .collect();
+        self
+    }
+
+    pub fn metric_rescale(self, factors: &[f64]) -> Result<Self, BpannError> {
+        self.check_rescale(factors)?;
+        Ok(self.rescale(factors))
     }
 }

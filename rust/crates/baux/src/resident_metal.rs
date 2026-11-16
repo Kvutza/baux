@@ -2,11 +2,11 @@
 //! runtime.
 //!
 //! Integration: expose this module under `cfg(all(target_os = "macos", feature
-//! = "metal"))`. The binding must lease every exported Buffer, forbid mutation
-//! while leases exist, and expose weights read-only. All commands here complete
-//! before returning. Buffer clones keep allocations alive but do not prevent
-//! writes by another Metal consumer. Absolute observations use bounded FIFO
-//! history and the shared CPU TuRBO controller.
+//! = "metal"))`. Exported buffers are shared via `Arc<Buffer>` with
+//! copy-on-write mutation, exposing weights read-only. All commands here
+//! complete before returning. Buffer clones keep allocations alive but do not
+//! prevent writes by another Metal consumer. Absolute observations use bounded
+//! FIFO history and the shared CPU TuRBO controller.
 
 use std::{sync::Arc, time::Instant};
 
@@ -66,7 +66,6 @@ const MAX_HISTORY: usize = crate::objective_observation::OBJECTIVE_CAPACITY;
 // the geometry tests, but must not tax every optimizer round.
 const POOL_METRICS: usize = if cfg!(test) { 10 } else { 4 };
 const POOL_PAIRS: [(usize, usize); 6] = [(0, 1), (0, 2), (0, 3), (1, 2), (1, 3), (2, 3)];
-static NEXT_OWNER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ProgramAddress(u16);
@@ -263,12 +262,13 @@ impl Proposals {
 
 impl SearchState {
     pub fn tell(
-        &mut self,
+        self,
         proposals: &Proposals,
         value: f32,
         variance: f32,
-    ) -> Result<NoisyDecision, String> {
-        self.tell_noisy(proposals, value, variance)
+    ) -> Result<(Self, NoisyDecision), String> {
+        let (next, decision) = self.tell_noisy(proposals, value, variance)?;
+        Ok((next, decision))
     }
 
     #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
@@ -277,7 +277,7 @@ impl SearchState {
         parent: u64,
         proposal: &Proposals,
     ) -> Result<crate::tensor_store::TensorVersion, String> {
-        if proposal.owner != self.owner || proposal.block_scales.len() != self.blocks.len() {
+        if proposal.block_scales.len() != self.blocks.len() {
             return Err("proposal does not belong to this tensor search state".into());
         }
         let blocks = self
@@ -300,6 +300,63 @@ impl SearchState {
             self.perturbation.name(),
             blocks,
         )
+    }
+
+    pub fn fork(&self) -> Self {
+        self.clone()
+    }
+
+    pub(super) fn cow_buffer(runtime: &Runtime, buf: &mut Arc<Buffer>) -> Result<(), String> {
+        if Arc::strong_count(buf) > 1 {
+            let length = buf.length();
+            let fresh = runtime.device.new_buffer(
+                length,
+                metal::MTLResourceOptions::StorageModeShared
+                    | metal::MTLResourceOptions::HazardTrackingModeTracked,
+            );
+            let command = runtime.queue.new_command_buffer();
+            let blit = command.new_blit_command_encoder();
+            blit.copy_from_buffer(&**buf, 0, &fresh, 0, length);
+            blit.end_encoding();
+            finish(command)?;
+            *buf = Arc::new(fresh);
+        }
+        Ok(())
+    }
+
+    pub(super) fn cow_base(&mut self) -> Result<(), String> {
+        Self::cow_buffer(&self.runtime, &mut self.base)
+    }
+
+    pub(super) fn cow_history(&mut self, slot: usize) -> Result<(), String> {
+        if let Some(buf) = self.history_rows.get_mut(slot) {
+            Self::cow_buffer(&self.runtime, buf)?;
+        }
+        Ok(())
+    }
+
+    pub(super) fn cow_proposal(&mut self) -> Result<(), String> {
+        Self::cow_buffer(&self.runtime, &mut self.proposal)
+    }
+
+    pub(super) fn cow_partials(&mut self) -> Result<(), String> {
+        Self::cow_buffer(&self.runtime, &mut self.partials)
+    }
+
+    pub(super) fn cow_aggregates(&mut self) -> Result<(), String> {
+        Self::cow_buffer(&self.runtime, &mut self.pool_aggregates)
+    }
+
+    pub(super) fn cow_decision(&mut self) -> Result<(), String> {
+        Self::cow_buffer(&self.runtime, &mut self.decision)
+    }
+
+    pub(super) fn cow_distances(&mut self) -> Result<(), String> {
+        Self::cow_buffer(&self.runtime, &mut self.pool_distances)
+    }
+
+    pub(super) fn cow_geometry(&mut self) -> Result<(), String> {
+        Self::cow_buffer(&self.runtime, &mut self.pool_geometry)
     }
 }
 
@@ -366,6 +423,7 @@ pub struct NoisyDecision {
     pub trust_outcome: TrustRegionOutcome,
 }
 
+#[derive(Clone)]
 pub struct SearchState {
     independent_fp16: bool,
     perturbation: ProposalDistribution,
@@ -375,14 +433,14 @@ pub struct SearchState {
     leaves_gpu: Buffer,
     tiles_gpu: Buffer,
     offsets_gpu: Buffer,
-    base: Buffer,
-    history_rows: Vec<Buffer>,
-    proposal: Buffer,
-    partials: Buffer,
-    pool_aggregates: Buffer,
-    decision: Buffer,
-    pool_distances: Buffer,
-    pool_geometry: Buffer,
+    base: Arc<Buffer>,
+    history_rows: Vec<Arc<Buffer>>,
+    proposal: Arc<Buffer>,
+    partials: Arc<Buffer>,
+    pool_aggregates: Arc<Buffer>,
+    decision: Arc<Buffer>,
+    pool_distances: Arc<Buffer>,
+    pool_geometry: Arc<Buffer>,
     propose_pipeline: ComputePipelineState,
     initial_pipeline: ComputePipelineState,
     pool_pipeline: ComputePipelineState,
@@ -423,8 +481,6 @@ pub struct SearchState {
     fit_seed: u64,
     fitter: Option<ENNFitter>,
     fitted_enn: Option<(usize, f32, f32, f32)>,
-    owner: u64,
-    leases: Arc<std::sync::atomic::AtomicUsize>,
     next_id: u64,
     pending: Option<Proposals>,
     evaluation: Option<baux::semantics::optimizer::WorldId>,
@@ -433,10 +489,27 @@ pub struct SearchState {
     poisoned: bool,
     profiling: bool,
     last_profile: Option<ProposalProfile>,
-    async_command: Option<CommandBuffer>,
-    profile_commands: Vec<CommandBuffer>,
+    async_command: Option<Arc<CommandBuffer>>,
+    profile_commands: Vec<Arc<CommandBuffer>>,
     tell_profile: Option<TellProfile>,
     axis: Option<axis::SearchAxis>,
+}
+
+unsafe impl Send for SearchState {}
+unsafe impl Sync for SearchState {}
+
+impl std::fmt::Debug for SearchState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SearchState")
+            .field("dimensions", &self.dimensions)
+            .field("length", &self.length)
+            .field("best", &self.best)
+            .field("best_variance", &self.best_variance)
+            .field("observation", &self.observation)
+            .field("base_id", &self.base_id)
+            .field("history", &self.history)
+            .finish()
+    }
 }
 
 #[cfg(test)]
@@ -476,11 +549,11 @@ mod tests {
             ProposalDistribution::Gaussian,
         )
         .unwrap();
-        search.observe_initial(-3.0, 0.0).unwrap();
+        search = search.observe_initial(-3.0, 0.0).unwrap();
         assert_eq!(search.controller_info().unwrap().dimensions, base.len());
         for step in 0..4 {
             let root = 12345 + step;
-            let before = read::<u16>(&search.base, base.len()).to_vec();
+            let before = read::<u16>(&*search.base, base.len()).to_vec();
             let mut candidates = Vec::new();
             for index in 0..4 {
                 let row = search.test_candidate(root, index).unwrap();
@@ -505,13 +578,14 @@ mod tests {
                 }
                 candidates.push(values);
             }
-            let proposal = search.ask_round(1, 4, root, config()).unwrap();
-            let selected = read::<u16>(&search.proposal, base.len()).to_vec();
+            let (next_search, proposal) = search.ask_round(1, 4, root, config()).unwrap();
+            search = next_search;
+            let selected = read::<u16>(&*search.proposal, base.len()).to_vec();
             assert_eq!(selected, candidates[proposal.index]);
             for (index, _, _, correlation, distances) in search.pool(&proposal).unwrap() {
                 assert_eq!(correlation, 0.0);
                 for (slot, (_, distance)) in distances.iter().enumerate() {
-                    let history = read::<u16>(&search.history_rows[slot], base.len());
+                    let history = read::<u16>(&*search.history_rows[slot], base.len());
                     let exact: f64 = blocks
                         .iter()
                         .map(|block| {
@@ -529,13 +603,16 @@ mod tests {
             }
             let accept = step % 2 == 0;
             let reward = search.best().unwrap() + if accept { 1.0 } else { -1.0 };
-            let decision = search.tell_noisy(&proposal, reward, 0.0).unwrap();
+            let (next_search, decision) = search.tell_noisy(&proposal, reward, 0.0).unwrap();
+            search = next_search;
             assert_eq!(decision.accepted, accept);
             assert_eq!(
-                &read::<u16>(&search.base, base.len()),
+                &read::<u16>(&*search.base, base.len()),
                 if accept { &selected } else { &before }
             );
-            assert_eq!(search.sync().unwrap(), vec![accept]);
+            let (next_search, synced) = search.sync().unwrap();
+            search = next_search;
+            assert_eq!(synced, vec![accept]);
         }
         let invalid = [0x7c00];
         assert!(
@@ -563,7 +640,7 @@ mod tests {
             ProposalDistribution::Rademacher,
         )
         .unwrap();
-        search.observe_initial(-3.0, 0.0).unwrap();
+        search = search.observe_initial(-3.0, 0.0).unwrap();
         let root = 12345;
         let mut candidates = Vec::new();
         for index in 0..4 {
@@ -582,9 +659,10 @@ mod tests {
             }
             candidates.push(values);
         }
-        let proposal = search.ask_round(1, 4, root, config()).unwrap();
+        let (next_search, proposal) = search.ask_round(1, 4, root, config()).unwrap();
+        search = next_search;
         assert_eq!(
-            read::<u16>(&search.proposal, base.len()),
+            read::<u16>(&*search.proposal, base.len()),
             candidates[proposal.index]
         );
         assert_eq!(
@@ -610,7 +688,7 @@ mod tests {
             ProposalDistribution::Rademacher,
         )
         .unwrap();
-        search
+        search = search
             .configure_enn(crate::config::ResidentEnnConfig {
                 pool: crate::procedural_pool::ProceduralPool::legacy(),
                 ask: {
@@ -626,11 +704,12 @@ mod tests {
                 local_scale_neighbors: 2,
             })
             .unwrap();
-        search.observe_initial(-3.0, 0.0).unwrap();
+        search = search.observe_initial(-3.0, 0.0).unwrap();
         let root = 12_345;
         let candidate = 2;
-        let row = search.begin_initial(root, candidate).unwrap();
-        let proposal = search.finish_ask().unwrap();
+        let (next_search, row) = search.begin_initial(root, candidate).unwrap();
+        let (next_search, proposal) = next_search.finish_ask().unwrap();
+        search = next_search;
         let values = read::<u16>(&row, base.len());
         assert_eq!(proposal.index, candidate);
         assert_eq!(proposal.seed, candidate_seed(root, candidate));
@@ -670,7 +749,7 @@ mod tests {
             perturbation,
         )
         .unwrap();
-        search
+        search = search
             .configure_enn(crate::config::ResidentEnnConfig {
                 pool: crate::procedural_pool::ProceduralPool::legacy(),
                 ask: {
@@ -686,11 +765,12 @@ mod tests {
                 local_scale_neighbors: 2,
             })
             .unwrap();
-        search.observe_initial(0.0, 0.0).unwrap();
+        search = search.observe_initial(0.0, 0.0).unwrap();
 
-        search.begin_initial(12_345, 0).unwrap();
-        let first = search.finish_ask().unwrap();
-        let first_row = read::<u16>(&search.proposal, base.len());
+        let (next_search, _) = search.begin_initial(12_345, 0).unwrap();
+        let (next_search, first) = next_search.finish_ask().unwrap();
+        search = next_search;
+        let first_row = read::<u16>(&*search.proposal, base.len());
         let first_dist = oracle_distance(&base, &first_row, &blocks);
         close(
             f64::from(first.history_distances[0].1),
@@ -698,12 +778,16 @@ mod tests {
             1e-5,
         );
         assert!(first_dist > 0.0);
-        assert!(!search.tell_initial(&first, -1.0, 0.0).unwrap().accepted);
-        assert_eq!(search.sync().unwrap(), [false]);
+        let (next_search, decision) = search.tell_initial(&first, -1.0, 0.0).unwrap();
+        assert!(!decision.accepted);
+        let (next_search, synced) = next_search.sync().unwrap();
+        assert_eq!(synced, [false]);
+        search = next_search;
 
-        search.begin_initial(12_346, 1).unwrap();
-        let second = search.finish_ask().unwrap();
-        let second_row = read::<u16>(&search.proposal, base.len());
+        let (next_search, _) = search.begin_initial(12_346, 1).unwrap();
+        let (next_search, second) = next_search.finish_ask().unwrap();
+        search = next_search;
+        let second_row = read::<u16>(&*search.proposal, base.len());
         let second_base_dist = oracle_distance(&base, &second_row, &blocks);
         let first_second_dist = oracle_distance(&first_row, &second_row, &blocks);
         close(
@@ -718,26 +802,29 @@ mod tests {
         );
         assert!(first_second_dist > 0.0);
         assert!(second.changes.iter().map(|change| change.0).sum::<u64>() > 0);
-        search.tell_initial(&second, -1.0, 0.0).unwrap();
-        search.sync().unwrap();
+        let (next_search, _) = search.tell_initial(&second, -1.0, 0.0).unwrap();
+        let (next_search, _) = next_search.sync().unwrap();
+        search = next_search;
         for round in 0..18 {
             let seed = 20_000 + round;
             let candidate = round as usize % 4;
             let expected = search.test_candidate(seed, candidate).unwrap();
             let expected = read::<u16>(&expected, base.len()).to_vec();
-            search.begin_forced(seed, config(), candidate).unwrap();
-            let proposal = search.finish_ask().unwrap();
-            assert_eq!(read::<u16>(&search.proposal, base.len()), expected);
+            let (next_search, _) = search.begin_forced(seed, config(), candidate).unwrap();
+            let (next_search, proposal) = next_search.finish_ask().unwrap();
+            search = next_search;
+            assert_eq!(read::<u16>(&*search.proposal, base.len()), expected);
             assert!(
                 proposal
                     .history_distances
                     .iter()
                     .all(|(_, d)| d.is_finite() && *d >= 0.0)
             );
-            search
+            let (next_search, _) = search
                 .tell_noisy(&proposal, 1.0 + round as f32, 0.0)
                 .unwrap();
-            search.sync().unwrap();
+            let (next_search, _) = next_search.sync().unwrap();
+            search = next_search;
         }
         assert!(search.history > 16);
     }
@@ -771,7 +858,7 @@ mod tests {
             ProposalDistribution::Rademacher,
         )
         .unwrap();
-        search
+        search = search
             .configure_enn(crate::config::ResidentEnnConfig {
                 pool: crate::procedural_pool::ProceduralPool::legacy(),
                 ask: {
@@ -787,15 +874,17 @@ mod tests {
                 local_scale_neighbors: 2,
             })
             .unwrap();
-        search.observe_initial(0.0, 0.01).unwrap();
+        search = search.observe_initial(0.0, 0.01).unwrap();
         search.observation = MAX_HISTORY as i64;
 
-        search.begin_initial(12_345, 0).unwrap();
-        let proposal = search.finish_ask().unwrap();
-        let decision = search.tell_initial(&proposal, 0.1, 0.01).unwrap();
+        let (next_search, _) = search.begin_initial(12_345, 0).unwrap();
+        let (next_search, proposal) = next_search.finish_ask().unwrap();
+        let (next_search, decision) = next_search.tell_initial(&proposal, 0.1, 0.01).unwrap();
         assert!(decision.accepted);
         assert_eq!(decision.threshold, 0.0);
-        assert_eq!(search.sync().unwrap(), [true]);
+        let (next_search, synced) = next_search.sync().unwrap();
+        assert_eq!(synced, [true]);
+        search = next_search;
     }
 
     #[test]
@@ -811,7 +900,7 @@ mod tests {
             ProposalDistribution::Gaussian,
         )
         .unwrap();
-        search
+        search = search
             .configure_enn(crate::config::ResidentEnnConfig {
                 pool: crate::procedural_pool::ProceduralPool::legacy(),
                 ask: {
@@ -827,11 +916,12 @@ mod tests {
                 local_scale_neighbors: 2,
             })
             .unwrap();
-        search.observe_initial(-3.0, 0.0).unwrap();
+        search = search.observe_initial(-3.0, 0.0).unwrap();
         let root = rand::random();
         let candidate = root as usize & 3;
-        let row = search.begin_initial(root, candidate).unwrap();
-        let proposal = search.finish_ask().unwrap();
+        let (next_search, row) = search.begin_initial(root, candidate).unwrap();
+        let (next_search, proposal) = next_search.finish_ask().unwrap();
+        search = next_search;
         let values = read::<u16>(&row, base.len());
         assert_eq!(proposal.index, candidate);
         assert_eq!(proposal.seed, candidate_seed(root, candidate));
@@ -1115,14 +1205,14 @@ mod tests {
     fn history_scores(s: &SearchState, root: u64, config: RoundConfig) -> Vec<(f64, Vec<u16>)> {
         let rows: Vec<Vec<u16>> = s.history_rows[..s.history]
             .iter()
-            .map(|row| read(row, s.len()))
+            .map(|row| read(&**row, s.len()))
             .collect();
         (0..4)
             .map(|candidate| {
                 let command = s.runtime.queue.new_command_buffer();
                 s.encode_proposal(command, s.params(root, candidate));
                 finish(command).unwrap();
-                let bits = read::<u16>(&s.proposal, s.len());
+                let bits = read::<u16>(&*s.proposal, s.len());
                 let distances: Vec<f64> = rows
                     .iter()
                     .map(|row| {
@@ -1182,7 +1272,8 @@ mod tests {
                         config
                     };
                     let expected = history_scores(&s, step as u64, config);
-                    let round = s.ask_round(1, 4, step as u64, config).unwrap();
+                    let (next_s, round) = s.ask_round(1, 4, step as u64, config).unwrap();
+                    s = next_s;
                     let best = if config.acquisition.kind == AcquisitionKind::Pareto {
                         expected[round.index].0
                     } else {
@@ -1192,12 +1283,14 @@ mod tests {
                             .fold(f64::NEG_INFINITY, f64::max)
                     };
                     close(f64::from(round.score), best, 5e-5);
-                    let bits = read::<u16>(&s.proposal, n);
+                    let bits = read::<u16>(&*s.proposal, n);
                     assert_eq!(bits, expected[round.index].1);
                     let value = if step < 4 { step as f32 } else { -4.0 };
                     let accept = step < 4;
-                    s.tell_noisy(&round, value, 0.25).unwrap();
-                    assert_eq!(s.sync().unwrap(), vec![accept]);
+                    let (next_s, _) = s.tell_noisy(&round, value, 0.25).unwrap();
+                    let (next_s, synced) = next_s.sync().unwrap();
+                    assert_eq!(synced, vec![accept]);
+                    s = next_s;
                     values.push(f64::from(value));
                     trust
                         .update(&ndarray::ArrayView1::from(&values), values.len())
@@ -1209,7 +1302,7 @@ mod tests {
                     rows.push_back((bits, value, 0.25, step as i64 + 2));
                     assert_eq!(s.history_len().unwrap(), rows.len());
                     for (i, (bits, value, variance, id)) in rows.iter().enumerate() {
-                        assert_eq!(read::<u16>(&s.history_rows[i], n), *bits);
+                        assert_eq!(read::<u16>(&*s.history_rows[i], n), *bits);
                         assert_eq!(
                             (s.outcomes[i], s.variances[i], s.identities[i]),
                             (*value, *variance, *id)
@@ -1234,9 +1327,10 @@ mod tests {
                 .unwrap();
             let mut restarts = 0;
             for step in 0..14 {
-                let round = s.ask_round(1, 4, step, RoundConfig::default()).unwrap();
-                s.tell_noisy(&round, -1.0, 0.2).unwrap();
-                s.sync().unwrap();
+                let (next_s, round) = s.ask_round(1, 4, step, RoundConfig::default()).unwrap();
+                let (next_s, _) = next_s.tell_noisy(&round, -1.0, 0.2).unwrap();
+                let (next_s, _) = next_s.sync().unwrap();
+                s = next_s;
                 values.push(-1.0);
                 trust
                     .update(&ndarray::ArrayView1::from(&values), values.len())
@@ -1250,7 +1344,7 @@ mod tests {
                         .unwrap();
                     restarts += 1;
                     assert_eq!(s.history_len().unwrap(), 1);
-                    assert_eq!(read::<u16>(&s.history_rows[0], 3), base);
+                    assert_eq!(read::<u16>(&*s.history_rows[0], 3), base);
                     assert_eq!(s.identities[0], 1);
                     assert_eq!((s.outcomes[0], s.variances[0]), (0.0, 0.1));
                 }
@@ -1267,18 +1361,22 @@ mod tests {
             let (base, blocks) = fixture(17);
             let bounds = TRLengthConfig::new(0.03125, 0.015625, 0.125);
             let mut s = SearchState::new_unscored(&base, blocks, 2, 1, bounds).unwrap();
-            s.set_tolerance(4).unwrap();
+            s = s.set_tolerance(4).unwrap();
             assert_eq!(s.history_len().unwrap(), 0);
             assert_eq!(s.trust_observations, 0);
             assert!(s.best().is_err());
             assert!(s.best_variance().is_err());
-            assert!(s.begin_ask(1, 4, 123, RoundConfig::default()).is_err());
+            assert!(
+                s.clone()
+                    .begin_ask(1, 4, 123, RoundConfig::default())
+                    .is_err()
+            );
             assert!(s.async_command.is_none());
-            assert!(s.observe_initial(f32::NAN, 0.0).is_err());
-            assert!(s.observe_initial(-12.0, -1.0).is_err());
+            assert!(s.clone().observe_initial(f32::NAN, 0.0).is_err());
+            assert!(s.clone().observe_initial(-12.0, -1.0).is_err());
             assert_eq!(s.trust_observations, 0);
 
-            s.observe_initial(-12.0, 0.125).unwrap();
+            s = s.observe_initial(-12.0, 0.125).unwrap();
             assert_eq!(s.history_len().unwrap(), 1);
             assert_eq!(s.best().unwrap(), -12.0);
             assert_eq!(s.best_variance().unwrap(), 0.125);
@@ -1286,24 +1384,28 @@ mod tests {
             assert_eq!(s.variances[0], 0.125);
             assert_eq!(s.trust_observations, 1);
             assert_eq!(s.trust.prev_obs(), 1);
-            assert!(s.observe_initial(0.0, 0.0).is_err());
+            assert!(s.clone().observe_initial(0.0, 0.0).is_err());
 
             for (step, value) in [-11.0, -10.0, -9.0].into_iter().enumerate() {
-                let round = s
+                let (next_s, round) = s
                     .ask_round(1, 4, step as u64, RoundConfig::default())
                     .unwrap();
-                s.tell_noisy(&round, value, 0.0).unwrap();
-                assert_eq!(s.sync().unwrap(), [true]);
+                let (next_s, _) = next_s.tell_noisy(&round, value, 0.0).unwrap();
+                let (next_s, synced) = next_s.sync().unwrap();
+                assert_eq!(synced, [true]);
+                s = next_s;
                 assert_eq!(s.length().unwrap(), if step < 2 { 0.03125 } else { 0.0625 });
             }
-            assert!(s.set_tolerance(5).is_err());
+            assert!(s.clone().set_tolerance(5).is_err());
             let accepted_weights = s.read_best().unwrap();
             for step in 0..16 {
-                let round = s
+                let (next_s, round) = s
                     .ask_round(1, 4, 100 + step, RoundConfig::default())
                     .unwrap();
-                s.tell_noisy(&round, -13.0, 0.0).unwrap();
-                assert_eq!(s.sync().unwrap(), [false]);
+                let (next_s, _) = next_s.tell_noisy(&round, -13.0, 0.0).unwrap();
+                let (next_s, synced) = next_s.sync().unwrap();
+                assert_eq!(synced, [false]);
+                s = next_s;
                 assert_eq!(s.read_best().unwrap(), accepted_weights);
                 assert_eq!(s.controller_info().unwrap().failure_tolerance, 4);
                 assert_eq!(
@@ -1333,37 +1435,47 @@ mod tests {
             let (base, blocks) = fixture(17);
             let bounds = TRLengthConfig::new(0.03125, 0.001953125, 0.125);
             let mut state = SearchState::new(&base, -3.0, 0.25, blocks, 2, 1, bounds).unwrap();
-            state.set_tolerance(4).unwrap();
+            state = state.set_tolerance(4).unwrap();
 
-            let rejected_round = state.ask_round(1, 4, 100, RoundConfig::default()).unwrap();
-            let rejected_bits = read::<u16>(&state.proposal, state.len());
-            let rejected = state.tell_noisy(&rejected_round, -4.0, 0.75).unwrap();
+            let (next_state, rejected_round) =
+                state.ask_round(1, 4, 100, RoundConfig::default()).unwrap();
+            state = next_state;
+            let rejected_bits = read::<u16>(&*state.proposal, state.len());
+            let (next_state, rejected) = state.tell_noisy(&rejected_round, -4.0, 0.75).unwrap();
+            state = next_state;
             assert_eq!(rejected.improvement, -1.0);
             assert_eq!(rejected.threshold, 0.0);
             assert!(!rejected.accepted);
-            assert_eq!(state.sync().unwrap(), [false]);
+            let (next_state, synced) = state.sync().unwrap();
+            state = next_state;
+            assert_eq!(synced, [false]);
             assert_eq!(state.best().unwrap(), -3.0);
             assert_eq!(state.best_variance().unwrap(), 0.25);
             assert_eq!(state.read_best().unwrap(), base);
             assert_eq!(state.history_len().unwrap(), 2);
             assert_eq!(
-                read::<u16>(&state.history_rows[1], state.len()),
+                read::<u16>(&*state.history_rows[1], state.len()),
                 rejected_bits
             );
             assert_eq!(state.controller_info().unwrap().failure_counter, 1);
 
-            let accepted_round = state.ask_round(1, 4, 101, RoundConfig::default()).unwrap();
-            let accepted_bits = read::<u16>(&state.proposal, state.len());
-            let accepted_buffer: *const metal::BufferRef = &*state.proposal;
-            let accepted = state.tell_noisy(&accepted_round, 0.0, 0.0).unwrap();
+            let (next_state, accepted_round) =
+                state.ask_round(1, 4, 101, RoundConfig::default()).unwrap();
+            state = next_state;
+            let accepted_bits = read::<u16>(&*state.proposal, state.len());
+            let accepted_buffer: *const metal::BufferRef = &**state.proposal;
+            let (next_state, accepted) = state.tell_noisy(&accepted_round, 0.0, 0.0).unwrap();
+            state = next_state;
             assert_eq!(accepted.improvement, 3.0);
             assert_eq!(accepted.threshold, 0.0);
             assert!(accepted.accepted);
-            assert_eq!(state.sync().unwrap(), [true]);
+            let (next_state, synced) = state.sync().unwrap();
+            state = next_state;
+            assert_eq!(synced, [true]);
             assert_eq!(state.best().unwrap(), 0.0);
             assert_eq!(state.best_variance().unwrap(), 0.0);
             assert_eq!(state.read_best().unwrap(), accepted_bits);
-            assert!(std::ptr::eq(accepted_buffer, &*state.base));
+            assert!(std::ptr::eq(accepted_buffer, &**state.base));
             assert_eq!(state.controller_info().unwrap().success_counter, 1);
             assert_eq!(state.trust_observations, 3);
         });
@@ -1375,9 +1487,11 @@ mod tests {
             let (base, blocks) = fixture(17);
             let bounds = TRLengthConfig::new(0.03125, 0.001953125, 0.125);
             let mut state = SearchState::new(&base, -3.0, 0.25, blocks, 2, 1, bounds).unwrap();
-            state.set_tolerance(4).unwrap();
+            state = state.set_tolerance(4).unwrap();
 
-            let mut round = state.ask_round(1, 4, 100, RoundConfig::default()).unwrap();
+            let (next_state, mut round) =
+                state.ask_round(1, 4, 100, RoundConfig::default()).unwrap();
+            state = next_state;
             assert!(round.predicted_mean.is_finite());
             assert!(round.predicted_standard_error.is_finite());
             assert!(round.predicted_standard_error >= 0.0);
@@ -1389,12 +1503,15 @@ mod tests {
             round.predicted_standard_error = 1.0;
             round.incumbent_mean = 0.0;
             round.incumbent_standard_error = 1.0;
-            let decision = state.tell_modeled(&round, 0.0, 1.0).unwrap();
+            let (next_state, decision) = state.tell_modeled(&round, 0.0, 1.0).unwrap();
+            state = next_state;
             assert!(!decision.accepted);
             assert_eq!(decision.trust_outcome, TrustRegionOutcome::Failure);
             assert_eq!(decision.predicted_improvement, Some(0.0));
             assert_eq!(decision.agreement_ratio, None);
-            assert_eq!(state.sync().unwrap(), [false]);
+            let (next_state, synced) = state.sync().unwrap();
+            state = next_state;
+            assert_eq!(synced, [false]);
             assert_eq!(state.length().unwrap(), 0.03125);
             assert_eq!(state.controller_info().unwrap().success_counter, 0);
             assert_eq!(state.controller_info().unwrap().failure_counter, 1);
@@ -1422,7 +1539,7 @@ mod tests {
                     .iter()
                     .map(|v| encode(decode(*v) + i as f32 / 512.0))
                     .collect();
-                s.history_rows[i] = s.runtime.buffer_with(&row);
+                s.history_rows[i] = Arc::new(s.runtime.buffer_with(&row));
                 s.outcomes[i] = (i % 7) as f32;
                 s.variances[i] = (i % 3) as f32 / 10.0;
                 s.identities[i] = i as i64 + 17;
@@ -1435,13 +1552,14 @@ mod tests {
                 config
             };
             let expected = history_scores(&s, 19, config);
-            let round = s.ask_round(1, 4, 19, config).unwrap();
+            let (next_s, round) = s.ask_round(1, 4, 19, config).unwrap();
+            s = next_s;
             let best = expected
                 .iter()
                 .map(|v| v.0)
                 .fold(f64::NEG_INFINITY, f64::max);
             close(f64::from(round.score), best, 5e-5);
-            assert_eq!(read::<u16>(&s.proposal, 17), expected[round.index].1);
+            assert_eq!(read::<u16>(&*s.proposal, 17), expected[round.index].1);
         });
     }
 
@@ -1596,7 +1714,7 @@ mod tests {
         autoreleasepool(|| {
             let (base, blocks) = fixture(771);
             let mut s = state(&base, blocks);
-            s.set_tolerance(4).unwrap();
+            s = s.set_tolerance(4).unwrap();
             let root = 0x8772_5981_91f0_cdd8;
             let mut pool = Vec::new();
             let mut scores = Vec::new();
@@ -1607,7 +1725,7 @@ mod tests {
                 let command = s.runtime.queue.new_command_buffer();
                 s.encode_proposal(command, p);
                 finish(command).unwrap();
-                let actual = read::<u16>(&s.proposal, s.len());
+                let actual = read::<u16>(&*s.proposal, s.len());
                 let direction = scalar_dirs(&s, p.seed);
                 let mut distance = 0.0;
                 for block in &s.blocks {
@@ -1628,7 +1746,7 @@ mod tests {
                             * f64::from(block.weight);
                     }
                 }
-                let partial = read::<Partial>(&s.partials, s.tiles.len() * 4);
+                let partial = read::<Partial>(&*s.partials, s.tiles.len() * 4);
                 expected_partials.extend_from_slice(
                     &partial[candidate * s.tiles.len()..(candidate + 1) * s.tiles.len()],
                 );
@@ -1645,7 +1763,7 @@ mod tests {
             let command = s.runtime.queue.new_command_buffer();
             s.encode_pool(command, s.pool_params(root));
             finish(command).unwrap();
-            let actual_partials = read::<Partial>(&s.partials, s.tiles.len() * 4);
+            let actual_partials = read::<Partial>(&*s.partials, s.tiles.len() * 4);
             for (actual, expected) in actual_partials.iter().zip(&expected_partials) {
                 close(f64::from(actual.anchor), f64::from(expected.anchor), 2e-6);
                 close(
@@ -1663,7 +1781,8 @@ mod tests {
                 .max_by(|a, b| a.1.total_cmp(b.1).then_with(|| b.0.cmp(&a.0)))
                 .unwrap()
                 .0;
-            let round = s.ask_round(1, 4, root, config()).unwrap();
+            let (next_s, round) = s.ask_round(1, 4, root, config()).unwrap();
+            s = next_s;
             assert_eq!(round.index, selected);
             assert_eq!(s.base_id(&round).unwrap(), 1);
             close(f64::from(round.score), scores[selected], 2e-6);
@@ -1743,7 +1862,7 @@ mod tests {
                 read::<u16>(&s.propose_buffer(&round).unwrap(), s.len()),
                 pool[selected]
             );
-            assert!(s.ask_round(1, 4, 0, config()).is_err());
+            assert!(s.clone().ask_round(1, 4, 0, config()).is_err());
             let description = s.describe(&round).unwrap().remove(0);
             for (block, &(changed, squared)) in s.blocks.iter().zip(&description.3) {
                 let range = block.offset..block.offset + block.len;
@@ -1761,20 +1880,23 @@ mod tests {
                     .sum();
                 close(squared, expected, 2e-6);
             }
-            assert!(s.tell_noisy(&round, f32::NAN, 0.0).is_err());
-            s.tell_absolute(
-                &round,
-                -1e-6,
-                0.03125,
-                0.0,
-                0.0,
-                false,
-                Some(0.0),
-                Some(TrustRegionOutcome::Failure),
-                true,
-            )
-            .unwrap();
-            assert_eq!(s.sync().unwrap(), vec![false]);
+            assert!(s.clone().tell_noisy(&round, f32::NAN, 0.0).is_err());
+            s = s
+                .tell_absolute(
+                    &round,
+                    -1e-6,
+                    0.03125,
+                    0.0,
+                    0.0,
+                    false,
+                    Some(0.0),
+                    Some(TrustRegionOutcome::Failure),
+                    true,
+                )
+                .unwrap();
+            let (next_s, synced) = s.sync().unwrap();
+            s = next_s;
+            assert_eq!(synced, vec![false]);
             assert_eq!(s.outcomes, [0.0, -1e-6]);
             assert_eq!(s.variances, [0.0, 0.03125]);
             assert_eq!(s.read_best().unwrap(), base);
@@ -1782,49 +1904,59 @@ mod tests {
             assert!(s.propose_buffer(&round).is_err());
             assert_eq!(s.length, 0.03125);
             for rejection in 2..=4 {
-                let trial = s.ask_round(1, 4, root + rejection, config()).unwrap();
-                let bits = read::<u16>(&s.proposal, s.len());
-                s.tell_absolute(
-                    &trial,
-                    -5.0,
-                    0.2,
-                    -3.0,
-                    0.1,
-                    false,
-                    Some(-3.0),
-                    Some(TrustRegionOutcome::Failure),
-                    true,
-                )
-                .unwrap();
-                assert_eq!(s.sync().unwrap(), vec![false]);
+                let (next_s, trial) = s.ask_round(1, 4, root + rejection, config()).unwrap();
+                s = next_s;
+                let bits = read::<u16>(&*s.proposal, s.len());
+                s = s
+                    .tell_absolute(
+                        &trial,
+                        -5.0,
+                        0.2,
+                        -3.0,
+                        0.1,
+                        false,
+                        Some(-3.0),
+                        Some(TrustRegionOutcome::Failure),
+                        true,
+                    )
+                    .unwrap();
+                let (next_s, synced) = s.sync().unwrap();
+                s = next_s;
+                assert_eq!(synced, vec![false]);
                 assert_eq!(s.history, 2);
-                assert_eq!(read::<u16>(&s.history_rows[1], s.len()), bits);
+                assert_eq!(read::<u16>(&*s.history_rows[1], s.len()), bits);
                 assert_eq!(s.outcomes[1], -5.0);
                 assert_eq!(s.length, if rejection == 4 { 0.015625 } else { 0.03125 });
             }
-            let trial = s.ask_round(1, 4, root + 10, config()).unwrap();
-            let accepted = read::<u16>(&s.proposal, s.len());
-            s.tell_absolute(
-                &trial,
-                -7.0,
-                0.0625,
-                -1.0,
-                0.5,
-                true,
-                Some(-7.0),
-                Some(TrustRegionOutcome::Success),
-                true,
-            )
-            .unwrap();
-            assert_eq!(s.sync().unwrap(), vec![true]);
-            assert_eq!(s.sync().unwrap(), Vec::<bool>::new());
+            let (next_s, trial) = s.ask_round(1, 4, root + 10, config()).unwrap();
+            s = next_s;
+            let accepted = read::<u16>(&*s.proposal, s.len());
+            s = s
+                .tell_absolute(
+                    &trial,
+                    -7.0,
+                    0.0625,
+                    -1.0,
+                    0.5,
+                    true,
+                    Some(-7.0),
+                    Some(TrustRegionOutcome::Success),
+                    true,
+                )
+                .unwrap();
+            let (next_s, synced) = s.sync().unwrap();
+            s = next_s;
+            assert_eq!(synced, vec![true]);
+            let (next_s, synced) = s.sync().unwrap();
+            s = next_s;
+            assert_eq!(synced, Vec::<bool>::new());
             assert_eq!(s.best().unwrap(), -7.0); // Explicit decision, not cached absolute reward.
             assert_eq!(s.best_variance().unwrap(), 0.0625);
             assert_eq!(s.length().unwrap(), f64::from(trial.length));
             assert_eq!(s.history_len().unwrap(), 2);
             assert_eq!(s.controller_info().unwrap().failure_counter, 0);
             assert_eq!(s.read_best().unwrap(), accepted);
-            assert_eq!(read::<u16>(&s.history_rows[1], s.len()), accepted);
+            assert_eq!(read::<u16>(&*s.history_rows[1], s.len()), accepted);
             assert_eq!(s.restarts().unwrap(), 0);
         });
     }
@@ -1834,34 +1966,38 @@ mod tests {
         let base = vec![encode(1.0); 33];
         let blocks = vec![ParamBlock::new(7, 0, 33, 1e-20, 1.0).unwrap()];
         let mut s = state(&base, blocks);
-        s.set_tolerance(8).unwrap();
-        assert!(s.ask_round(2, 4, 0, config()).is_err());
-        assert!(s.ask_round(1, 5, 0, config()).is_err());
+        s = s.set_tolerance(8).unwrap();
+        assert!(s.clone().ask_round(2, 4, 0, config()).is_err());
+        assert!(s.clone().ask_round(1, 5, 0, config()).is_err());
         let mut stable_rounds = 0usize;
         for i in 0..32 {
             let before = s.memory_info().current_allocated_size;
-            let round = s.ask_round(1, 4, i, config()).unwrap();
+            let (next_s, round) = s.ask_round(1, 4, i, config()).unwrap();
+            s = next_s;
             assert_eq!(round.index, 0);
             assert!(round.score.is_finite());
             assert_eq!(round.changes, vec![(0, 0.0)]);
             let (radii, cosines) = s.pool_geometry(&round).unwrap();
             assert_eq!(radii, [0.0; 4]);
             assert!(cosines.iter().all(Option::is_none));
-            assert_eq!(read::<u16>(&s.proposal, s.len()), base);
-            s.tell_absolute(
-                &round,
-                -3.0,
-                0.0,
-                -3.0,
-                0.0,
-                false,
-                Some(-3.0),
-                Some(TrustRegionOutcome::Failure),
-                true,
-            )
-            .unwrap();
-            assert!(s.ask_round(1, 4, i, config()).is_err()); // sync consumes the event.
-            assert_eq!(s.sync().unwrap(), vec![false]);
+            assert_eq!(read::<u16>(&*s.proposal, s.len()), base);
+            s = s
+                .tell_absolute(
+                    &round,
+                    -3.0,
+                    0.0,
+                    -3.0,
+                    0.0,
+                    false,
+                    Some(-3.0),
+                    Some(TrustRegionOutcome::Failure),
+                    true,
+                )
+                .unwrap();
+            assert!(s.clone().ask_round(1, 4, i, config()).is_err()); // sync consumes the event.
+            let (next_s, synced) = s.sync().unwrap();
+            s = next_s;
+            assert_eq!(synced, vec![false]);
             stable_rounds +=
                 usize::from(i >= 4 && s.memory_info().current_allocated_size <= before);
         }
@@ -1906,9 +2042,10 @@ mod tests {
                     config.acquisition.seed = seed;
                     config
                 };
-                let round = s.ask_round(1, 4, 42, c).unwrap();
+                let (next_s, round) = s.ask_round(1, 4, 42, c).unwrap();
+                s = next_s;
                 assert_eq!(s.history, 1);
-                let partials = read::<Partial>(&s.partials, s.tiles.len() * 4);
+                let partials = read::<Partial>(&*s.partials, s.tiles.len() * 4);
                 let distances: Vec<f32> = partials
                     .chunks_exact(s.tiles.len())
                     .map(|tiles| {

@@ -53,9 +53,9 @@ fn is_tokagym(cfg: &Config) -> bool {
 
 fn exp_domain(cfg: &Config) -> DomainFrame {
     if is_tokagym(cfg) {
-        baux::tokamak::tokagym_domain()
+        baux_tokamak::tokagym_domain()
     } else {
-        baux::tokamak::domain_frame()
+        baux_tokamak::domain_frame()
     }
 }
 
@@ -76,7 +76,7 @@ fn eval_batch(
         return w.eval(batch_weights, count);
     }
     let mut out = vec![0.0f64; count];
-    baux::tokamak::evaluate_batch(batch_weights, count, &mut out);
+    baux_tokamak::evaluate_batch(batch_weights, count, &mut out);
     Ok(out)
 }
 
@@ -116,7 +116,7 @@ fn seed_weights(seed: u64, config: &Config) -> Result<Vec<f64>, String> {
     let mut opt = BayesOptimizer::from_domain(domain.clone(), &spec, 0, &mut init_rng)
         .map_err(|e| e.to_string())?;
     let mut step_rng = round_rng(seed, 1);
-    let unit = opt.ask(1, &mut step_rng).map_err(|e| e.to_string())?;
+    let (_opt, unit) = opt.ask(1, &mut step_rng).map_err(|e| e.to_string())?;
     let points = domain.from_unit(&unit.view());
     Ok(points
         .as_slice_memory_order()
@@ -165,7 +165,7 @@ fn run_ppo(
     let seed = baux::tune_seed(&config.experiment, "proposal", rep, 0);
     let init_weights = seed_weights(seed, config)?;
     let mut rng = prng(seed ^ 0x5050_4f00);
-    let mut agent = baux::tokamak::ppo::CandlePpo::new(&init_weights, &mut rng)?;
+    let mut agent = baux_tokamak::ppo::CandlePpo::new(&init_weights, &mut rng)?;
     let steps = if is_tokagym(config) { 50usize } else { 20usize };
     let mut st = LiveCkpt::empty(config.rounds);
     let start_time = Instant::now();
@@ -175,7 +175,7 @@ fn run_ppo(
         let eps = agent.sample_noise(steps, det, &mut rng)?;
         let (score, obs, u, rewards) = match worker.as_mut() {
             Some(w) => w.eval_traj(&weights, &eps, steps)?,
-            None => baux::tokamak::rollout_traj(&weights, &eps, steps),
+            None => baux_tokamak::rollout_traj(&weights, &eps, steps),
         };
         if score > st.best_score {
             st.best_score = score;
@@ -184,7 +184,9 @@ fn run_ppo(
         if round == 1 {
             st.initial_error = tracking_error(config, score);
         }
-        if agent.record_step(obs, u, rewards)? {
+        let (next_agent, ready) = agent.record_step(obs, u, rewards)?;
+        agent = next_agent;
+        if ready {
             weights = agent.actor_weights()?;
         }
         st.best_scores.push(st.best_score);
@@ -192,9 +194,9 @@ fn run_ppo(
     }
     st.elapsed_seconds = start_time.elapsed().as_secs_f64();
     let num_dim = if is_tokagym(config) {
-        baux::tokamak::TOKAGYM_PARAMS
+        baux_tokamak::TOKAGYM_PARAMS
     } else {
-        baux::tokamak::TOTAL_PARAMS
+        baux_tokamak::TOTAL_PARAMS
     };
     Ok(finalize_seed(config, rep, seed, num_dim, st))
 }
@@ -241,9 +243,10 @@ fn run_seed(
     let mut chunk_start = Instant::now();
     for round in start_round..=config.rounds {
         let mut step_rng = round_rng(seed, round);
-        let unit = optimizer
+        let (new_opt, unit) = optimizer
             .ask(arms, &mut step_rng)
             .map_err(|e| e.to_string())?;
+        optimizer = new_opt;
         let points = domain.from_unit(&unit.view());
         let slice = points
             .as_slice_memory_order()
@@ -258,8 +261,8 @@ fn run_seed(
             st.initial_error = tracking_error(config, score);
         }
         let y = Array2::from_shape_fn((arms, 1), |(i, _)| scores[i]);
-        optimizer
-            .tell(&unit.view(), &y.view(), &mut step_rng)
+        optimizer = optimizer
+            .tell(&unit.view(), &y.view(), None, &mut step_rng)
             .map_err(|e| e.to_string())?;
         st.best_scores.push(st.best_score);
         st.eval_scores.push(scores);
@@ -314,9 +317,9 @@ fn spawn_worker(
             kind: "tokagym",
             lock: "tokagym",
             arms,
-            num_dim: baux::tokamak::TOKAGYM_PARAMS,
-            obs: baux::tokamak::TOKAGYM_OBS,
-            act: baux::tokamak::TOKAGYM_ACT,
+            num_dim: baux_tokamak::TOKAGYM_PARAMS,
+            obs: baux_tokamak::TOKAGYM_OBS,
+            act: baux_tokamak::TOKAGYM_ACT,
             steps: 50,
         }
     } else {
@@ -324,9 +327,9 @@ fn spawn_worker(
             kind: "torax",
             lock: "torax",
             arms,
-            num_dim: baux::tokamak::TOTAL_PARAMS,
-            obs: baux::tokamak::OBS_DIM,
-            act: baux::tokamak::ACTION_DIM,
+            num_dim: baux_tokamak::TOTAL_PARAMS,
+            obs: baux_tokamak::OBS_DIM,
+            act: baux_tokamak::ACTION_DIM,
             steps: 20,
         }
     };

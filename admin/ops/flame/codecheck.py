@@ -14,6 +14,7 @@ paths are readable; optional third-party/native-library imports may fail.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import secrets
@@ -246,10 +247,8 @@ def _drainloop(process, read_fd, output, protocol, deadline):
 
 def _terminate(process):
     if process.poll() is None:
-        try:
+        with contextlib.suppress(ProcessLookupError):
             os.killpg(process.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
     process.wait()
 
 

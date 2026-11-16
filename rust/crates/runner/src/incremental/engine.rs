@@ -110,9 +110,9 @@ fn metal_spec(
     let cfg: JuliaConfig = toml::from_str(&cell.canonical_toml).map_err(|e| e.to_string())?;
     let (num_dim, n_obj) = if cell.experiment.starts_with("tokamak") {
         if cell.experiment == "tokamak-tokagym" {
-            (baux::tokamak::TOKAGYM_PARAMS, 1)
+            (baux_tokamak::TOKAGYM_PARAMS, 1)
         } else {
-            (baux::tokamak::TOTAL_PARAMS, 1)
+            (baux_tokamak::TOTAL_PARAMS, 1)
         }
     } else {
         let (domain, _, _, _) = crate::experiment::julia::space::resolve_space(root, &cfg)?;

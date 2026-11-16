@@ -18,12 +18,12 @@ fn multi_neighbors() {
     for (start, count) in [(0, 1000usize), (1000, 1000usize), (2000, 500usize)] {
         let x = ndarray::Array2::from_shape_fn((count, dim), |(i, j)| (start + i + j) as f64);
         let y = ndarray::Array2::from_shape_fn((count, 1), |(i, _)| (start + i) as f64);
-        b.append_rows(&x.view(), &y.view(), None).unwrap();
-        b.ensure_sync().unwrap();
+        b = b.append_rows(&x.view(), &y.view(), None).unwrap();
+        b = b.ensure_sync().unwrap();
     }
     assert_eq!(b.indexed_rows(), rows);
     let (pre_dist, pre_idx) = b.search(&query.view(), 5, false).unwrap();
-    b.persist_index().unwrap();
+    b = b.persist_index().unwrap();
     let (post_dist, post_idx) = b.search(&query.view(), 5, false).unwrap();
     assert_eq!(pre_idx, post_idx);
     assert_eq!(pre_dist, post_dist);
@@ -45,9 +45,9 @@ fn persist_header() {
         .defer_indexing(true);
     let x = ndarray::Array2::from_shape_fn((500, 4), |(i, j)| (i + j) as f64);
     let y = ndarray::Array2::from_shape_fn((500, 1), |(i, _)| i as f64);
-    b.append_rows(&x.view(), &y.view(), None).unwrap();
-    b.ensure_sync().unwrap();
-    b.persist_index().unwrap();
+    b = b.append_rows(&x.view(), &y.view(), None).unwrap();
+    b = b.ensure_sync().unwrap();
+    b = b.persist_index().unwrap();
     let pages_valid = fs::read(path.join("index/pages.bin")).unwrap();
 
     let pages_path = path.join("index/pages.bin");
@@ -58,7 +58,7 @@ fn persist_header() {
     fs::write(&pages_path, &pages_corrupt).unwrap();
     assert_ne!(pages_valid, pages_corrupt);
 
-    b.persist_index().unwrap();
+    b = b.persist_index().unwrap();
     let pages_healed = fs::read(&pages_path).unwrap();
     assert_eq!(pages_healed, pages_valid);
 
@@ -82,11 +82,11 @@ fn soft_persist() {
         .defer_indexing(true);
     let x = ndarray::Array2::from_shape_fn((40, 3), |(i, j)| (i * 3 + j) as f64 * 0.1);
     let y = ndarray::Array2::from_shape_fn((40, 1), |(i, _)| i as f64);
-    soft.append_rows(&x.view(), &y.view(), None).unwrap();
-    hard.append_rows(&x.view(), &y.view(), None).unwrap();
-    soft.ensure_sync().unwrap();
-    hard.ensure_sync().unwrap();
-    hard.persist_index().unwrap();
+    soft = soft.append_rows(&x.view(), &y.view(), None).unwrap();
+    hard = hard.append_rows(&x.view(), &y.view(), None).unwrap();
+    soft = soft.ensure_sync().unwrap();
+    hard = hard.ensure_sync().unwrap();
+    hard = hard.persist_index().unwrap();
     let query = ndarray::Array2::from_shape_fn((2, 3), |(i, j)| (i + j) as f64 * 0.07);
     let (d_soft, i_soft) = soft.search(&query.view(), 5, false).unwrap();
     let (d_hard, i_hard) = hard.search(&query.view(), 5, false).unwrap();
@@ -118,17 +118,17 @@ fn soft_seeds() {
                 rng.r#gen::<f64>() + (total + i + j) as f64 * 0.01
             });
             let y = ndarray::Array2::from_shape_fn((n, 1), |(i, _)| (total + i) as f64);
-            b.append_rows(&x.view(), &y.view(), None).unwrap();
+            b = b.append_rows(&x.view(), &y.view(), None).unwrap();
             total += n;
             if b.pending_rows() >= threshold {
-                b.ensure_sync().unwrap();
+                b = b.ensure_sync().unwrap();
                 assert_eq!(b.pending_rows(), 0, "trial={trial}");
             }
         }
-        b.ensure_sync().unwrap();
+        b = b.ensure_sync().unwrap();
         assert_eq!(b.indexed_rows(), total, "trial={trial}");
         assert!(!dir.path().join("index/pages.bin").exists());
-        b.persist_index().unwrap();
+        b = b.persist_index().unwrap();
         assert!(dir.path().join("index/pages.bin").exists());
     }
 }
@@ -149,8 +149,8 @@ fn soft_pages() {
     for (start, count) in [(0, 150usize), (150, 150usize)] {
         let x = ndarray::Array2::from_shape_fn((count, 4), |(i, j)| (start + i + j) as f64);
         let y = ndarray::Array2::from_shape_fn((count, 1), |(i, _)| (start + i) as f64);
-        b.append_rows(&x.view(), &y.view(), None).unwrap();
-        b.ensure_sync().unwrap();
+        b = b.append_rows(&x.view(), &y.view(), None).unwrap();
+        b = b.ensure_sync().unwrap();
     }
     assert_eq!(b.indexed_rows(), 300);
     assert!(!pages_path.exists(), "soft_sync must not create pages.bin");
@@ -159,14 +159,14 @@ fn soft_pages() {
     let (pre_dist, pre_idx) = b.search(&query.view(), 5, false).unwrap();
     assert!(pre_idx[[0, 0]] >= 0);
 
-    b.persist_index().unwrap();
+    b = b.persist_index().unwrap();
     assert!(pages_path.exists());
     let pages_first = fs::read(&pages_path).unwrap();
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     pages_first.hash(&mut hasher);
     let checksum = hasher.finish();
 
-    b.ensure_sync().unwrap();
+    b = b.ensure_sync().unwrap();
     let pages_after_soft = fs::read(&pages_path).unwrap();
     let mut hasher2 = std::collections::hash_map::DefaultHasher::new();
     pages_after_soft.hash(&mut hasher2);
@@ -190,15 +190,15 @@ fn soft_persist2() {
         .defer_indexing(true);
     let x = ndarray::Array2::from_shape_fn((20, 2), |(i, j)| (i + j) as f64);
     let y = ndarray::Array2::from_shape_fn((20, 1), |(i, _)| i as f64);
-    b.append_rows(&x.view(), &y.view(), None).unwrap();
-    b.ensure_sync().unwrap();
+    b = b.append_rows(&x.view(), &y.view(), None).unwrap();
+    b = b.ensure_sync().unwrap();
     assert_eq!(b.indexed_rows(), 20);
     // Soft-only catch-up must still require a hard rewrite (pages lag).
-    b.persist_index().unwrap();
+    b = b.persist_index().unwrap();
     assert!(path.join("index/pages.bin").exists());
     // Idempotent second persist after hard write.
     let pages = std::fs::read(path.join("index/pages.bin")).unwrap();
-    b.persist_index().unwrap();
+    b = b.persist_index().unwrap();
     assert_eq!(pages, std::fs::read(path.join("index/pages.bin")).unwrap());
 }
 
@@ -213,11 +213,11 @@ fn persist_rewrite() {
         .defer_indexing(true);
     let x = ndarray::Array2::from_shape_fn((500, 4), |(i, j)| (i + j) as f64);
     let y = ndarray::Array2::from_shape_fn((500, 1), |(i, _)| i as f64);
-    b.append_rows(&x.view(), &y.view(), None).unwrap();
-    b.ensure_sync().unwrap();
-    b.persist_index().unwrap();
+    b = b.append_rows(&x.view(), &y.view(), None).unwrap();
+    b = b.ensure_sync().unwrap();
+    b = b.persist_index().unwrap();
     let pages_first = fs::read(path.join("index/pages.bin")).unwrap();
-    b.persist_index().unwrap();
+    b = b.persist_index().unwrap();
     let pages_second = fs::read(path.join("index/pages.bin")).unwrap();
     assert_eq!(pages_first, pages_second);
 }

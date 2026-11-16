@@ -105,12 +105,19 @@ fn train_rows() {
     let mut x = MmapColumnStore::open_mmap(dir.path().join("x.bin"), 2, None).unwrap();
     let mut y = MmapColumnStore::open_mmap(dir.path().join("y.bin"), 1, None).unwrap();
     let mut yvar = MmapColumnStore::open_mmap(dir.path().join("yvar.bin"), 1, None).unwrap();
-    x.mmap_append(&array![[1.5, -2.5], [3.0, 4.0]].view())
+    x = x
+        .mmap_append(&array![[1.5, -2.5], [3.0, 4.0]].view())
         .unwrap();
-    y.mmap_append(&array![[0.5], [1.25]].view()).unwrap();
-    yvar.mmap_append(&array![[0.1], [0.2]].view()).unwrap();
-    let (train_x, train_y, train_yvar) =
-        baux::neighbor_index::observation::train_rows(2, &x, &y, Some(&yvar), &[0, 1]).unwrap();
+    y = y.mmap_append(&array![[0.5], [1.25]].view()).unwrap();
+    yvar = yvar.mmap_append(&array![[0.1], [0.2]].view()).unwrap();
+    let (train_x, train_y, train_yvar) = baux::neighbor_index::observation::train_rows(
+        2,
+        &x.clone(),
+        &y.clone(),
+        Some(&yvar.clone()),
+        &[0, 1],
+    )
+    .unwrap();
     assert_eq!(train_x.shape(), &[2, 2]);
     assert_eq!(train_y.shape(), &[2, 1]);
     assert_eq!(train_x, array![[1.5, -2.5], [3.0, 4.0]]);

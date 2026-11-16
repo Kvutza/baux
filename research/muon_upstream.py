@@ -57,7 +57,7 @@ def load_functions(sources: dict[Path, list[str]], namespace: dict):
         ]
         if len(funcs) != len(wanted):
             raise click.ClickException(f"Missing symbols in {path}: {wanted}")
-        exec(
+        exec(  # noqa: S102
             compile(ast.Module(body=funcs, type_ignores=[]), str(path), "exec"),
             namespace,
         )

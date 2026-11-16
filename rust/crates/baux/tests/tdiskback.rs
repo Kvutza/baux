@@ -81,17 +81,17 @@ fn record_schedule(
     let mut ys = Vec::new();
 
     while opt.init_progress().is_some() {
-        let x = opt.ask(num_arms, &mut rng)?;
+        let (next_opt, x) = opt.ask(num_arms, &mut rng)?;
         let y = synthetic_y(&x.view(), &mut rng);
-        opt.tell(&x.view(), &y.view(), &mut rng)?;
+        opt = next_opt.tell(&x.view(), &y.view(), None, &mut rng)?;
         xs.push(x);
         ys.push(y);
     }
 
     for _ in 0..num_rounds {
-        let x = opt.ask(num_arms, &mut rng)?;
+        let (next_opt, x) = opt.ask(num_arms, &mut rng)?;
         let y = synthetic_y(&x.view(), &mut rng);
-        opt.tell(&x.view(), &y.view(), &mut rng)?;
+        opt = next_opt.tell(&x.view(), &y.view(), None, &mut rng)?;
         xs.push(x);
         ys.push(y);
     }
@@ -112,7 +112,7 @@ fn replay_tells(
     let mut opt = BayesOptimizer::new_strategy(bounds, config, strategy, &mut rng)?;
 
     for (x, y) in xs.iter().zip(ys.iter()) {
-        opt.tell(&x.view(), &y.view(), &mut rng)?;
+        opt = opt.tell(&x.view(), &y.view(), None, &mut rng)?;
     }
 
     let obs_count = opt.obs_count();

@@ -10,7 +10,7 @@ use pyo3::types::PyDict;
 type PyObject = Py<PyAny>;
 
 const CUDA: i32 = 2;
-const WEBGPU: i32 = baux::webgpu::WEBGPU_DLPACK_DEVICE;
+const WEBGPU: i32 = baux::webgpu::WEBGPU_DEVICE;
 const FLOAT: u8 = 2;
 const BF16: u8 = 4;
 const READ_ONLY: u64 = 1;

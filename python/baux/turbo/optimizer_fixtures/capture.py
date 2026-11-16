@@ -27,22 +27,24 @@ def capture_optimizer(
     run: FixtureRunSpec,
 ) -> dict[str, Any]:
     """Run an optimizer for `run.num_cycles` steps and record its trajectory."""
-    from baux import create_optimizer
+    from baux.state import _makeinner
 
     objective_fn = FIXTURE_OBJECTIVES[run.objective]
     rng = np.random.default_rng(seed)
-    opt = create_optimizer(bounds=bounds, config=config, rng=rng)
+    opt = _makeinner(bounds, config, int(rng.integers(2**63 - 1)))
     steps = []
     for _ in range(run.num_cycles):
-        x = opt.ask(num_arms=run.num_arms)
+        opt, x = opt.ask(run.num_arms)
         y = objective_fn(x)
-        opt.tell(x, y)
+        if y.ndim == 1:
+            y = y.reshape(-1, 1)
+        opt = opt.tell(x, y)
         steps.append(
             {
                 "ask": x.tolist(),
                 "tell_y": y.tolist(),
-                "tr_length": float(opt.tr_length),
-                "tr_count": int(opt.region_count),
+                "tr_length": float(opt.tr_length()),
+                "tr_count": int(opt.num_observations()),
             }
         )
     return {

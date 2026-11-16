@@ -160,7 +160,7 @@ mod tests {
             data[[i, 0]] = i as f64;
             data[[i, 1]] = 1.0;
         }
-        store.mmap_append(&data.view()).unwrap();
+        store = store.mmap_append(&data.view()).unwrap();
         let scale = [1.0_f64, 1.0];
         (dir, store, scale, vec![])
     }
@@ -235,7 +235,7 @@ mod tests {
         let mut row_id_bytes = 0usize;
         let mut range_leaf_count = 0usize;
         let mut vector_elems = 0usize;
-        for page in &index.pages {
+        for page in index.pages.iter() {
             if let Page::Leaf {
                 row_ids,
                 row_range,

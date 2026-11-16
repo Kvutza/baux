@@ -1,7 +1,7 @@
 //! Build metadata is a deterministic projection of Cargo, shared by both
 //! engines.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
@@ -29,6 +29,8 @@ struct Package {
     version: String,
     manifest_path: PathBuf,
     edition: String,
+    #[deser(default)]
+    features: BTreeMap<String, Vec<String>>,
     dependencies: Vec<Dependency>,
     targets: Vec<Target>,
 }
@@ -36,6 +38,8 @@ struct Package {
 #[derive(Deserialize)]
 struct Dependency {
     name: String,
+    #[deser(default)]
+    rename: Option<String>,
     kind: Option<String>,
     optional: bool,
     path: Option<PathBuf>,
@@ -88,13 +92,62 @@ fn run(options: Options) -> Result<(), String> {
     Ok(())
 }
 
+fn default_deps(package: &Package) -> BTreeSet<String> {
+    let optional: BTreeSet<&str> = package
+        .dependencies
+        .iter()
+        .filter(|dep| dep.optional)
+        .map(|dep| dep.rename.as_deref().unwrap_or(&dep.name))
+        .collect();
+    let mut enabled = BTreeSet::new();
+    let mut seen = BTreeSet::new();
+    let mut stack = vec!["default"];
+    while let Some(feat) = stack.pop() {
+        if !seen.insert(feat) {
+            continue;
+        }
+        let Some(items) = package.features.get(feat) else {
+            continue;
+        };
+        for item in items {
+            if let Some(dep_name) = item.strip_prefix("dep:") {
+                enabled.insert(dep_name.to_owned());
+                continue;
+            }
+            if let Some((head, _)) = item.split_once('/') {
+                if !head.ends_with('?') {
+                    if optional.contains(head) {
+                        enabled.insert(head.to_owned());
+                    }
+                    if package.features.contains_key(head) {
+                        stack.push(head);
+                    }
+                }
+                continue;
+            }
+            if package.features.contains_key(item.as_str()) {
+                stack.push(item.as_str());
+            }
+            if optional.contains(item.as_str()) {
+                enabled.insert(item.clone());
+            }
+        }
+    }
+    enabled
+}
+
+fn dep_enabled(dep: &Dependency, defaults: &BTreeSet<String>) -> bool {
+    !dep.optional || defaults.contains(dep.rename.as_deref().unwrap_or(&dep.name))
+}
+
 fn external(package: &Package, development: bool) -> Vec<String> {
+    let defaults = default_deps(package);
     package
         .dependencies
         .iter()
         .filter(|dep| {
             (dep.kind.is_none() || development && dep.kind.as_deref() == Some("dev"))
-                && !dep.optional
+                && dep_enabled(dep, &defaults)
                 && dep.path.is_none()
                 && dep.target.is_none()
         })
@@ -171,10 +224,11 @@ fn program(
         .strip_prefix(directory)
         .map_err(|e| e.to_string())?
         .to_string_lossy();
+    let defaults = default_deps(package);
     let local = package
         .dependencies
         .iter()
-        .filter(|dep| dep.kind.is_none() && !dep.optional)
+        .filter(|dep| dep.kind.is_none() && dep_enabled(dep, &defaults))
         .filter_map(|dep| dep.path.as_ref()?.file_name()?.to_str().map(str::to_owned))
         .chain(
             package

@@ -1,7 +1,7 @@
 \title{Runtime and integrations}
 \meta{toc}{false}
 
-\p{Backend availability and operation support are separate. Check both before choosing a device. Optional integrations require explicit imports and their own dependencies.}
+\p{Inspect available hardware backends and operation support with \code{capabilities}, or pick a device with \code{Device}. Optional integrations require their corresponding extras and explicit imports.}
 
 \<section>[id]{baux.capabilities}[class]{api-entry}[data-symbol]{baux.capabilities}[data-kind]{function}[data-module]{baux.runtime}{
   \<div>[class]{api-entry-header}{\<h2>[class]{api-entry-title}{[\code{baux.capabilities}](api-runtime.html#baux.capabilities)}}
@@ -10,29 +10,8 @@ baux.capabilities(*, probe: bool = False) -> tuple[BackendCapabilities, ...]
   }
   \p{Inspect build support and optional hardware availability.}
   \p{Returns a tuple of \code{BackendCapabilities}. With \code{probe=False}, reads build support without active hardware checks. With \code{probe=True}, probes hardware too.}
-  \p{Read the operation lists as well as \code{available}: a backend may be available while a particular operation is missing or uses a host fallback.}
+  \p{Each entry reports hardware \code{available} alongside operation support lists (\code{direct_operations}, \code{fallback_operations}, \code{missing_operations}, and \code{host_operations}).}
   \<p>[class]{api-source}{[Source in \code{python/baux/runtime.py}](https://github.com/Kvutza/baux/blob/main/python/baux/runtime.py#L38)}
-}
-
-\<section>[id]{baux.BackendCapabilities}[class]{api-entry}[data-symbol]{baux.BackendCapabilities}[data-kind]{class}[data-module]{baux.runtime}{
-  \<div>[class]{api-entry-header}{\<h2>[class]{api-entry-title}{[\code{baux.BackendCapabilities}](api-runtime.html#baux.BackendCapabilities)}}
-  \pre{
-baux.BackendCapabilities(
-    name: BackendName,
-    compiled: bool,
-    available: bool | None,
-    reason: str | None,
-    direct_operations: tuple[str, ...],
-    fallback_operations: tuple[str, ...],
-    missing_operations: tuple[str, ...],
-    host_operations: tuple[str, ...],
-    array_frameworks: tuple[str, ...],
-)
-  }
-  \p{Support information for one backend.}
-  \p{\code{name}: backend name. \code{compiled}: included in this native build. \code{available}: hardware result, or \code{None} when not probed. \code{reason}: diagnostic text when relevant.}
-  \p{\code{direct_operations}, \code{fallback_operations}, \code{missing_operations} and \code{host_operations} distinguish operation support. \code{array_frameworks} lists detected optional array packages. Returned by \code{capabilities}.}
-  \<p>[class]{api-source}{[Source in \code{python/baux/runtime.py}](https://github.com/Kvutza/baux/blob/main/python/baux/runtime.py#L16)}
 }
 
 \<section>[id]{baux.Device}[class]{api-entry}[data-symbol]{baux.Device}[data-kind]{class}[data-module]{baux.runtime}{
@@ -57,7 +36,7 @@ baux.optuna.Sampler(
   }
   \p{Use baux to generate trials in an Optuna study.}
   \p{Import explicitly with \code{from baux.optuna import Sampler}; requires the \code{optuna} extra. \code{space}: a fixed mapping of names to Optuna \code{FloatDistribution} objects. Logarithmic floats are supported.}
-  \p{Use one sampler per study, \code{n_jobs=1} and one generating process. Integers, stepped or conditional spaces, and multi-objective studies are rejected. A new sampler can use completed trials but does not restore the original search trajectory.}
+  \p{Use one sampler per study with \code{n_jobs=1}. Integers, stepped or conditional spaces, and multi-objective studies are rejected; creating a new sampler initializes cleanly from completed trials.}
   \<p>[class]{api-source}{[Source in \code{python/baux/optuna.py}](https://github.com/Kvutza/baux/blob/main/python/baux/optuna.py)}
 }
 

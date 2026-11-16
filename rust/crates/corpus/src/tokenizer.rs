@@ -93,5 +93,5 @@ pub(super) fn boundaries(tokenizer: &Tokenizer) -> Result<(u32, u32)> {
 }
 
 pub(super) fn digest(path: &Path) -> Result<String> {
-    Ok(baux::artifact::runs::file_digest(path)?)
+    Ok(baux::artifact::pretrain::sha_digest(path)?)
 }

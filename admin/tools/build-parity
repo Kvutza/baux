@@ -1,0 +1,33 @@
+#!/bin/sh
+set -eu
+
+repo_dir=$(CDPATH='' cd -- "$(dirname -- "$0")/../.." && pwd)
+cd "$repo_dir"
+
+mode=
+parity=0
+for arg in "$@"; do
+    case "$arg" in
+        --sync) mode=sync ;;
+        --check) mode=check ;;
+        --parity) parity=1 ;;
+        -h | --help)
+            echo "usage: admin/tools/build-parity [--sync | --check] [--parity]"
+            exit 0
+            ;;
+        *)
+            echo "build-parity: unknown option: $arg" >&2
+            exit 2
+            ;;
+    esac
+done
+
+set --
+if [ "$mode" != "sync" ]; then
+    set -- "$@" --check
+fi
+if [ "$parity" -eq 1 ]; then
+    set -- "$@" --parity
+fi
+
+exec "$repo_dir/admin/tools/buck2w" run --console simple //rust/crates/tooling:build-graph -- "$@"

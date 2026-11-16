@@ -8,12 +8,7 @@
 mod policy;
 pub use policy::*;
 
-use std::{
-    fmt,
-    sync::atomic::{AtomicU64, Ordering},
-};
-
-static OWNERS: AtomicU64 = AtomicU64::new(1);
+use std::fmt;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RegionId {
@@ -106,10 +101,14 @@ struct Region {
 #[derive(Debug, Clone)]
 pub struct RegionalLedger {
     owner: u64,
+    next_owner: u64,
     next_ticket: u64,
     regions: Vec<Region>,
     allocation: Allocation,
 }
+
+/// Type alias for [`RegionalLedger`].
+pub type Portfolio = RegionalLedger;
 
 impl RegionalLedger {
     pub fn new(initial_best: &[f64], allocation: Allocation) -> Result<Self, RegionalError> {
@@ -124,11 +123,11 @@ impl RegionalLedger {
         {
             return Err(RegionalError::InvalidAllocation);
         }
-        let owner = OWNERS
-            .try_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
-            .map_err(|_| RegionalError::CounterExhausted)?;
+        let owner = 1;
+        let next_owner = 2;
         Ok(Self {
             owner,
+            next_owner,
             next_ticket: 1,
             regions: initial_best
                 .iter()
@@ -381,6 +380,10 @@ impl RegionalLedger {
         self.owner
     }
 
+    pub fn next_owner(&self) -> u64 {
+        self.next_owner
+    }
+
     pub fn next_ticket(&self) -> u64 {
         self.next_ticket
     }
@@ -425,9 +428,11 @@ impl RegionalLedger {
                 }
             }
         }
-        let owner = OWNERS
-            .try_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
-            .map_err(|_| RegionalError::CounterExhausted)?;
+        let owner = self.next_owner;
+        self.next_owner = self
+            .next_owner
+            .checked_add(1)
+            .ok_or(RegionalError::CounterExhausted)?;
         self.owner = owner;
         self.next_ticket = next_ticket;
         for (idx, (region, s)) in self.regions.iter_mut().zip(slots.iter()).enumerate() {
@@ -620,5 +625,24 @@ mod tests {
         assert_eq!(ledger.best_region(), (0, 3.0));
         assert!(ledger.validate(ticket).is_err());
         assert_eq!(ledger.trials(), [0]);
+    }
+
+    #[test]
+    fn owner_allocation() {
+        let mut ledger = RegionalLedger::new(&[0.0], Allocation::LeastTrials).unwrap();
+        assert_eq!(ledger.owner(), 1);
+        assert_eq!(ledger.next_owner(), 2);
+
+        let slots = ledger.slots();
+        let new_owner = ledger.restore(10, &slots).unwrap();
+        assert_eq!(new_owner, 2);
+        assert_eq!(ledger.owner(), 2);
+        assert_eq!(ledger.next_owner(), 3);
+        assert_eq!(ledger.next_ticket(), 10);
+
+        // A second new ledger starts deterministically at 1 again
+        let ledger2 = RegionalLedger::new(&[0.0], Allocation::LeastTrials).unwrap();
+        assert_eq!(ledger2.owner(), 1);
+        assert_eq!(ledger2.next_owner(), 2);
     }
 }

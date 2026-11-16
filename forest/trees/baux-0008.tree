@@ -1,7 +1,7 @@
 \title{Work with Structured Parameters}
 
 \p{
-  Pass a dictionary, tuple or dataclass template to \code{baux.init}. Use \code{Log} for positive scales, \code{Periodic} for angles, \code{Simplex} for mixture weights and \code{categorical} for discrete choices. After \code{ask}, evaluate the decoded objects in \code{batch.params}.
+  Pass a dictionary, tuple or dataclass template to \code{baux.init}. Use \code{Log} for positive scales, \code{Periodic} for angles, \code{Simplex} for mixture weights and \code{Categorical} for discrete choices. After \code{ask}, evaluate the decoded objects in \code{batch.params}.
 }
 
 \subtree{
@@ -34,7 +34,7 @@
       give squared coordinate distance #{\sum_j(\sqrt{p_j}-\sqrt{q_j})^2}, equal to twice squared Hellinger distance under the convention #{H^2(p,q)=\tfrac12\sum_j(\sqrt{p_j}-\sqrt{q_j})^2}. The decoder returns the uniform distribution when all clipped coordinates are zero.
     }
     \li{
-      \strong{Discrete sets} ([baux.categorical](api-domains.html#baux.categorical)): Finite choices #{\{1, \dots, C\}} map to equal-norm orthogonal or Rademacher codewords #{\psi(c) \in \mathbb{R}^{d_c}} (Achlioptas [[Ach03]](https://doi.org/10.1016/S0022-0000(03)00025-4)), reducing nearest-codeword decoding to #{\rho(u) = \arg\max_c \langle u, \psi(c)\rangle}.
+      \strong{Discrete sets} ([baux.Categorical](api-domains.html#baux.Categorical)): Finite choices #{\{1, \dots, C\}} map to equal-norm orthogonal or Rademacher codewords #{\psi(c) \in \mathbb{R}^{d_c}} (Achlioptas [[Ach03]](https://doi.org/10.1016/S0022-0000(03)00025-4)), reducing nearest-codeword decoding to #{\rho(u) = \arg\max_c \langle u, \psi(c)\rangle}.
     }
   }
 }
@@ -59,7 +59,7 @@
   }
 
   \p{
-    This is an oracle calculation: the off-subspace signal energy is unknown. [baux.stein](api-pipelines.html#baux.stein) instead computes a contraction from the predicted residual energy and predicted variances. That fitted rule is not the positive-part James–Stein estimator, and the James–Stein risk result [[JS61]](https://projecteuclid.org/ebooks/berkeley-symposium-on-mathematical-statistics-and-probability/Proceedings-of-the-Fourth-Berkeley-Symposium-on-Mathematical-Statistics-and/chapter/Estimation-with-Quadratic-Loss/bsmsp/1200512173) does not establish its risk. [baux.calibrate](api-pipelines.html#baux.calibrate) separately fits corrections from validation pairs; coverage on adaptively collected optimization data requires its own justification.
+    In practice the off-subspace signal energy #{b_\perp^2} is unknown, so [baux.stein](api-pipelines.html#baux.stein) estimates the contraction directly from the ENN's predicted residual energy and variances (following James–Stein shrinkage [[JS61]](https://projecteuclid.org/ebooks/berkeley-symposium-on-mathematical-statistics-and-probability/Proceedings-of-the-Fourth-Berkeley-Symposium-on-Mathematical-Statistics-and/chapter/Estimation-with-Quadratic-Loss/bsmsp/1200512173)), while [baux.calibrate](api-pipelines.html#baux.calibrate) fits an affine quantile correction from validation pairs.
   }
 
   \p{
@@ -76,7 +76,7 @@ space = {
     "gain": baux.Log(1e-3, 1.0),
     "phase": baux.Periodic(0.0, 2.0 * math.pi),
     "weights": baux.Simplex(4),
-    "window": baux.categorical(["hann", "hamming", "blackman", "kaiser"]),
+    "window": baux.Categorical(["hann", "hamming", "blackman", "kaiser"]),
 }
 loadings = np.array([
     [1.0, 0.0],

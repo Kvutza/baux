@@ -177,14 +177,14 @@ def _markdown(summaries: list[dict]) -> str:
             "| Config | Seeds | Init Error | Final Error | Reduction % | Wall Time (s) |"
         )
         lines.append("| :--- | ---: | ---: | ---: | ---: | ---: |")
-        for r in block["configs"]:
-            lines.append(
-                f"| `{r['config_id']}` | {r['n_seeds']} | "
-                f"{r['init_err_mean']:.3f} +/- {r['init_err_sem']:.3f} | "
-                f"**{r['final_err_mean']:.3f} +/- {r['final_err_sem']:.3f}** | "
-                f"{r['reduction_pct_mean']:.2f}% +/- {r['reduction_pct_sem']:.2f}% | "
-                f"{r['elapsed_s_mean']:.2f} +/- {r['elapsed_s_sem']:.2f} |"
-            )
+        lines.extend(
+            f"| `{r['config_id']}` | {r['n_seeds']} | "
+            f"{r['init_err_mean']:.3f} +/- {r['init_err_sem']:.3f} | "
+            f"**{r['final_err_mean']:.3f} +/- {r['final_err_sem']:.3f}** | "
+            f"{r['reduction_pct_mean']:.2f}% +/- {r['reduction_pct_sem']:.2f}% | "
+            f"{r['elapsed_s_mean']:.2f} +/- {r['elapsed_s_sem']:.2f} |"
+            for r in block["configs"]
+        )
         lines.append("")
         if block["paired_tests_vs_zero_r10_ellipsoid"]:
             lines.append("### Paired Tests vs `turbo_zero_r10_ellipsoid_ball`\n")
@@ -192,12 +192,12 @@ def _markdown(summaries: list[dict]) -> str:
                 "| ENN (R=1) Geometry | Paired n | Error Advantage (Zero - ENN) | t-stat | p (raw) | p (Holm) |"
             )
             lines.append("| :--- | ---: | ---: | ---: | ---: | ---: |")
-            for t in block["paired_tests_vs_zero_r10_ellipsoid"]:
-                lines.append(
-                    f"| `{t['enn_config']}` | {t['paired_seeds']} | "
-                    f"{t['error_advantage_mean']:+.3f} +/- {t['error_advantage_sem']:.3f} | "
-                    f"{t['t_stat']:+.3f} | {t['p_unadjusted']:.4g} | {t['p_holm']:.4g} |"
-                )
+            lines.extend(
+                f"| `{t['enn_config']}` | {t['paired_seeds']} | "
+                f"{t['error_advantage_mean']:+.3f} +/- {t['error_advantage_sem']:.3f} | "
+                f"{t['t_stat']:+.3f} | {t['p_unadjusted']:.4g} | {t['p_holm']:.4g} |"
+                for t in block["paired_tests_vs_zero_r10_ellipsoid"]
+            )
             lines.append("")
     return "\n".join(lines)
 

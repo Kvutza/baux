@@ -30,7 +30,7 @@ class PairedLosses:
 
 def _integer(value, name: str) -> int:
     if isinstance(value, (bool, np.bool_)) or not isinstance(value, Integral):
-        raise ValueError(f"{name} must be an integer")  # noqa: TRY004
+        raise ValueError(f"{name} must be an integer")
     return int(value)
 
 

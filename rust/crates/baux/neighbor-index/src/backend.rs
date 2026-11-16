@@ -1,7 +1,6 @@
 use std::fs;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use ndarray::{Array1, Array2, ArrayView2};
 
@@ -13,34 +12,47 @@ use baux::neighbor_index::observation::{
     self as obs, INDEX_BACKEND, MAX_DIM, MAX_STRIDE, TrainRows,
 };
 use baux::neighbor_index::smnsrch::{N_LIMIT, ScoreQueriesFlat, score_queries};
+pub use baux::neighbor_index::tuning::{BpannTuning, PENDING_HARD, PENDING_SOFT};
 
 pub const PAPER_URL: &str = "https://arxiv.org/abs/2511.15557";
-pub use baux::neighbor_index::tuning::{PENDING_HARD, PENDING_SOFT};
 
 #[path = "backend/access.rs"]
 mod access;
 #[path = "backend/metric.rs"]
 mod metric;
 
+#[derive(Clone)]
 pub struct BpannBackend {
-    work_dir: PathBuf,
+    pub(crate) work_dir: PathBuf,
     pub(crate) train_x: MmapColumnStore,
-    train_y: MmapColumnStore,
-    train_yvar: Option<MmapColumnStore>,
+    pub(crate) train_y: MmapColumnStore,
+    pub(crate) train_yvar: Option<MmapColumnStore>,
     pub(crate) num_dim: usize,
-    num_metrics: usize,
+    pub(crate) num_metrics: usize,
     pub(crate) scale_x: bool,
     pub(crate) x_scale: Array1<f64>,
     pub(crate) index: IncrementalIndex,
-    soft_threshold: usize,
-    hard_threshold: usize,
-    index_deferred: bool,
-    pending_unindexed: AtomicUsize,
-    index_dirty: Mutex<bool>,
-    num_obs_counter: obs::NumObsCounter,
+    pub tuning: BpannTuning,
+    pub(crate) index_deferred: bool,
+    pub(crate) pending_unindexed: usize,
+    pub(crate) index_dirty: bool,
+    pub(crate) num_obs_counter: obs::NumObsCounter,
     /// Resident flat `N·D` f32 train cache for the small-N search path.
     /// Invalidated on append. Arc so parallel queries share one buffer.
-    pub(crate) small_n_x_cache: Mutex<Option<(usize, Arc<[f32]>)>>,
+    pub(crate) small_n_x_cache: Option<(usize, Arc<[f32]>)>,
+}
+
+impl std::fmt::Debug for BpannBackend {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BpannBackend")
+            .field("work_dir", &self.work_dir)
+            .field("num_dim", &self.num_dim)
+            .field("num_metrics", &self.num_metrics)
+            .field("scale_x", &self.scale_x)
+            .field("indexed_rows", &self.index.indexed_rows)
+            .field("pending_unindexed", &self.pending_unindexed)
+            .finish()
+    }
 }
 
 impl BpannBackend {
@@ -65,16 +77,18 @@ impl BpannBackend {
         let mut train_y_store =
             MmapColumnStore::open_mmap(work_dir.join("train_y.bin"), num_metrics, known_nrows)?;
         if train_x_store.nrows == 0 && train_x.nrows() > 0 {
-            train_x_store.mmap_append(&train_x.view())?;
-            train_y_store.mmap_append(&train_y.view())?;
+            train_x_store = train_x_store.mmap_append(&train_x.view())?;
+            train_y_store = train_y_store.mmap_append(&train_y.view())?;
         }
         if train_x_store.nrows == 0 {
             // Pre-grow and pre-touch fresh stores so the first append pays no
             // file-resize, page-fault, or block-allocation cost.
-            train_x_store.ensure_capacity(baux::neighbor_index::mmap_store::GROW_ROWS)?;
-            train_y_store.ensure_capacity(baux::neighbor_index::mmap_store::GROW_ROWS)?;
-            train_x_store.pretouch();
-            train_y_store.pretouch();
+            train_x_store = train_x_store
+                .ensure_capacity(baux::neighbor_index::mmap_store::GROW_ROWS)?
+                .pretouch();
+            train_y_store = train_y_store
+                .ensure_capacity(baux::neighbor_index::mmap_store::GROW_ROWS)?
+                .pretouch();
         }
         let train_yvar_store = obs::open_yvar(&work_dir, num_metrics, train_yvar.as_ref())?;
 
@@ -94,6 +108,21 @@ impl BpannBackend {
         let mut index = IncrementalIndex::new(index_dir);
         index.indices = indices;
         index.indexed_rows = persisted_rows.min(indexed_rows);
+
+        let small_n_x_cache = if n <= N_LIMIT && n > 0 {
+            let mut flat = Vec::with_capacity(n * num_dim);
+            let mut buf = Vec::with_capacity(num_dim);
+            let x_scale_slice = x_scale.as_slice().unwrap();
+            for i in 0..n {
+                let row = train_x_store.row_slice(i)?;
+                baux::neighbor_index::distance::bpann_f32(row, scale_x, x_scale_slice, &mut buf);
+                flat.extend_from_slice(&buf);
+            }
+            Some((n, Arc::from(flat.into_boxed_slice())))
+        } else {
+            None
+        };
+
         let mut backend = Self {
             work_dir,
             train_x: train_x_store,
@@ -104,16 +133,16 @@ impl BpannBackend {
             scale_x,
             x_scale,
             index,
-            soft_threshold: PENDING_SOFT,
-            hard_threshold: PENDING_HARD,
+            tuning: BpannTuning::default(),
             index_deferred: true,
-            pending_unindexed: AtomicUsize::new(n.saturating_sub(indexed_rows)),
-            index_dirty: Mutex::new(indexed_rows < n),
+            pending_unindexed: n.saturating_sub(indexed_rows),
+            index_dirty: indexed_rows < n,
             num_obs_counter,
-            small_n_x_cache: Mutex::new(None),
+            small_n_x_cache,
         };
         if persisted_rows < indexed_rows {
-            backend.index.ensure_backend(
+            let index = backend.index;
+            backend.index = index.ensure_backend(
                 &backend.train_x,
                 backend.num_dim,
                 backend.scale_x,
@@ -121,11 +150,10 @@ impl BpannBackend {
                 &backend.work_dir,
                 backend.num_metrics,
                 indexed_rows,
+                &backend.tuning,
             )?;
         }
-        backend
-            .pending_unindexed
-            .store(n.saturating_sub(indexed_rows), Ordering::Relaxed);
+        backend.pending_unindexed = n.saturating_sub(indexed_rows);
         backend.index.indexed_rows = indexed_rows;
         obs::write_metadata(
             &backend.work_dir,
@@ -164,7 +192,7 @@ impl BpannBackend {
     }
 
     pub fn pending_rows(&self) -> usize {
-        self.pending_unindexed.load(Ordering::Relaxed)
+        self.pending_unindexed
     }
 
     #[allow(clippy::len_without_is_empty)]
@@ -180,25 +208,31 @@ impl BpannBackend {
         self.num_metrics
     }
 
-    pub fn mark_stale(&mut self) {
-        self.reset_index();
+    pub fn mark_stale(self) -> Self {
+        self.reset_index()
     }
 
-    pub fn ensure_scale(&mut self, scale_x: bool, x_scale: &Array1<f64>) -> Result<(), BpannError> {
+    pub fn ensure_scale(
+        mut self,
+        scale_x: bool,
+        x_scale: &Array1<f64>,
+    ) -> Result<Self, BpannError> {
         if self.scale_x != scale_x || self.x_scale != *x_scale {
             metric::metric_pending(&self.work_dir)?;
             self.scale_x = scale_x;
             self.x_scale = x_scale.to_owned();
-            self.reset_index();
-            *self.small_n_x_cache.lock().expect("small_n_x_cache") = None;
+            self = self.reset_index();
+            self.small_n_x_cache = None;
         }
         self.ensure_sync()
     }
 
-    fn reset_index(&mut self) {
-        self.index.reset();
-        self.pending_unindexed.store(self.len(), Ordering::Relaxed);
-        *self.index_dirty.lock().expect("index_dirty") = true;
+    fn reset_index(mut self) -> Self {
+        self.pending_unindexed = self.len();
+        self.index = self.index.reset();
+        self.index_dirty = true;
+        self.small_n_x_cache = None;
+        self
     }
 
     pub fn indexed_rows(&self) -> usize {
@@ -206,11 +240,11 @@ impl BpannBackend {
     }
 
     pub fn append_row(
-        &mut self,
+        self,
         x: &Array1<f64>,
         y: &Array1<f64>,
         yvar: Option<&Array1<f64>>,
-    ) -> Result<(), BpannError> {
+    ) -> Result<Self, BpannError> {
         let x2 = x.clone().insert_axis(ndarray::Axis(0));
         let y2 = y.clone().insert_axis(ndarray::Axis(0));
         let yv2 = yvar.map(|v| v.clone().insert_axis(ndarray::Axis(0)));
@@ -222,13 +256,13 @@ impl BpannBackend {
     }
 
     pub fn append_rows(
-        &mut self,
+        mut self,
         x: &ArrayView2<f64>,
         y: &ArrayView2<f64>,
         yvar: Option<&ArrayView2<f64>>,
-    ) -> Result<(), BpannError> {
+    ) -> Result<Self, BpannError> {
         if x.nrows() == 0 {
-            return Ok(());
+            return Ok(self);
         }
         if x.ncols() != self.num_dim || y.ncols() != self.num_metrics || x.nrows() != y.nrows() {
             return Err(BpannError::InvalidShape {
@@ -237,26 +271,41 @@ impl BpannBackend {
             });
         }
         obs::check_rows(self.len() + x.nrows())?;
-        self.train_x.mmap_append(x)?;
-        self.train_y.mmap_append(y)?;
+        self.train_x = self.train_x.append(x)?;
+        self.train_y = self.train_y.append(y)?;
         obs::append_yvar(&self.work_dir, self.num_metrics, &mut self.train_yvar, yvar)?;
-        self.index
+        self.index = self
+            .index
             .note_rows(x, self.scale_x, self.x_scale.as_slice().unwrap());
-        self.pending_unindexed
-            .fetch_add(x.nrows(), Ordering::Relaxed);
-        *self.index_dirty.lock().expect("index_dirty") = true;
-        *self.small_n_x_cache.lock().expect("small_n_x_cache") = None;
+        self.pending_unindexed += x.nrows();
+        self.index_dirty = true;
         self.num_obs_counter.set(self.len());
+
+        if self.len() <= N_LIMIT {
+            let n = self.len();
+            let mut flat = Vec::with_capacity(n * self.num_dim);
+            let mut buf = Vec::with_capacity(self.num_dim);
+            let x_scale = self.x_scale.as_slice().unwrap();
+            for i in 0..n {
+                let row = self.train_x.row_slice(i)?;
+                baux::neighbor_index::distance::bpann_f32(row, self.scale_x, x_scale, &mut buf);
+                flat.extend_from_slice(&buf);
+            }
+            self.small_n_x_cache = Some((n, Arc::from(flat.into_boxed_slice())));
+        } else {
+            self.small_n_x_cache = None;
+        }
+
         let pending = self.pending_rows();
         // Hard cap: soft-sync on the caller when pending reaches the hard
         // threshold (deferred or not). Soft threshold syncs only on the
         // non-deferred path.
-        if pending >= self.hard_threshold
-            || (!self.index_deferred && pending >= self.soft_threshold)
+        if pending >= self.tuning.hard_threshold
+            || (!self.index_deferred && pending >= self.tuning.soft_threshold)
         {
-            self.ensure_sync()?;
+            self = self.ensure_sync()?;
         }
-        Ok(())
+        Ok(self)
     }
 
     /// Soft sync: build/compact fragments in memory and update pending
@@ -267,13 +316,14 @@ impl BpannBackend {
     /// Mutates the live index in place. Background flush still uses
     /// [`soft_build`] / [`soft_publish`] so readers can search the
     /// previous snapshot while a detached build runs.
-    pub fn ensure_sync(&mut self) -> Result<(), BpannError> {
+    pub fn ensure_sync(mut self) -> Result<Self, BpannError> {
         let end = self.len();
         if self.index.indexed_rows >= end {
-            self.pending_unindexed.store(0, Ordering::Relaxed);
-            return Ok(());
+            self.pending_unindexed = 0;
+            return Ok(self);
         }
-        self.index.ensure_backend(
+        let index = self.index;
+        self.index = index.ensure_backend(
             &self.train_x,
             self.num_dim,
             self.scale_x,
@@ -281,43 +331,82 @@ impl BpannBackend {
             &self.work_dir,
             self.num_metrics,
             end,
+            &self.tuning,
         )?;
-        self.pending_unindexed.store(0, Ordering::Relaxed);
+        self.pending_unindexed = 0;
         // Soft-sync and centroid builds fault train pages; drop them from RSS.
-        self.release_pages()?;
-        Ok(())
+        self.release_pages()
     }
 
     /// Remap observation mmaps so faulted/dirty pages leave process RSS.
-    pub fn release_pages(&mut self) -> Result<(), BpannError> {
-        self.train_x.release_pages()?;
-        self.train_y.release_pages()?;
-        if let Some(store) = self.train_yvar.as_mut() {
-            store.release_pages()?;
+    pub fn release_pages(mut self) -> Result<Self, BpannError> {
+        self.train_x = self.train_x.release_pages()?;
+        self.train_y = self.train_y.release_pages()?;
+        if let Some(store) = self.train_yvar {
+            self.train_yvar = Some(store.release_pages()?);
         }
-        Ok(())
+        Ok(self)
     }
 
-    pub fn persist_index(&mut self) -> Result<(), BpannError> {
-        let index_dirty = *self.index_dirty.lock().expect("index_dirty");
-        if !self.index.needs_rewrite(index_dirty, self.train_x.nrows) {
-            self.pending_unindexed.store(0, Ordering::Relaxed);
-            *self.index_dirty.lock().expect("index_dirty") = false;
-            return Ok(());
+    pub fn persist_index(mut self) -> Result<Self, BpannError> {
+        self.train_x = self.train_x.flush_disk()?;
+        self.train_y = self.train_y.flush_disk()?;
+        if let Some(yv) = self.train_yvar {
+            self.train_yvar = Some(yv.flush_disk()?);
+        }
+        obs::write_metadata(
+            &self.work_dir,
+            self.len(),
+            self.num_dim,
+            self.num_metrics,
+            self.scale_x,
+            self.index.indexed_rows,
+        )?;
+        self.num_obs_counter.set(self.len());
+
+        if !self
+            .index
+            .needs_rewrite(self.index_dirty, self.train_x.nrows)
+        {
+            self.pending_unindexed = 0;
+            self.index_dirty = false;
+            return Ok(self);
         }
         metric::metric_pending(&self.work_dir)?;
-        self.index.persist_backend(
+        let index = self.index;
+        self.index = index.persist_backend(
             &self.train_x,
             self.num_dim,
             self.scale_x,
             self.x_scale.as_slice().unwrap(),
             &self.work_dir,
             self.num_metrics,
+            &self.tuning,
         )?;
         metric::persist_metric(&self.work_dir, self.scale_x, &self.x_scale)?;
-        self.pending_unindexed.store(0, Ordering::Relaxed);
-        *self.index_dirty.lock().expect("index_dirty") = false;
-        Ok(())
+        obs::write_metadata(
+            &self.work_dir,
+            self.len(),
+            self.num_dim,
+            self.num_metrics,
+            self.scale_x,
+            self.index.indexed_rows,
+        )?;
+        self.pending_unindexed = 0;
+        self.index_dirty = false;
+        Ok(self)
+    }
+
+    pub fn schedule_flush(self) -> Result<Self, BpannError> {
+        if self.pending_rows() >= self.soft_threshold() {
+            self.ensure_sync()
+        } else {
+            Ok(self)
+        }
+    }
+
+    pub fn wait_flush(self) -> Result<Self, BpannError> {
+        self.ensure_sync()
     }
 
     pub fn train_rows(&self, indices: &[usize]) -> Result<TrainRows, BpannError> {
@@ -406,8 +495,8 @@ pub fn soft_build(backend: &BpannBackend) -> Result<Option<IncrementalIndex>, Bp
     if backend.index.indexed_rows >= end {
         return Ok(None);
     }
-    let mut working = backend.index.clone();
-    working.ensure_backend(
+    let working = backend.index.clone();
+    let working = working.ensure_backend(
         &backend.train_x,
         backend.num_dim,
         backend.scale_x,
@@ -415,6 +504,7 @@ pub fn soft_build(backend: &BpannBackend) -> Result<Option<IncrementalIndex>, Bp
         &backend.work_dir,
         backend.num_metrics,
         end,
+        &backend.tuning,
     )?;
     Ok(Some(working))
 }
@@ -422,7 +512,7 @@ pub fn soft_build(backend: &BpannBackend) -> Result<Option<IncrementalIndex>, Bp
 /// Publish a detached soft-sync result under exclusive borrow.
 pub fn soft_publish(backend: &mut BpannBackend, built: IncrementalIndex) {
     backend.index = built;
-    backend.pending_unindexed.store(0, Ordering::Relaxed);
+    backend.pending_unindexed = 0;
 }
 
 pub fn open_dim(num_dim: usize) -> Result<(), BpannError> {

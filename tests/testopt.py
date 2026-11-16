@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import baux
 import numpy as np
 import pytest
-from baux import create_optimizer, turbo_enn, turbo_one, turbo_zero
+from baux.turbo.config import turbo_enn, turbo_one, turbo_zero
 
 
 def _score(x: np.ndarray) -> np.ndarray:
@@ -12,66 +13,70 @@ def _score(x: np.ndarray) -> np.ndarray:
 @pytest.mark.parametrize("cfg", [turbo_zero(), turbo_enn()])
 def test_asktellcycle(cfg):
     bounds = np.array([[-1.0, 1.0], [-1.0, 1.0]])
-    opt = create_optimizer(bounds=bounds, config=cfg, rng=np.random.default_rng(0))
-    x = opt.ask(4)
-    y = opt.tell(x, _score(x))
+    state = baux.init(bounds, config=cfg, seed=0)
+    state, batch = baux.ask(state, 4)
+    x = batch.points
+    state, y = baux.tell(state, batch, _score(x))
 
     assert x.shape == (4, 2)
     assert y.shape == (4,)
-    assert opt.ask(2).shape == (2, 2)
+    state, batch2 = baux.ask(state, 2)
+    assert batch2.points.shape == (2, 2)
 
 
 def test_001():
     bounds = np.array([[-1.0, 1.0], [-1.0, 1.0]])
-    opt = create_optimizer(
-        bounds=bounds, config=turbo_zero(), rng=np.random.default_rng(0)
-    )
-    x = opt.ask(4)
+    state = baux.init(bounds, config=turbo_zero(), seed=0)
+    state, batch = baux.ask(state, 4)
+    x = batch.points
     y = _score(x)
 
-    assert x.flags.writeable
+    assert not x.flags.writeable
     assert y.flags.writeable
 
-    opt.tell(x, y)
+    state, mu = baux.tell(state, batch, y)
 
-    # Verify that the arrays were marked read-only
+    # Verify that the arrays are read-only
     assert not x.flags.writeable
-    assert not y.flags.writeable
+    assert not mu.flags.writeable
 
     with pytest.raises(ValueError):
         x[0, 0] = 999.0
     with pytest.raises(ValueError):
-        y[0] = 999.0
+        mu[0] = 999.0
 
 
 def test_listbounds():
-    opt = create_optimizer(
-        bounds=[[0.0, 1.0], [0.0, 1.0]],
+    state = baux.init(
+        [[0.0, 1.0], [0.0, 1.0]],
         config=turbo_zero(),
-        rng=np.random.default_rng(1),
+        seed=1,
     )
-    assert opt.ask(2).shape == (2, 2)
+    state, batch = baux.ask(state, 2)
+    assert batch.points.shape == (2, 2)
 
 
 def test_badbatchisrejected():
-    opt = create_optimizer(
-        bounds=np.array([[0.0, 1.0], [0.0, 1.0]]),
+    state = baux.init(
+        np.array([[0.0, 1.0], [0.0, 1.0]]),
         config=turbo_zero(),
-        rng=np.random.default_rng(2),
+        seed=2,
     )
+    state, batch = baux.ask(state, 3)
     with pytest.raises(ValueError, match="shape"):
-        opt.tell(opt.ask(3), np.ones(2))
+        baux.tell(state, batch, np.ones(2))
 
 
 @pytest.mark.gp
 def test_gpnoisecycle():
     bounds = np.array([[-1.0, 1.0], [-1.0, 1.0]])
-    rng = np.random.default_rng(3)
-    opt = create_optimizer(
-        bounds=bounds,
+    state = baux.init(
+        bounds,
         config=turbo_one(num_init=2),
-        rng=rng,
+        seed=3,
     )
-    x = opt.ask(2)
-    opt.tell(x, _score(x), np.full(2, 0.05))
-    assert opt.ask(2).shape == (2, 2)
+    state, batch = baux.ask(state, 2)
+    x = batch.points
+    state, _ = baux.tell(state, batch, _score(x), y_var=np.full(2, 0.05))
+    state, batch2 = baux.ask(state, 2)
+    assert batch2.points.shape == (2, 2)

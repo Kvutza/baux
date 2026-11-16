@@ -11,9 +11,10 @@ mod tr_state;
 pub use incumbent::{IncumbentLedger, IncumbentPoint, ProposalEngine};
 pub use inspection::DomainFrame;
 pub use multi_tr::{
-    AllocationPolicy, EvaluationId, MultiTrustRegionConfig, MultiTrustRegionState, PendingProposal,
-    RegionBatch, RegionCandidate, RegionController, RegionProvenance, RestartCenterPolicy,
-    RestartCenterSelection, RestartMemoryPolicy, SharingPolicy,
+    AllocationPolicy, EvaluationId, MultiTrustRegion, MultiTrustRegionConfig,
+    MultiTrustRegionState, PendingProposal, RegionBatch, RegionCandidate, RegionController,
+    RegionProvenance, RestartCenterPolicy, RestartCenterSelection, RestartMemoryPolicy,
+    SharingPolicy,
 };
 pub use obs_access::{PosteriorBackend, PosteriorStore};
 pub use observation_delta::{HostCursor, ObservationDelta, WarmupMode, WarmupSchedule};
@@ -215,6 +216,7 @@ pub struct Telemetry {
 }
 
 /// Role-decomposed Bayesian optimizer state machine.
+#[derive(Clone)]
 pub struct BayesOptimizer {
     pub(crate) domain: DomainFrame,
     pub(crate) config: OptimizerConfig,
@@ -226,7 +228,26 @@ pub struct BayesOptimizer {
     pub(crate) proposals: ProposalEngine,
     pub(crate) telemetry: Telemetry,
     pub(crate) ingestion_error: Option<String>,
+    pub(crate) next_eval_id: u64,
 }
+
+impl std::fmt::Debug for BayesOptimizer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BayesOptimizer")
+            .field("obs_count", &self.posterior.obs_count())
+            .field("warmup", &self.warmup)
+            .field("regions", &self.regions)
+            .field("next_eval_id", &self.next_eval_id)
+            .finish()
+    }
+}
+
+const _: () = {
+    fn assert_sync<T: Send + Sync>() {}
+    fn check() {
+        assert_sync::<BayesOptimizer>();
+    }
+};
 
 impl BayesOptimizer {
     /// Create a new optimizer.
@@ -353,6 +374,7 @@ impl BayesOptimizer {
                 proposals,
                 telemetry: Telemetry::default(),
                 ingestion_error: None,
+                next_eval_id: 0,
             }
         } else {
             Self::new_domain(domain, config, strategy, None, None, rng)?
@@ -495,7 +517,19 @@ impl BayesOptimizer {
             proposals,
             telemetry: Telemetry::default(),
             ingestion_error: None,
+            next_eval_id: 0,
         })
+    }
+
+    /// Deterministically issue sequential evaluation identities for pending
+    /// batches.
+    pub fn issue_ids(mut self, count: usize) -> Result<(Self, Vec<EvaluationId>), ENNError> {
+        let mut ids = Vec::with_capacity(count);
+        for _ in 0..count {
+            ids.push(EvaluationId(self.next_eval_id));
+            self.next_eval_id = self.next_eval_id.saturating_add(1);
+        }
+        Ok((self, ids))
     }
 
     /// Add observations (internal).
@@ -507,6 +541,16 @@ impl BayesOptimizer {
         let delta = self.prepare_observations(x, y)?;
         self.commit_observations(&delta);
         Ok(delta)
+    }
+
+    /// Add observations with consumed-`self` value semantics.
+    pub fn with_observations(
+        mut self,
+        x: &ArrayView2<f64>,
+        y: &ArrayView2<f64>,
+    ) -> Result<(Self, ObservationDelta), ENNError> {
+        let delta = self.add_observations(x, y)?;
+        Ok((self, delta))
     }
 
     pub(crate) fn prepare_observations(
@@ -527,41 +571,31 @@ impl BayesOptimizer {
     pub(crate) fn commit_observations(&mut self, delta: &ObservationDelta) {
         let is_empirical = matches!(self.posterior.backend, PosteriorBackend::Empirical { .. });
         let is_disk = self.posterior.is_disk();
+        let mut incumbent = self.incumbent.clone();
         for i in 0..delta.x_new.nrows() {
             let y_view = delta.y_new.row(i);
-            self.incumbent.tell_view(delta.old_n + i, y_view);
+            incumbent = incumbent.tell_view(delta.old_n + i, y_view);
             if is_empirical {
                 self.posterior
                     .push_empirical(delta.x_new.row(i).to_owned(), y_view.to_owned());
             }
         }
+        self.incumbent = incumbent;
         if is_disk {
-            if let Err(err) = self.posterior.append_disk(&delta.x_view(), &delta.y_view()) {
-                self.ingestion_error = Some(err.to_string());
-            } else {
-                let _ = self.posterior.release_pages();
+            match self.posterior.append_disk(&delta.x_view(), &delta.y_view()) {
+                Ok(()) => {
+                    let _ = self.posterior.release_pages();
+                }
+                Err(err) => {
+                    self.ingestion_error = Some(err.to_string());
+                }
             }
         }
     }
 
     /// Fork this optimizer into an independent state branch.
     pub fn fork(&self) -> Result<Self, ENNError> {
-        let local_models = match &self.local_models {
-            Some(models) => Some(models.try_clone()?),
-            None => None,
-        };
-        Ok(Self {
-            domain: self.domain.clone(),
-            config: self.config.clone(),
-            warmup: self.warmup.clone(),
-            posterior: self.posterior.try_clone()?,
-            local_models,
-            incumbent: self.incumbent.clone(),
-            regions: self.regions.clone(),
-            proposals: self.proposals.clone(),
-            telemetry: self.telemetry.clone(),
-            ingestion_error: self.ingestion_error.clone(),
-        })
+        Ok(self.clone())
     }
 
     /// Content-addressed BLAKE3 digest of canonical optimizer state.
@@ -624,12 +658,28 @@ impl BayesOptimizer {
 
     /// Restore an equivalent optimizer state from a BLAKE3-verified checkpoint.
     pub fn thaw(&self, bytes: &[u8]) -> Result<Self, ENNError> {
-        observation_delta::thaw_state(self, bytes)
+        let mut opt = observation_delta::thaw_state(self, bytes)?;
+        if let TrustRegionState::Multi {
+            pending: Some(ref mr),
+            ..
+        } = opt.regions
+        {
+            opt.next_eval_id = opt.next_eval_id.max(mr.id_floor());
+        }
+        Ok(opt)
     }
 
     /// Restore optimizer state and optional host cursor metadata.
     pub fn thaw_host(&self, bytes: &[u8]) -> Result<(Self, Option<HostCursor>), ENNError> {
-        observation_delta::thaw_full(self, bytes)
+        let (mut opt, host) = observation_delta::thaw_full(self, bytes)?;
+        if let TrustRegionState::Multi {
+            pending: Some(ref mr),
+            ..
+        } = opt.regions
+        {
+            opt.next_eval_id = opt.next_eval_id.max(mr.id_floor());
+        }
+        Ok((opt, host))
     }
 }
 

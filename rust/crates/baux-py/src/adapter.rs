@@ -1,7 +1,7 @@
 //! Python surrogate adapter for the Rust optimizer.
 
 use baux::error::ENNError;
-use baux::surrogate::{Surrogate, SurrogatePrediction};
+use baux::surrogate::{BoxedSurrogate, Surrogate, SurrogatePrediction};
 use ndarray::{Array1, Array2, Array3, ArrayView2, s};
 use numpy::{IntoPyArray, PyReadonlyArray1, PyReadonlyArray2};
 use pyo3::prelude::*;
@@ -43,6 +43,34 @@ pub struct PythonSurrogateAdapter {
     has_yvar: Option<bool>,
     lengthscales: Option<Array1<f64>>,
     num_steps: usize,
+}
+
+impl Clone for PythonSurrogateAdapter {
+    fn clone(&self) -> Self {
+        let provider = Python::attach(|py| {
+            let bound = self.provider.bind(py);
+            if bound.hasattr("fork").unwrap_or(false) {
+                if let Ok(forked) = bound.call_method0("fork") {
+                    return forked.unbind();
+                }
+            }
+            if bound.hasattr("copy").unwrap_or(false) {
+                if let Ok(copied) = bound.call_method0("copy") {
+                    return copied.unbind();
+                }
+            }
+            self.provider.clone_ref(py)
+        });
+        Self {
+            provider,
+            x_obs: self.x_obs.clone(),
+            y_obs: self.y_obs.clone(),
+            yvar: self.yvar.clone(),
+            has_yvar: self.has_yvar,
+            lengthscales: self.lengthscales.clone(),
+            num_steps: self.num_steps,
+        }
+    }
 }
 
 impl PythonSurrogateAdapter {
@@ -139,13 +167,13 @@ impl PythonSurrogateAdapter {
 }
 
 impl Surrogate for PythonSurrogateAdapter {
-    fn fit(
-        &mut self,
+    fn with_fit(
+        mut self: Box<Self>,
         x: &ArrayView2<f64>,
         y: &ArrayView2<f64>,
         yvar: Option<&ArrayView2<f64>>,
         _rng: &mut dyn RngCore,
-    ) -> Result<(), ENNError> {
+    ) -> Result<BoxedSurrogate, ENNError> {
         self.validate_batch(x, y, yvar)?;
         let x_new = x.to_owned();
         let y_new = y.to_owned();
@@ -155,16 +183,16 @@ impl Surrogate for PythonSurrogateAdapter {
         self.y_obs = y_new;
         self.yvar = yvar_new;
         self.has_yvar = Some(yvar.is_some());
-        Ok(())
+        Ok(self as BoxedSurrogate)
     }
 
-    fn fit_append(
-        &mut self,
+    fn with_append(
+        mut self: Box<Self>,
         x_new: &ArrayView2<f64>,
         y_new: &ArrayView2<f64>,
         yvar_new: Option<&ArrayView2<f64>>,
         _rng: &mut dyn RngCore,
-    ) -> Result<(), ENNError> {
+    ) -> Result<BoxedSurrogate, ENNError> {
         self.validate_batch(x_new, y_new, yvar_new)?;
         let next_x = append_rows(&self.x_obs, x_new)?;
         let next_y = append_rows(&self.y_obs, y_new)?;
@@ -179,7 +207,7 @@ impl Surrogate for PythonSurrogateAdapter {
         self.y_obs = next_y;
         self.yvar = next_yvar;
         self.has_yvar = Some(yvar_new.is_some());
-        Ok(())
+        Ok(self as BoxedSurrogate)
     }
 
     fn predict(&self, x: &ArrayView2<f64>) -> Result<SurrogatePrediction, ENNError> {
@@ -281,4 +309,25 @@ impl Surrogate for PythonSurrogateAdapter {
     fn observations_y(&self) -> Result<Option<Array2<f64>>, ENNError> {
         Ok((self.y_obs.nrows() > 0).then(|| self.y_obs.clone()))
     }
+
+    fn cleared(mut self: Box<Self>) -> Result<BoxedSurrogate, ENNError> {
+        let num_dim = self.x_obs.ncols();
+        self.x_obs = Array2::zeros((0, num_dim));
+        self.y_obs = Array2::zeros((0, 0));
+        self.yvar = None;
+        self.has_yvar = None;
+        self.lengthscales = None;
+        Ok(self as BoxedSurrogate)
+    }
+
+    fn clone_box(&self) -> Result<BoxedSurrogate, ENNError> {
+        Ok(Box::new(self.clone()))
+    }
 }
+
+const _: () = {
+    fn assert_sync<T: Send + Sync>() {}
+    fn check() {
+        assert_sync::<PythonSurrogateAdapter>();
+    }
+};

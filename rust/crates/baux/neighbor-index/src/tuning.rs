@@ -1,9 +1,7 @@
-//! Process-wide BPANN tuning values.
+//! BPANN tuning values.
 //!
-//! Defaults match the historical hardcoded defaults. When the `baux` crate is
-//! used, it installs a provider that reads `~/.baux/config.toml`.
-
-use std::sync::RwLock;
+//! Pure value semantics for tunable parameters. Defaults match historical
+//! hardcoded defaults.
 
 /// Minimum allowed `index_max` (matches compaction clamp floor).
 pub const INDEX_MIN: usize = 3;
@@ -73,6 +71,26 @@ impl Default for BpannTuning {
 }
 
 impl BpannTuning {
+    /// Construct a tuning configuration with custom soft and hard pending
+    /// thresholds.
+    pub fn with_thresholds(soft_threshold: usize, hard_threshold: usize) -> Self {
+        Self {
+            soft_threshold,
+            hard_threshold,
+            ..Self::default()
+        }
+    }
+
+    /// Construct a tuning configuration with custom exhaustive and skip row
+    /// limits.
+    pub fn with_limits(exhaustive_limit: usize, skip_limit: usize) -> Self {
+        Self {
+            exhaustive_limit,
+            skip_limit,
+            ..Self::default()
+        }
+    }
+
     /// Validate all tunable fields. Returns an error describing the first
     /// violation.
     pub fn validate(&self) -> Result<(), String> {
@@ -155,40 +173,6 @@ impl BpannTuning {
     }
 }
 
-type TuningProvider = Box<dyn Fn() -> BpannTuning + Send + Sync>;
-
-static TUNING_PROVIDER: RwLock<Option<TuningProvider>> = RwLock::new(None);
-
-/// Install a provider consulted on every tuning access.
-pub fn set_provider(provider: TuningProvider) {
-    *TUNING_PROVIDER.write().expect("tuning provider lock") = Some(provider);
-}
-
-/// Clear any installed provider (tests).
-pub fn clear_provider() {
-    *TUNING_PROVIDER.write().expect("tuning provider lock") = None;
-}
-
-/// Current tuning: from the provider if set, otherwise compiled-in defaults.
-///
-/// If the provider returns an invalid snapshot, falls back to defaults.
-pub fn current_tuning() -> BpannTuning {
-    let tuning = if let Some(provider) = TUNING_PROVIDER
-        .read()
-        .expect("tuning provider lock")
-        .as_ref()
-    {
-        provider()
-    } else {
-        BpannTuning::default()
-    };
-    if tuning.validate().is_ok() {
-        tuning
-    } else {
-        BpannTuning::default()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -202,7 +186,8 @@ mod tests {
     fn pending_250() {
         assert_eq!(PENDING_SOFT, 250);
         assert_eq!(BpannTuning::default().soft_threshold, PENDING_SOFT);
-        assert_eq!(current_tuning().soft_threshold, PENDING_SOFT);
+        let t = BpannTuning::with_thresholds(PENDING_SOFT, PENDING_HARD);
+        assert_eq!(t.soft_threshold, PENDING_SOFT);
     }
 
     #[test]
@@ -210,7 +195,8 @@ mod tests {
         assert_eq!(PENDING_HARD, 3000);
         // hard >= soft is enforced by BpannTuning::validate (see tuning).
         assert_eq!(BpannTuning::default().hard_threshold, PENDING_HARD);
-        assert_eq!(current_tuning().hard_threshold, PENDING_HARD);
+        let t = BpannTuning::with_thresholds(PENDING_SOFT, PENDING_HARD);
+        assert_eq!(t.hard_threshold, PENDING_HARD);
     }
 
     #[test]
@@ -248,11 +234,7 @@ mod tests {
         for _ in 0..64 {
             let soft = rng.gen_range(0usize..10_000);
             let hard = rng.gen_range(0usize..10_000);
-            let t = BpannTuning {
-                soft_threshold: soft,
-                hard_threshold: hard,
-                ..Default::default()
-            };
+            let t = BpannTuning::with_thresholds(soft, hard);
             let expect_ok = soft >= 1 && hard >= 1 && hard >= soft;
             assert_eq!(t.validate().is_ok(), expect_ok, "soft={soft} hard={hard}");
         }
@@ -260,21 +242,13 @@ mod tests {
 
     #[test]
     fn rejects_threshold() {
-        let t = BpannTuning {
-            soft_threshold: 500,
-            hard_threshold: 499,
-            ..Default::default()
-        };
+        let t = BpannTuning::with_thresholds(500, 499);
         assert!(t.validate().unwrap_err().contains("hard_threshold"));
     }
 
     #[test]
     fn rejects_threshold2() {
-        let t = BpannTuning {
-            hard_threshold: 0,
-            soft_threshold: 1,
-            ..Default::default()
-        };
+        let t = BpannTuning::with_thresholds(1, 0);
         assert!(t.validate().unwrap_err().contains("hard_threshold"));
     }
 
@@ -307,13 +281,16 @@ mod tests {
     }
 
     #[test]
-    fn tuning_provider() {
-        set_provider(Box::new(|| BpannTuning {
-            soft_threshold: 0,
-            ..Default::default()
-        }));
-        assert_eq!(current_tuning(), BpannTuning::default());
-        clear_provider();
+    fn tuning_constructors() {
+        let t = BpannTuning::with_thresholds(100, 500);
+        assert_eq!(t.soft_threshold, 100);
+        assert_eq!(t.hard_threshold, 500);
+        assert!(t.validate().is_ok());
+
+        let t_limits = BpannTuning::with_limits(1000, 50_000);
+        assert_eq!(t_limits.exhaustive_limit, 1000);
+        assert_eq!(t_limits.skip_limit, 50_000);
+        assert!(t_limits.validate().is_ok());
     }
 
     #[test]
@@ -342,26 +319,15 @@ mod tests {
 
     #[test]
     fn rejects_exhaustive() {
-        let t = BpannTuning {
-            exhaustive_limit: 0,
-            ..Default::default()
-        };
+        let t = BpannTuning::with_limits(0, SKIP_LIMIT);
         assert!(t.validate().unwrap_err().contains("exhaustive_limit"));
-        let t = BpannTuning {
-            exhaustive_limit: 100,
-            skip_limit: 99,
-            ..Default::default()
-        };
+        let t = BpannTuning::with_limits(100, 99);
         assert!(t.validate().unwrap_err().contains("skip_limit"));
     }
 
     #[test]
     fn equal_band() {
-        let t = BpannTuning {
-            exhaustive_limit: 500,
-            skip_limit: 500,
-            ..Default::default()
-        };
+        let t = BpannTuning::with_limits(500, 500);
         assert!(t.validate().is_ok());
         assert!(!t.rows_edges(500));
         assert!(!t.rows_edges(501));
@@ -382,11 +348,7 @@ mod tests {
             (10_000, usize::MAX),
         ];
         for (ex, skip) in pairs {
-            let t = BpannTuning {
-                exhaustive_limit: ex,
-                skip_limit: skip,
-                ..base
-            };
+            let t = BpannTuning::with_limits(ex, skip);
             assert!(t.validate().is_ok(), "ex={ex} skip={skip}");
             for rows in [
                 0,
@@ -421,11 +383,7 @@ mod tests {
         for _ in 0..128 {
             let ex = rng.gen_range(0usize..5_000);
             let skip = rng.gen_range(0usize..10_000);
-            let t = BpannTuning {
-                exhaustive_limit: ex,
-                skip_limit: skip,
-                ..Default::default()
-            };
+            let t = BpannTuning::with_limits(ex, skip);
             let ok = t.validate().is_ok();
             if ex == 0 || skip < ex {
                 assert!(!ok, "ex={ex} skip={skip} should be invalid");
@@ -437,29 +395,19 @@ mod tests {
 
     #[test]
     fn tuning_rows() {
-        clear_provider();
         let rows = 3_000usize;
+        let default_tuning = BpannTuning::default();
         // Defaults: 3000 is in the skip-refinement band.
-        assert!(current_tuning().rows_edges(rows));
-        assert!(current_tuning().refine_search(rows));
+        assert!(default_tuning.rows_edges(rows));
+        assert!(default_tuning.refine_search(rows));
 
-        set_provider(Box::new(|| BpannTuning {
-            exhaustive_limit: 10_000,
-            skip_limit: 150_000,
-            ..Default::default()
-        }));
-        assert!(!current_tuning().rows_edges(rows));
-        assert!(current_tuning().exhaustive_search(rows));
+        let t1 = BpannTuning::with_limits(10_000, 150_000);
+        assert!(!t1.rows_edges(rows));
+        assert!(t1.exhaustive_search(rows));
 
-        set_provider(Box::new(|| BpannTuning {
-            exhaustive_limit: 100,
-            skip_limit: 200,
-            ..Default::default()
-        }));
-        assert!(!current_tuning().rows_edges(rows));
-        assert!(!current_tuning().exhaustive_search(rows));
-        assert!(!current_tuning().refine_search(rows));
-
-        clear_provider();
+        let t2 = BpannTuning::with_limits(100, 200);
+        assert!(!t2.rows_edges(rows));
+        assert!(!t2.exhaustive_search(rows));
+        assert!(!t2.refine_search(rows));
     }
 }

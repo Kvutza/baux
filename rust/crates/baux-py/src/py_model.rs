@@ -24,7 +24,8 @@ type PyRows<'py> = (
 );
 
 /// Python wrapper for ENN
-#[pyclass(unsendable, name = "ENN")]
+#[pyclass(name = "ENN", frozen)]
+#[derive(Clone)]
 pub struct PyENN {
     pub(crate) inner: baux::ENN,
     pub(crate) driver: baux::IndexDriver,
@@ -76,7 +77,7 @@ impl PyENN {
     }
 
     #[new]
-    #[pyo3(signature = (train_x, train_y, train_yvar=None, scale_x=false, index_driver="Exact", work_dir=None, enn_storage=None, y_bounds=None, device=None, index=None, storage=None, metric=None))]
+    #[pyo3(signature = (train_x, train_y, train_yvar=None, scale_x=false, index_driver="Exact", work_dir=None, enn_storage=None, y_bounds=None, device=None, index=None, storage=None, metric=None, config_path=None))]
     fn new(
         train_x: PyReadonlyArray2<f64>,
         train_y: PyReadonlyArray2<f64>,
@@ -90,14 +91,16 @@ impl PyENN {
         index: Option<&str>,
         storage: Option<&str>,
         metric: Option<&Bound<'_, PyAny>>,
+        config_path: Option<&str>,
     ) -> PyResult<Self> {
         let driver = resolve_driver(index_driver, device, index)?;
         let storage = parse_storage(enn_storage, storage, work_dir, driver)?;
         let work_dir = work_dir.map(PathBuf::from);
-        if driver == baux::IndexDriver::BpAnnDisk {
-            baux::bpann_config().map_err(PyValueError::new_err)?;
+        if driver == baux::IndexDriver::BpAnnDisk || config_path.is_some() {
+            baux::file_config::load_config(config_path.map(std::path::Path::new))
+                .map_err(PyValueError::new_err)?;
         }
-        let mut model = baux::ENN::new_options(
+        let model = baux::ENN::new_options(
             train_x.as_array().to_owned(),
             train_y.as_array().to_owned(),
             train_yvar.map(|v| v.as_array().to_owned()),
@@ -110,7 +113,7 @@ impl PyENN {
             },
         )
         .map_err(|e| PyValueError::new_err(e.to_string()))?;
-        apply_metric(&mut model, metric, scale_x)?;
+        let model = apply_metric(model, metric, scale_x)?;
         Ok(Self {
             inner: model,
             driver,
@@ -132,15 +135,21 @@ impl PyENN {
 
     #[pyo3(signature = (x, y, yvar=None))]
     fn add(
-        &mut self,
+        &self,
         x: PyReadonlyArray2<f64>,
         y: PyReadonlyArray2<f64>,
         yvar: Option<PyReadonlyArray2<f64>>,
-    ) -> PyResult<()> {
+    ) -> PyResult<Self> {
         let yvar_arr = yvar.as_ref().map(|v| v.as_array());
-        self.inner
+        let inner = self
+            .inner
+            .clone()
             .add(&x.as_array(), &y.as_array(), yvar_arr.as_ref())
-            .map_err(|e| PyValueError::new_err(e.to_string()))
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        Ok(Self {
+            inner,
+            driver: self.driver,
+        })
     }
 
     #[pyo3(signature = (x=None, y=None, yvar=None, stiefel=None, affine=None, metric=None, local_k=None))]
@@ -158,7 +167,8 @@ impl PyENN {
             (Some(xa), Some(ya)) => {
                 let yvar_arr = yvar.as_ref().map(|v| v.as_array());
                 self.inner
-                    .append_cow(&xa.as_array(), &ya.as_array(), yvar_arr.as_ref())
+                    .clone()
+                    .add(&xa.as_array(), &ya.as_array(), yvar_arr.as_ref())
                     .map_err(|e| PyValueError::new_err(e.to_string()))?
             }
             (None, None) => self.inner.clone(),
@@ -188,23 +198,44 @@ impl PyENN {
         })
     }
 
-    fn ensure_sync(&self) -> PyResult<()> {
-        self.inner
-            .index_access()
+    fn ensure_sync(&self) -> PyResult<Self> {
+        let inner = self
+            .inner
+            .clone()
             .ensure_sync()
-            .map_err(|e| PyValueError::new_err(e.to_string()))
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        Ok(Self {
+            inner,
+            driver: self.driver,
+        })
     }
 
-    fn schedule_flush(&self) -> PyResult<()> {
-        self.inner
+    fn schedule_flush(&self) -> PyResult<Self> {
+        let inner = self
+            .inner
+            .clone()
             .schedule_flush()
-            .map_err(|e| PyValueError::new_err(e.to_string()))
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        Ok(Self {
+            inner,
+            driver: self.driver,
+        })
     }
 
-    fn persist_index(&self) -> PyResult<()> {
-        self.inner
+    fn persist_index(&self) -> PyResult<Self> {
+        let inner = self
+            .inner
+            .clone()
             .persist_index()
-            .map_err(|e| PyValueError::new_err(e.to_string()))
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        Ok(Self {
+            inner,
+            driver: self.driver,
+        })
+    }
+
+    fn fork(&self) -> Self {
+        self.clone()
     }
 
     fn index_bytes(&self) -> PyResult<usize> {
@@ -483,6 +514,47 @@ impl PyENN {
             y.into_pyarray(py),
             yvar.map(|a| a.into_pyarray(py)),
         ))
+    }
+
+    fn x_obs<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyArray2<f64>>> {
+        let n = self.inner.len();
+        if n == 0 {
+            return Ok(ndarray::Array2::<f64>::zeros((0, self.inner.num_dim())).into_pyarray(py));
+        }
+        let indices: Vec<usize> = (0..n).collect();
+        let (x, _, _) = self
+            .inner
+            .natural_rows(&indices)
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        Ok(x.into_pyarray(py))
+    }
+
+    fn y_obs<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyArray2<f64>>> {
+        let n = self.inner.len();
+        if n == 0 {
+            return Ok(
+                ndarray::Array2::<f64>::zeros((0, self.inner.num_outputs())).into_pyarray(py)
+            );
+        }
+        let indices: Vec<usize> = (0..n).collect();
+        let (_, y, _) = self
+            .inner
+            .natural_rows(&indices)
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        Ok(y.into_pyarray(py))
+    }
+
+    fn yvar_obs<'py>(&self, py: Python<'py>) -> PyResult<Option<Bound<'py, PyArray2<f64>>>> {
+        let n = self.inner.len();
+        if n == 0 {
+            return Ok(None);
+        }
+        let indices: Vec<usize> = (0..n).collect();
+        let (_, _, yvar) = self
+            .inner
+            .natural_rows(&indices)
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        Ok(yvar.map(|a| a.into_pyarray(py)))
     }
 
     fn row_y<'py>(&self, py: Python<'py>, i: usize) -> PyResult<Bound<'py, PyArray2<f64>>> {

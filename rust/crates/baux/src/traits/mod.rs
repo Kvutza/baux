@@ -9,6 +9,9 @@ mod oracle;
 pub use oracle::Oracle;
 
 /// Posterior computation extension for ENN model.
+///
+/// All methods take pure borrowed references (`&self`) and perform read-only
+/// queries with pure value semantics.
 pub trait PosteriorComputation {
     /// Compute posterior predictive distribution.
     fn posterior(

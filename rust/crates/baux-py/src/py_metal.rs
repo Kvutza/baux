@@ -3,16 +3,13 @@
 
 #![allow(clippy::too_many_arguments)]
 
-use std::cell::Cell;
-use std::rc::Rc;
-
 use baux::TRLengthConfig;
 use baux::experimental::{
     AcquisitionKind, AcquisitionParams, MetalSearchState, ProposalParams, RoundConfig,
     SurrogateParams,
 };
 use numpy::{IntoPyArray, PyArray1};
-use pyo3::exceptions::{PyBufferError, PyValueError};
+use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 
@@ -21,21 +18,10 @@ mod py_buf;
 use py_buf::err;
 pub use py_buf::{PyMetalParamBlock, PyMetalProposals, PyMetalWeights};
 
-#[pyclass(name = "Region", module = "baux", unsendable)]
+#[pyclass(name = "Region", module = "baux", frozen)]
+#[derive(Clone)]
 pub struct PyMetalSearchState {
     pub(super) inner: MetalSearchState,
-    pub(super) leases: Rc<Cell<usize>>,
-}
-
-impl PyMetalSearchState {
-    fn unleased(&self) -> PyResult<()> {
-        if self.leases.get() != 0 {
-            return Err(PyBufferError::new_err(
-                "Release incumbent Metal weight views before mutating search",
-            ));
-        }
-        Ok(())
-    }
 }
 
 #[pymethods]
@@ -74,26 +60,28 @@ impl PyMetalSearchState {
         )
         .map_err(err)?;
         if let Some(tolerance) = failure_tolerance {
-            inner.set_tolerance(tolerance).map_err(err)?;
+            inner = inner.set_tolerance(tolerance).map_err(err)?;
         }
-        Ok(Self {
-            inner,
-            leases: Rc::new(Cell::new(0)),
-        })
+        Ok(Self { inner })
     }
 
     #[pyo3(name = "enable_paired_relative", signature=(failure_tolerance=4))]
-    fn enable_relative(&mut self, failure_tolerance: usize) -> PyResult<()> {
-        self.unleased()?;
+    fn paired_relative(&self, failure_tolerance: usize) -> PyResult<Self> {
         let _ = failure_tolerance;
         Err(PyValueError::new_err(
             "paired-relative Metal search is unavailable",
         ))
     }
 
+    #[pyo3(signature=(failure_tolerance=4))]
+    fn enable_relative(&self, failure_tolerance: usize) -> PyResult<Self> {
+        self.paired_relative(failure_tolerance)
+    }
+
     #[pyo3(signature=(arms=1,candidates=4,neighbors=1,seed=None,epistemic_scale=1.0,aleatoric_scale=0.0,y_scale=1.0,beta=1.0,acquisition="thompson",draw_seed=0))]
     fn ask(
-        mut slf: PyRefMut<'_, Self>,
+        &self,
+        py: Python<'_>,
         arms: usize,
         candidates: usize,
         neighbors: usize,
@@ -104,8 +92,7 @@ impl PyMetalSearchState {
         beta: f32,
         acquisition: &str,
         draw_seed: u64,
-    ) -> PyResult<PyMetalProposals> {
-        slf.unleased()?;
+    ) -> PyResult<(Py<Self>, PyMetalProposals)> {
         let seed = baux::resolve_seed(seed);
         let kind = AcquisitionKind::parse(acquisition).map_err(err)?;
         let config = RoundConfig {
@@ -122,79 +109,52 @@ impl PyMetalSearchState {
                 seed: draw_seed,
             },
         };
-        let inner = slf
+        let (next_inner, inner) = self
             .inner
+            .clone()
             .ask_round(arms, candidates, seed, config)
             .map_err(err)?;
-        Ok(PyMetalProposals {
-            owner: slf.into(),
-            inner,
-        })
+        let next_py = Py::new(py, Self { inner: next_inner })?;
+        Ok((
+            next_py.clone_ref(py),
+            PyMetalProposals {
+                owner: next_py,
+                inner,
+            },
+        ))
     }
 
     fn incumbent(&self) -> PyResult<PyMetalWeights> {
-        // The returned buffer is read-only in Python and retains its
-        // allocation.
         self.inner.best().map_err(err)?;
-        self.leases.set(self.leases.get() + 1);
         Ok(PyMetalWeights {
             buffer: self.inner.base_buffer(),
             len: self.inner.len(),
-            lease: Some(self.leases.clone()),
         })
     }
 
     #[pyo3(signature=(proposals, value, variance=0.0))]
     fn tell(
-        &mut self,
+        &self,
         proposals: PyRef<'_, PyMetalProposals>,
         value: f32,
         variance: f32,
-    ) -> PyResult<bool> {
-        self.unleased()?;
-        self.inner
+    ) -> PyResult<(Self, bool)> {
+        let (next, decision) = self
+            .inner
+            .clone()
             .tell_noisy(&proposals.inner, value, variance)
-            .map(|d| d.accepted)
-            .map_err(err)
+            .map_err(err)?;
+        Ok((Self { inner: next }, decision.accepted))
     }
 
-    #[pyo3(signature=(proposals, value, variance, incumbent_value, incumbent_variance, accept))]
-    fn tell_paired(
-        &mut self,
-        proposals: PyRef<'_, PyMetalProposals>,
-        value: f64,
-        variance: f64,
-        incumbent_value: f64,
-        incumbent_variance: f64,
-        accept: bool,
-    ) -> PyResult<()> {
-        self.unleased()?;
-        if [value, variance, incumbent_value, incumbent_variance]
-            .iter()
-            .any(|v| !v.is_finite() || !(*v as f32).is_finite())
-            || variance < 0.0
-            || incumbent_variance < 0.0
-        {
-            return Err(PyValueError::new_err(
-                "Paired values must be finite FP32; variances must be nonnegative",
-            ));
-        }
-        let _ = (incumbent_value, incumbent_variance, accept);
-        self.inner
-            .tell_noisy(&proposals.inner, value as f32, variance as f32)
-            .map(|_| ())
-            .map_err(err)
+    fn sync(&self) -> PyResult<(Self, Vec<bool>)> {
+        let (next, flags) = self.inner.clone().sync().map_err(err)?;
+        Ok((Self { inner: next }, flags))
     }
 
-    fn sync(&mut self) -> PyResult<Vec<bool>> {
-        self.unleased()?;
-        self.inner.sync().map_err(err)
-    }
-
-    fn set_profiling(&mut self, enabled: bool) -> PyResult<()> {
-        self.unleased()?;
-        self.inner.set_profiling(enabled);
-        Ok(())
+    fn set_profiling(&self, enabled: bool) -> PyResult<Self> {
+        let next = self.inner.clone().set_profiling(enabled);
+        Ok(Self { inner: next })
     }
 
     #[getter]
@@ -236,11 +196,14 @@ impl PyMetalSearchState {
         Ok(self.inner.read_best().map_err(err)?.into_pyarray(py))
     }
 
-    fn read_reference<'py>(&mut self, _py: Python<'py>) -> PyResult<Bound<'py, PyArray1<u16>>> {
-        self.unleased()?;
+    fn read_reference<'py>(&self, _py: Python<'py>) -> PyResult<Bound<'py, PyArray1<u16>>> {
         Err(PyValueError::new_err(
             "Gaussian Metal search has no correlated reference",
         ))
+    }
+
+    fn fork(&self) -> Self {
+        self.clone()
     }
 
     #[getter]

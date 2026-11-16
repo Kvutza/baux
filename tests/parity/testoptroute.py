@@ -1,10 +1,16 @@
 from __future__ import annotations
 
+import baux
 import numpy as np
 import pytest
-from baux import create_optimizer, turbo_enn, turbo_one, turbo_zero
-from baux.bo import Optimizer
-from baux.turbo.config import ENNSurrogate, lhd_only
+from baux.state import OptimizerState
+from baux.turbo.config import (
+    ENNSurrogate,
+    lhd_only,
+    turbo_enn,
+    turbo_one,
+    turbo_zero,
+)
 from baux.turbo.config.encode import ENN_K, enn_k, supports
 
 pytest.importorskip("baux._rust")
@@ -18,8 +24,9 @@ BOUNDS = np.array([[0.0, 1.0], [0.0, 1.0]])
 )
 def test_001(cfg):
     assert supports(cfg)
-    opt = create_optimizer(bounds=BOUNDS, config=cfg, rng=np.random.default_rng(0))
-    assert isinstance(opt, Optimizer)
+    rng = np.random.default_rng(0)
+    opt = baux.init(BOUNDS, cfg, seed=int(rng.integers(2**63 - 1)))
+    assert isinstance(opt, OptimizerState)
 
 
 def test_defaultennk():

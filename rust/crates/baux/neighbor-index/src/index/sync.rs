@@ -10,7 +10,7 @@ use baux::neighbor_index::index::search::{
 };
 use baux::neighbor_index::mmap_store::MmapColumnStore;
 use baux::neighbor_index::observation as obs;
-use baux::neighbor_index::tuning::current_tuning;
+use baux::neighbor_index::tuning::BpannTuning;
 
 use baux::neighbor_index::index::sync_forest::{
     IndexBuildContext, centroid_rows, load_mmap, range_index, vector_index,
@@ -26,35 +26,41 @@ const MID_MAX: usize = 10_000;
 /// Vector-leaf size inside the mid-band forest (also the greedy visit size).
 const MID_CAPACITY: usize = 256;
 
-fn index_threshold(indexed_rows: usize) -> usize {
+fn index_threshold(indexed_rows: usize, tuning: &BpannTuning) -> usize {
     if indexed_rows <= 1000 {
         return 1;
     }
-    let t = current_tuning();
-    (indexed_rows / t.index_fragment).clamp(INDEX_MIN, t.index_max)
+    (indexed_rows / tuning.index_fragment).clamp(INDEX_MIN, tuning.index_max)
 }
 
-fn search_budget(fragment_count: usize, indexed_rows: usize) -> usize {
+fn search_budget(fragment_count: usize, indexed_rows: usize, tuning: &BpannTuning) -> usize {
     if fragment_count <= 2 {
         return fragment_count;
     }
-    let t = current_tuning();
-    let scaled = (indexed_rows / t.search_fragment).max(2);
-    scaled.min(fragment_count).min(t.search_limit)
+    let scaled = (indexed_rows / tuning.search_fragment).max(2);
+    scaled.min(fragment_count).min(tuning.search_limit)
 }
 
-fn search_width(_indexed_rows: usize) -> usize {
-    current_tuning().search_width
+fn search_width(_indexed_rows: usize, tuning: &BpannTuning) -> usize {
+    tuning.search_width
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct IncrementalIndex {
     pub indices: Vec<BpannIndex>,
     pub indexed_rows: usize,
     pub index_dir: PathBuf,
+    pub tuning: BpannTuning,
     pending_centroid_sum: Vec<f64>,
     pending_row_count: usize,
 }
+
+const _: () = {
+    fn assert_sync<T: Send + Sync>() {}
+    fn check() {
+        assert_sync::<IncrementalIndex>();
+    }
+};
 
 impl IncrementalIndex {
     pub(crate) fn rescale_pending(&mut self, factors: &[f64]) {
@@ -62,19 +68,35 @@ impl IncrementalIndex {
             *value *= factor;
         }
     }
+
     pub fn new(index_dir: PathBuf) -> Self {
+        Self::tuning_config(index_dir, BpannTuning::default())
+    }
+
+    pub fn tuning_config(index_dir: PathBuf, tuning: BpannTuning) -> Self {
         Self {
             indices: Vec::new(),
             indexed_rows: 0,
             index_dir,
+            tuning,
             pending_centroid_sum: Vec::new(),
             pending_row_count: 0,
         }
     }
 
-    pub fn note_rows(&mut self, x: &ndarray::ArrayView2<f64>, scale_x: bool, x_scale: &[f64]) {
+    pub fn with_tuning(mut self, tuning: BpannTuning) -> Self {
+        self.tuning = tuning;
+        self
+    }
+
+    pub fn note_rows(
+        mut self,
+        x: &ndarray::ArrayView2<f64>,
+        scale_x: bool,
+        x_scale: &[f64],
+    ) -> Self {
         if x.nrows() == 0 {
-            return;
+            return self;
         }
         if self.pending_centroid_sum.len() != x.ncols() {
             self.pending_centroid_sum = vec![0.0; x.ncols()];
@@ -84,9 +106,10 @@ impl IncrementalIndex {
             self.pending_centroid_sum[j] += if scale_x { s / x_scale[j] } else { s };
         }
         self.pending_row_count += x.nrows();
+        self
     }
 
-    fn take_centroid(&mut self, num_dim: usize) -> Option<Vec<f32>> {
+    pub(crate) fn take_centroid(&mut self, num_dim: usize) -> Option<Vec<f32>> {
         if self.pending_row_count == 0 {
             return None;
         }
@@ -104,16 +127,17 @@ impl IncrementalIndex {
         Some(centroid)
     }
 
-    pub fn reset(&mut self) {
+    pub fn reset(mut self) -> Self {
         self.indices.clear();
         self.indexed_rows = 0;
         self.pending_centroid_sum.clear();
         self.pending_row_count = 0;
+        self
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub fn ensure_backend(
-        &mut self,
+    pub fn sync_pending(
+        mut self,
         train_x: &MmapColumnStore,
         num_dim: usize,
         scale_x: bool,
@@ -121,7 +145,8 @@ impl IncrementalIndex {
         work_dir: &std::path::Path,
         num_metrics: usize,
         end: usize,
-    ) -> Result<(), BpannError> {
+        tuning: &BpannTuning,
+    ) -> Result<Self, BpannError> {
         let ctx = IndexBuildContext {
             train_x,
             num_dim,
@@ -130,18 +155,47 @@ impl IncrementalIndex {
             work_dir,
             num_metrics,
         };
-        self.index_through(&ctx, end)
+        self.index_through(&ctx, end, tuning)?;
+        Ok(self)
     }
 
-    pub fn persist_backend(
-        &mut self,
+    #[allow(clippy::too_many_arguments)]
+    pub fn rebuild(
+        mut self,
         train_x: &MmapColumnStore,
         num_dim: usize,
         scale_x: bool,
         x_scale: &[f64],
         work_dir: &std::path::Path,
         num_metrics: usize,
-    ) -> Result<(), BpannError> {
+        end: usize,
+        tuning: &BpannTuning,
+    ) -> Result<Self, BpannError> {
+        self = self.reset();
+        self.sync_pending(
+            train_x,
+            num_dim,
+            scale_x,
+            x_scale,
+            work_dir,
+            num_metrics,
+            end,
+            tuning,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn ensure_backend(
+        mut self,
+        train_x: &MmapColumnStore,
+        num_dim: usize,
+        scale_x: bool,
+        x_scale: &[f64],
+        work_dir: &std::path::Path,
+        num_metrics: usize,
+        end: usize,
+        tuning: &BpannTuning,
+    ) -> Result<Self, BpannError> {
         let ctx = IndexBuildContext {
             train_x,
             num_dim,
@@ -150,7 +204,77 @@ impl IncrementalIndex {
             work_dir,
             num_metrics,
         };
-        self.persist_index(&ctx)
+        self.index_through(&ctx, end, tuning)?;
+        Ok(self)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn ensure_tuned(
+        self,
+        train_x: &MmapColumnStore,
+        num_dim: usize,
+        scale_x: bool,
+        x_scale: &[f64],
+        work_dir: &std::path::Path,
+        num_metrics: usize,
+        end: usize,
+        tuning: &BpannTuning,
+    ) -> Result<Self, BpannError> {
+        self.ensure_backend(
+            train_x,
+            num_dim,
+            scale_x,
+            x_scale,
+            work_dir,
+            num_metrics,
+            end,
+            tuning,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn persist_backend(
+        mut self,
+        train_x: &MmapColumnStore,
+        num_dim: usize,
+        scale_x: bool,
+        x_scale: &[f64],
+        work_dir: &std::path::Path,
+        num_metrics: usize,
+        tuning: &BpannTuning,
+    ) -> Result<Self, BpannError> {
+        let ctx = IndexBuildContext {
+            train_x,
+            num_dim,
+            scale_x,
+            x_scale,
+            work_dir,
+            num_metrics,
+        };
+        self.persist_index(&ctx, tuning)?;
+        Ok(self)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn persist_tuned(
+        self,
+        train_x: &MmapColumnStore,
+        num_dim: usize,
+        scale_x: bool,
+        x_scale: &[f64],
+        work_dir: &std::path::Path,
+        num_metrics: usize,
+        tuning: &BpannTuning,
+    ) -> Result<Self, BpannError> {
+        self.persist_backend(
+            train_x,
+            num_dim,
+            scale_x,
+            x_scale,
+            work_dir,
+            num_metrics,
+            tuning,
+        )
     }
 
     pub fn needs_rewrite(&self, index_dirty: bool, nrows: usize) -> bool {
@@ -173,8 +297,12 @@ impl IncrementalIndex {
         }
     }
 
-    fn persist_index(&mut self, ctx: &IndexBuildContext<'_>) -> Result<(), BpannError> {
-        self.index_through(ctx, ctx.train_x.nrows)?;
+    fn persist_index(
+        &mut self,
+        ctx: &IndexBuildContext<'_>,
+        tuning: &BpannTuning,
+    ) -> Result<(), BpannError> {
+        self.index_through(ctx, ctx.train_x.nrows, tuning)?;
         if self.indices.is_empty() && self.indexed_rows == 0 {
             return Ok(());
         }
@@ -197,11 +325,16 @@ impl IncrementalIndex {
         Ok(())
     }
 
-    fn index_through(&mut self, ctx: &IndexBuildContext<'_>, end: usize) -> Result<(), BpannError> {
+    fn index_through(
+        &mut self,
+        ctx: &IndexBuildContext<'_>,
+        end: usize,
+        tuning: &BpannTuning,
+    ) -> Result<(), BpannError> {
         if self.indexed_rows >= end {
             return Ok(());
         }
-        let limit = current_tuning().structured_limit;
+        let limit = tuning.structured_limit;
         let pending = end - self.indexed_rows;
         // Soft-sync spans just above `limit` used to take one structured
         // `build_rows` tree (better ask, slower tell). Very large spans
@@ -212,39 +345,47 @@ impl IncrementalIndex {
         if chunk_large_spans && pending > MID_MAX {
             let _ = self.take_centroid(ctx.num_dim);
             self.build_ranges(ctx, self.indexed_rows, end, limit)?;
-            self.maybe_compact(ctx)?;
+            self.maybe_compact(ctx, tuning)?;
         } else if chunk_large_spans {
             let _ = self.take_centroid(ctx.num_dim);
             self.build_vectors(ctx, self.indexed_rows, end, MID_CAPACITY)?;
-            self.maybe_compact(ctx)?;
+            self.maybe_compact(ctx, tuning)?;
         } else {
-            self.build_batch(ctx, self.indexed_rows, end)?;
-            self.maybe_compact(ctx)?;
+            self.build_batch(ctx, self.indexed_rows, end, tuning)?;
+            self.maybe_compact(ctx, tuning)?;
         }
         obs::write_rows(ctx.work_dir, self.indexed_rows)?;
         Ok(())
     }
 
     /// RAM amalgamation only: no `persist()`, no metadata rewrite.
-    fn maybe_compact(&mut self, ctx: &IndexBuildContext<'_>) -> Result<(), BpannError> {
-        let max_fragments = index_threshold(self.indexed_rows);
+    fn maybe_compact(
+        &mut self,
+        ctx: &IndexBuildContext<'_>,
+        tuning: &BpannTuning,
+    ) -> Result<(), BpannError> {
+        let max_fragments = index_threshold(self.indexed_rows, tuning);
         let compact_limit = max_fragments.saturating_mul(2).max(max_fragments + 1);
         if self.indices.len() > compact_limit {
-            self.compact(ctx)?;
+            self.compact(ctx, tuning)?;
         }
         Ok(())
     }
 
-    fn compact(&mut self, ctx: &IndexBuildContext<'_>) -> Result<(), BpannError> {
+    fn compact(
+        &mut self,
+        ctx: &IndexBuildContext<'_>,
+        tuning: &BpannTuning,
+    ) -> Result<(), BpannError> {
         if self.indexed_rows == 0 {
             self.indices.clear();
             return Ok(());
         }
-        let max_fragments = index_threshold(self.indexed_rows);
+        let max_fragments = index_threshold(self.indexed_rows, tuning);
         while self.indices.len() > max_fragments {
             let over = self.indices.len() - max_fragments;
             let merge_n = over.clamp(2, 4).min(self.indices.len());
-            self.amalgamate_run(ctx, merge_n)?;
+            self.amalgamate_run(ctx, merge_n, tuning)?;
         }
         Ok(())
     }
@@ -253,6 +394,7 @@ impl IncrementalIndex {
         &mut self,
         _ctx: &IndexBuildContext<'_>,
         merge_n: usize,
+        tuning: &BpannTuning,
     ) -> Result<(), BpannError> {
         if self.indices.len() < 2 {
             return Ok(());
@@ -260,7 +402,7 @@ impl IncrementalIndex {
         let merge_n = merge_n.min(self.indices.len());
         let mut best_i = 0usize;
         let mut best_rows = usize::MAX;
-        let small_limit = current_tuning().fragment_rows;
+        let small_limit = tuning.fragment_rows;
         for i in 0..=self.indices.len().saturating_sub(merge_n) {
             let slice = &self.indices[i..i + merge_n];
             let rows: usize = slice.iter().map(|index| index.header.indexed_rows).sum();
@@ -285,8 +427,12 @@ impl IncrementalIndex {
     }
 
     #[allow(dead_code)]
-    fn amalgamate_pair(&mut self, ctx: &IndexBuildContext<'_>) -> Result<(), BpannError> {
-        self.amalgamate_run(ctx, 2)
+    fn amalgamate_pair(
+        &mut self,
+        ctx: &IndexBuildContext<'_>,
+        tuning: &BpannTuning,
+    ) -> Result<(), BpannError> {
+        self.amalgamate_run(ctx, 2, tuning)
     }
 
     /// Large soft-sync: one fragment of empty row-id leaves under an Internal
@@ -329,11 +475,11 @@ impl IncrementalIndex {
         ctx: &IndexBuildContext<'_>,
         start: usize,
         end: usize,
+        tuning: &BpannTuning,
     ) -> Result<(), BpannError> {
         if start >= end {
             return Ok(());
         }
-        let tuning = current_tuning();
         let seed = tuning.build_seed.unwrap_or(start as u64);
         let row_ids: Vec<u32> = (start..end).map(|i| i as u32).collect();
         let batch_len = end - start;
@@ -363,6 +509,7 @@ impl IncrementalIndex {
                 seed,
                 self.index_dir.clone(),
                 false,
+                tuning,
             )?
         };
         self.indices.push(index);
@@ -375,8 +522,9 @@ impl IncrementalIndex {
         query_f32: &[f32],
         k: usize,
         store: Option<&MmapSearchStore<'_>>,
+        tuning: &BpannTuning,
     ) -> Result<Vec<(u32, f32)>, BpannError> {
-        let budget = search_budget(self.indices.len(), self.indexed_rows);
+        let budget = search_budget(self.indices.len(), self.indexed_rows, tuning);
         let indices_to_search: Vec<&BpannIndex> = if self.indices.len() <= budget {
             self.indices.iter().collect()
         } else {
@@ -406,7 +554,13 @@ impl IncrementalIndex {
             .max(k);
         let mut merged: Vec<(u32, f32)> = Vec::new();
         for index in indices_to_search {
-            merged.extend(search_candidates(index, query_f32, per_fragment_k, store)?);
+            merged.extend(search_candidates(
+                index,
+                query_f32,
+                per_fragment_k,
+                store,
+                tuning,
+            )?);
         }
         merged.sort_by(|a, b| {
             a.1.partial_cmp(&b.1)
@@ -415,6 +569,15 @@ impl IncrementalIndex {
         });
         merged.truncate(k);
         Ok(merged)
+    }
+
+    pub fn search_default(
+        &self,
+        query_f32: &[f32],
+        k: usize,
+        store: Option<&MmapSearchStore<'_>>,
+    ) -> Result<Vec<(u32, f32)>, BpannError> {
+        self.search_candidates(query_f32, k, store, &self.tuning)
     }
 
     pub fn index_bytes(&self) -> usize {
@@ -427,18 +590,18 @@ fn search_candidates(
     query: &[f32],
     k: usize,
     store: Option<&MmapSearchStore<'_>>,
+    tuning: &BpannTuning,
 ) -> Result<Vec<(u32, f32)>, BpannError> {
     let rows = index.header.indexed_rows;
     // Mode cliffs are call-time tuning. On-disk skip edges reflect build-time
     // limits and may be empty if limits changed since the fragment was
     // built.
-    let t = current_tuning();
-    if t.exhaustive_search(rows) {
+    if tuning.exhaustive_search(rows) {
         search_store(index, query, k, store)
     } else {
-        let beam = search_width(rows);
+        let beam = search_width(rows, tuning);
         let mut visited = Vec::new();
-        if t.refine_search(rows) {
+        if tuning.refine_search(rows) {
             refine_store(index, query, k, beam, &mut visited, store)
         } else {
             search_tree(index, query, k, beam, store)
@@ -467,29 +630,33 @@ mod tests {
 
     #[test]
     fn search_max() {
+        let tuning = BpannTuning::default();
         // Default search_limit=1: with many fragments, search only one.
-        assert_eq!(search_budget(1, 100_000), 1);
-        assert_eq!(search_budget(2, 100_000), 2);
-        assert_eq!(search_budget(8, 100_000), 1);
-        assert_eq!(search_budget(32, 800_000), 1);
+        assert_eq!(search_budget(1, 100_000, &tuning), 1);
+        assert_eq!(search_budget(2, 100_000, &tuning), 2);
+        assert_eq!(search_budget(8, 100_000, &tuning), 1);
+        assert_eq!(search_budget(32, 800_000, &tuning), 1);
     }
 
     #[test]
     fn sync_behavioral() {
         let dir = TempDir::new().unwrap();
-        let mut idx = IncrementalIndex::new(dir.path().join("index"));
+        let tuning = BpannTuning::default();
+        let mut idx = IncrementalIndex::tuning_config(dir.path().join("index"), tuning);
         let x_path = dir.path().join("train_x.bin");
         let mut store = MmapColumnStore::open_mmap(x_path, 2, None).unwrap();
         for batch in 0..3 {
             let row0 = batch as f64 * 2.0;
             let chunk = array![[row0, 0.0], [row0 + 1.0, 0.0]];
-            store.mmap_append(&chunk.view()).unwrap();
+            store = store.mmap_append(&chunk.view()).unwrap();
             let start = batch * 2;
             let end = start + 2;
-            idx.ensure_backend(&store, 2, false, &[1.0, 1.0], dir.path(), 1, end)
+            idx = idx
+                .sync_pending(&store, 2, false, &[1.0, 1.0], dir.path(), 1, end, &tuning)
                 .unwrap();
         }
-        idx.persist_backend(&store, 2, false, &[1.0, 1.0], dir.path(), 1)
+        idx = idx
+            .persist_backend(&store, 2, false, &[1.0, 1.0], dir.path(), 1, &tuning)
             .unwrap();
         assert!(dir.path().join("index/header.json").exists());
         assert_eq!(idx.indexed_rows, 6);
@@ -498,21 +665,24 @@ mod tests {
     #[test]
     fn sync_behavioral2() {
         let dir = TempDir::new().unwrap();
+        let tuning = BpannTuning::default();
         let index_dir = dir.path().join("index");
 
         assert_eq!(disk_rows(&index_dir).unwrap(), 0);
 
-        let mut idx = IncrementalIndex::new(index_dir.clone());
+        let mut idx = IncrementalIndex::tuning_config(index_dir.clone(), tuning);
         assert!(!idx.needs_rewrite(false, 0));
         assert!(idx.needs_rewrite(true, 0));
 
         let x_path = dir.path().join("train_x.bin");
         let mut store = MmapColumnStore::open_mmap(x_path, 2, None).unwrap();
         let chunk = array![[0.0, 0.0], [1.0, 0.0], [2.0, 0.0]];
-        store.mmap_append(&chunk.view()).unwrap();
-        idx.ensure_backend(&store, 2, false, &[1.0, 1.0], dir.path(), 1, 3)
+        store = store.mmap_append(&chunk.view()).unwrap();
+        idx = idx
+            .sync_pending(&store, 2, false, &[1.0, 1.0], dir.path(), 1, 3, &tuning)
             .unwrap();
-        idx.persist_backend(&store, 2, false, &[1.0, 1.0], dir.path(), 1)
+        idx = idx
+            .persist_backend(&store, 2, false, &[1.0, 1.0], dir.path(), 1, &tuning)
             .unwrap();
 
         assert_eq!(disk_rows(&index_dir).unwrap(), 3);
@@ -522,23 +692,28 @@ mod tests {
     #[test]
     fn api_behavioral() {
         let dir = TempDir::new().unwrap();
-        let mut idx = IncrementalIndex::new(dir.path().to_path_buf());
+        let tuning = BpannTuning::default();
+        let mut idx = IncrementalIndex::tuning_config(dir.path().to_path_buf(), tuning);
         let x = array![[0.0, 1.0], [1.0, 0.0]];
-        idx.note_rows(&x.view(), false, &[1.0, 1.0]);
+        idx = idx.note_rows(&x.view(), false, &[1.0, 1.0]);
         assert!(idx.take_centroid(2).is_some());
         let x_path = dir.path().join("train_x.bin");
         let mut store = MmapColumnStore::open_mmap(x_path, 2, None).unwrap();
-        store.mmap_append(&x.view()).unwrap();
-        idx.ensure_backend(&store, 2, false, &[1.0, 1.0], dir.path(), 1, 2)
+        store = store.mmap_append(&x.view()).unwrap();
+        idx = idx
+            .sync_pending(&store, 2, false, &[1.0, 1.0], dir.path(), 1, 2, &tuning)
             .unwrap();
-        let results = idx.search_candidates(&[0.0, 0.0], 1, None).unwrap();
+        let results = idx
+            .search_candidates(&[0.0, 0.0], 1, None, &tuning)
+            .unwrap();
         let _ = results;
         assert_eq!(idx.indexed_rows, 2);
         assert!(!idx.indices.is_empty());
         // Soft sync leaves pages on disk unwritten; hard persist materializes
         // files.
         assert_eq!(idx.index_bytes(), 0);
-        idx.persist_backend(&store, 2, false, &[1.0, 1.0], dir.path(), 1)
+        idx = idx
+            .persist_backend(&store, 2, false, &[1.0, 1.0], dir.path(), 1, &tuning)
             .unwrap();
         assert!(idx.index_bytes() > 0);
     }
@@ -546,20 +721,24 @@ mod tests {
     #[test]
     fn sync_behavioral3() {
         let dir = TempDir::new().unwrap();
-        let mut idx = IncrementalIndex::new(dir.path().join("index"));
+        let tuning = BpannTuning::default();
+        let mut idx = IncrementalIndex::tuning_config(dir.path().join("index"), tuning);
         let x_path = dir.path().join("train_x.bin");
         let mut store = MmapColumnStore::open_mmap(x_path, 2, None).unwrap();
         for batch in 0..8 {
             let row0 = batch as f64 * 2.0;
             let chunk = array![[row0, 0.0], [row0 + 1.0, 0.0]];
-            store.mmap_append(&chunk.view()).unwrap();
+            store = store.mmap_append(&chunk.view()).unwrap();
             let start = batch * 2;
             let end = start + 2;
-            idx.ensure_backend(&store, 2, false, &[1.0, 1.0], dir.path(), 1, end)
+            idx = idx
+                .sync_pending(&store, 2, false, &[1.0, 1.0], dir.path(), 1, end, &tuning)
                 .unwrap();
         }
         assert!(idx.indices.len() <= 4);
-        let _ = idx.search_candidates(&[1.0, 0.0], 2, None).unwrap();
+        let _ = idx
+            .search_candidates(&[1.0, 0.0], 2, None, &tuning)
+            .unwrap();
     }
 
     /// Regression: soft-sync spans larger than `structured_limit` must still
@@ -568,10 +747,11 @@ mod tests {
     /// centroid.
     #[test]
     fn soft_centroid() {
-        let limit = current_tuning().structured_limit;
+        let tuning = BpannTuning::default();
+        let limit = tuning.structured_limit;
         let n = limit + 76; // force multi-chunk soft-sync
         let dir = TempDir::new().unwrap();
-        let mut idx = IncrementalIndex::new(dir.path().join("index"));
+        let mut idx = IncrementalIndex::tuning_config(dir.path().join("index"), tuning);
         let x_path = dir.path().join("train_x.bin");
         let mut store = MmapColumnStore::open_mmap(x_path, 2, None).unwrap();
         let scale = [1.0_f64, 1.0];
@@ -581,9 +761,10 @@ mod tests {
             large[[i, 0]] = (i as f64) * 0.01;
             large[[i, 1]] = 1.0;
         }
-        store.mmap_append(&large.view()).unwrap();
-        idx.note_rows(&large.view(), false, &scale);
-        idx.ensure_backend(&store, 2, false, &scale, dir.path(), 1, n)
+        store = store.mmap_append(&large.view()).unwrap();
+        idx = idx.note_rows(&large.view(), false, &scale);
+        idx = idx
+            .sync_pending(&store, 2, false, &scale, dir.path(), 1, n, &tuning)
             .unwrap();
 
         assert_eq!(
@@ -598,9 +779,10 @@ mod tests {
         // Metamorphic: next singleton fragment must place at the new row, not a
         // blend with the already-indexed large batch.
         let far = array![[10_000.0, 0.0]];
-        store.mmap_append(&far.view()).unwrap();
-        idx.note_rows(&far.view(), false, &scale);
-        idx.ensure_backend(&store, 2, false, &scale, dir.path(), 1, n + 1)
+        store = store.mmap_append(&far.view()).unwrap();
+        idx = idx.note_rows(&far.view(), false, &scale);
+        idx = idx
+            .sync_pending(&store, 2, false, &scale, dir.path(), 1, n + 1, &tuning)
             .unwrap();
         let centroid = idx
             .indices
@@ -615,11 +797,12 @@ mod tests {
 
     #[test]
     fn soft_builds() {
-        let limit = current_tuning().structured_limit;
+        let tuning = BpannTuning::default();
+        let limit = tuning.structured_limit;
         // Must exceed MID_MAX to take the empty-leaf chunk path.
         let n = MID_MAX + limit + 10;
         let dir = TempDir::new().unwrap();
-        let mut idx = IncrementalIndex::new(dir.path().join("index"));
+        let mut idx = IncrementalIndex::tuning_config(dir.path().join("index"), tuning);
         let x_path = dir.path().join("train_x.bin");
         let mut store = MmapColumnStore::open_mmap(x_path, 2, None).unwrap();
         let scale = [1.0_f64, 1.0];
@@ -628,9 +811,10 @@ mod tests {
             large[[i, 0]] = i as f64;
             large[[i, 1]] = 0.0;
         }
-        store.mmap_append(&large.view()).unwrap();
-        idx.note_rows(&large.view(), false, &scale);
-        idx.ensure_backend(&store, 2, false, &scale, dir.path(), 1, n)
+        store = store.mmap_append(&large.view()).unwrap();
+        idx = idx.note_rows(&large.view(), false, &scale);
+        idx = idx
+            .sync_pending(&store, 2, false, &scale, dir.path(), 1, n, &tuning)
             .unwrap();
         assert_eq!(idx.indexed_rows, n);
         assert_eq!(
@@ -647,11 +831,12 @@ mod tests {
 
     #[test]
     fn midband_forest() {
-        let limit = current_tuning().structured_limit;
+        let tuning = BpannTuning::default();
+        let limit = tuning.structured_limit;
         let n = limit * 2 + 100;
         assert!(n > limit * 2 && n <= MID_MAX);
         let dir = TempDir::new().unwrap();
-        let mut idx = IncrementalIndex::new(dir.path().join("index"));
+        let mut idx = IncrementalIndex::tuning_config(dir.path().join("index"), tuning);
         let x_path = dir.path().join("train_x.bin");
         let mut store = MmapColumnStore::open_mmap(x_path, 2, None).unwrap();
         let scale = [1.0_f64, 1.0];
@@ -659,9 +844,10 @@ mod tests {
         for i in 0..n {
             mid[[i, 0]] = i as f64;
         }
-        store.mmap_append(&mid.view()).unwrap();
-        idx.note_rows(&mid.view(), false, &scale);
-        idx.ensure_backend(&store, 2, false, &scale, dir.path(), 1, n)
+        store = store.mmap_append(&mid.view()).unwrap();
+        idx = idx.note_rows(&mid.view(), false, &scale);
+        idx = idx
+            .sync_pending(&store, 2, false, &scale, dir.path(), 1, n, &tuning)
             .unwrap();
         assert_eq!(idx.indexed_rows, n);
         assert_eq!(
@@ -675,7 +861,7 @@ mod tests {
         );
         assert!(has_vectors);
         assert!(
-            !idx.search_candidates(&[1.0, 0.0], 3, None)
+            !idx.search_candidates(&[1.0, 0.0], 3, None, &tuning)
                 .unwrap()
                 .is_empty()
         );
@@ -683,12 +869,13 @@ mod tests {
 
     #[test]
     fn midsize_fragment() {
-        let limit = current_tuning().structured_limit;
+        let tuning = BpannTuning::default();
+        let limit = tuning.structured_limit;
         // Between limit and 2*limit: structured single-build path.
         let n = limit + limit / 2;
         assert!(n > limit && n <= limit * 2);
         let dir = TempDir::new().unwrap();
-        let mut idx = IncrementalIndex::new(dir.path().join("index"));
+        let mut idx = IncrementalIndex::tuning_config(dir.path().join("index"), tuning);
         let x_path = dir.path().join("train_x.bin");
         let mut store = MmapColumnStore::open_mmap(x_path, 2, None).unwrap();
         let scale = [1.0_f64, 1.0];
@@ -697,9 +884,10 @@ mod tests {
             mid[[i, 0]] = i as f64;
             mid[[i, 1]] = 0.0;
         }
-        store.mmap_append(&mid.view()).unwrap();
-        idx.note_rows(&mid.view(), false, &scale);
-        idx.ensure_backend(&store, 2, false, &scale, dir.path(), 1, n)
+        store = store.mmap_append(&mid.view()).unwrap();
+        idx = idx.note_rows(&mid.view(), false, &scale);
+        idx = idx
+            .sync_pending(&store, 2, false, &scale, dir.path(), 1, n, &tuning)
             .unwrap();
         assert_eq!(idx.indexed_rows, n);
         assert_eq!(

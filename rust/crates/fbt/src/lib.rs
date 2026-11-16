@@ -26,14 +26,27 @@
 
 #[cfg(test)]
 pub(crate) use baux::TRLengthConfig;
+pub(crate) use baux::artifact::pretrain as pretrain_data;
 pub use baux::semantics::context;
 pub(crate) use baux::{
-    BasePolicyManifest, ProposalDistribution, config, forward_program, hash, muon,
-    objective_observation, pretrain_data, response_observation, search, tensor_store, text, traits,
-    trust_region, weights,
+    ProposalDistribution, config, forward_program, hash, objective_observation,
+    response_observation, search, tensor_store, traits, trust_region, weights,
 };
 #[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "metal"))]
-pub(crate) use baux::{apple_gpu, hnet_metal, mps as fbt_mps, reconstruction, resident_metal};
+pub(crate) use baux::{apple_gpu, resident_metal};
+
+pub mod base_policy;
+pub(crate) use base_policy::BasePolicyManifest;
+pub mod muon;
+pub mod recon_ref;
+pub use recon_ref as reconstruction;
+#[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "metal"))]
+pub mod hnet_metal;
+#[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "metal"))]
+pub mod mps;
+pub mod text;
+#[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "metal"))]
+pub use mps as fbt_mps;
 
 #[cfg(any(
     test,

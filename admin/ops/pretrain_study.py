@@ -241,7 +241,7 @@ def resolved_toml(document: dict, plan: dict) -> str:
         }
     resolved["dataset"] = str((plan["corpus"] / "train.bauxptn").resolve())
     resolved["output"] = str(plan["output"].resolve())
-    keys = ["version"] + sorted(key for key in resolved if key != "version")
+    keys = ["version", *sorted(key for key in resolved if key != "version")]
     return "".join(f"{key} = {toml_value(resolved[key])}\n" for key in keys)
 
 

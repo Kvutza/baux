@@ -128,10 +128,8 @@ def _refreshincumbent(
     search,
     report: dict,
 ) -> tuple[float, object]:
-    refresh = (
-        cfg["minibatch_refresh"] == 1
-        or step > 0
-        and step % cfg["minibatch_refresh"] == 0
+    refresh = cfg["minibatch_refresh"] == 1 or (
+        step > 0 and step % cfg["minibatch_refresh"] == 0
     )
     if not refresh:
         return 0.0, None
@@ -151,23 +149,21 @@ def _refreshincumbent(
     return incumbent_seconds, incumbent_loss_profile
 
 
-def _telldecision(search, proposals, paired: dict) -> tuple[float, float, bool]:
+def _telldecision(search, proposals, paired: dict) -> tuple[object, float, float, bool]:
     decision_started = time.perf_counter()
-    search.tell_paired(
+    search, _ = search.tell(
         proposals,
         -paired["candidate_loss"],
         paired["candidate_variance"],
-        -paired["incumbent_loss"],
-        paired["incumbent_variance"],
-        paired["accepted"],
     )
     decision_seconds = time.perf_counter() - decision_started
     sync_started = time.perf_counter()
-    accepted = search.sync()[0]
+    search, flags = search.sync()
+    accepted = flags[0]
     sync_seconds = time.perf_counter() - sync_started
     if accepted != paired["accepted"]:
         raise RuntimeError("Native Qwen acceptance disagrees with paired decision")
-    return decision_seconds, sync_seconds, accepted
+    return search, decision_seconds, sync_seconds, accepted
 
 
 def _bostep(
@@ -198,7 +194,10 @@ def _bostep(
     candidate_seconds = time.perf_counter() - candidate_start
     report["objective_evaluations"] += 1
     paired = _paired(candidate_losses, state["incumbent_losses"], state["population"])
-    decision_seconds, sync_seconds, accepted = _telldecision(search, proposals, paired)
+    search, decision_seconds, sync_seconds, accepted = _telldecision(
+        search, proposals, paired
+    )
+    state["search"] = search
     if accepted:
         report["accepted"] += 1
         state["incumbent_losses"] = list(candidate_losses)
@@ -321,10 +320,11 @@ def run(
     started = time.perf_counter()
     with (output / "events.jsonl").open("w") as events:
         round_timings = [
-            _bostep(step, state, cfg, evaluator, search, report, events=events)
+            _bostep(step, state, cfg, evaluator, state["search"], report, events=events)
             for step in range(cfg["evaluations"] - 1)
         ]
 
+    search = state["search"]
     bo_loop_seconds = time.perf_counter() - started
     export_started = time.perf_counter()
     if cfg["export_checkpoint"]:

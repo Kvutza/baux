@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import baux
 import numpy as np
 import pytest
 from baux.turbo.config import (
@@ -25,23 +26,22 @@ def _unit(x: np.ndarray, bounds: np.ndarray) -> np.ndarray:
     ids=["TURBO_ZERO", "TURBO_ENN", "TURBO_ONE"],
 )
 def test_001(config: OptimizerConfig) -> None:
-    from baux import create_optimizer
-
     bounds1 = np.array([[0.0, 1.0], [0.0, 1.0]], dtype=float)
     bounds2 = np.array([[2.0, 4.0], [-3.0, 1.0]], dtype=float)
     num_arms, num_steps = 2, 2
-    rng1, rng2 = np.random.default_rng(0), np.random.default_rng(0)
-    opt1 = create_optimizer(bounds=bounds1, config=config, rng=rng1)
-    opt2 = create_optimizer(bounds=bounds2, config=config, rng=rng2)
+    state1 = baux.init(bounds1, config=config, seed=0)
+    state2 = baux.init(bounds2, config=config, seed=0)
     for _ in range(num_steps):
-        x1, x2 = opt1.ask(num_arms=num_arms), opt2.ask(num_arms=num_arms)
+        state1, batch1 = baux.ask(state1, num_arms)
+        state2, batch2 = baux.ask(state2, num_arms)
+        x1, x2 = batch1.points, batch2.points
         u1, u2 = _unit(x1, bounds1), _unit(x2, bounds2)
         assert np.allclose(u1, u2)
         y1 = sphere_objective(2.0 * u1 - 1.0)
         y2 = sphere_objective(2.0 * u2 - 1.0)
         assert np.allclose(y1, y2)
-        opt1.tell(x1, y1)
-        opt2.tell(x2, y2)
+        state1, _ = baux.tell(state1, batch1, y1)
+        state2, _ = baux.tell(state2, batch2, y2)
 
 
 @pytest.mark.parametrize(
@@ -50,20 +50,18 @@ def test_001(config: OptimizerConfig) -> None:
     ids=["TURBO_ZERO", "TURBO_ENN"],
 )
 def test_002(config: OptimizerConfig) -> None:
-    from baux import create_optimizer
-
     bounds = np.array([[0.0, 1.0], [0.0, 1.0]], dtype=float)
     num_arms, num_steps = 2, 2
 
     def run_transform(scale: float, shift: float) -> np.ndarray:
-        rng = np.random.default_rng(0)
-        opt = create_optimizer(bounds=bounds, config=config, rng=rng)
+        state = baux.init(bounds, config=config, seed=0)
         unit_trajectory = []
         for _ in range(num_steps):
-            x = opt.ask(num_arms=num_arms)
+            state, batch = baux.ask(state, num_arms)
+            x = batch.points
             u = x.copy()
             base_y = sphere_objective(2.0 * u - 1.0)
-            opt.tell(x, scale * base_y + shift)
+            state, _ = baux.tell(state, batch, scale * base_y + shift)
             unit_trajectory.append(u)
         return np.stack(unit_trajectory, axis=0)
 

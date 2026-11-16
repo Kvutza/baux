@@ -18,7 +18,7 @@ pub(super) fn fixtures() -> Value {
         .and_then(|p| p.parent())
         .unwrap_or(std::path::Path::new("."));
     if root.join(".cache/baux/upstream/hnet").exists() {
-        crate::artifact::merkle::verify_lock(&root, "hnet", None).expect("verify hnet.lock.toml");
+        baux::artifact::merkle::verify_lock(&root, "hnet", None).expect("verify hnet.lock.toml");
     }
     let value: Value = toml::from_str(include_str!("fixtures.toml")).unwrap();
     assert_eq!(

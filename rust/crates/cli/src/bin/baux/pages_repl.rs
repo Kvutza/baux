@@ -11,13 +11,13 @@ use baux::artifact::json::{self, Map, Value, json};
 
 use crate::pages_verify;
 
-const LOCAL_PATH_MARKERS: [&str; 2] = ["/Users/", "/home/runner/"];
-const ALLOWED_PYODIDE_PREFIX: &str = "https://cdn.jsdelivr.net/pyodide/";
-const WASM_EXT_FILENAME: &str = "baux_rust.cpython-312-wasm32-emscripten.so";
-const WASM_EXT_ARCNAME: &str = "baux/baux_rust.cpython-312-wasm32-emscripten.so";
+const LOCAL_MARKERS: [&str; 2] = ["/Users/", "/home/runner/"];
+const PYODIDE_PREFIX: &str = "https://cdn.jsdelivr.net/pyodide/";
+const WASM_FILENAME: &str = "baux_rust.cpython-312-wasm32-emscripten.so";
+const WASM_ARCNAME: &str = "baux/baux_rust.cpython-312-wasm32-emscripten.so";
 
 const PYODIDE_VERSION: &str = "0.27.5";
-const PYODIDE_BASE_URL: &str = "https://cdn.jsdelivr.net/pyodide/v0.27.5/full/";
+const PYODIDE_URL: &str = "https://cdn.jsdelivr.net/pyodide/v0.27.5/full/";
 
 struct ManifestEntry {
     name: &'static str,
@@ -25,7 +25,7 @@ struct ManifestEntry {
     sha256: &'static str,
 }
 
-const DEFAULT_PYODIDE_FILES: [ManifestEntry; 6] = [
+const PYODIDE_FILES: [ManifestEntry; 6] = [
     ManifestEntry {
         name: "pyodide.js",
         size: 14_928,
@@ -58,13 +58,13 @@ const DEFAULT_PYODIDE_FILES: [ManifestEntry; 6] = [
     },
 ];
 
-const COMPANION_THEME_SCRIPTS: [(&str, &str); 3] = [
+const THEME_SCRIPTS: [(&str, &str); 3] = [
     ("repl_worker_js", "repl_worker.js"),
     ("webgpu_bridge_js", "webgpu_bridge.js"),
     ("webgpu_worker_js", "webgpu_worker.js"),
 ];
 
-const NETWORK_ERROR_MARKERS: [&str; 6] = [
+const NET_MARKERS: [&str; 6] = [
     "ConnectionError",
     "NameResolutionError",
     "Temporary failure in name resolution",
@@ -73,8 +73,8 @@ const NETWORK_ERROR_MARKERS: [&str; 6] = [
     "SSLError",
 ];
 
-fn check_no_local_paths(label: &str, payload: &[u8]) -> Result<(), String> {
-    for marker in LOCAL_PATH_MARKERS {
+fn check_noleak(label: &str, payload: &[u8]) -> Result<(), String> {
+    for marker in LOCAL_MARKERS {
         if payload
             .windows(marker.len())
             .any(|window| window == marker.as_bytes())
@@ -186,7 +186,7 @@ fn deterministic_zip(entries: &BTreeMap<String, Vec<u8>>) -> Result<Vec<u8>, Str
     Ok(out)
 }
 
-fn find_files_recursive(root: &Path, out: &mut Vec<PathBuf>) -> Result<(), String> {
+fn walk_files(root: &Path, out: &mut Vec<PathBuf>) -> Result<(), String> {
     if !root.is_dir() {
         return Ok(());
     }
@@ -194,7 +194,7 @@ fn find_files_recursive(root: &Path, out: &mut Vec<PathBuf>) -> Result<(), Strin
         let entry = entry.map_err(|e| e.to_string())?;
         let path = entry.path();
         if path.is_dir() {
-            find_files_recursive(&path, out)?;
+            walk_files(&path, out)?;
         } else {
             out.push(path);
         }
@@ -202,7 +202,7 @@ fn find_files_recursive(root: &Path, out: &mut Vec<PathBuf>) -> Result<(), Strin
     Ok(())
 }
 
-fn resolve_wasm_so(root: &Path, explicit: Option<&Path>) -> Result<PathBuf, String> {
+fn find_wasmso(root: &Path, explicit: Option<&Path>) -> Result<PathBuf, String> {
     let verify = |cand: &Path, origin: &str| -> Result<PathBuf, String> {
         let resolved = if cand.is_absolute() {
             cand.to_path_buf()
@@ -229,9 +229,9 @@ fn resolve_wasm_so(root: &Path, explicit: Option<&Path>) -> Result<PathBuf, Stri
     }
 
     let direct_candidates = [
-        root.join(".cache/baux/wasm").join(WASM_EXT_FILENAME),
+        root.join(".cache/baux/wasm").join(WASM_FILENAME),
         root.join("rust/target/wasm32-unknown-emscripten/release")
-            .join(WASM_EXT_FILENAME),
+            .join(WASM_FILENAME),
         root.join("rust/target/wasm32-unknown-emscripten/release/libbaux_rust.so"),
     ];
     for cand in direct_candidates {
@@ -243,11 +243,11 @@ fn resolve_wasm_so(root: &Path, explicit: Option<&Path>) -> Result<PathBuf, Stri
     let buck_out = root.join("buck-out");
     if buck_out.is_dir() {
         let mut all = Vec::new();
-        find_files_recursive(&buck_out, &mut all)?;
+        walk_files(&buck_out, &mut all)?;
         all.sort();
         if let Some(exact) = all
             .iter()
-            .find(|p| p.file_name().and_then(|n| n.to_str()) == Some(WASM_EXT_FILENAME))
+            .find(|p| p.file_name().and_then(|n| n.to_str()) == Some(WASM_FILENAME))
         {
             return Ok(exact.clone());
         }
@@ -260,12 +260,12 @@ fn resolve_wasm_so(root: &Path, explicit: Option<&Path>) -> Result<PathBuf, Stri
     }
 
     Err(format!(
-        "Missing compiled {WASM_EXT_FILENAME}. Pass --wasm-so PATH, set BAUX_WASM_SO, \
+        "Missing compiled {WASM_FILENAME}. Pass --wasm-so PATH, set BAUX_WASM_SO, \
          or build //:baux-py-wasm into buck-out or .cache/baux/wasm/."
     ))
 }
 
-fn should_skip_python_file(src: &Path) -> bool {
+fn skip_pyfile(src: &Path) -> bool {
     for comp in src.components() {
         if let Component::Normal(name) = comp {
             let s = name.to_string_lossy();
@@ -283,7 +283,7 @@ fn should_skip_python_file(src: &Path) -> bool {
     )
 }
 
-fn build_pyzip_bytes(root: &Path, so_payload: &[u8]) -> Result<Vec<u8>, String> {
+fn pyzip_bytes(root: &Path, so_payload: &[u8]) -> Result<Vec<u8>, String> {
     let py_root = root.join("python/baux");
     if !py_root.is_dir() {
         return Err(format!(
@@ -293,12 +293,12 @@ fn build_pyzip_bytes(root: &Path, so_payload: &[u8]) -> Result<Vec<u8>, String> 
     }
 
     let mut py_files = Vec::new();
-    find_files_recursive(&py_root, &mut py_files)?;
+    walk_files(&py_root, &mut py_files)?;
     py_files.sort();
 
     let mut entries = BTreeMap::new();
     for src in py_files {
-        if should_skip_python_file(&src) {
+        if skip_pyfile(&src) {
             continue;
         }
         let rel = src
@@ -308,12 +308,12 @@ fn build_pyzip_bytes(root: &Path, so_payload: &[u8]) -> Result<Vec<u8>, String> 
             .replace('\\', "/");
         let arcname = format!("baux/{rel}");
         let payload = fs::read(&src).map_err(|e| format!("read {}: {e}", src.display()))?;
-        check_no_local_paths(&arcname, &payload)?;
+        check_noleak(&arcname, &payload)?;
         entries.insert(arcname, payload);
     }
 
-    check_no_local_paths(WASM_EXT_ARCNAME, so_payload)?;
-    entries.insert(WASM_EXT_ARCNAME.to_string(), so_payload.to_vec());
+    check_noleak(WASM_ARCNAME, so_payload)?;
+    entries.insert(WASM_ARCNAME.to_string(), so_payload.to_vec());
     deterministic_zip(&entries)
 }
 
@@ -323,7 +323,7 @@ fn download_verified(
     expected_size: u64,
     expected_sha256: &str,
 ) -> Result<(), String> {
-    if !url.starts_with(ALLOWED_PYODIDE_PREFIX) {
+    if !url.starts_with(PYODIDE_PREFIX) {
         return Err(format!("Refusing non-allowlisted Pyodide URL: {url}"));
     }
     if let Some(parent) = dst.parent() {
@@ -374,8 +374,8 @@ fn download_verified(
 }
 
 fn stage_pyodide(cache_dir: &Path, offline: bool) -> Result<Vec<(String, PathBuf)>, String> {
-    let mut resolved = Vec::with_capacity(DEFAULT_PYODIDE_FILES.len());
-    for entry in DEFAULT_PYODIDE_FILES {
+    let mut resolved = Vec::with_capacity(PYODIDE_FILES.len());
+    for entry in PYODIDE_FILES {
         if entry.name.contains('/') || entry.name.contains('\\') || entry.name.contains("..") {
             return Err(format!(
                 "Unsafe filename in Pyodide manifest: {}",
@@ -397,7 +397,7 @@ fn stage_pyodide(cache_dir: &Path, offline: bool) -> Result<Vec<(String, PathBuf
                     target.display()
                 ));
             }
-            let url = format!("{PYODIDE_BASE_URL}{}", entry.name);
+            let url = format!("{PYODIDE_URL}{}", entry.name);
             download_verified(&url, &target, entry.size, entry.sha256)?;
         }
         resolved.push((entry.name.to_string(), target));
@@ -445,17 +445,17 @@ fn trim_lockfile(lock_path: &Path, allowed_roots: &[&str]) -> Result<Vec<u8>, St
     json::to_vec(&Value::from(root_obj)).map_err(|e| e.to_string())
 }
 
-fn stage_companion_scripts(root: &Path, assets_dirs: &[PathBuf]) -> Result<Value, String> {
+fn stage_scripts(root: &Path, assets_dirs: &[PathBuf]) -> Result<Value, String> {
     let mut companion_entries = Map::new();
     let theme_dir = root.join("forest/theme");
 
-    for (manifest_key, filename) in COMPANION_THEME_SCRIPTS {
+    for (manifest_key, filename) in THEME_SCRIPTS {
         let src = theme_dir.join(filename);
         if !src.is_file() {
             continue;
         }
         let blob = fs::read(&src).map_err(|e| format!("read {}: {e}", src.display()))?;
-        check_no_local_paths(filename, &blob)?;
+        check_noleak(filename, &blob)?;
         for assets_dir in assets_dirs {
             let dst = assets_dir.join(filename);
             let _ = fs::remove_file(&dst);
@@ -478,7 +478,7 @@ fn stage_companion_scripts(root: &Path, assets_dirs: &[PathBuf]) -> Result<Value
     let oxcaml_src = oxcaml_candidates.into_iter().find(|p| p.is_file());
     if let Some(src) = oxcaml_src {
         let blob = fs::read(&src).map_err(|e| format!("read {}: {e}", src.display()))?;
-        check_no_local_paths("oxcaml_eval.js", &blob)?;
+        check_noleak("oxcaml_eval.js", &blob)?;
         for assets_dir in assets_dirs {
             let dst = assets_dir.join("oxcaml_eval.js");
             let _ = fs::remove_file(&dst);
@@ -498,7 +498,7 @@ fn stage_companion_scripts(root: &Path, assets_dirs: &[PathBuf]) -> Result<Value
             .all(|d| d.join("oxcaml_eval.js").is_file())
     {
         let blob = fs::read(assets_dirs[0].join("oxcaml_eval.js")).map_err(|e| e.to_string())?;
-        check_no_local_paths("oxcaml_eval.js", &blob)?;
+        check_noleak("oxcaml_eval.js", &blob)?;
         companion_entries.insert(
             "oxcaml_eval_js",
             json!({
@@ -522,11 +522,11 @@ pub struct ReplStageConfig<'a> {
 
 /// Stage verified Pyodide WASM assets, `baux_py.zip`, companion JS scripts, and
 /// `repl_manifest.json`.
-pub fn stage_repl_assets(root: &Path, cfg: &ReplStageConfig<'_>) -> Result<Value, String> {
+pub fn stage_repl(root: &Path, cfg: &ReplStageConfig<'_>) -> Result<Value, String> {
     if cfg.assets_dirs.is_empty() {
         return Err("at least one --assets-dir is required".into());
     }
-    let so_path = resolve_wasm_so(root, cfg.wasm_so)?;
+    let so_path = find_wasmso(root, cfg.wasm_so)?;
     let so_payload = fs::read(&so_path).map_err(|e| format!("read {}: {e}", so_path.display()))?;
     if so_payload.is_empty() {
         return Err(format!(
@@ -534,9 +534,9 @@ pub fn stage_repl_assets(root: &Path, cfg: &ReplStageConfig<'_>) -> Result<Value
             so_path.display()
         ));
     }
-    check_no_local_paths(WASM_EXT_ARCNAME, &so_payload)?;
+    check_noleak(WASM_ARCNAME, &so_payload)?;
 
-    let zip_bytes = build_pyzip_bytes(root, &so_payload)?;
+    let zip_bytes = pyzip_bytes(root, &so_payload)?;
     let zip_sha = sha256_hex(&zip_bytes);
 
     let default_cache = root
@@ -554,7 +554,7 @@ pub fn stage_repl_assets(root: &Path, cfg: &ReplStageConfig<'_>) -> Result<Value
                 fs::read(&src_path).map_err(|e| format!("read {}: {e}", src_path.display()))?
             };
             if name.ends_with(".js") || name.ends_with(".json") {
-                check_no_local_paths(&name, &blob)?;
+                check_noleak(&name, &blob)?;
             }
             pyodide_entries.insert(
                 name.clone(),
@@ -585,7 +585,7 @@ pub fn stage_repl_assets(root: &Path, cfg: &ReplStageConfig<'_>) -> Result<Value
         }
     }
 
-    let companion_entries = stage_companion_scripts(root, cfg.assets_dirs)?;
+    let companion_entries = stage_scripts(root, cfg.assets_dirs)?;
     let repl_manifest = json!({
         "baux_py_zip": {
             "path": "baux_py.zip",
@@ -597,7 +597,7 @@ pub fn stage_repl_assets(root: &Path, cfg: &ReplStageConfig<'_>) -> Result<Value
         "pyodide_version": PYODIDE_VERSION,
         "schema_version": 1_u64,
         "wasm_extension": {
-            "path": WASM_EXT_ARCNAME,
+            "path": WASM_ARCNAME,
             "sha256": sha256_hex(&so_payload),
             "size": so_payload.len() as u64,
         },
@@ -662,7 +662,7 @@ fn capture_cmd(
 
 fn gate_tree(root: &Path) -> GateResult {
     println!("[1/5] Public repository hygiene & exclude guard");
-    match pages_verify::verify_public_tree(root) {
+    match pages_verify::verify_publictree(root) {
         Ok(()) => GateResult {
             name: "tree_guard",
             status: "PASS",
@@ -832,7 +832,7 @@ fn gate_semgrep(root: &Path, skip: bool) -> GateResult {
     }
 }
 
-fn gate_pip_audit(root: &Path, cfg: &AuditConfig) -> GateResult {
+fn gate_pipaudit(root: &Path, cfg: &AuditConfig) -> GateResult {
     println!("[4/5] Dependency vulnerability audit (pip-audit)");
     if cfg.skip_pip_audit {
         return GateResult {
@@ -922,7 +922,7 @@ fn gate_pip_audit(root: &Path, cfg: &AuditConfig) -> GateResult {
             if !out.is_empty() {
                 println!("{out}");
             }
-            if cfg.graceful_offline && NETWORK_ERROR_MARKERS.iter().any(|m| out.contains(m)) {
+            if cfg.graceful_offline && NET_MARKERS.iter().any(|m| out.contains(m)) {
                 GateResult {
                     name: "pip-audit",
                     status: "SKIP",
@@ -969,12 +969,12 @@ fn gate_bundle(bundle_dir: Option<&Path>) -> GateResult {
 
 /// Run the full repository security audit suite without Python orchestration
 /// scripts.
-pub fn run_security_audit(root: &Path, cfg: &AuditConfig) -> Result<(), String> {
+pub fn security_audit(root: &Path, cfg: &AuditConfig) -> Result<(), String> {
     let results = [
         gate_tree(root),
         gate_zizmor(root, cfg.skip_zizmor),
         gate_semgrep(root, cfg.skip_semgrep),
-        gate_pip_audit(root, cfg),
+        gate_pipaudit(root, cfg),
         gate_bundle(cfg.bundle_dir.as_deref()),
     ];
 
@@ -998,7 +998,7 @@ mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     #[test]
-    fn zip_is_deterministic_and_compressed() {
+    fn zip_deterministic() {
         let mut entries = BTreeMap::new();
         entries.insert(
             "baux/hello.py".to_string(),
@@ -1012,7 +1012,7 @@ mod tests {
     }
 
     #[test]
-    fn trim_lockfile_keeps_numpy_closure_only() {
+    fn lockfile_trimmed() {
         let nanos = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("clock")

@@ -32,9 +32,8 @@ pub const MLP_LAYERS: [(usize, usize); 4] = [
 
 /// Model-defined unconstrained parameter space with layer-wise Kaiming uniform
 /// initialization and step scales for the 93 -> 256 -> 256 -> 256 -> 19 policy.
-pub fn domain_frame() -> crate::optimizer::DomainFrame {
-    crate::optimizer::DomainFrame::kaiming_mlp(&MLP_LAYERS)
-        .expect("TCV tokamak MLP layer topology is valid")
+pub fn domain_frame() -> baux::DomainFrame {
+    baux::DomainFrame::kaiming_mlp(&MLP_LAYERS).expect("TCV tokamak MLP layer topology is valid")
 }
 
 pub const TOKAGYM_OBS: usize = 11;
@@ -47,9 +46,8 @@ pub const TOKAGYM_LAYERS: [(usize, usize); 4] = [
     (HIDDEN_DIM, TOKAGYM_ACT),
 ];
 
-pub fn tokagym_domain() -> crate::optimizer::DomainFrame {
-    crate::optimizer::DomainFrame::kaiming_mlp(&TOKAGYM_LAYERS)
-        .expect("TokaGym MLP layer topology is valid")
+pub fn tokagym_domain() -> baux::DomainFrame {
+    baux::DomainFrame::kaiming_mlp(&TOKAGYM_LAYERS).expect("TokaGym MLP layer topology is valid")
 }
 
 const STEPS: usize = 100;
@@ -301,7 +299,7 @@ pub fn rollout_traj(
 
 #[cfg(all(target_os = "macos", feature = "metal"))]
 pub fn eval_metal(
-    runtime: &crate::apple_gpu::Runtime,
+    runtime: &baux::apple_gpu::Runtime,
     weights_batch: &[f32],
     count: usize,
 ) -> Result<Vec<f32>, String> {
@@ -310,7 +308,7 @@ pub fn eval_metal(
         return Ok(Vec::new());
     }
 
-    let shader_source = include_str!("resident_metal/tokamak_policy.metal");
+    let shader_source = include_str!("tokamak_policy.metal");
     let pipeline = runtime
         .precise(shader_source, "tokamak-eval", "tokamak_eval_policy")
         .map_err(|e| format!("tokamak shader compilation error: {:?}", e))?;
@@ -384,8 +382,8 @@ mod tests {
         let w1_idx = bias0 + HIDDEN_DIM;
         assert!((bounds[[w1_idx, 1]] - w1).abs() < 1e-12);
 
-        let small = crate::optimizer::DomainFrame::kaiming_mlp(&[(4, 2)]).unwrap();
-        let spec: crate::config::OptimizerSpec = crate::artifact::toml::from_str(
+        let small = baux::DomainFrame::kaiming_mlp(&[(4, 2)]).unwrap();
+        let spec: baux::config::OptimizerSpec = baux::artifact::toml::from_str(
             r#"
 algorithm = "single-state-bo"
 distribution = "gaussian"
@@ -397,9 +395,9 @@ controller = "turbo"
 "#,
         )
         .unwrap();
-        let mut rng = crate::prng(7);
-        let mut opt = crate::BayesOptimizer::from_domain(small, &spec, 0, &mut rng).unwrap();
-        if let crate::optimizer::TrustRegionState::Multi { state, .. } = opt.trust_mut() {
+        let mut rng = baux::prng(7);
+        let mut opt = baux::BayesOptimizer::from_domain(small, &spec, 0, &mut rng).unwrap();
+        if let baux::optimizer::TrustRegionState::Multi { state, .. } = opt.trust_mut() {
             state.centers.row_mut(0).fill(1.5);
             let (lb, ub) = state.compute_bounds(0, None);
             assert!(
@@ -420,7 +418,7 @@ controller = "turbo"
     #[cfg(all(target_os = "macos", feature = "metal"))]
     #[test]
     fn metalkernel() {
-        use crate::apple_gpu::Runtime;
+        use baux::apple_gpu::Runtime;
         let runtime = Runtime::shared().expect("shared Apple GPU runtime");
         let zeros = vec![0.0f32; TOTAL_PARAMS];
         let results = eval_metal(&runtime, &zeros, 1).expect("Metal batch evaluation");
@@ -433,13 +431,13 @@ controller = "turbo"
     #[cfg(all(target_os = "macos", feature = "metal"))]
     #[test]
     fn batchmetal() {
-        use crate::apple_gpu::Runtime;
+        use baux::apple_gpu::Runtime;
         let runtime = Runtime::shared().expect("shared Apple GPU runtime");
         let count = 4;
         let mut weights = vec![0.0f32; count * TOTAL_PARAMS];
         for k in 1..count {
             for i in 0..TOTAL_PARAMS {
-                let u = crate::splitmix_f32((42 + k * TOTAL_PARAMS + i) as u64);
+                let u = baux::splitmix_f32((42 + k * TOTAL_PARAMS + i) as u64);
                 weights[k * TOTAL_PARAMS + i] = (u - 0.5) * 0.16;
             }
         }

@@ -123,30 +123,6 @@ pub fn create_py(
     )
 }
 
-/// Create TuRBO-ENN optimizer
-#[pyfunction(name = "enn_optimizer")]
-#[pyo3(signature = (bounds, k=10, num_init=10, seed=None, config=None))]
-pub fn enn_py(
-    bounds: PyReadonlyArray2<f64>,
-    k: i32,
-    num_init: usize,
-    seed: Option<u64>,
-    config: Option<Bound<'_, pyo3::types::PyDict>>,
-) -> PyResult<PyBayesOptimizer> {
-    build_optimizer(
-        bounds.as_array().to_owned(),
-        "enn",
-        k,
-        num_init,
-        4,
-        baux::resolve_seed(seed),
-        config.as_ref(),
-        None,
-        None,
-        50,
-    )
-}
-
 /// Create experimental multi-trust-region TuRBO-ENN optimizer
 #[pyfunction(name = "enn_tr")]
 #[pyo3(signature = (bounds, k=10, num_init=10, num_regions=4, seed=None, config=None))]
@@ -164,52 +140,6 @@ pub fn bind_regions(
         k,
         num_init,
         num_regions,
-        baux::resolve_seed(seed),
-        config.as_ref(),
-        None,
-        None,
-        50,
-    )
-}
-
-/// Create TuRBO-ZERO optimizer
-#[pyfunction(name = "create_zero")]
-#[pyo3(signature = (bounds, num_init=10, seed=None, config=None))]
-pub fn bind_zero(
-    bounds: PyReadonlyArray2<f64>,
-    num_init: usize,
-    seed: Option<u64>,
-    config: Option<Bound<'_, pyo3::types::PyDict>>,
-) -> PyResult<PyBayesOptimizer> {
-    build_optimizer(
-        bounds.as_array().to_owned(),
-        "zero",
-        10,
-        num_init,
-        4,
-        baux::resolve_seed(seed),
-        config.as_ref(),
-        None,
-        None,
-        50,
-    )
-}
-
-/// Create LHD-only optimizer
-#[pyfunction(name = "create_lhd")]
-#[pyo3(signature = (bounds, num_init=10, seed=None, config=None))]
-pub fn bind_lhd(
-    bounds: PyReadonlyArray2<f64>,
-    num_init: usize,
-    seed: Option<u64>,
-    config: Option<Bound<'_, pyo3::types::PyDict>>,
-) -> PyResult<PyBayesOptimizer> {
-    build_optimizer(
-        bounds.as_array().to_owned(),
-        "lhd",
-        10,
-        num_init,
-        4,
         baux::resolve_seed(seed),
         config.as_ref(),
         None,

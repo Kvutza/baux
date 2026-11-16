@@ -45,17 +45,19 @@ impl<O: ObjectiveSense> TypedOptimizer<O, Active> {
 
 impl<O: ObjectiveSense> TypedOptimizer<O, Ready> {
     /// Issue an affine [`ProposalTicket`], advance [`AffineKey`], and
-    /// transition to [`TypedOptimizer<O, Pending>`].
+    /// transition to [`TypedOptimizer<O, Pending>`]. Consumes `self` and
+    /// `key` by value.
     pub fn ask_step(
-        self,
+        mut self,
         num_arms: usize,
         key: AffineKey,
     ) -> Result<(TypedOptimizer<O, Pending>, ProposalTicket, AffineKey), ENNError> {
         let (draw_key, next_key) = key.step();
-        let mut next_inner = self.inner.fork()?;
-        let ticket = next_inner.ask_ticket(num_arms, &mut draw_key.prng())?;
+        let mut prng = draw_key.prng();
+        let (ticket, next) = self.inner.ask_ticket(num_arms, &mut prng)?;
+        self.inner = next;
         let pending = TypedOptimizer {
-            inner: next_inner,
+            inner: self.inner,
             sense: self.sense,
             phase: PhantomData,
         };
@@ -65,19 +67,22 @@ impl<O: ObjectiveSense> TypedOptimizer<O, Ready> {
 
 impl<O: ObjectiveSense> TypedOptimizer<O, Pending> {
     /// Consume an affine [`ProposalTicket`] and [`AffineKey`], record
-    /// observations, and return to [`TypedOptimizer<O, Ready>`].
+    /// observations, and return to [`TypedOptimizer<O, Ready>`]. Consumes
+    /// `self` by value.
     pub fn tell_step(
-        self,
+        mut self,
         ticket: ProposalTicket,
         y: &ArrayView2<f64>,
         key: AffineKey,
     ) -> Result<(TypedOptimizer<O, Ready>, AffineKey), ENNError> {
         let (draw_key, next_key) = key.step();
         let y_canon = self.canonicalize_y(y);
-        let mut next_inner = self.inner.fork()?;
-        next_inner.tell_ticket(ticket, &y_canon.view(), None, &mut draw_key.prng())?;
+        let mut prng = draw_key.prng();
+        self.inner = self
+            .inner
+            .tell_ticket(ticket, &y_canon.view(), None, &mut prng)?;
         let ready = TypedOptimizer {
-            inner: next_inner,
+            inner: self.inner,
             sense: self.sense,
             phase: PhantomData,
         };
@@ -85,17 +90,17 @@ impl<O: ObjectiveSense> TypedOptimizer<O, Pending> {
     }
 
     /// Retire an affine [`ProposalTicket`] without controller penalty and
-    /// return to [`TypedOptimizer<O, Ready>`].
+    /// return to [`TypedOptimizer<O, Ready>`]. Consumes `self` by value.
     pub fn cancel_step(
-        self,
+        mut self,
         ticket: ProposalTicket,
         key: AffineKey,
     ) -> Result<(TypedOptimizer<O, Ready>, AffineKey), ENNError> {
         let (draw_key, next_key) = key.step();
-        let mut next_inner = self.inner.fork()?;
-        next_inner.cancel_ticket(ticket, &mut draw_key.prng())?;
+        let mut prng = draw_key.prng();
+        self.inner = self.inner.cancel_ticket(ticket, &mut prng)?;
         let ready = TypedOptimizer {
-            inner: next_inner,
+            inner: self.inner,
             sense: self.sense,
             phase: PhantomData,
         };
@@ -132,9 +137,10 @@ where
 }
 
 /// Fork `opt` and split `key` across `branches` independent trajectories,
-/// executing `branch_fn` in parallel via Rayon.
+/// executing `branch_fn` in parallel via Rayon. Consumes `opt` as pure value
+/// semantics.
 pub fn pmap_branches<O: ObjectiveSense, F, R: Send>(
-    opt: &TypedOptimizer<O, Ready>,
+    opt: TypedOptimizer<O, Ready>,
     key: AffineKey,
     branches: usize,
     branch_fn: F,
@@ -142,10 +148,18 @@ pub fn pmap_branches<O: ObjectiveSense, F, R: Send>(
 where
     F: Fn(usize, TypedOptimizer<O, Ready>, AffineKey) -> Result<R, ENNError> + Sync,
 {
+    if branches == 0 {
+        return Ok(Vec::new());
+    }
     let keys = key.split_n(branches);
     let mut items = Vec::with_capacity(branches);
     for (idx, branch_key) in keys.into_iter().enumerate() {
-        items.push((idx, opt.fork()?, branch_key));
+        let branch_opt = if idx + 1 == branches {
+            opt.clone()
+        } else {
+            opt.clone()
+        };
+        items.push((idx, branch_opt, branch_key));
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
@@ -179,8 +193,8 @@ mod tests {
             | PerturbStage::Raasp(16)
             | ModelStage::Enn(3)
             | AcqStage::ucb_sense(1.5, Minimize);
-        let mut warmup = pipe.build(bounds, &mut rng).unwrap();
-        let x0 = warmup.warmup_design(4, &mut rng).unwrap();
+        let warmup = pipe.build(bounds, &mut rng).unwrap();
+        let (x0, warmup) = warmup.warmup_design(4, &mut rng).unwrap();
         let y0 = x0
             .map_axis(Axis(1), |r| r[0].powi(2) + r[1].powi(2))
             .insert_axis(Axis(1));
@@ -212,7 +226,7 @@ mod tests {
     fn scan_pmap() {
         let root = make_ready(73);
         let run_branches = || {
-            pmap_branches(&root, AffineKey::new(2026), 4, |idx, opt, bkey| {
+            pmap_branches(root.clone(), AffineKey::new(2026), 4, |idx, opt, bkey| {
                 let shift = (idx as f64) * 0.25;
                 let (final_opt, next_key, traces) = scan_step(opt, bkey, 3, 2, |_, x| {
                     Ok(

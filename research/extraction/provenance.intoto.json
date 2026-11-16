@@ -31,9 +31,9 @@
     },
     {
       "name": "Cargo.toml",
-      "size_bytes": 1381,
+      "size_bytes": 2067,
       "digest": {
-        "blake3": "6634eccd029823f93cb5e4f9b6038013fbcfc982dd2232c9ae8e1369c5716ffc"
+        "blake3": "629c21da6b072e5f39c17ac267f7d3d64c12b42eb8810b19821f8dfe9e0898d9"
       }
     },
     {

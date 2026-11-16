@@ -10,6 +10,8 @@ _FBT_RUST_SRCS = glob(
     [
         "src/**/*.metal",
         "src/**/*.rs",
+        "src/hnet/*.toml",
+        "src/muon/*.toml",
     ],
     exclude = ["src/bin/**/*.rs"],
 )
@@ -19,6 +21,8 @@ filegroup(
     srcs = glob([
         "src/**/*.metal",
         "src/**/*.rs",
+        "src/hnet/*.toml",
+        "src/muon/*.toml",
     ]) + [
         "Cargo.toml",
     ],

@@ -110,6 +110,16 @@ def verify_release(
     return resolved
 
 
+@click.command(help=__doc__)
+@click.argument("tag")
+@click.option("--commit")
+@click.option(
+    "--platform-tag",
+    "platform_tags",
+    multiple=True,
+    type=click.Choice(PLATFORM_TAGS),
+)
+@click.option("--wheels", type=click.Path(exists=True, file_okay=False, path_type=Path))
 def main(
     tag: str,
     commit: str | None,
@@ -122,23 +132,6 @@ def main(
     except (OSError, subprocess.CalledProcessError, ValueError) as error:
         raise click.ClickException(str(error)) from error
     click.echo(f"tag={tag}\ncommit={resolved}")
-
-
-for _decorator in (
-    click.option(
-        "--wheels", type=click.Path(exists=True, file_okay=False, path_type=Path)
-    ),
-    click.option(
-        "--platform-tag",
-        "platform_tags",
-        multiple=True,
-        type=click.Choice(PLATFORM_TAGS),
-    ),
-    click.option("--commit"),
-    click.argument("tag"),
-    click.command(help=__doc__),
-):
-    main = _decorator(main)
 
 
 if __name__ == "__main__":

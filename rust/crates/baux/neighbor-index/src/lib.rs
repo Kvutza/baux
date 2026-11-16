@@ -55,7 +55,7 @@ pub use residency::{Residency, ResidencyPolicy};
 pub use smnsrch::{N_LIMIT, OrderedF32, ScoreQueriesFlat, resident_cache, score_queries, topk_l2};
 pub use tuning::{
     BpannTuning, EXHAUSTIVE_LIMIT, INDEX_MIN, PENDING_HARD, PENDING_SOFT, SKIP_LIMIT,
-    STRUCTURED_LIMIT, clear_provider, current_tuning, set_provider,
+    STRUCTURED_LIMIT,
 };
 
 #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]

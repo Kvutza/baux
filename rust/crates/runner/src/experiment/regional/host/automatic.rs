@@ -34,14 +34,15 @@ pub(super) fn run_arm(
     let mut first_values = None;
     let mut first_counts = None;
     for start in (0..config.evaluations).step_by(config.regions) {
-        let points = optimizer
+        let (opt, points) = optimizer
             .ask(config.regions, &mut rng)
             .map_err(|error| error.to_string())?;
+        optimizer = opt;
         let before = generations(&optimizer)?;
         let counts = optimizer.model_counts().ok_or("missing local models")?;
         let rewards = score(&points, config.dimensions, objective);
         values.extend(rewards.column(0).iter().copied());
-        optimizer
+        optimizer = optimizer
             .tell_variance(&points.view(), &rewards.view(), None, &mut rng)
             .map_err(|error| error.to_string())?;
         let after = generations(&optimizer)?;

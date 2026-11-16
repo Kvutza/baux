@@ -69,7 +69,7 @@ fn eval_half(
         scratch[j] = low[j] + u * span[j];
     }
     let mut out = vec![0.0f64; 1];
-    baux::tokamak::evaluate_batch(scratch, 1, &mut out);
+    baux_tokamak::evaluate_batch(scratch, 1, &mut out);
     Ok((out, 0.0, 0))
 }
 

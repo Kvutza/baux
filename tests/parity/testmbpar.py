@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+import baux
 import numpy as np
 import pytest
-from baux import create_optimizer, turbo_enn
 from baux.turbo.config import (
     AcquisitionKind,
     CandidateConfig,
@@ -10,6 +10,7 @@ from baux.turbo.config import (
     MorboTrustRegion,
     MultiObjectiveConfig,
     SurrogateFit,
+    turbo_enn,
 )
 from morbo_objectives import separable_objective
 
@@ -32,19 +33,21 @@ def test_morbopostinit():
         candidates=CandidateConfig(num_candidates=64),
     )
     rng = np.random.default_rng(43)
-    opt = create_optimizer(bounds=bounds, config=config, rng=rng)
+    state = baux.init(bounds, config=config, seed=int(rng.integers(2**63 - 1)))
     num_arms = 4
-    while opt.init_progress is not None:
-        x = opt.ask(num_arms=num_arms)
+    while state.init_progress is not None:
+        state, batch = baux.ask(state, num_arms=num_arms)
+        x = batch.points
         assert x.shape == (num_arms, 2)
         y = separable_objective(x)
         assert y.shape == (num_arms, 2)
-        opt.tell(x, y)
-    x = opt.ask(num_arms=num_arms)
+        state, _ = baux.tell(state, x, y)
+    state, batch = baux.ask(state, num_arms=num_arms)
+    x = batch.points
     y = separable_objective(x)
-    opt.tell(x, y)
-    assert opt.telemetry().num_candidates == 64
-    assert int(opt.region_count) >= num_arms
+    state, _ = baux.tell(state, x, y)
+    assert state.telemetry.num_candidates == 64
+    assert int(state.num_observations) >= num_arms
 
 
 def test_morboimproves():
@@ -63,16 +66,17 @@ def test_morboimproves():
         candidates=CandidateConfig(num_candidates=64),
     )
     rng = np.random.default_rng(42)
-    opt = create_optimizer(bounds=bounds, config=config, rng=rng)
+    state = baux.init(bounds, config=config, seed=int(rng.integers(2**63 - 1)))
     best_y = np.array([-np.inf, -np.inf], dtype=float)
     num_rounds = 35
     num_arms = 4
     for _ in range(num_rounds):
-        x = opt.ask(num_arms=num_arms)
+        state, batch = baux.ask(state, num_arms=num_arms)
+        x = batch.points
         assert x.shape == (num_arms, 2)
         y = separable_objective(x)
-        opt.tell(x, y)
+        state, _ = baux.tell(state, x, y)
         best_y = np.maximum(best_y, y.max(axis=0))
-        assert np.isfinite(opt.tr_length)
+        assert np.isfinite(state.tr_length)
     assert float(best_y[0]) >= 499_000.0
     assert float(best_y[1]) >= 11.0

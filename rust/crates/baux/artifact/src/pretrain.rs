@@ -5,6 +5,9 @@ use std::path::{Path, PathBuf};
 
 #[path = "pretrain/corpus.rs"]
 mod corpus;
+#[path = "pretrain/digest.rs"]
+mod digest;
+pub use digest::sha_digest;
 #[path = "pretrain/index.rs"]
 mod index;
 use index::{MAX_TOKENS, SpanIndex, permute_index};

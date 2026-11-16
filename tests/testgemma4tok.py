@@ -80,7 +80,7 @@ def test_pack(tmp_path):
         paths[bucket] = path
 
     out_file = tmp_path / "train.bauxptn"
-    digest, offsets = pretrain.pack_stream(
+    digest, _offsets = pretrain.pack_stream(
         out_file,
         paths,
         counts,

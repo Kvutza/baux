@@ -30,7 +30,7 @@ const SENSITIVE_PATTERNS: [&str; 10] = [
     "GATEWAY_GROUPS",
 ];
 
-const REQUIRED_BUNDLE_FILES: [&str; 26] = [
+const REQUIRED_FILES: [&str; 26] = [
     "index.html",
     "docs.html",
     "simulation.html",
@@ -59,7 +59,7 @@ const REQUIRED_BUNDLE_FILES: [&str; 26] = [
     "LICENSES/NUMPY",
 ];
 
-const FORBIDDEN_BUNDLE_PATHS: [&str; 12] = [
+const FORBIDDEN_PATHS: [&str; 12] = [
     "forest",
     "node_modules",
     "javascript-source",
@@ -74,7 +74,7 @@ const FORBIDDEN_BUNDLE_PATHS: [&str; 12] = [
     "assets/explorer_engine.js",
 ];
 
-const RETIRED_PAGES_SCRIPTS: [&str; 5] = [
+const RETIRED_SCRIPTS: [&str; 5] = [
     "admin/ops/publish_pages.py",
     "admin/ops/verify_pages.py",
     "admin/ops/build_repl.py",
@@ -82,7 +82,7 @@ const RETIRED_PAGES_SCRIPTS: [&str; 5] = [
     "admin/ops/pyodide_manifest.json",
 ];
 
-const PUBLIC_TEXT_ALLOWLIST: [&str; 14] = [
+const TEXT_ALLOWLIST: [&str; 14] = [
     "README.md",
     "admin/buck2/iree/CMakeLists.txt",
     "admin/ops/flame/requirements-coding.txt",
@@ -99,7 +99,7 @@ const PUBLIC_TEXT_ALLOWLIST: [&str; 14] = [
     "tests/cli/toolchain_test.md",
 ];
 
-const LOCAL_USER_MARKERS: [&str; 2] = ["/Users/", "/home/runner/"];
+const USER_MARKERS: [&str; 2] = ["/Users/", "/home/runner/"];
 
 #[rustfmt::skip]
 const SHA256_K: [u32; 64] = [
@@ -289,7 +289,7 @@ fn base64_std(data: &[u8]) -> String {
 }
 
 /// Format Subresource Integrity token (`sha384-<base64>`).
-pub fn sri_sha384(data: &[u8]) -> String {
+pub fn sri_digest(data: &[u8]) -> String {
     format!("sha384-{}", base64_std(&sha384(data)))
 }
 
@@ -306,7 +306,7 @@ pub fn stamp_assets(html_dir: &Path, asset_root: &Path) -> Result<(), String> {
         if path.is_file() {
             let bytes = fs::read(&path).map_err(|e| format!("read {}: {e}", path.display()))?;
             let ver = sha256_hex(&bytes)[..12].to_string();
-            let sri = sri_sha384(&bytes);
+            let sri = sri_digest(&bytes);
             hashes.insert(rel.to_string(), (ver, sri));
         }
     }
@@ -414,7 +414,7 @@ fn check_sensitive(target_dir: &Path) -> Result<(), String> {
 }
 
 fn check_assets(target_dir: &Path) -> Result<(), String> {
-    for rel in REQUIRED_BUNDLE_FILES {
+    for rel in REQUIRED_FILES {
         let p = target_dir.join(rel);
         let meta = fs::metadata(&p).map_err(|_| format!("Missing required bundle file: {rel}"))?;
         if !meta.is_file() {
@@ -424,7 +424,7 @@ fn check_assets(target_dir: &Path) -> Result<(), String> {
             return Err(format!("Bundle file is empty: {rel}"));
         }
     }
-    for rel in FORBIDDEN_BUNDLE_PATHS {
+    for rel in FORBIDDEN_PATHS {
         if target_dir.join(rel).exists() {
             return Err(format!(
                 "Obsolete or build-only path present in bundle: {rel}"
@@ -593,7 +593,7 @@ fn percent_decode(raw: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
-fn has_scheme_or_netloc(raw_ref: &str) -> bool {
+fn has_netloc(raw_ref: &str) -> bool {
     if raw_ref.starts_with("//") {
         return true;
     }
@@ -623,7 +623,7 @@ fn normalize_lexical(rel: &Path) -> Option<PathBuf> {
     Some(clean)
 }
 
-fn verify_tag_sri(
+fn check_tagsri(
     rel_html: &str,
     html_dir_rel: &Path,
     target_root: &Path,
@@ -643,7 +643,7 @@ fn verify_tag_sri(
         ));
         return;
     }
-    if has_scheme_or_netloc(raw_ref) {
+    if has_netloc(raw_ref) {
         violations.push(format!(
             "{rel_html}:{line}: <{tag_name}> references non-local asset '{raw_ref}'"
         ));
@@ -675,7 +675,7 @@ fn verify_tag_sri(
         ));
         return;
     };
-    let expected = sri_sha384(&bytes);
+    let expected = sri_digest(&bytes);
     if sha384_tokens.iter().any(|tok| *tok != expected) {
         violations.push(format!(
             "{rel_html}:{line}: SRI sha384 mismatch for '{raw_ref}' (expected {expected}, got '{integrity}')"
@@ -683,7 +683,7 @@ fn verify_tag_sri(
     }
 }
 
-fn parse_html_security(
+fn scan_html(
     rel_html: &str,
     html_dir_rel: &Path,
     target_root: &Path,
@@ -938,7 +938,7 @@ fn parse_html_security(
                 ));
             } else {
                 let integrity = attr_map.get("integrity").map(|s| s.trim()).unwrap_or("");
-                verify_tag_sri(
+                check_tagsri(
                     rel_html,
                     html_dir_rel,
                     target_root,
@@ -967,7 +967,7 @@ fn parse_html_security(
                     ));
                 } else {
                     let integrity = attr_map.get("integrity").map(|s| s.trim()).unwrap_or("");
-                    verify_tag_sri(
+                    check_tagsri(
                         rel_html,
                         html_dir_rel,
                         target_root,
@@ -1055,7 +1055,7 @@ pub fn check_security(target_dir: &Path) -> Result<(), String> {
             None
         };
         if let Some(text) = &decoded {
-            for marker in LOCAL_USER_MARKERS {
+            for marker in USER_MARKERS {
                 if text.contains(marker) {
                     violations.push(format!(
                         "{rel}: leaks local build-machine path ({marker}...)"
@@ -1085,7 +1085,7 @@ pub fn check_security(target_dir: &Path) -> Result<(), String> {
         let html_bytes =
             fs::read(&html_path).map_err(|e| format!("read {}: {e}", html_path.display()))?;
         let html = String::from_utf8_lossy(&html_bytes);
-        let csps = parse_html_security(&rel_html, rel_dir, target_dir, &html, &mut violations);
+        let csps = scan_html(&rel_html, rel_dir, target_dir, &html, &mut violations);
         violations.extend(validate_csp(&rel_html, &csps));
     }
 
@@ -1153,7 +1153,7 @@ pub fn verify_bundle(target_dir: &Path) -> Result<(), String> {
     Ok(())
 }
 
-fn tracked_repo_paths(root: &Path) -> Result<Vec<String>, String> {
+fn tracked_paths(root: &Path) -> Result<Vec<String>, String> {
     let output = if root.join(".jj").exists() {
         Command::new("jj")
             .current_dir(root)
@@ -1181,7 +1181,7 @@ fn tracked_repo_paths(root: &Path) -> Result<Vec<String>, String> {
         .collect())
 }
 
-fn check_git_ignore_bypass(root: &Path, paths: &[String]) -> Result<(), String> {
+fn check_gitbypass(root: &Path, paths: &[String]) -> Result<(), String> {
     if !root.join(".git/info/exclude").is_file() {
         return Ok(());
     }
@@ -1243,9 +1243,9 @@ fn check_git_ignore_bypass(root: &Path, paths: &[String]) -> Result<(), String> 
 }
 
 /// Core pure validator over a list of repo-relative tracked POSIX paths.
-pub fn check_public_tree_paths(root: &Path, paths: &[String]) -> Result<(), String> {
-    let allowed_text: BTreeSet<&str> = PUBLIC_TEXT_ALLOWLIST.iter().copied().collect();
-    let retired: BTreeSet<&str> = RETIRED_PAGES_SCRIPTS.iter().copied().collect();
+pub fn check_publictree(root: &Path, paths: &[String]) -> Result<(), String> {
+    let allowed_text: BTreeSet<&str> = TEXT_ALLOWLIST.iter().copied().collect();
+    let retired: BTreeSet<&str> = RETIRED_SCRIPTS.iter().copied().collect();
     let mut violations = Vec::new();
 
     for rel in paths {
@@ -1317,7 +1317,7 @@ pub fn check_public_tree_paths(root: &Path, paths: &[String]) -> Result<(), Stri
             if full.is_file() {
                 if let Ok(raw) = fs::read(&full) {
                     let text = String::from_utf8_lossy(&raw);
-                    for marker in LOCAL_USER_MARKERS {
+                    for marker in USER_MARKERS {
                         if text.contains(marker) {
                             violations.push(format!(
                                 "{rel}: tracked public source contains local path marker ({marker}...)"
@@ -1340,10 +1340,10 @@ pub fn check_public_tree_paths(root: &Path, paths: &[String]) -> Result<(), Stri
 
 /// Enforce strict public-tree allowlist and verify no ignored/excluded files
 /// were force-tracked.
-pub fn verify_public_tree(root: &Path) -> Result<(), String> {
-    let paths = tracked_repo_paths(root)?;
-    check_public_tree_paths(root, &paths)?;
-    check_git_ignore_bypass(root, &paths)?;
+pub fn verify_publictree(root: &Path) -> Result<(), String> {
+    let paths = tracked_paths(root)?;
+    check_publictree(root, &paths)?;
+    check_gitbypass(root, &paths)?;
     println!(
         "[ok] Public tree hygiene: {} tracked files pass allowlist and exclude gates.",
         paths.len()
@@ -1407,7 +1407,7 @@ fn main() -> std::process::ExitCode {
 
     let res = (|| -> Result<(), String> {
         if let Some(root) = &tree_dir {
-            verify_public_tree(root)?;
+            verify_publictree(root)?;
         }
         if let Some(dir) = &stamp_dir {
             stamp_sri(dir)?;
@@ -1476,19 +1476,19 @@ mod tests {
     }
 
     #[test]
-    fn digest_vectors_match_fips_180_4() {
+    fn digest_vectors() {
         assert_eq!(
             sha256_hex(b"abc"),
             "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
         );
         assert_eq!(
-            sri_sha384(b"abc"),
+            sri_digest(b"abc"),
             "sha384-ywB1P0WjXou1oD1pmsZQBycsMqsO3tFjGotgWkP/W+2AhgcroefMI1i67KE0yCWn"
         );
     }
 
     #[test]
-    fn security_checks_catch_regressions() {
+    fn security_regressions() {
         let tmp = TempDir::new("sec");
         write_synthetic(&tmp.0);
         check_security(&tmp.0).expect("valid synthetic bundle");
@@ -1555,25 +1555,25 @@ mod tests {
     }
 
     #[test]
-    fn public_tree_allowlist_blocks_docs_and_retired_scripts() {
+    fn publictree_allowlist() {
         let tmp = TempDir::new("tree");
         let good = vec![
             "README.md".to_string(),
             "forest/theme/LICENSES/MIT.txt".to_string(),
             "rust/crates/cli/src/bin/baux/pages.rs".to_string(),
         ];
-        check_public_tree_paths(&tmp.0, &good).expect("allowlisted files pass");
+        check_publictree(&tmp.0, &good).expect("allowlisted files pass");
 
         let mut bad_doc = good.clone();
         bad_doc.push("docs/internal-notes.md".to_string());
-        assert!(check_public_tree_paths(&tmp.0, &bad_doc).is_err());
+        assert!(check_publictree(&tmp.0, &bad_doc).is_err());
 
         let mut bad_md = good.clone();
         bad_md.push("admin/notes.md".to_string());
-        assert!(check_public_tree_paths(&tmp.0, &bad_md).is_err());
+        assert!(check_publictree(&tmp.0, &bad_md).is_err());
 
         let mut bad_py = good;
         bad_py.push("admin/ops/verify_pages.py".to_string());
-        assert!(check_public_tree_paths(&tmp.0, &bad_py).is_err());
+        assert!(check_publictree(&tmp.0, &bad_py).is_err());
     }
 }

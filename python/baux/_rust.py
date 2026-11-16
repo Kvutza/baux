@@ -25,7 +25,6 @@ pareto2d_max = _ext.util.pareto2d_max
 sobol_indices = _ext.util.sobol_indices
 sobol_sequence = _ext.util.sobol_sequence
 pareto_arms = _ext.util.pareto_arms
-set_path = _ext.util.set_path
 ensure_config_file = _ext.util.ensure_config_file
 verify_upstream_lock = getattr(_ext, "verify_upstream_lock", None)
 ENN = _ext.model.ENN
@@ -33,7 +32,6 @@ ENNParams = _ext.model.ENNParams
 Posterior = getattr(_ext.model, "Posterior", None)
 Tensor = getattr(_ext.model, "Tensor", None)
 Device = getattr(_ext, "Device", None) or getattr(_ext.optimizer, "Device", None)
-ENNFitter = _ext.fit.ENNFitter
 fit_model = _ext.fit.fit_model
 subsample_loglik = _ext.fit.subsample_loglik
 row_loglik = _ext.fit.row_loglik
@@ -42,10 +40,7 @@ Telemetry = _ext.optimizer.Telemetry
 MultiTrustRegion = _ext.optimizer.MultiTrustRegion
 BpannHistory = getattr(_ext.optimizer, "BpannHistory", None)
 create_optimizer = _ext.optimizer.create_optimizer
-enn_optimizer = _ext.optimizer.enn_optimizer
 enn_tr = _ext.optimizer.enn_tr
-create_zero = _ext.optimizer.create_zero
-create_lhd = _ext.optimizer.create_lhd
 dense_apply = getattr(_ext.optimizer, "dense_apply", None)
 dense_dist2 = getattr(_ext.optimizer, "dense_dist2", None)
 dense_linear = getattr(_ext.optimizer, "dense_linear", None)
@@ -90,7 +85,6 @@ __all__ = [
     "BpannHistory",
     "DenseLinear",
     "Device",
-    "ENNFitter",
     "ENNParams",
     "FlameEvaluator",
     "Key",
@@ -109,13 +103,10 @@ __all__ = [
     "Tensor",
     "Trial",
     "Var",
-    "create_lhd",
     "create_optimizer",
-    "create_zero",
     "dense_apply",
     "dense_dist2",
     "dense_linear",
-    "enn_optimizer",
     "enn_tr",
     "ensure_config_file",
     "fit_model",
@@ -124,7 +115,6 @@ __all__ = [
     "pareto2d_max",
     "pareto_arms",
     "row_loglik",
-    "set_path",
     "sobol_indices",
     "sobol_sequence",
     "standardize_y",

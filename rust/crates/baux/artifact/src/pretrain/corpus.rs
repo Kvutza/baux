@@ -273,7 +273,7 @@ impl CorpusSet {
 }
 
 fn verify(path: &Path, expected: &str) -> Result<(), String> {
-    let actual = baux::artifact::runs::file_digest(path)
+    let actual = super::sha_digest(path)
         .map_err(|error| format!("mixture artifact {}: {error}", path.display()))?;
     if actual != expected {
         return Err(format!(
@@ -303,7 +303,7 @@ mod tests {
     }
 
     fn digest(path: &Path) -> String {
-        baux::artifact::runs::digest(&std::fs::read(path).unwrap())
+        super::super::sha_digest(path).unwrap()
     }
 
     #[test]

@@ -124,7 +124,7 @@ fn run_trial(config: RegionalTrial) -> Result<RegionalEvidence, String> {
     for evaluation in config.regions..config.evaluations {
         if evaluation == config.evaluations / 2 {
             let slot = (search.best().0 + 1) % config.regions;
-            search.restart(slot, objective.start(&mut starts_rng)?)?;
+            search = search.restart(slot, objective.start(&mut starts_rng)?)?;
             counts[slot] += 1;
             restarts += 1;
         } else {
@@ -132,13 +132,16 @@ fn run_trial(config: RegionalTrial) -> Result<RegionalEvidence, String> {
             ask.surrogate.neighbors = 1;
             ask.acquisition.seed = config.seed.wrapping_add(evaluation as u64);
             let phase = Instant::now();
-            let proposal = search.ask(crate::hash::splitmix64(ask.acquisition.seed), ask)?;
+            let (next_search, proposal) =
+                search.ask(crate::hash::splitmix64(ask.acquisition.seed), ask)?;
+            search = next_search;
             proposal_time += phase.elapsed();
             let phase = Instant::now();
             let value = objective.evaluate(&search.buffer(&proposal)?)?;
             objective_time += phase.elapsed();
             let phase = Instant::now();
-            search.tell(&proposal, value, 0.0)?;
+            let (next_search, _decision) = search.tell(&proposal, value, 0.0)?;
+            search = next_search;
             tell_time += phase.elapsed();
             counts[proposal.ticket().region.slot] += 1;
         }
@@ -147,7 +150,7 @@ fn run_trial(config: RegionalTrial) -> Result<RegionalEvidence, String> {
     }
     let phase = Instant::now();
     for slot in 0..config.regions {
-        search.flush_sharing(slot)?;
+        search = search.flush_sharing(slot)?;
     }
     let final_sync_time = phase.elapsed();
     Ok(RegionalEvidence {

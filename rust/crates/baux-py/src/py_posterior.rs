@@ -4,7 +4,7 @@ use pyo3::exceptions::{PyBufferError, PyValueError};
 use pyo3::prelude::*;
 use std::sync::Arc;
 
-#[pyclass(name = "Posterior", unsendable)]
+#[pyclass(name = "Posterior", frozen, unsendable)]
 pub struct PyDevicePosterior {
     inner: Arc<DevicePosterior>,
 }
@@ -64,7 +64,7 @@ enum ArrayOwner {
     Draw(DeviceDraw),
 }
 
-#[pyclass(name = "Tensor", unsendable)]
+#[pyclass(name = "Tensor", frozen, unsendable)]
 pub struct PyDeviceArray {
     _owner: ArrayOwner,
     pointer: u64,
@@ -87,7 +87,7 @@ impl PyDeviceArray {
             "metal"
         } else if self.device == 2 {
             "cuda"
-        } else if self.device == baux::webgpu::WEBGPU_DLPACK_DEVICE {
+        } else if self.device == baux::webgpu::WEBGPU_DEVICE {
             "webgpu"
         } else {
             "cpu"
@@ -126,7 +126,7 @@ impl PyDeviceArray {
                 "Metal DLPack stream must be None or -1",
             ));
         }
-        if slf.device == baux::webgpu::WEBGPU_DLPACK_DEVICE && stream.is_some_and(|v| v != -1) {
+        if slf.device == baux::webgpu::WEBGPU_DEVICE && stream.is_some_and(|v| v != -1) {
             return Err(PyValueError::new_err(
                 "WebGPU DLPack stream must be None or -1",
             ));

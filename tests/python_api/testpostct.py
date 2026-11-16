@@ -1,20 +1,19 @@
-"""Contract tests for ENN posterior methods."""
+"""Contract tests for pure functional ENN posterior and sample methods."""
 
 from __future__ import annotations
 
-import inspect
-
+import baux
 import numpy as np
 import pytest
-from baux import ENN
-from baux.enn.enn_params import ENNParams, PosteriorFlags
+from baux import ENNParams
+from baux.enn.posterior_flags import PosteriorFlags
 
 
 @pytest.fixture
 def simple_model():
     train_x = np.array([[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [1.0, 1.0]], dtype=float)
     train_y = np.array([[0.0], [1.0], [1.0], [2.0]], dtype=float)
-    return ENN(train_x, train_y, scale_x=False)
+    return baux.enn_init(train_x, train_y, scale_x=False)
 
 
 @pytest.fixture
@@ -23,11 +22,11 @@ def query():
 
 
 class TestPosteriorContract:
-    """API contract tests for posterior."""
+    """API contract tests for baux.posterior."""
 
     def test_001(self):
-        assert hasattr(ENN, "posterior")
-        assert callable(ENN.posterior)
+        assert hasattr(baux, "posterior")
+        assert callable(baux.posterior)
 
     def test_002(self, simple_model, query):
         params = ENNParams(
@@ -36,7 +35,7 @@ class TestPosteriorContract:
             aleatoric_scale=0.1,
         )
         flags = PosteriorFlags()
-        out = simple_model.posterior(query, params=params, flags=flags)
+        out = baux.posterior(simple_model, query, params=params, flags=flags)
         assert hasattr(out, "mu")
         assert hasattr(out, "se")
         assert hasattr(out, "se_epi")
@@ -49,22 +48,10 @@ class TestPosteriorContract:
         assert np.all(np.isfinite(out.se))
 
 
-class Test_001:
-    """API contract tests for batch_posterior."""
+class TestBatchPosterior:
+    """API contract tests for posterior evaluated across multiple parameter sets."""
 
-    def test_003(self):
-        assert hasattr(ENN, "batch_posterior")
-        assert callable(ENN.batch_posterior)
-
-    def test_004(self):
-        sig = inspect.signature(ENN.batch_posterior)
-        params = list(sig.parameters.keys())
-        assert "self" in params
-        assert "x" in params
-        assert "paramss" in params
-        assert "flags" in params
-
-    def test_005(self, simple_model, query):
+    def test_003(self, simple_model, query):
         params1 = ENNParams(
             k_neighbors=2,
             epistemic_scale=1.0,
@@ -75,37 +62,24 @@ class Test_001:
             epistemic_scale=2.0,
             aleatoric_scale=0.2,
         )
-        out = simple_model.batch_posterior(query, paramss=[params1, params2])
-        assert hasattr(out, "mu")
-        assert hasattr(out, "se")
-        assert hasattr(out, "se_epi")
-        assert hasattr(out, "se_ale")
-        assert out.mu.shape == (2, 1, 1)
-        assert out.se.shape == (2, 1, 1)
-        assert out.se_epi.shape == (2, 1, 1)
-        assert out.se_ale.shape == (2, 1, 1)
+        outs = [
+            baux.posterior(simple_model, query, params=p) for p in [params1, params2]
+        ]
+        mu = np.stack([o.mu for o in outs])
+        se = np.stack([o.se for o in outs])
+        se_epi = np.stack([o.se_epi for o in outs])
+        se_ale = np.stack([o.se_ale for o in outs])
 
-    def test_006(self, simple_model, query):
-        with pytest.raises(ValueError, match="paramss must be non-empty"):
-            simple_model.batch_posterior(query, paramss=[])
+        assert mu.shape == (2, 1, 1)
+        assert se.shape == (2, 1, 1)
+        assert se_epi.shape == (2, 1, 1)
+        assert se_ale.shape == (2, 1, 1)
 
 
-class Test_002:
-    """API contract tests for conditional_posterior."""
+class TestCondPosterior:
+    """API contract tests for conditional posterior via functional state append."""
 
-    def test_007(self):
-        assert hasattr(ENN, "conditional_posterior")
-        assert callable(ENN.conditional_posterior)
-
-    def test_008(self):
-        sig = inspect.signature(ENN.conditional_posterior)
-        params = list(sig.parameters.keys())
-        assert "x_whatif" in params
-        assert "y_whatif" in params
-        assert "x" in params
-        assert "params" in params
-
-    def test_009(self, simple_model, query):
+    def test_004(self, simple_model, query):
         params = ENNParams(
             k_neighbors=2,
             epistemic_scale=1.0,
@@ -115,10 +89,13 @@ class Test_002:
         x_whatif = np.zeros((0, 2), dtype=float)
         y_whatif = np.zeros((0, 1), dtype=float)
 
-        post = simple_model.posterior(query, params=params, flags=flags)
-        cond_post = simple_model.conditional_posterior(
-            x_whatif, y_whatif, query, params=params, flags=flags
+        post = baux.posterior(simple_model, query, params=params, flags=flags)
+        cond_model = (
+            baux.append(simple_model, x_whatif, y_whatif)
+            if len(x_whatif) > 0
+            else simple_model
         )
+        cond_post = baux.posterior(cond_model, query, params=params, flags=flags)
 
         np.testing.assert_allclose(post.mu, cond_post.mu, rtol=1e-12, atol=1e-12)
         np.testing.assert_allclose(post.se, cond_post.se, rtol=1e-12, atol=1e-12)
@@ -129,7 +106,7 @@ class Test_002:
             post.se_ale, cond_post.se_ale, rtol=1e-12, atol=1e-12
         )
 
-    def test_010(self, simple_model, query):
+    def test_005(self, simple_model, query):
         x_whatif = np.array([[0.5, 0.5]], dtype=float)
         y_whatif = np.array([[1.5]], dtype=float)
         params = ENNParams(
@@ -139,9 +116,8 @@ class Test_002:
         )
         flags = PosteriorFlags()
 
-        out = simple_model.conditional_posterior(
-            x_whatif, y_whatif, query, params=params, flags=flags
-        )
+        cond_model = baux.append(simple_model, x_whatif, y_whatif)
+        out = baux.posterior(cond_model, query, params=params, flags=flags)
         assert hasattr(out, "mu")
         assert hasattr(out, "se")
         assert hasattr(out, "se_epi")
@@ -152,21 +128,14 @@ class Test_002:
         assert out.se_ale.shape == (1, 1)
 
 
-class Test_003:
-    """API contract tests for posterior_draw."""
+class TestPosteriorDraw:
+    """API contract tests for baux.sample."""
 
-    def test_011(self):
-        assert hasattr(ENN, "posterior_draw")
-        assert callable(ENN.posterior_draw)
+    def test_006(self):
+        assert hasattr(baux, "sample")
+        assert callable(baux.sample)
 
-    def test_012(self):
-        sig = inspect.signature(ENN.posterior_draw)
-        params = list(sig.parameters.keys())
-        assert "x" in params
-        assert "params" in params
-        assert "function_seeds" in params
-
-    def test_013(self, simple_model, query):
+    def test_007(self, simple_model, query):
         params = ENNParams(
             k_neighbors=2,
             epistemic_scale=1.0,
@@ -175,8 +144,8 @@ class Test_003:
         flags = PosteriorFlags()
         seeds = [42, 43]
 
-        draws, idx = simple_model.posterior_draw(
-            query, params=params, function_seeds=seeds, flags=flags
+        draws, idx = baux.sample(
+            simple_model, query, params=params, seeds=seeds, flags=flags
         )
 
         assert isinstance(draws, np.ndarray)
@@ -184,11 +153,7 @@ class Test_003:
         assert isinstance(idx, (list, np.ndarray))
         assert len(idx) == 1
 
-    def test_014(self):
-        assert hasattr(ENN, "conditional_draw")
-        assert callable(ENN.conditional_draw)
-
-    def test_015(self, simple_model, query):
+    def test_008(self, simple_model, query):
         x_whatif = np.array([[0.5, 0.5]], dtype=float)
         y_whatif = np.array([[1.5]], dtype=float)
         params = ENNParams(
@@ -199,8 +164,9 @@ class Test_003:
         flags = PosteriorFlags()
         seeds = [42]
 
-        draws, idx = simple_model.conditional_draw(
-            x_whatif, y_whatif, query, params=params, function_seeds=seeds, flags=flags
+        cond_model = baux.append(simple_model, x_whatif, y_whatif)
+        draws, idx = baux.sample(
+            cond_model, query, params=params, seeds=seeds, flags=flags
         )
 
         assert isinstance(draws, np.ndarray)

@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import os
+import sys
+import tempfile
 import time
 from collections.abc import Iterator
 from dataclasses import dataclass
@@ -9,6 +12,22 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+
+_repo_root = Path(__file__).resolve().parents[2]
+_ext_dir = str(_repo_root / "tests" / "parity" / "_ext")
+if Path(_ext_dir).is_dir() and _ext_dir not in sys.path:
+    sys.path.insert(0, _ext_dir)
+
+try:
+    (Path.home() / ".baux" / "config.toml").stat()
+except PermissionError:
+    _baux_home = Path(tempfile.gettempdir()) / "baux_test_home"
+    _baux_home.mkdir(parents=True, exist_ok=True)
+    os.environ["HOME"] = str(_baux_home)
+except OSError:
+    pass
+
+import baux
 from baux.turbo.config.surrogate import NeighborIndex
 from ops.stress_disk import (
     DURATION_S_FMT,
@@ -126,7 +145,7 @@ def _initturborun(
     seed: int,
     options: dict[str, Any],
 ) -> tuple[Any, Any, np.ndarray, int]:
-    from baux import create_optimizer
+    import baux
     from baux.benchmarks import Ackley
 
     seed_chunk = options.get("seed_chunk")
@@ -155,9 +174,7 @@ def _initturborun(
             work_dir=work_dir,
             num_init=TURBO_ENN_NUM_INIT,
         )
-        opt = create_optimizer(
-            bounds=bounds_arr, config=config, rng=np.random.default_rng(seed)
-        )
+        opt = baux.init(domain=bounds_arr, config=config, seed=seed)
     return opt, ackley, bounds_arr, int(seed_chunk)
 
 
@@ -186,10 +203,10 @@ def enn_stress2(
         gap = stop - prev
         assert gap >= 1, f"empty group at stop={stop} prev={prev}"
         t0 = time.perf_counter()
-        enn_n(opt, ackley, bounds_arr, gap, rng=dgp_rng, chunk=seed_chunk)
+        opt = enn_n(opt, ackley, bounds_arr, gap, rng=dgp_rng, chunk=seed_chunk)
         tell_s = time.perf_counter() - t0
         t_ask0 = time.perf_counter()
-        _ = opt.ask(num_arms=1)
+        opt, _ = baux.ask(opt, num_arms=1)
         ask_s = time.perf_counter() - t_ask0
         yield TurboEnnRoundResult(
             n=stop, iter_s=ask_s + tell_s, ask_s=ask_s, tell_s=tell_s
@@ -240,22 +257,24 @@ def enn_n(
         if y.ndim == 1:
             y = y.reshape(-1, 1)
         assert y.shape == (take, 1), f"expected y shape ({take}, 1), got {y.shape}"
-        opt.tell(x, y)
+        opt, _ = baux.tell(opt, x, y)
+    return opt
 
 
-def _timedround(opt, objective) -> tuple[float, float]:
-    """Run one ask → eval → tell round; return (ask_s, tell_s)."""
+def _timedround(opt, objective) -> tuple[float, float, Any]:
+    """Run one ask → eval → tell round; return (ask_s, tell_s, opt)."""
     t0 = time.perf_counter()
-    x = opt.ask(num_arms=1)
+    opt, batch = baux.ask(opt, num_arms=1)
     ask_s = time.perf_counter() - t0
+    x = batch.points
     y = np.asarray(objective(x), dtype=float)
     if y.ndim == 1:
         y = y.reshape(-1, 1)
     assert y.shape == (1, 1), f"expected y shape (1, 1), got {y.shape}"
     t_tell0 = time.perf_counter()
-    opt.tell(x, y)
+    opt, _ = baux.tell(opt, x, y)
     tell_s = time.perf_counter() - t_tell0
-    return ask_s, tell_s
+    return ask_s, tell_s, opt
 
 
 def enn_proposal(
@@ -271,11 +290,11 @@ def enn_proposal(
     if num_probes < 1:
         raise ValueError("num_probes must be >= 1")
     for _ in range(warmup):
-        _timedround(opt, objective)
+        _, _, opt = _timedround(opt, objective)
     ask_times: list[float] = []
     tell_times: list[float] = []
     for _ in range(num_probes):
-        ask_s, tell_s = _timedround(opt, objective)
+        ask_s, tell_s, opt = _timedround(opt, objective)
         ask_times.append(ask_s)
         tell_times.append(tell_s)
     ask_mean = float(np.mean(ask_times))
@@ -317,7 +336,7 @@ def _makepropopt(
     seed: int,
     factory,
 ):
-    from baux import create_optimizer
+    import baux
 
     n_work_dir: str | None = None
     if work_dir is not None:
@@ -330,9 +349,7 @@ def _makepropopt(
         work_dir=n_work_dir,
         num_init=TURBO_ENN_NUM_INIT,
     )
-    return create_optimizer(
-        bounds=bounds, config=config, rng=np.random.default_rng(seed + n)
-    )
+    return baux.init(domain=bounds, config=config, seed=seed + n)
 
 
 def run_stress3(
@@ -369,7 +386,7 @@ def run_stress3(
     factory = options.get("optimizer_factory")
     for n in grid:
         opt = _makepropopt(index_driver, bounds, work_dir, n, seed, factory)
-        enn_n(
+        opt = enn_n(
             opt,
             ackley,
             bounds,

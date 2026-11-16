@@ -151,15 +151,19 @@ impl<O: ObjectiveSense> GenericTracker<O> {
         self.sense
     }
 
-    pub fn tell(&mut self, index: usize, y: &Array1<f64>) {
-        self.tell_view(index, y.view());
+    pub fn tell(self, index: usize, y: &Array1<f64>) -> Self {
+        self.tell_view(index, y.view())
     }
 
-    pub fn tell_slice(&mut self, index: usize, y: &[f64]) {
-        self.tell_view(index, ArrayView1::from(y));
+    pub fn with_tell(self, index: usize, y: &Array1<f64>) -> Self {
+        self.tell(index, y)
     }
 
-    pub fn tell_view(&mut self, index: usize, y: ArrayView1<'_, f64>) {
+    pub fn tell_slice(self, index: usize, y: &[f64]) -> Self {
+        self.tell_view(index, ArrayView1::from(y))
+    }
+
+    pub fn tell_view(mut self, index: usize, y: ArrayView1<'_, f64>) -> Self {
         let id = ObsId::new(index);
         self.observation_count += 1;
         let sense = self.sense;
@@ -191,6 +195,7 @@ impl<O: ObjectiveSense> GenericTracker<O> {
                 }
             }
         }
+        self
     }
 
     pub fn ask(&self) -> Vec<usize> {
@@ -222,18 +227,28 @@ impl<O: ObjectiveSense> GenericTracker<O> {
         self.observation_count
     }
 
-    pub fn reset(&mut self) {
+    pub fn reset(mut self) -> Self {
         self.observation_count = 0;
         self.mode.reset();
+        self
+    }
+
+    pub fn with_reset(self) -> Self {
+        self.reset()
     }
 
     /// Zero-copy rebuild over an observation matrix view without per-row heap
     /// allocation.
-    pub fn rebuild(&mut self, y_obs: &ArrayView2<f64>) {
-        self.reset();
+    pub fn rebuild(mut self, y_obs: &ArrayView2<f64>) -> Self {
+        self = self.reset();
         for i in 0..y_obs.nrows() {
-            self.tell_view(i, y_obs.row(i));
+            self = self.tell_view(i, y_obs.row(i));
         }
+        self
+    }
+
+    pub fn with_rebuild(self, y_obs: &ArrayView2<f64>) -> Self {
+        self.rebuild(y_obs)
     }
 
     #[inline]
@@ -285,11 +300,11 @@ mod tests {
     #[test]
     fn test_noiselessmaxties() {
         let mut t = IncumbentTracker::new(3, false, 1);
-        t.tell(0, &array![1.0]);
+        t = t.tell(0, &array![1.0]);
         assert_eq!(t.ask(), vec![0]);
-        t.tell(1, &array![3.0]);
+        t = t.tell(1, &array![3.0]);
         assert_eq!(t.ask(), vec![1]);
-        t.tell(3, &array![3.0]);
+        t = t.tell(3, &array![3.0]);
         assert_eq!(t.ask(), vec![1, 3]);
     }
 
@@ -297,7 +312,7 @@ mod tests {
     fn test_noiseawaretopm() {
         let mut t = IncumbentTracker::new(3, true, 1);
         for (i, v) in [(0, 0.1), (1, 0.9), (2, 0.3), (3, 0.8), (4, 0.2)] {
-            t.tell(i, &array![v]);
+            t = t.tell(i, &array![v]);
         }
         assert_eq!(t.ask(), vec![1, 2, 3]);
     }
@@ -313,7 +328,7 @@ mod tests {
             array![5.0, 5.0],
         ];
         for (i, row) in rows.into_iter().enumerate() {
-            t.tell(i, &row);
+            t = t.tell(i, &row);
         }
         assert_eq!(t.ask(), vec![0, 1, 2, 3]);
     }
@@ -322,7 +337,7 @@ mod tests {
     fn test_allcandidatesmode() {
         let mut t = IncumbentTracker::new(tracker_surrogate(), false, 1);
         for (i, v) in [(0, 0.1), (1, 0.3), (2, -0.2)] {
-            t.tell(i, &array![v]);
+            t = t.tell(i, &array![v]);
         }
         assert_eq!(t.ask(), vec![0, 1, 2]);
     }
@@ -331,9 +346,9 @@ mod tests {
     fn test_005() {
         assert_eq!(enn_k(4), 4);
         let mut t = IncumbentTracker::new(2, true, 1);
-        t.rebuild(&array![[1.0], [3.0], [2.0]].view());
+        t = t.rebuild(&array![[1.0], [3.0], [2.0]].view());
         assert_eq!(t.ask(), vec![1, 2]);
-        t.reset();
+        t = t.reset();
         assert!(t.ask().is_empty());
     }
 
@@ -341,7 +356,7 @@ mod tests {
     fn test_006() {
         let mut t = IncumbentTracker::new(2, true, 1);
         for (i, v) in [(0, 5.0), (1, 5.0), (2, 5.0)] {
-            t.tell(i, &array![v]);
+            t = t.tell(i, &array![v]);
         }
         assert_eq!(t.ask(), vec![0, 1]);
     }
@@ -350,14 +365,14 @@ mod tests {
     fn sense_tracker() {
         let mut min_t = MinTracker::with_objective(2, true, 1, Minimize);
         for (i, v) in [(0, 0.9), (1, -2.5), (2, 0.1), (3, -5.0)] {
-            min_t.tell_slice(i, &[v]);
+            min_t = min_t.tell_slice(i, &[v]);
         }
         assert_eq!(min_t.ask(), vec![1, 3]);
 
         let mut tgt = TargetTracker::with_objective(1, false, 1, Target(10.0));
-        tgt.tell_slice(0, &[12.0]);
-        tgt.tell_slice(1, &[9.8]);
-        tgt.tell_slice(2, &[10.5]);
+        tgt = tgt.tell_slice(0, &[12.0]);
+        tgt = tgt.tell_slice(1, &[9.8]);
+        tgt = tgt.tell_slice(2, &[10.5]);
         assert_eq!(tgt.ask(), vec![1]);
     }
 

@@ -47,7 +47,8 @@ def _updatestep(search, state, capacity, step, round_cfg):
     snapshot = search.incumbent()
     np.testing.assert_array_equal(read_proposals(snapshot), state["base"][None, :])
     fails(snapshot.__dlpack__, "already exported")
-    old_radius, proposals = search.length, ask(search, 42 + step)
+    old_radius = search.length
+    search, proposals = ask(search, 42 + step)
     fails(search.incumbent, "outstanding")
     index, _ = proposals.geometry()[0]
     _, actual_score, radius, _ = proposals.describe()[0]
@@ -59,14 +60,12 @@ def _updatestep(search, state, capacity, step, round_cfg):
         state["base"], state["leaves"], state["ref"], 42 + step, index, radius
     )
     check_rounding(actual, expected[3], expected[4])
-    search.tell_paired(proposals, value, variance, incumbent, inc_var, accept)
+    search, _ = search.tell(proposals, value, variance)
     fails(search.incumbent, "sync")
-    fails(
-        partial(
-            search.tell_paired, proposals, value, variance, incumbent, inc_var, accept
-        )
-    )
-    assert search.sync() == [accept] and search.sync() == []
+    fails(partial(search.tell, proposals, value, variance))
+    search, flags = search.sync()
+    search, empty_flags = search.sync()
+    assert flags == [accept] and empty_flags == []
     assert search.best == (value if accept else incumbent)
     assert search.best_variance == (variance if accept else inc_var)
     assert search.restarts == 0 and search.length == (radius if accept else old_radius)
@@ -82,6 +81,7 @@ def _updatestep(search, state, capacity, step, round_cfg):
     state["hist"] = [*state["hist"], (actual.copy(), value, variance)][-capacity:]
     assert search.history_len == len(state["hist"])
     fails(proposals.__dlpack__, "outstanding")
+    return search
 
 
 def check_updates():
@@ -100,8 +100,8 @@ def check_updates():
             "hist": [(base.copy(), 10.0, 0.125)],
         }
         for step, round_cfg in enumerate(rounds):
-            _updatestep(search, state, capacity, step, round_cfg)
-        proposals = ask(search, 99)
+            search = _updatestep(search, state, capacity, step, round_cfg)
+        search, proposals = ask(search, 99)
         actual = read_proposals(proposals)[0]
         np.testing.assert_allclose(
             proposals.describe()[0][1],
@@ -109,20 +109,21 @@ def check_updates():
             rtol=4e-5,
             atol=4e-5,
         )
-        search.tell_paired(proposals, 0.0, 0.0, -8.0, 0.125, False)
-        assert search.sync() == [False]
+        search, _ = search.tell(proposals, 0.0, 0.0)
+        search, flags = search.sync()
+        assert flags == [False]
 
 
 def _checkbadpaired(search, proposals, valid):
-    for index in range(4):
+    for index in range(len(valid)):
         invalids = [float("nan"), float("inf"), -float("inf"), 1e100]
-        if index in (1, 3):
+        if index == 1:
             invalids.extend([-0.1, -1e-100])
         for value in invalids:
             args = valid.copy()
             args[index] = value
             fails(
-                partial(search.tell_paired, proposals, *args),
+                partial(search.tell, proposals, *args),
                 error_types=(ValueError, OverflowError),
             )
 
@@ -130,39 +131,44 @@ def _checkbadpaired(search, proposals, valid):
 def _checkother(other, foreign, valid):
     import jax.numpy as jnp
 
-    other.tell_paired(foreign, *valid)
-    assert other.sync() == [True]
-    proposals = ask(other, 43)
+    other, _ = other.tell(foreign, *valid)
+    other, flags = other.sync()
+    assert flags == [True]
+    other, proposals = ask(other, 43)
     fails(lambda: other.tell(proposals, [100.0]), "mix")
     fails(lambda: other.tell(proposals, jnp.asarray([100.0], dtype=jnp.float32)), "mix")
-    fails(lambda: other.tell_paired(foreign, *valid), "outstanding")
-    other.tell_paired(proposals, *valid)
-    assert other.sync() == [True]
+    fails(lambda: other.tell(foreign, *valid), "outstanding")
+    other, _ = other.tell(proposals, *valid)
+    other, flags = other.sync()
+    assert flags == [True]
     for sampler in ("independent", "gaussian"):
         state, _, _ = fixture(sampler)
-        pending = ask(state)
-        fails(partial(state.tell_paired, pending, *valid), "correlated")
-        state.tell(pending, [9.0])
-        assert state.sync() == [False]
+        state, pending = ask(state)
+        fails(partial(state.tell, pending, *valid), "correlated")
+        state, _ = state.tell(pending, [9.0])
+        state, flags = state.sync()
+        assert flags == [False]
 
 
 def check_mixed():
     search, base, _ = fixture()
-    proposals = ask(search)
-    valid = [1.0, 0.0, 0.0, 0.0, True]
+    search, proposals = ask(search)
+    valid = [1.0, 0.0]
     _checkbadpaired(search, proposals, valid)
     other, _, _ = fixture()
-    foreign = ask(other)
-    fails(lambda: search.tell_paired(foreign, *valid), "outstanding")
+    other, foreign = ask(other)
+    fails(lambda: search.tell(foreign, *valid), "outstanding")
     fails(lambda: search.tell(foreign, [1.0]), "outstanding")
-    search.tell(proposals, [9.0], [0.5])
-    assert search.sync() == [False]
+    search, _ = search.tell(proposals, [9.0], [0.5])
+    search, flags = search.sync()
+    assert flags == [False]
     np.testing.assert_array_equal(search.read_best(), base)
     assert search.best == 10.0 and search.best_variance == 0.125
-    proposals = ask(search, 43)
-    fails(lambda: search.tell_paired(proposals, *valid), "mix")
-    search.tell(proposals, [11.0])
-    assert search.sync() == [True]
+    search, proposals = ask(search, 43)
+    fails(lambda: search.tell(proposals, *valid), "mix")
+    search, _ = search.tell(proposals, [11.0])
+    search, flags = search.sync()
+    assert flags == [True]
     _checkother(other, foreign, valid)
 
 
@@ -229,7 +235,7 @@ def check_contract():
     search, base, _ = fixture()
     _checkincumbent(search, base)
     stale = search.incumbent()
-    proposals = ask(search)
+    search, proposals = ask(search)
     fails(stale.__dlpack__, "stale")
     array = jax.dlpack.from_dlpack(proposals)
     for action in (
@@ -237,15 +243,16 @@ def check_contract():
         partial(ask, search),
         search.sync,
         partial(search.tell, proposals, [0.0]),
-        partial(search.tell_paired, proposals, 0.0, 0.0, 0.0, 0.0, False),
+        partial(search.tell, proposals, 0.0, 0.0),
     ):
         fails(action, "release live")
     array.block_until_ready()
     array.delete()
     del array, stale, action
     gc.collect()
-    search.tell_paired(proposals, 0.0, 0.0, 10.0, 0.125, False)
-    assert search.sync() == [False]
+    search, _ = search.tell(proposals, 0.0, 0.0)
+    search, flags = search.sync()
+    assert flags == [False]
     del proposals
     _checkcapsules(search, base)
 
@@ -273,16 +280,19 @@ def _scratchcase(delayed):
     fails(search.incumbent, "release live")
     del tensor
     gc.collect()
-    pending, clean = ask(search), ask(replay)
+    search, pending = ask(search)
+    replay, clean = ask(replay)
     assert complete.query(), "scratch reuse did not wait for the consumer stream"
     tensor = torch.from_dlpack(LegacyExport(pending))
     assert tensor.data_ptr() == scratch_pointer
     del tensor
     gc.collect()
     np.testing.assert_array_equal(read_proposals(pending), read_proposals(clean))
-    search.tell_paired(pending, 20.0, 0.5, 21.0, 0.25, False)
-    replay.tell_paired(clean, 20.0, 0.5, 21.0, 0.25, False)
-    assert search.sync() == replay.sync() == [False]
+    search, _ = search.tell(pending, 20.0, 0.5)
+    replay, _ = replay.tell(clean, 20.0, 0.5)
+    search, search_flags = search.sync()
+    replay, replay_flags = replay.sync()
+    assert search_flags == replay_flags == [False]
     np.testing.assert_array_equal(search.read_best(), base)
     np.testing.assert_array_equal(read_proposals(search.incumbent()), base[None, :])
 
@@ -292,14 +302,14 @@ def check_scratch():
 
     for delayed in (False, True):
         _scratchcase(delayed)
-    for accept in (False, True):
+    for _accept in (False, True):
         search, _, _ = fixture()
-        pending = ask(search)
+        search, pending = ask(search)
         tensor = torch.from_dlpack(LegacyExport(pending))
         tensor.fill_(0.5)
         del tensor
         gc.collect()
-        search.tell_paired(pending, 20.0, 0.5, 21.0, 0.25, accept)
+        search, _ = search.tell(pending, 20.0, 0.5)
         fails(search.sync, "invalid")
 
 

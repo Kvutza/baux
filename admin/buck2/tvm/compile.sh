@@ -10,6 +10,7 @@ wheel=$2
 source=$3
 out=$4
 package=$(mktemp -d "${TMPDIR:-/tmp}/baux-tvm-compiler.XXXXXX")
+status=0
 trap 'status=$?; rm -rf "$package"; exit "$status"' EXIT HUP INT TERM
 "$python" -m zipfile -e "$wheel" "$package"
 export PYTHONPATH="$package"

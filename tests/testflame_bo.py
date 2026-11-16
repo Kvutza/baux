@@ -231,13 +231,13 @@ def test_bounds(sampler, candidates):
 
 @pytest.mark.parametrize("candidates", [1, 2, 3, 5, 6, 7, 8])
 def test_corrcount(candidates):
-    with pytest.raises(ValueError, match="correlated.*candidates=4"):
+    with pytest.raises(ValueError, match=r"correlated.*candidates=4"):
         bo.Settings(candidates=candidates)
 
 
 @pytest.mark.parametrize("tolerance", [0, 1, 4, True, "4"])
 def test_corrtolerance(tolerance):
-    with pytest.raises(ValueError, match="failure_tolerance.*paired minibatches"):
+    with pytest.raises(ValueError, match=r"failure_tolerance.*paired minibatches"):
         bo.Settings(failure_tolerance=tolerance)
 
 

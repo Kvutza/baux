@@ -374,7 +374,13 @@ pub fn cargo_build(
     }
     let out = cmd.output().map_err(|e| e.to_string())?;
     if !out.status.success() {
-        return Err(format!("cargo build failed for {}", manifest.display()));
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        let tail: Vec<&str> = stderr.lines().rev().take(30).collect();
+        let snippet: String = tail.into_iter().rev().collect::<Vec<_>>().join("\n");
+        return Err(format!(
+            "cargo build failed for {}:\n{snippet}",
+            manifest.display()
+        ));
     }
     let mut closure = CargoClosure::default();
     for raw in String::from_utf8_lossy(&out.stdout).lines() {

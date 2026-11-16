@@ -17,8 +17,6 @@ mod hnet2;
 #[path = "block/tests.rs"]
 mod tests;
 
-static NEXT_OWNER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct PairToken {
     owner: u64,
@@ -252,7 +250,8 @@ impl BlockDecoder {
         } else {
             context as usize * WIDTH as usize
         };
-        let owner = NEXT_OWNER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let proposals = runtime.buffer::<u32>(context as usize);
+        let owner = proposals.contents() as u64;
         Ok(Self {
             owner,
             pair_gen: std::cell::Cell::new(0),
@@ -261,7 +260,7 @@ impl BlockDecoder {
             tensorops: TensorOpsPipelines::new(runtime)?,
             pisa,
             buffers: Buffers::for_context(runtime, context, architecture),
-            proposals: runtime.buffer::<u32>(context as usize),
+            proposals,
             seeds: runtime.buffer::<u64>(1),
             coarse: runtime.buffer::<u16>(coarse_count),
             expanded: runtime.buffer::<u32>(expanded_count),

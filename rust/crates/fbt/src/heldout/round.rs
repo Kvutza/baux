@@ -97,7 +97,8 @@ pub(super) fn execute_round(
         initializing,
         context.control.paired_objective,
     )?;
-    let synced = search.sync()?;
+    let (next_search, synced) = search.clone().sync()?;
+    *search = next_search;
     if synced != vec![decision.accepted] {
         return Err("actual BO synchronization changed".into());
     }
@@ -237,11 +238,13 @@ fn tell_round(
     paired: bool,
 ) -> Result<NoisyDecision, String> {
     if initializing {
-        return search.tell_initial(
+        let (next_search, decision) = search.clone().tell_initial(
             proposal,
             measurement.optimizer_value,
             measurement.optimizer_variance,
-        );
+        )?;
+        *search = next_search;
+        return Ok(decision);
     }
     if paired {
         let _response = measurement
@@ -249,11 +252,13 @@ fn tell_round(
             .as_ref()
             .ok_or("paired objective lost its block response")?;
     }
-    search.tell_modeled(
+    let (next_search, decision) = search.clone().tell_modeled(
         proposal,
         measurement.optimizer_value,
         measurement.optimizer_variance,
-    )
+    )?;
+    *search = next_search;
+    Ok(decision)
 }
 
 struct PreparedRound {
@@ -284,7 +289,11 @@ fn prepare_round(
         .checked_add(u64::from(step))
         .ok_or("proposal seed overflow")?;
     let row = if initializing {
-        search.begin_initial(proposal_seed, step as usize % 4)?
+        let (next_search, row) = search
+            .clone()
+            .begin_initial(proposal_seed, step as usize % 4)?;
+        *search = next_search;
+        row
     } else {
         let mut ask = control.enn.ask;
         ask.surrogate.neighbors = ask.surrogate.neighbors.min(history);
@@ -294,9 +303,13 @@ fn prepare_round(
             .ok_or("acquisition seed overflow")?;
         if control.random_selection {
             let index = crate::hash::splitmix64(ask.acquisition.seed) as usize % 4;
-            search.begin_forced(proposal_seed, ask, index)?
+            let (next_search, row) = search.clone().begin_forced(proposal_seed, ask, index)?;
+            *search = next_search;
+            row
         } else {
-            search.begin_ask(1, 4, proposal_seed, ask)?
+            let (next_search, row) = search.clone().begin_ask(1, 4, proposal_seed, ask)?;
+            *search = next_search;
+            row
         }
     };
     let candidate_weights = weights.row(&row)?;
@@ -327,7 +340,8 @@ fn prepare_round(
     } else {
         None
     };
-    let proposal = search.finish_ask()?;
+    let (next_search, proposal) = search.clone().finish_ask()?;
+    *search = next_search;
     let ask_seconds = ask_start.elapsed().as_secs_f64();
     if let Some(profile) = search.last_profile() {
         eprintln!(

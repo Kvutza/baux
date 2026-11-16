@@ -10,20 +10,20 @@ use rand::RngCore;
 use crate::{BayesOptimizer, ENNError};
 
 pub fn optimizer_ask(
-    optimizer: &mut BayesOptimizer,
+    optimizer: BayesOptimizer,
     num_arms: usize,
-    rng: &mut dyn RngCore,
-) -> Result<Array2<f64>, ENNError> {
+    rng: &mut (impl RngCore + ?Sized),
+) -> Result<(BayesOptimizer, Array2<f64>), ENNError> {
     optimizer.ask_natural(num_arms, rng)
 }
 
 pub fn optimizer_tell(
-    optimizer: &mut BayesOptimizer,
+    optimizer: BayesOptimizer,
     x: &ArrayView2<f64>,
     y: &ArrayView2<f64>,
     yvar: Option<&ArrayView2<f64>>,
-    rng: &mut dyn RngCore,
-) -> Result<(), ENNError> {
+    rng: &mut (impl RngCore + ?Sized),
+) -> Result<BayesOptimizer, ENNError> {
     optimizer.tell_natural(x, y, yvar, rng)
 }
 

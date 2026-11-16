@@ -40,9 +40,29 @@ pub type DevicePosterior = Posterior;
 pub type DeviceDraw = PosteriorDraw;
 
 impl ENN {
-    /// Evaluate contiguous FP32 device queries. Training observations are
-    /// synced from the ENN; query tensors, posterior arrays, and draws stay
-    /// on-device.
+    /// Ensure in-memory index is synced and evaluate contiguous FP32 device
+    /// queries.
+    ///
+    /// # Safety
+    /// pointer is a retained CUDA allocation (device 2), MTLBuffer (device 8),
+    /// or WebGPU handle / linear-memory pointer (device 15) covering
+    /// rows*num_dim FP32 values at byte_offset, ready for reading.
+    pub unsafe fn posterior_synced(
+        &self,
+        pointer: u64,
+        byte_offset: usize,
+        device: i32,
+        rows: usize,
+        params: &ENNParams,
+        flags: &PosteriorFlags,
+    ) -> Result<DevicePosterior, String> {
+        let synced = self.clone().ensure_sync().map_err(|e| e.to_string())?;
+        unsafe { synced.device_posterior(pointer, byte_offset, device, rows, params, flags) }
+    }
+
+    /// Evaluate contiguous FP32 device queries. Training observations must
+    /// already be synced on the ENN; query tensors, posterior arrays, and draws
+    /// stay on-device.
     ///
     /// # Safety
     /// pointer is a retained CUDA allocation (device 2), MTLBuffer (device 8),
@@ -86,7 +106,11 @@ impl ENN {
             if k == 0 {
                 return Err("no neighbors remain after exclusion".into());
             }
-            self.ensure_sync().map_err(|e| e.to_string())?;
+            if self.backend.index_stale() {
+                return Err(
+                    "device posterior requires synced index; call ensure_sync() first".into(),
+                );
+            }
             let index = self
                 .backend
                 .memory_index()
@@ -152,7 +176,7 @@ impl ENN {
                     })
                 }
                 #[cfg(target_arch = "wasm32")]
-                (KnnBackend::WebGpu(inner), crate::webgpu::WEBGPU_DLPACK_DEVICE) => {
+                (KnnBackend::WebGpu(inner), crate::webgpu::WEBGPU_DEVICE) => {
                     let query_elems = rows
                         .checked_mul(self.num_dim())
                         .ok_or("WebGPU query size overflow")?;
@@ -172,9 +196,7 @@ impl ENN {
                             u32::try_from(pointer)
                                 .ok()
                                 .filter(|&h| h != 0)
-                                .is_some_and(|h| {
-                                    crate::webgpu::read_buffer_f32_into(h, &mut buf).is_ok()
-                                })
+                                .is_some_and(|h| crate::webgpu::read_buffer(h, &mut buf).is_ok())
                         } else {
                             false
                         };
@@ -200,7 +222,7 @@ impl ENN {
                         buf
                     };
                     let guard = inner.lock().map_err(|_| "WebGPU index lock poisoned")?;
-                    let (distances, ids) = guard.raw_topk_f32(&queries_f32, rows, k + skip)?;
+                    let (distances, ids) = guard.raw_topk(&queries_f32, rows, k + skip)?;
                     let spec = crate::webgpu::PosteriorKernelSpec {
                         queries: rows,
                         n: guard.len(),
@@ -213,7 +235,7 @@ impl ENN {
                         epsilon: crate::error::EPS_VAR as f32,
                         observation_noise: flags.observation_noise,
                     };
-                    Storage::WebGpu(crate::webgpu::device_posterior_eval(
+                    Storage::WebGpu(crate::webgpu::eval_posterior(
                         spec,
                         &distances,
                         &ids,
@@ -247,7 +269,7 @@ impl Posterior {
             #[cfg(all(target_os = "linux", target_arch = "x86_64", feature = "cuda"))]
             Storage::Cuda(_) => 2,
             #[cfg(target_arch = "wasm32")]
-            Storage::WebGpu(_) => crate::webgpu::WEBGPU_DLPACK_DEVICE,
+            Storage::WebGpu(_) => crate::webgpu::WEBGPU_DEVICE,
             _ => 0,
         }
     }

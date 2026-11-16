@@ -71,27 +71,39 @@ def assert_invariants(data: dict[str, Any]) -> None:
 
 def replay_check(data: dict[str, Any], config: OptimizerConfig) -> None:
     """Replay an optimizer against a golden fixture and assert step-by-step parity."""
-    from baux import create_optimizer
+    from baux.state import _makeinner
 
     assert_invariants(data)
     bounds = np.array(data["bounds"], dtype=float)
-    rng = np.random.default_rng(int(data["seed"]))
-    opt = create_optimizer(bounds=bounds, config=config, rng=rng)
+    seed = int(data["seed"])
+    rng = np.random.default_rng(seed)
+    opt = _makeinner(bounds, config, int(rng.integers(2**63 - 1)))
     num_arms = int(data["num_arms"])
     for step in data["steps"]:
         x_golden = np.array(step["ask"], dtype=float)
         y_golden = np.array(step["tell_y"], dtype=float)
-        x = opt.ask(num_arms=num_arms)
+        if y_golden.ndim == 1:
+            y_golden = y_golden.reshape(-1, 1)
+        opt, x = opt.ask(num_arms)
         assert isinstance(x, np.ndarray)
         assert x.shape == (num_arms, bounds.shape[0])
         assert np.all(np.isfinite(x))
         assert np.all(x >= bounds[:, 0] - 1e-9)
         assert np.all(x <= bounds[:, 1] + 1e-9)
         np.testing.assert_allclose(x, x_golden, rtol=EXACT_RTOL, atol=EXACT_ATOL)
-        opt.tell(x_golden, y_golden)
-        assert int(opt.region_count) == int(step["tr_count"])
+        y_var_golden = None
+        if "tell_y_var" in step:
+            y_var_golden = np.array(step["tell_y_var"], dtype=float)
+            if y_var_golden.ndim == 1:
+                y_var_golden = y_var_golden.reshape(-1, 1)
+        elif "y_var" in step:
+            y_var_golden = np.array(step["y_var"], dtype=float)
+            if y_var_golden.ndim == 1:
+                y_var_golden = y_var_golden.reshape(-1, 1)
+        opt = opt.tell(x_golden, y_golden, y_var=y_var_golden)
+        assert int(opt.num_observations()) == int(step["tr_count"])
         np.testing.assert_allclose(
-            opt.tr_length,
+            opt.tr_length(),
             float(step["tr_length"]),
             rtol=TR_RTOL,
             atol=TR_ATOL,

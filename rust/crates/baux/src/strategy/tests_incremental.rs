@@ -17,13 +17,13 @@ fn x_add() {
     let train_x = array![[0.0, 0.0], [1.0, 0.0]];
     let train_y = array![[0.0], [1.0]];
     let mut model = ENN::new(train_x, train_y, None, false, IndexDriver::Exact).unwrap();
-    model.ensure_sync().unwrap();
+    model = model.ensure_sync().unwrap();
     assert!(!model.index_access().is_stale());
     let x_add = array![[0.5, 0.5]];
     let y_add = array![[0.5]];
-    model.add(&x_add.view(), &y_add.view(), None).unwrap();
+    model = model.add(&x_add.view(), &y_add.view(), None).unwrap();
     assert!(!model.index_access().is_stale());
-    model.ensure_sync().unwrap();
+    model = model.ensure_sync().unwrap();
     assert_eq!(model.num_obs(), 3);
     assert_eq!(model.index_access().len(), 3);
 }
@@ -33,13 +33,13 @@ fn x_succeeds() {
     let train_x = array![[0.0, 0.0], [1.0, 0.0]];
     let train_y = array![[0.0], [1.0]];
     let mut model = ENN::new(train_x, train_y, None, true, IndexDriver::Exact).unwrap();
-    model.ensure_sync().unwrap();
+    model = model.ensure_sync().unwrap();
     let x_add = array![[0.5, 0.5]];
     let y_add = array![[0.5]];
-    model
+    model = model
         .add(&x_add.view(), &y_add.view(), None)
         .expect("scale_x=true append to non-empty model must succeed");
-    model.ensure_sync().unwrap();
+    model = model.ensure_sync().unwrap();
     assert_eq!(model.num_obs(), 3);
     assert_eq!(model.index_access().len(), 3);
 }
@@ -49,16 +49,16 @@ fn x_add2() {
     let train_x = array![[0.0, 0.0], [1.0, 0.0]];
     let train_y = array![[0.0], [1.0]];
     let mut model = ENN::new(train_x, train_y, None, true, IndexDriver::Exact).unwrap();
-    model.ensure_sync().unwrap();
+    model = model.ensure_sync().unwrap();
     assert!(!model.index_access().is_stale());
     let x_add = array![[0.5, 0.5]];
     let y_add = array![[0.5]];
-    model.add(&x_add.view(), &y_add.view(), None).unwrap();
+    model = model.add(&x_add.view(), &y_add.view(), None).unwrap();
     assert!(
         model.index_access().is_stale(),
         "scale_x append must mark index stale before ensure_sync"
     );
-    model.ensure_sync().unwrap();
+    model = model.ensure_sync().unwrap();
     assert!(!model.index_access().is_stale());
 }
 
@@ -67,12 +67,12 @@ fn enn_obs() {
     let train_x = array![[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [1.0, 1.0]];
     let train_y = array![[0.0], [1.0], [1.0], [2.0]];
     let model = ENN::new(train_x, train_y, None, false, IndexDriver::Exact).unwrap();
-    let mut fitter = ENNFitter::new(2, true);
+    let fitter = ENNFitter::new(2, true);
     let all: Vec<usize> = (0..model.len()).collect();
     let (_, ty, _) = model.rows().train_rows(&all).unwrap();
-    fitter.y_stats(&ty.view());
+    let fitter = fitter.observe_y(&ty.view());
     let mut rng = StdRng::seed_from_u64(99);
-    let p = fitter.ask(&model, 4, 3, None, &mut rng).unwrap();
+    let (_fitter, p) = fitter.ask(&model, 4, 3, None, &mut rng).unwrap();
     assert_eq!(p.k_neighbors, 2);
     assert!(p.epistemic_scale > 0.0);
 }
@@ -101,12 +101,10 @@ fn enn_model() {
     let mut rng = StdRng::seed_from_u64(42);
     let x0 = array![[0.0, 0.0], [1.0, 0.0]];
     let y0 = array![[0.0], [1.0]];
-    sur.fit_append(&x0.view(), &y0.view(), None, &mut rng)
-        .unwrap();
+    sur = sur.append(&x0.view(), &y0.view(), None, &mut rng).unwrap();
     let x1 = array![[0.5, 0.5]];
     let y1 = array![[1.5]];
-    sur.fit_append(&x1.view(), &y1.view(), None, &mut rng)
-        .unwrap();
+    sur = sur.append(&x1.view(), &y1.view(), None, &mut rng).unwrap();
     assert_eq!(sur.model().unwrap().num_obs(), 3);
 }
 
@@ -115,13 +113,13 @@ fn tell_metrics() {
     let bounds = array![[0.0, 1.0], [0.0, 1.0]];
     let mut rng = StdRng::seed_from_u64(88);
     let cfg = turbo_enn();
-    let mut opt = BayesOptimizer::new(bounds, cfg, &mut rng).unwrap();
+    let opt = BayesOptimizer::new(bounds, cfg, &mut rng).unwrap();
     let x0 = array![[0.2, 0.3]];
     let y0 = array![[1.0]];
-    opt.tell(&x0.view(), &y0.view(), &mut rng).unwrap();
+    let opt = opt.tell(&x0.view(), &y0.view(), None, &mut rng).unwrap();
     let x1 = array![[0.4, 0.5], [0.6, 0.7]];
     let y1 = array![[2.0, 3.0], [4.0, 5.0]];
-    let err = opt.tell(&x1.view(), &y1.view(), &mut rng);
+    let err = opt.tell(&x1.view(), &y1.view(), None, &mut rng);
     assert!(err.is_err());
     let msg = err.unwrap_err().to_string();
     assert!(
@@ -142,14 +140,14 @@ fn morbo_ranges() {
         rescalarize: Rescalarize::OnRestart,
         noise_aware: false,
     });
-    let mut opt = BayesOptimizer::new_strategy(bounds, cfg, Strategy::turbo(), &mut rng).unwrap();
+    let opt = BayesOptimizer::new_strategy(bounds, cfg, Strategy::turbo(), &mut rng).unwrap();
     let x0 = array![[0.1, 0.2], [0.3, 0.4]];
     let y0 = array![[1.0, 0.5], [0.2, 0.9]];
-    opt.tell(&x0.view(), &y0.view(), &mut rng).unwrap();
+    let opt = opt.tell(&x0.view(), &y0.view(), None, &mut rng).unwrap();
     let morbo = opt.trust_region().morbo().expect("morbo");
     let ymin_before = morbo.y_min().expect("y_min").to_owned();
     let ymax_before = morbo.y_max().expect("y_max").to_owned();
-    let _ = opt.ask(2, &mut rng).unwrap();
+    let (opt, _) = opt.ask(2, &mut rng).unwrap();
     let morbo_after = opt.trust_region().morbo().expect("morbo");
     assert!(
         morbo_after
@@ -167,4 +165,31 @@ fn morbo_ranges() {
             .zip(ymax_before.iter())
             .all(|(a, b)| (a - b).abs() < 1e-12)
     );
+}
+
+#[test]
+fn fork_isolation() {
+    let bounds = array![[0.0, 1.0], [0.0, 1.0]];
+    let mut rng = StdRng::seed_from_u64(42);
+    let opt = BayesOptimizer::new(bounds, turbo_enn(), &mut rng).unwrap();
+
+    let fork_a = opt.fork().unwrap();
+    let fork_b = opt.fork().unwrap();
+
+    let (fork_a, x_a) = fork_a.ask(2, &mut rng).unwrap();
+    let (fork_b, x_b) = fork_b.ask(2, &mut rng).unwrap();
+
+    let y_a = array![[1.0], [2.0]];
+    let y_b = array![[10.0], [20.0]];
+
+    let fork_a = fork_a
+        .tell(&x_a.view(), &y_a.view(), None, &mut rng)
+        .unwrap();
+    let fork_b = fork_b
+        .tell(&x_b.view(), &y_b.view(), None, &mut rng)
+        .unwrap();
+
+    assert_eq!(fork_a.obs_count(), 2);
+    assert_eq!(fork_b.obs_count(), 2);
+    assert_eq!(opt.obs_count(), 0);
 }

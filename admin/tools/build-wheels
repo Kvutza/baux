@@ -153,7 +153,8 @@ PY
     test -f "$wheel"
     (
         if [ "$(uname -s)" = Linux ]; then
-            export PATH="$(dirname "$python_bin"):$PATH"
+            python_dir=$(dirname "$python_bin")
+            export PATH="$python_dir:$PATH"
             # repair rejects binaries requiring a newer glibc than the promised tag.
             auditwheel repair --plat "$platform_tag" \
                 --only-plat --wheel-dir "$destination" "$wheel"

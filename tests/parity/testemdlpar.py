@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+import baux
 import numpy as np
 import pytest
-from baux import ENN
 from baux.enn.enn_params import ENNParams, PosteriorFlags
 
 try:
@@ -23,8 +23,8 @@ def test_001():
     params = ENNParams(k_neighbors=2, epistemic_scale=1.0, aleatoric_scale=0.1)
     flags = PosteriorFlags(exclude_nearest=False, observation_noise=False)
 
-    model = ENN(train_x, train_y, scale_x=False)
-    out = model.posterior(query, params=params, flags=flags)
+    state = baux.enn_init(train_x, train_y, scale_x=False)
+    out = baux.posterior(state, query, params=params, flags=flags)
 
     rs_model = RustENN(train_x, train_y, scale_x=False, index_driver="Exact")
     rs_mu, rs_se, rs_se_epi, rs_se_ale, _rs_idx = rs_model.posterior(
@@ -48,7 +48,7 @@ def test_addandlencontract():
     train_y = np.array([[0.0], [1.0]], dtype=float)
     rs_model = RustENN(train_x, train_y, scale_x=False, index_driver="Exact")
     assert len(rs_model) == 2
-    rs_model.add(
+    rs_model = rs_model.add(
         np.array([[0.0, 1.0]], dtype=float), np.array([[1.0]], dtype=float), None
     )
     assert len(rs_model) == 3
@@ -68,8 +68,8 @@ def test_002():
     )
     flags = PosteriorFlags(exclude_nearest=False, observation_noise=True)
 
-    model = ENN(train_x, train_y, train_yvar=train_yvar, scale_x=False)
-    out = model.posterior(query, params=params, flags=flags)
+    state = baux.enn_init(train_x, train_y, train_yvar=train_yvar, scale_x=False)
+    out = baux.posterior(state, query, params=params, flags=flags)
 
     rs_model = RustENN(
         train_x, train_y, train_yvar=train_yvar, scale_x=False, index_driver="Exact"
@@ -102,9 +102,9 @@ def test_003():
     )
     flags = PosteriorFlags(exclude_nearest=True, observation_noise=False)
 
-    model = ENN(train_x, train_y, scale_x=False)
+    state = baux.enn_init(train_x, train_y, scale_x=False)
     with pytest.raises(ValueError):
-        model.posterior(query, params=params, flags=flags)
+        baux.posterior(state, query, params=params, flags=flags)
 
     rs_model = RustENN(train_x, train_y, scale_x=False, index_driver="Exact")
     with pytest.raises(ValueError):

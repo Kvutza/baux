@@ -1,7 +1,7 @@
 \title{Configuration}
 \meta{toc}{false}
 
-\p{Configuration records are frozen dataclasses. Build them through [pipeline helpers](api-pipelines.html), or use \code{dataclasses.replace} to change individual fields. The \code{turbo_*} functions return configuration records, not running optimizers.}
+\p{Configuration records are frozen dataclasses. Build them through [pipeline helpers](api-pipelines.html), or use \code{dataclasses.replace} to change individual fields. Composable pipeline transforms construct validated \code{OptimizerConfig} instances for functional optimization.}
 
 \<section>[id]{baux.OptimizerConfig}[class]{api-entry}[data-symbol]{baux.OptimizerConfig}[data-kind]{class}[data-module]{baux.turbo.config}{
   \<div>[class]{api-entry-header}{\<h2>[class]{api-entry-title}{[\code{baux.OptimizerConfig}](api-configuration.html#baux.OptimizerConfig)}}
@@ -20,6 +20,18 @@ baux.OptimizerConfig(
   \p{Frozen dataclass. Fields: \code{trust_region}, \code{candidates}, \code{init}, \code{surrogate}, \code{acquisition}, \code{acq_optimizer} and \code{observation_history}. Use \code{dataclasses.replace} to change fields.}
   \p{The default is a single TuRBO region, no surrogate and random acquisition. The [pipeline helpers](api-pipelines.html) construct compatible combinations.}
   \p{Surrogate choices include \code{ENNSurrogate}, \code{GaussianProcess}, \code{ExternalSurrogate} and \code{NoSurrogate}. Region choices include \code{TurboTrustRegion}, \code{MorboTrustRegion}, \code{RegionalSearchPolicy} and \code{NoTrustRegion}. Configuration records are in \code{baux.turbo.config}; commonly used types are also exported by \code{baux}.}
+  \<div>[class]{api-example}{\<p>[class]{example-label}{Example}
+\pre{
+import numpy as np
+import baux
+
+bounds = np.array([[-1.0, 1.0], [-1.0, 1.0]])
+pipe = baux.lhd(4) | baux.zero()
+state = baux.init(bounds, pipe=pipe, seed=0)
+assert isinstance(state.config, baux.OptimizerConfig)
+assert state.num_observations == 0
+}
+  }
   \<p>[class]{api-source}{[Source in \code{python/baux/turbo/config/optimizer.py}](https://github.com/Kvutza/baux/blob/main/python/baux/turbo/config/optimizer.py#L51)}
 }
 
@@ -60,72 +72,4 @@ baux.TrustRegionBounds(
   \p{Initial, minimum and maximum region lengths.}
   \p{Requires \code{0 < length_min <= length_init <= length_max}. Lengths are measured in normalized coordinates. Pass to a region policy or use \code{tr_bounds} in a pipeline.}
   \<p>[class]{api-source}{[Source in \code{python/baux/turbo/config/morbo_region.py}](https://github.com/Kvutza/baux/blob/main/python/baux/turbo/config/morbo_region.py#L16)}
-}
-
-\<section>[id]{baux.turbo_enn}[class]{api-entry}[data-symbol]{baux.turbo_enn}[data-kind]{function}[data-module]{baux.turbo.config}{
-  \<div>[class]{api-entry-header}{\<h2>[class]{api-entry-title}{[\code{baux.turbo_enn}](api-configuration.html#baux.turbo_enn)}}
-  \pre{
-baux.turbo_enn(
-    *,
-    enn: ENNSurrogate | None = None,
-    trust_region: TrustRegionConfig | None = None,
-    candidates: CandidateConfig | None = None,
-    num_init: int | None = None,
-    acquisition: AcquisitionKind = AcquisitionKind.PARETO,
-) -> OptimizerConfig
-  }
-  \p{Create an ENN optimizer configuration preset.}
-  \p{Returns \code{OptimizerConfig}. Defaults to Pareto acquisition. Accepts explicit ENN, region and candidate configurations and an initialization budget.}
-  \p{The default acquisition differs from \code{baux.enn()}, which normally selects UCB. Use an explicit acquisition when comparing configurations.}
-  \<p>[class]{api-source}{[Source in \code{python/baux/turbo/config/factory.py}](https://github.com/Kvutza/baux/blob/main/python/baux/turbo/config/factory.py#L93)}
-}
-
-\<section>[id]{baux.turbo_one}[class]{api-entry}[data-symbol]{baux.turbo_one}[data-kind]{function}[data-module]{baux.turbo.config}{
-  \<div>[class]{api-entry-header}{\<h2>[class]{api-entry-title}{[\code{baux.turbo_one}](api-configuration.html#baux.turbo_one)}}
-  \pre{
-baux.turbo_one(
-    *,
-    num_candidates: int | None = None,
-    num_init: int | None = None,
-    trust_region: TrustRegionConfig | None = None,
-    sampler: CandidateSampler = CandidateSampler.SOBOL,
-    acquisition: AcquisitionKind = AcquisitionKind.THOMPSON,
-) -> OptimizerConfig
-  }
-  \p{Create a Gaussian-process TuRBO configuration.}
-  \p{Returns \code{OptimizerConfig}. Defaults to Sobol candidates and Thompson acquisition. Optional arguments override candidate count, initialization budget, region policy, sampler and acquisition.}
-  \<p>[class]{api-source}{[Source in \code{python/baux/turbo/config/factory.py}](https://github.com/Kvutza/baux/blob/main/python/baux/turbo/config/factory.py#L50)}
-}
-
-\<section>[id]{baux.turbo_zero}[class]{api-entry}[data-symbol]{baux.turbo_zero}[data-kind]{function}[data-module]{baux.turbo.config}{
-  \<div>[class]{api-entry-header}{\<h2>[class]{api-entry-title}{[\code{baux.turbo_zero}](api-configuration.html#baux.turbo_zero)}}
-  \pre{
-baux.turbo_zero(
-    *,
-    num_candidates: int | None = None,
-    num_candidates_per_arm: int | None = None,
-    num_init: int | None = None,
-    trust_region: TrustRegionConfig | None = None,
-    sampler: CandidateSampler = CandidateSampler.SOBOL,
-) -> OptimizerConfig
-  }
-  \p{Create a surrogate-free trust-region configuration.}
-  \p{Returns \code{OptimizerConfig} with random selection. Defaults to Sobol candidates. Candidate budgets, initialization budget and region policy can be supplied explicitly.}
-  \<p>[class]{api-source}{[Source in \code{python/baux/turbo/config/factory.py}](https://github.com/Kvutza/baux/blob/main/python/baux/turbo/config/factory.py#L70)}
-}
-
-\<section>[id]{baux.lhd_only}[class]{api-entry}[data-symbol]{baux.lhd_only}[data-kind]{function}[data-module]{baux.turbo.config}{
-  \<div>[class]{api-entry-header}{\<h2>[class]{api-entry-title}{[\code{baux.lhd_only}](api-configuration.html#baux.lhd_only)}}
-  \pre{
-baux.lhd_only(
-    *,
-    num_candidates: int | None = None,
-    num_init: int | None = None,
-    trust_region: TrustRegionConfig | None = None,
-    sampler: CandidateSampler = CandidateSampler.SOBOL,
-) -> OptimizerConfig
-  }
-  \p{Create a Latin-hypercube exploration configuration.}
-  \p{Returns \code{OptimizerConfig} without a surrogate. Sets LHD-only initialization. Accepts candidate and initialization budgets plus sampler and region arguments for the preset constructor.}
-  \<p>[class]{api-source}{[Source in \code{python/baux/turbo/config/factory.py}](https://github.com/Kvutza/baux/blob/main/python/baux/turbo/config/factory.py#L118)}
 }

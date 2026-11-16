@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
+import baux
 import numpy as np
-from baux import create_optimizer
 from baux.turbo.config import (
     AcquisitionKind,
     CandidateConfig,
@@ -20,7 +20,6 @@ from morbo_objectives import (
 
 def test_001():
     bounds = np.array([[-300.0, 600.0], [0.2, 1.0]], dtype=float)
-    rng = np.random.default_rng(42)
     config = turbo_enn(
         enn=ENNSurrogate(
             k=4,
@@ -33,18 +32,20 @@ def test_001():
         candidates=CandidateConfig(num_candidates=64),
         acquisition=AcquisitionKind.THOMPSON,
     )
-    opt = create_optimizer(bounds=bounds, config=config, rng=rng)
+    state = baux.init(bounds, config=config, seed=42)
     num_arms = 4
-    while opt.init_progress is not None:
-        x = opt.ask(num_arms=num_arms)
+    while state.init_progress is not None:
+        state, batch = baux.ask(state, num_arms)
+        x = batch.points
         y = _separable_unimodal_objective(x)
-        opt.tell(x, y)
+        state, _ = baux.tell(state, batch, y)
     best_y = np.array([-np.inf, -np.inf], dtype=float)
     rounds = 0
     while rounds < 35:
-        x = opt.ask(num_arms=num_arms)
+        state, batch = baux.ask(state, num_arms)
+        x = batch.points
         y = _separable_unimodal_objective(x)
-        opt.tell(x, y)
+        state, _ = baux.tell(state, batch, y)
         best_y = np.maximum(best_y, y.max(axis=0))
         rounds += 1
     assert np.all(np.isfinite(best_y))

@@ -10,7 +10,7 @@ def test_contexts(monkeypatch, tmp_path):
     seen_contexts = []
 
     class FakeEncoding:
-        ids = [7, 8, 9]
+        ids = (7, 8, 9)
 
     class FakeTokenizer:
         def encode(self, prompt, add_special_tokens):

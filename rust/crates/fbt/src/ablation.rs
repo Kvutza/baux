@@ -69,7 +69,7 @@ fn scaling_search(
     let acquisition_seed = run.derived_seed(rep, "scaling-acquisition", 0);
     let mut enn = run.resident_enn(acquisition_seed)?;
     enn.distance_metric = metric;
-    search.configure_enn(enn)?;
+    search = search.configure_enn(enn)?;
     pretrain_batch(buffers, train, 0)?;
     let (value, variance, _) = score(
         runtime,
@@ -80,16 +80,20 @@ fn scaling_search(
         weights,
         &search.base_buffer(),
     )?;
-    search.observe_initial(value, variance)?;
+    search = search.observe_initial(value, variance)?;
     for step in 0..enn.ask.surrogate.neighbors - 1 {
         pretrain_batch(buffers, train, step as u32 % train.batches())?;
         let proposal_seed = run.derived_seed(rep, "scaling-proposal", step as u64);
-        let row = search.begin_initial(proposal_seed, step % 4)?;
-        let proposal = search.finish_ask()?;
+        let (next_search, row) = search.begin_initial(proposal_seed, step % 4)?;
+        search = next_search;
+        let (next_search, proposal) = search.finish_ask()?;
+        search = next_search;
         let (value, variance, _) =
             score(runtime, pipelines, tensorops, pisa1, buffers, weights, &row)?;
-        search.tell_initial(&proposal, value, variance)?;
-        search.sync()?;
+        let (next_search, _) = search.tell_initial(&proposal, value, variance)?;
+        search = next_search;
+        let (next_search, _) = search.sync()?;
+        search = next_search;
     }
     Ok((search, enn))
 }
@@ -156,7 +160,7 @@ fn selection_ablation() -> Result<(), String> {
                     )?;
                     let acquisition_seed = run.derived_seed(rep as u32, "selection-acquisition", 0);
                     let enn = run.resident_enn(acquisition_seed)?;
-                    search.configure_enn(enn)?;
+                    search = search.configure_enn(enn)?;
                     let choice_seed = run.derived_seed(rep as u32, "selection-policy", 0);
                     let mut rng = StdRng::seed_from_u64(choice_seed);
                     let choices: Vec<usize> = (0..rounds).map(|_| rng.gen_range(0..4)).collect();
@@ -170,7 +174,7 @@ fn selection_ablation() -> Result<(), String> {
                         &weights,
                         &search.base_buffer(),
                     )?;
-                    search.observe_initial(value, variance)?;
+                    search = search.observe_initial(value, variance)?;
                     let mut evaluate = |phase: &str, row: &Buffer| -> Result<(), String> {
                         let mut nlls = Vec::new();
                         for batch in 0..heldout_batches {
@@ -204,23 +208,28 @@ fn selection_ablation() -> Result<(), String> {
                         let proposal_seed =
                             run.derived_seed(rep as u32, "selection-proposal", u64::from(step));
                         let started = Instant::now();
-                        let row = if initializing {
+                        let (next_search, row) = if initializing {
                             search.begin_initial(proposal_seed, step as usize % 4)?
                         } else if policy == "random" {
                             search.begin_forced(proposal_seed, ask, choices[step as usize])?
                         } else {
                             search.begin_ask(1, 4, proposal_seed, ask)?
                         };
-                        let proposal = search.finish_ask()?;
+                        search = next_search;
+                        let (next_search, proposal) = search.finish_ask()?;
+                        search = next_search;
                         let (value, variance, scores) = score(
                             &runtime, &pipelines, &tensorops, &pisa1, &buffers, &weights, &row,
                         )?;
-                        let decision = if initializing {
+                        let (next_search, decision) = if initializing {
                             search.tell_initial(&proposal, value, variance)?
                         } else {
                             search.tell_modeled(&proposal, value, variance)?
                         };
-                        if search.sync()? != vec![decision.accepted] {
+                        search = next_search;
+                        let (next_search, accepted) = search.sync()?;
+                        search = next_search;
+                        if accepted != vec![decision.accepted] {
                             return Err("ablation tell/sync mismatch".into());
                         }
                         emit(json!({"kind": "round", "seed": seed, "policy": policy,
@@ -297,7 +306,7 @@ fn pool_ablation() -> Result<(), String> {
                         .unwrap_or(crate::config::TrustRegionShape::TensorFamilyStatic),
                 )?;
                 let enn = run.resident_enn(run.derived_seed(rep, "pool-acquisition", 0))?;
-                search.configure_enn(enn)?;
+                search = search.configure_enn(enn)?;
                 pretrain_batch(&buffers, &train, 0)?;
                 let (value, variance, _) = score(
                     &runtime,
@@ -308,17 +317,21 @@ fn pool_ablation() -> Result<(), String> {
                     &weights,
                     &search.base_buffer(),
                 )?;
-                search.observe_initial(value, variance)?;
+                search = search.observe_initial(value, variance)?;
                 for step in 0..enn.ask.surrogate.neighbors - 1 {
                     pretrain_batch(&buffers, &train, step as u32 % train.batches())?;
                     let proposal_seed = run.derived_seed(rep, "pool-proposal", step as u64);
-                    let row = search.begin_initial(proposal_seed, step % 4)?;
-                    let proposal = search.finish_ask()?;
+                    let (next_search, row) = search.begin_initial(proposal_seed, step % 4)?;
+                    search = next_search;
+                    let (next_search, proposal) = search.finish_ask()?;
+                    search = next_search;
                     let (value, variance, _) = score(
                         &runtime, &pipelines, &tensorops, &pisa1, &buffers, &weights, &row,
                     )?;
-                    search.tell_initial(&proposal, value, variance)?;
-                    search.sync()?;
+                    let (next_search, _) = search.tell_initial(&proposal, value, variance)?;
+                    search = next_search;
+                    let (next_search, _) = search.sync()?;
+                    search = next_search;
                 }
                 let root =
                     run.derived_seed(rep, "pool-proposal", enn.ask.surrogate.neighbors as u64);
@@ -340,8 +353,10 @@ fn pool_ablation() -> Result<(), String> {
                         .2,
                     );
                 }
-                search.begin_ask(1, 4, root, ask)?;
-                let proposal = search.finish_ask()?;
+                let (next_search, _row) = search.begin_ask(1, 4, root, ask)?;
+                search = next_search;
+                let (next_search, proposal) = search.finish_ask()?;
+                search = next_search;
                 let mut all_scores = Vec::new();
                 for candidate in 0..4 {
                     let row = search.diagnostic_row(&proposal, root, ask, candidate)?;
@@ -458,10 +473,14 @@ fn scaling_ablation() -> Result<(), String> {
                 global_ask.acquisition.seed = run.derived_seed(rep, "scaling-acquisition", 1);
                 let mut local_ask = local_enn.ask;
                 local_ask.acquisition.seed = global_ask.acquisition.seed;
-                global.begin_ask(1, 4, root, global_ask)?;
-                let global_pool = global.finish_ask()?;
-                local.begin_ask(1, 4, root, local_ask)?;
-                let local_pool = local.finish_ask()?;
+                let (next_global, _row) = global.begin_ask(1, 4, root, global_ask)?;
+                global = next_global;
+                let (next_global, global_pool) = global.finish_ask()?;
+                global = next_global;
+                let (next_local, _row) = local.begin_ask(1, 4, root, local_ask)?;
+                local = next_local;
+                let (next_local, local_pool) = local.finish_ask()?;
+                let _ = next_local;
                 if global_pool.pool_keys() != local_pool.pool_keys() {
                     return Err("distance-scaling policies did not receive one pool".into());
                 }

@@ -157,8 +157,11 @@ def _download(name: str, output: Path, *, force: bool) -> str:
         raise FileExistsError(f"Refusing to overwrite {target}; pass --force")
     output.mkdir(parents=True, exist_ok=True)
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-    request = urllib.request.Request(
-        _url(name), headers={"Accept-Encoding": "identity"}
+    url = _url(name)
+    if not url.startswith("https://"):
+        raise ValueError(f"Expected HTTPS URL for checkpoint artifact, got {url!r}")
+    request = urllib.request.Request(  # noqa: S310
+        url, headers={"Accept-Encoding": "identity"}
     )
     with opener.open(request, timeout=120) as response:
         length = response.headers.get("Content-Length")

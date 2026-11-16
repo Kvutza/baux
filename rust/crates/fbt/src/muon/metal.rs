@@ -3,8 +3,8 @@
 extern crate metal as metal_crate;
 
 use super::{POLAR, Polynomial, Shape, Step};
-use crate::apple_gpu::{Runtime, thread_group};
 use crate::mps::{Matmul, Matrix};
+use baux::apple_gpu::{Runtime, thread_group};
 use metal_crate::foreign_types::{ForeignType, ForeignTypeRef};
 use metal_crate::{
     Buffer, BufferRef, CommandBufferRef, ComputePipelineState, MTLCommandBufferStatus,

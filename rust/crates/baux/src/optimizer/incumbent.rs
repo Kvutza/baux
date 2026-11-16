@@ -60,6 +60,11 @@ impl ProposalEngine {
         self.sobol_engine = eng;
     }
 
+    pub(crate) fn with_sobol(mut self, eng: Option<SobolEngine>) -> Self {
+        self.sobol_engine = eng;
+        self
+    }
+
     pub fn sobol_base(&self) -> u64 {
         self.sobol_base
     }
@@ -126,6 +131,8 @@ pub struct IncumbentLedger {
     current: Option<IncumbentPoint>,
 }
 
+pub type IncumbentState = IncumbentLedger;
+
 impl IncumbentLedger {
     pub fn new(config: &OptimizerConfig, num_metrics: usize) -> Self {
         Self::with_sense(config, num_metrics, crate::sense::Sense::Maximize)
@@ -153,17 +160,33 @@ impl IncumbentLedger {
         self.tracker.sense()
     }
 
-    pub fn reset(&mut self) {
-        self.tracker.reset();
+    pub fn reset(mut self) -> Self {
+        self.tracker = self.tracker.reset();
         self.current = None;
+        self
     }
 
-    pub fn tell_row(&mut self, index: usize, y_row: &Array1<f64>) {
-        self.tracker.tell(index, y_row);
+    pub fn with_reset(self) -> Self {
+        self.reset()
     }
 
-    pub fn tell_view(&mut self, index: usize, y_view: ndarray::ArrayView1<'_, f64>) {
-        self.tracker.tell_view(index, y_view);
+    pub fn rebuild(mut self, y_obs: &ndarray::ArrayView2<f64>) -> Self {
+        self.tracker = self.tracker.rebuild(y_obs);
+        self
+    }
+
+    pub fn with_rebuild(self, y_obs: &ndarray::ArrayView2<f64>) -> Self {
+        self.rebuild(y_obs)
+    }
+
+    pub fn tell_row(mut self, index: usize, y_row: &Array1<f64>) -> Self {
+        self.tracker = self.tracker.tell(index, y_row);
+        self
+    }
+
+    pub fn tell_view(mut self, index: usize, y_view: ndarray::ArrayView1<'_, f64>) -> Self {
+        self.tracker = self.tracker.tell_view(index, y_view);
+        self
     }
 
     pub fn unit_x(&self) -> Option<&Array1<f64>> {
@@ -182,8 +205,13 @@ impl IncumbentLedger {
         self.current.as_ref()
     }
 
-    pub(crate) fn set_current(&mut self, current: Option<IncumbentPoint>) {
+    pub(crate) fn set_current(mut self, current: Option<IncumbentPoint>) -> Self {
         self.current = current;
+        self
+    }
+
+    pub(crate) fn with_current(self, current: Option<IncumbentPoint>) -> Self {
+        self.set_current(current)
     }
 
     pub(crate) fn hash_state(&self, buf: &mut Vec<u8>) {
@@ -203,28 +231,28 @@ impl IncumbentLedger {
     }
 
     pub fn update(
-        &mut self,
+        mut self,
         posterior: &PosteriorStore,
         regions: &TrustRegionState,
         num_dim: usize,
         noise_aware: bool,
         rng: &mut dyn RngCore,
-    ) -> Result<(), ENNError> {
+    ) -> Result<Self, ENNError> {
         use crate::sense::ObjectiveSense;
         let obs_count = posterior.obs_count();
         if obs_count == 0 {
             self.current = None;
-            return Ok(());
+            return Ok(self);
         }
         if self.tracker.observation_count() != obs_count {
             if let Some(y_obs) = posterior.y_obs() {
-                self.tracker.rebuild(&y_obs.view());
+                self.tracker = self.tracker.rebuild(&y_obs.view());
             }
         }
         let candidates = self.tracker.ask();
         if candidates.is_empty() {
             self.current = None;
-            return Ok(());
+            return Ok(self);
         }
         if regions.is_morbo() {
             return self.pick_morbo(&candidates, posterior, regions, num_dim, noise_aware, rng);
@@ -250,7 +278,7 @@ impl IncumbentLedger {
                     unit_x: posterior.x_row(best_idx)?,
                     y_scalar: pred.mu.row(best_pos).to_owned(),
                 });
-                return Ok(());
+                return Ok(self);
             }
         }
         let scores: Vec<f64> = candidates
@@ -273,18 +301,29 @@ impl IncumbentLedger {
                 y_scalar: posterior.y_row(best_idx)?,
             });
         }
-        Ok(())
+        Ok(self)
+    }
+
+    pub fn with_update(
+        self,
+        posterior: &PosteriorStore,
+        regions: &TrustRegionState,
+        num_dim: usize,
+        noise_aware: bool,
+        rng: &mut dyn RngCore,
+    ) -> Result<Self, ENNError> {
+        self.update(posterior, regions, num_dim, noise_aware, rng)
     }
 
     fn pick_morbo(
-        &mut self,
+        mut self,
         candidates: &[usize],
         posterior: &PosteriorStore,
         regions: &TrustRegionState,
         num_dim: usize,
         noise_aware: bool,
         rng: &mut dyn RngCore,
-    ) -> Result<(), ENNError> {
+    ) -> Result<Self, ENNError> {
         let n_cand = candidates.len();
         let mut y_rows = Array2::zeros((n_cand, regions.num_metrics()));
         for (r, &idx) in candidates.iter().enumerate() {
@@ -315,14 +354,15 @@ impl IncumbentLedger {
             unit_x: posterior.x_row(best_idx)?,
             y_scalar: y_rows.row(best_pos).to_owned(),
         });
-        Ok(())
+        Ok(self)
     }
 }
 
 impl BayesOptimizer {
     /// Increment restart generation.
-    pub fn increment_generation(&mut self) {
+    pub fn increment_generation(mut self) -> Self {
         self.warmup.generation += 1;
+        self
     }
 
     /// Get restart generation.
@@ -338,20 +378,21 @@ impl BayesOptimizer {
         self.warmup.kind
     }
 
-    pub(crate) fn consume_reinit(&mut self, count: usize) {
+    pub(crate) fn consume_reinit(mut self, count: usize) -> Self {
         self.warmup.consume_reinit(count);
+        self
     }
 
-    pub(crate) fn restart_local(&mut self) -> Result<(), ENNError> {
+    pub(crate) fn restart_local(mut self) -> Result<Self, ENNError> {
         if self.regions.is_morbo() {
-            return Ok(());
+            return Ok(self);
         }
-        self.posterior.clear()?;
-        self.incumbent.reset();
-        self.regions.restart_local();
+        self.posterior = self.posterior.clear()?;
+        self.incumbent = self.incumbent.reset();
+        self.regions = self.regions.restart_local();
         self.warmup.restart_local();
         self.proposals.ticket_tag = None;
-        Ok(())
+        Ok(self)
     }
 
     /// Get sobol engine.
@@ -366,14 +407,16 @@ impl BayesOptimizer {
 
     /// Replace the persistent engine with the source's per-ask scrambled Sobol
     /// engine for MORBO.
-    pub(crate) fn reseed_sobol(&mut self, arms: usize) -> Result<(), ENNError> {
+    pub(crate) fn reseed_sobol(mut self, arms: usize) -> Result<Self, ENNError> {
         let generation = self.warmup.generation;
         let obs_count = self.posterior.obs_count();
-        self.proposals.reseed_sobol(generation, obs_count, arms)
+        self.proposals.reseed_sobol(generation, obs_count, arms)?;
+        Ok(self)
     }
 
     #[allow(dead_code)] // retained for tests / morbo callers; tell_turbo must not use it
-    pub(crate) fn reset_tracker(&mut self) {
-        self.incumbent.reset();
+    pub(crate) fn reset_tracker(mut self) -> Self {
+        self.incumbent = self.incumbent.reset();
+        self
     }
 }

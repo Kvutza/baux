@@ -1,6 +1,11 @@
 //! Bounded neighbor-value surrogate estimation used by the optimizer.
 
 mod loo_fit;
+mod mixture;
+mod mutation;
+
+pub use mixture::{Anchor, Mixture};
+pub use mutation::Mutation;
 
 pub use baux::semantics::neighbor::{Dissimilarity, DistanceMetric, MAX_HISTORY, UncertaintyLaw};
 use deser::{Deserialize, Serialize};
@@ -121,6 +126,7 @@ pub struct NeighborValueEstimator {
     pub(super) outcomes: [f32; MAX_HISTORY],
     pub(super) variances: [f32; MAX_HISTORY],
     pub(super) len: usize,
+    capacity: usize,
     base: usize,
     identities: [i64; MAX_HISTORY],
     observation: i64,
@@ -187,6 +193,7 @@ impl NeighborValueEstimator {
             outcomes,
             variances,
             len: 1,
+            capacity: MAX_HISTORY,
             base: 0,
             identities: [1; MAX_HISTORY],
             observation: 1,
@@ -208,6 +215,17 @@ impl NeighborValueEstimator {
     pub fn with_geometry(mut self, geometry: DistanceMetric) -> Self {
         self.distance_metric = geometry;
         self
+    }
+
+    /// Bound retained observations to the full-state archive's actual capacity.
+    /// The current state remains protected when the oldest other row is
+    /// evicted.
+    pub fn with_capacity(mut self, capacity: usize) -> Result<Self, String> {
+        if !(2..=MAX_HISTORY).contains(&capacity) || capacity < self.len {
+            return Err("surrogate archive capacity must contain 2..=MAX_HISTORY rows".into());
+        }
+        self.capacity = capacity;
+        Ok(self)
     }
 
     pub fn with_law(mut self, law: UncertaintyLaw) -> Self {
@@ -262,6 +280,19 @@ impl NeighborValueEstimator {
 
     /// The sampled GPU row and host observation must replace this same slot.
     pub fn next_slot(&self) -> Result<usize, String> {
+        if self.len < self.capacity {
+            return Ok(self.len);
+        }
+        if self.capacity < MAX_HISTORY {
+            return self
+                .identities()
+                .iter()
+                .enumerate()
+                .filter(|(slot, _)| *slot != self.base)
+                .min_by_key(|(_, identity)| **identity)
+                .map(|(slot, _)| slot)
+                .ok_or_else(|| "surrogate archive has no replaceable row".into());
+        }
         baux::semantics::neighbor::retention(self.identities(), self.identities[self.base])
             .map_err(str::to_string)
     }
@@ -523,7 +554,7 @@ impl NeighborValueEstimator {
         self.distances[next][next] = 0.0;
         self.identities[next] = identity;
         self.observation = identity;
-        self.len = (self.len + 1).min(MAX_HISTORY);
+        self.len = (self.len + 1).min(self.capacity);
         if accepted {
             self.base = next;
         }

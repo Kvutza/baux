@@ -2,12 +2,13 @@ use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::BufReader;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use baux::neighbor_index::error::BpannError;
 use baux::neighbor_index::index::kmeans::{PartitionNode, PartitionTree};
 use baux::neighbor_index::index::page::{Page, write_index};
 use baux::neighbor_index::index::persist_atomic::skip_bytes;
-use baux::neighbor_index::tuning::current_tuning;
+use baux::neighbor_index::tuning::BpannTuning;
 
 pub const LEAF_CAPACITY: usize = 32;
 pub const SKIP_NEIGHBORS: usize = 3;
@@ -21,20 +22,27 @@ pub struct IndexHeader {
     pub skip_neighbors: usize,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct BpannIndex {
     pub header: IndexHeader,
-    pub pages: Vec<Page>,
-    pub skip_edges: HashMap<u32, Vec<u32>>,
-    page_map: HashMap<u32, usize>,
+    pub pages: Arc<[Page]>,
+    pub skip_edges: Arc<HashMap<u32, Vec<u32>>>,
+    page_map: Arc<HashMap<u32, usize>>,
     pub index_dir: PathBuf,
 }
+
+const _: () = {
+    fn assert_sync<T: Send + Sync>() {}
+    fn check() {
+        assert_sync::<BpannIndex>();
+    }
+};
 
 /// Skip edges are written only for the middle row-count band. Limits come from
 /// call-time tuning; on-disk edges still reflect whatever limits were active at
 /// build.
-fn needs_edges(row_count: usize) -> bool {
-    current_tuning().rows_edges(row_count)
+pub(crate) fn needs_edges(row_count: usize, tuning: &BpannTuning) -> bool {
+    tuning.rows_edges(row_count)
 }
 
 fn remap_page(page: &Page, id_map: &HashMap<u32, u32>) -> Page {
@@ -80,8 +88,34 @@ impl BpannIndex {
         seed: u64,
         index_dir: PathBuf,
     ) -> Result<Self, BpannError> {
+        Self::build_tuned(
+            vectors,
+            num_dim,
+            leaf_capacity,
+            seed,
+            index_dir,
+            &BpannTuning::default(),
+        )
+    }
+
+    pub fn build_tuned(
+        vectors: &[Vec<f32>],
+        num_dim: usize,
+        leaf_capacity: usize,
+        seed: u64,
+        index_dir: PathBuf,
+        tuning: &BpannTuning,
+    ) -> Result<Self, BpannError> {
         let row_ids: Vec<u32> = (0..vectors.len() as u32).collect();
-        Self::build_rows(&row_ids, vectors, num_dim, leaf_capacity, seed, index_dir)
+        Self::rows_tuned(
+            &row_ids,
+            vectors,
+            num_dim,
+            leaf_capacity,
+            seed,
+            index_dir,
+            tuning,
+        )
     }
 
     pub fn build_rows(
@@ -92,6 +126,26 @@ impl BpannIndex {
         seed: u64,
         index_dir: PathBuf,
     ) -> Result<Self, BpannError> {
+        Self::rows_tuned(
+            row_ids,
+            vectors,
+            num_dim,
+            leaf_capacity,
+            seed,
+            index_dir,
+            &BpannTuning::default(),
+        )
+    }
+
+    pub fn rows_tuned(
+        row_ids: &[u32],
+        vectors: &[Vec<f32>],
+        num_dim: usize,
+        leaf_capacity: usize,
+        seed: u64,
+        index_dir: PathBuf,
+        tuning: &BpannTuning,
+    ) -> Result<Self, BpannError> {
         Self::build_tree(
             row_ids,
             vectors,
@@ -100,6 +154,7 @@ impl BpannIndex {
             seed,
             index_dir,
             true,
+            tuning,
         )
     }
 
@@ -129,9 +184,9 @@ impl BpannIndex {
         let page_map = build_map(&pages);
         let index = Self {
             header,
-            pages,
-            skip_edges: HashMap::new(),
-            page_map,
+            pages: pages.into(),
+            skip_edges: Arc::new(HashMap::new()),
+            page_map: Arc::new(page_map),
             index_dir,
         };
         if persist {
@@ -161,9 +216,9 @@ impl BpannIndex {
                 leaf_capacity: leaf_capacity.max(1),
                 skip_neighbors: SKIP_NEIGHBORS,
             },
-            pages,
-            skip_edges: HashMap::new(),
-            page_map,
+            pages: pages.into(),
+            skip_edges: Arc::new(HashMap::new()),
+            page_map: Arc::new(page_map),
             index_dir,
         })
     }
@@ -194,9 +249,9 @@ impl BpannIndex {
         let page_map = build_map(&pages);
         let index = Self {
             header,
-            pages,
-            skip_edges: HashMap::new(),
-            page_map,
+            pages: pages.into(),
+            skip_edges: Arc::new(HashMap::new()),
+            page_map: Arc::new(page_map),
             index_dir,
         };
         if persist {
@@ -245,10 +300,10 @@ impl BpannIndex {
                 .collect();
             child_page_ids.push(id_map[&part.header.root_page_id]);
             child_centroids.push(part.root_centroid());
-            for page in &part.pages {
+            for page in part.pages.iter() {
                 pages.push(remap_page(page, &id_map));
             }
-            for (&from, tos) in &part.skip_edges {
+            for (&from, tos) in part.skip_edges.iter() {
                 if let Some(&new_from) = id_map.get(&from) {
                     let new_tos: Vec<u32> = tos
                         .iter()
@@ -275,9 +330,9 @@ impl BpannIndex {
         };
         let index = Self {
             header,
-            pages,
-            skip_edges,
-            page_map,
+            pages: pages.into(),
+            skip_edges: Arc::new(skip_edges),
+            page_map: Arc::new(page_map),
             index_dir,
         };
         if persist {
@@ -294,13 +349,14 @@ impl BpannIndex {
         seed: u64,
         index_dir: PathBuf,
         persist: bool,
+        tuning: &BpannTuning,
     ) -> Result<Self, BpannError> {
         if row_ids.len() <= leaf_capacity {
             return Self::build_persist(row_ids, vectors, num_dim, index_dir, persist);
         }
         let partition = PartitionTree::build(row_ids, vectors, leaf_capacity, seed);
         let (pages, root_page_id) = partition_pages(&partition.root);
-        let skip_edges = if needs_edges(row_ids.len()) {
+        let skip_edges = if needs_edges(row_ids.len(), tuning) {
             build_edges(&pages, SKIP_NEIGHBORS)
         } else {
             HashMap::new()
@@ -314,11 +370,11 @@ impl BpannIndex {
             skip_neighbors: SKIP_NEIGHBORS,
         };
         let index = Self {
-            header: header.clone(),
-            pages,
-            skip_edges,
-            page_map,
-            index_dir: index_dir.clone(),
+            header,
+            pages: pages.into(),
+            skip_edges: Arc::new(skip_edges),
+            page_map: Arc::new(page_map),
+            index_dir,
         };
         if persist {
             index.persist()?;
@@ -342,9 +398,9 @@ impl BpannIndex {
         let page_map = build_map(&pages);
         Ok(Self {
             header,
-            pages,
-            skip_edges,
-            page_map,
+            pages: pages.into(),
+            skip_edges: Arc::new(skip_edges),
+            page_map: Arc::new(page_map),
             index_dir,
         })
     }
@@ -356,6 +412,11 @@ impl BpannIndex {
             &self.pages,
             &self.skip_edges,
         )
+    }
+
+    pub fn with_persisted(self) -> Result<Self, BpannError> {
+        self.persist()?;
+        Ok(self)
     }
 
     pub fn disk_index(&self) -> Result<bool, BpannError> {
@@ -386,15 +447,15 @@ impl BpannIndex {
 
     pub fn leaf_row(&self) -> Vec<u32> {
         let mut row_ids = Vec::new();
-        for page in &self.pages {
+        for page in self.pages.iter() {
             if let Page::Leaf {
                 row_ids: ids,
                 row_range,
                 ..
             } = page
             {
-                if let Some((start, end)) = row_range {
-                    row_ids.extend(*start..*end);
+                if let Some((start, end)) = *row_range {
+                    row_ids.extend(start..end);
                 } else {
                     row_ids.extend_from_slice(ids);
                 }
@@ -426,7 +487,7 @@ impl BpannIndex {
 
     pub fn page_bytes(&self) -> Vec<u8> {
         let mut all = Vec::new();
-        for page in &self.pages {
+        for page in self.pages.iter() {
             all.extend(page.serialize(self.header.num_dim));
         }
         all
@@ -562,28 +623,23 @@ mod tests {
     }
 
     #[test]
-    fn needs_provider() {
-        use baux::neighbor_index::tuning::{BpannTuning, clear_provider, set_provider};
-
-        clear_provider();
+    fn needs_edges() {
+        let default_tuning = BpannTuning::default();
         // Defaults: 100 rows is exhaustive → no skip edges.
-        assert!(!needs_edges(100));
+        assert!(!super::needs_edges(100, &default_tuning));
 
-        set_provider(Box::new(|| BpannTuning {
+        let t1 = BpannTuning {
             exhaustive_limit: 10,
             skip_limit: 1_000,
             ..Default::default()
-        }));
-        assert!(needs_edges(100));
+        };
+        assert!(super::needs_edges(100, &t1));
 
-        set_provider(Box::new(|| BpannTuning {
+        let t2 = BpannTuning {
             exhaustive_limit: 10,
             skip_limit: 50,
             ..Default::default()
-        }));
-        assert!(!needs_edges(100));
-
-        clear_provider();
-        assert!(!needs_edges(100));
+        };
+        assert!(!super::needs_edges(100, &t2));
     }
 }

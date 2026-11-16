@@ -179,7 +179,8 @@ pub fn run_host(
 
     for round in 1..=cfg.rounds {
         let mut step_rng = crate::experiment::tokamak::label::round_rng(seed, round);
-        let unit = opt.ask(arms, &mut step_rng).map_err(|e| e.to_string())?;
+        let (next_opt, unit) = opt.ask(arms, &mut step_rng).map_err(|e| e.to_string())?;
+        opt = next_opt;
         let (scores, viols, dt_us) = step_round(&unit, num_dim, n_obj, &mut best_unit, worker)?;
         worker_us += dt_us;
         for (i, &vl) in viols.iter().enumerate() {
@@ -194,7 +195,8 @@ pub fn run_host(
             init_err = loss_metric(cfg, best_score);
         }
         let y = Array2::from_shape_fn((arms, n_obj), |(i, m)| scores[i * n_obj + m]);
-        opt.tell(&unit.view(), &y.view(), &mut step_rng)
+        opt = opt
+            .tell(&unit.view(), &y.view(), None, &mut step_rng)
             .map_err(|e| e.to_string())?;
         best_scores.push(best_score);
         best_viols.push(best_viol);
@@ -236,7 +238,7 @@ pub fn run_ppo(
     let mut rng = prng(seed);
     let n_obj = worker.num_obj;
     let batch_cap = (cfg.rounds / 2).clamp(2, 16);
-    let mut ppo = baux::tokamak::ppo::FlatPpo::new(num_dim, batch_cap)?;
+    let mut ppo = baux_tokamak::ppo::FlatPpo::new(num_dim, batch_cap)?;
     if !ppo.is_metal() {
         return Err("FlatPpo requires Apple Metal GPU device".into());
     }
@@ -269,7 +271,8 @@ pub fn run_ppo(
         if round == 1 {
             init_err = loss_metric(cfg, best_score);
         }
-        let _ = ppo.observe(&raw_u, sc)?;
+        let (next_ppo, _) = ppo.observe(&raw_u, sc)?;
+        ppo = next_ppo;
         best_scores.push(best_score);
         best_viols.push(best_viol);
     }

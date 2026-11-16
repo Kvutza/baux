@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import os
 import socket
 import sqlite3
@@ -174,10 +175,8 @@ def _ping(sock_path: Path) -> None:
 def _shutdown() -> None:
     tdir = Path(tempfile.gettempdir())
     for sock_path in tdir.glob("baux_*_slot*.sock"):
-        try:
+        with contextlib.suppress(OSError):
             _ping(sock_path)
-        except OSError:
-            pass
     for pid_path in tdir.glob("baux_*_slot*.pid"):
         try:
             pid = int(pid_path.read_text(encoding="utf-8").strip())

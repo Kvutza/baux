@@ -540,8 +540,8 @@ fn bo_step(
     )?;
     drop(model);
     let policy = run.resident_enn(run.acquisition_seed())?;
-    search.configure_enn(policy)?;
-    search.observe_objectives(init_score.observation)?;
+    search = search.configure_enn(policy)?;
+    search = search.observe_objectives(init_score.observation)?;
     let mut surrogate = baux::semantics::optimizer::Surrogate::with_spec(
         -init_score.quality.mean_nll,
         0.0,
@@ -549,7 +549,7 @@ fn bo_step(
         policy.surrogate_spec()?,
     )?;
     let before = buffer_slice::<u16>(&search.base_buffer(), 1024)?.to_vec();
-    let geom = search.sample_distances(101)?;
+    let (search, geom) = search.sample_distances(101)?;
     assert_eq!(geom.len(), 1);
     let sel = surrogate.select_pool(
         &geom,
@@ -557,11 +557,12 @@ fn bo_step(
         baux::semantics::optimizer::AcquisitionRule::Ucb { beta: 0.0 },
         None,
     )?;
-    let (cand_buf, proposal) = search.materialize_selection(101, &sel)?;
+    let (search, (cand_buf, proposal)) = search.materialize_selection(101, &sel)?;
     let cand_score = scorer.score_batch(runtime, decoder, layout.view(&cand_buf), batch)?;
     let slot = surrogate.append(&geom[0], -cand_score.quality.mean_nll, 0.0, true)?;
-    search.commit_host(&proposal, slot, cand_score.observation, true, 0.004)?;
-    assert_eq!(search.sync()?, vec![true]);
+    let search = search.commit_host(&proposal, slot, cand_score.observation, true, 0.004)?;
+    let (search, accepted) = search.sync()?;
+    assert_eq!(accepted, vec![true]);
     let base_buf = search.base_buffer();
     let after = buffer_slice::<u16>(&base_buf, 1024)?;
     assert_ne!(before.as_slice(), after);
@@ -618,9 +619,9 @@ fn bench_1m(
     )?;
     drop(model);
     let policy = run.resident_enn(run.acquisition_seed())?;
-    search.configure_enn(policy)?;
+    search = search.configure_enn(policy)?;
     let init = scorer.score_batch(runtime, decoder, layout.view(&search.base_buffer()), batch)?;
-    search.observe_objectives(init.observation)?;
+    search = search.observe_objectives(init.observation)?;
     let mut surrogate = baux::semantics::optimizer::Surrogate::with_spec(
         -init.quality.mean_nll,
         0.0,
@@ -630,20 +631,24 @@ fn bench_1m(
     for step in 0..=5u64 {
         let wall_t0 = Instant::now();
         let ask_t0 = Instant::now();
-        let geom = search.sample_distances(200 + step)?;
+        let (next_search, geom) = search.sample_distances(200 + step)?;
+        search = next_search;
         let sel = surrogate.select_pool(
             &geom,
             0,
             baux::semantics::optimizer::AcquisitionRule::Ucb { beta: 0.0 },
             None,
         )?;
-        let (cand_buf, proposal) = search.materialize_selection(200 + step, &sel)?;
+        let (next_search, (cand_buf, proposal)) = search.materialize_selection(200 + step, &sel)?;
+        search = next_search;
         let ask_ms = ask_t0.elapsed().as_secs_f64() * 1000.0;
         let cand = scorer.score_batch(runtime, decoder, layout.view(&cand_buf), batch)?;
         let tell_t0 = Instant::now();
         let slot = surrogate.append(&geom[0], -cand.quality.mean_nll, 0.0, step == 0)?;
-        search.commit_host(&proposal, slot, cand.observation, step == 0, 0.004)?;
-        let _ = search.sync()?;
+        search = search.commit_host(&proposal, slot, cand.observation, step == 0, 0.004)?;
+        let (next_search, accepted) = search.sync()?;
+        search = next_search;
+        let _ = accepted;
         let tell_ms = tell_t0.elapsed().as_secs_f64() * 1000.0;
         let wall_ms = wall_t0.elapsed().as_secs_f64() * 1000.0;
         log_1m(scorer, step, ask_ms, tell_ms, wall_ms);

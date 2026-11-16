@@ -50,6 +50,7 @@ pub fn rows_py(
     seed: Option<u64>,
     y_std: Option<PyReadonlyArray1<f64>>,
 ) -> PyResult<Vec<f64>> {
+    let mut rng = baux::prng(baux::resolve_seed(seed));
     let paramss = fit_params(&k_values, &epistemic_scales, &aleatoric_scales)?;
     let y_std_arr = y_std.as_ref().map(|v| v.as_array());
     baux::row_loglik(
@@ -57,7 +58,7 @@ pub fn rows_py(
         &rows,
         &paramss,
         p,
-        &mut baux::prng(baux::resolve_seed(seed)),
+        &mut rng,
         y_std_arr.as_ref(),
     )
     .map_err(|e| PyValueError::new_err(e.to_string()))

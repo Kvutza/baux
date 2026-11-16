@@ -19,7 +19,7 @@ fn mmap_rows3() {
         !f.is_standard_layout(),
         "fixture must be non-C layout to exercise the strided path"
     );
-    store.mmap_append(&f.view()).unwrap();
+    store = store.mmap_append(&f.view()).unwrap();
     assert_eq!(
         store.row_slice(0).unwrap(),
         &[1.0, 2.0, 3.0],
@@ -47,7 +47,7 @@ fn mmap_rows2() {
         view.as_slice().is_none(),
         "fixture must not be C-contiguous"
     );
-    store.mmap_append(&view).unwrap();
+    store = store.mmap_append(&view).unwrap();
     assert_eq!(store.row_slice(0).unwrap(), &[1.0, 2.0]);
     assert_eq!(store.row_slice(1).unwrap(), &[3.0, 4.0]);
 }
@@ -58,7 +58,7 @@ fn MmapColumnStore() {
     let dir = TempDir::new().unwrap();
     let mut store =
         mmap_store::MmapColumnStore::open_mmap(dir.path().join("c.bin"), 2, None).unwrap();
-    store.mmap_append(&array![[1.0, 2.0]].view()).unwrap();
+    store = store.mmap_append(&array![[1.0, 2.0]].view()).unwrap();
     assert_eq!(store.row_slice(0).unwrap()[0], 1.0);
 }
 
@@ -73,7 +73,7 @@ fn mmap_append() {
     let dir = TempDir::new().unwrap();
     let mut store =
         mmap_store::MmapColumnStore::open_mmap(dir.path().join("c.bin"), 2, None).unwrap();
-    store.mmap_append(&array![[0.0, 0.0]].view()).unwrap();
+    store = store.mmap_append(&array![[0.0, 0.0]].view()).unwrap();
 }
 
 #[test]
@@ -81,7 +81,7 @@ fn row_slice() {
     let dir = TempDir::new().unwrap();
     let mut store =
         mmap_store::MmapColumnStore::open_mmap(dir.path().join("c.bin"), 2, None).unwrap();
-    store.mmap_append(&array![[0.0, 1.0]].view()).unwrap();
+    store = store.mmap_append(&array![[0.0, 1.0]].view()).unwrap();
     assert_eq!(store.row_slice(0).unwrap()[1], 1.0);
 }
 
@@ -90,7 +90,7 @@ fn mmap_gather() {
     let dir = TempDir::new().unwrap();
     let mut store =
         mmap_store::MmapColumnStore::open_mmap(dir.path().join("c.bin"), 2, None).unwrap();
-    store
+    store = store
         .mmap_append(&array![[0.0, 0.0], [1.0, 0.0]].view())
         .unwrap();
     assert_eq!(store.mmap_gather(&[1]).unwrap().nrows(), 1);

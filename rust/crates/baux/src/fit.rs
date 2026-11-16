@@ -1,8 +1,8 @@
 //! Parameter fitting for ENN models via subsample log-likelihood.
 
 use ndarray::{Array1, Array2, ArrayView1, ArrayView2, Axis};
-use rand::Rng;
 use rand::seq::index::sample;
+use rand::{Rng, RngCore};
 
 use crate::error::ENNError;
 use crate::model::ENN;
@@ -179,7 +179,7 @@ fn compute_loglik(
 /// Subsample model rows for leave-one-out likelihood without full-dataset
 /// views. Numerically invalid predictions receive negative infinity, never a
 /// valid score.
-pub fn subsample_model<R: Rng>(
+pub fn subsample_model<R: RngCore + ?Sized>(
     model: &ENN,
     paramss: &[ENNParams],
     p: usize,
@@ -201,7 +201,7 @@ pub fn subsample_model<R: Rng>(
 
 /// Score a subsample of the complete training data in model row order.
 /// Subsets and reordered observations must use `row_loglik` with explicit IDs.
-pub fn subsample_loglik<R: Rng>(
+pub fn subsample_loglik<R: RngCore + ?Sized>(
     model: &ENN,
     x: &ArrayView2<f64>,
     y: &ArrayView2<f64>,
@@ -253,7 +253,7 @@ pub fn subsample_loglik<R: Rng>(
 }
 
 /// Leave-one-out likelihood for explicit model row IDs, including duplicates.
-pub fn row_loglik<R: Rng>(
+pub fn row_loglik<R: RngCore + ?Sized>(
     model: &ENN,
     rows: &[usize],
     paramss: &[ENNParams],
@@ -269,7 +269,10 @@ pub fn row_loglik<R: Rng>(
     let indices = if p >= rows.len() {
         rows.to_vec()
     } else {
-        sample(rng, rows.len(), p).iter().map(|i| rows[i]).collect()
+        sample(rng, rows.len(), p)
+            .into_iter()
+            .map(|i| rows[i])
+            .collect()
     };
     score_rows(model, &indices, paramss, y_std)
 }
@@ -328,8 +331,12 @@ fn validate_loglik(
     Ok(())
 }
 
-fn sampled_rows<R: Rng>(n: usize, p: usize, rng: &mut R) -> Vec<usize> {
-    baux::semantics::neighbor::sampled_rows(n, p, rng)
+fn sampled_rows<R: RngCore + ?Sized>(n: usize, p: usize, rng: &mut R) -> Vec<usize> {
+    if p >= n {
+        (0..n).collect()
+    } else {
+        sample(rng, n, p).into_iter().collect()
+    }
 }
 
 fn distance_neighbors(
@@ -412,7 +419,7 @@ impl DistanceScore<'_, '_> {
     }
 }
 
-pub fn distance_loglik<R: Rng>(
+pub fn distance_loglik<R: RngCore + ?Sized>(
     distances: &ArrayView2<f64>,
     y: &ArrayView2<f64>,
     yvar: Option<&ArrayView2<f64>>,

@@ -32,7 +32,7 @@ def test_pins():
 
 def test_drift():
     data = Config().__dict__ | {"model_type": "qwen2", "hidden_size": 1152}
-    with pytest.raises(ValueError, match="not Qwen2.5-Coder-1.5B"):
+    with pytest.raises(ValueError, match=r"not Qwen2\.5-Coder-1\.5B"):
         Config.from_json(data)
 
 

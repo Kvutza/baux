@@ -30,7 +30,7 @@ def definitions(path, names, namespace):
     tree = ast.parse(path.read_text())
     selected = [node for node in tree.body if getattr(node, "name", None) in names]
     assert {node.name for node in selected} == set(names)
-    exec(
+    exec(  # noqa: S102
         compile(ast.Module(body=selected, type_ignores=[]), str(path), "exec"),
         namespace,
     )

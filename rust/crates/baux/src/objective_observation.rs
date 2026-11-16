@@ -100,6 +100,7 @@ pub struct ObjectiveRecord {
 
 /// Fixed storage owned by the resident search. Recording and borrowing rows
 /// allocate nothing; FIFO retention never retains dense parameter vectors.
+#[derive(Clone, Debug, PartialEq)]
 pub struct ObjectiveWindow {
     rows: [Option<ObjectiveRecord>; OBJECTIVE_CAPACITY],
     len: usize,

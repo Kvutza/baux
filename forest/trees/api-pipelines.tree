@@ -50,7 +50,7 @@ baux.gp() -> Transform
   }
   \p{Configure the Gaussian-process surrogate.}
   \p{Returns a \code{Transform}. If the incoming acquisition is random, selects Thompson sampling. An existing non-random acquisition is preserved.}
-  \<p>[class]{api-source}{[Source in \code{python/baux/transforms.py}](https://github.com/Kvutza/baux/blob/main/python/baux/transforms.py#L231)}
+  \<p>[class]{api-source}{[Source in \code{python/baux/transforms.py}](https://github.com/Kvutza/baux/blob/main/python/baux/transforms.py#L232)}
 }
 
 \<section>[id]{baux.zero}[class]{api-entry}[data-symbol]{baux.zero}[data-kind]{function}[data-module]{baux.transforms}{
@@ -60,7 +60,7 @@ baux.zero() -> Transform
   }
   \p{Configure search without a surrogate.}
   \p{Returns a \code{Transform} that selects \code{NoSurrogate}, random acquisition and a TuRBO region if regions were disabled. Existing active trust-region settings are preserved.}
-  \<p>[class]{api-source}{[Source in \code{python/baux/transforms.py}](https://github.com/Kvutza/baux/blob/main/python/baux/transforms.py#L247)}
+  \<p>[class]{api-source}{[Source in \code{python/baux/transforms.py}](https://github.com/Kvutza/baux/blob/main/python/baux/transforms.py#L248)}
 }
 
 \<section>[id]{baux.ucb}[class]{api-entry}[data-symbol]{baux.ucb}[data-kind]{function}[data-module]{baux.transforms}{
@@ -70,7 +70,7 @@ baux.ucb(beta: float = 2.0) -> Transform
   }
   \p{Select candidates by mean plus uncertainty.}
   \p{Returns a \code{Transform} using \code{mu + beta * se}. \code{beta} must be finite and positive. Adds an ENN surrogate if none is configured, and enables ENN fitting when it was disabled.}
-  \<p>[class]{api-source}{[Source in \code{python/baux/transforms.py}](https://github.com/Kvutza/baux/blob/main/python/baux/transforms.py#L273)}
+  \<p>[class]{api-source}{[Source in \code{python/baux/transforms.py}](https://github.com/Kvutza/baux/blob/main/python/baux/transforms.py#L274)}
 }
 
 \<section>[id]{baux.thompson}[class]{api-entry}[data-symbol]{baux.thompson}[data-kind]{function}[data-module]{baux.transforms}{
@@ -79,8 +79,8 @@ baux.ucb(beta: float = 2.0) -> Transform
 baux.thompson() -> Transform
   }
   \p{Select candidates using posterior function draws.}
-  \p{Returns a \code{Transform}. Adds an ENN surrogate if none is configured, and enables ENN fitting when it was disabled. Use [\code{enn_sample}](api-enn.html#baux.enn_sample) to query function draws directly.}
-  \<p>[class]{api-source}{[Source in \code{python/baux/transforms.py}](https://github.com/Kvutza/baux/blob/main/python/baux/transforms.py#L287)}
+  \p{Returns a \code{Transform}. Adds an ENN surrogate if none is configured, and enables ENN fitting when it was disabled. Use [\code{sample}](api-enn.html#baux.sample) to query function draws directly.}
+  \<p>[class]{api-source}{[Source in \code{python/baux/transforms.py}](https://github.com/Kvutza/baux/blob/main/python/baux/transforms.py#L288)}
 }
 
 \<section>[id]{baux.pareto}[class]{api-entry}[data-symbol]{baux.pareto}[data-kind]{function}[data-module]{baux.transforms}{
@@ -89,8 +89,8 @@ baux.thompson() -> Transform
 baux.pareto() -> Transform
   }
   \p{Select from the mean–uncertainty frontier.}
-  \p{Returns a \code{Transform} using non-dominated sorting over predicted mean and uncertainty. Adds an ENN surrogate if none is configured. This is an acquisition rule; it does not by itself configure multi-objective optimization.}
-  \<p>[class]{api-source}{[Source in \code{python/baux/transforms.py}](https://github.com/Kvutza/baux/blob/main/python/baux/transforms.py#L301)}
+  \p{Returns a \code{Transform} using non-dominated sorting over predicted mean and uncertainty, adding an ENN surrogate if none is configured.}
+  \<p>[class]{api-source}{[Source in \code{python/baux/transforms.py}](https://github.com/Kvutza/baux/blob/main/python/baux/transforms.py#L302)}
 }
 
 \<section>[id]{baux.random_acq}[class]{api-entry}[data-symbol]{baux.random_acq}[data-kind]{function}[data-module]{baux.transforms}{
@@ -100,7 +100,7 @@ baux.random_acq() -> Transform
   }
   \p{Select candidates without surrogate scores.}
   \p{Returns a \code{Transform} choosing random acquisition. It leaves the candidate sampler and surrogate configuration in place; use [\code{zero}](api-pipelines.html#baux.zero) to remove the surrogate.}
-  \<p>[class]{api-source}{[Source in \code{python/baux/transforms.py}](https://github.com/Kvutza/baux/blob/main/python/baux/transforms.py#L318)}
+  \<p>[class]{api-source}{[Source in \code{python/baux/transforms.py}](https://github.com/Kvutza/baux/blob/main/python/baux/transforms.py#L319)}
 }
 
 \<section>[id]{baux.lhd}[class]{api-entry}[data-symbol]{baux.lhd}[data-kind]{function}[data-module]{baux.transforms}{
@@ -110,7 +110,7 @@ baux.lhd(num_init: int = 10, *, only: bool = False) -> Transform
   }
   \p{Set Latin-hypercube initialization.}
   \p{\code{num_init}: initial evaluation budget. Returns a \code{Transform}. With \code{only=True}, also disables the surrogate and trust region for LHD-only exploration.}
-  \<p>[class]{api-source}{[Source in \code{python/baux/transforms.py}](https://github.com/Kvutza/baux/blob/main/python/baux/transforms.py#L70)}
+  \<p>[class]{api-source}{[Source in \code{python/baux/transforms.py}](https://github.com/Kvutza/baux/blob/main/python/baux/transforms.py#L67)}
 }
 
 \<section>[id]{baux.sobol}[class]{api-entry}[data-symbol]{baux.sobol}[data-kind]{function}[data-module]{baux.transforms}{
@@ -177,7 +177,7 @@ baux.regions(
   \p{Returns a \code{Transform}. \code{count} is the positive number of regions. Sharing choices are \code{"box_contain"}, \code{"ellipsoid_ball"}, \code{"nearest_center"} and \code{"origin_only"}. The transform defaults to \code{"ellipsoid_ball"}.}
   \p{Allocation choices are \code{"incumbent_ucb1"}, \code{"least_trials"} and \code{"joint_acquisition"}. Positive success and failure tolerances control region resizing; \code{length} supplies explicit bounds.}
   \p{For restart policy, fixed-radius control or per-region acquisitions, use [\code{RegionalSearchPolicy}](api-configuration.html#baux.RegionalSearchPolicy). See [multiple regions and workers](baux-0009.html) for a complete loop.}
-  \<p>[class]{api-source}{[Source in \code{python/baux/transforms.py}](https://github.com/Kvutza/baux/blob/main/python/baux/transforms.py#L356)}
+  \<p>[class]{api-source}{[Source in \code{python/baux/transforms.py}](https://github.com/Kvutza/baux/blob/main/python/baux/transforms.py#L357)}
 }
 
 \<section>[id]{baux.tr_bounds}[class]{api-entry}[data-symbol]{baux.tr_bounds}[data-kind]{function}[data-module]{baux.transforms}{
@@ -193,7 +193,7 @@ baux.tr_bounds(
   \p{Set trust-region length limits.}
   \p{Returns a \code{Transform}. Requires \code{0 < length_min <= length_init <= length_max}. Lengths are in normalized coordinates.}
   \p{Updates length bounds on a regional policy. For other policies, installs a \code{TurboTrustRegion} with these bounds.}
-  \<p>[class]{api-source}{[Source in \code{python/baux/transforms.py}](https://github.com/Kvutza/baux/blob/main/python/baux/transforms.py#L331)}
+  \<p>[class]{api-source}{[Source in \code{python/baux/transforms.py}](https://github.com/Kvutza/baux/blob/main/python/baux/transforms.py#L332)}
 }
 
 \<section>[id]{baux.with_geometry}[class]{api-entry}[data-symbol]{baux.with_geometry}[data-kind]{function}[data-module]{baux.transforms}{
@@ -205,7 +205,7 @@ baux.with_geometry(model: Any, geometry: str, local_k: int = 4) -> Any
   \p{\code{geometry}: \code{"euclidean"}, \code{"conformal"}, \code{"hyperbolic"} or \code{"wasserstein"}. \code{local_k} must be positive. See [ENN predictions](baux-0003.html) for the formulas behind these names.}
   \p{With an \code{ENNState} or \code{ENN}, returns a model retaining the observations. With a configuration or \code{Transform}, returns its updated configuration.}
   \p{With an \code{OptimizerState}, this function initializes a new optimizer and does not retain the optimization history. Configure geometry before starting a search.}
-  \<p>[class]{api-source}{[Source in \code{python/baux/enn/enn_state.py}](https://github.com/Kvutza/baux/blob/main/python/baux/enn/enn_state.py#L77)}
+  \<p>[class]{api-source}{[Source in \code{python/baux/enn/enn_state.py}](https://github.com/Kvutza/baux/blob/main/python/baux/enn/enn_state.py#L619)}
 }
 
 \<section>[id]{baux.stein}[class]{api-entry}[data-symbol]{baux.stein}[data-kind]{function}[data-module]{baux.transforms}{
@@ -215,9 +215,9 @@ baux.stein(target: Any = None, frame: Any = None, *, rank: int | None = None) ->
   }
   \p{Configure prediction shrinkage toward a subspace.}
   \p{Use \code{stein(rank=F)} to build a pipeline transform, or \code{stein(enn_state, frame)} to apply a supplied \code{Stiefel} frame. A rank requests a frame estimated from observed outputs.}
-  \p{The basis has shape \code{(M, F)}. Use \code{Stiefel.from_factors} to orthonormalize supplied factors. This API does not provide a James–Stein risk guarantee.}
+  \p{The basis has shape \code{(M, F)}. Use \code{Stiefel.from_factors} to orthonormalize supplied factors.}
   \p{Applying the transform to an \code{OptimizerState} initializes a new optimizer; configure it before collecting observations.}
-  \<p>[class]{api-source}{[Source in \code{python/baux/enn/enn_state.py}](https://github.com/Kvutza/baux/blob/main/python/baux/enn/enn_state.py#L270)}
+  \<p>[class]{api-source}{[Source in \code{python/baux/enn/enn_state.py}](https://github.com/Kvutza/baux/blob/main/python/baux/enn/enn_state.py#L799)}
 }
 
 \<section>[id]{baux.calibrate}[class]{api-entry}[data-symbol]{baux.calibrate}[data-kind]{function}[data-module]{baux.transforms}{
@@ -227,9 +227,9 @@ baux.calibrate(target: Any = None, affine: Any = None, *, alpha: float | None = 
   }
   \p{Configure an affine correction to predictions.}
   \p{Use \code{calibrate(affine=map)} for a supplied \code{Affine}, or \code{calibrate(alpha=0.1)} to request a fitted correction and residual-quantile scale. Applying it to an \code{ENNState} returns a new state.}
-  \p{\code{alpha} is a miscoverage setting in \code{(0, 1)}. Adaptive optimization observations do not automatically satisfy exchangeability or a coverage guarantee.}
+  \p{\code{alpha} sets the target miscoverage level in \code{(0, 1)}.}
   \p{Applying it to an \code{OptimizerState} initializes a new optimizer; configure it before collecting observations.}
-  \<p>[class]{api-source}{[Source in \code{python/baux/enn/enn_state.py}](https://github.com/Kvutza/baux/blob/main/python/baux/enn/enn_state.py#L299)}
+  \<p>[class]{api-source}{[Source in \code{python/baux/enn/enn_state.py}](https://github.com/Kvutza/baux/blob/main/python/baux/enn/enn_state.py#L818)}
 }
 
 \<section>[id]{baux.Transform}[class]{api-entry}[data-symbol]{baux.Transform}[data-kind]{class}[data-module]{baux.transforms}{
@@ -250,6 +250,6 @@ baux.chain(
 ) -> OptimizerConfig
   }
   \p{Apply configuration stages from left to right.}
-  \p{Returns an \code{OptimizerConfig}. A configuration passed among the stages replaces the accumulated configuration; subsequent transforms modify it. Pass the result to \code{init} or \code{create_optimizer}.}
+  \p{Returns an \code{OptimizerConfig}. A configuration passed among the stages replaces the accumulated configuration; subsequent transforms modify it. Pass the result to \code{init}.}
   \<p>[class]{api-source}{[Source in \code{python/baux/transforms.py}](https://github.com/Kvutza/baux/blob/main/python/baux/transforms.py#L57)}
 }

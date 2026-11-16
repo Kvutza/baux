@@ -144,7 +144,9 @@ fn round(
     ask: baux::trials::RoundConfig,
 ) -> Result<(Value, Vec<TensorBuffer>), String> {
     let started = Instant::now();
-    let (weights, proposal, initializing) = model.search.propose(seed, ask, 0, None)?;
+    let (search, (weights, proposal, initializing)) =
+        model.search.clone().propose(seed, ask, 0, None)?;
+    model.search = search;
     let proposal_seconds = started.elapsed().as_secs_f64();
     let changed: u64 = model.search.describe(&proposal)?[0]
         .3
@@ -163,8 +165,8 @@ fn round(
     let alias = input.clone();
     let pending = model.submit(input, &batch.resident)?;
     for error in [
-        model.search.cancel_round(&proposal).err(),
-        model.search.tell_modeled(&proposal, 0.0, 0.0).err(),
+        model.search.clone().cancel_round(&proposal).err(),
+        model.search.clone().tell_modeled(&proposal, 0.0, 0.0).err(),
     ] {
         if !error.is_some_and(|error| error.contains("still leased")) {
             return Err("parameter mutation did not reject the active lease".into());
@@ -176,16 +178,21 @@ fn round(
     let forward_seconds = started.elapsed().as_secs_f64() - proposal_seconds;
     let gpu_seconds = model.gpu_seconds()?;
     let tell = Instant::now();
-    let decision = if initializing {
+    let (search, decision) = if initializing {
         model
             .search
+            .clone()
             .tell_initial(&proposal, observation.reward, observation.variance)?
     } else {
         model
             .search
+            .clone()
             .tell_modeled(&proposal, observation.reward, observation.variance)?
     };
-    if model.search.sync()? != [decision.accepted] {
+    model.search = search;
+    let (search, synced) = model.search.clone().sync()?;
+    model.search = search;
+    if synced != [decision.accepted] {
         return Err("resident decision failed to settle".into());
     }
     let tell_seconds = tell.elapsed().as_secs_f64();
@@ -262,7 +269,7 @@ pub fn run(path: &Path, output: &Path) -> Result<(), String> {
         config.backend,
     )?;
     let policy = policy(config.radius as f32, config.seed)?;
-    model.search.configure_enn(policy)?;
+    model.search = model.search.clone().configure_enn(policy)?;
     let batch = Batch::new(&model, config.seed)?;
     let baseline = model
         .submit(model.search.program_base(&model.forward)?, &batch.resident)?
@@ -272,8 +279,9 @@ pub fn run(path: &Path, output: &Path) -> Result<(), String> {
         .iter()
         .map(TensorBuffer::read)
         .collect::<Result<Vec<_>, _>>()?;
-    model
+    model.search = model
         .search
+        .clone()
         .observe_initial(initial.reward, initial.variance)?;
     let mut records = Vec::new();
     let mut stream = fs::File::create(output.join("rounds.jsonl")).map_err(|e| e.to_string())?;

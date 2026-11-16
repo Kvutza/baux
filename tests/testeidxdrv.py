@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import baux
 import numpy as np
 import pytest
+from baux import OptimizerConfig
 from baux._rust import ENN as RustENN
-from baux.baux_rust import optimizer
-from baux.enn.enn_class import ENN, posterior_neighbors
-from baux.turbo.config.surrogate import INDEX_NAMES, NeighborIndex
+from baux.index import INDEX_NAMES, NeighborIndex
+from baux.surrogate import ENNSurrogate
 
 
 def _enn(train_x, *, index_driver=NeighborIndex.FLAT, work_dir=None):
@@ -14,7 +15,7 @@ def _enn(train_x, *, index_driver=NeighborIndex.FLAT, work_dir=None):
     if work_dir is not None:
         kwargs["work_dir"] = work_dir
         kwargs["enn_storage"] = "disk"
-    return ENN(train_x, train_y, **kwargs)
+    return baux.enn_init(train_x, train_y, **kwargs)
 
 
 def test_001():
@@ -34,7 +35,11 @@ def test_002(driver):
     with pytest.raises(ValueError, match="Unknown index_driver"):
         RustENN(np.zeros((2, 1)), np.zeros((2, 1)), index_driver=driver)
     with pytest.raises(ValueError, match="Unknown index_driver"):
-        optimizer.enn_optimizer(np.array([[0.0, 1.0]]), config={"index_driver": driver})
+        bounds = np.array([[0.0, 1.0]])
+        config = OptimizerConfig(surrogate=ENNSurrogate(index_driver=driver))
+        state = baux.init(bounds, config, seed=0)
+        state, batch = baux.ask(state)
+        state, _ = baux.tell(state, batch, np.zeros((len(batch), 1)))
 
 
 @pytest.mark.parametrize("index_driver", [NeighborIndex.METAL, NeighborIndex.OPENCL])
@@ -55,11 +60,9 @@ def test_003(index_driver):
             pytest.skip(str(error))
         raise
 
-    flat_distances, flat_indices = posterior_neighbors(
-        flat.rust_backend, query, search_k=3
-    )
-    accelerator_distances, accelerator_indices = posterior_neighbors(
-        accelerator.rust_backend, query, search_k=3
+    flat_distances, flat_indices = flat.posterior_neighbors(query, search_k=3)
+    accelerator_distances, accelerator_indices = accelerator.posterior_neighbors(
+        query, search_k=3
     )
     np.testing.assert_array_equal(accelerator_indices, flat_indices)
     np.testing.assert_allclose(
@@ -91,8 +94,8 @@ def test_005():
             pytest.skip(message)
         raise
 
-    expected = posterior_neighbors(flat.rust_backend, query, search_k=10)
-    actual = posterior_neighbors(usearch.rust_backend, query, search_k=10)
+    expected = flat.posterior_neighbors(query, search_k=10)
+    actual = usearch.posterior_neighbors(query, search_k=10)
     np.testing.assert_array_equal(actual[1], expected[1])
     np.testing.assert_allclose(actual[0], expected[0], rtol=0.0, atol=0.0)
 
@@ -100,8 +103,8 @@ def test_005():
 def test_006():
     train_x = np.array([[0.0, 0.0], [1.0, 1.0]], dtype=float)
     train_y = np.zeros((2, 1), dtype=float)
-    with pytest.raises(ValueError, match="work_dir|BAUX_WORK_DIR"):
-        ENN(
+    with pytest.raises(ValueError, match=r"work_dir"):
+        baux.enn_init(
             train_x,
             train_y,
             index_driver=NeighborIndex.BPANN_DISK,
@@ -116,7 +119,7 @@ def test_007(seed: int):
     train_x = rng.uniform(0.0, 1.0, size=(n_train, dim))
     query = rng.uniform(0.0, 1.0, size=(1, dim))
     enn = _enn(train_x, index_driver=NeighborIndex.FLAT)
-    _, idx = posterior_neighbors(enn.rust_backend, query, search_k=search_k)
+    _, idx = enn.posterior_neighbors(query, search_k=search_k)
     assert idx.shape == (1, search_k)
     assert np.all(idx >= 0)
     assert np.all(idx < n_train)
@@ -129,7 +132,7 @@ def test_008():
     with pytest.raises(
         ValueError, match="Disk storage requires IndexDriver::BpAnnDisk"
     ):
-        ENN(
+        baux.enn_init(
             train_x,
             train_y,
             index_driver=NeighborIndex.FLAT,
@@ -148,7 +151,7 @@ def test_009(tmp_path):
         work_dir=str(work_dir),
     )
     assert (work_dir / "train_x.bin").exists()
-    model.add(np.array([[0.0, 1.0]]), np.zeros((1, 1)))
+    model = baux.append(model, np.array([[0.0, 1.0]]), np.zeros((1, 1)))
     assert len(model) == 3
     x_at, _, _ = model.train_rows([2])
     assert x_at.shape == (1, 2)
@@ -166,7 +169,7 @@ def test_010(tmp_path):
     x1 = rng.standard_normal((5, d))
     y1 = rng.standard_normal((5, 1))
 
-    inc = ENN(
+    inc = baux.enn_init(
         x0,
         y0,
         scale_x=False,
@@ -174,10 +177,10 @@ def test_010(tmp_path):
         work_dir=str(work_dir),
         enn_storage="disk",
     )
-    inc.ensure_sync()
-    inc.add(x1, y1)
+    inc = baux.ensure_sync(inc)
+    inc = baux.append(inc, x1, y1)
 
-    fresh = ENN(
+    fresh = baux.enn_init(
         np.vstack([x0, x1]),
         np.vstack([y0, y1]),
         scale_x=False,
@@ -185,7 +188,7 @@ def test_010(tmp_path):
         work_dir=str(tmp_path / "enn_disk_fresh"),
         enn_storage="disk",
     )
-    fresh.ensure_sync()
+    fresh = baux.ensure_sync(fresh)
     params = ENNParams(k_neighbors=3, epistemic_scale=1.0, aleatoric_scale=0.1)
     x_test = rng.standard_normal((4, d))
     post_inc = inc.posterior(x_test, params=params)
@@ -204,7 +207,7 @@ def test_011(tmp_path):
     params = ENNParams(k_neighbors=2, epistemic_scale=1.0, aleatoric_scale=0.1)
     query = np.array([[0.5, 0.5]], dtype=float)
 
-    ENN(
+    baux.enn_init(
         train_x,
         train_y,
         scale_x=False,
@@ -213,7 +216,7 @@ def test_011(tmp_path):
         enn_storage="disk",
     )
 
-    reopened = ENN(
+    reopened = baux.enn_init(
         np.zeros((0, 2), dtype=float),
         np.zeros((0, 1), dtype=float),
         scale_x=False,
@@ -228,9 +231,12 @@ def test_011(tmp_path):
 
 
 def test_012(tmp_path):
-    """Empty disk store reopen must sync num_outputs from metadata, not placeholder train_y."""
+    """Empty disk store reopen must sync num_outputs from metadata.
+
+    Not placeholder train_y.
+    """
     work_dir = tmp_path / "enn_disk_empty_reopen_num_metrics"
-    ENN(
+    baux.enn_init(
         np.zeros((0, 2), dtype=float),
         np.zeros((0, 2), dtype=float),
         scale_x=False,
@@ -238,7 +244,7 @@ def test_012(tmp_path):
         work_dir=str(work_dir),
         enn_storage="disk",
     )
-    reopened = ENN(
+    reopened = baux.enn_init(
         np.zeros((0, 2), dtype=float),
         np.zeros((0, 1), dtype=float),
         scale_x=False,
@@ -253,7 +259,7 @@ def test_012(tmp_path):
 def test_013(tmp_path):
     train_x = np.array([[0.0, 0.0], [1.0, 10.0], [2.0, 20.0]], dtype=float)
     train_y = np.array([[0.0], [1.0], [2.0]], dtype=float)
-    model = ENN(
+    model = baux.enn_init(
         train_x,
         train_y,
         scale_x=False,
@@ -274,7 +280,7 @@ def _buildmodel(work_dir, d, rng):
         rng.standard_normal((500, d)),
     ]
     y_batches = [rng.standard_normal((n, 1)) for n in (1000, 1000, 500)]
-    model = ENN(
+    model = baux.enn_init(
         np.empty((0, d)),
         np.empty((0, 1)),
         scale_x=False,
@@ -283,14 +289,17 @@ def _buildmodel(work_dir, d, rng):
         enn_storage="disk",
     )
     for x_chunk, y_chunk in zip(x_batches, y_batches, strict=True):
-        model.add(x_chunk, y_chunk)
-        model.schedule_flush()
-    model.ensure_sync()
+        model = baux.append(model, x_chunk, y_chunk)
+        model = model.schedule_flush()
+    model = baux.ensure_sync(model)
     return model, np.vstack(x_batches), np.vstack(y_batches)
 
 
 def test_014(tmp_path):
-    """Multi-batch disk store: persist preserves in-session posterior; reopen matches reference."""
+    """Multi-batch disk store: persist preserves in-session posterior.
+
+    Reopen matches reference.
+    """
     import json
 
     from baux.enn.enn_params import ENNParams
@@ -302,7 +311,7 @@ def test_014(tmp_path):
     params = ENNParams(k_neighbors=5, epistemic_scale=1.0, aleatoric_scale=0.1)
     x_test = rng.standard_normal((4, d))
     pre_persist = model.posterior(x_test, params=params)
-    model.persist_index()
+    model = baux.persist_index(model)
     post_persist = model.posterior(x_test, params=params)
     np.testing.assert_allclose(pre_persist.mu, post_persist.mu, rtol=1e-5)
     np.testing.assert_allclose(pre_persist.se, post_persist.se, rtol=1e-5)
@@ -310,7 +319,7 @@ def test_014(tmp_path):
     header = json.loads((work_dir / "index" / "header.json").read_text())
     assert header["indexed_rows"] == 2500
 
-    fresh = ENN(
+    fresh = baux.enn_init(
         x_all,
         y_all,
         scale_x=False,
@@ -318,10 +327,10 @@ def test_014(tmp_path):
         work_dir=str(tmp_path / "enn_disk_persist_fresh"),
         enn_storage="disk",
     )
-    fresh.ensure_sync()
+    fresh = baux.ensure_sync(fresh)
     post_fresh = fresh.posterior(x_test, params=params)
 
-    reopened = ENN(
+    reopened = baux.enn_init(
         np.empty((0, d)),
         np.empty((0, 1)),
         scale_x=False,
@@ -329,7 +338,7 @@ def test_014(tmp_path):
         work_dir=str(work_dir),
         enn_storage="disk",
     )
-    reopened.ensure_sync()
+    reopened = baux.ensure_sync(reopened)
     post_reopen = reopened.posterior(x_test, params=params)
     np.testing.assert_allclose(post_reopen.mu, post_fresh.mu, rtol=1e-5)
     np.testing.assert_allclose(post_reopen.se, post_fresh.se, rtol=1e-5)
@@ -342,22 +351,22 @@ def test_015(tmp_path, driver):
     n, d, init = 60, 4, 50
     train_x = rng.standard_normal((n, d))
     train_y = rng.standard_normal((n, 1))
-    model = ENN(
+    model = baux.enn_init(
         train_x[:init],
         train_y[:init],
         index_driver=driver,
         work_dir=str(work_dir),
         enn_storage="disk",
     )
-    model.add(train_x[init:], train_y[init:])
+    model = baux.append(model, train_x[init:], train_y[init:])
     assert len(model) == n
-    model.ensure_sync()
+    model = baux.ensure_sync(model)
 
     flat = _enn(train_x, index_driver=NeighborIndex.FLAT)
     for qi in range(10):
         query = train_x[qi : qi + 1]
-        _, idx = posterior_neighbors(model.rust_backend, query, search_k=1)
-        _, flat_idx = posterior_neighbors(flat.rust_backend, query, search_k=1)
+        _, idx = model.posterior_neighbors(query, search_k=1)
+        _, flat_idx = flat.posterior_neighbors(query, search_k=1)
         assert int(idx[0, 0]) == int(flat_idx[0, 0]), f"query row {qi}"
 
 
@@ -377,7 +386,7 @@ def test_016(tmp_path, driver):
 
 
 def test_017(tmp_path):
-    from baux import ENN, Device
+    from baux import Device
     from baux.config import OptimizerConfig
     from baux.enn.enn_params import ENNParams
     from baux.index import DistanceMetric, NeighborIndex, Storage
@@ -405,13 +414,13 @@ def test_017(tmp_path):
     train_x = np.array([[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]], dtype=float)
     train_y = np.array([[0.0], [1.0], [2.0]], dtype=float)
     tree_dir = tmp_path / "tree_store"
-    model = ENN(train_x, train_y, index="tree", work_dir=str(tree_dir))
+    model = baux.enn_init(train_x, train_y, index="tree", work_dir=str(tree_dir))
     assert (
         model.index_kind == "tree"
         and model.device == "cpu"
         and (tree_dir / "train_x.bin").exists()
     )
-    exact_model = ENN(
+    exact_model = baux.enn_init(
         train_x,
         train_y,
         index=NeighborIndex.FLAT,

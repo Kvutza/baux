@@ -1,7 +1,11 @@
 //! Issue regional proposals while respecting per-slot capacity.
 
-use super::super::selection::select_joint;
+use rand::RngCore;
+
+use super::super::selection::{CandidateSegment, select_indices, select_joint, select_segment};
 use super::*;
+use crate::candidates::perturb_candidates;
+use crate::optimizer::multi_tr::MultiTrustRegionState;
 
 fn restart_slot(
     multi_tr: &mut MultiTrustRegionState,
@@ -212,10 +216,10 @@ fn allocate_idle(
 }
 
 fn ask_warmup(
-    optimizer: &mut BayesOptimizer,
+    optimizer: BayesOptimizer,
     num_arms: usize,
     rng: &mut dyn RngCore,
-) -> Result<Option<Array2<f64>>, ENNError> {
+) -> Result<(BayesOptimizer, Option<Array2<f64>>), ENNError> {
     if matches!(
         &optimizer.regions,
         TrustRegionState::Multi {
@@ -228,11 +232,11 @@ fn ask_warmup(
         ));
     }
     if !optimizer.warmup.in_init() {
-        return Ok(None);
+        return Ok((optimizer, None));
     }
     let state = InitStrategyState::new(optimizer.warmup.kind, optimizer.warmup.budget);
-    let x = ask_init(&state, optimizer, num_arms, rng)?;
-    let ids = issue_ids(x.nrows())?;
+    let (optimizer, x) = ask_init(&state, optimizer, num_arms, rng)?;
+    let (mut optimizer, ids) = optimizer.issue_ids(x.nrows())?;
     if let TrustRegionState::Multi { pending, .. } = &mut optimizer.regions {
         *pending = Some(PendingProposal {
             outcomes: vec![EvaluationStatus::Pending; x.nrows()],
@@ -242,18 +246,19 @@ fn ask_warmup(
             ordered_tell_allowed: true,
         });
     }
-    Ok(Some(x))
+    Ok((optimizer, Some(x)))
 }
 
 fn record_proposal(
-    optimizer: &mut BayesOptimizer,
+    optimizer: BayesOptimizer,
     segments: &[CandidateSegment],
     selected: &Array2<f64>,
-) -> Result<(), ENNError> {
+) -> Result<BayesOptimizer, ENNError> {
+    let (mut optimizer, ids) =
+        optimizer.issue_ids(segments.iter().map(|segment| segment.arms).sum())?;
     let TrustRegionState::Multi { state, pending } = &mut optimizer.regions else {
         unreachable!("ask_multi requires TrustRegionState::Multi");
     };
-    let ids = issue_ids(segments.iter().map(|segment| segment.arms).sum())?;
     let mut tickets = Vec::with_capacity(segments.len());
     for segment in segments {
         match state.issue(segment.region) {
@@ -300,16 +305,18 @@ fn record_proposal(
     } else {
         *pending = Some(next);
     }
-    Ok(())
+    Ok(optimizer)
 }
 
 pub(in crate::strategy) fn ask_multi(
-    optimizer: &mut BayesOptimizer,
+    mut optimizer: BayesOptimizer,
     num_arms: usize,
     rng: &mut dyn RngCore,
-) -> Result<Array2<f64>, ENNError> {
-    if let Some(x) = ask_warmup(optimizer, num_arms, rng)? {
-        return Ok(x);
+) -> Result<(BayesOptimizer, Array2<f64>), ENNError> {
+    let (next_opt, warmup_x) = ask_warmup(optimizer, num_arms, rng)?;
+    optimizer = next_opt;
+    if let Some(x) = warmup_x {
+        return Ok((optimizer, x));
     }
 
     let batches = match &mut optimizer.regions {
@@ -317,12 +324,18 @@ pub(in crate::strategy) fn ask_multi(
         _ => unreachable!("ask_multi requires TrustRegionState::Multi"),
     };
 
-    if let (Some(models), TrustRegionState::Multi { state, .. }) =
-        (optimizer.local_models.as_mut(), &optimizer.regions)
-    {
-        if let Err(error) = models.sync(state, rng) {
-            optimizer.ingestion_error = Some(error.to_string());
-            return Err(error);
+    if let Some(models) = optimizer.local_models.take() {
+        let TrustRegionState::Multi { state, .. } = &optimizer.regions else {
+            unreachable!("ask_multi requires TrustRegionState::Multi");
+        };
+        match models.sync(state, rng) {
+            Ok(updated) => {
+                optimizer.local_models = Some(updated);
+            }
+            Err(error) => {
+                optimizer.ingestion_error = Some(error.to_string());
+                return Err(error);
+            }
         }
     }
 
@@ -330,7 +343,7 @@ pub(in crate::strategy) fn ask_multi(
     let ls_ref: Option<ArrayView1<f64>> = lengthscales.as_ref().map(|ls| ls.view());
     optimizer.telemetry.num_candidates = 0;
     optimizer.telemetry.dt_sel = 0.0;
-    let (blocks, segments) = build_segments(optimizer, batches, ls_ref, rng)?;
+    let (blocks, segments) = build_segments(&mut optimizer, batches, ls_ref, rng)?;
 
     if blocks.is_empty() {
         return Err(ENNError::InvalidParameter(
@@ -348,16 +361,16 @@ pub(in crate::strategy) fn ask_multi(
     );
     let start = std::time::Instant::now();
     let (indices, segments) = if is_joint {
-        select_joint(optimizer, &candidates.view(), &segments, num_arms, rng)?
+        select_joint(&optimizer, &candidates.view(), &segments, num_arms, rng)?
     } else {
-        let indices = select_segment(optimizer, &candidates.view(), &segments, rng)?;
+        let indices = select_segment(&optimizer, &candidates.view(), &segments, rng)?;
         (indices, segments)
     };
     optimizer.telemetry.dt_sel += start.elapsed().as_secs_f64();
     let selected = select_indices(&candidates.view(), &indices);
 
-    record_proposal(optimizer, &segments, &selected)?;
-    Ok(selected)
+    optimizer = record_proposal(optimizer, &segments, &selected)?;
+    Ok((optimizer, selected))
 }
 
 #[cfg(test)]

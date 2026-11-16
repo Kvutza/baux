@@ -1,8 +1,7 @@
 from dataclasses import replace
 
 import pytest
-from baux import turbo_zero
-from baux.turbo.config import RegionalSearchPolicy, RestartCenterPolicy
+from baux.turbo.config import RegionalSearchPolicy, RestartCenterPolicy, turbo_zero
 from baux.turbo.config.encode import encode
 
 

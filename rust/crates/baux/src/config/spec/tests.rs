@@ -624,7 +624,7 @@ fn recipe_fidelity() {
     let x = ndarray::Array2::from_shape_fn((8, 3), |(i, j)| (i as f64 * 0.2) + (j as f64 * 0.1));
     let y = ndarray::Array2::from_shape_fn((8, 1), |(i, _)| (i as f64).sin());
     let mut rng = <rand::rngs::StdRng as rand::SeedableRng>::seed_from_u64(7);
-    sur.fit(&x.view(), &y.view(), None, &mut rng).unwrap();
+    sur = sur.fit(&x.view(), &y.view(), None, &mut rng).unwrap();
     let pred = sur.predict(&x.view()).unwrap();
     assert_eq!(pred.mu.shape(), &[8, 1]);
     assert!(pred.se.iter().all(|v| v.is_finite() && *v > 0.0));

@@ -11,8 +11,9 @@ from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
+import baux
 import numpy as np
-from baux.enn.enn_class import ENN
+from baux import ENNState
 from baux.enn.enn_params import ENNParams, PosteriorFlags
 from baux.turbo.config.surrogate import NeighborIndex
 
@@ -109,8 +110,8 @@ class DiskRssStressResult:
 
 
 def _addbatches(
-    model: ENN, num_obs: int, cfg: DiskRssStressConfig, x_query: np.ndarray
-) -> None:
+    model: ENNState, num_obs: int, cfg: DiskRssStressConfig, x_query: np.ndarray
+) -> ENNState:
     rows_added = 0
     for x_batch, y_batch in iter_batches(
         num_obs,
@@ -118,14 +119,16 @@ def _addbatches(
         seed=cfg.seed,
         batch_size=cfg.batch_size,
     ):
-        model.add(x_batch, y_batch)
+        model = baux.append(model, x_batch, y_batch)
         rows_added += x_batch.shape[0]
-        model.schedule_flush()
+        if hasattr(model, "schedule_flush"):
+            model.schedule_flush()
     assert rows_added == num_obs
-    model.ensure_sync()
-    posterior = model.posterior(x_query, params=STRESS_PARAMS)
+    model = baux.ensure_sync(model)
+    posterior = baux.posterior(model, x_query, STRESS_PARAMS)
     assert np.all(np.isfinite(posterior.mu))
     assert np.all(np.isfinite(posterior.se))
+    return model
 
 
 def rss_stress(
@@ -145,7 +148,7 @@ def rss_stress(
         raise ValueError("query_n must be >= 1")
     baseline_rss = rss_bytes()
     x_query = make_points(cfg.query_n, num_dim=cfg.num_dim, seed=STRESS_QUERY_SEED)
-    model = ENN(
+    model = baux.enn_init(
         np.empty((0, cfg.num_dim), dtype=float),
         np.empty((0, 1), dtype=float),
         scale_x=False,
@@ -154,7 +157,7 @@ def rss_stress(
         enn_storage="disk",
     )
     baseline = min(baseline_rss, rss_bytes())
-    _addbatches(model, num_obs, cfg, x_query)
+    model = _addbatches(model, num_obs, cfg, x_query)
     final_rss = rss_bytes()
     train_x_path = Path(work_dir) / "train_x.bin"
     train_x_bytes = train_x_path.stat().st_size if train_x_path.exists() else 0
@@ -323,12 +326,12 @@ def function_sample(seed: int, num_seeds: int = 1) -> list[int]:
     return list(range(seed, seed + num_seeds))
 
 
-def bpann_enn(work_dir: str) -> tuple[ENN, dict]:
+def bpann_enn(work_dir: str) -> tuple[ENNState, dict]:
     """Reopen a persisted bpann_disk store from work_dir."""
     meta = load_metadata(work_dir)
     num_dim = int(meta["num_dim"])
     num_metrics = int(meta["num_metrics"])
-    model = ENN(
+    model = baux.enn_init(
         np.empty((0, num_dim), dtype=float),
         np.empty((0, num_metrics), dtype=float),
         scale_x=bool(meta.get("scale_x", False)),
@@ -336,7 +339,7 @@ def bpann_enn(work_dir: str) -> tuple[ENN, dict]:
         work_dir=work_dir,
         enn_storage="disk",
     )
-    model.ensure_sync()
+    model = baux.ensure_sync(model)
     return model, meta
 
 
@@ -373,9 +376,9 @@ def format_header(
     return header
 
 
-def _times(model: ENN, x_query: np.ndarray) -> float:
+def _times(model: ENNState, x_query: np.ndarray) -> float:
     t0 = time.perf_counter()
-    model.posterior(x_query, params=STRESS_PARAMS)
+    baux.posterior(model, x_query, STRESS_PARAMS)
     return time.perf_counter() - t0
 
 

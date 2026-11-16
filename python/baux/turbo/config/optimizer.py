@@ -52,10 +52,10 @@ def _raaspoptimizer() -> RAASPOptimizerConfig:
 class OptimizerConfig:
     """Composite configuration for a TuRBO or MORBO optimizer."""
 
-    trust_region: TrustRegionConfig = TurboTrustRegion()
+    trust_region: TrustRegionConfig = field(default_factory=TurboTrustRegion)
     candidates: CandidateConfig = field(default_factory=CandidateConfig)
     init: InitConfig = field(default_factory=InitConfig)
-    surrogate: Surrogate = NoSurrogate()
+    surrogate: Surrogate = field(default_factory=NoSurrogate)
     acquisition: AcquisitionConfig = field(default_factory=_randomacquisition)
     acq_optimizer: AcqOptimizerConfig = field(default_factory=_raaspoptimizer)
     observation_history: ObservationHistoryConfig = ObservationHistoryConfig()

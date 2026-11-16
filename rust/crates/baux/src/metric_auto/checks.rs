@@ -71,3 +71,63 @@ fn gate_fallback() {
     assert_eq!(metric.diagonal_metric().weights, [1.0, 1.0]);
     assert!(!metric.diagonal_metric().uses_learned);
 }
+
+#[test]
+fn consumed_flow() {
+    let n = 128;
+    let x = (0..n)
+        .flat_map(|i| {
+            [
+                (i % 2) as f64,
+                (1 - i % 2) as f64,
+                (i * 17 % 97) as f64 / 97.0,
+            ]
+        })
+        .collect::<Vec<_>>();
+    let y = (0..n).map(|i| (i % 2) as f64).collect::<Vec<_>>();
+
+    let metric = AutoMetric::new(3, 1, vec![vec![0, 1]], 719).unwrap();
+    let (metric, update) = metric.observed(&x, &y, n).unwrap();
+    assert!(update.is_some());
+    assert!(metric.diagonal_metric().uses_learned);
+    assert_eq!(metric.diagonal_metric().counters.num_refits, 1);
+
+    // Test clone and isolated mutations
+    let metric_fork = metric.clone();
+    let (metric, _) = metric.with_weights(&[2.0, 2.0, 0.5]).unwrap();
+    assert_eq!(metric.weights(), &[2.0, 2.0, 0.5]);
+    assert_ne!(metric_fork.weights(), &[2.0, 2.0, 0.5]);
+}
+
+#[test]
+fn consumed_enn() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let x = ndarray::array![[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [2.0, 1.0]];
+    let y = ndarray::array![[0.0], [1.0], [2.0], [3.0]];
+    let tuning = crate::BpannTuning::default();
+    let model = crate::ENN::new_storage(
+        x.clone(),
+        y,
+        None,
+        false,
+        crate::IndexDriver::BpAnnDisk,
+        crate::EnnStorage::Disk,
+        Some(dir.path().to_path_buf()),
+    )
+    .unwrap();
+    let model = model
+        .with_thresholds(tuning.soft_threshold, tuning.hard_threshold)
+        .unwrap();
+    let model = model.learn_metric(vec![], 719).unwrap();
+    let model = model.metric_weights(&[4.0, 0.25]).unwrap();
+    let model = model
+        .add(
+            &ndarray::array![[3.0, 2.0]].view(),
+            &ndarray::array![[4.0]].view(),
+            None,
+        )
+        .unwrap();
+    assert_eq!(model.x_scale(), ndarray::array![[0.5, 2.0]]);
+    let snapshot = model.diagonal_metric().unwrap();
+    assert_eq!(snapshot.num_seen, 5);
+}

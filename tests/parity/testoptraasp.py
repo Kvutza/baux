@@ -47,4 +47,4 @@ def test_raaspdistribution():
 
     x = np.concatenate(cands, axis=0)
     assert x.shape[1] == 2
-    assert np.all((0 <= x) & (x <= 1))
+    assert np.all((x >= 0) & (x <= 1))

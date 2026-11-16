@@ -41,11 +41,11 @@ __all__ = [
     "capture_optimizer",
     "catalog_names",
     "entry_name",
+    "load_fixture",
     "name_prefix",
     "output_path",
-    "subdir_entry",
-    "load_fixture",
     "replay_check",
     "separable_objective",
     "sphere_objective",
+    "subdir_entry",
 ]

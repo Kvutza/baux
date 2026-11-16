@@ -1,7 +1,7 @@
 use std::borrow::Cow;
 use std::path::PathBuf;
 #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
-use std::sync::Mutex;
+use std::sync::Arc;
 
 use ndarray::{Array1, Array2, ArrayView2};
 use rand::RngCore;
@@ -24,7 +24,7 @@ pub enum PosteriorBackend {
     #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
     Disk {
         work_dir: PathBuf,
-        store: Mutex<DiskBpannEnnBackend>,
+        store: Arc<DiskBpannEnnBackend>,
     },
     Model(BoxedSurrogate),
 }
@@ -73,7 +73,7 @@ impl PosteriorStore {
             Ok(Self {
                 backend: PosteriorBackend::Disk {
                     work_dir,
-                    store: Mutex::new(store),
+                    store: Arc::new(store),
                 },
                 yvar_mode: None,
             })
@@ -81,7 +81,7 @@ impl PosteriorStore {
         #[cfg(not(all(feature = "disk-bpann", not(target_arch = "wasm32"))))]
         {
             let _ = (work_dir, num_dim, num_metrics);
-            Err(crate::backend::disk_unavailable_error())
+            Err(crate::backend::disk_unavailable())
         }
     }
 
@@ -118,7 +118,7 @@ impl PosteriorStore {
         }
     }
 
-    pub fn check_variance(&mut self, has_yvar: bool) -> Result<(), ENNError> {
+    pub fn check_variance(mut self, has_yvar: bool) -> Result<Self, ENNError> {
         match variance_gate(self.yvar_mode, has_yvar) {
             VarianceGate::Set(value) => self.yvar_mode = Some(value),
             VarianceGate::Reject => {
@@ -133,7 +133,7 @@ impl PosteriorStore {
             }
             VarianceGate::Keep => {}
         }
-        Ok(())
+        Ok(self)
     }
 
     pub fn obs_count(&self) -> usize {
@@ -141,7 +141,7 @@ impl PosteriorStore {
             PosteriorBackend::Model(s) => s.observation_count().unwrap_or(0),
             PosteriorBackend::Empirical { x_rows, .. } => x_rows.len(),
             #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
-            PosteriorBackend::Disk { store, .. } => store.lock().map(|g| g.len()).unwrap_or(0),
+            PosteriorBackend::Disk { store, .. } => store.len(),
         }
     }
 
@@ -154,10 +154,7 @@ impl PosteriorStore {
                 })
             }
             #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
-            PosteriorBackend::Disk { store, .. } => store
-                .lock()
-                .map_err(|_| ENNError::InvalidParameter("disk store lock poisoned".into()))?
-                .row_x(idx),
+            PosteriorBackend::Disk { store, .. } => store.row_x(idx),
         }
     }
 
@@ -170,10 +167,7 @@ impl PosteriorStore {
                 })
             }
             #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
-            PosteriorBackend::Disk { store, .. } => store
-                .lock()
-                .map_err(|_| ENNError::InvalidParameter("disk store lock poisoned".into()))?
-                .row_y(idx),
+            PosteriorBackend::Disk { store, .. } => store.row_y(idx),
         }
     }
 
@@ -192,12 +186,7 @@ impl PosteriorStore {
                 })
             }
             #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
-            PosteriorBackend::Disk { store, .. } => {
-                let g = store
-                    .lock()
-                    .map_err(|_| ENNError::InvalidParameter("disk store lock poisoned".into()))?;
-                Ok(Cow::Owned(g.slice_x(idx)?.to_vec()))
-            }
+            PosteriorBackend::Disk { store, .. } => Ok(Cow::Owned(store.slice_x(idx)?.to_vec())),
         }
     }
 
@@ -216,13 +205,7 @@ impl PosteriorStore {
                 })
             }
             #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
-            PosteriorBackend::Disk { store, .. } => Ok(Cow::Owned(
-                store
-                    .lock()
-                    .map_err(|_| ENNError::InvalidParameter("disk store lock poisoned".into()))?
-                    .row_y(idx)?
-                    .to_vec(),
-            )),
+            PosteriorBackend::Disk { store, .. } => Ok(Cow::Owned(store.row_y(idx)?.to_vec())),
         }
     }
 
@@ -234,12 +217,11 @@ impl PosteriorStore {
             }
             #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
             PosteriorBackend::Disk { store, .. } => {
-                let g = store.lock().ok()?;
-                let n = g.len();
+                let n = store.len();
                 if n == 0 {
                     return None;
                 }
-                let rows: Vec<Array1<f64>> = (0..n).filter_map(|i| g.row_x(i).ok()).collect();
+                let rows: Vec<Array1<f64>> = (0..n).filter_map(|i| store.row_x(i).ok()).collect();
                 (rows.len() == n).then(|| stack_rows(&rows))
             }
         }
@@ -253,12 +235,11 @@ impl PosteriorStore {
             }
             #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
             PosteriorBackend::Disk { store, .. } => {
-                let g = store.lock().ok()?;
-                let n = g.len();
+                let n = store.len();
                 if n == 0 {
                     return None;
                 }
-                let rows: Vec<Array1<f64>> = (0..n).filter_map(|i| g.row_y(i).ok()).collect();
+                let rows: Vec<Array1<f64>> = (0..n).filter_map(|i| store.row_y(i).ok()).collect();
                 (rows.len() == n).then(|| stack_rows(&rows))
             }
         }
@@ -271,29 +252,82 @@ impl PosteriorStore {
         }
     }
 
+    pub fn append_empirical(&mut self, x: &ArrayView2<f64>, y: &ArrayView2<f64>) {
+        if let PosteriorBackend::Empirical { x_rows, y_rows } = &mut self.backend {
+            for row in x.rows() {
+                x_rows.push(row.to_owned());
+            }
+            for row in y.rows() {
+                y_rows.push(row.to_owned());
+            }
+        }
+    }
+
     pub fn append_disk(
         &mut self,
         x: &ArrayView2<f64>,
         y: &ArrayView2<f64>,
     ) -> Result<(), ENNError> {
         #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
-        if let PosteriorBackend::Disk { store, .. } = &mut self.backend {
-            let g = store
-                .get_mut()
-                .map_err(|_| ENNError::InvalidParameter("disk store lock poisoned".into()))?;
-            g.append_rows(x, y, None)?;
+        match &mut self.backend {
+            PosteriorBackend::Disk { store, .. } => {
+                let inner = (**store).clone();
+                let updated = inner.append_rows(x, y, None)?;
+                *store = Arc::new(updated);
+            }
+            _ => {}
         }
         #[cfg(not(all(feature = "disk-bpann", not(target_arch = "wasm32"))))]
         let _ = (x, y);
         Ok(())
     }
 
+    pub fn append(
+        mut self,
+        x: &ArrayView2<f64>,
+        y: &ArrayView2<f64>,
+        yvar: Option<&ArrayView2<f64>>,
+        rng: &mut dyn RngCore,
+    ) -> Result<Self, ENNError> {
+        self = self.check_variance(yvar.is_some())?;
+        match self.backend {
+            PosteriorBackend::Empirical {
+                mut x_rows,
+                mut y_rows,
+            } => {
+                for row in x.rows() {
+                    x_rows.push(row.to_owned());
+                }
+                for row in y.rows() {
+                    y_rows.push(row.to_owned());
+                }
+                self.backend = PosteriorBackend::Empirical { x_rows, y_rows };
+                Ok(self)
+            }
+            #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
+            PosteriorBackend::Disk { work_dir, store } => {
+                let inner = Arc::try_unwrap(store).unwrap_or_else(|arc| (*arc).clone());
+                let updated = inner.append_rows(x, y, yvar)?;
+                self.backend = PosteriorBackend::Disk {
+                    work_dir,
+                    store: Arc::new(updated),
+                };
+                Ok(self)
+            }
+            PosteriorBackend::Model(surrogate) => {
+                let updated = surrogate.with_append(x, y, yvar, rng)?;
+                self.backend = PosteriorBackend::Model(updated);
+                Ok(self)
+            }
+        }
+    }
+
     pub fn fit_delta(
-        &mut self,
+        mut self,
         delta: &ObservationDelta,
         yvar: Option<&ArrayView2<f64>>,
         rng: &mut dyn RngCore,
-    ) -> Result<Option<f64>, ENNError> {
+    ) -> Result<(Self, Option<f64>), ENNError> {
         let ncols = delta.y_new.ncols();
         if let Some(nm) = self.surrogate().and_then(|s| s.fitted_metrics()) {
             if nm != ncols {
@@ -303,31 +337,35 @@ impl PosteriorStore {
                 )));
             }
         }
-        if let PosteriorBackend::Model(surrogate) = &mut self.backend {
+        if let PosteriorBackend::Model(surrogate) = self.backend {
             let start = std::time::Instant::now();
-            surrogate.fit_append(&delta.x_view(), &delta.y_view(), yvar, rng)?;
-            return Ok(Some(start.elapsed().as_secs_f64()));
+            let updated = surrogate.with_append(&delta.x_view(), &delta.y_view(), yvar, rng)?;
+            self.backend = PosteriorBackend::Model(updated);
+            return Ok((self, Some(start.elapsed().as_secs_f64())));
         }
-        Ok(None)
+        Ok((self, None))
     }
 
-    pub fn clear(&mut self) -> Result<(), ENNError> {
-        match &mut self.backend {
-            PosteriorBackend::Model(s) => s.clear_observations(),
-            PosteriorBackend::Empirical { x_rows, y_rows } => {
+    pub fn clear(mut self) -> Result<Self, ENNError> {
+        match self.backend {
+            PosteriorBackend::Model(s) => {
+                let cleared = s.cleared()?;
+                self.backend = PosteriorBackend::Model(cleared);
+                Ok(self)
+            }
+            PosteriorBackend::Empirical {
+                mut x_rows,
+                mut y_rows,
+            } => {
                 x_rows.clear();
                 y_rows.clear();
-                Ok(())
+                self.backend = PosteriorBackend::Empirical { x_rows, y_rows };
+                Ok(self)
             }
             #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
             PosteriorBackend::Disk { work_dir, store } => {
-                let (nd, nm) = {
-                    let g = store.get_mut().map_err(|_| {
-                        ENNError::InvalidParameter("disk store lock poisoned".into())
-                    })?;
-                    (g.num_dim(), g.num_metrics())
-                };
-                let _ = std::fs::remove_dir_all(&*work_dir);
+                let (nd, nm) = (store.num_dim(), store.num_metrics());
+                let _ = std::fs::remove_dir_all(&work_dir);
                 let fresh = DiskBpannEnnBackend::new_thresholds(
                     work_dir.clone(),
                     nd,
@@ -335,35 +373,70 @@ impl PosteriorStore {
                     usize::MAX,
                     usize::MAX,
                 )?;
-                *store = Mutex::new(fresh);
-                Ok(())
+                self.backend = PosteriorBackend::Disk {
+                    work_dir,
+                    store: Arc::new(fresh),
+                };
+                Ok(self)
             }
         }
     }
 
-    pub fn schedule_flush(&self) -> Result<(), ENNError> {
-        if let PosteriorBackend::Model(s) = &self.backend {
-            s.schedule_flush()?;
+    pub fn thaw(mut self, bytes: &[u8], pos: &mut usize) -> Result<Self, ENNError> {
+        match self.backend {
+            PosteriorBackend::Model(surrogate) => {
+                let thawed = surrogate.with_thawed(bytes, pos)?;
+                self.backend = PosteriorBackend::Model(thawed);
+                Ok(self)
+            }
+            PosteriorBackend::Empirical { .. } => self.clear(),
+            #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
+            PosteriorBackend::Disk { .. } => self.clear(),
         }
-        Ok(())
     }
 
-    pub fn wait_flush(&self) -> Result<(), ENNError> {
-        if let PosteriorBackend::Model(s) = &self.backend {
-            s.wait_flush()?;
-        }
-        Ok(())
-    }
-
-    pub fn release_pages(&self) -> Result<(), ENNError> {
-        match &self.backend {
-            PosteriorBackend::Model(s) => s.release_pages()?,
+    pub fn schedule_flush(&mut self) -> Result<(), ENNError> {
+        match &mut self.backend {
+            PosteriorBackend::Model(s) => {
+                s.schedule_flush()?;
+            }
             #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
             PosteriorBackend::Disk { store, .. } => {
-                store
-                    .lock()
-                    .map_err(|_| ENNError::InvalidParameter("disk store lock poisoned".into()))?
-                    .release_pages()?;
+                let inner = (**store).clone();
+                let updated = inner.schedule_flush()?;
+                *store = Arc::new(updated);
+            }
+            PosteriorBackend::Empirical { .. } => {}
+        }
+        Ok(())
+    }
+
+    pub fn wait_flush(&mut self) -> Result<(), ENNError> {
+        match &mut self.backend {
+            PosteriorBackend::Model(s) => {
+                s.wait_flush()?;
+            }
+            #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
+            PosteriorBackend::Disk { store, .. } => {
+                let inner = (**store).clone();
+                let updated = inner.wait_flush()?;
+                *store = Arc::new(updated);
+            }
+            PosteriorBackend::Empirical { .. } => {}
+        }
+        Ok(())
+    }
+
+    pub fn release_pages(&mut self) -> Result<(), ENNError> {
+        match &mut self.backend {
+            PosteriorBackend::Model(s) => {
+                s.release_pages()?;
+            }
+            #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
+            PosteriorBackend::Disk { store, .. } => {
+                let inner = (**store).clone();
+                let updated = inner.release_pages()?;
+                *store = Arc::new(updated);
             }
             PosteriorBackend::Empirical { .. } => {}
         }
@@ -377,40 +450,20 @@ impl PosteriorStore {
                 y_rows: y_rows.clone(),
             },
             #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
-            PosteriorBackend::Disk { work_dir, store } => {
-                let g = store
-                    .lock()
-                    .map_err(|_| ENNError::InvalidParameter("disk store lock poisoned".into()))?;
-                let clone_dir = work_dir.with_extension(format!(
-                    "fork-{}",
-                    std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .map(|d| d.as_nanos())
-                        .unwrap_or(0)
-                ));
-                let mut cloned = DiskBpannEnnBackend::new_thresholds(
-                    clone_dir.clone(),
-                    g.num_dim(),
-                    g.num_metrics(),
-                    usize::MAX,
-                    usize::MAX,
-                )?;
-                for i in 0..g.len() {
-                    let xr = g.row_x(i)?.insert_axis(ndarray::Axis(0));
-                    let yr = g.row_y(i)?.insert_axis(ndarray::Axis(0));
-                    cloned.append_rows(&xr.view(), &yr.view(), None)?;
-                }
-                PosteriorBackend::Disk {
-                    work_dir: clone_dir,
-                    store: Mutex::new(cloned),
-                }
-            }
+            PosteriorBackend::Disk { work_dir, store } => PosteriorBackend::Disk {
+                work_dir: work_dir.clone(),
+                store: Arc::clone(store),
+            },
             PosteriorBackend::Model(surrogate) => PosteriorBackend::Model(surrogate.clone_box()?),
         };
         Ok(Self {
             backend,
             yvar_mode: self.yvar_mode,
         })
+    }
+
+    pub fn fork(&self) -> Result<Self, ENNError> {
+        self.try_clone()
     }
 
     pub(crate) fn hash_state(&self, buf: &mut Vec<u8>) {
@@ -456,6 +509,31 @@ impl PosteriorStore {
         }
     }
 }
+
+impl Clone for PosteriorStore {
+    fn clone(&self) -> Self {
+        self.try_clone().expect("PosteriorStore clone failed")
+    }
+}
+
+impl Default for PosteriorStore {
+    fn default() -> Self {
+        Self {
+            backend: PosteriorBackend::Empirical {
+                x_rows: Vec::new(),
+                y_rows: Vec::new(),
+            },
+            yvar_mode: None,
+        }
+    }
+}
+
+const _: () = {
+    fn assert_sync<T: Send + Sync>() {}
+    fn check() {
+        assert_sync::<PosteriorStore>();
+    }
+};
 
 /// Public accessor for optimizer observation row reads.
 pub struct ObsAccess<'a> {

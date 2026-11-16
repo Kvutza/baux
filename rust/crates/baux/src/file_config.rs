@@ -3,25 +3,8 @@
 use std::fs;
 use std::io::{ErrorKind, Write};
 use std::path::{Path, PathBuf};
-use std::sync::RwLock;
 
 use deser::{Deserialize, Serialize};
-
-static CONFIG_OVERRIDE: RwLock<Option<PathBuf>> = RwLock::new(None);
-
-/// Override the config file path (tests / ops tools). Pass `None` to restore
-/// the default.
-pub fn set_path(path: Option<PathBuf>) -> Result<(), String> {
-    let mut active = CONFIG_OVERRIDE
-        .write()
-        .map_err(|_| "config path lock poisoned")?;
-    let config = Config::with_path(path.clone().unwrap_or_else(config_path));
-    let tuning = config.load()?.bpann.to_tuning();
-    // Validate before replacing the active path or tuning.
-    baux::neighbor_index::set_provider(Box::new(move || tuning));
-    *active = path;
-    Ok(())
-}
 
 /// Default path: `~/.baux/config.toml`.
 pub fn config_path() -> PathBuf {
@@ -35,12 +18,36 @@ fn home_dir() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("."))
 }
 
-fn active_path() -> PathBuf {
-    CONFIG_OVERRIDE
-        .read()
-        .expect("config path lock")
-        .clone()
-        .unwrap_or_else(config_path)
+/// Ensure the config file exists at `path`. If missing, creates the file with
+/// default settings along with any missing parent directories.
+pub fn ensure_config(path: &Path) -> Result<(), String> {
+    match fs::metadata(path) {
+        Ok(_) => return Ok(()),
+        Err(error) if error.kind() == ErrorKind::NotFound => {}
+        Err(error) => return Err(format!("read config {}: {error}", path.display())),
+    }
+    let create = || -> Result<(), String> {
+        if let Some(parent) = path
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+        {
+            fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+        }
+        let text = baux::artifact::toml::pretty_string(&ConfigFile::default())
+            .map_err(|error| error.to_string())?;
+        match fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(path)
+        {
+            Ok(mut file) => file
+                .write_all(text.as_bytes())
+                .map_err(|error| error.to_string()),
+            Err(error) if error.kind() == ErrorKind::AlreadyExists => Ok(()),
+            Err(error) => Err(error.to_string()),
+        }
+    };
+    create().map_err(|error| format!("create config {}: {error}", path.display()))
 }
 
 /// Tunable BPANN parameters persisted under `[bpann]` in the config file.
@@ -102,6 +109,33 @@ impl From<baux::neighbor_index::BpannTuning> for BpannConfig {
 }
 
 impl BpannConfig {
+    /// Load and validate BPANN configuration from the given file path.
+    ///
+    /// If the file is missing, it is created with defaults.
+    pub fn from_path(path: &Path) -> Result<Self, String> {
+        ensure_config(path)?;
+        let text = fs::read_to_string(path)
+            .map_err(|error| format!("read config {}: {error}", path.display()))?;
+        let file: ConfigFile = baux::artifact::toml::from_str(&text)
+            .map_err(|error| format!("parse config {}: {error}", path.display()))?;
+        file.bpann
+            .validate()
+            .map_err(|error| format!("invalid config {}: {error}", path.display()))?;
+        Ok(file.bpann)
+    }
+
+    /// Parse and validate BPANN configuration from a TOML string.
+    pub fn from_toml(text: &str) -> Result<Self, String> {
+        let bpann = if let Ok(file) = baux::artifact::toml::from_str::<ConfigFile>(text) {
+            file.bpann
+        } else {
+            baux::artifact::toml::from_str::<BpannConfig>(text)
+                .map_err(|error| error.to_string())?
+        };
+        bpann.validate()?;
+        Ok(bpann)
+    }
+
     /// Validate all tunable fields. Returns an error describing the first
     /// violation.
     pub fn validate(&self) -> Result<(), String> {
@@ -115,7 +149,9 @@ impl BpannConfig {
         })
     }
 
-    fn to_tuning(&self) -> baux::neighbor_index::BpannTuning {
+    /// Convert this configuration snapshot to
+    /// [`baux::neighbor_index::BpannTuning`].
+    pub fn to_tuning(&self) -> baux::neighbor_index::BpannTuning {
         baux::neighbor_index::BpannTuning {
             index_fragment: self.index_fragment,
             index_max: self.index_max,
@@ -133,6 +169,11 @@ impl BpannConfig {
     }
 }
 
+/// Convert a [`BpannConfig`] snapshot to [`baux::neighbor_index::BpannTuning`].
+pub fn tuning_for(config: &BpannConfig) -> baux::neighbor_index::BpannTuning {
+    config.to_tuning()
+}
+
 /// Root document for `~/.baux/config.toml`.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[deser(default, deny_unknown_fields)]
@@ -142,10 +183,9 @@ pub struct ConfigFile {
 
 /// File-backed configuration object.
 ///
-/// Each parameter accessor re-reads `~/.baux/config.toml` (or the path from
-/// [`set_path`]). If the file is missing, it is created with defaults.
-/// Invalid files return an error with the path; only missing files receive
-/// defaults.
+/// Each parameter accessor re-reads `~/.baux/config.toml` (or the configured
+/// path). If the file is missing, it is created with defaults. Invalid files
+/// return an error with the path; only missing files receive defaults.
 #[derive(Debug, Clone)]
 pub struct Config {
     path: PathBuf,
@@ -158,15 +198,14 @@ impl Default for Config {
 }
 
 impl Config {
-    /// Config for the active path (`set_path` override or
-    /// `~/.baux/config.toml`).
+    /// Config for the default path (`~/.baux/config.toml`).
     pub fn new() -> Self {
         Self {
-            path: active_path(),
+            path: config_path(),
         }
     }
 
-    /// Config for an explicit path (does not change the process-wide override).
+    /// Config for an explicit path.
     pub fn with_path(path: impl Into<PathBuf>) -> Self {
         Self { path: path.into() }
     }
@@ -179,7 +218,7 @@ impl Config {
     ///
     /// Report unreadable files, malformed TOML, and invalid parameter values.
     pub fn load(&self) -> Result<ConfigFile, String> {
-        self.ensure_exists()?;
+        ensure_config(&self.path)?;
         let text = fs::read_to_string(&self.path)
             .map_err(|error| format!("read config {}: {error}", self.path.display()))?;
         let file: ConfigFile = baux::artifact::toml::from_str(&text)
@@ -201,55 +240,28 @@ impl Config {
         let text = baux::artifact::toml::pretty_string(file).map_err(|e| e.to_string())?;
         fs::write(&self.path, text).map_err(|e| e.to_string())
     }
-
-    fn ensure_exists(&self) -> Result<(), String> {
-        match fs::metadata(&self.path) {
-            Ok(_) => return Ok(()),
-            Err(error) if error.kind() == ErrorKind::NotFound => {}
-            Err(error) => return Err(format!("read config {}: {error}", self.path.display())),
-        }
-        let create = || -> Result<(), String> {
-            if let Some(parent) = self
-                .path
-                .parent()
-                .filter(|parent| !parent.as_os_str().is_empty())
-            {
-                fs::create_dir_all(parent).map_err(|error| error.to_string())?;
-            }
-            let text = baux::artifact::toml::pretty_string(&ConfigFile::default())
-                .map_err(|error| error.to_string())?;
-            match fs::OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .open(&self.path)
-            {
-                Ok(mut file) => file
-                    .write_all(text.as_bytes())
-                    .map_err(|error| error.to_string()),
-                Err(error) if error.kind() == ErrorKind::AlreadyExists => Ok(()),
-                Err(error) => Err(error.to_string()),
-            }
-        };
-        create().map_err(|error| format!("create config {}: {error}", self.path.display()))
-    }
 }
 
 pub type IndexConfig = BpannConfig;
 pub type TreeConfig = BpannConfig;
 
-/// Install BPANN tuning so the `bpann` crate reads values via [`Config`].
-///
-/// Snapshot once at install time. Reloading the TOML inside the provider (old
-/// behavior) put disk I/O on every `current_tuning()` — including per-query
-/// search mode selection — and dominated TuRBO ask time.
-pub fn bpann_config() -> Result<(), String> {
-    let cached = Config::new().load()?.bpann.to_tuning();
-    baux::neighbor_index::set_provider(Box::new(move || cached));
-    Ok(())
+/// Load BPANN configuration from the given path, or from the default config
+/// path (`~/.baux/config.toml`) if `path` is `None`.
+pub fn load_config(path: Option<&Path>) -> Result<BpannConfig, String> {
+    match path {
+        Some(p) => BpannConfig::from_path(p),
+        None => BpannConfig::from_path(&config_path()),
+    }
+}
+
+/// Read BPANN configuration from the default config path
+/// (`~/.baux/config.toml`).
+pub fn bpann_config() -> Result<BpannConfig, String> {
+    load_config(None)
 }
 
 /// Alias for [`bpann_config`].
-pub fn index_config() -> Result<(), String> {
+pub fn index_config() -> Result<BpannConfig, String> {
     bpann_config()
 }
 
@@ -320,7 +332,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("config.toml");
         fs::write(&path, "[bpann]\nsoft_threshold = 2000\nsearch_width = 1\n").unwrap();
-        let bpann = Config::with_path(&path).load().unwrap().bpann;
+        let bpann = BpannConfig::from_path(&path).unwrap();
         assert_eq!(bpann.soft_threshold, 2_000);
         assert_eq!(bpann.resolved_threshold(), 3_000);
     }
@@ -330,7 +342,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("config.toml");
         fs::write(&path, "[bpann]\nsoft_threshold = 5000\nsearch_width = 1\n").unwrap();
-        let bpann = Config::with_path(&path).load().unwrap().bpann;
+        let bpann = load_config(Some(&path)).unwrap();
         assert_eq!(bpann.soft_threshold, 5_000);
         assert_eq!(bpann.resolved_threshold(), 5_000);
     }
@@ -340,7 +352,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("config.toml");
         fs::write(&path, "[bpann]\nsoft_threshold = 250\nsearch_width = 1\n").unwrap();
-        let bpann = Config::with_path(&path).load().unwrap().bpann;
+        let bpann = BpannConfig::from_path(&path).unwrap();
         assert_eq!(bpann.soft_threshold, 250);
         assert_eq!(bpann.resolved_threshold(), 3000);
     }
@@ -354,8 +366,7 @@ mod tests {
             "[bpann]\nsoft_threshold = 2000\nhard_threshold = 1000\nsearch_width = 1\n",
         )
         .unwrap();
-        let cfg = Config::with_path(&path);
-        let error = cfg.load().unwrap_err();
+        let error = BpannConfig::from_path(&path).unwrap_err();
         assert!(error.contains("hard_threshold"));
         assert!(error.contains(path.to_str().unwrap()));
     }
@@ -399,22 +410,22 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("config.toml");
         fs::write(&path, "[bpann]\nindex_fragment = 0\nsearch_width = 1\n").unwrap();
-        let cfg = Config::with_path(&path);
-        let error = cfg.load().unwrap_err();
+        let error = BpannConfig::from_path(&path).unwrap_err();
         assert!(error.contains("index_fragment"));
         assert!(error.contains(path.to_str().unwrap()));
         assert!(fs::read_to_string(&path).unwrap().contains("= 0"));
     }
 
     #[test]
-    fn set_overrides() {
+    fn explicit_load() {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("override.toml");
-        set_path(Some(path.clone())).unwrap();
-        let cfg = Config::new();
+        let cfg = Config::with_path(&path);
         assert_eq!(cfg.path(), path.as_path());
-        assert_eq!(cfg.load().unwrap().bpann.index_max, 32);
-        set_path(None).unwrap();
+        let config = BpannConfig::from_path(&path).unwrap();
+        assert_eq!(config.index_max, 32);
+        let loaded = load_config(Some(&path)).unwrap();
+        assert_eq!(loaded.index_max, 32);
     }
 
     #[test]
@@ -430,14 +441,21 @@ mod tests {
     }
 
     #[test]
-    fn active_override() {
-        assert_eq!(active_path(), config_path());
+    fn load_path() {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("override.toml");
-        set_path(Some(path.clone())).unwrap();
-        assert_eq!(active_path(), path);
-        set_path(None).unwrap();
-        assert_eq!(active_path(), config_path());
+        let config1 = BpannConfig::from_path(&path).unwrap();
+        let config2 = load_config(Some(&path)).unwrap();
+        assert_eq!(config1, config2);
+    }
+
+    #[test]
+    fn parse_toml() {
+        let toml_str = "[bpann]\nsoft_threshold = 400\nhard_threshold = 4000\nsearch_width = 2\n";
+        let config = BpannConfig::from_toml(toml_str).unwrap();
+        assert_eq!(config.soft_threshold, 400);
+        assert_eq!(config.resolved_threshold(), 4000);
+        assert_eq!(config.search_width, 2);
     }
 
     #[test]
@@ -456,16 +474,14 @@ mod tests {
         file.bpann.build_seed = Some(42);
         cfg.save(&file).unwrap();
 
-        let bpann = cfg.load().unwrap().bpann;
+        let bpann = BpannConfig::from_path(&path).unwrap();
         assert_eq!(bpann.search_fragment, 50_000);
         assert_eq!(bpann.fragment_rows, 9_000);
         assert_eq!(bpann.build_seed, Some(42));
     }
 
     #[test]
-    fn install_overrides() {
-        // Avoid set_path here: it is process-global and races other tests.
-        // Mirror bpann_config by loading via with_path → to_tuning.
+    fn tuning_for() {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("config.toml");
         let cfg = Config::with_path(&path);
@@ -474,7 +490,8 @@ mod tests {
         file.bpann.skip_limit = 90_000;
         cfg.save(&file).unwrap();
 
-        let t = cfg.load().unwrap().bpann.to_tuning();
+        let config = load_config(Some(&path)).unwrap();
+        let t = super::tuning_for(&config);
         assert_eq!(t.exhaustive_limit, 7_000);
         assert_eq!(t.skip_limit, 90_000);
         assert!(!t.rows_edges(5_000));

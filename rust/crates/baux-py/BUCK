@@ -15,9 +15,9 @@ app_rust_library(
     dlopen_enable = True,
     edition = RUST_EDITION,
     features = select({
-        "//:linux-arm64": ["default", "host-db", "disk-bpann", "host-ml", "usearch-native"],
-        "//:linux-x86_64": ["default", "host-db", "disk-bpann", "host-ml", "usearch-native"],
-        "//:macos-arm64": ["default", "host-db", "disk-bpann", "host-ml", "usearch-native", "metal"],
+        "//:linux-arm64": ["default", "host-db", "disk-bpann", "usearch-native"],
+        "//:linux-x86_64": ["default", "host-db", "disk-bpann", "usearch-native"],
+        "//:macos-arm64": ["default", "host-db", "disk-bpann", "usearch-native", "metal"],
         "//:wasm32-emscripten": [],
     }),
     rustc_flags = select({

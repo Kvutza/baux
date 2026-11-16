@@ -17,6 +17,7 @@ pub mod objectives;
 pub mod routing;
 mod tell;
 
+#[derive(Clone)]
 struct PendingImport {
     row: Buffer,
     observation: crate::objective_observation::ObjectiveObservation,
@@ -49,8 +50,13 @@ impl RegionalProposal {
     pub fn ticket(&self) -> RegionTicket {
         self.ticket
     }
+
+    pub fn proposal(&self) -> &Proposals {
+        &self.proposal
+    }
 }
 
+#[derive(Clone)]
 pub struct RegionalSearch {
     ledger: RegionalLedger,
     states: Vec<SearchState>,
@@ -84,16 +90,17 @@ impl RegionalSearch {
             );
         }
         if !spec.acquisitions.is_empty() {
-            objectives::configure(&mut states, &spec.acquisitions)?;
+            states = objectives::configure(states, &spec.acquisitions)?;
         }
         if spec.success_tolerance != 3 {
             return Err("resident regional search requires success-tolerance = 3".into());
         }
         let failures = usize::try_from(spec.failure_tolerance)
             .map_err(|_| "regional failure tolerance must fit usize")?;
-        for state in &mut states {
-            state.set_tolerance(failures)?;
-        }
+        states = states
+            .into_iter()
+            .map(|state| state.set_tolerance(failures))
+            .collect::<Result<Vec<_>, _>>()?;
         let allocation = match spec.allocation {
             RegionAllocation::IncumbentUcb1 => Allocation::IncumbentUcb1 { exploration: 1.0 },
             RegionAllocation::LeastTrials => Allocation::LeastTrials,
@@ -160,6 +167,11 @@ impl RegionalSearch {
         })
     }
 
+    /// Fork this regional search into an independent state branch.
+    pub fn fork(&self) -> Result<Self, String> {
+        Ok(self.clone())
+    }
+
     pub fn len(&self) -> usize {
         self.ledger.len()
     }
@@ -174,7 +186,7 @@ impl RegionalSearch {
         self.ledger.best_region()
     }
 
-    pub fn ask(&mut self, seed: u64, config: RoundConfig) -> Result<RegionalProposal, String> {
+    pub fn ask(self, seed: u64, config: RoundConfig) -> Result<(Self, RegionalProposal), String> {
         let eligible = vec![true; self.len()];
         let slot = self
             .ledger
@@ -187,33 +199,62 @@ impl RegionalSearch {
     /// Explicit region choice permits other allocation policies without
     /// changing the execution or completion contract.
     pub fn ask_region(
-        &mut self,
+        self,
         slot: usize,
         seed: u64,
         config: RoundConfig,
-    ) -> Result<RegionalProposal, String> {
+    ) -> Result<(Self, RegionalProposal), String> {
         let adopt = config.acquisition.kind == AcquisitionKind::Random;
-        routing::flush_region(self, slot, adopt)?;
-        let ticket = self.ledger.issue(slot).map_err(|error| error.to_string())?;
-        let proposal = match self.states.get_mut(slot) {
-            Some(state) => {
-                let pool = state.pool_layout();
-                state.ask_round(pool.arms() as usize, pool.slots() as usize, seed, config)
-            }
-            None => Err("unknown region".into()),
-        };
-        let proposal = match proposal {
-            Ok(proposal) => proposal,
-            Err(error) => {
-                self.ledger
-                    .retire(ticket)
-                    .map_err(|retire| format!("{error}; ticket retirement failed: {retire}"))?;
-                return Err(error);
+        let mut search = routing::flush_region(self, slot, adopt)?;
+        let ticket = search
+            .ledger
+            .issue(slot)
+            .map_err(|error| error.to_string())?;
+        let state_ref = match search.states.get_mut(slot) {
+            Some(state) => state,
+            None => {
+                search.ledger.retire(ticket).map_err(|retire| {
+                    format!("unknown region; ticket retirement failed: {retire}")
+                })?;
+                return Err("unknown region".into());
             }
         };
-        self.pending_proposals[slot] = Some(proposal.clone());
-        self.pending_tickets[slot] = Some(ticket);
-        Ok(RegionalProposal { ticket, proposal })
+        let pool = state_ref.pool_layout();
+        let state = std::mem::replace(state_ref, state_ref.clone());
+        let (state, proposal) =
+            match state.ask_round(pool.arms() as usize, pool.slots() as usize, seed, config) {
+                Ok(pair) => pair,
+                Err(error) => {
+                    search
+                        .ledger
+                        .retire(ticket)
+                        .map_err(|retire| format!("{error}; ticket retirement failed: {retire}"))?;
+                    return Err(error);
+                }
+            };
+        search.states[slot] = state;
+        search.pending_proposals[slot] = Some(proposal.clone());
+        search.pending_tickets[slot] = Some(ticket);
+        Ok((search, RegionalProposal { ticket, proposal }))
+    }
+
+    /// Functional proposal alias for ask.
+    pub fn propose(
+        self,
+        seed: u64,
+        config: RoundConfig,
+    ) -> Result<(Self, RegionalProposal), String> {
+        self.ask(seed, config)
+    }
+
+    /// Functional proposal alias for ask_region.
+    pub fn propose_region(
+        self,
+        slot: usize,
+        seed: u64,
+        config: RoundConfig,
+    ) -> Result<(Self, RegionalProposal), String> {
+        self.ask_region(slot, seed, config)
     }
 
     /// Borrowed resident storage. Consumers must finish before tell/restart.
@@ -238,11 +279,11 @@ impl RegionalSearch {
     }
 
     pub fn tell(
-        &mut self,
+        self,
         proposal: &RegionalProposal,
         value: f32,
         variance: f32,
-    ) -> Result<NoisyDecision, String> {
+    ) -> Result<(Self, NoisyDecision), String> {
         self.tell_result(proposal, value, variance)
             .map_err(|failure| match failure {
                 TellFailure::Retryable(message)
@@ -255,11 +296,11 @@ impl RegionalSearch {
     /// pending ticket; failures after mutation retire it to prevent double
     /// count.
     pub fn tell_result(
-        &mut self,
+        self,
         proposal: &RegionalProposal,
         value: f32,
         variance: f32,
-    ) -> Result<NoisyDecision, TellFailure> {
+    ) -> Result<(Self, NoisyDecision), TellFailure> {
         tell::complete(
             self,
             proposal,
@@ -268,40 +309,68 @@ impl RegionalSearch {
     }
 
     pub fn tell_objectives(
-        &mut self,
+        self,
         proposal: &RegionalProposal,
         observation: crate::objective_observation::ObjectiveObservation,
-    ) -> Result<NoisyDecision, String> {
+    ) -> Result<(Self, NoisyDecision), String> {
         objectives::tell(self, proposal, observation)
     }
 
+    /// Complete multiple observations in sequence under pure value semantics.
+    pub fn tell_batch(
+        mut self,
+        items: &[(RegionalProposal, f32, f32)],
+    ) -> Result<(Self, Vec<NoisyDecision>), String> {
+        let mut decisions = Vec::with_capacity(items.len());
+        for (proposal, value, variance) in items {
+            let (next_self, decision) = self.tell(proposal, *value, *variance)?;
+            self = next_self;
+            decisions.push(decision);
+        }
+        Ok((self, decisions))
+    }
+
+    /// Complete multiple borrowed proposal observations in sequence.
+    pub fn batch_refs(
+        mut self,
+        items: &[(&RegionalProposal, f32, f32)],
+    ) -> Result<(Self, Vec<NoisyDecision>), String> {
+        let mut decisions = Vec::with_capacity(items.len());
+        for &(proposal, value, variance) in items {
+            let (next_self, decision) = self.tell(proposal, value, variance)?;
+            self = next_self;
+            decisions.push(decision);
+        }
+        Ok((self, decisions))
+    }
+
     /// Retire an unevaluated proposal without updating regional statistics.
-    pub fn cancel(&mut self, proposal: &RegionalProposal) -> Result<(), String> {
+    pub fn cancel(mut self, proposal: &RegionalProposal) -> Result<Self, String> {
         self.ledger
             .validate(proposal.ticket)
             .map_err(|error| error.to_string())?;
-        self.states
-            .get_mut(proposal.ticket.region.slot)
-            .ok_or("unknown region")?
-            .cancel_round(&proposal.proposal)?;
+        let slot = proposal.ticket.region.slot;
+        let state_ref = self.states.get_mut(slot).ok_or("unknown region")?;
+        let state = std::mem::replace(state_ref, state_ref.clone());
+        *state_ref = state.cancel_round(&proposal.proposal)?;
         self.ledger
             .retire(proposal.ticket)
             .map_err(|error| error.to_string())?;
         self.pending_proposals[proposal.ticket.region.slot] = None;
         self.pending_tickets[proposal.ticket.region.slot] = None;
-        Ok(())
+        Ok(self)
     }
 
     /// Admit an externally evaluated resident row to one target model. This
     /// carries no proposal origin and grants no controller or trial credit.
     /// A busy target receives a stable GPU copy after its pending tell.
     pub fn import_region(
-        &mut self,
+        self,
         slot: usize,
         row: &Buffer,
         value: f32,
         variance: f32,
-    ) -> Result<(), String> {
+    ) -> Result<Self, String> {
         objectives::import(
             self,
             slot,
@@ -310,31 +379,45 @@ impl RegionalSearch {
         )
     }
 
+    /// Functional import alias for import_region.
+    pub fn import(
+        self,
+        slot: usize,
+        row: &Buffer,
+        value: f32,
+        variance: f32,
+    ) -> Result<Self, String> {
+        self.import_region(slot, row, value, variance)
+    }
+
     /// Route one external row through the configured relevance policy. Rows
     /// admitted to recipients are staged in resident storage and delivered
     /// before each recipient's next ask or on explicit flush.
     pub fn import_external(
-        &mut self,
+        mut self,
         row: &Buffer,
         value: f32,
         variance: f32,
-    ) -> Result<Vec<usize>, String> {
+    ) -> Result<(Self, Vec<usize>), String> {
         check_scores(&[value], &[variance])?;
         if self.sharing == SharingPolicy::OriginOnly {
             return Err("origin-only sharing needs an explicit import_region target".into());
         }
-        let routes = routing::routes(self, None, row)?;
+        let routes = routing::routes(&self, None, row)?;
         for &slot in &routes {
             if self.pending_imports[slot].len() == MAX_HISTORY {
                 return Err("resident sharing queue is full; flush a recipient".into());
             }
         }
         if routes.is_empty() {
-            return Ok(routes);
+            return Ok((self, routes));
         }
-        let state = self.states.get(routes[0]).ok_or("unknown region")?;
-        let stable = state.runtime.buffer::<u16>(state.dimensions);
-        state.copy(row, &stable)?;
+        let stable = {
+            let state = self.states.get(routes[0]).ok_or("unknown region")?;
+            let buf = state.runtime.buffer::<u16>(state.dimensions);
+            state.copy(row, &buf)?;
+            buf
+        };
         for &slot in &routes {
             self.pending_imports[slot].push(PendingImport {
                 row: stable.clone(),
@@ -344,7 +427,7 @@ impl RegionalSearch {
                 from_region: false,
             });
         }
-        Ok(routes)
+        Ok((self, routes))
     }
 
     pub fn sharing_backlog(&self) -> Vec<usize> {
@@ -355,14 +438,14 @@ impl RegionalSearch {
         self.delivered_imports
     }
 
-    pub fn flush_sharing(&mut self, slot: usize) -> Result<(), String> {
+    pub fn flush_sharing(self, slot: usize) -> Result<Self, String> {
         routing::flush_region(self, slot, false)
     }
 
     /// Replace one trajectory. If it has an outstanding proposal, cancel that
     /// engine round and invalidate its ticket; late results are stale. Queued
     /// evidence admitted to the old generation is discarded.
-    pub fn restart(&mut self, slot: usize, state: SearchState) -> Result<(), String> {
+    pub fn restart(mut self, slot: usize, state: SearchState) -> Result<Self, String> {
         state.check_idle()?;
         let best = f64::from(state.best()?);
         let pending = self
@@ -380,9 +463,10 @@ impl RegionalSearch {
             self.ledger
                 .validate(ticket)
                 .map_err(|error| error.to_string())?;
-            let old = self.states.get_mut(slot).ok_or("unknown region")?;
-            if !old.poisoned {
-                old.cancel_round(&old_proposal)?;
+            let old_ref = self.states.get_mut(slot).ok_or("unknown region")?;
+            if !old_ref.poisoned {
+                let old = std::mem::replace(old_ref, old_ref.clone());
+                *old_ref = old.cancel_round(&old_proposal)?;
             }
             self.ledger
                 .restart(slot, best)
@@ -396,7 +480,7 @@ impl RegionalSearch {
         self.states[slot] = state;
         self.pending_imports[slot].clear();
         self.pending_tickets[slot] = None;
-        Ok(())
+        Ok(self)
     }
 
     pub fn memory_bytes(&self) -> u64 {

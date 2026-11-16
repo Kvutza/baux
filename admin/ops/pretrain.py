@@ -427,6 +427,21 @@ def prepare(
     return manifest
 
 
+@click.group(invoke_without_command=True, help=__doc__)
+@click.option("--output", type=click.Path(file_okay=False, path_type=Path))
+@click.option(
+    "--train-sequences", type=click.IntRange(min=1), default=4096, show_default=True
+)
+@click.option(
+    "--validation-sequences",
+    type=click.IntRange(min=1),
+    default=256,
+    show_default=True,
+)
+@click.option(
+    "--test-sequences", type=click.IntRange(min=1), default=256, show_default=True
+)
+@click.pass_context
 def main(
     context: click.Context,
     output: Path | None,
@@ -449,41 +464,14 @@ def main(
     click.echo(json.dumps(manifest["splits"], sort_keys=True))
 
 
-for _dec in (
-    click.pass_context,
-    click.option(
-        "--test-sequences", type=click.IntRange(min=1), default=256, show_default=True
-    ),
-    click.option(
-        "--validation-sequences",
-        type=click.IntRange(min=1),
-        default=256,
-        show_default=True,
-    ),
-    click.option(
-        "--train-sequences", type=click.IntRange(min=1), default=4096, show_default=True
-    ),
-    click.option("--output", type=click.Path(file_okay=False, path_type=Path)),
-    click.group(invoke_without_command=True, help=__doc__),
-):
-    main = _dec(main)
-
-
+@main.command(help="Resolve a path-free pretrain study.")
+@click.argument("config", type=click.Path(exists=True, dir_okay=False, path_type=Path))
 def resolve(config: Path) -> None:
     try:
         path = resolve_study(config, Path.cwd())
     except (OSError, ValueError) as error:
         raise click.ClickException(str(error)) from error
     click.echo(path)
-
-
-for _dec in (
-    click.argument(
-        "config", type=click.Path(exists=True, dir_okay=False, path_type=Path)
-    ),
-    main.command(help="Resolve a path-free pretrain study."),
-):
-    resolve = _dec(resolve)
 
 
 if __name__ == "__main__":

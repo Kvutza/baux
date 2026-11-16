@@ -23,13 +23,14 @@ fn test_002() {
     let bounds = array![[0.0, 1.0], [0.0, 1.0]];
     let mut rng = StdRng::seed_from_u64(7);
     let strategy = Strategy::init(InitStrategy::Random, 4);
-    let mut optimizer =
-        BayesOptimizer::new_strategy(bounds, turbo_zero(), strategy, &mut rng).unwrap();
-    let x = optimizer.ask(2, &mut rng).unwrap();
+    let optimizer = BayesOptimizer::new_strategy(bounds, turbo_zero(), strategy, &mut rng).unwrap();
+    let (optimizer, x) = optimizer.ask(2, &mut rng).unwrap();
     assert_eq!(x.nrows(), 2);
     assert!(optimizer.init_progress().is_some());
     let y = array![[1.0], [0.5]];
-    optimizer.tell(&x.view(), &y.view(), &mut rng).unwrap();
+    let optimizer = optimizer
+        .tell(&x.view(), &y.view(), None, &mut rng)
+        .unwrap();
     let (done, total) = optimizer.init_progress().unwrap();
     assert_eq!(done, 2);
     assert_eq!(total, 4);
@@ -40,17 +41,16 @@ fn natural_roundtrip() {
     let bounds = array![[2.0, 4.0], [10.0, 20.0]];
     let mut rng = StdRng::seed_from_u64(7);
     let strategy = Strategy::init(InitStrategy::Random, 4);
-    let mut optimizer =
-        BayesOptimizer::new_strategy(bounds, turbo_zero(), strategy, &mut rng).unwrap();
+    let optimizer = BayesOptimizer::new_strategy(bounds, turbo_zero(), strategy, &mut rng).unwrap();
 
-    let x = optimizer.ask_natural(2, &mut rng).unwrap();
+    let (optimizer, x) = optimizer.ask_natural(2, &mut rng).unwrap();
     assert!(
         x.rows()
             .into_iter()
             .all(|row| { (2.0..=4.0).contains(&row[0]) && (10.0..=20.0).contains(&row[1]) })
     );
     let y = array![[1.0], [0.5]];
-    optimizer
+    let optimizer = optimizer
         .tell_natural(&x.view(), &y.view(), None, &mut rng)
         .unwrap();
     let stored = optimizer.x_obs().unwrap();
@@ -65,28 +65,33 @@ fn test_003() {
     let bounds = array![[0.0, 1.0], [0.0, 1.0]];
     let mut rng = StdRng::seed_from_u64(11);
     let strategy = Strategy::hybrid(InitStrategy::LHD, 2);
-    let mut optimizer =
-        BayesOptimizer::new_strategy(bounds, turbo_zero(), strategy, &mut rng).unwrap();
-    let x0 = optimizer.ask(2, &mut rng).unwrap();
+    let optimizer = BayesOptimizer::new_strategy(bounds, turbo_zero(), strategy, &mut rng).unwrap();
+    let (optimizer, x0) = optimizer.ask(2, &mut rng).unwrap();
     let y0 = array![[0.1], [0.2]];
-    optimizer.tell(&x0.view(), &y0.view(), &mut rng).unwrap();
+    let optimizer = optimizer
+        .tell(&x0.view(), &y0.view(), None, &mut rng)
+        .unwrap();
     assert!(optimizer.init_progress().is_none());
-    let x1 = optimizer.ask(2, &mut rng).unwrap();
+    let (optimizer, x1) = optimizer.ask(2, &mut rng).unwrap();
     assert_eq!(x1.nrows(), 2);
     let y1 = array![[0.3], [0.4]];
-    optimizer.tell(&x1.view(), &y1.view(), &mut rng).unwrap();
+    let _optimizer = optimizer
+        .tell(&x1.view(), &y1.view(), None, &mut rng)
+        .unwrap();
 }
 
 #[test]
 fn test_004() {
     let bounds = array![[0.0, 1.0], [0.0, 1.0]];
     let mut rng = StdRng::seed_from_u64(13);
-    let mut optimizer =
+    let optimizer =
         BayesOptimizer::new_strategy(bounds, lhd_only(), Strategy::turbo(), &mut rng).unwrap();
 
-    let x = optimizer.ask(2, &mut rng).unwrap();
+    let (optimizer, x) = optimizer.ask(2, &mut rng).unwrap();
     let y = array![[1.0], [1.1]];
-    optimizer.tell(&x.view(), &y.view(), &mut rng).unwrap();
+    let optimizer = optimizer
+        .tell(&x.view(), &y.view(), None, &mut rng)
+        .unwrap();
     assert!(optimizer.tr_length() > 0.0);
 }
 
@@ -95,11 +100,12 @@ fn test_strategyinitlhdpath() {
     let bounds = array![[0.0, 1.0], [0.0, 1.0]];
     let mut rng = StdRng::seed_from_u64(31);
     let strategy = Strategy::init(InitStrategy::LHD, 3);
-    let mut optimizer =
-        BayesOptimizer::new_strategy(bounds, turbo_zero(), strategy, &mut rng).unwrap();
-    let x = optimizer.ask(2, &mut rng).unwrap();
+    let optimizer = BayesOptimizer::new_strategy(bounds, turbo_zero(), strategy, &mut rng).unwrap();
+    let (optimizer, x) = optimizer.ask(2, &mut rng).unwrap();
     let y = array![[0.2], [0.1]];
-    optimizer.tell(&x.view(), &y.view(), &mut rng).unwrap();
+    let optimizer = optimizer
+        .tell(&x.view(), &y.view(), None, &mut rng)
+        .unwrap();
     assert_eq!(optimizer.init_progress().unwrap(), (2, 3));
 }
 
@@ -107,15 +113,17 @@ fn test_strategyinitlhdpath() {
 fn variance_stable() {
     let bounds = array![[0.0, 1.0], [0.0, 1.0]];
     let mut rng = StdRng::seed_from_u64(37);
-    let mut optimizer =
+    let optimizer =
         BayesOptimizer::new_strategy(bounds, turbo_zero(), Strategy::turbo(), &mut rng).unwrap();
     let x = array![[0.2, 0.3]];
     let y = array![[1.0]];
     let yvar = array![[0.1]];
-    optimizer
-        .tell_variance(&x.view(), &y.view(), Some(&yvar.view()), &mut rng)
+    let optimizer = optimizer
+        .tell(&x.view(), &y.view(), Some(&yvar.view()), &mut rng)
         .unwrap();
-    let error = optimizer.tell(&x.view(), &y.view(), &mut rng).unwrap_err();
+    let error = optimizer
+        .tell(&x.view(), &y.view(), None, &mut rng)
+        .unwrap_err();
     assert!(error.to_string().contains("y_var must be provided"));
 }
 
@@ -123,24 +131,34 @@ fn variance_stable() {
 fn failed_variance() {
     let bounds = array![[0.0, 1.0], [0.0, 1.0]];
     let mut rng = StdRng::seed_from_u64(38);
-    let mut optimizer =
+    let optimizer =
         BayesOptimizer::new_strategy(bounds, turbo_zero(), Strategy::turbo(), &mut rng).unwrap();
     let x = array![[0.2, 0.3]];
     let invalid_y = array![[1.0, 2.0]];
     let invalid_yvar = array![[0.1, 0.1]];
 
+    let fork = optimizer.fork().unwrap();
     assert!(
-        optimizer
-            .tell_variance(
-                &x.view(),
-                &invalid_y.view(),
-                Some(&invalid_yvar.view()),
-                &mut rng,
-            )
-            .is_err()
+        fork.tell(
+            &x.view(),
+            &invalid_y.view(),
+            Some(&invalid_yvar.view()),
+            &mut rng,
+        )
+        .is_err()
     );
+    let valid_y = array![[1.0]];
+    let valid_yvar = array![[0.1]];
+    let optimizer = optimizer
+        .tell(
+            &x.view(),
+            &valid_y.view(),
+            Some(&valid_yvar.view()),
+            &mut rng,
+        )
+        .unwrap();
     let error = optimizer
-        .tell(&x.view(), &array![[1.0]].view(), &mut rng)
+        .tell(&x.view(), &array![[1.0]].view(), None, &mut rng)
         .unwrap_err();
     assert!(error.to_string().contains("y_var must be provided"));
 }
@@ -161,31 +179,79 @@ fn test_006() {
 
     let mut cfg_ucb = turbo_enn();
     cfg_ucb.acquisition = AcquisitionConfig::UCB { beta: 1.0 };
-    let mut opt_ucb =
+    let opt_ucb =
         BayesOptimizer::new_strategy(bounds.clone(), cfg_ucb, Strategy::turbo(), &mut rng).unwrap();
     let x_fit = array![[0.0, 0.0], [1.0, 1.0], [0.2, 0.8], [0.8, 0.2]];
     let y_fit = array![[0.0], [1.0], [0.5], [0.4]];
-    opt_ucb
-        .tell(&x_fit.view(), &y_fit.view(), &mut rng)
+    let opt_ucb = opt_ucb
+        .tell(&x_fit.view(), &y_fit.view(), None, &mut rng)
         .unwrap();
     let out_ucb = select_arms(&opt_ucb, &x_cand.view(), 2, &mut rng).unwrap();
     assert_eq!(out_ucb.nrows(), 2);
 
     let mut cfg_ts = turbo_enn();
     cfg_ts.acquisition = AcquisitionConfig::Thompson;
-    let mut opt_ts =
+    let opt_ts =
         BayesOptimizer::new_strategy(bounds.clone(), cfg_ts, Strategy::turbo(), &mut rng).unwrap();
-    opt_ts.tell(&x_fit.view(), &y_fit.view(), &mut rng).unwrap();
+    let opt_ts = opt_ts
+        .tell(&x_fit.view(), &y_fit.view(), None, &mut rng)
+        .unwrap();
     let out_ts = select_arms(&opt_ts, &x_cand.view(), 2, &mut rng).unwrap();
     assert_eq!(out_ts.nrows(), 2);
 
     let mut cfg_pareto = turbo_enn();
     cfg_pareto.acquisition = AcquisitionConfig::Pareto;
-    let mut opt_pareto =
+    let opt_pareto =
         BayesOptimizer::new_strategy(bounds, cfg_pareto, Strategy::turbo(), &mut rng).unwrap();
-    opt_pareto
-        .tell(&x_fit.view(), &y_fit.view(), &mut rng)
+    let opt_pareto = opt_pareto
+        .tell(&x_fit.view(), &y_fit.view(), None, &mut rng)
         .unwrap();
     let out_pareto = select_arms(&opt_pareto, &x_cand.view(), 2, &mut rng).unwrap();
     assert_eq!(out_pareto.nrows(), 2);
+}
+
+#[test]
+fn fork_isolation() {
+    let bounds = array![[0.0, 1.0], [0.0, 1.0]];
+    let mut rng = StdRng::seed_from_u64(101);
+    let strategy = Strategy::hybrid(InitStrategy::Random, 4);
+    let opt = BayesOptimizer::new_strategy(bounds, turbo_zero(), strategy, &mut rng).unwrap();
+
+    let fork_a = opt.fork().unwrap();
+    let fork_b = opt.fork().unwrap();
+
+    let (fork_a, x_a) = fork_a.ask(2, &mut rng).unwrap();
+    let y_a = array![[0.5], [0.6]];
+    let fork_a = fork_a
+        .tell(&x_a.view(), &y_a.view(), None, &mut rng)
+        .unwrap();
+
+    assert_eq!(fork_a.obs_count(), 2);
+    assert_eq!(fork_b.obs_count(), 0);
+    assert_eq!(opt.obs_count(), 0);
+
+    assert_eq!(fork_a.init_progress().unwrap(), (2, 4));
+    assert_eq!(fork_b.init_progress().unwrap(), (0, 4));
+    assert_eq!(opt.init_progress().unwrap(), (0, 4));
+}
+
+#[test]
+fn restart_isolation() {
+    let bounds = array![[0.0, 10.0], [0.0, 10.0]];
+    let mut rng = StdRng::seed_from_u64(42);
+    let strategy = Strategy::experimental(2, 2, 2, &mut rng).unwrap();
+    let opt = BayesOptimizer::new_strategy(bounds, turbo_zero(), strategy, &mut rng).unwrap();
+
+    let (opt, x) = opt.ask_natural(2, &mut rng).unwrap();
+    let y = array![[1.0], [2.0]];
+    let opt = opt
+        .tell_natural(&x.view(), &y.view(), None, &mut rng)
+        .unwrap();
+
+    let center = array![5.0, 5.0];
+    let (opt, ids) = opt.restart_natural(0, &center.view(), &mut rng).unwrap();
+    assert!(ids.is_empty());
+
+    let fork = opt.fork().unwrap();
+    assert_eq!(fork.obs_count(), opt.obs_count());
 }

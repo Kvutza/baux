@@ -1,8 +1,8 @@
 """Generated from Cargo metadata by admin/tools/build-parity --sync. Do not edit."""
 
-BAUX_CRATES = ["anstream", "anstyle", "deser", "deser-cbor", "deser-json", "deser-toml", "deser-value", "jiff", "ndarray", "rand", "rand_distr", "rayon", "sha2", "sobol", "thiserror"]
+BAUX_CRATES = ["anstream", "anstyle", "charming", "deser", "deser-cbor", "deser-json", "deser-toml", "deser-value", "jiff", "kuva", "memmap2", "ndarray", "rand", "rand_distr", "rayon", "redb", "sha2", "sobol", "thiserror"]
 
-BAUX_TEST_CRATES = ["anstream", "anstyle", "deser", "deser-cbor", "deser-json", "deser-toml", "deser-value", "jiff", "ndarray", "numpy", "rand", "rand_chacha", "rand_distr", "rayon", "sha2", "sobol", "tempfile", "thiserror"]
+BAUX_TEST_CRATES = ["anstream", "anstyle", "charming", "deser", "deser-cbor", "deser-json", "deser-toml", "deser-value", "jiff", "kuva", "memmap2", "ndarray", "numpy", "rand", "rand_chacha", "rand_distr", "rayon", "redb", "sha2", "sobol", "tempfile", "thiserror"]
 
 BAUX_PROGRAMS = [
     {
@@ -10,7 +10,7 @@ BAUX_PROGRAMS = [
         "name": "baux-tune",
         "crate": "baux_tune",
         "root": "src/bin/baux-tune/main.rs",
-        "crate_deps": ["anstream", "anstyle", "deser", "deser-cbor", "deser-json", "deser-toml", "deser-value", "jiff", "ndarray", "rand", "rand_distr", "rayon", "sha2", "sobol", "thiserror"],
+        "crate_deps": ["anstream", "anstyle", "charming", "deser", "deser-cbor", "deser-json", "deser-toml", "deser-value", "jiff", "kuva", "memmap2", "ndarray", "rand", "rand_distr", "rayon", "redb", "sha2", "sobol", "thiserror"],
         "local_deps": ["baux"],
         "required_features": [],
     },
@@ -19,7 +19,7 @@ BAUX_PROGRAMS = [
         "name": "enn_posterior",
         "crate": "enn_posterior",
         "root": "examples/enn_posterior.rs",
-        "crate_deps": ["anstream", "anstyle", "deser", "deser-cbor", "deser-json", "deser-toml", "deser-value", "jiff", "ndarray", "numpy", "rand", "rand_chacha", "rand_distr", "rayon", "sha2", "sobol", "tempfile", "thiserror"],
+        "crate_deps": ["anstream", "anstyle", "charming", "deser", "deser-cbor", "deser-json", "deser-toml", "deser-value", "jiff", "kuva", "memmap2", "ndarray", "numpy", "rand", "rand_chacha", "rand_distr", "rayon", "redb", "sha2", "sobol", "tempfile", "thiserror"],
         "local_deps": ["baux"],
         "required_features": [],
     },
@@ -28,7 +28,7 @@ BAUX_PROGRAMS = [
         "name": "knn_bench",
         "crate": "knn_bench",
         "root": "examples/knn_bench.rs",
-        "crate_deps": ["anstream", "anstyle", "deser", "deser-cbor", "deser-json", "deser-toml", "deser-value", "jiff", "ndarray", "numpy", "rand", "rand_chacha", "rand_distr", "rayon", "sha2", "sobol", "tempfile", "thiserror"],
+        "crate_deps": ["anstream", "anstyle", "charming", "deser", "deser-cbor", "deser-json", "deser-toml", "deser-value", "jiff", "kuva", "memmap2", "ndarray", "numpy", "rand", "rand_chacha", "rand_distr", "rayon", "redb", "sha2", "sobol", "tempfile", "thiserror"],
         "local_deps": ["baux"],
         "required_features": ["metal"],
     },
@@ -37,7 +37,7 @@ BAUX_PROGRAMS = [
         "name": "posterior_bench",
         "crate": "posterior_bench",
         "root": "examples/posterior_bench.rs",
-        "crate_deps": ["anstream", "anstyle", "deser", "deser-cbor", "deser-json", "deser-toml", "deser-value", "jiff", "ndarray", "numpy", "rand", "rand_chacha", "rand_distr", "rayon", "sha2", "sobol", "tempfile", "thiserror"],
+        "crate_deps": ["anstream", "anstyle", "charming", "deser", "deser-cbor", "deser-json", "deser-toml", "deser-value", "jiff", "kuva", "memmap2", "ndarray", "numpy", "rand", "rand_chacha", "rand_distr", "rayon", "redb", "sha2", "sobol", "tempfile", "thiserror"],
         "local_deps": ["baux"],
         "required_features": [],
     },
@@ -155,9 +155,16 @@ RUNNER_PROGRAMS = [
         "crate": "baux_runner",
         "root": "src/main.rs",
         "crate_deps": ["clap", "deser", "ndarray", "rand", "sha2"],
-        "local_deps": ["baux", "tooling"],
+        "local_deps": ["baux", "tokamak", "tooling"],
         "required_features": [],
     },
+]
+
+TOKAMAK_CRATES = ["candle-core", "candle-nn", "deser", "ndarray", "rand", "rand_distr"]
+
+TOKAMAK_TEST_CRATES = ["candle-core", "candle-nn", "deser", "ndarray", "rand", "rand_distr"]
+
+TOKAMAK_PROGRAMS = [
 ]
 
 TOOLING_CRATES = ["clap", "deser"]

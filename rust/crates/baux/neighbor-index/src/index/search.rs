@@ -88,7 +88,7 @@ pub fn search_store(
     store: Option<&MmapSearchStore<'_>>,
 ) -> Result<Vec<(u32, f32)>, BpannError> {
     let mut scored = Vec::new();
-    for page in &index.pages {
+    for page in index.pages.iter() {
         if let Page::Leaf {
             row_ids,
             row_range,
@@ -383,7 +383,7 @@ mod tests {
             None,
         )
         .unwrap();
-        store
+        store = store
             .mmap_append(&ndarray::array![[0.0, 0.0], [1.0, 0.0]].view())
             .unwrap();
         let x_scale = [1.0, 1.0];

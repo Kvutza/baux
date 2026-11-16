@@ -232,3 +232,32 @@ pub(crate) fn validate_rows(
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tied_bounds() {
+        assert!(validate_tied(&[vec![0, 1], vec![2]], 3).is_ok());
+        assert!(validate_tied(&[vec![0, 1], vec![1]], 3).is_err());
+        assert!(validate_tied(&[vec![0, 3]], 3).is_err());
+        assert!(validate_tied(&[vec![]], 3).is_err());
+    }
+
+    #[test]
+    fn signed_bounds() {
+        assert!(validate_signed(&[vec![0, 1], vec![2]], 3).is_ok());
+        assert!(validate_signed(&[vec![-1, 1]], 3).is_err());
+    }
+
+    #[test]
+    fn sides_norm() {
+        let weights = [1.0, 4.0];
+        let sides = trust_sides(&weights);
+        assert_eq!(sides.len(), 2);
+        assert!(sides[0] > sides[1]);
+        let geo = (sides[0].ln() + sides[1].ln()) * 0.5;
+        assert!((geo.exp() - 1.0).abs() < 1e-12);
+    }
+}

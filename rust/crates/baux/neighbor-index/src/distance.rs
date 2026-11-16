@@ -105,7 +105,7 @@ mod tests {
         let _ = baux::neighbor_index::distance::sq_l2(a.view(), b.view(), false, s.view());
         let dir = TempDir::new().unwrap();
         let mut store = MmapColumnStore::open_mmap(dir.path().join("x.bin"), 2, None).unwrap();
-        store
+        store = store
             .mmap_append(&array![[0.0, 0.0], [1.0, 0.0]].view())
             .unwrap();
         let _ = baux::neighbor_index::distance::sq_f32(&[0.0, 0.0], &[vec![1.0, 0.0]]);

@@ -75,24 +75,37 @@ impl TrustRegionState {
         }
     }
 
-    pub fn set_obs(&mut self, prev_obs: usize) {
-        if let TrustRegionState::Turbo(t) = self {
+    pub fn set_obs(mut self, prev_obs: usize) -> Self {
+        if let TrustRegionState::Turbo(t) = &mut self {
             t.set_watermark(prev_obs);
         }
+        self
     }
 
-    pub fn seed_baseline(&mut self, best_value: f64, prev_obs: usize) {
-        if let TrustRegionState::Turbo(t) = self {
+    pub fn with_obs(self, prev_obs: usize) -> Self {
+        self.set_obs(prev_obs)
+    }
+
+    pub fn seed_baseline(mut self, best_value: f64, prev_obs: usize) -> Self {
+        if let TrustRegionState::Turbo(t) = &mut self {
             t.seed_baseline(best_value, prev_obs);
         }
+        self
     }
 
-    pub fn set_arms(&mut self, num_arms: usize) {
+    pub fn set_arms(self, num_arms: usize) -> Self {
         match self {
-            TrustRegionState::Turbo(t) => t.set_arms(num_arms),
-            TrustRegionState::Morbo(m) => m.as_mut().set_arms(num_arms),
-            TrustRegionState::Multi { .. } => {}
+            TrustRegionState::Turbo(mut t) => {
+                t.set_arms(num_arms);
+                TrustRegionState::Turbo(t)
+            }
+            TrustRegionState::Morbo(m) => TrustRegionState::Morbo(Box::new(m.set_arms(num_arms))),
+            TrustRegionState::Multi { .. } => self,
         }
+    }
+
+    pub fn with_arms(self, num_arms: usize) -> Self {
+        self.set_arms(num_arms)
     }
 
     pub fn compute_bounds(
@@ -115,30 +128,44 @@ impl TrustRegionState {
         }
     }
 
-    pub fn restart(&mut self, rng: Option<&mut dyn RngCore>) {
+    pub fn restart(self, rng: Option<&mut dyn RngCore>) -> Self {
         match self {
-            TrustRegionState::Turbo(t) => t.restart(),
-            TrustRegionState::Morbo(m) => m.as_mut().restart(rng),
-            TrustRegionState::Multi { .. } => {}
-        }
-    }
-
-    pub fn restart_local(&mut self) {
-        match self {
-            TrustRegionState::Turbo(t) => t.restart_local(),
-            TrustRegionState::Morbo(m) => m.as_mut().restart(None),
-            TrustRegionState::Multi { .. } => {}
-        }
-    }
-
-    pub fn resample_propose(&mut self, rng: &mut dyn RngCore) -> bool {
-        if let TrustRegionState::Morbo(m) = self {
-            if m.as_ref().rescalarize() == Rescalarize::OnPropose {
-                m.as_mut().resample_weights(rng);
-                return true;
+            TrustRegionState::Turbo(mut t) => {
+                t.restart();
+                TrustRegionState::Turbo(t)
             }
+            TrustRegionState::Morbo(m) => TrustRegionState::Morbo(Box::new(m.restart(rng))),
+            TrustRegionState::Multi { .. } => self,
         }
-        false
+    }
+
+    pub fn with_restart(self, rng: Option<&mut dyn RngCore>) -> Self {
+        self.restart(rng)
+    }
+
+    pub fn restart_local(self) -> Self {
+        match self {
+            TrustRegionState::Turbo(mut t) => {
+                t.restart_local();
+                TrustRegionState::Turbo(t)
+            }
+            TrustRegionState::Morbo(m) => TrustRegionState::Morbo(Box::new(m.restart(None))),
+            TrustRegionState::Multi { .. } => self,
+        }
+    }
+
+    pub fn resample_propose(self, rng: &mut dyn RngCore) -> (Self, bool) {
+        match self {
+            TrustRegionState::Morbo(m) => {
+                if m.rescalarize() == Rescalarize::OnPropose {
+                    let next_m = m.resample_weights(rng);
+                    (TrustRegionState::Morbo(Box::new(next_m)), true)
+                } else {
+                    (TrustRegionState::Morbo(m), false)
+                }
+            }
+            other => (other, false),
+        }
     }
 
     pub fn num_metrics(&self) -> usize {
@@ -161,11 +188,11 @@ impl TrustRegionState {
         }
     }
 
-    pub fn morbo_only(&mut self, y_new: &ArrayView2<f64>) -> Result<(), ENNError> {
+    pub fn morbo_only(self, y_new: &ArrayView2<f64>) -> Result<Self, ENNError> {
         match self {
             TrustRegionState::Morbo(m) => {
-                m.as_mut().update_incremental(y_new);
-                Ok(())
+                let next_m = m.update_incremental(y_new);
+                Ok(TrustRegionState::Morbo(Box::new(next_m)))
             }
             _ => Err(ENNError::InvalidParameter(
                 "morbo_only requires Morbo".to_string(),
@@ -174,15 +201,17 @@ impl TrustRegionState {
     }
 
     pub fn update_morbo(
-        &mut self,
+        self,
         y_incumbent: &ArrayView1<f64>,
         num_obs: usize,
-    ) -> Result<(), ENNError> {
+    ) -> Result<Self, ENNError> {
         match self {
-            TrustRegionState::Morbo(m) => m
-                .as_mut()
-                .update_only(y_incumbent, num_obs)
-                .map_err(|e| ENNError::InvalidParameter(e.to_string())),
+            TrustRegionState::Morbo(m) => {
+                let next_m = m
+                    .update_only(y_incumbent, num_obs)
+                    .map_err(|e| ENNError::InvalidParameter(e.to_string()))?;
+                Ok(TrustRegionState::Morbo(Box::new(next_m)))
+            }
             _ => Err(ENNError::InvalidParameter(
                 "update_morbo requires Morbo".to_string(),
             )),
@@ -190,27 +219,29 @@ impl TrustRegionState {
     }
 
     pub fn rescale_morbo(
-        &mut self,
+        self,
         num_obs: usize,
         incumbent: Option<ndarray::Array1<f64>>,
-    ) -> Result<(), ENNError> {
+    ) -> Result<Self, ENNError> {
         match self {
-            TrustRegionState::Morbo(m) => m
-                .as_mut()
-                .rescalarize_weights(num_obs, incumbent)
-                .map_err(|e| ENNError::InvalidParameter(e.to_string())),
-            _ => Ok(()),
+            TrustRegionState::Morbo(m) => {
+                let next_m = m
+                    .rescalarize_weights(num_obs, incumbent)
+                    .map_err(|e| ENNError::InvalidParameter(e.to_string()))?;
+                Ok(TrustRegionState::Morbo(Box::new(next_m)))
+            }
+            other => Ok(other),
         }
     }
 
     pub fn tell_update(
-        &mut self,
+        self,
         y_all: &ArrayView2<f64>,
         y_incumbent: &ArrayView1<f64>,
         num_obs: usize,
-    ) -> Result<(), ENNError> {
+    ) -> Result<Self, ENNError> {
         match self {
-            TrustRegionState::Turbo(t) => {
+            TrustRegionState::Turbo(mut t) => {
                 if y_all.ncols() != 1 || y_incumbent.len() != 1 {
                     return Err(ENNError::InvalidParameter(
                         "Turbo TR expects 1 objective column and 1 incumbent scalar".to_string(),
@@ -218,26 +249,38 @@ impl TrustRegionState {
                 }
                 let y_1d = y_all.column(0);
                 t.update_history(&y_1d, num_obs, y_incumbent[0])
-                    .map_err(|e| ENNError::InvalidParameter(e.to_string()))
+                    .map_err(|e| ENNError::InvalidParameter(e.to_string()))?;
+                Ok(TrustRegionState::Turbo(t))
             }
-            TrustRegionState::Morbo(m) => m
-                .as_mut()
-                .update(&y_all.view(), y_incumbent)
-                .map_err(|e| ENNError::InvalidParameter(e.to_string())),
-            TrustRegionState::Multi { .. } => Ok(()),
+            TrustRegionState::Morbo(m) => {
+                let next_m = m
+                    .update(&y_all.view(), y_incumbent)
+                    .map_err(|e| ENNError::InvalidParameter(e.to_string()))?;
+                Ok(TrustRegionState::Morbo(Box::new(next_m)))
+            }
+            TrustRegionState::Multi { .. } => Ok(self),
         }
+    }
+
+    pub fn update_history(
+        self,
+        y_all: &ArrayView2<f64>,
+        y_incumbent: &ArrayView1<f64>,
+        num_obs: usize,
+    ) -> Result<Self, ENNError> {
+        self.tell_update(y_all, y_incumbent, num_obs)
     }
 
     /// TuRBO trust-region update from the newly told batch only (O(batch), not
     /// O(history)).
-    pub fn tell_batch(
-        &mut self,
+    pub fn update_batch(
+        self,
         y_new: &ArrayView2<f64>,
         y_incumbent: &ArrayView1<f64>,
         num_obs: usize,
-    ) -> Result<(), ENNError> {
+    ) -> Result<Self, ENNError> {
         match self {
-            TrustRegionState::Turbo(t) => {
+            TrustRegionState::Turbo(mut t) => {
                 if y_new.ncols() != 1 || y_incumbent.len() != 1 {
                     return Err(ENNError::InvalidParameter(
                         "Turbo TR expects 1 objective column and 1 incumbent scalar".to_string(),
@@ -245,13 +288,38 @@ impl TrustRegionState {
                 }
                 let y_1d = y_new.column(0);
                 t.update_batch(&y_1d, num_obs, y_incumbent[0])
-                    .map_err(|e| ENNError::InvalidParameter(e.to_string()))
+                    .map_err(|e| ENNError::InvalidParameter(e.to_string()))?;
+                Ok(TrustRegionState::Turbo(t))
             }
-            TrustRegionState::Morbo(m) => m
-                .as_mut()
-                .update(&y_new.view(), y_incumbent)
-                .map_err(|e| ENNError::InvalidParameter(e.to_string())),
-            TrustRegionState::Multi { .. } => Ok(()),
+            TrustRegionState::Morbo(m) => {
+                let next_m = m
+                    .update(&y_new.view(), y_incumbent)
+                    .map_err(|e| ENNError::InvalidParameter(e.to_string()))?;
+                Ok(TrustRegionState::Morbo(Box::new(next_m)))
+            }
+            TrustRegionState::Multi { .. } => Ok(self),
+        }
+    }
+
+    pub fn tell_batch(
+        self,
+        y_new: &ArrayView2<f64>,
+        y_incumbent: &ArrayView1<f64>,
+        num_obs: usize,
+    ) -> Result<Self, ENNError> {
+        self.update_batch(y_new, y_incumbent, num_obs)
+    }
+
+    pub fn update_posterior(
+        self,
+        posterior: &super::obs_access::PosteriorStore,
+        y_incumbent: &ArrayView1<f64>,
+        num_obs: usize,
+    ) -> Result<Self, ENNError> {
+        if let Some(y_obs) = posterior.y_obs() {
+            self.tell_update(&y_obs.view(), y_incumbent, num_obs)
+        } else {
+            Ok(self)
         }
     }
 
@@ -273,22 +341,35 @@ impl TrustRegionState {
     }
 
     pub(crate) fn thaw_regions(
-        &mut self,
+        self,
         reader: &mut crate::snapshot_io::WireReader<'_>,
-    ) -> Result<(), ENNError> {
+    ) -> Result<Self, ENNError> {
         use crate::snapshot_io::bad_state;
         let tag = reader.read_byte()?;
         match (tag, self) {
-            (0, TrustRegionState::Turbo(t)) => t.thaw_turbo(reader),
-            (1, TrustRegionState::Morbo(m)) => m.thaw_morbo(reader),
-            (2, TrustRegionState::Multi { state, pending }) => {
-                *pending = state.thaw_multi(reader)?;
-                Ok(())
+            (0, TrustRegionState::Turbo(mut t)) => {
+                t.thaw_turbo(reader)?;
+                Ok(TrustRegionState::Turbo(t))
+            }
+            (1, TrustRegionState::Morbo(m)) => {
+                let next_m = (*m).thaw_morbo(reader)?;
+                Ok(TrustRegionState::Morbo(Box::new(next_m)))
+            }
+            (2, TrustRegionState::Multi { mut state, .. }) => {
+                let pending = state.thaw_multi(reader)?;
+                Ok(TrustRegionState::Multi { state, pending })
             }
             _ => Err(bad_state(
                 "frozen trust-region variant does not match template optimizer",
             )),
         }
+    }
+
+    pub(crate) fn thaw(
+        self,
+        reader: &mut crate::snapshot_io::WireReader<'_>,
+    ) -> Result<Self, ENNError> {
+        self.thaw_regions(reader)
     }
 
     pub(crate) fn hash_state(&self, buf: &mut Vec<u8>) {
@@ -332,23 +413,27 @@ mod tests {
     #[test]
     fn morbo_config() {
         let mut rng = StdRng::seed_from_u64(99);
-        let mut tr =
+        let tr =
             TrustRegionState::from_config(3, &morbo_cfg(Rescalarize::OnPropose), &mut rng).unwrap();
         assert!(tr.is_morbo());
         assert_eq!(tr.num_metrics(), 2);
-        tr.resample_propose(&mut rng);
+        let (next_tr, resampled) = tr.resample_propose(&mut rng);
+        assert!(resampled);
+        let _ = next_tr;
     }
 
     #[test]
     fn morbo_propose2() {
         let mut rng = StdRng::seed_from_u64(11);
-        let mut tr =
+        let tr =
             TrustRegionState::from_config(2, &morbo_cfg(Rescalarize::OnPropose), &mut rng).unwrap();
-        let w0 = tr.morbo_mut().expect("morbo").weights().to_owned();
-        tr.resample_propose(&mut rng);
-        let w1 = tr.morbo_mut().expect("morbo").weights().to_owned();
-        tr.resample_propose(&mut rng);
-        let w2 = tr.morbo_mut().expect("morbo").weights().to_owned();
+        let w0 = tr.morbo().expect("morbo").weights().to_owned();
+        let (tr, resampled1) = tr.resample_propose(&mut rng);
+        assert!(resampled1);
+        let w1 = tr.morbo().expect("morbo").weights().to_owned();
+        let (tr, resampled2) = tr.resample_propose(&mut rng);
+        assert!(resampled2);
+        let w2 = tr.morbo().expect("morbo").weights().to_owned();
         assert_ne!(w0, w1);
         assert_ne!(w1, w2);
     }
@@ -356,9 +441,9 @@ mod tests {
     #[test]
     fn turbo_max() {
         let mut tr = TrustRegionState::Turbo(TurboTrustRegion::new(2, TRLengthConfig::default()));
-        tr.set_arms(1);
+        tr = tr.set_arms(1);
         let y0 = Array2::from_shape_vec((1, 1), vec![1.0]).unwrap();
-        tr.tell_update(&y0.view(), &array![1.0].view(), 1).unwrap();
+        tr = tr.tell_update(&y0.view(), &array![1.0].view(), 1).unwrap();
         let len_before = tr.length();
 
         for (i, inc_val) in [2.0_f64, 3.0, 4.0].into_iter().enumerate() {
@@ -366,7 +451,8 @@ mod tests {
             let mut vals = vec![1.0];
             vals.extend(std::iter::repeat_n(0.5, n - 1));
             let y_mat = Array2::from_shape_vec((n, 1), vals).unwrap();
-            tr.tell_update(&y_mat.view(), &array![inc_val].view(), n)
+            tr = tr
+                .tell_update(&y_mat.view(), &array![inc_val].view(), n)
                 .unwrap();
         }
         assert!(tr.length() > len_before);
@@ -375,14 +461,15 @@ mod tests {
     #[test]
     fn morbo_restart() {
         let mut rng = StdRng::seed_from_u64(12);
-        let mut tr =
+        let tr =
             TrustRegionState::from_config(2, &morbo_cfg(Rescalarize::OnRestart), &mut rng).unwrap();
-        let w0 = tr.morbo_mut().expect("morbo").weights().to_owned();
-        tr.resample_propose(&mut rng);
-        let w1 = tr.morbo_mut().expect("morbo").weights().to_owned();
+        let w0 = tr.morbo().expect("morbo").weights().to_owned();
+        let (tr, resampled) = tr.resample_propose(&mut rng);
+        assert!(!resampled);
+        let w1 = tr.morbo().expect("morbo").weights().to_owned();
         assert_eq!(w0, w1);
-        tr.restart(Some(&mut rng));
-        let w2 = tr.morbo_mut().expect("morbo").weights().to_owned();
+        let tr = tr.restart(Some(&mut rng));
+        let w2 = tr.morbo().expect("morbo").weights().to_owned();
         assert_ne!(w1, w2);
     }
 }

@@ -5,6 +5,9 @@ edition.workspace = true
 license.workspace = true
 publish = false
 
+[lints]
+workspace = true
+
 [dependencies]
 baux.workspace = true
 modal-rs = "=0.1.3"

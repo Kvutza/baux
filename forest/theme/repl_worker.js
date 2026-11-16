@@ -986,7 +986,7 @@ if _PKG_DIR not in sys.path:
 
 import numpy as np
 import baux
-from baux.benchmarks import oxcaml
+from baux.benchmarks import synthetic
 
 
 def _make_ns():

@@ -114,6 +114,10 @@ def test_bundle():
         assert "cargo add baux" in quickstart_text
         assert "pip install baux" in quickstart_text
 
+        css_text = (dest / "style.css").read_text(encoding="utf-8")
+        assert "calc(100% + 22px)" not in css_text
+        assert "grid-template-columns: minmax(0, 1fr) 248px" in css_text
+
 
 def test_snippets():
     import html

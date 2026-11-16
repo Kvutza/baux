@@ -540,7 +540,7 @@ import sys
 import numpy as np
 import baux
 from baux import baux_rust
-from baux.benchmarks import oxcaml
+from baux.benchmarks import synthetic
 
 assert sys.platform == "emscripten"
 assert not str(getattr(baux_rust, "__file__", "")).endswith(".py")
@@ -625,13 +625,13 @@ draws, neigh = baux.sample(enn, np.zeros((2, 3)), params, key=k_draw, num_draws=
 assert draws.shape == (2, 1, 4) and len(neigh) == 2
 
 # OxCaml 56-surface catalogue via compiled oxcaml_eval.js bridge
-cat = oxcaml.catalogue()
+cat = synthetic.catalogue()
 assert len(cat) == 56
-desc = oxcaml.describe("ackley", 16)
+desc = synthetic.describe("ackley", 16)
 assert desc["dim"] == 16
 x_mid = np.zeros(16)
-v1 = oxcaml.eval_one("ackley", x_mid)
-vb = oxcaml.eval_batch("ackley", np.zeros((3, 16)))
+v1 = synthetic.eval_one("ackley", x_mid)
+vb = synthetic.eval_batch("ackley", np.zeros((3, 16)))
 assert vb.shape == (3,)
 assert np.allclose(vb, v1)
 print("OK")

@@ -777,14 +777,11 @@ let json_pair_list (raw : Js.Unsafe.any) : (float * float) list =
       match xs with a :: b :: _ -> Some (a, b) | _ -> None)
     (json_obj_list raw)
 
-let save_svg_element (svg : element Js.t) (filename : string) =
+let download_text_file ~filename ~mime ~text =
   try
-    let serializer_ctor = Js.Unsafe.get Dom_html.window (js "XMLSerializer") in
-    let serializer = Js.Unsafe.new_obj serializer_ctor [||] in
-    let svg_xml = Js.Unsafe.meth_call serializer "serializeToString" [| Js.Unsafe.inject svg |] in
     let blob_ctor = Js.Unsafe.get Dom_html.window (js "Blob") in
-    let blob_parts = Js.array [| svg_xml |] in
-    let blob_opts = Js.Unsafe.obj [| ("type", Js.Unsafe.inject (js "image/svg+xml;charset=utf-8")) |] in
+    let blob_parts = Js.array [| Js.Unsafe.inject (js text) |] in
+    let blob_opts = Js.Unsafe.obj [| ("type", Js.Unsafe.inject (js mime)) |] in
     let blob = Js.Unsafe.new_obj blob_ctor [| Js.Unsafe.inject blob_parts; Js.Unsafe.inject blob_opts |] in
     let url_ctor = Js.Unsafe.get Dom_html.window (js "URL") in
     let blob_url : Js.js_string Js.t = Js.Unsafe.meth_call url_ctor "createObjectURL" [| Js.Unsafe.inject blob |] in
@@ -797,6 +794,16 @@ let save_svg_element (svg : element Js.t) (filename : string) =
     ignore (Js.Unsafe.meth_call url_ctor "revokeObjectURL" [| Js.Unsafe.inject blob_url |])
   with _ -> ()
 
+let save_svg_element (svg : element Js.t) (filename : string) =
+  try
+    let serializer_ctor = Js.Unsafe.get Dom_html.window (js "XMLSerializer") in
+    let serializer = Js.Unsafe.new_obj serializer_ctor [||] in
+    let svg_xml : Js.js_string Js.t =
+      Js.Unsafe.meth_call serializer "serializeToString" [| Js.Unsafe.inject svg |]
+    in
+    download_text_file ~filename ~mime:"image/svg+xml;charset=utf-8" ~text:(to_s svg_xml)
+  with _ -> ()
+
 let make_fig_pane title subtitle =
   let card = mk ~cls:"py-fig-pane" "div" in
   let hdr = mk ~cls:"py-fig-hdr" "div" in
@@ -806,6 +813,40 @@ let make_fig_pane title subtitle =
     Dom.appendChild hdr_info (mk ~cls:"py-fig-subtitle" ~txt:subtitle "div");
   let hdr_actions = mk ~cls:"py-fig-actions" "div" in
   let readout_el = mk ~cls:"py-fig-readout" "span" in
+  let zoom_btn = mk ~cls:"py-ghost-btn py-fig-zoom" ~txt:"Zoom" "button" in
+  zoom_btn##setAttribute (js "type") (js "button");
+  zoom_btn##setAttribute (js "title") (js "Toggle full-height view for this figure");
+  zoom_btn##.onclick :=
+    Dom.handler (fun _ ->
+        (match Js.Opt.to_option (card##.parentNode) with
+        | Some parent_node ->
+            let parent_el : element Js.t = Obj.magic parent_node in
+            let card_cls = to_s card##.className in
+            let focusing = not (contains_sub card_cls "is-focused") in
+            let all_cards = parent_el##querySelectorAll (js ".py-fig-pane") in
+            for i = 0 to all_cards##.length - 1 do
+              match Js.Opt.to_option (all_cards##item i) with
+              | Some c ->
+                  c##.className := js "py-fig-pane";
+                  (match Js.Opt.to_option (c##querySelector (js ".py-fig-zoom")) with
+                  | Some zb -> set_text zb "Zoom"
+                  | None -> ())
+              | None -> ()
+            done;
+            let p_cls =
+              List.filter
+                (fun s -> s <> "has-focused-fig" && s <> "")
+                (String.split_on_char ' ' (to_s parent_el##.className))
+            in
+            if focusing then (
+              card##.className := js "py-fig-pane is-focused";
+              parent_el##.className := js (String.concat " " (p_cls @ [ "has-focused-fig" ]));
+              set_text zoom_btn "All")
+            else (
+              parent_el##.className := js (String.concat " " p_cls);
+              set_text zoom_btn "Zoom")
+        | None -> ());
+        Js._true);
   let save_btn = mk ~cls:"py-ghost-btn py-fig-save" ~txt:"Save SVG" "button" in
   save_btn##setAttribute (js "type") (js "button");
   save_btn##setAttribute (js "title") (js "Download figure as SVG");
@@ -816,6 +857,7 @@ let make_fig_pane title subtitle =
         | None -> ());
         Js._true);
   Dom.appendChild hdr_actions readout_el;
+  Dom.appendChild hdr_actions zoom_btn;
   Dom.appendChild hdr_actions save_btn;
   Dom.appendChild hdr hdr_info;
   Dom.appendChild hdr hdr_actions;
@@ -872,8 +914,8 @@ let render_curves_card ~title ~subtitle ~x_label ~y_label ~log_y (series : curve
         append_legend_badge legend sw_cls lbl_txt)
       non_empty;
     Dom.appendChild stage legend;
-    let w = 460.0 and h = 176.0 in
-    let pl = 56.0 and pr = 16.0 and pt = 18.0 and pb = 32.0 in
+    let w = 460.0 and h = 158.0 in
+    let pl = 60.0 and pr = 16.0 and pt = 22.0 and pb = 28.0 in
     let pw = w -. pl -. pr in
     let ph = h -. pt -. pb in
     let x_px x = pl +. ((x -. x_lo_r) /. x_sp) *. pw in
@@ -950,8 +992,8 @@ let render_curves_card ~title ~subtitle ~x_label ~y_label ~log_y (series : curve
     let ylbl =
       svg_el "text"
         [
-          ("x", Printf.sprintf "%.1f" (pl +. 4.0));
-          ("y", "12.0");
+          ("x", Printf.sprintf "%.1f" pl);
+          ("y", "11.5");
           ("text-anchor", "start");
           ("class", "py-svg-axis-lbl");
         ]
@@ -1091,7 +1133,7 @@ let render_curves_card ~title ~subtitle ~x_label ~y_label ~log_y (series : curve
       svg_el "text"
         [
           ("x", Printf.sprintf "%.1f" (pl +. 0.5 *. pw));
-          ("y", Printf.sprintf "%.1f" (h -. 4.0));
+          ("y", Printf.sprintf "%.1f" (h -. 3.0));
           ("text-anchor", "middle");
           ("class", "py-svg-axis-lbl");
         ]
@@ -1218,8 +1260,8 @@ let render_tokamak_card (fig : Js.Unsafe.any) =
     Dom.appendChild meta_list
       (mk ~cls:"py-tokamak-meta-row" ~txt:"× X-point null" "div"));
   Dom.appendChild aside meta_list;
-  let w = 276.0 and h = 260.0 in
-  let pl = 44.0 and pr = 12.0 and pt = 10.0 and pb = 28.0 in
+  let w = 290.0 and h = 230.0 in
+  let pl = 46.0 and pr = 12.0 and pt = 10.0 and pb = 32.0 in
   let pw = w -. pl -. pr and ph = h -. pt -. pb in
   let scale = min (pw /. (r1 -. r0)) (ph /. (z1 -. z0)) in
   let rw = scale *. (r1 -. r0) and zh = scale *. (z1 -. z0) in
@@ -1441,7 +1483,7 @@ let render_tokamak_card (fig : Js.Unsafe.any) =
         ("class", "py-svg-axis-lbl");
       ]
   in
-  set_text axlbl "Major Radius R [m] vs Vertical Z [m]";
+  set_text axlbl "R [m] vs Z [m]";
   Dom.appendChild svg axlbl;
   Dom.appendChild split svg;
   Dom.appendChild split aside;
@@ -1456,8 +1498,8 @@ let render_field2d_card (fig : Js.Unsafe.any) =
   if panels = [] then card
   else
     let n_p = min 2 (List.length panels) in
-    let w = 460.0 and h = 212.0 in
-    let gap = 18.0 and pl = 10.0 and pr = 10.0 and pt = 22.0 and pb = 26.0 in
+    let w = 460.0 and h = 192.0 in
+    let gap = 18.0 and pl = 10.0 and pr = 10.0 and pt = 20.0 and pb = 24.0 in
     let avail_w = w -. pl -. pr -. float_of_int (n_p - 1) *. gap in
     let box_s = min (avail_w /. float_of_int n_p) (h -. pt -. pb) in
     let total_w = float_of_int n_p *. box_s +. float_of_int (n_p - 1) *. gap in
@@ -1640,8 +1682,8 @@ let render_band1d_card (fig : Js.Unsafe.any) =
     let y_lo = y_lo_r -. 0.06 *. y_sp_r in
     let y_hi = y_hi_r +. 0.06 *. y_sp_r in
     let y_sp = y_hi -. y_lo in
-    let w = 460.0 and h = 198.0 in
-    let pl = 52.0 and pr = 16.0 and pt = 14.0 and pb = 28.0 in
+    let w = 460.0 and h = 180.0 in
+    let pl = 56.0 and pr = 16.0 and pt = 16.0 and pb = 28.0 in
     let pw = w -. pl -. pr and ph = h -. pt -. pb in
     let x_px x = pl +. ((x -. x_lo) /. x_sp) *. pw in
     let y_px y = pt +. (1.0 -. ((y -. y_lo) /. y_sp)) *. ph in
@@ -1739,6 +1781,22 @@ let render_band1d_card (fig : Js.Unsafe.any) =
            ("y2", Printf.sprintf "%.1f" (h -. pb));
            ("class", "py-svg-axis");
          ]);
+    for g = 0 to 3 do
+      let frac = float_of_int g /. 3.0 in
+      let xx = pl +. frac *. pw in
+      let xv = x_lo +. frac *. x_sp in
+      let xtl =
+        svg_el "text"
+          [
+            ("x", Printf.sprintf "%.1f" xx);
+            ("y", Printf.sprintf "%.1f" (h -. pb +. 12.0));
+            ("text-anchor", "middle");
+            ("class", "py-svg-tick");
+          ]
+      in
+      set_text xtl (Printf.sprintf "%.3g" xv);
+      Dom.appendChild svg xtl
+    done;
     let crosshair =
       svg_el "line"
         [
@@ -1987,6 +2045,55 @@ let render_state_panel ?empty_node (panel : element Js.t) (state_raw : Js.Unsafe
         Dom.appendChild tbl_wrap tbl;
         Dom.appendChild det tbl_wrap;
         Dom.appendChild panel det))
+
+let render_scope_panel ~on_inspect (panel : element Js.t) (scope_raw : Js.Unsafe.any) =
+  clear_children (panel :> Dom.node Js.t);
+  let items = json_obj_list scope_raw in
+  if items = [] then (
+    let wrap = mk ~cls:"py-scope-empty" "div" in
+    Dom.appendChild wrap
+      (mk ~cls:"py-inspector-empty"
+         ~txt:"No user variables in scope yet. Run the script or evaluate an expression in >>>."
+         "p");
+    Dom.appendChild panel wrap)
+  else (
+    let wrap = mk ~cls:"py-scope-wrap" "div" in
+    let hdr = mk ~cls:"py-scope-note" ~txt:"Click any variable to inspect in >>>" "div" in
+    Dom.appendChild wrap hdr;
+    let tbl = mk ~cls:"py-scope-table" "table" in
+    let thead = mk "thead" in
+    let hr = mk "tr" in
+    List.iter (fun h -> Dom.appendChild hr (mk ~txt:h "th")) [ "Name"; "Type"; "Value / Shape" ];
+    Dom.appendChild thead hr;
+    Dom.appendChild tbl thead;
+    let tbody = mk "tbody" in
+    List.iter
+      (fun item ->
+        let name = Option.value (opt_str item "name") ~default:"" in
+        let typ = Option.value (opt_str item "type") ~default:"" in
+        let summary = Option.value (opt_str item "summary") ~default:"" in
+        let kind = Option.value (opt_str item "kind") ~default:"obj" in
+        if name <> "" then (
+          let tr = mk ~cls:("py-scope-row is-" ^ kind) "tr" in
+          let td_name = mk "td" in
+          let btn = mk ~cls:"py-scope-name" ~txt:name "button" in
+          btn##setAttribute (js "type") (js "button");
+          btn##setAttribute (js "title") (js ("Inspect " ^ name ^ " in console"));
+          btn##.onclick :=
+            Dom.handler (fun _ ->
+                on_inspect name;
+                Js._true);
+          Dom.appendChild td_name btn;
+          let td_typ = mk ~cls:"py-scope-type" ~txt:typ "td" in
+          let td_sum = mk ~cls:"py-scope-val" ~txt:summary "td" in
+          Dom.appendChild tr td_name;
+          Dom.appendChild tr td_typ;
+          Dom.appendChild tr td_sum;
+          Dom.appendChild tbody tr))
+      items;
+    Dom.appendChild tbl tbody;
+    Dom.appendChild wrap tbl;
+    Dom.appendChild panel wrap)
 
 (* ---------------------------------------------------------------------------
    Pure-OCaml Python Syntax Tokenizer & Synchronized Line-Number Gutter
@@ -2282,6 +2389,51 @@ let append_console_chunk (out_pre : element Js.t) cls text =
     Dom.appendChild out_pre sp;
     out_pre##.scrollTop := Js.float (float_of_int out_pre##.scrollHeight))
 
+let resolve_url_preset_id () =
+  try
+    let url_ctor = Js.Unsafe.get Dom_html.window (js "URL") in
+    let url_obj =
+      Js.Unsafe.new_obj url_ctor [| Js.Unsafe.inject Dom_html.window##.location##.href |]
+    in
+    let params = Js.Unsafe.get url_obj (js "searchParams") in
+    let q_ex = Js.Unsafe.meth_call params "get" [| Js.Unsafe.inject (js "example") |] in
+    let q_p = Js.Unsafe.meth_call params "get" [| Js.Unsafe.inject (js "p") |] in
+    let raw =
+      if Js.Opt.test q_ex then Some (to_s (Obj.magic q_ex))
+      else if Js.Opt.test q_p then Some (to_s (Obj.magic q_p))
+      else
+        let h = to_s Dom_html.window##.location##.hash in
+        let h_clean =
+          if String.length h > 0 && h.[0] = '#' then String.sub h 1 (String.length h - 1) else h
+        in
+        if h_clean <> "" then Some h_clean else None
+    in
+    match raw with
+    | Some cand -> (match find_preset cand with Some p -> Some p.id | None -> None)
+    | None -> None
+  with _ -> None
+
+let sync_url_preset (id_opt : string option) =
+  try
+    let url_ctor = Js.Unsafe.get Dom_html.window (js "URL") in
+    let url_obj =
+      Js.Unsafe.new_obj url_ctor [| Js.Unsafe.inject Dom_html.window##.location##.href |]
+    in
+    let params = Js.Unsafe.get url_obj (js "searchParams") in
+    (match id_opt with
+    | Some pid ->
+        ignore
+          (Js.Unsafe.meth_call params "set"
+             [| Js.Unsafe.inject (js "example"); Js.Unsafe.inject (js pid) |])
+    | None ->
+        ignore
+          (Js.Unsafe.meth_call params "delete" [| Js.Unsafe.inject (js "example") |]));
+    let next_href : Js.js_string Js.t = Js.Unsafe.get url_obj (js "href") in
+    ignore
+      (Js.Unsafe.meth_call Dom_html.window##.history "replaceState"
+         [| Js.Unsafe.inject Js.null; Js.Unsafe.inject (js ""); Js.Unsafe.inject next_href |])
+  with _ -> ()
+
 let initial_playground_code () =
   let stored =
     try
@@ -2295,9 +2447,13 @@ let initial_playground_code () =
   in
   match stored with
   | Some code -> (None, code)
-  | None ->
-      let first = List.hd presets in
-      (Some first.id, first.code)
+  | None -> (
+      let picked =
+        match resolve_url_preset_id () with
+        | Some pid -> Option.value (find_preset pid) ~default:(List.hd presets)
+        | None -> List.hd presets
+      in
+      (Some picked.id, picked.code))
 
 let make_chevron_svg cls points =
   let svg =
@@ -2383,6 +2539,9 @@ let mount_playground (root : element Js.t) =
   Dom.appendChild mode_sel wasm_opt;
   Dom.appendChild mode_sel native_opt;
 
+  let runtime_badge = mk ~cls:"py-runtime-badge" ~txt:"WASM" "span" in
+  runtime_badge##setAttribute (js "title") (js "In-browser Pyodide WASM runtime");
+
   let status_pill = mk ~cls:"py-kernel-pill" "div" in
   let status_dot = mk ~cls:"py-status-dot" "span" in
   let status_lbl = mk ~cls:"py-status-text" ~txt:"Idle" "span" in
@@ -2400,11 +2559,16 @@ let mount_playground (root : element Js.t) =
   let reset_btn = mk ~cls:"py-btn" ~txt:"Reset" "button" in
   reset_btn##setAttribute (js "type") (js "button");
   reset_btn##setAttribute (js "title") (js "Reset namespace");
+  let expand_btn = mk ~cls:"py-btn py-expand-btn" ~txt:"Expand" "button" in
+  expand_btn##setAttribute (js "type") (js "button");
+  expand_btn##setAttribute (js "title") (js "Toggle full-viewport workbench");
   Dom.appendChild controls mode_sel;
+  Dom.appendChild controls runtime_badge;
   Dom.appendChild controls status_pill;
   Dom.appendChild controls run_btn;
   Dom.appendChild controls revert_btn;
   Dom.appendChild controls reset_btn;
+  Dom.appendChild controls expand_btn;
   Dom.appendChild topbar ex_control;
   Dom.appendChild topbar controls;
   Dom.appendChild topbar ex_menu;
@@ -2413,10 +2577,8 @@ let mount_playground (root : element Js.t) =
   let preset_bar = mk ~cls:"py-preset-bar" "div" in
   let preset_tag_el = mk ~cls:"py-preset-tag" ~txt:"" "span" in
   let preset_desc_el = mk ~cls:"py-preset-desc" ~txt:"" "span" in
-  let preset_file_el = mk ~cls:"py-preset-file" ~txt:"" "span" in
   Dom.appendChild preset_bar preset_tag_el;
   Dom.appendChild preset_bar preset_desc_el;
-  Dom.appendChild preset_bar preset_file_el;
 
   (* Band 2b: Mobile (<900px) Segmented Switcher *)
   let mob_tabs = mk ~cls:"py-mob-tabs" "div" in
@@ -2468,13 +2630,21 @@ let mount_playground (root : element Js.t) =
   let ed_meta = mk ~cls:"py-subbar-meta" ~txt:"sparc_pf.py" "span" in
   Dom.appendChild ed_hdr_l ed_meta;
   let ed_hdr_r = mk ~cls:"py-subbar-right" "div" in
-  Dom.appendChild ed_hdr_r (mk ~cls:"py-key-hint" ~txt:"⌘↵ run" "span");
+  let run_sel_btn = mk ~cls:"py-ghost-btn" ~txt:"Run sel" "button" in
+  run_sel_btn##setAttribute (js "type") (js "button");
+  run_sel_btn##setAttribute (js "title") (js "Run selection or current line in live namespace (Shift+Enter)");
   let wrap_btn = mk ~cls:"py-ghost-btn py-wrap-btn" ~txt:"Wrap" "button" in
   wrap_btn##setAttribute (js "type") (js "button");
   wrap_btn##setAttribute (js "title") (js "Toggle line wrapping");
+  let save_py_btn = mk ~cls:"py-ghost-btn" ~txt:"Save" "button" in
+  save_py_btn##setAttribute (js "type") (js "button");
+  save_py_btn##setAttribute (js "title") (js "Download script as .py file");
   let copy_btn = mk ~cls:"py-ghost-btn" ~txt:"Copy" "button" in
   copy_btn##setAttribute (js "type") (js "button");
+  copy_btn##setAttribute (js "title") (js "Copy script to clipboard");
+  Dom.appendChild ed_hdr_r run_sel_btn;
   Dom.appendChild ed_hdr_r wrap_btn;
+  Dom.appendChild ed_hdr_r save_py_btn;
   Dom.appendChild ed_hdr_r copy_btn;
   Dom.appendChild ed_hdr ed_hdr_l;
   Dom.appendChild ed_hdr ed_hdr_r;
@@ -2524,6 +2694,10 @@ let mount_playground (root : element Js.t) =
         toggle_cls ed_shell;
         toggle_cls ed_stage;
         editor##setAttribute (js "wrap") (js (if w then "soft" else "off"));
+        let band_opt = Js.Opt.to_option (ed_stage##querySelector (js ".py-ed-active-band")) in
+        (match band_opt with
+        | Some b -> b##.style##.display := js (if w then "none" else "")
+        | None -> ());
         Js._true);
 
   let row_resizer = mk ~cls:"py-row-resizer" "div" in
@@ -2561,10 +2735,12 @@ let mount_playground (root : element Js.t) =
   repl_input##setAttribute (js "autocorrect") (js "off");
   repl_input##setAttribute (js "autocapitalize") (js "off");
   repl_input##setAttribute (js "aria-label") (js "Interactive Python prompt");
+  let repl_hint = mk ~cls:"py-repl-hint" ~txt:"Enter eval · ⇧↵ newline · ^L clear" "span" in
   let repl_send = mk ~cls:"py-ghost-btn py-repl-send" ~txt:"Eval" "button" in
   repl_send##setAttribute (js "type") (js "submit");
   Dom.appendChild prompt_row prompt_glyph;
   Dom.appendChild prompt_row repl_input;
+  Dom.appendChild prompt_row repl_hint;
   Dom.appendChild prompt_row repl_send;
 
   Dom.appendChild con_pane con_hdr;
@@ -2579,7 +2755,15 @@ let mount_playground (root : element Js.t) =
   (* Right Output & Figures Stage *)
   let insp_hdr = mk ~cls:"py-subbar" "div" in
   let insp_hdr_l = mk ~cls:"py-subbar-left" "div" in
-  Dom.appendChild insp_hdr_l (mk ~cls:"py-subbar-title" ~txt:"Figures & State" "span");
+  Dom.appendChild insp_hdr_l (mk ~cls:"py-subbar-title" ~txt:"Output" "span");
+  let insp_tabs = mk ~cls:"py-insp-tabs" "div" in
+  let tab_figs_btn = mk ~cls:"py-ghost-btn py-insp-tab active" ~txt:"Figures" "button" in
+  tab_figs_btn##setAttribute (js "type") (js "button");
+  let tab_scope_btn = mk ~cls:"py-ghost-btn py-insp-tab" ~txt:"Scope (0)" "button" in
+  tab_scope_btn##setAttribute (js "type") (js "button");
+  Dom.appendChild insp_tabs tab_figs_btn;
+  Dom.appendChild insp_tabs tab_scope_btn;
+  Dom.appendChild insp_hdr_l insp_tabs;
   let insp_chip = mk ~cls:"py-subbar-meta py-state-chip" ~txt:"" "span" in
   let insp_hdr_r = mk ~cls:"py-subbar-right" "div" in
   Dom.appendChild insp_hdr_r insp_chip;
@@ -2696,22 +2880,24 @@ let mount_playground (root : element Js.t) =
   in
 
   let sync_active_line_band () =
-    let v = to_s editor##.value in
-    let cur_line = cursor_line_no v editor##.selectionStart in
-    let gutter_lines = ed_gutter##.childNodes in
-    if cur_line >= 1 && cur_line <= gutter_lines##.length then
-      match Js.Opt.to_option (gutter_lines##item (cur_line - 1)) with
-      | Some node ->
-          let el : element Js.t = Obj.magic node in
-          let top_px =
-            el##.offsetTop - int_of_float (Js.float_of_number (Obj.magic editor##.scrollTop))
-          in
-          let h_px = el##.offsetHeight in
-          active_line_band##.style##.top := js (Printf.sprintf "%dpx" top_px);
-          if h_px > 0 then active_line_band##.style##.height := js (Printf.sprintf "%dpx" h_px);
-          active_line_band##.style##.display := js ""
-      | None -> active_line_band##.style##.display := js "none"
-    else active_line_band##.style##.display := js "none"
+    if !is_wrapped_ref then active_line_band##.style##.display := js "none"
+    else
+      let v = to_s editor##.value in
+      let cur_line = cursor_line_no v editor##.selectionStart in
+      let gutter_lines = ed_gutter##.childNodes in
+      if cur_line >= 1 && cur_line <= gutter_lines##.length then
+        match Js.Opt.to_option (gutter_lines##item (cur_line - 1)) with
+        | Some node ->
+            let el : element Js.t = Obj.magic node in
+            let top_px =
+              el##.offsetTop - int_of_float (Js.float_of_number (Obj.magic editor##.scrollTop))
+            in
+            let h_px = el##.offsetHeight in
+            active_line_band##.style##.top := js (Printf.sprintf "%dpx" top_px);
+            if h_px > 0 then active_line_band##.style##.height := js (Printf.sprintf "%dpx" h_px);
+            active_line_band##.style##.display := js ""
+        | None -> active_line_band##.style##.display := js "none"
+      else active_line_band##.style##.display := js "none"
   in
 
   let sync_editor_view () =
@@ -2752,6 +2938,29 @@ let mount_playground (root : element Js.t) =
     sync_editor_view ()
   in
 
+  let replace_editor_range ~st ~en ~text ~sel_start ~sel_end =
+    let v = to_s editor##.value in
+    editor##focus;
+    editor##.selectionStart := st;
+    editor##.selectionEnd := en;
+    let applied =
+      try
+        Js.to_bool
+          (Js.Unsafe.meth_call document "execCommand"
+             [| Js.Unsafe.inject (js "insertText"); Js.Unsafe.inject Js._false; Js.Unsafe.inject (js text) |])
+      with _ -> false
+    in
+    if not applied then (
+      let left = String.sub v 0 st in
+      let right = String.sub v en (String.length v - en) in
+      editor##.value := js (left ^ text ^ right));
+    editor##.selectionStart := sel_start;
+    editor##.selectionEnd := sel_end;
+    user_dirty_ref := true;
+    err_line_ref := None;
+    sync_editor_view ()
+  in
+
   let handle_enter_indent () =
     let v = to_s editor##.value in
     let st = editor##.selectionStart in
@@ -2779,30 +2988,16 @@ let mount_playground (root : element Js.t) =
       else ""
     in
     let insert = "\n" ^ base_indent ^ extra_indent in
-    let left = String.sub v 0 st in
-    let right = String.sub v en (String.length v - en) in
-    editor##.value := js (left ^ insert ^ right);
     let new_pos = st + String.length insert in
-    editor##.selectionStart := new_pos;
-    editor##.selectionEnd := new_pos;
-    user_dirty_ref := true;
-    err_line_ref := None;
-    sync_editor_view ()
+    replace_editor_range ~st ~en ~text:insert ~sel_start:new_pos ~sel_end:new_pos
   in
 
   let handle_tab ~shift =
     let v = to_s editor##.value in
     let st = editor##.selectionStart in
     let en = editor##.selectionEnd in
-    if (not shift) && st = en then (
-      let left = String.sub v 0 st in
-      let right = String.sub v en (String.length v - en) in
-      editor##.value := js (left ^ "    " ^ right);
-      editor##.selectionStart := st + 4;
-      editor##.selectionEnd := st + 4;
-      user_dirty_ref := true;
-      err_line_ref := None;
-      sync_editor_view ())
+    if (not shift) && st = en then
+      replace_editor_range ~st ~en ~text:"    " ~sel_start:(st + 4) ~sel_end:(st + 4)
     else
       let line_start =
         let rec back i =
@@ -2840,14 +3035,8 @@ let mount_playground (root : element Js.t) =
         else List.map (fun l -> "    " ^ l) lines
       in
       let new_block = String.concat "\n" new_lines in
-      let left = String.sub v 0 line_start in
-      let right = String.sub v line_end (String.length v - line_end) in
-      editor##.value := js (left ^ new_block ^ right);
-      editor##.selectionStart := line_start;
-      editor##.selectionEnd := line_start + String.length new_block;
-      user_dirty_ref := true;
-      err_line_ref := None;
-      sync_editor_view ()
+      replace_editor_range ~st:line_start ~en:line_end ~text:new_block
+        ~sel_start:line_start ~sel_end:(line_start + String.length new_block)
   in
 
   let handle_toggle_comment () =
@@ -2905,14 +3094,8 @@ let mount_playground (root : element Js.t) =
       else List.map (fun l -> if String.trim l = "" then l else "# " ^ l) lines
     in
     let new_block = String.concat "\n" new_lines in
-    let left = String.sub v 0 line_start in
-    let right = String.sub v line_end (String.length v - line_end) in
-    editor##.value := js (left ^ new_block ^ right);
-    editor##.selectionStart := line_start;
-    editor##.selectionEnd := line_start + String.length new_block;
-    user_dirty_ref := true;
-    err_line_ref := None;
-    sync_editor_view ()
+    replace_editor_range ~st:line_start ~en:line_end ~text:new_block
+      ~sel_start:line_start ~sel_end:(line_start + String.length new_block)
   in
 
   revert_btn##.onclick :=
@@ -2994,6 +3177,40 @@ let mount_playground (root : element Js.t) =
       presets
   in
 
+  let last_state_ref : Js.Unsafe.any ref = ref (Js.Unsafe.inject Js.undefined) in
+  let last_scope_ref : Js.Unsafe.any ref = ref (Js.Unsafe.inject Js.undefined) in
+  let insp_tab_ref : string ref = ref "figures" in
+  let inspect_var_ref : (string -> unit) ref = ref (fun _ -> ()) in
+
+  let sync_insp_tabs () =
+    let sc_cnt = List.length (json_obj_list !last_scope_ref) in
+    set_text tab_scope_btn (Printf.sprintf "Scope (%d)" sc_cnt);
+    let f_cls = "py-ghost-btn py-insp-tab" ^ if !insp_tab_ref = "figures" then " active" else "" in
+    let s_cls = "py-ghost-btn py-insp-tab" ^ if !insp_tab_ref = "scope" then " active" else "" in
+    tab_figs_btn##.className := js f_cls;
+    tab_scope_btn##.className := js s_cls
+  in
+
+  let refresh_inspector () =
+    sync_insp_tabs ();
+    if !insp_tab_ref = "scope" then
+      render_scope_panel ~on_inspect:(fun nm -> !inspect_var_ref nm) insp_body !last_scope_ref
+    else
+      render_state_panel ~empty_node:(make_empty_stage ()) insp_body !last_state_ref
+  in
+
+  tab_figs_btn##.onclick :=
+    Dom.handler (fun _ ->
+        insp_tab_ref := "figures";
+        refresh_inspector ();
+        Js._true);
+
+  tab_scope_btn##.onclick :=
+    Dom.handler (fun _ ->
+        insp_tab_ref := "scope";
+        refresh_inspector ();
+        Js._true);
+
   let sync_preset_active () =
     let active_pair =
       match !active_preset_ref with
@@ -3008,15 +3225,13 @@ let mount_playground (root : element Js.t) =
         set_text ex_title_el (p.label ^ if dirty then " · edited" else "");
         ex_trigger##setAttribute (js "title") (js p.description);
         set_text preset_tag_el p.tag;
-        set_text preset_desc_el p.description;
-        set_text preset_file_el (Printf.sprintf "examples/repl/%s.py" p.id)
+        set_text preset_desc_el p.description
     | None ->
         set_text ex_count_el "Custom";
         set_text ex_title_el "Custom snippet";
         ex_trigger##setAttribute (js "title") (js "Choose a built-in example");
         set_text preset_tag_el "CUSTOM";
-        set_text preset_desc_el "Custom snippet";
-        set_text preset_file_el "custom");
+        set_text preset_desc_el "Custom Python snippet");
     ex_trigger##.className :=
       js (if dirty then "py-ex-trigger is-dirty" else "py-ex-trigger");
     let active_id = match !active_preset_ref with Some p -> p.id | None -> "" in
@@ -3030,7 +3245,7 @@ let mount_playground (root : element Js.t) =
   in
   sync_switcher_ref := sync_preset_active;
   sync_editor_view ();
-  render_state_panel ~empty_node:(make_empty_stage ()) insp_body (Js.Unsafe.inject Js.undefined);
+  refresh_inspector ();
   sync_preset_active ();
 
   let mark_mob_updates () =
@@ -3040,6 +3255,38 @@ let mount_playground (root : element Js.t) =
           let cur = to_s b##.className in
           if not (contains_sub cur "has-update") then b##.className := js (cur ^ " has-update")))
       mob_pairs
+  in
+
+  let apply_exec_result ~cmd_prefix res =
+    let ok = Js.to_bool (Js.Unsafe.get res (js "ok")) in
+    let out_s = to_s (Js.Unsafe.get res (js "stdout")) in
+    let err_s = to_s (Js.Unsafe.get res (js "stderr")) in
+    let dt_raw = Js.Unsafe.get res (js "elapsed_ms") in
+    let dt_s =
+      if Js.Optdef.test dt_raw then Printf.sprintf "%.1f ms" (Js.float_of_number dt_raw) else ""
+    in
+    set_text timing_lbl (if dt_s <> "" then "· " ^ dt_s else "");
+    (match cmd_prefix with
+    | Some pfx -> append_console_chunk console_pre "py-out-cmd" (pfx ^ "\n")
+    | None -> clear_children (console_pre :> Dom.node Js.t));
+    if out_s <> "" then append_console_chunk console_pre "py-out-stdout" out_s;
+    if err_s <> "" then (
+      let err_line = append_console_stderr console_pre err_s focus_editor_line in
+      (match err_line with
+      | Some ln ->
+          err_line_ref := Some ln;
+          sync_editor_view ()
+      | None -> ()));
+    if out_s = "" && err_s = "" && ok && cmd_prefix = None then
+      append_console_chunk console_pre "py-out-muted" "Done.\n";
+    set_text prompt_glyph ">>>";
+    let st_raw = Js.Unsafe.get res (js "state") in
+    let sc_raw = Js.Unsafe.get res (js "scope") in
+    last_state_ref := st_raw;
+    if is_defined sc_raw then last_scope_ref := sc_raw;
+    sync_state_chip st_raw;
+    refresh_inspector ();
+    mark_mob_updates ()
   in
 
   let run_script () =
@@ -3054,35 +3301,68 @@ let mount_playground (root : element Js.t) =
         ("code", Js.Unsafe.inject (js src));
         ("resetNamespace", Js.Unsafe.inject Js._true);
       ]
-      (fun res ->
-        let ok = Js.to_bool (Js.Unsafe.get res (js "ok")) in
-        let out_s = to_s (Js.Unsafe.get res (js "stdout")) in
-        let err_s = to_s (Js.Unsafe.get res (js "stderr")) in
-        let dt_raw = Js.Unsafe.get res (js "elapsed_ms") in
-        let dt_s =
-          if Js.Optdef.test dt_raw then Printf.sprintf "%.1f ms" (Js.float_of_number dt_raw) else ""
-        in
-        set_text timing_lbl (if dt_s <> "" then "· " ^ dt_s else "");
-        clear_children (console_pre :> Dom.node Js.t);
-        if out_s <> "" then append_console_chunk console_pre "py-out-stdout" out_s;
-        if err_s <> "" then (
-          let err_line = append_console_stderr console_pre err_s focus_editor_line in
-          (match err_line with
-          | Some ln ->
-              err_line_ref := Some ln;
-              sync_editor_view ()
-          | None -> ()));
-        if out_s = "" && err_s = "" && ok then
-          append_console_chunk console_pre "py-out-muted" "Done.\n";
-        set_text prompt_glyph ">>>";
-        let st_raw = Js.Unsafe.get res (js "state") in
-        sync_state_chip st_raw;
-        render_state_panel ~empty_node:(make_empty_stage ()) insp_body st_raw;
-        mark_mob_updates ())
+      (fun res -> apply_exec_result ~cmd_prefix:None res)
   in
   run_script_ref := run_script;
 
+  let run_selection_or_line () =
+    initial_ran_ref := true;
+    manual_abort_ref := false;
+    let v = to_s editor##.value in
+    let st = editor##.selectionStart in
+    let en = editor##.selectionEnd in
+    let snippet =
+      if st < en then String.sub v st (en - st)
+      else
+        let l0 =
+          let rec back i = if i <= 0 then 0 else if v.[i - 1] = '\n' then i else back (i - 1) in
+          back st
+        in
+        let l1 =
+          let len = String.length v in
+          let rec fwd i = if i >= len then len else if v.[i] = '\n' then i else fwd (i + 1) in
+          fwd st
+        in
+        String.sub v l0 (l1 - l0)
+    in
+    let trimmed = String.trim snippet in
+    if trimmed <> "" then (
+      let first_line =
+        match String.split_on_char '\n' trimmed with
+        | h :: _ ->
+            let s = String.trim h in
+            if String.length s > 56 then String.sub s 0 53 ^ "..." else s
+        | [] -> "..."
+      in
+      set_text timing_lbl "";
+      send_worker "exec"
+        [
+          ("code", Js.Unsafe.inject (js snippet));
+          ("resetNamespace", Js.Unsafe.inject Js._false);
+        ]
+        (fun res -> apply_exec_result ~cmd_prefix:(Some ("» " ^ first_line)) res))
+  in
+
+  let sync_runtime_badge caps =
+    if !runtime_mode_ref = LocalNative then (
+      let accel =
+        if caps.native_metal then "Local · Metal"
+        else if caps.native_cuda then "Local · CUDA"
+        else "Local"
+      in
+      set_text runtime_badge accel;
+      runtime_badge##setAttribute (js "title") (js ("Native Python: " ^ caps.native_python)))
+    else if caps.webgpu_active then (
+      set_text runtime_badge "WASM · WebGPU";
+      runtime_badge##setAttribute (js "title")
+        (js ("Pyodide WASM + WebGPU (" ^ caps.webgpu_adapter ^ ")")))
+    else (
+      set_text runtime_badge "WASM · SIMD";
+      runtime_badge##setAttribute (js "title") (js "In-browser Pyodide WASM"))
+  in
+
   add_cap_listener (fun caps ->
+      sync_runtime_badge caps;
       if caps.native_checked then (
         if caps.native_available then (
           mode_sel##removeAttribute (js "hidden");
@@ -3173,8 +3453,10 @@ let mount_playground (root : element Js.t) =
             ignore (append_console_stderr console_pre (msg ^ "\n") focus_editor_line)
           end
       | _ -> ());
-      if (not !initial_ran_ref) && Js.Opt.test (insp_body##querySelector (js ".py-empty-stage")) then
-        render_state_panel ~empty_node:(make_empty_stage ()) insp_body (Js.Unsafe.inject Js.undefined);
+      if (not !initial_ran_ref) && !insp_tab_ref = "figures"
+         && Js.Opt.test (insp_body##querySelector (js ".py-empty-stage"))
+      then
+        refresh_inspector ();
       if st = Ready && (not !initial_ran_ref) && (not !user_dirty_ref) && (not !manual_abort_ref) then
         run_script ());
 
@@ -3208,12 +3490,15 @@ let mount_playground (root : element Js.t) =
     active_preset_ref := Some p;
     user_dirty_ref := false;
     err_line_ref := None;
+    sync_url_preset (Some p.id);
     editor##.value := js p.code;
     editor##.scrollTop := Js.float 0.0;
     editor##.scrollLeft := Js.float 0.0;
     sync_editor_view ();
-    render_state_panel ~empty_node:(make_empty_stage ()) insp_body
-      (Js.Unsafe.inject Js.undefined);
+    last_state_ref := Js.Unsafe.inject Js.undefined;
+    last_scope_ref := Js.Unsafe.inject Js.undefined;
+    insp_tab_ref := "figures";
+    refresh_inspector ();
     sync_state_chip (Js.Unsafe.inject Js.undefined);
     if !kernel_state_ref = Ready then run_script ()
   in
@@ -3315,13 +3600,30 @@ let mount_playground (root : element Js.t) =
             Js._true))
        Js._false);
 
+  let is_expanded_ref = ref false in
+  let set_expanded exp =
+    is_expanded_ref := exp;
+    let parts =
+      List.filter (fun s -> s <> "is-expanded" && s <> "") (String.split_on_char ' ' (to_s shell##.className))
+    in
+    shell##.className := js (String.concat " " (if exp then parts @ [ "is-expanded" ] else parts));
+    set_text expand_btn (if exp then "Exit" else "Expand");
+    sync_editor_view ()
+  in
+  expand_btn##.onclick :=
+    Dom.handler (fun _ ->
+        set_expanded (not !is_expanded_ref);
+        Js._true);
+
   ignore
     (Dom_html.addEventListener document Dom_html.Event.keydown
        (Dom_html.handler (fun ev ->
             let key = to_s (Js.Optdef.get ev##.key (fun () -> js "")) in
             if !menu_open_ref && key = "Escape" then (
               set_menu_open false;
-              ex_trigger##focus);
+              ex_trigger##focus)
+            else if !is_expanded_ref && key = "Escape" then
+              set_expanded false;
             Js._true))
        Js._false);
 
@@ -3351,9 +3653,15 @@ let mount_playground (root : element Js.t) =
           | None -> ()));
         set_text prompt_glyph (if inc then "..." else ">>>");
         let st_raw = Js.Unsafe.get res (js "state") in
+        let sc_raw = Js.Unsafe.get res (js "scope") in
+        last_state_ref := st_raw;
+        if is_defined sc_raw then last_scope_ref := sc_raw;
         sync_state_chip st_raw;
-        render_state_panel ~empty_node:(make_empty_stage ()) insp_body st_raw)
+        refresh_inspector ())
   in
+  inspect_var_ref := (fun name ->
+      repl_input##focus;
+      push_repl_line name);
 
   let is_at_top (el : textAreaElement Js.t) =
     let pos = el##.selectionStart in
@@ -3400,6 +3708,23 @@ let mount_playground (root : element Js.t) =
         (if Dom_html.window##.innerWidth <= 900 then set_mob_tab "plots");
         Js._true);
 
+  run_sel_btn##.onclick :=
+    Dom.handler (fun _ ->
+        run_selection_or_line ();
+        (if Dom_html.window##.innerWidth <= 900 then set_mob_tab "console");
+        Js._true);
+
+  save_py_btn##.onclick :=
+    Dom.handler (fun _ ->
+        let fname =
+          match !active_preset_ref with
+          | Some p -> p.id ^ ".py"
+          | None -> "baux_snippet.py"
+        in
+        download_text_file ~filename:fname ~mime:"text/x-python;charset=utf-8"
+          ~text:(to_s editor##.value);
+        Js._true);
+
   reset_btn##.onclick :=
     Dom.handler (fun _ ->
         manual_abort_ref := true;
@@ -3411,6 +3736,10 @@ let mount_playground (root : element Js.t) =
             set_text timing_lbl ""
         | Idle | Ready | Interrupted _ ->
             reset_kernel ();
+            last_state_ref := Js.Unsafe.inject Js.undefined;
+            last_scope_ref := Js.Unsafe.inject Js.undefined;
+            refresh_inspector ();
+            sync_state_chip (Js.Unsafe.inject Js.undefined);
             set_text prompt_glyph ">>>";
             set_text timing_lbl "");
         Js._true);
@@ -3470,6 +3799,10 @@ let mount_playground (root : element Js.t) =
           run_script ();
           (if Dom_html.window##.innerWidth <= 900 then set_mob_tab "plots");
           Js._false)
+        else if shift && key = "Enter" && not ctrl_or_meta then (
+          Dom.preventDefault ev;
+          run_selection_or_line ();
+          Js._false)
         else if ctrl_or_meta && (key = "/" || key = "?") then (
           Dom.preventDefault ev;
           handle_toggle_comment ();
@@ -3501,8 +3834,13 @@ let mount_playground (root : element Js.t) =
     Dom.handler (fun ev ->
         let key = to_s (Js.Optdef.get ev##.key (fun () -> js "")) in
         let shift = Js.to_bool ev##.shiftKey in
+        let ctrl = Js.to_bool ev##.ctrlKey in
         let hlen = List.length !repl_history in
-        if key = "Enter" && not shift then (
+        if ctrl && (key = "l" || key = "L") then (
+          Dom.preventDefault ev;
+          clear_children (console_pre :> Dom.node Js.t);
+          Js._false)
+        else if key = "Enter" && not shift then (
           Dom.preventDefault ev;
           submit_repl ();
           Js._false)

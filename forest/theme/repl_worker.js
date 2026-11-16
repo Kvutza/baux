@@ -992,6 +992,7 @@ import rlcompleter
 import sys
 import time
 import traceback
+import types
 
 _PKG_DIR = "/home/pyodide/baux_pkg"
 if _PKG_DIR not in sys.path:
@@ -1331,6 +1332,82 @@ def _summarize_state(ns):
     return summary
 
 
+def _summarize_scope(ns, limit=28):
+    items = []
+    OptimizerState = getattr(baux, "OptimizerState", None)
+    priority_order = {"state": 0, "array": 1, "coll": 2, "scalar": 3, "fn": 4, "obj": 5}
+    for k, v in ns.items():
+        if k.startswith("_") or isinstance(v, types.ModuleType):
+            continue
+        kind = "obj"
+        typ = type(v).__name__
+        summary = ""
+        if OptimizerState is not None and isinstance(v, OptimizerState):
+            kind = "state"
+            dim = int(getattr(v, "dim", 0))
+            obs = int(getattr(v, "num_observations", 0))
+            by = _json_scalar(getattr(v, "best_y", None))
+            typ = f"OptimizerState({dim}D)"
+            summary = f"obs={obs}" + (f" · best={by:.4g}" if by is not None else "")
+        elif hasattr(v, "shape") and hasattr(v, "dtype"):
+            kind = "array"
+            try:
+                shp = tuple(int(s) for s in v.shape)
+                typ = f"ndarray{shp}"
+                if int(getattr(v, "size", 0)) > 0:
+                    arr = np.asarray(v, dtype=float)
+                    lo = _json_scalar(np.nanmin(arr))
+                    hi = _json_scalar(np.nanmax(arr))
+                    if lo is not None and hi is not None:
+                        summary = f"{v.dtype} [{lo:.3g}, {hi:.3g}]"
+                    else:
+                        summary = str(v.dtype)
+                else:
+                    summary = f"{v.dtype} (empty)"
+            except Exception:
+                summary = str(getattr(v, "dtype", ""))
+        elif isinstance(v, bool):
+            kind = "scalar"
+            typ = "bool"
+            summary = repr(v)
+        elif isinstance(v, (int, float)):
+            kind = "scalar"
+            typ = type(v).__name__
+            summary = repr(v) if isinstance(v, int) else f"{v:.6g}" if math.isfinite(v) else repr(v)
+        elif isinstance(v, str):
+            kind = "scalar"
+            typ = f"str[{len(v)}]"
+            summary = repr(v if len(v) <= 44 else v[:41] + "...")
+        elif isinstance(v, (dict, list, tuple, set)):
+            kind = "coll"
+            typ = f"{type(v).__name__}[{len(v)}]"
+            if isinstance(v, dict):
+                keys = [repr(str(kk)[:20]) for kk in list(v.keys())[:4]]
+                summary = "{" + ", ".join(keys) + (", ..." if len(v) > 4 else "}")
+            else:
+                summary = f"{len(v)} items"
+        elif callable(v):
+            mod = getattr(v, "__module__", None)
+            if mod not in (None, "__main__", "builtins"):
+                continue
+            kind = "fn"
+            typ = "callable"
+            summary = "def " + k + "(...)"
+        else:
+            try:
+                summary = repr(v)[:60]
+            except Exception:
+                summary = typ
+        items.append({
+            "name": str(k),
+            "kind": kind,
+            "type": typ,
+            "summary": summary,
+        })
+    items.sort(key=lambda it: (priority_order.get(it["kind"], 9), it["name"]))
+    return items[:limit]
+
+
 def _baux_exec_script(src, reset_ns=False):
     if reset_ns:
         _reset_namespace()
@@ -1371,6 +1448,7 @@ def _baux_exec_script(src, reset_ns=False):
                 err_line = None
 
     summary = _summarize_state(_REPL_NS)
+    scope = _summarize_scope(_REPL_NS)
     return json.dumps({
         "ok": ok,
         "stdout": out_buf.getvalue(),
@@ -1379,6 +1457,7 @@ def _baux_exec_script(src, reset_ns=False):
         "incomplete": False,
         "elapsed_ms": round(dt_ms, 2),
         "state": summary,
+        "scope": scope,
     })
 
 
@@ -1392,7 +1471,13 @@ def _baux_repl_push(line):
     ok = True
     incomplete = False
     try:
-        incomplete = bool(_CONSOLE.push(line))
+        if chr(10) in line:
+            for sub in line.split(chr(10)):
+                incomplete = bool(_CONSOLE.push(sub))
+            if incomplete:
+                incomplete = bool(_CONSOLE.push(""))
+        else:
+            incomplete = bool(_CONSOLE.push(line))
     except BaseException:
         ok = False
         traceback.print_exc(file=err_buf)
@@ -1413,6 +1498,7 @@ def _baux_repl_push(line):
             except Exception:
                 err_line = None
     summary = _summarize_state(_REPL_NS)
+    scope = _summarize_scope(_REPL_NS)
     return json.dumps({
         "ok": ok,
         "stdout": out_buf.getvalue(),
@@ -1421,6 +1507,7 @@ def _baux_repl_push(line):
         "incomplete": incomplete,
         "elapsed_ms": round(dt_ms, 2),
         "state": summary,
+        "scope": scope,
     })
 
 
@@ -1447,7 +1534,7 @@ async function ensureRuntime() {
       stage: "downloading_manifest",
       step: 1,
       total_steps: 4,
-      detail: "Fetching manifest (1/4)...",
+      detail: "Fetching manifest...",
     });
     const manifest = await fetchJsonStrict("./repl_manifest.json", { cache: "no-store" });
     const zipSpec = manifest.baux_py_zip;
@@ -1461,7 +1548,7 @@ async function ensureRuntime() {
       stage: "downloading_wasm",
       step: 2,
       total_steps: 4,
-      detail: "Loading Pyodide & WASM (2/4)...",
+      detail: "Loading Pyodide & WASM...",
     });
     let webGpuPromise = Promise.resolve();
     const bridgePromise = loadVerifiedScript("./webgpu_bridge.js", companion.webgpu_bridge_js || null).then(() => {
@@ -1495,7 +1582,7 @@ async function ensureRuntime() {
       stage: "loading_numpy",
       step: 3,
       total_steps: 4,
-      detail: "Loading NumPy & workspace (3/4)...",
+      detail: "Loading NumPy & workspace...",
     });
 
     pyodide.FS.mkdirTree("/home/pyodide/baux_pkg");
@@ -1521,7 +1608,7 @@ async function ensureRuntime() {
       stage: "mounting_baux",
       step: 4,
       total_steps: 4,
-      detail: "Mounting baux runtime (4/4)...",
+      detail: "Mounting baux runtime...",
     });
 
     if (pyodide._api && typeof pyodide._api.loadDynlib === "function") {
@@ -1644,6 +1731,7 @@ self.onmessage = async (event) => {
         stderr: "",
         incomplete: false,
         state: null,
+        scope: [],
         caps: buildCaps(),
         opfs_mounted: opfsMounted,
       });

@@ -987,6 +987,7 @@ import code
 import io
 import json
 import math
+import re
 import rlcompleter
 import sys
 import time
@@ -1111,7 +1112,7 @@ def _extract_fig(raw):
         coils_out = []
         for c in (raw.get("coils") or [])[:40]:
             try:
-                coils_out.append([round(float(x), 4) for x in c[:5]])
+                coils_out.append([round(float(x), 4) for x in c[:6]])
             except Exception:
                 pass
         curves_sub = _sanitize_curves(raw.get("curves")) if isinstance(raw.get("curves"), dict) else None
@@ -1271,8 +1272,8 @@ def _summarize_state(ns):
         if bp is not None:
             try:
                 best_params_repr = repr(bp)
-                if len(best_params_repr) > 180:
-                    best_params_repr = best_params_repr[:177] + "..."
+                if len(best_params_repr) > 2400:
+                    best_params_repr = best_params_repr[:2397] + "..."
             except Exception:
                 best_params_repr = None
 
@@ -1359,11 +1360,22 @@ def _baux_exec_script(src, reset_ns=False):
         sys.stdout = old_out
         sys.stderr = old_err
 
+    err_txt = err_buf.getvalue()
+    err_line = None
+    if not ok and err_txt:
+        m = re.findall(r'<playground>", line (\d+)', err_txt)
+        if m:
+            try:
+                err_line = int(m[-1])
+            except Exception:
+                err_line = None
+
     summary = _summarize_state(_REPL_NS)
     return json.dumps({
         "ok": ok,
         "stdout": out_buf.getvalue(),
-        "stderr": err_buf.getvalue(),
+        "stderr": err_txt,
+        "error_line": err_line,
         "incomplete": False,
         "elapsed_ms": round(dt_ms, 2),
         "state": summary,
@@ -1392,11 +1404,20 @@ def _baux_repl_push(line):
     err_txt = err_buf.getvalue()
     if err_txt and not incomplete:
         ok = False
+    err_line = None
+    if not ok and err_txt:
+        m = re.findall(r'<playground>", line (\d+)', err_txt)
+        if m:
+            try:
+                err_line = int(m[-1])
+            except Exception:
+                err_line = None
     summary = _summarize_state(_REPL_NS)
     return json.dumps({
         "ok": ok,
         "stdout": out_buf.getvalue(),
         "stderr": err_txt,
+        "error_line": err_line,
         "incomplete": incomplete,
         "elapsed_ms": round(dt_ms, 2),
         "state": summary,
@@ -1424,7 +1445,9 @@ async function ensureRuntime() {
     self.postMessage({
       type: "status",
       stage: "downloading_manifest",
-      detail: "Loading Python...",
+      step: 1,
+      total_steps: 4,
+      detail: "Fetching manifest (1/4)...",
     });
     const manifest = await fetchJsonStrict("./repl_manifest.json", { cache: "no-store" });
     const zipSpec = manifest.baux_py_zip;
@@ -1436,7 +1459,9 @@ async function ensureRuntime() {
     self.postMessage({
       type: "status",
       stage: "downloading_wasm",
-      detail: "Loading Python...",
+      step: 2,
+      total_steps: 4,
+      detail: "Loading Pyodide & WASM (2/4)...",
     });
     let webGpuPromise = Promise.resolve();
     const bridgePromise = loadVerifiedScript("./webgpu_bridge.js", companion.webgpu_bridge_js || null).then(() => {
@@ -1468,7 +1493,9 @@ async function ensureRuntime() {
     self.postMessage({
       type: "status",
       stage: "loading_numpy",
-      detail: "Loading packages...",
+      step: 3,
+      total_steps: 4,
+      detail: "Loading NumPy & workspace (3/4)...",
     });
 
     pyodide.FS.mkdirTree("/home/pyodide/baux_pkg");
@@ -1492,7 +1519,9 @@ async function ensureRuntime() {
     self.postMessage({
       type: "status",
       stage: "mounting_baux",
-      detail: "Initializing runtime...",
+      step: 4,
+      total_steps: 4,
+      detail: "Mounting baux runtime (4/4)...",
     });
 
     if (pyodide._api && typeof pyodide._api.loadDynlib === "function") {
@@ -1519,6 +1548,8 @@ async function ensureRuntime() {
     self.postMessage({
       type: "status",
       stage: "ready",
+      step: 4,
+      total_steps: 4,
       detail: "Ready",
       caps: buildCaps(),
       opfs_mounted: opfsMounted,

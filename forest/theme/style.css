@@ -871,6 +871,23 @@ body:has(#py-playground-root) article > section.block > .tree-node > header {
 body:has(#py-playground-root) h1 {
   margin-bottom: 0.35rem;
 }
+.py-page-lead {
+  font-family: var(--font-serif);
+  font-size: 0.98rem;
+  line-height: 1.5;
+  color: var(--fg-secondary);
+  margin-top: 0;
+  margin-bottom: 0.55rem;
+}
+.py-page-lead code {
+  font-family: var(--font-mono);
+  font-size: 0.88em;
+  padding: 0.08rem 0.32rem;
+  background: var(--bg-surface);
+  border: 1px solid var(--hairline);
+  border-radius: 3px;
+  color: var(--fg-primary);
+}
 @media (max-width: 900px) {
   body:has(#py-playground-root) .masthead-inner,
   body:has(#py-playground-root) .docs-toolbar,
@@ -891,6 +908,9 @@ body:has(#py-playground-root) h1 {
     width: 100%;
     max-width: 100%;
     box-sizing: border-box;
+  }
+  .py-ex-menu {
+    left: 0;
   }
 }
 
@@ -958,6 +978,28 @@ body:has(#py-playground-root) h1 {
   border-bottom: 1px solid var(--hairline); border-radius: 5px 5px 0 0;
   background: var(--bg-surface);
 }
+.py-preset-bar {
+  display: flex; align-items: center; gap: 0.55rem;
+  padding: 0.36rem 0.85rem; border-bottom: 1px solid var(--hairline);
+  background: var(--bg-canvas); min-height: 27px;
+}
+.py-preset-tag {
+  flex: 0 0 auto; font-family: var(--font-mono); font-size: 0.69rem;
+  font-weight: 500; color: var(--accent); background: var(--bg-surface);
+  border: 1px solid var(--hairline); border-radius: 2px;
+  padding: 0.06rem 0.38rem; line-height: 1.3;
+}
+.py-preset-desc {
+  flex: 1 1 auto; min-width: 0; font-family: var(--font-serif);
+  font-size: 0.82rem; line-height: 1.35; color: var(--fg-muted);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.py-preset-file {
+  flex: 0 0 auto; margin-left: auto; font-family: var(--font-mono);
+  font-size: 0.68rem; color: var(--fg-muted); background: var(--bg-surface);
+  border: 1px solid var(--hairline); border-radius: 999px;
+  padding: 0.05rem 0.45rem; white-space: nowrap;
+}
 .py-ex-control {
   display: inline-flex; align-items: stretch; min-width: 0; max-width: 100%;
   border: 1px solid var(--hairline-mid); border-radius: 3px;
@@ -1006,8 +1048,8 @@ body:has(#py-playground-root) h1 {
 }
 .py-ex-step:hover { background: var(--bg-surface); color: var(--fg-primary); }
 .py-ex-menu {
-  position: absolute; top: 100%; left: -1px; margin-top: -1px;
-  width: min(560px, calc(100% + 2px)); max-height: min(520px, 76vh); overflow-y: auto;
+  position: absolute; top: 100%; left: 0.85rem; margin-top: -1px;
+  width: min(470px, calc(100% - 1.7rem)); max-height: min(520px, 76vh); overflow-y: auto;
   z-index: 40; border: 1px solid var(--hairline-mid); border-top: 1px solid var(--hairline);
   border-radius: 0 0 5px 5px; background: var(--bg-canvas);
   box-shadow: 0 12px 28px rgba(17, 17, 17, 0.1);
@@ -1115,6 +1157,10 @@ html[data-theme="dark"] .py-btn-primary:hover { color: #0f1115; }
   .py-ex-opt-name { flex: 1 1 auto; min-width: 0; font-size: 0.84rem; }
   .py-ex-opt-tag { font-size: 0.64rem; }
   .py-ex-opt-desc { font-size: 0.74rem; line-height: 1.28; }
+  .py-preset-bar { flex-wrap: wrap; gap: 0.25rem 0.45rem; padding: 0.36rem 0.6rem; }
+  .py-preset-desc { order: 3; flex: 1 1 100%; white-space: normal; font-size: 0.78rem; line-height: 1.32; }
+  .py-preset-file { margin-left: auto; font-size: 0.65rem; }
+  .py-key-hint { display: none; }
 }
 
 .py-mob-tabs { display: none; }
@@ -1146,19 +1192,86 @@ html[data-theme="dark"] .py-btn-primary:hover { color: #0f1115; }
 }
 
 .py-pg-grid {
-  display: grid; grid-template-columns: minmax(0, 0.96fr) minmax(0, 1.04fr); align-items: stretch;
-  border-radius: 0 0 5px 5px; overflow: hidden;
+  display: grid;
+  grid-template-columns: var(--py-split-x, 48%) 6px minmax(0, 1fr);
+  align-items: stretch;
+  height: clamp(480px, calc(100vh - 305px), 760px);
+  border-radius: 0 0 5px 5px;
+  overflow: hidden;
 }
 @media (max-width: 900px) {
-  .py-pg-grid { grid-template-columns: 1fr; }
+  .py-pg-grid {
+    grid-template-columns: 1fr;
+    height: auto;
+  }
 }
 .py-pg-left {
-  display: flex; flex-direction: column; min-width: 0; border-right: 1px solid var(--hairline);
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border-right: 0;
 }
 @media (max-width: 900px) {
-  .py-pg-left { border-right: 0; }
+  .py-pg-left {
+    min-height: auto;
+    overflow: visible;
+  }
 }
-.py-pg-right { display: flex; flex-direction: column; min-width: 0; background: var(--bg-canvas); }
+.py-col-resizer {
+  position: relative;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+  background: var(--bg-surface);
+  border-left: 1px solid var(--hairline);
+  border-right: 1px solid var(--hairline);
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  z-index: 10;
+  flex: 0 0 6px;
+  transition: background-color 0.12s ease;
+}
+.py-col-resizer::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 2px;
+  height: 24px;
+  border-radius: 1px;
+  background: var(--hairline-mid);
+  transition: background-color 0.12s ease, height 0.12s ease;
+}
+.py-col-resizer:hover,
+.py-col-resizer.is-dragging {
+  background: var(--bg-surface);
+}
+.py-col-resizer:hover::after,
+.py-col-resizer.is-dragging::after {
+  background: var(--accent);
+  height: 36px;
+}
+@media (max-width: 900px) {
+  .py-col-resizer { display: none !important; }
+}
+.py-pg-right {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--bg-canvas);
+}
+@media (max-width: 900px) {
+  .py-pg-right {
+    min-height: auto;
+    overflow: visible;
+  }
+}
 
 .py-subbar {
   display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;
@@ -1185,14 +1298,62 @@ html[data-theme="dark"] .py-btn-primary:hover { color: #0f1115; }
 }
 .py-ghost-btn:hover { border-color: var(--hairline-strong); color: var(--fg-primary); }
 
-.py-ed-pane { display: flex; flex-direction: column; border-bottom: 1px solid var(--hairline); min-height: 0; }
-.py-ed-shell {
-  display: flex; height: clamp(325px, 46vh, 450px);
-  background: var(--bg-code); overflow: hidden;
+.py-ed-pane {
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 var(--py-ed-h, 58%);
+  min-height: 0;
+  border-bottom: 0;
+}
+.py-row-resizer {
+  position: relative;
+  height: 6px;
+  width: 100%;
+  cursor: row-resize;
+  background: var(--bg-surface);
+  border-top: 1px solid var(--hairline);
+  border-bottom: 1px solid var(--hairline);
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  z-index: 10;
+  flex: 0 0 6px;
+  transition: background-color 0.12s ease;
+}
+.py-row-resizer::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 24px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--hairline-mid);
+  transition: background-color 0.12s ease, width 0.12s ease;
+}
+.py-row-resizer:hover,
+.py-row-resizer.is-dragging {
+  background: var(--bg-surface);
+}
+.py-row-resizer:hover::after,
+.py-row-resizer.is-dragging::after {
+  background: var(--accent);
+  width: 36px;
 }
 @media (max-width: 900px) {
-  .py-ed-pane { border-bottom: 0; }
-  .py-ed-shell { height: clamp(340px, 60vh, 520px); }
+  .py-ed-pane { flex: none; border-bottom: 0; }
+  .py-row-resizer { display: none !important; }
+}
+.py-ed-shell {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  background: var(--bg-code);
+  overflow: hidden;
+}
+@media (max-width: 900px) {
+  .py-ed-shell { height: clamp(340px, 60vh, 520px); flex: none; }
 }
 .py-ed-gutter {
   flex: 0 0 auto; min-width: 2.55rem;
@@ -1203,6 +1364,15 @@ html[data-theme="dark"] .py-btn-primary:hover { color: #0f1115; }
   user-select: none; -webkit-user-select: none;
   font-variant-numeric: tabular-nums; font-variant-ligatures: none;
 }
+.py-ed-gutter-err {
+  color: #dc2626 !important;
+  font-weight: 700;
+  background: rgba(220, 38, 38, 0.12);
+}
+html[data-theme="dark"] .py-ed-gutter-err {
+  color: #f87171 !important;
+  background: rgba(248, 113, 113, 0.18);
+}
 .py-ed-stage { position: relative; flex: 1 1 auto; min-width: 0; height: 100%; overflow: hidden; background: var(--bg-code); }
 .py-ed-stage:focus-within { box-shadow: inset 2px 0 0 var(--accent); }
 .py-ed-highlight, .py-ed-textarea {
@@ -1211,18 +1381,64 @@ html[data-theme="dark"] .py-btn-primary:hover { color: #0f1115; }
   letter-spacing: 0; word-spacing: 0; font-weight: 400; font-variant-ligatures: none;
 }
 .py-ed-highlight {
-  position: absolute; inset: 0; padding: 0.7rem 2.4rem 1.8rem 0.85rem;
+  position: absolute; inset: 0; padding: 0.7rem 0.9rem 1.8rem 0.9rem;
   background: transparent; color: var(--fg-primary); overflow: hidden; pointer-events: none;
 }
 .py-ed-highlight .code-comment { font-style: normal; }
+.py-ed-highlight .code-decorator, .code-decorator { color: #b45309; }
+.py-ed-highlight .code-def, .code-def { font-weight: 600; color: #1e3a8a; }
+.py-ed-highlight .code-builtin, .code-builtin { color: #0f766e; }
+html[data-theme="dark"] .py-ed-highlight .code-decorator,
+html[data-theme="dark"] .code-decorator { color: #fbbf24; }
+html[data-theme="dark"] .py-ed-highlight .code-def,
+html[data-theme="dark"] .code-def { color: #7aa2f7; }
+html[data-theme="dark"] .py-ed-highlight .code-builtin,
+html[data-theme="dark"] .code-builtin { color: #2dd4bf; }
+
 .py-ed-textarea {
   position: absolute; inset: 0; width: 100%; height: 100%;
-  padding: 0.7rem 0.85rem 1.8rem 0.85rem;
+  padding: 0.7rem 0.9rem 1.8rem 0.9rem;
   background: transparent; color: transparent; caret-color: var(--fg-primary);
   overflow: auto; resize: none; outline: none; scrollbar-width: thin;
 }
 .py-ed-textarea::selection { background: rgba(30, 58, 138, 0.2); }
 html[data-theme="dark"] .py-ed-textarea::selection { background: rgba(122, 162, 247, 0.28); }
+
+.py-ed-stage.is-wrapped .py-ed-highlight,
+.py-ed-stage.is-wrapped .py-ed-textarea,
+.py-ed-shell.is-wrapped .py-ed-highlight,
+.py-ed-shell.is-wrapped .py-ed-textarea {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.py-ed-shell.is-wrapped .py-ed-gutter {
+  display: none;
+}
+
+.py-ed-active-band {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 19.5px;
+  pointer-events: none;
+  background: rgba(30, 58, 138, 0.05);
+}
+html[data-theme="dark"] .py-ed-active-band {
+  background: rgba(122, 162, 247, 0.08);
+}
+.py-ed-err-marker {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 19.5px;
+  pointer-events: none;
+  background: rgba(220, 38, 38, 0.12);
+  border-left: 2px solid #dc2626;
+}
+html[data-theme="dark"] .py-ed-err-marker {
+  background: rgba(248, 113, 113, 0.18);
+  border-left-color: #f87171;
+}
 
 .py-con-pane { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
 .py-pg-console {
@@ -1233,30 +1449,105 @@ html[data-theme="dark"] .py-ed-textarea::selection { background: rgba(122, 162, 
   white-space: pre-wrap; word-break: break-word; scrollbar-width: thin;
 }
 @media (max-width: 900px) {
-  .py-pg-console { height: clamp(270px, 52vh, 460px); }
+  .py-pg-console { height: clamp(270px, 52vh, 460px); flex: none; }
 }
 .py-out-stdout { color: var(--fg-primary); }
 .py-out-stderr { color: #dc2626; }
 html[data-theme="dark"] .py-out-stderr { color: #f87171; }
 .py-out-cmd { color: var(--accent); font-weight: 500; }
 .py-out-muted { color: var(--fg-muted); font-style: italic; }
+.py-out-turn {
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px dashed var(--hairline);
+}
+.py-err-link {
+  display: inline;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: #dc2626;
+  font-family: var(--font-mono);
+  font-size: inherit;
+  line-height: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+  font-weight: 600;
+}
+html[data-theme="dark"] .py-err-link {
+  color: #f87171;
+}
+.py-err-link:hover {
+  background: rgba(220, 38, 38, 0.1);
+  border-radius: 2px;
+}
+html[data-theme="dark"] .py-err-link:hover {
+  background: rgba(248, 113, 113, 0.15);
+}
+
+.py-repl-compl {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.3rem 0.45rem;
+  padding: 0.28rem 0.85rem;
+  border-top: 1px solid var(--hairline);
+  background: var(--bg-surface);
+  max-height: 4.8rem;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+.py-repl-compl-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.1rem 0.42rem;
+  border: 1px solid var(--hairline-mid);
+  border-radius: 3px;
+  background: var(--bg-canvas);
+  color: var(--fg-primary);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  line-height: 1.3;
+  cursor: pointer;
+  transition: all 0.1s ease;
+}
+.py-repl-compl-chip:hover,
+.py-repl-compl-chip:focus-visible {
+  border-color: var(--accent);
+  background: var(--bg-surface);
+  color: var(--accent);
+  outline: none;
+}
 
 .py-repl-prompt-row {
-  display: flex; align-items: center; gap: 0.45rem;
+  display: flex; align-items: flex-start; gap: 0.45rem;
   padding: 0.38rem 0.85rem; border-top: 1px solid var(--hairline);
   background: var(--bg-surface);
 }
-.py-repl-glyph { font-family: var(--font-mono); font-size: 0.82rem; font-weight: 600; color: var(--accent); }
+.py-repl-glyph {
+  font-family: var(--font-mono); font-size: 0.82rem; font-weight: 600; color: var(--accent);
+  line-height: 1.45; padding-top: 0.16rem; user-select: none;
+}
 .py-repl-input {
   flex: 1; min-width: 0; border: 0; border-radius: 0; padding: 0.16rem 0.1rem;
   background: transparent; color: var(--fg-primary);
-  font-family: var(--font-mono); font-size: 0.78rem; outline: none;
+  font-family: var(--font-mono); font-size: 0.78rem; line-height: 1.45;
+  resize: none; overflow-y: auto; max-height: 5.5rem; outline: none;
+  scrollbar-width: thin;
 }
 @media (max-width: 640px) {
   .py-repl-input { font-size: 16px; }
 }
+.py-repl-hint {
+  font-family: var(--font-mono); font-size: 0.65rem; color: var(--fg-muted);
+  white-space: nowrap; align-self: center; padding-left: 0.3rem; user-select: none;
+}
 
-.py-inspector-body { padding: 0; display: flex; flex-direction: column; min-width: 0; gap: 0; }
+.py-inspector-body {
+  padding: 0; display: flex; flex-direction: column; min-width: 0; gap: 0;
+  flex: 1 1 auto; overflow-y: auto; scrollbar-width: thin;
+}
 .py-inspector-empty { margin: 0.9rem; font-size: 0.84rem; color: var(--fg-muted); line-height: 1.5; }
 .py-empty-stage {
   padding: 2rem 1.4rem; display: flex; flex-direction: column; align-items: flex-start; gap: 0.75rem;
@@ -1268,12 +1559,72 @@ html[data-theme="dark"] .py-out-stderr { color: #f87171; }
   margin: 0; font-family: var(--font-serif); font-size: 0.88rem; color: var(--fg-muted);
   max-width: 48ch; line-height: 1.5;
 }
+.py-boot-banner {
+  width: 100%;
+  max-width: 380px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  margin-top: 0.6rem;
+  padding: 0.75rem 0.85rem;
+  border: 1px solid var(--hairline);
+  border-radius: 4px;
+  background: var(--bg-surface);
+}
+.py-boot-bar {
+  width: 100%;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--hairline);
+  overflow: hidden;
+}
+.py-boot-fill {
+  height: 100%;
+  border-radius: 3px;
+  background: var(--accent);
+  transition: width 0.25s ease;
+}
+.py-boot-step {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--fg-muted);
+}
+.py-boot-label {
+  font-weight: 500;
+  color: var(--fg-secondary);
+}
 
 .py-fig-pane { background: var(--bg-canvas); }
 .py-fig-pane + .py-fig-pane,
 .py-telemetry-band + .py-fig-pane { border-top: 1px solid var(--hairline); }
 .py-fig-hdr {
+  display: flex; justify-content: space-between; align-items: flex-start; gap: 0.6rem;
   padding: 0.48rem 0.85rem; background: var(--bg-surface); border-bottom: 1px solid var(--hairline);
+}
+.py-fig-hdr-main {
+  flex: 1 1 auto; min-width: 0;
+}
+.py-fig-hdr-actions {
+  flex: 0 0 auto; display: inline-flex; align-items: center; gap: 0.45rem;
+}
+.py-fig-readout {
+  display: inline-flex; align-items: center; gap: 0.25rem;
+  font-family: var(--font-mono); font-size: 0.69rem; font-variant-numeric: tabular-nums;
+  color: var(--fg-primary); background: var(--bg-canvas); border: 1px solid var(--hairline);
+  border-radius: 3px; padding: 0.12rem 0.42rem; white-space: nowrap;
+}
+.py-fig-readout:empty { display: none; }
+.py-fig-save {
+  border: 1px solid var(--hairline); border-radius: 2px; padding: 0.14rem 0.48rem;
+  background: var(--bg-canvas); color: var(--fg-secondary);
+  font-family: var(--font-mono); font-size: 0.69rem; line-height: 1.3; cursor: pointer;
+  white-space: nowrap; transition: all 0.12s ease;
+}
+.py-fig-save:hover {
+  border-color: var(--hairline-strong); color: var(--fg-primary); background: var(--bg-surface);
 }
 .py-fig-title {
   font-family: var(--font-serif); font-size: 0.9rem; font-weight: 600;
@@ -1388,6 +1739,28 @@ html[data-theme="dark"] .py-out-stderr { color: #f87171; }
 .py-svg-band-fill { fill: var(--bench-c-enn1); fill-opacity: 0.22; stroke: none; }
 .py-svg-band-true { stroke: var(--bench-c-enn2); stroke-width: 1.6; stroke-dasharray: 4 3; }
 .py-svg-mw-line { stroke: var(--bench-c-enn3); stroke-width: 1.25; stroke-dasharray: 2.5 2.5; opacity: 0.85; }
+.py-svg-overlay {
+  fill: transparent;
+  cursor: crosshair;
+}
+.py-svg-crosshair {
+  stroke: var(--fg-muted);
+  stroke-dasharray: 2.5 2.5;
+  stroke-width: 1;
+  pointer-events: none;
+}
+.py-svg-hover-dot {
+  pointer-events: none;
+}
+.py-svg-coil-hit {
+  cursor: pointer;
+  transition: opacity 0.12s ease, stroke-width 0.12s ease;
+}
+.py-svg-coil-hit:hover {
+  stroke: var(--accent) !important;
+  stroke-width: 2 !important;
+  filter: drop-shadow(0 0 3px var(--accent));
+}
 .py-heat-0  { fill: #1d4ed8; }
 .py-heat-1  { fill: #2563eb; }
 .py-heat-2  { fill: #3b82f6; }

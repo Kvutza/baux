@@ -8,6 +8,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import zipfile
 from dataclasses import dataclass
@@ -660,8 +661,6 @@ print(json.dumps({
     "normals": arr.tolist(),
 }))
 """
-    import sys
-
     native_proc = subprocess.run(
         [sys.executable, "-c", native_code],
         env={"PATH": os.environ.get("PATH", ""), "PYTHONPATH": str(NATIVE_INSPECT_DIR)},
@@ -680,23 +679,65 @@ print(json.dumps({
 
 
 def _mlpresets() -> dict[str, str]:
-    text = (REPO_ROOT / "admin/ui/py_repl.ml").read_text(encoding="utf-8")
-    m = re.search(
-        r"let presets\s*:\s*preset list\s*=\s*\[(.*?)\n  \]", text, flags=re.DOTALL
-    )
-    assert m, "presets block not found in admin/ui/py_repl.ml"
-    body = m.group(1)
+    tomllib = pytest.importorskip("tomllib")
+    presets_toml = REPO_ROOT / "examples" / "repl" / "presets.toml"
+    assert presets_toml.is_file(), f"presets.toml not found: {presets_toml}"
+
+    with open(presets_toml, "rb") as f:
+        data = tomllib.load(f)
+
+    presets_list = data.get("presets", [])
     presets: dict[str, str] = {}
+    for p in presets_list:
+        pid = p["id"]
+        py_file = REPO_ROOT / "examples" / "repl" / f"{pid}.py"
+        assert py_file.is_file(), f"Missing Python script: {py_file}"
+        presets[pid] = py_file.read_text(encoding="utf-8")
+
+    assert len(presets) == 7, f"expected 7 presets, found {list(presets)}"
+
+    ml_path = REPO_ROOT / "admin" / "ui" / "py_presets.ml"
+    assert ml_path.is_file(), f"admin/ui/py_presets.ml not found: {ml_path}"
+
+    gen_tool = REPO_ROOT / "admin" / "tools" / "gen-repl-presets"
+    assert gen_tool.is_file(), f"gen-repl-presets tool not found: {gen_tool}"
+
+    proc = subprocess.run(
+        [sys.executable, str(gen_tool), "--check"],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert proc.returncode == 0, (
+        f"admin/ui/py_presets.ml sync check failed:\n{proc.stderr}\n{proc.stdout}"
+    )
+
+    ml_content = ml_path.read_text(encoding="utf-8")
+    for pid in presets:
+        assert f'id = "{pid}";' in ml_content, (
+            f"Preset {pid} not found in admin/ui/py_presets.ml"
+        )
+
+    m = re.search(
+        r"let presets\s*:\s*preset list\s*=\s*\[(.*?)\n  \]",
+        ml_content,
+        flags=re.DOTALL,
+    )
+    assert m, "presets block not found in admin/ui/py_presets.ml"
     for block in re.finditer(
         r'\{\s*id\s*=\s*"([^"]+)";\s*label\s*=.*?code\s*=\s*(.*?)\s*;\s*\}',
-        body,
+        m.group(1),
         flags=re.DOTALL,
     ):
         pid, raw_expr = block.group(1), block.group(2)
         parts = re.findall(r'"((?:\\.|[^"\\])*)"', raw_expr)
-        code = "".join(bytes(p, "utf-8").decode("unicode_escape") for p in parts)
-        presets[pid] = code
-    assert len(presets) == 7, f"expected 7 presets, found {list(presets)}"
+        code = "".join(bytes(pt, "utf-8").decode("unicode_escape") for pt in parts)
+        assert pid in presets, f"Unexpected preset {pid} in py_presets.ml"
+        assert presets[pid] == code, (
+            f"Code mismatch for preset {pid} between .py and .ml"
+        )
+
     return presets
 
 

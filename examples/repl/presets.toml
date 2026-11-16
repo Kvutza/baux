@@ -1,0 +1,44 @@
+# examples/repl/presets.toml
+# Registry of Python Playground presets.
+
+[[presets]]
+id = "sparc_pf"
+label = "SPARC Tokamak: 8-PF Equilibrium"
+tag = "8D · Tokamak"
+description = "Optimize 8 SPARC PF coil currents for flux-surface and X-point match."
+
+[[presets]]
+id = "kh_pde"
+label = "2D Kelvin-Helmholtz Shear PDE"
+tag = "10D · FFT PDE"
+description = "Control a 2D spectral shear layer to suppress vortex enstrophy."
+
+[[presets]]
+id = "oxcaml_24d"
+label = "24D Levy: ENN vs Conformal vs Zero"
+tag = "24D · OxCaml"
+description = "Compare ENN, Conformal ENN, and TuRBO-Zero on 24D Levy."
+
+[[presets]]
+id = "metric_cal"
+label = "Non-Euclidean ENN & McShane-Whitney"
+tag = "1D · Metric gap"
+description = "Compare Euclidean, conformal, and hyperbolic ENN uncertainty on a 1D gap."
+
+[[presets]]
+id = "quant_deadzone"
+label = "FP16 Quantization Deadzone on SO(4)"
+tag = "6D · SO(4)"
+description = "Compare float16 vs float32 precision on SO(4) Procrustes descent."
+
+[[presets]]
+id = "stiefel_fir"
+label = "Mixed Manifold + Stein Shrinkage"
+tag = "Mixed · Stein"
+description = "Optimize a mixed-type FIR filter under observation noise with Stiefel shrinkage."
+
+[[presets]]
+id = "async_hartmann6"
+label = "Async Hartmann-6D"
+tag = "6D · Async"
+description = "Asynchronous worker loop with straggler cancellation and checkpointing."

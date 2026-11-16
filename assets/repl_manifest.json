@@ -7,8 +7,8 @@
   "companion_files": {
     "repl_worker_js": {
       "path": "repl_worker.js",
-      "sha256": "fac262b9092d6c99756ffabb5845a4c45ad64b89be6770045556cdef0958e871",
-      "size": 51912
+      "sha256": "8d9bb6fdb69bc3766d411e681e6cfa1dd356a052efe44a340749943f391f1e05",
+      "size": 52564
     },
     "webgpu_bridge_js": {
       "path": "webgpu_bridge.js",

@@ -60,16 +60,24 @@ async function flushOpfs() {
   }
 }
 
+function withCacheVer(url, spec) {
+  if (spec && typeof spec.sha256 === "string" && spec.sha256.length >= 12) {
+    return url + (url.includes("?") ? "&v=" : "?v=") + spec.sha256.slice(0, 12);
+  }
+  return url;
+}
+
 async function loadVerifiedScript(url, spec) {
+  const resolvedUrl = withCacheVer(url, spec);
   if (
     spec &&
     typeof spec.size === "number" &&
     typeof spec.sha256 === "string" &&
     spec.sha256.length === 64
   ) {
-    await fetchVerifiedBytes(url, spec.size, spec.sha256);
+    await fetchVerifiedBytes(resolvedUrl, spec.size, spec.sha256);
   }
-  importScripts(url);
+  importScripts(resolvedUrl);
 }
 
 function checkedPosInt(val) {
@@ -828,7 +836,11 @@ async function initWebGpuChannel(workerSpec) {
       typeof workerSpec.sha256 === "string" &&
       workerSpec.sha256.length === 64
     ) {
-      await fetchVerifiedBytes("./" + workerSpec.path, workerSpec.size, workerSpec.sha256);
+      await fetchVerifiedBytes(
+        withCacheVer("./" + workerSpec.path, workerSpec),
+        workerSpec.size,
+        workerSpec.sha256
+      );
     }
 
     const initialSab = new SharedArrayBuffer(rpc.HEADER_BYTES + rpc.DEFAULT_STAGING_BYTES);
@@ -844,7 +856,7 @@ async function initWebGpuChannel(workerSpec) {
         }
       };
 
-      const worker = new Worker("./webgpu_worker.js");
+      const worker = new Worker(withCacheVer("./webgpu_worker.js", workerSpec));
       const timer = setTimeout(() => {
         webgpuReady = false;
         webgpuAdapterLabel = "";
@@ -855,7 +867,7 @@ async function initWebGpuChannel(workerSpec) {
         }
         webgpuWorker = null;
         done();
-      }, 15000);
+      }, 2500);
 
       worker.onmessage = (event) => {
         const msg = event.data || {};
@@ -940,8 +952,8 @@ function bytesToHex(buffer) {
   return parts.join("");
 }
 
-async function fetchJsonStrict(url) {
-  const resp = await fetch(url);
+async function fetchJsonStrict(url, opts) {
+  const resp = await fetch(url, opts);
   if (!resp.ok) {
     throw new Error("HTTP " + resp.status + " fetching " + url);
   }
@@ -1414,36 +1426,39 @@ async function ensureRuntime() {
       stage: "downloading_manifest",
       detail: "Loading Python...",
     });
-    const manifest = await fetchJsonStrict("./repl_manifest.json");
+    const manifest = await fetchJsonStrict("./repl_manifest.json", { cache: "no-store" });
     const zipSpec = manifest.baux_py_zip;
     const companion =
       manifest && typeof manifest.companion_files === "object" && manifest.companion_files !== null
         ? manifest.companion_files
         : {};
 
-    await Promise.all([
-      loadVerifiedScript("./webgpu_bridge.js", companion.webgpu_bridge_js || null),
-      loadVerifiedScript("./oxcaml_eval.js", companion.oxcaml_eval_js || null),
-    ]);
-
-    if (typeof BauxWebGpu === "undefined" || !BauxWebGpu.SAB_RPC) {
-      throw new Error("webgpu_bridge.js did not expose BauxWebGpu.SAB_RPC");
-    }
-    if (!globalThis.BauxOxcaml || typeof globalThis.BauxOxcaml.evalOne !== "function") {
-      throw new Error("oxcaml_eval.js did not expose globalThis.BauxOxcaml");
-    }
-    globalThis._baux_oxcaml = globalThis.BauxOxcaml;
-
     self.postMessage({
       type: "status",
       stage: "downloading_wasm",
       detail: "Loading Python...",
     });
-    const [pyodide, zipBuf] = await Promise.all([
+    let webGpuPromise = Promise.resolve();
+    const bridgePromise = loadVerifiedScript("./webgpu_bridge.js", companion.webgpu_bridge_js || null).then(() => {
+      if (typeof BauxWebGpu === "undefined" || !BauxWebGpu.SAB_RPC) {
+        throw new Error("webgpu_bridge.js did not expose BauxWebGpu.SAB_RPC");
+      }
+      webGpuPromise = initWebGpuChannel(companion.webgpu_worker_js || null);
+    });
+    const envPromise = fetch("./baux_env.json", { credentials: "same-origin", cache: "no-cache" })
+      .then((resp) => (resp.ok ? resp.arrayBuffer() : null))
+      .catch(() => null);
+    const [, , pyodide, zipBuf, envBuf] = await Promise.all([
+      bridgePromise,
+      loadVerifiedScript("./oxcaml_eval.js", companion.oxcaml_eval_js || null),
       loadPyodide({ indexURL: "./pyodide/" }),
-      fetchVerifiedBytes("./" + zipSpec.path, zipSpec.size, zipSpec.sha256),
-      initWebGpuChannel(companion.webgpu_worker_js || null),
+      fetchVerifiedBytes(withCacheVer("./" + zipSpec.path, zipSpec), zipSpec.size, zipSpec.sha256),
+      envPromise,
     ]);
+    if (!globalThis.BauxOxcaml || typeof globalThis.BauxOxcaml.evalOne !== "function") {
+      throw new Error("oxcaml_eval.js did not expose globalThis.BauxOxcaml");
+    }
+    globalThis._baux_oxcaml = globalThis.BauxOxcaml;
 
     applyInterruptBuffer(pyodide);
     // Register all bauxgpu_* C symbols on Emscripten wasmImports BEFORE
@@ -1455,22 +1470,31 @@ async function ensureRuntime() {
       stage: "loading_numpy",
       detail: "Loading packages...",
     });
-    await pyodide.loadPackage(["numpy"]);
+
+    pyodide.FS.mkdirTree("/home/pyodide/baux_pkg");
+    pyodide.unpackArchive(zipBuf, "zip", { extractDir: "/home/pyodide/baux_pkg" });
+
+    if (envBuf) {
+      pyodide.FS.writeFile("/home/pyodide/baux_env.json", new Uint8Array(envBuf));
+    }
+
+    const soPath = "/home/pyodide/baux_pkg/baux/baux_rust.cpython-312-wasm32-emscripten.so";
+    if (!pyodide.FS.analyzePath(soPath).exists) {
+      throw new Error("Missing compiled baux_rust.cpython-312-wasm32-emscripten.so in baux_py.zip");
+    }
+
+    await Promise.all([
+      pyodide.loadPackage(["numpy"]),
+      mountWorkspaceFs(pyodide, wantOpfsMount),
+      webGpuPromise,
+    ]);
 
     self.postMessage({
       type: "status",
       stage: "mounting_baux",
       detail: "Initializing runtime...",
     });
-    await mountWorkspaceFs(pyodide, wantOpfsMount);
 
-    pyodide.FS.mkdirTree("/home/pyodide/baux_pkg");
-    pyodide.unpackArchive(zipBuf, "zip", { extractDir: "/home/pyodide/baux_pkg" });
-
-    const soPath = "/home/pyodide/baux_pkg/baux/baux_rust.cpython-312-wasm32-emscripten.so";
-    if (!pyodide.FS.analyzePath(soPath).exists) {
-      throw new Error("Missing compiled baux_rust.cpython-312-wasm32-emscripten.so in baux_py.zip");
-    }
     if (pyodide._api && typeof pyodide._api.loadDynlib === "function") {
       await pyodide._api.loadDynlib(soPath, false);
     } else if (typeof pyodide.loadDynamicLibrary === "function") {
@@ -1490,16 +1514,6 @@ async function ensureRuntime() {
       });
     }
 
-    try {
-      const envResp = await fetch("./baux_env.json", { credentials: "same-origin" });
-      if (envResp.ok) {
-        const envBuf = await envResp.arrayBuffer();
-        pyodide.FS.writeFile("/home/pyodide/baux_env.json", new Uint8Array(envBuf));
-      }
-    } catch (_) {
-      // Optional bundled physics metadata; offline or minimal bundles may omit it.
-    }
-
     await pyodide.runPythonAsync(BOOTSTRAP_PY);
 
     self.postMessage({
@@ -1511,6 +1525,11 @@ async function ensureRuntime() {
     });
     return pyodide;
   })().catch((err) => {
+    self.postMessage({
+      type: "status",
+      stage: "error",
+      detail: err && err.message ? String(err.message) : String(err),
+    });
     runtimePromise = null;
     throw err;
   });

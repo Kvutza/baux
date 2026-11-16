@@ -1159,7 +1159,12 @@ let mount_viewer (root : element Js.t) =
     Dom.appendChild grid pane_b;
     Dom.appendChild shell grid;
 
-    (* Metadata & Hover Telemetry Deck *)
+    (* Metadata & Formula Strip + Hover Telemetry Deck *)
+    let formula_strip = mk_div ~cls:"oxb-formula-row" () in
+    let formula_math = mk_div ~cls:"oxb-formula-math" () in
+    Dom.appendChild formula_strip formula_math;
+    Dom.appendChild shell formula_strip;
+
     let meta_strip = mk_div ~cls:"tcv-legend-strip oxb-meta-strip" () in
     let meta_chips = mk_div ~cls:"tcv-legend-items oxb-meta-chips" () in
     let chip_domain = mk_span ~cls:"tcv-leg-chip oxb-meta-chip" () in
@@ -2260,6 +2265,16 @@ let mount_viewer (root : element Js.t) =
         in
         append_sub_parts badge_b_sub f_parts
       end;
+
+      (* Formula expression strip *)
+      let latex = Bench_formulas.formula_latex sp.id in
+      let render_fn = Js.Unsafe.get Dom_html.window (js "__bauxRenderMath") in
+      if Js.Optdef.test (Obj.magic render_fn) then (
+        clear_children formula_math;
+        ignore
+          (Js.Unsafe.fun_call render_fn
+             [| Js.Unsafe.inject formula_math; Js.Unsafe.inject (js latex); Js.Unsafe.inject Js._false |]))
+      else set_text formula_math latex;
 
       (* Metadata chips *)
       set_text chip_domain

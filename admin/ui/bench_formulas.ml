@@ -706,3 +706,118 @@ let eval_batch ?dim id (points : float array array) =
     out.(i) <- sp.eval points.(i)
   done;
   out
+
+let formula_latex = function
+  | "ackley" ->
+      {tex|f(x) = -20\exp\!\left(-0.2\sqrt{\tfrac{1}{d}\sum_{i=1}^d x_i^2}\right) - \exp\!\left(\tfrac{1}{d}\sum_{i=1}^d \cos(2\pi x_i)\right) + 20 + e|tex}
+  | "bukin6" ->
+      {tex|f(x) = 100\sqrt{|x_2 - 0.01 x_1^2|} + 0.01|x_1 + 10||tex}
+  | "cross-in-tray" ->
+      {tex|f(x) = -10^{-4}\!\left(\left|\sin(x_1)\sin(x_2)\exp\!\left(\left|100 - \tfrac{\sqrt{x_1^2 + x_2^2}}{\pi}\right|\right)\right| + 1\right)^{0.1}|tex}
+  | "drop-wave" ->
+      {tex|f(x) = -\frac{1 + \cos\!\left(12\sqrt{x_1^2 + x_2^2}\right)}{2 + 0.5(x_1^2 + x_2^2)}|tex}
+  | "eggholder" ->
+      {tex|f(x) = -(x_2 + 47)\sin\!\left(\sqrt{\left|\tfrac{x_1}{2} + x_2 + 47\right|}\right) - x_1\sin\!\left(\sqrt{|x_1 - (x_2 + 47)|}\right)|tex}
+  | "gramacy-lee" ->
+      {tex|f(x) = \frac{\sin(10\pi x)}{2x} + (x - 1)^4|tex}
+  | "griewank" ->
+      {tex|f(x) = 1 + \frac{1}{4000}\sum_{i=1}^d x_i^2 - \prod_{i=1}^d \cos\!\left(\frac{x_i}{\sqrt{i}}\right)|tex}
+  | "holder-table" ->
+      {tex|f(x) = -\left|\sin(x_1)\cos(x_2)\exp\!\left(\left|1 - \tfrac{\sqrt{x_1^2 + x_2^2}}{\pi}\right|\right)\right||tex}
+  | "langermann" ->
+      {tex|f(x) = \sum_{i=1}^5 c_i \exp\!\left(-\tfrac{\|x - A_i\|^2}{\pi}\right)\cos\!\left(\pi\|x - A_i\|^2\right)|tex}
+  | "levy" ->
+      {tex|f(x) = \sin^2(\pi w_1) + \sum_{i=1}^{d-1}(w_i - 1)^2\left[1 + 10\sin^2(\pi w_i + 1)\right] + (w_d - 1)^2\left[1 + \sin^2(2\pi w_d)\right],\;\; w_i = 1 + \tfrac{x_i - 1}{4}|tex}
+  | "levy13" ->
+      {tex|f(x) = \sin^2(3\pi x_1) + (x_1 - 1)^2\left[1 + \sin^2(3\pi x_2)\right] + (x_2 - 1)^2\left[1 + \sin^2(2\pi x_2)\right]|tex}
+  | "rastrigin" ->
+      {tex|f(x) = 10d + \sum_{i=1}^d \left[x_i^2 - 10\cos(2\pi x_i)\right]|tex}
+  | "schaffer2" ->
+      {tex|f(x) = 0.5 + \frac{\sin^2(x_1^2 - x_2^2) - 0.5}{\left[1 + 0.001(x_1^2 + x_2^2)\right]^2}|tex}
+  | "schaffer4" ->
+      {tex|f(x) = 0.5 + \frac{\cos^2(\sin(|x_1^2 - x_2^2|)) - 0.5}{\left[1 + 0.001(x_1^2 + x_2^2)\right]^2}|tex}
+  | "schwefel" ->
+      {tex|f(x) = 418.9829\,d - \sum_{i=1}^d x_i\sin\!\left(\sqrt{|x_i|}\right)|tex}
+  | "shubert" ->
+      {tex|f(x) = \left(\sum_{k=1}^5 k\cos((k+1)x_1 + k)\right)\left(\sum_{k=1}^5 k\cos((k+1)x_2 + k)\right)|tex}
+  | "bohachevsky1" ->
+      {tex|f(x) = x_1^2 + 2x_2^2 - 0.3\cos(3\pi x_1) - 0.4\cos(4\pi x_2) + 0.7|tex}
+  | "bohachevsky2" ->
+      {tex|f(x) = x_1^2 + 2x_2^2 - 0.3\cos(3\pi x_1)\cos(4\pi x_2) + 0.3|tex}
+  | "bohachevsky3" ->
+      {tex|f(x) = x_1^2 + 2x_2^2 - 0.3\cos(3\pi x_1 + 4\pi x_2) + 0.3|tex}
+  | "perm-zero" ->
+      {tex|f(x) = \sum_{k=1}^d \left(\sum_{j=1}^d (j + 10)\!\left(x_j^k - \tfrac{1}{j^k}\right)\right)^2|tex}
+  | "rotated-hyperellipsoid" ->
+      {tex|f(x) = \sum_{i=1}^d (d - i + 1)\,x_i^2|tex}
+  | "sphere" ->
+      {tex|f(x) = \sum_{i=1}^d x_i^2|tex}
+  | "sum-powers" ->
+      {tex|f(x) = \sum_{i=1}^d |x_i|^{i+1}|tex}
+  | "sum-squares" ->
+      {tex|f(x) = \sum_{i=1}^d i\,x_i^2|tex}
+  | "trid" ->
+      {tex|f(x) = \sum_{i=1}^d (x_i - 1)^2 - \sum_{i=2}^d x_i x_{i-1}|tex}
+  | "booth" ->
+      {tex|f(x) = (x_1 + 2x_2 - 7)^2 + (2x_1 + x_2 - 5)^2|tex}
+  | "matyas" ->
+      {tex|f(x) = 0.26(x_1^2 + x_2^2) - 0.48 x_1 x_2|tex}
+  | "mccormick" ->
+      {tex|f(x) = \sin(x_1 + x_2) + (x_1 - x_2)^2 - 1.5 x_1 + 2.5 x_2 + 1|tex}
+  | "power-sum" ->
+      {tex|f(x) = \sum_{k=1}^4 \left(\sum_{i=1}^4 x_i^k - b_k\right)^2,\;\; b=(8,18,44,114)|tex}
+  | "zakharov" ->
+      {tex|f(x) = \sum_{i=1}^d x_i^2 + \left(\sum_{i=1}^d 0.5 i\, x_i\right)^2 + \left(\sum_{i=1}^d 0.5 i\, x_i\right)^4|tex}
+  | "three-hump-camel" ->
+      {tex|f(x) = 2x_1^2 - 1.05 x_1^4 + \tfrac{x_1^6}{6} + x_1 x_2 + x_2^2|tex}
+  | "six-hump-camel" ->
+      {tex|f(x) = \left(4 - 2.1x_1^2 + \tfrac{x_1^4}{3}\right)x_1^2 + x_1 x_2 + (-4 + 4x_2^2)x_2^2|tex}
+  | "dixon-price" ->
+      {tex|f(x) = (x_1 - 1)^2 + \sum_{i=2}^d i\,(2x_i^2 - x_{i-1})^2|tex}
+  | "rosenbrock" ->
+      {tex|f(x) = \sum_{i=1}^{d-1}\left[100(x_{i+1} - x_i^2)^2 + (1 - x_i)^2\right]|tex}
+  | "de-jong5" ->
+      {tex|f(x) = \left(0.002 + \sum_{i=1}^{25}\frac{1}{i + (x_1 - a_{1i})^6 + (x_2 - a_{2i})^6}\right)^{-1}|tex}
+  | "easom" ->
+      {tex|f(x) = -\cos(x_1)\cos(x_2)\exp\!\left(-(x_1 - \pi)^2 - (x_2 - \pi)^2\right)|tex}
+  | "michalewicz" ->
+      {tex|f(x) = -\sum_{i=1}^d \sin(x_i)\sin^{20}\!\left(\frac{i\,x_i^2}{\pi}\right)|tex}
+  | "beale" ->
+      {tex|f(x) = (1.5 - x_1 + x_1 x_2)^2 + (2.25 - x_1 + x_1 x_2^2)^2 + (2.625 - x_1 + x_1 x_2^3)^2|tex}
+  | "branin" ->
+      {tex|f(x) = \left(x_2 - \tfrac{5.1}{4\pi^2}x_1^2 + \tfrac{5}{\pi}x_1 - 6\right)^2 + 10\left(1 - \tfrac{1}{8\pi}\right)\cos(x_1) + 10|tex}
+  | "colville" ->
+      {tex|f(x) = 100(x_1^2 - x_2)^2 + (x_1 - 1)^2 + (x_3 - 1)^2 + 90(x_3^2 - x_4)^2 + 10.1\left[(x_2 - 1)^2 + (x_4 - 1)^2\right] + 19.8(x_2 - 1)(x_4 - 1)|tex}
+  | "forrester" ->
+      {tex|f(x) = (6x - 2)^2\sin(12x - 4)|tex}
+  | "goldstein-price" ->
+      {tex|f(x) = \left[1 + (x_1+x_2+1)^2(19 - 14x_1 + 3x_1^2 - 14x_2 + 6x_1x_2 + 3x_2^2)\right]\left[30 + (2x_1 - 3x_2)^2(18 - 32x_1 + 12x_1^2 + 48x_2 - 36x_1x_2 + 27x_2^2)\right]|tex}
+  | "hartmann3" ->
+      {tex|f(x) = -\sum_{i=1}^4 \alpha_i \exp\!\left(-\sum_{j=1}^3 A_{ij}(x_j - P_{ij})^2\right),\;\; \alpha=(1,1.2,3,3.2)|tex}
+  | "hartmann4" ->
+      {tex|f(x) = \frac{1.1 - \sum_{i=1}^4 \alpha_i \exp\!\left(-\sum_{j=1}^4 A_{ij}(x_j - P_{ij})^2\right)}{0.839}|tex}
+  | "hartmann6" ->
+      {tex|f(x) = -\sum_{i=1}^4 \alpha_i \exp\!\left(-\sum_{j=1}^6 A_{ij}(x_j - P_{ij})^2\right),\;\; \alpha=(1,1.2,3,3.2)|tex}
+  | "perm" ->
+      {tex|f(x) = \sum_{k=1}^d \left(\sum_{j=1}^d (j^k + 0.5)\left[\left(\tfrac{x_j}{j}\right)^k - 1\right]\right)^2|tex}
+  | "powell" ->
+      {tex|f(x) = \sum_{i=1}^{d/4}\left[(x_{4i-3} + 10x_{4i-2})^2 + 5(x_{4i-1} - x_{4i})^2 + (x_{4i-2} - 2x_{4i-1})^4 + 10(x_{4i-3} - x_{4i})^4\right]|tex}
+  | "shekel" ->
+      {tex|f(x) = -\sum_{i=1}^{10}\left(\beta_i + \sum_{j=1}^4 (x_j - C_{ij})^2\right)^{-1}|tex}
+  | "styblinski-tang" ->
+      {tex|f(x) = \frac{1}{2}\sum_{i=1}^d \left(x_i^4 - 16x_i^2 + 5x_i\right)|tex}
+  | "sphere6-rescaled" ->
+      {tex|f(x) = \frac{\sum_{i=1}^6 2^i x_i^2 - 1745}{899}|tex}
+  | "rosenbrock4-rescaled" ->
+      {tex|f(x) = \frac{\sum_{i=1}^3\left[100(u_{i+1} - u_i^2)^2 + (1 - u_i)^2\right] - 382700}{375500},\;\; u_i = 15x_i - 5|tex}
+  | "branin-rescaled" ->
+      {tex|f(x) = \frac{f_{\mathrm{Branin}}(15x_1 - 5,\, 15x_2) - 54.81}{51.95}|tex}
+  | "branin-modified" ->
+      {tex|f(x) = f_{\mathrm{Branin}}(x_1, x_2) + 5x_1|tex}
+  | "forrester-low-fidelity" ->
+      {tex|f(x) = 0.5\,f_{\mathrm{Forrester}}(x) + 10(x - 0.5) + 5|tex}
+  | "goldstein-price-rescaled" ->
+      {tex|f(x) = \frac{\ln f_{\mathrm{GP}}(4x_1 - 2,\, 4x_2 - 2) - 8.693}{2.427}|tex}
+  | "hartmann6-rescaled" ->
+      {tex|f(x) = \frac{f_{\mathrm{Hart6}}(x) - 2.58}{1.94}|tex}
+  | _ -> {tex|f(x)|tex}

@@ -1,7 +1,17 @@
 import 'ninja-keys';
-import 'katex';
+import katex from 'katex';
 
 import autoRenderMath from 'katex/contrib/auto-render';
+
+globalThis.__bauxRenderMath = (el, latex, displayMode = false) => {
+ if (el && typeof katex.render === 'function') {
+  katex.render(latex, el, {
+   displayMode: Boolean(displayMode),
+   macros: { '\\eqdef': '\\stackrel{\\mathrm{def}}{=}' },
+   throwOnError: false
+  });
+ }
+};
 
 function partition(array, isValid) {
  const list = Array.isArray(array) ? array : Object.values(array || {});

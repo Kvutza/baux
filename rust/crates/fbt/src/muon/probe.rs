@@ -3,7 +3,7 @@ use super::{
     Shape, Step,
     metal::{Muon, Workspace},
 };
-use crate::apple_gpu::{Runtime, gpu_seconds};
+use baux::apple_gpu::{Runtime, gpu_seconds};
 use baux::artifact::json::{Value, json};
 use metal::MTLCommandBufferStatus;
 use std::path::{Path, PathBuf};
@@ -131,10 +131,10 @@ fn check_locks(root: &Path) -> Result<(), String> {
     let polar_dir = root.join(".cache/baux/upstream/PolarExpress");
     let mhc_dir = root.join(".cache/baux/upstream/mHC");
     if muon_dir.exists() && polar_dir.exists() && mhc_dir.exists() {
-        crate::artifact::merkle::verify_lock(root, "muon", None)?;
-        crate::artifact::merkle::verify_lock(root, "polar_express", None)?;
-        crate::artifact::merkle::verify_lock(root, "mhc", None)?;
-        crate::artifact::merkle::verify_lock(root, "acme", None)?;
+        baux::artifact::merkle::verify_lock(root, "muon", None)?;
+        baux::artifact::merkle::verify_lock(root, "polar_express", None)?;
+        baux::artifact::merkle::verify_lock(root, "mhc", None)?;
+        baux::artifact::merkle::verify_lock(root, "acme", None)?;
     }
     Ok(())
 }

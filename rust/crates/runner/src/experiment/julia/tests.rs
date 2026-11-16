@@ -108,7 +108,7 @@ failure-tolerance = 3
     let mut opt =
         BayesOptimizer::from_disk(domain, &spec, 0, dir.clone(), &mut rng).expect("from_disk");
     for r in 0..3 {
-        let (u, next_opt) = opt.ask(2, &mut rng).expect("ask");
+        let (next_opt, u) = opt.ask(2, &mut rng).expect("ask");
         opt = next_opt;
         let y = Array2::from_shape_fn((2, 1), |(i, _)| -((r + i) as f64));
         opt = opt

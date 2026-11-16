@@ -1,4 +1,4 @@
-"""Functional & object-oriented Epistemic Nearest Neighbors (ENN) namespace."""
+"""Functional Epistemic Nearest Neighbors (ENN) namespace."""
 
 from __future__ import annotations
 
@@ -9,37 +9,22 @@ from typing import Any
 from ..pytree import Log, Periodic, Simplex, Space
 from ..transforms import Transform
 from ..transforms import enn as _enntransform
-from .enn_class import ENN
-from .enn_fitter import ENNFitter
 from .enn_normal import ENNNormal
 from .enn_params import ENNParams
 from .enn_state import (
     Affine,
     ENNState,
     Stiefel,
+    append,
     calibrate,
-    enn_append,
-    enn_fit,
     enn_init,
-    enn_posterior,
-    enn_sample,
+    ensure_sync,
+    fit,
+    persist_index,
+    posterior,
+    sample,
     stein,
     with_geometry,
-)
-from .enn_state import (
-    enn_append as append,
-)
-from .enn_state import (
-    enn_fit as fit,
-)
-from .enn_state import (
-    enn_init as init,
-)
-from .enn_state import (
-    enn_posterior as posterior,
-)
-from .enn_state import (
-    enn_sample as sample,
 )
 from .posterior_flags import DiagonalMetric, MetricLearning, PosteriorFlags
 
@@ -53,10 +38,8 @@ sys.modules[__name__].__class__ = _EnnModule
 enn: Any = sys.modules[__name__]
 
 __all__ = [
-    "ENN",
     "Affine",
     "DiagonalMetric",
-    "ENNFitter",
     "ENNNormal",
     "ENNParams",
     "ENNState",
@@ -70,13 +53,10 @@ __all__ = [
     "append",
     "calibrate",
     "enn",
-    "enn_append",
-    "enn_fit",
     "enn_init",
-    "enn_posterior",
-    "enn_sample",
+    "ensure_sync",
     "fit",
-    "init",
+    "persist_index",
     "posterior",
     "sample",
     "stein",

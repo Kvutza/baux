@@ -154,17 +154,17 @@ impl TrustRegionState {
         }
     }
 
-    pub fn resample_propose(self, rng: &mut dyn RngCore) -> (bool, Self) {
+    pub fn resample_propose(self, rng: &mut dyn RngCore) -> (Self, bool) {
         match self {
             TrustRegionState::Morbo(m) => {
                 if m.rescalarize() == Rescalarize::OnPropose {
                     let next_m = m.resample_weights(rng);
-                    (true, TrustRegionState::Morbo(Box::new(next_m)))
+                    (TrustRegionState::Morbo(Box::new(next_m)), true)
                 } else {
-                    (false, TrustRegionState::Morbo(m))
+                    (TrustRegionState::Morbo(m), false)
                 }
             }
-            other => (false, other),
+            other => (other, false),
         }
     }
 
@@ -417,7 +417,7 @@ mod tests {
             TrustRegionState::from_config(3, &morbo_cfg(Rescalarize::OnPropose), &mut rng).unwrap();
         assert!(tr.is_morbo());
         assert_eq!(tr.num_metrics(), 2);
-        let (resampled, next_tr) = tr.resample_propose(&mut rng);
+        let (next_tr, resampled) = tr.resample_propose(&mut rng);
         assert!(resampled);
         let _ = next_tr;
     }
@@ -428,10 +428,10 @@ mod tests {
         let tr =
             TrustRegionState::from_config(2, &morbo_cfg(Rescalarize::OnPropose), &mut rng).unwrap();
         let w0 = tr.morbo().expect("morbo").weights().to_owned();
-        let (resampled1, tr) = tr.resample_propose(&mut rng);
+        let (tr, resampled1) = tr.resample_propose(&mut rng);
         assert!(resampled1);
         let w1 = tr.morbo().expect("morbo").weights().to_owned();
-        let (resampled2, tr) = tr.resample_propose(&mut rng);
+        let (tr, resampled2) = tr.resample_propose(&mut rng);
         assert!(resampled2);
         let w2 = tr.morbo().expect("morbo").weights().to_owned();
         assert_ne!(w0, w1);
@@ -464,7 +464,7 @@ mod tests {
         let tr =
             TrustRegionState::from_config(2, &morbo_cfg(Rescalarize::OnRestart), &mut rng).unwrap();
         let w0 = tr.morbo().expect("morbo").weights().to_owned();
-        let (resampled, tr) = tr.resample_propose(&mut rng);
+        let (tr, resampled) = tr.resample_propose(&mut rng);
         assert!(!resampled);
         let w1 = tr.morbo().expect("morbo").weights().to_owned();
         assert_eq!(w0, w1);

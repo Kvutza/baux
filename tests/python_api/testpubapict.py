@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import inspect
 
+import numpy as np
 import pytest
 
 pytestmark = pytest.mark.skipif(
@@ -10,128 +11,270 @@ pytestmark = pytest.mark.skipif(
     reason="baux_rust extension unavailable",
 )
 
+EXPECTED_74_SYMBOLS: set[str] = {
+    "Affine",
+    "AskBatch",
+    "AskId",
+    "Categorical",
+    "Device",
+    "DistanceMetric",
+    "ENNParams",
+    "ENNState",
+    "Key",
+    "Log",
+    "NeighborIndex",
+    "OptimizerConfig",
+    "OptimizerState",
+    "Periodic",
+    "Portfolio",
+    "PyTreeSpec",
+    "Region",
+    "RegionTrial",
+    "RegionalSearchPolicy",
+    "Simplex",
+    "Space",
+    "Stiefel",
+    "Telemetry",
+    "Tensor",
+    "Transform",
+    "Trial",
+    "TrustRegionBounds",
+    "Var",
+    "append",
+    "ask",
+    "calibrate",
+    "cancel",
+    "capabilities",
+    "chain",
+    "complete",
+    "digest",
+    "enn",
+    "enn_init",
+    "ensure_sync",
+    "experimental",
+    "fit",
+    "fold",
+    "freeze",
+    "gp",
+    "import_observations",
+    "init",
+    "key",
+    "lhd",
+    "pareto",
+    "persist_index",
+    "pmap",
+    "posterior",
+    "posterior_mu",
+    "pytree_bounds",
+    "raasp",
+    "random_acq",
+    "ravel",
+    "regions",
+    "restart_region",
+    "sample",
+    "scan",
+    "sobol",
+    "split",
+    "stein",
+    "step",
+    "tell",
+    "thaw",
+    "thompson",
+    "tr_bounds",
+    "ucb",
+    "unflatten",
+    "uniform_pert",
+    "with_geometry",
+    "zero",
+}
+
+REMOVED_LEGACY_SYMBOLS: list[str] = [
+    "Optimizer",
+    "create_optimizer",
+    "ENN",
+    "ENNFitter",
+    "TellPredictionError",
+    "enn_optimizer",
+    "create_zero",
+    "create_lhd",
+    "enn_append",
+    "turbo_one",
+    "mlp_spec",
+    "quantize_int4",
+    "set_path",
+    "enn_fit",
+    "enn_posterior",
+    "enn_sample",
+    "quantize_e2m1",
+]
+
 
 class TestPublicAPIExports:
-    """Verify public API surface is exported correctly from baux package."""
+    """Verify the exact 74-symbol pure functional API surface."""
 
-    def test_001(self):
-        """All _LAZY_ATTRS entries must be importable."""
+    def test_exactsymbols(self):
         import baux
 
-        for name in baux._LAZY_ATTRS:
+        assert len(EXPECTED_74_SYMBOLS) == 74
+        assert set(baux.__all__) == EXPECTED_74_SYMBOLS
+        assert set(baux._LAZY_ATTRS.keys()) == EXPECTED_74_SYMBOLS
+        assert set(baux.__all__) == set(baux._LAZY_ATTRS.keys())
+        assert len(baux.__all__) == 74
+
+    def test_allimportable(self):
+        import baux
+
+        for name in EXPECTED_74_SYMBOLS:
             attr = getattr(baux, name)
-            assert attr is not None, f"Attribute {name} not found"
+            assert attr is not None, f"Attribute {name} resolved to None"
 
-    def test_002(self):
-        """ENN is a class with expected signature."""
-        from baux import ENN
-
-        assert inspect.isclass(ENN)
-        # Check constructor signature has required parameters
-        sig = inspect.signature(ENN.__init__)
-        params = list(sig.parameters.keys())
-        assert "train_x" in params
-        assert "train_y" in params
-        assert "train_yvar" in params
-
-    def test_003(self):
-        from baux import ENNFitter
-
-        assert ENNFitter is not None
-
-    def test_004(self):
-        """create_optimizer is a callable function."""
-        from baux import create_optimizer
-
-        assert callable(create_optimizer)
-
-    def test_optimizer(self):
+    def test_corecallables(self):
         import baux
-        from baux import bo
 
-        assert baux.Optimizer is bo.Optimizer
-        assert baux.Optimizer.__name__ == "Optimizer"
+        for name in [
+            "init",
+            "ask",
+            "tell",
+            "complete",
+            "cancel",
+            "import_observations",
+            "restart_region",
+            "enn_init",
+            "append",
+            "fit",
+            "posterior",
+            "sample",
+            "ensure_sync",
+            "persist_index",
+            "step",
+            "scan",
+            "pmap",
+            "key",
+            "split",
+            "fold",
+            "digest",
+            "freeze",
+            "thaw",
+            "calibrate",
+            "stein",
+            "with_geometry",
+            "ravel",
+            "unflatten",
+            "pytree_bounds",
+        ]:
+            attr = getattr(baux, name)
+            assert callable(attr), f"baux.{name} should be callable"
 
-    def test_configclasses(self):
-        """All config classes are available and constructible."""
-        from baux import (
-            MorboTrustRegion,
-            NoTrustRegion,
-            OptimizerConfig,
-            TurboTrustRegion,
-        )
+    def test_coreclasses(self):
+        import baux
 
-        # These are dataclasses or similar - should be constructible
-        assert inspect.isclass(OptimizerConfig)
-        assert inspect.isclass(TurboTrustRegion)
-        assert inspect.isclass(MorboTrustRegion)
-        assert inspect.isclass(NoTrustRegion)
+        for name in [
+            "Region",
+            "Portfolio",
+            "Trial",
+            "RegionTrial",
+            "Device",
+            "Tensor",
+            "Var",
+            "Key",
+            "OptimizerState",
+            "ENNState",
+            "ENNParams",
+            "PyTreeSpec",
+            "OptimizerConfig",
+            "RegionalSearchPolicy",
+            "TrustRegionBounds",
+            "Transform",
+            "AskBatch",
+            "AskId",
+            "Telemetry",
+            "Space",
+            "Categorical",
+            "Periodic",
+            "Simplex",
+            "Log",
+            "Stiefel",
+            "Affine",
+            "NeighborIndex",
+            "DistanceMetric",
+        ]:
+            cls = getattr(baux, name)
+            assert inspect.isclass(cls), f"baux.{name} should be a class"
 
-    def test_005(self):
-        """All config factory functions are callable."""
-        from baux import (
-            lhd_only,
-            turbo_enn,
-            turbo_one,
-            turbo_zero,
-        )
+    def test_evictedsymbols(self):
+        import baux
 
-        assert callable(turbo_one)
-        assert callable(turbo_zero)
-        assert callable(turbo_enn)
-        assert callable(lhd_only)
+        for name in REMOVED_LEGACY_SYMBOLS:
+            assert name not in baux.__all__, f"{name} should not be in baux.__all__"
+            assert name not in baux._LAZY_ATTRS, (
+                f"{name} should not be in baux._LAZY_ATTRS"
+            )
+            with pytest.raises(AttributeError):
+                getattr(baux, name)
 
-    def test_telemetryclass(self):
-        """Telemetry class is available."""
-        from baux import Telemetry
-
-        assert inspect.isclass(Telemetry)
-
-    def test_006(self):
-        """Experimental namespace is importable and exposes low-level symbols."""
-        import pytest
-
-        pytest.importorskip("baux.baux_rust")
+    def test_expnamespace(self):
+        import baux
         import baux.experimental as experimental_mod
         from baux import experimental
 
         assert inspect.ismodule(experimental)
         assert experimental is experimental_mod
         assert experimental.experimental is experimental
+
+        # Verify experimental __all__ matches _LAZY_ATTRS exactly
+        assert set(experimental.__all__) == set(experimental_mod._LAZY_ATTRS.keys()) | {
+            "experimental"
+        }
+
+        # Evicted symbols from experimental
+        evicted_exp = [
+            "enn_optimizer",
+            "ENN",
+            "create_optimizer",
+            "create_zero",
+            "create_lhd",
+            "turbo_enn",
+        ]
+        exp_all = getattr(experimental, "__all__", [])
+        for name in evicted_exp:
+            assert name not in exp_all, (
+                f"{name} should not be in baux.experimental.__all__"
+            )
+            assert (
+                not hasattr(experimental, name)
+                or getattr(experimental, name) is None
+                or getattr(experimental, name) is getattr(baux, name, object())
+            ), f"baux.experimental.{name} should not be exposed"
+
+        # Valid symbols in experimental
         assert inspect.isclass(experimental.SharingPolicy)
         assert inspect.isclass(experimental.RegionalSearchLoop)
         assert callable(experimental.make_region)
+        assert callable(experimental.allocate_batches)
+        assert callable(experimental.select_candidates)
+        assert inspect.ismodule(experimental.multi_region)
         assert inspect.isclass(experimental.BayesOptimizer)
         assert inspect.isclass(experimental.MultiTrustRegion)
+
+        # Check optree-dependent program symbols if optree installed
+        import importlib.util
+
+        if importlib.util.find_spec("optree") is not None:
+            assert inspect.isclass(experimental.Fbt)
+            assert callable(experimental.compile)
+            assert inspect.isclass(experimental.TensorSpec)
+            assert inspect.isclass(experimental.Executable)
+            assert inspect.isclass(experimental.Invocation)
+            assert inspect.isclass(experimental.ResidentModel)
+            assert inspect.isclass(experimental.ModelOutput)
+            assert inspect.isclass(experimental.ModelInvocation)
+
         if experimental.Portfolio is not None:
             assert inspect.isclass(experimental.Portfolio)
-        assert callable(experimental.enn_optimizer)
-        for name in [
-            "Span",
-            "Var",
-            "Trial",
-            "Region",
-            "turbo_enn",
-        ]:
-            assert name in experimental.__all__
-            assert hasattr(experimental, name)
         if experimental.Region is not None:
-            assert inspect.isclass(experimental.Span)
-            assert inspect.isclass(experimental.Var)
-            assert inspect.isclass(experimental.Trial)
             assert inspect.isclass(experimental.Region)
-            assert callable(experimental.turbo_enn)
 
-    def test_enumtypes(self):
-        """Enum types are available."""
-        from baux import AcquisitionKind, CandidateSampler, InitStrategy
-
-        assert inspect.isclass(CandidateSampler)
-        assert inspect.isclass(InitStrategy)
-        assert inspect.isclass(AcquisitionKind)
-
-    def test_010(self):
-        import numpy as np
+    def test_multiregionerr(self):
         from baux.experimental.multi_region import RegionalSearchLoop
 
         class BrokenState:
@@ -147,26 +290,82 @@ class TestPublicAPIExports:
             loop.tell(np.ones((1, 2)), np.ones((1, 1)), np.ones((1, 1)))
         assert state.calls == 1
 
-
-class Test_001:
-    """Verify public API does not change unexpectedly."""
-
-    def test_007(self):
-        """__all__ must match _LAZY_ATTRS keys."""
+    def test_telemetrycfg(self):
         import baux
 
-        assert set(baux.__all__) == set(baux._LAZY_ATTRS.keys())
+        telem = baux.Telemetry(
+            dt_fit=0.1, dt_gen=0.2, dt_sel=0.3, dt_tell=0.4, num_candidates=100
+        )
+        assert isinstance(telem, baux.Telemetry)
+        assert telem.dt_fit == 0.1
+        assert telem.dt_gen == 0.2
+        assert telem.dt_sel == 0.3
+        assert telem.dt_tell == 0.4
+        assert telem.num_candidates == 100
 
-    def test_008(self):
+        cfg = baux.OptimizerConfig()
+        assert isinstance(cfg, baux.OptimizerConfig)
+
+    def test_optlifecycle(self):
         import baux
 
-        assert "quantize_int4" not in baux.__all__
-        assert "quantize_e2m1" not in baux.__all__
-        assert "set_path" not in baux.__all__
+        domain = np.array([[-2.0, 2.0], [0.0, 10.0]])
+        cfg = baux.OptimizerConfig()
+        s0 = baux.init(domain=domain, config=cfg, seed=42)
+        assert isinstance(s0, baux.OptimizerState)
+        assert s0.dim == 2
+        assert s0.num_observations == 0
 
-    def test_009(self):
+        # ask
+        s1, batch = baux.ask(s0, num_arms=2)
+        assert isinstance(s1, baux.OptimizerState)
+        assert isinstance(batch, baux.AskBatch)
+        assert batch.points.shape == (2, 2)
+        assert len(batch.ids) == 2
+        assert isinstance(batch.ids[0], baux.AskId)
+        # Verify immutability of s0
+        assert s0.num_observations == 0
+
+        # tell
+        y = np.array([[1.0], [2.0]])
+        s2, fitted_mu = baux.tell(s1, batch.points, y)
+        assert fitted_mu is not None
+        assert isinstance(s2, baux.OptimizerState)
+        assert s2.num_observations == 2
+        assert s1.num_observations == 0
+        assert s0.num_observations == 0
+
+    def test_ennlifecycle(self):
         import baux
 
-        for name in ("quantize_int4", "quantize_e2m1", "set_path"):
-            with pytest.raises(AttributeError):
-                getattr(baux, name)
+        train_x = np.array([[0.0, 0.0], [1.0, 1.0], [0.5, 0.5]])
+        train_y = np.array([[0.0], [2.0], [1.0]])
+
+        # enn_init
+        es0 = baux.enn_init(train_x, train_y)
+        assert isinstance(es0, baux.ENNState)
+        assert len(es0) == 3
+
+        # append
+        new_x = np.array([[0.2, 0.2]])
+        new_y = np.array([[0.4]])
+        es1 = baux.append(es0, new_x, new_y)
+        assert isinstance(es1, baux.ENNState)
+        assert len(es1) == 4
+        assert len(es0) == 3  # immutability
+
+        # fit
+        params = baux.fit(es1, k=2, num_candidates=10, num_samples=5, seed=123)
+        assert isinstance(params, baux.ENNParams)
+        assert params.k_neighbors > 0
+
+        # posterior
+        query_x = np.array([[0.3, 0.3]])
+        normal = baux.posterior(es1, query_x, params)
+        assert normal.mu.shape == (1, 1)
+        assert normal.se.shape == (1, 1)
+
+        # sample
+        draws, idx = baux.sample(es1, query_x, params, num_draws=3, seeds=[1, 2, 3])
+        assert idx is not None
+        assert draws.shape == (1, 1, 3)

@@ -1,10 +1,18 @@
 from __future__ import annotations
 
+import baux
 import numpy as np
 import pytest
-from baux import create_optimizer, turbo_enn, turbo_zero
-from baux.turbo.config import CandidateConfig, ENNSurrogate, SurrogateFit
+from baux.turbo.config import (
+    CandidateConfig,
+    ENNSurrogate,
+    SurrogateFit,
+    turbo_enn,
+    turbo_zero,
+)
 from baux.turbo.config.encode import encode
+
+from .optimizer_checks import make_optimizer  # noqa: F401
 
 pytest.importorskip("baux._rust")
 
@@ -13,19 +21,19 @@ def test_perarmpool():
     config = turbo_zero(num_candidates_per_arm=1500, num_init=4)
     bounds = np.array([[0.0, 1.0], [0.0, 1.0]], dtype=float)
     rng = np.random.default_rng(99)
-    opt = create_optimizer(bounds=bounds, config=config, rng=rng)
+    state = baux.init(bounds, config, seed=int(rng.integers(2**63 - 1)))
     assert config.candidates.resolve_candidates(num_dim=2, num_arms=3) == 4500
-    while opt.init_progress is not None:
-        x = opt.ask(num_arms=3)
-        y = -np.sum((x - 0.5) ** 2, axis=1).reshape(-1, 1)
-        opt.tell(x, y)
-    x = opt.ask(num_arms=3)
-    assert opt.telemetry().num_candidates == 4500
-    y = -np.sum((x - 0.5) ** 2, axis=1).reshape(-1, 1)
-    opt.tell(x, y)
-    x2 = opt.ask(num_arms=8)
-    assert x2.shape == (8, 2)
-    assert opt.telemetry().num_candidates == 12000
+    while state.init_progress is not None:
+        state, batch = baux.ask(state, num_arms=3)
+        y = -np.sum((batch.points - 0.5) ** 2, axis=1).reshape(-1, 1)
+        state, _ = baux.tell(state, batch.points, y)
+    state, batch = baux.ask(state, num_arms=3)
+    assert state.telemetry.num_candidates == 4500
+    y = -np.sum((batch.points - 0.5) ** 2, axis=1).reshape(-1, 1)
+    state, _ = baux.tell(state, batch.points, y)
+    state, batch2 = baux.ask(state, num_arms=8)
+    assert batch2.points.shape == (8, 2)
+    assert state.telemetry.num_candidates == 12000
 
 
 def test_perarmisencoded():
@@ -48,15 +56,15 @@ def test_ennperarmpool():
     )
     bounds = np.array([[0.0, 1.0], [0.0, 1.0]], dtype=float)
     rng = np.random.default_rng(101)
-    opt = create_optimizer(bounds=bounds, config=config, rng=rng)
+    state = baux.init(bounds, config, seed=int(rng.integers(2**63 - 1)))
     expected = config.candidates.resolve_candidates(num_dim=2, num_arms=3)
     assert expected == 200
-    while opt.init_progress is not None:
-        x = opt.ask(num_arms=3)
-        y = -np.sum((x - 0.5) ** 2, axis=1).reshape(-1, 1)
-        opt.tell(x, y)
-    opt.ask(num_arms=3)
-    assert opt.telemetry().num_candidates == expected
+    while state.init_progress is not None:
+        state, batch = baux.ask(state, num_arms=3)
+        y = -np.sum((batch.points - 0.5) ** 2, axis=1).reshape(-1, 1)
+        state, _ = baux.tell(state, batch.points, y)
+    state, batch = baux.ask(state, num_arms=3)
+    assert state.telemetry.num_candidates == expected
 
 
 def test_fixedandperarm():
@@ -67,14 +75,14 @@ def test_fixedandperarm():
     )
     bounds = np.array([[0.0, 1.0], [0.0, 1.0]], dtype=float)
     rng = np.random.default_rng(102)
-    opt = create_optimizer(bounds=bounds, config=config, rng=rng)
+    state = baux.init(bounds, config, seed=int(rng.integers(2**63 - 1)))
     assert config.candidates.resolve_candidates(num_dim=2, num_arms=4) == 200
-    while opt.init_progress is not None:
-        x = opt.ask(num_arms=4)
-        y = -np.sum((x - 0.5) ** 2, axis=1).reshape(-1, 1)
-        opt.tell(x, y)
-    opt.ask(num_arms=4)
-    assert opt.telemetry().num_candidates == 200
+    while state.init_progress is not None:
+        state, batch = baux.ask(state, num_arms=4)
+        y = -np.sum((batch.points - 0.5) ** 2, axis=1).reshape(-1, 1)
+        state, _ = baux.tell(state, batch.points, y)
+    state, batch = baux.ask(state, num_arms=4)
+    assert state.telemetry.num_candidates == 200
 
 
 def test_perarmformula():
@@ -87,23 +95,25 @@ def test_perarmformula():
     assert overrides.get("max_candidates") == 5000
 
 
-def _finishinit(opt, num_arms: int) -> None:
-    while opt.init_progress is not None:
-        x = opt.ask(num_arms=num_arms)
-        y = -np.sum((x - 0.5) ** 2, axis=1).reshape(-1, 1)
-        opt.tell(x, y)
+def _finishinit(state: baux.OptimizerState, num_arms: int) -> baux.OptimizerState:
+    while state.init_progress is not None:
+        state, batch = baux.ask(state, num_arms=num_arms)
+        y = -np.sum((batch.points - 0.5) ** 2, axis=1).reshape(-1, 1)
+        state, _ = baux.tell(state, batch.points, y)
+    return state
 
 
 def test_defaultpoolmanyarms():
     num_arms = 25
     config = turbo_zero(num_init=4)
     bounds = np.array([[0.0, 1.0], [0.0, 1.0]], dtype=float)
-    opt = create_optimizer(bounds=bounds, config=config, rng=np.random.default_rng(103))
+    rng = np.random.default_rng(103)
+    state = baux.init(bounds, config, seed=int(rng.integers(2**63 - 1)))
     expected = config.candidates.resolve_candidates(num_dim=2, num_arms=num_arms)
     assert expected == 200
-    _finishinit(opt, num_arms)
-    opt.ask(num_arms=num_arms)
-    assert opt.telemetry().num_candidates == expected
+    state = _finishinit(state, num_arms)
+    state, _ = baux.ask(state, num_arms=num_arms)
+    assert state.telemetry.num_candidates == expected
 
 
 def test_highdimpoolcap():
@@ -111,9 +121,10 @@ def test_highdimpoolcap():
     num_arms = 1
     config = turbo_zero(num_candidates_per_arm=40, num_init=4)
     bounds = np.tile(np.array([[0.0, 1.0]], dtype=float), (num_dim, 1))
-    opt = create_optimizer(bounds=bounds, config=config, rng=np.random.default_rng(104))
+    rng = np.random.default_rng(104)
+    state = baux.init(bounds, config, seed=int(rng.integers(2**63 - 1)))
     expected = config.candidates.resolve_candidates(num_dim=num_dim, num_arms=num_arms)
     assert expected == 5000
-    _finishinit(opt, num_arms)
-    opt.ask(num_arms=num_arms)
-    assert opt.telemetry().num_candidates == expected
+    state = _finishinit(state, num_arms)
+    state, _ = baux.ask(state, num_arms=num_arms)
+    assert state.telemetry.num_candidates == expected

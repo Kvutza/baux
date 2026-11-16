@@ -34,7 +34,7 @@ pub(super) fn run_arm(
     let mut first_values = None;
     let mut first_counts = None;
     for start in (0..config.evaluations).step_by(config.regions) {
-        let (points, opt) = optimizer
+        let (opt, points) = optimizer
             .ask(config.regions, &mut rng)
             .map_err(|error| error.to_string())?;
         optimizer = opt;

@@ -35,8 +35,8 @@ use baux::semantics::hnet::{ByteTokenizer, ChunkLayer, DeChunkLayer, RoutingOutp
 use metal::{Buffer, ComputePipelineState, MTLCommandBufferStatus, MTLDispatchType};
 
 #[cfg(test)]
-use crate::apple_gpu::slice_mut;
-use crate::apple_gpu::{
+use baux::apple_gpu::slice_mut;
+use baux::apple_gpu::{
     Runtime, barrier_buffers, bind_buffers, buffer_slice, encode_value, thread_group,
 };
 

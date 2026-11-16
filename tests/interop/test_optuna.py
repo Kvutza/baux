@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 
 optuna = pytest.importorskip("optuna")
-from baux import create_optimizer
+import baux
 from baux.optuna import Sampler
 from optuna.distributions import FloatDistribution, IntDistribution
 from optuna.trial import TrialState
@@ -23,18 +23,19 @@ def suggest(trial):
 def test_trajectory(config, direction):
     sampler = Sampler(space(), config=config, seed=19)
     study = optuna.create_study(sampler=sampler, direction=direction)
-    reference = create_optimizer(
-        bounds=sampler._loop.space.bounds, config=config, rng=np.random.default_rng(19)
-    )
+    ref_state = baux.init(domain=sampler._loop.space.bounds, config=config, seed=19)
     sign = -1 if direction == "minimize" else 1
     for _ in range(6):
         point = suggest(trial := study.ask())
-        expected = sampler._loop.space.decode(reference.ask(1)[0])
+        ref_state, batch = baux.ask(ref_state, 1)
+        expected = sampler._loop.space.decode(batch.points[0])
         assert point == expected
         score = point["x"] ** 2 + point["rate"]
         study.tell(trial, score)
-        reference.tell(
-            sampler._loop.space.encode(point)[None], np.array([[sign * score]])
+        ref_state, _ = baux.tell(
+            ref_state,
+            sampler._loop.space.encode(point)[None],
+            np.array([[sign * score]]),
         )
     assert len(study.trials) == 6
 

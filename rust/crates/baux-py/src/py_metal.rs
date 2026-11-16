@@ -92,7 +92,7 @@ impl PyMetalSearchState {
         beta: f32,
         acquisition: &str,
         draw_seed: u64,
-    ) -> PyResult<(PyMetalProposals, Py<Self>)> {
+    ) -> PyResult<(Py<Self>, PyMetalProposals)> {
         let seed = baux::resolve_seed(seed);
         let kind = AcquisitionKind::parse(acquisition).map_err(err)?;
         let config = RoundConfig {
@@ -116,11 +116,11 @@ impl PyMetalSearchState {
             .map_err(err)?;
         let next_py = Py::new(py, Self { inner: next_inner })?;
         Ok((
+            next_py.clone_ref(py),
             PyMetalProposals {
-                owner: next_py.clone_ref(py),
+                owner: next_py,
                 inner,
             },
-            next_py,
         ))
     }
 
@@ -138,47 +138,18 @@ impl PyMetalSearchState {
         proposals: PyRef<'_, PyMetalProposals>,
         value: f32,
         variance: f32,
-    ) -> PyResult<(bool, Self)> {
+    ) -> PyResult<(Self, bool)> {
         let (next, decision) = self
             .inner
             .clone()
             .tell_noisy(&proposals.inner, value, variance)
             .map_err(err)?;
-        Ok((decision.accepted, Self { inner: next }))
+        Ok((Self { inner: next }, decision.accepted))
     }
 
-    #[pyo3(signature=(proposals, value, variance, incumbent_value, incumbent_variance, accept))]
-    fn tell_paired(
-        &self,
-        proposals: PyRef<'_, PyMetalProposals>,
-        value: f64,
-        variance: f64,
-        incumbent_value: f64,
-        incumbent_variance: f64,
-        accept: bool,
-    ) -> PyResult<Self> {
-        if [value, variance, incumbent_value, incumbent_variance]
-            .iter()
-            .any(|v| !v.is_finite() || !(*v as f32).is_finite())
-            || variance < 0.0
-            || incumbent_variance < 0.0
-        {
-            return Err(PyValueError::new_err(
-                "Paired values must be finite FP32; variances must be nonnegative",
-            ));
-        }
-        let _ = (incumbent_value, incumbent_variance, accept);
-        let (next, _) = self
-            .inner
-            .clone()
-            .tell_noisy(&proposals.inner, value as f32, variance as f32)
-            .map_err(err)?;
-        Ok(Self { inner: next })
-    }
-
-    fn sync(&self) -> PyResult<(Vec<bool>, Self)> {
+    fn sync(&self) -> PyResult<(Self, Vec<bool>)> {
         let (next, flags) = self.inner.clone().sync().map_err(err)?;
-        Ok((flags, Self { inner: next }))
+        Ok((Self { inner: next }, flags))
     }
 
     fn set_profiling(&self, enabled: bool) -> PyResult<Self> {

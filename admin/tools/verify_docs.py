@@ -318,9 +318,9 @@ def check_docs() -> tuple[int, int, int, int]:
 
     # 1. Exact API reference symbol table invariants (mirrors tests/test_pages.py).
     symbols = re.findall(r"\[data-symbol\]\{(baux\.[^}]+)\}", ref_content)
-    if len(symbols) != len(set(symbols)) or len(symbols) != 85:
+    if len(symbols) != len(set(symbols)) or len(symbols) != 75:
         errors.append(
-            f"expected 85 unique [data-symbol] entries across API trees, found {len(symbols)} ({len(set(symbols))} unique)"
+            f"expected 75 unique [data-symbol] entries across API trees, found {len(symbols)} ({len(set(symbols))} unique)"
         )
     for symbol in symbols:
         if f"[id]{{{symbol}}}" not in ref_content:
@@ -393,7 +393,66 @@ def check_docs() -> tuple[int, int, int, int]:
                         f"{tree.name}:{idx}: anchor {rel}#L{l1} points to non-declaration line {src_lines[l1 - 1].strip()!r}"
                     )
 
+    # Internal HTML #anchor check across all_trees.
+    ids_by_page: dict[str, set[str]] = {}
+    for tree in all_trees:
+        text = tree.read_text(encoding="utf-8")
+        slug_m = re.search(r"\\meta\{slug\}\{([^}]+)\}", text)
+        page = (
+            slug_m.group(1)
+            if slug_m
+            else (
+                "docs"
+                if tree.stem == "baux-0007"
+                else ("index" if tree.stem == "baux-0001" else tree.stem)
+            )
+        ) + ".html"
+        ids_by_page.setdefault(page, set()).update(
+            re.findall(r"\[id\]\{([^}]+)\}", text)
+        )
+
+    for tree in all_trees:
+        text = tree.read_text(encoding="utf-8")
+        for idx, line in enumerate(text.splitlines(), 1):
+            for m in re.finditer(r"\(([a-z0-9_-]+\.html)#([^)]+)\)", line):
+                page, anchor = m.group(1), m.group(2)
+                if page in ids_by_page and anchor not in ids_by_page[page]:
+                    errors.append(
+                        f"{tree.name}:{idx}: dead internal anchor {page}#{anchor}"
+                    )
+
     # 4. Syntax verification for inline Python code snippets across every tree.
+    init_ast = ast.parse((PYTHON_PKG / "__init__.py").read_text(encoding="utf-8"))
+    root_exports: set[str] = set()
+    for node in init_ast.body:
+        val = (
+            node.value
+            if isinstance(node, ast.AnnAssign)
+            and isinstance(node.target, ast.Name)
+            and node.target.id == "__all__"
+            else (
+                node.value
+                if isinstance(node, ast.Assign)
+                and any(
+                    isinstance(t, ast.Name) and t.id == "__all__" for t in node.targets
+                )
+                else None
+            )
+        )
+        if isinstance(val, (ast.List, ast.Tuple)):
+            root_exports.update(
+                elt.value
+                for elt in val.elts
+                if isinstance(elt, ast.Constant) and isinstance(elt.value, str)
+            )
+    valid_baux = root_exports | {
+        "enn",
+        "benchmarks",
+        "turbo",
+        "optuna",
+        "experimental",
+    }
+
     snippets_checked = 0
     for tree in all_trees:
         text = tree.read_text(encoding="utf-8")
@@ -403,11 +462,39 @@ def check_docs() -> tuple[int, int, int, int]:
                 continue
             snippets_checked += 1
             try:
-                ast.parse(snippet, filename=f"{tree.name}:{lineno}")
+                mod = ast.parse(snippet, filename=f"{tree.name}:{lineno}")
             except SyntaxError as err:
                 errors.append(
                     f"{tree.name}:{lineno}: Python snippet syntax error: {err}"
                 )
+                continue
+
+            for node in ast.walk(mod):
+                if (
+                    isinstance(node, ast.Attribute)
+                    and isinstance(node.value, ast.Name)
+                    and node.value.id == "baux"
+                    and node.attr not in valid_baux
+                ):
+                    errors.append(
+                        f"{tree.name}:{lineno}: unknown baux.{node.attr} in snippet"
+                    )
+                if (
+                    isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Attribute)
+                    and isinstance(node.func.value, ast.Name)
+                    and node.func.value.id == "baux"
+                ):
+                    cands = [
+                        c for c in py_sigs.get(node.func.attr, []) if c.kind == "py_def"
+                    ]
+                    if cands:
+                        errors.extend(
+                            f"{tree.name}:{lineno}: unknown keyword {kw.arg!r} in baux.{node.func.attr}()"
+                            for kw in node.keywords
+                            if kw.arg is not None
+                            and not any(kw.arg in c.params for c in cands)
+                        )
 
     if errors:
         raise ValueError(

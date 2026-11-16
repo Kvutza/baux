@@ -358,7 +358,8 @@ fn turbo_enn() -> String {
 
     for round in 0..9 {
         let arms = 2;
-        let x = opt.ask_natural(arms, &mut step_rng).unwrap();
+        let (next_opt, x) = opt.ask_natural(arms, &mut step_rng).unwrap();
+        opt = next_opt;
         ask_bits.extend(bits_vec(x.iter()));
         let y = Array2::from_shape_fn((arms, 1), |(row, _)| {
             if round == 4 || round == 5 {
@@ -367,7 +368,7 @@ fn turbo_enn() -> String {
                 objective_1d(x.row(row).as_slice().unwrap(), round)
             }
         });
-        opt.tell_natural(&x.view(), &y.view(), None, &mut step_rng)
+        opt = opt.tell_natural(&x.view(), &y.view(), None, &mut step_rng)
             .unwrap();
         let mu = opt.posterior_mu(&query.view()).unwrap();
         mu_bits.extend(bits_vec(mu.iter()));
@@ -404,12 +405,13 @@ fn turbo_zero() -> String {
 
     for round in 0..6 {
         let arms = 2;
-        let x = opt.ask_natural(arms, &mut step_rng).unwrap();
+        let (next_opt, x) = opt.ask_natural(arms, &mut step_rng).unwrap();
+        opt = next_opt;
         ask_bits.extend(bits_vec(x.iter()));
         let y = Array2::from_shape_fn((arms, 1), |(row, _)| {
             objective_1d(x.row(row).as_slice().unwrap(), round)
         });
-        opt.tell_natural(&x.view(), &y.view(), None, &mut step_rng)
+        opt = opt.tell_natural(&x.view(), &y.view(), None, &mut step_rng)
             .unwrap();
         let inc = opt.incumbent_x().unwrap();
         inc_bits.extend(bits_vec(inc.iter()));
@@ -456,12 +458,13 @@ fn run_morbo() -> String {
 
     for round in 0..6 {
         let arms = 2;
-        let x = opt.ask_natural(arms, &mut step_rng).unwrap();
+        let (next_opt, x) = opt.ask_natural(arms, &mut step_rng).unwrap();
+        opt = next_opt;
         ask_bits.extend(bits_vec(x.iter()));
         let y = Array2::from_shape_fn((arms, 2), |(row, m)| {
             objective_2d(x.row(row).as_slice().unwrap(), round)[m]
         });
-        opt.tell_natural(&x.view(), &y.view(), None, &mut step_rng)
+        opt = opt.tell_natural(&x.view(), &y.view(), None, &mut step_rng)
             .unwrap();
         let mu = opt.posterior_mu(&query.view()).unwrap();
         mu_bits.extend(bits_vec(mu.iter()));
@@ -492,12 +495,13 @@ fn lhd_only() -> String {
     let mut progress = Vec::new();
 
     for (round, arms) in [1usize, 2, 2, 1].into_iter().enumerate() {
-        let x = opt.ask_natural(arms, &mut step_rng).unwrap();
+        let (next_opt, x) = opt.ask_natural(arms, &mut step_rng).unwrap();
+        opt = next_opt;
         ask_bits.extend(bits_vec(x.iter()));
         let y = Array2::from_shape_fn((arms, 1), |(row, _)| {
             objective_1d(x.row(row).as_slice().unwrap(), round)
         });
-        opt.tell_natural(&x.view(), &y.view(), None, &mut step_rng)
+        opt = opt.tell_natural(&x.view(), &y.view(), None, &mut step_rng)
             .unwrap();
         let inc = opt.incumbent_x().unwrap();
         inc_bits.extend(bits_vec(inc.iter()));
@@ -586,12 +590,13 @@ fn disk_bpann(work_root: PathBuf) -> String {
 
     for round in 0..5 {
         let arms = 2;
-        let x = opt.ask_natural(arms, &mut step_rng).unwrap();
+        let (next_opt, x) = opt.ask_natural(arms, &mut step_rng).unwrap();
+        opt = next_opt;
         ask_bits.extend(bits_vec(x.iter()));
         let y = Array2::from_shape_fn((arms, 1), |(row, _)| {
             objective_1d(x.row(row).as_slice().unwrap(), round)
         });
-        opt.tell_natural(&x.view(), &y.view(), None, &mut step_rng)
+        opt = opt.tell_natural(&x.view(), &y.view(), None, &mut step_rng)
             .unwrap();
         let mu = opt.posterior_mu(&query.view()).unwrap();
         mu_bits.extend(bits_vec(mu.iter()));

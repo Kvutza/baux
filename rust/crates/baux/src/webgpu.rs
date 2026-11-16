@@ -1207,6 +1207,7 @@ pub fn eval_posterior(
 /// Exact `f32` neighbor index backed by WebGPU (`wasm32`) or CPU `f32` fallback
 /// for testing.
 #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+#[derive(Clone)]
 pub(crate) struct WebGpuIndex {
     rows_f32: Vec<f32>,
     keys: Vec<u64>,
@@ -1279,7 +1280,7 @@ impl WebGpuIndex {
     }
 
     pub(crate) fn search(
-        &mut self,
+        &self,
         queries_scaled: &ArrayView2<f64>,
         k_eff: usize,
         search_k: usize,

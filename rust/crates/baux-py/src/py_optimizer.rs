@@ -10,7 +10,7 @@ mod build;
 mod config;
 mod dense;
 mod regional;
-pub use build::{bind_lhd, bind_regions, bind_zero, create_py, enn_py};
+pub use build::{bind_regions, create_py};
 pub use dense::{PyDenseLinear, dense_apply, dense_dist2};
 
 /// Python wrapper for BayesOptimizer
@@ -37,10 +37,10 @@ impl PyBayesOptimizer {
         py: Python<'py>,
         num_arms: usize,
         seed: Option<u64>,
-    ) -> PyResult<(Bound<'py, PyArrayDyn<f64>>, Self)> {
+    ) -> PyResult<(Self, Bound<'py, PyArrayDyn<f64>>)> {
         let opt = self.inner.clone();
         let mut rng = self.rng.clone();
-        let (result, next_opt) = py
+        let (next_opt, result) = py
             .detach(|| match seed {
                 Some(seed) => {
                     let mut temp_rng = baux::prng(seed);
@@ -53,7 +53,7 @@ impl PyBayesOptimizer {
             inner: next_opt,
             rng,
         };
-        Ok((result.into_dyn().into_pyarray(py), next_self))
+        Ok((next_self, result.into_dyn().into_pyarray(py)))
     }
 
     /// Outstanding warm-up or regional evaluation IDs in ask order.
@@ -129,11 +129,11 @@ impl PyBayesOptimizer {
         slot: usize,
         center: PyReadonlyArray1<f64>,
         seed: Option<u64>,
-    ) -> PyResult<(Vec<u64>, Self)> {
+    ) -> PyResult<(Self, Vec<u64>)> {
         let opt = self.inner.clone();
         let mut rng = self.rng.clone();
         let center_view = center.as_array();
-        let (abandoned, next_opt) = py
+        let (next_opt, abandoned) = py
             .detach(|| match seed {
                 Some(seed) => {
                     let mut temp_rng = baux::prng(seed);
@@ -147,8 +147,8 @@ impl PyBayesOptimizer {
             rng,
         };
         Ok((
-            abandoned.into_iter().map(|identity| identity.0).collect(),
             next_self,
+            abandoned.into_iter().map(|identity| identity.0).collect(),
         ))
     }
 
@@ -375,7 +375,7 @@ impl PyBayesOptimizer {
         default_seed: u64,
         default_epoch: u64,
         default_identified: bool,
-    ) -> PyResult<((u64, u64, bool, Vec<(u64, u64)>), Self)> {
+    ) -> PyResult<(Self, (u64, u64, bool, Vec<(u64, u64)>))> {
         let (next, host) = self
             .inner
             .thaw_host(data)
@@ -388,7 +388,7 @@ impl PyBayesOptimizer {
             inner: next,
             rng: self.rng.clone(),
         };
-        Ok((meta, next_self))
+        Ok((next_self, meta))
     }
 }
 

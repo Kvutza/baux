@@ -261,4 +261,3 @@ kernel void hnet_ste_bwd(
         grad_prob[row] = (boundary_prob[row] > 0.5f) ? dot_val : -dot_val;
     }
 }
-

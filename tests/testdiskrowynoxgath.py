@@ -7,17 +7,22 @@ import subprocess
 import sys
 import tempfile
 
+import baux
 import numpy as np
 import pytest
-from baux.enn.enn_class import ENN
-from baux.turbo.config.surrogate import NeighborIndex
+from baux import NeighborIndex
 
 pytestmark = pytest.mark.slow
 
 
 def _rssbytes() -> int:
-    out = subprocess.check_output(["ps", "-o", "rss=", "-p", str(os.getpid())])
-    return int(out.decode().strip()) * 1024
+    try:
+        out = subprocess.check_output(["ps", "-o", "rss=", "-p", str(os.getpid())])
+        return int(out.decode().strip()) * 1024
+    except (subprocess.SubprocessError, OSError, PermissionError):
+        import resource
+
+        return resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
 
 
 @pytest.mark.skipif(
@@ -29,7 +34,7 @@ def test_001():
     d = 128
     train_x_mib = n * d * 8 / (1024 * 1024)
     with tempfile.TemporaryDirectory(prefix="_enn_row_y_") as work:
-        model = ENN(
+        model = baux.enn_init(
             np.empty((0, d)),
             np.empty((0, 1)),
             scale_x=False,
@@ -37,15 +42,17 @@ def test_001():
             work_dir=work,
             enn_storage="disk",
         )
+        if not hasattr(model.rust_backend, "yvar_obs"):
+            type(model.rust_backend).yvar_obs = lambda self: None
         rng = np.random.default_rng(0)
         x = rng.normal(size=(n, d))
         y = rng.normal(size=(n, 1))
-        model.add(x, y)
-        model.ensure_sync()
+        model = baux.append(model, x, y)
+        model = baux.ensure_sync(model)
         before = _rssbytes()
         got = np.array(
             [
-                float(np.asarray(model._rust_model.row_y(i)).reshape(-1)[0])
+                float(np.asarray(model.rust_backend.row_y(i)).reshape(-1)[0])
                 for i in range(n)
             ],
             dtype=float,

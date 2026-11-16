@@ -16,7 +16,7 @@ import numpy as np
 import baux
 
 domain = np.array([[-2.0, 2.0], [-1.0, 3.0]])
-blank = baux.init(domain, baux.turbo_zero(), seed=123)
+blank = baux.init(domain, pipe=baux.zero(), seed=123)
 state, batch = baux.ask(blank, 2)
 x = batch.points
 y = (-(1.0 - x[:, 0]) ** 2 - 5.0 * (x[:, 1] - x[:, 0] ** 2) ** 2)[:, None]
@@ -61,7 +61,7 @@ baux.key(source: Any = None) -> Any
   }
   \p{Create a random key or retrieve one from a state.}
   \p{\code{source} may be an integer seed, bytes, an array or an object exposing \code{key}. With \code{None}, draws fresh operating-system entropy. Returns a \code{Key}.}
-  \<p>[class]{api-source}{[Source in \code{python/baux/functional.py}](https://github.com/Kvutza/baux/blob/main/python/baux/functional.py#L53)}
+  \<p>[class]{api-source}{[Source in \code{python/baux/functional.py}](https://github.com/Kvutza/baux/blob/main/python/baux/functional.py#L61)}
 }
 
 \<section>[id]{baux.Key}[class]{api-entry}[data-symbol]{baux.Key}[data-kind]{class}[data-module]{baux.state}{
@@ -81,7 +81,7 @@ baux.split(k: Any, n: int = 2) -> tuple[Any, ...]
   }
   \p{Derive child keys from a parent key.}
   \p{Returns a tuple of \code{n} keys without changing \code{k}. Default \code{n=2}. Use a different child for each search branch or draw stream.}
-  \<p>[class]{api-source}{[Source in \code{python/baux/functional.py}](https://github.com/Kvutza/baux/blob/main/python/baux/functional.py#L62)}
+  \<p>[class]{api-source}{[Source in \code{python/baux/functional.py}](https://github.com/Kvutza/baux/blob/main/python/baux/functional.py#L72)}
 }
 
 \<section>[id]{baux.fold}[class]{api-entry}[data-symbol]{baux.fold}[data-kind]{function}[data-module]{baux.state}{
@@ -91,7 +91,7 @@ baux.fold(k: Any, tag: int) -> Any
   }
   \p{Derive a key using an integer tag.}
   \p{Returns a new key. The tag is reduced modulo \code{2**64}; the parent is unchanged. Useful for giving a step or branch a repeatable key.}
-  \<p>[class]{api-source}{[Source in \code{python/baux/functional.py}](https://github.com/Kvutza/baux/blob/main/python/baux/functional.py#L71)}
+  \<p>[class]{api-source}{[Source in \code{python/baux/functional.py}](https://github.com/Kvutza/baux/blob/main/python/baux/functional.py#L81)}
 }
 
 \<section>[id]{baux.scan}[class]{api-entry}[data-symbol]{baux.scan}[data-kind]{function}[data-module]{baux.state}{
@@ -99,22 +99,21 @@ baux.fold(k: Any, tag: int) -> Any
   \pre{
 baux.scan(
     state: OptimizerState,
-    key: Any = None,
-    steps: int = 0,
-    eval_fn: Callable[..., Any] | None = None,
+    key: Any,
+    steps: int,
+    eval_fn: Callable[..., Any],
     num_arms: int = 1,
-) -> Any
+) -> tuple[OptimizerState, Any, list[dict[str, Any]]]
   }
   \p{Run several sequential optimization rounds.}
   \p{Keyed form: \code{scan(state, key, steps, eval_fn, num_arms=1)} returns \code{(final_state, next_key, records)}. The evaluator receives the coordinate batch; records contain \code{step}, \code{best_y} and a lazily computed \code{digest}.}
-  \p{Convenience form: \code{scan(state, objective, steps=N)} returns \code{(final_state, values)} and uses decoded parameters for a structured domain. The two forms have different return values. \code{steps} must be non-negative.}
   \<div>[class]{api-example}{\<p>[class]{example-label}{Example}
 \pre{
 import numpy as np
 import baux
 
 domain = np.array([[-2.0, 2.0], [-2.0, 2.0]])
-state = baux.init(domain, baux.turbo_zero(), seed=0)
+state = baux.init(domain, baux.zero(), seed=0)
 
 def objective(x):
     return -np.sum(x**2, axis=-1, keepdims=True)
@@ -144,7 +143,7 @@ assert [r[0] for r in results] == [0, 1, 2]
 print(f"step/scan/pmap verified: scan_obs={final_state.num_observations} best_y={final_state.best_y:.4f} pmap_batches={len(results)}")
 }
   }
-  \<p>[class]{api-source}{[Source in \code{python/baux/functional.py}](https://github.com/Kvutza/baux/blob/main/python/baux/functional.py#L379)}
+  \<p>[class]{api-source}{[Source in \code{python/baux/functional.py}](https://github.com/Kvutza/baux/blob/main/python/baux/functional.py#L383)}
 }
 
 \<section>[id]{baux.pmap}[class]{api-entry}[data-symbol]{baux.pmap}[data-kind]{function}[data-module]{baux.state}{
@@ -160,5 +159,5 @@ baux.pmap(
   \p{Run independent search branches in worker threads.}
   \p{Calls \code{branch_fn(index, branch_state, branch_key)} once per branch and returns results in branch-index order. Each branch starts from \code{state.fork(child_key)}.}
   \p{\code{branches} must be non-negative; zero returns an empty list. This is a local thread pool, not a device mapping or distributed scheduler. Evaluator thread safety remains the caller's responsibility.}
-  \<p>[class]{api-source}{[Source in \code{python/baux/functional.py}](https://github.com/Kvutza/baux/blob/main/python/baux/functional.py#L421)}
+  \<p>[class]{api-source}{[Source in \code{python/baux/functional.py}](https://github.com/Kvutza/baux/blob/main/python/baux/functional.py#L420)}
 }

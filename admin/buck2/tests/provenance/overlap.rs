@@ -18,7 +18,7 @@ fn automatic_restart() {
         BayesOptimizer::new_strategy(array![[0.0, 1.0]], baux::turbo_enn(), strategy, &mut rng)
             .unwrap();
     for reward in [10.0, 0.0] {
-        let (_x, opt_next) = opt.ask(1, &mut rng).unwrap();
+        let (opt_next, _x) = opt.ask(1, &mut rng).unwrap();
         opt = opt_next;
         let ids = opt.pending_ids().unwrap();
         opt = opt
@@ -55,7 +55,7 @@ fn automatic_retention() {
         BayesOptimizer::new_strategy(array![[0.0, 1.0]], baux::turbo_enn(), strategy, &mut rng)
             .unwrap();
     for reward in [10.0, 0.0] {
-        let (_x, opt_next) = opt.ask(1, &mut rng).unwrap();
+        let (opt_next, _x) = opt.ask(1, &mut rng).unwrap();
         opt = opt_next;
         let ids = opt.pending_ids().unwrap();
         opt = opt
@@ -101,13 +101,13 @@ fn restartfailure() {
         &mut rng,
     )
     .unwrap();
-    let (_x, opt_next) = opt.ask(2, &mut rng).unwrap();
+    let (opt_next, _x) = opt.ask(2, &mut rng).unwrap();
     opt = opt_next;
     let first = opt.pending_ids().unwrap();
     opt = opt
         .complete_ids(&first[..1], &array![[10.0]].view(), None, &mut rng)
         .unwrap();
-    let (_x, opt_next) = opt.ask(1, &mut rng).unwrap();
+    let (opt_next, _x) = opt.ask(1, &mut rng).unwrap();
     opt = opt_next;
     let second = *opt.pending_ids().unwrap().last().unwrap();
     opt = opt
@@ -134,7 +134,7 @@ fn restartfailure() {
 fn pending_overwrite() {
     let mut rng = StdRng::seed_from_u64(7);
     let opt = optimizer(array![[0.0, 1.0], [0.0, 1.0]], &mut rng);
-    let (proposal, mut opt) = opt.ask(2, &mut rng).unwrap();
+    let (mut opt, proposal) = opt.ask(2, &mut rng).unwrap();
     assert_eq!(proposal.shape(), &[2, 2]);
     let error = opt.clone().ask(1, &mut rng).unwrap_err().to_string();
     assert!(error.contains("all regional slots have outstanding evaluations"));
@@ -153,13 +153,13 @@ fn pending_overwrite() {
 fn overlapping_asks() {
     let mut rng = StdRng::seed_from_u64(71);
     let opt = optimizer(array![[0.0, 1.0], [0.0, 1.0]], &mut rng);
-    let (_x, mut opt) = opt.ask(2, &mut rng).unwrap();
+    let (mut opt, _x) = opt.ask(2, &mut rng).unwrap();
     let first = opt.pending_ids().unwrap();
     opt = opt
         .complete_ids(&first[..1], &array![[1.0]].view(), None, &mut rng)
         .unwrap();
     assert_eq!(opt.pending_ids().unwrap(), first[1..]);
-    let (_x, opt_next) = opt.ask(1, &mut rng).unwrap();
+    let (opt_next, _x) = opt.ask(1, &mut rng).unwrap();
     opt = opt_next;
     let pending = opt.pending_ids().unwrap();
     assert_eq!(pending.len(), 2);
@@ -188,7 +188,7 @@ fn overlapping_asks() {
     } else {
         panic!("expected multi-region state");
     }
-    let (_x, opt_next) = opt.ask(1, &mut rng).unwrap();
+    let (opt_next, _x) = opt.ask(1, &mut rng).unwrap();
     opt = opt_next;
     let pending = opt.pending_ids().unwrap();
     assert_eq!(pending.len(), 2);
@@ -240,7 +240,7 @@ fn arrival_order() {
 fn ordered_completion() {
     let mut rng = StdRng::seed_from_u64(7);
     let opt = optimizer(array![[0.0, 1.0], [0.0, 1.0]], &mut rng);
-    let (x, mut opt) = opt.ask(2, &mut rng).unwrap();
+    let (mut opt, x) = opt.ask(2, &mut rng).unwrap();
     let y = array![[1.0], [2.0]];
     let reversed = x.slice(s![..;-1, ..]);
     let error = opt
@@ -275,7 +275,7 @@ fn ordered_completion() {
 fn partial_completion() {
     let mut rng = StdRng::seed_from_u64(29);
     let opt = optimizer(array![[0.0, 1.0], [0.0, 1.0]], &mut rng);
-    let (_x, mut opt) = opt.ask(3, &mut rng).unwrap();
+    let (mut opt, _x) = opt.ask(3, &mut rng).unwrap();
     let ids = opt.pending_ids().unwrap();
     assert_eq!(ids.len(), 3);
 
@@ -291,7 +291,7 @@ fn partial_completion() {
             .to_string()
             .contains("duplicate")
     );
-    let (_x, opt_next) = opt.ask(1, &mut rng).unwrap();
+    let (opt_next, _x) = opt.ask(1, &mut rng).unwrap();
     opt = opt_next;
     let extra = *opt.pending_ids().unwrap().last().unwrap();
     opt = opt.cancel_ids(&[extra], &mut rng).unwrap();
@@ -316,7 +316,7 @@ fn partial_completion() {
 fn regional_settlement() {
     let mut rng = StdRng::seed_from_u64(67);
     let opt = optimizer(array![[0.0, 1.0], [0.0, 1.0]], &mut rng);
-    let (_x, mut opt) = opt.ask(2, &mut rng).unwrap();
+    let (mut opt, _x) = opt.ask(2, &mut rng).unwrap();
     let ids = opt.pending_ids().unwrap();
     opt = opt
         .complete_ids(&ids[..1], &array![[1.0]].view(), None, &mut rng)
@@ -342,7 +342,7 @@ fn warmup_completion() {
     let bounds = array![[0.0, 1.0], [0.0, 1.0]];
     let strategy = Strategy::experimental(bounds.nrows(), 2, 2, &mut rng).unwrap();
     let opt = BayesOptimizer::new_strategy(bounds, baux::turbo_zero(), strategy, &mut rng).unwrap();
-    let (_x, mut opt) = opt.ask(2, &mut rng).unwrap();
+    let (mut opt, _x) = opt.ask(2, &mut rng).unwrap();
     let ids = opt.pending_ids().unwrap();
     assert_eq!(ids.len(), 2);
     assert!(opt.clone().ask(1, &mut rng).is_err());

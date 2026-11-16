@@ -16,7 +16,6 @@
 extern crate self as baux;
 
 pub mod acquisition;
-pub mod agent_contract;
 #[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "metal"))]
 #[allow(dead_code)]
 pub mod apple_gpu;
@@ -24,7 +23,6 @@ pub mod apple_gpu;
 pub mod artifact;
 pub use artifact as baux_artifact;
 pub mod backend;
-pub mod base_policy;
 #[path = "../neighbor-index/src/lib.rs"]
 pub mod baux_neighbor_index;
 pub use baux_neighbor_index as neighbor_index;
@@ -41,7 +39,6 @@ mod candidates_fast;
 // streams, posterior updates, ENN fitting, acceptance, and radius trajectories
 // are verified in the ordinary cross-backend test suite.
 pub mod capability;
-pub mod coding_outcome;
 pub mod config;
 pub mod coord_space;
 mod coordinate;
@@ -57,18 +54,12 @@ pub mod error;
 pub mod experimental;
 #[cfg(feature = "extraction")]
 pub mod extraction;
-#[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "metal"))]
-pub mod mps;
-#[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "metal"))]
-pub use mps as fbt_mps;
 pub mod file_config;
 pub mod fit;
 pub mod fitter;
 #[allow(dead_code)]
 pub mod forward_program;
 pub mod hash;
-#[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "metal"))]
-pub mod hnet_metal;
 pub mod hypervolume;
 pub mod incumbent_tracker;
 pub mod index;
@@ -85,7 +76,6 @@ mod metric_sobol;
 pub mod metric_weights;
 pub mod model;
 pub mod morbo;
-pub mod muon;
 pub mod ndtri;
 pub use baux::semantics::neighbor as neighbor_rule;
 pub mod objective_observation;
@@ -102,13 +92,10 @@ pub mod portable;
 pub mod posterior;
 pub mod predictor;
 pub mod prelude;
-pub mod pretrain_data;
 pub mod procedural_pool;
 pub mod proposal_distribution;
 pub use proposal_distribution as proposal_kernel;
 pub mod quantization;
-#[cfg(any(test, all(target_os = "macos", feature = "metal")))]
-pub mod reconstruction;
 pub mod response_observation;
 pub mod scratch;
 pub mod search;
@@ -125,11 +112,7 @@ pub mod surrogate;
 pub mod surrogate_api;
 #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
 pub mod tensor_store;
-#[cfg(all(feature = "host-ml", not(target_arch = "wasm32")))]
-pub mod text;
 pub mod ticket;
-#[cfg(all(feature = "host-ml", not(target_arch = "wasm32")))]
-pub mod tokamak;
 pub mod traits;
 pub mod trials;
 pub mod trust_region;
@@ -146,25 +129,17 @@ pub(crate) mod test_helpers;
 pub use acquisition::{
     AcquisitionError, ParetoAcquisition, RandomAcquisition, ThompsonAcquisition, UCBAcquisition,
 };
-pub use agent_contract::{
-    AGENT_SCHEMA, AgentMessage, AgentTranscript, AssistantSegment, DataSplit, EpisodeTermination,
-    TaskProvenance,
-};
 #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
 pub use backend::DiskBpannEnnBackend;
 #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
 pub use backend::DiskStore;
 pub use backend::{EnnBackend, EnnStorage, InMemoryEnnBackend, MemoryStore, Storage, Store};
-pub use base_policy::{BasePolicyManifest, POLICY_SCHEMA, PolicyQualification};
 pub use candidates::{
     CandidateRV, CandidateSampler, draw_turbo, from_unit, generate_candidates, generate_lhd,
     generate_uniform, perturb_candidates, sobol_masked, sobol_sequence, to_unit,
 };
 pub use capability::{
     Backend, Capability, Operation, Support, backends, matrix, operations, support,
-};
-pub use coding_outcome::{
-    CODING_SCHEMA, CandidateEfficiency, CandidateEligibility, CodingOutcome, ExecutableChecks,
 };
 pub use config::{
     DataRecipe, Dissimilarity, DistanceMetric, ExperimentKind, ExperimentSpec, ModelArchitecture,
@@ -217,7 +192,6 @@ pub use pipeline::{
     ProposalTicket, SurrogatePipe, TypedOptimizer, TypedSurrogate, Unfitted, Warmup,
 };
 pub use posterior::{Pool, TopK, WeightedPosteriorData, compute_internals, conditional_internals};
-pub use pretrain_data::load_tokens as pretrain_tokens;
 pub use proposal_distribution::{CoordSystem, ProposalDistribution, ProposalKernel};
 pub use scratch::{
     AlignedBuffer, CacheLine, CandidateSoa, PageBlock, ScratchArena, ScratchScope, UnifiedBuffer,

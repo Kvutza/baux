@@ -3,12 +3,16 @@ from __future__ import annotations
 from dataclasses import replace
 from types import SimpleNamespace
 
+import baux
 import numpy as np
 import pytest
-from baux import _rust, create_optimizer, turbo_one
+from baux import _rust
 from baux.turbo.config import (
+    CandidateConfig,
     ExternalSurrogate,
     RegionalSearchPolicy,
+    UCBAcquisitionConfig,
+    turbo_one,
     turbo_zero,
 )
 
@@ -41,34 +45,25 @@ class StubGP:
         return np.random.default_rng(seed).normal(size=(n, len(x), 1))
 
 
-def _make(gp: StubGP):
+def _makestate(gp: StubGP, num_init: int = 1):
     bounds = np.array([[-2.0, 2.0], [10.0, 20.0]])
-    opt = _rust.create_optimizer(
-        bounds,
-        "gp",
-        10,
-        1,
-        4,
-        42,
-        cfg={
-            "acquisition": "ucb",
-            "min_candidates": 8,
-            "max_candidates": 8,
-            "num_candidates_factor": 1.0,
-        },
-        gp=gp,
-        fit_steps=7,
+    config = replace(
+        turbo_one(num_init=num_init),
+        surrogate=ExternalSurrogate(lambda: gp, fit_steps=7),
+        acquisition=UCBAcquisitionConfig(),
+        candidates=CandidateConfig(num_candidates=8),
     )
-    return bounds, opt
+    return bounds, baux.init(domain=bounds, config=config, seed=42)
 
 
 def test_gpcallsarebatched():
     gp = StubGP()
-    bounds, opt = _make(gp)
-    x, opt = opt.ask(1, seed=101)
+    bounds, state = _makestate(gp)
+    state, b1 = baux.ask(state, 1)
+    x = b1.points
     y = np.array([[1.25]])
     yvar = np.array([[0.05]])
-    opt = opt.tell(x, y, seed=102, y_var=yvar)
+    state, _ = baux.tell(state, x, y, y_var=yvar)
 
     assert np.all((bounds[:, 0] <= x) & (x <= bounds[:, 1]))
     assert len(gp.fits) == 1
@@ -77,22 +72,23 @@ def test_gpcallsarebatched():
     np.testing.assert_array_equal(fit_y, y)
     np.testing.assert_array_equal(fit_var, yvar)
 
-    x2, opt = opt.ask(2, seed=103)
+    state, b2 = baux.ask(state, 2)
+    x2 = b2.points
     assert x2.shape == (2, 2)
-    assert len(gp.preds) == 1
-    assert gp.preds[0].shape == (8, 2)
+    assert len(gp.preds) == 2
+    assert gp.preds[-1].shape == (8, 2)
 
 
 def test_yvarerrorisatomic():
     gp = StubGP()
-    _, opt = _make(gp)
-    x, opt = opt.ask(1, seed=201)
-    opt = opt.tell(x, np.array([[1.0]]), seed=202, y_var=np.array([[0.1]]))
+    _, state = _makestate(gp)
+    state, b1 = baux.ask(state, 1)
+    state, _ = baux.tell(state, b1, np.array([[1.0]]), y_var=np.array([[0.1]]))
 
     with pytest.raises(ValueError, match="y_var must be provided"):
-        opt.tell(x, np.array([[2.0]]), seed=203)
+        baux.tell(state, b1, np.array([[2.0]]))
 
-    assert opt.num_observations() == 1
+    assert state.num_observations == 1
     assert len(gp.fits) == 1
 
 
@@ -107,50 +103,55 @@ def test_fiterrorisatomic():
             return super().fit(x, y, yvar, steps=steps)
 
     gp = FailOnce()
-    _, opt = _make(gp)
-    x, opt = opt.ask(1, seed=301)
+    _, state = _makestate(gp)
+    s1, b1 = baux.ask(state, 1)
 
-    assert opt.init_progress() == (0, 1)
+    assert s1.init_progress == (0, 1)
     with pytest.raises(ValueError, match="fit failed"):
-        opt.tell(x, np.array([[1.0]]), seed=302)
+        baux.tell(s1, b1, np.array([[1.0]]))
 
-    assert opt.num_observations() == 0
-    # Pure immutability on error: opt is completely unchanged on failure
-    assert opt.init_progress() == (0, 1)
-    opt = opt.tell(x, np.array([[1.0]]), seed=303)
-    assert opt.num_observations() == 1
-    assert opt.init_progress() is None
+    assert s1.num_observations == 0
+    # Pure immutability on error: s1 is completely unchanged on failure
+    assert s1.init_progress == (0, 1)
+    s2, _ = baux.tell(s1, b1, np.array([[1.0]]))
+    assert s2.num_observations == 1
+    assert s2.init_progress is None
 
 
 def test_forkisolation():
     gp = StubGP()
-    _bounds, opt = _make(gp)
-    x, opt = opt.ask(1, seed=501)
-    opt = opt.tell(x, np.array([[1.0]]), seed=502)
-    assert opt.num_observations() == 1
+    bounds = np.array([[-2.0, 2.0], [10.0, 20.0]])
+    config = replace(
+        turbo_one(num_init=1),
+        surrogate=ExternalSurrogate(lambda: gp, fit_steps=7),
+    )
+    state = baux.init(domain=bounds, config=config, seed=501)
+    state, b1 = baux.ask(state, 1)
+    state, _ = baux.tell(state, b1, np.array([[1.0]]))
+    assert state.num_observations == 1
 
-    opt_fork = opt.fork()
-    assert opt_fork.digest_hex() == opt.digest_hex()
-    assert opt_fork.num_observations() == 1
+    state_fork = state.fork()
+    assert state_fork.digest() == state.digest()
+    assert state_fork.num_observations == 1
 
     # Branch A advances independently
-    xa, opt_a = opt.ask(1, seed=503)
-    opt_a = opt_a.tell(xa, np.array([[2.0]]), seed=504)
+    state_a, ba = baux.ask(state.fork(seed=503), 1)
+    state_a, _ = baux.tell(state_a, ba, np.array([[2.0]]))
 
     # Branch B advances independently from fork snapshot
-    xb, opt_b = opt_fork.ask(1, seed=503)
-    opt_b = opt_b.tell(xb, np.array([[5.0]]), seed=504)
+    state_b, bb = baux.ask(state_fork.fork(seed=503), 1)
+    state_b, _ = baux.tell(state_b, bb, np.array([[5.0]]))
 
     # Deterministic generation with same seed
-    np.testing.assert_allclose(xa, xb)
+    np.testing.assert_allclose(ba.points, bb.points)
 
     # Pure fork isolation: branches diverge and original snapshots remain immutable
-    assert opt.num_observations() == 1
-    assert opt_fork.num_observations() == 1
-    assert opt_a.num_observations() == 2
-    assert opt_b.num_observations() == 2
-    assert opt_a.digest_hex() != opt_b.digest_hex()
-    assert opt.digest_hex() == opt_fork.digest_hex()
+    assert state.num_observations == 1
+    assert state_fork.num_observations == 1
+    assert state_a.num_observations == 2
+    assert state_b.num_observations == 2
+    assert state_a.digest() != state_b.digest()
+    assert state.digest() == state_fork.digest()
 
 
 def test_001():
@@ -159,12 +160,12 @@ def test_001():
             return SimpleNamespace(mu=np.zeros((1, 1)), sigma=np.ones((1, 1)))
 
     gp = BadPredict()
-    _, opt = _make(gp)
-    x, opt = opt.ask(1, seed=401)
-    opt = opt.tell(x, np.array([[1.0]]), seed=402)
+    _, state = _makestate(gp)
+    state, b1 = baux.ask(state, 1)
+    state, _ = baux.tell(state, b1, np.array([[1.0]]))
 
     with pytest.raises(ValueError, match="predict must return"):
-        opt.ask(2, seed=403)
+        baux.ask(state, 2)
 
 
 @pytest.mark.parametrize(
@@ -172,41 +173,50 @@ def test_001():
     ["box_contain", "ellipsoid_ball", "nearest_center", "origin_only"],
 )
 def test_regionalprovider(sharing):
-    gp = StubGP()
-    local_models: list[StubGP] = []
+    all_models: list[StubGP] = []
 
-    def factory(slot: int, generation: int) -> StubGP:
-        assert generation == 0
+    def factory() -> StubGP:
         model = StubGP()
-        local_models.append(model)
+        all_models.append(model)
         return model
 
-    opt = _rust.create_optimizer(
-        np.array([[0.0, 1.0], [0.0, 1.0]]),
-        "gp",
-        num_init=1,
-        num_regions=3,
-        gp=gp,
-        gp_factory=factory,
-        fit_steps=7,
-        cfg={
-            "region_sharing": sharing,
-            "acquisition": "ucb",
-            "min_candidates": 8,
-            "max_candidates": 8,
-        },
+    config = replace(
+        turbo_one(num_init=1),
+        surrogate=ExternalSurrogate(factory, fit_steps=7),
+        trust_region=RegionalSearchPolicy(
+            count=3,
+            sharing=sharing,
+            acquisitions=(
+                UCBAcquisitionConfig(),
+                UCBAcquisitionConfig(),
+                UCBAcquisitionConfig(),
+            ),
+        ),
+        candidates=CandidateConfig(num_candidates=8),
     )
-    assert opt.num_regions() == 3
+    state = baux.init(
+        domain=np.array([[0.0, 1.0], [0.0, 1.0]]),
+        config=config,
+        seed=42,
+    )
+    assert state.num_regions == 3
     for _ in range(3):
-        x, opt = opt.ask(3)
-        opt = opt.tell(x, -np.sum(x**2, axis=1, keepdims=True))
-    assert len(gp.fits) == 3
-    assert not gp.preds
-    assert len(local_models) == 3
-    assert all(model.fits and model.preds for model in local_models)
+        state, batch = baux.ask(state, 3)
+        state, _ = baux.tell(
+            state, batch, -np.sum(batch.points**2, axis=1, keepdims=True)
+        )
+
+    assert len(all_models) == 4
+    global_m = all_models[0]
+    regional_m = all_models[1:]
+    assert len(global_m.fits) == 3
+    assert len(regional_m) == 3
+    assert all(model.fits and model.preds for model in regional_m)
 
 
 def test_missingfactory():
+    with pytest.raises(TypeError, match="surrogate factory must be callable"):
+        ExternalSurrogate(factory=None)
     with pytest.raises(ValueError, match="requires a regional surrogate factory"):
         _rust.create_optimizer(
             np.array([[0.0, 1.0]]),
@@ -273,59 +283,77 @@ def test_failedingestion():
             return super().fit(x, y, yvar, steps=steps)
 
     global_model = FailAfterWarmup()
-    opt = _rust.create_optimizer(
-        np.array([[0.0, 1.0], [0.0, 1.0]]),
-        "gp",
-        num_init=1,
-        num_regions=2,
-        gp=global_model,
-        gp_factory=lambda slot, generation: StubGP(),
-        fit_steps=7,
-        cfg={"region_sharing": "origin_only", "min_candidates": 8, "max_candidates": 8},
+    first = True
+
+    def factory() -> StubGP:
+        nonlocal first
+        if first:
+            first = False
+            return global_model
+        return StubGP()
+
+    config = replace(
+        turbo_one(num_init=1),
+        surrogate=ExternalSurrogate(factory, fit_steps=7),
+        trust_region=RegionalSearchPolicy(
+            count=2,
+            sharing="origin_only",
+            acquisitions=(UCBAcquisitionConfig(), UCBAcquisitionConfig()),
+        ),
+        candidates=CandidateConfig(num_candidates=8),
     )
-    warmup, opt = opt.ask(1)
-    opt = opt.tell(warmup, np.array([[1.0]]))
-    proposal, opt = opt.ask(2)
+    state = baux.init(
+        domain=np.array([[0.0, 1.0], [0.0, 1.0]]),
+        config=config,
+        seed=42,
+    )
+    state, warmup = baux.ask(state, 1)
+    state, _ = baux.tell(state, warmup, np.array([[1.0]]))
+    state, proposal = baux.ask(state, 2)
     outcomes = np.ones((2, 1))
     with pytest.raises(ValueError, match="regional global fit failed"):
-        opt.tell(proposal, outcomes)
-    # Under pure functional contract, failed tell leaves opt completely unchanged
-    assert opt.num_observations() == 1
-    assert opt.ingestion_failure is None
+        baux.tell(state, proposal, outcomes)
+    # Under pure functional contract, failed tell leaves state completely unchanged
+    assert state.num_observations == 1
+    assert state.ingestion_failure is None
     assert len(global_model.fits) == 1
 
 
 def test_regionmodels():
-    global_model = StubGP()
-    local_models: list[StubGP] = []
+    all_models: list[StubGP] = []
 
-    def factory(slot: int, generation: int) -> StubGP:
-        assert slot == len(local_models)
-        assert generation == 0
+    def factory() -> StubGP:
         model = StubGP()
-        local_models.append(model)
+        all_models.append(model)
         return model
 
-    opt = _rust.create_optimizer(
-        np.array([[0.0, 1.0], [0.0, 1.0]]),
-        "gp",
-        num_init=1,
-        num_regions=3,
-        gp=global_model,
-        gp_factory=factory,
-        fit_steps=7,
-        cfg={
-            "region_sharing": "origin_only",
-            "acquisition": "ucb",
-            "min_candidates": 8,
-            "max_candidates": 8,
-        },
+    config = replace(
+        turbo_one(num_init=1),
+        surrogate=ExternalSurrogate(factory, fit_steps=7),
+        trust_region=RegionalSearchPolicy(
+            count=3,
+            sharing="origin_only",
+            acquisitions=(
+                UCBAcquisitionConfig(),
+                UCBAcquisitionConfig(),
+                UCBAcquisitionConfig(),
+            ),
+        ),
+        candidates=CandidateConfig(num_candidates=8),
     )
+    state = baux.init(
+        domain=np.array([[0.0, 1.0], [0.0, 1.0]]),
+        config=config,
+        seed=42,
+    )
+    global_model = all_models[0]
+    local_models = all_models[1:]
     assert len(local_models) == 3
-    x, opt = opt.ask(1)
-    opt = opt.tell(x, np.array([[0.1]]))
-    x, opt = opt.ask(3)
-    opt = opt.tell(x, np.array([[0.2], [0.3], [0.4]]))
+
+    state, b1 = baux.ask(state, 1)
+    state, _ = baux.tell(state, b1, np.array([[0.1]]))
+    state, b2 = baux.ask(state, 3)
+    state, _ = baux.tell(state, b2, np.array([[0.2], [0.3], [0.4]]))
 
     assert global_model.fits[-1][0].shape == (4, 2)
     assert [model.fits[-1][0].shape[0] for model in local_models] == [2, 2, 2]
@@ -334,18 +362,17 @@ def test_regionmodels():
 
 def test_reusedprovider():
     model = StubGP()
-    for global_model in [model, StubGP()]:
-        with pytest.raises(ValueError, match="reused a provider"):
-            _rust.create_optimizer(
-                np.array([[0.0, 1.0]]),
-                "gp",
-                num_init=1,
-                num_regions=2,
-                gp=global_model,
-                gp_factory=lambda slot, generation: model,
-                fit_steps=7,
-                cfg={"region_sharing": "origin_only"},
-            )
+    config = replace(
+        turbo_one(num_init=1),
+        surrogate=ExternalSurrogate(lambda: model, fit_steps=7),
+        trust_region=RegionalSearchPolicy(
+            count=2,
+            sharing="origin_only",
+            acquisitions=(UCBAcquisitionConfig(), UCBAcquisitionConfig()),
+        ),
+    )
+    with pytest.raises(ValueError, match="reused a provider"):
+        baux.init(np.array([[0.0, 1.0]]), config=config)
 
 
 def test_external():
@@ -359,17 +386,25 @@ def test_external():
     config = replace(
         turbo_one(num_init=1),
         surrogate=ExternalSurrogate(factory, fit_steps=7),
-        trust_region=RegionalSearchPolicy(count=3, sharing="origin_only"),
+        trust_region=RegionalSearchPolicy(
+            count=3,
+            sharing="origin_only",
+            acquisitions=(
+                UCBAcquisitionConfig(),
+                UCBAcquisitionConfig(),
+                UCBAcquisitionConfig(),
+            ),
+        ),
     )
-    opt = create_optimizer(
-        bounds=np.array([[0.0, 1.0], [0.0, 1.0]]),
+    state = baux.init(
+        domain=np.array([[0.0, 1.0], [0.0, 1.0]]),
         config=config,
-        rng=np.random.default_rng(11),
+        seed=11,
     )
-    x = opt.ask(1)
-    opt.tell(x, np.array([[0.1]]))
-    x = opt.ask(3)
-    opt.tell(x, np.array([[0.2], [0.3], [0.4]]))
+    state, b1 = baux.ask(state, 1)
+    state, _ = baux.tell(state, b1, np.array([[0.1]]))
+    state, b2 = baux.ask(state, 3)
+    state, _ = baux.tell(state, b2, np.array([[0.2], [0.3], [0.4]]))
 
     assert len(providers) == 4
     assert providers[0].fits[-1][0].shape == (4, 2)
@@ -436,3 +471,33 @@ def testoneregionimport():
     loop.update({**initial, "trial": (proposal, 2.0, None)})
     assert loop.optimizer.pending_ids is None
     assert set(loop._seen) == {"seed", "trial"}
+
+
+def test_completerestart():
+    config = replace(
+        turbo_zero(num_init=1),
+        trust_region=RegionalSearchPolicy(count=2),
+    )
+    state = baux.init(
+        domain=np.array([[0.0, 1.0], [0.0, 1.0]]),
+        config=config,
+        seed=77,
+    )
+    state, batch = baux.ask(state, 2)
+    assert len(batch.ids) == 2
+    id1, id2 = batch.ids
+
+    # complete
+    s1 = baux.complete(state, [id1], np.array([[1.5]]))
+    assert s1.pending_ids == (id2.value,)
+    assert state.pending_ids == (id1.value, id2.value)  # immutability
+
+    # cancel
+    s2 = baux.cancel(s1, [id2])
+    assert s2.pending_ids is None
+
+    # restart_region
+    s_ask, _ = baux.ask(s2, 1)
+    s_rst, abandoned = baux.restart_region(s_ask, 0, np.array([0.5, 0.5]))
+    assert isinstance(abandoned, tuple)
+    assert isinstance(s_rst, baux.OptimizerState)

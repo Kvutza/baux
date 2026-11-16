@@ -7,6 +7,13 @@ from dataclasses import dataclass
 import baux
 import numpy as np
 import pytest
+from baux.pytree import (
+    categorical,
+    mlp_forward,
+    mlp_spec,
+    unflatten_batch,
+    unflatten_stacked,
+)
 
 
 @dataclass(frozen=True)
@@ -37,23 +44,23 @@ def test_pytreespec():
     np.testing.assert_allclose(baux.ravel(tree, spec), flat)
 
     batch_flat = np.vstack([flat, flat + 10.0])
-    trees = baux.unflatten_batch(batch_flat, spec)
+    trees = unflatten_batch(batch_flat, spec)
     assert len(trees) == 2
     np.testing.assert_allclose(baux.ravel(trees, spec), batch_flat)
 
-    stacked = baux.unflatten_stacked(batch_flat, spec)
+    stacked = unflatten_stacked(batch_flat, spec)
     assert stacked["encoder"].weight.shape == (2, 4, 3)
     assert stacked["head"].shape == (2, 2, 4)
     np.testing.assert_allclose(baux.ravel(stacked, spec), batch_flat)
 
 
 def test_mlpspec():
-    spec = baux.mlp_spec([(8, 4), (2, 8)], low=-0.5, high=0.5)
+    spec = mlp_spec([(8, 4), (2, 8)], low=-0.5, high=0.5)
     assert spec.dim == (8 * 4 + 8) + (2 * 8 + 2)
     flat = np.full(spec.dim, 0.1, dtype=float)
     params = spec.unflatten(flat)
     obs = np.ones(4, dtype=float)
-    out = baux.mlp_forward(params, obs, act=np.tanh)
+    out = mlp_forward(params, obs, act=np.tanh)
     assert out.shape == (2,)
     assert np.all(np.isfinite(out))
 
@@ -95,7 +102,7 @@ def test_combinators():
 
 
 def test_purebranching():
-    spec = baux.mlp_spec([(4, 2), (1, 4)], low=-1.0, high=1.0)
+    spec = mlp_spec([(4, 2), (1, 4)], low=-1.0, high=1.0)
     cfg = baux.chain(
         baux.lhd(4), baux.raasp(4), baux.enn(k=3, num_samples=16), baux.ucb()
     )
@@ -125,7 +132,7 @@ def test_purebranching():
     assert s2_a.num_observations == 4
     assert s2_b.num_observations == 4
     assert not np.allclose(mu_a, mu_b)
-    assert s2_a.incumbent_params is not None
+    assert s2_a.best_params is not None
 
     pred_a = baux.posterior_mu(s2_a, b1.params)
     pred_b = baux.posterior_mu(s2_b, b1.stacked)
@@ -158,26 +165,19 @@ def test_multiregionpure():
 
 
 def test_stepscan():
-    spec = baux.pytree_bounds({"x": (2,), "y": (2,)}, low=-2.0, high=2.0)
+    bounds = np.array([[-2.0, 2.0], [-2.0, 2.0]])
     cfg = baux.chain(baux.lhd(2), baux.zero())
-    s0 = baux.init(spec, cfg)
+    s0 = baux.init(bounds, cfg)
 
-    def obj(tree):
-        x = tree["x"]
-        y = tree["y"]
-        return -np.sum(x**2 + y**2, axis=-1)
-
-    s_final, hist = baux.scan(s0, obj, steps=5, num_arms=2)
-    assert hist.shape == (5, 2)
-    assert s_final.num_observations == 10
-    assert s0.num_observations == 0
-
-    s_keyed, k_next, traces = baux.scan(
-        s0, s0.key, 4, lambda x: -np.sum(x**2, axis=-1), num_arms=2
+    s_scan, next_key, traces = baux.scan(
+        s0, baux.key(0), 5, lambda pts: -np.sum(pts**2, axis=-1), num_arms=2
     )
-    assert len(traces) == 4 and k_next != s0.key
-    assert traces[-1]["step"] == 3 and traces[-1]["digest"] == s_keyed.digest()
-    assert traces[-1]["best_y"] == s_keyed.best_y
+    assert len(traces) == 5
+    assert s_scan.num_observations == 10
+    assert s0.num_observations == 0
+    assert next_key != baux.key(0)
+    assert traces[-1]["step"] == 4 and traces[-1]["digest"] == s_scan.digest()
+    assert traces[-1]["best_y"] == s_scan.best_y
 
 
 def test_pmap():
@@ -201,25 +201,25 @@ def test_functionalenn():
     rng = np.random.default_rng(sp.key.seed())
     x0 = rng.uniform(-1.0, 1.0, size=(8, 3))
     y0 = np.sum(x0**2, axis=1)
-    st0 = baux.enn.init(x0, y0, scale_x=True)
+    st0 = baux.enn_init(x0, y0, scale_x=True)
     assert x0.flags.writeable
     assert y0.flags.writeable
     assert len(st0) == 8
 
     x1 = rng.uniform(-1.0, 1.0, size=(4, 3))
     y1 = np.sum(x1**2, axis=1)
-    st1 = baux.enn.append(st0, x1, y1)
+    st1 = baux.append(st0, x1, y1)
     assert len(st0) == 8
     assert len(st1) == 12
 
     xq = rng.uniform(-1.0, 1.0, size=(4, 3))
-    params = baux.enn.fit(st1, k=4, num_samples=16)
-    post = baux.enn.posterior(st1, xq, params)
+    params = baux.fit(st1, k=4, num_samples=16)
+    post = baux.posterior(st1, xq, params)
     assert post.mu.shape == (4, 1)
     st_hyp = baux.with_geometry(st1, "hyperbolic", local_k=3)
-    post_hyp = baux.enn.posterior(st_hyp, xq, params)
+    post_hyp = baux.posterior(st_hyp, xq, params)
     assert post_hyp.mu.shape == (4, 1) and not np.allclose(post.mu, post_hyp.mu)
-    draws, idx = baux.enn.sample(st1, xq, params, num_draws=3)
+    draws, idx = baux.sample(st1, xq, params, num_draws=3)
     assert draws.shape == (4, 1, 3)
     assert idx.shape[0] == 4
 
@@ -255,7 +255,7 @@ def test_key():
 
 
 def test_categorical():
-    cat = baux.categorical(["adam", "muon", "sgd"], separation=3.0)
+    cat = categorical(["adam", "muon", "sgd"], separation=3.0)
     spec = baux.pytree_bounds(
         {"lr": 0.01, "opt": cat, "w": np.zeros(2)}, low=-1.0, high=1.0
     )
@@ -293,7 +293,6 @@ def test_fork():
     s0 = baux.init([[-1.0, 1.0], [-1.0, 1.0]], cfg)
     s1, b1 = baux.ask(s0, 4)
     s2, _ = baux.tell(s1, b1, -np.sum(b1.points**2, axis=1))
-    object.__setattr__(s2, "_log", ("corrupted",))
     branch_a, ba = baux.ask(s2, 2)
     branch_b, bb = baux.ask(s2, 2)
     assert np.allclose(ba.points, bb.points) and baux.digest(branch_a) == baux.digest(
@@ -361,13 +360,13 @@ def test_freeze():
         baux.tell(s_restored, b_rest, y_fail)
 
     # Forked seed + scan/pmap rollout commutativity
-    s_clean, _ = baux.scan(
+    s_clean, _, _ = baux.scan(
         s0,
         baux.key(19),
-        steps=6,
+        6,
         eval_fn=lambda x: -np.sum((x - 0.25) ** 2, axis=1),
         num_arms=4,
-    )[:2]
+    )
     s_fork = s_clean.fork(baux.key(777))
     assert baux.digest(s_fork) != baux.digest(s_clean)
     s_fork_rest = baux.thaw(s0, baux.freeze(s_fork))
@@ -381,7 +380,7 @@ def test_freeze():
         baux.key(99),
         branches=4,
         branch_fn=lambda i, st, k: baux.digest(
-            baux.scan(st, k, steps=3, eval_fn=fn, num_arms=2)[0]
+            baux.scan(st, k, 3, eval_fn=fn, num_arms=2)[0]
         ),
     )
     roll_rest = baux.pmap(
@@ -389,7 +388,7 @@ def test_freeze():
         baux.key(99),
         branches=4,
         branch_fn=lambda i, st, k: baux.digest(
-            baux.scan(st, k, steps=3, eval_fn=fn, num_arms=2)[0]
+            baux.scan(st, k, 3, eval_fn=fn, num_arms=2)[0]
         ),
     )
     assert roll_live == roll_rest and len(set(roll_live)) == 4
@@ -408,11 +407,11 @@ def test_freezeportfolio():
     def fn(x):
         return -np.sum((x - 0.35) ** 2, axis=1)
 
-    s_warm, b_init = baux.ask(s0, num_arms=6)
+    s_warm, b_init = baux.ask(s0, 6)
     s_warm = baux.complete(s_warm, b_init.ids, fn(b_init.points))
 
-    s_live, b1 = baux.ask(s_warm, num_arms=2)
-    s_live, b2 = baux.ask(s_live, num_arms=2)
+    s_live, b1 = baux.ask(s_warm, 2)
+    s_live, b2 = baux.ask(s_live, 2)
     s_live = baux.complete(s_live, [b2.ids[0]], fn(b2.points[:1]))
     s_live = baux.cancel(s_live, [b2.ids[1]])
 
@@ -431,14 +430,12 @@ def test_freezeportfolio():
     assert s_rest_done.pending_ids is None
     assert baux.digest(s_rest_done) == baux.digest(s_live_done)
 
-    s_live_next, bn_live = baux.ask(s_live_done, num_arms=2)
-    s_rest_next, bn_rest = baux.ask(s_rest_done, num_arms=2)
+    s_live_next, bn_live = baux.ask(s_live_done, 2)
+    s_rest_next, bn_rest = baux.ask(s_rest_done, 2)
     assert np.array_equal(bn_live.points, bn_rest.points)
     assert baux.digest(s_live_next) == baux.digest(s_rest_next)
 
     # Gate 3 adversarial inputs across FFI
-    import pytest
-
     with pytest.raises(TypeError):
         baux.thaw(s0, 12345)  # type: ignore[arg-type]
     with pytest.raises(ValueError):
@@ -538,12 +535,11 @@ def test_bogeometry():
     _s2_h, mu_h = baux.tell(s1_h, b_e.points, y_warm)
     assert not np.allclose(mu_e, mu_h)
     assert s2_e.lengthscales is not None and s2_e.metric_weights is not None
-    assert len(s2_e._log) == 0
 
     _s3_e, b3_e = baux.ask(s2_e, 2)
     assert b3_e.weights is not None
     assert b3_e.params[0]["opt"] in ("adam", "muon", "sgd")
-    assert s2_e.incumbent_params["opt"] in ("adam", "muon", "sgd")
+    assert s2_e.best_params["opt"] in ("adam", "muon", "sgd")
 
     cfg_online = baux.chain(
         baux.lhd(6),

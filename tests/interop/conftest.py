@@ -8,11 +8,11 @@ import pytest
 
 @pytest.fixture
 def config():
-    from baux import turbo_enn
     from baux.turbo.config import (
         CandidateConfig,
         ENNSurrogate,
         SurrogateFit,
+        turbo_enn,
     )
 
     return turbo_enn(

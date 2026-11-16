@@ -2,7 +2,8 @@ import sys
 
 import numpy as np
 import pytest
-from baux import Device, Portfolio, Region, Span, Var
+from baux import Device, Portfolio, Region, Var
+from baux.experimental import Span
 
 pytestmark = pytest.mark.skipif(
     sys.platform != "darwin",
@@ -18,8 +19,8 @@ def test_residentloop():
         [Span(1, 0, 17, 0.25)],
         capacity=3,
     )
-    first, opt = opt.ask(12)
-    second, opt = opt.ask(13)
+    opt, first = opt.ask(12)
+    opt, second = opt.ask(13)
     assert (first.region, second.region) == (0, 1)
     view = first.weights()
     assert view.size == 17
@@ -28,9 +29,9 @@ def test_residentloop():
     # COW snapshot isolation: holding a view across tell/ask no longer raises BufferError
     with pytest.raises(ValueError):
         opt.tell(first, float("nan"))
-    accepted, opt = opt.tell(second, 3.0)
+    opt, accepted = opt.tell(second, 3.0)
     assert accepted
-    accepted, opt = opt.tell(first, 2.0)
+    opt, accepted = opt.tell(first, 2.0)
     assert accepted
     np.testing.assert_array_equal(view.read(), view_snapshot)
 
@@ -39,9 +40,9 @@ def test_residentloop():
     with pytest.raises(ValueError, match="no longer pending"):
         opt.tell(first, 2.0)
     opt = opt.restart(0, Var(starts[0]), 4.0)
-    fresh, opt = opt.ask(14, region=0)
+    opt, fresh = opt.ask(14, region=0)
     assert fresh.generation == 1
-    accepted, opt = opt.tell(fresh, 5.0)
+    opt, accepted = opt.tell(fresh, 5.0)
     assert accepted
     assert opt.best == (0, 5.0)
     assert opt.resident_bytes > 0
@@ -56,14 +57,14 @@ def test_nearestsharing():
         capacity=3,
         sharing="nearest_center",
     )
-    first, opt = opt.ask(12, region=0)
-    second, opt = opt.ask(13, region=1)
-    accepted, opt = opt.tell(second, 2.0)
+    opt, first = opt.ask(12, region=0)
+    opt, second = opt.ask(13, region=1)
+    opt, accepted = opt.tell(second, 2.0)
     assert accepted
     assert opt.sharing_backlog == [1, 0]
     with pytest.raises(ValueError, match="pending"):
         opt.flush_sharing(0)
-    accepted, opt = opt.tell(first, -1.0)
+    opt, accepted = opt.tell(first, -1.0)
     assert not accepted
     opt = opt.flush_sharing(0)
     assert opt.sharing_backlog == [0, 0]
@@ -80,8 +81,8 @@ def test_sharedzero():
         [Span(1, 0, 17, 0.0)],
         sharing="box_contain",
     )
-    proposal, opt = opt.ask(8, region=1)
-    accepted, opt = opt.tell(proposal, 2.0)
+    opt, proposal = opt.ask(8, region=1)
+    opt, accepted = opt.tell(proposal, 2.0)
     assert accepted
     assert opt.sharing_backlog == [1, 0]
     opt = opt.flush_sharing(0)
@@ -96,7 +97,7 @@ def test_cancelproposal():
         [Span(1, 0, 17, 0.25)],
         capacity=3,
     )
-    proposal, opt = opt.ask(12, region=0)
+    opt, proposal = opt.ask(12, region=0)
     view = proposal.weights()
     view_snapshot = view.read().copy()
 
@@ -107,9 +108,9 @@ def test_cancelproposal():
     assert opt.trials == [0, 0]
     with pytest.raises(ValueError, match="no longer pending"):
         opt.tell(proposal, 2.0)
-    fresh, opt = opt.ask(13, region=0)
+    opt, fresh = opt.ask(13, region=0)
     assert fresh.generation == proposal.generation
-    accepted, opt = opt.tell(fresh, 2.0)
+    opt, accepted = opt.tell(fresh, 2.0)
     assert accepted
     assert opt.trials == [1, 0]
 
@@ -126,10 +127,10 @@ def test_externalimport():
     opt = opt.import_region(0, foreign, 2.0)
     assert opt.delivered_imports == 1
     assert opt.trials == [0, 0]
-    pending, opt = opt.ask(12, region=0)
+    opt, pending = opt.ask(12, region=0)
     opt = opt.import_region(0, foreign, 3.0)
     assert opt.sharing_backlog == [1, 0]
-    accepted, opt = opt.tell(pending, 1.5)
+    opt, accepted = opt.tell(pending, 1.5)
     assert accepted
     opt = opt.flush_sharing(0)
     assert opt.delivered_imports == 2
@@ -150,7 +151,7 @@ def test_policyimport(sharing, expected):
         sharing=sharing,
     )
     foreign = Var(starts[0])
-    slots, opt = opt.import_observations(foreign, 2.0)
+    opt, slots = opt.import_observations(foreign, 2.0)
     assert slots == expected
     assert opt.sharing_backlog == [int(slot in expected) for slot in range(2)]
     for slot in expected:
@@ -187,9 +188,9 @@ def test_ellipsoidzero():
         length_init=0.4,
         sharing="ellipsoid_ball",
     )
-    first, opt = opt.ask(11, region=0, acquisition="random")
+    opt, first = opt.ask(11, region=0, acquisition="random")
     accepted_weights = first.weights().read()
-    accepted, opt = opt.tell(first, 5.0)
+    opt, accepted = opt.tell(first, 5.0)
     assert accepted
     assert opt.sharing_backlog == [0, 1]
     opt = opt.flush_sharing(1)
@@ -197,8 +198,8 @@ def test_ellipsoidzero():
     assert opt.delivered_imports == 1
     adopted = opt.incumbent(1).read()
     np.testing.assert_array_equal(adopted, accepted_weights)
-    second, opt = opt.ask(19, region=1, acquisition="random")
-    accepted, opt = opt.tell(second, 6.0)
+    opt, second = opt.ask(19, region=1, acquisition="random")
+    opt, accepted = opt.tell(second, 6.0)
     assert accepted
     assert opt.best == (1, 6.0)
 
@@ -211,15 +212,15 @@ def test_candleapi():
     values = np.array([0.0, 1.0], dtype=np.float32)
     spans = [Span(1, 0, 17, 0.25)]
     region = Region(Var(starts[0]), 0.0, spans, 2)
-    trial, region = region.ask()
+    region, trial = region.ask()
     assert trial.var().read().size == 17
-    accepted, region = region.tell(trial, 1.0)
+    region, accepted = region.tell(trial, 1.0)
     assert accepted
     for cap in (0, 4):
         portfolio = Portfolio(starts, values, spans, capacity=cap)
-        rt, portfolio = portfolio.ask(acquisition="random" if cap == 0 else "thompson")
+        portfolio, rt = portfolio.ask(acquisition="random" if cap == 0 else "thompson")
         assert rt.var().read().size == 17
-        accepted, portfolio = portfolio.tell(rt, 2.0)
+        portfolio, accepted = portfolio.tell(rt, 2.0)
         assert accepted
 
 
@@ -227,16 +228,16 @@ def test_cowsnapshot():
     starts = np.full((2, 17), 0x3E80, dtype=np.uint16)
     spans = [Span(1, 0, 17, 0.25)]
     region = Region(Var(starts[0]), 0.0, spans, 2)
-    trial, region = region.ask()
+    region, trial = region.ask()
     view = trial.weights()
     view_snapshot = view.read().copy()
 
     # Holding view across tell/ask on Region does not raise BufferError; yields COW snapshot
-    accepted, new_region = region.tell(trial, 1.0)
+    new_region, accepted = region.tell(trial, 1.0)
     assert accepted
-    synced, new_region = new_region.sync()
+    new_region, synced = new_region.sync()
     assert synced == [True]
-    trial2, _new_region2 = new_region.ask()
+    _new_region2, trial2 = new_region.ask()
     assert trial2.var().read().size == 17
 
     # Held view from original snapshot remains unchanged

@@ -409,11 +409,11 @@ fn compute_gae(buffer: &[EpisodeStepBatch], values: &[f32]) -> (Vec<f32>, Vec<f3
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tokamak::rollout_traj;
+    use crate::rollout_traj;
 
     #[test]
     fn candle_metal() {
-        let mut rng = crate::prng(42);
+        let mut rng = baux::prng(42);
         let init_weights = vec![0.0f64; TOTAL_PARAMS];
         let mut agent = CandlePpo::new(&init_weights, &mut rng).expect("init CandlePpo");
         #[cfg(all(target_os = "macos", feature = "metal"))]
@@ -445,7 +445,7 @@ mod tests {
 
     #[test]
     fn flat_ppo() {
-        let mut rng = crate::prng(77);
+        let mut rng = baux::prng(77);
         let dim = 32;
         let mut agent = FlatPpo::new(dim, 4).expect("init FlatPpo");
         #[cfg(all(target_os = "macos", feature = "metal"))]

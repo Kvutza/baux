@@ -451,7 +451,7 @@ fn run_arm(
             generation = Some(next_generation);
         }
         let count = config.regions.min(config.evaluations - start);
-        let (points, opt) = optimizer.ask(count, &mut rng).map_err(|e| e.to_string())?;
+        let (opt, points) = optimizer.ask(count, &mut rng).map_err(|e| e.to_string())?;
         optimizer = opt;
         let previous = region_trials(&optimizer)?;
         let rewards = score(&points, config.dimensions, objective);
@@ -557,7 +557,7 @@ fn do_restart(
         _ => return Err("not a host multi-region optimizer".into()),
     };
     let center_view = ndarray::Array1::from_vec(center.to_vec());
-    let (_abandoned, optimizer) = optimizer
+    let (optimizer, _abandoned) = optimizer
         .restart_natural(0, &center_view.view(), rng)
         .map_err(|e| e.to_string())?;
     let after = optimizer.model_counts().ok_or("missing local models")?;

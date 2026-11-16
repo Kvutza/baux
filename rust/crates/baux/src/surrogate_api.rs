@@ -6,9 +6,6 @@ use ndarray::{Array1, Array2, Array3, ArrayView2};
 use rand::RngCore;
 
 use crate::error::ENNError;
-pub use crate::metric_provider::LengthscaleProvider;
-pub use crate::obs_view::ObservationView;
-pub use crate::predictor::Predictor;
 
 #[derive(Debug, Clone)]
 pub struct SurrogatePrediction {
@@ -164,3 +161,63 @@ impl dyn Surrogate {
 }
 
 pub type BoxedSurrogate = Box<dyn Surrogate + Send + Sync>;
+
+/// Split capability trait: posterior mean and standard error prediction.
+pub trait Predictor: Send + Sync {
+    fn predict_batch(&self, x: &ArrayView2<f64>) -> Result<SurrogatePrediction, ENNError>;
+}
+
+impl<T: Surrogate + ?Sized> Predictor for T {
+    #[inline]
+    fn predict_batch(&self, x: &ArrayView2<f64>) -> Result<SurrogatePrediction, ENNError> {
+        self.predict(x)
+    }
+}
+
+/// Split capability trait with Generic Associated Type (`Row<'a>`) for
+/// zero-copy borrowed observation access when rows reside in RAM, or owned
+/// buffers when faulted from disk.
+pub trait ObservationView: Send + Sync {
+    type Row<'a>: core::ops::Deref<Target = [f64]>
+    where
+        Self: 'a;
+
+    fn obs_len(&self) -> usize;
+    fn view_x<'a>(&'a self, idx: usize) -> Result<Self::Row<'a>, ENNError>;
+    fn view_y<'a>(&'a self, idx: usize) -> Result<Self::Row<'a>, ENNError>;
+}
+
+impl<T: Surrogate + ?Sized> ObservationView for T {
+    type Row<'a>
+        = Cow<'a, [f64]>
+    where
+        Self: 'a;
+
+    #[inline]
+    fn obs_len(&self) -> usize {
+        self.observation_count().unwrap_or(0)
+    }
+
+    #[inline]
+    fn view_x<'a>(&'a self, idx: usize) -> Result<Self::Row<'a>, ENNError> {
+        self.x_slice(idx)
+    }
+
+    #[inline]
+    fn view_y<'a>(&'a self, idx: usize) -> Result<Self::Row<'a>, ENNError> {
+        self.y_slice(idx)
+    }
+}
+
+/// Split capability trait: anisotropic trust-region metric lengthscales.
+pub trait LengthscaleProvider: Send + Sync {
+    fn metric_scales(&self) -> Option<Cow<'_, [f64]>>;
+}
+
+impl<T: Surrogate + ?Sized> LengthscaleProvider for T {
+    #[inline]
+    fn metric_scales(&self) -> Option<Cow<'_, [f64]>> {
+        self.lengthscales()
+            .map(|ls| Cow::Owned(ls.into_raw_vec_and_offset().0))
+    }
+}

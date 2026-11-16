@@ -170,7 +170,7 @@ fn replay_optimizer(
     for (idx, scores) in eval_scores.iter().enumerate() {
         let arms = scores.len().max(1);
         let mut step_rng = round_rng(seed, idx + 1);
-        let (unit, new_opt) = opt.ask(arms, &mut step_rng).map_err(|e| e.to_string())?;
+        let (new_opt, unit) = opt.ask(arms, &mut step_rng).map_err(|e| e.to_string())?;
         opt = new_opt;
         let y = Array2::from_shape_fn((arms, 1), |(i, _)| scores[i]);
         opt = opt

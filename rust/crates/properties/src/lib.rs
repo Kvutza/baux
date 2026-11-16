@@ -363,9 +363,9 @@ fn test_positivity(tc: TestCase) {
 }
 
 #[cfg(all(target_os = "macos", feature = "metal"))]
-fn hnet_waves() -> &'static baux::hnet_metal::HNetWaves {
-    static WAVES: std::sync::OnceLock<baux::hnet_metal::HNetWaves> = std::sync::OnceLock::new();
-    WAVES.get_or_init(|| baux::hnet_metal::HNetWaves::new().expect("Metal HNetWaves init"))
+fn hnet_waves() -> &'static baux_fbt::hnet_metal::HNetWaves {
+    static WAVES: std::sync::OnceLock<baux_fbt::hnet_metal::HNetWaves> = std::sync::OnceLock::new();
+    WAVES.get_or_init(|| baux_fbt::hnet_metal::HNetWaves::new().expect("Metal HNetWaves init"))
 }
 
 fn context_fixture() -> &'static baux::semantics::context::probe::Fixture {
@@ -436,8 +436,8 @@ fn route_simplex(tc: TestCase) {
     assert!(ema[1] >= lo && ema[1] <= hi);
 }
 
-/// Verify shift equivariance and monotonicity of `baux::tokamak::smooth_max`
-/// ($\alpha = -3.0$) and `baux::tokamak::softplus_component`.
+/// Verify shift equivariance and monotonicity of `baux_tokamak::smooth_max`
+/// ($\alpha = -3.0$) and `baux_tokamak::softplus_component`.
 #[hegel::test]
 fn softmax_denom(tc: TestCase) {
     let s0 = tc.draw(gs::floats::<f64>().min_value(0.0).max_value(1.0));
@@ -448,22 +448,22 @@ fn softmax_denom(tc: TestCase) {
     let shift = tc.draw(gs::floats::<f64>().min_value(0.01).max_value(0.5));
 
     let base = [s0, s1, s2, s3, s4];
-    let sm = baux::tokamak::smooth_max(&base, -3.0);
+    let sm = baux_tokamak::smooth_max(&base, -3.0);
     let min_s = base.iter().copied().fold(f64::INFINITY, f64::min);
     let max_s = base.iter().copied().fold(f64::NEG_INFINITY, f64::max);
     assert!(sm.is_finite());
     assert!(sm >= min_s - 1e-12 && sm <= max_s + 1e-12);
 
     let shifted = base.map(|x| x + shift);
-    let sm_shifted = baux::tokamak::smooth_max(&shifted, -3.0);
+    let sm_shifted = baux_tokamak::smooth_max(&shifted, -3.0);
     assert!(
         (sm_shifted - (sm + shift)).abs() < 1e-10,
         "smooth_max must be shift-equivariant: {sm_shifted} vs {}",
         sm + shift
     );
 
-    let c_low = baux::tokamak::softplus_component(shift, 0.0, 0.5);
-    let c_high = baux::tokamak::softplus_component(shift + 0.2, 0.0, 0.5);
+    let c_low = baux_tokamak::softplus_component(shift, 0.0, 0.5);
+    let c_high = baux_tokamak::softplus_component(shift + 0.2, 0.0, 0.5);
     assert!(c_low > c_high && c_low <= 1.0 && c_high >= 0.0);
 }
 
@@ -574,13 +574,13 @@ fn loss_entropy(tc: TestCase) {
 fn tokamak_episode(tc: TestCase) {
     let seed = tc.draw(gs::integers::<u64>());
     let scale = tc.draw(gs::floats::<f64>().min_value(0.0).max_value(0.1));
-    let weights = (0..baux::tokamak::TOTAL_PARAMS)
+    let weights = (0..baux_tokamak::TOTAL_PARAMS)
         .map(|i| {
             let bits = baux::semantics::random::splitmix64(seed.wrapping_add(i as u64));
             (baux::semantics::random::u64_f53(bits) - 0.5) * scale
         })
         .collect::<Vec<_>>();
-    let cpu_ret = baux::tokamak::evaluate_policy(&weights);
+    let cpu_ret = baux_tokamak::evaluate_policy(&weights);
     assert!(cpu_ret.is_finite(), "episode return must be finite");
     assert!(
         (0.0..=100.0).contains(&cpu_ret),
@@ -590,7 +590,7 @@ fn tokamak_episode(tc: TestCase) {
     {
         let runtime = baux::apple_gpu::Runtime::shared().unwrap();
         let f32_weights = weights.iter().map(|&w| w as f32).collect::<Vec<_>>();
-        let metal_ret = baux::tokamak::eval_metal(&runtime, &f32_weights, 1).unwrap()[0];
+        let metal_ret = baux_tokamak::eval_metal(&runtime, &f32_weights, 1).unwrap()[0];
         assert!(metal_ret.is_finite());
         assert!(
             (f64::from(metal_ret) - cpu_ret).abs() <= 5e-2,
@@ -637,8 +637,8 @@ fn muon_step(tc: TestCase) {
         let runtime = baux::apple_gpu::Runtime::shared().unwrap();
         let weights = runtime.buffer_with(&vec![0x3800u16; count]);
         let grad_buf = runtime.buffer_with(&gradient);
-        let mut opt = baux::muon::metal::Muon::new(shape, &weights, 0).unwrap();
-        let mut ws = baux::muon::metal::Workspace::new(shape).unwrap();
+        let mut opt = baux_fbt::muon::metal::Muon::new(shape, &weights, 0).unwrap();
+        let mut ws = baux_fbt::muon::metal::Workspace::new(shape).unwrap();
         let cmd = runtime.queue.new_command_buffer();
         opt.encode(&mut ws, cmd, &weights, 0, &grad_buf, 0, step)
             .unwrap();
@@ -782,17 +782,17 @@ fn filtration_cliques(tc: TestCase) {
 
     // Tier 1 (f64): WPO Table 6 softplus_component + smooth_max across 4
     // equivalent f64 paths
-    let c0 = baux::tokamak::softplus_component(raw, 0.0, 0.5);
-    let c1 = baux::tokamak::softplus_component(raw * 0.5, 0.0, 0.25);
-    let sm_a = baux::tokamak::smooth_max(&[c0, c1, c0, c1, c0], -3.0);
+    let c0 = baux_tokamak::softplus_component(raw, 0.0, 0.5);
+    let c1 = baux_tokamak::softplus_component(raw * 0.5, 0.0, 0.25);
+    let sm_a = baux_tokamak::smooth_max(&[c0, c1, c0, c1, c0], -3.0);
     let sm_b =
-        baux::tokamak::smooth_max(&[c0 + 1.0, c1 + 1.0, c0 + 1.0, c1 + 1.0, c0 + 1.0], -3.0) - 1.0;
-    let sm_c = baux::tokamak::smooth_max(
+        baux_tokamak::smooth_max(&[c0 + 1.0, c1 + 1.0, c0 + 1.0, c1 + 1.0, c0 + 1.0], -3.0) - 1.0;
+    let sm_c = baux_tokamak::smooth_max(
         &[c0 + 0.25, c1 + 0.25, c0 + 0.25, c1 + 0.25, c0 + 0.25],
         -3.0,
     ) - 0.25;
     let sm_d =
-        baux::tokamak::smooth_max(&[c0 - 0.5, c1 - 0.5, c0 - 0.5, c1 - 0.5, c0 - 0.5], -3.0) + 0.5;
+        baux_tokamak::smooth_max(&[c0 - 0.5, c1 - 0.5, c0 - 0.5, c1 - 0.5, c0 - 0.5], -3.0) + 0.5;
     let mut tier64 = [sm_a, sm_b, sm_c, sm_d];
     assert_eq!(find_outlier(&tier64, 1.0e-12), None);
 
@@ -810,8 +810,8 @@ fn filtration_cliques(tc: TestCase) {
         let runtime = baux::apple_gpu::Runtime::shared().unwrap();
         let weights = runtime.buffer_with(&vec![0x3800u16; 4]);
         let grad_buf = runtime.buffer_with(&grad);
-        let mut opt = baux::muon::metal::Muon::new(shape, &weights, 0).unwrap();
-        let mut ws = baux::muon::metal::Workspace::new(shape).unwrap();
+        let mut opt = baux_fbt::muon::metal::Muon::new(shape, &weights, 0).unwrap();
+        let mut ws = baux_fbt::muon::metal::Workspace::new(shape).unwrap();
         let cmd = runtime.queue.new_command_buffer();
         opt.encode(&mut ws, cmd, &weights, 0, &grad_buf, 0, step)
             .unwrap();

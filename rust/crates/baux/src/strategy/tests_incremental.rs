@@ -147,7 +147,7 @@ fn morbo_ranges() {
     let morbo = opt.trust_region().morbo().expect("morbo");
     let ymin_before = morbo.y_min().expect("y_min").to_owned();
     let ymax_before = morbo.y_max().expect("y_max").to_owned();
-    let (_, opt) = opt.ask(2, &mut rng).unwrap();
+    let (opt, _) = opt.ask(2, &mut rng).unwrap();
     let morbo_after = opt.trust_region().morbo().expect("morbo");
     assert!(
         morbo_after
@@ -176,8 +176,8 @@ fn fork_isolation() {
     let fork_a = opt.fork().unwrap();
     let fork_b = opt.fork().unwrap();
 
-    let (x_a, fork_a) = fork_a.ask(2, &mut rng).unwrap();
-    let (x_b, fork_b) = fork_b.ask(2, &mut rng).unwrap();
+    let (fork_a, x_a) = fork_a.ask(2, &mut rng).unwrap();
+    let (fork_b, x_b) = fork_b.ask(2, &mut rng).unwrap();
 
     let y_a = array![[1.0], [2.0]];
     let y_b = array![[10.0], [20.0]];

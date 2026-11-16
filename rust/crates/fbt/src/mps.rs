@@ -381,7 +381,7 @@ impl Matmul {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::apple_gpu::Runtime;
+    use baux::apple_gpu::Runtime;
 
     #[test]
     fn batch_parity() {

@@ -18,6 +18,8 @@ rust_test(
     }),
     deps = ["//rust:" + crate for crate in PROPERTIES_CRATES] + [
         "//rust/crates/baux:baux",
+        "//rust/crates/fbt:fbt",
+        "//rust/crates/tokamak:tokamak",
     ] + select({
         "//:macos-arm64": [
             "//admin/buck2/native:openmp-macos",

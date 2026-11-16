@@ -87,7 +87,7 @@ def ask_relative(search, seed=42, acquisition="ucb"):
 
 
 def _histstep(search, base, history, capacity, step, delta):
-    proposals = ask_relative(search, 100 + step)
+    search, proposals = ask_relative(search, 100 + step)
     actual = read_proposals(proposals)[0]
     np.testing.assert_allclose(
         proposals.describe()[0][1],
@@ -101,7 +101,8 @@ def _histstep(search, base, history, capacity, step, delta):
     search.tell_relative(
         proposals, incumbent + delta, 0.75, incumbent, 0.5, delta, paired_var, accept
     )
-    assert search.sync() == [accept]
+    search, flags = search.sync()
+    assert flags == [accept]
     if accept:
         base = actual.copy()
         history = [(base.copy(), 0.0, 0.0)]
@@ -112,7 +113,7 @@ def _histstep(search, base, history, capacity, step, delta):
     assert search.best == (incumbent + delta if accept else incumbent)
     assert search.best_variance == (0.75 if accept else 0.5)
     np.testing.assert_array_equal(search.read_best(), base)
-    return base, history
+    return search, base, history
 
 
 def check_history():
@@ -123,8 +124,10 @@ def check_history():
         assert search.best == 10.0 and search.best_variance == 0.125
         history = [(base.copy(), 0.0, 0.0)]
         for step, delta in enumerate(deltas):
-            base, history = _histstep(search, base, history, capacity, step, delta)
-        proposals = ask_relative(search, 200)
+            search, base, history = _histstep(
+                search, base, history, capacity, step, delta
+            )
+        search, proposals = ask_relative(search, 200)
         actual = read_proposals(proposals)[0]
         np.testing.assert_allclose(
             proposals.describe()[0][1],
@@ -133,12 +136,13 @@ def check_history():
             atol=4e-5,
         )
         search.tell_relative(proposals, -21.0, 0.75, -20.0, 0.5, -1.0, 0.25, False)
-        assert search.sync() == [False]
+        search, flags = search.sync()
+        assert flags == [False]
 
 
 def _offsetstep(left, right, acquisition, step, delta):
-    a = ask_relative(left, 300 + step, acquisition)
-    b = ask_relative(right, 300 + step, acquisition)
+    left, a = ask_relative(left, 300 + step, acquisition)
+    right, b = ask_relative(right, 300 + step, acquisition)
     assert a.geometry() == b.geometry() and a.describe() == b.describe()
     np.testing.assert_array_equal(read_proposals(a), read_proposals(b))
     incumbent = -20.0 + step
@@ -157,12 +161,15 @@ def _offsetstep(left, right, acquisition, step, delta):
         0.0625,
         accept,
     )
-    assert left.sync() == right.sync() == [accept]
+    left, left_flags = left.sync()
+    right, right_flags = right.sync()
+    assert left_flags == right_flags == [accept]
     assert right.best - left.best == offset
     assert right.best_variance - left.best_variance == 1.0
     assert left.history_len == right.history_len and left.length == right.length
     np.testing.assert_array_equal(left.read_best(), right.read_best())
     np.testing.assert_array_equal(left.read_reference(), right.read_reference())
+    return left, right
 
 
 def check_offsets():
@@ -173,7 +180,7 @@ def check_offsets():
         for search in (left, right):
             search.enable_relative(failure_tolerance=4)
         for step, delta in enumerate(deltas):
-            _offsetstep(left, right, acquisition, step, delta)
+            left, right = _offsetstep(left, right, acquisition, step, delta)
 
 
 def check_contraction():
@@ -181,9 +188,10 @@ def check_contraction():
     search.enable_relative(failure_tolerance=4)
     reference = search.read_reference()
     for step in range(12):
-        proposals = ask_relative(search, 400 + step)
+        search, proposals = ask_relative(search, 400 + step)
         search.tell_relative(proposals, 9.0, 0.5, 10.0, 0.75, -1.0, 0.25, False)
-        assert search.sync() == [False] and search.restarts == 0
+        search, flags = search.sync()
+        assert flags == [False] and search.restarts == 0
         assert search.length == max(0.03125, 0.125 / 2 ** ((step + 1) // 4))
         np.testing.assert_array_equal(search.read_best(), base)
         np.testing.assert_array_equal(search.read_reference(), reference)
@@ -192,14 +200,15 @@ def check_contraction():
     failures = 0
     for step in range(8):
         old_radius = search.length
-        proposals = ask_relative(search, 500 + step)
+        search, proposals = ask_relative(search, 500 + step)
         radius = proposals.describe()[0][2]
         accept = step == 3
         delta = 1.0 if accept else -1.0
         search.tell_relative(
             proposals, 10.0 + delta, 0.5, 10.0, 0.75, delta, 0.25, accept
         )
-        assert search.sync() == [accept]
+        search, flags = search.sync()
+        assert flags == [accept]
         failures = 0 if accept else failures + 1
         expected = radius if accept else old_radius
         if failures == 4:
@@ -225,20 +234,22 @@ def _checkbadmodes(valid):
     for sampler in ("independent", "gaussian"):
         state, _, _ = fixture(sampler)
         fails(state.enable_relative)
-        pending = ask(state)
+        state, pending = ask(state)
         fails(partial(state.tell_relative, pending, *valid))
-        state.tell(pending, [9.0])
-        assert state.sync() == [False]
-    for legacy in ("tell", "tell_paired"):
+        state, _ = state.tell(pending, 9.0, 0.0)
+        state, flags = state.sync()
+        assert flags == [False]
+    for legacy in ("standard", "noisy"):
         state, _, _ = fixture()
-        pending = ask(state)
+        state, pending = ask(state)
         fails(state.enable_relative)
         fails(partial(state.tell_relative, pending, *valid))
-        if legacy == "tell":
-            state.tell(pending, [9.0])
+        if legacy == "standard":
+            state, _ = state.tell(pending, 9.0, 0.0)
         else:
-            state.tell_paired(pending, 9.0, 0.5, 10.0, 0.75, False)
-        assert state.sync() == [False]
+            state, _ = state.tell(pending, 9.0, 0.5)
+        state, flags = state.sync()
+        assert flags == [False]
         fails(state.enable_relative)
 
 
@@ -254,20 +265,23 @@ def check_validation():
         )
     search.enable_relative(failure_tolerance=4)
     fails(search.enable_relative)
-    proposals = ask_relative(search)
+    search, proposals = ask_relative(search)
     _checkbadargs(search, proposals, valid)
     fails(partial(search.tell, proposals, [100.0]))
-    fails(partial(search.tell_paired, proposals, *valid[:4], True))
+    fails(partial(search.tell, proposals, *valid[:2]))
     foreign_search, _, _ = fixture()
     foreign_search.enable_relative()
-    foreign = ask_relative(foreign_search)
+    foreign_search, foreign = ask_relative(foreign_search)
     fails(partial(search.tell_relative, foreign, *valid))
     search.tell_relative(proposals, *valid)
     fails(partial(search.tell_relative, proposals, *valid))
-    assert search.sync() == [True] and search.sync() == []
+    search, flags = search.sync()
+    search, empty_flags = search.sync()
+    assert flags == [True] and empty_flags == []
     fails(search.enable_relative)
     foreign_search.tell_relative(foreign, *valid)
-    assert foreign_search.sync() == [True]
+    foreign_search, flags = foreign_search.sync()
+    assert flags == [True]
     _checkbadmodes(valid)
 
 
@@ -281,7 +295,7 @@ def check_pairedleases():
     del tensor
     gc.collect()
     search.enable_relative()
-    proposals = ask_relative(search)
+    search, proposals = ask_relative(search)
     tensor = torch.from_dlpack(LegacyExport(proposals))
     tell = partial(
         search.tell_relative, proposals, 9.0, 0.5, 10.0, 0.75, -1.0, 0.25, False
@@ -291,12 +305,13 @@ def check_pairedleases():
     del tensor
     gc.collect()
     tell()
-    assert search.sync() == [False]
+    search, flags = search.sync()
+    assert flags == [False]
     np.testing.assert_array_equal(search.read_best(), base)
     for accept in (False, True):
         state, _, _ = fixture()
         state.enable_relative()
-        pending = ask_relative(state)
+        state, pending = ask_relative(state)
         tensor = torch.from_dlpack(LegacyExport(pending))
         tensor.fill_(0.5)
         del tensor

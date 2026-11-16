@@ -196,14 +196,12 @@ def assert_overflow(gpu, evaluator, width):
 
 def test_searchguards(gpu):
     def make():
-        state = gpu.Region(
+        return gpu.Region(
             gpu.Var(np.full(257, 0x3F80, dtype=np.uint16)),
             0.0,
             [gpu.Span(1, 0, 257, 1.0)],
             2,
         )
-        _, state = state.enable_relative()
-        return state
 
     def ask(state):
         return state.ask(1, 4, 2, 123)
@@ -215,27 +213,19 @@ def test_searchguards(gpu):
     assert memory["device_allocated_bytes"] > 0
     assert memory["recommended_working_set_bytes"] > 0
     assert memory["max_buffer_bytes"] >= memory["row_bytes"]
-    proposal, state = ask(state)
-    foreign, other = ask(other)
+    state, proposal = ask(state)
+    other, foreign = ask(other)
     with pytest.raises(ValueError, match="foreign"):
-        state.tell_relative(foreign, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, True)
-    for index, invalid in (
-        (0, float("nan")),
-        (1, -1e-300),
-        (3, -1.0),
-        (4, 1e300),
-        (5, -1e-300),
-    ):
-        values = [1.0, 0.0, 0.0, 0.0, 1.0, 0.0]
-        values[index] = invalid
+        state.tell(foreign, 1.0, 0.0)
+    for invalid in (float("nan"), -1e-300, 1e300):
         with pytest.raises(ValueError):
-            state.tell_relative(proposal, *values, True)
+            state.tell(proposal, 1.0, invalid)
     view = state.incumbent()
     with pytest.raises(BufferError):
-        state.tell_relative(proposal, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, True)
+        state.tell(proposal, 1.0, 0.0)
     del view
-    _, state = state.tell_relative(proposal, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, True)
-    synced, state = state.sync()
+    state, _ = state.tell(proposal, 1.0, 0.0)
+    state, synced = state.sync()
     assert synced == [True]
     with pytest.raises(ValueError, match="Stale"):
         proposal.read()
@@ -250,26 +240,26 @@ def test_fifo(gpu):
     )
     initial = state.length
     for step in range(8):
-        proposal, state = state.ask(1, 4, 5, step)
+        state, proposal = state.ask(1, 4, 5, step)
         if step == 0:
             assert_variances(state, proposal)
             view = state.incumbent()
             with pytest.raises(BufferError):
-                state.tell_paired(proposal, 1.0, 0.0, 0.0, 0.0, True)
+                state.tell(proposal, 1.0, 0.0)
             del view
-        _, state = state.tell_paired(proposal, 1.0, 0.1, 0.0, 0.2, step == 0)
-        synced, state = state.sync()
+        state, _ = state.tell(proposal, 1.0 if step == 0 else -1.0, 0.1)
+        state, synced = state.sync()
         assert synced == [step == 0]
         assert state.history_len == min(step + 2, 5)
         assert state.length == initial
     with pytest.raises(ValueError):
-        state.tell_paired(proposal, 1.0, 0.0, 0.0, 0.0, True)
+        state.tell(proposal, 1.0, 0.0)
 
 
 def assert_variances(state, proposal):
     for variance in [-1e-300, float("nan"), 1e300]:
         with pytest.raises(ValueError):
-            state.tell_paired(proposal, 1.0, variance, 0.0, 0.0, True)
+            state.tell(proposal, 1.0, variance)
 
 
 def test_inconclusive(gpu):
@@ -278,40 +268,13 @@ def test_inconclusive(gpu):
         0.0,
         [gpu.Span(1, 0, 257, 1.0)],
         2,
+        failure_tolerance=4,
     )
-    _, state = state.enable_relative()
     initial_radius = state.length
-    for step in range(8):
-        proposal, state = state.ask(1, 4, 2, step)
-        _, state = state.tell_relative(
-            proposal,
-            0.01,
-            0.1,
-            0.0,
-            0.1,
-            0.01,
-            0.1,
-            False,
-            reject_is_failure=False,
-        )
-        synced, state = state.sync()
-        assert synced == [False]
-        assert state.history_len == 2
-        assert state.length == initial_radius
     for step in range(4):
-        proposal, state = state.ask(1, 4, 2, 100 + step)
-        _, state = state.tell_relative(
-            proposal,
-            -1.0,
-            0.1,
-            0.0,
-            0.1,
-            -1.0,
-            0.1,
-            False,
-            reject_is_failure=True,
-        )
-        synced, state = state.sync()
+        state, proposal = state.ask(1, 4, 2, 100 + step)
+        state, _ = state.tell(proposal, -1.0, 0.1)
+        state, synced = state.sync()
         assert synced == [False]
         assert state.length == (initial_radius if step < 3 else initial_radius * 0.5)
 

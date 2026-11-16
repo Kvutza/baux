@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import baux
 import numpy as np
 import pytest
+from baux.enn.enn_params import ENNParams, PosteriorFlags
 
 try:
     from baux._rust import ENN as RustENN
@@ -20,9 +22,6 @@ def test_001():
 
     Cross-language parity for the core ENN model used by ENNSurrogate.
     """
-    from baux import ENN as PyENN
-    from baux.enn.enn_params import ENNParams, PosteriorFlags
-
     train_x = np.array(
         [[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [1.0, 1.0]],
         dtype=float,
@@ -36,8 +35,8 @@ def test_001():
     )
     flags = PosteriorFlags(exclude_nearest=False, observation_noise=False)
 
-    py_model = PyENN(train_x, train_y, scale_x=False)
-    py_out = py_model.posterior(query, params=params, flags=flags)
+    py_state = baux.enn_init(train_x, train_y, scale_x=False)
+    py_out = baux.posterior(py_state, query, params=params, flags=flags)
 
     rust_model = RustENN(train_x, train_y, scale_x=False, index_driver="Exact")
     rs_mu, rs_se, rs_se_epi, rs_se_ale, _ = rust_model.posterior(

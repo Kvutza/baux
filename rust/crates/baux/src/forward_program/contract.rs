@@ -15,7 +15,6 @@ pub fn perf_sources(root: &Path, backend: Backend) -> Result<Vec<PathBuf>, Strin
         "forward_program.rs",
         "hash.rs",
         "objective_observation.rs",
-        "pretrain_data.rs",
         "procedural_pool.rs",
         "resident_metal.rs",
         "search.rs",
@@ -23,9 +22,11 @@ pub fn perf_sources(root: &Path, backend: Backend) -> Result<Vec<PathBuf>, Strin
     ]
     .map(|path| source.join(path))
     .to_vec();
+    files.push(root.join("rust/crates/baux/artifact/src/pretrain.rs"));
     files.extend(
         [
             "ablation.rs",
+            "base_policy.rs",
             "block.rs",
             "code_environment.rs",
             "context_metal.rs",
@@ -33,14 +34,19 @@ pub fn perf_sources(root: &Path, backend: Backend) -> Result<Vec<PathBuf>, Strin
             "decode.rs",
             "generation.rs",
             "heldout.rs",
+            "hnet_metal.rs",
             "loss_tests.rs",
             "micro.rs",
             "moe.rs",
+            "mps.rs",
+            "muon.rs",
             "pisa.rs",
+            "recon_ref.rs",
             "reconstruction.rs",
             "reward.rs",
             "routing.rs",
             "scorer.rs",
+            "text.rs",
             "train.rs",
             "updates.rs",
             "bin/baux-tune-worker/main.rs",
@@ -57,8 +63,10 @@ pub fn perf_sources(root: &Path, backend: Backend) -> Result<Vec<PathBuf>, Strin
         fbt_source.join("decode"),
         fbt_source.join("generation"),
         fbt_source.join("heldout"),
+        fbt_source.join("hnet"),
         fbt_source.join("mhc"),
         fbt_source.join("moe"),
+        fbt_source.join("muon"),
         fbt_source.join("nn"),
         fbt_source.join("pisa"),
         fbt_source.join("routing"),

@@ -62,7 +62,7 @@ impl BayesOptimizer {
         num_arms: usize,
         rng: &mut dyn RngCore,
     ) -> Result<(ProposalTicket, Self), ENNError> {
-        let (natural, next) = self.ask_natural(num_arms, rng)?;
+        let (next, natural) = self.ask_natural(num_arms, rng)?;
         self = next;
         let ids = match &self.regions {
             TrustRegionState::Multi {

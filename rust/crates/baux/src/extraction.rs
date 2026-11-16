@@ -13,7 +13,7 @@ pub fn optimizer_ask(
     optimizer: BayesOptimizer,
     num_arms: usize,
     rng: &mut (impl RngCore + ?Sized),
-) -> Result<(Array2<f64>, BayesOptimizer), ENNError> {
+) -> Result<(BayesOptimizer, Array2<f64>), ENNError> {
     optimizer.ask_natural(num_arms, rng)
 }
 

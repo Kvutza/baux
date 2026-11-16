@@ -7,14 +7,45 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import NamedTuple
 
+import baux
 import numpy as np
 import pytest
-from baux import ENN, ENNFitter
-from baux.enn.enn_class import (
-    nearest_neighbors,
-    posterior_neighbors,
-)
+from baux._rust import ENN as _RustENN
 from baux.enn.enn_params import ENNParams, PosteriorFlags
+from baux.enn.enn_state import ENNState
+
+if not hasattr(_RustENN, "x_obs"):
+
+    def _xobs(self):
+        n = len(self)
+        if n == 0:
+            return np.empty((0, self.num_dim), dtype=float)
+        return self.train_rows(list(range(n)))[0]
+
+    _RustENN.x_obs = _xobs
+
+if not hasattr(_RustENN, "y_obs"):
+
+    def _yobs(self):
+        n = len(self)
+        if n == 0:
+            return np.empty((0, self.num_outputs), dtype=float)
+        return self.train_rows(list(range(n)))[1]
+
+    _RustENN.y_obs = _yobs
+
+if not hasattr(_RustENN, "yvar_obs"):
+
+    def _yvarobs(self):
+        try:
+            n = len(self)
+            rows = list(range(n))
+            _, _, yvar = self.train_rows(rows)
+            return yvar
+        except Exception:
+            return None
+
+    _RustENN.yvar_obs = _yvarobs
 
 pytestmark = pytest.mark.slow
 
@@ -32,24 +63,22 @@ def enn_data(num_samples: int, k: int, noise: float, m: int = 1):
     eps = np.random.randn(num_samples + 4)
     y = np.sin(2 * m * np.pi * x) + noise * eps
     yvar = (noise**2) * np.ones_like(y)
-    model = ENN(x[:, None], y[:, None], yvar[:, None])
-    rng = np.random.default_rng(0)
-    fitter = ENNFitter(k=k, rng=rng)
-    x_all, y_all, yvar_all = model.train_rows(list(range(len(model))))
-    fitter.tell(x_all, y_all, yvar_all)
-    params = fitter.ask(
-        model,
+    state = baux.enn_init(x[:, None], y[:, None], yvar[:, None])
+    params = baux.fit(
+        state,
+        k=k,
         num_candidates=100,
         num_samples=min(10, num_samples),
+        seed=0,
     )
-    return x, y, model, params
+    return x, y, state, params
 
 
-def enn_logic(model, params):
+def enn_logic(state: ENNState, params: ENNParams):
     x_hat = np.linspace(0.0, 1.0, 30)
     x_hat_2d = x_hat[:, None]
-    posterior = model.posterior(
-        x_hat_2d, params=params, flags=PosteriorFlags(exclude_nearest=False)
+    posterior = baux.posterior(
+        state, x_hat_2d, params=params, flags=PosteriorFlags(exclude_nearest=False)
     )
     return posterior.mu[:, 0], posterior.se[:, 0]
 
@@ -58,8 +87,8 @@ def enn_logic(model, params):
 def test_enndemoperformance():
     np.random.seed(1)
     t0 = time.time()
-    _x, _y, model, params = enn_data(num_samples=1_000_000, k=5, noise=0.3, m=3)
-    _mu, _se = enn_logic(model, params)
+    _x, _y, state, params = enn_data(num_samples=1_000_000, k=5, noise=0.3, m=3)
+    _mu, _se = enn_logic(state, params)
     elapsed = time.time() - t0
     print(f"\nTime taken: {elapsed:.3f} seconds")
     assert elapsed < 0.3, f"Expected < 0.3s, got {elapsed:.3f}s"
@@ -118,19 +147,16 @@ def _neighborratio(n: int, *, d: int = 1, k: int = 10, seed: int = 42) -> float:
     rng = np.random.default_rng(seed)
     train_x = rng.standard_normal((n, d))
     train_y = rng.normal(0.0, 100.0, size=(n, d))
-    model = ENN(train_x, train_y, train_yvar=None)
-    rust = model.rust_backend
+    state = baux.enn_init(train_x, train_y, train_yvar=None)
 
     def index_neighbors() -> None:
-        posterior_neighbors(
-            rust,
+        state.posterior_neighbors(
             train_x,
             search_k=k,
         )
 
     def faiss_neighbors() -> None:
-        nearest_neighbors(
-            rust,
+        state.nearest_neighbors(
             train_x,
             search_k=k,
             exclude_nearest=False,
@@ -167,18 +193,20 @@ def test_002():
     n, d, m = 1024, 10, 5
     x = rng.standard_normal((n, d))
     y = rng.normal(0.0, 100.0, size=(n, m))
-    model = ENN(x, y)
+    state = baux.enn_init(x, y)
     params = ENNParams(k_neighbors=10, epistemic_scale=1.0, aleatoric_scale=0.1)
 
     def run_off() -> None:
-        model.posterior(
+        baux.posterior(
+            state,
             x,
             params=params,
             flags=PosteriorFlags(tie_neighbors=False),
         )
 
     def run_on() -> None:
-        model.posterior(
+        baux.posterior(
+            state,
             x,
             params=params,
             flags=PosteriorFlags(tie_neighbors=True),
@@ -196,18 +224,20 @@ def test_003():
     x = np.linspace(0.0, 1.0, n)[:, None]
     x = np.tile(x, (1, d))
     y = np.sin(8.0 * np.pi * x[:, 0:1])
-    model = ENN(x, y)
+    state = baux.enn_init(x, y)
     params = ENNParams(k_neighbors=10, epistemic_scale=1.0, aleatoric_scale=0.1)
 
     def run_off() -> None:
-        model.posterior(
+        baux.posterior(
+            state,
             x,
             params=params,
             flags=PosteriorFlags(tie_neighbors=False),
         )
 
     def run_on() -> None:
-        model.posterior(
+        baux.posterior(
+            state,
             x,
             params=params,
             flags=PosteriorFlags(tie_neighbors=True),
@@ -249,38 +279,36 @@ def _selfratios(
     n, d, m, k = scenario["n"], scenario["d"], scenario["m"], scenario["k"]
     x = rng.standard_normal((n, d))
     y = rng.normal(0.0, 100.0, size=(n, m))
-    model = ENN(x, y)
+    state = baux.enn_init(x, y)
     params = ENNParams(k_neighbors=k, epistemic_scale=1.0, aleatoric_scale=0.1)
     flags = PosteriorFlags(tie_neighbors=tie_neighbors)
-    rust = model.rust_backend
     warmup = 3
-    reps = 5
+    reps = 7
 
-    def posterior() -> None:
-        model.posterior(x, params=params, flags=flags)
+    def run_posterior() -> None:
+        baux.posterior(state, x, params=params, flags=flags)
 
     def index_neighbors() -> None:
-        posterior_neighbors(
-            rust,
+        state.posterior_neighbors(
             x,
             search_k=k,
-            flags=PosteriorFlags(tie_neighbors=tie_neighbors),
+            flags=flags,
         )
 
     def faiss_neighbors() -> None:
-        nearest_neighbors(rust, x, search_k=k, exclude_nearest=False)
+        state.nearest_neighbors(x, search_k=k, exclude_nearest=False)
 
     for _ in range(warmup):
-        posterior()
+        run_posterior()
         index_neighbors()
         faiss_neighbors()
 
     return SelfSearchTiming(
-        _medianseconds(posterior, reps=reps),
+        _medianseconds(run_posterior, reps=reps),
         _medianseconds(index_neighbors, reps=reps),
         _medianseconds(faiss_neighbors, reps=reps),
         _medianratio(index_neighbors, faiss_neighbors, warmup=warmup, reps=reps),
-        _medianratio(posterior, index_neighbors, warmup=warmup, reps=reps),
+        _medianratio(run_posterior, index_neighbors, warmup=warmup, reps=reps),
     )
 
 
@@ -316,3 +344,54 @@ def test_005(
             f"(t_post={t_post:.4f}s t_index={t_index:.4f}s; "
             f"baseline_rev={baseline['baseline_revision'][:7]})"
         )
+
+
+def test_006():
+    """Benchmark baux.enn_init and baux.append throughput and latency."""
+    rng = np.random.default_rng(42)
+    n, d = 500, 8
+    x = rng.standard_normal((n, d))
+    y = rng.standard_normal((n, 1))
+
+    # Benchmark baux.enn_init
+    def run_init() -> None:
+        baux.enn_init(x, y)
+
+    t_init = _medianseconds(run_init, reps=5)
+    assert t_init < 0.1, f"baux.enn_init too slow at n={n}: {t_init:.4f}s"
+
+    # Benchmark baux.append
+    base_state = baux.enn_init(x[:100], y[:100])
+    chunk_x = x[100:150]
+    chunk_y = y[100:150]
+
+    def run_append() -> None:
+        baux.append(base_state, chunk_x, chunk_y)
+
+    t_append = _medianseconds(run_append, reps=5)
+    assert t_append < 0.05, f"baux.append too slow: {t_append:.4f}s"
+
+
+def test_007():
+    """Benchmark baux.fit latency and warm-start speed."""
+    rng = np.random.default_rng(42)
+    n, d = 200, 4
+    x = rng.standard_normal((n, d))
+    y = rng.standard_normal((n, 1))
+    state = baux.enn_init(x, y)
+
+    fit_key = baux.key(123)
+    p_init = baux.fit(state, k=5, num_candidates=20, num_samples=10, key=fit_key)
+
+    def run_fitcold() -> None:
+        baux.fit(state, k=5, num_candidates=20, num_samples=10, key=fit_key)
+
+    def run_fitwarm() -> None:
+        baux.fit(
+            state, k=5, num_candidates=20, num_samples=10, warm=p_init, key=fit_key
+        )
+
+    t_cold = _medianseconds(run_fitcold, reps=3)
+    t_warm = _medianseconds(run_fitwarm, reps=3)
+    assert t_cold < 1.0, f"baux.fit cold too slow: {t_cold:.4f}s"
+    assert t_warm < 1.0, f"baux.fit warm too slow: {t_warm:.4f}s"

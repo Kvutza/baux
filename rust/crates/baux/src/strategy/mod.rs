@@ -33,8 +33,8 @@ impl BayesOptimizer {
         mut self,
         num_arms: usize,
         rng: &mut dyn RngCore,
-    ) -> Result<(Array2<f64>, Self), ENNError> {
-        let (unit, next) = self.ask(num_arms, rng)?;
+    ) -> Result<(Self, Array2<f64>), ENNError> {
+        let (next, unit) = self.ask(num_arms, rng)?;
         self = next;
         let natural = self.domain.from_unit(&unit.view());
         if let TrustRegionState::Multi {
@@ -50,7 +50,7 @@ impl BayesOptimizer {
                 .slice_mut(s![start.., ..])
                 .assign(&self.domain.to_unit(&natural.view()));
         }
-        Ok((natural, self))
+        Ok((self, natural))
     }
 
     /// Public-boundary tell in natural coordinates.
@@ -123,7 +123,7 @@ impl BayesOptimizer {
         mut self,
         num_arms: usize,
         rng: &mut dyn RngCore,
-    ) -> Result<(Array2<f64>, Self), ENNError> {
+    ) -> Result<(Self, Array2<f64>), ENNError> {
         self.check_ingestion()?;
         match crate::optimizer_dispatch::ask_gate(
             num_arms,
@@ -141,7 +141,7 @@ impl BayesOptimizer {
             AskGate::Dispatch => {}
         }
         let start = std::time::Instant::now();
-        let (candidates, mut this) = self.dispatch_ask(num_arms, rng)?;
+        let (mut this, candidates) = self.dispatch_ask(num_arms, rng)?;
         this.telemetry.dt_gen = start.elapsed().as_secs_f64();
         if let Err(error) = this.posterior.schedule_flush() {
             if this.regions.is_multi() {
@@ -149,14 +149,14 @@ impl BayesOptimizer {
             }
             return Err(error);
         }
-        Ok((candidates, this))
+        Ok((this, candidates))
     }
 
     fn dispatch_ask(
         mut self,
         num_arms: usize,
         rng: &mut dyn RngCore,
-    ) -> Result<(Array2<f64>, Self), ENNError> {
+    ) -> Result<(Self, Array2<f64>), ENNError> {
         if self.reinit_left().is_some() {
             return ask_reinit(self, num_arms, rng);
         }
@@ -168,9 +168,9 @@ impl BayesOptimizer {
             return ask_init(&state, self, num_arms, rng);
         }
         let mut telemetry = std::mem::take(&mut self.telemetry);
-        let (result, mut this) = ask_turbo(self, num_arms, &mut telemetry, rng)?;
+        let (mut this, result) = ask_turbo(self, num_arms, &mut telemetry, rng)?;
         this.telemetry = telemetry;
-        Ok((result, this))
+        Ok((this, result))
     }
 
     /// Tell observations with optional known observation variance.
@@ -241,7 +241,7 @@ impl BayesOptimizer {
         slot: usize,
         center: &ArrayView1<f64>,
         rng: &mut dyn RngCore,
-    ) -> Result<(Vec<EvaluationId>, Self), ENNError> {
+    ) -> Result<(Self, Vec<EvaluationId>), ENNError> {
         self.check_ingestion()?;
         if self.warmup.in_init() {
             return Err(ENNError::InvalidParameter(
@@ -308,7 +308,7 @@ impl BayesOptimizer {
                 }
             }
         }
-        Ok((abandoned, self))
+        Ok((self, abandoned))
     }
 
     /// Natural-coordinate form of [`Self::restart_region`].
@@ -317,7 +317,7 @@ impl BayesOptimizer {
         slot: usize,
         center: &ArrayView1<f64>,
         rng: &mut dyn RngCore,
-    ) -> Result<(Vec<EvaluationId>, Self), ENNError> {
+    ) -> Result<(Self, Vec<EvaluationId>), ENNError> {
         if center.len() != self.num_dim() {
             return Err(ENNError::InvalidShape {
                 expected: vec![self.num_dim()],
@@ -501,7 +501,7 @@ fn ask_reinit(
     optimizer: BayesOptimizer,
     num_arms: usize,
     rng: &mut dyn RngCore,
-) -> Result<(Array2<f64>, BayesOptimizer), ENNError> {
+) -> Result<(BayesOptimizer, Array2<f64>), ENNError> {
     let count = num_arms.max(1);
     let state = InitStrategyState::new(optimizer.init_kind(), count);
     ask_init(&state, optimizer, count, rng)
@@ -530,7 +530,7 @@ fn ask_hybrid(
     optimizer: BayesOptimizer,
     num_arms: usize,
     rng: &mut dyn RngCore,
-) -> Result<(Array2<f64>, BayesOptimizer), ENNError> {
+) -> Result<(BayesOptimizer, Array2<f64>), ENNError> {
     ask_init(state, optimizer, num_arms, rng)
 }
 
@@ -569,8 +569,8 @@ fn ask_turbo(
     num_arms: usize,
     telemetry: &mut Telemetry,
     rng: &mut dyn RngCore,
-) -> Result<(Array2<f64>, BayesOptimizer), ENNError> {
-    let (should_rescale, regions) = optimizer.regions.resample_propose(rng);
+) -> Result<(BayesOptimizer, Array2<f64>), ENNError> {
+    let (regions, should_rescale) = optimizer.regions.resample_propose(rng);
     optimizer.regions = regions;
     if should_rescale {
         optimizer.update_incumbent(rng)?;
@@ -620,7 +620,7 @@ fn ask_turbo(
     let selected = select_arms(&optimizer, &x_cand_unit.view(), num_arms, rng)?;
     telemetry.dt_sel = start.elapsed().as_secs_f64();
 
-    Ok((selected, optimizer))
+    Ok((optimizer, selected))
 }
 
 /// Tell for active single-region TuRBO/MORBO phase.

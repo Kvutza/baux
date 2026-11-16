@@ -2,84 +2,618 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
-from typing import Any, overload
+from typing import Any
 
 import numpy as np
 from numpy.random import Generator
 
+from .._rust import ENN as _RustENN
 from .._rust import ENNParams as _RustENNParams
 from .._rust import fit_model as _fitmodel
+from ..index import INDEX_NAMES, NeighborIndex
 from ..pytree import Affine, Log, Periodic, Simplex, Space, Stiefel
 from ..state import _readonly, _resolveseed
-from .enn_class import ENN
+from .draw_internals import DrawInternals
 from .enn_normal import ENNNormal
 from .enn_params import ENNParams
-from .posterior_flags import PosteriorFlags
+from .neighbor_data import NeighborData
+from .posterior_flags import DiagonalMetric, PosteriorFlags, metric_options
 
 _METRICS = ("euclidean", "conformal", "hyperbolic", "wasserstein")
+
+_DEVICE_DRIVERS = {
+    "cpu": NeighborIndex.FLAT,
+    "metal": NeighborIndex.METAL,
+    "cuda": NeighborIndex.CUDA,
+    "opencl": NeighborIndex.OPENCL,
+    "webgpu": NeighborIndex.WEBGPU,
+}
+_INDEX_ALIASES = {
+    "exact": NeighborIndex.FLAT,
+    "flat": NeighborIndex.FLAT,
+    "hnsw": NeighborIndex.USEARCH,
+    "usearch": NeighborIndex.USEARCH,
+    "tree": NeighborIndex.BPANN_DISK,
+    "bpann": NeighborIndex.BPANN_DISK,
+    "bpann_disk": NeighborIndex.BPANN_DISK,
+    "auto": NeighborIndex.AUTO,
+}
+_INDEX_KINDS = {
+    NeighborIndex.USEARCH: "hnsw",
+    NeighborIndex.BPANN_DISK: "tree",
+    NeighborIndex.AUTO: "auto",
+}
+
+
+def _rustseeds(function_seeds: Any) -> list[int]:
+    if hasattr(function_seeds, "__iter__"):
+        return [int(s) for s in np.asarray(function_seeds, dtype=np.int64).tolist()]
+    return [int(function_seeds)]
+
+
+def _finaldraw(
+    x: np.ndarray, draws: np.ndarray, idx: list[Any] | None
+) -> tuple[np.ndarray, np.ndarray]:
+    draws_arr = np.asarray(draws, dtype=float)
+    if draws_arr.ndim != 3:
+        raise ValueError(
+            f"function draws must be 3D (num_samples, batch, metrics), got {draws_arr.shape}"
+        )
+    draws_arr = np.transpose(draws_arr, (1, 2, 0))
+    idx_arr = np.array(idx, dtype=int) if idx else np.zeros((x.shape[0], 0), dtype=int)
+    return draws_arr, idx_arr
+
+
+def _inputs(
+    train_x: Any, train_y: Any, train_yvar: Any = None
+) -> tuple[np.ndarray, np.ndarray, np.ndarray | None]:
+    tx = np.asarray(train_x, dtype=float)
+    ty = np.asarray(train_y, dtype=float)
+    if ty.ndim == 1:
+        ty = ty.reshape(-1, 1)
+    if tx.ndim != 2 or ty.ndim != 2 or tx.shape[0] != ty.shape[0]:
+        raise ValueError((tx.shape, ty.shape))
+    tyvar = None
+    if train_yvar is not None:
+        tyvar = np.asarray(train_yvar, dtype=float)
+        if tyvar.ndim == 1:
+            tyvar = tyvar.reshape(-1, 1)
+        if tyvar.ndim != 2 or ty.shape != tyvar.shape:
+            raise ValueError((ty.shape, tyvar.shape))
+    return tx, ty, tyvar
+
+
+def _rustname(index_driver: NeighborIndex) -> str:
+    if index_driver not in INDEX_NAMES:
+        raise ValueError(f"Unsupported index driver: {index_driver}")
+    name = INDEX_NAMES[index_driver]
+    if name in ("cuda", "cuvs", "cuvs_cagra"):
+        try:
+            import importlib
+
+            importlib.import_module("libcuvs").load_library()
+        except (
+            ImportError,
+            OSError,
+            RuntimeError,
+            ValueError,
+            TypeError,
+            ArithmeticError,
+            np.linalg.LinAlgError,
+        ):
+            pass
+    return name
+
+
+def _resolvedriver(index_driver: NeighborIndex, device: Any) -> NeighborIndex:
+    if device is None or index_driver != NeighborIndex.FLAT:
+        return index_driver
+    kind = getattr(device, "kind", str(device)).lower()
+    if kind not in _DEVICE_DRIVERS:
+        raise ValueError(f"Unsupported device: {device!r}")
+    return _DEVICE_DRIVERS[kind]
+
+
+def _resolveindex(
+    index_driver: NeighborIndex, index: NeighborIndex | str | None, device: Any
+) -> tuple[NeighborIndex, str | None]:
+    if index is None:
+        return _resolvedriver(index_driver, device), None
+    if isinstance(index, NeighborIndex):
+        return _resolvedriver(index, device), None
+    key = str(index).lower()
+    if key in _INDEX_ALIASES:
+        return _resolvedriver(_INDEX_ALIASES[key], device), None
+    return _resolvedriver(index_driver, device), str(index)
+
+
+def _resolvestorage(
+    index_driver: NeighborIndex,
+    enn_storage: str | None,
+    storage: Any,
+    work_dir: str | os.PathLike[str] | None,
+) -> str | None:
+    if storage is not None:
+        enn_storage = getattr(storage, "value", str(storage))
+    has_dir = work_dir is not None
+    if index_driver == NeighborIndex.BPANN_DISK and enn_storage is None and has_dir:
+        return "disk"
+    return enn_storage
 
 
 @dataclass(frozen=True)
 class ENNState:
     """Immutable value token representing an Epistemic Nearest Neighbors dataset & index."""
 
-    x: np.ndarray
-    y: np.ndarray
-    y_var: np.ndarray | None
-    scale_x: bool
-    options: tuple[tuple[str, Any], ...]
-    _model: ENN
+    _rust: Any
+    scale_x: bool = False
+    options: tuple[tuple[str, Any], ...] = ()
+    _index_driver: NeighborIndex = NeighborIndex.FLAT
+    _metric: tuple[str, int] = ("euclidean", 4)
+
+    @property
+    def x(self) -> np.ndarray:
+        """Read-only observed inputs array."""
+        return _readonly(self._rust.x_obs())
+
+    @property
+    def y(self) -> np.ndarray:
+        """Read-only observed targets array."""
+        return _readonly(self._rust.y_obs())
+
+    @property
+    def y_var(self) -> np.ndarray | None:
+        """Read-only observation variances array, if present."""
+        v = self._rust.yvar_obs()
+        return None if v is None else _readonly(v)
 
     def __len__(self) -> int:
-        return int(self.x.shape[0])
+        return len(self._rust)
 
     @property
     def num_dim(self) -> int:
         """Return input feature dimension."""
-        return int(self.x.shape[1])
+        return int(self._rust.num_dim)
 
     @property
     def num_outputs(self) -> int:
         """Return number of output metrics."""
-        return int(self.y.shape[1])
+        return int(self._rust.num_outputs)
+
+    @property
+    def rust_backend(self) -> Any:
+        """Rust surrogate implementation."""
+        return self._rust
+
+    @property
+    def device(self) -> str:
+        """Surrogate device name."""
+        d = getattr(self._rust, "device", "cpu")
+        return str(d() if callable(d) else d)
+
+    @property
+    def index_kind(self) -> str:
+        """Kind of neighbor index backing this model."""
+        if hasattr(self._rust, "index_kind"):
+            k = self._rust.index_kind
+            return str(k() if callable(k) else k)
+        return _INDEX_KINDS.get(self._index_driver, "exact")
+
+    @property
+    def diagonal_metric(self) -> DiagonalMetric | None:
+        """Diagonal metric parameters if metric learning is enabled."""
+        dm = getattr(self._rust, "diagonal_metric", None)
+        raw = dm() if callable(dm) else dm
+        if raw is None:
+            return None
+        if isinstance(raw, DiagonalMetric):
+            return raw
+        if isinstance(raw, dict):
+            return DiagonalMetric.from_dict(raw)
+        return None
+
+    @property
+    def metric(self) -> DiagonalMetric | None:
+        """Metric parameters if metric learning is enabled."""
+        return self.diagonal_metric
+
+    @property
+    def y_bounds(self) -> np.ndarray:
+        """Target value bounds per metric."""
+        return np.asarray(self._rust.y_bounds, dtype=float)
+
+    @property
+    def index_stale(self) -> bool:
+        """Whether the neighbor index has un-synchronized observations."""
+        if hasattr(self._rust, "index_stale"):
+            s = self._rust.index_stale
+            return bool(s() if callable(s) else s)
+        return False
+
+    def memory_bytes(self) -> int:
+        """Memory footprint of the neighbor index and model in bytes."""
+        if hasattr(self._rust, "memory_bytes"):
+            return int(self._rust.memory_bytes())
+        if hasattr(self._rust, "index_bytes"):
+            return int(self._rust.index_bytes())
+        return 0
+
+    def release_pages(self) -> Any:
+        """Release unused memory pages back to the operating system."""
+        if hasattr(self._rust, "release_pages"):
+            return self._rust.release_pages()
+        return None
 
     @property
     def key(self) -> Any:
         """Return content-addressed deterministic PRNG key for this state."""
         from .._rust import Key as _Key
 
+        v = self.y_var
         buf = (
             np.ascontiguousarray(self.x, dtype=float).tobytes()
             + np.ascontiguousarray(self.y, dtype=float).tobytes()
-            + (
-                b""
-                if self.y_var is None
-                else np.ascontiguousarray(self.y_var, dtype=float).tobytes()
-            )
+            + (b"" if v is None else np.ascontiguousarray(v, dtype=float).tobytes())
             + repr(self.options).encode("utf-8")
         )
         return _Key.from_bytes(buf)
 
     def ensure_sync(self) -> ENNState:
         """Synchronize pending observations with the neighbor index."""
-        return sync_enn(self)
+        return ensure_sync(self)
 
     def persist_index(self) -> ENNState:
         """Persist the neighbor index to storage."""
-        return persist_enn(self)
+        return persist_index(self)
 
+    def schedule_flush(self) -> ENNState:
+        """Schedule a flush of pending observations to backing storage."""
+        rust_model = self._rust.schedule_flush()
+        return ENNState(
+            _rust=rust_model,
+            scale_x=self.scale_x,
+            options=self.options,
+            _index_driver=self._index_driver,
+            _metric=self._metric,
+        )
 
-def _wrapenn(base: ENN, rust_model: Any, metric: tuple[str, int] | None = None) -> ENN:
-    out = object.__new__(ENN)
-    out._index_driver = base._index_driver
-    out._rust_model = rust_model
-    out.device = getattr(rust_model, "device", base.device)
-    out.index_kind = base.index_kind
-    out._metric = (
-        getattr(base, "_metric", ("euclidean", 4)) if metric is None else metric
-    )
-    return out
+    def posterior(
+        self,
+        x: Any,
+        params: ENNParams,
+        *,
+        flags: PosteriorFlags | None = None,
+    ) -> ENNNormal:
+        """Compute posterior normal moments at query points."""
+        flags = PosteriorFlags() if flags is None else flags
+        mu, se, se_epi, se_ale, idx = self._rust.posterior(
+            np.asarray(x, dtype=float),
+            k_neighbors=int(params.k_neighbors),
+            epistemic_scale=float(params.epistemic_scale),
+            aleatoric_scale=float(params.aleatoric_scale),
+            exclude_nearest=bool(flags.exclude_nearest),
+            observation_noise=bool(flags.observation_noise),
+            tie_mode=int(bool(flags.tie_neighbors)),
+        )
+        idx_arr = np.asarray(idx, dtype=int) if idx is not None else None
+        return ENNNormal(mu, se, se_epi, se_ale, idx=idx_arr, y_bounds=self.y_bounds)
+
+    def posterior_draw(
+        self,
+        x: Any,
+        params: ENNParams,
+        *,
+        function_seeds: Any,
+        flags: PosteriorFlags | None = None,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Draw deterministic posterior function samples at query points."""
+        flags = PosteriorFlags() if flags is None else flags
+        seeds = _rustseeds(function_seeds)
+        draws, idx = self._rust.posterior_draw(
+            np.asarray(x, dtype=float),
+            k_neighbors=int(params.k_neighbors),
+            epistemic_scale=float(params.epistemic_scale),
+            aleatoric_scale=float(params.aleatoric_scale),
+            function_seeds=seeds,
+            exclude_nearest=bool(flags.exclude_nearest),
+            observation_noise=bool(flags.observation_noise),
+            tie_mode=int(bool(flags.tie_neighbors)),
+        )
+        return _finaldraw(np.asarray(x, dtype=float), draws, idx)
+
+    def conditional_posterior(
+        self,
+        x_obs: Any,
+        y_obs: Any,
+        x_query: Any,
+        params: ENNParams,
+        *,
+        yvar_obs: Any = None,
+        flags: PosteriorFlags | None = None,
+    ) -> ENNNormal:
+        """Compute posterior moments conditioned on hypothetical observations."""
+        flags = PosteriorFlags() if flags is None else flags
+        x_whatif = np.asarray(x_obs, dtype=float)
+        y_whatif = np.asarray(y_obs, dtype=float)
+        if y_whatif.ndim == 1:
+            y_whatif = y_whatif.reshape(-1, 1)
+        xq = np.asarray(x_query, dtype=float)
+        kw: dict[str, Any] = {
+            "k_neighbors": int(params.k_neighbors),
+            "epistemic_scale": float(params.epistemic_scale),
+            "aleatoric_scale": float(params.aleatoric_scale),
+            "exclude_nearest": bool(flags.exclude_nearest),
+            "observation_noise": bool(flags.observation_noise),
+            "tie_mode": int(bool(flags.tie_neighbors)),
+        }
+        if yvar_obs is not None:
+            yvar_arr = np.asarray(yvar_obs, dtype=float)
+            if yvar_arr.ndim == 1:
+                yvar_arr = yvar_arr.reshape(-1, 1)
+            kw["yvar_whatif"] = yvar_arr
+        try:
+            mu, se, se_epi, se_ale, _ = self._rust.conditional_posterior(
+                x_whatif, y_whatif, xq, **kw
+            )
+        except TypeError:
+            kw.pop("yvar_whatif", None)
+            mu, se, se_epi, se_ale, _ = self._rust.conditional_posterior(
+                x_whatif, y_whatif, xq, **kw
+            )
+        return ENNNormal(mu, se, se_epi, se_ale, y_bounds=self.y_bounds)
+
+    def conditional_draw(
+        self,
+        x_obs: Any,
+        y_obs: Any,
+        x_query: Any,
+        params: ENNParams,
+        *,
+        function_seeds: Any,
+        yvar_obs: Any = None,
+        flags: PosteriorFlags | None = None,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Draw posterior function samples conditioned on hypothetical observations."""
+        flags = PosteriorFlags() if flags is None else flags
+        x_whatif = np.asarray(x_obs, dtype=float)
+        y_whatif = np.asarray(y_obs, dtype=float)
+        if y_whatif.ndim == 1:
+            y_whatif = y_whatif.reshape(-1, 1)
+        xq = np.asarray(x_query, dtype=float)
+        if x_whatif.shape[0] == 0:
+            return self.posterior_draw(
+                xq, params, function_seeds=function_seeds, flags=flags
+            )
+        seeds = _rustseeds(function_seeds)
+        kw: dict[str, Any] = {
+            "k_neighbors": int(params.k_neighbors),
+            "epistemic_scale": float(params.epistemic_scale),
+            "aleatoric_scale": float(params.aleatoric_scale),
+            "function_seeds": seeds,
+            "exclude_nearest": bool(flags.exclude_nearest),
+            "observation_noise": bool(flags.observation_noise),
+            "tie_mode": int(bool(flags.tie_neighbors)),
+        }
+        if yvar_obs is not None:
+            yvar_arr = np.asarray(yvar_obs, dtype=float)
+            if yvar_arr.ndim == 1:
+                yvar_arr = yvar_arr.reshape(-1, 1)
+            kw["yvar_whatif"] = yvar_arr
+        try:
+            draws, idx = self._rust.conditional_draw(x_whatif, y_whatif, xq, **kw)
+        except TypeError:
+            kw.pop("yvar_whatif", None)
+            draws, idx = self._rust.conditional_draw(x_whatif, y_whatif, xq, **kw)
+        return _finaldraw(xq, draws, idx)
+
+    def nearest_neighbors(
+        self,
+        x: Any,
+        *,
+        search_k: int,
+        exclude_nearest: bool = False,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Query nearest neighbor squared distances and indices."""
+        dist2s, idx = self._rust.nearest_neighbors(
+            np.asarray(x, dtype=float), int(search_k), bool(exclude_nearest)
+        )
+        return np.asarray(dist2s, dtype=float), np.asarray(idx, dtype=int)
+
+    def neighbors(
+        self,
+        x: Any,
+        k: int = 1,
+        *,
+        exclude_nearest: bool = False,
+    ) -> np.ndarray:
+        """Get k nearest neighbor indices for a 1D query point."""
+        x_arr = np.asarray(x, dtype=float)
+        if x_arr.ndim == 1:
+            x_mat = x_arr.reshape(1, -1)
+        elif x_arr.ndim == 2:
+            if x_arr.shape[0] != 1:
+                raise ValueError(
+                    f"2D query array must have shape (1, {self.num_dim}), got {x_arr.shape}"
+                )
+            x_mat = x_arr
+        else:
+            raise ValueError(
+                f"query array must be 1D or 2D with batch size 1, got shape {x_arr.shape}"
+            )
+        if exclude_nearest and len(self) <= 1:
+            raise ValueError(
+                f"exclude_nearest=True requires at least 2 observations, got {len(self)}"
+            )
+        if k < 0:
+            raise ValueError(f"k must be non-negative, got {k}")
+        if x_mat.shape[1] != self.num_dim:
+            raise ValueError(
+                f"expected query with {self.num_dim} features, got {x_mat.shape[1]}"
+            )
+        if hasattr(self._rust, "neighbors"):
+            out = self._rust.neighbors(x_mat, int(k), bool(exclude_nearest))
+            return np.asarray(out[0], dtype=int)
+        if len(self) == 0 or int(k) <= 0:
+            return np.zeros(0, dtype=int)
+        search_k = min(int(k) + int(exclude_nearest), len(self))
+        _, idx = self.nearest_neighbors(
+            x_mat, search_k=search_k, exclude_nearest=exclude_nearest
+        )
+        k_out = min(int(k), idx.shape[1])
+        return np.asarray(idx[0, :k_out], dtype=int)
+
+    def posterior_neighbors(
+        self,
+        x: Any,
+        *,
+        search_k: int,
+        flags: PosteriorFlags | None = None,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Query posterior neighbor squared distances and indices."""
+        flags = PosteriorFlags() if flags is None else flags
+        dist2s, idx = self._rust.posterior_neighbors(
+            np.asarray(x, dtype=float),
+            int(search_k),
+            bool(flags.exclude_nearest),
+            bool(flags.tie_neighbors),
+        )
+        return np.asarray(dist2s, dtype=float), np.asarray(idx, dtype=int)
+
+    def draw_internals(
+        self,
+        x: Any,
+        params: ENNParams,
+        *,
+        function_seeds: Any,
+        flags: PosteriorFlags | None = None,
+    ) -> DrawInternals:
+        """Compute intermediate neighbor weights and moments for an ENN draw."""
+        if hasattr(self._rust, "draw_internals"):
+            return self._rust.draw_internals(
+                x, params, function_seeds=function_seeds, flags=flags
+            )
+        flags = PosteriorFlags() if flags is None else flags
+        normal = self.posterior(x, params, flags=flags)
+        dist2s, idx = self.posterior_neighbors(
+            x, search_k=int(params.k_neighbors), flags=flags
+        )
+        eps = 1e-12
+        inv_d = 1.0 / np.sqrt(np.maximum(dist2s, eps))
+        sum_inv = np.sum(inv_d, axis=-1, keepdims=True)
+        w = inv_d / np.maximum(sum_inv, eps)
+        w_norm = np.repeat(w[:, :, np.newaxis], self.num_outputs, axis=2)
+        l2 = np.sqrt(np.sum(w_norm**2, axis=1))
+        return DrawInternals(
+            idx=idx,
+            w_normalized=w_norm,
+            l2=l2,
+            mu=normal.mu,
+            se=normal.se,
+            se_epi=normal.se_epi,
+            se_ale=normal.se_ale,
+        )
+
+    def neighbor_data(
+        self,
+        x: Any,
+        *,
+        search_k: int,
+        exclude_nearest: bool = False,
+    ) -> NeighborData:
+        """Query squared distances, indices, and target values for k nearest neighbors."""
+        if hasattr(self._rust, "neighbor_data"):
+            return self._rust.neighbor_data(
+                x, search_k=search_k, exclude_nearest=exclude_nearest
+            )
+        dist2s, idx = self.nearest_neighbors(
+            x, search_k=search_k, exclude_nearest=exclude_nearest
+        )
+        y_obs = self.y
+        y_neighbors = y_obs[idx]
+        return NeighborData(
+            dist2s=dist2s,
+            idx=idx,
+            y_neighbors=y_neighbors,
+            k=int(search_k),
+        )
+
+    def device_posterior(
+        self,
+        x: Any,
+        params: ENNParams,
+        *,
+        flags: PosteriorFlags | None = None,
+    ) -> Any:
+        """Return a native posterior with DLPack mean, SE, and joint draw arrays."""
+        if type(x).__module__.startswith(("jax.", "jaxlib.")):
+            try:
+                device, _ = x.__dlpack_device__()
+            except BufferError as error:
+                raise ValueError(
+                    "JAX Metal arrays are not supported by device_posterior; "
+                    "use Torch MPS or JAX CUDA"
+                ) from error
+        else:
+            device, _ = x.__dlpack_device__()
+        if int(device) == 8 and type(x).__module__.startswith("torch"):
+            import torch
+
+            torch.mps.synchronize()
+        if hasattr(x, "block_until_ready"):
+            x.block_until_ready()
+        flags = PosteriorFlags() if flags is None else flags
+        return self._rust.device_posterior(
+            x,
+            k_neighbors=int(params.k_neighbors),
+            epistemic_scale=float(params.epistemic_scale),
+            aleatoric_scale=float(params.aleatoric_scale),
+            exclude_nearest=bool(flags.exclude_nearest),
+            observation_noise=bool(flags.observation_noise),
+            tie_mode=int(bool(flags.tie_neighbors)),
+        )
+
+    def batch_posterior(
+        self,
+        x: Any,
+        paramss: list[ENNParams],
+        *,
+        flags: PosteriorFlags | None = None,
+    ) -> ENNNormal:
+        """Compute posterior moments across a batch of hyperparameter sets."""
+        flags = PosteriorFlags() if flags is None else flags
+        x_arr = np.asarray(x, dtype=float)
+        if not paramss:
+            raise ValueError("paramss must be non-empty")
+        k_vals = [int(p.k_neighbors) for p in paramss]
+        epi_scales = [float(p.epistemic_scale) for p in paramss]
+        ale_scales = [float(p.aleatoric_scale) for p in paramss]
+        mu, se, se_epi, se_ale = self._rust.batch_posterior(
+            x_arr,
+            k_values=k_vals,
+            epistemic_scales=epi_scales,
+            aleatoric_scales=ale_scales,
+            exclude_nearest=bool(flags.exclude_nearest),
+            observation_noise=bool(flags.observation_noise),
+            tie_mode=int(bool(flags.tie_neighbors)),
+        )
+        return ENNNormal(mu, se, se_epi, se_ale, y_bounds=self.y_bounds)
+
+    def train_rows(
+        self, indices: list[int] | np.ndarray
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray | None]:
+        """Fetch training inputs, targets, and noise variances for row indices."""
+        idx = [int(i) for i in np.asarray(indices, dtype=int).ravel()]
+        x, y, yvar = self._rust.train_rows(idx)
+        x_arr = np.asarray(x, dtype=float)
+        y_arr = np.asarray(y, dtype=float)
+        yvar_arr = None if yvar is None else np.asarray(yvar, dtype=float)
+        return x_arr, y_arr, yvar_arr
+
+    def index_bytes(self) -> int:
+        """Return memory footprint of the neighbor index in bytes."""
+        return self.memory_bytes()
 
 
 def with_geometry(model: Any, geometry: str, local_k: int = 4) -> Any:
@@ -89,21 +623,16 @@ def with_geometry(model: Any, geometry: str, local_k: int = 4) -> Any:
     if m not in _METRICS or k < 1:
         raise ValueError(f"invalid geometry={geometry!r} or local_k={local_k}")
     if isinstance(model, ENNState):
-        rust_obj = model._model._rust_model.append_cow(metric=m, local_k=k)
+        rust_obj = model._rust.append_cow(metric=m, local_k=k)
         opts = dict(model.options)
         opts["geometry"] = m
         opts["local_k"] = k
         return ENNState(
-            x=model.x,
-            y=model.y,
-            y_var=model.y_var,
+            _rust=rust_obj,
             scale_x=model.scale_x,
             options=tuple(sorted(opts.items())),
-            _model=_wrapenn(model._model, rust_obj, (m, k)),
-        )
-    if isinstance(model, ENN):
-        return _wrapenn(
-            model, model._rust_model.append_cow(metric=m, local_k=k), (m, k)
+            _index_driver=model._index_driver,
+            _metric=(m, k),
         )
     from dataclasses import replace as _replace
 
@@ -172,10 +701,8 @@ def _fitcodomain(
         stiefel = Stiefel.from_cov(state.y, rank=int(stiefel_rank))
     if affine is None and calibrate_alpha is not None:
         k_fit = min(10, max(1, len(state) - 1))
-        p = enn_fit(state, k=k_fit, num_candidates=20, num_samples=5)
-        loo = enn_posterior(
-            state, state.x, p, flags=PosteriorFlags(exclude_nearest=True)
-        )
+        p = fit(state, k=k_fit, num_candidates=20, num_samples=5)
+        loo = posterior(state, state.x, p, flags=PosteriorFlags(exclude_nearest=True))
         aff = Affine.fit_wls(loo.mu, state.y, loo.se)
         if 0.0 < float(calibrate_alpha) < 1.0:
             c_q = aff.conformal_scale(
@@ -199,24 +726,18 @@ def _codomain(
             target, stiefel, affine, stiefel_rank, calibrate_alpha
         )
         st_arr, aff_tup = _stiefelarr(stiefel), _affinetup(affine)
-        rust_obj = target._model._rust_model.append_cow(stiefel=st_arr, affine=aff_tup)
+        rust_obj = target._rust.append_cow(stiefel=st_arr, affine=aff_tup)
         opts = dict(target.options)
         if st_arr is not None:
             opts["stiefel"] = st_arr.tobytes()
         if aff_tup is not None:
             opts["affine"] = aff_tup
         return ENNState(
-            x=target.x,
-            y=target.y,
-            y_var=target.y_var,
+            _rust=rust_obj,
             scale_x=target.scale_x,
             options=tuple(sorted(opts.items())),
-            _model=_wrapenn(target._model, rust_obj),
-        )
-    if isinstance(target, ENN):
-        st_arr, aff_tup = _stiefelarr(stiefel), _affinetup(affine)
-        return _wrapenn(
-            target, target._rust_model.append_cow(stiefel=st_arr, affine=aff_tup)
+            _index_driver=target._index_driver,
+            _metric=target._metric,
         )
     from dataclasses import replace as _replace
 
@@ -276,17 +797,7 @@ def _codomain(
 
 
 def stein(target: Any = None, frame: Any = None, *, rank: int | None = None) -> Any:
-    """Applies Stiefel subspace James-Stein contraction to a state, config, or Transform.
-
-    Args:
-        target: Target state/config/Transform, or a Stiefel frame / integer rank
-            when constructing a pipeline Transform.
-        frame: Optional Stiefel frame or integer rank when target is a state or config.
-        rank: Optional principal Stiefel subspace rank for online estimation.
-
-    Returns:
-        Updated state/config or composable Transform.
-    """
+    """Applies Stiefel subspace James-Stein contraction to a state, config, or Transform."""
     from ..transforms import Transform
 
     if target is None:
@@ -307,17 +818,7 @@ def stein(target: Any = None, frame: Any = None, *, rank: int | None = None) -> 
 def calibrate(
     target: Any = None, affine: Any = None, *, alpha: float | None = None
 ) -> Any:
-    """Applies an Affine posterior location-scale map to a state, config, or Transform.
-
-    Args:
-        target: Target state/config/Transform, or an Affine map / conformal alpha
-            when constructing a pipeline Transform.
-        affine: Optional Affine map or conformal alpha when target is a state or config.
-        alpha: Optional conformal miscoverage rate in (0, 1) for online calibration.
-
-    Returns:
-        Updated state/config or composable Transform.
-    """
+    """Applies an Affine posterior location-scale map to a state, config, or Transform."""
     from ..transforms import Transform
 
     if target is None:
@@ -348,30 +849,78 @@ def enn_init(
     **options: Any,
 ) -> ENNState:
     """Construct an immutable `ENNState` without mutating caller arrays."""
-    x = _readonly(train_x)
-    y = _readonly(train_y)
-    if y.ndim == 1:
-        y = _readonly(y.reshape(-1, 1))
-    yvar = None if train_yvar is None else _readonly(train_yvar)
-    if yvar is not None and yvar.ndim == 1:
-        yvar = _readonly(yvar.reshape(-1, 1))
-    model = ENN(x, y, yvar, scale_x=scale_x, **options)
+    unknown = set(options) - {
+        "index",
+        "storage",
+        "device",
+        "metric_learning",
+        "tied_dims",
+        "unscaled_dims",
+        "metric_seed",
+        "config_path",
+        "index_driver",
+        "work_dir",
+        "enn_storage",
+        "y_bounds",
+        "geometry",
+        "local_k",
+    }
+    if unknown:
+        raise TypeError(f"Unexpected keyword argument: {sorted(unknown)[0]!r}")
+    x, y, yvar = _inputs(train_x, train_y, train_yvar)
+    idx_driver = options.get("index_driver", NeighborIndex.FLAT)
+    if isinstance(idx_driver, str):
+        if idx_driver.lower() not in _INDEX_ALIASES:
+            raise ValueError(f"Unknown index_driver: {idx_driver}")
+        idx_driver = _INDEX_ALIASES[idx_driver.lower()]
+    resolved_driver, raw_index = _resolveindex(
+        idx_driver, options.get("index"), options.get("device")
+    )
+    work_dir = options.get("work_dir")
+    enn_storage = _resolvestorage(
+        resolved_driver, options.get("enn_storage"), options.get("storage"), work_dir
+    )
+    metric_spec = metric_options(options)
+    config_path = options.get("config_path")
+    y_bounds = options.get("y_bounds")
+
+    rust_kwargs: dict[str, Any] = {
+        "train_x": x,
+        "train_y": y,
+        "train_yvar": yvar,
+        "scale_x": scale_x,
+        "index_driver": _rustname(resolved_driver),
+    }
+    if raw_index is not None:
+        rust_kwargs["index"] = raw_index
+    if work_dir is not None:
+        rust_kwargs["work_dir"] = os.fspath(work_dir)
+    if enn_storage is not None:
+        rust_kwargs["enn_storage"] = enn_storage
+    if y_bounds is not None:
+        rust_kwargs["y_bounds"] = np.asarray(y_bounds, dtype=float)
+    if metric_spec is not None:
+        rust_kwargs["metric"] = metric_spec
+    if config_path is not None:
+        rust_kwargs["config_path"] = os.fspath(config_path)
+
+    rust_model = _RustENN(**rust_kwargs)
     st_arr, aff_tup = _stiefelarr(stiefel), _affinetup(affine)
     if st_arr is not None or aff_tup is not None:
-        model = _wrapenn(
-            model, model._rust_model.append_cow(stiefel=st_arr, affine=aff_tup)
-        )
+        rust_model = rust_model.append_cow(stiefel=st_arr, affine=aff_tup)
+    opts_tuple = tuple(
+        sorted((k, v) for k, v in options.items() if not isinstance(v, np.ndarray))
+    )
     return ENNState(
-        x=x,
-        y=y,
-        y_var=yvar,
+        _rust=rust_model,
         scale_x=scale_x,
-        options=tuple(sorted(options.items())),
-        _model=model,
+        options=opts_tuple,
+        _index_driver=resolved_driver,
+        _metric=("euclidean", 4),
     )
 
 
-def enn_append(state: ENNState, x: Any, y: Any, y_var: Any = None) -> ENNState:
+def append(state: ENNState, x: Any, y: Any, y_var: Any = None) -> ENNState:
     """Return a new `ENNState` with appended observations via Rust COW, leaving `state` untouched."""
     x_new = _readonly(x)
     if x_new.ndim == 1:
@@ -384,42 +933,32 @@ def enn_append(state: ENNState, x: Any, y: Any, y_var: Any = None) -> ENNState:
         yvar_new = _readonly(yvar_new.reshape(-1, 1))
     if (state.y_var is None) != (yvar_new is None):
         raise ValueError("y_var presence must match existing ENNState")
-    x_in, y_in, yvar_in = state._model._inputs(x_new, y_new, yvar_new)
-    model = _wrapenn(
-        state._model, state._model._rust_model.append_cow(x_in, y_in, yvar_in)
-    )
-    cat_x = _readonly(np.vstack([state.x, x_new]))
-    cat_y = _readonly(np.vstack([state.y, y_new]))
-    cat_yvar = (
-        None
-        if state.y_var is None or yvar_new is None
-        else _readonly(np.vstack([state.y_var, yvar_new]))
-    )
+    x_in, y_in, yvar_in = _inputs(x_new, y_new, yvar_new)
+    rust_model = state._rust.append_cow(x_in, y_in, yvar_in)
     return ENNState(
-        x=cat_x,
-        y=cat_y,
-        y_var=cat_yvar,
+        _rust=rust_model,
         scale_x=state.scale_x,
         options=state.options,
-        _model=model,
+        _index_driver=state._index_driver,
+        _metric=state._metric,
     )
 
 
-def enn_posterior(
+def posterior(
     state: ENNState, x: Any, params: ENNParams, *, flags: PosteriorFlags | None = None
 ) -> ENNNormal:
     """Pure posterior query on an immutable `ENNState`."""
-    return state._model.posterior(x, params, flags=flags)
+    return state.posterior(x, params, flags=flags)
 
 
-def enn_sample(
+def sample(
     state: ENNState,
     x: Any,
     params: ENNParams,
     *,
     key: Any = None,
     num_draws: int = 1,
-    seeds: np.ndarray | list[int] | tuple[int, ...] | None = None,
+    seeds: Any = None,
     flags: PosteriorFlags | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Pure posterior function draw on an immutable `ENNState`."""
@@ -436,10 +975,10 @@ def enn_sample(
         ]
     else:
         fn_seeds = list(seeds)
-    return state._model.posterior_draw(x, params, function_seeds=fn_seeds, flags=flags)
+    return state.posterior_draw(x, params, function_seeds=fn_seeds, flags=flags)
 
 
-def enn_fit(
+def fit(
     state: ENNState,
     k: int = 10,
     *,
@@ -465,7 +1004,7 @@ def enn_fit(
         )
     )
     res = _fitmodel(
-        state._model.rust_backend,
+        state._rust,
         int(k),
         int(num_candidates),
         int(num_samples),
@@ -480,56 +1019,32 @@ def enn_fit(
     )
 
 
-@overload
-def sync_enn(state: ENNState) -> ENNState: ...
-@overload
-def sync_enn(state: ENN) -> ENN: ...
-def sync_enn(state: ENNState | ENN) -> ENNState | ENN:
-    """Synchronize pending observations with the neighbor index, returning an updated state/model."""
+def ensure_sync(state: ENNState) -> ENNState:
+    """Synchronize pending observations with the neighbor index, returning an updated state."""
     if isinstance(state, ENNState):
-        rust_model = state._model._rust_model.ensure_sync()
+        rust_model = state._rust.ensure_sync()
         return ENNState(
-            x=state.x,
-            y=state.y,
-            y_var=state.y_var,
+            _rust=rust_model,
             scale_x=state.scale_x,
             options=state.options,
-            _model=_wrapenn(state._model, rust_model),
+            _index_driver=state._index_driver,
+            _metric=state._metric,
         )
-    if isinstance(state, ENN):
-        state.ensure_sync()
-        return state
-    raise TypeError(f"Expected ENNState or ENN, got {type(state)}")
+    raise TypeError(f"Expected ENNState, got {type(state)}")
 
 
-@overload
-def persist_enn(state: ENNState) -> ENNState: ...
-@overload
-def persist_enn(state: ENN) -> ENN: ...
-def persist_enn(state: ENNState | ENN) -> ENNState | ENN:
-    """Persist the neighbor index to storage, returning an updated state/model."""
+def persist_index(state: ENNState) -> ENNState:
+    """Persist the neighbor index to storage, returning an updated state."""
     if isinstance(state, ENNState):
-        rust_model = state._model._rust_model.persist_index()
+        rust_model = state._rust.persist_index()
         return ENNState(
-            x=state.x,
-            y=state.y,
-            y_var=state.y_var,
+            _rust=rust_model,
             scale_x=state.scale_x,
             options=state.options,
-            _model=_wrapenn(state._model, rust_model),
+            _index_driver=state._index_driver,
+            _metric=state._metric,
         )
-    if isinstance(state, ENN):
-        state.persist_index()
-        return state
-    raise TypeError(f"Expected ENNState or ENN, got {type(state)}")
-
-
-append = enn_append
-fit = enn_fit
-posterior = enn_posterior
-sample = enn_sample
-ensure_sync = sync_enn
-persist_index = persist_enn
+    raise TypeError(f"Expected ENNState, got {type(state)}")
 
 
 __all__ = [
@@ -542,18 +1057,12 @@ __all__ = [
     "Stiefel",
     "append",
     "calibrate",
-    "enn_append",
-    "enn_fit",
     "enn_init",
-    "enn_posterior",
-    "enn_sample",
     "ensure_sync",
     "fit",
-    "persist_enn",
     "persist_index",
     "posterior",
     "sample",
     "stein",
-    "sync_enn",
     "with_geometry",
 ]

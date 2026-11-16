@@ -21,6 +21,7 @@ from .surrogate import (
     ENNSurrogate,
     ExternalSurrogate,
     GaussianProcess,
+    NeighborIndex,
     NoSurrogate,
 )
 from .trust_region import (
@@ -146,14 +147,40 @@ def _ennmetric(sur: ENNSurrogate, out: dict[str, Any]) -> None:
         )
 
 
+_INDEX_ALIASES: dict[str, NeighborIndex] = {
+    "exact": NeighborIndex.FLAT,
+    "flat": NeighborIndex.FLAT,
+    "hnsw": NeighborIndex.USEARCH,
+    "usearch": NeighborIndex.USEARCH,
+    "tree": NeighborIndex.BPANN_DISK,
+    "bpann": NeighborIndex.BPANN_DISK,
+    "bpann_disk": NeighborIndex.BPANN_DISK,
+    "auto": NeighborIndex.AUTO,
+}
+
+
 def _enn(cfg: OptimizerConfig) -> dict[str, Any]:
     sur = cfg.surrogate
     if not isinstance(sur, ENNSurrogate):
         return {}
 
-    out: dict[str, Any] = {}
-    if sur.index_driver in INDEX_NAMES:
-        out["index_driver"] = INDEX_NAMES[sur.index_driver]
+    driver = sur.index_driver
+    if isinstance(driver, NeighborIndex):
+        if driver not in INDEX_NAMES:
+            raise ValueError(f"Unknown index_driver: {driver}")
+        driver_name = INDEX_NAMES[driver]
+    elif isinstance(driver, str):
+        lowered = driver.lower()
+        if lowered in _INDEX_ALIASES:
+            driver_name = INDEX_NAMES[_INDEX_ALIASES[lowered]]
+        elif any(lowered == v.lower() for v in INDEX_NAMES.values()):
+            driver_name = lowered
+        else:
+            raise ValueError(f"Unknown index_driver: {driver}")
+    else:
+        raise ValueError(f"Unknown index_driver: {driver}")
+
+    out: dict[str, Any] = {"index_driver": driver_name}
     if sur.fit.num_samples is not None:
         out["num_samples"] = int(sur.fit.num_samples)
     if sur.fit.num_candidates is not None:

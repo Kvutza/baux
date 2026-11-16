@@ -125,7 +125,7 @@ def test_reference():
     pages = [trees / "baux-0007.tree", *sorted(trees.glob("api-*.tree"))]
     content = "\n".join(page.read_text(encoding="utf-8") for page in pages)
     symbols = re.findall(r"\[data-symbol\]\{(baux\.[^}]+)\}", content)
-    assert len(symbols) == len(set(symbols)) == 85
+    assert len(symbols) == len(set(symbols)) == 75
     for symbol in symbols:
         assert f"[id]{{{symbol}}}" in content, symbol
         assert f".html#{symbol})" in content, symbol

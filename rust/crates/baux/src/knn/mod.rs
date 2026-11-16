@@ -147,6 +147,8 @@ use crate::webgpu::WebGpuIndex;
 use cuda_index::CudaIndex;
 #[cfg(all(target_os = "macos", feature = "metal"))]
 use metal_index::MetalIndex;
+#[cfg(target_arch = "wasm32")]
+use std::sync::{Arc, Mutex};
 
 /// In-memory exact and accelerator-backed index implementations.
 #[derive(Clone)]
@@ -161,7 +163,7 @@ pub(crate) enum KnnBackend {
     #[cfg(all(target_os = "linux", target_arch = "x86_64", feature = "cuda"))]
     Cuda(CudaIndex),
     #[cfg(target_arch = "wasm32")]
-    WebGpu(WebGpuIndex),
+    WebGpu(Arc<Mutex<WebGpuIndex>>),
 }
 
 impl KnnBackend {
@@ -233,7 +235,10 @@ impl KnnBackend {
             IndexDriver::WebGpu => {
                 #[cfg(target_arch = "wasm32")]
                 {
-                    return Ok(Self::WebGpu(WebGpuIndex::new(num_dim, train_scaled)?));
+                    return Ok(Self::WebGpu(Arc::new(Mutex::new(WebGpuIndex::new(
+                        num_dim,
+                        train_scaled,
+                    )?))));
                 }
                 #[cfg(not(target_arch = "wasm32"))]
                 {
@@ -288,7 +293,7 @@ impl KnnBackend {
             #[cfg(all(target_os = "linux", target_arch = "x86_64", feature = "cuda"))]
             Self::Cuda(inner) => inner.len(),
             #[cfg(target_arch = "wasm32")]
-            Self::WebGpu(inner) => inner.len(),
+            Self::WebGpu(inner) => inner.lock().map_or(0, |g| g.len()),
         }
     }
 
@@ -336,7 +341,7 @@ impl KnnBackend {
             #[cfg(all(target_os = "linux", target_arch = "x86_64", feature = "cuda"))]
             Self::Cuda(inner) => inner.memory_bytes(),
             #[cfg(target_arch = "wasm32")]
-            Self::WebGpu(inner) => inner.memory_bytes(),
+            Self::WebGpu(inner) => inner.lock().map_or(0, |g| g.memory_bytes()),
         }
     }
 
@@ -352,8 +357,13 @@ impl KnnBackend {
             #[cfg(all(target_os = "linux", target_arch = "x86_64", feature = "cuda"))]
             Self::Cuda(inner) => Ok(Self::Cuda(inner.rebuild(train_scaled)?)),
             #[cfg(target_arch = "wasm32")]
-            Self::WebGpu(mut inner) => {
-                inner.rebuild(train_scaled)?;
+            Self::WebGpu(inner) => {
+                inner
+                    .lock()
+                    .map_err(|_| {
+                        IndexError::InvalidParameter("WebGPU index lock poisoned".to_string())
+                    })?
+                    .rebuild(train_scaled)?;
                 Ok(Self::WebGpu(inner))
             }
         }
@@ -375,8 +385,13 @@ impl KnnBackend {
             #[cfg(all(target_os = "linux", target_arch = "x86_64", feature = "cuda"))]
             Self::Cuda(inner) => Ok(Self::Cuda(inner.add(rows_scaled, start_key)?)),
             #[cfg(target_arch = "wasm32")]
-            Self::WebGpu(mut inner) => {
-                inner.add(rows_scaled, start_key)?;
+            Self::WebGpu(inner) => {
+                inner
+                    .lock()
+                    .map_err(|_| {
+                        IndexError::InvalidParameter("WebGPU index lock poisoned".to_string())
+                    })?
+                    .add(rows_scaled, start_key)?;
                 Ok(Self::WebGpu(inner))
             }
         }
@@ -399,7 +414,12 @@ impl KnnBackend {
             #[cfg(all(target_os = "linux", target_arch = "x86_64", feature = "cuda"))]
             Self::Cuda(inner) => inner.search(queries_scaled, k_eff, search_k),
             #[cfg(target_arch = "wasm32")]
-            Self::WebGpu(inner) => inner.search(queries_scaled, k_eff, search_k),
+            Self::WebGpu(inner) => inner
+                .lock()
+                .map_err(|_| {
+                    IndexError::InvalidParameter("WebGPU index lock poisoned".to_string())
+                })?
+                .search(queries_scaled, k_eff, search_k),
         }
     }
 

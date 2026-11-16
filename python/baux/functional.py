@@ -11,11 +11,10 @@ from typing import Any
 import numpy as np
 from numpy.random import Generator
 
-from . import _rust
 from . import pytree as _pytree
 from . import state as _state
-from .bo import AskBatch, AskId, Telemetry, TellPredictionError, _obs
-from .enn import enn_state as _enn
+from ._lazy import module_attr
+from .bo import AskBatch, AskId, Telemetry, _obs
 from .pytree import PyTreeSpec, pytree_bounds, ravel
 from .state import (
     OptimizerState,
@@ -31,29 +30,40 @@ from .turbo.config.encode import supports
 from .turbo.config.surrogate import ENNSurrogate
 from .turbo.config.trust_region import RegionalSearchPolicy
 
-Key, Categorical, categorical = _rust.Key, _pytree.Categorical, _pytree.categorical
-Affine, ENNState, Stiefel = _enn.Affine, _enn.ENNState, _enn.Stiefel
-calibrate, stein = _enn.calibrate, _enn.stein
-append, enn_append, enn_fit, enn_init = (
-    _enn.append,
-    _enn.enn_append,
-    _enn.enn_fit,
-    _enn.enn_init,
-)
-enn_posterior, enn_sample, fit, posterior, sample = (
-    _enn.enn_posterior,
-    _enn.enn_sample,
-    _enn.fit,
-    _enn.posterior,
-    _enn.sample,
+Affine, Categorical, Stiefel, categorical = (
+    _pytree.Affine,
+    _pytree.Categorical,
+    _pytree.Stiefel,
+    _pytree.categorical,
 )
 digest, freeze, thaw = _state.digest, _state.freeze, _state.thaw
+
+_LAZY_ATTRS: dict[str, tuple[str, str]] = {
+    "ENNState": (".enn.enn_state", "ENNState"),
+    "Key": ("._rust", "Key"),
+    "append": (".enn.enn_state", "append"),
+    "calibrate": (".enn.enn_state", "calibrate"),
+    "enn_init": (".enn.enn_state", "enn_init"),
+    "ensure_sync": (".enn.enn_state", "ensure_sync"),
+    "fit": (".enn.enn_state", "fit"),
+    "persist_index": (".enn.enn_state", "persist_index"),
+    "posterior": (".enn.enn_state", "posterior"),
+    "sample": (".enn.enn_state", "sample"),
+    "stein": (".enn.enn_state", "stein"),
+    "with_geometry": (".enn.enn_state", "with_geometry"),
+}
+
+
+def __getattr__(name: str) -> Any:
+    return module_attr(name, globals())
 
 
 def key(source: Any = None) -> Any:
     """Return a splittable 128-bit `Key` from a state/space/array/bytes, or fresh OS entropy when `None`."""
     if hasattr(source, "key"):
         return source.key
+    from ._rust import Key
+
     if isinstance(source, np.ndarray):
         return Key.from_bytes(np.ascontiguousarray(source).tobytes())
     return Key(source)
@@ -153,27 +163,21 @@ def init(
             t.dt_fit, t.dt_gen, t.dt_sel, t.dt_tell, int(t.num_candidates)
         ),
         _opt=inner,
-        _log=(),
     )
 
 
 def ask(
     state: OptimizerState,
-    num_arms: int | None = None,
-    *,
-    n: int | None = None,
+    num_arms: int = 1,
 ) -> tuple[OptimizerState, AskBatch]:
     """Pure transition `(state, num_arms) -> (next_state, batch)`."""
-    if num_arms is not None and n is not None:
-        raise ValueError("pass either `num_arms` or `n`, not both")
-    raw_arms = num_arms if num_arms is not None else n
-    arms = 1 if raw_arms is None else int(raw_arms)
+    arms = int(num_arms)
     if arms <= 0:
         raise ValueError(f"num_arms must be > 0, got {arms}")
     step_seed = _foldseed(state.seed, state.epoch + 1)
     before = set(state._opt.pending_ids() or ())
-    points, next_opt = state._opt.ask(arms, seed=step_seed)
-    points = _readonly(points)
+    next_opt, raw = state._opt.ask(arms, seed=step_seed)
+    points = _readonly(raw)
     after = next_opt.pending_ids() or ()
     new_raw = tuple(int(i) for i in after if i not in before)
     if len(new_raw) == arms:
@@ -235,7 +239,7 @@ def _submitpure(
     try:
         mu = np.asarray(next_opt.posterior_mu(obs_x), dtype=float)
     except Exception as error:
-        raise TellPredictionError(
+        raise RuntimeError(
             "observations accepted, but prediction retrieval failed; "
             "retry posterior_mu(state, x), not the submission"
         ) from error
@@ -325,7 +329,7 @@ def restart_region(
         )
     center_ro = _readonly(center_arr)
     step_seed = _foldseed(state.seed, state.epoch + 1)
-    abandoned_raw, next_opt = state._opt.restart_region(
+    next_opt, abandoned_raw = state._opt.restart_region(
         index(slot), center_ro, seed=step_seed
     )
     logical_abandoned = tuple(int(i) for i in abandoned_raw)
@@ -378,26 +382,21 @@ class _StepTrace(dict[str, Any]):
 
 def scan(
     state: OptimizerState,
-    key: Any = None,
-    steps: int = 0,
-    eval_fn: Callable[..., Any] | None = None,
+    key: Any,
+    steps: int,
+    eval_fn: Callable[..., Any],
     num_arms: int = 1,
-) -> Any:
+) -> tuple[OptimizerState, Any, list[dict[str, Any]]]:
     """Fold `steps` pure optimization rounds over `state` and `key`, returning `(final_state, next_key, traces)`."""
     n_steps = int(steps)
     if n_steps < 0:
         raise ValueError(f"steps must be >= 0, got {n_steps}")
-    if eval_fn is None and callable(key):
-        cur, history = state, []
-        for _ in range(n_steps):
-            cur, y = step(cur, key, num_arms=num_arms, use_pytree=cur.spec is not None)
-            history.append(y.reshape(-1))
-        return cur, _readonly(
-            np.vstack(history) if history else np.empty((0, int(num_arms)), dtype=float)
-        )
-    if eval_fn is None:
-        raise ValueError("eval_fn must be provided when key is a PRNG key")
-    cur_key = state.key if key is None else (key if isinstance(key, Key) else Key(key))
+    if key is None:
+        cur_key = state.key
+    else:
+        from ._rust import Key
+
+        cur_key = key if isinstance(key, Key) else Key(key)
     cur = state.fork(cur_key)
     best = cur.best_y
     traces: list[dict[str, Any]] = []
@@ -430,7 +429,12 @@ def pmap(
         raise ValueError(f"branches must be >= 0, got {n_branches}")
     if n_branches == 0:
         return []
-    root_key = state.key if key is None else (key if isinstance(key, Key) else Key(key))
+    if key is None:
+        root_key = state.key
+    else:
+        from ._rust import Key
+
+        root_key = key if isinstance(key, Key) else Key(key)
     subkeys = split(root_key, n_branches)
     if _sys.platform == "emscripten" or n_branches == 1:
         return [branch_fn(i, state.fork(bk), bk) for i, bk in enumerate(subkeys)]
@@ -451,36 +455,23 @@ if _pkg := _sys.modules.get(__package__ or "baux"):
 __all__ = [
     "Affine",
     "Categorical",
-    "ENNState",
-    "Key",
     "OptimizerState",
     "Stiefel",
-    "append",
     "ask",
-    "calibrate",
     "cancel",
     "categorical",
     "complete",
     "digest",
-    "enn_append",
-    "enn_fit",
-    "enn_init",
-    "enn_posterior",
-    "enn_sample",
-    "fit",
     "fold",
     "freeze",
     "import_observations",
     "init",
     "key",
     "pmap",
-    "posterior",
     "posterior_mu",
     "restart_region",
-    "sample",
     "scan",
     "split",
-    "stein",
     "step",
     "tell",
     "thaw",

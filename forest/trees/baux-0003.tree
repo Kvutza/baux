@@ -1,7 +1,7 @@
 \title{Use ENN Predictions}
 
 \p{
-  Use ENN on its own when you already have observations and want predictions at new points. Create a dataset with \code{enn_init}, fit its parameters with \code{enn_fit}, then query \code{enn_posterior}. Each row of \code{x} is an input; the corresponding row of \code{y} holds its observed outputs.
+  Use ENN on its own when you already have observations and want predictions at new points. Create a dataset with \code{enn_init}, fit its parameters with \code{fit}, then query \code{posterior}. Each row of \code{x} is an input; the corresponding row of \code{y} holds its observed outputs.
 }
 
 \pre{
@@ -11,8 +11,8 @@ import baux
 x = np.concatenate([np.linspace(-1.4, 0.2, 16), np.linspace(1.1, 1.8, 8)]).reshape(-1, 1)
 y = np.exp(-0.35 * x ** 2) * np.cos(2.8 * x) + 0.15 * x
 data = baux.enn_init(x, y)
-params = baux.enn_fit(data, k=8, key=baux.key(0))
-prediction = baux.enn_posterior(data, np.array([[0.0], [0.65]]), params)
+params = baux.fit(data, k=8, key=baux.key(0))
+prediction = baux.posterior(data, np.array([[0.0], [0.65]]), params)
 
 assert prediction.mu.shape == (2, 1)
 print("dense x=0.0  mu=", round(float(prediction.mu[0, 0]), 4), "se=", round(float(prediction.se[0, 0]), 4))
@@ -135,17 +135,17 @@ enn_state = baux.with_geometry(
     "hyperbolic",
     local_k=4,
 )
-params = baux.enn_fit(enn_state, k=8, infer_aleatoric=False, key=k_fit)
+params = baux.fit(enn_state, k=8, infer_aleatoric=False, key=k_fit)
 
 queries = np.vstack([
     np.full((1, 6), 0.600),
     np.full((1, 6), 0.601),
     np.full((1, 6), 2.400),
 ])
-post = baux.enn_posterior(
+post = baux.posterior(
     enn_state, queries, params, flags=baux.enn.PosteriorFlags(observation_noise=True)
 )
-draws, idx = baux.enn_sample(enn_state, queries, params, key=k_draw, num_draws=64)
+draws, idx = baux.sample(enn_state, queries, params, key=k_draw, num_draws=64)
 
 corr_basin = float(np.corrcoef(draws[0, 0], draws[1, 0])[0, 1])
 assert np.all(idx[0] < 24)

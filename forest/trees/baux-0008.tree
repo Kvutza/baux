@@ -1,7 +1,7 @@
 \title{Work with Structured Parameters}
 
 \p{
-  Pass a dictionary, tuple or dataclass template to \code{baux.init}. Use \code{Log} for positive scales, \code{Periodic} for angles, \code{Simplex} for mixture weights and \code{categorical} for discrete choices. After \code{ask}, evaluate the decoded objects in \code{batch.params}.
+  Pass a dictionary, tuple or dataclass template to \code{baux.init}. Use \code{Log} for positive scales, \code{Periodic} for angles, \code{Simplex} for mixture weights and \code{Categorical} for discrete choices. After \code{ask}, evaluate the decoded objects in \code{batch.params}.
 }
 
 \subtree{
@@ -34,7 +34,7 @@
       give squared coordinate distance #{\sum_j(\sqrt{p_j}-\sqrt{q_j})^2}, equal to twice squared Hellinger distance under the convention #{H^2(p,q)=\tfrac12\sum_j(\sqrt{p_j}-\sqrt{q_j})^2}. The decoder returns the uniform distribution when all clipped coordinates are zero.
     }
     \li{
-      \strong{Discrete sets} ([baux.categorical](api-domains.html#baux.categorical)): Finite choices #{\{1, \dots, C\}} map to equal-norm orthogonal or Rademacher codewords #{\psi(c) \in \mathbb{R}^{d_c}} (Achlioptas [[Ach03]](https://doi.org/10.1016/S0022-0000(03)00025-4)), reducing nearest-codeword decoding to #{\rho(u) = \arg\max_c \langle u, \psi(c)\rangle}.
+      \strong{Discrete sets} ([baux.Categorical](api-domains.html#baux.Categorical)): Finite choices #{\{1, \dots, C\}} map to equal-norm orthogonal or Rademacher codewords #{\psi(c) \in \mathbb{R}^{d_c}} (Achlioptas [[Ach03]](https://doi.org/10.1016/S0022-0000(03)00025-4)), reducing nearest-codeword decoding to #{\rho(u) = \arg\max_c \langle u, \psi(c)\rangle}.
     }
   }
 }
@@ -76,7 +76,7 @@ space = {
     "gain": baux.Log(1e-3, 1.0),
     "phase": baux.Periodic(0.0, 2.0 * math.pi),
     "weights": baux.Simplex(4),
-    "window": baux.categorical(["hann", "hamming", "blackman", "kaiser"]),
+    "window": baux.Categorical(["hann", "hamming", "blackman", "kaiser"]),
 }
 loadings = np.array([
     [1.0, 0.0],

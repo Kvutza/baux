@@ -7,7 +7,7 @@ CPU queries use the original host-array interface. Explicit compatibility mode
 
 from __future__ import annotations
 
-from typing import override
+from typing import Any, override
 
 import numpy as np
 
@@ -23,8 +23,8 @@ except ModuleNotFoundError as exc:
         name=exc.name,
     ) from exc
 
-from .enn.enn_class import ENN
 from .enn.enn_params import ENNParams, PosteriorFlags
+from .enn.enn_state import ENNState, enn_init
 
 
 class Model(BaseModel):
@@ -36,22 +36,35 @@ class Model(BaseModel):
     """
 
     def __init__(
-        self, enn: ENN, params: ENNParams, *, allow_host_transfer: bool = False
+        self,
+        enn: ENNState | tuple[Any, ...],
+        params: ENNParams,
+        *,
+        allow_host_transfer: bool = False,
     ) -> None:
         super().__init__()
-        if np.isfinite(enn.y_bounds).any():
+        if isinstance(enn, tuple):
+            enn_obj = enn_init(*enn)
+        elif isinstance(enn, ENNState):
+            enn_obj = enn
+        else:
+            raise TypeError(
+                f"expected ENNState or (train_x, train_y) tuple, got {type(enn)}"
+            )
+
+        if np.isfinite(enn_obj.y_bounds).any():
             raise ValueError("bounded outputs do not expose exact posterior moments")
-        self.enn = enn
+        self.enn = enn_obj
         self.params = params
         self.allow_host_transfer = allow_host_transfer
 
     @property
-    def num_outputs(self):
+    def num_outputs(self) -> int:
         """Number of objective outputs modeled by the underlying ENN."""
         return self.enn.num_outputs
 
     @property
-    def batch_shape(self):
+    def batch_shape(self) -> torch.Size:
         """Empty batch shape for unbatched ENN training data."""
         return torch.Size()
 
@@ -71,7 +84,7 @@ class Model(BaseModel):
             raise NotImplementedError(
                 "baux does not provide input gradients to BoTorch"
             )
-        if X.ndim < 2 or X.shape[-1] != self.enn._numdim or X.numel() == 0:
+        if X.ndim < 2 or X.shape[-1] != self.enn.num_dim or X.numel() == 0:
             raise ValueError("queries must have nonempty shape (..., q, dimensions)")
         if not torch.isfinite(X).all():
             raise ValueError("queries must be finite")
@@ -108,7 +121,16 @@ class Model(BaseModel):
 class Posterior(BasePosterior):
     """Native marginals and joint draws with one function seed per MC sample."""
 
-    def __init__(self, enn, params, queries, indices, noise, *, allow_host_transfer):
+    def __init__(
+        self,
+        enn: ENNState,
+        params: ENNParams,
+        queries: torch.Tensor,
+        indices: list[int],
+        noise: bool,
+        *,
+        allow_host_transfer: bool,
+    ) -> None:
         self._enn = enn
         self._params = params
         self._indices = indices
@@ -128,8 +150,14 @@ class Posterior(BasePosterior):
             )
             if not torch.isfinite(device_queries).all():
                 raise ValueError("device queries must be representable as finite FP32")
-            self._native = enn.device_posterior(
-                device_queries, params, flags=self._flags
+            self._native = enn._rust.device_posterior(
+                device_queries,
+                k_neighbors=int(params.k_neighbors),
+                epistemic_scale=float(params.epistemic_scale),
+                aleatoric_scale=float(params.aleatoric_scale),
+                exclude_nearest=bool(self._flags.exclude_nearest),
+                observation_noise=bool(self._flags.observation_noise),
+                tie_mode=int(bool(self._flags.tie_neighbors)),
             )
             self._mean = (
                 torch.from_dlpack(self._native.mean)
@@ -153,37 +181,37 @@ class Posterior(BasePosterior):
             .reshape(-1, queries.shape[-1])
             .copy()
         )
-        marginal = enn.posterior(self._queries, params=params, flags=self._flags)
+        marginal = enn.posterior(self._queries, params, flags=self._flags)
         self._mean = self._tensor(marginal.mu[:, indices])
         self._variance = self._tensor(marginal.se[:, indices] ** 2)
 
-    def _check(self):
+    def _check(self) -> None:
         if len(self._enn) != self._rows:
             raise RuntimeError("baux changed; request a fresh posterior")
 
-    def _tensor(self, values):
+    def _tensor(self, values: np.ndarray) -> torch.Tensor:
         return torch.as_tensor(
             np.ascontiguousarray(values), dtype=self.dtype, device=self._device
         ).reshape(self._shape)
 
     @property
-    def device(self):
+    def device(self) -> torch.device:
         """PyTorch device hosting this posterior's query and output tensors."""
         return self._device
 
     @property
-    def dtype(self):
+    def dtype(self) -> torch.dtype:
         """Floating-point dtype of this posterior's mean, variance, and samples."""
         return self._dtype
 
     @property
-    def mean(self):
+    def mean(self) -> torch.Tensor:
         """Posterior predictive mean tensor at the queried points."""
         self._check()
         return self._mean
 
     @property
-    def variance(self):
+    def variance(self) -> torch.Tensor:
         """Posterior predictive variance tensor at the queried points."""
         self._check()
         return self._variance
@@ -241,7 +269,7 @@ class Posterior(BasePosterior):
 class Sampler(MCSampler):
     """Reuse native function seeds across candidates and acquisition evaluations."""
 
-    def __init__(self, sample_shape: torch.Size, seed: int | None = None):
+    def __init__(self, sample_shape: torch.Size, seed: int | None = None) -> None:
         super().__init__(sample_shape, seed)
         generator = torch.Generator(device="cpu").manual_seed(self.seed)
         self.base_samples = torch.randint(

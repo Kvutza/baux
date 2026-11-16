@@ -1,7 +1,6 @@
 //! Semantic execution IR and performance contract helpers.
 
 mod contract;
-pub mod diffusion;
 
 pub use baux::semantics::mhc4;
 pub use baux::semantics::model::{ModelProgram, ProgramKind};

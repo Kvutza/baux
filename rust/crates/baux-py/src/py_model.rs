@@ -167,7 +167,8 @@ impl PyENN {
             (Some(xa), Some(ya)) => {
                 let yvar_arr = yvar.as_ref().map(|v| v.as_array());
                 self.inner
-                    .append_cow(&xa.as_array(), &ya.as_array(), yvar_arr.as_ref())
+                    .clone()
+                    .add(&xa.as_array(), &ya.as_array(), yvar_arr.as_ref())
                     .map_err(|e| PyValueError::new_err(e.to_string()))?
             }
             (None, None) => self.inner.clone(),
@@ -513,6 +514,47 @@ impl PyENN {
             y.into_pyarray(py),
             yvar.map(|a| a.into_pyarray(py)),
         ))
+    }
+
+    fn x_obs<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyArray2<f64>>> {
+        let n = self.inner.len();
+        if n == 0 {
+            return Ok(ndarray::Array2::<f64>::zeros((0, self.inner.num_dim())).into_pyarray(py));
+        }
+        let indices: Vec<usize> = (0..n).collect();
+        let (x, _, _) = self
+            .inner
+            .natural_rows(&indices)
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        Ok(x.into_pyarray(py))
+    }
+
+    fn y_obs<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyArray2<f64>>> {
+        let n = self.inner.len();
+        if n == 0 {
+            return Ok(
+                ndarray::Array2::<f64>::zeros((0, self.inner.num_outputs())).into_pyarray(py)
+            );
+        }
+        let indices: Vec<usize> = (0..n).collect();
+        let (_, y, _) = self
+            .inner
+            .natural_rows(&indices)
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        Ok(y.into_pyarray(py))
+    }
+
+    fn yvar_obs<'py>(&self, py: Python<'py>) -> PyResult<Option<Bound<'py, PyArray2<f64>>>> {
+        let n = self.inner.len();
+        if n == 0 {
+            return Ok(None);
+        }
+        let indices: Vec<usize> = (0..n).collect();
+        let (_, _, yvar) = self
+            .inner
+            .natural_rows(&indices)
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        Ok(yvar.map(|a| a.into_pyarray(py)))
     }
 
     fn row_y<'py>(&self, py: Python<'py>, i: usize) -> PyResult<Bound<'py, PyArray2<f64>>> {

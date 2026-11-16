@@ -1,47 +1,41 @@
-"""Contract tests for ENNFitter."""
+"""Contract tests for pure functional ENN hyperparameter fitting."""
 
 from __future__ import annotations
 
 import inspect
 
+import baux
 import numpy as np
-from baux import ENN, ENNFitter
-from baux.enn.enn_params import ENNParams
+from baux import ENNParams
 
 
 class Test_001:
-    def test_initsignature(self):
-        sig = inspect.signature(ENNFitter.__init__)
+    def test_fitsignature(self):
+        sig = inspect.signature(baux.fit)
         params = list(sig.parameters.keys())
+        assert "state" in params
         assert "k" in params
-        assert "rng" in params
-        assert "infer_aleatoric_variance_scale" in params
-
-    def test_001(self):
-        assert "tell" in dir(ENNFitter)
-        sig = inspect.signature(ENNFitter.ask)
-        params = list(sig.parameters.keys())
-        assert "model" in params
         assert "num_candidates" in params
         assert "num_samples" in params
-        assert "params_warm_start" in params
+        assert "infer_aleatoric" in params
 
-    def test_askreturnsenparams(self):
+    def test_fitreturnsenparams(self):
         train_x = np.array(
             [[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [1.0, 1.0]],
             dtype=float,
         )
         train_y = np.array([[0.0], [1.0], [1.0], [2.0]], dtype=float)
-        model = ENN(train_x, train_y, scale_x=False)
-        rng = np.random.default_rng(42)
+        state = baux.enn_init(train_x, train_y, scale_x=False)
 
-        fitter = ENNFitter(k=2, rng=rng)
-        fitter.tell(train_x, train_y)
-        result = fitter.ask(
-            model,
+        result = baux.fit(
+            state,
+            k=2,
             num_candidates=3,
             num_samples=2,
+            seed=42,
         )
 
         assert isinstance(result, ENNParams)
         assert result.k_neighbors == 2
+        assert result.epistemic_scale > 0
+        assert result.aleatoric_scale >= 0

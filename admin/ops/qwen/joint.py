@@ -129,7 +129,7 @@ def _initreport(
 
 def _askproposal(
     evaluator: Evaluator,
-    search,
+    region,
     policy: DecoderPolicy,
     prompts: list[list[int]],
     task_indices: list[int],
@@ -144,17 +144,19 @@ def _askproposal(
             prompts[index] for index in task_indices[: cfg["batch_size"]]
         ]
         proposals, initial_generated = evaluator.ask_generate(
-            search, initial_prompts, cfg["max_new_tokens"], seed=root, draw_seed=draw
+            region, initial_prompts, cfg["max_new_tokens"], seed=root, draw_seed=draw
         )
         return {
+            "region": region,
             "proposals": proposals,
             "initial": initial_generated,
             "proposal_seconds": 0.0,
             "pipeline_seconds": time.perf_counter() - proposal_started,
         }
-    proposals = search.ask(1, 4, 2, root, acquisition="thompson", draw_seed=draw)
+    region, trial = region.ask(1, 4, 2, root, acquisition="thompson", draw_seed=draw)
     return {
-        "proposals": proposals,
+        "region": region,
+        "proposals": trial,
         "initial": None,
         "proposal_seconds": time.perf_counter() - proposal_started,
         "pipeline_seconds": 0.0,
@@ -208,7 +210,7 @@ def _buildevent(
 
 
 def _telldecision(
-    search, proposals, candidate_scores: list[float], state: dict[str, Any]
+    region, proposals, candidate_scores: list[float], state: dict[str, Any]
 ) -> dict[str, Any]:
     decision_started = time.perf_counter()
     paired = _paired(
@@ -218,21 +220,20 @@ def _telldecision(
     )
     decision_seconds = time.perf_counter() - decision_started
     tell_started = time.perf_counter()
-    search.tell_paired(
-        proposals,
-        -paired["candidate_loss"],
-        paired["candidate_variance"],
-        -paired["incumbent_loss"],
-        paired["incumbent_variance"],
-        paired["accepted"],
-    )
+    trial = proposals
+    val = -paired["candidate_loss"]
+    var = paired["candidate_variance"]
+    region, _ = region.tell(trial, val, var)
     tell_seconds = time.perf_counter() - tell_started
     sync_started = time.perf_counter()
-    accepted = search.sync()[0]
+    region, flags = region.sync()
+    accepted = flags[0]
     sync_seconds = time.perf_counter() - sync_started
     if accepted != paired["accepted"]:
         raise RuntimeError("Native Qwen acceptance disagrees with paired decision")
     return {
+        "region": region,
+        "search": region,
         "paired": paired,
         "decision_seconds": decision_seconds,
         "tell_seconds": tell_seconds,
@@ -262,6 +263,7 @@ def _jointstep(
         cfg,
         rng=state["rng"],
     )
+    region = prop["region"]
     proposals = prop["proposals"]
     candidate_timing = ScoreTiming()
     candidate_started = time.perf_counter()
@@ -280,7 +282,9 @@ def _jointstep(
         timing=candidate_timing,
         initial_generated=prop["initial"],
     )
-    dec = _telldecision(search, proposals, candidate_scores, state)
+    dec = _telldecision(region, proposals, candidate_scores, state)
+    region = dec["region"]
+    state["search"] = region
     report["objective_evaluations"] += 1
     if dec["accepted"]:
         report["accepted"] += 1
@@ -306,7 +310,7 @@ def _jointstep(
         dec["accepted"],
         report=report,
         perturbation=proposal_stats(proposals, evaluator.weights_len),
-        search=search,
+        search=region,
         timings=timings,
         paired=dec["paired"],
     )
@@ -366,7 +370,7 @@ def _setupjoint(
         -baseline["candidate_loss"], capacity=2, reference_seed=cfg["seed"]
     )
     if hasattr(search, "set_profiling"):
-        search.set_profiling(True)
+        search = search.set_profiling(True)
     del evaluator.weights
     report = _initreport(
         checkpoint,
@@ -413,9 +417,12 @@ def run(checkpoint: Path, objective_path: Path, output: Path, **options: Any) ->
     bo_loop_started = time.perf_counter()
     with (output / "events.jsonl").open("w") as events:
         events_io_seconds = sum(
-            _jointstep(step, state, cfg, evaluator, search, report, events=events)
+            _jointstep(
+                step, state, cfg, evaluator, state["search"], report, events=events
+            )
             for step in range(cfg["rounds"])
         )
+    search = state["search"]
     bo_loop_seconds = time.perf_counter() - bo_loop_started
     best_score = float(search.best)
     export_started = time.perf_counter()

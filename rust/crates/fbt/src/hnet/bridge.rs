@@ -1349,7 +1349,7 @@ fn exp1_benchmark() -> Result<(), String> {
             encoder.end_encoding();
             finish(command);
             let wall_ms = t0.elapsed().as_secs_f64() * 1000.0;
-            let gpu_ms = crate::apple_gpu::gpu_seconds(command).unwrap_or(0.0) * 1000.0;
+            let gpu_ms = baux::apple_gpu::gpu_seconds(command).unwrap_or(0.0) * 1000.0;
             (wall_ms, gpu_ms)
         };
 
@@ -1451,7 +1451,7 @@ fn exp1_benchmark() -> Result<(), String> {
             encoder.end_encoding();
             finish(command);
             let wall_ms = t0.elapsed().as_secs_f64() * 1000.0;
-            let gpu_ms = crate::apple_gpu::gpu_seconds(command).unwrap_or(0.0) * 1000.0;
+            let gpu_ms = baux::apple_gpu::gpu_seconds(command).unwrap_or(0.0) * 1000.0;
             (wall_ms, gpu_ms)
         };
 
@@ -1565,7 +1565,7 @@ fn exp1_benchmark() -> Result<(), String> {
             finish(command);
             if iter > 0 {
                 scan_1m_wall.push(t0.elapsed().as_secs_f64() * 1000.0);
-                scan_1m_gpu.push(crate::apple_gpu::gpu_seconds(command).unwrap_or(0.0) * 1000.0);
+                scan_1m_gpu.push(baux::apple_gpu::gpu_seconds(command).unwrap_or(0.0) * 1000.0);
             }
         }
         scan_1m_wall.sort_by(|a, b| a.partial_cmp(b).unwrap());
@@ -1803,7 +1803,7 @@ fn exp1_benchmark() -> Result<(), String> {
             finish(command);
             if iter > 0 {
                 cont_1m_wall.push(t0.elapsed().as_secs_f64() * 1000.0);
-                cont_1m_gpu.push(crate::apple_gpu::gpu_seconds(command).unwrap_or(0.0) * 1000.0);
+                cont_1m_gpu.push(baux::apple_gpu::gpu_seconds(command).unwrap_or(0.0) * 1000.0);
             }
         }
         cont_1m_wall.sort_by(|a, b| a.partial_cmp(b).unwrap());

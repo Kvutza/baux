@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+import baux
 import numpy as np
-from baux.enn.enn_class import ENN
 from baux.enn.enn_params import ENNParams, PosteriorFlags
 
 
@@ -9,7 +9,7 @@ def test_001():
     rng = np.random.default_rng(0)
     train_x = rng.standard_normal((20, 3))
     train_y = train_x.sum(axis=1, keepdims=True)
-    model = ENN(train_x, train_y, 0.1 * np.ones_like(train_y))
+    model = baux.enn_init(train_x, train_y, 0.1 * np.ones_like(train_y))
     x_test = rng.standard_normal((5, 3))
     params = ENNParams(k_neighbors=5, epistemic_scale=1.0, aleatoric_scale=0.0)
     flags = PosteriorFlags(exclude_nearest=False, observation_noise=True)
@@ -31,11 +31,13 @@ def test_002():
     d = 3
     train_x = np.array([[10.0, 0.0, 0.0], [0.0, 10.0, 0.0]], dtype=float)
     train_y = np.array([[0.0], [0.0]], dtype=float)
-    model = ENN(train_x, train_y, train_yvar=None)
+    model = baux.enn_init(train_x, train_y, train_yvar=None)
     x_test = np.zeros((1, d), dtype=float)
     x_whatif = np.zeros((1, d), dtype=float)
     y_whatif = np.array([[5.0]], dtype=float)
-    neighbors_before = model.neighbors(x_test, k=2, exclude_nearest=False)
+    _dist_before, neighbors_before = model.nearest_neighbors(
+        x_test, search_k=2, exclude_nearest=False
+    )
     params = ENNParams(k_neighbors=1, epistemic_scale=1.0, aleatoric_scale=1.0)
     flags = PosteriorFlags(exclude_nearest=False, observation_noise=True)
     seeds = [123, 124]
@@ -55,7 +57,9 @@ def test_002():
         function_seeds=seeds,
         flags=flags,
     )
-    neighbors_after = model.neighbors(x_test, k=2, exclude_nearest=False)
+    _dist_after, neighbors_after = model.nearest_neighbors(
+        x_test, search_k=2, exclude_nearest=False
+    )
     assert np.all(neighbors_before == neighbors_after)
     assert draws1.shape == (1, 1, len(seeds))
     assert np.allclose(draws1, draws2)
@@ -66,7 +70,7 @@ def test_003():
     d = 3
     train_x = np.array([[10.0, 0.0, 0.0], [0.0, 10.0, 0.0]], dtype=float)
     train_y = np.array([[1.0], [2.0]], dtype=float)
-    model = ENN(train_x, train_y, train_yvar=None)
+    model = baux.enn_init(train_x, train_y, train_yvar=None)
     x_test = np.zeros((1, d), dtype=float)
     x_whatif = np.zeros((1, d), dtype=float)
     y_whatif = np.array([[100.0]], dtype=float)
@@ -103,7 +107,7 @@ def test_004():
     params = ENNParams(k_neighbors=4, epistemic_scale=1.0, aleatoric_scale=0.0)
     flags = PosteriorFlags(exclude_nearest=True, observation_noise=True)
     function_seeds = [11, 12, 13]
-    enn_a = ENN(train_x, train_y, train_yvar=None)
+    enn_a = baux.enn_init(train_x, train_y, train_yvar=None)
     draws_a, idx_a = enn_a.conditional_draw(
         x_whatif,
         y_whatif,
@@ -112,7 +116,7 @@ def test_004():
         function_seeds=function_seeds,
         flags=flags,
     )
-    enn_b = ENN(
+    enn_b = baux.enn_init(
         np.concatenate([train_x, x_whatif], axis=0),
         np.concatenate([train_y, y_whatif], axis=0),
         train_yvar=None,

@@ -58,7 +58,6 @@ pub fn pymodule_model(m: &Bound<'_, PyModule>) -> PyResult<()> {
 #[pymodule]
 #[pyo3(name = "fit")]
 pub fn pymodule_fit(m: &Bound<'_, PyModule>) -> PyResult<()> {
-    m.add_class::<crate::py_fitter::PyENNFitter>()?;
     m.add_function(wrap_pyfunction!(crate::py_fitter::fit_model, m)?)?;
     m.add_function(wrap_pyfunction!(crate::py_fit::subsample_py, m)?)?;
     m.add_function(wrap_pyfunction!(crate::py_fit::rows_py, m)?)?;
@@ -101,10 +100,7 @@ pub fn pymodule_optimizer(m: &Bound<'_, PyModule>) -> PyResult<()> {
         m.add_class::<crate::py_portfolio::PyRegionalProposal>()?;
     }
     m.add_function(wrap_pyfunction!(crate::py_optimizer::create_py, m)?)?;
-    m.add_function(wrap_pyfunction!(crate::py_optimizer::enn_py, m)?)?;
     m.add_function(wrap_pyfunction!(crate::py_optimizer::bind_regions, m)?)?;
-    m.add_function(wrap_pyfunction!(crate::py_optimizer::bind_zero, m)?)?;
-    m.add_function(wrap_pyfunction!(crate::py_optimizer::bind_lhd, m)?)?;
     m.add_function(wrap_pyfunction!(crate::py_optimizer::dense_apply, m)?)?;
     m.add_function(wrap_pyfunction!(crate::py_optimizer::dense_dist2, m)?)?;
     Ok(())

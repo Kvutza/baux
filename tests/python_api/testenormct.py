@@ -4,18 +4,17 @@ from __future__ import annotations
 
 import inspect
 
+import baux
 import numpy as np
-from baux import ENN
+from baux import ENNParams
 from baux.enn.enn_normal import ENNNormal
-from baux.enn.enn_params import ENNParams, PosteriorFlags
+from baux.enn.posterior_flags import PosteriorFlags
 
 
 class TestENNNormalContract:
     """API contract tests for ENNNormal return type."""
 
     def test_existsandisclass3(self):
-        from baux.enn.enn_normal import ENNNormal
-
         assert inspect.isclass(ENNNormal)
 
     def test_hasmuseidxattrs(self):
@@ -49,7 +48,7 @@ class TestENNNormalContract:
             [[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [1.0, 1.0]], dtype=float
         )
         train_y = np.array([[0.0], [1.0], [1.0], [2.0]], dtype=float)
-        model = ENN(train_x, train_y, scale_x=False)
+        state = baux.enn_init(train_x, train_y, scale_x=False)
         params = ENNParams(
             k_neighbors=2,
             epistemic_scale=1.0,
@@ -58,7 +57,7 @@ class TestENNNormalContract:
         flags = PosteriorFlags()
         query = np.array([[0.5, 0.5]], dtype=float)
 
-        out = model.posterior(query, params=params, flags=flags)
+        out = baux.posterior(state, query, params=params, flags=flags)
         assert isinstance(out, ENNNormal)
         assert out.mu.shape == (1, 1)
         assert out.se.shape == (1, 1)

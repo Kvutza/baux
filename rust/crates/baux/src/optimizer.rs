@@ -523,13 +523,13 @@ impl BayesOptimizer {
 
     /// Deterministically issue sequential evaluation identities for pending
     /// batches.
-    pub fn issue_ids(mut self, count: usize) -> Result<(Vec<EvaluationId>, Self), ENNError> {
+    pub fn issue_ids(mut self, count: usize) -> Result<(Self, Vec<EvaluationId>), ENNError> {
         let mut ids = Vec::with_capacity(count);
         for _ in 0..count {
             ids.push(EvaluationId(self.next_eval_id));
             self.next_eval_id = self.next_eval_id.saturating_add(1);
         }
-        Ok((ids, self))
+        Ok((self, ids))
     }
 
     /// Add observations (internal).

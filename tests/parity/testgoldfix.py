@@ -36,20 +36,22 @@ def _obj(x):
 
 def _runcapture(bounds, config, seed: int, num_cycles: int, num_arms: int):
     """Run optimizer, return captured ask outputs and tr_lengths."""
-    from .optimizer_checks import make_optimizer
+    from baux.state import _makeinner
 
-    opt = make_optimizer(bounds, config, seed)
-    np.random.default_rng(seed)
+    from . import optimizer_checks  # noqa: F401
+
+    rng = np.random.default_rng(seed)
+    opt = _makeinner(bounds, config, int(rng.integers(2**63 - 1)))
     asks = []
     tr_lengths = []
     for _ in range(num_cycles):
-        x = opt.ask(num_arms=num_arms)
+        opt, x = opt.ask(num_arms, seed=None)
         y = _obj(x)
         if y.ndim == 1:
             y = y.reshape(-1, 1)
-        opt.tell(x, y)
+        opt = opt.tell(x, y, seed=None)
         asks.append(x.tolist())
-        tr_lengths.append(float(opt.tr_length))
+        tr_lengths.append(float(opt.tr_length()))
     return {"asks": asks, "tr_lengths": tr_lengths}
 
 

@@ -1,8 +1,26 @@
 from __future__ import annotations
 
+import os
 import re
+import sys
+import tempfile
+from pathlib import Path
 
 import pytest
+
+_ext_dir = str(Path(__file__).resolve().parent / "parity" / "_ext")
+if _ext_dir not in sys.path:
+    sys.path.insert(0, _ext_dir)
+
+_baux_home = Path(tempfile.gettempdir()) / "baux_test_home"
+_baux_home.mkdir(parents=True, exist_ok=True)
+os.environ["HOME"] = str(_baux_home)
+
+import baux
+import baux.enn.enn_fit as _enn_fit
+
+if not hasattr(_enn_fit, "enn_fit"):
+    _enn_fit.enn_fit = getattr(baux, "fit", None)
 
 pytestmark = pytest.mark.slow
 
@@ -10,27 +28,35 @@ _STRESS_ROW_RE = re.compile(r" *\d+ \d+\.\d{4} \d+\.\d{4}")
 
 
 def test_001(monkeypatch):
-    from baux.enn.enn_fitter import ENNFitter
     from click.testing import CliRunner
     from ops.stress import cli
 
     tell_calls: list[int] = []
     ask_calls: list[int] = []
+    fit_calls: list[int] = []
 
-    def _counttell2(self, *args, **kwargs):
+    def _counttell2(*args, **kwargs):
         tell_calls.append(1)
+        return baux.tell(*args, **kwargs)
 
-    def _countask2(self, *args, **kwargs):
+    def _countask2(*args, **kwargs):
         ask_calls.append(1)
+        return baux.ask(*args, **kwargs)
 
-    monkeypatch.setattr(ENNFitter, "tell", _counttell2)
-    monkeypatch.setattr(ENNFitter, "ask", _countask2)
+    def _countfit2(*args, **kwargs):
+        fit_calls.append(1)
+        return baux.fit(*args, **kwargs)
+
+    monkeypatch.setattr(baux, "tell", _counttell2)
+    monkeypatch.setattr(baux, "ask", _countask2)
+    monkeypatch.setattr(baux, "fit", _countfit2)
 
     num_obs = 10
     result = CliRunner().invoke(cli, ["enn", "flat", str(num_obs)])
     assert result.exit_code == 0
     assert tell_calls == []
     assert ask_calls == []
+    assert fit_calls == []
 
 
 def test_ennstresscli():

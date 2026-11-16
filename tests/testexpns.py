@@ -79,3 +79,22 @@ def test_003():
     assert len(round_result.proposals) == 4
     assert len(round_result.candidates) == 4
     assert [candidate.seed for candidate in round_result.selected] == [4, 3]
+
+
+def test_expevicted():
+    import pytest
+    from baux import experimental
+
+    for name in (
+        "ENN",
+        "create_optimizer",
+        "create_zero",
+        "create_lhd",
+        "enn_optimizer",
+        "turbo_enn",
+    ):
+        assert not hasattr(experimental, name)
+        assert name not in getattr(experimental, "__all__", [])
+        assert name not in dir(experimental)
+        with pytest.raises(AttributeError):
+            getattr(experimental, name)

@@ -139,8 +139,8 @@ fn matrix_generation(model: Option<ModelArchitecture>) -> Result<GenerationConfi
         signal_gate: None,
         verify: VerifyConfig {
             mode: VerifyMode::AcceptedPrefix,
-            window: crate::pretrain_data::CONTEXT,
-            max_window: crate::pretrain_data::CONTEXT,
+            window: crate::artifact::pretrain::CONTEXT,
+            max_window: crate::artifact::pretrain::CONTEXT,
             passes: 1,
             unroll: 1,
             audit_candidate: false,

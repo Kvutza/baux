@@ -4,7 +4,7 @@ import pytest
 torch = pytest.importorskip("torch")
 pytest.importorskip("botorch")
 
-from baux import ENN
+import baux
 from baux.botorch import Model, Sampler
 from baux.enn.enn_params import ENNParams, PosteriorFlags
 from botorch.acquisition.logei import (
@@ -25,7 +25,8 @@ from botorch.sampling.get_sampler import get_sampler
 def model():
     x = np.random.default_rng(12).normal(size=(16, 2))
     y = np.column_stack((np.sin(x[:, 0]), np.cos(x[:, 1])))
-    return Model(ENN(x, y, np.full_like(y, 0.01)), ENNParams(4, 1.0, 1.0))
+    st = baux.enn_init(x, y, np.full_like(y, 0.01))
+    return Model(st._model, ENNParams(4, 1.0, 1.0))
 
 
 def test_joint(model):
@@ -80,7 +81,8 @@ def test_moments(model, noise):
 
 def test_batching(model):
     train_x, train_y, _ = model.enn.train_rows(range(16))
-    scalar = Model(ENN(train_x, train_y[:, :1]), model.params)
+    st = baux.enn_init(train_x, train_y[:, :1])
+    scalar = Model(st._model, model.params)
     x = torch.linspace(0, 1, 12, dtype=torch.double).reshape(3, 2, 2)
     sampler = Sampler(torch.Size([32]), seed=14)
     samples = sampler(scalar.posterior(x))
@@ -92,7 +94,8 @@ def test_batching(model):
 
 def test_acquisitions(model):
     train_x, train_y, _ = model.enn.train_rows(range(16))
-    scalar = Model(ENN(train_x, train_y[:, :1]), model.params)
+    st = baux.enn_init(train_x, train_y[:, :1])
+    scalar = Model(st._model, model.params)
     x = torch.linspace(0, 1, 12, dtype=torch.double).reshape(3, 2, 2)
     sampler = Sampler(torch.Size([32]), seed=14)
     acquisitions = [
@@ -118,7 +121,8 @@ def test_acquisitions(model):
 
 def test_selection(model):
     train_x, train_y, _ = model.enn.train_rows(range(16))
-    scalar = Model(ENN(train_x, train_y[:, :1]), model.params)
+    st = baux.enn_init(train_x, train_y[:, :1])
+    scalar = Model(st._model, model.params)
     x = torch.linspace(0, 1, 12, dtype=torch.double).reshape(6, 2)
     acquisition = qLogExpectedImprovement(
         scalar, best_f=0.0, sampler=Sampler(torch.Size([32]), seed=14)
@@ -174,11 +178,12 @@ def test_backends(backend, noise):
     values = np.column_stack((np.sin(train[:, 0]), np.cos(train[:, 1])))
     variance = np.full_like(values, 0.01)
     params = ENNParams(3, 0.7, 0.13)
-    reference = Model(ENN(train, values, variance), params)
-    native = Model(
-        ENN(train, values, variance, index_driver=NeighborIndex[backend.upper()]),
-        params,
+    ref_st = baux.enn_init(train, values, variance)
+    reference = Model(ref_st._model, params)
+    native_st = baux.enn_init(
+        train, values, variance, index_driver=NeighborIndex[backend.upper()]
     )
+    native = Model(native_st._model, params)
     queries = torch.tensor([[0.125, 0.25], [0.5, 0.625], [0.125, 0.25]])
     expected = reference.posterior(queries, observation_noise=noise)
     actual = native.posterior(queries, observation_noise=noise)

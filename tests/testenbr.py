@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+import baux
 import numpy as np
 import pytest
-from baux.enn.enn_class import ENN
 from baux.turbo.config.surrogate import NeighborIndex
 from enn_helpers import enn_model
 
@@ -24,7 +24,9 @@ def test_002():
     n, d = 35, 4
     train_x = rng.standard_normal((n, d))
     train_y = train_x.sum(axis=1, keepdims=True).astype(float)
-    model = ENN(train_x, train_y, scale_x=False, index_driver=NeighborIndex.FLAT)
+    model = baux.enn_init(
+        train_x, train_y, scale_x=False, index_driver=NeighborIndex.FLAT
+    )
     x_query = rng.standard_normal(d)
     neighbors = model.neighbors(x_query, k=6, exclude_nearest=False)
     assert neighbors.shape == (6,)
@@ -47,7 +49,7 @@ def test_004():
     train_x = np.zeros((0, d), dtype=float)
     train_y = np.zeros((0, 1), dtype=float)
     train_yvar = np.ones((0, 1), dtype=float)
-    model = ENN(train_x, train_y, train_yvar)
+    model = baux.enn_init(train_x, train_y, train_yvar)
     x_query = np.zeros(d, dtype=float)
     neighbors = model.neighbors(x_query, k=5, exclude_nearest=False)
     assert neighbors.shape == (0,)
@@ -59,7 +61,7 @@ def test_005():
     train_x = rng.standard_normal((n, d))
     train_y = train_x.sum(axis=1, keepdims=True).astype(float)
     train_yvar = 0.1 * np.ones_like(train_y)
-    model = ENN(train_x, train_y, train_yvar)
+    model = baux.enn_init(train_x, train_y, train_yvar)
     x_query = np.zeros(d, dtype=float)
     neighbors = model.neighbors(x_query, k=20, exclude_nearest=False)
     assert neighbors.shape == (n,)
@@ -78,7 +80,7 @@ def test_006():
     train_x = rng.standard_normal((n, d))
     train_y = rng.standard_normal((n, 2))
     train_yvar = 0.1 * np.ones_like(train_y)
-    model = ENN(train_x, train_y, train_yvar)
+    model = baux.enn_init(train_x, train_y, train_yvar)
     x_query = np.zeros(d, dtype=float)
     neighbors = model.neighbors(x_query, k=5, exclude_nearest=False)
     assert neighbors.shape == (5,)
@@ -101,7 +103,7 @@ def test_008():
     d = 3
     train_x = rng.standard_normal((1, d))
     train_y, train_yvar = np.array([[1.0]]), np.array([[0.1]])
-    model = ENN(train_x, train_y, train_yvar)
+    model = baux.enn_init(train_x, train_y, train_yvar)
     x_query = np.zeros(d, dtype=float)
     with pytest.raises(
         ValueError, match="exclude_nearest=True requires at least 2 observations"

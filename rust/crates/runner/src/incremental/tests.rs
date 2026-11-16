@@ -44,13 +44,16 @@ max = 1.6
 }
 
 fn temp_store() -> (PathBuf, IncStore) {
-    let dir = std::env::temp_dir().join(format!(
-        "baux_inc_test_{}",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
-    ));
+    let pid = std::process::id();
+    let thread = format!("{:?}", std::thread::current().id())
+        .chars()
+        .filter(|c| c.is_alphanumeric())
+        .collect::<String>();
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let dir = std::env::temp_dir().join(format!("baux_inc_test_{pid}_{thread}_{nanos}"));
     let store = IncStore::open(&dir).expect("open temp inc store");
     (dir, store)
 }

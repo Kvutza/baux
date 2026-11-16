@@ -153,7 +153,7 @@ pub(super) struct TargetQuality {
 #[derive(Clone, Serialize)]
 pub(super) struct Rollout {
     #[deser(skip_serializing_if = Option::is_none)]
-    pub draft: Option<crate::forward_program::diffusion::DiffusionMetrics>,
+    pub draft: Option<diffusion::DiffusionMetrics>,
     #[deser(skip_serializing)]
     pub tokens: Vec<u32>,
     /// Published truth label retained when the token payload is omitted.

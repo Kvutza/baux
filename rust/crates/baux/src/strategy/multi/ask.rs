@@ -219,7 +219,7 @@ fn ask_warmup(
     optimizer: BayesOptimizer,
     num_arms: usize,
     rng: &mut dyn RngCore,
-) -> Result<(Option<Array2<f64>>, BayesOptimizer), ENNError> {
+) -> Result<(BayesOptimizer, Option<Array2<f64>>), ENNError> {
     if matches!(
         &optimizer.regions,
         TrustRegionState::Multi {
@@ -232,11 +232,11 @@ fn ask_warmup(
         ));
     }
     if !optimizer.warmup.in_init() {
-        return Ok((None, optimizer));
+        return Ok((optimizer, None));
     }
     let state = InitStrategyState::new(optimizer.warmup.kind, optimizer.warmup.budget);
-    let (x, optimizer) = ask_init(&state, optimizer, num_arms, rng)?;
-    let (ids, mut optimizer) = optimizer.issue_ids(x.nrows())?;
+    let (optimizer, x) = ask_init(&state, optimizer, num_arms, rng)?;
+    let (mut optimizer, ids) = optimizer.issue_ids(x.nrows())?;
     if let TrustRegionState::Multi { pending, .. } = &mut optimizer.regions {
         *pending = Some(PendingProposal {
             outcomes: vec![EvaluationStatus::Pending; x.nrows()],
@@ -246,7 +246,7 @@ fn ask_warmup(
             ordered_tell_allowed: true,
         });
     }
-    Ok((Some(x), optimizer))
+    Ok((optimizer, Some(x)))
 }
 
 fn record_proposal(
@@ -254,7 +254,7 @@ fn record_proposal(
     segments: &[CandidateSegment],
     selected: &Array2<f64>,
 ) -> Result<BayesOptimizer, ENNError> {
-    let (ids, mut optimizer) =
+    let (mut optimizer, ids) =
         optimizer.issue_ids(segments.iter().map(|segment| segment.arms).sum())?;
     let TrustRegionState::Multi { state, pending } = &mut optimizer.regions else {
         unreachable!("ask_multi requires TrustRegionState::Multi");
@@ -312,11 +312,11 @@ pub(in crate::strategy) fn ask_multi(
     mut optimizer: BayesOptimizer,
     num_arms: usize,
     rng: &mut dyn RngCore,
-) -> Result<(Array2<f64>, BayesOptimizer), ENNError> {
-    let (warmup_x, next_opt) = ask_warmup(optimizer, num_arms, rng)?;
+) -> Result<(BayesOptimizer, Array2<f64>), ENNError> {
+    let (next_opt, warmup_x) = ask_warmup(optimizer, num_arms, rng)?;
     optimizer = next_opt;
     if let Some(x) = warmup_x {
-        return Ok((x, optimizer));
+        return Ok((optimizer, x));
     }
 
     let batches = match &mut optimizer.regions {
@@ -370,7 +370,7 @@ pub(in crate::strategy) fn ask_multi(
     let selected = select_indices(&candidates.view(), &indices);
 
     optimizer = record_proposal(optimizer, &segments, &selected)?;
-    Ok((selected, optimizer))
+    Ok((optimizer, selected))
 }
 
 #[cfg(test)]

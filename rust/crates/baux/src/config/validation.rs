@@ -97,7 +97,7 @@ impl RunConfig {
         if matches!(
             self.optimizer(),
             TrainingOptimizer::MuonV1 | TrainingOptimizer::AdamwV1
-        ) && (tokens != crate::pretrain_data::CONTEXT
+        ) && (tokens != crate::artifact::pretrain::CONTEXT
             || self.model != Some(ModelArchitecture::PisaMhc4V1)
             || self.objective_function() != ObjectiveFunction::CrossEntropy)
         {
@@ -108,7 +108,7 @@ impl RunConfig {
                 "objective.window-tokens must be a multiple of 128 from 128 through 1048576".into(),
             );
         }
-        if tokens > crate::pretrain_data::CONTEXT
+        if tokens > crate::artifact::pretrain::CONTEXT
             && !matches!(
                 self.model,
                 Some(ModelArchitecture::PisaMhc4V1 | ModelArchitecture::PisaHnetMhc4V1)
@@ -116,7 +116,7 @@ impl RunConfig {
         {
             return Err("pretraining sequences above 4096 positions require MHC4".into());
         }
-        if tokens > crate::pretrain_data::CONTEXT
+        if tokens > crate::artifact::pretrain::CONTEXT
             && !matches!(
                 self.optimizer(),
                 TrainingOptimizer::ResidentEnnV1 | TrainingOptimizer::SingleStateBo

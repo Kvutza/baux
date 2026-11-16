@@ -33,8 +33,8 @@ def _recordcase(
 
 
 def run_simple(report: ParityReport) -> None:
+    import baux
     import numpy as np
-    from baux import ENN
     from baux.enn.enn_params import ENNParams, PosteriorFlags
 
     try:
@@ -43,7 +43,7 @@ def run_simple(report: ParityReport) -> None:
         report.cases.append(
             ParityCase(
                 name="posterior_simple",
-                endpoint="ENN.posterior",
+                endpoint="baux.posterior",
                 passed=False,
                 error="Rust not available",
                 backend="rust_vs_python",
@@ -64,13 +64,13 @@ def run_simple(report: ParityReport) -> None:
     flags = PosteriorFlags(exclude_nearest=False, observation_noise=False)
 
     try:
-        model = ENN(train_x, train_y, scale_x=False)
-        out = model.posterior(query, params=params, flags=flags)
+        state = baux.enn_init(train_x, train_y, scale_x=False)
+        out = baux.posterior(state, query, params, flags=flags)
     except Exception as e:
         report.cases.append(
             ParityCase(
                 name="posterior_simple",
-                endpoint="ENN.posterior",
+                endpoint="baux.posterior",
                 passed=False,
                 error=str(e),
                 backend="rust_vs_python",
@@ -94,7 +94,7 @@ def run_simple(report: ParityReport) -> None:
         report.cases.append(
             ParityCase(
                 name="posterior_simple",
-                endpoint="ENN.posterior",
+                endpoint="baux.posterior",
                 passed=False,
                 error=str(e),
                 backend="rust_vs_python",
@@ -111,15 +111,15 @@ def run_simple(report: ParityReport) -> None:
     _recordcase(
         report,
         "posterior_simple",
-        "ENN.posterior",
+        "baux.posterior",
         passed,
         None if passed else f"mu_ok={mu_ok} se_ok={se_ok} idx={out.idx is not None}",
     )
 
 
 def run_noise(report: ParityReport) -> None:
+    import baux
     import numpy as np
-    from baux import ENN
     from baux.enn.enn_params import ENNParams, PosteriorFlags
 
     try:
@@ -128,7 +128,7 @@ def run_noise(report: ParityReport) -> None:
         report.cases.append(
             ParityCase(
                 name="posterior_observation_noise",
-                endpoint="ENN.posterior",
+                endpoint="baux.posterior",
                 passed=False,
                 error="Rust not available",
                 backend="rust_vs_python",
@@ -150,13 +150,13 @@ def run_noise(report: ParityReport) -> None:
     flags = PosteriorFlags(exclude_nearest=False, observation_noise=True)
 
     try:
-        model = ENN(train_x, train_y, train_yvar=train_yvar, scale_x=False)
-        out = model.posterior(query, params=params, flags=flags)
+        state = baux.enn_init(train_x, train_y, train_yvar=train_yvar, scale_x=False)
+        out = baux.posterior(state, query, params, flags=flags)
     except Exception as e:
         report.cases.append(
             ParityCase(
                 name="posterior_observation_noise",
-                endpoint="ENN.posterior",
+                endpoint="baux.posterior",
                 passed=False,
                 error=str(e),
                 backend="rust_vs_python",
@@ -182,7 +182,7 @@ def run_noise(report: ParityReport) -> None:
         report.cases.append(
             ParityCase(
                 name="posterior_observation_noise",
-                endpoint="ENN.posterior",
+                endpoint="baux.posterior",
                 passed=False,
                 error=str(e),
                 backend="rust_vs_python",
@@ -197,7 +197,7 @@ def run_noise(report: ParityReport) -> None:
     _recordcase(
         report,
         "posterior_observation_noise",
-        "ENN.posterior",
+        "baux.posterior",
         mu_ok and se_ok,
         None if mu_ok and se_ok else f"mu_ok={mu_ok} se_ok={se_ok}",
     )

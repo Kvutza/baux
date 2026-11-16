@@ -81,7 +81,7 @@ fn record_schedule(
     let mut ys = Vec::new();
 
     while opt.init_progress().is_some() {
-        let (x, next_opt) = opt.ask(num_arms, &mut rng)?;
+        let (next_opt, x) = opt.ask(num_arms, &mut rng)?;
         let y = synthetic_y(&x.view(), &mut rng);
         opt = next_opt.tell(&x.view(), &y.view(), None, &mut rng)?;
         xs.push(x);
@@ -89,7 +89,7 @@ fn record_schedule(
     }
 
     for _ in 0..num_rounds {
-        let (x, next_opt) = opt.ask(num_arms, &mut rng)?;
+        let (next_opt, x) = opt.ask(num_arms, &mut rng)?;
         let y = synthetic_y(&x.view(), &mut rng);
         opt = next_opt.tell(&x.view(), &y.view(), None, &mut rng)?;
         xs.push(x);

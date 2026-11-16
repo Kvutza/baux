@@ -1,6 +1,6 @@
+import baux
 import numpy as np
 import pytest
-from baux import create_optimizer
 from baux.benchmarks import DoubleAckley
 from baux.turbo.config import MorboTrustRegion, MultiObjectiveConfig, turbo_one
 
@@ -19,11 +19,12 @@ def test_001():
             multi_objective=MultiObjectiveConfig(num_metrics=num_metrics)
         )
     )
-    optimizer = create_optimizer(bounds=bounds, config=config, rng=rng)
+    state = baux.init(bounds, config=config, seed=42)
     for iteration in range(2):
-        x_arms = optimizer.ask(num_arms=num_arms)
+        state, batch = baux.ask(state, num_arms)
+        x_arms = batch.points
         y_obs = objective(x_arms)
-        optimizer.tell(x_arms, y_obs)
+        state, _ = baux.tell(state, batch, y_obs)
         print(
             f"Iteration {iteration}: x_arms shape = {x_arms.shape}, y_obs shape = {y_obs.shape}"
         )

@@ -39,7 +39,7 @@ import baux
 domain = np.array([[-2.0, 2.0], [-2.0, 2.0]])
 state = baux.init(domain, seed=42)
 for _ in range(6):
-    state, batch = baux.ask(state, num_arms=2)
+    state, batch = baux.ask(state, 2)
     y = -np.sum(batch.points**2, axis=-1)
     state, _ = baux.tell(state, batch, y)
 
@@ -47,7 +47,7 @@ assert state.num_observations == 12
 print(f"baux.init/ask/tell: n={state.num_observations} best_y={state.best_y:.5f}")
 }
   }
-  \<p>[class]{api-source}{[Source in \code{python/baux/functional.py}](https://github.com/Kvutza/baux/blob/main/python/baux/functional.py#L96)}
+  \<p>[class]{api-source}{[Source in \code{python/baux/functional.py}](https://github.com/Kvutza/baux/blob/main/python/baux/functional.py#L106)}
 }
 
 \<section>[id]{baux.ask}[class]{api-entry}[data-symbol]{baux.ask}[data-kind]{function}[data-module]{baux.functional}{
@@ -55,9 +55,7 @@ print(f"baux.init/ask/tell: n={state.num_observations} best_y={state.best_y:.5f}
   \pre{
 baux.ask(
     state: OptimizerState,
-    num_arms: int | None = None,
-    *,
-    n: int | None = None,
+    num_arms: int = 1,
 ) -> tuple[OptimizerState, AskBatch]
   }
   \p{Propose points to evaluate.}
@@ -65,14 +63,14 @@ baux.ask(
     \<dt>{Parameters}
     \<dd>{\ul{
       \li{\code{state}: Current state, including all previous proposals and observations.}
-      \li{\code{num_arms / n}: Number of points to propose; defaults to one. Supply at most one name. The count must be positive.}
+      \li{\code{num_arms}: Number of points to propose; defaults to 1. The count must be positive.}
     }}
     \<dt>{Returns}
     \<dd>{\code{(next_state, batch)}. \code{batch.points} is a read-only \code{(N, D)} array; \code{batch.ids} contains one \code{AskId} per row.}
     \<dt>{Notes}
-    \<dd>{Keep \code{next_state} for subsequent calls. Regional proposals become pending in that state. This function does not call the objective. Supplying both count arguments or a nonpositive count raises \code{ValueError}.}
+    \<dd>{Keep \code{next_state} for subsequent calls. Regional proposals become pending in that state. This function does not call the objective. Supplying a nonpositive count raises \code{ValueError}.}
   }
-  \<p>[class]{api-source}{[Source in \code{python/baux/functional.py}](https://github.com/Kvutza/baux/blob/main/python/baux/functional.py#L160)}
+  \<p>[class]{api-source}{[Source in \code{python/baux/functional.py}](https://github.com/Kvutza/baux/blob/main/python/baux/functional.py#L169)}
 }
 
 \<section>[id]{baux.tell}[class]{api-entry}[data-symbol]{baux.tell}[data-kind]{function}[data-module]{baux.functional}{
@@ -100,7 +98,7 @@ baux.tell(
     \<dt>{Notes}
     \<dd>{For regional search, this is the ordered, whole-batch path. An \code{AskBatch} supplies coordinates here; its ticket IDs are not validated. Use [\code{complete}](docs.html#baux.complete) for ticket-based or out-of-order completion.}
   }
-  \<p>[class]{api-source}{[Source in \code{python/baux/functional.py}](https://github.com/Kvutza/baux/blob/main/python/baux/functional.py#L247)}
+  \<p>[class]{api-source}{[Source in \code{python/baux/functional.py}](https://github.com/Kvutza/baux/blob/main/python/baux/functional.py#L251)}
 }
 
 \<section>[id]{baux.step}[class]{api-entry}[data-symbol]{baux.step}[data-kind]{function}[data-module]{baux.functional}{
@@ -126,7 +124,7 @@ baux.step(
     \<dt>{Returns}
     \<dd>{\code{(next_state, y)} after proposing, evaluating and recording the batch.}
   }
-  \<p>[class]{api-source}{[Source in \code{python/baux/functional.py}](https://github.com/Kvutza/baux/blob/main/python/baux/functional.py#L344)}
+  \<p>[class]{api-source}{[Source in \code{python/baux/functional.py}](https://github.com/Kvutza/baux/blob/main/python/baux/functional.py#L348)}
 }
 
 \<section>[id]{baux.complete}[class]{api-entry}[data-symbol]{baux.complete}[data-kind]{function}[data-module]{baux.functional}{
@@ -162,7 +160,7 @@ import baux
 domain = np.array([[-1.0, 1.0], [-1.0, 1.0]])
 pipe = baux.enn(k=5) | baux.regions(2)
 state = baux.init(domain, pipe, seed=42)
-state, batch = baux.ask(state, num_arms=4)
+state, batch = baux.ask(state, 4)
 assert len(state.pending_ids) == 4
 state = baux.complete(state, batch.ids[:2], np.array([0.5, 0.8]))
 state = baux.cancel(state, batch.ids[2:])
@@ -170,7 +168,7 @@ assert len(state.pending_ids or ()) == 0
 print(f"Async complete/cancel verified: obs={state.num_observations} best_y={state.best_y:.5f}")
 }
   }
-  \<p>[class]{api-source}{[Source in \code{python/baux/functional.py}](https://github.com/Kvutza/baux/blob/main/python/baux/functional.py#L269)}
+  \<p>[class]{api-source}{[Source in \code{python/baux/functional.py}](https://github.com/Kvutza/baux/blob/main/python/baux/functional.py#L273)}
 }
 
 \<section>[id]{baux.cancel}[class]{api-entry}[data-symbol]{baux.cancel}[data-kind]{function}[data-module]{baux.functional}{
@@ -193,7 +191,7 @@ baux.cancel(
     \<dt>{Notes}
     \<dd>{Cancellation changes optimizer bookkeeping. The caller must stop any external job.}
   }
-  \<p>[class]{api-source}{[Source in \code{python/baux/functional.py}](https://github.com/Kvutza/baux/blob/main/python/baux/functional.py#L299)}
+  \<p>[class]{api-source}{[Source in \code{python/baux/functional.py}](https://github.com/Kvutza/baux/blob/main/python/baux/functional.py#L303)}
 }
 
 \<section>[id]{baux.restart_region}[class]{api-entry}[data-symbol]{baux.restart_region}[data-kind]{function}[data-module]{baux.functional}{
@@ -218,7 +216,7 @@ baux.restart_region(
     \<dt>{Notes}
     \<dd>{The caller owns external jobs and decides whether to cancel them.}
   }
-  \<p>[class]{api-source}{[Source in \code{python/baux/functional.py}](https://github.com/Kvutza/baux/blob/main/python/baux/functional.py#L313)}
+  \<p>[class]{api-source}{[Source in \code{python/baux/functional.py}](https://github.com/Kvutza/baux/blob/main/python/baux/functional.py#L317)}
 }
 
 \<section>[id]{baux.import_observations}[class]{api-entry}[data-symbol]{baux.import_observations}[data-kind]{function}[data-module]{baux.functional}{
@@ -244,7 +242,7 @@ baux.import_observations(
     \<dt>{Notes}
     \<dd>{Does not complete pending tickets. Use for historical data or an explicitly chosen import of a late result.}
   }
-  \<p>[class]{api-source}{[Source in \code{python/baux/functional.py}](https://github.com/Kvutza/baux/blob/main/python/baux/functional.py#L258)}
+  \<p>[class]{api-source}{[Source in \code{python/baux/functional.py}](https://github.com/Kvutza/baux/blob/main/python/baux/functional.py#L262)}
 }
 
 \<section>[id]{baux.posterior_mu}[class]{api-entry}[data-symbol]{baux.posterior_mu}[data-kind]{function}[data-module]{baux.functional}{
@@ -262,7 +260,7 @@ baux.posterior_mu(state: OptimizerState, x: Any) -> np.ndarray
     \<dt>{Returns}
     \<dd>{A read-only NumPy array of predicted means in the objective's units. Does not advance the optimizer.}
   }
-  \<p>[class]{api-source}{[Source in \code{python/baux/functional.py}](https://github.com/Kvutza/baux/blob/main/python/baux/functional.py#L336)}
+  \<p>[class]{api-source}{[Source in \code{python/baux/functional.py}](https://github.com/Kvutza/baux/blob/main/python/baux/functional.py#L340)}
 }
 
 \<section>[id]{baux.OptimizerState}[class]{api-entry}[data-symbol]{baux.OptimizerState}[data-kind]{class}[data-module]{baux.functional}{
@@ -301,7 +299,7 @@ baux.AskId(value: int)
   }
   \p{An opaque evaluation ticket.}
   \p{Keep tokens returned in \code{batch.ids} and pass them back unchanged. \code{aid.value} exposes the unsigned 64-bit integer for inspection. Tickets are immutable, hashable and ordered.}
-  \<p>[class]{api-source}{[Source in \code{python/baux/bo.py}](https://github.com/Kvutza/baux/blob/main/python/baux/bo.py#L27)}
+  \<p>[class]{api-source}{[Source in \code{python/baux/bo.py}](https://github.com/Kvutza/baux/blob/main/python/baux/bo.py#L22)}
 }
 
 \<p>[id]{baux.enn}[class]{reference-alias}{[\code{baux.enn} reference](api-pipelines.html#baux.enn)}
@@ -327,24 +325,21 @@ baux.AskId(value: int)
 \<p>[id]{baux.Log}[class]{reference-alias}{[\code{baux.Log} reference](api-domains.html#baux.Log)}
 \<p>[id]{baux.Periodic}[class]{reference-alias}{[\code{baux.Periodic} reference](api-domains.html#baux.Periodic)}
 \<p>[id]{baux.Simplex}[class]{reference-alias}{[\code{baux.Simplex} reference](api-domains.html#baux.Simplex)}
-\<p>[id]{baux.categorical}[class]{reference-alias}{[\code{baux.categorical} reference](api-domains.html#baux.categorical)}
 \<p>[id]{baux.Categorical}[class]{reference-alias}{[\code{baux.Categorical} reference](api-domains.html#baux.Categorical)}
 \<p>[id]{baux.ravel}[class]{reference-alias}{[\code{baux.ravel} reference](api-domains.html#baux.ravel)}
 \<p>[id]{baux.unflatten}[class]{reference-alias}{[\code{baux.unflatten} reference](api-domains.html#baux.unflatten)}
-\<p>[id]{baux.unflatten_batch}[class]{reference-alias}{[\code{baux.unflatten_batch} reference](api-domains.html#baux.unflatten_batch)}
-\<p>[id]{baux.unflatten_stacked}[class]{reference-alias}{[\code{baux.unflatten_stacked} reference](api-domains.html#baux.unflatten_stacked)}
 \<p>[id]{baux.pytree_bounds}[class]{reference-alias}{[\code{baux.pytree_bounds} reference](api-domains.html#baux.pytree_bounds)}
-\<p>[id]{baux.LeafSpec}[class]{reference-alias}{[\code{baux.LeafSpec} reference](api-domains.html#baux.LeafSpec)}
 \<p>[id]{baux.Stiefel}[class]{reference-alias}{[\code{baux.Stiefel} reference](api-domains.html#baux.Stiefel)}
 \<p>[id]{baux.Affine}[class]{reference-alias}{[\code{baux.Affine} reference](api-domains.html#baux.Affine)}
 \<p>[id]{baux.enn_init}[class]{reference-alias}{[\code{baux.enn_init} reference](api-enn.html#baux.enn_init)}
-\<p>[id]{baux.enn_append}[class]{reference-alias}{[\code{baux.enn_append} reference](api-enn.html#baux.enn_append)}
-\<p>[id]{baux.enn_fit}[class]{reference-alias}{[\code{baux.enn_fit} reference](api-enn.html#baux.enn_fit)}
-\<p>[id]{baux.enn_posterior}[class]{reference-alias}{[\code{baux.enn_posterior} reference](api-enn.html#baux.enn_posterior)}
-\<p>[id]{baux.enn_sample}[class]{reference-alias}{[\code{baux.enn_sample} reference](api-enn.html#baux.enn_sample)}
+\<p>[id]{baux.append}[class]{reference-alias}{[\code{baux.append} reference](api-enn.html#baux.append)}
+\<p>[id]{baux.fit}[class]{reference-alias}{[\code{baux.fit} reference](api-enn.html#baux.fit)}
+\<p>[id]{baux.posterior}[class]{reference-alias}{[\code{baux.posterior} reference](api-enn.html#baux.posterior)}
+\<p>[id]{baux.sample}[class]{reference-alias}{[\code{baux.sample} reference](api-enn.html#baux.sample)}
+\<p>[id]{baux.ensure_sync}[class]{reference-alias}{[\code{baux.ensure_sync} reference](api-enn.html#baux.ensure_sync)}
+\<p>[id]{baux.persist_index}[class]{reference-alias}{[\code{baux.persist_index} reference](api-enn.html#baux.persist_index)}
 \<p>[id]{baux.ENNState}[class]{reference-alias}{[\code{baux.ENNState} reference](api-enn.html#baux.ENNState)}
 \<p>[id]{baux.ENNParams}[class]{reference-alias}{[\code{baux.ENNParams} reference](api-enn.html#baux.ENNParams)}
-\<p>[id]{baux.Posterior}[class]{reference-alias}{[\code{baux.Posterior} reference](api-enn.html#baux.Posterior)}
 \<p>[id]{baux.NeighborIndex}[class]{reference-alias}{[\code{baux.NeighborIndex} reference](api-enn.html#baux.NeighborIndex)}
 \<p>[id]{baux.DistanceMetric}[class]{reference-alias}{[\code{baux.DistanceMetric} reference](api-enn.html#baux.DistanceMetric)}
 \<p>[id]{baux.freeze}[class]{reference-alias}{[\code{baux.freeze} reference](api-state.html#baux.freeze)}
@@ -359,21 +354,14 @@ baux.AskId(value: int)
 \<p>[id]{baux.OptimizerConfig}[class]{reference-alias}{[\code{baux.OptimizerConfig} reference](api-configuration.html#baux.OptimizerConfig)}
 \<p>[id]{baux.RegionalSearchPolicy}[class]{reference-alias}{[\code{baux.RegionalSearchPolicy} reference](api-configuration.html#baux.RegionalSearchPolicy)}
 \<p>[id]{baux.TrustRegionBounds}[class]{reference-alias}{[\code{baux.TrustRegionBounds} reference](api-configuration.html#baux.TrustRegionBounds)}
-\<p>[id]{baux.turbo_enn}[class]{reference-alias}{[\code{baux.turbo_enn} reference](api-configuration.html#baux.turbo_enn)}
-\<p>[id]{baux.turbo_one}[class]{reference-alias}{[\code{baux.turbo_one} reference](api-configuration.html#baux.turbo_one)}
-\<p>[id]{baux.turbo_zero}[class]{reference-alias}{[\code{baux.turbo_zero} reference](api-configuration.html#baux.turbo_zero)}
-\<p>[id]{baux.lhd_only}[class]{reference-alias}{[\code{baux.lhd_only} reference](api-configuration.html#baux.lhd_only)}
-\<p>[id]{baux.create_optimizer}[class]{reference-alias}{[\code{baux.create_optimizer} reference](api-objects.html#baux.create_optimizer)}
-\<p>[id]{baux.Optimizer}[class]{reference-alias}{[\code{baux.Optimizer} reference](api-objects.html#baux.Optimizer)}
-\<p>[id]{baux.ENN}[class]{reference-alias}{[\code{baux.ENN} reference](api-objects.html#baux.ENN)}
-\<p>[id]{baux.ENNFitter}[class]{reference-alias}{[\code{baux.ENNFitter} reference](api-objects.html#baux.ENNFitter)}
 \<p>[id]{baux.Telemetry}[class]{reference-alias}{[\code{baux.Telemetry} reference](api-objects.html#baux.Telemetry)}
-\<p>[id]{baux.TellPredictionError}[class]{reference-alias}{[\code{baux.TellPredictionError} reference](api-objects.html#baux.TellPredictionError)}
-\<p>[id]{baux.enn_optimizer}[class]{reference-alias}{[\code{baux.enn_optimizer} reference](api-objects.html#baux.enn_optimizer)}
-\<p>[id]{baux.create_zero}[class]{reference-alias}{[\code{baux.create_zero} reference](api-objects.html#baux.create_zero)}
-\<p>[id]{baux.create_lhd}[class]{reference-alias}{[\code{baux.create_lhd} reference](api-objects.html#baux.create_lhd)}
+\<p>[id]{baux.Region}[class]{reference-alias}{[\code{baux.Region} reference](api-objects.html#baux.Region)}
+\<p>[id]{baux.Trial}[class]{reference-alias}{[\code{baux.Trial} reference](api-objects.html#baux.Trial)}
+\<p>[id]{baux.Portfolio}[class]{reference-alias}{[\code{baux.Portfolio} reference](api-objects.html#baux.Portfolio)}
+\<p>[id]{baux.RegionTrial}[class]{reference-alias}{[\code{baux.RegionTrial} reference](api-objects.html#baux.RegionTrial)}
+\<p>[id]{baux.Tensor}[class]{reference-alias}{[\code{baux.Tensor} reference](api-objects.html#baux.Tensor)}
+\<p>[id]{baux.Var}[class]{reference-alias}{[\code{baux.Var} reference](api-objects.html#baux.Var)}
 \<p>[id]{baux.capabilities}[class]{reference-alias}{[\code{baux.capabilities} reference](api-runtime.html#baux.capabilities)}
-\<p>[id]{baux.BackendCapabilities}[class]{reference-alias}{[\code{baux.BackendCapabilities} reference](api-runtime.html#baux.BackendCapabilities)}
 \<p>[id]{baux.Device}[class]{reference-alias}{[\code{baux.Device} reference](api-runtime.html#baux.Device)}
 \<p>[id]{baux.optuna.Sampler}[class]{reference-alias}{[\code{baux.optuna.Sampler} reference](api-runtime.html#baux.optuna.Sampler)}
 \<p>[id]{baux.experimental.program}[class]{reference-alias}{[\code{baux.experimental.program} reference](api-runtime.html#baux.experimental.program)}

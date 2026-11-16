@@ -595,7 +595,7 @@ manifold_spec = baux.pytree_bounds({
     "weights": baux.Simplex(4),
     "phase": baux.Periodic(0.0, 2 * np.pi),
 })
-st = baux.init(manifold_spec, baux.turbo_enn(num_init=3), seed=11)
+st = baux.init(manifold_spec, pipe=baux.enn() | baux.ucb(), seed=11)
 st, st_batch = baux.ask(st, 2)
 for item in st_batch.params:
     w = np.asarray(item["weights"])
@@ -606,11 +606,11 @@ st, _ = baux.tell(st, st_batch, st_ys)
 assert st.num_observations == 2
 
 try:
-    baux.init(manifold_spec, baux.turbo_one(num_init=3), seed=11)
+    baux.init(manifold_spec, pipe=baux.gp(), seed=11)
 except RuntimeError as gp_exc:
     assert "Local Native" in str(gp_exc)
 else:
-    raise AssertionError("Expected GaussianProcess/turbo_one to be disabled in WASM")
+    raise AssertionError("Expected GaussianProcess/gp to be disabled in WASM")
 
 # Functional ENN pipeline + fit + posterior + sample
 rng = np.random.default_rng(42)
@@ -618,10 +618,10 @@ x_train = rng.uniform(-2.0, 2.0, size=(24, 3))
 y_train = np.sin(x_train[:, :1]) + 0.1 * x_train[:, 1:2] ** 2
 enn = baux.enn_init(x_train, y_train, scale_x=True)
 k_fit, k_draw = baux.split(baux.key(42), 2)
-params = baux.enn_fit(enn, k=5, key=k_fit)
-post = baux.enn_posterior(enn, np.zeros((3, 3)), params)
+params = baux.fit(enn, k=5, key=k_fit)
+post = baux.posterior(enn, np.zeros((3, 3)), params)
 assert post.mu.shape == (3, 1) and post.se.shape == (3, 1)
-draws, neigh = baux.enn_sample(enn, np.zeros((2, 3)), params, key=k_draw, num_draws=4)
+draws, neigh = baux.sample(enn, np.zeros((2, 3)), params, key=k_draw, num_draws=4)
 assert draws.shape == (2, 1, 4) and len(neigh) == 2
 
 # OxCaml 56-surface catalogue via compiled oxcaml_eval.js bridge

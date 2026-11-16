@@ -213,7 +213,7 @@ impl<O: ObjectiveSense> TypedOptimizer<O, Warmup> {
         num_arms: usize,
         rng: &mut dyn RngCore,
     ) -> Result<(Array2<f64>, Self), ENNError> {
-        let (x, next) = self.inner.ask_natural(num_arms, rng)?;
+        let (next, x) = self.inner.ask_natural(num_arms, rng)?;
         self.inner = next;
         Ok((x, self))
     }
@@ -279,7 +279,7 @@ impl<O: ObjectiveSense> TypedOptimizer<O, Active> {
         num_arms: usize,
         rng: &mut dyn RngCore,
     ) -> Result<(Array2<f64>, Self), ENNError> {
-        let (x, next) = self.inner.ask_natural(num_arms, rng)?;
+        let (next, x) = self.inner.ask_natural(num_arms, rng)?;
         self.inner = next;
         Ok((x, self))
     }
@@ -303,7 +303,7 @@ impl<O: ObjectiveSense> TypedOptimizer<O, Active> {
         num_arms: usize,
         rng: &mut dyn RngCore,
     ) -> Result<(Array2<f64>, Self), ENNError> {
-        let (x, next) = self.inner.ask(num_arms, rng)?;
+        let (next, x) = self.inner.ask(num_arms, rng)?;
         self.inner = next;
         Ok((x, self))
     }

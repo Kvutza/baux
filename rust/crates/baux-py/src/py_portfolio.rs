@@ -105,7 +105,7 @@ impl PyRegionalSearch {
         neighbors: usize,
         region: Option<usize>,
         acquisition: &str,
-    ) -> PyResult<(PyRegionalProposal, Py<Self>)> {
+    ) -> PyResult<(Py<Self>, PyRegionalProposal)> {
         let seed = baux::resolve_seed(seed);
         let mut config = RoundConfig::default();
         config.surrogate.neighbors = neighbors;
@@ -135,11 +135,11 @@ impl PyRegionalSearch {
             },
         )?;
         Ok((
+            next_py.clone_ref(py),
             PyRegionalProposal {
-                owner: next_py.clone_ref(py),
+                owner: next_py,
                 inner,
             },
-            next_py,
         ))
     }
 
@@ -149,20 +149,20 @@ impl PyRegionalSearch {
         proposal: PyRef<PyRegionalProposal>,
         value: f32,
         variance: f32,
-    ) -> PyResult<(bool, Self)> {
+    ) -> PyResult<(Self, bool)> {
         let (next_inner, decision) = self
             .inner
             .clone()
             .tell(&proposal.inner, value, variance)
             .map_err(error)?;
         Ok((
-            decision.accepted,
             Self {
                 inner: next_inner,
                 blocks: self.blocks.clone(),
                 capacity: self.capacity,
                 length: self.length,
             },
+            decision.accepted,
         ))
     }
 
@@ -203,20 +203,20 @@ impl PyRegionalSearch {
         weights: PyRef<PyMetalWeights>,
         value: f32,
         variance: f32,
-    ) -> PyResult<(Vec<usize>, Self)> {
+    ) -> PyResult<(Self, Vec<usize>)> {
         let (next_inner, slots) = self
             .inner
             .clone()
             .import_external(&weights.buffer, value, variance)
             .map_err(error)?;
         Ok((
-            slots,
             Self {
                 inner: next_inner,
                 blocks: self.blocks.clone(),
                 capacity: self.capacity,
                 length: self.length,
             },
+            slots,
         ))
     }
 

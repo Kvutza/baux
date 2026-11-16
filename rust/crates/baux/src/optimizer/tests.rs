@@ -101,7 +101,7 @@ fn fork_transparency() {
     let bounds = array![[-2.0, 2.0], [-2.0, 2.0]];
     let mut rng = StdRng::seed_from_u64(42);
     let mut branch_a = BayesOptimizer::new(bounds, turbo_zero(), &mut rng).unwrap();
-    let (x0, next_a) = branch_a.ask_natural(4, &mut rng).unwrap();
+    let (next_a, x0) = branch_a.ask_natural(4, &mut rng).unwrap();
     branch_a = next_a;
     let y0 = array![[1.0], [2.0], [1.5], [0.5]];
     branch_a = branch_a
@@ -168,7 +168,7 @@ fn freeze_checkpoint() {
     let bounds = array![[-1.0, 1.0], [0.0, 2.0]];
     let mut rng = StdRng::seed_from_u64(17);
     let mut opt = BayesOptimizer::new(bounds, turbo_zero(), &mut rng).unwrap();
-    let (x, next) = opt.ask_natural(3, &mut rng).unwrap();
+    let (next, x) = opt.ask_natural(3, &mut rng).unwrap();
     opt = next;
     let y = array![[0.2], [0.8], [0.5]];
     opt = opt
@@ -233,7 +233,7 @@ fn freeze_turbo() {
     // strictly deteriorate so TuRBO contracts tr_length once (0.8 -> 0.4).
     for step in 0..10u64 {
         let mut step_rng = StdRng::seed_from_u64(1000 + step);
-        let (x, next_live) = live.ask_natural(8, &mut step_rng).unwrap();
+        let (next_live, x) = live.ask_natural(8, &mut step_rng).unwrap();
         live = next_live;
         let mut y = Array2::zeros((8, 1));
         let mut yvar = Array2::zeros((8, 1));
@@ -271,9 +271,9 @@ fn freeze_turbo() {
     for step in 20..24u64 {
         let mut rng_a = StdRng::seed_from_u64(step);
         let mut rng_b = StdRng::seed_from_u64(step);
-        let (xa, next_live) = live.ask_natural(8, &mut rng_a).unwrap();
+        let (next_live, xa) = live.ask_natural(8, &mut rng_a).unwrap();
         live = next_live;
-        let (xb, next_rest) = restored.ask_natural(8, &mut rng_b).unwrap();
+        let (next_rest, xb) = restored.ask_natural(8, &mut rng_b).unwrap();
         restored = next_rest;
         assert!(bits_equal(&xa, &xb));
 
@@ -325,7 +325,7 @@ fn freeze_morbo() {
 
     for step in 0..4u64 {
         let mut step_rng = StdRng::seed_from_u64(500 + step);
-        let (x, next_live) = live.ask_natural(3, &mut step_rng).unwrap();
+        let (next_live, x) = live.ask_natural(3, &mut step_rng).unwrap();
         live = next_live;
         let mut y = Array2::zeros((3, 2));
         for r in 0..3 {
@@ -345,9 +345,9 @@ fn freeze_morbo() {
     for step in 10..14u64 {
         let mut rng_a = StdRng::seed_from_u64(step);
         let mut rng_b = StdRng::seed_from_u64(step);
-        let (xa, next_live) = live.ask_natural(3, &mut rng_a).unwrap();
+        let (next_live, xa) = live.ask_natural(3, &mut rng_a).unwrap();
         live = next_live;
-        let (xb, next_rest) = restored.ask_natural(3, &mut rng_b).unwrap();
+        let (next_rest, xb) = restored.ask_natural(3, &mut rng_b).unwrap();
         restored = next_rest;
         assert!(bits_equal(&xa, &xb));
         let mut y = Array2::zeros((3, 2));
@@ -396,7 +396,7 @@ fn freeze_portfolio() {
             .unwrap();
 
     // Warm-up
-    let (x_warm, next_live) = live
+    let (next_live, x_warm) = live
         .ask_natural(6, &mut StdRng::seed_from_u64(100))
         .unwrap();
     live = next_live;
@@ -415,12 +415,12 @@ fn freeze_portfolio() {
         .unwrap();
 
     // Overlapping regional asks with partial completion and cancellation
-    let (x_first, next_live) = live
+    let (next_live, x_first) = live
         .ask_natural(2, &mut StdRng::seed_from_u64(102))
         .unwrap();
     live = next_live;
     let ids_first = live.pending_ids().unwrap();
-    let (x_second, next_live) = live
+    let (next_live, x_second) = live
         .ask_natural(2, &mut StdRng::seed_from_u64(103))
         .unwrap();
     live = next_live;
@@ -481,9 +481,9 @@ fn freeze_portfolio() {
     for step in 200..203u64 {
         let mut rng_a = StdRng::seed_from_u64(step);
         let mut rng_b = StdRng::seed_from_u64(step);
-        let (xa, next_live) = live.ask_natural(2, &mut rng_a).unwrap();
+        let (next_live, xa) = live.ask_natural(2, &mut rng_a).unwrap();
         live = next_live;
-        let (xb, next_rest) = restored.ask_natural(2, &mut rng_b).unwrap();
+        let (next_rest, xb) = restored.ask_natural(2, &mut rng_b).unwrap();
         restored = next_rest;
         assert!(bits_equal(&xa, &xb));
         assert_eq!(restored.digest(), live.digest());
@@ -509,7 +509,7 @@ fn thaw_adversarial() {
     let bounds = array![[-1.0, 1.0], [0.0, 2.0]];
     let mut rng = StdRng::seed_from_u64(19);
     let mut opt = BayesOptimizer::new(bounds, turbo_zero(), &mut rng).unwrap();
-    let (x, next) = opt.ask_natural(2, &mut rng).unwrap();
+    let (next, x) = opt.ask_natural(2, &mut rng).unwrap();
     opt = next;
     opt = opt
         .tell_natural(&x.view(), &array![[1.0], [2.0]].view(), None, &mut rng)

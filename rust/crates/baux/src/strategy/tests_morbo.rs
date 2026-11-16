@@ -213,11 +213,11 @@ fn morbo_tell() {
         [0.5, 0.6],
     ];
     for i in 0..4 {
-        let (x, next_opt) = opt.ask(2, &mut rng).unwrap();
+        let (next_opt, x) = opt.ask(2, &mut rng).unwrap();
         let y = y_fit.slice(ndarray::s![i * 2..i * 2 + 2, ..]);
         opt = next_opt.tell(&x.view(), &y, None, &mut rng).unwrap();
     }
-    let (x_arms, opt) = opt.ask(2, &mut rng).unwrap();
+    let (opt, x_arms) = opt.ask(2, &mut rng).unwrap();
     assert_eq!(x_arms.nrows(), 2);
     assert!(opt.trust_region().is_morbo());
 }
@@ -254,7 +254,7 @@ fn morbo_turbo() {
         [0.5, 0.6],
     ];
     for i in 0..4 {
-        let (x, next_opt) = opt.ask(2, &mut rng).unwrap();
+        let (next_opt, x) = opt.ask(2, &mut rng).unwrap();
         let y = y_fit.slice(ndarray::s![i * 2..i * 2 + 2, ..]);
         opt = next_opt.tell(&x.view(), &y, None, &mut rng).unwrap();
     }
@@ -264,7 +264,7 @@ fn morbo_turbo() {
         .expect("morbo tr")
         .weights()
         .to_owned();
-    let (_, mut opt) = opt.ask(2, &mut rng).unwrap();
+    let (mut opt, _) = opt.ask(2, &mut rng).unwrap();
     let w1 = opt
         .trust_region()
         .morbo()
@@ -317,7 +317,7 @@ fn morbo_turbo2() {
         [0.5, 0.6],
     ];
     for i in 0..4 {
-        let (x, next_opt) = opt.ask(2, &mut rng).unwrap();
+        let (next_opt, x) = opt.ask(2, &mut rng).unwrap();
         let y = y_fit.slice(ndarray::s![i * 2..i * 2 + 2, ..]);
         opt = next_opt.tell(&x.view(), &y, None, &mut rng).unwrap();
     }
@@ -327,7 +327,7 @@ fn morbo_turbo2() {
         .expect("morbo tr")
         .weights()
         .to_owned();
-    let (_, opt) = opt.ask(2, &mut rng).unwrap();
+    let (opt, _) = opt.ask(2, &mut rng).unwrap();
     let w1 = opt
         .trust_region()
         .morbo()
@@ -512,13 +512,13 @@ fn fork_isolation() {
     let fork_a = opt.fork().unwrap();
     let fork_b = opt.fork().unwrap();
 
-    let (x_a, fork_a) = fork_a.ask(2, &mut rng).unwrap();
+    let (fork_a, x_a) = fork_a.ask(2, &mut rng).unwrap();
     let y_a = array![[1.0, 0.5], [0.8, 0.9]];
     let fork_a = fork_a
         .tell(&x_a.view(), &y_a.view(), None, &mut rng)
         .unwrap();
 
-    let (x_b, fork_b) = fork_b.ask(2, &mut rng).unwrap();
+    let (fork_b, x_b) = fork_b.ask(2, &mut rng).unwrap();
     let y_b = array![[0.2, 0.3], [0.4, 0.7]];
     let fork_b = fork_b
         .tell(&x_b.view(), &y_b.view(), None, &mut rng)

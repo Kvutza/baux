@@ -480,7 +480,7 @@ fn scaling_ablation() -> Result<(), String> {
                 let (next_local, _row) = local.begin_ask(1, 4, root, local_ask)?;
                 local = next_local;
                 let (next_local, local_pool) = local.finish_ask()?;
-                local = next_local;
+                let _ = next_local;
                 if global_pool.pool_keys() != local_pool.pool_keys() {
                     return Err("distance-scaling policies did not receive one pool".into());
                 }

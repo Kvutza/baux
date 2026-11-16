@@ -14,27 +14,6 @@ baux.capabilities(*, probe: bool = False) -> tuple[BackendCapabilities, ...]
   \<p>[class]{api-source}{[Source in \code{python/baux/runtime.py}](https://github.com/Kvutza/baux/blob/main/python/baux/runtime.py#L38)}
 }
 
-\<section>[id]{baux.BackendCapabilities}[class]{api-entry}[data-symbol]{baux.BackendCapabilities}[data-kind]{class}[data-module]{baux.runtime}{
-  \<div>[class]{api-entry-header}{\<h2>[class]{api-entry-title}{[\code{baux.BackendCapabilities}](api-runtime.html#baux.BackendCapabilities)}}
-  \pre{
-baux.BackendCapabilities(
-    name: BackendName,
-    compiled: bool,
-    available: bool | None,
-    reason: str | None,
-    direct_operations: tuple[str, ...],
-    fallback_operations: tuple[str, ...],
-    missing_operations: tuple[str, ...],
-    host_operations: tuple[str, ...],
-    array_frameworks: tuple[str, ...],
-)
-  }
-  \p{Support information for one backend.}
-  \p{\code{name}: backend name. \code{compiled}: included in this native build. \code{available}: hardware result, or \code{None} when not probed. \code{reason}: diagnostic text when relevant.}
-  \p{\code{direct_operations}, \code{fallback_operations}, \code{missing_operations} and \code{host_operations} distinguish operation support. \code{array_frameworks} lists detected optional array packages. Returned by \code{capabilities}.}
-  \<p>[class]{api-source}{[Source in \code{python/baux/runtime.py}](https://github.com/Kvutza/baux/blob/main/python/baux/runtime.py#L16)}
-}
-
 \<section>[id]{baux.Device}[class]{api-entry}[data-symbol]{baux.Device}[data-kind]{class}[data-module]{baux.runtime}{
   \<div>[class]{api-entry-header}{\<h2>[class]{api-entry-title}{[\code{baux.Device}](api-runtime.html#baux.Device)}}
   \pre{

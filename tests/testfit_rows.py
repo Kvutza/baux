@@ -1,6 +1,6 @@
+import baux
 import numpy as np
 import pytest
-from baux.enn.enn_class import ENN
 from baux.enn.enn_fit import row_loglik, subsample_loglik
 from baux.enn.enn_params import ENNParams
 
@@ -8,7 +8,7 @@ from baux.enn.enn_params import ENNParams
 def test_duplicates():
     x = np.zeros((3, 1))
     y = np.array([[0.0], [5.0], [10.0]])
-    model = ENN(x, y)
+    model = baux.enn_init(x, y)
     params = [ENNParams(k_neighbors=2, epistemic_scale=1.0, aleatoric_scale=1.0)]
     options = {"paramss": params, "P": 3, "y_std": np.ones(1)}
     actual = row_loglik(model, [2, 0, 1], rng=np.random.default_rng(42), **options)
@@ -25,7 +25,7 @@ def test_duplicates():
 
 def test_invalid():
     x = np.array([[-1.0], [1.0]])
-    model = ENN(x, x)
+    model = baux.enn_init(x, x)
     params = [
         ENNParams(k_neighbors=1, epistemic_scale=scale, aleatoric_scale=0.0)
         for scale in (1.0, np.finfo(float).max)
@@ -40,7 +40,7 @@ def test_invalid():
 def test_subset():
     x = np.arange(6.0).reshape(3, 2)
     y = np.arange(3.0).reshape(3, 1)
-    model = ENN(x, y, scale_x=True)
+    model = baux.enn_init(x, y, scale_x=True)
     params = [ENNParams(k_neighbors=2, epistemic_scale=1.0, aleatoric_scale=0.1)]
     scores = row_loglik(
         model, [2, 0], paramss=params, P=1, rng=np.random.default_rng(42)

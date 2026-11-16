@@ -28,7 +28,8 @@ import pytest
 torch = pytest.importorskip("torch")
 jax = pytest.importorskip("jax")
 
-from baux import ENN, capabilities
+import baux
+from baux import capabilities
 from baux.enn.enn_params import ENNParams, PosteriorFlags
 from baux.turbo.config.surrogate import NeighborIndex
 
@@ -117,7 +118,8 @@ def _backends() -> tuple[dict[str, np.ndarray], dict[str, np.ndarray]]:
     )
     params = ENNParams(3, 0.7, 0.13)
     flags = PosteriorFlags(observation_noise=False)
-    cpu_mu = ENN(x, y, None, scale_x=False).posterior(q, params=params, flags=flags).mu
+    st = baux.enn_init(x, y, scale_x=False)
+    cpu_mu = baux.posterior(st, q, params=params, flags=flags).mu
 
     f64_tier = {
         "numpy_f64": _refposterior(x, y, q),
@@ -131,9 +133,9 @@ def _backends() -> tuple[dict[str, np.ndarray], dict[str, np.ndarray]]:
 
     metal_row = next((r for r in capabilities(probe=True) if r.name == "metal"), None)
     if metal_row is not None and metal_row.available:
-        native = ENN(x, y, None, scale_x=False, index_driver=NeighborIndex.METAL)
+        native_st = baux.enn_init(x, y, scale_x=False, index_driver=NeighborIndex.METAL)
         q_mps = torch.tensor(q, dtype=torch.float32, device="mps")
-        snap = native.device_posterior(q_mps, params, flags=flags)
+        snap = native_st.device_posterior(q_mps, params, flags=flags)
         all_tier["baux_enn_metal"] = (
             torch.from_dlpack(snap.mean).cpu().numpy().astype(np.float64)
         )
@@ -202,7 +204,7 @@ def _polarnp(nesterov: np.ndarray, coeffs: list[list[float]]) -> np.ndarray:
 
 def test_polar():
     fixture_path = (
-        Path(__file__).resolve().parents[2] / "rust/crates/baux/src/muon/fixtures.toml"
+        Path(__file__).resolve().parents[2] / "rust/crates/fbt/src/muon/fixtures.toml"
     )
     data = tomllib.loads(fixture_path.read_text(encoding="utf-8"))
     coeffs = data["remez"]["paper_polar_coefficients"]

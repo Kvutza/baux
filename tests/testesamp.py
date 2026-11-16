@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+import baux
 import numpy as np
-from baux.enn.enn_class import ENN
 from baux.enn.enn_params import ENNParams, PosteriorFlags
 
 
@@ -9,7 +9,7 @@ def test_001():
     rng = np.random.default_rng(42)
     train_x = rng.standard_normal((20, 3))
     train_y = train_x.sum(axis=1, keepdims=True)
-    model = ENN(train_x, train_y, 0.1 * np.ones_like(train_y))
+    model = baux.enn_init(train_x, train_y, 0.1 * np.ones_like(train_y))
     x_test = rng.standard_normal((5, 3))
     params = ENNParams(k_neighbors=5, epistemic_scale=1.0, aleatoric_scale=0.0)
     draws, idx = model.posterior_draw(x_test, params, function_seeds=[123])
@@ -21,7 +21,7 @@ def test_001():
 def test_002():
     rng = np.random.default_rng(42)
     train_x = rng.standard_normal((20, 3))
-    model = ENN(train_x, train_x.sum(axis=1, keepdims=True))
+    model = baux.enn_init(train_x, train_x.sum(axis=1, keepdims=True))
     x_test = rng.standard_normal((5, 3))
     params = ENNParams(k_neighbors=5, epistemic_scale=1.0, aleatoric_scale=0.0)
     sample1 = model.posterior_draw(x_test, params, function_seeds=[42])[0][:, :, 0]
@@ -39,7 +39,7 @@ def test_003():
     rng = np.random.default_rng(42)
     train_x = rng.standard_normal((20, 3))
     train_y = train_x.sum(axis=1, keepdims=True)
-    model = ENN(train_x, train_y, 0.1 * np.ones_like(train_y))
+    model = baux.enn_init(train_x, train_y, 0.1 * np.ones_like(train_y))
     x_test = rng.standard_normal((5, 3))
     params = ENNParams(k_neighbors=5, epistemic_scale=1.0, aleatoric_scale=0.0)
     samples, idx = model.posterior_draw(x_test, params, function_seeds=[10, 20, 30])
@@ -50,7 +50,7 @@ def test_003():
 def test_004():
     rng = np.random.default_rng(42)
     train_x = rng.standard_normal((20, 3))
-    model = ENN(train_x, train_x.sum(axis=1, keepdims=True))
+    model = baux.enn_init(train_x, train_x.sum(axis=1, keepdims=True))
     x_test = rng.standard_normal((5, 3))
     params = ENNParams(k_neighbors=5, epistemic_scale=1.0, aleatoric_scale=0.0)
     batch, _ = model.posterior_draw(x_test, params, function_seeds=[100, 200, 300])
@@ -64,7 +64,7 @@ def test_004():
 def test_005():
     rng = np.random.default_rng(42)
     train_x = rng.standard_normal((20, 3))
-    model = ENN(train_x, rng.standard_normal((20, 2)))
+    model = baux.enn_init(train_x, rng.standard_normal((20, 2)))
     x_test = rng.standard_normal((5, 3))
     params = ENNParams(k_neighbors=5, epistemic_scale=1.0, aleatoric_scale=0.0)
     samples, _ = model.posterior_draw(x_test, params, function_seeds=[1, 2, 3, 4])
@@ -75,7 +75,7 @@ def test_006():
     rng = np.random.default_rng(42)
     train_x = rng.standard_normal((2, 3))
     train_y = train_x.sum(axis=1, keepdims=True)
-    model = ENN(train_x, train_y)
+    model = baux.enn_init(train_x, train_y)
     x_test = rng.standard_normal((5, 3))
     params = ENNParams(k_neighbors=5, epistemic_scale=1.0, aleatoric_scale=0.0)
     samples, idx = model.posterior_draw(
@@ -92,7 +92,7 @@ def test_007():
     rng = np.random.default_rng(42)
     train_x = rng.standard_normal((20, 3))
     train_y = train_x.sum(axis=1, keepdims=True)
-    model = ENN(train_x, train_y, 0.5 * np.ones_like(train_y))
+    model = baux.enn_init(train_x, train_y, 0.5 * np.ones_like(train_y))
     x_test = rng.standard_normal((5, 3))
     params = ENNParams(k_neighbors=5, epistemic_scale=1.0, aleatoric_scale=0.0)
     sample_no_noise = model.posterior_draw(x_test, params, function_seeds=[42])[0][

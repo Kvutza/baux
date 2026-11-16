@@ -19,7 +19,7 @@ mod overlap;
 fn cancelled_evaluations() {
     let mut rng = StdRng::seed_from_u64(53);
     let opt = optimizer(array![[0.0, 1.0], [0.0, 1.0]], &mut rng);
-    let (x, opt) = opt.ask(3, &mut rng).unwrap();
+    let (opt, x) = opt.ask(3, &mut rng).unwrap();
     let ids = opt.pending_ids().unwrap();
     let opt = opt
         .complete_ids(&ids[2..], &array![[1.0]].view(), None, &mut rng)
@@ -41,11 +41,11 @@ fn cancelled_warmup() {
     let bounds = array![[0.0, 1.0], [0.0, 1.0]];
     let strategy = Strategy::experimental(bounds.nrows(), 2, 1, &mut rng).unwrap();
     let opt = BayesOptimizer::new_strategy(bounds, baux::turbo_zero(), strategy, &mut rng).unwrap();
-    let (x, opt) = opt.ask(1, &mut rng).unwrap();
+    let (opt, x) = opt.ask(1, &mut rng).unwrap();
     let first = opt.pending_ids().unwrap();
     let opt = opt.cancel_ids(&first, &mut rng).unwrap();
     assert_eq!(opt.obs_count(), 0);
-    let (x, opt) = opt.ask(1, &mut rng).unwrap();
+    let (opt, x) = opt.ask(1, &mut rng).unwrap();
     let second = opt.pending_ids().unwrap();
     assert_ne!(first, second);
     let opt = opt
@@ -58,7 +58,7 @@ fn cancelled_warmup() {
 fn natural_roundtrip() {
     let mut rng = StdRng::seed_from_u64(19);
     let opt = optimizer(array![[-2.7, 3.1], [100.1, 101.3]], &mut rng);
-    let (x, opt) = opt.ask_natural(2, &mut rng).unwrap();
+    let (opt, x) = opt.ask_natural(2, &mut rng).unwrap();
     let opt = opt
         .tell_natural(&x.view(), &array![[1.0], [2.0]].view(), None, &mut rng)
         .unwrap();
@@ -69,12 +69,12 @@ fn natural_roundtrip() {
 fn natural_overlap() {
     let mut rng = StdRng::seed_from_u64(79);
     let opt = optimizer(array![[-2.7, 3.1], [100.1, 101.3]], &mut rng);
-    let (x, opt) = opt.ask_natural(2, &mut rng).unwrap();
+    let (opt, x) = opt.ask_natural(2, &mut rng).unwrap();
     let first_ids = opt.pending_ids().unwrap();
     let opt = opt
         .complete_ids(&first_ids[..1], &array![[1.0]].view(), None, &mut rng)
         .unwrap();
-    let (_x, opt) = opt.ask_natural(1, &mut rng).unwrap();
+    let (opt, _x) = opt.ask_natural(1, &mut rng).unwrap();
     let opt = opt
         .complete_ids(&first_ids[1..], &array![[2.0]].view(), None, &mut rng)
         .unwrap();
@@ -104,7 +104,7 @@ fn modeled_completion() {
             &mut rng,
         )
         .unwrap();
-    let (x, opt) = opt.ask_natural(2, &mut rng).unwrap();
+    let (opt, x) = opt.ask_natural(2, &mut rng).unwrap();
     let y = array![[3.0], [4.0]];
     assert!(
         opt.clone()
@@ -147,7 +147,7 @@ fn imported_observations() {
 fn explicit_import() {
     let mut rng = StdRng::seed_from_u64(7);
     let opt = optimizer(array![[0.0, 1.0], [0.0, 1.0]], &mut rng);
-    let (x, opt) = opt.ask(2, &mut rng).unwrap();
+    let (opt, x) = opt.ask(2, &mut rng).unwrap();
     let opt = opt
         .import_variance(
             &array![[0.5, 0.5]].view(),
@@ -177,7 +177,7 @@ fn explicit_import() {
 fn invalid_observations() {
     let mut rng = StdRng::seed_from_u64(7);
     let opt = optimizer(array![[0.0, 1.0], [0.0, 1.0]], &mut rng);
-    let (x, opt) = opt.ask(2, &mut rng).unwrap();
+    let (opt, x) = opt.ask(2, &mut rng).unwrap();
     let y = array![[1.0], [2.0]];
     assert!(
         opt.clone()
@@ -217,7 +217,7 @@ fn invalid_observations() {
 fn stale_generation() {
     let mut rng = StdRng::seed_from_u64(7);
     let opt = optimizer(array![[0.0, 1.0], [0.0, 1.0]], &mut rng);
-    let (x, mut opt) = opt.ask(2, &mut rng).unwrap();
+    let (mut opt, x) = opt.ask(2, &mut rng).unwrap();
     if let TrustRegionState::Multi { state, .. } = opt.trust_mut() {
         state.restart_region(0, &array![0.5, 0.5].view()).unwrap();
     }
@@ -240,7 +240,7 @@ fn stale_generation() {
 fn abandon_restart() {
     let mut rng = StdRng::seed_from_u64(89);
     let opt = optimizer(array![[0.0, 1.0], [0.0, 1.0]], &mut rng);
-    let (x, opt) = opt.ask(3, &mut rng).unwrap();
+    let (opt, x) = opt.ask(3, &mut rng).unwrap();
     let ids = opt.pending_ids().unwrap();
     let opt = opt
         .complete_ids(&ids[..1], &array![[1.0]].view(), None, &mut rng)
@@ -249,7 +249,7 @@ fn abandon_restart() {
         TrustRegionState::Multi { state, .. } => state.generation(0).unwrap(),
         _ => panic!("expected multi-region state"),
     };
-    let (abandoned, opt) = opt
+    let (opt, abandoned) = opt
         .restart_region(0, &array![0.4, 0.4].view(), &mut rng)
         .unwrap();
     assert_eq!(abandoned, ids[1..2]);

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import baux
 import numpy as np
 import pytest
 from baux.turbo.config.surrogate import NeighborIndex
@@ -8,11 +9,10 @@ pytestmark = pytest.mark.slow
 
 
 def _bpannstore(work_dir, *, num_obs: int = 10, num_dim: int = 4):
-    from baux.enn.enn_class import ENN
     from ops.stress import make_observations
 
     train_x, train_y = make_observations(num_obs, num_dim=num_dim, seed=0)
-    ENN(
+    baux.enn_init(
         train_x,
         train_y,
         scale_x=False,
@@ -97,13 +97,12 @@ def test_006(tmp_path):
     """After persist_index, 10k-row reopen init should be mmap-fast."""
     import time
 
-    from baux.enn.enn_class import ENN
     from ops.stress import make_observations
 
     work_dir = tmp_path / "enn_persist_reopen_10k"
     num_obs = 10_000
     num_dim = 32
-    model = ENN(
+    model = baux.enn_init(
         np.empty((0, num_dim)),
         np.empty((0, 1)),
         scale_x=False,
@@ -115,12 +114,15 @@ def test_006(tmp_path):
     for start in range(0, num_obs, batch):
         end = min(start + batch, num_obs)
         xs, ys = make_observations(end - start, num_dim=num_dim, seed=0 + start)
-        model.add(xs, ys)
-        model.schedule_flush()
-    model.persist_index()
+        model = baux.append(model, xs, ys)
+        if hasattr(model, "schedule_flush"):
+            model.schedule_flush()
+        elif hasattr(getattr(model, "_rust", None), "schedule_flush"):
+            model._rust.schedule_flush()
+    model = baux.persist_index(model)
 
     t0 = time.perf_counter()
-    ENN(
+    baux.enn_init(
         np.empty((0, num_dim)),
         np.empty((0, 1)),
         scale_x=False,
@@ -140,13 +142,12 @@ def test_007(tmp_path):
     """
     import time
 
-    from baux.enn.enn_class import ENN
     from ops.stress import make_observations
 
     work_dir = tmp_path / "enn_persist_reopen"
     num_obs = 2000
     num_dim = 32
-    model = ENN(
+    model = baux.enn_init(
         np.empty((0, num_dim)),
         np.empty((0, 1)),
         scale_x=False,
@@ -158,12 +159,15 @@ def test_007(tmp_path):
     for start in range(0, num_obs, batch):
         end = min(start + batch, num_obs)
         xs, ys = make_observations(end - start, num_dim=num_dim, seed=0 + start)
-        model.add(xs, ys)
-        model.schedule_flush()
-    model.persist_index()
+        model = baux.append(model, xs, ys)
+        if hasattr(model, "schedule_flush"):
+            model.schedule_flush()
+        elif hasattr(getattr(model, "_rust", None), "schedule_flush"):
+            model._rust.schedule_flush()
+    model = baux.persist_index(model)
 
     t0 = time.perf_counter()
-    ENN(
+    baux.enn_init(
         np.empty((0, num_dim)),
         np.empty((0, 1)),
         scale_x=False,

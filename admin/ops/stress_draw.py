@@ -6,8 +6,7 @@ import time
 from dataclasses import dataclass
 
 import numpy as np
-from baux.enn.enn_class import ENN
-from baux.enn.enn_fit import enn_fit
+from baux import ENNState, enn_init, fit, posterior, sample
 from ops.stress_disk import (
     DRAW_FLAGS,
     DRAW_FLAGS_NO_OBS,
@@ -58,7 +57,7 @@ def _checkdrawcfg(config: DrawStressConfig) -> None:
 
 
 def _evalpost(
-    model: ENN,
+    model: ENNState,
     fitted,
     x_test: np.ndarray,
     y_test: np.ndarray,
@@ -66,9 +65,9 @@ def _evalpost(
     sample_rng: np.random.Generator,
 ) -> DrawMethodResult:
     t0 = time.perf_counter()
-    post_lik = model.posterior(x_test, params=fitted, flags=DRAW_FLAGS)
+    post_lik = posterior(model, x_test, fitted, flags=DRAW_FLAGS)
     avg_lik = average_likelihood(y_test, post_lik.mu, post_lik.se)
-    post_rms = model.posterior(x_test, params=fitted, flags=DRAW_FLAGS_NO_OBS)
+    post_rms = posterior(model, x_test, fitted, flags=DRAW_FLAGS_NO_OBS)
     draws = post_rms.sample(num_draws, sample_rng)
     rms = argmin_rms(x_test, draws)
     rate = argmin_rate(x_test, draws)
@@ -85,7 +84,7 @@ def _evalpost(
 
 
 def _evalfn(
-    model: ENN,
+    model: ENNState,
     fitted,
     x_test: np.ndarray,
     y_test: np.ndarray,
@@ -93,10 +92,11 @@ def _evalfn(
     num_draws: int,
 ) -> DrawMethodResult:
     t0 = time.perf_counter()
-    fn_draws, _idx = model.posterior_draw(
+    fn_draws, _idx = sample(
+        model,
         x_test,
         fitted,
-        function_seeds=function_sample(seed + 4, num_draws),
+        seeds=function_sample(seed + 4, num_draws),
         flags=DRAW_FLAGS_NO_OBS,
     )
     avg_lik = average_draws(y_test, fn_draws)
@@ -124,14 +124,14 @@ def run_stress2(config: DrawStressConfig) -> DrawStressResult:
     x_test, y_test = make_observations2(
         config.num_test, num_dim=config.num_dim, rng=data_rng
     )
-    model = ENN(x, y, scale_x=False)
+    model = enn_init(x, y, scale_x=False)
     t0 = time.perf_counter()
-    fitted = enn_fit(
+    fitted = fit(
         model,
         k=config.k,
         num_candidates=config.num_candidates,
         num_samples=config.num_samples,
-        rng=fit_rng,
+        seed=fit_rng,
     )
     fit_s = time.perf_counter() - t0
     post_res = _evalpost(model, fitted, x_test, y_test, config.num_draws, sample_rng)

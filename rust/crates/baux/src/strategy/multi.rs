@@ -20,7 +20,7 @@ pub(super) fn ask_init(
     optimizer: BayesOptimizer,
     num_arms: usize,
     rng: &mut dyn RngCore,
-) -> Result<(Array2<f64>, BayesOptimizer), ENNError> {
+) -> Result<(BayesOptimizer, Array2<f64>), ENNError> {
     let num_dim = optimizer.num_dim();
     let lower = Array1::zeros(num_dim);
     let upper = Array1::ones(num_dim);
@@ -35,7 +35,7 @@ pub(super) fn ask_init(
         }
         InitStrategy::Random => generate_uniform(&lower, &upper, num_arms, rng)?,
     };
-    Ok((x, optimizer))
+    Ok((optimizer, x))
 }
 
 /// Common tell logic: add observations, fit surrogate, update incumbent.

@@ -95,17 +95,15 @@ def _checkbo(engine, flat, rows, masks, losses):
     np.testing.assert_array_equal(
         engine.losses(search.incumbent(), rows, masks), losses
     )
-    proposals = search.ask(1, 4, 1, 5)
+    search, proposals = search.ask(1, 4, 1, 5)
     candidate_losses = engine.losses(proposals, rows, masks)
-    search.tell_paired(
+    search, _ = search.tell(
         proposals,
         -float(candidate_losses.mean()),
         0.0,
-        -float(losses.mean()),
-        0.0,
-        True,
     )
-    assert search.sync() == [True]
+    search, flags = search.sync()
+    assert flags == [True]
     np.testing.assert_array_equal(
         engine.losses(search.incumbent(), rows, masks), candidate_losses
     )

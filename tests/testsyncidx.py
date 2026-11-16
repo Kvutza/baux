@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+import baux
 import numpy as np
-from baux.enn.enn_class import ENN
 from baux.enn.enn_params import ENNParams
 
 
@@ -9,8 +9,8 @@ def test_001():
     rng = np.random.default_rng(0)
     x = rng.standard_normal((8, 2))
     y = rng.standard_normal((8, 1))
-    model = ENN(x, y)
-    model.ensure_sync()
+    model = baux.enn_init(x, y)
+    model = baux.ensure_sync(model)
 
 
 def test_002():
@@ -21,11 +21,11 @@ def test_002():
     x1 = rng.standard_normal((5, d))
     y1 = rng.standard_normal((5, 1))
 
-    inc = ENN(x0, y0)
-    inc.add(x1, y1)
-    inc.ensure_sync()
+    inc = baux.enn_init(x0, y0)
+    inc = baux.append(inc, x1, y1)
+    inc = baux.ensure_sync(inc)
 
-    fresh = ENN(np.vstack([x0, x1]), np.vstack([y0, y1]))
+    fresh = baux.enn_init(np.vstack([x0, x1]), np.vstack([y0, y1]))
     params = ENNParams(k_neighbors=3, epistemic_scale=1.0, aleatoric_scale=0.1)
     x_test = rng.standard_normal((4, d))
 
@@ -39,7 +39,7 @@ def test_003():
     rng = np.random.default_rng(7)
     x = rng.standard_normal((6, 2))
     y = rng.standard_normal((6, 1))
-    model = ENN(x, y)
-    model.add(rng.standard_normal((2, 2)), rng.standard_normal((2, 1)))
-    model.ensure_sync()
-    model.ensure_sync()
+    model = baux.enn_init(x, y)
+    model = baux.append(model, rng.standard_normal((2, 2)), rng.standard_normal((2, 1)))
+    model = baux.ensure_sync(model)
+    model = baux.ensure_sync(model)

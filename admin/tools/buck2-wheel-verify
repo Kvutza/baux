@@ -199,9 +199,7 @@ expected_python = tuple(int(part) for part in os.environ["BAUX_EXPECTED_PYTHON"]
 assert sys.version_info[:2] == expected_python
 assert "numpy" not in sys.modules
 from baux import _rust
-from baux import ENN
-from baux.enn.enn_class import posterior_neighbors
-from baux.turbo.config import NeighborIndex
+from baux import NeighborIndex, enn_init
 import numpy as np
 
 center, scale = _rust.standardize_y(np.array([1.0, 2.0, 3.0]))
@@ -212,10 +210,10 @@ rng = np.random.default_rng(17)
 train_x = rng.normal(size=(32, 5))
 train_y = np.zeros((32, 1), dtype=float)
 query = rng.normal(size=(4, 5))
-flat = ENN(train_x, train_y, index_driver=NeighborIndex.FLAT)
-usearch = ENN(train_x, train_y, index_driver=NeighborIndex.USEARCH)
-expected = posterior_neighbors(flat.rust_backend, query, search_k=10)
-actual = posterior_neighbors(usearch.rust_backend, query, search_k=10)
+flat = enn_init(train_x, train_y, index_driver=NeighborIndex.FLAT)
+usearch = enn_init(train_x, train_y, index_driver=NeighborIndex.USEARCH)
+expected = flat.posterior_neighbors(query, search_k=10)
+actual = usearch.posterior_neighbors(query, search_k=10)
 assert np.array_equal(actual[1], expected[1])
 assert np.max(np.abs(actual[0] - expected[0])) == 0.0
 print("Wheel checks passed.")

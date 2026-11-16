@@ -168,7 +168,7 @@ fn adapt(
         let unit = if best.evaluations == 0 {
             row(initial.iter().map(|x| (x + 1.0) * 0.5).collect())?
         } else {
-            let (u, next_opt) = timed(&mut trace.inner.ask_seconds, || {
+            let (next_opt, u) = timed(&mut trace.inner.ask_seconds, || {
                 opt.ask(1, &mut rng).map_err(|e| e.to_string())
             })?;
             opt = next_opt;
@@ -289,7 +289,7 @@ fn search(
                 .collect())?
         } else {
             let o = outer.take().ok_or("missing outer optimizer")?;
-            let (u, next_o) = timed(&mut trace.outer.ask_seconds, || {
+            let (next_o, u) = timed(&mut trace.outer.ask_seconds, || {
                 o.ask(1, &mut rng).map_err(|e| e.to_string())
             })?;
             outer = Some(next_o);

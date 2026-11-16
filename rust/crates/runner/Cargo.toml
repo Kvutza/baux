@@ -13,6 +13,7 @@ workspace = true
 clap.workspace = true
 deser.workspace = true
 baux.workspace = true
+baux-tokamak.workspace = true
 baux-tooling.workspace = true
 ndarray.workspace = true
 rand.workspace = true

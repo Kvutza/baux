@@ -58,25 +58,6 @@ def _readonly(arr: Any, dtype: Any = float) -> np.ndarray:
     return out
 
 
-@dataclass(frozen=True)
-class _Op:
-    kind: str = ""
-    args: tuple[Any, ...] = ()
-    seed: int = 0
-
-
-class _Cursor:
-    def __init__(
-        self,
-        epoch: int = 0,
-        inner: Any = None,
-        id_map: dict[int, int] | None = None,
-    ) -> None:
-        self.epoch = epoch
-        self.inner = inner
-        self.id_map: dict[int, int] = {} if id_map is None else dict(id_map)
-
-
 def _makeinner(bounds: np.ndarray, config: OptimizerConfig, seed: int) -> Any:
     from . import _rust
 
@@ -129,17 +110,6 @@ class OptimizerState:
     ingestion_failure: str | None
     telemetry: Telemetry
     _opt: Any
-    _log: tuple[object, ...] = ()
-
-    @property
-    def _cursor(self) -> _Cursor:
-        return _Cursor(self.epoch, self._opt)
-
-    def _readonlyview(self) -> Any:
-        return self._opt
-
-    def _checkout(self) -> tuple[Any, dict[int, int], bool]:
-        return self._opt, {}, False
 
     @property
     def x_obs(self) -> np.ndarray:
@@ -152,12 +122,6 @@ class OptimizerState:
         """Read-only `(n, m)` matrix of observed objective values."""
         y = self._opt.y_obs()
         return _readonly(np.empty((0, 1)) if y is None else y)
-
-    @property
-    def incumbent_x(self) -> np.ndarray | None:
-        """Read-only incumbent parameter vector, or `None` if no observations exist."""
-        inc = self._opt.incumbent_x()
-        return None if inc is None else _readonly(inc)
 
     @property
     def lengthscales(self) -> np.ndarray | None:
@@ -174,33 +138,24 @@ class OptimizerState:
         return None if ls is None else _readonly(1.0 / np.maximum(ls, 1e-12))
 
     @property
-    def incumbent_params(self) -> Any:
-        """Incumbent parameters decoded through `spec`, or `incumbent_x` if unspec'd."""
-        inc = self.incumbent_x
-        if inc is None or self.spec is None:
-            return inc
-        return self.spec.unflatten(inc.reshape(-1), weights=self.metric_weights)
-
-    @property
     def best_x(self) -> np.ndarray | None:
-        """Read-only best observed parameter vector (alias for `incumbent_x`)."""
-        return self.incumbent_x
+        """Read-only best observed parameter vector, or `None` if no observations exist."""
+        inc = self._opt.incumbent_x()
+        return None if inc is None else _readonly(inc)
 
     @property
     def best_params(self) -> Any:
-        """Best observed parameters decoded through `spec` (alias for `incumbent_params`)."""
-        return self.incumbent_params
+        """Best observed parameters decoded through `spec`, or `best_x` if unspec'd."""
+        inc = self.best_x
+        if inc is None or self.spec is None:
+            return inc
+        return self.spec.unflatten(inc.reshape(-1), weights=self.metric_weights)
 
     @property
     def best_y(self) -> float | None:
         """Best observed primary objective value, or `None` if empty."""
         y = self.y_obs
         return None if y.size == 0 else float(np.max(y[:, 0]))
-
-    @property
-    def incumbent_y(self) -> float | None:
-        """Best observed primary objective value (alias for `best_y`)."""
-        return self.best_y
 
     def digest(self) -> str:
         """Return the 64-character hexadecimal BLAKE3 state digest."""
@@ -228,7 +183,6 @@ class OptimizerState:
             self,
             seed=new_seed,
             _opt=new_opt,
-            _log=(),
         )
 
     def freeze(self) -> bytes:
@@ -243,9 +197,6 @@ class OptimizerState:
 def _snapshot(
     prev: OptimizerState,
     inner: Any,
-    id_map: Any = None,
-    in_place: bool = False,
-    op: Any = None,
 ) -> OptimizerState:
     t = inner.telemetry()
     telem = Telemetry(
@@ -273,7 +224,6 @@ def _snapshot(
         ingestion_failure=getattr(inner, "ingestion_failure", None),
         telemetry=telem,
         _opt=inner,
-        _log=(),
     )
 
 
@@ -311,22 +261,9 @@ def thaw(state: OptimizerState, data: bytes) -> OptimizerState:
         raise ValueError("checkpoint data is empty")
     inner = state._opt
     if hasattr(inner, "thaw_host"):
-        try:
-            res = inner.thaw_host(raw)
-        except TypeError:
-            res = inner.thaw_host(
-                raw,
-                int(state.seed),
-                int(state.epoch),
-                bool(state.identified),
-            )
-        if isinstance(res, tuple) and len(res) == 2 and isinstance(res[0], tuple):
-            (seed, epoch, identified, _pairs), next_opt = res
-        elif isinstance(res, tuple) and len(res) == 4:
-            seed, epoch, identified, _pairs = res
-            next_opt = inner
-        else:
-            raise ValueError("unexpected thaw_host result format")
+        next_opt, (raw_seed, raw_epoch, raw_ident, raw_map) = inner.thaw_host(raw)
+        del raw_map
+        seed, epoch, identified = raw_seed, raw_epoch, raw_ident
     elif hasattr(inner, "thaw"):
         next_opt = inner.thaw(raw)
         seed, epoch, identified = state.seed, state.epoch, state.identified
@@ -362,14 +299,11 @@ def thaw(state: OptimizerState, data: bytes) -> OptimizerState:
         ingestion_failure=getattr(next_opt, "ingestion_failure", None),
         telemetry=telem,
         _opt=next_opt,
-        _log=(),
     )
 
 
 __all__ = [
     "OptimizerState",
-    "_Cursor",
-    "_Op",
     "_foldseed",
     "_makeinner",
     "_readonly",

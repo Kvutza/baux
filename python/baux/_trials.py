@@ -7,7 +7,9 @@ from typing import Any
 
 import numpy as np
 
-from .bo import AskId, create_optimizer
+from .bo import AskId
+from .functional import ask, cancel, complete, import_observations, init, tell
+from .state import OptimizerState
 from .turbo.config import OptimizerConfig, RegionalSearchPolicy, turbo_enn
 
 
@@ -66,16 +68,20 @@ class Loop:
         self.space = space
         resolved_config = turbo_enn() if config is None else config
         self._regional = isinstance(resolved_config.trust_region, RegionalSearchPolicy)
-        self.optimizer: Any = create_optimizer(
-            bounds=space.bounds,
-            config=resolved_config,
-            rng=np.random.default_rng(seed),
+        self.state: OptimizerState = init(
+            space.bounds,
+            resolved_config,
+            seed=seed,
         )
         self._seen: dict[str, tuple[np.ndarray, float, float | None]] = {}
         self._issued: dict[tuple[float, ...], AskId] = {}
 
+    @property
+    def optimizer(self) -> Any:
+        return self.state
+
     def check_health(self) -> None:
-        failure = self.optimizer.ingestion_failure
+        failure = self.state.ingestion_failure
         if failure is not None:
             raise RuntimeError(
                 "baux ingestion failed after mutation may have begun; this adapter "
@@ -108,20 +114,14 @@ class Loop:
         y = np.array([[score]])
         if identity is None:
             if self._regional:
-                res = self.optimizer.import_observations(point[None, :], y, noise)
+                self.state, _ = import_observations(
+                    self.state, point[None, :], y, y_var=noise
+                )
             else:
-                res = self.optimizer.tell(point[None, :], y, noise)
+                self.state, _ = tell(self.state, point[None, :], y, y_var=noise)
         else:
-            res = self.optimizer.complete([identity], y, noise)
+            self.state = complete(self.state, [identity], y, y_var=noise)
             self._issued.pop(point_key)
-        if (
-            isinstance(res, tuple)
-            and len(res) == 2
-            and not isinstance(res[0], np.ndarray)
-        ):
-            _, self.optimizer = res
-        elif res is not None and hasattr(res, "ask"):
-            self.optimizer = res
         self.check_health()
 
     def _record(self, parameters, score, variance):
@@ -143,63 +143,31 @@ class Loop:
         self.check_health()
         occupied = [self.space.encode(point) for point in pending]
         for _ in range(32):
-            identity = None
-            if self._regional:
-                batch = self.optimizer.ask_batch(1)
-                if (
-                    isinstance(batch, tuple)
-                    and len(batch) == 2
-                    and hasattr(batch[0], "points")
-                ):
-                    batch, self.optimizer = batch
-                point, identity = batch.points[0], batch.ids[0]
-            else:
-                ask_res = self.optimizer.ask(1)
-                if isinstance(ask_res, tuple) and len(ask_res) == 2:
-                    pts, self.optimizer = ask_res
-                    point = (
-                        pts[0]
-                        if (isinstance(pts, np.ndarray) and pts.ndim == 2)
-                        else pts
-                    )
-                else:
-                    point = ask_res[0]
+            self.state, batch = ask(self.state, 1)
+            point = batch.points[0]
+            identity = batch.ids[0] if self._regional else None
             proposal = self.space.decode(point)
-            point = self.space.encode(proposal)
-            if not any(np.array_equal(point, other) for other in occupied):
+            point_re = self.space.encode(proposal)
+            if not any(np.array_equal(point_re, other) for other in occupied):
                 if identity is not None:
-                    self._issued[tuple(point.tolist())] = identity
+                    self._issued[tuple(point_re.tolist())] = identity
                 return proposal
             if identity is not None:
-                res = self.optimizer.cancel([identity])
-                if res is not None and hasattr(res, "ask"):
-                    self.optimizer = res
+                self.state = cancel(self.state, [identity])
         raise RuntimeError(
             "baux could not propose a point distinct from pending trials"
         )
 
     def sync(self):
         """Synchronize observations if supported by the optimizer/region."""
-        if hasattr(self.optimizer, "sync"):
-            res = self.optimizer.sync()
-            if isinstance(res, tuple) and len(res) == 2:
-                accepted, self.optimizer = res
-                return accepted
-            return res
         return None
 
     def fork(self) -> Loop:
         """Fork the trial loop with an independent copy of the optimizer state."""
-        import copy
-
         clone = object.__new__(self.__class__)
         clone.space = self.space
         clone._regional = self._regional
-        clone.optimizer = (
-            self.optimizer.fork()
-            if hasattr(self.optimizer, "fork")
-            else copy.deepcopy(self.optimizer)
-        )
+        clone.state = self.state.fork()
         clone._seen = self._seen.copy()
         clone._issued = self._issued.copy()
         return clone

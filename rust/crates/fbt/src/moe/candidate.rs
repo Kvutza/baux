@@ -264,7 +264,7 @@ fn build_search(
     perturbation: crate::ProposalDistribution,
 ) -> Result<SearchState, String> {
     let mapped = mapped_base.or_else(|| use_cache.then(|| save_base(key, &base)).flatten());
-    let mut search = if let Some(base_buf) = mapped {
+    let search = if let Some(base_buf) = mapped {
         drop(base);
         SearchState::new_mapped(
             base_buf,

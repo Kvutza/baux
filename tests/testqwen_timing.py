@@ -17,6 +17,32 @@ def test_roundtime(monkeypatch, tmp_path, refresh, expected_evaluations):
         nonlocal now
         now += seconds
 
+    def make_proposals():
+        return SimpleNamespace(
+            describe=lambda: [(7, 0.25, 0.01, [(3, 1.5), (0, 0.0), (2, 0.5)])],
+            geometry=lambda: [(2, 0.0)],
+            base_id=lambda: 1,
+            history_dists=lambda: [(1, 0.75)],
+            pool_geometry=lambda: (
+                [0.01, 0.04, 0.01, 0.04],
+                [
+                    (0, 1, 0.99),
+                    (0, 2, 0.0),
+                    (0, 3, 0.0),
+                    (1, 2, 0.0),
+                    (1, 3, 0.0),
+                    (2, 3, 0.99),
+                ],
+                [0.75, 0.75, 0.0, 0.0],
+            ),
+            pool=lambda: [
+                (0, 5, 0.01, 0.75, [(1, 0.5)]),
+                (1, 5, 0.04, 0.75, [(1, 0.6)]),
+                (2, 7, 0.01, 0.0, [(1, 0.75)]),
+                (3, 7, 0.04, 0.0, [(1, 0.9)]),
+            ],
+        )
+
     class Search:
         best = -1.0
 
@@ -46,12 +72,16 @@ def test_roundtime(monkeypatch, tmp_path, refresh, expected_evaluations):
         def incumbent(self):
             return None
 
-        def tell_paired(self, *args, **kwargs):
+        def ask(self, *args, **kwargs):
+            return self, make_proposals()
+
+        def tell(self, trial, val, var=None):
             advance(0.2)
+            return self, True
 
         def sync(self):
             advance(0.3)
-            return [False]
+            return self, [False]
 
     class Evaluator:
         weights_len = 10
@@ -70,39 +100,34 @@ def test_roundtime(monkeypatch, tmp_path, refresh, expected_evaluations):
             advance(1.0)
             return [1.0, 1.0]
 
-        def ask_losses(self, *args, **kwargs):
+        def ask_losses(self, region, *args, **kwargs):
             advance(1.5)
-            proposals = SimpleNamespace(
-                describe=lambda: [(7, 0.25, 0.01, [(3, 1.5), (0, 0.0), (2, 0.5)])],
-                geometry=lambda: [(2, 0.0)],
-                base_id=lambda: 1,
-                history_dists=lambda: [(1, 0.75)],
-                pool_geometry=lambda: (
-                    [0.01, 0.04, 0.01, 0.04],
-                    [
-                        (0, 1, 0.99),
-                        (0, 2, 0.0),
-                        (0, 3, 0.0),
-                        (1, 2, 0.0),
-                        (1, 3, 0.0),
-                        (2, 3, 0.99),
-                    ],
-                    [0.75, 0.75, 0.0, 0.0],
-                ),
-                pool=lambda: [
-                    (0, 5, 0.01, 0.75, [(1, 0.5)]),
-                    (1, 5, 0.04, 0.75, [(1, 0.6)]),
-                    (2, 7, 0.01, 0.0, [(1, 0.75)]),
-                    (3, 7, 0.04, 0.0, [(1, 0.9)]),
-                ],
-            )
-            return proposals, [1.0, 1.0]
+            (_next_region, trial) = region.ask(*args, **kwargs)
+            return trial, [1.0, 1.0]
 
     objective = SimpleNamespace(
         tokens=np.ones((2, 4), dtype=np.int32),
         mask=np.ones((2, 4), dtype=bool),
         metadata={},
     )
+
+    def _telldecision(region, trial, paired: dict) -> tuple[object, float, float, bool]:
+        decision_started = bo.time.perf_counter()
+        val = -paired["candidate_loss"]
+        var = paired["candidate_variance"]
+        (next_region, accepted) = region.tell(trial, val, var)
+        decision_seconds = bo.time.perf_counter() - decision_started
+
+        sync_started = bo.time.perf_counter()
+        (next_region, flags) = next_region.sync()
+        sync_seconds = bo.time.perf_counter() - sync_started
+
+        accepted = flags[0]
+        if accepted != paired["accepted"]:
+            raise RuntimeError("Native Qwen acceptance disagrees with paired decision")
+        return next_region, decision_seconds, sync_seconds, accepted
+
+    monkeypatch.setattr(bo, "_telldecision", _telldecision)
     monkeypatch.setattr(bo, "Evaluator", Evaluator)
     monkeypatch.setattr(bo.SolutionObjective, "parse", lambda *args: objective)
     monkeypatch.setattr(bo.time, "perf_counter", lambda: now)
@@ -290,3 +315,24 @@ def assert_timing(timing):
     assert timing["bo_loop_seconds"] == pytest.approx(
         sum(row["round_seconds"] for row in timing["rounds"])
     )
+
+
+def test_regionprotocol():
+    class RegionMock:
+        def ask(self, *args, **kwargs):
+            return self, "trial_0"
+
+        def tell(self, trial, val, var=None):
+            return self, True
+
+        def sync(self):
+            return self, [False]
+
+    region = RegionMock()
+    assert not hasattr(region, "tell_paired")
+    (next_region, trial) = region.ask()
+    assert trial == "trial_0"
+    (next_region, accepted) = next_region.tell(trial, -1.0, 0.05)
+    assert accepted is True
+    (next_region, flags) = next_region.sync()
+    assert flags == [False]

@@ -1623,7 +1623,7 @@ let mount_tokamak_cad () =
       '      </div>',
       '    </div>',
       '    <div class="tcv-fig-caption" id="tcv-fig-caption">',
-      '      <strong>Figure 1.</strong> Time-resolved 3D vessel magnetics (toroidal <em>B</em><sub>φ</sub> coils, signed ±<em>I</em> poloidal rings, <em>D</em><sub>α</sub> flux surfaces, helical <em>q</em><sub>95</sub> lines) and 2D poloidal equilibria trace 10,000-round closed-loop policy search on <code>toka_gym</code> TCV rampdown (<em>D</em> = 136,712, <em>n</em> = 10 paired seeds), alongside stationary <code>FUSE.jl 1.2.1</code> equilibria for SPARC, ARC, ITER, and DIII-D (Meneghini et al., 2024).',
+      '      <code>toka_gym</code> · TCV rampdown · <em>D</em> = 136,712 · <em>n</em> = 10 seeds',
       '    </div>',
       '  </div>',
       '</div>'
@@ -1972,9 +1972,9 @@ let mount_tokamak_cad () =
 
       if (figCaption) {
         if (isTCV) {
-          figCaption.innerHTML = '<strong>Figure 1.</strong> Time-resolved 3D vessel magnetics (toroidal <em>B</em><sub>φ</sub> coils, signed ±<em>I</em> poloidal rings, <em>D</em><sub>α</sub> flux surfaces, helical <em>q</em><sub>95</sub> lines) and 2D poloidal equilibria trace 10,000-round closed-loop policy search on <code>toka_gym</code> TCV rampdown (<em>D</em> = 136,712, <em>n</em> = 10 paired seeds; Wang et al., 2025; Theiler et al., 2026).';
+          figCaption.innerHTML = '<code>toka_gym</code> · TCV rampdown · <em>D</em> = 136,712 · <em>n</em> = 10 seeds (Wang et al., 2025; Theiler et al., 2026)';
         } else {
-          figCaption.innerHTML = '<strong>Figure 1.</strong> Stationary free-boundary magnetics and 2D Grad–Shafranov flux surfaces solved in <code>' + escHtml(mach.solver || "FUSE.jl 1.2.1") + '</code> define the equilibrium operating geometry for <strong>' + escHtml(mach.name || mach.shortName) + '</strong> (Meneghini et al., 2024).';
+          figCaption.innerHTML = '<code>' + escHtml(mach.solver || "FUSE.jl 1.2.1") + '</code> · ' + escHtml(mach.name || mach.shortName) + ' (Meneghini et al., 2024)';
         }
       }
 

@@ -1,34 +1,22 @@
-\title{Run Multiple Regions and Workers}
+\title{Regions and Workers}
 
 \p{
-  Add \code{baux.regions(count=4)} to a search pipeline to maintain four local regions. Use \code{baux.complete(state, ids, y)} to return whichever evaluations have finished, and \code{baux.cancel(state, ids)} for work you will not complete. Each call returns the next state. The example below also shows how to save and restore it.
+  Maintain local trust regions with \code{baux.regions(count=4)} (TuRBO [[EPG+19]](https://arxiv.org/abs/1910.01739)); submit out-of-order results via \code{baux.complete(state, ids, y)} and retire stale work via \code{baux.cancel(state, ids)}.
 }
 
 \subtree{
-  \title{Multi-Region Search & Asynchronous Evaluation}
+  \title{Multi-Region & Async Search}
 
   \p{
-    A region keeps a center, a search length, and a record of recent improvements. Under the TuRBO controller, success and failure counts expand or contract the search length; a sufficiently small region restarts. TuRBO introduced multiple local models with global allocation of evaluations (Eriksson et al. [[EPG+19]](https://arxiv.org/abs/1910.01739)). In \strong{baux}, [baux.regions](api-pipelines.html#baux.regions) configures the regional search, while the pipeline chooses the surrogate and acquisition rule.
-  }
-
-  \p{
-    Candidate generation perturbs coordinates around a region's center. Incumbent sharing determines whether a result from another region may replace that center: \code{origin_only} restricts updates to the originating region, while \code{ellipsoid_ball} also admits better observations inside the region's circumscribing ball. This sharing decision is distinct from the choice of surrogate.
-  }
-
-  \p{
-    Asynchronous workers return results through [baux.complete](docs.html#baux.complete). Each \code{AskId} identifies a pending evaluation associated with a region and its generation. Restarting a region invalidates its old pending evaluations; foreign, completed, cancelled or invalidated IDs are rejected. [baux.cancel](docs.html#baux.cancel) retires unfinished evaluations without adding observations. Historical results can enter separately through [baux.import_observations](docs.html#baux.import_observations).
+    [baux.regions](api-pipelines.html#baux.regions) sets \code{origin_only} or \code{ellipsoid_ball} incumbent sharing across centers. [baux.complete](docs.html#baux.complete), [baux.cancel](docs.html#baux.cancel), and [baux.import_observations](docs.html#baux.import_observations) reconcile worker \code{AskId} tickets cleanly across restarts.
   }
 }
 
 \subtree{
-  \title{Deterministic Rollouts & Checkpointing}
+  \title{Deterministic Rollouts & Checkpoints}
 
   \p{
-    The functional API returns a new [\code{OptimizerState}](docs.html#baux.OptimizerState) after each transition. Explicit PRNG keys let [baux.scan](api-state.html#baux.scan) run a fixed sequence and [baux.pmap](api-state.html#baux.pmap) assign a derived key to each branch (following splittable generators in Claessen & Pałka [[CP13]](https://doi.org/10.1145/2503778.2503784) and Steele et al. [[SLF14]](https://doi.org/10.1145/2660193.2660195)). Use the same key, objective values, and completion order to replay an exact trace.
-  }
-
-  \p{
-    [baux.freeze](api-state.html#baux.freeze) serializes optimizer state with a BLAKE3 integrity tag, and [baux.thaw](api-state.html#baux.thaw) restores it against a compatible template. The example below verifies that a restored checkpoint matches across four forked rollouts:
+    Each transition returns a fresh [\code{OptimizerState}](docs.html#baux.OptimizerState). Splittable PRNG keys ([[CP13]](https://doi.org/10.1145/2503778.2503784), [[SLF14]](https://doi.org/10.1145/2660193.2660195)) drive deterministic [baux.scan](api-state.html#baux.scan) and [baux.pmap](api-state.html#baux.pmap) traces, while [baux.freeze](api-state.html#baux.freeze) / [baux.thaw](api-state.html#baux.thaw) checkpoint state with BLAKE3 integrity tags.
   }
 
   \pre{

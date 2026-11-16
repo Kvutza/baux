@@ -1,23 +1,13 @@
 \title{Quickstart}
 \meta{toc}{false}
 
-\p{Define a function, give baux its parameter bounds, and alternate between proposing points and returning their values.}
-
-\subtree{
-  \title{Install}
-  \p{Install the Python package or add the Rust crate:}
-  \pre{
+\pre{
 pip install baux
 cargo add baux
-  }
 }
 
 \subtree{
-  \title{Start with a Function}
-
-  \p{
-    This example searches six bounded parameters. \code{ask} proposes points; your function evaluates them; \code{tell} records the results. baux maximizes values, so return the negative of a loss you want to minimize.
-  }
+  \title{ENN vs. TuRBO-Zero}
 
   \<div>[id]{quickstart}{
   \pre{
@@ -51,23 +41,6 @@ print("  TuRBO-Zero:", round(float(zero_state.best_y), 4))
   }
 
   \p{
-    \code{batch.points} has one row per proposed point. Return one value per row, or several columns for a vector objective. The pipeline above compares an ENN surrogate + UCB acquisition against model-free \code{baux.zero()} across the same evaluation budget; [the configuration reference](api-pipelines.html#baux.enn) describes their options.
-  }
-}
-
-\subtree{
-  \title{Use It for Your Problem}
-
-  \<div>[id]{guides}{
-  \ul{
-    \li{[Structured parameters](baux-0008.html) — Search dictionaries and dataclasses containing log scales, angles, mixtures and discrete choices. Read the proposed values from \code{batch.params}.}
-    \li{[Multiple regions and workers](baux-0009.html) — Explore several centers, return evaluations as workers finish, and save or resume a search.}
-    \li{[Surrogate predictions](baux-0003.html) — Fit ENN to existing observations, query predictions and draw samples.}
-    \li{[Examples](simulation.html) — Run live Python presets, synthetic objectives and the tokamak control console.}
-  }
-  }
-
-  \p{
-    See the [API reference](docs.html) for signatures, array shapes and configuration options. The [source repository](https://github.com/Kvutza/baux) contains the Rust implementation and Python frontend.
+    Return one scalar per row of \code{batch.points} (or columns for vector objectives); see [Pipelines](api-pipelines.html#baux.enn) and the [API reference](docs.html).
   }
 }

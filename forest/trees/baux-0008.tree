@@ -1,40 +1,33 @@
-\title{Work with Structured Parameters}
+\title{Structured Parameters}
 
 \p{
-  Pass a dictionary, tuple or dataclass template to \code{baux.init}. Use \code{Log} for positive scales, \code{Periodic} for angles, \code{Simplex} for mixture weights and \code{Categorical} for discrete choices. After \code{ask}, evaluate the decoded objects in \code{batch.params}.
+  Pass a nested dictionary, tuple, or dataclass template to [baux.init](docs.html#baux.init). \code{batch.points} holds solver coordinates; \code{batch.params} holds decoded objects.
 }
 
 \subtree{
   \title{Parameter Coordinate Maps}
 
-  \p{
-    A structured domain tells the optimizer how to encode parameters as coordinates and decode proposals for evaluation. [baux.init](docs.html#baux.init) accepts nested dictionaries, tuples and dataclasses. For such a domain, \code{batch.points} contains solver coordinates and \code{batch.params} contains decoded parameters. Each leaf specifies its own map; the examples below show how that choice affects distance and valid proposals.
-  }
-
   \ul{
     \li{
-      \strong{Log-scale intervals} ([baux.Log](api-domains.html#baux.Log)): On #{[a, b] \subset \mathbb{R}_+},
+      \strong{Log-scale} ([baux.Log](api-domains.html#baux.Log)): On #{[a, b] \subset \mathbb{R}_+},
       ##{
-        \psi(x) = \frac{\log x - \log a}{\log b - \log a} \in [0, 1], \qquad \rho(u) = a\left(\frac{b}{a}\right)^{\Pi_{[0,1]}(u)},
+        \psi(x) = \frac{\log x - \log a}{\log b - \log a} \in [0, 1], \qquad \rho(u) = a\left(\frac{b}{a}\right)^{\Pi_{[0,1]}(u)}.
       }
-      so uniform steps in #{u} correspond to constant multiplicative ratios in #{x}.
     }
     \li{
-      \strong{Periodic intervals} ([baux.Periodic](api-domains.html#baux.Periodic)): On #{\lbrack a, b\rparen} of period #{P = b - a} with phase #{\phi(x) = \tfrac{2\pi(x - a)}{P}}, circle embedding and #{\operatorname{atan2}} decoding,
+      \strong{Periodic} ([baux.Periodic](api-domains.html#baux.Periodic)): On #{\lbrack a, b\rparen} with period #{P = b - a} and phase #{\phi(x) = \tfrac{2\pi(x - a)}{P}},
       ##{
-        \psi(x) = \left(\frac{1}{2} + \frac{\cos\phi(x)}{2\pi},\; \frac{1}{2} + \frac{\sin\phi(x)}{2\pi}\right), \qquad d_{\mathcal{U}}\bigl(\psi(x), \psi(x')\bigr) = \frac{1}{\pi}\left|\sin\left(\frac{\phi(x) - \phi(x')}{2}\right)\right|,
+        \psi(x) = \left(\frac{1}{2} + \frac{\cos\phi(x)}{2\pi},\; \frac{1}{2} + \frac{\sin\phi(x)}{2\pi}\right), \qquad d_{\mathcal{U}}\bigl(\psi(x), \psi(x')\bigr) = \frac{1}{\pi}\left|\sin\left(\frac{\phi(x) - \phi(x')}{2}\right)\right|.
       }
-      avoid artificial jumps across the wrap boundary #{a \equiv b}.
     }
     \li{
-      \strong{Probability simplices} ([baux.Simplex](api-domains.html#baux.Simplex)): On #{\Delta^{d-1}}, the square-root map onto the positive unit sphere and radial normalization,
+      \strong{Simplex} ([baux.Simplex](api-domains.html#baux.Simplex)): On #{\Delta^{d-1}} (twice squared Hellinger distance; returns uniform if all clipped entries vanish),
       ##{
-        \psi(p) = \bigl(\sqrt{p_1}, \dots, \sqrt{p_d}\bigr) \in S_+^{d-1}, \qquad \rho(u) = \frac{\max(u, 0)^{\odot 2}}{\Vert\max(u, 0)\Vert_2^2},
+        \psi(p) = \bigl(\sqrt{p_1}, \dots, \sqrt{p_d}\bigr) \in S_+^{d-1}, \qquad \rho(u) = \frac{\max(u, 0)^{\odot 2}}{\Vert\max(u, 0)\Vert_2^2}.
       }
-      give squared coordinate distance #{\sum_j(\sqrt{p_j}-\sqrt{q_j})^2}, equal to twice squared Hellinger distance under the convention #{H^2(p,q)=\tfrac12\sum_j(\sqrt{p_j}-\sqrt{q_j})^2}. The decoder returns the uniform distribution when all clipped coordinates are zero.
     }
     \li{
-      \strong{Discrete sets} ([baux.Categorical](api-domains.html#baux.Categorical)): Finite choices #{\{1, \dots, C\}} map to equal-norm orthogonal or Rademacher codewords #{\psi(c) \in \mathbb{R}^{d_c}} (Achlioptas [[Ach03]](https://doi.org/10.1016/S0022-0000(03)00025-4)), reducing nearest-codeword decoding to #{\rho(u) = \arg\max_c \langle u, \psi(c)\rangle}.
+      \strong{Categorical} ([baux.Categorical](api-domains.html#baux.Categorical)): Orthogonal/Rademacher codewords #{\psi(c) \in \mathbb{R}^{d_c}} (Achlioptas [[Ach03]](https://doi.org/10.1016/S0022-0000(03)00025-4)), decoded via #{\rho(u) = \arg\max_c \langle u, \psi(c)\rangle}.
     }
   }
 }
@@ -43,7 +36,7 @@
   \title{Linear Subspace Shrinkage}
 
   \p{
-    Vector observations may contain a component aligned with a known subspace and a residual outside it. [baux.Stiefel.from_factors](api-domains.html#baux.Stiefel) orthonormalizes a full-rank basis #{L} to obtain #{V}. With #{P=VV^\top}, a contraction factor #{\alpha \in [0,1]} preserves the projected component and reduces the residual:
+    [baux.Stiefel.from_factors](api-domains.html#baux.Stiefel) orthonormalizes a full-rank basis #{L} into #{V} with projector #{P=VV^\top} and residual contraction #{\alpha \in [0,1]}:
   }
 
   ##{
@@ -51,7 +44,7 @@
   }
 
   \p{
-    To see the tradeoff, suppose #{y=\theta+\eta \in \mathbb{R}^M} with zero-mean noise, a fixed subspace of rank #{1 \le r < M}, and a fixed #{\alpha}. Write #{v_\parallel=\mathbb{E}\Vert P\eta\Vert^2}, #{v_\perp=\mathbb{E}\Vert(I-P)\eta\Vert^2>0}, and #{b_\perp^2=\Vert(I-P)\theta\Vert^2}. Orthogonality gives mean squared error #{\mathcal{R}(\alpha)=v_\parallel+(1-\alpha)^2 b_\perp^2+\alpha^2 v_\perp}. Its minimizer is:
+    For #{y=\theta+\eta \in \mathbb{R}^M} with #{v_\parallel=\mathbb{E}\Vert P\eta\Vert^2}, #{v_\perp=\mathbb{E}\Vert(I-P)\eta\Vert^2>0}, and #{b_\perp^2=\Vert(I-P)\theta\Vert^2}, MSE #{\mathcal{R}(\alpha)=v_\parallel+(1-\alpha)^2 b_\perp^2+\alpha^2 v_\perp} is minimized at:
   }
 
   ##{
@@ -59,11 +52,7 @@
   }
 
   \p{
-    In practice the off-subspace signal energy #{b_\perp^2} is unknown, so [baux.stein](api-pipelines.html#baux.stein) estimates the contraction directly from the ENN's predicted residual energy and variances (following James–Stein shrinkage [[JS61]](https://projecteuclid.org/ebooks/berkeley-symposium-on-mathematical-statistics-and-probability/Proceedings-of-the-Fourth-Berkeley-Symposium-on-Mathematical-Statistics-and/chapter/Estimation-with-Quadratic-Loss/bsmsp/1200512173)), while [baux.calibrate](api-pipelines.html#baux.calibrate) fits an affine quantile correction from validation pairs.
-  }
-
-  \p{
-    Below, a \code{PyTree} domain combining logarithmic gain, periodic phase, simplex filter weights, and a categorical window drives a noisy 6-channel response concentrated near a rank-2 frame:
+    [baux.stein](api-pipelines.html#baux.stein) estimates #{\alpha} from ENN residuals and variances (James–Stein [[JS61]](https://projecteuclid.org/ebooks/berkeley-symposium-on-mathematical-statistics-and-probability/Proceedings-of-the-Fourth-Berkeley-Symposium-on-Mathematical-Statistics-and/chapter/Estimation-with-Quadratic-Loss/bsmsp/1200512173)); [baux.calibrate](api-pipelines.html#baux.calibrate) fits affine quantile scaling.
   }
 
   \pre{

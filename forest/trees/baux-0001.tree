@@ -1,16 +1,14 @@
-\title{baux documentation}
+\title{baux}
 \meta{toc}{false}
 
-\p{baux is a derivative-free optimization library with a Rust core and a Python API. Define a parameter space, evaluate proposed points, and return objective values.}
+\p{Derivative-free optimization with a Rust core and functional Python API. Prebuilt Python 3.12–3.15 wheels for Linux x86-64 and macOS arm64.}
 
 \subtree{
-  \title{Installation}
-  \p{Install the Python package or add the Rust crate:}
+  \title{Install}
   \pre{
 pip install baux
 cargo add baux
   }
-  \p{Prebuilt Python 3.12–3.15 wheels support Linux x86-64 and macOS Apple Silicon.}
 }
 
 \subtree{
@@ -34,16 +32,15 @@ for _ in range(10):
 print("Rosenbrock max(-f):", round(float(state.best_y), 5), "at", np.round(state.best_x, 4))
   }
   }
-  \p{baux maximizes values. This example negates the coupled 2D Rosenbrock valley so the optimizer ascends along the curved ridge toward (1, 1). Keep the state returned by \code{ask} and \code{tell} for the next call.}
-  \p{The [quickstart](quickstart.html) explains the loop, and the [REPL](repl.html) runs examples directly in your browser. See the [optimizer reference](docs.html) for inputs and outputs.}
+  \p{baux maximizes objective values; pass the state returned by \code{ask} and \code{tell} to the next step.}
 }
 
 \subtree{
   \title{Guides}
   \ul{
-    \li{[Structured parameters](baux-0008.html): work with dictionaries, dataclasses, discrete choices and constrained values.}
-    \li{[Multiple regions and workers](baux-0009.html): run local searches together and submit evaluations as they finish.}
-    \li{[ENN predictions](baux-0003.html): fit a surrogate to observations and query its predictions.}
-    \li{[Examples](simulation.html): run live Python examples, synthetic objectives and the tokamak control console.}
+    \li{[Quickstart](quickstart.html) — ENN vs. TuRBO-Zero loop.}
+    \li{[Structured parameters](baux-0008.html) — dicts, dataclasses, manifolds.}
+    \li{[Regions and workers](baux-0009.html) — multi-region search, async IDs, checkpoints.}
+    \li{[ENN predictions](baux-0003.html) — surrogate posterior and joint draws.}
   }
 }

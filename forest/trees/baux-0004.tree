@@ -1,34 +1,18 @@
 \title{Examples}
 \meta{slug}{simulation}
 
-\p{
-  These examples cover two benchmark suites used to evaluate \code{baux}: fusion plasma control and device equilibria (TCV rampdown policy search over #{136{,}712} weights, TORAX radial transport, and FUSE equilibria for SPARC, ARC, ITER, and DIII-D), alongside the 56 analytical test functions in \code{baux.benchmarks.synthetic} for interactive surface inspection and high-throughput Python benchmarks.
-}
-
 \subtree{
   \title{Tokamak Console & Equilibria}
 
   \<div>[id]{tokamak-cad-simulation}{}
 
   \<details>{
-  \<summary>{TCV results and experiment setup}
+  \<summary>{TCV benchmark (136,712 weights · 10 seeds · 10,000 rounds)}
   \subtree{
-    \title{TCV Rampdown: Comparing Search Configurations}
+    \title{TCV Rampdown}
 
     \p{
-      The \code{toka_gym} rampdown environment supplies the objective for this study. The plasma-rampdown problem and its simulation setting are described by Wang et al. [[Wan+25]](https://doi.org/10.1038/s41467-025-63917-3) and Theiler et al. [[The+26]](https://doi.org/10.1088/1741-4326/ae6d12). Here, baux searches the weights of an #{11 \to 256 \to 256 \to 256 \to 8} feedback policy. Its #{136{,}712} parameters enter a rollout, and the resulting error becomes the objective value.
-    }
-
-    \p{
-      We compare eight configurations over 10,000 rounds with ten paired seeds: four sharing policies for ten-region search without a surrogate, and four distance choices for one-region ENN search. The recorded labels are \code{TuRBO-zero} and \code{TuRBO-ENN}; the former uses the TuRBO region controller without the original algorithm's GP surrogate. Each round evaluates one proposed policy. The budget therefore covers 800,000 proposed-policy evaluations across the configurations and seeds.
-    }
-
-    \p{
-      All four surrogate-free sharing configurations have the same recorded trajectory and finish at mean error \code{1.3112 ± 0.0157}. The ENN configurations finish between \code{1.3409 ± 0.0301} (\code{wasserstein}) and \code{1.3693 ± 0.0303} (\code{conformal}). Here and in the figure, ± denotes the standard error of the mean across ten seeds; lower error is better.
-    }
-
-    \p{
-      Holm-adjusted two-sided sign-flip tests against \code{origin_only} give #{p \ge 0.738} at round 10,000; all four surrogate-free sharing configurations follow identical trajectories in this run.
+      \code{toka_gym} ([[Wan+25]](https://doi.org/10.1038/s41467-025-63917-3), [[The+26]](https://doi.org/10.1088/1741-4326/ae6d12)), #{11 \to 256 \to 256 \to 256 \to 8} policy (#{136{,}712} parameters), 8 configs × 10 paired seeds × 10,000 rounds. \code{TuRBO-zero} (all 4 sharing rules identical): \code{1.3112 ± 0.0157}; \code{TuRBO-ENN}: \code{1.3409 ± 0.0301} (\code{wasserstein}) to \code{1.3693 ± 0.0303} (\code{conformal}); Holm sign-flip #{p \ge 0.738}.
     }
 
     \scope{
@@ -39,37 +23,12 @@
     }
   }
   }
-
-  \subtree{
-    \title{TORAX: A Transport Objective}
-
-    \p{
-      TORAX evolves radial plasma transport profiles (Citrin et al. [[Cit+24]](https://arxiv.org/abs/2406.06718)). baux includes an evaluator that varies heating power and deposition location, runs the solver, and returns a negative loss based on central electron temperature, ion temperature and heating power. This gives the optimizer a concrete simulation objective with two bounded inputs.
-    }
-
-  }
-
-  \subtree{
-    \title{Device Geometry and Equilibria}
-
-    \p{
-      The console displays vessel and magnet geometry for TCV, SPARC, ARC, ITER and DIII-D. The non-TCV views include exported equilibrium and engineering data from FUSE (Meneghini et al. [[Men+24]](https://arxiv.org/abs/2409.05894)).
-    }
-  }
 }
 
 \subtree{
   \title{Synthetic Objectives}
 
-  \p{
-    Choose from 56 test functions in the explorer below to inspect their domains and surfaces. To use the same catalogue in your own search, load a function through \code{baux.benchmarks.synthetic}.
-  }
-
   \<div>[id]{ocaml-bench-simulation}{}
-
-  \p{
-    From Python, \code{baux.benchmarks.synthetic} returns bounds and an objective callable. The following example evaluates Ackley in 16 dimensions, then checks the evaluator at the origin:
-  }
 
   \pre{
 import numpy as np
@@ -86,9 +45,5 @@ grid = np.zeros((4096, 16), dtype=np.float64)
 vals = synthetic.eval_batch("ackley", grid, backend="simd", workers=4)
 assert vals.shape == (4096,) and np.allclose(vals, 0.0, atol=1e-12)
 print(f"4096 evals verified; TuRBO-ENN best_y={state.best_y:.5f}")
-  }
-
-  \p{
-    Pass \code{backend="scalar"} or \code{backend="simd"} with \code{workers} to configure native parallel evaluation; see the [benchmarking note](baux-0011.html) for prepared-array versus end-to-end timings.
   }
 }

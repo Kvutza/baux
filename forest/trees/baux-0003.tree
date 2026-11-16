@@ -1,7 +1,7 @@
-\title{Use ENN Predictions}
+\title{ENN Predictions}
 
 \p{
-  Use ENN on its own when you already have observations and want predictions at new points. Create a dataset with \code{enn_init}, fit its parameters with \code{fit}, then query \code{posterior}. Each row of \code{x} is an input; the corresponding row of \code{y} holds its observed outputs.
+  Use \code{enn_init}, \code{fit}, and \code{posterior} directly on existing \code{(x, y)} observations (see [API Reference](api-enn.html#baux.enn_init)), or pass \code{baux.enn(k=8)} inside a pipeline.
 }
 
 \pre{
@@ -19,15 +19,11 @@ print("dense x=0.0  mu=", round(float(prediction.mu[0, 0]), 4), "se=", round(flo
 print("gap   x=0.65 mu=", round(float(prediction.mu[1, 0]), 4), "se=", round(float(prediction.se[1, 0]), 4))
 }
 
-\p{
-  To use ENN inside an optimizer, configure \code{baux.enn(k=8)} in your pipeline. See [the reference](api-enn.html#baux.enn_init) for noise variances, output shapes and sampling options. The sections below explain the prediction and sampling formulas.
-}
-
 \subtree{
-  \title{Inverse-Variance Prediction from #{K} Nearest Neighbors}
+  \title{Inverse-Variance Posterior}
 
   \p{
-    A surrogate estimates values at points that have not yet been evaluated. Epistemic Nearest Neighbors (\code{ENN}; Bafna et al. [[BJS25]](https://arxiv.org/abs/2506.12818)) forms that estimate from nearby observations. For scalar data #{\mathcal{D} = \{(x_m, y_m, s_m)\}_{m=1}^N}, let #{y_m = f(x_m) + s_m\varepsilon_m}, with independent standard normal #{\varepsilon_m}. ENN assigns each neighbor a measurement-noise term and a distance-dependent uncertainty term. Given dissimilarity #{\delta}, target variance #{\hat{\sigma}_y^2 > 0}, and positive scale parameters #{s_0^2,c_e}, these terms are:
+    Given #{\mathcal{D} = \{(x_m, y_m, s_m)\}_{m=1}^N}, dissimilarity #{\delta}, target variance #{\hat{\sigma}_y^2 > 0}, and scale parameters #{\theta=(s_0^2,c_e)} ([[BJS25]](https://arxiv.org/abs/2506.12818)):
   }
 
   ##{
@@ -37,7 +33,7 @@ print("gap   x=0.65 mu=", round(float(prediction.mu[1, 0]), 4), "se=", round(flo
   }
 
   \p{
-    Select the #{K} nearest observations, with index set #{N_K(x)=\{\pi_1(x),\ldots,\pi_K(x)\}}, and give each inverse-variance weight #{w_i(x) = (\sigma_a^2(x \mid x_{\pi_i(x)}) + \sigma_e^2(x \mid x_{\pi_i(x)}))^{-1}}. ENN combines their values and uncertainty as follows [[BJS25]](https://arxiv.org/abs/2506.12818):
+    Over the #{K} nearest indices #{N_K(x)=\{\pi_1(x),\ldots,\pi_K(x)\}} with #{w_i(x) = (\sigma_a^2(x \mid x_{\pi_i(x)}) + \sigma_e^2(x \mid x_{\pi_i(x)}))^{-1}}:
   }
 
   ##{
@@ -47,73 +43,56 @@ print("gap   x=0.65 mu=", round(float(prediction.mu[1, 0]), 4), "se=", round(flo
   }
 
   \p{
-    The total predictive variance is #{\sigma^2(x) = \sigma_e^2(x) + \sigma_a^2(x)}. A UCB rule uses the predicted value and uncertainty to rank candidates. ENN fits its scale parameters with a leave-one-out Gaussian pseudolikelihood; the paper also describes a noise-free variant that skips fitting and ranks candidates by non-domination in predicted value and epistemic uncertainty [[BJS25]](https://arxiv.org/abs/2506.12818). For a fitting subsample #{S_P} of size #{P}, the pseudolikelihood is:
+    Total variance is #{\sigma^2(x) = \sigma_e^2(x) + \sigma_a^2(x)}, fitted via leave-one-out Gaussian pseudolikelihood over subsample #{S_P}:
   }
 
   ##{
-    \widehat{\log \mathcal{L}}(\theta) = -\frac{1}{2P} \sum_{n \in S_P} \left[\log\bigl(2\pi \sigma_{-n}^2(x_n; \theta)\bigr) + \frac{\bigl(y_n - \mu_{-n}(x_n; \theta)\bigr)^2}{\sigma_{-n}^2(x_n; \theta)}\right],
-  }
-
-  \p{
-    where #{\theta=(s_0^2,c_e)}, and #{\mu_{-n}} and #{\sigma_{-n}^2} omit observation #{n} from its #{K}-neighbor set.
+    \widehat{\log \mathcal{L}}(\theta) = -\frac{1}{2P} \sum_{n \in S_P} \left[\log\bigl(2\pi \sigma_{-n}^2(x_n; \theta)\bigr) + \frac{\bigl(y_n - \mu_{-n}(x_n; \theta)\bigr)^2}{\sigma_{-n}^2(x_n; \theta)}\right].
   }
 }
 
 \subtree{
-  \title{Joint Draws Added by baux}
+  \title{Joint Draws}
 
   \p{
-    The published \code{ENN} method does not provide the joint sampling required by Thompson acquisition (Bafna et al. [[BJS25]](https://arxiv.org/abs/2506.12818), §6). \strong{baux} adds a shared-neighbor construction: attaching one independent standard normal variable #{z_{s,m,j} \stackrel{\text{i.i.d.}}{\sim} \mathcal{N}(0, 1)} to every stored observation #{m \in \{1, \dots, N\}} and output channel #{j} couples candidate draws through overlapping neighborhoods without factoring a #{Q \times Q} covariance matrix.
-  }
-
-  \p{
-    For a nonempty neighborhood and the default draws without observation noise, let #{\bar{w}_{i,j}(x) = w_{i,j}(x) / \sum_{r=1}^K w_{r,j}(x)} denote normalized weights. Extend them by zero outside #{N_K(x)}, writing #{\tilde{w}_{m,j}(x)}, and set #{\Vert\bar{w}_j(x)\Vert_2 = \bigl(\sum_{i=1}^K \bar{w}_{i,j}^2(x)\bigr)^{1/2}}. Under the independent-normal model, normalization gives the marginal distribution:
+    Attaching #{z_{s,m,j} \stackrel{\text{i.i.d.}}{\sim} \mathcal{N}(0, 1)} to stored points (#{\bar{w}_{i,j}(x) = w_{i,j}(x) / \sum_{r=1}^K w_{r,j}(x)}, zero-extended to #{\tilde{w}_{m,j}(x)}) yields correlated joint draws without a #{Q \times Q} Cholesky factor:
   }
 
   ##{
-    \tilde{f}_{s,j}(x) = \mu_j(x) + \frac{\sigma_{e,j}(x)}{\Vert\bar{w}_j(x)\Vert_2} \sum_{i=1}^K \bar{w}_{i,j}(x)\, z_{s,\pi_i(x),j} \sim \mathcal{N}\bigl(\mu_j(x),\, \sigma_{e,j}^2(x)\bigr).
-  }
-
-  \p{
-    Under this idealized independent-normal construction, two queries share random variables where their neighbor sets overlap, #{S_K(x,x')=N_K(x)\cap N_K(x')}. Extending the normalized weights by zero outside the neighbor set gives:
+    \tilde{f}_{s,j}(x) = \mu_j(x) + \frac{\sigma_{e,j}(x)}{\Vert\bar{w}_j(x)\Vert_2} \sum_{i=1}^K \bar{w}_{i,j}(x)\, z_{s,\pi_i(x),j} \sim \mathcal{N}\bigl(\mu_j(x),\, \sigma_{e,j}^2(x)\bigr),
   }
 
   ##{
-    \operatorname{Cov}\bigl(\tilde{f}_{s,j}(x),\, \tilde{f}_{s,j}(x')\bigr) = \frac{\sigma_{e,j}(x)\,\sigma_{e,j}(x')}{\Vert\bar{w}_j(x)\Vert_2\,\Vert\bar{w}_j(x')\Vert_2} \sum_{m \in S_K(x, x')} \tilde{w}_{m,j}(x)\,\tilde{w}_{m,j}(x') \ge 0.
+    \operatorname{Cov}\bigl(\tilde{f}_{s,j}(x),\, \tilde{f}_{s,j}(x')\bigr) = \frac{\sigma_{e,j}(x)\,\sigma_{e,j}(x')}{\Vert\bar{w}_j(x)\Vert_2\,\Vert\bar{w}_j(x')\Vert_2} \sum_{m \in N_K(x)\cap N_K(x')} \tilde{w}_{m,j}(x)\,\tilde{w}_{m,j}(x') \ge 0.
   }
 }
 
 \subtree{
-  \title{Local-Scale Distances under Uneven Sampling}
+  \title{Local-Scale Distances}
 
   \p{
-    Neighbor selection depends on the distance supplied to ENN. Local scaling uses a point's neighbor radius to account for different sample spacings, as in Zelnik-Manor and Perona [[ZP04]](https://proceedings.neurips.cc/paper/2004/hash/40173ea48d9567f1f393b20c855bb40b-Abstract.html). Let #{d(x,x')=\Vert x-x'\Vert_2} and let #{\sigma(x)>0} denote a local neighbor radius. baux offers the following dissimilarities; choosing one changes the neighborhoods and the predictions.
+    With #{d(x,x')=\Vert x-x'\Vert_2} and local radius #{\sigma(x)>0}:
   }
 
   \ul{
     \li{
-      \strong{Conformal scaling} (Zelnik-Manor & Perona [[ZP04]](https://proceedings.neurips.cc/paper/2004/hash/40173ea48d9567f1f393b20c855bb40b-Abstract.html)) divides squared Euclidean distance by the product of endpoint spacings:
+      \strong{Conformal} ([[ZP04]](https://proceedings.neurips.cc/paper/2004/hash/40173ea48d9567f1f393b20c855bb40b-Abstract.html)):
       ##{
         \delta_c(x, x_m) = \frac{d^2(x, x_m)}{\sigma(x)\,\sigma(x_m)}.
       }
     }
     \li{
-      \strong{Poincaré half-space distance} (Beardon [[Bea83]](https://doi.org/10.1007/978-1-4612-1146-4), Cannon et al. [[CFK+97]](https://library.slmath.org/books/Book31/files/cannon.pdf), Nickel & Kiela [[NK17]](https://arxiv.org/abs/1705.08039)) associates each point with #{(x, \sigma(x)) \in \mathcal{X} \times \mathbb{R}_+} under #{ds^2 = (\Vert dx\Vert_2^2 + d\sigma^2)/\sigma^2}. Evaluating #{\cosh d_{\mathbb{H}} - 1} adds a scale-difference penalty to conformal distance:
+      \strong{Hyperbolic} (Poincaré half-space [[Bea83]](https://doi.org/10.1007/978-1-4612-1146-4), [[CFK+97]](https://library.slmath.org/books/Book31/files/cannon.pdf), [[NK17]](https://arxiv.org/abs/1705.08039)):
       ##{
         \delta_h(x, x_m) = \frac{d^2(x, x_m)}{2\,\sigma(x)\,\sigma(x_m)} + \frac{\bigl(\sigma(x) - \sigma(x_m)\bigr)^2}{2\,\sigma(x)\,\sigma(x_m)}.
       }
-      A large ratio between endpoint scales increases the second term, penalizing cross-scale matches.
     }
     \li{
-      \strong{Hybrid dissimilarity} (\code{wasserstein} in the API) combines a rescaled position difference with a spacing difference:
+      \strong{Wasserstein} (hybrid):
       ##{
         \delta_w(x, x_m) = \frac{d^2(x, x_m)}{\sqrt{\sigma(x)\,\sigma(x_m)}} + \bigl(\sigma(x) - \sigma(x_m)\bigr)^2.
       }
     }
-  }
-
-  \p{
-    The example below places a dense basin inside a coarse outer shell, fits a \code{hyperbolic} ENN, and inspects neighbor selection, posterior variance decomposition, and joint draw correlation:
   }
 
   \pre{

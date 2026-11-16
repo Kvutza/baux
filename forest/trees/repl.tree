@@ -1,8 +1,6 @@
 \title{REPL}
 \meta{toc}{false}
 
-\<p>[class]{py-page-lead}{Interactive WebAssembly Python workbench for \code{baux}. Edit any example or query live state with \code{>>>}.}
-
 \<div>[id]{py-playground-root}[class]{py-playground-shell}{
   \<div>[class]{py-pg-fallback}{
     \p{Loading Python...}

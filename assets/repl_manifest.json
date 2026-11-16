@@ -22,8 +22,8 @@
     },
     "oxcaml_eval_js": {
       "path": "oxcaml_eval.js",
-      "sha256": "66756c79526999604f30ed0064534e45a488fbe1b6174b5f0e85f530fb7f77b6",
-      "size": 2943703
+      "sha256": "1b345010fcae3093630e582b06cf925264d8b675b3d56cb4019ae6e66b71757b",
+      "size": 2981597
     }
   },
   "pyodide_files": {

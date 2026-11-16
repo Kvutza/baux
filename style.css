@@ -223,6 +223,18 @@ pre code { padding: 0; background: none; font-size: inherit; overflow-wrap: norm
 @media (max-width: 640px) {
   .code-wrap pre { padding-top: 2.15rem; padding-right: 1.15rem; }
 }
+.install-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin: 1rem 0;
+}
+.install-grid .code-wrap { min-width: 0; }
+.install-grid .code-wrap pre { margin: 0; padding-right: 3.5rem; }
+@media (max-width: 640px) {
+  .install-grid { grid-template-columns: 1fr; gap: 0.55rem; }
+  .install-grid .code-wrap pre { padding-top: 0.9rem; padding-right: 3.5rem; }
+}
 .code-keyword { color: var(--code-keyword); }
 .code-string { color: var(--code-string); }
 .code-number { color: var(--code-number); }
@@ -633,6 +645,29 @@ html[data-theme='dark'] .oxb-round-slider {
 html[data-theme='dark'] .oxb-pane-a-hint,
 html[data-theme='dark'] .oxb-pane-b-sub {
   color: #8b949e;
+}
+.oxb-formula-row {
+  padding: 8px 14px;
+  border-top: 1px solid var(--hairline, #e2e8f0);
+  background: var(--bg-surface, #f8fafc);
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+html[data-theme='dark'] .oxb-formula-row {
+  border-top-color: #21262d;
+  background: #13171f;
+}
+.oxb-formula-math {
+  font-size: 0.92rem;
+  line-height: 1.45;
+  color: var(--fg-primary, #0f172a);
+  white-space: nowrap;
+}
+html[data-theme='dark'] .oxb-formula-math {
+  color: #e6edf3;
+}
+.oxb-formula-math .katex {
+  font-size: 1em;
 }
 .oxb-meta-strip {
   padding: 5px 12px;

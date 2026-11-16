@@ -8,7 +8,7 @@
   <xsl:key name="tree-with-addr" match="fr:tree" use="fr:frontmatter/fr:addr" />
 
   <xsl:template match="/">
-    <html xmlns="http://www.w3.org/1999/xhtml" data-base-url="{/fr:tree/@base-url}">
+    <html xmlns="http://www.w3.org/1999/xhtml" data-base-url="{/fr:tree/@base-url}" data-repl-worker="assets/repl_worker.js">
       <head>
         <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'" />
         <meta name="referrer" content="strict-origin-when-cross-origin" />

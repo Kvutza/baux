@@ -2,7 +2,7 @@
 \meta{slug}{simulation}
 
 \p{
-  Scrub tokamak equilibria and rampdown trajectories below, or step through 56 synthetic test functions.
+  These examples cover two benchmark suites used to evaluate \code{baux}: fusion plasma control and device equilibria (TCV rampdown policy search over #{136{,}712} weights, TORAX radial transport, and FUSE equilibria for SPARC, ARC, ITER, and DIII-D), alongside the 56 analytical test functions in \code{baux.benchmarks.synthetic} for interactive surface inspection and high-throughput Python benchmarks.
 }
 
 \subtree{

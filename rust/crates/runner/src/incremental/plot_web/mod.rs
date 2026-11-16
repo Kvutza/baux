@@ -31,8 +31,8 @@ const LIGHT_STYLE: &str = ":root {
   --bench-c-enn3: #b45309;
   --bench-c-enn4: #6d28d9;
   --bench-c-ppo: #be123c;
-  --font-serif: 'Latin Modern Roman', 'CMU Serif', Georgia, serif;
-  --font-mono: 'IBM Plex Mono', 'Latin Modern Mono', ui-monospace, Menlo, monospace;
+  --font-sans: 'InterVariable', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, Menlo, monospace;
 }";
 
 const DARK_STYLE: &str = ":root {
@@ -50,8 +50,8 @@ const DARK_STYLE: &str = ":root {
   --bench-c-enn3: #f59e0b;
   --bench-c-enn4: #c084fc;
   --bench-c-ppo: #fb7185;
-  --font-serif: 'Latin Modern Roman', 'CMU Serif', Georgia, serif;
-  --font-mono: 'IBM Plex Mono', 'Latin Modern Mono', ui-monospace, Menlo, monospace;
+  --font-sans: 'InterVariable', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, Menlo, monospace;
 }";
 
 pub fn render_svg(model: &StudyPlotModel, dark: bool) -> String {
@@ -121,7 +121,7 @@ pub fn render_svg(model: &StudyPlotModel, dark: bool) -> String {
         &[
             ("x", "12"),
             ("y", "19"),
-            ("font-family", "var(--font-serif)"),
+            ("font-family", "var(--font-sans)"),
             ("font-size", "12"),
             ("font-weight", "700"),
             ("fill", "var(--fg-primary)"),
@@ -133,7 +133,7 @@ pub fn render_svg(model: &StudyPlotModel, dark: bool) -> String {
         &[
             ("x", "450"),
             ("y", "19"),
-            ("font-family", "var(--font-serif)"),
+            ("font-family", "var(--font-sans)"),
             ("font-size", "12"),
             ("font-weight", "700"),
             ("fill", "var(--fg-primary)"),

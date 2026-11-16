@@ -8,448 +8,14 @@
 
 open Js_of_ocaml
 open Dom_html
+open Py_presets
 
 let js = Js.string
 let to_s = Js.to_string
 let svg_ns = "http://www.w3.org/2000/svg"
 
-type preset = {
-  id : string;
-  label : string;
-  tag : string;
-  description : string;
-  code : string;
-}
 
-let presets : preset list =
-  [
-    {
-      id = "sparc_pf";
-      label = "SPARC Tokamak: 8-PF Equilibrium";
-      tag = "8D · Tokamak";
-      description =
-        "Optimize 8 SPARC PF coil currents for flux-surface and X-point match.";
-      code =
-        "import json, os\n"
-        ^ "import numpy as np\n"
-        ^ "import baux\n\n"
-        ^ "env = next(p for p in ['/home/pyodide/baux_env.json', 'baux_env.json', 'assets/baux_env.json', 'forest/output/assets/baux_env.json'] if os.path.exists(p))\n"
-        ^ "sparc = json.load(open(env))['fuse']['machines']['sparc']\n\n"
-        ^ "coils = sparc['coils']\n"
-        ^ "nom_I = np.array([c['current_ma'] for c in coils[14:22]], dtype=float)\n"
-        ^ "lcfs = np.array(sparc['lcfs'], dtype=float)\n"
-        ^ "axR, axZ = float(sparc['axisR']), float(sparc['axisZ'])\n"
-        ^ "rx, zx, Ip = float(sparc['rx']), float(sparc['zx']), float(sparc['ipNominal'])\n\n"
-        ^ "def agm_KE(k2):\n"
-        ^ "    k2 = np.clip(k2, 0.0, 1.0 - 1e-10)\n"
-        ^ "    a, b, c2, s, p = np.ones_like(k2), np.sqrt(1.0 - k2), k2.copy(), np.zeros_like(k2), 1.0\n"
-        ^ "    for _ in range(6):\n"
-        ^ "        s, p = s + p * c2, p * 2.0\n"
-        ^ "        an, bn = 0.5 * (a + b), np.sqrt(a * b)\n"
-        ^ "        c2, a, b = 0.25 * (a - b) ** 2, an, bn\n"
-        ^ "    K = 0.5 * np.pi / a\n"
-        ^ "    return K, K * (1.0 - 0.5 * s)\n\n"
-        ^ "def fpsi(R, Z, Rc, Zc):\n"
-        ^ "    k2 = (4.0 * Rc * R) / ((Rc + R) ** 2 + (Z - Zc) ** 2 + 1e-8)\n"
-        ^ "    K, E = agm_KE(k2)\n"
-        ^ "    k = np.sqrt(np.maximum(k2, 1e-12))\n"
-        ^ "    return 0.4 * np.sqrt(Rc * R) * ((2.0 / k - k) * K - (2.0 / k) * E)\n\n"
-        ^ "ptsR = np.concatenate([[axR], lcfs[:, 0], [rx + 2e-3, rx - 2e-3, rx, rx]])\n"
-        ^ "ptsZ = np.concatenate([[axZ], lcfs[:, 1], [zx, zx, zx + 2e-3, zx - 2e-3]])\n"
-        ^ "G = np.zeros((len(ptsR), 8))\n"
-        ^ "psi_fix = Ip * fpsi(ptsR, ptsZ, axR, axZ)\n"
-        ^ "for ic, c in enumerate(coils):\n"
-        ^ "    g = fpsi(ptsR, ptsZ, float(c['r']), float(c['z']))\n"
-        ^ "    if 14 <= ic < 22:\n"
-        ^ "        G[:, ic - 14] = g\n"
-        ^ "    else:\n"
-        ^ "        psi_fix += float(c['current_ma']) * g\n\n"
-        ^ "def sparc_score(xm):\n"
-        ^ "    I = np.asarray(xm, dtype=float)\n"
-        ^ "    psi = psi_fix[None, :] + I @ G.T\n"
-        ^ "    lc = psi[:, 1:1 + len(lcfs)]\n"
-        ^ "    sh = np.mean((lc - np.mean(lc, axis=1, keepdims=True)) ** 2, axis=1)\n"
-        ^ "    dR = (psi[:, -4] - psi[:, -3]) / 4e-3\n"
-        ^ "    dZ = (psi[:, -2] - psi[:, -1]) / 4e-3\n"
-        ^ "    return -(np.sqrt(sh + 1e-12) + 0.35 * np.sqrt(dR ** 2 + dZ ** 2 + 1e-12) + 1e-3 * np.mean(I ** 2, axis=1))[:, None]\n\n"
-        ^ "bounds = np.array([[-13.0, 13.0]] * 8)\n"
-        ^ "def run_eq(pipe, n_evals=96):\n"
-        ^ "    st = baux.init(bounds, pipe=pipe, seed=1)\n"
-        ^ "    while st.num_observations < n_evals:\n"
-        ^ "        st, bat = baux.ask(st, 4)\n"
-        ^ "        st, _ = baux.tell(st, bat, sparc_score(bat.points))\n"
-        ^ "    return st\n\n"
-        ^ "state = run_eq(baux.lhd(12) | baux.enn() | baux.ucb() | baux.raasp(300))\n"
-        ^ "st_zero = run_eq(baux.lhd(12) | baux.zero() | baux.raasp(300))\n"
-        ^ "st_lhd = run_eq(baux.lhd(96, only=True))\n"
-        ^ "nom_s = float(sparc_score(nom_I[None, :])[0, 0])\n"
-        ^ "print(f'SPARC PF equilibrium (96 evals): ENN={state.best_y:.4f} | Zero={st_zero.best_y:.4f} | LHD={st_lhd.best_y:.4f} | FUSE-nom={nom_s:.4f}')\n"
-        ^ "print('ENN coil currents [MA]:', np.round(state.best_x, 3))\n\n"
-        ^ "nr, nz = 28, 28\n"
-        ^ "rr, zz = np.meshgrid(np.linspace(0.45, 4.25, nr), np.linspace(-2.45, 2.45, nz))\n"
-        ^ "def grid_psi(I_pf):\n"
-        ^ "    val = Ip * fpsi(rr, zz, axR, axZ)\n"
-        ^ "    for ic, c in enumerate(coils):\n"
-        ^ "        cur = float(I_pf[ic - 14]) if 14 <= ic < 22 else float(c['current_ma'])\n"
-        ^ "        val = val + cur * fpsi(rr, zz, float(c['r']), float(c['z']))\n"
-        ^ "    return val\n\n"
-        ^ "init_I = state.x_obs[0]\n"
-        ^ "def lcfs_mean(I_pf):\n"
-        ^ "    return float(np.mean((psi_fix[None, :] + I_pf[None, :] @ G.T)[0, 1:1 + len(lcfs)]))\n\n"
-        ^ "coil_viz = [[float(c['r']), float(c['z']), float(c['w']), float(c['h']),\n"
-        ^ "             float(state.best_x[ic - 14]) / 13.0 if 14 <= ic < 22 else float(c['current_ma']) / 13.0]\n"
-        ^ "            for ic, c in enumerate(coils)]\n"
-        ^ "fig = {\n"
-        ^ "    'kind': 'tokamak',\n"
-        ^ "    'title': 'SPARC 8-PF Shaping Separatrix vs FUSE Target LCFS',\n"
-        ^ "    'subtitle': 'AGM Biot-Savart flux contours matched to TEQUILA equilibrium & lower X-point null',\n"
-        ^ "    'r_range': [0.45, 4.25], 'z_range': [-2.45, 2.45],\n"
-        ^ "    'first_wall': sparc['first_wall'], 'lcfs': sparc['lcfs'], 'x_point': [rx, zx],\n"
-        ^ "    'coils': coil_viz,\n"
-        ^ "    'flux_grid': {\n"
-        ^ "        'nr': nr, 'nz': nz,\n"
-        ^ "        'psi_init': grid_psi(init_I).ravel().tolist(),\n"
-        ^ "        'psi_opt': grid_psi(state.best_x).ravel().tolist(),\n"
-        ^ "        'psi_init_target': lcfs_mean(init_I),\n"
-        ^ "        'psi_opt_target': lcfs_mean(state.best_x),\n"
-        ^ "    },\n"
-        ^ "    'curves': {\n"
-        ^ "        'title': 'PF Shaping Objective Trajectory (96 evals)',\n"
-        ^ "        'y_label': 'Equilibrium Score', 'x_label': 'Evaluations',\n"
-        ^ "        'series': [\n"
-        ^ "            {'label': 'TuRBO-ENN', 'y': np.maximum.accumulate(state.y_obs[:, 0]).tolist()},\n"
-        ^ "            {'label': 'TuRBO-Zero', 'y': np.maximum.accumulate(st_zero.y_obs[:, 0]).tolist()},\n"
-        ^ "            {'label': 'LHD-only', 'y': np.maximum.accumulate(st_lhd.y_obs[:, 0]).tolist(), 'dashed': True},\n"
-        ^ "        ],\n"
-        ^ "    },\n"
-        ^ "}\n";
-    };
-    {
-      id = "kh_pde";
-      label = "2D Kelvin-Helmholtz Shear PDE";
-      tag = "10D · FFT PDE";
-      description =
-        "Control a 2D spectral shear layer to suppress vortex enstrophy.";
-      code =
-        "import time\n"
-        ^ "import numpy as np\n"
-        ^ "import baux\n\n"
-        ^ "N = 24\n"
-        ^ "k1 = np.fft.fftfreq(N, d=1.0 / N) * 2.0 * np.pi\n"
-        ^ "kx, kz = np.meshgrid(k1, k1)\n"
-        ^ "k2 = kx ** 2 + kz ** 2\n"
-        ^ "k2_inv = np.divide(1.0, k2, out=np.zeros_like(k2), where=k2 > 0)\n"
-        ^ "dealias = (np.abs(kx) < (2.0 / 3.0) * N * np.pi) & (np.abs(kz) < (2.0 / 3.0) * N * np.pi)\n"
-        ^ "grid1d = np.linspace(0.0, 1.0, N, endpoint=False)\n"
-        ^ "X, Z = np.meshgrid(grid1d, grid1d)\n\n"
-        ^ "w_bar = 4.0 / np.cosh((Z - 0.25) / 0.05) ** 2 - 4.0 / np.cosh((Z - 0.75) / 0.05) ** 2\n"
-        ^ "w0 = w_bar + 1.2 * np.sin(2.0 * np.pi * X) * np.cos(2.0 * np.pi * Z)\n"
-        ^ "modes = [(1, 0), (1, 1), (1, -1), (2, 0), (2, 1)]\n"
-        ^ "basis = np.stack([f(2.0 * np.pi * (mx * X + mz * Z))\n"
-        ^ "                  for mx, mz in modes for f in (np.sin, np.cos)], axis=0)\n"
-        ^ "drive = 5.0 * np.sin(2.0 * np.pi * X) * np.cos(2.0 * np.pi * Z) + 3.0 * np.cos(4.0 * np.pi * X) * np.sin(2.0 * np.pi * Z)\n\n"
-        ^ "def sim_kh(ctrl, nsteps=18, dt=0.025):\n"
-        ^ "    force = np.tensordot(ctrl, basis, axes=(0, 0)) + drive\n"
-        ^ "    w = w0.copy()\n"
-        ^ "    for _ in range(nsteps):\n"
-        ^ "        wh = np.fft.fft2(w)\n"
-        ^ "        psih = wh * k2_inv\n"
-        ^ "        u = np.fft.ifft2(1j * kz * psih).real\n"
-        ^ "        v = np.fft.ifft2(-1j * kx * psih).real\n"
-        ^ "        wx = np.fft.ifft2(1j * kx * wh * dealias).real\n"
-        ^ "        wz = np.fft.ifft2(1j * kz * wh * dealias).real\n"
-        ^ "        rhs = -(u * wx + v * wz) + force\n"
-        ^ "        w = np.fft.ifft2((wh + dt * np.fft.fft2(rhs) * dealias) / (1.0 + 3e-3 * k2 * dt)).real\n"
-        ^ "    return w, -(float(np.mean((w - w_bar) ** 2)) + 0.002 * float(np.sum(ctrl ** 2)))\n\n"
-        ^ "w_unc, y_unc = sim_kh(np.zeros(10))\n"
-        ^ "bounds = np.array([[-6.0, 6.0]] * 10)\n"
-        ^ "def run_kh(pipe):\n"
-        ^ "    st = baux.init(bounds, pipe=pipe, seed=3)\n"
-        ^ "    while st.num_observations < 72:\n"
-        ^ "        st, bat = baux.ask(st, 4)\n"
-        ^ "        st, _ = baux.tell(st, bat, np.array([[sim_kh(r)[1]] for r in bat.points]))\n"
-        ^ "    return st\n\n"
-        ^ "t0 = time.perf_counter()\n"
-        ^ "state = run_kh(baux.lhd(12) | baux.enn(num_samples=150) | baux.ucb() | baux.raasp(300))\n"
-        ^ "t_enn = (time.perf_counter() - t0) * 1e3\n"
-        ^ "st_zero = run_kh(baux.lhd(12) | baux.zero() | baux.raasp(300))\n"
-        ^ "w_opt, _ = sim_kh(state.best_x)\n"
-        ^ "vmax = float(max(np.max(np.abs(w_unc)), np.max(np.abs(w_opt))))\n\n"
-        ^ "print(f'2D KH shear (72 evals): uncontrolled={y_unc:.3f} -> ENN={state.best_y:.3f} ({t_enn:.0f}ms) vs Zero={st_zero.best_y:.3f}')\n"
-        ^ "fig = {\n"
-        ^ "    'kind': 'field2d',\n"
-        ^ "    'title': '2D Incompressible Shear Vorticity w(x, z)',\n"
-        ^ "    'subtitle': '10-mode spectral actuator control suppressing Kelvin-Helmholtz vortex rollup',\n"
-        ^ "    'panels': [\n"
-        ^ "        {'label': 'Uncontrolled blowup', 'nx': N, 'nz': N, 'vals': w_unc.ravel().tolist(), 'vmin': -vmax, 'vmax': vmax},\n"
-        ^ "        {'label': 'TuRBO-ENN damped', 'nx': N, 'nz': N, 'vals': w_opt.ravel().tolist(), 'vmin': -vmax, 'vmax': vmax},\n"
-        ^ "    ],\n"
-        ^ "    'curves': {\n"
-        ^ "        'title': 'Perturbation Enstrophy Suppression (72 evals)',\n"
-        ^ "        'y_label': 'Negative Cost', 'x_label': 'Evaluations',\n"
-        ^ "        'series': [\n"
-        ^ "            {'label': 'TuRBO-ENN (UCB)', 'y': np.maximum.accumulate(state.y_obs[:, 0]).tolist()},\n"
-        ^ "            {'label': 'TuRBO-Zero', 'y': np.maximum.accumulate(st_zero.y_obs[:, 0]).tolist()},\n"
-        ^ "            {'label': 'Uncontrolled', 'y': [y_unc] * state.num_observations, 'dashed': True},\n"
-        ^ "        ],\n"
-        ^ "    },\n"
-        ^ "}\n";
-    };
-    {
-      id = "oxcaml_24d";
-      label = "24D Levy: ENN vs Conformal vs Zero";
-      tag = "24D · OxCaml";
-      description =
-        "Compare ENN, Conformal ENN, and TuRBO-Zero on 24D Levy.";
-      code =
-        "import sys, time\n"
-        ^ "import numpy as np\n"
-        ^ "import baux\n"
-        ^ "from baux.benchmarks import synthetic\n\n"
-        ^ "desc = synthetic.describe('levy', 24)\n"
-        ^ "bounds = np.array(desc['bounds'], dtype=float)\n\n"
-        ^ "def bench(pipe):\n"
-        ^ "    t0 = time.perf_counter()\n"
-        ^ "    st = baux.init(bounds, pipe=pipe, seed=0)\n"
-        ^ "    while st.num_observations < 128:\n"
-        ^ "        st, bat = baux.ask(st, 4)\n"
-        ^ "        st, _ = baux.tell(st, bat, -synthetic.eval_batch('levy', bat.points).reshape(-1, 1))\n"
-        ^ "    return st, (time.perf_counter() - t0) * 1e3\n\n"
-        ^ "state, ms_enn = bench(baux.lhd(16) | baux.enn(num_samples=150) | baux.ucb() | baux.raasp(360))\n"
-        ^ "st_conf, ms_conf = bench(baux.lhd(16) | baux.enn(k=5, geometry='conformal', num_samples=150) | baux.ucb() | baux.raasp(360))\n"
-        ^ "st_zero, ms_zero = bench(baux.lhd(16) | baux.zero() | baux.raasp(360))\n\n"
-        ^ "print(f'OxCaml catalogue size: {len(synthetic.catalogue())} functions')\n"
-        ^ "print(f'24D Levy @ 128 evals (max -f, opt=0.0):')\n"
-        ^ "print(f'  TuRBO-ENN (UCB)      : best={state.best_y:8.2f}  wall={ms_enn:5.0f} ms')\n"
-        ^ "print(f'  TuRBO-ENN (Conformal): best={st_conf.best_y:8.2f}  wall={ms_conf:5.0f} ms')\n"
-        ^ "print(f'  TuRBO-Zero           : best={st_zero.best_y:8.2f}  wall={ms_zero:5.0f} ms')\n"
-        ^ "series = [\n"
-        ^ "    {'label': 'TuRBO-ENN', 'y': np.maximum.accumulate(state.y_obs[:, 0]).tolist()},\n"
-        ^ "    {'label': 'Conformal ENN', 'y': np.maximum.accumulate(st_conf.y_obs[:, 0]).tolist()},\n"
-        ^ "    {'label': 'TuRBO-Zero', 'y': np.maximum.accumulate(st_zero.y_obs[:, 0]).tolist(), 'dashed': True},\n"
-        ^ "]\n"
-        ^ "if sys.platform != 'emscripten':\n"
-        ^ "    try:\n"
-        ^ "        st_gp, ms_gp = bench(baux.lhd(16) | baux.gp() | baux.ucb() | baux.raasp(360))\n"
-        ^ "        print(f'  TuRBO-1 ExactGP      : best={st_gp.best_y:8.2f}  wall={ms_gp:5.0f} ms')\n"
-        ^ "        series.append({'label': 'TuRBO-1 GP', 'y': np.maximum.accumulate(st_gp.y_obs[:, 0]).tolist()})\n"
-        ^ "    except Exception as exc:\n"
-        ^ "        print(f'  TuRBO-1 ExactGP      : unavailable ({exc})')\n\n"
-        ^ "fig = {\n"
-        ^ "    'kind': 'curves',\n"
-        ^ "    'title': '24D Levy Scaling (Equal 360-Candidate Budget)',\n"
-        ^ "    'subtitle': 'Higher is better (-Levy loss; 0.0 is global optimum)',\n"
-        ^ "    'x_label': 'Evaluations', 'y_label': 'Best Objective',\n"
-        ^ "    'series': series,\n"
-        ^ "}\n";
-    };
-    {
-      id = "metric_cal";
-      label = "Non-Euclidean ENN & McShane-Whitney";
-      tag = "1D · Metric gap";
-      description =
-        "Compare Euclidean, conformal, and hyperbolic ENN uncertainty on a 1D gap.";
-      code =
-        "import numpy as np\n"
-        ^ "import baux\n\n"
-        ^ "rng = np.random.default_rng(19)\n"
-        ^ "x_tr = np.concatenate([\n"
-        ^ "    np.linspace(-1.6, 0.25, 22),\n"
-        ^ "    np.linspace(1.35, 2.2, 16),\n"
-        ^ "    np.array([0.82]),\n"
-        ^ "])[:, None]\n"
-        ^ "f_true = lambda x: np.sin(4.2 * x) * np.exp(-0.22 * x ** 2) + 0.35 * x\n"
-        ^ "y_tr = f_true(x_tr) + 0.03 * rng.normal(size=x_tr.shape)\n"
-        ^ "y_var = np.full_like(y_tr, 0.03 ** 2)\n"
-        ^ "xg = np.linspace(-1.6, 2.2, 81)[:, None]\n"
-        ^ "yg = f_true(xg).ravel()\n"
-        ^ "kfit = baux.key(29)\n"
-        ^ "flags = baux.enn.PosteriorFlags(observation_noise=False)\n\n"
-        ^ "posts = {}\n"
-        ^ "for geom in ['euclidean', 'conformal', 'hyperbolic']:\n"
-        ^ "    es = baux.with_geometry(baux.enn_init(x_tr, y_tr, y_var, scale_x=True), geom, local_k=4)\n"
-        ^ "    pr = baux.fit(es, k=6, infer_aleatoric=False, key=kfit)\n"
-        ^ "    po = baux.posterior(es, xg, pr, flags=flags)\n"
-        ^ "    rmse = float(np.sqrt(np.mean((po.mu.ravel() - yg) ** 2)))\n"
-        ^ "    cov95 = float(np.mean(np.abs(yg - po.mu.ravel()) <= 2.0 * po.se.ravel()))\n"
-        ^ "    posts[geom] = (po.mu.ravel(), po.se.ravel())\n"
-        ^ "    print(f'{geom:10s} | RMSE={rmse:.4f} | empirical 95% cov={100.0 * cov95:5.1f}%')\n\n"
-        ^ "dx = np.abs(x_tr[:, 0:1] - x_tr[:, 0:1].T)\n"
-        ^ "dy = np.abs(y_tr[:, 0:1] - y_tr[:, 0:1].T)\n"
-        ^ "L_est = float(np.max(np.divide(dy, dx, out=np.zeros_like(dy), where=dx > 0.08)))\n"
-        ^ "dxg = np.abs(xg[:, 0:1] - x_tr[:, 0].T)\n"
-        ^ "mw_hi = np.min(y_tr[:, 0][None, :] + L_est * dxg, axis=1)\n"
-        ^ "mw_lo = np.max(y_tr[:, 0][None, :] - L_est * dxg, axis=1)\n"
-        ^ "print(f'McShane-Whitney L_est={L_est:.2f} | envelope cov={100.0 * np.mean((yg >= mw_lo) & (yg <= mw_hi)):.1f}%')\n\n"
-        ^ "mu_c, se_c = posts['conformal']\n"
-        ^ "mu_e, _ = posts['euclidean']\n"
-        ^ "fig = {\n"
-        ^ "    'kind': 'band1d',\n"
-        ^ "    'title': 'Conformal ENN Posterior vs McShane-Whitney Envelope',\n"
-        ^ "    'subtitle': 'Sparse sampling gap in [0.25, 1.35] tests epistemic expansion and Lipschitz bounds',\n"
-        ^ "    'x_grid': xg.ravel().tolist(),\n"
-        ^ "    'y_true': yg.tolist(),\n"
-        ^ "    'mu': mu_c.tolist(),\n"
-        ^ "    'lo_2se': (mu_c - 2.0 * se_c).tolist(),\n"
-        ^ "    'hi_2se': (mu_c + 2.0 * se_c).tolist(),\n"
-        ^ "    'mw_lo': mw_lo.tolist(), 'mw_hi': mw_hi.tolist(),\n"
-        ^ "    'train_x': x_tr.ravel().tolist(), 'train_y': y_tr.ravel().tolist(),\n"
-        ^ "    'curves': {\n"
-        ^ "        'title': 'Pointwise Uncertainty Width (2 * se) Across Spatial Gap',\n"
-        ^ "        'x_label': 'Domain x', 'y_label': '2 * se(x)',\n"
-        ^ "        'series': [\n"
-        ^ "            {'label': 'Conformal 2*se', 'x': xg.ravel().tolist(), 'y': (2.0 * se_c).tolist()},\n"
-        ^ "            {'label': 'Euclidean |err|', 'x': xg.ravel().tolist(), 'y': np.abs(mu_e - yg).tolist(), 'dashed': True},\n"
-        ^ "        ],\n"
-        ^ "    },\n"
-        ^ "}\n";
-    };
-    {
-      id = "quant_deadzone";
-      label = "FP16 Quantization Deadzone on SO(4)";
-      tag = "6D · SO(4)";
-      description =
-        "Compare float16 vs float32 precision on SO(4) Procrustes descent.";
-      code =
-        "import numpy as np\n"
-        ^ "import baux\n\n"
-        ^ "v_star = np.array([0.08, -0.06, 0.09, -0.05, 0.07, -0.04])\n"
-        ^ "pairs = [(0, 1), (0, 2), (0, 3), (1, 2), (1, 3), (2, 3)]\n"
-        ^ "def cayley(v):\n"
-        ^ "    A = np.zeros((4, 4))\n"
-        ^ "    for k, (i, j) in enumerate(pairs):\n"
-        ^ "        A[i, j], A[j, i] = v[k], -v[k]\n"
-        ^ "    I = np.eye(4)\n"
-        ^ "    return np.linalg.solve(I + A, I - A)\n\n"
-        ^ "R_star = cayley(v_star)\n"
-        ^ "bounds = np.array([[-0.35, 0.35]] * 6)\n"
-        ^ "def run_so4(quant):\n"
-        ^ "    cfg = (baux.lhd(8) | baux.enn() | baux.ucb()\n"
-        ^ "           | baux.regions(1, success_tolerance=2, failure_tolerance=2,\n"
-        ^ "                          length=baux.TrustRegionBounds(length_init=0.14, length_min=1e-4, length_max=0.4)))\n"
-        ^ "    st = baux.init(bounds, pipe=cfg, seed=21)\n"
-        ^ "    while st.num_observations < 96:\n"
-        ^ "        st, bat = baux.ask(st, 4)\n"
-        ^ "        ys = []\n"
-        ^ "        for row in bat.points:\n"
-        ^ "            w = np.float16(32.0 + row).astype(np.float64) - 32.0 if quant else row\n"
-        ^ "            ys.append([-float(np.sum((cayley(w) - R_star) ** 2))])\n"
-        ^ "        st, _ = baux.tell(st, bat, np.array(ys))\n"
-        ^ "    return st\n\n"
-        ^ "state = run_so4(False)\n"
-        ^ "st_fp16 = run_so4(True)\n"
-        ^ "print(f'SO(4) Procrustes @ bias=32.0 (ULP ~ 0.03125 in float16):')\n"
-        ^ "print(f'  FP32 weights : best_err={-state.best_y:.3e} | tr_length={state.tr_length:.4f}')\n"
-        ^ "print(f'  FP16 weights : best_err={-st_fp16.best_y:.3e} | tr_length={st_fp16.tr_length:.4f}')\n\n"
-        ^ "fig = {\n"
-        ^ "    'kind': 'curves',\n"
-        ^ "    'title': 'SO(4) Procrustes Frobenius Error (log scale)',\n"
-        ^ "    'subtitle': 'float16 storage around bias=32 hits rounding floor while float32 descends smoothly',\n"
-        ^ "    'x_label': 'Evaluations', 'y_label': 'Frobenius Err', 'log_y': True,\n"
-        ^ "    'series': [\n"
-        ^ "        {'label': 'FP32 weights', 'y': (-np.maximum.accumulate(state.y_obs[:, 0])).tolist()},\n"
-        ^ "        {'label': 'FP16 @ bias=32', 'y': (-np.maximum.accumulate(st_fp16.y_obs[:, 0])).tolist()},\n"
-        ^ "    ],\n"
-        ^ "}\n";
-    };
-    {
-      id = "stiefel_fir";
-      label = "Mixed Manifold + Stein Shrinkage";
-      tag = "Mixed · Stein";
-      description =
-        "Optimize a mixed-type FIR filter under observation noise.";
-      code =
-        "import math\n"
-        ^ "import numpy as np\n"
-        ^ "import baux\n\n"
-        ^ "spec = baux.pytree_bounds({\n"
-        ^ "    'weights': baux.Simplex(4),\n"
-        ^ "    'phase': baux.Periodic(0.0, 2.0 * np.pi),\n"
-        ^ "    'decay': baux.Log(1e-3, 1.0),\n"
-        ^ "    'window': baux.Categorical(['hann', 'kaiser', 'blackman']),\n"
-        ^ "})\n"
-        ^ "w_star = np.array([0.52, 0.28, 0.14, 0.06])\n"
-        ^ "def clean_fir(p):\n"
-        ^ "    w = np.asarray(p['weights'])\n"
-        ^ "    win = {'hann': 0.08, 'kaiser': 0.14, 'blackman': 0.05}[p['window']]\n"
-        ^ "    return -(float(np.sum((w - w_star) ** 2)) + 0.08 * (1.0 - math.cos(float(p['phase']) - 1.1))\n"
-        ^ "             + 0.03 * (math.log10(float(p['decay'])) + 1.5) ** 2 - win)\n\n"
-        ^ "def run_fir(cfg, seed_noise=13):\n"
-        ^ "    rng = np.random.default_rng(seed_noise)\n"
-        ^ "    st = baux.init(spec, pipe=cfg, seed=8)\n"
-        ^ "    clean_trace = []\n"
-        ^ "    while st.num_observations < 44:\n"
-        ^ "        st, bat = baux.ask(st, 4)\n"
-        ^ "        ys = np.array([[clean_fir(p) + 0.04 * rng.normal()] for p in bat.params])\n"
-        ^ "        st, _ = baux.tell(st, bat, ys)\n"
-        ^ "        clean_trace.append(clean_fir(st.best_params))\n"
-        ^ "    return st, clean_trace\n\n"
-        ^ "st_unshrunk, tr_un = run_fir(baux.lhd(8) | baux.enn() | baux.ucb() | baux.tr_bounds())\n"
-        ^ "frame = np.eye(st_unshrunk.dim, 2)\n"
-        ^ "state, tr_stein = run_fir(baux.lhd(8) | baux.enn() | baux.stein(frame=frame, rank=2) | baux.ucb() | baux.tr_bounds())\n\n"
-        ^ "print(f'Embedded dim={state.dim} (max clean score = 0.14000)')\n"
-        ^ "print(f'Unshrunk ENN : noiseless={clean_fir(st_unshrunk.best_params):+.5f}')\n"
-        ^ "print(f'Stein(rank=2): noiseless={clean_fir(state.best_params):+.5f}')\n"
-        ^ "print('Stein best_params:', state.best_params)\n\n"
-        ^ "fig = {\n"
-        ^ "    'kind': 'curves',\n"
-        ^ "    'title': 'Noiseless FIR Filter Quality at Selected Incumbent',\n"
-        ^ "    'subtitle': 'Stein subspace shrinkage suppresses false spikes from 0.04 observation noise',\n"
-        ^ "    'x_label': 'Batch Step', 'y_label': 'Noiseless Score',\n"
-        ^ "    'series': [\n"
-        ^ "        {'label': 'Stein(frame, rank=2)', 'y': tr_stein},\n"
-        ^ "        {'label': 'Unshrunk ENN', 'y': tr_un, 'dashed': True},\n"
-        ^ "    ],\n"
-        ^ "}\n";
-    };
-    {
-      id = "async_hartmann6";
-      label = "Async Hartmann-6D";
-      tag = "6D · Async";
-      description =
-        "Asynchronous worker loop with straggler cancellation and checkpointing.";
-      code =
-        "import numpy as np\n"
-        ^ "import baux\n\n"
-        ^ "c_h = np.array([[10,3,17,3.5,1.7,8],[0.05,10,17,0.1,8,14],[3,3.5,1.7,10,17,8],[17,8,0.05,10,0.1,14]], dtype=float)\n"
-        ^ "a_h = np.array([1.0, 1.2, 3.0, 3.2])\n"
-        ^ "p_h = 1e-4 * np.array([[1312,1696,5569,124,8283,5886],[2329,4135,8307,3736,1004,9991],[2348,1451,3522,2883,3047,6650],[4047,8828,8732,5743,1091,381]])\n"
-        ^ "def hart6(x):\n"
-        ^ "    ex = np.sum(c_h[None, :, :] * (x[:, None, :] - p_h[None, :, :]) ** 2, axis=-1)\n"
-        ^ "    return np.sum(a_h[None, :] * np.exp(-ex), axis=-1)[:, None]\n\n"
-        ^ "bounds = np.array([[0.0, 1.0]] * 6)\n"
-        ^ "cfg = baux.lhd(12) | baux.enn(num_samples=150) | baux.ucb() | baux.raasp(240) | baux.regions(2)\n"
-        ^ "blank = baux.init(bounds, pipe=cfg, seed=31)\n"
-        ^ "st = blank\n"
-        ^ "st, bw = baux.ask(st, 12)\n"
-        ^ "st = baux.complete(st, bw.ids[6:], hart6(bw.points[6:]))\n"
-        ^ "st = baux.complete(st, bw.ids[:6], hart6(bw.points[:6]))\n\n"
-        ^ "blob = baux.freeze(st)\n"
-        ^ "d_pre = baux.digest(st)\n"
-        ^ "state = baux.thaw(blank, blob)\n"
-        ^ "assert baux.digest(state) == d_pre\n\n"
-        ^ "while state.num_observations < 84:\n"
-        ^ "    state, bat = baux.ask(state, 6)\n"
-        ^ "    state = baux.cancel(state, bat.ids[4:])\n"
-        ^ "    state = baux.complete(state, bat.ids[:4], hart6(bat.points[:4]))\n\n"
-        ^ "st_zero = baux.init(bounds, pipe=baux.lhd(12) | baux.zero() | baux.raasp(240), seed=31)\n"
-        ^ "while st_zero.num_observations < 84:\n"
-        ^ "    st_zero, bz = baux.ask(st_zero, 4)\n"
-        ^ "    st_zero, _ = baux.tell(st_zero, bz, hart6(bz.points))\n\n"
-        ^ "print(f'Checkpoint bytes={len(blob)} BLAKE3={d_pre[:16]}... pending_end={len(state.pending_ids or [])}')\n"
-        ^ "print(f'Hartmann-6D (opt=3.3224): Async ENN={state.best_y:.4f} vs Zero={st_zero.best_y:.4f}')\n\n"
-        ^ "fig = {\n"
-        ^ "    'kind': 'curves',\n"
-        ^ "    'title': 'Hartmann-6D Async Straggler Cancellation vs Zero',\n"
-        ^ "    'subtitle': '2-region async complete() + cancel() with freeze/thaw BLAKE3 continuity',\n"
-        ^ "    'x_label': 'Completed Evals', 'y_label': 'Best Hartmann-6D',\n"
-        ^ "    'series': [\n"
-        ^ "        {'label': 'Async TuRBO-ENN', 'y': np.maximum.accumulate(state.y_obs[:, 0]).tolist()},\n"
-        ^ "        {'label': 'TuRBO-Zero', 'y': np.maximum.accumulate(st_zero.y_obs[:, 0]).tolist(), 'dashed': True},\n"
-        ^ "    ],\n"
-        ^ "}\n";
-    };
-  ]
+
 
 let find_preset id =
   List.find_opt (fun p -> p.id = id) presets
@@ -602,8 +168,31 @@ let cap_ref : cap_info =
 let runtime_mode_ref : runtime_mode ref = ref Wasm
 let worker_ref : Js.Unsafe.any option ref = ref None
 let kernel_state_ref : kernel_state ref = ref Idle
+let boot_step_ref = ref 0
+let boot_total_ref = ref 4
 let status_listeners : (kernel_state -> unit) list ref = ref []
 let cap_listeners : (cap_info -> unit) list ref = ref []
+
+let extract_playground_line (s : string) : int option =
+  let needle = "File \"<playground>\", line " in
+  let nlen = String.length needle in
+  let slen = String.length s in
+  let rec find_last idx best =
+    if idx + nlen > slen then best
+    else if String.sub s idx nlen = needle then
+      let num_start = idx + nlen in
+      let j = ref num_start in
+      while !j < slen && s.[!j] >= '0' && s.[!j] <= '9' do
+        incr j
+      done;
+      if !j > num_start then
+        let num_str = String.sub s num_start (!j - num_start) in
+        let parsed = try Some (int_of_string num_str) with _ -> None in
+        find_last (!j) (if parsed <> None then parsed else best)
+      else find_last (idx + 1) best
+    else find_last (idx + 1) best
+  in
+  find_last 0 None
 let pending_reqs : (int, Js.Unsafe.any -> unit) Hashtbl.t = Hashtbl.create 16
 let next_req_id = ref 1
 let sab_ref : Js.Unsafe.any option ref = ref None
@@ -943,9 +532,21 @@ let ensure_worker () =
             in
             if typ = "status" then (
               if !runtime_mode_ref = Wasm then (
-                let detail = to_s (Js.Unsafe.get data (js "detail")) in
-                let stage = to_s (Js.Unsafe.get data (js "stage")) in
-                if stage = "ready" then notify_status Ready
+                let detail =
+                  if Js.Optdef.test (Js.Unsafe.get data (js "detail")) then
+                    to_s (Js.Unsafe.get data (js "detail"))
+                  else ""
+                in
+                let stage =
+                  if Js.Optdef.test (Js.Unsafe.get data (js "stage")) then
+                    to_s (Js.Unsafe.get data (js "stage"))
+                  else ""
+                in
+                (match opt_int data "step" with Some s -> boot_step_ref := s | None -> ());
+                (match opt_int data "total_steps" with Some ts -> boot_total_ref := ts | None -> ());
+                if stage = "ready" then (
+                  boot_step_ref := !boot_total_ref;
+                  notify_status Ready)
                 else if stage = "interrupting" then notify_status (Interrupting detail)
                 else if stage = "error" then notify_status (Interrupted detail)
                 else notify_status (Booting detail)))
@@ -1122,7 +723,10 @@ let reset_kernel () =
 
 let status_text = function
   | Idle -> "Idle"
-  | Booting d -> d
+  | Booting d ->
+      if !boot_total_ref > 0 && !boot_step_ref > 0 then
+        Printf.sprintf "%s (%d/%d)" d !boot_step_ref !boot_total_ref
+      else d
   | Ready ->
       if !runtime_mode_ref = LocalNative then
         Printf.sprintf "Local (%s)" cap_ref.native_python
@@ -1173,16 +777,52 @@ let json_pair_list (raw : Js.Unsafe.any) : (float * float) list =
       match xs with a :: b :: _ -> Some (a, b) | _ -> None)
     (json_obj_list raw)
 
+let save_svg_element (svg : element Js.t) (filename : string) =
+  try
+    let serializer_ctor = Js.Unsafe.get Dom_html.window (js "XMLSerializer") in
+    let serializer = Js.Unsafe.new_obj serializer_ctor [||] in
+    let svg_xml = Js.Unsafe.meth_call serializer "serializeToString" [| Js.Unsafe.inject svg |] in
+    let blob_ctor = Js.Unsafe.get Dom_html.window (js "Blob") in
+    let blob_parts = Js.array [| svg_xml |] in
+    let blob_opts = Js.Unsafe.obj [| ("type", Js.Unsafe.inject (js "image/svg+xml;charset=utf-8")) |] in
+    let blob = Js.Unsafe.new_obj blob_ctor [| Js.Unsafe.inject blob_parts; Js.Unsafe.inject blob_opts |] in
+    let url_ctor = Js.Unsafe.get Dom_html.window (js "URL") in
+    let blob_url : Js.js_string Js.t = Js.Unsafe.meth_call url_ctor "createObjectURL" [| Js.Unsafe.inject blob |] in
+    let a = createA document in
+    a##.href := blob_url;
+    a##setAttribute (js "download") (js filename);
+    ignore (Js.Unsafe.meth_call document##.body "appendChild" [| Js.Unsafe.inject a |]);
+    a##click;
+    ignore (Js.Unsafe.meth_call document##.body "removeChild" [| Js.Unsafe.inject a |]);
+    ignore (Js.Unsafe.meth_call url_ctor "revokeObjectURL" [| Js.Unsafe.inject blob_url |])
+  with _ -> ()
+
 let make_fig_pane title subtitle =
   let card = mk ~cls:"py-fig-pane" "div" in
   let hdr = mk ~cls:"py-fig-hdr" "div" in
-  Dom.appendChild hdr (mk ~cls:"py-fig-title" ~txt:title "div");
+  let hdr_info = mk ~cls:"py-fig-hdr-info" "div" in
+  Dom.appendChild hdr_info (mk ~cls:"py-fig-title" ~txt:title "div");
   if trim_s subtitle <> "" then
-    Dom.appendChild hdr (mk ~cls:"py-fig-subtitle" ~txt:subtitle "div");
+    Dom.appendChild hdr_info (mk ~cls:"py-fig-subtitle" ~txt:subtitle "div");
+  let hdr_actions = mk ~cls:"py-fig-actions" "div" in
+  let readout_el = mk ~cls:"py-fig-readout" "span" in
+  let save_btn = mk ~cls:"py-ghost-btn py-fig-save" ~txt:"Save SVG" "button" in
+  save_btn##setAttribute (js "type") (js "button");
+  save_btn##setAttribute (js "title") (js "Download figure as SVG");
+  save_btn##.onclick :=
+    Dom.handler (fun _ ->
+        (match Js.Opt.to_option (card##querySelector (js "svg")) with
+        | Some svg -> save_svg_element svg "baux_figure.svg"
+        | None -> ());
+        Js._true);
+  Dom.appendChild hdr_actions readout_el;
+  Dom.appendChild hdr_actions save_btn;
+  Dom.appendChild hdr hdr_info;
+  Dom.appendChild hdr hdr_actions;
   let stage = mk ~cls:"py-fig-stage" "div" in
   Dom.appendChild card hdr;
   Dom.appendChild card stage;
-  (card, stage)
+  (card, hdr_actions, readout_el, stage)
 
 let append_legend_badge legend swatch_cls label =
   let item = mk ~cls:"py-fig-legend-item" "span" in
@@ -1198,7 +838,7 @@ type curve_series = {
 }
 
 let render_curves_card ~title ~subtitle ~x_label ~y_label ~log_y (series : curve_series list) =
-  let card, stage = make_fig_pane title subtitle in
+  let card, _hdr_actions, readout_el, stage = make_fig_pane title subtitle in
   let non_empty = List.filter (fun s -> s.c_ys <> [] && s.c_xs <> []) series in
   if non_empty = [] then card
   else
@@ -1348,6 +988,105 @@ let render_curves_card ~title ~subtitle ~x_label ~y_label ~log_y (series : curve
                  ("class", Printf.sprintf "py-svg-series-dot py-svg-series-dot-%d" slot);
                ]))
       non_empty;
+    let crosshair =
+      svg_el "line"
+        [
+          ("y1", Printf.sprintf "%.1f" pt);
+          ("y2", Printf.sprintf "%.1f" (pt +. ph));
+          ("class", "py-svg-crosshair");
+          ("style", "display: none; pointer-events: none;");
+        ]
+    in
+    Dom.appendChild svg crosshair;
+    let hover_dots =
+      List.mapi
+        (fun idx _s ->
+          let slot = idx mod 5 in
+          let dot =
+            svg_el "circle"
+              [
+                ("r", "4.0");
+                ("class", Printf.sprintf "py-svg-hover-dot py-svg-series-dot-%d" slot);
+                ("style", "display: none; pointer-events: none;");
+              ]
+          in
+          Dom.appendChild svg dot;
+          dot)
+        non_empty
+    in
+    let overlay =
+      svg_el "rect"
+        [
+          ("x", Printf.sprintf "%.1f" pl);
+          ("y", Printf.sprintf "%.1f" pt);
+          ("width", Printf.sprintf "%.1f" pw);
+          ("height", Printf.sprintf "%.1f" ph);
+          ("fill", "transparent");
+          ("class", "py-svg-overlay");
+          ("pointer-events", "all");
+          ("style", "cursor: crosshair;");
+        ]
+    in
+    overlay##.onmousemove :=
+      Dom.handler (fun ev ->
+          let rect = overlay##getBoundingClientRect in
+          let r_left = Js.float_of_number rect##.left in
+          let ow = Js.float_of_number rect##.right -. r_left in
+          if ow > 0.0 then (
+            let rx = max 0.0 (min 1.0 ((Js.float_of_number ev##.clientX -. r_left) /. ow)) in
+            let data_x = x_lo_r +. rx *. x_sp in
+            let best_x = ref data_x in
+            let best_dist = ref infinity in
+            List.iter
+              (fun s ->
+                List.iter
+                  (fun x ->
+                    let d = abs_float (x -. data_x) in
+                    if d < !best_dist then (
+                      best_dist := d;
+                      best_x := x))
+                  s.c_xs)
+              non_empty;
+            let snap_x = !best_x in
+            let sx = x_px snap_x in
+            crosshair##setAttribute (js "x1") (js (Printf.sprintf "%.2f" sx));
+            crosshair##setAttribute (js "x2") (js (Printf.sprintf "%.2f" sx));
+            crosshair##.style##.display := js "";
+            let readouts = ref [] in
+            List.iter2
+              (fun s dot ->
+                let rec find_closest best_d best_pt xs ys =
+                  match (xs, ys) with
+                  | x :: xt, y :: yt ->
+                      let d = abs_float (x -. snap_x) in
+                      if d < best_d then find_closest d (Some (x, y)) xt yt
+                      else find_closest best_d best_pt xt yt
+                  | _ -> best_pt
+                in
+                match find_closest infinity None s.c_xs s.c_ys with
+                | Some (px, py) when abs_float (px -. snap_x) < 1e-4 ->
+                    let sy = y_px py in
+                    dot##setAttribute (js "cx") (js (Printf.sprintf "%.2f" sx));
+                    dot##setAttribute (js "cy") (js (Printf.sprintf "%.2f" sy));
+                    dot##.style##.display := js "";
+                    readouts := Printf.sprintf "%s %.4f" s.c_label py :: !readouts
+                | _ -> dot##.style##.display := js "none")
+              non_empty hover_dots;
+            let x_lbl_clean =
+              if contains_sub (String.lowercase_ascii x_label) "eval" then "Eval"
+              else x_label
+            in
+            let head = Printf.sprintf "%s %.0f" x_lbl_clean snap_x in
+            let full_txt = String.concat " · " (head :: List.rev !readouts) in
+            set_text readout_el full_txt);
+          Js._true);
+    overlay##.onmouseout :=
+      Dom.handler (fun _ ->
+          crosshair##.style##.display := js "none";
+          List.iter (fun d -> d##.style##.display := js "none") hover_dots;
+          set_text readout_el "";
+          Js._true);
+    Dom.appendChild svg overlay;
     let xlbl =
       svg_el "text"
         [
@@ -1455,7 +1194,7 @@ let marching_squares_path ~nr ~nz ~r0 ~r1 ~z0 ~z1 ~x_px ~y_px (vals : float arra
 let render_tokamak_card (fig : Js.Unsafe.any) =
   let title = Option.value (opt_str fig "title") ~default:"Tokamak Equilibrium" in
   let subtitle = Option.value (opt_str fig "subtitle") ~default:"" in
-  let card, stage = make_fig_pane title subtitle in
+  let card, _hdr_actions, readout_el, stage = make_fig_pane title subtitle in
   let split = mk ~cls:"py-tokamak-split" "div" in
   let aside = mk ~cls:"py-tokamak-aside" "div" in
   let legend = mk ~cls:"py-fig-legend py-fig-legend-col" "div" in
@@ -1595,28 +1334,79 @@ let render_tokamak_card (fig : Js.Unsafe.any) =
   if lcfs <> [] then (
     let pts = String.concat " " (List.map (fun (r, z) -> Printf.sprintf "%.2f,%.2f" (x_px r) (y_px z)) lcfs) in
     Dom.appendChild svg (svg_el "polygon" [ ("points", pts); ("class", "py-svg-lcfs-target") ]));
+  let overlay =
+    svg_el "rect"
+      [
+        ("x", Printf.sprintf "%.1f" ox);
+        ("y", Printf.sprintf "%.1f" oy);
+        ("width", Printf.sprintf "%.1f" rw);
+        ("height", Printf.sprintf "%.1f" zh);
+        ("fill", "transparent");
+        ("class", "py-svg-overlay");
+        ("pointer-events", "all");
+        ("style", "cursor: crosshair;");
+      ]
+  in
+  overlay##.onmousemove :=
+    Dom.handler (fun ev ->
+        let rect = overlay##getBoundingClientRect in
+        let r_left = Js.float_of_number rect##.left in
+        let r_top = Js.float_of_number rect##.top in
+        let w_box = Js.float_of_number rect##.right -. r_left in
+        let h_box = Js.float_of_number rect##.bottom -. r_top in
+        if w_box > 0.0 && h_box > 0.0 then (
+          let rx = max 0.0 (min 1.0 ((Js.float_of_number ev##.clientX -. r_left) /. w_box)) in
+          let ry = max 0.0 (min 1.0 ((Js.float_of_number ev##.clientY -. r_top) /. h_box)) in
+          let r_val = r0 +. rx *. (r1 -. r0) in
+          let z_val = z1 -. ry *. (z1 -. z0) in
+          set_text readout_el (Printf.sprintf "R=%.2fm Z=%.2fm" r_val z_val));
+        Js._true);
+  overlay##.onmouseout :=
+    Dom.handler (fun _ ->
+        set_text readout_el "";
+        Js._true);
+  Dom.appendChild svg overlay;
   (* PF Coils *)
   List.iter
     (fun row ->
       match json_num_list row with
-      | rc :: zc :: drc :: dzc :: curr :: _ ->
+      | rc :: zc :: drc :: dzc :: curr :: rest ->
           let w_px = max 4.0 (drc *. scale) in
           let h_px = max 4.0 (dzc *. scale) in
           let cx0 = x_px rc -. 0.5 *. w_px in
           let cy0 = y_px zc -. 0.5 *. h_px in
-          let cls = if curr >= 0.0 then "py-svg-coil-pos" else "py-svg-coil-neg" in
+          let cls =
+            (if curr >= 0.0 then "py-svg-coil-pos" else "py-svg-coil-neg")
+            ^ " py-svg-coil-hit"
+          in
           let op = Printf.sprintf "%.2f" (0.28 +. 0.68 *. min 1.0 (abs_float curr)) in
-          Dom.appendChild svg
-            (svg_el "rect"
-               [
-                 ("x", Printf.sprintf "%.2f" cx0);
-                 ("y", Printf.sprintf "%.2f" cy0);
-                 ("width", Printf.sprintf "%.2f" w_px);
-                 ("height", Printf.sprintf "%.2f" h_px);
-                 ("rx", "1.5");
-                 ("fill-opacity", op);
-                 ("class", cls);
-               ])
+          let r_coil =
+            svg_el "rect"
+              [
+                ("x", Printf.sprintf "%.2f" cx0);
+                ("y", Printf.sprintf "%.2f" cy0);
+                ("width", Printf.sprintf "%.2f" w_px);
+                ("height", Printf.sprintf "%.2f" h_px);
+                ("rx", "1.5");
+                ("fill-opacity", op);
+                ("class", cls);
+                ("pointer-events", "all");
+              ]
+          in
+          let coil_txt =
+            match rest with
+            | ma :: _ -> Printf.sprintf "Coil R=%.2fm Z=%.2fm · %.2f MA" rc zc ma
+            | [] -> Printf.sprintf "Coil R=%.2fm Z=%.2fm · %.2f" rc zc curr
+          in
+          r_coil##.onmouseover :=
+            Dom.handler (fun _ ->
+                set_text readout_el coil_txt;
+                Js._true);
+          r_coil##.onmouseout :=
+            Dom.handler (fun _ ->
+                set_text readout_el "";
+                Js._true);
+          Dom.appendChild svg r_coil
       | _ -> ())
     (json_obj_list (Js.Unsafe.get fig (js "coils")));
   (* X-point crosshair *)
@@ -1661,7 +1451,7 @@ let render_tokamak_card (fig : Js.Unsafe.any) =
 let render_field2d_card (fig : Js.Unsafe.any) =
   let title = Option.value (opt_str fig "title") ~default:"2D Field" in
   let subtitle = Option.value (opt_str fig "subtitle") ~default:"" in
-  let card, stage = make_fig_pane title subtitle in
+  let card, _hdr_actions, readout_el, stage = make_fig_pane title subtitle in
   let panels = json_obj_list (Js.Unsafe.get fig (js "panels")) in
   if panels = [] then card
   else
@@ -1712,7 +1502,8 @@ let render_field2d_card (fig : Js.Unsafe.any) =
                   ("class", "py-svg-axis-lbl");
                 ]
             in
-            set_text p_lbl (Option.value (opt_str p "label") ~default:"Field");
+            let label = Option.value (opt_str p "label") ~default:"Field" in
+            set_text p_lbl label;
             Dom.appendChild svg p_lbl;
             for iz = 0 to nz - 1 do
               for ix = 0 to nx - 1 do
@@ -1738,7 +1529,43 @@ let render_field2d_card (fig : Js.Unsafe.any) =
                    ("width", Printf.sprintf "%.2f" box_s);
                    ("height", Printf.sprintf "%.2f" box_s);
                    ("class", "py-svg-frame");
-                 ])))
+                 ]);
+            let p_overlay =
+              svg_el "rect"
+                [
+                  ("x", Printf.sprintf "%.2f" bx);
+                  ("y", Printf.sprintf "%.2f" by);
+                  ("width", Printf.sprintf "%.2f" box_s);
+                  ("height", Printf.sprintf "%.2f" box_s);
+                  ("fill", "transparent");
+                  ("class", "py-svg-overlay");
+                  ("pointer-events", "all");
+                  ("style", "cursor: crosshair;");
+                ]
+            in
+            p_overlay##.onmousemove :=
+              Dom.handler (fun ev ->
+                  let rect = p_overlay##getBoundingClientRect in
+                  let r_left = Js.float_of_number rect##.left in
+                  let r_top = Js.float_of_number rect##.top in
+                  let bw = Js.float_of_number rect##.right -. r_left in
+                  let bh = Js.float_of_number rect##.bottom -. r_top in
+                  if bw > 0.0 && bh > 0.0 then (
+                    let frac_x = max 0.0 (min 0.999999 ((Js.float_of_number ev##.clientX -. r_left) /. bw)) in
+                    let frac_y = max 0.0 (min 0.999999 ((Js.float_of_number ev##.clientY -. r_top) /. bh)) in
+                    let ix = max 0 (min (nx - 1) (int_of_float (frac_x *. float_of_int nx))) in
+                    let iz_inv = int_of_float (frac_y *. float_of_int nz) in
+                    let iz = max 0 (min (nz - 1) (nz - 1 - iz_inv)) in
+                    let idx = iz * nx + ix in
+                    if idx >= 0 && idx < Array.length vals then
+                      set_text readout_el
+                        (Printf.sprintf "%s (%d,%d) = %.3f" label ix iz vals.(idx)));
+                  Js._true);
+            p_overlay##.onmouseout :=
+              Dom.handler (fun _ ->
+                  set_text readout_el "";
+                  Js._true);
+            Dom.appendChild svg p_overlay))
       panels;
     (* Diverging colorbar strip at bottom *)
     let bar_w = 180.0 and bar_x = 0.5 *. (w -. 180.0) and bar_y = h -. 15.0 in
@@ -1785,7 +1612,7 @@ let render_field2d_card (fig : Js.Unsafe.any) =
 let render_band1d_card (fig : Js.Unsafe.any) =
   let title = Option.value (opt_str fig "title") ~default:"1D Posterior & Uncertainty" in
   let subtitle = Option.value (opt_str fig "subtitle") ~default:"" in
-  let card, stage = make_fig_pane title subtitle in
+  let card, _hdr_actions, readout_el, stage = make_fig_pane title subtitle in
   let xg = json_num_list (Js.Unsafe.get fig (js "x_grid")) in
   let mu = json_num_list (Js.Unsafe.get fig (js "mu")) in
   if xg = [] || List.length xg <> List.length mu then card
@@ -1912,6 +1739,88 @@ let render_band1d_card (fig : Js.Unsafe.any) =
            ("y2", Printf.sprintf "%.1f" (h -. pb));
            ("class", "py-svg-axis");
          ]);
+    let crosshair =
+      svg_el "line"
+        [
+          ("y1", Printf.sprintf "%.1f" pt);
+          ("y2", Printf.sprintf "%.1f" (pt +. ph));
+          ("class", "py-svg-crosshair");
+          ("style", "display: none; pointer-events: none;");
+        ]
+    in
+    Dom.appendChild svg crosshair;
+    let hover_dot =
+      svg_el "circle"
+        [
+          ("r", "4.0");
+          ("class", "py-svg-hover-dot py-svg-series-dot-0");
+          ("style", "display: none; pointer-events: none;");
+        ]
+    in
+    Dom.appendChild svg hover_dot;
+    let xg_arr = Array.of_list xg in
+    let mu_arr = Array.of_list mu in
+    let lo_arr =
+      if List.length lo_2se = Array.length xg_arr then Array.of_list lo_2se
+      else if List.length mw_lo = Array.length xg_arr then Array.of_list mw_lo
+      else mu_arr
+    in
+    let hi_arr =
+      if List.length hi_2se = Array.length xg_arr then Array.of_list hi_2se
+      else if List.length mw_hi = Array.length xg_arr then Array.of_list mw_hi
+      else mu_arr
+    in
+    let overlay =
+      svg_el "rect"
+        [
+          ("x", Printf.sprintf "%.1f" pl);
+          ("y", Printf.sprintf "%.1f" pt);
+          ("width", Printf.sprintf "%.1f" pw);
+          ("height", Printf.sprintf "%.1f" ph);
+          ("fill", "transparent");
+          ("class", "py-svg-overlay");
+          ("pointer-events", "all");
+          ("style", "cursor: crosshair;");
+        ]
+    in
+    overlay##.onmousemove :=
+      Dom.handler (fun ev ->
+          let rect = overlay##getBoundingClientRect in
+          let r_left = Js.float_of_number rect##.left in
+          let ow = Js.float_of_number rect##.right -. r_left in
+          if ow > 0.0 then (
+            let rx = max 0.0 (min 1.0 ((Js.float_of_number ev##.clientX -. r_left) /. ow)) in
+            let data_x = x_lo +. rx *. x_sp in
+            let best_idx = ref 0 in
+            let best_dist = ref infinity in
+            for i = 0 to Array.length xg_arr - 1 do
+              let d = abs_float (xg_arr.(i) -. data_x) in
+              if d < !best_dist then (
+                best_dist := d;
+                best_idx := i)
+            done;
+            let idx = !best_idx in
+            let x = xg_arr.(idx) in
+            let m = mu_arr.(idx) in
+            let lo = lo_arr.(idx) in
+            let hi = hi_arr.(idx) in
+            let sx = x_px x in
+            let sy = y_px m in
+            crosshair##setAttribute (js "x1") (js (Printf.sprintf "%.2f" sx));
+            crosshair##setAttribute (js "x2") (js (Printf.sprintf "%.2f" sx));
+            crosshair##.style##.display := js "";
+            hover_dot##setAttribute (js "cx") (js (Printf.sprintf "%.2f" sx));
+            hover_dot##setAttribute (js "cy") (js (Printf.sprintf "%.2f" sy));
+            hover_dot##.style##.display := js "";
+            set_text readout_el (Printf.sprintf "x=%.3f · mu=%.4g · [%.3g, %.3g]" x m lo hi));
+          Js._true);
+    overlay##.onmouseout :=
+      Dom.handler (fun _ ->
+          crosshair##.style##.display := js "none";
+          hover_dot##.style##.display := js "none";
+          set_text readout_el "";
+          Js._true);
+    Dom.appendChild svg overlay;
     Dom.appendChild stage svg;
     card
 
@@ -2100,6 +2009,25 @@ let is_py_keyword = function
       true
   | _ -> false
 
+let is_py_builtin = function
+  | "abs" | "all" | "any" | "bool" | "dict" | "enumerate" | "float" | "int"
+  | "isinstance" | "len" | "list" | "max" | "min" | "next" | "open" | "print"
+  | "range" | "round" | "set" | "slice" | "sorted" | "str" | "sum" | "tuple"
+  | "zip" ->
+      true
+  | _ -> false
+
+let is_decorator_start src i =
+  if i + 1 >= String.length src || not (is_ident_start src.[i + 1]) then false
+  else
+    let rec check k =
+      if k < 0 then true
+      else if src.[k] = '\n' then true
+      else if src.[k] = ' ' || src.[k] = '\t' then check (k - 1)
+      else false
+    in
+    check (i - 1)
+
 let render_py_highlight (code_el : element Js.t) (src : string) =
   clear_children (code_el :> Dom.node Js.t);
   let len = String.length src in
@@ -2114,7 +2042,7 @@ let render_py_highlight (code_el : element Js.t) (src : string) =
     flush_plain ();
     Dom.appendChild code_el (mk ~cls ~txt "span")
   in
-  let rec scan i =
+  let rec scan i expect_def =
     if i >= len then ()
     else
       let c = src.[i] in
@@ -2124,8 +2052,15 @@ let render_py_highlight (code_el : element Js.t) (src : string) =
           incr j
         done;
         emit_span "code-comment" (String.sub src i (!j - i));
-        scan !j)
-      else if c = '\'' || c = '"' then
+        scan !j false)
+      else if c = '@' && is_decorator_start src i then (
+        let j = ref (i + 1) in
+        while !j < len && (is_ident_char src.[!j] || src.[!j] = '.') do
+          incr j
+        done;
+        emit_span "code-decorator" (String.sub src i (!j - i));
+        scan !j false)
+      else if c = '\'' || c = '"' then (
         let q = c in
         let is_triple = i + 2 < len && src.[i + 1] = q && src.[i + 2] = q in
         let j = ref (i + if is_triple then 3 else 1) in
@@ -2143,14 +2078,14 @@ let render_py_highlight (code_el : element Js.t) (src : string) =
           else incr j
         done;
         emit_span "code-string" (String.sub src i (!j - i));
-        scan !j
+        scan !j false)
       else if
         (c = 'f' || c = 'r' || c = 'b' || c = 'u' || c = 'F' || c = 'R' || c = 'B' || c = 'U')
         && i + 1 < len
         && (src.[i + 1] = '\'' || src.[i + 1] = '"')
       then (
         Buffer.add_char plain_buf c;
-        scan (i + 1))
+        scan (i + 1) false)
       else if is_digit c || (c = '.' && i + 1 < len && is_digit src.[i + 1]) then (
         let j = ref i in
         if
@@ -2181,20 +2116,34 @@ let render_py_highlight (code_el : element Js.t) (src : string) =
               done
             else j := e_pos));
         emit_span "code-number" (String.sub src i (!j - i));
-        scan !j)
+        scan !j false)
       else if is_ident_start c then (
         let j = ref (i + 1) in
         while !j < len && is_ident_char src.[!j] do
           incr j
         done;
         let word = String.sub src i (!j - i) in
-        if is_py_keyword word then emit_span "code-keyword" word else Buffer.add_string plain_buf word;
-        scan !j)
+        if is_py_keyword word then (
+          emit_span "code-keyword" word;
+          let next_def = word = "def" || word = "class" in
+          scan !j next_def)
+        else if expect_def then (
+          emit_span "code-def" word;
+          scan !j false)
+        else if is_py_builtin word then (
+          emit_span "code-builtin" word;
+          scan !j false)
+        else (
+          Buffer.add_string plain_buf word;
+          scan !j false))
+      else if expect_def && (c = ' ' || c = '\t') then (
+        Buffer.add_char plain_buf c;
+        scan (i + 1) true)
       else (
         Buffer.add_char plain_buf c;
-        scan (i + 1))
+        scan (i + 1) false)
   in
-  scan 0;
+  scan 0 false;
   flush_plain ();
   Dom.appendChild code_el (document##createTextNode (js "\n"))
 
@@ -2203,16 +2152,125 @@ let count_lines s =
   String.iter (fun ch -> if ch = '\n' then incr n) s;
   !n
 
-let render_line_numbers (gutter : element Js.t) prev_ref n =
+let sync_gutter_highlights (gutter : element Js.t) ~(active : int option) ~(err : int option) =
+  let lines = gutter##.childNodes in
+  let len = lines##.length in
+  for i = 0 to len - 1 do
+    match Js.Opt.to_option (lines##item i) with
+    | Some node ->
+        let el : element Js.t = Obj.magic node in
+        let line_no = i + 1 in
+        let is_act = match active with Some a -> a = line_no | None -> false in
+        let is_err = match err with Some e -> e = line_no | None -> false in
+        let cls =
+          "py-ed-gutter-line"
+          ^ (if is_act then " is-active-line" else "")
+          ^ (if is_err then " is-err-line" else "")
+        in
+        el##.className := js cls
+    | None -> ()
+  done
+
+let render_line_numbers (gutter : element Js.t) prev_ref ?(active = None) ?(err = None) n =
   if n <> !prev_ref then (
     prev_ref := n;
-    let buf = Buffer.create (n * 4) in
+    clear_children (gutter :> Dom.node Js.t);
     for k = 1 to n do
-      if k > 1 then Buffer.add_char buf '\n';
-      Buffer.add_string buf (string_of_int k)
-    done;
-    Buffer.add_char buf '\n';
-    set_text gutter (Buffer.contents buf))
+      let line_el = mk ~cls:"py-ed-gutter-line" ~txt:(string_of_int k) "div" in
+      line_el##setAttribute (js "data-line") (js (string_of_int k));
+      Dom.appendChild gutter line_el
+    done);
+  sync_gutter_highlights gutter ~active ~err
+
+let cursor_line_no (v : string) (cursor_pos : int) : int =
+  let len = String.length v in
+  let pos = min len (max 0 cursor_pos) in
+  let line = ref 1 in
+  for i = 0 to pos - 1 do
+    if v.[i] = '\n' then incr line
+  done;
+  !line
+
+let find_line_char_offset (v : string) (target_line : int) : int =
+  let len = String.length v in
+  let line = ref 1 in
+  let idx = ref 0 in
+  while !idx < len && !line < target_line do
+    if v.[!idx] = '\n' then incr line;
+    incr idx
+  done;
+  !idx
+
+let longest_common_prefix (items : string list) : string =
+  match items with
+  | [] -> ""
+  | [ s ] -> s
+  | first :: rest ->
+      let prefix_len = ref (String.length first) in
+      List.iter
+        (fun s ->
+          let slen = String.length s in
+          let m = min !prefix_len slen in
+          let j = ref 0 in
+          while !j < m && first.[!j] = s.[!j] do
+            incr j
+          done;
+          prefix_len := !j)
+        rest;
+      String.sub first 0 !prefix_len
+
+let parse_line_err_number (line : string) : int option =
+  let needle = "File \"<playground>\", line " in
+  let nlen = String.length needle in
+  let slen = String.length line in
+  let rec scan i =
+    if i + nlen > slen then None
+    else if String.sub line i nlen = needle then
+      let num_start = i + nlen in
+      let j = ref num_start in
+      while !j < slen && line.[!j] >= '0' && line.[!j] <= '9' do
+        incr j
+      done;
+      if !j > num_start then
+        try Some (int_of_string (String.sub line num_start (!j - num_start)))
+        with _ -> None
+      else None
+    else scan (i + 1)
+  in
+  scan 0
+
+let append_console_stderr (out_pre : element Js.t) (text : string) (on_jump : int -> unit) =
+  if String.length text > 0 then (
+    let lines = String.split_on_char '\n' text in
+    let last_err_line = ref None in
+    let rec iter_lines = function
+      | [] -> ()
+      | [ "" ] -> ()
+      | l :: rest ->
+          let row = mk ~cls:"py-out-stderr-line" "div" in
+          let sp = mk ~cls:"py-out-stderr" ~txt:(l ^ "\n") "span" in
+          Dom.appendChild row sp;
+          (match parse_line_err_number l with
+          | Some n ->
+              last_err_line := Some n;
+              let jump_btn =
+                mk ~cls:"py-err-link" ~txt:(Printf.sprintf "Jump to line %d" n) "button"
+              in
+              jump_btn##setAttribute (js "type") (js "button");
+              jump_btn##setAttribute (js "title") (js (Printf.sprintf "Jump to line %d in editor" n));
+              jump_btn##.onclick :=
+                Dom.handler (fun _ ->
+                    on_jump n;
+                    Js._true);
+              Dom.appendChild row jump_btn
+          | None -> ());
+          Dom.appendChild out_pre row;
+          iter_lines rest
+    in
+    iter_lines lines;
+    out_pre##.scrollTop := Js.float (float_of_int out_pre##.scrollHeight);
+    !last_err_line)
+  else None
 
 (* ---------------------------------------------------------------------------
    Full Playground Workbench UI (#py-playground-root)
@@ -2336,16 +2394,29 @@ let mount_playground (root : element Js.t) =
   let run_btn = mk ~cls:"py-btn py-btn-primary" ~txt:"Run" "button" in
   run_btn##setAttribute (js "type") (js "button");
   run_btn##setAttribute (js "title") (js "Run script (Ctrl/Cmd + Enter)");
+  let revert_btn = mk ~cls:"py-btn py-btn-revert" ~txt:"Revert" "button" in
+  revert_btn##setAttribute (js "type") (js "button");
+  revert_btn##setAttribute (js "title") (js "Revert changes to example");
   let reset_btn = mk ~cls:"py-btn" ~txt:"Reset" "button" in
   reset_btn##setAttribute (js "type") (js "button");
   reset_btn##setAttribute (js "title") (js "Reset namespace");
   Dom.appendChild controls mode_sel;
   Dom.appendChild controls status_pill;
   Dom.appendChild controls run_btn;
+  Dom.appendChild controls revert_btn;
   Dom.appendChild controls reset_btn;
   Dom.appendChild topbar ex_control;
   Dom.appendChild topbar controls;
   Dom.appendChild topbar ex_menu;
+
+  (* Band 1b: Editorial Preset Details Bar *)
+  let preset_bar = mk ~cls:"py-preset-bar" "div" in
+  let preset_tag_el = mk ~cls:"py-preset-tag" ~txt:"" "span" in
+  let preset_desc_el = mk ~cls:"py-preset-desc" ~txt:"" "span" in
+  let preset_file_el = mk ~cls:"py-preset-file" ~txt:"" "span" in
+  Dom.appendChild preset_bar preset_tag_el;
+  Dom.appendChild preset_bar preset_desc_el;
+  Dom.appendChild preset_bar preset_file_el;
 
   (* Band 2b: Mobile (<900px) Segmented Switcher *)
   let mob_tabs = mk ~cls:"py-mob-tabs" "div" in
@@ -2384,6 +2455,9 @@ let mount_playground (root : element Js.t) =
   (* Band 3: Asymmetric Editorial Grid *)
   let grid = mk ~cls:"py-pg-grid" "div" in
   let left_col = mk ~cls:"py-pg-left" "div" in
+  let col_resizer = mk ~cls:"py-col-resizer" "div" in
+  col_resizer##setAttribute (js "aria-label") (js "Resize columns");
+  col_resizer##setAttribute (js "role") (js "separator");
   let right_col = mk ~cls:"py-pg-right" "div" in
 
   (* Editor Sub-pane *)
@@ -2395,8 +2469,12 @@ let mount_playground (root : element Js.t) =
   Dom.appendChild ed_hdr_l ed_meta;
   let ed_hdr_r = mk ~cls:"py-subbar-right" "div" in
   Dom.appendChild ed_hdr_r (mk ~cls:"py-key-hint" ~txt:"⌘↵ run" "span");
+  let wrap_btn = mk ~cls:"py-ghost-btn py-wrap-btn" ~txt:"Wrap" "button" in
+  wrap_btn##setAttribute (js "type") (js "button");
+  wrap_btn##setAttribute (js "title") (js "Toggle line wrapping");
   let copy_btn = mk ~cls:"py-ghost-btn" ~txt:"Copy" "button" in
   copy_btn##setAttribute (js "type") (js "button");
+  Dom.appendChild ed_hdr_r wrap_btn;
   Dom.appendChild ed_hdr_r copy_btn;
   Dom.appendChild ed_hdr ed_hdr_l;
   Dom.appendChild ed_hdr ed_hdr_r;
@@ -2405,6 +2483,7 @@ let mount_playground (root : element Js.t) =
   let ed_gutter = mk ~cls:"py-ed-gutter" "div" in
   ed_gutter##setAttribute (js "aria-hidden") (js "true");
   let ed_stage = mk ~cls:"py-ed-stage" "div" in
+  let active_line_band = mk ~cls:"py-ed-active-band" "div" in
   let highlight_pre = mk ~cls:"py-ed-highlight" "pre" in
   highlight_pre##setAttribute (js "aria-hidden") (js "true");
   let highlight_code = mk "code" in
@@ -2417,6 +2496,7 @@ let mount_playground (root : element Js.t) =
   editor##setAttribute (js "autocorrect") (js "off");
   editor##setAttribute (js "autocapitalize") (js "off");
   editor##setAttribute (js "aria-label") (js "Python script editor");
+  Dom.appendChild ed_stage active_line_band;
   Dom.appendChild ed_stage highlight_pre;
   Dom.appendChild ed_stage editor;
   Dom.appendChild ed_shell ed_gutter;
@@ -2424,26 +2504,31 @@ let mount_playground (root : element Js.t) =
   Dom.appendChild ed_pane ed_hdr;
   Dom.appendChild ed_pane ed_shell;
 
-  let active_preset_ref : preset option ref = ref None in
-  let prev_lines_ref = ref 0 in
-  let user_dirty_ref = ref false in
-  let sync_switcher_ref : (unit -> unit) ref = ref (fun () -> ()) in
-  let sync_editor_view () =
-    let src = to_s editor##.value in
-    render_py_highlight highlight_code src;
-    let n = count_lines src in
-    render_line_numbers ed_gutter prev_lines_ref n;
-    let stem =
-      match !active_preset_ref with
-      | Some p -> p.id ^ ".py" ^ if !user_dirty_ref then " *" else ""
-      | None -> "snippet.py"
-    in
-    set_text ed_meta (Printf.sprintf "%s · %d lines" stem n);
-    highlight_pre##.scrollTop := editor##.scrollTop;
-    highlight_pre##.scrollLeft := editor##.scrollLeft;
-    ed_gutter##.scrollTop := editor##.scrollTop;
-    !sync_switcher_ref ()
-  in
+  let is_wrapped_ref = ref false in
+  wrap_btn##.onclick :=
+    Dom.handler (fun _ ->
+        is_wrapped_ref := not !is_wrapped_ref;
+        let w = !is_wrapped_ref in
+        wrap_btn##.className :=
+          js (if w then "py-ghost-btn py-wrap-btn active" else "py-ghost-btn py-wrap-btn");
+        let toggle_cls (el : element Js.t) =
+          let c = to_s el##.className in
+          let has = contains_sub c "is-wrapped" in
+          if w && not has then el##.className := js (c ^ " is-wrapped")
+          else if (not w) && has then
+            let parts =
+              List.filter (fun s -> s <> "is-wrapped" && s <> "") (String.split_on_char ' ' c)
+            in
+            el##.className := js (String.concat " " parts)
+        in
+        toggle_cls ed_shell;
+        toggle_cls ed_stage;
+        editor##setAttribute (js "wrap") (js (if w then "soft" else "off"));
+        Js._true);
+
+  let row_resizer = mk ~cls:"py-row-resizer" "div" in
+  row_resizer##setAttribute (js "aria-label") (js "Resize editor and console");
+  row_resizer##setAttribute (js "role") (js "separator");
 
   (* Console + Unified REPL Pane *)
   let con_pane = mk ~cls:"py-con-pane" "div" in
@@ -2460,14 +2545,21 @@ let mount_playground (root : element Js.t) =
   let console_pre = mk ~cls:"py-pg-console" "pre" in
   append_console_chunk console_pre "py-out-muted" "Loading Python...\n";
 
+  let compl_bar = mk ~cls:"py-repl-compl" "div" in
+  compl_bar##setAttribute (js "hidden") (js "hidden");
+  compl_bar##.style##.display := js "none";
+
   let prompt_row = createForm document in
   prompt_row##.className := js "py-repl-prompt-row";
   let prompt_glyph = mk ~cls:"py-repl-glyph" ~txt:">>>" "span" in
-  let repl_input = createInput ~_type:(js "text") document in
+  let repl_input = createTextarea document in
   repl_input##.className := js "py-repl-input";
+  repl_input##.rows := 1;
   repl_input##setAttribute (js "placeholder") (js "Python expression...");
   repl_input##setAttribute (js "spellcheck") (js "false");
   repl_input##setAttribute (js "autocomplete") (js "off");
+  repl_input##setAttribute (js "autocorrect") (js "off");
+  repl_input##setAttribute (js "autocapitalize") (js "off");
   repl_input##setAttribute (js "aria-label") (js "Interactive Python prompt");
   let repl_send = mk ~cls:"py-ghost-btn py-repl-send" ~txt:"Eval" "button" in
   repl_send##setAttribute (js "type") (js "submit");
@@ -2477,9 +2569,11 @@ let mount_playground (root : element Js.t) =
 
   Dom.appendChild con_pane con_hdr;
   Dom.appendChild con_pane console_pre;
+  Dom.appendChild con_pane compl_bar;
   Dom.appendChild con_pane prompt_row;
 
   Dom.appendChild left_col ed_pane;
+  Dom.appendChild left_col row_resizer;
   Dom.appendChild left_col con_pane;
 
   (* Right Output & Figures Stage *)
@@ -2497,12 +2591,342 @@ let mount_playground (root : element Js.t) =
   Dom.appendChild right_col insp_body;
 
   Dom.appendChild grid left_col;
+  Dom.appendChild grid col_resizer;
   Dom.appendChild grid right_col;
 
   Dom.appendChild shell topbar;
+  Dom.appendChild shell preset_bar;
   Dom.appendChild shell mob_tabs;
   Dom.appendChild shell grid;
   Dom.appendChild root shell;
+
+  (* Resizer Drag Handlers *)
+  col_resizer##.onmousedown :=
+    Dom.handler (fun ev ->
+        Dom.preventDefault ev;
+        let move_handler = ref (Js.wrap_callback (fun _ -> ())) in
+        let up_handler = ref (Js.wrap_callback (fun _ -> ())) in
+        let on_move =
+          Js.wrap_callback (fun (mev : #Dom_html.mouseEvent Js.t) ->
+              let grid_rect = grid##getBoundingClientRect in
+              let g_left = Js.float_of_number grid_rect##.left in
+              let gw = Js.float_of_number grid_rect##.right -. g_left in
+              if gw > 0.0 then (
+                let client_x = Js.float_of_number mev##.clientX in
+                let frac = (client_x -. g_left) /. gw in
+                let pct = max 30.0 (min 70.0 (frac *. 100.0)) in
+                ignore
+                  (Js.Unsafe.meth_call grid##.style "setProperty"
+                     [| Js.Unsafe.inject (js "--py-split-x"); Js.Unsafe.inject (js (Printf.sprintf "%.1f%%" pct)) |])))
+        in
+        let on_up =
+          Js.wrap_callback (fun (_mev : #Dom_html.mouseEvent Js.t) ->
+              ignore
+                (Js.Unsafe.meth_call Dom_html.window "removeEventListener"
+                   [| Js.Unsafe.inject (js "mousemove"); Js.Unsafe.inject !move_handler |]);
+              ignore
+                (Js.Unsafe.meth_call Dom_html.window "removeEventListener"
+                   [| Js.Unsafe.inject (js "mouseup"); Js.Unsafe.inject !up_handler |]))
+        in
+        move_handler := on_move;
+        up_handler := on_up;
+        ignore
+          (Js.Unsafe.meth_call Dom_html.window "addEventListener"
+             [| Js.Unsafe.inject (js "mousemove"); Js.Unsafe.inject on_move |]);
+        ignore
+          (Js.Unsafe.meth_call Dom_html.window "addEventListener"
+             [| Js.Unsafe.inject (js "mouseup"); Js.Unsafe.inject on_up |]);
+        Js._false);
+
+  row_resizer##.onmousedown :=
+    Dom.handler (fun ev ->
+        Dom.preventDefault ev;
+        let move_handler = ref (Js.wrap_callback (fun _ -> ())) in
+        let up_handler = ref (Js.wrap_callback (fun _ -> ())) in
+        let on_move =
+          Js.wrap_callback (fun (mev : #Dom_html.mouseEvent Js.t) ->
+              let col_rect = left_col##getBoundingClientRect in
+              let c_top = Js.float_of_number col_rect##.top in
+              let ch = Js.float_of_number col_rect##.bottom -. c_top in
+              if ch > 0.0 then (
+                let client_y = Js.float_of_number mev##.clientY in
+                let frac = (client_y -. c_top) /. ch in
+                let pct = max 28.0 (min 78.0 (frac *. 100.0)) in
+                ignore
+                  (Js.Unsafe.meth_call left_col##.style "setProperty"
+                     [| Js.Unsafe.inject (js "--py-ed-h"); Js.Unsafe.inject (js (Printf.sprintf "%.1f%%" pct)) |])))
+        in
+        let on_up =
+          Js.wrap_callback (fun (_mev : #Dom_html.mouseEvent Js.t) ->
+              ignore
+                (Js.Unsafe.meth_call Dom_html.window "removeEventListener"
+                   [| Js.Unsafe.inject (js "mousemove"); Js.Unsafe.inject !move_handler |]);
+              ignore
+                (Js.Unsafe.meth_call Dom_html.window "removeEventListener"
+                   [| Js.Unsafe.inject (js "mouseup"); Js.Unsafe.inject !up_handler |]))
+        in
+        move_handler := on_move;
+        up_handler := on_up;
+        ignore
+          (Js.Unsafe.meth_call Dom_html.window "addEventListener"
+             [| Js.Unsafe.inject (js "mousemove"); Js.Unsafe.inject on_move |]);
+        ignore
+          (Js.Unsafe.meth_call Dom_html.window "addEventListener"
+             [| Js.Unsafe.inject (js "mouseup"); Js.Unsafe.inject on_up |]);
+        Js._false);
+
+  let active_preset_ref : preset option ref = ref None in
+  let prev_lines_ref = ref 0 in
+  let user_dirty_ref = ref false in
+  let err_line_ref : int option ref = ref None in
+  let sync_switcher_ref : (unit -> unit) ref = ref (fun () -> ()) in
+
+  let sync_revert_btn () =
+    let can_revert = !user_dirty_ref && !active_preset_ref <> None in
+    if can_revert then (
+      revert_btn##removeAttribute (js "hidden");
+      revert_btn##.style##.display := js "";
+      Js.Unsafe.set revert_btn (js "disabled") Js._false;
+      revert_btn##removeAttribute (js "disabled"))
+    else (
+      revert_btn##setAttribute (js "hidden") (js "hidden");
+      revert_btn##.style##.display := js "none";
+      Js.Unsafe.set revert_btn (js "disabled") Js._true;
+      revert_btn##setAttribute (js "disabled") (js "disabled"))
+  in
+
+  let sync_active_line_band () =
+    let v = to_s editor##.value in
+    let cur_line = cursor_line_no v editor##.selectionStart in
+    let gutter_lines = ed_gutter##.childNodes in
+    if cur_line >= 1 && cur_line <= gutter_lines##.length then
+      match Js.Opt.to_option (gutter_lines##item (cur_line - 1)) with
+      | Some node ->
+          let el : element Js.t = Obj.magic node in
+          let top_px =
+            el##.offsetTop - int_of_float (Js.float_of_number (Obj.magic editor##.scrollTop))
+          in
+          let h_px = el##.offsetHeight in
+          active_line_band##.style##.top := js (Printf.sprintf "%dpx" top_px);
+          if h_px > 0 then active_line_band##.style##.height := js (Printf.sprintf "%dpx" h_px);
+          active_line_band##.style##.display := js ""
+      | None -> active_line_band##.style##.display := js "none"
+    else active_line_band##.style##.display := js "none"
+  in
+
+  let sync_editor_view () =
+    let src = to_s editor##.value in
+    render_py_highlight highlight_code src;
+    let n = count_lines src in
+    let cur_line = cursor_line_no src editor##.selectionStart in
+    render_line_numbers ed_gutter prev_lines_ref ~active:(Some cur_line) ~err:!err_line_ref n;
+    let stem =
+      match !active_preset_ref with
+      | Some p -> p.id ^ ".py" ^ if !user_dirty_ref then " *" else ""
+      | None -> "snippet.py"
+    in
+    set_text ed_meta (Printf.sprintf "%s · %d lines" stem n);
+    highlight_pre##.scrollTop := editor##.scrollTop;
+    highlight_pre##.scrollLeft := editor##.scrollLeft;
+    ed_gutter##.scrollTop := editor##.scrollTop;
+    sync_active_line_band ();
+    sync_revert_btn ();
+    !sync_switcher_ref ()
+  in
+
+  let focus_editor_line line_no =
+    let src = to_s editor##.value in
+    let offset = find_line_char_offset src line_no in
+    err_line_ref := Some line_no;
+    editor##focus;
+    editor##.selectionStart := offset;
+    editor##.selectionEnd := offset;
+    let gutter_lines = ed_gutter##.childNodes in
+    if line_no >= 1 && line_no <= gutter_lines##.length then
+      match Js.Opt.to_option (gutter_lines##item (line_no - 1)) with
+      | Some node ->
+          let el : element Js.t = Obj.magic node in
+          let target_top = max 0 (el##.offsetTop - 60) in
+          editor##.scrollTop := Js.float (float_of_int target_top)
+      | None -> ();
+    sync_editor_view ()
+  in
+
+  let handle_enter_indent () =
+    let v = to_s editor##.value in
+    let st = editor##.selectionStart in
+    let en = editor##.selectionEnd in
+    let line_start =
+      let rec back i =
+        if i <= 0 then 0
+        else if v.[i - 1] = '\n' then i
+        else back (i - 1)
+      in
+      back st
+    in
+    let line_prefix = String.sub v line_start (st - line_start) in
+    let indent_len =
+      let j = ref 0 in
+      while !j < String.length line_prefix && (line_prefix.[!j] = ' ' || line_prefix.[!j] = '\t') do
+        incr j
+      done;
+      !j
+    in
+    let base_indent = String.sub line_prefix 0 indent_len in
+    let trimmed = String.trim line_prefix in
+    let extra_indent =
+      if String.length trimmed > 0 && trimmed.[String.length trimmed - 1] = ':' then "    "
+      else ""
+    in
+    let insert = "\n" ^ base_indent ^ extra_indent in
+    let left = String.sub v 0 st in
+    let right = String.sub v en (String.length v - en) in
+    editor##.value := js (left ^ insert ^ right);
+    let new_pos = st + String.length insert in
+    editor##.selectionStart := new_pos;
+    editor##.selectionEnd := new_pos;
+    user_dirty_ref := true;
+    err_line_ref := None;
+    sync_editor_view ()
+  in
+
+  let handle_tab ~shift =
+    let v = to_s editor##.value in
+    let st = editor##.selectionStart in
+    let en = editor##.selectionEnd in
+    if (not shift) && st = en then (
+      let left = String.sub v 0 st in
+      let right = String.sub v en (String.length v - en) in
+      editor##.value := js (left ^ "    " ^ right);
+      editor##.selectionStart := st + 4;
+      editor##.selectionEnd := st + 4;
+      user_dirty_ref := true;
+      err_line_ref := None;
+      sync_editor_view ())
+    else
+      let line_start =
+        let rec back i =
+          if i <= 0 then 0
+          else if v.[i - 1] = '\n' then i
+          else back (i - 1)
+        in
+        back st
+      in
+      let line_end =
+        let len = String.length v in
+        let rec fwd i =
+          if i >= len then len
+          else if v.[i] = '\n' then i
+          else fwd (i + 1)
+        in
+        fwd en
+      in
+      let block = String.sub v line_start (line_end - line_start) in
+      let lines = String.split_on_char '\n' block in
+      let new_lines =
+        if shift then
+          List.map
+            (fun l ->
+              let len = String.length l in
+              let rec count_spaces i =
+                if i < len && i < 4 && l.[i] = ' ' then count_spaces (i + 1)
+                else i
+              in
+              let sp = count_spaces 0 in
+              if sp > 0 then String.sub l sp (len - sp)
+              else if len > 0 && l.[0] = '\t' then String.sub l 1 (len - 1)
+              else l)
+            lines
+        else List.map (fun l -> "    " ^ l) lines
+      in
+      let new_block = String.concat "\n" new_lines in
+      let left = String.sub v 0 line_start in
+      let right = String.sub v line_end (String.length v - line_end) in
+      editor##.value := js (left ^ new_block ^ right);
+      editor##.selectionStart := line_start;
+      editor##.selectionEnd := line_start + String.length new_block;
+      user_dirty_ref := true;
+      err_line_ref := None;
+      sync_editor_view ()
+  in
+
+  let handle_toggle_comment () =
+    let v = to_s editor##.value in
+    let st = editor##.selectionStart in
+    let en = editor##.selectionEnd in
+    let line_start =
+      let rec back i =
+        if i <= 0 then 0
+        else if v.[i - 1] = '\n' then i
+        else back (i - 1)
+      in
+      back st
+    in
+    let line_end =
+      let len = String.length v in
+      let rec fwd i =
+        if i >= len then len
+        else if v.[i] = '\n' then i
+        else fwd (i + 1)
+      in
+      fwd en
+    in
+    let block = String.sub v line_start (line_end - line_start) in
+    let lines = String.split_on_char '\n' block in
+    let non_empty = List.filter (fun l -> String.trim l <> "") lines in
+    let all_commented =
+      non_empty <> []
+      && List.for_all
+           (fun l ->
+             let t = String.trim l in
+             String.length t > 0 && t.[0] = '#')
+           non_empty
+    in
+    let new_lines =
+      if all_commented then
+        List.map
+          (fun l ->
+            let trimmed_start =
+              let j = ref 0 in
+              while !j < String.length l && (l.[!j] = ' ' || l.[!j] = '\t') do
+                incr j
+              done;
+              !j
+            in
+            if trimmed_start < String.length l && l.[trimmed_start] = '#' then
+              let remove_len =
+                if trimmed_start + 1 < String.length l && l.[trimmed_start + 1] = ' ' then 2 else 1
+              in
+              String.sub l 0 trimmed_start
+              ^ String.sub l (trimmed_start + remove_len)
+                  (String.length l - trimmed_start - remove_len)
+            else l)
+          lines
+      else List.map (fun l -> if String.trim l = "" then l else "# " ^ l) lines
+    in
+    let new_block = String.concat "\n" new_lines in
+    let left = String.sub v 0 line_start in
+    let right = String.sub v line_end (String.length v - line_end) in
+    editor##.value := js (left ^ new_block ^ right);
+    editor##.selectionStart := line_start;
+    editor##.selectionEnd := line_start + String.length new_block;
+    user_dirty_ref := true;
+    err_line_ref := None;
+    sync_editor_view ()
+  in
+
+  revert_btn##.onclick :=
+    Dom.handler (fun _ ->
+        (match !active_preset_ref with
+        | Some p ->
+            user_dirty_ref := false;
+            err_line_ref := None;
+            editor##.value := js p.code;
+            editor##.scrollTop := Js.float 0.0;
+            editor##.scrollLeft := Js.float 0.0;
+            sync_editor_view ()
+        | None -> ());
+        Js._true);
 
   (* Build Empty Stage helper *)
   let initial_ran_ref = ref false in
@@ -2513,13 +2937,18 @@ let mount_playground (root : element Js.t) =
     let box = mk ~cls:"py-empty-stage" "div" in
     Dom.appendChild box
       (mk ~cls:"py-empty-desc" ~txt:"Output and figures appear after running." "p");
-    let run_cta = mk ~cls:"py-btn py-btn-primary" ~txt:"Run" "button" in
-    run_cta##setAttribute (js "type") (js "button");
-    run_cta##.onclick :=
-      Dom.handler (fun _ ->
-          !run_script_ref ();
-          Js._true);
-    Dom.appendChild box run_cta;
+    let boot_banner = mk ~cls:"py-boot-banner" "div" in
+    let boot_bar = mk ~cls:"py-boot-bar" "div" in
+    let boot_fill = mk ~cls:"py-boot-fill" "div" in
+    let total = max 1 !boot_total_ref in
+    let step = max 0 (min total !boot_step_ref) in
+    let pct = float_of_int step /. float_of_int total *. 100.0 in
+    boot_fill##.style##.width := js (Printf.sprintf "%.1f%%" pct);
+    Dom.appendChild boot_bar boot_fill;
+    let boot_txt = mk ~cls:"py-boot-txt" ~txt:(status_text !kernel_state_ref) "span" in
+    Dom.appendChild boot_banner boot_bar;
+    Dom.appendChild boot_banner boot_txt;
+    Dom.appendChild box boot_banner;
     box
   in
 
@@ -2577,11 +3006,17 @@ let mount_playground (root : element Js.t) =
     | Some (idx, p, _) ->
         set_text ex_count_el (Printf.sprintf "%02d/%02d" (idx + 1) total_presets);
         set_text ex_title_el (p.label ^ if dirty then " · edited" else "");
-        ex_trigger##setAttribute (js "title") (js p.description)
+        ex_trigger##setAttribute (js "title") (js p.description);
+        set_text preset_tag_el p.tag;
+        set_text preset_desc_el p.description;
+        set_text preset_file_el (Printf.sprintf "examples/repl/%s.py" p.id)
     | None ->
         set_text ex_count_el "Custom";
         set_text ex_title_el "Custom snippet";
-        ex_trigger##setAttribute (js "title") (js "Choose a built-in example"));
+        ex_trigger##setAttribute (js "title") (js "Choose a built-in example");
+        set_text preset_tag_el "CUSTOM";
+        set_text preset_desc_el "Custom snippet";
+        set_text preset_file_el "custom");
     ex_trigger##.className :=
       js (if dirty then "py-ex-trigger is-dirty" else "py-ex-trigger");
     let active_id = match !active_preset_ref with Some p -> p.id | None -> "" in
@@ -2590,7 +3025,8 @@ let mount_playground (root : element Js.t) =
         let sel_flag = p.id = active_id in
         b##.className := js (if sel_flag then "py-ex-opt active" else "py-ex-opt");
         b##setAttribute (js "aria-selected") (js (if sel_flag then "true" else "false")))
-      preset_opts
+      preset_opts;
+    sync_revert_btn ()
   in
   sync_switcher_ref := sync_preset_active;
   sync_editor_view ();
@@ -2629,7 +3065,13 @@ let mount_playground (root : element Js.t) =
         set_text timing_lbl (if dt_s <> "" then "· " ^ dt_s else "");
         clear_children (console_pre :> Dom.node Js.t);
         if out_s <> "" then append_console_chunk console_pre "py-out-stdout" out_s;
-        if err_s <> "" then append_console_chunk console_pre "py-out-stderr" err_s;
+        if err_s <> "" then (
+          let err_line = append_console_stderr console_pre err_s focus_editor_line in
+          (match err_line with
+          | Some ln ->
+              err_line_ref := Some ln;
+              sync_editor_view ()
+          | None -> ()));
         if out_s = "" && err_s = "" && ok then
           append_console_chunk console_pre "py-out-muted" "Done.\n";
         set_text prompt_glyph ">>>";
@@ -2728,9 +3170,11 @@ let mount_playground (root : element Js.t) =
           in
           if cur_text = "" || cur_text = "Loading Python..." then begin
             clear_children (console_pre :> Dom.node Js.t);
-            append_console_chunk console_pre "py-out-stderr" (msg ^ "\n")
+            ignore (append_console_stderr console_pre (msg ^ "\n") focus_editor_line)
           end
       | _ -> ());
+      if (not !initial_ran_ref) && Js.Opt.test (insp_body##querySelector (js ".py-empty-stage")) then
+        render_state_panel ~empty_node:(make_empty_stage ()) insp_body (Js.Unsafe.inject Js.undefined);
       if st = Ready && (not !initial_ran_ref) && (not !user_dirty_ref) && (not !manual_abort_ref) then
         run_script ());
 
@@ -2763,6 +3207,7 @@ let mount_playground (root : element Js.t) =
     set_menu_open false;
     active_preset_ref := Some p;
     user_dirty_ref := false;
+    err_line_ref := None;
     editor##.value := js p.code;
     editor##.scrollTop := Js.float 0.0;
     editor##.scrollLeft := Js.float 0.0;
@@ -2897,11 +3342,56 @@ let mount_playground (root : element Js.t) =
         if Js.Optdef.test dt_raw then
           set_text timing_lbl (Printf.sprintf "· %.1f ms" (Js.float_of_number dt_raw));
         if out_s <> "" then append_console_chunk console_pre "py-out-stdout" out_s;
-        if err_s <> "" then append_console_chunk console_pre "py-out-stderr" err_s;
+        if err_s <> "" then (
+          let err_line = append_console_stderr console_pre err_s focus_editor_line in
+          (match err_line with
+          | Some ln ->
+              err_line_ref := Some ln;
+              sync_editor_view ()
+          | None -> ()));
         set_text prompt_glyph (if inc then "..." else ">>>");
         let st_raw = Js.Unsafe.get res (js "state") in
         sync_state_chip st_raw;
         render_state_panel ~empty_node:(make_empty_stage ()) insp_body st_raw)
+  in
+
+  let is_at_top (el : textAreaElement Js.t) =
+    let pos = el##.selectionStart in
+    let v = to_s el##.value in
+    let rec check i =
+      if i <= 0 then true
+      else if v.[i - 1] = '\n' then false
+      else check (i - 1)
+    in
+    check pos
+  in
+
+  let is_at_bottom (el : textAreaElement Js.t) =
+    let pos = el##.selectionEnd in
+    let v = to_s el##.value in
+    let len = String.length v in
+    let rec check i =
+      if i >= len then true
+      else if v.[i] = '\n' then false
+      else check (i + 1)
+    in
+    check pos
+  in
+
+  let auto_size_repl_input () =
+    let v = to_s repl_input##.value in
+    let lines = count_lines v in
+    repl_input##.rows := max 1 (min 6 lines)
+  in
+
+  let submit_repl () =
+    let line = to_s repl_input##.value in
+    repl_input##.value := js "";
+    repl_input##.rows := 1;
+    compl_bar##setAttribute (js "hidden") (js "hidden");
+    compl_bar##.style##.display := js "none";
+    clear_children (compl_bar :> Dom.node Js.t);
+    push_repl_line line
   in
 
   run_btn##.onclick :=
@@ -2948,67 +3438,112 @@ let mount_playground (root : element Js.t) =
         sync_editor_view ();
         Js._true);
 
+  editor##.onclick :=
+    Dom.handler (fun _ ->
+        sync_active_line_band ();
+        let cur_l = cursor_line_no (to_s editor##.value) editor##.selectionStart in
+        sync_gutter_highlights ed_gutter ~active:(Some cur_l) ~err:!err_line_ref;
+        Js._true);
+
+  editor##.onkeyup :=
+    Dom.handler (fun _ ->
+        sync_active_line_band ();
+        let cur_l = cursor_line_no (to_s editor##.value) editor##.selectionStart in
+        sync_gutter_highlights ed_gutter ~active:(Some cur_l) ~err:!err_line_ref;
+        Js._true);
+
   editor##.onscroll :=
     Dom.handler (fun _ ->
         highlight_pre##.scrollTop := editor##.scrollTop;
         highlight_pre##.scrollLeft := editor##.scrollLeft;
         ed_gutter##.scrollTop := editor##.scrollTop;
+        sync_active_line_band ();
         Js._true);
 
   editor##.onkeydown :=
     Dom.handler (fun ev ->
         let key = to_s (Js.Optdef.get ev##.key (fun () -> js "")) in
         let ctrl_or_meta = Js.to_bool ev##.ctrlKey || Js.to_bool ev##.metaKey in
+        let shift = Js.to_bool ev##.shiftKey in
         if ctrl_or_meta && key = "Enter" then (
           Dom.preventDefault ev;
           run_script ();
           (if Dom_html.window##.innerWidth <= 900 then set_mob_tab "plots");
           Js._false)
+        else if ctrl_or_meta && (key = "/" || key = "?") then (
+          Dom.preventDefault ev;
+          handle_toggle_comment ();
+          Js._false)
         else if key = "Tab" then (
           Dom.preventDefault ev;
-          let st = editor##.selectionStart in
-          let en = editor##.selectionEnd in
-          let v = to_s editor##.value in
-          let left = String.sub v 0 st in
-          let right = String.sub v en (String.length v - en) in
-          editor##.value := js (left ^ "    " ^ right);
-          editor##.selectionStart := st + 4;
-          editor##.selectionEnd := st + 4;
-          user_dirty_ref := true;
-          sync_editor_view ();
+          handle_tab ~shift;
           Js._false)
-        else Js._true);
+        else if key = "Enter" && not ctrl_or_meta && not shift then (
+          Dom.preventDefault ev;
+          handle_enter_indent ();
+          Js._false)
+        else (
+          err_line_ref := None;
+          Js._true));
 
   prompt_row##.onsubmit :=
     Dom.handler (fun ev ->
         Dom.preventDefault ev;
-        let line = to_s repl_input##.value in
-        repl_input##.value := js "";
-        push_repl_line line;
+        submit_repl ();
         Js._false);
+
+  repl_input##.oninput :=
+    Dom.handler (fun _ ->
+        auto_size_repl_input ();
+        Js._true);
 
   repl_input##.onkeydown :=
     Dom.handler (fun ev ->
         let key = to_s (Js.Optdef.get ev##.key (fun () -> js "")) in
+        let shift = Js.to_bool ev##.shiftKey in
         let hlen = List.length !repl_history in
-        if key = "ArrowUp" && hlen > 0 then (
+        if key = "Enter" && not shift then (
+          Dom.preventDefault ev;
+          submit_repl ();
+          Js._false)
+        else if key = "Enter" && shift then (
+          ignore
+            (Dom_html.window##setTimeout
+               (Js.wrap_callback auto_size_repl_input)
+               (Js.float 0.0));
+          Js._true)
+        else if key = "Escape" then (
+          compl_bar##setAttribute (js "hidden") (js "hidden");
+          compl_bar##.style##.display := js "none";
+          clear_children (compl_bar :> Dom.node Js.t);
+          Js._false)
+        else if key = "ArrowUp" && is_at_top repl_input && hlen > 0 then (
           Dom.preventDefault ev;
           let next_i = min (hlen - 1) (!hist_idx + 1) in
           hist_idx := next_i;
           repl_input##.value := js (List.nth !repl_history next_i);
+          auto_size_repl_input ();
+          repl_input##.selectionStart := 0;
+          repl_input##.selectionEnd := 0;
           Js._false)
-        else if key = "ArrowDown" then (
+        else if key = "ArrowDown" && is_at_bottom repl_input then (
           Dom.preventDefault ev;
           if !hist_idx <= 0 then (
             hist_idx := -1;
-            repl_input##.value := js "")
+            repl_input##.value := js "";
+            auto_size_repl_input ())
           else (
             let next_i = !hist_idx - 1 in
             hist_idx := next_i;
-            repl_input##.value := js (List.nth !repl_history next_i));
+            repl_input##.value := js (List.nth !repl_history next_i);
+            auto_size_repl_input ());
+          let len = String.length (to_s repl_input##.value) in
+          repl_input##.selectionStart := len;
+          repl_input##.selectionEnd := len;
           Js._false)
         else if key = "Tab" then (
           let cur = to_s repl_input##.value in
+          let cursor = repl_input##.selectionStart in
           let rec scan i =
             if i <= 0 then 0
             else
@@ -3020,9 +3555,8 @@ let mount_playground (root : element Js.t) =
               then scan (i - 1)
               else i
           in
-          let len = String.length cur in
-          let start = scan len in
-          let prefix = String.sub cur start (len - start) in
+          let start = scan cursor in
+          let prefix = String.sub cur start (cursor - start) in
           if prefix <> "" then (
             Dom.preventDefault ev;
             send_worker "complete"
@@ -3036,10 +3570,60 @@ let mount_playground (root : element Js.t) =
                 in
                 match items with
                 | [ single ] ->
-                    repl_input##.value := js (String.sub cur 0 start ^ single)
+                    let left = String.sub cur 0 start in
+                    let right = String.sub cur cursor (String.length cur - cursor) in
+                    repl_input##.value := js (left ^ single ^ right);
+                    let new_c = start + String.length single in
+                    repl_input##.selectionStart := new_c;
+                    repl_input##.selectionEnd := new_c;
+                    compl_bar##setAttribute (js "hidden") (js "hidden");
+                    compl_bar##.style##.display := js "none";
+                    clear_children (compl_bar :> Dom.node Js.t);
+                    auto_size_repl_input ()
                 | many when List.length many > 1 ->
-                    append_console_chunk console_pre "py-out-muted"
-                      (String.concat "  " many ^ "\n")
+                    let lcp = longest_common_prefix many in
+                    if String.length lcp > String.length prefix then (
+                      let left = String.sub cur 0 start in
+                      let right = String.sub cur cursor (String.length cur - cursor) in
+                      repl_input##.value := js (left ^ lcp ^ right);
+                      let nc = start + String.length lcp in
+                      repl_input##.selectionStart := nc;
+                      repl_input##.selectionEnd := nc;
+                      auto_size_repl_input ());
+                    clear_children (compl_bar :> Dom.node Js.t);
+                    compl_bar##removeAttribute (js "hidden");
+                    compl_bar##.style##.display := js "";
+                    List.iter
+                      (fun item ->
+                        let chip = mk ~cls:"py-repl-compl-chip" ~txt:item "button" in
+                        chip##setAttribute (js "type") (js "button");
+                        chip##.onclick :=
+                          Dom.handler (fun _ ->
+                              let now_val = to_s repl_input##.value in
+                              let left = String.sub now_val 0 start in
+                              let prefix_len =
+                                if String.length lcp > String.length prefix then
+                                  String.length lcp
+                                else String.length prefix
+                              in
+                              let right =
+                                if String.length now_val >= start + prefix_len then
+                                  String.sub now_val (start + prefix_len)
+                                    (String.length now_val - (start + prefix_len))
+                                else ""
+                              in
+                              repl_input##.value := js (left ^ item ^ right);
+                              let new_pos = start + String.length item in
+                              repl_input##.selectionStart := new_pos;
+                              repl_input##.selectionEnd := new_pos;
+                              compl_bar##setAttribute (js "hidden") (js "hidden");
+                              compl_bar##.style##.display := js "none";
+                              clear_children (compl_bar :> Dom.node Js.t);
+                              auto_size_repl_input ();
+                              repl_input##focus;
+                              Js._true);
+                        Dom.appendChild compl_bar chip)
+                      many
                 | _ -> ());
             Js._false)
           else Js._true)

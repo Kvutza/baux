@@ -4,7 +4,7 @@
 
 (executable
  (name baux_ui)
- (modules baux_ui bench_suite bench_viewer docs_ui py_repl)
+ (modules baux_ui bench_suite bench_viewer docs_ui py_presets py_repl)
  (modes js)
  (libraries js_of_ocaml bench_formulas)
  (preprocess (pps js_of_ocaml-ppx))

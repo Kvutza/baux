@@ -795,9 +795,24 @@ let probe_browser_caps () =
     with _ -> ());
   notify_caps ()
 
+let is_loopback_or_local_opt () : bool =
+  try
+    let loc = Dom_html.window##.location in
+    let host = String.lowercase_ascii (to_s loc##.hostname) in
+    let search = to_s loc##.search in
+    host = "localhost" || host = "127.0.0.1" || host = "::1" || host = "[::1]"
+    || contains_sub search "local=1"
+  with _ -> false
+
 let probe_local_native ?on_done:(on_done : (bool -> unit) option) () =
-  let url = get_base_url () ^ "api/kernel/status" in
-  fetch_json ~meth:"GET" ~url (fun res ->
+  if on_done = None && not (is_loopback_or_local_opt ()) then begin
+    cap_ref.native_checked <- true;
+    cap_ref.native_available <- false;
+    cap_ref.native_reason <- "Static host — run './baux pages serve' locally";
+    notify_caps ()
+  end else
+    let url = get_base_url () ^ "api/kernel/status" in
+    fetch_json ~meth:"GET" ~url (fun res ->
       cap_ref.native_checked <- true;
       (match res with
       | Ok (status, txt) when status >= 200 && status < 300 -> (
@@ -907,7 +922,14 @@ let ensure_worker () =
   | None ->
       ignore (ensure_interrupt_buffer ());
       let worker_ctor = Js.Unsafe.get Dom_html.window (js "Worker") in
-      let url = get_base_url () ^ "assets/repl_worker.js" in
+      let worker_rel =
+        match Js.Opt.to_option (Dom_html.document##.documentElement##getAttribute (js "data-repl-worker")) with
+        | Some v ->
+            let s = to_s v in
+            if s = "" then "assets/repl_worker.js" else s
+        | None -> "assets/repl_worker.js"
+      in
+      let url = get_base_url () ^ worker_rel in
       let w = Js.Unsafe.new_obj worker_ctor [| Js.Unsafe.inject (js url) |] in
       notify_status (Booting "Loading...");
       let onmsg =
@@ -925,6 +947,7 @@ let ensure_worker () =
                 let stage = to_s (Js.Unsafe.get data (js "stage")) in
                 if stage = "ready" then notify_status Ready
                 else if stage = "interrupting" then notify_status (Interrupting detail)
+                else if stage = "error" then notify_status (Interrupted detail)
                 else notify_status (Booting detail)))
             else (
               let id_any = Js.Unsafe.get data (js "id") in
@@ -1064,7 +1087,21 @@ let send_worker typ fields cb =
 let warm_kernel () =
   match !runtime_mode_ref with
   | LocalNative -> probe_local_native ()
-  | Wasm -> send_worker "init" [] (fun _ -> ())
+  | Wasm ->
+      send_worker "init" [] (fun res ->
+          if
+            Js.Optdef.test (Js.Unsafe.get res (js "ok"))
+            && not (Js.to_bool (Js.Unsafe.get res (js "ok")))
+          then
+            let msg =
+              match opt_str res "stderr" with
+              | Some s when s <> "" -> s
+              | _ -> (
+                  match opt_str res "error" with
+                  | Some s when s <> "" -> s
+                  | _ -> "Initialization failed")
+            in
+            notify_status (Interrupted msg))
 
 let reset_kernel () =
   match !runtime_mode_ref with
@@ -2682,6 +2719,18 @@ let mount_playground (root : element Js.t) =
       in
       set_text reset_btn reset_lbl;
       reset_btn##setAttribute (js "title") (js reset_tip);
+      (match st with
+      | Interrupted msg ->
+          let cur_text =
+            match Js.Opt.to_option console_pre##.textContent with
+            | Some s -> String.trim (to_s s)
+            | None -> ""
+          in
+          if cur_text = "" || cur_text = "Loading Python..." then begin
+            clear_children (console_pre :> Dom.node Js.t);
+            append_console_chunk console_pre "py-out-stderr" (msg ^ "\n")
+          end
+      | _ -> ());
       if st = Ready && (not !initial_ran_ref) && (not !user_dirty_ref) && (not !manual_abort_ref) then
         run_script ());
 
@@ -2999,7 +3048,25 @@ let mount_playground (root : element Js.t) =
   (* Probe browser & local native capabilities, then warm WASM runtime on Playground *)
   probe_browser_caps ();
   probe_local_native ();
-  warm_kernel ()
+  let coi_pending = Js.Unsafe.get Dom_html.window (js "__bauxCoiPending") in
+  let is_truthy v =
+    Js.to_bool (Js.Unsafe.fun_call (Js.Unsafe.js_expr "Boolean") [| v |])
+  in
+  if is_truthy coi_pending then
+    let warmed = ref false in
+    let opts = Js.Unsafe.obj [| ("once", Js.Unsafe.inject Js._true) |] in
+    let cb =
+      Js.wrap_callback (fun (_ev : Js.Unsafe.any) ->
+          if not !warmed then begin
+            warmed := true;
+            warm_kernel ()
+          end)
+    in
+    ignore
+      (Js.Unsafe.meth_call Dom_html.window "addEventListener"
+         [| Js.Unsafe.inject (js "baux:coi-settled"); Js.Unsafe.inject cb; Js.Unsafe.inject opts |])
+  else
+    warm_kernel ()
 
 (* ---------------------------------------------------------------------------
    Inline Doc Code Block Runner (.code-wrap inside article)

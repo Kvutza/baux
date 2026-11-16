@@ -3089,12 +3089,26 @@ let init_coi_service_worker () =
     window.location.reload();
   };
 
+  const settleCoi = () => {
+    if (!window.__bauxCoiPending) {
+      return;
+    }
+    window.__bauxCoiPending = false;
+    try {
+      window.dispatchEvent(new Event("baux:coi-settled"));
+    } catch (_) {}
+  };
+
+  window.__bauxCoiPending = true;
+  window.setTimeout(settleCoi, 1500);
+
   navigator.serviceWorker.addEventListener("controllerchange", triggerReloadOnce, { once: true });
 
   navigator.serviceWorker
     .register(swUrl)
     .then((reg) => {
       if (window.crossOriginIsolated) {
+        settleCoi();
         return;
       }
       if (reg && reg.installing) {
@@ -3104,11 +3118,22 @@ let init_coi_service_worker () =
             triggerReloadOnce();
           }
         });
+      } else if (reg && reg.waiting) {
+        const waiting = reg.waiting;
+        waiting.addEventListener("statechange", () => {
+          if (waiting.state === "activated") {
+            triggerReloadOnce();
+          }
+        });
       } else if (reg && reg.active && navigator.serviceWorker.controller) {
         triggerReloadOnce();
+      } else {
+        settleCoi();
       }
     })
-    .catch(() => {});
+    .catch(() => {
+      settleCoi();
+    });
 })
 |}
   in

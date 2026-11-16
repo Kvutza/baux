@@ -311,6 +311,16 @@ pub fn stamp_assets(html_dir: &Path, asset_root: &Path) -> Result<(), String> {
         }
     }
 
+    let worker_ver = {
+        let path = asset_root.join("assets/repl_worker.js");
+        if path.is_file() {
+            let bytes = fs::read(&path).map_err(|e| format!("read {}: {e}", path.display()))?;
+            Some(sha256_hex(&bytes)[..12].to_string())
+        } else {
+            None
+        }
+    };
+
     let mut files = Vec::new();
     collect_files(html_dir, &mut files)?;
     for path in files {
@@ -329,6 +339,13 @@ pub fn stamp_assets(html_dir: &Path, asset_root: &Path) -> Result<(), String> {
                 {
                     content = content.replace(&needle_plain, &stamped);
                 }
+            }
+        }
+        if let Some(ref worker_ver) = worker_ver {
+            let needle = "data-repl-worker=\"assets/repl_worker.js\"";
+            let stamped = format!("data-repl-worker=\"assets/repl_worker.js?v={worker_ver}\"");
+            if content.contains(needle) && !content.contains(&stamped) {
+                content = content.replace(needle, &stamped);
             }
         }
         fs::write(&path, content).map_err(|e| format!("write {}: {e}", path.display()))?;

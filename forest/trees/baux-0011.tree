@@ -1,5 +1,5 @@
 \title{Measuring Batch Evaluation Cost}
 
 \p{
-  The OxCaml evaluator provides scalar and SIMD kernels with configurable worker counts. When benchmarking, separate prepared-array throughput (steady-state evaluation on packed inputs) from end-to-end latency (which includes array packing and FFI transfer) at matching dimensions and batch sizes; see the [simulation page](simulation.html) for a runnable example.
+  The OxCaml evaluator provides scalar and SIMD kernels with configurable worker counts. When benchmarking, separate prepared-array throughput (steady-state evaluation on packed inputs) from end-to-end latency (which includes array packing and FFI transfer) at matching dimensions and batch sizes; see the [Explorer](explorer.html) for a runnable example.
 }

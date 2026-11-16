@@ -1,8 +1,0 @@
-\title{Python Playground}
-\meta{toc}{false}
-
-\<div>[id]{py-playground-root}[class]{py-playground-shell}{
-  \<div>[class]{py-pg-fallback}{
-    \p{Loading Python...}
-  }
-}

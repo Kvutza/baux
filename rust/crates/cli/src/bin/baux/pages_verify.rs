@@ -30,11 +30,10 @@ const SENSITIVE_PATTERNS: [&str; 10] = [
     "GATEWAY_GROUPS",
 ];
 
-const REQUIRED_FILES: [&str; 26] = [
+const REQUIRED_FILES: [&str; 25] = [
     "index.html",
     "docs.html",
-    "simulation.html",
-    "playground.html",
+    "explorer.html",
     "style.css",
     "katex.min.css",
     "forester.js",

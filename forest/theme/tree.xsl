@@ -49,32 +49,17 @@
                 </xsl:attribute>
                 <xsl:text>API Reference</xsl:text>
               </a>
-              <a href="{/fr:tree/@base-url}simulation.html">
+              <a href="{/fr:tree/@base-url}explorer.html">
                 <xsl:attribute name="class">
                   <xsl:text>nav-item</xsl:text>
                   <xsl:if test="$current-addr = 'baux-0004'">
                     <xsl:text> active</xsl:text>
                   </xsl:if>
                 </xsl:attribute>
-                <xsl:text>Examples</xsl:text>
-              </a>
-              <a href="{/fr:tree/@base-url}playground.html">
-                <xsl:attribute name="class">
-                  <xsl:text>nav-item</xsl:text>
-                  <xsl:if test="$current-addr = 'playground'">
-                    <xsl:text> active</xsl:text>
-                  </xsl:if>
-                </xsl:attribute>
-                <xsl:text>Playground</xsl:text>
+                <xsl:text>Explorer</xsl:text>
               </a>
               <a href="https://github.com/Kvutza/baux" class="nav-item external" target="_blank" rel="noopener noreferrer">
                 <xsl:text>GitHub</xsl:text>
-              </a>
-              <a href="https://pypi.org/project/baux/" class="nav-item external" target="_blank" rel="noopener noreferrer">
-                <xsl:text>PyPI</xsl:text>
-              </a>
-              <a href="https://crates.io/crates/baux" class="nav-item external" target="_blank" rel="noopener noreferrer">
-                <xsl:text>Crates.io</xsl:text>
               </a>
             </nav>
           </div>
@@ -109,8 +94,7 @@
 <xsl:call-template name="docs-link"><xsl:with-param name="addr" select="'api-objects'"/><xsl:with-param name="route" select="'api-objects.html'"/><xsl:with-param name="label" select="'In-place interfaces'"/></xsl:call-template>
 <xsl:call-template name="docs-link"><xsl:with-param name="addr" select="'api-runtime'"/><xsl:with-param name="route" select="'api-runtime.html'"/><xsl:with-param name="label" select="'Runtime and integrations'"/></xsl:call-template>
 <li class="nav-label">More</li>
-<xsl:call-template name="docs-link"><xsl:with-param name="addr" select="'baux-0004'"/><xsl:with-param name="route" select="'simulation.html'"/><xsl:with-param name="label" select="'Examples'"/></xsl:call-template>
-<xsl:call-template name="docs-link"><xsl:with-param name="addr" select="'playground'"/><xsl:with-param name="route" select="'playground.html'"/><xsl:with-param name="label" select="'Playground'"/></xsl:call-template>
+<xsl:call-template name="docs-link"><xsl:with-param name="addr" select="'baux-0004'"/><xsl:with-param name="route" select="'explorer.html'"/><xsl:with-param name="label" select="'Explorer'"/></xsl:call-template>
 <xsl:call-template name="docs-link"><xsl:with-param name="addr" select="'baux-0002'"/><xsl:with-param name="route" select="'baux-0002.html'"/><xsl:with-param name="label" select="'References'"/></xsl:call-template>
             </ul>
           </nav>
@@ -133,8 +117,7 @@
 <xsl:call-template name="docs-index"><xsl:with-param name="addr" select="'api-configuration'"/><xsl:with-param name="route" select="'api-configuration.html'"/><xsl:with-param name="label" select="'Configuration'"/></xsl:call-template>
 <xsl:call-template name="docs-index"><xsl:with-param name="addr" select="'api-objects'"/><xsl:with-param name="route" select="'api-objects.html'"/><xsl:with-param name="label" select="'In-place interfaces'"/></xsl:call-template>
 <xsl:call-template name="docs-index"><xsl:with-param name="addr" select="'api-runtime'"/><xsl:with-param name="route" select="'api-runtime.html'"/><xsl:with-param name="label" select="'Runtime and integrations'"/></xsl:call-template>
-<xsl:call-template name="docs-index"><xsl:with-param name="addr" select="'baux-0004'"/><xsl:with-param name="route" select="'simulation.html'"/><xsl:with-param name="label" select="'Examples'"/></xsl:call-template>
-<xsl:call-template name="docs-index"><xsl:with-param name="addr" select="'playground'"/><xsl:with-param name="route" select="'playground.html'"/><xsl:with-param name="label" select="'Playground'"/></xsl:call-template>
+<xsl:call-template name="docs-index"><xsl:with-param name="addr" select="'baux-0004'"/><xsl:with-param name="route" select="'explorer.html'"/><xsl:with-param name="label" select="'Explorer'"/></xsl:call-template>
 <xsl:call-template name="docs-index"><xsl:with-param name="addr" select="'baux-0002'"/><xsl:with-param name="route" select="'baux-0002.html'"/><xsl:with-param name="label" select="'References'"/></xsl:call-template>
         </div>
       </body>
@@ -409,16 +392,10 @@
         <xsl:when test="not(@show-heading='false')">
           <div class="tree-node" id="{generate-id(.)}">
             <xsl:apply-templates select="fr:frontmatter" />
-            <xsl:if test="fr:frontmatter/fr:addr = 'baux-0004'">
-              <div id="tokamak-cad-simulation"></div>
-            </xsl:if>
             <xsl:apply-templates select="fr:mainmatter" />
           </div>
         </xsl:when>
         <xsl:otherwise>
-          <xsl:if test="fr:frontmatter/fr:addr = 'baux-0004'">
-            <div id="tokamak-cad-simulation"></div>
-          </xsl:if>
           <xsl:apply-templates select="fr:mainmatter" />
         </xsl:otherwise>
       </xsl:choose>

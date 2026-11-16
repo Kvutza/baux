@@ -1192,11 +1192,11 @@ let mount_tokamak_cad () =
       ? "400 8px 'IBM Plex Mono', monospace"
       : (compact ? "400 8.8px 'IBM Plex Mono', monospace" : "400 9.5px 'IBM Plex Mono', monospace");
     var axisFont = compact
-      ? "italic 10px 'InterVariable', -apple-system, sans-serif"
-      : "italic 11px 'InterVariable', -apple-system, sans-serif";
+      ? "italic 10px 'IBM Plex Mono', monospace"
+      : "italic 11px 'IBM Plex Mono', monospace";
     var titleFont = ultraCompact
-      ? "700 10px 'InterVariable', -apple-system, sans-serif"
-      : (compact ? "700 11.2px 'InterVariable', -apple-system, sans-serif" : "700 13px 'InterVariable', -apple-system, sans-serif");
+      ? "600 10px 'IBM Plex Mono', monospace"
+      : (compact ? "600 11.2px 'IBM Plex Mono', monospace" : "600 12.5px 'IBM Plex Mono', monospace");
 
     var rTicks = mach.rTicks;
     if (!rTicks || !rTicks.length) {

@@ -1901,7 +1901,7 @@ let mount_viewer (root : element Js.t) =
           let xv = lo0 +. (u *. (hi0 -. lo0)) in
           ctx##fillText (js (fmt_axis xv)) (jf (x_of_u u)) (jf (pad_t +. bh +. 13.0))
         done;
-        ctx##.font := js "italic 11px 'InterVariable', -apple-system, sans-serif";
+        ctx##.font := js "italic 11px 'IBM Plex Mono', monospace";
         ctx##.fillStyle := js fg_ink;
         ctx##fillText (js "x\u{2081}") (jf (pad_l +. (0.5 *. bw)))
           (jf (pad_t +. bh +. 27.0));
@@ -2129,7 +2129,7 @@ let mount_viewer (root : element Js.t) =
           ctx##fillText (js (fmt_axis yv)) (jf (bx -. 5.0)) (jf (py +. 3.0))
         done;
         ctx##.fillStyle := js fg_ink;
-        ctx##.font := js "italic 11px 'InterVariable', -apple-system, sans-serif";
+        ctx##.font := js "italic 11px 'IBM Plex Mono', monospace";
         ctx##.textAlign := js "center";
         ctx##fillText
           (js (if s.dim > 2 then "x\u{2081} (slice @ x*)" else "x\u{2081}"))

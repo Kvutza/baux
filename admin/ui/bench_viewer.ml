@@ -1159,32 +1159,6 @@ let mount_viewer (root : element Js.t) =
     Dom.appendChild grid pane_b;
     Dom.appendChild shell grid;
 
-    (* Synchronized Convergence Strip *)
-    let trace_stage = mk_div ~cls:"oxb-trace-stage" () in
-    let trace_hdr = mk_div ~cls:"oxb-trace-hdr" () in
-    let trace_hdr_left = mk_span () in
-    Dom.appendChild trace_hdr_left (mk_strong "(c) ");
-    let trace_title_span = mk_span () in
-    append_sub_parts trace_title_span
-      [
-        (false, "Best-So-Far Objective min");
-        (true, "t \u{2264} n");
-        (false, " f(x");
-        (true, "t");
-        (false, ")");
-      ];
-    Dom.appendChild trace_hdr_left trace_title_span;
-    let trace_hdr_right = mk_span ~cls:"oxb-trace-sub" () in
-    Dom.appendChild trace_hdr trace_hdr_left;
-    Dom.appendChild trace_hdr trace_hdr_right;
-    let trace_wrap = mk_div ~cls:"oxb-trace-wrap" () in
-    let trace_canvas = createCanvas document in
-    trace_canvas##.className := js "oxb-trace-canvas";
-    Dom.appendChild trace_wrap trace_canvas;
-    Dom.appendChild trace_stage trace_hdr;
-    Dom.appendChild trace_stage trace_wrap;
-    Dom.appendChild shell trace_stage;
-
     (* Metadata & Hover Telemetry Deck *)
     let meta_strip = mk_div ~cls:"tcv-legend-strip oxb-meta-strip" () in
     let meta_chips = mk_div ~cls:"tcv-legend-items oxb-meta-chips" () in
@@ -2171,132 +2145,6 @@ let mount_viewer (root : element Js.t) =
       ctx##restore
     in
 
-    (* --- Render Synchronized Convergence Strip (.oxb-trace-canvas) --- *)
-    let render_trace () =
-      let s = !cur_session in
-      let is_dark = is_dark_theme () in
-      let cw, ch, dpr = sync_canvas_dpi trace_canvas in
-      let ctx = trace_canvas##getContext _2d_ in
-      ctx##save;
-      ctx##setTransform (jf dpr) (jf 0.0) (jf 0.0) (jf dpr) (jf 0.0) (jf 0.0);
-      ctx##.fillStyle := js (if is_dark then "#0d1117" else "#ffffff");
-      ctx##fillRect (jf 0.0) (jf 0.0) (jf cw) (jf ch);
-
-      let pad_l = 56.0 and pad_r = 18.0 and pad_t = 10.0 and pad_b = 20.0 in
-      let bw = Float.max 100.0 (cw -. pad_l -. pad_r) in
-      let bh = Float.max 36.0 (ch -. pad_t -. pad_b) in
-      let n_obs = Array.length s.best_trace in
-      let max_x = Int.max max_auto_evals n_obs in
-      let sc = build_norm_scale s.best_trace in
-
-      let x_of_step i =
-        pad_l
-        +. (float_of_int i /. float_of_int (Int.max 1 (max_x - 1)) *. bw)
-      in
-      let y_of_val v = pad_t +. ((1.0 -. eval_norm sc v) *. bh) in
-
-      ctx##.fillStyle := js (if is_dark then "#0f1520" else "#f8fafc");
-      ctx##fillRect (jf pad_l) (jf pad_t) (jf bw) (jf bh);
-
-      (* Gridlines *)
-      ctx##.strokeStyle :=
-        js (if is_dark then "rgba(148,163,184,0.14)" else "rgba(15,23,42,0.08)");
-      ctx##.lineWidth := jf 0.8;
-      ctx##beginPath;
-      ctx##moveTo (jf pad_l) (jf (pad_t +. (0.5 *. bh)));
-      ctx##lineTo (jf (pad_l +. bw)) (jf (pad_t +. (0.5 *. bh)));
-      ctx##stroke;
-
-      (* Vertical n_init LHS -> BO boundary *)
-      let init_x = x_of_step (s.n_init - 1) in
-      set_line_dash ctx [| 3.5; 2.5 |];
-      ctx##.strokeStyle :=
-        js (if is_dark then "rgba(251,191,36,0.65)" else "rgba(180,83,9,0.55)");
-      ctx##.lineWidth := jf 1.1;
-      ctx##beginPath;
-      ctx##moveTo (jf init_x) (jf pad_t);
-      ctx##lineTo (jf init_x) (jf (pad_t +. bh));
-      ctx##stroke;
-      set_line_dash ctx [||];
-      ctx##.fillStyle := js (if is_dark then "#fbbf24" else "#b45309");
-      ctx##.font := js "500 8.5px 'IBM Plex Mono', monospace";
-      ctx##.textAlign := js "left";
-      ctx##fillText
-        (js (Printf.sprintf "LHS (%d) \u{2192} BO" s.n_init))
-        (jf (init_x +. 4.0)) (jf (pad_t +. 10.0));
-
-      (* Faint individual evaluation scatter dots *)
-      ctx##.fillStyle :=
-        js (if is_dark then "rgba(148,163,184,0.34)" else "rgba(71,85,105,0.30)");
-      for i = 0 to n_obs - 1 do
-        let px = x_of_step i in
-        let py = y_of_val s.ys.(i) in
-        ctx##beginPath;
-        ctx##arc (jf px) (jf py) (jf 1.6) (jf 0.0) (jf (2.0 *. Float.pi))
-          Js._false;
-        ctx##fill
-      done;
-
-      (* Monotone best-so-far trace + subtle area fill *)
-      let line_col = if is_dark then "#38bdf8" else "#0284c7" in
-      if n_obs > 0 then begin
-        ctx##.fillStyle :=
-          js
-            (if is_dark then "rgba(56, 189, 248, 0.12)"
-             else "rgba(2, 132, 199, 0.10)");
-        ctx##beginPath;
-        ctx##moveTo (jf (x_of_step 0)) (jf (pad_t +. bh));
-        for i = 0 to n_obs - 1 do
-          ctx##lineTo (jf (x_of_step i)) (jf (y_of_val s.best_trace.(i)))
-        done;
-        ctx##lineTo (jf (x_of_step (n_obs - 1))) (jf (pad_t +. bh));
-        ctx##closePath;
-        ctx##fill;
-
-        ctx##.strokeStyle := js line_col;
-        ctx##.lineWidth := jf 2.0;
-        ctx##beginPath;
-        for i = 0 to n_obs - 1 do
-          let px = x_of_step i and py = y_of_val s.best_trace.(i) in
-          if i = 0 then ctx##moveTo (jf px) (jf py)
-          else ctx##lineTo (jf px) (jf py)
-        done;
-        ctx##stroke;
-
-        let last_x = x_of_step (n_obs - 1) in
-        let last_y = y_of_val s.best_trace.(n_obs - 1) in
-        ctx##.fillStyle := js "#f43f5e";
-        ctx##beginPath;
-        ctx##arc (jf last_x) (jf last_y) (jf 3.3) (jf 0.0)
-          (jf (2.0 *. Float.pi)) Js._false;
-        ctx##fill
-      end;
-
-      (* Border & Axis Labels *)
-      ctx##.strokeStyle := js (if is_dark then "#30363d" else "#cbd5e1");
-      ctx##.lineWidth := jf 1.0;
-      ctx##strokeRect (jf pad_l) (jf pad_t) (jf bw) (jf bh);
-
-      let muted_ink = if is_dark then "#8b949e" else "#475569" in
-      ctx##.fillStyle := js muted_ink;
-      ctx##.font := js "400 8.5px 'IBM Plex Mono', monospace";
-      ctx##.textAlign := js "right";
-      ctx##fillText (js (fmt_num sc.raw_max)) (jf (pad_l -. 5.0))
-        (jf (pad_t +. 8.0));
-      ctx##fillText (js (fmt_num sc.raw_min)) (jf (pad_l -. 5.0))
-        (jf (pad_t +. bh));
-
-      ctx##.textAlign := js "center";
-      List.iter
-        (fun st ->
-          if st <= max_x then
-            ctx##fillText (js (string_of_int st))
-              (jf (x_of_step (Int.max 0 (st - 1))))
-              (jf (pad_t +. bh +. 12.5)))
-        [ 1; 60; 120; 180; max_x ];
-      ctx##restore
-    in
-
     (* --- Update Hover Readout & Status Telemetry --- *)
     let update_hover_readout () =
       let s = !cur_session in
@@ -2413,11 +2261,7 @@ let mount_viewer (root : element Js.t) =
         append_sub_parts badge_b_sub f_parts
       end;
 
-      (* Trace header & Metadata chips *)
-      let init_y = s.best_trace.(Int.max 0 (s.n_init - 1)) in
-      set_text trace_hdr_right
-        (Printf.sprintf "Init best: %s \u{2192} Current: %s (Seed %d)"
-           (fmt_num init_y) (fmt_num best_y) s.seed);
+      (* Metadata chips *)
       set_text chip_domain
         (Printf.sprintf "Domain: %s" (domain_summary s.bounds));
       set_text chip_rule (Printf.sprintf "Rule: %s" (rule_summary sp s.dim));
@@ -2439,8 +2283,7 @@ let mount_viewer (root : element Js.t) =
     let render_all () =
       sync_ui_chrome ();
       render_pane_a ();
-      render_pane_b ();
-      render_trace ()
+      render_pane_b ()
     in
 
     (* --- Rebuild Session Helper --- *)

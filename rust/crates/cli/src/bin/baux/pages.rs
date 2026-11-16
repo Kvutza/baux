@@ -526,7 +526,7 @@ pub fn build(root: &Path, bundle_dir: &Path) -> Result<(), String> {
     for (src_name, dst_name) in [
         ("baux-0001.html", "index.html"),
         ("baux-0007.html", "docs.html"),
-        ("baux-0004.html", "simulation.html"),
+        ("baux-0004.html", "explorer.html"),
     ] {
         let src_html = output_dir.join(src_name);
         if !src_html.is_file() {
@@ -1624,7 +1624,7 @@ fn serve(root: &Path, bundle_dir: &Path, port: u16) -> Result<(), String> {
     let addr = format!("127.0.0.1:{port}");
     let listener = TcpListener::bind(&addr).map_err(|e| format!("bind {addr}: {e}"))?;
     println!(
-        "o|pages: serving {} at http://{addr}/simulation.html",
+        "o|pages: serving {} at http://{addr}/explorer.html",
         bundle_dir.display()
     );
     for stream in listener.incoming() {

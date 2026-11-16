@@ -3041,7 +3041,7 @@ let init_coi_service_worker () =
   }
   const body = document.body;
   const page = body ? (body.getAttribute("data-page") || "") : "";
-  const isPlayground = page === "playground" || Boolean(document.getElementById("py-playground-root"));
+  const isPlayground = page === "baux-0004" || page === "explorer" || Boolean(document.getElementById("py-playground-root"));
   if (!isPlayground) {
     return;
   }

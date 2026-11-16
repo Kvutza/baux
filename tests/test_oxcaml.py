@@ -8,13 +8,13 @@ from pathlib import Path
 
 import baux
 import numpy as np
-from baux.benchmarks import oxcaml
+from baux.benchmarks import synthetic
 
 ROOT = Path(__file__).resolve().parent.parent
 
 
 def test_catalogue() -> None:
-    entries = oxcaml.catalogue()
+    entries = synthetic.catalogue()
     assert len(entries) == 56
     ids = {row["id"] for row in entries}
     assert len(ids) == 56
@@ -38,7 +38,7 @@ def test_reference() -> None:
         coords = [float(tok) for tok in coords_s.split(",")]
         assert len(coords) == int(dim_s)
         expected = float(expected_s)
-        actual = oxcaml.eval_one(fid, coords)
+        actual = synthetic.eval_one(fid, coords)
         assert np.isclose(actual, expected, rtol=1e-9, atol=1e-9), (
             f"{fid}({coords}): got {actual}, expected {expected}"
         )
@@ -49,25 +49,25 @@ def test_reference() -> None:
     for (fid, _dim), items in grouped.items():
         pts = np.asarray([pt for pt, _ in items], dtype=np.float64)
         exp = np.asarray([val for _, val in items], dtype=np.float64)
-        got_simd = oxcaml.eval_batch(fid, pts, backend="simd", workers=1)
-        got_scalar = oxcaml.eval_batch(fid, pts, backend="scalar", workers=1)
+        got_simd = synthetic.eval_batch(fid, pts, backend="simd", workers=1)
+        got_scalar = synthetic.eval_batch(fid, pts, backend="scalar", workers=1)
         np.testing.assert_allclose(got_simd, exp, rtol=1e-9, atol=1e-9)
         np.testing.assert_allclose(got_scalar, exp, rtol=1e-9, atol=1e-9)
 
 
 def test_scalable() -> None:
     rng = np.random.default_rng(7)
-    scalable = [row["id"] for row in oxcaml.catalogue() if row["scalable"]]
+    scalable = [row["id"] for row in synthetic.catalogue() if row["scalable"]]
     assert len(scalable) == 18
     for dim in (16, 64):
         for fid in scalable:
-            meta = oxcaml.describe(fid, dim)
+            meta = synthetic.describe(fid, dim)
             bounds = np.asarray(meta["bounds"], dtype=np.float64)
             assert bounds.shape == (dim, 2)
             pts = rng.uniform(bounds[:, 0], bounds[:, 1], size=(64, dim))
-            y_scalar = oxcaml.eval_batch(fid, pts, backend="scalar", workers=1)
-            y_simd = oxcaml.eval_batch(fid, pts, backend="simd", workers=1)
-            y_par = oxcaml.eval_batch(fid, pts, backend="simd", workers=4)
+            y_scalar = synthetic.eval_batch(fid, pts, backend="scalar", workers=1)
+            y_simd = synthetic.eval_batch(fid, pts, backend="simd", workers=1)
+            y_par = synthetic.eval_batch(fid, pts, backend="simd", workers=4)
             np.testing.assert_allclose(y_simd, y_scalar, rtol=1e-10, atol=1e-10)
             np.testing.assert_allclose(y_par, y_scalar, rtol=1e-10, atol=1e-10)
 
@@ -76,13 +76,13 @@ def test_refcounts() -> None:
     token = ["modal", "probe", 42]
     # sys.getrefcount adds 1 temporary reference for its own call argument;
     # inside py_refcount_probe (METH_O), borrowed_rc equals base - 1? Let's verify exact delta:
-    probe = oxcaml.refcount_probe(token)
+    probe = synthetic.refcount_probe(token)
     assert probe["owned_rc"] == probe["borrowed_rc"] + 1
     assert probe["after_release_rc"] == probe["borrowed_rc"]
 
     pts = np.zeros((32, 8), dtype=np.float64)
     rc_before = sys.getrefcount(pts)
-    raw = oxcaml.raw_batch("ackley", pts, backend="simd", workers=2)
+    raw = synthetic.raw_batch("ackley", pts, backend="simd", workers=2)
     rc_after = sys.getrefcount(pts)
     assert rc_after == rc_before
 
@@ -90,12 +90,12 @@ def test_refcounts() -> None:
     # - Python 3.14+ passes local variables to C builtins via LOAD_FAST_BORROW -> getrefcount == 1
     # - Earlier CPython increments arg refcount on call -> getrefcount == 2
     assert isinstance(raw, bytearray)
-    assert oxcaml.refcount_probe(raw)["borrowed_rc"] == sys.getrefcount(raw)
+    assert synthetic.refcount_probe(raw)["borrowed_rc"] == sys.getrefcount(raw)
     assert sys.getrefcount(raw) in (1, 2)
 
 
 def test_loop() -> None:
-    bounds, objective = oxcaml.problem("ackley", dim=16, workers=2)
+    bounds, objective = synthetic.problem("ackley", dim=16, workers=2)
     assert bounds.shape == (16, 2)
     pipe = baux.enn(k=10) | baux.ucb(beta=2.0)
     state = baux.init(bounds, pipe, key=baux.key(0))
@@ -116,13 +116,13 @@ def test_loop() -> None:
 def test_edges() -> None:
     import pytest
 
-    _, obj = oxcaml.problem("sphere", dim=4)
+    _, obj = synthetic.problem("sphere", dim=4)
     with pytest.raises(ValueError):
         obj(np.zeros(2, dtype=np.float64))
     with pytest.raises(ValueError):
         obj(np.zeros((3, 2), dtype=np.float64))
 
-    empty = oxcaml.eval_batch(
+    empty = synthetic.eval_batch(
         "sphere", np.zeros((0, 4), dtype=np.float64), backend="simd"
     )
     assert empty.shape == (0,)

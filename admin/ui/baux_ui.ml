@@ -1189,14 +1189,14 @@ let mount_tokamak_cad () =
     }
 
     var tickFont = ultraCompact
-      ? "400 8px 'Latin Modern Mono', monospace"
-      : (compact ? "400 8.8px 'Latin Modern Mono', monospace" : "400 9.5px 'Latin Modern Mono', monospace");
+      ? "400 8px 'IBM Plex Mono', monospace"
+      : (compact ? "400 8.8px 'IBM Plex Mono', monospace" : "400 9.5px 'IBM Plex Mono', monospace");
     var axisFont = compact
-      ? "italic 10px 'Latin Modern Roman', Georgia, serif"
-      : "italic 11px 'Latin Modern Roman', Georgia, serif";
+      ? "italic 10px 'InterVariable', -apple-system, sans-serif"
+      : "italic 11px 'InterVariable', -apple-system, sans-serif";
     var titleFont = ultraCompact
-      ? "700 10px 'Latin Modern Roman', Georgia, serif"
-      : (compact ? "700 11.2px 'Latin Modern Roman', Georgia, serif" : "700 13px 'Latin Modern Roman', Georgia, serif");
+      ? "700 10px 'InterVariable', -apple-system, sans-serif"
+      : (compact ? "700 11.2px 'InterVariable', -apple-system, sans-serif" : "700 13px 'InterVariable', -apple-system, sans-serif");
 
     var rTicks = mach.rTicks;
     if (!rTicks || !rTicks.length) {

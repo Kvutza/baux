@@ -1894,18 +1894,18 @@ let mount_viewer (root : element Js.t) =
         ctx##strokeRect (jf pad_l) (jf pad_t) (jf bw) (jf bh);
         let lo0, hi0 = s.bounds.(0) in
         ctx##.fillStyle := js muted_ink;
-        ctx##.font := js "400 9.5px 'IBM Plex Mono', 'Latin Modern Mono', monospace";
+        ctx##.font := js "400 9.5px 'IBM Plex Mono', monospace";
         ctx##.textAlign := js "center";
         for t = 0 to 4 do
           let u = float_of_int t *. 0.25 in
           let xv = lo0 +. (u *. (hi0 -. lo0)) in
           ctx##fillText (js (fmt_axis xv)) (jf (x_of_u u)) (jf (pad_t +. bh +. 13.0))
         done;
-        ctx##.font := js "italic 11px 'Latin Modern Roman', Georgia, serif";
+        ctx##.font := js "italic 11px 'InterVariable', -apple-system, sans-serif";
         ctx##.fillStyle := js fg_ink;
         ctx##fillText (js "x\u{2081}") (jf (pad_l +. (0.5 *. bw)))
           (jf (pad_t +. bh +. 27.0));
-        ctx##.font := js "400 9.5px 'IBM Plex Mono', 'Latin Modern Mono', monospace";
+        ctx##.font := js "400 9.5px 'IBM Plex Mono', monospace";
         ctx##.fillStyle := js muted_ink;
         ctx##.textAlign := js "right";
         ctx##fillText (js (fmt_axis y1)) (jf (pad_l -. 5.0)) (jf (pad_t +. 8.0));
@@ -1989,7 +1989,7 @@ let mount_viewer (root : element Js.t) =
             if rw > 22.0 && rh > 14.0 then begin
               ctx##.fillStyle := js col_hex;
               ctx##.font :=
-                js "700 8.5px 'IBM Plex Mono', 'Latin Modern Mono', monospace";
+                js "700 8.5px 'IBM Plex Mono', monospace";
               ctx##.textAlign := js "left";
               ctx##fillText
                 (js (Printf.sprintf "R%d" (r_idx + 1)))
@@ -2105,7 +2105,7 @@ let mount_viewer (root : element Js.t) =
         let lo0, hi0 = s.bounds.(0) in
         let lo1, hi1 = s.bounds.(1) in
         ctx##.fillStyle := js muted_ink;
-        ctx##.font := js "400 9px 'IBM Plex Mono', 'Latin Modern Mono', monospace";
+        ctx##.font := js "400 9px 'IBM Plex Mono', monospace";
         ctx##.textAlign := js "center";
         for t = 0 to 2 do
           let u = float_of_int t *. 0.5 in
@@ -2129,7 +2129,7 @@ let mount_viewer (root : element Js.t) =
           ctx##fillText (js (fmt_axis yv)) (jf (bx -. 5.0)) (jf (py +. 3.0))
         done;
         ctx##.fillStyle := js fg_ink;
-        ctx##.font := js "italic 11px 'Latin Modern Roman', Georgia, serif";
+        ctx##.font := js "italic 11px 'InterVariable', -apple-system, sans-serif";
         ctx##.textAlign := js "center";
         ctx##fillText
           (js (if s.dim > 2 then "x\u{2081} (slice @ x*)" else "x\u{2081}"))
@@ -2161,7 +2161,7 @@ let mount_viewer (root : element Js.t) =
         ctx##.lineWidth := jf 0.9;
         ctx##strokeRect (jf cb_x) (jf by) (jf cb_w) (jf bh);
         ctx##.fillStyle := js muted_ink;
-        ctx##.font := js "400 8.5px 'IBM Plex Mono', 'Latin Modern Mono', monospace";
+        ctx##.font := js "400 8.5px 'IBM Plex Mono', monospace";
         ctx##.textAlign := js "left";
         ctx##fillText (js (fmt_axis mc.m_scale.raw_max)) (jf (cb_x +. cb_w +. 3.0))
           (jf (by +. 7.0));
@@ -2219,7 +2219,7 @@ let mount_viewer (root : element Js.t) =
       ctx##stroke;
       set_line_dash ctx [||];
       ctx##.fillStyle := js (if is_dark then "#fbbf24" else "#b45309");
-      ctx##.font := js "500 8.5px 'IBM Plex Mono', 'Latin Modern Mono', monospace";
+      ctx##.font := js "500 8.5px 'IBM Plex Mono', monospace";
       ctx##.textAlign := js "left";
       ctx##fillText
         (js (Printf.sprintf "LHS (%d) \u{2192} BO" s.n_init))
@@ -2279,7 +2279,7 @@ let mount_viewer (root : element Js.t) =
 
       let muted_ink = if is_dark then "#8b949e" else "#475569" in
       ctx##.fillStyle := js muted_ink;
-      ctx##.font := js "400 8.5px 'IBM Plex Mono', 'Latin Modern Mono', monospace";
+      ctx##.font := js "400 8.5px 'IBM Plex Mono', monospace";
       ctx##.textAlign := js "right";
       ctx##fillText (js (fmt_num sc.raw_max)) (jf (pad_l -. 5.0))
         (jf (pad_t +. 8.0));

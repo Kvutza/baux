@@ -124,3 +124,21 @@ jobs:
           mapfile -t toml_files < <(git ls-files '*.toml')
           uvx taplo fmt --check "${toml_files[@]}"
           uvx taplo check "${toml_files[@]}"
+
+  buck2-graph:
+    name: Buck2 Configured Graph & BXL Audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Audit Buck2 targets, multi-ABI configurations, and BXL graph
+        run: |
+          ./admin/tools/buck2w targets //...
+          ./admin/tools/buck2w cquery "%s" //:wheel //:wheels //:baux-py-wasm //admin/buck2/tests:pages //rust/crates/cli:baux //rust/crates/cli:baux-test //rust/crates/tooling:tooling-unit
+          ./admin/tools/buck2w bxl //admin/buck2:baux.bxl:graph_audit

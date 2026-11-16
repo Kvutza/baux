@@ -112,29 +112,36 @@ for index in "${!python_versions[@]}"; do
     python_bins+=("$python_bin")
 done
 
+targets=(
+    //:wheel-py315
+    //:wheel-py314
+    //:wheel-py313
+    //:wheel-py312
+    //admin/buck2/tests:all
+    //rust/crates/cli:baux
+)
+
+echo "o|wheels: building all wheels and tests in parallel..."
+build_report=$(mktemp "${TMPDIR:-/tmp}/baux-buck2-report.XXXXXX")
+./admin/tools/buck2w \
+    build "${targets[@]}" \
+    --build-test-info \
+    --local-only \
+    --console simple \
+    -v 2 \
+    --build-report "$build_report"
+
 for index in "${!python_versions[@]}"; do
     python_version=${python_versions[$index]}
     python_bin=${python_bins[$index]}
-    targets=(//:wheel)
-    if [ "$index" -eq 0 ]; then
-        targets+=(//admin/buck2/tests:all //rust/crates/cli:baux)
-    fi
-    echo "o|wheels: building wheel for CPython $python_version (${environments[$index]})..."
-    build_report=$(mktemp "${TMPDIR:-/tmp}/baux-buck2-report.XXXXXX")
-    ./admin/tools/buck2w \
-        build "${targets[@]}" \
-        --build-test-info \
-        --config "baux.python_version=$python_version" \
-        --local-only \
-        --console simple \
-        -v 2 \
-        --build-report "$build_report"
-    wheel=$("$python_bin" - "$build_report" <<'PY'
+    ver_nodot=${python_version//./}
+    wheel=$("$python_bin" - "$build_report" "$ver_nodot" <<'PY'
 import json
 import sys
 
 report = json.load(open(sys.argv[1], encoding="utf-8"))
-target = report["results"]["root//:wheel"]
+ver_nodot = sys.argv[2]
+target = report["results"][f"root//:wheel-py{ver_nodot}"]
 print(target["outputs"]["DEFAULT"][0])
 PY
 )
@@ -148,8 +155,6 @@ PY
             exit 1
             ;;
     esac
-    rm -f "$build_report"
-    build_report=
     test -f "$wheel"
     (
         if [ "$(uname -s)" = Linux ]; then
@@ -172,3 +177,5 @@ PY
             BAUX_WHEEL_PATH="$wheel" admin/tools/buck2-wheel-verify ${verification:+"$verification"}
     )
 done
+rm -f "$build_report"
+build_report=

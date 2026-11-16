@@ -10,7 +10,7 @@ def cuda_oxide(
         python_requires):
     """Build a CUDA-Oxide CPython wheel and its GPU parity action."""
     wheel = name + "-wheel"
-    release_version = read_config("baux", "release_version", "0.1.1")
+    release_version = read_config("baux", "release_version", "0.0.6")
     filename = "baux-{}+cuda75-{}-{}-manylinux_2_28_x86_64.whl".format(
         release_version,
         python_abi,
@@ -24,6 +24,7 @@ def cuda_oxide(
         "workspace": workspace,
         "sdk": "toolchains//:sdk-linux-x86_64",
     }
+    sources["cuda_oxide_src"] = "//admin/buck2/cuda:cuda-oxide-src"
     for crate, label in crates.items():
         sources[crate] = label
     native.genrule(

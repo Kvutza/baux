@@ -1,4 +1,5 @@
 PYTHON_VERSION = read_config("baux", "python_version", "3.14")
+PYTHON_VERSIONS = ("3.12", "3.13", "3.14", "3.15")
 
 _PYTHON_CONFIGS = {
     "3.12": struct(
@@ -36,11 +37,25 @@ PYTHON_COMPILER_ENVIRONMENT = _PYTHON.compiler_environment
 PYTHON_ENVIRONMENT = _PYTHON.environment
 PYTHON_REQUIRES = ">=3.12,<3.16"
 
-def python_extension_suffix(platform):
-    if platform == "linux-aarch64":
-        return ".cpython-{}-aarch64-linux-gnu.so".format(_PYTHON.extension_infix)
+def python_abi_for(version):
+    if version not in _PYTHON_CONFIGS:
+        fail("unsupported Python version: {}".format(version))
+    return _PYTHON_CONFIGS[version].abi
+
+def python_constraint_for(version):
+    return "root//:py" + version.replace(".", "")
+
+def python_extension_suffix_for(platform, version):
+    if version not in _PYTHON_CONFIGS:
+        fail("unsupported Python version: {}".format(version))
+    cfg = _PYTHON_CONFIGS[version]
+    if platform in ("linux-aarch64", "linux-arm64"):
+        return ".cpython-{}-aarch64-linux-gnu.so".format(cfg.extension_infix)
     if platform == "linux-x86_64":
-        return ".cpython-{}-x86_64-linux-gnu.so".format(_PYTHON.extension_infix)
+        return ".cpython-{}-x86_64-linux-gnu.so".format(cfg.extension_infix)
     if platform == "macos-arm64":
-        return ".cpython-{}-darwin.so".format(_PYTHON.extension_infix)
+        return ".cpython-{}-darwin.so".format(cfg.extension_infix)
     fail("unsupported Python extension platform: {}".format(platform))
+
+def python_extension_suffix(platform):
+    return python_extension_suffix_for(platform, PYTHON_VERSION)

@@ -333,6 +333,7 @@ class _PyodideSession:
         driver_js: Path,
         env_json: Path | None,
     ) -> None:
+        self.has_env_json = env_json is not None
         driver_js.write_text(_NODE_PYODIDE_HARNESS, encoding="utf-8")
         env = os.environ.copy()
         env["BAUX_PYODIDE_DIR"] = str(pyodide_dir)
@@ -701,13 +702,8 @@ def _mlpresets() -> dict[str, str]:
 
 def test_presets(pyodide_session: _PyodideSession) -> None:
     """Every Playground preset must execute cleanly in real Pyodide + WASM and emit valid fig specs."""
-    if not (
-        (REPO_ROOT / "forest" / "output" / "assets" / "baux_env.json").is_file()
-        or (
-            REPO_ROOT / ".cache" / "pages-bundle" / "assets" / "baux_env.json"
-        ).is_file()
-    ):
-        pytest.skip("baux_env.json not staged yet; run baux pages build first")
+    if not pyodide_session.has_env_json:
+        pytest.skip("baux_env.json not staged when session initialized")
 
     presets = _mlpresets()
     worker_js = (REPO_ROOT / "forest/theme/repl_worker.js").read_text(encoding="utf-8")

@@ -115,6 +115,7 @@ rust_test(
     name = "metal",
     srcs = ["metal.rs"],
     crate_root = "metal.rs",
+    labels = ["gpu"],
     deps = [
         "//admin/buck2/native:openmp-macos",
         "//rust/crates/baux:baux",
@@ -189,5 +190,52 @@ rust_test(
 test_suite(
     name = "compiler",
     tests = [":program", ":compiler-python", ":native-package", "//ocaml:program", "//rust/crates/baux:compute-test"],
+    visibility = ["PUBLIC"],
+)
+
+sh_test(
+    name = "repl-python",
+    test = "repl.sh",
+    labels = ["pages"],
+    resources = [
+        "//:baux-py-wasm",
+        "//rust/crates/cli:baux",
+        "//admin/ui:sources",
+        "//forest:sources",
+        "//:cargo-workspace",
+    ],
+    env = {
+        "BAUX_WASM_SO": "$(location //:baux-py-wasm)",
+        "BAUX_BIN": "$(location //rust/crates/cli:baux)",
+        "BAUX_PY_ENV": PYTHON_ENVIRONMENT,
+    },
+)
+
+sh_test(
+    name = "pages-python",
+    test = "pages.sh",
+    labels = ["pages"],
+    resources = [
+        "//:baux-py-wasm",
+        "//:wheel",
+        "//rust/crates/cli:baux",
+        "//admin/ui:sources",
+        "//forest:sources",
+    ],
+    env = {
+        "BAUX_BIN": "$(location //rust/crates/cli:baux)",
+        "BAUX_PY_ENV": PYTHON_ENVIRONMENT,
+        "BAUX_TEST_PYTHON": ".pixi/envs/" + PYTHON_ENVIRONMENT + "/bin/python",
+        "BAUX_TEST_WHEEL": "$(location //:wheel)",
+        "BAUX_WASM_SO": "$(location //:baux-py-wasm)",
+    },
+)
+
+test_suite(
+    name = "pages",
+    tests = [
+        ":repl-python",
+        ":pages-python",
+    ],
     visibility = ["PUBLIC"],
 )

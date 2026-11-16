@@ -1,0 +1,36 @@
+filegroup(
+    name = "sources",
+    srcs = glob([
+        "*.ml",
+        "dune",
+        "dune-project",
+    ]),
+    visibility = ["PUBLIC"],
+)
+
+genrule(
+    name = "bundles",
+    srcs = [":sources"],
+    outs = {
+        "oxcaml": ["oxcaml_eval.js"],
+        "ui": ["baux_ui.js"],
+    },
+    default_outs = ["baux_ui.js"],
+    labels = ["opam"],
+    cmd = """
+mkdir -p "$TMP/ui_src" "$TMP/ui_build"
+cp -R "$SRCDIR"/* "$TMP/ui_src/"
+opam exec --switch="${BAUX_OCAML_SWITCH:-5.2.0+ox}" -- dune build --root="$TMP/ui_src" --build-dir="$TMP/ui_build" ./baux_ui.js ./oxcaml_eval.js
+if [ -f "$TMP/ui_build/default/baux_ui.js" ]; then
+    cp "$TMP/ui_build/default/baux_ui.js" "$OUT/baux_ui.js"
+else
+    cp "$TMP/ui_src/baux_ui.js" "$OUT/baux_ui.js"
+fi
+if [ -f "$TMP/ui_build/default/oxcaml_eval.js" ]; then
+    cp "$TMP/ui_build/default/oxcaml_eval.js" "$OUT/oxcaml_eval.js"
+else
+    cp "$TMP/ui_src/oxcaml_eval.js" "$OUT/oxcaml_eval.js"
+fi
+""",
+    visibility = ["PUBLIC"],
+)

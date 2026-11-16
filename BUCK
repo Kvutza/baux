@@ -2,7 +2,11 @@ load(
     "//admin/buck2:python.bzl",
     "PYTHON_ABI",
     "PYTHON_REQUIRES",
+    "PYTHON_VERSION",
+    "PYTHON_VERSIONS",
+    "python_abi_for",
     "python_extension_suffix",
+    "python_extension_suffix_for",
 )
 load("//admin/buck2/cuda:defs.bzl", "cuda_oxide")
 load("//admin/buck2/wheel:wheel.bzl", "python_wheel")
@@ -23,11 +27,26 @@ constraint_value(
     visibility = ["PUBLIC"],
 )
 
+constraint_setting(
+    name = "python",
+    visibility = ["PUBLIC"],
+)
+
+[
+    constraint_value(
+        name = "py" + v.replace(".", ""),
+        constraint_setting = ":python",
+        visibility = ["PUBLIC"],
+    )
+    for v in PYTHON_VERSIONS
+]
+
 platform(
     name = "macos-arm64-platform",
     constraint_values = [
         "prelude//cpu/constraints:arm64",
         "prelude//os/constraints:macos",
+        ":py" + PYTHON_VERSION.replace(".", ""),
     ],
     visibility = ["PUBLIC"],
 )
@@ -53,6 +72,7 @@ platform(
     constraint_values = [
         "prelude//cpu/constraints:arm64",
         "prelude//os/constraints:linux",
+        ":py" + PYTHON_VERSION.replace(".", ""),
     ],
     visibility = ["PUBLIC"],
 )
@@ -62,6 +82,7 @@ platform(
     constraint_values = [
         "prelude//cpu/constraints:x86_64",
         "prelude//os/constraints:linux",
+        ":py" + PYTHON_VERSION.replace(".", ""),
     ],
     visibility = ["PUBLIC"],
 )
@@ -128,7 +149,6 @@ filegroup(
         "evals/tokagym/*.py",
         "evals/geometry/*.py",
         "research/upstream/*.lock.toml",
-        "rust/crates/baux/src/muon/*.toml",
         "rust/crates/fbt/src/hnet/*.toml",
         "rust/crates/fbt/src/muon/*.toml",
         "rust/crates/baux/src/trust_region/*.toml",
@@ -146,7 +166,7 @@ filegroup(
     name = "cuda-package",
     srcs = {
         path: path
-        for path in glob(["python/baux/**/*.py", "data/recipes/*.toml"]) + [
+        for path in glob(["python/baux/**/*.py"]) + [
             "LICENSE",
             "NOTICE",
             "README.md",
@@ -308,6 +328,86 @@ alias(
         ":linux-x86_64": ":wheel-linux-x86_64-release",
         ":macos-arm64": ":wheel-macos-arm64-release",
     }),
+    visibility = ["PUBLIC"],
+)
+
+[
+    (
+        platform(
+            name = "release-" + plat_name + "-py" + v.replace(".", "") + "-platform",
+            constraint_values = [
+                cpu_c,
+                os_c,
+                ":release-mode",
+                ":py" + v.replace(".", ""),
+            ],
+            visibility = ["PUBLIC"],
+        ),
+        python_wheel(
+            name = "wheel-" + plat_name + "-" + python_abi_for(v),
+            extension = "//rust/crates/baux-py:baux-py[shared]",
+            extension_suffix = python_extension_suffix_for(plat_name, v),
+            fixture_srcs = glob(["tests/fixtures/optimizer/*.toml", "tests/fixtures/morbo/*.toml"]),
+            license = "LICENSE",
+            notice = "NOTICE",
+            package = "baux",
+            platform_tag = plat_tag,
+            python_abi = python_abi_for(v),
+            python_requires = PYTHON_REQUIRES,
+            python_srcs = glob(["python/baux/**/*.py"]),
+            readme = "README.md",
+            runtime_libraries = rt_libs,
+            target_compatible_with = [cpu_c, os_c],
+            version = read_config("baux", "release_version", "0.0.6"),
+        ),
+        configured_alias(
+            name = "wheel-" + plat_name + "-" + python_abi_for(v) + "-release",
+            actual = ":wheel-" + plat_name + "-" + python_abi_for(v),
+            platform = ":release-" + plat_name + "-py" + v.replace(".", "") + "-platform",
+        ),
+    )
+    for plat_name, plat_tag, cpu_c, os_c, rt_libs in [
+        (
+            "macos-arm64",
+            "macosx_11_0_arm64",
+            "prelude//cpu/constraints:arm64",
+            "prelude//os/constraints:macos",
+            ["//admin/buck2/native:openmp-build[lib]"],
+        ),
+        (
+            "linux-arm64",
+            "manylinux_2_28_aarch64",
+            "prelude//cpu/constraints:arm64",
+            "prelude//os/constraints:linux",
+            [],
+        ),
+        (
+            "linux-x86_64",
+            "manylinux_2_28_x86_64",
+            "prelude//cpu/constraints:x86_64",
+            "prelude//os/constraints:linux",
+            [],
+        ),
+    ]
+    for v in PYTHON_VERSIONS
+]
+
+[
+    alias(
+        name = "wheel-py" + v.replace(".", ""),
+        actual = select({
+            ":linux-arm64": ":wheel-linux-arm64-" + python_abi_for(v) + "-release",
+            ":linux-x86_64": ":wheel-linux-x86_64-" + python_abi_for(v) + "-release",
+            ":macos-arm64": ":wheel-macos-arm64-" + python_abi_for(v) + "-release",
+        }),
+        visibility = ["PUBLIC"],
+    )
+    for v in PYTHON_VERSIONS
+]
+
+filegroup(
+    name = "wheels",
+    srcs = [":wheel-py" + v.replace(".", "") for v in PYTHON_VERSIONS],
     visibility = ["PUBLIC"],
 )
 

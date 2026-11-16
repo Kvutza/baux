@@ -13,10 +13,54 @@ trap 'rm -rf "$TMP_DIR"' EXIT
 CHANGES_FILE="$TMP_DIR/changes.txt"
 BASE_TARGETS="$TMP_DIR/base.jsonl"
 
-# Capture git name-status diff against HEAD (or uncommitted index)
-git -C "$repo_dir" diff --name-status HEAD > "$CHANGES_FILE" 2>/dev/null || true
-if [ ! -s "$CHANGES_FILE" ]; then
-    git -C "$repo_dir" status --porcelain | awk '{code=($1=="??" ? "A" : $1); print code "\t" $2}' > "$CHANGES_FILE" 2>/dev/null || true
+parse_jj_summary() {
+    awk '
+        ($1 == "M" || $1 == "A" || $1 == "D") {
+            path = substr($0, index($0, $1) + 2)
+            sub(/^[ \t]+/, "", path)
+            print $1 "\t" path
+        }
+        ($1 == "R") {
+            rest = substr($0, index($0, "R") + 2)
+            sub(/^[ \t]+/, "", rest)
+            if (rest ~ /\{.* => .*\}/) {
+                b_start = index(rest, "{")
+                arrow = index(rest, " => ")
+                b_end = index(rest, "}")
+                prefix = substr(rest, 1, b_start - 1)
+                old_p = substr(rest, b_start + 1, arrow - b_start - 1)
+                new_p = substr(rest, arrow + 4, b_end - arrow - 4)
+                suffix = substr(rest, b_end + 1)
+                print "D\t" prefix old_p suffix
+                print "A\t" prefix new_p suffix
+            } else if (rest ~ / => /) {
+                split(rest, parts, " => ")
+                old_p = parts[1]
+                new_p = parts[2]
+                sub(/[ \t]+$/, "", old_p)
+                sub(/^[ \t]+/, "", new_p)
+                print "D\t" old_p
+                print "A\t" new_p
+            } else {
+                print "D\t" $2
+                print "A\t" $3
+            }
+        }
+    '
+}
+
+# Capture changes from JJ if available, else fall back to git
+if [ -d "$repo_dir/.jj" ] && command -v jj >/dev/null 2>&1; then
+    jj -R "$repo_dir" diff --from '@-' --to '@' --summary 2>/dev/null | parse_jj_summary > "$CHANGES_FILE" || true
+    if [ ! -s "$CHANGES_FILE" ]; then
+        jj -R "$repo_dir" diff --from 'main' --to '@' --summary 2>/dev/null | parse_jj_summary > "$CHANGES_FILE" || true
+    fi
+else
+    # Capture git name-status diff against HEAD (or uncommitted index)
+    git -C "$repo_dir" diff --name-status HEAD > "$CHANGES_FILE" 2>/dev/null || true
+    if [ ! -s "$CHANGES_FILE" ]; then
+        git -C "$repo_dir" status --porcelain | awk '{code=($1=="??" ? "A" : $1); print code "\t" $2}' > "$CHANGES_FILE" 2>/dev/null || true
+    fi
 fi
 
 "$repo_dir/admin/tools/buck2w" targets \
@@ -29,10 +73,28 @@ fi
     --imports \
     "$PATTERN" > "$BASE_TARGETS"
 
-exec "$repo_dir/admin/tools/btdw" \
-    --buck "$repo_dir/admin/tools/buck2w" \
-    --changes "$CHANGES_FILE" \
-    --base "$BASE_TARGETS" \
-    --diff "$BASE_TARGETS" \
-    --vcs git \
-    "$PATTERN" "$@"
+has_diff=0
+for arg in "$@"; do
+    case "$arg" in
+        --diff|--diff=*)
+            has_diff=1
+            break
+            ;;
+    esac
+done
+
+if [ "$has_diff" -eq 1 ]; then
+    exec "$repo_dir/admin/tools/btdw" \
+        --buck "$repo_dir/admin/tools/buck2w" \
+        --changes "$CHANGES_FILE" \
+        --vcs git \
+        "$PATTERN" "$@"
+else
+    exec "$repo_dir/admin/tools/btdw" \
+        --buck "$repo_dir/admin/tools/buck2w" \
+        --changes "$CHANGES_FILE" \
+        --base "$BASE_TARGETS" \
+        --diff "$BASE_TARGETS" \
+        --vcs git \
+        "$PATTERN" "$@"
+fi

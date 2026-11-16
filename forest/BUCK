@@ -1,0 +1,16 @@
+filegroup(
+    name = "sources",
+    srcs = glob(
+        [
+            "forest.toml",
+            "trees/**",
+            "theme/**",
+            "js/**",
+        ],
+        exclude = [
+            "theme/**/*.pyc",
+            "theme/**/__pycache__/**",
+        ],
+    ),
+    visibility = ["PUBLIC"],
+)

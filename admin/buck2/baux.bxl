@@ -1,0 +1,166 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+#
+# This source code is licensed under both the MIT license found in the
+# LICENSE-MIT file in the root directory of this source tree and the Apache
+# License, Version 2.0 found in the LICENSE-APACHE file in the root directory
+# of this source tree.
+
+def _labels(node):
+    vals = node.get_attr("labels")
+    return vals if vals != None else []
+
+def _is_excluded(node, include_gpu, include_pages):
+    labels = _labels(node)
+    if "research" in labels:
+        return True
+    if not include_gpu and "gpu" in labels:
+        return True
+    if not include_pages and "pages" in labels:
+        return True
+    return False
+
+def _test_universe(ctx):
+    return (
+        ctx.cquery().eval("root//admin/buck2/tests/...") +
+        ctx.cquery().eval("root//rust/crates/...") +
+        ctx.cquery().eval("root//ocaml/...")
+    )
+
+def _clean_path(p):
+    for _ in range(len(p)):
+        if p.startswith("./"):
+            p = p[2:]
+        elif p.startswith("/"):
+            p = p[1:]
+        else:
+            break
+    return p
+
+def _check_all_impl(ctx):
+    crates = ctx.target_universe("root//rust/crates/...", keep_going = True).target_set()
+    nodes = ctx.cquery().kind("rust_library|rust_binary|rust_test", crates)
+    labels = [n.label.raw_target().with_sub_target("check") for n in nodes]
+    res = ctx.build(labels)
+    for (_, bres) in res.items():
+        failures = list(bres.failures())
+        if failures:
+            fail("check_all failed: " + str(failures))
+    ctx.output.print("OK: checked=" + str(len(res)))
+
+check_all = bxl_main(
+    impl = _check_all_impl,
+    cli_args = {},
+)
+
+def _clippy_all_impl(ctx):
+    crates = ctx.target_universe("root//rust/crates/...", keep_going = True).target_set()
+    nodes = ctx.cquery().kind("rust_library|rust_binary", crates)
+    labels = [n.label.raw_target().with_sub_target("clippy.txt") for n in nodes]
+    res = ctx.build(labels)
+    for (lbl, bres) in res.items():
+        failures = list(bres.failures())
+        if failures:
+            fail("clippy_all failed for " + str(lbl.raw_target()))
+        for art in bres.artifacts():
+            ctx.output.print(lbl.raw_target(), ctx.output.ensure(art))
+
+clippy_all = bxl_main(
+    impl = _clippy_all_impl,
+    cli_args = {},
+)
+
+def _impacted_tests_impl(ctx):
+    files = getattr(ctx.cli_args, "files", [])
+    if not files:
+        return
+
+    include_gpu = getattr(ctx.cli_args, "include_gpu", getattr(ctx.cli_args, "include-gpu", False))
+    include_pages = getattr(ctx.cli_args, "include_pages", getattr(ctx.cli_args, "include-pages", True))
+
+    build_files = []
+    src_files = []
+    for f in files:
+        f_clean = _clean_path(f)
+        if f_clean == "BUCK" or f_clean.endswith("/BUCK") or f_clean.endswith(".bzl") or f_clean.endswith(".bxl"):
+            build_files.append(f_clean)
+        else:
+            src_files.append(f_clean)
+
+    found = {}
+    univ_set = ctx.target_universe("root//...", keep_going = True).universe_target_set()
+
+    if src_files:
+        src_paths = ["root//" + f for f in src_files]
+        owned = ctx.cquery().owner(src_paths, univ_set)
+        rdeps = ctx.cquery().rdeps(univ_set, owned)
+        tests = ctx.cquery().kind(".*test", rdeps + owned)
+        for n in tests:
+            found[str(n.label.raw_target())] = n
+
+    for f in build_files:
+        if f == "BUCK" or f.endswith(".bzl") or f.endswith(".bxl"):
+            admin_tests = ctx.target_universe("root//admin/buck2/tests/...", keep_going = True).target_set()
+            tests = ctx.cquery().kind(".*test", admin_tests)
+            for n in tests:
+                found[str(n.label.raw_target())] = n
+        elif f.endswith("/BUCK"):
+            pkg = f[:-len("/BUCK")]
+            pkg_targets = ctx.target_universe("root//" + pkg + ":...", keep_going = True).target_set()
+            tests = ctx.cquery().kind(".*test", pkg_targets)
+            for n in tests:
+                found[str(n.label.raw_target())] = n
+            pkg_rdeps = ctx.cquery().rdeps(univ_set, pkg_targets)
+            tests_rdeps = ctx.cquery().kind(".*test", pkg_rdeps)
+            for n in tests_rdeps:
+                found[str(n.label.raw_target())] = n
+
+    candidate_nodes = [n for n in found.values() if not _is_excluded(n, include_gpu, include_pages)]
+    for t in sorted({str(n.label.raw_target()): True for n in candidate_nodes}.keys()):
+        ctx.output.print(t)
+
+impacted_tests = bxl_main(
+    impl = _impacted_tests_impl,
+    cli_args = {
+        "files": cli_args.list(cli_args.string(), default = []),
+        "include-gpu": cli_args.bool(False),
+        "include-pages": cli_args.bool(True),
+    },
+)
+
+def _cpu_tests_impl(ctx):
+    tests_set = ctx.target_universe("root//admin/buck2/tests/...", keep_going = True).target_set()
+    tests = ctx.cquery().kind(".*test", tests_set)
+    kept = [n for n in tests if not _is_excluded(n, include_gpu = False, include_pages = False)]
+    for t in sorted({str(n.label.raw_target()): True for n in kept}.keys()):
+        ctx.output.print(t)
+
+cpu_tests = bxl_main(
+    impl = _cpu_tests_impl,
+    cli_args = {},
+)
+
+def _graph_audit_impl(ctx):
+    w1 = ctx.cquery().eval("root//:wheel")
+    w2 = ctx.cquery().eval("root//:wheels")
+    w3 = ctx.cquery().eval("root//:baux-py-wasm")
+    t_pages = ctx.cquery().eval("root//admin/buck2/tests:pages")
+    cli_t = ctx.cquery().eval("root//rust/crates/cli:baux")
+    all_t = ctx.target_universe("root//...", keep_going = True).target_set()
+
+    if len(w1) == 0:
+        fail("graph_audit: root//:wheel target not found")
+    if len(w2) == 0:
+        fail("graph_audit: root//:wheels target not found")
+    if len(w3) == 0:
+        fail("graph_audit: root//:baux-py-wasm target not found")
+    if len(t_pages) == 0:
+        fail("graph_audit: root//admin/buck2/tests:pages target not found")
+    if len(cli_t) == 0:
+        fail("graph_audit: root//rust/crates/cli:baux target not found")
+
+    ctx.output.print("OK: targets=" + str(len(all_t)))
+
+graph_audit = bxl_main(
+    impl = _graph_audit_impl,
+    cli_args = {},
+)

@@ -1,6 +1,5 @@
 use baux_tooling::build::BuildSystem;
 use clap::Args;
-use std::collections::BTreeSet;
 use std::path::Path;
 use std::process::Command;
 
@@ -30,14 +29,10 @@ fn run_buck2(root: &Path, include_gpu: bool) -> Result<(), String> {
         println!("o|test: no modified files detected; running CPU test suite.");
         return run_suite(root, include_gpu);
     }
-    let targets = direct_targets(&files, include_gpu);
+    let targets = impacted_targets(root, &files, include_gpu)?;
     if targets.is_empty() {
-        let fallback = impacted_targets(root, &files, include_gpu)?;
-        if fallback.is_empty() {
-            println!("o|test: no impacted test targets for modified files.");
-            return Ok(());
-        }
-        return BuildSystem::Buck2.test_targets(root, &fallback);
+        println!("o|test: no impacted test targets for modified files.");
+        return Ok(());
     }
     BuildSystem::Buck2.test_targets(root, &targets)
 }
@@ -79,63 +74,6 @@ fn changed_files(root: &Path) -> Result<Vec<String>, String> {
     parse_status(&output.stdout)
 }
 
-fn direct_targets(files: &[String], include_gpu: bool) -> Vec<String> {
-    const TABLE: &[(&str, &str)] = &[
-        (
-            "rust/crates/baux/src/bin/baux-tune/",
-            "root//rust/crates/baux:baux-tune-test",
-        ),
-        ("rust/crates/baux/", "root//rust/crates/baux:baux-unit"),
-        ("rust/crates/fbt/", "root//rust/crates/fbt:fbt-unit"),
-        ("rust/crates/cli/", "root//rust/crates/cli:baux-test"),
-        (
-            "rust/crates/tooling/",
-            "root//rust/crates/tooling:tooling-unit",
-        ),
-        (
-            "rust/crates/runner/",
-            "root//rust/crates/runner:baux-runner-test",
-        ),
-        (
-            "rust/crates/corpus/",
-            "root//rust/crates/corpus:corpus-test",
-        ),
-        (
-            "rust/crates/properties/",
-            "root//rust/crates/properties:properties-unit",
-        ),
-    ];
-    let mut targets = BTreeSet::new();
-    for file in files {
-        if cfg!(all(target_os = "macos", target_arch = "aarch64")) && file.starts_with("ocaml/") {
-            targets.insert("root//ocaml:test".to_string());
-            continue;
-        }
-        if let Some(stem) = file
-            .strip_prefix("rust/crates/baux/tests/")
-            .and_then(|r| r.strip_suffix(".rs"))
-        {
-            let target = format!("root//rust/crates/baux:{stem}_test");
-            if include_gpu || !is_gpu(&target) {
-                targets.insert(target);
-            }
-            continue;
-        }
-        if let Some((_, target)) = TABLE.iter().find(|(p, _)| file.starts_with(p)) {
-            targets.insert((*target).to_string());
-        }
-    }
-    if include_gpu && targets.contains("root//rust/crates/baux:baux-unit") {
-        let gpu_unit = if cfg!(target_os = "macos") {
-            "root//rust/crates/baux:region-metal"
-        } else {
-            "root//rust/crates/baux:baux-unit"
-        };
-        targets.insert(gpu_unit.to_string());
-    }
-    targets.into_iter().collect()
-}
-
 fn parse_status(raw: &[u8]) -> Result<Vec<String>, String> {
     let mut files = Vec::new();
     let entries = raw.split(|&b| b == 0);
@@ -161,58 +99,65 @@ fn parse_status(raw: &[u8]) -> Result<Vec<String>, String> {
     Ok(files)
 }
 
-fn is_gpu(target: &str) -> bool {
-    let name = target.split(':').last().unwrap_or(target);
-    name.contains("metal") || name.contains("cuda")
-}
-
 fn impacted_targets(
     root: &Path,
     files: &[String],
     include_gpu: bool,
 ) -> Result<Vec<String>, String> {
-    let valid_extensions = [".rs", ".metal", ".cpp", ".c", ".h", ".py", "BUCK"];
-    let relevant: Vec<&str> = files
-        .iter()
-        .map(String::as_str)
-        .filter(|f| valid_extensions.iter().any(|ext| f.ends_with(ext)))
+    let mut cmd = Command::new("./admin/tools/buck2w");
+    cmd.current_dir(root).args([
+        "bxl",
+        "--console",
+        "simple",
+        "//admin/buck2:baux.bxl:impacted_tests",
+        "--",
+        "--include-gpu",
+        if include_gpu { "true" } else { "false" },
+        "--files",
+    ]);
+    cmd.args(files);
+    let out = cmd
+        .output()
+        .map_err(|e| format!("buck2 bxl impacted_tests: {e}"))?;
+    if !out.status.success() {
+        return Err(format!(
+            "buck2 bxl impacted_tests failed with {}:\n{}",
+            out.status,
+            String::from_utf8_lossy(&out.stderr)
+        ));
+    }
+    let targets = String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .map(str::trim)
+        .filter(|t| t.starts_with("root//"))
+        .map(str::to_owned)
         .collect();
-    if relevant.is_empty() {
-        return Ok(Vec::new());
-    }
-
-    let mut targets = BTreeSet::new();
-    for chunk in relevant.chunks(30) {
-        let mut cmd = Command::new("./admin/tools/buck2w");
-        cmd.current_dir(root).args([
-            "uquery",
-            "kind('.*test', rdeps(//admin/buck2/tests:all, owner('%s')))",
-        ]);
-        cmd.args(chunk);
-        let out = cmd.output().map_err(|e| format!("buck2 uquery: {e}"))?;
-        if out.status.success() {
-            for line in String::from_utf8_lossy(&out.stdout).lines() {
-                let t = line.trim();
-                if t.starts_with("root//") && (include_gpu || !is_gpu(t)) {
-                    targets.insert(t.to_string());
-                }
-            }
-        }
-    }
-    Ok(targets.into_iter().collect())
+    Ok(targets)
 }
 
 fn query_cpu(root: &Path) -> Result<Vec<String>, String> {
-    let mut cmd = Command::new("./admin/tools/buck2w");
-    cmd.current_dir(root)
-        .args(["uquery", "kind('.*test', deps(//admin/buck2/tests:all))"]);
-    let out = cmd.output().map_err(|e| format!("buck2 uquery: {e}"))?;
-    let mut targets = Vec::new();
-    for line in String::from_utf8_lossy(&out.stdout).lines() {
-        let t = line.trim();
-        if t.starts_with("root//") && !is_gpu(t) {
-            targets.push(t.to_string());
-        }
+    let out = Command::new("./admin/tools/buck2w")
+        .current_dir(root)
+        .args([
+            "bxl",
+            "--console",
+            "simple",
+            "//admin/buck2:baux.bxl:cpu_tests",
+        ])
+        .output()
+        .map_err(|e| format!("buck2 bxl cpu_tests: {e}"))?;
+    if !out.status.success() {
+        return Err(format!(
+            "buck2 bxl cpu_tests failed with {}:\n{}",
+            out.status,
+            String::from_utf8_lossy(&out.stderr)
+        ));
     }
+    let targets = String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .map(str::trim)
+        .filter(|t| t.starts_with("root//"))
+        .map(str::to_owned)
+        .collect();
     Ok(targets)
 }

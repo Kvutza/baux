@@ -1,1 +1,9 @@
 # CUDA-Oxide build rules live in defs.bzl.
+
+http_archive(
+    name = "cuda-oxide-src",
+    urls = ["https://github.com/NVlabs/cuda-oxide/archive/6abfaa091e29a6275c1943895bfbc97efa306e98.tar.gz"],
+    sha256 = "9703de1fbe60b318919609afb41ee31c396b21e2a8f4bbe7ea2c915b9e7eafed",
+    strip_prefix = "cuda-oxide-6abfaa091e29a6275c1943895bfbc97efa306e98",
+    visibility = ["PUBLIC"],
+)

@@ -223,6 +223,18 @@ pre code { padding: 0; background: none; font-size: inherit; overflow-wrap: norm
 @media (max-width: 640px) {
   .code-wrap pre { padding-top: 2.15rem; padding-right: 1.15rem; }
 }
+.install-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin: 1rem 0;
+}
+.install-grid .code-wrap { min-width: 0; }
+.install-grid .code-wrap pre { margin: 0; padding-right: 3.5rem; }
+@media (max-width: 640px) {
+  .install-grid { grid-template-columns: 1fr; gap: 0.55rem; }
+  .install-grid .code-wrap pre { padding-top: 0.9rem; padding-right: 3.5rem; }
+}
 .code-keyword { color: var(--code-keyword); }
 .code-string { color: var(--code-string); }
 .code-number { color: var(--code-number); }

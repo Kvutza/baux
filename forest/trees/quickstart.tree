@@ -1,9 +1,13 @@
 \title{Quickstart}
 \meta{toc}{false}
 
+\<div>[class]{install-grid}{
 \pre{
 pip install baux
+}
+\pre{
 cargo add baux
+}
 }
 
 \subtree{

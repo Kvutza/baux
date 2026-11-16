@@ -5,9 +5,13 @@
 
 \subtree{
   \title{Install}
+  \<div>[class]{install-grid}{
   \pre{
 pip install baux
+  }
+  \pre{
 cargo add baux
+  }
   }
 }
 

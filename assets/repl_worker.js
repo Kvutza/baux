@@ -995,7 +995,7 @@ def _make_ns():
         "np": np,
         "numpy": np,
         "baux": baux,
-        "oxcaml": oxcaml,
+        "synthetic": synthetic,
     }
 
 

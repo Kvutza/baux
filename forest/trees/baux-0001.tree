@@ -1,7 +1,7 @@
 \title{baux}
 \meta{toc}{false}
 
-\p{baux is a research library for high-dimensional black-box and Bayesian optimization. We are still wrestling with what scale actually means here.}
+\p{baux is a research library aimed at the scaling problem of high-dimensional black-box and Bayesian optimization. We are still wrestling with what scale actually means here.}
 
 \subtree{
   \title{Install}

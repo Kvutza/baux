@@ -113,7 +113,7 @@ pub enum AcquisitionConfig {
 
 impl Default for AcquisitionConfig {
     fn default() -> Self {
-        AcquisitionConfig::UCB { beta: 2.0 }
+        AcquisitionConfig::UCB { beta: 1.0 }
     }
 }
 
@@ -137,7 +137,7 @@ pub fn turbo_enn() -> OptimizerConfig {
             candidate_rv: CandidateSampler::RAASP,
             ..CandidateConfig::default()
         },
-        acquisition: AcquisitionConfig::UCB { beta: 2.0 },
+        acquisition: AcquisitionConfig::UCB { beta: 1.0 },
         noise_aware: false,
         failure_tolerance_dim: None,
     }

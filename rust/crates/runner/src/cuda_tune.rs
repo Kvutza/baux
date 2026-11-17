@@ -243,7 +243,7 @@ pub(crate) fn run(root: &Path, path: &Path, out: &Path) -> Result<(), String> {
     }
     let (acquisition, beta) = match run
         .acquisition
-        .unwrap_or(baux::AcquisitionConfig::UCB { beta: 2.0 })
+        .unwrap_or(baux::AcquisitionConfig::UCB { beta: 1.0 })
     {
         baux::AcquisitionConfig::UCB { beta } => ("ucb", beta as f32),
         baux::AcquisitionConfig::Thompson => ("thompson", policy.ask.acquisition.beta),
@@ -444,7 +444,7 @@ max = 0.2
             radius_max: 0.2,
             arms: 1,
             candidates: 4,
-            beta: 2.0,
+            beta: 1.0,
             rounds: 256,
             stage_samples: 3,
             surrogate: baux::SurrogateSpec {

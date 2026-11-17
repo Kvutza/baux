@@ -36,7 +36,7 @@ import baux
 from baux.benchmarks import synthetic
 
 bounds, objective = synthetic.problem("ackley", dim=16, workers=4)
-state = baux.init(bounds, baux.enn(k=10) | baux.ucb(beta=2.0), key=baux.key(0))
+state = baux.init(bounds, baux.enn(k=10) | baux.ucb(beta=1.0), key=baux.key(0))
 for _ in range(12):
     state, batch = baux.ask(state, num_arms=8)
     state, _ = baux.tell(state, batch, objective(batch.points))

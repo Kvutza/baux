@@ -97,7 +97,7 @@ def test_refcounts() -> None:
 def test_loop() -> None:
     bounds, objective = synthetic.problem("ackley", dim=16, workers=2)
     assert bounds.shape == (16, 2)
-    pipe = baux.enn(k=10) | baux.ucb(beta=2.0)
+    pipe = baux.enn(k=10) | baux.ucb(beta=1.0)
     state = baux.init(bounds, pipe, key=baux.key(0))
 
     state, first = baux.ask(state, num_arms=8)

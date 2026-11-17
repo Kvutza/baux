@@ -43,7 +43,7 @@ def check_pytree() -> None:
         baux.lhd(4)
         | baux.raasp(8, num_candidates=32)
         | baux.enn(k=3, num_samples=16)
-        | baux.ucb(beta=1.5)
+        | baux.ucb(beta=1.0)
         | baux.tr_bounds(length_init=0.8, length_min=0.05, length_max=1.6)
         | baux.regions(2, sharing="ellipsoid_ball", allocation="least_trials")
     )

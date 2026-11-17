@@ -268,7 +268,7 @@ def _ensurefit(surrogate: Any) -> Any:
     return surrogate
 
 
-def ucb(beta: float = 2.0) -> Transform:
+def ucb(beta: float = 1.0) -> Transform:
     """Configure Upper Confidence Bound (UCB) acquisition."""
 
     def apply(cfg: OptimizerConfig) -> OptimizerConfig:

@@ -669,7 +669,7 @@ fn arm_report(
         "roles":roles,
         "restart_center_policy":center_policy,
         "restart_candidates":config.candidates(),
-        "region_acquisition_beta":if roles == "split_beta" { vec![0.0,4.0,2.0,2.0] } else { vec![2.0;4] },
+        "region_acquisition_beta":if roles == "split_beta" { vec![0.0,4.0,1.0,1.0] } else { vec![1.0;4] },
         "controller":config.controller,
         "acquisition":"turbo_enn (RAASP, ENN, per-region UCB beta as reported)",
         "evaluation_count_including_startup":config.evaluations,

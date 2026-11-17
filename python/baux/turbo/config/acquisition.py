@@ -31,7 +31,7 @@ class RandomAcquisitionConfig:
 class UCBAcquisitionConfig:
     """Configuration for Upper Confidence Bound acquisition."""
 
-    beta: float = 2.0
+    beta: float = 1.0
 
     def __post_init__(self) -> None:
         if self.beta <= 0:

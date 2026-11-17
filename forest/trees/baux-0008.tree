@@ -91,7 +91,7 @@ def spectral_channels(p):
 pipe = (
     baux.enn(k=8, geometry="conformal")
     | baux.stein(frame)
-    | baux.ucb(beta=1.5)
+    | baux.ucb(beta=1.0)
     | baux.regions(count=3)
 )
 state = baux.init(space, pipe, key=baux.key(19))

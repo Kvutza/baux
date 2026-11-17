@@ -70,7 +70,7 @@ def test_combinators():
         baux.lhd(6),
         baux.raasp(12, num_candidates=64),
         baux.enn(k=5, num_samples=32),
-        baux.ucb(beta=1.5),
+        baux.ucb(beta=1.0),
         baux.tr_bounds(length_init=0.6, length_min=0.05, length_max=1.2),
         baux.regions(3, sharing="ellipsoid_ball", allocation="least_trials"),
     )
@@ -78,7 +78,7 @@ def test_combinators():
         baux.lhd(6)
         | baux.raasp(12, num_candidates=64)
         | baux.enn(k=5, num_samples=32)
-        | baux.ucb(beta=1.5)
+        | baux.ucb(beta=1.0)
         | baux.tr_bounds(length_init=0.6, length_min=0.05, length_max=1.2)
         | baux.regions(3, sharing="ellipsoid_ball", allocation="least_trials")
     )

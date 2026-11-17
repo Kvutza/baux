@@ -32,7 +32,7 @@ import numpy as np
 import baux
 
 domain = np.array([[-2.0, 2.0], [-2.0, 2.0]])
-pipe = baux.enn(k=8) | baux.ucb(beta=1.5) | baux.lhd(num_init=6) | baux.regions(2)
+pipe = baux.enn(k=8) | baux.ucb(beta=1.0) | baux.lhd(num_init=6) | baux.regions(2)
 state = baux.init(domain, pipe, seed=42)
 state, y = baux.step(state, lambda x: -np.sum(x**2, axis=-1), num_arms=2)
 assert state.num_observations == 2
@@ -66,7 +66,7 @@ baux.zero() -> Transform
 \<section>[id]{baux.ucb}[class]{api-entry}[data-symbol]{baux.ucb}[data-kind]{function}[data-module]{baux.transforms}{
   \<div>[class]{api-entry-header}{\<h2>[class]{api-entry-title}{[\code{baux.ucb}](api-pipelines.html#baux.ucb)}}
   \pre{
-baux.ucb(beta: float = 2.0) -> Transform
+baux.ucb(beta: float = 1.0) -> Transform
   }
   \p{Select candidates by mean plus uncertainty.}
   \p{Returns a \code{Transform} using \code{mu + beta * se}. \code{beta} must be finite and positive. Adds an ENN surrogate if none is configured, and enables ENN fitting when it was disabled.}

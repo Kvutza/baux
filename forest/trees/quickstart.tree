@@ -28,7 +28,7 @@ def objective(x):
 
 
 bounds = np.tile([-1.5, 1.5], (6, 1))
-pipe = baux.enn(k=8) | baux.ucb(beta=1.5)
+pipe = baux.enn(k=8) | baux.ucb(beta=1.0)
 state = baux.init(bounds, pipe, key=baux.key(0))
 zero_state = baux.init(bounds, baux.lhd(12) | baux.zero(), key=baux.key(0))
 

@@ -293,7 +293,7 @@ mod tests {
             arms: 2,
             distribution: None,
             perturbation: None,
-            acquisition: AcquisitionSpec::Ucb { beta: 1.5 },
+            acquisition: AcquisitionSpec::Ucb { beta: 1.0 },
             surrogate: SurrogateRecipe {
                 neighbors: 3,
                 neighbor_rule: Default::default(),

@@ -284,7 +284,7 @@ let metric_distance (m : enn_model) (d2 : float) (ell_u : float) (ell_j : float)
       let arg = 1.0 +. ((d2 +. (dl *. dl)) /. (2.0 *. ell_u *. ell_j)) in
       Float.acosh (Float.max 1.0 arg)
 
-let predict_enn ?(beta = 2.0) (m : enn_model) (u : float array) : posterior =
+let predict_enn ?(beta = 1.0) (m : enn_model) (u : float array) : posterior =
   let n = m.n in
   let raw_d2 = Array.make n 0.0 in
   let raw_d = Array.make n 0.0 in
@@ -575,7 +575,7 @@ let step_once (s : session) =
             else
               raasp_candidate ~full:(p mod 3 = 1) s.rng reg.center_u reg.length
           in
-          let post = predict_enn ~beta:2.0 m c in
+          let post = predict_enn ~beta:1.0 m c in
           if post.ucb > !best_ucb then begin
             best_ucb := post.ucb;
             best_c := c

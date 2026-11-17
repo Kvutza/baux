@@ -167,7 +167,7 @@ fn test_005() {
     let mut rng = StdRng::seed_from_u64(99);
 
     let mut cfg = turbo_enn();
-    cfg.acquisition = AcquisitionConfig::UCB { beta: 2.0 };
+    cfg.acquisition = AcquisitionConfig::UCB { beta: 1.0 };
     let optimizer = BayesOptimizer::new_strategy(bounds, cfg, Strategy::turbo(), &mut rng).unwrap();
 
     let tel0 = optimizer.telemetry();

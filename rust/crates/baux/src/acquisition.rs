@@ -479,7 +479,7 @@ mod tests {
 
     #[test]
     fn test_001() {
-        let ucb = UCBAcquisition::new(2.0);
+        let ucb = UCBAcquisition::new(1.0);
         let mu = array![1.0, 2.0, 3.0, 4.0, 5.0];
         let sigma = array![0.1, 0.2, 0.3, 0.4, 0.5];
 
@@ -578,7 +578,7 @@ mod tests {
 
     #[test]
     fn test_009() {
-        let ucb = UCBAcquisition::new(2.0);
+        let ucb = UCBAcquisition::new(1.0);
         let mu = array![];
         let sigma = array![];
 
@@ -590,7 +590,7 @@ mod tests {
 
     #[test]
     fn test_010() {
-        let ucb = UCBAcquisition::new(2.0);
+        let ucb = UCBAcquisition::new(1.0);
         let mu = array![1.0, 2.0, 3.0];
         let sigma = array![0.1, 0.2, 0.3];
 

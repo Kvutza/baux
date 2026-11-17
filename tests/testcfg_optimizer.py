@@ -105,7 +105,7 @@ def test_029():
 
 def test_030():
     acq = UCBAcquisitionConfig()
-    assert acq.beta == 2.0
+    assert acq.beta == 1.0
 
 
 def test_031():

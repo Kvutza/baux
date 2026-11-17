@@ -1,7 +1,7 @@
 \title{baux}
 \meta{toc}{false}
 
-\p{Derivative-free optimization with a Rust core and functional Python API. Prebuilt Python 3.12–3.15 wheels for Linux x86-64 and macOS arm64.}
+\p{baux is a research library for high-dimensional black-box and Bayesian optimization. We are still wrestling with what scale actually means here.}
 
 \subtree{
   \title{Install}

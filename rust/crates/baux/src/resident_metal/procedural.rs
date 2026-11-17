@@ -1,9 +1,4 @@
-//! Compile the proposal kernels for a validated logical pool.
-//!
-//! Configuration changes kernel specialization, not the incumbent parameters.
-//! Seed layout is owned by `procedural_pool`; proposal formulas are implemented
-//! by `resident_search.metal`. The historical default source omits pool macros,
-//! whereas pair rotation always requires explicit program-aware specialization.
+//! Configure dynamic procedural candidate pool buffers and seed layout.
 
 use super::*;
 use crate::procedural_pool::{ProceduralPool, ProceduralPoolConfig};
@@ -12,12 +7,9 @@ use crate::procedural_pool::{ProceduralPool, ProceduralPoolConfig};
 mod tests;
 
 impl SearchState {
-    /// Replace the pool's proposal, replay, selection, and materialization
-    /// kernels. Requires an idle state before any published ask or vector
-    /// selector. A matching ordinary layout is a no-op; pair rotation
-    /// recompiles even for the default layout. Compilation may fail;
-    /// callers must not treat configuration as an ask or an observation,
-    /// and this method does not evaluate or accept a candidate.
+    /// Resize dynamic pool scratch buffers and update arm failure-tolerance
+    /// alignment (`ceil(max(4/arms, D/arms))` when not explicitly overridden)
+    /// for arbitrary `pool.count()` (`1..=5000+`).
     pub fn configure_pool(mut self, pool: ProceduralPool) -> Result<Self, String> {
         self.check_idle()?;
         ProceduralPoolConfig {
@@ -34,59 +26,36 @@ impl SearchState {
         if pool == self.pool_layout {
             return Ok(self);
         }
-        let source = self.procedural_source(pool);
-        let propose = self
-            .runtime
-            .pipeline(&source, "Procedural search", "dense_propose")?;
-        let initial =
-            self.runtime
-                .pipeline(&source, "Procedural search", "dense_propose_initial")?;
-        let pool_pipeline =
-            self.runtime
-                .pipeline(&source, "Procedural search", "dense_propose_pool")?;
-        let reduce = self
-            .runtime
-            .precise(&source, "Procedural search", "dense_reduce_pool")?;
-        let select = self
-            .runtime
-            .precise(&source, "Procedural search", "dense_select")?;
-        let materialize =
-            self.runtime
-                .pipeline(&source, "Procedural search", "dense_materialize")?;
-        self.propose_pipeline = propose;
-        self.initial_pipeline = initial;
-        self.pool_pipeline = pool_pipeline;
-        self.reduction_pipeline = reduce;
-        self.selection_pipeline = select;
-        self.materialize_pipeline = materialize;
+        let plan = initialization::allocation_sizes(
+            self.dimensions,
+            self.blocks.len(),
+            self.tiles.len(),
+            self.blocks.len() + 1,
+            self.history_rows.len(),
+            pool.count() as usize,
+        )?;
+        let additional = plan.resident_bytes.saturating_sub(self.resident_bytes);
+        preflight(&self.runtime, &plan.sizes, additional)?;
+        self.partials = Arc::new(self.runtime.buffer::<Partial>(plan.partial_count));
+        self.pool_aggregates = Arc::new(self.runtime.buffer::<Partial>(plan.aggregate_count));
+        self.candidate_scores = Arc::new(self.runtime.buffer::<CandidateScore>(plan.cand_count));
+        self.selected_indices_gpu = Arc::new(self.runtime.buffer::<u32>(plan.cand_count));
+        self.axis_candidates_gpu = Arc::new(self.runtime.buffer::<f32>(plan.cand_count));
+        self.pool_distances = Arc::new(self.runtime.buffer::<f32>(plan.distance_count));
+        self.pool_geometry = Arc::new(self.runtime.buffer::<f32>(plan.geometry_count));
+        self.resident_bytes = plan.resident_bytes;
+        self.trust.set_arms(pool.arms() as usize);
         self.pool_layout = pool;
         Ok(self)
     }
 
-    /// Derive pool metadata's candidate seed. The index must be inside the
-    /// configured pool; this internal helper panics if that invariant is
-    /// broken. Program-specific kernel remapping and the noise-domain salt
-    /// are separate.
     pub fn procedural_seed(&self, root: u64, candidate: usize) -> u64 {
         self.pool_layout
             .seed(root, self.pool_layout.identity(candidate as u32).unwrap())
             .unwrap()
     }
 
-    /// Assemble precision/noise source plus pool specialization macros.
-    /// Returns source text without compiling it or allocating parameter rows.
-    /// The unspecialized legacy source is retained only outside pair rotation
-    /// and Lie flow.
-    pub fn procedural_source(&self, pool: ProceduralPool) -> String {
-        let source = initialization::search_source(self.independent_fp16, self.perturbation);
-        if pool == ProceduralPool::legacy() {
-            source
-        } else {
-            format!(
-                "#define PROCEDURAL_SLOTS {}\n#define PROCEDURAL_COUNT {}\n{source}",
-                pool.slots(),
-                pool.count()
-            )
-        }
+    pub fn procedural_source(&self, _pool: ProceduralPool) -> String {
+        initialization::search_source(self.independent_fp16, self.perturbation)
     }
 }

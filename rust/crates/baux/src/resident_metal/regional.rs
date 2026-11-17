@@ -1,7 +1,4 @@
 //! Multiple resident trajectories using the shared transaction ledger.
-//! Each engine retains its own incumbent/history/scratch; Metal runtime and
-//! compiled pipelines are shared. This adapter does not claim cross-region
-//! fused multi-region kernel.
 
 use super::*;
 use crate::{
@@ -12,6 +9,7 @@ use crate::{
     optimizer::multi_tr::SharingPolicy,
 };
 use baux::semantics::optimizer::portfolio::{Allocation, RegionTicket, RegionalLedger};
+use std::sync::Arc;
 
 pub mod objectives;
 pub mod routing;
@@ -33,13 +31,8 @@ pub struct RegionalProposal {
 /// Whether a failed tell can safely be retried with the same observation.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TellFailure {
-    /// Validation failed before the resident engine mutated; the ticket remains
-    /// pending.
     Retryable(String),
-    /// Mutation may have started; the ticket was retired and must not be
-    /// replayed.
     Retired(String),
-    /// The ticket belongs to a completed, cancelled, or replaced generation.
     Stale(String),
 }
 
@@ -61,15 +54,43 @@ pub struct RegionalSearch {
     ledger: RegionalLedger,
     states: Vec<SearchState>,
     sharing: SharingPolicy,
+    joint_acquisition: bool,
+    restart_memory: RegionMemory,
+    restart_candidates: usize,
+    restart_center: RestartCenter,
+    region_acquisitions: Vec<Option<crate::config::AcquisitionSpec>>,
+    retained_archive: Vec<(
+        Arc<Buffer>,
+        crate::objective_observation::ObjectiveObservation,
+    )>,
     pending_imports: Vec<Vec<PendingImport>>,
     pending_proposals: Vec<Option<Proposals>>,
     pending_tickets: Vec<Option<RegionTicket>>,
     delivered_imports: u64,
 }
 
+fn encode_unit(u: f32, fp16: bool) -> u16 {
+    if fp16 {
+        let bits = u.to_bits();
+        let sign = ((bits >> 16) & 0x8000) as u16;
+        let exp = ((bits >> 23) & 0xff) as i32 - 127 + 15;
+        let mant = (bits >> 13) & 0x03ff;
+        if exp <= 0 {
+            sign
+        } else if exp >= 31 {
+            sign | 0x7c00
+        } else {
+            sign | ((exp as u16) << 10) | (mant as u16)
+        }
+    } else {
+        let bits = u.to_bits();
+        (bits.wrapping_add(0x7fff + ((bits >> 16) & 1)) >> 16) as u16
+    }
+}
+
 impl RegionalSearch {
     /// Build resident regional search from the same typed policy as host
-    /// search. Fields not owned by this adapter are rejected explicitly.
+    /// search.
     pub fn from_spec(
         mut states: Vec<SearchState>,
         spec: &RegionalSearchSpec,
@@ -78,37 +99,36 @@ impl RegionalSearch {
         if states.len() != spec.count {
             return Err("regional search state count does not match its policy".into());
         }
-        if spec.controller != RegionController::Turbo {
-            return Err("resident regional search supports only the TuRBO controller".into());
-        }
-        if spec.restart_memory != RegionMemory::Fresh
-            || spec.restart_candidates != 1
-            || spec.restart_center != RestartCenter::First
-        {
-            return Err(
-                "resident restart policy is caller-owned and cannot be configured here".into(),
-            );
-        }
+        let fixed_radius = spec.controller == RegionController::FixedRadius;
         if !spec.acquisitions.is_empty() {
             states = objectives::configure(states, &spec.acquisitions)?;
         }
-        if spec.success_tolerance != 3 {
-            return Err("resident regional search requires success-tolerance = 3".into());
-        }
-        let failures = usize::try_from(spec.failure_tolerance)
-            .map_err(|_| "regional failure tolerance must fit usize")?;
+        let successes = usize::try_from(spec.success_tolerance)
+            .ok()
+            .filter(|&v| v > 0)
+            .ok_or("regional success tolerance must be positive")?;
+        let explicit_failures = usize::try_from(spec.failure_tolerance).ok();
         states = states
             .into_iter()
-            .map(|state| state.set_tolerance(failures))
+            .map(|state| {
+                let failures = match explicit_failures {
+                    Some(f) if f > 0 => f,
+                    _ => SearchState::failure_tolerance(
+                        state.dimensions,
+                        state.pool_layout.arms() as usize,
+                    ),
+                };
+                state
+                    .set_tolerance(failures)?
+                    .set_successes(successes)?
+                    .fix_radius(fixed_radius)
+            })
             .collect::<Result<Vec<_>, _>>()?;
+
         let allocation = match spec.allocation {
             RegionAllocation::IncumbentUcb1 => Allocation::IncumbentUcb1 { exploration: 1.0 },
             RegionAllocation::LeastTrials => Allocation::LeastTrials,
-            RegionAllocation::JointAcquisition => {
-                return Err(
-                    "resident regional search does not support joint-acquisition allocation".into(),
-                );
-            }
+            RegionAllocation::JointAcquisition => Allocation::JointAcquisition,
         };
         let sharing = match spec.sharing {
             ObservationSharing::BoxContain => SharingPolicy::BoxContain,
@@ -116,7 +136,30 @@ impl RegionalSearch {
             ObservationSharing::NearestCenter => SharingPolicy::NearestCenter,
             ObservationSharing::OriginOnly => SharingPolicy::OriginOnly,
         };
-        Self::with_sharing(states, allocation, sharing)
+        let mut search = Self::with_sharing(states, allocation, sharing)?;
+        search.restart_memory = spec.restart_memory;
+        search.restart_candidates = spec.restart_candidates.max(1);
+        search.restart_center = spec.restart_center;
+        search.region_acquisitions = spec.acquisitions.clone();
+        if search.restart_memory == RegionMemory::RetainRelevant {
+            for st in &search.states {
+                if st.history > 0 {
+                    let snap = st.runtime.buffer::<u16>(st.dimensions);
+                    st.copy(&st.base, &snap)?;
+                    let obs = st
+                        .incumbent_objectives()?
+                        .map(|r| r.observation)
+                        .unwrap_or_else(|| {
+                            crate::objective_observation::ObjectiveObservation::scalar_adapter(
+                                st.best,
+                                st.best_variance,
+                            )
+                        });
+                    search.retained_archive.push((Arc::new(snap), obs));
+                }
+            }
+        }
+        Ok(search)
     }
 
     pub fn new(states: Vec<SearchState>, allocation: Allocation) -> Result<Self, String> {
@@ -156,10 +199,17 @@ impl RegionalSearch {
             })
             .collect::<Result<Vec<_>, String>>()?;
         let count = starts.len();
+        let joint_acquisition = matches!(allocation, Allocation::JointAcquisition);
         Ok(Self {
             ledger: RegionalLedger::new(&starts, allocation).map_err(|error| error.to_string())?,
             states,
             sharing,
+            joint_acquisition,
+            restart_memory: RegionMemory::Fresh,
+            restart_candidates: 1,
+            restart_center: RestartCenter::First,
+            region_acquisitions: Vec::new(),
+            retained_archive: Vec::new(),
             pending_imports: (0..count).map(|_| Vec::new()).collect(),
             pending_proposals: (0..count).map(|_| None).collect(),
             pending_tickets: (0..count).map(|_| None).collect(),
@@ -167,7 +217,6 @@ impl RegionalSearch {
         })
     }
 
-    /// Fork this regional search into an independent state branch.
     pub fn fork(&self) -> Result<Self, String> {
         Ok(self.clone())
     }
@@ -186,8 +235,76 @@ impl RegionalSearch {
         self.ledger.best_region()
     }
 
-    pub fn ask(self, seed: u64, config: RoundConfig) -> Result<(Self, RegionalProposal), String> {
-        let eligible = vec![true; self.len()];
+    pub fn ask(
+        mut self,
+        seed: u64,
+        config: RoundConfig,
+    ) -> Result<(Self, RegionalProposal), String> {
+        if self.joint_acquisition {
+            let mut candidates: Vec<(usize, SearchState, Proposals)> = Vec::new();
+            let mut eligible = vec![false; self.len()];
+            for slot in 0..self.len() {
+                if self.pending_tickets[slot].is_some() || self.states[slot].check_idle().is_err() {
+                    continue;
+                }
+                let r_cfg = objectives::region_acquisition(
+                    config,
+                    self.region_acquisitions.get(slot).and_then(Option::as_ref),
+                );
+                let adopt = r_cfg.acquisition.kind == AcquisitionKind::Random;
+                self = routing::flush_region(self, slot, adopt)?;
+                let pool = self.states[slot].pool_layout();
+                let r_seed = crate::hash::splitmix64(
+                    seed ^ ((slot as u64 + 1).wrapping_mul(0x9e37_79b9_7f4a_7c15)),
+                );
+                let branched = self.states[slot].clone();
+                if let Ok((asked_state, prop)) =
+                    branched.ask_round(pool.arms() as usize, pool.slots() as usize, r_seed, r_cfg)
+                {
+                    eligible[slot] = true;
+                    candidates.push((slot, asked_state, prop));
+                }
+            }
+            if candidates.is_empty() {
+                return Err(
+                    "no eligible idle region produced a finite joint-acquisition candidate".into(),
+                );
+            }
+            let scores: Vec<f64> = candidates
+                .iter()
+                .map(|(_, _, p)| f64::from(p.score))
+                .collect();
+            let regions: Vec<usize> = candidates.iter().map(|(s, _, _)| *s).collect();
+            let mut chosen = [0usize; 1];
+            let n_sel = baux::semantics::optimizer::portfolio::joint_select(
+                &scores,
+                &regions,
+                &eligible,
+                baux::semantics::key::Key::new(seed),
+                &mut chosen,
+            );
+            let win_pos = if n_sel > 0 { chosen[0] } else { 0 };
+            let (win_slot, win_state, win_prop) = candidates.swap_remove(win_pos);
+            let ticket = self
+                .ledger
+                .issue(win_slot)
+                .map_err(|error| error.to_string())?;
+            self.states[win_slot] = win_state;
+            self.pending_proposals[win_slot] = Some(win_prop.clone());
+            self.pending_tickets[win_slot] = Some(ticket);
+            return Ok((
+                self,
+                RegionalProposal {
+                    ticket,
+                    proposal: win_prop,
+                },
+            ));
+        }
+        let eligible: Vec<bool> = (0..self.len())
+            .map(|slot| {
+                self.pending_tickets[slot].is_none() && self.states[slot].check_idle().is_ok()
+            })
+            .collect();
         let slot = self
             .ledger
             .allocate(1, &eligible)
@@ -196,14 +313,16 @@ impl RegionalSearch {
         self.ask_region(slot, seed, config)
     }
 
-    /// Explicit region choice permits other allocation policies without
-    /// changing the execution or completion contract.
     pub fn ask_region(
         self,
         slot: usize,
         seed: u64,
         config: RoundConfig,
     ) -> Result<(Self, RegionalProposal), String> {
+        let config = objectives::region_acquisition(
+            config,
+            self.region_acquisitions.get(slot).and_then(Option::as_ref),
+        );
         let adopt = config.acquisition.kind == AcquisitionKind::Random;
         let mut search = routing::flush_region(self, slot, adopt)?;
         let ticket = search
@@ -238,7 +357,6 @@ impl RegionalSearch {
         Ok((search, RegionalProposal { ticket, proposal }))
     }
 
-    /// Functional proposal alias for ask.
     pub fn propose(
         self,
         seed: u64,
@@ -247,7 +365,6 @@ impl RegionalSearch {
         self.ask(seed, config)
     }
 
-    /// Functional proposal alias for ask_region.
     pub fn propose_region(
         self,
         slot: usize,
@@ -257,7 +374,71 @@ impl RegionalSearch {
         self.ask_region(slot, seed, config)
     }
 
-    /// Borrowed resident storage. Consumers must finish before tell/restart.
+    /// Select a restart center among `candidates` using `RestartCenter::First`
+    /// or `RestartCenter::Maximin` (maximizing minimum GPU distance to
+    /// active region centers).
+    pub fn choose_center(&self, slot: usize, candidates: &[Buffer]) -> Result<usize, String> {
+        if candidates.is_empty() {
+            return Err("restart center candidates must be non-empty".into());
+        }
+        if self.restart_center == RestartCenter::First || candidates.len() == 1 || self.len() <= 1 {
+            return Ok(0);
+        }
+        let mut best_idx = 0usize;
+        let mut best_min_dist = f64::NEG_INFINITY;
+        for (idx, cand) in candidates.iter().enumerate() {
+            let mut min_dist = f64::INFINITY;
+            for (other_slot, state) in self.states.iter().enumerate() {
+                if other_slot == slot || state.history == 0 || state.async_command.is_some() {
+                    continue;
+                }
+                let d = f64::from(state.measure_center(cand)?);
+                min_dist = min_dist.min(d);
+            }
+            if min_dist > best_min_dist {
+                best_min_dist = min_dist;
+                best_idx = idx;
+            }
+        }
+        Ok(best_idx)
+    }
+
+    /// Deterministically generate `restart_candidates` candidate centers in
+    /// `[0, 1]^D` and return the winning `u16` row under `RestartCenter`
+    /// (`First` or `Maximin`).
+    pub fn sample_center(&self, slot: usize, seed: u64) -> Result<Vec<u16>, String> {
+        let ref_state = self.states.get(slot).ok_or("unknown region")?;
+        let dims = ref_state.dimensions;
+        let fp16 = ref_state.independent_fp16;
+        let k = self.restart_candidates.max(1);
+        let mut rows = Vec::with_capacity(k);
+        let mut bufs = Vec::with_capacity(k);
+        for c in 0..k {
+            let root = crate::hash::splitmix64(
+                seed ^ ((slot as u64 + 1).wrapping_mul(0x9e37_79b9_7f4a_7c15))
+                    ^ ((c as u64).wrapping_mul(0xbf58_476d_1ce4_e5b9)),
+            );
+            let row: Vec<u16> = (0..dims)
+                .map(|j| {
+                    let h = crate::hash::splitmix64(
+                        root.wrapping_add((j as u64).wrapping_mul(0x9e37_79b9_7f4a_7c15)),
+                    );
+                    let u = ((h >> 40) as f32) * (1.0 / ((1u32 << 24) as f32));
+                    encode_unit(u, fp16)
+                })
+                .collect();
+            if k > 1 && self.restart_center == RestartCenter::Maximin {
+                bufs.push(ref_state.runtime.buffer_with(&row));
+            }
+            rows.push(row);
+        }
+        if bufs.is_empty() {
+            return Ok(rows.swap_remove(0));
+        }
+        let chosen = self.choose_center(slot, &bufs)?;
+        Ok(rows.swap_remove(chosen))
+    }
+
     pub fn buffer(&self, proposal: &RegionalProposal) -> Result<Buffer, String> {
         self.ledger
             .validate(proposal.ticket)
@@ -266,6 +447,16 @@ impl RegionalSearch {
             .get(proposal.ticket.region.slot)
             .ok_or("unknown region")?
             .propose_buffer(&proposal.proposal)
+    }
+
+    pub fn materialize_batch(&self, proposal: &RegionalProposal) -> Result<Vec<DeviceRow>, String> {
+        self.ledger
+            .validate(proposal.ticket)
+            .map_err(|error| error.to_string())?;
+        self.states
+            .get(proposal.ticket.region.slot)
+            .ok_or("unknown region")?
+            .materialize_batch(&proposal.proposal)
     }
 
     pub fn incumbent(&self, slot: usize) -> Result<Buffer, String> {
@@ -292,9 +483,6 @@ impl RegionalSearch {
             })
     }
 
-    /// Tell with an explicit retry contract. Pre-mutation failures preserve the
-    /// pending ticket; failures after mutation retire it to prevent double
-    /// count.
     pub fn tell_result(
         self,
         proposal: &RegionalProposal,
@@ -316,7 +504,154 @@ impl RegionalSearch {
         objectives::tell(self, proposal, observation)
     }
 
-    /// Complete multiple observations in sequence under pure value semantics.
+    pub fn import_vec(
+        self,
+        slot: usize,
+        row: &Buffer,
+        observation: crate::objective_observation::ObjectiveObservation,
+    ) -> Result<Self, String> {
+        objectives::import(self, slot, row, observation)
+    }
+
+    pub fn tell_arms(
+        mut self,
+        proposal: &RegionalProposal,
+        rows: &[DeviceRow],
+        obs: &[crate::objective_observation::ObjectiveObservation],
+    ) -> Result<(Self, NoisyDecision), String> {
+        use baux::semantics::optimizer::surrogate::BetterScore;
+        if rows.is_empty() || rows.len() != obs.len() {
+            return Err("tell_arms requires non-empty matching rows and observations".into());
+        }
+        self.ledger
+            .validate(proposal.ticket)
+            .map_err(|error| error.to_string())?;
+        let slot = proposal.ticket.region.slot;
+        if self.pending_tickets.get(slot).copied().flatten() != Some(proposal.ticket) {
+            return Err("regional proposal is no longer pending in its generation".into());
+        }
+        for item in obs {
+            item.validate()?;
+        }
+
+        let win = {
+            let state = self.states.get(slot).ok_or("unknown region")?;
+            let mut best_arm = 0usize;
+            let mut best_key = (
+                false,
+                BetterScore(f64::NEG_INFINITY),
+                std::cmp::Reverse(0usize),
+            );
+            for (arm, &item) in obs.iter().enumerate() {
+                let (accepted, gain) = match state.objective_decision(item)? {
+                    Some(pair) => pair,
+                    None => {
+                        let val = item.control().mean;
+                        let acc = if state.implicit_history
+                            && state.history >= state.initial_observations
+                            && proposal.proposal.incumbent_mean.is_finite()
+                        {
+                            val > proposal.proposal.incumbent_mean
+                        } else {
+                            val > state.best
+                        };
+                        (acc, f64::from(val))
+                    }
+                };
+                let key = (accepted, BetterScore(gain), std::cmp::Reverse(arm));
+                if arm == 0 || key > best_key {
+                    best_key = key;
+                    best_arm = arm;
+                }
+            }
+            best_arm
+        };
+
+        let mut win_prop = proposal.clone();
+        if win > 0 && win < proposal.proposal.selected_indices.len() {
+            let cand_idx = proposal.proposal.selected_indices[win];
+            let win_buf = rows[win].wait()?;
+            let state = self.states.get_mut(slot).ok_or("unknown region")?;
+            propose::cow_buffer(&state.runtime, &mut state.proposal)?;
+            state.copy(win_buf, &state.proposal)?;
+            win_prop.proposal.index = cand_idx;
+            if let Some(entry) = win_prop.proposal.pool.get(cand_idx) {
+                win_prop.proposal.seed = entry.1;
+                win_prop.proposal.length = entry.2;
+                win_prop.proposal.history_distances = entry.4.clone();
+            }
+            if let Some(&(pm, pse, sc)) = win_prop.proposal.pool_predictions.get(cand_idx) {
+                if pm.is_finite() {
+                    win_prop.proposal.predicted_mean = pm;
+                }
+                if pse.is_finite() {
+                    win_prop.proposal.predicted_standard_error = pse;
+                }
+                if sc.is_finite() {
+                    win_prop.proposal.score = sc;
+                }
+            }
+            let rad = win_prop
+                .proposal
+                .candidate_radii
+                .get(cand_idx)
+                .copied()
+                .unwrap_or(0.0);
+            win_prop.proposal.direction_norm = rad * rad;
+            let root_seed = read::<Decision>(&state.decision, 1)[0].root_seed;
+            win_prop.proposal.axis_coordinate = state.axis_candidate(root_seed, cand_idx);
+            win_prop.proposal.axis_value = state
+                .axis
+                .as_ref()
+                .zip(win_prop.proposal.axis_coordinate)
+                .map(|(axis, coord)| axis.value(coord));
+            win_prop.proposal.device_row =
+                DeviceRow::new(Arc::clone(&state.proposal), None, state.dimensions);
+            state.pending = Some(win_prop.proposal.clone());
+            self.pending_proposals[slot] = Some(win_prop.proposal.clone());
+        }
+
+        let (mut self_next, dec) = self.tell_objectives(&win_prop, obs[win])?;
+
+        for (arm, &item) in obs.iter().enumerate() {
+            if arm == win {
+                continue;
+            }
+            let buf = rows[arm].wait()?;
+            if self_next.states[slot].has_surrogate() {
+                self_next = objectives::import(self_next, slot, buf, item)?;
+            }
+            if self_next.restart_memory == RegionMemory::RetainRelevant {
+                let st = &self_next.states[slot];
+                let snap = st.runtime.buffer::<u16>(st.dimensions);
+                st.copy(buf, &snap)?;
+                if self_next.retained_archive.len() >= 2 * MAX_HISTORY {
+                    self_next.retained_archive.remove(0);
+                }
+                self_next.retained_archive.push((Arc::new(snap), item));
+            }
+            if self_next.sharing != SharingPolicy::OriginOnly {
+                let routes = routing::routes(&self_next, Some(slot), buf)?;
+                if !routes.is_empty() {
+                    let st = &self_next.states[slot];
+                    let stable = st.runtime.buffer::<u16>(st.dimensions);
+                    st.copy(buf, &stable)?;
+                    for peer in routes {
+                        if self_next.pending_imports[peer].len() < MAX_HISTORY {
+                            self_next.pending_imports[peer].push(PendingImport {
+                                row: stable.clone(),
+                                observation: item,
+                                from_region: true,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok((self_next, dec))
+    }
+
     pub fn tell_batch(
         mut self,
         items: &[(RegionalProposal, f32, f32)],
@@ -330,7 +665,6 @@ impl RegionalSearch {
         Ok((self, decisions))
     }
 
-    /// Complete multiple borrowed proposal observations in sequence.
     pub fn batch_refs(
         mut self,
         items: &[(&RegionalProposal, f32, f32)],
@@ -344,7 +678,6 @@ impl RegionalSearch {
         Ok((self, decisions))
     }
 
-    /// Retire an unevaluated proposal without updating regional statistics.
     pub fn cancel(mut self, proposal: &RegionalProposal) -> Result<Self, String> {
         self.ledger
             .validate(proposal.ticket)
@@ -361,9 +694,6 @@ impl RegionalSearch {
         Ok(self)
     }
 
-    /// Admit an externally evaluated resident row to one target model. This
-    /// carries no proposal origin and grants no controller or trial credit.
-    /// A busy target receives a stable GPU copy after its pending tell.
     pub fn import_region(
         self,
         slot: usize,
@@ -379,7 +709,6 @@ impl RegionalSearch {
         )
     }
 
-    /// Functional import alias for import_region.
     pub fn import(
         self,
         slot: usize,
@@ -390,9 +719,6 @@ impl RegionalSearch {
         self.import_region(slot, row, value, variance)
     }
 
-    /// Route one external row through the configured relevance policy. Rows
-    /// admitted to recipients are staged in resident storage and delivered
-    /// before each recipient's next ask or on explicit flush.
     pub fn import_external(
         mut self,
         row: &Buffer,
@@ -442,12 +768,16 @@ impl RegionalSearch {
         routing::flush_region(self, slot, false)
     }
 
-    /// Replace one trajectory. If it has an outstanding proposal, cancel that
-    /// engine round and invalidate its ticket; late results are stale. Queued
-    /// evidence admitted to the old generation is discarded.
-    pub fn restart(mut self, slot: usize, state: SearchState) -> Result<Self, String> {
+    pub fn restart(mut self, slot: usize, mut state: SearchState) -> Result<Self, String> {
         state.check_idle()?;
-        let best = f64::from(state.best()?);
+        let best = if state
+            .incumbent_objectives()?
+            .is_some_and(|record| record.observation.is_vector())
+        {
+            0.0
+        } else {
+            f64::from(state.best()?)
+        };
         let pending = self
             .pending_proposals
             .get(slot)
@@ -464,9 +794,9 @@ impl RegionalSearch {
                 .validate(ticket)
                 .map_err(|error| error.to_string())?;
             let old_ref = self.states.get_mut(slot).ok_or("unknown region")?;
-            if !old_ref.poisoned {
-                let old = std::mem::replace(old_ref, old_ref.clone());
-                *old_ref = old.cancel_round(&old_proposal)?;
+            let old = std::mem::replace(old_ref, old_ref.clone());
+            if let Ok(cancelled) = old.cancel_round(&old_proposal) {
+                *old_ref = cancelled;
             }
             self.ledger
                 .restart(slot, best)
@@ -476,6 +806,15 @@ impl RegionalSearch {
             self.ledger
                 .restart(slot, best)
                 .map_err(|error| error.to_string())?;
+        }
+        if self.restart_memory == RegionMemory::RetainRelevant && state.has_surrogate() {
+            for (arc_row, obs) in &self.retained_archive {
+                if routing::state_relevant(&state, self.sharing, arc_row).unwrap_or(false) {
+                    if let Ok(imported) = state.clone().import_objectives(arc_row, *obs) {
+                        state = imported;
+                    }
+                }
+            }
         }
         self.states[slot] = state;
         self.pending_imports[slot].clear();

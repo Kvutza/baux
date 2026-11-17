@@ -113,7 +113,7 @@ fn seed_weights(seed: u64, config: &Config) -> Result<Vec<f64>, String> {
         baux::artifact::toml::from_str(&ref_toml).map_err(|e| e.to_string())?;
     let mut init_rng = prng(seed);
     let domain = exp_domain(config);
-    let mut opt = BayesOptimizer::from_domain(domain.clone(), &spec, 0, &mut init_rng)
+    let opt = BayesOptimizer::from_domain(domain.clone(), &spec, 0, &mut init_rng)
         .map_err(|e| e.to_string())?;
     let mut step_rng = round_rng(seed, 1);
     let (_opt, unit) = opt.ask(1, &mut step_rng).map_err(|e| e.to_string())?;
@@ -312,11 +312,16 @@ fn spawn_worker(
     let Some(r) = root else {
         return Ok(None);
     };
+    let slab_arms = if arms > 1 {
+        arms.next_power_of_two()
+    } else {
+        1
+    };
     let spec = if is_tokagym(config) {
         WorkerSpec {
             kind: "tokagym",
             lock: "tokagym",
-            arms,
+            arms: slab_arms,
             num_dim: baux_tokamak::TOKAGYM_PARAMS,
             obs: baux_tokamak::TOKAGYM_OBS,
             act: baux_tokamak::TOKAGYM_ACT,
@@ -326,7 +331,7 @@ fn spawn_worker(
         WorkerSpec {
             kind: "torax",
             lock: "torax",
-            arms,
+            arms: slab_arms,
             num_dim: baux_tokamak::TOTAL_PARAMS,
             obs: baux_tokamak::OBS_DIM,
             act: baux_tokamak::ACTION_DIM,

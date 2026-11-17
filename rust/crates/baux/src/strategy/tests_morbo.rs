@@ -4,7 +4,7 @@ use super::{select_thompson, select_ucb};
 use crate::config::{AcquisitionConfig, InitStrategy, OptimizerConfig, SurrogateConfig, turbo_enn};
 use crate::error::ENNError;
 use crate::morbo::{MorboTRSettings, Rescalarize};
-use crate::optimizer::{BayesOptimizer, PosteriorBackend};
+use crate::optimizer::BayesOptimizer;
 use crate::strategy::Strategy;
 use crate::surrogate::{BoxedSurrogate, ENNSurrogateConfig, Surrogate, SurrogatePrediction};
 use crate::trust_region::{TRLengthConfig, TrustRegionConfig};
@@ -371,18 +371,8 @@ fn morbo_obs(seed: u64) -> BayesOptimizer {
     let x = array![[0.2, 0.3], [0.4, 0.5], [0.6, 0.7]];
     let y = array![[1.0, 2.0], [1.0, 2.0], [1.0, 2.0]];
     let delta = opt.add_observations(&x.view(), &y.view()).unwrap();
-    if let PosteriorBackend::Model(surrogate) = std::mem::replace(
-        &mut opt.posterior.backend,
-        PosteriorBackend::Empirical {
-            x_rows: Vec::new(),
-            y_rows: Vec::new(),
-        },
-    ) {
-        let surrogate = surrogate
-            .with_append(&delta.x_view(), &delta.y_view(), None, &mut rng)
-            .unwrap();
-        opt.posterior.backend = PosteriorBackend::Model(surrogate);
-    }
+    let (posterior, _) = opt.posterior.fit_delta(&delta, None, &mut rng).unwrap();
+    opt.posterior = posterior;
     opt
 }
 

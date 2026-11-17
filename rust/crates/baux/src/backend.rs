@@ -6,6 +6,7 @@ pub(crate) mod row_storage;
 
 #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
 pub use crate::disk_bpann::DiskBpannEnnBackend;
+pub use crate::scratch::ImLog;
 pub use in_memory::InMemoryEnnBackend;
 pub(crate) use row_storage::TrainRows;
 

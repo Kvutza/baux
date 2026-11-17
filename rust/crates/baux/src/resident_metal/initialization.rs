@@ -1,5 +1,15 @@
 use super::*;
 
+pub(super) struct PoolBufferPlan {
+    pub(super) partial_count: usize,
+    pub(super) aggregate_count: usize,
+    pub(super) distance_count: usize,
+    pub(super) geometry_count: usize,
+    pub(super) cand_count: usize,
+    pub(super) sizes: [u64; 12],
+    pub(super) resident_bytes: u64,
+}
+
 impl SearchState {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -152,27 +162,37 @@ impl SearchState {
         } else {
             capacity.max(1)
         };
+        let pool_layout = if single_pool {
+            crate::procedural_pool::ProceduralPoolConfig {
+                arms: 1,
+                candidates_per_arm: 1,
+            }
+            .resolve_resident()?
+        } else {
+            crate::procedural_pool::ProceduralPool::legacy()
+        };
         let (tiles, offsets, leaves) = make_layout(&blocks, dimensions)?;
-        let (partial_count, aggregate_count, geometry_count, sizes, resident_bytes) =
-            allocation_sizes(
-                dimensions,
-                blocks.len(),
-                tiles.len(),
-                offsets.len(),
-                res_cap,
-            )?;
+        let plan = allocation_sizes(
+            dimensions,
+            blocks.len(),
+            tiles.len(),
+            offsets.len(),
+            res_cap,
+            pool_layout.count() as usize,
+        )?;
         let runtime = Runtime::shared()?;
-        preflight(&runtime, &sizes, resident_bytes)?;
+        preflight(&runtime, &plan.sizes, plan.resident_bytes)?;
         let [
             propose_pipeline,
             initial_pipeline,
             pool_pipeline,
             reduction_pipeline,
+            score_pipeline,
             selection_pipeline,
             materialize_pipeline,
             import_pipeline,
             import_reduction,
-        ] = compile_pipelines(&runtime, independent_fp16, perturbation, single_pool)?;
+        ] = compile_pipelines(&runtime, independent_fp16, perturbation)?;
         let (base_buf, history_rows) = match base_input {
             Ok(slice) => {
                 let base_buf = Arc::new(runtime.buffer_with(slice));
@@ -192,21 +212,37 @@ impl SearchState {
             }
         };
         let mut trust = TurboTrustRegion::new(dimensions, length);
-        trust.set_arms(1);
+        trust.set_arms(pool_layout.arms() as usize);
+        let sampler = manifold::ResidentSampler::from_distribution(perturbation);
         let mut state = Self {
             independent_fp16,
             perturbation,
+            sampler,
+            num_pert: dimensions.max(1),
+            sobol_offset: 0,
+            lhd_points: 1,
+            box_bounded: false,
+            noise_aware: true,
+            adapt_controller: true,
+            success_tolerance_override: None,
             leaves_gpu: runtime.buffer_with(&leaves),
             tiles_gpu: runtime.buffer_with(&tiles),
             offsets_gpu: runtime.buffer_with(&offsets),
+            dummy_meta_gpu: runtime.buffer_with(&[DimMeta::default()]),
+            dummy_sobol_gpu: runtime.buffer_with(&[0u32; 32]),
+            sobol_dirs_gpu: None,
+            manifold: None,
             history_rows,
             base: base_buf,
             proposal: Arc::new(runtime.buffer::<u16>(dimensions)),
-            partials: Arc::new(runtime.buffer::<Partial>(partial_count)),
-            pool_aggregates: Arc::new(runtime.buffer::<Partial>(aggregate_count)),
+            partials: Arc::new(runtime.buffer::<Partial>(plan.partial_count)),
+            pool_aggregates: Arc::new(runtime.buffer::<Partial>(plan.aggregate_count)),
+            candidate_scores: Arc::new(runtime.buffer::<CandidateScore>(plan.cand_count)),
+            selected_indices_gpu: Arc::new(runtime.buffer::<u32>(plan.cand_count)),
+            axis_candidates_gpu: Arc::new(runtime.buffer::<f32>(plan.cand_count)),
             decision: Arc::new(runtime.buffer::<Decision>(1)),
-            pool_distances: Arc::new(runtime.buffer::<f32>(5 * MAX_HISTORY)),
-            pool_geometry: Arc::new(runtime.buffer::<f32>(geometry_count)),
+            pool_distances: Arc::new(runtime.buffer::<f32>(plan.distance_count)),
+            pool_geometry: Arc::new(runtime.buffer::<f32>(plan.geometry_count)),
             runtime,
             blocks,
             tiles,
@@ -214,26 +250,19 @@ impl SearchState {
             initial_pipeline,
             pool_pipeline,
             reduction_pipeline,
+            score_pipeline,
             selection_pipeline,
             materialize_pipeline,
             import_pipeline,
             import_reduction,
             dimensions,
-            resident_bytes,
+            resident_bytes: plan.resident_bytes,
             length_config: length,
             length: length.length_init,
             best: f32::NEG_INFINITY,
             best_variance: 0.0,
             objective_selector: None,
-            pool_layout: if single_pool {
-                crate::procedural_pool::ProceduralPoolConfig {
-                    arms: 1,
-                    candidates_per_arm: 1,
-                }
-                .resolve_resident()?
-            } else {
-                crate::procedural_pool::ProceduralPool::legacy()
-            },
+            pool_layout,
             objective_history: crate::objective_observation::ObjectiveWindow::new(window_cap),
             outcomes: vec![0.0; window_cap],
             variances: vec![0.0; window_cap],
@@ -263,7 +292,6 @@ impl SearchState {
             evaluation: None,
             queued: None,
             started: false,
-            poisoned: false,
             profiling: false,
             last_profile: None,
             async_command: None,
@@ -281,25 +309,44 @@ impl SearchState {
     }
 }
 
-fn allocation_sizes(
+pub(super) fn metric_count(pool_count: usize) -> Result<usize, String> {
+    if cfg!(test) {
+        pool_count
+            .max(4)
+            .checked_add(6)
+            .ok_or_else(|| "BF16 geometry metric overflow".into())
+    } else {
+        Ok(pool_count.max(1))
+    }
+}
+
+pub(super) fn allocation_sizes(
     dimensions: usize,
     blocks: usize,
     tiles: usize,
     offsets: usize,
     capacity: usize,
-) -> Result<(usize, usize, usize, [u64; 9], u64), String> {
+    pool_count: usize,
+) -> Result<PoolBufferPlan, String> {
+    let pool_count = pool_count.max(1);
     let row_bytes = bytes::<u16>(dimensions)?;
     let pairs = capacity.max(1).div_ceil(2);
     let partial_count = tiles
-        .checked_mul(4)
+        .checked_mul(pool_count)
         .and_then(|n| n.checked_mul(pairs))
         .ok_or("BF16 partial count overflow")?;
-    let aggregate_count = 4usize
+    let aggregate_count = pool_count
         .checked_mul(pairs)
         .ok_or("BF16 aggregate count overflow")?;
+    let distance_count = pool_count
+        .checked_mul(MAX_HISTORY)
+        .ok_or("BF16 pool distance count overflow")?
+        .max(2 * MAX_HISTORY + 1);
+    let geometry_metrics = metric_count(pool_count)?;
     let geometry_count = tiles
-        .checked_mul(POOL_METRICS)
+        .checked_mul(geometry_metrics)
         .ok_or("BF16 geometry count overflow")?;
+    let cand_count = pool_count.max(4);
     let sizes = [
         row_bytes,
         bytes::<Leaf>(blocks)?,
@@ -307,8 +354,11 @@ fn allocation_sizes(
         bytes::<u32>(offsets)?,
         bytes::<Partial>(partial_count)?,
         bytes::<Partial>(aggregate_count)?,
+        bytes::<CandidateScore>(cand_count)?,
+        bytes::<u32>(cand_count)?,
+        bytes::<f32>(cand_count)?,
         bytes::<Decision>(1)?,
-        bytes::<f32>(5 * MAX_HISTORY)?,
+        bytes::<f32>(distance_count)?,
         bytes::<f32>(geometry_count)?,
     ];
     let resident_bytes = sizes.iter().try_fold(
@@ -317,30 +367,26 @@ fn allocation_sizes(
             .ok_or("BF16 memory overflow")?,
         |sum, size| sum.checked_add(*size).ok_or("BF16 memory overflow"),
     )?;
-    Ok((
+    Ok(PoolBufferPlan {
         partial_count,
         aggregate_count,
+        distance_count,
         geometry_count,
+        cand_count,
         sizes,
         resident_bytes,
-    ))
+    })
 }
 
-pub fn search_source(independent_fp16: bool, perturbation: ProposalDistribution) -> String {
+pub fn search_source(independent_fp16: bool, _perturbation: ProposalDistribution) -> String {
     let mut defines = format!("#define BAUX_HISTORY {MAX_HISTORY}\n");
     if independent_fp16 {
         defines.push_str("#define FP16_INDEPENDENT\n");
     }
-    if perturbation == ProposalDistribution::Rademacher {
-        defines.push_str("#define RADEMACHER_ONLY\n");
-    }
     #[cfg(test)]
     defines.push_str("#define POOL_GEOMETRY_DIAGNOSTICS\n");
-    let tables = if perturbation == ProposalDistribution::Gaussian {
-        metal_tables()
-    } else {
-        String::new()
-    };
+    let mut tables = baux::semantics::abi::metal_abi();
+    tables.push_str(&metal_tables());
     format!(
         "{defines}{}",
         SOURCE.replacen("// BAUX_ZIGGURAT_TABLES", &tables, 1)
@@ -351,19 +397,14 @@ fn compile_pipelines(
     runtime: &Runtime,
     independent_fp16: bool,
     perturbation: ProposalDistribution,
-    single_pool: bool,
-) -> Result<[ComputePipelineState; 8], String> {
-    let base_source = search_source(independent_fp16, perturbation);
-    let source = if single_pool {
-        format!("#define PROCEDURAL_SLOTS 1\n#define PROCEDURAL_COUNT 1\n{base_source}")
-    } else {
-        base_source
-    };
+) -> Result<[ComputePipelineState; 9], String> {
+    let source = search_source(independent_fp16, perturbation);
     let pipelines = [
         runtime.pipeline(&source, "Dense search", "dense_propose")?,
         runtime.pipeline(&source, "Dense search", "dense_propose_initial")?,
         runtime.pipeline(&source, "Dense search", "dense_propose_pool")?,
         runtime.precise(&source, "Dense search", "dense_reduce_pool")?,
+        runtime.precise(&source, "Dense search", "dense_score_candidates")?,
         runtime.precise(&source, "Dense search", "dense_select")?,
         runtime.pipeline(&source, "Dense search", "dense_materialize")?,
         runtime.precise(&source, "Dense search", "import_partial")?,

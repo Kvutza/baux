@@ -946,3 +946,637 @@ fn sheaf_restriction(tc: TestCase) {
         }
     }
 }
+
+/// Stateless `DelayedPool<T>` RAASP forced-coordinate perturbation, box bounds,
+/// and `O(k_pert)` sparse-delta ARD squared L2 equivalence against dense L2.
+#[hegel::test]
+fn raasp_sparse(tc: TestCase) {
+    use baux::semantics::key::Key;
+    use baux::semantics::neighbor::{ard_dist, simd_l2};
+    use baux::semantics::pool::{DelayedPool, cand_key, forced_dim, raasp_pack, sparse_dist};
+
+    let cands = tc.draw(gs::integers::<usize>().min_value(1).max_value(12));
+    let dim = tc.draw(gs::integers::<usize>().min_value(1).max_value(32));
+    let num_pert = tc.draw(gs::integers::<usize>().min_value(1).max_value(dim));
+    let seed = tc.draw(gs::integers::<u64>());
+    let key = Key::new(seed);
+
+    let mut center = Vec::with_capacity(dim);
+    let mut lo = Vec::with_capacity(dim);
+    let mut hi = Vec::with_capacity(dim);
+    let mut target = Vec::with_capacity(dim);
+    let mut weights = Vec::with_capacity(dim);
+    for _ in 0..dim {
+        let c = tc.draw(gs::floats::<f64>().min_value(0.1).max_value(0.9));
+        let span = tc.draw(gs::floats::<f64>().min_value(0.01).max_value(0.1));
+        center.push(c);
+        lo.push((c - span).max(0.0));
+        hi.push((c + span).min(1.0));
+        target.push(tc.draw(gs::floats::<f64>().min_value(0.0).max_value(1.0)));
+        weights.push(tc.draw(gs::floats::<f64>().min_value(0.2).max_value(5.0)));
+    }
+
+    let pool = DelayedPool::Raasp {
+        key,
+        center: &center,
+        lower: &lo,
+        upper: &hi,
+        num_candidates: cands,
+        num_pert,
+    };
+    let center32: Vec<f32> = center.iter().map(|&v| v as f32).collect();
+    let lo32: Vec<f32> = lo.iter().map(|&v| v as f32).collect();
+    let hi32: Vec<f32> = hi.iter().map(|&v| v as f32).collect();
+    let pool32 = DelayedPool::<f32>::Raasp {
+        key,
+        center: &center32,
+        lower: &lo32,
+        upper: &hi32,
+        num_candidates: cands,
+        num_pert,
+    };
+    let base_ard = ard_dist(&center, &target, &weights);
+    let base_unw = simd_l2(&center, &target);
+
+    let mut row = vec![0.0_f64; dim];
+    let mut idx_buf = vec![0usize; dim];
+    let mut val_buf = vec![0.0_f64; dim];
+    for c in 0..cands {
+        pool.write_row(c, &mut row);
+        let forced = forced_dim(cand_key(key, c), dim);
+        let k_pert = raasp_pack(key, c, &lo, &hi, num_pert, &mut idx_buf, &mut val_buf).unwrap();
+        assert!(k_pert >= 1 && idx_buf[..k_pert].contains(&forced));
+        for t in 0..k_pert {
+            let j = idx_buf[t];
+            let val = val_buf[t];
+            assert!(val >= lo[j] && val <= hi[j]);
+            assert_eq!(row[j].to_bits(), val.to_bits());
+        }
+        for j in 0..dim {
+            let v32 = pool32.eval(c, j);
+            assert!(v32 >= lo32[j] && v32 <= hi32[j]);
+        }
+
+        let sp_ard = sparse_dist(
+            base_ard,
+            &center,
+            &target,
+            Some(&weights),
+            &idx_buf[..k_pert],
+            &val_buf[..k_pert],
+        );
+        let dense_ard = ard_dist(&row, &target, &weights);
+        assert!(
+            (sp_ard - dense_ard).abs() < 1.0e-9,
+            "sparse ARD L2 {sp_ard} != dense {dense_ard}"
+        );
+
+        let sp_unw = sparse_dist(
+            base_unw,
+            &center,
+            &target,
+            None,
+            &idx_buf[..k_pert],
+            &val_buf[..k_pert],
+        );
+        let dense_unw = simd_l2(&row, &target);
+        assert!(
+            (sp_unw - dense_unw).abs() < 1.0e-9,
+            "sparse L2 {sp_unw} != dense {dense_unw}"
+        );
+    }
+}
+
+/// Stateless Gray-code Sobol + hash-Owen scramble preserves exact 1D `(0, m,
+/// 1)` dyadic stratification on every `2^m`-aligned block.
+#[hegel::test]
+fn sobol_owen(tc: TestCase) {
+    use baux::semantics::key::Key;
+    use baux::semantics::pool::{DelayedPool, joe_kuo};
+
+    let m = tc.draw(gs::integers::<u32>().min_value(1).max_value(5));
+    let n = 1usize << m;
+    let dim = tc.draw(gs::integers::<usize>().min_value(0).max_value(15));
+    let block = tc.draw(gs::integers::<u32>().min_value(0).max_value(16));
+    let base_idx = block << m;
+    let seed = tc.draw(gs::integers::<u64>());
+
+    let lo = vec![0.0_f64; dim + 1];
+    let hi = vec![1.0_f64; dim + 1];
+    let dirs: Vec<[u32; 32]> = (0..=dim).map(joe_kuo).collect();
+    let pool = DelayedPool::Sobol {
+        key: Key::new(seed),
+        lower: &lo,
+        upper: &hi,
+        dirs: &dirs,
+        base_idx,
+        num_candidates: n,
+        scramble: true,
+    };
+    let mut bins = vec![0usize; n];
+    for c in 0..n {
+        let u = pool.eval(c, dim);
+        assert!((0.0..1.0).contains(&u), "Sobol draw {u} out of [0, 1)");
+        let b = ((u * n as f64).floor() as usize).min(n - 1);
+        bins[b] += 1;
+    }
+    assert!(
+        bins.iter().all(|&cnt| cnt == 1),
+        "Owen-scrambled Sobol violated (0, {m}, 1) stratification: {bins:?}"
+    );
+}
+
+/// Cycle-walking Feistel Latin Hypercube Design (`eval_lhd`) produces an exact
+/// `0..N` bin permutation in every coordinate without allocating tables.
+#[hegel::test]
+fn lhd_bijection(tc: TestCase) {
+    use baux::semantics::key::Key;
+    use baux::semantics::pool::{DelayedPool, lhd_bin};
+
+    let n = tc.draw(gs::integers::<usize>().min_value(1).max_value(64));
+    let num_dim = tc.draw(gs::integers::<usize>().min_value(1).max_value(6));
+    let seed = tc.draw(gs::integers::<u64>());
+    let key = Key::new(seed);
+    let lo = vec![0.0_f64; num_dim];
+    let hi = vec![1.0_f64; num_dim];
+    let pool = DelayedPool::Lhd {
+        key,
+        lower: &lo,
+        upper: &hi,
+        num_candidates: n,
+    };
+
+    for j in 0..num_dim {
+        let mut seen = vec![false; n];
+        for c in 0..n {
+            let bin = lhd_bin(key, c, n, j);
+            assert!(bin < n && !seen[bin], "duplicate LHD bin {bin} at dim {j}");
+            seen[bin] = true;
+            let u = pool.eval(c, j);
+            let b_lo = bin as f64 / n as f64;
+            let b_hi = (bin + 1) as f64 / n as f64;
+            assert!(
+                u >= b_lo && u <= b_hi,
+                "LHD draw {u} outside stratum [{b_lo}, {b_hi}]"
+            );
+        }
+    }
+}
+
+/// Generic `TopK<T>`, `ConstParamTy` posterior specialization, non-Euclidean
+/// `loo_slice`, `scale_prior` `[10^-3, 10^3]`, UCB `beta = 1.0` default, and
+/// NaN-safe `BetterScore<T>` selection.
+#[hegel::test]
+fn topk_score(tc: TestCase) {
+    use baux::semantics::key::Key;
+    use baux::semantics::neighbor::query::{posterior_const, posterior_eval};
+    use baux::semantics::neighbor::{DistanceMetric, MetricKind, TopK, UncertaintyLaw};
+    use baux::semantics::optimizer::surrogate::{
+        AcquisitionRule, BetterScore, DEFAULT_BETA, loo_slice, scale_prior, select_pareto,
+        select_topk,
+    };
+
+    assert_eq!(DEFAULT_BETA, 1.0);
+    assert_eq!(
+        AcquisitionRule::default(),
+        AcquisitionRule::Ucb { beta: 1.0 }
+    );
+
+    let pos_nan = f64::from_bits(0x7ff8_0000_0000_0001);
+    let neg_nan = f64::from_bits(0xfff8_0000_0000_0001);
+    assert_eq!(BetterScore(pos_nan), BetterScore(neg_nan));
+    assert!(BetterScore(pos_nan) < BetterScore(f64::NEG_INFINITY));
+    assert!(BetterScore(neg_nan) < BetterScore(f64::NEG_INFINITY));
+    assert!(BetterScore(f32::NAN) < BetterScore(f32::NEG_INFINITY));
+
+    let n = tc.draw(gs::integers::<usize>().min_value(3).max_value(24));
+    let k = tc.draw(gs::integers::<usize>().min_value(1).max_value(n.min(8)));
+    let seed = tc.draw(gs::integers::<u64>());
+    let key = Key::new(seed);
+    let (epi_p, ale_p) = scale_prior(key, 0, 1.0_f64, true);
+    assert!((1.0e-3..=1.0e3).contains(&epi_p) && (1.0e-6..=1.0).contains(&ale_p));
+
+    let dists: Vec<f64> = (0..n)
+        .map(|_| tc.draw(gs::floats::<f64>().min_value(0.0).max_value(4.0)))
+        .collect();
+    let ys: Vec<f64> = (0..n)
+        .map(|_| tc.draw(gs::floats::<f64>().min_value(-5.0).max_value(5.0)))
+        .collect();
+    let vars: Vec<f64> = (0..n)
+        .map(|_| tc.draw(gs::floats::<f64>().min_value(0.0).max_value(0.5)))
+        .collect();
+
+    let mut top = TopK::<f64, 8>::new(k);
+    for (idx, &d) in dists.iter().enumerate() {
+        top.push(d, idx as u32);
+    }
+    let mut sorted: Vec<(f64, u32)> = dists
+        .iter()
+        .copied()
+        .enumerate()
+        .map(|(i, d)| (d, i as u32))
+        .collect();
+    sorted.sort_by(|a, b| a.0.total_cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
+    assert_eq!(top.len(), k);
+    for (idx, &(d, slot)) in top.as_slice().iter().enumerate() {
+        assert_eq!(slot, sorted[idx].1);
+        assert_eq!(d.to_bits(), sorted[idx].0.to_bits());
+    }
+
+    let scales = vec![0.25_f64; n];
+    let p_const =
+        posterior_const::<{ MetricKind::Hyperbolic }, { UncertaintyLaw::BiasVariance }, f64>(
+            &dists,
+            Some(&scales),
+            0.25,
+            &ys,
+            Some(&vars),
+            k,
+            0.1,
+            0.05,
+            1.0,
+            None,
+            true,
+        );
+    let p_dyn = posterior_eval(
+        DistanceMetric::Hyperbolic { local_k: 2 },
+        UncertaintyLaw::BiasVariance,
+        &dists,
+        Some(&scales),
+        0.25,
+        &ys,
+        Some(&vars),
+        k,
+        0.1,
+        0.05,
+        1.0,
+        None,
+        true,
+    );
+    assert_eq!(p_const, p_dyn);
+    assert!(p_const.mu.is_finite() && p_const.se_total > 0.0);
+
+    let mut mat = vec![0.0_f64; n * n];
+    for r in 0..n {
+        for c in 0..n {
+            mat[r * n + c] = if r == c {
+                0.0
+            } else {
+                (dists[r] - dists[c]).powi(2) + 0.01
+            };
+        }
+    }
+    let ll = loo_slice(
+        DistanceMetric::Conformal { local_k: 2 },
+        UncertaintyLaw::BiasVariance,
+        &mat,
+        &ys,
+        &vars,
+        &[0, 1],
+        k,
+        0.1,
+        0.05,
+        1.0,
+        true,
+    );
+    assert!(ll.is_finite());
+
+    let mut scores = ys.clone();
+    scores[0] = pos_nan;
+    scores[1] = f64::NEG_INFINITY;
+    let mut chosen = vec![0usize; 2];
+    let got = select_topk(&scores, key, &mut chosen);
+    assert_eq!(got, 2);
+    assert_ne!(chosen[0], 0, "NaN score must never win top-1 selection");
+    assert_ne!(chosen[0], chosen[1]);
+    assert!(BetterScore(scores[chosen[0]]) >= BetterScore(scores[chosen[1]]));
+
+    let ses: Vec<f64> = vars.iter().map(|&v| v + 0.01).collect();
+    let mut p_out = vec![0usize; k];
+    let p_got = select_pareto(&scores, &ses, key, &mut p_out);
+    assert_eq!(p_got, k);
+}
+
+/// `TurboState` failure-tolerance scaling, restart reset law, and arbitrary-`K`
+/// `RoundPlan` ABI packing (`MODE_MASKED` vs `MODE_SOBOL`) without fixed
+/// 4-candidate bounds.
+#[hegel::test]
+fn turbo_plan(tc: TestCase) {
+    use baux::semantics::abi::{MODE_MASKED, MODE_SOBOL};
+    use baux::semantics::key::Key;
+    use baux::semantics::neighbor::{MetricKind, UncertaintyLaw};
+    use baux::semantics::optimizer::surrogate::AcquisitionRule;
+    use baux::semantics::optimizer::trust_region::{
+        LifecyclePhase, PoolSampler, RadiusAction, RoundPlan, SurrogateMode, TurboState,
+        default_pool, turbo_tolerance,
+    };
+
+    let dim = tc.draw(gs::integers::<usize>().min_value(1).max_value(64));
+    let arms = tc.draw(gs::integers::<usize>().min_value(1).max_value(8));
+    let cands = tc.draw(gs::integers::<usize>().min_value(5).max_value(2048));
+    let seed = tc.draw(gs::integers::<u64>());
+
+    let expected_tol = ((4.0 / arms as f64).max(dim as f64 / arms as f64)).ceil() as usize;
+    assert_eq!(
+        turbo_tolerance(dim as f64, arms) as usize,
+        expected_tol.max(1)
+    );
+    let state = TurboState::for_dims(dim, arms, 0.8, 0.25, 1.6, None);
+    assert_eq!(state.failure_limit, expected_tol.max(1));
+    let overridden = TurboState::for_dims(dim, arms, 0.8, 0.25, 1.6, Some(7));
+    assert_eq!(overridden.failure_limit, 7);
+
+    let mut cur = TurboState::new(0.4, 0.25, 1.6, 2);
+    let (next1, act1, res1) = cur.next_step(false);
+    assert_eq!((act1, res1), (RadiusAction::Hold, false));
+    let (next2, act2, res2) = next1.next_step(false);
+    assert_eq!((act2, res2), (RadiusAction::Shrink, true));
+    assert_eq!(next2.length, 0.4);
+    cur = next2;
+    for _ in 0..2 {
+        let (n, a, r) = cur.next_step(true);
+        assert_eq!((a, r), (RadiusAction::Hold, false));
+        cur = n;
+    }
+    let (expanded, act3, res3) = cur.next_step(true);
+    assert_eq!((act3, res3), (RadiusAction::Expand, false));
+    assert!((expanded.length - 0.8).abs() < 1.0e-12);
+
+    assert!(default_pool(dim) >= 10 && default_pool(dim) <= 5000);
+    let mut plan = RoundPlan::turbo_enn(
+        Key::new(seed),
+        3,
+        dim,
+        cands,
+        arms,
+        state,
+        SurrogateMode::Enn {
+            neighbors: 16,
+            epistemic: 0.05,
+            aleatoric: 0.05,
+            scale: 1.0,
+            metric: MetricKind::Euclidean,
+            law: UncertaintyLaw::BiasVariance,
+            noise_aware: true,
+        },
+        AcquisitionRule::default(),
+    );
+    let pd = plan.pool_dispatch(4, 24, 2);
+    let sh = plan.select_header(24, 2, 4, true);
+    assert_eq!(pd.num_candidates, cands as u32);
+    assert_eq!(sh.num_candidates, cands as u32);
+    assert_eq!(sh.num_arms, arms as u32);
+    assert_eq!(sh.beta, 1.0);
+
+    plan.phase = LifecyclePhase::Active {
+        sampler: PoolSampler::Sobol { base_idx: 0 },
+        surrogate: SurrogateMode::NoSurrogate,
+    };
+    assert_eq!(plan.abi_mode(), MODE_SOBOL);
+    plan.phase = LifecyclePhase::Active {
+        sampler: PoolSampler::SobolMasked {
+            base_idx: 0,
+            prob: 0.5,
+        },
+        surrogate: SurrogateMode::NoSurrogate,
+    };
+    assert_eq!(plan.abi_mode(), MODE_MASKED);
+}
+
+/// `ybounds` warp/inverse/Jacobian roundtrip and `morbo` simplex, NDS, and 2D
+/// hypervolume monotonicity laws.
+#[hegel::test]
+fn warp_morbo(tc: TestCase) {
+    use baux::semantics::key::Key;
+    use baux::semantics::morbo::{chebyshev, dominates, hv_pair, nds_ranks, sample_simplex};
+    use baux::semantics::ybounds::{inv_scalar, jac_inv, natural_point, warp_scalar};
+
+    let lo_b = tc.draw(gs::floats::<f64>().min_value(-10.0).max_value(0.0));
+    let span = tc.draw(gs::floats::<f64>().min_value(0.5).max_value(10.0));
+    let hi_b = lo_b + span;
+    let frac = tc.draw(gs::floats::<f64>().min_value(0.05).max_value(0.95));
+    let y = lo_b + frac * span;
+
+    for (lo, hi) in [
+        (lo_b, f64::INFINITY),
+        (f64::NEG_INFINITY, hi_b),
+        (lo_b, hi_b),
+    ] {
+        let z = warp_scalar(y, lo, hi);
+        let back = inv_scalar(z, lo, hi);
+        assert!(
+            (back - y).abs() < 1.0e-7,
+            "ybounds roundtrip failed for ({lo}, {hi}): {y} -> {z} -> {back}"
+        );
+        let eps = 1.0e-6;
+        let fd = (inv_scalar(z + eps, lo, hi) - inv_scalar(z - eps, lo, hi)) / (2.0 * eps);
+        let jac = jac_inv(z, lo, hi);
+        assert!(
+            (fd - jac).abs() <= 1.0e-4 * jac.abs().max(1.0),
+            "ybounds Jacobian mismatch: {jac} vs fd {fd}"
+        );
+        let (nat_mu, nat_se, nat_epi, nat_ale) = natural_point(z, 0.2, 0.15, 0.1, lo, hi);
+        assert!(
+            (nat_mu - back).abs() < 1.0e-4 && nat_se >= 0.0 && nat_epi >= 0.0 && nat_ale >= 0.0
+        );
+    }
+
+    let seed = tc.draw(gs::integers::<u64>());
+    let mut weights = [0.0_f64; 3];
+    sample_simplex(Key::new(seed), &mut weights);
+    let w_sum: f64 = weights.iter().sum();
+    assert!((w_sum - 1.0).abs() < 1.0e-12 && weights.iter().all(|&w| w > 0.0));
+
+    let s = chebyshev(&[1.0, 2.0, 3.0], &[0.0; 3], &[4.0; 3], &weights, 0.05, true);
+    assert!(s.is_finite());
+
+    let objs = [1.0, 1.0, 2.0, 2.0, 0.5, 2.5];
+    let mut ranks = [0u32; 3];
+    nds_ranks(&objs, 3, 2, &mut ranks);
+    assert!(dominates(&objs[2..4], &objs[0..2]));
+    assert_eq!(ranks[1], 0);
+    assert_eq!(ranks[2], 0);
+    assert!(ranks[0] >= 1);
+
+    let mut scratch = [(0.0, 0.0); 3];
+    let hv_sub = hv_pair(&objs[0..2], 1, 0.0, 0.0, &mut scratch[..1]);
+    let hv_all = hv_pair(&objs, 3, 0.0, 0.0, &mut scratch);
+    assert!(hv_all >= hv_sub && hv_sub > 0.0);
+}
+
+/// GPU layout verification for tiled arbitrary-`num_candidates` `abi` structs
+/// (`PoolDispatch`, `SelectHeader`, `ArmDecision`, `TileSpan`) on Apple Metal.
+#[cfg(all(target_os = "macos", feature = "metal"))]
+#[hegel::test]
+fn pool_abi(tc: TestCase) {
+    use baux::semantics::abi::{ArmDecision, PoolDispatch, SelectHeader, TileSpan, metal_source};
+    use metal::{CompileOptions, Device, MTLResourceOptions, MTLSize};
+
+    let pd = PoolDispatch {
+        key_hi: tc.draw(gs::integers::<u64>()),
+        key_lo: tc.draw(gs::integers::<u64>()),
+        root_seed: tc.draw(gs::integers::<u64>()),
+        stream_seed: tc.draw(gs::integers::<u64>()),
+        radius: tc.draw(gs::floats::<f32>().min_value(0.01).max_value(2.0)),
+        prob_pert: tc.draw(gs::floats::<f32>().min_value(0.0).max_value(1.0)),
+        num_candidates: tc.draw(gs::integers::<u32>().min_value(1).max_value(10_000)),
+        num_arms: tc.draw(gs::integers::<u32>().min_value(1).max_value(16)),
+        num_dim: tc.draw(gs::integers::<u32>().min_value(1).max_value(4096)),
+        num_pert: 8,
+        base_idx: tc.draw(gs::integers::<u32>()),
+        tiles: 4,
+        history: 24,
+        mode: tc.draw(gs::integers::<u32>().min_value(0).max_value(5)),
+        base_slot: 0,
+        blocks: 1,
+        initialize: 0,
+        scramble: 1,
+    };
+    let sh = SelectHeader {
+        root_seed: pd.root_seed,
+        acq_seed: tc.draw(gs::integers::<u64>()),
+        epistemic_scale: 0.05,
+        aleatoric_scale: 0.05,
+        y_scale: 1.0,
+        beta: 1.0,
+        radius: pd.radius,
+        axis_base: 1.0,
+        axis_weight: 1.0,
+        morbo_alpha: 0.05,
+        num_candidates: pd.num_candidates,
+        num_arms: pd.num_arms,
+        neighbors: 16,
+        history: 24,
+        acquisition: 0,
+        tiles: 4,
+        mode: pd.mode,
+        resident_history: 24,
+        implicit_history: 0,
+        forced_candidate: baux::semantics::abi::NO_FORCED,
+        distance_metric: 0,
+        scale_neighbors: 16,
+        incumbent_index: 0,
+        candidate_floor: 0,
+        adaptive_k: 0,
+        uncertainty_law: 1,
+        axis_enabled: 0,
+        num_metrics: 2,
+        has_yvar: 1,
+        has_ybounds: 1,
+    };
+    let ad = ArmDecision {
+        root_seed: pd.root_seed,
+        seed: pd.stream_seed,
+        index: tc.draw(gs::integers::<u32>()),
+        arm: 0,
+        valid: 1,
+        mode: pd.mode,
+        radius: pd.radius,
+        score: 2.5,
+        pred_mean: 1.5,
+        pred_se: 1.0,
+        pred_epi: 0.8,
+        pred_ale: 0.6,
+        incumbent_mean: 1.0,
+        incumbent_se: 0.2,
+        neighbors: 16,
+        incumbent_k: 16,
+    };
+    let ts = TileSpan {
+        leaf: 3,
+        start: 64,
+        length: 128,
+        pad: 0,
+    };
+    let src = metal_source(
+        r#"
+kernel void check_pool(constant PoolDispatch& p [[buffer(0)]],
+                       constant SelectHeader& h [[buffer(1)]],
+                       constant ArmDecision& a [[buffer(2)]],
+                       constant TileSpan& t [[buffer(3)]],
+                       device uint* out [[buffer(4)]]) {
+    out[0] = uint(p.key_hi & 0xfffffffful);
+    out[1] = p.num_candidates;
+    out[2] = p.num_dim;
+    out[3] = as_type<uint>(p.prob_pert);
+    out[4] = as_type<uint>(p.radius);
+    out[5] = uint(h.acq_seed >> 32);
+    out[6] = h.num_arms;
+    out[7] = h.forced_candidate;
+    out[8] = as_type<uint>(h.beta);
+    out[9] = h.has_ybounds;
+    out[10] = a.index;
+    out[11] = as_type<uint>(a.pred_ale);
+    out[12] = t.length;
+    out[13] = t.leaf;
+}
+"#,
+    );
+    static PIPE: std::sync::OnceLock<(Device, metal::ComputePipelineState, metal::CommandQueue)> =
+        std::sync::OnceLock::new();
+    let (dev, pipe, q) = PIPE.get_or_init(|| {
+        let dev = Device::system_default().expect("Metal device");
+        let lib = dev
+            .new_library_with_source(&src, &CompileOptions::new())
+            .unwrap();
+        let fun = lib.get_function("check_pool", None).unwrap();
+        let pipe = dev.new_compute_pipeline_state_with_function(&fun).unwrap();
+        let q = dev.new_command_queue();
+        (dev, pipe, q)
+    });
+    let out = dev.new_buffer(14 * 4, MTLResourceOptions::StorageModeShared);
+    let cmd = q.new_command_buffer();
+    let enc = cmd.new_compute_command_encoder();
+    enc.set_compute_pipeline_state(pipe);
+    enc.set_bytes(
+        0,
+        size_of::<PoolDispatch>() as u64,
+        std::ptr::from_ref(&pd).cast(),
+    );
+    enc.set_bytes(
+        1,
+        size_of::<SelectHeader>() as u64,
+        std::ptr::from_ref(&sh).cast(),
+    );
+    enc.set_bytes(
+        2,
+        size_of::<ArmDecision>() as u64,
+        std::ptr::from_ref(&ad).cast(),
+    );
+    enc.set_bytes(
+        3,
+        size_of::<TileSpan>() as u64,
+        std::ptr::from_ref(&ts).cast(),
+    );
+    enc.set_buffer(4, Some(&out), 0);
+    let one = MTLSize {
+        width: 1,
+        height: 1,
+        depth: 1,
+    };
+    enc.dispatch_threads(one, one);
+    enc.end_encoding();
+    cmd.commit();
+    cmd.wait_until_completed();
+    assert_eq!(cmd.status(), metal::MTLCommandBufferStatus::Completed);
+    let got = unsafe { std::slice::from_raw_parts(out.contents().cast::<u32>(), 14) };
+    assert_eq!(
+        got,
+        &[
+            pd.key_hi as u32,
+            pd.num_candidates,
+            pd.num_dim,
+            pd.prob_pert.to_bits(),
+            pd.radius.to_bits(),
+            (sh.acq_seed >> 32) as u32,
+            sh.num_arms,
+            sh.forced_candidate,
+            sh.beta.to_bits(),
+            sh.has_ybounds,
+            ad.index,
+            ad.pred_ale.to_bits(),
+            ts.length,
+            ts.leaf,
+        ]
+    );
+}

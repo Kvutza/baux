@@ -1,9 +1,11 @@
 use super::*;
+use std::sync::Arc;
 
 pub(super) struct TellPlan {
     pub(super) source: usize,
     pub(super) routes: Vec<usize>,
     pub(super) staged: Option<Buffer>,
+    pub(super) archive_copy: Option<Arc<Buffer>>,
 }
 
 pub(super) fn retire_aftertell(
@@ -15,17 +17,22 @@ pub(super) fn retire_aftertell(
     ticket: RegionTicket,
     error: String,
 ) -> TellFailure {
-    if let Some(state) = states.get_mut(slot) {
-        state.poisoned = true;
+    if let Some(state_ref) = states.get_mut(slot)
+        && let Some(prop) = pending_proposals.get(slot).and_then(Option::as_ref)
+    {
+        let clean = state_ref.clone();
+        if let Ok(cancelled) = clean.cancel_round(prop) {
+            *state_ref = cancelled;
+        }
     }
     let retirement = ledger.retire(ticket);
     pending_proposals[slot] = None;
     pending_tickets[slot] = None;
     let detail = match retirement {
-        Ok(()) => format!("{error}; resident engine poisoned and ticket retired"),
-        Err(retire_error) => format!(
-            "{error}; resident engine poisoned, ticket retirement also failed: {retire_error}"
-        ),
+        Ok(()) => format!("{error}; ticket retired without poisoning resident engine"),
+        Err(retire_error) => {
+            format!("{error}; ticket retirement also failed: {retire_error}")
+        }
     };
     TellFailure::Retired(detail)
 }
@@ -72,10 +79,20 @@ fn prepare(
             .map_err(TellFailure::Retryable)?;
         Some(stable)
     };
+    let archive_copy = if search.restart_memory == RegionMemory::RetainRelevant {
+        let snap = state.runtime.buffer::<u16>(state.dimensions);
+        state
+            .copy(&candidate, &snap)
+            .map_err(TellFailure::Retryable)?;
+        Some(Arc::new(snap))
+    } else {
+        None
+    };
     Ok(TellPlan {
         source,
         routes,
         staged,
+        archive_copy,
     })
 }
 
@@ -88,6 +105,7 @@ pub(super) fn complete(
         source,
         routes,
         staged,
+        archive_copy,
     } = prepare(&search, proposal, observation)?;
     if source >= search.states.len() {
         return Err(TellFailure::Retryable("unknown region".into()));
@@ -103,35 +121,20 @@ pub(super) fn complete(
     };
     let (state, decision) = match outcome {
         Ok((state, decision)) => (state, decision),
-        Err(error) if backup.poisoned => {
-            let mut doomed = backup;
-            doomed.poisoned = true;
-            search.states.insert(source, doomed);
-            search
-                .ledger
-                .retire(proposal.ticket)
-                .map_err(|retire_err| TellFailure::Retired(retire_err.to_string()))?;
-            search.pending_proposals[source] = None;
-            search.pending_tickets[source] = None;
-            return Err(TellFailure::Retired(format!(
-                "{error}; regional state was partially updated and its ticket was retired"
-            )));
-        }
         Err(error) => {
             search.states.insert(source, backup);
             return Err(TellFailure::Retryable(error));
         }
     };
-    let backup = state.clone();
+    let pre_sync = backup;
     let state = match state.sync() {
-        Ok((synced, _queued)) => {
-            drop(backup);
-            synced
-        }
+        Ok((synced, _queued)) => synced,
         Err(error) => {
-            let mut doomed = backup;
-            doomed.poisoned = true;
-            search.states.insert(source, doomed);
+            let restored = pre_sync
+                .clone()
+                .cancel_round(&proposal.proposal)
+                .unwrap_or(pre_sync);
+            search.states.insert(source, restored);
             search
                 .ledger
                 .retire(proposal.ticket)
@@ -139,7 +142,7 @@ pub(super) fn complete(
             search.pending_proposals[source] = None;
             search.pending_tickets[source] = None;
             return Err(TellFailure::Retired(format!(
-                "{error}; resident tell was dispatched and must not be retried"
+                "{error}; resident tell failed sync and its ticket was retired"
             )));
         }
     };
@@ -150,9 +153,7 @@ pub(super) fn complete(
         match state.best() {
             Ok(best) => f64::from(best),
             Err(error) => {
-                let mut doomed = state;
-                doomed.poisoned = true;
-                search.states.insert(source, doomed);
+                search.states.insert(source, state);
                 return Err(TellFailure::Retired(format!(
                     "{error}; resident tell completed but ticket must be retired"
                 )));
@@ -181,6 +182,12 @@ pub(super) fn complete(
     }
     search.pending_proposals[source] = None;
     search.pending_tickets[source] = None;
+    if let Some(arc_row) = archive_copy {
+        if search.retained_archive.len() >= 2 * MAX_HISTORY {
+            search.retained_archive.remove(0);
+        }
+        search.retained_archive.push((arc_row, observation));
+    }
     if let Some(stable) = staged {
         for slot in routes {
             search.pending_imports[slot].push(PendingImport {

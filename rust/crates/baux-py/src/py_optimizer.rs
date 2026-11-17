@@ -309,7 +309,19 @@ impl PyBayesOptimizer {
 
     /// Fork an isolated optimizer clone sharing immutable storage.
     fn fork(&self) -> PyResult<Self> {
-        Ok(self.clone())
+        let inner = self
+            .inner
+            .fork()
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        Ok(Self {
+            inner,
+            rng: self.rng.clone(),
+        })
+    }
+
+    /// True when `self` and `other` share identical `Arc`-backed storage.
+    fn shares_storage(&self, other: &Self) -> bool {
+        self.inner.shares_storage(&other.inner)
     }
 
     /// Hex-encoded BLAKE3 digest of the optimizer state.

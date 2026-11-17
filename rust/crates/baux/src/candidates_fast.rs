@@ -106,11 +106,11 @@ fn clamp_box(val: f64, lo: f64, hi: f64) -> f64 {
     if hi > lo { val.clamp(lo, hi) } else { lo }
 }
 
-fn origin_step(
-    row: &mut ArrayViewMut1<f64>,
-    x_center: &ArrayView1<f64>,
-    lower: &Array1<f64>,
-    upper: &Array1<f64>,
+fn origin_slice(
+    row: &mut [f64],
+    x_center: &[f64],
+    lower: &[f64],
+    upper: &[f64],
     dims: &[usize],
     z: &[f64],
 ) -> bool {
@@ -152,14 +152,14 @@ fn origin_step(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn perturb_group<R: Rng + ?Sized>(
-    row: &mut ArrayViewMut1<f64>,
-    x_center: &ArrayView1<f64>,
-    lower: &Array1<f64>,
-    upper: &Array1<f64>,
+pub fn perturb_slice<R: Rng + ?Sized>(
+    row: &mut [f64],
+    x_center: &[f64],
+    lower: &[f64],
+    upper: &[f64],
     dims: &[usize],
     coord_system: CoordSystem,
-    sobol_row: Option<&[f64]>,
+    sobol_val: impl Fn(usize) -> Option<f64>,
     rng: &mut R,
 ) {
     if dims.is_empty() {
@@ -167,14 +167,14 @@ pub fn perturb_group<R: Rng + ?Sized>(
     }
     if coord_system == CoordSystem::Cartesian {
         for &d in dims {
-            let u = sobol_row.map_or_else(|| rng.r#gen::<f64>(), |s| s[d]);
+            let u = sobol_val(d).unwrap_or_else(|| rng.r#gen::<f64>());
             row[d] = clamp_box(lower[d] + u * (upper[d] - lower[d]), lower[d], upper[d]);
         }
         return;
     }
     let mut z: Vec<f64> = dims
         .iter()
-        .map(|&d| draw_normal(sobol_row.map(|s| s[d]), rng))
+        .map(|&d| draw_normal(sobol_val(d), rng))
         .collect();
     let norm = z.iter().map(|v| v * v).sum::<f64>().sqrt();
     if norm > 1e-12 {
@@ -185,7 +185,7 @@ pub fn perturb_group<R: Rng + ?Sized>(
         z[0] = 1.0;
     }
     if coord_system == CoordSystem::OriginSphere
-        && origin_step(row, x_center, lower, upper, dims, &z)
+        && origin_slice(row, x_center, lower, upper, dims, &z)
     {
         return;
     }
@@ -197,6 +197,54 @@ pub fn perturb_group<R: Rng + ?Sized>(
     for (&d, &u) in dims.iter().zip(z.iter()) {
         let half = 0.5 * (upper[d] - lower[d]);
         row[d] = clamp_box(x_center[d] + radial * half * u, lower[d], upper[d]);
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn perturb_group<R: Rng + ?Sized>(
+    row: &mut ArrayViewMut1<f64>,
+    x_center: &ArrayView1<f64>,
+    lower: &Array1<f64>,
+    upper: &Array1<f64>,
+    dims: &[usize],
+    coord_system: CoordSystem,
+    sobol_row: Option<&[f64]>,
+    rng: &mut R,
+) {
+    if let (Some(r_s), Some(c_s), Some(lo_s), Some(hi_s)) = (
+        row.as_slice_mut(),
+        x_center.as_slice(),
+        lower.as_slice(),
+        upper.as_slice(),
+    ) {
+        perturb_slice(
+            r_s,
+            c_s,
+            lo_s,
+            hi_s,
+            dims,
+            coord_system,
+            |d| sobol_row.map(|s| s[d]),
+            rng,
+        );
+        return;
+    }
+    let mut tmp = row.to_vec();
+    let c_vec = x_center.to_vec();
+    let lo_vec = lower.to_vec();
+    let hi_vec = upper.to_vec();
+    perturb_slice(
+        &mut tmp,
+        &c_vec,
+        &lo_vec,
+        &hi_vec,
+        dims,
+        coord_system,
+        |d| sobol_row.map(|s| s[d]),
+        rng,
+    );
+    for (dst, src) in row.iter_mut().zip(tmp.into_iter()) {
+        *dst = src;
     }
 }
 

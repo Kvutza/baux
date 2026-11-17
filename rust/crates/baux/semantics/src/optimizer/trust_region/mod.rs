@@ -1,18 +1,23 @@
-//! Stochastic trust-region step acceptance and TuRBO radius control.
+//! Stochastic trust-region step acceptance, TuRBO radius control, and
+//! defunctionalized round planning.
 
 pub mod controller;
+pub mod plan;
 pub mod pool;
 
-pub const CANDIDATES: usize = 4;
 pub use baux::semantics::neighbor::MAX_HISTORY;
 
 pub use baux::semantics::optimizer::surrogate::{
-    AcquisitionRule, DistanceMetric, FitState, INITIAL_OBSERVATIONS, NeighborValueEstimator,
-    PoolSelection, Surrogate, SurrogateSpec, UncertaintyLaw, ValuePrediction,
+    AcquisitionRule, BetterScore, DEFAULT_BETA, DistanceMetric, FitState, INITIAL_OBSERVATIONS,
+    MetricKind, NeighborValueEstimator, PoolSelection, Posterior, Surrogate, SurrogateSpec, TopK,
+    UncertaintyLaw, ValuePrediction,
 };
 pub use controller::{
-    RadiusAction, RadiusController, StepDecision, TrustRegionController, TurboState, accept_bits,
-    accept_candidate, accept_decision, turbo_adapt, turbo_tolerance,
+    NoTrustState, RadiusAction, RadiusController, StepDecision, TrustRegionController, TurboState,
+    accept_bits, accept_candidate, accept_decision, turbo_adapt, turbo_tolerance,
+};
+pub use plan::{
+    LifecyclePhase, PoolSampler, RegionPlan, RoundPlan, SurrogateMode, WarmupKind, default_pool,
 };
 pub use pool::{PoolShape, arm_seed, candidate_seed, legacy_seed, splitmix64, stream_word};
 

@@ -80,14 +80,11 @@ impl ProceduralPoolConfig {
     }
 
     /// Validate the resident Metal ABI's candidate pool count.
-    /// In direct search / operator BO, count is 1. Multi-candidate ranking is
-    /// supported when configured.
+    /// In direct search / operator BO, count is 1. Arbitrary multi-candidate
+    /// pools (`1..=5000+`, multi-arm `arms >= 1`) are evaluated via tiled
+    /// parallel GPU reduction and selection.
     pub fn resolve_resident(self) -> Result<ProceduralPool, String> {
-        let pool = self.resolve()?;
-        if pool.count == 0 || pool.count > 4 {
-            return Err("resident procedural pool requires 1..=4 candidates".into());
-        }
-        Ok(pool)
+        self.resolve()
     }
 }
 
@@ -269,11 +266,22 @@ mod tests {
             candidates_per_arm: 1,
         };
         assert!(config.resolve_resident().is_err());
-        let oversized = ProceduralPoolConfig {
+        let multi_arm = ProceduralPoolConfig {
             arms: 2,
             candidates_per_arm: 4,
         };
-        assert!(oversized.resolve_resident().is_err());
+        assert_eq!(multi_arm.resolve_resident().unwrap().count(), 8);
+        for (arms, slots) in [(1, 64), (1, 512), (1, 2048), (4, 512), (1, 5000)] {
+            let pool = ProceduralPoolConfig {
+                arms,
+                candidates_per_arm: slots,
+            }
+            .resolve_resident()
+            .unwrap();
+            assert_eq!(pool.arms(), arms);
+            assert_eq!(pool.slots(), slots);
+            assert_eq!(pool.count(), arms * slots);
+        }
     }
 
     #[test]

@@ -1,4 +1,5 @@
-//! Vector-observation adapter for resident regional search.
+//! Vector-observation and per-region acquisition adapter for resident regional
+//! search.
 
 use super::*;
 
@@ -8,7 +9,7 @@ pub(super) fn configure(
 ) -> Result<Vec<SearchState>, String> {
     states
         .into_iter()
-        .zip(acquisitions)
+        .zip(acquisitions.iter().chain(std::iter::repeat(&None)))
         .map(|(state, acquisition)| match acquisition {
             Some(crate::config::AcquisitionSpec::Pareto { scales }) => {
                 state.configure_objectives(Some(crate::config::ObjectivePolicy {
@@ -16,17 +17,34 @@ pub(super) fn configure(
                     scales: scales.clone(),
                 }))
             }
-            None => Ok(state),
-            Some(_) => {
-                Err("resident scalar regional acquisitions belong to each ask configuration".into())
-            }
+            None
+            | Some(crate::config::AcquisitionSpec::Ucb { .. })
+            | Some(crate::config::AcquisitionSpec::Thompson)
+            | Some(crate::config::AcquisitionSpec::Random) => Ok(state),
         })
         .collect()
 }
 
-/// Complete a proposal with independently measured objectives. Pareto
-/// improvement drives allocation while the explicit control estimate drives
-/// trust-region adaptation.
+pub(super) fn region_acquisition(
+    mut config: RoundConfig,
+    spec: Option<&crate::config::AcquisitionSpec>,
+) -> RoundConfig {
+    match spec {
+        Some(crate::config::AcquisitionSpec::Ucb { beta }) => {
+            config.acquisition.kind = AcquisitionKind::Ucb;
+            config.acquisition.beta = *beta as f32;
+        }
+        Some(crate::config::AcquisitionSpec::Thompson) => {
+            config.acquisition.kind = AcquisitionKind::Thompson;
+        }
+        Some(crate::config::AcquisitionSpec::Random) => {
+            config.acquisition.kind = AcquisitionKind::Random;
+        }
+        Some(crate::config::AcquisitionSpec::Pareto { .. }) | None => {}
+    }
+    config
+}
+
 pub fn tell(
     search: RegionalSearch,
     proposal: &RegionalProposal,
@@ -39,7 +57,6 @@ pub fn tell(
     })
 }
 
-/// Import vector evidence without granting proposal or controller credit.
 pub fn import(
     mut search: RegionalSearch,
     slot: usize,

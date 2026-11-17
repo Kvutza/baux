@@ -1,55 +1,57 @@
 //! Backend-neutral optimizer semantics for baux.
 //!
-//! Provides modular optimizer components:
-//! - `surrogate`: local precision-weighted neighbor value estimation
-//!   (`Surrogate` / `NeighborValueEstimator`)
-//! - `trust_region`: stochastic trust-region model agreement and radius control
-//!   (`TrustRegionController`)
+//! Provides modular `#![no_std]`-compatible optimizer primitives and host
+//! adapters:
+//! - `surrogate`: local precision-weighted neighbor value estimation, streaming
+//!   `TopK`, slice LOO, and NaN-safe acquisition rules
+//! - `trust_region`: stochastic step acceptance, TuRBO adaptation, and
+//!   defunctionalized `RoundPlan`
 
 #[cfg(feature = "cuda-host")]
-pub use baux_cuda_device::semantics::optimizer::param_tree;
-#[cfg(not(feature = "cuda-host"))]
-pub mod param_tree;
-pub use param_tree::{ParamFamily, ParamTree};
+pub use baux_cuda_device::semantics::optimizer::{
+    core, param_tree, portfolio, provenance, settings, surrogate, transaction, trust_region,
+};
 
-#[cfg(not(feature = "cuda-device"))]
+#[cfg(not(feature = "cuda-host"))]
 pub mod core {
     pub use super::surrogate::ValuePrediction;
 }
-#[cfg(not(feature = "cuda-device"))]
+#[cfg(not(feature = "cuda-host"))]
+pub mod param_tree;
+#[cfg(not(feature = "cuda-host"))]
 pub mod portfolio;
-#[cfg(not(feature = "cuda-device"))]
+#[cfg(not(feature = "cuda-host"))]
 pub mod provenance;
-#[cfg(not(feature = "cuda-device"))]
+#[cfg(not(feature = "cuda-host"))]
 pub mod settings {
     pub use super::surrogate::SurrogateSpec;
 }
-#[cfg(not(feature = "cuda-device"))]
+#[cfg(not(feature = "cuda-host"))]
 pub mod surrogate;
-#[cfg(not(feature = "cuda-device"))]
+#[cfg(not(feature = "cuda-host"))]
 pub mod transaction;
-#[cfg(not(feature = "cuda-device"))]
+#[cfg(not(feature = "cuda-host"))]
 pub mod trust_region;
 
-#[cfg(not(feature = "cuda-device"))]
+pub use param_tree::{ParamFamily, ParamTree};
 pub use portfolio::{
-    Allocation, AllocationPolicy, RegionBatch, RegionController, RegionId, RegionTicket,
-    RegionalError, RegionalLedger, RestartCenterPolicy, RestartCenterSelection,
-    RestartMemoryPolicy, SharingPolicy, contains_ball, contains_box,
+    Allocation, AllocationPolicy, Portfolio, RegionBatch, RegionController, RegionId,
+    RegionSlotState, RegionTicket, RegionalError, RegionalLedger, RestartCenterPolicy,
+    RestartCenterSelection, RestartMemoryPolicy, SharingPolicy, contains_ball, contains_box,
+    joint_select, maximin_idx, retain_mask,
 };
-#[cfg(not(feature = "cuda-device"))]
 pub use provenance::{ChainedObservation, PairedImprovement, WorldId, WorldMismatchError};
-#[cfg(not(feature = "cuda-device"))]
 pub use surrogate::{
-    AcquisitionRule, Dissimilarity, DistanceMetric, FitState, NeighborValueEstimator,
-    PoolSelection, Surrogate, SurrogateSpec, UncertaintyLaw, ValuePrediction,
+    AcquisitionRule, BetterScore, DEFAULT_BETA, Dissimilarity, DistanceMetric, FitState,
+    MetricKind, NeighborValueEstimator, PoolSelection, Posterior, Surrogate, SurrogateSpec, TopK,
+    UncertaintyLaw, ValuePrediction, loo_point, loo_slice, pareto_dom, scale_prior, score_thompson,
+    score_ucb, select_pareto, select_random, select_topk,
 };
-#[cfg(not(feature = "cuda-device"))]
 pub use transaction::{AskPlan, EvalReceipt, Evaluated, RoundId, TellDecision};
-#[cfg(not(feature = "cuda-device"))]
 pub use trust_region::{
-    CANDIDATES, INITIAL_OBSERVATIONS, MAX_HISTORY, PoolShape, RadiusAction, RadiusController,
-    StepDecision, TrustRegionController, TurboState, accept_bits, accept_candidate,
-    accept_decision, arm_seed, candidate_seed, legacy_seed, splitmix64, stream_word, turbo_adapt,
+    INITIAL_OBSERVATIONS, LifecyclePhase, MAX_HISTORY, NoTrustState, PoolSampler, PoolShape,
+    RadiusAction, RadiusController, RegionPlan, RoundPlan, StepDecision, SurrogateMode,
+    TrustRegionController, TurboState, WarmupKind, accept_bits, accept_candidate, accept_decision,
+    arm_seed, candidate_seed, default_pool, legacy_seed, splitmix64, stream_word, turbo_adapt,
     turbo_tolerance,
 };

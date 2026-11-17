@@ -1,10 +1,12 @@
 //! Parameter fitting for ENN models via subsample log-likelihood.
 
+use std::collections::HashSet;
+
 use ndarray::{Array1, Array2, ArrayView1, ArrayView2, Axis};
-use rand::seq::index::sample;
-use rand::{Rng, RngCore};
+use rand::RngCore;
 
 use crate::error::ENNError;
+use crate::hash::Key;
 use crate::model::ENN;
 use crate::params::ENNParams;
 use crate::posterior::{WeightedPosteriorData, compute_posterior, index_search};
@@ -176,14 +178,43 @@ fn compute_loglik(
     }
 }
 
-/// Subsample model rows for leave-one-out likelihood without full-dataset
-/// views. Numerically invalid predictions receive negative infinity, never a
-/// valid score.
-pub fn subsample_model<R: RngCore + ?Sized>(
+/// Pure `O(p)` uniform subset sampling without replacement driven by
+/// `Key::fold`.
+pub fn sampled_key(n: usize, p: usize, key: Key) -> Vec<usize> {
+    if p == 0 || n == 0 {
+        return Vec::new();
+    }
+    if p >= n {
+        return (0..n).collect();
+    }
+    let mut out = Vec::with_capacity(p);
+    let mut seen = HashSet::with_capacity(p);
+    for j in (n - p)..n {
+        let word = key.fold(j as u64).seed();
+        let pick = ((u128::from(word) * (j as u128 + 1)) >> 64) as usize;
+        let chosen = if seen.insert(pick) {
+            pick
+        } else {
+            seen.insert(j);
+            j
+        };
+        out.push(chosen);
+    }
+    let perm_key = key.fold(0x517C_C1B7_2722_0A95);
+    for i in (1..out.len()).rev() {
+        let word = perm_key.fold(i as u64).seed();
+        let swap = ((u128::from(word) * (i as u128 + 1)) >> 64) as usize;
+        out.swap(i, swap);
+    }
+    out
+}
+
+/// Pure leave-one-out likelihood subsampling over model rows driven by `Key`.
+pub fn model_loglik(
     model: &ENN,
     paramss: &[ENNParams],
     p: usize,
-    rng: &mut R,
+    key: Key,
     y_std: Option<&ArrayView1<f64>>,
 ) -> Result<Vec<f64>, ENNError> {
     let n = model.len();
@@ -195,19 +226,32 @@ pub fn subsample_model<R: RngCore + ?Sized>(
     if n <= 1 {
         return Ok(vec![0.0; paramss.len()]);
     }
-    let indices = sampled_rows(n, p, rng);
+    let indices = sampled_key(n, p, key);
     score_rows(model, &indices, paramss, y_std)
 }
 
-/// Score a subsample of the complete training data in model row order.
-/// Subsets and reordered observations must use `row_loglik` with explicit IDs.
-pub fn subsample_loglik<R: RngCore + ?Sized>(
+/// Subsample model rows for leave-one-out likelihood without full-dataset
+/// views. Numerically invalid predictions receive negative infinity, never a
+/// valid score.
+pub fn subsample_model<R: RngCore + ?Sized>(
+    model: &ENN,
+    paramss: &[ENNParams],
+    p: usize,
+    rng: &mut R,
+    y_std: Option<&ArrayView1<f64>>,
+) -> Result<Vec<f64>, ENNError> {
+    let key = Key::from_pair(rng.next_u64(), rng.next_u64());
+    model_loglik(model, paramss, p, key, y_std)
+}
+
+/// Pure subsample leave-one-out likelihood over complete ordered training data.
+pub fn sample_loglik(
     model: &ENN,
     x: &ArrayView2<f64>,
     y: &ArrayView2<f64>,
     paramss: &[ENNParams],
     p: usize,
-    rng: &mut R,
+    key: Key,
     y_std: Option<&ArrayView1<f64>>,
 ) -> Result<Vec<f64>, ENNError> {
     subsample_inputs(x, y, p, paramss.len())?;
@@ -223,14 +267,13 @@ pub fn subsample_loglik<R: RngCore + ?Sized>(
         return Ok(vec![0.0; paramss.len()]);
     }
 
-    // Check for non-finite y values
     if !y.iter().all(|v| v.is_finite()) {
         return Err(ENNError::InvalidParameter(
             "training targets must be finite".into(),
         ));
     }
 
-    let indices = sampled_rows(n, p, rng);
+    let indices = sampled_key(n, p, key);
 
     let (stored_x, stored_y, _) = model.natural_rows(&indices)?;
     for (i, &id) in indices.iter().enumerate() {
@@ -252,13 +295,28 @@ pub fn subsample_loglik<R: RngCore + ?Sized>(
     score_rows(model, &indices, paramss, Some(&scale.view()))
 }
 
-/// Leave-one-out likelihood for explicit model row IDs, including duplicates.
-pub fn row_loglik<R: RngCore + ?Sized>(
+/// Score a subsample of the complete training data in model row order.
+/// Subsets and reordered observations must use `row_loglik` with explicit IDs.
+pub fn subsample_loglik<R: RngCore + ?Sized>(
+    model: &ENN,
+    x: &ArrayView2<f64>,
+    y: &ArrayView2<f64>,
+    paramss: &[ENNParams],
+    p: usize,
+    rng: &mut R,
+    y_std: Option<&ArrayView1<f64>>,
+) -> Result<Vec<f64>, ENNError> {
+    let key = Key::from_pair(rng.next_u64(), rng.next_u64());
+    sample_loglik(model, x, y, paramss, p, key, y_std)
+}
+
+/// Pure leave-one-out likelihood for explicit model row IDs driven by `Key`.
+pub fn rows_loglik(
     model: &ENN,
     rows: &[usize],
     paramss: &[ENNParams],
     p: usize,
-    rng: &mut R,
+    key: Key,
     y_std: Option<&ArrayView1<f64>>,
 ) -> Result<Vec<f64>, ENNError> {
     if p == 0 || paramss.is_empty() || rows.iter().any(|&id| id >= model.len()) {
@@ -269,12 +327,25 @@ pub fn row_loglik<R: RngCore + ?Sized>(
     let indices = if p >= rows.len() {
         rows.to_vec()
     } else {
-        sample(rng, rows.len(), p)
+        sampled_key(rows.len(), p, key)
             .into_iter()
             .map(|i| rows[i])
             .collect()
     };
     score_rows(model, &indices, paramss, y_std)
+}
+
+/// Leave-one-out likelihood for explicit model row IDs, including duplicates.
+pub fn row_loglik<R: RngCore + ?Sized>(
+    model: &ENN,
+    rows: &[usize],
+    paramss: &[ENNParams],
+    p: usize,
+    rng: &mut R,
+    y_std: Option<&ArrayView1<f64>>,
+) -> Result<Vec<f64>, ENNError> {
+    let key = Key::from_pair(rng.next_u64(), rng.next_u64());
+    rows_loglik(model, rows, paramss, p, key, y_std)
 }
 
 /// Leave-one-out likelihood from an exact pairwise squared-distance matrix.
@@ -331,25 +402,17 @@ fn validate_loglik(
     Ok(())
 }
 
-fn sampled_rows<R: RngCore + ?Sized>(n: usize, p: usize, rng: &mut R) -> Vec<usize> {
-    if p >= n {
-        (0..n).collect()
-    } else {
-        sample(rng, n, p).into_iter().collect()
-    }
-}
-
 fn distance_neighbors(
     distances: &ArrayView2<f64>,
     selected: &[usize],
     max_k: usize,
-) -> Vec<Vec<(f64, usize)>> {
+) -> Vec<Vec<(f64, u32)>> {
     selected
         .iter()
         .map(|&held| {
             let mut row = (0..distances.nrows())
                 .filter(|&candidate| candidate != held)
-                .map(|candidate| (distances[[held, candidate]], candidate))
+                .map(|candidate| (distances[[held, candidate]], candidate as u32))
                 .collect::<Vec<_>>();
             row.sort_by(|left, right| left.0.total_cmp(&right.0).then(left.1.cmp(&right.1)));
             row.truncate(max_k);
@@ -371,52 +434,113 @@ fn output_scale(y: &ArrayView2<f64>, y_std: Option<&ArrayView1<f64>>) -> Array1<
         })
 }
 
-fn distance_targets(y: &ArrayView2<f64>, selected: &[usize]) -> Array2<f64> {
-    Array2::from_shape_fn((selected.len(), y.ncols()), |(row, metric)| {
-        y[[selected[row], metric]]
-    })
-}
-
-struct DistanceScore<'view, 'data> {
-    y: &'view ArrayView2<'data, f64>,
-    yvar: Option<&'view ArrayView2<'data, f64>>,
-    selected: &'view [usize],
-    neighbors: &'view [Vec<(f64, usize)>],
-    scale: &'view ndarray::Array1<f64>,
-    targets_scaled: &'view Array2<f64>,
+struct DistanceScore<'a> {
+    y_cols: Vec<Vec<f64>>,
+    yvar_cols: Option<Vec<Vec<f64>>>,
+    selected: &'a [usize],
+    neighbors: &'a [Vec<(f64, u32)>],
+    scale: &'a Array1<f64>,
     max_k: usize,
 }
 
-impl DistanceScore<'_, '_> {
+impl DistanceScore<'_> {
     fn score(&self, params: &ENNParams) -> Result<f64, ENNError> {
+        use baux::semantics::neighbor::{UncertaintyLaw, query::posterior_topk};
+        use baux::semantics::optimizer::surrogate::loo_point;
+
         let used = (params.k_neighbors as usize).min(self.max_k);
-        let dist2s = Array2::from_shape_fn((self.selected.len(), used), |(row, neighbor)| {
-            self.neighbors[row][neighbor].0
-        });
-        let labels = Array2::from_shape_fn(
-            (self.selected.len() * used, self.y.ncols()),
-            |(flat, metric)| self.y[[self.neighbors[flat / used][flat % used].1, metric]],
-        );
-        let variances = self.yvar.map(|values| {
-            Array2::from_shape_fn(
-                (self.selected.len() * used, self.y.ncols()),
-                |(flat, metric)| values[[self.neighbors[flat / used][flat % used].1, metric]],
-            )
-        });
-        let stats = crate::posterior::compute_impl(
-            &dist2s.view(),
-            &labels.view(),
-            variances.as_ref().map(|values| values.view()),
-            params,
-            true,
-            &self.scale.view(),
-        )?;
-        Ok(compute_loglik(
-            &self.targets_scaled.view(),
-            &(&stats.mu / self.scale).view(),
-            &(&stats.se / self.scale).view(),
-        ))
+        let mut total = 0.0;
+        for (row, &held) in self.selected.iter().enumerate() {
+            let topk = &self.neighbors[row][..used];
+            for (metric, outcomes) in self.y_cols.iter().enumerate() {
+                let vars = self.yvar_cols.as_ref().map(|cols| cols[metric].as_slice());
+                let post = posterior_topk::<{ UncertaintyLaw::InversePrecision }, f64>(
+                    topk,
+                    outcomes,
+                    vars,
+                    params.epistemic_scale,
+                    params.aleatoric_scale,
+                    self.scale[metric],
+                    false,
+                );
+                let ll = loo_point(post.mu, post.se_total, outcomes[held], self.scale[metric]);
+                if !ll.is_finite() {
+                    return Ok(f64::NEG_INFINITY);
+                }
+                total += ll;
+            }
+        }
+        Ok(if total.is_finite() {
+            total
+        } else {
+            f64::NEG_INFINITY
+        })
     }
+}
+
+pub(crate) fn dist_rows(
+    distances: &ArrayView2<f64>,
+    y: &ArrayView2<f64>,
+    yvar: Option<&ArrayView2<f64>>,
+    paramss: &[ENNParams],
+    selected: &[usize],
+    y_std: Option<&ArrayView1<f64>>,
+) -> Result<Vec<f64>, ENNError> {
+    let n = y.nrows();
+    validate_loglik(distances, y, yvar, paramss, selected.len().max(1))?;
+    if n <= 1 || selected.is_empty() {
+        return Ok(vec![0.0; paramss.len()]);
+    }
+    let max_k = paramss
+        .iter()
+        .map(|params| params.k_neighbors as usize)
+        .max()
+        .unwrap()
+        .min(n - 1);
+    let neighbors = distance_neighbors(distances, selected, max_k);
+    let scale = output_scale(y, y_std);
+    if scale.len() != y.ncols() {
+        return Err(ENNError::InvalidParameter(
+            "y_std must match the number of outputs".into(),
+        ));
+    }
+    let y_cols: Vec<Vec<f64>> = (0..y.ncols())
+        .map(|m| (0..n).map(|r| y[[r, m]]).collect())
+        .collect();
+    let yvar_cols: Option<Vec<Vec<f64>>> = yvar.map(|yv| {
+        (0..yv.ncols())
+            .map(|m| (0..n).map(|r| yv[[r, m]]).collect())
+            .collect()
+    });
+    let scorer = DistanceScore {
+        y_cols,
+        yvar_cols,
+        selected,
+        neighbors: &neighbors,
+        scale: &scale,
+        max_k,
+    };
+    paramss.iter().map(|params| scorer.score(params)).collect()
+}
+
+/// Pure leave-one-out likelihood from an exact pairwise squared-distance
+/// matrix.
+pub fn dist_loglik(
+    distances: &ArrayView2<f64>,
+    y: &ArrayView2<f64>,
+    yvar: Option<&ArrayView2<f64>>,
+    paramss: &[ENNParams],
+    p: usize,
+    key: Key,
+    y_std: Option<&ArrayView1<f64>>,
+) -> Result<Vec<f64>, ENNError> {
+    let n = y.nrows();
+    validate_loglik(distances, y, yvar, paramss, p)?;
+    if n <= 1 {
+        return Ok(vec![0.0; paramss.len()]);
+    }
+    let selected = sampled_key(n, p, key);
+    dist_rows(distances, y, yvar, paramss, &selected, y_std)
 }
 
 pub fn distance_loglik<R: RngCore + ?Sized>(
@@ -433,32 +557,8 @@ pub fn distance_loglik<R: RngCore + ?Sized>(
     if n <= 1 {
         return Ok(vec![0.0; paramss.len()]);
     }
-    let selected = sampled_rows(n, p, rng);
-    let max_k = paramss
-        .iter()
-        .map(|params| params.k_neighbors as usize)
-        .max()
-        .unwrap()
-        .min(n - 1);
-    let neighbors = distance_neighbors(distances, &selected, max_k);
-    let scale = output_scale(y, y_std);
-    if scale.len() != y.ncols() {
-        return Err(ENNError::InvalidParameter(
-            "y_std must match the number of outputs".into(),
-        ));
-    }
-    let targets = distance_targets(y, &selected);
-    let targets_scaled = &targets / &scale;
-    let scorer = DistanceScore {
-        y,
-        yvar,
-        selected: &selected,
-        neighbors: &neighbors,
-        scale: &scale,
-        targets_scaled: &targets_scaled,
-        max_k,
-    };
-    paramss.iter().map(|params| scorer.score(params)).collect()
+    let selected = baux::semantics::neighbor::sampled_rows(n, p, rng);
+    dist_rows(distances, y, yvar, paramss, &selected, y_std)
 }
 
 fn loo_neighbors(

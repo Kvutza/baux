@@ -21,7 +21,7 @@ impl SearchState {
     /// radius adaptation. `adapt_region` controls controller work, not
     /// whether weights may commit.
     pub fn tell_absolute(
-        mut self,
+        self,
         round: &Proposals,
         value: f32,
         variance: f32,
@@ -235,6 +235,7 @@ impl SearchState {
             if self.fit_params && self.history >= self.initial_observations {
                 self = self.fit_enn()?;
             }
+            self.refresh_manifold()?;
         } else {
             self.outcomes[slot] = value;
             self.variances[slot] = variance;
@@ -267,6 +268,7 @@ impl SearchState {
             } else {
                 self.history += 1;
             }
+            self.refresh_manifold()?;
         }
         Ok(self)
     }
@@ -285,7 +287,7 @@ impl SearchState {
     ) -> Result<Self, String> {
         if self.has_morbo() {
             self.update_morbo(observation)
-        } else if adapt_region {
+        } else if adapt_region && self.adapt_controller {
             match (trust_incumbent, trust_outcome) {
                 (Some(incumbent), Some(outcome)) => self.update_outcome(value, incumbent, outcome),
                 (Some(incumbent), None) => self.update_noisy(value, incumbent),

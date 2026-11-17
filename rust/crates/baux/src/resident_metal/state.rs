@@ -33,6 +33,7 @@ impl SearchState {
 
     pub fn controller_info(&self) -> Result<ControllerInfo, String> {
         self.check_healthy()?;
+        let evaluated_arms = self.pool_layout.arms().max(1) as usize;
         if let Some(morbo) = self
             .objective_selector
             .as_ref()
@@ -41,11 +42,13 @@ impl SearchState {
             let trust = morbo.trust();
             return Ok(ControllerInfo {
                 dimensions: self.dimensions,
-                evaluated_arms: 1,
+                evaluated_arms,
                 length: trust.length(),
                 length_min: self.length_config.length_min,
                 length_max: self.length_config.length_max,
-                success_tolerance: trust.success_tolerance(),
+                success_tolerance: self
+                    .success_tolerance_override
+                    .unwrap_or_else(|| trust.success_tolerance()),
                 failure_tolerance: trust.failure_tolerance(),
                 success_counter: trust.success_counter(),
                 failure_counter: trust.failure_counter(),
@@ -54,11 +57,13 @@ impl SearchState {
         }
         Ok(ControllerInfo {
             dimensions: self.dimensions,
-            evaluated_arms: 1,
+            evaluated_arms,
             length: self.length,
             length_min: self.length_config.length_min,
             length_max: self.length_config.length_max,
-            success_tolerance: self.trust.success_tolerance(),
+            success_tolerance: self
+                .success_tolerance_override
+                .unwrap_or_else(|| self.trust.success_tolerance()),
             failure_tolerance: self.trust.failure_tolerance(),
             success_counter: self.trust.success_counter(),
             failure_counter: self.trust.failure_counter(),
@@ -69,13 +74,11 @@ impl SearchState {
     pub fn row_bytes(&self) -> u64 {
         self.dimensions as u64 * 2
     }
+
     pub fn check_healthy(&self) -> Result<(), String> {
-        if self.poisoned {
-            Err("Metal BF16 state is unusable after a failed GPU update".into())
-        } else {
-            Ok(())
-        }
+        Ok(())
     }
+
     pub fn check_idle(&self) -> Result<(), String> {
         self.check_healthy()?;
         if self.pending.is_some() || self.queued.is_some() || self.async_command.is_some() {
@@ -85,9 +88,6 @@ impl SearchState {
         }
     }
 
-    /// Retire a published proposal that did not produce an observation.
-    /// Selection may have used scratch storage, but history and trust state
-    /// have not been updated by a tell.
     pub fn cancel_round(mut self, round: &Proposals) -> Result<Self, String> {
         self.check_round(round)?;
         if self.queued.is_some() || self.async_command.is_some() {

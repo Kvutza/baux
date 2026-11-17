@@ -89,6 +89,83 @@ pub fn stein_alpha(signal_sq: f64, noise_var: f64) -> f64 {
     }
 }
 
+/// `#![no_std]` single-row subspace-targeted James-Stein contraction into
+/// caller-owned slices `(mu_out, se_out)`, returning `alpha*`.
+pub fn contract_row<T: super::real::Real>(
+    proj: &[T],
+    dim: usize,
+    mu: &[T],
+    se: &[T],
+    mu_out: &mut [T],
+    se_out: &mut [T],
+) -> T {
+    if dim == 0
+        || proj.len() < dim * dim
+        || mu.len() < dim
+        || se.len() < dim
+        || mu_out.len() < dim
+        || se_out.len() < dim
+    {
+        return T::ONE;
+    }
+    let mut sig_sq = 0.0;
+    let mut noise_var = 0.0;
+    for i in 0..dim {
+        let mut p_i = 0.0;
+        let row = &proj[i * dim..(i + 1) * dim];
+        for j in 0..dim {
+            p_i += row[j].to_val() * mu[j].to_val();
+        }
+        mu_out[i] = T::from_val(p_i);
+        let diff = mu[i].to_val() - p_i;
+        sig_sq += diff * diff;
+        let s = se[i].to_val();
+        noise_var += (1.0 - row[i].to_val()).max(0.0) * s * s;
+    }
+    let alpha = T::from_val(stein_alpha(sig_sq, noise_var));
+    let keep = T::ONE - alpha;
+    for i in 0..dim {
+        let p_i = mu_out[i];
+        mu_out[i] = p_i + alpha * (mu[i] - p_i);
+        let row = &proj[i * dim..(i + 1) * dim];
+        let mut var_i = T::ZERO;
+        for j in 0..dim {
+            let diag = if i == j { alpha } else { T::ZERO };
+            let t_ij = keep * row[j] + diag;
+            let term = t_ij * se[j];
+            var_i += term * term;
+        }
+        se_out[i] = var_i.sqrt();
+    }
+    alpha
+}
+
+/// `#![no_std]` single-row blended Stiefel projection `y * (L^T diag(w_N) L)`
+/// into `out`.
+pub fn blend_row<T: super::real::Real>(
+    proj: &[T],
+    p1: &[T],
+    dim: usize,
+    count: usize,
+    y: &[T],
+    out: &mut [T],
+) {
+    if dim == 0 || proj.len() < dim * dim || p1.len() < dim || y.len() < dim || out.len() < dim {
+        return;
+    }
+    let n = count as f64;
+    let lam = T::from_val(n / (n + PRIOR_PSEUDO));
+    let comp = T::ONE - lam;
+    for m in 0..dim {
+        let mut acc = T::ZERO;
+        for j in 0..dim {
+            let w_j = comp + lam * p1[j];
+            acc += y[j] * w_j * proj[j * dim + m];
+        }
+        out[m] = acc;
+    }
+}
+
 fn stiefel_mgs(factors: &[f64], rows: usize, cols: usize) -> Result<Vec<f64>, String> {
     if rows == 0 || cols == 0 || cols > rows {
         return Err("invalid Stiefel dimensions".to_string());

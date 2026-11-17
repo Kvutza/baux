@@ -58,6 +58,66 @@ pub struct RegionBatch {
 pub enum Allocation {
     LeastTrials,
     IncumbentUcb1 { exploration: f64 },
+    JointAcquisition,
+}
+
+/// `#![no_std]` global `JointAcquisition` selector across eligible active
+/// regions using NaN-safe
+/// [`baux::semantics::optimizer::surrogate::BetterScore`] and `Key::fold`
+/// tie-breaking over [`baux::semantics::real::Real`].
+pub fn joint_select<T: baux::semantics::real::Real>(
+    scores: &[T],
+    regions: &[usize],
+    eligible: &[bool],
+    key: baux::semantics::key::Key,
+    out: &mut [usize],
+) -> usize {
+    use baux::semantics::optimizer::surrogate::BetterScore;
+    let n = scores.len().min(regions.len());
+    let cap = out.len().min(n);
+    if cap == 0 {
+        return 0;
+    }
+    let mut len = 0usize;
+    for idx in 0..n {
+        let reg = regions[idx];
+        if reg >= eligible.len() || !eligible[reg] {
+            continue;
+        }
+        let sc = BetterScore(scores[idx]);
+        let tie = key.fold(idx as u64).seed();
+        let key_curr = (sc, tie, core::cmp::Reverse(idx));
+        if len == cap {
+            let last = out[len - 1];
+            let key_last = (
+                BetterScore(scores[last]),
+                key.fold(last as u64).seed(),
+                core::cmp::Reverse(last),
+            );
+            if key_curr <= key_last {
+                continue;
+            }
+        } else {
+            len += 1;
+        }
+        let mut pos = len - 1;
+        while pos > 0 {
+            let prev = out[pos - 1];
+            let key_prev = (
+                BetterScore(scores[prev]),
+                key.fold(prev as u64).seed(),
+                core::cmp::Reverse(prev),
+            );
+            if key_curr > key_prev {
+                out[pos] = prev;
+                pos -= 1;
+            } else {
+                break;
+            }
+        }
+        out[pos] = idx;
+    }
+    len
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -240,6 +300,7 @@ impl RegionalLedger {
             Allocation::IncumbentUcb1 { exploration } => {
                 self.allocate_ucb(budget, available, utility, exploration)
             }
+            Allocation::JointAcquisition => self.allocate_ucb(budget, available, utility, 0.0),
         }
     }
 

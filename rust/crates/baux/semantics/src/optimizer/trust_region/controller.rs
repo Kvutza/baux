@@ -126,7 +126,7 @@ pub fn turbo_adapt(
 }
 
 #[cfg(not(cabi_parity))]
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TurboState {
     pub length: f64,
     pub initial: f64,
@@ -153,7 +153,53 @@ impl TurboState {
         }
     }
 
-    pub fn step(&mut self, accepted: bool) -> RadiusAction {
+    /// Construct a `TurboState` with TuRBO failure tolerance
+    /// `ceil(max(4 / num_arms, num_dim / num_arms))` unless overridden.
+    pub fn for_dims(
+        num_dim: usize,
+        num_arms: usize,
+        initial: f64,
+        minimum: f64,
+        maximum: f64,
+        failure_override: Option<usize>,
+    ) -> Self {
+        let tol = match failure_override {
+            Some(limit) => limit.max(1),
+            None => turbo_tolerance(num_dim as f64, num_arms) as usize,
+        };
+        Self::new(initial, minimum, maximum, tol)
+    }
+
+    #[inline]
+    pub const fn with_success(mut self, success_limit: usize) -> Self {
+        self.success_limit = if success_limit == 0 { 1 } else { success_limit };
+        self
+    }
+
+    #[inline]
+    pub const fn with_tolerance(mut self, failure_limit: usize) -> Self {
+        self.failure_limit = if failure_limit == 0 { 1 } else { failure_limit };
+        self
+    }
+
+    #[inline]
+    pub fn with_arms(
+        mut self,
+        num_dim: usize,
+        num_arms: usize,
+        failure_override: Option<usize>,
+    ) -> Self {
+        self.failure_limit = match failure_override {
+            Some(limit) => limit.max(1),
+            None => turbo_tolerance(num_dim as f64, num_arms) as usize,
+        };
+        self
+    }
+
+    /// Pure `#![no_std]` value transition returning `(next_state, action,
+    /// restarted)`.
+    #[inline]
+    pub fn next_step(mut self, accepted: bool) -> (Self, RadiusAction, bool) {
         let mut successes = self.successes as i32;
         let mut failures = self.failures as i32;
         let action = turbo_adapt(
@@ -167,12 +213,72 @@ impl TurboState {
         );
         self.successes = successes as usize;
         self.failures = failures as usize;
-        if action == RadiusAction::Shrink && self.length < self.minimum {
+        let restarted = action == RadiusAction::Shrink && self.length < self.minimum;
+        if restarted {
             // TuRBO restart: collapse below minimum resets to initial.
             self.length = self.initial;
             self.successes = 0;
+            self.failures = 0;
         }
+        (self, action, restarted)
+    }
+
+    pub fn step(&mut self, accepted: bool) -> RadiusAction {
+        let (next, action, _) = (*self).next_step(accepted);
+        *self = next;
         action
+    }
+
+    /// Write volume-preserving ARD box bounds `[lo, hi]` around `center` in
+    /// `[0, 1]^D`.
+    #[inline]
+    pub fn box_bounds<T: baux::semantics::real::Real>(
+        self,
+        center: &[T],
+        sides: Option<&[T]>,
+        lo: &mut [T],
+        hi: &mut [T],
+    ) {
+        baux::semantics::neighbor::region_bounds(center, T::from_val(self.length), sides, lo, hi);
+    }
+}
+
+/// Stateless `#![no_std]` global-domain (`NoTrustRegion`) state on `[0, 1]^D`.
+#[cfg(not(cabi_parity))]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct NoTrustState {
+    pub steps: u64,
+    pub successes: u64,
+}
+
+#[cfg(not(cabi_parity))]
+impl NoTrustState {
+    #[inline]
+    pub const fn new() -> Self {
+        Self {
+            steps: 0,
+            successes: 0,
+        }
+    }
+
+    #[inline]
+    pub const fn next_step(self, accepted: bool) -> (Self, RadiusAction) {
+        (
+            Self {
+                steps: self.steps.saturating_add(1),
+                successes: self.successes.saturating_add(accepted as u64),
+            },
+            RadiusAction::Hold,
+        )
+    }
+
+    #[inline]
+    pub fn unit_bounds<T: baux::semantics::real::Real>(lo: &mut [T], hi: &mut [T]) {
+        let d = lo.len().min(hi.len());
+        for j in 0..d {
+            lo[j] = T::ZERO;
+            hi[j] = T::ONE;
+        }
     }
 }
 

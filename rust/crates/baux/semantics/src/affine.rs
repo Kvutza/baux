@@ -79,6 +79,76 @@ fn fit_scale(
     c
 }
 
+/// `#![no_std]` finite-sample split conformal sorted index
+/// `clamp(ceil((len + 1)(1 - alpha)) - 1, 0, len - 1)`.
+#[inline]
+pub fn conformal_rank(len: usize, alpha: f64) -> usize {
+    if len <= 1 {
+        return 0;
+    }
+    let rank = ((len + 1) as f64 * (1.0 - alpha)).ceil() as isize;
+    (rank - 1).clamp(0, (len - 1) as isize) as usize
+}
+
+/// `#![no_std]` in-place split conformal quantile without heap allocation.
+pub fn sort_quantile<T: super::real::Real>(scores: &mut [T], alpha: f64) -> Option<T> {
+    if scores.is_empty()
+        || !alpha.is_finite()
+        || alpha <= 0.0
+        || alpha >= 1.0
+        || scores.iter().any(|s| !s.is_finite())
+    {
+        return None;
+    }
+    scores.sort_unstable_by(T::total_cmp);
+    let idx = conformal_rank(scores.len(), alpha);
+    Some(scores[idx].max(T::ZERO))
+}
+
+/// `#![no_std]` row-major affine mean map `out[r, j] = a[j] + b[j] * mu[r, j]`.
+pub fn map_mean<T: super::real::Real>(
+    a: &[T],
+    b: &[T],
+    mu: &[T],
+    rows: usize,
+    cols: usize,
+    out: &mut [T],
+) {
+    let c_len = cols.min(a.len()).min(b.len());
+    if c_len == 0 || cols == 0 {
+        return;
+    }
+    let r_len = rows.min(mu.len() / cols).min(out.len() / cols);
+    for r in 0..r_len {
+        let base = r * cols;
+        for j in 0..c_len {
+            out[base + j] = a[j] + b[j] * mu[base + j];
+        }
+    }
+}
+
+/// `#![no_std]` row-major affine standard-error map `out[r, j] = c[j] * se[r,
+/// j]`.
+pub fn map_error<T: super::real::Real>(c: &[T], se: &[T], rows: usize, cols: usize, out: &mut [T]) {
+    let c_len = cols.min(c.len());
+    if c_len == 0 || cols == 0 {
+        return;
+    }
+    let r_len = rows.min(se.len() / cols).min(out.len() / cols);
+    for r in 0..r_len {
+        let base = r * cols;
+        for j in 0..c_len {
+            out[base + j] = c[j] * se[base + j];
+        }
+    }
+}
+
+/// `#![no_std]` scalar affine posterior map `(a + b * mu, c * max(se, 0))`.
+#[inline]
+pub fn map_point<T: super::real::Real>(a: T, b: T, c: T, mu: T, se: T) -> (T, T) {
+    (a + b * mu, c * se.max(T::ZERO))
+}
+
 /// Finite-sample split conformal quantile `s_{(ceil((N + 1)(1 - alpha)))}`
 /// clamped to `0..N - 1`.
 #[core::contracts::ensures(|ret: &Result<f64, String>| match ret { Ok(q) => q.is_finite() && *q >= 0.0, Err(_) => true })]

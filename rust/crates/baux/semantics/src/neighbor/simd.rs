@@ -5,9 +5,7 @@ use core::marker::ConstParamTy;
 use core::simd::f64x4;
 use core::simd::num::SimdFloat;
 
-use super::{
-    DistanceMetric, MetricBound, conformal_delta, halfspace_delta, rank_pool, refine_bound,
-};
+use super::{DistanceMetric, MetricBound, Real, rank_pool, refine_bound};
 
 /// Compile-time metric tag for `adt_const_params` specialization.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, ConstParamTy)]
@@ -29,6 +27,54 @@ impl MetricKind {
             DistanceMetric::Wasserstein { .. } => Self::Wasserstein,
         }
     }
+
+    /// Encode this [`MetricKind`] as its shared GPU ABI discriminant.
+    #[inline(always)]
+    pub const fn code(self) -> u32 {
+        match self {
+            Self::Euclidean => 0,
+            Self::Conformal => 1,
+            Self::Hyperbolic => 2,
+            Self::Wasserstein => 3,
+        }
+    }
+
+    /// Decode a GPU ABI discriminant into [`MetricKind`].
+    #[inline(always)]
+    pub const fn from_code(code: u32) -> Self {
+        match code {
+            1 => Self::Conformal,
+            2 => Self::Hyperbolic,
+            3 => Self::Wasserstein,
+            _ => Self::Euclidean,
+        }
+    }
+}
+
+/// Compile-time specialized pairwise dissimilarity delta over [`Real`]
+/// (`scale_a` and `scale_b` are linear `k`-NN radii `sigma = sqrt(d_k^2)`).
+#[inline(always)]
+pub fn eval_metric<const M: MetricKind, T: Real>(sq_dist: T, scale_a: T, scale_b: T) -> T {
+    let d = sq_dist.max(T::ZERO);
+    match M {
+        MetricKind::Euclidean => d,
+        MetricKind::Conformal => {
+            let a = scale_a.max(T::NOISE_FLOOR);
+            let b = scale_b.max(T::NOISE_FLOOR);
+            d / (a * b)
+        }
+        MetricKind::Hyperbolic => {
+            let a = scale_a.max(T::NOISE_FLOOR);
+            let b = scale_b.max(T::NOISE_FLOOR);
+            let diff = a - b;
+            (d + diff * diff) / (T::TWO * a * b)
+        }
+        MetricKind::Wasserstein => {
+            let diff = (scale_a - scale_b).abs();
+            let norm = (scale_a * scale_b).max(T::NOISE_FLOOR).sqrt();
+            d / norm + diff * diff
+        }
+    }
 }
 
 /// Compile-time specialized lower bound on `metric_delta` over omitted points.
@@ -44,10 +90,10 @@ pub fn refine_const<const M: MetricKind>(bound: MetricBound) -> f64 {
     let s_max = bound.s_max.max(s_min);
     match M {
         MetricKind::Euclidean => b64_sq,
-        MetricKind::Conformal => conformal_delta(b64_sq, sq, s_max),
+        MetricKind::Conformal => eval_metric::<{ MetricKind::Conformal }, f64>(b64_sq, sq, s_max),
         MetricKind::Hyperbolic => {
             let s_star = (b64_sq + sq * sq).sqrt().clamp(s_min, s_max);
-            halfspace_delta(b64_sq, sq, s_star)
+            eval_metric::<{ MetricKind::Hyperbolic }, f64>(b64_sq, sq, s_star)
         }
         MetricKind::Wasserstein => {
             let diff = sq - sq.clamp(s_min, s_max);
@@ -151,6 +197,13 @@ pub fn simd_dot(a: &[f64], b: &[f64], w: &[f64]) -> f64 {
         .map(|((&x, &y), &g)| g * x * y)
         .sum();
     acc.reduce_sum() + tail
+}
+
+/// Generic ARD weighted squared Euclidean distance `sum_j w_j * (x_j - y_j)^2`
+/// (`#![no_std]`, uses `f64x4` portable SIMD for `f64` and FMA for `f32`).
+#[inline]
+pub fn ard_dist<T: Real>(x: &[T], y: &[T], weights: &[T]) -> T {
+    T::ard_slice(x, y, weights)
 }
 
 #[cfg(test)]

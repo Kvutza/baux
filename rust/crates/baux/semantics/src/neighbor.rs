@@ -23,14 +23,25 @@
 
 /// Resident observation capacity, shared by host state and device scratch.
 pub const MAX_HISTORY: usize = 128;
+#[cfg(cabi_parity)]
+#[path = "real.rs"]
+pub mod real;
+#[cfg(not(cabi_parity))]
+pub use super::real::Real;
+#[cfg(cabi_parity)]
+pub use real::Real;
+
 #[path = "neighbor/query.rs"]
 pub mod query;
 #[path = "neighbor/simd.rs"]
 pub mod simd;
-pub use simd::{MetricKind, certify_const, refine_const, simd_dot, simd_l2, simd_scaled};
+pub use query::Posterior;
+pub use simd::{
+    MetricKind, ard_dist, certify_const, eval_metric, refine_const, simd_dot, simd_l2, simd_scaled,
+};
 
 /// Posterior variance law for precision-weighted neighbor estimation.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, core::marker::ConstParamTy)]
 pub enum UncertaintyLaw {
     /// Inverse total precision `1 / sum(w_i)` plus precision-weighted
     /// observation noise.
@@ -41,6 +52,177 @@ pub enum UncertaintyLaw {
     BiasVariance,
     /// Pure geometric distance bias `epistemic * sum(w_i * d_i^2) / sum(w_i)`.
     Geometric,
+}
+
+impl UncertaintyLaw {
+    #[inline(always)]
+    pub const fn code(self) -> u32 {
+        match self {
+            Self::InversePrecision => 0,
+            Self::BiasVariance => 1,
+            Self::Geometric => 2,
+        }
+    }
+
+    #[inline(always)]
+    pub const fn from_code(code: u32) -> Self {
+        match code {
+            1 => Self::BiasVariance,
+            2 => Self::Geometric,
+            _ => Self::InversePrecision,
+        }
+    }
+}
+
+/// Zero-allocation `#![no_std]` streaming top-`k` smallest `(distance, index)`
+/// accumulator with deterministic ascending-index tie-breaking over [`Real`].
+#[derive(Clone, Copy, Debug)]
+pub struct TopK<T: Real = f64, const CAP: usize = MAX_HISTORY> {
+    items: [(T, u32); CAP],
+    len: usize,
+    cap: usize,
+}
+
+impl<T: Real, const CAP: usize> Default for TopK<T, CAP> {
+    fn default() -> Self {
+        Self::new(CAP)
+    }
+}
+
+impl<T: Real, const CAP: usize> TopK<T, CAP> {
+    #[inline(always)]
+    pub const fn new(k: usize) -> Self {
+        let cap = if k <= CAP { k } else { CAP };
+        Self {
+            items: [(T::INFINITY, u32::MAX); CAP],
+            len: 0,
+            cap,
+        }
+    }
+
+    #[inline(always)]
+    pub const fn len(&self) -> usize {
+        self.len
+    }
+
+    #[inline(always)]
+    pub const fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
+    #[inline(always)]
+    pub fn as_slice(&self) -> &[(T, u32)] {
+        &self.items[..self.len]
+    }
+
+    #[inline(always)]
+    pub fn cutoff(&self) -> T {
+        if self.len < self.cap || self.cap == 0 {
+            T::INFINITY
+        } else {
+            self.items[self.len - 1].0
+        }
+    }
+
+    /// Insert `(dist, index)` if finite, non-negative, and strictly better than
+    /// the current `k`-th worst entry under `(dist, index)` lexicographic
+    /// order.
+    #[inline]
+    pub fn push(&mut self, dist: T, index: u32) {
+        if self.cap == 0 || !dist.is_finite() || dist < T::ZERO {
+            return;
+        }
+        if self.len == self.cap {
+            let worst = self.items[self.len - 1];
+            if dist > worst.0 || (dist == worst.0 && index >= worst.1) {
+                return;
+            }
+        }
+        let mut pos = if self.len < self.cap {
+            let p = self.len;
+            self.len += 1;
+            p
+        } else {
+            self.len - 1
+        };
+        while pos > 0 {
+            let prev = self.items[pos - 1];
+            if dist < prev.0 || (dist == prev.0 && index < prev.1) {
+                self.items[pos] = prev;
+                pos -= 1;
+            } else {
+                break;
+            }
+        }
+        self.items[pos] = (dist, index);
+    }
+
+    /// Merge another [`TopK`] tile summary into `self`.
+    #[inline]
+    pub fn merge(&mut self, other: &Self) {
+        for &(dist, idx) in other.as_slice() {
+            self.push(dist, idx);
+        }
+    }
+}
+
+/// Convert ARD metric weights `w_j` into geometric-mean-normalized trust-region
+/// side multipliers in `out_sides` (`#![no_std]`, zero allocation).
+pub fn ard_sides<T: Real>(weights: &[T], out_sides: &mut [T]) {
+    let n = weights.len().min(out_sides.len());
+    if n == 0 {
+        return;
+    }
+    let mut sum_inv = T::ZERO;
+    for j in 0..n {
+        let w = if weights[j].is_finite() {
+            weights[j].max(T::VAR_FLOOR)
+        } else {
+            T::ONE
+        };
+        let inv = T::ONE / w;
+        out_sides[j] = inv;
+        sum_inv += inv;
+    }
+    let denom = T::from_idx(n);
+    let mean = sum_inv / denom;
+    if !mean.is_finite() || mean <= T::ZERO {
+        out_sides[..n].fill(T::ONE);
+        return;
+    }
+    let mut log_sum = T::ZERO;
+    for slot in out_sides.iter_mut().take(n) {
+        *slot /= mean;
+        log_sum += slot.max(T::VAR_FLOOR).ln();
+    }
+    let geo = (log_sum / denom).exp();
+    if !geo.is_finite() || geo <= T::ZERO {
+        out_sides[..n].fill(T::ONE);
+        return;
+    }
+    for slot in out_sides.iter_mut().take(n) {
+        *slot /= geo;
+    }
+}
+
+/// Compute clamped unit-cube TuRBO trust-region bounds `[out_lo, out_hi]`
+/// around `center` with scalar `length` and optional anisotropic `sides`
+/// (`#![no_std]`).
+#[inline]
+pub fn region_bounds<T: Real>(
+    center: &[T],
+    length: T,
+    sides: Option<&[T]>,
+    out_lo: &mut [T],
+    out_hi: &mut [T],
+) {
+    let dim = center.len().min(out_lo.len()).min(out_hi.len());
+    for j in 0..dim {
+        let mult = sides.and_then(|s| s.get(j)).copied().unwrap_or(T::ONE);
+        let half = T::HALF * length * mult;
+        out_lo[j] = (center[j] - half).clamp(T::ZERO, T::ONE);
+        out_hi[j] = (center[j] + half).clamp(T::ZERO, T::ONE);
+    }
 }
 
 /// Pairwise local-scale dissimilarity transformation applied to stored and

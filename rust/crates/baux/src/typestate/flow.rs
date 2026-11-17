@@ -153,11 +153,12 @@ where
     }
     let keys = key.split_n(branches);
     let mut items = Vec::with_capacity(branches);
+    let mut opt_slot = Some(opt);
     for (idx, branch_key) in keys.into_iter().enumerate() {
         let branch_opt = if idx + 1 == branches {
-            opt.clone()
+            opt_slot.take().expect("last branch takes owned optimizer")
         } else {
-            opt.clone()
+            opt_slot.as_ref().expect("branch optimizer").clone()
         };
         items.push((idx, branch_opt, branch_key));
     }

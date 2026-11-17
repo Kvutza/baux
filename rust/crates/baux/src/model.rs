@@ -6,6 +6,7 @@
 
 use ndarray::{Array1, Array2, ArrayView2};
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use crate::backend::{EnnBackend, EnnStorage};
 use crate::error::ENNError;
@@ -193,29 +194,30 @@ impl ENN {
             }
         };
 
-        let initial_scale_info = std::sync::Arc::new((std::sync::Arc::from([]), 0, 1.0, 1.0));
+        let initial_scale_info = Arc::new((Arc::from([]), 0, 1.0, 1.0));
+        let shared_x_scale = Arc::new(x_scale);
         let mut model = Self {
             metric: None,
             metric_fixed: false,
-            built_scale: x_scale.clone(),
-            unscaled_dims: Vec::new(),
-            tied_groups: Vec::new(),
+            built_scale: shared_x_scale.clone(),
+            unscaled_dims: Arc::new(Vec::new()),
+            tied_groups: Arc::new(Vec::new()),
             backend,
             num_obs,
             num_dim,
             num_metrics,
             scale_x,
-            x_scale,
-            y_scale,
-            y_bounds,
+            x_scale: shared_x_scale,
+            y_scale: Arc::new(y_scale),
+            y_bounds: Arc::new(y_bounds),
             bounded_outputs,
             stiefel: None,
             affine: None,
-            y_sum,
-            y_sumsq,
-            x_sum,
-            x_sumsq,
-            work_dir: disk_work_dir,
+            y_sum: Arc::new(y_sum),
+            y_sumsq: Arc::new(y_sumsq),
+            x_sum: Arc::new(x_sum),
+            x_sumsq: Arc::new(x_sumsq),
+            work_dir: disk_work_dir.map(Arc::new),
             dist_metric: baux::semantics::neighbor::DistanceMetric::Euclidean,
             scale_info: initial_scale_info.clone(),
             scale_cache: inspection::PureScaleCache(initial_scale_info),
@@ -223,7 +225,10 @@ impl ENN {
         if disk_reopen || model.num_obs != model.backend.len() {
             model = sync_backend(model)?;
         }
-        model.stiefel = model.stiefel.as_ref().map(|s| s.with_count(model.num_obs));
+        model.stiefel = model
+            .stiefel
+            .as_deref()
+            .map(|s| Arc::new(s.with_count(model.num_obs)));
         model.y_metadata()?;
         model = model.refresh_scales();
         Ok(model)
@@ -257,29 +262,32 @@ impl ENN {
             .transpose()?
             .flatten()
             .unwrap_or_else(|| crate::y_bounds::unbounded_bounds(num_metrics));
-        let initial_scale_info = std::sync::Arc::new((std::sync::Arc::from([]), 0, 1.0, 1.0));
+        let initial_scale_info = Arc::new((Arc::from([]), 0, 1.0, 1.0));
+        let unit_x_scale = Arc::new(Array1::ones(num_dim));
+        let zero_x = Arc::new(Array1::zeros(num_dim));
+        let zero_y = Arc::new(Array1::zeros(num_metrics));
         let mut model = Self {
             metric: None,
             metric_fixed: false,
-            built_scale: Array1::ones(num_dim),
-            unscaled_dims: Vec::new(),
-            tied_groups: Vec::new(),
+            built_scale: unit_x_scale.clone(),
+            unscaled_dims: Arc::new(Vec::new()),
+            tied_groups: Arc::new(Vec::new()),
             backend,
             num_obs: 0,
             num_dim,
             num_metrics,
             scale_x: false,
-            x_scale: Array1::ones(num_dim),
-            y_scale: Array1::ones(num_metrics),
+            x_scale: unit_x_scale,
+            y_scale: Arc::new(Array1::ones(num_metrics)),
             bounded_outputs: !crate::y_bounds::identity_bounds(&y_bounds),
-            y_bounds,
+            y_bounds: Arc::new(y_bounds),
             stiefel: None,
             affine: None,
-            y_sum: Array1::zeros(num_metrics),
-            y_sumsq: Array1::zeros(num_metrics),
-            x_sum: Array1::zeros(num_dim),
-            x_sumsq: Array1::zeros(num_dim),
-            work_dir: stored_work_dir,
+            y_sum: zero_y.clone(),
+            y_sumsq: zero_y,
+            x_sum: zero_x.clone(),
+            x_sumsq: zero_x,
+            work_dir: stored_work_dir.map(Arc::new),
             dist_metric: baux::semantics::neighbor::DistanceMetric::Euclidean,
             scale_info: initial_scale_info.clone(),
             scale_cache: inspection::PureScaleCache(initial_scale_info),
@@ -350,21 +358,42 @@ impl ENN {
                 self.backend =
                     self.backend
                         .append_rows(x, &warped_y.view(), warped_yvar_view.as_ref())?;
-                accumulate_columns(&mut self.y_sum, &mut self.y_sumsq, warped_y.view());
+                accumulate_columns(
+                    Arc::make_mut(&mut self.y_sum),
+                    Arc::make_mut(&mut self.y_sumsq),
+                    warped_y.view(),
+                );
             } else {
                 self.backend = self.backend.append_rows(x, y, yvar)?;
-                accumulate_columns(&mut self.y_sum, &mut self.y_sumsq, y.view());
+                accumulate_columns(
+                    Arc::make_mut(&mut self.y_sum),
+                    Arc::make_mut(&mut self.y_sumsq),
+                    y.view(),
+                );
             }
             let n = self.backend.len();
-            self.y_scale = scale_moments(n, self.num_metrics, &self.y_sum, &self.y_sumsq, 0.0);
+            self.y_scale = Arc::new(scale_moments(
+                n,
+                self.num_metrics,
+                &self.y_sum,
+                &self.y_sumsq,
+                0.0,
+            ));
 
             if self.scale_x && !self.metric_fixed {
-                accumulate_columns(&mut self.x_sum, &mut self.x_sumsq, x.view());
+                accumulate_columns(
+                    Arc::make_mut(&mut self.x_sum),
+                    Arc::make_mut(&mut self.x_sumsq),
+                    x.view(),
+                );
                 self = self.refresh_scale(n)?;
             }
 
             self.num_obs = n;
-            self.stiefel = self.stiefel.as_ref().map(|s| s.with_count(self.num_obs));
+            self.stiefel = self
+                .stiefel
+                .as_deref()
+                .map(|s| Arc::new(s.with_count(self.num_obs)));
             self = self.observe_metric(x, y)?;
             self = self.refresh_scales();
         }
@@ -421,7 +450,7 @@ impl ENN {
     }
 
     pub(crate) fn y_metadata(&self) -> Result<(), ENNError> {
-        match self.work_dir.as_ref() {
+        match self.work_dir.as_deref() {
             Some(dir) => crate::y_bounds::persist_metadata(dir, &self.y_bounds),
             None => Ok(()),
         }
@@ -668,29 +697,29 @@ impl ENN {
             model_unscaled.sort_unstable();
             model_unscaled.dedup();
         }
-        let initial_scale_info = std::sync::Arc::new((std::sync::Arc::from([]), 0, 1.0, 1.0));
+        let initial_scale_info = Arc::new((Arc::from([]), 0, 1.0, 1.0));
         let mut model = Self {
             metric,
             metric_fixed,
-            built_scale,
-            unscaled_dims: model_unscaled,
-            tied_groups: tied,
+            built_scale: Arc::new(built_scale),
+            unscaled_dims: Arc::new(model_unscaled),
+            tied_groups: Arc::new(tied),
             backend,
             num_obs: n,
             num_dim,
             num_metrics,
             scale_x,
-            x_scale,
-            y_scale,
-            y_bounds,
+            x_scale: Arc::new(x_scale),
+            y_scale: Arc::new(y_scale),
+            y_bounds: Arc::new(y_bounds),
             bounded_outputs,
             stiefel: None,
             affine: None,
-            y_sum,
-            y_sumsq,
-            x_sum,
-            x_sumsq,
-            work_dir: disk_work_dir,
+            y_sum: Arc::new(y_sum),
+            y_sumsq: Arc::new(y_sumsq),
+            x_sum: Arc::new(x_sum),
+            x_sumsq: Arc::new(x_sumsq),
+            work_dir: disk_work_dir.map(Arc::new),
             dist_metric: geometry,
             scale_info: initial_scale_info.clone(),
             scale_cache: inspection::PureScaleCache(initial_scale_info),
@@ -761,14 +790,21 @@ fn sync_backend(mut model: ENN) -> Result<ENN, ENNError> {
         }
         start = end;
     }
-    model.y_sum = y_sum;
-    model.y_sumsq = y_sumsq;
-    model.y_scale = scale_moments(n, model.num_metrics, &model.y_sum, &model.y_sumsq, 0.0);
+    model.y_sum = Arc::new(y_sum);
+    model.y_sumsq = Arc::new(y_sumsq);
+    model.y_scale = Arc::new(scale_moments(
+        n,
+        model.num_metrics,
+        &model.y_sum,
+        &model.y_sumsq,
+        0.0,
+    ));
     if model.scale_x {
-        model.x_sum = x_sum;
-        model.x_sumsq = x_sumsq;
-        model.x_scale = model.data_scale(n);
-        model.built_scale = model.x_scale.clone();
+        model.x_sum = Arc::new(x_sum);
+        model.x_sumsq = Arc::new(x_sumsq);
+        let shared = Arc::new(model.data_scale(n));
+        model.x_scale = shared.clone();
+        model.built_scale = shared;
     }
     model.backend = model.backend.ensure_sync(model.scale_x, &model.x_scale)?;
     model = model.refresh_scales();
@@ -1005,5 +1041,27 @@ mod tests {
         assert_eq!(p1.mu.shape(), &[1, 2]);
         assert_eq!(p2.mu.shape(), &[1, 2]);
         assert!((p1.mu[[0, 0]] - p2.mu[[0, 0]]).abs() > 1e-6);
+    }
+
+    #[test]
+    fn clone_metric() {
+        let train_x = array![[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [1.0, 1.0]];
+        let train_y = array![[0.0], [1.0], [2.0], [3.0]];
+        let model = ENN::new(train_x, train_y, None, false, IndexDriver::Exact)
+            .unwrap()
+            .enable_key(vec![vec![0, 1]], crate::hash::Key::new(719))
+            .unwrap();
+        assert_eq!(model.diagonal_metric().unwrap().num_seen, 4);
+
+        let forked = model.clone();
+        assert_eq!(forked.diagonal_metric().unwrap().num_seen, 4);
+        assert!(Arc::ptr_eq(&model.x_scale, &forked.x_scale));
+        assert!(Arc::ptr_eq(&model.y_bounds, &forked.y_bounds));
+
+        let next = forked
+            .add(&array![[0.5, 0.5]].view(), &array![[1.5]].view(), None)
+            .unwrap();
+        assert_eq!(model.diagonal_metric().unwrap().num_seen, 4);
+        assert_eq!(next.diagonal_metric().unwrap().num_seen, 5);
     }
 }

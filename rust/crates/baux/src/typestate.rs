@@ -2,6 +2,7 @@
 
 use core::marker::PhantomData;
 use std::borrow::Cow;
+use std::sync::Arc;
 
 use ndarray::{Array1, Array2, ArrayView2};
 use rand::RngCore;
@@ -10,8 +11,9 @@ use crate::error::ENNError;
 use crate::model::ENN;
 use crate::optimizer::BayesOptimizer;
 use crate::params::ENNParams;
+pub use crate::scratch::ImLog;
 use crate::sense::{BetterScore, Maximize, ObjectiveSense};
-use crate::surrogate::{ENNSurrogate, ENNSurrogateConfig, Surrogate, SurrogatePrediction};
+use crate::surrogate::{ENNSurrogate, ENNSurrogateConfig, SurrogatePrediction};
 use crate::surrogate_api::{ObservationView, Predictor};
 pub use crate::ticket::ProposalTicket;
 
@@ -23,10 +25,11 @@ pub use flow::{Pending, Ready, StepTrace, pmap_branches, scan_step};
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Unfitted;
 
-/// Typestate payload for a fitted ENN surrogate model.
+/// Typestate payload for a fitted ENN surrogate model with $O(1)$ `Arc`
+/// sharing.
 #[derive(Clone)]
 pub struct Fitted {
-    inner: ENNSurrogate,
+    inner: Arc<ENNSurrogate>,
 }
 
 /// Compile-time typestate ENN surrogate preventing `predict` before `fit`.
@@ -35,14 +38,14 @@ pub struct Fitted {
 )]
 #[derive(Clone)]
 pub struct TypedSurrogate<State = Unfitted> {
-    config: ENNSurrogateConfig,
+    config: Arc<ENNSurrogateConfig>,
     state: State,
 }
 
 impl TypedSurrogate<Unfitted> {
     pub fn new(config: ENNSurrogateConfig) -> Self {
         Self {
-            config,
+            config: Arc::new(config),
             state: Unfitted,
         }
     }
@@ -56,11 +59,13 @@ impl TypedSurrogate<Unfitted> {
         yvar: Option<&ArrayView2<f64>>,
         rng: &mut dyn RngCore,
     ) -> Result<TypedSurrogate<Fitted>, ENNError> {
-        let inner = ENNSurrogate::new(self.config.clone());
+        let inner = ENNSurrogate::new((*self.config).clone());
         let inner = inner.fit(x, y, yvar, rng)?;
         Ok(TypedSurrogate {
             config: self.config,
-            state: Fitted { inner },
+            state: Fitted {
+                inner: Arc::new(inner),
+            },
         })
     }
 }
@@ -88,7 +93,8 @@ impl TypedSurrogate<Fitted> {
     }
 
     /// Append new observations to the fitted surrogate, returning the updated
-    /// fitted surrogate with pure value semantics (consumed `self`).
+    /// fitted surrogate with pure value semantics (consumed `self` and FBIP
+    /// in-place mutation when uniquely owned).
     pub fn append(
         mut self,
         x_new: &ArrayView2<f64>,
@@ -96,7 +102,8 @@ impl TypedSurrogate<Fitted> {
         yvar_new: Option<&ArrayView2<f64>>,
         rng: &mut dyn RngCore,
     ) -> Result<Self, ENNError> {
-        self.state.inner = self.state.inner.fit_append(x_new, y_new, yvar_new, rng)?;
+        let inner = Arc::try_unwrap(self.state.inner).unwrap_or_else(|arc| (*arc).clone());
+        self.state.inner = Arc::new(inner.fit_append(x_new, y_new, yvar_new, rng)?);
         Ok(self)
     }
 }

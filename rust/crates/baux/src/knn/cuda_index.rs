@@ -484,6 +484,48 @@ impl CudaIndex {
         Ok(self)
     }
 
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn propose_fenced(
+        &self,
+        plan: &baux::semantics::optimizer::trust_region::RoundPlan,
+        center: &[f32],
+        outcomes: &[f32],
+        variances: Option<&[f32]>,
+        metrics: usize,
+        incumbent: usize,
+        mods: Option<&baux_cuda::PoolModifiers>,
+    ) -> Result<baux_cuda::FencedProposal, IndexError> {
+        let mut scratch = self.inner.new_scratch().map_err(index_error)?;
+        self.inner
+            .propose_fenced(
+                &mut scratch,
+                plan,
+                center,
+                outcomes,
+                variances,
+                metrics,
+                incumbent,
+                mods,
+            )
+            .map_err(index_error)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn propose_pool(
+        &self,
+        plan: &baux::semantics::optimizer::trust_region::RoundPlan,
+        center: &[f32],
+        outcomes: &[f32],
+        variances: Option<&[f32]>,
+        metrics: usize,
+        incumbent: usize,
+        mods: Option<&baux_cuda::PoolModifiers>,
+    ) -> Result<baux_cuda::ProposalHost, IndexError> {
+        let fenced =
+            self.propose_fenced(plan, center, outcomes, variances, metrics, incumbent, mods)?;
+        fenced.materialize(mods).map_err(index_error)
+    }
+
     pub(crate) fn profile(&self) -> Option<KnnProfile> {
         self.inner.profile().map(|profile| KnnProfile {
             rows: profile.rows,

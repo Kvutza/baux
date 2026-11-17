@@ -6,7 +6,32 @@ use thiserror::Error;
 #[deser(rename_all = "kebab-case")]
 pub enum Rescalarize {
     OnRestart,
+    #[deser(alias = "every-step")]
     OnPropose,
+}
+
+impl Rescalarize {
+    /// Alias matching multi-objective per-step rescalarization terminology.
+    #[allow(non_upper_case_globals)]
+    pub const EveryStep: Self = Self::OnPropose;
+
+    /// Convert to `#![no_std]` [`baux::semantics::morbo::RescalarizeMode`].
+    #[inline(always)]
+    pub const fn to_mode(self) -> baux::semantics::morbo::RescalarizeMode {
+        match self {
+            Self::OnRestart => baux::semantics::morbo::RescalarizeMode::OnRestart,
+            Self::OnPropose => baux::semantics::morbo::RescalarizeMode::OnPropose,
+        }
+    }
+
+    /// Convert from `#![no_std]` [`baux::semantics::morbo::RescalarizeMode`].
+    #[inline(always)]
+    pub const fn from_mode(mode: baux::semantics::morbo::RescalarizeMode) -> Self {
+        match mode {
+            baux::semantics::morbo::RescalarizeMode::OnRestart => Self::OnRestart,
+            baux::semantics::morbo::RescalarizeMode::OnPropose => Self::OnPropose,
+        }
+    }
 }
 
 impl std::str::FromStr for Rescalarize {
@@ -14,8 +39,8 @@ impl std::str::FromStr for Rescalarize {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "on-restart" => Ok(Self::OnRestart),
-            "on-propose" => Ok(Self::OnPropose),
+            "on-restart" | "on_restart" => Ok(Self::OnRestart),
+            "on-propose" | "on_propose" | "every-step" | "every_step" => Ok(Self::OnPropose),
             _ => Err(()),
         }
     }
@@ -131,29 +156,57 @@ impl TRLengthConfig {
 /// Null trust region (no trust region management).
 ///
 /// Always returns full bounds [0, 1]^d and never needs restart.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct NoTrustRegion {
     num_dim: usize,
 }
 
 impl NoTrustRegion {
     /// Create a new NoTrustRegion.
-    pub fn new(num_dim: usize) -> Self {
+    pub const fn new(num_dim: usize) -> Self {
         Self { num_dim }
     }
 
+    /// Ambient coordinate dimension.
+    #[inline(always)]
+    pub const fn num_dim(&self) -> usize {
+        self.num_dim
+    }
+
     /// Get current length (always 1.0).
-    pub fn length(&self) -> f64 {
+    #[inline(always)]
+    pub const fn length(&self) -> f64 {
         1.0
     }
 
     /// Check if restart is needed (always false).
-    pub fn needs_restart(&self) -> bool {
+    #[inline(always)]
+    pub const fn needs_restart(&self) -> bool {
         false
     }
 
-    /// Update (no-op).
-    pub fn update(&mut self, _y_new: &ArrayView1<f64>, _num_obs: usize) {}
+    /// Zero-allocation per-coordinate unit interval `[0.0, 1.0]`.
+    #[inline(always)]
+    pub const fn bound_dim(&self) -> (f64, f64) {
+        (0.0, 1.0)
+    }
+
+    /// Pure consumed-`self` observation update (identity transition).
+    #[inline(always)]
+    pub const fn updated(self, _y_new: &ArrayView1<f64>, _num_obs: usize) -> Self {
+        self
+    }
+
+    /// Pure consumed-`self` restart transition (identity transition).
+    #[inline(always)]
+    pub const fn restarted(self) -> Self {
+        self
+    }
+
+    /// Update (no-op adapter delegating to [`Self::updated`]).
+    pub fn update(&mut self, y_new: &ArrayView1<f64>, num_obs: usize) {
+        *self = self.updated(y_new, num_obs);
+    }
 
     /// Compute trust region bounds (always returns [0, 1]^d).
     pub fn compute_bounds(
@@ -166,6 +219,8 @@ impl NoTrustRegion {
         (lb, ub)
     }
 
-    /// Restart (no-op).
-    pub fn restart(&mut self) {}
+    /// Restart (no-op adapter delegating to [`Self::restarted`]).
+    pub fn restart(&mut self) {
+        *self = self.restarted();
+    }
 }

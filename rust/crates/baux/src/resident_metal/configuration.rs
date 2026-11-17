@@ -1,32 +1,21 @@
 //! Establish the resident optimizer's policies before observations and asks.
-//!
-//! Normal setup is `configure_enn`, optional `configure_controller`, then
-//! `observe_initial`. Proposal program, noise sampler, history storage,
-//! fitting, and radius control are separate choices. Unsupported combinations
-//! are errors, not requests for a silent fallback to another optimizer.
-//!
-//! `latent_history` changes retained geometry/storage, not the number of model
-//! parameters being optimized. Full rows/replay scratch are released in that
-//! mode; supported FP16 innovation programs additionally retain sampled
-//! parameter rows for neighbor distances. These samples are not full models.
 
 use super::*;
 use crate::params::ENNParams;
 
 impl SearchState {
-    /// Supply the initial scalar incumbent reward and estimate variance.
-    /// Higher reward is better; pretraining passes negative mean NLL. Delegates
-    /// initial-history/controller bookkeeping to `observe_objectives`; this
-    /// method neither evaluates weights nor generates a proposal.
     pub fn observe_initial(self, value: f32, variance: f32) -> Result<Self, String> {
         self.observe_objectives(
             crate::objective_observation::ObjectiveObservation::scalar_adapter(value, variance),
         )
     }
 
-    /// Set failure tolerance while idle and before any published ask.
-    /// Updates the ordinary trust-region controller and any configured MORBO
-    /// controller; it does not set reliability evidence thresholds or a radius.
+    /// Compute Host-aligned TuRBO failure tolerance `ceil(max(4/arms,
+    /// D/arms))`.
+    pub fn failure_tolerance(dimensions: usize, arms: usize) -> usize {
+        baux::semantics::optimizer::turbo_tolerance(dimensions.max(1) as f64, arms.max(1)) as usize
+    }
+
     pub fn set_tolerance(mut self, failures: usize) -> Result<Self, String> {
         self.check_idle()?;
         if self.started {
@@ -45,16 +34,25 @@ impl SearchState {
         Ok(self)
     }
 
-    /// Install proposal, history, fitting, and query-neighbor policies.
-    /// Requires idle implicit history with no observations and a valid ask.
-    /// Sets warm-up count to configured k, prepares the fitter, and compiles
-    /// the pool. Latent mode releases full history storage; compatible FP16
-    /// Gaussian and Rademacher programs then allocate sampled parameter
-    /// geometry. Pair rotation and threshold programs have explicit
-    /// compatibility guards. Fitting variance scales and query-local
-    /// neighbor adaptation are separate flags. Configuration can
-    /// allocate/compile and is not rollback-atomic on failure; do not reuse
-    /// a partially configured state after an error.
+    pub fn set_successes(mut self, successes: usize) -> Result<Self, String> {
+        self.check_idle()?;
+        if self.started {
+            return Err("Set Metal BF16 success tolerance before any asks".into());
+        }
+        let s = i32::try_from(successes)
+            .ok()
+            .filter(|&v| v > 0)
+            .ok_or("success tolerance must be in 1..=i32::MAX")?;
+        self.success_tolerance_override = Some(s);
+        Ok(self)
+    }
+
+    pub fn fix_radius(mut self, fixed: bool) -> Result<Self, String> {
+        self.check_idle()?;
+        self.adapt_controller = !fixed;
+        Ok(self)
+    }
+
     pub fn configure_enn(
         mut self,
         config: crate::config::ResidentEnnConfig,
@@ -94,14 +92,10 @@ impl SearchState {
         Ok(self)
     }
 
-    /// Last fitted `(k, epistemic_scale, aleatoric_scale, y_scale)`, if
-    /// available. Reading this telemetry does not fit parameters or select
-    /// a local k.
     pub fn fitted_enn(&self) -> Option<(usize, f32, f32, f32)> {
         self.fitted_enn
     }
 
-    /// Current count of recorded history slots.
     pub fn history(&self) -> usize {
         self.history
     }

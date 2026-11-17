@@ -7,15 +7,24 @@ pub struct PoolShape {
 }
 
 impl PoolShape {
-    pub fn new(arms: usize, count: usize) -> Result<Self, String> {
-        if arms == 0 || count == 0 || count % arms != 0 {
-            return Err("candidate pool count must be positive and divisible by arms".into());
+    #[inline]
+    pub const fn checked(arms: usize, count: usize) -> Result<Self, &'static str> {
+        if arms == 0 || count == 0 || !count.is_multiple_of(arms) {
+            return Err("candidate pool count must be positive and divisible by arms");
         }
         Ok(Self { arms, count })
     }
 
+    pub fn new(arms: usize, count: usize) -> Result<Self, String> {
+        Self::checked(arms, count).map_err(Into::into)
+    }
+
     pub const fn legacy() -> Self {
         Self { arms: 1, count: 4 }
+    }
+
+    pub const fn arms(self) -> usize {
+        self.arms
     }
 
     pub const fn count(self) -> usize {

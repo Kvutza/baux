@@ -1,11 +1,14 @@
 //! Issue regional proposals while respecting per-slot capacity.
 
+use baux::semantics::key::Key;
 use rand::RngCore;
+use rand::seq::SliceRandom;
 
-use super::super::selection::{CandidateSegment, select_indices, select_joint, select_segment};
+use super::super::selection::{CandidateSegment, pool_region, pool_scores};
 use super::*;
-use crate::candidates::perturb_candidates;
+use crate::candidates::{SobolStep, build_pool};
 use crate::optimizer::multi_tr::MultiTrustRegionState;
+use crate::posterior::{RemappedPool, materialize_selected};
 
 fn restart_slot(
     multi_tr: &mut MultiTrustRegionState,
@@ -32,18 +35,26 @@ pub(super) fn restart_inactive(
     Ok(())
 }
 
-fn build_segments(
+struct RegionSpec {
+    region: usize,
+    arms: usize,
+    num_candidates: usize,
+    key: Key,
+    sobol: Option<SobolStep>,
+    center: Array1<f64>,
+    lower: Array1<f64>,
+    upper: Array1<f64>,
+}
+
+fn collect_specs(
     optimizer: &mut BayesOptimizer,
     batches: Vec<crate::optimizer::RegionBatch>,
     ls_ref: Option<ArrayView1<f64>>,
     rng: &mut dyn RngCore,
-) -> Result<(Vec<Array2<f64>>, Vec<CandidateSegment>), ENNError> {
+) -> Result<(Vec<RegionSpec>, Option<Array2<f64>>), ENNError> {
     let num_dim = optimizer.num_dim();
     let config = optimizer.proposals.config().clone();
-    let mut blocks = Vec::with_capacity(batches.len());
-    let mut segments = Vec::with_capacity(batches.len());
-    let mut offset = 0;
-    let pending_points = match &optimizer.regions {
+    let pending_points = match optimizer.regions.as_ref() {
         TrustRegionState::Multi {
             pending: Some(proposal),
             ..
@@ -61,8 +72,9 @@ fn build_segments(
         _ => None,
     };
 
+    let mut specs = Vec::with_capacity(batches.len());
     for batch in batches {
-        let (x_center, (lower_1d, upper_1d)) = match &optimizer.regions {
+        let (center, (lower, upper)) = match optimizer.regions.as_ref() {
             TrustRegionState::Multi { state, .. } => (
                 state.centers.row(batch.region).to_owned(),
                 state.compute_bounds(batch.region, ls_ref.as_ref()),
@@ -71,38 +83,170 @@ fn build_segments(
         };
         let num_candidates = config.num_candidates(num_dim, batch.len);
         optimizer.telemetry.num_candidates += num_candidates;
-
-        let generated = perturb_candidates(
-            &x_center.view(),
-            &lower_1d,
-            &upper_1d,
+        let key = Key::new(rng.next_u64());
+        let sobol = optimizer.proposals.advance_sobol(num_candidates)?;
+        specs.push(RegionSpec {
+            region: batch.region,
+            arms: batch.len,
             num_candidates,
+            key,
+            sobol,
+            center,
+            lower,
+            upper,
+        });
+    }
+    Ok((specs, pending_points))
+}
+
+fn select_regions(
+    optimizer: &BayesOptimizer,
+    specs: &[RegionSpec],
+    pending_points: Option<&Array2<f64>>,
+    rng: &mut dyn RngCore,
+) -> Result<(Array2<f64>, Vec<CandidateSegment>), ENNError> {
+    let TrustRegionState::Multi { state, .. } = optimizer.regions.as_ref() else {
+        unreachable!("select_regions requires TrustRegionState::Multi");
+    };
+    let config = optimizer.proposals.config();
+    let mut blocks = Vec::with_capacity(specs.len());
+    let mut segments = Vec::with_capacity(specs.len());
+    let mut offset = 0usize;
+
+    for spec in specs {
+        let pool = build_pool(
+            spec.key,
+            spec.center.as_slice().expect("center contiguous"),
+            spec.lower.as_slice().expect("lower contiguous"),
+            spec.upper.as_slice().expect("upper contiguous"),
+            spec.num_candidates,
             config.candidate_rv,
             config.coord_system,
             &config.tied_dims,
             false,
-            config.raasp_fast,
-            rng,
-            optimizer.proposals.sobol_mut(),
             config.num_pert,
+            spec.sobol.as_ref(),
         )?;
-        let x_cand = match pending_points.as_ref() {
-            Some(points) => exclude_pending(generated, points, batch.len)?,
-            None => generated,
+        let selected = match pending_points {
+            Some(points) => {
+                let remapped = RemappedPool::exclude_pending(&pool, points, spec.arms)?;
+                pool_region(optimizer, state, spec.region, &remapped, spec.arms, rng)?
+            }
+            None => pool_region(optimizer, state, spec.region, &pool, spec.arms, rng)?,
         };
-        let end = offset + x_cand.nrows();
+        let end = offset + selected.nrows();
         segments.push(CandidateSegment {
             start: offset,
             end,
-            arms: batch.len,
-            region: batch.region,
+            arms: selected.nrows(),
+            region: spec.region,
         });
         offset = end;
-        blocks.push(x_cand);
+        blocks.push(selected);
     }
-    Ok((blocks, segments))
+
+    let views = blocks.iter().map(|b| b.view()).collect::<Vec<_>>();
+    let combined = ndarray::concatenate(Axis(0), &views)
+        .map_err(|error| ENNError::InvalidParameter(error.to_string()))?;
+    Ok((combined, segments))
 }
 
+fn joint_regions(
+    optimizer: &BayesOptimizer,
+    specs: &[RegionSpec],
+    pending_points: Option<&Array2<f64>>,
+    num_arms: usize,
+    rng: &mut dyn RngCore,
+) -> Result<(Array2<f64>, Vec<CandidateSegment>), ENNError> {
+    let TrustRegionState::Multi { state, .. } = optimizer.regions.as_ref() else {
+        unreachable!("joint_regions requires TrustRegionState::Multi");
+    };
+    let config = optimizer.proposals.config();
+    let mut scored = Vec::new();
+
+    for (spec_idx, spec) in specs.iter().enumerate() {
+        let pool = build_pool(
+            spec.key,
+            spec.center.as_slice().expect("center contiguous"),
+            spec.lower.as_slice().expect("lower contiguous"),
+            spec.upper.as_slice().expect("upper contiguous"),
+            spec.num_candidates,
+            config.candidate_rv,
+            config.coord_system,
+            &config.tied_dims,
+            false,
+            config.num_pert,
+            spec.sobol.as_ref(),
+        )?;
+        let scores = match pending_points {
+            Some(points) => {
+                let remapped = RemappedPool::exclude_pending(&pool, points, spec.arms)?;
+                pool_scores(optimizer, state, spec.region, &remapped, rng)?
+            }
+            None => pool_scores(optimizer, state, spec.region, &pool, rng)?,
+        };
+        for (cand, score) in scores.into_iter().enumerate() {
+            scored.push((score, spec_idx, cand));
+        }
+    }
+
+    scored.shuffle(rng);
+    scored.sort_by(|left, right| {
+        use baux::semantics::optimizer::surrogate::BetterScore;
+        BetterScore(right.0).cmp(&BetterScore(left.0))
+    });
+    let chosen = &scored[..num_arms.min(scored.len())];
+
+    let mut blocks = Vec::new();
+    let mut winners = Vec::new();
+    let mut offset = 0usize;
+    for (spec_idx, spec) in specs.iter().enumerate() {
+        let group: Vec<usize> = chosen
+            .iter()
+            .filter(|&&(_, idx, _)| idx == spec_idx)
+            .map(|&(_, _, cand)| cand)
+            .collect();
+        if group.is_empty() {
+            continue;
+        }
+        let pool = build_pool(
+            spec.key,
+            spec.center.as_slice().expect("center contiguous"),
+            spec.lower.as_slice().expect("lower contiguous"),
+            spec.upper.as_slice().expect("upper contiguous"),
+            spec.num_candidates,
+            config.candidate_rv,
+            config.coord_system,
+            &config.tied_dims,
+            false,
+            config.num_pert,
+            spec.sobol.as_ref(),
+        )?;
+        let block = match pending_points {
+            Some(points) => {
+                let remapped = RemappedPool::exclude_pending(&pool, points, spec.arms)?;
+                materialize_selected(&remapped, &group)
+            }
+            None => materialize_selected(&pool, &group),
+        };
+        let end = offset + block.nrows();
+        winners.push(CandidateSegment {
+            start: offset,
+            end,
+            arms: block.nrows(),
+            region: spec.region,
+        });
+        offset = end;
+        blocks.push(block);
+    }
+
+    let views = blocks.iter().map(|b| b.view()).collect::<Vec<_>>();
+    let combined = ndarray::concatenate(Axis(0), &views)
+        .map_err(|error| ENNError::InvalidParameter(error.to_string()))?;
+    Ok((combined, winners))
+}
+
+#[cfg(test)]
 fn exclude_pending(
     candidates: Array2<f64>,
     pending: &Array2<f64>,
@@ -221,7 +365,7 @@ fn ask_warmup(
     rng: &mut dyn RngCore,
 ) -> Result<(BayesOptimizer, Option<Array2<f64>>), ENNError> {
     if matches!(
-        &optimizer.regions,
+        optimizer.regions.as_ref(),
         TrustRegionState::Multi {
             pending: Some(PendingProposal { arms: None, .. }),
             ..
@@ -237,7 +381,7 @@ fn ask_warmup(
     let state = InitStrategyState::new(optimizer.warmup.kind, optimizer.warmup.budget);
     let (optimizer, x) = ask_init(&state, optimizer, num_arms, rng)?;
     let (mut optimizer, ids) = optimizer.issue_ids(x.nrows())?;
-    if let TrustRegionState::Multi { pending, .. } = &mut optimizer.regions {
+    if let TrustRegionState::Multi { pending, .. } = optimizer.trust_mut() {
         *pending = Some(PendingProposal {
             outcomes: vec![EvaluationStatus::Pending; x.nrows()],
             ids,
@@ -256,7 +400,7 @@ fn record_proposal(
 ) -> Result<BayesOptimizer, ENNError> {
     let (mut optimizer, ids) =
         optimizer.issue_ids(segments.iter().map(|segment| segment.arms).sum())?;
-    let TrustRegionState::Multi { state, pending } = &mut optimizer.regions else {
+    let TrustRegionState::Multi { state, pending } = optimizer.trust_mut() else {
         unreachable!("ask_multi requires TrustRegionState::Multi");
     };
     let mut tickets = Vec::with_capacity(segments.len());
@@ -319,55 +463,42 @@ pub(in crate::strategy) fn ask_multi(
         return Ok((optimizer, x));
     }
 
-    let batches = match &mut optimizer.regions {
+    let batches = match optimizer.trust_mut() {
         TrustRegionState::Multi { state, .. } => allocate_idle(state, num_arms, rng)?,
         _ => unreachable!("ask_multi requires TrustRegionState::Multi"),
     };
 
     if let Some(models) = optimizer.local_models.take() {
-        let TrustRegionState::Multi { state, .. } = &optimizer.regions else {
+        let TrustRegionState::Multi { state, .. } = optimizer.regions.as_ref() else {
             unreachable!("ask_multi requires TrustRegionState::Multi");
         };
-        match models.sync(state, rng) {
-            Ok(updated) => {
-                optimizer.local_models = Some(updated);
-            }
-            Err(error) => {
-                optimizer.ingestion_error = Some(error.to_string());
-                return Err(error);
-            }
-        }
+        optimizer.local_models = Some(models.sync(state, rng)?);
     }
 
     let lengthscales = optimizer.surrogate().and_then(|s| s.lengthscales());
     let ls_ref: Option<ArrayView1<f64>> = lengthscales.as_ref().map(|ls| ls.view());
     optimizer.telemetry.num_candidates = 0;
     optimizer.telemetry.dt_sel = 0.0;
-    let (blocks, segments) = build_segments(&mut optimizer, batches, ls_ref, rng)?;
+    let (specs, pending_points) = collect_specs(&mut optimizer, batches, ls_ref, rng)?;
 
-    if blocks.is_empty() {
+    if specs.is_empty() {
         return Err(ENNError::InvalidParameter(
             "experimental strategy produced no candidates".to_string(),
         ));
     }
 
-    let views = blocks.iter().map(|b| b.view()).collect::<Vec<_>>();
-    let candidates = ndarray::concatenate(Axis(0), &views)
-        .map_err(|error| ENNError::InvalidParameter(error.to_string()))?;
     let is_joint = matches!(
-        &optimizer.regions,
+        optimizer.regions.as_ref(),
         TrustRegionState::Multi { state, .. }
             if state.allocation_policy() == crate::optimizer::AllocationPolicy::JointAcquisition
     );
     let start = std::time::Instant::now();
-    let (indices, segments) = if is_joint {
-        select_joint(&optimizer, &candidates.view(), &segments, num_arms, rng)?
+    let (selected, segments) = if is_joint {
+        joint_regions(&optimizer, &specs, pending_points.as_ref(), num_arms, rng)?
     } else {
-        let indices = select_segment(&optimizer, &candidates.view(), &segments, rng)?;
-        (indices, segments)
+        select_regions(&optimizer, &specs, pending_points.as_ref(), rng)?
     };
     optimizer.telemetry.dt_sel += start.elapsed().as_secs_f64();
-    let selected = select_indices(&candidates.view(), &indices);
 
     optimizer = record_proposal(optimizer, &segments, &selected)?;
     Ok((optimizer, selected))

@@ -2,7 +2,10 @@
 //! 506e98c506eeb849cffbf53d9ddf3a3a799c6830. AUTO metric policy: reservoir,
 //! refit schedule, rescale versus re-partition.
 
+use std::sync::Arc;
+
 use crate::error::ENNError;
+use crate::hash::Key;
 use crate::metric_loo::loo_loglik;
 use crate::metric_rows::RowReservoir;
 use crate::metric_sobol::DEPENDENCE_ROWS;
@@ -101,36 +104,34 @@ pub struct ScaleUpdate {
 pub trait MetricLearner: Send + Sync {
     fn weights(&self) -> &[f64];
     fn observe(&mut self, x: &[f64], y: &[f64], n: usize) -> Result<Option<ScaleUpdate>, ENNError>;
+
+    /// Pure consumed-box transition over streaming observation batches.
+    fn observed_box(
+        mut self: Box<Self>,
+        x: &[f64],
+        y: &[f64],
+        n: usize,
+    ) -> Result<(Box<Self>, Option<ScaleUpdate>), ENNError>
+    where
+        Self: Sized,
+    {
+        let update = self.observe(x, y, n)?;
+        Ok((self, update))
+    }
 }
 
+#[derive(Clone)]
 pub struct AutoMetric {
     rows: RowReservoir,
-    tied: Vec<Vec<usize>>,
-    unscaled: Vec<usize>,
-    weights: Vec<f64>,
-    built: Vec<f64>,
+    tied: Arc<Vec<Vec<usize>>>,
+    unscaled: Arc<Vec<usize>>,
+    weights: Arc<Vec<f64>>,
+    built: Arc<Vec<f64>>,
     pub rebuild_drift: f64,
     refit_growth: f64,
     next_refit: usize,
     pub heldout_gain: Option<f64>,
     counters: MetricCounters,
-}
-
-impl Clone for AutoMetric {
-    fn clone(&self) -> Self {
-        Self {
-            rows: self.rows.clone(),
-            tied: self.tied.clone(),
-            unscaled: self.unscaled.clone(),
-            weights: self.weights.clone(),
-            built: self.built.clone(),
-            rebuild_drift: self.rebuild_drift,
-            refit_growth: self.refit_growth,
-            next_refit: self.next_refit,
-            heldout_gain: self.heldout_gain,
-            counters: self.counters,
-        }
-    }
 }
 
 impl std::fmt::Debug for AutoMetric {
@@ -182,12 +183,13 @@ impl AutoMetric {
             ));
         }
         validate_tied(&tied, num_dim)?;
+        let ones = Arc::new(vec![1.0; num_dim]);
         Ok(Self {
             rows: RowReservoir::new(RESERVOIR_CAPACITY, num_dim, num_outputs, seed)?,
-            tied,
-            unscaled: Vec::new(),
-            weights: vec![1.0; num_dim],
-            built: vec![1.0; num_dim],
+            tied: Arc::new(tied),
+            unscaled: Arc::new(Vec::new()),
+            weights: ones.clone(),
+            built: ones,
             rebuild_drift: REBUILD_DRIFT,
             refit_growth: REFIT_GROWTH,
             next_refit: DEPENDENCE_ROWS,
@@ -196,10 +198,19 @@ impl AutoMetric {
         })
     }
 
+    pub fn from_key(
+        num_dim: usize,
+        num_outputs: usize,
+        tied: Vec<Vec<usize>>,
+        key: Key,
+    ) -> Result<Self, ENNError> {
+        Self::new(num_dim, num_outputs, tied, key.seed())
+    }
+
     pub fn set_unscaled(&mut self, unscaled: Vec<usize>) -> Result<(), ENNError> {
         let num_dim = self.rows.num_dim();
         let mut seen = vec![false; num_dim];
-        for g in &self.tied {
+        for g in self.tied.iter() {
             for &j in g {
                 seen[j] = true;
             }
@@ -212,12 +223,16 @@ impl AutoMetric {
             }
             seen[j] = true;
         }
-        self.unscaled = unscaled;
+        self.unscaled = Arc::new(unscaled);
         Ok(())
     }
 
     pub fn tied(&self) -> &[Vec<usize>] {
         &self.tied
+    }
+
+    pub fn unscaled(&self) -> &[usize] {
+        &self.unscaled
     }
 
     /// Update only the fields that are `Some`. Omitted fields stay as they are.
@@ -283,8 +298,8 @@ impl AutoMetric {
             counters: self.counters,
             heldout_gain: self.heldout_gain,
             uses_learned: self.is_learned(),
-            weights: self.weights.clone(),
-            built: self.built.clone(),
+            weights: (*self.weights).clone(),
+            built: (*self.built).clone(),
         }
     }
 
@@ -294,13 +309,14 @@ impl AutoMetric {
 
     pub fn set_weights(&mut self, weights: &[f64]) -> Result<ScaleUpdate, ENNError> {
         let update = self.preview(weights)?;
-        self.weights = weights.to_vec();
+        let shared = Arc::new(weights.to_vec());
         if update.rebuild {
-            self.built = weights.to_vec();
+            self.built = shared.clone();
             self.counters.num_rebuilds += 1;
         } else {
             self.counters.num_rescales += 1;
         }
+        self.weights = shared;
         Ok(update)
     }
 
@@ -325,8 +341,8 @@ impl AutoMetric {
 
     pub(crate) fn propose(&mut self) -> Result<Option<Vec<f64>>, ENNError> {
         let n = self.rows.len();
-        let mut groups = self.tied.clone();
-        for &j in &self.unscaled {
+        let mut groups = (*self.tied).clone();
+        for &j in self.unscaled.iter() {
             groups.push(vec![j]);
         }
         let (w, gain) = auto_weights(
@@ -502,10 +518,10 @@ impl AutoMetric {
         };
         let mut metric = Self {
             rows,
-            tied,
-            unscaled: Vec::new(),
-            weights,
-            built,
+            tied: Arc::new(tied),
+            unscaled: Arc::new(Vec::new()),
+            weights: Arc::new(weights),
+            built: Arc::new(built),
             rebuild_drift,
             refit_growth,
             next_refit,

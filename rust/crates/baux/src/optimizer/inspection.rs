@@ -12,7 +12,7 @@ impl BayesOptimizer {
     /// Number of configured local region slots, independent of observation
     /// count.
     pub fn num_regions(&self) -> usize {
-        match &self.regions {
+        match self.regions.as_ref() {
             TrustRegionState::Multi { state, .. } => state.num_regions(),
             _ => 1,
         }
@@ -45,7 +45,7 @@ impl BayesOptimizer {
 
     /// Get mutable trust region state.
     pub fn trust_mut(&mut self) -> &mut TrustRegionState {
-        &mut self.regions
+        std::sync::Arc::make_mut(&mut self.regions)
     }
 
     /// Trust region length (TuRBO, Morbo, or Multi-TR inner).

@@ -8,6 +8,7 @@
 use core::cmp::Ordering;
 use ndarray::{Array1, ArrayView1, ArrayView2};
 use std::collections::{BTreeSet, BinaryHeap};
+use std::sync::Arc;
 
 use crate::sense::{BetterScore, Maximize, Minimize, ObjectiveSense, ObsId, Sense, Target};
 
@@ -50,24 +51,24 @@ impl Ord for WorstFirst {
     }
 }
 
-/// Algebraic state machine for incumbent candidate tracking.
+/// FBIP persistent algebraic state machine for incumbent candidate tracking.
 #[derive(Clone, Debug)]
 enum TrackerMode {
     /// Retain all observation indices ($m \ge 10^9$).
-    AllCandidates { indices: Vec<ObsId> },
+    AllCandidates { indices: Arc<Vec<ObsId>> },
     /// Retain exact ties at the best noiseless scalar observation.
     NoiselessBest {
-        best: Option<(BetterScore, Vec<ObsId>)>,
+        best: Option<(BetterScore, Arc<Vec<ObsId>>)>,
     },
     /// Retain the top-$m$ noisy scalar candidates in $O(\log m)$ per update.
     ScalarTopM {
         m: usize,
-        heap: BinaryHeap<WorstFirst>,
+        heap: Arc<BinaryHeap<WorstFirst>>,
     },
     /// Retain the union of top-$m$ candidates across $K$ objective columns.
     MultiTopM {
         m: usize,
-        heaps: Vec<BinaryHeap<WorstFirst>>,
+        heaps: Arc<Vec<BinaryHeap<WorstFirst>>>,
     },
 }
 
@@ -75,32 +76,34 @@ impl TrackerMode {
     fn new(m: usize, noise_aware: bool, num_metrics: usize) -> Self {
         if m >= ALL_THRESHOLD {
             Self::AllCandidates {
-                indices: Vec::new(),
+                indices: Arc::new(Vec::new()),
             }
         } else if num_metrics == 1 && !noise_aware {
             Self::NoiselessBest { best: None }
         } else if num_metrics == 1 {
             Self::ScalarTopM {
                 m,
-                heap: BinaryHeap::with_capacity(m),
+                heap: Arc::new(BinaryHeap::with_capacity(m)),
             }
         } else {
             Self::MultiTopM {
                 m,
-                heaps: (0..num_metrics)
-                    .map(|_| BinaryHeap::with_capacity(m))
-                    .collect(),
+                heaps: Arc::new(
+                    (0..num_metrics)
+                        .map(|_| BinaryHeap::with_capacity(m))
+                        .collect(),
+                ),
             }
         }
     }
 
     fn reset(&mut self) {
         match self {
-            Self::AllCandidates { indices } => indices.clear(),
+            Self::AllCandidates { indices } => Arc::make_mut(indices).clear(),
             Self::NoiselessBest { best } => *best = None,
-            Self::ScalarTopM { heap, .. } => heap.clear(),
+            Self::ScalarTopM { heap, .. } => Arc::make_mut(heap).clear(),
             Self::MultiTopM { heaps, .. } => {
-                for heap in heaps {
+                for heap in Arc::make_mut(heaps) {
                     heap.clear();
                 }
             }
@@ -169,29 +172,31 @@ impl<O: ObjectiveSense> GenericTracker<O> {
         let sense = self.sense;
         match &mut self.mode {
             TrackerMode::AllCandidates { indices } => {
-                indices.push(id);
+                Arc::make_mut(indices).push(id);
             }
             TrackerMode::NoiselessBest { best } => {
                 let score = sense.score(y[0]);
                 match best {
-                    None => *best = Some((score, vec![id])),
+                    None => *best = Some((score, Arc::new(vec![id]))),
                     Some((best_score, ids)) => match score.cmp(best_score) {
                         Ordering::Greater => {
                             *best_score = score;
-                            ids.clear();
-                            ids.push(id);
+                            let vec = Arc::make_mut(ids);
+                            vec.clear();
+                            vec.push(id);
                         }
-                        Ordering::Equal => ids.push(id),
+                        Ordering::Equal => Arc::make_mut(ids).push(id),
                         Ordering::Less => {}
                     },
                 }
             }
             TrackerMode::ScalarTopM { m, heap } => {
-                Self::push_heap(heap, id, sense.score(y[0]), *m);
+                Self::push_heap(Arc::make_mut(heap), id, sense.score(y[0]), *m);
             }
             TrackerMode::MultiTopM { m, heaps } => {
-                for (col, heap) in heaps.iter_mut().enumerate() {
-                    Self::push_heap(heap, id, sense.score(y[col]), *m);
+                let m_val = *m;
+                for (col, heap) in Arc::make_mut(heaps).iter_mut().enumerate() {
+                    Self::push_heap(heap, id, sense.score(y[col]), m_val);
                 }
             }
         }
@@ -213,7 +218,7 @@ impl<O: ObjectiveSense> GenericTracker<O> {
             }
             TrackerMode::MultiTopM { heaps, .. } => {
                 let mut union = BTreeSet::new();
-                for heap in heaps {
+                for heap in heaps.iter() {
                     for entry in heap {
                         union.insert(entry.id.index());
                     }

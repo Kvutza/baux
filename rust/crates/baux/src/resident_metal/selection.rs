@@ -1,19 +1,9 @@
 //! Translate search state into the Metal proposal/selection ABI.
-//!
-//! This module packs observations, fitted ENN parameters, dissimilarities,
-//! procedural seeds, and radius coefficients; it does not evaluate a model.
-//! Historical `latent` names describe a geometry/storage mode, not a latent
-//! parameterization of the network. That mode can use sampled parameter rows
-//! through `Neighbors`, or procedural moment approximations when unavailable.
-//! Moment estimates below are not exact rounded displacement measurements.
 
 use super::*;
 
 impl SearchState {
     #[cfg(test)]
-    /// Build single-candidate kernel parameters for parity tests, carrying both
-    /// the raw root and derived stream so program-specific seed mapping is
-    /// tested.
     pub fn params(&self, root: u64, candidate: usize) -> Params {
         let radius = self.radius(candidate);
         Params {
@@ -23,36 +13,69 @@ impl SearchState {
             candidate: candidate as u32,
             tiles: self.tiles.len() as u32,
             history: self.physical_history() as u32,
-            mode: self.perturbation.shader(),
+            mode: self.sampler.shader(),
+            blocks: self.blocks.len() as u32,
+            pool_count: self.pool_layout.count(),
+            pool_slots: self.pool_layout.slots(),
+            dimensions: self.dimensions as u32,
+            num_pert: self.num_pert as u32,
+            sobol_offset: self.sobol_offset,
+            lhd_points: self.lhd_points,
+            box_bounded: u32::from(self.box_bounded),
+            has_dim_meta: u32::from(self.manifold.is_some()),
+            coord_system: self
+                .manifold
+                .as_ref()
+                .map_or(0, |m| manifold::coord_code(m.config.coord_system)),
             ..Params::default()
         }
     }
-    /// Pack pool-generation parameters without submitting GPU work.
-    /// Preserves the historical fresh-stream mapping for the unspecialized
-    /// non-rotation pool. `base_slot = u32::MAX` means no resident incumbent
-    /// slot; it is not a valid history index.
+
     pub fn pool_params(&self, root: u64) -> Params {
         Params {
             seed: self.procedural_seed(root, 0),
             stream_seed: root,
             radius: self.radius(0),
-            tiles: self.tiles.len() as u64 as u32,
+            candidate: u32::MAX,
+            tiles: self.tiles.len() as u32,
             history: self.physical_history() as u32,
-            mode: self.perturbation.shader(),
+            mode: self.sampler.shader(),
             blocks: self.blocks.len() as u32,
             base_slot: self.resident_identities[..self.resident_history]
                 .iter()
                 .position(|&identity| identity == self.base_id)
                 .and_then(|slot| u32::try_from(slot).ok())
                 .unwrap_or(u32::MAX),
+            pool_count: self.pool_layout.count(),
+            pool_slots: self.pool_layout.slots(),
+            dimensions: self.dimensions as u32,
+            num_pert: self.num_pert as u32,
+            sobol_offset: self.sobol_offset,
+            lhd_points: self.lhd_points,
+            box_bounded: u32::from(self.box_bounded),
+            has_dim_meta: u32::from(self.manifold.is_some()),
+            coord_system: self
+                .manifold
+                .as_ref()
+                .map_or(0, |m| manifold::coord_code(m.config.coord_system)),
             ..Params::default()
         }
     }
-    /// Snapshot observations, geometry, draws, and fitted scales for selection.
-    /// Fitted ENN values override the supplied defaults; self-tuning computes
-    /// each retained row's neighbor distance scale. History identities map
-    /// resident storage to logical observations. `None` uses sentinel 4 for
-    /// normal acquisition; the kernel, not this packer, chooses a candidate.
+
+    pub(super) fn upload_axis(&self, root: u64) {
+        if self.axis.is_none() {
+            return;
+        }
+        let count = self.pool_layout.count() as usize;
+        unsafe {
+            let dst = self.axis_candidates_gpu.contents().cast::<f32>();
+            for candidate in 0..count {
+                dst.add(candidate)
+                    .write(self.axis_candidate(root, candidate).unwrap_or(0.0));
+            }
+        }
+    }
+
     pub fn select_params(
         &self,
         root: u64,
@@ -78,10 +101,41 @@ impl SearchState {
         });
         let local_scales = compute_scales(self);
         let resident_indices = resident_map(self);
+
+        let scalar_y_bounds = self
+            .manifold
+            .as_ref()
+            .and_then(|m| m.config.y_bounds.as_ref())
+            .and_then(|b| b.first().copied());
+        let (y_bounds_mode, y_lower, y_upper) =
+            scalar_y_bounds.map_or((0, 0.0, 0.0), manifold::bounds_mode);
+        let (affine_a, affine_b, affine_c) = self
+            .manifold
+            .as_ref()
+            .and_then(|m| m.affine.as_ref())
+            .filter(|aff| !aff.a.is_empty())
+            .map_or((0.0, 1.0, 1.0), |aff| {
+                (aff.a[0] as f32, aff.b[0] as f32, aff.c[0] as f32)
+            });
+
+        let mut outcomes = [0.0f32; MAX_HISTORY];
+        let mut variances = [0.0f32; MAX_HISTORY];
+        for i in 0..self.history.min(MAX_HISTORY) {
+            let raw_y = self.outcomes[i];
+            let raw_v = if self.noise_aware {
+                self.variances[i]
+            } else {
+                0.0
+            };
+            let (wy, wv) = manifold::warp_observation(raw_y, raw_v, scalar_y_bounds);
+            outcomes[i] = wy;
+            variances[i] = wv;
+        }
+
         SelectionParams {
             root_seed: root,
-            outcomes: std::array::from_fn(|i| self.outcomes.get(i).copied().unwrap_or(0.0)),
-            variances: std::array::from_fn(|i| self.variances.get(i).copied().unwrap_or(0.0)),
+            outcomes,
+            variances,
             draws: std::array::from_fn(|i| {
                 let identity = self.identities.get(i).copied().unwrap_or(0);
                 crate::hash::normal_metric(config.acquisition.seed, identity, 0) as f32
@@ -90,9 +144,6 @@ impl SearchState {
             local_scales,
             axis_history: std::array::from_fn(|i| {
                 self.axis.as_ref().map_or(0.0, |axis| axis.history[i])
-            }),
-            axis_candidates: std::array::from_fn(|candidate| {
-                self.axis_candidate(root, candidate).unwrap_or(0.0)
             }),
             axis_base: self.axis.as_ref().map_or(0.0, |axis| axis.base),
             axis_weight: self.axis.as_ref().map_or(0.0, |axis| axis.weight),
@@ -115,7 +166,7 @@ impl SearchState {
                 }
             },
             tiles: self.tiles.len() as u32,
-            mode: self.perturbation.shader(),
+            mode: self.sampler.shader(),
             resident_history: self.physical_history() as u32,
             resident_indices,
             implicit_history: u32::from(self.implicit_history),
@@ -128,7 +179,7 @@ impl SearchState {
                                 % (self.pool_layout.count() as usize)
                         })
                 })
-                .unwrap_or(4) as u32,
+                .map_or(u32::MAX, |idx| idx as u32),
             distance_metric: match self.distance_metric {
                 crate::config::DistanceMetric::Euclidean => 0,
                 crate::config::DistanceMetric::Conformal => 1,
@@ -139,12 +190,20 @@ impl SearchState {
             incumbent_index: base_index as u32,
             candidate_floor: 0,
             adaptive_neighbors: u32::from(self.adapt_neighbors),
+            pool_count: self.pool_layout.count(),
+            pool_slots: self.pool_layout.slots(),
+            num_arms: self.pool_layout.arms(),
+            noise_aware: u32::from(self.noise_aware),
+            y_bounds_mode,
+            y_lower,
+            y_upper,
+            affine_a,
+            affine_b,
+            affine_c,
             pad: 0,
         }
     }
 
-    /// Full parameter rows available to kernels, not the logical observation
-    /// count. Implicit history can retain more observations than resident rows.
     pub fn physical_history(&self) -> usize {
         if self.history_rows.is_empty() {
             1
@@ -155,15 +214,18 @@ impl SearchState {
         }
     }
 
-    /// Whether this search state allocates resident history rows for a
-    /// surrogate.
     pub fn has_surrogate(&self) -> bool {
         !self.history_rows.is_empty()
     }
-    /// Dimensionless multiplier applied to each block's proposal scale.
-    /// Clamped to configured bounds. This is not the Euclidean norm of the
-    /// displacement.
+
     pub fn radius(&self, _candidate: usize) -> f32 {
+        if self
+            .manifold
+            .as_ref()
+            .is_some_and(|m| m.config.no_trust_region)
+        {
+            return 2.0;
+        }
         self.length
             .clamp(self.length_config.length_min, self.length_config.length_max) as f32
     }

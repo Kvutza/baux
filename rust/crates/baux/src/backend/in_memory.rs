@@ -4,14 +4,13 @@ use ndarray::{Array1, Array2, ArrayView2, Axis};
 
 use crate::error::ENNError;
 use crate::index::{ENNIndex, IndexDriver};
-
-use super::row_storage::RowStorage;
+use crate::scratch::ImLog;
 
 #[derive(Clone)]
 pub struct InMemoryEnnBackend {
-    train_x_rows: RowStorage,
-    train_y_rows: RowStorage,
-    train_yvar_rows: Option<RowStorage>,
+    train_x_rows: ImLog,
+    train_y_rows: ImLog,
+    train_yvar_rows: Option<ImLog>,
     num_dim: usize,
     num_metrics: usize,
     index: ENNIndex,
@@ -43,9 +42,9 @@ impl InMemoryEnnBackend {
         let index_synced_obs = index.len().min(num_obs);
 
         Ok(Self {
-            train_x_rows: RowStorage::from_array(train_x),
-            train_y_rows: RowStorage::from_array(train_y),
-            train_yvar_rows: train_yvar.map(RowStorage::from_array),
+            train_x_rows: ImLog::from_array(train_x),
+            train_y_rows: ImLog::from_array(train_y),
+            train_yvar_rows: train_yvar.map(ImLog::from_array),
             num_dim,
             num_metrics,
             index,
@@ -88,6 +87,41 @@ impl InMemoryEnnBackend {
         self.index.len()
     }
 
+    pub fn x_log(&self) -> &ImLog {
+        &self.train_x_rows
+    }
+
+    pub fn y_log(&self) -> &ImLog {
+        &self.train_y_rows
+    }
+
+    pub fn yvar_log(&self) -> Option<&ImLog> {
+        self.train_yvar_rows.as_ref()
+    }
+
+    pub fn slice_x(&self, i: usize) -> Result<&[f64], ENNError> {
+        self.train_x_rows.checked_slice(i)
+    }
+
+    pub fn slice_y(&self, i: usize) -> Result<&[f64], ENNError> {
+        self.train_y_rows.checked_slice(i)
+    }
+
+    pub fn slice_yvar(&self, i: usize) -> Result<Option<&[f64]>, ENNError> {
+        match &self.train_yvar_rows {
+            Some(log) => log.checked_slice(i).map(Some),
+            None => {
+                if i >= self.len() {
+                    return Err(ENNError::InvalidParameter(format!(
+                        "slice_yvar index {i} out of range [0, {})",
+                        self.len()
+                    )));
+                }
+                Ok(None)
+            }
+        }
+    }
+
     pub fn x_view(&self) -> Option<ndarray::ArrayView2<'_, f64>> {
         self.train_x_rows.view()
     }
@@ -97,7 +131,7 @@ impl InMemoryEnnBackend {
     }
 
     pub fn yvar_view(&self) -> Option<ndarray::ArrayView2<'_, f64>> {
-        self.train_yvar_rows.as_ref().and_then(RowStorage::view)
+        self.train_yvar_rows.as_ref().and_then(ImLog::view)
     }
 
     pub fn memory_x(&self) -> Array2<f64> {
@@ -131,7 +165,7 @@ impl InMemoryEnnBackend {
         self.train_yvar_rows = match (self.train_yvar_rows, yvar) {
             (Some(yvar_rows), Some(yv)) => Some(yvar_rows.push_rows(yv)?),
             (None, Some(yv)) => {
-                let storage = RowStorage::from_array(Array2::zeros((prev_rows, self.num_metrics)));
+                let storage = ImLog::from_array(Array2::zeros((prev_rows, self.num_metrics)));
                 Some(storage.push_rows(yv)?)
             }
             (Some(yvar_rows), None) => {

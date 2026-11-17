@@ -92,3 +92,65 @@ pub fn parity() -> CudaResult<()> {
     );
     Ok(())
 }
+
+pub fn pool_parity(candidates: usize, arms: usize) -> CudaResult<()> {
+    use baux::semantics::key::Key;
+    use baux::semantics::neighbor::{MetricKind, UncertaintyLaw};
+    use baux::semantics::optimizer::surrogate::AcquisitionRule;
+    use baux::semantics::optimizer::trust_region::{RoundPlan, SurrogateMode, TurboState};
+
+    let dims = 40usize;
+    let hist = 48usize;
+    let cands = candidates.max(8);
+    let num_arms = arms.clamp(1, cands);
+    let rows: Vec<f32> = (0..hist * dims)
+        .map(|i| ((i.wrapping_mul(37) ^ (i >> 3)) % 1024) as f32 / 1024.0)
+        .collect();
+    let outcomes: Vec<f32> = (0..hist)
+        .map(|r| -0.5 + ((r * 19 + 7) % 64) as f32 / 32.0)
+        .collect();
+    let center = rows[..dims].to_vec();
+    let state = TurboState::for_dims(dims, num_arms, 0.8, 0.01, 1.6, None);
+    let plan = RoundPlan::turbo_enn(
+        Key::new(2026),
+        1,
+        dims,
+        cands,
+        num_arms,
+        state,
+        SurrogateMode::Enn {
+            neighbors: 12,
+            epistemic: 0.05,
+            aleatoric: 0.05,
+            scale: 1.0,
+            metric: MetricKind::Euclidean,
+            law: UncertaintyLaw::InversePrecision,
+            noise_aware: false,
+        },
+        AcquisitionRule::default(),
+    );
+
+    let index = CudaIndex::with_mode(dims, &rows, CudaKnnMode::Kernel)?;
+    let mut scratch = index.new_scratch()?;
+    let fenced = index.propose_fenced(&mut scratch, &plan, &center, &outcomes, None, 1, 0, None)?;
+    let actual = fenced.materialize(None)?;
+    let expected = crate::simulate_round(&rows, hist, &plan, &center, &outcomes, None, 1, 0, None)?;
+    if actual.selected != expected.selected {
+        return Err(format!(
+            "CUDA DelayedPool selected {:?} != CPU {:?}",
+            actual.selected, expected.selected
+        ));
+    }
+    let max_row_err = actual
+        .rows
+        .iter()
+        .zip(&expected.rows)
+        .map(|(a, b)| (a - b).abs())
+        .fold(0.0_f32, f32::max);
+    if max_row_err > 1.0e-5 {
+        return Err(format!(
+            "CUDA DelayedPool materialized row error {max_row_err}"
+        ));
+    }
+    Ok(())
+}

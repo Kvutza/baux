@@ -1,21 +1,21 @@
 //! Generate and rank a trial parameter row without evaluating its objective.
-//!
-//! `propose` chooses initialization or surrogate selection, waits for Metal,
-//! and publishes one pending `Proposals` handle. `begin_*`/`finish_*` expose
-//! the same queue boundary for callers that append evaluator work themselves.
-//! The returned buffer is reusable proposal storage, not an immutable model.
-//! A matching tell and synchronization must complete before the next ask.
-//!
-//! A one-element pool still runs this transaction but offers acquisition no
-//! alternative to select. Neither materialization nor publication commits an
-//! update; `observations` chooses acceptance and `history` applies it.
 
 use super::*;
-use crate::apple_gpu::gpu_interval;
+use crate::apple_gpu::{gpu_interval, thread_group};
 use metal::MTLResourceOptions;
 use std::sync::Arc;
 
-fn unique_buffer(runtime: &Runtime, buf: &mut Arc<Buffer>) -> Result<(), String> {
+fn fresh_scratch(runtime: &Runtime, buf: &mut Arc<Buffer>) {
+    if Arc::strong_count(buf) > 1 {
+        let fresh = runtime.device.new_buffer(
+            buf.length(),
+            MTLResourceOptions::StorageModeShared | MTLResourceOptions::HazardTrackingModeTracked,
+        );
+        *buf = Arc::new(fresh);
+    }
+}
+
+pub(super) fn cow_buffer(runtime: &Runtime, buf: &mut Arc<Buffer>) -> Result<(), String> {
     if Arc::strong_count(buf) > 1 {
         let fresh = runtime.device.new_buffer(
             buf.length(),
@@ -31,24 +31,21 @@ fn unique_buffer(runtime: &Runtime, buf: &mut Arc<Buffer>) -> Result<(), String>
     Ok(())
 }
 
-#[inline]
-#[allow(dead_code)]
-fn cow_buffer(runtime: &Runtime, buf: &mut Arc<Buffer>) -> Result<(), String> {
-    unique_buffer(runtime, buf)
-}
-
 impl SearchState {
-    /// Produce one pending, fully materialized trial from the configured pool.
-    ///
-    /// If history has fewer than `config.surrogate.neighbors` observations,
-    /// materialize `initial_slot` without acquisition choice. Otherwise
-    /// rank with ENN or use `forced` for a selection ablation; both indices
-    /// are reduced modulo the pool count here. Waits for the GPU and
-    /// returns row, handle, and the initialization flag needed to choose
-    /// the corresponding tell policy. Does not evaluate a forward pass,
-    /// record a loss, or accept an update.
+    fn prepare_scratch(&mut self) {
+        fresh_scratch(&self.runtime, &mut self.proposal);
+        fresh_scratch(&self.runtime, &mut self.partials);
+        fresh_scratch(&self.runtime, &mut self.pool_geometry);
+        fresh_scratch(&self.runtime, &mut self.pool_aggregates);
+        fresh_scratch(&self.runtime, &mut self.candidate_scores);
+        fresh_scratch(&self.runtime, &mut self.selected_indices_gpu);
+        fresh_scratch(&self.runtime, &mut self.axis_candidates_gpu);
+        fresh_scratch(&self.runtime, &mut self.decision);
+        fresh_scratch(&self.runtime, &mut self.pool_distances);
+    }
+
     pub fn propose(
-        mut self,
+        self,
         seed: u64,
         mut config: RoundConfig,
         initial_slot: usize,
@@ -73,12 +70,8 @@ impl SearchState {
         Ok((state, (row, proposal, initializing)))
     }
 
-    /// Synchronously surrogate-score the pool and publish one trial handle.
-    /// `candidates` is slots per arm, not objective calls. Shape must match the
-    /// configured layout or its accepted flat 1xN view. The trial uses the
-    /// state's precision/program; this API is not limited to correlated BF16.
     pub fn ask_round(
-        mut self,
+        self,
         arms: usize,
         candidates: usize,
         seed: u64,
@@ -87,14 +80,8 @@ impl SearchState {
         autoreleasepool(|| self.ask_inner(arms, candidates, seed, config))
     }
 
-    /// Submit pool selection and one row materialization without waiting.
-    /// Requires an idle state with an initial observation. The caller may
-    /// append evaluator work on the same ordered queue, then call
-    /// `finish_ask` before tell. Returns shared scratch storage; its
-    /// contents are not CPU-ready on return. No candidate objective is
-    /// evaluated by this method.
     pub fn begin_ask(
-        mut self,
+        self,
         arms: usize,
         candidates: usize,
         seed: u64,
@@ -103,11 +90,26 @@ impl SearchState {
         self.begin_mode(arms, candidates, seed, config, None)
     }
 
-    /// Submit a precommitted pool index instead of acquisition maximization.
-    /// Rejects out-of-range indices and otherwise follows `begin_ask`'s queue
-    /// lifecycle. This changes selection only, not generation or tell policy.
+    /// Enqueue asynchronous pool evaluation + materialization and return a
+    /// fenced write-once [`DeviceRow`] without waiting on the CPU.
+    pub fn fenced_ask(
+        self,
+        arms: usize,
+        candidates: usize,
+        seed: u64,
+        config: RoundConfig,
+    ) -> Result<(Self, DeviceRow), String> {
+        let (state, _buf) = self.begin_mode(arms, candidates, seed, config, None)?;
+        let row = DeviceRow::new(
+            Arc::clone(&state.proposal),
+            state.async_command.clone(),
+            state.dimensions,
+        );
+        Ok((state, row))
+    }
+
     pub fn begin_forced(
-        mut self,
+        self,
         seed: u64,
         config: RoundConfig,
         candidate: usize,
@@ -120,10 +122,6 @@ impl SearchState {
         self.begin_mode(arms, slots, seed, config, Some(candidate))
     }
 
-    /// Materialize a counterfactual from an already-scored pool. Diagnostics
-    /// must restore the original selection before tell: this overwrites both
-    /// the shared GPU decision and proposal row. Requires the pending handle
-    /// and its original root seed, waits for completion, and records no loss.
     pub fn diagnostic_row(
         &self,
         round: &Proposals,
@@ -132,22 +130,68 @@ impl SearchState {
         candidate: usize,
     ) -> Result<Buffer, String> {
         self.check_round(round)?;
-        let decision = read::<Decision>(&*self.decision, 1)[0];
+        let decision = read::<Decision>(&self.decision, 1)[0];
         if candidate >= self.pool_layout.count() as usize || root != decision.root_seed {
             return Err("Diagnostic pool candidate or root mismatch".into());
         }
+        let out = self.runtime.buffer::<u16>(self.dimensions);
         let command = self.runtime.queue.new_command_buffer();
         self.encode_select(command, root, config, Some(candidate));
-        self.encode_row(command);
+        let encoder =
+            command.compute_command_encoder_with_dispatch_type(metal::MTLDispatchType::Concurrent);
+        self.dispatch_candidate(encoder, &out, candidate as u32, 0, round.sobol_offset);
+        encoder.end_encoding();
         finish(command)?;
-        Ok((*self.proposal).clone())
+        Ok(out)
     }
 
-    /// Submit a specified slot while implicit history is still warming up.
-    /// Rejects a completed/unconfigured warm-up or invalid slot. Profiling uses
-    /// the ordinary staged path with forced selection; otherwise `initial_row`
-    /// avoids full pool ranking. The caller must finish and measure the row.
-    pub fn begin_initial(mut self, seed: u64, candidate: usize) -> Result<(Self, Buffer), String> {
+    /// Materialize all multi-arm selected candidates from
+    /// `round.selected_indices` into independent write-once fenced
+    /// [`DeviceRow`] buffers on a single pipelined `MTLCommandBuffer`.
+    pub fn materialize_batch(&self, round: &Proposals) -> Result<Vec<DeviceRow>, String> {
+        self.check_round(round)?;
+        if round.selected_indices.len() <= 1 {
+            return Ok(vec![round.device_row().clone()]);
+        }
+        let mut rows = Vec::with_capacity(round.selected_indices.len());
+        let mut out_arcs = Vec::with_capacity(round.selected_indices.len());
+        for (arm_pos, &_idx) in round.selected_indices.iter().enumerate() {
+            if arm_pos == 0 {
+                out_arcs.push(Arc::clone(round.device_row().arc()));
+            } else {
+                out_arcs.push(Arc::new(self.runtime.buffer::<u16>(self.dimensions)));
+            }
+        }
+        let command = self.runtime.queue.new_command_buffer();
+        let encoder =
+            command.compute_command_encoder_with_dispatch_type(metal::MTLDispatchType::Concurrent);
+        for (arm_pos, &cand_idx) in round.selected_indices.iter().enumerate() {
+            if arm_pos == 0 {
+                continue;
+            }
+            self.dispatch_candidate(
+                encoder,
+                &out_arcs[arm_pos],
+                cand_idx as u32,
+                0,
+                round.sobol_offset,
+            );
+        }
+        encoder.end_encoding();
+        command.commit();
+        let fence = Arc::new(command.to_owned());
+        for (arm_pos, arc) in out_arcs.into_iter().enumerate() {
+            let f = if arm_pos == 0 {
+                None
+            } else {
+                Some(Arc::clone(&fence))
+            };
+            rows.push(DeviceRow::new(arc, f, self.dimensions));
+        }
+        Ok(rows)
+    }
+
+    pub fn begin_initial(self, seed: u64, candidate: usize) -> Result<(Self, Buffer), String> {
         if !self.implicit_history
             || self.initial_observations == 0
             || self.history >= self.initial_observations
@@ -168,19 +212,10 @@ impl SearchState {
         self.begin_mode(arms, slots, seed, RoundConfig::default(), Some(candidate))
     }
 
-    /// Submit one warm-up row and its forced-selection descriptor.
-    /// The caller has validated initialization and slot bounds. Activates the
-    /// region, clears geometry scratch, and stores the outstanding command; it
-    /// does not add a history observation.
     pub fn initial_row(mut self, root: u64, candidate: usize) -> Result<(Self, Buffer), String> {
         self.check_idle()?;
         self = self.activate_morbo()?;
-        unique_buffer(&self.runtime, &mut self.proposal)?;
-        unique_buffer(&self.runtime, &mut self.partials)?;
-        unique_buffer(&self.runtime, &mut self.pool_geometry)?;
-        unique_buffer(&self.runtime, &mut self.pool_aggregates)?;
-        unique_buffer(&self.runtime, &mut self.decision)?;
-        unique_buffer(&self.runtime, &mut self.pool_distances)?;
+        self.prepare_scratch();
         unsafe {
             std::ptr::write_bytes(
                 self.partials.contents().cast::<u8>(),
@@ -210,12 +245,6 @@ impl SearchState {
         Ok((self, row))
     }
 
-    /// Shared asynchronous ask implementation for normal and forced selection.
-    /// Validates state, shape, and acquisition, prepares geometry as required,
-    /// then enqueues selection and materialization. Sampled/procedural history
-    /// skips full-pool materialization; profiling separates stages into ordered
-    /// commands. Mutates queue/scratch state but leaves the incumbent
-    /// unchanged.
     pub fn begin_mode(
         mut self,
         arms: usize,
@@ -241,13 +270,7 @@ impl SearchState {
         check_ask(config)?;
         self.validate_selector()?;
         self.last_profile = None;
-
-        unique_buffer(&self.runtime, &mut self.proposal)?;
-        unique_buffer(&self.runtime, &mut self.partials)?;
-        unique_buffer(&self.runtime, &mut self.pool_geometry)?;
-        unique_buffer(&self.runtime, &mut self.pool_aggregates)?;
-        unique_buffer(&self.runtime, &mut self.decision)?;
-        unique_buffer(&self.runtime, &mut self.pool_distances)?;
+        self.prepare_scratch();
 
         if self.profiling {
             self.profile_commands.clear();
@@ -281,11 +304,6 @@ impl SearchState {
         Ok((self, row))
     }
 
-    /// Wait for the pending command, validate profiling, and publish its
-    /// handle. Consumes the outstanding command; GPU failure poisons the
-    /// search state. The handle identifies this transaction, but its
-    /// backing row remains reusable scratch. Publication neither evaluates
-    /// nor accepts the row.
     pub fn finish_ask(mut self) -> Result<(Self, Proposals), String> {
         let command = self
             .async_command
@@ -293,7 +311,7 @@ impl SearchState {
             .ok_or_else(|| "No asynchronous Metal BF16 ask is pending".to_string())?;
         command.wait_until_completed();
         if command.status() != MTLCommandBufferStatus::Completed {
-            self.poisoned = true;
+            self.profile_commands.clear();
             return Err(format!(
                 "Metal BF16 asynchronous ask failed: {:?}",
                 command.status()
@@ -303,21 +321,20 @@ impl SearchState {
         self.publish_ask()
     }
 
-    /// Drain any outstanding ask and permanently poison this search state.
-    /// Used after evaluator failure; it does not roll back or enable retry on
-    /// the same state. Poisoning also occurs when no command is outstanding.
+    /// Drain any outstanding ask without corrupting or poisoning committed
+    /// state.
     pub fn abort_ask(mut self) -> Self {
         if let Some(command) = self.async_command.take() {
             command.wait_until_completed();
         }
-        self.poisoned = true;
+        self.profile_commands.clear();
+        self.pending = None;
+        self.evaluation = None;
         self
     }
 
-    /// Start the host timer, submit an ask, and publish after GPU completion.
-    /// Internal synchronous wrapper; objective evaluation is outside its timer.
     pub fn ask_inner(
-        mut self,
+        self,
         arms: usize,
         candidates: usize,
         seed: u64,
@@ -328,9 +345,6 @@ impl SearchState {
         state.finish_askat(start)
     }
 
-    /// Finish an outstanding ask with the caller's host timing origin.
-    /// Like `finish_ask`, consumes the command and poisons on GPU failure;
-    /// `publish_start` uses `start` only for fallback profiling metadata.
     pub fn finish_askat(mut self, start: Instant) -> Result<(Self, Proposals), String> {
         let command = self
             .async_command
@@ -338,7 +352,7 @@ impl SearchState {
             .ok_or_else(|| "No asynchronous Metal BF16 ask is pending".to_string())?;
         command.wait_until_completed();
         if command.status() != MTLCommandBufferStatus::Completed {
-            self.poisoned = true;
+            self.profile_commands.clear();
             return Err(format!(
                 "Metal BF16 asynchronous ask failed: {:?}",
                 command.status()
@@ -348,10 +362,6 @@ impl SearchState {
         self.publish_start(start)
     }
 
-    /// Collect completed ask-stage GPU timestamps in milliseconds.
-    /// Expects two commands for sampled/procedural geometry or three for an
-    /// explicit pool. `total_ms` spans their GPU intervals, not end-to-end host
-    /// round time. Clears staged commands on success; rejects missing timings.
     pub fn finish_profile(&mut self) -> Result<(), String> {
         if !self.profiling {
             self.last_profile = None;
@@ -397,9 +407,6 @@ impl SearchState {
         Ok(())
     }
 
-    /// Primitive 1 (GPU Engine Seam): Sample candidate-pool coordinates and
-    /// compute the C x N block-weighted squared distance matrix in unified
-    /// memory without invoking the Metal selection shader.
     pub fn sample_distances(mut self, root_seed: u64) -> Result<(Self, Vec<Vec<f64>>), String> {
         autoreleasepool(|| {
             self.check_idle()?;
@@ -408,11 +415,7 @@ impl SearchState {
                     "Measure the initial Metal BF16 incumbent before sampling distances".into(),
                 );
             }
-            unique_buffer(&self.runtime, &mut self.decision)?;
-            unique_buffer(&self.runtime, &mut self.partials)?;
-            unique_buffer(&self.runtime, &mut self.pool_geometry)?;
-            unique_buffer(&self.runtime, &mut self.pool_aggregates)?;
-            unique_buffer(&self.runtime, &mut self.pool_distances)?;
+            self.prepare_scratch();
             unsafe {
                 self.decision.contents().cast::<Decision>().write(Decision {
                     root_seed,
@@ -421,6 +424,8 @@ impl SearchState {
                 });
             }
             let pool_count = self.pool_layout.count() as usize;
+            let cand_groups = pool_count.div_ceil(4).max(1) as u64;
+            let pairs = self.resident_history.div_ceil(2).max(1);
             let base_index = self.identities[..self.history]
                 .iter()
                 .position(|&identity| identity == self.base_id)
@@ -446,15 +451,24 @@ impl SearchState {
                 (&select_params as *const SelectionParams).cast(),
             );
             reducer.dispatch_thread_groups(
-                crate::apple_gpu::thread_group(self.resident_history.div_ceil(2).max(1) as u64),
-                crate::apple_gpu::thread_group(256),
+                metal::MTLSize {
+                    width: pairs as u64,
+                    height: cand_groups,
+                    depth: 1,
+                },
+                thread_group(256),
             );
             reducer.end_encoding();
             finish(command)?;
 
-            let pairs = self.resident_history.div_ceil(2).max(1);
-            let aggregates = read::<Partial>(&*self.pool_aggregates, pairs * 4);
-            let matrix = self.distance_matrix(&select_params, &aggregates, base_index, pool_count);
+            let aggregates = read::<Partial>(&self.pool_aggregates, pairs * pool_count);
+            let matrix = self.distance_matrix(
+                &select_params,
+                &aggregates,
+                base_index,
+                pool_count,
+                root_seed,
+            );
             Ok((self, matrix))
         })
     }
@@ -465,6 +479,7 @@ impl SearchState {
         aggregates: &[Partial],
         base_index: usize,
         pool_count: usize,
+        root_seed: u64,
     ) -> Vec<Vec<f64>> {
         let mut matrix_f64 = vec![vec![0.0_f64; self.history]; pool_count];
         unsafe {
@@ -480,7 +495,7 @@ impl SearchState {
                     *cell = f64::from(base_d + norm);
                 }
                 for row in (0..self.resident_history).step_by(2) {
-                    let aggregate = aggregates[(row / 2) * 4 + candidate];
+                    let aggregate = aggregates[(row / 2) * pool_count + candidate];
                     let first_index = if self.implicit_history {
                         select_params.resident_indices[row] as usize
                     } else {
@@ -501,9 +516,9 @@ impl SearchState {
                     }
                 }
                 if select_params.axis_enabled != 0 {
+                    let axis_cand = self.axis_candidate(root_seed, candidate).unwrap_or(0.0);
                     for (row, cell) in row_f64.iter_mut().enumerate() {
-                        let delta = select_params.axis_candidates[candidate]
-                            - select_params.axis_history[row];
+                        let delta = axis_cand - select_params.axis_history[row];
                         let val = (*cell as f32) + select_params.axis_weight * delta * delta;
                         *cell = f64::from(val);
                     }
@@ -516,9 +531,6 @@ impl SearchState {
         matrix_f64
     }
 
-    /// Primitive 2 (GPU Engine Seam): Write the host-selected candidate
-    /// descriptor to unified memory and materialize the single winning
-    /// parameter vector into `self.proposal`.
     #[allow(clippy::too_many_arguments)]
     pub fn materialize_selected(
         mut self,
@@ -539,7 +551,7 @@ impl SearchState {
             if selected >= pool_count {
                 return Err("Selected candidate index exceeds pool count".into());
             }
-            let prev = read::<Decision>(&*self.decision, 1)[0];
+            let prev = read::<Decision>(&self.decision, 1)[0];
             let already_materialized =
                 pool_count == 1 && selected == 0 && prev.valid == 0 && prev.root_seed == root_seed;
             let mut candidate_means = [f32::NAN; 4];
@@ -550,6 +562,30 @@ impl SearchState {
                 candidate_standard_errors[slot] = se;
                 candidate_scores[slot] = cand_score;
             }
+            fresh_scratch(&self.runtime, &mut self.candidate_scores);
+            fresh_scratch(&self.runtime, &mut self.selected_indices_gpu);
+            unsafe {
+                let cs_ptr = self.candidate_scores.contents().cast::<CandidateScore>();
+                for cand in 0..pool_count {
+                    let (mean, se, cand_score) = pool_predictions.get(cand).copied().unwrap_or((
+                        f32::NAN,
+                        f32::NAN,
+                        f32::NAN,
+                    ));
+                    cs_ptr.add(cand).write(CandidateScore {
+                        mean,
+                        standard_error: se,
+                        score: cand_score,
+                        neighbors: if cand == selected { neighbors } else { 0 },
+                        changed: 1,
+                        invalid: u32::from(!cand_score.is_finite()),
+                    });
+                }
+                self.selected_indices_gpu
+                    .contents()
+                    .cast::<u32>()
+                    .write(selected as u32);
+            }
             let decision = Decision {
                 index: selected as u32,
                 valid: 1,
@@ -557,8 +593,8 @@ impl SearchState {
                 seed: self.procedural_seed(root_seed, selected),
                 radius: self.radius(selected),
                 score,
-                mode: self.perturbation.shader(),
-                pad: 0,
+                mode: self.sampler.shader(),
+                num_selected: 1,
                 predicted_mean,
                 predicted_standard_error,
                 incumbent_mean,
@@ -569,13 +605,13 @@ impl SearchState {
                 candidate_standard_errors,
                 candidate_scores,
             };
-            unique_buffer(&self.runtime, &mut self.decision)?;
+            fresh_scratch(&self.runtime, &mut self.decision);
             unsafe {
                 self.decision.contents().cast::<Decision>().write(decision);
             }
             let start = Instant::now();
             if !already_materialized {
-                unique_buffer(&self.runtime, &mut self.proposal)?;
+                fresh_scratch(&self.runtime, &mut self.proposal);
                 let command = self.runtime.queue.new_command_buffer();
                 self.encode_row(command);
                 finish(command)?;
@@ -586,8 +622,6 @@ impl SearchState {
         })
     }
 
-    /// Materialize the winning candidate directly from a surrogate
-    /// `PoolSelection`.
     pub fn materialize_selection(
         self,
         root_seed: u64,

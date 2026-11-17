@@ -87,6 +87,10 @@ impl Categorical {
         let bits = log_width(card.max(1), 48).expect("log_width");
         Self { card, bits, seed }
     }
+
+    pub fn from_key(card: usize, key: crate::hash::Key) -> Self {
+        Self::new(card, key.seed())
+    }
 }
 
 impl Embedding for Categorical {

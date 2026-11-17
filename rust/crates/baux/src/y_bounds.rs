@@ -46,54 +46,34 @@ pub fn validate_bounds(bounds: &Array2<f64>, metrics: usize) -> Result<(), ENNEr
     Ok(())
 }
 
+#[inline(always)]
 pub fn warp_scalar(y: f64, a: f64, b: f64) -> f64 {
-    match (a.is_finite(), b.is_finite()) {
-        (false, false) => y,
-        (true, false) => (y - a).ln(),
-        (false, true) => -(b - y).ln(),
-        (true, true) => {
-            let u = (y - a) / (b - a);
-            (u / (1.0 - u)).ln()
-        }
-    }
+    baux::semantics::ybounds::warp_scalar(y, a, b)
 }
 
+#[inline(always)]
 pub fn inv_scalar(z: f64, a: f64, b: f64) -> f64 {
-    match (a.is_finite(), b.is_finite()) {
-        (false, false) => z,
-        (true, false) => a + z.exp(),
-        (false, true) => b - (-z).exp(),
-        (true, true) => {
-            let s = 1.0 / (1.0 + (-z).exp());
-            a + (b - a) * s
-        }
-    }
+    baux::semantics::ybounds::inv_scalar(z, a, b)
 }
 
+#[inline(always)]
 pub fn jac_inv(z: f64, a: f64, b: f64) -> f64 {
-    match (a.is_finite(), b.is_finite()) {
-        (false, false) => 1.0,
-        (true, false) => z.exp(),
-        (false, true) => (-z).exp(),
-        (true, true) => {
-            let s = 1.0 / (1.0 + (-z).exp());
-            (b - a) * s * (1.0 - s)
-        }
-    }
-    .abs()
+    baux::semantics::ybounds::jac_inv(z, a, b)
 }
 
+#[inline(always)]
+pub fn warp_var(y: f64, yvar: f64, a: f64, b: f64) -> f64 {
+    baux::semantics::ybounds::warp_var(y, yvar, a, b).unwrap_or(f64::NAN)
+}
+
+#[inline(always)]
+pub fn inv_var(z: f64, zvar: f64, a: f64, b: f64) -> f64 {
+    baux::semantics::ybounds::natural_var(z, zvar, a, b)
+}
+
+#[inline(always)]
 pub fn project_mu(mu: f64, a: f64, b: f64) -> f64 {
-    const BOUND_EPS: f64 = 1e-6;
-    match (a.is_finite(), b.is_finite()) {
-        (false, false) => mu,
-        (true, false) => mu.max(a + BOUND_EPS * a.abs().max(1.0)),
-        (false, true) => mu.min(b - BOUND_EPS * b.abs().max(1.0)),
-        (true, true) => {
-            let eps = BOUND_EPS * (b - a);
-            mu.clamp(a + eps, b - eps)
-        }
-    }
+    baux::semantics::ybounds::project_mu(mu, a, b)
 }
 
 /// Per-metric invertible output-space transformation between natural `y` and
@@ -139,6 +119,32 @@ impl OutputTransform for Array2<f64> {
     }
 }
 
+impl<T: OutputTransform + ?Sized> OutputTransform for std::sync::Arc<T> {
+    fn metrics(&self) -> usize {
+        (**self).metrics()
+    }
+
+    fn is_identity(&self) -> bool {
+        (**self).is_identity()
+    }
+
+    fn warp_val(&self, metric: usize, y: f64) -> Result<f64, ENNError> {
+        (**self).warp_val(metric, y)
+    }
+
+    fn inv_val(&self, metric: usize, z: f64) -> f64 {
+        (**self).inv_val(metric, z)
+    }
+
+    fn jac_val(&self, metric: usize, z: f64) -> f64 {
+        (**self).jac_val(metric, z)
+    }
+
+    fn project_val(&self, metric: usize, y: f64) -> f64 {
+        (**self).project_val(metric, y)
+    }
+}
+
 pub fn warp_y(y: ArrayView2<f64>, bounds: &Array2<f64>) -> Result<Array2<f64>, ENNError> {
     validate_bounds(bounds, y.ncols())?;
     let mut out = Array2::zeros(y.raw_dim());
@@ -174,17 +180,7 @@ pub fn warp_yvar(
     validate_bounds(bounds, y.ncols())?;
     let mut out = Array2::zeros(y.raw_dim());
     for ((i, j), value) in y.indexed_iter() {
-        let (a, b) = (bounds[[j, 0]], bounds[[j, 1]]);
-        let jac = match (a.is_finite(), b.is_finite()) {
-            (false, false) => 1.0,
-            (true, false) => 1.0 / (*value - a),
-            (false, true) => 1.0 / (b - *value),
-            (true, true) => {
-                let u = (*value - a) / (b - a);
-                1.0 / ((b - a) * u * (1.0 - u))
-            }
-        };
-        let v = jac * jac * yvar[[i, j]];
+        let v = warp_var(*value, yvar[[i, j]], bounds[[j, 0]], bounds[[j, 1]]);
         if !v.is_finite() {
             return Err(ENNError::InvalidParameter(format!(
                 "warped yvar[{i},{j}] is not finite"
@@ -201,8 +197,7 @@ pub fn naturalize_yvar(
     bounds: &Array2<f64>,
 ) -> Array2<f64> {
     Array2::from_shape_fn(z.raw_dim(), |(i, j)| {
-        let jac = jac_inv(z[[i, j]], bounds[[j, 0]], bounds[[j, 1]]);
-        zvar[[i, j]] * jac * jac
+        inv_var(z[[i, j]], zvar[[i, j]], bounds[[j, 0]], bounds[[j, 1]])
     })
 }
 
@@ -347,13 +342,18 @@ pub fn naturalize(
         return;
     }
     for ((i, j), value) in mu.indexed_iter_mut() {
-        let (a, b) = (bounds[[j, 0]], bounds[[j, 1]]);
-        let z = *value;
-        let jac = jac_inv(z, a, b);
-        *value = project_mu(inv_scalar(z, a, b), a, b);
-        se[[i, j]] *= jac;
-        se_epi[[i, j]] *= jac;
-        se_ale[[i, j]] *= jac;
+        let (m, s, e, a) = baux::semantics::ybounds::natural_point(
+            *value,
+            se[[i, j]],
+            se_epi[[i, j]],
+            se_ale[[i, j]],
+            bounds[[j, 0]],
+            bounds[[j, 1]],
+        );
+        *value = m;
+        se[[i, j]] = s;
+        se_epi[[i, j]] = e;
+        se_ale[[i, j]] = a;
     }
 }
 
@@ -368,14 +368,37 @@ pub fn naturalize_batch(
         return;
     }
     for ((p, i, j), value) in mu.indexed_iter_mut() {
-        let (a, b) = (bounds[[j, 0]], bounds[[j, 1]]);
-        let z = *value;
-        let jac = jac_inv(z, a, b);
-        *value = project_mu(inv_scalar(z, a, b), a, b);
-        se[[p, i, j]] *= jac;
-        se_epi[[p, i, j]] *= jac;
-        se_ale[[p, i, j]] *= jac;
+        let (m, s, e, a) = baux::semantics::ybounds::natural_point(
+            *value,
+            se[[p, i, j]],
+            se_epi[[p, i, j]],
+            se_ale[[p, i, j]],
+            bounds[[j, 0]],
+            bounds[[j, 1]],
+        );
+        *value = m;
+        se[[p, i, j]] = s;
+        se_epi[[p, i, j]] = e;
+        se_ale[[p, i, j]] = a;
     }
+}
+
+/// Pure value-returning output naturalization over `(mu, se, se_epi, se_ale)`.
+pub fn naturalized(
+    mut mu: Array2<f64>,
+    mut se: Array2<f64>,
+    mut se_epi: Array2<f64>,
+    mut se_ale: Array2<f64>,
+    bounds: &Array2<f64>,
+) -> (Array2<f64>, Array2<f64>, Array2<f64>, Array2<f64>) {
+    naturalize(&mut mu, &mut se, &mut se_epi, &mut se_ale, bounds);
+    (mu, se, se_epi, se_ale)
+}
+
+/// Pure value-returning inverse warp for posterior sample tensors.
+pub fn mapped_draws(mut draws: Array3<f64>, bounds: &Array2<f64>) -> Array3<f64> {
+    inverse_draws(&mut draws, bounds);
+    draws
 }
 
 pub fn inverse_draws(draws: &mut Array3<f64>, bounds: &Array2<f64>) {

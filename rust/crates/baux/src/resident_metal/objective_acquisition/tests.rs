@@ -27,7 +27,7 @@ fn config(acquisition: ObjectiveAcquisition) -> ObjectivePolicy {
 
 #[test]
 fn parameter_layout() {
-    assert_eq!(size_of::<ObjectiveParams>(), 12464);
+    assert_eq!(size_of::<ObjectiveParams>(), 12888);
     assert_eq!(size_of::<ObjectiveSelectionReport>(), 176);
     assert!(config(ObjectiveAcquisition::Pareto).validate().is_ok());
     assert!(
@@ -209,18 +209,80 @@ fn morbo_noise() {
 fn morbo_resample() {
     autoreleasepool(|| {
         let search = state();
-        let error = match search.configure_objectives(Some(config(ObjectiveAcquisition::Morbo {
-            weights: vec![1.0, 1.0],
-            regions: 4,
-            alpha: 0.1,
-            seed: 31,
-            rescalarize: Rescalarize::OnPropose,
-            clip: true,
-        }))) {
-            Err(e) => e,
-            Ok(_) => panic!("expected configure_objectives to fail"),
+        let search = search
+            .configure_objectives(Some(config(ObjectiveAcquisition::Morbo {
+                weights: vec![1.0, 2.0],
+                regions: 10,
+                alpha: 0.1,
+                seed: 31,
+                rescalarize: Rescalarize::OnPropose,
+                clip: true,
+            })))
+            .unwrap();
+        assert_eq!(search.morbo_regions(), 10);
+        let (search, p1) = search.ask_round(1, 4, 29, RoundConfig::default()).unwrap();
+        let w1 = search.objective_report().unwrap().unwrap().weights;
+        let est = |mean| ObjectiveEstimate {
+            mean,
+            variance: 0.0,
         };
-        assert!(error.contains("rematerializing"));
+        let obs = ObjectiveObservation::new(&[est(2.0), est(0.5)], est(1.0)).unwrap();
+        let (search, _dec) = search.noisy_objectives(&p1, obs).unwrap();
+        let (search, _) = search.sync().unwrap();
+        let (search, _p2) = search.ask_round(1, 4, 37, RoundConfig::default()).unwrap();
+        let w2 = search.objective_report().unwrap().unwrap().weights;
+        assert!((w1[..2].iter().sum::<f32>() - 1.0).abs() < 1e-6);
+        assert!((w2[..2].iter().sum::<f32>() - 1.0).abs() < 1e-6);
+        assert_ne!(w1[..2], w2[..2]);
+    });
+}
+
+#[test]
+fn large_pareto() {
+    autoreleasepool(|| {
+        let pool = crate::procedural_pool::ProceduralPoolConfig {
+            arms: 2,
+            candidates_per_arm: 64,
+        }
+        .resolve_resident()
+        .unwrap();
+        let search = state()
+            .configure_pool(pool)
+            .unwrap()
+            .configure_manifold(ResidentManifold {
+                stiefel_rank: Some(1),
+                y_bounds: Some(vec![(-10.0, 10.0), (-10.0, 10.0)]),
+                ..ResidentManifold::default()
+            })
+            .unwrap();
+        let est = |mean| ObjectiveEstimate {
+            mean,
+            variance: 0.01,
+        };
+        let mut search = search;
+        for step in 0..3u64 {
+            let (s, prop) = search
+                .ask_round(2, 64, 10 + step, RoundConfig::default())
+                .unwrap();
+            let obs = ObjectiveObservation::new(
+                &[est(1.0 + step as f32 * 0.5), est(-0.5 + step as f32 * 0.25)],
+                est(0.5),
+            )
+            .unwrap();
+            let (s, _) = s.noisy_objectives(&prop, obs).unwrap();
+            let (s, _) = s.sync().unwrap();
+            search = s;
+        }
+        let search = search
+            .configure_objectives(Some(config(ObjectiveAcquisition::Pareto)))
+            .unwrap();
+        let (search, prop) = search.ask_round(2, 64, 99, RoundConfig::default()).unwrap();
+        assert!(prop.index < 128);
+        assert_eq!(prop.selected_indices.len(), 2);
+        assert_ne!(prop.selected_indices[0], prop.selected_indices[1]);
+        let vecs = search.objective_vectors().unwrap().unwrap();
+        assert_eq!(vecs.len(), 128);
+        assert!(vecs.iter().all(|v| v[0].is_finite() && v[1].is_finite()));
     });
 }
 

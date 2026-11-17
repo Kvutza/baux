@@ -25,17 +25,13 @@ fn mix(x: u32, y: u32) -> u32 {
     result
 }
 
-fn entropy_words(entropy: u64) -> Vec<u32> {
+fn entropy_words(entropy: u64) -> ([u32; 2], usize) {
     if entropy == 0 {
-        return vec![0];
+        return ([0, 0], 1);
     }
-    let mut words = Vec::new();
-    let mut n = entropy;
-    while n > 0 {
-        words.push(n as u32);
-        n >>= 32;
-    }
-    words
+    let lo = entropy as u32;
+    let hi = (entropy >> 32) as u32;
+    if hi == 0 { ([lo, 0], 1) } else { ([lo, hi], 2) }
 }
 
 fn mix_entropy(pool: &mut [u32], entropy: &[u32]) {
@@ -61,11 +57,32 @@ fn mix_entropy(pool: &mut [u32], entropy: &[u32]) {
     }
 }
 
+/// Stack-allocated `SeedSequence(entropy).generate_state(4, dtype=uint64)`.
+pub fn seed_quad(entropy: u64) -> [u64; 4] {
+    let mut pool = [0u32; 4];
+    let (words, len) = entropy_words(entropy);
+    mix_entropy(&mut pool, &words[..len]);
+    let mut state = [0u32; 8];
+    let mut hash_const = INIT_B;
+    for (i, slot) in state.iter_mut().enumerate() {
+        let mut data = pool[i % pool.len()] ^ hash_const;
+        hash_const = hash_const.wrapping_mul(MULT_B);
+        data = data.wrapping_mul(hash_const);
+        *slot = data ^ (data >> XSHIFT);
+    }
+    [
+        u64::from(state[0]) | (u64::from(state[1]) << 32),
+        u64::from(state[2]) | (u64::from(state[3]) << 32),
+        u64::from(state[4]) | (u64::from(state[5]) << 32),
+        u64::from(state[6]) | (u64::from(state[7]) << 32),
+    ]
+}
+
 /// `SeedSequence(entropy).generate_state(n_u64, dtype=uint64)`.
 pub fn seed_words(entropy: u64, n_u64: usize) -> Vec<u64> {
     let mut pool = [0u32; 4];
-    let words = entropy_words(entropy);
-    mix_entropy(&mut pool, &words);
+    let (words, len) = entropy_words(entropy);
+    mix_entropy(&mut pool, &words[..len]);
     let n_u32 = n_u64 * 2;
     let mut state = vec![0u32; n_u32];
     let mut hash_const = INIT_B;

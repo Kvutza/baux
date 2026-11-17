@@ -36,9 +36,11 @@ mod program;
 pub use inspection::{MetalMemoryInfo, memory_info, upload};
 mod layout;
 mod leaf;
+mod manifold;
 mod objective_acquisition;
 mod objectives;
 mod procedural;
+pub use manifold::{ResidentManifold, ResidentSampler};
 #[allow(unused_imports)]
 pub use objective_acquisition::{ObjectiveAcquisition, ObjectivePolicy};
 mod axis;
@@ -155,6 +157,63 @@ pub type ProposalDescription = (u64, f32, f32, Vec<(u64, f64)>);
 pub type PoolDescription = (usize, u64, f32, f32, Vec<(i64, f32)>);
 pub type PoolGeometry = ([f32; 4], [Option<f32>; 6]);
 
+/// Fenced write-once GPU parameter row backed by `Arc<metal::Buffer>`.
+#[derive(Clone, Debug)]
+pub struct DeviceRow {
+    buffer: Arc<Buffer>,
+    fence: Option<Arc<CommandBuffer>>,
+    dimensions: usize,
+}
+
+impl DeviceRow {
+    pub(super) fn new(
+        buffer: Arc<Buffer>,
+        fence: Option<Arc<CommandBuffer>>,
+        dimensions: usize,
+    ) -> Self {
+        Self {
+            buffer,
+            fence,
+            dimensions,
+        }
+    }
+
+    /// Borrow the underlying Metal buffer immediately for pipelined GPU work
+    /// without blocking the host thread.
+    pub fn buffer(&self) -> &Buffer {
+        &self.buffer
+    }
+
+    /// Shared write-once buffer handle.
+    pub fn arc(&self) -> &Arc<Buffer> {
+        &self.buffer
+    }
+
+    pub fn dimensions(&self) -> usize {
+        self.dimensions
+    }
+
+    /// Wait for any pending GPU producer fence before reading on the CPU.
+    pub fn wait(&self) -> Result<&Buffer, String> {
+        if let Some(command) = &self.fence {
+            command.wait_until_completed();
+            if command.status() != MTLCommandBufferStatus::Completed {
+                return Err(format!(
+                    "Metal DeviceRow command failed: {:?}",
+                    command.status()
+                ));
+            }
+        }
+        Ok(&self.buffer)
+    }
+
+    /// Synchronize the producer fence and copy the `u16` row to host memory.
+    pub fn read_u16(&self) -> Result<Vec<u16>, String> {
+        let buf = self.wait()?;
+        Ok(read::<u16>(buf, self.dimensions))
+    }
+}
+
 /// Immutable selected metadata, independent of reusable GPU scratch storage.
 #[derive(Clone, Debug)]
 pub struct Proposals {
@@ -163,6 +222,7 @@ pub struct Proposals {
     id: u64,
     base_id: i64,
     pub index: usize,
+    pub selected_indices: Vec<usize>,
     pub seed: u64,
     pub score: f32,
     pub length: f32,
@@ -177,16 +237,31 @@ pub struct Proposals {
     history_distances: Vec<(i64, f32)>,
     pub block_scales: Vec<f32>,
     pool: Vec<PoolDescription>,
+    candidate_radii: Vec<f32>,
     pool_radii: [f32; 4],
     pool_cosines: [Option<f32>; 6],
     axis_coordinate: Option<f32>,
     axis_value: Option<f32>,
     direction_norm: f32,
+    pub sobol_offset: u32,
+    device_row: DeviceRow,
 }
 
 impl Proposals {
     pub fn arms(&self) -> usize {
         self.pool_layout.arms() as usize
+    }
+
+    pub fn device_row(&self) -> &DeviceRow {
+        &self.device_row
+    }
+
+    pub fn read_row(&self) -> Result<Vec<u16>, String> {
+        self.device_row.read_u16()
+    }
+
+    pub fn candidate_radii(&self) -> &[f32] {
+        &self.candidate_radii
     }
 
     /// Distinct distance vectors actually supplied to the ENN for this pool.
@@ -224,13 +299,14 @@ impl Proposals {
     ) -> Result<crate::response_observation::ProposalMeasure, String> {
         let changed_coordinates = self.changes.iter().map(|change| change.0).sum();
         let squared_displacement = self.changes.iter().map(|change| change.1).sum();
+        let metric_radius = self.candidate_radii.get(self.index).copied().unwrap_or(0.0);
         crate::response_observation::ProposalMeasure {
             seed: self.seed,
             candidate: self.index as u32,
             coordinates,
             changed_coordinates,
             squared_displacement,
-            metric_radius: self.pool_radii[self.index],
+            metric_radius,
             trust_radius: self.length,
         }
         .validate()
@@ -427,17 +503,32 @@ pub struct NoisyDecision {
 pub struct SearchState {
     independent_fp16: bool,
     perturbation: ProposalDistribution,
+    sampler: manifold::ResidentSampler,
+    num_pert: usize,
+    sobol_offset: u32,
+    lhd_points: u32,
+    box_bounded: bool,
+    noise_aware: bool,
+    adapt_controller: bool,
+    success_tolerance_override: Option<i32>,
     runtime: Arc<Runtime>,
     blocks: Vec<ParamBlock>,
     tiles: Vec<Tile>,
     leaves_gpu: Buffer,
     tiles_gpu: Buffer,
     offsets_gpu: Buffer,
+    dummy_meta_gpu: Buffer,
+    dummy_sobol_gpu: Buffer,
+    sobol_dirs_gpu: Option<Arc<Buffer>>,
+    manifold: Option<manifold::ManifoldState>,
     base: Arc<Buffer>,
     history_rows: Vec<Arc<Buffer>>,
     proposal: Arc<Buffer>,
     partials: Arc<Buffer>,
     pool_aggregates: Arc<Buffer>,
+    candidate_scores: Arc<Buffer>,
+    selected_indices_gpu: Arc<Buffer>,
+    axis_candidates_gpu: Arc<Buffer>,
     decision: Arc<Buffer>,
     pool_distances: Arc<Buffer>,
     pool_geometry: Arc<Buffer>,
@@ -445,6 +536,7 @@ pub struct SearchState {
     initial_pipeline: ComputePipelineState,
     pool_pipeline: ComputePipelineState,
     reduction_pipeline: ComputePipelineState,
+    score_pipeline: ComputePipelineState,
     selection_pipeline: ComputePipelineState,
     materialize_pipeline: ComputePipelineState,
     import_pipeline: ComputePipelineState,
@@ -486,7 +578,6 @@ pub struct SearchState {
     evaluation: Option<baux::semantics::optimizer::WorldId>,
     queued: Option<bool>,
     started: bool,
-    poisoned: bool,
     profiling: bool,
     last_profile: Option<ProposalProfile>,
     async_command: Option<Arc<CommandBuffer>>,
@@ -1602,9 +1693,11 @@ mod tests {
         // Three 64-bit coordinates, two floats, and the typed program address.
         assert_eq!(size_of::<Leaf>(), 40);
         assert_eq!(size_of::<Tile>(), 16);
-        assert_eq!(size_of::<Params>(), 48);
+        assert_eq!(size_of::<DimMeta>(), 16);
+        assert_eq!(size_of::<Params>(), 88);
         // Includes the bounded scalar-axis history shared with the Metal ABI.
-        assert_eq!(size_of::<SelectionParams>(), 3696);
+        assert_eq!(size_of::<SelectionParams>(), 3720);
+        assert_eq!(size_of::<CandidateScore>(), 24);
         assert_eq!(size_of::<Partial>(), 20);
         assert_eq!(size_of::<Decision>(), 112);
         // Five 2.6 GB rows fit as separate buffers; a combined allocation does

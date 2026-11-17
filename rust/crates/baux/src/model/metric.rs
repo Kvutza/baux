@@ -1,9 +1,12 @@
 //! Optional upstream AUTO metric on ordinary disk ENN, not full model-weight
 //! rows.
+use std::sync::Arc;
+
 use ndarray::{Array1, ArrayView2};
 
 use super::inspection::ENN;
 use crate::error::ENNError;
+use crate::hash::Key;
 use crate::index::disk_driver;
 use crate::metric_auto::{AutoMetric, DiagonalMetric, ScaleUpdate};
 
@@ -30,8 +33,16 @@ impl ENN {
         self.enable_metric(tied, seed)
     }
 
+    pub fn learn_key(self, tied: Vec<Vec<usize>>, key: Key) -> Result<Self, ENNError> {
+        self.learn_metric(tied, key.seed())
+    }
+
     pub fn with_metric(self, tied: Vec<Vec<usize>>, seed: u64) -> Result<Self, ENNError> {
         self.learn_metric(tied, seed)
+    }
+
+    pub(crate) fn enable_key(self, tied: Vec<Vec<usize>>, key: Key) -> Result<Self, ENNError> {
+        self.enable_metric(tied, key.seed())
     }
 
     pub(crate) fn enable_metric(
@@ -48,7 +59,7 @@ impl ENN {
         uniq.sort_unstable();
         uniq.dedup();
         self = self.with_unscaled(uniq)?;
-        self.tied_groups.clone_from(&tied);
+        self.tied_groups = Arc::new(tied.clone());
         let mut metric = AutoMetric::new(self.num_dim, self.num_metrics, tied, seed)?;
         // Observe in bounded chunks; never gather the whole persisted dataset.
         for start in (0..self.num_obs).step_by(64) {
@@ -63,8 +74,9 @@ impl ENN {
         } else {
             self.backend = self.backend.mark_stale();
         }
-        self.built_scale = scale.clone();
-        self.x_scale = scale;
+        let shared = Arc::new(scale);
+        self.built_scale = shared.clone();
+        self.x_scale = shared;
         self.scale_x = true;
         self.metric_fixed = true;
         self.metric = Some(metric);
@@ -92,9 +104,14 @@ impl ENN {
             ));
         }
         if let Some(metric) = self.metric.as_mut() {
-            metric.set_unscaled(dims.clone())?;
+            let extra: Vec<usize> = dims
+                .iter()
+                .copied()
+                .filter(|j| !metric.tied().iter().flatten().any(|t| t == j))
+                .collect();
+            metric.set_unscaled(extra)?;
         }
-        self.unscaled_dims = dims;
+        self.unscaled_dims = Arc::new(dims);
         if self.scale_x && !self.metric_fixed {
             let n = self.num_obs;
             self = self.refresh_scale(n)?;
@@ -108,7 +125,7 @@ impl ENN {
 
     pub fn with_tied(mut self, groups: Vec<Vec<usize>>) -> Result<Self, ENNError> {
         crate::metric_weights::validate_tied(&groups, self.num_dim)?;
-        self.tied_groups = groups;
+        self.tied_groups = Arc::new(groups);
         Ok(self)
     }
 
@@ -149,7 +166,7 @@ impl ENN {
         if disk_driver(self.backend.driver()) {
             self.incremental_scale(scale)
         } else {
-            self.x_scale = scale;
+            self.x_scale = Arc::new(scale);
             self.backend = self.backend.mark_stale();
             self = self.refresh_scales();
             Ok(self)
@@ -158,7 +175,7 @@ impl ENN {
 
     pub(super) fn data_scale(&self, n: usize) -> Array1<f64> {
         let mut x_scale = super::scale_moments(n, self.num_dim, &self.x_sum, &self.x_sumsq, 1e-12);
-        for &j in &self.unscaled_dims {
+        for &j in self.unscaled_dims.iter() {
             x_scale[j] = 1.0;
         }
         x_scale
@@ -169,7 +186,7 @@ impl ENN {
         if disk_driver(self.backend.driver()) {
             self.incremental_scale(x_scale)
         } else {
-            self.x_scale = x_scale;
+            self.x_scale = Arc::new(x_scale);
             self.backend = self.backend.mark_stale();
             self = self.refresh_scales();
             Ok(self)
@@ -182,10 +199,11 @@ impl ENN {
         }
         let rebuild = log_ratio(&x_scale, &self.built_scale) > SCALE_DRIFT;
         self.backend = self.backend.with_metric(&x_scale, rebuild)?;
+        let shared = Arc::new(x_scale);
         if rebuild {
-            self.built_scale = x_scale.clone();
+            self.built_scale = shared.clone();
         }
-        self.x_scale = x_scale;
+        self.x_scale = shared;
         self = self.refresh_scales();
         Ok(self)
     }
@@ -223,21 +241,24 @@ impl ENN {
         if self.metric.is_none() {
             return Ok(self);
         }
-        let x = x.to_owned();
-        let y = if self.bounded_outputs {
-            crate::y_bounds::warp_y(*y, &self.y_bounds)?
+        let x_std = x.as_standard_layout();
+        let ready = if self.bounded_outputs {
+            let warped = crate::y_bounds::warp_y(*y, &self.y_bounds)?;
+            self.metric.as_mut().unwrap().ingest(
+                x_std.as_slice().expect("standard layout"),
+                warped.as_slice().expect("standard layout"),
+                x.nrows(),
+            )?
         } else {
-            y.to_owned()
+            let y_std = y.as_standard_layout();
+            self.metric.as_mut().unwrap().ingest(
+                x_std.as_slice().expect("standard layout"),
+                y_std.as_slice().expect("standard layout"),
+                x.nrows(),
+            )?
         };
-        let ready = self.metric.as_mut().unwrap().ingest(
-            x.as_slice().unwrap(),
-            y.as_slice().unwrap(),
-            x.nrows(),
-        )?;
-        if ready {
-            if let Some(weights) = self.metric.as_mut().unwrap().propose()? {
-                self = self.metric_weights(&weights)?;
-            }
+        if ready && let Some(weights) = self.metric.as_mut().unwrap().propose()? {
+            self = self.metric_weights(&weights)?;
         }
         Ok(self)
     }
@@ -249,10 +270,11 @@ impl ENN {
         } else {
             self.backend = self.backend.mark_stale();
         }
+        let shared = Arc::new(scale);
         if update.rebuild {
-            self.built_scale = scale.clone();
+            self.built_scale = shared.clone();
         }
-        self.x_scale = scale;
+        self.x_scale = shared;
         self = self.refresh_scales();
         Ok(self)
     }
@@ -326,7 +348,7 @@ impl ENN {
                     m,
                     rank,
                 ) {
-                    self.stiefel = Some(st.with_count(n));
+                    self.stiefel = Some(Arc::new(st.with_count(n)));
                 }
             }
         }
@@ -358,12 +380,13 @@ impl ENN {
                 let y_s = f_y.as_slice().expect("standard layout");
                 if let Ok(mut aff) = baux::semantics::affine::Affine::fit_wls(mu_s, y_s, se_s, n, m)
                 {
-                    if alpha > 0.0 && alpha < 1.0 {
-                        if let Ok(c) = aff.conformal_scale(mu_s, y_s, se_s, n, m, alpha) {
-                            aff.c = c;
-                        }
+                    if alpha > 0.0
+                        && alpha < 1.0
+                        && let Ok(c) = aff.conformal_scale(mu_s, y_s, se_s, n, m, alpha)
+                    {
+                        aff.c = c;
                     }
-                    self.affine = Some(aff);
+                    self.affine = Some(Arc::new(aff));
                 }
             }
         }

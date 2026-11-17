@@ -43,6 +43,18 @@ impl<'a, Space> Coords<'a, Space> {
 #[derive(Clone, Copy, Debug)]
 pub struct CoordPoint<'a, Space>(pub ArrayView1<'a, f64>, PhantomData<fn() -> Space>);
 
+impl<'a, Space> CoordPoint<'a, Space> {
+    #[inline(always)]
+    pub const fn new(view: ArrayView1<'a, f64>) -> Self {
+        Self(view, PhantomData)
+    }
+
+    #[inline(always)]
+    pub const fn view(&self) -> &ArrayView1<'a, f64> {
+        &self.0
+    }
+}
+
 /// Owned 2D coordinate matrix statically tagged with its coordinate space.
 #[diagnostic::on_type_error(
     note = "coordinate space mismatch (`{Expected}` vs `{Found}`): use `DomainFrame::encode_unit` / `decode_domain` or an `Embedding` to convert between `DomainSpace` and `UnitSpace`"
@@ -52,7 +64,7 @@ pub struct OwnedCoords<Space>(Array2<f64>, PhantomData<fn() -> Space>);
 
 impl<Space> OwnedCoords<Space> {
     #[inline(always)]
-    pub fn new(array: Array2<f64>) -> Self {
+    pub const fn new(array: Array2<f64>) -> Self {
         Self(array, PhantomData)
     }
 
@@ -62,8 +74,13 @@ impl<Space> OwnedCoords<Space> {
     }
 
     #[inline(always)]
-    pub fn as_array(&self) -> &Array2<f64> {
+    pub const fn as_array(&self) -> &Array2<f64> {
         &self.0
+    }
+
+    #[inline(always)]
+    pub fn into_array(self) -> Array2<f64> {
+        self.0
     }
 }
 

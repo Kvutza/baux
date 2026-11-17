@@ -629,4 +629,51 @@ fn fork_isolation() {
     // Sub-forking from fork_a produces another isolated branch
     let fork_a_sub = fork_a.fork().unwrap();
     assert_eq!(fork_a.digest(), fork_a_sub.digest());
+    assert!(fork_a.shares_storage(&fork_a_sub));
+}
+
+#[test]
+fn fbip_lifecycle() {
+    let bounds = array![[0.0, 1.0], [0.0, 1.0], [0.0, 1.0], [0.0, 1.0]];
+    let mut rng = StdRng::seed_from_u64(314);
+
+    // 1. Empirical (`turbo_zero`) O(1) structural fork & FBIP in-place append
+    let mut emp = BayesOptimizer::new_strategy(
+        bounds.clone(),
+        crate::turbo_zero(),
+        Strategy::hybrid(crate::config::InitStrategy::LHD, 2),
+        &mut rng,
+    )
+    .unwrap();
+    assert_eq!(emp.warmup.mode, crate::optimizer::Lifecycle::Warmup);
+    let (next_emp, x0) = emp.ask(2, &mut rng).unwrap();
+    emp = next_emp
+        .tell(&x0.view(), &array![[1.0], [2.0]].view(), None, &mut rng)
+        .unwrap();
+    assert_eq!(emp.warmup.mode, crate::optimizer::Lifecycle::Active);
+    assert!(emp.ingestion_failure().is_none());
+
+    let emp_fork = emp.fork().unwrap();
+    assert!(emp.shares_storage(&emp_fork));
+
+    // 2. Built-in ENN (`turbo_enn`) O(1) structural fork & FBIP slab sharing
+    let mut enn_opt = BayesOptimizer::new_strategy(
+        bounds,
+        crate::turbo_enn(),
+        Strategy::hybrid(crate::config::InitStrategy::LHD, 3),
+        &mut rng,
+    )
+    .unwrap();
+    let (next_enn, x_init) = enn_opt.ask(3, &mut rng).unwrap();
+    enn_opt = next_enn
+        .tell(
+            &x_init.view(),
+            &array![[0.5], [1.5], [2.5]].view(),
+            None,
+            &mut rng,
+        )
+        .unwrap();
+    let enn_fork = enn_opt.fork().unwrap();
+    assert!(enn_opt.shares_storage(&enn_fork));
+    assert_eq!(enn_opt.digest(), enn_fork.digest());
 }

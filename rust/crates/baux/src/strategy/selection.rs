@@ -152,6 +152,7 @@ pub(super) fn select_segment(
 
 /// Select `num_arms` winners jointly across all regional candidate segments
 /// (TuRBO-m).
+#[allow(dead_code)]
 pub(super) fn select_joint(
     optimizer: &BayesOptimizer,
     candidates: &ArrayView2<f64>,
@@ -171,7 +172,10 @@ pub(super) fn select_joint(
         }
     }
     scored.shuffle(rng);
-    scored.sort_by(|left, right| right.0.total_cmp(&left.0));
+    scored.sort_by(|left, right| {
+        use baux::semantics::optimizer::surrogate::BetterScore;
+        BetterScore(right.0).cmp(&BetterScore(left.0))
+    });
     let chosen = &scored[..num_arms.min(scored.len())];
     let mut indices = Vec::with_capacity(chosen.len());
     let mut winners = Vec::new();
@@ -336,9 +340,19 @@ pub(super) fn thompson_segments(
 ) -> Result<Vec<usize>, ENNError> {
     let max_arms = segments.iter().map(|s| s.arms).max().unwrap_or(1);
     let samples = surrogate.sample(candidates, max_arms, rng)?;
-    let n_cand = candidates.nrows();
+    pick_thompson(optimizer, &samples, candidates.nrows(), segments, rng)
+}
+
+fn pick_thompson(
+    optimizer: &BayesOptimizer,
+    samples: &ndarray::Array3<f64>,
+    n_cand: usize,
+    segments: &[CandidateSegment],
+    rng: &mut dyn RngCore,
+) -> Result<Vec<usize>, ENNError> {
+    let max_arms = segments.iter().map(|s| s.arms).max().unwrap_or(1);
     if optimizer.trust_region().is_morbo() {
-        let flat_scores = morbo_samples(optimizer, &samples, max_arms, n_cand)?;
+        let flat_scores = morbo_samples(optimizer, samples, max_arms, n_cand)?;
         let mut selected = Vec::new();
         for segment in segments {
             let mut local = Vec::with_capacity(segment.arms);
@@ -385,8 +399,18 @@ pub(super) fn ucb_segments(
     rng: &mut dyn RngCore,
 ) -> Result<Vec<usize>, ENNError> {
     let prediction = surrogate.predict(candidates)?;
+    pick_ucb(optimizer, &prediction, segments, beta, rng)
+}
+
+fn pick_ucb(
+    optimizer: &BayesOptimizer,
+    prediction: &crate::surrogate::SurrogatePrediction,
+    segments: &[CandidateSegment],
+    beta: f64,
+    rng: &mut dyn RngCore,
+) -> Result<Vec<usize>, ENNError> {
     if optimizer.trust_region().is_morbo() {
-        let values = &prediction.mu + &(prediction.se * beta);
+        let values = &prediction.mu + &(&prediction.se * beta);
         let scores = optimizer
             .trust_region()
             .morbo_scalarize(&values.view(), false)
@@ -395,7 +419,10 @@ pub(super) fn ucb_segments(
         for segment in segments {
             let mut local = (segment.start..segment.end).collect::<Vec<_>>();
             local.shuffle(rng);
-            local.sort_by(|&left, &right| scores[right].total_cmp(&scores[left]));
+            local.sort_by(|&left, &right| {
+                use baux::semantics::optimizer::surrogate::BetterScore;
+                BetterScore(scores[right]).cmp(&BetterScore(scores[left]))
+            });
             selected.extend(local.into_iter().take(segment.arms));
         }
         return Ok(selected);
@@ -420,6 +447,14 @@ pub(super) fn pareto_segments(
     rng: &mut dyn RngCore,
 ) -> Result<Vec<usize>, ENNError> {
     let prediction = surrogate.predict(candidates)?;
+    pick_pareto(&prediction, segments, rng)
+}
+
+fn pick_pareto(
+    prediction: &crate::surrogate::SurrogatePrediction,
+    segments: &[CandidateSegment],
+    rng: &mut dyn RngCore,
+) -> Result<Vec<usize>, ENNError> {
     let pareto = ParetoAcquisition::new();
     let mut selected = Vec::new();
     for segment in segments {
@@ -434,6 +469,216 @@ pub(super) fn pareto_segments(
         selected.extend(local.into_iter().map(|index| segment.start + index));
     }
     Ok(selected)
+}
+
+#[allow(dead_code)]
+fn enn_select<P: crate::posterior::PullPool + ?Sized>(
+    optimizer: &BayesOptimizer,
+    enn: &crate::surrogate::ENNSurrogate,
+    pool: &P,
+    num_arms: usize,
+    acquisition: AcquisitionConfig,
+    rng: &mut dyn RngCore,
+) -> Result<Vec<usize>, ENNError> {
+    let n = pool.num_candidates();
+    let seg = single_segment(n, num_arms);
+    match acquisition {
+        AcquisitionConfig::Random => random_segments(&seg, rng),
+        AcquisitionConfig::Thompson => {
+            let samples = crate::posterior::sample_pool(enn, pool, num_arms.max(1), rng)?;
+            pick_thompson(optimizer, &samples, n, &seg, rng)
+        }
+        AcquisitionConfig::UCB { beta } => {
+            let pred = crate::posterior::predict_pool(enn, pool)?;
+            pick_ucb(optimizer, &pred, &seg, beta, rng)
+        }
+        AcquisitionConfig::Pareto => {
+            let pred = crate::posterior::predict_pool(enn, pool)?;
+            pick_pareto(&pred, &seg, rng)
+        }
+    }
+}
+
+#[allow(dead_code)]
+fn enn_score<P: crate::posterior::PullPool + ?Sized>(
+    optimizer: &BayesOptimizer,
+    enn: &crate::surrogate::ENNSurrogate,
+    pool: &P,
+    acquisition: AcquisitionConfig,
+    rng: &mut dyn RngCore,
+) -> Result<Vec<f64>, ENNError> {
+    let n = pool.num_candidates();
+    match acquisition {
+        AcquisitionConfig::Random => Ok((0..n)
+            .map(|_| rand::Rng::gen_range(&mut *rng, 0.0..1.0))
+            .collect()),
+        AcquisitionConfig::Thompson => {
+            let samples = crate::posterior::sample_pool(enn, pool, 1, rng)?;
+            if optimizer.trust_region().is_morbo() {
+                let scores = morbo_samples(optimizer, &samples, 1, n)?;
+                return Ok(scores.to_vec());
+            }
+            Ok((0..n).map(|i| samples[[0, i, 0]]).collect())
+        }
+        AcquisitionConfig::UCB { beta } => {
+            let pred = crate::posterior::predict_pool(enn, pool)?;
+            if optimizer.trust_region().is_morbo() {
+                let values = &pred.mu + &(&pred.se * beta);
+                let scores = optimizer
+                    .trust_region()
+                    .morbo_scalarize(&values.view(), false)
+                    .map_err(|error| ENNError::InvalidParameter(error.to_string()))?;
+                return Ok(scores.to_vec());
+            }
+            Ok((0..n)
+                .map(|i| pred.mu[[i, 0]] + beta * pred.se[[i, 0]])
+                .collect())
+        }
+        AcquisitionConfig::Pareto => {
+            let pred = crate::posterior::predict_pool(enn, pool)?;
+            Ok((0..n).map(|i| pred.mu[[i, 0]] + pred.se[[i, 0]]).collect())
+        }
+    }
+}
+
+/// Zero-materialization single-region arm selection over a [`PullPool`].
+/// Materializes ONLY the `num_arms` winning rows for built-in ENN and
+/// surrogate-free modes, falling back to a single batch call only for external
+/// Python/custom surrogates.
+#[allow(dead_code)]
+pub(super) fn pool_arms<P: crate::posterior::PullPool + ?Sized>(
+    optimizer: &BayesOptimizer,
+    pool: &P,
+    num_arms: usize,
+    rng: &mut dyn RngCore,
+) -> Result<Array2<f64>, ENNError> {
+    let n = pool.num_candidates();
+    let acq = optimizer.config().acquisition;
+    let has_fitted = optimizer.surrogate().is_some_and(|s| {
+        optimizer.posterior.obs_count() > 0 || s.observation_count().is_some_and(|c| c > 0)
+    });
+    if !has_fitted || matches!(acq, AcquisitionConfig::Random) {
+        let indices = random_segments(&single_segment(n, num_arms), rng)?;
+        return Ok(crate::posterior::materialize_selected(pool, &indices));
+    }
+    if let Some(enn) = optimizer.posterior.enn() {
+        let indices = enn_select(optimizer, enn, pool, num_arms, acq, rng)?;
+        return Ok(crate::posterior::materialize_selected(pool, &indices));
+    }
+    let all_indices: Vec<usize> = (0..n).collect();
+    let dense = crate::posterior::materialize_selected(pool, &all_indices);
+    select_arms(optimizer, &dense.view(), num_arms, rng)
+}
+
+/// Zero-materialization per-region arm selection over a [`PullPool`].
+#[allow(dead_code)]
+pub(super) fn pool_region<P: crate::posterior::PullPool + ?Sized>(
+    optimizer: &BayesOptimizer,
+    state: &crate::optimizer::MultiTrustRegionState,
+    region: usize,
+    pool: &P,
+    num_arms: usize,
+    rng: &mut dyn RngCore,
+) -> Result<Array2<f64>, ENNError> {
+    let n = pool.num_candidates();
+    let acquisition = state.acquisition_for(region, optimizer.config().acquisition);
+    if let Some(models) = optimizer.local_models.as_ref() {
+        if region >= models.slot_count() {
+            return Err(ENNError::InvalidParameter(
+                "regional model slot is missing".into(),
+            ));
+        }
+        if let Some(local_enn) = models.enn_model(region) {
+            let indices = enn_select(optimizer, local_enn, pool, num_arms, acquisition, rng)?;
+            return Ok(crate::posterior::materialize_selected(pool, &indices));
+        }
+        if let Some(local_ext) = models.model(region) {
+            if matches!(acquisition, AcquisitionConfig::Random) {
+                let indices = random_segments(&single_segment(n, num_arms), rng)?;
+                return Ok(crate::posterior::materialize_selected(pool, &indices));
+            }
+            let all_indices: Vec<usize> = (0..n).collect();
+            let dense = crate::posterior::materialize_selected(pool, &all_indices);
+            let indices = select_with(
+                optimizer,
+                Some(local_ext),
+                &dense.view(),
+                &single_segment(n, num_arms),
+                acquisition,
+                rng,
+            )?;
+            return Ok(select_indices(&dense.view(), &indices));
+        }
+    }
+    let global_fitted = optimizer.surrogate().filter(|s| {
+        optimizer.posterior.obs_count() > 0 || s.observation_count().is_some_and(|c| c > 0)
+    });
+    if global_fitted.is_none() || matches!(acquisition, AcquisitionConfig::Random) {
+        let indices = random_segments(&single_segment(n, num_arms), rng)?;
+        return Ok(crate::posterior::materialize_selected(pool, &indices));
+    }
+    if let Some(global_enn) = optimizer.posterior.enn() {
+        let indices = enn_select(optimizer, global_enn, pool, num_arms, acquisition, rng)?;
+        return Ok(crate::posterior::materialize_selected(pool, &indices));
+    }
+    let all_indices: Vec<usize> = (0..n).collect();
+    let dense = crate::posterior::materialize_selected(pool, &all_indices);
+    let indices = select_with(
+        optimizer,
+        global_fitted,
+        &dense.view(),
+        &single_segment(n, num_arms),
+        acquisition,
+        rng,
+    )?;
+    Ok(select_indices(&dense.view(), &indices))
+}
+
+/// Zero-materialization per-region candidate scoring for `JointAcquisition`.
+#[allow(dead_code)]
+pub(super) fn pool_scores<P: crate::posterior::PullPool + ?Sized>(
+    optimizer: &BayesOptimizer,
+    state: &crate::optimizer::MultiTrustRegionState,
+    region: usize,
+    pool: &P,
+    rng: &mut dyn RngCore,
+) -> Result<Vec<f64>, ENNError> {
+    let n = pool.num_candidates();
+    let acquisition = state.acquisition_for(region, optimizer.config().acquisition);
+    if let Some(models) = optimizer.local_models.as_ref() {
+        if region >= models.slot_count() {
+            return Err(ENNError::InvalidParameter(
+                "regional model slot is missing".into(),
+            ));
+        }
+        if let Some(local_enn) = models.enn_model(region) {
+            return enn_score(optimizer, local_enn, pool, acquisition, rng);
+        }
+        if let Some(local_ext) = models.model(region) {
+            if matches!(acquisition, AcquisitionConfig::Random) {
+                return Ok((0..n)
+                    .map(|_| rand::Rng::gen_range(&mut *rng, 0.0..1.0))
+                    .collect());
+            }
+            let all_indices: Vec<usize> = (0..n).collect();
+            let dense = crate::posterior::materialize_selected(pool, &all_indices);
+            return score_with(optimizer, Some(local_ext), &dense.view(), acquisition, rng);
+        }
+    }
+    let global_fitted = optimizer.surrogate().filter(|s| {
+        optimizer.posterior.obs_count() > 0 || s.observation_count().is_some_and(|c| c > 0)
+    });
+    if global_fitted.is_none() || matches!(acquisition, AcquisitionConfig::Random) {
+        return Ok((0..n)
+            .map(|_| rand::Rng::gen_range(&mut *rng, 0.0..1.0))
+            .collect());
+    }
+    if let Some(global_enn) = optimizer.posterior.enn() {
+        return enn_score(optimizer, global_enn, pool, acquisition, rng);
+    }
+    let all_indices: Vec<usize> = (0..n).collect();
+    let dense = crate::posterior::materialize_selected(pool, &all_indices);
+    score_with(optimizer, global_fitted, &dense.view(), acquisition, rng)
 }
 
 /// Select arms using acquisition function over a single region segment.

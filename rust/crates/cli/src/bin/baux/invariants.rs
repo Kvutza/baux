@@ -766,13 +766,117 @@ pub fn check_hygiene(root: &Path) -> Result<usize, String> {
     Ok(count)
 }
 
+struct TurboGuard {
+    path: &'static str,
+    raw: &'static [&'static str],
+    compact: &'static [&'static str],
+}
+
+const TURBO_GUARDS: &[TurboGuard] = &[
+    TurboGuard {
+        path: "rust/crates/baux/src/resident_search.metal",
+        raw: &["PROCEDURAL_COUNT"],
+        compact: &["if(tid!=0)return", "axis_candidates[4]"],
+    },
+    TurboGuard {
+        path: "rust/crates/baux/src/resident_objectives.metal",
+        raw: &["PROCEDURAL_COUNT"],
+        compact: &["if(tid!=0)return", "priorities[4]"],
+    },
+    TurboGuard {
+        path: "rust/crates/baux/src/procedural_pool.rs",
+        raw: &["1..=4"],
+        compact: &["count>4"],
+    },
+    TurboGuard {
+        path: "rust/crates/baux/semantics/src/optimizer/trust_region/mod.rs",
+        raw: &[],
+        compact: &["CANDIDATES:usize=4", "CANDIDATES=4"],
+    },
+    TurboGuard {
+        path: "rust/crates/baux/semantics/src/optimizer/mod.rs",
+        raw: &[],
+        compact: &["not(feature=\"cuda-device\")"],
+    },
+    TurboGuard {
+        path: "rust/crates/runner/src/experiment/tokamak/metal.rs",
+        raw: &["1..=4"],
+        compact: &["candidates>4", "arms!=1", "perturbation.is_some()"],
+    },
+    TurboGuard {
+        path: "rust/crates/runner/src/experiment/julia/mode.rs",
+        raw: &["1..=4"],
+        compact: &[
+            "candidates>4",
+            "perturbation.is_some()",
+            "cfg.manifold.is_some()",
+            "!=baux::Rescalarize::OnRestart",
+            "!=Rescalarize::OnRestart",
+            "(2..=8).contains",
+        ],
+    },
+    TurboGuard {
+        path: "rust/crates/baux/src/config/objectives.rs",
+        raw: &[],
+        compact: &["(2..=8).contains"],
+    },
+];
+
+pub fn turbo_hits(rel: &str, src: &str, raw: &[&str], compact: &[&str]) -> Vec<String> {
+    let mut hits = Vec::new();
+    for (idx, line) in src.lines().enumerate() {
+        let code = line.split("//").next().unwrap_or("");
+        if code.trim().is_empty() {
+            continue;
+        }
+        for needle in raw {
+            if code.contains(needle) {
+                hits.push(format!(
+                    "{rel}:{}: forbidden legacy cap `{needle}`",
+                    idx + 1
+                ));
+            }
+        }
+        let squashed: String = code.chars().filter(|c| !c.is_whitespace()).collect();
+        for needle in compact {
+            if squashed.contains(needle) {
+                hits.push(format!(
+                    "{rel}:{}: forbidden legacy cap `{needle}`",
+                    idx + 1
+                ));
+            }
+        }
+    }
+    hits
+}
+
+/// Reject legacy 4-candidate ceilings, single-thread Metal selection, and
+/// `bayesian-search` backend capability rejections across Host, Metal, and
+/// CUDA.
+pub fn check_turbo(root: &Path) -> Result<usize, String> {
+    let mut violations = Vec::new();
+    for guard in TURBO_GUARDS {
+        let full = root.join(guard.path);
+        let text = fs::read_to_string(&full).map_err(|e| format!("read {}: {e}", guard.path))?;
+        violations.extend(turbo_hits(guard.path, &text, guard.raw, guard.compact));
+    }
+    if !violations.is_empty() {
+        return Err(format!(
+            "TuRBO-ENN regression guardrail violation(s):\n  {}",
+            violations.join("\n  ")
+        ));
+    }
+    Ok(TURBO_GUARDS.len())
+}
+
 pub fn verify_all(root: &Path, options: Options) -> Result<(), String> {
     let webgpu_count = check_webgpu(root)?;
     let (lean_files, pin_count) = check_lean(root, options.strict_extraction)?;
     let crate_count = check_parity(root)?;
     let rust_count = check_hygiene(root)?;
+    let turbo_count = check_turbo(root)?;
     println!(
-        "[ok] Invariants: webgpu_abi={webgpu_count} syms, lean={lean_files} files ({pin_count} seals), crates={crate_count}, rust_files={rust_count}."
+        "[ok] Invariants: webgpu_abi={webgpu_count} syms, lean={lean_files} files ({pin_count} seals), crates={crate_count}, rust_files={rust_count}, turbo_guards={turbo_count}."
     );
     Ok(())
 }
@@ -847,5 +951,42 @@ mod tests {
         let dirty = "theorem broken : False := by sorry\n";
         let hits = lean_holes(dirty);
         assert_eq!(hits, vec![(1, "sorry".to_string())]);
+    }
+
+    #[test]
+    fn test_turbo() {
+        let comment_only =
+            "// historical #define PROCEDURAL_COUNT 4 and candidates > 4\nlet ok = 1;\n";
+        assert!(
+            turbo_hits(
+                "sample.metal",
+                comment_only,
+                &["PROCEDURAL_COUNT", "1..=4"],
+                &["candidates>4", "if(tid!=0)return"],
+            )
+            .is_empty()
+        );
+
+        let metal_reg = "#define PROCEDURAL_COUNT 4\nif (tid != 0) return;\n";
+        let hits = turbo_hits(
+            "resident_search.metal",
+            metal_reg,
+            &["PROCEDURAL_COUNT"],
+            &["if(tid!=0)return"],
+        );
+        assert_eq!(hits.len(), 2);
+
+        let runner_reg = concat!(
+            "if *candidates > 4 { return Err(\"1..=4\".into()); }\n",
+            "if cfg.manifold.is_some() { return Err(\"no\".into()); }\n",
+            "if !(2..=8).contains(&m.regions) { return Err(\"cap\".into()); }\n",
+        );
+        let r_hits = turbo_hits(
+            "julia/mode.rs",
+            runner_reg,
+            &["1..=4"],
+            &["candidates>4", "cfg.manifold.is_some()", "(2..=8).contains"],
+        );
+        assert_eq!(r_hits.len(), 4);
     }
 }

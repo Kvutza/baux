@@ -4,16 +4,28 @@
 use crate::experiment::julia::config::{Backend, Config, ExecMode, is_ocean, obj_count};
 use baux::config::OptimizerSpec;
 
+fn check_manifold(cfg: &Config) -> Result<(), String> {
+    let Some(ref mf) = cfg.manifold else {
+        return Ok(());
+    };
+    if mf.stiefel_rank == Some(0) {
+        return Err("manifold.stiefel-rank must be positive".into());
+    }
+    if let Some(alpha) = mf.calibrate_alpha
+        && (!alpha.is_finite() || alpha <= 0.0 || alpha >= 1.0)
+    {
+        return Err("manifold.calibrate-alpha must lie in (0, 1)".into());
+    }
+    Ok(())
+}
+
 fn check_morbo(cfg: &Config) -> Result<(), String> {
     let Some(ref m) = cfg.morbo else {
         return Ok(());
     };
     let n_obj = obj_count(cfg);
-    if m.rescalarize != baux::Rescalarize::OnRestart {
-        return Err("resident-metal MORBO requires morbo.rescalarize = 'on-restart'".into());
-    }
-    if !(2..=8).contains(&m.regions) {
-        return Err("resident-metal MORBO requires morbo.regions in 2..=8".into());
+    if m.regions == 0 {
+        return Err("morbo.regions must be positive".into());
     }
     if !m.alpha.is_finite() || m.alpha < 0.0 {
         return Err("morbo.alpha must be finite and nonnegative".into());
@@ -39,27 +51,32 @@ fn check_optimizer(cfg: &Config) -> Result<(), String> {
         OptimizerSpec::SingleStateBo {
             perturbation: Some(_),
             ..
-        } => Err("resident-metal does not accept host [optimizer.perturbation] overrides".into()),
-        OptimizerSpec::SingleStateBo { .. } => Ok(()),
+        } => Err("resident-metal single-state-bo does not accept [optimizer.perturbation]".into()),
+        OptimizerSpec::SingleStateBo {
+            regional_search, ..
+        } => {
+            if let Some(rs) = regional_search {
+                rs.validate()?;
+            }
+            Ok(())
+        }
         OptimizerSpec::BayesianSearch {
             candidates,
             arms,
             perturbation,
+            regional_search,
             ..
         } => {
-            if perturbation.is_some() {
+            if let Some(pert) = perturbation {
+                pert.validate()?;
+            }
+            if *arms == 0 || *candidates == 0 || !candidates.is_multiple_of(*arms) {
                 return Err(
-                    "resident-metal does not accept host [optimizer.perturbation] overrides".into(),
+                    "bayesian-search requires positive candidates divisible by arms".into(),
                 );
             }
-            if *arms == 0
-                || *candidates == 0
-                || *candidates > 4
-                || !candidates.is_multiple_of(*arms)
-            {
-                return Err(
-                    "resident-metal requires 1..=4 total candidates divisible by arms".into(),
-                );
+            if let Some(rs) = regional_search {
+                rs.validate()?;
             }
             Ok(())
         }
@@ -71,9 +88,7 @@ pub fn metal_ok(cfg: &Config) -> Result<(), String> {
     if !cfg!(all(target_os = "macos", target_arch = "aarch64")) {
         return Err("resident-metal backend requires macOS with Metal feature".into());
     }
-    if cfg.manifold.is_some() {
-        return Err("manifold host options are not supported on resident-metal".into());
-    }
+    check_manifold(cfg)?;
     check_morbo(cfg)?;
     check_optimizer(cfg)
 }
@@ -111,18 +126,7 @@ pub fn resolve_mode(cfg: &Config) -> Result<ExecMode, String> {
         Backend::HostRam => Ok(ExecMode::HostRam),
         Backend::HostDisk => Ok(ExecMode::HostDisk),
         Backend::Auto => {
-            let prefer = matches!(
-                &cfg.optimizer,
-                OptimizerSpec::SingleStateBo {
-                    perturbation: None,
-                    ..
-                } | OptimizerSpec::BayesianSearch {
-                    distribution: Some(_),
-                    perturbation: None,
-                    ..
-                }
-            );
-            if prefer && metal_ok(cfg).is_ok() {
+            if metal_ok(cfg).is_ok() {
                 Ok(ExecMode::ResidentMetal)
             } else {
                 Ok(ExecMode::HostRam)

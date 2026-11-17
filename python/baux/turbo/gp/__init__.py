@@ -67,6 +67,15 @@ class Surrogate:
         self._std: float | Any = 1.0
         self._ls: np.ndarray | None = None
 
+    def fork(self) -> Self:
+        """Create a structural fork sharing the current fitted GP model snapshot."""
+        branch = type(self)()
+        branch._model = self._model
+        branch._mean = self._mean
+        branch._std = self._std
+        branch._ls = None if self._ls is None else self._ls.copy()
+        return branch
+
     @property
     def lengthscales(self) -> np.ndarray | None:
         """Return normalized ARD kernel lengthscales from the fitted model."""

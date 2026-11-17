@@ -103,12 +103,23 @@ impl ENNSurrogate {
         }
     }
 
+    pub fn config(&self) -> &ENNSurrogateConfig {
+        &self.config
+    }
+
     pub fn model(&self) -> Option<&ENN> {
         self.model.as_ref()
     }
 
     pub fn params(&self) -> Option<&ENNParams> {
         self.params.as_ref()
+    }
+
+    pub(crate) fn resolved_params(&self) -> Result<ENNParams, ENNError> {
+        match self.params.as_ref() {
+            Some(p) => Ok(*p),
+            None => self.seed_params(),
+        }
     }
 
     fn construct_model(
@@ -537,6 +548,32 @@ impl Surrogate for ENNSurrogate {
             .as_ref()
             .ok_or_else(|| ENNError::InvalidParameter("Surrogate not fitted".to_string()))?;
         model.natural_y(idx)
+    }
+
+    fn x_slice(&self, idx: usize) -> Result<std::borrow::Cow<'_, [f64]>, ENNError> {
+        let model = self
+            .model
+            .as_ref()
+            .ok_or_else(|| ENNError::InvalidParameter("Surrogate not fitted".to_string()))?;
+        if let Some(slice) = model.backend.slice_x(idx)? {
+            return Ok(std::borrow::Cow::Borrowed(slice));
+        }
+        let row = model.rows().row_x(idx)?;
+        Ok(std::borrow::Cow::Owned(row.into_raw_vec_and_offset().0))
+    }
+
+    fn y_slice(&self, idx: usize) -> Result<std::borrow::Cow<'_, [f64]>, ENNError> {
+        let model = self
+            .model
+            .as_ref()
+            .ok_or_else(|| ENNError::InvalidParameter("Surrogate not fitted".to_string()))?;
+        if !model.bounded_outputs && model.stiefel.is_none() && model.affine.is_none() {
+            if let Some(slice) = model.backend.slice_y(idx)? {
+                return Ok(std::borrow::Cow::Borrowed(slice));
+            }
+        }
+        let row = model.natural_y(idx)?;
+        Ok(std::borrow::Cow::Owned(row.into_raw_vec_and_offset().0))
     }
 
     fn observations_y(&self) -> Result<Option<Array2<f64>>, ENNError> {

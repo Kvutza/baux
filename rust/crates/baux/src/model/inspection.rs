@@ -2,6 +2,7 @@
 
 use ndarray::{Array1, Array2};
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use crate::backend::{EnnBackend, EnnStorage};
 use crate::error::ENNError;
@@ -93,75 +94,33 @@ pub(crate) fn compute_scales(
     Ok(Arc::new((sc, local_k, s_min, s_max)))
 }
 
-/// Epistemic Nearest Neighbors model.
+/// FBIP persistent Epistemic Nearest Neighbors model (`O(1)` `Clone` / `fork`).
+#[derive(Clone)]
 pub struct ENN {
     pub(crate) backend: EnnBackend,
     pub(crate) num_obs: usize,
     pub(crate) num_dim: usize,
     pub(crate) num_metrics: usize,
     pub(crate) scale_x: bool,
-    pub(crate) x_scale: Array1<f64>,
-    pub(crate) y_scale: Array1<f64>,
-    pub(crate) y_bounds: Array2<f64>,
+    pub(crate) x_scale: Arc<Array1<f64>>,
+    pub(crate) y_scale: Arc<Array1<f64>>,
+    pub(crate) y_bounds: Arc<Array2<f64>>,
     pub(crate) bounded_outputs: bool,
-    pub(crate) stiefel: Option<baux::semantics::stiefel::Stiefel>,
-    pub(crate) affine: Option<baux::semantics::affine::Affine>,
-    pub(crate) y_sum: Array1<f64>,
-    pub(crate) y_sumsq: Array1<f64>,
-    pub(super) x_sum: Array1<f64>,
-    pub(super) x_sumsq: Array1<f64>,
-    pub(super) work_dir: Option<PathBuf>,
+    pub(crate) stiefel: Option<Arc<baux::semantics::stiefel::Stiefel>>,
+    pub(crate) affine: Option<Arc<baux::semantics::affine::Affine>>,
+    pub(crate) y_sum: Arc<Array1<f64>>,
+    pub(crate) y_sumsq: Arc<Array1<f64>>,
+    pub(super) x_sum: Arc<Array1<f64>>,
+    pub(super) x_sumsq: Arc<Array1<f64>>,
+    pub(super) work_dir: Option<Arc<PathBuf>>,
     pub(super) metric: Option<crate::metric_auto::AutoMetric>,
     pub(super) metric_fixed: bool,
-    pub(super) built_scale: Array1<f64>,
-    pub(super) unscaled_dims: Vec<usize>,
-    pub(super) tied_groups: Vec<Vec<usize>>,
+    pub(super) built_scale: Arc<Array1<f64>>,
+    pub(super) unscaled_dims: Arc<Vec<usize>>,
+    pub(super) tied_groups: Arc<Vec<Vec<usize>>>,
     pub(crate) dist_metric: baux::semantics::neighbor::DistanceMetric,
-    pub(crate) scale_info: std::sync::Arc<crate::posterior::neighbor_dist::ScaleInfo>,
+    pub(crate) scale_info: Arc<crate::posterior::neighbor_dist::ScaleInfo>,
     pub(crate) scale_cache: PureScaleCache,
-}
-
-impl Clone for ENN {
-    fn clone(&self) -> Self {
-        let metric = self.metric.as_ref().and_then(|m| {
-            let mut next = crate::metric_auto::AutoMetric::new(
-                self.num_dim,
-                self.num_metrics,
-                m.tied().to_vec(),
-                m.seed(),
-            )
-            .ok()?;
-            let _ = next.set_unscaled(self.unscaled_dims.clone());
-            let _ = next.set_weights(m.weights());
-            Some(next)
-        });
-        Self {
-            backend: self.backend.clone(),
-            num_obs: self.num_obs,
-            num_dim: self.num_dim,
-            num_metrics: self.num_metrics,
-            scale_x: self.scale_x,
-            x_scale: self.x_scale.clone(),
-            y_scale: self.y_scale.clone(),
-            y_bounds: self.y_bounds.clone(),
-            bounded_outputs: self.bounded_outputs,
-            stiefel: self.stiefel.clone(),
-            affine: self.affine.clone(),
-            y_sum: self.y_sum.clone(),
-            y_sumsq: self.y_sumsq.clone(),
-            x_sum: self.x_sum.clone(),
-            x_sumsq: self.x_sumsq.clone(),
-            work_dir: self.work_dir.clone(),
-            metric,
-            metric_fixed: self.metric_fixed,
-            built_scale: self.built_scale.clone(),
-            unscaled_dims: self.unscaled_dims.clone(),
-            tied_groups: self.tied_groups.clone(),
-            dist_metric: self.dist_metric,
-            scale_info: self.scale_info.clone(),
-            scale_cache: self.scale_cache.clone(),
-        }
-    }
 }
 
 impl ENN {
@@ -187,7 +146,7 @@ impl ENN {
         self
     }
 
-    pub fn scale_info(&self) -> &std::sync::Arc<crate::posterior::neighbor_dist::ScaleInfo> {
+    pub fn scale_info(&self) -> &Arc<crate::posterior::neighbor_dist::ScaleInfo> {
         &self.scale_info
     }
 
@@ -215,7 +174,7 @@ impl ENN {
                 self.num_metrics
             )));
         }
-        self.stiefel = Some(st.with_count(self.num_obs));
+        self.stiefel = Some(Arc::new(st.with_count(self.num_obs)));
         Ok(self)
     }
 
@@ -230,16 +189,16 @@ impl ENN {
                 self.num_metrics
             )));
         }
-        self.affine = Some(aff);
+        self.affine = Some(Arc::new(aff));
         Ok(self)
     }
 
     pub fn stiefel(&self) -> Option<&baux::semantics::stiefel::Stiefel> {
-        self.stiefel.as_ref()
+        self.stiefel.as_deref()
     }
 
     pub fn affine(&self) -> Option<&baux::semantics::affine::Affine> {
-        self.affine.as_ref()
+        self.affine.as_deref()
     }
 
     pub(crate) fn apply_codomain(
@@ -303,6 +262,10 @@ impl ENN {
         &self.y_bounds
     }
 
+    pub(crate) fn shared_bounds(&self) -> Arc<Array2<f64>> {
+        self.y_bounds.clone()
+    }
+
     pub fn bounded_outputs(&self) -> bool {
         self.bounded_outputs
     }
@@ -312,11 +275,11 @@ impl ENN {
     }
 
     pub fn x_scale(&self) -> Array2<f64> {
-        self.x_scale.clone().insert_axis(ndarray::Axis(0))
+        (*self.x_scale).clone().insert_axis(ndarray::Axis(0))
     }
 
     pub fn y_scale(&self) -> Array2<f64> {
-        self.y_scale.clone().insert_axis(ndarray::Axis(0))
+        (*self.y_scale).clone().insert_axis(ndarray::Axis(0))
     }
 
     pub(crate) fn num_obs(&self) -> usize {

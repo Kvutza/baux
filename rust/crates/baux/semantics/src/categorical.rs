@@ -40,6 +40,97 @@ fn code_hash(category: i64, variable: usize, seed: u64) -> u64 {
     x ^ (x >> 31)
 }
 
+/// `#![no_std]` `O(1)` Rademacher codeword coordinate `+- sep / sqrt(width)`
+/// for `(category, bit)` without allocating a codebook.
+#[inline]
+pub fn code_bit(
+    category: i64,
+    variable: usize,
+    seed: u64,
+    bit: usize,
+    sep: f64,
+    width: usize,
+) -> f64 {
+    if width == 0 || bit >= 64 {
+        return 0.0;
+    }
+    let scale = sep / (width as f64).sqrt();
+    let bits = code_hash(category, variable, seed);
+    if ((bits >> bit) & 1) == 1 {
+        scale
+    } else {
+        -scale
+    }
+}
+
+/// `#![no_std]` single-row Riemannian/Euclidean max-dot codeword index in
+/// `0..card`.
+pub fn snap_row(
+    row: &[f64],
+    codes: &[f64],
+    weights: Option<&[f64]>,
+    card: usize,
+    width: usize,
+) -> usize {
+    if card == 0 || width == 0 || row.len() < width || codes.len() < card * width {
+        return 0;
+    }
+    let mut best = 0usize;
+    let mut best_score = f64::NEG_INFINITY;
+    for c in 0..card {
+        let code = &codes[c * width..(c + 1) * width];
+        let score = match weights {
+            Some(w) if w.len() >= width => {
+                super::neighbor::simd_dot(&row[..width], code, &w[..width])
+            }
+            _ => row[..width]
+                .iter()
+                .zip(code.iter())
+                .map(|(a, b)| a * b)
+                .sum(),
+        };
+        if score > best_score {
+            best_score = score;
+            best = c;
+        }
+    }
+    best
+}
+
+/// `#![no_std]` scalar `S^1` periodic embedding in `[0, 1]^2`.
+#[inline]
+pub fn periodic_pair(theta: f64, low: f64, high: f64) -> (f64, f64) {
+    let period = (high - low).max(1.0e-12);
+    let tau = core::f64::consts::TAU;
+    let phi = tau * ((theta - low) / period).rem_euclid(1.0);
+    (0.5 + phi.cos() / tau, 0.5 + phi.sin() / tau)
+}
+
+/// `#![no_std]` scalar `S^1` `atan2` retraction back to `[low, high)`.
+#[inline]
+pub fn periodic_inv(cx: f64, cy: f64, low: f64, high: f64) -> f64 {
+    let period = (high - low).max(0.0);
+    let tau = core::f64::consts::TAU;
+    let phi = (cy - 0.5).atan2(cx - 0.5).rem_euclid(tau);
+    low + (phi / tau) * period
+}
+
+/// `#![no_std]` scalar multiplicative log-chart encode `x -> u in [0, 1]`.
+#[inline]
+pub fn log_val(val: f64, low: f64, high: f64) -> f64 {
+    let lo = low.max(1.0e-300);
+    let span = (high / lo).ln().max(1.0e-12);
+    ((val.max(lo).ln() - lo.ln()) / span).clamp(0.0, 1.0)
+}
+
+/// `#![no_std]` scalar multiplicative log-chart decode `u -> x in [low, high]`.
+#[inline]
+pub fn exp_val(unit: f64, low: f64, high: f64) -> f64 {
+    let lo = low.max(1.0e-300);
+    let span = (high / lo).ln();
+    (lo * (unit.clamp(0.0, 1.0) * span).exp()).clamp(low, high)
+}
+
 /// Logarithmic Rademacher code width `min(ceil(2 * log2(card) + 7), cap)`.
 pub fn log_width(card: usize, cap: usize) -> Result<usize, String> {
     if cap == 0 || cap > 64 {

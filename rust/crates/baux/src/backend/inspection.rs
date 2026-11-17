@@ -103,4 +103,36 @@ impl EnnBackend {
             Self::Disk(_) => None,
         }
     }
+
+    pub fn memory_logs(&self) -> Option<(&ImLog, &ImLog, Option<&ImLog>)> {
+        match self {
+            Self::InMemory(b) => Some((b.x_log(), b.y_log(), b.yvar_log())),
+            #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
+            Self::Disk(_) => None,
+        }
+    }
+
+    pub fn slice_x(&self, i: usize) -> Result<Option<&[f64]>, ENNError> {
+        match self {
+            Self::InMemory(b) => b.slice_x(i).map(Some),
+            #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
+            Self::Disk(_) => Ok(None),
+        }
+    }
+
+    pub fn slice_y(&self, i: usize) -> Result<Option<&[f64]>, ENNError> {
+        match self {
+            Self::InMemory(b) => b.slice_y(i).map(Some),
+            #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
+            Self::Disk(_) => Ok(None),
+        }
+    }
+
+    pub fn slice_yvar(&self, i: usize) -> Result<Option<Option<&[f64]>>, ENNError> {
+        match self {
+            Self::InMemory(b) => b.slice_yvar(i).map(Some),
+            #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
+            Self::Disk(_) => Ok(None),
+        }
+    }
 }

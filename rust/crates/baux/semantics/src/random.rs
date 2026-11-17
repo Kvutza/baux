@@ -52,7 +52,7 @@ pub fn normal_metric(seed_u64: u64, unique_idx: i64, metric: usize) -> f64 {
 }
 
 #[inline(always)]
-pub fn splitmix64(value: u64) -> u64 {
+pub const fn splitmix64(value: u64) -> u64 {
     let value = value.wrapping_add(0x9e37_79b9_7f4a_7c15);
     let value = (value ^ (value >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
     let value = (value ^ (value >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
@@ -393,7 +393,6 @@ pub fn splitmix_f32(bits: u64) -> f32 {
     ((splitmix64(bits) >> 41) as f32 + 0.5) / 8_388_608.0
 }
 
-#[cfg(not(feature = "cuda-device"))]
 pub use super::key::Key;
 
 #[cfg(test)]

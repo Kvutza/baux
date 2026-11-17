@@ -1,21 +1,18 @@
 //! Candidate generation for trust region optimization.
 
+use std::sync::Arc;
+
+use baux::semantics::key::Key;
+use baux::semantics::pool::{DelayedPool, cand_key, joe_kuo, sobol_unit};
 use deser::{Deserialize, Serialize};
 use ndarray::{Array1, Array2, ArrayView1, ArrayView2};
 use rand::Rng;
 use rand::RngCore;
-use sobol::Sobol;
-use sobol::params::JoeKuoD6;
-use std::sync::OnceLock;
 
 pub use crate::coordinate::{from_unit, to_unit};
 use crate::error::ENNError;
+use crate::posterior::PullPool;
 pub use crate::proposal_distribution::CoordSystem;
-
-fn sobol_params() -> &'static JoeKuoD6 {
-    static PARAMS: OnceLock<JoeKuoD6> = OnceLock::new();
-    PARAMS.get_or_init(JoeKuoD6::extended)
-}
 
 /// Sampling construction used to generate bounded candidates.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -374,15 +371,34 @@ fn generate_raasp<R: Rng + ?Sized>(
     Ok(candidates)
 }
 
-/// Sobol quasi-random sequence generator.
+fn shift_key(shift: Option<&[f64]>) -> Key {
+    let mut key = Key::new(0x534f_424f_4c53_4846);
+    if let Some(vals) = shift {
+        for &v in vals {
+            key = key.fold(v.to_bits());
+        }
+    }
+    key
+}
+
+/// Stateless $O(1)$-cloned Sobol cursor slice for [`DelayedPool`].
+#[derive(Clone, Debug)]
+pub struct SobolStep {
+    pub dirs: Arc<[[u32; 32]]>,
+    pub base_idx: u32,
+    pub key: Key,
+    pub scramble: bool,
+}
+
+/// Sobol quasi-random sequence generator backed by `Arc`-shared direction
+/// numbers ($O(1)$ `Clone` across forks).
 #[derive(Clone)]
 pub struct SobolEngine {
     dimension: usize,
-    sequence: Sobol<f64>,
+    dirs: Arc<[[u32; 32]]>,
     consumed: u64,
-    /// Random shift per dimension for scrambling (None = not scrambled).
-    /// When set, each sample is transformed: (x_d + shift_d) % 1.0
-    shift: Option<Vec<f64>>,
+    shift: Option<Arc<[f64]>>,
+    scramble_key: Key,
 }
 
 impl SobolEngine {
@@ -394,13 +410,14 @@ impl SobolEngine {
                 dimension
             )));
         }
-        let sequence = Sobol::<f64>::new(dimension, sobol_params());
+        let dirs: Arc<[[u32; 32]]> = (0..dimension).map(joe_kuo).collect();
 
         Ok(Self {
             dimension,
-            sequence,
+            dirs,
             consumed: 0,
             shift: None,
+            scramble_key: shift_key(None),
         })
     }
 
@@ -423,6 +440,9 @@ impl SobolEngine {
                 "Sobol cursor exceeds safety limit",
             ));
         }
+        if consumed > u32::MAX as u64 {
+            return Err(crate::snapshot_io::bad_state("Sobol sequence exhausted"));
+        }
         if let Some(ref s) = shift {
             if s.len() != dimension
                 || s.iter()
@@ -433,19 +453,37 @@ impl SobolEngine {
                 ));
             }
         }
-        let mut sequence = Sobol::<f64>::new(dimension, sobol_params());
-        if consumed > 0 {
-            let skip = usize::try_from(consumed - 1)
-                .map_err(|_| crate::snapshot_io::bad_state("Sobol cursor usize overflow"))?;
-            if sequence.nth(skip).is_none() {
-                return Err(crate::snapshot_io::bad_state("Sobol sequence exhausted"));
-            }
-        }
+        let dirs: Arc<[[u32; 32]]> = (0..dimension).map(joe_kuo).collect();
+        let scramble_key = shift_key(shift.as_deref());
         Ok(Self {
             dimension,
-            sequence,
+            dirs,
             consumed,
-            shift,
+            shift: shift.map(Arc::from),
+            scramble_key,
+        })
+    }
+
+    /// Advance the Sobol cursor by `count` candidates in $O(1)$ time and return
+    /// a stateless [`SobolStep`] for [`DelayedPool`].
+    pub fn advance(&mut self, count: usize) -> Result<SobolStep, ENNError> {
+        let base_idx = u32::try_from(self.consumed)
+            .map_err(|_| ENNError::InvalidParameter("Sobol sequence exhausted".to_string()))?;
+        let next = self
+            .consumed
+            .checked_add(count as u64)
+            .ok_or_else(|| ENNError::InvalidParameter("Sobol sequence exhausted".to_string()))?;
+        if next > (u32::MAX as u64) + 1 {
+            return Err(ENNError::InvalidParameter(
+                "Sobol sequence exhausted".to_string(),
+            ));
+        }
+        self.consumed = next;
+        Ok(SobolStep {
+            dirs: Arc::clone(&self.dirs),
+            base_idx,
+            key: self.scramble_key,
+            scramble: self.shift.is_some(),
         })
     }
 
@@ -453,18 +491,12 @@ impl SobolEngine {
     ///
     /// If scrambled (via `scramble()`), applies random shift per dimension.
     pub fn sample<R: Rng + ?Sized>(&mut self, _rng: &mut R) -> Result<Vec<f64>, ENNError> {
-        let mut sample = self
-            .sequence
-            .next()
-            .ok_or_else(|| ENNError::InvalidParameter("Sobol sequence exhausted".to_string()))?;
+        let idx = u32::try_from(self.consumed)
+            .map_err(|_| ENNError::InvalidParameter("Sobol sequence exhausted".to_string()))?;
         self.consumed = self.consumed.saturating_add(1);
-        if sample.len() != self.dimension {
-            return Err(ENNError::InvalidParameter(format!(
-                "Sobol sample dimension mismatch: expected {}, got {}",
-                self.dimension,
-                sample.len()
-            )));
-        }
+        let mut sample: Vec<f64> = (0..self.dimension)
+            .map(|j| sobol_unit(idx, 0, j, Some(&self.dirs[j]), Key::new(0), false))
+            .collect();
         if let Some(ref shift) = self.shift {
             baux::semantics::random::apply_shift(&mut sample, shift);
         }
@@ -484,13 +516,234 @@ impl SobolEngine {
     }
 
     /// Scramble the sequence using random digital shift per dimension.
-    ///
-    /// Closer to Owen-style scrambling than a simple offset skip: each
-    /// dimension gets a random shift in [0,1]; samples are (x + shift) mod
-    /// 1. Preserves low-discrepancy structure while randomizing.
     pub fn scramble<R: RngCore + ?Sized>(&mut self, rng: &mut R) {
-        self.shift = Some(baux::semantics::random::sobol_shift(self.dimension, rng));
+        let vec = baux::semantics::random::sobol_shift(self.dimension, rng);
+        self.scramble_key = shift_key(Some(&vec));
+        self.shift = Some(Arc::from(vec));
     }
+}
+
+/// Stateless pull-array for non-Cartesian coordinate systems (`Spherical`,
+/// `Polar`, `OriginSphere`) and tied coordinate groups (`tied_dims`).
+pub struct StructuredPool<'a> {
+    key: Key,
+    center: &'a [f64],
+    lower: &'a [f64],
+    upper: &'a [f64],
+    units: Vec<Vec<usize>>,
+    num_candidates: usize,
+    sampler: CandidateSampler,
+    coord_system: CoordSystem,
+    has_tied: bool,
+    is_morbo: bool,
+    num_pert: usize,
+    sobol: Option<&'a SobolStep>,
+}
+
+impl PullPool for StructuredPool<'_> {
+    #[inline(always)]
+    fn num_candidates(&self) -> usize {
+        self.num_candidates
+    }
+
+    #[inline(always)]
+    fn num_dim(&self) -> usize {
+        self.center.len()
+    }
+
+    fn write_row(&self, cand: usize, out: &mut [f64]) {
+        let dim = self.center.len().min(out.len());
+        out[..dim].copy_from_slice(&self.center[..dim]);
+        if dim == 0 {
+            return;
+        }
+        let mut rng = baux::semantics::random::prng(cand_key(self.key, cand).seed());
+        let raasp = self.sampler == CandidateSampler::RAASP;
+        let masked_sobol = self.is_morbo && self.sampler == CandidateSampler::Sobol;
+        let active = crate::candidates_fast::select_units(
+            self.units.len(),
+            raasp,
+            masked_sobol,
+            self.num_pert,
+            &mut rng,
+        )
+        .unwrap_or_default();
+        let sobol_fn = |d: usize| -> Option<f64> {
+            match (self.sampler, self.sobol) {
+                (CandidateSampler::Sobol, Some(step)) => Some(sobol_unit(
+                    step.base_idx,
+                    cand as u32,
+                    d,
+                    step.dirs.get(d),
+                    step.key,
+                    step.scramble,
+                )),
+                _ => None,
+            }
+        };
+        let mut singletons = Vec::new();
+        for u in active {
+            if !self.has_tied || self.units[u].len() == 1 {
+                singletons.extend_from_slice(&self.units[u]);
+            } else {
+                crate::candidates_fast::perturb_slice(
+                    &mut out[..dim],
+                    self.center,
+                    self.lower,
+                    self.upper,
+                    &self.units[u],
+                    self.coord_system,
+                    sobol_fn,
+                    &mut rng,
+                );
+            }
+        }
+        crate::candidates_fast::perturb_slice(
+            &mut out[..dim],
+            self.center,
+            self.lower,
+            self.upper,
+            &singletons,
+            self.coord_system,
+            sobol_fn,
+            &mut rng,
+        );
+    }
+}
+
+/// Zero-materialization host candidate pool unifying `@spine`'s `#![no_std]`
+/// [`DelayedPool`] with structured coordinate-system/tied-group evaluation.
+pub enum HostPool<'a> {
+    Delayed(DelayedPool<'a>),
+    Structured(StructuredPool<'a>),
+}
+
+impl PullPool for HostPool<'_> {
+    #[inline(always)]
+    fn num_candidates(&self) -> usize {
+        match self {
+            Self::Delayed(p) => PullPool::num_candidates(p),
+            Self::Structured(p) => p.num_candidates(),
+        }
+    }
+
+    #[inline(always)]
+    fn num_dim(&self) -> usize {
+        match self {
+            Self::Delayed(p) => PullPool::num_dim(p),
+            Self::Structured(p) => p.num_dim(),
+        }
+    }
+
+    #[inline]
+    fn write_row(&self, cand: usize, out: &mut [f64]) {
+        match self {
+            Self::Delayed(p) => PullPool::write_row(p, cand, out),
+            Self::Structured(p) => p.write_row(cand, out),
+        }
+    }
+
+    #[inline]
+    fn sparse_center(&self) -> Option<&[f64]> {
+        match self {
+            Self::Delayed(p) => p.sparse_center(),
+            Self::Structured(_) => None,
+        }
+    }
+
+    #[inline]
+    fn pack_deltas(
+        &self,
+        cand: usize,
+        out_idx: &mut [usize],
+        out_val: &mut [f64],
+    ) -> Option<usize> {
+        match self {
+            Self::Delayed(p) => p.pack_deltas(cand, out_idx, out_val),
+            Self::Structured(_) => None,
+        }
+    }
+}
+
+/// Construct a zero-materialization [`HostPool`] without allocating a
+/// `(num_candidates, num_dim)` matrix.
+#[allow(clippy::too_many_arguments)]
+pub fn build_pool<'a>(
+    key: Key,
+    center: &'a [f64],
+    lower: &'a [f64],
+    upper: &'a [f64],
+    num_candidates: usize,
+    sampler: CandidateSampler,
+    coord_system: CoordSystem,
+    tied_dims: &[Vec<usize>],
+    is_morbo: bool,
+    num_pert: usize,
+    sobol: Option<&'a SobolStep>,
+) -> Result<HostPool<'a>, ENNError> {
+    if coord_system == CoordSystem::Cartesian && tied_dims.is_empty() {
+        let pool = match sampler {
+            CandidateSampler::RAASP => DelayedPool::Raasp {
+                key,
+                center,
+                lower,
+                upper,
+                num_candidates,
+                num_pert: num_pert.max(1).min(center.len().max(1)),
+            },
+            CandidateSampler::Sobol => match sobol {
+                Some(step) if is_morbo => DelayedPool::SobolMasked {
+                    key: key.fold(step.key.0).fold(step.key.1),
+                    center,
+                    lower,
+                    upper,
+                    dirs: &step.dirs,
+                    base_idx: step.base_idx,
+                    num_candidates,
+                    num_pert: num_pert.max(1).min(center.len().max(1)),
+                    scramble: step.scramble,
+                },
+                Some(step) => DelayedPool::Sobol {
+                    key: step.key,
+                    lower,
+                    upper,
+                    dirs: &step.dirs,
+                    base_idx: step.base_idx,
+                    num_candidates,
+                    scramble: step.scramble,
+                },
+                None => DelayedPool::Uniform {
+                    key,
+                    lower,
+                    upper,
+                    num_candidates,
+                },
+            },
+            CandidateSampler::Uniform => DelayedPool::Uniform {
+                key,
+                lower,
+                upper,
+                num_candidates,
+            },
+        };
+        return Ok(HostPool::Delayed(pool));
+    }
+
+    let units = crate::candidates_fast::build_units(center.len(), tied_dims)?;
+    Ok(HostPool::Structured(StructuredPool {
+        key,
+        center,
+        lower,
+        upper,
+        units,
+        num_candidates,
+        sampler,
+        coord_system,
+        has_tied: !tied_dims.is_empty(),
+        is_morbo,
+        num_pert,
+        sobol,
+    }))
 }
 
 /// Generate Latin Hypercube samples.

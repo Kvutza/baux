@@ -40,6 +40,29 @@ pub fn to_unit(rows: usize, columns: usize, values: &mut [f64], bounds: &[f64]) 
     true
 }
 
+pub fn natural_slice(
+    rows: usize,
+    columns: usize,
+    values: &[f64],
+    bounds: &[f64],
+) -> Option<Vec<f64>> {
+    if !shape_ok(rows, columns, values, bounds) {
+        return None;
+    }
+    let mut out = values.to_vec();
+    let _ = from_unit(rows, columns, &mut out, bounds);
+    Some(out)
+}
+
+pub fn unit_slice(rows: usize, columns: usize, values: &[f64], bounds: &[f64]) -> Option<Vec<f64>> {
+    if !shape_ok(rows, columns, values, bounds) {
+        return None;
+    }
+    let mut out = values.to_vec();
+    let _ = to_unit(rows, columns, &mut out, bounds);
+    Some(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

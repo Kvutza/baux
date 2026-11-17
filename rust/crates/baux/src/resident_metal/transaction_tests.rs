@@ -135,9 +135,33 @@ fn partial_commit() {
         };
         assert_eq!(error, "Metal implicit ENN is not configured");
         // COW isolation: the parent search snapshot retains its exact prior
-        // unpoisoned state
-        assert!(!search.poisoned);
+        // healthy state, and abort_ask never poisons committed state.
         assert!(search.check_healthy().is_ok());
+        let aborted = search.clone().abort_ask();
+        assert!(aborted.check_healthy().is_ok());
+        assert!(aborted.check_idle().is_ok());
+    });
+}
+
+#[test]
+fn fenced_isolation() {
+    autoreleasepool(|| {
+        let (search, ask) = state();
+        let base_before = search.read_best().unwrap();
+        let (search_after_begin, dev_row) = search.fenced_ask(1, 1, 777, ask).unwrap();
+        let (search_ready, proposal) = search_after_begin.finish_ask().unwrap();
+        let host_words = dev_row.read_u16().unwrap();
+        assert_eq!(host_words, proposal.read_row().unwrap());
+        assert_ne!(host_words, base_before);
+
+        // Even while `dev_row` and `proposal` stay alive on the stack,
+        // cancelling and launching a fresh ask allocates a fresh
+        // write-once buffer and never overwrites `dev_row`!
+        let cancelled = search_ready.cancel_round(&proposal).unwrap();
+        let (next_state, (_buf2, proposal2, _)) = cancelled.propose(888, ask, 0, None).unwrap();
+        assert_eq!(dev_row.read_u16().unwrap(), host_words);
+        assert_ne!(proposal2.read_row().unwrap(), host_words);
+        assert_eq!(next_state.read_best().unwrap(), base_before);
     });
 }
 

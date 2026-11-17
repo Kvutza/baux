@@ -410,7 +410,7 @@ pub fn run_opt(cfg: &Config, mode: ExecMode, root: &Path, out_dir: &Path) -> Res
 
     let (domain, low, span, state_len) = resolve_space(root, cfg)?;
     let num_dim = domain.num_dim();
-    let arms = if mode == ExecMode::HostRam || mode == ExecMode::HostDisk {
+    let arms = if mode != ExecMode::MetalPpo {
         cfg.optimizer
             .candidate_generation()
             .map(|c| c.arms as usize)

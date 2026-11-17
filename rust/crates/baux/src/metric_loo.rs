@@ -21,11 +21,17 @@ const SCALE_GRID: [f64; 13] = [
 ];
 const NOISE_GRID: [f64; 7] = [0.001, 0.003, 0.01, 0.03, 0.1, 0.3, 1.0];
 
-fn variance(col: &[f64]) -> f64 {
-    let n = col.len() as f64;
-    let mean = col.iter().sum::<f64>() / n;
-    let var = col.iter().map(|v| (v - mean) * (v - mean)).sum::<f64>() / n;
-    if var > MIN_VAR { var } else { 1.0 }
+fn strided_moments(mat: &[f64], n: usize, cols: usize, col: usize) -> (f64, f64) {
+    let nf = n as f64;
+    let mean = (0..n).map(|i| mat[i * cols + col]).sum::<f64>() / nf;
+    let var = (0..n)
+        .map(|i| {
+            let diff = mat[i * cols + col] - mean;
+            diff * diff
+        })
+        .sum::<f64>()
+        / nf;
+    (mean, if var > MIN_VAR { var } else { 1.0 })
 }
 
 fn neighbors(z: &[f64], a_scaled: &[f64], n: usize, d: usize, k: usize) -> (Vec<usize>, Vec<f64>) {
@@ -92,25 +98,27 @@ pub fn loo_loglik(x: &[f64], n: usize, d: usize, y: &[f64], m: usize, a: &[f64],
     }
     let kk = k.min(n - 1);
     let mut mean = vec![0.0; d];
-    let mut spr = vec![1.0; d];
+    let mut inv_std = vec![1.0; d];
     for j in 0..d {
-        let col: Vec<f64> = (0..n).map(|i| x[i * d + j]).collect();
-        mean[j] = col.iter().sum::<f64>() / n as f64;
-        spr[j] = variance(&col);
+        let (mj, vj) = strided_moments(x, n, d, j);
+        mean[j] = mj;
+        inv_std[j] = 1.0 / vj.sqrt();
     }
     let mut z = vec![0.0; n * d];
     for i in 0..n {
         for j in 0..d {
-            z[i * d + j] = (x[i * d + j] - mean[j]) / spr[j].sqrt();
+            z[i * d + j] = (x[i * d + j] - mean[j]) * inv_std[j];
         }
     }
     let (nbr, d2n) = neighbors(&z, a, n, d, kk);
     let mut total = 0.0;
+    let mut yz = vec![0.0; n];
     for col in 0..m {
-        let raw: Vec<f64> = (0..n).map(|i| y[i * m + col]).collect();
-        let yvar = variance(&raw);
-        let ymean = raw.iter().sum::<f64>() / n as f64;
-        let yz: Vec<f64> = raw.iter().map(|v| (v - ymean) / yvar.sqrt()).collect();
+        let (ymean, yvar) = strided_moments(y, n, m, col);
+        let y_inv = 1.0 / yvar.sqrt();
+        for i in 0..n {
+            yz[i] = (y[i * m + col] - ymean) * y_inv;
+        }
         total += column_loglik(&yz, &nbr, &d2n, n, kk);
     }
     total / m as f64

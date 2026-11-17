@@ -73,7 +73,7 @@ fn check_layout(pool: ProceduralPool, perturbation: ProposalDistribution) {
 #[test]
 fn resident_layouts() {
     autoreleasepool(|| {
-        for (arms, slots) in [(1, 1), (1, 4), (2, 2), (4, 1)] {
+        for (arms, slots) in [(1, 1), (1, 4), (2, 2), (4, 1), (1, 64), (4, 128)] {
             let pool = ProceduralPoolConfig {
                 arms,
                 candidates_per_arm: slots,
@@ -86,6 +86,164 @@ fn resident_layouts() {
             ] {
                 check_layout(pool, perturbation);
             }
+        }
+    });
+}
+
+#[test]
+fn large_samplers() {
+    autoreleasepool(|| {
+        let dims = 64usize;
+        let base = vec![0x3800u16; dims]; // 0.5 in FP16
+        let block = ParamBlock::new(71, 0, dims, 0.5, 1.0 / (dims as f32)).unwrap();
+        for count in [64u32, 512, 2048] {
+            let pool = ProceduralPoolConfig {
+                arms: if count == 2048 { 4 } else { 1 },
+                candidates_per_arm: if count == 2048 { 512 } else { count },
+            }
+            .resolve_resident()
+            .unwrap();
+            for sampler in [
+                ResidentSampler::Uniform,
+                ResidentSampler::Raasp,
+                ResidentSampler::Sobol,
+                ResidentSampler::Lhd,
+            ] {
+                let mut ask = RoundConfig::default();
+                ask.surrogate.neighbors = 2;
+                ask.acquisition.beta = 1.0;
+                let mut st = SearchState::new_implicit(
+                    &base,
+                    vec![block],
+                    8,
+                    TRLengthConfig::new(0.8, 0.01, 1.6),
+                    ProposalDistribution::Gaussian,
+                )
+                .unwrap()
+                .configure_enn(crate::config::ResidentEnnConfig {
+                    pool,
+                    ask,
+                    num_candidates: 4,
+                    num_samples: 2,
+                    fit_params: true,
+                    adapt_neighbors: true,
+                    distance_metric: crate::config::DistanceMetric::Euclidean,
+                    local_scale_neighbors: 2,
+                })
+                .unwrap()
+                .configure_sampler(sampler, Some(8), true)
+                .unwrap()
+                .configure_lhd(count as usize)
+                .unwrap()
+                .configure_manifold(ResidentManifold {
+                    scale_x: true,
+                    metric_learning: crate::layout::MetricLearning::Auto,
+                    tied_dims: vec![vec![0, 1]],
+                    unscaled_dims: vec![2],
+                    categories: vec![(3, 4)],
+                    coord_system: crate::proposal_distribution::CoordSystem::Cartesian,
+                    stiefel_rank: None,
+                    calibrate_alpha: Some(0.2),
+                    y_bounds: Some(vec![(-100.0, 100.0)]),
+                    noise_aware: true,
+                    no_trust_region: false,
+                })
+                .unwrap()
+                .observe_initial(0.0, 0.01)
+                .unwrap();
+
+                for step in 0..5u64 {
+                    let (next_st, (_buf, prop, init)) =
+                        st.propose(1000 + step, ask, step as usize, None).unwrap();
+                    let words = prop.read_row().unwrap();
+                    assert_eq!(words.len(), dims);
+                    // Tied dims 0 and 1 must match identically!
+                    assert_eq!(words[0], words[1]);
+                    // All coordinates must stay clamped inside [0, 1]!
+                    for &w in &words {
+                        let v = crate::unified_mem::decode_half(w);
+                        assert!((-1e-4..=1.0001).contains(&v), "out of box: {v}");
+                    }
+                    if !init {
+                        assert_eq!(prop.pool_predictions.len(), count as usize);
+                        let m = prop.measure(dims as u64).unwrap();
+                        assert_eq!(m.candidate, prop.index as u32);
+                        if count == 2048 {
+                            assert_eq!(prop.selected_indices.len(), 4);
+                            let batch_rows = next_st.materialize_batch(&prop).unwrap();
+                            assert_eq!(batch_rows.len(), 4);
+                            assert_ne!(
+                                batch_rows[0].read_u16().unwrap(),
+                                batch_rows[1].read_u16().unwrap()
+                            );
+                        }
+                    }
+                    let y = -((step as f32 - 2.0).powi(2));
+                    let (next_st, _dec) = if init {
+                        next_st.tell_initial(&prop, y, 0.01).unwrap()
+                    } else {
+                        next_st.tell_modeled(&prop, y, 0.01).unwrap()
+                    };
+                    let (next_st, _) = next_st.sync().unwrap();
+                    st = next_st;
+                }
+            }
+        }
+    });
+}
+
+#[test]
+fn coord_lhd() {
+    autoreleasepool(|| {
+        let dims = 32usize;
+        let base = vec![0x3800u16; dims];
+        let block = ParamBlock::new(19, 0, dims, 0.4, 1.0 / (dims as f32)).unwrap();
+        let pool = ProceduralPoolConfig {
+            arms: 1,
+            candidates_per_arm: 64,
+        }
+        .resolve_resident()
+        .unwrap();
+        for cs in [
+            crate::proposal_distribution::CoordSystem::Cartesian,
+            crate::proposal_distribution::CoordSystem::Spherical,
+            crate::proposal_distribution::CoordSystem::Polar,
+            crate::proposal_distribution::CoordSystem::OriginSphere,
+        ] {
+            let mut ask = RoundConfig::default();
+            ask.acquisition.kind = AcquisitionKind::Random;
+            ask.surrogate.neighbors = 1;
+            let st = SearchState::new_fp16(
+                &base,
+                vec![block],
+                0,
+                TRLengthConfig::new(0.5, 0.05, 1.0),
+                ProposalDistribution::Gaussian,
+            )
+            .unwrap()
+            .configure_pool(pool)
+            .unwrap()
+            .configure_manifold(ResidentManifold {
+                coord_system: cs,
+                no_trust_region: true,
+                ..ResidentManifold::default()
+            })
+            .unwrap()
+            .observe_initial(0.0, 0.0)
+            .unwrap();
+            assert!(!st.has_surrogate());
+            let (st, prop) = st.ask_round(1, 64, 555, ask).unwrap();
+            assert_eq!(prop.length, 2.0);
+            let words = prop.read_row().unwrap();
+            for &w in &words {
+                let v = crate::unified_mem::decode_half(w);
+                assert!((0.0..=1.0).contains(&v), "cs={cs:?} out of [0,1]: {v}");
+            }
+            let (st, _dec) = st.tell_noisy(&prop, -10.0, 0.0).unwrap();
+            let (st, _) = st.sync().unwrap();
+            // `no_trust_region` keeps radius invariant across failures!
+            assert_eq!(st.radius(0), 2.0);
+            assert_eq!(st.restarts().unwrap(), 0);
         }
     });
 }

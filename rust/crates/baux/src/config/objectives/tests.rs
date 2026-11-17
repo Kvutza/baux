@@ -66,4 +66,25 @@ fn morbo_preferences() {
     };
     assert_eq!(a, config.derived_seed(0, "coding-objectives", 0));
     assert_ne!(a, b);
+
+    let many_regions = parse(
+        "mode='morbo'\n\
+            scales=[1.0,2.0]\n\
+            preferences=[2.0,1.0]\n\
+            regions=16\n\
+            alpha=0.05\n\
+            seed-domain='coding-objectives'\n\
+            rescalarize='on-propose'\n\
+            clip=true",
+    );
+    assert!(
+        many_regions
+            .objective_acquisition
+            .as_ref()
+            .unwrap()
+            .validate()
+            .is_ok()
+    );
+    let policy = many_regions.resident_objectives(0).unwrap().unwrap();
+    assert!(policy.validate().is_ok());
 }

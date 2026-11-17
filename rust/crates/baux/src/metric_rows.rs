@@ -2,38 +2,25 @@
 //! 506e98c506eeb849cffbf53d9ddf3a3a799c6830. Algorithm R reservoir for ordinary
 //! disk ENN AUTO metric learning.
 
+use std::sync::Arc;
+
 use ndarray::ArrayView2;
 
 use crate::error::ENNError;
+use crate::hash::Key;
 use crate::metric_rng::MetricRng;
 
+#[derive(Clone)]
 pub struct RowReservoir {
     num_dim: usize,
     num_outputs: usize,
     capacity: usize,
     seed: u64,
     rng: MetricRng,
-    xs: Vec<f64>,
-    ys: Vec<f64>,
+    xs: Arc<Vec<f64>>,
+    ys: Arc<Vec<f64>>,
     len: usize,
     num_seen: usize,
-}
-
-impl Clone for RowReservoir {
-    fn clone(&self) -> Self {
-        let (state, inc, has_buf, buf_val) = self.rng.snapshot();
-        Self {
-            num_dim: self.num_dim,
-            num_outputs: self.num_outputs,
-            capacity: self.capacity,
-            seed: self.seed,
-            rng: MetricRng::restore(state, inc, has_buf, buf_val),
-            xs: self.xs.clone(),
-            ys: self.ys.clone(),
-            len: self.len,
-            num_seen: self.num_seen,
-        }
-    }
 }
 
 impl std::fmt::Debug for RowReservoir {
@@ -80,11 +67,20 @@ impl RowReservoir {
             capacity,
             seed,
             rng: MetricRng::from_seed(seed),
-            xs: vec![0.0; x_count],
-            ys: vec![0.0; y_count],
+            xs: Arc::new(vec![0.0; x_count]),
+            ys: Arc::new(vec![0.0; y_count]),
             len: 0,
             num_seen: 0,
         })
+    }
+
+    pub fn from_key(
+        capacity: usize,
+        num_dim: usize,
+        num_outputs: usize,
+        key: Key,
+    ) -> Result<Self, ENNError> {
+        Self::new(capacity, num_dim, num_outputs, key.seed())
     }
 
     pub fn num_dim(&self) -> usize {
@@ -193,8 +189,8 @@ impl RowReservoir {
             capacity,
             seed,
             rng: MetricRng::restore(state, inc, has_buf, buf_val),
-            xs,
-            ys,
+            xs: Arc::new(xs),
+            ys: Arc::new(ys),
             len,
             num_seen,
         })
@@ -233,8 +229,8 @@ impl RowReservoir {
             let n = self.len;
             xs[..n * self.num_dim].copy_from_slice(&self.xs[..n * self.num_dim]);
             ys[..n * self.num_outputs].copy_from_slice(&self.ys[..n * self.num_outputs]);
-            self.xs = xs;
-            self.ys = ys;
+            self.xs = Arc::new(xs);
+            self.ys = Arc::new(ys);
             self.capacity = capacity;
         }
         Ok(())
@@ -262,10 +258,26 @@ impl RowReservoir {
                 self.num_outputs
             )));
         }
+        let mut x_scratch = Vec::new();
+        let mut y_scratch = Vec::new();
         for i in 0..x.nrows() {
-            let xr: Vec<f64> = x.row(i).iter().copied().collect();
-            let yr: Vec<f64> = y.row(i).iter().copied().collect();
-            self.push_row(&xr, &yr);
+            let x_row = x.row(i);
+            let y_row = y.row(i);
+            let xr = if let Some(slice) = x_row.as_slice() {
+                slice
+            } else {
+                x_scratch.clear();
+                x_scratch.extend(x_row.iter().copied());
+                &x_scratch
+            };
+            let yr = if let Some(slice) = y_row.as_slice() {
+                slice
+            } else {
+                y_scratch.clear();
+                y_scratch.extend(y_row.iter().copied());
+                &y_scratch
+            };
+            self.push_row(xr, yr);
         }
         Ok(())
     }
@@ -275,14 +287,20 @@ impl RowReservoir {
     pub fn push_row(&mut self, x: &[f64], y: &[f64]) {
         if self.len < self.capacity {
             let i = self.len;
-            self.xs[i * self.num_dim..(i + 1) * self.num_dim].copy_from_slice(x);
-            self.ys[i * self.num_outputs..(i + 1) * self.num_outputs].copy_from_slice(y);
+            Arc::make_mut(&mut self.xs)[i * self.num_dim..(i + 1) * self.num_dim]
+                .copy_from_slice(x);
+            Arc::make_mut(&mut self.ys)[i * self.num_outputs..(i + 1) * self.num_outputs]
+                .copy_from_slice(y);
             self.len += 1;
         } else {
-            let slot = self.rng.integers_high(self.num_seen as u64 + 1) as usize;
+            let (next_rng, slot_u64) = self.rng.step_high(self.num_seen as u64 + 1);
+            self.rng = next_rng;
+            let slot = slot_u64 as usize;
             if slot < self.capacity {
-                self.xs[slot * self.num_dim..(slot + 1) * self.num_dim].copy_from_slice(x);
-                self.ys[slot * self.num_outputs..(slot + 1) * self.num_outputs].copy_from_slice(y);
+                Arc::make_mut(&mut self.xs)[slot * self.num_dim..(slot + 1) * self.num_dim]
+                    .copy_from_slice(x);
+                Arc::make_mut(&mut self.ys)[slot * self.num_outputs..(slot + 1) * self.num_outputs]
+                    .copy_from_slice(y);
             }
         }
         self.num_seen += 1;

@@ -22,7 +22,7 @@ impl SearchState {
     /// The pending trial must come from the same search state; variance is the
     /// estimate variance. This records the observation and may accept weights.
     pub fn tell_initial(
-        mut self,
+        self,
         round: &Proposals,
         value: f32,
         variance: f32,
@@ -38,7 +38,7 @@ impl SearchState {
     /// initialization is not an unconditional commit and does not use
     /// normal acquisition gain.
     pub fn initial_objectives(
-        mut self,
+        self,
         round: &Proposals,
         observation: crate::objective_observation::ObjectiveObservation,
     ) -> Result<(Self, NoisyDecision), String> {
@@ -131,7 +131,7 @@ impl SearchState {
     /// Scalar adapter for stored-incumbent acceptance (`threshold = 0.0`,
     /// matching upstream `enn`).
     pub fn tell_noisy(
-        mut self,
+        self,
         round: &Proposals,
         value: f32,
         variance: f32,
@@ -264,7 +264,7 @@ impl SearchState {
     /// See [`modeled_objectives`](Self::modeled_objectives) for detailed trust
     /// region updates and side effects.
     pub fn tell_modeled(
-        mut self,
+        self,
         round: &Proposals,
         value: f32,
         variance: f32,
@@ -279,7 +279,7 @@ impl SearchState {
     /// acceptance keep their existing arithmetic; neither certifies
     /// calibration.
     pub fn tell_evaluated(
-        mut self,
+        self,
         round: &Proposals,
         evaluation: baux::semantics::optimizer::Evaluated,
     ) -> Result<(Self, NoisyDecision), String> {
@@ -297,7 +297,7 @@ impl SearchState {
     /// Consume one candidate-bound evaluation with a direct-sum vector
     /// observation.
     pub fn evaluated_objectives(
-        mut self,
+        self,
         round: &Proposals,
         evaluation: baux::semantics::optimizer::Evaluated,
         observation: crate::objective_observation::ObjectiveObservation,

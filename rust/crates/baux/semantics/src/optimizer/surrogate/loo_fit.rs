@@ -1,7 +1,180 @@
 use super::{
-    DistanceMetric, MAX_HISTORY, NeighborEstimatorParams, NeighborValueEstimator, UncertaintyLaw,
+    DistanceMetric, MAX_HISTORY, MetricKind, NeighborEstimatorParams, NeighborValueEstimator, TopK,
+    UncertaintyLaw,
 };
+use baux::semantics::key::Key;
+use baux::semantics::neighbor::eval_metric;
+use baux::semantics::neighbor::query::{posterior_topk, query_posterior};
+use baux::semantics::real::Real;
 use rand::{SeedableRng, rngs::StdRng};
+
+/// Stateless log-uniform hyperparameter candidate `(epistemic, aleatoric)`
+/// drawn via `Key::fold(cand)`: `epistemic in 10^[-3, 3] / d_scale`,
+/// `aleatoric in 10^[-6, 0]` (or `0` when `!infer_ale`).
+#[inline]
+pub fn scale_prior<T: Real>(key: Key, cand: usize, d_scale: T, infer_ale: bool) -> (T, T) {
+    let sub = key.fold(cand as u64);
+    let log_e = -3.0 + 6.0 * sub.fold(0).uniform::<f64>();
+    let epi = T::from_val(10.0_f64.powf(log_e)) / d_scale.max(T::NOISE_FLOOR);
+    let ale = if infer_ale {
+        let log_a = -6.0 + 6.0 * sub.fold(1).uniform::<f64>();
+        T::from_val(10.0_f64.powf(log_a))
+    } else {
+        T::ZERO
+    };
+    (epi, ale)
+}
+
+/// Standardized Gaussian leave-one-out log-likelihood for one held-out target.
+#[inline]
+pub fn loo_point<T: Real>(mean: T, se: T, target: T, y_scale: T) -> T {
+    let scale = y_scale.max(T::NOISE_FLOOR);
+    if !mean.is_finite() || !se.is_finite() || se <= T::ZERO || !target.is_finite() {
+        return T::NEG_INFINITY;
+    }
+    let se_norm = se / scale;
+    if !se_norm.is_finite() || se_norm <= T::ZERO {
+        return T::NEG_INFINITY;
+    }
+    let residual = (target / scale - mean / scale) / se_norm;
+    let half_tau = T::from_val(-0.5 * core::f64::consts::TAU.ln());
+    half_tau - se_norm.ln() - T::HALF * residual * residual
+}
+
+fn row_scale<T: Real>(dist_mat: &[T], n: usize, row: usize, local_k: usize) -> T {
+    let k = local_k.clamp(1, MAX_HISTORY);
+    let mut tk = TopK::<T, MAX_HISTORY>::new(k);
+    let base = row * n;
+    for col in 0..n {
+        if col == row {
+            continue;
+        }
+        let d = dist_mat[base + col];
+        if d > T::ZERO {
+            tk.push(d, col as u32);
+        }
+    }
+    let slice = tk.as_slice();
+    if slice.is_empty() {
+        T::ONE
+    } else {
+        slice[k.min(slice.len()) - 1].0.max(T::NOISE_FLOOR)
+    }
+}
+
+fn push_metric<T: Real>(
+    metric: DistanceMetric,
+    raw_d: T,
+    s_q: T,
+    s_j: T,
+    idx: u32,
+    topk: &mut TopK<T, MAX_HISTORY>,
+) {
+    let d = match MetricKind::from_metric(metric) {
+        MetricKind::Euclidean => eval_metric::<{ MetricKind::Euclidean }, T>(raw_d, s_q, s_j),
+        MetricKind::Conformal => eval_metric::<{ MetricKind::Conformal }, T>(raw_d, s_q, s_j),
+        MetricKind::Hyperbolic => eval_metric::<{ MetricKind::Hyperbolic }, T>(raw_d, s_q, s_j),
+        MetricKind::Wasserstein => eval_metric::<{ MetricKind::Wasserstein }, T>(raw_d, s_q, s_j),
+    };
+    topk.push(d, idx);
+}
+
+/// Allocation-free `#![no_std]` leave-one-out Gaussian log-likelihood over a
+/// flat `n * n` pairwise distance slice `dist_mat`, supporting both Euclidean
+/// and local-scale (`Conformal`, `Hyperbolic`, `Wasserstein`) metrics.
+#[allow(clippy::too_many_arguments)]
+pub fn loo_slice<T: Real>(
+    metric: DistanceMetric,
+    law: UncertaintyLaw,
+    dist_mat: &[T],
+    outcomes: &[T],
+    variances: &[T],
+    held_rows: &[usize],
+    neighbors: usize,
+    epistemic: T,
+    aleatoric: T,
+    y_scale: T,
+    noise_aware: bool,
+) -> T {
+    let n = outcomes.len();
+    if n < 2 || dist_mat.len() < n * n || (!variances.is_empty() && variances.len() < n) {
+        return T::NEG_INFINITY;
+    }
+    let vars = (!variances.is_empty() && noise_aware).then_some(variances);
+    let local_k = match metric {
+        DistanceMetric::Euclidean => 0,
+        DistanceMetric::Conformal { local_k }
+        | DistanceMetric::Hyperbolic { local_k }
+        | DistanceMetric::Wasserstein { local_k } => local_k,
+    };
+    let mut total = T::ZERO;
+    for &held in held_rows {
+        if held >= n {
+            return T::NEG_INFINITY;
+        }
+        let mut topk = TopK::<T, MAX_HISTORY>::new(neighbors.min(MAX_HISTORY));
+        let base = held * n;
+        if local_k == 0 {
+            for col in 0..n {
+                if col != held {
+                    topk.push(dist_mat[base + col], col as u32);
+                }
+            }
+        } else {
+            let s_q = row_scale(dist_mat, n, held, local_k).sqrt();
+            for col in 0..n {
+                if col != held {
+                    let s_j = row_scale(dist_mat, n, col, local_k).sqrt();
+                    push_metric(
+                        metric,
+                        dist_mat[base + col],
+                        s_q,
+                        s_j,
+                        col as u32,
+                        &mut topk,
+                    );
+                }
+            }
+        }
+        let post = match law {
+            UncertaintyLaw::InversePrecision => {
+                posterior_topk::<{ UncertaintyLaw::InversePrecision }, T>(
+                    topk.as_slice(),
+                    outcomes,
+                    vars,
+                    epistemic,
+                    aleatoric,
+                    y_scale,
+                    false,
+                )
+            }
+            UncertaintyLaw::BiasVariance => posterior_topk::<{ UncertaintyLaw::BiasVariance }, T>(
+                topk.as_slice(),
+                outcomes,
+                vars,
+                epistemic,
+                aleatoric,
+                y_scale,
+                false,
+            ),
+            UncertaintyLaw::Geometric => posterior_topk::<{ UncertaintyLaw::Geometric }, T>(
+                topk.as_slice(),
+                outcomes,
+                vars,
+                epistemic,
+                aleatoric,
+                y_scale,
+                false,
+            ),
+        };
+        let ll = loo_point(post.mu, post.se_total, outcomes[held], y_scale);
+        if !ll.is_finite() {
+            return T::NEG_INFINITY;
+        }
+        total += ll;
+    }
+    total
+}
 
 pub(super) fn metric_row(
     est: &NeighborValueEstimator,
@@ -9,7 +182,7 @@ pub(super) fn metric_row(
     excluded: Option<usize>,
     metric: DistanceMetric,
 ) -> [f64; MAX_HISTORY] {
-    let mut row_dists = [0.0_f64; MAX_HISTORY];
+    let mut row_dists = [0.0; MAX_HISTORY];
     let n = distances.len().min(est.len);
     row_dists[..n].copy_from_slice(&distances[..n]);
     let local_k = match metric {
@@ -23,7 +196,7 @@ pub(super) fn metric_row(
             local_k
         }
     };
-    let mut query_positive = [0.0_f64; MAX_HISTORY];
+    let mut query_positive = [0.0; MAX_HISTORY];
     let mut qp_len = 0;
     for (idx, &d) in distances[..n].iter().enumerate() {
         if Some(idx) != excluded && d > 0.0 {
@@ -103,7 +276,7 @@ fn characteristic_distance(est: &NeighborValueEstimator) -> f64 {
             est.distances[row][col]
         });
     }
-    let mut rows = [[0.0_f64; MAX_HISTORY]; MAX_HISTORY];
+    let mut rows = [[0.0; MAX_HISTORY]; MAX_HISTORY];
     for (row, dst) in rows.iter_mut().enumerate().take(n) {
         *dst = metric_row(
             est,
@@ -195,7 +368,7 @@ fn loo_score(
             Some(held),
             est.distance_metric,
         );
-        let (mean, standard_error, _, _) = baux::semantics::neighbor::query::posterior_f64(
+        let post = query_posterior(
             &row_dists[..est.len],
             &est.outcomes[..est.len],
             &est.variances[..est.len],
@@ -207,16 +380,16 @@ fn loo_score(
             Some(held),
             false,
         );
-        if !mean.is_finite() || !standard_error.is_finite() || standard_error <= 0.0 {
+        let ll = loo_point(
+            post.mu,
+            post.se_total,
+            f64::from(est.outcomes[held]),
+            est.y_scale,
+        );
+        if !ll.is_finite() {
             return f64::NEG_INFINITY;
         }
-        let target = f64::from(est.outcomes[held]) / est.y_scale;
-        let mean = mean / est.y_scale;
-        let standard_error = standard_error / est.y_scale;
-        let residual = (target - mean) / standard_error;
-        score += -0.5 * (2.0 * std::f64::consts::PI).ln()
-            - standard_error.ln()
-            - 0.5 * residual * residual;
+        score += ll;
     }
     score
 }
@@ -233,7 +406,7 @@ mod kani_proofs {
         kani::assume(d0.is_finite() && (0.0..=1.0e6).contains(&d0));
         kani::assume(y0.is_finite() && (-1.0e3..=1.0e3).contains(&y0));
         kani::assume(v0.is_finite() && (0.0..=1.0e3).contains(&v0));
-        let (mean, se, _, _) = baux::semantics::neighbor::query::posterior_f64(
+        let post = query_posterior(
             &[d0],
             &[y0],
             &[v0],
@@ -245,7 +418,7 @@ mod kani_proofs {
             None,
             false,
         );
-        assert!(mean.is_finite());
-        assert!(se.is_finite() && se > 0.0);
+        assert!(post.mu.is_finite());
+        assert!(post.se_total.is_finite() && post.se_total > 0.0);
     }
 }

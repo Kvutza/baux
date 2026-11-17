@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use baux::semantics::random::{prng, sobol_base, sobol_seed};
 use ndarray::{Array1, Array2};
 use rand::RngCore;
@@ -5,7 +7,7 @@ use rand::RngCore;
 use super::BayesOptimizer;
 use super::obs_access::PosteriorStore;
 use super::tr_state::TrustRegionState;
-use crate::candidates::{CandidateSampler, SobolEngine};
+use crate::candidates::{CandidateSampler, SobolEngine, SobolStep};
 use crate::config::{CandidateConfig, InitStrategy, OptimizerConfig, SurrogateConfig};
 use crate::error::ENNError;
 use crate::incumbent_tracker::{IncumbentTracker, enn_k, tracker_surrogate};
@@ -14,7 +16,7 @@ use crate::util::argmax_tie;
 /// Encapsulated candidate proposal generator and quasi-random sampler state.
 #[derive(Clone)]
 pub struct ProposalEngine {
-    config: CandidateConfig,
+    config: Arc<CandidateConfig>,
     sobol_engine: Option<SobolEngine>,
     pub(crate) sobol_base: u64,
     pub(crate) ticket_tag: Option<[u8; 32]>,
@@ -37,7 +39,7 @@ impl ProposalEngine {
         rng.fill_bytes(&mut seed_bytes);
         let sobol_base = sobol_base(u64::from_le_bytes(seed_bytes));
         Ok(Self {
-            config,
+            config: Arc::new(config),
             sobol_engine,
             sobol_base,
             ticket_tag: None,
@@ -50,6 +52,15 @@ impl ProposalEngine {
 
     pub fn sobol_mut(&mut self) -> Option<&mut SobolEngine> {
         self.sobol_engine.as_mut()
+    }
+
+    pub fn advance_sobol(&mut self, count: usize) -> Result<Option<SobolStep>, ENNError> {
+        match self.sobol_engine.as_mut() {
+            Some(eng) if self.config.candidate_rv == CandidateSampler::Sobol => {
+                eng.advance(count).map(Some)
+            }
+            _ => Ok(None),
+        }
     }
 
     pub(crate) fn sobol_ref(&self) -> Option<&SobolEngine> {
@@ -124,11 +135,12 @@ pub struct IncumbentPoint {
     pub y_scalar: Array1<f64>,
 }
 
-/// Unified incumbent tracker and active incumbent point ledger.
+/// Unified incumbent tracker and active incumbent point ledger with $O(1)$
+/// structural `Clone`.
 #[derive(Debug, Clone)]
 pub struct IncumbentLedger {
-    pub(crate) tracker: IncumbentTracker,
-    current: Option<IncumbentPoint>,
+    pub(crate) tracker: Arc<IncumbentTracker>,
+    current: Option<Arc<IncumbentPoint>>,
 }
 
 pub type IncumbentState = IncumbentLedger;
@@ -150,7 +162,7 @@ impl IncumbentLedger {
         let tracker =
             IncumbentTracker::with_sense(tracker_m, config.noise_aware, num_metrics, sense);
         Self {
-            tracker,
+            tracker: Arc::new(tracker),
             current: None,
         }
     }
@@ -161,7 +173,8 @@ impl IncumbentLedger {
     }
 
     pub fn reset(mut self) -> Self {
-        self.tracker = self.tracker.reset();
+        let inner = Arc::try_unwrap(self.tracker).unwrap_or_else(|arc| (*arc).clone());
+        self.tracker = Arc::new(inner.reset());
         self.current = None;
         self
     }
@@ -171,7 +184,8 @@ impl IncumbentLedger {
     }
 
     pub fn rebuild(mut self, y_obs: &ndarray::ArrayView2<f64>) -> Self {
-        self.tracker = self.tracker.rebuild(y_obs);
+        let inner = Arc::try_unwrap(self.tracker).unwrap_or_else(|arc| (*arc).clone());
+        self.tracker = Arc::new(inner.rebuild(y_obs));
         self
     }
 
@@ -180,12 +194,14 @@ impl IncumbentLedger {
     }
 
     pub fn tell_row(mut self, index: usize, y_row: &Array1<f64>) -> Self {
-        self.tracker = self.tracker.tell(index, y_row);
+        let inner = Arc::try_unwrap(self.tracker).unwrap_or_else(|arc| (*arc).clone());
+        self.tracker = Arc::new(inner.tell(index, y_row));
         self
     }
 
     pub fn tell_view(mut self, index: usize, y_view: ndarray::ArrayView1<'_, f64>) -> Self {
-        self.tracker = self.tracker.tell_view(index, y_view);
+        let inner = Arc::try_unwrap(self.tracker).unwrap_or_else(|arc| (*arc).clone());
+        self.tracker = Arc::new(inner.tell_view(index, y_view));
         self
     }
 
@@ -202,11 +218,11 @@ impl IncumbentLedger {
     }
 
     pub(crate) fn current_point(&self) -> Option<&IncumbentPoint> {
-        self.current.as_ref()
+        self.current.as_deref()
     }
 
     pub(crate) fn set_current(mut self, current: Option<IncumbentPoint>) -> Self {
-        self.current = current;
+        self.current = current.map(Arc::new);
         self
     }
 
@@ -246,7 +262,8 @@ impl IncumbentLedger {
         }
         if self.tracker.observation_count() != obs_count {
             if let Some(y_obs) = posterior.y_obs() {
-                self.tracker = self.tracker.rebuild(&y_obs.view());
+                let inner = Arc::try_unwrap(self.tracker).unwrap_or_else(|arc| (*arc).clone());
+                self.tracker = Arc::new(inner.rebuild(&y_obs.view()));
             }
         }
         let candidates = self.tracker.ask();
@@ -273,11 +290,11 @@ impl IncumbentLedger {
                     .collect();
                 let best_pos = argmax_tie(&scores, rng);
                 let best_idx = candidates[best_pos];
-                self.current = Some(IncumbentPoint {
+                self.current = Some(Arc::new(IncumbentPoint {
                     index: best_idx,
                     unit_x: posterior.x_row(best_idx)?,
                     y_scalar: pred.mu.row(best_pos).to_owned(),
-                });
+                }));
                 return Ok(self);
             }
         }
@@ -295,11 +312,11 @@ impl IncumbentLedger {
         let best_pos = argmax_tie(&scores, rng);
         let best_idx = candidates[best_pos];
         if self.current.as_ref().is_none_or(|c| c.index != best_idx) {
-            self.current = Some(IncumbentPoint {
+            self.current = Some(Arc::new(IncumbentPoint {
                 index: best_idx,
                 unit_x: posterior.x_row(best_idx)?,
                 y_scalar: posterior.y_row(best_idx)?,
-            });
+            }));
         }
         Ok(self)
     }
@@ -327,7 +344,7 @@ impl IncumbentLedger {
         let n_cand = candidates.len();
         let mut y_rows = Array2::zeros((n_cand, regions.num_metrics()));
         for (r, &idx) in candidates.iter().enumerate() {
-            let y_row = posterior.y_row(idx)?;
+            let y_row = posterior.y_slice(idx)?;
             for m in 0..y_rows.ncols() {
                 y_rows[[r, m]] = y_row[m];
             }
@@ -335,7 +352,7 @@ impl IncumbentLedger {
         if noise_aware && let Some(surrogate) = posterior.surrogate() {
             let mut x_cand = Array2::zeros((n_cand, num_dim));
             for (r, &idx) in candidates.iter().enumerate() {
-                let x_row = posterior.x_row(idx)?;
+                let x_row = posterior.x_slice(idx)?;
                 for d in 0..num_dim {
                     x_cand[[r, d]] = x_row[d];
                 }
@@ -349,11 +366,11 @@ impl IncumbentLedger {
             .map_err(|e| ENNError::InvalidParameter(e.to_string()))?;
         let best_pos = argmax_tie(scores.as_slice().unwrap_or(&[]), rng);
         let best_idx = candidates[best_pos];
-        self.current = Some(IncumbentPoint {
+        self.current = Some(Arc::new(IncumbentPoint {
             index: best_idx,
             unit_x: posterior.x_row(best_idx)?,
             y_scalar: y_rows.row(best_pos).to_owned(),
-        });
+        }));
         Ok(self)
     }
 }
@@ -389,7 +406,8 @@ impl BayesOptimizer {
         }
         self.posterior = self.posterior.clear()?;
         self.incumbent = self.incumbent.reset();
-        self.regions = self.regions.restart_local();
+        let regions = Arc::try_unwrap(self.regions).unwrap_or_else(|arc| (*arc).clone());
+        self.regions = Arc::new(regions.restart_local());
         self.warmup.restart_local();
         self.proposals.ticket_tag = None;
         Ok(self)

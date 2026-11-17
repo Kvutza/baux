@@ -342,19 +342,40 @@ fn fitting_trace() {
             let actual = host.fit_state();
             assert_eq!(actual.neighbors, expected.k_neighbors as usize);
             assert_eq!(
-                actual.epistemic.to_bits(),
-                expected.epistemic_scale.to_bits(),
+                (actual.epistemic as f32).to_bits(),
+                (expected.epistemic_scale as f32).to_bits(),
                 "k={k} n={n}"
             );
-            assert_eq!(
-                actual.aleatoric.to_bits(),
-                expected.aleatoric_scale.to_bits(),
-                "k={k} n={n}"
+            assert!(
+                (actual.epistemic - expected.epistemic_scale).abs()
+                    <= 128.0 * f64::EPSILON * expected.epistemic_scale.abs().max(1.0),
+                "k={k} n={n}: actual={} expected={}",
+                actual.epistemic,
+                expected.epistemic_scale
             );
             assert_eq!(
-                actual.scale.to_bits(),
-                metal.y_std()[0].to_bits(),
+                (actual.aleatoric as f32).to_bits(),
+                (expected.aleatoric_scale as f32).to_bits(),
                 "k={k} n={n}"
+            );
+            assert!(
+                (actual.aleatoric - expected.aleatoric_scale).abs()
+                    <= 128.0 * f64::EPSILON * expected.aleatoric_scale.abs().max(1.0),
+                "k={k} n={n}: actual={} expected={}",
+                actual.aleatoric,
+                expected.aleatoric_scale
+            );
+            assert_eq!(
+                (actual.scale as f32).to_bits(),
+                (metal.y_std()[0] as f32).to_bits(),
+                "k={k} n={n}"
+            );
+            assert!(
+                (actual.scale - metal.y_std()[0]).abs()
+                    <= 128.0 * f64::EPSILON * metal.y_std()[0].abs().max(1.0),
+                "k={k} n={n}: actual={} expected={}",
+                actual.scale,
+                metal.y_std()[0]
             );
         }
     }
@@ -422,6 +443,371 @@ fn warmup_trace() {
                 );
             }
             state = s;
+        }
+    });
+}
+
+#[test]
+fn large_parity() {
+    use baux::semantics::neighbor::query::Query;
+    autoreleasepool(|| {
+        let dims = 33usize;
+        let base = vec![0x3800u16; dims];
+        let block = ParamBlock::new(73, 0, dims, 0.5, 1.0 / (dims as f32)).unwrap();
+        for &(arms, slots) in &[
+            (1u32, 1u32),
+            (1, 4),
+            (1, 64),
+            (1, 512),
+            (2, 1024),
+            (1, 5000),
+        ] {
+            let count = (arms * slots) as usize;
+            let pool = ProceduralPoolConfig {
+                arms,
+                candidates_per_arm: slots,
+            }
+            .resolve_resident()
+            .unwrap();
+            let mut ask = RoundConfig::default();
+            ask.surrogate.neighbors = 3;
+            ask.surrogate.epistemic_scale = 0.4;
+            ask.surrogate.aleatoric_scale = 0.05;
+            ask.surrogate.output_scale = 1.5;
+            ask.acquisition.beta = 1.0;
+            ask.acquisition.seed = 0x5eed_cafe_1234_5678;
+
+            let mut state = SearchState::new_implicit(
+                &base,
+                vec![block],
+                8,
+                TRLengthConfig::new(0.6, 0.01, 1.6),
+                ProposalDistribution::Gaussian,
+            )
+            .unwrap()
+            .configure_enn(crate::config::ResidentEnnConfig {
+                pool,
+                ask,
+                num_candidates: 4,
+                num_samples: 2,
+                fit_params: false,
+                adapt_neighbors: false,
+                distance_metric: crate::config::DistanceMetric::Euclidean,
+                local_scale_neighbors: 3,
+            })
+            .unwrap()
+            .configure_sampler(ResidentSampler::Raasp, Some(12), true)
+            .unwrap()
+            .observe_initial(0.25, 0.01)
+            .unwrap();
+
+            for w in 0..3u64 {
+                let (s, (_buf, prop, init)) =
+                    state.propose(300 + w, ask, w as usize, None).unwrap();
+                assert!(init || w >= 2);
+                let y = (w as f32 * 0.7).sin();
+                let (s, _) = if init {
+                    s.tell_initial(&prop, y, 0.02).unwrap()
+                } else {
+                    s.tell_modeled(&prop, y, 0.02).unwrap()
+                };
+                let (s, _) = s.sync().unwrap();
+                state = s;
+            }
+
+            for kind in [AcquisitionKind::Ucb, AcquisitionKind::Thompson] {
+                let mut q_ask = ask;
+                q_ask.acquisition.kind = kind;
+                let root = 9001u64;
+                let (state_after_dist, dist_matrix) = state.clone().sample_distances(root).unwrap();
+                assert_eq!(dist_matrix.len(), count);
+                let sel_params = state_after_dist.select_params(root, q_ask, None);
+                let len = state_after_dist.history;
+
+                let (state_gpu, prop) = state
+                    .clone()
+                    .ask_round(arms as usize, slots as usize, root, q_ask)
+                    .unwrap();
+                assert_eq!(prop.pool_predictions.len(), count);
+
+                let mut best_cpu = (f32::NEG_INFINITY, 0usize);
+                for (cand, row_dists) in dist_matrix.iter().enumerate() {
+                    let expected = Query {
+                        distances: row_dists,
+                        outcomes: &sel_params.outcomes[..len],
+                        variances: &sel_params.variances[..len],
+                        draws: (kind == AcquisitionKind::Thompson)
+                            .then_some(&sel_params.draws[..len]),
+                        neighbors: q_ask.surrogate.neighbors.min(len),
+                        epistemic: q_ask.surrogate.epistemic_scale,
+                        aleatoric: q_ask.surrogate.aleatoric_scale,
+                        scale: q_ask.surrogate.output_scale,
+                        beta: q_ask.acquisition.beta,
+                        excluded: None,
+                        incumbent: sel_params.incumbent_index as usize,
+                        adaptive: false,
+                    }
+                    .predict()
+                    .unwrap();
+                    let (gm, gse, gsc) = prop.pool_predictions[cand];
+                    let tol = 32.0 * f32::EPSILON * expected.score.abs().max(1.0);
+                    assert!(
+                        (gm - expected.mean).abs() <= tol
+                            && (gse - expected.standard_error).abs() <= tol
+                            && (gsc - expected.score).abs() <= tol,
+                        "count={count} kind={kind:?} cand={cand}: gpu=({gm},{gse},{gsc}) != cpu=({},{},{})",
+                        expected.mean,
+                        expected.standard_error,
+                        expected.score
+                    );
+                    if expected.score > best_cpu.0 {
+                        best_cpu = (expected.score, cand);
+                    }
+                }
+                let (_wm, _wse, win_gpu_score) = prop.pool_predictions[prop.index];
+                assert!(
+                    (win_gpu_score - best_cpu.0).abs()
+                        <= 32.0 * f32::EPSILON * best_cpu.0.abs().max(1.0),
+                    "winner score mismatch for count={count}: gpu={} cpu={}",
+                    win_gpu_score,
+                    best_cpu.0
+                );
+                let expected_row = state.test_candidate(root, prop.index).unwrap();
+                assert_eq!(
+                    prop.read_row().unwrap(),
+                    read::<u16>(&expected_row, dims),
+                    "materialized row mismatch at count={count} winner={}",
+                    prop.index
+                );
+                drop(state_gpu);
+            }
+        }
+    });
+}
+
+#[test]
+fn delayed_parity() {
+    use baux::semantics::key::Key;
+    use baux::semantics::pool::{DelayedPool, joe_kuo};
+    autoreleasepool(|| {
+        let dims = 24usize;
+        let base_bf16 = vec![0x3f00u16; dims]; // 0.5 in BF16
+        let center = vec![0.5f32; dims];
+        let lower = vec![0.2f32; dims];
+        let upper = vec![0.8f32; dims];
+        let unit_lo = vec![0.0f32; dims];
+        let unit_hi = vec![1.0f32; dims];
+        let dirs: Vec<[u32; 32]> = (0..dims).map(joe_kuo).collect();
+        let block = ParamBlock::new(97, 0, dims, 0.5, 1.0 / (dims as f32)).unwrap();
+        let pool_cfg = ProceduralPoolConfig {
+            arms: 1,
+            candidates_per_arm: 64,
+        }
+        .resolve_resident()
+        .unwrap();
+        let bf16_word = |x: f32| -> u16 {
+            let bits = x.to_bits();
+            (bits.wrapping_add(0x7fff + ((bits >> 16) & 1)) >> 16) as u16
+        };
+        let root = 0xfeed_beef_cafe_0001u64;
+        let key = Key::new(root);
+
+        for sampler in [
+            ResidentSampler::Uniform,
+            ResidentSampler::Raasp,
+            ResidentSampler::Sobol,
+            ResidentSampler::SobolMasked,
+            ResidentSampler::Lhd,
+        ] {
+            let state = SearchState::new(
+                &base_bf16,
+                1.0,
+                0.0,
+                vec![block],
+                8,
+                1,
+                TRLengthConfig::new(0.6, 0.05, 1.6),
+            )
+            .unwrap()
+            .configure_pool(pool_cfg)
+            .unwrap()
+            .configure_sampler(sampler, Some(8), true)
+            .unwrap()
+            .configure_lhd(64)
+            .unwrap();
+
+            let cpu_pool = match sampler {
+                ResidentSampler::Uniform => DelayedPool::Uniform {
+                    key,
+                    lower: &lower,
+                    upper: &upper,
+                    num_candidates: 64,
+                },
+                ResidentSampler::Raasp => DelayedPool::Raasp {
+                    key,
+                    center: &center,
+                    lower: &lower,
+                    upper: &upper,
+                    num_candidates: 64,
+                    num_pert: 8,
+                },
+                ResidentSampler::Sobol => DelayedPool::Sobol {
+                    key,
+                    lower: &lower,
+                    upper: &upper,
+                    dirs: &dirs,
+                    base_idx: 0,
+                    num_candidates: 64,
+                    scramble: true,
+                },
+                ResidentSampler::SobolMasked => DelayedPool::SobolMasked {
+                    key,
+                    center: &center,
+                    lower: &lower,
+                    upper: &upper,
+                    dirs: &dirs,
+                    base_idx: 0,
+                    num_candidates: 64,
+                    num_pert: 8,
+                    scramble: true,
+                },
+                ResidentSampler::Lhd => DelayedPool::Lhd {
+                    key,
+                    lower: &unit_lo,
+                    upper: &unit_hi,
+                    num_candidates: 64,
+                },
+                _ => unreachable!(),
+            };
+
+            for cand in [0usize, 1, 7, 31, 63] {
+                let gpu_buf = state.test_candidate(root, cand).unwrap();
+                let gpu_words = read::<u16>(&gpu_buf, dims);
+                let mut cpu_row = vec![0.0f32; dims];
+                cpu_pool.write_row(cand, &mut cpu_row);
+                let cpu_words: Vec<u16> = cpu_row.iter().copied().map(bf16_word).collect();
+                assert_eq!(
+                    gpu_words, cpu_words,
+                    "DelayedPool<f32> bit parity mismatch for sampler={sampler:?} cand={cand}"
+                );
+            }
+        }
+    });
+}
+
+#[test]
+fn sobol_cursor() {
+    use baux::semantics::key::Key;
+    use baux::semantics::pool::{DelayedPool, joe_kuo};
+    autoreleasepool(|| {
+        let dims = 20usize;
+        let base_bf16 = vec![0x3f00u16; dims]; // 0.5 in BF16
+        let center = vec![0.5f32; dims];
+        let lower = vec![0.2f32; dims];
+        let upper = vec![0.8f32; dims];
+        let dirs: Vec<[u32; 32]> = (0..dims).map(joe_kuo).collect();
+        let block = ParamBlock::new(97, 0, dims, 0.5, 1.0 / (dims as f32)).unwrap();
+        let pool_cfg = ProceduralPoolConfig {
+            arms: 2,
+            candidates_per_arm: 16,
+        }
+        .resolve_resident()
+        .unwrap();
+        let pool_count = pool_cfg.count() as usize;
+        let bf16_word = |x: f32| -> u16 {
+            let bits = x.to_bits();
+            (bits.wrapping_add(0x7fff + ((bits >> 16) & 1)) >> 16) as u16
+        };
+        let mut ask = RoundConfig::default();
+        ask.surrogate.neighbors = 1;
+        ask.acquisition.beta = 1.0;
+
+        for sampler in [ResidentSampler::Sobol, ResidentSampler::SobolMasked] {
+            let mut state = SearchState::new(
+                &base_bf16,
+                1.0,
+                0.0,
+                vec![block],
+                8,
+                1,
+                TRLengthConfig::new(0.6, 0.05, 1.6),
+            )
+            .unwrap()
+            .fix_radius(true)
+            .unwrap()
+            .configure_pool(pool_cfg)
+            .unwrap()
+            .configure_sampler(sampler, Some(8), true)
+            .unwrap();
+
+            for round_idx in 0..2u32 {
+                let root = 0x50b0_1000_0000_0000u64 + u64::from(round_idx);
+                let key = Key::new(root);
+                let expected_base = round_idx * (pool_count as u32);
+                let (next_state, prop) = state.ask_round(2, 16, root, ask).unwrap();
+                assert_eq!(prop.sobol_offset, expected_base);
+                assert_eq!(prop.selected_indices.len(), 2);
+
+                let cpu_pool = match sampler {
+                    ResidentSampler::Sobol => DelayedPool::Sobol {
+                        key,
+                        lower: &lower,
+                        upper: &upper,
+                        dirs: &dirs,
+                        base_idx: expected_base,
+                        num_candidates: pool_count,
+                        scramble: true,
+                    },
+                    ResidentSampler::SobolMasked => DelayedPool::SobolMasked {
+                        key,
+                        center: &center,
+                        lower: &lower,
+                        upper: &upper,
+                        dirs: &dirs,
+                        base_idx: expected_base,
+                        num_candidates: pool_count,
+                        num_pert: 8,
+                        scramble: true,
+                    },
+                    _ => unreachable!(),
+                };
+
+                let batch = next_state.materialize_batch(&prop).unwrap();
+                assert_eq!(batch.len(), 2);
+                for (arm_pos, &cand_idx) in prop.selected_indices.iter().enumerate() {
+                    let mut cpu_row = vec![0.0f32; dims];
+                    cpu_pool.write_row(cand_idx, &mut cpu_row);
+                    let cpu_words: Vec<u16> = cpu_row.iter().copied().map(bf16_word).collect();
+                    assert_eq!(
+                        batch[arm_pos].read_u16().unwrap(),
+                        cpu_words,
+                        "materialize_batch mismatch for sampler={sampler:?} round={round_idx} arm={arm_pos} cand={cand_idx}"
+                    );
+                }
+
+                let diag_cand = (prop.selected_indices[0] + 5) % pool_count;
+                let diag_buf = next_state
+                    .diagnostic_row(&prop, root, ask, diag_cand)
+                    .unwrap();
+                let mut cpu_diag = vec![0.0f32; dims];
+                cpu_pool.write_row(diag_cand, &mut cpu_diag);
+                let cpu_diag_words: Vec<u16> = cpu_diag.iter().copied().map(bf16_word).collect();
+                assert_eq!(
+                    read::<u16>(&diag_buf, dims),
+                    cpu_diag_words,
+                    "diagnostic_row mismatch for sampler={sampler:?} round={round_idx} cand={diag_cand}"
+                );
+
+                // Verify diagnostic_row never overwrote round.device_row()!
+                let mut cpu_arm0 = vec![0.0f32; dims];
+                cpu_pool.write_row(prop.selected_indices[0], &mut cpu_arm0);
+                let cpu_arm0_words: Vec<u16> = cpu_arm0.iter().copied().map(bf16_word).collect();
+                assert_eq!(prop.read_row().unwrap(), cpu_arm0_words);
+
+                let (told, _dec) = next_state.tell(&prop, 0.5, 0.01).unwrap();
+                let (synced, _) = told.sync().unwrap();
+                state = synced;
+            }
         }
     });
 }

@@ -1,14 +1,16 @@
 //! Natural-coordinate and unit-hypercube conversion.
 
+use std::sync::Arc;
+
 use ndarray::{Array1, Array2, ArrayView2};
 
 use crate::error::ENNError;
 
-/// Coordinate frame owning `[num_dim, 2]` natural reference intervals,
-/// optional boundary clamping, and affine unit transforms.
+/// Coordinate frame owning `Arc`-shared `[num_dim, 2]` natural reference
+/// intervals, optional boundary clamping, and affine unit transforms.
 #[derive(Debug, Clone)]
 pub struct DomainFrame {
-    bounds: Array2<f64>,
+    bounds: Arc<Array2<f64>>,
     num_dim: usize,
     clamped: bool,
 }
@@ -31,7 +33,7 @@ impl DomainFrame {
             });
         }
         Ok(Self {
-            bounds,
+            bounds: Arc::new(bounds),
             num_dim,
             clamped,
         })
@@ -89,9 +91,15 @@ impl DomainFrame {
     }
 
     pub fn natural_point(&self, unit: &Array1<f64>) -> Array1<f64> {
-        let row = unit.clone().insert_axis(ndarray::Axis(0));
-        let natural = from_unit(&row.view(), &self.bounds.view());
-        natural.row(0).to_owned()
+        Array1::from_shape_fn(unit.len(), |j| {
+            crate::coordinate_scalar::from_unit(unit[j], self.bounds[[j, 0]], self.bounds[[j, 1]])
+        })
+    }
+
+    pub fn unit_point(&self, x: &Array1<f64>) -> Array1<f64> {
+        Array1::from_shape_fn(x.len(), |j| {
+            crate::coordinate_scalar::to_unit(x[j], self.bounds[[j, 0]], self.bounds[[j, 1]])
+        })
     }
 
     pub fn unit_center(&self) -> Array1<f64> {

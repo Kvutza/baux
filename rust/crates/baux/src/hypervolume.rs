@@ -22,9 +22,8 @@ pub enum HypervolumeError {
 
 /// Exact dominated hypervolume for maximization in one or more dimensions.
 ///
-/// The resident optimizer has at most 128 observations and eight objectives,
-/// so an exact recursive slicing algorithm is preferable to a sampled proxy.
-/// Dominated rows are removed before slicing.
+/// Dominated rows are pruned once and recursive slicing operates over flat
+/// index views without cloning point vectors at each axis level.
 pub fn hypervolume_max(
     y: &ArrayView2<f64>,
     ref_point: &ArrayView1<f64>,
@@ -41,67 +40,194 @@ pub fn hypervolume_max(
     if y.ncols() == 0 || y.nrows() == 0 || !ref_point.iter().all(|v| v.is_finite()) {
         return Ok(0.0);
     }
-    let mut points = y
-        .rows()
-        .into_iter()
-        .filter(|row| {
-            row.iter()
-                .zip(ref_point)
-                .all(|(value, reference)| value.is_finite() && value > reference)
-        })
-        .map(|row| row.to_vec())
-        .collect::<Vec<_>>();
-    pareto_prune(&mut points);
-    let reference = ref_point.iter().copied().collect::<Vec<_>>();
-    Ok(slice_volume(&points, &reference))
+    if y.ncols() == 2 {
+        return hypervolume2d_max(y, ref_point);
+    }
+    let m = y.ncols();
+    let mut flat = Vec::with_capacity(y.nrows() * m);
+    let mut count = 0usize;
+    for row in y.rows() {
+        if row
+            .iter()
+            .zip(ref_point.iter())
+            .all(|(val, r)| val.is_finite() && val > r)
+        {
+            flat.extend(row.iter().copied());
+            count += 1;
+        }
+    }
+    if count == 0 {
+        return Ok(0.0);
+    }
+    let active = pareto_indices(&flat, count, m);
+    let reference: Vec<f64> = ref_point.iter().copied().collect();
+    Ok(slice_flat(&flat, &active, m, m, &reference))
 }
 
-fn dominates(left: &[f64], right: &[f64]) -> bool {
-    left.iter().zip(right).all(|(a, b)| a >= b) && left.iter().zip(right).any(|(a, b)| a > b)
+/// Pure flat-slice exact hypervolume over row-major `(rows, cols)` values.
+pub fn hypervolume_slice(
+    y: &[f64],
+    rows: usize,
+    cols: usize,
+    ref_point: &[f64],
+) -> Result<f64, HypervolumeError> {
+    if cols != ref_point.len() {
+        return Err(HypervolumeError::DimensionMismatch {
+            columns: cols,
+            reference: ref_point.len(),
+        });
+    }
+    if y.len() != rows.checked_mul(cols).unwrap_or(usize::MAX) {
+        return Err(HypervolumeError::InvalidDimension(vec![y.len()]));
+    }
+    if cols == 0 || rows == 0 || !ref_point.iter().all(|v| v.is_finite()) {
+        return Ok(0.0);
+    }
+    let view = ArrayView2::from_shape((rows, cols), y)
+        .map_err(|_| HypervolumeError::InvalidDimension(vec![rows, cols]))?;
+    let rview = ArrayView1::from(ref_point);
+    hypervolume_max(&view, &rview)
 }
 
-fn pareto_prune(points: &mut Vec<Vec<f64>>) {
-    let keep = (0..points.len())
-        .map(|index| {
-            !(0..points.len()).any(|other| {
-                other != index
-                    && (dominates(&points[other], &points[index])
-                        || (points[other] == points[index] && other < index))
+/// Exact exclusive hypervolume contribution `HV(Y) - HV(Y \ {y_i})` per row.
+pub fn hv_contributions(
+    y: &ArrayView2<f64>,
+    ref_point: &ArrayView1<f64>,
+) -> Result<Vec<f64>, HypervolumeError> {
+    if y.ndim() != 2 {
+        return Err(HypervolumeError::InvalidDimension(y.shape().to_vec()));
+    }
+    if y.ncols() != ref_point.len() {
+        return Err(HypervolumeError::DimensionMismatch {
+            columns: y.ncols(),
+            reference: ref_point.len(),
+        });
+    }
+    let nrows = y.nrows();
+    let m = y.ncols();
+    if m == 0 || nrows == 0 || !ref_point.iter().all(|v| v.is_finite()) {
+        return Ok(vec![0.0; nrows]);
+    }
+    let reference: Vec<f64> = ref_point.iter().copied().collect();
+    let mut flat = Vec::with_capacity(nrows * m);
+    let mut orig_rows = Vec::with_capacity(nrows);
+    for (r, row) in y.rows().into_iter().enumerate() {
+        if row
+            .iter()
+            .zip(&reference)
+            .all(|(val, rf)| val.is_finite() && val > rf)
+        {
+            flat.extend(row.iter().copied());
+            orig_rows.push(r);
+        }
+    }
+    let count = orig_rows.len();
+    let mut out = vec![0.0; nrows];
+    if count == 0 {
+        return Ok(out);
+    }
+    let frontier = pareto_indices(&flat, count, m);
+    let total = slice_flat(&flat, &frontier, m, m, &reference);
+    let mut subset = Vec::with_capacity(frontier.len().saturating_sub(1));
+    for &idx in &frontier {
+        let row_slice = &flat[idx * m..(idx + 1) * m];
+        let has_duplicate =
+            (0..count).any(|other| other != idx && flat[other * m..(other + 1) * m] == *row_slice);
+        if has_duplicate {
+            continue;
+        }
+        subset.clear();
+        subset.extend(frontier.iter().copied().filter(|&other| other != idx));
+        let without = slice_flat(&flat, &subset, m, m, &reference);
+        out[orig_rows[idx]] = (total - without).max(0.0);
+    }
+    Ok(out)
+}
+
+/// Noise-aware hypervolume evaluating `mu - z * sqrt(yvar)` against
+/// `ref_point`.
+pub fn noisy_hv(
+    mu: &ArrayView2<f64>,
+    yvar: Option<&ArrayView2<f64>>,
+    ref_point: &ArrayView1<f64>,
+    z: f64,
+) -> Result<f64, HypervolumeError> {
+    let Some(yv) = yvar else {
+        return hypervolume_max(mu, ref_point);
+    };
+    if mu.shape() != yv.shape() {
+        return Err(HypervolumeError::InvalidDimension(yv.shape().to_vec()));
+    }
+    let adjusted = ndarray::Array2::from_shape_fn(mu.raw_dim(), |(i, j)| {
+        let var = yv[[i, j]];
+        if var.is_finite() && var >= 0.0 {
+            mu[[i, j]] - z * var.sqrt()
+        } else {
+            f64::NAN
+        }
+    });
+    hypervolume_max(&adjusted.view(), ref_point)
+}
+
+#[inline]
+fn dominates_row(left: &[f64], right: &[f64]) -> bool {
+    baux::semantics::morbo::dominates(left, right)
+}
+
+fn pareto_indices(flat: &[f64], count: usize, m: usize) -> Vec<usize> {
+    (0..count)
+        .filter(|&i| {
+            let row_i = &flat[i * m..(i + 1) * m];
+            !(0..count).any(|other| {
+                if other == i {
+                    return false;
+                }
+                let row_o = &flat[other * m..(other + 1) * m];
+                dominates_row(row_o, row_i) || (row_o == row_i && other < i)
             })
         })
-        .collect::<Vec<_>>();
-    let mut cursor = 0;
-    points.retain(|_| {
-        let retain = keep[cursor];
-        cursor += 1;
-        retain
-    });
+        .collect()
 }
 
-fn slice_volume(points: &[Vec<f64>], reference: &[f64]) -> f64 {
-    if points.is_empty() {
+fn frontier_area(flat: &[f64], active: &[usize], m: usize, ref0: f64, ref1: f64) -> f64 {
+    let mut pts: Vec<(f64, f64)> = active
+        .iter()
+        .map(|&idx| (flat[idx * m], flat[idx * m + 1]))
+        .collect();
+    pts.sort_by(|a, b| b.0.total_cmp(&a.0));
+    baux::semantics::morbo::hv_walk(&pts, ref0, ref1)
+}
+
+fn slice_flat(flat: &[f64], active: &[usize], m: usize, dim: usize, reference: &[f64]) -> f64 {
+    if active.is_empty() {
         return 0.0;
     }
-    if reference.len() == 1 {
-        return points
+    if dim == 1 {
+        return active
             .iter()
-            .map(|point| point[0])
+            .map(|&idx| flat[idx * m])
             .fold(reference[0], f64::max)
             - reference[0];
     }
-    let axis = reference.len() - 1;
-    let mut edges = points.iter().map(|point| point[axis]).collect::<Vec<_>>();
+    if dim == 2 {
+        return frontier_area(flat, active, m, reference[0], reference[1]);
+    }
+    let axis = dim - 1;
+    let mut edges: Vec<f64> = active.iter().map(|&idx| flat[idx * m + axis]).collect();
     edges.sort_by(f64::total_cmp);
     edges.dedup_by(|left, right| left.total_cmp(right).is_eq());
     let mut previous = reference[axis];
     let mut volume = 0.0;
+    let mut projected = Vec::with_capacity(active.len());
     for edge in edges {
-        let projected = points
-            .iter()
-            .filter(|point| point[axis] >= edge)
-            .map(|point| point[..axis].to_vec())
-            .collect::<Vec<_>>();
-        volume += (edge - previous) * slice_volume(&projected, &reference[..axis]);
+        projected.clear();
+        projected.extend(
+            active
+                .iter()
+                .copied()
+                .filter(|&idx| flat[idx * m + axis] >= edge),
+        );
+        volume += (edge - previous) * slice_flat(flat, &projected, m, axis, &reference[..axis]);
         previous = edge;
     }
     volume
@@ -309,5 +435,28 @@ mod tests {
         let ref_point = array![0.0, 0.0];
         let result = hypervolume_1d(&y.view(), &ref_point.view()).unwrap();
         assert!((result - 0.5).abs() < 1e-10);
+    }
+
+    #[test]
+    fn contributions_noisy() {
+        let y = array![[1.0, 0.5], [0.5, 1.0], [0.2, 0.2], [1.0, 0.5]];
+        let reference = array![0.0, 0.0];
+        let contrib = hv_contributions(&y.view(), &reference.view()).unwrap();
+        assert_eq!(contrib.len(), 4);
+        assert_eq!(contrib[0], 0.0); // duplicate with row 3 -> 0 exclusive
+        assert!((contrib[1] - 0.25).abs() < 1e-12);
+        assert_eq!(contrib[2], 0.0);
+
+        let y2 = array![[1.0, 0.5], [0.5, 1.0]];
+        let c2 = hv_contributions(&y2.view(), &reference.view()).unwrap();
+        assert!((c2[0] - 0.25).abs() < 1e-12);
+        assert!((c2[1] - 0.25).abs() < 1e-12);
+
+        let flat = hypervolume_slice(&[1.0, 0.5, 0.5, 1.0], 2, 2, &[0.0, 0.0]).unwrap();
+        assert!((flat - 0.75).abs() < 1e-12);
+
+        let yvar = array![[0.04, 0.0], [0.0, 0.04]];
+        let pessimistic = noisy_hv(&y2.view(), Some(&yvar.view()), &reference.view(), 1.0).unwrap();
+        assert!(pessimistic < 0.75 && pessimistic > 0.0);
     }
 }

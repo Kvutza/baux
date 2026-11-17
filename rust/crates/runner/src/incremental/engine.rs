@@ -123,28 +123,16 @@ fn metal_spec(
     };
     let seed = baux::tune_seed(&cell.experiment, "proposal", rep, 0);
     let cfg_opt = crate::experiment::julia::driver::opt_cfg(&cfg, n_obj)?;
-    let enn_res = metal::res_enn(&cfg, &cfg_opt, seed)?;
-    let tr_cfg = match &cfg_opt.trust_region {
-        baux::trust_region::TrustRegionConfig::Turbo(l) => *l,
-        baux::trust_region::TrustRegionConfig::Morbo(m) => m.length,
-    };
-    let has_surrogate = matches!(
-        cfg_opt.surrogate,
-        baux::optimizer_config::SurrogateConfig::ENN(_)
-    );
-    Ok(metal_step::MetalJobSpec {
+    metal_step::MetalJobSpec::from_parts(
         rep,
         seed,
         num_dim,
         n_obj,
-        rounds: target_rounds,
-        has_surrogate,
-        tr_cfg,
-        kernel: metal::resolve_kernel(&cfg.optimizer),
-        reg_spec: metal::regional_spec(&cfg.optimizer),
-        enn_res,
-        policy: metal::objective_policy(&cfg, n_obj, seed),
-    })
+        target_rounds,
+        &cfg.optimizer,
+        cfg_opt,
+        metal::objective_policy(&cfg, n_obj, seed),
+    )
 }
 
 fn create_fiber(

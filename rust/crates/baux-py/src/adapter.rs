@@ -1,8 +1,11 @@
 //! Python surrogate adapter for the Rust optimizer.
 
+use std::borrow::Cow;
+
 use baux::error::ENNError;
+use baux::scratch::ImLog;
 use baux::surrogate::{BoxedSurrogate, Surrogate, SurrogatePrediction};
-use ndarray::{Array1, Array2, Array3, ArrayView2, s};
+use ndarray::{Array1, Array2, Array3, ArrayView2};
 use numpy::{IntoPyArray, PyReadonlyArray1, PyReadonlyArray2};
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
@@ -12,34 +15,18 @@ fn surrogate_error(error: impl std::fmt::Display) -> ENNError {
     ENNError::InvalidParameter(format!("Python surrogate: {error}"))
 }
 
-fn append_rows(current: &Array2<f64>, rows: &ArrayView2<'_, f64>) -> Result<Array2<f64>, ENNError> {
-    if current.nrows() == 0 {
-        return Ok(rows.to_owned());
-    }
-    if current.ncols() != rows.ncols() {
-        return Err(ENNError::InvalidShape {
-            expected: vec![rows.nrows(), current.ncols()],
-            got: rows.shape().to_vec(),
-        });
-    }
-    let split = current.nrows();
-    let mut combined = Array2::zeros((split + rows.nrows(), current.ncols()));
-    combined.slice_mut(s![..split, ..]).assign(current);
-    combined.slice_mut(s![split.., ..]).assign(rows);
-    Ok(combined)
-}
-
 /// Adapter for a Python object implementing batched `fit`, `predict`, and
 /// `draw`.
 ///
 /// Calls cross the language boundary once per full observation or candidate
-/// batch. Observation ownership stays here so the Rust optimizer remains the
-/// sole state machine even when the numerical model is implemented in Python.
+/// batch. Observation ownership stays in Rust [`ImLog`] chunks so `Clone` /
+/// `fork()` is $O(1)$ structural sharing and linear `tell` appends in place.
 pub struct PythonSurrogateAdapter {
     provider: Py<PyAny>,
-    x_obs: Array2<f64>,
-    y_obs: Array2<f64>,
-    yvar: Option<Array2<f64>>,
+    num_dim: usize,
+    x_obs: ImLog,
+    y_obs: ImLog,
+    yvar: Option<ImLog>,
     has_yvar: Option<bool>,
     lengthscales: Option<Array1<f64>>,
     num_steps: usize,
@@ -63,6 +50,7 @@ impl Clone for PythonSurrogateAdapter {
         });
         Self {
             provider,
+            num_dim: self.num_dim,
             x_obs: self.x_obs.clone(),
             y_obs: self.y_obs.clone(),
             yvar: self.yvar.clone(),
@@ -77,8 +65,9 @@ impl PythonSurrogateAdapter {
     pub fn new(provider: Py<PyAny>, num_dim: usize, num_steps: usize) -> Self {
         Self {
             provider,
-            x_obs: Array2::zeros((0, num_dim)),
-            y_obs: Array2::zeros((0, 0)),
+            num_dim,
+            x_obs: ImLog::with_cols(num_dim),
+            y_obs: ImLog::empty(),
             yvar: None,
             has_yvar: None,
             lengthscales: None,
@@ -86,17 +75,13 @@ impl PythonSurrogateAdapter {
         }
     }
 
-    fn call_fit(
-        &mut self,
-        x: &Array2<f64>,
-        y: &Array2<f64>,
-        yvar: Option<&Array2<f64>>,
-    ) -> Result<(), ENNError> {
+    fn call_fit(&mut self, x: &ImLog, y: &ImLog, yvar: Option<&ImLog>) -> Result<(), ENNError> {
+        let num_dim = self.num_dim;
         let lengthscales = Python::attach(|py| -> PyResult<Option<Array1<f64>>> {
-            let x_py = x.to_owned().into_pyarray(py);
-            let y_py = y.to_owned().into_pyarray(py);
+            let x_py = x.to_array().into_pyarray(py);
+            let y_py = y.to_array().into_pyarray(py);
             let yvar_py = match yvar {
-                Some(values) => values.to_owned().into_pyarray(py).into_any().unbind(),
+                Some(values) => values.to_array().into_pyarray(py).into_any().unbind(),
                 None => py.None(),
             };
             let kwargs = PyDict::new(py);
@@ -112,14 +97,13 @@ impl PythonSurrogateAdapter {
         })
         .map_err(surrogate_error)?;
         if let Some(values) = lengthscales.as_ref() {
-            if values.len() != x.ncols()
+            if values.len() != num_dim
                 || values
                     .iter()
                     .any(|value| !value.is_finite() || *value <= 0.0)
             {
                 return Err(surrogate_error(format!(
-                    "lengthscales must contain {} finite positive values",
-                    x.ncols()
+                    "lengthscales must contain {num_dim} finite positive values"
                 )));
             }
         }
@@ -133,9 +117,9 @@ impl PythonSurrogateAdapter {
         y: &ArrayView2<'_, f64>,
         yvar: Option<&ArrayView2<'_, f64>>,
     ) -> Result<(), ENNError> {
-        if x.nrows() != y.nrows() || x.ncols() != self.x_obs.ncols() {
+        if x.nrows() != y.nrows() || x.ncols() != self.num_dim {
             return Err(ENNError::InvalidShape {
-                expected: vec![x.nrows(), self.x_obs.ncols()],
+                expected: vec![x.nrows(), self.num_dim],
                 got: vec![y.nrows(), x.ncols()],
             });
         }
@@ -175,9 +159,12 @@ impl Surrogate for PythonSurrogateAdapter {
         _rng: &mut dyn RngCore,
     ) -> Result<BoxedSurrogate, ENNError> {
         self.validate_batch(x, y, yvar)?;
-        let x_new = x.to_owned();
-        let y_new = y.to_owned();
-        let yvar_new = yvar.map(|values| values.to_owned());
+        let x_new = ImLog::with_cols(self.num_dim).push_rows(x)?;
+        let y_new = ImLog::with_cols(y.ncols()).push_rows(y)?;
+        let yvar_new = match yvar {
+            Some(values) => Some(ImLog::with_cols(values.ncols()).push_rows(values)?),
+            None => None,
+        };
         self.call_fit(&x_new, &y_new, yvar_new.as_ref())?;
         self.x_obs = x_new;
         self.y_obs = y_new;
@@ -194,11 +181,15 @@ impl Surrogate for PythonSurrogateAdapter {
         _rng: &mut dyn RngCore,
     ) -> Result<BoxedSurrogate, ENNError> {
         self.validate_batch(x_new, y_new, yvar_new)?;
-        let next_x = append_rows(&self.x_obs, x_new)?;
-        let next_y = append_rows(&self.y_obs, y_new)?;
-        let next_yvar = match (&self.yvar, yvar_new) {
-            (Some(current), Some(rows)) => Some(append_rows(current, rows)?),
-            (None, Some(rows)) => Some(rows.to_owned()),
+        let prev_x = std::mem::take(&mut self.x_obs);
+        let prev_y = std::mem::take(&mut self.y_obs);
+        let prev_yvar = self.yvar.take();
+
+        let next_x = prev_x.push_rows(x_new)?;
+        let next_y = prev_y.push_rows(y_new)?;
+        let next_yvar = match (prev_yvar, yvar_new) {
+            (Some(current), Some(rows)) => Some(current.push_rows(rows)?),
+            (None, Some(rows)) => Some(ImLog::with_cols(rows.ncols()).push_rows(rows)?),
             (None, None) => None,
             (Some(_), None) => unreachable!("validate_batch rejects a mixed y_var stream"),
         };
@@ -284,13 +275,31 @@ impl Surrogate for PythonSurrogateAdapter {
         Some(self.x_obs.nrows())
     }
 
+    fn x_slice(&self, idx: usize) -> Result<Cow<'_, [f64]>, ENNError> {
+        if idx >= self.x_obs.nrows() {
+            return Err(ENNError::InvalidParameter(format!(
+                "observation index {idx} out of bounds"
+            )));
+        }
+        Ok(Cow::Borrowed(self.x_obs.row_slice(idx)))
+    }
+
+    fn y_slice(&self, idx: usize) -> Result<Cow<'_, [f64]>, ENNError> {
+        if idx >= self.y_obs.nrows() {
+            return Err(ENNError::InvalidParameter(format!(
+                "observation index {idx} out of bounds"
+            )));
+        }
+        Ok(Cow::Borrowed(self.y_obs.row_slice(idx)))
+    }
+
     fn x_row(&self, idx: usize) -> Result<Array1<f64>, ENNError> {
         if idx >= self.x_obs.nrows() {
             return Err(ENNError::InvalidParameter(format!(
                 "observation index {idx} out of bounds"
             )));
         }
-        Ok(self.x_obs.row(idx).to_owned())
+        Ok(self.x_obs.row_vec(idx))
     }
 
     fn y_row(&self, idx: usize) -> Result<Array1<f64>, ENNError> {
@@ -299,21 +308,20 @@ impl Surrogate for PythonSurrogateAdapter {
                 "observation index {idx} out of bounds"
             )));
         }
-        Ok(self.y_obs.row(idx).to_owned())
+        Ok(self.y_obs.row_vec(idx))
     }
 
     fn observations_x(&self) -> Result<Option<Array2<f64>>, ENNError> {
-        Ok((self.x_obs.nrows() > 0).then(|| self.x_obs.clone()))
+        Ok((self.x_obs.nrows() > 0).then(|| self.x_obs.to_array()))
     }
 
     fn observations_y(&self) -> Result<Option<Array2<f64>>, ENNError> {
-        Ok((self.y_obs.nrows() > 0).then(|| self.y_obs.clone()))
+        Ok((self.y_obs.nrows() > 0).then(|| self.y_obs.to_array()))
     }
 
     fn cleared(mut self: Box<Self>) -> Result<BoxedSurrogate, ENNError> {
-        let num_dim = self.x_obs.ncols();
-        self.x_obs = Array2::zeros((0, num_dim));
-        self.y_obs = Array2::zeros((0, 0));
+        self.x_obs = ImLog::with_cols(self.num_dim);
+        self.y_obs = ImLog::empty();
         self.yvar = None;
         self.has_yvar = None;
         self.lengthscales = None;

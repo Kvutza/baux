@@ -32,12 +32,12 @@ pub mod semantics;
 use cuda_device::{DisjointSlice, SharedArray, cuda_module, kernel, launch_contract, thread};
 
 mod neighbor_shape;
-use baux::semantics::neighbor as neighbor_rule;
+pub use baux::semantics::abi::{ArmDecision, PoolDispatch, SelectHeader};
 pub use neighbor_shape::NeighborShape;
 mod knn;
 pub use knn::{
-    BatchParams, BatchValue, DrawParams, KNN_K, KNN_THREADS, KNN_WARPS, KnnParams, MergeParams,
-    POST_MAX_K, PosteriorParams, WeightedParams,
+    BatchParams, BatchValue, CAND_TILE, DrawParams, KNN_K, KNN_THREADS, KNN_WARPS, KnnParams,
+    MergeParams, POST_MAX_K, PosteriorParams, WeightedParams, make_pool,
 };
 mod diffusion;
 mod fbt;
@@ -63,6 +63,10 @@ pub use fbt::{
     FbtShape, FeedbackShape, GaussianShape, MatmulShape, Mhc4EncodeShape, Mhc4Point, MoeShape,
     NeighborPoint, ObjectiveShape, PisaShape, RouteShape, RoutedTile, ScoreStats, ShardStats,
     VOCAB, WaveShape, fbt_model,
+};
+pub use trial_knn::{
+    MAX_METRICS, MOD_AFFINE, MOD_CORR, MOD_MORBO, MOD_STIEFEL, ModSlices, SCORE_THREADS,
+    better_arm, eval_law, eval_topk, metric_pair, pick_host, score_cand, unpack_mods,
 };
 
 pub const MODULE_NAME: &str = env!("CARGO_PKG_NAME");
@@ -203,6 +207,134 @@ pub mod trials {
     ) {
         trial_knn::run_postdraw(
             weights, l2, means, errors, indices, seeds, &mut draws, params,
+        );
+    }
+
+    #[kernel(unchecked_indexing)]
+    #[launch_contract(domain = 1, block = (256, 1, 1), dynamic_shared = 0)]
+    pub fn poolscan(
+        rows: &[f32],
+        weights: &[f32],
+        center: &[f32],
+        scale: &[f32],
+        lower: &[f32],
+        upper: &[f32],
+        dirs: &[u32],
+        mut distances: DisjointSlice<f32>,
+        mut indices: DisjointSlice<u32>,
+        dispatch: PoolDispatch,
+    ) {
+        knn::run_poolscan(
+            rows,
+            weights,
+            center,
+            scale,
+            lower,
+            upper,
+            dirs,
+            &mut distances,
+            &mut indices,
+            dispatch,
+        );
+    }
+
+    #[kernel(unchecked_indexing)]
+    #[launch_contract(domain = 1, block = (256, 1, 1), dynamic_shared = 0)]
+    pub fn poolwarp(
+        rows: &[f32],
+        weights: &[f32],
+        center: &[f32],
+        scale: &[f32],
+        lower: &[f32],
+        upper: &[f32],
+        dirs: &[u32],
+        mut distances: DisjointSlice<f32>,
+        mut indices: DisjointSlice<u32>,
+        dispatch: PoolDispatch,
+    ) {
+        knn::run_poolwarp(
+            rows,
+            weights,
+            center,
+            scale,
+            lower,
+            upper,
+            dirs,
+            &mut distances,
+            &mut indices,
+            dispatch,
+        );
+    }
+
+    #[kernel(unchecked_indexing)]
+    #[launch_contract(domain = 1, block = (32, 1, 1), dynamic_shared = 0)]
+    pub fn poolscore(
+        distances: &[f32],
+        indices: &[u32],
+        outcomes: &[f32],
+        variances: &[f32],
+        mods: &[f32],
+        mut scores: DisjointSlice<f32>,
+        mut means: DisjointSlice<f32>,
+        mut errors: DisjointSlice<f32>,
+        header: SelectHeader,
+    ) {
+        trial_knn::run_poolscore(
+            distances,
+            indices,
+            outcomes,
+            variances,
+            mods,
+            &mut scores,
+            &mut means,
+            &mut errors,
+            header,
+        );
+    }
+
+    #[kernel(unchecked_indexing)]
+    #[launch_contract(domain = 1, block = (256, 1, 1), dynamic_shared = 0)]
+    pub fn poolpick(
+        scores: &[f32],
+        means: &[f32],
+        errors: &[f32],
+        mut state: DisjointSlice<u32>,
+        mut selected: DisjointSlice<u32>,
+        mut decisions: DisjointSlice<ArmDecision>,
+        header: SelectHeader,
+    ) {
+        trial_knn::run_poolpick(
+            scores,
+            means,
+            errors,
+            &mut state,
+            &mut selected,
+            &mut decisions,
+            header,
+        );
+    }
+
+    #[kernel(unchecked_indexing)]
+    #[launch_contract(domain = 1, block = (256, 1, 1), dynamic_shared = 0)]
+    pub fn poolrows(
+        selected: &[u32],
+        center: &[f32],
+        scale: &[f32],
+        lower: &[f32],
+        upper: &[f32],
+        dirs: &[u32],
+        mut rows_out: DisjointSlice<f32>,
+        dispatch: PoolDispatch,
+    ) {
+        knn::run_poolrows(
+            selected,
+            center,
+            scale,
+            lower,
+            upper,
+            dirs,
+            &mut rows_out,
+            dispatch,
         );
     }
 }

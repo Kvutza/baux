@@ -61,9 +61,12 @@ mod knn;
 mod model;
 mod prefill;
 pub use knn::{
-    BatchOutput, BatchSpec, CUVS_MAX_K, CudaIndex, CudaKnnMode, CudaScratch, DeviceDraw,
-    DevicePosterior, DrawOutput, KnnProfile, PosteriorOutput, PosteriorSpec, WeightedOutput,
-    WeightedSpec,
+    BatchOutput, BatchSpec, CUVS_MAX_K, CatSnap, CudaIndex, CudaKnnMode, CudaScratch, DeviceDraw,
+    DevicePosterior, DrawOutput, FencedProposal, KnnProfile, MorboCuda, MorboRegion, MorboSpec,
+    PoolFamily, PoolKind, PoolMeta, PoolModifiers, PoolProblem, PoolReject, PoolScratch,
+    PoolSelector, PosteriorOutput, PosteriorSpec, ProposalHost, RegionalBatch, RegionalCuda,
+    RegionalSpec, TurboCuda, TurboMode, TurboSpec, WeightedOutput, WeightedSpec, eff_weights,
+    local_radii, pack_mods, pool_family, region_box, select_pool, simulate_round, snap_rows,
 };
 pub use model::diffusion_run::{check as diffusion_check, run as model_diffusion};
 pub use model::run::initialized_check;

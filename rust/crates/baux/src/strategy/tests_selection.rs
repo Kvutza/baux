@@ -382,3 +382,101 @@ fn fork_isolation() {
     assert_eq!(fork_b.obs_count(), 2);
     assert_eq!(opt.obs_count(), 0);
 }
+
+#[test]
+fn delayed_modes() {
+    use crate::candidates::{CandidateSampler, CoordSystem};
+    use crate::optimizer::{AllocationPolicy, MultiTrustRegionConfig, RestartMemoryPolicy};
+    use crate::trust_region::{MorboTRSettings, Rescalarize, TRLengthConfig, TrustRegionConfig};
+    use ndarray::Array2;
+
+    // 1. High-D sparse RAASP (D=64, num_pert=4, C=128) + Thompson & UCB
+    let d = 64usize;
+    let bounds = Array2::from_shape_fn((d, 2), |(_, c)| if c == 0 { 0.0 } else { 1.0 });
+    for sampler in [
+        CandidateSampler::RAASP,
+        CandidateSampler::Sobol,
+        CandidateSampler::Uniform,
+    ] {
+        let mut rng = StdRng::seed_from_u64(901);
+        let mut cfg = turbo_enn();
+        cfg.candidates.candidate_rv = sampler;
+        cfg.candidates.num_pert = 4;
+        cfg.candidates.min_candidates = 128;
+        cfg.candidates.max_candidates = Some(128);
+        cfg.acquisition = AcquisitionConfig::UCB { beta: 1.0 };
+        let opt = BayesOptimizer::new_strategy(
+            bounds.clone(),
+            cfg,
+            Strategy::hybrid(InitStrategy::LHD, 6),
+            &mut rng,
+        )
+        .unwrap();
+        let (opt, x0) = opt.ask(6, &mut rng).unwrap();
+        let y0 = Array2::from_shape_fn((6, 1), |(i, _)| -(i as f64));
+        let opt = opt.tell(&x0.view(), &y0.view(), None, &mut rng).unwrap();
+        let fork = opt.fork().unwrap();
+        assert!(opt.shares_storage(&fork));
+        let (opt, arms) = opt.ask(3, &mut rng).unwrap();
+        assert_eq!(arms.shape(), &[3, d]);
+        assert_eq!(opt.telemetry().num_candidates, 128);
+        assert!(arms.iter().all(|&v| (0.0..=1.0).contains(&v)));
+    }
+
+    // 2. MORBO with SobolMasked DelayedPool + Rescalarize::OnPropose
+    let mut rng = StdRng::seed_from_u64(902);
+    let mut mcfg = turbo_enn();
+    mcfg.candidates.candidate_rv = CandidateSampler::Sobol;
+    mcfg.candidates.num_pert = 3;
+    mcfg.candidates.min_candidates = 64;
+    mcfg.candidates.max_candidates = Some(64);
+    mcfg.acquisition = AcquisitionConfig::Thompson;
+    mcfg.trust_region = TrustRegionConfig::Morbo(MorboTRSettings {
+        num_metrics: 2,
+        alpha: 0.05,
+        length: TRLengthConfig::default(),
+        rescalarize: Rescalarize::OnPropose,
+        noise_aware: false,
+    });
+    let morbo = BayesOptimizer::new_strategy(
+        Array2::from_shape_fn((16, 2), |(_, c)| if c == 0 { 0.0 } else { 1.0 }),
+        mcfg,
+        Strategy::hybrid(InitStrategy::LHD, 6),
+        &mut rng,
+    )
+    .unwrap();
+    let (morbo, mx0) = morbo.ask(6, &mut rng).unwrap();
+    let my0 = Array2::from_shape_fn((6, 2), |(i, m)| -((i + m) as f64));
+    let morbo = morbo
+        .tell(&mx0.view(), &my0.view(), None, &mut rng)
+        .unwrap();
+    let (morbo, marms) = morbo.ask(2, &mut rng).unwrap();
+    assert_eq!(marms.shape(), &[2, 16]);
+    assert_eq!(morbo.telemetry().num_candidates, 64);
+
+    // 3. MultiTrustRegion (regions = 12 > 8) + JointAcquisition +
+    //    RetainRelevant + Spherical + tied_dims
+    let mut rng = StdRng::seed_from_u64(903);
+    let mut multi_tr = MultiTrustRegionConfig::new(12, Default::default());
+    multi_tr.allocation_policy = AllocationPolicy::JointAcquisition;
+    multi_tr.restart_memory_policy = RestartMemoryPolicy::RetainRelevant;
+    let state = crate::optimizer::StrategyState::configured(8, multi_tr, 4, &mut rng).unwrap();
+    let mut jcfg = turbo_enn();
+    jcfg.candidates.coord_system = CoordSystem::Spherical;
+    jcfg.candidates.tied_dims = vec![vec![0, 1], vec![2, 3]];
+    jcfg.candidates.min_candidates = 32;
+    jcfg.candidates.max_candidates = Some(32);
+    let jopt = BayesOptimizer::new_strategy(
+        Array2::from_shape_fn((8, 2), |(_, c)| if c == 0 { 0.0 } else { 1.0 }),
+        jcfg,
+        Strategy::Experimental(state),
+        &mut rng,
+    )
+    .unwrap();
+    let (jopt, jx0) = jopt.ask(4, &mut rng).unwrap();
+    let jy0 = array![[0.1], [0.5], [0.9], [0.3]];
+    let jopt = jopt.tell(&jx0.view(), &jy0.view(), None, &mut rng).unwrap();
+    let (jopt, jarms) = jopt.ask(2, &mut rng).unwrap();
+    assert_eq!(jarms.shape(), &[2, 8]);
+    assert_eq!(jopt.telemetry().num_candidates, 12 * 32);
+}

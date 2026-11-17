@@ -71,7 +71,7 @@ impl ObjectivePolicy {
         } = &self.acquisition
         {
             if weights.len() != self.scales.len()
-                || !(2..=8).contains(regions)
+                || *regions == 0
                 || weights
                     .iter()
                     .any(|weight| !weight.is_finite() || *weight <= 0.0)
@@ -80,8 +80,8 @@ impl ObjectivePolicy {
                 || !*clip
             {
                 return Err(
-                    "MORBO requires one positive finite preference per objective, finite \
-                     nonnegative alpha and clip=true for incumbent updates"
+                    "MORBO requires one positive finite preference per objective, at least one \
+                     region, finite nonnegative alpha and clip=true for incumbent updates"
                         .into(),
                 );
             }
@@ -121,7 +121,7 @@ impl ResidentObjectiveConfig {
             .ok_or("MORBO requires preferences")?;
         if preferences.len() != self.scales.len()
             || preferences.iter().any(|v| !v.is_finite() || *v <= 0.0)
-            || !(2..=8).contains(&self.regions.unwrap_or(4))
+            || self.regions.unwrap_or(4) == 0
             || !self.alpha.is_some_and(|v| v.is_finite() && v >= 0.0)
             || !self
                 .seed_domain
@@ -131,7 +131,7 @@ impl ResidentObjectiveConfig {
             || self.clip != Some(true)
         {
             return Err(
-                "MORBO requires positive preferences, 2..=8 regions, nonnegative alpha, nonempty \
+                "MORBO requires positive preferences, >=1 regions, nonnegative alpha, nonempty \
                  seed_domain, explicit rescalarize and clip=true"
                     .into(),
             );

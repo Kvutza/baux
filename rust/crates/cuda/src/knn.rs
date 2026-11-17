@@ -6,14 +6,25 @@ mod cuvs_api;
 mod cuvs_ffi;
 mod dlpack;
 mod knn_post;
+pub mod pool;
 mod resident;
+pub mod turbo;
 pub use cuvs::{CUVS_MAX_K, CudaKnnMode};
 use knn_post::PosteriorScratch;
 pub use knn_post::{
     BatchOutput, BatchSpec, DrawOutput, PosteriorOutput, PosteriorSpec, WeightedOutput,
     WeightedSpec,
 };
+pub use pool::{
+    CatSnap, FencedProposal, MorboSpec, PoolFamily, PoolKind, PoolMeta, PoolModifiers, PoolProblem,
+    PoolReject, PoolScratch, PoolSelector, ProposalHost, eff_weights, local_radii, pack_mods,
+    pool_family, region_box, select_pool, simulate_round, snap_rows,
+};
 pub use resident::{DeviceDraw, DevicePosterior};
+pub use turbo::{
+    MorboCuda, MorboRegion, RegionalBatch, RegionalCuda, RegionalSpec, TurboCuda, TurboMode,
+    TurboSpec,
+};
 
 use super::capture::{
     CudaResult, Runtime, copy_prefix, cuda_error, read_prefix, timing_event, to_u32,
@@ -22,7 +33,7 @@ use baux_cuda_device::{KNN_K, KNN_THREADS, KNN_WARPS, KnnParams, MergeParams, TH
 use cuda_core::{CudaEvent, CudaStream, DeviceBuffer, DeviceCopy, LaunchConfig1D};
 use cuda_host::kernel_family::{KernelFamily, KernelProblem, KernelSelector, KernelVariant};
 
-const WARP_DIM: usize = 32;
+pub(super) const WARP_DIM: usize = 32;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum ScanKind {
@@ -192,14 +203,16 @@ impl KnnScratch {
 pub struct CudaScratch {
     pub(super) knn: KnnScratch,
     pub(super) posterior: PosteriorScratch,
+    pub(super) pool: PoolScratch,
     pub(super) cuvs: Option<cuvs::CuvsState>,
     pub(super) profile: Option<KnnProfile>,
 }
 
 impl CudaScratch {
-    pub fn new(runtime: &Arc<Runtime>) -> CudaResult<Self> {
+    pub(crate) fn new(runtime: &Arc<Runtime>) -> CudaResult<Self> {
         let knn = KnnScratch::new(&runtime.stream)?;
         let posterior = PosteriorScratch::new(&runtime.stream)?;
+        let pool = PoolScratch::new(&runtime.stream)?;
         let cuvs = if cuvs::is_available() {
             cuvs::CuvsState::new(&runtime.stream).ok()
         } else {
@@ -208,6 +221,7 @@ impl CudaScratch {
         Ok(Self {
             knn,
             posterior,
+            pool,
             cuvs,
             profile: None,
         })
@@ -229,6 +243,7 @@ impl CudaScratch {
 pub struct CudaIndex {
     pub(super) runtime: Arc<Runtime>,
     pub(super) rows: Arc<DeviceBuffer<f32>>,
+    pub(super) host_rows: Arc<Vec<f32>>,
     pub(super) row_capacity: usize,
     pub(super) row_count: usize,
     pub(super) dims: usize,
@@ -259,6 +274,7 @@ impl CudaIndex {
         copy_prefix(&row_buffer, rows, &runtime.stream)?;
         runtime.stream.synchronize().map_err(cuda_error)?;
         let row_count = rows.len() / dims;
+        let host_rows = Arc::new(rows.to_vec());
         let rows = Arc::new(row_buffer);
         let cuvs_index = if mode != CudaKnnMode::Kernel && row_count > 0 {
             cuvs::build_index(mode, &runtime.stream, &rows, row_count, dims, None)?.map(Arc::new)
@@ -268,6 +284,7 @@ impl CudaIndex {
         Ok(Self {
             runtime,
             rows,
+            host_rows,
             row_capacity,
             row_count,
             dims,
@@ -316,6 +333,10 @@ impl CudaIndex {
         copy_prefix(&row_buffer, rows, &self.runtime.stream)?;
         self.runtime.stream.synchronize().map_err(cuda_error)?;
         let row_count = rows.len() / self.dims;
+        let mut host_rows = self.host_rows;
+        let host_vec = Arc::make_mut(&mut host_rows);
+        host_vec.clear();
+        host_vec.extend_from_slice(rows);
         let rows = Arc::new(row_buffer);
         let cuvs_index = if self.mode != CudaKnnMode::Kernel && row_count > 0 {
             let _ = scratch.ensure_cuvs(&self.runtime.stream);
@@ -334,6 +355,7 @@ impl CudaIndex {
         Ok(Self {
             runtime: self.runtime,
             rows,
+            host_rows,
             row_capacity: capacity,
             row_count,
             dims: self.dims,
@@ -387,6 +409,8 @@ impl CudaIndex {
             .row_count
             .checked_add(rows.len() / self.dims)
             .ok_or("CUDA index row count overflow")?;
+        let mut host_rows = self.host_rows;
+        Arc::make_mut(&mut host_rows).extend_from_slice(rows);
         let rows = Arc::new(row_buffer);
         let cuvs_index = if self.mode != CudaKnnMode::Kernel && row_count > 0 {
             let _ = scratch.ensure_cuvs(&self.runtime.stream);
@@ -405,6 +429,7 @@ impl CudaIndex {
         Ok(Self {
             runtime: self.runtime,
             rows,
+            host_rows,
             row_capacity,
             row_count,
             dims: self.dims,
@@ -671,7 +696,7 @@ impl CudaIndex {
         }
     }
 
-    fn launch_merge(
+    pub(super) fn launch_merge(
         &self,
         scratch: &mut CudaScratch,
         queries: usize,

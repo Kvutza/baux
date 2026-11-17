@@ -1,7 +1,8 @@
 //! Immutable, splittable, foldable PRNG key for referentially transparent
-//! transitions.
+//! transitions across host, Apple Metal, and `cuda-oxide`.
 
 use super::random::{Prng, SM64_OFFSET, prng, splitmix64};
+use super::real::Real;
 
 /// Immutable, splittable, foldable PRNG key for referentially transparent
 /// transitions.
@@ -11,7 +12,7 @@ pub struct Key(pub u64, pub u64);
 impl Key {
     /// Construct a deterministic key from a 64-bit seed.
     #[inline(always)]
-    pub fn new(seed: u64) -> Self {
+    pub const fn new(seed: u64) -> Self {
         let hi = splitmix64(seed);
         let lo = splitmix64(hi ^ SM64_OFFSET);
         Self(hi, lo)
@@ -43,13 +44,13 @@ impl Key {
 
     /// Extract a canonical 64-bit seed from this key.
     #[inline(always)]
-    pub fn seed(self) -> u64 {
+    pub const fn seed(self) -> u64 {
         splitmix64(self.0 ^ self.1.rotate_left(31))
     }
 
     /// Deterministically split this key into two independent child keys.
     #[inline(always)]
-    pub fn split(self) -> (Self, Self) {
+    pub const fn split(self) -> (Self, Self) {
         let left = self.fold(0x6A09_E667_F3BC_C908);
         let right = self.fold(0xBB67_AE85_84CA_A73B);
         (left, right)
@@ -60,13 +61,51 @@ impl Key {
         (0..n).map(|i| self.fold(i as u64 + 1)).collect()
     }
 
-    /// Deterministically fold a 64-bit tag (stage, step, or region index) into
-    /// this key.
+    /// Deterministically fold a 64-bit tag (stage, step, candidate, or
+    /// coordinate index) into this key.
     #[inline(always)]
-    pub fn fold(self, tag: u64) -> Self {
+    pub const fn fold(self, tag: u64) -> Self {
         let hi = splitmix64(self.0 ^ tag.wrapping_mul(0x9E37_79B9_7F4A_7C15));
         let lo = splitmix64(self.1 ^ hi ^ tag.wrapping_mul(0xBF58_476D_1CE4_E5B9));
         Self(hi, lo)
+    }
+
+    /// Stateless uniform draw in `[0, 1)` over [`Real`] (`f32` or `f64`).
+    #[inline(always)]
+    pub fn uniform<T: Real>(self) -> T {
+        T::unit_word(self.seed())
+    }
+
+    /// Stateless open-interval draw in `(0, 1)` over [`Real`].
+    #[inline(always)]
+    pub fn open<T: Real>(self) -> T {
+        T::open_word(self.seed())
+    }
+
+    /// Stateless standard normal `N(0, 1)` Box-Muller draw over [`Real`].
+    #[inline(always)]
+    pub fn normal<T: Real>(self) -> T {
+        T::normal_words(self.0, self.1)
+    }
+
+    /// Stateless Rademacher draw in `{-1, +1}` over [`Real`].
+    #[inline(always)]
+    pub fn rademacher<T: Real>(self) -> T {
+        if (self.seed() & 1) == 0 {
+            -T::ONE
+        } else {
+            T::ONE
+        }
+    }
+
+    /// Stateless bounded index in `0..len` (returns `0` when `len <= 1`).
+    #[inline(always)]
+    pub const fn bounded_idx(self, len: usize) -> usize {
+        if len <= 1 {
+            0
+        } else {
+            (self.seed() % (len as u64)) as usize
+        }
     }
 
     /// Materialize a fresh deterministic [`Prng`] stream from this key.
@@ -92,7 +131,7 @@ impl !Clone for AffineKey {}
 impl AffineKey {
     /// Construct an affine key from a 64-bit seed.
     #[inline(always)]
-    pub fn new(seed: u64) -> Self {
+    pub const fn new(seed: u64) -> Self {
         Self(Key::new(seed))
     }
 
@@ -129,13 +168,13 @@ impl AffineKey {
 
     /// Extract a canonical 64-bit seed from this key.
     #[inline(always)]
-    pub fn seed(&self) -> u64 {
+    pub const fn seed(&self) -> u64 {
         self.0.seed()
     }
 
     /// Consume this key and split it into two independent affine child keys.
     #[inline(always)]
-    pub fn split(self) -> (Self, Self) {
+    pub const fn split(self) -> (Self, Self) {
         let (l, r) = self.0.split();
         (Self(l), Self(r))
     }
@@ -143,7 +182,7 @@ impl AffineKey {
     /// Consume this key and advance one transition step, returning `(draw_key,
     /// next_affine_key)`.
     #[inline(always)]
-    pub fn step(self) -> (Key, Self) {
+    pub const fn step(self) -> (Key, Self) {
         let (draw, next) = self.0.split();
         (draw, Self(next))
     }
@@ -155,7 +194,7 @@ impl AffineKey {
 
     /// Consume this key and fold a 64-bit tag into a derived affine key.
     #[inline(always)]
-    pub fn fold(self, tag: u64) -> Self {
+    pub const fn fold(self, tag: u64) -> Self {
         Self(self.0.fold(tag))
     }
 
@@ -181,6 +220,16 @@ mod tests {
         assert_eq!(Key::from_pair(k1.0, k1.1), k1);
         assert_eq!(k1.seed(), k2.seed());
         assert_ne!(k1.seed(), k3.seed());
+        assert!(k1.uniform::<f64>() >= 0.0 && k1.uniform::<f64>() < 1.0);
+        assert!(k1.uniform::<f32>() >= 0.0 && k1.uniform::<f32>() < 1.0);
+        assert!(k1.open::<f64>() > 0.0 && k1.open::<f64>() < 1.0);
+        assert!(k1.open::<f32>() > 0.0 && k1.open::<f32>() < 1.0);
+        assert!(k1.normal::<f64>().is_finite());
+        assert!(k1.normal::<f32>().is_finite());
+        assert!(k1.rademacher::<f64>().abs() == 1.0);
+        assert!(k1.rademacher::<f32>().abs() == 1.0);
+        assert!(k1.bounded_idx(7) < 7);
+        assert_eq!(k1.bounded_idx(0), 0);
         let mut r1 = k1.prng();
         let mut r2 = k2.prng();
         assert_eq!(r1.next_u64(), r2.next_u64());

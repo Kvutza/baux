@@ -1,10 +1,4 @@
 //! Refit ENN and advance radius controllers after recording observations.
-//!
-//! Fitting changes estimator scales and, when enabled, tensor-family geometry;
-//! controller updates change the dimensionless radius used by subsequent asks.
-//! Neither operation evaluates the objective or accepts a new parameter row.
-//! The caller has already made that decision in `observations`/`history`.
-//! Controller restarts retain the current incumbent, not a new random model.
 
 use super::*;
 use crate::hash::prng;
@@ -41,10 +35,24 @@ impl SearchState {
             }
             crate::config::DistanceMetric::Euclidean => raw_distances,
         };
-        let outcomes =
-            ndarray::Array2::from_shape_fn((n, 1), |(row, _)| f64::from(self.outcomes[row]));
-        let variances =
-            ndarray::Array2::from_shape_fn((n, 1), |(row, _)| f64::from(self.variances[row]));
+        let scalar_y_bounds = self
+            .manifold
+            .as_ref()
+            .and_then(|m| m.config.y_bounds.as_ref())
+            .and_then(|b| b.first().copied());
+        let mut outcomes = ndarray::Array2::<f64>::zeros((n, 1));
+        let mut variances = ndarray::Array2::<f64>::zeros((n, 1));
+        for row in 0..n {
+            let raw_v = if self.noise_aware {
+                self.variances[row]
+            } else {
+                0.0
+            };
+            let (wy, wv) = manifold::warp_observation(self.outcomes[row], raw_v, scalar_y_bounds);
+            outcomes[[row, 0]] = f64::from(wy);
+            variances[[row, 0]] = f64::from(wv);
+        }
+        let yvar_view = self.noise_aware.then(|| variances.view());
         let mut rng = prng(self.fit_seed.wrapping_add(n as u64));
         let fitter = self
             .fitter
@@ -54,7 +62,7 @@ impl SearchState {
             fitter.ask_adaptive(
                 &distances.view(),
                 &outcomes.view(),
-                Some(&variances.view()),
+                yvar_view.as_ref(),
                 self.initial_observations as i32,
                 self.fit_candidates,
                 self.fit_samples,
@@ -65,7 +73,7 @@ impl SearchState {
             fitter.ask_distances(
                 &distances.view(),
                 &outcomes.view(),
-                Some(&variances.view()),
+                yvar_view.as_ref(),
                 self.fit_candidates,
                 self.fit_samples,
                 None,
@@ -85,14 +93,61 @@ impl SearchState {
         Ok(self)
     }
 
-    /// Update ordinary TuRBO from a reward used as its own batch baseline.
-    /// Clears accumulated paired evidence. On restart, retains the incumbent
-    /// row, resets trust counters, and collapses only non-implicit logical
-    /// history. Copies controller length back without evaluating or
-    /// randomizing a model.
+    fn restart_bookkeeping(&mut self) -> Result<(), String> {
+        self.trust.restart();
+        self.restart_count += 1;
+        if !self.history_rows.is_empty() {
+            self.cow_slot(0)?;
+            self.copy(&*self.base, &*self.history_rows[0])?;
+            self.resident_history = 1;
+        }
+        self.resident_identities[0] = self.base_id;
+        if !self.implicit_history {
+            self.outcomes[0] = self.best;
+            self.variances[0] = self.best_variance;
+            self.identities[0] = self.base_id;
+            self.history = 1;
+            self.pairwise_distances.fill(0.0);
+            self.fitted_enn = None;
+            self.objective_history.retain_incumbent();
+            self.retain_axis();
+        }
+        self.trust_observations = 1;
+        self.trust.seed_baseline(f64::from(self.best), 1);
+        Ok(())
+    }
+
+    fn adapt_tolerance(&mut self, improved: Option<bool>, success_tol: i32) -> bool {
+        let mut len = self.length;
+        let mut sc = self.trust.success_counter();
+        let mut fc = self.trust.failure_counter();
+        let ft = self.trust.failure_tolerance();
+        let _ = baux::semantics::optimizer::turbo_adapt(
+            &mut len,
+            self.length_config.length_max,
+            &mut sc,
+            &mut fc,
+            success_tol,
+            ft,
+            improved,
+        );
+        self.length = len;
+        len < self.length_config.length_min
+    }
+
     pub fn update_region(mut self, value: f32) -> Result<Self, String> {
         let value = f64::from(value);
         self.trust_observations += 1;
+        if let Some(st) = self.success_tolerance_override
+            && st != 3
+        {
+            let needs_restart = self.adapt_tolerance(Some(false), st);
+            if needs_restart {
+                self.restart_bookkeeping()?;
+                self.length = self.length_config.length_init;
+            }
+            return Ok(self);
+        }
         self.trust
             .update_batch(
                 &ndarray::ArrayView1::from(&[value]),
@@ -101,37 +156,26 @@ impl SearchState {
             )
             .map_err(|error| error.to_string())?;
         if self.trust.needs_restart() {
-            self.trust.restart();
-            self.restart_count += 1;
-            if !self.history_rows.is_empty() {
-                self.cow_slot(0)?;
-                self.copy(&*self.base, &*self.history_rows[0])?;
-                self.resident_history = 1;
-            }
-            self.resident_identities[0] = self.base_id;
-            if !self.implicit_history {
-                self.outcomes[0] = self.best;
-                self.variances[0] = self.best_variance;
-                self.identities[0] = self.base_id;
-                self.history = 1;
-                self.pairwise_distances.fill(0.0);
-                self.fitted_enn = None;
-                self.objective_history.retain_incumbent();
-                self.retain_axis();
-            }
-            self.trust_observations = 1;
-            self.trust.seed_baseline(f64::from(self.best), 1);
+            self.restart_bookkeeping()?;
         }
         self.length = self.trust.length();
         Ok(self)
     }
 
-    /// Update ordinary TuRBO against a caller-supplied incumbent reward.
-    /// Follows the same incumbent-preserving restart
-    /// bookkeeping as `update_region`; no estimate variance is consumed here.
     pub fn update_noisy(mut self, value: f32, incumbent: f32) -> Result<Self, String> {
         let value = f64::from(value);
         self.trust_observations += 1;
+        if let Some(st) = self.success_tolerance_override
+            && st != 3
+        {
+            let tol = 1.0e-3 * f64::from(incumbent).abs().max(1.0);
+            let improved = Some(value > f64::from(incumbent) + tol);
+            if self.adapt_tolerance(improved, st) {
+                self.restart_bookkeeping()?;
+                self.length = self.length_config.length_init;
+            }
+            return Ok(self);
+        }
         self.trust
             .update_batch(
                 &ndarray::ArrayView1::from(&[value]),
@@ -140,36 +184,12 @@ impl SearchState {
             )
             .map_err(|error| error.to_string())?;
         if self.trust.needs_restart() {
-            self.trust.restart();
-            self.restart_count += 1;
-            if !self.history_rows.is_empty() {
-                self.cow_slot(0)?;
-                self.copy(&*self.base, &*self.history_rows[0])?;
-                self.resident_history = 1;
-            }
-            self.resident_identities[0] = self.base_id;
-            if !self.implicit_history {
-                self.outcomes[0] = self.best;
-                self.variances[0] = self.best_variance;
-                self.identities[0] = self.base_id;
-                self.history = 1;
-                self.pairwise_distances.fill(0.0);
-                self.fitted_enn = None;
-                self.objective_history.retain_incumbent();
-                self.retain_axis();
-            }
-            self.trust_observations = 1;
-            self.trust.seed_baseline(f64::from(self.best), 1);
+            self.restart_bookkeeping()?;
         }
         self.length = self.trust.length();
         Ok(self)
     }
 
-    /// Update ordinary TuRBO using an explicitly classified trust outcome.
-    /// The caller supplies Success/Failure/Inconclusive; this method does not
-    /// reclassify uncertainty. On restart retains incumbent weights, preserves
-    /// implicit history, and reseeds the controller with an inconclusive
-    /// baseline.
     pub fn update_outcome(
         mut self,
         value: f32,
@@ -177,6 +197,16 @@ impl SearchState {
         outcome: TrustRegionOutcome,
     ) -> Result<Self, String> {
         self.trust_observations += 1;
+        if let Some(st) = self.success_tolerance_override
+            && st != 3
+        {
+            let improved = Some(outcome == TrustRegionOutcome::Success);
+            if self.adapt_tolerance(improved, st) {
+                self.restart_bookkeeping()?;
+                self.length = self.length_config.length_init;
+            }
+            return Ok(self);
+        }
         let y_new = [f64::from(value)];
         self.trust
             .update_outcome(
@@ -187,26 +217,7 @@ impl SearchState {
             )
             .map_err(|error| error.to_string())?;
         if self.trust.needs_restart() {
-            self.trust.restart();
-            self.restart_count += 1;
-            if !self.history_rows.is_empty() {
-                self.cow_slot(0)?;
-                self.copy(&*self.base, &*self.history_rows[0])?;
-                self.resident_history = 1;
-            }
-            self.resident_identities[0] = self.base_id;
-            if !self.implicit_history {
-                self.outcomes[0] = self.best;
-                self.variances[0] = self.best_variance;
-                self.identities[0] = self.base_id;
-                self.history = 1;
-                self.pairwise_distances.fill(0.0);
-                self.fitted_enn = None;
-                self.objective_history.retain_incumbent();
-                self.retain_axis();
-            }
-            self.trust_observations = 1;
-            self.trust.seed_baseline(f64::from(self.best), 1);
+            self.restart_bookkeeping()?;
         }
         self.length = self.trust.length();
         Ok(self)

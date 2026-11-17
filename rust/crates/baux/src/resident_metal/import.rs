@@ -36,6 +36,7 @@ impl SearchState {
             initialize: 0,
             history: 0,
             tiles,
+            has_dim_meta: u32::from(self.manifold.is_some()),
             ..Params::default()
         };
         let buffers = [
@@ -55,6 +56,7 @@ impl SearchState {
             size_of::<Params>() as u64,
             (&params as *const Params).cast(),
         );
+        encoder.set_buffer(8, Some(self.meta_buffer()), 0);
         encoder.dispatch_thread_groups(thread_group(self.tiles.len() as u64), thread_group(256));
         encoder.end_encoding();
 
@@ -103,6 +105,7 @@ impl SearchState {
                 initialize: pair as u32,
                 history: (self.resident_history - first).min(2) as u32,
                 tiles,
+                has_dim_meta: u32::from(self.manifold.is_some()),
                 ..Params::default()
             };
             let buffers = [
@@ -122,6 +125,7 @@ impl SearchState {
                 size_of::<Params>() as u64,
                 (&params as *const Params).cast(),
             );
+            encoder.set_buffer(8, Some(self.meta_buffer()), 0);
             encoder
                 .dispatch_thread_groups(thread_group(self.tiles.len() as u64), thread_group(256));
         }
@@ -184,7 +188,7 @@ impl SearchState {
     /// geometry enter history, while the local incumbent, proposal ledger, and
     /// trust-region success/failure counters remain owned by this region.
     pub(super) fn import_observation(
-        mut self,
+        self,
         incoming: &Buffer,
         value: f32,
         variance: f32,
@@ -232,6 +236,29 @@ impl SearchState {
             self.resident_identities.rotate_left(1);
         } else {
             self.resident_history += 1;
+        }
+        let archive_slot = if self.resident_history == self.history_rows.len() {
+            self.history_rows.len().saturating_sub(1)
+        } else {
+            self.resident_history - 1
+        };
+        if let Some(mut selector) = self.objective_selector.take() {
+            if let Some(morbo) = selector.morbo.as_mut()
+                && morbo.rescalarize == crate::morbo::Rescalarize::OnPropose
+                && !self.history_rows.is_empty()
+            {
+                let res = morbo.record_archive(
+                    &self,
+                    identity,
+                    &self.history_rows[archive_slot],
+                    observation,
+                );
+                if let Err(err) = res {
+                    self.objective_selector = Some(selector);
+                    return Err(err);
+                }
+            }
+            self.objective_selector = Some(selector);
         }
         self = self.record_observation(
             identity,

@@ -9,7 +9,7 @@ mod selection;
 use multi::{ask_init, ask_multi, select_pending, tell_common, tell_multi, validate_multi};
 use selection::*;
 
-use crate::candidates::perturb_candidates;
+use crate::candidates::build_pool;
 use crate::config::InitStrategy;
 use crate::error::ENNError;
 use crate::optimizer::multi_tr::EvaluationStatus;
@@ -37,18 +37,16 @@ impl BayesOptimizer {
         let (next, unit) = self.ask(num_arms, rng)?;
         self = next;
         let natural = self.domain.from_unit(&unit.view());
+        let rebuilt_unit = self.domain.to_unit(&natural.view());
         if let TrustRegionState::Multi {
             pending: Some(proposal),
             ..
-        } = &mut self.regions
+        } = self.trust_mut()
         {
             // Compare the exact values that a natural-coordinate tell will
             // reconstruct; floating-point normalization need not round-trip.
             let start = proposal.x.nrows() - natural.nrows();
-            proposal
-                .x
-                .slice_mut(s![start.., ..])
-                .assign(&self.domain.to_unit(&natural.view()));
+            proposal.x.slice_mut(s![start.., ..]).assign(&rebuilt_unit);
         }
         Ok((self, natural))
     }
@@ -124,7 +122,6 @@ impl BayesOptimizer {
         num_arms: usize,
         rng: &mut dyn RngCore,
     ) -> Result<(Self, Array2<f64>), ENNError> {
-        self.check_ingestion()?;
         match crate::optimizer_dispatch::ask_gate(
             num_arms,
             self.regions.is_morbo(),
@@ -143,12 +140,7 @@ impl BayesOptimizer {
         let start = std::time::Instant::now();
         let (mut this, candidates) = self.dispatch_ask(num_arms, rng)?;
         this.telemetry.dt_gen = start.elapsed().as_secs_f64();
-        if let Err(error) = this.posterior.schedule_flush() {
-            if this.regions.is_multi() {
-                this.ingestion_error = Some(error.to_string());
-            }
-            return Err(error);
-        }
+        this.posterior.schedule_flush()?;
         Ok((this, candidates))
     }
 
@@ -204,7 +196,6 @@ impl BayesOptimizer {
         yvar: Option<&ArrayView2<f64>>,
         rng: &mut dyn RngCore,
     ) -> Result<Self, ENNError> {
-        self.check_ingestion()?;
         if y.ncols() != 1 || y.nrows() != ids.len() {
             return Err(ENNError::InvalidParameter(
                 "ID completion requires one scalar result per ID".into(),
@@ -227,7 +218,6 @@ impl BayesOptimizer {
     /// credit. A cancelled warm-up row does not consume the initialization
     /// budget.
     pub fn cancel_ids(self, ids: &[EvaluationId], rng: &mut dyn RngCore) -> Result<Self, ENNError> {
-        self.check_ingestion()?;
         select_pending(&self, ids)?;
         multi::cancel_pending(self, ids, rng)
     }
@@ -242,7 +232,6 @@ impl BayesOptimizer {
         center: &ArrayView1<f64>,
         rng: &mut dyn RngCore,
     ) -> Result<(Self, Vec<EvaluationId>), ENNError> {
-        self.check_ingestion()?;
         if self.warmup.in_init() {
             return Err(ENNError::InvalidParameter(
                 "regional restart requires completed warm-up".into(),
@@ -257,12 +246,9 @@ impl BayesOptimizer {
                 "regional restart center must be finite unit coordinates".into(),
             ));
         }
-        if let Err(error) = self.posterior.wait_flush() {
-            self.ingestion_error = Some(error.to_string());
-            return Err(error);
-        }
+        self.posterior.wait_flush()?;
         let abandoned = {
-            let (state, pending) = match &mut self.regions {
+            let (state, pending) = match self.trust_mut() {
                 TrustRegionState::Multi { state, pending } => (state, pending),
                 _ => {
                     return Err(ENNError::InvalidParameter(
@@ -296,17 +282,11 @@ impl BayesOptimizer {
             abandoned
         };
         if let Some(models) = self.local_models.take() {
-            let state = match &self.regions {
+            let state = match self.regions.as_ref() {
                 TrustRegionState::Multi { state, .. } => state,
                 _ => unreachable!(),
             };
-            match models.sync(state, rng) {
-                Ok(synced) => self.local_models = Some(synced),
-                Err(error) => {
-                    self.ingestion_error = Some(error.to_string());
-                    return Err(error);
-                }
-            }
+            self.local_models = Some(models.sync(state, rng)?);
         }
         Ok((self, abandoned))
     }
@@ -331,7 +311,7 @@ impl BayesOptimizer {
 
     /// Outstanding warm-up or regional evaluation identities in ask order.
     pub fn pending_ids(&self) -> Option<Vec<EvaluationId>> {
-        match &self.regions {
+        match self.regions.as_ref() {
             TrustRegionState::Multi {
                 pending: Some(proposal),
                 ..
@@ -357,7 +337,6 @@ impl BayesOptimizer {
         rng: &mut dyn RngCore,
         submission: Submission<'_>,
     ) -> Result<Self, ENNError> {
-        self.check_ingestion()?;
         self.check_submission(x, y, submission)?;
         match crate::optimizer_dispatch::tell_gate(self.num_dim(), x.nrows(), x.ncols(), y.nrows())
         {
@@ -391,23 +370,10 @@ impl BayesOptimizer {
         }
         self.posterior = self.posterior.check_variance(yvar.is_some())?;
         let start = std::time::Instant::now();
-        if let Err(error) = self.posterior.wait_flush() {
-            // A deferred flush belongs to a previous accepted submission.
-            // Its failure leaves that submission's storage outcome unknown,
-            // so this optimizer cannot safely accept a retry or new result.
-            if self.regions.is_multi() {
-                self.ingestion_error = Some(error.to_string());
-            }
-            return Err(error);
-        }
+        self.posterior.wait_flush()?;
         let mut this = self.dispatch_tell(x, y, yvar, rng, submission)?;
         if x.nrows() < 64 {
-            if let Err(error) = this.posterior.schedule_flush() {
-                if this.regions.is_multi() {
-                    this.ingestion_error = Some(error.to_string());
-                }
-                return Err(error);
-            }
+            this.posterior.schedule_flush()?;
         }
         this.telemetry.dt_tell = start.elapsed().as_secs_f64();
         Ok(this)
@@ -425,7 +391,10 @@ impl BayesOptimizer {
             ));
         }
         if self.regions.is_multi() && matches!(submission, Submission::Ordered) {
-            if matches!(&self.regions, TrustRegionState::Multi { pending: None, .. }) {
+            if matches!(
+                self.regions.as_ref(),
+                TrustRegionState::Multi { pending: None, .. }
+            ) {
                 return Err(ENNError::InvalidParameter(
                     "no pending region proposal; use explicit import_observations for external data"
                         .into(),
@@ -436,17 +405,9 @@ impl BayesOptimizer {
         Ok(())
     }
 
-    fn check_ingestion(&self) -> Result<(), ENNError> {
-        if let Some(error) = &self.ingestion_error {
-            return Err(ENNError::InvalidParameter(format!(
-                "multi-region ingestion failed after mutation may have begun ({error}); do not retry this observation on this optimizer"
-            )));
-        }
-        Ok(())
-    }
-
-    pub fn ingestion_failure(&self) -> Option<&str> {
-        self.ingestion_error.as_deref()
+    #[inline(always)]
+    pub const fn ingestion_failure(&self) -> Option<&str> {
+        None
     }
 
     fn dispatch_tell(
@@ -472,7 +433,7 @@ impl BayesOptimizer {
             optimizer.warmup.check_transition();
             if let Some(y_inc) = optimizer.y_scalar().map(|y| y[0]) {
                 let obs_count = optimizer.obs_count();
-                optimizer.regions = optimizer.regions.seed_baseline(y_inc, obs_count);
+                optimizer.update_regions(|r| r.seed_baseline(y_inc, obs_count));
             }
             return Ok(optimizer);
         }
@@ -518,7 +479,7 @@ fn tell_reinit(
     optimizer = optimizer.consume_reinit(x.nrows());
     if let Some(y_inc) = optimizer.y_scalar().map(|y| y[0]) {
         let obs_count = optimizer.obs_count();
-        optimizer.regions = optimizer.regions.seed_baseline(y_inc, obs_count);
+        optimizer.update_regions(|r| r.seed_baseline(y_inc, obs_count));
     }
     Ok(optimizer)
 }
@@ -544,7 +505,7 @@ fn observe_morbo(mut optimizer: BayesOptimizer) -> Result<BayesOptimizer, ENNErr
     if y_all.nrows() == 0 {
         return Ok(optimizer);
     }
-    optimizer.regions = optimizer.regions.morbo_only(&y_all.view())?;
+    optimizer.map_regions(|r| r.morbo_only(&y_all.view()))?;
     Ok(optimizer)
 }
 
@@ -570,15 +531,19 @@ fn ask_turbo(
     telemetry: &mut Telemetry,
     rng: &mut dyn RngCore,
 ) -> Result<(BayesOptimizer, Array2<f64>), ENNError> {
-    let (regions, should_rescale) = optimizer.regions.resample_propose(rng);
-    optimizer.regions = regions;
+    let mut should_rescale = false;
+    optimizer.update_regions(|r| {
+        let (next, rescale) = r.resample_propose(rng);
+        should_rescale = rescale;
+        next
+    });
     if should_rescale {
         optimizer.update_incumbent(rng)?;
         let y_inc = optimizer.y_scalar().cloned();
         let obs_count = optimizer.obs_count();
-        optimizer.regions = optimizer.regions.rescale_morbo(obs_count, y_inc)?;
+        optimizer.map_regions(|r| r.rescale_morbo(obs_count, y_inc))?;
     }
-    optimizer.regions = optimizer.regions.set_arms(num_arms);
+    optimizer.update_regions(|r| r.set_arms(num_arms));
 
     let x_center = optimizer
         .unit_incumbent()
@@ -601,23 +566,24 @@ fn ask_turbo(
     }
 
     let is_morbo = optimizer.regions.is_morbo();
-    let x_cand_unit = perturb_candidates(
-        &x_center.view(),
-        &lower_1d,
-        &upper_1d,
+    let pool_key = baux::semantics::key::Key::new(rng.next_u64());
+    let sobol = optimizer.proposals.advance_sobol(num_candidates)?;
+    let pool = build_pool(
+        pool_key,
+        x_center.as_slice().expect("center contiguous"),
+        lower_1d.as_slice().expect("lower contiguous"),
+        upper_1d.as_slice().expect("upper contiguous"),
         num_candidates,
         config.candidate_rv,
         config.coord_system,
         &config.tied_dims,
         is_morbo,
-        config.raasp_fast,
-        rng,
-        optimizer.proposals.sobol_mut(),
         config.num_pert,
+        sobol.as_ref(),
     )?;
 
     let start = std::time::Instant::now();
-    let selected = select_arms(&optimizer, &x_cand_unit.view(), num_arms, rng)?;
+    let selected = pool_arms(&optimizer, &pool, num_arms, rng)?;
     telemetry.dt_sel = start.elapsed().as_secs_f64();
 
     Ok((optimizer, selected))
@@ -639,23 +605,21 @@ fn tell_turbo(
         .y_scalar()
         .ok_or_else(|| ENNError::InvalidParameter("Missing incumbent y".to_string()))?
         .to_owned();
-    optimizer.regions = optimizer.regions.set_arms(x.nrows());
+    optimizer.update_regions(|r| r.set_arms(x.nrows()));
     if !optimizer.regions.is_morbo() {
         if optimizer.regions.turbo_obs() == 0 {
             let prev = num_obs.saturating_sub(y.nrows());
-            optimizer.regions = optimizer.regions.set_obs(prev);
+            optimizer.update_regions(|r| r.set_obs(prev));
         }
-        optimizer.regions = optimizer
-            .regions
-            .tell_batch(y, &y_incumbent.view(), num_obs)?;
+        optimizer.map_regions(|r| r.tell_batch(y, &y_incumbent.view(), num_obs))?;
     }
     if optimizer.regions.needs_restart() && optimizer.regions.is_morbo() {
-        optimizer.regions = optimizer.regions.restart(Some(rng));
+        optimizer.update_regions(|r| r.restart(Some(rng)));
         optimizer = optimizer.increment_generation();
         optimizer = observe_morbo(optimizer)?;
         optimizer.update_incumbent(rng)?;
         if let Some(y_inc) = optimizer.y_scalar().cloned() {
-            optimizer.regions = optimizer.regions.update_morbo(&y_inc.view(), num_obs)?;
+            optimizer.map_regions(|r| r.update_morbo(&y_inc.view(), num_obs))?;
         }
     }
     Ok(optimizer)

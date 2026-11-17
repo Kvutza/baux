@@ -18,21 +18,32 @@ pub(super) fn check_metal(spec: &OptimizerSpec) -> Result<(), String> {
         OptimizerSpec::SingleStateBo {
             perturbation: Some(_),
             ..
-        } => Err("resident-metal does not accept host [optimizer.perturbation] overrides".into()),
-        OptimizerSpec::SingleStateBo { .. } => Ok(()),
+        } => Err("resident-metal single-state-bo does not accept [optimizer.perturbation]".into()),
+        OptimizerSpec::SingleStateBo {
+            regional_search, ..
+        } => {
+            if let Some(rs) = regional_search {
+                rs.validate()?;
+            }
+            Ok(())
+        }
         OptimizerSpec::BayesianSearch {
             candidates,
             arms,
             perturbation,
+            regional_search,
             ..
         } => {
-            if perturbation.is_some() {
+            if let Some(pert) = perturbation {
+                pert.validate()?;
+            }
+            if *arms == 0 || *candidates == 0 || !candidates.is_multiple_of(*arms) {
                 return Err(
-                    "resident-metal does not accept host [optimizer.perturbation] overrides".into(),
+                    "bayesian-search requires positive candidates divisible by arms".into(),
                 );
             }
-            if *arms != 1 || *candidates == 0 || *candidates > 4 {
-                return Err("resident-metal tokamak requires arms = 1 and 1..=4 candidates".into());
+            if let Some(rs) = regional_search {
+                rs.validate()?;
             }
             Ok(())
         }
@@ -52,25 +63,37 @@ fn low_span(domain: &DomainFrame) -> (Vec<f64>, Vec<f64>) {
 }
 
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-fn eval_half(
+fn eval_rows(
     worker: &mut Option<TokamakWorker>,
-    half_ptr: *const u16,
+    rows: &[Vec<u16>],
     low: &[f64],
     span: &[f64],
-    scratch: &mut [f64],
-) -> Result<(Vec<f64>, f64, u64), String> {
+    scratch: &mut Vec<f64>,
+) -> Result<(Vec<f64>, Vec<f64>, u64), String> {
+    let count = rows.len();
+    if count == 0 {
+        return Ok((Vec::new(), Vec::new(), 0));
+    }
     if let Some(w) = worker.as_mut() {
-        let (sc, dt_us) = w.eval_half(half_ptr, low, span)?;
-        return Ok((vec![sc], 0.0, dt_us));
+        if count == 1 {
+            let (sc, dt_us) = w.eval_half(rows[0].as_ptr(), low, span)?;
+            return Ok((vec![sc], vec![0.0], dt_us));
+        }
+        let refs: Vec<&[u16]> = rows.iter().map(Vec::as_slice).collect();
+        let (scores, cost_us) = w.eval_halves(&refs, low, span)?;
+        return Ok((scores, vec![0.0; count], cost_us * (count as u64)));
     }
-    let raw = unsafe { std::slice::from_raw_parts(half_ptr, low.len()) };
-    for j in 0..low.len() {
-        let u = f64::from(baux::shm_slab::decode_half(raw[j])).clamp(0.0, 1.0);
-        scratch[j] = low[j] + u * span[j];
+    let dim = low.len();
+    scratch.resize(count * dim, 0.0);
+    for (i, row) in rows.iter().enumerate() {
+        for j in 0..dim {
+            let u = f64::from(baux::shm_slab::decode_half(row[j])).clamp(0.0, 1.0);
+            scratch[i * dim + j] = low[j] + u * span[j];
+        }
     }
-    let mut out = vec![0.0f64; 1];
-    baux_tokamak::evaluate_batch(scratch, 1, &mut out);
-    Ok((out, 0.0, 0))
+    let mut out = vec![0.0f64; count];
+    baux_tokamak::evaluate_batch(scratch, count, &mut out);
+    Ok((out, vec![0.0; count], 0))
 }
 
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
@@ -81,9 +104,8 @@ pub(super) fn metal_seed(
     ckpt_dir: Option<&Path>,
     worker: &mut Option<TokamakWorker>,
 ) -> Result<SeedRecord, String> {
-    use crate::experiment::julia::metal::{
-        MetalJob, make_enn, metal_job, regional_spec, resolve_kernel,
-    };
+    use crate::experiment::julia::metal::metal_job;
+    use crate::experiment::julia::metal_step::MetalJobSpec;
     check_metal(&cfg.optimizer)?;
     if let Some(dir) = ckpt_dir
         && let Some(done) = load_done(dir, rep)
@@ -94,17 +116,18 @@ pub(super) fn metal_seed(
     let seed = baux::tune_seed(&cfg.experiment, "proposal", rep, 0);
     let cfg_opt = baux::optimizer_config::OptimizerConfig::from_spec(&cfg.optimizer)
         .map_err(|e| e.to_string())?;
-    let enn_res = make_enn(&cfg.optimizer, &cfg_opt, seed)?;
-    let tr_cfg = match &cfg_opt.trust_region {
-        baux::trust_region::TrustRegionConfig::Turbo(l) => *l,
-        baux::trust_region::TrustRegionConfig::Morbo(m) => m.length,
-    };
-    let has_surrogate = matches!(
-        cfg_opt.surrogate,
-        baux::optimizer_config::SurrogateConfig::ENN(_)
-    );
+    let spec = MetalJobSpec::from_parts(
+        rep,
+        seed,
+        domain.num_dim(),
+        1,
+        cfg.rounds,
+        &cfg.optimizer,
+        cfg_opt,
+        None,
+    )?;
     let (low, span) = low_span(domain);
-    let mut scratch = vec![0.0f64; domain.num_dim()];
+    let mut scratch = Vec::new();
     let is_gym = cfg.experiment == "tokamak-tokagym";
     let loss_fn = |sc: f64| {
         if is_gym {
@@ -113,22 +136,8 @@ pub(super) fn metal_seed(
             (100.0 - sc).max(0.0)
         }
     };
-    let job = MetalJob {
-        rep,
-        seed,
-        num_dim: domain.num_dim(),
-        n_obj: 1,
-        rounds: cfg.rounds,
-        has_surrogate,
-        tr_cfg,
-        kernel: resolve_kernel(&cfg.optimizer),
-        reg_spec: regional_spec(&cfg.optimizer),
-        enn_res,
-        policy: None,
-        ckpt_dir,
-    };
-    let (st, _) = metal_job(&job, loss_fn, |ptr| {
-        eval_half(worker, ptr, &low, &span, &mut scratch)
+    let (st, _) = metal_job(&spec, ckpt_dir, loss_fn, |rows| {
+        eval_rows(worker, rows, &low, &span, &mut scratch)
     })?;
     let final_error = loss_fn(st.best_score);
     let reduction_pct = if st.initial_error > 0.0 {

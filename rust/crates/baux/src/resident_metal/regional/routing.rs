@@ -14,7 +14,7 @@ fn decode_word(bits: u16, fp16: bool) -> f32 {
     }
 }
 
-fn contains_resident(state: &SearchState, incoming: &Buffer) -> Result<bool, String> {
+pub(super) fn contains_resident(state: &SearchState, incoming: &Buffer) -> Result<bool, String> {
     state.check_healthy()?;
     if state.async_command.is_some() {
         return Err("Finish the resident GPU command before measuring an import".into());
@@ -33,8 +33,18 @@ fn contains_resident(state: &SearchState, incoming: &Buffer) -> Result<bool, Str
     let len = state.length as f32;
     let fp16 = state.independent_fp16;
     for block in &state.blocks {
-        let half = (block.scale * len).max(1.0e-12);
+        let base_half = if state.box_bounded {
+            0.5 * len
+        } else {
+            block.scale * len
+        };
         for idx in block.offset..block.offset + block.len {
+            let half_scale = state
+                .manifold
+                .as_ref()
+                .and_then(|m| m.dim_meta.get(idx))
+                .map_or(1.0, |dm| dm.tr_half_scale);
+            let half = (base_half * half_scale).max(1.0e-12);
             let x = decode_word(inc[idx], fp16);
             let c = decode_word(base[idx], fp16);
             if !x.is_finite() || (x - c).abs() > half {
@@ -43,6 +53,30 @@ fn contains_resident(state: &SearchState, incoming: &Buffer) -> Result<bool, Str
         }
     }
     Ok(true)
+}
+
+pub(super) fn state_relevant(
+    state: &SearchState,
+    sharing: SharingPolicy,
+    incoming: &Buffer,
+) -> Result<bool, String> {
+    match sharing {
+        SharingPolicy::BoxContain | SharingPolicy::OriginOnly | SharingPolicy::NearestCenter => {
+            contains_resident(state, incoming)
+        }
+        SharingPolicy::EllipsoidBall => {
+            let distance = f64::from(state.measure_center(incoming)?);
+            let scale = state
+                .blocks
+                .iter()
+                .map(|block| {
+                    block.len as f64 * f64::from(block.weight) * f64::from(block.scale).powi(2)
+                })
+                .sum::<f64>();
+            let radius2 = state.length.powi(2) * scale;
+            Ok(distance <= radius2)
+        }
+    }
 }
 
 pub(super) fn routes(

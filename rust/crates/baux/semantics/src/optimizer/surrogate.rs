@@ -2,10 +2,69 @@
 
 mod loo_fit;
 
-pub use baux::semantics::neighbor::{Dissimilarity, DistanceMetric, MAX_HISTORY, UncertaintyLaw};
+use baux::semantics::abi::{ACQ_PARETO, ACQ_RANDOM, ACQ_THOMPSON, ACQ_UCB};
+use baux::semantics::key::Key;
+pub use baux::semantics::neighbor::{
+    Dissimilarity, DistanceMetric, MAX_HISTORY, MetricKind, Posterior, TopK, UncertaintyLaw,
+};
+use baux::semantics::real::Real;
+use core::cmp::Ordering;
 use deser::{Deserialize, Serialize};
+pub use loo_fit::{loo_point, loo_slice, scale_prior};
 
 pub const INITIAL_OBSERVATIONS: usize = 32;
+pub const DEFAULT_BETA: f32 = 1.0;
+
+/// NaN-safe maximization score wrapper parameterized over [`Real`]: all `NaN`
+/// bit patterns compare equal to each other and strictly below
+/// `T::NEG_INFINITY`, while non-`NaN` values follow `T::total_cmp`.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct BetterScore<T: Real = f64>(pub T);
+
+impl<T: Real> BetterScore<T> {
+    #[inline]
+    pub const fn new(value: T) -> Self {
+        Self(value)
+    }
+
+    #[inline]
+    pub const fn value(self) -> T {
+        self.0
+    }
+
+    #[inline]
+    pub fn is_nan(self) -> bool {
+        self.0.is_nan()
+    }
+}
+
+impl<T: Real> PartialEq for BetterScore<T> {
+    #[inline]
+    fn eq(&self, other: &Self) -> bool {
+        self.cmp(other) == Ordering::Equal
+    }
+}
+
+impl<T: Real> Eq for BetterScore<T> {}
+
+impl<T: Real> PartialOrd for BetterScore<T> {
+    #[inline]
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl<T: Real> Ord for BetterScore<T> {
+    #[inline]
+    fn cmp(&self, other: &Self) -> Ordering {
+        match (self.0.is_nan(), other.0.is_nan()) {
+            (true, true) => Ordering::Equal,
+            (true, false) => Ordering::Less,
+            (false, true) => Ordering::Greater,
+            (false, false) => self.0.total_cmp(&other.0),
+        }
+    }
+}
 
 /// A scalar value prediction with its standard error.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -51,7 +110,7 @@ impl Default for SurrogateSpec {
 }
 
 impl SurrogateSpec {
-    pub fn validate(self) -> Result<Self, String> {
+    pub fn check(self) -> Result<Self, &'static str> {
         let valid_metric = match self.metric {
             DistanceMetric::Euclidean => true,
             DistanceMetric::Conformal { local_k }
@@ -66,9 +125,13 @@ impl SurrogateSpec {
                 .iter()
                 .any(|value| !value.is_finite() || *value < 0.0)
         {
-            return Err("invalid resident surrogate settings".into());
+            return Err("invalid resident surrogate settings");
         }
         Ok(self)
+    }
+
+    pub fn validate(self) -> Result<Self, String> {
+        self.check().map_err(Into::into)
     }
 }
 
@@ -78,6 +141,216 @@ pub enum AcquisitionRule {
     Ucb { beta: f32 },
     Thompson { seed: u64 },
     Pareto { seed: u64 },
+    Random { seed: u64 },
+}
+
+impl Default for AcquisitionRule {
+    #[inline]
+    fn default() -> Self {
+        Self::Ucb { beta: DEFAULT_BETA }
+    }
+}
+
+impl AcquisitionRule {
+    #[inline]
+    pub const fn code(self) -> u32 {
+        match self {
+            Self::Ucb { .. } => ACQ_UCB,
+            Self::Thompson { .. } => ACQ_THOMPSON,
+            Self::Pareto { .. } => ACQ_PARETO,
+            Self::Random { .. } => ACQ_RANDOM,
+        }
+    }
+
+    #[inline]
+    pub const fn from_code(code: u32, beta: f32, seed: u64) -> Self {
+        match code {
+            ACQ_THOMPSON => Self::Thompson { seed },
+            ACQ_PARETO => Self::Pareto { seed },
+            ACQ_RANDOM => Self::Random { seed },
+            _ => Self::Ucb { beta },
+        }
+    }
+}
+
+/// Pure `#![no_std]` UCB acquisition score (`mean + beta * max(se, 0)`).
+#[inline]
+pub fn score_ucb<T: Real>(mean: T, se: T, beta: T) -> T {
+    if !mean.is_finite() || !se.is_finite() || !beta.is_finite() {
+        T::NAN
+    } else {
+        mean + beta * se.max(T::ZERO)
+    }
+}
+
+/// Pure `#![no_std]` stateless posterior-normal Thompson draw via `Key::fold`.
+#[inline]
+pub fn score_thompson<T: Real>(key: Key, cand: usize, mean: T, se: T) -> T {
+    if !mean.is_finite() || !se.is_finite() {
+        T::NAN
+    } else {
+        mean + se.max(T::ZERO) * key.fold(cand as u64).normal::<T>()
+    }
+}
+
+/// Strict 2D maximization Pareto dominance on `(mean, se)` with NaN-safety.
+#[inline]
+pub fn pareto_dom<T: Real>(mean_a: T, se_a: T, mean_b: T, se_b: T) -> bool {
+    if mean_a.is_nan() || se_a.is_nan() {
+        return false;
+    }
+    if mean_b.is_nan() || se_b.is_nan() {
+        return true;
+    }
+    mean_a >= mean_b && se_a >= se_b && (mean_a > mean_b || se_a > se_b)
+}
+
+fn better_cand<T: Real>(
+    score_a: BetterScore<T>,
+    tie_a: u64,
+    idx_a: usize,
+    score_b: BetterScore<T>,
+    tie_b: u64,
+    idx_b: usize,
+) -> bool {
+    match score_a.cmp(&score_b) {
+        Ordering::Greater => true,
+        Ordering::Less => false,
+        Ordering::Equal => match tie_a.cmp(&tie_b) {
+            Ordering::Greater => true,
+            Ordering::Less => false,
+            Ordering::Equal => idx_a < idx_b,
+        },
+    }
+}
+
+/// Allocation-free `#![no_std]` top-`k` (`k = out.len().min(scores.len())`)
+/// maximization selector using NaN-safe [`BetterScore`] and `Key::fold`
+/// tie-breaking over [`Real`].
+pub fn select_topk<T: Real>(scores: &[T], key: Key, out: &mut [usize]) -> usize {
+    let k = out.len().min(scores.len());
+    if k == 0 {
+        return 0;
+    }
+    let mut len = 0usize;
+    for (idx, &raw) in scores.iter().enumerate() {
+        let sc = BetterScore(raw);
+        let tie = key.fold(idx as u64).seed();
+        if len == k {
+            let last = out[len - 1];
+            let last_sc = BetterScore(scores[last]);
+            let last_tie = key.fold(last as u64).seed();
+            if !better_cand(sc, tie, idx, last_sc, last_tie, last) {
+                continue;
+            }
+        } else {
+            len += 1;
+        }
+        let mut pos = len - 1;
+        while pos > 0 {
+            let prev = out[pos - 1];
+            let prev_sc = BetterScore(scores[prev]);
+            let prev_tie = key.fold(prev as u64).seed();
+            if better_cand(sc, tie, idx, prev_sc, prev_tie, prev) {
+                out[pos] = prev;
+                pos -= 1;
+            } else {
+                break;
+            }
+        }
+        out[pos] = idx;
+    }
+    len
+}
+
+/// Allocation-free `#![no_std]` 2D `(mean, se)` Pareto-front selector with
+/// peeled fronts and deterministic `Key::fold` priority ordering over [`Real`].
+pub fn select_pareto<T: Real>(means: &[T], ses: &[T], key: Key, out: &mut [usize]) -> usize {
+    let n = means.len().min(ses.len());
+    let k = out.len().min(n);
+    if k == 0 {
+        return 0;
+    }
+    let mut chosen = 0usize;
+    while chosen < k {
+        let rem = k - chosen;
+        let mut front_len = 0usize;
+        for cand in 0..n {
+            if out[..chosen].contains(&cand) {
+                continue;
+            }
+            let dom = (0..n).any(|other| {
+                other != cand
+                    && !out[..chosen].contains(&other)
+                    && pareto_dom(means[other], ses[other], means[cand], ses[cand])
+            });
+            if dom {
+                continue;
+            }
+            let prio = key.fold(cand as u64).seed();
+            if front_len == rem {
+                let last = out[chosen + front_len - 1];
+                let last_prio = key.fold(last as u64).seed();
+                if (prio, core::cmp::Reverse(cand)) <= (last_prio, core::cmp::Reverse(last)) {
+                    continue;
+                }
+            } else {
+                front_len += 1;
+            }
+            let mut pos = front_len - 1;
+            while pos > 0 {
+                let prev = out[chosen + pos - 1];
+                let prev_prio = key.fold(prev as u64).seed();
+                if (prio, core::cmp::Reverse(cand)) > (prev_prio, core::cmp::Reverse(prev)) {
+                    out[chosen + pos] = prev;
+                    pos -= 1;
+                } else {
+                    break;
+                }
+            }
+            out[chosen + pos] = cand;
+        }
+        if front_len == 0 {
+            break;
+        }
+        chosen += front_len;
+    }
+    chosen
+}
+
+/// Allocation-free `#![no_std]` `NoSurrogate` random distinct candidate
+/// selection via `Key::fold`.
+pub fn select_random(num_cands: usize, key: Key, out: &mut [usize]) -> usize {
+    let k = out.len().min(num_cands);
+    if k == 0 {
+        return 0;
+    }
+    let mut len = 0usize;
+    for cand in 0..num_cands {
+        let prio = key.fold(cand as u64).seed();
+        if len == k {
+            let last = out[len - 1];
+            let last_prio = key.fold(last as u64).seed();
+            if (prio, core::cmp::Reverse(cand)) <= (last_prio, core::cmp::Reverse(last)) {
+                continue;
+            }
+        } else {
+            len += 1;
+        }
+        let mut pos = len - 1;
+        while pos > 0 {
+            let prev = out[pos - 1];
+            let prev_prio = key.fold(prev as u64).seed();
+            if (prio, core::cmp::Reverse(cand)) > (prev_prio, core::cmp::Reverse(prev)) {
+                out[pos] = prev;
+                pos -= 1;
+            } else {
+                break;
+            }
+        }
+        out[pos] = cand;
+    }
+    len
 }
 
 /// Complete surrogate evaluation and candidate selection for a proposal pool.
@@ -338,31 +611,38 @@ impl NeighborValueEstimator {
         let baseline_value = self.base_value();
         let baseline_variance = self.base_variance().max(0.0);
         let baseline_se = baseline_variance.sqrt();
-        let (beta, draws, pareto_seed) = match rule {
-            AcquisitionRule::Ucb { beta } => (beta, None, None),
+        let (beta, draws, pareto_seed, random_seed) = match rule {
+            AcquisitionRule::Ucb { beta } => (beta, None, None, None),
             AcquisitionRule::Thompson { seed } => {
                 let mut buf = [0.0_f32; MAX_HISTORY];
                 for (i, &id) in self.identities().iter().enumerate() {
                     buf[i] = baux::semantics::random::normal_metric(seed, id, 0) as f32;
                 }
-                (0.0, Some(buf), None)
+                (0.0, Some(buf), None, None)
             }
-            AcquisitionRule::Pareto { seed } => (1.0, None, Some(seed)),
+            AcquisitionRule::Pareto { seed } => (DEFAULT_BETA, None, Some(seed), None),
+            AcquisitionRule::Random { seed } => (0.0, None, None, Some(seed)),
         };
         let mut pool_predictions = Vec::with_capacity(pool_count);
         let mut candidate_preds = Vec::with_capacity(pool_count);
         let mut best_slot = 0usize;
-        let mut best_score = f32::NEG_INFINITY;
+        let mut best_score = BetterScore(f32::NEG_INFINITY);
         for (slot, dist_row) in geometry.iter().enumerate() {
             let pred = self.acquire(dist_row, beta, draws.as_ref().map(|d| &d[..self.len]))?;
             pool_predictions.push((pred.mean, pred.standard_error, pred.score));
             candidate_preds.push(pred);
-            if pred.score > best_score {
-                best_score = pred.score;
+            let sc = BetterScore(pred.score);
+            if sc > best_score {
+                best_score = sc;
                 best_slot = slot;
             }
         }
-        if let Some(seed) = pareto_seed {
+        if let Some(seed) = random_seed {
+            let mut pick = [0usize; 1];
+            if select_random(pool_count, Key::new(seed).fold(u64::from(step)), &mut pick) > 0 {
+                best_slot = pick[0];
+            }
+        } else if let Some(seed) = pareto_seed {
             let mut best_priority = 0_u64;
             let mut found = false;
             for slot in 0..pool_count {

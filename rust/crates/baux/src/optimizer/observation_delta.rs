@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use ndarray::{Array1, Array2, ArrayView2};
 use rand::RngCore;
 
@@ -7,12 +9,13 @@ use super::obs_access::{PosteriorBackend, PosteriorStore};
 use crate::candidates::SobolEngine;
 use crate::config::InitStrategy;
 use crate::error::ENNError;
+use crate::scratch::ImLog;
 use crate::snapshot_io::{
     MAX_DIM, MAX_METRICS, MAX_OBS, MAX_PENDING, MAX_TEXT, WireReader, bad_state, seal_frame,
     write_arr, write_bool, write_byte, write_header, write_len, write_mat, write_real, write_slice,
-    write_str, write_word,
+    write_word,
 };
-use crate::surrogate::BoxedSurrogate;
+use crate::surrogate::{BoxedSurrogate, ENNSurrogate, Surrogate};
 
 /// Host-language pure state cursor metadata embedded in portable checkpoints.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -23,15 +26,20 @@ pub struct HostCursor {
     pub id_map: Vec<(u64, u64)>,
 }
 
-/// Phase policy governing whether the optimizer stays in space-filling design
-/// or enters active search.
+/// Closed phase lifecycle of the optimizer state machine (eliminating boolean
+/// `in_init` flags).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum WarmupMode {
+pub enum Lifecycle {
     /// Space-filling design only (e.g. LHD-only).
     DesignOnly,
-    /// Warmup followed by active trust-region search.
-    ActiveSearch { in_init: bool },
+    /// Initial warm-up phase before entering active trust-region search.
+    Warmup,
+    /// Active trust-region / surrogate search phase.
+    Active,
 }
+
+/// Alias preserving source compatibility for callers naming `WarmupMode`.
+pub type WarmupMode = Lifecycle;
 
 /// Unified lifecycle state for initial warmup, post-restart local warmup, and
 /// generation tracking.
@@ -40,7 +48,7 @@ pub struct WarmupSchedule {
     pub kind: InitStrategy,
     pub budget: usize,
     pub completed: usize,
-    pub mode: WarmupMode,
+    pub mode: Lifecycle,
     pub reinit_left: Option<usize>,
     pub generation: usize,
 }
@@ -51,7 +59,7 @@ impl WarmupSchedule {
             kind,
             budget,
             completed,
-            mode: WarmupMode::DesignOnly,
+            mode: Lifecycle::DesignOnly,
             reinit_left: None,
             generation: 0,
         }
@@ -62,7 +70,11 @@ impl WarmupSchedule {
             kind,
             budget,
             completed,
-            mode: WarmupMode::ActiveSearch { in_init },
+            mode: if in_init {
+                Lifecycle::Warmup
+            } else {
+                Lifecycle::Active
+            },
             reinit_left: None,
             generation: 0,
         }
@@ -70,17 +82,13 @@ impl WarmupSchedule {
 
     pub fn progress(&self) -> Option<(usize, usize)> {
         match self.mode {
-            WarmupMode::DesignOnly => Some((self.completed, self.budget)),
-            WarmupMode::ActiveSearch { in_init: true } => Some((self.completed, self.budget)),
-            WarmupMode::ActiveSearch { in_init: false } => None,
+            Lifecycle::DesignOnly | Lifecycle::Warmup => Some((self.completed, self.budget)),
+            Lifecycle::Active => None,
         }
     }
 
     pub fn in_init(&self) -> bool {
-        matches!(
-            self.mode,
-            WarmupMode::DesignOnly | WarmupMode::ActiveSearch { in_init: true }
-        )
+        matches!(self.mode, Lifecycle::DesignOnly | Lifecycle::Warmup)
     }
 
     pub fn advance_init(&mut self, rows: usize) {
@@ -88,10 +96,8 @@ impl WarmupSchedule {
     }
 
     pub fn check_transition(&mut self) {
-        if let WarmupMode::ActiveSearch { in_init } = &mut self.mode {
-            if *in_init && self.completed >= self.budget {
-                *in_init = false;
-            }
+        if self.mode == Lifecycle::Warmup && self.completed >= self.budget {
+            self.mode = Lifecycle::Active;
         }
     }
 
@@ -109,17 +115,17 @@ impl WarmupSchedule {
 
     pub(crate) fn mode_tag(&self) -> u8 {
         match self.mode {
-            WarmupMode::DesignOnly => 0,
-            WarmupMode::ActiveSearch { in_init: false } => 1,
-            WarmupMode::ActiveSearch { in_init: true } => 2,
+            Lifecycle::DesignOnly => 0,
+            Lifecycle::Active => 1,
+            Lifecycle::Warmup => 2,
         }
     }
 
-    pub(crate) fn from_tag(tag: u8) -> Result<WarmupMode, ENNError> {
+    pub(crate) fn from_tag(tag: u8) -> Result<Lifecycle, ENNError> {
         match tag {
-            0 => Ok(WarmupMode::DesignOnly),
-            1 => Ok(WarmupMode::ActiveSearch { in_init: false }),
-            2 => Ok(WarmupMode::ActiveSearch { in_init: true }),
+            0 => Ok(Lifecycle::DesignOnly),
+            1 => Ok(Lifecycle::Active),
+            2 => Ok(Lifecycle::Warmup),
             _ => Err(ENNError::InvalidParameter(
                 "invalid frozen warmup mode".into(),
             )),
@@ -288,19 +294,19 @@ pub(crate) fn freeze_full(
         },
     );
     match &opt.posterior.backend {
-        PosteriorBackend::Empirical { x_rows, y_rows } => {
+        PosteriorBackend::Empirical { x_log, y_log } => {
             write_byte(&mut buf, 0);
-            let n = x_rows.len();
-            let m = y_rows.first().map_or(0, Array1::len);
+            let n = x_log.nrows();
+            let m = if n > 0 { y_log.ncols() } else { 0 };
             write_len(&mut buf, n);
             write_len(&mut buf, m);
-            for row in x_rows {
-                for &v in row.iter() {
+            for i in 0..n {
+                for &v in x_log.row_slice(i) {
                     write_real(&mut buf, v);
                 }
             }
-            for row in y_rows {
-                for &v in row.iter() {
+            for i in 0..n {
+                for &v in y_log.row_slice(i) {
                     write_real(&mut buf, v);
                 }
             }
@@ -327,7 +333,11 @@ pub(crate) fn freeze_full(
                 }
             }
         }
-        PosteriorBackend::Model(surrogate) => {
+        PosteriorBackend::Enn(enn) => {
+            write_byte(&mut buf, 2);
+            <ENNSurrogate as Surrogate>::freeze_surrogate(enn.as_ref(), &mut buf)?;
+        }
+        PosteriorBackend::External(surrogate) => {
             write_byte(&mut buf, 2);
             surrogate.freeze_surrogate(&mut buf)?;
         }
@@ -356,14 +366,8 @@ pub(crate) fn freeze_full(
         None => write_bool(&mut buf, false),
     }
 
-    // 8. Ingestion error
-    match &opt.ingestion_error {
-        Some(err) => {
-            write_bool(&mut buf, true);
-            write_str(&mut buf, err);
-        }
-        None => write_bool(&mut buf, false),
-    }
+    // 8. Legacy ingestion-error wire flag (always false under pure FBIP state)
+    write_bool(&mut buf, false);
 
     // 9. Optional HostCursor
     match host {
@@ -403,6 +407,23 @@ pub(crate) fn thaw_consumed(
     bytes: &[u8],
 ) -> Result<(BayesOptimizer, Option<HostCursor>), ENNError> {
     thaw_inner(opt, bytes)
+}
+
+fn decode_reals(raw: &[u8], label: &str) -> Result<Vec<f64>, ENNError> {
+    let count = raw.len() / 8;
+    let mut vals = Vec::new();
+    vals.try_reserve_exact(count)
+        .map_err(|_| bad_state("allocation failed"))?;
+    for chunk in raw.chunks_exact(8) {
+        let mut arr = [0u8; 8];
+        arr.copy_from_slice(chunk);
+        let v = f64::from_bits(u64::from_le_bytes(arr));
+        if !v.is_finite() {
+            return Err(bad_state(format!("non-finite {label} in frozen state")));
+        }
+        vals.push(v);
+    }
+    Ok(vals)
 }
 
 fn thaw_inner(
@@ -505,50 +526,25 @@ fn thaw_inner(
                     .ok_or_else(|| bad_state("empirical y byte overflow"))?;
                 let raw_x = reader.read_bytes(x_bytes)?;
                 let raw_y = reader.read_bytes(y_bytes)?;
-                let mut new_x = Vec::new();
-                new_x
-                    .try_reserve_exact(n)
-                    .map_err(|_| bad_state("allocation failed"))?;
-                let mut new_y = Vec::new();
-                new_y
-                    .try_reserve_exact(n)
-                    .map_err(|_| bad_state("allocation failed"))?;
-                for row_bytes in raw_x.chunks_exact(num_dim * 8) {
-                    let mut row = Vec::new();
-                    row.try_reserve_exact(num_dim)
-                        .map_err(|_| bad_state("allocation failed"))?;
-                    for chunk in row_bytes.chunks_exact(8) {
-                        let mut arr = [0u8; 8];
-                        arr.copy_from_slice(chunk);
-                        let v = f64::from_bits(u64::from_le_bytes(arr));
-                        if !v.is_finite() {
-                            return Err(bad_state("non-finite empirical x in frozen state"));
-                        }
-                        row.push(v);
-                    }
-                    new_x.push(Array1::from_vec(row));
-                }
-                if n > 0 {
-                    for row_bytes in raw_y.chunks_exact(m * 8) {
-                        let mut row = Vec::new();
-                        row.try_reserve_exact(m)
-                            .map_err(|_| bad_state("allocation failed"))?;
-                        for chunk in row_bytes.chunks_exact(8) {
-                            let mut arr = [0u8; 8];
-                            arr.copy_from_slice(chunk);
-                            let v = f64::from_bits(u64::from_le_bytes(arr));
-                            if !v.is_finite() {
-                                return Err(bad_state("non-finite empirical y in frozen state"));
-                            }
-                            row.push(v);
-                        }
-                        new_y.push(Array1::from_vec(row));
-                    }
-                }
-                next.posterior.backend = PosteriorBackend::Empirical {
-                    x_rows: new_x,
-                    y_rows: new_y,
+                let x_vals = decode_reals(raw_x, "empirical x")?;
+                let y_vals = decode_reals(raw_y, "empirical y")?;
+                let x_log = if n > 0 {
+                    ImLog::from_array(
+                        Array2::from_shape_vec((n, num_dim), x_vals)
+                            .map_err(|e| bad_state(e.to_string()))?,
+                    )
+                } else {
+                    ImLog::with_cols(num_dim)
                 };
+                let y_log = if n > 0 {
+                    ImLog::from_array(
+                        Array2::from_shape_vec((n, m), y_vals)
+                            .map_err(|e| bad_state(e.to_string()))?,
+                    )
+                } else {
+                    ImLog::empty()
+                };
+                next.posterior.backend = PosteriorBackend::Empirical { x_log, y_log };
             } else {
                 return Err(bad_state(
                     "frozen posterior backend does not match template optimizer",
@@ -581,32 +577,8 @@ fn thaw_inner(
                             .checked_mul(8)
                             .ok_or_else(|| bad_state("disk y byte overflow"))?,
                     )?;
-                    let mut x_vals = Vec::new();
-                    x_vals
-                        .try_reserve_exact(x_total)
-                        .map_err(|_| bad_state("allocation failed"))?;
-                    for chunk in raw_x.chunks_exact(8) {
-                        let mut arr = [0u8; 8];
-                        arr.copy_from_slice(chunk);
-                        let v = f64::from_bits(u64::from_le_bytes(arr));
-                        if !v.is_finite() {
-                            return Err(bad_state("non-finite disk x in frozen state"));
-                        }
-                        x_vals.push(v);
-                    }
-                    let mut y_vals = Vec::new();
-                    y_vals
-                        .try_reserve_exact(y_total)
-                        .map_err(|_| bad_state("allocation failed"))?;
-                    for chunk in raw_y.chunks_exact(8) {
-                        let mut arr = [0u8; 8];
-                        arr.copy_from_slice(chunk);
-                        let v = f64::from_bits(u64::from_le_bytes(arr));
-                        if !v.is_finite() {
-                            return Err(bad_state("non-finite disk y in frozen state"));
-                        }
-                        y_vals.push(v);
-                    }
+                    let x_vals = decode_reals(raw_x, "disk x")?;
+                    let y_vals = decode_reals(raw_y, "disk y")?;
                     let x_mat = Array2::from_shape_vec((n, num_dim), x_vals)
                         .map_err(|e| bad_state(e.to_string()))?;
                     let y_mat = Array2::from_shape_vec((n, m), y_vals)
@@ -620,11 +592,22 @@ fn thaw_inner(
             }
         }
         2 => match next.posterior.backend {
-            PosteriorBackend::Model(surrogate) => {
+            PosteriorBackend::Enn(enn) => {
                 let mut pos = reader.position();
-                let thawed = surrogate.with_thawed(payload, &mut pos)?;
+                let inner = Arc::try_unwrap(enn).unwrap_or_else(|arc| (*arc).clone());
+                let thawed = inner.with_thawed(payload, &mut pos)?;
                 reader = WireReader::from_slice(payload, pos);
-                next.posterior.backend = PosteriorBackend::Model(thawed);
+                next.posterior.backend = PosteriorBackend::Enn(Arc::new(thawed));
+            }
+            PosteriorBackend::External(surrogate) => {
+                let mut pos = reader.position();
+                let boxed = match Arc::try_unwrap(surrogate) {
+                    Ok(b) => b,
+                    Err(arc) => arc.clone_box()?,
+                };
+                let thawed = boxed.with_thawed(payload, &mut pos)?;
+                reader = WireReader::from_slice(payload, pos);
+                next.posterior.backend = PosteriorBackend::External(Arc::new(thawed));
             }
             _ => {
                 return Err(bad_state(
@@ -667,7 +650,8 @@ fn thaw_inner(
     next.incumbent = next.incumbent.set_current(current);
 
     // 6. TrustRegionState
-    next.regions = next.regions.thaw_regions(&mut reader)?;
+    let regions = Arc::try_unwrap(next.regions).unwrap_or_else(|arc| (*arc).clone());
+    next.regions = Arc::new(regions.thaw_regions(&mut reader)?);
 
     // 7. RegionalModels
     let has_local = reader.read_bool()?;
@@ -688,12 +672,13 @@ fn thaw_inner(
         }
     }
 
-    // 8. Ingestion error
-    let ingestion_error = if reader.read_bool()? {
-        Some(reader.read_str(MAX_TEXT)?)
-    } else {
-        None
-    };
+    // 8. Legacy ingestion-error wire flag
+    if reader.read_bool()? {
+        let err = reader.read_str(MAX_TEXT)?;
+        return Err(bad_state(format!(
+            "frozen state carries ingestion failure: {err}"
+        )));
+    }
 
     // 9. Optional HostCursor
     let host = if reader.read_bool()? {
@@ -740,7 +725,6 @@ fn thaw_inner(
     next.proposals.sobol_base = sobol_base;
     next.proposals.ticket_tag = ticket_tag;
     next.proposals.set_sobol(sobol_eng);
-    next.ingestion_error = ingestion_error;
 
     Ok((next, host))
 }

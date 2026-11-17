@@ -1,6 +1,5 @@
 use std::borrow::Cow;
 use std::path::PathBuf;
-#[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
 use std::sync::Arc;
 
 use ndarray::{Array1, Array2, ArrayView2};
@@ -12,24 +11,29 @@ use crate::config::SurrogateConfig;
 use crate::disk_bpann::DiskBpannEnnBackend;
 use crate::error::ENNError;
 use crate::optimizer_dispatch::{VarianceGate, variance_gate};
+use crate::scratch::ImLog;
 use crate::surrogate::{BoxedSurrogate, ENNSurrogate, Surrogate};
 
-/// Closed storage backend: empirical observation vectors (RAM or disk mmap) or
-/// an indexed surrogate model.
+/// Closed storage backend: persistent [`ImLog`] observation chunks, disk mmap,
+/// `Arc`-shared built-in [`ENNSurrogate`], or `Arc`-shared external surrogate
+/// (`PythonSurrogateAdapter` / `baux.gp()`).
+#[derive(Clone)]
 pub enum PosteriorBackend {
     Empirical {
-        x_rows: Vec<Array1<f64>>,
-        y_rows: Vec<Array1<f64>>,
+        x_log: ImLog,
+        y_log: ImLog,
     },
     #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
     Disk {
         work_dir: PathBuf,
         store: Arc<DiskBpannEnnBackend>,
     },
-    Model(BoxedSurrogate),
+    Enn(Arc<ENNSurrogate>),
+    External(Arc<BoxedSurrogate>),
 }
 
 /// Unified posterior and observation store for the ask/tell optimizer.
+#[derive(Clone)]
 pub struct PosteriorStore {
     pub(crate) backend: PosteriorBackend,
     pub(crate) yvar_mode: Option<bool>,
@@ -37,21 +41,27 @@ pub struct PosteriorStore {
 
 impl PosteriorStore {
     pub fn new(config: &SurrogateConfig, provided: Option<BoxedSurrogate>) -> Self {
-        let model = provided.or_else(|| match config {
-            SurrogateConfig::ENN(enn_config) => {
-                Some(Box::new(ENNSurrogate::new(enn_config.clone())))
-            }
-            SurrogateConfig::None => None,
-        });
-        let backend = match model {
-            Some(surrogate) => PosteriorBackend::Model(surrogate),
-            None => PosteriorBackend::Empirical {
-                x_rows: Vec::new(),
-                y_rows: Vec::new(),
+        let backend = match provided {
+            Some(surrogate) => PosteriorBackend::External(Arc::new(surrogate)),
+            None => match config {
+                SurrogateConfig::ENN(enn_config) => {
+                    PosteriorBackend::Enn(Arc::new(ENNSurrogate::new(enn_config.clone())))
+                }
+                SurrogateConfig::None => PosteriorBackend::Empirical {
+                    x_log: ImLog::empty(),
+                    y_log: ImLog::empty(),
+                },
             },
         };
         Self {
             backend,
+            yvar_mode: None,
+        }
+    }
+
+    pub fn new_enn(enn: ENNSurrogate) -> Self {
+        Self {
+            backend: PosteriorBackend::Enn(Arc::new(enn)),
             yvar_mode: None,
         }
     }
@@ -85,6 +95,29 @@ impl PosteriorStore {
         }
     }
 
+    pub fn shares_storage(&self, other: &Self) -> bool {
+        match (&self.backend, &other.backend) {
+            (
+                PosteriorBackend::Empirical {
+                    x_log: x1,
+                    y_log: y1,
+                },
+                PosteriorBackend::Empirical {
+                    x_log: x2,
+                    y_log: y2,
+                },
+            ) => x1.shares_storage(x2) && y1.shares_storage(y2),
+            #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
+            (
+                PosteriorBackend::Disk { store: s1, .. },
+                PosteriorBackend::Disk { store: s2, .. },
+            ) => Arc::ptr_eq(s1, s2),
+            (PosteriorBackend::Enn(e1), PosteriorBackend::Enn(e2)) => Arc::ptr_eq(e1, e2),
+            (PosteriorBackend::External(x1), PosteriorBackend::External(x2)) => Arc::ptr_eq(x1, x2),
+            _ => false,
+        }
+    }
+
     pub(crate) fn is_disk(&self) -> bool {
         #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
         {
@@ -97,12 +130,23 @@ impl PosteriorStore {
     }
 
     pub fn has_surrogate(&self) -> bool {
-        matches!(self.backend, PosteriorBackend::Model(_))
+        matches!(
+            self.backend,
+            PosteriorBackend::Enn(_) | PosteriorBackend::External(_)
+        )
+    }
+
+    pub fn enn(&self) -> Option<&ENNSurrogate> {
+        match &self.backend {
+            PosteriorBackend::Enn(s) => Some(s.as_ref()),
+            _ => None,
+        }
     }
 
     pub fn surrogate(&self) -> Option<&(dyn Surrogate + Send + Sync)> {
         match &self.backend {
-            PosteriorBackend::Model(s) => Some(s.as_ref()),
+            PosteriorBackend::Enn(s) => Some(s.as_ref()),
+            PosteriorBackend::External(s) => Some(s.as_ref().as_ref()),
             PosteriorBackend::Empirical { .. } => None,
             #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
             PosteriorBackend::Disk { .. } => None,
@@ -111,7 +155,20 @@ impl PosteriorStore {
 
     pub fn surrogate_mut(&mut self) -> Option<&mut (dyn Surrogate + Send + Sync)> {
         match &mut self.backend {
-            PosteriorBackend::Model(s) => Some(s.as_mut()),
+            PosteriorBackend::Enn(s) => {
+                let inner: &mut ENNSurrogate = Arc::make_mut(s);
+                Some(inner)
+            }
+            PosteriorBackend::External(s) => {
+                if Arc::strong_count(s) > 1 {
+                    let cloned = s.clone_box().ok()?;
+                    *s = Arc::new(cloned);
+                }
+                match Arc::get_mut(s) {
+                    Some(boxed) => Some(boxed.as_mut()),
+                    None => None,
+                }
+            }
             PosteriorBackend::Empirical { .. } => None,
             #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
             PosteriorBackend::Disk { .. } => None,
@@ -138,8 +195,9 @@ impl PosteriorStore {
 
     pub fn obs_count(&self) -> usize {
         match &self.backend {
-            PosteriorBackend::Model(s) => s.observation_count().unwrap_or(0),
-            PosteriorBackend::Empirical { x_rows, .. } => x_rows.len(),
+            PosteriorBackend::Enn(s) => s.observation_count().unwrap_or(0),
+            PosteriorBackend::External(s) => s.observation_count().unwrap_or(0),
+            PosteriorBackend::Empirical { x_log, .. } => x_log.nrows(),
             #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
             PosteriorBackend::Disk { store, .. } => store.len(),
         }
@@ -147,12 +205,9 @@ impl PosteriorStore {
 
     pub fn x_row(&self, idx: usize) -> Result<Array1<f64>, ENNError> {
         match &self.backend {
-            PosteriorBackend::Model(s) => s.x_row(idx),
-            PosteriorBackend::Empirical { x_rows, .. } => {
-                x_rows.get(idx).cloned().ok_or_else(|| {
-                    ENNError::InvalidParameter(format!("observation index {idx} out of range"))
-                })
-            }
+            PosteriorBackend::Enn(s) => s.x_row(idx),
+            PosteriorBackend::External(s) => s.x_row(idx),
+            PosteriorBackend::Empirical { x_log, .. } => x_log.checked_row(idx),
             #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
             PosteriorBackend::Disk { store, .. } => store.row_x(idx),
         }
@@ -160,49 +215,36 @@ impl PosteriorStore {
 
     pub fn y_row(&self, idx: usize) -> Result<Array1<f64>, ENNError> {
         match &self.backend {
-            PosteriorBackend::Model(s) => s.y_row(idx),
-            PosteriorBackend::Empirical { y_rows, .. } => {
-                y_rows.get(idx).cloned().ok_or_else(|| {
-                    ENNError::InvalidParameter(format!("observation index {idx} out of range"))
-                })
-            }
+            PosteriorBackend::Enn(s) => s.y_row(idx),
+            PosteriorBackend::External(s) => s.y_row(idx),
+            PosteriorBackend::Empirical { y_log, .. } => y_log.checked_row(idx),
             #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
             PosteriorBackend::Disk { store, .. } => store.row_y(idx),
         }
     }
 
-    /// Zero-copy borrowed row slice when empirical, or surrogate-provided
-    /// slice.
+    /// Zero-copy borrowed row slice when empirical or in-memory ENN/adapter, or
+    /// owned fallback on disk.
     pub fn x_slice(&self, idx: usize) -> Result<Cow<'_, [f64]>, ENNError> {
         match &self.backend {
-            PosteriorBackend::Model(s) => s.x_slice(idx),
-            PosteriorBackend::Empirical { x_rows, .. } => {
-                let row = x_rows.get(idx).ok_or_else(|| {
-                    ENNError::InvalidParameter(format!("observation index {idx} out of range"))
-                })?;
-                Ok(match row.as_slice() {
-                    Some(slice) => Cow::Borrowed(slice),
-                    None => Cow::Owned(row.to_vec()),
-                })
+            PosteriorBackend::Enn(s) => s.x_slice(idx),
+            PosteriorBackend::External(s) => s.x_slice(idx),
+            PosteriorBackend::Empirical { x_log, .. } => {
+                x_log.checked_slice(idx).map(Cow::Borrowed)
             }
             #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
             PosteriorBackend::Disk { store, .. } => Ok(Cow::Owned(store.slice_x(idx)?.to_vec())),
         }
     }
 
-    /// Zero-copy borrowed target slice when empirical, or surrogate-provided
-    /// slice.
+    /// Zero-copy borrowed target slice when empirical or in-memory ENN/adapter,
+    /// or owned fallback on disk/warped outputs.
     pub fn y_slice(&self, idx: usize) -> Result<Cow<'_, [f64]>, ENNError> {
         match &self.backend {
-            PosteriorBackend::Model(s) => s.y_slice(idx),
-            PosteriorBackend::Empirical { y_rows, .. } => {
-                let row = y_rows.get(idx).ok_or_else(|| {
-                    ENNError::InvalidParameter(format!("observation index {idx} out of range"))
-                })?;
-                Ok(match row.as_slice() {
-                    Some(slice) => Cow::Borrowed(slice),
-                    None => Cow::Owned(row.to_vec()),
-                })
+            PosteriorBackend::Enn(s) => s.y_slice(idx),
+            PosteriorBackend::External(s) => s.y_slice(idx),
+            PosteriorBackend::Empirical { y_log, .. } => {
+                y_log.checked_slice(idx).map(Cow::Borrowed)
             }
             #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
             PosteriorBackend::Disk { store, .. } => Ok(Cow::Owned(store.row_y(idx)?.to_vec())),
@@ -211,9 +253,10 @@ impl PosteriorStore {
 
     pub fn unit_obs(&self) -> Option<Array2<f64>> {
         match &self.backend {
-            PosteriorBackend::Model(s) => s.observations_x().ok().flatten(),
-            PosteriorBackend::Empirical { x_rows, .. } => {
-                (!x_rows.is_empty()).then(|| stack_rows(x_rows))
+            PosteriorBackend::Enn(s) => s.observations_x().ok().flatten(),
+            PosteriorBackend::External(s) => s.observations_x().ok().flatten(),
+            PosteriorBackend::Empirical { x_log, .. } => {
+                (!x_log.is_empty()).then(|| x_log.to_array())
             }
             #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
             PosteriorBackend::Disk { store, .. } => {
@@ -229,9 +272,10 @@ impl PosteriorStore {
 
     pub fn y_obs(&self) -> Option<Array2<f64>> {
         match &self.backend {
-            PosteriorBackend::Model(s) => s.observations_y().ok().flatten(),
-            PosteriorBackend::Empirical { y_rows, .. } => {
-                (!y_rows.is_empty()).then(|| stack_rows(y_rows))
+            PosteriorBackend::Enn(s) => s.observations_y().ok().flatten(),
+            PosteriorBackend::External(s) => s.observations_y().ok().flatten(),
+            PosteriorBackend::Empirical { y_log, .. } => {
+                (!y_log.is_empty()).then(|| y_log.to_array())
             }
             #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
             PosteriorBackend::Disk { store, .. } => {
@@ -246,21 +290,30 @@ impl PosteriorStore {
     }
 
     pub fn push_empirical(&mut self, x_row: Array1<f64>, y_row: Array1<f64>) {
-        if let PosteriorBackend::Empirical { x_rows, y_rows } = &mut self.backend {
-            x_rows.push(x_row);
-            y_rows.push(y_row);
+        if let PosteriorBackend::Empirical { x_log, y_log } = &mut self.backend {
+            let prev_x = std::mem::take(x_log);
+            let prev_y = std::mem::take(y_log);
+            *x_log = prev_x
+                .push_slice(x_row.as_slice().unwrap_or(&x_row.to_vec()))
+                .expect("empirical x_row shape mismatch");
+            *y_log = prev_y
+                .push_slice(y_row.as_slice().unwrap_or(&y_row.to_vec()))
+                .expect("empirical y_row shape mismatch");
         }
     }
 
-    pub fn append_empirical(&mut self, x: &ArrayView2<f64>, y: &ArrayView2<f64>) {
-        if let PosteriorBackend::Empirical { x_rows, y_rows } = &mut self.backend {
-            for row in x.rows() {
-                x_rows.push(row.to_owned());
-            }
-            for row in y.rows() {
-                y_rows.push(row.to_owned());
-            }
+    pub fn append_empirical(
+        &mut self,
+        x: &ArrayView2<f64>,
+        y: &ArrayView2<f64>,
+    ) -> Result<(), ENNError> {
+        if let PosteriorBackend::Empirical { x_log, y_log } = &mut self.backend {
+            let prev_x = std::mem::take(x_log);
+            let prev_y = std::mem::take(y_log);
+            *x_log = prev_x.push_rows(x)?;
+            *y_log = prev_y.push_rows(y)?;
         }
+        Ok(())
     }
 
     pub fn append_disk(
@@ -269,13 +322,11 @@ impl PosteriorStore {
         y: &ArrayView2<f64>,
     ) -> Result<(), ENNError> {
         #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
-        match &mut self.backend {
-            PosteriorBackend::Disk { store, .. } => {
-                let inner = (**store).clone();
-                let updated = inner.append_rows(x, y, None)?;
-                *store = Arc::new(updated);
-            }
-            _ => {}
+        if let PosteriorBackend::Disk { store, .. } = &mut self.backend {
+            let taken = std::mem::replace(store, Arc::clone(store));
+            let inner = Arc::try_unwrap(taken).unwrap_or_else(|arc| (*arc).clone());
+            let updated = inner.append_rows(x, y, None)?;
+            *store = Arc::new(updated);
         }
         #[cfg(not(all(feature = "disk-bpann", not(target_arch = "wasm32"))))]
         let _ = (x, y);
@@ -291,17 +342,11 @@ impl PosteriorStore {
     ) -> Result<Self, ENNError> {
         self = self.check_variance(yvar.is_some())?;
         match self.backend {
-            PosteriorBackend::Empirical {
-                mut x_rows,
-                mut y_rows,
-            } => {
-                for row in x.rows() {
-                    x_rows.push(row.to_owned());
-                }
-                for row in y.rows() {
-                    y_rows.push(row.to_owned());
-                }
-                self.backend = PosteriorBackend::Empirical { x_rows, y_rows };
+            PosteriorBackend::Empirical { x_log, y_log } => {
+                self.backend = PosteriorBackend::Empirical {
+                    x_log: x_log.push_rows(x)?,
+                    y_log: y_log.push_rows(y)?,
+                };
                 Ok(self)
             }
             #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
@@ -314,9 +359,19 @@ impl PosteriorStore {
                 };
                 Ok(self)
             }
-            PosteriorBackend::Model(surrogate) => {
-                let updated = surrogate.with_append(x, y, yvar, rng)?;
-                self.backend = PosteriorBackend::Model(updated);
+            PosteriorBackend::Enn(enn) => {
+                let inner = Arc::try_unwrap(enn).unwrap_or_else(|arc| (*arc).clone());
+                let updated = inner.append(x, y, yvar, rng)?;
+                self.backend = PosteriorBackend::Enn(Arc::new(updated));
+                Ok(self)
+            }
+            PosteriorBackend::External(ext) => {
+                let boxed = match Arc::try_unwrap(ext) {
+                    Ok(b) => b,
+                    Err(arc) => arc.clone_box()?,
+                };
+                let updated = boxed.with_append(x, y, yvar, rng)?;
+                self.backend = PosteriorBackend::External(Arc::new(updated));
                 Ok(self)
             }
         }
@@ -337,29 +392,51 @@ impl PosteriorStore {
                 )));
             }
         }
-        if let PosteriorBackend::Model(surrogate) = self.backend {
-            let start = std::time::Instant::now();
-            let updated = surrogate.with_append(&delta.x_view(), &delta.y_view(), yvar, rng)?;
-            self.backend = PosteriorBackend::Model(updated);
-            return Ok((self, Some(start.elapsed().as_secs_f64())));
+        match self.backend {
+            PosteriorBackend::Enn(enn) => {
+                let start = std::time::Instant::now();
+                let inner = Arc::try_unwrap(enn).unwrap_or_else(|arc| (*arc).clone());
+                let updated = inner.append(&delta.x_view(), &delta.y_view(), yvar, rng)?;
+                self.backend = PosteriorBackend::Enn(Arc::new(updated));
+                Ok((self, Some(start.elapsed().as_secs_f64())))
+            }
+            PosteriorBackend::External(ext) => {
+                let start = std::time::Instant::now();
+                let boxed = match Arc::try_unwrap(ext) {
+                    Ok(b) => b,
+                    Err(arc) => arc.clone_box()?,
+                };
+                let updated = boxed.with_append(&delta.x_view(), &delta.y_view(), yvar, rng)?;
+                self.backend = PosteriorBackend::External(Arc::new(updated));
+                Ok((self, Some(start.elapsed().as_secs_f64())))
+            }
+            _ => Ok((self, None)),
         }
-        Ok((self, None))
     }
 
     pub fn clear(mut self) -> Result<Self, ENNError> {
         match self.backend {
-            PosteriorBackend::Model(s) => {
-                let cleared = s.cleared()?;
-                self.backend = PosteriorBackend::Model(cleared);
+            PosteriorBackend::Enn(enn) => {
+                let inner = Arc::try_unwrap(enn).unwrap_or_else(|arc| (*arc).clone());
+                let cleared = inner.cleared()?;
+                self.backend = PosteriorBackend::Enn(Arc::new(cleared));
                 Ok(self)
             }
-            PosteriorBackend::Empirical {
-                mut x_rows,
-                mut y_rows,
-            } => {
-                x_rows.clear();
-                y_rows.clear();
-                self.backend = PosteriorBackend::Empirical { x_rows, y_rows };
+            PosteriorBackend::External(ext) => {
+                let boxed = match Arc::try_unwrap(ext) {
+                    Ok(b) => b,
+                    Err(arc) => arc.clone_box()?,
+                };
+                let cleared = boxed.cleared()?;
+                self.backend = PosteriorBackend::External(Arc::new(cleared));
+                Ok(self)
+            }
+            PosteriorBackend::Empirical { x_log, .. } => {
+                let ncols = x_log.ncols();
+                self.backend = PosteriorBackend::Empirical {
+                    x_log: ImLog::with_cols(ncols),
+                    y_log: ImLog::empty(),
+                };
                 Ok(self)
             }
             #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
@@ -384,9 +461,19 @@ impl PosteriorStore {
 
     pub fn thaw(mut self, bytes: &[u8], pos: &mut usize) -> Result<Self, ENNError> {
         match self.backend {
-            PosteriorBackend::Model(surrogate) => {
-                let thawed = surrogate.with_thawed(bytes, pos)?;
-                self.backend = PosteriorBackend::Model(thawed);
+            PosteriorBackend::Enn(enn) => {
+                let inner = Arc::try_unwrap(enn).unwrap_or_else(|arc| (*arc).clone());
+                let thawed = inner.with_thawed(bytes, pos)?;
+                self.backend = PosteriorBackend::Enn(Arc::new(thawed));
+                Ok(self)
+            }
+            PosteriorBackend::External(ext) => {
+                let boxed = match Arc::try_unwrap(ext) {
+                    Ok(b) => b,
+                    Err(arc) => arc.clone_box()?,
+                };
+                let thawed = boxed.with_thawed(bytes, pos)?;
+                self.backend = PosteriorBackend::External(Arc::new(thawed));
                 Ok(self)
             }
             PosteriorBackend::Empirical { .. } => self.clear(),
@@ -397,7 +484,10 @@ impl PosteriorStore {
 
     pub fn schedule_flush(&mut self) -> Result<(), ENNError> {
         match &mut self.backend {
-            PosteriorBackend::Model(s) => {
+            PosteriorBackend::Enn(s) => {
+                s.schedule_flush()?;
+            }
+            PosteriorBackend::External(s) => {
                 s.schedule_flush()?;
             }
             #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
@@ -413,7 +503,10 @@ impl PosteriorStore {
 
     pub fn wait_flush(&mut self) -> Result<(), ENNError> {
         match &mut self.backend {
-            PosteriorBackend::Model(s) => {
+            PosteriorBackend::Enn(s) => {
+                s.wait_flush()?;
+            }
+            PosteriorBackend::External(s) => {
                 s.wait_flush()?;
             }
             #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
@@ -429,7 +522,10 @@ impl PosteriorStore {
 
     pub fn release_pages(&mut self) -> Result<(), ENNError> {
         match &mut self.backend {
-            PosteriorBackend::Model(s) => {
+            PosteriorBackend::Enn(s) => {
+                s.release_pages()?;
+            }
+            PosteriorBackend::External(s) => {
                 s.release_pages()?;
             }
             #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
@@ -444,26 +540,11 @@ impl PosteriorStore {
     }
 
     pub fn try_clone(&self) -> Result<Self, ENNError> {
-        let backend = match &self.backend {
-            PosteriorBackend::Empirical { x_rows, y_rows } => PosteriorBackend::Empirical {
-                x_rows: x_rows.clone(),
-                y_rows: y_rows.clone(),
-            },
-            #[cfg(all(feature = "disk-bpann", not(target_arch = "wasm32")))]
-            PosteriorBackend::Disk { work_dir, store } => PosteriorBackend::Disk {
-                work_dir: work_dir.clone(),
-                store: Arc::clone(store),
-            },
-            PosteriorBackend::Model(surrogate) => PosteriorBackend::Model(surrogate.clone_box()?),
-        };
-        Ok(Self {
-            backend,
-            yvar_mode: self.yvar_mode,
-        })
+        Ok(self.clone())
     }
 
     pub fn fork(&self) -> Result<Self, ENNError> {
-        self.try_clone()
+        Ok(self.clone())
     }
 
     pub(crate) fn hash_state(&self, buf: &mut Vec<u8>) {
@@ -489,7 +570,15 @@ impl PosteriorStore {
             Some(true) => 2,
         });
         match &self.backend {
-            PosteriorBackend::Model(s) => {
+            PosteriorBackend::Enn(s) => {
+                buf.push(2);
+                let before = buf.len();
+                <ENNSurrogate as Surrogate>::hash_surrogate(s.as_ref(), buf);
+                if buf.len() == before {
+                    hash_rows(buf);
+                }
+            }
+            PosteriorBackend::External(s) => {
                 buf.push(2);
                 let before = buf.len();
                 s.hash_surrogate(buf);
@@ -510,18 +599,12 @@ impl PosteriorStore {
     }
 }
 
-impl Clone for PosteriorStore {
-    fn clone(&self) -> Self {
-        self.try_clone().expect("PosteriorStore clone failed")
-    }
-}
-
 impl Default for PosteriorStore {
     fn default() -> Self {
         Self {
             backend: PosteriorBackend::Empirical {
-                x_rows: Vec::new(),
-                y_rows: Vec::new(),
+                x_log: ImLog::empty(),
+                y_log: ImLog::empty(),
             },
             yvar_mode: None,
         }

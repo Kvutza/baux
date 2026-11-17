@@ -332,6 +332,35 @@ impl JuliaWorker {
     }
 
     #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    pub fn eval_halves(&mut self, rows: &[Vec<u16>]) -> Result<(Vec<f64>, Vec<f64>, u64), String> {
+        if rows.is_empty() {
+            return Ok((Vec::new(), Vec::new(), 0));
+        }
+        for (slot, row) in rows.iter().enumerate() {
+            unsafe {
+                self.slab
+                    .write_half(slot, row.as_ptr(), &self.low, &self.span)?
+            };
+        }
+        let count = rows.len();
+        let dt_us = self.call_doorbell(1, count)?;
+        let scores = self
+            .slab
+            .read_scores(count)
+            .iter()
+            .map(|&s| {
+                if s.is_finite() && s > -1.0e8 {
+                    s
+                } else {
+                    -500.0
+                }
+            })
+            .collect();
+        let viols = self.slab.read_viols(count).to_vec();
+        Ok((scores, viols, dt_us))
+    }
+
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
     pub fn half_snap(&mut self, half_ptr: *const u16) -> Result<Vec<f32>, String> {
         unsafe { self.slab.write_half(0, half_ptr, &self.low, &self.span)? };
         let _ = self.call_doorbell(2, 1)?;

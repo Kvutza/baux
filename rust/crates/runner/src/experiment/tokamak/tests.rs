@@ -377,3 +377,198 @@ failure-tolerance = 3
     assert_eq!(cached.best_scores, rec_e.best_scores);
     let _ = fs::remove_dir_all(&dir);
 }
+
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[test]
+fn test_parity() {
+    let bad_single = r#"
+algorithm = "single-state-bo"
+[perturbation]
+sampler = "raasp"
+num-pert = 8
+"#;
+    let bad_spec: OptimizerSpec = baux::artifact::toml::from_str(bad_single).expect("parse single");
+    assert!(metal::check_metal(&bad_spec).is_err());
+
+    let bad_div = r#"
+algorithm = "bayesian-search"
+candidates = 33
+arms = 4
+acquisition = "upper-confidence-bound"
+"#;
+    let div_spec: OptimizerSpec = baux::artifact::toml::from_str(bad_div).expect("parse bad div");
+    assert!(metal::check_metal(&div_spec).is_err());
+
+    let raasp_toml = r#"
+version = 4
+experiment = "tokamak-tcv"
+backend = "resident-metal"
+rounds = 6
+
+[optimizer]
+algorithm = "bayesian-search"
+candidates = 32
+arms = 2
+acquisition = "upper-confidence-bound"
+
+[optimizer.perturbation]
+sampler = "raasp"
+num-pert = 64
+raasp-fast = true
+
+[optimizer.surrogate]
+metric = "hyperbolic"
+local-neighbors = 4
+neighbors = 4
+fit = "leave-one-out"
+fit-candidates = 4
+fit-samples = 2
+
+[optimizer.trust-region]
+initial = 0.8
+min = 0.125
+max = 1.6
+"#;
+    let cfg_r: Config = baux::artifact::toml::from_str(raasp_toml).expect("parse raasp 32");
+    metal::check_metal(&cfg_r.optimizer).expect("check metal raasp 32");
+    let opt_r = baux::optimizer_config::OptimizerConfig::from_spec(&cfg_r.optimizer)
+        .expect("opt cfg raasp");
+    assert_eq!(
+        opt_r.acquisition,
+        baux::optimizer_config::AcquisitionConfig::UCB { beta: 1.0 }
+    );
+    let dom = exp_domain(&cfg_r);
+    let mut host_r = cfg_r.clone();
+    host_r.backend = Backend::HostRam;
+    let rec_hr = run_seed(&host_r, 0, None, &mut None).expect("host raasp 32");
+    let rec_mr = metal::metal_seed(&cfg_r, &dom, 0, None, &mut None).expect("metal raasp 32");
+    assert_eq!(rec_hr.best_scores.len(), 6);
+    assert_eq!(rec_mr.best_scores.len(), 6);
+    assert!(rec_hr.final_score.is_finite() && rec_mr.final_score.is_finite());
+    assert!(rec_mr.best_scores.windows(2).all(|w| w[1] >= w[0]));
+
+    let unif_toml = r#"
+version = 4
+experiment = "tokamak-tcv"
+backend = "resident-metal"
+rounds = 6
+
+[optimizer]
+algorithm = "bayesian-search"
+candidates = 128
+arms = 4
+acquisition = "upper-confidence-bound"
+
+[optimizer.perturbation]
+sampler = "uniform"
+num-pert = 64
+
+[optimizer.surrogate]
+neighbors = 4
+fit = "fixed"
+
+[optimizer.trust-region]
+initial = 0.4
+min = 0.2
+max = 0.8
+
+[optimizer.regional-search]
+count = 3
+sharing = "ellipsoid-ball"
+allocation = "joint-acquisition"
+controller = "turbo"
+restart-memory = "retain-relevant"
+restart-center = "maximin"
+restart-candidates = 8
+success-tolerance = 2
+failure-tolerance = 1
+"#;
+    let cfg_u: Config = baux::artifact::toml::from_str(unif_toml).expect("parse uniform 128");
+    metal::check_metal(&cfg_u.optimizer).expect("check metal uniform 128");
+    let mut host_u = cfg_u.clone();
+    host_u.backend = Backend::HostRam;
+    let rec_hu = run_seed(&host_u, 0, None, &mut None).expect("host uniform 128");
+    let rec_mu = metal::metal_seed(&cfg_u, &dom, 0, None, &mut None).expect("metal uniform 128");
+    assert_eq!(rec_hu.best_scores.len(), 6);
+    assert_eq!(rec_mu.best_scores.len(), 6);
+    assert!(rec_hu.final_score.is_finite() && rec_mu.final_score.is_finite());
+    assert!(rec_mu.best_scores.windows(2).all(|w| w[1] >= w[0]));
+
+    let dir = std::env::temp_dir().join(format!("baux_parity_ckpt_{}", std::process::id()));
+    let _ = fs::remove_dir_all(&dir);
+    unsafe { std::env::set_var("BAUX_CKPT_EVERY", "2") };
+    let blocker = dir.join("seed_0_done.cbor").join("crash");
+    fs::create_dir_all(&blocker).expect("mkdir crash blocker");
+    let mut half_u = cfg_u.clone();
+    half_u.rounds = 5;
+    assert!(metal::metal_seed(&half_u, &dom, 0, Some(&dir), &mut None).is_err());
+    fs::remove_dir_all(dir.join("seed_0_done.cbor")).expect("remove crash blocker");
+    let resumed = metal::metal_seed(&cfg_u, &dom, 0, Some(&dir), &mut None).expect("resume unif");
+    unsafe { std::env::remove_var("BAUX_CKPT_EVERY") };
+    let _ = fs::remove_dir_all(&dir);
+    assert_eq!(resumed.best_scores, rec_mu.best_scores);
+    assert_eq!(resumed.final_score, rec_mu.final_score);
+
+    let sobol_toml = unif_toml.replace("sampler = \"uniform\"", "sampler = \"sobol\"");
+    let cfg_s: Config = baux::artifact::toml::from_str(&sobol_toml).expect("parse sobol 128");
+    metal::check_metal(&cfg_s.optimizer).expect("check metal sobol 128");
+    let mut host_s = cfg_s.clone();
+    host_s.backend = Backend::HostRam;
+    let err_hs = run_seed(&host_s, 0, None, &mut None).expect_err("host sobol >21201");
+    let err_ms =
+        metal::metal_seed(&cfg_s, &dom, 0, None, &mut None).expect_err("metal sobol >21201");
+    assert!(err_hs.contains("21201") && err_ms.contains("21201"));
+
+    let small_bounds = Array2::from_shape_fn((32, 2), |(_, j)| if j == 0 { -1.0 } else { 1.0 });
+    let small_dom = DomainFrame::new(small_bounds).expect("32d domain");
+    let mut sb_rng = prng(91);
+    let mut sb_opt =
+        BayesOptimizer::from_domain(small_dom, &cfg_s.optimizer, 0, &mut sb_rng).expect("host 32d");
+    for r in 1..=6 {
+        let mut sr = round_rng(91, r);
+        let (next_opt, u) = sb_opt.ask(4, &mut sr).expect("sobol ask 4");
+        sb_opt = next_opt;
+        let y = Array2::from_shape_fn((4, 1), |(i, _)| {
+            (0..32).map(|j| -(u[[i, j]] - 0.5).powi(2)).sum::<f64>()
+        });
+        sb_opt = sb_opt
+            .tell(&u.view(), &y.view(), None, &mut sr)
+            .expect("sobol tell 4");
+    }
+    let opt_s = baux::optimizer_config::OptimizerConfig::from_spec(&cfg_s.optimizer)
+        .expect("opt cfg sobol");
+    let spec_s = crate::experiment::julia::metal_step::MetalJobSpec::from_parts(
+        0,
+        91,
+        32,
+        1,
+        6,
+        &cfg_s.optimizer,
+        opt_s,
+        None,
+    )
+    .expect("32d sobol metal spec");
+    let (st_s, _) = crate::experiment::julia::metal::metal_job(
+        &spec_s,
+        None,
+        |sc| (-sc).max(0.0),
+        |rows| {
+            let scs: Vec<f64> = rows
+                .iter()
+                .map(|row| {
+                    row.iter()
+                        .map(|&w| {
+                            let u = f64::from(baux::shm_slab::decode_half(w)).clamp(0.0, 1.0);
+                            -(u - 0.5).powi(2)
+                        })
+                        .sum()
+                })
+                .collect();
+            let n = scs.len();
+            Ok((scs, vec![0.0; n], 0))
+        },
+    )
+    .expect("32d sobol metal job");
+    assert_eq!(st_s.best_scores.len(), 6);
+    assert!(st_s.best_score.is_finite());
+}

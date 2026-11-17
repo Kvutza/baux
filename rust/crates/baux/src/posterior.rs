@@ -4,6 +4,7 @@ mod draw_compute;
 mod light;
 mod neighbor;
 pub mod neighbor_dist;
+pub mod streaming;
 mod tie_break;
 
 use ndarray::{Array1, Array2, Array3, ArrayView2};
@@ -15,6 +16,9 @@ use self::light::{compute_light, index_array};
 pub(crate) use self::neighbor::index_search;
 pub use self::neighbor::{Pool, TopK, empty_internals};
 use self::neighbor::{conditional_data, get_data};
+pub use self::streaming::{
+    PullPool, RemappedPool, TILE_ROWS, materialize_selected, predict_pool, sample_pool,
+};
 use crate::draw::DrawInternals;
 use crate::error::ENNError;
 #[cfg(all(target_os = "linux", target_arch = "x86_64", feature = "cuda"))]
@@ -24,6 +28,7 @@ use crate::knn::CudaParam;
 use crate::model::ENN;
 pub use crate::model::EnnIndexAccess;
 use crate::params::{ENNNormal, ENNParams, PosteriorFlags};
+pub use crate::scratch::ImLog;
 use crate::traits::PosteriorComputation;
 
 impl<'a> crate::model::EnnIndexAccess<'a> {

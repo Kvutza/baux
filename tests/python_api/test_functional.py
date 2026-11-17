@@ -559,4 +559,144 @@ def test_bogeometry():
     )
 
 
+def test_largepools():
+    bounds = np.tile([-2.0, 2.0], (16, 1))
+    samplers = (
+        (baux.raasp(6, num_candidates=32), 32),
+        (baux.sobol(128), 128),
+        (baux.uniform_pert(64), 64),
+    )
+    for pert_tf, pool_size in samplers:
+        cfg = baux.chain(
+            baux.lhd(4),
+            pert_tf,
+            baux.enn(k=4, num_samples=16),
+            baux.ucb(),
+        )
+        assert cfg.acquisition.beta == 1.0
+        st = baux.init(bounds, cfg, key=baux.key(pool_size))
+        st, warm = baux.ask(st, 4)
+        st, _ = baux.tell(st, warm, -np.sum(warm.points**2, axis=1))
+        st, batch = baux.ask(st, 4)
+        assert batch.points.shape == (4, 16)
+        assert st.telemetry.num_candidates == pool_size
+        assert np.all((batch.points >= -2.0) & (batch.points <= 2.0))
+        assert len({row.tobytes() for row in batch.points}) == 4
+        st, _ = baux.tell(st, batch, -np.sum((batch.points - 0.5) ** 2, axis=1))
+        assert st.num_observations == 8
+
+    reg_cfg = baux.chain(
+        baux.lhd(4),
+        baux.raasp(8, num_candidates=128),
+        baux.enn(k=3, num_samples=12),
+        baux.ucb(),
+        baux.regions(3, sharing="box_contain", allocation="joint_acquisition"),
+    )
+    sr = baux.init(bounds, reg_cfg, key=baux.key(303))
+    sr, w_batch = baux.ask(sr, 4)
+    sr = baux.complete(sr, w_batch.ids, -np.sum(w_batch.points**2, axis=1))
+    sr, m_batch = baux.ask(sr, 3)
+    assert m_batch.points.shape == (3, 16)
+    assert sr.telemetry.num_candidates == 3 * 128
+    sr = baux.complete(sr, m_batch.ids, -np.sum(m_batch.points**2, axis=1))
+    assert sr.num_observations == 7 and sr.pending_ids is None
+
+
+def test_fbipsharing():
+    bounds = np.tile([-1.0, 1.0], (12, 1))
+    cfg = baux.chain(
+        baux.lhd(16),
+        baux.raasp(6, num_candidates=64),
+        baux.enn(k=5, num_samples=12),
+        baux.ucb(),
+    )
+    st = baux.init(bounds, cfg, key=baux.key(2026))
+    for step in range(20):
+        st, batch = baux.ask(st, 16)
+        y = -np.sum((batch.points - 0.1) ** 2, axis=1) + 0.01 * float(step)
+        st, _ = baux.tell(st, batch, y)
+    assert st.num_observations == 320
+
+    branch_a = st.fork(baux.key(11))
+    branch_b = st.fork(baux.key(22))
+    assert branch_a._opt.shares_storage(st._opt)
+    assert branch_b._opt.shares_storage(st._opt)
+    assert branch_a._opt.shares_storage(branch_b._opt)
+
+    sa1, ba = baux.ask(branch_a, 4)
+    sb1, bb = baux.ask(branch_b, 4)
+    sa2, _ = baux.tell(sa1, ba, np.full(4, 10.0))
+    sb2, _ = baux.tell(sb1, bb, np.full(4, -25.0))
+    assert st.num_observations == 320
+    assert sa2.num_observations == 324 and sb2.num_observations == 324
+    assert sa2.best_y == 10.0 and sb2.best_y < 10.0
+    assert baux.digest(sa2) != baux.digest(sb2)
+
+    def eval_branch(idx: int, cur: baux.OptimizerState, bk: baux.Key):
+        fin, _, tr = baux.scan(
+            cur,
+            bk,
+            2,
+            eval_fn=lambda x: -np.sum((x - 0.05 * float(idx)) ** 2, axis=1),
+            num_arms=4,
+        )
+        return fin.num_observations, fin.digest(), tr[-1]["best_y"]
+
+    res = baux.pmap(st, baux.key(909), branches=6, branch_fn=eval_branch)
+    assert len(res) == 6
+    assert all(n == 328 for n, _, _ in res)
+    assert len({d for _, d, _ in res}) == 6
+    assert st.num_observations == 320
+
+
+def test_morbomanifold():
+    from dataclasses import replace as dc_replace
+
+    from baux.turbo.config import (
+        MorboTrustRegion,
+        MultiObjectiveConfig,
+        Rescalarize,
+        RescalePolicy,
+    )
+
+    bounds = np.tile([-1.5, 1.5], (6, 1))
+    base_cfg = baux.chain(
+        baux.lhd(6),
+        baux.sobol(64, num_pert=4),
+        baux.enn(k=4, num_samples=12, scale_x=True),
+        baux.thompson(),
+    )
+    for mode in (Rescalarize.ON_PROPOSE, Rescalarize.ON_RESTART):
+        morbo_cfg = dc_replace(
+            base_cfg,
+            trust_region=MorboTrustRegion(
+                multi_objective=MultiObjectiveConfig(num_metrics=2, alpha=0.05),
+                rescale_policy=RescalePolicy(rescalarize=mode),
+                noise_aware=True,
+            ),
+        )
+        st = baux.init(bounds, morbo_cfg, key=baux.key(71))
+        for _ in range(3):
+            st, batch = baux.ask(st, 3)
+            f1 = -np.sum((batch.points - 0.3) ** 2, axis=1)
+            f2 = -np.sum((batch.points + 0.3) ** 2, axis=1)
+            y = np.column_stack([f1, f2])
+            yv = np.full_like(y, 0.01)
+            st, _ = baux.tell(st, batch, y, y_var=yv)
+        assert st.num_observations == 9
+        assert st.y_obs.shape == (9, 2)
+
+    gp_cfg = baux.chain(
+        baux.lhd(4), baux.raasp(4, num_candidates=32), baux.gp(), baux.ucb()
+    )
+    gp_s0 = baux.init(np.tile([-1.0, 1.0], (3, 1)), gp_cfg, key=baux.key(55))
+    gp_s1, gp_b1 = baux.ask(gp_s0, 4)
+    gp_s2, _ = baux.tell(gp_s1, gp_b1, -np.sum(gp_b1.points**2, axis=1))
+    gp_fork = gp_s2.fork(baux.key(56))
+    gp_a, gp_ba = baux.ask(gp_s2, 2)
+    gp_b, gp_bb = baux.ask(gp_fork, 2)
+    assert gp_ba.points.shape == (2, 3) and gp_bb.points.shape == (2, 3)
+    assert baux.digest(gp_a) != baux.digest(gp_b)
+
+
 test_manifold_evals = test_manifolds

@@ -414,3 +414,42 @@ fn upstream_turbo() {
         }
     }
 }
+
+#[test]
+fn pure_transitions() {
+    let base = TurboTrustRegion::new(3, TRLengthConfig::default())
+        .with_arms(1)
+        .with_tolerance(2)
+        .unwrap();
+    let branch_a = base
+        .step_batch(&array![1.0].view(), 1, 1.0)
+        .unwrap()
+        .step_batch(&array![2.0].view(), 2, 2.0)
+        .unwrap()
+        .step_batch(&array![3.0].view(), 3, 3.0)
+        .unwrap()
+        .step_batch(&array![4.0].view(), 4, 4.0)
+        .unwrap();
+    let branch_b = base
+        .step_batch(&array![1.0].view(), 1, 1.0)
+        .unwrap()
+        .step_batch(&array![0.5].view(), 2, 1.0)
+        .unwrap()
+        .step_batch(&array![0.5].view(), 3, 1.0)
+        .unwrap();
+    assert_eq!(base.length(), 0.8);
+    assert!(branch_a.length() > base.length());
+    assert!(branch_b.length() < base.length());
+    assert_eq!(branch_a.restarted().length(), 0.8);
+    assert_eq!(branch_a.restarted_local().prev_obs(), 0);
+
+    let null = NoTrustRegion::new(4)
+        .updated(&array![1.0].view(), 1)
+        .restarted();
+    assert_eq!(null.num_dim(), 4);
+    assert_eq!(null.bound_dim(), (0.0, 1.0));
+    assert_eq!(
+        "every-step".parse::<Rescalarize>(),
+        Ok(Rescalarize::EveryStep)
+    );
+}

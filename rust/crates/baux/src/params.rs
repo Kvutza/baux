@@ -1,11 +1,9 @@
 //! ENN parameter and configuration data structures.
 
 use crate::error::ENNError;
+use crate::hash::{AffineKey, Key, normal_metric};
 use crate::y_bounds::OutputTransform;
 use ndarray::{Array2, Array3, Array4, ArrayD, Ix2, Ix3};
-use rand::SeedableRng;
-use rand::rngs::StdRng;
-use rand_distr::{Distribution, StandardNormal};
 use thiserror::Error;
 
 /// Errors that can occur when creating ENN parameters.
@@ -315,12 +313,11 @@ impl ENNNormal {
         Ok((self.transform_z(-z)?, self.transform_z(z)?))
     }
 
-    /// Draw `num_samples` independent normal samples per query point and
-    /// metric.
-    pub fn sample(
+    /// Pure stateless normal posterior sampling driven by an immutable `Key`.
+    pub fn sample_key(
         &self,
         num_samples: usize,
-        seed: u64,
+        key: Key,
         clip: Option<f64>,
     ) -> Result<ArrayD<f64>, ENNError> {
         if num_samples == 0 {
@@ -328,12 +325,12 @@ impl ENNNormal {
                 "num_samples must be > 0".to_string(),
             ));
         }
-        if let Some(c) = clip {
-            if !c.is_finite() || c <= 0.0 {
-                return Err(ENNError::InvalidParameter(
-                    "clip must be positive and finite".to_string(),
-                ));
-            }
+        if let Some(c) = clip
+            && (!c.is_finite() || c <= 0.0)
+        {
+            return Err(ENNError::InvalidParameter(
+                "clip must be positive and finite".to_string(),
+            ));
         }
         let (mu3, se3, squeeze_p) = self.view_3d()?;
         let (p_dim, n, m_dim) = mu3.dim();
@@ -341,13 +338,14 @@ impl ENNNormal {
             Some(bounds) => Some(Self::latent_grid(mu3, se3, bounds)?),
             None => None,
         };
-        let mut rng = StdRng::seed_from_u64(seed);
         let mut out = Array4::zeros((num_samples, p_dim, n, m_dim));
         for s in 0..num_samples {
+            let s_seed = key.fold(s as u64).seed();
             for p in 0..p_dim {
                 for i in 0..n {
+                    let row_idx = (p * n + i) as i64;
                     for m in 0..m_dim {
-                        let mut eps: f64 = StandardNormal.sample(&mut rng);
+                        let mut eps = normal_metric(s_seed, row_idx, m);
                         if let Some(c) = clip {
                             eps = eps.clamp(-c, c);
                         }
@@ -367,6 +365,30 @@ impl ENNNormal {
         } else {
             Ok(out.into_dyn())
         }
+    }
+
+    /// Affine-key normal posterior sampling advancing the single-use
+    /// `AffineKey`.
+    pub fn sample_affine(
+        &self,
+        num_samples: usize,
+        key: AffineKey,
+        clip: Option<f64>,
+    ) -> Result<(ArrayD<f64>, AffineKey), ENNError> {
+        let (draw, next) = key.step();
+        let samples = self.sample_key(num_samples, draw, clip)?;
+        Ok((samples, next))
+    }
+
+    /// Draw `num_samples` independent normal samples per query point and
+    /// metric.
+    pub fn sample(
+        &self,
+        num_samples: usize,
+        seed: u64,
+        clip: Option<f64>,
+    ) -> Result<ArrayD<f64>, ENNError> {
+        self.sample_key(num_samples, Key::new(seed), clip)
     }
 }
 

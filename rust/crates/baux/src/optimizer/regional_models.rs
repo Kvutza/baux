@@ -11,70 +11,212 @@ use crate::config::SurrogateConfig;
 use crate::error::ENNError;
 use crate::optimizer::MultiTrustRegionState;
 use crate::optimizer::multi_tr::RestartMemoryPolicy;
+use crate::scratch::ImLog;
 use crate::surrogate::{BoxedSurrogate, ENNSurrogate, ENNSurrogateConfig, Surrogate};
 
 /// Construct an independent model for one region generation.
 pub type RegionalModelFactory =
     Box<dyn Fn(usize, u64) -> Result<BoxedSurrogate, ENNError> + Send + Sync>;
 
-pub struct RegionalModels {
-    models: Vec<BoxedSurrogate>,
-    factory: Arc<RegionalModelFactory>,
-    generations: Vec<u64>,
-    owned_disk: bool,
-    history: Vec<Vec<ModelHistory>>,
-    restart_memory: RestartMemoryPolicy,
-}
+type RegionalSlotFactory = Box<dyn Fn(usize, u64) -> Result<RegionalSlot, ENNError> + Send + Sync>;
 
 #[derive(Clone)]
-struct ModelHistory {
-    x: Array2<f64>,
-    y: Array2<f64>,
-    yvar: Option<Array2<f64>>,
+enum RegionalSlot {
+    Enn(Arc<ENNSurrogate>),
+    External(Arc<BoxedSurrogate>),
 }
 
-impl ModelHistory {
-    fn replay(
-        chunks: &[Self],
-        model: BoxedSurrogate,
+impl RegionalSlot {
+    fn observation_count(&self) -> Option<usize> {
+        match self {
+            Self::Enn(s) => s.observation_count(),
+            Self::External(s) => s.observation_count(),
+        }
+    }
+
+    fn as_surrogate(&self) -> &(dyn Surrogate + Send + Sync) {
+        match self {
+            Self::Enn(s) => s.as_ref(),
+            Self::External(s) => s.as_ref().as_ref(),
+        }
+    }
+
+    fn as_enn(&self) -> Option<&ENNSurrogate> {
+        match self {
+            Self::Enn(s) => Some(s.as_ref()),
+            Self::External(_) => None,
+        }
+    }
+
+    fn with_fit(
+        self,
+        x: &ArrayView2<f64>,
+        y: &ArrayView2<f64>,
+        yvar: Option<&ArrayView2<f64>>,
         rng: &mut dyn RngCore,
-    ) -> Result<BoxedSurrogate, ENNError> {
-        if chunks.is_empty() {
+    ) -> Result<Self, ENNError> {
+        match self {
+            Self::Enn(s) => {
+                let inner = Arc::try_unwrap(s).unwrap_or_else(|arc| (*arc).clone());
+                Ok(Self::Enn(Arc::new(inner.fit(x, y, yvar, rng)?)))
+            }
+            Self::External(s) => {
+                let boxed = match Arc::try_unwrap(s) {
+                    Ok(b) => b,
+                    Err(arc) => arc.clone_box()?,
+                };
+                Ok(Self::External(Arc::new(boxed.with_fit(x, y, yvar, rng)?)))
+            }
+        }
+    }
+
+    fn with_append(
+        self,
+        x: &ArrayView2<f64>,
+        y: &ArrayView2<f64>,
+        yvar: Option<&ArrayView2<f64>>,
+        rng: &mut dyn RngCore,
+    ) -> Result<Self, ENNError> {
+        match self {
+            Self::Enn(s) => {
+                let inner = Arc::try_unwrap(s).unwrap_or_else(|arc| (*arc).clone());
+                Ok(Self::Enn(Arc::new(inner.append(x, y, yvar, rng)?)))
+            }
+            Self::External(s) => {
+                let boxed = match Arc::try_unwrap(s) {
+                    Ok(b) => b,
+                    Err(arc) => arc.clone_box()?,
+                };
+                Ok(Self::External(Arc::new(
+                    boxed.with_append(x, y, yvar, rng)?,
+                )))
+            }
+        }
+    }
+
+    fn cleared(self) -> Result<Self, ENNError> {
+        match self {
+            Self::Enn(s) => {
+                let inner = Arc::try_unwrap(s).unwrap_or_else(|arc| (*arc).clone());
+                Ok(Self::Enn(Arc::new(inner.cleared()?)))
+            }
+            Self::External(s) => {
+                let boxed = match Arc::try_unwrap(s) {
+                    Ok(b) => b,
+                    Err(arc) => arc.clone_box()?,
+                };
+                Ok(Self::External(Arc::new(boxed.cleared()?)))
+            }
+        }
+    }
+
+    fn with_thawed(self, bytes: &[u8], pos: &mut usize) -> Result<Self, ENNError> {
+        match self {
+            Self::Enn(s) => {
+                let inner = Arc::try_unwrap(s).unwrap_or_else(|arc| (*arc).clone());
+                Ok(Self::Enn(Arc::new(inner.with_thawed(bytes, pos)?)))
+            }
+            Self::External(s) => {
+                let boxed = match Arc::try_unwrap(s) {
+                    Ok(b) => b,
+                    Err(arc) => arc.clone_box()?,
+                };
+                Ok(Self::External(Arc::new(boxed.with_thawed(bytes, pos)?)))
+            }
+        }
+    }
+
+    fn freeze_surrogate(&self, buf: &mut Vec<u8>) -> Result<(), ENNError> {
+        match self {
+            Self::Enn(s) => <ENNSurrogate as Surrogate>::freeze_surrogate(s.as_ref(), buf),
+            Self::External(s) => s.freeze_surrogate(buf),
+        }
+    }
+
+    fn schedule_flush(&self) -> Result<(), ENNError> {
+        match self {
+            Self::Enn(s) => s.schedule_flush(),
+            Self::External(s) => s.schedule_flush(),
+        }
+    }
+
+    fn wait_flush(&self) -> Result<(), ENNError> {
+        match self {
+            Self::Enn(s) => s.wait_flush(),
+            Self::External(s) => s.wait_flush(),
+        }
+    }
+
+    fn release_pages(&self) -> Result<(), ENNError> {
+        match self {
+            Self::Enn(s) => s.release_pages(),
+            Self::External(s) => s.release_pages(),
+        }
+    }
+}
+
+#[derive(Clone, Default)]
+struct SlotHistory {
+    x: ImLog,
+    y: ImLog,
+    yvar: Option<ImLog>,
+}
+
+impl SlotHistory {
+    fn is_empty(&self) -> bool {
+        self.x.is_empty()
+    }
+
+    fn clear(&mut self) {
+        *self = Self::default();
+    }
+
+    fn append(
+        mut self,
+        x: &ArrayView2<f64>,
+        y: &ArrayView2<f64>,
+        yvar: Option<&ArrayView2<f64>>,
+    ) -> Result<Self, ENNError> {
+        if x.nrows() == 0 {
+            return Ok(self);
+        }
+        let prev_rows = self.x.nrows();
+        let num_metrics = y.ncols();
+        self.x = self.x.push_rows(x)?;
+        self.y = self.y.push_rows(y)?;
+        self.yvar = match (self.yvar, yvar) {
+            (Some(log), Some(yv)) => Some(log.push_rows(yv)?),
+            (None, Some(yv)) => {
+                if prev_rows == 0 {
+                    Some(ImLog::with_cols(num_metrics).push_rows(yv)?)
+                } else {
+                    None
+                }
+            }
+            (Some(_), None) | (None, None) => None,
+        };
+        Ok(self)
+    }
+
+    fn replay(&self, model: RegionalSlot, rng: &mut dyn RngCore) -> Result<RegionalSlot, ENNError> {
+        if self.x.is_empty() {
             return Ok(model);
         }
-        let x = ndarray::concatenate(
-            Axis(0),
-            &chunks
-                .iter()
-                .map(|chunk| chunk.x.view())
-                .collect::<Vec<_>>(),
-        )
-        .map_err(|error| ENNError::InvalidParameter(error.to_string()))?;
-        let y = ndarray::concatenate(
-            Axis(0),
-            &chunks
-                .iter()
-                .map(|chunk| chunk.y.view())
-                .collect::<Vec<_>>(),
-        )
-        .map_err(|error| ENNError::InvalidParameter(error.to_string()))?;
-        let variances = if chunks.iter().all(|chunk| chunk.yvar.is_some()) {
-            Some(
-                ndarray::concatenate(
-                    Axis(0),
-                    &chunks
-                        .iter()
-                        .filter_map(|chunk| chunk.yvar.as_ref().map(|values| values.view()))
-                        .collect::<Vec<_>>(),
-                )
-                .map_err(|error| ENNError::InvalidParameter(error.to_string()))?,
-            )
-        } else {
-            None
-        };
-        let variance_view = variances.as_ref().map(|values| values.view());
+        let x = self.x.to_array();
+        let y = self.y.to_array();
+        let variances = self.yvar.as_ref().map(ImLog::to_array);
+        let variance_view = variances.as_ref().map(|v| v.view());
         model.with_fit(&x.view(), &y.view(), variance_view.as_ref(), rng)
     }
+}
+
+pub struct RegionalModels {
+    models: Arc<Vec<RegionalSlot>>,
+    factory: Arc<RegionalSlotFactory>,
+    generations: Arc<Vec<u64>>,
+    owned_disk: bool,
+    history: Arc<Vec<SlotHistory>>,
+    restart_memory: RestartMemoryPolicy,
 }
 
 impl RegionalModels {
@@ -98,7 +240,7 @@ impl RegionalModels {
         } else {
             None
         };
-        let factory: RegionalModelFactory = Box::new(move |slot, generation| {
+        let slot_factory: RegionalSlotFactory = Box::new(move |slot, generation| {
             let mut local = config.clone();
             if let Some(root) = &root {
                 local.work_dir = Some(
@@ -106,9 +248,9 @@ impl RegionalModels {
                         .join(format!("slot-{slot}-generation-{generation}")),
                 );
             }
-            Ok(Box::new(ENNSurrogate::new(local)) as BoxedSurrogate)
+            Ok(RegionalSlot::Enn(Arc::new(ENNSurrogate::new(local))))
         });
-        let mut models = Self::from_factory(state, factory)?;
+        let mut models = Self::with_slots(state, slot_factory)?;
         models.owned_disk = owned_disk;
         Ok(Some(models))
     }
@@ -116,6 +258,16 @@ impl RegionalModels {
     pub fn from_factory(
         state: &MultiTrustRegionState,
         factory: RegionalModelFactory,
+    ) -> Result<Self, ENNError> {
+        let slot_factory: RegionalSlotFactory = Box::new(move |slot, generation| {
+            Ok(RegionalSlot::External(Arc::new(factory(slot, generation)?)))
+        });
+        Self::with_slots(state, slot_factory)
+    }
+
+    fn with_slots(
+        state: &MultiTrustRegionState,
+        factory: RegionalSlotFactory,
     ) -> Result<Self, ENNError> {
         let generations = (0..state.num_regions())
             .map(|slot| state.generation(slot).unwrap())
@@ -126,18 +278,30 @@ impl RegionalModels {
             .map(|(slot, &generation)| factory(slot, generation))
             .collect::<Result<Vec<_>, _>>()?;
         Ok(Self {
-            models,
+            models: Arc::new(models),
             factory: Arc::new(factory),
-            generations,
+            generations: Arc::new(generations),
             owned_disk: false,
-            history: (0..state.num_regions()).map(|_| Vec::new()).collect(),
+            history: Arc::new(
+                (0..state.num_regions())
+                    .map(|_| SlotHistory::default())
+                    .collect(),
+            ),
             restart_memory: state.restart_memory(),
         })
     }
 
     pub fn model(&self, slot: usize) -> Option<&(dyn Surrogate + Send + Sync)> {
         self.models.get(slot).and_then(|model| {
-            (model.observation_count().unwrap_or(0) > 0).then_some(model.as_ref())
+            (model.observation_count().unwrap_or(0) > 0).then_some(model.as_surrogate())
+        })
+    }
+
+    pub fn enn_model(&self, slot: usize) -> Option<&ENNSurrogate> {
+        self.models.get(slot).and_then(|model| {
+            (model.observation_count().unwrap_or(0) > 0)
+                .then(|| model.as_enn())
+                .flatten()
         })
     }
 
@@ -146,17 +310,12 @@ impl RegionalModels {
     }
 
     pub fn try_clone(&self) -> Result<Self, ENNError> {
-        let models = self
-            .models
-            .iter()
-            .map(|model| model.clone_box())
-            .collect::<Result<Vec<_>, _>>()?;
         Ok(Self {
-            models,
+            models: Arc::clone(&self.models),
             factory: Arc::clone(&self.factory),
-            generations: self.generations.clone(),
+            generations: Arc::clone(&self.generations),
             owned_disk: false,
-            history: self.history.clone(),
+            history: Arc::clone(&self.history),
             restart_memory: self.restart_memory,
         })
     }
@@ -172,20 +331,28 @@ impl RegionalModels {
         state: &MultiTrustRegionState,
         rng: &mut dyn RngCore,
     ) -> Result<Self, ENNError> {
-        for slot in 0..self.models.len() {
+        let any_changed = (0..self.models.len())
+            .any(|slot| state.generation(slot).unwrap() != self.generations[slot]);
+        if !any_changed {
+            return Ok(self);
+        }
+        let models_mut = Arc::make_mut(&mut self.models);
+        let gens_mut = Arc::make_mut(&mut self.generations);
+        let hist_mut = Arc::make_mut(&mut self.history);
+        for slot in 0..models_mut.len() {
             let generation = state.generation(slot).unwrap();
-            if generation != self.generations[slot] {
+            if generation != gens_mut[slot] {
                 let mut replacement = (self.factory)(slot, generation)?;
                 if self.restart_memory == RestartMemoryPolicy::RetainRelevant {
-                    replacement = ModelHistory::replay(&self.history[slot], replacement, rng)?;
+                    replacement = hist_mut[slot].replay(replacement, rng)?;
                 } else {
-                    self.history[slot].clear();
+                    hist_mut[slot].clear();
                 }
-                let old_model = std::mem::replace(&mut self.models[slot], replacement);
+                let old_model = std::mem::replace(&mut models_mut[slot], replacement);
                 if self.owned_disk {
                     let _ = old_model.cleared()?;
                 }
-                self.generations[slot] = generation;
+                gens_mut[slot] = generation;
             }
         }
         Ok(self)
@@ -204,14 +371,17 @@ impl RegionalModels {
         for slot in 0..self.models.len() {
             write_word(buf, self.generations[slot]);
             self.models[slot].freeze_surrogate(buf)?;
-            write_len(buf, self.history[slot].len());
-            for chunk in &self.history[slot] {
-                write_mat(buf, &chunk.x);
-                write_mat(buf, &chunk.y);
-                match &chunk.yvar {
+            let hist = &self.history[slot];
+            if hist.is_empty() {
+                write_len(buf, 0);
+            } else {
+                write_len(buf, 1);
+                write_mat(buf, &hist.x.to_array());
+                write_mat(buf, &hist.y.to_array());
+                match &hist.yvar {
                     Some(yv) => {
                         write_bool(buf, true);
-                        write_mat(buf, yv);
+                        write_mat(buf, &yv.to_array());
                     }
                     None => write_bool(buf, false),
                 }
@@ -253,10 +423,7 @@ impl RegionalModels {
             reader = WireReader::from_slice(bytes, cur_pos);
 
             let chunk_count = reader.read_len(MAX_OBS)?;
-            let mut chunks = Vec::new();
-            chunks
-                .try_reserve_exact(chunk_count)
-                .map_err(|_| bad_state("allocation failed"))?;
+            let mut hist = SlotHistory::default();
             for _ in 0..chunk_count {
                 let x = reader.read_mat(MAX_OBS, num_dim, true)?;
                 let y = reader.read_mat(x.nrows(), MAX_METRICS, true)?;
@@ -272,22 +439,24 @@ impl RegionalModels {
                 } else {
                     None
                 };
-                chunks.push(ModelHistory { x, y, yvar });
+                let yvar_view = yvar.as_ref().map(|v| v.view());
+                hist = hist.append(&x.view(), &y.view(), yvar_view.as_ref())?;
             }
             new_models.push(thawed_model);
             new_gens.push(generation);
-            new_hist.push(chunks);
+            new_hist.push(hist);
         }
 
         if self.owned_disk {
-            let old_models = std::mem::take(&mut self.models);
+            let old_models = Arc::try_unwrap(std::mem::take(&mut self.models))
+                .unwrap_or_else(|arc| (*arc).clone());
             for model in old_models {
                 let _ = model.cleared();
             }
         }
-        self.models = new_models;
-        self.generations = new_gens;
-        self.history = new_hist;
+        self.models = Arc::new(new_models);
+        self.generations = Arc::new(new_gens);
+        self.history = Arc::new(new_hist);
         *pos = reader.position();
         Ok(self)
     }
@@ -314,20 +483,20 @@ impl RegionalModels {
             };
             seeds.push(seed);
         }
+        let models =
+            Arc::try_unwrap(std::mem::take(&mut self.models)).unwrap_or_else(|arc| (*arc).clone());
         #[cfg(target_arch = "wasm32")]
         {
-            let models = std::mem::take(&mut self.models);
             let mut updated_models = Vec::with_capacity(models.len());
             for (model, seed) in models.into_iter().zip(seeds) {
                 updated_models.push(fit_slot(model, x, y, yvar, seed)?);
             }
-            self.models = updated_models;
+            self.models = Arc::new(updated_models);
         }
         #[cfg(not(target_arch = "wasm32"))]
         {
-            let models = std::mem::take(&mut self.models);
             let updated_models =
-                std::thread::scope(|scope| -> Result<Vec<BoxedSurrogate>, ENNError> {
+                std::thread::scope(|scope| -> Result<Vec<RegionalSlot>, ENNError> {
                     let mut handles = Vec::with_capacity(models.len());
                     for (model, seed) in models.into_iter().zip(seeds) {
                         handles.push(scope.spawn(move || fit_slot(model, x, y, yvar, seed)));
@@ -340,15 +509,13 @@ impl RegionalModels {
                     }
                     Ok(results)
                 })?;
-            self.models = updated_models;
+            self.models = Arc::new(updated_models);
         }
         if self.restart_memory == RestartMemoryPolicy::RetainRelevant {
-            for history in &mut self.history {
-                history.push(ModelHistory {
-                    x: x.to_owned(),
-                    y: y.to_owned(),
-                    yvar: yvar.map(|values| values.to_owned()),
-                });
+            let hist_mut = Arc::make_mut(&mut self.history);
+            for slot_hist in hist_mut.iter_mut() {
+                let taken = std::mem::take(slot_hist);
+                *slot_hist = taken.append(x, y, yvar)?;
             }
         }
         Ok(self)
@@ -393,31 +560,37 @@ impl RegionalModels {
             slot_plans.push(Some((rows, seed)));
         }
 
-        let models = std::mem::take(&mut self.models);
+        let models =
+            Arc::try_unwrap(std::mem::take(&mut self.models)).unwrap_or_else(|arc| (*arc).clone());
 
         #[cfg(target_arch = "wasm32")]
         {
             let mut updated_models = Vec::with_capacity(models.len());
             for (slot, (model, plan)) in models.into_iter().zip(slot_plans).enumerate() {
                 if let Some((rows, seed)) = plan {
-                    let (updated, hist) = route_slot(model, x, y, yvar, &rows, seed)?;
+                    let (updated, local_batch) = route_slot(model, x, y, yvar, &rows, seed)?;
                     updated_models.push(updated);
                     if retain {
-                        if let Some(h) = hist {
-                            self.history[slot].push(h);
+                        if let Some((lx, ly, lyv)) = local_batch {
+                            let hist_mut = Arc::make_mut(&mut self.history);
+                            let taken = std::mem::take(&mut hist_mut[slot]);
+                            let yv_view = lyv.as_ref().map(|v| v.view());
+                            hist_mut[slot] =
+                                taken.append(&lx.view(), &ly.view(), yv_view.as_ref())?;
                         }
                     }
                 } else {
                     updated_models.push(model);
                 }
             }
-            self.models = updated_models;
+            self.models = Arc::new(updated_models);
         }
 
         #[cfg(not(target_arch = "wasm32"))]
         {
+            type RoutedBatch = (Array2<f64>, Array2<f64>, Option<Array2<f64>>);
             let results = std::thread::scope(
-                |scope| -> Result<Vec<(BoxedSurrogate, Option<ModelHistory>)>, ENNError> {
+                |scope| -> Result<Vec<(RegionalSlot, Option<RoutedBatch>)>, ENNError> {
                     let mut handles = Vec::with_capacity(models.len());
                     for (model, plan) in models.into_iter().zip(slot_plans) {
                         if let Some((rows, seed)) = plan {
@@ -438,30 +611,33 @@ impl RegionalModels {
                 },
             )?;
             let mut updated_models = Vec::with_capacity(results.len());
-            for (slot, (model, hist)) in results.into_iter().enumerate() {
+            for (slot, (model, local_batch)) in results.into_iter().enumerate() {
                 updated_models.push(model);
                 if retain {
-                    if let Some(h) = hist {
-                        self.history[slot].push(h);
+                    if let Some((lx, ly, lyv)) = local_batch {
+                        let hist_mut = Arc::make_mut(&mut self.history);
+                        let taken = std::mem::take(&mut hist_mut[slot]);
+                        let yv_view = lyv.as_ref().map(|v| v.view());
+                        hist_mut[slot] = taken.append(&lx.view(), &ly.view(), yv_view.as_ref())?;
                     }
                 }
             }
-            self.models = updated_models;
+            self.models = Arc::new(updated_models);
         }
 
         Ok(self)
     }
 
-    pub fn with_flushed(mut self) -> Result<Self, ENNError> {
-        for model in &self.models {
+    pub fn with_flushed(self) -> Result<Self, ENNError> {
+        for model in self.models.iter() {
             model.schedule_flush()?;
             model.wait_flush()?;
         }
         Ok(self)
     }
 
-    pub fn with_released(mut self) -> Result<Self, ENNError> {
-        for model in &self.models {
+    pub fn with_released(self) -> Result<Self, ENNError> {
+        for model in self.models.iter() {
             model.release_pages()?;
         }
         Ok(self)
@@ -471,7 +647,8 @@ impl RegionalModels {
 impl Drop for RegionalModels {
     fn drop(&mut self) {
         if self.owned_disk {
-            let models = std::mem::take(&mut self.models);
+            let models = Arc::try_unwrap(std::mem::take(&mut self.models))
+                .unwrap_or_else(|arc| (*arc).clone());
             for model in models {
                 if let Err(error) = model.cleared() {
                     eprintln!("baux: regional disk ENN cleanup failed: {error}");
@@ -495,25 +672,31 @@ const _: () = {
 };
 
 fn fit_slot(
-    model: BoxedSurrogate,
+    model: RegionalSlot,
     x: &ArrayView2<f64>,
     y: &ArrayView2<f64>,
     yvar: Option<&ArrayView2<f64>>,
     seed: u64,
-) -> Result<BoxedSurrogate, ENNError> {
+) -> Result<RegionalSlot, ENNError> {
     use rand::SeedableRng;
     let mut slot_rng = rand::rngs::StdRng::seed_from_u64(seed);
     model.with_append(x, y, yvar, &mut slot_rng)
 }
 
 fn route_slot(
-    model: BoxedSurrogate,
+    model: RegionalSlot,
     x: &ArrayView2<f64>,
     y: &ArrayView2<f64>,
     yvar: Option<&ArrayView2<f64>>,
     rows: &[usize],
     seed: u64,
-) -> Result<(BoxedSurrogate, Option<ModelHistory>), ENNError> {
+) -> Result<
+    (
+        RegionalSlot,
+        Option<(Array2<f64>, Array2<f64>, Option<Array2<f64>>)>,
+    ),
+    ENNError,
+> {
     use rand::SeedableRng;
     let local_x: Array2<f64> = x.select(Axis(0), rows);
     let local_y: Array2<f64> = y.select(Axis(0), rows);
@@ -526,12 +709,7 @@ fn route_slot(
         variance_view.as_ref(),
         &mut slot_rng,
     )?;
-    let history = ModelHistory {
-        x: local_x,
-        y: local_y,
-        yvar: local_var,
-    };
-    Ok((updated, Some(history)))
+    Ok((updated, Some((local_x, local_y, local_var))))
 }
 
 #[cfg(test)]
@@ -593,7 +771,6 @@ mod tests {
         config.sharing_policy = SharingPolicy::OriginOnly;
         let mut state =
             MultiTrustRegionState::new(1, config, Some(&centers.view()), &mut rng).unwrap();
-        // Use the same provider factory path as supplied regional models.
         let provider_config = ENNSurrogateConfig {
             k: 2,
             num_candidates: 2,
@@ -660,7 +837,7 @@ mod tests {
             assert!(older.exists());
             assert!(other.exists());
             state.restart_region(0, &array![0.3].view()).unwrap();
-            models = models.sync(&state, &mut rng).unwrap();
+            let _models = models.sync(&state, &mut rng).unwrap();
             assert!(!older.exists());
             assert!(other.exists());
         }

@@ -64,7 +64,7 @@ impl BayesOptimizer {
     ) -> Result<(ProposalTicket, Self), ENNError> {
         let (next, natural) = self.ask_natural(num_arms, rng)?;
         self = next;
-        let ids = match &self.regions {
+        let ids = match self.regions.as_ref() {
             TrustRegionState::Multi {
                 pending: Some(prop),
                 ..

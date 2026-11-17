@@ -8,6 +8,7 @@ mod observation_delta;
 mod regional_models;
 mod tr_state;
 
+pub use crate::scratch::ImLog;
 pub use incumbent::{IncumbentLedger, IncumbentPoint, ProposalEngine};
 pub use inspection::DomainFrame;
 pub use multi_tr::{
@@ -17,9 +18,11 @@ pub use multi_tr::{
     SharingPolicy,
 };
 pub use obs_access::{PosteriorBackend, PosteriorStore};
-pub use observation_delta::{HostCursor, ObservationDelta, WarmupMode, WarmupSchedule};
+pub use observation_delta::{HostCursor, Lifecycle, ObservationDelta, WarmupMode, WarmupSchedule};
 pub use regional_models::{RegionalModelFactory, RegionalModels};
 pub use tr_state::TrustRegionState;
+
+use std::sync::Arc;
 
 use ndarray::{Array1, Array2, ArrayView2};
 use rand::RngCore;
@@ -215,19 +218,19 @@ pub struct Telemetry {
     pub num_candidates: usize,
 }
 
-/// Role-decomposed Bayesian optimizer state machine.
+/// Role-decomposed Bayesian optimizer state machine with $O(1)$ structural
+/// `Clone` / `fork()` and FBIP in-place transitions.
 #[derive(Clone)]
 pub struct BayesOptimizer {
-    pub(crate) domain: DomainFrame,
-    pub(crate) config: OptimizerConfig,
+    pub(crate) domain: Arc<DomainFrame>,
+    pub(crate) config: Arc<OptimizerConfig>,
     pub(crate) warmup: WarmupSchedule,
     pub(crate) posterior: PosteriorStore,
     pub(crate) local_models: Option<RegionalModels>,
     pub(crate) incumbent: IncumbentLedger,
-    pub(crate) regions: TrustRegionState,
+    pub(crate) regions: Arc<TrustRegionState>,
     pub(crate) proposals: ProposalEngine,
     pub(crate) telemetry: Telemetry,
-    pub(crate) ingestion_error: Option<String>,
     pub(crate) next_eval_id: u64,
 }
 
@@ -318,19 +321,18 @@ impl BayesOptimizer {
         rng: &mut dyn RngCore,
     ) -> Result<Self, ENNError> {
         let num_dim = domain.num_dim();
-        let global_surrogate =
-            if let crate::config::SurrogateConfig::ENN(enn) = &mut config.surrogate {
-                enn.storage = crate::backend::EnnStorage::Disk;
-                enn.index_driver = crate::index::IndexDriver::BpAnnDisk;
-                enn.work_dir = Some(work_dir.clone());
-                let mut global_cfg = enn.clone();
-                global_cfg.work_dir = Some(work_dir.join("global"));
-                Some(Box::new(crate::surrogate::ENNSurrogate::new(global_cfg)) as BoxedSurrogate)
-            } else {
-                None
-            };
+        let global_enn = if let crate::config::SurrogateConfig::ENN(enn) = &mut config.surrogate {
+            enn.storage = crate::backend::EnnStorage::Disk;
+            enn.index_driver = crate::index::IndexDriver::BpAnnDisk;
+            enn.work_dir = Some(work_dir.clone());
+            let mut global_cfg = enn.clone();
+            global_cfg.work_dir = Some(work_dir.join("global"));
+            Some(crate::surrogate::ENNSurrogate::new(global_cfg))
+        } else {
+            None
+        };
         let strategy = spec.strategy(num_dim, num_init, rng)?;
-        let mut opt = if let Some(gs) = global_surrogate {
+        let mut opt = if let Some(gs) = global_enn {
             let mut local_cfg = config.clone();
             let (warmup, multi_override) = strategy.into_roles();
             let (regions, local_models, strategy_rebuilt) = match multi_override {
@@ -359,21 +361,20 @@ impl BayesOptimizer {
                 }
             };
             let cand_cfg = resolved_candidates(&local_cfg, num_dim)?;
-            let posterior = PosteriorStore::new(&local_cfg.surrogate, Some(gs));
+            let posterior = PosteriorStore::new_enn(gs);
             let proposals = ProposalEngine::new(num_dim, cand_cfg, rng)?;
             let incumbent = IncumbentLedger::new(&local_cfg, regions.num_metrics());
             local_cfg.noise_aware = config.noise_aware;
             Self {
-                domain,
-                config: local_cfg,
+                domain: Arc::new(domain),
+                config: Arc::new(local_cfg),
                 warmup: strategy_rebuilt,
                 posterior,
                 local_models,
                 incumbent,
-                regions,
+                regions: Arc::new(regions),
                 proposals,
                 telemetry: Telemetry::default(),
-                ingestion_error: None,
                 next_eval_id: 0,
             }
         } else {
@@ -507,18 +508,59 @@ impl BayesOptimizer {
         let incumbent = IncumbentLedger::new(&config, regions.num_metrics());
 
         Ok(Self {
-            domain,
-            config,
+            domain: Arc::new(domain),
+            config: Arc::new(config),
             warmup,
             posterior,
             local_models,
             incumbent,
-            regions,
+            regions: Arc::new(regions),
             proposals,
             telemetry: Telemetry::default(),
-            ingestion_error: None,
             next_eval_id: 0,
         })
+    }
+
+    #[inline(always)]
+    pub(crate) fn update_regions<F>(&mut self, f: F)
+    where
+        F: FnOnce(TrustRegionState) -> TrustRegionState,
+    {
+        let placeholder = Arc::new(TrustRegionState::Turbo(
+            crate::trust_region::TurboTrustRegion::new(
+                1,
+                crate::trust_region::TRLengthConfig::default(),
+            ),
+        ));
+        let arc = std::mem::replace(&mut self.regions, placeholder);
+        let inner = Arc::try_unwrap(arc).unwrap_or_else(|shared| (*shared).clone());
+        self.regions = Arc::new(f(inner));
+    }
+
+    #[inline(always)]
+    pub(crate) fn map_regions<F>(&mut self, f: F) -> Result<(), ENNError>
+    where
+        F: FnOnce(TrustRegionState) -> Result<TrustRegionState, ENNError>,
+    {
+        let placeholder = Arc::new(TrustRegionState::Turbo(
+            crate::trust_region::TurboTrustRegion::new(
+                1,
+                crate::trust_region::TRLengthConfig::default(),
+            ),
+        ));
+        let arc = std::mem::replace(&mut self.regions, placeholder);
+        let inner = Arc::try_unwrap(arc).unwrap_or_else(|shared| (*shared).clone());
+        self.regions = Arc::new(f(inner)?);
+        Ok(())
+    }
+
+    /// True when `self` and `other` share identical `Arc`-backed domain,
+    /// configuration, posterior store, and region state pointers.
+    pub fn shares_storage(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.domain, &other.domain)
+            && Arc::ptr_eq(&self.config, &other.config)
+            && Arc::ptr_eq(&self.regions, &other.regions)
+            && self.posterior.shares_storage(&other.posterior)
     }
 
     /// Deterministically issue sequential evaluation identities for pending
@@ -539,7 +581,7 @@ impl BayesOptimizer {
         y: &ArrayView2<f64>,
     ) -> Result<ObservationDelta, ENNError> {
         let delta = self.prepare_observations(x, y)?;
-        self.commit_observations(&delta);
+        self.commit_observations(&delta)?;
         Ok(delta)
     }
 
@@ -568,32 +610,31 @@ impl BayesOptimizer {
         observation_delta::observation_batch(old_n, x, y)
     }
 
-    pub(crate) fn commit_observations(&mut self, delta: &ObservationDelta) {
+    pub(crate) fn commit_observations(&mut self, delta: &ObservationDelta) -> Result<(), ENNError> {
         let is_empirical = matches!(self.posterior.backend, PosteriorBackend::Empirical { .. });
         let is_disk = self.posterior.is_disk();
-        let mut incumbent = self.incumbent.clone();
-        for i in 0..delta.x_new.nrows() {
-            let y_view = delta.y_new.row(i);
-            incumbent = incumbent.tell_view(delta.old_n + i, y_view);
-            if is_empirical {
-                self.posterior
-                    .push_empirical(delta.x_new.row(i).to_owned(), y_view.to_owned());
-            }
+        if is_disk {
+            self.posterior
+                .append_disk(&delta.x_view(), &delta.y_view())?;
+            let _ = self.posterior.release_pages();
+        }
+        if is_empirical {
+            self.posterior
+                .append_empirical(&delta.x_view(), &delta.y_view())?;
+        }
+        let mut incumbent = std::mem::replace(
+            &mut self.incumbent,
+            IncumbentLedger::new(&self.config, self.regions.num_metrics()),
+        );
+        for i in 0..delta.y_new.nrows() {
+            incumbent = incumbent.tell_view(delta.old_n + i, delta.y_new.row(i));
         }
         self.incumbent = incumbent;
-        if is_disk {
-            match self.posterior.append_disk(&delta.x_view(), &delta.y_view()) {
-                Ok(()) => {
-                    let _ = self.posterior.release_pages();
-                }
-                Err(err) => {
-                    self.ingestion_error = Some(err.to_string());
-                }
-            }
-        }
+        Ok(())
     }
 
-    /// Fork this optimizer into an independent state branch.
+    /// Fork this optimizer into an independent state branch in $O(1)$ via
+    /// structural `Arc` sharing.
     pub fn fork(&self) -> Result<Self, ENNError> {
         Ok(self.clone())
     }
@@ -617,14 +658,7 @@ impl BayesOptimizer {
             }
             None => buf.push(0),
         }
-        match &self.ingestion_error {
-            Some(err) => {
-                buf.push(1);
-                buf.extend_from_slice(&(err.len() as u64).to_le_bytes());
-                buf.extend_from_slice(err.as_bytes());
-            }
-            None => buf.push(0),
-        }
+        buf.push(0);
         crate::artifact::blake3::hash(&buf)
     }
 
@@ -662,7 +696,7 @@ impl BayesOptimizer {
         if let TrustRegionState::Multi {
             pending: Some(ref mr),
             ..
-        } = opt.regions
+        } = *opt.regions
         {
             opt.next_eval_id = opt.next_eval_id.max(mr.id_floor());
         }
@@ -675,7 +709,7 @@ impl BayesOptimizer {
         if let TrustRegionState::Multi {
             pending: Some(ref mr),
             ..
-        } = opt.regions
+        } = *opt.regions
         {
             opt.next_eval_id = opt.next_eval_id.max(mr.id_floor());
         }
